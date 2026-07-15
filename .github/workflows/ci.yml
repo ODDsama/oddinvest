@@ -1,0 +1,17 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.22" }
+      - run: go vet ./...
+      - run: go test ./... -count=1
+      # Контракт: фікстура oddinvest/state має бути згенерована поточним кодом.
+      # Репозиторій ha-oddinvest у своєму CI підтягує contract/ звідси і ганяє
+      # свої парсери проти цих фікстур.
+      - run: go test ./internal/state -run TestFixtureUpToDate -count=1

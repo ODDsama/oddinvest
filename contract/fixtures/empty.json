@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "generated_at": "2026-07-15T10:00:00Z",
+  "invested_uah": 0,
+  "nominal_uah_eq": 0,
+  "usd_share_pct": 0,
+  "uninvested_uah": 0,
+  "month_invested_uah": 0,
+  "month_target_uah": 0,
+  "month_progress_pct": 0,
+  "month_incoming_uah": 0,
+  "ladder": [],
+  "top_payments": [],
+  "calendar": []
+}

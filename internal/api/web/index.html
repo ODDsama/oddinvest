@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ODD Invest</title>
+<style>
+  :root { --bg:#111418; --card:#1a1f26; --tx:#e6e8eb; --mut:#8b949e; --acc:#4da3ff; --ok:#3fb950; --warn:#d29922; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--tx); font:15px/1.5 system-ui, sans-serif; }
+  header { display:flex; gap:16px; align-items:center; padding:12px 20px; background:var(--card); }
+  header h1 { font-size:17px; margin:0 12px 0 0; }
+  nav button { background:none; border:none; color:var(--mut); font:inherit; padding:6px 10px; cursor:pointer; border-radius:6px; }
+  nav button.active { color:var(--tx); background:#2a313b; }
+  main { max-width:1000px; margin:0 auto; padding:20px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:20px; }
+  .card { background:var(--card); border-radius:10px; padding:14px; }
+  .card .v { font-size:20px; font-weight:600; margin-top:2px; }
+  .card .l { color:var(--mut); font-size:13px; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:8px 12px; border-bottom:1px solid #262c34; font-size:14px; }
+  th { color:var(--mut); font-weight:500; }
+  tr:last-child td { border-bottom:none; }
+  form.inline { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
+  input, select { background:#0d1117; color:var(--tx); border:1px solid #30363d; border-radius:6px; padding:7px 10px; font:inherit; }
+  input:focus { outline:none; border-color:var(--acc); }
+  button.act { background:var(--acc); color:#04182e; border:none; border-radius:6px; padding:7px 14px; font:inherit; font-weight:600; cursor:pointer; }
+  button.danger { background:none; border:none; color:#f85149; cursor:pointer; }
+  .pill { padding:2px 8px; border-radius:99px; font-size:12px; }
+  .pill.coupon { background:#12261b; color:var(--ok); }
+  .pill.redemption { background:#2b2111; color:var(--warn); }
+  .mut { color:var(--mut); }
+  #msg { position:fixed; bottom:16px; right:16px; background:#2a313b; padding:10px 16px; border-radius:8px; display:none; }
+  section { display:none; } section.show { display:block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ODD Invest</h1>
+  <nav>
+    <button data-tab="portfolio" class="active">Портфель</button>
+    <button data-tab="calendar">Календар</button>
+    <button data-tab="ladder">Драбина</button>
+    <button data-tab="charts">Динаміка</button>
+    <button data-tab="settings">Налаштування</button>
+  </nav>
+</header>
+<main>
+  <div class="cards" id="summary"></div>
+
+  <section id="portfolio" class="show">
+    <h3>Нова покупка</h3>
+    <form class="inline" id="lotForm">
+      <input name="isin" placeholder="ISIN" required list="isinList" style="width:170px">
+      <datalist id="isinList"></datalist>
+      <input name="qty" type="number" placeholder="К-сть" required style="width:90px">
+      <input name="price_per_bond" placeholder="Ціна за папір" required style="width:130px">
+      <input name="buy_date" type="date" required>
+      <input name="channel" placeholder="Канал (Дія…)" style="width:120px">
+      <button class="act">Додати</button>
+    </form>
+    <h3>Позиції</h3>
+    <table id="positions"></table>
+    <h3>Лоти</h3>
+    <table id="lots"></table>
+    <h3>Продаж (вторинний ринок)</h3>
+    <form class="inline" id="saleForm">
+      <input name="lot_id" type="number" placeholder="ID лота" required style="width:100px">
+      <input name="qty" type="number" placeholder="К-сть" required style="width:90px">
+      <input name="clean_per_bond" placeholder="Чиста ціна" required style="width:120px">
+      <input name="accrued" placeholder="НКД сумарно" style="width:120px">
+      <input name="currency" placeholder="UAH" value="UAH" required style="width:70px">
+      <input name="sale_date" type="date" required>
+      <button class="act">Записати</button>
+    </form>
+    <table id="sales"></table>
+  </section>
+
+  <section id="calendar">
+    <h3>Майбутні виплати</h3>
+    <table id="cal"></table>
+  </section>
+
+  <section id="ladder">
+    <h3>Драбина погашень</h3>
+    <table id="lad"></table>
+  </section>
+
+  <section id="charts">
+    <h3>Портфель у часі (добові знімки)</h3>
+    <svg id="chart" width="960" height="320" style="background:var(--card);border-radius:10px"></svg>
+    <p class="mut">Сині точки — вкладено (грн-екв.), зелені — номінал. Знімки пишуться щодня о 06:10.</p>
+  </section>
+
+  <section id="settings">
+    <h3>Налаштування</h3>
+    <form class="inline" id="setForm">
+      <label>Ціль на місяць, грн <input name="monthly_target_uah"></label>
+      <label>Цільова частка USD, % <input name="usd_target_share_pct"></label>
+      <label>Продовження страховки <input name="insurance_renewal" type="date"></label>
+      <label>Премія страховки, грн <input name="insurance_premium_uah"></label>
+      <button class="act">Зберегти</button>
+    </form>
+    <button class="act" id="refreshBtn">Оновити довідник НБУ і курс</button>
+  </section>
+</main>
+<div id="msg"></div>
+<script>
+const $ = s => document.querySelector(s);
+const api = async (url, opt) => {
+  const r = await fetch(url, opt);
+  if (!r.ok) { const e = await r.json().catch(()=>({error:r.status})); throw new Error(e.error); }
+  return r.status === 204 ? null : r.json();
+};
+const fmt = m => m ? `${m.amount} ${m.currency}` : "—";
+const toast = t => { const m = $("#msg"); m.textContent = t; m.style.display = "block"; setTimeout(()=>m.style.display="none", 4000); };
+
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));
+  document.querySelectorAll("section").forEach(x=>x.classList.remove("show"));
+  b.classList.add("active"); $("#"+b.dataset.tab).classList.add("show");
+});
+
+async function loadSummary() {
+  const s = await api("/api/summary");
+  const card = (l,v) => `<div class="card"><div class="l">${l}</div><div class="v">${v}</div></div>`;
+  $("#summary").innerHTML =
+    card("Вкладено (грн-екв.)", s.invested_uah.toLocaleString("uk")) +
+    card("Номінал (грн-екв.)", s.nominal_uah_eq.toLocaleString("uk")) +
+    card("Частка USD", s.usd_share_pct.toFixed(1) + "%") +
+    card("Місяць: план", `${s.month_invested_uah.toLocaleString("uk")} / ${s.month_target_uah.toLocaleString("uk")} (${s.month_progress_pct}%)`) +
+    card("Не перевкладено", s.uninvested_uah.toLocaleString("uk")) +
+    (s.next_payment ? card("Наступна виплата", `${s.next_payment.date} · ${s.next_payment.amount.toLocaleString("uk")} ${s.next_payment.currency}`) : "") +
+    (s.insurance_days_left != null ? card("Страховка, днів", s.insurance_days_left) : "") +
+    (s.xirr && s.xirr.UAH != null ? card("XIRR ₴", s.xirr.UAH.toFixed(2) + "%") : "") +
+    (s.xirr && s.xirr.USD != null ? card("XIRR $", s.xirr.USD.toFixed(2) + "%") : "");
+}
+
+async function loadChart() {
+  const snaps = await api("/api/snapshots");
+  const svg = $("#chart");
+  if (!snaps || snaps.length < 2) {
+    svg.innerHTML = '<text x="20" y="40" fill="#8b949e">Замало знімків — повертайся за кілька днів.</text>';
+    return;
+  }
+  const W = 960, H = 320, P = 45;
+  const xs = snaps.map((_, i) => P + i * (W - 2 * P) / (snaps.length - 1));
+  const maxY = Math.max(...snaps.map(s => Math.max(s.invested_uah, s.nominal_uah_eq))) * 1.05 || 1;
+  const y = v => H - P - v / maxY * (H - 2 * P);
+  const line = (key, color) =>
+    `<polyline fill="none" stroke="${color}" stroke-width="2" points="` +
+    snaps.map((s, i) => `${xs[i]},${y(s[key])}`).join(" ") + `"/>`;
+  const labels = snaps.filter((_, i) => i % Math.ceil(snaps.length / 8) === 0);
+  svg.innerHTML =
+    line("invested_uah", "#4da3ff") + line("nominal_uah_eq", "#3fb950") +
+    labels.map(s => { const i = snaps.indexOf(s);
+      return `<text x="${xs[i]}" y="${H-12}" fill="#8b949e" font-size="11" text-anchor="middle">${s.date.slice(5)}</text>`; }).join("") +
+    [0, 0.5, 1].map(f => `<text x="6" y="${y(maxY*f)+4}" fill="#8b949e" font-size="11">${Math.round(maxY*f/1000)}к</text>`).join("");
+}
+
+async function loadPortfolio() {
+  const pos = await api("/api/positions");
+  $("#positions").innerHTML = "<tr><th>ISIN</th><th>К-сть</th><th>Вкладено</th><th>Номінал</th><th>Погашення</th><th>Наст. виплата</th></tr>" +
+    pos.map(p=>`<tr><td>${p.isin}</td><td>${p.qty}</td><td>${fmt(p.invested)}</td><td>${fmt(p.nominal)}</td>
+      <td>${p.maturity} <span class="mut">(${p.days_to_maturity} дн)</span></td>
+      <td>${p.next_pay_date||"—"} ${fmt(p.next_pay_amount)}</td></tr>`).join("") || "<tr><td>Порожньо</td></tr>";
+  const lots = await api("/api/lots");
+  $("#lots").innerHTML = "<tr><th>ID</th><th>ISIN</th><th>К-сть</th><th>Залишок</th><th>Ціна</th><th>Дата</th><th>Канал</th><th></th></tr>" +
+    lots.map(l=>`<tr><td>${l.id}</td><td>${l.isin}</td><td>${l.qty}</td><td>${l.remaining}</td>
+      <td>${fmt(l.price_per_bond)}</td><td>${l.buy_date}</td><td>${l.channel}</td>
+      <td><button class="danger" onclick="delLot(${l.id})">✕</button></td></tr>`).join("") || "<tr><td>Порожньо</td></tr>";
+  const sales = await api("/api/sales");
+  $("#sales").innerHTML = sales.length ? "<tr><th>ID</th><th>Лот</th><th>ISIN</th><th>Дата</th><th>К-сть</th><th>Чиста</th><th>НКД</th><th>Результат</th></tr>" +
+    sales.map(s=>`<tr><td>${s.id}</td><td>${s.lot_id}</td><td>${s.isin}</td><td>${s.sale_date}</td>
+      <td>${s.qty}</td><td>${fmt(s.clean_per_bond)}</td><td>${fmt(s.accrued)}</td><td>${fmt(s.realized_result)}</td></tr>`).join("") : "";
+}
+
+async function delLot(id) {
+  if (!confirm("Видалити лот " + id + "?")) return;
+  await api("/api/lots/" + id, {method:"DELETE"}); refresh();
+}
+
+async function loadCalendar() {
+  const cf = await api("/api/calendar");
+  const t = {1:"coupon",2:"redemption",3:"early"}, n = {1:"купон",2:"погашення",3:"дострокове"};
+  $("#cal").innerHTML = "<tr><th>Дата</th><th>ISIN</th><th>Тип</th><th>Сума</th><th>Статус</th></tr>" +
+    cf.map(c=>`<tr><td>${c.date}</td><td>${c.isin}</td>
+      <td><span class="pill ${t[c.type]}">${n[c.type]}</span></td>
+      <td>${fmt(c.amount)}</td><td class="mut">${c.status||""}</td></tr>`).join("") || "<tr><td>Порожньо</td></tr>";
+}
+
+async function loadLadder() {
+  const lad = await api("/api/ladder");
+  $("#lad").innerHTML = "<tr><th>Рік</th><th>Валюта</th><th>Номінал</th></tr>" +
+    (lad||[]).map(r=>`<tr><td>${r.Year}</td><td>${r.Currency}</td><td>${(r.Nominal/100).toLocaleString("uk")}</td></tr>`).join("") || "<tr><td>Порожньо</td></tr>";
+}
+
+async function loadSettings() {
+  const s = await api("/api/settings");
+  for (const [k,v] of Object.entries(s)) { const el = document.querySelector(`[name=${k}]`); if (el) el.value = v; }
+}
+
+$("#lotForm").onsubmit = async e => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target)); d.qty = +d.qty;
+  try { await api("/api/lots", {method:"POST", body:JSON.stringify(d)}); e.target.reset(); refresh(); toast("Лот додано"); }
+  catch (err) { toast(err.message); }
+};
+$("#saleForm").onsubmit = async e => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target)); d.qty = +d.qty; d.lot_id = +d.lot_id;
+  try { await api("/api/sales", {method:"POST", body:JSON.stringify(d)}); e.target.reset(); refresh(); toast("Продаж записано"); }
+  catch (err) { toast(err.message); }
+};
+$("#setForm").onsubmit = async e => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target));
+  try { await api("/api/settings", {method:"PUT", body:JSON.stringify(d)}); refresh(); toast("Збережено"); }
+  catch (err) { toast(err.message); }
+};
+$("#refreshBtn").onclick = async () => {
+  toast("Оновлюю довідник НБУ…");
+  try { await api("/api/refresh", {method:"POST"}); refresh(); toast("Довідник оновлено"); }
+  catch (err) { toast(err.message); }
+};
+
+let isinTimer;
+document.querySelector("[name=isin]").oninput = e => {
+  clearTimeout(isinTimer);
+  isinTimer = setTimeout(async () => {
+    const q = e.target.value; if (q.length < 3) return;
+    const bonds = await api("/api/bonds/search?q=" + encodeURIComponent(q));
+    $("#isinList").innerHTML = bonds.map(b=>`<option value="${b.isin}">${b.maturity} · ${b.rate_pct}% · ${b.nominal.currency}</option>`).join("");
+  }, 300);
+};
+
+function refresh() { loadSummary(); loadPortfolio(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); }
+refresh();
+</script>
+</body>
+</html>

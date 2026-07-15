@@ -1,0 +1,32 @@
+[
+  {
+    "cpcode": "UA4000227748",
+    "nominal": 1000,
+    "auk_proc": 16.55,
+    "pgs_date": "2027-03-17",
+    "razm_date": "2025-03-19",
+    "val_code": "UAH",
+    "cptype": "DCP",
+    "cpdescr": "ОВДП військові, гривневі",
+    "payments": [
+      {"pay_date": "2026-09-16", "pay_type": 1, "pay_val": 82.75},
+      {"pay_date": "2027-03-17", "pay_type": 1, "pay_val": 82.75},
+      {"pay_date": "2027-03-17", "pay_type": 2, "pay_val": 1000}
+    ]
+  },
+  {
+    "cpcode": "UA4000230114",
+    "nominal": 1000,
+    "auk_proc": 3.24,
+    "pgs_date": "17.09.2027",
+    "razm_date": "18.09.2025",
+    "val_code": "USD",
+    "cptype": "DCP",
+    "cpdescr": "ОВДП військові, доларові",
+    "payments": [
+      {"pay_date": "17.03.2027", "pay_type": 1, "pay_val": 16.2},
+      {"pay_date": "17.09.2027", "pay_type": 1, "pay_val": 16.2},
+      {"pay_date": "17.09.2027", "pay_type": 2, "pay_val": 1000}
+    ]
+  }
+]

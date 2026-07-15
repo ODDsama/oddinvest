@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "generated_at": "2026-07-15T10:00:00Z",
+  "invested_uah": 137305.57,
+  "nominal_uah_eq": 138246.8,
+  "usd_share_pct": 63.8327975765081,
+  "uninvested_uah": 0,
+  "month_invested_uah": 4500,
+  "month_target_uah": 5000,
+  "month_progress_pct": 90,
+  "month_incoming_uah": 4137.5,
+  "next_payment": {
+    "date": "2026-07-20",
+    "isin": "UA4000227748",
+    "type": "coupon",
+    "amount": 4137.5,
+    "currency": "UAH"
+  },
+  "insurance_days_left": 45,
+  "ladder": [
+    {
+      "year": 2027,
+      "uah": 50000,
+      "usd": 2000
+    }
+  ],
+  "top_payments": [
+    {
+      "date": "2026-07-20",
+      "isin": "UA4000227748",
+      "type": "coupon",
+      "amount": 4137.5,
+      "currency": "UAH"
+    },
+    {
+      "date": "2026-09-16",
+      "isin": "UA4000227748",
+      "type": "coupon",
+      "amount": 4137.5,
+      "currency": "UAH"
+    },
+    {
+      "date": "2027-03-17",
+      "isin": "UA4000227748",
+      "type": "redemption",
+      "amount": 50000,
+      "currency": "UAH"
+    }
+  ],
+  "calendar": [
+    {
+      "date": "2026-07-20",
+      "isin": "UA4000227748",
+      "type": "coupon",
+      "amount": 4137.5,
+      "currency": "UAH"
+    },
+    {
+      "date": "2026-09-16",
+      "isin": "UA4000227748",
+      "type": "coupon",
+      "amount": 4137.5,
+      "currency": "UAH"
+    },
+    {
+      "date": "2027-03-17",
+      "isin": "UA4000227748",
+      "type": "redemption",
+      "amount": 50000,
+      "currency": "UAH"
+    }
+  ],
+  "xirr": {
+    "UAH": 16.51,
+    "USD": 3.22
+  },
+  "settings": {
+    "monthly_target_uah": 5000,
+    "usd_target_share_pct": 50,
+    "insurance_renewal": "2026-08-29",
+    "insurance_premium_uah": 8000
+  }
+}

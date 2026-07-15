@@ -1,0 +1,29 @@
+[Unit]
+Description=ODD Invest portfolio manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=oddinvestd
+Group=oddinvestd
+ExecStart=/usr/local/bin/oddinvestd
+Restart=on-failure
+RestartSec=5
+
+Environment=ODDINVEST_HTTP_ADDR=:8080
+Environment=ODDINVEST_DB_PATH=/var/lib/oddinvestd/oddinvest.db
+# Environment=ODDINVEST_MQTT_ADDR=tcp://homeassistant.local:1883
+# Environment=ODDINVEST_MQTT_USER=oddinvest
+# Environment=ODDINVEST_MQTT_PASS=***
+Environment=ODDINVEST_MQTT_PREFIX=oddinvest
+
+StateDirectory=oddinvestd
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/oddinvestd
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

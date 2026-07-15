@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ODDsama/oddinvest/contract/oddinvest-state.schema.json",
+  "title": "oddinvest/state — контракт Go-сервіс -> інтеграція Home Assistant",
+  "description": "Retained-повідомлення в топіку {prefix}/state. Еволюція: тільки додавання полів; зміна семантики = інкремент schema.",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at",
+    "invested_uah",
+    "nominal_uah_eq",
+    "usd_share_pct",
+    "uninvested_uah",
+    "month_invested_uah",
+    "month_target_uah",
+    "month_progress_pct",
+    "month_incoming_uah",
+    "ladder",
+    "top_payments",
+    "calendar"
+  ],
+  "properties": {
+    "schema": {
+      "type": "integer",
+      "const": 1
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "invested_uah": {
+      "type": "number",
+      "minimum": 0
+    },
+    "nominal_uah_eq": {
+      "type": "number",
+      "minimum": 0
+    },
+    "usd_share_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "uninvested_uah": {
+      "type": "number",
+      "minimum": 0
+    },
+    "month_invested_uah": {
+      "type": "number",
+      "minimum": 0
+    },
+    "month_target_uah": {
+      "type": "number",
+      "minimum": 0
+    },
+    "month_progress_pct": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "month_incoming_uah": {
+      "type": "number",
+      "minimum": 0
+    },
+    "insurance_days_left": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "next_payment": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "date",
+        "isin",
+        "type",
+        "amount",
+        "currency"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "isin": {
+          "type": "string",
+          "pattern": "^UA[0-9A-Z]{10}$"
+        },
+        "type": {
+          "enum": [
+            "coupon",
+            "redemption",
+            "early"
+          ]
+        },
+        "amount": {
+          "type": "number"
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3
+        }
+      }
+    },
+    "ladder": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "year",
+          "uah",
+          "usd"
+        ],
+        "properties": {
+          "year": {
+            "type": "integer",
+            "minimum": 2000
+          },
+          "uah": {
+            "type": "number",
+            "minimum": 0
+          },
+          "usd": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "top_payments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "date",
+          "isin",
+          "type",
+          "amount",
+          "currency"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "isin": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "coupon",
+              "redemption",
+              "early"
+            ]
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "calendar": {
+      "type": "array",
+      "description": "Повний горизонт майбутніх виплат (v0.2+, адитивне поле)",
+      "items": {
+        "type": "object",
+        "required": [
+          "date",
+          "isin",
+          "type",
+          "amount",
+          "currency"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "isin": {
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "coupon",
+              "redemption",
+              "early"
+            ]
+          },
+          "amount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "settings": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "Сирі налаштування сервіса (v0.3+, адитивне поле)",
+      "properties": {
+        "monthly_target_uah": {
+          "type": "number",
+          "minimum": 0
+        },
+        "usd_target_share_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "insurance_renewal": {
+          "type": "string",
+          "format": "date"
+        },
+        "insurance_premium_uah": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "xirr": {
+      "type": "object",
+      "description": "Річний XIRR по валютах, % (v1.0+, адитивне поле)",
+      "additionalProperties": {
+        "type": "number"
+      }
+    }
+  }
+}
