@@ -29,7 +29,8 @@ type Doc struct {
 
 	InvestedUAH   float64 `json:"invested_uah"`   // вартість входу залишків, грн-екв.
 	NominalUAHEq  float64 `json:"nominal_uah_eq"` // номінал портфеля, грн-екв.
-	USDSharePct   float64 `json:"usd_share_pct"`  // частка валютних паперів за номіналом
+	USDSharePct   float64 `json:"usd_share_pct"`  // частка USD-паперів за номіналом (грн-екв.)
+	EURSharePct   float64 `json:"eur_share_pct"`  // частка EUR-паперів за номіналом (грн-екв.)
 	UninvestedUAH float64 `json:"uninvested_uah"` // надійшло і не перевкладено, грн-екв.
 
 	MonthInvestedUAH float64 `json:"month_invested_uah"`
@@ -129,7 +130,7 @@ func Build(in Input) (*Doc, error) {
 		Calendar:    []PaymentRow{},
 	}
 
-	var investedUAH, nominalUAH, nominalFX int64
+	var investedUAH, nominalUAH, nominalUSD, nominalEUR int64
 	for _, p := range in.Positions {
 		inv, err := fx.ToUAH(p.Invested, in.Rates)
 		if err != nil {
@@ -141,14 +142,18 @@ func Build(in Input) (*Doc, error) {
 		}
 		investedUAH += inv.Amount()
 		nominalUAH += nom.Amount()
-		if p.Currency != money.UAH {
-			nominalFX += nom.Amount()
+		switch p.Currency {
+		case money.USD:
+			nominalUSD += nom.Amount()
+		case money.EUR:
+			nominalEUR += nom.Amount()
 		}
 	}
 	doc.InvestedUAH = float64(investedUAH) / 100
 	doc.NominalUAHEq = float64(nominalUAH) / 100
 	if nominalUAH > 0 {
-		doc.USDSharePct = float64(nominalFX) * 100 / float64(nominalUAH)
+		doc.USDSharePct = float64(nominalUSD) * 100 / float64(nominalUAH)
+		doc.EURSharePct = float64(nominalEUR) * 100 / float64(nominalUAH)
 	}
 
 	doc.MonthInvestedUAH = major(in.MonthInvestedUAH)

@@ -280,7 +280,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	}
 
 	xirr := map[string]float64{}
-	for _, cur := range []string{money.UAH, money.USD} {
+	for _, cur := range []string{money.UAH, money.USD, money.EUR} {
 		flows, err := domain.PortfolioFlows(bonds, pays, lots, sales, cur, today)
 		if err != nil || len(flows) < 2 {
 			continue

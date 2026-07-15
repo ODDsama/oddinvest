@@ -41,6 +41,11 @@
       "minimum": 0,
       "maximum": 100
     },
+    "eur_share_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
     "uninvested_uah": {
       "type": "number",
       "minimum": 0
