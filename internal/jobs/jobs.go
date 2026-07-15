@@ -43,15 +43,17 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 	}
 	r.log.Info("довідник НБУ оновлено", "паперів", len(secs))
 
-	rate, err := r.nbu.Rate(ctx, "USD")
-	if err != nil {
-		r.log.Warn("курс USD недоступний", "err", err) // не фатально: працюємо на останньому
-	} else {
-		today := domain.NewDate(time.Now().In(r.loc))
-		if err := r.st.SaveRate(ctx, "USD", rate, today); err != nil {
+	rateDate := domain.NewDate(time.Now().In(r.loc))
+	for _, code := range []string{"USD", "EUR"} {
+		rate, err := r.nbu.Rate(ctx, code)
+		if err != nil {
+			r.log.Warn("курс недоступний", "code", code, "err", err) // не фатально: працюємо на останньому
+			continue
+		}
+		if err := r.st.SaveRate(ctx, code, rate, rateDate); err != nil {
 			return err
 		}
-		r.log.Info("курс USD збережено", "rate_e4", rate)
+		r.log.Info("курс збережено", "code", code, "rate_e4", rate)
 	}
 
 	if err := r.Snapshot(ctx); err != nil {

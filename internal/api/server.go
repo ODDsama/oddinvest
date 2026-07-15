@@ -148,13 +148,15 @@ func (s *Server) portfolio(ctx context.Context) (lots []domain.Lot, sales []doma
 }
 
 func (s *Server) rates(ctx context.Context) (fx.Rates, error) {
-	usd, err := s.st.LatestRate(ctx, "USD")
-	if err != nil {
-		return nil, err
-	}
 	r := fx.Rates{}
-	if usd > 0 {
-		r["USD"] = usd
+	for _, code := range []string{"USD", "EUR"} {
+		v, err := s.st.LatestRate(ctx, code)
+		if err != nil {
+			return nil, err
+		}
+		if v > 0 {
+			r[code] = v
+		}
 	}
 	return r, nil
 }
