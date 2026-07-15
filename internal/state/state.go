@@ -59,6 +59,7 @@ type Doc struct {
 type SettingsDoc struct {
 	MonthlyTargetUAH    *float64 `json:"monthly_target_uah,omitempty"`
 	USDTargetSharePct   *float64 `json:"usd_target_share_pct,omitempty"`
+	EURTargetSharePct   *float64 `json:"eur_target_share_pct,omitempty"`
 	InsuranceRenewal    string   `json:"insurance_renewal,omitempty"` // ISO-дата
 	InsurancePremiumUAH *float64 `json:"insurance_premium_uah,omitempty"`
 }

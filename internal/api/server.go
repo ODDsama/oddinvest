@@ -263,6 +263,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			settings.USDTargetSharePct = &f
 		}
 	}
+	if raw, _ := s.st.GetSetting(ctx, "eur_target_share_pct"); raw != "" {
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			settings.EURTargetSharePct = &f
+		}
+	}
 	if raw, _ := s.st.GetSetting(ctx, "insurance_premium_uah"); raw != "" {
 		if m, err := parseMoney(raw, money.UAH); err == nil {
 			v := float64(m.Amount()) / 100
@@ -636,7 +641,7 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 	return out
 }
 
-var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "insurance_renewal", "insurance_premium_uah"}
+var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct", "insurance_renewal", "insurance_premium_uah"}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}
