@@ -339,13 +339,13 @@ func (s *Store) LatestRate(ctx context.Context, code string) (int64, error) {
 	return r, err
 }
 
-func (s *Store) SaveSnapshot(ctx context.Context, date domain.Date, investedUAH, nominalUAHEq, usdShareBP, uninvestedUAH int64) error {
+func (s *Store) SaveSnapshot(ctx context.Context, date domain.Date, investedUAH, nominalUAHEq, usdShareBP, uninvestedUAH, monthTargetUAH int64) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO snapshots
-		(date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah) VALUES(?,?,?,?,?)
+		(date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah, month_target_uah) VALUES(?,?,?,?,?,?)
 		ON CONFLICT(date) DO UPDATE SET invested_uah=excluded.invested_uah,
 		nominal_uah_eq=excluded.nominal_uah_eq, usd_share_bp=excluded.usd_share_bp,
-		uninvested_uah=excluded.uninvested_uah`,
-		string(date), investedUAH, nominalUAHEq, usdShareBP, uninvestedUAH)
+		uninvested_uah=excluded.uninvested_uah, month_target_uah=excluded.month_target_uah`,
+		string(date), investedUAH, nominalUAHEq, usdShareBP, uninvestedUAH, monthTargetUAH)
 	return err
 }
 
@@ -379,15 +379,16 @@ func (s *Store) PaymentStatuses(ctx context.Context) (map[string]string, error) 
 
 // Snapshot — рядок добового знімка для графіка «факт vs модель».
 type Snapshot struct {
-	Date          domain.Date
-	InvestedUAH   int64
-	NominalUAHEq  int64
-	USDShareBP    int64
-	UninvestedUAH int64
+	Date           domain.Date
+	InvestedUAH    int64
+	NominalUAHEq   int64
+	USDShareBP     int64
+	UninvestedUAH  int64
+	MonthTargetUAH int64
 }
 
 func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snapshot, error) {
-	sqlq := `SELECT date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah
+	sqlq := `SELECT date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah, month_target_uah
 		FROM snapshots WHERE 1=1`
 	args := []any{}
 	if from != "" {
@@ -408,7 +409,7 @@ func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snap
 	for rows.Next() {
 		var sn Snapshot
 		var d string
-		if err := rows.Scan(&d, &sn.InvestedUAH, &sn.NominalUAHEq, &sn.USDShareBP, &sn.UninvestedUAH); err != nil {
+		if err := rows.Scan(&d, &sn.InvestedUAH, &sn.NominalUAHEq, &sn.USDShareBP, &sn.UninvestedUAH, &sn.MonthTargetUAH); err != nil {
 			return nil, err
 		}
 		sn.Date = domain.Date(d)

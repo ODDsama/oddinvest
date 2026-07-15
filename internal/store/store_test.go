@@ -127,10 +127,10 @@ func TestSettingsRatesSnapshotsStatuses(t *testing.T) {
 	if r != 441234 {
 		t.Fatalf("rate: %d", r)
 	}
-	if err := s.SaveSnapshot(ctx, "2026-07-15", 100, 200, 5000, 0); err != nil {
+	if err := s.SaveSnapshot(ctx, "2026-07-15", 100, 200, 5000, 0, 500000); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveSnapshot(ctx, "2026-07-15", 150, 250, 5100, 10); err != nil {
+	if err := s.SaveSnapshot(ctx, "2026-07-15", 150, 250, 5100, 10, 600000); err != nil {
 		t.Fatal(err) // upsert того ж дня
 	}
 	if err := s.SetPaymentStatus(ctx, "UA1", "2026-09-16", "received"); err != nil {
