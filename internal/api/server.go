@@ -268,21 +268,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			settings.EURTargetSharePct = &f
 		}
 	}
-	if raw, _ := s.st.GetSetting(ctx, "insurance_premium_uah"); raw != "" {
-		if m, err := parseMoney(raw, money.UAH); err == nil {
-			v := float64(m.Amount()) / 100
-			settings.InsurancePremiumUAH = &v
-		}
-	}
-
-	var insDays *int
-	if insDate, _ := s.st.GetSetting(ctx, "insurance_renewal"); insDate != "" {
-		if d, err := domain.ParseDate(insDate); err == nil {
-			n := domain.DaysBetween(today, d)
-			insDays = &n
-			settings.InsuranceRenewal = string(d)
-		}
-	}
 
 	xirr := map[string]float64{}
 	for _, cur := range []string{money.UAH, money.USD, money.EUR} {
@@ -303,7 +288,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthTargetUAH: target,
-		UninvestedUAH: unin, InsuranceDaysLeft: insDays, TopN: 5,
+		UninvestedUAH: unin, TopN: 5,
 		Settings: settings, XIRRPct: xirr,
 	})
 }
@@ -641,7 +626,7 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 	return out
 }
 
-var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct", "insurance_renewal", "insurance_premium_uah"}
+var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct"}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}

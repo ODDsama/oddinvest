@@ -40,8 +40,6 @@ type Doc struct {
 
 	NextPayment *NextPayment `json:"next_payment,omitempty"`
 
-	InsuranceDaysLeft *int `json:"insurance_days_left,omitempty"`
-
 	Ladder      []LadderRow  `json:"ladder"`
 	TopPayments []PaymentRow `json:"top_payments"` // найближчі N виплат
 	Calendar    []PaymentRow `json:"calendar"`     // повний горизонт майбутніх виплат
@@ -57,11 +55,9 @@ type Doc struct {
 }
 
 type SettingsDoc struct {
-	MonthlyTargetUAH    *float64 `json:"monthly_target_uah,omitempty"`
-	USDTargetSharePct   *float64 `json:"usd_target_share_pct,omitempty"`
-	EURTargetSharePct   *float64 `json:"eur_target_share_pct,omitempty"`
-	InsuranceRenewal    string   `json:"insurance_renewal,omitempty"` // ISO-дата
-	InsurancePremiumUAH *float64 `json:"insurance_premium_uah,omitempty"`
+	MonthlyTargetUAH  *float64 `json:"monthly_target_uah,omitempty"`
+	USDTargetSharePct *float64 `json:"usd_target_share_pct,omitempty"`
+	EURTargetSharePct *float64 `json:"eur_target_share_pct,omitempty"`
 }
 
 type NextPayment struct {
@@ -76,6 +72,7 @@ type LadderRow struct {
 	Year int     `json:"year"`
 	UAH  float64 `json:"uah"`
 	USD  float64 `json:"usd"` // номінал у доларах (не еквівалент)
+	EUR  float64 `json:"eur"` // номінал у євро (не еквівалент)
 }
 
 type PaymentRow struct {
@@ -93,13 +90,12 @@ type Input struct {
 	Cashflow          []domain.CashflowItem // майбутні виплати від сьогодні
 	Ladder            []domain.LadderEntry
 	Rates             fx.Rates
-	MonthInvestedUAH  *money.Money
-	MonthTargetUAH    *money.Money
-	UninvestedUAH     *money.Money
-	InsuranceDaysLeft *int
-	TopN              int
-	Settings          *SettingsDoc
-	XIRRPct           map[string]float64
+	MonthInvestedUAH *money.Money
+	MonthTargetUAH   *money.Money
+	UninvestedUAH    *money.Money
+	TopN             int
+	Settings         *SettingsDoc
+	XIRRPct          map[string]float64
 }
 
 func payTypeStr(t domain.PayType) string {
@@ -161,7 +157,6 @@ func Build(in Input) (*Doc, error) {
 	doc.MonthTargetUAH = major(in.MonthTargetUAH)
 	doc.MonthProgressPct = domain.ProgressPct(in.MonthInvestedUAH, in.MonthTargetUAH)
 	doc.UninvestedUAH = major(in.UninvestedUAH)
-	doc.InsuranceDaysLeft = in.InsuranceDaysLeft
 	doc.Settings = in.Settings
 	doc.XIRRPct = in.XIRRPct
 
@@ -206,6 +201,8 @@ func Build(in Input) (*Doc, error) {
 			row.UAH = float64(le.Nominal) / 100
 		case money.USD:
 			row.USD = float64(le.Nominal) / 100
+		case money.EUR:
+			row.EUR = float64(le.Nominal) / 100
 		}
 	}
 	for _, y := range years {

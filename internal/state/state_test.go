@@ -14,7 +14,6 @@ import (
 
 func sampleInput(t *testing.T) Input {
 	t.Helper()
-	days := 45
 	return Input{
 		Now: time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC),
 		Positions: []domain.Position{
@@ -38,15 +37,12 @@ func sampleInput(t *testing.T) Input {
 		MonthInvestedUAH:  money.New(450_000, money.UAH),
 		MonthTargetUAH:    money.New(500_000, money.UAH),
 		UninvestedUAH:     money.New(0, money.UAH),
-		InsuranceDaysLeft: &days,
 		TopN:              5,
 		Settings: func() *SettingsDoc {
-			t, u, pr := 5000.0, 50.0, 8000.0
+			t, u := 5000.0, 50.0
 			return &SettingsDoc{
-				MonthlyTargetUAH:    &t,
-				USDTargetSharePct:   &u,
-				InsuranceRenewal:    "2026-08-29",
-				InsurancePremiumUAH: &pr,
+				MonthlyTargetUAH:  &t,
+				USDTargetSharePct: &u,
 			}
 		}(),
 		XIRRPct: map[string]float64{"UAH": 16.51, "USD": 3.22},
@@ -83,8 +79,7 @@ func TestBuild(t *testing.T) {
 	if len(doc.Calendar) != 3 || doc.Calendar[2].Type != "redemption" {
 		t.Errorf("calendar: %+v", doc.Calendar)
 	}
-	if doc.Settings == nil || *doc.Settings.MonthlyTargetUAH != 5000 ||
-		doc.Settings.InsuranceRenewal != "2026-08-29" {
+	if doc.Settings == nil || *doc.Settings.MonthlyTargetUAH != 5000 {
 		t.Errorf("settings: %+v", doc.Settings)
 	}
 	if doc.XIRRPct["UAH"] != 16.51 {
