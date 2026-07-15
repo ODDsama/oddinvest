@@ -31,11 +31,15 @@ type Payment struct {
 // Lot — покупка: N паперів одного ISIN за ціною за папір.
 // PricePerBond — фактично сплачене за один папір («брудна» ціна,
 // включно з НКД, якщо він був).
+// Fee — сумарна комісія брокера за лот (у валюті лота); nil або нуль =
+// без комісії. Входить у собівартість (Вкладено), XIRR і результат
+// продажу, але НЕ впливає на номінал/купони (вони з довідника НБУ).
 type Lot struct {
 	ID           int64
 	ISIN         string
 	Qty          int64
 	PricePerBond *money.Money
+	Fee          *money.Money
 	BuyDate      Date
 	Channel      string
 	Note         string

@@ -25,7 +25,17 @@ func Positions(bonds map[string]Bond, payments []Payment, lots []Lot, sales []Sa
 			byISIN[l.ISIN] = a
 		}
 		a.qty += rem
-		sum, err := a.invested.Add(MulQty(l.PricePerBond, rem))
+		cost := MulQty(l.PricePerBond, rem)
+		fee, err := Apportion(l.Fee, rem, l.Qty)
+		if err != nil {
+			return nil, err
+		}
+		if !fee.IsZero() {
+			if cost, err = cost.Add(fee); err != nil {
+				return nil, err
+			}
+		}
+		sum, err := a.invested.Add(cost)
 		if err != nil {
 			return nil, err
 		}

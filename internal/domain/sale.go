@@ -34,6 +34,15 @@ func RealizedResult(lot Lot, s Sale, payments []Payment) (*money.Money, error) {
 		return nil, err
 	}
 	cost := MulQty(lot.PricePerBond, s.Qty)
+	fee, err := Apportion(lot.Fee, s.Qty, lot.Qty)
+	if err != nil {
+		return nil, err
+	}
+	if !fee.IsZero() {
+		if cost, err = cost.Add(fee); err != nil {
+			return nil, err
+		}
+	}
 	res, err := proceeds.Subtract(cost)
 	if err != nil {
 		return nil, err

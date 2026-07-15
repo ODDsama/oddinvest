@@ -199,7 +199,13 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	monthInv := money.New(0, money.UAH)
 	for _, l := range lots {
 		if l.BuyDate.Year() == now.Year() && l.BuyDate.Month() == now.Month() {
-			uahAmt, err := fx.ToUAH(domain.MulQty(l.PricePerBond, l.Qty), rates)
+			cost := domain.MulQty(l.PricePerBond, l.Qty)
+			if l.Fee != nil && !l.Fee.IsZero() {
+				if cost, err = cost.Add(l.Fee); err != nil {
+					return nil, err
+				}
+			}
+			uahAmt, err := fx.ToUAH(cost, rates)
 			if err != nil {
 				return nil, err
 			}
@@ -376,6 +382,7 @@ type lotReq struct {
 	Qty      int64  `json:"qty"`
 	Price    string `json:"price_per_bond"` // десятковий рядок
 	Currency string `json:"currency"`
+	Fee      string `json:"fee"` // сумарна комісія за лот, десятковий рядок; опційно
 	BuyDate  string `json:"buy_date"`
 	Channel  string `json:"channel"`
 	Note     string `json:"note"`
@@ -410,8 +417,16 @@ func (s *Server) handleAddLot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	var fee *money.Money
+	if strings.TrimSpace(req.Fee) != "" {
+		fee, err = parseMoney(req.Fee, cur)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+	}
 	id, err := s.st.AddLot(r.Context(), domain.Lot{
-		ISIN: req.ISIN, Qty: req.Qty, PricePerBond: price,
+		ISIN: req.ISIN, Qty: req.Qty, PricePerBond: price, Fee: fee,
 		BuyDate: bd, Channel: req.Channel, Note: req.Note,
 	})
 	if err != nil {
@@ -453,6 +468,7 @@ func (s *Server) handleListLots(w http.ResponseWriter, r *http.Request) {
 		Qty       int64     `json:"qty"`
 		Remaining int64     `json:"remaining"`
 		Price     moneyJSON `json:"price_per_bond"`
+		Fee       moneyJSON `json:"fee"`
 		BuyDate   string    `json:"buy_date"`
 		Channel   string    `json:"channel"`
 		Note      string    `json:"note"`
@@ -460,7 +476,7 @@ func (s *Server) handleListLots(w http.ResponseWriter, r *http.Request) {
 	out := make([]lotJSON, 0, len(lots))
 	for _, l := range lots {
 		out = append(out, lotJSON{l.ID, l.ISIN, l.Qty, domain.RemainingQtyNow(l, sales),
-			toMoneyJSON(l.PricePerBond), string(l.BuyDate), l.Channel, l.Note})
+			toMoneyJSON(l.PricePerBond), toMoneyJSON(l.Fee), string(l.BuyDate), l.Channel, l.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

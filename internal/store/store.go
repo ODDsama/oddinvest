@@ -37,11 +37,15 @@ func (s *Store) Close() error { return s.db.Close() }
 // --- лоти ---
 
 func (s *Store) AddLot(ctx context.Context, l domain.Lot) (int64, error) {
+	fee := int64(0)
+	if l.Fee != nil {
+		fee = l.Fee.Amount()
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO lots
-		(isin, qty, price_per_bond, currency, buy_date, channel, note)
-		VALUES (?,?,?,?,?,?,?)`,
+		(isin, qty, price_per_bond, currency, buy_date, channel, note, fee)
+		VALUES (?,?,?,?,?,?,?,?)`,
 		l.ISIN, l.Qty, l.PricePerBond.Amount(), l.PricePerBond.Currency().Code,
-		string(l.BuyDate), l.Channel, l.Note)
+		string(l.BuyDate), l.Channel, l.Note, fee)
 	if err != nil {
 		return 0, err
 	}
@@ -55,7 +59,7 @@ func (s *Store) DeleteLot(ctx context.Context, id int64) error {
 
 func (s *Store) ListLots(ctx context.Context) ([]domain.Lot, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, isin, qty, price_per_bond,
-		currency, buy_date, channel, note FROM lots ORDER BY buy_date, id`)
+		currency, buy_date, channel, note, fee FROM lots ORDER BY buy_date, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -63,12 +67,13 @@ func (s *Store) ListLots(ctx context.Context) ([]domain.Lot, error) {
 	var out []domain.Lot
 	for rows.Next() {
 		var l domain.Lot
-		var minor int64
+		var minor, fee int64
 		var cur, bd string
-		if err := rows.Scan(&l.ID, &l.ISIN, &l.Qty, &minor, &cur, &bd, &l.Channel, &l.Note); err != nil {
+		if err := rows.Scan(&l.ID, &l.ISIN, &l.Qty, &minor, &cur, &bd, &l.Channel, &l.Note, &fee); err != nil {
 			return nil, err
 		}
 		l.PricePerBond = money.New(minor, cur)
+		l.Fee = money.New(fee, cur)
 		l.BuyDate = domain.Date(bd)
 		out = append(out, l)
 	}

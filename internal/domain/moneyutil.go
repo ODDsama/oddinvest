@@ -60,6 +60,28 @@ func MulQty(perBond *money.Money, qty int64) *money.Money {
 	return perBond.Multiply(qty)
 }
 
+// Apportion — частина total, що припадає на part паперів із whole,
+// із банківським заокругленням (та сама політика, що й усюди в проєкті).
+// Порожній/нульовий total, whole<=0 чи part<=0 -> нуль у валюті total.
+func Apportion(total *money.Money, part, whole int64) (*money.Money, error) {
+	code := money.UAH
+	if total != nil {
+		code = total.Currency().Code
+	}
+	if total == nil || total.IsZero() || whole <= 0 || part <= 0 {
+		return money.New(0, code), nil
+	}
+	r := new(big.Rat).SetFrac(
+		new(big.Int).Mul(big.NewInt(total.Amount()), big.NewInt(part)),
+		big.NewInt(whole),
+	)
+	minor, err := RatToInt64HalfEven(r)
+	if err != nil {
+		return nil, err
+	}
+	return money.New(minor, code), nil
+}
+
 // SumSameCurrency додає суми, вимагаючи єдину валюту.
 func SumSameCurrency(items ...*money.Money) (*money.Money, error) {
 	if len(items) == 0 {
