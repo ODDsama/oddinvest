@@ -253,6 +253,10 @@
       "additionalProperties": {
         "type": "number"
       }
+    },
+    "portfolio_yield_pct": {
+      "type": "number",
+      "description": "Очікувана дохідність за придбаними паперами: купон за 12 міс ÷ номінал, зважено, грн-екв. (адитивне поле)"
     }
   }
 }

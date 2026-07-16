@@ -57,6 +57,12 @@ type Doc struct {
 	// адитивне поле). Відсутня валюта = XIRR нерахований (мало потоків).
 	XIRRPct map[string]float64 `json:"xirr,omitempty"`
 
+	// PortfolioYieldPct — очікувана дохідність за придбаними паперами:
+	// купонний дохід за наступні 12 міс ÷ номінал, зважено по валютах у
+	// грн-екв. Використовується проєкціями як ставка за замовчуванням
+	// (замість ручного вводу). 0 = паперів немає.
+	PortfolioYieldPct float64 `json:"portfolio_yield_pct,omitempty"`
+
 	// Settings — сирі налаштування сервіса (v0.3+, адитивне поле).
 	// Потрібні HA для number/date-сутностей: значення приходять сюди
 	// MQTT-пушем, зміни йдуть у PUT /api/settings.
@@ -110,9 +116,10 @@ type Input struct {
 	ReinvestMinUAH   *money.Money
 	Accounts         map[string]float64
 	ReinvestMinByCur map[string]float64
-	TopN             int
-	Settings         *SettingsDoc
-	XIRRPct          map[string]float64
+	TopN              int
+	Settings          *SettingsDoc
+	XIRRPct           map[string]float64
+	PortfolioYieldPct float64
 }
 
 func payTypeStr(t domain.PayType) string {
@@ -193,6 +200,7 @@ func Build(in Input) (*Doc, error) {
 	}
 	doc.Settings = in.Settings
 	doc.XIRRPct = in.XIRRPct
+	doc.PortfolioYieldPct = in.PortfolioYieldPct
 
 	nowDate := domain.NewDate(in.Now)
 	var monthIncoming int64

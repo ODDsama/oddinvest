@@ -365,12 +365,49 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
+	// Очікувана дохідність за придбаними паперами: купонний дохід за
+	// наступні 12 міс ÷ номінал, зважено по валютах у грн-екв. Це орієнтир
+	// для проєкцій замість ручного вводу. Купон беремо з реального графіка
+	// виплат (майбутні купони в межах року), тож на відміну від auk_proc
+	// (дохідність розміщення) відображає, що папери реально приносять.
+	var couponUAH, nominalUAH int64
+	for _, l := range lots {
+		b, ok := bonds[l.ISIN]
+		if !ok || b.Maturity.Before(today) {
+			continue
+		}
+		q := domain.RemainingQtyNow(l, sales)
+		if q == 0 {
+			continue
+		}
+		var annualCoupon int64 // нативно, на один папір
+		for _, p := range pays {
+			if p.ISIN != l.ISIN || p.Type != domain.PayCoupon {
+				continue
+			}
+			if d := domain.DaysBetween(today, p.PayDate); d > 0 && d <= 365 {
+				annualCoupon += p.PerBond.Amount()
+			}
+		}
+		cur := b.Nominal.Currency().Code
+		if c, err := fx.ToUAH(money.New(annualCoupon*q, cur), rates); err == nil {
+			couponUAH += c.Amount()
+		}
+		if n, err := fx.ToUAH(money.New(b.Nominal.Amount()*q, cur), rates); err == nil {
+			nominalUAH += n.Amount()
+		}
+	}
+	var portfolioYield float64
+	if nominalUAH > 0 {
+		portfolioYield = math.Round(float64(couponUAH)/float64(nominalUAH)*10000) / 100
+	}
+
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthTargetUAH: target,
 		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
 		Accounts: accounts, ReinvestMinByCur: reinvestMinByCur, TopN: 5,
-		Settings: settings, XIRRPct: xirr,
+		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
 	})
 }
 
