@@ -1014,7 +1014,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		ladderNom  float64
 		rate       int64
 	}
-	var out []suggestion
+	out := []suggestion{}
 	for _, b := range bonds {
 		c := b.Nominal.Currency().Code
 		bal := doc.Accounts[c]

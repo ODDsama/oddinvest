@@ -264,7 +264,7 @@ async function delLot(id) {
 }
 
 async function loadReinvest() {
-  const rs = await api("/api/reinvest");
+  const rs = (await api("/api/reinvest")) || [];
   $("#reinvest").innerHTML = rs.length ?
     "<h3>Помічник реінвестиції</h3><p class='mut'>Доступні папери під план: валюта → драбина → ставка. «Дохідність» = купонна ставка. Обери й тисни «Взяти».</p>" +
     "<table><tr><th>ISIN</th><th>Ставка</th><th>Погашення</th><th>Номінал</th><th>Вистачає</th><th>Чому</th><th></th></tr>" +
