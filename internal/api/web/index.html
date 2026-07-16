@@ -21,6 +21,14 @@
   th, td { text-align:left; padding:8px 12px; border-bottom:1px solid #262c34; font-size:14px; }
   th { color:var(--mut); font-weight:500; }
   tr:last-child td { border-bottom:none; }
+  th.sort { cursor:pointer; user-select:none; white-space:nowrap; }
+  th.sort:hover { color:var(--tx); }
+  .rv-controls { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+  .rv-controls input { max-width:150px; }
+  .rv-pager { display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .rv-pager .sp { flex:1; }
+  .pgbtn { background:#2a313b; color:var(--tx); border:1px solid #30363d; border-radius:6px; padding:5px 12px; font:inherit; cursor:pointer; }
+  .pgbtn:disabled { opacity:.45; cursor:default; }
   form.inline { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
   input, select { background:#0d1117; color:var(--tx); border:1px solid #30363d; border-radius:6px; padding:7px 10px; font:inherit; }
   input:focus { outline:none; border-color:var(--acc); }
@@ -264,14 +272,92 @@ async function delLot(id) {
   await api("/api/lots/" + id, {method:"DELETE"}); refresh();
 }
 
+const RV = { all: [], cur:"", year:"", minRate:"", q:"", sortKey:"", sortDir:-1, page:1, pageSize:10 };
+
 async function loadReinvest() {
-  const rs = (await api("/api/reinvest")) || [];
-  $("#reinvest").innerHTML = rs.length ?
-    "<h3>Помічник реінвестиції</h3><p class='mut'>Доступні папери під план: валюта → драбина → ставка. «Дохідність» = купонна ставка. Обери й тисни «Взяти».</p>" +
-    "<table><tr><th>ISIN</th><th>Ставка</th><th>Погашення</th><th>Номінал</th><th>Вистачає</th><th>Чому</th><th></th></tr>" +
-    rs.map(x=>`<tr><td>${x.isin}</td><td>${x.rate_pct}%</td><td>${x.maturity}</td><td>${fmt(x.nominal)}</td>
+  RV.all = (await api("/api/reinvest")) || [];
+  RV.page = 1;
+  const host = $("#reinvest");
+  if (!RV.all.length) { host.innerHTML = ""; return; }
+  host.innerHTML =
+    "<h3>Помічник реінвестиції</h3>" +
+    "<p class='mut'>Доступні папери під план: валюта → драбина → ставка. «Дохідність» = купонна ставка. Обери й тисни «Взяти».</p>" +
+    "<div class='rv-controls'>" +
+      `<select id='rvCur'>${rvOpts("cur","Валюта: всі")}</select>` +
+      `<select id='rvYear'>${rvOpts("year","Рік: всі")}</select>` +
+      "<input id='rvMin' inputmode='decimal' placeholder='Ставка ≥, %'>" +
+      "<input id='rvQ' placeholder='Пошук ISIN'>" +
+      "<select id='rvSize'><option value='10'>10/стор.</option><option value='25'>25/стор.</option><option value='50'>50/стор.</option><option value='all'>усі</option></select>" +
+    "</div><div id='rvTable'></div>";
+  $("#rvCur").value = RV.cur; $("#rvYear").value = RV.year;
+  $("#rvMin").value = RV.minRate; $("#rvQ").value = RV.q;
+  $("#rvSize").value = RV.pageSize === "all" ? "all" : String(RV.pageSize);
+  $("#rvCur").onchange = e => { RV.cur = e.target.value; RV.page = 1; rvRender(); };
+  $("#rvYear").onchange = e => { RV.year = e.target.value; RV.page = 1; rvRender(); };
+  $("#rvMin").oninput = e => { RV.minRate = e.target.value; RV.page = 1; rvRender(); };
+  $("#rvQ").oninput = e => { RV.q = e.target.value; RV.page = 1; rvRender(); };
+  $("#rvSize").onchange = e => { RV.pageSize = e.target.value === "all" ? "all" : parseInt(e.target.value,10); RV.page = 1; rvRender(); };
+  rvRender();
+}
+
+function rvOpts(kind, allLabel) {
+  const set = new Set();
+  RV.all.forEach(x => set.add(kind === "cur" ? x.currency : String(x.maturity).slice(0,4)));
+  const vals = [...set].filter(Boolean).sort();
+  return `<option value="">${allLabel}</option>` + vals.map(v => `<option value="${v}">${v}</option>`).join("");
+}
+
+function rvData() {
+  let a = RV.all.filter(x =>
+    (!RV.cur || x.currency === RV.cur) &&
+    (RV.minRate === "" || parseFloat(x.rate_pct) >= parseFloat(RV.minRate)) &&
+    (!RV.year || String(x.maturity).startsWith(RV.year)) &&
+    (!RV.q || String(x.isin).toLowerCase().includes(RV.q.toLowerCase())));
+  if (RV.sortKey) {
+    const val = x => RV.sortKey === "rate_pct" ? parseFloat(x.rate_pct)
+      : RV.sortKey === "nominal" ? Number(x.nominal && x.nominal.amount)
+      : RV.sortKey === "affordable" ? Number(x.affordable)
+      : String(x.maturity);
+    a = a.slice().sort((p,q) => { const pv = val(p), qv = val(q); return (pv < qv ? -1 : pv > qv ? 1 : 0) * RV.sortDir; });
+  }
+  return a;
+}
+
+function rvRender() {
+  const box = $("#rvTable"); if (!box) return;
+  const rows = rvData(); const total = rows.length;
+  const size = RV.pageSize === "all" ? (total || 1) : RV.pageSize;
+  const pages = Math.max(1, Math.ceil(total / size));
+  if (RV.page > pages) RV.page = pages;
+  const start = (RV.page - 1) * size;
+  const paged = RV.pageSize === "all" ? rows : rows.slice(start, start + size);
+  const arrow = k => RV.sortKey === k ? (RV.sortDir === 1 ? " ▲" : " ▼") : "";
+  box.innerHTML =
+    "<table><tr><th>ISIN</th>" +
+    `<th class="sort" data-sort="rate_pct">Ставка${arrow("rate_pct")}</th>` +
+    `<th class="sort" data-sort="maturity">Погашення${arrow("maturity")}</th>` +
+    `<th class="sort" data-sort="nominal">Номінал${arrow("nominal")}</th>` +
+    `<th class="sort" data-sort="affordable">Вистачає${arrow("affordable")}</th>` +
+    "<th>Чому</th><th></th></tr>" +
+    (paged.length ? paged.map(x => `<tr><td>${x.isin}</td><td>${x.rate_pct}%</td><td>${x.maturity}</td><td>${fmt(x.nominal)}</td>
       <td>${x.affordable}</td><td class="mut">${x.reason}</td>
-      <td><button class="act" style="padding:4px 10px" onclick="takeBond('${x.isin}')">Взяти</button></td></tr>`).join("") + "</table>" : "";
+      <td><button class="act" style="padding:4px 10px" onclick="takeBond('${x.isin}')">Взяти</button></td></tr>`).join("")
+      : `<tr><td colspan="7" class="mut">Нічого не знайдено за фільтром.</td></tr>`) +
+    "</table>" +
+    `<div class="rv-pager"><span class="mut">${total} паперів</span><span class="sp"></span>` +
+    `<button class="pgbtn" data-pg="prev"${RV.page <= 1 ? " disabled" : ""}>‹ Назад</button>` +
+    `<span class="mut">${RV.page} / ${pages}</span>` +
+    `<button class="pgbtn" data-pg="next"${RV.page >= pages ? " disabled" : ""}>Далі ›</button></div>`;
+  box.querySelectorAll("[data-sort]").forEach(th => th.onclick = () => {
+    const k = th.dataset.sort;
+    if (RV.sortKey === k) RV.sortDir *= -1; else { RV.sortKey = k; RV.sortDir = k === "maturity" ? 1 : -1; }
+    rvRender();
+  });
+  box.querySelectorAll("[data-pg]").forEach(b => b.onclick = () => {
+    if (b.dataset.pg === "prev" && RV.page > 1) RV.page--;
+    if (b.dataset.pg === "next") RV.page++;
+    rvRender();
+  });
 }
 function takeBond(isin) {
   const i = document.querySelector('[name=isin]');
