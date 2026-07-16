@@ -103,6 +103,7 @@
       <input name="channel" placeholder="Канал (Дія…)" style="width:120px">
       <button class="act">Додати</button>
     </form>
+    <p class="mut" id="bondInfo"></p>
     <h3>Позиції</h3>
     <table id="positions"></table>
     <h3>Лоти</h3>
@@ -274,7 +275,7 @@ async function loadReinvest() {
 }
 function takeBond(isin) {
   const i = document.querySelector('[name=isin]');
-  i.value = isin; i.dispatchEvent(new Event("input"));
+  i.value = isin; i.dispatchEvent(new Event("input")); i.dispatchEvent(new Event("change"));
   i.scrollIntoView({behavior:"smooth", block:"center"});
   document.querySelector('[name=qty]').focus();
 }
@@ -413,6 +414,19 @@ document.querySelector("[name=isin]").oninput = e => {
     const bonds = await api("/api/bonds/search?q=" + encodeURIComponent(q));
     $("#isinList").innerHTML = bonds.map(b=>`<option value="${b.isin}">${b.maturity} · ${b.rate_pct}% · ${b.nominal.currency}</option>`).join("");
   }, 300);
+};
+document.querySelector("[name=isin]").onchange = async e => {
+  const isin = e.target.value.trim();
+  const info = $("#bondInfo");
+  if (!isin) { info.textContent = ""; return; }
+  try {
+    const b = await api("/api/bonds/" + encodeURIComponent(isin));
+    if (!b || !b.nominal) return;
+    const f = $("#lotForm");
+    if (["UAH","USD","EUR"].includes(b.nominal.currency)) f.currency.value = b.nominal.currency;
+    if (!f.price_per_bond.value.trim()) f.price_per_bond.value = b.nominal.amount;
+    info.textContent = `${b.descr||""} · ${b.rate_pct}% · погашення ${b.maturity} · номінал ${fmt(b.nominal)}`;
+  } catch (_) { info.textContent = ""; }
 };
 
 function refresh() { loadSummary(); loadReinvest(); loadPortfolio(); loadMovements(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); loadProjection(); }
