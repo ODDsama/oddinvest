@@ -61,6 +61,25 @@ func TestFuturePaymentsSkipsPast(t *testing.T) {
 	}
 }
 
+// Куплено 2026-07-16; купон, датований ДО купівлі (2026-04-29), належав
+// попередньому власнику й НЕ має зараховуватись — інакше фантомний дохід
+// роздуває XIRR (реальний баг: 803%).
+func TestFuturePaymentsSkipsPreBuyCoupon(t *testing.T) {
+	lot := Lot{ID: 1, ISIN: "UA1", Qty: 2, PricePerBond: uah(104732), BuyDate: "2026-07-16"}
+	pays := []Payment{
+		{ISIN: "UA1", PayDate: "2026-04-29", Type: PayCoupon, PerBond: uah(8080)}, // до купівлі
+		{ISIN: "UA1", PayDate: "2026-07-16", Type: PayCoupon, PerBond: uah(8080)}, // в день купівлі — продавцю
+		{ISIN: "UA1", PayDate: "2026-10-28", Type: PayCoupon, PerBond: uah(8080)}, // наш
+	}
+	items, err := FuturePayments(pays, []Lot{lot}, nil, "1970-01-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Date != "2026-10-28" || items[0].Amount.Amount() != 16160 {
+		t.Fatalf("купон на/до дати купівлі має відсікатись; маємо %+v", items)
+	}
+}
+
 func TestLadder(t *testing.T) {
 	bonds := map[string]Bond{
 		"UA1": {ISIN: "UA1", Nominal: uah(100000), Maturity: "2027-03-01"},
