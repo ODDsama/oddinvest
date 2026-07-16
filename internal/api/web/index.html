@@ -61,7 +61,7 @@
       <div class="card"><div class="l">EUR</div><div class="v" id="balEUR">—</div></div>
       <div class="card"><div class="l">Разом (грн-екв.)</div><div class="v" id="accBal">—</div></div>
     </div>
-    <h3>Рух коштів</h3>
+    <h3>Додати рух</h3>
     <p class="mut">Поповнення (+) / зняття (−) у своїй валюті. Купівля лота й купони рухають рахунок автоматично.</p>
     <form class="inline" id="depForm">
       <input name="amount" placeholder="Сума (+ / −)" required style="width:140px">
@@ -70,7 +70,6 @@
       <input name="note" placeholder="Нотатка" style="width:150px">
       <button class="act">Записати</button>
     </form>
-    <table id="deposits"></table>
     <h3>Конвертація валют</h3>
     <p class="mut">Віддав → отримав (курс рахується сам із сум).</p>
     <form class="inline" id="convForm">
@@ -83,7 +82,8 @@
       <input name="note" placeholder="Нотатка" style="width:150px">
       <button class="act">Записати</button>
     </form>
-    <table id="conversions"></table>
+    <h3>Історія рухів</h3>
+    <table id="movements"></table>
   </section>
 
   <section id="portfolio" class="show">
@@ -173,7 +173,7 @@ async function loadSummary() {
     card("Частка EUR", (s.eur_share_pct || 0).toFixed(1) + "%") +
     card("Місяць: план", `${s.month_invested_uah.toLocaleString("uk")} / ${s.month_target_uah.toLocaleString("uk")} (${s.month_progress_pct}%)`) +
     card("Не перевкладено", s.uninvested_uah.toLocaleString("uk")) +
-    card("Рахунок", s.account_uah.toLocaleString("uk")) +
+    card("Рахунок (грн-екв.)", s.account_uah.toLocaleString("uk")) +
     card("Разом (капітал)", (s.nominal_uah_eq + s.account_uah).toLocaleString("uk")) +
     card("Наступна виплата", s.next_payment ? `${s.next_payment.date} · ${s.next_payment.amount.toLocaleString("uk")} ${s.next_payment.currency}` : "—") +
     card("XIRR ₴", x.UAH != null ? x.UAH.toFixed(2) + "%" : "—") +
@@ -250,23 +250,26 @@ async function delLot(id) {
   await api("/api/lots/" + id, {method:"DELETE"}); refresh();
 }
 
-async function loadDeposits() {
-  const deps = await api("/api/deposits");
-  $("#deposits").innerHTML = deps.length ? "<tr><th>Дата</th><th>Сума</th><th>Нотатка</th><th></th></tr>" +
-    deps.map(d=>`<tr><td>${d.date}</td><td>${fmt(d.amount)}</td><td>${d.note||""}</td>
-      <td><button class="danger" onclick="delDep(${d.id})">✕</button></td></tr>`).join("") : "";
+async function loadMovements() {
+  const [deps, cs] = await Promise.all([api("/api/deposits"), api("/api/conversions")]);
+  const moves = [
+    ...deps.map(d=>({date:d.date,id:d.id,kind:"dep",amount:d.amount,note:d.note})),
+    ...cs.map(c=>({date:c.date,id:c.id,kind:"conv",from:c.from,to:c.to,note:c.note})),
+  ].sort((x,y)=> x.date<y.date?1 : x.date>y.date?-1 : y.id-x.id);
+  $("#movements").innerHTML = moves.length ? "<tr><th>Дата</th><th>Тип</th><th>Сума</th><th>Нотатка</th><th></th></tr>" +
+    moves.map(m=>{
+      if (m.kind==="dep") { const label = (+m.amount.amount)>=0 ? "Поповнення" : "Зняття";
+        return `<tr><td>${m.date}</td><td>${label}</td><td>${fmt(m.amount)}</td><td>${m.note||""}</td>
+          <td><button class="danger" onclick="delDep(${m.id})">✕</button></td></tr>`; }
+      const r=(+m.from.amount)/(+m.to.amount);
+      return `<tr><td>${m.date}</td><td>Конвертація</td><td>${fmt(m.from)} → ${fmt(m.to)}</td>
+        <td>${m.note||""}${isFinite(r)?` (${r.toFixed(4)})`:""}</td>
+        <td><button class="danger" onclick="delConv(${m.id})">✕</button></td></tr>`;
+    }).join("") : "";
 }
 async function delDep(id) {
   if (!confirm("Видалити рух " + id + "?")) return;
   await api("/api/deposits/" + id, {method:"DELETE"}); refresh();
-}
-
-async function loadConversions() {
-  const cs = await api("/api/conversions");
-  $("#conversions").innerHTML = cs.length ? "<tr><th>Дата</th><th>Віддав</th><th>Отримав</th><th>Курс</th><th></th></tr>" +
-    cs.map(c=>{ const r = (+c.from.amount)/(+c.to.amount);
-      return `<tr><td>${c.date}</td><td>${fmt(c.from)}</td><td>${fmt(c.to)}</td>
-      <td>${isFinite(r)?r.toFixed(4):"—"}</td><td><button class="danger" onclick="delConv(${c.id})">✕</button></td></tr>`; }).join("") : "";
 }
 async function delConv(id) {
   if (!confirm("Видалити конвертацію " + id + "?")) return;
@@ -343,7 +346,7 @@ document.querySelector("[name=isin]").oninput = e => {
   }, 300);
 };
 
-function refresh() { loadSummary(); loadPortfolio(); loadDeposits(); loadConversions(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); }
+function refresh() { loadSummary(); loadPortfolio(); loadMovements(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); }
 refresh();
 </script>
 </body>
