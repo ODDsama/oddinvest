@@ -860,12 +860,14 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 		USDSharePct    float64 `json:"usd_share_pct"`
 		UninvestedUAH  float64 `json:"uninvested_uah"`
 		MonthTargetUAH float64 `json:"month_target_uah"`
+		AccountUAH     float64 `json:"account_uah"`
 	}
 	out := make([]snapJSON, 0, len(snaps))
 	for _, sn := range snaps {
 		out = append(out, snapJSON{string(sn.Date), float64(sn.InvestedUAH) / 100,
 			float64(sn.NominalUAHEq) / 100, float64(sn.USDShareBP) / 100,
-			float64(sn.UninvestedUAH) / 100, float64(sn.MonthTargetUAH) / 100})
+			float64(sn.UninvestedUAH) / 100, float64(sn.MonthTargetUAH) / 100,
+			float64(sn.AccountUAH) / 100})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

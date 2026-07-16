@@ -156,9 +156,16 @@ func Build(in Input) (*Doc, error) {
 	}
 	doc.InvestedUAH = float64(investedUAH) / 100
 	doc.NominalUAHEq = float64(nominalUAH) / 100
-	if nominalUAH > 0 {
-		doc.USDSharePct = float64(nominalUSD) * 100 / float64(nominalUAH)
-		doc.EURSharePct = float64(nominalEUR) * 100 / float64(nominalUAH)
+	// частки рахуються від усього капіталу: папери за номіналом + кеш на
+	// рахунку (гривня). Так вільний кеш «розводить» валютні частки.
+	accountMinor := int64(0)
+	if in.AccountUAH != nil {
+		accountMinor = in.AccountUAH.Amount()
+	}
+	capital := nominalUAH + accountMinor
+	if capital > 0 {
+		doc.USDSharePct = float64(nominalUSD) * 100 / float64(capital)
+		doc.EURSharePct = float64(nominalEUR) * 100 / float64(capital)
 	}
 
 	doc.MonthInvestedUAH = major(in.MonthInvestedUAH)

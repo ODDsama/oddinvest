@@ -73,7 +73,7 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 	return r.st.SaveSnapshot(ctx, today,
 		int64(doc.InvestedUAH*100), int64(doc.NominalUAHEq*100),
 		int64(doc.USDSharePct*100), int64(doc.UninvestedUAH*100),
-		int64(doc.MonthTargetUAH*100))
+		int64(doc.MonthTargetUAH*100), int64(doc.AccountUAH*100))
 }
 
 func (r *Runner) PublishState(ctx context.Context) error {

@@ -412,13 +412,14 @@ func (s *Store) LatestRate(ctx context.Context, code string) (int64, error) {
 	return r, err
 }
 
-func (s *Store) SaveSnapshot(ctx context.Context, date domain.Date, investedUAH, nominalUAHEq, usdShareBP, uninvestedUAH, monthTargetUAH int64) error {
+func (s *Store) SaveSnapshot(ctx context.Context, date domain.Date, investedUAH, nominalUAHEq, usdShareBP, uninvestedUAH, monthTargetUAH, accountUAH int64) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO snapshots
-		(date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah, month_target_uah) VALUES(?,?,?,?,?,?)
+		(date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah, month_target_uah, account_uah) VALUES(?,?,?,?,?,?,?)
 		ON CONFLICT(date) DO UPDATE SET invested_uah=excluded.invested_uah,
 		nominal_uah_eq=excluded.nominal_uah_eq, usd_share_bp=excluded.usd_share_bp,
-		uninvested_uah=excluded.uninvested_uah, month_target_uah=excluded.month_target_uah`,
-		string(date), investedUAH, nominalUAHEq, usdShareBP, uninvestedUAH, monthTargetUAH)
+		uninvested_uah=excluded.uninvested_uah, month_target_uah=excluded.month_target_uah,
+		account_uah=excluded.account_uah`,
+		string(date), investedUAH, nominalUAHEq, usdShareBP, uninvestedUAH, monthTargetUAH, accountUAH)
 	return err
 }
 
@@ -458,10 +459,11 @@ type Snapshot struct {
 	USDShareBP     int64
 	UninvestedUAH  int64
 	MonthTargetUAH int64
+	AccountUAH     int64
 }
 
 func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snapshot, error) {
-	sqlq := `SELECT date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah, month_target_uah
+	sqlq := `SELECT date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah, month_target_uah, account_uah
 		FROM snapshots WHERE 1=1`
 	args := []any{}
 	if from != "" {
@@ -482,7 +484,7 @@ func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snap
 	for rows.Next() {
 		var sn Snapshot
 		var d string
-		if err := rows.Scan(&d, &sn.InvestedUAH, &sn.NominalUAHEq, &sn.USDShareBP, &sn.UninvestedUAH, &sn.MonthTargetUAH); err != nil {
+		if err := rows.Scan(&d, &sn.InvestedUAH, &sn.NominalUAHEq, &sn.USDShareBP, &sn.UninvestedUAH, &sn.MonthTargetUAH, &sn.AccountUAH); err != nil {
 			return nil, err
 		}
 		sn.Date = domain.Date(d)
