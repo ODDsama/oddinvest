@@ -19,9 +19,12 @@ import (
 )
 
 const (
-	DefaultBase   = "https://bank.gov.ua"
-	securitiesURI = "/NBUStatService/v1/statdirectory/securities?json"
+	DefaultBase = "https://bank.gov.ua"
+	// Реєстр ОВДП із графіком купонів/погашень (cpcode/nominal/auk_proc/
+	// pgs_date/val_code/payments[]). Саме його чекає parseSecurities.
+	securitiesURI = "/depo_securities?json"
 	exchangeURI   = "/NBUStatService/v1/statdirectory/exchange?valcode=%s&json"
+	userAgent     = "Mozilla/5.0 (compatible; oddinvestd/1.0)"
 )
 
 type Client struct {
@@ -66,6 +69,7 @@ func (c *Client) Securities(ctx context.Context) ([]Security, error) {
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("НБУ securities: %w", err)
@@ -175,6 +179,7 @@ func (c *Client) Rate(ctx context.Context, code string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("НБУ exchange: %w", err)
