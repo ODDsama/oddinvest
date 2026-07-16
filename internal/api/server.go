@@ -357,7 +357,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if domain.DaysBetween(flows[0].Date, today) < 30 {
 			continue
 		}
-		if r, err := domain.XIRR(flows); err == nil {
+		// навіть >30 днів нерівномірні потоки дають артефакти (сотні %);
+		// реалізована дохідність портфеля ОВДП поза смугою -95%..+100%
+		// — це шум ануалізації, а не сигнал, тож не публікуємо.
+		if r, err := domain.XIRR(flows); err == nil && r <= 1.0 && r >= -0.95 {
 			xirr[cur] = math.Round(r*10000) / 100 // частка -> %, 2 знаки
 		}
 	}
