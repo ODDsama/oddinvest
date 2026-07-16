@@ -8,6 +8,8 @@
   "uninvested_uah": 0,
   "account_uah": 0,
   "reinvest_min_uah": 0,
+  "accounts": {},
+  "reinvest_min": {},
   "month_invested_uah": 0,
   "month_target_uah": 0,
   "month_progress_pct": 0,

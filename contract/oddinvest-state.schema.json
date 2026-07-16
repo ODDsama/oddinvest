@@ -57,6 +57,14 @@
       "type": "number",
       "minimum": 0
     },
+    "accounts": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "reinvest_min": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
     "month_invested_uah": {
       "type": "number",
       "minimum": 0

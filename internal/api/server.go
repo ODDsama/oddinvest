@@ -59,6 +59,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/deposits", s.handleListDeposits)
 	mux.HandleFunc("POST /api/deposits", s.handleAddDeposit)
 	mux.HandleFunc("DELETE /api/deposits/{id}", s.handleDeleteDeposit)
+	mux.HandleFunc("GET /api/conversions", s.handleListConversions)
+	mux.HandleFunc("POST /api/conversions", s.handleAddConversion)
+	mux.HandleFunc("DELETE /api/conversions/{id}", s.handleDeleteConversion)
 	mux.HandleFunc("GET /api/bonds/search", s.handleSearchBonds)
 	mux.HandleFunc("GET /api/bonds/{isin}", s.handleGetBond)
 	mux.HandleFunc("GET /api/accrued/{isin}", s.handleAccrued)
@@ -239,30 +242,42 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		return nil, err
 	}
 	unin := money.New(0, money.UAH)
-	couponsUAH := money.New(0, money.UAH) // усі отримані виплати, грн-екв. (для рахунку)
+	bal := map[string]int64{} // валюта -> мінорні (нативно): баланс рахунку
 	for _, cf := range pastCF {
 		if cf.Date.After(today) || cf.Date == today {
 			continue
 		}
+		// отримана виплата кредитує рахунок у своїй валюті
+		bal[cf.Amount.Currency().Code] += cf.Amount.Amount()
 		uahAmt, err := fx.ToUAH(cf.Amount, rates)
 		if err != nil {
-			return nil, err
-		}
-		if couponsUAH, err = couponsUAH.Add(uahAmt); err != nil {
 			return nil, err
 		}
 		if statuses[cf.ISIN+"|"+string(cf.Date)] == "reinvested" {
 			continue
 		}
-		unin, err = unin.Add(uahAmt)
-		if err != nil {
+		if unin, err = unin.Add(uahAmt); err != nil {
 			return nil, err
 		}
 	}
 
-	// --- грошовий рахунок (гаманець) ---
-	// баланс = Σ поповнень + Σ отриманих виплат − Σ вартості лотів, грн-екв.
-	purchasesUAH := money.New(0, money.UAH)
+	// --- мультивалютний грошовий рахунок ---
+	// баланс валюти = Σ поповнень + Σ конвертацій + Σ отриманих виплат −
+	// Σ вартості лотів (усе нативно, у своїй валюті).
+	depByCur, err := s.st.DepositsByCurrency(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for cur, amt := range depByCur {
+		bal[cur] += amt
+	}
+	convNet, err := s.st.ConversionsNet(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for cur, net := range convNet {
+		bal[cur] += net
+	}
 	for _, l := range lots {
 		cost := domain.MulQty(l.PricePerBond, l.Qty)
 		if l.Fee != nil && !l.Fee.IsZero() {
@@ -270,35 +285,30 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				return nil, err
 			}
 		}
-		uahAmt, err := fx.ToUAH(cost, rates)
-		if err != nil {
-			return nil, err
+		bal[cost.Currency().Code] -= cost.Amount()
+	}
+	accounts := map[string]float64{}
+	accountUAHMinor := int64(0)
+	for cur, m := range bal {
+		accounts[cur] = float64(m) / 100
+		if uahAmt, err := fx.ToUAH(money.New(m, cur), rates); err == nil {
+			accountUAHMinor += uahAmt.Amount()
 		}
-		if purchasesUAH, err = purchasesUAH.Add(uahAmt); err != nil {
-			return nil, err
-		}
 	}
-	depSum, err := s.st.DepositsSum(ctx)
-	if err != nil {
-		return nil, err
-	}
-	account := money.New(depSum, money.UAH)
-	if account, err = account.Add(couponsUAH); err != nil {
-		return nil, err
-	}
-	if account, err = account.Subtract(purchasesUAH); err != nil {
-		return nil, err
-	}
-	// ціна найдешевшого паперу з довідника (мін. номінал у грн-екв.)
+	account := money.New(accountUAHMinor, money.UAH)
+
+	// найдешевший папір по валютах (нативно) + мінімум у грн-екв.
 	minNoms, err := s.st.MinNominalByCurrency(ctx)
 	if err != nil {
 		return nil, err
 	}
+	reinvestMinByCur := map[string]float64{}
 	reinvestMin := money.New(0, money.UAH)
 	for cur, minNom := range minNoms {
+		reinvestMinByCur[cur] = float64(minNom) / 100
 		uahAmt, err := fx.ToUAH(money.New(minNom, cur), rates)
 		if err != nil {
-			continue // валюта без курсу — пропускаємо
+			continue
 		}
 		if reinvestMin.IsZero() || uahAmt.Amount() < reinvestMin.Amount() {
 			reinvestMin = uahAmt
@@ -340,7 +350,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthTargetUAH: target,
-		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin, TopN: 5,
+		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
+		Accounts: accounts, ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr,
 	})
 }
@@ -617,9 +628,10 @@ func (s *Server) handleListSales(w http.ResponseWriter, r *http.Request) {
 }
 
 type depositReq struct {
-	Date   string `json:"date"`
-	Amount string `json:"amount"` // десятковий; + поповнення, − зняття
-	Note   string `json:"note"`
+	Date     string `json:"date"`
+	Amount   string `json:"amount"` // десятковий; + поповнення, − зняття
+	Currency string `json:"currency"`
+	Note     string `json:"note"`
 }
 
 func (s *Server) handleAddDeposit(w http.ResponseWriter, r *http.Request) {
@@ -636,12 +648,16 @@ func (s *Server) handleAddDeposit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	minor, err := domain.ParseDecimalToMinor(req.Amount, money.UAH)
+	cur := req.Currency
+	if cur == "" {
+		cur = money.UAH
+	}
+	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	id, err := s.st.AddDeposit(r.Context(), store.Deposit{Date: d, Amount: minor, Note: req.Note})
+	id, err := s.st.AddDeposit(r.Context(), store.Deposit{Date: d, Amount: minor, Currency: cur, Note: req.Note})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -679,7 +695,96 @@ func (s *Server) handleListDeposits(w http.ResponseWriter, r *http.Request) {
 	out := make([]depJSON, 0, len(deps))
 	for _, d := range deps {
 		out = append(out, depJSON{d.ID, string(d.Date),
-			toMoneyJSON(money.New(d.Amount, money.UAH)), d.Note})
+			toMoneyJSON(money.New(d.Amount, d.Currency)), d.Note})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type conversionReq struct {
+	Date         string `json:"date"`
+	FromCurrency string `json:"from_currency"`
+	FromAmount   string `json:"from_amount"`
+	ToCurrency   string `json:"to_currency"`
+	ToAmount     string `json:"to_amount"`
+	Note         string `json:"note"`
+}
+
+func (s *Server) handleAddConversion(w http.ResponseWriter, r *http.Request) {
+	var req conversionReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	d := domain.NewDate(time.Now())
+	if req.Date != "" {
+		var err error
+		if d, err = domain.ParseDate(req.Date); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	if req.FromCurrency == req.ToCurrency {
+		writeErr(w, http.StatusBadRequest, errors.New("валюти конвертації мають відрізнятись"))
+		return
+	}
+	fromMinor, err := domain.ParseDecimalToMinor(req.FromAmount, req.FromCurrency)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	toMinor, err := domain.ParseDecimalToMinor(req.ToAmount, req.ToCurrency)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if fromMinor <= 0 || toMinor <= 0 {
+		writeErr(w, http.StatusBadRequest, errors.New("суми конвертації мають бути > 0"))
+		return
+	}
+	id, err := s.st.AddConversion(r.Context(), store.Conversion{
+		Date: d, FromCurrency: req.FromCurrency, FromAmount: fromMinor,
+		ToCurrency: req.ToCurrency, ToAmount: toMinor, Note: req.Note,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+func (s *Server) handleDeleteConversion(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.DeleteConversion(r.Context(), id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleListConversions(w http.ResponseWriter, r *http.Request) {
+	convs, err := s.st.ListConversions(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	type convJSON struct {
+		ID   int64     `json:"id"`
+		Date string    `json:"date"`
+		From moneyJSON `json:"from"`
+		To   moneyJSON `json:"to"`
+		Note string    `json:"note"`
+	}
+	out := make([]convJSON, 0, len(convs))
+	for _, c := range convs {
+		out = append(out, convJSON{c.ID, string(c.Date),
+			toMoneyJSON(money.New(c.FromAmount, c.FromCurrency)),
+			toMoneyJSON(money.New(c.ToAmount, c.ToCurrency)), c.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

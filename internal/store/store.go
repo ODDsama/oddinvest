@@ -145,17 +145,18 @@ func (s *Store) ListSales(ctx context.Context) ([]domain.Sale, error) {
 
 // --- рахунок (гаманець) ---
 
-// Deposit — ручне поповнення (+) або зняття (−) грошового рахунку, UAH.
+// Deposit — ручне поповнення (+) або зняття (−) рахунку у своїй валюті.
 type Deposit struct {
-	ID     int64
-	Date   domain.Date
-	Amount int64 // мінорні UAH
-	Note   string
+	ID       int64
+	Date     domain.Date
+	Amount   int64 // мінорні; + поповнення / − зняття
+	Currency string
+	Note     string
 }
 
 func (s *Store) AddDeposit(ctx context.Context, d Deposit) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO deposits (date, amount, note)
-		VALUES (?,?,?)`, string(d.Date), d.Amount, d.Note)
+	res, err := s.db.ExecContext(ctx, `INSERT INTO deposits (date, amount, currency, note)
+		VALUES (?,?,?,?)`, string(d.Date), d.Amount, d.Currency, d.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -168,7 +169,7 @@ func (s *Store) DeleteDeposit(ctx context.Context, id int64) error {
 }
 
 func (s *Store) ListDeposits(ctx context.Context) ([]Deposit, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, note
+	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, currency, note
 		FROM deposits ORDER BY date, id`)
 	if err != nil {
 		return nil, err
@@ -178,7 +179,7 @@ func (s *Store) ListDeposits(ctx context.Context) ([]Deposit, error) {
 	for rows.Next() {
 		var d Deposit
 		var dt string
-		if err := rows.Scan(&d.ID, &dt, &d.Amount, &d.Note); err != nil {
+		if err := rows.Scan(&d.ID, &dt, &d.Amount, &d.Currency, &d.Note); err != nil {
 			return nil, err
 		}
 		d.Date = domain.Date(dt)
@@ -187,13 +188,83 @@ func (s *Store) ListDeposits(ctx context.Context) ([]Deposit, error) {
 	return out, rows.Err()
 }
 
-// DepositsSum — сума всіх поповнень/знять, UAH-мінорні.
-func (s *Store) DepositsSum(ctx context.Context) (int64, error) {
-	var sum sql.NullInt64
-	if err := s.db.QueryRowContext(ctx, `SELECT SUM(amount) FROM deposits`).Scan(&sum); err != nil {
+// DepositsByCurrency — сума поповнень/знять по валютах (мінорні).
+func (s *Store) DepositsByCurrency(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT currency, SUM(amount) FROM deposits GROUP BY currency`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var cur string
+		var sum int64
+		if err := rows.Scan(&cur, &sum); err != nil {
+			return nil, err
+		}
+		out[cur] = sum
+	}
+	return out, rows.Err()
+}
+
+// Conversion — обмін: віддав FromAmount[FromCurrency] → отримав ToAmount[ToCurrency].
+type Conversion struct {
+	ID           int64
+	Date         domain.Date
+	FromCurrency string
+	FromAmount   int64
+	ToCurrency   string
+	ToAmount     int64
+	Note         string
+}
+
+func (s *Store) AddConversion(ctx context.Context, c Conversion) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO conversions
+		(date, from_currency, from_amount, to_currency, to_amount, note) VALUES (?,?,?,?,?,?)`,
+		string(c.Date), c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, c.Note)
+	if err != nil {
 		return 0, err
 	}
-	return sum.Int64, nil
+	return res.LastInsertId()
+}
+
+func (s *Store) DeleteConversion(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM conversions WHERE id=?`, id)
+	return err
+}
+
+func (s *Store) ListConversions(ctx context.Context) ([]Conversion, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, date, from_currency, from_amount, to_currency, to_amount, note
+		FROM conversions ORDER BY date, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Conversion
+	for rows.Next() {
+		var c Conversion
+		var dt string
+		if err := rows.Scan(&c.ID, &dt, &c.FromCurrency, &c.FromAmount, &c.ToCurrency, &c.ToAmount, &c.Note); err != nil {
+			return nil, err
+		}
+		c.Date = domain.Date(dt)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ConversionsNet — чистий рух по валютах: −from для from_currency, +to для to_currency.
+func (s *Store) ConversionsNet(ctx context.Context) (map[string]int64, error) {
+	convs, err := s.ListConversions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]int64{}
+	for _, c := range convs {
+		out[c.FromCurrency] -= c.FromAmount
+		out[c.ToCurrency] += c.ToAmount
+	}
+	return out, nil
 }
 
 // MinNominalByCurrency — найменший номінал у довіднику по кожній валюті

@@ -56,17 +56,34 @@
   <section id="account">
     <h3>Рахунок (гаманець)</h3>
     <div class="cards">
-      <div class="card"><div class="l">Баланс</div><div class="v" id="accBal">—</div></div>
-      <div class="card"><div class="l">Разом (капітал)</div><div class="v" id="totCap">—</div></div>
+      <div class="card"><div class="l">UAH</div><div class="v" id="balUAH">—</div></div>
+      <div class="card"><div class="l">USD</div><div class="v" id="balUSD">—</div></div>
+      <div class="card"><div class="l">EUR</div><div class="v" id="balEUR">—</div></div>
+      <div class="card"><div class="l">Разом (грн-екв.)</div><div class="v" id="accBal">—</div></div>
     </div>
-    <p class="mut">Баланс = поповнення + отримані купони/погашення − вартість куплених лотів (грн-екв.). Купівля лота списує з рахунку автоматично.</p>
+    <h3>Рух коштів</h3>
+    <p class="mut">Поповнення (+) / зняття (−) у своїй валюті. Купівля лота й купони рухають рахунок автоматично.</p>
     <form class="inline" id="depForm">
-      <input name="amount" placeholder="Сума (+ поповнення / − зняття)" required style="width:210px">
+      <input name="amount" placeholder="Сума (+ / −)" required style="width:140px">
+      <select name="currency"><option>UAH</option><option>USD</option><option>EUR</option></select>
       <input name="date" type="date">
-      <input name="note" placeholder="Нотатка" style="width:170px">
+      <input name="note" placeholder="Нотатка" style="width:150px">
       <button class="act">Записати</button>
     </form>
     <table id="deposits"></table>
+    <h3>Конвертація валют</h3>
+    <p class="mut">Віддав → отримав (курс рахується сам із сум).</p>
+    <form class="inline" id="convForm">
+      <input name="from_amount" placeholder="Віддав" required style="width:110px">
+      <select name="from_currency"><option>UAH</option><option>USD</option><option>EUR</option></select>
+      <span style="align-self:center">→</span>
+      <input name="to_amount" placeholder="Отримав" required style="width:110px">
+      <select name="to_currency"><option>USD</option><option>UAH</option><option>EUR</option></select>
+      <input name="date" type="date">
+      <input name="note" placeholder="Нотатка" style="width:150px">
+      <button class="act">Записати</button>
+    </form>
+    <table id="conversions"></table>
   </section>
 
   <section id="portfolio" class="show">
@@ -163,23 +180,29 @@ async function loadSummary() {
     card("XIRR $", x.USD != null ? x.USD.toFixed(2) + "%" : "—") +
     card("XIRR €", x.EUR != null ? x.EUR.toFixed(2) + "%" : "—");
 
-  const ab = $("#accBal");
-  if (ab) ab.textContent = s.account_uah.toLocaleString("uk") + " ₴";
+  const a = s.accounts || {};
+  const setBal = (id, v, cur) => { const el = $(id); if (el) el.textContent = (v || 0).toLocaleString("uk") + " " + cur; };
+  setBal("#accBal", s.account_uah, "₴");
+  setBal("#balUAH", a.UAH, "₴"); setBal("#balUSD", a.USD, "$"); setBal("#balEUR", a.EUR, "€");
   const tc = $("#totCap");
-  if (tc) tc.textContent = (s.nominal_uah_eq + s.account_uah).toLocaleString("uk") + " ₴";
+  if (tc) tc.textContent = ((s.nominal_uah_eq || 0) + (s.account_uah || 0)).toLocaleString("uk") + " ₴";
 
-  // заклик до реінвестиції
+  // заклик до реінвестиції — по кожній валюті, де вистачає на папір
   const cta = $("#cta");
-  if (s.reinvest_min_uah > 0 && s.account_uah >= s.reinvest_min_uah) {
-    const n = Math.floor(s.account_uah / s.reinvest_min_uah);
-    cta.innerHTML = `💰 На рахунку <b>${s.account_uah.toLocaleString("uk")} ₴</b> — вистачає приблизно на <b>${n}</b> папер(и) (від ${s.reinvest_min_uah.toLocaleString("uk")} ₴). <a href="#" id="ctaBtn">Реінвестувати →</a>`;
+  const rmin = s.reinvest_min || {};
+  const ready = Object.keys(rmin).filter(c => rmin[c] > 0 && (a[c] || 0) >= rmin[c]);
+  if (ready.length) {
+    cta.innerHTML = ready.map(c => {
+      const n = Math.floor(a[c] / rmin[c]);
+      return `💰 На рахунку <b>${a[c].toLocaleString("uk")} ${c}</b> — вистачає на <b>${n}</b> ${c}-папер(и). <a href="#" class="ctaBtn">Реінвестувати →</a>`;
+    }).join("<br>");
     cta.style.display = "flex";
-    $("#ctaBtn").onclick = e => {
+    cta.querySelectorAll(".ctaBtn").forEach(btn => btn.onclick = e => {
       e.preventDefault();
       document.querySelector('nav button[data-tab="portfolio"]').click();
       const i = document.querySelector('[name=isin]');
       i.scrollIntoView({ behavior: "smooth", block: "center" }); i.focus();
-    };
+    });
   } else { cta.style.display = "none"; cta.innerHTML = ""; }
 }
 
@@ -238,6 +261,18 @@ async function delDep(id) {
   await api("/api/deposits/" + id, {method:"DELETE"}); refresh();
 }
 
+async function loadConversions() {
+  const cs = await api("/api/conversions");
+  $("#conversions").innerHTML = cs.length ? "<tr><th>Дата</th><th>Віддав</th><th>Отримав</th><th>Курс</th><th></th></tr>" +
+    cs.map(c=>{ const r = (+c.from.amount)/(+c.to.amount);
+      return `<tr><td>${c.date}</td><td>${fmt(c.from)}</td><td>${fmt(c.to)}</td>
+      <td>${isFinite(r)?r.toFixed(4):"—"}</td><td><button class="danger" onclick="delConv(${c.id})">✕</button></td></tr>`; }).join("") : "";
+}
+async function delConv(id) {
+  if (!confirm("Видалити конвертацію " + id + "?")) return;
+  await api("/api/conversions/" + id, {method:"DELETE"}); refresh();
+}
+
 async function loadCalendar() {
   const cf = await api("/api/calendar");
   const t = {1:"coupon",2:"redemption",3:"early"}, n = {1:"купон",2:"погашення",3:"дострокове"};
@@ -286,6 +321,12 @@ $("#depForm").onsubmit = async e => {
   try { await api("/api/deposits", {method:"POST", body:JSON.stringify(d)}); e.target.reset(); refresh(); toast("Записано"); }
   catch (err) { toast(err.message); }
 };
+$("#convForm").onsubmit = async e => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target));
+  try { await api("/api/conversions", {method:"POST", body:JSON.stringify(d)}); e.target.reset(); refresh(); toast("Конвертацію записано"); }
+  catch (err) { toast(err.message); }
+};
 $("#refreshBtn").onclick = async () => {
   toast("Оновлюю довідник НБУ…");
   try { await api("/api/refresh", {method:"POST"}); refresh(); toast("Довідник оновлено"); }
@@ -302,7 +343,7 @@ document.querySelector("[name=isin]").oninput = e => {
   }, 300);
 };
 
-function refresh() { loadSummary(); loadPortfolio(); loadDeposits(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); }
+function refresh() { loadSummary(); loadPortfolio(); loadDeposits(); loadConversions(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); }
 refresh();
 </script>
 </body>
