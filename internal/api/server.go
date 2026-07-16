@@ -371,6 +371,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// виплат (майбутні купони в межах року), тож на відміну від auk_proc
 	// (дохідність розміщення) відображає, що папери реально приносять.
 	var couponUAH, nominalUAH int64
+	couponByCur := map[string]int64{}  // річний купон нативно по валютах
+	nominalByCur := map[string]int64{} // номінал нативно по валютах
 	for _, l := range lots {
 		b, ok := bonds[l.ISIN]
 		if !ok || b.Maturity.Before(today) {
@@ -390,6 +392,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			}
 		}
 		cur := b.Nominal.Currency().Code
+		couponByCur[cur] += annualCoupon * q
+		nominalByCur[cur] += b.Nominal.Amount() * q
 		if c, err := fx.ToUAH(money.New(annualCoupon*q, cur), rates); err == nil {
 			couponUAH += c.Amount()
 		}
@@ -401,6 +405,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	if nominalUAH > 0 {
 		portfolioYield = math.Round(float64(couponUAH)/float64(nominalUAH)*10000) / 100
 	}
+	portfolioYieldByCur := map[string]float64{}
+	for cur, nom := range nominalByCur {
+		if nom > 0 {
+			portfolioYieldByCur[cur] = math.Round(float64(couponByCur[cur])/float64(nom)*10000) / 100
+		}
+	}
 
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
@@ -408,6 +418,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
 		Accounts: accounts, ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
+		PortfolioYield: portfolioYieldByCur,
 	})
 }
 

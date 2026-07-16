@@ -63,6 +63,11 @@ type Doc struct {
 	// (замість ручного вводу). 0 = паперів немає.
 	PortfolioYieldPct float64 `json:"portfolio_yield_pct,omitempty"`
 
+	// PortfolioYield — та сама дохідність, але окремо по кожній валюті
+	// (нативно, без конвертації): купон за 12 міс ÷ номінал паперів цієї
+	// валюти. Відсутня валюта = паперів немає.
+	PortfolioYield map[string]float64 `json:"portfolio_yield,omitempty"`
+
 	// Settings — сирі налаштування сервіса (v0.3+, адитивне поле).
 	// Потрібні HA для number/date-сутностей: значення приходять сюди
 	// MQTT-пушем, зміни йдуть у PUT /api/settings.
@@ -120,6 +125,7 @@ type Input struct {
 	Settings          *SettingsDoc
 	XIRRPct           map[string]float64
 	PortfolioYieldPct float64
+	PortfolioYield    map[string]float64
 }
 
 func payTypeStr(t domain.PayType) string {
@@ -201,6 +207,7 @@ func Build(in Input) (*Doc, error) {
 	doc.Settings = in.Settings
 	doc.XIRRPct = in.XIRRPct
 	doc.PortfolioYieldPct = in.PortfolioYieldPct
+	doc.PortfolioYield = in.PortfolioYield
 
 	nowDate := domain.NewDate(in.Now)
 	var monthIncoming int64

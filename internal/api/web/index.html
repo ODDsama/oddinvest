@@ -187,6 +187,7 @@ async function loadSummary() {
   const s = await api("/api/summary");
   const card = (l,v) => `<div class="card"><div class="l">${l}</div><div class="v">${v}</div></div>`;
   const x = s.xirr || {};
+  const py = s.portfolio_yield || {};
   $("#summary").innerHTML =
     card("Вкладено (грн-екв.)", s.invested_uah.toLocaleString("uk")) +
     card("Номінал (грн-екв.)", s.nominal_uah_eq.toLocaleString("uk")) +
@@ -197,6 +198,9 @@ async function loadSummary() {
     card("Рахунок (грн-екв.)", s.account_uah.toLocaleString("uk")) +
     card("Разом (капітал)", (s.nominal_uah_eq + s.account_uah).toLocaleString("uk")) +
     card("Наступна виплата", s.next_payment ? `${s.next_payment.date} · ${s.next_payment.amount.toLocaleString("uk")} ${s.next_payment.currency}` : "—") +
+    card("Дохідність ₴", py.UAH != null ? py.UAH.toFixed(2) + "%" : "—") +
+    card("Дохідність $", py.USD != null ? py.USD.toFixed(2) + "%" : "—") +
+    card("Дохідність €", py.EUR != null ? py.EUR.toFixed(2) + "%" : "—") +
     card("XIRR ₴", x.UAH != null ? x.UAH.toFixed(2) + "%" : "—") +
     card("XIRR $", x.USD != null ? x.USD.toFixed(2) + "%" : "—") +
     card("XIRR €", x.EUR != null ? x.EUR.toFixed(2) + "%" : "—");
