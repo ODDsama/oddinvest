@@ -67,6 +67,10 @@ type SettingsDoc struct {
 	MonthlyTargetUAH  *float64 `json:"monthly_target_uah,omitempty"`
 	USDTargetSharePct *float64 `json:"usd_target_share_pct,omitempty"`
 	EURTargetSharePct *float64 `json:"eur_target_share_pct,omitempty"`
+	// v Phase 3: проєкції/цілі
+	AssumedRatePct *float64 `json:"assumed_rate_pct,omitempty"` // очікувана річна дохідність, % (fallback до XIRR)
+	GoalAmountUAH  *float64 `json:"goal_amount_uah,omitempty"`  // цільова сума капіталу, грн
+	GoalDate       string   `json:"goal_date,omitempty"`        // цільова дата (ISO)
 }
 
 type NextPayment struct {

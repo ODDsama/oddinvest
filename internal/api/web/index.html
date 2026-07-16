@@ -46,6 +46,7 @@
     <button data-tab="calendar">Календар</button>
     <button data-tab="ladder">Драбина</button>
     <button data-tab="charts">Динаміка</button>
+    <button data-tab="projection">Проєкції</button>
     <button data-tab="settings">Налаштування</button>
   </nav>
 </header>
@@ -135,12 +136,23 @@
     <p class="mut">Сині — вкладено (грн-екв.), зелені — номінал, фіолетові — рахунок. Знімки пишуться щодня о 06:10.</p>
   </section>
 
+  <section id="projection">
+    <h3>Проєкції капіталу</h3>
+    <p class="mut" id="projNote"></p>
+    <table id="projTable"></table>
+    <h3>Ціль</h3>
+    <div id="goalBox" class="mut"></div>
+  </section>
+
   <section id="settings">
     <h3>Налаштування</h3>
     <form class="inline" id="setForm">
       <label>Ціль на місяць, грн <input name="monthly_target_uah"></label>
       <label>Цільова частка USD, % <input name="usd_target_share_pct"></label>
       <label>Цільова частка EUR, % <input name="eur_target_share_pct"></label>
+      <label>Очікувана дохідність, % <input name="assumed_rate_pct"></label>
+      <label>Ціль: сума, ₴ <input name="goal_amount_uah"></label>
+      <label>Ціль: дата <input name="goal_date" type="date"></label>
       <button class="act">Зберегти</button>
     </form>
     <button class="act" id="refreshBtn">Оновити довідник НБУ і курс</button>
@@ -317,6 +329,46 @@ async function loadSettings() {
   for (const [k,v] of Object.entries(s)) { const el = document.querySelector(`[name=${k}]`); if (el) el.value = v; }
 }
 
+const uahFmt = v => Math.round(v).toLocaleString("uk") + " ₴";
+function fvCalc(P0, C, annualPct, months) {
+  const i = annualPct/100/12;
+  if (i <= 0) return P0 + C*months;
+  const g = Math.pow(1+i, months);
+  return P0*g + C*(g-1)/i;
+}
+function reqCalc(goal, P0, annualPct, months) {
+  if (months <= 0) return 0;
+  const i = annualPct/100/12;
+  if (i <= 0) return (goal-P0)/months;
+  const g = Math.pow(1+i, months);
+  return (goal - P0*g)/((g-1)/i);
+}
+async function loadProjection() {
+  const s = await api("/api/summary");
+  const st = s.settings || {};
+  const P0 = (s.nominal_uah_eq||0) + (s.account_uah||0);
+  const C = s.month_target_uah||0;
+  const xirr = (s.xirr||{}).UAH;
+  const assumed = st.assumed_rate_pct;
+  const rate = (xirr!=null && xirr>0) ? xirr : (assumed||0);
+  const rateSrc = (xirr!=null&&xirr>0) ? `XIRR ${xirr.toFixed(1)}%` : (assumed?`очікувана ${assumed}%`:"ставка не задана");
+  $("#projNote").textContent = `Старт = капітал ${uahFmt(P0)}, внесок = ${uahFmt(C)}/міс, ставка = ${rateSrc} (реінвест щомісяця). Це припущення, не гарантія.`;
+  $("#projTable").innerHTML = "<tr><th>Горизонт</th><th>Внесено (без %)</th><th>З реінвестом</th><th>Приріст</th></tr>" +
+    [1,3,5,10].map(y=>{ const n=y*12; const base=P0+C*n; const fv=fvCalc(P0,C,rate,n);
+      return `<tr><td>${y} р.</td><td>${uahFmt(base)}</td><td>${uahFmt(fv)}</td><td>${uahFmt(fv-base)}</td></tr>`; }).join("");
+  if (st.goal_amount_uah && st.goal_date) {
+    const months = Math.max(0, Math.round((new Date(st.goal_date)-new Date())/(1000*60*60*24*30.4375)));
+    const proj = fvCalc(P0,C,rate,months);
+    const diff = proj - st.goal_amount_uah;
+    const reqC = reqCalc(st.goal_amount_uah, P0, rate, months);
+    $("#goalBox").innerHTML = `Ціль <b>${uahFmt(st.goal_amount_uah)}</b> до <b>${st.goal_date}</b> — лишилось ${months} міс; прогноз на дату ${uahFmt(proj)}. ` +
+      (diff>=0 ? `<span style="color:#3fb950">на шляху ✅ (запас ${uahFmt(diff)})</span>`
+               : `<span style="color:#f85149">бракує ${uahFmt(-diff)}</span> — потрібно ≈ <b>${uahFmt(Math.max(0,reqC))}</b>/міс (зараз ${uahFmt(C)})`);
+  } else {
+    $("#goalBox").textContent = "Задай цільову суму й дату в «Налаштуваннях».";
+  }
+}
+
 $("#lotForm").onsubmit = async e => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(e.target)); d.qty = +d.qty;
@@ -363,7 +415,7 @@ document.querySelector("[name=isin]").oninput = e => {
   }, 300);
 };
 
-function refresh() { loadSummary(); loadReinvest(); loadPortfolio(); loadMovements(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); }
+function refresh() { loadSummary(); loadReinvest(); loadPortfolio(); loadMovements(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); loadProjection(); }
 refresh();
 </script>
 </body>
