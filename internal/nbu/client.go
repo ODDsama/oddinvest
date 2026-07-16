@@ -42,14 +42,13 @@ func New(base string) *Client {
 // --- сирі структури відповіді ---
 
 type rawSecurity struct {
-	CPCode    string       `json:"cpcode"`     // ISIN
-	Nominal   json.Number  `json:"nominal"`    // номінал
-	AukProc   json.Number  `json:"auk_proc"`   // дохідність розміщення, %
-	PgsDate   string       `json:"pgs_date"`   // погашення
-	PayPeriod json.Number  `json:"pay_period"` // період купона, днів
-	ValCode   string       `json:"val_code"`   // "UAH"/"USD"/...
-	CPDescr   string       `json:"cpdescr"`
-	Payments  []rawPayment `json:"payments"`
+	CPCode   string       `json:"cpcode"`   // ISIN
+	Nominal  json.Number  `json:"nominal"`  // номінал
+	AukProc  json.Number  `json:"auk_proc"` // ставка, %
+	PgsDate  string       `json:"pgs_date"` // погашення
+	ValCode  string       `json:"val_code"` // "UAH"/"USD"/...
+	CPDescr  string       `json:"cpdescr"`
+	Payments []rawPayment `json:"payments"`
 }
 
 type rawPayment struct {
@@ -113,9 +112,14 @@ func parseSecurities(raw []rawSecurity) ([]Security, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%s: pgs_date: %w", r.CPCode, err)
 		}
+		rateBP, err := parseRateBP(r.AukProc.String())
+		if err != nil {
+			return nil, fmt.Errorf("%s: auk_proc: %w", r.CPCode, err)
+		}
 		sec := Security{Bond: domain.Bond{
 			ISIN:     r.CPCode,
 			Nominal:  money.New(nomMinor, code),
+			RateBP:   rateBP,
 			Maturity: mat,
 			Descr:    r.CPDescr,
 		}}
@@ -139,80 +143,9 @@ func parseSecurities(raw []rawSecurity) ([]Security, error) {
 				PerBond: money.New(valMinor, code),
 			})
 		}
-		// Ставка = купонна ставка з реального графіка виплат (річний купон /
-		// номінал). auk_proc у реєстрі — це дохідність ПЕРВИННОГО РОЗМІЩЕННЯ
-		// (історична, часто вища за поточну ринкову), тож для орієнтиру по
-		// паперу показуємо саме купон. Для дисконтних паперів (без купонів)
-		// падаємо назад на auk_proc.
-		payPeriod, _ := r.PayPeriod.Int64()
-		if bp, ok := couponRateBP(sec.Payments, nomMinor, payPeriod); ok {
-			sec.Bond.RateBP = bp
-		} else {
-			bp, err := parseRateBP(r.AukProc.String())
-			if err != nil {
-				return nil, fmt.Errorf("%s: auk_proc: %w", r.CPCode, err)
-			}
-			sec.Bond.RateBP = bp
-		}
 		out = append(out, sec)
 	}
 	return out, nil
-}
-
-// couponRateBP рахує річну купонну ставку в базисних пунктах (%×100) з
-// графіка виплат: (повний купон × кількість купонів на рік) / номінал.
-// Беремо максимальний купон, щоб «короткий» перший купон (нарахований від
-// дати випуску) не занизив ставку. Кількість купонів на рік визначаємо з
-// інтервалу між двома останніми купонами, інакше — з pay_period. Повертає
-// ok=false, якщо купонів немає або період визначити неможливо.
-func couponRateBP(payments []domain.Payment, nomMinor, payPeriodDays int64) (int64, bool) {
-	var maxCoupon int64
-	var coupons []domain.Payment
-	for _, p := range payments {
-		if p.Type == domain.PayCoupon {
-			coupons = append(coupons, p)
-			if a := p.PerBond.Amount(); a > maxCoupon {
-				maxCoupon = a
-			}
-		}
-	}
-	if maxCoupon == 0 || nomMinor == 0 {
-		return 0, false
-	}
-	var gap int64
-	if n := len(coupons); n >= 2 {
-		if d, ok := daysBetween(coupons[n-2].PayDate, coupons[n-1].PayDate); ok && d > 0 {
-			gap = d
-		}
-	}
-	if gap == 0 {
-		gap = payPeriodDays
-	}
-	if gap <= 0 {
-		return 0, false
-	}
-	periods := (2*365 + gap) / (2 * gap) // round(365/gap)
-	if periods <= 0 {
-		periods = 1
-	}
-	// rateBP = round(купон × купонів_на_рік × 10000 / номінал), half-even.
-	num := new(big.Int).Mul(big.NewInt(maxCoupon), big.NewInt(periods*10000))
-	rat := new(big.Rat).SetFrac(num, big.NewInt(nomMinor))
-	bp, err := domain.RatToInt64HalfEven(rat)
-	if err != nil {
-		return 0, false
-	}
-	return bp, true
-}
-
-// daysBetween — кількість днів між двома ISO-датами.
-func daysBetween(a, b domain.Date) (int64, bool) {
-	ta, err1 := time.Parse("2006-01-02", string(a))
-	tb, err2 := time.Parse("2006-01-02", string(b))
-	if err1 != nil || err2 != nil {
-		return 0, false
-	}
-	return int64(tb.Sub(ta) / (24 * time.Hour)), true
 }
 
 // parseNBUDate — НБУ в різних ендпоінтах віддає дати по-різному;
