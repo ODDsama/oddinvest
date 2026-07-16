@@ -412,6 +412,61 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
+	// --- проєкція капіталу: помісячна симуляція РЕАЛЬНИХ потоків ---
+	// (купони/погашення наявних паперів) + внески; реінвест під дохідність
+	// портфеля. Готівка не працює, поки не реінвестована. Це замість сухої
+	// формули складного відсотка — біля-термінова частина будується з
+	// фактичного календаря виплат.
+	capRate := portfolioYield
+	if capRate > 40 {
+		capRate = 40 // стеля, щоб компаунд не вибухав
+	}
+	cash0 := float64(accountUAHMinor) / 100
+	nominal0 := float64(nominalUAH) / 100
+	contribM := 0.0
+	if !target.IsZero() {
+		contribM = float64(target.Amount()) / 100
+	}
+	threshold := float64(reinvestMin.Amount()) / 100
+	monthlyCoupon := map[int]float64{}
+	monthlyRedeem := map[int]float64{}
+	for _, cf := range cashflow {
+		uahAmt, err := fx.ToUAH(cf.Amount, rates)
+		if err != nil {
+			continue
+		}
+		mi := (cf.Date.Year()-today.Year())*12 + int(cf.Date.Month()) - int(today.Month())
+		if mi < 1 {
+			mi = 1
+		}
+		v := float64(uahAmt.Amount()) / 100
+		if cf.Type == domain.PayRedemption {
+			monthlyRedeem[mi] += v
+		} else {
+			monthlyCoupon[mi] += v
+		}
+	}
+	p0 := cash0 + nominal0
+	projection := make([]state.ProjectionRow, 0, 4)
+	for _, y := range []int{1, 3, 5, 10} {
+		m := y * 12
+		projection = append(projection, state.ProjectionRow{
+			Years:        y,
+			Contributed:  math.Round((p0+contribM*float64(m))*100) / 100,
+			WithReinvest: math.Round(domain.ProjectCapital(cash0, nominal0, contribM, threshold, capRate, monthlyCoupon, monthlyRedeem, m)*100) / 100,
+		})
+	}
+	var goalProj, goalReq float64
+	var goalMonths int
+	if settings.GoalAmountUAH != nil && domain.Date(settings.GoalDate).Valid() {
+		gd := domain.Date(settings.GoalDate)
+		goalMonths = (gd.Year()-today.Year())*12 + int(gd.Month()) - int(today.Month())
+		if goalMonths > 0 {
+			goalProj = math.Round(domain.ProjectCapital(cash0, nominal0, contribM, threshold, capRate, monthlyCoupon, monthlyRedeem, goalMonths)*100) / 100
+			goalReq = math.Round(domain.RequiredMonthly(cash0, nominal0, threshold, capRate, *settings.GoalAmountUAH, monthlyCoupon, monthlyRedeem, goalMonths)*100) / 100
+		}
+	}
+
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthTargetUAH: target,
@@ -419,6 +474,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Accounts: accounts, ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
 		PortfolioYield: portfolioYieldByCur,
+		Projection:    projection, ProjectionRatePct: capRate,
+		GoalProjection: goalProj, GoalRequiredMonthly: goalReq, GoalMonthsLeft: goalMonths,
 	})
 }
 

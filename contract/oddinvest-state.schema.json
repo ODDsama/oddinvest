@@ -262,6 +262,22 @@
       "type": "object",
       "description": "Очікувана дохідність по кожній валюті окремо, % (купон за 12 міс ÷ номінал; адитивне поле)",
       "additionalProperties": { "type": "number" }
-    }
+    },
+    "projection": {
+      "type": "array",
+      "description": "Прогноз капіталу помісячною симуляцією реальних потоків (адитивне поле)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "years": { "type": "integer" },
+          "contributed": { "type": "number" },
+          "with_reinvest": { "type": "number" }
+        }
+      }
+    },
+    "projection_rate_pct": { "type": "number", "description": "Ставка реінвесту в проєкції, %" },
+    "goal_projection": { "type": "number", "description": "Прогноз капіталу на дату цілі, грн-екв." },
+    "goal_required_monthly": { "type": "number", "description": "Потрібний внесок/міс для досягнення цілі, грн-екв." },
+    "goal_months_left": { "type": "integer", "description": "Місяців до дати цілі" }
   }
 }

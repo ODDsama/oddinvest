@@ -68,6 +68,16 @@ type Doc struct {
 	// валюти. Відсутня валюта = паперів немає.
 	PortfolioYield map[string]float64 `json:"portfolio_yield,omitempty"`
 
+	// Projection — прогноз капіталу помісячною симуляцією реальних потоків
+	// (купони/погашення наявних паперів + внески, реінвест під дохідність).
+	// ProjectionRatePct — ставка реінвесту, що використана. Goal* —
+	// прогноз і потрібний внесок під ціль (якщо задано ціль і дату).
+	Projection          []ProjectionRow `json:"projection,omitempty"`
+	ProjectionRatePct   float64         `json:"projection_rate_pct,omitempty"`
+	GoalProjection      float64         `json:"goal_projection,omitempty"`
+	GoalRequiredMonthly float64         `json:"goal_required_monthly,omitempty"`
+	GoalMonthsLeft      int             `json:"goal_months_left,omitempty"`
+
 	// Settings — сирі налаштування сервіса (v0.3+, адитивне поле).
 	// Потрібні HA для number/date-сутностей: значення приходять сюди
 	// MQTT-пушем, зміни йдуть у PUT /api/settings.
@@ -82,6 +92,12 @@ type SettingsDoc struct {
 	AssumedRatePct *float64 `json:"assumed_rate_pct,omitempty"` // очікувана річна дохідність, % (fallback до XIRR)
 	GoalAmountUAH  *float64 `json:"goal_amount_uah,omitempty"`  // цільова сума капіталу, грн
 	GoalDate       string   `json:"goal_date,omitempty"`        // цільова дата (ISO)
+}
+
+type ProjectionRow struct {
+	Years        int     `json:"years"`
+	Contributed  float64 `json:"contributed"`   // внесено без %, грн-екв.
+	WithReinvest float64 `json:"with_reinvest"` // з реінвестом, грн-екв.
 }
 
 type NextPayment struct {
@@ -123,9 +139,14 @@ type Input struct {
 	ReinvestMinByCur map[string]float64
 	TopN              int
 	Settings          *SettingsDoc
-	XIRRPct           map[string]float64
-	PortfolioYieldPct float64
-	PortfolioYield    map[string]float64
+	XIRRPct             map[string]float64
+	PortfolioYieldPct   float64
+	PortfolioYield      map[string]float64
+	Projection          []ProjectionRow
+	ProjectionRatePct   float64
+	GoalProjection      float64
+	GoalRequiredMonthly float64
+	GoalMonthsLeft      int
 }
 
 func payTypeStr(t domain.PayType) string {
@@ -208,6 +229,11 @@ func Build(in Input) (*Doc, error) {
 	doc.XIRRPct = in.XIRRPct
 	doc.PortfolioYieldPct = in.PortfolioYieldPct
 	doc.PortfolioYield = in.PortfolioYield
+	doc.Projection = in.Projection
+	doc.ProjectionRatePct = in.ProjectionRatePct
+	doc.GoalProjection = in.GoalProjection
+	doc.GoalRequiredMonthly = in.GoalRequiredMonthly
+	doc.GoalMonthsLeft = in.GoalMonthsLeft
 
 	nowDate := domain.NewDate(in.Now)
 	var monthIncoming int64
