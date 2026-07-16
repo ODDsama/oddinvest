@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -70,6 +71,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/payments/status", s.handlePaymentStatus)
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)
 	mux.HandleFunc("GET /api/xirr", s.handleXIRR)
+	mux.HandleFunc("GET /api/reinvest", s.handleReinvest)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
 
@@ -948,6 +950,100 @@ func (s *Server) handleXIRR(w http.ResponseWriter, r *http.Request) {
 		"xirr_pct": doc.XIRRPct,
 		"note":     "залишок оцінено за номіналом; по валютах окремо, без конвертації",
 	})
+}
+
+// handleReinvest — помічник реінвестиції: доступні папери з довідника,
+// відранжовані під план (валюта, яку треба добрати до цільової частки →
+// рік з «діркою» в драбині → купонна ставка). Це інструмент, не порада.
+func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	now := time.Now()
+	today := domain.NewDate(now)
+	doc, err := s.buildState(ctx, now)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	bonds, err := s.st.SearchBonds(ctx, "", "", today, "", 200) // майбутні папери
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	target := map[string]float64{"USD": 0, "EUR": 0}
+	if doc.Settings != nil {
+		if doc.Settings.USDTargetSharePct != nil {
+			target["USD"] = *doc.Settings.USDTargetSharePct
+		}
+		if doc.Settings.EURTargetSharePct != nil {
+			target["EUR"] = *doc.Settings.EURTargetSharePct
+		}
+	}
+	target["UAH"] = 100 - target["USD"] - target["EUR"]
+	cur := map[string]float64{"USD": doc.USDSharePct, "EUR": doc.EURSharePct}
+	cur["UAH"] = 100 - doc.USDSharePct - doc.EURSharePct
+
+	ladderYear := map[int]map[string]float64{}
+	for _, row := range doc.Ladder {
+		ladderYear[row.Year] = map[string]float64{"UAH": row.UAH, "USD": row.USD, "EUR": row.EUR}
+	}
+
+	type suggestion struct {
+		ISIN       string    `json:"isin"`
+		Currency   string    `json:"currency"`
+		RatePct    string    `json:"rate_pct"`
+		Maturity   string    `json:"maturity"`
+		Nominal    moneyJSON `json:"nominal"`
+		Affordable int64     `json:"affordable"`
+		Reason     string    `json:"reason"`
+		def        float64
+		ladderNom  float64
+		rate       int64
+	}
+	var out []suggestion
+	for _, b := range bonds {
+		c := b.Nominal.Currency().Code
+		bal := doc.Accounts[c]
+		nomMajor := float64(b.Nominal.Amount()) / 100
+		if nomMajor <= 0 || bal < nomMajor {
+			continue // не по кишені у цій валюті
+		}
+		year := b.Maturity.Year()
+		lnom := 0.0
+		if m, ok := ladderYear[year]; ok {
+			lnom = m[c]
+		}
+		def := target[c] - cur[c]
+		var parts []string
+		if def > 0.5 {
+			parts = append(parts, fmt.Sprintf("добирає %s (%.0f%% → ціль %.0f%%)", c, cur[c], target[c]))
+		}
+		if lnom == 0 {
+			parts = append(parts, fmt.Sprintf("новий рік %d у драбині", year))
+		} else {
+			parts = append(parts, fmt.Sprintf("рік %d", year))
+		}
+		out = append(out, suggestion{
+			ISIN: b.ISIN, Currency: c,
+			RatePct:    fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
+			Maturity:   string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
+			Affordable: int64(bal / nomMajor), Reason: strings.Join(parts, "; "),
+			def: def, ladderNom: lnom, rate: b.RateBP,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].def != out[j].def {
+			return out[i].def > out[j].def
+		}
+		if out[i].ladderNom != out[j].ladderNom {
+			return out[i].ladderNom < out[j].ladderNom
+		}
+		return out[i].rate > out[j].rate
+	})
+	if len(out) > 15 {
+		out = out[:15]
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {

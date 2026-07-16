@@ -87,6 +87,7 @@
   </section>
 
   <section id="portfolio" class="show">
+    <div id="reinvest"></div>
     <h3>Нова покупка</h3>
     <form class="inline" id="lotForm">
       <input name="isin" placeholder="ISIN" required list="isinList" style="width:170px">
@@ -250,6 +251,22 @@ async function delLot(id) {
   await api("/api/lots/" + id, {method:"DELETE"}); refresh();
 }
 
+async function loadReinvest() {
+  const rs = await api("/api/reinvest");
+  $("#reinvest").innerHTML = rs.length ?
+    "<h3>Помічник реінвестиції</h3><p class='mut'>Доступні папери під план: валюта → драбина → ставка. «Дохідність» = купонна ставка. Обери й тисни «Взяти».</p>" +
+    "<table><tr><th>ISIN</th><th>Ставка</th><th>Погашення</th><th>Номінал</th><th>Вистачає</th><th>Чому</th><th></th></tr>" +
+    rs.map(x=>`<tr><td>${x.isin}</td><td>${x.rate_pct}%</td><td>${x.maturity}</td><td>${fmt(x.nominal)}</td>
+      <td>${x.affordable}</td><td class="mut">${x.reason}</td>
+      <td><button class="act" style="padding:4px 10px" onclick="takeBond('${x.isin}')">Взяти</button></td></tr>`).join("") + "</table>" : "";
+}
+function takeBond(isin) {
+  const i = document.querySelector('[name=isin]');
+  i.value = isin; i.dispatchEvent(new Event("input"));
+  i.scrollIntoView({behavior:"smooth", block:"center"});
+  document.querySelector('[name=qty]').focus();
+}
+
 async function loadMovements() {
   const [deps, cs] = await Promise.all([api("/api/deposits"), api("/api/conversions")]);
   const moves = [
@@ -346,7 +363,7 @@ document.querySelector("[name=isin]").oninput = e => {
   }, 300);
 };
 
-function refresh() { loadSummary(); loadPortfolio(); loadMovements(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); }
+function refresh() { loadSummary(); loadReinvest(); loadPortfolio(); loadMovements(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); }
 refresh();
 </script>
 </body>
