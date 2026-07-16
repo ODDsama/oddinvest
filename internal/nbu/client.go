@@ -93,6 +93,13 @@ func parseSecurities(raw []rawSecurity) ([]Security, error) {
 		if r.CPCode == "" || r.ValCode == "" {
 			continue
 		}
+		// Довідник змішує домашні ОВДП (ISIN UA…, номінал 1000) і зовнішні
+		// ОЗДП/єврооблігації (ISIN XS…), які НБУ нормалізує до номіналу 1
+		// (купони — частка одиниці). Беремо лише домашні ОВДП внутрішнього
+		// ринку, щоб не плутати шкалу номіналу.
+		if !strings.HasPrefix(strings.ToUpper(r.CPCode), "UA") {
+			continue
+		}
 		code := strings.ToUpper(r.ValCode)
 		if money.GetCurrency(code) == nil {
 			continue
