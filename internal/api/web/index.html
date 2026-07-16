@@ -32,6 +32,9 @@
   .mut { color:var(--mut); }
   #msg { position:fixed; bottom:16px; right:16px; background:#2a313b; padding:10px 16px; border-radius:8px; display:none; }
   section { display:none; } section.show { display:block; }
+  #cta { display:none; align-items:center; gap:12px; background:#12261b; color:var(--ok);
+         border:1px solid #1f6b3a; border-radius:10px; padding:12px 16px; margin-bottom:16px; }
+  #cta a { color:#fff; background:var(--ok); padding:6px 12px; border-radius:6px; text-decoration:none; margin-left:auto; }
 </style>
 </head>
 <body>
@@ -47,8 +50,18 @@
 </header>
 <main>
   <div class="cards" id="summary"></div>
+  <div id="cta"></div>
 
   <section id="portfolio" class="show">
+    <h3>Рахунок (гаманець)</h3>
+    <div class="cards"><div class="card"><div class="l">Баланс</div><div class="v" id="accBal">—</div></div></div>
+    <form class="inline" id="depForm">
+      <input name="amount" placeholder="Сума (+ поповнення / − зняття)" required style="width:210px">
+      <input name="date" type="date">
+      <input name="note" placeholder="Нотатка" style="width:170px">
+      <button class="act">Записати</button>
+    </form>
+    <table id="deposits"></table>
     <h3>Нова покупка</h3>
     <form class="inline" id="lotForm">
       <input name="isin" placeholder="ISIN" required list="isinList" style="width:170px">
@@ -135,10 +148,28 @@ async function loadSummary() {
     card("Частка EUR", (s.eur_share_pct || 0).toFixed(1) + "%") +
     card("Місяць: план", `${s.month_invested_uah.toLocaleString("uk")} / ${s.month_target_uah.toLocaleString("uk")} (${s.month_progress_pct}%)`) +
     card("Не перевкладено", s.uninvested_uah.toLocaleString("uk")) +
+    card("Рахунок", s.account_uah.toLocaleString("uk")) +
     card("Наступна виплата", s.next_payment ? `${s.next_payment.date} · ${s.next_payment.amount.toLocaleString("uk")} ${s.next_payment.currency}` : "—") +
     card("XIRR ₴", x.UAH != null ? x.UAH.toFixed(2) + "%" : "—") +
     card("XIRR $", x.USD != null ? x.USD.toFixed(2) + "%" : "—") +
     card("XIRR €", x.EUR != null ? x.EUR.toFixed(2) + "%" : "—");
+
+  const ab = $("#accBal");
+  if (ab) ab.textContent = s.account_uah.toLocaleString("uk") + " ₴";
+
+  // заклик до реінвестиції
+  const cta = $("#cta");
+  if (s.reinvest_min_uah > 0 && s.account_uah >= s.reinvest_min_uah) {
+    const n = Math.floor(s.account_uah / s.reinvest_min_uah);
+    cta.innerHTML = `💰 На рахунку <b>${s.account_uah.toLocaleString("uk")} ₴</b> — вистачає приблизно на <b>${n}</b> папер(и) (від ${s.reinvest_min_uah.toLocaleString("uk")} ₴). <a href="#" id="ctaBtn">Реінвестувати →</a>`;
+    cta.style.display = "flex";
+    $("#ctaBtn").onclick = e => {
+      e.preventDefault();
+      document.querySelector('nav button[data-tab="portfolio"]').click();
+      const i = document.querySelector('[name=isin]');
+      i.scrollIntoView({ behavior: "smooth", block: "center" }); i.focus();
+    };
+  } else { cta.style.display = "none"; cta.innerHTML = ""; }
 }
 
 async function loadChart() {
@@ -185,6 +216,17 @@ async function delLot(id) {
   await api("/api/lots/" + id, {method:"DELETE"}); refresh();
 }
 
+async function loadDeposits() {
+  const deps = await api("/api/deposits");
+  $("#deposits").innerHTML = deps.length ? "<tr><th>Дата</th><th>Сума</th><th>Нотатка</th><th></th></tr>" +
+    deps.map(d=>`<tr><td>${d.date}</td><td>${fmt(d.amount)}</td><td>${d.note||""}</td>
+      <td><button class="danger" onclick="delDep(${d.id})">✕</button></td></tr>`).join("") : "";
+}
+async function delDep(id) {
+  if (!confirm("Видалити рух " + id + "?")) return;
+  await api("/api/deposits/" + id, {method:"DELETE"}); refresh();
+}
+
 async function loadCalendar() {
   const cf = await api("/api/calendar");
   const t = {1:"coupon",2:"redemption",3:"early"}, n = {1:"купон",2:"погашення",3:"дострокове"};
@@ -227,6 +269,12 @@ $("#setForm").onsubmit = async e => {
   try { await api("/api/settings", {method:"PUT", body:JSON.stringify(d)}); refresh(); toast("Збережено"); }
   catch (err) { toast(err.message); }
 };
+$("#depForm").onsubmit = async e => {
+  e.preventDefault();
+  const d = Object.fromEntries(new FormData(e.target));
+  try { await api("/api/deposits", {method:"POST", body:JSON.stringify(d)}); e.target.reset(); refresh(); toast("Записано"); }
+  catch (err) { toast(err.message); }
+};
 $("#refreshBtn").onclick = async () => {
   toast("Оновлюю довідник НБУ…");
   try { await api("/api/refresh", {method:"POST"}); refresh(); toast("Довідник оновлено"); }
@@ -243,7 +291,7 @@ document.querySelector("[name=isin]").oninput = e => {
   }, 300);
 };
 
-function refresh() { loadSummary(); loadPortfolio(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); }
+function refresh() { loadSummary(); loadPortfolio(); loadDeposits(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); }
 refresh();
 </script>
 </body>

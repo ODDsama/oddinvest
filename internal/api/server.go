@@ -56,6 +56,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/lots/{id}", s.handleDeleteLot)
 	mux.HandleFunc("POST /api/sales", s.handleAddSale)
 	mux.HandleFunc("GET /api/sales", s.handleListSales)
+	mux.HandleFunc("GET /api/deposits", s.handleListDeposits)
+	mux.HandleFunc("POST /api/deposits", s.handleAddDeposit)
+	mux.HandleFunc("DELETE /api/deposits/{id}", s.handleDeleteDeposit)
 	mux.HandleFunc("GET /api/bonds/search", s.handleSearchBonds)
 	mux.HandleFunc("GET /api/bonds/{isin}", s.handleGetBond)
 	mux.HandleFunc("GET /api/accrued/{isin}", s.handleAccrued)
@@ -236,20 +239,69 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		return nil, err
 	}
 	unin := money.New(0, money.UAH)
+	couponsUAH := money.New(0, money.UAH) // усі отримані виплати, грн-екв. (для рахунку)
 	for _, cf := range pastCF {
 		if cf.Date.After(today) || cf.Date == today {
-			continue
-		}
-		if statuses[cf.ISIN+"|"+string(cf.Date)] == "reinvested" {
 			continue
 		}
 		uahAmt, err := fx.ToUAH(cf.Amount, rates)
 		if err != nil {
 			return nil, err
 		}
+		if couponsUAH, err = couponsUAH.Add(uahAmt); err != nil {
+			return nil, err
+		}
+		if statuses[cf.ISIN+"|"+string(cf.Date)] == "reinvested" {
+			continue
+		}
 		unin, err = unin.Add(uahAmt)
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	// --- грошовий рахунок (гаманець) ---
+	// баланс = Σ поповнень + Σ отриманих виплат − Σ вартості лотів, грн-екв.
+	purchasesUAH := money.New(0, money.UAH)
+	for _, l := range lots {
+		cost := domain.MulQty(l.PricePerBond, l.Qty)
+		if l.Fee != nil && !l.Fee.IsZero() {
+			if cost, err = cost.Add(l.Fee); err != nil {
+				return nil, err
+			}
+		}
+		uahAmt, err := fx.ToUAH(cost, rates)
+		if err != nil {
+			return nil, err
+		}
+		if purchasesUAH, err = purchasesUAH.Add(uahAmt); err != nil {
+			return nil, err
+		}
+	}
+	depSum, err := s.st.DepositsSum(ctx)
+	if err != nil {
+		return nil, err
+	}
+	account := money.New(depSum, money.UAH)
+	if account, err = account.Add(couponsUAH); err != nil {
+		return nil, err
+	}
+	if account, err = account.Subtract(purchasesUAH); err != nil {
+		return nil, err
+	}
+	// ціна найдешевшого паперу з довідника (мін. номінал у грн-екв.)
+	minNoms, err := s.st.MinNominalByCurrency(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reinvestMin := money.New(0, money.UAH)
+	for cur, minNom := range minNoms {
+		uahAmt, err := fx.ToUAH(money.New(minNom, cur), rates)
+		if err != nil {
+			continue // валюта без курсу — пропускаємо
+		}
+		if reinvestMin.IsZero() || uahAmt.Amount() < reinvestMin.Amount() {
+			reinvestMin = uahAmt
 		}
 	}
 
@@ -288,7 +340,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthTargetUAH: target,
-		UninvestedUAH: unin, TopN: 5,
+		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin, TopN: 5,
 		Settings: settings, XIRRPct: xirr,
 	})
 }
@@ -560,6 +612,74 @@ func (s *Server) handleListSales(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, saleJSON{sl.ID, sl.LotID, lot.ISIN, string(sl.SaleDate),
 			sl.Qty, toMoneyJSON(sl.CleanPerBond), toMoneyJSON(sl.Accrued), toMoneyJSON(res)})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+type depositReq struct {
+	Date   string `json:"date"`
+	Amount string `json:"amount"` // десятковий; + поповнення, − зняття
+	Note   string `json:"note"`
+}
+
+func (s *Server) handleAddDeposit(w http.ResponseWriter, r *http.Request) {
+	var req depositReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	d := domain.NewDate(time.Now())
+	if req.Date != "" {
+		var err error
+		if d, err = domain.ParseDate(req.Date); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	minor, err := domain.ParseDecimalToMinor(req.Amount, money.UAH)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	id, err := s.st.AddDeposit(r.Context(), store.Deposit{Date: d, Amount: minor, Note: req.Note})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+func (s *Server) handleDeleteDeposit(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.DeleteDeposit(r.Context(), id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleListDeposits(w http.ResponseWriter, r *http.Request) {
+	deps, err := s.st.ListDeposits(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	type depJSON struct {
+		ID     int64     `json:"id"`
+		Date   string    `json:"date"`
+		Amount moneyJSON `json:"amount"`
+		Note   string    `json:"note"`
+	}
+	out := make([]depJSON, 0, len(deps))
+	for _, d := range deps {
+		out = append(out, depJSON{d.ID, string(d.Date),
+			toMoneyJSON(money.New(d.Amount, money.UAH)), d.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

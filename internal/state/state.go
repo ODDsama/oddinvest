@@ -33,6 +33,12 @@ type Doc struct {
 	EURSharePct   float64 `json:"eur_share_pct"`  // частка EUR-паперів за номіналом (грн-екв.)
 	UninvestedUAH float64 `json:"uninvested_uah"` // надійшло і не перевкладено, грн-екв.
 
+	// Грошовий рахунок (гаманець): Σ поповнень + Σ отриманих виплат −
+	// Σ вартості лотів, усе в грн-екв. ReinvestMinUAH — ціна найдешевшого
+	// паперу з довідника (грн-екв.); баланс ≥ неї = заклик до реінвестиції.
+	AccountUAH     float64 `json:"account_uah"`
+	ReinvestMinUAH float64 `json:"reinvest_min_uah"`
+
 	MonthInvestedUAH float64 `json:"month_invested_uah"`
 	MonthTargetUAH   float64 `json:"month_target_uah"`
 	MonthProgressPct int     `json:"month_progress_pct"`
@@ -93,6 +99,8 @@ type Input struct {
 	MonthInvestedUAH *money.Money
 	MonthTargetUAH   *money.Money
 	UninvestedUAH    *money.Money
+	AccountUAH       *money.Money
+	ReinvestMinUAH   *money.Money
 	TopN             int
 	Settings         *SettingsDoc
 	XIRRPct          map[string]float64
@@ -157,6 +165,8 @@ func Build(in Input) (*Doc, error) {
 	doc.MonthTargetUAH = major(in.MonthTargetUAH)
 	doc.MonthProgressPct = domain.ProgressPct(in.MonthInvestedUAH, in.MonthTargetUAH)
 	doc.UninvestedUAH = major(in.UninvestedUAH)
+	doc.AccountUAH = major(in.AccountUAH)
+	doc.ReinvestMinUAH = major(in.ReinvestMinUAH)
 	doc.Settings = in.Settings
 	doc.XIRRPct = in.XIRRPct
 

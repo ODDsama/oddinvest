@@ -143,6 +143,79 @@ func (s *Store) ListSales(ctx context.Context) ([]domain.Sale, error) {
 	return out, rows.Err()
 }
 
+// --- рахунок (гаманець) ---
+
+// Deposit — ручне поповнення (+) або зняття (−) грошового рахунку, UAH.
+type Deposit struct {
+	ID     int64
+	Date   domain.Date
+	Amount int64 // мінорні UAH
+	Note   string
+}
+
+func (s *Store) AddDeposit(ctx context.Context, d Deposit) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO deposits (date, amount, note)
+		VALUES (?,?,?)`, string(d.Date), d.Amount, d.Note)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) DeleteDeposit(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM deposits WHERE id=?`, id)
+	return err
+}
+
+func (s *Store) ListDeposits(ctx context.Context) ([]Deposit, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, note
+		FROM deposits ORDER BY date, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Deposit
+	for rows.Next() {
+		var d Deposit
+		var dt string
+		if err := rows.Scan(&d.ID, &dt, &d.Amount, &d.Note); err != nil {
+			return nil, err
+		}
+		d.Date = domain.Date(dt)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// DepositsSum — сума всіх поповнень/знять, UAH-мінорні.
+func (s *Store) DepositsSum(ctx context.Context) (int64, error) {
+	var sum sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `SELECT SUM(amount) FROM deposits`).Scan(&sum); err != nil {
+		return 0, err
+	}
+	return sum.Int64, nil
+}
+
+// MinNominalByCurrency — найменший номінал у довіднику по кожній валюті
+// (проксі «ціни найдешевшого паперу» для заклику до реінвестиції).
+func (s *Store) MinNominalByCurrency(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT currency, MIN(nominal) FROM bonds GROUP BY currency`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var cur string
+		var minNom int64
+		if err := rows.Scan(&cur, &minNom); err != nil {
+			return nil, err
+		}
+		out[cur] = minNom
+	}
+	return out, rows.Err()
+}
+
 // --- довідник ---
 
 // ReplaceDirectory атомарно оновлює кеш довідника НБУ (весь ринок).

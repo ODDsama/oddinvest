@@ -6,6 +6,8 @@
   "usd_share_pct": 63.8327975765081,
   "eur_share_pct": 0,
   "uninvested_uah": 0,
+  "account_uah": 0,
+  "reinvest_min_uah": 0,
   "month_invested_uah": 4500,
   "month_target_uah": 5000,
   "month_progress_pct": 90,

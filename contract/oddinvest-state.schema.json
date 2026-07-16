@@ -50,6 +50,13 @@
       "type": "number",
       "minimum": 0
     },
+    "account_uah": {
+      "type": "number"
+    },
+    "reinvest_min_uah": {
+      "type": "number",
+      "minimum": 0
+    },
     "month_invested_uah": {
       "type": "number",
       "minimum": 0
