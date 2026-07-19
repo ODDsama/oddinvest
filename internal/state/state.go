@@ -110,10 +110,6 @@ type SettingsDoc struct {
 	// Channels — канали купівлі через кому (mono, inzhur…). Форма покупки
 	// показує їх у випадайці разом із тими, що вже зустрічались у лотах.
 	Channels string `json:"channels,omitempty"`
-	// MaxMaturityYears — не пропонувати папери з погашенням далі за N років.
-	// Довідник НБУ містить і довгі інституційні випуски (2038+), яких у
-	// роздрібі немає; 0 = без обмеження.
-	MaxMaturityYears *float64 `json:"max_maturity_years,omitempty"`
 	// ReinvestRank — критерій ранжування помічника:
 	// plan (за замовчуванням) | rate | short | ladder.
 	ReinvestRank string `json:"reinvest_rank,omitempty"`

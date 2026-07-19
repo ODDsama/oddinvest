@@ -352,11 +352,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	if raw, _ := s.st.GetSetting(ctx, "channels"); raw != "" {
 		settings.Channels = raw
 	}
-	if raw, _ := s.st.GetSetting(ctx, "max_maturity_years"); raw != "" {
-		if f, err := strconv.ParseFloat(raw, 64); err == nil {
-			settings.MaxMaturityYears = &f
-		}
-	}
 	if raw, _ := s.st.GetSetting(ctx, "reinvest_rank"); raw != "" {
 		settings.ReinvestRank = raw
 	}
@@ -1114,7 +1109,7 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 
 var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct",
 	"assumed_rate_pct", "goal_amount_uah", "goal_date", "target_duration_years", "channels",
-	"max_maturity_years", "reinvest_rank"}
+	"reinvest_rank"}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}
@@ -1258,14 +1253,10 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		curMac, curPV = doc.RateRisk.DurationYears, doc.RateRisk.PVUAH
 	}
 	targetDur := 0.0
-	maxMat := 0.0
 	rank := "plan"
 	if doc.Settings != nil {
 		if doc.Settings.TargetDurationYears != nil {
 			targetDur = *doc.Settings.TargetDurationYears
-		}
-		if doc.Settings.MaxMaturityYears != nil {
-			maxMat = *doc.Settings.MaxMaturityYears
 		}
 		if doc.Settings.ReinvestRank != "" {
 			rank = doc.Settings.ReinvestRank
@@ -1313,12 +1304,6 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		bal := doc.Accounts[c]
 		nomMajor := float64(b.Nominal.Amount()) / 100
 		if nomMajor <= 0 {
-			continue
-		}
-		// Довідник містить довгі інституційні випуски (2038+), яких у
-		// роздрібі не купити. Межу задає користувач — автоматично її
-		// нізвідки взяти: даних «що продає брокер» у відкритому доступі нема.
-		if maxMat > 0 && float64(domain.DaysBetween(today, b.Maturity))/365 > maxMat {
 			continue
 		}
 		// Показуємо рекомендації ЗАВЖДИ, навіть коли грошей ще не вистачає:
