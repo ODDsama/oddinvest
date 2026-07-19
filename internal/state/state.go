@@ -83,6 +83,13 @@ type Doc struct {
 	Rebalance []RebalanceRow `json:"rebalance,omitempty"`
 	RateRisk  *RateRisk      `json:"rate_risk,omitempty"`
 
+	// AccruedUAH — накопичений купонний дохід на сьогодні, грн-екв.:
+	// зароблено, але ще не виплачено. У проєкції НЕ додається (там майбутні
+	// купони враховані повністю). NBURefreshedAt — коли востаннє успішно
+	// оновлювався довідник НБУ (ISO), щоб ловити тиху несвіжість даних.
+	AccruedUAH     float64 `json:"accrued_uah,omitempty"`
+	NBURefreshedAt string  `json:"nbu_refreshed_at,omitempty"`
+
 	// Settings — сирі налаштування сервіса (v0.3+, адитивне поле).
 	// Потрібні HA для number/date-сутностей: значення приходять сюди
 	// MQTT-пушем, зміни йдуть у PUT /api/settings.
@@ -196,6 +203,8 @@ type Input struct {
 	GoalMonthsLeft      int
 	Rebalance           []RebalanceRow
 	RateRisk            *RateRisk
+	AccruedUAH          float64
+	NBURefreshedAt      string
 }
 
 func payTypeStr(t domain.PayType) string {
@@ -285,6 +294,8 @@ func Build(in Input) (*Doc, error) {
 	doc.GoalMonthsLeft = in.GoalMonthsLeft
 	doc.Rebalance = in.Rebalance
 	doc.RateRisk = in.RateRisk
+	doc.AccruedUAH = in.AccruedUAH
+	doc.NBURefreshedAt = in.NBURefreshedAt
 
 	nowDate := domain.NewDate(in.Now)
 	var monthIncoming int64

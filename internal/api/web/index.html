@@ -73,7 +73,9 @@
 </header>
 <main>
   <section id="overview" class="show">
+    <div id="nbuStale"></div>
     <div id="banner"></div>
+    <div id="recommended"></div>
     <div class="quick">
       <button class="pgbtn" data-go="buy">Купівля</button>
       <button class="pgbtn" data-go="deposit">Поповнення</button>
@@ -244,11 +246,36 @@ function renderBanner(s) {
   } else {
     const need = Math.max(0, (s.reinvest_min_uah||0) - (s.account_uah||0));
     const np = s.next_payment;
+    // Скільки ще накопичувати за поточним темпом — щоб банер казав «коли».
+    const perDay = (s.month_target_uah||0) / 30;
+    const days = perDay > 0 ? Math.ceil(need / perDay) : 0;
+    const eta = days > 0 ? ` ≈ <b>${days}</b> дн. за твоїм темпом` : "";
     const sub = `На рахунку ${uahFmt(s.account_uah)}, найдешевший папір ${uahFmt(s.reinvest_min_uah)}.` +
       (np ? ` Купон ${np.date} додасть ${Number(np.amount).toLocaleString("uk")} ${curSym(np.currency)}.` : "");
-    host.innerHTML = box("wait", `Купувати ще рано — бракує ${uahFmt(need)}`, sub);
+    host.innerHTML = box("wait", `Купувати ще рано — бракує ${uahFmt(need)}${eta}`, sub);
   }
   host.querySelectorAll("[data-go]").forEach(b => b.onclick = () => goto(b.dataset.go));
+}
+
+// Топ-2 рекомендації — показуємо ЗАВЖДИ, навіть коли ще не по кишені.
+function renderRecommended(rec) {
+  const host = $("#recommended"); if (!host) return;
+  if (!rec || !rec.length) { host.innerHTML = ""; return; }
+  const rows = rec.slice(0,2).map(x => `<div class="pv-row">
+    <span><b>${x.isin}</b> <span class="mut">· ${x.rate_pct}% · до ${x.maturity}</span></span>
+    <span class="${x.can_buy ? "" : "mut"}">${x.can_buy ? `вистачає на ${x.affordable}` : "ще не по кишені"}</span></div>`).join("");
+  host.innerHTML = `<h3>Рекомендовано взяти</h3>${rows}
+    <p><button class="pgbtn" onclick="goto('pick')">Весь список →</button></p>`;
+}
+
+function renderNbuStale(s) {
+  const host = $("#nbuStale"); if (!host) return;
+  const at = s.nbu_refreshed_at;
+  if (!at) { host.innerHTML = ""; return; }
+  const days = Math.floor((Date.now() - new Date(at).getTime()) / 86400000);
+  host.innerHTML = days < 3 ? "" :
+    `<div class="banner wait" style="padding:10px 16px"><div class="b-tx"><div class="b-s" style="opacity:1">
+     Довідник НБУ не оновлювався <b>${days} дн.</b> — ставки й графіки виплат можуть бути несвіжі.</div></div></div>`;
 }
 
 // Швидкий перехід у потрібну форму з «Огляду».
@@ -270,10 +297,12 @@ async function loadSummary() {
   const a = s.accounts || {};
 
   renderBanner(s);
+  renderNbuStale(s);
 
-  const np = s.next_payment;
+  const np = s.next_payment, accrued = s.accrued_uah || 0;
   $("#ovTiles").innerHTML =
-    card("Капітал", ((s.nominal_uah_eq||0) + (s.account_uah||0)).toLocaleString("uk") + " ₴") +
+    card("Капітал", ((s.nominal_uah_eq||0) + (s.account_uah||0)).toLocaleString("uk") + " ₴",
+      accrued > 0 ? `<div class="l" style="margin-top:4px">+ ${uahFmt(accrued)} НКД зароблено</div>` : "") +
     card("Цей місяць", `${s.month_progress_pct||0}%`,
       `<div class="l" style="margin-top:4px">${s.month_invested_uah.toLocaleString("uk")} з ${s.month_target_uah.toLocaleString("uk")} ₴</div>`) +
     card("Наступна виплата",
@@ -317,6 +346,7 @@ async function loadSummary() {
   $("#portTiles").innerHTML =
     card("Вкладено (грн-екв.)", s.invested_uah.toLocaleString("uk")) +
     card("Номінал (грн-екв.)", s.nominal_uah_eq.toLocaleString("uk")) +
+    card("Накопичений купон", uahFmt(accrued), `<div class="l" style="margin-top:4px">зароблено, ще не виплачено</div>`) +
     Object.entries(py).map(([c,v]) => card(`Дохідність ${curSym(c)}`, pct(v),
       `<div class="l" style="margin-top:4px">очікувана</div>`)).join("") +
     xirrTiles;
@@ -488,6 +518,7 @@ const RV = { all: [], cur:"", year:"", minRate:"", q:"", sortKey:"", sortDir:-1,
 async function loadReinvest() {
   RV.all = (await api("/api/reinvest")) || [];
   RV.page = 1;
+  renderRecommended(RV.all);
   const host = $("#reinvest");
   if (!RV.all.length) { host.innerHTML = ""; return; }
   host.innerHTML =

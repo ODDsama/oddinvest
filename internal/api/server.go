@@ -180,6 +180,10 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, doc)
 }
 
+// nbuRefreshedKey — час останнього успішного оновлення довідника НБУ.
+// Пишеться джобою (не через PUT /api/settings), тож у settingsKeys нема.
+const nbuRefreshedKey = "nbu_refreshed_at"
+
 // round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
@@ -478,6 +482,27 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
+	nbuAt, _ := s.st.GetSetting(ctx, nbuRefreshedKey)
+
+	// --- накопичений купонний дохід (НКД) на сьогодні ---
+	// Гроші, які вже зароблені, але ще не виплачені. Показуємо ОКРЕМО, а не
+	// додаємо в капітал проєкцій: у симуляції майбутні купони вже враховані
+	// повністю, тож додавання НКД було б подвійним рахунком.
+	var accruedUAH int64
+	for _, l := range lots {
+		q := domain.RemainingQtyNow(l, sales)
+		if q == 0 {
+			continue
+		}
+		acc, err := domain.EstimateAccrued(pays, l.ISIN, today)
+		if err != nil || acc == nil || acc.IsZero() {
+			continue
+		}
+		if u, err := fx.ToUAH(money.New(acc.Amount()*q, acc.Currency().Code), rates); err == nil {
+			accruedUAH += u.Amount()
+		}
+	}
+
 	// --- валютне ребалансування: як вийти на цільові частки ---
 	// Рахуємо від СУКУПНОГО капіталу (номінал + рахунок): щоб частка валюти
 	// стала цільовою, треба довести номінал цієї валюти до target×капітал.
@@ -580,6 +605,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Projection:    projection, ProjectionRatePct: capRate,
 		GoalProjection: goalProj, GoalRequiredMonthly: goalReq, GoalMonthsLeft: goalMonths,
 		Rebalance: rebalance, RateRisk: rateRisk,
+		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 	})
 }
 
@@ -1253,6 +1279,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		Maturity      string    `json:"maturity"`
 		Nominal       moneyJSON `json:"nominal"`
 		Affordable    int64     `json:"affordable"`
+		CanBuy        bool      `json:"can_buy"`
 		Reason        string    `json:"reason"`
 		DurationNow   float64   `json:"duration_now"`
 		DurationAfter float64   `json:"duration_after"`
@@ -1266,9 +1293,14 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		c := b.Nominal.Currency().Code
 		bal := doc.Accounts[c]
 		nomMajor := float64(b.Nominal.Amount()) / 100
-		if nomMajor <= 0 || bal < nomMajor {
-			continue // не по кишені у цій валюті
+		if nomMajor <= 0 {
+			continue
 		}
+		// Показуємо рекомендації ЗАВЖДИ, навіть коли грошей ще не вистачає:
+		// інакше список порожніє одразу після покупки й помічник мовчить
+		// саме тоді, коли ти плануєш наступний крок. Доступність — перший
+		// критерій сортування, тож «можу купити» лишається зверху.
+		canBuy := bal >= nomMajor
 		year := b.Maturity.Year()
 		lnom := 0.0
 		if m, ok := ladderYear[year]; ok {
@@ -1316,12 +1348,15 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			ISIN: b.ISIN, Currency: c,
 			RatePct:    fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
 			Maturity:   string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
-			Affordable: int64(bal / nomMajor), Reason: strings.Join(parts, "; "),
+			Affordable: int64(bal / nomMajor), CanBuy: canBuy, Reason: strings.Join(parts, "; "),
 			DurationNow: round2(curMac), DurationAfter: round2(newMac),
 			def: def, ladderNom: lnom, rate: b.RateBP, durDist: durDist,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
+		if out[i].CanBuy != out[j].CanBuy {
+			return out[i].CanBuy // те, що вже по кишені, — зверху
+		}
 		if out[i].def != out[j].def {
 			return out[i].def > out[j].def
 		}

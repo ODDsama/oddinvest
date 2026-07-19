@@ -41,6 +41,11 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 	if err := r.st.ReplaceDirectory(ctx, secs, time.Now()); err != nil {
 		return err
 	}
+	// Позначаємо час успішного оновлення: інакше несвіжість довідника
+	// лишається тихою (порожній довідник ми свого часу помітили випадково).
+	if err := r.st.SetSetting(ctx, "nbu_refreshed_at", time.Now().UTC().Format(time.RFC3339)); err != nil {
+		r.log.Warn("не зберіг час оновлення довідника", "err", err)
+	}
 	r.log.Info("довідник НБУ оновлено", "паперів", len(secs))
 
 	rateDate := domain.NewDate(time.Now().In(r.loc))
