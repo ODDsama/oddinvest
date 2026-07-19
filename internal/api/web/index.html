@@ -97,6 +97,7 @@
 
   <section id="portfolio" class="show">
     <div id="reinvest"></div>
+    <div id="rebalance"></div>
     <h3>Нова покупка</h3>
     <form class="inline" id="lotForm">
       <input name="isin" placeholder="ISIN" required list="isinList" style="width:170px">
@@ -137,6 +138,7 @@
   <section id="ladder">
     <h3>Драбина погашень</h3>
     <table id="lad"></table>
+    <div id="rateRisk"></div>
   </section>
 
   <section id="charts">
@@ -208,6 +210,9 @@ async function loadSummary() {
     card("XIRR $", x.USD != null ? x.USD.toFixed(2) + "%" : "—") +
     card("XIRR €", x.EUR != null ? x.EUR.toFixed(2) + "%" : "—");
 
+  renderRebalance(s);
+  renderRateRisk(s);
+
   const a = s.accounts || {};
   const setBal = (id, v, cur) => { const el = $(id); if (el) el.textContent = (v || 0).toLocaleString("uk") + " " + cur; };
   setBal("#accBal", s.account_uah, "₴");
@@ -232,6 +237,46 @@ async function loadSummary() {
       i.scrollIntoView({ behavior: "smooth", block: "center" }); i.focus();
     });
   } else { cta.style.display = "none"; cta.innerHTML = ""; }
+}
+
+// Валютне ребалансування: скільки бракує до цільових часток і чи це взагалі
+// досяжно (найдешевший папір може бути більший за всю цільову суму).
+function renderRebalance(s) {
+  const host = $("#rebalance"); if (!host) return;
+  const rows = s.rebalance || [];
+  if (!rows.length) { host.innerHTML = ""; return; }
+  const sym = { USD: "$", EUR: "€" };
+  const num = (v, d = 2) => Number(v || 0).toLocaleString("uk-UA", { maximumFractionDigits: d });
+  const body = rows.map(r => {
+    const sm = sym[r.currency] || r.currency;
+    const head = `<b>${r.currency}</b> — ціль ${r.target_pct}%, зараз ${r.current_pct}%`;
+    if (r.deficit_uah <= 0) return `<p>${head} — <span style="color:#3fb950">ціль досягнута ✅</span></p>`;
+    const need = `Бракує до цілі: <b>${uahFmt(r.deficit_uah)}</b> (≈ ${num(r.deficit_native)} ${sm})`;
+    if (!r.feasible) return `<p>${head}<br>${need}<br><span style="color:#d29922">⚠ Ще зарано:</span> найдешевший ${r.currency}-папір коштує ${uahFmt(r.bond_cost_uah)} (${num(r.bond_cost_native, 0)} ${sm}) — це більше за всю цільову суму. Один такий папір вписався б у ціль ${r.target_pct}% при капіталі <b>${uahFmt(r.min_portfolio_uah)}</b>.</p>`;
+    const buy = r.can_buy > 0 ? `вистачає на <b>${r.can_buy}</b> папер(и)` : `на папір бракує — сконвертуй ще ≈ <b>${uahFmt(r.convert_uah)}</b>`;
+    return `<p>${head}<br>${need}<br>Найдешевший папір: ${num(r.bond_cost_native, 0)} ${sm} ≈ ${uahFmt(r.bond_cost_uah)}. Готівка: ${num(r.cash_native)} ${sm} — ${buy}.</p>`;
+  }).join("");
+  host.innerHTML = `<h3>Валютне ребалансування</h3><p class="mut">Частки рахуються від сукупного капіталу (номінал + рахунок).</p>${body}`;
+}
+
+// Процентний ризик: дюрація за реальним графіком виплат + сценарії ставок.
+function renderRateRisk(s) {
+  const host = $("#rateRisk"); if (!host) return;
+  const rr = s.rate_risk;
+  if (!rr || !rr.duration_years) { host.innerHTML = ""; return; }
+  const sgn = v => (v > 0 ? "+" : "");
+  const scen = (rr.scenarios || []).map(x => {
+    const col = x.change_pct >= 0 ? "#3fb950" : "#f85149";
+    return `<tr><td>${sgn(x.delta_pp)}${x.delta_pp} п.п.</td><td style="color:${col}">${sgn(x.change_pct)}${x.change_pct}%</td><td style="color:${col}">${sgn(x.change_uah)}${uahFmt(x.change_uah)}</td></tr>`;
+  }).join("");
+  host.innerHTML = `<h3>Ризик ставок</h3>
+    <div class="cards">
+      <div class="card"><div class="l">Дюрація (Маколея)</div><div class="v">${rr.duration_years} р.</div></div>
+      <div class="card"><div class="l">Модифікована</div><div class="v">${rr.modified_dur}</div></div>
+      <div class="card"><div class="l">Приведена вартість</div><div class="v">${uahFmt(rr.pv_uah)}</div></div>
+    </div>
+    <table><tr><th>Зміна ставок</th><th>Вартість</th><th>У грошах</th></tr>${scen}</table>
+    <p class="mut" style="font-size:13px">Дюрація — середньозважений строк повернення грошей. Модифікована показує, на скільки % змінюється вартість при зміні ставок на 1 п.п. <b>Тримаєш до погашення — просадка лише паперова</b>: ризик реалізується при продажі на вторинці.</p>`;
 }
 
 function snapNonZero(s) {

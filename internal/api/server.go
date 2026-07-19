@@ -180,6 +180,9 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, doc)
 }
 
+// round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
+func round2(v float64) float64 { return math.Round(v*100) / 100 }
+
 // buildState — спільна збірка документа стану для API і MQTT.
 func (s *Server) BuildStateDoc(ctx context.Context, now time.Time) (*state.Doc, error) {
 	return s.buildState(ctx, now)
@@ -467,6 +470,98 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
+	// --- валютне ребалансування: як вийти на цільові частки ---
+	// Рахуємо від СУКУПНОГО капіталу (номінал + рахунок): щоб частка валюти
+	// стала цільовою, треба довести номінал цієї валюти до target×капітал.
+	// Окремо перевіряємо здійсненність: найдешевший папір може бути більший
+	// за всю цільову суму — тоді ціль поки недосяжна без перекосу структури.
+	totalMajor := float64(nominalUAH+accountUAHMinor) / 100
+	targets := map[string]*float64{money.USD: settings.USDTargetSharePct, money.EUR: settings.EURTargetSharePct}
+	var rebalance []state.RebalanceRow
+	for _, cur := range []string{money.USD, money.EUR} {
+		tp := targets[cur]
+		if tp == nil || *tp <= 0 {
+			continue
+		}
+		rateMajor := float64(rates[cur]) / fx.RateScale // грн за одиницю валюти
+		if rateMajor <= 0 {
+			continue
+		}
+		curUAH := float64(nominalByCur[cur]) / 100 * rateMajor
+		currentPct := 0.0
+		if totalMajor > 0 {
+			currentPct = curUAH / totalMajor * 100
+		}
+		targetUAH := totalMajor * (*tp) / 100
+		deficitUAH := math.Max(0, targetUAH-curUAH)
+		cashNative := float64(bal[cur]) / 100
+		bondCostNative := float64(minNoms[cur]) / 100
+		bondCostUAH := bondCostNative * rateMajor
+		var canBuy int64
+		convertUAH := 0.0
+		if bondCostNative > 0 {
+			canBuy = int64(cashNative / bondCostNative)
+			if cashNative < bondCostNative {
+				convertUAH = (bondCostNative - cashNative) * rateMajor
+			}
+		}
+		rebalance = append(rebalance, state.RebalanceRow{
+			Currency: cur, TargetPct: *tp, CurrentPct: round2(currentPct),
+			DeficitUAH: round2(deficitUAH), DeficitNative: round2(deficitUAH / rateMajor),
+			CashNative: round2(cashNative), BondCostNative: round2(bondCostNative),
+			BondCostUAH: round2(bondCostUAH), CanBuy: canBuy, ConvertUAH: round2(convertUAH),
+			MinPortfolioUAH: round2(bondCostUAH / (*tp / 100)),
+			Feasible:        bondCostUAH > 0 && bondCostUAH <= targetUAH,
+		})
+	}
+
+	// --- процентний ризик: дюрація за реальним графіком виплат ---
+	ptsByCur := map[string][]domain.CashPoint{}
+	for _, cf := range cashflow {
+		yrs := float64(domain.DaysBetween(today, cf.Date)) / 365.0
+		if yrs < 0 {
+			continue
+		}
+		c := cf.Amount.Currency().Code
+		ptsByCur[c] = append(ptsByCur[c], domain.CashPoint{Years: yrs, Amount: float64(cf.Amount.Amount()) / 100})
+	}
+	var rateRisk *state.RateRisk
+	byCurDur := map[string]float64{}
+	var pvUAHTotal, macWeighted float64
+	for c, pts := range ptsByCur {
+		y := portfolioYieldByCur[c] / 100
+		if y <= 0 {
+			y = portfolioYield / 100
+		}
+		mac, mod, pv := domain.Duration(pts, y)
+		if pv <= 0 {
+			continue
+		}
+		rateMajor := 1.0
+		if c != money.UAH {
+			rateMajor = float64(rates[c]) / fx.RateScale
+		}
+		pvUAH := pv * rateMajor
+		pvUAHTotal += pvUAH
+		macWeighted += mac * pvUAH
+		byCurDur[c] = round2(mod)
+	}
+	if pvUAHTotal > 0 {
+		mac := macWeighted / pvUAHTotal
+		mod := mac / (1 + portfolioYield/100)
+		scen := make([]state.RiskScenario, 0, 4)
+		for _, d := range []float64{-2, -1, 1, 2} {
+			chg := domain.PriceChangePct(mod, d)
+			scen = append(scen, state.RiskScenario{
+				DeltaPP: d, ChangePct: round2(chg), ChangeUAH: round2(chg / 100 * pvUAHTotal),
+			})
+		}
+		rateRisk = &state.RateRisk{
+			DurationYears: round2(mac), ModifiedDur: round2(mod), PVUAH: round2(pvUAHTotal),
+			ByCurrency: byCurDur, Scenarios: scen,
+		}
+	}
+
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthTargetUAH: target,
@@ -476,6 +571,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		PortfolioYield: portfolioYieldByCur,
 		Projection:    projection, ProjectionRatePct: capRate,
 		GoalProjection: goalProj, GoalRequiredMonthly: goalReq, GoalMonthsLeft: goalMonths,
+		Rebalance: rebalance, RateRisk: rateRisk,
 	})
 }
 

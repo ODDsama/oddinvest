@@ -78,6 +78,11 @@ type Doc struct {
 	GoalRequiredMonthly float64         `json:"goal_required_monthly,omitempty"`
 	GoalMonthsLeft      int             `json:"goal_months_left,omitempty"`
 
+	// Rebalance — підказка виходу на цільові валютні частки (по валютах,
+	// де задано ціль). RateRisk — процентний ризик портфеля (дюрація).
+	Rebalance []RebalanceRow `json:"rebalance,omitempty"`
+	RateRisk  *RateRisk      `json:"rate_risk,omitempty"`
+
 	// Settings — сирі налаштування сервіса (v0.3+, адитивне поле).
 	// Потрібні HA для number/date-сутностей: значення приходять сюди
 	// MQTT-пушем, зміни йдуть у PUT /api/settings.
@@ -92,6 +97,42 @@ type SettingsDoc struct {
 	AssumedRatePct *float64 `json:"assumed_rate_pct,omitempty"` // очікувана річна дохідність, % (fallback до XIRR)
 	GoalAmountUAH  *float64 `json:"goal_amount_uah,omitempty"`  // цільова сума капіталу, грн
 	GoalDate       string   `json:"goal_date,omitempty"`        // цільова дата (ISO)
+}
+
+// RebalanceRow — що треба зробити, щоб вийти на цільову частку валюти.
+// DeficitUAH — скільки грн-екв бракує до цілі; BondCost* — найдешевший
+// папір цієї валюти; ConvertUAH — скільки гривні сконвертувати, щоб його
+// купити; MinPortfolioUAH — розмір портфеля, за якого один такий папір
+// уже вписується в цільову частку (Feasible=false, поки не доріс).
+type RebalanceRow struct {
+	Currency        string  `json:"currency"`
+	TargetPct       float64 `json:"target_pct"`
+	CurrentPct      float64 `json:"current_pct"`
+	DeficitUAH      float64 `json:"deficit_uah"`
+	DeficitNative   float64 `json:"deficit_native"`
+	CashNative      float64 `json:"cash_native"`
+	BondCostNative  float64 `json:"bond_cost_native"`
+	BondCostUAH     float64 `json:"bond_cost_uah"`
+	CanBuy          int64   `json:"can_buy"`
+	ConvertUAH      float64 `json:"convert_uah"`
+	MinPortfolioUAH float64 `json:"min_portfolio_uah"`
+	Feasible        bool    `json:"feasible"`
+}
+
+// RateRisk — процентний ризик: дюрація Маколея (років), модифікована
+// дюрація і сценарії зміни вартості при зсуві ставок.
+type RateRisk struct {
+	DurationYears float64            `json:"duration_years"`
+	ModifiedDur   float64            `json:"modified_dur"`
+	PVUAH         float64            `json:"pv_uah"`
+	ByCurrency    map[string]float64 `json:"by_currency,omitempty"`
+	Scenarios     []RiskScenario     `json:"scenarios,omitempty"`
+}
+
+type RiskScenario struct {
+	DeltaPP   float64 `json:"delta_pp"`
+	ChangePct float64 `json:"change_pct"`
+	ChangeUAH float64 `json:"change_uah"`
 }
 
 type ProjectionRow struct {
@@ -147,6 +188,8 @@ type Input struct {
 	GoalProjection      float64
 	GoalRequiredMonthly float64
 	GoalMonthsLeft      int
+	Rebalance           []RebalanceRow
+	RateRisk            *RateRisk
 }
 
 func payTypeStr(t domain.PayType) string {
@@ -234,6 +277,8 @@ func Build(in Input) (*Doc, error) {
 	doc.GoalProjection = in.GoalProjection
 	doc.GoalRequiredMonthly = in.GoalRequiredMonthly
 	doc.GoalMonthsLeft = in.GoalMonthsLeft
+	doc.Rebalance = in.Rebalance
+	doc.RateRisk = in.RateRisk
 
 	nowDate := domain.NewDate(in.Now)
 	var monthIncoming int64

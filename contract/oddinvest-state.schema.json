@@ -278,6 +278,48 @@
     "projection_rate_pct": { "type": "number", "description": "Ставка реінвесту в проєкції, %" },
     "goal_projection": { "type": "number", "description": "Прогноз капіталу на дату цілі, грн-екв." },
     "goal_required_monthly": { "type": "number", "description": "Потрібний внесок/міс для досягнення цілі, грн-екв." },
-    "goal_months_left": { "type": "integer", "description": "Місяців до дати цілі" }
+    "goal_months_left": { "type": "integer", "description": "Місяців до дати цілі" },
+    "rebalance": {
+      "type": "array",
+      "description": "Підказка виходу на цільові валютні частки (адитивне поле)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "currency": { "type": "string" },
+          "target_pct": { "type": "number" },
+          "current_pct": { "type": "number" },
+          "deficit_uah": { "type": "number" },
+          "deficit_native": { "type": "number" },
+          "cash_native": { "type": "number" },
+          "bond_cost_native": { "type": "number" },
+          "bond_cost_uah": { "type": "number" },
+          "can_buy": { "type": "integer" },
+          "convert_uah": { "type": "number" },
+          "min_portfolio_uah": { "type": "number" },
+          "feasible": { "type": "boolean" }
+        }
+      }
+    },
+    "rate_risk": {
+      "type": "object",
+      "description": "Процентний ризик: дюрація і сценарії зміни ставок (адитивне поле)",
+      "properties": {
+        "duration_years": { "type": "number" },
+        "modified_dur": { "type": "number" },
+        "pv_uah": { "type": "number" },
+        "by_currency": { "type": "object", "additionalProperties": { "type": "number" } },
+        "scenarios": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "delta_pp": { "type": "number" },
+              "change_pct": { "type": "number" },
+              "change_uah": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
   }
 }
