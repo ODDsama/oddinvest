@@ -1220,7 +1220,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	bonds, err := s.st.SearchBonds(ctx, "", "", today, "", 200) // майбутні папери
+	bonds, err := s.st.SearchBonds(ctx, "", "", today, "", 5000) // усі майбутні папери
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -1402,9 +1402,8 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		}
 		return a.Maturity < b.Maturity
 	})
-	if len(out) > 15 {
-		out = out[:15]
-	}
+	// Ліміту немає свідомо: у таблиці є фільтри, сортування й пагінація,
+	// тож звужує користувач, а не бекенд мовчки.
 	writeJSON(w, http.StatusOK, out)
 }
 
