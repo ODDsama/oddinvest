@@ -237,13 +237,27 @@
           "minimum": 0,
           "maximum": 100
         },
-        "insurance_renewal": {
+        "eur_target_share_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "assumed_rate_pct": {
+          "type": "number",
+          "description": "Застаріле: проєкції беруть portfolio_yield_pct"
+        },
+        "goal_amount_uah": {
+          "type": "number",
+          "minimum": 0
+        },
+        "goal_date": {
           "type": "string",
           "format": "date"
         },
-        "insurance_premium_uah": {
+        "target_duration_years": {
           "type": "number",
-          "minimum": 0
+          "minimum": 0,
+          "description": "Бажана дюрація портфеля, років"
         }
       }
     },

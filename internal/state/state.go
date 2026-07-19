@@ -97,6 +97,9 @@ type SettingsDoc struct {
 	AssumedRatePct *float64 `json:"assumed_rate_pct,omitempty"` // очікувана річна дохідність, % (fallback до XIRR)
 	GoalAmountUAH  *float64 `json:"goal_amount_uah,omitempty"`  // цільова сума капіталу, грн
 	GoalDate       string   `json:"goal_date,omitempty"`        // цільова дата (ISO)
+	// TargetDurationYears — бажана дюрація портфеля, років. Помічник
+	// реінвестиції підсвічує папери, що ведуть дюрацію до цього значення.
+	TargetDurationYears *float64 `json:"target_duration_years,omitempty"`
 }
 
 // RebalanceRow — що треба зробити, щоб вийти на цільову частку валюти.

@@ -164,6 +164,7 @@
       <label>Ціль на місяць, грн <input name="monthly_target_uah"></label>
       <label>Цільова частка USD, % <input name="usd_target_share_pct"></label>
       <label>Цільова частка EUR, % <input name="eur_target_share_pct"></label>
+      <label>Цільова дюрація, років <input name="target_duration_years" placeholder="напр. 3"></label>
       <label>Ціль: сума, ₴ <input name="goal_amount_uah"></label>
       <label>Ціль: дата <input name="goal_date" type="date"></label>
       <button class="act">Зберегти</button>
@@ -269,12 +270,22 @@ function renderRateRisk(s) {
     const col = x.change_pct >= 0 ? "#3fb950" : "#f85149";
     return `<tr><td>${sgn(x.delta_pp)}${x.delta_pp} п.п.</td><td style="color:${col}">${sgn(x.change_pct)}${x.change_pct}%</td><td style="color:${col}">${sgn(x.change_uah)}${uahFmt(x.change_uah)}</td></tr>`;
   }).join("");
+  const tgt = Number((s.settings || {}).target_duration_years || 0);
+  let tgtHint = "";
+  if (tgt > 0) {
+    const d = rr.duration_years - tgt;
+    tgtHint = Math.abs(d) < 0.15
+      ? `<p style="color:#3fb950">Дюрація на цілі: ${rr.duration_years} ≈ ${tgt} р. ✅</p>`
+      : `<p>Зараз <b>${rr.duration_years}</b> → ціль <b>${tgt}</b> р. — щоб зійтись, бери <b>${d < 0 ? "довші" : "коротші"}</b> папери.</p>`;
+  }
   host.innerHTML = `<h3>Ризик ставок</h3>
     <div class="cards">
       <div class="card"><div class="l">Дюрація (Маколея)</div><div class="v">${rr.duration_years} р.</div></div>
+      <div class="card"><div class="l">Цільова дюрація</div><div class="v">${tgt > 0 ? tgt + " р." : "—"}</div></div>
       <div class="card"><div class="l">Модифікована</div><div class="v">${rr.modified_dur}</div></div>
       <div class="card"><div class="l">Приведена вартість</div><div class="v">${uahFmt(rr.pv_uah)}</div></div>
     </div>
+    ${tgtHint}
     <table><tr><th>Зміна ставок</th><th>Вартість</th><th>У грошах</th></tr>${scen}</table>
     <p class="mut" style="font-size:13px">Дюрація — середньозважений строк повернення грошей. Модифікована показує, на скільки % змінюється вартість при зміні ставок на 1 п.п. <b>Тримаєш до погашення — просадка лише паперова</b>: ризик реалізується при продажі на вторинці.</p>`;
 }
@@ -400,6 +411,7 @@ function rvData() {
     const val = x => RV.sortKey === "rate_pct" ? parseFloat(x.rate_pct)
       : RV.sortKey === "nominal" ? Number(x.nominal && x.nominal.amount)
       : RV.sortKey === "affordable" ? Number(x.affordable)
+      : RV.sortKey === "duration_after" ? Number(x.duration_after || 0)
       : String(x.maturity);
     a = a.slice().sort((p,q) => { const pv = val(p), qv = val(q); return (pv < qv ? -1 : pv > qv ? 1 : 0) * RV.sortDir; });
   }
@@ -421,11 +433,14 @@ function rvRender() {
     `<th class="sort" data-sort="maturity">Погашення${arrow("maturity")}</th>` +
     `<th class="sort" data-sort="nominal">Номінал${arrow("nominal")}</th>` +
     `<th class="sort" data-sort="affordable">Вистачає${arrow("affordable")}</th>` +
+    `<th class="sort" data-sort="duration_after">Дюрація${arrow("duration_after")}</th>` +
     "<th>Чому</th><th></th></tr>" +
     (paged.length ? paged.map(x => `<tr><td>${x.isin}</td><td>${x.rate_pct}%</td><td>${x.maturity}</td><td>${fmt(x.nominal)}</td>
-      <td>${x.affordable}</td><td class="mut">${x.reason}</td>
+      <td>${x.affordable}</td>
+      <td>${x.duration_after ? `${Number(x.duration_now).toFixed(2)} → <b>${Number(x.duration_after).toFixed(2)}</b>` : "—"}</td>
+      <td class="mut">${x.reason}</td>
       <td><button class="act" style="padding:4px 10px" onclick="takeBond('${x.isin}')">Взяти</button></td></tr>`).join("")
-      : `<tr><td colspan="7" class="mut">Нічого не знайдено за фільтром.</td></tr>`) +
+      : `<tr><td colspan="8" class="mut">Нічого не знайдено за фільтром.</td></tr>`) +
     "</table>" +
     `<div class="rv-pager"><span class="mut">${total} паперів</span><span class="sp"></span>` +
     `<button class="pgbtn" data-pg="prev"${RV.page <= 1 ? " disabled" : ""}>‹ Назад</button>` +

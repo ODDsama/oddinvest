@@ -340,6 +340,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			settings.AssumedRatePct = &f
 		}
 	}
+	if raw, _ := s.st.GetSetting(ctx, "target_duration_years"); raw != "" {
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			settings.TargetDurationYears = &f
+		}
+	}
 	if raw, _ := s.st.GetSetting(ctx, "goal_amount_uah"); raw != "" {
 		if f, err := strconv.ParseFloat(raw, 64); err == nil {
 			settings.GoalAmountUAH = &f
@@ -1071,7 +1076,7 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 }
 
 var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct",
-	"assumed_rate_pct", "goal_amount_uah", "goal_date"}
+	"assumed_rate_pct", "goal_amount_uah", "goal_date", "target_duration_years"}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}
@@ -1206,17 +1211,52 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		ladderYear[row.Year] = map[string]float64{"UAH": row.UAH, "USD": row.USD, "EUR": row.EUR}
 	}
 
+	// Поточна дюрація/PV портфеля та цільова дюрація: для кожного паперу
+	// рахуємо, куди зрушить дюрацію його купівля. Комбінована дюрація —
+	// це середньозважена за приведеною вартістю, тож додавання паперу
+	// рахується точно, без перебудови всього портфеля.
+	var curMac, curPV float64
+	if doc.RateRisk != nil {
+		curMac, curPV = doc.RateRisk.DurationYears, doc.RateRisk.PVUAH
+	}
+	targetDur := 0.0
+	if doc.Settings != nil && doc.Settings.TargetDurationYears != nil {
+		targetDur = *doc.Settings.TargetDurationYears
+	}
+	curDist := math.Abs(curMac - targetDur)
+	rates, err := s.rates(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	isins := make([]string, 0, len(bonds))
+	for _, b := range bonds {
+		isins = append(isins, b.ISIN)
+	}
+	allPays, err := s.st.PaymentsFor(ctx, isins)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	paysByISIN := map[string][]domain.Payment{}
+	for _, p := range allPays {
+		paysByISIN[p.ISIN] = append(paysByISIN[p.ISIN], p)
+	}
+
 	type suggestion struct {
-		ISIN       string    `json:"isin"`
-		Currency   string    `json:"currency"`
-		RatePct    string    `json:"rate_pct"`
-		Maturity   string    `json:"maturity"`
-		Nominal    moneyJSON `json:"nominal"`
-		Affordable int64     `json:"affordable"`
-		Reason     string    `json:"reason"`
-		def        float64
-		ladderNom  float64
-		rate       int64
+		ISIN          string    `json:"isin"`
+		Currency      string    `json:"currency"`
+		RatePct       string    `json:"rate_pct"`
+		Maturity      string    `json:"maturity"`
+		Nominal       moneyJSON `json:"nominal"`
+		Affordable    int64     `json:"affordable"`
+		Reason        string    `json:"reason"`
+		DurationNow   float64   `json:"duration_now"`
+		DurationAfter float64   `json:"duration_after"`
+		def           float64
+		ladderNom     float64
+		rate          int64
+		durDist       float64
 	}
 	out := []suggestion{}
 	for _, b := range bonds {
@@ -1241,17 +1281,50 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		} else {
 			parts = append(parts, fmt.Sprintf("рік %d", year))
 		}
+		// куди зрушить дюрацію купівля одного такого паперу
+		y := doc.PortfolioYield[c] / 100
+		if y <= 0 {
+			y = doc.PortfolioYieldPct / 100
+		}
+		var pts []domain.CashPoint
+		for _, p := range paysByISIN[b.ISIN] {
+			if d := domain.DaysBetween(today, p.PayDate); d > 0 {
+				pts = append(pts, domain.CashPoint{
+					Years: float64(d) / 365, Amount: float64(p.PerBond.Amount()) / 100,
+				})
+			}
+		}
+		bMac, _, bPV := domain.Duration(pts, y)
+		fxr := 1.0
+		if c != money.UAH {
+			fxr = float64(rates[c]) / fx.RateScale
+		}
+		bPVUAH := bPV * fxr
+		newMac := curMac
+		if curPV+bPVUAH > 0 {
+			newMac = (curMac*curPV + bMac*bPVUAH) / (curPV + bPVUAH)
+		}
+		durDist := math.Abs(newMac - targetDur)
+		if targetDur > 0 && durDist < curDist-0.001 {
+			parts = append(parts, "наближає дюрацію до цілі")
+		}
+
 		out = append(out, suggestion{
 			ISIN: b.ISIN, Currency: c,
 			RatePct:    fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
 			Maturity:   string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
 			Affordable: int64(bal / nomMajor), Reason: strings.Join(parts, "; "),
-			def: def, ladderNom: lnom, rate: b.RateBP,
+			DurationNow: round2(curMac), DurationAfter: round2(newMac),
+			def: def, ladderNom: lnom, rate: b.RateBP, durDist: durDist,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].def != out[j].def {
 			return out[i].def > out[j].def
+		}
+		// якщо задано цільову дюрацію — далі веде той, хто ближче до неї
+		if targetDur > 0 && math.Abs(out[i].durDist-out[j].durDist) > 0.01 {
+			return out[i].durDist < out[j].durDist
 		}
 		if out[i].ladderNom != out[j].ladderNom {
 			return out[i].ladderNom < out[j].ladderNom
