@@ -303,17 +303,23 @@ async function loadSummary() {
     ? pp.map(p => `<div class="pv-row"><span class="mut">${p.date}</span><span>${Number(p.amount).toLocaleString("uk")} ${curSym(p.currency)}</span></div>`).join("")
     : `<p class="mut">Виплат попереду немає.</p>`;
 
-  $("#xirrLine").innerHTML = x.UAH != null
-    ? `Фактична дохідність (XIRR): <b>${x.UAH.toFixed(2)}%</b>`
-    : "Фактична дохідність з'явиться, коли набереться 30 днів історії";
+  const xp = Object.entries(x).filter(([,v]) => v != null).map(([c,v]) => `${curSym(c)} ${v.toFixed(2)}%`);
+  $("#xirrLine").innerHTML = xp.length
+    ? `Фактична дохідність (XIRR): <b>${xp.join(" · ")}</b> — деталі у «Портфелі»`
+    : "Фактична дохідність (XIRR) з'явиться, коли набереться 30 днів історії";
 
-  // плитки по розділах
+  // плитки по розділах. «Дохідність» — очікуване наперед (сер. купон),
+  // «XIRR» — фактично реалізоване; тримаємо поруч задля порівняння.
+  const pct = v => v != null ? v.toFixed(2) + "%" : "—";
+  const xirrTiles = Object.keys(x).length
+    ? Object.entries(x).map(([c,v]) => card(`XIRR ${curSym(c)}`, pct(v))).join("")
+    : card("XIRR", "—", `<div class="l" style="margin-top:4px">потрібно 30 днів історії</div>`);
   $("#portTiles").innerHTML =
     card("Вкладено (грн-екв.)", s.invested_uah.toLocaleString("uk")) +
     card("Номінал (грн-екв.)", s.nominal_uah_eq.toLocaleString("uk")) +
-    card("Дохідність ₴", py.UAH != null ? py.UAH.toFixed(2) + "%" : "—") +
-    (py.USD != null ? card("Дохідність $", py.USD.toFixed(2) + "%") : "") +
-    (py.EUR != null ? card("Дохідність €", py.EUR.toFixed(2) + "%") : "");
+    Object.entries(py).map(([c,v]) => card(`Дохідність ${curSym(c)}`, pct(v),
+      `<div class="l" style="margin-top:4px">очікувана</div>`)).join("") +
+    xirrTiles;
 
   $("#shareTiles").innerHTML =
     card("Частка USD", s.usd_share_pct.toFixed(1) + "%",
