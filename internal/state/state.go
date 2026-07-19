@@ -100,6 +100,9 @@ type SettingsDoc struct {
 	// TargetDurationYears — бажана дюрація портфеля, років. Помічник
 	// реінвестиції підсвічує папери, що ведуть дюрацію до цього значення.
 	TargetDurationYears *float64 `json:"target_duration_years,omitempty"`
+	// Channels — канали купівлі через кому (mono, inzhur…). Форма покупки
+	// показує їх у випадайці разом із тими, що вже зустрічались у лотах.
+	Channels string `json:"channels,omitempty"`
 }
 
 // RebalanceRow — що треба зробити, щоб вийти на цільову частку валюти.

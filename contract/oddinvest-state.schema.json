@@ -258,6 +258,10 @@
           "type": "number",
           "minimum": 0,
           "description": "Бажана дюрація портфеля, років"
+        },
+        "channels": {
+          "type": "string",
+          "description": "Канали купівлі через кому (mono, inzhur…)"
         }
       }
     },

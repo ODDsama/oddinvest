@@ -148,7 +148,8 @@
         <option value="">валюта: авто</option><option>UAH</option><option>USD</option><option>EUR</option>
       </select>
       <input name="buy_date" type="date" required>
-      <input name="channel" placeholder="Канал (Дія…)" style="width:120px">
+      <select name="channel_sel" id="channelSel" style="width:140px"></select>
+      <input name="channel" placeholder="назва каналу" style="width:130px;display:none">
       <button class="act">Додати</button>
     </form>
     <p class="mut" id="bondInfo"></p>
@@ -194,6 +195,7 @@
       <label>Цільова частка USD, % <input name="usd_target_share_pct"></label>
       <label>Цільова частка EUR, % <input name="eur_target_share_pct"></label>
       <label>Цільова дюрація, років <input name="target_duration_years" placeholder="напр. 3"></label>
+      <label>Канали купівлі (через кому) <input name="channels" placeholder="mono, inzhur"></label>
       <label>Ціль: сума, ₴ <input name="goal_amount_uah"></label>
       <label>Ціль: дата <input name="goal_date" type="date"></label>
       <button class="act">Зберегти</button>
@@ -432,6 +434,26 @@ async function loadChart() {
     snaps.slice(-14).reverse().map(s => `<tr><td>${s.date}</td><td>${uahFmt(s.invested_uah)}</td><td>${uahFmt(s.nominal_uah_eq)}</td><td>${(s.usd_share_pct || 0).toFixed(1)}%</td><td>${uahFmt(s.uninvested_uah)}</td></tr>`).join("");
 }
 
+// Канали: задані в Налаштуваннях ∪ ті, що вже зустрічались у лотах.
+// Так новий канал доступний ще до першої покупки, а старі не губляться.
+let LAST_SETTINGS = {}, LAST_LOTS = [];
+function renderChannels() {
+  const sel = $("#channelSel"); if (!sel) return;
+  const set = new Set(String(LAST_SETTINGS.channels || "").split(",").map(c=>c.trim()).filter(Boolean));
+  LAST_LOTS.forEach(l => { if (l.channel) set.add(String(l.channel).trim()); });
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">— канал —</option>` +
+    [...set].sort((a,b)=>a.localeCompare(b,"uk")).map(c=>`<option value="${c}">${c}</option>`).join("") +
+    `<option value="__other__">інший…</option>`;
+  if (prev) sel.value = prev;
+  sel.onchange = () => {
+    const other = sel.value === "__other__";
+    const inp = document.querySelector('[name=channel]');
+    inp.style.display = other ? "" : "none";
+    if (other) { inp.value = ""; inp.focus(); }
+  };
+}
+
 async function loadPortfolio() {
   const pos = await api("/api/positions");
   $("#positions").innerHTML = "<tr><th>ISIN</th><th>К-сть</th><th>Вкладено</th><th>Номінал</th><th>Погашення</th><th>Наст. виплата</th></tr>" +
@@ -439,6 +461,7 @@ async function loadPortfolio() {
       <td>${p.maturity} <span class="mut">(${p.days_to_maturity} дн)</span></td>
       <td>${p.next_pay_date||"—"} ${fmt(p.next_pay_amount)}</td></tr>`).join("") || "<tr><td>Порожньо</td></tr>";
   const lots = await api("/api/lots");
+  LAST_LOTS = lots; renderChannels();
   $("#lots").innerHTML = "<tr><th>ID</th><th>ISIN</th><th>К-сть</th><th>Залишок</th><th>Ціна</th><th>Комісія</th><th>Дата</th><th>Канал</th><th></th></tr>" +
     lots.map(l=>`<tr><td>${l.id}</td><td>${l.isin}</td><td>${l.qty}</td><td>${l.remaining}</td>
       <td>${fmt(l.price_per_bond)}</td><td>${fmt(l.fee)}</td><td>${l.buy_date}</td><td>${l.channel}</td>
@@ -599,7 +622,15 @@ async function loadLadder() {
 
 async function loadSettings() {
   const s = await api("/api/settings");
-  for (const [k,v] of Object.entries(s)) { const el = document.querySelector(`[name=${k}]`); if (el) el.value = v; }
+  LAST_SETTINGS = s;
+  for (const [k,v] of Object.entries(s)) {
+    if (k === "channels") continue; // канали йдуть у випадайку, не в поле форми покупки
+    const el = document.querySelector(`#settings [name=${k}]`) || document.querySelector(`[name=${k}]`);
+    if (el) el.value = v;
+  }
+  const chField = document.querySelector('#settings [name=channels]');
+  if (chField) chField.value = s.channels || "";
+  renderChannels();
 }
 
 const uahFmt = v => Math.round(v).toLocaleString("uk") + " ₴";
@@ -628,8 +659,13 @@ async function loadProjection() {
 $("#lotForm").onsubmit = async e => {
   e.preventDefault();
   const d = Object.fromEntries(new FormData(e.target)); d.qty = +d.qty;
-  try { await api("/api/lots", {method:"POST", body:JSON.stringify(d)}); e.target.reset(); refresh(); toast("Лот додано"); }
-  catch (err) { toast(err.message); }
+  d.channel = d.channel_sel === "__other__" ? (d.channel || "").trim() : (d.channel_sel || "").trim();
+  delete d.channel_sel;
+  try {
+    await api("/api/lots", {method:"POST", body:JSON.stringify(d)});
+    e.target.reset(); document.querySelector('[name=channel]').style.display = "none";
+    refresh(); toast("Лот додано");
+  } catch (err) { toast(err.message); }
 };
 $("#saleForm").onsubmit = async e => {
   e.preventDefault();

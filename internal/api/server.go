@@ -345,6 +345,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			settings.TargetDurationYears = &f
 		}
 	}
+	if raw, _ := s.st.GetSetting(ctx, "channels"); raw != "" {
+		settings.Channels = raw
+	}
 	if raw, _ := s.st.GetSetting(ctx, "goal_amount_uah"); raw != "" {
 		if f, err := strconv.ParseFloat(raw, 64); err == nil {
 			settings.GoalAmountUAH = &f
@@ -1076,7 +1079,7 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 }
 
 var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct",
-	"assumed_rate_pct", "goal_amount_uah", "goal_date", "target_duration_years"}
+	"assumed_rate_pct", "goal_amount_uah", "goal_date", "target_duration_years", "channels"}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}
