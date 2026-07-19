@@ -198,6 +198,13 @@
       <label>Цільова частка EUR, % <input name="eur_target_share_pct"></label>
       <label>Цільова дюрація, років <input name="target_duration_years" placeholder="напр. 3"></label>
       <label>Канали купівлі (через кому) <input name="channels" placeholder="mono, inzhur"></label>
+      <label>Макс. строк погашення, років <input name="max_maturity_years" placeholder="напр. 4 (0 = без межі)"></label>
+      <label>Що рекомендувати <select name="reinvest_rank">
+        <option value="plan">Під мій план (валюта → драбина → дюрація)</option>
+        <option value="rate">Найвища ставка</option>
+        <option value="short">Найкоротші до погашення</option>
+        <option value="ladder">Заповнювати дірки в драбині</option>
+      </select></label>
       <label>Ціль: сума, ₴ <input name="goal_amount_uah"></label>
       <label>Ціль: дата <input name="goal_date" type="date"></label>
       <button class="act">Зберегти</button>
@@ -262,7 +269,7 @@ function renderRecommended(rec) {
   const host = $("#recommended"); if (!host) return;
   if (!rec || !rec.length) { host.innerHTML = ""; return; }
   const rows = rec.slice(0,2).map(x => `<div class="pv-row">
-    <span><b>${x.isin}</b> <span class="mut">· ${x.rate_pct}% · до ${x.maturity}</span></span>
+    <span><b>${x.isin}</b> <span class="mut">· ${fmt(x.nominal)} · ${x.rate_pct}% · до ${x.maturity}</span></span>
     <span class="${x.can_buy ? "" : "mut"}">${x.can_buy ? `вистачає на ${x.affordable}` : "ще не по кишені"}</span></div>`).join("");
   host.innerHTML = `<h3>Рекомендовано взяти</h3>${rows}
     <p><button class="pgbtn" onclick="goto('pick')">Весь список →</button></p>`;

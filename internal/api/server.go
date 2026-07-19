@@ -352,6 +352,14 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	if raw, _ := s.st.GetSetting(ctx, "channels"); raw != "" {
 		settings.Channels = raw
 	}
+	if raw, _ := s.st.GetSetting(ctx, "max_maturity_years"); raw != "" {
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			settings.MaxMaturityYears = &f
+		}
+	}
+	if raw, _ := s.st.GetSetting(ctx, "reinvest_rank"); raw != "" {
+		settings.ReinvestRank = raw
+	}
 	if raw, _ := s.st.GetSetting(ctx, "goal_amount_uah"); raw != "" {
 		if f, err := strconv.ParseFloat(raw, 64); err == nil {
 			settings.GoalAmountUAH = &f
@@ -1105,7 +1113,8 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 }
 
 var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct",
-	"assumed_rate_pct", "goal_amount_uah", "goal_date", "target_duration_years", "channels"}
+	"assumed_rate_pct", "goal_amount_uah", "goal_date", "target_duration_years", "channels",
+	"max_maturity_years", "reinvest_rank"}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}
@@ -1249,8 +1258,18 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		curMac, curPV = doc.RateRisk.DurationYears, doc.RateRisk.PVUAH
 	}
 	targetDur := 0.0
-	if doc.Settings != nil && doc.Settings.TargetDurationYears != nil {
-		targetDur = *doc.Settings.TargetDurationYears
+	maxMat := 0.0
+	rank := "plan"
+	if doc.Settings != nil {
+		if doc.Settings.TargetDurationYears != nil {
+			targetDur = *doc.Settings.TargetDurationYears
+		}
+		if doc.Settings.MaxMaturityYears != nil {
+			maxMat = *doc.Settings.MaxMaturityYears
+		}
+		if doc.Settings.ReinvestRank != "" {
+			rank = doc.Settings.ReinvestRank
+		}
 	}
 	curDist := math.Abs(curMac - targetDur)
 	rates, err := s.rates(ctx)
@@ -1294,6 +1313,12 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		bal := doc.Accounts[c]
 		nomMajor := float64(b.Nominal.Amount()) / 100
 		if nomMajor <= 0 {
+			continue
+		}
+		// Довідник містить довгі інституційні випуски (2038+), яких у
+		// роздрібі не купити. Межу задає користувач — автоматично її
+		// нізвідки взяти: даних «що продає брокер» у відкритому доступі нема.
+		if maxMat > 0 && float64(domain.DaysBetween(today, b.Maturity))/365 > maxMat {
 			continue
 		}
 		// Показуємо рекомендації ЗАВЖДИ, навіть коли грошей ще не вистачає:
@@ -1353,21 +1378,44 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			def: def, ladderNom: lnom, rate: b.RateBP, durDist: durDist,
 		})
 	}
+	// Критерій ранжування обирає користувач: «під план» балансує валюту,
+	// драбину й дюрацію; решта — прості й передбачувані.
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].CanBuy != out[j].CanBuy {
-			return out[i].CanBuy // те, що вже по кишені, — зверху
+		a, b := out[i], out[j]
+		if a.CanBuy != b.CanBuy {
+			return a.CanBuy // те, що вже по кишені, — зверху
 		}
-		if out[i].def != out[j].def {
-			return out[i].def > out[j].def
+		switch rank {
+		case "rate":
+			if a.rate != b.rate {
+				return a.rate > b.rate
+			}
+		case "short":
+			if a.Maturity != b.Maturity {
+				return a.Maturity < b.Maturity
+			}
+		case "ladder":
+			if a.ladderNom != b.ladderNom {
+				return a.ladderNom < b.ladderNom
+			}
+			if a.rate != b.rate {
+				return a.rate > b.rate
+			}
+		default: // plan
+			if a.def != b.def {
+				return a.def > b.def
+			}
+			if targetDur > 0 && math.Abs(a.durDist-b.durDist) > 0.01 {
+				return a.durDist < b.durDist
+			}
+			if a.ladderNom != b.ladderNom {
+				return a.ladderNom < b.ladderNom
+			}
+			if a.rate != b.rate {
+				return a.rate > b.rate
+			}
 		}
-		// якщо задано цільову дюрацію — далі веде той, хто ближче до неї
-		if targetDur > 0 && math.Abs(out[i].durDist-out[j].durDist) > 0.01 {
-			return out[i].durDist < out[j].durDist
-		}
-		if out[i].ladderNom != out[j].ladderNom {
-			return out[i].ladderNom < out[j].ladderNom
-		}
-		return out[i].rate > out[j].rate
+		return a.Maturity < b.Maturity
 	})
 	if len(out) > 15 {
 		out = out[:15]
