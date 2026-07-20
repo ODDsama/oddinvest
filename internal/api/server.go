@@ -74,6 +74,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/reinvest", s.handleReinvest)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
+	mux.HandleFunc("GET /api/backup", s.handleBackupExport)
+	mux.HandleFunc("POST /api/restore", s.handleBackupImport)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServerFS(sub))
@@ -1336,6 +1338,46 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleBackupExport віддає повний бекап користувацьких даних як файл.
+func (s *Server) handleBackupExport(w http.ResponseWriter, r *http.Request) {
+	b, err := s.st.ExportAll(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	b.ExportedAt = time.Now().UTC().Format(time.RFC3339)
+	data, err := json.MarshalIndent(b, "", "  ")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	fname := "oddinvest-backup-" + time.Now().Format("2006-01-02") + ".json"
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+fname+`"`)
+	w.Write(data)
+}
+
+// handleBackupImport ЗАМІНЮЄ всі користувацькі дані вмістом бекапу.
+func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
+	var b store.Backup
+	if err := json.NewDecoder(r.Body).Decode(&b); err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("не схоже на бекап: %w", err))
+		return
+	}
+	if err := s.st.ImportAll(r.Context(), &b); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"restored": map[string]int{
+			"lots": len(b.Lots), "sales": len(b.Sales), "deposits": len(b.Deposits),
+			"conversions": len(b.Conversions), "settings": len(b.Settings),
+			"payment_status": len(b.PaymentStatus), "snapshots": len(b.Snapshots),
+		},
+	})
 }
 
 func (s *Server) publishAsync() {

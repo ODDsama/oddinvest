@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -47,7 +48,10 @@ func main() {
 	// refresher-а, runner отримує збірку стану від сервера, потім
 	// refresher доєднується до сервера.
 	srv := api.New(st, nil, log)
-	runner := jobs.New(st, nc, pub, srv.BuildStateDoc, log)
+	// щоденний JSON-дамп поряд із БД — потрапляє в бекап Proxmox і
+	// переживає навіть пошкодження SQLite-файла
+	backupPath := filepath.Join(filepath.Dir(cfg.DBPath), "oddinvest-backup.json")
+	runner := jobs.New(st, nc, pub, srv.BuildStateDoc, log, backupPath)
 	srv = api.New(st, runner, log)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

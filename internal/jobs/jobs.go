@@ -4,7 +4,9 @@ package jobs
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -15,21 +17,53 @@ import (
 )
 
 type Runner struct {
-	st    *store.Store
-	nbu   *nbu.Client
-	pub   *mqtt.Publisher // nil = MQTT вимкнено
-	build func(ctx context.Context, now time.Time) (*state.Doc, error)
-	log   *slog.Logger
-	loc   *time.Location
+	st         *store.Store
+	nbu        *nbu.Client
+	pub        *mqtt.Publisher // nil = MQTT вимкнено
+	build      func(ctx context.Context, now time.Time) (*state.Doc, error)
+	log        *slog.Logger
+	loc        *time.Location
+	backupPath string // куди щодня писати JSON-дамп (порожньо = вимкнено)
 }
 
 func New(st *store.Store, nc *nbu.Client, pub *mqtt.Publisher,
-	build func(ctx context.Context, now time.Time) (*state.Doc, error), log *slog.Logger) *Runner {
+	build func(ctx context.Context, now time.Time) (*state.Doc, error), log *slog.Logger, backupPath string) *Runner {
 	loc, err := time.LoadLocation("Europe/Kyiv")
 	if err != nil {
 		loc = time.FixedZone("EET", 2*3600)
 	}
-	return &Runner{st: st, nbu: nc, pub: pub, build: build, log: log, loc: loc}
+	return &Runner{st: st, nbu: nc, pub: pub, build: build, log: log, loc: loc, backupPath: backupPath}
+}
+
+// dumpBackup — щоденний JSON-дамп користувацьких даних поряд із БД.
+// Пишемо атомарно (temp + rename), щоб бекап Proxmox не спіймав半-файл.
+// Помилка не фатальна: це страховка, а не основний шлях.
+func (r *Runner) dumpBackup(ctx context.Context) {
+	if r.backupPath == "" {
+		return
+	}
+	b, err := r.st.ExportAll(ctx)
+	if err != nil {
+		r.log.Warn("бекап: експорт не вдався", "err", err)
+		return
+	}
+	b.ExportedAt = time.Now().UTC().Format(time.RFC3339)
+	data, err := json.MarshalIndent(b, "", "  ")
+	if err != nil {
+		r.log.Warn("бекап: серіалізація", "err", err)
+		return
+	}
+	tmp := r.backupPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		r.log.Warn("бекап: запис", "err", err)
+		return
+	}
+	if err := os.Rename(tmp, r.backupPath); err != nil {
+		r.log.Warn("бекап: rename", "err", err)
+		return
+	}
+	r.log.Info("бекап збережено", "path", r.backupPath,
+		"лотів", len(b.Lots), "поповнень", len(b.Deposits))
 }
 
 // RefreshAll — довідник НБУ + курс USD + знімок + публікація.
@@ -64,6 +98,7 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 	if err := r.Snapshot(ctx); err != nil {
 		r.log.Warn("знімок не збережено", "err", err)
 	}
+	r.dumpBackup(ctx)
 	return r.PublishState(ctx)
 }
 

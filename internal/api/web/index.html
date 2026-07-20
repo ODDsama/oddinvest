@@ -200,6 +200,14 @@
       <button class="act">Зберегти</button>
     </form>
     <button class="act" id="refreshBtn">Оновити довідник НБУ і курс</button>
+
+    <h3>Бекап</h3>
+    <p class="mut">Твої лоти, поповнення, конвертації, налаштування й статуси виплат. Довідник НБУ не входить — відновлюється сам. Сервер щодня пише копію поряд із БД (потрапляє в бекап Proxmox).</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <button class="act" id="btnExport">Завантажити бекап</button>
+      <label class="mut" style="font-size:13px">Відновити з файлу: <input type="file" id="importFile" accept="application/json,.json"></label>
+    </div>
+    <p class="mut" id="restoreMsg" style="font-size:13px"></p>
   </section>
 </main>
 <div id="msg"></div>
@@ -686,6 +694,34 @@ $("#refreshBtn").onclick = async () => {
   toast("Оновлюю довідник НБУ…");
   try { await api("/api/refresh", {method:"POST"}); refresh(); toast("Довідник оновлено"); }
   catch (err) { toast(err.message); }
+};
+
+$("#btnExport").onclick = async () => {
+  try {
+    const resp = await fetch("/api/backup");
+    if (!resp.ok) throw new Error(await resp.text());
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "oddinvest-backup.json"; a.click();
+    URL.revokeObjectURL(url); toast("Бекап завантажено");
+  } catch (err) { toast(err.message); }
+};
+
+$("#importFile").onchange = async e => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const msg = $("#restoreMsg");
+  try {
+    const data = JSON.parse(await file.text());
+    const n = (data.lots || []).length;
+    if (!confirm(`Відновити з бекапу? Це ЗАМІНИТЬ усі поточні дані (${n} лот(ів) у файлі). Дію не скасувати.`)) { e.target.value = ""; return; }
+    const res = await api("/api/restore", {method:"POST", body:JSON.stringify(data)});
+    const r = res.restored || {};
+    msg.textContent = `Відновлено: ${r.lots||0} лот(ів), ${r.deposits||0} поповн., ${r.conversions||0} конверт., ${r.snapshots||0} знімк.`;
+    toast("Відновлено з бекапу"); refresh();
+  } catch (err) { msg.textContent = "Помилка: " + err.message; toast("Не вдалось відновити"); }
+  e.target.value = "";
 };
 
 let isinTimer;
