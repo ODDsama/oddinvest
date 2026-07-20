@@ -49,6 +49,12 @@ type Doc struct {
 	// кожному брокеру. Довідкова розбивка для «Портфеля».
 	InvestedByBroker map[string]float64 `json:"invested_by_broker,omitempty"`
 
+	// LadderUAH — номінал, що повертається щороку, у грн-екв. (для стовпчиків
+	// драбини). Income12m — очікуваний дохід (купони+погашення) по місяцях
+	// на рік наперед, грн-екв.
+	LadderUAH []YearAmount  `json:"ladder_uah,omitempty"`
+	Income12m []MonthAmount `json:"income_12m,omitempty"`
+
 	MonthInvestedUAH float64 `json:"month_invested_uah"`
 	MonthTargetUAH   float64 `json:"month_target_uah"`
 	MonthProgressPct int     `json:"month_progress_pct"`
@@ -188,6 +194,16 @@ type GoalRow struct {
 	RequiredMonthly float64 `json:"required_monthly,omitempty"`
 }
 
+type YearAmount struct {
+	Year int     `json:"year"`
+	UAH  float64 `json:"uah"`
+}
+
+type MonthAmount struct {
+	Month  string  `json:"month"` // "2026-07"
+	Amount float64 `json:"amount"`
+}
+
 type ProjectionRow struct {
 	Years        int     `json:"years"`
 	Contributed  float64 `json:"contributed"`   // внесено без %, грн-екв.
@@ -234,6 +250,8 @@ type Input struct {
 	Accounts         map[string]float64
 	Brokers          map[string]map[string]float64
 	InvestedByBroker map[string]float64
+	LadderUAH        []YearAmount
+	Income12m        []MonthAmount
 	ReinvestMinByCur map[string]float64
 	TopN              int
 	Settings          *SettingsDoc
@@ -322,6 +340,8 @@ func Build(in Input) (*Doc, error) {
 	doc.Accounts = in.Accounts
 	doc.Brokers = in.Brokers
 	doc.InvestedByBroker = in.InvestedByBroker
+	doc.LadderUAH = in.LadderUAH
+	doc.Income12m = in.Income12m
 	doc.ReinvestMin = in.ReinvestMinByCur
 	if doc.Accounts == nil {
 		doc.Accounts = map[string]float64{}

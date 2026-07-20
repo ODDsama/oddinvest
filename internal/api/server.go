@@ -360,6 +360,38 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		investedByBroker[name] += float64(u.Amount()) / 100
 	}
+
+	// Драбина в грн-екв.: номінал, що повертається щороку (для стовпчиків).
+	ladderByYear := map[int]int64{}
+	for _, e := range ladder {
+		if u, err := fx.ToUAH(money.New(e.Nominal, e.Currency), rates); err == nil {
+			ladderByYear[e.Year] += u.Amount()
+		}
+	}
+	years := make([]int, 0, len(ladderByYear))
+	for y := range ladderByYear {
+		years = append(years, y)
+	}
+	sort.Ints(years)
+	ladderUAH := make([]state.YearAmount, 0, len(years))
+	for _, y := range years {
+		ladderUAH = append(ladderUAH, state.YearAmount{Year: y, UAH: round2(float64(ladderByYear[y]) / 100)})
+	}
+
+	// Дохід (купони+погашення) по місяцях на рік наперед, грн-екв.
+	incByMonth := map[string]float64{}
+	for _, cf := range cashflow {
+		if u, err := fx.ToUAH(cf.Amount, rates); err == nil {
+			incByMonth[fmt.Sprintf("%04d-%02d", cf.Date.Year(), int(cf.Date.Month()))] += float64(u.Amount()) / 100
+		}
+	}
+	income12m := make([]state.MonthAmount, 0, 12)
+	for i := 0; i < 12; i++ {
+		t := today.Time().AddDate(0, i, 0)
+		key := fmt.Sprintf("%04d-%02d", t.Year(), int(t.Month()))
+		income12m = append(income12m, state.MonthAmount{Month: key, Amount: round2(incByMonth[key])})
+	}
+
 	accounts := map[string]float64{}
 	accountUAHMinor := int64(0)
 	for cur, m := range bal {
@@ -779,6 +811,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Rates: rates, MonthInvestedUAH: monthInv, MonthTargetUAH: target,
 		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
+		LadderUAH: ladderUAH, Income12m: income12m,
 		ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
 		PortfolioYield: portfolioYieldByCur,

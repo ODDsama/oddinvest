@@ -40,6 +40,11 @@
   @media (max-width:820px) { .ov-grid { grid-template-columns:1fr; } }
   .pv-row { display:flex; justify-content:space-between; font-size:14px; padding:7px 0; border-bottom:1px solid #262c34; }
   .pv-row:last-of-type { border-bottom:none; }
+  .chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-bottom:16px; }
+  .chart-grid .card h4 { margin:0 0 8px; font-size:14px; font-weight:600; }
+  .lg { display:flex; gap:14px; flex-wrap:wrap; margin-top:6px; font-size:12px; color:var(--mut); }
+  .lg span { display:inline-flex; align-items:center; gap:5px; }
+  .lg i { width:11px; height:11px; border-radius:2px; display:inline-block; }
   form.inline { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
   input, select { background:#0d1117; color:var(--tx); border:1px solid #30363d; border-radius:6px; padding:7px 10px; font:inherit; }
   input:focus { outline:none; border-color:var(--acc); }
@@ -77,6 +82,7 @@
     <div class="cards" id="ovTiles"></div>
     <div id="goalStrip"></div>
     <div id="brokerDonut"></div>
+    <div id="extraCharts" class="chart-grid"></div>
     <div class="ov-grid">
       <div>
         <h3>Як росте</h3>
@@ -360,6 +366,100 @@ function renderBrokerBalances(s) {
     <p class="mut">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.</p>${rows}`;
 }
 
+// --- маленькі SVG-графіки без бібліотек ---
+const compactUAH = v => { const a=Math.abs(v);
+  return a>=1e6 ? (v/1e6).toFixed(1).replace(".",",")+"М" : a>=1e3 ? Math.round(v/1e3)+"к" : String(Math.round(v)); };
+
+// Стовпчики. items: [{label, value, color?}]. showVals — підпис суми зверху.
+function svgBars(items, { showVals = false } = {}) {
+  const W=320, H=170, Pl=6, Pr=6, Pt=18, Pb=30, iw=W-Pl-Pr, ih=H-Pt-Pb, n=Math.max(1,items.length);
+  const max = Math.max(1, ...items.map(i=>i.value));
+  const gap = iw/n, bw = Math.min(46, gap*0.62);
+  let out = "";
+  items.forEach((it,i) => {
+    const h = it.value/max*ih, x = Pl+gap*i+(gap-bw)/2, y = Pt+ih-h;
+    out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0,h).toFixed(1)}" rx="2" fill="${it.color||'#4da3ff'}"><title>${it.label}: ${Math.round(it.value).toLocaleString("uk")} ₴</title></rect>`;
+    out += `<text x="${(x+bw/2).toFixed(1)}" y="${H-10}" text-anchor="middle" font-size="10" fill="#8b949e">${it.label}</text>`;
+    if (showVals && it.value>0) out += `<text x="${(x+bw/2).toFixed(1)}" y="${(y-4).toFixed(1)}" text-anchor="middle" font-size="9" fill="#8b949e">${compactUAH(it.value)}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${out}</svg>`;
+}
+
+// Згруповані пари стовпчиків (факт vs ціль). groups: [{label, a, b}]
+function svgGrouped(groups) {
+  const W=320, H=170, Pl=6, Pr=6, Pt=14, Pb=30, iw=W-Pl-Pr, ih=H-Pt-Pb, n=Math.max(1,groups.length);
+  const max = Math.max(1, ...groups.flatMap(g=>[g.a,g.b]));
+  const gap = iw/n, bw = Math.min(22, gap*0.28);
+  let out = "";
+  groups.forEach((g,i) => {
+    const cx = Pl+gap*i+gap/2;
+    [[g.a,"#4da3ff",-bw-2],[g.b,"#8b949e",2]].forEach(([v,col,dx]) => {
+      const h=v/max*ih, x=cx+dx, y=Pt+ih-h;
+      out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw}" height="${Math.max(0,h).toFixed(1)}" rx="2" fill="${col}"><title>${v.toFixed(1)}%</title></rect>`;
+    });
+    out += `<text x="${cx.toFixed(1)}" y="${H-10}" text-anchor="middle" font-size="10" fill="#8b949e">${g.label}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${out}</svg>`;
+}
+
+// Лінійний графік із кількома серіями по спільних x-мітках.
+function svgLine(xlabels, series) {
+  const W=320, H=170, Pl=8, Pr=8, Pt=14, Pb=28, iw=W-Pl-Pr, ih=H-Pt-Pb, n=Math.max(1,xlabels.length);
+  const max = Math.max(1, ...series.flatMap(s=>s.values));
+  const X = i => Pl + (n<=1?iw/2:iw*i/(n-1)), Y = v => Pt+ih-v/max*ih;
+  const lines = series.map(s => `<polyline points="${s.values.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round"/>`).join("");
+  const xl = xlabels.map((l,i)=>`<text x="${X(i).toFixed(1)}" y="${H-10}" text-anchor="middle" font-size="10" fill="#8b949e">${l}</text>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${lines}${xl}</svg>`;
+}
+
+function renderExtraCharts(s) {
+  const host = $("#extraCharts"); if (!host) return;
+  let html = "";
+
+  // 1) Драбина погашень
+  const lad = s.ladder_uah || [];
+  if (lad.length) {
+    html += `<div class="card"><h4>Драбина погашень</h4>
+      ${svgBars(lad.map(r=>({label:String(r.year), value:r.uah})), {showVals:true})}
+      <p class="mut" style="font-size:12px">Номінал, що повертається щороку (грн-екв.).</p></div>`;
+  }
+
+  // 2) Дохід по місяцях (12 міс)
+  const inc = s.income_12m || [];
+  if (inc.some(m=>m.amount>0)) {
+    html += `<div class="card"><h4>Дохід по місяцях</h4>
+      ${svgBars(inc.map(m=>({label:m.month.slice(5), value:m.amount, color:"#2ecc71"})))}
+      <p class="mut" style="font-size:12px">Купони + погашення на рік наперед (грн-екв.).</p></div>`;
+  }
+
+  // 3) Валюта: факт vs ціль
+  const st = s.settings || {};
+  const usdT = Number(st.usd_target_share_pct||0), eurT = Number(st.eur_target_share_pct||0);
+  if (usdT>0 || eurT>0) {
+    const uahT = Math.max(0, 100-usdT-eurT);
+    const groups = [
+      {label:"UAH", a:100-(s.usd_share_pct||0)-(s.eur_share_pct||0), b:uahT},
+      {label:"USD", a:s.usd_share_pct||0, b:usdT},
+      {label:"EUR", a:s.eur_share_pct||0, b:eurT},
+    ];
+    html += `<div class="card"><h4>Валюта: факт vs ціль</h4>${svgGrouped(groups)}
+      <div class="lg"><span><i style="background:#4da3ff"></i>факт</span><span><i style="background:#8b949e"></i>ціль</span></div></div>`;
+  }
+
+  // 4) Крива капіталу
+  const proj = s.projection || [];
+  if (proj.length) {
+    html += `<div class="card"><h4>Крива капіталу</h4>
+      ${svgLine(proj.map(p=>p.years+"р"), [
+        {color:"#8b949e", values:proj.map(p=>p.contributed)},
+        {color:"#4da3ff", values:proj.map(p=>p.with_reinvest)},
+      ])}
+      <div class="lg"><span><i style="background:#8b949e"></i>внесено</span><span><i style="background:#4da3ff"></i>з реінвестом</span></div></div>`;
+  }
+
+  host.innerHTML = html;
+}
+
 // Кільце часток вкладеного капіталу по брокерах (SVG-donut без бібліотек).
 function renderBrokerDonut(s) {
   const host = $("#brokerDonut"); if (!host) return;
@@ -416,6 +516,7 @@ async function loadSummary() {
   renderBrokerBalances(s);
   renderInvestedByBroker(s);
   renderBrokerDonut(s);
+  renderExtraCharts(s);
   renderChannels();
 
   const np = s.next_payment, accrued = s.accrued_uah || 0;
