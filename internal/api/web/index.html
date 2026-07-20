@@ -193,7 +193,6 @@
       <label>Цільова частка USD, % <input name="usd_target_share_pct"></label>
       <label>Цільова частка EUR, % <input name="eur_target_share_pct"></label>
       <label>Цільова дюрація, років <input name="target_duration_years" placeholder="напр. 3"></label>
-      <label>Брокери (через кому) <input name="channels" placeholder="mono, inzhur"></label>
       <label>Ціль: песимістична, ₴ <input name="goal_pessimistic_uah" placeholder="мінімум"></label>
       <label>Ціль: реалістична, ₴ <input name="goal_realistic_uah" placeholder="порожньо = прогноз на дедлайн"></label>
       <label>Ціль: оптимістична, ₴ <input name="goal_optimistic_uah" placeholder="мрія"></label>
@@ -201,6 +200,14 @@
       <button class="act">Зберегти</button>
     </form>
     <button class="act" id="refreshBtn">Оновити довідник НБУ і курс</button>
+
+    <h3>Брокери</h3>
+    <p class="mut">Рахунки для купівлі ОВДП. Зʼявляються у випадайках форм грошей і покупки. Видалення прибирає брокера лише зі списку-підказки — наявні лоти й баланси його не втрачають.</p>
+    <div id="brokerList"></div>
+    <form class="inline" id="brokerAddForm">
+      <input name="broker" placeholder="назва брокера" style="width:200px" autocomplete="off">
+      <button class="act">Додати</button>
+    </form>
 
     <h3>Бекап</h3>
     <p class="mut">Твої лоти, поповнення, конвертації, налаштування й статуси виплат. Довідник НБУ не входить — відновлюється сам. Сервер щодня пише копію поряд із БД (потрапляє в бекап Proxmox).</p>
@@ -642,14 +649,44 @@ async function loadSettings() {
   const s = await api("/api/settings");
   LAST_SETTINGS = s;
   for (const [k,v] of Object.entries(s)) {
-    if (k === "channels") continue; // канали йдуть у випадайку, не в поле форми покупки
+    if (k === "channels") continue; // брокерами керує окрема картка, не форма
     const el = document.querySelector(`#settings [name=${k}]`) || document.querySelector(`[name=${k}]`);
     if (el) el.value = v;
   }
-  const chField = document.querySelector('#settings [name=channels]');
-  if (chField) chField.value = s.channels || "";
+  renderBrokerManager(s);
   renderChannels();
 }
+
+// Брокери — окремий керований список. Зберігаємо в channels (через кому),
+// але UI — CRUD: список із ✕ + поле «Додати», кожна дія одразу зберігається.
+function parseBrokers(s) {
+  return String((s || {}).channels || "").split(",").map(x=>x.trim()).filter(Boolean);
+}
+function renderBrokerManager(s) {
+  const host = $("#brokerList"); if (!host) return;
+  const list = parseBrokers(s);
+  host.innerHTML = list.length
+    ? list.map(b => `<div class="pv-row"><span><b>${b}</b></span>
+        <button class="danger" data-delbroker="${b}">✕</button></div>`).join("")
+    : `<p class="mut">Ще немає брокерів. Додай mono, inzhur…</p>`;
+  host.querySelectorAll("[data-delbroker]").forEach(btn => btn.onclick = () =>
+    saveBrokers(shownBrokers().filter(x => x !== btn.dataset.delbroker), "Брокера прибрано"));
+}
+function shownBrokers() {
+  return [...document.querySelectorAll("#brokerList [data-delbroker]")].map(b => b.dataset.delbroker);
+}
+async function saveBrokers(list, okMsg) {
+  const uniq = [...new Set(list.map(x=>x.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
+  try { await api("/api/settings", {method:"PUT", body:JSON.stringify({channels: uniq.join(", ")})}); refresh(); toast(okMsg); }
+  catch (err) { toast(err.message); }
+}
+$("#brokerAddForm").onsubmit = e => {
+  e.preventDefault();
+  const name = e.target.broker.value.trim(); if (!name) return;
+  if (shownBrokers().some(b => b.toLowerCase() === name.toLowerCase())) { toast("Такий брокер уже є"); return; }
+  e.target.reset();
+  saveBrokers([...shownBrokers(), name], "Брокера додано");
+};
 
 const uahFmt = v => Math.round(v).toLocaleString("uk") + " ₴";
 async function loadProjection() {
