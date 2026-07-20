@@ -72,11 +72,10 @@ type Doc struct {
 	// (купони/погашення наявних паперів + внески, реінвест під дохідність).
 	// ProjectionRatePct — ставка реінвесту, що використана. Goal* —
 	// прогноз і потрібний внесок під ціль (якщо задано ціль і дату).
-	Projection          []ProjectionRow `json:"projection,omitempty"`
-	ProjectionRatePct   float64         `json:"projection_rate_pct,omitempty"`
-	GoalProjection      float64         `json:"goal_projection,omitempty"`
-	GoalRequiredMonthly float64         `json:"goal_required_monthly,omitempty"`
-	GoalMonthsLeft      int             `json:"goal_months_left,omitempty"`
+	Projection        []ProjectionRow `json:"projection,omitempty"`
+	ProjectionRatePct float64         `json:"projection_rate_pct,omitempty"`
+	// Goals — три цілі з ДАТОЮ досягнення за поточним темпом.
+	Goals []GoalRow `json:"goals,omitempty"`
 
 	// Rebalance — підказка виходу на цільові валютні частки (по валютах,
 	// де задано ціль). RateRisk — процентний ризик портфеля (дюрація).
@@ -102,8 +101,13 @@ type SettingsDoc struct {
 	EURTargetSharePct *float64 `json:"eur_target_share_pct,omitempty"`
 	// v Phase 3: проєкції/цілі
 	AssumedRatePct *float64 `json:"assumed_rate_pct,omitempty"` // очікувана річна дохідність, % (fallback до XIRR)
-	GoalAmountUAH  *float64 `json:"goal_amount_uah,omitempty"`  // цільова сума капіталу, грн
-	GoalDate       string   `json:"goal_date,omitempty"`        // цільова дата (ISO)
+	GoalAmountUAH  *float64 `json:"goal_amount_uah,omitempty"`  // застаріле: мігрує в «реалістичну»
+	GoalDate       string   `json:"goal_date,omitempty"`        // дедлайн (ISO), опційно
+	// Три цілі за рівнем амбіції. Дату досягнення рахує застосунок за
+	// поточним темпом — вона результат, а не введення.
+	GoalPessimisticUAH *float64 `json:"goal_pessimistic_uah,omitempty"`
+	GoalRealisticUAH   *float64 `json:"goal_realistic_uah,omitempty"`
+	GoalOptimisticUAH  *float64 `json:"goal_optimistic_uah,omitempty"`
 	// TargetDurationYears — бажана дюрація портфеля, років. Помічник
 	// реінвестиції підсвічує папери, що ведуть дюрацію до цього значення.
 	TargetDurationYears *float64 `json:"target_duration_years,omitempty"`
@@ -149,6 +153,20 @@ type RiskScenario struct {
 	DeltaPP   float64 `json:"delta_pp"`
 	ChangePct float64 `json:"change_pct"`
 	ChangeUAH float64 `json:"change_uah"`
+}
+
+// GoalRow — ціль і коли вона буде досягнута за поточним темпом.
+// Months: -1 = вже досягнуто, 0 = не досягається в межах горизонту.
+// RequiredMonthly заповнюється лише коли задано дедлайн і поточного
+// темпу для нього не вистачає.
+type GoalRow struct {
+	Key             string  `json:"key"` // pessimistic | realistic | optimistic
+	Label           string  `json:"label"`
+	Amount          float64 `json:"amount"`
+	Months          int     `json:"months"`
+	Date            string  `json:"date,omitempty"`
+	BeforeDeadline  *bool   `json:"before_deadline,omitempty"`
+	RequiredMonthly float64 `json:"required_monthly,omitempty"`
 }
 
 type ProjectionRow struct {
@@ -201,9 +219,7 @@ type Input struct {
 	PortfolioYield      map[string]float64
 	Projection          []ProjectionRow
 	ProjectionRatePct   float64
-	GoalProjection      float64
-	GoalRequiredMonthly float64
-	GoalMonthsLeft      int
+	Goals               []GoalRow
 	Rebalance           []RebalanceRow
 	RateRisk            *RateRisk
 	AccruedUAH          float64
@@ -292,9 +308,7 @@ func Build(in Input) (*Doc, error) {
 	doc.PortfolioYield = in.PortfolioYield
 	doc.Projection = in.Projection
 	doc.ProjectionRatePct = in.ProjectionRatePct
-	doc.GoalProjection = in.GoalProjection
-	doc.GoalRequiredMonthly = in.GoalRequiredMonthly
-	doc.GoalMonthsLeft = in.GoalMonthsLeft
+	doc.Goals = in.Goals
 	doc.Rebalance = in.Rebalance
 	doc.RateRisk = in.RateRisk
 	doc.AccruedUAH = in.AccruedUAH

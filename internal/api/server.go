@@ -355,6 +355,20 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	if raw, _ := s.st.GetSetting(ctx, "reinvest_rank"); raw != "" {
 		settings.ReinvestRank = raw
 	}
+	for _, g := range []struct {
+		key string
+		dst **float64
+	}{
+		{"goal_pessimistic_uah", &settings.GoalPessimisticUAH},
+		{"goal_realistic_uah", &settings.GoalRealisticUAH},
+		{"goal_optimistic_uah", &settings.GoalOptimisticUAH},
+	} {
+		if raw, _ := s.st.GetSetting(ctx, g.key); raw != "" {
+			if f, err := strconv.ParseFloat(raw, 64); err == nil {
+				*g.dst = &f
+			}
+		}
+	}
 	if raw, _ := s.st.GetSetting(ctx, "goal_amount_uah"); raw != "" {
 		if f, err := strconv.ParseFloat(raw, 64); err == nil {
 			settings.GoalAmountUAH = &f
@@ -474,15 +488,56 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			WithReinvest: math.Round(domain.ProjectCapital(cash0, nominal0, contribM, threshold, capRate, monthlyCoupon, monthlyRedeem, m)*100) / 100,
 		})
 	}
-	var goalProj, goalReq float64
-	var goalMonths int
-	if settings.GoalAmountUAH != nil && domain.Date(settings.GoalDate).Valid() {
-		gd := domain.Date(settings.GoalDate)
-		goalMonths = (gd.Year()-today.Year())*12 + int(gd.Month()) - int(today.Month())
-		if goalMonths > 0 {
-			goalProj = math.Round(domain.ProjectCapital(cash0, nominal0, contribM, threshold, capRate, monthlyCoupon, monthlyRedeem, goalMonths)*100) / 100
-			goalReq = math.Round(domain.RequiredMonthly(cash0, nominal0, threshold, capRate, *settings.GoalAmountUAH, monthlyCoupon, monthlyRedeem, goalMonths)*100) / 100
+	// --- три цілі: дату досягнення рахуємо, а не питаємо ---
+	// Стара одиночна goal_amount_uah мігрує в «реалістичну», щоб уже
+	// задане значення не загубилось.
+	realistic := settings.GoalRealisticUAH
+	if realistic == nil {
+		realistic = settings.GoalAmountUAH
+	}
+	defs := []struct {
+		key, label string
+		amount     *float64
+	}{
+		{"pessimistic", "Песимістична", settings.GoalPessimisticUAH},
+		{"realistic", "Реалістична", realistic},
+		{"optimistic", "Оптимістична", settings.GoalOptimisticUAH},
+	}
+	amounts := make([]float64, len(defs))
+	for i, d := range defs {
+		if d.amount != nil {
+			amounts[i] = *d.amount
 		}
+	}
+	const goalHorizonMonths = 720 // 60 років — далі вважаємо недосяжним
+	hit := domain.MonthsToReach(cash0, nominal0, contribM, threshold, capRate,
+		monthlyCoupon, monthlyRedeem, amounts, goalHorizonMonths)
+
+	// Дедлайн опційний: якщо заданий, кажемо ще й чи встигаємо і скільки
+	// треба відкладати, щоб устигнути.
+	deadlineMonths := 0
+	if domain.Date(settings.GoalDate).Valid() {
+		gd := domain.Date(settings.GoalDate)
+		deadlineMonths = (gd.Year()-today.Year())*12 + int(gd.Month()) - int(today.Month())
+	}
+	var goals []state.GoalRow
+	for i, d := range defs {
+		if amounts[i] <= 0 {
+			continue
+		}
+		row := state.GoalRow{Key: d.key, Label: d.label, Amount: amounts[i], Months: hit[i]}
+		if hit[i] > 0 {
+			row.Date = string(domain.NewDate(today.Time().AddDate(0, hit[i], 0)))
+		}
+		if deadlineMonths > 0 {
+			ok := hit[i] == -1 || (hit[i] > 0 && hit[i] <= deadlineMonths)
+			row.BeforeDeadline = &ok
+			if !ok {
+				row.RequiredMonthly = math.Round(domain.RequiredMonthly(cash0, nominal0, threshold,
+					capRate, amounts[i], monthlyCoupon, monthlyRedeem, deadlineMonths)*100) / 100
+			}
+		}
+		goals = append(goals, row)
 	}
 
 	nbuAt, _ := s.st.GetSetting(ctx, nbuRefreshedKey)
@@ -605,8 +660,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Accounts: accounts, ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
 		PortfolioYield: portfolioYieldByCur,
-		Projection:    projection, ProjectionRatePct: capRate,
-		GoalProjection: goalProj, GoalRequiredMonthly: goalReq, GoalMonthsLeft: goalMonths,
+		Projection: projection, ProjectionRatePct: capRate, Goals: goals,
 		Rebalance: rebalance, RateRisk: rateRisk,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 	})
@@ -1109,7 +1163,7 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 
 var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct",
 	"assumed_rate_pct", "goal_amount_uah", "goal_date", "target_duration_years", "channels",
-	"reinvest_rank"}
+	"reinvest_rank", "goal_pessimistic_uah", "goal_realistic_uah", "goal_optimistic_uah"}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}

@@ -39,6 +39,37 @@ func TestProjectCapitalCashIdleUntilThreshold(t *testing.T) {
 	}
 }
 
+func TestMonthsToReachMatchesProjection(t *testing.T) {
+	// місяць, який повернув MonthsToReach, має бути ПЕРШИМ, де капітал
+	// сягає цілі: на ньому вже досягнуто, на попередньому — ще ні.
+	targets := []float64{50000, 100000}
+	got := MonthsToReach(0, 0, 1000, 0, 12, nil, nil, targets, 600)
+	for i, m := range got {
+		if m <= 0 {
+			t.Fatalf("ціль %.0f не досягнута: %d", targets[i], m)
+		}
+		at := ProjectCapital(0, 0, 1000, 0, 12, nil, nil, m)
+		before := ProjectCapital(0, 0, 1000, 0, 12, nil, nil, m-1)
+		if at < targets[i] {
+			t.Errorf("міс %d: капітал %.2f < цілі %.0f", m, at, targets[i])
+		}
+		if before >= targets[i] {
+			t.Errorf("міс %d не перший: попередній уже %.2f ≥ %.0f", m, before, targets[i])
+		}
+	}
+}
+
+func TestMonthsToReachAlreadyAndUnreachable(t *testing.T) {
+	// ціль нижча за наявний капітал -> -1; недосяжна за горизонт -> 0
+	got := MonthsToReach(10000, 0, 0, 0, 0, nil, nil, []float64{5000, 1e9}, 120)
+	if got[0] != -1 {
+		t.Errorf("вже досягнуту ціль очікували -1, маємо %d", got[0])
+	}
+	if got[1] != 0 {
+		t.Errorf("недосяжну ціль очікували 0, маємо %d", got[1])
+	}
+}
+
 func TestRequiredMonthlyHitsGoal(t *testing.T) {
 	req := RequiredMonthly(0, 0, 0, 12, 100000, nil, nil, 60)
 	got := ProjectCapital(0, 0, req, 0, 12, nil, nil, 60)

@@ -20,28 +20,62 @@ import "math"
 func ProjectCapital(cash0, nominal0, contribMonthly, threshold, annualRatePct float64,
 	monthlyCoupon, monthlyRedeem map[int]float64, months int) float64 {
 
-	rM := annualRatePct / 100 / 12
-	cash := cash0
-	invested := 0.0
-	locked := nominal0
+	st := projState{cash: cash0, locked: nominal0}
 	for m := 1; m <= months; m++ {
-		invested *= 1 + rM
-		cash += contribMonthly + monthlyCoupon[m] + monthlyRedeem[m]
-		locked -= monthlyRedeem[m]
-		if locked < 0 {
-			locked = 0
+		st.step(annualRatePct/100/12, contribMonthly, threshold, monthlyCoupon[m], monthlyRedeem[m])
+	}
+	return st.total()
+}
+
+// projState — стан симуляції. Винесено окремо, щоб ProjectCapital і
+// MonthsToReach крокували ідентично й не розїхались із часом.
+type projState struct{ cash, invested, locked float64 }
+
+func (p *projState) total() float64 { return p.invested + p.locked + p.cash }
+
+func (p *projState) step(rMonthly, contrib, threshold, coupon, redeem float64) {
+	p.invested *= 1 + rMonthly
+	p.cash += contrib + coupon + redeem
+	p.locked -= redeem
+	if p.locked < 0 {
+		p.locked = 0
+	}
+	if threshold > 0 {
+		if n := math.Floor(p.cash / threshold); n > 0 {
+			p.invested += n * threshold
+			p.cash -= n * threshold
 		}
-		if threshold > 0 {
-			if n := math.Floor(cash / threshold); n > 0 {
-				invested += n * threshold
-				cash -= n * threshold
-			}
-		} else {
-			invested += cash
-			cash = 0
+	} else {
+		p.invested += p.cash
+		p.cash = 0
+	}
+}
+
+// MonthsToReach — за скільки місяців капітал сягне кожної з цілей за
+// поточним темпом. Одна симуляція на всі цілі одразу.
+// Повертає: -1 = ціль уже досягнута, 0 = не досягається за maxMonths,
+// >0 = номер місяця.
+func MonthsToReach(cash0, nominal0, contribMonthly, threshold, annualRatePct float64,
+	monthlyCoupon, monthlyRedeem map[int]float64, targets []float64, maxMonths int) []int {
+
+	res := make([]int, len(targets))
+	st := projState{cash: cash0, locked: nominal0}
+	for i, t := range targets {
+		if t > 0 && st.total() >= t {
+			res[i] = -1
 		}
 	}
-	return invested + locked + cash
+	rM := annualRatePct / 100 / 12
+	for m := 1; m <= maxMonths; m++ {
+		st.step(rM, contribMonthly, threshold, monthlyCoupon[m], monthlyRedeem[m])
+		tot := st.total()
+		for i, t := range targets {
+			if res[i] == 0 && t > 0 && tot >= t {
+				res[i] = m
+			}
+		}
+	}
+	return res
 }
 
 // RequiredMonthly — бісекцією підбирає внесок/міс, за якого симуляція сягає

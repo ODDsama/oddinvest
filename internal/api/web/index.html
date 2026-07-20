@@ -190,8 +190,10 @@
       <label>Цільова частка EUR, % <input name="eur_target_share_pct"></label>
       <label>Цільова дюрація, років <input name="target_duration_years" placeholder="напр. 3"></label>
       <label>Канали купівлі (через кому) <input name="channels" placeholder="mono, inzhur"></label>
-      <label>Ціль: сума, ₴ <input name="goal_amount_uah"></label>
-      <label>Ціль: дата <input name="goal_date" type="date"></label>
+      <label>Ціль: песимістична, ₴ <input name="goal_pessimistic_uah" placeholder="мінімум"></label>
+      <label>Ціль: реалістична, ₴ <input name="goal_realistic_uah" placeholder="план"></label>
+      <label>Ціль: оптимістична, ₴ <input name="goal_optimistic_uah" placeholder="мрія"></label>
+      <label>Дедлайн (необовʼязково) <input name="goal_date" type="date"></label>
       <button class="act">Зберегти</button>
     </form>
     <button class="act" id="refreshBtn">Оновити довідник НБУ і курс</button>
@@ -249,6 +251,38 @@ function renderBanner(s) {
   host.querySelectorAll("[data-go]").forEach(b => b.onclick = () => goto(b.dataset.go));
 }
 
+// Три цілі з датою досягнення за поточним темпом. Дата — результат
+// симуляції, тож вона рухається разом із реальним темпом накопичення.
+function goalsHTML(s) {
+  const goals = s.goals || [];
+  if (!goals.length) {
+    return `<p class="mut">Задай суми цілей (песимістична / реалістична / оптимістична) у «Налаштуваннях» — і тут зʼявиться, коли кожна буде досягнута за твоїм темпом.</p>`;
+  }
+  const cap = (s.nominal_uah_eq||0) + (s.account_uah||0);
+  const rows = goals.map(g => {
+    const pct = g.amount > 0 ? Math.min(100, cap / g.amount * 100) : 0;
+    let when, color = "var(--mut)";
+    if (g.months === -1) { when = "вже досягнуто"; color = "#3fb950"; }
+    else if (g.months === 0) { when = "не досягається за 60 років"; color = "#f85149"; }
+    else {
+      when = `${String(g.date).slice(0,7)} · через ${(g.months/12).toFixed(1)} р.`;
+      if (g.before_deadline === true) color = "#3fb950";
+      else if (g.before_deadline === false) color = "#d29922";
+    }
+    const miss = g.before_deadline === false && g.required_monthly > 0
+      ? `<div class="l" style="margin-top:2px">пізніше дедлайну — щоб устигнути, треба ${uahFmt(g.required_monthly)}/міс</div>` : "";
+    return `<div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span>${g.label} · <b>${uahFmt(g.amount)}</b></span>
+        <span style="font-size:13px;color:${color}">${when}</span></div>
+      <div style="height:6px;background:#262c34;border-radius:3px;margin-top:6px"><div style="width:${pct}%;height:100%;background:#3fb950;border-radius:3px"></div></div>
+      <div class="l" style="margin-top:2px">накопичено ${pct.toFixed(1)}%</div>${miss}</div>`;
+  }).join("");
+  const dl = (s.settings||{}).goal_date
+    ? `<div class="l">Дедлайн: ${String(s.settings.goal_date).slice(0,7)}</div>` : "";
+  return `<div class="card" style="margin-bottom:16px">${rows}${dl}</div>`;
+}
+
 function renderNbuStale(s) {
   const host = $("#nbuStale"); if (!host) return;
   const at = s.nbu_refreshed_at;
@@ -290,22 +324,8 @@ async function loadSummary() {
       np ? `${Number(np.amount).toLocaleString("uk")} ${curSym(np.currency)}` : "—",
       np ? `<div class="l" style="margin-top:4px">${np.date}</div>` : "");
 
-  // ціль
   const st = s.settings || {};
-  const gs = $("#goalStrip");
-  if (st.goal_amount_uah && s.goal_months_left > 0) {
-    const capNow = (s.nominal_uah_eq||0) + (s.account_uah||0);
-    const pct = Math.min(100, capNow / st.goal_amount_uah * 100);
-    const proj = s.goal_projection || 0;
-    const ok = proj >= st.goal_amount_uah;
-    gs.innerHTML = `<div class="card" style="margin-bottom:16px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span>Ціль ${uahFmt(st.goal_amount_uah)} до ${String(st.goal_date||"").slice(0,7)}</span>
-        <span style="font-size:13px;color:${ok?"#3fb950":"#f85149"}">${ok?`на шляху · прогноз ${uahFmt(proj)}`:`бракує ${uahFmt(st.goal_amount_uah-proj)}`}</span>
-      </div>
-      <div style="height:6px;background:#262c34;border-radius:3px;margin-top:8px"><div style="width:${pct}%;height:100%;background:#3fb950;border-radius:3px"></div></div>
-      <div class="l" style="margin-top:6px">Накопичено ${pct.toFixed(1)}% · лишилось ${s.goal_months_left} міс</div></div>`;
-  } else { gs.innerHTML = ""; }
+  $("#goalStrip").innerHTML = goalsHTML(s);
 
   // найближчі виплати
   const pp = (s.top_payments || []).slice(0,4);
@@ -565,14 +585,7 @@ async function loadProjection() {
   $("#projTable").innerHTML = "<tr><th>Горизонт</th><th>Внесено (без %)</th><th>З реінвестом</th><th>Приріст</th></tr>" +
     (rows.length ? rows.map(r=>`<tr><td>${r.years} р.</td><td>${uahFmt(r.contributed)}</td><td>${uahFmt(r.with_reinvest)}</td><td>${uahFmt(r.with_reinvest - r.contributed)}</td></tr>`).join("")
       : "<tr><td colspan='4' class='mut'>Додай папери й ціль на місяць, щоб побачити проєкцію.</td></tr>");
-  if (st.goal_amount_uah && st.goal_date && s.goal_months_left>0) {
-    const proj = s.goal_projection||0, reqC = s.goal_required_monthly||0, diff = proj - st.goal_amount_uah;
-    $("#goalBox").innerHTML = `Ціль <b>${uahFmt(st.goal_amount_uah)}</b> до <b>${st.goal_date}</b> — лишилось ${s.goal_months_left} міс; прогноз на дату ${uahFmt(proj)}. ` +
-      (diff>=0 ? `<span style="color:#3fb950">на шляху ✅ (запас ${uahFmt(diff)})</span>`
-               : `<span style="color:#f85149">бракує ${uahFmt(-diff)}</span> — потрібно ≈ <b>${uahFmt(Math.max(0,reqC))}</b>/міс (зараз ${uahFmt(C)})`);
-  } else {
-    $("#goalBox").textContent = "Задай цільову суму й дату в «Налаштуваннях».";
-  }
+  $("#goalBox").innerHTML = goalsHTML(s);
 }
 
 $("#lotForm").onsubmit = async e => {
