@@ -151,12 +151,13 @@ type Deposit struct {
 	Date     domain.Date
 	Amount   int64 // мінорні; + поповнення / − зняття
 	Currency string
+	Broker   string // mono / inzhur / …; рахунки роздільні
 	Note     string
 }
 
 func (s *Store) AddDeposit(ctx context.Context, d Deposit) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO deposits (date, amount, currency, note)
-		VALUES (?,?,?,?)`, string(d.Date), d.Amount, d.Currency, d.Note)
+	res, err := s.db.ExecContext(ctx, `INSERT INTO deposits (date, amount, currency, broker, note)
+		VALUES (?,?,?,?,?)`, string(d.Date), d.Amount, d.Currency, d.Broker, d.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -169,7 +170,7 @@ func (s *Store) DeleteDeposit(ctx context.Context, id int64) error {
 }
 
 func (s *Store) ListDeposits(ctx context.Context) ([]Deposit, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, currency, note
+	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, currency, broker, note
 		FROM deposits ORDER BY date, id`)
 	if err != nil {
 		return nil, err
@@ -179,7 +180,7 @@ func (s *Store) ListDeposits(ctx context.Context) ([]Deposit, error) {
 	for rows.Next() {
 		var d Deposit
 		var dt string
-		if err := rows.Scan(&d.ID, &dt, &d.Amount, &d.Currency, &d.Note); err != nil {
+		if err := rows.Scan(&d.ID, &dt, &d.Amount, &d.Currency, &d.Broker, &d.Note); err != nil {
 			return nil, err
 		}
 		d.Date = domain.Date(dt)
@@ -188,21 +189,29 @@ func (s *Store) ListDeposits(ctx context.Context) ([]Deposit, error) {
 	return out, rows.Err()
 }
 
-// DepositsByCurrency — сума поповнень/знять по валютах (мінорні).
-func (s *Store) DepositsByCurrency(ctx context.Context) (map[string]int64, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT currency, SUM(amount) FROM deposits GROUP BY currency`)
+// BrokerCur — ключ балансу: рахунки роздільні, тож гроші живуть у розрізі
+// (брокер × валюта), а не просто по валютах.
+type BrokerCur struct {
+	Broker   string
+	Currency string
+}
+
+// DepositsByBrokerCurrency — сума поповнень/знять по (брокер, валюта).
+func (s *Store) DepositsByBrokerCurrency(ctx context.Context) (map[BrokerCur]int64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT broker, currency, SUM(amount) FROM deposits GROUP BY broker, currency`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]int64{}
+	out := map[BrokerCur]int64{}
 	for rows.Next() {
-		var cur string
+		var k BrokerCur
 		var sum int64
-		if err := rows.Scan(&cur, &sum); err != nil {
+		if err := rows.Scan(&k.Broker, &k.Currency, &sum); err != nil {
 			return nil, err
 		}
-		out[cur] = sum
+		out[k] = sum
 	}
 	return out, rows.Err()
 }
@@ -215,13 +224,14 @@ type Conversion struct {
 	FromAmount   int64
 	ToCurrency   string
 	ToAmount     int64
+	Broker       string // обмін відбувається всередині одного рахунку
 	Note         string
 }
 
 func (s *Store) AddConversion(ctx context.Context, c Conversion) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO conversions
-		(date, from_currency, from_amount, to_currency, to_amount, note) VALUES (?,?,?,?,?,?)`,
-		string(c.Date), c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, c.Note)
+		(date, from_currency, from_amount, to_currency, to_amount, broker, note) VALUES (?,?,?,?,?,?,?)`,
+		string(c.Date), c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, c.Broker, c.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -234,7 +244,7 @@ func (s *Store) DeleteConversion(ctx context.Context, id int64) error {
 }
 
 func (s *Store) ListConversions(ctx context.Context) ([]Conversion, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, date, from_currency, from_amount, to_currency, to_amount, note
+	rows, err := s.db.QueryContext(ctx, `SELECT id, date, from_currency, from_amount, to_currency, to_amount, broker, note
 		FROM conversions ORDER BY date, id`)
 	if err != nil {
 		return nil, err
@@ -244,7 +254,7 @@ func (s *Store) ListConversions(ctx context.Context) ([]Conversion, error) {
 	for rows.Next() {
 		var c Conversion
 		var dt string
-		if err := rows.Scan(&c.ID, &dt, &c.FromCurrency, &c.FromAmount, &c.ToCurrency, &c.ToAmount, &c.Note); err != nil {
+		if err := rows.Scan(&c.ID, &dt, &c.FromCurrency, &c.FromAmount, &c.ToCurrency, &c.ToAmount, &c.Broker, &c.Note); err != nil {
 			return nil, err
 		}
 		c.Date = domain.Date(dt)
@@ -253,16 +263,17 @@ func (s *Store) ListConversions(ctx context.Context) ([]Conversion, error) {
 	return out, rows.Err()
 }
 
-// ConversionsNet — чистий рух по валютах: −from для from_currency, +to для to_currency.
-func (s *Store) ConversionsNet(ctx context.Context) (map[string]int64, error) {
+// ConversionsNetByBroker — чистий рух по (брокер, валюта): обмін не
+// переносить гроші між рахунками, тож обидві ноги лягають на один брокер.
+func (s *Store) ConversionsNetByBroker(ctx context.Context) (map[BrokerCur]int64, error) {
 	convs, err := s.ListConversions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]int64{}
+	out := map[BrokerCur]int64{}
 	for _, c := range convs {
-		out[c.FromCurrency] -= c.FromAmount
-		out[c.ToCurrency] += c.ToAmount
+		out[BrokerCur{c.Broker, c.FromCurrency}] -= c.FromAmount
+		out[BrokerCur{c.Broker, c.ToCurrency}] += c.ToAmount
 	}
 	return out, nil
 }

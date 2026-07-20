@@ -104,11 +104,13 @@
       <div class="card"><div class="l">Не перевкладено</div><div class="v" id="uninv">—</div>
         <div class="l" style="margin-top:4px">надійшло й ще не вкладено</div></div>
     </div>
+    <div id="brokerBalances"></div>
     <h3>Додати рух</h3>
     <p class="mut">Поповнення (+) / зняття (−) у своїй валюті. Купівля лота й купони рухають рахунок автоматично.</p>
     <form class="inline" id="depForm">
       <input name="amount" placeholder="Сума (+ / −)" required style="width:140px">
       <select name="currency"><option>UAH</option><option>USD</option><option>EUR</option></select>
+      <select name="broker" id="depBroker" style="width:130px"></select>
       <input name="date" type="date">
       <input name="note" placeholder="Нотатка" style="width:150px">
       <button class="act">Записати</button>
@@ -121,6 +123,7 @@
       <span style="align-self:center">→</span>
       <input name="to_amount" placeholder="Отримав" required style="width:110px">
       <select name="to_currency"><option>USD</option><option>UAH</option><option>EUR</option></select>
+      <select name="broker" id="convBroker" style="width:130px"></select>
       <input name="date" type="date">
       <input name="note" placeholder="Нотатка" style="width:150px">
       <button class="act">Записати</button>
@@ -189,7 +192,7 @@
       <label>Цільова частка USD, % <input name="usd_target_share_pct"></label>
       <label>Цільова частка EUR, % <input name="eur_target_share_pct"></label>
       <label>Цільова дюрація, років <input name="target_duration_years" placeholder="напр. 3"></label>
-      <label>Канали купівлі (через кому) <input name="channels" placeholder="mono, inzhur"></label>
+      <label>Брокери (через кому) <input name="channels" placeholder="mono, inzhur"></label>
       <label>Ціль: песимістична, ₴ <input name="goal_pessimistic_uah" placeholder="мінімум"></label>
       <label>Ціль: реалістична, ₴ <input name="goal_realistic_uah" placeholder="порожньо = прогноз на дедлайн"></label>
       <label>Ціль: оптимістична, ₴ <input name="goal_optimistic_uah" placeholder="мрія"></label>
@@ -224,8 +227,14 @@ const card = (l,v,extra="") => `<div class="card"><div class="l">${l}</div><div 
 // що робити: почати, купити або накопичувати далі.
 function renderBanner(s) {
   const host = $("#banner"); if (!host) return;
-  const a = s.accounts || {}, rmin = s.reinvest_min || {};
-  const ready = Object.keys(rmin).filter(c => rmin[c] > 0 && (a[c] || 0) >= rmin[c]);
+  const rmin = s.reinvest_min || {};
+  // Готовність — ПО БРОКЕРАХ: сумарний баланс може «вистачати», хоча в
+  // кожного окремо грошей замало, і банер брехав би.
+  const brokers = s.brokers || {}, ready = [];
+  for (const b of Object.keys(brokers))
+    for (const c of Object.keys(brokers[b] || {}))
+      if (rmin[c] > 0 && brokers[b][c] >= rmin[c])
+        ready.push({ broker:b, cur:c, n: Math.floor(brokers[b][c]/rmin[c]) });
   const box = (cls, title, sub, btn="") =>
     `<div class="banner ${cls}"><div class="b-tx"><div class="b-t">${title}</div>${sub?`<div class="b-s">${sub}</div>`:""}</div>${btn}</div>`;
   if (!(s.nominal_uah_eq > 0)) {
@@ -233,9 +242,9 @@ function renderBanner(s) {
       "Додай папір — і застосунок почне вести драбину, календар і проєкції.",
       `<button data-go="buy">Купити папір</button>`);
   } else if (ready.length) {
-    const parts = ready.map(c => `<b>${Math.floor(a[c]/rmin[c])}</b> ${c}-папер(и)`).join(", ");
+    const parts = ready.map(r => `<b>${r.n}</b> ${r.cur}-папер(и) у <b>${r.broker}</b>`).join(", ");
     host.innerHTML = box("ok", `Можеш купити ${parts}`,
-      ready.map(c => `${c}: на рахунку ${a[c].toLocaleString("uk")} ${curSym(c)}, папір від ${rmin[c].toLocaleString("uk")} ${curSym(c)}`).join(" · "),
+      ready.map(r => `${r.broker} · ${r.cur}: ${brokers[r.broker][r.cur].toLocaleString("uk")} ${curSym(r.cur)}, папір від ${rmin[r.cur].toLocaleString("uk")} ${curSym(r.cur)}`).join(" · "),
       `<button data-go="buy">Купити</button>`);
   } else {
     const need = Math.max(0, (s.reinvest_min_uah||0) - (s.account_uah||0));
@@ -311,14 +320,40 @@ function goto(what) {
   }
 }
 
+// Баланси по брокерах: гроші в одного не купують папір в іншого.
+function renderBrokerBalances(s) {
+  const host = $("#brokerBalances"); if (!host) return;
+  const brokers = s.brokers || {};
+  const names = Object.keys(brokers).sort((a,b)=>a.localeCompare(b,"uk"));
+  if (!names.length) { host.innerHTML = ""; return; }
+  const rmin = s.reinvest_min || {}, sym = { UAH:"₴", USD:"$", EUR:"€" };
+  const rows = names.map(b => {
+    const cur = brokers[b] || {};
+    const parts = Object.keys(cur).sort().map(c => {
+      const v = cur[c], min = rmin[c] || 0, enough = min > 0 && v >= min;
+      const hint = min > 0
+        ? (enough ? `вистачає на ${Math.floor(v/min)}` : `до паперу ще ${(min-v).toLocaleString("uk")} ${sym[c]||c}`)
+        : "";
+      return `<div class="pv-row"><span>${c} · <b>${v.toLocaleString("uk")} ${sym[c]||c}</b></span>
+        <span class="${enough?"":"mut"}" style="${enough?"color:#3fb950":""}">${hint}</span></div>`;
+    }).join("");
+    return `<div style="margin-bottom:14px"><div style="margin-bottom:4px"><b>${b}</b></div>${parts}</div>`;
+  }).join("");
+  host.innerHTML = `<h3>Рахунки по брокерах</h3>
+    <p class="mut">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.</p>${rows}`;
+}
+
 async function loadSummary() {
   const s = await api("/api/summary");
+  LAST_SUMMARY = s;
   const x = s.xirr || {};
   const py = s.portfolio_yield || {};
   const a = s.accounts || {};
 
   renderBanner(s);
   renderNbuStale(s);
+  renderBrokerBalances(s);
+  renderChannels();
 
   const np = s.next_payment, accrued = s.accrued_uah || 0;
   $("#ovTiles").innerHTML =
@@ -479,14 +514,27 @@ async function loadChart() {
 
 // Канали: задані в Налаштуваннях ∪ ті, що вже зустрічались у лотах.
 // Так новий канал доступний ще до першої покупки, а старі не губляться.
-let LAST_SETTINGS = {}, LAST_LOTS = [];
-function renderChannels() {
-  const sel = $("#channelSel"); if (!sel) return;
+let LAST_SETTINGS = {}, LAST_LOTS = [], LAST_SUMMARY = {};
+function brokerList() {
   const set = new Set(String(LAST_SETTINGS.channels || "").split(",").map(c=>c.trim()).filter(Boolean));
+  Object.keys((LAST_SUMMARY||{}).brokers || {}).forEach(b => { if (b && b !== "—") set.add(b); });
   LAST_LOTS.forEach(l => { if (l.channel) set.add(String(l.channel).trim()); });
+  return [...set].sort((a,b)=>a.localeCompare(b,"uk"));
+}
+
+function renderChannels() {
+  // селектори брокера у грошових формах (без «інший…»: рахунок має існувати)
+  const opts = `<option value="">— брокер —</option>` +
+    brokerList().map(c=>`<option value="${c}">${c}</option>`).join("");
+  ["#depBroker","#convBroker"].forEach(id => {
+    const el = $(id); if (!el) return;
+    const prev = el.value; el.innerHTML = opts; if (prev) el.value = prev;
+  });
+
+  const sel = $("#channelSel"); if (!sel) return;
   const prev = sel.value;
-  sel.innerHTML = `<option value="">— канал —</option>` +
-    [...set].sort((a,b)=>a.localeCompare(b,"uk")).map(c=>`<option value="${c}">${c}</option>`).join("") +
+  sel.innerHTML = `<option value="">— брокер —</option>` +
+    brokerList().map(c=>`<option value="${c}">${c}</option>`).join("") +
     `<option value="__other__">інший…</option>`;
   if (prev) sel.value = prev;
   sel.onchange = () => {

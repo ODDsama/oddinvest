@@ -270,22 +270,45 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-	// --- мультивалютний грошовий рахунок ---
-	// баланс валюти = Σ поповнень + Σ конвертацій + Σ отриманих виплат −
+	// --- грошові рахунки: (брокер × валюта) ---
+	// Рахунки роздільні: гривня в mono не купить папір в inzhur, тож
+	// баланс ведемо по кожному брокеру окремо. `bal` лишається зведеним
+	// по валютах — його використовують портфельні показники.
+	// Формула однакова: Σ поповнень + Σ конвертацій + Σ отриманих виплат −
 	// Σ вартості лотів (усе нативно, у своїй валюті).
-	depByCur, err := s.st.DepositsByCurrency(ctx)
+	balBC := map[store.BrokerCur]int64{}
+
+	// купон кредитує рахунок ТОГО брокера, де куплено папір
+	for _, p := range pays {
+		if p.PayDate.After(today) || p.PayDate == today {
+			continue
+		}
+		for _, l := range lots {
+			if l.ISIN != p.ISIN {
+				continue
+			}
+			if q := domain.HolderQty(l, sales, p.PayDate); q > 0 {
+				amt := domain.MulQty(p.PerBond, q)
+				balBC[store.BrokerCur{Broker: l.Channel, Currency: amt.Currency().Code}] += amt.Amount()
+			}
+		}
+	}
+
+	depByBC, err := s.st.DepositsByBrokerCurrency(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for cur, amt := range depByCur {
-		bal[cur] += amt
+	for k, amt := range depByBC {
+		bal[k.Currency] += amt
+		balBC[k] += amt
 	}
-	convNet, err := s.st.ConversionsNet(ctx)
+	convBC, err := s.st.ConversionsNetByBroker(ctx)
 	if err != nil {
 		return nil, err
 	}
-	for cur, net := range convNet {
-		bal[cur] += net
+	for k, net := range convBC {
+		bal[k.Currency] += net
+		balBC[k] += net
 	}
 	for _, l := range lots {
 		cost := domain.MulQty(l.PricePerBond, l.Qty)
@@ -295,6 +318,20 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			}
 		}
 		bal[cost.Currency().Code] -= cost.Amount()
+		balBC[store.BrokerCur{Broker: l.Channel, Currency: cost.Currency().Code}] -= cost.Amount()
+	}
+
+	// брокер -> валюта -> сума (major), для UI і для «чи вистачає на папір»
+	brokers := map[string]map[string]float64{}
+	for k, m := range balBC {
+		name := k.Broker
+		if name == "" {
+			name = "—"
+		}
+		if brokers[name] == nil {
+			brokers[name] = map[string]float64{}
+		}
+		brokers[name][k.Currency] = float64(m) / 100
 	}
 	accounts := map[string]float64{}
 	accountUAHMinor := int64(0)
@@ -714,7 +751,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthTargetUAH: target,
 		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
-		Accounts: accounts, ReinvestMinByCur: reinvestMinByCur, TopN: 5,
+		Accounts: accounts, Brokers: brokers, ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
 		PortfolioYield: portfolioYieldByCur,
 		Projection: projection, ProjectionRatePct: capRate, Goals: goals,
@@ -999,6 +1036,7 @@ type depositReq struct {
 	Date     string `json:"date"`
 	Amount   string `json:"amount"` // десятковий; + поповнення, − зняття
 	Currency string `json:"currency"`
+	Broker   string `json:"broker"`
 	Note     string `json:"note"`
 }
 
@@ -1025,7 +1063,8 @@ func (s *Server) handleAddDeposit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	id, err := s.st.AddDeposit(r.Context(), store.Deposit{Date: d, Amount: minor, Currency: cur, Note: req.Note})
+	id, err := s.st.AddDeposit(r.Context(), store.Deposit{
+		Date: d, Amount: minor, Currency: cur, Broker: strings.TrimSpace(req.Broker), Note: req.Note})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -1058,12 +1097,13 @@ func (s *Server) handleListDeposits(w http.ResponseWriter, r *http.Request) {
 		ID     int64     `json:"id"`
 		Date   string    `json:"date"`
 		Amount moneyJSON `json:"amount"`
+		Broker string    `json:"broker"`
 		Note   string    `json:"note"`
 	}
 	out := make([]depJSON, 0, len(deps))
 	for _, d := range deps {
 		out = append(out, depJSON{d.ID, string(d.Date),
-			toMoneyJSON(money.New(d.Amount, d.Currency)), d.Note})
+			toMoneyJSON(money.New(d.Amount, d.Currency)), d.Broker, d.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -1074,6 +1114,7 @@ type conversionReq struct {
 	FromAmount   string `json:"from_amount"`
 	ToCurrency   string `json:"to_currency"`
 	ToAmount     string `json:"to_amount"`
+	Broker       string `json:"broker"`
 	Note         string `json:"note"`
 }
 
@@ -1111,7 +1152,8 @@ func (s *Server) handleAddConversion(w http.ResponseWriter, r *http.Request) {
 	}
 	id, err := s.st.AddConversion(r.Context(), store.Conversion{
 		Date: d, FromCurrency: req.FromCurrency, FromAmount: fromMinor,
-		ToCurrency: req.ToCurrency, ToAmount: toMinor, Note: req.Note,
+		ToCurrency: req.ToCurrency, ToAmount: toMinor,
+		Broker: strings.TrimSpace(req.Broker), Note: req.Note,
 	})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -1142,17 +1184,18 @@ func (s *Server) handleListConversions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type convJSON struct {
-		ID   int64     `json:"id"`
-		Date string    `json:"date"`
-		From moneyJSON `json:"from"`
-		To   moneyJSON `json:"to"`
-		Note string    `json:"note"`
+		ID     int64     `json:"id"`
+		Date   string    `json:"date"`
+		From   moneyJSON `json:"from"`
+		To     moneyJSON `json:"to"`
+		Broker string    `json:"broker"`
+		Note   string    `json:"note"`
 	}
 	out := make([]convJSON, 0, len(convs))
 	for _, c := range convs {
 		out = append(out, convJSON{c.ID, string(c.Date),
 			toMoneyJSON(money.New(c.FromAmount, c.FromCurrency)),
-			toMoneyJSON(money.New(c.ToAmount, c.ToCurrency)), c.Note})
+			toMoneyJSON(money.New(c.ToAmount, c.ToCurrency)), c.Broker, c.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
