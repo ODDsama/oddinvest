@@ -89,6 +89,12 @@ type Doc struct {
 	AccruedUAH     float64 `json:"accrued_uah,omitempty"`
 	NBURefreshedAt string  `json:"nbu_refreshed_at,omitempty"`
 
+	// ActualMonthlyUAH — фактичний середній темп поповнень, грн/міс
+	// (нові гроші, не покупки). ActualMonths — за скільки місяців історії
+	// він порахований. 0 = історії ще замало (<60 днів).
+	ActualMonthlyUAH float64 `json:"actual_monthly_uah,omitempty"`
+	ActualMonths     int     `json:"actual_months,omitempty"`
+
 	// Settings — сирі налаштування сервіса (v0.3+, адитивне поле).
 	// Потрібні HA для number/date-сутностей: значення приходять сюди
 	// MQTT-пушем, зміни йдуть у PUT /api/settings.
@@ -164,7 +170,11 @@ type GoalRow struct {
 	Label  string  `json:"label"`
 	Amount float64 `json:"amount"`
 	// Auto — суму не задано вручну, це прогноз капіталу на дедлайн.
-	Auto            bool    `json:"auto,omitempty"`
+	Auto bool `json:"auto,omitempty"`
+	// MonthsActual/DateActual — те саме, але за ФАКТИЧНИМ темпом поповнень
+	// (заповнюється, коли назбиралось ≥60 днів історії).
+	MonthsActual    int     `json:"months_actual,omitempty"`
+	DateActual      string  `json:"date_actual,omitempty"`
 	Months          int     `json:"months"`
 	Date            string  `json:"date,omitempty"`
 	BeforeDeadline  *bool   `json:"before_deadline,omitempty"`
@@ -174,7 +184,9 @@ type GoalRow struct {
 type ProjectionRow struct {
 	Years        int     `json:"years"`
 	Contributed  float64 `json:"contributed"`   // внесено без %, грн-екв.
-	WithReinvest float64 `json:"with_reinvest"` // з реінвестом, грн-екв.
+	WithReinvest float64 `json:"with_reinvest"` // з реінвестом за ПЛАНОМ, грн-екв.
+	// WithReinvestActual — те саме, але за фактичним темпом поповнень.
+	WithReinvestActual float64 `json:"with_reinvest_actual,omitempty"`
 }
 
 type NextPayment struct {
@@ -226,6 +238,8 @@ type Input struct {
 	RateRisk            *RateRisk
 	AccruedUAH          float64
 	NBURefreshedAt      string
+	ActualMonthlyUAH    float64
+	ActualMonths        int
 }
 
 func payTypeStr(t domain.PayType) string {
@@ -315,6 +329,8 @@ func Build(in Input) (*Doc, error) {
 	doc.RateRisk = in.RateRisk
 	doc.AccruedUAH = in.AccruedUAH
 	doc.NBURefreshedAt = in.NBURefreshedAt
+	doc.ActualMonthlyUAH = in.ActualMonthlyUAH
+	doc.ActualMonths = in.ActualMonths
 
 	nowDate := domain.NewDate(in.Now)
 	var monthIncoming int64

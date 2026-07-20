@@ -444,6 +444,35 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
+	// --- фактичний темп поповнень ---
+	// План може розходитись із реальністю, тож рахуємо ще й середній темп
+	// НОВИХ грошей. Саме поповнень, а не покупок: покупка лише переносить
+	// гроші з рахунку в папери й нового капіталу не додає (а купони вже
+	// враховані окремо). Потрібно ≥60 днів історії — інакше середнє від
+	// стартового внеску дає безглузді сотні тисяч на місяць.
+	var actualMonthly float64
+	var actualMonths int
+	if deps, derr := s.st.ListDeposits(ctx); derr == nil && len(deps) > 0 {
+		first := deps[0].Date
+		var totalUAH int64
+		for _, d := range deps {
+			if d.Date.Before(first) {
+				first = d.Date
+			}
+			if d.Amount <= 0 {
+				continue // зняття — не внесок
+			}
+			if u, cerr := fx.ToUAH(money.New(d.Amount, d.Currency), rates); cerr == nil {
+				totalUAH += u.Amount()
+			}
+		}
+		if days := domain.DaysBetween(first, today); days >= 60 {
+			months := float64(days) / 30.44
+			actualMonths = int(months + 0.5)
+			actualMonthly = round2(float64(totalUAH) / 100 / months)
+		}
+	}
+
 	// --- проєкція капіталу: помісячна симуляція РЕАЛЬНИХ потоків ---
 	// (купони/погашення наявних паперів) + внески; реінвест під дохідність
 	// портфеля. Готівка не працює, поки не реінвестована. Це замість сухої
@@ -482,11 +511,16 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	projection := make([]state.ProjectionRow, 0, 4)
 	for _, y := range []int{1, 3, 5, 10} {
 		m := y * 12
-		projection = append(projection, state.ProjectionRow{
+		row := state.ProjectionRow{
 			Years:        y,
 			Contributed:  math.Round((p0+contribM*float64(m))*100) / 100,
 			WithReinvest: math.Round(domain.ProjectCapital(cash0, nominal0, contribM, threshold, capRate, monthlyCoupon, monthlyRedeem, m)*100) / 100,
-		})
+		}
+		if actualMonthly > 0 {
+			row.WithReinvestActual = math.Round(domain.ProjectCapital(cash0, nominal0, actualMonthly,
+				threshold, capRate, monthlyCoupon, monthlyRedeem, m)*100) / 100
+		}
+		projection = append(projection, row)
 	}
 	// --- три цілі: дату досягнення рахуємо, а не питаємо ---
 	deadlineMonths := 0
@@ -528,6 +562,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	const goalHorizonMonths = 720 // 60 років — далі вважаємо недосяжним
 	hit := domain.MonthsToReach(cash0, nominal0, contribM, threshold, capRate,
 		monthlyCoupon, monthlyRedeem, amounts, goalHorizonMonths)
+	var hitActual []int
+	if actualMonthly > 0 {
+		hitActual = domain.MonthsToReach(cash0, nominal0, actualMonthly, threshold, capRate,
+			monthlyCoupon, monthlyRedeem, amounts, goalHorizonMonths)
+	}
 
 	var goals []state.GoalRow
 	for i, d := range defs {
@@ -540,6 +579,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		if hit[i] > 0 {
 			row.Date = string(domain.NewDate(today.Time().AddDate(0, hit[i], 0)))
+		}
+		if hitActual != nil {
+			row.MonthsActual = hitActual[i]
+			if hitActual[i] > 0 {
+				row.DateActual = string(domain.NewDate(today.Time().AddDate(0, hitActual[i], 0)))
+			}
 		}
 		if deadlineMonths > 0 {
 			ok := hit[i] == -1 || (hit[i] > 0 && hit[i] <= deadlineMonths)
@@ -675,6 +720,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Projection: projection, ProjectionRatePct: capRate, Goals: goals,
 		Rebalance: rebalance, RateRisk: rateRisk,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
+		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,
 	})
 }
 

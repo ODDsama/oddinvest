@@ -271,13 +271,18 @@ function goalsHTML(s) {
     }
     const miss = g.before_deadline === false && g.required_monthly > 0
       ? `<div class="l" style="margin-top:2px">пізніше дедлайну — щоб устигнути, треба ${uahFmt(g.required_monthly)}/міс</div>` : "";
+    const fact = g.months_actual
+      ? `<div class="l" style="margin-top:2px">за фактичним темпом: ${
+          g.months_actual === -1 ? "вже досягнуто"
+          : g.months_actual === 0 ? "не досягається"
+          : `${String(g.date_actual).slice(0,7)} · через ${(g.months_actual/12).toFixed(1)} р.`}</div>` : "";
     const auto = g.auto ? ` <span class="mut" style="font-size:12px">(прогноз на дедлайн)</span>` : "";
     return `<div style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
         <span>${g.label} · <b>${uahFmt(g.amount)}</b>${auto}</span>
         <span style="font-size:13px;color:${color}">${when}</span></div>
       <div style="height:6px;background:#262c34;border-radius:3px;margin-top:6px"><div style="width:${pct}%;height:100%;background:#3fb950;border-radius:3px"></div></div>
-      <div class="l" style="margin-top:2px">накопичено ${pct.toFixed(1)}%</div>${miss}</div>`;
+      <div class="l" style="margin-top:2px">накопичено ${pct.toFixed(1)}%</div>${fact}${miss}</div>`;
   }).join("");
   const dl = (s.settings||{}).goal_date
     ? `<div class="l">Дедлайн: ${String(s.settings.goal_date).slice(0,7)}</div>` : "";
@@ -582,10 +587,15 @@ async function loadProjection() {
   const rows = s.projection || [];
   const rate = s.projection_rate_pct || 0;
   const rateSrc = rate>0 ? `за портфелем ${rate.toFixed(1)}% (сер. купон)` : "додай папери — і дохідність порахується сама";
-  $("#projNote").textContent = `Старт = капітал ${uahFmt(P0)}, внесок = ${uahFmt(C)}/міс, ставка = ${rateSrc}. Модель: реальні купони й погашення наявних паперів + внески, реінвест під ставку; готівка не працює до реінвесту. Це припущення, не гарантія.`;
-  $("#projTable").innerHTML = "<tr><th>Горизонт</th><th>Внесено (без %)</th><th>З реінвестом</th><th>Приріст</th></tr>" +
-    (rows.length ? rows.map(r=>`<tr><td>${r.years} р.</td><td>${uahFmt(r.contributed)}</td><td>${uahFmt(r.with_reinvest)}</td><td>${uahFmt(r.with_reinvest - r.contributed)}</td></tr>`).join("")
-      : "<tr><td colspan='4' class='mut'>Додай папери й ціль на місяць, щоб побачити проєкцію.</td></tr>");
+  const hasActual = (s.actual_monthly_uah||0) > 0;
+  const pace = hasActual
+    ? ` Фактичний темп поповнень: ${uahFmt(s.actual_monthly_uah)}/міс за ${s.actual_months} міс історії.`
+    : " Прогноз за фактичним темпом зʼявиться, коли назбирається 60 днів історії поповнень.";
+  $("#projNote").textContent = `Старт = капітал ${uahFmt(P0)}, внесок = ${uahFmt(C)}/міс, ставка = ${rateSrc}. Модель: реальні купони й погашення наявних паперів + внески, реінвест під ставку; готівка не працює до реінвесту. Це припущення, не гарантія.` + pace;
+  $("#projTable").innerHTML =
+    `<tr><th>Горизонт</th><th>Внесено (без %)</th><th>За планом</th>${hasActual?"<th>За фактом</th>":""}<th>Приріст</th></tr>` +
+    (rows.length ? rows.map(r=>`<tr><td>${r.years} р.</td><td>${uahFmt(r.contributed)}</td><td>${uahFmt(r.with_reinvest)}</td>${hasActual?`<td>${uahFmt(r.with_reinvest_actual||0)}</td>`:""}<td>${uahFmt(r.with_reinvest - r.contributed)}</td></tr>`).join("")
+      : `<tr><td colspan='${hasActual?5:4}' class='mut'>Додай папери й ціль на місяць, щоб побачити проєкцію.</td></tr>`);
   $("#goalBox").innerHTML = goalsHTML(s);
 }
 
