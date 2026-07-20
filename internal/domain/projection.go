@@ -21,10 +21,22 @@ func ProjectCapital(cash0, nominal0, contribMonthly, threshold, annualRatePct fl
 	monthlyCoupon, monthlyRedeem map[int]float64, months int) float64 {
 
 	st := projState{cash: cash0, locked: nominal0}
+	rM := MonthlyRate(annualRatePct)
 	for m := 1; m <= months; m++ {
-		st.step(annualRatePct/100/12, contribMonthly, threshold, monthlyCoupon[m], monthlyRedeem[m])
+		st.step(rM, contribMonthly, threshold, monthlyCoupon[m], monthlyRedeem[m])
 	}
 	return st.total()
+}
+
+// MonthlyRate — еквівалентна місячна ставка: (1+r)^(1/12)−1.
+// Свідомо НЕ r/12: за щомісячної капіталізації r/12 дає фактичну річну
+// вищу за заявлену (15.78% перетворювалось на 16.97%), і проєкція тихо
+// завищувала результат — на 10 роках це ~6%.
+func MonthlyRate(annualPct float64) float64 {
+	if annualPct <= -100 {
+		return 0
+	}
+	return math.Pow(1+annualPct/100, 1.0/12) - 1
 }
 
 // projState — стан симуляції. Винесено окремо, щоб ProjectCapital і
@@ -65,7 +77,7 @@ func MonthsToReach(cash0, nominal0, contribMonthly, threshold, annualRatePct flo
 			res[i] = -1
 		}
 	}
-	rM := annualRatePct / 100 / 12
+	rM := MonthlyRate(annualRatePct)
 	for m := 1; m <= maxMonths; m++ {
 		st.step(rM, contribMonthly, threshold, monthlyCoupon[m], monthlyRedeem[m])
 		tot := st.total()

@@ -489,11 +489,27 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		})
 	}
 	// --- три цілі: дату досягнення рахуємо, а не питаємо ---
-	// Стара одиночна goal_amount_uah мігрує в «реалістичну», щоб уже
-	// задане значення не загубилось.
+	deadlineMonths := 0
+	if domain.Date(settings.GoalDate).Valid() {
+		gd := domain.Date(settings.GoalDate)
+		deadlineMonths = (gd.Year()-today.Year())*12 + int(gd.Month()) - int(today.Month())
+	}
+
+	// «Реалістична» за замовчуванням не вигадується, а РАХУЄТЬСЯ: це
+	// прогноз капіталу на дедлайн за поточним темпом. Округлюємо вниз,
+	// щоб дата досягнення збіглася рівно з дедлайном, а не з'їхала на
+	// місяць уперед. Ручне значення, якщо задане, має пріоритет.
 	realistic := settings.GoalRealisticUAH
+	autoRealistic := false
+	if realistic == nil && deadlineMonths > 0 {
+		v := math.Floor(domain.ProjectCapital(cash0, nominal0, contribM, threshold,
+			capRate, monthlyCoupon, monthlyRedeem, deadlineMonths))
+		if v > 0 {
+			realistic, autoRealistic = &v, true
+		}
+	}
 	if realistic == nil {
-		realistic = settings.GoalAmountUAH
+		realistic = settings.GoalAmountUAH // сумісність зі старим одиночним полем
 	}
 	defs := []struct {
 		key, label string
@@ -513,19 +529,15 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	hit := domain.MonthsToReach(cash0, nominal0, contribM, threshold, capRate,
 		monthlyCoupon, monthlyRedeem, amounts, goalHorizonMonths)
 
-	// Дедлайн опційний: якщо заданий, кажемо ще й чи встигаємо і скільки
-	// треба відкладати, щоб устигнути.
-	deadlineMonths := 0
-	if domain.Date(settings.GoalDate).Valid() {
-		gd := domain.Date(settings.GoalDate)
-		deadlineMonths = (gd.Year()-today.Year())*12 + int(gd.Month()) - int(today.Month())
-	}
 	var goals []state.GoalRow
 	for i, d := range defs {
 		if amounts[i] <= 0 {
 			continue
 		}
 		row := state.GoalRow{Key: d.key, Label: d.label, Amount: amounts[i], Months: hit[i]}
+		if d.key == "realistic" && autoRealistic {
+			row.Auto = true
+		}
 		if hit[i] > 0 {
 			row.Date = string(domain.NewDate(today.Time().AddDate(0, hit[i], 0)))
 		}

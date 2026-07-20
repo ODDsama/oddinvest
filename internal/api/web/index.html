@@ -191,7 +191,7 @@
       <label>Цільова дюрація, років <input name="target_duration_years" placeholder="напр. 3"></label>
       <label>Канали купівлі (через кому) <input name="channels" placeholder="mono, inzhur"></label>
       <label>Ціль: песимістична, ₴ <input name="goal_pessimistic_uah" placeholder="мінімум"></label>
-      <label>Ціль: реалістична, ₴ <input name="goal_realistic_uah" placeholder="план"></label>
+      <label>Ціль: реалістична, ₴ <input name="goal_realistic_uah" placeholder="порожньо = прогноз на дедлайн"></label>
       <label>Ціль: оптимістична, ₴ <input name="goal_optimistic_uah" placeholder="мрія"></label>
       <label>Дедлайн (необовʼязково) <input name="goal_date" type="date"></label>
       <button class="act">Зберегти</button>
@@ -271,9 +271,10 @@ function goalsHTML(s) {
     }
     const miss = g.before_deadline === false && g.required_monthly > 0
       ? `<div class="l" style="margin-top:2px">пізніше дедлайну — щоб устигнути, треба ${uahFmt(g.required_monthly)}/міс</div>` : "";
+    const auto = g.auto ? ` <span class="mut" style="font-size:12px">(прогноз на дедлайн)</span>` : "";
     return `<div style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span>${g.label} · <b>${uahFmt(g.amount)}</b></span>
+        <span>${g.label} · <b>${uahFmt(g.amount)}</b>${auto}</span>
         <span style="font-size:13px;color:${color}">${when}</span></div>
       <div style="height:6px;background:#262c34;border-radius:3px;margin-top:6px"><div style="width:${pct}%;height:100%;background:#3fb950;border-radius:3px"></div></div>
       <div class="l" style="margin-top:2px">накопичено ${pct.toFixed(1)}%</div>${miss}</div>`;

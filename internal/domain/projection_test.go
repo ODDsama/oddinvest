@@ -10,11 +10,25 @@ func TestProjectCapitalContributionsAreAnnuity(t *testing.T) {
 	C, rate := 100.0, 12.0
 	months := 24
 	got := ProjectCapital(0, 0, C, 0, rate, nil, nil, months)
-	i := rate / 100 / 12
+	i := MonthlyRate(rate)
 	g := math.Pow(1+i, float64(months))
 	want := C * (g - 1) / i
 	if math.Abs(got-want) > 1e-6 {
 		t.Fatalf("ануїтет: got %.4f, want %.4f", got, want)
+	}
+}
+
+// Місячна ставка має бути ЕКВІВАЛЕНТНОЮ: 12 капіталізацій дають рівно
+// заявлену річну, а не більше (стара помилка r/12).
+func TestMonthlyRateIsEquivalent(t *testing.T) {
+	for _, annual := range []float64{15.78, 5, 40} {
+		got := math.Pow(1+MonthlyRate(annual), 12) - 1
+		if math.Abs(got-annual/100) > 1e-12 {
+			t.Errorf("річна %.2f%%: 12 капіталізацій дали %.6f%%", annual, got*100)
+		}
+		if MonthlyRate(annual) >= annual/100/12 {
+			t.Errorf("еквівалентна ставка має бути меншою за r/12 (%.6f)", MonthlyRate(annual))
+		}
 	}
 }
 

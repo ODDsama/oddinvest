@@ -160,9 +160,11 @@ type RiskScenario struct {
 // RequiredMonthly заповнюється лише коли задано дедлайн і поточного
 // темпу для нього не вистачає.
 type GoalRow struct {
-	Key             string  `json:"key"` // pessimistic | realistic | optimistic
-	Label           string  `json:"label"`
-	Amount          float64 `json:"amount"`
+	Key    string  `json:"key"` // pessimistic | realistic | optimistic
+	Label  string  `json:"label"`
+	Amount float64 `json:"amount"`
+	// Auto — суму не задано вручну, це прогноз капіталу на дедлайн.
+	Auto            bool    `json:"auto,omitempty"`
 	Months          int     `json:"months"`
 	Date            string  `json:"date,omitempty"`
 	BeforeDeadline  *bool   `json:"before_deadline,omitempty"`
