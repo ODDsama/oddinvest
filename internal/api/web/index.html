@@ -40,7 +40,10 @@
   @media (max-width:820px) { .ov-grid { grid-template-columns:1fr; } }
   .pv-row { display:flex; justify-content:space-between; font-size:14px; padding:7px 0; border-bottom:1px solid #262c34; }
   .pv-row:last-of-type { border-bottom:none; }
-  .chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-bottom:16px; }
+  .chart-grid { display:flex; flex-wrap:wrap; gap:16px; margin-bottom:16px; align-items:stretch; }
+  .chart-grid > .card { flex:1 1 300px; min-width:0; }
+  .chart-grid > .card.wide { flex:2 1 420px; }
+  .ov-grid > .card { min-width:0; }
   .chart-grid .card h4 { margin:0 0 8px; font-size:14px; font-weight:600; }
   .lg { display:flex; gap:18px; flex-wrap:wrap; margin-top:8px; font-size:14px; color:var(--tx); }
   .lg span { display:inline-flex; align-items:center; gap:7px; }
@@ -94,24 +97,25 @@
     </div>
     <div class="cards" id="ovTiles"></div>
     <div id="goalStrip"></div>
-    <div id="brokerDonut"></div>
-    <div id="extraCharts" class="chart-grid"></div>
     <div class="ov-grid">
-      <div>
-        <h3 class="h-row">Як росте <button class="info" data-info="growth" aria-label="Як це читати" title="Як це читати">i</button></h3>
-        <svg id="chart" viewBox="0 0 960 320" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;background:var(--card);border-radius:10px"></svg>
+      <div class="card">
+        <h4 class="h-row" style="justify-content:space-between">Як росте <button class="info" data-info="growth" aria-label="Як це читати" title="Як це читати">i</button></h4>
+        <svg id="chart" viewBox="0 0 960 320" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;border-radius:8px"></svg>
         <div id="chartLegend" style="margin-top:8px"></div>
-        <p class="mut" style="font-size:13px">«План (накопич.)» — цільовий темп вкладень наростаючим підсумком (місячна ціль ÷ дні місяця). Факт вище пунктиру = випереджаєш план, нижче = відстаєш.</p>
+        <p class="mut" style="font-size:13px">«План (накопич.)» — цільовий темп вкладень наростаючим підсумком. Факт вище пунктиру = випереджаєш план.</p>
         <p class="mut" style="font-size:13px" id="xirrLine"></p>
       </div>
-      <div>
-        <h3>Найближчі виплати</h3>
+      <div class="card">
+        <h4>Найближчі виплати</h4>
         <div id="payPreview"></div>
         <p class="mut" style="font-size:12px">Повний календар — у «Майбутньому»</p>
       </div>
     </div>
-    <h3>Останні знімки</h3>
-    <table id="snapTable"></table>
+    <div id="extraCharts" class="chart-grid"></div>
+    <details id="snapWrap" style="margin-top:4px">
+      <summary class="mut" style="cursor:pointer;font-size:14px">Останні знімки (таблиця)</summary>
+      <table id="snapTable" style="margin-top:10px"></table>
+    </details>
   </section>
 
   <section id="account">
@@ -448,7 +452,7 @@ function svgLine(xlabels, series) {
 
 function renderExtraCharts(s) {
   const host = $("#extraCharts"); if (!host) return;
-  let html = "";
+  let html = brokerDonutCard(s);
 
   // 1) Драбина погашень
   const lad = s.ladder_uah || [];
@@ -495,11 +499,11 @@ function renderExtraCharts(s) {
 }
 
 // Кільце часток вкладеного капіталу по брокерах (SVG-donut без бібліотек).
-function renderBrokerDonut(s) {
-  const host = $("#brokerDonut"); if (!host) return;
+// Повертає HTML-картку (або "") — щоб тайлитись у спільній сітці графіків.
+function brokerDonutCard(s) {
   const ibb = s.invested_by_broker || {};
   const names = Object.keys(ibb).filter(n => ibb[n] > 0).sort((a,b)=>ibb[b]-ibb[a]);
-  if (names.length < 2) { host.innerHTML = ""; return; }
+  if (names.length < 2) return "";
   const total = names.reduce((sum,n)=>sum+ibb[n], 0);
   const palette = ["#4da3ff","#2ecc71","#ffa600","#8e24aa","#f85149","#26c6da","#d4a5ff"];
   const R = 60, W = 22, C = 2*Math.PI*R;
@@ -515,12 +519,12 @@ function renderBrokerDonut(s) {
     return `<div class="pv-row"><span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${palette[i%palette.length]};margin-right:8px;vertical-align:-1px"></span>${n}</span>
       <span>${pct.toFixed(0)}% · ${uahFmt(ibb[n])}</span></div>`;
   }).join("");
-  host.innerHTML = `<h3 class="h-row">Частки по брокерах ${infoBtn("broker")}</h3>
+  return `<div class="card wide"><h4 class="h-row" style="justify-content:space-between">Частки по брокерах ${infoBtn("broker")}</h4>
     <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
-      <svg viewBox="0 0 160 160" width="150" height="150" style="transform:rotate(-90deg);flex:0 0 auto">${arcs}</svg>
-      <div style="flex:1;min-width:200px">${legend}</div>
+      <svg viewBox="0 0 160 160" width="140" height="140" style="transform:rotate(-90deg);flex:0 0 auto">${arcs}</svg>
+      <div style="flex:1;min-width:180px">${legend}</div>
     </div>
-    <p class="mut" style="font-size:12px">За вкладеним капіталом (вартість входу залишків).</p>`;
+    <p class="mut" style="font-size:12px">За вкладеним капіталом (вартість входу залишків).</p></div>`;
 }
 
 // Довідково: скільки вкладено в папери по кожному брокеру (грн-екв.).
@@ -549,7 +553,6 @@ async function loadSummary() {
   renderNbuStale(s);
   renderBrokerBalances(s);
   renderInvestedByBroker(s);
-  renderBrokerDonut(s);
   renderExtraCharts(s);
   renderChannels();
 
