@@ -42,9 +42,21 @@
   .pv-row:last-of-type { border-bottom:none; }
   .chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-bottom:16px; }
   .chart-grid .card h4 { margin:0 0 8px; font-size:14px; font-weight:600; }
-  .lg { display:flex; gap:14px; flex-wrap:wrap; margin-top:6px; font-size:12px; color:var(--mut); }
-  .lg span { display:inline-flex; align-items:center; gap:5px; }
-  .lg i { width:11px; height:11px; border-radius:2px; display:inline-block; }
+  .lg { display:flex; gap:18px; flex-wrap:wrap; margin-top:8px; font-size:14px; color:var(--tx); }
+  .lg span { display:inline-flex; align-items:center; gap:7px; }
+  .lg i { width:14px; height:14px; border-radius:3px; display:inline-block; }
+  .chart-grid .card h4 { display:flex; align-items:center; justify-content:space-between; }
+  .info { width:20px; height:20px; border-radius:50%; border:1px solid #30363d; background:none; color:var(--mut);
+          font:italic 600 12px Georgia, serif; cursor:pointer; flex:0 0 auto; line-height:1; padding:0; }
+  .info:hover { border-color:var(--acc); color:var(--acc); }
+  h3 .info, h4 .info { margin-left:8px; }
+  .h-row { display:flex; align-items:center; }
+  .infopop { position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:50; padding:20px; }
+  .infopop.show { display:flex; }
+  .infopop .box { background:var(--card); border:1px solid #30363d; border-radius:12px; padding:20px 22px; max-width:460px; }
+  .infopop h4 { margin:0 0 10px; font-size:16px; }
+  .infopop p { margin:0; color:var(--tx); line-height:1.6; font-size:14px; }
+  .infopop .x { float:right; background:none; border:none; color:var(--mut); font-size:20px; cursor:pointer; margin:-6px -6px 0 0; }
   form.inline { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0; }
   input, select { background:#0d1117; color:var(--tx); border:1px solid #30363d; border-radius:6px; padding:7px 10px; font:inherit; }
   input:focus { outline:none; border-color:var(--acc); }
@@ -59,6 +71,7 @@
 </style>
 </head>
 <body>
+<div class="infopop" id="infoPop"><div class="box"></div></div>
 <header>
   <h1>ODD Invest</h1>
   <nav>
@@ -85,7 +98,7 @@
     <div id="extraCharts" class="chart-grid"></div>
     <div class="ov-grid">
       <div>
-        <h3>Як росте</h3>
+        <h3 class="h-row">Як росте <button class="info" data-info="growth" aria-label="Як це читати" title="Як це читати">i</button></h3>
         <svg id="chart" viewBox="0 0 960 320" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;background:var(--card);border-radius:10px"></svg>
         <div id="chartLegend" style="margin-top:8px"></div>
         <p class="mut" style="font-size:13px">«План (накопич.)» — цільовий темп вкладень наростаючим підсумком (місячна ціль ÷ дні місяця). Факт вище пунктиру = випереджаєш план, нижче = відстаєш.</p>
@@ -366,6 +379,27 @@ function renderBrokerBalances(s) {
     <p class="mut">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.</p>${rows}`;
 }
 
+// --- пояснення «як це читати» для кожного графіка ---
+const INFO = {
+  broker: ["Частки по брокерах", "Кільце показує, яка частка вкладеного капіталу лежить у кожного брокера. Розмір сегмента = частка, у легенді — точний % і сума. Рахується за вартістю входу залишків (без готівки)."],
+  growth: ["Як росте", "Фактична історія портфеля по днях: скільки вкладено, номінал паперів, гроші на рахунку, і пунктиром — цільовий темп вкладень. Факт вище пунктиру = випереджаєш план. Крива будується, коли є ≥2 добові знімки."],
+  ladder: ["Драбина погашень", "Кожен стовпчик — скільки номіналу повертається того року (у грн-екв). Рівномірні стовпчики означають, що гроші рознесені в часі; один високий — усе гаситься одного року. Порожні роки («діри») варто заповнювати новими паперами. Наведи на стовпчик — точна сума."],
+  income: ["Дохід по місяцях", "Скільки купонів і погашень надійде кожного місяця на рік наперед (грн-екв). Це твій потік для реінвесту — видно, коли назбирається на наступний папір. Порожній місяць = виплат немає."],
+  currency: ["Валюта: факт vs ціль", "Синій стовпчик — поточна частка валюти в портфелі, сірий — твоя цільова частка з Налаштувань. Синій нижчий за сірий → валюту треба добирати; вищий → уже перебір."],
+  capital: ["Крива капіталу", "Проєкція капіталу на 1/3/5/10 років. Сіра лінія — просто сума внесків без відсотків, синя — з реінвестом під дохідність портфеля. Розрив між ними — це робота складного відсотка. Модель — припущення, не гарантія."],
+};
+const infoBtn = k => `<button class="info" data-info="${k}" aria-label="Як це читати" title="Як це читати">i</button>`;
+function openInfo(k) {
+  const e = INFO[k]; if (!e) return;
+  const pop = $("#infoPop");
+  pop.querySelector(".box").innerHTML = `<button class="x" data-closeinfo>×</button><h4>${e[0]}</h4><p>${e[1]}</p>`;
+  pop.classList.add("show");
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest("[data-info]"); if (b) { openInfo(b.dataset.info); return; }
+  if (e.target.closest("[data-closeinfo]") || e.target.id === "infoPop") $("#infoPop").classList.remove("show");
+});
+
 // --- маленькі SVG-графіки без бібліотек ---
 const compactUAH = v => { const a=Math.abs(v);
   return a>=1e6 ? (v/1e6).toFixed(1).replace(".",",")+"М" : a>=1e3 ? Math.round(v/1e3)+"к" : String(Math.round(v)); };
@@ -419,17 +453,17 @@ function renderExtraCharts(s) {
   // 1) Драбина погашень
   const lad = s.ladder_uah || [];
   if (lad.length) {
-    html += `<div class="card"><h4>Драбина погашень</h4>
+    html += `<div class="card"><h4>Драбина погашень ${infoBtn("ladder")}</h4>
       ${svgBars(lad.map(r=>({label:String(r.year), value:r.uah})), {showVals:true})}
-      <p class="mut" style="font-size:12px">Номінал, що повертається щороку (грн-екв.).</p></div>`;
+      <p class="mut" style="font-size:13px">Номінал, що повертається щороку (грн-екв.).</p></div>`;
   }
 
   // 2) Дохід по місяцях (12 міс)
   const inc = s.income_12m || [];
   if (inc.some(m=>m.amount>0)) {
-    html += `<div class="card"><h4>Дохід по місяцях</h4>
+    html += `<div class="card"><h4>Дохід по місяцях ${infoBtn("income")}</h4>
       ${svgBars(inc.map(m=>({label:m.month.slice(5), value:m.amount, color:"#2ecc71"})))}
-      <p class="mut" style="font-size:12px">Купони + погашення на рік наперед (грн-екв.).</p></div>`;
+      <p class="mut" style="font-size:13px">Купони + погашення на рік наперед (грн-екв.).</p></div>`;
   }
 
   // 3) Валюта: факт vs ціль
@@ -442,14 +476,14 @@ function renderExtraCharts(s) {
       {label:"USD", a:s.usd_share_pct||0, b:usdT},
       {label:"EUR", a:s.eur_share_pct||0, b:eurT},
     ];
-    html += `<div class="card"><h4>Валюта: факт vs ціль</h4>${svgGrouped(groups)}
+    html += `<div class="card"><h4>Валюта: факт vs ціль ${infoBtn("currency")}</h4>${svgGrouped(groups)}
       <div class="lg"><span><i style="background:#4da3ff"></i>факт</span><span><i style="background:#8b949e"></i>ціль</span></div></div>`;
   }
 
   // 4) Крива капіталу
   const proj = s.projection || [];
   if (proj.length) {
-    html += `<div class="card"><h4>Крива капіталу</h4>
+    html += `<div class="card"><h4>Крива капіталу ${infoBtn("capital")}</h4>
       ${svgLine(proj.map(p=>p.years+"р"), [
         {color:"#8b949e", values:proj.map(p=>p.contributed)},
         {color:"#4da3ff", values:proj.map(p=>p.with_reinvest)},
@@ -481,7 +515,7 @@ function renderBrokerDonut(s) {
     return `<div class="pv-row"><span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${palette[i%palette.length]};margin-right:8px;vertical-align:-1px"></span>${n}</span>
       <span>${pct.toFixed(0)}% · ${uahFmt(ibb[n])}</span></div>`;
   }).join("");
-  host.innerHTML = `<h3>Частки по брокерах</h3>
+  host.innerHTML = `<h3 class="h-row">Частки по брокерах ${infoBtn("broker")}</h3>
     <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
       <svg viewBox="0 0 160 160" width="150" height="150" style="transform:rotate(-90deg);flex:0 0 auto">${arcs}</svg>
       <div style="flex:1;min-width:200px">${legend}</div>
