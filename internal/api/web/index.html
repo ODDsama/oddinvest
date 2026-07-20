@@ -134,6 +134,7 @@
 
   <section id="portfolio">
     <div class="cards" id="portTiles"></div>
+    <div id="investedByBroker"></div>
     <h3>Нова покупка</h3>
     <form class="inline" id="lotForm">
       <input name="isin" placeholder="ISIN" required list="isinList" style="width:170px">
@@ -351,6 +352,21 @@ function renderBrokerBalances(s) {
     <p class="mut">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.</p>${rows}`;
 }
 
+// Довідково: скільки вкладено в папери по кожному брокеру (грн-екв.).
+function renderInvestedByBroker(s) {
+  const host = $("#investedByBroker"); if (!host) return;
+  const ibb = s.invested_by_broker || {};
+  const names = Object.keys(ibb).sort((a,b)=>ibb[b]-ibb[a]);
+  if (names.length < 2) { host.innerHTML = ""; return; }
+  const total = names.reduce((sum,n)=>sum+ibb[n], 0);
+  const rows = names.map(n => {
+    const pct = total > 0 ? ibb[n]/total*100 : 0;
+    return `<div class="pv-row"><span><b>${n}</b></span>
+      <span>${uahFmt(ibb[n])} <span class="mut" style="font-size:12px">(${pct.toFixed(0)}%)</span></span></div>`;
+  }).join("");
+  host.innerHTML = `<h3>Вкладено по брокерах</h3>${rows}`;
+}
+
 async function loadSummary() {
   const s = await api("/api/summary");
   LAST_SUMMARY = s;
@@ -361,6 +377,7 @@ async function loadSummary() {
   renderBanner(s);
   renderNbuStale(s);
   renderBrokerBalances(s);
+  renderInvestedByBroker(s);
   renderChannels();
 
   const np = s.next_payment, accrued = s.accrued_uah || 0;

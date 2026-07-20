@@ -335,6 +335,31 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		brokers[name][k.Currency] = float64(m) / 100
 	}
+
+	// Вкладено по брокерах (грн-екв.): дзеркалить логіку Positions —
+	// ціна×залишок + пропорційна комісія, лише згруповано по брокеру.
+	investedByBroker := map[string]float64{}
+	for _, l := range lots {
+		rem := domain.RemainingQtyNow(l, sales)
+		if rem == 0 {
+			continue
+		}
+		cost := domain.MulQty(l.PricePerBond, rem)
+		if fee, ferr := domain.Apportion(l.Fee, rem, l.Qty); ferr == nil && !fee.IsZero() {
+			if c2, aerr := cost.Add(fee); aerr == nil {
+				cost = c2
+			}
+		}
+		u, uerr := fx.ToUAH(cost, rates)
+		if uerr != nil {
+			continue
+		}
+		name := l.Channel
+		if name == "" {
+			name = "—"
+		}
+		investedByBroker[name] += float64(u.Amount()) / 100
+	}
 	accounts := map[string]float64{}
 	accountUAHMinor := int64(0)
 	for cur, m := range bal {
@@ -753,7 +778,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthTargetUAH: target,
 		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
-		Accounts: accounts, Brokers: brokers, ReinvestMinByCur: reinvestMinByCur, TopN: 5,
+		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
+		ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
 		PortfolioYield: portfolioYieldByCur,
 		Projection: projection, ProjectionRatePct: capRate, Goals: goals,

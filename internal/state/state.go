@@ -45,6 +45,9 @@ type Doc struct {
 	// роздільні, тож «чи вистачає на папір» рахується саме тут, а
 	// Accounts лишається зведенням по валютах для портфельних показників.
 	Brokers map[string]map[string]float64 `json:"brokers,omitempty"`
+	// InvestedByBroker — вкладено (вартість входу залишків, грн-екв.) по
+	// кожному брокеру. Довідкова розбивка для «Портфеля».
+	InvestedByBroker map[string]float64 `json:"invested_by_broker,omitempty"`
 
 	MonthInvestedUAH float64 `json:"month_invested_uah"`
 	MonthTargetUAH   float64 `json:"month_target_uah"`
@@ -230,6 +233,7 @@ type Input struct {
 	ReinvestMinUAH   *money.Money
 	Accounts         map[string]float64
 	Brokers          map[string]map[string]float64
+	InvestedByBroker map[string]float64
 	ReinvestMinByCur map[string]float64
 	TopN              int
 	Settings          *SettingsDoc
@@ -317,6 +321,7 @@ func Build(in Input) (*Doc, error) {
 	doc.ReinvestMinUAH = major(in.ReinvestMinUAH)
 	doc.Accounts = in.Accounts
 	doc.Brokers = in.Brokers
+	doc.InvestedByBroker = in.InvestedByBroker
 	doc.ReinvestMin = in.ReinvestMinByCur
 	if doc.Accounts == nil {
 		doc.Accounts = map[string]float64{}
