@@ -514,19 +514,19 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-	// Очікувана дохідність за придбаними паперами: річний купон ÷ номінал,
-	// зважено по валютах у грн-екв. Це орієнтир для проєкцій замість
-	// ручного вводу. На відміну від auk_proc (дохідність розміщення)
-	// відображає, що папери реально приносять.
+	// Очікувана дохідність за придбаними паперами — ДОХІДНІСТЬ ДО
+	// ПОГАШЕННЯ (YTM) від того, що фактично сплачено, зважена вкладеними
+	// грішми. Це орієнтир для проєкцій замість ручного вводу.
 	//
-	// Річний купон беремо зі СТАВКИ паперу, а не з графіка виплат за
-	// наступні 365 днів. Вікно в рік обрізало папери, що гасяться раніше:
-	// у чисельник ішов один залишковий купон замість двох річних, а в
-	// знаменник — повний номінал, і дохідність виходила заниженою тим
-	// сильніше, чим ближче погашення.
-	var couponUAH, nominalUAH int64
-	couponByCur := map[string]int64{}  // річний купон нативно по валютах
+	// Раніше тут було «річний купон ÷ номінал». Воно відповідало на питання
+	// «скільки папір платить», а не «скільки я заробляю»: ціна купівлі не
+	// впливала взагалі, тож папір, узятий із дисконтом, і папір, узятий з
+	// премією, виглядали однаково. YTM бачить і дисконт, і комісію, і те,
+	// що піврічний купон складається всередині року.
+	var nominalUAH int64               // сумарний номінал у грн-екв.
 	nominalByCur := map[string]int64{} // номінал нативно по валютах
+	ytmLotsByCur := map[string][]domain.YTMLot{}
+	var ytmWeightUAH, ytmWeightedUAH float64
 	for _, l := range lots {
 		b, ok := bonds[l.ISIN]
 		if !ok || b.Maturity.Before(today) {
@@ -536,28 +536,41 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if q == 0 {
 			continue
 		}
-		// ставка в базисних пунктах: 16.55% -> 1655
-		annualCoupon := b.Nominal.Amount() * b.RateBP / 10000
 		cur := b.Nominal.Currency().Code
-		couponByCur[cur] += annualCoupon * q
 		nominalByCur[cur] += b.Nominal.Amount() * q
-		if c, err := fx.ToUAH(money.New(annualCoupon*q, cur), rates); err == nil {
-			couponUAH += c.Amount()
-		}
 		if n, err := fx.ToUAH(money.New(b.Nominal.Amount()*q, cur), rates); err == nil {
 			nominalUAH += n.Amount()
 		}
-	}
-	var portfolioYield float64
-	if nominalUAH > 0 {
-		portfolioYield = math.Round(float64(couponUAH)/float64(nominalUAH)*10000) / 100
-	}
-	portfolioYieldByCur := map[string]float64{}
-	for cur, nom := range nominalByCur {
-		if nom > 0 {
-			portfolioYieldByCur[cur] = math.Round(float64(couponByCur[cur])/float64(nom)*10000) / 100
+		// Собівартість одного паперу: «брудна» ціна плюс частка комісії —
+		// комісія теж з'їдає дохідність, тож ховати її не можна.
+		cost := l.PricePerBond
+		if fee, ferr := domain.Apportion(l.Fee, 1, l.Qty); ferr == nil && !fee.IsZero() {
+			if c2, aerr := cost.Add(fee); aerr == nil {
+				cost = c2
+			}
+		}
+		lot := domain.YTMLot{CostPerBond: cost, Qty: q, BuyDate: l.BuyDate, ISIN: l.ISIN}
+		ytmLotsByCur[cur] = append(ytmLotsByCur[cur], lot)
+		// Для зведеної цифри вагу переводимо в гривню, щоб валюти
+		// складались коректно, а самі ставки лишались нативними.
+		if y, ok := domain.WeightedYTM([]domain.YTMLot{lot}, pays); ok {
+			if w, err := fx.ToUAH(money.New(cost.Amount()*q, cur), rates); err == nil {
+				ytmWeightUAH += float64(w.Amount())
+				ytmWeightedUAH += float64(w.Amount()) * y
+			}
 		}
 	}
+	var portfolioYield float64
+	if ytmWeightUAH > 0 {
+		portfolioYield = math.Round(ytmWeightedUAH/ytmWeightUAH*100) / 100
+	}
+	portfolioYieldByCur := map[string]float64{}
+	for cur, ls := range ytmLotsByCur {
+		if y, ok := domain.WeightedYTM(ls, pays); ok {
+			portfolioYieldByCur[cur] = math.Round(y*100) / 100
+		}
+	}
+
 
 	// --- фактичний темп поповнень ---
 	// План може розходитись із реальністю, тож рахуємо ще й середній темп

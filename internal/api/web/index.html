@@ -666,7 +666,7 @@ async function loadSummary() {
     ? `Фактична дохідність (XIRR): <b>${xp.join(" · ")}</b> — деталі у «Портфелі»`
     : "Фактична дохідність (XIRR) з'явиться, коли набереться 30 днів історії";
 
-  // плитки по розділах. «Дохідність» — очікуване наперед (сер. купон),
+  // плитки по розділах. «Дохідність» — YTM до погашення від сплаченої ціни,
   // «XIRR» — фактично реалізоване; тримаємо поруч задля порівняння.
   const pct = v => v != null ? v.toFixed(2) + "%" : "—";
   const xirrTiles = Object.keys(x).length
@@ -677,7 +677,7 @@ async function loadSummary() {
     card("Номінал (грн-екв.)", s.nominal_uah_eq.toLocaleString("uk")) +
     card("Накопичений купон", uahFmt(accrued), `<div class="l" style="margin-top:4px">зароблено, ще не виплачено</div>`) +
     Object.entries(py).map(([c,v]) => card(`Дохідність ${curSym(c)}`, pct(v),
-      `<div class="l" style="margin-top:4px">очікувана</div>`)).join("") +
+      `<div class="l" style="margin-top:4px">до погашення, від сплаченої ціни</div>`)).join("") +
     xirrTiles;
 
   $("#shareTiles").innerHTML =
@@ -957,8 +957,8 @@ async function loadProjection() {
   const gy = (s.forecast||{}).glide_years || 0;
   const rateSrc = rate<=0 ? "додай папери — і дохідність порахується сама"
     : term.rate_terminal_pct && gy > 0 && Math.abs(term.rate_terminal_pct - rate) > 0.05
-      ? `за портфелем ${rate.toFixed(1)}% сьогодні → ${term.rate_terminal_pct.toFixed(1)}% за ${humanMonths(Math.round(gy*12))}`
-      : `за портфелем ${rate.toFixed(1)}% (сер. купон)`;
+      ? `за портфелем ${rate.toFixed(1)}% (YTM) сьогодні → ${term.rate_terminal_pct.toFixed(1)}% за ${humanMonths(Math.round(gy*12))}`
+      : `за портфелем ${rate.toFixed(1)}% (YTM до погашення)`;
   const hasActual = (s.actual_monthly_uah||0) > 0;
   const pace = hasActual
     ? ` Фактичний темп поповнень: ${uahFmt(s.actual_monthly_uah)}/міс за ${s.actual_months} міс історії.`
