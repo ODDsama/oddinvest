@@ -272,11 +272,24 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// план із купівлями означало б показувати 100% виконання за папір,
 	// куплений на накопичені купони, — до цілі це не додає нічого.
 	monthDep := money.New(0, money.UAH)
+	monthOut := money.New(0, money.UAH) // зняття цього місяця, додатнім числом
 	if deps, derr := s.st.ListDeposits(ctx); derr == nil {
 		for _, d := range deps {
-			if d.Amount <= 0 || d.Date.Year() != now.Year() || int(d.Date.Month()) != int(now.Month()) {
+			if d.Date.Year() != now.Year() || int(d.Date.Month()) != int(now.Month()) {
 				continue
 			}
+			if d.Amount < 0 {
+				if u, cerr := fx.ToUAH(money.New(-d.Amount, d.Currency), rates); cerr == nil {
+					if sum, aerr := monthOut.Add(u); aerr == nil {
+						monthOut = sum
+					}
+				}
+			}
+			// Нетто, а не сума поповнень: зняття зменшує капітал так само,
+			// як поповнення його збільшує. Без цього переказ між брокерами
+			// (він записується як зняття + поповнення, бо окремої сутності
+			// переказу немає) роздував би «внесено» на свою суму, не
+			// додавши жодної нової копійки.
 			if u, cerr := fx.ToUAH(money.New(d.Amount, d.Currency), rates); cerr == nil {
 				if sum, aerr := monthDep.Add(u); aerr == nil {
 					monthDep = sum
@@ -615,9 +628,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			if d.Date.Before(first) {
 				first = d.Date
 			}
-			if d.Amount <= 0 {
-				continue // зняття — не внесок
-			}
+			// Нетто: зняття теж рух капіталу. Інакше переказ між брокерами
+			// (зняття + поповнення) завищував би темп на свою суму, а
+			// прогноз «За фактом» через це малював би дисципліну, якої немає.
 			if u, cerr := fx.ToUAH(money.New(d.Amount, d.Currency), rates); cerr == nil {
 				totalUAH += u.Amount()
 			}
@@ -1011,6 +1024,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthDepositedUAH: monthDep,
+		MonthWithdrawnUAH: monthOut,
 		MonthTargetUAH: target,
 		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,

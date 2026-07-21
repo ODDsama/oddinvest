@@ -774,7 +774,9 @@ async function loadSummary() {
       s.month_target_uah > 0
         ? `<div class="l" style="margin-top:4px">${s.month_deposited_uah === undefined
              ? `вкладено ${(s.month_invested_uah||0).toLocaleString("uk")}` // старий бекенд рахував купівлі
-             : `внесено ${s.month_deposited_uah.toLocaleString("uk")}`} з ${s.month_target_uah.toLocaleString("uk")} ₴</div>`
+             : `внесено ${s.month_deposited_uah.toLocaleString("uk")}`} з ${s.month_target_uah.toLocaleString("uk")} ₴</div>
+           ${s.month_withdrawn_uah > 0
+             ? `<div class="l">нетто: поповнення ${((s.month_deposited_uah||0) + s.month_withdrawn_uah).toLocaleString("uk")} − зняття ${s.month_withdrawn_uah.toLocaleString("uk")} ₴</div>` : ""}`
         : `<div class="l" style="margin-top:4px">задай ціль і дедлайн — план порахується сам</div>`) +
     card("Наступна виплата",
       np ? `${Number(np.amount).toLocaleString("uk")} ${curSym(np.currency)}` : "—",

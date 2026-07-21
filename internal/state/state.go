@@ -61,7 +61,11 @@ type Doc struct {
 	// цілі й означає «скільки нових грошей треба вносити», а купівля за
 	// накопичені купони до цілі не додає нічого.
 	MonthInvestedUAH  float64 `json:"month_invested_uah"`
+	// MonthDepositedUAH — НЕТТО нових грошей за місяць: поповнення мінус
+	// зняття. MonthWithdrawnUAH — самі зняття, додатнім числом, щоб UI міг
+	// показати розклад, коли нетто не збігається з сумою поповнень.
 	MonthDepositedUAH float64 `json:"month_deposited_uah"`
+	MonthWithdrawnUAH float64 `json:"month_withdrawn_uah,omitempty"`
 	MonthTargetUAH    float64 `json:"month_target_uah"`
 	MonthProgressPct  int     `json:"month_progress_pct"`
 	MonthIncomingUAH float64 `json:"month_incoming_uah"` // купони+погашення в поточному місяці
@@ -299,6 +303,7 @@ type Input struct {
 	Rates             fx.Rates
 	MonthInvestedUAH  *money.Money
 	MonthDepositedUAH *money.Money
+	MonthWithdrawnUAH *money.Money
 	MonthTargetUAH    *money.Money
 	UninvestedUAH    *money.Money
 	AccountUAH       *money.Money
@@ -389,6 +394,7 @@ func Build(in Input) (*Doc, error) {
 
 	doc.MonthInvestedUAH = major(in.MonthInvestedUAH)
 	doc.MonthDepositedUAH = major(in.MonthDepositedUAH)
+	doc.MonthWithdrawnUAH = major(in.MonthWithdrawnUAH)
 	doc.MonthTargetUAH = major(in.MonthTargetUAH)
 	doc.MonthProgressPct = domain.ProgressPct(in.MonthDepositedUAH, in.MonthTargetUAH)
 	doc.UninvestedUAH = major(in.UninvestedUAH)
