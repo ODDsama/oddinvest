@@ -102,6 +102,21 @@ func (s Sleeve) toUAH(total, dM float64, months int) (today, nominal float64) {
 
 func (s Sleeve) isUAH() bool { return s.Currency == "UAH" || s.Currency == "" }
 
+// RealContributed — скільки коштують у СЬОГОДНІШНІХ грошах стартовий
+// капітал плюс номінальні внески, які просто відкладали й не вкладали.
+//
+// Потрібна, щоб порівняння «вклав vs просто відкладав» лишалось у одній
+// одиниці. Внесок на місяці m — це номінальні гривні того місяця, тож
+// сьогодні вони коштують менше рівно на знецінення за m місяців.
+func RealContributed(start, contribMonthly, devalPct float64, months int) float64 {
+	dM := MonthlyRate(devalPct)
+	out := start
+	for m := 1; m <= months; m++ {
+		out += contribMonthly / math.Pow(1+dM, float64(m))
+	}
+	return out
+}
+
 // MonthsToReachSleeves — за скільки місяців капітал у СЬОГОДНІШНІХ
 // гривнях сягне цілі. -1 = вже досягнуто, 0 = не досягається за maxMonths.
 //

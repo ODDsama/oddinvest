@@ -949,7 +949,7 @@ async function loadProjection() {
   const pace = hasActual
     ? ` Фактичний темп поповнень: ${uahFmt(s.actual_monthly_uah)}/міс за ${s.actual_months} міс історії.`
     : " Прогноз за фактичним темпом зʼявиться, коли назбирається 60 днів історії поповнень.";
-  $("#projNote").textContent = `Старт = капітал ${uahFmt(P0)}, внесок = ${uahFmt(C)}/міс, ставка = ${rateSrc}. Модель: реальні купони й погашення наявних паперів + внески, реінвест під ставку; готівка не працює до реінвесту. Це припущення, не гарантія.` + pace;
+  $("#projNote").textContent = `Старт = капітал ${uahFmt(P0)}, внесок = ${uahFmt(C)}/міс, ставка = ${rateSrc}. Модель: реальні купони й погашення наявних паперів + внески, реінвест під ставку; готівка не працює до реінвесту. Обидві колонки — у гривні сьогоднішньої купівельної спроможності, тож «внесено» теж знецінюється: приріст показує, наскільки вкладати вигідніше, ніж просто відкладати. Це припущення, не гарантія.` + pace;
   $("#projTable").innerHTML =
     `<tr><th>Горизонт</th><th>Внесено (без %)</th><th>За планом</th>${hasActual?"<th>За фактом</th>":""}<th>Приріст</th></tr>` +
     (rows.length ? rows.map(r=>`<tr><td>${r.years} р.</td><td>${uahFmt(r.contributed)}</td><td>${uahFmt(r.with_reinvest)}</td>${hasActual?`<td>${uahFmt(r.with_reinvest_actual||0)}</td>`:""}<td>${uahFmt(r.with_reinvest - r.contributed)}</td></tr>`).join("")

@@ -687,7 +687,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		m := y * 12
 		row := state.ProjectionRow{
 			Years:       y,
-			Contributed: round2(p0 + contribM*float64(m)),
+			// Обидві колонки — у сьогоднішніх гривнях, інакше таблиця
+			// віднімала б номінальні гроші від реальних і на коротких
+			// горизонтах показувала б від'ємний приріст.
+			Contributed: round2(domain.RealContributed(p0, contribM, devalBase, m)),
 			WithReinvest: round2(domain.ProjectSleeves(
 				buildSleeves(contribM, 0), devalBase, m).TodayUAH),
 		}

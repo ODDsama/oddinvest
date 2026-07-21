@@ -157,3 +157,32 @@ func TestRequiredMonthlySleevesHitsGoal(t *testing.T) {
 	got := ProjectSleeves(scaled, 6, months).TodayUAH
 	approx(t, "підібраний внесок виводить на ціль", got, goal, goal*0.001)
 }
+
+// Колонки «внесено» і «за планом» мають жити в одній одиниці — інакше
+// таблиця віднімає номінальні гроші від реальних і на коротких
+// горизонтах малює від'ємний приріст при цілком здоровому портфелі.
+func TestRealContributedSharesUnitWithProjection(t *testing.T) {
+	const start, contrib, months = 8525.24, 5000.0, 12
+
+	// без знецінення реальне = номінальне
+	approx(t, "без знецінення", RealContributed(start, contrib, 0, months),
+		start+contrib*months, 0.01)
+
+	// зі знеціненням відкладені гроші коштують менше
+	real6 := RealContributed(start, contrib, 6, months)
+	if real6 >= start+contrib*months {
+		t.Errorf("під матрацом гроші мали втратити вартість: %.2f", real6)
+	}
+
+	// і головне: портфель, що обганяє знецінення, дає ДОДАТНИЙ приріст
+	// на всіх горизонтах, а не лише на далеких
+	s := uahSleeve(start, 0, 16.7, contrib)
+	for _, m := range []int{12, 36, 60, 120} {
+		planned := ProjectSleeves([]Sleeve{s}, 6, m).TodayUAH
+		mattress := RealContributed(start, contrib, 6, m)
+		if planned <= mattress {
+			t.Errorf("%d міс: 16.7%% проти 6%% знецінення мали дати приріст, маємо %.2f vs %.2f",
+				m, planned, mattress)
+		}
+	}
+}

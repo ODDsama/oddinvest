@@ -315,3 +315,39 @@ func TestForecastReflectsDevaluation(t *testing.T) {
 		t.Errorf("без знецінення реальне й номінальне мають збігатись: %v vs %v", real0, nominal0)
 	}
 }
+
+// Таблиця проєкцій має порівнювати порівнюване: «внесено» і «за планом»
+// в одній одиниці. Інакше приріст виходить від'ємним на коротких
+// горизонтах при цілком здоровому портфелі.
+func TestProjectionColumnsShareUnit(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if _, body := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"995.00","buy_date":"2026-07-01","channel":"mono"}`); body == "" {
+		t.Fatal("порожня відповідь на додавання лота")
+	}
+	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_target_uah":"5000","uah_devaluation_pct":"6"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
+	}
+	var got struct {
+		Projection []struct {
+			Years        int     `json:"years"`
+			Contributed  float64 `json:"contributed"`
+			WithReinvest float64 `json:"with_reinvest"`
+		} `json:"projection"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("summary не парситься: %v", err)
+	}
+	if len(got.Projection) != 4 {
+		t.Fatalf("очікували 4 горизонти, маємо %d", len(got.Projection))
+	}
+	for _, r := range got.Projection {
+		if r.WithReinvest <= r.Contributed {
+			t.Errorf("%d р.: 16.5%% проти 6%% знецінення мали дати приріст, маємо %.2f vs %.2f",
+				r.Years, r.WithReinvest, r.Contributed)
+		}
+	}
+}
