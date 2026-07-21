@@ -261,6 +261,33 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
 document.querySelectorAll(".quick [data-go]").forEach(b => b.onclick = () => goto(b.dataset.go));
 
 const curSym = c => ({ UAH:"₴", USD:"$", EUR:"€" }[c] || c);
+
+// --- людські формати дат і строків ---
+const MON_NOM = ["січень","лютий","березень","квітень","травень","червень","липень","серпень","вересень","жовтень","листопад","грудень"];
+const MON_GEN = ["січня","лютого","березня","квітня","травня","червня","липня","серпня","вересня","жовтня","листопада","грудня"];
+// Українська множина: 1 рік / 2-4 роки / 5+ років (з винятком 11-14).
+function plural(n, one, few, many) {
+  const d = n % 10, h = n % 100;
+  if (d === 1 && h !== 11) return one;
+  if (d >= 2 && d <= 4 && (h < 10 || h >= 20)) return few;
+  return many;
+}
+// 32 -> «2 роки 8 місяців» (замість «2.6 р.»)
+function humanMonths(m) {
+  m = Math.max(0, Math.round(m));
+  const y = Math.floor(m/12), mo = m % 12, parts = [];
+  if (y) parts.push(`${y} ${plural(y,"рік","роки","років")}`);
+  if (mo) parts.push(`${mo} ${plural(mo,"місяць","місяці","місяців")}`);
+  return parts.join(" ") || "менше місяця";
+}
+const monthYear = iso => { const p = String(iso||"").split("-");
+  return p.length < 2 ? String(iso||"") : `${MON_NOM[+p[1]-1] || p[1]} ${p[0]}`; };
+// «2026-07-22» -> «22 липня», а якщо не цьогоріч — «20 січня 2027»,
+// бо без року дата наступної виплати читається як «ось-ось».
+const dayMonth = iso => { const p = String(iso||"").split("-");
+  if (p.length < 3) return monthYear(iso);
+  const d = `${+p[2]} ${MON_GEN[+p[1]-1] || p[1]}`;
+  return p[0] === String(new Date().getFullYear()) ? d : `${d} ${p[0]}`; };
 const card = (l,v,extra="") => `<div class="card"><div class="l">${l}</div><div class="v">${v}</div>${extra}</div>`;
 
 // Банер дії показуємо ЗАВЖДИ — він ніколи не порожній і завжди каже,
@@ -294,7 +321,7 @@ function renderBanner(s) {
     const days = perDay > 0 ? Math.ceil(need / perDay) : 0;
     const eta = days > 0 ? ` ≈ <b>${days}</b> дн. за твоїм темпом` : "";
     const sub = `На рахунку ${uahFmt(s.account_uah)}, найдешевший папір ${uahFmt(s.reinvest_min_uah)}.` +
-      (np ? ` Купон ${np.date} додасть ${Number(np.amount).toLocaleString("uk")} ${curSym(np.currency)}.` : "");
+      (np ? ` Купон ${dayMonth(np.date)} додасть ${Number(np.amount).toLocaleString("uk")} ${curSym(np.currency)}.` : "");
     host.innerHTML = box("wait", `Купувати ще рано — бракує ${uahFmt(need)}${eta}`, sub);
   }
   host.querySelectorAll("[data-go]").forEach(b => b.onclick = () => goto(b.dataset.go));
@@ -314,7 +341,7 @@ function goalsHTML(s) {
     if (g.months === -1) { when = "вже досягнуто"; color = "#3fb950"; }
     else if (g.months === 0) { when = "не досягається за 60 років"; color = "#f85149"; }
     else {
-      when = `${String(g.date).slice(0,7)} · через ${(g.months/12).toFixed(1)} р.`;
+      when = `${monthYear(g.date)} · через ${humanMonths(g.months)}`;
       if (g.before_deadline === true) color = "#3fb950";
       else if (g.before_deadline === false) color = "#d29922";
     }
@@ -324,7 +351,7 @@ function goalsHTML(s) {
       ? `<div class="l" style="margin-top:2px">за фактичним темпом: ${
           g.months_actual === -1 ? "вже досягнуто"
           : g.months_actual === 0 ? "не досягається"
-          : `${String(g.date_actual).slice(0,7)} · через ${(g.months_actual/12).toFixed(1)} р.`}</div>` : "";
+          : `${monthYear(g.date_actual)} · через ${humanMonths(g.months_actual)}`}</div>` : "";
     const auto = g.auto ? ` <span class="mut" style="font-size:12px">(прогноз на дедлайн)</span>` : "";
     return `<div style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:baseline">
@@ -334,7 +361,7 @@ function goalsHTML(s) {
       <div class="l" style="margin-top:2px">накопичено ${pct.toFixed(1)}%</div>${fact}${miss}</div>`;
   }).join("");
   const dl = (s.settings||{}).goal_date
-    ? `<div class="l">Дедлайн: ${String(s.settings.goal_date).slice(0,7)}</div>` : "";
+    ? `<div class="l">Дедлайн: ${monthYear(s.settings.goal_date)}</div>` : "";
   return `<div class="card" style="margin-bottom:16px">${rows}${dl}</div>`;
 }
 
@@ -564,7 +591,7 @@ async function loadSummary() {
       `<div class="l" style="margin-top:4px">${s.month_invested_uah.toLocaleString("uk")} з ${s.month_target_uah.toLocaleString("uk")} ₴</div>`) +
     card("Наступна виплата",
       np ? `${Number(np.amount).toLocaleString("uk")} ${curSym(np.currency)}` : "—",
-      np ? `<div class="l" style="margin-top:4px">${np.date}</div>` : "");
+      np ? `<div class="l" style="margin-top:4px">${dayMonth(np.date)}</div>` : "");
 
   const st = s.settings || {};
   $("#goalStrip").innerHTML = goalsHTML(s);
@@ -572,7 +599,7 @@ async function loadSummary() {
   // найближчі виплати
   const pp = (s.top_payments || []).slice(0,4);
   $("#payPreview").innerHTML = pp.length
-    ? pp.map(p => `<div class="pv-row"><span class="mut">${p.date}</span><span>${Number(p.amount).toLocaleString("uk")} ${curSym(p.currency)}</span></div>`).join("")
+    ? pp.map(p => `<div class="pv-row"><span class="mut">${dayMonth(p.date)}</span><span>${Number(p.amount).toLocaleString("uk")} ${curSym(p.currency)}</span></div>`).join("")
     : `<p class="mut">Виплат попереду немає.</p>`;
 
   const xp = Object.entries(x).filter(([,v]) => v != null).map(([c,v]) => `${curSym(c)} ${v.toFixed(2)}%`);
