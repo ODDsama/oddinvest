@@ -32,6 +32,29 @@ type Sleeve struct {
 	ContribUAH float64
 	// Rate0 — сьогоднішній курс, ₴ за одиницю валюти. Для UAH = 1.
 	Rate0 float64
+	// RateTerminalPct — довгострокова ставка, до якої сповзає RatePct за
+	// GlideYears років. GlideYears = 0 вимикає спуск і лишає ставку вічною.
+	//
+	// Без цього модель припускала, що папери, куплені через десять років,
+	// матимуть сьогоднішній воєнний купон. Гривневі 16-17% — це наслідок
+	// війни та інфляції, а не норма; закладати їх на весь горизонт означає
+	// малювати капітал, якого не буде. RatePct лишається фактом (за такою
+	// ставкою можна купити сьогодні), а припущенням стає саме RateTerminalPct.
+	RateTerminalPct float64
+	GlideYears      float64
+}
+
+// rateAt — ставка реінвесту на місяці m: лінійний спуск від сьогоднішньої
+// до довгострокової за GlideYears років, далі рівно довгострокова.
+func (s Sleeve) rateAt(m int) float64 {
+	if s.GlideYears <= 0 {
+		return s.RatePct
+	}
+	w := 1 - float64(m)/(12*s.GlideYears)
+	if w < 0 {
+		w = 0
+	}
+	return s.RateTerminalPct + (s.RatePct-s.RateTerminalPct)*w
 }
 
 // SleeveResult — підсумок симуляції у двох одиницях.
@@ -63,9 +86,8 @@ func ProjectSleeves(sleeves []Sleeve, devalPct float64, months int) SleeveResult
 	out := SleeveResult{ByCurrency: map[string]float64{}}
 	for _, s := range sleeves {
 		st := projState{cash: s.Cash0, locked: s.Nominal0}
-		rM := MonthlyRate(s.RatePct)
 		for m := 1; m <= months; m++ {
-			st.step(rM, s.contribAt(m, dM), s.Threshold, s.Coupon[m], s.Redeem[m])
+			st.step(MonthlyRate(s.rateAt(m)), s.contribAt(m, dM), s.Threshold, s.Coupon[m], s.Redeem[m])
 		}
 		total := st.total()
 		out.ByCurrency[s.Currency] += total
@@ -128,10 +150,8 @@ func MonthsToReachSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths 
 	}
 	dM := MonthlyRate(devalPct)
 	sts := make([]projState, len(sleeves))
-	rM := make([]float64, len(sleeves))
 	for i, s := range sleeves {
 		sts[i] = projState{cash: s.Cash0, locked: s.Nominal0}
-		rM[i] = MonthlyRate(s.RatePct)
 	}
 	totalToday := func(m int) float64 {
 		sum := 0.0
@@ -146,7 +166,7 @@ func MonthsToReachSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths 
 	}
 	for m := 1; m <= maxMonths; m++ {
 		for i, s := range sleeves {
-			sts[i].step(rM[i], s.contribAt(m, dM), s.Threshold, s.Coupon[m], s.Redeem[m])
+			sts[i].step(MonthlyRate(s.rateAt(m)), s.contribAt(m, dM), s.Threshold, s.Coupon[m], s.Redeem[m])
 		}
 		if totalToday(m) >= target {
 			return m

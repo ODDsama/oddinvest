@@ -181,11 +181,12 @@ func TestForecastFanOrderedByAssumptions(t *testing.T) {
 			GoalAmount      float64 `json:"goal_amount"`
 			RequiredMonthly float64 `json:"required_monthly"`
 			Rows            []struct {
-				Key            string  `json:"key"`
-				Amount         float64 `json:"amount"`
-				RatePct        float64 `json:"rate_pct"`
-				ContribMonthly float64 `json:"contrib_monthly"`
-				GoalPct        float64 `json:"goal_pct"`
+				Key             string  `json:"key"`
+				Amount          float64 `json:"amount"`
+				RatePct         float64 `json:"rate_pct"`
+				RateTerminalPct float64 `json:"rate_terminal_pct"`
+				ContribMonthly  float64 `json:"contrib_monthly"`
+				GoalPct         float64 `json:"goal_pct"`
 			} `json:"rows"`
 		} `json:"forecast"`
 		Goals []any `json:"goals"`
@@ -213,12 +214,27 @@ func TestForecastFanOrderedByAssumptions(t *testing.T) {
 		t.Errorf("суми мають спадати opt>real>pess: %v %v %v",
 			f.Rows[0].Amount, f.Rows[1].Amount, f.Rows[2].Amount)
 	}
-	// Розходяться саме ставкою: ±3 п.п. навколо реалістичної.
-	if d := f.Rows[0].RatePct - f.Rows[1].RatePct; d < 2.99 || d > 3.01 {
-		t.Errorf("оптимістична ставка має бути +3 п.п., різниця %v", d)
+	// Сьогоднішня ставка — факт, за нею можна купити просто зараз, тож
+	// вона МАЄ бути однакова в усіх трьох сценаріях. Інакше «оптимістично»
+	// означало б, що вже куплені папери магічно платять більше.
+	for _, r := range f.Rows[1:] {
+		if r.RatePct != f.Rows[0].RatePct {
+			t.Errorf("%s: сьогоднішня ставка має збігатися з рештою (%v), маємо %v",
+				r.Key, f.Rows[0].RatePct, r.RatePct)
+		}
 	}
-	if d := f.Rows[1].RatePct - f.Rows[2].RatePct; d < 2.99 || d > 3.01 {
-		t.Errorf("песимістична ставка має бути -3 п.п., різниця %v", d)
+	// Розходяться сценарії ДОВГОСТРОКОВОЮ ставкою: ±3 п.п. навколо неї.
+	if d := f.Rows[0].RateTerminalPct - f.Rows[1].RateTerminalPct; d < 2.99 || d > 3.01 {
+		t.Errorf("оптимістична довгострокова ставка має бути +3 п.п., різниця %v", d)
+	}
+	if d := f.Rows[1].RateTerminalPct - f.Rows[2].RateTerminalPct; d < 2.99 || d > 3.01 {
+		t.Errorf("песимістична довгострокова ставка має бути -3 п.п., різниця %v", d)
+	}
+	// І довгострокова має бути НИЖЧОЮ за сьогоднішню: воєнні 16-17%
+	// закладати на весь горизонт не можна навіть в оптимістичному.
+	if f.Rows[0].RateTerminalPct >= f.Rows[0].RatePct {
+		t.Errorf("навіть оптимістична довгострокова ставка не має перевищувати сьогоднішню %v, маємо %v",
+			f.Rows[0].RatePct, f.Rows[0].RateTerminalPct)
 	}
 	// Внесок поки історії поповнень немає — однаковий в усіх трьох.
 	for _, r := range f.Rows {

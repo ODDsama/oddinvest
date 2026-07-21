@@ -127,6 +127,10 @@ type SettingsDoc struct {
 	// UAHDevaluationPct — очікуване річне знецінення гривні до твердої
 	// валюти, %. Базове значення, від якого сценарії розходяться.
 	UAHDevaluationPct *float64 `json:"uah_devaluation_pct,omitempty"`
+	// TerminalRatePct — довгострокова гривнева ставка ОВДП, до якої
+	// сповзає сьогоднішня; RateGlideYears — за скільки років.
+	TerminalRatePct *float64 `json:"terminal_rate_pct,omitempty"`
+	RateGlideYears  *float64 `json:"rate_glide_years,omitempty"`
 	// Три цілі за рівнем амбіції. Дату досягнення рахує застосунок за
 	// поточним темпом — вона результат, а не введення.
 	GoalPessimisticUAH *float64 `json:"goal_pessimistic_uah,omitempty"`
@@ -201,8 +205,11 @@ type Forecast struct {
 	// Rate0USD — сьогоднішній курс, ₴ за долар. UI ділить на нього, щоб
 	// показати ті самі числа в доларах: це та сама величина в іншій
 	// одиниці, а не окремий розрахунок.
-	Rate0USD float64       `json:"rate0_usd,omitempty"`
-	Rows     []ForecastRow `json:"rows"`
+	Rate0USD float64 `json:"rate0_usd,omitempty"`
+	// GlideYears — за скільки років ставка проходить шлях від сьогоднішньої
+	// до довгострокової.
+	GlideYears float64       `json:"glide_years,omitempty"`
+	Rows       []ForecastRow `json:"rows"`
 }
 
 // ForecastRow — один сценарій: допущення і що з них виходить.
@@ -215,7 +222,8 @@ type ForecastRow struct {
 	// саме в гривні того дня, тобто скільки буде намальовано на рахунку.
 	Amount         float64 `json:"amount"`
 	AmountNominal  float64 `json:"amount_nominal,omitempty"`
-	RatePct        float64 `json:"rate_pct"`        // припущена дохідність гривневої частини
+	RatePct        float64 `json:"rate_pct"`                   // сьогоднішня дохідність гривневої частини
+	RateTerminalPct float64 `json:"rate_terminal_pct,omitempty"` // куди вона сповзає
 	ContribMonthly float64 `json:"contrib_monthly"` // припущений внесок, ₴/міс
 	DevaluationPct float64 `json:"devaluation_pct"` // припущене знецінення гривні, %/рік
 	GoalPct        float64 `json:"goal_pct,omitempty"`
@@ -228,8 +236,9 @@ type ForecastRow struct {
 
 // SleeveRow — один валютний рукав сценарію. Amount — у НАТИВНІЙ валюті.
 type SleeveRow struct {
-	Currency       string  `json:"currency"`
-	RatePct        float64 `json:"rate_pct"`
+	Currency        string  `json:"currency"`
+	RatePct         float64 `json:"rate_pct"`
+	RateTerminalPct float64 `json:"rate_terminal_pct,omitempty"`
 	ContribMonthly float64 `json:"contrib_monthly"` // ₴/міс, що йдуть у цю валюту
 	Amount         float64 `json:"amount"`
 }

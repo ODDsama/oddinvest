@@ -193,6 +193,17 @@ const nbuRefreshedKey = "nbu_refreshed_at"
 // будь-який гривневий папір безнадійним.
 const defaultDevaluationPct = 6.0
 
+// defaultTerminalRatePct — довгострокова гривнева ставка ОВДП, до якої
+// сповзає сьогоднішня. 11% — це ціль НБУ по інфляції (5%) плюс типова
+// реальна премія держпаперу. Сьогоднішні 16-17% — наслідок війни, а не
+// норма, і закладати їх на десять років уперед означає малювати капітал,
+// якого не буде.
+const defaultTerminalRatePct = 11.0
+
+// defaultGlideYears — за скільки років ставка проходить шлях від
+// сьогоднішньої до довгострокової.
+const defaultGlideYears = 5.0
+
 // round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
@@ -466,6 +477,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		{"goal_realistic_uah", &settings.GoalRealisticUAH},
 		{"goal_optimistic_uah", &settings.GoalOptimisticUAH},
 		{"uah_devaluation_pct", &settings.UAHDevaluationPct},
+		{"terminal_rate_pct", &settings.TerminalRatePct},
+		{"rate_glide_years", &settings.RateGlideYears},
 	} {
 		if raw, _ := s.st.GetSetting(ctx, g.key); raw != "" {
 			if f, err := strconv.ParseFloat(raw, 64); err == nil {
@@ -501,11 +514,16 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-	// Очікувана дохідність за придбаними паперами: купонний дохід за
-	// наступні 12 міс ÷ номінал, зважено по валютах у грн-екв. Це орієнтир
-	// для проєкцій замість ручного вводу. Купон беремо з реального графіка
-	// виплат (майбутні купони в межах року), тож на відміну від auk_proc
-	// (дохідність розміщення) відображає, що папери реально приносять.
+	// Очікувана дохідність за придбаними паперами: річний купон ÷ номінал,
+	// зважено по валютах у грн-екв. Це орієнтир для проєкцій замість
+	// ручного вводу. На відміну від auk_proc (дохідність розміщення)
+	// відображає, що папери реально приносять.
+	//
+	// Річний купон беремо зі СТАВКИ паперу, а не з графіка виплат за
+	// наступні 365 днів. Вікно в рік обрізало папери, що гасяться раніше:
+	// у чисельник ішов один залишковий купон замість двох річних, а в
+	// знаменник — повний номінал, і дохідність виходила заниженою тим
+	// сильніше, чим ближче погашення.
 	var couponUAH, nominalUAH int64
 	couponByCur := map[string]int64{}  // річний купон нативно по валютах
 	nominalByCur := map[string]int64{} // номінал нативно по валютах
@@ -518,15 +536,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if q == 0 {
 			continue
 		}
-		var annualCoupon int64 // нативно, на один папір
-		for _, p := range pays {
-			if p.ISIN != l.ISIN || p.Type != domain.PayCoupon {
-				continue
-			}
-			if d := domain.DaysBetween(today, p.PayDate); d > 0 && d <= 365 {
-				annualCoupon += p.PerBond.Amount()
-			}
-		}
+		// ставка в базисних пунктах: 16.55% -> 1655
+		annualCoupon := b.Nominal.Amount() * b.RateBP / 10000
 		cur := b.Nominal.Currency().Code
 		couponByCur[cur] += annualCoupon * q
 		nominalByCur[cur] += b.Nominal.Amount() * q
@@ -633,6 +644,22 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Запасна дохідність для валюти, якої ще немає в портфелі.
 	avgRate, _ := s.st.AvgRateByCurrency(ctx, today)
 
+	// Річне знецінення гривні. Одне число в налаштуваннях, від якого
+	// сценарії розходяться — як і ставка.
+	devalBase := defaultDevaluationPct
+	if settings.UAHDevaluationPct != nil && *settings.UAHDevaluationPct >= 0 {
+		devalBase = *settings.UAHDevaluationPct
+	}
+	// Куди прийде гривнева ставка і як довго вона туди йтиме.
+	terminalUAH := defaultTerminalRatePct
+	if settings.TerminalRatePct != nil && *settings.TerminalRatePct >= 0 {
+		terminalUAH = *settings.TerminalRatePct
+	}
+	glideYears := defaultGlideYears
+	if settings.RateGlideYears != nil && *settings.RateGlideYears >= 0 {
+		glideYears = *settings.RateGlideYears
+	}
+
 	// buildSleeves збирає рукави під заданий сумарний внесок і зсув ставки.
 	buildSleeves := func(contribTotal, ratePP float64) []domain.Sleeve {
 		var out []domain.Sleeve
@@ -647,11 +674,21 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			if !ok {
 				rate = avgRate[cur] // паперів цієї валюти ще немає
 			}
-			if rate += ratePP; rate < 0 {
-				rate = 0
-			}
 			if rate > 40 {
-				rate = 40
+				rate = 40 // стеля, щоб компаунд не вибухав
+			}
+			// Сьогоднішня ставка — факт: за нею можна купити просто зараз.
+			// Припущенням є те, куди вона прийде, тож розкид сценаріїв
+			// вішаємо на довгострокову ставку, а не на сьогоднішню.
+			terminal := rate
+			if cur == money.UAH {
+				terminal = terminalUAH
+			}
+			if terminal += ratePP; terminal < 0 {
+				terminal = 0
+			}
+			if terminal > 40 {
+				terminal = 40
 			}
 			rate0 := 1.0
 			if cur != money.UAH {
@@ -663,19 +700,14 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			}
 			out = append(out, domain.Sleeve{
 				Currency: cur, Cash0: cash, Nominal0: nom, RatePct: rate,
-				Threshold: reinvestMinByCur[cur], Coupon: couponByCurMonth[cur],
-				Redeem: redeemByCurMonth[cur], ContribUAH: contrib, Rate0: rate0,
+				RateTerminalPct: terminal, GlideYears: glideYears,
+				Threshold:       reinvestMinByCur[cur], Coupon: couponByCurMonth[cur],
+				Redeem:          redeemByCurMonth[cur], ContribUAH: contrib, Rate0: rate0,
 			})
 		}
 		return out
 	}
 
-	// Річне знецінення гривні. Одне число в налаштуваннях, від якого
-	// сценарії розходяться — як і ставка.
-	devalBase := defaultDevaluationPct
-	if settings.UAHDevaluationPct != nil && *settings.UAHDevaluationPct >= 0 {
-		devalBase = *settings.UAHDevaluationPct
-	}
 	rate0USD := 0.0
 	if u, err := fx.ToUAH(money.New(100, money.USD), rates); err == nil {
 		rate0USD = float64(u.Amount()) / 100
@@ -751,6 +783,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			GoalAmount:  goalAmount,
 			ContribPlan: round2(contribM),
 			Rate0USD:    round2(rate0USD),
+			GlideYears:  glideYears,
 		}
 		realisticAmount := 0.0
 		for _, d := range defs {
@@ -764,11 +797,13 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			for _, s := range sl {
 				if s.Currency == money.UAH {
 					row.RatePct = round2(s.RatePct)
+					row.RateTerminalPct = round2(s.RateTerminalPct)
 				}
 				row.ByCurrency = append(row.ByCurrency, state.SleeveRow{
 					Currency: s.Currency, RatePct: round2(s.RatePct),
-					ContribMonthly: round2(s.ContribUAH),
-					Amount:         round2(res.ByCurrency[s.Currency]),
+					RateTerminalPct: round2(s.RateTerminalPct),
+					ContribMonthly:  round2(s.ContribUAH),
+					Amount:          round2(res.ByCurrency[s.Currency]),
 				})
 			}
 			if d.key == "realistic" {
@@ -1428,7 +1463,7 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct",
 	"assumed_rate_pct", "goal_amount_uah", "goal_date", "target_duration_years", "channels",
 	"reinvest_rank", "goal_pessimistic_uah", "goal_realistic_uah", "goal_optimistic_uah",
-	"uah_devaluation_pct"}
+	"uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years"}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}

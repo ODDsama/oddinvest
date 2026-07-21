@@ -186,3 +186,29 @@ func TestRealContributedSharesUnitWithProjection(t *testing.T) {
 		}
 	}
 }
+
+// Ставка не вічна: сьогоднішні воєнні 16-17% мають сповзати до
+// довгострокового рівня, інакше модель малює капітал, якого не буде.
+func TestRateGlidesToTerminal(t *testing.T) {
+	s := uahSleeve(0, 0, 16.7, 0)
+	s.RateTerminalPct, s.GlideYears = 11, 5
+
+	approx(t, "старт", s.rateAt(0), 16.7, 0.01)
+	approx(t, "середина спуску", s.rateAt(30), (16.7+11)/2, 0.01)
+	approx(t, "кінець спуску", s.rateAt(60), 11, 0.01)
+	approx(t, "після спуску тримається", s.rateAt(240), 11, 0.01)
+
+	// GlideYears = 0 лишає стару поведінку — вічну ставку
+	flat := uahSleeve(0, 0, 16.7, 0)
+	approx(t, "без спуску", flat.rateAt(240), 16.7, 0.01)
+
+	// і на капіталі це має бути видно: спуск дає менше, ніж вічні 16.7%
+	withGlide := ProjectSleeves([]Sleeve{s}, 0, 120).TodayUAH
+	s2 := s
+	s2.Cash0, flat.Cash0 = 100000, 100000
+	withGlide = ProjectSleeves([]Sleeve{s2}, 0, 120).TodayUAH
+	forever := ProjectSleeves([]Sleeve{flat}, 0, 120).TodayUAH
+	if withGlide >= forever {
+		t.Errorf("спуск ставки мав дати менший капітал: %.0f vs %.0f", withGlide, forever)
+	}
+}
