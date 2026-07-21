@@ -186,6 +186,13 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 // Пишеться джобою (не через PUT /api/settings), тож у settingsKeys нема.
 const nbuRefreshedKey = "nbu_refreshed_at"
 
+// defaultDevaluationPct — очікуване річне знецінення гривні до твердої
+// валюти, коли користувач не задав своє. 6% — приблизний темп 2016-2025
+// (26 -> 42 ₴/$ за 9 років), тобто без урахування шоків 2014 і 2022.
+// Свідомо не «історичне середнє з 2014»: воно дало б ~16% і зробило б
+// будь-який гривневий папір безнадійним.
+const defaultDevaluationPct = 6.0
+
 // round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
@@ -458,6 +465,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		{"goal_pessimistic_uah", &settings.GoalPessimisticUAH},
 		{"goal_realistic_uah", &settings.GoalRealisticUAH},
 		{"goal_optimistic_uah", &settings.GoalOptimisticUAH},
+		{"uah_devaluation_pct", &settings.UAHDevaluationPct},
 	} {
 		if raw, _ := s.st.GetSetting(ctx, g.key); raw != "" {
 			if f, err := strconv.ParseFloat(raw, 64); err == nil {
@@ -574,50 +582,122 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// портфеля. Готівка не працює, поки не реінвестована. Це замість сухої
 	// формули складного відсотка — біля-термінова частина будується з
 	// фактичного календаря виплат.
+	//
+	// Кожна валюта рахується ОКРЕМИМ рукавом у нативній валюті: своя
+	// дохідність, свій календар, свій поріг докупівлі. Інакше гривневий
+	// папір під 16% завжди бив би доларовий під 4% — модель просто не
+	// бачила б, що гривня знецінюється.
 	capRate := portfolioYield
 	if capRate > 40 {
 		capRate = 40 // стеля, щоб компаунд не вибухав
 	}
-	cash0 := float64(accountUAHMinor) / 100
-	nominal0 := float64(nominalUAH) / 100
 	contribM := 0.0
 	if !target.IsZero() {
 		contribM = float64(target.Amount()) / 100
 	}
-	threshold := float64(reinvestMin.Amount()) / 100
-	monthlyCoupon := map[int]float64{}
-	monthlyRedeem := map[int]float64{}
+
+	// Реальні майбутні потоки, розкладені по валютах і місяцях.
+	couponByCurMonth := map[string]map[int]float64{}
+	redeemByCurMonth := map[string]map[int]float64{}
 	for _, cf := range cashflow {
-		uahAmt, err := fx.ToUAH(cf.Amount, rates)
-		if err != nil {
-			continue
-		}
+		cur := cf.Amount.Currency().Code
 		mi := (cf.Date.Year()-today.Year())*12 + int(cf.Date.Month()) - int(today.Month())
 		if mi < 1 {
 			mi = 1
 		}
-		v := float64(uahAmt.Amount()) / 100
+		dst := couponByCurMonth
 		if cf.Type == domain.PayRedemption {
-			monthlyRedeem[mi] += v
-		} else {
-			monthlyCoupon[mi] += v
+			dst = redeemByCurMonth
 		}
+		if dst[cur] == nil {
+			dst[cur] = map[int]float64{}
+		}
+		dst[cur][mi] += float64(cf.Amount.Amount()) / 100
 	}
-	p0 := cash0 + nominal0
+
+	// Куди підуть майбутні поповнення: за цільовими валютними частками.
+	// Це вже задано в налаштуваннях, тож нової здогадки не вводимо.
+	share := map[string]float64{}
+	if settings.USDTargetSharePct != nil {
+		share[money.USD] = *settings.USDTargetSharePct / 100
+	}
+	if settings.EURTargetSharePct != nil {
+		share[money.EUR] = *settings.EURTargetSharePct / 100
+	}
+	if rest := 1 - share[money.USD] - share[money.EUR]; rest > 0 {
+		share[money.UAH] = rest
+	} else {
+		share[money.UAH] = 0
+	}
+
+	// Запасна дохідність для валюти, якої ще немає в портфелі.
+	avgRate, _ := s.st.AvgRateByCurrency(ctx, today)
+
+	// buildSleeves збирає рукави під заданий сумарний внесок і зсув ставки.
+	buildSleeves := func(contribTotal, ratePP float64) []domain.Sleeve {
+		var out []domain.Sleeve
+		for _, cur := range []string{money.UAH, money.USD, money.EUR} {
+			cash := float64(bal[cur]) / 100
+			nom := float64(nominalByCur[cur]) / 100
+			contrib := contribTotal * share[cur]
+			if cash == 0 && nom == 0 && contrib == 0 {
+				continue // валюти немає і не планується
+			}
+			rate, ok := portfolioYieldByCur[cur]
+			if !ok {
+				rate = avgRate[cur] // паперів цієї валюти ще немає
+			}
+			if rate += ratePP; rate < 0 {
+				rate = 0
+			}
+			if rate > 40 {
+				rate = 40
+			}
+			rate0 := 1.0
+			if cur != money.UAH {
+				u, err := fx.ToUAH(money.New(100, cur), rates)
+				if err != nil {
+					continue // курсу немає — рукав порахувати чесно не вийде
+				}
+				rate0 = float64(u.Amount()) / 100
+			}
+			out = append(out, domain.Sleeve{
+				Currency: cur, Cash0: cash, Nominal0: nom, RatePct: rate,
+				Threshold: reinvestMinByCur[cur], Coupon: couponByCurMonth[cur],
+				Redeem: redeemByCurMonth[cur], ContribUAH: contrib, Rate0: rate0,
+			})
+		}
+		return out
+	}
+
+	// Річне знецінення гривні. Одне число в налаштуваннях, від якого
+	// сценарії розходяться — як і ставка.
+	devalBase := defaultDevaluationPct
+	if settings.UAHDevaluationPct != nil && *settings.UAHDevaluationPct >= 0 {
+		devalBase = *settings.UAHDevaluationPct
+	}
+	rate0USD := 0.0
+	if u, err := fx.ToUAH(money.New(100, money.USD), rates); err == nil {
+		rate0USD = float64(u.Amount()) / 100
+	}
+
+	p0 := float64(accountUAHMinor+nominalUAH) / 100
 	projection := make([]state.ProjectionRow, 0, 4)
 	for _, y := range []int{1, 3, 5, 10} {
 		m := y * 12
 		row := state.ProjectionRow{
-			Years:        y,
-			Contributed:  math.Round((p0+contribM*float64(m))*100) / 100,
-			WithReinvest: math.Round(domain.ProjectCapital(cash0, nominal0, contribM, threshold, capRate, monthlyCoupon, monthlyRedeem, m)*100) / 100,
+			Years:       y,
+			Contributed: round2(p0 + contribM*float64(m)),
+			WithReinvest: round2(domain.ProjectSleeves(
+				buildSleeves(contribM, 0), devalBase, m).TodayUAH),
 		}
 		if actualMonthly > 0 {
-			row.WithReinvestActual = math.Round(domain.ProjectCapital(cash0, nominal0, actualMonthly,
-				threshold, capRate, monthlyCoupon, monthlyRedeem, m)*100) / 100
+			row.WithReinvestActual = round2(domain.ProjectSleeves(
+				buildSleeves(actualMonthly, 0), devalBase, m).TodayUAH)
 		}
 		projection = append(projection, row)
 	}
+
 	// --- віяло прогнозів на дедлайн ---
 	//
 	// Ціль — ОДНА сума-орієнтир. Три сценарії відрізняються не сумами, а
@@ -646,55 +726,71 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		// Внесок: якщо фактичний темп уже відомий, беремо його і план як
 		// нижню й верхню межу — це РЕАЛЬНИЙ розкид, а не вигаданий
 		// відсоток. Поки історії замало, внесок в усіх сценаріях
-		// однаковий і розходяться вони лише ставкою.
+		// однаковий і розходяться вони лише ставкою та девальвацією.
 		contribLo, contribHi := contribM, contribM
 		if actualMonthly > 0 {
 			contribLo = math.Min(contribM, actualMonthly)
 			contribHi = math.Max(contribM, actualMonthly)
 		}
-		const rateSpreadPP = 3.0 // ± п.п. до ставки реінвесту
+		const rateSpreadPP = 3.0  // ± п.п. до ставки реінвесту
+		const devalSpreadPP = 4.0 // ± п.п. до знецінення гривні
 		defs := []struct {
-			key, label    string
-			contrib, rate float64
+			key, label            string
+			contrib, ratePP, deval float64
 		}{
-			{"optimistic", "Оптимістично", contribHi, capRate + rateSpreadPP},
-			{"realistic", "Реалістично", contribM, capRate},
-			{"pessimistic", "Песимістично", contribLo, math.Max(0, capRate-rateSpreadPP)},
+			{"optimistic", "Оптимістично", contribHi, rateSpreadPP, math.Max(0, devalBase-devalSpreadPP)},
+			{"realistic", "Реалістично", contribM, 0, devalBase},
+			{"pessimistic", "Песимістично", contribLo, -rateSpreadPP, devalBase + devalSpreadPP},
 		}
 		f := &state.Forecast{
 			Date:        string(domain.NewDate(today.Time().AddDate(0, deadlineMonths, 0))),
 			Months:      deadlineMonths,
 			GoalAmount:  goalAmount,
 			ContribPlan: round2(contribM),
+			Rate0USD:    round2(rate0USD),
 		}
 		realisticAmount := 0.0
 		for _, d := range defs {
-			amt := round2(domain.ProjectCapital(cash0, nominal0, d.contrib, threshold,
-				d.rate, monthlyCoupon, monthlyRedeem, deadlineMonths))
-			row := state.ForecastRow{Key: d.key, Label: d.label, Amount: amt,
-				RatePct: round2(d.rate), ContribMonthly: round2(d.contrib)}
+			sl := buildSleeves(d.contrib, d.ratePP)
+			res := domain.ProjectSleeves(sl, d.deval, deadlineMonths)
+			row := state.ForecastRow{Key: d.key, Label: d.label,
+				Amount: round2(res.TodayUAH), AmountNominal: round2(res.NominalUAH),
+				ContribMonthly: round2(d.contrib), DevaluationPct: round2(d.deval)}
+			// Ставку показуємо ту, під яку реально росте основна валюта
+			// портфеля, а не середню по лікарні.
+			for _, s := range sl {
+				if s.Currency == money.UAH {
+					row.RatePct = round2(s.RatePct)
+				}
+				row.ByCurrency = append(row.ByCurrency, state.SleeveRow{
+					Currency: s.Currency, RatePct: round2(s.RatePct),
+					ContribMonthly: round2(s.ContribUAH),
+					Amount:         round2(res.ByCurrency[s.Currency]),
+				})
+			}
 			if d.key == "realistic" {
-				realisticAmount = amt
+				realisticAmount = res.TodayUAH
 			}
 			if goalAmount > 0 {
-				row.GoalPct = math.Round(amt/goalAmount*1000) / 10
-				hit := domain.MonthsToReach(cash0, nominal0, d.contrib, threshold, d.rate,
-					monthlyCoupon, monthlyRedeem, []float64{goalAmount}, goalHorizonMonths)
-				row.GoalMonths = hit[0]
-				if hit[0] > 0 {
-					row.GoalDate = string(domain.NewDate(today.Time().AddDate(0, hit[0], 0)))
+				row.GoalPct = math.Round(res.TodayUAH/goalAmount*1000) / 10
+				hit := domain.MonthsToReachSleeves(sl, d.deval, goalAmount, goalHorizonMonths)
+				row.GoalMonths = hit
+				if hit > 0 {
+					row.GoalDate = string(domain.NewDate(today.Time().AddDate(0, hit, 0)))
 				}
 			}
 			f.Rows = append(f.Rows, row)
 		}
-		// Потрібний внесок рахуємо за РЕАЛІСТИЧНОЮ ставкою: більше
-		// відкладати — це рішення, а вища дохідність — ні.
+		// Потрібний внесок рахуємо за РЕАЛІСТИЧНИМИ допущеннями: більше
+		// відкладати — це рішення, а вища дохідність чи слабша девальвація
+		// — ні.
 		if goalAmount > 0 && realisticAmount < goalAmount {
-			f.RequiredMonthly = round2(domain.RequiredMonthly(cash0, nominal0, threshold,
-				capRate, goalAmount, monthlyCoupon, monthlyRedeem, deadlineMonths))
+			f.RequiredMonthly = round2(domain.RequiredMonthlySleeves(
+				buildSleeves(contribM, 0), devalBase, goalAmount, deadlineMonths))
 		}
 		forecast = f
 	}
+
 
 	nbuAt, _ := s.st.GetSetting(ctx, nbuRefreshedKey)
 
@@ -1328,7 +1424,8 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 
 var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct",
 	"assumed_rate_pct", "goal_amount_uah", "goal_date", "target_duration_years", "channels",
-	"reinvest_rank", "goal_pessimistic_uah", "goal_realistic_uah", "goal_optimistic_uah"}
+	"reinvest_rank", "goal_pessimistic_uah", "goal_realistic_uah", "goal_optimistic_uah",
+	"uah_devaluation_pct"}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}

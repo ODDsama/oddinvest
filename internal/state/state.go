@@ -124,6 +124,9 @@ type SettingsDoc struct {
 	AssumedRatePct *float64 `json:"assumed_rate_pct,omitempty"` // очікувана річна дохідність, % (fallback до XIRR)
 	GoalAmountUAH  *float64 `json:"goal_amount_uah,omitempty"`  // застаріле: мігрує в «реалістичну»
 	GoalDate       string   `json:"goal_date,omitempty"`        // дедлайн (ISO), опційно
+	// UAHDevaluationPct — очікуване річне знецінення гривні до твердої
+	// валюти, %. Базове значення, від якого сценарії розходяться.
+	UAHDevaluationPct *float64 `json:"uah_devaluation_pct,omitempty"`
 	// Три цілі за рівнем амбіції. Дату досягнення рахує застосунок за
 	// поточним темпом — вона результат, а не введення.
 	GoalPessimisticUAH *float64 `json:"goal_pessimistic_uah,omitempty"`
@@ -194,21 +197,41 @@ type Forecast struct {
 	// сценарію на це не вистачає.
 	RequiredMonthly float64 `json:"required_monthly,omitempty"`
 	// ContribPlan — плановий внесок, від якого танцюють сценарії.
-	ContribPlan float64       `json:"contrib_plan,omitempty"`
-	Rows        []ForecastRow `json:"rows"`
+	ContribPlan float64 `json:"contrib_plan,omitempty"`
+	// Rate0USD — сьогоднішній курс, ₴ за долар. UI ділить на нього, щоб
+	// показати ті самі числа в доларах: це та сама величина в іншій
+	// одиниці, а не окремий розрахунок.
+	Rate0USD float64       `json:"rate0_usd,omitempty"`
+	Rows     []ForecastRow `json:"rows"`
 }
 
 // ForecastRow — один сценарій: допущення і що з них виходить.
 // GoalMonths: -1 = ціль уже досягнута, 0 = не досягається в межах горизонту.
 type ForecastRow struct {
-	Key            string  `json:"key"` // optimistic | realistic | pessimistic
-	Label          string  `json:"label"`
-	Amount         float64 `json:"amount"`          // капітал на дедлайн
-	RatePct        float64 `json:"rate_pct"`        // припущена річна дохідність
-	ContribMonthly float64 `json:"contrib_monthly"` // припущений внесок
+	Key   string `json:"key"` // optimistic | realistic | pessimistic
+	Label string `json:"label"`
+	// Amount — капітал на дедлайн у гривні СЬОГОДНІШНЬОЇ купівельної
+	// спроможності; саме він порівнюється з ціллю. AmountNominal — те
+	// саме в гривні того дня, тобто скільки буде намальовано на рахунку.
+	Amount         float64 `json:"amount"`
+	AmountNominal  float64 `json:"amount_nominal,omitempty"`
+	RatePct        float64 `json:"rate_pct"`        // припущена дохідність гривневої частини
+	ContribMonthly float64 `json:"contrib_monthly"` // припущений внесок, ₴/міс
+	DevaluationPct float64 `json:"devaluation_pct"` // припущене знецінення гривні, %/рік
 	GoalPct        float64 `json:"goal_pct,omitempty"`
 	GoalMonths     int     `json:"goal_months,omitempty"`
 	GoalDate       string  `json:"goal_date,omitempty"`
+	// ByCurrency — розклад по валютних рукавах: під що саме росте кожна
+	// валюта і скільки грошей у неї спрямовується.
+	ByCurrency []SleeveRow `json:"by_currency,omitempty"`
+}
+
+// SleeveRow — один валютний рукав сценарію. Amount — у НАТИВНІЙ валюті.
+type SleeveRow struct {
+	Currency       string  `json:"currency"`
+	RatePct        float64 `json:"rate_pct"`
+	ContribMonthly float64 `json:"contrib_monthly"` // ₴/міс, що йдуть у цю валюту
+	Amount         float64 `json:"amount"`
 }
 
 type YearAmount struct {

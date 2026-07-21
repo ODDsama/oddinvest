@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -247,5 +248,70 @@ func TestForecastFallsBackToLegacyGoalFields(t *testing.T) {
 	_, body := do(t, "GET", srv.URL+"/api/summary", "")
 	if !strings.Contains(body, `"goal_amount":750000`) {
 		t.Errorf("ціль зі старого поля не підхопилась: %s", body)
+	}
+}
+
+// Девальвація має доходити до відповіді, а не лишатись у домені:
+// реальна сума менша за номінальну, і що вищий очікуваний темп
+// знецінення — то менше капіталу в сьогоднішніх грошах.
+func TestForecastReflectsDevaluation(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	deadline := time.Now().AddDate(5, 0, 0).Format("2006-01-02")
+	if _, body := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"995.00","buy_date":"2026-07-01","channel":"mono"}`); body == "" {
+		t.Fatal("порожня відповідь на додавання лота")
+	}
+
+	realistic := func(devalPct string) (real, nominal, deval float64) {
+		t.Helper()
+		if resp, body := do(t, "PUT", srv.URL+"/api/settings",
+			`{"monthly_target_uah":"5000","goal_amount_uah":"1000000","goal_date":"`+deadline+
+				`","uah_devaluation_pct":"`+devalPct+`"}`); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("put settings: %d %s", resp.StatusCode, body)
+		}
+		var got struct {
+			Forecast struct {
+				Rate0USD float64 `json:"rate0_usd"`
+				Rows     []struct {
+					Key            string  `json:"key"`
+					Amount         float64 `json:"amount"`
+					AmountNominal  float64 `json:"amount_nominal"`
+					DevaluationPct float64 `json:"devaluation_pct"`
+				} `json:"rows"`
+			} `json:"forecast"`
+		}
+		_, body := do(t, "GET", srv.URL+"/api/summary", "")
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			t.Fatalf("summary не парситься: %v", err)
+		}
+		for _, r := range got.Forecast.Rows {
+			if r.Key == "realistic" {
+				return r.Amount, r.AmountNominal, r.DevaluationPct
+			}
+		}
+		t.Fatalf("реалістичного сценарію немає: %s", body)
+		return 0, 0, 0
+	}
+
+	real6, nominal6, deval6 := realistic("6")
+	if deval6 != 6 {
+		t.Errorf("реалістичний сценарій мав узяти задане знецінення 6%%, маємо %v", deval6)
+	}
+	if !(nominal6 > real6) {
+		t.Errorf("номінальна сума має перевищувати реальну: %v vs %v", nominal6, real6)
+	}
+	real15, _, deval15 := realistic("15")
+	if deval15 != 15 {
+		t.Errorf("знецінення не підхопилось із налаштувань: %v", deval15)
+	}
+	if !(real15 < real6) {
+		t.Errorf("за вищого знецінення реальний капітал мав бути меншим: %v vs %v", real15, real6)
+	}
+
+	// Нульове знецінення = стара поведінка: реальне збігається з номінальним.
+	real0, nominal0, _ := realistic("0")
+	if math.Abs(real0-nominal0) > 0.01 {
+		t.Errorf("без знецінення реальне й номінальне мають збігатись: %v vs %v", real0, nominal0)
 	}
 }

@@ -15,6 +15,10 @@
   main { max-width:1000px; margin:0 auto; padding:20px; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin-bottom:20px; }
   .card { background:var(--card); border-radius:10px; padding:14px; }
+  .unitbox { display:inline-flex; border:1px solid #30363d; border-radius:8px; overflow:hidden; }
+  .unitbox .unit { border:0; background:transparent; color:var(--mut); font:inherit; font-size:13px;
+    padding:2px 10px; cursor:pointer; }
+  .unitbox .unit.on { background:#7b6cf6; color:#fff; }
   .card .v { font-size:20px; font-weight:600; margin-top:2px; }
   .card .l { color:var(--mut); font-size:13px; }
   table { width:100%; border-collapse:collapse; background:var(--card); border-radius:10px; overflow:hidden; }
@@ -218,6 +222,7 @@
       <label>Цільова дюрація, років <input name="target_duration_years" placeholder="напр. 3"></label>
       <label>Ціль, ₴ <input name="goal_amount_uah" placeholder="скільки хочу накопичити"></label>
       <label>Дедлайн — коли <input name="goal_date" type="date"></label>
+      <label>Гривня слабшає, %/рік <input name="uah_devaluation_pct" placeholder="порожньо = 6"></label>
       <button class="act">Зберегти</button>
     </form>
     <button class="act" id="refreshBtn">Оновити довідник НБУ і курс</button>
@@ -327,11 +332,22 @@ function renderBanner(s) {
 // Віяло прогнозів на дедлайн: скільки буде на одну й ту саму дату за
 // трьох наборів допущень. Ціль — одна сума-орієнтир, з якою вони
 // порівнюються; вона НЕ учасник віяла.
+//
+// Суми — у гривні СЬОГОДНІШНЬОЇ купівельної спроможності, бо саме з
+// сьогоднішньою ціллю їх і порівнюють. Перемикач ₴/$ нічого не
+// перераховує: це та сама величина, поділена на сьогоднішній курс.
+let FC_UNIT = (() => { try { return localStorage.getItem("oddinvest.fcUnit") || "UAH"; } catch (_) { return "UAH"; } })();
+
 function goalsHTML(s) {
   const f = s.forecast;
   if (!f || !(f.rows||[]).length) {
     return `<p class="mut">Задай дедлайн у «Налаштуваннях» — і тут зʼявиться, скільки в тебе буде на цю дату за песимістичного, реалістичного й оптимістичного сценаріїв.</p>`;
   }
+  const rate0 = f.rate0_usd || 0;
+  const usd = FC_UNIT === "USD" && rate0 > 0;
+  const money = v => usd
+    ? "$" + Math.round((v||0) / rate0).toLocaleString("uk")
+    : uahFmt(v);
   const goal = f.goal_amount || 0;
   // Спільна шкала для всіх трьох смужок — інакше вони не порівнюються.
   // Беремо максимум із цілі та найбільшого сценарію: коли ціль далеко,
@@ -344,13 +360,20 @@ function goalsHTML(s) {
     const pct = Math.max(0, Math.min(100, r.amount / scale * 100));
     const mark = r.key === "realistic" ? ` <span class="mut" style="font-size:12px">← найімовірніше</span>` : "";
     const share = goal > 0 ? `<span class="mut" style="font-size:12px">${(r.goal_pct||0).toFixed(1)}% цілі</span>` : "";
+    // Ставки по валютах: саме тут видно, що долар під 4% і гривня під
+    // 16% — не те саме, що здається.
+    const rates = (r.by_currency||[]).map(c => `${curSym(c.currency)} ${(c.rate_pct||0).toFixed(1)}%`).join(" / ")
+      || `${(r.rate_pct||0).toFixed(1)}%`;
+    // У доларах «номінально» не існує: долар і є реальна одиниця, тож
+    // номінальна й реальна суми в ньому збігаються.
+    const nom = !usd && r.amount_nominal > r.amount ? ` · номінально ${uahFmt(r.amount_nominal)}` : "";
     return `<div style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <span>${r.label}${mark}</span>
-        <span><b>${uahFmt(r.amount)}</b> ${share}</span></div>
+        <span><b>${money(r.amount)}</b> ${share}</span></div>
       <div style="height:6px;background:#262c34;border-radius:3px;margin-top:5px;position:relative"><div style="width:${pct}%;height:100%;background:${COLOR[r.key]||"#7b6cf6"};border-radius:3px"></div>${
         goalAt >= 0 ? `<i style="position:absolute;top:0;bottom:0;left:calc(${goalAt}% - 1px);width:2px;background:#e6edf3;opacity:.55"></i>` : ""}</div>
-      <div class="l" style="margin-top:2px">${uahFmt(r.contrib_monthly)}/міс · ${(r.rate_pct||0).toFixed(1)}% річних</div>
+      <div class="l" style="margin-top:2px">${uahFmt(r.contrib_monthly)}/міс · ставки ${rates} · гривня слабшає ${(r.devaluation_pct||0).toFixed(1)}%/рік${nom}</div>
     </div>`;
   }).join("");
 
@@ -370,13 +393,16 @@ function goalsHTML(s) {
     const need = f.required_monthly > 0
       ? `<div class="l" style="margin-top:2px">щоб устигнути до дедлайну — ${uahFmt(f.required_monthly)}/міс замість ${uahFmt(f.contrib_plan)}/міс</div>` : "";
     goalBlock = `<div style="border-top:1px solid #262c34;padding-top:8px;margin-top:4px">
-      <div>Ціль <b>${uahFmt(goal)}</b> — ${short}</div>
+      <div>Ціль <b>${money(goal)}</b> — ${short}</div>
       <div class="l" style="margin-top:2px">за реалістичного темпу: ${eta}</div>
       ${need}</div>`;
   }
+  const unitBtn = (u, lbl) => `<button class="unit${usd === (u === "USD") ? " on" : ""}" data-fcunit="${u}">${lbl}</button>`;
+  const toggle = rate0 > 0 ? `<span class="unitbox">${unitBtn("UAH","₴")}${unitBtn("USD","$")}</span>` : "";
   const head = `<div class="l" style="margin-bottom:8px">на ${monthYear(f.date)} · через ${humanMonths(f.months)}${
-    goal > 0 ? " · вертикальна риска — ціль" : ""}</div>`;
-  return `<div class="card" style="margin-bottom:16px"><h4 class="h-row" style="justify-content:space-between">Скільки буде на дедлайн ${infoBtn("forecast")}</h4>${head}${rows}${goalBlock}</div>`;
+    goal > 0 ? " · вертикальна риска — ціль" : ""} · у ${usd ? "доларах" : "сьогоднішніх гривнях"}</div>`;
+  return `<div class="card" style="margin-bottom:16px"><h4 class="h-row" style="justify-content:space-between">
+    <span>Скільки буде на дедлайн ${infoBtn("forecast")}</span>${toggle}</h4>${head}${rows}${goalBlock}</div>`;
 }
 
 function renderNbuStale(s) {
@@ -432,7 +458,7 @@ const INFO = {
   income: ["Дохід по місяцях", "Скільки купонів і погашень надійде кожного місяця на рік наперед (грн-екв). Це твій потік для реінвесту — видно, коли назбирається на наступний папір. Порожній місяць = виплат немає."],
   currency: ["Валюта: факт vs ціль", "Синій стовпчик — поточна частка валюти в портфелі, сірий — твоя цільова частка з Налаштувань. Синій нижчий за сірий → валюту треба добирати; вищий → уже перебір."],
   capital: ["Крива капіталу", "Проєкція капіталу на 1/3/5/10 років. Сіра лінія — просто сума внесків без відсотків, синя — з реінвестом під дохідність портфеля. Розрив між ними — це робота складного відсотка. Модель — припущення, не гарантія."],
-  forecast: ["Скільки буде на дедлайн", "Усі три суми — на ОДНУ дату (твій дедлайн), тому їх можна порівнювати між собою. Відрізняються вони допущеннями, а не бажаннями: реалістичний бере плановий внесок і поточну дохідність портфеля, оптимістичний додає 3 п.п. до ставки, песимістичний — віднімає. Коли назбирається історія поповнень, межі внеску беруться з реального темпу: менший із «план vs факт» іде в песимістичний, більший — в оптимістичний. Під кожним рядком написано, з яких саме допущень він порахований. Ціль — окремий орієнтир: смужка показує, яку її частину закриває сценарій."],
+  forecast: ["Скільки буде на дедлайн", "Усі три суми — на ОДНУ дату (твій дедлайн) і в гривні СЬОГОДНІШНЬОЇ купівельної спроможності, тому їх можна порівнювати між собою і з ціллю, яку ти задав сьогодні. Перемикач ₴/$ нічого не перераховує: це та сама величина, поділена на сьогоднішній курс. У доларах рядок «номінально» зникає — долар і є реальна одиниця, тож у ньому номінальна й реальна суми збігаються. Сценарії відрізняються трьома допущеннями: внеском (менший із «план vs факт» — у песимістичний, більший — в оптимістичний), ставкою реінвесту (±3 п.п.) і темпом знецінення гривні (±4 п.п. від того, що задано в Налаштуваннях). Кожна валюта рахується окремо у своїй валюті: гривневий рукав наприкінці переводиться в сьогоднішні гроші й тому втрачає, а долар і євро купівельну спроможність тримають. Саме тому гривневий папір під 16% не завжди кращий за доларовий під 4%: при знеціненні понад ~11.5%/рік долар обганяє."],
 };
 const infoBtn = k => `<button class="info" data-info="${k}" aria-label="Як це читати" title="Як це читати">i</button>`;
 function openInfo(k) {
@@ -442,6 +468,17 @@ function openInfo(k) {
   pop.classList.add("show");
 }
 document.addEventListener("click", e => {
+  const u = e.target.closest("[data-fcunit]");
+  if (u) { // перемикач ₴/$ — перемальовуємо лише блоки прогнозу, без запиту
+    FC_UNIT = u.dataset.fcunit;
+    try { localStorage.setItem("oddinvest.fcUnit", FC_UNIT); } catch (_) {}
+    if (LAST_SUMMARY) {
+      const strip = $("#goalStrip"), box = $("#goalBox");
+      if (strip) strip.innerHTML = goalsHTML(LAST_SUMMARY);
+      if (box) box.innerHTML = goalsHTML(LAST_SUMMARY);
+    }
+    return;
+  }
   const b = e.target.closest("[data-info]"); if (b) { openInfo(b.dataset.info); return; }
   if (e.target.closest("[data-closeinfo]") || e.target.id === "infoPop") $("#infoPop").classList.remove("show");
 });

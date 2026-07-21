@@ -298,6 +298,29 @@ func (s *Store) MinNominalByCurrency(ctx context.Context) (map[string]int64, err
 	return out, rows.Err()
 }
 
+// AvgRateByCurrency — середня купонна ставка непогашених паперів довідника
+// по валютах, у відсотках. Потрібна як запасна дохідність для валюти, яку
+// користувач планує купувати, але ще не має: без неї валютний рукав
+// проєкції довелося б рахувати під нуль або під вигадану константу.
+func (s *Store) AvgRateByCurrency(ctx context.Context, today domain.Date) (map[string]float64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT currency, AVG(rate_bp) FROM bonds WHERE maturity > ? GROUP BY currency`, string(today))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]float64{}
+	for rows.Next() {
+		var cur string
+		var avgBP float64
+		if err := rows.Scan(&cur, &avgBP); err != nil {
+			return nil, err
+		}
+		out[cur] = avgBP / 100
+	}
+	return out, rows.Err()
+}
+
 // --- довідник ---
 
 // ReplaceDirectory атомарно оновлює кеш довідника НБУ (весь ринок).
