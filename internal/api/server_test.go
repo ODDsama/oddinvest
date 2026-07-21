@@ -448,3 +448,82 @@ func TestReinvestRanksByRealReturn(t *testing.T) {
 		t.Errorf("за знецінення 15%% першим мав стати доларовий, маємо %s", high["_first"].Currency)
 	}
 }
+
+// Правка лота має зберігати id, бо продажі посилаються на нього через
+// lot_id. «Видалити й створити заново» осиротило б історію продажів —
+// саме тому PUT, а не пара DELETE+POST.
+func TestUpdateLotKeepsSalesLinked(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+
+	if resp, body := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"995.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, body)
+	}
+	if resp, body := do(t, "POST", srv.URL+"/api/sales",
+		`{"lot_id":1,"sale_date":"2026-08-01","qty":2,"clean_per_bond":"1001.00","currency":"UAH"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("продаж: %d %s", resp.StatusCode, body)
+	}
+
+	// правимо ціну й канал — продаж має лишитись прив'язаним
+	if resp, body := do(t, "PUT", srv.URL+"/api/lots/1",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"990.00","buy_date":"2026-07-01","channel":"inzhur"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("правка лота: %d %s", resp.StatusCode, body)
+	}
+	_, body := do(t, "GET", srv.URL+"/api/lots", "")
+	if !strings.Contains(body, `"990.00"`) || !strings.Contains(body, "inzhur") {
+		t.Errorf("правка не застосувалась: %s", body)
+	}
+	_, body = do(t, "GET", srv.URL+"/api/sales", "")
+	if !strings.Contains(body, `"lot_id":1`) {
+		t.Errorf("продаж відв'язався від лота: %s", body)
+	}
+	// результат продажу мав перерахуватись під нову ціну: 2×1001 − 2×990 = 22.00
+	if !strings.Contains(body, `"22.00"`) {
+		t.Errorf("результат продажу не перерахувався під нову ціну: %s", body)
+	}
+
+	// не даємо зменшити кількість нижче проданої
+	if resp, body := do(t, "PUT", srv.URL+"/api/lots/1",
+		`{"isin":"UA4000227748","qty":1,"price_per_bond":"990.00","buy_date":"2026-07-01","channel":"inzhur"}`); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("кількість нижче проданої мала дати 400, маємо %d %s", resp.StatusCode, body)
+	}
+	// і не мовчимо про неіснуючий id
+	if resp, _ := do(t, "PUT", srv.URL+"/api/lots/999",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"990.00","buy_date":"2026-07-01"}`); resp.StatusCode == http.StatusNoContent {
+		t.Error("правка неіснуючого лота мала дати помилку")
+	}
+}
+
+// Поповнення й конвертації правляться так само, і баланс має поїхати за
+// правкою — інакше звірка з реальним рахунком безглузда.
+func TestUpdateDepositAndConversion(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+
+	do(t, "POST", srv.URL+"/api/deposits", `{"amount":"5000.00","currency":"UAH","date":"2026-07-01","broker":"mono"}`)
+	if resp, body := do(t, "PUT", srv.URL+"/api/deposits/1",
+		`{"amount":"5161.60","currency":"UAH","date":"2026-07-01","broker":"mono","note":"звірка"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("правка поповнення: %d %s", resp.StatusCode, body)
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if !strings.Contains(body, `5161.6`) {
+		t.Errorf("баланс не поїхав за правкою: %s", body)
+	}
+
+	do(t, "POST", srv.URL+"/api/conversions",
+		`{"from_currency":"UAH","from_amount":"4200.00","to_currency":"USD","to_amount":"100.00","broker":"mono"}`)
+	if resp, body := do(t, "PUT", srv.URL+"/api/conversions/1",
+		`{"from_currency":"UAH","from_amount":"4300.00","to_currency":"USD","to_amount":"100.00","broker":"mono"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("правка конвертації: %d %s", resp.StatusCode, body)
+	}
+	_, body = do(t, "GET", srv.URL+"/api/conversions", "")
+	if !strings.Contains(body, `"4300.00"`) {
+		t.Errorf("конвертація не оновилась: %s", body)
+	}
+	// однакові валюти лишаються забороненими і на правці
+	if resp, _ := do(t, "PUT", srv.URL+"/api/conversions/1",
+		`{"from_currency":"UAH","from_amount":"100.00","to_currency":"UAH","to_amount":"100.00"}`); resp.StatusCode != http.StatusBadRequest {
+		t.Error("однакові валюти мали дати 400 і на PUT")
+	}
+}

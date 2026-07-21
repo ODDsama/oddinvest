@@ -54,14 +54,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/ladder", s.handleLadder)
 	mux.HandleFunc("GET /api/lots", s.handleListLots)
 	mux.HandleFunc("POST /api/lots", s.handleAddLot)
+	mux.HandleFunc("PUT /api/lots/{id}", s.handleUpdateLot)
 	mux.HandleFunc("DELETE /api/lots/{id}", s.handleDeleteLot)
 	mux.HandleFunc("POST /api/sales", s.handleAddSale)
 	mux.HandleFunc("GET /api/sales", s.handleListSales)
 	mux.HandleFunc("GET /api/deposits", s.handleListDeposits)
 	mux.HandleFunc("POST /api/deposits", s.handleAddDeposit)
+	mux.HandleFunc("PUT /api/deposits/{id}", s.handleUpdateDeposit)
 	mux.HandleFunc("DELETE /api/deposits/{id}", s.handleDeleteDeposit)
 	mux.HandleFunc("GET /api/conversions", s.handleListConversions)
 	mux.HandleFunc("POST /api/conversions", s.handleAddConversion)
+	mux.HandleFunc("PUT /api/conversions/{id}", s.handleUpdateConversion)
 	mux.HandleFunc("DELETE /api/conversions/{id}", s.handleDeleteConversion)
 	mux.HandleFunc("GET /api/bonds/search", s.handleSearchBonds)
 	mux.HandleFunc("GET /api/bonds/{isin}", s.handleGetBond)
@@ -91,6 +94,12 @@ func logMiddleware(log *slog.Logger, next http.Handler) http.Handler {
 }
 
 // --- helpers ---
+
+// pathID — {id} зі шляху. Три обробники розбирали його однаково, а з
+// появою PUT стало б шість копій.
+func pathID(r *http.Request) (int64, error) {
+	return strconv.ParseInt(r.PathValue("id"), 10, 64)
+}
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -1059,53 +1068,104 @@ type lotReq struct {
 	Note     string `json:"note"`
 }
 
-func (s *Server) handleAddLot(w http.ResponseWriter, r *http.Request) {
-	var req lotReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
+// lotFromReq — розбір тіла запиту в лот. Спільний для POST і PUT: інакше
+// дві копії правил (валюта з довідника, комісія, дата) неминуче розійшлись
+// би, і редагування почало б поводитись інакше за створення.
+func (s *Server) lotFromReq(r *http.Request, req lotReq) (domain.Lot, error) {
+	var out domain.Lot
 	if req.Qty <= 0 {
-		writeErr(w, http.StatusBadRequest, errors.New("qty має бути > 0"))
-		return
+		return out, errors.New("qty має бути > 0")
 	}
 	bd, err := domain.ParseDate(req.BuyDate)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
+		return out, err
 	}
 	cur := req.Currency
 	if cur == "" { // валюту беремо з довідника, якщо папір відомий
 		if b, _ := s.st.GetBond(r.Context(), req.ISIN); b != nil {
 			cur = b.Nominal.Currency().Code
 		} else {
-			writeErr(w, http.StatusBadRequest, errors.New("папір не в довіднику — вкажіть currency явно"))
-			return
+			return out, errors.New("папір не в довіднику — вкажіть currency явно")
 		}
 	}
 	price, err := parseMoney(req.Price, cur)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
+		return out, err
 	}
 	var fee *money.Money
 	if strings.TrimSpace(req.Fee) != "" {
-		fee, err = parseMoney(req.Fee, cur)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, err)
-			return
+		if fee, err = parseMoney(req.Fee, cur); err != nil {
+			return out, err
 		}
 	}
-	id, err := s.st.AddLot(r.Context(), domain.Lot{
-		ISIN: req.ISIN, Qty: req.Qty, PricePerBond: price, Fee: fee,
-		BuyDate: bd, Channel: req.Channel, Note: req.Note,
-	})
+	return domain.Lot{ISIN: req.ISIN, Qty: req.Qty, PricePerBond: price, Fee: fee,
+		BuyDate: bd, Channel: req.Channel, Note: req.Note}, nil
+}
+
+func (s *Server) handleAddLot(w http.ResponseWriter, r *http.Request) {
+	var req lotReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	lot, err := s.lotFromReq(r, req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	id, err := s.st.AddLot(r.Context(), lot)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+// handleUpdateLot — правка лота БЕЗ видалення. Видалити й створити заново
+// не те саме: продажі посилаються на лот через lot_id, тож така «правка»
+// осиротила б історію продажів.
+func (s *Server) handleUpdateLot(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var req lotReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	lot, err := s.lotFromReq(r, req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	lot.ID = id
+	// Не даємо зменшити кількість нижче вже проданої — інакше залишок
+	// став би від'ємним, а календар виплат порахувався б на мінус.
+	sales, err := s.st.ListSales(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	var sold int64
+	for _, sl := range sales {
+		if sl.LotID == id {
+			sold += sl.Qty
+		}
+	}
+	if lot.Qty < sold {
+		writeErr(w, http.StatusBadRequest,
+			fmt.Errorf("з лота вже продано %d паперів — кількість не може бути меншою", sold))
+		return
+	}
+	if err := s.st.UpdateLot(r.Context(), lot); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteLot(w http.ResponseWriter, r *http.Request) {
@@ -1251,18 +1311,12 @@ type depositReq struct {
 	Note     string `json:"note"`
 }
 
-func (s *Server) handleAddDeposit(w http.ResponseWriter, r *http.Request) {
-	var req depositReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
+func depositFromReq(req depositReq) (store.Deposit, error) {
 	d := domain.NewDate(time.Now())
 	if req.Date != "" {
 		var err error
 		if d, err = domain.ParseDate(req.Date); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
-			return
+			return store.Deposit{}, err
 		}
 	}
 	cur := req.Currency
@@ -1271,17 +1325,55 @@ func (s *Server) handleAddDeposit(w http.ResponseWriter, r *http.Request) {
 	}
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
+		return store.Deposit{}, err
+	}
+	return store.Deposit{Date: d, Amount: minor, Currency: cur,
+		Broker: strings.TrimSpace(req.Broker), Note: req.Note}, nil
+}
+
+func (s *Server) handleAddDeposit(w http.ResponseWriter, r *http.Request) {
+	var req depositReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	id, err := s.st.AddDeposit(r.Context(), store.Deposit{
-		Date: d, Amount: minor, Currency: cur, Broker: strings.TrimSpace(req.Broker), Note: req.Note})
+	dep, err := depositFromReq(req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	id, err := s.st.AddDeposit(r.Context(), dep)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+func (s *Server) handleUpdateDeposit(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var req depositReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	dep, err := depositFromReq(req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	dep.ID = id
+	if err := s.st.UpdateDeposit(r.Context(), dep); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteDeposit(w http.ResponseWriter, r *http.Request) {
@@ -1329,49 +1421,77 @@ type conversionReq struct {
 	Note         string `json:"note"`
 }
 
+func conversionFromReq(req conversionReq) (store.Conversion, error) {
+	var out store.Conversion
+	d := domain.NewDate(time.Now())
+	if req.Date != "" {
+		var err error
+		if d, err = domain.ParseDate(req.Date); err != nil {
+			return out, err
+		}
+	}
+	if req.FromCurrency == req.ToCurrency {
+		return out, errors.New("валюти конвертації мають відрізнятись")
+	}
+	fromMinor, err := domain.ParseDecimalToMinor(req.FromAmount, req.FromCurrency)
+	if err != nil {
+		return out, err
+	}
+	toMinor, err := domain.ParseDecimalToMinor(req.ToAmount, req.ToCurrency)
+	if err != nil {
+		return out, err
+	}
+	if fromMinor <= 0 || toMinor <= 0 {
+		return out, errors.New("суми конвертації мають бути > 0")
+	}
+	return store.Conversion{Date: d, FromCurrency: req.FromCurrency, FromAmount: fromMinor,
+		ToCurrency: req.ToCurrency, ToAmount: toMinor,
+		Broker: strings.TrimSpace(req.Broker), Note: req.Note}, nil
+}
+
 func (s *Server) handleAddConversion(w http.ResponseWriter, r *http.Request) {
 	var req conversionReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	d := domain.NewDate(time.Now())
-	if req.Date != "" {
-		var err error
-		if d, err = domain.ParseDate(req.Date); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
-			return
-		}
-	}
-	if req.FromCurrency == req.ToCurrency {
-		writeErr(w, http.StatusBadRequest, errors.New("валюти конвертації мають відрізнятись"))
-		return
-	}
-	fromMinor, err := domain.ParseDecimalToMinor(req.FromAmount, req.FromCurrency)
+	c, err := conversionFromReq(req)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	toMinor, err := domain.ParseDecimalToMinor(req.ToAmount, req.ToCurrency)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	if fromMinor <= 0 || toMinor <= 0 {
-		writeErr(w, http.StatusBadRequest, errors.New("суми конвертації мають бути > 0"))
-		return
-	}
-	id, err := s.st.AddConversion(r.Context(), store.Conversion{
-		Date: d, FromCurrency: req.FromCurrency, FromAmount: fromMinor,
-		ToCurrency: req.ToCurrency, ToAmount: toMinor,
-		Broker: strings.TrimSpace(req.Broker), Note: req.Note,
-	})
+	id, err := s.st.AddConversion(r.Context(), c)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+func (s *Server) handleUpdateConversion(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var req conversionReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	c, err := conversionFromReq(req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	c.ID = id
+	if err := s.st.UpdateConversion(r.Context(), c); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleDeleteConversion(w http.ResponseWriter, r *http.Request) {

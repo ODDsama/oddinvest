@@ -36,6 +36,19 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // --- лоти ---
 
+// affectedOne перетворює «оновлено 0 рядків» на помилку: без цього PUT за
+// неіснуючим id тихо повертав би успіх.
+func affectedOne(res sql.Result, what string) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%s не знайдено", what)
+	}
+	return nil
+}
+
 func (s *Store) AddLot(ctx context.Context, l domain.Lot) (int64, error) {
 	fee := int64(0)
 	if l.Fee != nil {
@@ -50,6 +63,28 @@ func (s *Store) AddLot(ctx context.Context, l domain.Lot) (int64, error) {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// UpdateLot переписує лот, зберігаючи id. Саме зі збереженням id: продажі
+// посилаються на лот через lot_id, тож «видалити й створити заново» рвало
+// б цей зв'язок і мовчки знеособлювало історію продажів.
+//
+// SQLite сам не дасть зменшити кількість нижче проданої (див. перевірку в
+// api), тут лише запис.
+func (s *Store) UpdateLot(ctx context.Context, l domain.Lot) error {
+	fee := int64(0)
+	if l.Fee != nil {
+		fee = l.Fee.Amount()
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE lots SET
+		isin=?, qty=?, price_per_bond=?, currency=?, buy_date=?, channel=?, note=?, fee=?
+		WHERE id=?`,
+		l.ISIN, l.Qty, l.PricePerBond.Amount(), l.PricePerBond.Currency().Code,
+		string(l.BuyDate), l.Channel, l.Note, fee, l.ID)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "лот")
 }
 
 func (s *Store) DeleteLot(ctx context.Context, id int64) error {
@@ -164,6 +199,17 @@ func (s *Store) AddDeposit(ctx context.Context, d Deposit) (int64, error) {
 	return res.LastInsertId()
 }
 
+// UpdateDeposit переписує поповнення, зберігаючи id.
+func (s *Store) UpdateDeposit(ctx context.Context, d Deposit) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE deposits SET
+		date=?, amount=?, currency=?, broker=?, note=? WHERE id=?`,
+		string(d.Date), d.Amount, d.Currency, d.Broker, d.Note, d.ID)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "поповнення")
+}
+
 func (s *Store) DeleteDeposit(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM deposits WHERE id=?`, id)
 	return err
@@ -236,6 +282,19 @@ func (s *Store) AddConversion(ctx context.Context, c Conversion) (int64, error) 
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// UpdateConversion переписує конвертацію, зберігаючи id.
+func (s *Store) UpdateConversion(ctx context.Context, c Conversion) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE conversions SET
+		date=?, from_currency=?, from_amount=?, to_currency=?, to_amount=?, broker=?, note=?
+		WHERE id=?`,
+		string(c.Date), c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount,
+		c.Broker, c.Note, c.ID)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "конвертацію")
 }
 
 func (s *Store) DeleteConversion(ctx context.Context, id int64) error {
