@@ -527,3 +527,81 @@ func TestUpdateDepositAndConversion(t *testing.T) {
 		t.Error("однакові валюти мали дати 400 і на PUT")
 	}
 }
+
+// Четвертий рядок віяла — про ТЕБЕ, а не про ринок: плановий внесок
+// замінено фактичним темпом за тих самих ринкових допущень, що й
+// реалістичний. Тож різниця між ними — рівно твоя поведінка.
+func TestForecastActualPaceRow(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	deadline := time.Now().AddDate(3, 0, 0).Format("2006-01-02")
+
+	type row struct {
+		Key            string  `json:"key"`
+		Amount         float64 `json:"amount"`
+		ContribMonthly float64 `json:"contrib_monthly"`
+		RatePct        float64 `json:"rate_pct"`
+		DevaluationPct float64 `json:"devaluation_pct"`
+	}
+	rows := func() map[string]row {
+		t.Helper()
+		var got struct {
+			Forecast struct {
+				Rows []row `json:"rows"`
+			} `json:"forecast"`
+		}
+		_, body := do(t, "GET", srv.URL+"/api/summary", "")
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			t.Fatalf("summary не парситься: %v", err)
+		}
+		out := map[string]row{}
+		for _, r := range got.Forecast.Rows {
+			out[r.Key] = r
+		}
+		return out
+	}
+
+	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_target_uah":"5000","goal_amount_uah":"500000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
+	}
+	// поки історії поповнень немає — рядка теж немає
+	if _, ok := rows()["actual"]; ok {
+		t.Error("без історії поповнень рядок «за фактом» не має з'являтись")
+	}
+
+	// два поповнення з розривом >60 днів: темп ≈ 3000/міс, нижчий за план
+	first := time.Now().AddDate(0, 0, -90).Format("2006-01-02")
+	for _, d := range []string{first, time.Now().Format("2006-01-02")} {
+		if resp, body := do(t, "POST", srv.URL+"/api/deposits",
+			`{"amount":"4500.00","currency":"UAH","date":"`+d+`","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("поповнення: %d %s", resp.StatusCode, body)
+		}
+	}
+
+	r := rows()
+	act, ok := r["actual"]
+	if !ok {
+		t.Fatal("рядок «за фактом» мав з'явитись після 60 днів історії")
+	}
+	if act.ContribMonthly >= 5000 || act.ContribMonthly <= 0 {
+		t.Errorf("фактичний темп мав бути нижчим за план 5000, маємо %v", act.ContribMonthly)
+	}
+	// ринкові допущення — ті самі, що в реалістичному
+	real := r["realistic"]
+	if act.RatePct != real.RatePct || act.DevaluationPct != real.DevaluationPct {
+		t.Errorf("фактичний рядок має брати ринок реалістичного: ставка %v vs %v, знецінення %v vs %v",
+			act.RatePct, real.RatePct, act.DevaluationPct, real.DevaluationPct)
+	}
+	// менший внесок за тих самих допущень — менший капітал
+	if act.Amount >= real.Amount {
+		t.Errorf("за нижчого темпу капітал мав бути меншим: %v vs %v", act.Amount, real.Amount)
+	}
+	// і головне: три ринкові сценарії тепер НЕ чіпають внесок
+	for _, k := range []string{"optimistic", "realistic", "pessimistic"} {
+		if r[k].ContribMonthly != 5000 {
+			t.Errorf("%s: ринковий сценарій має брати плановий внесок 5000, маємо %v",
+				k, r[k].ContribMonthly)
+		}
+	}
+}

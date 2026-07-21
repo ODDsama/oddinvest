@@ -752,9 +752,19 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 
 	// --- віяло прогнозів на дедлайн ---
 	//
-	// Ціль — ОДНА сума-орієнтир. Три сценарії відрізняються не сумами, а
-	// допущеннями: темпом поповнень і ставкою реінвесту. Дата в усіх одна
-	// — дедлайн, тож суми між собою порівнянні.
+	// Ціль — ОДНА сума-орієнтир. Дата в усіх рядків одна (дедлайн), тож
+	// суми між собою порівнянні.
+	//
+	// Три сценарії описують РИНОК і відрізняються лише ринковими
+	// допущеннями — ставкою й знеціненням; внесок в усіх трьох плановий.
+	// Окремий рядок «За фактом» описує ТЕБЕ: плановий внесок замінено на
+	// фактичний темп поповнень за ринкових допущень реалістичного
+	// сценарію. Так різниця між ним і «Реалістично» — це рівно твоя
+	// поведінка, без домішки ринку.
+	//
+	// Раніше фактичний темп підмішувався в межі внеску песимістичного й
+	// оптимістичного сценаріїв, і два різні джерела невизначеності —
+	// ринок і дисципліна — злипались в одне число.
 	deadlineMonths := 0
 	if domain.Date(settings.GoalDate).Valid() {
 		gd := domain.Date(settings.GoalDate)
@@ -775,24 +785,22 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	const goalHorizonMonths = 720 // 60 років — далі вважаємо недосяжним
 	var forecast *state.Forecast
 	if deadlineMonths > 0 {
-		// Внесок: якщо фактичний темп уже відомий, беремо його і план як
-		// нижню й верхню межу — це РЕАЛЬНИЙ розкид, а не вигаданий
-		// відсоток. Поки історії замало, внесок в усіх сценаріях
-		// однаковий і розходяться вони лише ставкою та девальвацією.
-		contribLo, contribHi := contribM, contribM
-		if actualMonthly > 0 {
-			contribLo = math.Min(contribM, actualMonthly)
-			contribHi = math.Max(contribM, actualMonthly)
-		}
 		const rateSpreadPP = 3.0  // ± п.п. до ставки реінвесту
 		const devalSpreadPP = 4.0 // ± п.п. до знецінення гривні
-		defs := []struct {
-			key, label            string
+		type scenario struct {
+			key, label             string
 			contrib, ratePP, deval float64
-		}{
-			{"optimistic", "Оптимістично", contribHi, rateSpreadPP, math.Max(0, devalBase-devalSpreadPP)},
+		}
+		defs := []scenario{
+			{"optimistic", "Оптимістично", contribM, rateSpreadPP, math.Max(0, devalBase-devalSpreadPP)},
 			{"realistic", "Реалістично", contribM, 0, devalBase},
-			{"pessimistic", "Песимістично", contribLo, -rateSpreadPP, devalBase + devalSpreadPP},
+			{"pessimistic", "Песимістично", contribM, -rateSpreadPP, devalBase + devalSpreadPP},
+		}
+		// Фактичний темп з'являється, коли назбирається ≥60 днів історії
+		// поповнень — на коротшій вибірці середнє від стартового внеску
+		// дає безглузді сотні тисяч на місяць.
+		if actualMonthly > 0 {
+			defs = append(defs, scenario{"actual", "За фактом", actualMonthly, 0, devalBase})
 		}
 		f := &state.Forecast{
 			Date:        string(domain.NewDate(today.Time().AddDate(0, deadlineMonths, 0))),
