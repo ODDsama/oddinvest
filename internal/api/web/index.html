@@ -218,7 +218,6 @@
   <section id="settings">
     <h3>Налаштування</h3>
     <form class="inline" id="setForm">
-      <label>Ціль на місяць, грн <input name="monthly_target_uah"></label>
       <label>Цільова частка USD, % <input name="usd_target_share_pct"></label>
       <label>Цільова частка EUR, % <input name="eur_target_share_pct"></label>
       <label>Ціль, ₴ <input name="goal_amount_uah" placeholder="скільки хочу накопичити"></label>
@@ -451,8 +450,16 @@ function goalsHTML(s) {
       : opt.amount >= goal
         ? `<span style="color:#d29922">вистачає лише за оптимістичного сценарію</span>`
         : `<span style="color:#f85149">не вистачає навіть за оптимістичного сценарію</span>`;
-    const need = f.required_monthly > 0
-      ? `<div class="l" style="margin-top:2px">щоб устигнути до дедлайну — ${uahFmt(f.required_monthly)}/міс замість ${uahFmt(f.contrib_plan)}/міс</div>` : "";
+    // Бекенд і панель оновлюються окремо, тож UI має читати ОБИДВА
+    // контракти. До 2026.7.66 «скільки треба» лежало в required_monthly,
+    // а contrib_plan означав ручний план; з 7.67 план виводиться з цілі
+    // й сам є відповіддю, а required_monthly зник. Якщо читати лише
+    // contrib_plan, старий бекенд віддасть ручні 5 000 ₴/міс під
+    // підписом «треба вносити» — впевнено неправильне число.
+    const needMonthly = f.required_monthly > 0 ? f.required_monthly : f.contrib_plan;
+    const need = needMonthly > 0
+      ? `<div class="l" style="margin-top:2px">треба вносити <b>${uahFmt(needMonthly)}</b>/міс${
+          actual ? ` · за фактом ${uahFmt(actual.contrib_monthly)}/міс` : ""}</div>` : "";
     goalBlock = `<div style="border-top:1px solid #262c34;padding-top:8px;margin-top:4px">
       <div>Ціль <b>${money(goal)}</b> — ${short}</div>
       <div class="l" style="margin-top:2px">за реалістичного темпу: ${eta}</div>
@@ -756,8 +763,12 @@ async function loadSummary() {
   $("#ovTiles").innerHTML =
     card("Капітал", ((s.nominal_uah_eq||0) + (s.account_uah||0)).toLocaleString("uk") + " ₴",
       accrued > 0 ? `<div class="l" style="margin-top:4px">+ ${uahFmt(accrued)} НКД зароблено</div>` : "") +
-    card("Цей місяць", `${s.month_progress_pct||0}%`,
-      `<div class="l" style="margin-top:4px">${s.month_invested_uah.toLocaleString("uk")} з ${s.month_target_uah.toLocaleString("uk")} ₴</div>`) +
+    card("Цей місяць", s.month_target_uah > 0 ? `${s.month_progress_pct||0}%` : "—",
+      s.month_target_uah > 0
+        ? `<div class="l" style="margin-top:4px">${s.month_deposited_uah === undefined
+             ? `вкладено ${(s.month_invested_uah||0).toLocaleString("uk")}` // старий бекенд рахував купівлі
+             : `внесено ${s.month_deposited_uah.toLocaleString("uk")}`} з ${s.month_target_uah.toLocaleString("uk")} ₴</div>`
+        : `<div class="l" style="margin-top:4px">задай ціль і дедлайн — план порахується сам</div>`) +
     card("Наступна виплата",
       np ? `${Number(np.amount).toLocaleString("uk")} ${curSym(np.currency)}` : "—",
       np ? `<div class="l" style="margin-top:4px">${dayMonth(np.date)}</div>` : "");
