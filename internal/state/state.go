@@ -71,14 +71,14 @@ type Doc struct {
 	XIRRPct map[string]float64 `json:"xirr,omitempty"`
 
 	// PortfolioYieldPct — очікувана дохідність за придбаними паперами:
-	// купонний дохід за наступні 12 міс ÷ номінал, зважено по валютах у
-	// грн-екв. Використовується проєкціями як ставка за замовчуванням
-	// (замість ручного вводу). 0 = паперів немає.
+	// дохідність до погашення (YTM) від фактично сплаченої ціни, зважена
+	// вкладеними грішми. Використовується проєкціями як ставка за
+	// замовчуванням (замість ручного вводу). 0 = паперів немає.
 	PortfolioYieldPct float64 `json:"portfolio_yield_pct,omitempty"`
 
 	// PortfolioYield — та сама дохідність, але окремо по кожній валюті
-	// (нативно, без конвертації): купон за 12 міс ÷ номінал паперів цієї
-	// валюти. Відсутня валюта = паперів немає.
+	// (нативно, без конвертації): YTM паперів цієї валюти, зважений
+	// вкладеними грішми. Відсутня валюта = паперів немає.
 	PortfolioYield map[string]float64 `json:"portfolio_yield,omitempty"`
 
 	// Projection — прогноз капіталу помісячною симуляцією реальних потоків
@@ -136,9 +136,6 @@ type SettingsDoc struct {
 	GoalPessimisticUAH *float64 `json:"goal_pessimistic_uah,omitempty"`
 	GoalRealisticUAH   *float64 `json:"goal_realistic_uah,omitempty"`
 	GoalOptimisticUAH  *float64 `json:"goal_optimistic_uah,omitempty"`
-	// TargetDurationYears — бажана дюрація портфеля, років. Помічник
-	// реінвестиції підсвічує папери, що ведуть дюрацію до цього значення.
-	TargetDurationYears *float64 `json:"target_duration_years,omitempty"`
 	// Channels — канали купівлі через кому (mono, inzhur…). Форма покупки
 	// показує їх у випадайці разом із тими, що вже зустрічались у лотах.
 	Channels string `json:"channels,omitempty"`

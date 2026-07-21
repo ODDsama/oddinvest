@@ -467,11 +467,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			settings.AssumedRatePct = &f
 		}
 	}
-	if raw, _ := s.st.GetSetting(ctx, "target_duration_years"); raw != "" {
-		if f, err := strconv.ParseFloat(raw, 64); err == nil {
-			settings.TargetDurationYears = &f
-		}
-	}
 	if raw, _ := s.st.GetSetting(ctx, "channels"); raw != "" {
 		settings.Channels = raw
 	}
@@ -1594,7 +1589,7 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 }
 
 var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct",
-	"assumed_rate_pct", "goal_amount_uah", "goal_date", "target_duration_years", "channels",
+	"assumed_rate_pct", "goal_amount_uah", "goal_date", "channels",
 	"reinvest_rank", "goal_pessimistic_uah", "goal_realistic_uah", "goal_optimistic_uah",
 	"uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years"}
 
@@ -1779,17 +1774,10 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	if doc.RateRisk != nil {
 		curMac, curPV = doc.RateRisk.DurationYears, doc.RateRisk.PVUAH
 	}
-	targetDur := 0.0
 	rank := "plan"
-	if doc.Settings != nil {
-		if doc.Settings.TargetDurationYears != nil {
-			targetDur = *doc.Settings.TargetDurationYears
-		}
-		if doc.Settings.ReinvestRank != "" {
-			rank = doc.Settings.ReinvestRank
-		}
+	if doc.Settings != nil && doc.Settings.ReinvestRank != "" {
+		rank = doc.Settings.ReinvestRank
 	}
-	curDist := math.Abs(curMac - targetDur)
 	// Знецінення гривні: те саме припущення, що й у прогнозі, інакше
 	// помічник радив би одне, а прогноз малював інше.
 	devalPct := defaultDevaluationPct
@@ -1843,10 +1831,9 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		Reason        string      `json:"reason"`
 		DurationNow   float64     `json:"duration_now"`
 		DurationAfter float64     `json:"duration_after"`
-		def           float64
-		ladderNom     float64
-		rate          int64
-		durDist       float64
+		def       float64
+		ladderNom float64
+		rate      int64
 	}
 	out := []suggestion{}
 	for _, b := range bonds {
@@ -1940,10 +1927,6 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		if curPV+bPVUAH > 0 {
 			newMac = (curMac*curPV + bMac*bPVUAH) / (curPV + bPVUAH)
 		}
-		durDist := math.Abs(newMac - targetDur)
-		if targetDur > 0 && durDist < curDist-0.001 {
-			parts = append(parts, "наближає дюрацію до цілі")
-		}
 
 		out = append(out, suggestion{
 			ISIN: b.ISIN, Currency: c,
@@ -1954,7 +1937,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			Brokers:     fits,
 			Affordable:  best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
 			DurationNow: round2(curMac), DurationAfter: round2(newMac),
-			def: def, ladderNom: lnom, rate: b.RateBP, durDist: durDist,
+			def: def, ladderNom: lnom, rate: b.RateBP,
 		})
 	}
 	// Критерій ранжування обирає користувач: «під план» балансує валюту,
@@ -1988,9 +1971,6 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			}
 			if math.Abs(a.RealPct-b.RealPct) > 0.01 {
 				return a.RealPct > b.RealPct
-			}
-			if targetDur > 0 && math.Abs(a.durDist-b.durDist) > 0.01 {
-				return a.durDist < b.durDist
 			}
 			if a.ladderNom != b.ladderNom {
 				return a.ladderNom < b.ladderNom

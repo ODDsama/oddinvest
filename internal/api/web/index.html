@@ -221,7 +221,6 @@
       <label>Ціль на місяць, грн <input name="monthly_target_uah"></label>
       <label>Цільова частка USD, % <input name="usd_target_share_pct"></label>
       <label>Цільова частка EUR, % <input name="eur_target_share_pct"></label>
-      <label>Цільова дюрація, років <input name="target_duration_years" placeholder="напр. 3"></label>
       <label>Ціль, ₴ <input name="goal_amount_uah" placeholder="скільки хочу накопичити"></label>
       <label>Дедлайн — коли <input name="goal_date" type="date"></label>
       <label>Гривня слабшає, %/рік <input name="uah_devaluation_pct" placeholder="порожньо = 6"></label>
@@ -822,22 +821,12 @@ function renderRateRisk(s) {
     const col = x.change_pct >= 0 ? "#3fb950" : "#f85149";
     return `<tr><td>${sgn(x.delta_pp)}${x.delta_pp} п.п.</td><td style="color:${col}">${sgn(x.change_pct)}${x.change_pct}%</td><td style="color:${col}">${sgn(x.change_uah)}${uahFmt(x.change_uah)}</td></tr>`;
   }).join("");
-  const tgt = Number((s.settings || {}).target_duration_years || 0);
-  let tgtHint = "";
-  if (tgt > 0) {
-    const d = rr.duration_years - tgt;
-    tgtHint = Math.abs(d) < 0.15
-      ? `<p style="color:#3fb950">Дюрація на цілі: ${rr.duration_years} ≈ ${tgt} р. ✅</p>`
-      : `<p>Зараз <b>${rr.duration_years}</b> → ціль <b>${tgt}</b> р. — щоб зійтись, бери <b>${d < 0 ? "довші" : "коротші"}</b> папери.</p>`;
-  }
   host.innerHTML = `<h3>Ризик ставок</h3>
     <div class="cards">
       <div class="card"><div class="l">Дюрація (Маколея)</div><div class="v">${rr.duration_years} р.</div></div>
-      <div class="card"><div class="l">Цільова дюрація</div><div class="v">${tgt > 0 ? tgt + " р." : "—"}</div></div>
       <div class="card"><div class="l">Модифікована</div><div class="v">${rr.modified_dur}</div></div>
       <div class="card"><div class="l">Приведена вартість</div><div class="v">${uahFmt(rr.pv_uah)}</div></div>
     </div>
-    ${tgtHint}
     <table><tr><th>Зміна ставок</th><th>Вартість</th><th>У грошах</th></tr>${scen}</table>
     <p class="mut" style="font-size:13px">Дюрація — середньозважений строк повернення грошей. Модифікована показує, на скільки % змінюється вартість при зміні ставок на 1 п.п. <b>Тримаєш до погашення — просадка лише паперова</b>: ризик реалізується при продажі на вторинці.</p>`;
 }
