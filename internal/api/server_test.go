@@ -605,3 +605,63 @@ func TestForecastActualPaceRow(t *testing.T) {
 		}
 	}
 }
+
+// Фактичний темп має ПОВЕРТАТИ те, що людина реально відкладає. Стара
+// формула ділила на проміжок «перше поповнення … сьогодні» і завищувала
+// в півтора раза: поповнення фінансують періоди, а не проміжок між
+// собою — три щомісячні внески покривають три місяці, а проміжок лише
+// два. Плюс вона потребувала 60 днів історії, бо на старті ділення на
+// частку місяця давало сотні тисяч.
+func TestActualPaceEstimator(t *testing.T) {
+	pace := func(t *testing.T, deposits map[int]string) (float64, int) {
+		t.Helper()
+		srv, st := testServer(t)
+		seed(t, st)
+		for daysAgo, amount := range deposits {
+			d := time.Now().AddDate(0, 0, -daysAgo).Format("2006-01-02")
+			if resp, body := do(t, "POST", srv.URL+"/api/deposits",
+				`{"amount":"`+amount+`","currency":"UAH","date":"`+d+`","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
+				t.Fatalf("поповнення: %d %s", resp.StatusCode, body)
+			}
+		}
+		var got struct {
+			ActualMonthly float64 `json:"actual_monthly_uah"`
+			ActualMonths  int     `json:"actual_months"`
+		}
+		_, body := do(t, "GET", srv.URL+"/api/summary", "")
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			t.Fatalf("summary не парситься: %v", err)
+		}
+		return got.ActualMonthly, got.ActualMonths
+	}
+
+	// три щомісячні внески по 5000 -> темп має бути ~5000, а не ~7600
+	got, months := pace(t, map[int]string{60: "5000.00", 30: "5000.00", 0: "5000.00"})
+	if got < 4800 || got > 5200 {
+		t.Errorf("три внески по 5000/міс мали дати ~5000 ₴/міс, маємо %.0f", got)
+	}
+	if months != 3 {
+		t.Errorf("історія мала бути 3 міс, маємо %d", months)
+	}
+
+	// одне поповнення сьогодні: показуємо одразу і без вибуху
+	got, months = pace(t, map[int]string{0: "5000.00"})
+	if got < 4900 || got > 5100 {
+		t.Errorf("одне поповнення 5000 мало дати ~5000 ₴/міс, маємо %.0f", got)
+	}
+	if months != 1 {
+		t.Errorf("історія мала бути 1 міс, маємо %d", months)
+	}
+
+	// давнє одиничне поповнення — темп низький, і це правда
+	got, _ = pace(t, map[int]string{365: "5000.00"})
+	if got > 500 {
+		t.Errorf("одне поповнення рік тому мало дати низький темп, маємо %.0f", got)
+	}
+
+	// зняття не рахуються як внески
+	got, _ = pace(t, map[int]string{30: "5000.00", 0: "-1000.00"})
+	if got < 2300 || got > 2700 {
+		t.Errorf("зняття мало лишитись поза темпом (~2500), маємо %.0f", got)
+	}
+}
