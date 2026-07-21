@@ -35,6 +35,7 @@ func sampleInput(t *testing.T) Input {
 		},
 		Rates:             fx.Rates{"USD": 441234},
 		MonthInvestedUAH:  money.New(450_000, money.UAH),
+		MonthDepositedUAH: money.New(450_000, money.UAH),
 		MonthTargetUAH:    money.New(500_000, money.UAH),
 		UninvestedUAH:     money.New(0, money.UAH),
 		TopN:              5,
@@ -64,8 +65,13 @@ func TestBuild(t *testing.T) {
 	if doc.NextPayment == nil || doc.NextPayment.Date != "2026-07-20" || doc.NextPayment.Type != "coupon" {
 		t.Errorf("next_payment: %+v", doc.NextPayment)
 	}
+	// Прогрес рахується від ПОПОВНЕНЬ, а не купівель: план виведений із
+	// цілі й означає нові гроші.
 	if doc.MonthProgressPct != 90 {
 		t.Errorf("progress = %d", doc.MonthProgressPct)
+	}
+	if doc.MonthDepositedUAH != 4500 {
+		t.Errorf("month_deposited = %v", doc.MonthDepositedUAH)
 	}
 	if doc.MonthIncomingUAH != 4137.50 {
 		t.Errorf("month_incoming = %v", doc.MonthIncomingUAH)

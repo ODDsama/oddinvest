@@ -55,9 +55,15 @@ type Doc struct {
 	LadderUAH []YearAmount  `json:"ladder_uah,omitempty"`
 	Income12m []MonthAmount `json:"income_12m,omitempty"`
 
-	MonthInvestedUAH float64 `json:"month_invested_uah"`
-	MonthTargetUAH   float64 `json:"month_target_uah"`
-	MonthProgressPct int     `json:"month_progress_pct"`
+	// MonthInvestedUAH — куплено паперів цього місяця (перекладання
+	// грошей з рахунку в папери). MonthDepositedUAH — НОВІ гроші, внесені
+	// цього місяця. Прогрес рахується від поповнень: план виведений із
+	// цілі й означає «скільки нових грошей треба вносити», а купівля за
+	// накопичені купони до цілі не додає нічого.
+	MonthInvestedUAH  float64 `json:"month_invested_uah"`
+	MonthDepositedUAH float64 `json:"month_deposited_uah"`
+	MonthTargetUAH    float64 `json:"month_target_uah"`
+	MonthProgressPct  int     `json:"month_progress_pct"`
 	MonthIncomingUAH float64 `json:"month_incoming_uah"` // купони+погашення в поточному місяці
 
 	NextPayment *NextPayment `json:"next_payment,omitempty"`
@@ -193,11 +199,9 @@ type Forecast struct {
 	Months int    `json:"months"` // скільки місяців до нього
 	// GoalAmount — сума-орієнтир; 0 = ціль не задана, показуємо самі суми.
 	GoalAmount float64 `json:"goal_amount,omitempty"`
-	// RequiredMonthly — скільки треба відкладати щомісяця, щоб ціль
-	// устигла до дедлайну. Заповнюється лише коли реалістичного
-	// сценарію на це не вистачає.
-	RequiredMonthly float64 `json:"required_monthly,omitempty"`
-	// ContribPlan — плановий внесок, від якого танцюють сценарії.
+	// ContribPlan — місячний внесок плану. Він же і є «скільки треба
+	// відкладати, щоб устигнути до дедлайну»: план виводиться з цілі,
+	// тож окреме поле під потрібну суму лише дублювало б це число.
 	ContribPlan float64 `json:"contrib_plan,omitempty"`
 	// Rate0USD — сьогоднішній курс, ₴ за долар. UI ділить на нього, щоб
 	// показати ті самі числа в доларах: це та сама величина в іншій
@@ -288,8 +292,9 @@ type Input struct {
 	Cashflow          []domain.CashflowItem // майбутні виплати від сьогодні
 	Ladder            []domain.LadderEntry
 	Rates             fx.Rates
-	MonthInvestedUAH *money.Money
-	MonthTargetUAH   *money.Money
+	MonthInvestedUAH  *money.Money
+	MonthDepositedUAH *money.Money
+	MonthTargetUAH    *money.Money
 	UninvestedUAH    *money.Money
 	AccountUAH       *money.Money
 	ReinvestMinUAH   *money.Money
@@ -378,8 +383,9 @@ func Build(in Input) (*Doc, error) {
 	}
 
 	doc.MonthInvestedUAH = major(in.MonthInvestedUAH)
+	doc.MonthDepositedUAH = major(in.MonthDepositedUAH)
 	doc.MonthTargetUAH = major(in.MonthTargetUAH)
-	doc.MonthProgressPct = domain.ProgressPct(in.MonthInvestedUAH, in.MonthTargetUAH)
+	doc.MonthProgressPct = domain.ProgressPct(in.MonthDepositedUAH, in.MonthTargetUAH)
 	doc.UninvestedUAH = major(in.UninvestedUAH)
 	doc.AccountUAH = major(in.AccountUAH)
 	doc.ReinvestMinUAH = major(in.ReinvestMinUAH)
