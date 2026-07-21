@@ -125,13 +125,17 @@ func TestLotLifecycleAndSummary(t *testing.T) {
 
 func TestSettingsRoundTrip(t *testing.T) {
 	srv, _ := testServer(t)
-	resp, _ := do(t, "PUT", srv.URL+"/api/settings", `{"monthly_target_uah":"5000"}`)
+	resp, _ := do(t, "PUT", srv.URL+"/api/settings", `{"uah_devaluation_pct":"6"}`)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("put settings: %d", resp.StatusCode)
 	}
 	_, body := do(t, "GET", srv.URL+"/api/settings", "")
-	if !strings.Contains(body, `"monthly_target_uah":"5000"`) {
+	if !strings.Contains(body, `"uah_devaluation_pct":"6"`) {
 		t.Errorf("settings: %s", body)
+	}
+	// ручний місячний план прибрано — ключ більше не приймається
+	if resp, _ := do(t, "PUT", srv.URL+"/api/settings", `{"monthly_target_uah":"5000"}`); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("прибраний ключ мав дати 400: %d", resp.StatusCode)
 	}
 	resp, _ = do(t, "PUT", srv.URL+"/api/settings", `{"hacker_key":"1"}`)
 	if resp.StatusCode != http.StatusBadRequest {
@@ -170,7 +174,7 @@ func TestForecastFanOrderedByAssumptions(t *testing.T) {
 		t.Fatal("порожня відповідь на додавання лота")
 	}
 	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
-		`{"monthly_target_uah":"5000","goal_amount_uah":"1000000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
+		`{"goal_amount_uah":"1000000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
 	}
 
@@ -179,6 +183,7 @@ func TestForecastFanOrderedByAssumptions(t *testing.T) {
 			Date            string  `json:"date"`
 			Months          int     `json:"months"`
 			GoalAmount      float64 `json:"goal_amount"`
+			ContribPlan     float64 `json:"contrib_plan"`
 			RequiredMonthly float64 `json:"required_monthly"`
 			Rows            []struct {
 				Key             string  `json:"key"`
@@ -236,18 +241,24 @@ func TestForecastFanOrderedByAssumptions(t *testing.T) {
 		t.Errorf("навіть оптимістична довгострокова ставка не має перевищувати сьогоднішню %v, маємо %v",
 			f.Rows[0].RatePct, f.Rows[0].RateTerminalPct)
 	}
-	// Внесок поки історії поповнень немає — однаковий в усіх трьох.
+	// План виводиться з цілі, тож усі ринкові сценарії беруть його.
+	if f.ContribPlan <= 0 {
+		t.Fatalf("план мав вивестись із цілі, маємо %v", f.ContribPlan)
+	}
 	for _, r := range f.Rows {
-		if r.ContribMonthly != 5000 {
-			t.Errorf("%s: внесок без історії має дорівнювати плану, маємо %v", r.Key, r.ContribMonthly)
+		if r.ContribMonthly != f.ContribPlan {
+			t.Errorf("%s: ринковий сценарій має брати похідний план %v, маємо %v",
+				r.Key, f.ContribPlan, r.ContribMonthly)
 		}
 	}
-	// Мільйона за 3 роки при 5 тис/міс не буде — має бути порада скільки треба.
-	if f.RequiredMonthly <= 5000 {
-		t.Errorf("required_monthly має перевищувати план, маємо %v", f.RequiredMonthly)
+	// І головний наслідок похідного плану: реалістичний сценарій за
+	// побудовою впирається рівно в ціль.
+	if f.Rows[1].GoalPct < 99 || f.Rows[1].GoalPct > 101 {
+		t.Errorf("реалістичний сценарій мав зійтись на 100%% цілі, маємо %v", f.Rows[1].GoalPct)
 	}
-	if f.Rows[1].GoalPct <= 0 || f.Rows[1].GoalPct >= 100 {
-		t.Errorf("частка цілі має бути в (0,100), маємо %v", f.Rows[1].GoalPct)
+	// А окремої поради «треба більше» вже немає: план і є та порада.
+	if f.RequiredMonthly != 0 {
+		t.Errorf("поле required_monthly мало зникнути, маємо %v", f.RequiredMonthly)
 	}
 }
 
@@ -258,7 +269,7 @@ func TestForecastFallsBackToLegacyGoalFields(t *testing.T) {
 	seed(t, st)
 	deadline := time.Now().AddDate(2, 0, 0).Format("2006-01-02")
 	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
-		`{"monthly_target_uah":"1000","goal_optimistic_uah":"750000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
+		`{"goal_optimistic_uah":"750000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
 	}
 	_, body := do(t, "GET", srv.URL+"/api/summary", "")
@@ -279,17 +290,18 @@ func TestForecastReflectsDevaluation(t *testing.T) {
 		t.Fatal("порожня відповідь на додавання лота")
 	}
 
-	realistic := func(devalPct string) (real, nominal, deval float64) {
+	realistic := func(devalPct string) (real, nominal, deval, plan float64) {
 		t.Helper()
 		if resp, body := do(t, "PUT", srv.URL+"/api/settings",
-			`{"monthly_target_uah":"5000","goal_amount_uah":"1000000","goal_date":"`+deadline+
+			`{"goal_amount_uah":"1000000","goal_date":"`+deadline+
 				`","uah_devaluation_pct":"`+devalPct+`"}`); resp.StatusCode != http.StatusNoContent {
 			t.Fatalf("put settings: %d %s", resp.StatusCode, body)
 		}
 		var got struct {
 			Forecast struct {
-				Rate0USD float64 `json:"rate0_usd"`
-				Rows     []struct {
+				Rate0USD    float64 `json:"rate0_usd"`
+				ContribPlan float64 `json:"contrib_plan"`
+				Rows        []struct {
 					Key            string  `json:"key"`
 					Amount         float64 `json:"amount"`
 					AmountNominal  float64 `json:"amount_nominal"`
@@ -303,30 +315,33 @@ func TestForecastReflectsDevaluation(t *testing.T) {
 		}
 		for _, r := range got.Forecast.Rows {
 			if r.Key == "realistic" {
-				return r.Amount, r.AmountNominal, r.DevaluationPct
+				return r.Amount, r.AmountNominal, r.DevaluationPct, got.Forecast.ContribPlan
 			}
 		}
 		t.Fatalf("реалістичного сценарію немає: %s", body)
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
-	real6, nominal6, deval6 := realistic("6")
+	real6, nominal6, deval6, plan6 := realistic("6")
 	if deval6 != 6 {
 		t.Errorf("реалістичний сценарій мав узяти задане знецінення 6%%, маємо %v", deval6)
 	}
 	if !(nominal6 > real6) {
 		t.Errorf("номінальна сума має перевищувати реальну: %v vs %v", nominal6, real6)
 	}
-	real15, _, deval15 := realistic("15")
+	// План виводиться з цілі, тож за вищого знецінення адаптується ВНЕСОК,
+	// а не підсумок: сума лишається на цілі, просто доходити до неї
+	// доводиться більшими внесками.
+	_, _, deval15, plan15 := realistic("15")
 	if deval15 != 15 {
 		t.Errorf("знецінення не підхопилось із налаштувань: %v", deval15)
 	}
-	if !(real15 < real6) {
-		t.Errorf("за вищого знецінення реальний капітал мав бути меншим: %v vs %v", real15, real6)
+	if !(plan15 > plan6) {
+		t.Errorf("за вищого знецінення потрібний внесок мав зрости: %v vs %v", plan15, plan6)
 	}
 
 	// Нульове знецінення = стара поведінка: реальне збігається з номінальним.
-	real0, nominal0, _ := realistic("0")
+	real0, nominal0, _, _ := realistic("0")
 	if math.Abs(real0-nominal0) > 0.01 {
 		t.Errorf("без знецінення реальне й номінальне мають збігатись: %v vs %v", real0, nominal0)
 	}
@@ -343,7 +358,7 @@ func TestProjectionColumnsShareUnit(t *testing.T) {
 		t.Fatal("порожня відповідь на додавання лота")
 	}
 	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
-		`{"monthly_target_uah":"5000","uah_devaluation_pct":"6"}`); resp.StatusCode != http.StatusNoContent {
+		`{"goal_amount_uah":"500000","goal_date":"`+time.Now().AddDate(5,0,0).Format("2006-01-02")+`","uah_devaluation_pct":"6"}`); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
 	}
 	var got struct {
@@ -562,7 +577,7 @@ func TestForecastActualPaceRow(t *testing.T) {
 	}
 
 	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
-		`{"monthly_target_uah":"5000","goal_amount_uah":"500000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
+		`{"goal_amount_uah":"500000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
 	}
 	// поки історії поповнень немає — рядка теж немає
@@ -584,8 +599,8 @@ func TestForecastActualPaceRow(t *testing.T) {
 	if !ok {
 		t.Fatal("рядок «за фактом» мав з'явитись після 60 днів історії")
 	}
-	if act.ContribMonthly >= 5000 || act.ContribMonthly <= 0 {
-		t.Errorf("фактичний темп мав бути нижчим за план 5000, маємо %v", act.ContribMonthly)
+	if act.ContribMonthly <= 0 {
+		t.Errorf("фактичний темп мав бути додатним, маємо %v", act.ContribMonthly)
 	}
 	// ринкові допущення — ті самі, що в реалістичному
 	real := r["realistic"]
@@ -597,11 +612,16 @@ func TestForecastActualPaceRow(t *testing.T) {
 	if act.Amount >= real.Amount {
 		t.Errorf("за нижчого темпу капітал мав бути меншим: %v vs %v", act.Amount, real.Amount)
 	}
-	// і головне: три ринкові сценарії тепер НЕ чіпають внесок
-	for _, k := range []string{"optimistic", "realistic", "pessimistic"} {
-		if r[k].ContribMonthly != 5000 {
-			t.Errorf("%s: ринковий сценарій має брати плановий внесок 5000, маємо %v",
-				k, r[k].ContribMonthly)
+	// і головне: три ринкові сценарії тепер НЕ чіпають внесок — усі три
+	// беруть той самий похідний план
+	plan := r["realistic"].ContribMonthly
+	if plan <= 0 {
+		t.Fatalf("план мав вивестись із цілі, маємо %v", plan)
+	}
+	for _, k := range []string{"optimistic", "pessimistic"} {
+		if r[k].ContribMonthly != plan {
+			t.Errorf("%s: ринковий сценарій має брати той самий план %v, маємо %v",
+				k, plan, r[k].ContribMonthly)
 		}
 	}
 }
@@ -663,5 +683,51 @@ func TestActualPaceEstimator(t *testing.T) {
 	got, _ = pace(t, map[int]string{30: "5000.00", 0: "-1000.00"})
 	if got < 2300 || got > 2700 {
 		t.Errorf("зняття мало лишитись поза темпом (~2500), маємо %.0f", got)
+	}
+}
+
+// Платіж під ціль один, але ринок вирішує, наскільки він посильний:
+// за гіршого ринку той самий результат коштує більшого внеску. Саме це
+// має розкидати віяло — а не суму на дедлайн, яка за побудовою всюди
+// однакова, щойно внесок підбирається під ціль.
+func TestForecastSpreadsRequiredPayment(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	deadline := time.Now().AddDate(3, 0, 0).Format("2006-01-02")
+	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
+		`{"goal_amount_uah":"1000000","goal_date":"`+deadline+`","uah_devaluation_pct":"6"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
+	}
+	var got struct {
+		Forecast struct {
+			ContribPlan float64 `json:"contrib_plan"`
+			Rows        []struct {
+				Key             string  `json:"key"`
+				RequiredMonthly float64 `json:"required_monthly"`
+			} `json:"rows"`
+		} `json:"forecast"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("summary не парситься: %v", err)
+	}
+	req := map[string]float64{}
+	for _, r := range got.Forecast.Rows {
+		req[r.Key] = r.RequiredMonthly
+	}
+	for _, k := range []string{"optimistic", "realistic", "pessimistic"} {
+		if req[k] <= 0 {
+			t.Fatalf("%s: потрібний внесок мав порахуватись, маємо %v", k, req[k])
+		}
+	}
+	// За кращого ринку ціль коштує ДЕШЕВШЕ, за гіршого — дорожче.
+	if !(req["optimistic"] < req["realistic"] && req["realistic"] < req["pessimistic"]) {
+		t.Errorf("потрібний внесок мав зростати від оптимістичного до песимістичного: %v %v %v",
+			req["optimistic"], req["realistic"], req["pessimistic"])
+	}
+	// Реалістичний потрібний внесок — це і є план.
+	if math.Abs(req["realistic"]-got.Forecast.ContribPlan) > 1 {
+		t.Errorf("реалістичний внесок мав збігтись із планом: %v vs %v",
+			req["realistic"], got.Forecast.ContribPlan)
 	}
 }

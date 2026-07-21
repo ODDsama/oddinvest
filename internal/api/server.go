@@ -262,11 +262,26 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-	targetStr, _ := s.st.GetSetting(ctx, "monthly_target_uah")
+	// target — місячний план. Не читається з налаштувань: виводиться з
+	// цілі й дедлайну нижче, коли вже зібрані валютні рукави.
 	target := money.New(0, money.UAH)
-	if targetStr != "" {
-		if t, err := parseMoney(targetStr, money.UAH); err == nil {
-			target = t
+
+	// Поповнення за поточний місяць. Саме поповнення, а не купівлі:
+	// план тепер означає «скільки НОВИХ грошей треба вносити до цілі»,
+	// а купівля лише переносить гроші з рахунку в папери. Порівнювати
+	// план із купівлями означало б показувати 100% виконання за папір,
+	// куплений на накопичені купони, — до цілі це не додає нічого.
+	monthDep := money.New(0, money.UAH)
+	if deps, derr := s.st.ListDeposits(ctx); derr == nil {
+		for _, d := range deps {
+			if d.Amount <= 0 || d.Date.Year() != now.Year() || int(d.Date.Month()) != int(now.Month()) {
+				continue
+			}
+			if u, cerr := fx.ToUAH(money.New(d.Amount, d.Currency), rates); cerr == nil {
+				if sum, aerr := monthDep.Add(u); aerr == nil {
+					monthDep = sum
+				}
+			}
 		}
 	}
 
@@ -632,10 +647,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	if capRate > 40 {
 		capRate = 40 // стеля, щоб компаунд не вибухав
 	}
+	// contribM — місячний внесок плану. Виводиться з ЦІЛІ й ДЕДЛАЙНУ
+	// нижче, коли вже зібрані валютні рукави: окреме ручне число дублювало
+	// інформацію, яка й так є в цілі, і мовчки з нею розходилось.
 	contribM := 0.0
-	if !target.IsZero() {
-		contribM = float64(target.Amount()) / 100
-	}
 
 	// Реальні майбутні потоки, розкладені по валютах і місяцях.
 	couponByCurMonth := map[string]map[int]float64{}
@@ -743,6 +758,39 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		rate0USD = float64(u.Amount()) / 100
 	}
 
+	// --- місячний план: скільки треба вносити, щоб дійти до цілі ---
+	//
+	// Раніше це було ручне число в налаштуваннях. Воно дублювало ціль і
+	// дедлайн, які вже задані, і нічого не заважало їм суперечити: можна
+	// було планувати 5 000/міс під ціль, для якої треба 20 000.
+	//
+	// Тепер план — це відповідь на «скільки треба». Наслідок, про який
+	// варто пам'ятати: реалістичний сценарій тепер за побудовою впирається
+	// рівно в ціль, тож питання «чи досяжна ціль» переїхало в рядок «За
+	// фактом» — порівняння потрібного темпу з тим, що є насправді.
+	deadlineMonths := 0
+	if domain.Date(settings.GoalDate).Valid() {
+		gd := domain.Date(settings.GoalDate)
+		deadlineMonths = (gd.Year()-today.Year())*12 + int(gd.Month()) - int(today.Month())
+	}
+	// Ціль читаємо з нового одиночного поля, зі спадом на старі три — щоб
+	// профілі, які ще не пройшли міграцію 0008, не лишились без цілі.
+	goalAmount := 0.0
+	for _, c := range []*float64{settings.GoalAmountUAH, settings.GoalOptimisticUAH,
+		settings.GoalRealisticUAH, settings.GoalPessimisticUAH} {
+		if c != nil && *c > 0 {
+			goalAmount = *c
+			break
+		}
+	}
+	if goalAmount > 0 && deadlineMonths > 0 {
+		// Рукави тут потрібні лише щоб задати ПРОПОРЦІЇ між валютами;
+		// саму суму підбирає бісекція, тож стартове число довільне.
+		contribM = round2(domain.RequiredMonthlySleeves(
+			buildSleeves(1, 0), devalBase, goalAmount, deadlineMonths))
+		target = money.New(int64(math.Round(contribM*100)), money.UAH)
+	}
+
 	p0 := float64(accountUAHMinor+nominalUAH) / 100
 	projection := make([]state.ProjectionRow, 0, 4)
 	for _, y := range []int{1, 3, 5, 10} {
@@ -778,23 +826,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Раніше фактичний темп підмішувався в межі внеску песимістичного й
 	// оптимістичного сценаріїв, і два різні джерела невизначеності —
 	// ринок і дисципліна — злипались в одне число.
-	deadlineMonths := 0
-	if domain.Date(settings.GoalDate).Valid() {
-		gd := domain.Date(settings.GoalDate)
-		deadlineMonths = (gd.Year()-today.Year())*12 + int(gd.Month()) - int(today.Month())
-	}
-
-	// Ціль читаємо з нового одиночного поля, зі спадом на старі три — щоб
-	// профілі, які ще не пройшли міграцію 0008, не лишились без цілі.
-	goalAmount := 0.0
-	for _, c := range []*float64{settings.GoalAmountUAH, settings.GoalOptimisticUAH,
-		settings.GoalRealisticUAH, settings.GoalPessimisticUAH} {
-		if c != nil && *c > 0 {
-			goalAmount = *c
-			break
-		}
-	}
-
 	const goalHorizonMonths = 720 // 60 років — далі вважаємо недосяжним
 	var forecast *state.Forecast
 	if deadlineMonths > 0 {
@@ -823,13 +854,19 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			Rate0USD:    round2(rate0USD),
 			GlideYears:  glideYears,
 		}
-		realisticAmount := 0.0
 		for _, d := range defs {
 			sl := buildSleeves(d.contrib, d.ratePP)
 			res := domain.ProjectSleeves(sl, d.deval, deadlineMonths)
 			row := state.ForecastRow{Key: d.key, Label: d.label,
 				Amount: round2(res.TodayUAH), AmountNominal: round2(res.NominalUAH),
 				ContribMonthly: round2(d.contrib), DevaluationPct: round2(d.deval)}
+			// Скільки треба вносити САМЕ ЗА ЦИХ допущень. За гіршого ринку
+			// той самий фінансовий результат коштує більшого внеску — це і
+			// показує, наскільки ціль посильна, а не лише чи вона досяжна.
+			if goalAmount > 0 && d.key != "actual" {
+				row.RequiredMonthly = round2(domain.RequiredMonthlySleeves(
+					buildSleeves(1, d.ratePP), d.deval, goalAmount, deadlineMonths))
+			}
 			// Ставку показуємо ту, під яку реально росте основна валюта
 			// портфеля, а не середню по лікарні.
 			for _, s := range sl {
@@ -844,9 +881,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 					Amount:          round2(res.ByCurrency[s.Currency]),
 				})
 			}
-			if d.key == "realistic" {
-				realisticAmount = res.TodayUAH
-			}
 			if goalAmount > 0 {
 				row.GoalPct = math.Round(res.TodayUAH/goalAmount*1000) / 10
 				hit := domain.MonthsToReachSleeves(sl, d.deval, goalAmount, goalHorizonMonths)
@@ -856,13 +890,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				}
 			}
 			f.Rows = append(f.Rows, row)
-		}
-		// Потрібний внесок рахуємо за РЕАЛІСТИЧНИМИ допущеннями: більше
-		// відкладати — це рішення, а вища дохідність чи слабша девальвація
-		// — ні.
-		if goalAmount > 0 && realisticAmount < goalAmount {
-			f.RequiredMonthly = round2(domain.RequiredMonthlySleeves(
-				buildSleeves(contribM, 0), devalBase, goalAmount, deadlineMonths))
 		}
 		forecast = f
 	}
@@ -983,7 +1010,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
-		Rates: rates, MonthInvestedUAH: monthInv, MonthTargetUAH: target,
+		Rates: rates, MonthInvestedUAH: monthInv, MonthDepositedUAH: monthDep,
+		MonthTargetUAH: target,
 		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
 		LadderUAH: ladderUAH, Income12m: income12m,
@@ -1609,7 +1637,7 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 	return out
 }
 
-var settingsKeys = []string{"monthly_target_uah", "usd_target_share_pct", "eur_target_share_pct",
+var settingsKeys = []string{"usd_target_share_pct", "eur_target_share_pct",
 	"assumed_rate_pct", "goal_amount_uah", "goal_date", "channels",
 	"reinvest_rank", "goal_pessimistic_uah", "goal_realistic_uah", "goal_optimistic_uah",
 	"uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years"}

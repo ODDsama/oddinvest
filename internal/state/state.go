@@ -221,8 +221,13 @@ type ForecastRow struct {
 	// Amount — капітал на дедлайн у гривні СЬОГОДНІШНЬОЇ купівельної
 	// спроможності; саме він порівнюється з ціллю. AmountNominal — те
 	// саме в гривні того дня, тобто скільки буде намальовано на рахунку.
-	Amount         float64 `json:"amount"`
-	AmountNominal  float64 `json:"amount_nominal,omitempty"`
+	Amount        float64 `json:"amount"`
+	AmountNominal float64 `json:"amount_nominal,omitempty"`
+	// RequiredMonthly — скільки треба вносити щомісяця, щоб дійти до цілі
+	// САМЕ ЗА ЦИХ допущень. Головне число сценарію: платіж під ціль один,
+	// але ринок вирішує, наскільки він посильний. Для рядка «За фактом»
+	// порожнє — там головне число це сам фактичний темп.
+	RequiredMonthly float64 `json:"required_monthly,omitempty"`
 	RatePct        float64 `json:"rate_pct"`                   // сьогоднішня дохідність гривневої частини
 	RateTerminalPct float64 `json:"rate_terminal_pct,omitempty"` // куди вона сповзає
 	ContribMonthly float64 `json:"contrib_monthly"` // припущений внесок, ₴/міс

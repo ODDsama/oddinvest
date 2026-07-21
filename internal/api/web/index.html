@@ -371,65 +371,67 @@ function reinvestHTML(rows, s) {
     ${purse ? `<div class="l" style="margin-bottom:8px">${purse}</div>` : ""}${items}</div>`;
 }
 
-// Віяло прогнозів на дедлайн: скільки буде на одну й ту саму дату за
-// трьох наборів допущень. Ціль — одна сума-орієнтир, з якою вони
-// порівнюються; вона НЕ учасник віяла.
+// Віяло розкидає ПОТРІБНИЙ ВНЕСОК, а не суму на дедлайн.
 //
-// Суми — у гривні СЬОГОДНІШНЬОЇ купівельної спроможності, бо саме з
-// сьогоднішньою ціллю їх і порівнюють. Перемикач ₴/$ нічого не
-// перераховує: це та сама величина, поділена на сьогоднішній курс.
+// Щойно внесок підбирається під ціль, сума на дедлайн у всіх сценаріях
+// однакова — це і є ціль, — тож головним числом вона бути не може.
+// Натомість корисне саме те, скільки ціль КОШТУЄ щомісяця за різного
+// ринку: платіж один, а посильність у нього різна.
+//
+// Старий бекенд required_monthly у рядках не надсилає — тоді лишаємо
+// попередній вигляд (сума на дедлайн), щоб UI не показував порожньо.
 let FC_UNIT = (() => { try { return localStorage.getItem("oddinvest.fcUnit") || "UAH"; } catch (_) { return "UAH"; } })();
 
 function goalsHTML(s) {
   const f = s.forecast;
   if (!f || !(f.rows||[]).length) {
-    return `<p class="mut">Задай дедлайн у «Налаштуваннях» — і тут зʼявиться, скільки в тебе буде на цю дату за песимістичного, реалістичного й оптимістичного сценаріїв.</p>`;
+    return `<p class="mut">Задай ціль і дедлайн у «Налаштуваннях» — і тут зʼявиться, скільки треба відкладати щомісяця за песимістичного, реалістичного й оптимістичного сценаріїв.</p>`;
   }
   const rate0 = f.rate0_usd || 0;
   const usd = FC_UNIT === "USD" && rate0 > 0;
-  const money = v => usd
-    ? "$" + Math.round((v||0) / rate0).toLocaleString("uk")
-    : uahFmt(v);
+  const money = v => usd ? "$" + Math.round((v||0) / rate0).toLocaleString("uk") : uahFmt(v);
   const goal = f.goal_amount || 0;
-  // Спільна шкала для всіх трьох смужок — інакше вони не порівнюються.
-  // Беремо максимум із цілі та найбільшого сценарію: коли ціль далеко,
-  // вона стає правим краєм; коли сценарії її перевищують, шкала
-  // розтягується, і смужки не впираються всі в 100%.
-  const scale = Math.max(goal, ...f.rows.map(r => r.amount||0), 1);
-  const goalAt = goal > 0 ? Math.min(100, goal / scale * 100) : -1;
+  const hist = Number(s.actual_months || 0);
+  const asPayment = f.rows.some(r => r.required_monthly > 0);
+  // Внески лишаються в гривні навіть у доларовому вигляді: відкладаєш ти
+  // гривні, і рішення про суму приймаєш теж у гривнях.
+  const payOf = r => (r.key === "actual" ? r.contrib_monthly : r.required_monthly) || 0;
+  const need = payOf(f.rows.find(r => r.key === "realistic") || {});
+  const scale = asPayment ? Math.max(...f.rows.map(payOf), 1)
+    : Math.max(goal, ...f.rows.map(r => r.amount||0), 1);
+  const goalAt = !asPayment && goal > 0 ? Math.min(100, goal / scale * 100) : -1;
   const COLOR = { optimistic:"#3fb950", realistic:"#7b6cf6", pessimistic:"#d29922", actual:"#39a0ed" };
-  // «За фактом» відокремлюємо від ринкового віяла рискою: він відповідає
-  // на інше питання (що з твоєю дисципліною), і змішувати його зі
-  // сценаріями ринку означало б порівнювати різні речі як однорідні.
+
   const scenarioRow = r => {
-    const pct = Math.max(0, Math.min(100, r.amount / scale * 100));
-    // Для фактичного темпу підписуємо, на якій довжині історії він
-    // порахований: за один місяць це радше здогад, ніж показник.
-    const hist = Number(s.actual_months || 0);
+    const val = asPayment ? payOf(r) : (r.amount || 0);
+    const pct = Math.max(0, Math.min(100, val / scale * 100));
     const mark = r.key === "realistic" ? ` <span class="mut" style="font-size:12px">← найімовірніше</span>`
       : r.key === "actual" && hist > 0 ? ` <span class="mut" style="font-size:12px">за ${humanMonths(hist)} історії</span>` : "";
-    const share = goal > 0 ? `<span class="mut" style="font-size:12px">${(r.goal_pct||0).toFixed(1)}% цілі</span>` : "";
-    // Ставки по валютах: саме тут видно, що долар під 4% і гривня під
-    // 16% — не те саме, що здається.
-    // «за N років» чіпляємо до тієї валюти, яка справді сповзає, а не в
-    // кінець списку — інакше читається так, ніби стосується й долара.
+    const headline = asPayment ? `${uahFmt(val)}/міс` : money(val);
+    const right = asPayment
+      ? (r.key === "actual" && need > 0 ? `<span class="mut" style="font-size:12px">${(val/need*100).toFixed(0)}% від потрібного</span>` : "")
+      : (goal > 0 ? `<span class="mut" style="font-size:12px">${(r.goal_pct||0).toFixed(1)}% цілі</span>` : "");
     const glideFor = f.glide_years > 0 ? ` за ${humanMonths(Math.round(f.glide_years * 12))}` : "";
     const rates = (r.by_currency||[]).map(c => c.rate_terminal_pct && Math.abs(c.rate_terminal_pct - c.rate_pct) > 0.05
       ? `${curSym(c.currency)} ${(c.rate_pct||0).toFixed(1)}% → ${c.rate_terminal_pct.toFixed(1)}%${glideFor}`
       : `${curSym(c.currency)} ${(c.rate_pct||0).toFixed(1)}%`).join(" / ")
       || `${(r.rate_pct||0).toFixed(1)}%`;
-    // У доларах «номінально» не існує: долар і є реальна одиниця, тож
-    // номінальна й реальна суми в ньому збігаються.
-    const nom = !usd && r.amount_nominal > r.amount ? ` · номінально ${uahFmt(r.amount_nominal)}` : "";
+    // Сума на дедлайн доречна лише там, де вона несе новину: у рядку
+    // «За фактом». У ринкових рядках вона дорівнює цілі за побудовою.
+    const tail = asPayment
+      ? (r.key === "actual" ? ` · на дедлайн ${money(r.amount)}${goal > 0 ? ` (${(r.goal_pct||0).toFixed(1)}% цілі)` : ""}` : "")
+      : (!usd && r.amount_nominal > r.amount ? ` · номінально ${uahFmt(r.amount_nominal)}` : "");
+    const contrib = asPayment ? "" : `${uahFmt(r.contrib_monthly)}/міс · `;
     return `<div style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <span>${r.label}${mark}</span>
-        <span><b>${money(r.amount)}</b> ${share}</span></div>
+        <span><b>${headline}</b> ${right}</span></div>
       <div style="height:6px;background:#262c34;border-radius:3px;margin-top:5px;position:relative"><div style="width:${pct}%;height:100%;background:${COLOR[r.key]||"#7b6cf6"};border-radius:3px"></div>${
         goalAt >= 0 ? `<i style="position:absolute;top:0;bottom:0;left:calc(${goalAt}% - 1px);width:2px;background:#e6edf3;opacity:.55"></i>` : ""}</div>
-      <div class="l" style="margin-top:2px">${uahFmt(r.contrib_monthly)}/міс · ставки ${rates} · гривня слабшає ${(r.devaluation_pct||0).toFixed(1)}%/рік${nom}</div>
+      <div class="l" style="margin-top:2px">${contrib}ставки ${rates} · гривня слабшає ${(r.devaluation_pct||0).toFixed(1)}%/рік${tail}</div>
     </div>`;
   };
+
   const actual = f.rows.find(r => r.key === "actual");
   const rows = f.rows.filter(r => r.key !== "actual").map(scenarioRow).join("")
     + (actual
@@ -437,44 +439,23 @@ function goalsHTML(s) {
       : `<div class="l" style="border-top:1px solid #262c34;padding-top:8px;margin-top:4px">
            Прогноз за фактичним темпом зʼявиться після першого поповнення.</div>`);
 
-  // Ціль: наскільки вистачає і що з цим робити.
   let goalBlock = "";
   if (goal > 0) {
-    const opt = f.rows.find(r => r.key === "optimistic") || {};
     const real = f.rows.find(r => r.key === "realistic") || {};
-    const eta = real.goal_months === -1 ? "вже досягнуто"
-      : real.goal_months > 0 ? `${monthYear(real.goal_date)} · через ${humanMonths(real.goal_months)}`
+    const eta = r => r.goal_months === -1 ? "вже досягнуто"
+      : r.goal_months > 0 ? `${monthYear(r.goal_date)} · через ${humanMonths(r.goal_months)}`
       : "не досягається за 60 років";
-    const short = real.amount >= goal
-      ? `<span style="color:#3fb950">вистачає за реалістичного сценарію</span>`
-      : opt.amount >= goal
-        ? `<span style="color:#d29922">вистачає лише за оптимістичного сценарію</span>`
-        : `<span style="color:#f85149">не вистачає навіть за оптимістичного сценарію</span>`;
-    // Бекенд і панель оновлюються окремо, тож UI має читати ОБИДВА
-    // контракти. До 2026.7.66 «скільки треба» лежало в required_monthly,
-    // а contrib_plan означав ручний план; з 7.67 план виводиться з цілі
-    // й сам є відповіддю, а required_monthly зник. Якщо читати лише
-    // contrib_plan, старий бекенд віддасть ручні 5 000 ₴/міс під
-    // підписом «треба вносити» — впевнено неправильне число.
-    const needMonthly = f.required_monthly > 0 ? f.required_monthly : f.contrib_plan;
-    const need = needMonthly > 0
-      ? `<div class="l" style="margin-top:2px">треба вносити <b>${uahFmt(needMonthly)}</b>/міс${
-          actual ? ` · за фактом ${uahFmt(actual.contrib_monthly)}/міс` : ""}</div>` : "";
     goalBlock = `<div style="border-top:1px solid #262c34;padding-top:8px;margin-top:4px">
-      <div>Ціль <b>${money(goal)}</b> — ${short}</div>
-      <div class="l" style="margin-top:2px">за реалістичного темпу: ${eta}</div>
-      ${actual ? `<div class="l" style="margin-top:2px">за фактичним темпом: ${
-        actual.goal_months === -1 ? "вже досягнуто"
-        : actual.goal_months > 0 ? `${monthYear(actual.goal_date)} · через ${humanMonths(actual.goal_months)}`
-        : "не досягається за 60 років"}</div>` : ""}
-      ${need}</div>`;
+      <div class="l">за реалістичного темпу ціль: ${eta(real)}</div>
+      ${actual ? `<div class="l" style="margin-top:2px">за фактичним темпом: ${eta(actual)}</div>` : ""}</div>`;
   }
   const unitBtn = (u, lbl) => `<button class="unit${usd === (u === "USD") ? " on" : ""}" data-fcunit="${u}">${lbl}</button>`;
   const toggle = rate0 > 0 ? `<span class="unitbox">${unitBtn("UAH","₴")}${unitBtn("USD","$")}</span>` : "";
-  const head = `<div class="l" style="margin-bottom:8px">на ${monthYear(f.date)} · через ${humanMonths(f.months)}${
-    goal > 0 ? " · вертикальна риска — ціль" : ""} · у ${usd ? "доларах" : "сьогоднішніх гривнях"}</div>`;
+  const head = `<div class="l" style="margin-bottom:8px">${
+    asPayment && goal > 0 ? `щоб дійти до ${money(goal)} до ${monthYearGen(f.date)}` : `на ${monthYear(f.date)}`
+    } · через ${humanMonths(f.months)}${!asPayment && goal > 0 ? " · вертикальна риска — ціль" : ""} · у ${usd ? "доларах" : "сьогоднішніх гривнях"}</div>`;
   return `<div class="card" style="margin-bottom:16px"><h4 class="h-row" style="justify-content:space-between">
-    <span>Скільки буде на дедлайн ${infoBtn("forecast")}</span>${toggle}</h4>${head}${rows}${goalBlock}</div>`;
+    <span>${asPayment ? "Скільки треба вносити" : "Скільки буде на дедлайн"} ${infoBtn("forecast")}</span>${toggle}</h4>${head}${rows}${goalBlock}</div>`;
 }
 
 function renderNbuStale(s) {
@@ -581,7 +562,7 @@ const INFO = {
   capital: ["Крива капіталу", "Проєкція капіталу на 1/3/5/10 років. Сіра лінія — просто сума внесків без відсотків, синя — з реінвестом під дохідність портфеля. Розрив між ними — це робота складного відсотка. Модель — припущення, не гарантія."],
   reconcile: ["Звірка рахунку", "Введи баланс, який показує брокер, — застосунок порівняє його з тим, що виходить із записів. Розбіжність майже завжди означає одне з двох: плюс — надійшло щось незаписане (поповнення або купон, що прийшов раніше за графік); мінус — витрачено щось незаписане (купівля або комісія). Кнопка створює коригуюче поповнення рівно на різницю з поміткою «звірка», щоб баланс зійшовся, а сама розбіжність лишилась видимою в історії, а не розчинилась. Рахунки брокерів роздільні, тож звіряти треба кожен окремо."],
   reinvest: ["Що купити", "Папери відранжовані за РЕАЛЬНОЮ дохідністю — тією, що лишається в сьогоднішніх гривнях після знецінення. Саме вона робить гривневі й валютні папери порівнянними: гривневий під 16% при знеціненні 6%/рік дає ~9.4% реальних, а доларовий під 4% так і лишається 4%, бо долар купівельну спроможність тримає. YTM — дохідність до погашення за ціною входу; вона вища за купонну ставку, бо купон складається всередині року. Ціни в довіднику НБУ немає, тож рахуємо «за номіналом плюс НКД» — реальна ціна в брокера може відрізнятись, і тоді дохідність теж. «mono ×3» означає, скільки таких паперів тягне баланс саме цього брокера: рахунки роздільні, і гривня на inzhur не купить папір у mono. Це інструмент для порівняння, а не порада купувати."],
-  forecast: ["Скільки буде на дедлайн", "Усі суми — на ОДНУ дату (твій дедлайн) і в гривні СЬОГОДНІШНЬОЇ купівельної спроможності, тому їх можна порівнювати між собою і з ціллю, яку ти задав сьогодні. Перемикач ₴/$ нічого не перераховує: це та сама величина, поділена на сьогоднішній курс. У доларах рядок «номінально» зникає — долар і є реальна одиниця, тож у ньому номінальна й реальна суми збігаються. Три верхні рядки описують РИНОК: внесок у всіх трьох плановий, а відрізняються вони довгостроковою ставкою (±3 п.п.) і темпом знецінення гривні (±4 п.п.). Рядок «За фактом» описує ТЕБЕ: ринок той самий, що в реалістичному, але замість планового внеску береться твій фактичний темп поповнень — тож різниця між цими двома рядками це рівно твоя дисципліна, без домішки ринку. Він зʼявляється з першого ж поповнення, а поруч написано, на якій довжині історії порахований темп, — за один місяць це радше здогад, за пів року вже показник. Запис «₴ 15.7% → 11.0%» означає, що ставка не вічна: сьогоднішня — це факт, а далі вона лінійно сповзає до довгострокової. Кожна валюта рахується окремо у своїй валюті: гривневий рукав наприкінці переводиться в сьогоднішні гроші й тому втрачає, а долар і євро купівельну спроможність тримають."],
+  forecast: ["Скільки треба вносити", "Головне число рядка — скільки треба вносити щомісяця, щоб дійти до цілі саме за цих допущень. Платіж під ціль один, але ринок вирішує, наскільки він посильний: за кращих ставок і слабшого знецінення ціль коштує дешевше, за гірших — дорожче. Саме тому віяло розкидає ПЛАТІЖ, а не суму на дедлайн: щойно внесок підбирається під ціль, сума на дедлайн у всіх трьох сценаріях однакова — це і є ціль. Рядок «За фактом» показує твій справжній темп поповнень і яку частку потрібного він покриває, а також скільки за ним вийде на дедлайн — там сума вже несе новину. Внески завжди в гривні, навіть у доларовому вигляді: відкладаєш ти гривні. Запис «₴ 15.7% → 11.0%» означає, що ставка не вічна: сьогоднішня це факт, далі вона лінійно сповзає до довгострокової. Кожна валюта рахується окремо у своїй валюті: гривневий рукав наприкінці переводиться в сьогоднішні гроші й тому втрачає, а долар і євро купівельну спроможність тримають."],
 };
 const infoBtn = k => `<button class="info" data-info="${k}" aria-label="Як це читати" title="Як це читати">i</button>`;
 function openInfo(k) {
