@@ -87,8 +87,10 @@ type Doc struct {
 	// прогноз і потрібний внесок під ціль (якщо задано ціль і дату).
 	Projection        []ProjectionRow `json:"projection,omitempty"`
 	ProjectionRatePct float64         `json:"projection_rate_pct,omitempty"`
-	// Goals — три цілі з ДАТОЮ досягнення за поточним темпом.
-	Goals []GoalRow `json:"goals,omitempty"`
+	// Forecast — віяло прогнозів на дедлайн: скільки буде на цю дату за
+	// трьох наборів допущень. Ціль — одна сума-орієнтир, з якою вони
+	// порівнюються.
+	Forecast *Forecast `json:"forecast,omitempty"`
 
 	// Rebalance — підказка виходу на цільові валютні частки (по валютах,
 	// де задано ціль). RateRisk — процентний ризик портфеля (дюрація).
@@ -174,24 +176,39 @@ type RiskScenario struct {
 	ChangeUAH float64 `json:"change_uah"`
 }
 
-// GoalRow — ціль і коли вона буде досягнута за поточним темпом.
-// Months: -1 = вже досягнуто, 0 = не досягається в межах горизонту.
-// RequiredMonthly заповнюється лише коли задано дедлайн і поточного
-// темпу для нього не вистачає.
-type GoalRow struct {
-	Key    string  `json:"key"` // pessimistic | realistic | optimistic
-	Label  string  `json:"label"`
-	Amount float64 `json:"amount"`
-	// Auto — суму не задано вручну, це прогноз капіталу на дедлайн.
-	Auto bool `json:"auto,omitempty"`
-	// MonthsActual/DateActual — те саме, але за ФАКТИЧНИМ темпом поповнень
-	// (заповнюється, коли назбиралось ≥60 днів історії).
-	MonthsActual    int     `json:"months_actual,omitempty"`
-	DateActual      string  `json:"date_actual,omitempty"`
-	Months          int     `json:"months"`
-	Date            string  `json:"date,omitempty"`
-	BeforeDeadline  *bool   `json:"before_deadline,omitempty"`
+// Forecast — «скільки в мене буде на дедлайн» за трьох сценаріїв.
+//
+// Раніше тут були три ЦІЛІ з різними сумами. Вони лежали на одній і тій
+// самій кривій прогнозу — відрізнялись лише числа, які ввів користувач,
+// — тож слова «песимістично/оптимістично» нічого не моделювали, а
+// «реалістична» взагалі виводилась із прогнозу на дедлайн і тому завжди
+// досягалась рівно в дедлайн. Тепер навпаки: ціль одна, а сценарії
+// відрізняються ДОПУЩЕННЯМИ (темп поповнень і ставка реінвесту).
+type Forecast struct {
+	Date   string `json:"date"`   // дедлайн, на який рахуємо
+	Months int    `json:"months"` // скільки місяців до нього
+	// GoalAmount — сума-орієнтир; 0 = ціль не задана, показуємо самі суми.
+	GoalAmount float64 `json:"goal_amount,omitempty"`
+	// RequiredMonthly — скільки треба відкладати щомісяця, щоб ціль
+	// устигла до дедлайну. Заповнюється лише коли реалістичного
+	// сценарію на це не вистачає.
 	RequiredMonthly float64 `json:"required_monthly,omitempty"`
+	// ContribPlan — плановий внесок, від якого танцюють сценарії.
+	ContribPlan float64       `json:"contrib_plan,omitempty"`
+	Rows        []ForecastRow `json:"rows"`
+}
+
+// ForecastRow — один сценарій: допущення і що з них виходить.
+// GoalMonths: -1 = ціль уже досягнута, 0 = не досягається в межах горизонту.
+type ForecastRow struct {
+	Key            string  `json:"key"` // optimistic | realistic | pessimistic
+	Label          string  `json:"label"`
+	Amount         float64 `json:"amount"`          // капітал на дедлайн
+	RatePct        float64 `json:"rate_pct"`        // припущена річна дохідність
+	ContribMonthly float64 `json:"contrib_monthly"` // припущений внесок
+	GoalPct        float64 `json:"goal_pct,omitempty"`
+	GoalMonths     int     `json:"goal_months,omitempty"`
+	GoalDate       string  `json:"goal_date,omitempty"`
 }
 
 type YearAmount struct {
@@ -260,7 +277,7 @@ type Input struct {
 	PortfolioYield      map[string]float64
 	Projection          []ProjectionRow
 	ProjectionRatePct   float64
-	Goals               []GoalRow
+	Forecast            *Forecast
 	Rebalance           []RebalanceRow
 	RateRisk            *RateRisk
 	AccruedUAH          float64
@@ -355,7 +372,7 @@ func Build(in Input) (*Doc, error) {
 	doc.PortfolioYield = in.PortfolioYield
 	doc.Projection = in.Projection
 	doc.ProjectionRatePct = in.ProjectionRatePct
-	doc.Goals = in.Goals
+	doc.Forecast = in.Forecast
 	doc.Rebalance = in.Rebalance
 	doc.RateRisk = in.RateRisk
 	doc.AccruedUAH = in.AccruedUAH

@@ -206,7 +206,6 @@
     <h3>Проєкції капіталу</h3>
     <p class="mut" id="projNote"></p>
     <table id="projTable"></table>
-    <h3>Ціль</h3>
     <div id="goalBox" class="mut"></div>
   </section>
 
@@ -217,10 +216,8 @@
       <label>Цільова частка USD, % <input name="usd_target_share_pct"></label>
       <label>Цільова частка EUR, % <input name="eur_target_share_pct"></label>
       <label>Цільова дюрація, років <input name="target_duration_years" placeholder="напр. 3"></label>
-      <label>Ціль: песимістична, ₴ <input name="goal_pessimistic_uah" placeholder="мінімум"></label>
-      <label>Ціль: реалістична, ₴ <input name="goal_realistic_uah" placeholder="порожньо = прогноз на дедлайн"></label>
-      <label>Ціль: оптимістична, ₴ <input name="goal_optimistic_uah" placeholder="мрія"></label>
-      <label>Дедлайн (необовʼязково) <input name="goal_date" type="date"></label>
+      <label>Ціль, ₴ <input name="goal_amount_uah" placeholder="скільки хочу накопичити"></label>
+      <label>Дедлайн — коли <input name="goal_date" type="date"></label>
       <button class="act">Зберегти</button>
     </form>
     <button class="act" id="refreshBtn">Оновити довідник НБУ і курс</button>
@@ -327,42 +324,59 @@ function renderBanner(s) {
   host.querySelectorAll("[data-go]").forEach(b => b.onclick = () => goto(b.dataset.go));
 }
 
-// Три цілі з датою досягнення за поточним темпом. Дата — результат
-// симуляції, тож вона рухається разом із реальним темпом накопичення.
+// Віяло прогнозів на дедлайн: скільки буде на одну й ту саму дату за
+// трьох наборів допущень. Ціль — одна сума-орієнтир, з якою вони
+// порівнюються; вона НЕ учасник віяла.
 function goalsHTML(s) {
-  const goals = s.goals || [];
-  if (!goals.length) {
-    return `<p class="mut">Задай суми цілей (песимістична / реалістична / оптимістична) у «Налаштуваннях» — і тут зʼявиться, коли кожна буде досягнута за твоїм темпом.</p>`;
+  const f = s.forecast;
+  if (!f || !(f.rows||[]).length) {
+    return `<p class="mut">Задай дедлайн у «Налаштуваннях» — і тут зʼявиться, скільки в тебе буде на цю дату за песимістичного, реалістичного й оптимістичного сценаріїв.</p>`;
   }
-  const cap = (s.nominal_uah_eq||0) + (s.account_uah||0);
-  const rows = goals.map(g => {
-    const pct = g.amount > 0 ? Math.min(100, cap / g.amount * 100) : 0;
-    let when, color = "var(--mut)";
-    if (g.months === -1) { when = "вже досягнуто"; color = "#3fb950"; }
-    else if (g.months === 0) { when = "не досягається за 60 років"; color = "#f85149"; }
-    else {
-      when = `${monthYear(g.date)} · через ${humanMonths(g.months)}`;
-      if (g.before_deadline === true) color = "#3fb950";
-      else if (g.before_deadline === false) color = "#d29922";
-    }
-    const miss = g.before_deadline === false && g.required_monthly > 0
-      ? `<div class="l" style="margin-top:2px">пізніше дедлайну — щоб устигнути, треба ${uahFmt(g.required_monthly)}/міс</div>` : "";
-    const fact = g.months_actual
-      ? `<div class="l" style="margin-top:2px">за фактичним темпом: ${
-          g.months_actual === -1 ? "вже досягнуто"
-          : g.months_actual === 0 ? "не досягається"
-          : `${monthYear(g.date_actual)} · через ${humanMonths(g.months_actual)}`}</div>` : "";
-    const auto = g.auto ? ` <span class="mut" style="font-size:12px">(прогноз на дедлайн)</span>` : "";
-    return `<div style="margin-bottom:12px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <span>${g.label} · <b>${uahFmt(g.amount)}</b>${auto}</span>
-        <span style="font-size:13px;color:${color}">${when}</span></div>
-      <div style="height:6px;background:#262c34;border-radius:3px;margin-top:6px"><div style="width:${pct}%;height:100%;background:#3fb950;border-radius:3px"></div></div>
-      <div class="l" style="margin-top:2px">накопичено ${pct.toFixed(1)}%</div>${fact}${miss}</div>`;
+  const goal = f.goal_amount || 0;
+  // Спільна шкала для всіх трьох смужок — інакше вони не порівнюються.
+  // Беремо максимум із цілі та найбільшого сценарію: коли ціль далеко,
+  // вона стає правим краєм; коли сценарії її перевищують, шкала
+  // розтягується, і смужки не впираються всі в 100%.
+  const scale = Math.max(goal, ...f.rows.map(r => r.amount||0), 1);
+  const goalAt = goal > 0 ? Math.min(100, goal / scale * 100) : -1;
+  const COLOR = { optimistic:"#3fb950", realistic:"#7b6cf6", pessimistic:"#d29922" };
+  const rows = f.rows.map(r => {
+    const pct = Math.max(0, Math.min(100, r.amount / scale * 100));
+    const mark = r.key === "realistic" ? ` <span class="mut" style="font-size:12px">← найімовірніше</span>` : "";
+    const share = goal > 0 ? `<span class="mut" style="font-size:12px">${(r.goal_pct||0).toFixed(1)}% цілі</span>` : "";
+    return `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <span>${r.label}${mark}</span>
+        <span><b>${uahFmt(r.amount)}</b> ${share}</span></div>
+      <div style="height:6px;background:#262c34;border-radius:3px;margin-top:5px;position:relative"><div style="width:${pct}%;height:100%;background:${COLOR[r.key]||"#7b6cf6"};border-radius:3px"></div>${
+        goalAt >= 0 ? `<i style="position:absolute;top:0;bottom:0;left:calc(${goalAt}% - 1px);width:2px;background:#e6edf3;opacity:.55"></i>` : ""}</div>
+      <div class="l" style="margin-top:2px">${uahFmt(r.contrib_monthly)}/міс · ${(r.rate_pct||0).toFixed(1)}% річних</div>
+    </div>`;
   }).join("");
-  const dl = (s.settings||{}).goal_date
-    ? `<div class="l">Дедлайн: ${monthYear(s.settings.goal_date)}</div>` : "";
-  return `<div class="card" style="margin-bottom:16px">${rows}${dl}</div>`;
+
+  // Ціль: наскільки вистачає і що з цим робити.
+  let goalBlock = "";
+  if (goal > 0) {
+    const opt = f.rows.find(r => r.key === "optimistic") || {};
+    const real = f.rows.find(r => r.key === "realistic") || {};
+    const eta = real.goal_months === -1 ? "вже досягнуто"
+      : real.goal_months > 0 ? `${monthYear(real.goal_date)} · через ${humanMonths(real.goal_months)}`
+      : "не досягається за 60 років";
+    const short = real.amount >= goal
+      ? `<span style="color:#3fb950">вистачає за реалістичного сценарію</span>`
+      : opt.amount >= goal
+        ? `<span style="color:#d29922">вистачає лише за оптимістичного сценарію</span>`
+        : `<span style="color:#f85149">не вистачає навіть за оптимістичного сценарію</span>`;
+    const need = f.required_monthly > 0
+      ? `<div class="l" style="margin-top:2px">щоб устигнути до дедлайну — ${uahFmt(f.required_monthly)}/міс замість ${uahFmt(f.contrib_plan)}/міс</div>` : "";
+    goalBlock = `<div style="border-top:1px solid #262c34;padding-top:8px;margin-top:4px">
+      <div>Ціль <b>${uahFmt(goal)}</b> — ${short}</div>
+      <div class="l" style="margin-top:2px">за реалістичного темпу: ${eta}</div>
+      ${need}</div>`;
+  }
+  const head = `<div class="l" style="margin-bottom:8px">на ${monthYear(f.date)} · через ${humanMonths(f.months)}${
+    goal > 0 ? " · вертикальна риска — ціль" : ""}</div>`;
+  return `<div class="card" style="margin-bottom:16px"><h4 class="h-row" style="justify-content:space-between">Скільки буде на дедлайн ${infoBtn("forecast")}</h4>${head}${rows}${goalBlock}</div>`;
 }
 
 function renderNbuStale(s) {
@@ -418,6 +432,7 @@ const INFO = {
   income: ["Дохід по місяцях", "Скільки купонів і погашень надійде кожного місяця на рік наперед (грн-екв). Це твій потік для реінвесту — видно, коли назбирається на наступний папір. Порожній місяць = виплат немає."],
   currency: ["Валюта: факт vs ціль", "Синій стовпчик — поточна частка валюти в портфелі, сірий — твоя цільова частка з Налаштувань. Синій нижчий за сірий → валюту треба добирати; вищий → уже перебір."],
   capital: ["Крива капіталу", "Проєкція капіталу на 1/3/5/10 років. Сіра лінія — просто сума внесків без відсотків, синя — з реінвестом під дохідність портфеля. Розрив між ними — це робота складного відсотка. Модель — припущення, не гарантія."],
+  forecast: ["Скільки буде на дедлайн", "Усі три суми — на ОДНУ дату (твій дедлайн), тому їх можна порівнювати між собою. Відрізняються вони допущеннями, а не бажаннями: реалістичний бере плановий внесок і поточну дохідність портфеля, оптимістичний додає 3 п.п. до ставки, песимістичний — віднімає. Коли назбирається історія поповнень, межі внеску беруться з реального темпу: менший із «план vs факт» іде в песимістичний, більший — в оптимістичний. Під кожним рядком написано, з яких саме допущень він порахований. Ціль — окремий орієнтир: смужка показує, яку її частину закриває сценарій."],
 };
 const infoBtn = k => `<button class="info" data-info="${k}" aria-label="Як це читати" title="Як це читати">i</button>`;
 function openInfo(k) {

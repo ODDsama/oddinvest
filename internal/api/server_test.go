@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -152,5 +153,99 @@ func TestBondSearchAndAccrued(t *testing.T) {
 	_, body = do(t, "GET", srv.URL+"/api/bonds/UA0000000000", "")
 	if !strings.Contains(body, "не знайдено") {
 		t.Errorf("404: %s", body)
+	}
+}
+
+// Віяло прогнозів: три сценарії відрізняються ДОПУЩЕННЯМИ, а не сумами,
+// і всі три рахуються на одну дату — дедлайн. Тест ловить головне, що
+// може зламатись при зміні формули: порядок сум і розкид ставок.
+func TestForecastFanOrderedByAssumptions(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+
+	deadline := time.Now().AddDate(3, 0, 0).Format("2006-01-02")
+	if _, body := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"995.00","buy_date":"2026-07-01","channel":"mono"}`); body == "" {
+		t.Fatal("порожня відповідь на додавання лота")
+	}
+	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_target_uah":"5000","goal_amount_uah":"1000000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
+	}
+
+	var got struct {
+		Forecast struct {
+			Date            string  `json:"date"`
+			Months          int     `json:"months"`
+			GoalAmount      float64 `json:"goal_amount"`
+			RequiredMonthly float64 `json:"required_monthly"`
+			Rows            []struct {
+				Key            string  `json:"key"`
+				Amount         float64 `json:"amount"`
+				RatePct        float64 `json:"rate_pct"`
+				ContribMonthly float64 `json:"contrib_monthly"`
+				GoalPct        float64 `json:"goal_pct"`
+			} `json:"rows"`
+		} `json:"forecast"`
+		Goals []any `json:"goals"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("summary не парситься: %v", err)
+	}
+	f := got.Forecast
+	if len(got.Goals) != 0 {
+		t.Errorf("старе поле goals має зникнути, маємо %d рядків", len(got.Goals))
+	}
+	if len(f.Rows) != 3 {
+		t.Fatalf("очікували 3 сценарії, маємо %d: %s", len(f.Rows), body)
+	}
+	if f.Months < 35 || f.Months > 36 {
+		t.Errorf("до дедлайну має бути ~36 місяців, маємо %d", f.Months)
+	}
+	if want := []string{"optimistic", "realistic", "pessimistic"}; f.Rows[0].Key != want[0] ||
+		f.Rows[1].Key != want[1] || f.Rows[2].Key != want[2] {
+		t.Errorf("порядок сценаріїв: %v", f.Rows)
+	}
+	// Суми строго спадають — інакше «оптимістично» нічого не означає.
+	if !(f.Rows[0].Amount > f.Rows[1].Amount && f.Rows[1].Amount > f.Rows[2].Amount) {
+		t.Errorf("суми мають спадати opt>real>pess: %v %v %v",
+			f.Rows[0].Amount, f.Rows[1].Amount, f.Rows[2].Amount)
+	}
+	// Розходяться саме ставкою: ±3 п.п. навколо реалістичної.
+	if d := f.Rows[0].RatePct - f.Rows[1].RatePct; d < 2.99 || d > 3.01 {
+		t.Errorf("оптимістична ставка має бути +3 п.п., різниця %v", d)
+	}
+	if d := f.Rows[1].RatePct - f.Rows[2].RatePct; d < 2.99 || d > 3.01 {
+		t.Errorf("песимістична ставка має бути -3 п.п., різниця %v", d)
+	}
+	// Внесок поки історії поповнень немає — однаковий в усіх трьох.
+	for _, r := range f.Rows {
+		if r.ContribMonthly != 5000 {
+			t.Errorf("%s: внесок без історії має дорівнювати плану, маємо %v", r.Key, r.ContribMonthly)
+		}
+	}
+	// Мільйона за 3 роки при 5 тис/міс не буде — має бути порада скільки треба.
+	if f.RequiredMonthly <= 5000 {
+		t.Errorf("required_monthly має перевищувати план, маємо %v", f.RequiredMonthly)
+	}
+	if f.Rows[1].GoalPct <= 0 || f.Rows[1].GoalPct >= 100 {
+		t.Errorf("частка цілі має бути в (0,100), маємо %v", f.Rows[1].GoalPct)
+	}
+}
+
+// Профілі, які ще не пройшли міграцію 0008, не мають лишитись без цілі:
+// ціль підхоплюється зі старого поля «оптимістична».
+func TestForecastFallsBackToLegacyGoalFields(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	deadline := time.Now().AddDate(2, 0, 0).Format("2006-01-02")
+	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_target_uah":"1000","goal_optimistic_uah":"750000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if !strings.Contains(body, `"goal_amount":750000`) {
+		t.Errorf("ціль зі старого поля не підхопилась: %s", body)
 	}
 }

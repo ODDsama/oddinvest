@@ -618,79 +618,82 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		projection = append(projection, row)
 	}
-	// --- три цілі: дату досягнення рахуємо, а не питаємо ---
+	// --- віяло прогнозів на дедлайн ---
+	//
+	// Ціль — ОДНА сума-орієнтир. Три сценарії відрізняються не сумами, а
+	// допущеннями: темпом поповнень і ставкою реінвесту. Дата в усіх одна
+	// — дедлайн, тож суми між собою порівнянні.
 	deadlineMonths := 0
 	if domain.Date(settings.GoalDate).Valid() {
 		gd := domain.Date(settings.GoalDate)
 		deadlineMonths = (gd.Year()-today.Year())*12 + int(gd.Month()) - int(today.Month())
 	}
 
-	// «Реалістична» за замовчуванням не вигадується, а РАХУЄТЬСЯ: це
-	// прогноз капіталу на дедлайн за поточним темпом. Округлюємо вниз,
-	// щоб дата досягнення збіглася рівно з дедлайном, а не з'їхала на
-	// місяць уперед. Ручне значення, якщо задане, має пріоритет.
-	realistic := settings.GoalRealisticUAH
-	autoRealistic := false
-	if realistic == nil && deadlineMonths > 0 {
-		v := math.Floor(domain.ProjectCapital(cash0, nominal0, contribM, threshold,
-			capRate, monthlyCoupon, monthlyRedeem, deadlineMonths))
-		if v > 0 {
-			realistic, autoRealistic = &v, true
+	// Ціль читаємо з нового одиночного поля, зі спадом на старі три — щоб
+	// профілі, які ще не пройшли міграцію 0008, не лишились без цілі.
+	goalAmount := 0.0
+	for _, c := range []*float64{settings.GoalAmountUAH, settings.GoalOptimisticUAH,
+		settings.GoalRealisticUAH, settings.GoalPessimisticUAH} {
+		if c != nil && *c > 0 {
+			goalAmount = *c
+			break
 		}
-	}
-	if realistic == nil {
-		realistic = settings.GoalAmountUAH // сумісність зі старим одиночним полем
-	}
-	defs := []struct {
-		key, label string
-		amount     *float64
-	}{
-		{"pessimistic", "Песимістична", settings.GoalPessimisticUAH},
-		{"realistic", "Реалістична", realistic},
-		{"optimistic", "Оптимістична", settings.GoalOptimisticUAH},
-	}
-	amounts := make([]float64, len(defs))
-	for i, d := range defs {
-		if d.amount != nil {
-			amounts[i] = *d.amount
-		}
-	}
-	const goalHorizonMonths = 720 // 60 років — далі вважаємо недосяжним
-	hit := domain.MonthsToReach(cash0, nominal0, contribM, threshold, capRate,
-		monthlyCoupon, monthlyRedeem, amounts, goalHorizonMonths)
-	var hitActual []int
-	if actualMonthly > 0 {
-		hitActual = domain.MonthsToReach(cash0, nominal0, actualMonthly, threshold, capRate,
-			monthlyCoupon, monthlyRedeem, amounts, goalHorizonMonths)
 	}
 
-	var goals []state.GoalRow
-	for i, d := range defs {
-		if amounts[i] <= 0 {
-			continue
+	const goalHorizonMonths = 720 // 60 років — далі вважаємо недосяжним
+	var forecast *state.Forecast
+	if deadlineMonths > 0 {
+		// Внесок: якщо фактичний темп уже відомий, беремо його і план як
+		// нижню й верхню межу — це РЕАЛЬНИЙ розкид, а не вигаданий
+		// відсоток. Поки історії замало, внесок в усіх сценаріях
+		// однаковий і розходяться вони лише ставкою.
+		contribLo, contribHi := contribM, contribM
+		if actualMonthly > 0 {
+			contribLo = math.Min(contribM, actualMonthly)
+			contribHi = math.Max(contribM, actualMonthly)
 		}
-		row := state.GoalRow{Key: d.key, Label: d.label, Amount: amounts[i], Months: hit[i]}
-		if d.key == "realistic" && autoRealistic {
-			row.Auto = true
+		const rateSpreadPP = 3.0 // ± п.п. до ставки реінвесту
+		defs := []struct {
+			key, label    string
+			contrib, rate float64
+		}{
+			{"optimistic", "Оптимістично", contribHi, capRate + rateSpreadPP},
+			{"realistic", "Реалістично", contribM, capRate},
+			{"pessimistic", "Песимістично", contribLo, math.Max(0, capRate-rateSpreadPP)},
 		}
-		if hit[i] > 0 {
-			row.Date = string(domain.NewDate(today.Time().AddDate(0, hit[i], 0)))
+		f := &state.Forecast{
+			Date:        string(domain.NewDate(today.Time().AddDate(0, deadlineMonths, 0))),
+			Months:      deadlineMonths,
+			GoalAmount:  goalAmount,
+			ContribPlan: round2(contribM),
 		}
-		if hitActual != nil {
-			row.MonthsActual = hitActual[i]
-			if hitActual[i] > 0 {
-				row.DateActual = string(domain.NewDate(today.Time().AddDate(0, hitActual[i], 0)))
+		realisticAmount := 0.0
+		for _, d := range defs {
+			amt := round2(domain.ProjectCapital(cash0, nominal0, d.contrib, threshold,
+				d.rate, monthlyCoupon, monthlyRedeem, deadlineMonths))
+			row := state.ForecastRow{Key: d.key, Label: d.label, Amount: amt,
+				RatePct: round2(d.rate), ContribMonthly: round2(d.contrib)}
+			if d.key == "realistic" {
+				realisticAmount = amt
 			}
-		}
-		if deadlineMonths > 0 {
-			ok := hit[i] == -1 || (hit[i] > 0 && hit[i] <= deadlineMonths)
-			row.BeforeDeadline = &ok
-			if !ok {
-				row.RequiredMonthly = math.Round(domain.RequiredMonthly(cash0, nominal0, threshold,
-					capRate, amounts[i], monthlyCoupon, monthlyRedeem, deadlineMonths)*100) / 100
+			if goalAmount > 0 {
+				row.GoalPct = math.Round(amt/goalAmount*1000) / 10
+				hit := domain.MonthsToReach(cash0, nominal0, d.contrib, threshold, d.rate,
+					monthlyCoupon, monthlyRedeem, []float64{goalAmount}, goalHorizonMonths)
+				row.GoalMonths = hit[0]
+				if hit[0] > 0 {
+					row.GoalDate = string(domain.NewDate(today.Time().AddDate(0, hit[0], 0)))
+				}
 			}
+			f.Rows = append(f.Rows, row)
 		}
-		goals = append(goals, row)
+		// Потрібний внесок рахуємо за РЕАЛІСТИЧНОЮ ставкою: більше
+		// відкладати — це рішення, а вища дохідність — ні.
+		if goalAmount > 0 && realisticAmount < goalAmount {
+			f.RequiredMonthly = round2(domain.RequiredMonthly(cash0, nominal0, threshold,
+				capRate, goalAmount, monthlyCoupon, monthlyRedeem, deadlineMonths))
+		}
+		forecast = f
 	}
 
 	nbuAt, _ := s.st.GetSetting(ctx, nbuRefreshedKey)
@@ -815,7 +818,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
 		PortfolioYield: portfolioYieldByCur,
-		Projection: projection, ProjectionRatePct: capRate, Goals: goals,
+		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
 		Rebalance: rebalance, RateRisk: rateRisk,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,
