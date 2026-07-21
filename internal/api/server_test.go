@@ -367,3 +367,84 @@ func TestProjectionColumnsShareUnit(t *testing.T) {
 		}
 	}
 }
+
+// Помічник має порівнювати валюти ЧЕСНО. Сира купонна ставка цього не
+// вміє: гривневі 16% завжди били доларові 4%, хоча при знеціненні
+// гривні реальна дохідність може бути на боці долара.
+func TestReinvestRanksByRealReturn(t *testing.T) {
+	srv, st := testServer(t)
+
+	uahHigh := nbu.Security{
+		Bond: domain.Bond{ISIN: "UA0000000001", Nominal: money.New(100000, money.UAH),
+			RateBP: 1600, Maturity: "2029-07-15", Descr: "гривневий 16%"},
+		Payments: []domain.Payment{
+			{ISIN: "UA0000000001", PayDate: "2027-07-15", Type: domain.PayCoupon, PerBond: money.New(16000, money.UAH)},
+			{ISIN: "UA0000000001", PayDate: "2028-07-15", Type: domain.PayCoupon, PerBond: money.New(16000, money.UAH)},
+			{ISIN: "UA0000000001", PayDate: "2029-07-15", Type: domain.PayCoupon, PerBond: money.New(16000, money.UAH)},
+			{ISIN: "UA0000000001", PayDate: "2029-07-15", Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+		},
+	}
+	usdLow := nbu.Security{
+		Bond: domain.Bond{ISIN: "UA0000000002", Nominal: money.New(100000, money.USD),
+			RateBP: 400, Maturity: "2029-07-15", Descr: "доларовий 4%"},
+		Payments: []domain.Payment{
+			{ISIN: "UA0000000002", PayDate: "2027-07-15", Type: domain.PayCoupon, PerBond: money.New(4000, money.USD)},
+			{ISIN: "UA0000000002", PayDate: "2028-07-15", Type: domain.PayCoupon, PerBond: money.New(4000, money.USD)},
+			{ISIN: "UA0000000002", PayDate: "2029-07-15", Type: domain.PayCoupon, PerBond: money.New(4000, money.USD)},
+			{ISIN: "UA0000000002", PayDate: "2029-07-15", Type: domain.PayRedemption, PerBond: money.New(100000, money.USD)},
+		},
+	}
+	if err := st.ReplaceDirectory(context.Background(), []nbu.Security{uahHigh, usdLow}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveRate(context.Background(), "USD", 4200000, "2026-07-15"); err != nil {
+		t.Fatal(err)
+	}
+
+	type row struct {
+		ISIN     string  `json:"isin"`
+		Currency string  `json:"currency"`
+		YTMPct   float64 `json:"ytm_pct"`
+		RealPct  float64 `json:"real_pct"`
+	}
+	rank := func(devalPct string) map[string]row {
+		t.Helper()
+		if resp, body := do(t, "PUT", srv.URL+"/api/settings",
+			`{"uah_devaluation_pct":"`+devalPct+`","reinvest_rank":"rate"}`); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("put settings: %d %s", resp.StatusCode, body)
+		}
+		var rows []row
+		_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
+		if err := json.Unmarshal([]byte(body), &rows); err != nil {
+			t.Fatalf("reinvest не парситься: %v — %s", err, body)
+		}
+		if len(rows) != 2 {
+			t.Fatalf("очікували 2 папери, маємо %d: %s", len(rows), body)
+		}
+		out := map[string]row{}
+		for _, r := range rows {
+			out[r.Currency] = r
+		}
+		out["_first"] = rows[0]
+		return out
+	}
+
+	// Долар знеціненням не зачеплений — його реальна дорівнює YTM.
+	low := rank("0")
+	if u := low["USD"]; math.Abs(u.RealPct-u.YTMPct) > 0.01 {
+		t.Errorf("доларова реальна має дорівнювати YTM: %v vs %v", u.RealPct, u.YTMPct)
+	}
+	// Гривнева реальна має бути НИЖЧОЮ за YTM, щойно знецінення ненульове.
+	mid := rank("6")
+	if h := mid["UAH"]; !(h.RealPct < h.YTMPct) {
+		t.Errorf("гривнева реальна мала просісти нижче YTM: %v vs %v", h.RealPct, h.YTMPct)
+	}
+	// Без знецінення виграє гривня, за високого — долар. Саме цього
+	// перевороту стара сортировка за rate_bp не вміла в принципі.
+	if low["_first"].Currency != money.UAH {
+		t.Errorf("без знецінення першим мав бути гривневий, маємо %s", low["_first"].Currency)
+	}
+	if high := rank("15"); high["_first"].Currency != money.USD {
+		t.Errorf("за знецінення 15%% першим мав стати доларовий, маємо %s", high["_first"].Currency)
+	}
+}

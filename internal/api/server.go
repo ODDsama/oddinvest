@@ -1670,6 +1670,12 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	curDist := math.Abs(curMac - targetDur)
+	// Знецінення гривні: те саме припущення, що й у прогнозі, інакше
+	// помічник радив би одне, а прогноз малював інше.
+	devalPct := defaultDevaluationPct
+	if doc.Settings != nil && doc.Settings.UAHDevaluationPct != nil && *doc.Settings.UAHDevaluationPct >= 0 {
+		devalPct = *doc.Settings.UAHDevaluationPct
+	}
 	rates, err := s.rates(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -1689,17 +1695,34 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		paysByISIN[p.ISIN] = append(paysByISIN[p.ISIN], p)
 	}
 
+	// brokerFit — скільки таких паперів тягне конкретний брокер. Баланси
+	// роздільні, тож загальна сума нічого не каже: гривня на inzhur не
+	// купить папір у mono.
+	type brokerFit struct {
+		Broker string `json:"broker"`
+		Qty    int64  `json:"qty"`
+	}
 	type suggestion struct {
-		ISIN          string    `json:"isin"`
-		Currency      string    `json:"currency"`
-		RatePct       string    `json:"rate_pct"`
-		Maturity      string    `json:"maturity"`
-		Nominal       moneyJSON `json:"nominal"`
-		Affordable    int64     `json:"affordable"`
-		CanBuy        bool      `json:"can_buy"`
-		Reason        string    `json:"reason"`
-		DurationNow   float64   `json:"duration_now"`
-		DurationAfter float64   `json:"duration_after"`
+		ISIN     string    `json:"isin"`
+		Currency string    `json:"currency"`
+		RatePct  string    `json:"rate_pct"`
+		Maturity string    `json:"maturity"`
+		Nominal  moneyJSON `json:"nominal"`
+		// CostPerBond — номінал плюс НКД: стільки коштує зайти сьогодні,
+		// якщо папір торгується за номіналом.
+		CostPerBond moneyJSON `json:"cost_per_bond"`
+		// YTMPct — дохідність до погашення за цією ціною, ефективна річна.
+		// RealPct — вона ж у сьогоднішніх гривнях, тобто за вирахуванням
+		// знецінення для гривневих паперів. Саме RealPct робить гривневі
+		// й валютні папери порівнянними.
+		YTMPct        float64     `json:"ytm_pct"`
+		RealPct       float64     `json:"real_pct"`
+		Brokers       []brokerFit `json:"brokers,omitempty"`
+		Affordable    int64       `json:"affordable"`
+		CanBuy        bool        `json:"can_buy"`
+		Reason        string      `json:"reason"`
+		DurationNow   float64     `json:"duration_now"`
+		DurationAfter float64     `json:"duration_after"`
 		def           float64
 		ladderNom     float64
 		rate          int64
@@ -1708,16 +1731,57 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	out := []suggestion{}
 	for _, b := range bonds {
 		c := b.Nominal.Currency().Code
-		bal := doc.Accounts[c]
 		nomMajor := float64(b.Nominal.Amount()) / 100
 		if nomMajor <= 0 {
 			continue
 		}
+		// Ціна входу сьогодні: номінал плюс НКД. Ціни в довіднику НБУ
+		// немає, тож рахуємо «за номіналом» — це чесне наближення, і
+		// принаймні НКД воно враховує, а він реально сплачується.
+		cost := b.Nominal
+		if acc, aerr := domain.EstimateAccrued(paysByISIN[b.ISIN], b.ISIN, today); aerr == nil && acc != nil {
+			if c2, err2 := cost.Add(acc); err2 == nil {
+				cost = c2
+			}
+		}
+		costMajor := float64(cost.Amount()) / 100
+		if costMajor <= 0 {
+			continue
+		}
+		// Дохідність до погашення за цією ціною і вона ж у сьогоднішніх
+		// гривнях. Для гривневих ділимо на знецінення — саме тут 4% у
+		// доларі перестають програвати 16% у гривні автоматично.
+		ytm, yerr := domain.YTM(cost, today, paysByISIN[b.ISIN], b.ISIN)
+		if yerr != nil {
+			continue // без майбутніх виплат порівнювати нема чого
+		}
+		real := ytm
+		if c == money.UAH {
+			real = (1+ytm)/(1+devalPct/100) - 1
+		}
+
+		// Скільки тягне кожен брокер окремо.
+		var fits []brokerFit
+		var best int64
+		for name, byCur := range doc.Brokers {
+			if n := int64(byCur[c] / costMajor); n > 0 {
+				fits = append(fits, brokerFit{Broker: name, Qty: n})
+				if n > best {
+					best = n
+				}
+			}
+		}
+		sort.Slice(fits, func(i, j int) bool {
+			if fits[i].Qty != fits[j].Qty {
+				return fits[i].Qty > fits[j].Qty
+			}
+			return fits[i].Broker < fits[j].Broker
+		})
 		// Показуємо рекомендації ЗАВЖДИ, навіть коли грошей ще не вистачає:
 		// інакше список порожніє одразу після покупки й помічник мовчить
 		// саме тоді, коли ти плануєш наступний крок. Доступність — перший
 		// критерій сортування, тож «можу купити» лишається зверху.
-		canBuy := bal >= nomMajor
+		canBuy := best > 0
 		year := b.Maturity.Year()
 		lnom := 0.0
 		if m, ok := ladderYear[year]; ok {
@@ -1763,9 +1827,12 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 
 		out = append(out, suggestion{
 			ISIN: b.ISIN, Currency: c,
-			RatePct:    fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
-			Maturity:   string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
-			Affordable: int64(bal / nomMajor), CanBuy: canBuy, Reason: strings.Join(parts, "; "),
+			RatePct:     fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
+			Maturity:    string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
+			CostPerBond: toMoneyJSON(cost),
+			YTMPct:      round2(ytm * 100), RealPct: round2(real * 100),
+			Brokers:     fits,
+			Affordable:  best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
 			DurationNow: round2(curMac), DurationAfter: round2(newMac),
 			def: def, ladderNom: lnom, rate: b.RateBP, durDist: durDist,
 		})
@@ -1779,8 +1846,10 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		}
 		switch rank {
 		case "rate":
-			if a.rate != b.rate {
-				return a.rate > b.rate
+			// «за ставкою» тепер означає за РЕАЛЬНОЮ дохідністю: сира
+			// купонна ставка непорівнянна між валютами.
+			if math.Abs(a.RealPct-b.RealPct) > 0.01 {
+				return a.RealPct > b.RealPct
 			}
 		case "short":
 			if a.Maturity != b.Maturity {
@@ -1790,21 +1859,21 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			if a.ladderNom != b.ladderNom {
 				return a.ladderNom < b.ladderNom
 			}
-			if a.rate != b.rate {
-				return a.rate > b.rate
+			if math.Abs(a.RealPct-b.RealPct) > 0.01 {
+				return a.RealPct > b.RealPct
 			}
 		default: // plan
 			if a.def != b.def {
 				return a.def > b.def
+			}
+			if math.Abs(a.RealPct-b.RealPct) > 0.01 {
+				return a.RealPct > b.RealPct
 			}
 			if targetDur > 0 && math.Abs(a.durDist-b.durDist) > 0.01 {
 				return a.durDist < b.durDist
 			}
 			if a.ladderNom != b.ladderNom {
 				return a.ladderNom < b.ladderNom
-			}
-			if a.rate != b.rate {
-				return a.rate > b.rate
 			}
 		}
 		return a.Maturity < b.Maturity
