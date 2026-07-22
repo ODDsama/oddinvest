@@ -1023,3 +1023,40 @@ func TestImportConflictAcrossDatesAndBrokers(t *testing.T) {
 		t.Errorf("продаж 20-го й ручний рух 22-го — це та сама сума, мав бути конфлікт")
 	}
 }
+
+// Поповнив і того ж дня купив на ту саму суму — це нормальний рух
+// грошей, а не подвоєння. Детектор має мовчати: хибні тривоги псують
+// довіру до нього саме тоді, коли трапиться справжня.
+func TestImportNoConflictWhenDepositFundsPurchase(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	// поповнення +8051.74 того ж дня, що й купівля на 8051.74
+	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
+		`{"amount":"8051.74","currency":"UAH","date":"2024-04-02","broker":"inzhur"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("поповнення: %d %s", resp.StatusCode, b)
+	}
+	xlsx := buildXLSX(t, [][]string{
+		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
+		{"45384.5", "Купівля 2 сертифікатів", "Inzhur Ocean", "", "8051.74"},
+	})
+	body, ct := multipartFile(t, "file", "s.xlsx", xlsx)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/import/inzhur?dry=1", body)
+	req.Header.Set("Content-Type", ct)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Rows []struct{ Conflict string `json:"conflict"` } `json:"rows"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Rows) != 1 {
+		t.Fatalf("очікували один рядок: %+v", out.Rows)
+	}
+	if out.Rows[0].Conflict != "" {
+		t.Errorf("поповнення НА купівлю — не подвоєння, конфлікту бути не мало: %s", out.Rows[0].Conflict)
+	}
+}

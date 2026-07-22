@@ -1850,7 +1850,7 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"restored": map[string]int{
 			"lots": len(b.Lots), "sales": len(b.Sales), "deposits": len(b.Deposits),
-			"conversions": len(b.Conversions), "settings": len(b.Settings),
+			"conversions": len(b.Conversions), "fund_ops": len(b.FundOps), "settings": len(b.Settings),
 			"payment_status": len(b.PaymentStatus), "snapshots": len(b.Snapshots),
 		},
 	})
@@ -2525,17 +2525,27 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 				out.Imported++
 			}
 		}
-		// Шукаємо ручний рух тієї ж величини поруч за датою. Порівнюємо
-		// за модулем: продаж міг бути записаний як поповнення, а купівля
-		// як зняття, і напрямок тут нічого не додає.
+		// Шукаємо ручний рух, який СТОЇТЬ ЗАМІСТЬ цієї операції.
+		//
+		// Напрямок вирішальний. Купівля списує гроші, тож її ручним
+		// відповідником було б ЗНЯТТЯ; продаж і дивіденд зараховують —
+		// отже ПОПОВНЕННЯ. Порівняння за модулем, як було спершу, ловило
+		// й цілком нормальну пару «поповнив 8 051,74 і того ж дня купив
+		// на 8 051,74»: гроші прийшли й пішли, ніякого подвоєння немає.
+		// Хибні тривоги тут дорого коштують — на них перестають зважати
+		// саме тоді, коли трапляється справжня.
 		var conflict string
-		if row.Kind == "fund_buy" || row.Kind == "fund_sell" || row.Kind == "dividend" ||
-			row.Kind == "bond_buy" {
+		switch row.Kind {
+		case "fund_buy", "fund_sell", "dividend", "bond_buy":
 			want := row.Amount
 			if row.Kind == "dividend" {
 				want = row.Amount - row.Tax
 			}
+			outflow := row.Kind == "fund_buy" || row.Kind == "bond_buy"
 			for _, d := range deps {
+				if (d.Amount < 0) != outflow {
+					continue // рух у той самий бік, що й операція, — не заміна їй
+				}
 				if abs64(d.Amount) != want && abs64(d.Amount) != row.Amount {
 					continue
 				}

@@ -94,3 +94,58 @@ func TestImportWrongSchema(t *testing.T) {
 		t.Fatal("несумісний бекап мав відхилитись")
 	}
 }
+
+// Операції фондів мають переживати експорт-імпорт. Без цього бекап був
+// неповним, і виявилось би це рівно тоді, коли відновлюватись уже нема з
+// чого — тож перевіряємо саме круговий обіг, а не наявність поля.
+func TestBackupRoundTripKeepsFundOps(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	ops := []domain.FundOp{
+		{Date: "2025-09-04", Fund: "Inzhur REIT", Kind: domain.FundBuy, Qty: 1738,
+			Amount: 1738000, Currency: "UAH", Broker: "inzhur", Note: "виписка"},
+		{Date: "2026-07-10", Fund: "Inzhur REIT", Kind: domain.FundDividend,
+			Amount: 1899, Tax: 266, Currency: "UAH", Broker: "inzhur"},
+		{Date: "2026-07-20", Fund: "Inzhur REIT", Kind: domain.FundSell, Qty: 72,
+			Amount: 79830, Tax: 178, Currency: "UAH", Broker: "inzhur"},
+	}
+	for _, op := range ops {
+		if _, err := src.AddFundOp(ctx, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.FundOps) != len(ops) {
+		t.Fatalf("експорт мав узяти %d операцій, маємо %d", len(ops), len(b.FundOps))
+	}
+
+	dst, err := Open(filepath.Join(t.TempDir(), "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportAll(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dst.ListFundOps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(ops) {
+		t.Fatalf("після відновлення %d операцій замість %d", len(got), len(ops))
+	}
+	// Податок і кількість — найлегше загубити при переносі, тож звіряємо їх.
+	for i, op := range ops {
+		if got[i].Fund != op.Fund || got[i].Kind != op.Kind || got[i].Qty != op.Qty ||
+			got[i].Amount != op.Amount || got[i].Tax != op.Tax || got[i].Broker != op.Broker {
+			t.Errorf("операція %d поїхала: %+v vs %+v", i, got[i], op)
+		}
+	}
+}

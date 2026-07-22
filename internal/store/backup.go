@@ -24,9 +24,27 @@ type Backup struct {
 	Sales         []BackupSale        `json:"sales"`
 	Deposits      []BackupDeposit     `json:"deposits"`
 	Conversions   []BackupConversion  `json:"conversions"`
+	FundOps       []BackupFundOp      `json:"fund_ops"`
 	Settings      map[string]string   `json:"settings"`
 	PaymentStatus []BackupPayStatus   `json:"payment_status"`
 	Snapshots     []BackupSnapshot    `json:"snapshots"`
+}
+
+// BackupFundOp — операція з сертифікатами фонду. Без неї бекап був
+// неповним: відновлення стерло б усю історію фондів разом із дивідендами
+// й податками, а помітно це стало б лише тоді, коли відновлюватись уже
+// нема з чого.
+type BackupFundOp struct {
+	ID       int64  `json:"id"`
+	Date     string `json:"date"`
+	Fund     string `json:"fund"`
+	Kind     string `json:"kind"`
+	Qty      int64  `json:"qty"`
+	Amount   int64  `json:"amount"`
+	Tax      int64  `json:"tax"`
+	Currency string `json:"currency"`
+	Broker   string `json:"broker"`
+	Note     string `json:"note"`
 }
 
 type BackupLot struct {
@@ -135,6 +153,18 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT id,date,fund,kind,qty,amount,tax,currency,broker,note FROM fund_ops ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupFundOp
+			if err := scan(&r.ID, &r.Date, &r.Fund, &r.Kind, &r.Qty, &r.Amount, &r.Tax,
+				&r.Currency, &r.Broker, &r.Note); err != nil {
+				return err
+			}
+			b.FundOps = append(b.FundOps, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT key,value FROM settings`,
 		func(scan func(...any) error) error {
 			var k, v string
@@ -185,7 +215,8 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	defer tx.Rollback() //nolint:errcheck // no-op після Commit
 
 	// діти → батьки, щоб не спіткнутись об FK
-	for _, t := range []string{"sales", "lots", "deposits", "conversions", "settings", "payment_status", "snapshots"} {
+	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
+		"settings", "payment_status", "snapshots"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
 		}
@@ -217,6 +248,14 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			`INSERT INTO conversions (id,date,from_currency,from_amount,to_currency,to_amount,broker,note) VALUES (?,?,?,?,?,?,?,?)`,
 			c.ID, c.Date, c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, c.Broker, c.Note); err != nil {
 			return fmt.Errorf("конвертація %d: %w", c.ID, err)
+		}
+	}
+	for _, op := range b.FundOps {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO fund_ops (id,date,fund,kind,qty,amount,tax,currency,broker,note) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			op.ID, op.Date, op.Fund, op.Kind, op.Qty, op.Amount, op.Tax, op.Currency,
+			op.Broker, op.Note); err != nil {
+			return fmt.Errorf("операція фонду %d: %w", op.ID, err)
 		}
 	}
 	for k, v := range b.Settings {
