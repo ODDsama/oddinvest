@@ -465,6 +465,45 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		investedByBroker[name] += float64(u.Amount()) / 100
 	}
+	// Сертифікати теж лежать у брокера, і без них картка «Вкладено по
+	// брокерах» показувала неправду про те, ДЕ твої гроші: 3 389 ₴ в
+	// inzhur просто не існували для неї.
+	//
+	// Собівартість тут середньозважена по фонду, а брокер — з операцій;
+	// якщо той самий фонд купувався у двох брокерів, частка ділиться
+	// пропорційно вкладеному в кожного.
+	if ops, ferr := s.st.ListFundOps(ctx); ferr == nil && len(ops) > 0 {
+		boughtByFundBroker := map[string]map[string]int64{}
+		for _, op := range ops {
+			if op.Kind != domain.FundBuy {
+				continue
+			}
+			if boughtByFundBroker[op.Fund] == nil {
+				boughtByFundBroker[op.Fund] = map[string]int64{}
+			}
+			b := op.Broker
+			if b == "" {
+				b = "—"
+			}
+			boughtByFundBroker[op.Fund][b] += op.Amount
+		}
+		for fund, pos := range domain.FundPositions(ops) {
+			byBroker := boughtByFundBroker[fund]
+			var totalBought int64
+			for _, v := range byBroker {
+				totalBought += v
+			}
+			if totalBought == 0 || pos.CostBasis == 0 {
+				continue
+			}
+			for b, v := range byBroker {
+				share := money.New(pos.CostBasis*v/totalBought, pos.Currency)
+				if u, uerr := fx.ToUAH(share, rates); uerr == nil {
+					investedByBroker[b] += float64(u.Amount()) / 100
+				}
+			}
+		}
+	}
 
 	// Драбина в грн-екв.: номінал, що повертається щороку (для стовпчиків).
 	ladderByYear := map[int]int64{}
@@ -516,6 +555,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Позиція — сальдо журналу операцій. Дивіденди беремо ПІСЛЯ податку:
 	// купон ОВДП від нього звільнений, дивіденд фонду ні, тож у спільну
 	// картку доходу вони можуть потрапити лише чистими.
+	// Дохідність фондів і зведена по портфелю. Рахуються нижче, коли вже
+	// зібрані позиції фондів — тут лише оголошені, щоб було видно, що
+	// це три різні числа, а не одне з уточненнями.
+	var fundsYield, blendedYield float64
 	var fundsUAH float64
 	var fundRows []state.FundPositionRow
 	if ops, ferr := s.st.ListFundOps(ctx); ferr == nil && len(ops) > 0 {
@@ -554,6 +597,19 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			}
 		}
 		incomeMonthlyNow = round2(incomeMonthlyNow + fundDivNet/12)
+		// Дохідність фондів — зважена ринковою вартістю: більший фонд
+		// має важити більше, ніж дрібний із гучним відсотком.
+		var wSum, w float64
+		for _, row := range fundRows {
+			if row.MarketValue <= 0 {
+				continue
+			}
+			wSum += row.YieldNetPct * row.MarketValue
+			w += row.MarketValue
+		}
+		if w > 0 {
+			fundsYield = math.Round(wSum/w*100) / 100
+		}
 	}
 
 	accounts := map[string]float64{}
@@ -644,10 +700,20 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		settings.GoalDate = raw
 	}
 
+	// Фонди входять у XIRR нарівні з облігаціями: показник міряє, скільки
+	// реально зароблено на вкладених грошах, а гроші в сертифікатах — ті
+	// самі гроші. Без цього він рахував облігаційну частину й видавав її
+	// за портфельну.
+	fundOps, _ := s.st.ListFundOps(ctx)
 	xirr := map[string]float64{}
 	for _, cur := range []string{money.UAH, money.USD, money.EUR} {
 		flows, err := domain.PortfolioFlows(bonds, pays, lots, sales, cur, today)
-		if err != nil || len(flows) < 2 {
+		if err != nil {
+			continue
+		}
+		flows = append(flows, domain.FundFlows(fundOps, cur, today)...)
+		sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })
+		if len(flows) < 2 {
 			continue
 		}
 		// ануалізація на коротких горизонтах дає сміттєві сотні відсотків;
@@ -788,7 +854,21 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// дохідність, свій календар, свій поріг докупівлі. Інакше гривневий
 	// папір під 16% завжди бив би доларовий під 4% — модель просто не
 	// бачила б, що гривня знецінюється.
-	capRate := portfolioYield
+	// Зведена дохідність: облігації важать номіналом у грн-екв., фонди —
+	// ринковою вартістю. Саме вона й потрібна проєкціям — до неї капітал
+	// у сертифікатах ріс за ставкою облігацій, яких у ньому немає.
+	nominalMajor := float64(nominalUAH) / 100
+	if nominalMajor+fundsUAH > 0 {
+		blendedYield = math.Round((portfolioYield*nominalMajor+fundsYield*fundsUAH)/
+			(nominalMajor+fundsUAH)*100) / 100
+	}
+
+	// Ставка реінвесту — ЗВЕДЕНА: капітал у сертифікатах не росте за
+	// ставкою облігацій, яких у ньому немає.
+	capRate := blendedYield
+	if capRate <= 0 {
+		capRate = portfolioYield
+	}
 	if capRate > 40 {
 		capRate = 40 // стеля, щоб компаунд не вибухав
 	}
@@ -936,7 +1016,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		target = money.New(int64(math.Round(contribM*100)), money.UAH)
 	}
 
-	p0 := float64(accountUAHMinor+nominalUAH) / 100
+	// Старт проєкції — увесь капітал, разом із сертифікатами: інакше
+	// крива починалась би нижче за плитку «Капітал» на ту саму суму.
+	p0 := float64(accountUAHMinor+nominalUAH)/100 + fundsUAH
 	projection := make([]state.ProjectionRow, 0, 4)
 	for _, y := range []int{1, 3, 5, 10} {
 		m := y * 12
@@ -1167,6 +1249,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		IncomeMonthlyNow: incomeMonthlyNow,
 		ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
+		FundsYieldPct: fundsYield, BlendedYieldPct: blendedYield,
 		PortfolioYield: portfolioYieldByCur,
 		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
 		Rebalance: rebalance, RateRisk: rateRisk,

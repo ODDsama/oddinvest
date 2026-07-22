@@ -140,3 +140,47 @@ func PortfolioFlows(bonds map[string]Bond, payments []Payment, lots []Lot,
 	sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })
 	return flows, nil
 }
+
+// FundFlows — грошові потоки сертифікатів фондів для XIRR.
+//
+// У фонду немає ні номіналу, ні графіка, тож дохідність до погашення для
+// нього не існує — але ФАКТИЧНО зароблене міряється так само, як у
+// облігацій: купівля забирає гроші, продаж і дивіденд приносять, а те, що
+// лишилось, оцінюється за останньою відомою ціною. Без цих потоків XIRR
+// показував дохідність облігаційної частини, видаючи її за портфельну.
+//
+// Дивіденд береться ПІСЛЯ податку: до тебе дійшло саме стільки. Податок із
+// продажу так само зменшує виручку.
+func FundFlows(ops []FundOp, currency string, asOf Date) []Flow {
+	var flows []Flow
+	for _, op := range ops {
+		if op.Currency != currency || op.Date.After(asOf) {
+			continue
+		}
+		switch op.Kind {
+		case FundBuy:
+			flows = append(flows, Flow{Date: op.Date, Amount: -op.Amount})
+		case FundSell:
+			flows = append(flows, Flow{Date: op.Date, Amount: op.Amount - op.Tax})
+		case FundDividend:
+			flows = append(flows, Flow{Date: op.Date, Amount: op.Amount - op.Tax})
+		}
+	}
+	if len(flows) == 0 {
+		return nil
+	}
+	// Термінальна вартість — залишок за останньою ціною, тією самою, що
+	// показана в позиції: інше джерело дало б XIRR, який не сходиться з
+	// видимими числами.
+	var terminal int64
+	for _, p := range FundPositions(ops) {
+		if p.Currency == currency {
+			terminal += p.MarketValue()
+		}
+	}
+	if terminal > 0 {
+		flows = append(flows, Flow{Date: asOf, Amount: terminal})
+	}
+	sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })
+	return flows
+}

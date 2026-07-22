@@ -105,6 +105,17 @@ type Doc struct {
 	// вкладеними грішми. Відсутня валюта = паперів немає.
 	PortfolioYield map[string]float64 `json:"portfolio_yield,omitempty"`
 
+	// FundsYieldPct — чиста дивідендна дохідність сертифікатів, зважена
+	// їхньою ринковою вартістю. BlendedYieldPct — те й те разом: YTM
+	// облігацій і дивідендна дохідність фондів, зважені вкладеним.
+	//
+	// Тримаються ОКРЕМО навмисно. YTM — зафіксована обіцянка до погашення;
+	// дивідендна дохідність — оцінка з останньої виплати, яка завтра може
+	// стати іншою. Одне число замість двох сховало б цю різницю, а саме
+	// воно потім керує проєкціями.
+	FundsYieldPct   float64 `json:"funds_yield_pct,omitempty"`
+	BlendedYieldPct float64 `json:"blended_yield_pct,omitempty"`
+
 	// Projection — прогноз капіталу помісячною симуляцією реальних потоків
 	// (купони/погашення наявних паперів + внески, реінвест під дохідність).
 	// ProjectionRatePct — ставка реінвесту, що використана. Goal* —
@@ -363,6 +374,8 @@ type Input struct {
 	Settings          *SettingsDoc
 	XIRRPct             map[string]float64
 	PortfolioYieldPct   float64
+	FundsYieldPct       float64
+	BlendedYieldPct     float64
 	PortfolioYield      map[string]float64
 	Projection          []ProjectionRow
 	ProjectionRatePct   float64
@@ -467,6 +480,8 @@ func Build(in Input) (*Doc, error) {
 	doc.Settings = in.Settings
 	doc.XIRRPct = in.XIRRPct
 	doc.PortfolioYieldPct = in.PortfolioYieldPct
+	doc.FundsYieldPct = in.FundsYieldPct
+	doc.BlendedYieldPct = in.BlendedYieldPct
 	doc.PortfolioYield = in.PortfolioYield
 	doc.Projection = in.Projection
 	doc.ProjectionRatePct = in.ProjectionRatePct
