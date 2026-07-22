@@ -935,3 +935,46 @@ func TestImportInzhurIsIdempotent(t *testing.T) {
 		t.Errorf("баланс: очікували 205.21, маємо %v", v)
 	}
 }
+
+// Ручний рух міг бути записаний іншою датою й на іншому брокері — саме
+// так виглядає «вирівнювання балансу» постфактум. Детектор має ловити і
+// такий випадок, інакше він мовчить рівно там, де потрібен найбільше.
+func TestImportConflictAcrossDatesAndBrokers(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+
+	// продаж 72 сертифікатів стався 20-го на inzhur…
+	xlsx := buildXLSX(t, [][]string{
+		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
+		{"46223.368946759256", "Продаж 72 сертифікатів", "Inzhur REIT", "798.3"},
+	})
+	// …а записаний вручну 22-го й на mono
+	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
+		`{"amount":"798.30","currency":"UAH","date":"2026-07-22","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("ручний рух: %d %s", resp.StatusCode, b)
+	}
+
+	body, ct := multipartFile(t, "file", "s.xlsx", xlsx)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/import/inzhur?dry=1", body)
+	req.Header.Set("Content-Type", ct)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Rows []struct {
+			Kind     string `json:"kind"`
+			Conflict string `json:"conflict"`
+		} `json:"rows"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Rows) != 1 {
+		t.Fatalf("очікували один рядок, маємо %+v", out.Rows)
+	}
+	if out.Rows[0].Conflict == "" {
+		t.Errorf("продаж 20-го й ручний рух 22-го — це та сама сума, мав бути конфлікт")
+	}
+}
