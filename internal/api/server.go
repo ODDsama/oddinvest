@@ -2,12 +2,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"math"
@@ -21,6 +23,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/imports"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -83,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("GET /api/backup", s.handleBackupExport)
 	mux.HandleFunc("POST /api/restore", s.handleBackupImport)
+	mux.HandleFunc("POST /api/import/inzhur", s.handleImportInzhur)
 
 	sub, _ := fs.Sub(webFS, "web")
 	mux.Handle("GET /", http.FileServerFS(sub))
@@ -380,6 +384,24 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		bal[cost.Currency().Code] -= cost.Amount()
 		balBC[store.BrokerCur{Broker: l.Channel, Currency: cost.Currency().Code}] -= cost.Amount()
+	}
+
+	// Операції фондів рухають той самий гаманець: купівля списує гроші,
+	// продаж і дивіденд зараховують уже за вирахуванням податку. Без
+	// цього куплені сертифікати не зменшували б баланс, і звірка з
+	// брокером показувала б вічну розбіжність рівно на їхню суму.
+	if fops, ferr := s.st.ListFundOps(ctx); ferr == nil {
+		for _, op := range fops {
+			delta := int64(0)
+			switch op.Kind {
+			case domain.FundBuy:
+				delta = -op.Amount
+			case domain.FundSell, domain.FundDividend:
+				delta = op.Amount - op.Tax
+			}
+			bal[op.Currency] += delta
+			balBC[store.BrokerCur{Broker: op.Broker, Currency: op.Currency}] += delta
+		}
 	}
 
 	// брокер -> валюта -> сума (major), для UI і для «чи вистачає на папір»
@@ -2347,4 +2369,120 @@ func (s *Server) handleDeleteFundOp(w http.ResponseWriter, r *http.Request) {
 	}
 	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- імпорт виписки ---
+
+// handleImportInzhur приймає xlsx-виписку.
+//
+// Два режими одним ендпойнтом: ?dry=1 лише показує, що буде зроблено, без
+// запису. Стан між викликами не зберігаємо — файл лежить у користувача,
+// і повторно надіслати його дешевше, ніж тримати серверну сесію, яку
+// потім треба протухати.
+//
+// Дедуплікація обов'язкова: щомісячна виписка містить і старі рядки, тож
+// без неї другий імпорт подвоїв би позицію.
+func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
+	dry := r.URL.Query().Get("dry") == "1"
+	broker := strings.TrimSpace(r.URL.Query().Get("broker"))
+	if broker == "" {
+		broker = "inzhur"
+	}
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("очікували файл у полі file: %w", err))
+		return
+	}
+	defer file.Close()
+	buf, err := io.ReadAll(io.LimitReader(file, 16<<20))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	sheet, err := imports.ReadXLSX(bytes.NewReader(buf), int64(len(buf)))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	res, err := imports.ParseInzhur(sheet)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+
+	ctx := r.Context()
+	deps, _ := s.st.ListDeposits(ctx)
+	depSeen := map[string]bool{}
+	for _, d := range deps {
+		depSeen[fmt.Sprintf("%s|%d|%s|%s", d.Date, d.Amount, d.Currency, d.Broker)] = true
+	}
+
+	type outRow struct {
+		Date   string `json:"date"`
+		Kind   string `json:"kind"`
+		Fund   string `json:"fund,omitempty"`
+		Qty    int64  `json:"qty,omitempty"`
+		Amount string `json:"amount"`
+		Tax    string `json:"tax,omitempty"`
+		Exists bool   `json:"exists"`
+	}
+	out := struct {
+		Rows     []outRow          `json:"rows"`
+		Skipped  []imports.Skipped `json:"skipped"`
+		Imported int               `json:"imported"`
+		New      int               `json:"new"`
+	}{Rows: []outRow{}, Skipped: res.Skipped}
+
+	for _, row := range res.Rows {
+		cur := money.UAH
+		var exists bool
+		switch row.Kind {
+		case "fund_buy", "fund_sell", "dividend":
+			kind := domain.FundBuy
+			if row.Kind == "fund_sell" {
+				kind = domain.FundSell
+			} else if row.Kind == "dividend" {
+				kind = domain.FundDividend
+			}
+			op := domain.FundOp{Date: row.Date, Fund: row.Fund, Kind: kind, Qty: row.Qty,
+				Amount: row.Amount, Tax: row.Tax, Currency: cur, Broker: broker, Note: "виписка"}
+			if exists, _ = s.st.FundOpExists(ctx, op); !exists && !dry {
+				if _, aerr := s.st.AddFundOp(ctx, op); aerr != nil {
+					writeErr(w, http.StatusInternalServerError, aerr)
+					return
+				}
+			}
+		case "deposit", "withdrawal":
+			amt := row.Amount
+			if row.Kind == "withdrawal" {
+				amt = -amt
+			}
+			key := fmt.Sprintf("%s|%d|%s|%s", row.Date, amt, cur, broker)
+			exists = depSeen[key]
+			if !exists {
+				depSeen[key] = true // не задвоїти в межах одного файлу
+				if !dry {
+					if _, aerr := s.st.AddDeposit(ctx, store.Deposit{Date: row.Date, Amount: amt,
+						Currency: cur, Broker: broker, Note: "виписка"}); aerr != nil {
+						writeErr(w, http.StatusInternalServerError, aerr)
+						return
+					}
+				}
+			}
+		}
+		if !exists {
+			out.New++
+			if !dry {
+				out.Imported++
+			}
+		}
+		out.Rows = append(out.Rows, outRow{Date: string(row.Date), Kind: row.Kind,
+			Fund: row.Fund, Qty: row.Qty,
+			Amount: money.New(row.Amount, cur).Display(),
+			Tax:    money.New(row.Tax, cur).Display(), Exists: exists})
+	}
+	if !dry && out.Imported > 0 {
+		s.publishAsync()
+	}
+	writeJSON(w, http.StatusOK, out)
 }

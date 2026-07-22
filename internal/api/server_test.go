@@ -818,3 +818,97 @@ func TestFundOpsFlowToState(t *testing.T) {
 		t.Errorf("дивіденд без кількості мав пройти: %d %s", resp.StatusCode, b)
 	}
 }
+
+// Імпорт виписки. Найважливіше тут — ідемпотентність: щомісячний файл
+// містить і старі рядки, тож без дедуплікації другий імпорт подвоїв би
+// і позицію, і баланс.
+func TestImportInzhurIsIdempotent(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+
+	xlsx := buildXLSX(t, [][]string{
+		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
+		{"46224.65980324074", "Купівля 5 сертифікатів", "Inzhur REIT", "", "55.56"},
+		{"46213.00001157408", "Сплата податку", "Inzhur REIT", "", "2.66"},
+		{"46213", "Нарахування дивідендів", "Inzhur REIT", "18.99"},
+		{"46221.975694444445", "Поповнення брокерського рахунку", "-", "300"},
+		{"46223.376238425924", "Купівля 1 облігації", "ОВДП UA4000237416", "", "1032.46"},
+	})
+
+	post := func(dry bool) map[string]any {
+		t.Helper()
+		url := srv.URL + "/api/import/inzhur"
+		if dry {
+			url += "?dry=1"
+		}
+		body, ct := multipartFile(t, "file", "statement.xlsx", xlsx)
+		req, _ := http.NewRequest("POST", url, body)
+		req.Header.Set("Content-Type", ct)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatalf("імпорт %d: %v", resp.StatusCode, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("імпорт: %d %v", resp.StatusCode, out)
+		}
+		return out
+	}
+
+	// Прогін без запису нічого не змінює.
+	preview := post(true)
+	if preview["new"].(float64) != 3 { // купівля, дивіденд, поповнення
+		t.Errorf("превʼю мало знайти 3 нові операції, маємо %v", preview["new"])
+	}
+	if preview["imported"].(float64) != 0 {
+		t.Errorf("режим превʼю не мав нічого записати, маємо %v", preview["imported"])
+	}
+	if _, body := do(t, "GET", srv.URL+"/api/funds", ""); !strings.Contains(body, "[]") {
+		t.Errorf("після превʼю журнал мав лишитись порожнім: %s", body)
+	}
+
+	first := post(false)
+	if first["imported"].(float64) != 3 {
+		t.Errorf("перший імпорт мав записати 3 операції, маємо %v", first["imported"])
+	}
+	// Облігація має бути НАЗВАНА в пропусках, а не зникнути.
+	sk, _ := first["skipped"].([]any)
+	if len(sk) != 1 {
+		t.Errorf("очікували один названий пропуск (облігація), маємо %v", sk)
+	}
+
+	second := post(false)
+	if second["imported"].(float64) != 0 {
+		t.Errorf("повторний імпорт не мав записати нічого, маємо %v", second["imported"])
+	}
+
+	// Позиція після двох імпортів — така сама, як після одного.
+	var got struct {
+		Funds []struct {
+			Qty          int64   `json:"qty"`
+			DividendsNet float64 `json:"dividends_net"`
+		} `json:"funds"`
+		Accounts map[string]float64 `json:"accounts"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Funds) != 1 || got.Funds[0].Qty != 5 {
+		t.Errorf("після двох імпортів мало лишитись 5 сертифікатів: %+v", got.Funds)
+	}
+	// дивіденд 18.99 із податком 2.66 -> 16.33 чистими, один раз
+	if len(got.Funds) == 1 && math.Abs(got.Funds[0].DividendsNet-16.33) > 0.01 {
+		t.Errorf("дивіденд мав врахуватись один раз чистим: %v", got.Funds[0].DividendsNet)
+	}
+	// Гаманець має рухатись від УСІХ операцій фонду, а не лише від
+	// поповнень: 300 (поповнення) − 55.56 (купівля) + 16.33 (дивіденд
+	// чистими) = 260.77. І кожна з них — рівно один раз.
+	if v := got.Accounts["UAH"]; math.Abs(v-260.77) > 0.01 {
+		t.Errorf("баланс мав бути 300 − 55.56 + 16.33 = 260.77, маємо %v", v)
+	}
+}
