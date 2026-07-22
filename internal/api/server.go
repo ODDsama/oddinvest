@@ -74,6 +74,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/payments/status", s.handlePaymentStatus)
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)
 	mux.HandleFunc("GET /api/xirr", s.handleXIRR)
+	mux.HandleFunc("GET /api/funds", s.handleFundOps)
+	mux.HandleFunc("POST /api/funds", s.handleAddFundOp)
+	mux.HandleFunc("PUT /api/funds/{id}", s.handleUpdateFundOp)
+	mux.HandleFunc("DELETE /api/funds/{id}", s.handleDeleteFundOp)
 	mux.HandleFunc("GET /api/reinvest", s.handleReinvest)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
@@ -461,6 +465,49 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		couponSum += couByMonth[key]
 	}
 	incomeMonthlyNow := round2(couponSum / 12)
+
+	// --- сертифікати фондів ---
+	// Позиція — сальдо журналу операцій. Дивіденди беремо ПІСЛЯ податку:
+	// купон ОВДП від нього звільнений, дивіденд фонду ні, тож у спільну
+	// картку доходу вони можуть потрапити лише чистими.
+	var fundsUAH float64
+	var fundRows []state.FundPositionRow
+	if ops, ferr := s.st.ListFundOps(ctx); ferr == nil && len(ops) > 0 {
+		positions := domain.FundPositions(ops)
+		names := make([]string, 0, len(positions))
+		for name := range positions {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		var fundDivNet float64
+		for _, name := range names {
+			fp := positions[name]
+			mv := money.New(fp.MarketValue(), fp.Currency)
+			mvUAH := float64(fp.MarketValue()) / 100
+			if u, cerr := fx.ToUAH(mv, rates); cerr == nil {
+				mvUAH = float64(u.Amount()) / 100
+			}
+			fundsUAH += mvUAH
+			y, _ := domain.DividendYieldNet(ops, fp, today)
+			row := state.FundPositionRow{
+				Fund: fp.Fund, Currency: fp.Currency, Qty: fp.Qty,
+				CostBasis:     round2(float64(fp.CostBasis) / 100),
+				LastPrice:     math.Round(float64(fp.LastPrice)) / 10000,
+				LastPriceDate: string(fp.LastPriceDate),
+				MarketValue:   round2(mvUAH),
+				DividendsNet:  round2(float64(fp.DividendsGross-fp.DividendsTax) / 100),
+				DividendsTax:  round2(float64(fp.DividendsTax) / 100),
+				Realized:      round2(float64(fp.Realized) / 100),
+				YieldNetPct:   y,
+			}
+			fundRows = append(fundRows, row)
+			// Чистий дивідендний потік за рік — у спільний «пасивний дохід».
+			if y > 0 {
+				fundDivNet += mvUAH * y / 100
+			}
+		}
+		incomeMonthlyNow = round2(incomeMonthlyNow + fundDivNet/12)
+	}
 
 	accounts := map[string]float64{}
 	accountUAHMinor := int64(0)
@@ -1046,6 +1093,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
 		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
+		FundsUAH: round2(fundsUAH), Funds: fundRows,
 		IncomeMonthlyNow: incomeMonthlyNow,
 		ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
@@ -2151,4 +2199,152 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			"результат " + toMoneyJSON(res).Amount + " " + res.Currency().Code})
 	}
 	cw.Flush()
+}
+
+// --- сертифікати фондів ---
+
+type fundOpReq struct {
+	Date     string `json:"date"`
+	Fund     string `json:"fund"`
+	Kind     string `json:"kind"` // buy | sell | dividend
+	Qty      int64  `json:"qty"`
+	Amount   string `json:"amount"`
+	Tax      string `json:"tax"`
+	Currency string `json:"currency"`
+	Broker   string `json:"broker"`
+	Note     string `json:"note"`
+}
+
+func fundOpFromReq(req fundOpReq) (domain.FundOp, error) {
+	var out domain.FundOp
+	d := domain.NewDate(time.Now())
+	if req.Date != "" {
+		var err error
+		if d, err = domain.ParseDate(req.Date); err != nil {
+			return out, err
+		}
+	}
+	kind := domain.FundOpKind(strings.TrimSpace(req.Kind))
+	switch kind {
+	case domain.FundBuy, domain.FundSell, domain.FundDividend:
+	default:
+		return out, fmt.Errorf("kind має бути buy, sell або dividend, маємо %q", req.Kind)
+	}
+	if strings.TrimSpace(req.Fund) == "" {
+		return out, errors.New("вкажіть фонд")
+	}
+	cur := req.Currency
+	if cur == "" {
+		cur = money.UAH
+	}
+	amount, err := domain.ParseDecimalToMinor(req.Amount, cur)
+	if err != nil {
+		return out, err
+	}
+	if amount <= 0 {
+		return out, errors.New("сума має бути > 0")
+	}
+	var tax int64
+	if strings.TrimSpace(req.Tax) != "" {
+		if tax, err = domain.ParseDecimalToMinor(req.Tax, cur); err != nil {
+			return out, err
+		}
+	}
+	// Кількість обов'язкова для купівлі й продажу і безглузда для
+	// дивіденда: він нараховується на позицію, а не на штуки.
+	if kind == domain.FundDividend {
+		req.Qty = 0
+	} else if req.Qty <= 0 {
+		return out, errors.New("кількість сертифікатів має бути > 0")
+	}
+	return domain.FundOp{Date: d, Fund: strings.TrimSpace(req.Fund), Kind: kind,
+		Qty: req.Qty, Amount: amount, Tax: tax, Currency: cur,
+		Broker: strings.TrimSpace(req.Broker), Note: req.Note}, nil
+}
+
+func (s *Server) handleFundOps(w http.ResponseWriter, r *http.Request) {
+	ops, err := s.st.ListFundOps(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	type row struct {
+		ID       int64     `json:"id"`
+		Date     string    `json:"date"`
+		Fund     string    `json:"fund"`
+		Kind     string    `json:"kind"`
+		Qty      int64     `json:"qty,omitempty"`
+		Amount   moneyJSON `json:"amount"`
+		Tax      moneyJSON `json:"tax,omitempty"`
+		Broker   string    `json:"broker,omitempty"`
+		Note     string    `json:"note,omitempty"`
+	}
+	out := make([]row, 0, len(ops))
+	for _, op := range ops {
+		out = append(out, row{ID: op.ID, Date: string(op.Date), Fund: op.Fund,
+			Kind: string(op.Kind), Qty: op.Qty,
+			Amount: toMoneyJSON(money.New(op.Amount, op.Currency)),
+			Tax:    toMoneyJSON(money.New(op.Tax, op.Currency)),
+			Broker: op.Broker, Note: op.Note})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleAddFundOp(w http.ResponseWriter, r *http.Request) {
+	var req fundOpReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	op, err := fundOpFromReq(req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	id, err := s.st.AddFundOp(r.Context(), op)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+func (s *Server) handleUpdateFundOp(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var req fundOpReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	op, err := fundOpFromReq(req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	op.ID = id
+	if err := s.st.UpdateFundOp(r.Context(), op); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteFundOp(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.DeleteFundOp(r.Context(), id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
 }

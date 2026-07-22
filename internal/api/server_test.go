@@ -740,3 +740,81 @@ func TestForecastSpreadsRequiredPayment(t *testing.T) {
 			req["realistic"], got.Forecast.ContribPlan)
 	}
 }
+
+// Сертифікати фондів проходять увесь шлях: журнал операцій -> позиція ->
+// стан. Головне, що перевіряємо, — дохідність рахується ПІСЛЯ податку:
+// купон ОВДП від нього звільнений, дивіденд фонду ні, і до податку ці
+// числа непорівнянні.
+func TestFundOpsFlowToState(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+
+	// та сама історія, що у виписці Inzhur: набір позиції, дивіденд, продаж
+	add := func(body string) {
+		t.Helper()
+		if resp, b := do(t, "POST", srv.URL+"/api/funds", body); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("операція фонду: %d %s", resp.StatusCode, b)
+		}
+	}
+	add(`{"date":"2026-06-05","fund":"Inzhur REIT","kind":"buy","qty":110,"amount":"1207.82","broker":"inzhur"}`)
+	add(`{"date":"2026-07-01","fund":"Inzhur REIT","kind":"buy","qty":90,"amount":"1000.40","broker":"inzhur"}`)
+	add(`{"date":"2026-07-10","fund":"Inzhur REIT","kind":"dividend","amount":"18.99","tax":"2.66","broker":"inzhur"}`)
+	add(`{"date":"2026-07-20","fund":"Inzhur REIT","kind":"sell","qty":72,"amount":"798.30","tax":"1.78","broker":"inzhur"}`)
+
+	var got struct {
+		FundsUAH float64 `json:"funds_uah"`
+		Funds    []struct {
+			Fund         string  `json:"fund"`
+			Qty          int64   `json:"qty"`
+			LastPrice    float64 `json:"last_price"`
+			MarketValue  float64 `json:"market_value"`
+			DividendsNet float64 `json:"dividends_net"`
+			DividendsTax float64 `json:"dividends_tax"`
+			YieldNetPct  float64 `json:"yield_net_pct"`
+		} `json:"funds"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("summary не парситься: %v", err)
+	}
+	if len(got.Funds) != 1 {
+		t.Fatalf("очікували одну позицію, маємо %d: %s", len(got.Funds), body)
+	}
+	f := got.Funds[0]
+	if f.Qty != 128 { // 110 + 90 − 72
+		t.Errorf("залишок 128 сертифікатів, маємо %d", f.Qty)
+	}
+	// остання операція — продаж 72 за 798.30 -> 11.0875 ₴
+	if math.Abs(f.LastPrice-11.0875) > 0.0001 {
+		t.Errorf("остання ціна 11.0875, маємо %v", f.LastPrice)
+	}
+	if math.Abs(f.MarketValue-128*11.0875) > 0.05 {
+		t.Errorf("вартість позиції ≈%.2f, маємо %v", 128*11.0875, f.MarketValue)
+	}
+	// дивіденд ЧИСТИЙ: 18.99 − 2.66
+	if math.Abs(f.DividendsNet-16.33) > 0.01 || math.Abs(f.DividendsTax-2.66) > 0.01 {
+		t.Errorf("дивіденди мали бути 16.33 чистими при податку 2.66, маємо %v / %v",
+			f.DividendsNet, f.DividendsTax)
+	}
+	if f.YieldNetPct <= 0 {
+		t.Errorf("чиста дохідність мала порахуватись, маємо %v", f.YieldNetPct)
+	}
+	if math.Abs(got.FundsUAH-f.MarketValue) > 0.01 {
+		t.Errorf("funds_uah має дорівнювати сумі позицій: %v vs %v", got.FundsUAH, f.MarketValue)
+	}
+
+	// валідація: невідомий тип і нульова кількість
+	if resp, _ := do(t, "POST", srv.URL+"/api/funds",
+		`{"fund":"X","kind":"transfer","qty":1,"amount":"10"}`); resp.StatusCode != http.StatusBadRequest {
+		t.Error("невідомий kind мав дати 400")
+	}
+	if resp, _ := do(t, "POST", srv.URL+"/api/funds",
+		`{"fund":"X","kind":"buy","qty":0,"amount":"10"}`); resp.StatusCode != http.StatusBadRequest {
+		t.Error("нульова кількість мала дати 400")
+	}
+	// дивіденд без кількості — навпаки, коректний
+	if resp, b := do(t, "POST", srv.URL+"/api/funds",
+		`{"fund":"X","kind":"dividend","amount":"5.00","tax":"0.70"}`); resp.StatusCode != http.StatusCreated {
+		t.Errorf("дивіденд без кількості мав пройти: %d %s", resp.StatusCode, b)
+	}
+}

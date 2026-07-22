@@ -49,6 +49,13 @@ type Doc struct {
 	// кожному брокеру. Довідкова розбивка для «Портфеля».
 	InvestedByBroker map[string]float64 `json:"invested_by_broker,omitempty"`
 
+	// FundsUAH — вартість сертифікатів фондів (Inzhur REIT і подібні) у
+	// грн-екв. за останньою відомою ціною. ОКРЕМЕ поле, а не додаток до
+	// nominal_uah_eq: у сертифіката немає номіналу, і змішування зламало
+	// б і драбину, і дюрацію, які будуються на номіналі облігацій.
+	FundsUAH  float64            `json:"funds_uah,omitempty"`
+	Funds     []FundPositionRow  `json:"funds,omitempty"`
+
 	// LadderUAH — номінал, що повертається щороку, у грн-екв. (для стовпчиків
 	// драбини). Income12m — очікуваний дохід (купони+погашення) по місяцях
 	// на рік наперед, грн-екв.
@@ -259,6 +266,24 @@ type SleeveRow struct {
 	Amount         float64 `json:"amount"`
 }
 
+// FundPositionRow — позиція в одному фонді. YieldNetPct — дивідендна
+// дохідність ПІСЛЯ податку за останні 12 місяців: дивіденд фонду
+// оподатковується, на відміну від купона ОВДП, тож до податку ці числа
+// непорівнянні.
+type FundPositionRow struct {
+	Fund           string  `json:"fund"`
+	Currency       string  `json:"currency"`
+	Qty            int64   `json:"qty"`
+	CostBasis      float64 `json:"cost_basis"`
+	LastPrice      float64 `json:"last_price"`
+	LastPriceDate  string  `json:"last_price_date,omitempty"`
+	MarketValue    float64 `json:"market_value"`
+	DividendsNet   float64 `json:"dividends_net"`
+	DividendsTax   float64 `json:"dividends_tax"`
+	Realized       float64 `json:"realized,omitempty"`
+	YieldNetPct    float64 `json:"yield_net_pct,omitempty"`
+}
+
 type YearAmount struct {
 	Year int     `json:"year"`
 	UAH  float64 `json:"uah"`
@@ -326,6 +351,8 @@ type Input struct {
 	LadderUAH        []YearAmount
 	Income12m        []MonthAmount
 	Coupons12m       []MonthAmount
+	FundsUAH         float64
+	Funds            []FundPositionRow
 	IncomeMonthlyNow float64
 	ReinvestMinByCur map[string]float64
 	TopN              int
@@ -419,6 +446,8 @@ func Build(in Input) (*Doc, error) {
 	doc.InvestedByBroker = in.InvestedByBroker
 	doc.LadderUAH = in.LadderUAH
 	doc.Income12m = in.Income12m
+	doc.FundsUAH = in.FundsUAH
+	doc.Funds = in.Funds
 	doc.Coupons12m = in.Coupons12m
 	doc.IncomeMonthlyNow = in.IncomeMonthlyNow
 	doc.ReinvestMin = in.ReinvestMinByCur

@@ -656,3 +656,72 @@ func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snap
 	}
 	return out, rows.Err()
 }
+
+// --- сертифікати фондів ---
+
+// Журнал операцій фонду. Позиція — це сальдо журналу (див.
+// domain.FundPositions), тож окремої таблиці позицій немає: одне джерело
+// правди замість двох, які неминуче розійшлись би.
+
+func (s *Store) AddFundOp(ctx context.Context, op domain.FundOp) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO fund_ops
+		(date, fund, kind, qty, amount, tax, currency, broker, note)
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		string(op.Date), op.Fund, string(op.Kind), op.Qty, op.Amount, op.Tax,
+		op.Currency, op.Broker, op.Note)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) UpdateFundOp(ctx context.Context, op domain.FundOp) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE fund_ops SET
+		date=?, fund=?, kind=?, qty=?, amount=?, tax=?, currency=?, broker=?, note=?
+		WHERE id=?`,
+		string(op.Date), op.Fund, string(op.Kind), op.Qty, op.Amount, op.Tax,
+		op.Currency, op.Broker, op.Note, op.ID)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "операцію фонду")
+}
+
+func (s *Store) DeleteFundOp(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM fund_ops WHERE id=?`, id)
+	return err
+}
+
+// ListFundOps повертає журнал У ХРОНОЛОГІЧНОМУ порядку: собівартість
+// рахується послідовно, тож інший порядок дав би інший результат.
+func (s *Store) ListFundOps(ctx context.Context) ([]domain.FundOp, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, date, fund, kind, qty, amount,
+		tax, currency, broker, note FROM fund_ops ORDER BY date, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.FundOp
+	for rows.Next() {
+		var op domain.FundOp
+		var d, kind string
+		if err := rows.Scan(&op.ID, &d, &op.Fund, &kind, &op.Qty, &op.Amount,
+			&op.Tax, &op.Currency, &op.Broker, &op.Note); err != nil {
+			return nil, err
+		}
+		op.Date, op.Kind = domain.Date(d), domain.FundOpKind(kind)
+		out = append(out, op)
+	}
+	return out, rows.Err()
+}
+
+// FundOpExists — чи вже є така операція. Потрібно імпорту виписки: файл
+// щомісяця містить і старі рядки, тож без перевірки повторний імпорт
+// подвоїв би позицію.
+func (s *Store) FundOpExists(ctx context.Context, op domain.FundOp) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM fund_ops
+		WHERE date=? AND fund=? AND kind=? AND qty=? AND amount=?`,
+		string(op.Date), op.Fund, string(op.Kind), op.Qty, op.Amount).Scan(&n)
+	return n > 0, err
+}
