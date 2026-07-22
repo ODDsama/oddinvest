@@ -282,6 +282,9 @@ type FundPositionRow struct {
 	DividendsTax   float64 `json:"dividends_tax"`
 	Realized       float64 `json:"realized,omitempty"`
 	YieldNetPct    float64 `json:"yield_net_pct,omitempty"`
+	// Short — скільки сертифікатів продано понад куплені. Не нуль означає,
+	// що в журналі бракує надходження, і всі числа рядка занижені.
+	Short int64 `json:"short,omitempty"`
 }
 
 type YearAmount struct {

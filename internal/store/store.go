@@ -54,11 +54,15 @@ func (s *Store) AddLot(ctx context.Context, l domain.Lot) (int64, error) {
 	if l.Fee != nil {
 		fee = l.Fee.Amount()
 	}
+	broker, err := s.brokerRef(ctx, l.Channel)
+	if err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO lots
-		(isin, qty, price_per_bond, currency, buy_date, channel, note, fee)
+		(isin, qty, price_per_bond, currency, buy_date, broker_id, note, fee)
 		VALUES (?,?,?,?,?,?,?,?)`,
 		l.ISIN, l.Qty, l.PricePerBond.Amount(), l.PricePerBond.Currency().Code,
-		string(l.BuyDate), l.Channel, l.Note, fee)
+		string(l.BuyDate), broker, l.Note, fee)
 	if err != nil {
 		return 0, err
 	}
@@ -76,11 +80,15 @@ func (s *Store) UpdateLot(ctx context.Context, l domain.Lot) error {
 	if l.Fee != nil {
 		fee = l.Fee.Amount()
 	}
+	broker, err := s.brokerRef(ctx, l.Channel)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE lots SET
-		isin=?, qty=?, price_per_bond=?, currency=?, buy_date=?, channel=?, note=?, fee=?
+		isin=?, qty=?, price_per_bond=?, currency=?, buy_date=?, broker_id=?, note=?, fee=?
 		WHERE id=?`,
 		l.ISIN, l.Qty, l.PricePerBond.Amount(), l.PricePerBond.Currency().Code,
-		string(l.BuyDate), l.Channel, l.Note, fee, l.ID)
+		string(l.BuyDate), broker, l.Note, fee, l.ID)
 	if err != nil {
 		return err
 	}
@@ -93,8 +101,10 @@ func (s *Store) DeleteLot(ctx context.Context, id int64) error {
 }
 
 func (s *Store) ListLots(ctx context.Context) ([]domain.Lot, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, isin, qty, price_per_bond,
-		currency, buy_date, channel, note, fee FROM lots ORDER BY buy_date, id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT l.id, l.isin, l.qty, l.price_per_bond,
+		l.currency, l.buy_date, COALESCE(b.name,''), l.note, l.fee
+		FROM lots l LEFT JOIN brokers b ON b.id = l.broker_id
+		ORDER BY l.buy_date, l.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -191,8 +201,12 @@ type Deposit struct {
 }
 
 func (s *Store) AddDeposit(ctx context.Context, d Deposit) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO deposits (date, amount, currency, broker, note)
-		VALUES (?,?,?,?,?)`, string(d.Date), d.Amount, d.Currency, d.Broker, d.Note)
+	broker, err := s.brokerRef(ctx, d.Broker)
+	if err != nil {
+		return 0, err
+	}
+	res, err := s.db.ExecContext(ctx, `INSERT INTO deposits (date, amount, currency, broker_id, note)
+		VALUES (?,?,?,?,?)`, string(d.Date), d.Amount, d.Currency, broker, d.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -201,9 +215,13 @@ func (s *Store) AddDeposit(ctx context.Context, d Deposit) (int64, error) {
 
 // UpdateDeposit переписує поповнення, зберігаючи id.
 func (s *Store) UpdateDeposit(ctx context.Context, d Deposit) error {
+	broker, err := s.brokerRef(ctx, d.Broker)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE deposits SET
-		date=?, amount=?, currency=?, broker=?, note=? WHERE id=?`,
-		string(d.Date), d.Amount, d.Currency, d.Broker, d.Note, d.ID)
+		date=?, amount=?, currency=?, broker_id=?, note=? WHERE id=?`,
+		string(d.Date), d.Amount, d.Currency, broker, d.Note, d.ID)
 	if err != nil {
 		return err
 	}
@@ -216,8 +234,10 @@ func (s *Store) DeleteDeposit(ctx context.Context, id int64) error {
 }
 
 func (s *Store) ListDeposits(ctx context.Context) ([]Deposit, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, currency, broker, note
-		FROM deposits ORDER BY date, id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.date, d.amount, d.currency,
+		COALESCE(b.name,''), d.note
+		FROM deposits d LEFT JOIN brokers b ON b.id = d.broker_id
+		ORDER BY d.date, d.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +265,9 @@ type BrokerCur struct {
 // DepositsByBrokerCurrency — сума поповнень/знять по (брокер, валюта).
 func (s *Store) DepositsByBrokerCurrency(ctx context.Context) (map[BrokerCur]int64, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT broker, currency, SUM(amount) FROM deposits GROUP BY broker, currency`)
+		`SELECT COALESCE(b.name,''), d.currency, SUM(d.amount)
+		 FROM deposits d LEFT JOIN brokers b ON b.id = d.broker_id
+		 GROUP BY b.name, d.currency`)
 	if err != nil {
 		return nil, err
 	}
@@ -275,9 +297,13 @@ type Conversion struct {
 }
 
 func (s *Store) AddConversion(ctx context.Context, c Conversion) (int64, error) {
+	broker, err := s.brokerRef(ctx, c.Broker)
+	if err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO conversions
-		(date, from_currency, from_amount, to_currency, to_amount, broker, note) VALUES (?,?,?,?,?,?,?)`,
-		string(c.Date), c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, c.Broker, c.Note)
+		(date, from_currency, from_amount, to_currency, to_amount, broker_id, note) VALUES (?,?,?,?,?,?,?)`,
+		string(c.Date), c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, broker, c.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -286,11 +312,15 @@ func (s *Store) AddConversion(ctx context.Context, c Conversion) (int64, error) 
 
 // UpdateConversion переписує конвертацію, зберігаючи id.
 func (s *Store) UpdateConversion(ctx context.Context, c Conversion) error {
+	broker, err := s.brokerRef(ctx, c.Broker)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE conversions SET
-		date=?, from_currency=?, from_amount=?, to_currency=?, to_amount=?, broker=?, note=?
+		date=?, from_currency=?, from_amount=?, to_currency=?, to_amount=?, broker_id=?, note=?
 		WHERE id=?`,
 		string(c.Date), c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount,
-		c.Broker, c.Note, c.ID)
+		broker, c.Note, c.ID)
 	if err != nil {
 		return err
 	}
@@ -303,8 +333,10 @@ func (s *Store) DeleteConversion(ctx context.Context, id int64) error {
 }
 
 func (s *Store) ListConversions(ctx context.Context) ([]Conversion, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, date, from_currency, from_amount, to_currency, to_amount, broker, note
-		FROM conversions ORDER BY date, id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT c.id, c.date, c.from_currency, c.from_amount,
+		c.to_currency, c.to_amount, COALESCE(b.name,''), c.note
+		FROM conversions c LEFT JOIN brokers b ON b.id = c.broker_id
+		ORDER BY c.date, c.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -663,12 +695,30 @@ func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snap
 // domain.FundPositions), тож окремої таблиці позицій немає: одне джерело
 // правди замість двох, які неминуче розійшлись би.
 
+// refsFor розв'язує назви фонду й брокера в id, заводячи їх за потреби.
+// Валюта операції тут востаннє щось означає: далі вона властивість фонду.
+func (s *Store) refsFor(ctx context.Context, op domain.FundOp) (int64, any, error) {
+	fund, err := s.fundRef(ctx, op.Fund, op.Currency)
+	if err != nil {
+		return 0, nil, err
+	}
+	broker, err := s.brokerRef(ctx, op.Broker)
+	if err != nil {
+		return 0, nil, err
+	}
+	return fund, broker, nil
+}
+
 func (s *Store) AddFundOp(ctx context.Context, op domain.FundOp) (int64, error) {
+	fund, broker, err := s.refsFor(ctx, op)
+	if err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO fund_ops
-		(date, fund, kind, qty, amount, tax, currency, broker, note)
+		(date, fund_id, kind, qty, amount, tax, broker_id, pair_id, note)
 		VALUES (?,?,?,?,?,?,?,?,?)`,
-		string(op.Date), op.Fund, string(op.Kind), op.Qty, op.Amount, op.Tax,
-		op.Currency, op.Broker, op.Note)
+		string(op.Date), fund, string(op.Kind), op.Qty, op.Amount, op.Tax,
+		broker, nullID(op.PairID), op.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -676,15 +726,28 @@ func (s *Store) AddFundOp(ctx context.Context, op domain.FundOp) (int64, error) 
 }
 
 func (s *Store) UpdateFundOp(ctx context.Context, op domain.FundOp) error {
+	fund, broker, err := s.refsFor(ctx, op)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE fund_ops SET
-		date=?, fund=?, kind=?, qty=?, amount=?, tax=?, currency=?, broker=?, note=?
+		date=?, fund_id=?, kind=?, qty=?, amount=?, tax=?, broker_id=?, pair_id=?, note=?
 		WHERE id=?`,
-		string(op.Date), op.Fund, string(op.Kind), op.Qty, op.Amount, op.Tax,
-		op.Currency, op.Broker, op.Note, op.ID)
+		string(op.Date), fund, string(op.Kind), op.Qty, op.Amount, op.Tax,
+		broker, nullID(op.PairID), op.Note, op.ID)
 	if err != nil {
 		return err
 	}
 	return affectedOne(res, "операцію фонду")
+}
+
+// nullID перетворює 0 на SQL NULL: «немає пари» — це відсутність
+// посилання, а не посилання на неіснуючий рядок 0.
+func nullID(id int64) any {
+	if id == 0 {
+		return nil
+	}
+	return id
 }
 
 func (s *Store) DeleteFundOp(ctx context.Context, id int64) error {
@@ -695,8 +758,12 @@ func (s *Store) DeleteFundOp(ctx context.Context, id int64) error {
 // ListFundOps повертає журнал У ХРОНОЛОГІЧНОМУ порядку: собівартість
 // рахується послідовно, тож інший порядок дав би інший результат.
 func (s *Store) ListFundOps(ctx context.Context) ([]domain.FundOp, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, date, fund, kind, qty, amount,
-		tax, currency, broker, note FROM fund_ops ORDER BY date, id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT o.id, o.date, f.name, o.kind, o.qty, o.amount,
+		o.tax, f.currency, COALESCE(b.name,''), COALESCE(o.pair_id,0), o.note
+		FROM fund_ops o
+		JOIN funds f ON f.id = o.fund_id
+		LEFT JOIN brokers b ON b.id = o.broker_id
+		ORDER BY o.date, o.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -706,7 +773,7 @@ func (s *Store) ListFundOps(ctx context.Context) ([]domain.FundOp, error) {
 		var op domain.FundOp
 		var d, kind string
 		if err := rows.Scan(&op.ID, &d, &op.Fund, &kind, &op.Qty, &op.Amount,
-			&op.Tax, &op.Currency, &op.Broker, &op.Note); err != nil {
+			&op.Tax, &op.Currency, &op.Broker, &op.PairID, &op.Note); err != nil {
 			return nil, err
 		}
 		op.Date, op.Kind = domain.Date(d), domain.FundOpKind(kind)
@@ -720,8 +787,9 @@ func (s *Store) ListFundOps(ctx context.Context) ([]domain.FundOp, error) {
 // подвоїв би позицію.
 func (s *Store) FundOpExists(ctx context.Context, op domain.FundOp) (bool, error) {
 	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM fund_ops
-		WHERE date=? AND fund=? AND kind=? AND qty=? AND amount=?`,
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM fund_ops o
+		JOIN funds f ON f.id = o.fund_id
+		WHERE o.date=? AND f.name=? AND o.kind=? AND o.qty=? AND o.amount=?`,
 		string(op.Date), op.Fund, string(op.Kind), op.Qty, op.Amount).Scan(&n)
 	return n > 0, err
 }

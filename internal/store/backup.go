@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // Бекап користувацьких даних. Бекапимо лише те, що введено РУКАМИ й
@@ -44,7 +45,10 @@ type BackupFundOp struct {
 	Tax      int64  `json:"tax"`
 	Currency string `json:"currency"`
 	Broker   string `json:"broker"`
-	Note     string `json:"note"`
+	// PairID — друга нога конвертації між фондами. omitempty, щоб бекапи
+	// без конвертацій виглядали рівно так само, як раніше.
+	PairID int64  `json:"pair_id,omitempty"`
+	Note   string `json:"note"`
 }
 
 type BackupLot struct {
@@ -109,7 +113,12 @@ type BackupSnapshot struct {
 func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 	b := &Backup{Schema: BackupSchema, App: "oddinvest", Settings: map[string]string{}}
 
-	if err := s.scan(ctx, `SELECT id,isin,qty,price_per_bond,currency,buy_date,channel,fee,note FROM lots ORDER BY id`,
+	// Бекап тримає НАЗВИ брокерів і фондів, а не їхні id. Так формат
+	// пережив нормалізацію: файли, вивантажені до появи довідників,
+	// відновлюються далі без жодних перетворень.
+	if err := s.scan(ctx, `SELECT l.id,l.isin,l.qty,l.price_per_bond,l.currency,l.buy_date,
+		COALESCE(b.name,''),l.fee,l.note
+		FROM lots l LEFT JOIN brokers b ON b.id=l.broker_id ORDER BY l.id`,
 		func(scan func(...any) error) error {
 			var r BackupLot
 			if err := scan(&r.ID, &r.ISIN, &r.Qty, &r.Price, &r.Currency, &r.BuyDate, &r.Channel, &r.Fee, &r.Note); err != nil {
@@ -131,7 +140,8 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT id,date,amount,currency,broker,note FROM deposits ORDER BY id`,
+	if err := s.scan(ctx, `SELECT d.id,d.date,d.amount,d.currency,COALESCE(b.name,''),d.note
+		FROM deposits d LEFT JOIN brokers b ON b.id=d.broker_id ORDER BY d.id`,
 		func(scan func(...any) error) error {
 			var r BackupDeposit
 			if err := scan(&r.ID, &r.Date, &r.Amount, &r.Currency, &r.Broker, &r.Note); err != nil {
@@ -142,7 +152,9 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT id,date,from_currency,from_amount,to_currency,to_amount,broker,note FROM conversions ORDER BY id`,
+	if err := s.scan(ctx, `SELECT c.id,c.date,c.from_currency,c.from_amount,c.to_currency,
+		c.to_amount,COALESCE(b.name,''),c.note
+		FROM conversions c LEFT JOIN brokers b ON b.id=c.broker_id ORDER BY c.id`,
 		func(scan func(...any) error) error {
 			var r BackupConversion
 			if err := scan(&r.ID, &r.Date, &r.FromCurrency, &r.FromAmount, &r.ToCurrency, &r.ToAmount, &r.Broker, &r.Note); err != nil {
@@ -153,11 +165,14 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT id,date,fund,kind,qty,amount,tax,currency,broker,note FROM fund_ops ORDER BY id`,
+	if err := s.scan(ctx, `SELECT o.id,o.date,f.name,o.kind,o.qty,o.amount,o.tax,f.currency,
+		COALESCE(b.name,''),COALESCE(o.pair_id,0),o.note
+		FROM fund_ops o JOIN funds f ON f.id=o.fund_id
+		LEFT JOIN brokers b ON b.id=o.broker_id ORDER BY o.id`,
 		func(scan func(...any) error) error {
 			var r BackupFundOp
 			if err := scan(&r.ID, &r.Date, &r.Fund, &r.Kind, &r.Qty, &r.Amount, &r.Tax,
-				&r.Currency, &r.Broker, &r.Note); err != nil {
+				&r.Currency, &r.Broker, &r.PairID, &r.Note); err != nil {
 				return err
 			}
 			b.FundOps = append(b.FundOps, r)
@@ -214,18 +229,69 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op після Commit
 
-	// діти → батьки, щоб не спіткнутись об FK
+	// діти → батьки, щоб не спіткнутись об FK. Довідники йдуть ОСТАННІМИ
+	// і заповнюються заново з назв у бекапі: тримати бекап у назвах, а не
+	// в id, означає, що відновлення не залежить від того, які id були в
+	// базі-джерелі.
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
-		"settings", "payment_status", "snapshots"} {
+		"settings", "payment_status", "snapshots", "funds", "brokers"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
 		}
 	}
 
+	brokers := map[string]any{}
+	brokerRef := func(name string) (any, error) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return nil, nil
+		}
+		if id, ok := brokers[name]; ok {
+			return id, nil
+		}
+		res, err := tx.ExecContext(ctx, `INSERT INTO brokers(name) VALUES(?)`, name)
+		if err != nil {
+			return nil, err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return nil, err
+		}
+		brokers[name] = id
+		return id, nil
+	}
+	funds := map[string]int64{}
+	fundRef := func(name, currency string) (int64, error) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return 0, fmt.Errorf("операція без фонду")
+		}
+		if id, ok := funds[name]; ok {
+			return id, nil
+		}
+		if strings.TrimSpace(currency) == "" {
+			currency = "UAH"
+		}
+		res, err := tx.ExecContext(ctx, `INSERT INTO funds(name,currency) VALUES(?,?)`, name, currency)
+		if err != nil {
+			return 0, err
+		}
+		id, err := res.LastInsertId()
+		if err != nil {
+			return 0, err
+		}
+		funds[name] = id
+		return id, nil
+	}
+
 	for _, l := range b.Lots {
+		broker, err := brokerRef(l.Channel)
+		if err != nil {
+			return fmt.Errorf("лот %d: %w", l.ID, err)
+		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO lots (id,isin,qty,price_per_bond,currency,buy_date,channel,fee,note) VALUES (?,?,?,?,?,?,?,?,?)`,
-			l.ID, l.ISIN, l.Qty, l.Price, l.Currency, l.BuyDate, l.Channel, l.Fee, l.Note); err != nil {
+			`INSERT INTO lots (id,isin,qty,price_per_bond,currency,buy_date,broker_id,fee,note) VALUES (?,?,?,?,?,?,?,?,?)`,
+			l.ID, l.ISIN, l.Qty, l.Price, l.Currency, l.BuyDate, broker, l.Fee, l.Note); err != nil {
 			return fmt.Errorf("лот %d: %w", l.ID, err)
 		}
 	}
@@ -237,25 +303,52 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 	}
 	for _, d := range b.Deposits {
+		broker, err := brokerRef(d.Broker)
+		if err != nil {
+			return fmt.Errorf("поповнення %d: %w", d.ID, err)
+		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO deposits (id,date,amount,currency,broker,note) VALUES (?,?,?,?,?,?)`,
-			d.ID, d.Date, d.Amount, d.Currency, d.Broker, d.Note); err != nil {
+			`INSERT INTO deposits (id,date,amount,currency,broker_id,note) VALUES (?,?,?,?,?,?)`,
+			d.ID, d.Date, d.Amount, d.Currency, broker, d.Note); err != nil {
 			return fmt.Errorf("поповнення %d: %w", d.ID, err)
 		}
 	}
 	for _, c := range b.Conversions {
+		broker, err := brokerRef(c.Broker)
+		if err != nil {
+			return fmt.Errorf("конвертація %d: %w", c.ID, err)
+		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO conversions (id,date,from_currency,from_amount,to_currency,to_amount,broker,note) VALUES (?,?,?,?,?,?,?,?)`,
-			c.ID, c.Date, c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, c.Broker, c.Note); err != nil {
+			`INSERT INTO conversions (id,date,from_currency,from_amount,to_currency,to_amount,broker_id,note) VALUES (?,?,?,?,?,?,?,?)`,
+			c.ID, c.Date, c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, broker, c.Note); err != nil {
 			return fmt.Errorf("конвертація %d: %w", c.ID, err)
 		}
 	}
+	// Операції фондів — двома заходами: pair_id посилається на інший
+	// рядок цієї ж таблиці, і при вставці «за один прохід» друга нога
+	// конвертації вказувала б на рядок, якого ще немає.
 	for _, op := range b.FundOps {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO fund_ops (id,date,fund,kind,qty,amount,tax,currency,broker,note) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			op.ID, op.Date, op.Fund, op.Kind, op.Qty, op.Amount, op.Tax, op.Currency,
-			op.Broker, op.Note); err != nil {
+		fund, err := fundRef(op.Fund, op.Currency)
+		if err != nil {
 			return fmt.Errorf("операція фонду %d: %w", op.ID, err)
+		}
+		broker, err := brokerRef(op.Broker)
+		if err != nil {
+			return fmt.Errorf("операція фонду %d: %w", op.ID, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO fund_ops (id,date,fund_id,kind,qty,amount,tax,broker_id,note) VALUES (?,?,?,?,?,?,?,?,?)`,
+			op.ID, op.Date, fund, op.Kind, op.Qty, op.Amount, op.Tax, broker, op.Note); err != nil {
+			return fmt.Errorf("операція фонду %d: %w", op.ID, err)
+		}
+	}
+	for _, op := range b.FundOps {
+		if op.PairID == 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE fund_ops SET pair_id=? WHERE id=?`,
+			op.PairID, op.ID); err != nil {
+			return fmt.Errorf("конвертація фонду %d: %w", op.ID, err)
 		}
 	}
 	for k, v := range b.Settings {

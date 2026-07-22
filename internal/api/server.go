@@ -77,6 +77,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/payments/status", s.handlePaymentStatus)
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)
 	mux.HandleFunc("GET /api/xirr", s.handleXIRR)
+	mux.HandleFunc("GET /api/brokers", s.handleListBrokers)
+	mux.HandleFunc("POST /api/brokers", s.handleAddBroker)
+	mux.HandleFunc("PUT /api/brokers/{id}", s.handleRenameBroker)
+	mux.HandleFunc("DELETE /api/brokers/{id}", s.handleDeleteBroker)
+	mux.HandleFunc("GET /api/fund-catalog", s.handleListFundCatalog)
+	mux.HandleFunc("PUT /api/fund-catalog/{id}", s.handleUpdateFundCatalog)
+	mux.HandleFunc("DELETE /api/fund-catalog/{id}", s.handleDeleteFundCatalog)
 	mux.HandleFunc("GET /api/funds", s.handleFundOps)
 	mux.HandleFunc("POST /api/funds", s.handleAddFundOp)
 	mux.HandleFunc("PUT /api/funds/{id}", s.handleUpdateFundOp)
@@ -521,6 +528,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				DividendsTax:  round2(float64(fp.DividendsTax) / 100),
 				Realized:      round2(float64(fp.Realized) / 100),
 				YieldNetPct:   y,
+				Short:         fp.Short,
 			}
 			fundRows = append(fundRows, row)
 			// Чистий дивідендний потік за рік — у спільний «пасивний дохід».
@@ -579,8 +587,16 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			settings.AssumedRatePct = &f
 		}
 	}
-	if raw, _ := s.st.GetSetting(ctx, "channels"); raw != "" {
-		settings.Channels = raw
+	// Список брокерів більше не зберігається рядком — він збирається з
+	// довідника. У зведенні лишається як рядок навмисно: це похідне поле
+	// для випадайок, а не місце зберігання, і сутності HA, які на нього
+	// підписані, не мусять знати про зміну схеми.
+	if bs, err := s.st.ListBrokers(ctx); err == nil && len(bs) > 0 {
+		names := make([]string, 0, len(bs))
+		for _, b := range bs {
+			names = append(names, b.Name)
+		}
+		settings.Channels = strings.Join(names, ", ")
 	}
 	if raw, _ := s.st.GetSetting(ctx, "reinvest_rank"); raw != "" {
 		settings.ReinvestRank = raw
@@ -1739,8 +1755,10 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 	return out
 }
 
+// «channels» тут більше немає: список брокерів був CSV-рядком у
+// налаштуваннях, а тепер це таблиця brokers із власними ендпойнтами.
 var settingsKeys = []string{"usd_target_share_pct", "eur_target_share_pct",
-	"assumed_rate_pct", "goal_amount_uah", "goal_date", "channels",
+	"assumed_rate_pct", "goal_amount_uah", "goal_date",
 	"reinvest_rank", "goal_pessimistic_uah", "goal_realistic_uah", "goal_optimistic_uah",
 	"uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years"}
 
@@ -2221,6 +2239,121 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			"результат " + toMoneyJSON(res).Amount + " " + res.Currency().Code})
 	}
 	cw.Flush()
+}
+
+// --- довідники брокерів і фондів ---
+//
+// Досі списку брокерів як сутності не існувало: він жив CSV-рядком у
+// налаштуваннях, тож перейменувати брокера означало не зачепити жодного
+// лота — назва в записах лишалась старою. Тепер записи тримаються за id,
+// і перейменування підхоплюють усі разом.
+
+func (s *Server) handleListBrokers(w http.ResponseWriter, r *http.Request) {
+	list, err := s.st.ListBrokers(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleAddBroker(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	id, err := s.st.AddBroker(r.Context(), req.Name)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+func (s *Server) handleRenameBroker(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.RenameBroker(r.Context(), id, req.Name); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteBroker(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.DeleteBroker(r.Context(), id); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleListFundCatalog(w http.ResponseWriter, r *http.Request) {
+	list, err := s.st.ListFunds(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+// Фонд заводиться сам при першій операції, тож окремого POST немає —
+// лишається виправити назву або валюту.
+func (s *Server) handleUpdateFundCatalog(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var req struct {
+		Name     string `json:"name"`
+		Currency string `json:"currency"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.RenameFund(r.Context(), id, req.Name, req.Currency); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteFundCatalog(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.DeleteFund(r.Context(), id); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // --- сертифікати фондів ---
