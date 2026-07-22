@@ -1760,7 +1760,10 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 var settingsKeys = []string{"usd_target_share_pct", "eur_target_share_pct",
 	"assumed_rate_pct", "goal_amount_uah", "goal_date",
 	"reinvest_rank", "goal_pessimistic_uah", "goal_realistic_uah", "goal_optimistic_uah",
-	"uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years"}
+	"uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years",
+	// import_since рухає сам імпорт, але лишається редагованим: інакше
+	// «перезавантажити позаминулий місяць» стало б неможливим взагалі.
+	"import_since"}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}
@@ -2579,14 +2582,28 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 		// теж рухає гаманець, тож стара пара стала б подвійним рахунком.
 		Conflict string `json:"conflict,omitempty"`
 	}
+	// Водяний знак: усе, що старше за нього, не розглядаємо взагалі.
+	// Виписка щомісяця приносить повну історію, і покладатись лише на
+	// дедуплікацію більше не можна — після ручного підчищення журналу
+	// старі рядки почали проситися назад.
+	since, _ := s.st.GetSetting(ctx, "import_since")
 	out := struct {
 		Rows     []outRow          `json:"rows"`
 		Skipped  []imports.Skipped `json:"skipped"`
 		Imported int               `json:"imported"`
 		New      int               `json:"new"`
-	}{Rows: []outRow{}, Skipped: res.Skipped}
+		// Since — від якої дати враховуємо, Before — скільки рядків
+		// відсіяно як старіші. Списком їх не віддаємо: у файлі їх сотні,
+		// і перегляд перетворився б на портянку.
+		Since  string `json:"since,omitempty"`
+		Before int    `json:"before,omitempty"`
+	}{Rows: []outRow{}, Skipped: res.Skipped, Since: since}
 
 	for _, row := range res.Rows {
+		if since != "" && string(row.Date) < since {
+			out.Before++
+			continue
+		}
 		cur := money.UAH
 		var exists bool
 		switch row.Kind {
@@ -2695,8 +2712,24 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 			Amount: money.New(row.Amount, cur).Display(),
 			Tax:    money.New(row.Tax, cur).Display(), Exists: exists, Conflict: conflict})
 	}
-	if !dry && out.Imported > 0 {
-		s.publishAsync()
+	// Водяний знак рухаємо на ДЕНЬ ЗАПУСКУ, а не на найпізніший рядок
+	// файлу: файл міг закінчитись тижнем раніше, ніж його завантажили, і
+	// брати дату з даних означало б щоразу знову перебирати той тиждень.
+	//
+	// Рухаємо навіть коли нічого не імпортовано: «переглянув і нічого
+	// нового не було» — теж відповідь, і наступного разу перебирати ті
+	// самі рядки ні до чого. Але не при перегляді: dry нічого не змінює,
+	// інакше кнопка «Переглянути» тихо з'їдала б період.
+	if !dry {
+		today := string(domain.NewDate(time.Now()))
+		if serr := s.st.SetSetting(ctx, "import_since", today); serr != nil {
+			writeErr(w, http.StatusInternalServerError, serr)
+			return
+		}
+		out.Since = today
+		if out.Imported > 0 {
+			s.publishAsync()
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

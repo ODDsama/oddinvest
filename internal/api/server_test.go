@@ -33,6 +33,17 @@ func testServer(t *testing.T) (*httptest.Server, *store.Store) {
 	return srv, st
 }
 
+// importSince ставить водяний знак імпорту: усе, що старше за цю дату,
+// виписка не розглядає взагалі. Тестам він потрібен явно — фікстури
+// датовані фіксованим липнем 2026, а справжній знак ставиться на день
+// запуску, тож без цього тести залежали б від сьогоднішнього числа.
+func importSince(t *testing.T, st *store.Store, date string) {
+	t.Helper()
+	if err := st.SetSetting(context.Background(), "import_since", date); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func seed(t *testing.T, st *store.Store) {
 	t.Helper()
 	secs := []nbu.Security{{
@@ -825,6 +836,7 @@ func TestFundOpsFlowToState(t *testing.T) {
 func TestImportInzhurIsIdempotent(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
+	importSince(t, st, "2020-01-01")
 
 	xlsx := buildXLSX(t, [][]string{
 		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
@@ -947,6 +959,7 @@ func TestImportInzhurIsIdempotent(t *testing.T) {
 func TestImportSkipsAlreadyEnteredBond(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
+	importSince(t, st, "2020-01-01")
 	if resp, b := do(t, "POST", srv.URL+"/api/lots",
 		`{"isin":"UA4000227748","qty":1,"price_per_bond":"1032.40","buy_date":"2026-07-20","channel":"inzhur"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("ручний лот: %d %s", resp.StatusCode, b)
@@ -987,6 +1000,7 @@ func TestImportSkipsAlreadyEnteredBond(t *testing.T) {
 func TestImportConflictAcrossDatesAndBrokers(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
+	importSince(t, st, "2020-01-01")
 
 	// продаж 72 сертифікатів стався 20-го на inzhur…
 	xlsx := buildXLSX(t, [][]string{
@@ -1030,6 +1044,7 @@ func TestImportConflictAcrossDatesAndBrokers(t *testing.T) {
 func TestImportNoConflictWhenDepositFundsPurchase(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
+	importSince(t, st, "2020-01-01")
 	// поповнення +8051.74 того ж дня, що й купівля на 8051.74
 	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
 		`{"amount":"8051.74","currency":"UAH","date":"2024-04-02","broker":"inzhur"}`); resp.StatusCode != http.StatusCreated {
@@ -1058,5 +1073,73 @@ func TestImportNoConflictWhenDepositFundsPurchase(t *testing.T) {
 	}
 	if out.Rows[0].Conflict != "" {
 		t.Errorf("поповнення НА купівлю — не подвоєння, конфлікту бути не мало: %s", out.Rows[0].Conflict)
+	}
+}
+
+// Водяний знак: усе, що старше за дату останнього імпорту, ігнорується
+// незалежно від вмісту. Виписка щомісяця приносить повну історію, і
+// покладатись лише на дедуплікацію не можна — після ручного підчищення
+// журналу старі рядки почали проситися назад.
+//
+// Дата — це ДЕНЬ ЗАПУСКУ імпорту, а не найпізніший рядок у файлі: файл
+// може закінчуватись раніше, ніж його завантажили.
+func TestImportIgnoresRowsOlderThanWatermark(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+
+	// 46213 = 2026-07-10, 46224 = 2026-07-21.
+	xlsx := buildXLSX(t, [][]string{
+		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
+		{"46213", "Нарахування дивідендів", "Inzhur REIT", "18.99"},
+		{"46224.65980324074", "Купівля 5 сертифікатів", "Inzhur REIT", "", "55.56"},
+	})
+	post := func(dry bool) map[string]any {
+		t.Helper()
+		url := srv.URL + "/api/import/inzhur"
+		if dry {
+			url += "?dry=1"
+		}
+		body, ct := multipartFile(t, "file", "statement.xlsx", xlsx)
+		req, _ := http.NewRequest("POST", url, body)
+		req.Header.Set("Content-Type", ct)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	// Знак посеред файлу: дивіденд 10 липня старший, купівля 21-го — ні.
+	importSince(t, st, "2026-07-15")
+	prev := post(true)
+	if n, _ := prev["before"].(float64); n != 1 {
+		t.Errorf("відсіяно як старі %v рядків, хочемо 1", prev["before"])
+	}
+	if rows, _ := prev["rows"].([]any); len(rows) != 1 {
+		t.Errorf("до розгляду взято %d рядків, хочемо 1", len(rows))
+	}
+	// Перегляд не має рухати знак: інакше кнопка «Переглянути» тихо
+	// з'їдала б період, і справжній імпорт уже нічого не побачив би.
+	if got, _ := st.GetSetting(context.Background(), "import_since"); got != "2026-07-15" {
+		t.Errorf("перегляд зсунув знак на %q", got)
+	}
+
+	// Справжній імпорт рухає знак на СЬОГОДНІ, а не на 2026-07-21.
+	post(false)
+	today := string(domain.NewDate(time.Now()))
+	got, _ := st.GetSetting(context.Background(), "import_since")
+	if got != today {
+		t.Errorf("після імпорту знак %q, хочемо день запуску %q", got, today)
+	}
+
+	// Повторний імпорт того самого файлу вже не бачить нічого.
+	again := post(true)
+	if rows, _ := again["rows"].([]any); len(rows) != 0 {
+		t.Errorf("після зсуву знака файл дав %d рядків, хочемо 0", len(rows))
 	}
 }
