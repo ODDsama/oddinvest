@@ -94,7 +94,7 @@ curl 'https://bank.gov.ua/NBUStatService/v1/statdirectory/securities?json' | hea
 ## Структура
 
 ```
-cmd/oddinvestd/          — wiring, graceful shutdown
+cmd/oddinvestd/     — wiring, graceful shutdown
 internal/domain/    — чиста доменна логіка + тести (календар, НКД,
                       результат продажу, драбина, позиції)
 internal/fx/        — конвертація валют (єдина точка)
@@ -102,11 +102,25 @@ internal/nbu/       — клієнт API НБУ (json.Number, без float64)
 internal/store/     — SQLite: STRICT-таблиці, вбудовані міграції
 internal/state/     — збірка документа oddinvest/state (контракт)
 internal/api/       — REST + вбудований веб-UI (go:embed)
+internal/api/web/   — фронтенд: ESM-модулі без збірки (js/app.js —
+                      компонент, js/views/ — розділи, css/ — токени
+                      й дві теми)
 internal/mqtt/      — paho-паблішер з LWT
 internal/jobs/      — добове оновлення НБУ, знімки, публікація
-contract/           — JSON Schema + фікстури для репо ha-oddinvest
+contract/           — те, що споживає репо ha-oddinvest: JSON Schema,
+                      фікстури і ui-manifest.json
 deploy/             — systemd unit
+scripts/            — генератор ui-manifest.json
 ```
+
+Фронтенд один на дві поверхні: `internal/api/web/js/app.js` — це
+`<odd-invest-app>`, який монтують і `index.html` (тут), і бічна панель
+Home Assistant. Різниця між ними зводиться до транспорту й теми, які
+передаються властивостями; репозиторій `ha-oddinvest` вендорить ці
+модулі скриптом за `contract/ui-manifest.json`, а його CI падає на
+розбіжності. Збірки немає навмисно — сервіс ставиться в LXC без Node,
+модулі віддаються браузеру як є; замість бандлера синтаксис і граф
+імпортів перевіряє джоба `ui`.
 
 ## Роадмап
 

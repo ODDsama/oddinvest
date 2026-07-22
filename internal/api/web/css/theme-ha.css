@@ -1,0 +1,83 @@
+/* Тема панелі Home Assistant: ті самі токени, але значення беруться з
+ * теми користувача.
+ *
+ * Панель не має права мати власну палітру — користувач міняє тему HA і
+ * очікує, що інтеграція піде за нею. Тому тут кожен токен це
+ * var(--ha-змінна, фолбек), а фолбеки повторюють нинішній вигляд панелі
+ * один в один.
+ *
+ * Селектор — :host: файл вантажиться всередину shadow root панелі, а там
+ * коренем є саме він, не :root. Для симетрії з theme-web.css лишаємо й
+ * :root: у HA він ні з чим не збігається, зате однакова форма обох тем
+ * не дає знову наступити на цю різницю.
+ */
+
+:root, :host {
+  --oi-font: var(--paper-font-body1_-_font-family, Roboto, sans-serif);
+
+  /* Поверхні */
+  --oi-bg: var(--primary-background-color);
+  --oi-surface: var(--card-background-color);
+  --oi-surface-2: var(--secondary-background-color);
+  --oi-surface-3: var(--secondary-background-color);
+  --oi-border: var(--divider-color);
+  --oi-border-strong: var(--divider-color);
+  --oi-shadow: var(--ha-card-box-shadow, 0 2px 4px rgba(0, 0, 0, .1));
+
+  /* Текст */
+  --oi-text: var(--primary-text-color);
+  --oi-muted: var(--secondary-text-color);
+
+  /* Шапка — кольорова смуга HA, а не картка: панель має виглядати
+     частиною HA, а не сайтом усередині нього. */
+  --oi-header-bg: var(--app-header-background-color, var(--primary-color));
+  --oi-header-text: var(--app-header-text-color, #fff);
+
+  /* Сигнальні кольори */
+  --oi-accent: var(--primary-color);
+  --oi-on-accent: #fff;
+  --oi-ok: var(--success-color, #43a047);
+  --oi-warn: var(--warning-color, #ffa600);
+  --oi-danger: var(--error-color, #db4437);
+  --oi-info: var(--info-color, #039be5);
+
+  /* «М'які» сигнали. На світлій темі HA приглушена підкладка з кольоровим
+     текстом дає сірий на сірому, тож тут навпаки — суцільна заливка
+     сигнальним кольором і контрастний текст поверх. */
+  --oi-soft-ok-bg: var(--success-color, #43a047);
+  --oi-soft-ok-fg: #fff;
+  --oi-soft-ok-border: transparent;
+  --oi-soft-warn-bg: var(--warning-color, #ffa600);
+  --oi-soft-warn-fg: #1b1b1b;
+  --oi-soft-warn-border: transparent;
+  --oi-soft-info-bg: var(--info-color, #039be5);
+  --oi-soft-info-fg: #fff;
+
+  /* Кнопка всередині кольорового банера: просвітлення самого банера, бо
+     будь-який власний колір на ньому конфліктував би з темою. */
+  --oi-soft-ok-btn-bg: rgba(255, 255, 255, .24);
+  --oi-soft-ok-btn-fg: #fff;
+
+  /* Ряди графіків і категорії — власні: у теми HA немає поняття
+     «серія графіка», а брати --primary-color на все означало б
+     намалювати п'ять однакових ліній. */
+  --oi-series-invested: #4da3ff;
+  --oi-series-nominal: #2ecc71;
+  --oi-series-account: #8e24aa;
+  --oi-series-funds: #26c6da;
+  --oi-series-plan: #ffa600;
+  --oi-series-neutral: var(--secondary-text-color);
+
+  --oi-cat-1: #4da3ff;
+  --oi-cat-2: #2ecc71;
+  --oi-cat-3: #ffa600;
+  --oi-cat-4: #8e24aa;
+  --oi-cat-5: #f85149;
+  --oi-cat-6: #26c6da;
+  --oi-cat-7: #d4a5ff;
+
+  --oi-optimistic: #3fb950;
+  --oi-realistic: #7b6cf6;
+  --oi-pessimistic: #d29922;
+  --oi-actual: #39a0ed;
+}

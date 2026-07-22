@@ -96,8 +96,27 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/import/inzhur", s.handleImportInzhur)
 
 	sub, _ := fs.Sub(webFS, "web")
-	mux.Handle("GET /", http.FileServerFS(sub))
+	mux.Handle("GET /", noCache(http.FileServerFS(sub)))
 	return logMiddleware(s.log, mux)
+}
+
+// noCache забороняє браузеру віддавати статику з кешу без перепитування.
+//
+// UI складається з ESM-модулів, які тягнуть один одного відносними
+// шляхами. Версіонувати кожен шлях нема чим: збірки немає навмисно, а
+// без неї немає й хеша у назві файла. Тому свіжість тримається
+// заголовком: інакше після оновлення бінарника браузер лишався б на
+// старих модулях, і зміни не з'являлись би навіть після Ctrl+Shift+R.
+//
+// Ціна — повторне вивантаження ~90 КБ на завантаження сторінки: файли
+// вбудовані через go:embed з нульовим ModTime, тож Last-Modified немає і
+// відповісти 304 нема на що. Для домашнього сервісу в локальній мережі
+// це дешевше за годину пошуку «чому не оновилось».
+func noCache(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func logMiddleware(log *slog.Logger, next http.Handler) http.Handler {

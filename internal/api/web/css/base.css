@@ -1,0 +1,410 @@
+/* Компоненти ODD Invest. Один файл на дві поверхні.
+ *
+ * Жодного літерального кольору чи розміру — тільки токени з tokens.css
+ * і теми. Якщо тут з'явився хекс, це або помилка, або токен, якого ще
+ * немає; правильна відповідь — завести токен, а не написати колір.
+ *
+ * Селектори свідомо покривають обидві поверхні: `body` не існує в
+ * shadow root панелі, `:host` не існує на веб-сторінці — кожне правило
+ * просто нічого не робить там, де його адресат відсутній. Це дешевше,
+ * ніж два файли, які треба тримати синхронними.
+ *
+ * Блок «сумісність» наприкінці — імена класів старого веб-UI. Вони
+ * зникнуть, коли обидві поверхні перейдуть на спільні view (фаза 3);
+ * доти вони живі, бо index.html ще малює своєю розміткою.
+ */
+
+* { box-sizing: border-box; }
+
+body, :host {
+  display: block;
+  margin: 0;
+  min-height: 100vh;
+  background: var(--oi-bg);
+  color: var(--oi-text);
+  font-family: var(--oi-font);
+  font-size: var(--oi-fs-md);
+  line-height: var(--oi-lh);
+}
+
+/* --- шапка й навігація --- */
+
+header {
+  display: flex;
+  align-items: center;
+  gap: var(--oi-gap);
+  padding: var(--oi-gap) var(--oi-gap-xl);
+  background: var(--oi-header-bg);
+  color: var(--oi-header-text);
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+header h1 { font-size: var(--oi-fs-xl); margin: 0; font-weight: 500; }
+header .sp { flex: 1; }
+
+nav {
+  display: flex;
+  gap: var(--oi-gap-xs);
+  padding: 0 var(--oi-gap-lg);
+  background: var(--oi-surface);
+  border-bottom: 1px solid var(--oi-border);
+  overflow-x: auto;
+}
+nav a {
+  padding: var(--oi-gap) var(--oi-gap-lg);
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--oi-muted);
+  border-bottom: 3px solid transparent;
+}
+nav a.active {
+  color: var(--oi-accent);
+  border-bottom-color: var(--oi-accent);
+  font-weight: 500;
+}
+
+main {
+  padding: 0 var(--oi-gap-xl) var(--oi-gap-xl);
+  max-width: var(--oi-max-width);
+  margin: 0 auto;
+}
+
+/* --- кнопки --- */
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: var(--oi-radius-sm);
+  padding: var(--oi-gap-sm) var(--oi-gap);
+  font-family: inherit;
+  font-size: var(--oi-fs);
+  background: var(--oi-accent);
+  color: var(--oi-on-accent);
+}
+button:disabled { opacity: .5; cursor: default; }
+button.ghost { background: var(--oi-soft-ok-btn-bg); color: var(--oi-header-text); }
+button.sm { padding: var(--oi-gap-xs) 10px; font-size: var(--oi-fs-sm); }
+button.warn { background: var(--oi-danger); color: #fff; }
+button.quiet {
+  background: var(--oi-surface-3);
+  color: var(--oi-text);
+  border: 1px solid var(--oi-border-strong);
+}
+button.link { background: none; border: none; color: var(--oi-danger); padding: 0 var(--oi-gap-xs); }
+
+/* --- картки й плитки --- */
+
+.tiles {
+  display: grid;
+  /* auto-fit, а не auto-fill: при трьох плитках на широкому екрані
+     auto-fill лишав три порожні колонки, і плитки тулились ліворуч
+     купкою. auto-fit згортає порожні треки, і ряд заповнюється. */
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--oi-gap);
+  max-width: var(--oi-max-width);
+  margin: var(--oi-gap-lg) auto;
+  padding: 0 var(--oi-gap-xl);
+}
+.tile {
+  background: var(--oi-surface);
+  border-radius: var(--oi-radius);
+  padding: 14px;
+  box-shadow: var(--oi-shadow);
+}
+.tile .lbl { font-size: var(--oi-fs-sm); color: var(--oi-muted); }
+.tile .val { font-size: var(--oi-fs-xl); font-weight: 600; margin-top: var(--oi-gap-xs); }
+
+.card {
+  background: var(--oi-surface);
+  border-radius: var(--oi-radius);
+  padding: var(--oi-gap-lg);
+  margin-bottom: var(--oi-gap-lg);
+  box-shadow: var(--oi-shadow);
+}
+.card h2 { font-size: var(--oi-fs-lg); margin: 0 0 var(--oi-gap); }
+.card h4 { margin: 0 0 var(--oi-gap-sm); font-size: var(--oi-fs); font-weight: 600; }
+
+/* --- таблиці --- */
+
+table { width: 100%; border-collapse: collapse; font-size: var(--oi-fs); }
+th, td { text-align: left; padding: var(--oi-gap-sm) 10px; border-bottom: 1px solid var(--oi-border); }
+th { color: var(--oi-muted); font-weight: 500; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr:last-child td { border-bottom: none; }
+
+/* --- форми --- */
+
+form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--oi-gap);
+  align-items: end;
+}
+label { display: flex; flex-direction: column; gap: var(--oi-gap-xs); font-size: var(--oi-fs-sm); color: var(--oi-muted); }
+input, select {
+  padding: var(--oi-gap-sm);
+  border-radius: var(--oi-radius-sm);
+  border: 1px solid var(--oi-border-strong);
+  background: var(--oi-surface-2);
+  color: var(--oi-text);
+  font-family: inherit;
+  font-size: var(--oi-fs);
+}
+input:focus, select:focus { outline: none; border-color: var(--oi-accent); }
+
+.suggest {
+  position: absolute;
+  top: 100%; left: 0; right: 0;
+  z-index: 6;
+  margin-top: 2px;
+  background: var(--oi-surface);
+  border: 1px solid var(--oi-border);
+  border-radius: var(--oi-radius-sm);
+  max-height: 240px;
+  overflow: auto;
+  display: none;
+  box-shadow: var(--oi-shadow);
+}
+.suggest.show { display: block; }
+.suggest-item {
+  padding: var(--oi-gap-sm) 10px;
+  cursor: pointer;
+  font-size: var(--oi-fs-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.suggest-item:hover { background: var(--oi-surface-2); }
+
+/* --- сигнальні блоки --- */
+
+.banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--oi-gap);
+  border-radius: var(--oi-radius);
+  padding: 14px var(--oi-gap-lg);
+  margin-bottom: var(--oi-gap);
+}
+.banner .b-ic { font-size: 18px; line-height: 1.4; }
+.banner .b-tx { flex: 1; }
+.banner .b-t { font-size: var(--oi-fs-lg); }
+.banner .b-s { font-size: var(--oi-fs-sm); opacity: .9; margin-top: 3px; }
+.banner button { margin-left: auto; align-self: center; white-space: nowrap; font-weight: 600; }
+.banner.ok { background: var(--oi-soft-ok-bg); color: var(--oi-soft-ok-fg); border: 1px solid var(--oi-soft-ok-border); }
+.banner.ok button { background: var(--oi-soft-ok-btn-bg); color: var(--oi-soft-ok-btn-fg); }
+.banner.wait { background: var(--oi-soft-warn-bg); color: var(--oi-soft-warn-fg); border: 1px solid var(--oi-soft-warn-border); }
+.banner.neutral { background: var(--oi-surface); border: 1px solid var(--oi-border-strong); box-shadow: var(--oi-shadow); }
+
+.pill { padding: 2px var(--oi-gap-sm); border-radius: var(--oi-radius-pill); font-size: 12px; background: var(--oi-border); }
+.pill.coupon { background: var(--oi-soft-ok-bg); color: var(--oi-soft-ok-fg); }
+.pill.redemption { background: var(--oi-soft-warn-bg); color: var(--oi-soft-warn-fg); }
+.pill.early { background: var(--oi-soft-info-bg); color: var(--oi-soft-info-fg); }
+.pill.reinv { background: var(--oi-soft-ok-bg); color: var(--oi-soft-ok-fg); }
+.pill.recv { background: var(--oi-soft-info-bg); color: var(--oi-soft-info-fg); }
+
+/* --- дрібні розкладки --- */
+
+.quick { display: flex; gap: var(--oi-gap-sm); margin-bottom: 14px; flex-wrap: wrap; }
+.quick button {
+  flex: 1;
+  min-width: 130px;
+  background: var(--oi-surface);
+  color: var(--oi-text);
+  border: 1px solid var(--oi-border-strong);
+}
+.quick button:hover { border-color: var(--oi-accent); color: var(--oi-accent); }
+
+.ov-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: var(--oi-gap); align-items: start; }
+.ov-grid > .card { min-width: 0; }
+@media (max-width: 820px) { .ov-grid { grid-template-columns: 1fr; } }
+
+.pv-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--oi-fs);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--oi-border);
+}
+.pv-row:last-of-type { border-bottom: none; }
+
+.chart-grid { display: flex; flex-wrap: wrap; gap: var(--oi-gap-lg); margin-bottom: var(--oi-gap-lg); align-items: stretch; }
+.chart-grid > .card { flex: 1 1 300px; min-width: 0; }
+.chart-grid > .card.wide { flex: 2 1 420px; }
+.chart-grid .card h4 { display: flex; align-items: center; justify-content: space-between; }
+
+.lg { display: flex; gap: var(--oi-gap-lg); flex-wrap: wrap; margin-top: var(--oi-gap-sm); font-size: var(--oi-fs); color: var(--oi-text); }
+.lg span { display: inline-flex; align-items: center; gap: 7px; }
+.lg i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+
+.h-row { display: flex; align-items: center; }
+
+/* Дрібний пояснювальний рядок під заголовком чи числом. Зустрічається
+   десятками — доти, доки писався інлайном, кожне входження мало шанс
+   розійтися з рештою на пару пікселів. */
+.sub { color: var(--oi-muted); font-size: var(--oi-fs-sm); margin-top: var(--oi-gap-xs); }
+.sub-xs { color: var(--oi-muted); font-size: var(--oi-fs-xs); margin-top: 2px; }
+
+/* Сітка плиток, вбудована в розділ: без власних полів і відступів, бо
+   їх уже дає main. */
+.tiles.flush { margin: 0 0 var(--oi-gap); padding: 0; }
+
+/* Кольоровий квадратик у легенді. */
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: var(--oi-gap-sm); vertical-align: -1px; }
+
+/* Кільце й легенда поруч, із переносом на вузькому екрані. */
+.donut-row { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.donut-legend { flex: 1; min-width: 180px; }
+.row-actions { display: flex; gap: 6px; }
+.bar { height: 14px; border-radius: var(--oi-radius-sm); display: inline-block; vertical-align: middle; }
+.muted { color: var(--oi-muted); }
+
+.progress { height: var(--oi-gap-sm); border-radius: 6px; background: var(--oi-border); overflow: hidden; margin-top: 6px; }
+.progress > span { display: block; height: 100%; background: var(--oi-accent); }
+
+.unitbox { display: inline-flex; border: 1px solid var(--oi-border-strong); border-radius: var(--oi-radius-sm); overflow: hidden; }
+.unitbox .unit {
+  border: 0;
+  background: transparent;
+  color: var(--oi-muted);
+  font: inherit;
+  font-size: var(--oi-fs-sm);
+  padding: 2px 10px;
+  cursor: pointer;
+  border-radius: 0;
+}
+.unitbox .unit.on { background: var(--oi-realistic); color: #fff; }
+
+#cta { max-width: var(--oi-max-width); margin: 0 auto; padding: 0 var(--oi-gap-xl); }
+.cta {
+  background: var(--oi-soft-ok-bg);
+  color: var(--oi-soft-ok-fg);
+  border-radius: var(--oi-radius);
+  padding: 14px var(--oi-gap-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--oi-gap);
+  flex-wrap: wrap;
+  font-size: var(--oi-fs-md);
+}
+.cta b { font-weight: 700; }
+.cta button { background: var(--oi-soft-ok-btn-bg); color: var(--oi-soft-ok-btn-fg); margin-left: auto; }
+
+/* --- пояснення «як це читати» --- */
+
+.info {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--oi-border-strong);
+  background: none;
+  color: var(--oi-muted);
+  font: italic 600 12px Georgia, serif;
+  cursor: pointer;
+  flex: 0 0 auto;
+  line-height: 1;
+  padding: 0;
+  margin-left: var(--oi-gap-sm);
+}
+.info:hover { border-color: var(--oi-accent); color: var(--oi-accent); }
+
+.infopop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .55);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: var(--oi-gap-xl);
+}
+.infopop.show { display: flex; }
+.infopop .box {
+  background: var(--oi-surface);
+  border: 1px solid var(--oi-border-strong);
+  border-radius: var(--oi-radius);
+  padding: var(--oi-gap-xl) 22px;
+  max-width: 460px;
+}
+.infopop h4 { margin: 0 0 10px; font-size: var(--oi-fs-lg); }
+.infopop p { margin: 0; color: var(--oi-text); line-height: 1.6; font-size: var(--oi-fs); }
+.infopop .x {
+  float: right;
+  background: none;
+  border: none;
+  color: var(--oi-muted);
+  font-size: var(--oi-fs-xl);
+  cursor: pointer;
+  margin: -6px -6px 0 0;
+  padding: 0;
+}
+
+/* --- сповіщення --- */
+
+.toast {
+  position: fixed;
+  bottom: var(--oi-gap-xl);
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  padding: var(--oi-gap) var(--oi-gap-xl);
+  border-radius: 10px;
+  color: #fff;
+  opacity: 0;
+  transition: .25s;
+  z-index: 9;
+  max-width: 80vw;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.ok { background: var(--oi-ok); }
+.toast.err { background: var(--oi-danger); }
+
+/* =====================================================================
+ * Сумісність: імена класів старого веб-UI (index.html).
+ * Зникають разом із його розміткою у фазі 3.
+ * ===================================================================== */
+
+nav button {
+  background: none;
+  border: none;
+  color: var(--oi-muted);
+  font: inherit;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+nav button.active { color: var(--oi-text); background: var(--oi-surface-3); }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--oi-gap); margin-bottom: var(--oi-gap-xl); }
+.cards .card { padding: 14px; margin-bottom: 0; }
+.card .v { font-size: var(--oi-fs-xl); font-weight: 600; margin-top: 2px; }
+.card .l { color: var(--oi-muted); font-size: var(--oi-fs-sm); }
+.mut { color: var(--oi-muted); }
+
+.pgbtn {
+  background: var(--oi-surface-3);
+  color: var(--oi-text);
+  border: 1px solid var(--oi-border-strong);
+  border-radius: 6px;
+  padding: 5px var(--oi-gap);
+  font: inherit;
+  cursor: pointer;
+}
+.pgbtn:disabled { opacity: .45; cursor: default; }
+.quick .pgbtn { flex: 1; min-width: 130px; }
+
+form.inline { display: flex; flex-wrap: wrap; gap: var(--oi-gap-sm); margin: 14px 0; }
+button.act { background: var(--oi-accent); color: var(--oi-on-accent); font-weight: 600; }
+button.danger { background: none; border: none; color: var(--oi-danger); padding: 0 var(--oi-gap-xs); }
+
+#msg {
+  position: fixed;
+  bottom: var(--oi-gap-lg);
+  right: var(--oi-gap-lg);
+  background: var(--oi-surface-3);
+  padding: 10px var(--oi-gap-lg);
+  border-radius: var(--oi-radius-sm);
+  display: none;
+}
+
+section { display: none; }
+section.show { display: block; }

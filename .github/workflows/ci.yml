@@ -15,3 +15,52 @@ jobs:
       # Репозиторій ha-oddinvest у своєму CI підтягує contract/ звідси і ганяє
       # свої парсери проти цих фікстур.
       - run: go test ./internal/state -run TestFixtureUpToDate -count=1
+
+  ui:
+    name: спільний UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Збірки в UI немає навмисно (сервіс ставиться в LXC без Node, модулі
+      # віддаються браузеру як є), тож бандлера, який ловив би друкарські
+      # помилки, теж немає. Ці дві перевірки — його заміна.
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+
+      # 1. Синтаксис кожного модуля. package.json у каталозі каже node,
+      #    що це ESM, а не CommonJS.
+      - name: Синтаксис модулів
+        working-directory: internal/api/web
+        run: |
+          for f in $(find js -name '*.js'); do
+            node --check "$f" || exit 1
+          done
+
+      # 2. Чи резолвиться КОЖЕН імпорт. node --check бачить лише синтаксис і
+      #    пропускає «does not provide an export named X» — найімовірнішу
+      #    помилку після перейменування чи переносу функції між модулями.
+      - name: Граф імпортів
+        working-directory: internal/api/web
+        run: |
+          cat > /tmp/imports.mjs <<'EOF'
+          globalThis.HTMLElement = class { attachShadow() { return {}; } };
+          globalThis.customElements = { get: () => undefined, define: () => {} };
+          globalThis.localStorage = { getItem: () => null, setItem: () => {} };
+          globalThis.Document = { prototype: {} };
+          import { readdirSync, statSync } from "node:fs";
+          const walk = (d) => readdirSync(d).flatMap((f) =>
+            statSync(`${d}/${f}`).isDirectory() ? walk(`${d}/${f}`) : [`${d}/${f}`]);
+          let bad = 0;
+          for (const m of walk("js").filter((f) => f.endsWith(".js")).sort()) {
+            try { await import(`${process.cwd()}/${m}`); console.log(`ok   ${m}`); }
+            catch (e) { bad++; console.log(`FAIL ${m}\n     ${e.message.split("\n")[0]}`); }
+          }
+          process.exit(bad ? 1 : 0);
+          EOF
+          node /tmp/imports.mjs
+
+      # 3. Манiфест описує те, що є насправді: за ним синхронізується
+      #    вендорена копія в ha-oddinvest, і застарілі хеші зробили б із
+      #    перевірки дрейфу в тому репозиторії пустушку.
+      - name: Манiфест свіжий
+        run: sh scripts/gen-ui-manifest.sh --check
