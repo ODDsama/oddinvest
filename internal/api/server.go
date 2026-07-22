@@ -433,19 +433,34 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		ladderUAH = append(ladderUAH, state.YearAmount{Year: y, UAH: round2(float64(ladderByYear[y]) / 100)})
 	}
 
-	// Дохід (купони+погашення) по місяцях на рік наперед, грн-екв.
+	// Надходження по місяцях на рік наперед, грн-екв. КУПОНИ рахуємо
+	// окремо від погашень: погашення — це повернення власного тіла, а не
+	// дохід, тож на питання «скільки я отримую» відповідають лише купони.
 	incByMonth := map[string]float64{}
+	couByMonth := map[string]float64{}
 	for _, cf := range cashflow {
-		if u, err := fx.ToUAH(cf.Amount, rates); err == nil {
-			incByMonth[fmt.Sprintf("%04d-%02d", cf.Date.Year(), int(cf.Date.Month()))] += float64(u.Amount()) / 100
+		u, err := fx.ToUAH(cf.Amount, rates)
+		if err != nil {
+			continue
+		}
+		key := fmt.Sprintf("%04d-%02d", cf.Date.Year(), int(cf.Date.Month()))
+		v := float64(u.Amount()) / 100
+		incByMonth[key] += v
+		if cf.Type != domain.PayRedemption {
+			couByMonth[key] += v
 		}
 	}
 	income12m := make([]state.MonthAmount, 0, 12)
+	coupons12m := make([]state.MonthAmount, 0, 12)
+	couponSum := 0.0
 	for i := 0; i < 12; i++ {
 		t := today.Time().AddDate(0, i, 0)
 		key := fmt.Sprintf("%04d-%02d", t.Year(), int(t.Month()))
 		income12m = append(income12m, state.MonthAmount{Month: key, Amount: round2(incByMonth[key])})
+		coupons12m = append(coupons12m, state.MonthAmount{Month: key, Amount: round2(couByMonth[key])})
+		couponSum += couByMonth[key]
 	}
+	incomeMonthlyNow := round2(couponSum / 12)
 
 	accounts := map[string]float64{}
 	accountUAHMinor := int64(0)
@@ -808,18 +823,20 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	projection := make([]state.ProjectionRow, 0, 4)
 	for _, y := range []int{1, 3, 5, 10} {
 		m := y * 12
+		res := domain.ProjectSleeves(buildSleeves(contribM, 0), devalBase, m)
 		row := state.ProjectionRow{
-			Years:       y,
+			Years: y,
 			// Обидві колонки — у сьогоднішніх гривнях, інакше таблиця
 			// віднімала б номінальні гроші від реальних і на коротких
 			// горизонтах показувала б від'ємний приріст.
-			Contributed: round2(domain.RealContributed(p0, contribM, devalBase, m)),
-			WithReinvest: round2(domain.ProjectSleeves(
-				buildSleeves(contribM, 0), devalBase, m).TodayUAH),
+			Contributed:   round2(domain.RealContributed(p0, contribM, devalBase, m)),
+			WithReinvest:  round2(res.TodayUAH),
+			IncomeMonthly: round2(res.IncomeMonthlyTodayUAH),
 		}
 		if actualMonthly > 0 {
-			row.WithReinvestActual = round2(domain.ProjectSleeves(
-				buildSleeves(actualMonthly, 0), devalBase, m).TodayUAH)
+			act := domain.ProjectSleeves(buildSleeves(actualMonthly, 0), devalBase, m)
+			row.WithReinvestActual = round2(act.TodayUAH)
+			row.IncomeMonthlyActual = round2(act.IncomeMonthlyTodayUAH)
 		}
 		projection = append(projection, row)
 	}
@@ -1028,7 +1045,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		MonthTargetUAH: target,
 		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
-		LadderUAH: ladderUAH, Income12m: income12m,
+		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
+		IncomeMonthlyNow: incomeMonthlyNow,
 		ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
 		PortfolioYield: portfolioYieldByCur,

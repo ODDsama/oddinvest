@@ -54,6 +54,12 @@ type Doc struct {
 	// на рік наперед, грн-екв.
 	LadderUAH []YearAmount  `json:"ladder_uah,omitempty"`
 	Income12m []MonthAmount `json:"income_12m,omitempty"`
+	// Coupons12m — з них лише КУПОНИ: погашення це повернення власного
+	// тіла, а не дохід, тож на питання «скільки я отримую» відповідає
+	// саме цей ряд. IncomeMonthlyNow — середній місячний купонний дохід
+	// за наступні 12 місяців.
+	Coupons12m       []MonthAmount `json:"coupons_12m,omitempty"`
+	IncomeMonthlyNow float64       `json:"income_monthly_now,omitempty"`
 
 	// MonthInvestedUAH — куплено паперів цього місяця (перекладання
 	// грошей з рахунку в папери). MonthDepositedUAH — НОВІ гроші, внесені
@@ -269,6 +275,12 @@ type ProjectionRow struct {
 	WithReinvest float64 `json:"with_reinvest"` // з реінвестом за ПЛАНОМ, грн-екв.
 	// WithReinvestActual — те саме, але за фактичним темпом поповнень.
 	WithReinvestActual float64 `json:"with_reinvest_actual,omitempty"`
+	// IncomeMonthly — скільки капітал приноситиме ЩОМІСЯЦЯ на цьому
+	// горизонті, у сьогоднішніх гривнях: купонний потік, який можна
+	// забирати, не проїдаючи тіло. IncomeMonthlyActual — те саме за
+	// фактичним темпом поповнень.
+	IncomeMonthly       float64 `json:"income_monthly,omitempty"`
+	IncomeMonthlyActual float64 `json:"income_monthly_actual,omitempty"`
 }
 
 type NextPayment struct {
@@ -313,6 +325,8 @@ type Input struct {
 	InvestedByBroker map[string]float64
 	LadderUAH        []YearAmount
 	Income12m        []MonthAmount
+	Coupons12m       []MonthAmount
+	IncomeMonthlyNow float64
 	ReinvestMinByCur map[string]float64
 	TopN              int
 	Settings          *SettingsDoc
@@ -405,6 +419,8 @@ func Build(in Input) (*Doc, error) {
 	doc.InvestedByBroker = in.InvestedByBroker
 	doc.LadderUAH = in.LadderUAH
 	doc.Income12m = in.Income12m
+	doc.Coupons12m = in.Coupons12m
+	doc.IncomeMonthlyNow = in.IncomeMonthlyNow
 	doc.ReinvestMin = in.ReinvestMinByCur
 	if doc.Accounts == nil {
 		doc.Accounts = map[string]float64{}

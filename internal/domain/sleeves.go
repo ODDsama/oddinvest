@@ -68,6 +68,11 @@ type SleeveResult struct {
 	NominalUAH float64
 	// ByCurrency — підсумок кожного рукава в його нативній валюті.
 	ByCurrency map[string]float64
+	// IncomeMonthlyTodayUAH — скільки капітал приноситиме ЩОМІСЯЦЯ на
+	// кінець періоду, у сьогоднішніх гривнях: потік, який можна забирати,
+	// не проїдаючи тіло. Погашення сюди не входять — це повернення
+	// власних грошей, а не дохід.
+	IncomeMonthlyTodayUAH float64
 }
 
 // InTodayUSD — той самий капітал у сьогоднішніх доларах. rate0USD — курс
@@ -94,6 +99,10 @@ func ProjectSleeves(sleeves []Sleeve, devalPct float64, months int) SleeveResult
 		today, nominal := s.toUAH(total, dM, months)
 		out.TodayUAH += today
 		out.NominalUAH += nominal
+		// Дохідний потік рахуємо з ПРАЦЮЮЧОЇ частини: готівка, що не
+		// дотягла до найдешевшого паперу, нічого не приносить.
+		incToday, _ := s.toUAH((st.invested+st.locked)*MonthlyRate(s.rateAt(months)), dM, months)
+		out.IncomeMonthlyTodayUAH += incToday
 	}
 	return out
 }
