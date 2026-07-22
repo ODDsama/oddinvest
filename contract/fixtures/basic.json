@@ -11,6 +11,7 @@
   "accounts": {},
   "reinvest_min": {},
   "month_invested_uah": 4500,
+  "month_deposited_uah": 4500,
   "month_target_uah": 5000,
   "month_progress_pct": 90,
   "month_incoming_uah": 4137.5,

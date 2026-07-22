@@ -13,8 +13,9 @@ func MonthInvested(items []*money.Money) (*money.Money, error) {
 }
 
 // ProgressPct — прогрес до цілі у відсотках (0..∞), ціле число.
+// Незаданий факт — це нуль прогресу, а не паніка: поле опційне.
 func ProgressPct(fact, target *money.Money) int {
-	if target == nil || target.IsZero() {
+	if fact == nil || target == nil || target.IsZero() {
 		return 0
 	}
 	return int(fact.Amount() * 100 / target.Amount())
