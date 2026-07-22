@@ -26,7 +26,9 @@ import (
 // Row — одна розібрана операція, готова до запису.
 type Row struct {
 	Date domain.Date
-	Kind string // fund_buy | fund_sell | dividend | deposit | withdrawal
+	// Kind: fund_buy | fund_sell | dividend | deposit | withdrawal | bond_buy.
+	// Для bond_buy у полі Fund лежить ISIN паперу.
+	Kind string
 	Fund string
 	Qty  int64
 	// Amount — завжди додатнє, у мінорних одиницях; напрямок задає Kind.
@@ -52,6 +54,8 @@ type Result struct {
 var (
 	certRe = regexp.MustCompile(`^(Купівля|Продаж)\s+([\d\s\x{00a0}]+)\s+сертифікат`)
 	bondRe = regexp.MustCompile(`^(Купівля|Продаж)\s+([\d\s\x{00a0}]+)\s+облігаці`)
+	// ISIN українських ОВДП: UA + 10 знаків.
+	isinRe = regexp.MustCompile(`UA[A-Z0-9]{10}`)
 )
 
 // ParseInzhur розбирає рядки аркуша (перший рядок — заголовок).
@@ -159,7 +163,22 @@ func ParseInzhur(rows [][]string) (Result, error) {
 			res.Rows = append(res.Rows, Row{Date: date, Kind: "withdrawal", Amount: credit, Note: op})
 
 		case bondRe.MatchString(op):
-			skip("облігації вносяться вручну")
+			m := bondRe.FindStringSubmatch(op)
+			qty, _ := strconv.ParseInt(digits(m[2]), 10, 64)
+			isin := isinRe.FindString(fund)
+			switch {
+			case qty <= 0:
+				skip("не розпізнав кількість облігацій")
+			case isin == "":
+				skip("не знайшов ISIN у назві паперу")
+			case m[1] == "Купівля":
+				res.Rows = append(res.Rows, Row{Date: date, Kind: "bond_buy", Fund: isin,
+					Qty: qty, Amount: credit})
+			default:
+				// Продаж облігації прив'язується до конкретного лота, з
+				// якого продано, а виписка про лоти нічого не знає.
+				skip("продаж облігації вноситься вручну — потрібен лот, з якого продано")
+			}
 
 		case strings.HasPrefix(op, "Конвертація"), strings.HasPrefix(op, "Доплата"):
 			// У рядку конвертації немає кількості сертифікатів, тож

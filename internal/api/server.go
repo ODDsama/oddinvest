@@ -2419,6 +2419,14 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	deps, _ := s.st.ListDeposits(ctx)
+	lots, _ := s.st.ListLots(ctx)
+	// Лот вважаємо тим самим за папером, датою й кількістю. Ціну в ключ
+	// не беремо: та сама купівля, внесена вручну, могла бути округлена
+	// інакше, і розбіжність у копійці не робить її іншою купівлею.
+	lotSeen := map[string]bool{}
+	for _, l := range lots {
+		lotSeen[fmt.Sprintf("%s|%s|%d", l.ISIN, l.BuyDate, l.Qty)] = true
+	}
 	depSeen := map[string]bool{}
 	for _, d := range deps {
 		depSeen[fmt.Sprintf("%s|%d|%s|%s", d.Date, d.Amount, d.Currency, d.Broker)] = true
@@ -2464,6 +2472,35 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			}
+		case "bond_buy":
+			key := fmt.Sprintf("%s|%s|%d", row.Fund, row.Date, row.Qty)
+			exists = lotSeen[key]
+			if !exists {
+				lotSeen[key] = true
+				if !dry {
+					// Ціна за папір — сума ділена на кількість; залишок від
+					// ділення кладемо в комісію, щоб сумарна вартість лота
+					// збіглася з випискою до копійки. Зазвичай там і справді
+					// сидить комісія брокера, вшита в ціну.
+					per := row.Amount / row.Qty
+					fee := row.Amount - per*row.Qty
+					cur := money.UAH
+					if b, berr := s.st.GetBond(ctx, row.Fund); berr == nil && b != nil {
+						cur = b.Nominal.Currency().Code
+					}
+					var feeM *money.Money
+					if fee > 0 {
+						feeM = money.New(fee, cur)
+					}
+					if _, aerr := s.st.AddLot(ctx, domain.Lot{ISIN: row.Fund, Qty: row.Qty,
+						PricePerBond: money.New(per, cur), Fee: feeM, BuyDate: row.Date,
+						Channel: broker, Note: "виписка"}); aerr != nil {
+						writeErr(w, http.StatusInternalServerError, aerr)
+						return
+					}
+				}
+			}
+
 		case "deposit", "withdrawal":
 			amt := row.Amount
 			if row.Kind == "withdrawal" {
@@ -2492,7 +2529,8 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 		// за модулем: продаж міг бути записаний як поповнення, а купівля
 		// як зняття, і напрямок тут нічого не додає.
 		var conflict string
-		if row.Kind == "fund_buy" || row.Kind == "fund_sell" || row.Kind == "dividend" {
+		if row.Kind == "fund_buy" || row.Kind == "fund_sell" || row.Kind == "dividend" ||
+			row.Kind == "bond_buy" {
 			want := row.Amount
 			if row.Kind == "dividend" {
 				want = row.Amount - row.Tax

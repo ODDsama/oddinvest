@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"fmt"
 	"sort"
 
 	money "github.com/Rhymond/go-money"
@@ -46,7 +45,27 @@ func Positions(bonds map[string]Bond, payments []Payment, lots []Lot, sales []Sa
 	for isin, a := range byISIN {
 		b, ok := bonds[isin]
 		if !ok {
-			return nil, fmt.Errorf("папір %s відсутній у довіднику", isin)
+			// Папера немає в кеші довідника — але це не привід валити
+			// весь портфель. Так буває, коли папір щойно розміщений і
+			// довідник ще не оновлено, або коли лот прийшов з виписки
+			// раніше за оновлення НБУ. Позицію показуємо з тим, що
+			// знаємо напевно: кількість і вкладені гроші. Номінал,
+			// погашення й виплати лишаються порожні — саме їх ми й не
+			// знаємо, і вигадувати їх було б гірше за прогалину.
+			cur := a.invested.Currency().Code
+			out = append(out, Position{
+				ISIN:     isin,
+				Currency: cur,
+				Qty:      a.qty,
+				Invested: a.invested,
+				// Нулі, а не nil: далі ці суми складаються й конвертуються,
+				// і nil там перетворився б на паніку. Нуль тут чесний —
+				// номіналу ми не знаємо, тож і в підсумки він не додає.
+				Nominal:    money.New(0, cur),
+				NextPayAmt: money.New(0, cur),
+				Unknown:    true,
+			})
+			continue
 		}
 		pos := Position{
 			ISIN:      isin,

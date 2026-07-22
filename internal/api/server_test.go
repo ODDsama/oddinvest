@@ -881,8 +881,9 @@ func TestImportInzhurIsIdempotent(t *testing.T) {
 
 	// Прогін без запису нічого не змінює.
 	preview := post(true)
-	if preview["new"].(float64) != 3 { // купівля, дивіденд, поповнення
-		t.Errorf("превʼю мало знайти 3 нові операції, маємо %v", preview["new"])
+	// купівля сертифікатів, дивіденд, поповнення, купівля облігації
+	if preview["new"].(float64) != 4 {
+		t.Errorf("превʼю мало знайти 4 нові операції, маємо %v", preview["new"])
 	}
 	if preview["imported"].(float64) != 0 {
 		t.Errorf("режим превʼю не мав нічого записати, маємо %v", preview["imported"])
@@ -892,13 +893,16 @@ func TestImportInzhurIsIdempotent(t *testing.T) {
 	}
 
 	first := post(false)
-	if first["imported"].(float64) != 3 {
-		t.Errorf("перший імпорт мав записати 3 операції, маємо %v", first["imported"])
+	if first["imported"].(float64) != 4 {
+		t.Errorf("перший імпорт мав записати 4 операції, маємо %v", first["imported"])
 	}
-	// Облігація має бути НАЗВАНА в пропусках, а не зникнути.
-	sk, _ := first["skipped"].([]any)
-	if len(sk) != 1 {
-		t.Errorf("очікували один названий пропуск (облігація), маємо %v", sk)
+	if sk, _ := first["skipped"].([]any); len(sk) != 0 {
+		t.Errorf("у цій виписці пропускати нічого, маємо %v", sk)
+	}
+	// Облігація має стати лотом із ціною, виведеною із суми.
+	_, lotsBody := do(t, "GET", srv.URL+"/api/lots", "")
+	if !strings.Contains(lotsBody, "UA4000237416") || !strings.Contains(lotsBody, "1032.46") {
+		t.Errorf("облігація мала стати лотом: %s", lotsBody)
 	}
 
 	second := post(false)
@@ -928,11 +932,52 @@ func TestImportInzhurIsIdempotent(t *testing.T) {
 	// Гаманець має рухатись від УСІХ операцій фонду, а не лише від
 	// поповнень: 300 (поповнення) − 55.56 (купівля) + 16.33 (дивіденд
 	// чистими) = 260.77. І кожна з них — рівно один раз.
-	// 300 (поповнення) − 55.56 (купівля) + 16.33 (дивіденд чистими)
+	// 300 (поповнення) − 55.56 (сертифікати) + 16.33 (дивіденд чистими)
+	// − 1032.46 (облігація з виписки)
 	// − 55.56 (той самий ручний рух, який імпорт і назвав конфліктом:
 	// він лишається в базі, доки користувач його не прибере)
-	if v := got.Accounts["UAH"]; math.Abs(v-205.21) > 0.01 {
-		t.Errorf("баланс: очікували 205.21, маємо %v", v)
+	if v := got.Accounts["UAH"]; math.Abs(v-(205.21-1032.46)) > 0.01 {
+		t.Errorf("баланс: очікували %.2f, маємо %v", 205.21-1032.46, v)
+	}
+}
+
+// Облігація, уже внесена вручну, не має задвоїтись імпортом: ключ —
+// папір, дата й кількість, а не ціна, бо ручний запис міг бути округлений
+// інакше й від того не став іншою купівлею.
+func TestImportSkipsAlreadyEnteredBond(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":1,"price_per_bond":"1032.40","buy_date":"2026-07-20","channel":"inzhur"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("ручний лот: %d %s", resp.StatusCode, b)
+	}
+	xlsx := buildXLSX(t, [][]string{
+		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
+		{"46223.376238425924", "Купівля 1 облігації", "ОВДП UA4000227748", "", "1032.46"},
+	})
+	body, ct := multipartFile(t, "file", "s.xlsx", xlsx)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/import/inzhur", body)
+	req.Header.Set("Content-Type", ct)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Imported int `json:"imported"`
+		Rows     []struct {
+			Exists bool `json:"exists"`
+		} `json:"rows"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Imported != 0 || len(out.Rows) != 1 || !out.Rows[0].Exists {
+		t.Errorf("вже внесена облігація мала позначитись «вже є»: %+v", out)
+	}
+	_, lots := do(t, "GET", srv.URL+"/api/lots", "")
+	if strings.Count(lots, "UA4000227748") != 1 {
+		t.Errorf("лот задвоївся: %s", lots)
 	}
 }
 

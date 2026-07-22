@@ -73,6 +73,13 @@ func TestParseInzhur(t *testing.T) {
 		t.Errorf("продаж мав отримати податок 1.78: %+v", sell)
 	}
 
+	// Облігація тепер теж імпортується: ISIN береться з назви паперу,
+	// а ціна за штуку виводиться із суми й кількості.
+	bond := find(t, res, "bond_buy")
+	if bond.Fund != "UA4000237416" || bond.Qty != 1 || bond.Amount != 103246 {
+		t.Errorf("облігація: %+v", bond)
+	}
+
 	dep := find(t, res, "deposit")
 	if dep.Amount != 30000 {
 		t.Errorf("поповнення 300.00: %+v", dep)
@@ -87,13 +94,12 @@ func TestParseInzhur(t *testing.T) {
 	for _, s := range res.Skipped {
 		reasons[s.Reason] = true
 	}
-	for _, want := range []string{"облігації вносяться вручну",
-		"конвертація без кількості сертифікатів — внеси вручну"} {
+	for _, want := range []string{"конвертація без кількості сертифікатів — внеси вручну"} {
 		if !reasons[want] {
 			t.Errorf("очікували пропуск з причиною %q, маємо %+v", want, res.Skipped)
 		}
 	}
-	if len(res.Rows)+len(res.Skipped) != len(statement())-1-2 {
+	if len(res.Rows)+len(res.Skipped) != len(statement())-1-2 { //nolint
 		// −2, бо два рядки податку не стають окремими операціями
 		t.Errorf("жоден рядок не має зникнути безслідно: %d операцій + %d пропусків",
 			len(res.Rows), len(res.Skipped))

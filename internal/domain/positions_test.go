@@ -43,3 +43,36 @@ func TestPositions(t *testing.T) {
 		t.Errorf("днів до погашення має бути > 0: %d", ua.DaysToMat)
 	}
 }
+
+// Папір, якого немає в кеші довідника, НЕ має валити весь портфель.
+// Так буває, коли папір щойно розміщено, або коли лот прийшов із виписки
+// раніше за оновлення НБУ. Раніше це давало помилку на весь /api/summary,
+// тобто застосунок ставав непридатним через один невідомий ISIN.
+func TestPositionsToleratesUnknownISIN(t *testing.T) {
+	lots := []Lot{
+		{ID: 1, ISIN: "UA9999999999", Qty: 2, PricePerBond: money.New(100000, money.UAH),
+			BuyDate: "2026-07-20", Channel: "inzhur"},
+	}
+	pos, err := Positions(map[string]Bond{}, nil, lots, nil, "2026-07-22")
+	if err != nil {
+		t.Fatalf("невідомий папір не мав давати помилку: %v", err)
+	}
+	if len(pos) != 1 {
+		t.Fatalf("позиція мала лишитись видимою, маємо %d", len(pos))
+	}
+	p := pos[0]
+	if !p.Unknown {
+		t.Error("позиція мала бути позначена як невідома")
+	}
+	if p.Qty != 2 || p.Invested.Amount() != 200000 {
+		t.Errorf("кількість і вкладене відомі з лота: %+v", p)
+	}
+	// Номінал і виплати нам невідомі — вони мають бути НУЛЬОВІ, а не nil:
+	// далі ці суми складаються й конвертуються, і nil там дав би паніку.
+	if p.Nominal == nil || p.Nominal.Amount() != 0 {
+		t.Errorf("номінал мав бути нульовим, маємо %v", p.Nominal)
+	}
+	if p.NextPayAmt == nil || p.NextPayAmt.Amount() != 0 {
+		t.Errorf("наступна виплата мала бути нульовою, маємо %v", p.NextPayAmt)
+	}
+}
