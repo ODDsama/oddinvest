@@ -92,3 +92,42 @@ func TestPortfolioFlowsPerCurrency(t *testing.T) {
 		t.Errorf("XIRR гривневого портфеля неправдоподібний: %.4f", r)
 	}
 }
+
+// Термінальна вартість у XIRR має включати НКД.
+//
+// Папір купується «брудним»: у ціну входить купон, що наріс попередньому
+// власнику. Якщо оцінювати залишок самим номіналом, ця частина зникає, і
+// модель фіксує збиток у мить купівлі. На реальному портфелі це дало XIRR
+// −41.96% через тиждень після покупки — при тому, що не втрачено нічого.
+func TestPortfolioFlowsTerminalIncludesAccrued(t *testing.T) {
+	bonds := map[string]Bond{"UA1": {
+		ISIN: "UA1", Nominal: money.New(100000, money.UAH),
+		Maturity: "2027-07-01", RateBP: 1600,
+	}}
+	// Купон раз на рік: 160.00 на папір, найближчий — через півроку.
+	pays := []Payment{
+		{ISIN: "UA1", PayDate: "2026-01-01", Type: PayCoupon, PerBond: money.New(16000, money.UAH)},
+		{ISIN: "UA1", PayDate: "2027-01-01", Type: PayCoupon, PerBond: money.New(16000, money.UAH)},
+		{ISIN: "UA1", PayDate: "2027-07-01", Type: PayRedemption, PerBond: money.New(100000, money.UAH)},
+	}
+	lots := []Lot{{ID: 1, ISIN: "UA1", Qty: 1, PricePerBond: money.New(104000, money.UAH),
+		Fee: money.New(0, money.UAH), BuyDate: "2026-07-01"}}
+
+	flows, err := PortfolioFlows(bonds, pays, lots, nil, money.UAH, "2026-07-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var terminal int64
+	for _, f := range flows {
+		if f.Date == "2026-07-01" && f.Amount > 0 {
+			terminal = f.Amount
+		}
+	}
+	if terminal <= 100000 {
+		t.Errorf("термінал %d — це самий номінал; НКД не врахований", terminal)
+	}
+	// Півроку від січневого купона: ≈ 80.00 з 160.00.
+	if terminal < 106000 || terminal > 110000 {
+		t.Errorf("термінал %d, чекали ≈108000 (номінал + піврічний НКД)", terminal)
+	}
+}

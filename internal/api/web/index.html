@@ -972,14 +972,20 @@ async function loadSummary() {
   const pct = v => v != null ? v.toFixed(2) + "%" : "—";
   const xirrTiles = Object.keys(x).length
     ? Object.entries(x).map(([c,v]) => card(`XIRR ${curSym(c)}`, pct(v))).join("")
-    : card("XIRR", "—", `<div class="l" style="margin-top:4px">потрібно 30 днів історії</div>`);
+    : card("XIRR", "—", `<div class="l" style="margin-top:4px">гроші мають попрацювати ≥30 днів у середньому</div>`);
   $("#portTiles").innerHTML =
     card("Вкладено (грн-екв.)", Math.round(s.invested_uah + fundsCost(s)).toLocaleString("uk"),
       fundsCost(s) > 0 ? `<div class="l" style="margin-top:4px">з них ${uahFmt(fundsCost(s))} у фондах</div>` : "") +
     card("Номінал (грн-екв.)", s.nominal_uah_eq.toLocaleString("uk")) +
     card("Накопичений купон", uahFmt(accrued), `<div class="l" style="margin-top:4px">зароблено, ще не виплачено</div>`) +
-    Object.entries(py).map(([c,v]) => card(`Дохідність ${curSym(c)}`, pct(v),
+    Object.entries(py).map(([c,v]) => card(`ОВДП ${curSym(c)}`, pct(v),
       `<div class="l" style="margin-top:4px">до погашення, від сплаченої ціни</div>`)).join("") +
+    (s.funds_yield_pct > 0
+      ? card("Фонди", pct(s.funds_yield_pct),
+          `<div class="l" style="margin-top:4px">дивіденди після податку, річні</div>`) : "") +
+    (s.blended_yield_pct > 0
+      ? card("Дохідність портфеля", pct(s.blended_yield_pct),
+          `<div class="l" style="margin-top:4px">ОВДП і фонди разом, зважено вкладеним</div>`) : "") +
     xirrTiles;
 
   $("#shareTiles").innerHTML =

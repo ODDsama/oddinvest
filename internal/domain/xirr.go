@@ -122,7 +122,14 @@ func PortfolioFlows(bonds map[string]Bond, payments []Payment, lots []Lot,
 		flows = append(flows, Flow{Date: cf.Date, Amount: cf.Amount.Amount()})
 	}
 
-	// термінальна вартість залишку за номіналом
+	// Термінальна вартість залишку: номінал ПЛЮС накопичений купон.
+	//
+	// Без НКД модель фіксувала збиток у мить купівлі. Папір купується
+	// «брудним» — у ціну входить купон, що наріс попередньому власнику, —
+	// а оцінювався він «чисто», за самим номіналом; різниця зникала. На
+	// молодому портфелі це давало XIRR під −40% там, де насправді не
+	// втрачено нічого: 8 417 сплачено, 8 000 «залишилось», 140 зароблених
+	// НКД у розрахунку не існувало.
 	var terminal int64
 	for _, l := range lots {
 		if l.PricePerBond.Currency().Code != currency {
@@ -132,7 +139,11 @@ func PortfolioFlows(bonds map[string]Bond, payments []Payment, lots []Lot,
 		if !ok || b.Maturity.Before(asOf) {
 			continue
 		}
-		terminal += b.Nominal.Amount() * RemainingQtyNow(l, sales)
+		rem := RemainingQtyNow(l, sales)
+		terminal += b.Nominal.Amount() * rem
+		if acc, aerr := EstimateAccrued(payments, l.ISIN, asOf); aerr == nil && acc != nil && !acc.IsZero() {
+			terminal += acc.Amount() * rem
+		}
 	}
 	if terminal > 0 {
 		flows = append(flows, Flow{Date: asOf, Amount: terminal})
