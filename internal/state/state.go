@@ -13,6 +13,7 @@ package state
 
 import (
 	"encoding/json"
+	"math"
 	"time"
 
 	money "github.com/Rhymond/go-money"
@@ -424,13 +425,16 @@ func Build(in Input) (*Doc, error) {
 	}
 	doc.InvestedUAH = float64(investedUAH) / 100
 	doc.NominalUAHEq = float64(nominalUAH) / 100
-	// частки рахуються від усього капіталу: папери за номіналом + кеш на
-	// рахунку (гривня). Так вільний кеш «розводить» валютні частки.
+	// Частки рахуються від УСЬОГО капіталу: папери за номіналом + кеш на
+	// рахунку + сертифікати фондів. Так вільний кеш «розводить» валютні
+	// частки, а фонди більше не випадають зі знаменника — доки вони в
+	// ньому не враховувались, гривнева частка занижувалась, і застосунок
+	// радив добирати валюту, якої насправді вистачало.
 	accountMinor := int64(0)
 	if in.AccountUAH != nil {
 		accountMinor = in.AccountUAH.Amount()
 	}
-	capital := nominalUAH + accountMinor
+	capital := nominalUAH + accountMinor + int64(math.Round(in.FundsUAH*100))
 	if capital > 0 {
 		doc.USDSharePct = float64(nominalUSD) * 100 / float64(capital)
 		doc.EURSharePct = float64(nominalEUR) * 100 / float64(capital)

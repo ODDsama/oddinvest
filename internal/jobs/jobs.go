@@ -110,10 +110,16 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 		return err
 	}
 	today := domain.NewDate(time.Now().In(r.loc))
-	return r.st.SaveSnapshot(ctx, today,
-		int64(doc.InvestedUAH*100), int64(doc.NominalUAHEq*100),
-		int64(doc.USDSharePct*100), int64(doc.UninvestedUAH*100),
-		int64(doc.MonthTargetUAH*100), int64(doc.AccountUAH*100))
+	return r.st.SaveSnapshot(ctx, store.Snapshot{
+		Date:           today,
+		InvestedUAH:    int64(doc.InvestedUAH * 100),
+		NominalUAHEq:   int64(doc.NominalUAHEq * 100),
+		USDShareBP:     int64(doc.USDSharePct * 100),
+		UninvestedUAH:  int64(doc.UninvestedUAH * 100),
+		MonthTargetUAH: int64(doc.MonthTargetUAH * 100),
+		AccountUAH:     int64(doc.AccountUAH * 100),
+		FundsUAH:       int64(doc.FundsUAH * 100),
+	})
 }
 
 func (r *Runner) PublishState(ctx context.Context) error {

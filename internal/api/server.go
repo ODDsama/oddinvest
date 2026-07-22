@@ -277,6 +277,23 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
+	// Сертифікати фондів — теж купівля паперів, тож у «вкладено цього
+	// місяця» вони входять нарівні з облігаціями. Досі не входили лише
+	// тому, що фонди прибудовувались до моделі пізніше.
+	if ops, ferr := s.st.ListFundOps(ctx); ferr == nil {
+		for _, op := range ops {
+			if op.Kind != domain.FundBuy ||
+				op.Date.Year() != now.Year() || op.Date.Month() != now.Month() {
+				continue
+			}
+			if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
+				if sum, aerr := monthInv.Add(u); aerr == nil {
+					monthInv = sum
+				}
+			}
+		}
+	}
+
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну нижче, коли вже зібрані валютні рукави.
 	target := money.New(0, money.UAH)
@@ -721,10 +738,25 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// історії він порахований, щоб було видно, наскільки йому вірити.
 	var actualMonthly float64
 	var actualMonths int
+	// Вікно — останні півроку, а не вся історія.
+	//
+	// Усереднення за весь час міряє не темп, а біографію: якщо портфель
+	// колись виходив у нуль і починався заново, внески «до» і виведення
+	// «під час» гасять одне одного, і сьогоднішні 7 500 ₴/міс виглядають
+	// як 430. На реальних даних саме так і сталось — 29 місяців історії з
+	// повним виходом посередині дали 0% від потрібного при живих внесках.
+	//
+	// Півроку — компроміс: досить довго, щоб пропущений місяць не обвалив
+	// оцінку, і досить коротко, щоб показник відповідав на «як я вкладаю
+	// ЗАРАЗ», а саме це питання йому й ставлять.
+	const actualWindowDays = 183
 	if deps, derr := s.st.ListDeposits(ctx); derr == nil && len(deps) > 0 {
-		first := deps[0].Date
+		first := today
 		var totalUAH int64
 		for _, d := range deps {
+			if n := domain.DaysBetween(d.Date, today); n < 0 || n > actualWindowDays {
+				continue
+			}
 			if d.Date.Before(first) {
 				first = d.Date
 			}
@@ -2171,13 +2203,14 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 		UninvestedUAH  float64 `json:"uninvested_uah"`
 		MonthTargetUAH float64 `json:"month_target_uah"`
 		AccountUAH     float64 `json:"account_uah"`
+		FundsUAH       float64 `json:"funds_uah"`
 	}
 	out := make([]snapJSON, 0, len(snaps))
 	for _, sn := range snaps {
 		out = append(out, snapJSON{string(sn.Date), float64(sn.InvestedUAH) / 100,
 			float64(sn.NominalUAHEq) / 100, float64(sn.USDShareBP) / 100,
 			float64(sn.UninvestedUAH) / 100, float64(sn.MonthTargetUAH) / 100,
-			float64(sn.AccountUAH) / 100})
+			float64(sn.AccountUAH) / 100, float64(sn.FundsUAH) / 100})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
