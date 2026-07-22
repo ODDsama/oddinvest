@@ -2373,6 +2373,13 @@ func (s *Server) handleDeleteFundOp(w http.ResponseWriter, r *http.Request) {
 
 // --- імпорт виписки ---
 
+func abs64(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 // handleImportInzhur приймає xlsx-виписку.
 //
 // Два режими одним ендпойнтом: ?dry=1 лише показує, що буде зроблено, без
@@ -2425,6 +2432,11 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 		Amount string `json:"amount"`
 		Tax    string `json:"tax,omitempty"`
 		Exists bool   `json:"exists"`
+		// Conflict — та сама сума вже лежить у гаманці ручним рухом.
+		// Поки обліку фондів не було, купівлі й продажі сертифікатів
+		// доводилось записувати як поповнення/зняття; тепер операція фонду
+		// теж рухає гаманець, тож стара пара стала б подвійним рахунком.
+		Conflict string `json:"conflict,omitempty"`
 	}
 	out := struct {
 		Rows     []outRow          `json:"rows"`
@@ -2476,10 +2488,31 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 				out.Imported++
 			}
 		}
+		// Шукаємо ручний рух тієї ж величини поруч за датою. Порівнюємо
+		// за модулем: продаж міг бути записаний як поповнення, а купівля
+		// як зняття, і напрямок тут нічого не додає.
+		var conflict string
+		if row.Kind == "fund_buy" || row.Kind == "fund_sell" || row.Kind == "dividend" {
+			want := row.Amount
+			if row.Kind == "dividend" {
+				want = row.Amount - row.Tax
+			}
+			for _, d := range deps {
+				if abs64(d.Amount) != want && abs64(d.Amount) != row.Amount {
+					continue
+				}
+				if n := domain.DaysBetween(d.Date, row.Date); n < -2 || n > 2 {
+					continue
+				}
+				conflict = fmt.Sprintf("та сама сума вже є ручним рухом від %s (%s) — видали його, інакше гроші порахуються двічі",
+					d.Date, d.Broker)
+				break
+			}
+		}
 		out.Rows = append(out.Rows, outRow{Date: string(row.Date), Kind: row.Kind,
 			Fund: row.Fund, Qty: row.Qty,
 			Amount: money.New(row.Amount, cur).Display(),
-			Tax:    money.New(row.Tax, cur).Display(), Exists: exists})
+			Tax:    money.New(row.Tax, cur).Display(), Exists: exists, Conflict: conflict})
 	}
 	if !dry && out.Imported > 0 {
 		s.publishAsync()
