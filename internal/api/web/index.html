@@ -199,6 +199,62 @@
       <button class="act">Записати</button>
     </form>
     <table id="sales"></table>
+
+    <h3 class="h-row">Сертифікати фондів <button class="info" data-info="fundops" aria-label="Як це читати" title="Як це читати">i</button></h3>
+    <p class="mut">Інший інструмент, ніж ОВДП: ні погашення, ні номіналу, ні графіка купонів — натомість ринкова ціна
+      й нерегулярні дивіденди, з яких утримується податок. Ціна береться з останньої твоєї операції.</p>
+
+    <h3>Купівля сертифікатів</h3>
+    <form class="inline" id="fundBuyForm">
+      <input type="hidden" name="id">
+      <input name="fund" placeholder="Фонд" required list="fundList" style="width:160px" autocomplete="off">
+      <datalist id="fundList"></datalist>
+      <input name="qty" type="number" min="1" step="1" placeholder="К-сть серт." required style="width:120px">
+      <input name="amount" placeholder="Сплачено разом" required style="width:140px">
+      <select name="currency" style="width:100px"><option>UAH</option><option>USD</option><option>EUR</option></select>
+      <input name="date" type="date" required>
+      <select name="broker" id="fundBuyBroker" style="width:130px"></select>
+      <input name="note" placeholder="Нотатка" style="width:140px">
+      <button class="act">Додати</button>
+      <button type="button" class="pgbtn fundCancel" style="display:none">Скасувати</button>
+    </form>
+
+    <h3>Позиції</h3>
+    <table id="fundPositions"></table>
+
+    <h3>Лоти</h3>
+    <table id="fundLots"></table>
+
+    <h3>Продаж сертифікатів</h3>
+    <form class="inline" id="fundSellForm">
+      <input type="hidden" name="id">
+      <input name="fund" placeholder="Фонд" required list="fundList" style="width:160px" autocomplete="off">
+      <input name="qty" type="number" min="1" step="1" placeholder="К-сть серт." required style="width:120px">
+      <input name="amount" placeholder="Отримано разом" required style="width:140px">
+      <input name="tax" placeholder="Податок" style="width:110px">
+      <select name="currency" style="width:100px"><option>UAH</option><option>USD</option><option>EUR</option></select>
+      <input name="date" type="date" required>
+      <select name="broker" id="fundSellBroker" style="width:130px"></select>
+      <input name="note" placeholder="Нотатка" style="width:140px">
+      <button class="act">Записати</button>
+      <button type="button" class="pgbtn fundCancel" style="display:none">Скасувати</button>
+    </form>
+    <table id="fundSales"></table>
+
+    <h3>Дивіденди</h3>
+    <form class="inline" id="fundDivForm">
+      <input type="hidden" name="id">
+      <input name="fund" placeholder="Фонд" required list="fundList" style="width:160px" autocomplete="off">
+      <input name="amount" placeholder="Нараховано (брутто)" required style="width:170px">
+      <input name="tax" placeholder="Податок утримано" style="width:150px">
+      <select name="currency" style="width:100px"><option>UAH</option><option>USD</option><option>EUR</option></select>
+      <input name="date" type="date" required>
+      <select name="broker" id="fundDivBroker" style="width:130px"></select>
+      <input name="note" placeholder="Нотатка" style="width:140px">
+      <button class="act">Записати</button>
+      <button type="button" class="pgbtn fundCancel" style="display:none">Скасувати</button>
+    </form>
+    <table id="fundDividends"></table>
   </section>
 
   <section id="plan">
@@ -703,6 +759,7 @@ const INFO = {
   import: ["Імпорт виписки", "Виписка Inzhur у .xlsx. Спершу «Переглянути» — застосунок покаже, що саме додасть, і нічого не запише. Рядки, які вже є в базі, позначені: щомісячна виписка містить і старі операції, тож повторний імпорт нічого не подвоює. Окремо позначаються КОНФЛІКТИ — коли та сама сума вже лежить у гаманці ручним рухом: доки обліку фондів не було, купівлі сертифікатів доводилось записувати як зняття, і тепер така пара порахувалась би двічі; такий ручний запис треба спершу видалити в «Рухах» нижче. Облігації імпорт свідомо пропускає — їх ти вносиш вручну. Жоден рядок не зникає мовчки: усе, що не імпортовано, показано з причиною."],
   reconcile: ["Звірка рахунку", "Введи баланс, який показує брокер, — застосунок порівняє його з тим, що виходить із записів. Розбіжність майже завжди означає одне з двох: плюс — надійшло щось незаписане (поповнення або купон, що прийшов раніше за графік); мінус — витрачено щось незаписане (купівля або комісія). Кнопка створює коригуюче поповнення рівно на різницю з поміткою «звірка», щоб баланс зійшовся, а сама розбіжність лишилась видимою в історії, а не розчинилась. Рахунки брокерів роздільні, тож звіряти треба кожен окремо."],
   funds: ["Сертифікати фондів", "Сертифікати фондів — інший інструмент, ніж ОВДП: немає ні погашення, ні номіналу, ні графіка купонів, зате є ринкова ціна й нерегулярні дивіденди. Ціна береться з останньої твоєї операції — виписка приносить її з собою, тож окреме джерело котирувань не потрібне; між виписками вона застаріває, і дата поруч це показує. Дохідність — ПІСЛЯ податку: дивіденд фонду оподатковується (зараз 14%: ПДФО 9% + військовий збір 5%), а купон ОВДП звільнений, тож до податку порівнювати їх означало б давати фонду фору. «Результат» — прибуток від уже закритих продажів за вирахуванням собівартості й податку."],
+  fundops: ["Сертифікати фондів", "Розкладено так само, як облігації: позиції, лоти, продажі — плюс дивіденди, яких у ОВДП немає. Позиція — це стан фонду, а не окрема покупка: сертифікат безстроковий, партії розрізняти нема потреби, тож собівартість середньозважена, і продаж зменшує її пропорційно проданій частці. «Ціна» — з останньої твоєї операції (виписка приносить її з собою), тож між виписками вона старіє, і дата поруч це показує. «Прибуток» — паперовий, різниця ринкової вартості й вкладеного; окремо йде результат уже закритих продажів. «Дохідність» — дивіденди за 365 днів ПІСЛЯ податку до ринкової вартості: дивіденд фонду оподатковується (зараз 14%: ПДФО 9% + військовий збір 5%), а купон ОВДП звільнений, тож до податку порівнювати їх означало б давати фонду фору. Суми всюди ДОДАТНІ, напрямок задає сам розділ: купівля забирає гроші з рахунку брокера, продаж і дивіденд приносять. Податок ставиться окремо (для дивіденда це утримане при виплаті, для продажу — сплачене з прибутку). Імпорт виписки Inzhur пише в ці самі таблиці, тож дублікат видаляється звідси, а операцію, якої у виписці не було, тут же й дописуєш."],
   income: ["Пасивний дохід", "Скільки папери приноситимуть ЩОМІСЯЦЯ — тобто потік, який можна забирати, не проїдаючи тіло. Погашення сюди не входять: повернення номіналу це твої ж гроші, а не дохід. «Зараз» — середній купон за наступні 12 місяців із реального графіка виплат. Далі — симуляція: капітал на кожному горизонті помножений на ставку, під яку він працює на той момент (а вона сповзає до довгострокової). Усе в гривні сьогоднішньої купівельної спроможності, тож числа можна порівнювати з сьогоднішніми витратами. Рядок «за фактом» рахується від твого справжнього темпу поповнень, а не від плану."],
   reinvest: ["Що купити", "Папери відранжовані за РЕАЛЬНОЮ дохідністю — тією, що лишається в сьогоднішніх гривнях після знецінення. Саме вона робить гривневі й валютні папери порівнянними: гривневий під 16% при знеціненні 6%/рік дає ~9.4% реальних, а доларовий під 4% так і лишається 4%, бо долар купівельну спроможність тримає. YTM — дохідність до погашення за ціною входу; вона вища за купонну ставку, бо купон складається всередині року. Ціни в довіднику НБУ немає, тож рахуємо «за номіналом плюс НКД» — реальна ціна в брокера може відрізнятись, і тоді дохідність теж. «mono ×3» означає, скільки таких паперів тягне баланс саме цього брокера: рахунки роздільні, і гривня на inzhur не купить папір у mono. Це інструмент для порівняння, а не порада купувати."],
   forecast: ["Скільки треба вносити", "Головне число рядка — скільки треба вносити щомісяця, щоб дійти до цілі саме за цих допущень. Платіж під ціль один, але ринок вирішує, наскільки він посильний: за кращих ставок і слабшого знецінення ціль коштує дешевше, за гірших — дорожче. Саме тому віяло розкидає ПЛАТІЖ, а не суму на дедлайн: щойно внесок підбирається під ціль, сума на дедлайн у всіх трьох сценаріях однакова — це і є ціль. Рядок «За фактом» показує твій справжній темп поповнень і яку частку потрібного він покриває, а також скільки за ним вийде на дедлайн — там сума вже несе новину. Внески завжди в гривні, навіть у доларовому вигляді: відкладаєш ти гривні. Запис «₴ 15.7% → 11.0%» означає, що ставка не вічна: сьогоднішня це факт, далі вона лінійно сповзає до довгострокової. Кожна валюта рахується окремо у своїй валюті: гривневий рукав наприкінці переводиться в сьогоднішні гроші й тому втрачає, а долар і євро купівельну спроможність тримають."],
@@ -1056,7 +1113,7 @@ function renderChannels() {
   // селектори брокера у грошових формах (без «інший…»: рахунок має існувати)
   const opts = `<option value="">— брокер —</option>` +
     brokerList().map(c=>`<option value="${c}">${c}</option>`).join("");
-  ["#depBroker","#convBroker"].forEach(id => {
+  ["#depBroker","#convBroker","#fundBuyBroker","#fundSellBroker","#fundDivBroker"].forEach(id => {
     const el = $(id); if (!el) return;
     const prev = el.value; el.innerHTML = opts; if (prev) el.value = prev;
   });
@@ -1096,6 +1153,165 @@ async function loadPortfolio() {
 async function delLot(id) {
   if (!confirm("Видалити лот " + id + "?")) return;
   await api("/api/lots/" + id, {method:"DELETE"}); refresh();
+}
+
+// --- сертифікати фондів ---
+// Розкладено так само, як облігації: позиції, під ними лоти (купівлі),
+// далі продажі й дивіденди — кожне своєю таблицею з власною формою.
+// Спільного хронологічного журналу свідомо немає: у портфелі питання не
+// «що відбувалось», а «що в мене є і з чого воно склалось».
+//
+// Форма кожного розділу працює і на «додати», і на «виправити»:
+// прихований id перемикає POST на PUT, і другого набору полів не треба.
+const FUND_KIND = { buy:"купівля", sell:"продаж", dividend:"дивіденд" };
+const FUND_SECTIONS = {
+  buy:      { form:"#fundBuyForm",  add:"Додати" },
+  sell:     { form:"#fundSellForm", add:"Записати" },
+  dividend: { form:"#fundDivForm",  add:"Записати" },
+};
+let LAST_FUND_OPS = [];
+
+// Копійки лишаємо: дивіденд 16.33 ₴ і податок 2.66 ₴ — числа, де
+// округлення до гривні з'їдає п'яту частину значення.
+const fundUAH = v => (Number(v)||0).toLocaleString("uk", {minimumFractionDigits:2, maximumFractionDigits:2}) + " ₴";
+const fundMoney = m => m
+  ? `${Number(m.amount).toLocaleString("uk", {minimumFractionDigits:2, maximumFractionDigits:2})} ${curSym(m.currency)}`
+  : "—";
+const fundTax = o => o.tax && Number(o.tax.amount) > 0 ? fundMoney(o.tax) : "";
+const fundPrice = o => o.qty > 0 && o.amount ? (Number(o.amount.amount)/o.qty).toFixed(4) : "";
+const fundActs = id => `<button class="pgbtn" style="padding:2px 8px" data-editop="${id}">✎</button>
+  <button class="danger" data-delop="${id}">✕</button>`;
+
+async function loadFundOps() {
+  // Позиції рахує бекенд: собівартість там послідовна по журналу, і
+  // повторити її в JS означало б завести другу правду, яка колись
+  // розійдеться з першою. Тут лише розкладаємо по рядках.
+  const [ops, s] = await Promise.all([api("/api/funds").catch(() => []), api("/api/summary")]);
+  LAST_FUND_OPS = ops || [];
+  // Підказка фондів — з уже записаних операцій: назва має збігатися
+  // символ у символ, інакше один фонд розпадеться на дві позиції.
+  const names = [...new Set(LAST_FUND_OPS.map(o => o.fund).filter(Boolean))].sort((a,b)=>a.localeCompare(b,"uk"));
+  const dl = $("#fundList"); if (dl) dl.innerHTML = names.map(n=>`<option value="${n}">`).join("");
+
+  renderFundPositions(s.funds || []);
+  renderFundOpTable("buy", "#fundLots", "Купівель ще немає.",
+    "<tr><th>ID</th><th>Фонд</th><th>К-сть</th><th>Ціна</th><th>Сплачено</th><th>Дата</th><th>Брокер</th><th>Нотатка</th><th></th></tr>",
+    o => `<td>${o.qty}</td><td>${fundPrice(o)}</td><td>${fundMoney(o.amount)}</td>`);
+  renderFundOpTable("sell", "#fundSales", "Продажів ще не було.",
+    "<tr><th>ID</th><th>Фонд</th><th>К-сть</th><th>Ціна</th><th>Отримано</th><th>Податок</th><th>Дата</th><th>Брокер</th><th>Нотатка</th><th></th></tr>",
+    o => `<td>${o.qty}</td><td>${fundPrice(o)}</td><td>${fundMoney(o.amount)}</td><td>${fundTax(o)}</td>`);
+  renderFundOpTable("dividend", "#fundDividends", "Дивідендів ще не було.",
+    "<tr><th>ID</th><th>Фонд</th><th>Нараховано</th><th>Податок</th><th>Чистими</th><th>Дата</th><th>Брокер</th><th>Нотатка</th><th></th></tr>",
+    o => `<td>${fundMoney(o.amount)}</td><td>${fundTax(o)}</td><td>${fundMoney(
+      { amount: (Number(o.amount.amount) - Number((o.tax||{}).amount || 0)).toFixed(2), currency: o.amount.currency })}</td>`);
+}
+
+// Позиції — стан по кожному фонду. Кнопок дій тут навмисно немає: рядок
+// відповідає на «що в мене є», а правлять його в таблицях нижче — так
+// само, як позиції ОВДП правляться через лоти, а не самі по собі.
+function renderFundPositions(funds) {
+  const host = $("#fundPositions");
+  if (!funds.length) {
+    host.innerHTML = `<tr><td class="mut">Сертифікатів немає — імпортуй виписку в «Рахунку» або додай купівлю вище.</td></tr>`;
+    return;
+  }
+  host.innerHTML = "<tr><th>Фонд</th><th>К-сть</th><th>Ціна</th><th>Вартість</th><th>Вкладено</th><th>Прибуток</th><th>Дивіденди</th><th>Дохідність</th></tr>" +
+    funds.map(f => {
+      const pnl = f.market_value - f.cost_basis;
+      const col = pnl >= 0 ? "#3fb950" : "#f85149";
+      return `<tr>
+        <td><b>${f.fund}</b></td>
+        <td>${f.qty}</td>
+        <td>${(f.last_price||0).toFixed(4)} ${curSym(f.currency)}${
+          f.last_price_date ? ` <span class="mut" style="font-size:12px">(${dayMonth(f.last_price_date)})</span>` : ""}</td>
+        <td>${fundUAH(f.market_value)}</td>
+        <td>${fundUAH(f.cost_basis)}</td>
+        <td><span style="color:${col}">${pnl >= 0 ? "+" : ""}${fundUAH(pnl)}</span>${
+          f.realized ? ` <span class="mut" style="font-size:12px">продажі ${fundUAH(f.realized)}</span>` : ""}</td>
+        <td>${fundUAH(f.dividends_net)}${
+          f.dividends_tax > 0 ? ` <span class="mut" style="font-size:12px">податок ${fundUAH(f.dividends_tax)}</span>` : ""}</td>
+        <td>${f.yield_net_pct > 0 ? f.yield_net_pct.toFixed(1) + "%" : "—"}</td></tr>`;
+    }).join("");
+}
+
+// Одна таблиця на один тип операції: колонки в них різні (у дивіденда
+// немає кількості, у купівлі — податку), а спільне — ID, фонд, дата,
+// брокер і кнопки. cells додає те, що відрізняється.
+function renderFundOpTable(kind, sel, empty, head, cells) {
+  const host = $(sel); if (!host) return;
+  // Найновіші зверху: правиш майже завжди щойно імпортоване.
+  const rows = LAST_FUND_OPS.filter(o => o.kind === kind)
+    .sort((a,b)=> a.date<b.date?1 : a.date>b.date?-1 : b.id-a.id);
+  host.innerHTML = rows.length
+    ? head + rows.map(o => `<tr><td>${o.id}</td><td>${o.fund}</td>${cells(o)}
+        <td>${o.date}</td><td>${o.broker||""}</td><td class="mut">${o.note||""}</td>
+        <td style="white-space:nowrap">${fundActs(o.id)}</td></tr>`).join("")
+    : `<tr><td class="mut">${empty}</td></tr>`;
+  host.querySelectorAll("[data-editop]").forEach(b => b.onclick = () => editFundOp(+b.dataset.editop));
+  host.querySelectorAll("[data-delop]").forEach(b => b.onclick = () => delFundOp(+b.dataset.delop));
+}
+
+// Правка веде в ту форму, якій операція належить: купівлю правиш там,
+// де купуєш. Кнопка «Скасувати» показується лише в режимі правки — поки
+// її не натиснули, форма пам'ятає, що вона змінює, а не додає.
+function editFundOp(id) {
+  const o = LAST_FUND_OPS.find(x => x.id === id); if (!o) return;
+  const sec = FUND_SECTIONS[o.kind]; if (!sec) return;
+  const f = $(sec.form);
+  fundFormReset(f);
+  f.id.value = o.id; f.date.value = o.date; f.fund.value = o.fund;
+  if (f.qty) f.qty.value = o.qty || "";
+  f.amount.value = o.amount ? o.amount.amount : "";
+  if (f.tax) f.tax.value = o.tax && Number(o.tax.amount) > 0 ? o.tax.amount : "";
+  f.currency.value = (o.amount && o.amount.currency) || "UAH";
+  // Брокера операції може не бути у списку-підказці (його могли прибрати
+  // з налаштувань) — тоді дописуємо опцію, інакше правка мовчки стерла б
+  // прив'язку до рахунку.
+  if (o.broker && ![...f.broker.options].some(x => x.value === o.broker))
+    f.broker.add(new Option(o.broker, o.broker));
+  f.broker.value = o.broker || ""; f.note.value = o.note || "";
+  f.querySelector("button.act").textContent = "Зберегти";
+  f.querySelector(".fundCancel").style.display = "";
+  f.scrollIntoView({ behavior:"smooth", block:"center" });
+}
+
+function fundFormReset(f) {
+  const kind = fundFormKind(f);
+  f.reset(); f.id.value = "";
+  f.date.value = new Date().toISOString().slice(0, 10);
+  f.querySelector("button.act").textContent = FUND_SECTIONS[kind].add;
+  f.querySelector(".fundCancel").style.display = "none";
+}
+
+const fundFormKind = f => Object.keys(FUND_SECTIONS).find(k => $(FUND_SECTIONS[k].form) === f);
+
+async function delFundOp(id) {
+  const o = LAST_FUND_OPS.find(x => x.id === id);
+  const what = o ? `${FUND_KIND[o.kind]||o.kind} ${o.fund} від ${o.date}` : "операцію " + id;
+  if (!confirm(`Видалити ${what}? Позиція й ціна перерахуються.`)) return;
+  try { await api("/api/funds/" + id, {method:"DELETE"}); toast("Запис видалено"); refresh(); }
+  catch (err) { toast(err.message); }
+}
+
+for (const [kind, sec] of Object.entries(FUND_SECTIONS)) {
+  const f = $(sec.form);
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const id = f.id.value;
+    // Кількість у дивіденда відсутня як поле: він нараховується на
+    // позицію, а не на штуки, і бекенд її все одно обнулив би.
+    const body = { date: f.date.value, fund: f.fund.value.trim(), kind,
+      qty: f.qty ? (+f.qty.value || 0) : 0,
+      amount: f.amount.value.trim(), tax: f.tax ? f.tax.value.trim() : "",
+      currency: f.currency.value, broker: f.broker.value.trim(), note: f.note.value.trim() };
+    try {
+      await api(id ? "/api/funds/" + id : "/api/funds",
+        { method: id ? "PUT" : "POST", body: JSON.stringify(body) });
+      fundFormReset(f); refresh(); toast(id ? "Запис оновлено" : "Записано");
+    } catch (err) { toast(err.message); }
+  };
+  f.querySelector(".fundCancel").onclick = () => fundFormReset(f);
+  fundFormReset(f);
 }
 
 async function loadMovements() {
@@ -1306,7 +1522,7 @@ document.querySelector("[name=isin]").onchange = async e => {
   } catch (_) { info.textContent = ""; }
 };
 
-function refresh() { loadSummary(); loadPortfolio(); loadMovements(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); loadProjection(); }
+function refresh() { loadSummary(); loadPortfolio(); loadFundOps(); loadMovements(); loadCalendar(); loadLadder(); loadSettings(); loadChart(); loadProjection(); }
 refresh();
 </script>
 </body>
