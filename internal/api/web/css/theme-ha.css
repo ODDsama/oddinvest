@@ -32,6 +32,10 @@
      частиною HA, а не сайтом усередині нього. */
   --oi-header-bg: var(--app-header-background-color, var(--primary-color));
   --oi-header-text: var(--app-header-text-color, #fff);
+  /* Шапка HA залита --primary-color, тож акцентний знак на ній був би
+     невидимий. currentColor = колір тексту шапки, який тема вже підібрала
+     контрастним до цієї заливки. */
+  --oi-header-mark: currentColor;
 
   /* Сигнальні кольори */
   --oi-accent: var(--primary-color);

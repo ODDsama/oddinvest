@@ -43,6 +43,12 @@ header {
 header h1 { font-size: var(--oi-fs-xl); margin: 0; font-weight: 500; }
 header .sp { flex: 1; }
 
+/* Знак у шапці. Колір задає тема, бо шапки в двох поверхонь різні за
+   природою: у вебі вона тієї ж масті, що й картка, і знак може бути
+   акцентним; у панелі це кольорова смуга HA, де акцент злився б із
+   тлом — там знак іде кольором тексту. */
+header .mark { width: 22px; height: 22px; flex: 0 0 auto; color: var(--oi-header-mark); }
+
 nav {
   display: flex;
   gap: var(--oi-gap-xs);

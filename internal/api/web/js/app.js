@@ -26,6 +26,19 @@ import { renderMoney } from "./views/money.js";
 import { renderFuture } from "./views/future.js";
 import { renderSettings } from "./views/settings.js";
 
+// Знак: три квадрати, складені сходами. Один квадрат — один папір, і
+// саме так портфель і росте: по одному, коли назбиралось на наступний.
+// Три, а не чотири — це найменша кількість, яка вже показує напрямок.
+//
+// currentColor навмисно: у вебі знак бере акцент, у панелі — колір
+// тексту шапки HA, яка сама пофарбована темою користувача. Один шлях,
+// дві поверхні, жодної другої версії файла.
+const MARK = `<svg class="mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+  <rect x="2.5" y="14" width="7.5" height="7.5" rx="2"/>
+  <rect x="8.25" y="8.25" width="7.5" height="7.5" rx="2"/>
+  <rect x="14" y="2.5" width="7.5" height="7.5" rx="2"/>
+</svg>`;
+
 const VIEWS = {
   overview: renderOverview,
   portfolio: renderPortfolio,
@@ -152,6 +165,7 @@ export class OddInvestApp extends HTMLElement {
     adoptStyles(this.shadowRoot, this._theme);
     this.shadowRoot.innerHTML = `
       <header>
+        ${MARK}
         <h1>ODD Invest</h1>
         <span class="sp"></span>
         <span id="avail" class="muted" style="color:inherit;opacity:.85"></span>
