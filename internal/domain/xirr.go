@@ -195,3 +195,53 @@ func FundFlows(ops []FundOp, currency string, asOf Date) []Flow {
 	sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })
 	return flows
 }
+
+// DepositFlows — грошові потоки банківських вкладів для XIRR.
+//
+// Так само, як у фондів, показник міряє фактично зароблене на вкладених
+// грошах. Розміщення забирає тіло, отримані відсотки (нетто, після
+// податку) приносять, і те, що ще замкнене, оцінюється за тілом (вклад
+// повертає рівно його). Закритий вклад — фактом: тіло геть при відкритті,
+// ClosedAmount назад при розірванні.
+func DepositFlows(deposits []Deposit, currency string, asOf Date) []Flow {
+	var flows []Flow
+	var terminal int64
+	got := false
+	for _, d := range deposits {
+		if d.Currency != currency || d.OpenDate.After(asOf) {
+			continue
+		}
+		got = true
+		flows = append(flows, Flow{Date: d.OpenDate, Amount: -d.Principal})
+
+		if d.ClosedDate != "" {
+			if !d.ClosedDate.After(asOf) {
+				flows = append(flows, Flow{Date: d.ClosedDate, Amount: d.ClosedAmount})
+			} else {
+				terminal += d.Principal
+			}
+			continue
+		}
+		// Реалізовані відсотки — ті, що вже надійшли (дата ≤ asOf).
+		for _, cf := range d.interestFlows() {
+			if !cf.Date.After(asOf) {
+				flows = append(flows, Flow{Date: cf.Date, Amount: cf.Amount.Amount()})
+			}
+		}
+		// Тіло: повернене, якщо вклад уже погасився; інакше ще замкнене
+		// й оцінюється за номіналом на asOf.
+		if !d.MaturityDate.After(asOf) {
+			flows = append(flows, Flow{Date: d.MaturityDate, Amount: d.Principal})
+		} else {
+			terminal += d.Principal
+		}
+	}
+	if !got {
+		return nil
+	}
+	if terminal > 0 {
+		flows = append(flows, Flow{Date: asOf, Amount: terminal})
+	}
+	sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })
+	return flows
+}

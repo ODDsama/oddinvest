@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"sort"
 	"strconv"
 
 	money "github.com/Rhymond/go-money"
@@ -124,44 +125,89 @@ func DepositSchedule(d Deposit, asOf Date) []CashflowItem {
 	if !d.Active(asOf) {
 		return nil
 	}
+	var out []CashflowItem
+	// Відсотки на дату asOf і пізніше: минулі у майбутнє не входять.
+	for _, cf := range d.interestFlows() {
+		if !cf.Date.Before(asOf) {
+			out = append(out, cf)
+		}
+	}
+	// Повернення тіла на дату погашення (Active гарантує, що вона ≥ asOf).
+	out = append(out, CashflowItem{Date: d.MaturityDate, ISIN: d.SyntheticISIN(),
+		Type: PayRedemption, Amount: money.New(d.Principal, d.Currency)})
+	return out
+}
+
+// interestFlows — усі виплати відсотків вкладу (нетто, після податку) за
+// ВЕСЬ строк, без огляду на asOf і статус розірвання. Це спільне ядро:
+// майбутній графік (DepositSchedule) фільтрує його по даті, а XIRR
+// (DepositFlows) бере з нього реалізовані. Тіло сюди не входить.
+func (d Deposit) interestFlows() []CashflowItem {
 	isin := d.SyntheticISIN()
 	cur := d.Currency
 	var out []CashflowItem
-
-	dates := d.interestDates()
-
 	if d.Payout == PayoutEnd {
-		// Одна виплата відсотків у кінці. Капіталізація — складний
-		// відсоток помісячно до погашення; без неї — прості за весь строк.
-		var gross int64
+		// Одна виплата в кінці. Капіталізація — складний відсоток помісячно
+		// до погашення; без неї — прості за весь строк.
+		gross := simpleInterest(d.Principal, d.RateBP, DaysBetween(d.OpenDate, d.MaturityDate))
 		if d.Capitalized {
 			gross = d.compoundInterest()
-		} else {
-			gross = simpleInterest(d.Principal, d.RateBP, DaysBetween(d.OpenDate, d.MaturityDate))
 		}
-		if net := d.netInterest(gross); net > 0 && !d.MaturityDate.Before(asOf) {
+		if net := d.netInterest(gross); net > 0 {
 			out = append(out, CashflowItem{Date: d.MaturityDate, ISIN: isin,
 				Type: PayCoupon, Amount: money.New(net, cur)})
 		}
-	} else {
-		// Періодичні виплати: прості відсотки на тіло за кожен проміжок.
-		prev := d.OpenDate
-		for _, pd := range dates {
-			gross := simpleInterest(d.Principal, d.RateBP, DaysBetween(prev, pd))
-			prev = pd
-			if pd.Before(asOf) {
-				continue // виплата вже минула — у майбутнє не входить
-			}
-			if net := d.netInterest(gross); net > 0 {
-				out = append(out, CashflowItem{Date: pd, ISIN: isin,
-					Type: PayCoupon, Amount: money.New(net, cur)})
-			}
+		return out
+	}
+	// Періодичні виплати: прості відсотки на тіло за кожен проміжок.
+	prev := d.OpenDate
+	for _, pd := range d.interestDates() {
+		gross := simpleInterest(d.Principal, d.RateBP, DaysBetween(prev, pd))
+		prev = pd
+		if net := d.netInterest(gross); net > 0 {
+			out = append(out, CashflowItem{Date: pd, ISIN: isin,
+				Type: PayCoupon, Amount: money.New(net, cur)})
 		}
 	}
+	return out
+}
 
-	// Повернення тіла на дату погашення.
-	out = append(out, CashflowItem{Date: d.MaturityDate, ISIN: isin,
-		Type: PayRedemption, Amount: money.New(d.Principal, cur)})
+// DepositCashflows — майбутні потоки ВСІХ вкладів від asOf, відсортовані.
+// Лягають у той самий календар, що й купони.
+func DepositCashflows(deposits []Deposit, asOf Date) []CashflowItem {
+	var out []CashflowItem
+	for _, d := range deposits {
+		out = append(out, DepositSchedule(d, asOf)...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
+	return out
+}
+
+// DepositLadder — повернення тіла вкладів по роках погашення, окремо по
+// валютах: у драбину поряд із номіналом ОВДП. Розірвані й погашені вклади
+// тіла в майбутньому не повертають, тож не входять.
+func DepositLadder(deposits []Deposit, asOf Date) []LadderEntry {
+	type key struct {
+		year int
+		cur  string
+	}
+	agg := map[key]int64{}
+	for _, d := range deposits {
+		if !d.Active(asOf) {
+			continue
+		}
+		agg[key{d.MaturityDate.Year(), d.Currency}] += d.Principal
+	}
+	out := make([]LadderEntry, 0, len(agg))
+	for k, v := range agg {
+		out = append(out, LadderEntry{Year: k.year, Currency: k.cur, Nominal: v})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Year != out[j].Year {
+			return out[i].Year < out[j].Year
+		}
+		return out[i].Currency < out[j].Currency
+	})
 	return out
 }
 

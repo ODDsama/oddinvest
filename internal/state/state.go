@@ -57,6 +57,13 @@ type Doc struct {
 	FundsUAH  float64            `json:"funds_uah,omitempty"`
 	Funds     []FundPositionRow  `json:"funds,omitempty"`
 
+	// DepositsUAH — тіло діючих банківських вкладів у грн-екв. ОКРЕМЕ поле,
+	// як funds_uah: вклад — інший інструмент (є строк і фіксована ставка,
+	// немає штук і ринкової ціни), тож у номінал ОВДП його не змішуємо.
+	// Входить у капітал і валютні частки; сам список вкладів UI бере з
+	// /api/term-deposits, тож масиву тут не тримаємо.
+	DepositsUAH float64 `json:"deposits_uah,omitempty"`
+
 	// LadderUAH — номінал, що повертається щороку, у грн-екв. (для стовпчиків
 	// драбини). Income12m — очікуваний дохід (купони+погашення) по місяцях
 	// на рік наперед, грн-екв.
@@ -368,6 +375,10 @@ type Input struct {
 	Coupons12m       []MonthAmount
 	FundsUAH         float64
 	Funds            []FundPositionRow
+	// DepositsUAH — тіло діючих вкладів, грн-екв (для капіталу й поля
+	// deposits_uah). DepositsUAHByCur — те саме по валютах (для часток).
+	DepositsUAH      float64
+	DepositsUAHByCur map[string]float64
 	IncomeMonthlyNow float64
 	ReinvestMinByCur map[string]float64
 	TopN              int
@@ -447,7 +458,14 @@ func Build(in Input) (*Doc, error) {
 	if in.AccountUAH != nil {
 		accountMinor = in.AccountUAH.Amount()
 	}
-	capital := nominalUAH + accountMinor + int64(math.Round(in.FundsUAH*100))
+	// Вклади входять у капітал і в частки нарівні з номіналом ОВДП: тіло у
+	// валюті — це той самий капітал у тій самій валюті, лише замкнений на
+	// строк. Без цього гривнева частка занижувалась би на суму валютних
+	// вкладів так само, як колись занижувалась на фонди.
+	depMinor := int64(math.Round(in.DepositsUAH * 100))
+	nominalUSD += int64(math.Round(in.DepositsUAHByCur["USD"] * 100))
+	nominalEUR += int64(math.Round(in.DepositsUAHByCur["EUR"] * 100))
+	capital := nominalUAH + accountMinor + int64(math.Round(in.FundsUAH*100)) + depMinor
 	if capital > 0 {
 		doc.USDSharePct = float64(nominalUSD) * 100 / float64(capital)
 		doc.EURSharePct = float64(nominalEUR) * 100 / float64(capital)
@@ -467,6 +485,7 @@ func Build(in Input) (*Doc, error) {
 	doc.LadderUAH = in.LadderUAH
 	doc.Income12m = in.Income12m
 	doc.FundsUAH = in.FundsUAH
+	doc.DepositsUAH = in.DepositsUAH
 	doc.Funds = in.Funds
 	doc.Coupons12m = in.Coupons12m
 	doc.IncomeMonthlyNow = in.IncomeMonthlyNow

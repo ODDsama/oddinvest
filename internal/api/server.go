@@ -291,6 +291,40 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	}
 	ladder := domain.Ladder(bonds, lots, sales, today)
 
+	// Вклади мають розклад, тож їхні відсотки й повернення тіла входять у
+	// той самий календар і ту саму драбину, що й купони й погашення ОВДП.
+	// Фонди сюди не потрапляють — у них розкладу немає, і саме ця межа
+	// відрізняє «заплановані потоки» від «оцінки».
+	cashflow = append(cashflow, domain.DepositCashflows(termDeposits, today)...)
+	ladder = append(ladder, domain.DepositLadder(termDeposits, today)...)
+	// next_payment бере перший потік, драбина йде по роках — обидва
+	// покладаються на порядок, який append порушив.
+	sort.Slice(cashflow, func(i, j int) bool { return cashflow[i].Date < cashflow[j].Date })
+	sort.Slice(ladder, func(i, j int) bool {
+		if ladder[i].Year != ladder[j].Year {
+			return ladder[i].Year < ladder[j].Year
+		}
+		return ladder[i].Currency < ladder[j].Currency
+	})
+
+	// Тіло діючих вкладів у грн-екв: усього й по валютах — для капіталу й
+	// валютних часток. Розірвані/погашені не рахуємо: їхнє тіло вже не
+	// «в портфелі», воно повернулось на рахунок.
+	depositsUAH := 0.0
+	depositsUAHByCur := map[string]float64{}
+	for _, dep := range termDeposits {
+		if !dep.Active(today) {
+			continue
+		}
+		u, cerr := fx.ToUAH(money.New(dep.Principal, dep.Currency), rates)
+		if cerr != nil {
+			continue
+		}
+		v := float64(u.Amount()) / 100
+		depositsUAH += v
+		depositsUAHByCur[dep.Currency] += v
+	}
+
 	// внески місяця: покупки поточного місяця в грн-еквіваленті
 	monthInv := money.New(0, money.UAH)
 	for _, l := range lots {
@@ -800,6 +834,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			continue
 		}
 		flows = append(flows, domain.FundFlows(fundOps, cur, today)...)
+		flows = append(flows, domain.DepositFlows(termDeposits, cur, today)...)
 		sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })
 		if len(flows) < 2 {
 			continue
@@ -1350,6 +1385,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
 		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
 		FundsUAH: round2(fundsUAH), Funds: fundRows,
+		DepositsUAH: round2(depositsUAH), DepositsUAHByCur: depositsUAHByCur,
 		IncomeMonthlyNow: incomeMonthlyNow,
 		ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
@@ -1412,6 +1448,9 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	deposits, _ := s.st.ListTermDeposits(ctx)
+	cf = append(cf, domain.DepositCashflows(deposits, from)...)
+	sort.Slice(cf, func(i, j int) bool { return cf[i].Date < cf[j].Date })
 	statuses, _ := s.st.PaymentStatuses(ctx)
 	type cfJSON struct {
 		Date   string    `json:"date"`
@@ -1435,7 +1474,17 @@ func (s *Server) handleLadder(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, domain.Ladder(bonds, lots, sales, domain.NewDate(time.Now())))
+	now := domain.NewDate(time.Now())
+	ladder := domain.Ladder(bonds, lots, sales, now)
+	deposits, _ := s.st.ListTermDeposits(ctx)
+	ladder = append(ladder, domain.DepositLadder(deposits, now)...)
+	sort.Slice(ladder, func(i, j int) bool {
+		if ladder[i].Year != ladder[j].Year {
+			return ladder[i].Year < ladder[j].Year
+		}
+		return ladder[i].Currency < ladder[j].Currency
+	})
+	writeJSON(w, http.StatusOK, ladder)
 }
 
 type lotReq struct {

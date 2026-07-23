@@ -129,3 +129,49 @@ func TestDepositMaturedReturnsNothing(t *testing.T) {
 		t.Errorf("погашений вклад майбутніх потоків не має, маємо %+v", cf)
 	}
 }
+
+func TestDepositLadderByYear(t *testing.T) {
+	deps := []Deposit{
+		{ID: 1, Currency: "UAH", Principal: 10000000, OpenDate: "2026-01-15", MaturityDate: "2027-01-15"},
+		{ID: 2, Currency: "USD", Principal: 500000, OpenDate: "2026-03-01", MaturityDate: "2027-06-01"},
+		{ID: 3, Currency: "UAH", Principal: 3000000, OpenDate: "2025-01-01", MaturityDate: "2024-12-31"}, // погашений
+	}
+	lad := DepositLadder(deps, "2026-07-01")
+	// #3 погашений (maturity у минулому) → у драбину не входить.
+	// Лишаються 2027-UAH (10М) і 2027-USD (500k).
+	got := map[string]int64{}
+	for _, e := range lad {
+		got[e.Currency] += e.Nominal
+	}
+	if got["UAH"] != 10000000 || got["USD"] != 500000 {
+		t.Errorf("драбина вкладів: %+v", got)
+	}
+	for _, e := range lad {
+		if e.Year != 2027 {
+			t.Errorf("рік %d, очікували лише 2027", e.Year)
+		}
+	}
+}
+
+func TestDepositFlowsForXIRR(t *testing.T) {
+	d := baseDeposit() // 100к під 16%, податок 19.5%, 2026-01-15 → 2027-01-15
+	d.Payout = PayoutEnd
+	// Дивимось ще до погашення: розміщення −тіло, тіло ще замкнене
+	// (термінал за номіналом), відсотків реалізованих ще немає.
+	flows := DepositFlows([]Deposit{d}, "UAH", "2026-06-01")
+	if len(flows) != 2 { // −principal + terminal
+		t.Fatalf("до погашення 2 потоки (розміщення+термінал), маємо %d: %+v", len(flows), flows)
+	}
+	var sum int64
+	for _, f := range flows {
+		sum += f.Amount
+	}
+	// −10М + 10М (термінал) = 0: гроші ще працюють, нічого не зароблено.
+	if sum != 0 {
+		t.Errorf("до погашення сума потоків має бути 0, маємо %d", sum)
+	}
+	// Інша валюта — жодного потоку.
+	if DepositFlows([]Deposit{d}, "USD", "2026-06-01") != nil {
+		t.Error("USD-потоків для гривневого вкладу бути не має")
+	}
+}

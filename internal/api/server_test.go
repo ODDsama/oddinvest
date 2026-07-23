@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1266,5 +1267,43 @@ func TestTermDepositMovesAccount(t *testing.T) {
 	// Список вкладів віддає створений.
 	if _, b := do(t, "GET", srv.URL+"/api/term-deposits", ""); !strings.Contains(b, `"rate_pct":16`) {
 		t.Errorf("список вкладів: %s", b)
+	}
+}
+
+// Вклад входить у капітал, календар і драбину — не лише в баланс рахунку.
+func TestTermDepositFlowsIntoAggregates(t *testing.T) {
+	srv, st := testServer(t)
+	if _, err := st.AddDeposit(context.Background(), store.Deposit{
+		Date: "2026-01-10", Amount: 20000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	open := domain.NewDate(time.Now()).AddDays(-30)
+	mat := domain.NewDate(time.Now()).AddDays(335)
+	body := `{"bank":"ПУМБ","currency":"UAH","principal":"100000.00","rate_pct":"16",` +
+		`"open_date":"` + string(open) + `","maturity_date":"` + string(mat) + `","payout":"end"}`
+	if resp, b := do(t, "POST", srv.URL+"/api/term-deposits", body); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("вклад: %d %s", resp.StatusCode, b)
+	}
+
+	// summary: капітал бачить вклад через deposits_uah.
+	_, s := do(t, "GET", srv.URL+"/api/summary", "")
+	if !strings.Contains(s, `"deposits_uah":100000`) {
+		t.Errorf("summary не містить deposits_uah=100000: %s", s)
+	}
+
+	// календар: майбутні потоки вкладу — відсоток і повернення тіла — з
+	// синтетичним ISIN deposit:N.
+	_, c := do(t, "GET", srv.URL+"/api/calendar?from=1970-01-01", "")
+	if !strings.Contains(c, `"deposit:1"`) {
+		t.Errorf("календар не містить потоків вкладу: %s", c)
+	}
+
+	// драбина: тіло повертається року погашення (Nominal — у мінорних,
+	// 100000.00 ₴ = 10000000).
+	_, l := do(t, "GET", srv.URL+"/api/ladder", "")
+	matYear := mat.Year()
+	if !strings.Contains(l, `"Year":`+strconv.Itoa(matYear)) || !strings.Contains(l, `"Nominal":10000000`) {
+		t.Errorf("драбина не містить тіла вкладу на %d: %s", matYear, l)
 	}
 }
