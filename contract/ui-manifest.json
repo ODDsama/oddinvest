@@ -16,7 +16,7 @@
     { "path": "js/styles.js", "sha256": "7f623a4506b4336538ffce25d56eeab347afb912ceacadf76b8cdc05028f943f" },
     { "path": "js/transport.js", "sha256": "7be0b7f7ea8317446ce769fc30c95d8bd281adfdcd67d8dc2350a8b6c96b52ae" },
     { "path": "js/views/forecast.js", "sha256": "c2c9e5a1f3a5c4d255974d8ec18683be9032945a836b258eda1629c86a08dd6b" },
-    { "path": "js/views/future.js", "sha256": "6d0be51dfc7a5f9b4f736a5d2312f2f6d9b1d5282efac738dd61db56032f218f" },
+    { "path": "js/views/future.js", "sha256": "0f65907e4170ae88321d77310254f170cd919aab11ab0683d022c808fa41430e" },
     { "path": "js/views/money.js", "sha256": "3eb4d3fa7f9163a7bc16d698922ea0d414581bd2479823d70e7bb58f5794a4fb" },
     { "path": "js/views/overview.js", "sha256": "af6e4d807c6f8efe6c29b3eb5786786663a3354901faaa6f4853ffc6a59277c2" },
     { "path": "js/views/portfolio.js", "sha256": "75ff02e553ec0416e19551deffcae20149969a8053fc7b80d804bec5b15be9a0" },

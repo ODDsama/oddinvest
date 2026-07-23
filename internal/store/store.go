@@ -635,6 +635,17 @@ func (s *Store) SetPaymentStatus(ctx context.Context, isin string, payDate domai
 	return err
 }
 
+// ClearPaymentStatus знімає позначку з виплати. Скасування — це саме
+// ВІДСУТНІСТЬ рядка, а не третій статус: раз позначка тепер рухає гроші
+// (виплата, датована сьогодні чи наперед, лягає на рахунок лише після
+// неї), помилковий клік має повертати стан рівно до того, який був до
+// нього, — а не додавати ще одне значення, яке довелось би тлумачити.
+func (s *Store) ClearPaymentStatus(ctx context.Context, isin string, payDate domain.Date) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM payment_status WHERE isin=? AND pay_date=?`, isin, string(payDate))
+	return err
+}
+
 func (s *Store) PaymentStatuses(ctx context.Context) (map[string]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT isin, pay_date, status FROM payment_status`)
 	if err != nil {

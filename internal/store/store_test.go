@@ -151,4 +151,15 @@ func TestSettingsRatesSnapshotsStatuses(t *testing.T) {
 	if err := s.SetPaymentStatus(ctx, "UA1", "2026-09-16", "spent"); err == nil {
 		t.Fatal("невалідний статус має падати")
 	}
+	// Скасування прибирає рядок; повторне — не помилка (нічого знімати).
+	if err := s.ClearPaymentStatus(ctx, "UA1", "2026-09-16"); err != nil {
+		t.Fatal(err)
+	}
+	st, _ = s.PaymentStatuses(ctx)
+	if _, ok := st["UA1|2026-09-16"]; ok {
+		t.Fatalf("після скасування статусу не має бути: %+v", st)
+	}
+	if err := s.ClearPaymentStatus(ctx, "UA1", "2026-09-16"); err != nil {
+		t.Fatal("повторне скасування має бути безшумним")
+	}
 }

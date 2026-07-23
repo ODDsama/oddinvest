@@ -102,9 +102,12 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
             <td>${esc(c.date)}</td><td>${esc(c.isin)}</td>
             <td><span class="pill ${PAY_CLASS[c.type] || ""}">${PAY_TYPES[c.type] || c.type}</span></td>
             <td class="num">${fmtMoney(c.amount)}</td><td>${pill}</td>
-            <td class="row-actions">${past ? `
-              <button class="sm" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="received">Отримано</button>
-              <button class="sm" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="reinvested">Перевкл.</button>` : ""}</td>
+            <td class="row-actions">${past ? (st
+              // Уже позначено — лишається одна дія: зняти позначку. Раз
+              // вона рухає гроші, помилковий клік має бути оборотним.
+              ? `<button class="sm quiet" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="none">Скасувати</button>`
+              : `<button class="sm" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="received">Отримано</button>
+                 <button class="sm" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="reinvested">Перевкл.</button>`) : ""}</td>
           </tr>`;
         }).join("")}</tbody></table>` : `<div class="muted">Виплат немає.</div>`}
     </div>`;
@@ -114,7 +117,7 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
     b.addEventListener("click", async () => {
       try {
         await ctx.api("POST", "payments/status", { isin: b.dataset.isin, pay_date: b.dataset.date, status: b.dataset.st });
-        ctx.toast("Статус збережено"); ctx.reload();
+        ctx.toast(b.dataset.st === "none" ? "Позначку знято" : "Статус збережено"); ctx.reload();
       } catch (err) { ctx.toast(String(err.message || err), false); }
     }));
 }

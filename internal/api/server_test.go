@@ -1143,3 +1143,86 @@ func TestImportIgnoresRowsOlderThanWatermark(t *testing.T) {
 		t.Errorf("після зсуву знака файл дав %d рядків, хочемо 0", len(rows))
 	}
 }
+
+// Купон, датований СЬОГОДНІ, сам на рахунок не лягає — і це навмисно:
+// графік НБУ каже, коли виплата ПОВИННА прийти, а не коли прийшла.
+// Позначка «отримано» в календарі і є способом сказати «вже прийшли»,
+// після чого сума лягає на рахунок ТОГО брокера, через якого куплено
+// папір, пропорційно кількості паперів у нього.
+func TestTodayCouponCreditsBrokerOnlyWhenMarked(t *testing.T) {
+	srv, st := testServer(t)
+	today := domain.NewDate(time.Now())
+	const isin = "UA4000239016"
+	if err := st.ReplaceDirectory(context.Background(), []nbu.Security{{
+		Bond: domain.Bond{ISIN: isin, Nominal: money.New(100000, money.UAH),
+			RateBP: 1500, Maturity: "2028-01-01", Descr: "тестові"},
+		Payments: []domain.Payment{{ISIN: isin, PayDate: today,
+			Type: domain.PayCoupon, PerBond: money.New(7575, money.UAH)}},
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	// Куплено вчора: на дату виплати папери вже у власності. Два папери
+	// в mono, один в inzhur — щоб побачити не лише «гроші прийшли», а й
+	// що вони прийшли КОЖНОМУ своєму брокеру за його кількістю.
+	buy := string(today.AddDays(-1))
+	for _, lot := range []string{
+		`{"isin":"` + isin + `","qty":2,"price_per_bond":"1000.00","buy_date":"` + buy + `","channel":"mono"}`,
+		`{"isin":"` + isin + `","qty":1,"price_per_bond":"1000.00","buy_date":"` + buy + `","channel":"inzhur"}`,
+	} {
+		if resp, body := do(t, "POST", srv.URL+"/api/lots", lot); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("лот: %d %s", resp.StatusCode, body)
+		}
+	}
+
+	balances := func() map[string]map[string]float64 {
+		t.Helper()
+		_, body := do(t, "GET", srv.URL+"/api/summary", "")
+		var doc struct {
+			Brokers map[string]map[string]float64 `json:"brokers"`
+		}
+		if err := json.Unmarshal([]byte(body), &doc); err != nil {
+			t.Fatalf("summary: %v: %s", err, body)
+		}
+		return doc.Brokers
+	}
+
+	// До позначки видно лише витрати на купівлю: купон сьогоднішній.
+	before := balances()
+	if got := before["mono"]["UAH"]; got != -2000 {
+		t.Fatalf("до позначки mono має бути -2000, маємо %v", got)
+	}
+	if got := before["inzhur"]["UAH"]; got != -1000 {
+		t.Fatalf("до позначки inzhur має бути -1000, маємо %v", got)
+	}
+
+	if resp, body := do(t, "POST", srv.URL+"/api/payments/status",
+		`{"isin":"`+isin+`","pay_date":"`+string(today)+`","status":"received"}`,
+	); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("позначка: %d %s", resp.StatusCode, body)
+	}
+
+	// mono: 2 × 75.75 = 151.50, inzhur: 1 × 75.75 = 75.75
+	after := balances()
+	if got := after["mono"]["UAH"]; got != -1848.5 {
+		t.Errorf("після позначки mono має бути -1848.5, маємо %v", got)
+	}
+	if got := after["inzhur"]["UAH"]; got != -924.25 {
+		t.Errorf("після позначки inzhur має бути -924.25, маємо %v", got)
+	}
+
+	// Скасування позначки повертає баланс РІВНО до того, що був до неї:
+	// раз позначка рухає гроші, помилковий клік має бути оборотним.
+	if resp, body := do(t, "POST", srv.URL+"/api/payments/status",
+		`{"isin":"`+isin+`","pay_date":"`+string(today)+`","status":"none"}`,
+	); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("скасування: %d %s", resp.StatusCode, body)
+	}
+	cleared := balances()
+	if got := cleared["mono"]["UAH"]; got != -2000 {
+		t.Errorf("після скасування mono має бути -2000, маємо %v", got)
+	}
+	if got := cleared["inzhur"]["UAH"]; got != -1000 {
+		t.Errorf("після скасування inzhur має бути -1000, маємо %v", got)
+	}
+}

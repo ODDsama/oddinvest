@@ -354,6 +354,27 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	if err != nil {
 		return nil, err
 	}
+
+	// arrived — чи вважати виплату вже отриманою, тобто чи класти її на
+	// рахунок. Так, якщо дата вже минула АБО користувач сам позначив її
+	// в календарі.
+	//
+	// Позначка тут не косметична, і саме тому дата сама по собі — не
+	// відповідь. Графік НБУ каже, коли виплата ПОВИННА прийти, а не коли
+	// вона прийшла: гроші лягають у брокера в різний час дня, а часом і
+	// наступного. Тому день-у-день ми не зараховуємо нічого самі —
+	// інакше з ранку баланс показував би гроші, яких ще немає, і звірка
+	// з брокером щоразу розходилась би рівно на купон.
+	//
+	// Кнопка «Отримано» — це і є спосіб сказати «вже прийшли»,
+	// не чекаючи опівночі.
+	arrived := func(isin string, d domain.Date) bool {
+		if d.Before(today) {
+			return true
+		}
+		st := statuses[isin+"|"+string(d)]
+		return st == "received" || st == "reinvested"
+	}
 	pastCF, err := domain.FuturePayments(pays, lots, sales, "1970-01-01")
 	if err != nil {
 		return nil, err
@@ -361,7 +382,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	unin := money.New(0, money.UAH)
 	bal := map[string]int64{} // валюта -> мінорні (нативно): баланс рахунку
 	for _, cf := range pastCF {
-		if cf.Date.After(today) || cf.Date == today {
+		if !arrived(cf.ISIN, cf.Date) {
 			continue
 		}
 		// отримана виплата кредитує рахунок у своїй валюті
@@ -386,9 +407,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Σ вартості лотів (усе нативно, у своїй валюті).
 	balBC := map[store.BrokerCur]int64{}
 
-	// купон кредитує рахунок ТОГО брокера, де куплено папір
+	// купон кредитує рахунок ТОГО брокера, де куплено папір.
+	// Умова та сама, що й для зведеного балансу вище: розійтись їм не
+	// можна, інакше «Разом» і сума по брокерах показували б різне, а
+	// звірка вигадала б розбіжність рівно на цей купон.
 	for _, p := range pays {
-		if p.PayDate.After(today) || p.PayDate == today {
+		if !arrived(p.ISIN, p.PayDate) {
 			continue
 		}
 		for _, l := range lots {
@@ -1967,7 +1991,16 @@ func (s *Server) handlePaymentStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.st.SetPaymentStatus(r.Context(), req.ISIN, d, req.Status); err != nil {
+	// Порожній статус (або "none") — зняти позначку. Той самий маршрут, а
+	// не окремий DELETE: календар уже шле сюди isin+дату+статус, і
+	// «скасувати» — це просто ще одне значення статусу для UI, яке на
+	// боці сервіса означає видалення рядка.
+	if req.Status == "" || req.Status == "none" {
+		if err := s.st.ClearPaymentStatus(r.Context(), req.ISIN, d); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+	} else if err := s.st.SetPaymentStatus(r.Context(), req.ISIN, d, req.Status); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
