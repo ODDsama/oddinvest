@@ -401,7 +401,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-	// неперевкладені: минулі виплати без статусу reinvested
+	// Неперевкладені: надійшлі виплати без статусу reinvested. Рахуються по
+	// ВСІХ інструментах із розкладом — купони й погашення ОВДП тут, відсотки
+	// й тіло вкладів нижче, у їхньому циклі. Правило одне: запланована
+	// виплата, що вже надійшла і не позначена «перевкладено», — це гроші,
+	// які лежать без діла.
 	statuses, err := s.st.PaymentStatuses(ctx)
 	if err != nil {
 		return nil, err
@@ -549,6 +553,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				bal[dep.Currency] += dep.ClosedAmount
 				balBC[bc] += dep.ClosedAmount
 			}
+			// У «не перевкладено» розірвання НЕ входить: це дискреційний
+			// вихід, як продаж лота на вторинці, а не запланована виплата.
+			// До того ж позначити його «перевкладено» нема де — закритий
+			// вклад у календарі рядка не має, і сума висіла б там вічно.
 			continue
 		}
 		// діючий вклад: відсотки й тіло — коли надійшли (минула дата або
@@ -560,6 +568,18 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			}
 			bal[cf.Amount.Currency().Code] += cf.Amount.Amount()
 			balBC[store.BrokerCur{Broker: dep.Bank, Currency: cf.Amount.Currency().Code}] += cf.Amount.Amount()
+			if statuses[cf.ISIN+"|"+string(cf.Date)] == "reinvested" {
+				continue
+			}
+			if u, cerr := fx.ToUAH(cf.Amount, rates); cerr == nil {
+				if sum, aerr := unin.Add(u); aerr == nil {
+					unin = sum
+				}
+			}
+			// І те саме правило, що й для купонів: надійшло, але не
+			// позначене «перевкладено» — отже лежить без діла. Доки
+			// відсотки вкладів сюди не входили, плитка «Не перевкладено»
+			// бачила лише ОВДП і занижувала простій грошей рівно на них.
 		}
 	}
 

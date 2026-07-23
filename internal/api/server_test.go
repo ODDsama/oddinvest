@@ -1432,3 +1432,81 @@ func TestReinvestRanksYieldNotPrice(t *testing.T) {
 		t.Errorf("yield_basis має бути заповнений: вклад=%q фонд=%q", dep.YieldBasis, fund.YieldBasis)
 	}
 }
+
+// «Не перевкладено» бачить і вклади, не лише ОВДП: надійшлий відсоток
+// лежить без діла так само, як купон, і зникає з плитки лише коли
+// позначений «перевкладено».
+func TestUninvestedCountsDepositInterest(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2026-01-10", Amount: 20000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Вклад із ЩОМІСЯЧНОЮ виплатою, відкритий пів року тому: кілька
+	// відсоткових виплат уже минули, отже надійшли.
+	open := domain.NewDate(time.Now()).AddDays(-180)
+	mat := domain.NewDate(time.Now()).AddDays(185)
+	depID, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate: open, MaturityDate: mat, Payout: domain.PayoutMonthly, TaxBP: 1950,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	uninvested := func() float64 {
+		t.Helper()
+		_, b := do(t, "GET", srv.URL+"/api/summary", "")
+		var doc struct {
+			UninvestedUAH float64 `json:"uninvested_uah"`
+		}
+		if err := json.Unmarshal([]byte(b), &doc); err != nil {
+			t.Fatalf("summary: %v", err)
+		}
+		return doc.UninvestedUAH
+	}
+
+	// Минулі відсотки вкладу вже лежать на рахунку й не перевкладені.
+	before := uninvested()
+	if before <= 0 {
+		t.Fatalf("відсотки вкладу мали потрапити в «не перевкладено», маємо %v", before)
+	}
+
+	// Позначаємо ОДНУ минулу виплату перевкладеною — плитка має зменшитись
+	// рівно на неї, а не обнулитись.
+	var flows []domain.CashflowItem
+	deps, err := st.ListTermDeposits(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range deps {
+		if d.ID == depID {
+			flows = domain.DepositSchedule(d, "1970-01-01")
+		}
+	}
+	var marked *domain.CashflowItem
+	for i := range flows {
+		if flows[i].Type == domain.PayCoupon && flows[i].Date.Before(domain.NewDate(time.Now())) {
+			marked = &flows[i]
+			break
+		}
+	}
+	if marked == nil {
+		t.Fatal("очікували щонайменше одну минулу виплату відсотків")
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/payments/status",
+		`{"isin":"`+marked.ISIN+`","pay_date":"`+string(marked.Date)+`","status":"reinvested"}`,
+	); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("позначка: %d %s", resp.StatusCode, b)
+	}
+	after := uninvested()
+	want := before - float64(marked.Amount.Amount())/100
+	if math.Abs(after-want) > 0.02 {
+		t.Errorf("після позначки «перевкладено» очікували %.2f, маємо %.2f", want, after)
+	}
+	if !(after < before) {
+		t.Errorf("позначка мала зменшити «не перевкладено»: було %.2f, стало %.2f", before, after)
+	}
+}
