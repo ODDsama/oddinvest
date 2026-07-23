@@ -801,6 +801,97 @@ func (s *Store) ListFundOps(ctx context.Context) ([]domain.FundOp, error) {
 	return out, rows.Err()
 }
 
+// --- банківські вклади (term deposits) ---
+//
+// Імена методів із префіксом TermDeposit, щоб не зіткнутися з
+// AddDeposit/ListDeposits — ті про ПОПОВНЕННЯ рахунку (store.Deposit).
+// Сам вклад — це domain.Deposit; store власної структури не заводить, як
+// і для FundOp.
+
+func termDepositCols() string {
+	return `d.id, COALESCE(b.name,''), d.currency, d.principal, d.rate_bp,
+		d.open_date, d.maturity_date, d.payout, d.capitalized, d.tax_bp,
+		d.closed_date, d.closed_amount, d.note`
+}
+
+func scanTermDeposit(rows *sql.Rows) (domain.Deposit, error) {
+	var d domain.Deposit
+	var open, mat, payout, closed string
+	var capInt int64
+	if err := rows.Scan(&d.ID, &d.Bank, &d.Currency, &d.Principal, &d.RateBP,
+		&open, &mat, &payout, &capInt, &d.TaxBP, &closed, &d.ClosedAmount, &d.Note); err != nil {
+		return d, err
+	}
+	d.OpenDate, d.MaturityDate = domain.Date(open), domain.Date(mat)
+	d.Payout, d.ClosedDate = domain.DepositPayout(payout), domain.Date(closed)
+	d.Capitalized = capInt != 0
+	return d, nil
+}
+
+func (s *Store) AddTermDeposit(ctx context.Context, d domain.Deposit) (int64, error) {
+	broker, err := s.brokerRef(ctx, d.Bank)
+	if err != nil {
+		return 0, err
+	}
+	res, err := s.db.ExecContext(ctx, `INSERT INTO term_deposits
+		(broker_id, currency, principal, rate_bp, open_date, maturity_date,
+		 payout, capitalized, tax_bp, closed_date, closed_amount, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		broker, d.Currency, d.Principal, d.RateBP, string(d.OpenDate), string(d.MaturityDate),
+		string(d.Payout), boolInt(d.Capitalized), d.TaxBP, string(d.ClosedDate), d.ClosedAmount, d.Note)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) UpdateTermDeposit(ctx context.Context, d domain.Deposit) error {
+	broker, err := s.brokerRef(ctx, d.Bank)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE term_deposits SET
+		broker_id=?, currency=?, principal=?, rate_bp=?, open_date=?, maturity_date=?,
+		payout=?, capitalized=?, tax_bp=?, closed_date=?, closed_amount=?, note=? WHERE id=?`,
+		broker, d.Currency, d.Principal, d.RateBP, string(d.OpenDate), string(d.MaturityDate),
+		string(d.Payout), boolInt(d.Capitalized), d.TaxBP, string(d.ClosedDate), d.ClosedAmount, d.Note, d.ID)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "вклад")
+}
+
+func (s *Store) DeleteTermDeposit(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM term_deposits WHERE id=?`, id)
+	return err
+}
+
+func (s *Store) ListTermDeposits(ctx context.Context) ([]domain.Deposit, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+termDepositCols()+`
+		FROM term_deposits d LEFT JOIN brokers b ON b.id = d.broker_id
+		ORDER BY d.maturity_date, d.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Deposit
+	for rows.Next() {
+		d, err := scanTermDeposit(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+func boolInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // FundOpExists — чи вже є така операція. Потрібно імпорту виписки: файл
 // щомісяця містить і старі рядки, тож без перевірки повторний імпорт
 // подвоїв би позицію.

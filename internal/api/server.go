@@ -88,6 +88,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/funds", s.handleAddFundOp)
 	mux.HandleFunc("PUT /api/funds/{id}", s.handleUpdateFundOp)
 	mux.HandleFunc("DELETE /api/funds/{id}", s.handleDeleteFundOp)
+	mux.HandleFunc("GET /api/term-deposits", s.handleTermDeposits)
+	mux.HandleFunc("POST /api/term-deposits", s.handleAddTermDeposit)
+	mux.HandleFunc("PUT /api/term-deposits/{id}", s.handleUpdateTermDeposit)
+	mux.HandleFunc("DELETE /api/term-deposits/{id}", s.handleDeleteTermDeposit)
 	mux.HandleFunc("GET /api/reinvest", s.handleReinvest)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
@@ -274,6 +278,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// існувати в старій БД, і це не привід валити весь стан; порожній зріз
 	// просто нічого не додасть у жоден агрегат.
 	fundOps, _ := s.st.ListFundOps(ctx)
+	// Вклади — так само раз, третім інструментом поряд із лотами й фондами.
+	termDeposits, _ := s.st.ListTermDeposits(ctx)
 
 	positions, err := domain.Positions(bonds, pays, lots, sales, today)
 	if err != nil {
@@ -475,6 +481,40 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		bal[op.Currency] += delta
 		balBC[store.BrokerCur{Broker: op.Broker, Currency: op.Currency}] += delta
+	}
+
+	// Вклади рухають гаманець так само, як лоти й фонди: розміщення
+	// СПИСУЄ тіло з рахунку банку (гроші замкнені на строк), а відсотки й
+	// повернення тіла ЗАРАХОВУЮТЬ — але лише коли реально надійшли, через
+	// той самий arrived(), що й купони. Синтетичний ISIN "deposit:<id>"
+	// дає міткам у календарі за що чіплятись.
+	//
+	// Закритий вклад — за фактом: списане тіло при відкритті й повернута
+	// сума ClosedAmount на дату розірвання (як фактична ціна продажу лота).
+	for _, dep := range termDeposits {
+		bc := store.BrokerCur{Broker: dep.Bank, Currency: dep.Currency}
+		// розміщення: −тіло на дату відкриття (якщо вона вже настала)
+		if !dep.OpenDate.After(today) {
+			bal[dep.Currency] -= dep.Principal
+			balBC[bc] -= dep.Principal
+		}
+		if dep.ClosedDate != "" {
+			if !dep.ClosedDate.After(today) {
+				bal[dep.Currency] += dep.ClosedAmount
+				balBC[bc] += dep.ClosedAmount
+			}
+			continue
+		}
+		// діючий вклад: відсотки й тіло — коли надійшли (минула дата або
+		// позначка). DepositSchedule від "1970-01-01" дає весь графік,
+		// зокрема минулі виплати.
+		for _, cf := range domain.DepositSchedule(dep, "1970-01-01") {
+			if !arrived(cf.ISIN, cf.Date) {
+				continue
+			}
+			bal[cf.Amount.Currency().Code] += cf.Amount.Amount()
+			balBC[store.BrokerCur{Broker: dep.Bank, Currency: cf.Amount.Currency().Code}] += cf.Amount.Amount()
+		}
 	}
 
 	// брокер -> валюта -> сума (major), для UI і для «чи вистачає на папір»
@@ -2059,7 +2099,8 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"restored": map[string]int{
 			"lots": len(b.Lots), "sales": len(b.Sales), "deposits": len(b.Deposits),
-			"conversions": len(b.Conversions), "fund_ops": len(b.FundOps), "settings": len(b.Settings),
+			"conversions": len(b.Conversions), "fund_ops": len(b.FundOps),
+			"term_deposits": len(b.TermDeposits), "settings": len(b.Settings),
 			"payment_status": len(b.PaymentStatus), "snapshots": len(b.Snapshots),
 		},
 	})
@@ -2689,6 +2730,189 @@ func (s *Server) handleDeleteFundOp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.DeleteFundOp(r.Context(), id); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- банківські вклади ---
+
+type termDepositReq struct {
+	Bank         string `json:"bank"`
+	Currency     string `json:"currency"`
+	Principal    string `json:"principal"`
+	RatePct      string `json:"rate_pct"`
+	OpenDate     string `json:"open_date"`
+	MaturityDate string `json:"maturity_date"`
+	Payout       string `json:"payout"`
+	Capitalized  bool   `json:"capitalized"`
+	TaxPct       string `json:"tax_pct"`
+	ClosedDate   string `json:"closed_date"`
+	ClosedAmount string `json:"closed_amount"`
+	Note         string `json:"note"`
+}
+
+// parsePercentBP: "16.5" -> 1650. Ставки й податок вводяться відсотками,
+// а зберігаються базисними пунктами (×100), як RateBP у Bond.
+func parsePercentBP(s string) (int64, error) {
+	return domain.ParseDecimalToMinor(strings.TrimSpace(s), money.UAH)
+}
+
+func termDepositFromReq(req termDepositReq) (domain.Deposit, error) {
+	var out domain.Deposit
+	cur := strings.TrimSpace(req.Currency)
+	if cur == "" {
+		cur = money.UAH
+	}
+	principal, err := domain.ParseDecimalToMinor(req.Principal, cur)
+	if err != nil {
+		return out, err
+	}
+	if principal <= 0 {
+		return out, errors.New("тіло вкладу має бути > 0")
+	}
+	rate, err := parsePercentBP(req.RatePct)
+	if err != nil {
+		return out, fmt.Errorf("ставка: %w", err)
+	}
+	open, err := domain.ParseDate(req.OpenDate)
+	if err != nil {
+		return out, fmt.Errorf("дата відкриття: %w", err)
+	}
+	mat, err := domain.ParseDate(req.MaturityDate)
+	if err != nil {
+		return out, fmt.Errorf("дата погашення: %w", err)
+	}
+	if !open.Before(mat) {
+		return out, errors.New("дата погашення має бути пізніше за відкриття")
+	}
+	payout := domain.DepositPayout(strings.TrimSpace(req.Payout))
+	switch payout {
+	case "":
+		payout = domain.PayoutEnd
+	case domain.PayoutEnd, domain.PayoutMonthly, domain.PayoutQuarterly:
+	default:
+		return out, fmt.Errorf("payout має бути end, monthly або quarterly, маємо %q", req.Payout)
+	}
+	// Податок за замовчуванням 19.5% (ПДФО 18% + військовий збір 1.5%);
+	// порожнє поле = це значення, а не «без податку».
+	tax := int64(1950)
+	if strings.TrimSpace(req.TaxPct) != "" {
+		if tax, err = parsePercentBP(req.TaxPct); err != nil {
+			return out, fmt.Errorf("податок: %w", err)
+		}
+	}
+	out = domain.Deposit{
+		Bank: strings.TrimSpace(req.Bank), Currency: cur, Principal: principal,
+		RateBP: rate, OpenDate: open, MaturityDate: mat, Payout: payout,
+		Capitalized: req.Capitalized, TaxBP: tax, Note: req.Note,
+	}
+	// Дострокове розірвання: обидва поля разом або жодного.
+	if strings.TrimSpace(req.ClosedDate) != "" {
+		cd, err := domain.ParseDate(req.ClosedDate)
+		if err != nil {
+			return out, fmt.Errorf("дата розірвання: %w", err)
+		}
+		ca, err := domain.ParseDecimalToMinor(req.ClosedAmount, cur)
+		if err != nil {
+			return out, fmt.Errorf("сума розірвання: %w", err)
+		}
+		out.ClosedDate, out.ClosedAmount = cd, ca
+	}
+	return out, nil
+}
+
+func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
+	deps, err := s.st.ListTermDeposits(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	type row struct {
+		ID           int64     `json:"id"`
+		Bank         string    `json:"bank,omitempty"`
+		Principal    moneyJSON `json:"principal"`
+		RatePct      float64   `json:"rate_pct"`
+		OpenDate     string    `json:"open_date"`
+		MaturityDate string    `json:"maturity_date"`
+		Payout       string    `json:"payout"`
+		Capitalized  bool      `json:"capitalized,omitempty"`
+		TaxPct       float64   `json:"tax_pct"`
+		ClosedDate   string    `json:"closed_date,omitempty"`
+		ClosedAmount moneyJSON `json:"closed_amount,omitempty"`
+		Note         string    `json:"note,omitempty"`
+	}
+	out := make([]row, 0, len(deps))
+	for _, d := range deps {
+		out = append(out, row{
+			ID: d.ID, Bank: d.Bank,
+			Principal:    toMoneyJSON(money.New(d.Principal, d.Currency)),
+			RatePct:      float64(d.RateBP) / 100,
+			OpenDate:     string(d.OpenDate), MaturityDate: string(d.MaturityDate),
+			Payout: string(d.Payout), Capitalized: d.Capitalized,
+			TaxPct:     float64(d.TaxBP) / 100,
+			ClosedDate: string(d.ClosedDate),
+			ClosedAmount: toMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
+			Note:       d.Note,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleAddTermDeposit(w http.ResponseWriter, r *http.Request) {
+	var req termDepositReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	d, err := termDepositFromReq(req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	id, err := s.st.AddTermDeposit(r.Context(), d)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+func (s *Server) handleUpdateTermDeposit(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var req termDepositReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	d, err := termDepositFromReq(req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	d.ID = id
+	if err := s.st.UpdateTermDeposit(r.Context(), d); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteTermDeposit(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.DeleteTermDeposit(r.Context(), id); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

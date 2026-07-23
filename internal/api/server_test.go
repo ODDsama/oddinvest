@@ -1226,3 +1226,45 @@ func TestTodayCouponCreditsBrokerOnlyWhenMarked(t *testing.T) {
 		t.Errorf("після скасування inzhur має бути -1000, маємо %v", got)
 	}
 }
+
+// Розміщення вкладу СПИСУЄ тіло з рахунку банку, а позначена як отримана
+// виплата відсотків його кредитує — той самий arrived(), що й для купонів.
+func TestTermDepositMovesAccount(t *testing.T) {
+	srv, st := testServer(t)
+	// Поповнюємо банк, щоб було з чого класти вклад.
+	if _, err := st.AddDeposit(context.Background(), store.Deposit{
+		Date: "2026-01-10", Amount: 10000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// 100 000 ₴ під 16%, виплата в кінці, відкрито в минулому.
+	open := domain.NewDate(time.Now()).AddDays(-40)
+	mat := domain.NewDate(time.Now()).AddDays(325)
+	body := `{"bank":"ПУМБ","currency":"UAH","principal":"100000.00","rate_pct":"16",` +
+		`"open_date":"` + string(open) + `","maturity_date":"` + string(mat) + `","payout":"end"}`
+	if resp, b := do(t, "POST", srv.URL+"/api/term-deposits", body); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("створення вкладу: %d %s", resp.StatusCode, b)
+	}
+
+	bankUAH := func() float64 {
+		t.Helper()
+		_, b := do(t, "GET", srv.URL+"/api/summary", "")
+		var doc struct {
+			Brokers map[string]map[string]float64 `json:"brokers"`
+		}
+		if err := json.Unmarshal([]byte(b), &doc); err != nil {
+			t.Fatalf("summary: %v", err)
+		}
+		return doc.Brokers["ПУМБ"]["UAH"]
+	}
+
+	// Поповнили 100 000, вклад замкнув 100 000 → на рахунку 0.
+	if got := bankUAH(); got != 0 {
+		t.Errorf("після розміщення баланс ПУМБ має бути 0, маємо %v", got)
+	}
+
+	// Список вкладів віддає створений.
+	if _, b := do(t, "GET", srv.URL+"/api/term-deposits", ""); !strings.Contains(b, `"rate_pct":16`) {
+		t.Errorf("список вкладів: %s", b)
+	}
+}

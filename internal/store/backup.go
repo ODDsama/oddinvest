@@ -26,9 +26,32 @@ type Backup struct {
 	Deposits      []BackupDeposit     `json:"deposits"`
 	Conversions   []BackupConversion  `json:"conversions"`
 	FundOps       []BackupFundOp      `json:"fund_ops"`
+	// TermDeposits omitempty: бекапи, зроблені до появи вкладів, читаються
+	// без цього поля так само, як раніше — restore просто не створить
+	// жодного вкладу.
+	TermDeposits  []BackupTermDeposit `json:"term_deposits,omitempty"`
 	Settings      map[string]string   `json:"settings"`
 	PaymentStatus []BackupPayStatus   `json:"payment_status"`
 	Snapshots     []BackupSnapshot    `json:"snapshots"`
+}
+
+// BackupTermDeposit — банківський вклад. Без нього відновлення стерло б
+// усі вклади разом зі ставками й строками, а помітно це стало б тоді,
+// коли відновлюватись уже нема з чого.
+type BackupTermDeposit struct {
+	ID           int64  `json:"id"`
+	Bank         string `json:"bank"`
+	Currency     string `json:"currency"`
+	Principal    int64  `json:"principal"`
+	RateBP       int64  `json:"rate_bp"`
+	OpenDate     string `json:"open_date"`
+	MaturityDate string `json:"maturity_date"`
+	Payout       string `json:"payout"`
+	Capitalized  bool   `json:"capitalized,omitempty"`
+	TaxBP        int64  `json:"tax_bp"`
+	ClosedDate   string `json:"closed_date,omitempty"`
+	ClosedAmount int64  `json:"closed_amount,omitempty"`
+	Note         string `json:"note"`
 }
 
 // BackupFundOp — операція з сертифікатами фонду. Без неї бекап був
@@ -176,6 +199,22 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 				return err
 			}
 			b.FundOps = append(b.FundOps, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT `+termDepositCols()+`
+		FROM term_deposits d LEFT JOIN brokers b ON b.id=d.broker_id ORDER BY d.id`,
+		func(scan func(...any) error) error {
+			var r BackupTermDeposit
+			var capInt int64
+			if err := scan(&r.ID, &r.Bank, &r.Currency, &r.Principal, &r.RateBP,
+				&r.OpenDate, &r.MaturityDate, &r.Payout, &capInt, &r.TaxBP,
+				&r.ClosedDate, &r.ClosedAmount, &r.Note); err != nil {
+				return err
+			}
+			r.Capitalized = capInt != 0
+			b.TermDeposits = append(b.TermDeposits, r)
 			return nil
 		}); err != nil {
 		return nil, err
@@ -349,6 +388,20 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if _, err := tx.ExecContext(ctx, `UPDATE fund_ops SET pair_id=? WHERE id=?`,
 			op.PairID, op.ID); err != nil {
 			return fmt.Errorf("конвертація фонду %d: %w", op.ID, err)
+		}
+	}
+	for _, d := range b.TermDeposits {
+		broker, err := brokerRef(d.Bank)
+		if err != nil {
+			return fmt.Errorf("вклад %d: %w", d.ID, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO term_deposits (id,broker_id,currency,principal,rate_bp,open_date,
+			 maturity_date,payout,capitalized,tax_bp,closed_date,closed_amount,note)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			d.ID, broker, d.Currency, d.Principal, d.RateBP, d.OpenDate, d.MaturityDate,
+			d.Payout, boolInt(d.Capitalized), d.TaxBP, d.ClosedDate, d.ClosedAmount, d.Note); err != nil {
+			return fmt.Errorf("вклад %d: %w", d.ID, err)
 		}
 	}
 	for k, v := range b.Settings {

@@ -149,3 +149,50 @@ func TestBackupRoundTripKeepsFundOps(t *testing.T) {
 		}
 	}
 }
+
+func TestBackupRoundTripKeepsTermDeposits(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	want := domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1650,
+		OpenDate: "2026-01-15", MaturityDate: "2027-01-15",
+		Payout: domain.PayoutMonthly, Capitalized: false, TaxBP: 1950, Note: "піврічний",
+	}
+	if _, err := src.AddTermDeposit(ctx, want); err != nil {
+		t.Fatal(err)
+	}
+	b, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.TermDeposits) != 1 {
+		t.Fatalf("експорт мав узяти 1 вклад, маємо %d", len(b.TermDeposits))
+	}
+
+	dst, err := Open(filepath.Join(t.TempDir(), "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportAll(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dst.ListTermDeposits(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("після відновлення %d вкладів замість 1", len(got))
+	}
+	g := got[0]
+	// Ставка, податок, строк, режим виплат — усе, що визначає гроші.
+	if g.Bank != want.Bank || g.Principal != want.Principal || g.RateBP != want.RateBP ||
+		g.TaxBP != want.TaxBP || g.Payout != want.Payout ||
+		g.OpenDate != want.OpenDate || g.MaturityDate != want.MaturityDate {
+		t.Errorf("вклад поїхав: %+v vs %+v", g, want)
+	}
+}

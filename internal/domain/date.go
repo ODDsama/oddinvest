@@ -44,3 +44,11 @@ func DaysBetween(a, b Date) int {
 func (d Date) AddDays(n int) Date {
 	return NewDate(d.Time().AddDate(0, 0, n))
 }
+
+// AddMonths зсуває дату на n місяців. Використовує звичайну Go-семантику
+// переповнення (31 січня + 1 міс = 2 або 3 березня): для графіка виплат
+// вкладу це не має значення — банк платить у ту саму календарну дату
+// щомісяця, а точний день переповнення на суму не впливає.
+func (d Date) AddMonths(n int) Date {
+	return NewDate(d.Time().AddDate(0, n, 0))
+}
