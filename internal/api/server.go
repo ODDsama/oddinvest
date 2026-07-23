@@ -2273,30 +2273,79 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		Broker string `json:"broker"`
 		Qty    int64  `json:"qty"`
 	}
+	// suggestion — одна пропозиція реінвесту. Спільна для трьох
+	// інструментів: облігація, сертифікат фонду, поповнення вкладу.
+	//
+	// Що робить їх порівнянними — RealPct: реальна річна дохідність після
+	// податку в СЬОГОДНІШНІЙ купівельній спроможності. Саме вона, а не
+	// ціна, вирішує порядок. Інакше сертифікат за 10 ₴ вічно був би
+	// «найкращим», просто бо найдешевший, а це не порада, а тавтологія.
 	type suggestion struct {
-		ISIN     string    `json:"isin"`
+		// Kind — bond | fund | deposit. Label — те, що показуємо людині
+		// (ISIN, назва фонду, «вклад <банк>»).
+		Kind     string    `json:"kind"`
+		Label    string    `json:"label"`
+		ISIN     string    `json:"isin,omitempty"`
 		Currency string    `json:"currency"`
-		RatePct  string    `json:"rate_pct"`
-		Maturity string    `json:"maturity"`
-		Nominal  moneyJSON `json:"nominal"`
-		// CostPerBond — номінал плюс НКД: стільки коштує зайти сьогодні,
-		// якщо папір торгується за номіналом.
+		RatePct  string    `json:"rate_pct,omitempty"`
+		Maturity string    `json:"maturity,omitempty"`
+		Nominal  moneyJSON `json:"nominal,omitempty"`
+		// CostPerBond — скільки коштує ОДИН крок: папір за номіналом плюс
+		// НКД, один сертифікат за останньою ціною, або поповнення вкладу
+		// на суму відкриття.
 		CostPerBond moneyJSON `json:"cost_per_bond"`
-		// YTMPct — дохідність до погашення за цією ціною, ефективна річна.
-		// RealPct — вона ж у сьогоднішніх гривнях, тобто за вирахуванням
-		// знецінення для гривневих паперів. Саме RealPct робить гривневі
-		// й валютні папери порівнянними.
-		YTMPct        float64     `json:"ytm_pct"`
+		// YTMPct — дохідність до погашення (лише облігації).
+		// RealPct — після податку й знецінення; порівнянна між усіма.
+		// YieldBasis — з ЧОГО ця дохідність узята: обіцянка (до погашення,
+		// ставка вкладу) чи оцінка (дивіденди фонду). Природа різна, і
+		// ховати це за одним числом було б нечесно.
+		YTMPct        float64     `json:"ytm_pct,omitempty"`
 		RealPct       float64     `json:"real_pct"`
+		YieldBasis    string      `json:"yield_basis"`
 		Brokers       []brokerFit `json:"brokers,omitempty"`
 		Affordable    int64       `json:"affordable"`
 		CanBuy        bool        `json:"can_buy"`
 		Reason        string      `json:"reason"`
-		DurationNow   float64     `json:"duration_now"`
-		DurationAfter float64     `json:"duration_after"`
+		DurationNow   float64     `json:"duration_now,omitempty"`
+		DurationAfter float64     `json:"duration_after,omitempty"`
 		def       float64
 		ladderNom float64
 		rate      int64
+	}
+
+	// realYield — річна дохідність, приведена до сьогоднішньої гривні.
+	// Для валютних лишається як є (долар купівельну спроможність тримає),
+	// для гривневих ділиться на знецінення. Одна формула на всі
+	// інструменти — інакше вони б не порівнювались.
+	realYield := func(y float64, c string) float64 {
+		if c == money.UAH {
+			return (1+y)/(1+devalPct/100) - 1
+		}
+		return y
+	}
+	// fitsFor — скільки таких кроків тягне кожен брокер окремо. Баланси
+	// роздільні: гривня на inzhur не купить папір у mono.
+	fitsFor := func(c string, costMajor float64) ([]brokerFit, int64) {
+		var fits []brokerFit
+		var best int64
+		if costMajor <= 0 {
+			return nil, 0
+		}
+		for name, byCur := range doc.Brokers {
+			if n := int64(byCur[c] / costMajor); n > 0 {
+				fits = append(fits, brokerFit{Broker: name, Qty: n})
+				if n > best {
+					best = n
+				}
+			}
+		}
+		sort.Slice(fits, func(i, j int) bool {
+			if fits[i].Qty != fits[j].Qty {
+				return fits[i].Qty > fits[j].Qty
+			}
+			return fits[i].Broker < fits[j].Broker
+		})
+		return fits, best
 	}
 	out := []suggestion{}
 	for _, b := range bonds {
@@ -2325,28 +2374,8 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		if yerr != nil {
 			continue // без майбутніх виплат порівнювати нема чого
 		}
-		real := ytm
-		if c == money.UAH {
-			real = (1+ytm)/(1+devalPct/100) - 1
-		}
-
-		// Скільки тягне кожен брокер окремо.
-		var fits []brokerFit
-		var best int64
-		for name, byCur := range doc.Brokers {
-			if n := int64(byCur[c] / costMajor); n > 0 {
-				fits = append(fits, brokerFit{Broker: name, Qty: n})
-				if n > best {
-					best = n
-				}
-			}
-		}
-		sort.Slice(fits, func(i, j int) bool {
-			if fits[i].Qty != fits[j].Qty {
-				return fits[i].Qty > fits[j].Qty
-			}
-			return fits[i].Broker < fits[j].Broker
-		})
+		real := realYield(ytm, c)
+		fits, best := fitsFor(c, costMajor)
 		// Показуємо рекомендації ЗАВЖДИ, навіть коли грошей ще не вистачає:
 		// інакше список порожніє одразу після покупки й помічник мовчить
 		// саме тоді, коли ти плануєш наступний крок. Доступність — перший
@@ -2392,19 +2421,96 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		}
 
 		out = append(out, suggestion{
+			Kind: "bond", Label: b.ISIN,
 			ISIN: b.ISIN, Currency: c,
 			RatePct:     fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
 			Maturity:    string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
 			CostPerBond: toMoneyJSON(cost),
 			YTMPct:      round2(ytm * 100), RealPct: round2(real * 100),
+			YieldBasis:  "до погашення",
 			Brokers:     fits,
 			Affordable:  best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
 			DurationNow: round2(curMac), DurationAfter: round2(newMac),
 			def: def, ladderNom: lnom, rate: b.RateBP,
 		})
 	}
+
+	// --- сертифікати фондів ---
+	// Дохідність фонду — ОЦІНКА з останньої виплати після податку, а не
+	// обіцянка: у сертифіката немає ні строку, ні зафіксованої ставки.
+	// Тому вона й порівнюється чесно лише через RealPct, і yield_basis
+	// каже, звідки число взялось.
+	for _, f := range doc.Funds {
+		if f.YieldNetPct <= 0 || f.LastPrice <= 0 {
+			continue // без виплат чи ціни порівнювати нема чого
+		}
+		c := f.Currency
+		if c == "" {
+			c = money.UAH
+		}
+		real := realYield(f.YieldNetPct/100, c)
+		costMinor := int64(math.Round(f.LastPrice * 100))
+		if costMinor <= 0 {
+			continue
+		}
+		fits, best := fitsFor(c, f.LastPrice)
+		out = append(out, suggestion{
+			Kind: "fund", Label: f.Fund, Currency: c,
+			CostPerBond: toMoneyJSON(money.New(costMinor, c)),
+			RealPct:     round2(real * 100),
+			YieldBasis:  "дивіденди після податку",
+			Brokers:     fits, Affordable: best, CanBuy: best > 0,
+			Reason: "сертифікат: без строку й погашення, ціна ринкова",
+			def:    target[c] - cur[c],
+		})
+	}
+
+	// --- поповнення вкладів ---
+	// Ставка вкладу зафіксована, як YTM облігації, тож це така сама
+	// обіцянка — лише оподаткована. «Крок» = поповнення на суму
+	// відкриття: саме так працює поповнюваний вклад.
+	deps, derr := s.st.ListTermDeposits(ctx)
+	if derr != nil {
+		writeErr(w, http.StatusInternalServerError, derr)
+		return
+	}
+	for _, d := range deps {
+		if !d.Active(today) || d.Principal <= 0 {
+			continue
+		}
+		c := d.Currency
+		// Ставка після податку — те, що реально лишається.
+		netRate := float64(d.RateBP) / 10000 * (1 - float64(d.TaxBP)/10000)
+		real := realYield(netRate, c)
+		costMajor := float64(d.Principal) / 100
+		fits, best := fitsFor(c, costMajor)
+		bank := d.Bank
+		if bank == "" {
+			bank = "—"
+		}
+		out = append(out, suggestion{
+			Kind: "deposit", Label: bank, Currency: c,
+			RatePct:     fmt.Sprintf("%d.%02d", d.RateBP/100, d.RateBP%100),
+			Maturity:    string(d.MaturityDate),
+			CostPerBond: toMoneyJSON(money.New(d.Principal, c)),
+			RealPct:     round2(real * 100),
+			YieldBasis:  "ставка вкладу після податку",
+			Brokers:     fits, Affordable: best, CanBuy: best > 0,
+			Reason: "поповнення на суму відкриття",
+			def:    target[c] - cur[c],
+		})
+	}
 	// Критерій ранжування обирає користувач: «під план» балансує валюту,
 	// драбину й дюрацію; решта — прості й передбачувані.
+	// У сертифіката дати погашення немає — для впорядкування це «ніколи»,
+	// а не «сьогодні»: інакше в режимі «короткі» фонди хибно вигравали б
+	// у найкоротших паперів просто через порожнє поле.
+	matKey := func(s suggestion) string {
+		if s.Maturity == "" {
+			return "9999-12-31"
+		}
+		return s.Maturity
+	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.CanBuy != b.CanBuy {
@@ -2418,8 +2524,8 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 				return a.RealPct > b.RealPct
 			}
 		case "short":
-			if a.Maturity != b.Maturity {
-				return a.Maturity < b.Maturity
+			if matKey(a) != matKey(b) {
+				return matKey(a) < matKey(b)
 			}
 		case "ladder":
 			if a.ladderNom != b.ladderNom {
@@ -2439,7 +2545,13 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 				return a.ladderNom < b.ladderNom
 			}
 		}
-		return a.Maturity < b.Maturity
+		// Останній критерій — реальна дохідність, а вже потім дата: у
+		// фондів і вкладів драбина й дюрація не застосовні, тож без цього
+		// вони впорядковувались би самою датою, а не вигодою.
+		if math.Abs(a.RealPct-b.RealPct) > 0.01 {
+			return a.RealPct > b.RealPct
+		}
+		return matKey(a) < matKey(b)
 	})
 	// Ліміту немає свідомо: у таблиці є фільтри, сортування й пагінація,
 	// тож звужує користувач, а не бекенд мовчки.

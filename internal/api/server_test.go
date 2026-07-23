@@ -1336,3 +1336,99 @@ func TestTermDepositFlowsIntoAggregates(t *testing.T) {
 		t.Errorf("драбина не містить тіла вкладу на %d: %s", matYear, l)
 	}
 }
+
+// Помічник ранжує за РЕАЛЬНОЮ ДОХІДНІСТЮ, а не за ціною кроку.
+//
+// Це головна гарантія справедливості між інструментами: сертифікат фонду
+// коштує копійки й тому «доступний завжди», але це не робить його
+// найкращим. Вклад під 16% після податку б'є фонд під 8%, попри те, що
+// поповнення вкладу коштує в тисячі разів дорожче.
+func TestReinvestRanksYieldNotPrice(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+
+	// Гроші в банку — щоб і поповнення вкладу, і сертифікат були по кишені.
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2026-01-10", Amount: 50000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Вклад 100к під 16%, податок 19.5% → нетто-ставка 12.88%.
+	open := domain.NewDate(time.Now()).AddDays(-10)
+	mat := domain.NewDate(time.Now()).AddDays(355)
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate: open, MaturityDate: mat, Payout: domain.PayoutEnd, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Фонд: сертифікат за 10 ₴ з дивідендною дохідністю ~8% нетто.
+	// Купівля + дивіденд дають позицію з ціною й дохідністю.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-40), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 1000, Amount: 1000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-10), Fund: "Inzhur", Kind: domain.FundDividend,
+		Amount: 6800, Tax: 0, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Знецінення 0 — щоб порівнювати самі ставки без приведення.
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"uah_devaluation_pct":"0","reinvest_rank":"rate"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("settings: %d %s", resp.StatusCode, b)
+	}
+
+	type row struct {
+		Kind       string  `json:"kind"`
+		Label      string  `json:"label"`
+		RealPct    float64 `json:"real_pct"`
+		CanBuy     bool    `json:"can_buy"`
+		YieldBasis string  `json:"yield_basis"`
+	}
+	var rows []row
+	_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
+	if err := json.Unmarshal([]byte(body), &rows); err != nil {
+		t.Fatalf("reinvest: %v: %s", err, body)
+	}
+
+	byKind := map[string]row{}
+	for _, r := range rows {
+		if _, seen := byKind[r.Kind]; !seen {
+			byKind[r.Kind] = r
+		}
+	}
+	dep, okD := byKind["deposit"]
+	fund, okF := byKind["fund"]
+	if !okD || !okF {
+		t.Fatalf("очікували пропозиції kind=deposit і kind=fund, маємо %+v", rows)
+	}
+	// Обидва по кишені (500к на рахунку).
+	if !dep.CanBuy || !fund.CanBuy {
+		t.Errorf("обидва мали бути доступні: вклад=%v фонд=%v", dep.CanBuy, fund.CanBuy)
+	}
+	// Вклад дохідніший — 12.88% проти ~8%.
+	if !(dep.RealPct > fund.RealPct) {
+		t.Errorf("вклад (%.2f%%) має бути дохідніший за фонд (%.2f%%)", dep.RealPct, fund.RealPct)
+	}
+	// І саме тому стоїть ВИЩЕ, попри те, що коштує 100к проти 10 ₴.
+	depIdx, fundIdx := -1, -1
+	for i, r := range rows {
+		if r.Kind == "deposit" && depIdx < 0 {
+			depIdx = i
+		}
+		if r.Kind == "fund" && fundIdx < 0 {
+			fundIdx = i
+		}
+	}
+	if depIdx > fundIdx {
+		t.Errorf("дорожчий, але дохідніший вклад (#%d) має стояти вище за дешевший фонд (#%d)", depIdx, fundIdx)
+	}
+	// Природа дохідності названа чесно.
+	if dep.YieldBasis == "" || fund.YieldBasis == "" {
+		t.Errorf("yield_basis має бути заповнений: вклад=%q фонд=%q", dep.YieldBasis, fund.YieldBasis)
+	}
+}
