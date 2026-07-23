@@ -217,6 +217,8 @@ function yieldTilesHTML(ctx) {
     ${tile("Вкладено (грн-екв.)", fmtUAH(s0.invested_uah + fundsCost(s0)),
       fundsCost(s0) > 0 ? `<div class="sub">з них ${fmtUAH(fundsCost(s0))} у фондах</div>` : "")}
     ${tile("Номінал (грн-екв.)", fmtUAH(s0.nominal_uah_eq))}
+    ${s0.deposits_uah > 0 ? tile("Вклади (грн-екв.)", fmtUAH(s0.deposits_uah),
+      `<div class="sub">тіло діючих банківських вкладів</div>`) : ""}
     ${tile("Накопичений купон", fmtUAH(s0.accrued_uah || 0),
       `<div class="sub">зароблено, ще не виплачено</div>`)}
     ${Object.entries(py).map(([c, v]) => tile(`ОВДП ${curSym(c)}`, pct(v),
@@ -423,13 +425,15 @@ function wireBonds(ctx, main) {
 // структура (спільні для всього портфеля), далі секція за секцією по
 // інструментах, кожна сама малює себе й проводить свої форми.
 export async function renderPortfolio(ctx, main) {
-  const [positions, lots, sales, ops] = await Promise.all([
+  const [positions, lots, sales, ops, deposits] = await Promise.all([
     ctx.api("GET", "positions"),
     ctx.api("GET", "lots"),
     ctx.api("GET", "sales"),
     ctx.api("GET", "funds").catch(() => []),
+    ctx.api("GET", "term-deposits").catch(() => []),
   ]);
   setFundOps(ops);
+  ctx._deposits = deposits; // wireDeposits реконструює вклад для закриття
 
   const chart = await chartBlockHTML(ctx);
   main.innerHTML = `
@@ -445,10 +449,12 @@ export async function renderPortfolio(ctx, main) {
     ${rateRiskCard(ctx)}
     ${bondCardsHTML(ctx, positions, lots, sales)}
     ${fundOpsHTML(ctx)}
+    ${depositCardsHTML(ctx, deposits)}
   `;
 
   wireBonds(ctx, main);
   wireFundOps(ctx, main);
+  wireDeposits(ctx, main);
   // Таблиця знімків — у самому низу і згорнута: це архів, до якого
   // звертаються рідко, але коли треба — потрібні саме числа, а не крива.
   main.insertAdjacentHTML("beforeend", snapshotsTableHTML(ctx));
@@ -604,5 +610,132 @@ export function snapshotsTableHTML(ctx) {
       <td>${esc(s.date)}</td><td class="num">${fmtUAH(s.invested_uah)}</td><td class="num">${fmtUAH(s.nominal_uah_eq)}</td>
       <td class="num">${(s.usd_share_pct || 0).toFixed(1)}%</td><td class="num">${fmtUAH(s.uninvested_uah)}</td></tr>`).join("")}</tbody></table>
   </div>`;
+}
+
+// ---------- секція банківських вкладів ----------
+// Третій інструмент. Розклад, як в облігації, але оподаткований, як фонд,
+// і без вторинного ринку — тому окрема секція, а не рядок у таблиці ОВДП.
+
+const PAYOUT_LABEL = { end: "у кінці строку", monthly: "щомісяця", quarterly: "щокварталу" };
+
+function daysUntil(iso) {
+  return Math.round((new Date(iso + "T00:00:00").getTime() - Date.now()) / 86400000);
+}
+
+export function depositCardsHTML(ctx, deposits) {
+  const active = deposits.filter((d) => !d.closed_date);
+  const closed = deposits.filter((d) => d.closed_date);
+
+  const form = `<div class="card">
+    <h2 class="h-row">Новий вклад ${infoBtn("deposit")}</h2>
+    <form id="termDepForm">
+      <label>Банк<select name="bank">${ctx.brokerOptions()}</select></label>
+      <label>Валюта<select name="currency"><option>UAH</option><option>USD</option><option>EUR</option></select></label>
+      <label>Тіло<input name="principal" inputmode="decimal" placeholder="100000.00" required></label>
+      <label>Ставка, %<input name="rate_pct" inputmode="decimal" placeholder="16.5" required></label>
+      <label>Відкрито<input name="open_date" type="date" value="${today()}" required></label>
+      <label>Погашення<input name="maturity_date" type="date" required></label>
+      <label>Виплата відсотків<select name="payout">
+        <option value="end">у кінці строку</option>
+        <option value="monthly">щомісяця</option>
+        <option value="quarterly">щокварталу</option>
+      </select></label>
+      <label style="flex-direction:row;align-items:center;gap:8px">
+        <input name="capitalized" type="checkbox" style="width:auto">Капіталізація</label>
+      <label>Податок, %<input name="tax_pct" inputmode="decimal" placeholder="19.5 (за замовч.)"></label>
+      <label>Нотатка<input name="note"></label>
+      <button type="submit">Додати</button>
+    </form>
+  </div>`;
+
+  const activeRows = active.length ? `<table><thead><tr>
+    <th>Банк</th><th class="num">Тіло</th><th class="num">Ставка</th><th>Виплата</th>
+    <th>Погашення</th><th class="num">Днів</th><th></th></tr></thead><tbody>
+    ${active.map((d) => {
+      const left = daysUntil(d.maturity_date);
+      return `<tr>
+        <td>${esc(d.bank || "—")}</td>
+        <td class="num">${fmtMoney(d.principal)}</td>
+        <td class="num">${d.rate_pct}%${d.capitalized ? " <span class=\"muted\" style=\"font-size:11px\">кап.</span>" : ""}</td>
+        <td>${PAYOUT_LABEL[d.payout] || d.payout}</td>
+        <td>${esc(d.maturity_date)}</td>
+        <td class="num">${left}</td>
+        <td class="row-actions" style="white-space:nowrap">
+          <button class="sm quiet" data-close="${d.id}">Закрити</button>
+          <button class="sm warn" data-deldep="${d.id}">✕</button></td></tr>
+        <tr class="close-row" data-close-row="${d.id}" style="display:none"><td colspan="7">
+          <form class="close-form" data-close-form="${d.id}" style="margin:6px 0">
+            <label>Дата розірвання<input name="closed_date" type="date" value="${today()}" required></label>
+            <label>Отримано (тіло + відсотки)<input name="closed_amount" inputmode="decimal" placeholder="${d.principal.amount}" required></label>
+            <button type="submit">Підтвердити розірвання</button>
+          </form></td></tr>`;
+    }).join("")}</tbody></table>` : `<div class="muted">Діючих вкладів немає.</div>`;
+
+  const closedCard = closed.length ? `<div class="card"><h2>Закриті достроково</h2>
+    <table><thead><tr><th>Банк</th><th class="num">Тіло</th><th>Розірвано</th>
+      <th class="num">Отримано</th><th></th></tr></thead><tbody>
+      ${closed.map((d) => `<tr>
+        <td>${esc(d.bank || "—")}</td><td class="num">${fmtMoney(d.principal)}</td>
+        <td>${esc(d.closed_date)}</td><td class="num">${fmtMoney(d.closed_amount)}</td>
+        <td class="row-actions"><button class="sm warn" data-deldep="${d.id}">✕</button></td></tr>`).join("")}
+      </tbody></table></div>` : "";
+
+  return `${form}
+    <div class="card"><h2>Діючі вклади</h2>${activeRows}</div>
+    ${closedCard}`;
+}
+
+export function wireDeposits(ctx, main) {
+  const byId = new Map((ctx._deposits || []).map((d) => [String(d.id), d]));
+
+  main.querySelector("#termDepForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    try {
+      await ctx.api("POST", "term-deposits", {
+        bank: f.bank.value, currency: f.currency.value,
+        principal: f.principal.value.trim(), rate_pct: f.rate_pct.value.trim(),
+        open_date: f.open_date.value, maturity_date: f.maturity_date.value,
+        payout: f.payout.value, capitalized: f.capitalized.checked,
+        tax_pct: f.tax_pct.value.trim(), note: f.note.value.trim(),
+      });
+      ctx.toast("Вклад додано"); ctx.reload();
+    } catch (err) { ctx.toast(String(err.message || err), false); }
+  });
+
+  main.querySelectorAll("[data-deldep]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (!confirm("Видалити вклад #" + b.dataset.deldep + "?")) return;
+      try { await ctx.api("DELETE", "term-deposits/" + b.dataset.deldep); ctx.toast("Вклад видалено"); ctx.reload(); }
+      catch (err) { ctx.toast(String(err.message || err), false); }
+    }));
+
+  // «Закрити» відкриває рядок із формою дострокового розірвання.
+  main.querySelectorAll("[data-close]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const row = main.querySelector(`[data-close-row="${b.dataset.close}"]`);
+      if (row) row.style.display = row.style.display === "none" ? "" : "none";
+    }));
+
+  // Розірвання = PUT усього вкладу з проставленими closed_*. Решту полів
+  // беремо з уже завантаженого списку — банк перерахує сам, ми лише
+  // вводимо фактично отриману суму.
+  main.querySelectorAll("[data-close-form]").forEach((f) =>
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const d = byId.get(f.dataset.closeForm);
+      if (!d) return;
+      try {
+        await ctx.api("PUT", "term-deposits/" + d.id, {
+          bank: d.bank, currency: d.principal.currency,
+          principal: d.principal.amount, rate_pct: String(d.rate_pct),
+          open_date: d.open_date, maturity_date: d.maturity_date,
+          payout: d.payout, capitalized: !!d.capitalized,
+          tax_pct: String(d.tax_pct), note: d.note || "",
+          closed_date: f.closed_date.value, closed_amount: f.closed_amount.value.trim(),
+        });
+        ctx.toast("Вклад закрито"); ctx.reload();
+      } catch (err) { ctx.toast(String(err.message || err), false); }
+    }));
 }
 

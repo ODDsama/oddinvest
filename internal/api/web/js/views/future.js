@@ -98,8 +98,11 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
           const st = c.status || "";
           const pill = st === "reinvested" ? `<span class="pill reinv">перевкладено</span>`
             : st === "received" ? `<span class="pill recv">отримано</span>` : `<span class="muted">—</span>`;
+          // Вклади мають синтетичний ISIN "deposit:<id>" — показуємо
+          // «вклад», а не внутрішній ключ.
+          const label = String(c.isin).startsWith("deposit:") ? "вклад" : c.isin;
           return `<tr>
-            <td>${esc(c.date)}</td><td>${esc(c.isin)}</td>
+            <td>${esc(c.date)}</td><td>${esc(label)}</td>
             <td><span class="pill ${PAY_CLASS[c.type] || ""}">${PAY_TYPES[c.type] || c.type}</span></td>
             <td class="num">${fmtMoney(c.amount)}</td><td>${pill}</td>
             <td class="row-actions">${past ? (st
