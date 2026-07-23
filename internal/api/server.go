@@ -265,6 +265,16 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		return nil, err
 	}
 	today := domain.NewDate(now)
+
+	// Операції фондів тягнемо РАЗ, як і облігації вище: далі вони
+	// потрібні п'ятьом різним агрегатам (внески місяця, баланс рахунку,
+	// вкладено-по-брокерах, картка фондів, XIRR), і доти, доки кожен
+	// тягнув їх сам, це були п'ять однакових запитів у БД, що теоретично
+	// могли розійтися між собою. Помилку ковтаємо — фонди могли ще не
+	// існувати в старій БД, і це не привід валити весь стан; порожній зріз
+	// просто нічого не додасть у жоден агрегат.
+	fundOps, _ := s.st.ListFundOps(ctx)
+
 	positions, err := domain.Positions(bonds, pays, lots, sales, today)
 	if err != nil {
 		return nil, err
@@ -299,16 +309,14 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Сертифікати фондів — теж купівля паперів, тож у «вкладено цього
 	// місяця» вони входять нарівні з облігаціями. Досі не входили лише
 	// тому, що фонди прибудовувались до моделі пізніше.
-	if ops, ferr := s.st.ListFundOps(ctx); ferr == nil {
-		for _, op := range ops {
-			if op.Kind != domain.FundBuy ||
-				op.Date.Year() != now.Year() || op.Date.Month() != now.Month() {
-				continue
-			}
-			if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
-				if sum, aerr := monthInv.Add(u); aerr == nil {
-					monthInv = sum
-				}
+	for _, op := range fundOps {
+		if op.Kind != domain.FundBuy ||
+			op.Date.Year() != now.Year() || op.Date.Month() != now.Month() {
+			continue
+		}
+		if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
+			if sum, aerr := monthInv.Add(u); aerr == nil {
+				monthInv = sum
 			}
 		}
 	}
@@ -457,18 +465,16 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// продаж і дивіденд зараховують уже за вирахуванням податку. Без
 	// цього куплені сертифікати не зменшували б баланс, і звірка з
 	// брокером показувала б вічну розбіжність рівно на їхню суму.
-	if fops, ferr := s.st.ListFundOps(ctx); ferr == nil {
-		for _, op := range fops {
-			delta := int64(0)
-			switch op.Kind {
-			case domain.FundBuy:
-				delta = -op.Amount
-			case domain.FundSell, domain.FundDividend:
-				delta = op.Amount - op.Tax
-			}
-			bal[op.Currency] += delta
-			balBC[store.BrokerCur{Broker: op.Broker, Currency: op.Currency}] += delta
+	for _, op := range fundOps {
+		delta := int64(0)
+		switch op.Kind {
+		case domain.FundBuy:
+			delta = -op.Amount
+		case domain.FundSell, domain.FundDividend:
+			delta = op.Amount - op.Tax
 		}
+		bal[op.Currency] += delta
+		balBC[store.BrokerCur{Broker: op.Broker, Currency: op.Currency}] += delta
 	}
 
 	// брокер -> валюта -> сума (major), для UI і для «чи вистачає на папір»
@@ -515,9 +521,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Собівартість тут середньозважена по фонду, а брокер — з операцій;
 	// якщо той самий фонд купувався у двох брокерів, частка ділиться
 	// пропорційно вкладеному в кожного.
-	if ops, ferr := s.st.ListFundOps(ctx); ferr == nil && len(ops) > 0 {
+	if len(fundOps) > 0 {
 		boughtByFundBroker := map[string]map[string]int64{}
-		for _, op := range ops {
+		for _, op := range fundOps {
 			if op.Kind != domain.FundBuy {
 				continue
 			}
@@ -530,7 +536,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			}
 			boughtByFundBroker[op.Fund][b] += op.Amount
 		}
-		for fund, pos := range domain.FundPositions(ops) {
+		for fund, pos := range domain.FundPositions(fundOps) {
 			byBroker := boughtByFundBroker[fund]
 			var totalBought int64
 			for _, v := range byBroker {
@@ -604,8 +610,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	var fundsYield, blendedYield float64
 	var fundsUAH float64
 	var fundRows []state.FundPositionRow
-	if ops, ferr := s.st.ListFundOps(ctx); ferr == nil && len(ops) > 0 {
-		positions := domain.FundPositions(ops)
+	if len(fundOps) > 0 {
+		positions := domain.FundPositions(fundOps)
 		names := make([]string, 0, len(positions))
 		for name := range positions {
 			names = append(names, name)
@@ -620,7 +626,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				mvUAH = float64(u.Amount()) / 100
 			}
 			fundsUAH += mvUAH
-			y, _ := domain.DividendYieldNet(ops, fp, today)
+			y, _ := domain.DividendYieldNet(fundOps, fp, today)
 			row := state.FundPositionRow{
 				Fund: fp.Fund, Currency: fp.Currency, Qty: fp.Qty,
 				CostBasis:     round2(float64(fp.CostBasis) / 100),
@@ -746,8 +752,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Фонди входять у XIRR нарівні з облігаціями: показник міряє, скільки
 	// реально зароблено на вкладених грошах, а гроші в сертифікатах — ті
 	// самі гроші. Без цього він рахував облігаційну частину й видавав її
-	// за портфельну.
-	fundOps, _ := s.st.ListFundOps(ctx)
+	// за портфельну. fundOps уже стягнуто раз на початку buildState.
 	xirr := map[string]float64{}
 	for _, cur := range []string{money.UAH, money.USD, money.EUR} {
 		flows, err := domain.PortfolioFlows(bonds, pays, lots, sales, cur, today)
