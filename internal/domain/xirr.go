@@ -213,12 +213,18 @@ func DepositFlows(deposits []Deposit, currency string, asOf Date) []Flow {
 		}
 		got = true
 		flows = append(flows, Flow{Date: d.OpenDate, Amount: -d.Principal})
+		// Кожне поповнення — теж вкладені гроші: відтік на свою дату.
+		for _, t := range d.Topups {
+			if !t.Date.After(asOf) {
+				flows = append(flows, Flow{Date: t.Date, Amount: -t.Amount})
+			}
+		}
 
 		if d.ClosedDate != "" {
 			if !d.ClosedDate.After(asOf) {
 				flows = append(flows, Flow{Date: d.ClosedDate, Amount: d.ClosedAmount})
 			} else {
-				terminal += d.Principal
+				terminal += d.balanceAt(asOf)
 			}
 			continue
 		}
@@ -228,12 +234,12 @@ func DepositFlows(deposits []Deposit, currency string, asOf Date) []Flow {
 				flows = append(flows, Flow{Date: cf.Date, Amount: cf.Amount.Amount()})
 			}
 		}
-		// Тіло: повернене, якщо вклад уже погасився; інакше ще замкнене
-		// й оцінюється за номіналом на asOf.
+		// Тіло: повернене (накопичене) на погашенні; інакше ще замкнене
+		// й оцінюється балансом на asOf.
 		if !d.MaturityDate.After(asOf) {
-			flows = append(flows, Flow{Date: d.MaturityDate, Amount: d.Principal})
+			flows = append(flows, Flow{Date: d.MaturityDate, Amount: d.balanceAt(d.MaturityDate)})
 		} else {
-			terminal += d.Principal
+			terminal += d.balanceAt(asOf)
 		}
 	}
 	if !got {

@@ -57,6 +57,70 @@ type Deposit struct {
 	ClosedDate   Date
 	ClosedAmount int64
 	Note         string
+	// Topups — ручні поповнення вкладу (поповнюваний вклад). Кожне
+	// докладання росте тіло від своєї дати, і відсотки далі йдуть на
+	// більший баланс. Записи, а не припущення: пропущений місяць не
+	// роздуває числа.
+	Topups []DepositTopup
+}
+
+// DepositTopup — одне поповнення вкладу. Amount — мінорні, у валюті вкладу.
+type DepositTopup struct {
+	ID        int64
+	DepositID int64
+	Date      Date
+	Amount    int64
+}
+
+// balanceAt — тіло вкладу, накопичене до дати on (включно): початкове
+// плюс усі поповнення з датою ≤ on. Без поповнень дорівнює Principal, тож
+// уся решта логіки на вкладах без топапів поводиться як раніше.
+func (d Deposit) balanceAt(on Date) int64 {
+	b := d.Principal
+	for _, t := range d.Topups {
+		if !t.Date.After(on) {
+			b += t.Amount
+		}
+	}
+	return b
+}
+
+// topupDatesIn — дати поповнень СТРОГО в (from, to), відсортовані: точки,
+// де баланс стрибає всередині періоду нарахування.
+func (d Deposit) topupDatesIn(from, to Date) []Date {
+	var out []Date
+	for _, t := range d.Topups {
+		if from.Before(t.Date) && t.Date.Before(to) {
+			out = append(out, t.Date)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// topupsBetween — сума поповнень у (from, to] (from виключно, to включно).
+func (d Deposit) topupsBetween(from, to Date) int64 {
+	var sum int64
+	for _, t := range d.Topups {
+		if from.Before(t.Date) && !to.Before(t.Date) {
+			sum += t.Amount
+		}
+	}
+	return sum
+}
+
+// accruedInterest — брутто прості відсотки за (from, to] на балансі, що
+// росте: проміжок ділиться датами поповнень, на кожному сегменті відсоток
+// рахується від балансу на його початку.
+func (d Deposit) accruedInterest(from, to Date) int64 {
+	var gross int64
+	segStart := from
+	for _, t := range d.topupDatesIn(from, to) {
+		gross += simpleInterest(d.balanceAt(segStart), d.RateBP, DaysBetween(segStart, t))
+		segStart = t
+	}
+	gross += simpleInterest(d.balanceAt(segStart), d.RateBP, DaysBetween(segStart, to))
+	return gross
 }
 
 // Active — чи вклад ще діє (не розірваний і не погашений на дату asOf).
@@ -132,9 +196,10 @@ func DepositSchedule(d Deposit, asOf Date) []CashflowItem {
 			out = append(out, cf)
 		}
 	}
-	// Повернення тіла на дату погашення (Active гарантує, що вона ≥ asOf).
+	// Повернення НАКОПИЧЕНОГО тіла (початкове + усі поповнення) на дату
+	// погашення. Active гарантує, що вона ≥ asOf.
 	out = append(out, CashflowItem{Date: d.MaturityDate, ISIN: d.SyntheticISIN(),
-		Type: PayRedemption, Amount: money.New(d.Principal, d.Currency)})
+		Type: PayRedemption, Amount: money.New(d.balanceAt(d.MaturityDate), d.Currency)})
 	return out
 }
 
@@ -148,8 +213,8 @@ func (d Deposit) interestFlows() []CashflowItem {
 	var out []CashflowItem
 	if d.Payout == PayoutEnd {
 		// Одна виплата в кінці. Капіталізація — складний відсоток помісячно
-		// до погашення; без неї — прості за весь строк.
-		gross := simpleInterest(d.Principal, d.RateBP, DaysBetween(d.OpenDate, d.MaturityDate))
+		// до погашення; без неї — прості за весь строк на балансі, що росте.
+		gross := d.accruedInterest(d.OpenDate, d.MaturityDate)
 		if d.Capitalized {
 			gross = d.compoundInterest()
 		}
@@ -159,10 +224,10 @@ func (d Deposit) interestFlows() []CashflowItem {
 		}
 		return out
 	}
-	// Періодичні виплати: прості відсотки на тіло за кожен проміжок.
+	// Періодичні виплати: прості відсотки на баланс за кожен проміжок.
 	prev := d.OpenDate
 	for _, pd := range d.interestDates() {
-		gross := simpleInterest(d.Principal, d.RateBP, DaysBetween(prev, pd))
+		gross := d.accruedInterest(prev, pd)
 		prev = pd
 		if net := d.netInterest(gross); net > 0 {
 			out = append(out, CashflowItem{Date: pd, ISIN: isin,
@@ -196,7 +261,7 @@ func DepositLadder(deposits []Deposit, asOf Date) []LadderEntry {
 		if !d.Active(asOf) {
 			continue
 		}
-		agg[key{d.MaturityDate.Year(), d.Currency}] += d.Principal
+		agg[key{d.MaturityDate.Year(), d.Currency}] += d.balanceAt(d.MaturityDate)
 	}
 	out := make([]LadderEntry, 0, len(agg))
 	for k, v := range agg {
@@ -213,18 +278,26 @@ func DepositLadder(deposits []Deposit, asOf Date) []LadderEntry {
 
 // compoundInterest — брутто-відсоток за весь строк при помісячній
 // капіталізації: тіло щомісяця приростає на простий відсоток за той
-// місяць і далі теж приносить відсоток. Повертає САМ відсоток (без тіла).
+// місяць і далі теж приносить відсоток. Повертає САМ відсоток — різницю
+// між кінцевим балансом і всім внесеним тілом (початкове + поповнення).
+//
+// Поповнення місяця додаються до бази ПІСЛЯ нарахування відсотка того
+// місяця, тобто починають працювати з наступного місяця. Це трохи
+// консервативно (докладене мід-місяця не заробляє частину місяця), зате
+// просто й ніколи не завищує.
 func (d Deposit) compoundInterest() int64 {
 	base := d.Principal
 	prev := d.OpenDate
 	cur := d.OpenDate.AddMonths(1)
 	for cur.Before(d.MaturityDate) {
 		base += simpleInterest(base, d.RateBP, DaysBetween(prev, cur))
+		base += d.topupsBetween(prev, cur)
 		prev = cur
 		cur = cur.AddMonths(1)
 	}
 	base += simpleInterest(base, d.RateBP, DaysBetween(prev, d.MaturityDate))
-	return base - d.Principal
+	base += d.topupsBetween(prev, d.MaturityDate)
+	return base - d.balanceAt(d.MaturityDate)
 }
 
 // SyntheticISIN — ключ вкладу для календаря й статусів виплат. Вклад

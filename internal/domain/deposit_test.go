@@ -175,3 +175,57 @@ func TestDepositFlowsForXIRR(t *testing.T) {
 		t.Error("USD-потоків для гривневого вкладу бути не має")
 	}
 }
+
+func TestDepositTopupsGrowInterest(t *testing.T) {
+	// Вклад 100к під 16%, виплата в кінці, рік. Без поповнень нетто = 12880.
+	base := baseDeposit()
+	base.Payout = PayoutEnd
+	plain := flowByType(DepositSchedule(base, "2026-01-15"), PayCoupon)
+
+	// Те саме, але два поповнення по 100к у березні й червні.
+	rep := baseDeposit()
+	rep.Payout = PayoutEnd
+	rep.Topups = []DepositTopup{
+		{ID: 1, DepositID: 1, Date: "2026-03-15", Amount: 10000000},
+		{ID: 2, DepositID: 1, Date: "2026-06-15", Amount: 10000000},
+	}
+	withTopups := flowByType(DepositSchedule(rep, "2026-01-15"), PayCoupon)
+
+	// Відсоток на балансі, що росте, БІЛЬШИЙ за відсоток на фіксованих 100к.
+	if !(withTopups > plain) {
+		t.Errorf("відсоток із поповненнями %d має бути більший за %d", withTopups, plain)
+	}
+	// Тіло на погашенні — накопичене: 100к + 100к + 100к = 300к.
+	if got := flowByType(DepositSchedule(rep, "2026-01-15"), PayRedemption); got != 30000000 {
+		t.Errorf("накопичене тіло: маємо %d, хочемо 30000000", got)
+	}
+	// balanceAt росте сходинками.
+	if rep.balanceAt("2026-02-01") != 10000000 {
+		t.Errorf("до 1-го поповнення баланс = 100к, маємо %d", rep.balanceAt("2026-02-01"))
+	}
+	if rep.balanceAt("2026-04-01") != 20000000 {
+		t.Errorf("після 1-го поповнення баланс = 200к, маємо %d", rep.balanceAt("2026-04-01"))
+	}
+	if rep.balanceAt("2026-07-01") != 30000000 {
+		t.Errorf("після 2-го поповнення баланс = 300к, маємо %d", rep.balanceAt("2026-07-01"))
+	}
+}
+
+func TestDepositCapitalizationWithTopups(t *testing.T) {
+	// Капіталізація + поповнення разом рахуються й не падають.
+	d := baseDeposit()
+	d.Payout = PayoutEnd
+	d.Capitalized = true
+	d.Topups = []DepositTopup{{ID: 1, DepositID: 1, Date: "2026-04-15", Amount: 10000000}}
+	cf := DepositSchedule(d, "2026-01-15")
+	interest := flowByType(cf, PayCoupon)
+	// Відсоток додатний і менший за наївне «два тіла × ставка» (частина
+	// строку баланс був лише 100к).
+	if interest <= 0 {
+		t.Fatalf("капіталізований відсоток із поповненням має бути > 0, маємо %d", interest)
+	}
+	// Тіло на погашенні — накопичене 200к.
+	if got := flowByType(cf, PayRedemption); got != 20000000 {
+		t.Errorf("накопичене тіло: маємо %d, хочемо 20000000", got)
+	}
+}
