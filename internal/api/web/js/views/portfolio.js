@@ -16,7 +16,7 @@
 // весь портфель одразу й видно, що з нього дохідніше.
 
 import {
-  esc, curSym, today, dayMonth,
+  esc, curSym, today, dayMonth, plural,
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney, fundsCost,
 } from "../format.js";
 import { infoBtn } from "../info.js";
@@ -312,6 +312,29 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
   </div>`;
 }
 
+// Стан згорнутих секцій переживає перезавантаження — за прикладом
+// перемикача ₴/$ у прогнозі. Розкривати ті самі три секції щоразу
+// заново дратує більше, ніж саме згортання допомагає.
+const FOLDS_KEY = "oddinvest.folds";
+
+function readFolds() {
+  try { return JSON.parse(localStorage.getItem(FOLDS_KEY) || "{}") || {}; }
+  catch (_) { return {}; }
+}
+
+export function wireDisclosures(main) {
+  const folds = readFolds();
+  main.querySelectorAll("[data-fold]").forEach((d) => {
+    if (folds[d.dataset.fold]) d.open = true;
+    // Слухач на кожному, а не делегований: подія toggle не спливає.
+    d.addEventListener("toggle", () => {
+      const cur = readFolds();
+      if (d.open) cur[d.dataset.fold] = true; else delete cur[d.dataset.fold];
+      try { localStorage.setItem(FOLDS_KEY, JSON.stringify(cur)); } catch (_) {}
+    });
+  });
+}
+
 export function wirePositions(ctx, main) {
   main.querySelectorAll("[data-exp]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -386,15 +409,27 @@ function shareTilesHTML(ctx) {
   </div>`;
 }
 
-// ---------- форми облігацій ----------
-// Від секції лишились самі форми: позиції, лоти й продажі переїхали в
-// спільну таблицю. Проводка (wireBonds) не змінилась — вона й раніше
-// шукала елементи по всьому main, а не по своїй картці.
+// ---------- запис операцій ----------
+// Усі форми — в одній картці й під згорнутими заголовками. Вони
+// займали п'яту частину висоти розділу, хоч потрібні кілька разів на
+// місяць: до складу портфеля заходять дивитись, а не заповнювати.
+//
+// Розмітка форм при цьому рендериться ЗАВЖДИ — <details> лише ховає.
+// wireBonds/wireDeposits шукають #lotForm, #saleForm, #termDepForm через
+// querySelector без перевірки на null, і умовний рендер обірвав би
+// проводку разом з усім, що вішається після неї.
 
-function bondCardsHTML(ctx, lots) {
+// disclosure — згорнута секція з підписом. hint — сірий текст праворуч
+// від заголовка, коли треба сказати, коли цим користуються.
+function disclosure(key, title, body, hint = "") {
+  return `<details class="disclosure" data-fold="${key}">
+    <summary>${title}${hint ? `<span class="hint">${hint}</span>` : ""}</summary>
+    <div class="disclosure-body">${body}</div>
+  </details>`;
+}
+
+function bondBuyFormHTML(ctx, lots) {
   return `
-    <div class="card">
-      <h2>Нова покупка</h2>
       <form id="lotForm">
         <label style="position:relative">ISIN<input name="isin" required placeholder="UA4000..." autocomplete="off">
           <div id="bondSuggest" class="suggest"></div></label>
@@ -413,11 +448,11 @@ function bondCardsHTML(ctx, lots) {
         <label>Нотатка<input name="note"></label>
         <button type="submit">Додати</button>
       </form>
-      <div class="muted" id="bondInfo" style="margin-top:8px"></div>
-    </div>
+      <div class="muted" id="bondInfo" style="margin-top:8px"></div>`;
+}
 
-    <div class="card">
-      <h2>Продаж (вторинний ринок)</h2>
+function bondSaleFormHTML(ctx, lots) {
+  return `
       <form id="saleForm">
         <label>Лот<select name="lot_id" required>
           <option value="">— лот —</option>
@@ -432,8 +467,19 @@ function bondCardsHTML(ctx, lots) {
         <button type="submit">Записати</button>
       </form>
       <div class="sub" style="margin-top:10px">Записані продажі видно в рядку того паперу, якого вони
-        стосуються — розкрий позицію стрілкою.</div>
-    </div>`;
+        стосуються — розкрий позицію стрілкою.</div>`;
+}
+
+// Одна картка на всі три форми: «записати операцію» — це одне питання,
+// а не три різні, і три окремі картки казали б протилежне.
+function entryCardHTML(ctx, lots) {
+  return `<div class="card"><h2>Записати операцію</h2>
+    ${disclosure("buy", "Нова покупка ОВДП", bondBuyFormHTML(ctx, lots))}
+    ${disclosure("sale", "Продаж на вторинному ринку", bondSaleFormHTML(ctx, lots))}
+    ${disclosure("dep", `Новий вклад ${infoBtn("deposit")}`, depositFormHTML(ctx))}
+    <div class="sub" style="margin-top:12px">Сертифікати фондів сюди не вносять руками —
+      їх приносить імпорт виписки в розділі «Гроші».</div>
+  </div>`;
 }
 
 function wireBonds(ctx, main) {
@@ -557,18 +603,19 @@ export async function renderPortfolio(ctx, main) {
     ${rebalanceCard(ctx)}
     ${ladderTableHTML(ctx)}
     ${positionsTableHTML(ctx, positions, lots, sales, deposits)}
+    ${entryCardHTML(ctx, lots)}
     ${rateRiskCard(ctx)}
-    ${bondCardsHTML(ctx, lots)}
-    ${depositCardsHTML(ctx, deposits)}
+    ${closedDepositsHTML(ctx, deposits)}
+    ${snapshotsTableHTML(ctx)}
   `;
 
   wirePositions(ctx, main);
   wireBonds(ctx, main);
   wireFundOps(ctx, main);
   wireDeposits(ctx, main);
-  // Таблиця знімків — у самому низу і згорнута: це архів, до якого
-  // звертаються рідко, але коли треба — потрібні саме числа, а не крива.
-  main.insertAdjacentHTML("beforeend", snapshotsTableHTML(ctx));
+  // Останнім: до цього моменту вся розмітка вже на місці, включно з тією,
+  // що всередині згорнутих секцій.
+  wireDisclosures(main);
 }
 
 // ---------- структура й ризик ----------
@@ -615,7 +662,9 @@ export function rateRiskCard(ctx) {
       <td class="num" style="color:${col}">${sgn(x.change_pct)}${x.change_pct}%</td>
       <td class="num" style="color:${col}">${sgn(x.change_uah)}${fmtUAH(x.change_uah)}</td></tr>`;
   }).join("");
-  return `<div class="card"><h2>Ризик ставок</h2>
+  // Згорнутий: до дюрації звертаються раз на кілька місяців, а місця
+  // вона займала більше за таблицю позицій.
+  return `<div class="card">${disclosure("risk", "Ризик ставок", `
     <div class="tiles" style="margin:0 0 10px">
       <div class="tile"><div class="lbl">Дюрація (Маколея)</div><div class="val">${rr.duration_years} р.</div></div>
       <div class="tile"><div class="lbl">Модифікована</div><div class="val">${rr.modified_dur}</div></div>
@@ -626,8 +675,8 @@ export function rateRiskCard(ctx) {
       <tbody>${scen}</tbody></table>
     <div class="muted" style="margin-top:8px;font-size:13px">Дюрація — середньозважений строк повернення грошей.
       Модифікована показує, на скільки % змінюється вартість при зміні ставок на 1 п.п.
-      <b>Тримаєш до погашення — просадка лише паперова</b>: ризик реалізується при продажі на вторинці.</div>
-  </div>`;
+      <b>Тримаєш до погашення — просадка лише паперова</b>: ризик реалізується при продажі на вторинці.</div>`,
+    `дюрація ${rr.duration_years} р.`)}</div>`;
 }
 
 // Драбина: спершу стовпчики, під ними числа з розбивкою по валютах.
@@ -714,18 +763,22 @@ export async function chartBlockHTML(ctx) {
 export function snapshotsTableHTML(ctx) {
   const snaps = snapsCache || [];
   if (snaps.length < 2) return "";
-  return `<div class="card"><h2>Останні знімки</h2>
-    <table><thead><tr><th>Дата</th><th class="num">Вкладено</th><th class="num">Номінал</th>
+  // Тепер справді згорнута — раніше про це казав лише коментар. Це архів:
+  // крива вище відповідає на те саме питання, а числа потрібні зрідка.
+  const shown = Math.min(snaps.length, 14);
+  return `<div class="card">${disclosure("snaps", "Останні знімки", `
+    <div class="table-scroll"><table><thead><tr><th>Дата</th><th class="num">Вкладено</th><th class="num">Номінал</th>
       <th class="num">Частка USD</th><th class="num">Не перевкл.</th></tr></thead>
     <tbody>${snaps.slice(-14).reverse().map((s) => `<tr>
       <td>${esc(s.date)}</td><td class="num">${fmtUAH(s.invested_uah)}</td><td class="num">${fmtUAH(s.nominal_uah_eq)}</td>
-      <td class="num">${(s.usd_share_pct || 0).toFixed(1)}%</td><td class="num">${fmtUAH(s.uninvested_uah)}</td></tr>`).join("")}</tbody></table>
-  </div>`;
+      <td class="num">${(s.usd_share_pct || 0).toFixed(1)}%</td><td class="num">${fmtUAH(s.uninvested_uah)}</td></tr>`).join("")}</tbody></table></div>`,
+    `${shown} ${plural(shown, "день", "дні", "днів")}`)}</div>`;
 }
 
-// ---------- секція банківських вкладів ----------
-// Третій інструмент. Розклад, як в облігації, але оподаткований, як фонд,
-// і без вторинного ринку — тому окрема секція, а не рядок у таблиці ОВДП.
+// ---------- банківські вклади ----------
+// Третій інструмент: розклад, як в облігації, але оподаткований, як фонд,
+// і без вторинного ринку. Діючі вклади живуть у спільній таблиці позицій
+// — тут лишились форма відкриття й архів розірваних.
 
 const PAYOUT_LABEL = { end: "у кінці строку", monthly: "щомісяця", quarterly: "щокварталу" };
 
@@ -733,12 +786,8 @@ function daysUntil(iso) {
   return Math.round((new Date(iso + "T00:00:00").getTime() - Date.now()) / 86400000);
 }
 
-export function depositCardsHTML(ctx, deposits) {
-  const active = deposits.filter((d) => !d.closed_date);
-  const closed = deposits.filter((d) => d.closed_date);
-
-  const form = `<div class="card">
-    <h2 class="h-row">Новий вклад ${infoBtn("deposit")}</h2>
+function depositFormHTML(ctx) {
+  return `
     <form id="termDepForm">
       <label>Банк<select name="bank">${ctx.brokerOptions()}</select></label>
       <label>Валюта<select name="currency"><option>UAH</option><option>USD</option><option>EUR</option></select></label>
@@ -758,21 +807,22 @@ export function depositCardsHTML(ctx, deposits) {
       <label>Податок, %<input name="tax_pct" inputmode="decimal" placeholder="19.5 (за замовч.)"></label>
       <label>Нотатка<input name="note"></label>
       <button type="submit">Додати</button>
-    </form>
-  </div>`;
+    </form>`;
+}
 
-  // Діючі вклади живуть у спільній таблиці позицій; тут лишається те, що
-  // позицією вже не є — розірвані.
-  const closedCard = closed.length ? `<div class="card"><h2>Закриті достроково</h2>
-    <table><thead><tr><th>Банк</th><th class="num">Тіло</th><th>Розірвано</th>
+// Розірвані вклади — вже не позиція, а історія: згорнуто.
+export function closedDepositsHTML(ctx, deposits) {
+  const closed = deposits.filter((d) => d.closed_date);
+  if (!closed.length) return "";
+  return `<div class="card">${disclosure("closeddep", "Закриті достроково", `
+    <div class="table-scroll"><table><thead><tr><th>Банк</th><th class="num">Тіло</th><th>Розірвано</th>
       <th class="num">Отримано</th><th></th></tr></thead><tbody>
       ${closed.map((d) => `<tr>
         <td>${esc(d.bank || "—")}</td><td class="num">${fmtMoney(d.principal)}</td>
         <td>${esc(d.closed_date)}</td><td class="num">${fmtMoney(d.closed_amount)}</td>
         <td class="row-actions"><button class="sm warn" data-deldep="${d.id}">✕</button></td></tr>`).join("")}
-      </tbody></table></div>` : "";
-
-  return `${form}${closedCard}`;
+      </tbody></table></div>`,
+    `${closed.length} ${plural(closed.length, "вклад", "вклади", "вкладів")}`)}</div>`;
 }
 
 export function wireDeposits(ctx, main) {

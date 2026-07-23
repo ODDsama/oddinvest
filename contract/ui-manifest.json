@@ -2,7 +2,7 @@
   "_comment": "Згенеровано scripts/gen-ui-manifest.sh — руками не правити.",
   "root": "internal/api/web",
   "files": [
-    { "path": "css/base.css", "sha256": "12e5fa8116f185d3fdb8593d02eaa6d6436a45009211a0b4ff9352a9e4aebe56" },
+    { "path": "css/base.css", "sha256": "1830bba6eef9fff0a4194171e302e5470019fa6fd93b2b709a68feb2953805fb" },
     { "path": "css/theme-ha.css", "sha256": "f108f035362c5b3addc46b878c0942ff20061055e6d3ba584dc0f178eac47383" },
     { "path": "css/theme-web.css", "sha256": "939c74578a9ff42bb6dd6b6aed27d6a4292575e09b8eeb75f3b9ef59126a157f" },
     { "path": "css/tokens.css", "sha256": "7f40aebc154d1e549f8d12afd17269dbe0a15dfa1367e1205eacfb05120d7a8c" },
@@ -19,7 +19,7 @@
     { "path": "js/views/future.js", "sha256": "904f5a87f7cc43c94f309ffb1a73e143a1452ecdcf928c96d0fb41e2e80b2e12" },
     { "path": "js/views/money.js", "sha256": "3eb4d3fa7f9163a7bc16d698922ea0d414581bd2479823d70e7bb58f5794a4fb" },
     { "path": "js/views/overview.js", "sha256": "452307e28461be0848d955eb4fdf90538ebd3a813b6e8e2c8ff773c8851d5325" },
-    { "path": "js/views/portfolio.js", "sha256": "f9e84f0a9479c597c252554a3516480eb22e584075740a23df15b4ddb731ed1e" },
+    { "path": "js/views/portfolio.js", "sha256": "be01f0c860b28ee15036142bdd512ac07a86e7a5951e176e9a78c5d19a10c9e7" },
     { "path": "js/views/settings.js", "sha256": "f5355e0911c3725fafd00d3efa42eb21e48e2ec3117dd5a394d89f6bc416d3c7" }
   ]
 }

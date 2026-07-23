@@ -196,6 +196,48 @@ tr:last-child td { border-bottom: none; }
 .detail-row table { font-size: var(--oi-fs-sm); }
 .detail-row h4 { margin: 0 0 var(--oi-gap-xs); color: var(--oi-muted); font-weight: 500; }
 
+/* --- згорнуті секції --- */
+
+/* Нативний <details>: розмітка лишається в DOM завжди, лише ховається.
+   Це не косметика, а вимога — проводка шукає форми через querySelector
+   без перевірки на null, і умовний рендер поклав би весь розділ.
+
+   Згортаємо те, до чого звертаються рідко: форми (записуєш операцію
+   кілька разів на місяць) і архівні таблиці. Постійно розгорнуті, вони
+   займали більше місця, ніж усе, заради чого сюди заходиш. */
+.disclosure { border-top: 1px solid var(--oi-border); }
+.disclosure:first-of-type { border-top: none; }
+
+.disclosure > summary {
+  cursor: pointer;
+  padding: var(--oi-gap) 0;
+  font-size: var(--oi-fs-md);
+  font-weight: 600;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: var(--oi-gap-sm);
+}
+.disclosure > summary::-webkit-details-marker { display: none; }
+/* Власний маркер: рідні відрізняються між рушіями, а тут він має
+   збігатися з кареткою в таблиці позицій — жест той самий. */
+.disclosure > summary::before {
+  content: "▸";
+  color: var(--oi-muted);
+  font-size: var(--oi-fs-sm);
+  transition: transform .12s ease;
+  display: inline-block;
+}
+.disclosure[open] > summary::before { transform: rotate(90deg); }
+.disclosure > summary .hint { font-weight: 400; color: var(--oi-muted); font-size: var(--oi-fs-sm); }
+.disclosure-body { padding: 0 0 var(--oi-gap-lg); }
+
+/* Картка, що вся є одним дисклоужером: заголовок стає підсумком, тож
+   зайвого відступу зверху не треба. */
+.card > .disclosure:first-child > summary { padding-top: 0; }
+.card > .disclosure:last-child > summary { padding-bottom: 0; }
+.card > .disclosure[open]:last-child > summary { padding-bottom: var(--oi-gap); }
+
 /* --- форми --- */
 
 form {
