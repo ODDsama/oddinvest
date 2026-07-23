@@ -224,7 +224,7 @@ func DepositFlows(deposits []Deposit, currency string, asOf Date) []Flow {
 			if !d.ClosedDate.After(asOf) {
 				flows = append(flows, Flow{Date: d.ClosedDate, Amount: d.ClosedAmount})
 			} else {
-				terminal += d.balanceAt(asOf)
+				terminal += d.BalanceAt(asOf)
 			}
 			continue
 		}
@@ -237,9 +237,9 @@ func DepositFlows(deposits []Deposit, currency string, asOf Date) []Flow {
 		// Тіло: повернене (накопичене) на погашенні; інакше ще замкнене
 		// й оцінюється балансом на asOf.
 		if !d.MaturityDate.After(asOf) {
-			flows = append(flows, Flow{Date: d.MaturityDate, Amount: d.balanceAt(d.MaturityDate)})
+			flows = append(flows, Flow{Date: d.MaturityDate, Amount: d.BalanceAt(d.MaturityDate)})
 		} else {
-			terminal += d.balanceAt(asOf)
+			terminal += d.BalanceAt(asOf)
 		}
 	}
 	if !got {

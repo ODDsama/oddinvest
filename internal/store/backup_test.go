@@ -196,3 +196,53 @@ func TestBackupRoundTripKeepsTermDeposits(t *testing.T) {
 		t.Errorf("вклад поїхав: %+v vs %+v", g, want)
 	}
 }
+
+func TestBackupRoundTripKeepsDepositTopups(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	depID, err := src.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate: "2026-01-15", MaturityDate: "2027-01-15", Payout: domain.PayoutEnd, TaxBP: 1950,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"2026-02-15", "2026-03-15"} {
+		if _, err := src.AddDepositTopup(ctx, domain.DepositTopup{
+			DepositID: depID, Date: domain.Date(d), Amount: 10000000,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.DepositTopups) != 2 {
+		t.Fatalf("експорт мав узяти 2 поповнення, маємо %d", len(b.DepositTopups))
+	}
+
+	dst, err := Open(filepath.Join(t.TempDir(), "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportAll(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	deps, err := dst.ListTermDeposits(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deps) != 1 || len(deps[0].Topups) != 2 {
+		t.Fatalf("після відновлення очікували вклад із 2 поповненнями, маємо %+v", deps)
+	}
+	// Накопичене тіло = 100к + 100к + 100к = 300к.
+	if bal := deps[0].BalanceAt("2026-12-01"); bal != 30000000 {
+		t.Errorf("накопичене тіло після відновлення: маємо %d, хочемо 30000000", bal)
+	}
+}

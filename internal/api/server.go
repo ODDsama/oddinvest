@@ -92,6 +92,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/term-deposits", s.handleAddTermDeposit)
 	mux.HandleFunc("PUT /api/term-deposits/{id}", s.handleUpdateTermDeposit)
 	mux.HandleFunc("DELETE /api/term-deposits/{id}", s.handleDeleteTermDeposit)
+	mux.HandleFunc("POST /api/term-deposits/{id}/topups", s.handleAddDepositTopup)
+	mux.HandleFunc("DELETE /api/term-deposits/{id}/topups/{topupId}", s.handleDeleteDepositTopup)
 	mux.HandleFunc("GET /api/reinvest", s.handleReinvest)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
@@ -316,7 +318,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if !dep.Active(today) {
 			continue
 		}
-		u, cerr := fx.ToUAH(money.New(dep.Principal, dep.Currency), rates)
+		// Накопичене тіло (початкове + поповнення), а не сума відкриття:
+		// поповнюваний вклад росте, і капітал має рости з ним.
+		u, cerr := fx.ToUAH(money.New(dep.BalanceAt(today), dep.Currency), rates)
 		if cerr != nil {
 			continue
 		}
@@ -531,6 +535,14 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if !dep.OpenDate.After(today) {
 			bal[dep.Currency] -= dep.Principal
 			balBC[bc] -= dep.Principal
+		}
+		// кожне поповнення теж списує гроші з рахунку банку на свою дату —
+		// це записаний факт, тож arrived() не потрібен
+		for _, t := range dep.Topups {
+			if !t.Date.After(today) {
+				bal[dep.Currency] -= t.Amount
+				balBC[bc] -= t.Amount
+			}
 		}
 		if dep.ClosedDate != "" {
 			if !dep.ClosedDate.After(today) {
@@ -2149,7 +2161,8 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 		"restored": map[string]int{
 			"lots": len(b.Lots), "sales": len(b.Sales), "deposits": len(b.Deposits),
 			"conversions": len(b.Conversions), "fund_ops": len(b.FundOps),
-			"term_deposits": len(b.TermDeposits), "settings": len(b.Settings),
+			"term_deposits": len(b.TermDeposits), "deposit_topups": len(b.DepositTopups),
+			"settings": len(b.Settings),
 			"payment_status": len(b.PaymentStatus), "snapshots": len(b.Snapshots),
 		},
 	})
@@ -2879,35 +2892,121 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	type row struct {
-		ID           int64     `json:"id"`
-		Bank         string    `json:"bank,omitempty"`
-		Principal    moneyJSON `json:"principal"`
-		RatePct      float64   `json:"rate_pct"`
-		OpenDate     string    `json:"open_date"`
-		MaturityDate string    `json:"maturity_date"`
-		Payout       string    `json:"payout"`
-		Capitalized  bool      `json:"capitalized,omitempty"`
-		TaxPct       float64   `json:"tax_pct"`
-		ClosedDate   string    `json:"closed_date,omitempty"`
-		ClosedAmount moneyJSON `json:"closed_amount,omitempty"`
-		Note         string    `json:"note,omitempty"`
+	type topupJSON struct {
+		ID     int64     `json:"id"`
+		Date   string    `json:"date"`
+		Amount moneyJSON `json:"amount"`
 	}
+	type row struct {
+		ID           int64       `json:"id"`
+		Bank         string      `json:"bank,omitempty"`
+		Principal    moneyJSON   `json:"principal"`
+		// Balance — накопичене тіло (початкове + поповнення) на сьогодні:
+		// UI показує саме його, а principal лишається сумою відкриття.
+		Balance      moneyJSON   `json:"balance"`
+		RatePct      float64     `json:"rate_pct"`
+		OpenDate     string      `json:"open_date"`
+		MaturityDate string      `json:"maturity_date"`
+		Payout       string      `json:"payout"`
+		Capitalized  bool        `json:"capitalized,omitempty"`
+		TaxPct       float64     `json:"tax_pct"`
+		ClosedDate   string      `json:"closed_date,omitempty"`
+		ClosedAmount moneyJSON   `json:"closed_amount,omitempty"`
+		Note         string      `json:"note,omitempty"`
+		Topups       []topupJSON `json:"topups,omitempty"`
+	}
+	today := domain.NewDate(time.Now())
 	out := make([]row, 0, len(deps))
 	for _, d := range deps {
+		tj := make([]topupJSON, 0, len(d.Topups))
+		for _, t := range d.Topups {
+			tj = append(tj, topupJSON{ID: t.ID, Date: string(t.Date),
+				Amount: toMoneyJSON(money.New(t.Amount, d.Currency))})
+		}
 		out = append(out, row{
 			ID: d.ID, Bank: d.Bank,
 			Principal:    toMoneyJSON(money.New(d.Principal, d.Currency)),
+			Balance:      toMoneyJSON(money.New(d.BalanceAt(today), d.Currency)),
 			RatePct:      float64(d.RateBP) / 100,
 			OpenDate:     string(d.OpenDate), MaturityDate: string(d.MaturityDate),
 			Payout: string(d.Payout), Capitalized: d.Capitalized,
 			TaxPct:     float64(d.TaxBP) / 100,
 			ClosedDate: string(d.ClosedDate),
 			ClosedAmount: toMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
-			Note:       d.Note,
+			Note:       d.Note, Topups: tj,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// handleAddDepositTopup — POST /api/term-deposits/{id}/topups.
+// Сума в валюті вкладу; за замовчуванням у UI — тіло відкриття.
+func (s *Server) handleAddDepositTopup(w http.ResponseWriter, r *http.Request) {
+	depID, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var req struct {
+		Date   string `json:"date"`
+		Amount string `json:"amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	// Валюта поповнення = валюта вкладу; тягнемо вклад, щоб її знати.
+	deps, err := s.st.ListTermDeposits(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	var cur string
+	for _, d := range deps {
+		if d.ID == depID {
+			cur = d.Currency
+		}
+	}
+	if cur == "" {
+		writeErr(w, http.StatusNotFound, errors.New("вклад не знайдено"))
+		return
+	}
+	d, err := domain.ParseDate(req.Date)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	amt, err := domain.ParseDecimalToMinor(req.Amount, cur)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if amt <= 0 {
+		writeErr(w, http.StatusBadRequest, errors.New("сума поповнення має бути > 0"))
+		return
+	}
+	id, err := s.st.AddDepositTopup(r.Context(), domain.DepositTopup{DepositID: depID, Date: d, Amount: amt})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+// handleDeleteDepositTopup — DELETE /api/term-deposits/{id}/topups/{topupId}.
+func (s *Server) handleDeleteDepositTopup(w http.ResponseWriter, r *http.Request) {
+	tid, err := strconv.ParseInt(r.PathValue("topupId"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.DeleteDepositTopup(r.Context(), tid); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleAddTermDeposit(w http.ResponseWriter, r *http.Request) {

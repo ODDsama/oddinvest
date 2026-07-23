@@ -30,9 +30,20 @@ type Backup struct {
 	// без цього поля так само, як раніше — restore просто не створить
 	// жодного вкладу.
 	TermDeposits  []BackupTermDeposit `json:"term_deposits,omitempty"`
+	// DepositTopups omitempty з тієї ж причини: старіші бекапи їх не мають.
+	DepositTopups []BackupDepositTopup `json:"deposit_topups,omitempty"`
 	Settings      map[string]string   `json:"settings"`
 	PaymentStatus []BackupPayStatus   `json:"payment_status"`
 	Snapshots     []BackupSnapshot    `json:"snapshots"`
+}
+
+// BackupDepositTopup — поповнення вкладу. Без нього відновлення втратило б
+// докладені суми, і баланс вкладу занизився б до суми відкриття.
+type BackupDepositTopup struct {
+	ID        int64  `json:"id"`
+	DepositID int64  `json:"deposit_id"`
+	Date      string `json:"date"`
+	Amount    int64  `json:"amount"`
 }
 
 // BackupTermDeposit — банківський вклад. Без нього відновлення стерло б
@@ -215,6 +226,17 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 			}
 			r.Capitalized = capInt != 0
 			b.TermDeposits = append(b.TermDeposits, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT id, deposit_id, date, amount FROM deposit_topups ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupDepositTopup
+			if err := scan(&r.ID, &r.DepositID, &r.Date, &r.Amount); err != nil {
+				return err
+			}
+			b.DepositTopups = append(b.DepositTopups, r)
 			return nil
 		}); err != nil {
 		return nil, err
@@ -402,6 +424,14 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			d.ID, broker, d.Currency, d.Principal, d.RateBP, d.OpenDate, d.MaturityDate,
 			d.Payout, boolInt(d.Capitalized), d.TaxBP, d.ClosedDate, d.ClosedAmount, d.Note); err != nil {
 			return fmt.Errorf("вклад %d: %w", d.ID, err)
+		}
+	}
+	// Поповнення — після вкладів: FK на term_deposits.
+	for _, t := range b.DepositTopups {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO deposit_topups (id,deposit_id,date,amount) VALUES (?,?,?,?)`,
+			t.ID, t.DepositID, t.Date, t.Amount); err != nil {
+			return fmt.Errorf("поповнення вкладу %d: %w", t.ID, err)
 		}
 	}
 	for k, v := range b.Settings {

@@ -862,6 +862,10 @@ func (s *Store) UpdateTermDeposit(ctx context.Context, d domain.Deposit) error {
 }
 
 func (s *Store) DeleteTermDeposit(ctx context.Context, id int64) error {
+	// Спершу поповнення: FK на term_deposits, а каскаду в схемі немає.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM deposit_topups WHERE deposit_id=?`, id); err != nil {
+		return err
+	}
 	_, err := s.db.ExecContext(ctx, `DELETE FROM term_deposits WHERE id=?`, id)
 	return err
 }
@@ -882,7 +886,54 @@ func (s *Store) ListTermDeposits(ctx context.Context) ([]domain.Deposit, error) 
 		}
 		out = append(out, d)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Поповнення — одним запитом, розкладаємо по вкладах: окремий запит на
+	// кожен вклад дав би N+1, а їх зазвичай кілька.
+	topups, err := s.listAllDepositTopups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Topups = topups[out[i].ID]
+	}
+	return out, nil
+}
+
+func (s *Store) listAllDepositTopups(ctx context.Context) (map[int64][]domain.DepositTopup, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, deposit_id, date, amount FROM deposit_topups ORDER BY date, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64][]domain.DepositTopup{}
+	for rows.Next() {
+		var t domain.DepositTopup
+		var d string
+		if err := rows.Scan(&t.ID, &t.DepositID, &d, &t.Amount); err != nil {
+			return nil, err
+		}
+		t.Date = domain.Date(d)
+		out[t.DepositID] = append(out[t.DepositID], t)
+	}
 	return out, rows.Err()
+}
+
+func (s *Store) AddDepositTopup(ctx context.Context, t domain.DepositTopup) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT INTO deposit_topups (deposit_id, date, amount) VALUES (?,?,?)`,
+		t.DepositID, string(t.Date), t.Amount)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) DeleteDepositTopup(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM deposit_topups WHERE id=?`, id)
+	return err
 }
 
 func boolInt(b bool) int64 {

@@ -200,14 +200,14 @@ func TestDepositTopupsGrowInterest(t *testing.T) {
 		t.Errorf("накопичене тіло: маємо %d, хочемо 30000000", got)
 	}
 	// balanceAt росте сходинками.
-	if rep.balanceAt("2026-02-01") != 10000000 {
-		t.Errorf("до 1-го поповнення баланс = 100к, маємо %d", rep.balanceAt("2026-02-01"))
+	if rep.BalanceAt("2026-02-01") != 10000000 {
+		t.Errorf("до 1-го поповнення баланс = 100к, маємо %d", rep.BalanceAt("2026-02-01"))
 	}
-	if rep.balanceAt("2026-04-01") != 20000000 {
-		t.Errorf("після 1-го поповнення баланс = 200к, маємо %d", rep.balanceAt("2026-04-01"))
+	if rep.BalanceAt("2026-04-01") != 20000000 {
+		t.Errorf("після 1-го поповнення баланс = 200к, маємо %d", rep.BalanceAt("2026-04-01"))
 	}
-	if rep.balanceAt("2026-07-01") != 30000000 {
-		t.Errorf("після 2-го поповнення баланс = 300к, маємо %d", rep.balanceAt("2026-07-01"))
+	if rep.BalanceAt("2026-07-01") != 30000000 {
+		t.Errorf("після 2-го поповнення баланс = 300к, маємо %d", rep.BalanceAt("2026-07-01"))
 	}
 }
 

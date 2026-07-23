@@ -1268,6 +1268,35 @@ func TestTermDepositMovesAccount(t *testing.T) {
 	if _, b := do(t, "GET", srv.URL+"/api/term-deposits", ""); !strings.Contains(b, `"rate_pct":16`) {
 		t.Errorf("список вкладів: %s", b)
 	}
+
+	// Поповнення на 100к (минулою датою) СПИСУЄ ще 100к з банку → −100к,
+	// але спершу докладемо на рахунок, щоб бачити чистий ефект поповнення.
+	if _, err := st.AddDeposit(context.Background(), store.Deposit{
+		Date: "2026-01-11", Amount: 10000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// зараз: рахунок 100к (щойно долили), вклад замкнув перші 100к → 100к вільних
+	if got := bankUAH(); got != 100000 {
+		t.Fatalf("перед поповненням очікували 100000 вільних, маємо %v", got)
+	}
+	topupDate := string(domain.NewDate(time.Now()).AddDays(-5))
+	if resp, b := do(t, "POST", srv.URL+"/api/term-deposits/1/topups",
+		`{"date":"`+topupDate+`","amount":"100000.00"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("поповнення: %d %s", resp.StatusCode, b)
+	}
+	// поповнення замкнуло ще 100к → рахунок знову 0
+	if got := bankUAH(); got != 0 {
+		t.Errorf("після поповнення баланс ПУМБ має бути 0, маємо %v", got)
+	}
+	// deposits_uah = накопичене тіло 200к
+	if _, b := do(t, "GET", srv.URL+"/api/summary", ""); !strings.Contains(b, `"deposits_uah":200000`) {
+		t.Errorf("deposits_uah має бути 200000 після поповнення: %s", b)
+	}
+	// список вкладу віддає баланс 200к і одне поповнення
+	if _, b := do(t, "GET", srv.URL+"/api/term-deposits", ""); !strings.Contains(b, `"topups"`) {
+		t.Errorf("вклад має віддавати topups: %s", b)
+	}
 }
 
 // Вклад входить у капітал, календар і драбину — не лише в баланс рахунку.

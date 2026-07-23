@@ -72,10 +72,10 @@ type DepositTopup struct {
 	Amount    int64
 }
 
-// balanceAt — тіло вкладу, накопичене до дати on (включно): початкове
+// BalanceAt — тіло вкладу, накопичене до дати on (включно): початкове
 // плюс усі поповнення з датою ≤ on. Без поповнень дорівнює Principal, тож
 // уся решта логіки на вкладах без топапів поводиться як раніше.
-func (d Deposit) balanceAt(on Date) int64 {
+func (d Deposit) BalanceAt(on Date) int64 {
 	b := d.Principal
 	for _, t := range d.Topups {
 		if !t.Date.After(on) {
@@ -116,10 +116,10 @@ func (d Deposit) accruedInterest(from, to Date) int64 {
 	var gross int64
 	segStart := from
 	for _, t := range d.topupDatesIn(from, to) {
-		gross += simpleInterest(d.balanceAt(segStart), d.RateBP, DaysBetween(segStart, t))
+		gross += simpleInterest(d.BalanceAt(segStart), d.RateBP, DaysBetween(segStart, t))
 		segStart = t
 	}
-	gross += simpleInterest(d.balanceAt(segStart), d.RateBP, DaysBetween(segStart, to))
+	gross += simpleInterest(d.BalanceAt(segStart), d.RateBP, DaysBetween(segStart, to))
 	return gross
 }
 
@@ -199,7 +199,7 @@ func DepositSchedule(d Deposit, asOf Date) []CashflowItem {
 	// Повернення НАКОПИЧЕНОГО тіла (початкове + усі поповнення) на дату
 	// погашення. Active гарантує, що вона ≥ asOf.
 	out = append(out, CashflowItem{Date: d.MaturityDate, ISIN: d.SyntheticISIN(),
-		Type: PayRedemption, Amount: money.New(d.balanceAt(d.MaturityDate), d.Currency)})
+		Type: PayRedemption, Amount: money.New(d.BalanceAt(d.MaturityDate), d.Currency)})
 	return out
 }
 
@@ -261,7 +261,7 @@ func DepositLadder(deposits []Deposit, asOf Date) []LadderEntry {
 		if !d.Active(asOf) {
 			continue
 		}
-		agg[key{d.MaturityDate.Year(), d.Currency}] += d.balanceAt(d.MaturityDate)
+		agg[key{d.MaturityDate.Year(), d.Currency}] += d.BalanceAt(d.MaturityDate)
 	}
 	out := make([]LadderEntry, 0, len(agg))
 	for k, v := range agg {
@@ -297,7 +297,7 @@ func (d Deposit) compoundInterest() int64 {
 	}
 	base += simpleInterest(base, d.RateBP, DaysBetween(prev, d.MaturityDate))
 	base += d.topupsBetween(prev, d.MaturityDate)
-	return base - d.balanceAt(d.MaturityDate)
+	return base - d.BalanceAt(d.MaturityDate)
 }
 
 // SyntheticISIN — ключ вкладу для календаря й статусів виплат. Вклад
