@@ -6,9 +6,14 @@
 // історія «Як росте». Раніше це було розкидано по трьох вкладках
 // («Портфель», «План») і «Огляду», хоча відповідає на одне питання.
 //
-// Облігації й сертифікати навмисно розкладені однаково — позиції, лоти,
-// продажі, — але не змішані в одну таблицю: у сертифіката немає ні
+// Позиції всіх трьох інструментів — в ОДНІЙ таблиці. Раніше вони жили
+// трьома секціями зі своїми колонками, бо в сертифіката немає ні
 // номіналу, ні графіка купонів, і спільна таблиця зламала б обидві.
+// Заперечення було справедливе до колонок, а не до самої ідеї: спільними
+// лишились тільки ті, що мають сенс для кожного (вкладено, вартість,
+// реальна дохідність, строк), а специфіка пішла в рядок-деталі, який
+// розкривається по кліку. Виграш — те, заради чого все й робилось: видно
+// весь портфель одразу й видно, що з нього дохідніше.
 
 import {
   esc, curSym, today, dayMonth,
@@ -90,11 +95,13 @@ export function currencyChartHTML(ctx) {
 // Спільні будівельники таблиць операцій фонду: «Портфель» показує
 // позиції й лоти, «Імпорт» — продажі й дивіденди. Одна реалізація на
 // двох, бо дві копії однієї таблиці рано чи пізно розходяться.
-export function fundTable(ctx, kind, head, cells, empty) {
+// filter — необов'язковий: «Портфель» показує лоти ОДНОГО фонду в рядку
+// його позиції, «Імпорт» — усі. Без нього поводиться як раніше.
+export function fundTable(ctx, kind, head, cells, empty, filter) {
   const ops = fundOps || [];
   const money = (m) => m ? fmtCur(m.amount, curSym(m.currency)) : "—";
   // Найновіші зверху: дивишся майже завжди на щойно імпортоване.
-  const rows = ops.filter((o) => o.kind === kind)
+  const rows = ops.filter((o) => o.kind === kind && (!filter || filter(o)))
     .sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id);
   if (!rows.length) return `<div class="muted">${empty}</div>`;
   // Набір форматерів для клітинок, які в кожної таблиці свої. Раніше
@@ -135,53 +142,188 @@ export function fundStatementHTML(ctx) {
     </div>`;
 }
 
-export function fundOpsHTML(ctx) {
-  const ops = fundOps || [];
+// ---------- єдина таблиця позицій ----------
+
+const KIND_LABEL = { bond: "ОВДП", fund: "Фонд", deposit: "Вклад" };
+const POS_COLS = 7;
+
+// Які рядки розкриті. Живе поза рендером навмисно: ctx.reload() стирає
+// main.innerHTML цілком, і без цього кожне поповнення згортало б той
+// вклад, у якому ти його щойно записав.
+const openRows = new Set();
+
+// Реальна дохідність — колонка, заради якої таблиця й спільна. Підпис
+// під числом каже, з чого воно взялося: обіцянка (купон, ставка) чи
+// оцінка (дивіденди фонду). Ховати цю різницю за одним числом нечесно.
+function realCell(pct, basis) {
+  if (!pct) return `<td class="num muted col-yield">—</td>`;
+  return `<td class="num col-yield">${pct.toFixed(1)}%<div class="sub-xs">${esc(basis || "")}</div></td>`;
+}
+
+function bondDetailHTML(p, lots, sales) {
+  const myLots = lots.filter((l) => l.isin === p.isin);
+  const mySales = sales.filter((s) => s.isin === p.isin);
+  const next = p.next_pay_date
+    ? `<div class="sub">Наступна виплата: ${esc(p.next_pay_date)} · ${fmtMoney(p.next_pay_amount)}</div>` : "";
+  const lotsTbl = myLots.length ? `<h4>Лоти</h4><table><thead><tr>
+      <th>ID</th><th class="num">К-сть</th><th class="num">Залишок</th><th class="num">Ціна</th>
+      <th class="num">Комісія</th><th>Куплено</th><th>Брокер</th><th></th></tr></thead><tbody>
+      ${myLots.map((l) => `<tr><td>${l.id}</td><td class="num">${l.qty}</td><td class="num">${l.remaining}</td>
+        <td class="num">${fmtMoney(l.price_per_bond)}</td><td class="num">${fmtMoney(l.fee)}</td>
+        <td>${esc(l.buy_date)}</td><td>${esc(l.channel || "")}</td>
+        <td class="row-actions"><button class="sm warn" data-del="${l.id}">✕</button></td></tr>`).join("")}
+      </tbody></table>` : "";
+  const salesTbl = mySales.length ? `<h4 style="margin-top:12px">Продажі</h4><table><thead><tr>
+      <th>Дата</th><th class="num">К-сть</th><th class="num">Чиста</th>
+      <th class="num">НКД</th><th class="num">Результат</th></tr></thead><tbody>
+      ${mySales.map((s) => `<tr><td>${esc(s.sale_date)}</td><td class="num">${s.qty}</td>
+        <td class="num">${fmtMoney(s.clean_per_bond)}</td><td class="num">${fmtMoney(s.accrued)}</td>
+        <td class="num">${fmtMoney(s.realized_result)}</td></tr>`).join("")}
+      </tbody></table>` : "";
+  return next + lotsTbl + salesTbl;
+}
+
+function fundDetailHTML(ctx, f) {
+  const bits = [`Дивіденди ${fmtUAH(f.dividends_net)}`];
+  if (f.dividends_tax > 0) bits.push(`податок ${fmtUAH(f.dividends_tax)}`);
+  if (f.realized) bits.push(`продажі ${fmtUAH(f.realized)}`);
+  if (f.last_price_date) bits.push(`ціна від ${dayMonth(f.last_price_date)}`);
+  return `<div class="sub">${bits.join(" · ")}</div>
+    <h4 style="margin-top:12px">Лоти</h4>
+    ${fundTable(ctx, "buy",
+      `<th class="num">ID</th><th>Фонд</th><th class="num">К-сть</th><th class="num">Ціна</th><th class="num">Сплачено</th>`,
+      (o, c) => `<td class="num">${o.qty}</td><td class="num">${c.price(o)}</td><td class="num">${c.money(o.amount)}</td>`,
+      "Купівель ще немає.", (o) => o.fund === f.fund)}`;
+}
+
+function depositDetailHTML(d) {
+  const topups = d.topups || [];
+  // Поповнення дозволяємо лише позначеному вкладу, а розірвання — будь-
+  // якому: закрити достроково можна який завгодно.
+  const topupForm = d.replenishable ? `<h4>Поповнити</h4>
+    <form class="topup-form" data-topup-form="${d.id}">
+      <label>Дата поповнення<input name="date" type="date" value="${today()}" required></label>
+      <label>Сума<input name="amount" inputmode="decimal" value="${d.principal.amount}" required></label>
+      <button type="submit">Поповнити</button>
+    </form>` : "";
+  const topupsTbl = topups.length ? `<h4 style="margin-top:12px">Поповнення</h4><table><tbody>
+    ${topups.map((t) => `<tr><td class="muted">${esc(t.date)}</td><td class="num">${fmtMoney(t.amount)}</td>
+      <td class="row-actions"><button class="sm warn" data-deltopup="${d.id}:${t.id}">✕</button></td></tr>`).join("")}
+    </tbody></table>` : "";
+  return `${topupForm}${topupsTbl}
+    <h4 style="margin-top:12px">Розірвати достроково</h4>
+    <form class="close-form" data-close-form="${d.id}">
+      <label>Дата розірвання<input name="closed_date" type="date" value="${today()}" required></label>
+      <label>Отримано (тіло + відсотки)<input name="closed_amount" inputmode="decimal" placeholder="${d.balance.amount}" required></label>
+      <button type="submit">Підтвердити розірвання</button>
+    </form>`;
+}
+
+// Три інструменти зводяться до одного вигляду рядка. sortBy — вкладене
+// в НАТИВНІЙ валюті: сортуємо лише всередині групи одного інструмента,
+// тож валюти між собою тут не зустрічаються.
+function positionItems(ctx, positions, lots, sales, deposits) {
+  const bonds = positions.map((p) => ({
+    key: "bond:" + p.isin, kind: "bond",
+    name: `<b>${esc(p.isin)}</b><div class="sub-xs">${p.qty} шт.</div>`,
+    invested: fmtMoney(p.invested), value: fmtMoney(p.nominal),
+    pct: p.real_pct, basis: p.yield_basis,
+    term: `${esc(p.maturity)}<div class="sub-xs">${p.days_to_maturity} дн.</div>`,
+    actions: "", sortBy: Number((p.invested || {}).amount || 0),
+    detail: bondDetailHTML(p, lots, sales),
+  }));
+
   // Закритий фонд — не позиція: показувати «0 серт.» означає питати про
-  // те, чого вже немає. Його купівлі, продажі й дивіденди лишаються в
-  // таблицях нижче — історія записів нікуди не зникає.
-  //
-  // Виняток — фонд із дірою в журналі: він лишається на видноті саме
-  // тому, що його числа неправильні, і сховати його означало б
-  // повторити ту помилку, з якої все й почалось.
-  const funds = ((ctx.summary || {}).funds || []).filter((f) => f.qty > 0 || f.short > 0);
-  if (!ops.length && !funds.length) return "";
-  const positions = funds.length ? `<table><thead><tr>
-    <th>Фонд</th><th class="num">К-сть</th><th class="num">Ціна</th><th class="num">Вартість</th>
-    <th class="num">Вкладено</th><th class="num">Прибуток</th><th class="num">Дивіденди</th>
-    <th class="num">Дохідність</th></tr></thead><tbody>
-    ${funds.map((f) => {
+  // те, чого вже немає. Виняток — фонд із дірою в журналі: він лишається
+  // на видноті саме тому, що його числа неправильні.
+  const funds = ((ctx.summary || {}).funds || [])
+    .filter((f) => f.qty > 0 || f.short > 0)
+    .map((f) => {
       const pnl = f.market_value - f.cost_basis;
       const col = pnl >= 0 ? "var(--oi-ok)" : "var(--oi-danger)";
       const short = f.short > 0
-        ? `<div style="color:var(--oi-warn);font-size:11px">⚠ продано на ${f.short} серт. більше,
-           ніж куплено — у журналі бракує надходження, і числа рядка занижені</div>` : "";
-      return `<tr><td><b>${esc(f.fund)}</b>${short}</td><td class="num">${f.qty}</td>
-        <td class="num">${(f.last_price || 0).toFixed(4)} ${curSym(f.currency)}${
-          f.last_price_date ? `<div class="sub-xs">${dayMonth(f.last_price_date)}</div>` : ""}</td>
-        <td class="num">${fmtUAH(f.market_value)}</td><td class="num">${fmtUAH(f.cost_basis)}</td>
-        <td class="num" style="color:${col}">${pnl >= 0 ? "+" : ""}${fmtUAH(pnl)}${
-          f.realized ? `<div class="sub-xs">продажі ${fmtUAH(f.realized)}</div>` : ""}</td>
-        <td class="num">${fmtUAH(f.dividends_net)}${
-          f.dividends_tax > 0 ? `<div class="sub-xs">податок ${fmtUAH(f.dividends_tax)}</div>` : ""}</td>
-        <td class="num">${f.yield_net_pct > 0 ? f.yield_net_pct.toFixed(1) + "%" : "—"}</td></tr>`;
-    }).join("")}</tbody></table>`
-    : `<div class="muted">Сертифікатів немає — імпортуй виписку в «Рахунку» або додай купівлю вище.</div>`;
+        ? `<div class="sub-xs" style="color:var(--oi-warn)">⚠ продано на ${f.short} серт. більше,
+           ніж куплено — у журналі бракує надходження, числа занижені</div>` : "";
+      return {
+        key: "fund:" + f.fund, kind: "fund",
+        name: `<b>${esc(f.fund)}</b>${short}`,
+        invested: fmtUAH(f.cost_basis),
+        value: `${fmtUAH(f.market_value)}<div class="sub-xs" style="color:${col}">${pnl >= 0 ? "+" : ""}${fmtUAH(pnl)}</div>`,
+        pct: f.real_pct, basis: f.yield_basis,
+        // У сертифіката строку немає — на його місці те, що для фонду
+        // важить натомість: скільки їх і почім останній раз.
+        term: `<span class="muted">безстроково</span><div class="sub-xs">${f.qty} серт. · ${(f.last_price || 0).toFixed(4)} ${curSym(f.currency)}</div>`,
+        actions: "", sortBy: f.cost_basis,
+        detail: fundDetailHTML(ctx, f),
+      };
+    });
 
-  return `<div class="card"><h2 class="h-row" style="justify-content:space-between">
-      <span>Сертифікати фондів ${infoBtn("fundops")}</span></h2>
-      <div class="muted" style="margin-bottom:12px">Інший інструмент, ніж ОВДП: ні погашення, ні номіналу,
-        ні графіка купонів — натомість ринкова ціна й нерегулярні дивіденди, з яких утримується податок.
-        Записи сюди вносить <b>імпорт виписки</b>, руками їх не додають.</div>
-      ${positions}
-    </div>
+  const deps = deposits.filter((d) => !d.closed_date).map((d) => {
+    const topups = (d.topups || []).length;
+    return {
+      key: "dep:" + d.id, kind: "deposit",
+      name: `<b>${esc(d.bank || "—")}</b><div class="sub-xs">${PAYOUT_LABEL[d.payout] || d.payout}${d.capitalized ? " · кап." : ""}</div>`,
+      invested: `${fmtMoney(d.principal)}${topups ? `<div class="sub-xs">+${topups} поповн.</div>` : ""}`,
+      value: fmtMoney(d.balance),
+      pct: d.real_pct, basis: d.yield_basis,
+      term: `${esc(d.maturity_date)}<div class="sub-xs">${daysUntil(d.maturity_date)} дн. · ${d.rate_pct}%</div>`,
+      actions: `<label class="sub-xs" style="flex-direction:row;align-items:center;gap:4px;display:inline-flex"
+             title="Чи приймає цей вклад поповнення — від цього залежить, чи радить його помічник">
+          <input type="checkbox" data-repl="${d.id}" style="width:auto"${d.replenishable ? " checked" : ""}>попов.</label>
+        <button class="sm warn" data-deldep="${d.id}">✕</button>`,
+      sortBy: Number(d.principal.amount), detail: depositDetailHTML(d),
+    };
+  });
 
-    <div class="card"><h2>Лоти фондів</h2>
-      ${fundTable(ctx, "buy",
-        `<th class="num">ID</th><th>Фонд</th><th class="num">К-сть</th><th class="num">Ціна</th><th class="num">Сплачено</th>`,
-        (o, c) => `<td class="num">${o.qty}</td><td class="num">${c.price(o)}</td><td class="num">${c.money(o.amount)}</td>`,
-        "Купівель ще немає.")}
-    </div>`;
+  const bySize = (a, b) => b.sortBy - a.sortBy;
+  return [...bonds.sort(bySize), ...funds.sort(bySize), ...deps.sort(bySize)];
+}
+
+export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
+  const items = positionItems(ctx, positions, lots, sales, deposits);
+  if (!items.length) {
+    return `<div class="card"><h2>Позиції</h2>
+      <div class="muted">Позицій ще немає — почни з покупки або відкрий вклад нижче.</div></div>`;
+  }
+  const rows = items.map((it) => {
+    const open = openRows.has(it.key);
+    return `<tr>
+      <td class="col-kind"><button class="caret${open ? " open" : ""}" data-exp="${it.key}"
+            aria-expanded="${open}" title="Показати, звідки взялася позиція">▸</button><span
+          class="pill pill-${it.kind}">${KIND_LABEL[it.kind]}</span></td>
+      <td>${it.name}</td>
+      <td class="num">${it.invested}</td>
+      <td class="num">${it.value}</td>
+      ${realCell(it.pct, it.basis)}
+      <td>${it.term}</td>
+      <td class="row-actions" style="white-space:nowrap">${it.actions}</td></tr>
+    <tr class="detail-row" data-detail="${it.key}"${open ? "" : ` style="display:none"`}>
+      <td colspan="${POS_COLS}">${it.detail}</td></tr>`;
+  }).join("");
+
+  return `<div class="card"><h2 class="h-row">Позиції ${infoBtn("fundops")}</h2>
+    <div class="table-scroll"><table><thead><tr>
+      <th class="col-kind">Тип</th><th>Назва</th><th class="num">Вкладено</th><th class="num">Вартість</th>
+      <th class="num col-yield">Дохідність</th><th>Строк</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div class="sub" style="margin-top:10px">Дохідність — реальна річна після податку, у сьогоднішній
+      купівельній спроможності: саме вона порівнює ОВДП, фонд і вклад між собою. Стрілка розкриває
+      лоти, продажі й поповнення.</div>
+  </div>`;
+}
+
+export function wirePositions(ctx, main) {
+  main.querySelectorAll("[data-exp]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const key = b.dataset.exp;
+      const row = main.querySelector(`[data-detail="${key}"]`);
+      if (!row) return;
+      const open = row.style.display === "none";
+      row.style.display = open ? "" : "none";
+      b.classList.toggle("open", open);
+      b.setAttribute("aria-expanded", String(open));
+      if (open) openRows.add(key); else openRows.delete(key);
+    }));
 }
 
 // Правка веде в ту форму, якій операція належить: купівлю правиш там,
@@ -244,14 +386,12 @@ function shareTilesHTML(ctx) {
   </div>`;
 }
 
-// ---------- секція облігацій ----------
-// Одна секція = один інструмент: розмітка + проводка своїх форм.
-// Раніше облігації жили інлайном у renderPortfolio, а фонди були винесені
-// в fundOpsHTML/wireFundOps — та сама асиметрія, що й на бекенді, лише
-// дзеркальна. Тепер обидва інструменти — рівноправні секції, і третій
-// (вклади) стане таким самим, а не черговим інлайновим блоком.
+// ---------- форми облігацій ----------
+// Від секції лишились самі форми: позиції, лоти й продажі переїхали в
+// спільну таблицю. Проводка (wireBonds) не змінилась — вона й раніше
+// шукала елементи по всьому main, а не по своїй картці.
 
-function bondCardsHTML(ctx, positions, lots, sales) {
+function bondCardsHTML(ctx, lots) {
   return `
     <div class="card">
       <h2>Нова покупка</h2>
@@ -277,31 +417,6 @@ function bondCardsHTML(ctx, positions, lots, sales) {
     </div>
 
     <div class="card">
-      <h2>Позиції</h2>
-      ${positions.length ? `<table><thead><tr>
-        <th>ISIN</th><th class="num">К-сть</th><th class="num">Вкладено</th><th class="num">Номінал</th>
-        <th>Погашення</th><th class="num">Днів</th><th>Наст. виплата</th></tr></thead><tbody>
-        ${positions.map((p) => `<tr>
-          <td>${esc(p.isin)}</td><td class="num">${p.qty}</td><td class="num">${fmtMoney(p.invested)}</td>
-          <td class="num">${fmtMoney(p.nominal)}</td><td>${esc(p.maturity)}</td><td class="num">${p.days_to_maturity}</td>
-          <td>${p.next_pay_date ? esc(p.next_pay_date) + " · " + fmtMoney(p.next_pay_amount) : "—"}</td></tr>`).join("")}
-        </tbody></table>` : `<div class="muted">Позицій немає.</div>`}
-    </div>
-
-    <div class="card">
-      <h2>Лоти</h2>
-      ${lots.length ? `<table><thead><tr>
-        <th>ID</th><th>ISIN</th><th class="num">К-сть</th><th class="num">Залишок</th><th class="num">Ціна</th>
-        <th class="num">Комісія</th><th>Куплено</th><th>Брокер</th><th></th></tr></thead><tbody>
-        ${lots.map((l) => `<tr>
-          <td>${l.id}</td><td>${esc(l.isin)}</td><td class="num">${l.qty}</td><td class="num">${l.remaining}</td>
-          <td class="num">${fmtMoney(l.price_per_bond)}</td><td class="num">${fmtMoney(l.fee)}</td>
-          <td>${esc(l.buy_date)}</td><td>${esc(l.channel || "")}</td>
-          <td class="row-actions"><button class="sm warn" data-del="${l.id}">✕</button></td></tr>`).join("")}
-        </tbody></table>` : `<div class="muted">Лотів немає.</div>`}
-    </div>
-
-    <div class="card">
       <h2>Продаж (вторинний ринок)</h2>
       <form id="saleForm">
         <label>Лот<select name="lot_id" required>
@@ -316,13 +431,8 @@ function bondCardsHTML(ctx, positions, lots, sales) {
         <label>Нотатка<input name="note"></label>
         <button type="submit">Записати</button>
       </form>
-      ${sales.length ? `<table style="margin-top:14px"><thead><tr>
-        <th>Дата</th><th>ISIN</th><th class="num">К-сть</th><th class="num">Чиста</th>
-        <th class="num">НКД</th><th class="num">Результат</th></tr></thead><tbody>
-        ${sales.map((s) => `<tr>
-          <td>${esc(s.sale_date)}</td><td>${esc(s.isin)}</td><td class="num">${s.qty}</td>
-          <td class="num">${fmtMoney(s.clean_per_bond)}</td><td class="num">${fmtMoney(s.accrued)}</td>
-          <td class="num">${fmtMoney(s.realized_result)}</td></tr>`).join("")}</tbody></table>` : ""}
+      <div class="sub" style="margin-top:10px">Записані продажі видно в рядку того паперу, якого вони
+        стосуються — розкрий позицію стрілкою.</div>
     </div>`;
 }
 
@@ -421,9 +531,9 @@ function wireBonds(ctx, main) {
   });
 }
 
-// «Портфель» = склад цілком. Сам розділ лише збирає докупи: плитки й
-// структура (спільні для всього портфеля), далі секція за секцією по
-// інструментах, кожна сама малює себе й проводить свої форми.
+// «Портфель» = склад цілком. Порядок відповідає порядку питань: скільки
+// всього і як росте → як розкладене → ЩО САМЕ я маю (одна таблиця на всі
+// інструменти) → чим ризикую → чим записати нову операцію.
 export async function renderPortfolio(ctx, main) {
   const [positions, lots, sales, ops, deposits] = await Promise.all([
     ctx.api("GET", "positions"),
@@ -446,12 +556,13 @@ export async function renderPortfolio(ctx, main) {
     ${shareTilesHTML(ctx)}
     ${rebalanceCard(ctx)}
     ${ladderTableHTML(ctx)}
+    ${positionsTableHTML(ctx, positions, lots, sales, deposits)}
     ${rateRiskCard(ctx)}
-    ${bondCardsHTML(ctx, positions, lots, sales)}
-    ${fundOpsHTML(ctx)}
+    ${bondCardsHTML(ctx, lots)}
     ${depositCardsHTML(ctx, deposits)}
   `;
 
+  wirePositions(ctx, main);
   wireBonds(ctx, main);
   wireFundOps(ctx, main);
   wireDeposits(ctx, main);
@@ -650,48 +761,8 @@ export function depositCardsHTML(ctx, deposits) {
     </form>
   </div>`;
 
-  const activeRows = active.length ? `<table><thead><tr>
-    <th>Банк</th><th class="num">Тіло</th><th class="num">Ставка</th><th>Виплата</th>
-    <th>Погашення</th><th class="num">Днів</th><th></th></tr></thead><tbody>
-    ${active.map((d) => {
-      const left = daysUntil(d.maturity_date);
-      const topups = d.topups || [];
-      // Показуємо накопичене тіло; суму відкриття — підписом, лише якщо
-      // були поповнення (інакше вони рівні й підпис зайвий).
-      const grew = topups.length > 0;
-      return `<tr>
-        <td>${esc(d.bank || "—")}</td>
-        <td class="num">${fmtMoney(d.balance)}${grew
-          ? `<div class="sub-xs">відкрито ${fmtMoney(d.principal)} · +${topups.length} поповн.</div>` : ""}</td>
-        <td class="num">${d.rate_pct}%${d.capitalized ? " <span class=\"muted\" style=\"font-size:11px\">кап.</span>" : ""}</td>
-        <td>${PAYOUT_LABEL[d.payout] || d.payout}</td>
-        <td>${esc(d.maturity_date)}</td>
-        <td class="num">${left}</td>
-        <td class="row-actions" style="white-space:nowrap">
-          <label class="sub-xs" style="flex-direction:row;align-items:center;gap:4px;display:inline-flex"
-                 title="Чи приймає цей вклад поповнення — від цього залежить, чи радить його помічник">
-            <input type="checkbox" data-repl="${d.id}" style="width:auto"${d.replenishable ? " checked" : ""}>попов.</label>
-          ${d.replenishable ? `<button class="sm" data-topup="${d.id}">Поповнити</button>` : ""}
-          <button class="sm quiet" data-close="${d.id}">Закрити</button>
-          <button class="sm warn" data-deldep="${d.id}">✕</button></td></tr>
-        <tr class="topup-row" data-topup-row="${d.id}" style="display:none"><td colspan="7">
-          <form class="topup-form" data-topup-form="${d.id}" style="margin:6px 0">
-            <label>Дата поповнення<input name="date" type="date" value="${today()}" required></label>
-            <label>Сума<input name="amount" inputmode="decimal" value="${d.principal.amount}" required></label>
-            <button type="submit">Поповнити</button>
-          </form>
-          ${topups.length ? `<table style="margin-top:4px"><tbody>${topups.map((t) => `<tr>
-            <td class="muted">${esc(t.date)}</td><td class="num">${fmtMoney(t.amount)}</td>
-            <td class="row-actions"><button class="sm warn" data-deltopup="${d.id}:${t.id}">✕</button></td></tr>`).join("")}
-          </tbody></table>` : ""}</td></tr>
-        <tr class="close-row" data-close-row="${d.id}" style="display:none"><td colspan="7">
-          <form class="close-form" data-close-form="${d.id}" style="margin:6px 0">
-            <label>Дата розірвання<input name="closed_date" type="date" value="${today()}" required></label>
-            <label>Отримано (тіло + відсотки)<input name="closed_amount" inputmode="decimal" placeholder="${d.balance.amount}" required></label>
-            <button type="submit">Підтвердити розірвання</button>
-          </form></td></tr>`;
-    }).join("")}</tbody></table>` : `<div class="muted">Діючих вкладів немає.</div>`;
-
+  // Діючі вклади живуть у спільній таблиці позицій; тут лишається те, що
+  // позицією вже не є — розірвані.
   const closedCard = closed.length ? `<div class="card"><h2>Закриті достроково</h2>
     <table><thead><tr><th>Банк</th><th class="num">Тіло</th><th>Розірвано</th>
       <th class="num">Отримано</th><th></th></tr></thead><tbody>
@@ -701,9 +772,7 @@ export function depositCardsHTML(ctx, deposits) {
         <td class="row-actions"><button class="sm warn" data-deldep="${d.id}">✕</button></td></tr>`).join("")}
       </tbody></table></div>` : "";
 
-  return `${form}
-    <div class="card"><h2>Діючі вклади</h2>${activeRows}</div>
-    ${closedCard}`;
+  return `${form}${closedCard}`;
 }
 
 export function wireDeposits(ctx, main) {
@@ -755,13 +824,9 @@ export function wireDeposits(ctx, main) {
       catch (err) { ctx.toast(String(err.message || err), false); }
     }));
 
-  // «Закрити» / «Поповнити» відкривають свій рядок із формою.
-  const toggle = (sel) => (b) => b.addEventListener("click", () => {
-    const row = main.querySelector(sel(b));
-    if (row) row.style.display = row.style.display === "none" ? "" : "none";
-  });
-  main.querySelectorAll("[data-close]").forEach(toggle((b) => `[data-close-row="${b.dataset.close}"]`));
-  main.querySelectorAll("[data-topup]").forEach(toggle((b) => `[data-topup-row="${b.dataset.topup}"]`));
+  // Окремих кнопок «Поповнити» й «Закрити» більше немає: обидві форми
+  // живуть у рядку-деталях, який відкриває та сама стрілка, що показує
+  // лоти в ОВДП. Один жест на всі інструменти замість трьох кнопок.
 
   // Поповнення: сума в валюті вкладу, за замовчуванням = тіло відкриття.
   main.querySelectorAll("[data-topup-form]").forEach((f) =>

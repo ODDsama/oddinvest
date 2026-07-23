@@ -139,6 +139,63 @@ th { color: var(--oi-muted); font-weight: 500; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr:last-child td { border-bottom: none; }
 
+/* --- єдина таблиця позицій --- */
+
+/* Пігулка виду інструмента. Колір несе значення (ОВДП / фонд / вклад),
+   тому фон приглушений, а текст лишається кольоровим: у щільній таблиці
+   заливка на всю висоту рядка кричала б голосніше за самі числа. */
+.pill {
+  display: inline-block;
+  padding: 1px var(--oi-gap-sm);
+  border-radius: var(--oi-radius-pill);
+  font-size: var(--oi-fs-xs);
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+.pill-bond { color: var(--oi-kind-bond); }
+.pill-fund { color: var(--oi-kind-fund); }
+.pill-deposit { color: var(--oi-kind-deposit); }
+
+/* Каретка й пігулка — один зоровий об'єкт: інакше у вузькій колонці
+   пігулка зривається на другий рядок і рядок росте вдвічі. */
+.col-kind { white-space: nowrap; }
+/* Дохідності потрібне місце під підпис основи («дивіденди після
+   податку» — найдовший): без цього він ламається на три рядки. */
+.col-yield { min-width: 118px; }
+
+/* Сім колонок у панелі HA не влазять, і без цього по горизонталі їде ВСЯ
+   сторінка — разом із шапкою й вкладками. Хай їде таблиця всередині
+   своєї картки, а сторінка стоїть. */
+.table-scroll { overflow-x: auto; }
+
+/* Каретка розкриття. Кнопка, а не span: рядок деталей — це той самий
+   disclosure, і клавіатура має його діставати. */
+.caret {
+  background: none;
+  border: none;
+  color: var(--oi-muted);
+  cursor: pointer;
+  padding: 0 var(--oi-gap-xs) 0 0;
+  font-size: var(--oi-fs-sm);
+  line-height: 1;
+  transition: transform .12s ease;
+  display: inline-block;
+}
+.caret.open { transform: rotate(90deg); }
+
+/* Рядок деталей: інший фон плюс смуга зліва. Самого фону мало — у темній
+   темі HA --oi-surface-2 відрізняється від картки на кілька одиниць, і
+   вкладеність зникає. Смуга ж працює в будь-якій темі й заразом каже, до
+   чого саме ці деталі належать. Раніше .topup-row/.close-row не мали
+   стилю взагалі: розкриття було видно лише по тому, що щось з'явилось. */
+.detail-row > td {
+  background: var(--oi-surface-2);
+  border-left: 3px solid var(--oi-border-strong);
+  padding: var(--oi-gap) var(--oi-gap-lg);
+}
+.detail-row table { font-size: var(--oi-fs-sm); }
+.detail-row h4 { margin: 0 0 var(--oi-gap-xs); color: var(--oi-muted); font-weight: 500; }
+
 /* --- форми --- */
 
 form {

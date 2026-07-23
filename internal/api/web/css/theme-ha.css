@@ -80,6 +80,11 @@
   --oi-cat-6: #26c6da;
   --oi-cat-7: #d4a5ff;
 
+  /* Вид інструмента — постійні кольори ОВДП / фонду / вкладу. */
+  --oi-kind-bond: #4da3ff;
+  --oi-kind-fund: #26c6da;
+  --oi-kind-deposit: #2ecc71;
+
   --oi-optimistic: #3fb950;
   --oi-realistic: #7b6cf6;
   --oi-pessimistic: #d29922;
