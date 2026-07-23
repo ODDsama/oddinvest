@@ -123,10 +123,12 @@ export class OddInvestApp extends HTMLElement {
   // Швидкий перехід із «Огляду» просто в потрібну форму: банер каже, що
   // зробити, і кнопка має доводити саме туди, а не «десь на вкладку».
   async _goto(what) {
-    const map = { buy: "portfolio", deposit: "money", convert: "money" };
+    // topup — секція вкладів у «Портфелі» (не плутати з deposit: то
+    // поповнення грошового рахунку в «Грошах»).
+    const map = { buy: "portfolio", topup: "portfolio", deposit: "money", convert: "money" };
     this._tab = map[what] || "portfolio";
     await this._loadTab();
-    const sel = { buy: "#lotForm", deposit: "#depForm", convert: "#convForm" }[what];
+    const sel = { buy: "#lotForm", topup: "#termDepForm", deposit: "#depForm", convert: "#convForm" }[what];
     const el = this.shadowRoot.querySelector(sel) || this.shadowRoot.querySelector("#lotForm");
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
