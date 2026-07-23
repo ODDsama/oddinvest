@@ -653,20 +653,36 @@ export function depositCardsHTML(ctx, deposits) {
     <th>Погашення</th><th class="num">Днів</th><th></th></tr></thead><tbody>
     ${active.map((d) => {
       const left = daysUntil(d.maturity_date);
+      const topups = d.topups || [];
+      // Показуємо накопичене тіло; суму відкриття — підписом, лише якщо
+      // були поповнення (інакше вони рівні й підпис зайвий).
+      const grew = topups.length > 0;
       return `<tr>
         <td>${esc(d.bank || "—")}</td>
-        <td class="num">${fmtMoney(d.principal)}</td>
+        <td class="num">${fmtMoney(d.balance)}${grew
+          ? `<div class="sub-xs">відкрито ${fmtMoney(d.principal)} · +${topups.length} поповн.</div>` : ""}</td>
         <td class="num">${d.rate_pct}%${d.capitalized ? " <span class=\"muted\" style=\"font-size:11px\">кап.</span>" : ""}</td>
         <td>${PAYOUT_LABEL[d.payout] || d.payout}</td>
         <td>${esc(d.maturity_date)}</td>
         <td class="num">${left}</td>
         <td class="row-actions" style="white-space:nowrap">
+          <button class="sm" data-topup="${d.id}">Поповнити</button>
           <button class="sm quiet" data-close="${d.id}">Закрити</button>
           <button class="sm warn" data-deldep="${d.id}">✕</button></td></tr>
+        <tr class="topup-row" data-topup-row="${d.id}" style="display:none"><td colspan="7">
+          <form class="topup-form" data-topup-form="${d.id}" style="margin:6px 0">
+            <label>Дата поповнення<input name="date" type="date" value="${today()}" required></label>
+            <label>Сума<input name="amount" inputmode="decimal" value="${d.principal.amount}" required></label>
+            <button type="submit">Поповнити</button>
+          </form>
+          ${topups.length ? `<table style="margin-top:4px"><tbody>${topups.map((t) => `<tr>
+            <td class="muted">${esc(t.date)}</td><td class="num">${fmtMoney(t.amount)}</td>
+            <td class="row-actions"><button class="sm warn" data-deltopup="${d.id}:${t.id}">✕</button></td></tr>`).join("")}
+          </tbody></table>` : ""}</td></tr>
         <tr class="close-row" data-close-row="${d.id}" style="display:none"><td colspan="7">
           <form class="close-form" data-close-form="${d.id}" style="margin:6px 0">
             <label>Дата розірвання<input name="closed_date" type="date" value="${today()}" required></label>
-            <label>Отримано (тіло + відсотки)<input name="closed_amount" inputmode="decimal" placeholder="${d.principal.amount}" required></label>
+            <label>Отримано (тіло + відсотки)<input name="closed_amount" inputmode="decimal" placeholder="${d.balance.amount}" required></label>
             <button type="submit">Підтвердити розірвання</button>
           </form></td></tr>`;
     }).join("")}</tbody></table>` : `<div class="muted">Діючих вкладів немає.</div>`;
@@ -710,11 +726,33 @@ export function wireDeposits(ctx, main) {
       catch (err) { ctx.toast(String(err.message || err), false); }
     }));
 
-  // «Закрити» відкриває рядок із формою дострокового розірвання.
-  main.querySelectorAll("[data-close]").forEach((b) =>
-    b.addEventListener("click", () => {
-      const row = main.querySelector(`[data-close-row="${b.dataset.close}"]`);
-      if (row) row.style.display = row.style.display === "none" ? "" : "none";
+  // «Закрити» / «Поповнити» відкривають свій рядок із формою.
+  const toggle = (sel) => (b) => b.addEventListener("click", () => {
+    const row = main.querySelector(sel(b));
+    if (row) row.style.display = row.style.display === "none" ? "" : "none";
+  });
+  main.querySelectorAll("[data-close]").forEach(toggle((b) => `[data-close-row="${b.dataset.close}"]`));
+  main.querySelectorAll("[data-topup]").forEach(toggle((b) => `[data-topup-row="${b.dataset.topup}"]`));
+
+  // Поповнення: сума в валюті вкладу, за замовчуванням = тіло відкриття.
+  main.querySelectorAll("[data-topup-form]").forEach((f) =>
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        await ctx.api("POST", "term-deposits/" + f.dataset.topupForm + "/topups", {
+          date: f.date.value, amount: f.amount.value.trim(),
+        });
+        ctx.toast("Поповнення додано"); ctx.reload();
+      } catch (err) { ctx.toast(String(err.message || err), false); }
+    }));
+
+  main.querySelectorAll("[data-deltopup]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const [depID, topupID] = b.dataset.deltopup.split(":");
+      try {
+        await ctx.api("DELETE", "term-deposits/" + depID + "/topups/" + topupID);
+        ctx.toast("Поповнення видалено"); ctx.reload();
+      } catch (err) { ctx.toast(String(err.message || err), false); }
     }));
 
   // Розірвання = PUT усього вкладу з проставленими closed_*. Решту полів
