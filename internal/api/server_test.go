@@ -1359,6 +1359,7 @@ func TestReinvestRanksYieldNotPrice(t *testing.T) {
 	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
 		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
 		OpenDate: open, MaturityDate: mat, Payout: domain.PayoutEnd, TaxBP: 1950,
+		Replenishable: true, // інакше помічник поповнення не запропонує
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1508,5 +1509,64 @@ func TestUninvestedCountsDepositInterest(t *testing.T) {
 	}
 	if !(after < before) {
 		t.Errorf("позначка мала зменшити «не перевкладено»: було %.2f, стало %.2f", before, after)
+	}
+}
+
+// Помічник пропонує докласти ЛИШЕ в поповнюваний вклад: порада докласти
+// у вклад, який поповнень не приймає, — порада, яку неможливо виконати.
+func TestReinvestSuggestsOnlyReplenishableDeposits(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2026-01-10", Amount: 50000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	open := domain.NewDate(time.Now()).AddDays(-10)
+	mat := domain.NewDate(time.Now()).AddDays(355)
+	base := domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate: open, MaturityDate: mat, Payout: domain.PayoutEnd, TaxBP: 1950,
+	}
+	if _, err := st.AddTermDeposit(ctx, base); err != nil { // НЕ поповнюваний
+		t.Fatal(err)
+	}
+
+	kinds := func() []string {
+		t.Helper()
+		var rows []struct {
+			Kind string `json:"kind"`
+		}
+		_, b := do(t, "GET", srv.URL+"/api/reinvest", "")
+		if err := json.Unmarshal([]byte(b), &rows); err != nil {
+			t.Fatalf("reinvest: %v: %s", err, b)
+		}
+		var out []string
+		for _, r := range rows {
+			out = append(out, r.Kind)
+		}
+		return out
+	}
+
+	for _, k := range kinds() {
+		if k == "deposit" {
+			t.Fatal("непоповнюваний вклад не має потрапляти в поради")
+		}
+	}
+
+	// Той самий вклад, позначений поповнюваним, — уже потрапляє.
+	repl := base
+	repl.Replenishable = true
+	if _, err := st.AddTermDeposit(ctx, repl); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, k := range kinds() {
+		if k == "deposit" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("поповнюваний вклад мав потрапити в поради")
 	}
 }

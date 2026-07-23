@@ -63,6 +63,9 @@ type BackupTermDeposit struct {
 	ClosedDate   string `json:"closed_date,omitempty"`
 	ClosedAmount int64  `json:"closed_amount,omitempty"`
 	Note         string `json:"note"`
+	// Replenishable omitempty: старіші бекапи поля не мають, і відновлення
+	// прочитає їх як «не поповнюваний» — це типове значення колонки.
+	Replenishable bool `json:"replenishable,omitempty"`
 }
 
 // BackupFundOp — операція з сертифікатами фонду. Без неї бекап був
@@ -218,13 +221,14 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		FROM term_deposits d LEFT JOIN brokers b ON b.id=d.broker_id ORDER BY d.id`,
 		func(scan func(...any) error) error {
 			var r BackupTermDeposit
-			var capInt int64
+			var capInt, replInt int64
 			if err := scan(&r.ID, &r.Bank, &r.Currency, &r.Principal, &r.RateBP,
 				&r.OpenDate, &r.MaturityDate, &r.Payout, &capInt, &r.TaxBP,
-				&r.ClosedDate, &r.ClosedAmount, &r.Note); err != nil {
+				&r.ClosedDate, &r.ClosedAmount, &r.Note, &replInt); err != nil {
 				return err
 			}
 			r.Capitalized = capInt != 0
+			r.Replenishable = replInt != 0
 			b.TermDeposits = append(b.TermDeposits, r)
 			return nil
 		}); err != nil {
@@ -419,10 +423,11 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO term_deposits (id,broker_id,currency,principal,rate_bp,open_date,
-			 maturity_date,payout,capitalized,tax_bp,closed_date,closed_amount,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			 maturity_date,payout,capitalized,tax_bp,closed_date,closed_amount,note,replenishable)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			d.ID, broker, d.Currency, d.Principal, d.RateBP, d.OpenDate, d.MaturityDate,
-			d.Payout, boolInt(d.Capitalized), d.TaxBP, d.ClosedDate, d.ClosedAmount, d.Note); err != nil {
+			d.Payout, boolInt(d.Capitalized), d.TaxBP, d.ClosedDate, d.ClosedAmount, d.Note,
+			boolInt(d.Replenishable)); err != nil {
 			return fmt.Errorf("вклад %d: %w", d.ID, err)
 		}
 	}

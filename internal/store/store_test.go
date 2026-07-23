@@ -163,3 +163,60 @@ func TestSettingsRatesSnapshotsStatuses(t *testing.T) {
 		t.Fatal("повторне скасування має бути безшумним")
 	}
 }
+
+// Міграція 0015 виводить прапорець із ДОКАЗУ: вклад, який уже
+// поповнювали, поповнюваний за визначенням — інакше після оновлення
+// користувач мусив би вручну відновлювати те, що видно з даних.
+func TestReplenishableBackfilledFromExistingTopups(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	mk := func(bank string) int64 {
+		id, err := s.AddTermDeposit(ctx, domain.Deposit{
+			Bank: bank, Currency: "UAH", Principal: 10000000, RateBP: 1600,
+			OpenDate: "2026-01-15", MaturityDate: "2027-01-15",
+			Payout: domain.PayoutEnd, TaxBP: 1950,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	withTopup := mk("ПУМБ")
+	plain := mk("Приват")
+	if _, err := s.AddDepositTopup(ctx, domain.DepositTopup{
+		DepositID: withTopup, Date: "2026-02-15", Amount: 10000000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Проганяємо backfill так, як це зробила б міграція на живій БД:
+	// колонка вже є (0015 застосувалась при Open), тож імітуємо стан
+	// «до неї» — скидаємо прапорець і повторюємо UPDATE з міграції.
+	if _, err := s.db.ExecContext(ctx, `UPDATE term_deposits SET replenishable=0`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE term_deposits SET replenishable = 1
+		WHERE id IN (SELECT DISTINCT deposit_id FROM deposit_topups)`); err != nil {
+		t.Fatal(err)
+	}
+
+	deps, err := s.ListTermDeposits(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[int64]bool{}
+	for _, d := range deps {
+		got[d.ID] = d.Replenishable
+	}
+	if !got[withTopup] {
+		t.Error("вклад із поповненням мав стати поповнюваним")
+	}
+	if got[plain] {
+		t.Error("вклад без поповнень мав лишитись непоповнюваним")
+	}
+}

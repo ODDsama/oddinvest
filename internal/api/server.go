@@ -2495,7 +2495,9 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, d := range deps {
-		if !d.Active(today) || d.Principal <= 0 {
+		// Тільки поповнювані: радити докласти у вклад, який поповнень не
+		// приймає, — порада, яку неможливо виконати.
+		if !d.Replenishable || !d.Active(today) || d.Principal <= 0 {
 			continue
 		}
 		c := d.Currency
@@ -2941,7 +2943,8 @@ type termDepositReq struct {
 	OpenDate     string `json:"open_date"`
 	MaturityDate string `json:"maturity_date"`
 	Payout       string `json:"payout"`
-	Capitalized  bool   `json:"capitalized"`
+	Capitalized   bool   `json:"capitalized"`
+	Replenishable bool   `json:"replenishable"`
 	TaxPct       string `json:"tax_pct"`
 	ClosedDate   string `json:"closed_date"`
 	ClosedAmount string `json:"closed_amount"`
@@ -3002,6 +3005,7 @@ func termDepositFromReq(req termDepositReq) (domain.Deposit, error) {
 		Bank: strings.TrimSpace(req.Bank), Currency: cur, Principal: principal,
 		RateBP: rate, OpenDate: open, MaturityDate: mat, Payout: payout,
 		Capitalized: req.Capitalized, TaxBP: tax, Note: req.Note,
+		Replenishable: req.Replenishable,
 	}
 	// Дострокове розірвання: обидва поля разом або жодного.
 	if strings.TrimSpace(req.ClosedDate) != "" {
@@ -3040,7 +3044,8 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		OpenDate     string      `json:"open_date"`
 		MaturityDate string      `json:"maturity_date"`
 		Payout       string      `json:"payout"`
-		Capitalized  bool        `json:"capitalized,omitempty"`
+		Capitalized   bool        `json:"capitalized,omitempty"`
+		Replenishable bool        `json:"replenishable"`
 		TaxPct       float64     `json:"tax_pct"`
 		ClosedDate   string      `json:"closed_date,omitempty"`
 		ClosedAmount moneyJSON   `json:"closed_amount,omitempty"`
@@ -3062,6 +3067,7 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 			RatePct:      float64(d.RateBP) / 100,
 			OpenDate:     string(d.OpenDate), MaturityDate: string(d.MaturityDate),
 			Payout: string(d.Payout), Capitalized: d.Capitalized,
+			Replenishable: d.Replenishable,
 			TaxPct:     float64(d.TaxBP) / 100,
 			ClosedDate: string(d.ClosedDate),
 			ClosedAmount: toMoneyJSON(money.New(d.ClosedAmount, d.Currency)),

@@ -642,6 +642,8 @@ export function depositCardsHTML(ctx, deposits) {
       </select></label>
       <label style="flex-direction:row;align-items:center;gap:8px">
         <input name="capitalized" type="checkbox" style="width:auto">Капіталізація</label>
+      <label style="flex-direction:row;align-items:center;gap:8px">
+        <input name="replenishable" type="checkbox" style="width:auto">Поповнюваний</label>
       <label>Податок, %<input name="tax_pct" inputmode="decimal" placeholder="19.5 (за замовч.)"></label>
       <label>Нотатка<input name="note"></label>
       <button type="submit">Додати</button>
@@ -666,7 +668,10 @@ export function depositCardsHTML(ctx, deposits) {
         <td>${esc(d.maturity_date)}</td>
         <td class="num">${left}</td>
         <td class="row-actions" style="white-space:nowrap">
-          <button class="sm" data-topup="${d.id}">Поповнити</button>
+          <label class="sub-xs" style="flex-direction:row;align-items:center;gap:4px;display:inline-flex"
+                 title="Чи приймає цей вклад поповнення — від цього залежить, чи радить його помічник">
+            <input type="checkbox" data-repl="${d.id}" style="width:auto"${d.replenishable ? " checked" : ""}>попов.</label>
+          ${d.replenishable ? `<button class="sm" data-topup="${d.id}">Поповнити</button>` : ""}
           <button class="sm quiet" data-close="${d.id}">Закрити</button>
           <button class="sm warn" data-deldep="${d.id}">✕</button></td></tr>
         <tr class="topup-row" data-topup-row="${d.id}" style="display:none"><td colspan="7">
@@ -713,11 +718,35 @@ export function wireDeposits(ctx, main) {
         principal: f.principal.value.trim(), rate_pct: f.rate_pct.value.trim(),
         open_date: f.open_date.value, maturity_date: f.maturity_date.value,
         payout: f.payout.value, capitalized: f.capitalized.checked,
+        replenishable: f.replenishable.checked,
         tax_pct: f.tax_pct.value.trim(), note: f.note.value.trim(),
       });
       ctx.toast("Вклад додано"); ctx.reload();
     } catch (err) { ctx.toast(String(err.message || err), false); }
   });
+
+  // Перемикач «поповнюваний» просто на рядку: це властивість вкладу, яку
+  // дізнаєшся вже після відкриття, і заводити заради неї окрему форму
+  // редагування було б надміру. PUT шле вклад цілком — решту полів
+  // беремо з уже завантаженого списку, як і при закритті.
+  main.querySelectorAll("[data-repl]").forEach((cb) =>
+    cb.addEventListener("change", async () => {
+      const d = byId.get(cb.dataset.repl);
+      if (!d) return;
+      try {
+        await ctx.api("PUT", "term-deposits/" + d.id, {
+          bank: d.bank, currency: d.principal.currency,
+          principal: d.principal.amount, rate_pct: String(d.rate_pct),
+          open_date: d.open_date, maturity_date: d.maturity_date,
+          payout: d.payout, capitalized: !!d.capitalized,
+          replenishable: cb.checked,
+          tax_pct: String(d.tax_pct), note: d.note || "",
+          closed_date: d.closed_date || "", closed_amount: (d.closed_amount || {}).amount || "",
+        });
+        ctx.toast(cb.checked ? "Вклад поповнюваний" : "Вклад не поповнюваний");
+        ctx.reload();
+      } catch (err) { ctx.toast(String(err.message || err), false); cb.checked = !cb.checked; }
+    }));
 
   main.querySelectorAll("[data-deldep]").forEach((b) =>
     b.addEventListener("click", async () => {
@@ -769,6 +798,8 @@ export function wireDeposits(ctx, main) {
           principal: d.principal.amount, rate_pct: String(d.rate_pct),
           open_date: d.open_date, maturity_date: d.maturity_date,
           payout: d.payout, capitalized: !!d.capitalized,
+          replenishable: !!d.replenishable, // PUT шле вклад цілком — без цього
+                                            // закриття скидало б прапорець
           tax_pct: String(d.tax_pct), note: d.note || "",
           closed_date: f.closed_date.value, closed_amount: f.closed_amount.value.trim(),
         });
