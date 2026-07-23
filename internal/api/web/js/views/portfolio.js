@@ -203,24 +203,17 @@ export function wireFundOps(ctx, main) {
     }));
 }
 
-export async function renderPortfolio(ctx, main) {
+// Плитки дохідностей: YTM до погашення від сплаченої ціни поряд з XIRR
+// (фактично реалізованим) — сенс саме в порівнянні одного з одним.
+function yieldTilesHTML(ctx) {
   const s0 = ctx.summary || {};
-  const [positions, lots, sales, ops] = await Promise.all([
-    ctx.api("GET", "positions"),
-    ctx.api("GET", "lots"),
-    ctx.api("GET", "sales"),
-    ctx.api("GET", "funds").catch(() => []),
-  ]);
-  setFundOps(ops);
-  // «Дохідність» — YTM до погашення від сплаченої ціни, «XIRR» — фактично
-  // реалізоване. Тримаємо поруч, бо сенс саме в порівнянні.
   const py = s0.portfolio_yield || {}, xr = s0.xirr || {};
   const pct = (v) => v != null ? v.toFixed(2) + "%" : "—";
   const xirrTiles = Object.keys(xr).length
     ? Object.entries(xr).map(([c, v]) => tile(`XIRR ${curSym(c)}`, pct(v))).join("")
     : tile("XIRR", "—",
         `<div class="sub">гроші мають попрацювати ≥30 днів у середньому</div>`);
-  const portTiles = `<div class="tiles flush">
+  return `<div class="tiles flush">
     ${tile("Вкладено (грн-екв.)", fmtUAH(s0.invested_uah + fundsCost(s0)),
       fundsCost(s0) > 0 ? `<div class="sub">з них ${fmtUAH(fundsCost(s0))} у фондах</div>` : "")}
     ${tile("Номінал (грн-екв.)", fmtUAH(s0.nominal_uah_eq))}
@@ -234,30 +227,30 @@ export async function renderPortfolio(ctx, main) {
       `<div class="sub">ОВДП і фонди разом, зважено вкладеним</div>`) : ""}
     ${xirrTiles}
   </div>`;
+}
 
-  // Валютні частки й цілі — тут, а не окремою вкладкою «План»: це
-  // характеристика того, ЩО ВЖЕ КУПЛЕНО, і читається вона поруч із
-  // рештою складу, а не через клік.
-  const st = s0.settings || {};
+// Валютні частки й цілі — тут, а не окремою вкладкою «План»: це
+// характеристика того, ЩО ВЖЕ КУПЛЕНО, і читається вона поруч із
+// рештою складу, а не через клік.
+function shareTilesHTML(ctx) {
+  const s0 = ctx.summary || {}, st = s0.settings || {};
   const shareTile = (lbl, cur, tgt) => tile(lbl, (cur || 0).toFixed(1) + "%",
     tgt ? `<div class="sub">ціль ${tgt}%</div>` : "");
-  const shares = `<div class="tiles flush">
+  return `<div class="tiles flush">
     ${shareTile("Частка USD", s0.usd_share_pct, st.usd_target_share_pct)}
     ${shareTile("Частка EUR", s0.eur_share_pct, st.eur_target_share_pct)}
   </div>`;
+}
 
-  const chart = await chartBlockHTML(ctx);
-  main.innerHTML = `
-    ${portTiles}
-    ${chart}
-    <div class="chart-grid">
-      ${brokerDonutHTML(ctx)}
-      ${currencyChartHTML(ctx)}
-    </div>
-    ${shares}
-    ${rebalanceCard(ctx)}
-    ${ladderTableHTML(ctx)}
-    ${rateRiskCard(ctx)}
+// ---------- секція облігацій ----------
+// Одна секція = один інструмент: розмітка + проводка своїх форм.
+// Раніше облігації жили інлайном у renderPortfolio, а фонди були винесені
+// в fundOpsHTML/wireFundOps — та сама асиметрія, що й на бекенді, лише
+// дзеркальна. Тепер обидва інструменти — рівноправні секції, і третій
+// (вклади) стане таким самим, а не черговим інлайновим блоком.
+
+function bondCardsHTML(ctx, positions, lots, sales) {
+  return `
     <div class="card">
       <h2>Нова покупка</h2>
       <form id="lotForm">
@@ -328,11 +321,10 @@ export async function renderPortfolio(ctx, main) {
           <td>${esc(s.sale_date)}</td><td>${esc(s.isin)}</td><td class="num">${s.qty}</td>
           <td class="num">${fmtMoney(s.clean_per_bond)}</td><td class="num">${fmtMoney(s.accrued)}</td>
           <td class="num">${fmtMoney(s.realized_result)}</td></tr>`).join("")}</tbody></table>` : ""}
-    </div>
+    </div>`;
+}
 
-    ${fundOpsHTML(ctx)}
-  `;
-
+function wireBonds(ctx, main) {
   main.querySelectorAll("[data-del]").forEach((b) =>
     b.addEventListener("click", async () => {
       if (!confirm("Видалити лот #" + b.dataset.del + "?")) return;
@@ -425,7 +417,37 @@ export async function renderPortfolio(ctx, main) {
       ctx.toast("Продаж записано"); ctx.reload();
     } catch (err) { ctx.toast(String(err.message || err), false); }
   });
+}
 
+// «Портфель» = склад цілком. Сам розділ лише збирає докупи: плитки й
+// структура (спільні для всього портфеля), далі секція за секцією по
+// інструментах, кожна сама малює себе й проводить свої форми.
+export async function renderPortfolio(ctx, main) {
+  const [positions, lots, sales, ops] = await Promise.all([
+    ctx.api("GET", "positions"),
+    ctx.api("GET", "lots"),
+    ctx.api("GET", "sales"),
+    ctx.api("GET", "funds").catch(() => []),
+  ]);
+  setFundOps(ops);
+
+  const chart = await chartBlockHTML(ctx);
+  main.innerHTML = `
+    ${yieldTilesHTML(ctx)}
+    ${chart}
+    <div class="chart-grid">
+      ${brokerDonutHTML(ctx)}
+      ${currencyChartHTML(ctx)}
+    </div>
+    ${shareTilesHTML(ctx)}
+    ${rebalanceCard(ctx)}
+    ${ladderTableHTML(ctx)}
+    ${rateRiskCard(ctx)}
+    ${bondCardsHTML(ctx, positions, lots, sales)}
+    ${fundOpsHTML(ctx)}
+  `;
+
+  wireBonds(ctx, main);
   wireFundOps(ctx, main);
   // Таблиця знімків — у самому низу і згорнута: це архів, до якого
   // звертаються рідко, але коли треба — потрібні саме числа, а не крива.
