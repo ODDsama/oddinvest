@@ -301,6 +301,14 @@ type FundPositionRow struct {
 	DividendsTax   float64 `json:"dividends_tax"`
 	Realized       float64 `json:"realized,omitempty"`
 	YieldNetPct    float64 `json:"yield_net_pct,omitempty"`
+	// RealPct — та сама дохідність після знецінення гривні, тобто в
+	// сьогоднішній купівельній спроможності. Адитивне поле (v0.4+): саме
+	// воно порівнянне з ОВДП і вкладом, бо приводить різні валюти й різні
+	// природи доходу до однієї бази. YieldBasis каже, що це оцінка з
+	// останніх виплат, а не обіцянка, — ховати різницю за одним числом
+	// було б нечесно.
+	RealPct    float64 `json:"real_pct,omitempty"`
+	YieldBasis string  `json:"yield_basis,omitempty"`
 	// Short — скільки сертифікатів продано понад куплені. Не нуль означає,
 	// що в журналі бракує надходження, і всі числа рядка занижені.
 	Short int64 `json:"short,omitempty"`

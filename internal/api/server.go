@@ -242,6 +242,55 @@ const nbuRefreshedKey = "nbu_refreshed_at"
 // будь-який гривневий папір безнадійним.
 const defaultDevaluationPct = 6.0
 
+// devaluationPct — знецінення, з яким рахує ВЕСЬ застосунок: задане
+// користувачем або дефолтне. Одне місце, бо прогноз, реінвест-помічник і
+// дохідність позицій мають говорити одним припущенням — інакше помічник
+// радить одне, а прогноз малює інше.
+func devaluationPct(st *state.SettingsDoc) float64 {
+	if st != nil && st.UAHDevaluationPct != nil && *st.UAHDevaluationPct >= 0 {
+		return *st.UAHDevaluationPct
+	}
+	return defaultDevaluationPct
+}
+
+// devaluation — те саме знецінення для хендлерів, у яких немає готового
+// SettingsDoc: читає той самий ключ, що потрапляє у зведення, і проходить
+// через ту саму функцію, щоб дефолт був один на всіх.
+func (s *Server) devaluation(ctx context.Context) float64 {
+	doc := &state.SettingsDoc{}
+	if raw, _ := s.st.GetSetting(ctx, "uah_devaluation_pct"); raw != "" {
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			doc.UAHDevaluationPct = &f
+		}
+	}
+	return devaluationPct(doc)
+}
+
+// realYield — річна дохідність, приведена до сьогоднішньої гривні.
+// Для валютних лишається як є (долар купівельну спроможність тримає),
+// для гривневих ділиться на знецінення. Одна формула на всі інструменти
+// й на обидва боки застосунку: і на те, що можна купити (реінвест), і на
+// те, що вже лежить у портфелі. Інакше вони б не порівнювались.
+func realYield(y float64, cur string, devalPct float64) float64 {
+	if cur == money.UAH {
+		return (1+y)/(1+devalPct/100) - 1
+	}
+	return y
+}
+
+// ytmLot — лот у вигляді, який розуміє розрахунок дохідності: собівартість
+// одного паперу — «брудна» ціна плюс частка комісії. Комісія теж з'їдає
+// дохідність, тож ховати її означало б завищувати результат.
+func ytmLot(l domain.Lot, qty int64) domain.YTMLot {
+	cost := l.PricePerBond
+	if fee, err := domain.Apportion(l.Fee, 1, l.Qty); err == nil && !fee.IsZero() {
+		if c2, aerr := cost.Add(fee); aerr == nil {
+			cost = c2
+		}
+	}
+	return domain.YTMLot{CostPerBond: cost, Qty: qty, BuyDate: l.BuyDate, ISIN: l.ISIN}
+}
+
 // defaultTerminalRatePct — довгострокова гривнева ставка ОВДП, до якої
 // сповзає сьогоднішня. 11% — це ціль НБУ по інфляції (5%) плюс типова
 // реальна премія держпаперу. Сьогоднішні 16-17% — наслідок війни, а не
@@ -717,6 +766,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	var fundsUAH float64
 	var fundRows []state.FundPositionRow
 	if len(fundOps) > 0 {
+		deval := s.devaluation(ctx)
 		positions := domain.FundPositions(fundOps)
 		names := make([]string, 0, len(positions))
 		for name := range positions {
@@ -744,6 +794,17 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				Realized:      round2(float64(fp.Realized) / 100),
 				YieldNetPct:   y,
 				Short:         fp.Short,
+			}
+			// Приводимо до сьогоднішньої гривні тією ж формулою, що й
+			// облігації з вкладами: тільки так «8% фонду» і «16% вкладу»
+			// стають числами про одне й те саме.
+			if y > 0 {
+				cur := fp.Currency
+				if cur == "" {
+					cur = money.UAH
+				}
+				row.RealPct = round2(realYield(y/100, cur, deval) * 100)
+				row.YieldBasis = "дивіденди після податку"
 			}
 			fundRows = append(fundRows, row)
 			// Чистий дивідендний потік за рік — у спільний «пасивний дохід».
@@ -927,15 +988,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if n, err := fx.ToUAH(money.New(b.Nominal.Amount()*q, cur), rates); err == nil {
 			nominalUAH += n.Amount()
 		}
-		// Собівартість одного паперу: «брудна» ціна плюс частка комісії —
-		// комісія теж з'їдає дохідність, тож ховати її не можна.
-		cost := l.PricePerBond
-		if fee, ferr := domain.Apportion(l.Fee, 1, l.Qty); ferr == nil && !fee.IsZero() {
-			if c2, aerr := cost.Add(fee); aerr == nil {
-				cost = c2
-			}
-		}
-		lot := domain.YTMLot{CostPerBond: cost, Qty: q, BuyDate: l.BuyDate, ISIN: l.ISIN}
+		lot := ytmLot(l, q)
+		cost := lot.CostPerBond
 		ytmLotsByCur[cur] = append(ytmLotsByCur[cur], lot)
 		// Для зведеної цифри вагу переводимо в гривню, щоб валюти
 		// складались коректно, а самі ставки лишались нативними.
@@ -1087,10 +1141,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 
 	// Річне знецінення гривні. Одне число в налаштуваннях, від якого
 	// сценарії розходяться — як і ставка.
-	devalBase := defaultDevaluationPct
-	if settings.UAHDevaluationPct != nil && *settings.UAHDevaluationPct >= 0 {
-		devalBase = *settings.UAHDevaluationPct
-	}
+	devalBase := devaluationPct(settings)
 	// Куди прийде гривнева ставка і як довго вона туди йтиме.
 	terminalUAH := defaultTerminalRatePct
 	if settings.TerminalRatePct != nil && *settings.TerminalRatePct >= 0 {
@@ -1437,7 +1488,8 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	pos, err := domain.Positions(bonds, pays, lots, sales, domain.NewDate(time.Now()))
+	today := domain.NewDate(time.Now())
+	pos, err := domain.Positions(bonds, pays, lots, sales, today)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -1452,12 +1504,47 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		DaysToMat int       `json:"days_to_maturity"`
 		NextDate  string    `json:"next_pay_date,omitempty"`
 		NextAmt   moneyJSON `json:"next_pay_amount"`
+		// YTMPct — дохідність до погашення за ТВОЄЮ собівартістю (з
+		// комісією), а не за сьогоднішньою ціною довідника: питання тут
+		// «скільки заробляю я», а не «скільки платить папір».
+		// RealPct — вона ж після знецінення, тобто в сьогоднішній
+		// купівельній спроможності. Саме RealPct порівнянний із фондом і
+		// вкладом; YieldBasis каже, з чого число взялося.
+		YTMPct     float64 `json:"ytm_pct,omitempty"`
+		RealPct    float64 `json:"real_pct,omitempty"`
+		YieldBasis string  `json:"yield_basis,omitempty"`
 	}
+
+	// Дохідність рахуємо по ISIN: позиція — це всі непродані лоти одного
+	// паперу, і взята вона зважено по вкладеному, як і зведена цифра.
+	deval := s.devaluation(ctx)
+	ytmByISIN := map[string][]domain.YTMLot{}
+	for _, l := range lots {
+		b, ok := bonds[l.ISIN]
+		if !ok || b.Maturity.Before(today) {
+			continue
+		}
+		q := domain.RemainingQtyNow(l, sales)
+		if q == 0 {
+			continue
+		}
+		ytmByISIN[l.ISIN] = append(ytmByISIN[l.ISIN], ytmLot(l, q))
+	}
+
 	out := make([]posJSON, 0, len(pos))
 	for _, p := range pos {
-		out = append(out, posJSON{p.ISIN, p.Currency, p.Qty, toMoneyJSON(p.Invested),
-			toMoneyJSON(p.Nominal), string(p.Maturity), p.DaysToMat,
-			string(p.NextPayDate), toMoneyJSON(p.NextPayAmt)})
+		row := posJSON{ISIN: p.ISIN, Currency: p.Currency, Qty: p.Qty,
+			Invested: toMoneyJSON(p.Invested), Nominal: toMoneyJSON(p.Nominal),
+			Maturity: string(p.Maturity), DaysToMat: p.DaysToMat,
+			NextDate: string(p.NextPayDate), NextAmt: toMoneyJSON(p.NextPayAmt)}
+		// WeightedYTM віддає вже ВІДСОТКИ (ytm.go), на відміну від YTM,
+		// що віддає частку. realYield же працює з часткою — звідси /100.
+		if y, ok := domain.WeightedYTM(ytmByISIN[p.ISIN], pays); ok {
+			row.YTMPct = round2(y)
+			row.RealPct = round2(realYield(y/100, p.Currency, deval) * 100)
+			row.YieldBasis = "до погашення"
+		}
+		out = append(out, row)
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -2263,10 +2350,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	}
 	// Знецінення гривні: те саме припущення, що й у прогнозі, інакше
 	// помічник радив би одне, а прогноз малював інше.
-	devalPct := defaultDevaluationPct
-	if doc.Settings != nil && doc.Settings.UAHDevaluationPct != nil && *doc.Settings.UAHDevaluationPct >= 0 {
-		devalPct = *doc.Settings.UAHDevaluationPct
-	}
+	devalPct := devaluationPct(doc.Settings)
 	rates, err := s.rates(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -2333,16 +2417,6 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		rate      int64
 	}
 
-	// realYield — річна дохідність, приведена до сьогоднішньої гривні.
-	// Для валютних лишається як є (долар купівельну спроможність тримає),
-	// для гривневих ділиться на знецінення. Одна формула на всі
-	// інструменти — інакше вони б не порівнювались.
-	realYield := func(y float64, c string) float64 {
-		if c == money.UAH {
-			return (1+y)/(1+devalPct/100) - 1
-		}
-		return y
-	}
 	// fitsFor — скільки таких кроків тягне кожен брокер окремо. Баланси
 	// роздільні: гривня на inzhur не купить папір у mono.
 	fitsFor := func(c string, costMajor float64) ([]brokerFit, int64) {
@@ -2394,7 +2468,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		if yerr != nil {
 			continue // без майбутніх виплат порівнювати нема чого
 		}
-		real := realYield(ytm, c)
+		real := realYield(ytm, c, devalPct)
 		fits, best := fitsFor(c, costMajor)
 		// Показуємо рекомендації ЗАВЖДИ, навіть коли грошей ще не вистачає:
 		// інакше список порожніє одразу після покупки й помічник мовчить
@@ -2468,7 +2542,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		if c == "" {
 			c = money.UAH
 		}
-		real := realYield(f.YieldNetPct/100, c)
+		real := realYield(f.YieldNetPct/100, c, devalPct)
 		costMinor := int64(math.Round(f.LastPrice * 100))
 		if costMinor <= 0 {
 			continue
@@ -2503,7 +2577,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		c := d.Currency
 		// Ставка після податку — те, що реально лишається.
 		netRate := float64(d.RateBP) / 10000 * (1 - float64(d.TaxBP)/10000)
-		real := realYield(netRate, c)
+		real := realYield(netRate, c, devalPct)
 		costMajor := float64(d.Principal) / 100
 		fits, best := fitsFor(c, costMajor)
 		bank := d.Bank
@@ -3051,7 +3125,13 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		ClosedAmount moneyJSON   `json:"closed_amount,omitempty"`
 		Note         string      `json:"note,omitempty"`
 		Topups       []topupJSON `json:"topups,omitempty"`
+		// RealPct — ставка після податку й знецінення, тобто в тій самій
+		// базі, що дохідність ОВДП і фондів. Ставка вкладу зафіксована, як
+		// і купон, тож це обіцянка, а не оцінка.
+		RealPct    float64 `json:"real_pct,omitempty"`
+		YieldBasis string  `json:"yield_basis,omitempty"`
 	}
+	deval := s.devaluation(r.Context())
 	today := domain.NewDate(time.Now())
 	out := make([]row, 0, len(deps))
 	for _, d := range deps {
@@ -3060,7 +3140,7 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 			tj = append(tj, topupJSON{ID: t.ID, Date: string(t.Date),
 				Amount: toMoneyJSON(money.New(t.Amount, d.Currency))})
 		}
-		out = append(out, row{
+		dr := row{
 			ID: d.ID, Bank: d.Bank,
 			Principal:    toMoneyJSON(money.New(d.Principal, d.Currency)),
 			Balance:      toMoneyJSON(money.New(d.BalanceAt(today), d.Currency)),
@@ -3072,7 +3152,16 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 			ClosedDate: string(d.ClosedDate),
 			ClosedAmount: toMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
 			Note:       d.Note, Topups: tj,
-		})
+		}
+		// Та сама формула, що й у реінвест-помічнику: ставка мінус податок,
+		// далі знецінення. Розійтися їм не можна — інакше помічник радив би
+		// поповнити вклад із однією цифрою, а портфель показував іншу.
+		if d.RateBP > 0 {
+			net := float64(d.RateBP) / 10000 * (1 - float64(d.TaxBP)/10000)
+			dr.RealPct = round2(realYield(net, d.Currency, deval) * 100)
+			dr.YieldBasis = "ставка вкладу"
+		}
+		out = append(out, dr)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

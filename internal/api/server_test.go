@@ -1570,3 +1570,208 @@ func TestReinvestSuggestsOnlyReplenishableDeposits(t *testing.T) {
 		t.Error("поповнюваний вклад мав потрапити в поради")
 	}
 }
+
+// Дохідність позиції рахується за ТВОЄЮ собівартістю, а не за ціною
+// довідника: питання «скільки заробляю я», а не «скільки платить папір».
+// І приводиться до сьогоднішньої гривні тією ж формулою, що й поради.
+func TestPositionsCarryRealYield(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+
+	// Номінал 1000, купон 16.55%, куплено з дисконтом за 900. Дисконт —
+	// теж дохід, тож YTM має вийти помітно вище купонної ставки.
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"900.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"uah_devaluation_pct":"6"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("settings: %d %s", resp.StatusCode, b)
+	}
+
+	var rows []struct {
+		ISIN       string  `json:"isin"`
+		YTMPct     float64 `json:"ytm_pct"`
+		RealPct    float64 `json:"real_pct"`
+		YieldBasis string  `json:"yield_basis"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/positions", "")
+	if err := json.Unmarshal([]byte(body), &rows); err != nil {
+		t.Fatalf("positions: %v: %s", err, body)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("очікували одну позицію, маємо %d: %s", len(rows), body)
+	}
+	p := rows[0]
+	if p.YTMPct <= 16.55 {
+		t.Errorf("YTM %.2f%% мав бути вище купона 16.55%% — дисконт не врахований", p.YTMPct)
+	}
+	// Масштаб пінимо зведеною цифрою: папір один, тож дохідність позиції
+	// зобов'язана збігтися з портфельною, яку показують плитки. Без цього
+	// тест не відрізнив би відсотки від частки — а WeightedYTM віддає
+	// відсотки, тоді як YTM поруч віддає частку.
+	var sum struct {
+		PortfolioYield map[string]float64 `json:"portfolio_yield"`
+	}
+	_, sbody := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(sbody), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, sbody)
+	}
+	if math.Abs(p.YTMPct-sum.PortfolioYield[money.UAH]) > 0.01 {
+		t.Errorf("YTM позиції %.2f%% розійшовся зі зведеним %.2f%% — інший масштаб",
+			p.YTMPct, sum.PortfolioYield[money.UAH])
+	}
+	if p.YieldBasis != "до погашення" {
+		t.Errorf("yield_basis = %q, очікували «до погашення»", p.YieldBasis)
+	}
+	// Реальна — та сама дохідність, поділена на знецінення 6%.
+	want := ((1+p.YTMPct/100)/1.06 - 1) * 100
+	if math.Abs(p.RealPct-want) > 0.05 {
+		t.Errorf("real_pct = %.2f, очікували %.2f (YTM %.2f при знеціненні 6%%)",
+			p.RealPct, want, p.YTMPct)
+	}
+}
+
+// Комісія теж з'їдає дохідність, тож вона входить у собівартість: два
+// однакові папери за однакову ціну дають РІЗНУ дохідність, якщо за один
+// заплачено брокеру.
+func TestPositionYieldCountsFee(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	mk := func(isin string) nbu.Security {
+		return nbu.Security{
+			Bond: domain.Bond{ISIN: isin, Nominal: money.New(100000, money.UAH),
+				RateBP: 1655, Maturity: "2027-03-17", Descr: "гривневі військові"},
+			Payments: []domain.Payment{
+				{ISIN: isin, PayDate: "2026-09-16", Type: domain.PayCoupon, PerBond: money.New(8275, money.UAH)},
+				{ISIN: isin, PayDate: "2027-03-17", Type: domain.PayCoupon, PerBond: money.New(8275, money.UAH)},
+				{ISIN: isin, PayDate: "2027-03-17", Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+			},
+		}
+	}
+	if err := st.ReplaceDirectory(ctx,
+		[]nbu.Security{mk("UA4000227748"), mk("UA4000227755")}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []string{
+		`{"isin":"UA4000227748","qty":10,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`,
+		`{"isin":"UA4000227755","qty":10,"price_per_bond":"1000.00","fee":"500.00","buy_date":"2026-07-01","channel":"mono"}`,
+	} {
+		if resp, b := do(t, "POST", srv.URL+"/api/lots", l); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("лот: %d %s", resp.StatusCode, b)
+		}
+	}
+
+	var rows []struct {
+		ISIN   string  `json:"isin"`
+		YTMPct float64 `json:"ytm_pct"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/positions", "")
+	if err := json.Unmarshal([]byte(body), &rows); err != nil {
+		t.Fatalf("positions: %v: %s", err, body)
+	}
+	ytm := map[string]float64{}
+	for _, r := range rows {
+		ytm[r.ISIN] = r.YTMPct
+	}
+	free, paid := ytm["UA4000227748"], ytm["UA4000227755"]
+	if free == 0 || paid == 0 {
+		t.Fatalf("обидві позиції мали дати дохідність: %s", body)
+	}
+	if !(paid < free) {
+		t.Errorf("папір із комісією (%.2f%%) мав дати меншу дохідність, ніж без неї (%.2f%%)",
+			paid, free)
+	}
+}
+
+// Портфель і помічник говорять одним числом: скільки вклад чи фонд дає
+// ЗАРАЗ і скільки дасть, якщо докласти, — це та сама реальна дохідність.
+// Якби бази розійшлися, порада суперечила б тому, що видно в позиціях.
+func TestPortfolioAndAdviceAgreeOnRealYield(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2026-01-10", Amount: 50000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-10),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(355),
+		Payout:       domain.PayoutEnd, TaxBP: 1950, Replenishable: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, op := range []domain.FundOp{
+		{Date: domain.NewDate(time.Now()).AddDays(-40), Fund: "Inzhur", Kind: domain.FundBuy,
+			Qty: 1000, Amount: 1000000, Currency: "UAH", Broker: "ПУМБ"},
+		{Date: domain.NewDate(time.Now()).AddDays(-10), Fund: "Inzhur", Kind: domain.FundDividend,
+			Amount: 6800, Currency: "UAH", Broker: "ПУМБ"},
+	} {
+		if _, err := st.AddFundOp(ctx, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Знецінення НЕ нульове — саме приведення тут і перевіряємо.
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"uah_devaluation_pct":"6"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("settings: %d %s", resp.StatusCode, b)
+	}
+
+	var deps []struct {
+		RealPct    float64 `json:"real_pct"`
+		YieldBasis string  `json:"yield_basis"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/term-deposits", "")
+	if err := json.Unmarshal([]byte(body), &deps); err != nil {
+		t.Fatalf("term-deposits: %v: %s", err, body)
+	}
+	var sum struct {
+		Funds []struct {
+			RealPct    float64 `json:"real_pct"`
+			YieldBasis string  `json:"yield_basis"`
+		} `json:"funds"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	var adv []struct {
+		Kind    string  `json:"kind"`
+		RealPct float64 `json:"real_pct"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/reinvest", "")
+	if err := json.Unmarshal([]byte(body), &adv); err != nil {
+		t.Fatalf("reinvest: %v: %s", err, body)
+	}
+	byKind := map[string]float64{}
+	for _, a := range adv {
+		if _, seen := byKind[a.Kind]; !seen {
+			byKind[a.Kind] = a.RealPct
+		}
+	}
+
+	if len(deps) != 1 || len(sum.Funds) != 1 {
+		t.Fatalf("очікували один вклад і один фонд, маємо %d і %d", len(deps), len(sum.Funds))
+	}
+	if deps[0].RealPct <= 0 || sum.Funds[0].RealPct <= 0 {
+		t.Fatalf("реальна дохідність має бути заповнена: вклад=%.2f фонд=%.2f",
+			deps[0].RealPct, sum.Funds[0].RealPct)
+	}
+	if deps[0].YieldBasis != "ставка вкладу" {
+		t.Errorf("основа дохідності вкладу = %q", deps[0].YieldBasis)
+	}
+	if sum.Funds[0].YieldBasis != "дивіденди після податку" {
+		t.Errorf("основа дохідності фонду = %q", sum.Funds[0].YieldBasis)
+	}
+	if math.Abs(deps[0].RealPct-byKind["deposit"]) > 0.01 {
+		t.Errorf("вклад: у портфелі %.2f%%, у пораді %.2f%% — бази розійшлись",
+			deps[0].RealPct, byKind["deposit"])
+	}
+	if math.Abs(sum.Funds[0].RealPct-byKind["fund"]) > 0.01 {
+		t.Errorf("фонд: у портфелі %.2f%%, у пораді %.2f%% — бази розійшлись",
+			sum.Funds[0].RealPct, byKind["fund"])
+	}
+}
