@@ -490,8 +490,13 @@ function wireBonds(ctx, main) {
       catch (err) { ctx.toast(String(err.message || err), false); }
     }));
 
-  const isinInput = main.querySelector('input[name="isin"]');
-  const sug = main.querySelector("#bondSuggest");
+  // Селектори — від САМОЇ форми, а не від main. Поля звуться загально
+  // («isin», «channel»), а розділ тепер зводить в одну сторінку три
+  // інструменти: перший-ліпший майбутній інпут із такою назвою тихо
+  // перехопив би автопідказку, і зламалось би не там, де змінили.
+  const buyForm = main.querySelector("#lotForm");
+  const isinInput = buyForm.querySelector('input[name="isin"]');
+  const sug = buyForm.querySelector("#bondSuggest");
   const hideSug = () => sug.classList.remove("show");
   let dbt;
   isinInput.addEventListener("input", () => {
@@ -526,7 +531,7 @@ function wireBonds(ctx, main) {
     try {
       const b = await ctx.api("GET", "bonds/" + encodeURIComponent(isin));
       if (!b || !b.nominal) return;
-      const f = main.querySelector("#lotForm");
+      const f = buyForm;
       if (["UAH", "USD", "EUR"].includes(b.nominal.currency)) f.currency.value = b.nominal.currency;
       if (!f.price_per_bond.value.trim()) f.price_per_bond.value = b.nominal.amount;
       if (info) info.textContent = `${esc(b.descr || "")} · ${b.rate_pct}% · погашення ${esc(b.maturity)} · номінал ${fmtMoney(b.nominal)}`;
@@ -534,8 +539,8 @@ function wireBonds(ctx, main) {
   });
 
   // «інший…» відкриває поле для нової назви каналу
-  const chSel = main.querySelector('[name="channel_sel"]');
-  const chIn = main.querySelector('[name="channel"]');
+  const chSel = buyForm.querySelector('[name="channel_sel"]');
+  const chIn = buyForm.querySelector('[name="channel"]');
   if (chSel && chIn) {
     chSel.addEventListener("change", () => {
       const other = chSel.value === "__other__";
@@ -544,7 +549,7 @@ function wireBonds(ctx, main) {
     });
   }
 
-  main.querySelector("#lotForm").addEventListener("submit", async (e) => {
+  buyForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.target;
     const channel = f.channel_sel.value === "__other__"
