@@ -795,14 +795,20 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				YieldNetPct:   y,
 				Short:         fp.Short,
 			}
-			// Приводимо до сьогоднішньої гривні тією ж формулою, що й
-			// облігації з вкладами: тільки так «8% фонду» і «16% вкладу»
-			// стають числами про одне й те саме.
-			if y > 0 {
-				cur := fp.Currency
-				if cur == "" {
-					cur = money.UAH
-				}
+			// Дохідність позиції — ПОВНА: дивіденди разом зі зміною ціни.
+			// Самі дивіденди поряд з облігацією нечесні, бо YTM ловить і
+			// купон, і дисконт, тобто весь дохід паперу. Якщо історії ще
+			// замало для ануалізації, відступаємо до дивідендної частини —
+			// краще менше, ніж вигадані сотні відсотків із трьох днів.
+			cur := fp.Currency
+			if cur == "" {
+				cur = money.UAH
+			}
+			if tot, ok := domain.FundTotalReturn(fundOps, fp.Fund, today); ok {
+				row.TotalPct = tot
+				row.RealPct = round2(realYield(tot/100, cur, deval) * 100)
+				row.YieldBasis = "дивіденди + зміна ціни"
+			} else if y > 0 {
 				row.RealPct = round2(realYield(y/100, cur, deval) * 100)
 				row.YieldBasis = "дивіденди після податку"
 			}
@@ -940,17 +946,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		// облігації — позавчора, за старим правилом проходив поріг: перший
 		// потік давній, отже «історія є». А насправді дві третини грошей
 		// пролежали три дні, і їхня ануалізована дохідність — шум, який
-		// тягнув усе число в −42%.
-		var wDays, wMoney float64
-		for _, f := range flows {
-			if f.Amount >= 0 {
-				continue // вкладення, не повернення
-			}
-			d := float64(domain.DaysBetween(f.Date, today))
-			wDays += d * float64(-f.Amount)
-			wMoney += float64(-f.Amount)
-		}
-		if wMoney <= 0 || wDays/wMoney < 30 {
+		// тягнув усе число в −42%. Той самий поріг тепер боронить і
+		// дохідність окремого фонду, тож правило живе в domain.
+		if domain.MoneyWeightedDays(flows, today) < 30 {
 			continue
 		}
 		// навіть >30 днів нерівномірні потоки дають артефакти (сотні %);

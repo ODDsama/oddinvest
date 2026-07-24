@@ -1949,6 +1949,7 @@ func TestPortfolioAndAdviceAgreeOnRealYield(t *testing.T) {
 	}
 	var sum struct {
 		Funds []struct {
+			TotalPct   float64 `json:"total_pct"`
 			RealPct    float64 `json:"real_pct"`
 			YieldBasis string  `json:"yield_basis"`
 		} `json:"funds"`
@@ -1982,15 +1983,130 @@ func TestPortfolioAndAdviceAgreeOnRealYield(t *testing.T) {
 	if deps[0].YieldBasis != "ставка вкладу" {
 		t.Errorf("основа дохідності вкладу = %q", deps[0].YieldBasis)
 	}
-	if sum.Funds[0].YieldBasis != "дивіденди після податку" {
-		t.Errorf("основа дохідності фонду = %q", sum.Funds[0].YieldBasis)
-	}
+	// Вклад — те саме питання з обох боків: ставка зафіксована договором,
+	// і «скільки він дає» не залежить від того, дивишся ти на нього в
+	// портфелі чи думаєш його поповнити. Розійтись тут числа не мають.
 	if math.Abs(deps[0].RealPct-byKind["deposit"]) > 0.01 {
 		t.Errorf("вклад: у портфелі %.2f%%, у пораді %.2f%% — бази розійшлись",
 			deps[0].RealPct, byKind["deposit"])
 	}
-	if math.Abs(sum.Funds[0].RealPct-byKind["fund"]) > 0.01 {
-		t.Errorf("фонд: у портфелі %.2f%%, у пораді %.2f%% — бази розійшлись",
-			sum.Funds[0].RealPct, byKind["fund"])
+
+	// А от фонд — питання РІЗНІ, і однакове число тут було б неправдою.
+	// У портфелі «скільки я на ньому заробив» — факт, дивіденди разом зі
+	// зміною ціни. У пораді «скільки він дасть, якщо докласти» — самі
+	// дивіденди: минуле подорожчання сертифіката ніхто не обіцяв, і
+	// видавати його за очікувану дохідність означало б радити купувати
+	// те, що вже виросло, саме тому, що воно вже виросло.
+	if sum.Funds[0].YieldBasis != "дивіденди + зміна ціни" {
+		t.Errorf("у портфелі фонд має рахуватись повністю, основа = %q", sum.Funds[0].YieldBasis)
+	}
+	if sum.Funds[0].TotalPct <= 0 {
+		t.Errorf("повна дохідність фонду мала порахуватись, маємо %.2f", sum.Funds[0].TotalPct)
+	}
+	if byKind["fund"] <= 0 {
+		t.Errorf("порада мала лишитись на дивідендах, маємо %.2f", byKind["fund"])
+	}
+	// Фікстура підібрана так, що вони справді різні: єдиний дивіденд
+	// ануалізується як місячний (8.27%), а XIRR бачить фактичні 40 днів
+	// тримання (6.4%). Якби числа збіглися, тест мовчав би про підміну
+	// однієї бази іншою.
+	if math.Abs(sum.Funds[0].RealPct-byKind["fund"]) < 0.01 {
+		t.Errorf("портфель і порада мали дати РІЗНІ числа для фонду, обидва %.2f",
+			sum.Funds[0].RealPct)
+	}
+}
+
+// Повна дохідність фонду бачить подорожчання сертифіката, а не самі
+// дивіденди. Фонд, який не платить нічого, але виріс у ціні, доти мав
+// дохідність «—», хоч гроші на ньому заробились.
+func TestFundTotalReturnSeesPriceGrowth(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	// Куплено 100 сертифікатів по 10 ₴, за 60 днів ціна дійшла до 11 ₴.
+	// Другу купівлю робимо дрібною — вона потрібна лише щоб принести
+	// нову ціну, бо ціна береться з останньої операції.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-60), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 100, Amount: 100000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-1), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 1, Amount: 1100, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"uah_devaluation_pct":"0"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("settings: %d %s", resp.StatusCode, b)
+	}
+
+	var sum struct {
+		Funds []struct {
+			YieldNetPct float64 `json:"yield_net_pct"`
+			TotalPct    float64 `json:"total_pct"`
+			RealPct     float64 `json:"real_pct"`
+			YieldBasis  string  `json:"yield_basis"`
+		} `json:"funds"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if len(sum.Funds) != 1 {
+		t.Fatalf("очікували один фонд: %s", body)
+	}
+	f := sum.Funds[0]
+	// Дивідендів не було жодних — стара формула мовчала б.
+	if f.YieldNetPct != 0 {
+		t.Errorf("дивідендів не було, а yield_net_pct = %.2f", f.YieldNetPct)
+	}
+	// А повна дохідність бачить +10% за два місяці.
+	if f.TotalPct <= 0 {
+		t.Fatalf("подорожчання на 10%% мало дати додатну дохідність, маємо %.2f: %s", f.TotalPct, body)
+	}
+	if f.YieldBasis != "дивіденди + зміна ціни" {
+		t.Errorf("основа = %q", f.YieldBasis)
+	}
+	// Знецінення нульове, тож реальна дорівнює номінальній.
+	if math.Abs(f.RealPct-f.TotalPct) > 0.02 {
+		t.Errorf("при нульовому знеціненні real (%.2f) мала дорівнювати total (%.2f)",
+			f.RealPct, f.TotalPct)
+	}
+}
+
+// Ануалізація на коротких строках — це не дохідність, а ділення на малий
+// строк: три дні тримання з приростом 0.4% дають 60% річних. Такому
+// числу краще не бути взагалі.
+func TestFundTotalReturnStaysQuietOnShortHistory(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-3), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 100, Amount: 100000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 1, Amount: 1040, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var sum struct {
+		Funds []struct {
+			TotalPct float64 `json:"total_pct"`
+		} `json:"funds"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if len(sum.Funds) != 1 {
+		t.Fatalf("очікували один фонд: %s", body)
+	}
+	if sum.Funds[0].TotalPct != 0 {
+		t.Errorf("на трьох днях історії дохідності бути не мало, маємо %.2f%%", sum.Funds[0].TotalPct)
 	}
 }

@@ -196,6 +196,56 @@ func FundFlows(ops []FundOp, currency string, asOf Date) []Flow {
 	return flows
 }
 
+// FundFlowsOne — потоки ОДНОГО фонду. FundFlows поруч зводить усі фонди
+// однієї валюти разом, бо відповідає на питання «скільки заробив
+// портфель»; тут питання інше — «скільки заробив цей фонд», і змішувати
+// його з сусідніми не можна.
+func FundFlowsOne(ops []FundOp, fund string, asOf Date) []Flow {
+	var flows []Flow
+	for _, op := range ops {
+		if op.Fund != fund || op.Date.After(asOf) {
+			continue
+		}
+		switch op.Kind {
+		case FundBuy:
+			flows = append(flows, Flow{Date: op.Date, Amount: -op.Amount})
+		case FundSell, FundDividend:
+			flows = append(flows, Flow{Date: op.Date, Amount: op.Amount - op.Tax})
+		}
+	}
+	if len(flows) == 0 {
+		return nil
+	}
+	// Термінальна вартість — залишок за останньою ціною, тією самою, що
+	// показана в позиції: інше джерело дало б дохідність, яка не
+	// сходиться з видимими числами.
+	if p := FundPositions(ops)[fund]; p != nil && p.MarketValue() > 0 {
+		flows = append(flows, Flow{Date: asOf, Amount: p.MarketValue()})
+	}
+	sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })
+	return flows
+}
+
+// MoneyWeightedDays — скільки в СЕРЕДНЬОМУ вже працюють вкладені гроші,
+// зважено сумами. Вік першого потоку тут не годиться: портфель, де
+// давня купівля дрібна, а вчорашня велика, за ним виглядав би зрілим,
+// хоча майже всі гроші пролежали день, і їхня ануалізована дохідність —
+// самий лише шум.
+func MoneyWeightedDays(flows []Flow, asOf Date) float64 {
+	var wDays, wMoney float64
+	for _, f := range flows {
+		if f.Amount >= 0 {
+			continue // повернення, не вкладення
+		}
+		wDays += float64(DaysBetween(f.Date, asOf)) * float64(-f.Amount)
+		wMoney += float64(-f.Amount)
+	}
+	if wMoney <= 0 {
+		return 0
+	}
+	return wDays / wMoney
+}
+
 // DepositFlows — грошові потоки банківських вкладів для XIRR.
 //
 // Так само, як у фондів, показник міряє фактично зароблене на вкладених
