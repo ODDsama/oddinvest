@@ -10,6 +10,9 @@
   "reinvest_min_uah": 0,
   "accounts": {},
   "reinvest_min": {},
+  "rates": {
+    "USD": 44.1234
+  },
   "month_invested_uah": 4500,
   "month_deposited_uah": 4500,
   "month_target_uah": 5000,

@@ -61,6 +61,11 @@
       "type": "object",
       "additionalProperties": { "type": "number" }
     },
+    "rates": {
+      "type": "object",
+      "description": "Курси НБУ на сьогодні, ₴ за одиницю валюти (адитивне поле). Доти курс у документ не потрапляв, і UI діставав його з forecast.rate0_usd — тобто лише коли задано ціль",
+      "additionalProperties": { "type": "number" }
+    },
     "reinvest_min": {
       "type": "object",
       "additionalProperties": { "type": "number" }

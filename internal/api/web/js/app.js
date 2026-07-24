@@ -19,7 +19,6 @@ import { bindInfo } from "./info.js";
 import { adoptStyles } from "./styles.js";
 import { createStore } from "./store.js";
 
-import { goalsHTML } from "./views/forecast.js";
 import { renderOverview } from "./views/overview.js";
 import { renderPortfolio } from "./views/portfolio.js";
 import { renderMoney } from "./views/money.js";
@@ -54,10 +53,6 @@ export class OddInvestApp extends HTMLElement {
     this._tab = "overview";
     this._theme = "web";
     this._started = false;
-    // Обрана одиниця прогнозу переживає перезавантаження: перемикати її
-    // щоразу заново дратує більше, ніж сам перемикач допомагає.
-    try { this._fcUnit = localStorage.getItem("oddinvest.fcUnit") || "UAH"; }
-    catch (_) { this._fcUnit = "UAH"; }
   }
 
   /** Транспорт до бекенда. Ставиться поверхнею; поки його немає —
@@ -93,7 +88,6 @@ export class OddInvestApp extends HTMLElement {
       brokers: this._brokers,
       fundCatalog: this._fundCatalog,
       root: this.shadowRoot,
-      get fcUnit() { return app._fcUnit; },
       toast: (msg, ok) => this._toast(msg, ok),
       goto: (what) => this._goto(what),
       reload: () => this._loadTab(),
@@ -183,18 +177,6 @@ export class OddInvestApp extends HTMLElement {
     );
     // попапи «як це читати» — делеговано на весь shadow root
     bindInfo(this.shadowRoot);
-    // Перемикач ₴/$ перемальовує лише картку прогнозу. Повний рендер
-    // розділу теж був би дешевий (дані вже в кеші), але скинув би позицію
-    // прокрутки — а перемикають одиницю саме тоді, коли дивляться на цю
-    // картку.
-    this.shadowRoot.addEventListener("click", (e) => {
-      const u = e.target.closest("[data-fcunit]");
-      if (!u) return;
-      this._fcUnit = u.dataset.fcunit;
-      try { localStorage.setItem("oddinvest.fcUnit", this._fcUnit); } catch (_) {}
-      const card = this.shadowRoot.getElementById("fcCard");
-      if (card) card.outerHTML = goalsHTML(this._ctx);
-    });
     this.shadowRoot.getElementById("refresh").addEventListener("click", async (e) => {
       e.target.disabled = true;
       try { await this._api("POST", "refresh"); this._toast("Довідник НБУ оновлено"); this._loadTab(); }

@@ -30,11 +30,13 @@ export function goalsHTML(ctx) {
       і дедлайн у «Налаштуваннях» — і тут зʼявиться, скільки треба відкладати щомісяця
       за песимістичного, реалістичного й оптимістичного сценаріїв.</div></div>`;
   }
-  const rate0 = f.rate0_usd || 0;
-  const usd = ctx.fcUnit === "USD" && rate0 > 0;
-  const money = (v) => usd
-    ? "$" + Math.round((v || 0) / rate0).toLocaleString("uk-UA")
-    : fmtUAH(v);
+  // Доларового вигляду тут немає навмисно. Внески ти платиш гривнею —
+  // про це каже й підказка картки, — а суми вже приведені до
+  // сьогоднішньої купівельної спроможності. Друге перетворення поверх
+  // першого давало число, з яким нічого не зробиш. Питання «скільки це
+  // в доларах» лишилось, але воно про НАЯВНИЙ капітал, і на нього
+  // відповідає плитка на «Огляді».
+  const money = (v) => fmtUAH(v);
   const goal = f.goal_amount || 0;
   const hist = Number(s.actual_months || 0);
   const asPayment = f.rows.some((r) => r.required_monthly > 0);
@@ -50,7 +52,7 @@ export function goalsHTML(ctx) {
   // Планові суми — без копійок: у числі «96 973,50 ₴/міс» дробова
   // частина не несе рішення, а заважає порівнювати рядки поглядом.
   const pay = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
-  const goalFmt = (v) => usd ? money(v) : pay(v);
+  const goalFmt = (v) => pay(v);
 
   // Вилка — головне число блока.
   let range = "";
@@ -110,8 +112,6 @@ export function goalsHTML(ctx) {
   // Сьогоднішні ставки однакові в усіх рядках — кажемо їх один раз тут.
   const nowRates = (real.by_currency || []).map((c) =>
     `${curSym(c.currency)} ${pct(c.rate_pct)}`).join(" · ");
-  const unitBtn = (u, lbl) => `<button class="unit${usd === (u === "USD") ? " on" : ""}" data-fcunit="${u}">${lbl}</button>`;
-  const toggle = rate0 > 0 ? `<span class="unitbox">${unitBtn("UAH", "₴")}${unitBtn("USD", "$")}</span>` : "";
   const head = `<div class="sub">${
     asPayment && goal > 0 ? `щоб дійти до ${goalFmt(goal)} до ${monthYearGen(f.date)}` : `на ${monthYear(f.date)}`
     } · через ${humanMonths(f.months)}</div>
@@ -119,8 +119,8 @@ export function goalsHTML(ctx) {
       f.glide_years > 0 ? ` → сповзають до довгострокових за ${humanMonths(Math.round(f.glide_years * 12))}` : ""}</div>` : ""}
     <div class="sub-xs">Суми — у гривні сьогоднішньої купівельної спроможності: знецінення вже
       враховане всередині моделі, тож із сьогоднішніми витратами їх можна порівнювати прямо.</div>`;
-  return `<div class="card" id="fcCard"><h2 class="h-row" style="justify-content:space-between">
-    <span>${asPayment ? "Скільки треба вносити" : "Скільки буде на дедлайн"} ${infoBtn("forecast")}</span>${toggle}</h2>
+  return `<div class="card" id="fcCard"><h2 class="h-row">
+    <span>${asPayment ? "Скільки треба вносити" : "Скільки буде на дедлайн"} ${infoBtn("forecast")}</span></h2>
     ${head}${range}${marketRows}${actualBlock}</div>`;
 }
 

@@ -2,11 +2,11 @@
   "_comment": "Згенеровано scripts/gen-ui-manifest.sh — руками не правити.",
   "root": "internal/api/web",
   "files": [
-    { "path": "css/base.css", "sha256": "1830bba6eef9fff0a4194171e302e5470019fa6fd93b2b709a68feb2953805fb" },
+    { "path": "css/base.css", "sha256": "7b0a4f49eb983d646fae1456b3caa8bbbd31da446a8480d1a5fed2b0f2d6be37" },
     { "path": "css/theme-ha.css", "sha256": "2c5eba51a966bec5af43513b6e413433bee4bcc68a897f07053fb7881e2f69a9" },
     { "path": "css/theme-web.css", "sha256": "016b1655ef52283aeff963aa710f766db36dd22e87945b53eaf65393572eba2b" },
     { "path": "css/tokens.css", "sha256": "7f40aebc154d1e549f8d12afd17269dbe0a15dfa1367e1205eacfb05120d7a8c" },
-    { "path": "js/app.js", "sha256": "b482427b4917d83cdfcac96622997957e7bda2b6d122d43980dda1e2daea912e" },
+    { "path": "js/app.js", "sha256": "7e71f06035f0bb7d191a50cb1ed9143d9250b509120da938729acf0c4d2d90d1" },
     { "path": "js/charts.js", "sha256": "e06ab10e0b38291f5d82e6d7540e2ef4ecc79b4203ba9b1ca25c6f480802aaf2" },
     { "path": "js/components.js", "sha256": "2116cd17793ed795998bde2bf274b57fc63f5a7c8f2666a70a7ccf52454389e9" },
     { "path": "js/constants.js", "sha256": "8c9cb264fea6104649f1921af6c79ba5d10302678e0c62e25c0ee6e863e1f37a" },
@@ -15,10 +15,10 @@
     { "path": "js/store.js", "sha256": "e9acd93d9038e3123583c5d87cd946c1cb5abba67d3cd71d1f00e4d6ada165cf" },
     { "path": "js/styles.js", "sha256": "7f623a4506b4336538ffce25d56eeab347afb912ceacadf76b8cdc05028f943f" },
     { "path": "js/transport.js", "sha256": "7be0b7f7ea8317446ce769fc30c95d8bd281adfdcd67d8dc2350a8b6c96b52ae" },
-    { "path": "js/views/forecast.js", "sha256": "cd7ee6c208c956cd202926eeceddd1483fc12cc3d5e74d1f1fe59b7eb5903c0f" },
+    { "path": "js/views/forecast.js", "sha256": "87b463d7227f23822c8e4fdb8f1a64cc105e97c3415561ef983f8c3e9b862f2e" },
     { "path": "js/views/future.js", "sha256": "b4cef94d77890e088675b8b04145f7bd59f5ea7b43f56ed670ea34ba9d26fed0" },
     { "path": "js/views/money.js", "sha256": "3eb4d3fa7f9163a7bc16d698922ea0d414581bd2479823d70e7bb58f5794a4fb" },
-    { "path": "js/views/overview.js", "sha256": "869f07ad10447a4cb9140cc8b7512b0bdf95c08d4bc8d15d5832847ec5882031" },
+    { "path": "js/views/overview.js", "sha256": "e65d79495c841ebef95629ef229831c2971dc343c94dd96c4447380d2185c13d" },
     { "path": "js/views/portfolio.js", "sha256": "9e2f8bbade587e416a5c734cee72dee98bba4ae7e0c4e0ed178409c4c9910cf9" },
     { "path": "js/views/settings.js", "sha256": "c10772eadb3f57d6f26d4a59b11941aafa3c13894540abd9cb3b37242830cd9b" }
   ]

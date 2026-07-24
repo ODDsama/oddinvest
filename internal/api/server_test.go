@@ -1673,6 +1673,30 @@ func TestDevaluationManualWins(t *testing.T) {
 	}
 }
 
+// Курс має бути в зведенні завжди, а не лише коли задано ціль. Доти він
+// потрапляв туди контрабандою — усередині блоку прогнозу, як
+// forecast.rate0_usd, — тож питання «скільки це в доларах» не мало
+// відповіді, поки не заповниш ціль і дедлайн, хоча одне з одним не
+// пов'язане ніяк.
+func TestSummaryCarriesRatesWithoutGoal(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st) // seed кладе курс USD, але жодної цілі не задає
+	var sum struct {
+		Rates    map[string]float64 `json:"rates"`
+		Forecast *struct{}          `json:"forecast"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if sum.Forecast != nil {
+		t.Fatalf("фікстура мала бути без цілі — інакше тест нічого не доводить: %s", body)
+	}
+	if math.Abs(sum.Rates["USD"]-44.1234) > 0.0001 {
+		t.Errorf("курс USD = %v, очікували 44.1234: %s", sum.Rates["USD"], body)
+	}
+}
+
 // Номінальна й реальна — не два незалежні числа, а одне через поправку.
 // Якщо вони перестануть сходитись, екран покаже пару, яка суперечить
 // сама собі, і жоден інший тест цього не помітить.

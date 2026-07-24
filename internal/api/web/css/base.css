@@ -368,19 +368,6 @@ input:focus, select:focus { outline: none; border-color: var(--oi-accent); }
 .progress { height: var(--oi-gap-sm); border-radius: 6px; background: var(--oi-border); overflow: hidden; margin-top: 6px; }
 .progress > span { display: block; height: 100%; background: var(--oi-accent); }
 
-.unitbox { display: inline-flex; border: 1px solid var(--oi-border-strong); border-radius: var(--oi-radius-sm); overflow: hidden; }
-.unitbox .unit {
-  border: 0;
-  background: transparent;
-  color: var(--oi-muted);
-  font: inherit;
-  font-size: var(--oi-fs-sm);
-  padding: 2px 10px;
-  cursor: pointer;
-  border-radius: 0;
-}
-.unitbox .unit.on { background: var(--oi-realistic); color: #fff; }
-
 #cta { max-width: var(--oi-max-width); margin: 0 auto; padding: 0 var(--oi-gap-xl); }
 .cta {
   background: var(--oi-soft-ok-bg);

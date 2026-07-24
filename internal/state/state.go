@@ -64,6 +64,13 @@ type Doc struct {
 	// /api/term-deposits, тож масиву тут не тримаємо.
 	DepositsUAH float64 `json:"deposits_uah,omitempty"`
 
+	// Rates — курси НБУ на сьогодні, ₴ за одиницю валюти (адитивне поле).
+	// Досі курс у документ не потрапляв узагалі: UI діставав його
+	// контрабандою як forecast.rate0_usd, тобто лише тоді, коли задано
+	// ціль і дедлайн. А «скільки це в доларах» — питання, яке ставлять
+	// незалежно від того, чи є в тебе ціль.
+	Rates map[string]float64 `json:"rates,omitempty"`
+
 	// LadderUAH — номінал, що повертається щороку, у грн-екв. (для стовпчиків
 	// драбини). Income12m — очікуваний дохід (купони+погашення) по місяцях
 	// на рік наперед, грн-екв.
@@ -541,6 +548,17 @@ func Build(in Input) (*Doc, error) {
 	doc.Income12m = in.Income12m
 	doc.FundsUAH = in.FundsUAH
 	doc.DepositsUAH = in.DepositsUAH
+	// Курси віддаємо як звичайні числа: у сховищі вони ×10⁴, але це
+	// внутрішня одиниця, і тягнути її в контракт означало б змусити
+	// кожного споживача ділити самотужки.
+	if len(in.Rates) > 0 {
+		doc.Rates = make(map[string]float64, len(in.Rates))
+		for code, e4 := range in.Rates {
+			if e4 > 0 {
+				doc.Rates[code] = float64(e4) / fx.RateScale
+			}
+		}
+	}
 	doc.Funds = in.Funds
 	doc.Coupons12m = in.Coupons12m
 	doc.IncomeMonthlyNow = in.IncomeMonthlyNow

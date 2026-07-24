@@ -9,7 +9,10 @@
 // на те, з яким сюди заходять. Вони роз'їхались туди, де питання їхнє:
 // склад і історія — у «Портфель», потоки й прогнози — у «Майбутнє».
 
-import { esc, curSym, monthYearGen, dayMonth, pct, uah2 as fmtUAH, cur2 as fmtCur } from "../format.js";
+import {
+  esc, curSym, monthYearGen, dayMonth, pct, capitalUAH,
+  uah2 as fmtUAH, cur2 as fmtCur,
+} from "../format.js";
 import { infoBtn } from "../info.js";
 import { tile, yieldNote } from "../components.js";
 
@@ -177,15 +180,22 @@ export function reinvestHTML(ctx) {
 
 export async function renderOverview(ctx, main) {
   const s = ctx.summary || {};
-  // Капітал — це ВСЕ, що працює: номінал паперів, гроші на рахунку й
-  // сертифікати фондів. Останні довго рахувались окремо просто тому,
-  // що з'явились пізніше, і капітал занижувався на їхню вартість.
-  const cap = (s.nominal_uah_eq || 0) + (s.account_uah || 0) + (s.funds_uah || 0);
+  // Капітал — це ВСЕ, що працює. Рахує спільний capitalUAH, а не власна
+  // сума: тут довго складались лише номінал, рахунок і фонди, тож тіло
+  // банківських вкладів у капітал не входило взагалі — рівно та сама
+  // помилка, що колись була з фондами, лише на інструмент пізніше.
+  const cap = capitalUAH(s);
   const np = s.next_payment;
   const accrued = s.accrued_uah || 0;
+  // Долар — одиниця, якою тут справді міряють. Курс беремо зі зведення;
+  // доки його там не було, це число просто не можна було показати.
+  const usdRate = (s.rates || {}).USD || 0;
+  const capSub = [
+    usdRate > 0 ? `≈ ${fmtCur(cap / usdRate, "$")}` : "",
+    accrued > 0 ? `+ ${fmtUAH(accrued)} НКД зароблено` : "",
+  ].filter(Boolean).map((t) => `<div class="sub">${t}</div>`).join("");
   const tiles = `<div class="tiles flush">
-    ${tile("Капітал", fmtUAH(cap),
-      accrued > 0 ? `<div class="sub">+ ${fmtUAH(accrued)} НКД зароблено</div>` : "")}
+    ${tile("Капітал", fmtUAH(cap), capSub)}
     ${tile("Цей місяць", s.month_target_uah > 0 ? `${s.month_progress_pct || 0}%` : "—",
       s.month_target_uah > 0
         ? `<div class="progress"><span style="width:${Math.min(100, s.month_progress_pct || 0)}%"></span></div>
