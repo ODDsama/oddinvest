@@ -4,7 +4,8 @@
 // саме тут, бо перейменування підхоплюють усі записи разом: назва — це
 // налаштування, а не властивість окремого лота.
 
-import { esc, today } from "../format.js";
+import { esc, today, pct } from "../format.js";
+import { tile } from "../components.js";
 
 // Брокери й фонди — довідники з власними ендпойнтами. Раніше брокери
 // жили CSV-рядком у налаштуваннях, тож «перейменувати» означало лише
@@ -138,8 +139,42 @@ export function bindBackup(ctx, main) {
 }
 
 // ---------- НАЛАШТУВАННЯ ----------
+// Знецінення — не просто ще одне поле: це дільник під КОЖНИМ реальним
+// числом застосунку. Доти екран про це мовчав, а сама шістка бралась
+// нізвідки, і перевірити її не було де.
+function devalHTML(d) {
+  if (!d) return "";
+  const src = {
+    manual: "задано руками",
+    measured: "виміряно з курсів НБУ",
+    default: "припущення — даних ще замало",
+  }[d.source] || d.source;
+  const rows = (d.windows || []).map((w) => `<tr>
+    <td>${esc(w.label)}</td><td class="num">${pct(w.pct)}</td>
+    <td class="muted sub-xs">${esc(w.from)} → ${esc(w.to)}</td></tr>`).join("");
+  return `<div class="card">
+    <h2>Знецінення гривні</h2>
+    <div class="tiles flush" style="margin-bottom:12px">
+      ${tile("Чинне значення", pct(d.effective_pct), `<div class="sub">${src}</div>`)}
+    </div>
+    <div class="muted" style="font-size:13px;margin-bottom:10px">Це число ділить <b>кожну реальну
+      дохідність</b> у застосунку й керує прогнозом. Порожнє поле «Гривня слабшає» вище означає
+      «бери виміряне» — саме так його й повертають назад на автоматику.</div>
+    ${rows ? `<div class="table-scroll"><table><thead><tr>
+        <th>Вікно</th><th class="num">%/рік</th><th>Курс від → до</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+      <div class="sub" style="margin-top:8px">Застосунок бере <b>десятирічне</b> вікно, і різниця між
+        рядками пояснює чому: гривня падає стрибками, тож коротке вікно ловить або стрибок, або
+        затишшя між ними. Довге усереднює і те, і те.</div>`
+      : `<div class="muted">${esc(d.note || "історії курсу ще немає")}</div>`}
+  </div>`;
+}
+
 export async function renderSettings(ctx, main) {
-  const s = await ctx.api("GET", "settings");
+  const [s, deval] = await Promise.all([
+    ctx.api("GET", "settings"),
+    ctx.api("GET", "devaluation").catch(() => null),
+  ]);
   main.innerHTML = `
     <div class="card">
       <h2>Налаштування</h2>
@@ -148,12 +183,14 @@ export async function renderSettings(ctx, main) {
         <label>Цільова частка EUR, %<input name="eur_target_share_pct" inputmode="decimal" value="${esc(s.eur_target_share_pct || "")}"></label>
         <label>Ціль, ₴<input name="goal_amount_uah" inputmode="decimal" placeholder="скільки хочу накопичити" value="${esc(s.goal_amount_uah || "")}"></label>
         <label>Дедлайн — коли<input name="goal_date" type="date" value="${esc(s.goal_date || "")}"></label>
-        <label>Гривня слабшає, %/рік<input name="uah_devaluation_pct" inputmode="decimal" placeholder="порожньо = 6" value="${esc(s.uah_devaluation_pct || "")}"></label>
+        <label>Гривня слабшає, %/рік<input name="uah_devaluation_pct" inputmode="decimal" placeholder="порожньо = виміряне" value="${esc(s.uah_devaluation_pct || "")}"></label>
         <label>Довгострокова ставка ОВДП, %<input name="terminal_rate_pct" inputmode="decimal" placeholder="порожньо = 11" value="${esc(s.terminal_rate_pct || "")}"></label>
         <label>Ставка сповзає туди за, років<input name="rate_glide_years" inputmode="decimal" placeholder="порожньо = 5" value="${esc(s.rate_glide_years || "")}"></label>
         <button type="submit">Зберегти</button>
       </form>
     </div>
+
+    ${devalHTML(deval)}
 
     ${catalogsHTML(ctx)}
 

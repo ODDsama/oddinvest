@@ -20,6 +20,6 @@
     { "path": "js/views/money.js", "sha256": "3eb4d3fa7f9163a7bc16d698922ea0d414581bd2479823d70e7bb58f5794a4fb" },
     { "path": "js/views/overview.js", "sha256": "869f07ad10447a4cb9140cc8b7512b0bdf95c08d4bc8d15d5832847ec5882031" },
     { "path": "js/views/portfolio.js", "sha256": "9e2f8bbade587e416a5c734cee72dee98bba4ae7e0c4e0ed178409c4c9910cf9" },
-    { "path": "js/views/settings.js", "sha256": "f5355e0911c3725fafd00d3efa42eb21e48e2ec3117dd5a394d89f6bc416d3c7" }
+    { "path": "js/views/settings.js", "sha256": "c10772eadb3f57d6f26d4a59b11941aafa3c13894540abd9cb3b37242830cd9b" }
   ]
 }
