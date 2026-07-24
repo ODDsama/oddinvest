@@ -306,7 +306,6 @@ input:focus, select:focus { outline: none; border-color: var(--oi-accent); }
 .pill.coupon { background: var(--oi-soft-ok-bg); color: var(--oi-soft-ok-fg); }
 .pill.redemption { background: var(--oi-soft-warn-bg); color: var(--oi-soft-warn-fg); }
 .pill.early { background: var(--oi-soft-info-bg); color: var(--oi-soft-info-fg); }
-.pill.reinv { background: var(--oi-soft-ok-bg); color: var(--oi-soft-ok-fg); }
 .pill.recv { background: var(--oi-soft-info-bg); color: var(--oi-soft-info-fg); }
 
 /* --- дрібні розкладки --- */

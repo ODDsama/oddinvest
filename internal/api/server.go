@@ -528,7 +528,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	if err != nil {
 		return nil, err
 	}
-	unin := money.New(0, money.UAH)
+	// Дохід і покупки збираємо подіями, а рахуємо простій наприкінці —
+	// коли вже відомий баланс рахунків, яким число обмежується.
+	var incomeEvents, purchaseEvents []domain.CashEvent
 	bal := map[string]int64{} // валюта -> мінорні (нативно): баланс рахунку
 	for _, cf := range pastCF {
 		if !arrived(cf.ISIN, cf.Date) {
@@ -540,12 +542,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if err != nil {
 			return nil, err
 		}
-		if statuses[cf.ISIN+"|"+string(cf.Date)] == "reinvested" {
-			continue
-		}
-		if unin, err = unin.Add(uahAmt); err != nil {
-			return nil, err
-		}
+		incomeEvents = append(incomeEvents, domain.CashEvent{Date: cf.Date, Amount: uahAmt.Amount()})
 	}
 
 	// --- грошові рахунки: (брокер × валюта) ---
@@ -600,6 +597,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		bal[cost.Currency().Code] -= cost.Amount()
 		balBC[store.BrokerCur{Broker: l.Channel, Currency: cost.Currency().Code}] -= cost.Amount()
+		if u, cerr := fx.ToUAH(cost, rates); cerr == nil {
+			purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: l.BuyDate, Amount: u.Amount()})
+		}
 	}
 
 	// Операції фондів рухають той самий гаманець: купівля списує гроші,
@@ -611,8 +611,19 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		switch op.Kind {
 		case domain.FundBuy:
 			delta = -op.Amount
+			if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
+				purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: op.Date, Amount: u.Amount()})
+			}
 		case domain.FundSell, domain.FundDividend:
 			delta = op.Amount - op.Tax
+			// Дивіденд — дохід і стає в чергу простою; продаж — ні: це
+			// вихід із позиції, а не заробіток на ній, і питання «чи
+			// перевклав» до нього не ставиться.
+			if op.Kind == domain.FundDividend {
+				if u, cerr := fx.ToUAH(money.New(op.Amount-op.Tax, op.Currency), rates); cerr == nil {
+					incomeEvents = append(incomeEvents, domain.CashEvent{Date: op.Date, Amount: u.Amount()})
+				}
+			}
 		}
 		bal[op.Currency] += delta
 		balBC[store.BrokerCur{Broker: op.Broker, Currency: op.Currency}] += delta
@@ -632,6 +643,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if !dep.OpenDate.After(today) {
 			bal[dep.Currency] -= dep.Principal
 			balBC[bc] -= dep.Principal
+			// Відкрити вклад — така сама покупка, як узяти папір: гроші
+			// пішли в діло.
+			if u, cerr := fx.ToUAH(money.New(dep.Principal, dep.Currency), rates); cerr == nil {
+				purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: dep.OpenDate, Amount: u.Amount()})
+			}
 		}
 		// кожне поповнення теж списує гроші з рахунку банку на свою дату —
 		// це записаний факт, тож arrived() не потрібен
@@ -639,6 +655,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			if !t.Date.After(today) {
 				bal[dep.Currency] -= t.Amount
 				balBC[bc] -= t.Amount
+				if u, cerr := fx.ToUAH(money.New(t.Amount, dep.Currency), rates); cerr == nil {
+					purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: t.Date, Amount: u.Amount()})
+				}
 			}
 		}
 		if dep.ClosedDate != "" {
@@ -661,18 +680,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			}
 			bal[cf.Amount.Currency().Code] += cf.Amount.Amount()
 			balBC[store.BrokerCur{Broker: dep.Bank, Currency: cf.Amount.Currency().Code}] += cf.Amount.Amount()
-			if statuses[cf.ISIN+"|"+string(cf.Date)] == "reinvested" {
-				continue
-			}
+			// Відсотки вкладу — такий самий дохід, як купон, і в чергу
+			// простою стають нарівні з ним.
 			if u, cerr := fx.ToUAH(cf.Amount, rates); cerr == nil {
-				if sum, aerr := unin.Add(u); aerr == nil {
-					unin = sum
-				}
+				incomeEvents = append(incomeEvents, domain.CashEvent{Date: cf.Date, Amount: u.Amount()})
 			}
-			// І те саме правило, що й для купонів: надійшло, але не
-			// позначене «перевкладено» — отже лежить без діла. Доки
-			// відсотки вкладів сюди не входили, плитка «Не перевкладено»
-			// бачила лише ОВДП і занижувала простій грошей рівно на них.
 		}
 	}
 
@@ -900,6 +912,20 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 	account := money.New(accountUAHMinor, money.UAH)
+
+	// Дохід, що не працює. Купівлі з'їдають його за чергою (найстаріше
+	// першим), а зверху число обмежене тим, що РЕАЛЬНО лежить на
+	// рахунках: якщо грошей немає, то й доходу без діла немає, хай би що
+	// казала історія надходжень. Без цієї стелі наївна черга сама б собі
+	// суперечила — зняв гроші з рахунку, а вона й далі рахує їх простоєм.
+	idle := domain.IdleIncome(incomeEvents, purchaseEvents)
+	if idle > accountUAHMinor {
+		idle = accountUAHMinor
+	}
+	if idle < 0 {
+		idle = 0
+	}
+	unin := money.New(idle, money.UAH)
 
 	// найдешевший папір по валютах (нативно) + мінімум у грн-екв.
 	minNoms, err := s.st.MinNominalByCurrency(ctx)

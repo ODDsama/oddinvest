@@ -676,8 +676,11 @@ func (s *Store) SaveSnapshot(ctx context.Context, sn Snapshot) error {
 	return err
 }
 
+// SetPaymentStatus — позначка «отримано». Статус лишився один: колишній
+// «перевкладено» відповідав на питання, яке не має відповіді по одній
+// виплаті (див. міграцію 0017), і простій тепер рахується сам.
 func (s *Store) SetPaymentStatus(ctx context.Context, isin string, payDate domain.Date, status string) error {
-	if status != "received" && status != "reinvested" {
+	if status != "received" {
 		return fmt.Errorf("невалідний статус %q", status)
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO payment_status(isin, pay_date, status, marked_at)

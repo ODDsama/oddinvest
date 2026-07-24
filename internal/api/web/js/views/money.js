@@ -224,7 +224,8 @@ export async function renderMoney(ctx, main) {
         <div class="tile"><div class="lbl">USD</div><div class="val">${fmtCur(a.USD || 0, "$")}</div></div>
         <div class="tile"><div class="lbl">EUR</div><div class="val">${fmtCur(a.EUR || 0, "€")}</div></div>
         <div class="tile"><div class="lbl">Разом (грн-екв.)</div><div class="val">${fmtUAH(s.account_uah || 0)}</div></div>
-        <div class="tile"><div class="lbl">Не перевкладено</div><div class="val">${fmtUAH(s.uninvested_uah || 0)}</div>
+        <div class="tile"><div class="lbl">Дохід без діла ${infoBtn("idle")}</div>
+          <div class="val">${fmtUAH(s.uninvested_uah || 0)}</div>
           <div class="sub">надійшло й ще не вкладено</div></div>
       </div>
     </div>

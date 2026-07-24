@@ -94,14 +94,18 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
   const html = `
     <div class="card">
       <h2>Виплати</h2>
-      <div class="muted" style="margin-bottom:10px">Минулі виплати можна позначати отримано / перевкладено.</div>
+      <div class="muted" style="margin-bottom:10px">Виплату, датовану сьогодні чи наперед, можна
+        позначити <b>отриманою</b> — тоді вона ляже на рахунок, не чекаючи опівночі. Окремої позначки
+        «перевкладено» більше немає: чи пішли гроші в діло, застосунок бачить сам із твоїх покупок.</div>
       ${rows.length ? `<table><thead><tr>
         <th>Дата</th><th>ISIN</th><th>Тип</th><th class="num">Сума</th><th>Статус</th><th></th></tr></thead><tbody>
         ${rows.map((c) => {
           const past = c.date <= now;
           const st = c.status || "";
-          const pill = st === "reinvested" ? `<span class="pill reinv">перевкладено</span>`
-            : st === "received" ? `<span class="pill recv">отримано</span>` : `<span class="muted">—</span>`;
+          // Старі бази можуть іще нести «reinvested» (міграція 0017
+          // зводить його до «received», але дамп зроблений до неї — ні),
+          // тож читаємо обидва як одне: гроші надійшли.
+          const pill = st ? `<span class="pill recv">отримано</span>` : `<span class="muted">—</span>`;
           // Вклади мають синтетичний ISIN "deposit:<id>" — показуємо
           // «вклад», а не внутрішній ключ.
           const label = String(c.isin).startsWith("deposit:") ? "вклад" : c.isin;
@@ -113,8 +117,7 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
               // Уже позначено — лишається одна дія: зняти позначку. Раз
               // вона рухає гроші, помилковий клік має бути оборотним.
               ? `<button class="sm quiet" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="none">Скасувати</button>`
-              : `<button class="sm" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="received">Отримано</button>
-                 <button class="sm" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="reinvested">Перевкл.</button>`) : ""}</td>
+              : `<button class="sm" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="received">Отримано</button>`) : ""}</td>
           </tr>`;
         }).join("")}</tbody></table>` : `<div class="muted">Виплат немає.</div>`}
     </div>`;

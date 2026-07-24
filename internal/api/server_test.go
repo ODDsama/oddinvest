@@ -1475,40 +1475,71 @@ func TestUninvestedCountsDepositInterest(t *testing.T) {
 		t.Fatalf("відсотки вкладу мали потрапити в «не перевкладено», маємо %v", before)
 	}
 
-	// Позначаємо ОДНУ минулу виплату перевкладеною — плитка має зменшитись
-	// рівно на неї, а не обнулитись.
-	var flows []domain.CashflowItem
-	deps, err := st.ListTermDeposits(ctx)
-	if err != nil {
+	// І зникають самі, коли гроші пішли в діло. Поповнюємо вклад на суму,
+	// більшу за весь накопичений відсоток: жодного кліка, число падає в
+	// нуль. Доти це вимагало позначити КОЖНУ виплату вручну.
+	if _, err := st.AddDepositTopup(ctx, domain.DepositTopup{
+		DepositID: depID, Date: domain.NewDate(time.Now()), Amount: 5000000,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	for _, d := range deps {
-		if d.ID == depID {
-			flows = domain.DepositSchedule(d, "1970-01-01")
+	if after := uninvested(); after != 0 {
+		t.Errorf("поповнення на 50 000 ₴ мало з'їсти весь відсоток (%.2f), лишилось %.2f",
+			before, after)
+	}
+}
+
+// Стеля балансом. Черга сама по собі знає лише історію надходжень: якщо
+// гроші зняли з рахунку, вона й далі рахувала б їх простоєм. Тож число
+// не може перевищувати того, що реально лежить.
+func TestUninvestedCappedByAccountBalance(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	// Вклад із щомісячною виплатою, відкритий пів року тому: кілька
+	// відсоткових виплат уже надійшли й лежать на рахунку.
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2026-01-10", Amount: 20000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-180),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(185),
+		Payout:       domain.PayoutMonthly, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	uninvested := func() float64 {
+		t.Helper()
+		_, b := do(t, "GET", srv.URL+"/api/summary", "")
+		var doc struct {
+			UninvestedUAH float64 `json:"uninvested_uah"`
+			AccountUAH    float64 `json:"account_uah"`
 		}
-	}
-	var marked *domain.CashflowItem
-	for i := range flows {
-		if flows[i].Type == domain.PayCoupon && flows[i].Date.Before(domain.NewDate(time.Now())) {
-			marked = &flows[i]
-			break
+		if err := json.Unmarshal([]byte(b), &doc); err != nil {
+			t.Fatalf("summary: %v", err)
 		}
+		// Інваріант: простій ніколи не більший за те, що лежить. Рахунок
+		// у мінусі (зняли більше, ніж було) означає простій 0, а не
+		// від'ємний — боргу «без діла» не буває.
+		if cap := math.Max(0, doc.AccountUAH); doc.UninvestedUAH > cap+0.01 {
+			t.Errorf("простій (%.2f) не може бути більший за рахунок (%.2f)",
+				doc.UninvestedUAH, doc.AccountUAH)
+		}
+		return doc.UninvestedUAH
 	}
-	if marked == nil {
-		t.Fatal("очікували щонайменше одну минулу виплату відсотків")
+	if uninvested() <= 0 {
+		t.Fatal("минулі відсотки мали потрапити в простій")
 	}
-	if resp, b := do(t, "POST", srv.URL+"/api/payments/status",
-		`{"isin":"`+marked.ISIN+`","pay_date":"`+string(marked.Date)+`","status":"reinvested"}`,
-	); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("позначка: %d %s", resp.StatusCode, b)
+	// А тепер знімаємо з рахунку все: грошей немає — простою теж.
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: -20000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
 	}
-	after := uninvested()
-	want := before - float64(marked.Amount.Amount())/100
-	if math.Abs(after-want) > 0.02 {
-		t.Errorf("після позначки «перевкладено» очікували %.2f, маємо %.2f", want, after)
-	}
-	if !(after < before) {
-		t.Errorf("позначка мала зменшити «не перевкладено»: було %.2f, стало %.2f", before, after)
+	if got := uninvested(); got != 0 {
+		t.Errorf("рахунок порожній, простій мав бути 0, маємо %.2f", got)
 	}
 }
 
