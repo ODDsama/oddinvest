@@ -1704,6 +1704,124 @@ func TestDevaluationManualWins(t *testing.T) {
 	}
 }
 
+// Звіт про рух грошей мусить сходитись із рахунком. Він рахує ті самі
+// величини, що й зведення, але подіями за період — і якщо дві
+// реалізації розійдуться, помітити це можна лише тут.
+func TestCashflowStatementReconciles(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st)
+
+	// Портфель із усіх трьох інструментів плюс свої гроші й конвертація.
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2026-01-10", Amount: 50000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","fee":"25.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: "2026-06-01", Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 100, Amount: 100000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	depID, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "mono", Currency: "UAH", Principal: 5000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-120),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(245),
+		Payout:       domain.PayoutMonthly, TaxBP: 1950, Replenishable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDepositTopup(ctx, domain.DepositTopup{
+		DepositID: depID, Date: domain.NewDate(time.Now()).AddDays(-30), Amount: 1000000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Період — від давнього минулого до сьогодні: тоді opening = 0, і
+	// підсумок звіту має дорівнювати рахунку зі зведення.
+	var st1 struct {
+		OpeningUAH  float64 `json:"opening_uah"`
+		IncomeUAH   float64 `json:"income_uah"`
+		ContribUAH  float64 `json:"contributed_uah"`
+		PurchaseUAH float64 `json:"purchased_uah"`
+		ConvUAH     float64 `json:"conversions_uah"`
+		ClosingUAH  float64 `json:"closing_uah"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/cashflow?from=2000-01-01", "")
+	if err := json.Unmarshal([]byte(body), &st1); err != nil {
+		t.Fatalf("cashflow: %v: %s", err, body)
+	}
+	var sum struct {
+		AccountUAH float64 `json:"account_uah"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if math.Abs(st1.ClosingUAH-sum.AccountUAH) > 0.02 {
+		t.Errorf("звіт дає %.2f, рахунок зі зведення %.2f — реалізації розійшлись",
+			st1.ClosingUAH, sum.AccountUAH)
+	}
+	// І сама тотожність усередині звіту.
+	want := st1.OpeningUAH + st1.IncomeUAH + st1.ContribUAH - st1.PurchaseUAH + st1.ConvUAH
+	if math.Abs(st1.ClosingUAH-want) > 0.02 {
+		t.Errorf("тотожність не сходиться: %.2f + %.2f + %.2f − %.2f + %.2f = %.2f, а закриття %.2f",
+			st1.OpeningUAH, st1.IncomeUAH, st1.ContribUAH, st1.PurchaseUAH, st1.ConvUAH,
+			want, st1.ClosingUAH)
+	}
+	if st1.OpeningUAH != 0 {
+		t.Errorf("з 2000 року відкриття мало бути нульове, маємо %.2f", st1.OpeningUAH)
+	}
+	if st1.IncomeUAH <= 0 || st1.ContribUAH <= 0 || st1.PurchaseUAH <= 0 {
+		t.Errorf("усі три категорії мали бути ненульові: %+v", st1)
+	}
+}
+
+// Розрізане навпіл вікно теж має сходитись: відкриття другого періоду
+// дорівнює закриттю першого. Інакше «за місяць» показувало б числа, які
+// не стикуються між собою.
+func TestCashflowPeriodsChain(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2026-03-10", Amount: 30000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2026-06-15", Amount: 20000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	get := func(from, to string) (open, close float64) {
+		t.Helper()
+		var d struct {
+			OpeningUAH float64 `json:"opening_uah"`
+			ClosingUAH float64 `json:"closing_uah"`
+		}
+		_, b := do(t, "GET", srv.URL+"/api/cashflow?from="+from+"&to="+to, "")
+		if err := json.Unmarshal([]byte(b), &d); err != nil {
+			t.Fatalf("cashflow: %v: %s", err, b)
+		}
+		return d.OpeningUAH, d.ClosingUAH
+	}
+	_, firstClose := get("2000-01-01", "2026-05-31")
+	secondOpen, _ := get("2026-06-01", "2026-12-31")
+	if math.Abs(firstClose-secondOpen) > 0.02 {
+		t.Errorf("періоди не стикуються: закриття %.2f, наступне відкриття %.2f",
+			firstClose, secondOpen)
+	}
+	if firstClose != 300000 {
+		t.Errorf("до червня внесено 300 000 ₴, маємо %.2f", firstClose)
+	}
+}
+
 // Курс має бути в зведенні завжди, а не лише коли задано ціль. Доти він
 // потрапляв туди контрабандою — усередині блоку прогнозу, як
 // forecast.rate0_usd, — тож питання «скільки це в доларах» не мало

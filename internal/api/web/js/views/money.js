@@ -10,12 +10,12 @@
 // рухи й ту саму звірку, які лежать вище.
 
 import {
-  esc, curSym, today, dayMonth,
+  esc, curSym, today, dayMonth, plural,
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { tile } from "../components.js";
-import { fundStatementHTML, wireFundOps, setFundOps } from "./portfolio.js";
+import { fundStatementHTML, wireFundOps, setFundOps, wireDisclosures } from "./portfolio.js";
 
 // ---------- РАХУНОК ----------
 // Баланси по брокерах: гроші в одного не купують папір в іншого, тож
@@ -202,11 +202,50 @@ export function wireImport(ctx, main) {
   });
 }
 
+// Рух грошей за період — казан і те, що він купив.
+//
+// Питання «по операціях не видно, як і куди я перевклав» — це запит на
+// звіт про рух, а не на прив'язку купона до покупки. Купон і власні
+// внески змішуються на рахунку, звідти йде покупка; показати треба саме
+// це, а не вигадану лінію від однієї виплати до одного паперу.
+//
+// Тотожність унизу — не оздоба: якщо вона не сходиться, розійшлись облік
+// і дійсність, і це має бути видно.
+function flowHTML(f) {
+  if (!f) return "";
+  const row = (lbl, v, sign = "") => `<tr><td>${lbl}</td>
+    <td class="num">${sign}${fmtUAH(Math.abs(v || 0))}</td></tr>`;
+  const detail = (f.rows || []).filter((r) => r.kind === "purchase" && r.uah < 0);
+  return `<div class="card">
+    <h2 class="h-row">Рух грошей ${infoBtn("cashflow")}</h2>
+    <div class="sub" style="margin-bottom:10px">${esc(f.from)} → ${esc(f.to)}</div>
+    <div class="table-scroll"><table><tbody>
+      ${row("Було на рахунках", f.opening_uah)}
+      ${row("+ надійшло доходу", f.income_uah, "+")}
+      ${row("+ внесено своїх", f.contributed_uah, "+")}
+      ${row("− куплено", f.purchased_uah, "−")}
+      ${f.conversions_uah ? row("± конвертації", f.conversions_uah,
+        f.conversions_uah > 0 ? "+" : "−") : ""}
+      <tr style="font-weight:600"><td>= лишилось</td>
+        <td class="num">${fmtUAH(f.closing_uah || 0)}</td></tr>
+    </tbody></table></div>
+    ${detail.length ? `<details class="disclosure" data-fold="flowbuys">
+      <summary>Куди пішли<span class="hint">${detail.length} ${
+        plural(detail.length, "операція", "операції", "операцій")}</span></summary>
+      <div class="disclosure-body"><div class="table-scroll"><table><tbody>
+        ${detail.map((r) => `<tr><td class="muted">${esc(r.date)}</td><td>${esc(r.label)}</td>
+          <td class="num">${fmtUAH(Math.abs(r.uah))}</td></tr>`).join("")}
+      </tbody></table></div></div>
+    </details>` : ""}
+  </div>`;
+}
+
 export async function renderMoney(ctx, main) {
-  const [deposits, conversions, ops] = await Promise.all([
+  const [deposits, conversions, ops, flow] = await Promise.all([
     ctx.api("GET", "deposits").catch(() => []),
     ctx.api("GET", "conversions").catch(() => []),
     ctx.api("GET", "funds").catch(() => []),
+    ctx.api("GET", "cashflow").catch(() => null),
   ]);
   setFundOps(ops);
   const s = ctx.summary || {};
@@ -229,6 +268,8 @@ export async function renderMoney(ctx, main) {
           <div class="sub">надійшло й ще не вкладено</div></div>
       </div>
     </div>
+
+    ${flowHTML(flow)}
 
     ${brokerBalancesHTML(ctx)}
 
@@ -321,5 +362,6 @@ export async function renderMoney(ctx, main) {
   wireReconcile(ctx, main);
   wireImport(ctx, main);
   wireFundOps(ctx, main);
+  wireDisclosures(main);
 }
 
