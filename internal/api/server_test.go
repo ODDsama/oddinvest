@@ -1673,6 +1673,110 @@ func TestDevaluationManualWins(t *testing.T) {
 	}
 }
 
+// Номінальна й реальна — не два незалежні числа, а одне через поправку.
+// Якщо вони перестануть сходитись, екран покаже пару, яка суперечить
+// сама собі, і жоден інший тест цього не помітить.
+func TestNominalAndRealAgree(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	seedRateHistory(t, st, 10, 240007, 448110) // ≈6.44%/рік
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/term-deposits",
+		`{"bank":"ПУМБ","currency":"UAH","principal":"100000","rate_pct":"16",
+		  "open_date":"2026-07-01","maturity_date":"2027-07-01","payout":"end","tax_pct":"19.5"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("вклад: %d %s", resp.StatusCode, b)
+	}
+
+	deval := 6.44
+	agree := func(what string, nominal, real float64) {
+		t.Helper()
+		want := ((1+nominal/100)/(1+deval/100) - 1) * 100
+		if math.Abs(real-want) > 0.05 {
+			t.Errorf("%s: номінальна %.2f%% при знеціненні %.2f%% мала дати %.2f%% реальних, маємо %.2f%%",
+				what, nominal, deval, want, real)
+		}
+	}
+
+	// Позиція ОВДП.
+	var pos []struct {
+		YTMPct  float64 `json:"ytm_pct"`
+		RealPct float64 `json:"real_pct"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/positions", "")
+	if err := json.Unmarshal([]byte(body), &pos); err != nil {
+		t.Fatalf("positions: %v: %s", err, body)
+	}
+	if len(pos) != 1 {
+		t.Fatalf("очікували одну позицію: %s", body)
+	}
+	agree("позиція ОВДП", pos[0].YTMPct, pos[0].RealPct)
+
+	// Вклад: тут номінальна — саме NetPct (після податку), а не ставка з
+	// договору, інакше поправок було б дві одразу.
+	var deps []struct {
+		RatePct float64 `json:"rate_pct"`
+		NetPct  float64 `json:"net_pct"`
+		RealPct float64 `json:"real_pct"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/term-deposits", "")
+	if err := json.Unmarshal([]byte(body), &deps); err != nil {
+		t.Fatalf("term-deposits: %v: %s", err, body)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("очікували один вклад: %s", body)
+	}
+	if deps[0].NetPct >= deps[0].RatePct {
+		t.Errorf("ставка після податку (%.2f) мала бути нижча за договірну (%.2f)",
+			deps[0].NetPct, deps[0].RatePct)
+	}
+	agree("вклад", deps[0].NetPct, deps[0].RealPct)
+
+	// Зведена по портфелю — теж парою.
+	var sum struct {
+		PortfolioYield     map[string]float64 `json:"portfolio_yield"`
+		PortfolioYieldReal map[string]float64 `json:"portfolio_yield_real"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if len(sum.PortfolioYieldReal) == 0 {
+		t.Fatalf("реальна зведена мала з'явитись: %s", body)
+	}
+	agree("зведена ОВДП ₴", sum.PortfolioYield["UAH"], sum.PortfolioYieldReal["UAH"])
+}
+
+// Валютну дохідність знецінення гривні не торкається: долар купівельну
+// спроможність тримає сам, і ділити його на гривневе знецінення означало
+// б порахувати поправку двічі.
+func TestForeignYieldIsAlreadyReal(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seedRateHistory(t, st, 10, 240007, 448110)
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "USD", Principal: 100000, RateBP: 400,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-10),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(355),
+		Payout:       domain.PayoutEnd, TaxBP: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var deps []struct {
+		NetPct  float64 `json:"net_pct"`
+		RealPct float64 `json:"real_pct"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/term-deposits", "")
+	if err := json.Unmarshal([]byte(body), &deps); err != nil {
+		t.Fatalf("term-deposits: %v: %s", err, body)
+	}
+	if len(deps) != 1 || math.Abs(deps[0].RealPct-deps[0].NetPct) > 0.01 {
+		t.Errorf("доларовий вклад: реальна (%+v) мала дорівнювати номінальній", deps)
+	}
+}
+
 // Уламок вікна — не вимірювання. Три роки історії дали б 10.2%/рік
 // замість 6.4% з десятирічного, і видавати це за «виміряне знецінення»
 // означало б показати наслідок обірваного backfill як факт про гривню.

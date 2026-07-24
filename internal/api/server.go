@@ -360,6 +360,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		return nil, err
 	}
 	today := domain.NewDate(now)
+	// Знецінення — РАЗ на весь документ. Далі його бачать дохідності
+	// позицій, зведені дохідності, прогноз і сценарії; якби кожен читав
+	// сам, вони могли б розійтися між собою в межах однієї відповіді.
+	deval := s.devaluation(ctx)
 
 	// Операції фондів тягнемо РАЗ, як і облігації вище: далі вони
 	// потрібні п'ятьом різним агрегатам (внески місяця, баланс рахунку,
@@ -802,11 +806,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Дохідність фондів і зведена по портфелю. Рахуються нижче, коли вже
 	// зібрані позиції фондів — тут лише оголошені, щоб було видно, що
 	// це три різні числа, а не одне з уточненнями.
-	var fundsYield, blendedYield float64
+	// Кожна — парою: номінальна й реальна. Одна без одної на екрані
+	// читається як помилка, бо той самий інструмент показує різні числа.
+	var fundsYield, fundsYieldReal, blendedYield, blendedYieldReal float64
 	var fundsUAH float64
 	var fundRows []state.FundPositionRow
 	if len(fundOps) > 0 {
-		deval := s.devaluation(ctx)
 		positions := domain.FundPositions(fundOps)
 		names := make([]string, 0, len(positions))
 		for name := range positions {
@@ -861,16 +866,28 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		incomeMonthlyNow = round2(incomeMonthlyNow + fundDivNet/12)
 		// Дохідність фондів — зважена ринковою вартістю: більший фонд
 		// має важити більше, ніж дрібний із гучним відсотком.
-		var wSum, w float64
+		//
+		// Зважуємо ПОВНУ дохідність (дивіденди зі зміною ціни), а не саму
+		// дивідендну: у рядку позиції показано саме її, і плитка, що
+		// підсумовує ті самі фонди іншою мірою, суперечила б таблиці під
+		// собою. Де повної ще немає (замало історії) — падаємо на
+		// дивідендну, як і сам рядок.
+		var wSum, wReal, w float64
 		for _, row := range fundRows {
 			if row.MarketValue <= 0 {
 				continue
 			}
-			wSum += row.YieldNetPct * row.MarketValue
+			nominal := row.TotalPct
+			if nominal == 0 {
+				nominal = row.YieldNetPct
+			}
+			wSum += nominal * row.MarketValue
+			wReal += row.RealPct * row.MarketValue
 			w += row.MarketValue
 		}
 		if w > 0 {
 			fundsYield = math.Round(wSum/w*100) / 100
+			fundsYieldReal = math.Round(wReal/w*100) / 100
 		}
 	}
 
@@ -1011,7 +1028,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	var nominalUAH int64               // сумарний номінал у грн-екв.
 	nominalByCur := map[string]int64{} // номінал нативно по валютах
 	ytmLotsByCur := map[string][]domain.YTMLot{}
-	var ytmWeightUAH, ytmWeightedUAH float64
+	var ytmWeightUAH, ytmWeightedUAH, ytmWeightedRealUAH float64
 	for _, l := range lots {
 		b, ok := bonds[l.ISIN]
 		if !ok || b.Maturity.Before(today) {
@@ -1035,17 +1052,29 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			if w, err := fx.ToUAH(money.New(cost.Amount()*q, cur), rates); err == nil {
 				ytmWeightUAH += float64(w.Amount())
 				ytmWeightedUAH += float64(w.Amount()) * y
+				// Реальну зважуємо тут само, лотом за лотом, а не ділимо
+				// готову суміш на знецінення: знецінення торкається лише
+				// гривневих рукавів, і поділ суміші цілком занизив би
+				// доларову частину.
+				ytmWeightedRealUAH += float64(w.Amount()) * realYield(y/100, cur, deval) * 100
 			}
 		}
 	}
-	var portfolioYield float64
+	var portfolioYield, portfolioYieldReal float64
 	if ytmWeightUAH > 0 {
 		portfolioYield = math.Round(ytmWeightedUAH/ytmWeightUAH*100) / 100
+		portfolioYieldReal = math.Round(ytmWeightedRealUAH/ytmWeightUAH*100) / 100
 	}
 	portfolioYieldByCur := map[string]float64{}
+	// Реальний двійник кожної зведеної дохідності. Доти плитки говорили
+	// номінальними числами, а таблиця під ними — реальними, і той самий
+	// папір показувався двома різними числами на одному екрані без жодної
+	// позначки, що бази різні.
+	portfolioYieldRealByCur := map[string]float64{}
 	for cur, ls := range ytmLotsByCur {
 		if y, ok := domain.WeightedYTM(ls, pays); ok {
 			portfolioYieldByCur[cur] = math.Round(y*100) / 100
+			portfolioYieldRealByCur[cur] = round2(realYield(y/100, cur, deval) * 100)
 		}
 	}
 
@@ -1122,8 +1151,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// у сертифікатах ріс за ставкою облігацій, яких у ньому немає.
 	nominalMajor := float64(nominalUAH) / 100
 	if nominalMajor+fundsUAH > 0 {
-		blendedYield = math.Round((portfolioYield*nominalMajor+fundsYield*fundsUAH)/
-			(nominalMajor+fundsUAH)*100) / 100
+		blend := func(bond, fund float64) float64 {
+			return math.Round((bond*nominalMajor+fund*fundsUAH)/(nominalMajor+fundsUAH)*100) / 100
+		}
+		blendedYield = blend(portfolioYield, fundsYield)
+		blendedYieldReal = blend(portfolioYieldReal, fundsYieldReal)
 	}
 
 	// Ставка реінвесту — ЗВЕДЕНА: капітал у сертифікатах не росте за
@@ -1179,10 +1211,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 
 	// Річне знецінення гривні. Одне число в налаштуваннях, від якого
 	// сценарії розходяться — як і ставка.
-	// Через ту саму сходинку, що й дохідності позицій: прогноз і помічник
+	// Те саме число, що й у дохідностях вище: прогноз і помічник
 	// зобов'язані виходити з одного припущення, інакше вони суперечать
 	// одне одному на одному екрані.
-	devalBase := s.devaluation(ctx)
+	devalBase := deval
 	// Куди прийде гривнева ставка і як довго вона туди йтиме.
 	terminalUAH := defaultTerminalRatePct
 	if settings.TerminalRatePct != nil && *settings.TerminalRatePct >= 0 {
@@ -1546,6 +1578,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
 		FundsYieldPct: fundsYield, BlendedYieldPct: blendedYield,
 		PortfolioYield: portfolioYieldByCur,
+		FundsYieldRealPct: fundsYieldReal, BlendedYieldRealPct: blendedYieldReal,
+		PortfolioYieldReal: portfolioYieldRealByCur,
 		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
 		Rebalance: rebalance, RateRisk: rateRisk,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
@@ -2568,7 +2602,12 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		// YieldBasis — з ЧОГО ця дохідність узята: обіцянка (до погашення,
 		// ставка вкладу) чи оцінка (дивіденди фонду). Природа різна, і
 		// ховати це за одним числом було б нечесно.
-		YTMPct        float64     `json:"ytm_pct,omitempty"`
+		YTMPct float64 `json:"ytm_pct,omitempty"`
+		// NominalPct — дохідність ДО знецінення, для всіх трьох видів.
+		// YTMPct поруч є лише в облігацій, тож без цього поля фонд і
+		// вклад показувались у списку самою реальною, а папір — двома
+		// числами, і порівняти їх по-номінальному було ні з чим.
+		NominalPct    float64     `json:"nominal_pct,omitempty"`
 		RealPct       float64     `json:"real_pct"`
 		YieldBasis    string      `json:"yield_basis"`
 		Brokers       []brokerFit `json:"brokers,omitempty"`
@@ -2685,7 +2724,8 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			RatePct:     fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
 			Maturity:    string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
 			CostPerBond: toMoneyJSON(cost),
-			YTMPct:      round2(ytm * 100), RealPct: round2(real * 100),
+			YTMPct: round2(ytm * 100), NominalPct: round2(ytm * 100),
+			RealPct: round2(real * 100),
 			YieldBasis:  "до погашення",
 			Brokers:     fits,
 			Affordable:  best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
@@ -2716,6 +2756,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		out = append(out, suggestion{
 			Kind: "fund", Label: f.Fund, Currency: c,
 			CostPerBond: toMoneyJSON(money.New(costMinor, c)),
+			NominalPct:  round2(f.YieldNetPct),
 			RealPct:     round2(real * 100),
 			YieldBasis:  "дивіденди після податку",
 			Brokers:     fits, Affordable: best, CanBuy: best > 0,
@@ -2754,6 +2795,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			RatePct:     fmt.Sprintf("%d.%02d", d.RateBP/100, d.RateBP%100),
 			Maturity:    string(d.MaturityDate),
 			CostPerBond: toMoneyJSON(money.New(d.Principal, c)),
+			NominalPct:  round2(netRate * 100),
 			RealPct:     round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
 			Brokers:     fits, Affordable: best, CanBuy: best > 0,
@@ -3292,9 +3334,15 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		ClosedAmount moneyJSON   `json:"closed_amount,omitempty"`
 		Note         string      `json:"note,omitempty"`
 		Topups       []topupJSON `json:"topups,omitempty"`
-		// RealPct — ставка після податку й знецінення, тобто в тій самій
-		// базі, що дохідність ОВДП і фондів. Ставка вкладу зафіксована, як
-		// і купон, тож це обіцянка, а не оцінка.
+		// NetPct — ставка після податку, але ДО знецінення: номінальний
+		// двійник до RealPct. Поруч уже є RatePct, але це ставка з
+		// договору, до податку, і показувати її як «номінальну дохідність»
+		// означало б порівнювати з реальною через дві поправки одразу.
+		//
+		// RealPct — та сама після знецінення, тобто в базі, спільній із
+		// ОВДП і фондами. Ставка вкладу зафіксована, як і купон, тож це
+		// обіцянка, а не оцінка.
+		NetPct     float64 `json:"net_pct,omitempty"`
 		RealPct    float64 `json:"real_pct,omitempty"`
 		YieldBasis string  `json:"yield_basis,omitempty"`
 	}
@@ -3325,6 +3373,7 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		// поповнити вклад із однією цифрою, а портфель показував іншу.
 		if d.RateBP > 0 {
 			net := float64(d.RateBP) / 10000 * (1 - float64(d.TaxBP)/10000)
+			dr.NetPct = round2(net * 100)
 			dr.RealPct = round2(realYield(net, d.Currency, deval) * 100)
 			dr.YieldBasis = "ставка вкладу"
 		}

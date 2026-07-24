@@ -112,16 +112,34 @@ type Doc struct {
 	// вкладеними грішми. Відсутня валюта = паперів немає.
 	PortfolioYield map[string]float64 `json:"portfolio_yield,omitempty"`
 
-	// FundsYieldPct — чиста дивідендна дохідність сертифікатів, зважена
-	// їхньою ринковою вартістю. BlendedYieldPct — те й те разом: YTM
-	// облігацій і дивідендна дохідність фондів, зважені вкладеним.
+	// FundsYieldPct — дохідність сертифікатів, зважена їхньою ринковою
+	// вартістю (повна: дивіденди зі зміною ціни; де історії замало —
+	// сама дивідендна). BlendedYieldPct — те й те разом: YTM облігацій і
+	// дохідність фондів, зважені вкладеним.
 	//
 	// Тримаються ОКРЕМО навмисно. YTM — зафіксована обіцянка до погашення;
-	// дивідендна дохідність — оцінка з останньої виплати, яка завтра може
-	// стати іншою. Одне число замість двох сховало б цю різницю, а саме
-	// воно потім керує проєкціями.
+	// дохідність фонду — факт по прожитому, який завтра буде іншим. Одне
+	// число замість двох сховало б цю різницю, а саме воно потім керує
+	// проєкціями.
 	FundsYieldPct   float64 `json:"funds_yield_pct,omitempty"`
 	BlendedYieldPct float64 `json:"blended_yield_pct,omitempty"`
+
+	// *Real — ті самі три величини після знецінення гривні, тобто в
+	// сьогоднішній купівельній спроможності (адитивні поля, v0.5+).
+	//
+	// Навіщо парою. Номінальна — факт, який видно у виписці брокера;
+	// реальна — той самий факт плюс припущення про знецінення, і саме
+	// вона порівнює гривневий папір із доларовим. Доти плитки показували
+	// лише номінальні, а таблиця під ними — лише реальні, тож один і той
+	// самий фонд стояв на екрані двома різними числами без жодного
+	// натяку, що бази різні.
+	//
+	// Рахуються ЗВАЖУВАННЯМ реальних, а не діленням готової номінальної:
+	// знецінення торкається лише гривневих рукавів, і поділ суміші
+	// цілком занизив би валютну частину.
+	PortfolioYieldReal   map[string]float64 `json:"portfolio_yield_real,omitempty"`
+	FundsYieldRealPct    float64            `json:"funds_yield_real_pct,omitempty"`
+	BlendedYieldRealPct  float64            `json:"blended_yield_real_pct,omitempty"`
 
 	// Projection — прогноз капіталу помісячною симуляцією реальних потоків
 	// (купони/погашення наявних паперів + внески, реінвест під дохідність).
@@ -422,6 +440,9 @@ type Input struct {
 	FundsYieldPct       float64
 	BlendedYieldPct     float64
 	PortfolioYield      map[string]float64
+	PortfolioYieldReal   map[string]float64
+	FundsYieldRealPct    float64
+	BlendedYieldRealPct  float64
 	Projection          []ProjectionRow
 	ProjectionRatePct   float64
 	Forecast            *Forecast
@@ -536,6 +557,9 @@ func Build(in Input) (*Doc, error) {
 	doc.FundsYieldPct = in.FundsYieldPct
 	doc.BlendedYieldPct = in.BlendedYieldPct
 	doc.PortfolioYield = in.PortfolioYield
+	doc.FundsYieldRealPct = in.FundsYieldRealPct
+	doc.BlendedYieldRealPct = in.BlendedYieldRealPct
+	doc.PortfolioYieldReal = in.PortfolioYieldReal
 	doc.Projection = in.Projection
 	doc.ProjectionRatePct = in.ProjectionRatePct
 	doc.Forecast = in.Forecast
