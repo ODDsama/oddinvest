@@ -225,10 +225,13 @@ type SettingsDoc struct {
 }
 
 // RebalanceRow — що треба зробити, щоб вийти на цільову частку валюти.
-// DeficitUAH — скільки грн-екв бракує до цілі; BondCost* — найдешевший
-// папір цієї валюти; ConvertUAH — скільки гривні сконвертувати, щоб його
-// купити; MinPortfolioUAH — розмір портфеля, за якого один такий папір
-// уже вписується в цільову частку (Feasible=false, поки не доріс).
+// DeficitUAH — скільки грн-екв бракує до цілі; BondCost* — найдешевша
+// ОДИНИЦЯ входу в цю валюту (облігація АБО вклад — див. UnitKind), а не
+// лише папір: відколи вклад із мінімумом $100/€100 став інструментом
+// ребалансу, добрати частку можна ним задовго до $1000-ї облігації.
+// ConvertUAH — скільки гривні сконвертувати, щоб її купити; MinPortfolioUAH —
+// розмір портфеля, за якого одна така одиниця вже вписується в цільову
+// частку (Feasible=false, поки не доріс).
 type RebalanceRow struct {
 	Currency        string  `json:"currency"`
 	TargetPct       float64 `json:"target_pct"`
@@ -242,6 +245,10 @@ type RebalanceRow struct {
 	ConvertUAH      float64 `json:"convert_uah"`
 	MinPortfolioUAH float64 `json:"min_portfolio_uah"`
 	Feasible        bool    `json:"feasible"`
+	// UnitKind — чим є ця одиниця входу: "bond" (найдешевша ОВДП) чи
+	// "deposit" (мінімальний вклад). Керує формулюванням картки. Адитивне
+	// поле; порожнє = "bond" для сумісності зі старим станом.
+	UnitKind string `json:"unit_kind,omitempty"`
 }
 
 // Liquidity — коли гроші стають доступні. Питання не про дохідність, а

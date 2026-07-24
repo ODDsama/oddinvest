@@ -362,7 +362,8 @@
           "can_buy": { "type": "integer" },
           "convert_uah": { "type": "number" },
           "min_portfolio_uah": { "type": "number" },
-          "feasible": { "type": "boolean" }
+          "feasible": { "type": "boolean" },
+          "unit_kind": { "type": "string", "description": "Тип одиниці входу: bond | deposit (адитивне поле)" }
         }
       }
     },

@@ -658,6 +658,12 @@ export function rebalanceCard(ctx) {
   const num = (v, d = 2) => Number(v || 0).toLocaleString("uk-UA", { maximumFractionDigits: d });
   const body = rows.map((r) => {
     const s = sym[r.currency] || r.currency;
+    // Одиниця входу тепер — облігація АБО мінімальний вклад ($100/€100),
+    // що з них дешевше. Формулювання залежить від того, що саме перемогло.
+    const dep = r.unit_kind === "deposit";
+    const unitLabel = dep ? `мінімальний вклад у ${esc(r.currency)}` : `найдешевший ${esc(r.currency)}-папір`;
+    const unitShort = dep ? "Мінімальний вклад" : "Найдешевший папір";
+    const unitPlural = dep ? "вклад(и)" : "папер(и)";
     const head = `<b>${esc(r.currency)}</b> — ціль ${r.target_pct}%, зараз ${r.current_pct}%`;
     if (r.deficit_uah <= 0) {
       return `<div style="margin-bottom:12px">${head} — <span style="color:var(--oi-ok)">ціль досягнута ✅</span></div>`;
@@ -665,15 +671,15 @@ export function rebalanceCard(ctx) {
     const need = `Бракує до цілі: <b>${fmtUAH(r.deficit_uah)}</b> (≈ ${num(r.deficit_native)} ${s})`;
     if (!r.feasible) {
       return `<div style="margin-bottom:12px">${head}<br>${need}<br>
-        <span style="color:var(--oi-warn)">⚠ Ще зарано:</span> найдешевший ${esc(r.currency)}-папір коштує
+        <span style="color:var(--oi-warn)">⚠ Ще зарано:</span> ${unitLabel} коштує
         ${fmtUAH(r.bond_cost_uah)} (${num(r.bond_cost_native, 0)} ${s}) — це більше за всю цільову суму.
-        Один такий папір вписався б у ціль ${r.target_pct}% при капіталі <b>${fmtUAH(r.min_portfolio_uah)}</b>.</div>`;
+        Стільки вписалося б у ціль ${r.target_pct}% при капіталі <b>${fmtUAH(r.min_portfolio_uah)}</b>.</div>`;
     }
     const buy = r.can_buy > 0
-      ? `вистачає на <b>${r.can_buy}</b> папер(и)`
-      : `на папір бракує — сконвертуй ще ≈ <b>${fmtUAH(r.convert_uah)}</b>`;
+      ? `вистачає на <b>${r.can_buy}</b> ${unitPlural}`
+      : `бракує — сконвертуй ще ≈ <b>${fmtUAH(r.convert_uah)}</b>`;
     return `<div style="margin-bottom:12px">${head}<br>${need}<br>
-      Найдешевший папір: ${num(r.bond_cost_native, 0)} ${s} ≈ ${fmtUAH(r.bond_cost_uah)}.
+      ${unitShort}: ${num(r.bond_cost_native, 0)} ${s} ≈ ${fmtUAH(r.bond_cost_uah)}.
       Готівка: ${num(r.cash_native)} ${s} — ${buy}.</div>`;
   }).join("");
   return `<div class="card"><h2>Валютне ребалансування</h2>

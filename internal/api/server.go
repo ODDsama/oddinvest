@@ -945,11 +945,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// його поріг нижчий (або де паперу у валюті немає), «до реінвесту
 	// готовий» настає раніше. Саме це дає простою USD/EUR куди йти без
 	// відповідних облігацій.
+	depMinByCur := s.depositMinMinorByCur(ctx)
 	minByCur := map[string]int64{}
 	for cur, minNom := range minNoms {
 		minByCur[cur] = minNom
 	}
-	for cur, depMin := range s.depositMinMinorByCur(ctx) {
+	for cur, depMin := range depMinByCur {
 		if have, ok := minByCur[cur]; !ok || depMin < have {
 			minByCur[cur] = depMin
 		}
@@ -1519,23 +1520,36 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		targetUAH := totalMajor * (*tp) / 100
 		deficitUAH := math.Max(0, targetUAH-curUAH)
 		cashNative := float64(bal[cur]) / 100
-		bondCostNative := float64(minNoms[cur]) / 100
-		bondCostUAH := bondCostNative * rateMajor
+		// Одиниця входу — найдешевший спосіб додати цю валюту: облігація або
+		// вклад ($100/€100). Доти бралася лише облігація, тож поки в портфелі
+		// не назбирувалось на $1000-й папір, картка казала «ще зарано» — хоча
+		// вклад на $100 добирає частку задовго до того.
+		unitNative := float64(minNoms[cur]) / 100
+		unitKind := "bond"
+		if dm, ok := depMinByCur[cur]; ok {
+			depNative := float64(dm) / 100
+			if unitNative <= 0 || depNative < unitNative {
+				unitNative = depNative
+				unitKind = "deposit"
+			}
+		}
+		unitUAH := unitNative * rateMajor
 		var canBuy int64
 		convertUAH := 0.0
-		if bondCostNative > 0 {
-			canBuy = int64(cashNative / bondCostNative)
-			if cashNative < bondCostNative {
-				convertUAH = (bondCostNative - cashNative) * rateMajor
+		if unitNative > 0 {
+			canBuy = int64(cashNative / unitNative)
+			if cashNative < unitNative {
+				convertUAH = (unitNative - cashNative) * rateMajor
 			}
 		}
 		rebalance = append(rebalance, state.RebalanceRow{
 			Currency: cur, TargetPct: *tp, CurrentPct: round2(currentPct),
 			DeficitUAH: round2(deficitUAH), DeficitNative: round2(deficitUAH / rateMajor),
-			CashNative: round2(cashNative), BondCostNative: round2(bondCostNative),
-			BondCostUAH: round2(bondCostUAH), CanBuy: canBuy, ConvertUAH: round2(convertUAH),
-			MinPortfolioUAH: round2(bondCostUAH / (*tp / 100)),
-			Feasible:        bondCostUAH > 0 && bondCostUAH <= targetUAH,
+			CashNative: round2(cashNative), BondCostNative: round2(unitNative),
+			BondCostUAH: round2(unitUAH), CanBuy: canBuy, ConvertUAH: round2(convertUAH),
+			MinPortfolioUAH: round2(unitUAH / (*tp / 100)),
+			Feasible:        unitUAH > 0 && unitUAH <= targetUAH,
+			UnitKind:        unitKind,
 		})
 	}
 
