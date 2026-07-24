@@ -75,6 +75,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("GET /api/devaluation", s.handleDevaluation)
 	mux.HandleFunc("GET /api/cashflow", s.handleCashflowStatement)
+	mux.HandleFunc("GET /api/tax", s.handleTax)
 	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
 	mux.HandleFunc("POST /api/payments/status", s.handlePaymentStatus)
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)
@@ -810,6 +811,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		coupons12m = append(coupons12m, state.MonthAmount{Month: key, Amount: round2(couByMonth[key])})
 		couponSum += couByMonth[key]
 	}
+	// Число ЧИСТЕ, і це не збіг трьох різних правил, а наслідок одного:
+	// сюди все потрапляє вже після податку. Купон ОВДП від нього
+	// звільнений (брутто = нетто), відсотки вкладу графік віддає
+	// після утримання, дивіденди фондів додаються нижче теж чистими.
+	// Скільки саме забрав податок — окремо, у /api/tax.
 	incomeMonthlyNow := round2(couponSum / 12)
 
 	// --- сертифікати фондів ---
@@ -3032,6 +3038,135 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
 	return out, nil
+}
+
+// handleTax — GET /api/tax?from=&to=
+//
+// Скільки з доходу забрала держава. Асиметрія між інструментами вже
+// зашита в real_pct, але відсотком її не відчуваєш: вклад під 16% і
+// папір під 16% — це різні гроші, і рядок «податок з'їв N ₴» каже це
+// пряміше за будь-яку ставку.
+//
+// Купон ОВДП звільнений від податку, дивіденд фонду оподатковується
+// (нині 14% = ПДФО 9% + військовий збір 5%), відсотки вкладу теж (19.5%
+// = ПДФО 18% + ВЗ 1.5%). Ставки НЕ зашиті: у фонду беремо фактично
+// утримане з операції, у вкладу — ставку з самого вкладу.
+func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	to := domain.Date(r.URL.Query().Get("to"))
+	if to == "" {
+		to = domain.NewDate(time.Now())
+	}
+	from := domain.Date(r.URL.Query().Get("from"))
+	if from == "" {
+		from = domain.NewDate(time.Now().AddDate(-1, 0, 0))
+	}
+
+	rates, err := s.rates(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	lots, sales, _, pays, err := s.portfolio(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	statuses, err := s.st.PaymentStatuses(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	today := domain.NewDate(time.Now())
+	inWindow := func(d domain.Date) bool { return !d.Before(from) && !d.After(to) }
+	arrived := func(isin string, d domain.Date) bool {
+		return d.Before(today) || statuses[isin+"|"+string(d)] != ""
+	}
+	uah := func(m *money.Money) int64 {
+		if u, cerr := fx.ToUAH(m, rates); cerr == nil {
+			return u.Amount()
+		}
+		return 0
+	}
+
+	type line struct {
+		Kind     string  `json:"kind"`
+		Label    string  `json:"label"`
+		GrossUAH float64 `json:"gross_uah"`
+		TaxUAH   float64 `json:"tax_uah"`
+		NetUAH   float64 `json:"net_uah"`
+		RatePct  float64 `json:"rate_pct"`
+	}
+	var bondGross, fundGross, fundTax, depGross, depTax int64
+
+	// ОВДП: купони. Погашення — повернення власного тіла, не дохід.
+	pastCF, err := domain.FuturePayments(pays, lots, sales, "1970-01-01")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	for _, cf := range pastCF {
+		if cf.Type == domain.PayRedemption || !inWindow(cf.Date) || !arrived(cf.ISIN, cf.Date) {
+			continue
+		}
+		bondGross += uah(cf.Amount)
+	}
+	// Фонди: беремо ФАКТИЧНО утримане, а не ставку. Ставка змінювалась і
+	// ще змінюватиметься, а у виписці стоїть те, що забрали насправді.
+	fundOps, _ := s.st.ListFundOps(ctx)
+	for _, op := range fundOps {
+		if op.Kind != domain.FundDividend || !inWindow(op.Date) {
+			continue
+		}
+		fundGross += uah(money.New(op.Amount, op.Currency))
+		fundTax += uah(money.New(op.Tax, op.Currency))
+	}
+	// Вклади: брутто й податок із того самого проходу, що й самі
+	// відсотки — графік показує нетто, і ділити його назад означало б
+	// накопичувати похибку.
+	termDeposits, _ := s.st.ListTermDeposits(ctx)
+	for _, dep := range termDeposits {
+		g, tx := domain.DepositInterestTax(dep, from, to)
+		if g == 0 {
+			continue
+		}
+		depGross += uah(money.New(g, dep.Currency))
+		depTax += uah(money.New(tx, dep.Currency))
+	}
+
+	minor := func(v int64) float64 { return round2(float64(v) / 100) }
+	mk := func(kind, label string, gross, tax int64) line {
+		l := line{Kind: kind, Label: label,
+			GrossUAH: minor(gross), TaxUAH: minor(tax), NetUAH: minor(gross - tax)}
+		if gross > 0 {
+			l.RatePct = round2(float64(tax) / float64(gross) * 100)
+		}
+		return l
+	}
+	out := struct {
+		From      string  `json:"from"`
+		To        string  `json:"to"`
+		GrossUAH  float64 `json:"gross_uah"`
+		TaxUAH    float64 `json:"tax_uah"`
+		NetUAH    float64 `json:"net_uah"`
+		RatePct   float64 `json:"rate_pct"`
+		ByKind    []line  `json:"by_kind,omitempty"`
+	}{From: string(from), To: string(to)}
+	for _, l := range []line{
+		mk("bond", "Купони ОВДП", bondGross, 0),
+		mk("fund", "Дивіденди фондів", fundGross, fundTax),
+		mk("deposit", "Відсотки вкладів", depGross, depTax),
+	} {
+		if l.GrossUAH != 0 {
+			out.ByKind = append(out.ByKind, l)
+		}
+	}
+	gross, tax := bondGross+fundGross+depGross, fundTax+depTax
+	out.GrossUAH, out.TaxUAH, out.NetUAH = minor(gross), minor(tax), minor(gross-tax)
+	if gross > 0 {
+		out.RatePct = round2(float64(tax) / float64(gross) * 100)
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleCashflowStatement — GET /api/cashflow?from=&to=

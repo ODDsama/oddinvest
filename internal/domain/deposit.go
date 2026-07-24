@@ -208,14 +208,37 @@ func DepositSchedule(d Deposit, asOf Date) []CashflowItem {
 	return out
 }
 
-// interestFlows — усі виплати відсотків вкладу (нетто, після податку) за
-// ВЕСЬ строк, без огляду на asOf і статус розірвання. Це спільне ядро:
-// майбутній графік (DepositSchedule) фільтрує його по даті, а XIRR
-// (DepositFlows) бере з нього реалізовані. Тіло сюди не входить.
-func (d Deposit) interestFlows() []CashflowItem {
-	isin := d.SyntheticISIN()
-	cur := d.Currency
-	var out []CashflowItem
+// DepositInterest — одна виплата відсотків: скільки нарахував банк, що
+// забрав податок і що дійшло на рахунок.
+//
+// Тримаються разом навмисно. Графік і календар показують НЕТТО (саме
+// стільки надійде), а податковий звіт питає БРУТТО — і виводити одне з
+// одного діленням означало б накопичувати похибку округлення на кожній
+// виплаті. Рахуємо обидва там, де відомий кожен інтервал.
+type DepositInterest struct {
+	Date  Date
+	Gross int64
+	Tax   int64
+}
+
+// Net — те, що дійде на рахунок.
+func (i DepositInterest) Net() int64 { return i.Gross - i.Tax }
+
+// interestPayments — усі виплати відсотків за ВЕСЬ строк, без огляду на
+// asOf і статус розірвання. Спільне ядро: графік (DepositSchedule)
+// фільтрує його по даті, XIRR (DepositFlows) бере реалізовані, а
+// податковий звіт — брутто. Тіло сюди не входить.
+func (d Deposit) interestPayments() []DepositInterest {
+	var out []DepositInterest
+	add := func(date Date, gross int64) {
+		if gross <= 0 {
+			return
+		}
+		tax := gross * d.TaxBP / 10000
+		if gross-tax > 0 {
+			out = append(out, DepositInterest{Date: date, Gross: gross, Tax: tax})
+		}
+	}
 	if d.Payout == PayoutEnd {
 		// Одна виплата в кінці. Капіталізація — складний відсоток помісячно
 		// до погашення; без неї — прості за весь строк на балансі, що росте.
@@ -223,23 +246,40 @@ func (d Deposit) interestFlows() []CashflowItem {
 		if d.Capitalized {
 			gross = d.compoundInterest()
 		}
-		if net := d.netInterest(gross); net > 0 {
-			out = append(out, CashflowItem{Date: d.MaturityDate, ISIN: isin,
-				Type: PayCoupon, Amount: money.New(net, cur)})
-		}
+		add(d.MaturityDate, gross)
 		return out
 	}
 	// Періодичні виплати: прості відсотки на баланс за кожен проміжок.
 	prev := d.OpenDate
 	for _, pd := range d.interestDates() {
-		gross := d.accruedInterest(prev, pd)
+		add(pd, d.accruedInterest(prev, pd))
 		prev = pd
-		if net := d.netInterest(gross); net > 0 {
-			out = append(out, CashflowItem{Date: pd, ISIN: isin,
-				Type: PayCoupon, Amount: money.New(net, cur)})
-		}
 	}
 	return out
+}
+
+// interestFlows — ті самі виплати у вигляді потоків (нетто).
+func (d Deposit) interestFlows() []CashflowItem {
+	isin := d.SyntheticISIN()
+	out := make([]CashflowItem, 0, 4)
+	for _, p := range d.interestPayments() {
+		out = append(out, CashflowItem{Date: p.Date, ISIN: isin,
+			Type: PayCoupon, Amount: money.New(p.Net(), d.Currency)})
+	}
+	return out
+}
+
+// DepositInterestTax — брутто й податок із виплат відсотків, що
+// припадають на вікно [from; to] включно.
+func DepositInterestTax(d Deposit, from, to Date) (gross, tax int64) {
+	for _, p := range d.interestPayments() {
+		if p.Date.Before(from) || p.Date.After(to) {
+			continue
+		}
+		gross += p.Gross
+		tax += p.Tax
+	}
+	return gross, tax
 }
 
 // DepositCashflows — майбутні потоки ВСІХ вкладів від asOf, відсортовані.

@@ -443,7 +443,7 @@ function shareTilesHTML(ctx) {
 
 // disclosure — згорнута секція з підписом. hint — сірий текст праворуч
 // від заголовка, коли треба сказати, коли цим користуються.
-function disclosure(key, title, body, hint = "") {
+export function disclosure(key, title, body, hint = "") {
   return `<details class="disclosure" data-fold="${key}">
     <summary>${title}${hint ? `<span class="hint">${hint}</span>` : ""}</summary>
     <div class="disclosure-body">${body}</div>

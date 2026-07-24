@@ -1704,6 +1704,135 @@ func TestDevaluationManualWins(t *testing.T) {
 	}
 }
 
+// seedPastBond кладе в довідник папір, купон і погашення якого вже
+// МИНУЛИ. Фікстура seed() датована майбутнім, тож для всього, що питає
+// «скільки я вже отримав», вона не годиться.
+func seedPastBond(t *testing.T, st *store.Store, isin string, coupon, redeem domain.Date) {
+	t.Helper()
+	secs := []nbu.Security{{
+		Bond: domain.Bond{ISIN: isin, Nominal: money.New(100000, money.UAH),
+			RateBP: 1655, Maturity: redeem, Descr: "гривневі військові"},
+		Payments: []domain.Payment{
+			{ISIN: isin, PayDate: coupon, Type: domain.PayCoupon, PerBond: money.New(8275, money.UAH)},
+			{ISIN: isin, PayDate: redeem, Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+		},
+	}}
+	if err := st.ReplaceDirectory(context.Background(), secs, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveRate(context.Background(), "USD", 441234, "2026-07-15"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Податок по інструментах різний, і саме це має бути видно грошима:
+// купон ОВДП звільнений, дивіденд фонду й відсотки вкладу — ні.
+func TestTaxByInstrument(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+
+	get := func() (rate float64, byKind map[string]float64, gross float64) {
+		t.Helper()
+		var d struct {
+			GrossUAH float64 `json:"gross_uah"`
+			RatePct  float64 `json:"rate_pct"`
+			ByKind   []struct {
+				Kind    string  `json:"kind"`
+				RatePct float64 `json:"rate_pct"`
+			} `json:"by_kind"`
+		}
+		_, b := do(t, "GET", srv.URL+"/api/tax", "")
+		if err := json.Unmarshal([]byte(b), &d); err != nil {
+			t.Fatalf("tax: %v: %s", err, b)
+		}
+		m := map[string]float64{}
+		for _, l := range d.ByKind {
+			m[l.Kind] = l.RatePct
+		}
+		return d.RatePct, m, d.GrossUAH
+	}
+
+	// Самі лише вклади: ефективна ставка дорівнює ставці податку вкладу.
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-180),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(185),
+		Payout:       domain.PayoutMonthly, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rate, byKind, gross := get()
+	if gross <= 0 {
+		t.Fatal("відсотки вкладу мали потрапити в дохід")
+	}
+	if math.Abs(rate-19.5) > 0.1 {
+		t.Errorf("портфель із самих вкладів мав дати ≈19.5%%, маємо %.2f%%", rate)
+	}
+	if math.Abs(byKind["deposit"]-19.5) > 0.1 {
+		t.Errorf("рядок вкладів = %.2f%%", byKind["deposit"])
+	}
+
+	// Додаємо купони ОВДП — вони звільнені, тож ефективна ставка ПАДАЄ.
+	past := domain.NewDate(time.Now()).AddDays(-90)
+	seedPastBond(t, st, "UA4000227748", past, domain.NewDate(time.Now()).AddDays(275))
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":50,"price_per_bond":"1000.00","buy_date":"`+
+			string(domain.NewDate(time.Now()).AddDays(-120))+`","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	mixed, byKind2, _ := get()
+	if byKind2["bond"] != 0 {
+		t.Errorf("купон ОВДП звільнений, а рядок каже %.2f%%", byKind2["bond"])
+	}
+	if !(mixed < rate) {
+		t.Errorf("звільнений дохід мав знизити ефективну ставку: було %.2f%%, стало %.2f%%",
+			rate, mixed)
+	}
+
+	// І фонд — за ФАКТИЧНО утриманим, а не за зашитою ставкою.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-10), Fund: "Inzhur", Kind: domain.FundDividend,
+		Amount: 100000, Tax: 14000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, byKind3, _ := get()
+	if math.Abs(byKind3["fund"]-14) > 0.1 {
+		t.Errorf("фонд: утримано 14%% від 1000 ₴, а рядок каже %.2f%%", byKind3["fund"])
+	}
+}
+
+// Погашення — це повернення власного тіла, а не дохід: якби воно сюди
+// потрапляло, ефективна ставка розмивалась би до нуля щоразу, коли
+// гаситься папір.
+func TestTaxExcludesRedemptions(t *testing.T) {
+	srv, st := testServer(t)
+	// І купон, і ПОГАШЕННЯ вже минули — обидва в межах вікна, тож фільтр
+	// має відсіяти саме друге, а не просто не дотягнутись до нього.
+	seedPastBond(t, st, "UA4000227748",
+		domain.NewDate(time.Now()).AddDays(-120), domain.NewDate(time.Now()).AddDays(-30))
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":10,"price_per_bond":"1000.00","buy_date":"`+
+			string(domain.NewDate(time.Now()).AddDays(-200))+`","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	var d struct {
+		GrossUAH float64 `json:"gross_uah"`
+	}
+	_, b := do(t, "GET", srv.URL+"/api/tax?from=2000-01-01&to=2030-01-01", "")
+	if err := json.Unmarshal([]byte(b), &d); err != nil {
+		t.Fatalf("tax: %v: %s", err, b)
+	}
+	// 10 паперів × номінал 1000 = 10 000 ₴ погашення. Якби воно входило,
+	// дохід перевищив би 10 000; самі купони — значно менші.
+	if d.GrossUAH >= 10000 {
+		t.Errorf("погашення потрапило в дохід: %.2f ₴", d.GrossUAH)
+	}
+	if d.GrossUAH <= 0 {
+		t.Errorf("купони мали потрапити, маємо %.2f", d.GrossUAH)
+	}
+}
+
 // Звіт про рух грошей мусить сходитись із рахунком. Він рахує ті самі
 // величини, що й зведення, але подіями за період — і якщо дві
 // реалізації розійдуться, помітити це можна лише тут.

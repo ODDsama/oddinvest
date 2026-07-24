@@ -10,12 +10,14 @@
 // рухи й ту саму звірку, які лежать вище.
 
 import {
-  esc, curSym, today, dayMonth, plural,
+  esc, curSym, today, dayMonth, plural, pct,
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { tile } from "../components.js";
-import { fundStatementHTML, wireFundOps, setFundOps, wireDisclosures } from "./portfolio.js";
+import {
+  fundStatementHTML, wireFundOps, setFundOps, wireDisclosures, disclosure,
+} from "./portfolio.js";
 
 // ---------- РАХУНОК ----------
 // Баланси по брокерах: гроші в одного не купують папір в іншого, тож
@@ -240,12 +242,43 @@ function flowHTML(f) {
   </div>`;
 }
 
+// Скільки з доходу забрала держава — грошима, а не ставкою.
+//
+// Асиметрія між інструментами вже зашита в реальну дохідність, але
+// відсотком її не відчуваєш. Вклад під 16% і папір під 16% — це різні
+// гроші, і рядок «податок з'їв стільки-то» каже це пряміше.
+function taxHTML(x) {
+  if (!x || !(x.by_kind || []).length) return "";
+  return `<div class="card">${disclosure("tax", "Податок на дохід",
+    `<div class="sub" style="margin-bottom:10px">${esc(x.from)} → ${esc(x.to)}</div>
+     <div class="table-scroll"><table>
+       <thead><tr><th>Джерело</th><th class="num">Нараховано</th>
+         <th class="num">Податок</th><th class="num">Чистими</th><th class="num">Ставка</th></tr></thead>
+       <tbody>${(x.by_kind || []).map((l) => `<tr>
+         <td>${esc(l.label)}</td>
+         <td class="num">${fmtUAH(l.gross_uah)}</td>
+         <td class="num">${l.tax_uah ? "−" + fmtUAH(l.tax_uah) : "—"}</td>
+         <td class="num">${fmtUAH(l.net_uah)}</td>
+         <td class="num">${l.gross_uah ? pct(l.rate_pct) : "—"}</td></tr>`).join("")}
+         <tr style="font-weight:600"><td>Разом</td>
+           <td class="num">${fmtUAH(x.gross_uah)}</td>
+           <td class="num">−${fmtUAH(x.tax_uah)}</td>
+           <td class="num">${fmtUAH(x.net_uah)}</td>
+           <td class="num">${pct(x.rate_pct)}</td></tr>
+       </tbody></table></div>
+     <div class="sub" style="margin-top:8px">Купон ОВДП звільнений від податку, дивіденд фонду й
+       відсотки вкладу — ні. Ставки не зашиті: у фонду береться фактично утримане з виписки, у
+       вкладу — ставка самого вкладу.</div>`,
+    pct(x.rate_pct))}</div>`;
+}
+
 export async function renderMoney(ctx, main) {
-  const [deposits, conversions, ops, flow] = await Promise.all([
+  const [deposits, conversions, ops, flow, tax] = await Promise.all([
     ctx.api("GET", "deposits").catch(() => []),
     ctx.api("GET", "conversions").catch(() => []),
     ctx.api("GET", "funds").catch(() => []),
     ctx.api("GET", "cashflow").catch(() => null),
+    ctx.api("GET", "tax").catch(() => null),
   ]);
   setFundOps(ops);
   const s = ctx.summary || {};
@@ -270,6 +303,8 @@ export async function renderMoney(ctx, main) {
     </div>
 
     ${flowHTML(flow)}
+
+    ${taxHTML(tax)}
 
     ${brokerBalancesHTML(ctx)}
 
