@@ -1520,20 +1520,27 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		targetUAH := totalMajor * (*tp) / 100
 		deficitUAH := math.Max(0, targetUAH-curUAH)
 		cashNative := float64(bal[cur]) / 100
-		// Одиниця входу — найдешевший спосіб додати цю валюту: облігація або
-		// вклад ($100/€100). Доти бралася лише облігація, тож поки в портфелі
-		// не назбирувалось на $1000-й папір, картка казала «ще зарано» — хоча
-		// вклад на $100 добирає частку задовго до того.
-		unitNative := float64(minNoms[cur]) / 100
-		unitKind := "bond"
+		// Одиниця входу з ПРІОРИТЕТОМ облігації: якщо найдешевший папір
+		// вписується в цільову частку — радимо його (безподатковий купон,
+		// справжній інструмент). Вклад ($100/€100) — запасний, менший вхід
+		// лише коли до облігації ще не доросли: доти картка казала «ще
+		// зарано» на $1000-й папір, хоча частку добирає й вклад на $100.
+		bondNative := float64(minNoms[cur]) / 100
+		bondUAH := bondNative * rateMajor
+		depNative := 0.0
 		if dm, ok := depMinByCur[cur]; ok {
-			depNative := float64(dm) / 100
-			if unitNative <= 0 || depNative < unitNative {
-				unitNative = depNative
-				unitKind = "deposit"
-			}
+			depNative = float64(dm) / 100
 		}
-		unitUAH := unitNative * rateMajor
+		var unitNative, unitUAH float64
+		var unitKind string
+		switch {
+		case bondNative > 0 && bondUAH <= targetUAH:
+			unitNative, unitUAH, unitKind = bondNative, bondUAH, "bond"
+		case depNative > 0:
+			unitNative, unitUAH, unitKind = depNative, depNative*rateMajor, "deposit"
+		default:
+			unitNative, unitUAH, unitKind = bondNative, bondUAH, "bond"
+		}
 		var canBuy int64
 		convertUAH := 0.0
 		if unitNative > 0 {
