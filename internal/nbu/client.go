@@ -177,32 +177,64 @@ func parseRateBP(s string) (int64, error) {
 type rawExchange struct {
 	Rate json.Number `json:"rate"`
 	CC   string      `json:"cc"`
+	// ExchangeDate — дата котирування у форматі DD.MM.YYYY. Довго не
+	// парсилась, і дата в базі ставилась із локального годинника; у
+	// вихідні НБУ віддає п'ятничний курс, тож ці дві дати розходились.
+	ExchangeDate string `json:"exchangedate"`
 }
 
-// Rate повертає курс валюти до гривні, ×10⁴.
+// Rate повертає курс валюти до гривні, ×10⁴, на сьогодні.
 func (c *Client) Rate(ctx context.Context, code string) (int64, error) {
+	e4, _, err := c.RateOn(ctx, code, "")
+	return e4, err
+}
+
+// RateOn — курс на конкретну дату; порожня on означає «сьогодні».
+// Другим значенням повертає ДАТУ КОТИРУВАННЯ, як її назвав НБУ: на
+// вихідний він віддає курс попереднього робочого дня, і записувати його
+// під сьогоднішнім числом означало б вигадувати котирування, якого не
+// було.
+func (c *Client) RateOn(ctx context.Context, code string, on domain.Date) (int64, domain.Date, error) {
 	url := c.base + fmt.Sprintf(exchangeURI, strings.ToUpper(code))
+	if on != "" {
+		// НБУ чекає YYYYMMDD без роздільників.
+		url += "&date=" + strings.ReplaceAll(string(on), "-", "")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("НБУ exchange: %w", err)
+		return 0, "", fmt.Errorf("НБУ exchange: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("НБУ exchange: HTTP %d", resp.StatusCode)
+		return 0, "", fmt.Errorf("НБУ exchange: HTTP %d", resp.StatusCode)
 	}
 	var raw []rawExchange
 	dec := json.NewDecoder(resp.Body)
 	dec.UseNumber()
 	if err := dec.Decode(&raw); err != nil {
-		return 0, fmt.Errorf("НБУ exchange: декодування: %w", err)
+		return 0, "", fmt.Errorf("НБУ exchange: декодування: %w", err)
 	}
 	if len(raw) == 0 {
-		return 0, fmt.Errorf("НБУ exchange: порожня відповідь для %s", code)
+		return 0, "", fmt.Errorf("НБУ exchange: порожня відповідь для %s", code)
 	}
-	return fx.ParseRateE4(raw[0].Rate.String())
+	e4, err := fx.ParseRateE4(raw[0].Rate.String())
+	if err != nil {
+		return 0, "", err
+	}
+	return e4, parseExchangeDate(raw[0].ExchangeDate), nil
+}
+
+// parseExchangeDate — DD.MM.YYYY -> domain.Date. Порожня на будь-якому
+// несподіваному вигляді: краще лишити дату виклику, ніж записати сміття.
+func parseExchangeDate(s string) domain.Date {
+	t, err := time.Parse("02.01.2006", strings.TrimSpace(s))
+	if err != nil {
+		return ""
+	}
+	return domain.NewDate(t)
 }

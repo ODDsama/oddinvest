@@ -1571,6 +1571,177 @@ func TestReinvestSuggestsOnlyReplenishableDeposits(t *testing.T) {
 	}
 }
 
+// seedRateHistory кладе дві точки курсу так, щоб між ними був рівно
+// заданий річний темп. Backfill у тестах не потрібен — важлива не дорога
+// до даних, а те, що застосунок їх читає.
+func seedRateHistory(t *testing.T, st *store.Store, years int, oldE4, newE4 int64) {
+	t.Helper()
+	ctx := context.Background()
+	old := domain.NewDate(time.Now().AddDate(-years, 0, 0))
+	if err := st.SaveRate(ctx, "USD", oldE4, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveRate(ctx, "USD", newE4, domain.NewDate(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Знецінення береться з реальних курсів, а не з припущеної шістки.
+// Курси справжні (24.00 ₴/$ на початку 2016 проти 44.81 сьогодні), але
+// рознесені рівно на 10 років, тому темп виходить 6.44%, а не 6.1% з
+// живого вікна: там між точками 3854 дні, тут 3652. Точний перерахунок
+// на справжніх датах перевіряє TestAnnualPctOnRealRates.
+func TestDevaluationMeasuredFromRates(t *testing.T) {
+	srv, st := testServer(t)
+	seedRateHistory(t, st, 10, 240007, 448110)
+
+	var got struct {
+		EffectivePct float64 `json:"effective_pct"`
+		Source       string  `json:"source"`
+		Windows      []struct {
+			Years int     `json:"years"`
+			Pct   float64 `json:"pct"`
+		} `json:"windows"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/devaluation", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("devaluation: %v: %s", err, body)
+	}
+	if got.Source != "measured" {
+		t.Errorf("джерело = %q, очікували measured: %s", got.Source, body)
+	}
+	if math.Abs(got.EffectivePct-6.44) > 0.1 {
+		t.Errorf("виміряне знецінення = %.2f%%, очікували ≈6.44%%", got.EffectivePct)
+	}
+	if len(got.Windows) == 0 {
+		t.Errorf("вікна мали порахуватись: %s", body)
+	}
+
+	// І воно справді доходить до дохідностей, а не лишається довідкою.
+	if resp, b := do(t, "POST", srv.URL+"/api/term-deposits",
+		`{"bank":"ПУМБ","currency":"UAH","principal":"100000","rate_pct":"16",
+		  "open_date":"2026-07-01","maturity_date":"2027-07-01","payout":"end","tax_pct":"0"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("вклад: %d %s", resp.StatusCode, b)
+	}
+	var deps []struct {
+		RealPct float64 `json:"real_pct"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/term-deposits", "")
+	if err := json.Unmarshal([]byte(body), &deps); err != nil {
+		t.Fatalf("term-deposits: %v: %s", err, body)
+	}
+	// 16% без податку при знеціненні 6.44% → (1.16/1.0644)-1 ≈ 8.98%.
+	// Головне тут не сама цифра, а те, що вона порахована з КУРСІВ:
+	// на припущеній шістці вийшло б 9.43%.
+	if len(deps) != 1 || math.Abs(deps[0].RealPct-8.98) > 0.15 {
+		t.Errorf("реальна ставка вкладу = %+v, очікували ≈8.98%%", deps)
+	}
+}
+
+// Ручне значення важить більше за виміряне: людина може мати підстави, і
+// відбирати в неї це право автоматика не повинна.
+func TestDevaluationManualWins(t *testing.T) {
+	srv, st := testServer(t)
+	seedRateHistory(t, st, 10, 240007, 448110)
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"uah_devaluation_pct":"15"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("settings: %d %s", resp.StatusCode, b)
+	}
+	var got struct {
+		EffectivePct float64 `json:"effective_pct"`
+		Source       string  `json:"source"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/devaluation", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("devaluation: %v: %s", err, body)
+	}
+	if got.Source != "manual" || got.EffectivePct != 15 {
+		t.Errorf("ручні 15%% мали перемогти виміряне: %+v", got)
+	}
+
+	// Порожнє значення повертає на виміряне — це і є «скинути».
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"uah_devaluation_pct":""}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("settings: %d %s", resp.StatusCode, b)
+	}
+	_, body = do(t, "GET", srv.URL+"/api/devaluation", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("devaluation: %v: %s", err, body)
+	}
+	if got.Source != "measured" {
+		t.Errorf("після очищення мало повернутись на виміряне: %+v", got)
+	}
+}
+
+// Уламок вікна — не вимірювання. Три роки історії дали б 10.2%/рік
+// замість 6.4% з десятирічного, і видавати це за «виміряне знецінення»
+// означало б показати наслідок обірваного backfill як факт про гривню.
+func TestDevaluationIgnoresTooShortWindow(t *testing.T) {
+	srv, st := testServer(t)
+	seedRateHistory(t, st, 3, 276913, 448110) // 2020 → сьогодні
+	var got struct {
+		EffectivePct float64 `json:"effective_pct"`
+		Source       string  `json:"source"`
+		Windows      []struct {
+			Years int     `json:"years"`
+			Pct   float64 `json:"pct"`
+		} `json:"windows"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/devaluation", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("devaluation: %v: %s", err, body)
+	}
+	if got.Source != "default" || got.EffectivePct != 6 {
+		t.Errorf("трирічної історії мало не вистачити: %+v", got)
+	}
+	// Але саме вікно показати варто — щоб було видно, що дані є, просто
+	// їх замало.
+	if len(got.Windows) == 0 {
+		t.Error("наявні вікна мали лишитись видимими навіть коли їм не вірять")
+	}
+}
+
+// Без історії курсу — чесний відступ на припущення, а не нуль чи помилка.
+func TestDevaluationFallsBackWithoutHistory(t *testing.T) {
+	srv, _ := testServer(t)
+	var got struct {
+		EffectivePct float64 `json:"effective_pct"`
+		Source       string  `json:"source"`
+		Note         string  `json:"note"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/devaluation", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("devaluation: %v: %s", err, body)
+	}
+	if got.Source != "default" || got.EffectivePct != 6 {
+		t.Errorf("без даних мала бути припущена шістка: %+v", got)
+	}
+	if got.Note == "" {
+		t.Error("відсутність історії мала бути названа словами")
+	}
+}
+
+// Налаштування приймало будь-що: "abc" лягало в базу, а на читанні
+// мовчки підмінялось дефолтом — поле виглядало збереженим і поводилось
+// як незбережене.
+func TestSettingsRejectGarbage(t *testing.T) {
+	srv, _ := testServer(t)
+	for _, bad := range []string{
+		`{"uah_devaluation_pct":"abc"}`,
+		`{"uah_devaluation_pct":"-5"}`,
+		`{"terminal_rate_pct":"багато"}`,
+	} {
+		if resp, b := do(t, "PUT", srv.URL+"/api/settings", bad); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s мало бути відхилено, маємо %d %s", bad, resp.StatusCode, b)
+		}
+	}
+	// А правильне — приймається.
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"uah_devaluation_pct":"7.5"}`); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("валідне значення мало пройти: %d %s", resp.StatusCode, b)
+	}
+}
+
 // Драбина мусить СКЛАДАТИ облігації й вклади, коли вони гасяться в
 // одному році й одній валюті, а не показувати останнє записане. Рядок
 // року складався присвоєнням, тож із двох джерел виживало одне — і

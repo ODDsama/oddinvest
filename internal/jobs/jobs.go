@@ -84,15 +84,23 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 
 	rateDate := domain.NewDate(time.Now().In(r.loc))
 	for _, code := range []string{"USD", "EUR"} {
-		rate, err := r.nbu.Rate(ctx, code)
+		rate, quoted, err := r.nbu.RateOn(ctx, code, "")
 		if err != nil {
 			r.log.Warn("курс недоступний", "code", code, "err", err) // не фатально: працюємо на останньому
 			continue
 		}
-		if err := r.st.SaveRate(ctx, code, rate, rateDate); err != nil {
+		// Пишемо під датою КОТИРУВАННЯ, а не запуску: у вихідні НБУ віддає
+		// п'ятничний курс, і під суботнім числом виходила б точка, якої не
+		// існувало. Доки історія читалась лише останнім рядком, це нічого
+		// не важило; для вимірювання темпу — важить.
+		d := rateDate
+		if quoted != "" {
+			d = quoted
+		}
+		if err := r.st.SaveRate(ctx, code, rate, d); err != nil {
 			return err
 		}
-		r.log.Info("курс збережено", "code", code, "rate_e4", rate)
+		r.log.Info("курс збережено", "code", code, "rate_e4", rate, "дата", string(d))
 	}
 
 	if err := r.Snapshot(ctx); err != nil {
@@ -136,6 +144,74 @@ func (r *Runner) PublishState(ctx context.Context) error {
 		return err
 	}
 	return r.pub.PublishState(b)
+}
+
+// BackfillRates — разово підтягує історію курсу з НБУ, по одній точці на
+// місяць за years років назад.
+//
+// Навіщо. Знецінення гривні тепер вимірюється, а не припускається, і
+// міряти його треба довгим вікном: коротке ловить або стрибок, або
+// затишшя між стрибками, і число стає лотереєю. Але fx_rates наповнюється
+// добовою джобою з дня встановлення, тож на свіжій базі історії немає
+// взагалі, а на працюючій — рівно стільки, скільки демон прожив.
+//
+// Помісячно, а не щодня: для річного темпу за десять років денна
+// докладність нічого не додає, а 3650 запитів до НБУ замість 120 — це
+// зловживання чужим сервісом. Пауза між запитами з тієї ж причини.
+//
+// Ідемпотентно: SaveRate пише через ON CONFLICT, тож повторний прогін
+// нічого не зіпсує. Помилка окремої дати не зупиняє решту — НБУ може не
+// мати котирування на конкретний день, і це нормально.
+func (r *Runner) BackfillRates(ctx context.Context, code string, years int) error {
+	const pause = 250 * time.Millisecond
+	now := time.Now().In(r.loc)
+	var got, failed int
+	for i := years * 12; i > 0; i-- {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		// Перше число кожного місяця; НБУ на вихідний віддасть курс
+		// попереднього робочого дня і сам назве його дату.
+		d := domain.NewDate(now.AddDate(0, -i, 0))
+		day := domain.Date(string(d)[:8] + "01")
+		rate, quoted, err := r.nbu.RateOn(ctx, code, day)
+		if err != nil {
+			failed++
+			r.log.Debug("backfill: дата пропущена", "code", code, "date", string(day), "err", err)
+			time.Sleep(pause)
+			continue
+		}
+		if quoted == "" {
+			quoted = day
+		}
+		if err := r.st.SaveRate(ctx, code, rate, quoted); err != nil {
+			return err
+		}
+		got++
+		time.Sleep(pause)
+	}
+	r.log.Info("історію курсу підтягнуто", "code", code, "точок", got, "пропущено", failed)
+	return nil
+}
+
+// BackfillIfThin запускає backfill лише тоді, коли історії справді мало.
+// Викликається при старті у власній горутині: мережа може лежати, і
+// сервіс не має через це не піднятись.
+func (r *Runner) BackfillIfThin(ctx context.Context, code string, years, minMonths int) {
+	have, err := r.st.RateMonthCount(ctx, code)
+	if err != nil {
+		r.log.Warn("backfill: не вдалось порахувати історію", "err", err)
+		return
+	}
+	if have >= minMonths {
+		return
+	}
+	r.log.Info("історії курсу замало — тягнемо з НБУ", "code", code, "місяців", have, "треба", minMonths)
+	if err := r.BackfillRates(ctx, code, years); err != nil {
+		r.log.Warn("backfill не завершився", "err", err)
+	}
 }
 
 // RunDaily — цикл: щодня о 06:10 Києва RefreshAll.

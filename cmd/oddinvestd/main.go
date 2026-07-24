@@ -58,6 +58,15 @@ func main() {
 	defer stop()
 
 	go runner.RunDaily(ctx)
+	// Історія курсу за десять років — з неї вимірюється знецінення
+	// гривні, а без неї застосунок відкочується на припущену шістку.
+	// У фоні й лише коли історії справді мало: це ~120 запитів до НБУ,
+	// разово, і сервіс не має через них чекати на старті.
+	go func() {
+		c, cancel := context.WithTimeout(ctx, 30*time.Minute)
+		defer cancel()
+		runner.BackfillIfThin(c, "USD", 10, 100)
+	}()
 	// стартова публікація, якщо стан уже є
 	go func() {
 		c, cancel := context.WithTimeout(ctx, time.Minute)

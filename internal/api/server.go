@@ -73,6 +73,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/bonds/{isin}", s.handleGetBond)
 	mux.HandleFunc("GET /api/accrued/{isin}", s.handleAccrued)
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
+	mux.HandleFunc("GET /api/devaluation", s.handleDevaluation)
 	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
 	mux.HandleFunc("POST /api/payments/status", s.handlePaymentStatus)
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)
@@ -242,28 +243,67 @@ const nbuRefreshedKey = "nbu_refreshed_at"
 // будь-який гривневий папір безнадійним.
 const defaultDevaluationPct = 6.0
 
-// devaluationPct — знецінення, з яким рахує ВЕСЬ застосунок: задане
-// користувачем або дефолтне. Одне місце, бо прогноз, реінвест-помічник і
-// дохідність позицій мають говорити одним припущенням — інакше помічник
-// радить одне, а прогноз малює інше.
-func devaluationPct(st *state.SettingsDoc) float64 {
-	if st != nil && st.UAHDevaluationPct != nil && *st.UAHDevaluationPct >= 0 {
-		return *st.UAHDevaluationPct
+// devalWindowYears — вікно вимірювання знецінення. Десять років, бо
+// гривня падає стрибками: коротке вікно ловить або стрибок, або затишшя
+// між ними, і число стає лотереєю (2016→2020 дають −0.3%/рік, 2022→2023
+// дають +34%). Десятирічне усереднює і те, і те.
+const devalWindowYears = 10
+
+// devalMinDays — скільки історії мусить бути, щоб їй вірити. Вісім років
+// із десяти: недобір у пару років вікно ще витримує, а трирічний уламок —
+// уже інша величина.
+const devalMinDays = 8 * 365
+
+// devaluationSource — звідки взялося чинне число, для UI.
+const (
+	devalManual   = "manual"
+	devalMeasured = "measured"
+	devalDefault  = "default"
+)
+
+// measuredDevaluation — річний темп зі СПРАВЖНІХ курсів НБУ, що лежать у
+// fx_rates. Історію туди пише добова джоба, а глибину дає разовий
+// backfill при старті.
+func (s *Server) measuredDevaluation(ctx context.Context) (float64, store.RatePoint, store.RatePoint, bool) {
+	from := domain.NewDate(time.Now().AddDate(-devalWindowYears, 0, 0))
+	oldest, err := s.st.OldestRate(ctx, money.USD, from)
+	if err != nil || oldest.RateE4 <= 0 {
+		return 0, oldest, store.RatePoint{}, false
 	}
-	return defaultDevaluationPct
+	newest, err := s.st.NewestRate(ctx, money.USD)
+	if err != nil || newest.RateE4 <= 0 {
+		return 0, oldest, newest, false
+	}
+	days := domain.DaysBetween(oldest.Date, newest.Date)
+	// Вікно має бути справді довгим, а не «яке вийшло». Якщо backfill
+	// обірвався на півдорозі й історії лишилось три роки, темп із неї
+	// вийде 10.2% замість 6.4% — і це буде не виміряне знецінення, а
+	// виміряний уламок вікна. Краще чесно відступити на припущення.
+	if days < devalMinDays {
+		return 0, oldest, newest, false
+	}
+	pct, ok := domain.AnnualPct(float64(oldest.RateE4), float64(newest.RateE4), days)
+	return round2(pct), oldest, newest, ok
 }
 
-// devaluation — те саме знецінення для хендлерів, у яких немає готового
-// SettingsDoc: читає той самий ключ, що потрапляє у зведення, і проходить
-// через ту саму функцію, щоб дефолт був один на всіх.
+// devaluation — знецінення, з яким рахує ВЕСЬ застосунок. Три сходинки, і
+// порядок тут — це порядок довіри: те, що людина задала свідомо, важить
+// більше за виміряне, а виміряне — більше за припущене.
 func (s *Server) devaluation(ctx context.Context) float64 {
-	doc := &state.SettingsDoc{}
+	v, _ := s.devaluationWithSource(ctx)
+	return v
+}
+
+func (s *Server) devaluationWithSource(ctx context.Context) (float64, string) {
 	if raw, _ := s.st.GetSetting(ctx, "uah_devaluation_pct"); raw != "" {
-		if f, err := strconv.ParseFloat(raw, 64); err == nil {
-			doc.UAHDevaluationPct = &f
+		if f, err := strconv.ParseFloat(raw, 64); err == nil && f >= 0 {
+			return f, devalManual
 		}
 	}
-	return devaluationPct(doc)
+	if m, _, _, ok := s.measuredDevaluation(ctx); ok {
+		return m, devalMeasured
+	}
+	return defaultDevaluationPct, devalDefault
 }
 
 // realYield — річна дохідність, приведена до сьогоднішньої гривні.
@@ -1139,7 +1179,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 
 	// Річне знецінення гривні. Одне число в налаштуваннях, від якого
 	// сценарії розходяться — як і ставка.
-	devalBase := devaluationPct(settings)
+	// Через ту саму сходинку, що й дохідності позицій: прогноз і помічник
+	// зобов'язані виходити з одного припущення, інакше вони суперечать
+	// одне одному на одному екрані.
+	devalBase := s.devaluation(ctx)
 	// Куди прийде гривнева ставка і як довго вона туди йтиме.
 	terminalUAH := defaultTerminalRatePct
 	if settings.TerminalRatePct != nil && *settings.TerminalRatePct >= 0 {
@@ -2181,6 +2224,17 @@ var settingsKeys = []string{"usd_target_share_pct", "eur_target_share_pct",
 	// «перезавантажити позаминулий місяць» стало б неможливим взагалі.
 	"import_since"}
 
+// numericSettings — ключі, значення яких мусять бути невід'ємним числом.
+// Доти перевірявся лише сам ключ: "abc" чи "-5" писались у базу як є, а
+// на читанні мовчки підмінялись дефолтом. Тобто налаштування виглядало
+// збереженим, поводилось як незбережене, і дізнатись про це не було де.
+var numericSettings = map[string]bool{
+	"usd_target_share_pct": true, "eur_target_share_pct": true,
+	"assumed_rate_pct": true, "goal_amount_uah": true,
+	"goal_pessimistic_uah": true, "goal_realistic_uah": true, "goal_optimistic_uah": true,
+	"uah_devaluation_pct": true, "terminal_rate_pct": true, "rate_glide_years": true,
+}
+
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	out := map[string]string{}
 	for _, k := range settingsKeys {
@@ -2209,6 +2263,19 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, fmt.Errorf("невідомий ключ %q", k))
 			return
 		}
+		// Порожнє значення дозволене й означає «прибрати»: саме так
+		// знецінення повертається з ручного на виміряне.
+		if v != "" && numericSettings[k] {
+			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+			if err != nil {
+				writeErr(w, http.StatusBadRequest, fmt.Errorf("%s: %q не число", k, v))
+				return
+			}
+			if f < 0 {
+				writeErr(w, http.StatusBadRequest, fmt.Errorf("%s: від'ємне значення %v", k, f))
+				return
+			}
+		}
 		if err := s.st.SetSetting(r.Context(), k, v); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
@@ -2216,6 +2283,75 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleDevaluation — звідки взялося знецінення і що показують дані.
+//
+// REST-only, поза MQTT: це екран Налаштувань, а не стан портфеля, і
+// роздувати retained-повідомлення довідковою таблицею немає сенсу.
+//
+// Вікна показуємо всі, а не лише чинне десятирічне, саме тому, що вони
+// РІЗНІ: побачивши поруч «за рік 4.3%» і «за десять 6.1%», людина
+// розуміє, чому число не можна брати з короткого вікна, — а не мусить
+// вірити на слово.
+func (s *Server) handleDevaluation(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	type window struct {
+		Label string  `json:"label"`
+		Years int     `json:"years"`
+		Pct   float64 `json:"pct"`
+		From  string  `json:"from"`
+		To    string  `json:"to"`
+	}
+	out := struct {
+		EffectivePct float64  `json:"effective_pct"`
+		Source       string   `json:"source"`
+		Windows      []window `json:"windows,omitempty"`
+		Note         string   `json:"note,omitempty"`
+	}{}
+	out.EffectivePct, out.Source = s.devaluationWithSource(ctx)
+
+	newest, err := s.st.NewestRate(ctx, money.USD)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if newest.RateE4 <= 0 {
+		out.Note = "історії курсу ще немає — застосунок працює на припущенні"
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	for _, y := range []int{1, 3, 5, 10} {
+		from := domain.NewDate(time.Now().AddDate(-y, 0, 0))
+		oldest, err := s.st.OldestRate(ctx, money.USD, from)
+		if err != nil || oldest.RateE4 <= 0 {
+			continue
+		}
+		days := domain.DaysBetween(oldest.Date, newest.Date)
+		pct, ok := domain.AnnualPct(float64(oldest.RateE4), float64(newest.RateE4), days)
+		if !ok {
+			continue
+		}
+		out.Windows = append(out.Windows, window{
+			Label: fmt.Sprintf("за %d %s", y, plural(y, "рік", "роки", "років")),
+			Years: y, Pct: round2(pct),
+			From: string(oldest.Date), To: string(newest.Date),
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// plural — українське відмінювання для довідкових підписів.
+func plural(n int, one, few, many string) string {
+	d, h := n%10, n%100
+	switch {
+	case d == 1 && h != 11:
+		return one
+	case d >= 2 && d <= 4 && (h < 10 || h >= 20):
+		return few
+	default:
+		return many
+	}
 }
 
 func (s *Server) handlePaymentStatus(w http.ResponseWriter, r *http.Request) {
@@ -2379,7 +2515,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	}
 	// Знецінення гривні: те саме припущення, що й у прогнозі, інакше
 	// помічник радив би одне, а прогноз малював інше.
-	devalPct := devaluationPct(doc.Settings)
+	devalPct := s.devaluation(ctx)
 	rates, err := s.rates(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)

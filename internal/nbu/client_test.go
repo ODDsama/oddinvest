@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	money "github.com/Rhymond/go-money"
@@ -77,6 +78,52 @@ func TestRateEndpoint(t *testing.T) {
 	}
 	if got != 441234 {
 		t.Errorf("курс ×10⁴ = %d, хочемо 441234", got)
+	}
+}
+
+// Історичний курс: НБУ приймає &date=YYYYMMDD, і без цього виміряти
+// знецінення довгим вікном не було б з чого — добова джоба наповнює
+// таблицю лише вперед від дня встановлення.
+func TestRateOnSendsDateAndReturnsQuoteDate(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Write([]byte(`[{"r030":840,"txt":"Долар США","rate":24.000667,"cc":"USD","exchangedate":"04.01.2016"}]`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL)
+
+	rate, quoted, err := c.RateOn(context.Background(), "usd", "2016-01-04")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotQuery, "date=20160104") {
+		t.Errorf("дата мала піти в запит без роздільників, маємо %q", gotQuery)
+	}
+	if rate != 240007 {
+		t.Errorf("курс ×10⁴ = %d, хочемо 240007", rate)
+	}
+	// Дату котирування беремо з відповіді, а не з годинника: на вихідний
+	// НБУ віддає курс попереднього робочого дня, і записувати його під
+	// запитаним числом означало б вигадати котирування.
+	if quoted != domain.Date("2016-01-04") {
+		t.Errorf("дата котирування = %q", quoted)
+	}
+}
+
+// Без дати — та сама поведінка, що й була: запит на сьогодні.
+func TestRateOnWithoutDateAsksToday(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Write([]byte(`[{"rate":44.811,"cc":"USD","exchangedate":"24.07.2026"}]`))
+	}))
+	defer srv.Close()
+	if _, _, err := New(srv.URL).RateOn(context.Background(), "usd", ""); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(gotQuery, "date=") {
+		t.Errorf("без дати параметра бути не мало, маємо %q", gotQuery)
 	}
 }
 

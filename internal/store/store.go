@@ -598,6 +598,56 @@ func (s *Store) SaveRate(ctx context.Context, code string, rateE4 int64, date do
 	return err
 }
 
+// RatePoint — курс на дату. Таблиця fx_rates накопичувала історію з
+// першого дня (PK — пара code+date), але читалась лише останнім рядком;
+// відколи знецінення вимірюється, а не припускається, історія потрібна
+// цілком.
+type RatePoint struct {
+	Date   domain.Date
+	RateE4 int64
+}
+
+// OldestRate — найдавніша наявна точка, але не давніша за notBefore.
+// Порожня notBefore означає «будь-яка».
+func (s *Store) OldestRate(ctx context.Context, code string, notBefore domain.Date) (RatePoint, error) {
+	var p RatePoint
+	var d string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT date, rate_e4 FROM fx_rates WHERE code=? AND (?='' OR date>=?)
+		 ORDER BY date LIMIT 1`, code, string(notBefore), string(notBefore)).Scan(&d, &p.RateE4)
+	if err == sql.ErrNoRows {
+		return RatePoint{}, nil
+	}
+	p.Date = domain.Date(d)
+	return p, err
+}
+
+// NewestRate — найсвіжіша точка разом із її датою. LatestRate поруч
+// віддає лише число: там, де курс просто конвертує суму, дата не
+// потрібна, а для вимірювання темпу — потрібна.
+func (s *Store) NewestRate(ctx context.Context, code string) (RatePoint, error) {
+	var p RatePoint
+	var d string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT date, rate_e4 FROM fx_rates WHERE code=? ORDER BY date DESC LIMIT 1`,
+		code).Scan(&d, &p.RateE4)
+	if err == sql.ErrNoRows {
+		return RatePoint{}, nil
+	}
+	p.Date = domain.Date(d)
+	return p, err
+}
+
+// RateMonthCount — скільки РІЗНИХ місяців є в історії. Саме місяців, а не
+// рядків: щоденні записи за два тижні — це один-два місяці історії, і
+// вирішувати по кількості рядків, чи потрібен backfill, було б хибно.
+func (s *Store) RateMonthCount(ctx context.Context, code string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(DISTINCT substr(date,1,7)) FROM fx_rates WHERE code=?`, code).Scan(&n)
+	return n, err
+}
+
 func (s *Store) LatestRate(ctx context.Context, code string) (int64, error) {
 	var r int64
 	err := s.db.QueryRowContext(ctx,
