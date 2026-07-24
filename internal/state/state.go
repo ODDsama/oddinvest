@@ -211,6 +211,17 @@ type SettingsDoc struct {
 	// ReinvestRank — критерій ранжування помічника:
 	// plan (за замовчуванням) | rate | short | ladder.
 	ReinvestRank string `json:"reinvest_rank,omitempty"`
+	// Вклад як інструмент реінвесту. DepositMin* — мінімальне вкладення у
+	// валюті (мажорні одиниці): нижче цієї суми простій валюти «до реінвесту»
+	// не готовий, і саме ця сума — крок поради «відкрити новий вклад».
+	// DepositRate*Pct — річна ставка нового вкладу, %: без неї поради у цій
+	// валюті немає (поріг усе одно діє). USD/EUR за замовчуванням 100.
+	DepositMinUSD *float64 `json:"deposit_min_usd,omitempty"`
+	DepositMinEUR *float64 `json:"deposit_min_eur,omitempty"`
+	DepositMinUAH *float64 `json:"deposit_min_uah,omitempty"`
+	DepositRateUSDPct *float64 `json:"deposit_rate_usd_pct,omitempty"`
+	DepositRateEURPct *float64 `json:"deposit_rate_eur_pct,omitempty"`
+	DepositRateUAHPct *float64 `json:"deposit_rate_uah_pct,omitempty"`
 }
 
 // RebalanceRow — що треба зробити, щоб вийти на цільову частку валюти.

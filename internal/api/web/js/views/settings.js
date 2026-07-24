@@ -190,6 +190,23 @@ export async function renderSettings(ctx, main) {
       </form>
     </div>
 
+    <div class="card">
+      <h2>Вклади як інструмент реінвесту</h2>
+      <div class="muted" style="margin-bottom:10px">Мінімум робить простій валюти «готовим до реінвесту» —
+        входить у прогноз і задає крок поради «відкрити новий вклад». Ставка потрібна лише для поради:
+        без неї запис не показується, але поріг усе одно діє. Порожній мінімум USD/EUR = <b>100</b>;
+        «0» вимикає валюту. UAH за замовчуванням вимкнено.</div>
+      <form id="depForm">
+        <label>Мінімум вкладу USD<input name="deposit_min_usd" inputmode="decimal" placeholder="порожньо = 100" value="${esc(s.deposit_min_usd || "")}"></label>
+        <label>Мінімум вкладу EUR<input name="deposit_min_eur" inputmode="decimal" placeholder="порожньо = 100" value="${esc(s.deposit_min_eur || "")}"></label>
+        <label>Мінімум вкладу UAH<input name="deposit_min_uah" inputmode="decimal" placeholder="порожньо = вимкнено" value="${esc(s.deposit_min_uah || "")}"></label>
+        <label>Ставка нового вкладу USD, %<input name="deposit_rate_usd_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_usd_pct || "")}"></label>
+        <label>Ставка нового вкладу EUR, %<input name="deposit_rate_eur_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_eur_pct || "")}"></label>
+        <label>Ставка нового вкладу UAH, %<input name="deposit_rate_uah_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_uah_pct || "")}"></label>
+        <button type="submit">Зберегти</button>
+      </form>
+    </div>
+
     ${devalHTML(deval)}
 
     ${catalogsHTML(ctx)}
@@ -218,6 +235,20 @@ export async function renderSettings(ctx, main) {
     for (const k of ["usd_target_share_pct", "eur_target_share_pct",
       "goal_amount_uah", "goal_date",
       "uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years"]) {
+      if (f.elements[k]) payload[k] = f.elements[k].value.trim();
+    }
+    try {
+      await ctx.api("PUT", "settings", payload);
+      ctx.toast("Налаштування збережено"); ctx.reload();
+    } catch (err) { ctx.toast(String(err.message || err), false); }
+  });
+  main.querySelector("#depForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    // Той самий частковий PUT: шлемо лише поля вкладів, решту не чіпаємо.
+    const payload = {};
+    for (const k of ["deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
+      "deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct"]) {
       if (f.elements[k]) payload[k] = f.elements[k].value.trim();
     }
     try {

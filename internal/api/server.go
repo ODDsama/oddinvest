@@ -940,9 +940,23 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	if err != nil {
 		return nil, err
 	}
+	// Мінімум по валютах у мінорних: спершу найдешевший папір (ОВДП), потім
+	// зливаємо мінімум вкладу. Вклад — теж інструмент реінвесту, тож там, де
+	// його поріг нижчий (або де паперу у валюті немає), «до реінвесту
+	// готовий» настає раніше. Саме це дає простою USD/EUR куди йти без
+	// відповідних облігацій.
+	minByCur := map[string]int64{}
+	for cur, minNom := range minNoms {
+		minByCur[cur] = minNom
+	}
+	for cur, depMin := range s.depositMinMinorByCur(ctx) {
+		if have, ok := minByCur[cur]; !ok || depMin < have {
+			minByCur[cur] = depMin
+		}
+	}
 	reinvestMinByCur := map[string]float64{}
 	reinvestMin := money.New(0, money.UAH)
-	for cur, minNom := range minNoms {
+	for cur, minNom := range minByCur {
 		reinvestMinByCur[cur] = float64(minNom) / 100
 		uahAmt, err := fx.ToUAH(money.New(minNom, cur), rates)
 		if err != nil {
@@ -997,6 +1011,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		{"uah_devaluation_pct", &settings.UAHDevaluationPct},
 		{"terminal_rate_pct", &settings.TerminalRatePct},
 		{"rate_glide_years", &settings.RateGlideYears},
+		{"deposit_min_usd", &settings.DepositMinUSD},
+		{"deposit_min_eur", &settings.DepositMinEUR},
+		{"deposit_min_uah", &settings.DepositMinUAH},
+		{"deposit_rate_usd_pct", &settings.DepositRateUSDPct},
+		{"deposit_rate_eur_pct", &settings.DepositRateEURPct},
+		{"deposit_rate_uah_pct", &settings.DepositRateUAHPct},
 	} {
 		if raw, _ := s.st.GetSetting(ctx, g.key); raw != "" {
 			if f, err := strconv.ParseFloat(raw, 64); err == nil {
@@ -2332,6 +2352,9 @@ var settingsKeys = []string{"usd_target_share_pct", "eur_target_share_pct",
 	"assumed_rate_pct", "goal_amount_uah", "goal_date",
 	"reinvest_rank", "goal_pessimistic_uah", "goal_realistic_uah", "goal_optimistic_uah",
 	"uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years",
+	// Вклад як інструмент реінвесту: мінімум і ставка нового вкладу по валютах.
+	"deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
+	"deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct",
 	// import_since рухає сам імпорт, але лишається редагованим: інакше
 	// «перезавантажити позаминулий місяць» стало б неможливим взагалі.
 	"import_since"}
@@ -2345,6 +2368,39 @@ var numericSettings = map[string]bool{
 	"assumed_rate_pct": true, "goal_amount_uah": true,
 	"goal_pessimistic_uah": true, "goal_realistic_uah": true, "goal_optimistic_uah": true,
 	"uah_devaluation_pct": true, "terminal_rate_pct": true, "rate_glide_years": true,
+	"deposit_min_usd": true, "deposit_min_eur": true, "deposit_min_uah": true,
+	"deposit_rate_usd_pct": true, "deposit_rate_eur_pct": true, "deposit_rate_uah_pct": true,
+}
+
+// depositMinMinorByCur — мінімальне вкладення у вклад по валютах, у МІНОРНИХ
+// одиницях. Це водночас поріг «простій готовий до реінвесту» і крок поради
+// «відкрити новий вклад». USD/EUR за замовчуванням 100.00 (=10000 мінорних):
+// порожній ключ = дефолт, явний 0 (чи сміття) = вимкнено (валюти в мапі
+// немає). UAH — лише якщо задано явно.
+func (s *Server) depositMinMinorByCur(ctx context.Context) map[string]int64 {
+	out := map[string]int64{}
+	for _, sp := range []struct {
+		cur, key string
+		def      int64 // мінорні; 0 = без дефолту
+	}{
+		{money.USD, "deposit_min_usd", 10000},
+		{money.EUR, "deposit_min_eur", 10000},
+		{money.UAH, "deposit_min_uah", 0},
+	} {
+		raw, _ := s.st.GetSetting(ctx, sp.key)
+		if raw == "" {
+			if sp.def > 0 {
+				out[sp.cur] = sp.def
+			}
+			continue
+		}
+		f, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if err != nil || f <= 0 {
+			continue // явний 0 або сміття = вимкнено
+		}
+		out[sp.cur] = int64(math.Round(f * 100))
+	}
+	return out
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -2878,6 +2934,44 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			YieldBasis:  "ставка вкладу після податку",
 			Brokers:     fits, Affordable: best, CanBuy: best > 0,
 			Reason: "поповнення на суму відкриття",
+			def:    target[c] - cur[c],
+		})
+	}
+
+	// --- новий вклад ---
+	// Вклад — теж інструмент реінвесту: якщо задано ставку у валюті,
+	// пропонуємо відкрити НОВИЙ вклад на мінімальну суму ($100/€100). Це дає
+	// простою USD/EUR куди йти, коли облігацій у цій валюті немає. Крок =
+	// той самий мінімум, що й поріг «до реінвесту готовий». Без заданої
+	// ставки поради немає — порівнювати дохідність не було б із чим.
+	depRate := map[string]*float64{}
+	if doc.Settings != nil {
+		depRate[money.USD] = doc.Settings.DepositRateUSDPct
+		depRate[money.EUR] = doc.Settings.DepositRateEURPct
+		depRate[money.UAH] = doc.Settings.DepositRateUAHPct
+	}
+	depMin := s.depositMinMinorByCur(ctx)
+	const depTaxBP = 1950 // дефолтна ставка податку на відсотки, як у deposit.go
+	for _, c := range []string{money.USD, money.EUR, money.UAH} {
+		rp := depRate[c]
+		minMinor, hasMin := depMin[c]
+		if rp == nil || *rp <= 0 || !hasMin || minMinor <= 0 {
+			continue
+		}
+		rateBP := int64(math.Round(*rp * 100)) // % → ×100, як RateBP
+		netRate := float64(rateBP) / 10000 * (1 - float64(depTaxBP)/10000)
+		real := realYield(netRate, c, devalPct)
+		costMajor := float64(minMinor) / 100
+		fits, best := fitsFor(c, costMajor)
+		out = append(out, suggestion{
+			Kind: "deposit", Label: "Новий вклад", Currency: c,
+			RatePct:     fmt.Sprintf("%d.%02d", rateBP/100, rateBP%100),
+			CostPerBond: toMoneyJSON(money.New(minMinor, c)),
+			NominalPct:  round2(netRate * 100),
+			RealPct:     round2(real * 100),
+			YieldBasis:  "ставка вкладу після податку",
+			Brokers:     fits, Affordable: best, CanBuy: best > 0,
+			Reason: "новий вклад, мінімум " + money.New(minMinor, c).Display(),
 			def:    target[c] - cur[c],
 		})
 	}

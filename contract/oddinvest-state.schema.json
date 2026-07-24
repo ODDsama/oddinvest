@@ -267,6 +267,36 @@
         "channels": {
           "type": "string",
           "description": "Канали купівлі через кому (mono, inzhur…)"
+        },
+        "deposit_min_usd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Мінімальне вкладення у вклад USD (мажорні). Поріг реінвесту й крок поради «новий вклад». За замовч. 100 (адитивне поле)"
+        },
+        "deposit_min_eur": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Те саме для EUR, за замовч. 100 (адитивне поле)"
+        },
+        "deposit_min_uah": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Те саме для UAH; за замовч. вимкнено (адитивне поле)"
+        },
+        "deposit_rate_usd_pct": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Річна ставка нового вкладу USD, %. Без неї поради «новий вклад» немає (адитивне поле)"
+        },
+        "deposit_rate_eur_pct": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Річна ставка нового вкладу EUR, % (адитивне поле)"
+        },
+        "deposit_rate_uah_pct": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Річна ставка нового вкладу UAH, % (адитивне поле)"
         }
       }
     },
