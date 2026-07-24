@@ -613,14 +613,16 @@ func (s *Store) LatestRate(ctx context.Context, code string) (int64, error) {
 // місцями, і помітно це стає вже на графіку.
 func (s *Store) SaveSnapshot(ctx context.Context, sn Snapshot) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO snapshots
-		(date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah, month_target_uah, account_uah, funds_uah)
-		VALUES(?,?,?,?,?,?,?,?)
+		(date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah, month_target_uah,
+		 account_uah, funds_uah, deposits_uah)
+		VALUES(?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(date) DO UPDATE SET invested_uah=excluded.invested_uah,
 		nominal_uah_eq=excluded.nominal_uah_eq, usd_share_bp=excluded.usd_share_bp,
 		uninvested_uah=excluded.uninvested_uah, month_target_uah=excluded.month_target_uah,
-		account_uah=excluded.account_uah, funds_uah=excluded.funds_uah`,
+		account_uah=excluded.account_uah, funds_uah=excluded.funds_uah,
+		deposits_uah=excluded.deposits_uah`,
 		string(sn.Date), sn.InvestedUAH, sn.NominalUAHEq, sn.USDShareBP,
-		sn.UninvestedUAH, sn.MonthTargetUAH, sn.AccountUAH, sn.FundsUAH)
+		sn.UninvestedUAH, sn.MonthTargetUAH, sn.AccountUAH, sn.FundsUAH, sn.DepositsUAH)
 	return err
 }
 
@@ -672,14 +674,17 @@ type Snapshot struct {
 	UninvestedUAH  int64
 	MonthTargetUAH int64
 	AccountUAH     int64
-	// FundsUAH — сертифікати фондів у грн-екв. Нуль у старих рядках
-	// означає «тоді не рахували», а не «не було».
-	FundsUAH int64
+	// FundsUAH — сертифікати фондів у грн-екв. DepositsUAH — тіло
+	// банківських вкладів. Нуль у старих рядках в обох означає «тоді не
+	// рахували», а не «не було»: колонки з'явились пізніше за самі
+	// інструменти (міграції 0012 і 0016).
+	FundsUAH    int64
+	DepositsUAH int64
 }
 
 func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snapshot, error) {
 	sqlq := `SELECT date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah,
-		month_target_uah, account_uah, funds_uah FROM snapshots WHERE 1=1`
+		month_target_uah, account_uah, funds_uah, deposits_uah FROM snapshots WHERE 1=1`
 	args := []any{}
 	if from != "" {
 		sqlq += ` AND date >= ?`
@@ -699,7 +704,8 @@ func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snap
 	for rows.Next() {
 		var sn Snapshot
 		var d string
-		if err := rows.Scan(&d, &sn.InvestedUAH, &sn.NominalUAHEq, &sn.USDShareBP, &sn.UninvestedUAH, &sn.MonthTargetUAH, &sn.AccountUAH, &sn.FundsUAH); err != nil {
+		if err := rows.Scan(&d, &sn.InvestedUAH, &sn.NominalUAHEq, &sn.USDShareBP,
+			&sn.UninvestedUAH, &sn.MonthTargetUAH, &sn.AccountUAH, &sn.FundsUAH, &sn.DepositsUAH); err != nil {
 			return nil, err
 		}
 		sn.Date = domain.Date(d)

@@ -69,6 +69,9 @@
   --oi-series-nominal: #2ecc71;
   --oi-series-account: #8e24aa;
   --oi-series-funds: #26c6da;
+  /* Рожевий, бо --oi-kind-deposit дорівнює --oi-series-nominal, і на
+     кривій дві лінії зливались би в одну. */
+  --oi-series-deposits: #f06292;
   --oi-series-plan: #ffa600;
   --oi-series-neutral: var(--secondary-text-color);
 

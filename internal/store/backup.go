@@ -138,12 +138,25 @@ type BackupPayStatus struct {
 	MarkedAt string `json:"marked_at"`
 }
 
+// BackupSnapshot — рядок історії. Довго ніс лише перші п'ять полів, і
+// відновлення мовчки стирало решту: місячну ціль, рахунок і фонди — усе
+// те, що додавалось у знімок пізніше (міграції 0003, 0005, 0012).
+// Помітно це стало б тоді, коли відновлюватись уже нема з чого, а крива
+// «Як росте» після restore просіла б рівно на вартість фондів.
+//
+// Нові поля omitempty: бекапи, зроблені до цієї зміни, читаються
+// по-старому — там, де їх немає, лишається нуль, тобто те саме «тоді не
+// рахували», що й у самій колонці.
 type BackupSnapshot struct {
-	Date          string `json:"date"`
-	InvestedUAH   int64  `json:"invested_uah"`
-	NominalUAHEq  int64  `json:"nominal_uah_eq"`
-	USDShareBP    int64  `json:"usd_share_bp"`
-	UninvestedUAH int64  `json:"uninvested_uah"`
+	Date           string `json:"date"`
+	InvestedUAH    int64  `json:"invested_uah"`
+	NominalUAHEq   int64  `json:"nominal_uah_eq"`
+	USDShareBP     int64  `json:"usd_share_bp"`
+	UninvestedUAH  int64  `json:"uninvested_uah"`
+	MonthTargetUAH int64  `json:"month_target_uah,omitempty"`
+	AccountUAH     int64  `json:"account_uah,omitempty"`
+	FundsUAH       int64  `json:"funds_uah,omitempty"`
+	DepositsUAH    int64  `json:"deposits_uah,omitempty"`
 }
 
 // ExportAll читає всі користувацькі таблиці в один знімок.
@@ -267,10 +280,12 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT date,invested_uah,nominal_uah_eq,usd_share_bp,uninvested_uah FROM snapshots ORDER BY date`,
+	if err := s.scan(ctx, `SELECT date,invested_uah,nominal_uah_eq,usd_share_bp,uninvested_uah,
+		month_target_uah,account_uah,funds_uah,deposits_uah FROM snapshots ORDER BY date`,
 		func(scan func(...any) error) error {
 			var r BackupSnapshot
-			if err := scan(&r.Date, &r.InvestedUAH, &r.NominalUAHEq, &r.USDShareBP, &r.UninvestedUAH); err != nil {
+			if err := scan(&r.Date, &r.InvestedUAH, &r.NominalUAHEq, &r.USDShareBP, &r.UninvestedUAH,
+				&r.MonthTargetUAH, &r.AccountUAH, &r.FundsUAH, &r.DepositsUAH); err != nil {
 				return err
 			}
 			b.Snapshots = append(b.Snapshots, r)
@@ -298,7 +313,15 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// і заповнюються заново з назв у бекапі: тримати бекап у назвах, а не
 	// в id, означає, що відновлення не залежить від того, які id були в
 	// базі-джерелі.
+	//
+	// term_deposits і deposit_topups сюди не потрапили, коли вклади
+	// з'явились, і наслідок був не «дублікати після відновлення», а
+	// повна відмова: term_deposits.broker_id посилається на brokers, тож
+	// DELETE FROM brokers упирався у FK, і restore падав у будь-кого, хто
+	// має бодай один вклад. Поповнення — перед самим вкладом, вони його
+	// діти.
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
+		"deposit_topups", "term_deposits",
 		"settings", "payment_status", "snapshots", "funds", "brokers"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
@@ -453,8 +476,10 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	}
 	for _, sn := range b.Snapshots {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO snapshots (date,invested_uah,nominal_uah_eq,usd_share_bp,uninvested_uah) VALUES (?,?,?,?,?)`,
-			sn.Date, sn.InvestedUAH, sn.NominalUAHEq, sn.USDShareBP, sn.UninvestedUAH); err != nil {
+			`INSERT INTO snapshots (date,invested_uah,nominal_uah_eq,usd_share_bp,uninvested_uah,
+				month_target_uah,account_uah,funds_uah,deposits_uah) VALUES (?,?,?,?,?,?,?,?,?)`,
+			sn.Date, sn.InvestedUAH, sn.NominalUAHEq, sn.USDShareBP, sn.UninvestedUAH,
+			sn.MonthTargetUAH, sn.AccountUAH, sn.FundsUAH, sn.DepositsUAH); err != nil {
 			return fmt.Errorf("знімок %s: %w", sn.Date, err)
 		}
 	}

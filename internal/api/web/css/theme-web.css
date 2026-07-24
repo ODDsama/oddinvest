@@ -61,6 +61,11 @@
   --oi-series-nominal: #2ecc71;
   --oi-series-account: #8e24aa;
   --oi-series-funds: #26c6da;
+  /* Вклади — рожевий, а НЕ колір виду інструмента: --oi-kind-deposit
+     збігається з --oi-series-nominal піксель у піксель, і на кривій дві
+     лінії ставали однією. Пігулка в таблиці й лінія на графіку живуть
+     у різних контекстах, тож і палітри в них різні. */
+  --oi-series-deposits: #f06292;
   --oi-series-plan: #ffa600;
   --oi-series-neutral: #8b949e;
 

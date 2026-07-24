@@ -120,7 +120,13 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
     xlabels += `<text x="${x(i).toFixed(1)}" y="${height - 14}" text-anchor="middle" font-size="11" fill="${AXIS}">${esc(dates[i].slice(5))}</text>`;
   }
   const lines = series.map((s) => {
-    const pts = s.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    // null у значенні — це «тоді не рахували», а не нуль. Точку не
+    // малюємо зовсім: намальований нуль читався б як «грошей не було», і
+    // лінія злітала б угору в той день, коли з'явилась КОЛОНКА, а не
+    // самі гроші. Так серія просто починається там, де є що показувати.
+    const pts = s.values
+      .map((v, i) => (v == null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
+      .filter(Boolean).join(" ");
     return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2.5"`
       + `${s.dash ? ' stroke-dasharray="6 5"' : ""} stroke-linejoin="round"/>`;
   }).join("");

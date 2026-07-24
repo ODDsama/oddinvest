@@ -119,6 +119,7 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 		MonthTargetUAH: int64(doc.MonthTargetUAH * 100),
 		AccountUAH:     int64(doc.AccountUAH * 100),
 		FundsUAH:       int64(doc.FundsUAH * 100),
+		DepositsUAH:    int64(doc.DepositsUAH * 100),
 	})
 }
 

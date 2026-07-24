@@ -2702,13 +2702,15 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 		MonthTargetUAH float64 `json:"month_target_uah"`
 		AccountUAH     float64 `json:"account_uah"`
 		FundsUAH       float64 `json:"funds_uah"`
+		DepositsUAH    float64 `json:"deposits_uah"`
 	}
 	out := make([]snapJSON, 0, len(snaps))
 	for _, sn := range snaps {
 		out = append(out, snapJSON{string(sn.Date), float64(sn.InvestedUAH) / 100,
 			float64(sn.NominalUAHEq) / 100, float64(sn.USDShareBP) / 100,
 			float64(sn.UninvestedUAH) / 100, float64(sn.MonthTargetUAH) / 100,
-			float64(sn.AccountUAH) / 100, float64(sn.FundsUAH) / 100})
+			float64(sn.AccountUAH) / 100, float64(sn.FundsUAH) / 100,
+			float64(sn.DepositsUAH) / 100})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

@@ -3,11 +3,11 @@
   "root": "internal/api/web",
   "files": [
     { "path": "css/base.css", "sha256": "1830bba6eef9fff0a4194171e302e5470019fa6fd93b2b709a68feb2953805fb" },
-    { "path": "css/theme-ha.css", "sha256": "f108f035362c5b3addc46b878c0942ff20061055e6d3ba584dc0f178eac47383" },
-    { "path": "css/theme-web.css", "sha256": "939c74578a9ff42bb6dd6b6aed27d6a4292575e09b8eeb75f3b9ef59126a157f" },
+    { "path": "css/theme-ha.css", "sha256": "2c5eba51a966bec5af43513b6e413433bee4bcc68a897f07053fb7881e2f69a9" },
+    { "path": "css/theme-web.css", "sha256": "016b1655ef52283aeff963aa710f766db36dd22e87945b53eaf65393572eba2b" },
     { "path": "css/tokens.css", "sha256": "7f40aebc154d1e549f8d12afd17269dbe0a15dfa1367e1205eacfb05120d7a8c" },
     { "path": "js/app.js", "sha256": "b482427b4917d83cdfcac96622997957e7bda2b6d122d43980dda1e2daea912e" },
-    { "path": "js/charts.js", "sha256": "fe05245daca26f07843fe8d23162e26dafc5485a31b3b020eb932ef50df4c9ee" },
+    { "path": "js/charts.js", "sha256": "e06ab10e0b38291f5d82e6d7540e2ef4ecc79b4203ba9b1ca25c6f480802aaf2" },
     { "path": "js/components.js", "sha256": "af4d4f252f255507a36212b8e740facb1770d01701f9dbeab91dc47accc6c171" },
     { "path": "js/constants.js", "sha256": "8c9cb264fea6104649f1921af6c79ba5d10302678e0c62e25c0ee6e863e1f37a" },
     { "path": "js/format.js", "sha256": "5a21fd5faa8eed0f1db04167ad35549b3b8a797f50d9b4e9de05fb5761aca9da" },
@@ -19,7 +19,7 @@
     { "path": "js/views/future.js", "sha256": "904f5a87f7cc43c94f309ffb1a73e143a1452ecdcf928c96d0fb41e2e80b2e12" },
     { "path": "js/views/money.js", "sha256": "3eb4d3fa7f9163a7bc16d698922ea0d414581bd2479823d70e7bb58f5794a4fb" },
     { "path": "js/views/overview.js", "sha256": "452307e28461be0848d955eb4fdf90538ebd3a813b6e8e2c8ff773c8851d5325" },
-    { "path": "js/views/portfolio.js", "sha256": "40123204b98feff8228326f9fa9d0f58f5b6bb1b63c6cc376248077b58f5684f" },
+    { "path": "js/views/portfolio.js", "sha256": "97cb8fad8a31e15c821b0d54b11097fec245dc08b16bfaee842879283bbdb0fc" },
     { "path": "js/views/settings.js", "sha256": "f5355e0911c3725fafd00d3efa42eb21e48e2ec3117dd5a394d89f6bc416d3c7" }
   ]
 }

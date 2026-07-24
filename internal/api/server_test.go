@@ -1571,6 +1571,135 @@ func TestReinvestSuggestsOnlyReplenishableDeposits(t *testing.T) {
 	}
 }
 
+// Відновлення з бекапу мусить працювати з вкладами. Доти term_deposits
+// не було в списку таблиць, які restore очищає, а term_deposits.broker_id
+// посилається на brokers — тож DELETE FROM brokers упирався у FK, і
+// відновлення падало цілком у будь-кого, хто має бодай один вклад.
+// Помітно це стало б у найгірший момент: коли відновлюватись уже треба.
+func TestRestoreWorksWithDeposits(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	dep, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-30),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(335),
+		Payout:       domain.PayoutEnd, TaxBP: 1950, Replenishable: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDepositTopup(ctx, domain.DepositTopup{
+		DepositID: dep, Date: domain.NewDate(time.Now()).AddDays(-5), Amount: 10000000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, dump := do(t, "GET", srv.URL+"/api/backup", "")
+	if resp, b := do(t, "POST", srv.URL+"/api/restore", dump); resp.StatusCode >= 300 {
+		t.Fatalf("відновлення з вкладом мало пройти: %d %s", resp.StatusCode, b)
+	}
+
+	// Рівно один вклад, а не два: restore ЗАМІНЮЄ дані, а не доливає.
+	var deps []struct {
+		Bank    string `json:"bank"`
+		Balance struct {
+			Amount string `json:"amount"`
+		} `json:"balance"`
+		Topups []struct{} `json:"topups"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/term-deposits", "")
+	if err := json.Unmarshal([]byte(body), &deps); err != nil {
+		t.Fatalf("term-deposits: %v: %s", err, body)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("після відновлення мав лишитись один вклад, маємо %d: %s", len(deps), body)
+	}
+	if len(deps[0].Topups) != 1 {
+		t.Errorf("поповнення мало відновитись рівно одне, маємо %d", len(deps[0].Topups))
+	}
+	if deps[0].Bank != "ПУМБ" {
+		t.Errorf("банк загубився: %q", deps[0].Bank)
+	}
+}
+
+// Знімок мусить нести ВЕСЬ капітал, а не лише облігаційну його частину:
+// доти вклади в історію не писались узагалі, і крива «Як росте»
+// показувала портфель без них.
+func TestSnapshotCarriesEveryInstrument(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st)
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-10),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(355),
+		Payout:       domain.PayoutEnd, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-40), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 1000, Amount: 1000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Пишемо знімок так само, як добова джоба: через зведення.
+	var doc struct {
+		NominalUAHEq float64 `json:"nominal_uah_eq"`
+		FundsUAH     float64 `json:"funds_uah"`
+		DepositsUAH  float64 `json:"deposits_uah"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if doc.DepositsUAH <= 0 || doc.FundsUAH <= 0 {
+		t.Fatalf("зведення мало бачити і фонди, і вклади: %+v", doc)
+	}
+	if err := st.SaveSnapshot(ctx, store.Snapshot{
+		Date:         domain.NewDate(time.Now()),
+		NominalUAHEq: int64(doc.NominalUAHEq * 100),
+		FundsUAH:     int64(doc.FundsUAH * 100),
+		DepositsUAH:  int64(doc.DepositsUAH * 100),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var snaps []struct {
+		FundsUAH    float64 `json:"funds_uah"`
+		DepositsUAH float64 `json:"deposits_uah"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/snapshots", "")
+	if err := json.Unmarshal([]byte(body), &snaps); err != nil {
+		t.Fatalf("snapshots: %v: %s", err, body)
+	}
+	if len(snaps) != 1 {
+		t.Fatalf("очікували один знімок, маємо %d: %s", len(snaps), body)
+	}
+	if snaps[0].DepositsUAH != doc.DepositsUAH {
+		t.Errorf("вклади в знімку = %.2f, а в портфелі %.2f", snaps[0].DepositsUAH, doc.DepositsUAH)
+	}
+
+	// І переживають бекап: інакше відновлення тихо стерло б історію.
+	_, dump := do(t, "GET", srv.URL+"/api/backup", "")
+	if resp, b := do(t, "POST", srv.URL+"/api/restore", dump); resp.StatusCode >= 300 {
+		t.Fatalf("restore: %d %s", resp.StatusCode, b)
+	}
+	_, body = do(t, "GET", srv.URL+"/api/snapshots", "")
+	if err := json.Unmarshal([]byte(body), &snaps); err != nil {
+		t.Fatalf("snapshots після restore: %v: %s", err, body)
+	}
+	if len(snaps) != 1 || snaps[0].DepositsUAH != doc.DepositsUAH || snaps[0].FundsUAH != doc.FundsUAH {
+		t.Errorf("бекап загубив склад знімка: %+v (чекали вклади %.2f, фонди %.2f)",
+			snaps, doc.DepositsUAH, doc.FundsUAH)
+	}
+}
+
 // Вклад не має вторинного ринку, тож і цінового ризику в нього немає:
 // сума погашення записана в договорі. Доти його потоки потрапляли в ті
 // самі сценарії, що й облігаційні, і портфель із самого вкладу на 100 000
