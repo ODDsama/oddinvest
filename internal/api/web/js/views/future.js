@@ -8,7 +8,7 @@
 // Доти вона стояла і на «Огляді», і тут — два рендери одного й того
 // самого, кожен зі своїм шансом відстати від іншого.
 
-import { esc, today, humanMonths, uah2 as fmtUAH, money as fmtMoney } from "../format.js";
+import { esc, today, humanMonths, pct, uah2 as fmtUAH, money as fmtMoney } from "../format.js";
 import { infoBtn } from "../info.js";
 import { svgBars, svgLine } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
@@ -48,10 +48,14 @@ export function projectionHTML(ctx) {
   // інакше читач вважає, що воєнні 16-17% закладені на весь горизонт.
   const term = ((s.forecast || {}).rows || []).find((r) => r.key === "realistic") || {};
   const gy = (s.forecast || {}).glide_years || 0;
+  // Ставка тут НОМІНАЛЬНА, а суми в таблиці — реальні: знецінення
+  // застосовується всередині моделі, до кожного гривневого рукава
+  // окремо. Без цього слова читач вважав би, що ставку вже приведено, і
+  // приріст здавався б удвічі меншим, ніж модель насправді рахує.
   const rateSrc = rate <= 0 ? "додай папери — і дохідність порахується сама"
     : term.rate_terminal_pct && gy > 0 && Math.abs(term.rate_terminal_pct - rate) > 0.05
-      ? `за портфелем ${rate.toFixed(1)}% (YTM) сьогодні → ${term.rate_terminal_pct.toFixed(1)}% за ${humanMonths(Math.round(gy * 12))}`
-      : `за портфелем ${rate.toFixed(1)}% (YTM до погашення)`;
+      ? `за портфелем ${pct(rate)} номінальних (YTM) сьогодні → ${pct(term.rate_terminal_pct)} за ${humanMonths(Math.round(gy * 12))}`
+      : `за портфелем ${pct(rate)} номінальних (YTM до погашення)`;
 
   const hasActual = (s.actual_monthly_uah || 0) > 0;
   const rows = rowsData.length ? rowsData.map((r) =>
@@ -67,7 +71,7 @@ export function projectionHTML(ctx) {
   return `
     <div class="card">
       <h2>Проєкції капіталу</h2>
-      <div class="muted" style="margin-bottom:10px">Старт = капітал ${fmtUAH(P0)}, внесок = ${fmtUAH(C)}/міс, ставка = ${rateSrc}. Модель: реальні купони й погашення наявних паперів + внески, реінвест під ставку; готівка не працює до реінвесту. Обидві колонки — у гривні сьогоднішньої купівельної спроможності, тож «внесено» теж знецінюється: приріст показує, наскільки вкладати вигідніше, ніж просто відкладати. Це припущення, не гарантія.</div>
+      <div class="muted" style="margin-bottom:10px">Старт = капітал ${fmtUAH(P0)}, внесок = ${fmtUAH(C)}/міс, ставка = ${rateSrc}. Модель: справжні купони й погашення наявних паперів + внески, реінвест під ставку; готівка не працює до реінвесту. <b>Ставка номінальна, суми реальні</b>: знецінення застосовується всередині моделі, окремо до кожного валютного рукава, тож усі колонки — у гривні сьогоднішньої купівельної спроможності. «Внесено» через це теж знецінюється, і приріст показує, наскільки вкладати вигідніше, ніж просто відкладати. Це припущення, не гарантія.</div>
       ${paceNote}
       <table><thead><tr><th>Горизонт</th><th class="num">Внесено (без %)</th>
         <th class="num">За планом</th>${hasActual ? `<th class="num">За фактом</th>` : ""}

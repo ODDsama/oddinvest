@@ -16,12 +16,12 @@
 // весь портфель одразу й видно, що з нього дохідніше.
 
 import {
-  esc, curSym, today, dayMonth, plural,
+  esc, curSym, today, dayMonth, plural, pct,
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney, fundsCost,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { svgBars, svgGrouped, svgDonut, seriesChart } from "../charts.js";
-import { tile } from "../components.js";
+import { tile, yieldNote, yieldPair } from "../components.js";
 import { FUND_KIND } from "../constants.js";
 
 // Журнал операцій із фондами на час одного рендеру: таблиці позицій,
@@ -152,12 +152,12 @@ const POS_COLS = 7;
 // вклад, у якому ти його щойно записав.
 const openRows = new Set();
 
-// Реальна дохідність — колонка, заради якої таблиця й спільна. Підпис
-// під числом каже, з чого воно взялося: обіцянка (купон, ставка) чи
-// оцінка (дивіденди фонду). Ховати цю різницю за одним числом нечесно.
-function realCell(pct, basis) {
-  if (!pct) return `<td class="num muted col-yield">—</td>`;
-  return `<td class="num col-yield">${pct.toFixed(1)}%<div class="sub-xs">${esc(basis || "")}</div></td>`;
+// Реальна дохідність — колонка, заради якої таблиця й спільна. Під нею
+// номінальна й основа: з чого число взялося — обіцянка (купон, ставка)
+// чи факт (дивіденди зі зміною ціни). Ховати цю різницю нечесно.
+function realCell(real, nominal, basis) {
+  if (!real) return `<td class="num muted col-yield">—</td>`;
+  return `<td class="num col-yield">${yieldPair(real, nominal, basis)}</td>`;
 }
 
 function bondDetailHTML(p, lots, sales) {
@@ -227,7 +227,7 @@ function positionItems(ctx, positions, lots, sales, deposits) {
     key: "bond:" + p.isin, kind: "bond",
     name: `<b>${esc(p.isin)}</b><div class="sub-xs">${p.qty} шт.</div>`,
     invested: fmtMoney(p.invested), value: fmtMoney(p.nominal),
-    pct: p.real_pct, basis: p.yield_basis,
+    pct: p.real_pct, nominal: p.ytm_pct, basis: p.yield_basis,
     term: `${esc(p.maturity)}<div class="sub-xs">${p.days_to_maturity} дн.</div>`,
     actions: "", sortBy: Number((p.invested || {}).amount || 0),
     detail: bondDetailHTML(p, lots, sales),
@@ -249,7 +249,10 @@ function positionItems(ctx, positions, lots, sales, deposits) {
         name: `<b>${esc(f.fund)}</b>${short}`,
         invested: fmtUAH(f.cost_basis),
         value: `${fmtUAH(f.market_value)}<div class="sub-xs" style="color:${col}">${pnl >= 0 ? "+" : ""}${fmtUAH(pnl)}</div>`,
-        pct: f.real_pct, basis: f.yield_basis,
+        // Номінальна фонду — повна (дивіденди зі зміною ціни); поки
+        // історії замало, вона порожня, і в підпис іде дивідендна, з
+        // якої тоді ж рахується й реальна.
+        pct: f.real_pct, nominal: f.total_pct || f.yield_net_pct, basis: f.yield_basis,
         // У сертифіката строку немає — на його місці те, що для фонду
         // важить натомість: скільки їх і почім останній раз.
         term: `<span class="muted">безстроково</span><div class="sub-xs">${f.qty} серт. · ${(f.last_price || 0).toFixed(4)} ${curSym(f.currency)}</div>`,
@@ -265,8 +268,13 @@ function positionItems(ctx, positions, lots, sales, deposits) {
       name: `<b>${esc(d.bank || "—")}</b><div class="sub-xs">${PAYOUT_LABEL[d.payout] || d.payout}${d.capitalized ? " · кап." : ""}</div>`,
       invested: `${fmtMoney(d.principal)}${topups ? `<div class="sub-xs">+${topups} поповн.</div>` : ""}`,
       value: fmtMoney(d.balance),
-      pct: d.real_pct, basis: d.yield_basis,
-      term: `${esc(d.maturity_date)}<div class="sub-xs">${daysUntil(d.maturity_date)} дн. · ${d.rate_pct}%</div>`,
+      // Номінальна вкладу — ПІСЛЯ податку (net_pct), а не договірна
+      // ставка поруч: між нею й реальною було б дві поправки одразу.
+      pct: d.real_pct, nominal: d.net_pct, basis: d.yield_basis,
+      // «Ставка» тут — договірна, до податку: це умова вкладу, а не
+      // дохідність, і слово поруч рятує від читання її як третього
+      // числа в тому самому рядку.
+      term: `${esc(d.maturity_date)}<div class="sub-xs">${daysUntil(d.maturity_date)} дн. · ставка ${pct(d.rate_pct)}</div>`,
       actions: `<label class="sub-xs" style="flex-direction:row;align-items:center;gap:4px;display:inline-flex"
              title="Чи приймає цей вклад поповнення — від цього залежить, чи радить його помічник">
           <input type="checkbox" data-repl="${d.id}" style="width:auto"${d.replenishable ? " checked" : ""}>попов.</label>
@@ -294,7 +302,7 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
       <td>${it.name}</td>
       <td class="num">${it.invested}</td>
       <td class="num">${it.value}</td>
-      ${realCell(it.pct, it.basis)}
+      ${realCell(it.pct, it.nominal, it.basis)}
       <td>${it.term}</td>
       <td class="row-actions" style="white-space:nowrap">${it.actions}</td></tr>
     <tr class="detail-row" data-detail="${it.key}"${open ? "" : ` style="display:none"`}>
@@ -306,10 +314,11 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
       <th class="col-kind">Тип</th><th>Назва</th><th class="num">Вкладено</th><th class="num">Вартість</th>
       <th class="num col-yield">Дохідність</th><th>Строк</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-    <div class="sub" style="margin-top:10px">Дохідність — реальна річна після податку, у сьогоднішній
-      купівельній спроможності: саме вона порівнює ОВДП, фонд і вклад між собою. Підпис під числом
-      каже, звідки воно: у ОВДП і вкладу це <b>обіцянка</b> — ставка зафіксована до погашення; у фонду
-      <b>факт</b> по прожитому, дивіденди разом зі зміною ціни, бо ні строку, ні ставки він не має.
+    <div class="sub" style="margin-top:10px">Велике число — <b>реальна</b> річна дохідність після
+      податку, у сьогоднішній купівельній спроможності: саме вона порівнює ОВДП, фонд і вклад між
+      собою. Дрібне під ним — <b>номінальна</b>: скільки гривень додасться, те, що видно у виписці.
+      Далі — звідки число взялося: у ОВДП і вкладу це <b>обіцянка</b>, ставка зафіксована до
+      погашення; у фонду <b>факт</b> по прожитому, бо ні строку, ні ставки він не має.
       Стрілка розкриває лоти, продажі й поповнення.</div>
   </div>`;
 }
@@ -370,14 +379,23 @@ export function wireFundOps(ctx, main) {
     }));
 }
 
-// Плитки дохідностей: YTM до погашення від сплаченої ціни поряд з XIRR
-// (фактично реалізованим) — сенс саме в порівнянні одного з одним.
+// Плитки дохідностей. Головне число всюди РЕАЛЬНЕ — те саме, що в
+// таблиці позицій нижче; номінальне лишається під ним дрібним.
+//
+// Доти плитки показували самі номінальні, а таблиця під ними — самі
+// реальні, тож той самий фонд стояв на екрані двома різними числами
+// (5.78% і 2.8%) без жодного натяку, що бази різні. Читалось це як
+// помилка, і небезпідставно.
 function yieldTilesHTML(ctx) {
   const s0 = ctx.summary || {};
-  const py = s0.portfolio_yield || {}, xr = s0.xirr || {};
-  const pct = (v) => v != null ? v.toFixed(2) + "%" : "—";
+  const py = s0.portfolio_yield || {}, pyReal = s0.portfolio_yield_real || {};
+  const xr = s0.xirr || {};
+  // XIRR — фактично реалізоване, номінальне за природою: це те, що
+  // справді сталося з грошима, а не оцінка наперед. Реального двійника
+  // в нього немає, тож слово ставимо явно.
   const xirrTiles = Object.keys(xr).length
-    ? Object.entries(xr).map(([c, v]) => tile(`XIRR ${curSym(c)}`, pct(v))).join("")
+    ? Object.entries(xr).map(([c, v]) => tile(`XIRR ${curSym(c)}`, pct(v, 2),
+        `<div class="sub-xs">номінальних, за фактом</div>`)).join("")
     : tile("XIRR", "—",
         `<div class="sub">гроші мають попрацювати ≥30 днів у середньому</div>`);
   return `<div class="tiles flush">
@@ -388,12 +406,14 @@ function yieldTilesHTML(ctx) {
       `<div class="sub">тіло діючих банківських вкладів</div>`) : ""}
     ${tile("Накопичений купон", fmtUAH(s0.accrued_uah || 0),
       `<div class="sub">зароблено, ще не виплачено</div>`)}
-    ${Object.entries(py).map(([c, v]) => tile(`ОВДП ${curSym(c)}`, pct(v),
-      `<div class="sub">до погашення, від сплаченої ціни</div>`)).join("")}
-    ${s0.funds_yield_pct > 0 ? tile("Фонди", pct(s0.funds_yield_pct),
-      `<div class="sub">дивіденди після податку, річні</div>`) : ""}
-    ${s0.blended_yield_pct > 0 ? tile("Дохідність портфеля", pct(s0.blended_yield_pct),
-      `<div class="sub">ОВДП і фонди разом, зважено вкладеним</div>`) : ""}
+    ${Object.entries(py).map(([c, v]) => tile(`ОВДП ${curSym(c)}`,
+      pct(pyReal[c] != null ? pyReal[c] : v),
+      yieldNote(v, "до погашення, від сплаченої ціни"))).join("")}
+    ${s0.funds_yield_pct > 0 ? tile("Фонди", pct(s0.funds_yield_real_pct),
+      yieldNote(s0.funds_yield_pct, "дивіденди + зміна ціни")) : ""}
+    ${s0.blended_yield_pct > 0 ? tile(`Дохідність портфеля ${infoBtn("yields")}`,
+      pct(s0.blended_yield_real_pct),
+      yieldNote(s0.blended_yield_pct, "ОВДП і фонди разом, зважено вкладеним")) : ""}
     ${xirrTiles}
   </div>`;
 }

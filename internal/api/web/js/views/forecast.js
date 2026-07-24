@@ -5,7 +5,7 @@
 // Доки вона була методом, обидва розділи малювали її НЕЗАЛЕЖНО, і будь-яка
 // правка формулювання мала шанс поїхати лише в одному з них.
 
-import { esc, curSym, humanMonths, monthYear, monthYearGen, uah2 as fmtUAH } from "../format.js";
+import { esc, curSym, humanMonths, monthYear, monthYearGen, pct, uah2 as fmtUAH } from "../format.js";
 import { infoBtn } from "../info.js";
 
 // Віяло розкидає ПОТРІБНИЙ ВНЕСОК, а не суму на дедлайн: щойно внесок
@@ -64,11 +64,13 @@ export function goalsHTML(ctx) {
     }
   }
 
-  // Довгострокові ставки — єдине, чим рядки відрізняються.
+  // Довгострокові ставки — єдине, чим рядки відрізняються. Вони
+  // НОМІНАЛЬНІ, а знецінення поруч — окремий множник сценарію: саме
+  // тому обидва й показано в одному рядку.
   const termRates = (r) => (r.by_currency || []).map((c) =>
     c.rate_terminal_pct && Math.abs(c.rate_terminal_pct - c.rate_pct) > 0.05
-      ? `${curSym(c.currency)} →${c.rate_terminal_pct.toFixed(1)}%`
-      : `${curSym(c.currency)} ${(c.rate_pct || 0).toFixed(1)}%`).join(" · ");
+      ? `${curSym(c.currency)} →${pct(c.rate_terminal_pct)}`
+      : `${curSym(c.currency)} ${pct(c.rate_pct)}`).join(" · ");
 
   const marketRows = market.map((r) => {
     const val = asPayment ? payOf(r) : (r.amount || 0);
@@ -79,7 +81,7 @@ export function goalsHTML(ctx) {
         <span style="color:${COLOR[r.key] || "inherit"}">${esc(r.label)}</span>
         <span><b>${asPayment ? pay(val) + "/міс" : money(val)}</b></span>
       </div>
-      <div class="muted" style="font-size:11px;margin-top:1px">${termRates(r)} · гривня слабшає ${(r.devaluation_pct || 0).toFixed(1)}%/рік</div>
+      <div class="muted" style="font-size:11px;margin-top:1px">${termRates(r)} номінальних · гривня слабшає ${pct(r.devaluation_pct)}/рік</div>
     </div>`;
   }).join("");
 
@@ -107,14 +109,16 @@ export function goalsHTML(ctx) {
 
   // Сьогоднішні ставки однакові в усіх рядках — кажемо їх один раз тут.
   const nowRates = (real.by_currency || []).map((c) =>
-    `${curSym(c.currency)} ${(c.rate_pct || 0).toFixed(1)}%`).join(" · ");
+    `${curSym(c.currency)} ${pct(c.rate_pct)}`).join(" · ");
   const unitBtn = (u, lbl) => `<button class="unit${usd === (u === "USD") ? " on" : ""}" data-fcunit="${u}">${lbl}</button>`;
   const toggle = rate0 > 0 ? `<span class="unitbox">${unitBtn("UAH", "₴")}${unitBtn("USD", "$")}</span>` : "";
   const head = `<div class="sub">${
     asPayment && goal > 0 ? `щоб дійти до ${goalFmt(goal)} до ${monthYearGen(f.date)}` : `на ${monthYear(f.date)}`
     } · через ${humanMonths(f.months)}</div>
-    ${nowRates ? `<div class="sub-xs">сьогодні ставки ${nowRates}${
-      f.glide_years > 0 ? ` → сповзають до довгострокових за ${humanMonths(Math.round(f.glide_years * 12))}` : ""}</div>` : ""}`;
+    ${nowRates ? `<div class="sub-xs">сьогодні ставки ${nowRates} номінальних${
+      f.glide_years > 0 ? ` → сповзають до довгострокових за ${humanMonths(Math.round(f.glide_years * 12))}` : ""}</div>` : ""}
+    <div class="sub-xs">Суми — у гривні сьогоднішньої купівельної спроможності: знецінення вже
+      враховане всередині моделі, тож із сьогоднішніми витратами їх можна порівнювати прямо.</div>`;
   return `<div class="card" id="fcCard"><h2 class="h-row" style="justify-content:space-between">
     <span>${asPayment ? "Скільки треба вносити" : "Скільки буде на дедлайн"} ${infoBtn("forecast")}</span>${toggle}</h2>
     ${head}${range}${marketRows}${actualBlock}</div>`;

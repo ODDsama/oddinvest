@@ -9,9 +9,9 @@
 // на те, з яким сюди заходять. Вони роз'їхались туди, де питання їхнє:
 // склад і історія — у «Портфель», потоки й прогнози — у «Майбутнє».
 
-import { esc, curSym, monthYearGen, dayMonth, uah2 as fmtUAH, cur2 as fmtCur } from "../format.js";
+import { esc, curSym, monthYearGen, dayMonth, pct, uah2 as fmtUAH, cur2 as fmtCur } from "../format.js";
 import { infoBtn } from "../info.js";
-import { tile } from "../components.js";
+import { tile, yieldNote } from "../components.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
@@ -47,11 +47,14 @@ export function actionBannerHTML(ctx) {
       ? fmtCur(Number(bestCan.cost_per_bond.amount), curSym(bestCan.currency)) : "";
     // Якщо є щось дохідніше, але ще не по кишені — кажемо про це прямо:
     // «можеш зараз» не має ховати «краще зачекати».
+    // Слово «реальних» тут теж обов'язкове: доти воно стояло лише біля
+    // першого числа, і два відсотки в одному реченні виглядали як два
+    // різні виміри.
     const better = bestAny && !bestAny.can_buy && (bestAny.real_pct || 0) > (bestCan.real_pct || 0)
-      ? ` Дохідніше — ${label(bestAny)} (${(bestAny.real_pct || 0).toFixed(1)}%), але ще не по кишені.`
+      ? ` Дохідніше — ${label(bestAny)} (${pct(bestAny.real_pct)} реальних), але ще не по кишені.`
       : "";
     return box("ok", "●",
-      `Можеш ${action} ${label(bestCan)} — ${(bestCan.real_pct || 0).toFixed(1)}% реальних`,
+      `Можеш ${action} ${label(bestCan)} — ${pct(bestCan.real_pct)} реальних`,
       `${cost}${where ? ` · ${where}` : ""}.${better}`,
       `<button data-go="${bestCan.kind === "deposit" ? "topup" : "buy"}">${
         bestCan.kind === "deposit" ? "Поповнити" : "Купити"}</button>`);
@@ -112,16 +115,20 @@ function suggestTitle(r) {
     return { name: `сертифікат ${esc(r.label)}`, sub: `${curSym(r.currency)} · без строку` };
   }
   if (r.kind === "deposit") {
-    return { name: `вклад ${esc(r.label)}`, sub: `${curSym(r.currency)} · ${r.rate_pct}% · до ${monthYearGen(r.maturity)}` };
+    // «ставка» — бо це умова договору до податку, а не дохідність:
+    // без слова вона читалась як третє число поруч із реальною й
+    // номінальною в тому самому рядку.
+    return { name: `вклад ${esc(r.label)}`, sub: `${curSym(r.currency)} · ставка ${pct(r.rate_pct)} · до ${monthYearGen(r.maturity)}` };
   }
   return { name: esc(r.label || r.isin), sub: `${curSym(r.currency)} · до ${monthYearGen(r.maturity)}` };
 }
 
-// Чим підперта дохідність: у паперу — YTM, у решти — підпис із бекенда
-// (yield_basis). Ховати різницю між обіцянкою і оцінкою не можна.
-function yieldNote(r) {
-  if (r.kind === "bond" && r.ytm_pct) return `YTM ${(r.ytm_pct || 0).toFixed(1)}%`;
-  return esc(r.yield_basis || "");
+// Чим підперта дохідність: номінальне число плюс його природа. Доти в
+// паперу тут стояв YTM, а у фонда й вкладу — самий підпис без числа, і
+// порівняти їх по-номінальному не було з чим.
+function suggestNote(r) {
+  const basis = r.kind === "bond" ? "до погашення" : r.yield_basis || "";
+  return yieldNote(r.nominal_pct != null ? r.nominal_pct : r.ytm_pct, basis);
 }
 
 export function reinvestHTML(ctx) {
@@ -151,13 +158,13 @@ export function reinvestHTML(ctx) {
     const purseCur = Math.max(0, ...Object.values(s.brokers || {}).map((m) => m[r.currency] || 0));
     const need = Number((r.cost_per_bond || {}).amount || 0) - purseCur;
     const t = suggestTitle(r);
-    const note = yieldNote(r);
     return `<div style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
         <span><b>${t.name}</b> <span class="muted" style="font-size:12px">${t.sub}</span></span>
-        <span><b>${(r.real_pct || 0).toFixed(1)}%</b> <span class="muted" style="font-size:12px">реальних</span></span>
+        <span style="text-align:right"><b>${pct(r.real_pct)}</b>
+          <span class="muted" style="font-size:12px">реальних</span>${suggestNote(r)}</span>
       </div>
-      <div class="sub-xs">${cost}${note ? ` · ${note}` : ""}${
+      <div class="sub-xs">${cost}${
         fits ? ` · ${fits}` : need > 0 ? ` · бракує ${fmtCur(need, curSym(r.currency))}` : ""}</div>
       ${r.reason ? `<div class="sub-xs">${esc(r.reason)}</div>` : ""}
     </div>`;
