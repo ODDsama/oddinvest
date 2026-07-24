@@ -76,6 +76,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/devaluation", s.handleDevaluation)
 	mux.HandleFunc("GET /api/cashflow", s.handleCashflowStatement)
 	mux.HandleFunc("GET /api/tax", s.handleTax)
+	mux.HandleFunc("GET /api/benchmark", s.handleBenchmark)
 	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
 	mux.HandleFunc("POST /api/payments/status", s.handlePaymentStatus)
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)
@@ -3082,6 +3083,97 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
 	return out, nil
+}
+
+// handleBenchmark — GET /api/benchmark
+//
+// «А якби я просто тримав долари?» — головне питання українського
+// інвестора, і доти відповісти на нього не було з чого: історія курсів
+// з'явилась лише коли знецінення почали міряти, а не припускати.
+//
+// Рахунок простий і навмисно суворий до себе. Кожне ПОПОВНЕННЯ рахунку
+// (свої гроші, не купони) переводимо в долари за курсом ТОГО дня; сума —
+// це скільки доларів було б, якби ти просто купував їх і не робив
+// більше нічого. Оцінюємо сьогоднішнім курсом і кладемо поруч із
+// фактичним капіталом.
+//
+// Бенчмарк НЕ приносить відсотків: це поведінка «нічого не робити», з
+// якою й порівнюють. Він може виявитись кращим за портфель — у цьому
+// сенс вимірювання, а не привід його ховати.
+func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	rates, err := s.rates(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	nowUSD := float64(rates[money.USD]) / fx.RateScale
+	out := struct {
+		PortfolioUAH float64 `json:"portfolio_uah"`
+		BenchmarkUAH float64 `json:"benchmark_uah"`
+		DiffUAH      float64 `json:"diff_uah"`
+		DiffPct      float64 `json:"diff_pct"`
+		USDBought    float64 `json:"usd_bought"`
+		RateNow      float64 `json:"rate_now"`
+		Note         string  `json:"note,omitempty"`
+	}{RateNow: round2(nowUSD)}
+
+	doc, err := s.buildState(ctx, time.Now())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	out.PortfolioUAH = round2(doc.NominalUAHEq + doc.AccountUAH + doc.FundsUAH + doc.DepositsUAH)
+
+	if nowUSD <= 0 {
+		out.Note = "немає курсу — порівнювати нема з чим"
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	cash, err := s.st.ListDeposits(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	var usdCents int64 // долари ×100
+	var missing int
+	for _, d := range cash {
+		if d.Currency == money.USD {
+			// Уже долари — купувати нічого не треба.
+			usdCents += d.Amount
+			continue
+		}
+		rate, rerr := s.st.RateOnOrBefore(ctx, d.Currency, d.Date)
+		if d.Currency == money.UAH {
+			rate, rerr = s.st.RateOnOrBefore(ctx, money.USD, d.Date)
+			if rerr != nil || rate <= 0 {
+				missing++
+				continue
+			}
+			// Гривня ділиться на курс; знак зберігається, тож зняття
+			// зменшує «куплені» долари так само, як і в житті.
+			usdCents += d.Amount * fx.RateScale / rate
+			continue
+		}
+		// Інша валюта: спершу в гривню за курсом того дня, потім у долар.
+		usdRate, uerr := s.st.RateOnOrBefore(ctx, money.USD, d.Date)
+		if rerr != nil || uerr != nil || rate <= 0 || usdRate <= 0 {
+			missing++
+			continue
+		}
+		usdCents += d.Amount * rate / usdRate
+	}
+	out.USDBought = round2(float64(usdCents) / 100)
+	out.BenchmarkUAH = round2(float64(usdCents) / 100 * nowUSD)
+	out.DiffUAH = round2(out.PortfolioUAH - out.BenchmarkUAH)
+	if out.BenchmarkUAH != 0 {
+		out.DiffPct = round2(out.DiffUAH / math.Abs(out.BenchmarkUAH) * 100)
+	}
+	if missing > 0 {
+		out.Note = fmt.Sprintf("%d %s без курсу на свою дату — не враховано",
+			missing, plural(missing, "рух", "рухи", "рухів"))
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleTax — GET /api/tax?from=&to=

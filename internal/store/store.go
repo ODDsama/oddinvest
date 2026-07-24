@@ -638,6 +638,24 @@ func (s *Store) NewestRate(ctx context.Context, code string) (RatePoint, error) 
 	return p, err
 }
 
+// RateOnOrBefore — курс на дату або найближчий ПОПЕРЕДНІЙ. Історія
+// накопичена помісячно (backfill) і поденно (добова джоба), тож точного
+// збігу з довільною датою зазвичай немає; брати наступний за нею
+// означало б оцінювати минулу операцію курсом, якого тоді ще не було.
+//
+// Нуль, якщо старішої точки немає взагалі — тоді викликач має вирішити,
+// що з цим робити, а не отримати мовчазну підміну сьогоднішнім курсом.
+func (s *Store) RateOnOrBefore(ctx context.Context, code string, on domain.Date) (int64, error) {
+	var r int64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT rate_e4 FROM fx_rates WHERE code=? AND date<=? ORDER BY date DESC LIMIT 1`,
+		code, string(on)).Scan(&r)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return r, err
+}
+
 // RateMonthCount — скільки РІЗНИХ місяців є в історії. Саме місяців, а не
 // рядків: щоденні записи за два тижні — це один-два місяці історії, і
 // вирішувати по кількості рядків, чи потрібен backfill, було б хибно.

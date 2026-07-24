@@ -608,12 +608,13 @@ function wireBonds(ctx, main) {
 // всього і як росте → як розкладене → ЩО САМЕ я маю (одна таблиця на всі
 // інструменти) → чим ризикую → чим записати нову операцію.
 export async function renderPortfolio(ctx, main) {
-  const [positions, lots, sales, ops, deposits] = await Promise.all([
+  const [positions, lots, sales, ops, deposits, bench] = await Promise.all([
     ctx.api("GET", "positions"),
     ctx.api("GET", "lots"),
     ctx.api("GET", "sales"),
     ctx.api("GET", "funds").catch(() => []),
     ctx.api("GET", "term-deposits").catch(() => []),
+    ctx.api("GET", "benchmark").catch(() => null),
   ]);
   setFundOps(ops);
   ctx._deposits = deposits; // wireDeposits реконструює вклад для закриття
@@ -631,6 +632,7 @@ export async function renderPortfolio(ctx, main) {
     ${ladderTableHTML(ctx)}
     ${positionsTableHTML(ctx, positions, lots, sales, deposits)}
     ${entryCardHTML(ctx, lots)}
+    ${benchmarkCard(ctx, bench)}
     ${liquidityCard(ctx)}
     ${rateRiskCard(ctx)}
     ${closedDepositsHTML(ctx, deposits)}
@@ -677,6 +679,30 @@ export function rebalanceCard(ctx) {
   return `<div class="card"><h2>Валютне ребалансування</h2>
     <div class="muted" style="margin-bottom:10px">Частки рахуються від сукупного капіталу (номінал + рахунок).</div>
     ${body}</div>`;
+}
+
+// «А якби я просто тримав долари?» — питання, на яке досі не було
+// відповіді, бо історія курсів з'явилась лише коли знецінення почали
+// міряти. Бенчмарк може виявитись кращим за портфель: у цьому й сенс
+// вимірювання, а не привід його ховати.
+export function benchmarkCard(ctx, b) {
+  if (!b || !b.benchmark_uah) return "";
+  const won = (b.diff_uah || 0) >= 0;
+  const col = won ? "var(--oi-ok)" : "var(--oi-danger)";
+  return `<div class="card">${disclosure("benchmark", "А якби просто долари", `
+    <div class="tiles" style="margin:0 0 10px">
+      ${tile("Твій портфель", fmtUAH(b.portfolio_uah))}
+      ${tile("Долари під матрацом", fmtUAH(b.benchmark_uah),
+        `<div class="sub">${fmtCur(b.usd_bought, "$")} по курсах тих днів</div>`)}
+      ${tile("Різниця", `<span style="color:${col}">${won ? "+" : ""}${fmtUAH(b.diff_uah)}</span>`,
+        `<div class="sub" style="color:${col}">${won ? "+" : ""}${pct(b.diff_pct)}</div>`)}
+    </div>
+    <div class="muted" style="font-size:13px">Кожне твоє поповнення переведено в долари за курсом
+      ТОГО дня, а сума оцінена сьогоднішнім (${fmtUAH(b.rate_now)}/$).
+      Бенчмарк навмисно не приносить відсотків — це поведінка «нічого не робити», з якою й
+      порівнюють. Купони, дивіденди й відсотки в нього не входять: вони й є те, що ти отримав
+      натомість.${b.note ? ` <b>${esc(b.note)}.</b>` : ""}</div>`,
+    `${won ? "+" : ""}${pct(b.diff_pct)}`)}</div>`;
 }
 
 // Коли гроші стають доступні. Питання не про дохідність, а про те, що

@@ -1704,6 +1704,94 @@ func TestDevaluationManualWins(t *testing.T) {
 	}
 }
 
+// Бенчмарк «а якби долари»: кожне поповнення переводиться в долари за
+// курсом СВОГО дня. Саме це й робить порівняння чесним — інакше вийшло б,
+// що ти купував валюту заднім числом за сьогоднішнім курсом.
+func TestBenchmarkBuysAtEachDayRate(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	// Історія курсу: 25 ₴/$ торік, 50 ₴/$ сьогодні.
+	if err := st.SaveRate(ctx, "USD", 250000, "2025-06-01"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveRate(ctx, "USD", 500000, domain.NewDate(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	// Два поповнення по 10 000 ₴: одне за курсом 25, друге за 50.
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2025-06-15", Amount: 1000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: 1000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var b struct {
+		PortfolioUAH float64 `json:"portfolio_uah"`
+		BenchmarkUAH float64 `json:"benchmark_uah"`
+		DiffUAH      float64 `json:"diff_uah"`
+		USDBought    float64 `json:"usd_bought"`
+		RateNow      float64 `json:"rate_now"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/benchmark", "")
+	if err := json.Unmarshal([]byte(body), &b); err != nil {
+		t.Fatalf("benchmark: %v: %s", err, body)
+	}
+	// 10000/25 = 400 $, 10000/50 = 200 $, разом 600 $.
+	if math.Abs(b.USDBought-600) > 0.01 {
+		t.Errorf("куплено доларів = %.2f, очікували 600 (400 по 25 + 200 по 50)", b.USDBought)
+	}
+	// Сьогодні ті 600 $ коштують 30 000 ₴ — утричі більше за половину
+	// внесеного, бо перша половина купувалась удвічі дешевше.
+	if math.Abs(b.BenchmarkUAH-30000) > 0.01 {
+		t.Errorf("бенчмарк = %.2f ₴, очікували 30 000", b.BenchmarkUAH)
+	}
+	// Портфель — самі гроші на рахунку (20 000 ₴), тож долари виграли.
+	if math.Abs(b.PortfolioUAH-20000) > 0.01 {
+		t.Errorf("портфель = %.2f ₴, очікували 20 000", b.PortfolioUAH)
+	}
+	if b.DiffUAH >= 0 {
+		t.Errorf("гривня на рахунку мала програти долару, різниця %.2f", b.DiffUAH)
+	}
+}
+
+// Зняття зменшує «куплені» долари так само, як і в житті: інакше
+// бенчмарк рахував би гроші, яких ти вже не маєш.
+func TestBenchmarkWithdrawalsReduceIt(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	if err := st.SaveRate(ctx, "USD", 400000, "2025-01-01"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveRate(ctx, "USD", 400000, domain.NewDate(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2025-02-01", Amount: 4000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2025-03-01", Amount: -1000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var b struct {
+		USDBought float64 `json:"usd_bought"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/benchmark", "")
+	if err := json.Unmarshal([]byte(body), &b); err != nil {
+		t.Fatalf("benchmark: %v: %s", err, body)
+	}
+	// (40000 − 10000) / 40 = 750 $.
+	if math.Abs(b.USDBought-750) > 0.01 {
+		t.Errorf("куплено доларів = %.2f, очікували 750", b.USDBought)
+	}
+}
+
 // Ліквідність розкладає гроші за строками. Головна пастка тут — подвійний
 // облік: вклад, що гаситься у вікні, приходить потоком, а вклад із
 // дальшим строком стоїть у «замкнено», і жоден не має потрапити в обидва.
