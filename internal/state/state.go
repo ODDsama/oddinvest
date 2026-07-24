@@ -163,6 +163,8 @@ type Doc struct {
 	// де задано ціль). RateRisk — процентний ризик портфеля (дюрація).
 	Rebalance []RebalanceRow `json:"rebalance,omitempty"`
 	RateRisk  *RateRisk      `json:"rate_risk,omitempty"`
+	// Liquidity — коли гроші стають доступні (адитивне поле).
+	Liquidity *Liquidity `json:"liquidity,omitempty"`
 
 	// AccruedUAH — накопичений купонний дохід на сьогодні, грн-екв.:
 	// зароблено, але ще не виплачено. У проєкції НЕ додається (там майбутні
@@ -229,6 +231,27 @@ type RebalanceRow struct {
 	ConvertUAH      float64 `json:"convert_uah"`
 	MinPortfolioUAH float64 `json:"min_portfolio_uah"`
 	Feasible        bool    `json:"feasible"`
+}
+
+// Liquidity — коли гроші стають доступні. Питання не про дохідність, а
+// про те, що робити, коли гроші раптом знадобились.
+//
+// NowUAH — на рахунках просто зараз. In30UAH / In90UAH — НАКОПИЧУВАЛЬНО:
+// стільки буде в розпорядженні через місяць і через квартал, якщо нічого
+// не купувати; сюди входять купони, погашення й тіла вкладів, що
+// гасяться у вікні. LockedUAH — тіла вкладів зі строком далі, з
+// найближчою датою UnlockDate.
+//
+// ОБЛІГАЦІЙ у «замкненому» немає навмисно. Продати їх на вторинному
+// ринку можна, але застосунок ринкової ціни не моделює (те саме рішення
+// записане в domain/xirr.go), і вигадане число тут було б гірше за чесну
+// відсутність.
+type Liquidity struct {
+	NowUAH     float64 `json:"now_uah"`
+	In30UAH    float64 `json:"in_30_uah"`
+	In90UAH    float64 `json:"in_90_uah"`
+	LockedUAH  float64 `json:"locked_uah,omitempty"`
+	UnlockDate string  `json:"unlock_date,omitempty"`
 }
 
 // RateRisk — те, що ставки роблять із портфелем. Це ДВА різні ризики, і
@@ -455,6 +478,7 @@ type Input struct {
 	Forecast            *Forecast
 	Rebalance           []RebalanceRow
 	RateRisk            *RateRisk
+	Liquidity           *Liquidity
 	AccruedUAH          float64
 	NBURefreshedAt      string
 	ActualMonthlyUAH    float64
@@ -583,6 +607,7 @@ func Build(in Input) (*Doc, error) {
 	doc.Forecast = in.Forecast
 	doc.Rebalance = in.Rebalance
 	doc.RateRisk = in.RateRisk
+	doc.Liquidity = in.Liquidity
 	doc.AccruedUAH = in.AccruedUAH
 	doc.NBURefreshedAt = in.NBURefreshedAt
 	doc.ActualMonthlyUAH = in.ActualMonthlyUAH

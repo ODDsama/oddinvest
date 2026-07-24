@@ -1704,6 +1704,108 @@ func TestDevaluationManualWins(t *testing.T) {
 	}
 }
 
+// Ліквідність розкладає гроші за строками. Головна пастка тут — подвійний
+// облік: вклад, що гаситься у вікні, приходить потоком, а вклад із
+// дальшим строком стоїть у «замкнено», і жоден не має потрапити в обидва.
+func TestLiquidityBuckets(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2026-01-10", Amount: 30000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Вклад із погашенням через 200 днів — далеко за межами обох вікон.
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-10),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(200),
+		Payout:       domain.PayoutEnd, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var sum struct {
+		AccountUAH float64 `json:"account_uah"`
+		Liquidity  *struct {
+			NowUAH     float64 `json:"now_uah"`
+			In30UAH    float64 `json:"in_30_uah"`
+			In90UAH    float64 `json:"in_90_uah"`
+			LockedUAH  float64 `json:"locked_uah"`
+			UnlockDate string  `json:"unlock_date"`
+		} `json:"liquidity"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if sum.Liquidity == nil {
+		t.Fatalf("блок ліквідності мав з'явитись: %s", body)
+	}
+	l := sum.Liquidity
+	if l.NowUAH != sum.AccountUAH {
+		t.Errorf("«зараз» (%.2f) має дорівнювати балансу рахунків (%.2f)", l.NowUAH, sum.AccountUAH)
+	}
+	// Виплата в кінці строку — у вікна не потрапляє нічого, тож обидва
+	// дорівнюють поточному балансу.
+	if l.In30UAH != l.NowUAH || l.In90UAH != l.NowUAH {
+		t.Errorf("у вікна не мало потрапити нічого: зараз %.2f, 30 %.2f, 90 %.2f",
+			l.NowUAH, l.In30UAH, l.In90UAH)
+	}
+	// Тіло — замкнене, і сказано, коли відкриється.
+	if math.Abs(l.LockedUAH-100000) > 0.01 {
+		t.Errorf("тіло вкладу мало бути замкнене: %.2f", l.LockedUAH)
+	}
+	if l.UnlockDate == "" {
+		t.Error("дата відкриття мала бути названа")
+	}
+	// І воно НЕ входить у доступне — інакше та сама сотня стояла б двічі.
+	if l.In90UAH >= l.NowUAH+100000 {
+		t.Errorf("замкнене тіло потрапило і в доступне: 90 днів = %.2f", l.In90UAH)
+	}
+}
+
+// Вклад, що гаситься В МЕЖАХ вікна, навпаки — доступний, і в «замкнено»
+// його бути не має.
+func TestLiquidityNearMaturityIsAvailable(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: "2026-01-10", Amount: 30000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-300),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(45),
+		Payout:       domain.PayoutEnd, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var sum struct {
+		Liquidity *struct {
+			NowUAH    float64 `json:"now_uah"`
+			In30UAH   float64 `json:"in_30_uah"`
+			In90UAH   float64 `json:"in_90_uah"`
+			LockedUAH float64 `json:"locked_uah"`
+		} `json:"liquidity"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	l := sum.Liquidity
+	if l.LockedUAH != 0 {
+		t.Errorf("вклад гаситься за 45 днів — замкненого бути не мало, маємо %.2f", l.LockedUAH)
+	}
+	if l.In30UAH != l.NowUAH {
+		t.Errorf("за 30 днів іще нічого не гаситься: %.2f проти %.2f", l.In30UAH, l.NowUAH)
+	}
+	if l.In90UAH <= l.NowUAH+100000 {
+		t.Errorf("за 90 днів мали додатись тіло й відсотки: %.2f", l.In90UAH)
+	}
+}
+
 // seedPastBond кладе в довідник папір, купон і погашення якого вже
 // МИНУЛИ. Фікстура seed() датована майбутнім, тож для всього, що питає
 // «скільки я вже отримав», вона не годиться.

@@ -631,6 +631,7 @@ export async function renderPortfolio(ctx, main) {
     ${ladderTableHTML(ctx)}
     ${positionsTableHTML(ctx, positions, lots, sales, deposits)}
     ${entryCardHTML(ctx, lots)}
+    ${liquidityCard(ctx)}
     ${rateRiskCard(ctx)}
     ${closedDepositsHTML(ctx, deposits)}
     ${snapshotsTableHTML(ctx)}
@@ -676,6 +677,30 @@ export function rebalanceCard(ctx) {
   return `<div class="card"><h2>Валютне ребалансування</h2>
     <div class="muted" style="margin-bottom:10px">Частки рахуються від сукупного капіталу (номінал + рахунок).</div>
     ${body}</div>`;
+}
+
+// Коли гроші стають доступні. Питання не про дохідність, а про те, що
+// робити, коли вони раптом знадобились, — і воно в Україні не
+// теоретичне.
+export function liquidityCard(ctx) {
+  const l = (ctx.summary || {}).liquidity;
+  if (!l) return "";
+  const hint = fmtUAH(l.now_uah);
+  return `<div class="card">${disclosure("liquidity", "Ліквідність", `
+    <div class="tiles" style="margin:0 0 10px">
+      ${tile("Зараз", fmtUAH(l.now_uah), `<div class="sub">на рахунках</div>`)}
+      ${tile("За 30 днів", fmtUAH(l.in_30_uah), `<div class="sub">разом із виплатами</div>`)}
+      ${tile("За 90 днів", fmtUAH(l.in_90_uah), `<div class="sub">разом із виплатами</div>`)}
+      ${l.locked_uah > 0 ? tile("Замкнено", fmtUAH(l.locked_uah),
+        l.unlock_date ? `<div class="sub">найближче відкриється ${esc(l.unlock_date)}</div>` : "") : ""}
+    </div>
+    <div class="muted" style="font-size:13px">Вікна накопичувальні: «за 90 днів» уже містить «за 30».
+      Рахуються гроші на рахунках плюс купони, погашення й тіла вкладів, що гасяться у вікні.
+      «Замкнено» — тіла вкладів зі строком далі: дістати їх можна лише розірвавши вклад, тобто
+      втративши відсотки.<br><br>
+      <b>Облігації сюди не входять.</b> Продати їх на вторинному ринку можна, але застосунок не
+      моделює ринкової ціни — вигадане число тут було б гірше за чесну відсутність.</div>`,
+    hint)}</div>`;
 }
 
 // Ставки б'ють по портфелю двічі, і це різні удари. Ціною — лише по

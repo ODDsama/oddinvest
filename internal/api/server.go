@@ -1596,6 +1596,50 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		rateRisk.ReinvestSoonUAH = round2(backSoonUAH)
 	}
 
+	// --- ліквідність: коли гроші стають доступні ---
+	// Питання не про дохідність, а про те, що робити, коли гроші раптом
+	// знадобились. Вікна НАКОПИЧУВАЛЬНІ: «за 90 днів» уже містить «за
+	// 30», бо саме так на нього й дивляться — скільки буде в розпорядженні
+	// на той момент, якщо нічого не купувати.
+	d30 := domain.NewDate(now.AddDate(0, 0, 30))
+	d90 := domain.NewDate(now.AddDate(0, 0, 90))
+	in30, in90 := accountUAHMinor, accountUAHMinor
+	for _, cf := range cashflow {
+		if cf.Date.After(d90) {
+			continue
+		}
+		u, cerr := fx.ToUAH(cf.Amount, rates)
+		if cerr != nil {
+			continue
+		}
+		if !cf.Date.After(d30) {
+			in30 += u.Amount()
+		}
+		in90 += u.Amount()
+	}
+	var lockedUAH int64
+	var unlockDate domain.Date
+	for _, dep := range termDeposits {
+		// Вклад, що гаситься у вікні, вже порахований потоками вище —
+		// інакше та сама сума стояла б і в «доступному», і в «замкненому».
+		if dep.ClosedDate != "" || !dep.Active(today) || !dep.MaturityDate.After(d90) {
+			continue
+		}
+		if u, cerr := fx.ToUAH(money.New(dep.BalanceAt(today), dep.Currency), rates); cerr == nil {
+			lockedUAH += u.Amount()
+		}
+		if unlockDate == "" || dep.MaturityDate.Before(unlockDate) {
+			unlockDate = dep.MaturityDate
+		}
+	}
+	liquidity := &state.Liquidity{
+		NowUAH:     round2(float64(accountUAHMinor) / 100),
+		In30UAH:    round2(float64(in30) / 100),
+		In90UAH:    round2(float64(in90) / 100),
+		LockedUAH:  round2(float64(lockedUAH) / 100),
+		UnlockDate: string(unlockDate),
+	}
+
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthDepositedUAH: monthDep,
@@ -1614,7 +1658,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		FundsYieldRealPct: fundsYieldReal, BlendedYieldRealPct: blendedYieldReal,
 		PortfolioYieldReal: portfolioYieldRealByCur,
 		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
-		Rebalance: rebalance, RateRisk: rateRisk,
+		Rebalance: rebalance, RateRisk: rateRisk, Liquidity: liquidity,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,
 	})
