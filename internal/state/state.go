@@ -573,6 +573,11 @@ func Build(in Input) (*Doc, error) {
 		break
 	}
 
+	// Складаємо, а не присвоюємо. Доки в драбині були самі облігації, на
+	// рік і валюту припадав рівно один запис, і різниці не було. Відколи
+	// туди ж лягли вклади, їх стало два — і облігації, що гасяться того ж
+	// року в тій самій валюті, зникали з рядка. Стовпчики над таблицею
+	// весь цей час сумували чесно, тож числа розходились одне з одним.
 	byYear := map[int]*LadderRow{}
 	years := []int{}
 	for _, le := range in.Ladder {
@@ -584,11 +589,11 @@ func Build(in Input) (*Doc, error) {
 		}
 		switch le.Currency {
 		case money.UAH:
-			row.UAH = float64(le.Nominal) / 100
+			row.UAH += float64(le.Nominal) / 100
 		case money.USD:
-			row.USD = float64(le.Nominal) / 100
+			row.USD += float64(le.Nominal) / 100
 		case money.EUR:
-			row.EUR = float64(le.Nominal) / 100
+			row.EUR += float64(le.Nominal) / 100
 		}
 	}
 	for _, y := range years {

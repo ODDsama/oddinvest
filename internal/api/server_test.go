@@ -1571,6 +1571,62 @@ func TestReinvestSuggestsOnlyReplenishableDeposits(t *testing.T) {
 	}
 }
 
+// Драбина мусить СКЛАДАТИ облігації й вклади, коли вони гасяться в
+// одному році й одній валюті, а не показувати останнє записане. Рядок
+// року складався присвоєнням, тож із двох джерел виживало одне — і
+// таблиця розходилась зі стовпчиками над нею, які завжди сумували.
+func TestLadderAddsBondsAndDepositsInSameYear(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st) // папір із погашенням 2027-03-17, номінал 1000 ₴
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":2,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	// Вклад на 50 000 ₴, що гаситься того ж 2027 року.
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 5000000, RateBP: 1600,
+		OpenDate: domain.NewDate(time.Now()).AddDays(-10), MaturityDate: "2027-09-01",
+		Payout: domain.PayoutEnd, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var sum struct {
+		Ladder []struct {
+			Year int     `json:"year"`
+			UAH  float64 `json:"uah"`
+		} `json:"ladder"`
+		LadderUAH []struct {
+			Year int     `json:"year"`
+			UAH  float64 `json:"uah"`
+		} `json:"ladder_uah"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	var row, bar float64
+	for _, r := range sum.Ladder {
+		if r.Year == 2027 {
+			row = r.UAH
+		}
+	}
+	for _, r := range sum.LadderUAH {
+		if r.Year == 2027 {
+			bar = r.UAH
+		}
+	}
+	const want float64 = 2000 + 50000 // два папери по 1000 ₴ + тіло вкладу
+	if row != want {
+		t.Errorf("рядок драбини за 2027 = %.2f, очікували %.2f (папери + вклад)", row, want)
+	}
+	// Стовпчик над таблицею завжди сумував — вони зобов'язані збігтись.
+	if row != bar {
+		t.Errorf("таблиця (%.2f) розійшлась зі стовпчиком (%.2f) за той самий рік", row, bar)
+	}
+}
+
 // Відновлення з бекапу мусить працювати з вкладами. Доти term_deposits
 // не було в списку таблиць, які restore очищає, а term_deposits.broker_id
 // посилається на brokers — тож DELETE FROM brokers упирався у FK, і

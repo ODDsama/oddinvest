@@ -301,7 +301,7 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
       <td colspan="${POS_COLS}">${it.detail}</td></tr>`;
   }).join("");
 
-  return `<div class="card"><h2 class="h-row">Позиції ${infoBtn("fundops")}</h2>
+  return `<div class="card"><h2 class="h-row">Позиції ${infoBtn("positions")}</h2>
     <div class="table-scroll"><table><thead><tr>
       <th class="col-kind">Тип</th><th>Назва</th><th class="num">Вкладено</th><th class="num">Вартість</th>
       <th class="num col-yield">Дохідність</th><th>Строк</th><th></th></tr></thead>
@@ -723,7 +723,8 @@ export function ladderTableHTML(ctx) {
   const fx = (v, sym) => v ? Number(v).toLocaleString("uk-UA", { minimumFractionDigits: 2 }) + " " + sym : "—";
   return `<div class="card">
     <h2 class="h-row">Драбина погашень ${infoBtn("ladder")}</h2>
-    <div class="sub">Скільки номіналу повертається за роками (окремо UAH / USD / EUR).</div>
+    <div class="sub">Скільки капіталу повертається за роками — номінал ОВДП і тіло вкладів разом
+      (окремо UAH / USD / EUR). Фонди не входять: сертифікат не гаситься.</div>
     ${ladderBarsHTML(ctx)}
     ${lad.length ? `<table><thead><tr>
       <th>Рік</th><th class="num">UAH</th><th></th><th class="num">USD</th><th></th><th class="num">EUR</th><th></th></tr></thead><tbody>
