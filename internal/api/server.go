@@ -1412,15 +1412,36 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		})
 	}
 
-	// --- процентний ризик: дюрація за реальним графіком виплат ---
+	// --- процентний ризик: два різні ризики з одного графіка виплат ---
+	//
+	// Ціновий (сценарії ±п.п.) — лише ОВДП: переоцінюється те, що має
+	// вторинний ринок. Перевкладення (коли гроші повернуться) — ОВДП і
+	// вклади разом, бо гасяться обидва.
 	ptsByCur := map[string][]domain.CashPoint{}
+	var backWeighted, backUAH, backSoonUAH float64
 	for _, cf := range cashflow {
 		yrs := float64(domain.DaysBetween(today, cf.Date)) / 365.0
 		if yrs < 0 {
 			continue
 		}
 		c := cf.Amount.Currency().Code
-		ptsByCur[c] = append(ptsByCur[c], domain.CashPoint{Years: yrs, Amount: float64(cf.Amount.Amount()) / 100})
+		amt := float64(cf.Amount.Amount()) / 100
+		if !domain.IsDepositISIN(cf.ISIN) {
+			ptsByCur[c] = append(ptsByCur[c], domain.CashPoint{Years: yrs, Amount: amt})
+		}
+		// Строк перевкладення — у гривні, щоб валюти складались, і БЕЗ
+		// дисконтування: тут питають, коли гроші прийдуть, а не скільки
+		// вони варті сьогодні.
+		rateMajor := 1.0
+		if c != money.UAH {
+			rateMajor = float64(rates[c]) / fx.RateScale
+		}
+		uah := amt * rateMajor
+		backUAH += uah
+		backWeighted += yrs * uah
+		if yrs <= 1 {
+			backSoonUAH += uah
+		}
 	}
 	var rateRisk *state.RateRisk
 	byCurDur := map[string]float64{}
@@ -1457,6 +1478,16 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			DurationYears: round2(mac), ModifiedDur: round2(mod), PVUAH: round2(pvUAHTotal),
 			ByCurrency: byCurDur, Scenarios: scen,
 		}
+	}
+	// Строк перевкладення живе й без облігацій: портфель із самих вкладів
+	// цінового ризику не має, але питання «коли перевкладати» — має.
+	if backUAH > 0 {
+		if rateRisk == nil {
+			rateRisk = &state.RateRisk{}
+		}
+		rateRisk.ReinvestYears = round2(backWeighted / backUAH)
+		rateRisk.ReturningUAH = round2(backUAH)
+		rateRisk.ReinvestSoonUAH = round2(backSoonUAH)
 	}
 
 	return state.Build(state.Input{

@@ -206,14 +206,33 @@ type RebalanceRow struct {
 	Feasible        bool    `json:"feasible"`
 }
 
-// RateRisk — процентний ризик: дюрація Маколея (років), модифікована
-// дюрація і сценарії зміни вартості при зсуві ставок.
+// RateRisk — те, що ставки роблять із портфелем. Це ДВА різні ризики, і
+// раніше вони були злиті в одне число.
+//
+// DurationYears / ModifiedDur / PVUAH / ByCurrency / Scenarios — ЦІНОВИЙ
+// ризик і лише ОВДП: тільки в них є вторинний ринок, де ціна ходить
+// проти ставки. Вклад переоцінити нікуди — сума погашення в договорі, —
+// тож його потоки сюди більше не входять. Доти входили, і портфель із
+// самого вкладу на 100 000 ₴ показував приведену вартість 125 054 ₴.
+//
+// Reinvest* — ризик ПЕРЕВКЛАДЕННЯ, ОВДП + вклади. Питання не «скільки це
+// коштує сьогодні», а «коли гроші повернуться й за якою ставкою їх
+// доведеться вкладати заново». Фонди не входять: сертифікат не
+// гаситься, повертати нічого.
 type RateRisk struct {
 	DurationYears float64            `json:"duration_years"`
 	ModifiedDur   float64            `json:"modified_dur"`
 	PVUAH         float64            `json:"pv_uah"`
 	ByCurrency    map[string]float64 `json:"by_currency,omitempty"`
 	Scenarios     []RiskScenario     `json:"scenarios,omitempty"`
+	// ReinvestYears — середній строк повернення грошей, зважений сумами
+	// БЕЗ дисконтування: питання «коли», а не «скільки це варте нині».
+	// ReturningUAH — скільки всього повернеться, грн-екв.
+	// ReinvestSoonUAH — скільки з цього протягом 12 місяців: саме ці
+	// гроші доведеться перевкладати за ставкою, якої ще не знаєш.
+	ReinvestYears   float64 `json:"reinvest_years,omitempty"`
+	ReturningUAH    float64 `json:"returning_uah,omitempty"`
+	ReinvestSoonUAH float64 `json:"reinvest_soon_uah,omitempty"`
 }
 
 type RiskScenario struct {

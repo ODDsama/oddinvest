@@ -320,12 +320,15 @@
     },
     "rate_risk": {
       "type": "object",
-      "description": "Процентний ризик: дюрація і сценарії зміни ставок (адитивне поле)",
+      "description": "Процентний ризик — два різні: ціновий (duration/pv/scenarios, ЛИШЕ ОВДП: тільки вони переоцінюються на вторинному ринку) і перевкладення (reinvest_*, ОВДП + вклади: коли гроші повернуться й підуть за новою ставкою). Адитивне поле.",
       "properties": {
         "duration_years": { "type": "number" },
         "modified_dur": { "type": "number" },
         "pv_uah": { "type": "number" },
         "by_currency": { "type": "object", "additionalProperties": { "type": "number" } },
+        "reinvest_years": { "type": "number", "description": "середній строк повернення грошей, років (без дисконтування)" },
+        "returning_uah": { "type": "number", "description": "скільки всього повернеться, грн-екв." },
+        "reinvest_soon_uah": { "type": "number", "description": "з них протягом 12 місяців" },
         "scenarios": {
           "type": "array",
           "items": {

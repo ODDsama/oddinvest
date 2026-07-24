@@ -3,6 +3,7 @@ package domain
 import (
 	"sort"
 	"strconv"
+	"strings"
 
 	money "github.com/Rhymond/go-money"
 )
@@ -304,8 +305,19 @@ func (d Deposit) compoundInterest() int64 {
 	return base - d.BalanceAt(d.MaturityDate)
 }
 
+// DepositISINPrefix — префікс синтетичного ключа вкладу.
+const DepositISINPrefix = "deposit:"
+
 // SyntheticISIN — ключ вкладу для календаря й статусів виплат. Вклад
 // справжнього ISIN не має, тож синтезуємо стабільний із id.
 func (d Deposit) SyntheticISIN() string {
-	return "deposit:" + strconv.FormatInt(d.ID, 10)
+	return DepositISINPrefix + strconv.FormatInt(d.ID, 10)
+}
+
+// IsDepositISIN — чи належить потік вкладу, а не облігації. Знадобилось,
+// коли процентний ризик довелось рахувати роздільно: облігація має
+// вторинний ринок і переоцінюється, вклад — ні, і рахувати йому просадку
+// від зміни ставок означає вигадувати збиток, якого не буде.
+func IsDepositISIN(isin string) bool {
+	return strings.HasPrefix(isin, DepositISINPrefix)
 }

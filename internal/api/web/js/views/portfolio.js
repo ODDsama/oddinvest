@@ -656,32 +656,58 @@ export function rebalanceCard(ctx) {
     ${body}</div>`;
 }
 
-// Процентний ризик: дюрація за реальним графіком виплат + сценарії.
+// Ставки б'ють по портфелю двічі, і це різні удари. Ціною — лише по
+// ОВДП, бо тільки вони переоцінюються на вторинному ринку. Строком — по
+// ОВДП і вкладах разом: обидва гасяться, і повернуті гроші доведеться
+// вкладати заново за ставкою, якої сьогодні ніхто не знає. Фонди не
+// беруть участі в жодному: сертифікат не гаситься й ціни від ставки
+// напряму не має.
 export function rateRiskCard(ctx) {
   const rr = ctx.summary && ctx.summary.rate_risk;
-  if (!rr || !rr.duration_years) return "";
-  const scen = (rr.scenarios || []).map((x) => {
-    const col = x.change_pct >= 0 ? "var(--oi-ok)" : "var(--oi-danger)";
-    const sgn = v => (v > 0 ? "+" : "");
-    return `<tr><td>${sgn(x.delta_pp)}${x.delta_pp} п.п.</td>
-      <td class="num" style="color:${col}">${sgn(x.change_pct)}${x.change_pct}%</td>
-      <td class="num" style="color:${col}">${sgn(x.change_uah)}${fmtUAH(x.change_uah)}</td></tr>`;
-  }).join("");
-  // Згорнутий: до дюрації звертаються раз на кілька місяців, а місця
-  // вона займала більше за таблицю позицій.
-  return `<div class="card">${disclosure("risk", "Ризик ставок", `
+  if (!rr || (!rr.duration_years && !rr.reinvest_years)) return "";
+
+  const priceBlock = rr.duration_years ? `
+    <h4>Чутливість ціни · лише ОВДП</h4>
     <div class="tiles" style="margin:0 0 10px">
       <div class="tile"><div class="lbl">Дюрація (Маколея)</div><div class="val">${rr.duration_years} р.</div></div>
       <div class="tile"><div class="lbl">Модифікована</div><div class="val">${rr.modified_dur}</div></div>
       <div class="tile"><div class="lbl">Приведена вартість</div><div class="val">${fmtUAH(rr.pv_uah)}</div></div>
     </div>
-    
-    <table><thead><tr><th>Зміна ставок</th><th class="num">Вартість</th><th class="num">У грошах</th></tr></thead>
-      <tbody>${scen}</tbody></table>
-    <div class="muted" style="margin-top:8px;font-size:13px">Дюрація — середньозважений строк повернення грошей.
-      Модифікована показує, на скільки % змінюється вартість при зміні ставок на 1 п.п.
-      <b>Тримаєш до погашення — просадка лише паперова</b>: ризик реалізується при продажі на вторинці.</div>`,
-    `дюрація ${rr.duration_years} р.`)}</div>`;
+    <div class="table-scroll"><table>
+      <thead><tr><th>Зміна ставок</th><th class="num">Вартість</th><th class="num">У грошах</th></tr></thead>
+      <tbody>${(rr.scenarios || []).map((x) => {
+        const col = x.change_pct >= 0 ? "var(--oi-ok)" : "var(--oi-danger)";
+        const sgn = (v) => (v > 0 ? "+" : "");
+        return `<tr><td>${sgn(x.delta_pp)}${x.delta_pp} п.п.</td>
+          <td class="num" style="color:${col}">${sgn(x.change_pct)}${x.change_pct}%</td>
+          <td class="num" style="color:${col}">${sgn(x.change_uah)}${fmtUAH(x.change_uah)}</td></tr>`;
+      }).join("")}</tbody></table></div>
+    <div class="muted" style="margin-top:8px;font-size:13px">Модифікована дюрація показує, на скільки %
+      змінюється ціна паперів при зміні ставок на 1 п.п. <b>Тримаєш до погашення — просадка лише
+      паперова</b>: ризик реалізується при продажі на вторинці. Вклади сюди не входять — переоцінити
+      їх нікуди, сума погашення записана в договорі.</div>` : "";
+
+  const reinvestBlock = rr.reinvest_years ? `
+    <h4${priceBlock ? ` style="margin-top:18px"` : ""}>Строк до перевкладення · ОВДП і вклади</h4>
+    <div class="tiles" style="margin:0 0 10px">
+      <div class="tile"><div class="lbl">Середній строк</div><div class="val">${rr.reinvest_years} р.</div>
+        <div class="sub">поки гроші повернуться</div></div>
+      <div class="tile"><div class="lbl">Повернеться всього</div><div class="val">${fmtUAH(rr.returning_uah)}</div>
+        <div class="sub">тіло + відсотки, грн-екв.</div></div>
+      <div class="tile"><div class="lbl">З них за 12 міс.</div><div class="val">${fmtUAH(rr.reinvest_soon_uah)}</div>
+        <div class="sub">перевкладати за новою ставкою</div></div>
+    </div>
+    <div class="muted" style="font-size:13px">Це ризик протилежного знаку: якщо ставки ПАДАЮТЬ, папери
+      дорожчають, але повернуті гроші доведеться вкладати дешевше. Чим коротший середній строк, тим
+      швидше портфель переїде на нові ставки — вгору чи вниз.</div>` : "";
+
+  // Згорнутий: сюди звертаються раз на кілька місяців, а місця блок
+  // займає більше за таблицю позицій.
+  const hint = rr.duration_years
+    ? `дюрація ${rr.duration_years} р.`
+    : `перевкладення через ${rr.reinvest_years} р.`;
+  return `<div class="card">${disclosure("risk", "Ризик ставок",
+    priceBlock + reinvestBlock, hint)}</div>`;
 }
 
 // Драбина: спершу стовпчики, під ними числа з розбивкою по валютах.

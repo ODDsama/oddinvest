@@ -1571,6 +1571,96 @@ func TestReinvestSuggestsOnlyReplenishableDeposits(t *testing.T) {
 	}
 }
 
+// Вклад не має вторинного ринку, тож і цінового ризику в нього немає:
+// сума погашення записана в договорі. Доти його потоки потрапляли в ті
+// самі сценарії, що й облігаційні, і портфель із самого вкладу на 100 000
+// показував приведену вартість 125 054 — тобто більше, ніж у ньому є.
+func TestDepositHasNoPriceRisk(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-10),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(700),
+		Payout:       domain.PayoutEnd, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var sum struct {
+		RateRisk *struct {
+			DurationYears   float64 `json:"duration_years"`
+			PVUAH           float64 `json:"pv_uah"`
+			ReinvestYears   float64 `json:"reinvest_years"`
+			ReturningUAH    float64 `json:"returning_uah"`
+			ReinvestSoonUAH float64 `json:"reinvest_soon_uah"`
+		} `json:"rate_risk"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if sum.RateRisk == nil {
+		t.Fatalf("блок ризику мав лишитись — строк перевкладення є й без облігацій: %s", body)
+	}
+	rr := sum.RateRisk
+	// Ціновий ризик — порожній: переоцінювати нічого.
+	if rr.DurationYears != 0 || rr.PVUAH != 0 {
+		t.Errorf("вклад не має цінового ризику, а маємо дюрацію %.2f і PV %.2f",
+			rr.DurationYears, rr.PVUAH)
+	}
+	// Строк перевкладення — навпаки, є: вклад гаситься.
+	if rr.ReinvestYears <= 0 {
+		t.Errorf("строк перевкладення мав порахуватись, маємо %.2f", rr.ReinvestYears)
+	}
+	// Повернеться тіло з відсотками, тобто більше за тіло.
+	if !(rr.ReturningUAH > 100000) {
+		t.Errorf("повернутись мало більше за тіло 100000, маємо %.2f", rr.ReturningUAH)
+	}
+	// Погашення через 700 днів — у найближчі 12 місяців не повертається
+	// нічого (виплата в кінці строку).
+	if rr.ReinvestSoonUAH != 0 {
+		t.Errorf("за 12 міс. не мало повернутись нічого, маємо %.2f", rr.ReinvestSoonUAH)
+	}
+}
+
+// Облігація дає обидва ризики: і ціновий, і строк перевкладення. Купон
+// цього року — це вже гроші, які треба буде перевкласти.
+func TestBondHasBothRisks(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":10,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	var sum struct {
+		RateRisk *struct {
+			DurationYears   float64 `json:"duration_years"`
+			PVUAH           float64 `json:"pv_uah"`
+			ReinvestYears   float64 `json:"reinvest_years"`
+			ReinvestSoonUAH float64 `json:"reinvest_soon_uah"`
+		} `json:"rate_risk"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if sum.RateRisk == nil {
+		t.Fatalf("облігація мала дати ризик: %s", body)
+	}
+	if sum.RateRisk.DurationYears <= 0 || sum.RateRisk.PVUAH <= 0 {
+		t.Errorf("ціновий ризик мав порахуватись: дюрація %.2f, PV %.2f",
+			sum.RateRisk.DurationYears, sum.RateRisk.PVUAH)
+	}
+	if sum.RateRisk.ReinvestYears <= 0 {
+		t.Errorf("строк перевкладення мав порахуватись, маємо %.2f", sum.RateRisk.ReinvestYears)
+	}
+	// Купон 2026-09-16 — у межах року, тож щось перевкладати доведеться.
+	if sum.RateRisk.ReinvestSoonUAH <= 0 {
+		t.Errorf("купон найближчого року мав потрапити в «за 12 міс.», маємо %.2f",
+			sum.RateRisk.ReinvestSoonUAH)
+	}
+}
+
 // Дохідність позиції рахується за ТВОЄЮ собівартістю, а не за ціною
 // довідника: питання «скільки заробляю я», а не «скільки платить папір».
 // І приводиться до сьогоднішньої гривні тією ж формулою, що й поради.
