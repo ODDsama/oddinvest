@@ -40,9 +40,9 @@ func TestYTMAtParExceedsCouponRate(t *testing.T) {
 // Головне, заради чого YTM і потрібен: ціна купівлі має впливати.
 // «Купон ÷ номінал» цього не бачив узагалі й давав 16.55% на будь-якій ціні.
 func TestYTMMovesWithPrice(t *testing.T) {
-	discount := ytmAt(t, 95000)  // −5% до номіналу
-	par := ytmAt(t, 100000)      //
-	premium := ytmAt(t, 105000)  // +5% до номіналу
+	discount := ytmAt(t, 95000) // −5% до номіналу
+	par := ytmAt(t, 100000)     //
+	premium := ytmAt(t, 105000) // +5% до номіналу
 	if !(discount > par && par > premium) {
 		t.Errorf("дохідність має спадати зі зростанням ціни: %.2f %.2f %.2f",
 			discount, par, premium)

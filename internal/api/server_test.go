@@ -370,7 +370,7 @@ func TestProjectionColumnsShareUnit(t *testing.T) {
 		t.Fatal("порожня відповідь на додавання лота")
 	}
 	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
-		`{"goal_amount_uah":"500000","goal_date":"`+time.Now().AddDate(5,0,0).Format("2006-01-02")+`","uah_devaluation_pct":"6"}`); resp.StatusCode != http.StatusNoContent {
+		`{"goal_amount_uah":"500000","goal_date":"`+time.Now().AddDate(5, 0, 0).Format("2006-01-02")+`","uah_devaluation_pct":"6"}`); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
 	}
 	var got struct {
@@ -1064,7 +1064,9 @@ func TestImportNoConflictWhenDepositFundsPurchase(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	var out struct {
-		Rows []struct{ Conflict string `json:"conflict"` } `json:"rows"`
+		Rows []struct {
+			Conflict string `json:"conflict"`
+		} `json:"rows"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatal(err)

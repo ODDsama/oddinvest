@@ -1133,7 +1133,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-
 	// --- фактичний темп поповнень ---
 	// План може розходитись із реальністю, тож рахуємо ще й середній темп
 	// НОВИХ грошей. Саме поповнень, а не покупок: покупка лише переносить
@@ -1189,7 +1188,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			actualMonthly = round2(float64(totalUAH) / 100 / months)
 		}
 	}
-
 
 	// --- проєкція капіталу: помісячна симуляція РЕАЛЬНИХ потоків ---
 	// (купони/погашення наявних паперів) + внески; реінвест під дохідність
@@ -1321,8 +1319,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			out = append(out, domain.Sleeve{
 				Currency: cur, Cash0: cash, Nominal0: nom, RatePct: rate,
 				RateTerminalPct: terminal, GlideYears: glideYears,
-				Threshold:       reinvestMinByCur[cur], Coupon: couponByCurMonth[cur],
-				Redeem:          redeemByCurMonth[cur], ContribUAH: contrib, Rate0: rate0,
+				Threshold: reinvestMinByCur[cur], Coupon: couponByCurMonth[cur],
+				Redeem: redeemByCurMonth[cur], ContribUAH: contrib, Rate0: rate0,
 			})
 		}
 		return out
@@ -1472,7 +1470,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		forecast = f
 	}
-
 
 	nbuAt, _ := s.st.GetSetting(ctx, nbuRefreshedKey)
 
@@ -1686,8 +1683,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
 		Rates: rates, MonthInvestedUAH: monthInv, MonthDepositedUAH: monthDep,
 		MonthWithdrawnUAH: monthOut,
-		MonthTargetUAH: target,
-		UninvestedUAH: unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
+		MonthTargetUAH:    target,
+		UninvestedUAH:     unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
 		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
 		FundsUAH: round2(fundsUAH), Funds: fundRows,
@@ -1696,10 +1693,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
 		FundsYieldPct: fundsYield, BlendedYieldPct: blendedYield,
-		PortfolioYield: portfolioYieldByCur,
+		PortfolioYield:    portfolioYieldByCur,
 		FundsYieldRealPct: fundsYieldReal, BlendedYieldRealPct: blendedYieldReal,
 		PortfolioYieldReal: portfolioYieldRealByCur,
-		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
+		Projection:         projection, ProjectionRatePct: capRate, Forecast: forecast,
 		Rebalance: rebalance, RateRisk: rateRisk, Liquidity: liquidity,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,
@@ -2623,7 +2620,7 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 			"lots": len(b.Lots), "sales": len(b.Sales), "deposits": len(b.Deposits),
 			"conversions": len(b.Conversions), "fund_ops": len(b.FundOps),
 			"term_deposits": len(b.TermDeposits), "deposit_topups": len(b.DepositTopups),
-			"settings": len(b.Settings),
+			"settings":       len(b.Settings),
 			"payment_status": len(b.PaymentStatus), "snapshots": len(b.Snapshots),
 		},
 	})
@@ -2771,9 +2768,9 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		Reason        string      `json:"reason"`
 		DurationNow   float64     `json:"duration_now,omitempty"`
 		DurationAfter float64     `json:"duration_after,omitempty"`
-		def       float64
-		ladderNom float64
-		rate      int64
+		def           float64
+		ladderNom     float64
+		rate          int64
 	}
 
 	// fitsFor — скільки таких кроків тягне кожен брокер окремо. Баланси
@@ -2876,14 +2873,14 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		out = append(out, suggestion{
 			Kind: "bond", Label: b.ISIN,
 			ISIN: b.ISIN, Currency: c,
-			RatePct:     fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
-			Maturity:    string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
+			RatePct:  fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
+			Maturity: string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
 			CostPerBond: toMoneyJSON(cost),
-			YTMPct: round2(ytm * 100), NominalPct: round2(ytm * 100),
-			RealPct: round2(real * 100),
-			YieldBasis:  "до погашення",
-			Brokers:     fits,
-			Affordable:  best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
+			YTMPct:      round2(ytm * 100), NominalPct: round2(ytm * 100),
+			RealPct:    round2(real * 100),
+			YieldBasis: "до погашення",
+			Brokers:    fits,
+			Affordable: best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
 			DurationNow: round2(curMac), DurationAfter: round2(newMac),
 			def: def, ladderNom: lnom, rate: b.RateBP,
 		})
@@ -3395,13 +3392,13 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		return l
 	}
 	out := struct {
-		From      string  `json:"from"`
-		To        string  `json:"to"`
-		GrossUAH  float64 `json:"gross_uah"`
-		TaxUAH    float64 `json:"tax_uah"`
-		NetUAH    float64 `json:"net_uah"`
-		RatePct   float64 `json:"rate_pct"`
-		ByKind    []line  `json:"by_kind,omitempty"`
+		From     string  `json:"from"`
+		To       string  `json:"to"`
+		GrossUAH float64 `json:"gross_uah"`
+		TaxUAH   float64 `json:"tax_uah"`
+		NetUAH   float64 `json:"net_uah"`
+		RatePct  float64 `json:"rate_pct"`
+		ByKind   []line  `json:"by_kind,omitempty"`
 	}{From: string(from), To: string(to)}
 	for _, l := range []line{
 		mk("bond", "Купони ОВДП", bondGross, 0),
@@ -3443,10 +3440,10 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	type row struct {
-		Date   string  `json:"date"`
-		Label  string  `json:"label"`
-		UAH    float64 `json:"uah"`
-		Kind   string  `json:"kind"`
+		Date  string  `json:"date"`
+		Label string  `json:"label"`
+		UAH   float64 `json:"uah"`
+		Kind  string  `json:"kind"`
 	}
 	out := struct {
 		From        string  `json:"from"`
@@ -3771,15 +3768,15 @@ func (s *Server) handleFundOps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type row struct {
-		ID       int64     `json:"id"`
-		Date     string    `json:"date"`
-		Fund     string    `json:"fund"`
-		Kind     string    `json:"kind"`
-		Qty      int64     `json:"qty,omitempty"`
-		Amount   moneyJSON `json:"amount"`
-		Tax      moneyJSON `json:"tax,omitempty"`
-		Broker   string    `json:"broker,omitempty"`
-		Note     string    `json:"note,omitempty"`
+		ID     int64     `json:"id"`
+		Date   string    `json:"date"`
+		Fund   string    `json:"fund"`
+		Kind   string    `json:"kind"`
+		Qty    int64     `json:"qty,omitempty"`
+		Amount moneyJSON `json:"amount"`
+		Tax    moneyJSON `json:"tax,omitempty"`
+		Broker string    `json:"broker,omitempty"`
+		Note   string    `json:"note,omitempty"`
 	}
 	out := make([]row, 0, len(ops))
 	for _, op := range ops {
@@ -3854,19 +3851,19 @@ func (s *Server) handleDeleteFundOp(w http.ResponseWriter, r *http.Request) {
 // --- банківські вклади ---
 
 type termDepositReq struct {
-	Bank         string `json:"bank"`
-	Currency     string `json:"currency"`
-	Principal    string `json:"principal"`
-	RatePct      string `json:"rate_pct"`
-	OpenDate     string `json:"open_date"`
-	MaturityDate string `json:"maturity_date"`
-	Payout       string `json:"payout"`
+	Bank          string `json:"bank"`
+	Currency      string `json:"currency"`
+	Principal     string `json:"principal"`
+	RatePct       string `json:"rate_pct"`
+	OpenDate      string `json:"open_date"`
+	MaturityDate  string `json:"maturity_date"`
+	Payout        string `json:"payout"`
 	Capitalized   bool   `json:"capitalized"`
 	Replenishable bool   `json:"replenishable"`
-	TaxPct       string `json:"tax_pct"`
-	ClosedDate   string `json:"closed_date"`
-	ClosedAmount string `json:"closed_amount"`
-	Note         string `json:"note"`
+	TaxPct        string `json:"tax_pct"`
+	ClosedDate    string `json:"closed_date"`
+	ClosedAmount  string `json:"closed_amount"`
+	Note          string `json:"note"`
 }
 
 // parsePercentBP: "16.5" -> 1650. Ставки й податок вводяться відсотками,
@@ -3952,23 +3949,23 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		Amount moneyJSON `json:"amount"`
 	}
 	type row struct {
-		ID           int64       `json:"id"`
-		Bank         string      `json:"bank,omitempty"`
-		Principal    moneyJSON   `json:"principal"`
+		ID        int64     `json:"id"`
+		Bank      string    `json:"bank,omitempty"`
+		Principal moneyJSON `json:"principal"`
 		// Balance — накопичене тіло (початкове + поповнення) на сьогодні:
 		// UI показує саме його, а principal лишається сумою відкриття.
-		Balance      moneyJSON   `json:"balance"`
-		RatePct      float64     `json:"rate_pct"`
-		OpenDate     string      `json:"open_date"`
-		MaturityDate string      `json:"maturity_date"`
-		Payout       string      `json:"payout"`
+		Balance       moneyJSON   `json:"balance"`
+		RatePct       float64     `json:"rate_pct"`
+		OpenDate      string      `json:"open_date"`
+		MaturityDate  string      `json:"maturity_date"`
+		Payout        string      `json:"payout"`
 		Capitalized   bool        `json:"capitalized,omitempty"`
 		Replenishable bool        `json:"replenishable"`
-		TaxPct       float64     `json:"tax_pct"`
-		ClosedDate   string      `json:"closed_date,omitempty"`
-		ClosedAmount moneyJSON   `json:"closed_amount,omitempty"`
-		Note         string      `json:"note,omitempty"`
-		Topups       []topupJSON `json:"topups,omitempty"`
+		TaxPct        float64     `json:"tax_pct"`
+		ClosedDate    string      `json:"closed_date,omitempty"`
+		ClosedAmount  moneyJSON   `json:"closed_amount,omitempty"`
+		Note          string      `json:"note,omitempty"`
+		Topups        []topupJSON `json:"topups,omitempty"`
 		// NetPct — ставка після податку, але ДО знецінення: номінальний
 		// двійник до RealPct. Поруч уже є RatePct, але це ставка з
 		// договору, до податку, і показувати її як «номінальну дохідність»
@@ -3992,16 +3989,16 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		}
 		dr := row{
 			ID: d.ID, Bank: d.Bank,
-			Principal:    toMoneyJSON(money.New(d.Principal, d.Currency)),
-			Balance:      toMoneyJSON(money.New(d.BalanceAt(today), d.Currency)),
-			RatePct:      float64(d.RateBP) / 100,
-			OpenDate:     string(d.OpenDate), MaturityDate: string(d.MaturityDate),
+			Principal: toMoneyJSON(money.New(d.Principal, d.Currency)),
+			Balance:   toMoneyJSON(money.New(d.BalanceAt(today), d.Currency)),
+			RatePct:   float64(d.RateBP) / 100,
+			OpenDate:  string(d.OpenDate), MaturityDate: string(d.MaturityDate),
 			Payout: string(d.Payout), Capitalized: d.Capitalized,
 			Replenishable: d.Replenishable,
-			TaxPct:     float64(d.TaxBP) / 100,
-			ClosedDate: string(d.ClosedDate),
-			ClosedAmount: toMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
-			Note:       d.Note, Topups: tj,
+			TaxPct:        float64(d.TaxBP) / 100,
+			ClosedDate:    string(d.ClosedDate),
+			ClosedAmount:  toMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
+			Note:          d.Note, Topups: tj,
 		}
 		// Та сама формула, що й у реінвест-помічнику: ставка мінус податок,
 		// далі знецінення. Розійтися їм не можна — інакше помічник радив би

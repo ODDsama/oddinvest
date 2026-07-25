@@ -9,8 +9,8 @@ func ev(d Date, amt int64) CashEvent { return CashEvent{Date: d, Amount: amt} }
 // входить. Доти це вимагало ручного кліка, і без нього 82 ₴ висіли в
 // «не перевкладено» вічно.
 func TestIdleIncomeEatenByBiggerPurchase(t *testing.T) {
-	income := []CashEvent{ev("2026-07-20", 8275)}          // купон 82.75 ₴
-	buys := []CashEvent{ev("2026-07-21", 458_200)}         // папір за 4 582 ₴
+	income := []CashEvent{ev("2026-07-20", 8275)}  // купон 82.75 ₴
+	buys := []CashEvent{ev("2026-07-21", 458_200)} // папір за 4 582 ₴
 	if got := IdleIncome(income, buys); got != 0 {
 		t.Errorf("купон мав увійти в покупку, лишилось %d", got)
 	}

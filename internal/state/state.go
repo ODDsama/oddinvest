@@ -54,8 +54,8 @@ type Doc struct {
 	// грн-екв. за останньою відомою ціною. ОКРЕМЕ поле, а не додаток до
 	// nominal_uah_eq: у сертифіката немає номіналу, і змішування зламало
 	// б і драбину, і дюрацію, які будуються на номіналі облігацій.
-	FundsUAH  float64            `json:"funds_uah,omitempty"`
-	Funds     []FundPositionRow  `json:"funds,omitempty"`
+	FundsUAH float64           `json:"funds_uah,omitempty"`
+	Funds    []FundPositionRow `json:"funds,omitempty"`
 
 	// DepositsUAH — тіло діючих банківських вкладів у грн-екв. ОКРЕМЕ поле,
 	// як funds_uah: вклад — інший інструмент (є строк і фіксована ставка,
@@ -88,7 +88,7 @@ type Doc struct {
 	// цього місяця. Прогрес рахується від поповнень: план виведений із
 	// цілі й означає «скільки нових грошей треба вносити», а купівля за
 	// накопичені купони до цілі не додає нічого.
-	MonthInvestedUAH  float64 `json:"month_invested_uah"`
+	MonthInvestedUAH float64 `json:"month_invested_uah"`
 	// MonthDepositedUAH — НЕТТО нових грошей за місяць: поповнення мінус
 	// зняття. MonthWithdrawnUAH — самі зняття, додатнім числом, щоб UI міг
 	// показати розклад, коли нетто не збігається з сумою поповнень.
@@ -96,7 +96,7 @@ type Doc struct {
 	MonthWithdrawnUAH float64 `json:"month_withdrawn_uah,omitempty"`
 	MonthTargetUAH    float64 `json:"month_target_uah"`
 	MonthProgressPct  int     `json:"month_progress_pct"`
-	MonthIncomingUAH float64 `json:"month_incoming_uah"` // купони+погашення в поточному місяці
+	MonthIncomingUAH  float64 `json:"month_incoming_uah"` // купони+погашення в поточному місяці
 
 	NextPayment *NextPayment `json:"next_payment,omitempty"`
 
@@ -144,9 +144,9 @@ type Doc struct {
 	// Рахуються ЗВАЖУВАННЯМ реальних, а не діленням готової номінальної:
 	// знецінення торкається лише гривневих рукавів, і поділ суміші
 	// цілком занизив би валютну частину.
-	PortfolioYieldReal   map[string]float64 `json:"portfolio_yield_real,omitempty"`
-	FundsYieldRealPct    float64            `json:"funds_yield_real_pct,omitempty"`
-	BlendedYieldRealPct  float64            `json:"blended_yield_real_pct,omitempty"`
+	PortfolioYieldReal  map[string]float64 `json:"portfolio_yield_real,omitempty"`
+	FundsYieldRealPct   float64            `json:"funds_yield_real_pct,omitempty"`
+	BlendedYieldRealPct float64            `json:"blended_yield_real_pct,omitempty"`
 
 	// Projection — прогноз капіталу помісячною симуляцією реальних потоків
 	// (купони/погашення наявних паперів + внески, реінвест під дохідність).
@@ -216,9 +216,9 @@ type SettingsDoc struct {
 	// не готовий, і саме ця сума — крок поради «відкрити новий вклад».
 	// DepositRate*Pct — річна ставка нового вкладу, %: без неї поради у цій
 	// валюті немає (поріг усе одно діє). USD/EUR за замовчуванням 100.
-	DepositMinUSD *float64 `json:"deposit_min_usd,omitempty"`
-	DepositMinEUR *float64 `json:"deposit_min_eur,omitempty"`
-	DepositMinUAH *float64 `json:"deposit_min_uah,omitempty"`
+	DepositMinUSD     *float64 `json:"deposit_min_usd,omitempty"`
+	DepositMinEUR     *float64 `json:"deposit_min_eur,omitempty"`
+	DepositMinUAH     *float64 `json:"deposit_min_uah,omitempty"`
 	DepositRateUSDPct *float64 `json:"deposit_rate_usd_pct,omitempty"`
 	DepositRateEURPct *float64 `json:"deposit_rate_eur_pct,omitempty"`
 	DepositRateUAHPct *float64 `json:"deposit_rate_uah_pct,omitempty"`
@@ -349,13 +349,13 @@ type ForecastRow struct {
 	// але ринок вирішує, наскільки він посильний. Для рядка «За фактом»
 	// порожнє — там головне число це сам фактичний темп.
 	RequiredMonthly float64 `json:"required_monthly,omitempty"`
-	RatePct        float64 `json:"rate_pct"`                   // сьогоднішня дохідність гривневої частини
+	RatePct         float64 `json:"rate_pct"`                    // сьогоднішня дохідність гривневої частини
 	RateTerminalPct float64 `json:"rate_terminal_pct,omitempty"` // куди вона сповзає
-	ContribMonthly float64 `json:"contrib_monthly"` // припущений внесок, ₴/міс
-	DevaluationPct float64 `json:"devaluation_pct"` // припущене знецінення гривні, %/рік
-	GoalPct        float64 `json:"goal_pct,omitempty"`
-	GoalMonths     int     `json:"goal_months,omitempty"`
-	GoalDate       string  `json:"goal_date,omitempty"`
+	ContribMonthly  float64 `json:"contrib_monthly"`             // припущений внесок, ₴/міс
+	DevaluationPct  float64 `json:"devaluation_pct"`             // припущене знецінення гривні, %/рік
+	GoalPct         float64 `json:"goal_pct,omitempty"`
+	GoalMonths      int     `json:"goal_months,omitempty"`
+	GoalDate        string  `json:"goal_date,omitempty"`
 	// ByCurrency — розклад по валютних рукавах: під що саме росте кожна
 	// валюта і скільки грошей у неї спрямовується.
 	ByCurrency []SleeveRow `json:"by_currency,omitempty"`
@@ -366,8 +366,8 @@ type SleeveRow struct {
 	Currency        string  `json:"currency"`
 	RatePct         float64 `json:"rate_pct"`
 	RateTerminalPct float64 `json:"rate_terminal_pct,omitempty"`
-	ContribMonthly float64 `json:"contrib_monthly"` // ₴/міс, що йдуть у цю валюту
-	Amount         float64 `json:"amount"`
+	ContribMonthly  float64 `json:"contrib_monthly"` // ₴/міс, що йдуть у цю валюту
+	Amount          float64 `json:"amount"`
 }
 
 // FundPositionRow — позиція в одному фонді. YieldNetPct — дивідендна
@@ -375,17 +375,17 @@ type SleeveRow struct {
 // оподатковується, на відміну від купона ОВДП, тож до податку ці числа
 // непорівнянні.
 type FundPositionRow struct {
-	Fund           string  `json:"fund"`
-	Currency       string  `json:"currency"`
-	Qty            int64   `json:"qty"`
-	CostBasis      float64 `json:"cost_basis"`
-	LastPrice      float64 `json:"last_price"`
-	LastPriceDate  string  `json:"last_price_date,omitempty"`
-	MarketValue    float64 `json:"market_value"`
-	DividendsNet   float64 `json:"dividends_net"`
-	DividendsTax   float64 `json:"dividends_tax"`
-	Realized       float64 `json:"realized,omitempty"`
-	YieldNetPct    float64 `json:"yield_net_pct,omitempty"`
+	Fund          string  `json:"fund"`
+	Currency      string  `json:"currency"`
+	Qty           int64   `json:"qty"`
+	CostBasis     float64 `json:"cost_basis"`
+	LastPrice     float64 `json:"last_price"`
+	LastPriceDate string  `json:"last_price_date,omitempty"`
+	MarketValue   float64 `json:"market_value"`
+	DividendsNet  float64 `json:"dividends_net"`
+	DividendsTax  float64 `json:"dividends_tax"`
+	Realized      float64 `json:"realized,omitempty"`
+	YieldNetPct   float64 `json:"yield_net_pct,omitempty"`
 	// TotalPct — ПОВНА дохідність позиції, % річних: дивіденди після
 	// податку разом зі зміною ціни (XIRR по операціях фонду з
 	// термінальною ринковою вартістю). YieldNetPct вище — лише дохідна
@@ -464,33 +464,33 @@ type Input struct {
 	MonthDepositedUAH *money.Money
 	MonthWithdrawnUAH *money.Money
 	MonthTargetUAH    *money.Money
-	UninvestedUAH    *money.Money
-	AccountUAH       *money.Money
-	ReinvestMinUAH   *money.Money
-	Accounts         map[string]float64
-	Brokers          map[string]map[string]float64
-	InvestedByBroker map[string]float64
-	LadderUAH        []YearAmount
-	Income12m        []MonthAmount
-	Coupons12m       []MonthAmount
-	FundsUAH         float64
-	Funds            []FundPositionRow
+	UninvestedUAH     *money.Money
+	AccountUAH        *money.Money
+	ReinvestMinUAH    *money.Money
+	Accounts          map[string]float64
+	Brokers           map[string]map[string]float64
+	InvestedByBroker  map[string]float64
+	LadderUAH         []YearAmount
+	Income12m         []MonthAmount
+	Coupons12m        []MonthAmount
+	FundsUAH          float64
+	Funds             []FundPositionRow
 	// DepositsUAH — тіло діючих вкладів, грн-екв (для капіталу й поля
 	// deposits_uah). DepositsUAHByCur — те саме по валютах (для часток).
-	DepositsUAH      float64
-	DepositsUAHByCur map[string]float64
-	IncomeMonthlyNow float64
-	ReinvestMinByCur map[string]float64
-	TopN              int
-	Settings          *SettingsDoc
+	DepositsUAH         float64
+	DepositsUAHByCur    map[string]float64
+	IncomeMonthlyNow    float64
+	ReinvestMinByCur    map[string]float64
+	TopN                int
+	Settings            *SettingsDoc
 	XIRRPct             map[string]float64
 	PortfolioYieldPct   float64
 	FundsYieldPct       float64
 	BlendedYieldPct     float64
 	PortfolioYield      map[string]float64
-	PortfolioYieldReal   map[string]float64
-	FundsYieldRealPct    float64
-	BlendedYieldRealPct  float64
+	PortfolioYieldReal  map[string]float64
+	FundsYieldRealPct   float64
+	BlendedYieldRealPct float64
 	Projection          []ProjectionRow
 	ProjectionRatePct   float64
 	Forecast            *Forecast

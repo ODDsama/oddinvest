@@ -18,23 +18,23 @@ import (
 const BackupSchema = 1
 
 type Backup struct {
-	Schema        int                 `json:"schema"`
-	App           string              `json:"app"`
-	ExportedAt    string              `json:"exported_at"`
-	Lots          []BackupLot         `json:"lots"`
-	Sales         []BackupSale        `json:"sales"`
-	Deposits      []BackupDeposit     `json:"deposits"`
-	Conversions   []BackupConversion  `json:"conversions"`
-	FundOps       []BackupFundOp      `json:"fund_ops"`
+	Schema      int                `json:"schema"`
+	App         string             `json:"app"`
+	ExportedAt  string             `json:"exported_at"`
+	Lots        []BackupLot        `json:"lots"`
+	Sales       []BackupSale       `json:"sales"`
+	Deposits    []BackupDeposit    `json:"deposits"`
+	Conversions []BackupConversion `json:"conversions"`
+	FundOps     []BackupFundOp     `json:"fund_ops"`
 	// TermDeposits omitempty: бекапи, зроблені до появи вкладів, читаються
 	// без цього поля так само, як раніше — restore просто не створить
 	// жодного вкладу.
-	TermDeposits  []BackupTermDeposit `json:"term_deposits,omitempty"`
+	TermDeposits []BackupTermDeposit `json:"term_deposits,omitempty"`
 	// DepositTopups omitempty з тієї ж причини: старіші бекапи їх не мають.
 	DepositTopups []BackupDepositTopup `json:"deposit_topups,omitempty"`
-	Settings      map[string]string   `json:"settings"`
-	PaymentStatus []BackupPayStatus   `json:"payment_status"`
-	Snapshots     []BackupSnapshot    `json:"snapshots"`
+	Settings      map[string]string    `json:"settings"`
+	PaymentStatus []BackupPayStatus    `json:"payment_status"`
+	Snapshots     []BackupSnapshot     `json:"snapshots"`
 }
 
 // BackupDepositTopup — поповнення вкладу. Без нього відновлення втратило б
