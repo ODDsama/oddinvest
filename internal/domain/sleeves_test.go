@@ -203,10 +203,9 @@ func TestRateGlidesToTerminal(t *testing.T) {
 	approx(t, "без спуску", flat.rateAt(240), 16.7, 0.01)
 
 	// і на капіталі це має бути видно: спуск дає менше, ніж вічні 16.7%
-	withGlide := ProjectSleeves([]Sleeve{s}, 0, 120).TodayUAH
 	s2 := s
 	s2.Cash0, flat.Cash0 = 100000, 100000
-	withGlide = ProjectSleeves([]Sleeve{s2}, 0, 120).TodayUAH
+	withGlide := ProjectSleeves([]Sleeve{s2}, 0, 120).TodayUAH
 	forever := ProjectSleeves([]Sleeve{flat}, 0, 120).TodayUAH
 	if withGlide >= forever {
 		t.Errorf("спуск ставки мав дати менший капітал: %.0f vs %.0f", withGlide, forever)

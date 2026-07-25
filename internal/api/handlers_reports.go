@@ -210,7 +210,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		proceeds, _ := domain.SaleProceeds(sl)
+		proceeds, _ := domain.SaleProceeds(sl) //nolint:errcheck // RealizedResult вище вже відсіяв биті продажі
 		cw.Write([]string{"продаж", string(sl.SaleDate), lot.ISIN,
 			fmt.Sprintf("%d", sl.Qty), toMoneyJSON(proceeds).Amount,
 			proceeds.Currency().Code,

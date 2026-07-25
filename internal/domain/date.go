@@ -22,7 +22,7 @@ func ParseDate(s string) (Date, error) {
 }
 
 func (d Date) Time() time.Time {
-	t, _ := time.Parse(dateLayout, string(d))
+	t, _ := time.Parse(dateLayout, string(d)) //nolint:errcheck // Date перевіряється при створенні; нульовий час тут і є відповідь
 	return t
 }
 

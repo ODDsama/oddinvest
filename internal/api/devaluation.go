@@ -79,7 +79,7 @@ func (s *Server) devaluation(ctx context.Context) float64 {
 }
 
 func (s *Server) devaluationWithSource(ctx context.Context) (float64, string) {
-	if raw, _ := s.st.GetSetting(ctx, "uah_devaluation_pct"); raw != "" {
+	if raw, _ := s.st.GetSetting(ctx, "uah_devaluation_pct"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка так само веде на виміряне значення
 		if f, err := strconv.ParseFloat(raw, 64); err == nil && f >= 0 {
 			return f, devalManual
 		}

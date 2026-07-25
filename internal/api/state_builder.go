@@ -87,9 +87,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// могли розійтися між собою. Помилку ковтаємо — фонди могли ще не
 	// існувати в старій БД, і це не привід валити весь стан; порожній зріз
 	// просто нічого не додасть у жоден агрегат.
-	fundOps, _ := s.st.ListFundOps(ctx)
+	fundOps, _ := s.st.ListFundOps(ctx) //nolint:errcheck // свідомо: див. коментар вище — старій БД фондів могло не бути
 	// Вклади — так само раз, третім інструментом поряд із лотами й фондами.
-	termDeposits, _ := s.st.ListTermDeposits(ctx)
+	termDeposits, _ := s.st.ListTermDeposits(ctx) //nolint:errcheck // свідомо, як і фонди вище: вклади з'явились пізніше за схему
 
 	positions, err := domain.Positions(bonds, pays, lots, sales, today)
 	if err != nil {
@@ -685,17 +685,17 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		v := float64(target.Amount()) / 100
 		settings.MonthlyTargetUAH = &v
 	}
-	if raw, _ := s.st.GetSetting(ctx, "usd_target_share_pct"); raw != "" {
+	if raw, _ := s.st.GetSetting(ctx, "usd_target_share_pct"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
 		if f, err := strconv.ParseFloat(raw, 64); err == nil {
 			settings.USDTargetSharePct = &f
 		}
 	}
-	if raw, _ := s.st.GetSetting(ctx, "eur_target_share_pct"); raw != "" {
+	if raw, _ := s.st.GetSetting(ctx, "eur_target_share_pct"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
 		if f, err := strconv.ParseFloat(raw, 64); err == nil {
 			settings.EURTargetSharePct = &f
 		}
 	}
-	if raw, _ := s.st.GetSetting(ctx, "assumed_rate_pct"); raw != "" {
+	if raw, _ := s.st.GetSetting(ctx, "assumed_rate_pct"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
 		if f, err := strconv.ParseFloat(raw, 64); err == nil {
 			settings.AssumedRatePct = &f
 		}
@@ -711,7 +711,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		settings.Channels = strings.Join(names, ", ")
 	}
-	if raw, _ := s.st.GetSetting(ctx, "reinvest_rank"); raw != "" {
+	if raw, _ := s.st.GetSetting(ctx, "reinvest_rank"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
 		settings.ReinvestRank = raw
 	}
 	for _, g := range []struct {
@@ -731,18 +731,18 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		{"deposit_rate_eur_pct", &settings.DepositRateEURPct},
 		{"deposit_rate_uah_pct", &settings.DepositRateUAHPct},
 	} {
-		if raw, _ := s.st.GetSetting(ctx, g.key); raw != "" {
+		if raw, _ := s.st.GetSetting(ctx, g.key); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
 			if f, err := strconv.ParseFloat(raw, 64); err == nil {
 				*g.dst = &f
 			}
 		}
 	}
-	if raw, _ := s.st.GetSetting(ctx, "goal_amount_uah"); raw != "" {
+	if raw, _ := s.st.GetSetting(ctx, "goal_amount_uah"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
 		if f, err := strconv.ParseFloat(raw, 64); err == nil {
 			settings.GoalAmountUAH = &f
 		}
 	}
-	if raw, _ := s.st.GetSetting(ctx, "goal_date"); raw != "" {
+	if raw, _ := s.st.GetSetting(ctx, "goal_date"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
 		settings.GoalDate = raw
 	}
 
@@ -972,7 +972,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	}
 
 	// Запасна дохідність для валюти, якої ще немає в портфелі.
-	avgRate, _ := s.st.AvgRateByCurrency(ctx, today)
+	avgRate, err := s.st.AvgRateByCurrency(ctx, today)
+	if err != nil {
+		return nil, err
+	}
 
 	// Річне знецінення гривні. Одне число в налаштуваннях, від якого
 	// сценарії розходяться — як і ставка.
@@ -1183,7 +1186,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		forecast = f
 	}
 
-	nbuAt, _ := s.st.GetSetting(ctx, nbuRefreshedKey)
+	nbuAt, _ := s.st.GetSetting(ctx, nbuRefreshedKey) //nolint:errcheck // порожньо = довідник ще не оновлювався; це не привід валити стан
 
 	// --- накопичений купонний дохід (НКД) на сьогодні ---
 	// Гроші, які вже зароблені, але ще не виплачені. Показуємо ОКРЕМО, а не

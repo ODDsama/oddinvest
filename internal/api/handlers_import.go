@@ -76,8 +76,18 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	deps, _ := s.st.ListDeposits(ctx)
-	lots, _ := s.st.ListLots(ctx)
+	// Помилку тут ковтати не можна: порожній набір означав би «нічого не
+	// бачив раніше», і вся виписка лягла б дублями поверх наявного.
+	deps, err := s.st.ListDeposits(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	lots, err := s.st.ListLots(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	// Лот вважаємо тим самим за папером, датою й кількістю. Ціну в ключ
 	// не беремо: та сама купівля, внесена вручну, могла бути округлена
 	// інакше, і розбіжність у копійці не робить її іншою купівлею.
@@ -94,7 +104,11 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 	// Виписка щомісяця приносить повну історію, і покладатись лише на
 	// дедуплікацію більше не можна — після ручного підчищення журналу
 	// старі рядки почали проситися назад.
-	since, _ := s.st.GetSetting(ctx, "import_since")
+	since, err := s.st.GetSetting(ctx, "import_since")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	out := struct {
 		Rows     []outRow          `json:"rows"`
 		Skipped  []imports.Skipped `json:"skipped"`
@@ -124,7 +138,12 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 			}
 			op := domain.FundOp{Date: row.Date, Fund: row.Fund, Kind: kind, Qty: row.Qty,
 				Amount: row.Amount, Tax: row.Tax, Currency: cur, Broker: broker, Note: "виписка"}
-			if exists, _ = s.st.FundOpExists(ctx, op); !exists && !dry {
+			var eerr error
+			if exists, eerr = s.st.FundOpExists(ctx, op); eerr != nil {
+				writeErr(w, http.StatusInternalServerError, eerr)
+				return
+			}
+			if !exists && !dry {
 				if _, aerr := s.st.AddFundOp(ctx, op); aerr != nil {
 					writeErr(w, http.StatusInternalServerError, aerr)
 					return

@@ -104,7 +104,7 @@ func TestLotLifecycleAndSummary(t *testing.T) {
 		}
 	}
 
-	resp, body = do(t, "GET", srv.URL+"/api/positions", "")
+	_, body = do(t, "GET", srv.URL+"/api/positions", "")
 	if !strings.Contains(body, `"qty":5`) || !strings.Contains(body, `"4975.00"`) {
 		t.Errorf("positions: %s", body)
 	}
@@ -115,7 +115,7 @@ func TestLotLifecycleAndSummary(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("продаж: %d %s", resp.StatusCode, body)
 	}
-	resp, body = do(t, "GET", srv.URL+"/api/sales", "")
+	_, body = do(t, "GET", srv.URL+"/api/sales", "")
 	// результат = (2×1001 + 11.30) − 2×995 = 23.30, купонів за володіння не було
 	if !strings.Contains(body, `"23.30"`) {
 		t.Errorf("realized result: %s", body)
@@ -129,7 +129,7 @@ func TestLotLifecycleAndSummary(t *testing.T) {
 	}
 
 	// календар: виплати на залишок 3
-	resp, body = do(t, "GET", srv.URL+"/api/calendar", "")
+	_, body = do(t, "GET", srv.URL+"/api/calendar", "")
 	if !strings.Contains(body, `"248.25"`) { // 3 × 82.75
 		t.Errorf("календар після продажу: %s", body)
 	}

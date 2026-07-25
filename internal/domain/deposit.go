@@ -136,17 +136,6 @@ func (d Deposit) Active(asOf Date) bool {
 	return !d.MaturityDate.Before(asOf)
 }
 
-// netInterest — відсоток за вирахуванням податку, у мінорних одиницях.
-// Округлення донизу цілочисельним діленням: копійка похибки на вклад тут
-// дешевша за плутанину з half-to-even у контексті, де сам податок — оцінка.
-func (d Deposit) netInterest(gross int64) int64 {
-	if gross <= 0 {
-		return 0
-	}
-	tax := gross * d.TaxBP / 10000
-	return gross - tax
-}
-
 // simpleInterest — прості відсотки на base за period днів, ACT/365, у
 // мінорних одиницях (брутто, до податку).
 func simpleInterest(base, rateBP int64, days int) int64 {
@@ -234,6 +223,9 @@ func (d Deposit) interestPayments() []DepositInterest {
 		if gross <= 0 {
 			return
 		}
+		// Округлення донизу цілочисельним діленням: копійка похибки на
+		// вклад тут дешевша за плутанину з half-to-even у контексті, де
+		// сам податок — оцінка.
 		tax := gross * d.TaxBP / 10000
 		if gross-tax > 0 {
 			out = append(out, DepositInterest{Date: date, Gross: gross, Tax: tax})

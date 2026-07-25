@@ -51,7 +51,7 @@ func (s *Server) lotFromReq(r *http.Request, req lotReq) (domain.Lot, error) {
 	}
 	cur := req.Currency
 	if cur == "" { // валюту беремо з довідника, якщо папір відомий
-		if b, _ := s.st.GetBond(r.Context(), req.ISIN); b != nil {
+		if b, _ := s.st.GetBond(r.Context(), req.ISIN); b != nil { //nolint:errcheck // папір може бути невідомий — валюта тоді береться з запиту
 			cur = b.Nominal.Currency().Code
 		} else {
 			return out, errors.New("папір не в довіднику — вкажіть currency явно")

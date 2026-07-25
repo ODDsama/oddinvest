@@ -30,7 +30,7 @@ func main() {
 		log.Error("відкриття БД", "path", cfg.DBPath, "err", err)
 		os.Exit(1)
 	}
-	defer st.Close()
+	defer st.Close() //nolint:errcheck // закриття БД на виході; реагувати вже нічим
 
 	var pub *mqtt.Publisher
 	if cfg.MQTTAddr != "" {
@@ -89,5 +89,7 @@ func main() {
 	log.Info("зупинка…")
 	shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	httpSrv.Shutdown(shCtx)
+	if err := httpSrv.Shutdown(shCtx); err != nil {
+		log.Error("зупинка HTTP", "err", err)
+	}
 }

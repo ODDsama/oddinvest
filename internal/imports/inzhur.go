@@ -98,7 +98,7 @@ func ParseInzhur(rows [][]string) (Result, error) {
 			res.Skipped = append(res.Skipped, Skipped{cell(0), cell(1), "не розпізнав дату"})
 			continue
 		}
-		ord, _ := strconv.ParseFloat(strings.TrimSpace(cell(0)), 64)
+		ord, _ := strconv.ParseFloat(strings.TrimSpace(cell(0)), 64) //nolint:errcheck // дата з цієї ж клітинки вже розпізналась вище
 		items = append(items, parsed{date, ord, cell})
 	}
 	// Сортуємо за СЕРІЙНИМ номером, а не за датою: у номері є час, а в
@@ -118,7 +118,7 @@ func ParseInzhur(rows [][]string) (Result, error) {
 		switch {
 		case certRe.MatchString(op):
 			m := certRe.FindStringSubmatch(op)
-			qty, _ := strconv.ParseInt(digits(m[2]), 10, 64)
+			qty, _ := strconv.ParseInt(digits(m[2]), 10, 64) //nolint:errcheck // регексп гарантує цифри, а qty <= 0 нижче ловить решту
 			if qty <= 0 {
 				skip("не розпізнав кількість сертифікатів")
 				continue
@@ -164,7 +164,7 @@ func ParseInzhur(rows [][]string) (Result, error) {
 
 		case bondRe.MatchString(op):
 			m := bondRe.FindStringSubmatch(op)
-			qty, _ := strconv.ParseInt(digits(m[2]), 10, 64)
+			qty, _ := strconv.ParseInt(digits(m[2]), 10, 64) //nolint:errcheck // регексп гарантує цифри, а qty <= 0 нижче ловить решту
 			isin := isinRe.FindString(fund)
 			switch {
 			case qty <= 0:

@@ -96,10 +96,18 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	deposits, _ := s.st.ListTermDeposits(ctx)
+	deposits, err := s.st.ListTermDeposits(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	cf = append(cf, domain.DepositCashflows(deposits, from)...)
 	sort.Slice(cf, func(i, j int) bool { return cf[i].Date < cf[j].Date })
-	statuses, _ := s.st.PaymentStatuses(ctx)
+	statuses, err := s.st.PaymentStatuses(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	type cfJSON struct {
 		Date   string    `json:"date"`
 		ISIN   string    `json:"isin"`
@@ -124,7 +132,11 @@ func (s *Server) handleLadder(w http.ResponseWriter, r *http.Request) {
 	}
 	now := domain.NewDate(time.Now())
 	ladder := domain.Ladder(bonds, lots, sales, now)
-	deposits, _ := s.st.ListTermDeposits(ctx)
+	deposits, err := s.st.ListTermDeposits(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	ladder = append(ladder, domain.DepositLadder(deposits, now)...)
 	sort.Slice(ladder, func(i, j int) bool {
 		if ladder[i].Year != ladder[j].Year {

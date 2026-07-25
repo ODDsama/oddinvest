@@ -55,7 +55,7 @@ func (s *Server) depositMinMinorByCur(ctx context.Context) map[string]int64 {
 		{money.EUR, "deposit_min_eur", 10000},
 		{money.UAH, "deposit_min_uah", 0},
 	} {
-		raw, _ := s.st.GetSetting(ctx, sp.key)
+		raw, _ := s.st.GetSetting(ctx, sp.key) //nolint:errcheck // порожньо = не задано, далі йде дефолт валюти
 		if raw == "" {
 			if sp.def > 0 {
 				out[sp.cur] = sp.def

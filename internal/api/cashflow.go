@@ -85,7 +85,10 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		}
 	}
 	// Дохід і покупки по фондах.
-	fundOps, _ := s.st.ListFundOps(ctx)
+	fundOps, err := s.st.ListFundOps(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, op := range fundOps {
 		switch op.Kind {
 		case domain.FundBuy:
@@ -100,7 +103,10 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		}
 	}
 	// Вклади: розміщення й поповнення — покупки, відсотки — дохід.
-	termDeposits, _ := s.st.ListTermDeposits(ctx)
+	termDeposits, err := s.st.ListTermDeposits(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, dep := range termDeposits {
 		if !dep.OpenDate.After(today) {
 			add(dep.OpenDate, flowPurchase, -uah(money.New(dep.Principal, dep.Currency)), "вклад "+dep.Bank)
@@ -143,7 +149,10 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		}
 	}
 	// Свої гроші: поповнення й зняття рахунку.
-	cash, _ := s.st.ListDeposits(ctx)
+	cash, err := s.st.ListDeposits(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, d := range cash {
 		label := "поповнення"
 		if d.Amount < 0 {
@@ -155,7 +164,10 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	// зроблено за курсом СВОГО дня, а перераховуємо ми за сьогоднішнім,
 	// і різниця — це рух курсу з того часу. Ховати її не можна, інакше
 	// підсумок не зійдеться з рахунком.
-	convs, _ := s.st.ListConversions(ctx)
+	convs, err := s.st.ListConversions(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, c := range convs {
 		net := uah(money.New(c.ToAmount, c.ToCurrency)) - uah(money.New(c.FromAmount, c.FromCurrency))
 		add(c.Date, flowConversion, net, c.FromCurrency+" → "+c.ToCurrency)
@@ -329,7 +341,11 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	}
 	// Фонди: беремо ФАКТИЧНО утримане, а не ставку. Ставка змінювалась і
 	// ще змінюватиметься, а у виписці стоїть те, що забрали насправді.
-	fundOps, _ := s.st.ListFundOps(ctx)
+	fundOps, err := s.st.ListFundOps(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	for _, op := range fundOps {
 		if op.Kind != domain.FundDividend || !inWindow(op.Date) {
 			continue
@@ -340,7 +356,11 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	// Вклади: брутто й податок із того самого проходу, що й самі
 	// відсотки — графік показує нетто, і ділити його назад означало б
 	// накопичувати похибку.
-	termDeposits, _ := s.st.ListTermDeposits(ctx)
+	termDeposits, err := s.st.ListTermDeposits(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	for _, dep := range termDeposits {
 		g, tx := domain.DepositInterestTax(dep, from, to)
 		if g == 0 {

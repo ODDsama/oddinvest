@@ -89,7 +89,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/restore", s.handleBackupImport)
 	mux.HandleFunc("POST /api/import/inzhur", s.handleImportInzhur)
 
-	sub, _ := fs.Sub(webFS, "web")
+	sub, _ := fs.Sub(webFS, "web") //nolint:errcheck // шлях у go:embed — константа, помилка неможлива
 	mux.Handle("GET /", noCache(http.FileServerFS(sub)))
 	return logMiddleware(s.log, mux)
 }
