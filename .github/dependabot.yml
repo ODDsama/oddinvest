@@ -1,0 +1,19 @@
+# Оновлення залежностей.
+#
+# Прямих залежностей три, і всі несучі: гроші (go-money), MQTT (paho) і
+# драйвер SQLite. Ходити за ними руками означає не ходити зовсім, а тихо
+# застаріла бібліотека грошей — не те місце, де хочеться дізнатись про
+# виправлену помилку через рік.
+#
+# github-actions тут не менш важливий: екшени в робочих процесах закріплені
+# лише мажором (@v4/@v5), тобто вже зараз оновлюються самі й без нагляду.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly }

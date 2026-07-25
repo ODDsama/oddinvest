@@ -1,5 +1,9 @@
 # Використовується лише для CI-збірки; продовий деплой — LXC + systemd.
-FROM golang:1.22-bookworm AS build
+#
+# Версія Go тут має збігатися з deploy/proxmox-lxc.sh (GO_VER): обидва —
+# середовища ЗБІРКИ, і розходитись їм нема чого. Мінімум мови задає go.mod
+# (директива `go`), і CI бере його саме звідти — go-version-file.
+FROM golang:1.23-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download

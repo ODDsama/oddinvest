@@ -8,9 +8,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: "1.22" }
+        # Версія одна на всі місця: go.mod, Dockerfile і deploy/proxmox-lxc.sh
+        # мали три різні, і «яка в нас насправді» ставало питанням.
+        with: { go-version-file: go.mod }
+
+      # Формат — окремим кроком і першим: діф, у якому перемішані правка й
+      # вирівнювання, читати неможливо, а gofmt цю різницю прибирає назавжди.
+      - name: Формат
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; echo "запусти: gofmt -w ."; exit 1; }
+
       - run: go vet ./...
-      - run: go test ./... -count=1
+
+      - name: Лінтер
+        uses: golangci/golangci-lint-action@v6
+        with: { version: latest }
+
+      # -race, бо MQTT-публікатор, добовий планувальник і HTTP-сервер ділять
+      # один стор: саме та форма програми, де гонку не побачиш очима.
+      - run: go test ./... -race -count=1
       # Контракт: фікстура oddinvest/state має бути згенерована поточним кодом.
       # Репозиторій ha-oddinvest у своєму CI підтягує contract/ звідси і ганяє
       # свої парсери проти цих фікстур.

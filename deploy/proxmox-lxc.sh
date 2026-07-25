@@ -23,6 +23,8 @@ BRIDGE="${BRIDGE:-vmbr0}"
 DISK_GB="${DISK_GB:-4}"
 MEMORY_MB="${MEMORY_MB:-512}"
 CORES="${CORES:-1}"
+# Тримати в парі з Dockerfile: обидва — середовища збірки. Мінімум мови
+# задає go.mod, тут лише конкретний тулчейн, яким збираємо.
 GO_VER="${GO_VER:-go1.23.6}"
 # MQTT — leave MQTT_ADDR empty to deploy with MQTT disabled for now.
 MQTT_ADDR="${MQTT_ADDR:-}"
