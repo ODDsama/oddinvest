@@ -25,9 +25,12 @@ jobs:
 
       - run: go vet ./...
 
+      # Екшен саме v9: v6 ставить golangci-lint 1.x, який конфіг формату v2
+      # (.golangci.yml) відкидає як «invalid elements». Версію лінтера
+      # закріплюємо, щоб локальний `make lint` і CI бачили одне й те саме.
       - name: Лінтер
-        uses: golangci/golangci-lint-action@v6
-        with: { version: latest }
+        uses: golangci/golangci-lint-action@v9
+        with: { version: v2.12.2 }
 
       # -race, бо MQTT-публікатор, добовий планувальник і HTTP-сервер ділять
       # один стор: саме та форма програми, де гонку не побачиш очима.
