@@ -1,0 +1,64 @@
+# Робочий процес однією командою.
+#
+# Досі він жив у прозі README і чотирьох ad-hoc викликах `sh`, тож людина
+# і CI робили те саме різними способами — а найдорожчою була церемонія
+# синхронізації UI: правка одного символу в CSS вимагала regen манiфесту
+# тут, коміт, пуш, а тоді ще синк і коміт у сусідньому репозиторії.
+#
+# Тести: internal/api і internal/store потребують CGO (драйвер SQLite),
+# тож без gcc локально бігають лише чисті пакети — `make test-pure`.
+
+GO ?= go
+HA_REPO ?= ../ha-oddinvest
+
+.PHONY: help fmt lint vet test test-pure build manifest ui check
+
+help:
+	@echo 'fmt        — gofmt -w .'
+	@echo 'lint       — golangci-lint run'
+	@echo 'test       — усі тести під -race (потрібен CGO)'
+	@echo 'test-pure  — лише пакети без CGO (працює без gcc)'
+	@echo 'build      — зібрати oddinvestd'
+	@echo 'manifest   — перегенерувати contract/ui-manifest.json'
+	@echo 'ui         — manifest + синхронізувати вендор у $(HA_REPO)'
+	@echo 'check      — те, що ганяє CI'
+
+fmt:
+	$(GO) fmt ./...
+
+lint:
+	golangci-lint run ./...
+
+vet:
+	$(GO) vet ./...
+
+test:
+	$(GO) test ./... -race -count=1
+
+# Ті самі пакети, що збираються без C-компілятора.
+test-pure:
+	$(GO) test ./internal/domain/... ./internal/state/... ./internal/fx/... \
+		./internal/nbu/... ./internal/imports/... -count=1
+
+build:
+	$(GO) build -o oddinvestd ./cmd/oddinvestd
+
+manifest:
+	sh scripts/gen-ui-manifest.sh
+
+# Обидва кроки разом: манiфест мусить бути свіжим ДО синку, інакше
+# перевірка sha256 на тому боці звіряється зі вчорашніми хешами.
+ui: manifest
+	@if [ -d "$(HA_REPO)" ]; then \
+		cd "$(HA_REPO)" && sh scripts/sync-ui.sh --from "$(CURDIR)"; \
+	else \
+		echo "сусідній репозиторій $(HA_REPO) не знайдено — синк пропущено"; \
+	fi
+
+# Те саме, що в .github/workflows/ci.yml, щоб не дізнаватись про поламане
+# вже після пушу.
+check:
+	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo 'запусти: make fmt'; exit 1; }
+	$(GO) vet ./...
+	golangci-lint run ./...
+	sh scripts/gen-ui-manifest.sh --check
