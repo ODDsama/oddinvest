@@ -189,10 +189,12 @@ type SettingsDoc struct {
 	MonthlyTargetUAH  *float64 `json:"monthly_target_uah,omitempty"`
 	USDTargetSharePct *float64 `json:"usd_target_share_pct,omitempty"`
 	EURTargetSharePct *float64 `json:"eur_target_share_pct,omitempty"`
-	// v Phase 3: проєкції/цілі
-	AssumedRatePct *float64 `json:"assumed_rate_pct,omitempty"` // очікувана річна дохідність, % (fallback до XIRR)
-	GoalAmountUAH  *float64 `json:"goal_amount_uah,omitempty"`  // застаріле: мігрує в «реалістичну»
-	GoalDate       string   `json:"goal_date,omitempty"`        // дедлайн (ISO), опційно
+	AssumedRatePct    *float64 `json:"assumed_rate_pct,omitempty"` // очікувана річна дохідність, % (fallback до XIRR)
+	// GoalAmountUAH — ЧИННА ціль, одна. Міграція 0008 звела в неї три
+	// старі цілі за рівнем амбіції; напрямок саме такий, і коментар тут
+	// довго стояв навиворіт («застаріле, мігрує в реалістичну»).
+	GoalAmountUAH *float64 `json:"goal_amount_uah,omitempty"`
+	GoalDate      string   `json:"goal_date,omitempty"` // дедлайн (ISO), опційно
 	// UAHDevaluationPct — очікуване річне знецінення гривні до твердої
 	// валюти, %. Базове значення, від якого сценарії розходяться.
 	UAHDevaluationPct *float64 `json:"uah_devaluation_pct,omitempty"`
@@ -200,8 +202,10 @@ type SettingsDoc struct {
 	// сповзає сьогоднішня; RateGlideYears — за скільки років.
 	TerminalRatePct *float64 `json:"terminal_rate_pct,omitempty"`
 	RateGlideYears  *float64 `json:"rate_glide_years,omitempty"`
-	// Три цілі за рівнем амбіції. Дату досягнення рахує застосунок за
-	// поточним темпом — вона результат, а не введення.
+	// Спадок моделі «три цілі за рівнем амбіції»: міграція 0008 замінила
+	// її однією ціллю, а сценарії розвела ДОПУЩЕННЯМИ. Поля лишаються
+	// запасним джерелом для GoalAmountUAH і читаються лише як fallback —
+	// нового сюди не пишуть.
 	GoalPessimisticUAH *float64 `json:"goal_pessimistic_uah,omitempty"`
 	GoalRealisticUAH   *float64 `json:"goal_realistic_uah,omitempty"`
 	GoalOptimisticUAH  *float64 `json:"goal_optimistic_uah,omitempty"`

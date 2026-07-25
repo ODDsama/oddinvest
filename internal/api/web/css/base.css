@@ -8,10 +8,6 @@
  * shadow root панелі, `:host` не існує на веб-сторінці — кожне правило
  * просто нічого не робить там, де його адресат відсутній. Це дешевше,
  * ніж два файли, які треба тримати синхронними.
- *
- * Блок «сумісність» наприкінці — імена класів старого веб-UI. Вони
- * зникнуть, коли обидві поверхні перейдуть на спільні view (фаза 3);
- * доти вони живі, бо index.html ще малює своєю розміткою.
  */
 
 * { box-sizing: border-box; }
@@ -302,7 +298,10 @@ input:focus, select:focus { outline: none; border-color: var(--oi-accent); }
 .banner.wait { background: var(--oi-soft-warn-bg); color: var(--oi-soft-warn-fg); border: 1px solid var(--oi-soft-warn-border); }
 .banner.neutral { background: var(--oi-surface); border: 1px solid var(--oi-border-strong); box-shadow: var(--oi-shadow); }
 
-.pill { padding: 2px var(--oi-gap-sm); border-radius: var(--oi-radius-pill); font-size: 12px; background: var(--oi-border); }
+/* Пігулки типу виплати користуються тією ж базою .pill вище. Тут довго
+   лежало ДРУГЕ визначення .pill — воно перекривало навмисний вигляд
+   пігулки виду інструмента (прозорий фон, рамка кольором) і заразом
+   зашивало font-size: 12px усупереч правилу «жодного літерала». */
 .pill.coupon { background: var(--oi-soft-ok-bg); color: var(--oi-soft-ok-fg); }
 .pill.redemption { background: var(--oi-soft-warn-bg); color: var(--oi-soft-warn-fg); }
 .pill.early { background: var(--oi-soft-info-bg); color: var(--oi-soft-info-fg); }
@@ -366,21 +365,6 @@ input:focus, select:focus { outline: none; border-color: var(--oi-accent); }
 
 .progress { height: var(--oi-gap-sm); border-radius: 6px; background: var(--oi-border); overflow: hidden; margin-top: 6px; }
 .progress > span { display: block; height: 100%; background: var(--oi-accent); }
-
-#cta { max-width: var(--oi-max-width); margin: 0 auto; padding: 0 var(--oi-gap-xl); }
-.cta {
-  background: var(--oi-soft-ok-bg);
-  color: var(--oi-soft-ok-fg);
-  border-radius: var(--oi-radius);
-  padding: 14px var(--oi-gap-lg);
-  display: flex;
-  align-items: center;
-  gap: var(--oi-gap);
-  flex-wrap: wrap;
-  font-size: var(--oi-fs-md);
-}
-.cta b { font-weight: 700; }
-.cta button { background: var(--oi-soft-ok-btn-bg); color: var(--oi-soft-ok-btn-fg); margin-left: auto; }
 
 /* --- пояснення «як це читати» --- */
 
@@ -449,53 +433,3 @@ input:focus, select:focus { outline: none; border-color: var(--oi-accent); }
 .toast.ok { background: var(--oi-ok); }
 .toast.err { background: var(--oi-danger); }
 
-/* =====================================================================
- * Сумісність: імена класів старого веб-UI (index.html).
- * Зникають разом із його розміткою у фазі 3.
- * ===================================================================== */
-
-nav button {
-  background: none;
-  border: none;
-  color: var(--oi-muted);
-  font: inherit;
-  padding: 6px 10px;
-  cursor: pointer;
-  border-radius: 6px;
-}
-nav button.active { color: var(--oi-text); background: var(--oi-surface-3); }
-
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--oi-gap); margin-bottom: var(--oi-gap-xl); }
-.cards .card { padding: 14px; margin-bottom: 0; }
-.card .v { font-size: var(--oi-fs-xl); font-weight: 600; margin-top: 2px; }
-.card .l { color: var(--oi-muted); font-size: var(--oi-fs-sm); }
-.mut { color: var(--oi-muted); }
-
-.pgbtn {
-  background: var(--oi-surface-3);
-  color: var(--oi-text);
-  border: 1px solid var(--oi-border-strong);
-  border-radius: 6px;
-  padding: 5px var(--oi-gap);
-  font: inherit;
-  cursor: pointer;
-}
-.pgbtn:disabled { opacity: .45; cursor: default; }
-.quick .pgbtn { flex: 1; min-width: 130px; }
-
-form.inline { display: flex; flex-wrap: wrap; gap: var(--oi-gap-sm); margin: 14px 0; }
-button.act { background: var(--oi-accent); color: var(--oi-on-accent); font-weight: 600; }
-button.danger { background: none; border: none; color: var(--oi-danger); padding: 0 var(--oi-gap-xs); }
-
-#msg {
-  position: fixed;
-  bottom: var(--oi-gap-lg);
-  right: var(--oi-gap-lg);
-  background: var(--oi-surface-3);
-  padding: 10px var(--oi-gap-lg);
-  border-radius: var(--oi-radius-sm);
-  display: none;
-}
-
-section { display: none; }
-section.show { display: block; }

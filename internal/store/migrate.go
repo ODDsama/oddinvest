@@ -11,8 +11,15 @@ import (
 var migrationsFS embed.FS
 
 // migrate — мінімальний вбудований раннер: таблиця schema_migrations,
-// послідовне застосування embed-файлів у транзакціях. Для застосунку
-// з однією БД цього достатньо; заміна на golang-migrate — механічна.
+// послідовне застосування embed-файлів у транзакціях. Для застосунку з
+// однією БД цього достатньо.
+//
+// Переїзд на golang-migrate механічним НЕ буде, хоч інтерфейс і крихітний:
+// версія тут — ім'я файла в TEXT PRIMARY KEY, а не число з прапорцем
+// dirty, тож наявні бази довелось би конвертувати; down-міграцій немає
+// жодної; 0011 містить date('now','localtime'), тобто не відтворюється;
+// а 0010 покладається саме на те, що цей раннер обгортає файл у
+// транзакцію (див. коментар у ньому про foreign_keys).
 func migrate(db *sql.DB) error {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now'))
