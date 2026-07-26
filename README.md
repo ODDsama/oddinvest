@@ -63,6 +63,13 @@ make test       # усі тести під -race
 make build
 ```
 
+Лінтер ставиться окремо, версією з CI — щоб локально й на сервері він
+казав одне й те саме:
+
+```sh
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+```
+
 Без `make` — те саме руками:
 
 ```sh
