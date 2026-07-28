@@ -10,7 +10,7 @@
 // склад і історія — у «Портфель», потоки й прогнози — у «Майбутнє».
 
 import {
-  esc, curSym, monthYearGen, dayMonth, pct, capitalUAH,
+  esc, curSym, monthYearGen, dayMonth, pct, plural, capitalUAH,
   uah2 as fmtUAH, cur2 as fmtCur,
 } from "../format.js";
 import { infoBtn } from "../info.js";
@@ -83,14 +83,50 @@ export function actionBannerHTML(ctx) {
     `На рахунку ${fmtUAH(s.account_uah)}, найдешевший папір ${fmtUAH(s.reinvest_min_uah)}.`);
 }
 
+// Виплати одного дня — це ОДИН прихід грошей, і питання до картки саме
+// таке: скільки впаде на рахунок і коли. Доти кожен потік малювався
+// окремим рядком, тож один день займав два, а список рвався на четвертому
+// незалежно від того, що там за потоки.
+//
+// Гірше було з погашеннями: 18 листопада той самий папір платить купон
+// 81,75 ₴ і повертає тіло 1 000 ₴, але друга половина не влазила в чотири
+// рядки — і картка показувала 82 ₴ там, де прийде 1 082 ₴.
+//
+// Групуємо за датою І ВАЛЮТОЮ: складати гривню з доларом не можна навіть
+// одного дня. Джерело — повний календар, а не top_payments: той обрізаний
+// до N потоків ще на бекенді, тож після склеювання дат рядків лишалось би
+// менше, ніж є днів.
+function groupPayments(list, limit) {
+  const out = [];
+  const idx = new Map();
+  for (const p of list) {
+    const key = p.date + "|" + p.currency;
+    let g = idx.get(key);
+    if (!g) {
+      if (out.length >= limit) continue;
+      g = { date: p.date, currency: p.currency, amount: 0, n: 0 };
+      idx.set(key, g);
+      out.push(g);
+    }
+    g.amount += Number(p.amount) || 0;
+    g.n++;
+  }
+  return out;
+}
+
 export function paymentsPreviewHTML(ctx) {
-  const rows = ((ctx.summary || {}).top_payments || []).slice(0, 4);
+  const s = ctx.summary || {};
+  // calendar — повний горизонт; top_payments лишається запасним джерелом
+  // для старшого бекенда, який календаря ще не надсилав.
+  const src = (s.calendar || []).length ? s.calendar : (s.top_payments || []);
+  const rows = groupPayments(src, 4);
   const body = rows.length
-    ? rows.map((p) => `<div class="pv-row"><span class="muted">${dayMonth(p.date)}</span>
-        <span>${Number(p.amount).toLocaleString("uk-UA", { minimumFractionDigits: 2 })} ${curSym(p.currency)}</span></div>`).join("")
+    ? rows.map((p) => `<div class="pv-row"><span class="muted">${dayMonth(p.date)}${
+        p.n > 1 ? ` <span class="sub-xs">· ${p.n} ${plural(p.n, "виплата", "виплати", "виплат")}</span>` : ""}</span>
+        <span>${fmtCur(p.amount, p.currency)}</span></div>`).join("")
     : `<div class="sub">Виплат попереду немає.</div>`;
   return `<div class="card"><h2>Найближчі виплати</h2>${body}
-    <div class="muted" style="font-size:12px;margin-top:8px">Повний календар — у «Майбутньому»</div></div>`;
+    <div class="sub">Суми за день складені. Повний календар — у «Майбутньому»</div></div>`;
 }
 
 export function nbuStaleHTML(ctx) {
