@@ -152,6 +152,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	depositsUAH := 0.0
 	depositsUAHByCur := map[string]float64{}
 	depositExposureUAH := map[string]float64{} // банк → тіло, грн-екв.
+	// Тіло вкладів у НАТИВНІЙ валюті — для рукавів проєкції: вони рахують
+	// у своїй валюті, а не в грн-еквіваленті.
+	depositBodyByCur := map[string]float64{}
 	for _, dep := range termDeposits {
 		if !dep.Active(today) {
 			continue
@@ -170,6 +173,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		// питання «скільки я втрачу, якщо ця установа зникне» від того,
 		// брокер це чи банк, не залежить.
 		depositExposureUAH[dep.Bank] += v
+		depositBodyByCur[dep.Currency] += float64(dep.BalanceAt(today)) / 100
 	}
 
 	// Резерв («матрац») — журнал рухів, поточний залишок це Σ сум. Читаємо
@@ -698,6 +702,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	var fundsYield, fundsYieldReal, blendedYield, blendedYieldReal float64
 	var fundsUAH float64
 	var fundRows []state.FundPositionRow
+	// Ринкова вартість сертифікатів у НАТИВНІЙ валюті — для рукавів
+	// проєкції, які рахують у своїй валюті.
+	fundValueByCur := map[string]float64{}
 	if len(fundOps) > 0 {
 		// Позиції вже зведені вище — там, де з них будувались оцінені
 		// дивідендні потоки. Друге зведення дало б ті самі числа й ще одну
@@ -716,6 +723,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				mvUAH = float64(u.Amount()) / 100
 			}
 			fundsUAH += mvUAH
+			fcur := fp.Currency
+			if fcur == "" {
+				fcur = money.UAH
+			}
+			fundValueByCur[fcur] += float64(fp.MarketValue()) / 100
 			// Довідник і день виплати проставлені вище, разом із потоками.
 			ref := fundRefs[fp.Fund]
 			y, _ := domain.DividendYieldNet(fundOps, fp, today)
@@ -1192,15 +1204,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		blendedYieldReal = blend(portfolioYieldReal, fundsYieldReal)
 	}
 
-	// Ставка реінвесту — ЗВЕДЕНА: капітал у сертифікатах не росте за
-	// ставкою облігацій, яких у ньому немає.
-	capRate := blendedYield
-	if capRate <= 0 {
-		capRate = portfolioYield
-	}
-	if capRate > 40 {
-		capRate = 40 // стеля, щоб компаунд не вибухав
-	}
 	// contribM — місячний внесок плану. Виводиться з ЦІЛІ й ДЕДЛАЙНУ
 	// нижче, коли вже зібрані валютні рукави: окреме ручне число дублювало
 	// інформацію, яка й так є в цілі, і мовчки з нею розходилось.
@@ -1267,7 +1270,26 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		var out []domain.Sleeve
 		for _, cur := range []string{money.UAH, money.USD, money.EUR} {
 			cash := float64(bal[cur]) / 100
-			nom := float64(nominalByCur[cur]) / 100
+			// Замкнений капітал — це НЕ лише номінал ОВДП. Тіло вкладу
+			// поводиться точно як номінал паперу: лежить, платить за
+			// відомим графіком і повертається в кінці строку, — а
+			// сертифікат лежить безстроково й платить дивідендами. Обидва
+			// потоки вже стоять у Coupon/Redeem нижче.
+			//
+			// Доти в базі рукава їх не було, і з цього виходило дві біди.
+			// Перша: погашення вкладу приходило в готівку з тіла, якого
+			// модель не тримала, — гроші зʼявлялись нізвідки. Друга:
+			// колонка «Внесено» стартувала з усього капіталу, а «З
+			// реінвестом» — лише з облігацій і рахунку, тож приріст між
+			// ними був занижений рівно на фонди й вклади, а на портфелі,
+			// де їх більшість, ставав відʼємним.
+			//
+			// Сертифікат лежить у `locked` і сам не росте: його дохід
+			// приходить дивідендами (реальними або обіцяними фондом), а
+			// подорожчання ціни застосунок не моделює ніде — див.
+			// «Що купити». Це занижує довгі горизонти, і краще так, ніж
+			// домальовувати зростання, якого ніхто не обіцяв.
+			nom := float64(nominalByCur[cur])/100 + depositBodyByCur[cur] + fundValueByCur[cur]
 			contrib := contribTotal * share[cur]
 			if cash == 0 && nom == 0 && contrib == 0 {
 				continue // валюти немає і не планується
@@ -1308,6 +1330,27 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			})
 		}
 		return out
+	}
+
+	// Ставка, ЯКУ ПРОЄКЦІЯ СПРАВДІ ВЖИЛА: середня по рукавах, зважена
+	// капіталом кожного в грн-екв.
+	//
+	// Доти сюди йшла зведена дохідність (YTM облігацій + дохідність фондів),
+	// і поле projection_rate_pct обіцяло «ставку реінвесту, що використана»,
+	// хоч жоден рукав її не бачив: кожен рахував за власним YTM своєї
+	// валюти. Число стояло на екрані як пояснення до кривої, якої воно не
+	// пояснювало.
+	capRate := 0.0
+	if sl := buildSleeves(0, 0); len(sl) > 0 {
+		var w, wr float64
+		for _, s := range sl {
+			base := (s.Cash0 + s.Nominal0) * s.Rate0
+			w += base
+			wr += base * s.RatePct
+		}
+		if w > 0 {
+			capRate = round2(wr / w)
+		}
 	}
 
 	rate0USD := 0.0

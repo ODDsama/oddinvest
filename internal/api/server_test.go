@@ -3594,3 +3594,73 @@ func TestStrategyPresetsUseKnownSettings(t *testing.T) {
 		}
 	}
 }
+
+// Проєкція: обидві колонки мусять стартувати з ОДНОГО капіталу.
+//
+// «Внесено» рахувалось від усього капіталу, а «З реінвестом» — із рукавів,
+// які бачили лише облігації й готівку. Приріст між ними був занижений
+// рівно на фонди й вклади, а на портфелі, де їх більшість, ставав
+// відʼємним: застосунок показував, що вкладати гірше, ніж не вкладати.
+//
+// Друга біда з того самого кореня: погашення вкладу приходило в готівку
+// з тіла, якого модель не тримала, — гроші зʼявлялись нізвідки.
+func TestProjectionStartsFromWholeCapital(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st)
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 30000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Портфель, де БІЛЬШІСТЬ грошей саме у фондах і вкладах: на такому
+	// стара помилка й давала відʼємний приріст.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-40), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 10000, Amount: 10000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-10),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(200),
+		Payout:       domain.PayoutEnd, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":2,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+
+	var doc struct {
+		CapitalUAH        float64 `json:"capital_uah"`
+		ProjectionRatePct float64 `json:"projection_rate_pct"`
+		Projection        []struct {
+			Years        int     `json:"years"`
+			Contributed  float64 `json:"contributed"`
+			WithReinvest float64 `json:"with_reinvest"`
+		} `json:"projection"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if len(doc.Projection) == 0 {
+		t.Fatalf("проєкції немає: %s", body[:min(len(body), 400)])
+	}
+	for _, r := range doc.Projection {
+		// Обидві колонки в сьогоднішніх гривнях, ставки додатні — отже
+		// вкладене не може коштувати менше за просто відкладене.
+		if r.WithReinvest < r.Contributed {
+			t.Errorf("%d р.: з реінвестом %.2f МЕНШЕ за просто внесене %.2f — бази розійшлись",
+				r.Years, r.WithReinvest, r.Contributed)
+		}
+	}
+	// Ставка, яку віддає документ, мусить бути тією, за якою модель і
+	// рахувала: доти сюди йшла зведена, якої жоден рукав не бачив.
+	if doc.ProjectionRatePct <= 0 || doc.ProjectionRatePct > 40 {
+		t.Errorf("ставка проєкції поза межами: %.2f", doc.ProjectionRatePct)
+	}
+}

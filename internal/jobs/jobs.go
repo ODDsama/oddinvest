@@ -118,13 +118,6 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 		return err
 	}
 	today := domain.NewDate(time.Now().In(r.loc))
-	// Собівартість фондів у документі лежить по позиціях, а знімку потрібне
-	// одне число: без нього крива не може показати прибуток, бо InvestedUAH —
-	// це лише облігації.
-	var fundsCost float64
-	for _, f := range doc.Funds {
-		fundsCost += f.CostBasis
-	}
 	return r.st.SaveSnapshot(ctx, store.Snapshot{
 		Date:           today,
 		InvestedUAH:    int64(doc.InvestedUAH * 100),
@@ -135,7 +128,11 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 		AccountUAH:     int64(doc.AccountUAH * 100),
 		FundsUAH:       int64(doc.FundsUAH * 100),
 		DepositsUAH:    int64(doc.DepositsUAH * 100),
-		FundsCostUAH:   int64(fundsCost * 100),
+		// Собівартість фондів беремо готовою з документа, а не складаємо
+		// тут заново: без неї крива не може показати прибуток (InvestedUAH —
+		// це лише облігації), а друга копія суми рано чи пізно розійшлася б
+		// із тією, що показує плитка «Вкладено».
+		FundsCostUAH: int64(doc.FundsCostUAH * 100),
 		// Резерв — частина капіталу, тож без нього крива показувала б
 		// портфель меншим за фактичний. Собівартості в нього немає: вона
 		// дорівнює самій сумі, і в прибуток він не додає нічого.
