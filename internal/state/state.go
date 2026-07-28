@@ -808,7 +808,9 @@ func Build(in Input) (*Doc, error) {
 		doc.Rates = make(map[string]float64, len(in.Rates))
 		for code, e4 := range in.Rates {
 			if e4 > 0 {
-				doc.Rates[code] = float64(e4) / fx.RateScale
+				if v, ok := fx.RateMajor(code, in.Rates); ok {
+					doc.Rates[code] = v
+				}
 			}
 		}
 	}

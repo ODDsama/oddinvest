@@ -210,7 +210,7 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	nowUSD := float64(rates[money.USD]) / fx.RateScale
+	nowUSD, _ := fx.RateMajor(money.USD, rates)
 	out := struct {
 		PortfolioUAH float64 `json:"portfolio_uah"`
 		BenchmarkUAH float64 `json:"benchmark_uah"`
@@ -255,7 +255,18 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 			}
 			// Гривня ділиться на курс; знак зберігається, тож зняття
 			// зменшує «куплені» долари так само, як і в житті.
-			usdCents += d.Amount * fx.RateScale / rate
+			//
+			// Через fx.FromUAH, а не цілочисельним діленням на місці:
+			// `d.Amount * RateScale / rate` відкидає дробову частину до
+			// нуля, тобто систематично применшує бенчмарк на кожному
+			// поповненні. FromUAH рахує тим самим big.Rat із банківським
+			// заокругленням, що й уся решта конвертацій.
+			u, cerr := fx.FromUAH(money.New(d.Amount, money.UAH), money.USD, fx.Rates{money.USD: rate})
+			if cerr != nil {
+				missing++
+				continue
+			}
+			usdCents += u.Amount()
 			continue
 		}
 		// Інша валюта: спершу в гривню за курсом того дня, потім у долар.

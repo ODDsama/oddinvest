@@ -62,3 +62,14 @@ check:
 	$(GO) vet ./...
 	golangci-lint run ./...
 	sh scripts/gen-ui-manifest.sh --check
+	@$(MAKE) --no-print-directory fx-boundary
+
+# fx — ЄДИНА точка конвертації, і масштаб курсу ×10⁴ не має витікати за
+# її межі. Витікав: курс ділили на RateScale вручну в шести місцях, а в
+# бенчмарку гривню переводили в долар цілочисельним діленням, яке
+# систематично применшувало результат. Для тих випадків тепер є
+# fx.FromUAH і fx.RateMajor.
+.PHONY: fx-boundary
+fx-boundary:
+	@! grep -rn 'fx\.RateScale' --include='*.go' . \
+		|| { echo 'RateScale поза internal/fx: візьми fx.FromUAH або fx.RateMajor'; exit 1; }

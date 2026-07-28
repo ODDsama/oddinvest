@@ -1509,9 +1509,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if tp == nil || *tp <= 0 {
 			continue
 		}
-		rateMajor := float64(rates[cur]) / fx.RateScale // грн за одиницю валюти
-		if rateMajor <= 0 {
-			continue
+		rateMajor, ok := fx.RateMajor(cur, rates)
+		if !ok {
+			continue // курсу немає — рядок чесніше не малювати
 		}
 		curUAH := capital.ExposureUAH(cur)
 		currentPct := capital.SharePct(cur)
@@ -1720,10 +1720,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		// Строк перевкладення — у гривні, щоб валюти складались, і БЕЗ
 		// дисконтування: тут питають, коли гроші прийдуть, а не скільки
 		// вони варті сьогодні.
-		rateMajor := 1.0
-		if c != money.UAH {
-			rateMajor = float64(rates[c]) / fx.RateScale
-		}
+		rateMajor, _ := fx.RateMajor(c, rates)
 		uah := amt * rateMajor
 		backUAH += uah
 		backWeighted += yrs * uah
@@ -1743,10 +1740,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if pv <= 0 {
 			continue
 		}
-		rateMajor := 1.0
-		if c != money.UAH {
-			rateMajor = float64(rates[c]) / fx.RateScale
-		}
+		rateMajor, _ := fx.RateMajor(c, rates)
 		pvUAH := pv * rateMajor
 		pvUAHTotal += pvUAH
 		macWeighted += mac * pvUAH

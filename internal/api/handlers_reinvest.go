@@ -311,7 +311,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		bMac, _, bPV := domain.Duration(pts, y)
 		fxr := 1.0
 		if c != money.UAH {
-			fxr = float64(rates[c]) / fx.RateScale
+			fxr, _ = fx.RateMajor(c, rates)
 		}
 		bPVUAH := bPV * fxr
 		newMac := curMac
