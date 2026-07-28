@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -3553,5 +3554,43 @@ func TestReinvestUsesKindDeficit(t *testing.T) {
 	if !found {
 		t.Errorf("порада не пояснює видовий дефіцит — ціль 60%% в ОВДП при нулі в портфелі: %s",
 			body[:min(len(body), 600)])
+	}
+}
+
+// Пресети стратегій — константи ФРОНТЕНДУ, які пишуть у ті самі
+// налаштування, що й форми поруч. Через це помилка в назві ключа не
+// ловиться нічим: eslint бачить валідний рядок, компілятор сюди не
+// заглядає, а PUT відповість «невідомий ключ» лише тоді, коли
+// користувач натисне саме на той набір.
+//
+// Тому тут той самий сторож, що й для схеми: беремо ключі просто з JS і
+// звіряємо з реєстром settingsKeys.
+func TestStrategyPresetsUseKnownSettings(t *testing.T) {
+	src, err := webFS.ReadFile("web/js/views/strategy.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	known := map[string]bool{}
+	for _, k := range settingsKeys {
+		known[k] = true
+	}
+	// values: { ... } кожного набору — до закриття блоку.
+	blocks := regexp.MustCompile(`(?s)key:\s*"(\w+)".*?values:\s*\{(.*?)\n    \},`).
+		FindAllStringSubmatch(string(src), -1)
+	if len(blocks) == 0 {
+		t.Fatal("у strategy.js не знайдено жодного набору — змінився формат?")
+	}
+	field := regexp.MustCompile(`(\w+):\s*"`)
+	for _, b := range blocks {
+		name, keys := b[1], field.FindAllStringSubmatch(b[2], -1)
+		if len(keys) == 0 {
+			t.Errorf("набір %q не задає жодного налаштування", name)
+		}
+		for _, k := range keys {
+			if !known[k[1]] {
+				t.Errorf("набір %q пише в невідоме налаштування %q — PUT відповість 400",
+					name, k[1])
+			}
+		}
 	}
 }

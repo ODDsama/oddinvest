@@ -7,6 +7,7 @@
 import { esc, today, pct } from "../format.js";
 import { tile } from "../components.js";
 import { onSubmit, onDelete, apply } from "../forms.js";
+import { strategyCardHTML, wireStrategy } from "./strategy.js";
 
 // Брокери й фонди — довідники з власними ендпойнтами. Раніше брокери
 // жили CSV-рядком у налаштуваннях, тож «перейменувати» означало лише
@@ -197,6 +198,8 @@ export async function renderSettings(ctx, main) {
     ctx.soft("devaluation", null),
   ]);
   main.innerHTML = `
+    ${strategyCardHTML(s)}
+
     <div class="card">
       <h2>Налаштування</h2>
       <form id="setForm">
@@ -326,6 +329,7 @@ export async function renderSettings(ctx, main) {
     "deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
     "deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct",
   ]));
+  wireStrategy(ctx, main, s);
   onSubmit(ctx, main.querySelector("#rankForm"), settingsPut(["reinvest_rank"]));
   onSubmit(ctx, main.querySelector("#kindTargetsForm"), settingsPut([
     "target_bonds_pct", "target_funds_pct", "target_deposits_pct",
