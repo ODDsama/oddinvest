@@ -1,7 +1,7 @@
 // Форми ОВДП: купівля з автокомплітом по ISIN і продаж на вторинному
 // ринку.
 
-import { esc, today } from "../format.js";
+import { esc, today, money as fmtMoney } from "../format.js";
 import { onSubmit, onDelete } from "../forms.js";
 
 

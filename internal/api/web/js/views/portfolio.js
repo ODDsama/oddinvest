@@ -25,7 +25,7 @@ import {
 } from "./risk.js";
 import { bondBuyFormHTML, bondSaleFormHTML, wireBonds } from "./bonds.js";
 import { depositFormHTML, closedDepositsHTML, wireDeposits } from "./deposits.js";
-import { chartBlockHTML, snapshotsTableHTML } from "./history.js";
+import { chartBlockHTML, snapshotsTableHTML, wireHistory } from "./history.js";
 
 // Одна картка на всі три форми: «записати операцію» — це одне питання,
 // а не три різні, і три окремі картки казали б протилежне.
@@ -83,6 +83,7 @@ export async function renderPortfolio(ctx, main) {
   wireBonds(ctx, main);
   wireFundOps(ctx, main);
   wireDeposits(ctx, main);
+  wireHistory(ctx, main);
   // Останнім: до цього моменту вся розмітка вже на місці, включно з тією,
   // що всередині згорнутих секцій.
   wireDisclosures(main);

@@ -1,6 +1,6 @@
 // Банківські строкові вклади: форма, поповнення, закриття, архів.
 
-import { esc, today, plural } from "../format.js";
+import { esc, today, plural, money as fmtMoney } from "../format.js";
 import { onSubmit, onDelete } from "../forms.js";
 import { disclosure } from "../disclosure.js";
 

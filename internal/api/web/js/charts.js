@@ -95,16 +95,91 @@ export function svgDonut(parts) {
   return { svg, colors };
 }
 
-/** Великий графік історії портфеля («Як росте»).
- *  series: [{name, color, values, dash?}], dates — ISO-рядки.
+/** Підказка під курсором для графіків, намальованих seriesChart.
+ *
+ *  wrap — контейнер, у якому лежать <svg> і <div class="chart-tip">.
+ *  buildHTML(i) повертає вміст підказки для дати з індексом i: сам
+ *  charts.js даних не знає й знати не мусить, його справа — влучання й
+ *  позиціювання.
+ *
+ *  Перший інтерактивний елемент у графіках застосунку. Нативного <title>
+ *  тут замало: він показує один рядок, зʼявляється з секундною затримкою
+ *  і не вміє показати ВСІ серії за день — а питання до кривої саме таке. */
+export function wireChartTips(wrap, buildHTML) {
+  if (!wrap) return;
+  const tip = wrap.querySelector(".chart-tip");
+  const svg = wrap.querySelector("svg");
+  if (!tip || !svg) return;
+
+  const hide = () => tip.classList.remove("show");
+  wrap.addEventListener("mouseleave", hide);
+  // Прокрутка зсуває графік під курсором, а підказка лишалась би висіти
+  // біля чужої дати.
+  wrap.addEventListener("scroll", hide);
+
+  wrap.querySelectorAll(".chart-hit").forEach((hit) => {
+    hit.addEventListener("mouseenter", () => {
+      const html = buildHTML(+hit.dataset.i);
+      if (!html) return;
+      tip.innerHTML = html;
+      tip.classList.add("show");
+      // Рахуємо від контейнера, а не від viewBox: SVG масштабується під
+      // ширину картки, тож координати всередині нього до пікселів сторінки
+      // не сходяться.
+      const hb = hit.getBoundingClientRect(), wb = wrap.getBoundingClientRect();
+      const cx = hb.left - wb.left + hb.width / 2 + wrap.scrollLeft;
+      const half = tip.offsetWidth / 2;
+      const max = wrap.scrollWidth - tip.offsetWidth - 4;
+      tip.style.left = Math.max(4, Math.min(cx - half, max)) + "px";
+    });
+  });
+}
+
+/** «Приємна» верхня межа осі: 1 / 2 / 2.5 / 5 × 10^k.
+ *
+ *  Доти було просто max × 1.1, поділене на чотири, — і підписи виходили
+ *  на кшталт «247к». Такі числа нічого не якорять: щоб прикинути висоту
+ *  точки, доводиться рахувати в голові. */
+function niceMax(v) {
+  if (!(v > 0)) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(v)));
+  const norm = v / pow;
+  const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+  return step * pow;
+}
+
+/** Великий графік історії портфеля.
+ *
+ *  series: [{name, color, values, dash?, area?}], dates — ISO-рядки.
+ *  area: true — серія лягає СМУГОЮ поверх попередніх таких (накопичені
+ *  області); решта малюється звичайними лініями в тому самому масштабі.
+ *
+ *  Навіщо смуги: лініями з нуля не прочитати ані суми, ані появи нового
+ *  інструмента — фонди, куплені в середині історії, виглядали як лінія,
+ *  що зʼявилась у повітрі. У смузі це просто новий шар, що росте від нуля,
+ *  а верхня межа стосу — увесь капітал.
+ *
  *  Повертає {svg, legend} окремо: веб малює їх у два вже наявні
  *  контейнери, панель складає в одну картку. */
-export function seriesChart(dates, series, { width = 760, height = 300, minWidth = 520 } = {}) {
+export function seriesChart(dates, series, { width = 760, height = 300, minWidth = 520, label = "" } = {}) {
   const P = { l: 66, r: 14, t: 14, b: 40 };
   const iw = width - P.l - P.r, ih = height - P.t - P.b, n = dates.length;
+  const areas = series.filter((s) => s.area);
+  const lines = series.filter((s) => !s.area);
+
+  // Стос рахуємо один раз: він потрібен і для масштабу, і для полігонів.
+  // null у смузі — це нульова товщина, тобто шару в той день просто немає.
+  const tops = [];
+  areas.forEach((s, k) => {
+    tops[k] = s.values.map((v, i) => (k ? tops[k - 1][i] : 0) + (v || 0));
+  });
+  const stackTop = tops.length ? tops[tops.length - 1] : [];
+
   let ymax = 0;
-  series.forEach((s) => s.values.forEach((v) => { if (v > ymax) ymax = v; }));
-  ymax = ymax > 0 ? ymax * 1.1 : 1;
+  stackTop.forEach((v) => { if (v > ymax) ymax = v; });
+  lines.forEach((s) => s.values.forEach((v) => { if (v > ymax) ymax = v; }));
+  ymax = niceMax(ymax);
+
   const x = (i) => P.l + (n <= 1 ? iw / 2 : (iw * i) / (n - 1));
   const y = (v) => P.t + ih - (ih * v) / ymax;
 
@@ -114,12 +189,30 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
     grid += `<line x1="${P.l}" y1="${gy.toFixed(1)}" x2="${width - P.r}" y2="${gy.toFixed(1)}" stroke="${GRID}" stroke-width="1"/>`;
     ylabels += `<text x="${P.l - 8}" y="${(gy + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${AXIS}">${compact(gv)}</text>`;
   }
+
+  // Останню дату підписуємо завжди: без неї з графіка не прочитати, станом
+  // на коли він узагалі намальований.
   let xlabels = "";
   const step = Math.max(1, Math.floor(n / 5));
-  for (let i = 0; i < n; i += step) {
+  const marks = new Set();
+  for (let i = 0; i < n; i += step) marks.add(i);
+  if (n) marks.add(n - 1);
+  [...marks].sort((a, b) => a - b).forEach((i) => {
     xlabels += `<text x="${x(i).toFixed(1)}" y="${height - 14}" text-anchor="middle" font-size="11" fill="${AXIS}">${esc(dates[i].slice(5))}</text>`;
-  }
-  const lines = series.map((s) => {
+  });
+
+  // Смуги: верх — накопичена сума до цього шару включно, низ — без нього.
+  // Заливка кольором серії з прозорістю, щоб не заводити другий набір
+  // токенів під кожен інструмент.
+  const bands = areas.map((s, k) => {
+    const top = tops[k].map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+    const bottom = (k ? tops[k - 1] : s.values.map(() => 0))
+      .map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).reverse();
+    return `<polygon points="${top.concat(bottom).join(" ")}" fill="${s.color}"`
+      + ` fill-opacity="0.55" stroke="${s.color}" stroke-width="1"/>`;
+  }).join("");
+
+  const paths = lines.map((s) => {
     // null у значенні — це «тоді не рахували», а не нуль. Точку не
     // малюємо зовсім: намальований нуль читався б як «грошей не було», і
     // лінія злітала б угору в той день, коли з'явилась КОЛОНКА, а не
@@ -131,11 +224,25 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
       + `${s.dash ? ' stroke-dasharray="6 5"' : ""} stroke-linejoin="round"/>`;
   }).join("");
 
-  const legend = series.map((s) =>
-    `<span style="display:inline-flex;align-items:center;gap:6px;margin-right:16px;font-size:13px">`
-    + `<span style="width:16px;height:3px;background:${s.color};display:inline-block"></span>${esc(s.name)}</span>`).join("");
+  // Зони наведення: по одному прозорому прямокутнику на дату, на всю
+  // висоту. Влучити в них легко навіть там, де лінії злиплись, а розмітку
+  // підказки будує вже той, хто знає дані (див. wireChartTips).
+  let hits = "";
+  if (n > 1) {
+    const bw = iw / (n - 1);
+    for (let i = 0; i < n; i++) {
+      const hx = Math.max(P.l, x(i) - bw / 2);
+      hits += `<rect class="chart-hit" data-i="${i}" x="${hx.toFixed(1)}" y="${P.t}"`
+        + ` width="${Math.min(bw, width - P.r - hx).toFixed(1)}" height="${ih}" fill="transparent"/>`;
+    }
+  }
 
-  const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet"`
-    + ` style="width:100%;min-width:${minWidth}px;height:auto">${grid}${ylabels}${xlabels}${lines}</svg>`;
+  const legend = series.map((s) =>
+    `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("");
+
+  const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img"`
+    + ` style="width:100%;min-width:${minWidth}px;height:auto">`
+    + `<title>${esc(label || "Історія портфеля")}</title>`
+    + `${grid}${ylabels}${xlabels}${bands}${paths}${hits}</svg>`;
   return { svg, legend };
 }

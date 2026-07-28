@@ -1,7 +1,7 @@
 // Чим ризикую: розклад по брокерах і валютах, ребалансування,
 // ліквідність, процентний ризик, бенчмарк і драбина.
 
-import { esc, curSym, pct, uah2 as fmtUAH, fundsCost } from "../format.js";
+import { esc, curSym, pct, uah2 as fmtUAH, cur2 as fmtCur, fundsCost } from "../format.js";
 import { infoBtn } from "../info.js";
 import { svgBars, svgGrouped, svgDonut } from "../charts.js";
 import { tile, yieldNote } from "../components.js";

@@ -5,7 +5,7 @@
 // його звідти — тобто розділ був сховищем даних для сусіднього розділу, і
 // те, який відрендериться першим, вирішувало, що побачить інший.
 
-import { esc, curSym } from "./format.js";
+import { esc, curSym, cur2 as fmtCur, money as fmtMoney } from "./format.js";
 import { FUND_KIND } from "./constants.js";
 import { onDelete } from "./forms.js";
 

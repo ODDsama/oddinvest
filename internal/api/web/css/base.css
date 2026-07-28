@@ -344,6 +344,34 @@ input:focus, select:focus { outline: none; border-color: var(--oi-accent); }
 .lg span { display: inline-flex; align-items: center; gap: 7px; }
 .lg i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
 
+/* Підказка під курсором на кривій.
+   Контейнер прокручується по горизонталі (графік ширший за вузьку панель
+   HA), тож підказка позиціюється всередині нього, а не в картці. */
+.chart-wrap { position: relative; overflow-x: auto; }
+.chart-tip {
+  position: absolute;
+  top: var(--oi-gap-xs);
+  display: none;
+  pointer-events: none;
+  background: var(--oi-surface-2);
+  border: 1px solid var(--oi-border-strong);
+  border-radius: var(--oi-radius-sm);
+  padding: var(--oi-gap-sm) var(--oi-gap);
+  font-size: var(--oi-fs-sm);
+  box-shadow: var(--oi-shadow);
+  white-space: nowrap;
+  z-index: 2;
+}
+.chart-tip.show { display: block; }
+.chart-tip b { font-weight: 600; }
+.chart-tip .r { display: flex; align-items: center; gap: var(--oi-gap-sm); justify-content: space-between; }
+.chart-tip .r i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: 0 0 auto; }
+.chart-tip .r span { display: inline-flex; align-items: center; gap: 6px; }
+/* Підсумковий рядок відділяємо: він про суму, а не про ще один інструмент. */
+.chart-tip .tot { border-top: 1px solid var(--oi-border); margin-top: var(--oi-gap-xs); padding-top: var(--oi-gap-xs); }
+/* Смуга наведення невидима, але курсор має показувати, що тут щось є. */
+.chart-hit { cursor: crosshair; }
+
 .h-row { display: flex; align-items: center; }
 
 /* Дрібний пояснювальний рядок під заголовком чи числом. Зустрічається
