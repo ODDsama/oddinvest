@@ -728,18 +728,41 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				fcur = money.UAH
 			}
 			fundValueByCur[fcur] += float64(fp.MarketValue()) / 100
+			// Суми рядка — у ГРН-ЕКВІВАЛЕНТІ, усі до одної.
+			//
+			// Доти в гривні була лише MarketValue, а собівартість,
+			// дивіденди, податок і реалізоване лишались НАТИВНИМИ — в
+			// одному struct, за десять рядків одне від одного. UI форматує
+			// їх усі як гривню (`fmtUAH`), «Портфель» рахує
+			// `pnl = market_value − cost_basis`, а `doc.FundsCostUAH`
+			// сумує їх у поле, назва якого закінчується на UAH. Для
+			// гривневого фонду це збігається й тому не помічалось; для
+			// будь-якого іншого — ні.
+			//
+			// LastPrice лишається НАТИВНОЮ навмисно: це ціна одного
+			// сертифіката, і показується вона поруч із Currency
+			// («11.1366 ₴», «$1.02»), а помічник реінвесту будує з неї
+			// money у валюті фонду. Ціна за штуку й підсумок — різні за
+			// природою величини, і зводити їх до однієї одиниці означало б
+			// зламати обидва місця.
+			toUAH := func(minor int64) float64 {
+				if u, cerr := fx.ToUAH(money.New(minor, fp.Currency), rates); cerr == nil {
+					return round2(float64(u.Amount()) / 100)
+				}
+				return round2(float64(minor) / 100)
+			}
 			// Довідник і день виплати проставлені вище, разом із потоками.
 			ref := fundRefs[fp.Fund]
 			y, _ := domain.DividendYieldNet(fundOps, fp, today)
 			row := state.FundPositionRow{
 				Fund: fp.Fund, Currency: fp.Currency, Qty: fp.Qty,
-				CostBasis:     round2(float64(fp.CostBasis) / 100),
+				CostBasis:     toUAH(fp.CostBasis),
 				LastPrice:     math.Round(float64(fp.LastPrice)) / 10000,
 				LastPriceDate: string(fp.LastPriceDate),
 				MarketValue:   round2(mvUAH),
-				DividendsNet:  round2(float64(fp.DividendsGross-fp.DividendsTax) / 100),
-				DividendsTax:  round2(float64(fp.DividendsTax) / 100),
-				Realized:      round2(float64(fp.Realized) / 100),
+				DividendsNet:  toUAH(fp.DividendsGross - fp.DividendsTax),
+				DividendsTax:  toUAH(fp.DividendsTax),
+				Realized:      toUAH(fp.Realized),
 				YieldNetPct:   y,
 				Short:         fp.Short,
 			}

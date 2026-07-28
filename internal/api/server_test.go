@@ -3737,3 +3737,63 @@ func TestMaturedBondNotCountedTwice(t *testing.T) {
 			d.CapitalUAH, d.AccountUAH)
 	}
 }
+
+// Усі СУМИ в рядку фонду — у грн-еквіваленті, а не в його рідній валюті.
+//
+// Доти в гривні була лише market_value, а собівартість, дивіденди, податок
+// і реалізоване лишались нативними — в одному struct. UI форматує їх усі
+// як гривню й рахує pnl = market_value − cost_basis, а doc.funds_cost_uah
+// сумує їх у поле, назва якого закінчується на UAH. Для гривневого фонду
+// це збігається, тож помітити можна лише на валютному.
+func TestFundRowSumsAreUAH(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st) // курс USD = 44.1234
+	// $1 000 у сертифікатах: 500 штук по $2.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-40), Fund: "USFund", Kind: domain.FundBuy,
+		Qty: 500, Amount: 100000, Currency: "USD", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		FundsUAH     float64 `json:"funds_uah"`
+		FundsCostUAH float64 `json:"funds_cost_uah"`
+		Funds        []struct {
+			Fund      string  `json:"fund"`
+			Currency  string  `json:"currency"`
+			CostBasis float64 `json:"cost_basis"`
+			LastPrice float64 `json:"last_price"`
+			MarketVal float64 `json:"market_value"`
+		} `json:"funds"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &d); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if len(d.Funds) != 1 {
+		t.Fatalf("очікували один фонд: %s", body[:min(len(body), 400)])
+	}
+	f := d.Funds[0]
+	// $1 000 × 44.1234 = 44 123.40 ₴.
+	if math.Abs(f.CostBasis-44123.40) > 0.02 {
+		t.Errorf("собівартість = %.2f, а в гривні це 44123.40 (нативно було б 1000)", f.CostBasis)
+	}
+	// Ринкова вартість тут дорівнює собівартості (ціна з тієї ж операції),
+	// тож обидві мусять бути в одній одиниці — інакше «прибуток» вигаданий.
+	if math.Abs(f.MarketVal-f.CostBasis) > 0.02 {
+		t.Errorf("ринкова %.2f і собівартість %.2f в різних одиницях — pnl буде вигаданий",
+			f.MarketVal, f.CostBasis)
+	}
+	// А ось ціна ОДНОГО сертифіката лишається нативною: $2.
+	if math.Abs(f.LastPrice-2) > 0.0001 {
+		t.Errorf("ціна сертифіката = %.4f, чекали нативні 2.0000", f.LastPrice)
+	}
+	if f.Currency != "USD" {
+		t.Errorf("валюта фонду мала лишитись USD, маємо %q", f.Currency)
+	}
+	// І зведене поле документа — те саме число, що в рядку.
+	if math.Abs(d.FundsCostUAH-f.CostBasis) > 0.02 {
+		t.Errorf("funds_cost_uah = %.2f, а сума по рядках %.2f", d.FundsCostUAH, f.CostBasis)
+	}
+}
