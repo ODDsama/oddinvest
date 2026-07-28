@@ -78,6 +78,15 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	rates, deval := src.rates, src.deval
 	fundOps, termDeposits := src.fundOps, src.termDeposits
 
+	// Чим володіємо — зведене за ОДИН прохід (domain/holdings.go). Доти
+	// lots обходився тут сімома циклами, а залишок після продажів
+	// рахувався по чотири рази на лот, щоразу наново.
+	payoutDays := make(map[string]int64, len(src.fundRefs))
+	for name, ref := range src.fundRefs {
+		payoutDays[name] = ref.PayoutDay
+	}
+	hold := domain.NewHoldings(lots, sales, bonds, fundOps, payoutDays, today)
+
 	positions, err := domain.Positions(bonds, pays, lots, sales, today)
 	if err != nil {
 		return nil, err
@@ -104,11 +113,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// місце, вона відсіюється: у ціновому ризику сертифікат не
 	// переоцінюється ставками ОВДП, а в ризику перевкладення дивіденд не
 	// є поверненням тіла.
-	fundPositions := domain.FundPositions(fundOps)
 	fundRefs := src.fundRefs
-	for name, fp := range fundPositions {
-		ref := fundRefs[name]
-		fp.PayoutDay = ref.PayoutDay
+	for i := range hold.Funds {
+		fp := &hold.Funds[i].FundPosition
+		ref := fundRefs[fp.Fund]
 		// Обіцянка фонду, а якщо її немає — виміряна дивідендна: остання
 		// ділить виплату на СЬОГОДНІШНЮ вартість, тож на позиції, яку
 		// докуповують, занижує.
@@ -206,7 +214,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 
 	// внески місяця: покупки поточного місяця в грн-еквіваленті
 	monthInv := money.New(0, money.UAH)
-	for _, l := range lots {
+	for _, l := range hold.Lots {
+		// Уся куплена кількість, а не залишок: питання «скільки я вклав
+		// цього місяця», і продаж наступного дня факту покупки не скасовує.
 		if l.BuyDate.Year() == now.Year() && l.BuyDate.Month() == now.Month() {
 			cost := domain.MulQty(l.PricePerBond, l.Qty)
 			if l.Fee != nil && !l.Fee.IsZero() {
@@ -363,7 +373,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		bal[k.Currency] += net
 		balBC[k] += net
 	}
-	for _, l := range lots {
+	for _, l := range hold.Lots {
 		cost := domain.MulQty(l.PricePerBond, l.Qty)
 		if l.Fee != nil && !l.Fee.IsZero() {
 			if cost, err = cost.Add(l.Fee); err != nil {
@@ -496,8 +506,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Вкладено по брокерах (грн-екв.): дзеркалить логіку Positions —
 	// ціна×залишок + пропорційна комісія, лише згруповано по брокеру.
 	investedByBroker := map[string]float64{}
-	for _, l := range lots {
-		rem := domain.RemainingQtyNow(l, sales)
+	for _, l := range hold.Lots {
+		rem := l.Remaining
 		if rem == 0 {
 			continue
 		}
@@ -539,8 +549,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			}
 			boughtByFundBroker[op.Fund][b] += op.Amount
 		}
-		for fund, pos := range domain.FundPositions(fundOps) {
-			byBroker := boughtByFundBroker[fund]
+		// Друге зведення фондів тут більше не будується: Holdings уже має
+		// його, і в сталому порядку. Доти це була свіжа мапа, і саме тому
+		// нікого не турбувало, що будівник дописує PayoutDay у першу.
+		for _, f := range hold.Funds {
+			pos := f.FundPosition
+			byBroker := boughtByFundBroker[pos.Fund]
 			var totalBought int64
 			for _, v := range byBroker {
 				totalBought += v
@@ -568,13 +582,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Решта експозиції контрагентів: папери за номіналом, готівка на
 	// рахунках і тіла вкладів (сертифікати додались вище, разом зі своїм
 	// поділом по брокерах).
-	for _, l := range lots {
-		rem := domain.RemainingQtyNow(l, sales)
-		b, ok := bonds[l.ISIN]
-		if rem == 0 || !ok || b.Maturity.Before(today) {
+	for _, l := range hold.Lots {
+		if !l.Held() {
 			continue
 		}
-		if u, err := fx.ToUAH(money.New(b.Nominal.Amount()*rem, b.Nominal.Currency().Code), rates); err == nil {
+		nom := l.Bond.Nominal
+		if u, err := fx.ToUAH(money.New(nom.Amount()*l.Remaining, nom.Currency().Code), rates); err == nil {
 			addExposure(l.Channel, float64(u.Amount())/100)
 		}
 	}
@@ -668,17 +681,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// проєкції, які рахують у своїй валюті.
 	fundValueByCur := map[string]float64{}
 	if len(fundOps) > 0 {
-		// Позиції вже зведені вище — там, де з них будувались оцінені
-		// дивідендні потоки. Друге зведення дало б ті самі числа й ще одну
-		// копію, у якій легко забути проставити день виплати.
-		positions := fundPositions
-		names := make([]string, 0, len(positions))
-		for name := range positions {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			fp := positions[name]
+		// Позиції зведені раз, у Holdings, і вже у сталому порядку за
+		// назвою — сортувати тут більше нема чого.
+		for i := range hold.Funds {
+			fp := &hold.Funds[i].FundPosition
 			mv := money.New(fp.MarketValue(), fp.Currency)
 			mvUAH := float64(fp.MarketValue()) / 100
 			if u, cerr := fx.ToUAH(mv, rates); cerr == nil {
@@ -986,15 +992,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	nominalByISIN := map[string]int64{} // номінал по ПАПЕРАХ, грн-екв.
 	ytmLotsByCur := map[string][]domain.YTMLot{}
 	var ytmWeightUAH, ytmWeightedUAH, ytmWeightedRealUAH float64
-	for _, l := range lots {
-		b, ok := bonds[l.ISIN]
-		if !ok || b.Maturity.Before(today) {
+	for _, l := range hold.Lots {
+		if !l.Held() {
 			continue
 		}
-		q := domain.RemainingQtyNow(l, sales)
-		if q == 0 {
-			continue
-		}
+		b, q := l.Bond, l.Remaining
 		cur := b.Nominal.Currency().Code
 		nominalByCur[cur] += b.Nominal.Amount() * q
 		if n, err := fx.ToUAH(money.New(b.Nominal.Amount()*q, cur), rates); err == nil {
@@ -1004,7 +1006,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			// зовсім: «половина портфеля в одному ISIN» побачити не було де.
 			nominalByISIN[l.ISIN] += n.Amount()
 		}
-		lot := ytmLot(l, q)
+		lot := ytmLot(l.Lot, q)
 		cost := lot.CostPerBond
 		ytmLotsByCur[cur] = append(ytmLotsByCur[cur], lot)
 		// Для зведеної цифри вагу переводимо в гривню, щоб валюти
@@ -1448,8 +1450,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// додаємо в капітал проєкцій: у симуляції майбутні купони вже враховані
 	// повністю, тож додавання НКД було б подвійним рахунком.
 	var accruedUAH int64
-	for _, l := range lots {
-		q := domain.RemainingQtyNow(l, sales)
+	for _, l := range hold.Lots {
+		q := l.Remaining
 		if q == 0 {
 			continue
 		}

@@ -75,12 +75,17 @@ fx-boundary:
 	@! grep -rn 'fx\.RateScale' --include='*.go' . \
 		|| { echo 'RateScale поза internal/fx: візьми fx.FromUAH або fx.RateMajor'; exit 1; }
 
-# buildState читає сховище ЛИШЕ через sources (state_sources.go). Доти
-# читання були розсипані по всій функції, і ListDeposits через це
-# викликався двічі за п'ятсот рядків один від одного — обидва місця були
-# певні, що вони єдині. Правило дешеве, поки воно механічне: щойно воно
-# стає домовленістю, наступний запит просто дописують поруч.
+# buildState читає сховище ЛИШЕ через sources (state_sources.go) і
+# зводить факти ЛИШЕ через Holdings (domain/holdings.go). Доти читання
+# були розсипані по всій функції, і ListDeposits через це викликався
+# двічі за п'ятсот рядків один від одного — обидва місця були певні, що
+# вони єдині. Так само двічі будувалось зведення фондів, і саме тому
+# нікого не турбувало, що будівник дописує PayoutDay у першу мапу:
+# друга була свіжа. Правило дешеве, поки воно механічне; щойно воно стає
+# домовленістю, наступний запит просто дописують поруч.
 .PHONY: sources-boundary
 sources-boundary:
 	@! grep -n 's\.st\.' internal/api/state_builder.go \
 		|| { echo 'buildState читає сховище повз sources: додай поле в state_sources.go'; exit 1; }
+	@! grep -nE 'domain\.(FundPositions|RemainingQtyNow)\(' internal/api/state_builder.go \
+		|| { echo 'buildState зводить факти повз Holdings: візьми hold.Funds / hold.Lots'; exit 1; }
