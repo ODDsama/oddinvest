@@ -3335,3 +3335,111 @@ func TestKindTargetsDoNotNormalise(t *testing.T) {
 			b.DeficitUAH, doc.CapitalUAH, doc.NominalUAH, wantDef)
 	}
 }
+
+// Концентрація: три виміри, три різні знаменники. Найважливіше тут —
+// що вимір «один папір» бачить і ФОНД: на живих даних один сертифікат
+// важив 16.7% капіталу, більше за будь-яку окрему облігацію, і список,
+// який його не показував, брехав найгучніше саме там, де ризик найбільший.
+func TestConcentrationSeesFundsAndCountsSeparateBases(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st)
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 10000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":10,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-40), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 1000, Amount: 3000000, Currency: "UAH", Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Резерв: він НЕ має контрагента, тож у вимір «установа» входити не
+	// мусить — інакше «матрац» показався б як брокер.
+	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
+		Date: domain.NewDate(time.Now()).AddDays(-5), Amount: 1000000, Currency: "UAH",
+		Place: "сейф",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var doc struct {
+		Concentration []struct {
+			Dimension string  `json:"dimension"`
+			Key       string  `json:"key"`
+			Label     string  `json:"label"`
+			AmountUAH float64 `json:"amount_uah"`
+			SharePct  float64 `json:"share_pct"`
+			LimitPct  float64 `json:"limit_pct"`
+			OverUAH   float64 `json:"over_uah"`
+		} `json:"concentration"`
+	}
+	// Без лімітів вимір не показується взагалі: підставляти «розумний
+	// дефолт» означало б дати пораду, якої ніхто не просив.
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if len(doc.Concentration) != 0 {
+		t.Fatalf("без заданих лімітів концентрації не мало бути: %+v", doc.Concentration)
+	}
+
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"limit_isin_pct":"20","limit_broker_pct":"50","limit_year_pct":"40"}`); resp.StatusCode >= 300 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+
+	byDim := map[string]int{}
+	var fundRow, sumBrokerPct = -1, 0.0
+	for i, r := range doc.Concentration {
+		byDim[r.Dimension]++
+		if r.Dimension == "isin" && r.Key == "fund:Inzhur" {
+			fundRow = i
+		}
+		if r.Dimension == "broker" {
+			sumBrokerPct += r.SharePct
+			if r.Key == "сейф" || r.Key == "—" && r.AmountUAH > 0 {
+				t.Errorf("резерв потрапив у вимір установи: %+v", r)
+			}
+		}
+	}
+	for _, d := range []string{"isin", "broker", "year"} {
+		if byDim[d] == 0 {
+			t.Errorf("вимір %q порожній: %s", d, body)
+		}
+	}
+	if fundRow < 0 {
+		t.Fatalf("фонд не потрапив у вимір «один папір»: %+v", doc.Concentration)
+	}
+	f := doc.Concentration[fundRow]
+	if f.Label != "Inzhur" || f.SharePct <= 0 {
+		t.Errorf("рядок фонду зіпсований: %+v", f)
+	}
+	// Резерв — частина капіталу, але не контрагент, тож частки установ у
+	// сумі МЕНШІ за 100%. Це не втрата даних, і саме тому картка каже про
+	// це вголос.
+	if sumBrokerPct >= 100 {
+		t.Errorf("частки установ дали %.2f%% — резерв, схоже, порахований контрагентом", sumBrokerPct)
+	}
+
+	// Рік драбини міряється від УСІХ погашень, а не від капіталу: інакше
+	// портфель, де більшість грошей у фондах, порушував би ліміт завжди.
+	yearSum := 0.0
+	for _, r := range doc.Concentration {
+		if r.Dimension == "year" {
+			yearSum += r.SharePct
+		}
+	}
+	if math.Abs(yearSum-100) > 0.05 {
+		t.Errorf("частки років у сумі = %.2f%%, а мають давати 100%% від усіх погашень", yearSum)
+	}
+}

@@ -151,6 +151,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// «в портфелі», воно повернулось на рахунок.
 	depositsUAH := 0.0
 	depositsUAHByCur := map[string]float64{}
+	depositExposureUAH := map[string]float64{} // банк → тіло, грн-екв.
 	for _, dep := range termDeposits {
 		if !dep.Active(today) {
 			continue
@@ -164,6 +165,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		v := float64(u.Amount()) / 100
 		depositsUAH += v
 		depositsUAHByCur[dep.Currency] += v
+		// Банк вкладу — такий самий контрагент, як брокер: гроші замкнені
+		// саме в ньому. Ліміт концентрації рахується по обох разом, бо
+		// питання «скільки я втрачу, якщо ця установа зникне» від того,
+		// брокер це чи банк, не залежить.
+		depositExposureUAH[dep.Bank] += v
 	}
 
 	// Резерв («матрац») — журнал рухів, поточний залишок це Σ сум. Читаємо
@@ -516,6 +522,23 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		brokers[name][k.Currency] = float64(m) / 100
 	}
 
+	// Скільки грошей стоїть за КОЖНИМ контрагентом, грн-екв. — для ліміту
+	// концентрації. Це не investedByBroker нижче: там собівартість, бо
+	// картка «Вкладено по брокерах» відповідає на «скільки я туди заніс».
+	// Тут питання інше — «скільки я втрачу, якщо цей брокер чи банк завтра
+	// зникне», а на нього відповідає сьогоднішня вартість: номінал
+	// паперів, ринкова вартість сертифікатів, тіло вкладу й готівка.
+	//
+	// Резерву тут немає: у нього не брокер, а «місце» (готівка, сейф), і
+	// ризик контрагента до нього не застосовний — у цьому й сенс матраца.
+	brokerExposureUAH := map[string]float64{}
+	addExposure := func(name string, uah float64) {
+		if name == "" {
+			name = "—"
+		}
+		brokerExposureUAH[name] += uah
+	}
+
 	// Вкладено по брокерах (грн-екв.): дзеркалить логіку Positions —
 	// ціна×залишок + пропорційна комісія, лише згруповано по брокеру.
 	investedByBroker := map[string]float64{}
@@ -571,13 +594,45 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			if totalBought == 0 || pos.CostBasis == 0 {
 				continue
 			}
+			// Ринкова вартість тієї самої позиції, поділена так само: для
+			// ризику контрагента важить не те, скільки ти заніс, а те,
+			// скільки там лежить зараз. Рахує домен — ціна зберігається
+			// ×10⁴, і власна арифметика тут розійшлася б із рештою.
+			mvMinor := pos.MarketValue()
 			for b, v := range byBroker {
 				share := money.New(pos.CostBasis*v/totalBought, pos.Currency)
 				if u, uerr := fx.ToUAH(share, rates); uerr == nil {
 					investedByBroker[b] += float64(u.Amount()) / 100
 				}
+				if u, uerr := fx.ToUAH(money.New(mvMinor*v/totalBought, pos.Currency), rates); uerr == nil {
+					addExposure(b, float64(u.Amount())/100)
+				}
 			}
 		}
+	}
+
+	// Решта експозиції контрагентів: папери за номіналом, готівка на
+	// рахунках і тіла вкладів (сертифікати додались вище, разом зі своїм
+	// поділом по брокерах).
+	for _, l := range lots {
+		rem := domain.RemainingQtyNow(l, sales)
+		b, ok := bonds[l.ISIN]
+		if rem == 0 || !ok || b.Maturity.Before(today) {
+			continue
+		}
+		if u, err := fx.ToUAH(money.New(b.Nominal.Amount()*rem, b.Nominal.Currency().Code), rates); err == nil {
+			addExposure(l.Channel, float64(u.Amount())/100)
+		}
+	}
+	for name, byCur := range brokers {
+		for cur, v := range byCur {
+			if u, err := fx.ToUAH(money.New(int64(math.Round(v*100)), cur), rates); err == nil {
+				addExposure(name, float64(u.Amount())/100)
+			}
+		}
+	}
+	for bank, v := range depositExposureUAH {
+		addExposure(bank, v)
 	}
 
 	// Драбина в грн-екв.: номінал, що повертається щороку (для стовпчиків).
@@ -918,6 +973,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		{"target_bonds_pct", &settings.TargetBondsPct},
 		{"target_funds_pct", &settings.TargetFundsPct},
 		{"target_deposits_pct", &settings.TargetDepositsPct},
+		{"limit_isin_pct", &settings.LimitISINPct},
+		{"limit_broker_pct", &settings.LimitBrokerPct},
+		{"limit_year_pct", &settings.LimitYearPct},
 	} {
 		if raw, _ := s.st.GetSetting(ctx, g.key); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
 			if f, err := strconv.ParseFloat(raw, 64); err == nil {
@@ -980,8 +1038,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// впливала взагалі, тож папір, узятий із дисконтом, і папір, узятий з
 	// премією, виглядали однаково. YTM бачить і дисконт, і комісію, і те,
 	// що піврічний купон складається всередині року.
-	var nominalUAH int64               // сумарний номінал у грн-екв.
-	nominalByCur := map[string]int64{} // номінал нативно по валютах
+	var nominalUAH int64                // сумарний номінал у грн-екв.
+	nominalByCur := map[string]int64{}  // номінал нативно по валютах
+	nominalByISIN := map[string]int64{} // номінал по ПАПЕРАХ, грн-екв.
 	ytmLotsByCur := map[string][]domain.YTMLot{}
 	var ytmWeightUAH, ytmWeightedUAH, ytmWeightedRealUAH float64
 	for _, l := range lots {
@@ -997,6 +1056,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		nominalByCur[cur] += b.Nominal.Amount() * q
 		if n, err := fx.ToUAH(money.New(b.Nominal.Amount()*q, cur), rates); err == nil {
 			nominalUAH += n.Amount()
+			// Частка на ОДИН папір рахувалась тут транзитом і викидалась —
+			// а це єдиний вимір диверсифікації, якого в застосунку не було
+			// зовсім: «половина портфеля в одному ISIN» побачити не було де.
+			nominalByISIN[l.ISIN] += n.Amount()
 		}
 		lot := ytmLot(l, q)
 		cost := lot.CostPerBond
@@ -1552,6 +1615,79 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		})
 	}
 
+	// --- концентрація: де зібрано надто щільно ---
+	//
+	// Три виміри, три різні питання. Один папір — «що буде, якщо саме цей
+	// емітент не заплатить». Одна установа — «що буде, якщо цей брокер чи
+	// банк зникне». Один рік драбини — «що буде, якщо саме тоді ставки
+	// впадуть»: гроші повернуться всі одразу й підуть за гіршою ставкою.
+	//
+	// Показуємо ВСІ рядки з заданим лімітом, а не самі порушення: «45% при
+	// ліміті 50%» теж варте знання, а список, що з'являється лише коли вже
+	// пізно, читається як аварія, а не як приладова панель.
+	var concentration []state.ConcentrationRow
+	addConc := func(dim, key, label string, amount, base, limit float64) {
+		if base <= 0 {
+			return
+		}
+		share := amount / base * 100
+		row := state.ConcentrationRow{
+			Dimension: dim, Key: key, Label: label,
+			AmountUAH: round2(amount), SharePct: round2(share), LimitPct: limit,
+		}
+		if share > limit {
+			row.OverUAH = round2(amount - base*limit/100)
+		}
+		concentration = append(concentration, row)
+	}
+	if settings.LimitISINPct != nil && *settings.LimitISINPct > 0 {
+		for isin, minor := range nominalByISIN {
+			label := ""
+			if b, ok := bonds[isin]; ok {
+				label = b.Descr
+			}
+			addConc("isin", isin, label, float64(minor)/100, totalMajor, *settings.LimitISINPct)
+		}
+		// Фонди — сюди ж. Питання виміру не «скільки в облігаціях», а
+		// «скільки залежить від ОДНОГО емітента», і сертифікат відповідає
+		// на нього так само, як папір. Без цього список брехав найгучніше
+		// саме там, де ризик найбільший: на живих даних один фонд важив
+		// 16.7% капіталу — більше за будь-яку окрему облігацію в списку.
+		for _, row := range fundRows {
+			if row.MarketValue <= 0 {
+				continue
+			}
+			addConc("isin", domain.FundISINPrefix+row.Fund, row.Fund,
+				row.MarketValue, totalMajor, *settings.LimitISINPct)
+		}
+	}
+	if settings.LimitBrokerPct != nil && *settings.LimitBrokerPct > 0 {
+		for name, v := range brokerExposureUAH {
+			addConc("broker", name, "", v, totalMajor, *settings.LimitBrokerPct)
+		}
+	}
+	if settings.LimitYearPct != nil && *settings.LimitYearPct > 0 {
+		// База тут — УСІ погашення, а не капітал: питання «чи рівномірно
+		// рознесені повернення», і міряти його від капіталу означало б
+		// вважати порушенням будь-яку драбину в портфелі, де більшість
+		// грошей у фондах, — тобто там, де погашень немає взагалі.
+		ladderTotal := 0.0
+		for _, y := range ladderUAH {
+			ladderTotal += y.UAH
+		}
+		for _, y := range ladderUAH {
+			addConc("year", strconv.Itoa(y.Year), "", y.UAH, ladderTotal, *settings.LimitYearPct)
+		}
+	}
+	// Найщільніше — зверху: список читають згори, і перше, що впадає в
+	// око, має бути найбільшим ризиком, а не найдавнішим роком.
+	sort.Slice(concentration, func(i, j int) bool {
+		if concentration[i].Dimension != concentration[j].Dimension {
+			return concentration[i].Dimension < concentration[j].Dimension
+		}
+		return concentration[i].SharePct > concentration[j].SharePct
+	})
+
 	// --- процентний ризик: два різні ризики з одного графіка виплат ---
 	//
 	// Ціновий (сценарії ±п.п.) — лише ОВДП: переоцінюється те, що має
@@ -1702,7 +1838,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		FundsYieldRealPct: fundsYieldReal, BlendedYieldRealPct: blendedYieldReal,
 		PortfolioYieldReal: portfolioYieldRealByCur,
 		Projection:         projection, ProjectionRatePct: capRate, Forecast: forecast,
-		Rebalance: rebalance, RateRisk: rateRisk, Liquidity: liquidity,
+		Rebalance: rebalance, Concentration: concentration,
+		RateRisk: rateRisk, Liquidity: liquidity,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,
 	})

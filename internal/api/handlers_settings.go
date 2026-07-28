@@ -28,6 +28,9 @@ var settingsKeys = []string{"usd_target_share_pct", "eur_target_share_pct",
 	// Цільові частки за видом інструмента, % капіталу. Резерв сюди не
 	// входить: його ціль задана в місяцях витрат (див. SettingsDoc).
 	"target_bonds_pct", "target_funds_pct", "target_deposits_pct",
+	// Ліміти концентрації, % — стеля, а не ціль. Дефолтів немає навмисно:
+	// «не більше 20% в один папір» — це порада, а застосунок їх не дає.
+	"limit_isin_pct", "limit_broker_pct", "limit_year_pct",
 	// import_since рухає сам імпорт, але лишається редагованим: інакше
 	// «перезавантажити позаминулий місяць» стало б неможливим взагалі.
 	"import_since"}
@@ -45,6 +48,7 @@ var numericSettings = map[string]bool{
 	"deposit_rate_usd_pct": true, "deposit_rate_eur_pct": true, "deposit_rate_uah_pct": true,
 	"monthly_expenses_uah": true, "reserve_target_months": true,
 	"target_bonds_pct": true, "target_funds_pct": true, "target_deposits_pct": true,
+	"limit_isin_pct": true, "limit_broker_pct": true, "limit_year_pct": true,
 }
 
 // depositMinMinorByCur — мінімальне вкладення у вклад по валютах, у МІНОРНИХ

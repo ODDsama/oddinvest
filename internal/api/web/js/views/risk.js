@@ -214,7 +214,7 @@ export function kindMixCard(ctx) {
         over ? "var(--oi-warn)" : r.deficit_uah > 0 ? "var(--oi-info)" : "var(--oi-ok)"}"></span></div>
       ${line}</div>`;
   }).join("");
-  return `<div class="card"><h2>Структура за видом інструмента</h2>
+  return `<div class="card"><h2 class="h-row">Структура за видом інструмента ${infoBtn("kindmix")}</h2>
     <div class="muted" style="margin-bottom:10px">Валютна ціль каже, В ЧОМУ тримати гроші; ця —
       ЧИМ ризикувати. Частки рахуються від того самого капіталу.</div>
     ${body}
@@ -225,6 +225,69 @@ export function kindMixCard(ctx) {
         ? `Цілі в сумі дають ${targetSum.toFixed(0)}% — більше за капітал, тож усі одразу недосяжні.`
         : `Цілі в сумі дають 100% капіталу.`}</div>
   </div>`;
+}
+
+// Де портфель зібраний надто щільно.
+//
+// Три виміри — три різні питання, і саме тому вони в одній картці, але
+// окремими блоками: «що буде, якщо цей емітент не заплатить», «що буде,
+// якщо ця установа зникне», «що буде, якщо саме того року ставки
+// впадуть». Об'єднати їх в один список означало б поставити поруч числа
+// з різними знаменниками.
+const CONC_BLOCK = {
+  isin: ["В одному папері", "% капіталу", "емітент не заплатить — скільки це коштує"],
+  broker: ["В одній установі", "% капіталу", "брокер або банк зникне — скільки там лежить"],
+  year: ["В одному році погашень", "% усіх погашень", "усе повернеться разом і піде за гіршою ставкою"],
+};
+
+export function concentrationCard(ctx) {
+  const rows = (ctx.summary || {}).concentration || [];
+  if (!rows.length) return "";
+  const blocks = Object.keys(CONC_BLOCK).map((dim) => {
+    const list = rows.filter((r) => r.dimension === dim);
+    if (!list.length) return "";
+    const [title, unit, why] = CONC_BLOCK[dim];
+    const limit = list[0].limit_pct;
+    const items = list.map((r) => {
+      const over = r.over_uah > 0;
+      const bar = Math.min(100, (r.share_pct / Math.max(limit, r.share_pct)) * 100);
+      // Ключ поруч із назвою корисний для облігації (ISIN — те, що шукають
+      // у брокера), але для фонду він лише повторює назву: ключ там —
+      // службовий «fund:Назва».
+      const showKey = r.label && !r.key.endsWith(r.label);
+      return `<div style="margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;gap:8px">
+          <span>${esc(r.label || r.key)}${showKey ? ` <span class="muted">${esc(r.key)}</span>` : ""}</span>
+          <span${over ? ` style="color:var(--oi-warn)"` : ""}><b>${r.share_pct}%</b>
+            <span class="muted">${fmtUAH(r.amount_uah)}</span></span>
+        </div>
+        <div class="progress" style="margin-top:3px"><span style="width:${bar}%;background:${
+          over ? "var(--oi-warn)" : "var(--oi-info)"}"></span></div>
+        ${over ? `<div class="sub-xs" style="color:var(--oi-warn)">понад ліміт на ${fmtUAH(r.over_uah)}</div>` : ""}
+      </div>`;
+    }).join("");
+    // Резерв ні за ким не стоїть — у нього «місце», а не контрагент, — тож
+    // частки установ у сумі й не мусять давати 100%. Без цього рядка
+    // «24% в найбільшій установі» читалось би так, ніби решта грошей
+    // загубилась.
+    const s = ctx.summary || {};
+    const gap = dim === "broker" && s.reserve_uah > 0
+      ? `<div class="sub-xs">Резерв (${fmtUAH(s.reserve_uah)}) сюди не входить: у нього немає
+         контрагента, який міг би зникнути, — тому частки в сумі й не дають 100%.</div>` : "";
+    return `<div style="margin-bottom:16px">
+      <div style="margin-bottom:6px"><b>${title}</b> — ліміт ${limit}${
+        unit === "% капіталу" ? "% капіталу" : "% усіх погашень"}
+        <span class="muted">· ${why}</span></div>
+      ${items}${gap}</div>`;
+  }).join("");
+  const broken = rows.filter((r) => r.over_uah > 0).length;
+  return `<div class="card"><h2 class="h-row">Концентрація ${infoBtn("concentration")}</h2>
+    <div class="muted" style="margin-bottom:10px">${broken
+      ? `Перевищено лімітів: <b>${broken}</b>.`
+      : "Усі задані ліміти витримані."}
+      Це спостереження, а не заборона: поради в «Що купити» від нього не змінюються й нічого
+      не ховається. Ліміт міг бути порушений із причин, яких застосунок не знає.</div>
+    ${blocks}</div>`;
 }
 
 // «А якби я просто тримав долари?» — питання, на яке досі не було

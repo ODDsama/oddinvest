@@ -244,6 +244,22 @@ export async function renderSettings(ctx, main) {
     </div>
 
     <div class="card">
+      <h2>Ліміти концентрації</h2>
+      <div class="muted" style="margin-bottom:10px">Стеля, а не ціль: скільки максимум дозволено
+        зібрати в одному місці. Три різні питання — що буде, якщо <b>цей емітент</b> не заплатить,
+        якщо <b>ця установа</b> зникне, якщо саме <b>того року</b> ставки впадуть і всі погашення
+        доведеться вкладати заново за гіршою ставкою. Порожньо = ліміту немає, і вимір не
+        показується. Готових чисел застосунок не підставляє: «не більше 20% в один папір» — це
+        порада, а він їх не дає.</div>
+      <form id="limitsForm">
+        <label>Макс. в одному папері, %<input name="limit_isin_pct" inputmode="decimal" placeholder="порожньо = без ліміту" value="${esc(s.limit_isin_pct || "")}"></label>
+        <label>Макс. в одній установі, %<input name="limit_broker_pct" inputmode="decimal" placeholder="брокер або банк" value="${esc(s.limit_broker_pct || "")}"></label>
+        <label>Макс. погашень в один рік, %<input name="limit_year_pct" inputmode="decimal" placeholder="від усіх погашень" value="${esc(s.limit_year_pct || "")}"></label>
+        <button type="submit">Зберегти</button>
+      </form>
+    </div>
+
+    <div class="card">
       <h2>Резерв на чорний день</h2>
       <div class="muted" style="margin-bottom:10px">Місячні витрати — єдине, від чого можна порахувати,
         на скільки вистачить матраца. Застосунок їх не вгадує: зняття з рахунку це і покупка холодильника,
@@ -294,6 +310,9 @@ export async function renderSettings(ctx, main) {
   ]));
   onSubmit(ctx, main.querySelector("#kindTargetsForm"), settingsPut([
     "target_bonds_pct", "target_funds_pct", "target_deposits_pct",
+  ]));
+  onSubmit(ctx, main.querySelector("#limitsForm"), settingsPut([
+    "limit_isin_pct", "limit_broker_pct", "limit_year_pct",
   ]));
   onSubmit(ctx, main.querySelector("#reserveSettingsForm"), settingsPut([
     "monthly_expenses_uah", "reserve_target_months",

@@ -188,7 +188,12 @@ type Doc struct {
 	// Rebalance — підказка виходу на цільові валютні частки (по валютах,
 	// де задано ціль). RateRisk — процентний ризик портфеля (дюрація).
 	Rebalance []RebalanceRow `json:"rebalance,omitempty"`
-	RateRisk  *RateRisk      `json:"rate_risk,omitempty"`
+	// Concentration — де зібрано надто щільно: один папір, одна установа,
+	// один рік погашень. Показуються ВСІ рядки з заданим лімітом, не лише
+	// порушення: «45% при ліміті 50%» — теж корисне знання, а список, що
+	// зʼявляється лише коли вже пізно, читається як аварія.
+	Concentration []ConcentrationRow `json:"concentration,omitempty"`
+	RateRisk      *RateRisk          `json:"rate_risk,omitempty"`
 	// Liquidity — коли гроші стають доступні (адитивне поле).
 	Liquidity *Liquidity `json:"liquidity,omitempty"`
 
@@ -277,6 +282,17 @@ type SettingsDoc struct {
 	TargetBondsPct    *float64 `json:"target_bonds_pct,omitempty"`
 	TargetFundsPct    *float64 `json:"target_funds_pct,omitempty"`
 	TargetDepositsPct *float64 `json:"target_deposits_pct,omitempty"`
+	// Ліміти концентрації, % — стеля, а не ціль. LimitISINPct: скільки
+	// капіталу дозволено в ОДНОМУ папері; LimitBrokerPct: в одній установі
+	// (брокер і банк — одне й те саме питання); LimitYearPct: яка частка
+	// ВСІХ погашень може припадати на один рік драбини.
+	//
+	// Порожньо = ліміту немає, і вимір просто не показується. Дефолтів тут
+	// свідомо немає: «не більше 20% в один папір» — це порада, а застосунок
+	// порад не дає. Число вводить той, хто ним і живе.
+	LimitISINPct   *float64 `json:"limit_isin_pct,omitempty"`
+	LimitBrokerPct *float64 `json:"limit_broker_pct,omitempty"`
+	LimitYearPct   *float64 `json:"limit_year_pct,omitempty"`
 }
 
 // RebalanceRow — що треба зробити, щоб вийти на цільову частку.
@@ -319,6 +335,38 @@ type RebalanceRow struct {
 	// "deposit" (мінімальний вклад). Керує формулюванням картки. Адитивне
 	// поле; порожнє = "bond" для сумісності зі старим станом.
 	UnitKind string `json:"unit_kind,omitempty"`
+}
+
+// ConcentrationRow — де портфель зібраний надто щільно.
+//
+// ОКРЕМИЙ тип від RebalanceRow, хоч поля й схожі. Ребаланс каже «цього
+// замало, доклади», концентрація — «цього забагато, більше не додавай».
+// Величини звуться однаково («ціль», «зараз»), але знак порівняння
+// протилежний, і половина полів ребалансу (найдешевший вхід, скільки
+// вистачає купити, скільки сконвертувати) тут не має сенсу взагалі:
+// відповідь на перевищення — не купівля. Один тип на дві протилежні
+// відповіді читався б як помилка рівно доти, доки нею б і не став.
+//
+// Порушення НЕ приховують порад у «Що купити»: це спостереження, а не
+// заборона. Ліміт може бути порушений із причин, яких застосунок не
+// знає, — і рішення лишається за людиною.
+type ConcentrationRow struct {
+	// Dimension — за чим міряємо: "isin" (один папір), "broker" (одна
+	// установа), "year" (один рік погашень).
+	Dimension string `json:"dimension"`
+	// Key — ISIN, назва брокера/банку або рік.
+	Key string `json:"key"`
+	// AmountUAH — скільки грошей у цьому зосереджено, грн-екв.;
+	// SharePct — яка це частка (капіталу для isin/broker, усіх погашень
+	// для year); LimitPct — заданий ліміт; OverUAH — на скільки грошей
+	// перевищено (0, якщо в межах).
+	AmountUAH float64 `json:"amount_uah"`
+	SharePct  float64 `json:"share_pct"`
+	LimitPct  float64 `json:"limit_pct"`
+	OverUAH   float64 `json:"over_uah,omitempty"`
+	// Label — людська назва для рядка, коли ключ сам по собі мовчить
+	// (опис паперу з довідника НБУ замість голого ISIN).
+	Label string `json:"label,omitempty"`
 }
 
 // Liquidity — коли гроші стають доступні. Питання не про дохідність, а
@@ -624,6 +672,7 @@ type Input struct {
 	ProjectionRatePct   float64
 	Forecast            *Forecast
 	Rebalance           []RebalanceRow
+	Concentration       []ConcentrationRow
 	RateRisk            *RateRisk
 	Liquidity           *Liquidity
 	AccruedUAH          float64
@@ -756,6 +805,7 @@ func Build(in Input) (*Doc, error) {
 	doc.ProjectionRatePct = in.ProjectionRatePct
 	doc.Forecast = in.Forecast
 	doc.Rebalance = in.Rebalance
+	doc.Concentration = in.Concentration
 	doc.RateRisk = in.RateRisk
 	doc.Liquidity = in.Liquidity
 	doc.AccruedUAH = in.AccruedUAH

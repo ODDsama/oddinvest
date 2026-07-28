@@ -14,7 +14,7 @@
     { "path": "js/format.js", "sha256": "294af65c104764337c944d72bddd659f96e41e70f2f6e3cc68ebb1815fe049f7" },
     { "path": "js/forms.js", "sha256": "971f334403306920b57241636faec6e25121a127f838282333cac9c0d7d28efd" },
     { "path": "js/fund-ops.js", "sha256": "7efc8885a39a054655824315840bba89c6a60ed6ce0c1c597902fe100858c79b" },
-    { "path": "js/info.js", "sha256": "6621813bac7c8393c001f3ab675d79fa7247f9d6965a0d07d46b39abfccfad0a" },
+    { "path": "js/info.js", "sha256": "ff0d48dff62df4c2c13cd62ae61855edfefe4a15196abc935fb36c07904e2126" },
     { "path": "js/store.js", "sha256": "58f81bbb8262d47856790206066f557b871169e25eea268c2bc34598ba03e120" },
     { "path": "js/styles.js", "sha256": "7f623a4506b4336538ffce25d56eeab347afb912ceacadf76b8cdc05028f943f" },
     { "path": "js/transport.js", "sha256": "7be0b7f7ea8317446ce769fc30c95d8bd281adfdcd67d8dc2350a8b6c96b52ae" },
@@ -25,9 +25,9 @@
     { "path": "js/views/history.js", "sha256": "6e6efb9e2221e78cbd2274990c8039348c29cd35ddc3204fead0969cdbc08545" },
     { "path": "js/views/money.js", "sha256": "63a25e448969cf90472f81cbe36e01b58fbfcb4d68842f1c9575faedc98eec7e" },
     { "path": "js/views/overview.js", "sha256": "38799ae16da85dcf1c243c462c485039c90b7eb7f1b830f0602e507ce01327e6" },
-    { "path": "js/views/portfolio.js", "sha256": "fdeadcce2a0d990f32b95e5a908aaa80873433bc08050724f718481a8d62d96a" },
+    { "path": "js/views/portfolio.js", "sha256": "f2e0dfbc6ed135e9527f2ccdce3b61af81a6299baa2066cdc90e2932207b22c9" },
     { "path": "js/views/positions.js", "sha256": "fc6fb0123798da13e6b5aefedfe2547d0429c96bf2cc369d8c02c66fea26038e" },
-    { "path": "js/views/risk.js", "sha256": "ffde3cec2c54ee1429c5173ad5cb824da1907721227ae436ad2b6cbc9a2e669f" },
-    { "path": "js/views/settings.js", "sha256": "b7cd290a4e2977a47d4a9b0b5ea899362e1824e794a84564c3df577163476aa5" }
+    { "path": "js/views/risk.js", "sha256": "accf70bb6ee93b4d96b4b8fbf84c8bb73f2eaed6b6f90a5c0ba299610d14d294" },
+    { "path": "js/views/settings.js", "sha256": "ab9929b131009657d5a2597663bd24bd91db65d4bdf0a43d26a68fe333b0ff36" }
   ]
 }
