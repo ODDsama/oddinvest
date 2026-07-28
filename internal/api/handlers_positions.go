@@ -42,6 +42,14 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		YTMPct     float64 `json:"ytm_pct,omitempty"`
 		RealPct    float64 `json:"real_pct,omitempty"`
 		YieldBasis string  `json:"yield_basis,omitempty"`
+		// Unknown — паперу немає в кеші довідника НБУ. Кількість і вкладені
+		// гроші відомі з самого лота, а номінал, дата погашення й виплати —
+		// ні, тож вони приходять нулями.
+		//
+		// Прапорець існував у домені з коментарем «щоб UI не видавав ці нулі
+		// за справжні» — і до UI не доходив: у цю відповідь його просто не
+		// клали. Тобто нулі UI за справжні й видавав.
+		Unknown bool `json:"unknown,omitempty"`
 	}
 
 	// Дохідність рахуємо по ISIN: позиція — це всі непродані лоти одного
@@ -65,7 +73,8 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		row := posJSON{ISIN: p.ISIN, Currency: p.Currency, Qty: p.Qty,
 			Invested: toMoneyJSON(p.Invested), Nominal: toMoneyJSON(p.Nominal),
 			Maturity: string(p.Maturity), DaysToMat: p.DaysToMat,
-			NextDate: string(p.NextPayDate), NextAmt: toMoneyJSON(p.NextPayAmt)}
+			NextDate: string(p.NextPayDate), NextAmt: toMoneyJSON(p.NextPayAmt),
+			Unknown: p.Unknown}
 		// WeightedYTM віддає вже ВІДСОТКИ (ytm.go), на відміну від YTM,
 		// що віддає частку. realYield же працює з часткою — звідси /100.
 		if y, ok := domain.WeightedYTM(ytmByISIN[p.ISIN], pays); ok {

@@ -413,7 +413,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		}
 		c := d.Currency
 		// Ставка після податку — те, що реально лишається.
-		netRate := float64(d.RateBP) / 10000 * (1 - float64(d.TaxBP)/10000)
+		netRate := domain.NetRate(d.RateBP, d.TaxBP)
 		real := realYield(netRate, c, devalPct)
 		costMajor := float64(d.Principal) / 100
 		fits, best := fitsFor(c, costMajor)
@@ -457,7 +457,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		rateBP := int64(math.Round(*rp * 100)) // % → ×100, як RateBP
-		netRate := float64(rateBP) / 10000 * (1 - float64(depTaxBP)/10000)
+		netRate := domain.NetRate(rateBP, depTaxBP)
 		real := realYield(netRate, c, devalPct)
 		costMajor := float64(minMinor) / 100
 		fits, best := fitsFor(c, costMajor)

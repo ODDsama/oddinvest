@@ -101,10 +101,20 @@ function depositDetailHTML(d) {
 function positionItems(ctx, positions, lots, sales, deposits) {
   const bonds = positions.map((p) => ({
     key: "bond:" + p.isin, kind: "bond",
-    name: `<b>${esc(p.isin)}</b><div class="sub-xs">${p.qty} шт.</div>`,
-    invested: fmtMoney(p.invested), value: fmtMoney(p.nominal),
+    // Паперу немає в довіднику НБУ — номінал, строк і виплати приходять
+    // нулями. Кажемо це вголос: інакше нуль читається як «нічого не
+    // повернеться», а насправді це «ми не знаємо». Так буває, коли папір
+    // щойно розміщений або лот прийшов із виписки раніше за оновлення.
+    name: `<b>${esc(p.isin)}</b>${p.unknown
+      ? `<div class="sub-xs" style="color:var(--oi-warn)">⚠ немає в довіднику НБУ —
+         номінал і строк невідомі, оновити можна кнопкою «↻ Оновити НБУ»</div>` : ""}
+      <div class="sub-xs">${p.qty} шт.</div>`,
+    invested: fmtMoney(p.invested),
+    value: p.unknown ? `<span class="muted">невідомо</span>` : fmtMoney(p.nominal),
     pct: p.real_pct, nominal: p.ytm_pct, basis: p.yield_basis,
-    term: `${esc(p.maturity)}<div class="sub-xs">${p.days_to_maturity} дн.</div>`,
+    term: p.unknown
+      ? `<span class="muted">невідомо</span>`
+      : `${esc(p.maturity)}<div class="sub-xs">${p.days_to_maturity} дн.</div>`,
     actions: "", sortBy: Number((p.invested || {}).amount || 0),
     detail: bondDetailHTML(p, lots, sales),
   }));
