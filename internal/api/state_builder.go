@@ -612,9 +612,21 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			addExposure(l.Channel, float64(u.Amount())/100)
 		}
 	}
+	// Валюти — у сталому порядку, і це не косметика. Додавання float64 не
+	// асоціативне, тож обхід мапи давав брокеру, який тримає дві валюти,
+	// суму, що різнилась у останніх бітах від запуску до запуску. Саме так
+	// число, яке лягло рівно на пів копійки, округлялось то вниз, то вгору:
+	// over_uah у концентрації показував 215026.58 або .59 на тих самих
+	// даних. Дві сусідні перезавантаження сторінки — дві різні копійки, і
+	// в добовий знімок потрапляла та, яка випала.
 	for name, byCur := range brokers {
-		for cur, v := range byCur {
-			if u, err := fx.ToUAH(money.New(int64(math.Round(v*100)), cur), rates); err == nil {
+		curs := make([]string, 0, len(byCur))
+		for cur := range byCur {
+			curs = append(curs, cur)
+		}
+		sort.Strings(curs)
+		for _, cur := range curs {
+			if u, err := fx.ToUAH(money.New(int64(math.Round(byCur[cur]*100)), cur), rates); err == nil {
 				addExposure(name, float64(u.Amount())/100)
 			}
 		}
