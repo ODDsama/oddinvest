@@ -157,6 +157,7 @@ type BackupSnapshot struct {
 	AccountUAH     int64  `json:"account_uah,omitempty"`
 	FundsUAH       int64  `json:"funds_uah,omitempty"`
 	DepositsUAH    int64  `json:"deposits_uah,omitempty"`
+	FundsCostUAH   int64  `json:"funds_cost_uah,omitempty"`
 }
 
 // ExportAll читає всі користувацькі таблиці в один знімок.
@@ -281,11 +282,11 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		return nil, err
 	}
 	if err := s.scan(ctx, `SELECT date,invested_uah,nominal_uah_eq,usd_share_bp,uninvested_uah,
-		month_target_uah,account_uah,funds_uah,deposits_uah FROM snapshots ORDER BY date`,
+		month_target_uah,account_uah,funds_uah,deposits_uah,funds_cost_uah FROM snapshots ORDER BY date`,
 		func(scan func(...any) error) error {
 			var r BackupSnapshot
 			if err := scan(&r.Date, &r.InvestedUAH, &r.NominalUAHEq, &r.USDShareBP, &r.UninvestedUAH,
-				&r.MonthTargetUAH, &r.AccountUAH, &r.FundsUAH, &r.DepositsUAH); err != nil {
+				&r.MonthTargetUAH, &r.AccountUAH, &r.FundsUAH, &r.DepositsUAH, &r.FundsCostUAH); err != nil {
 				return err
 			}
 			b.Snapshots = append(b.Snapshots, r)
@@ -477,9 +478,10 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	for _, sn := range b.Snapshots {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO snapshots (date,invested_uah,nominal_uah_eq,usd_share_bp,uninvested_uah,
-				month_target_uah,account_uah,funds_uah,deposits_uah) VALUES (?,?,?,?,?,?,?,?,?)`,
+				month_target_uah,account_uah,funds_uah,deposits_uah,funds_cost_uah)
+				VALUES (?,?,?,?,?,?,?,?,?,?)`,
 			sn.Date, sn.InvestedUAH, sn.NominalUAHEq, sn.USDShareBP, sn.UninvestedUAH,
-			sn.MonthTargetUAH, sn.AccountUAH, sn.FundsUAH, sn.DepositsUAH); err != nil {
+			sn.MonthTargetUAH, sn.AccountUAH, sn.FundsUAH, sn.DepositsUAH, sn.FundsCostUAH); err != nil {
 			return fmt.Errorf("знімок %s: %w", sn.Date, err)
 		}
 	}

@@ -118,6 +118,13 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 		return err
 	}
 	today := domain.NewDate(time.Now().In(r.loc))
+	// Собівартість фондів у документі лежить по позиціях, а знімку потрібне
+	// одне число: без нього крива не може показати прибуток, бо InvestedUAH —
+	// це лише облігації.
+	var fundsCost float64
+	for _, f := range doc.Funds {
+		fundsCost += f.CostBasis
+	}
 	return r.st.SaveSnapshot(ctx, store.Snapshot{
 		Date:           today,
 		InvestedUAH:    int64(doc.InvestedUAH * 100),
@@ -128,6 +135,7 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 		AccountUAH:     int64(doc.AccountUAH * 100),
 		FundsUAH:       int64(doc.FundsUAH * 100),
 		DepositsUAH:    int64(doc.DepositsUAH * 100),
+		FundsCostUAH:   int64(fundsCost * 100),
 	})
 }
 

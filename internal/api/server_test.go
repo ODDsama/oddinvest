@@ -2491,13 +2491,15 @@ func TestSnapshotCarriesEveryInstrument(t *testing.T) {
 		NominalUAHEq: int64(doc.NominalUAHEq * 100),
 		FundsUAH:     int64(doc.FundsUAH * 100),
 		DepositsUAH:  int64(doc.DepositsUAH * 100),
+		FundsCostUAH: 1000000, // 10 000 ₴ — за скільки сертифікати куплені
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	var snaps []struct {
-		FundsUAH    float64 `json:"funds_uah"`
-		DepositsUAH float64 `json:"deposits_uah"`
+		FundsUAH     float64 `json:"funds_uah"`
+		DepositsUAH  float64 `json:"deposits_uah"`
+		FundsCostUAH float64 `json:"funds_cost_uah"`
 	}
 	_, body = do(t, "GET", srv.URL+"/api/snapshots", "")
 	if err := json.Unmarshal([]byte(body), &snaps); err != nil {
@@ -2522,6 +2524,11 @@ func TestSnapshotCarriesEveryInstrument(t *testing.T) {
 	if len(snaps) != 1 || snaps[0].DepositsUAH != doc.DepositsUAH || snaps[0].FundsUAH != doc.FundsUAH {
 		t.Errorf("бекап загубив склад знімка: %+v (чекали вклади %.2f, фонди %.2f)",
 			snaps, doc.DepositsUAH, doc.FundsUAH)
+	}
+	// Собівартість фондів — окремо: саме на ній крива рахує прибуток, і саме
+	// такі «дописані пізніше» колонки бекап уже двічі губив мовчки.
+	if len(snaps) == 1 && snaps[0].FundsCostUAH != 10000 {
+		t.Errorf("бекап загубив собівартість фондів: %.2f", snaps[0].FundsCostUAH)
 	}
 }
 
