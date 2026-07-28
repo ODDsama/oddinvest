@@ -21,7 +21,7 @@ import { disclosure, wireDisclosures } from "../disclosure.js";
 import { positionsTableHTML, wirePositions } from "./positions.js";
 import {
   brokerDonutHTML, currencyChartHTML, yieldTilesHTML, shareTilesHTML,
-  rebalanceCard, ladderTableHTML, benchmarkCard, liquidityCard, rateRiskCard,
+  rebalanceCard, kindMixCard, ladderTableHTML, benchmarkCard, liquidityCard, rateRiskCard,
 } from "./risk.js";
 import { bondBuyFormHTML, bondSaleFormHTML, wireBonds } from "./bonds.js";
 import { depositFormHTML, closedDepositsHTML, wireDeposits } from "./deposits.js";
@@ -69,6 +69,7 @@ export async function renderPortfolio(ctx, main) {
     </div>
     ${shareTilesHTML(ctx)}
     ${rebalanceCard(ctx)}
+    ${kindMixCard(ctx)}
     ${ladderTableHTML(ctx)}
     ${positionsTableHTML(ctx, positions, lots, sales, deposits)}
     ${entryCardHTML(ctx, lots)}

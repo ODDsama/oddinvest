@@ -229,6 +229,21 @@ export async function renderSettings(ctx, main) {
     </div>
 
     <div class="card">
+      <h2>Структура за видом інструмента</h2>
+      <div class="muted" style="margin-bottom:10px">Валютна ціль вище каже, В ЧОМУ тримати гроші;
+        ця — ЧИМ ризикувати. Сума <b>не мусить</b> давати 100: нерозподілене буде показане, а не
+        розтягнуте до сотні мовчки. Порожньо = цілі за цим видом немає, і в «Портфелі» він не
+        з'явиться. Резерв тут відсутній навмисно — його ціль задається нижче в місяцях витрат,
+        бо саме на це питання він і відповідає.</div>
+      <form id="kindTargetsForm">
+        <label>Ціль ОВДП, %<input name="target_bonds_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_bonds_pct || "")}"></label>
+        <label>Ціль фондів, %<input name="target_funds_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_funds_pct || "")}"></label>
+        <label>Ціль вкладів, %<input name="target_deposits_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_deposits_pct || "")}"></label>
+        <button type="submit">Зберегти</button>
+      </form>
+    </div>
+
+    <div class="card">
       <h2>Резерв на чорний день</h2>
       <div class="muted" style="margin-bottom:10px">Місячні витрати — єдине, від чого можна порахувати,
         на скільки вистачить матраца. Застосунок їх не вгадує: зняття з рахунку це і покупка холодильника,
@@ -276,6 +291,9 @@ export async function renderSettings(ctx, main) {
   onSubmit(ctx, main.querySelector("#depositSettingsForm"), settingsPut([
     "deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
     "deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct",
+  ]));
+  onSubmit(ctx, main.querySelector("#kindTargetsForm"), settingsPut([
+    "target_bonds_pct", "target_funds_pct", "target_deposits_pct",
   ]));
   onSubmit(ctx, main.querySelector("#reserveSettingsForm"), settingsPut([
     "monthly_expenses_uah", "reserve_target_months",

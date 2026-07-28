@@ -3145,3 +3145,193 @@ func TestReserveSufficiencyNeedsExpenses(t *testing.T) {
 		t.Errorf("перебір резерву показано як брак: %.2f", over.Reserve.GapUAH)
 	}
 }
+
+// Плитка «Частка USD» і картка ребалансу стоять на ОДНОМУ екрані й
+// мусять показувати те саме число. Доти не показували: плитка рахувала
+// від капіталу з фондами, вкладами й резервом, а ребаланс — від
+// «номінал + рахунок» і лише по облігаціях. На живих даних це давало
+// 57.6% проти 0% для тієї самої валюти, і зрозуміти, яке з них брехливе,
+// не було де.
+func TestCurrencyShareAgreesWithRebalance(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st)
+
+	// Портфель, де кожен доданок капіталу непорожній і всі різні: інакше
+	// збіг двох формул нічого не доводить.
+	//
+	// Спершу гроші на рахунок, і з запасом. Без цього кожна покупка гнала
+	// б баланс у мінус, капітал виходив меншим за саму лише валютну
+	// частину, а частка USD — 300%: формули й тоді збігаються, але
+	// перевіряти їхню згоду на неможливому портфелі означає не помітити,
+	// коли зійдуться дві однаково зламані.
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 20000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 500000, Currency: "USD", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-40), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 1000, Amount: 1000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "USD", Principal: 100000, RateBP: 400,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-10),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(355),
+		Payout:       domain.PayoutEnd, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
+		Date: domain.NewDate(time.Now()).AddDays(-5), Amount: 50000, Currency: "USD",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"usd_target_share_pct":"20"}`); resp.StatusCode >= 300 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+
+	var doc struct {
+		USDSharePct float64 `json:"usd_share_pct"`
+		CapitalUAH  float64 `json:"capital_uah"`
+		NominalUAH  float64 `json:"nominal_uah_eq"`
+		AccountUAH  float64 `json:"account_uah"`
+		FundsUAH    float64 `json:"funds_uah"`
+		DepositsUAH float64 `json:"deposits_uah"`
+		ReserveUAH  float64 `json:"reserve_uah"`
+		Rebalance   []struct {
+			Dimension  string  `json:"dimension"`
+			Key        string  `json:"key"`
+			Currency   string  `json:"currency"`
+			CurrentPct float64 `json:"current_pct"`
+		} `json:"rebalance"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if doc.USDSharePct <= 0 || doc.USDSharePct >= 100 {
+		t.Fatalf("частка USD мала бути в межах 0–100%%: %+v", doc)
+	}
+	var row *struct {
+		Dimension  string  `json:"dimension"`
+		Key        string  `json:"key"`
+		Currency   string  `json:"currency"`
+		CurrentPct float64 `json:"current_pct"`
+	}
+	for i := range doc.Rebalance {
+		if doc.Rebalance[i].Currency == "USD" {
+			row = &doc.Rebalance[i]
+		}
+	}
+	if row == nil {
+		t.Fatalf("рядка ребалансу для USD немає: %s", body)
+	}
+	if math.Abs(row.CurrentPct-doc.USDSharePct) > 0.01 {
+		t.Errorf("плитка каже %.2f%%, ребаланс %.2f%% — знаменники розійшлись",
+			doc.USDSharePct, row.CurrentPct)
+	}
+	if row.Dimension != "currency" || row.Key != "USD" {
+		t.Errorf("вимір рядка не заповнений: %+v", *row)
+	}
+
+	// capital_uah — те саме, що сума частин: споживачі більше не мусять
+	// складати її самотужки, і саме звідси бралися розбіжності.
+	want := doc.NominalUAH + doc.AccountUAH + doc.FundsUAH + doc.DepositsUAH + doc.ReserveUAH
+	if math.Abs(doc.CapitalUAH-want) > 0.02 {
+		t.Errorf("capital_uah = %.2f, сума частин %.2f", doc.CapitalUAH, want)
+	}
+}
+
+// Цілі за видом інструмента: сума НЕ мусить давати 100, і застосунок не
+// має права дотягувати її сам — це підмінило б введене користувачем.
+// Резерв сюди входить лише довідково, без цілі: його ціль задана в
+// місяцях витрат, а виведена з неї частка капіталу давала б число, яке
+// рухається щоразу, коли росте портфель (на живих даних — «385%»).
+func TestKindTargetsDoNotNormalise(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st)
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 10000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":10,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
+		Date: domain.NewDate(time.Now()).AddDays(-5), Amount: 2000000, Currency: "UAH",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// 40+25 = 65: нерозподілених 35% має лишитись нерозподіленими.
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"target_bonds_pct":"40","target_funds_pct":"25","monthly_expenses_uah":"20000","reserve_target_months":"6"}`); resp.StatusCode >= 300 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+
+	var doc struct {
+		CapitalUAH float64 `json:"capital_uah"`
+		NominalUAH float64 `json:"nominal_uah_eq"`
+		Rebalance  []struct {
+			Dimension  string  `json:"dimension"`
+			Key        string  `json:"key"`
+			TargetPct  float64 `json:"target_pct"`
+			CurrentPct float64 `json:"current_pct"`
+			DeficitUAH float64 `json:"deficit_uah"`
+		} `json:"rebalance"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	byKey := map[string]int{}
+	sumTargets := 0.0
+	for i, r := range doc.Rebalance {
+		if r.Dimension != "kind" {
+			continue
+		}
+		byKey[r.Key] = i
+		sumTargets += r.TargetPct
+	}
+	if _, ok := byKey["bonds"]; !ok {
+		t.Fatalf("рядка виду «bonds» немає: %s", body)
+	}
+	if _, ok := byKey["deposits"]; ok {
+		t.Error("вклади без заданої цілі не мали з'явитись рядком")
+	}
+	if math.Abs(sumTargets-65) > 0.01 {
+		t.Errorf("сума цілей = %.2f, а вводили 65 — застосунок її нормалізував", sumTargets)
+	}
+	res := doc.Rebalance[byKey["reserve"]]
+	if res.TargetPct != 0 {
+		t.Errorf("резерв отримав виведену цільову частку %.2f%% — його ціль міряється місяцями",
+			res.TargetPct)
+	}
+	if res.CurrentPct <= 0 {
+		t.Errorf("резерв мав показати фактичну частку: %+v", res)
+	}
+	// Дефіцит ОВДП — від того самого капіталу, що й усе інше. Беремо
+	// nominal_uah_eq, а не current_pct: частка округлена до сотих, і на
+	// капіталі в сотні тисяч це вже дає розбіжність у гривнях.
+	b := doc.Rebalance[byKey["bonds"]]
+	wantDef := doc.CapitalUAH*0.40 - doc.NominalUAH
+	if math.Abs(b.DeficitUAH-wantDef) > 0.02 {
+		t.Errorf("дефіцит ОВДП %.2f, а від капіталу %.2f і номіналу %.2f виходить %.2f",
+			b.DeficitUAH, doc.CapitalUAH, doc.NominalUAH, wantDef)
+	}
+}

@@ -1,7 +1,7 @@
 // Чим ризикую: розклад по брокерах і валютах, ребалансування,
 // ліквідність, процентний ризик, бенчмарк і драбина.
 
-import { esc, curSym, pct, uah2 as fmtUAH, cur2 as fmtCur, fundsCost } from "../format.js";
+import { esc, curSym, pct, uah2 as fmtUAH, cur2 as fmtCur, fundsCost, capitalUAH } from "../format.js";
 import { infoBtn } from "../info.js";
 import { svgBars, svgGrouped, svgDonut } from "../charts.js";
 import { tile, yieldNote } from "../components.js";
@@ -111,7 +111,11 @@ export function shareTilesHTML(ctx) {
 // Валютне ребалансування: скільки бракує до цільових часток і чи це
 // взагалі досяжно (найдешевший папір може бути більший за цільову суму).
 export function rebalanceCard(ctx) {
-  const rows = (ctx.summary && ctx.summary.rebalance) || [];
+  // Лише валютні рядки: `rebalance` тепер несе кілька вимірів, і решта
+  // має власні картки з власними формулюваннями. Порожній `dimension` —
+  // старий бекенд, де інших вимірів не існувало.
+  const rows = ((ctx.summary && ctx.summary.rebalance) || [])
+    .filter((r) => !r.dimension || r.dimension === "currency");
   if (!rows.length) return "";
   const sym = { USD: "$", EUR: "€" };
   const num = (v, d = 2) => Number(v || 0).toLocaleString("uk-UA", { maximumFractionDigits: d });
@@ -125,7 +129,17 @@ export function rebalanceCard(ctx) {
     const unitPlural = dep ? "вклад(и)" : "папер(и)";
     const head = `<b>${esc(r.currency)}</b> — ціль ${r.target_pct}%, зараз ${r.current_pct}%`;
     if (r.deficit_uah <= 0) {
-      return `<div style="margin-bottom:12px">${head} — <span style="color:var(--oi-ok)">ціль досягнута ✅</span></div>`;
+      // Дефіциту немає — але це два різні стани, і плутати їх не можна:
+      // 20% при цілі 20% і 58% при цілі 20% однаково «без дефіциту», хоч
+      // друге це перекіс майже втричі. Доти обидва підписувались «ціль
+      // досягнута ✅», і перебір читався як добра новина.
+      const over = (r.current_pct || 0) - (r.target_pct || 0);
+      return over > 1
+        ? `<div style="margin-bottom:12px">${head} —
+             <span style="color:var(--oi-warn)">перебір на ${over.toFixed(1)} п.п.</span><br>
+             <span class="sub">Добирати цю валюту більше не треба. Довести частку до цілі можна
+             або продажем, або — простіше — купівлею в інших валютах, поки капітал росте.</span></div>`
+        : `<div style="margin-bottom:12px">${head} — <span style="color:var(--oi-ok)">ціль досягнута ✅</span></div>`;
     }
     const need = `Бракує до цілі: <b>${fmtUAH(r.deficit_uah)}</b> (≈ ${num(r.deficit_native)} ${s})`;
     if (!r.feasible) {
@@ -142,8 +156,75 @@ export function rebalanceCard(ctx) {
       Готівка: ${num(r.cash_native)} ${s} — ${buy}.</div>`;
   }).join("");
   return `<div class="card"><h2>Валютне ребалансування</h2>
-    <div class="muted" style="margin-bottom:10px">Частки рахуються від сукупного капіталу (номінал + рахунок).</div>
+    <div class="muted" style="margin-bottom:10px">Частки рахуються від УСЬОГО капіталу — папери,
+      рахунок, фонди, вклади й резерв, — тож це те саме число, що в плитці «Частка USD» вище.
+      Доти тут був інший знаменник, і два числа на одному екрані не сходились.</div>
     ${body}</div>`;
+}
+
+// Структура за ВИДОМ інструмента: чим ти ризикуєш, а не в чому тримаєш.
+//
+// Окрема картка від валютної навмисно. Це два різні питання, і відповіді
+// на них не замінюють одна одну: портфель на 100% в ОВДП і портфель на
+// 100% у фондах можуть мати однакові валютні частки й геть різну
+// поведінку — у першого ризик процентний і державний, у другого ринковий
+// і керуючої компанії.
+const KIND_TITLE = {
+  bonds: "ОВДП", funds: "Фонди", deposits: "Вклади", reserve: "Резерв",
+};
+
+export function kindMixCard(ctx) {
+  const s = ctx.summary || {};
+  const rows = (s.rebalance || []).filter((r) => r.dimension === "kind");
+  if (!rows.length) return "";
+  const cap = capitalUAH(s);
+  // Нерозподілене — це те, під що цілі не ставили. Показуємо числом і
+  // НЕ нормалізуємо: підмінити введені 40/20 на 67/33, не питаючи, було б
+  // гірше за визнання, що сума не сходиться.
+  const targetSum = rows.reduce((a, r) => a + (r.target_pct || 0), 0);
+  const body = rows.map((r) => {
+    const title = KIND_TITLE[r.key] || r.key;
+    const nowUAH = cap * (r.current_pct || 0) / 100;
+    // Рядок без цілі — довідковий (резерв). Його ціль живе у власній
+    // картці й міряється місяцями витрат, а не часткою капіталу: частка
+    // рухалась би щоразу, коли росте портфель, навіть якби резерву ніхто
+    // не чіпав.
+    if (!r.target_pct) {
+      return `<div style="margin-bottom:12px"><b>${esc(title)}</b> —
+        <span class="muted">${r.current_pct}% (${fmtUAH(nowUAH)}), цілі за часткою немає</span><br>
+        <span class="sub">${r.key === "reserve"
+          ? "ціль резерву задана в місяцях витрат — див. картку «Резерв» у «Грошах»"
+          : "показано довідково"}</span></div>`;
+    }
+    const over = (r.current_pct || 0) > (r.target_pct || 0);
+    const bar = Math.min(100, (r.target_pct ? (r.current_pct / r.target_pct) * 100 : 0));
+    const line = r.deficit_uah > 0
+      ? `бракує <b>${fmtUAH(r.deficit_uah)}</b>${
+          r.bond_cost_uah > 0 && !r.feasible
+            ? ` · <span style="color:var(--oi-warn)">⚠ найдешевший вхід ${fmtUAH(r.bond_cost_uah)}
+                — це більше за всю цільову суму</span>`
+            : r.bond_cost_uah > 0 ? ` · найдешевший вхід ${fmtUAH(r.bond_cost_uah)}` : ""}`
+      : over
+        ? `<span style="color:var(--oi-warn)">перебір</span> — ціль уже перевищена`
+        : `<span style="color:var(--oi-ok)">ціль досягнута ✅</span>`;
+    return `<div style="margin-bottom:12px">
+      <b>${esc(title)}</b> — ціль ${r.target_pct}%, зараз ${r.current_pct}%
+      <span class="muted">(${fmtUAH(nowUAH)})</span><br>
+      <div class="progress" style="margin:4px 0"><span style="width:${bar}%;background:${
+        over ? "var(--oi-warn)" : r.deficit_uah > 0 ? "var(--oi-info)" : "var(--oi-ok)"}"></span></div>
+      ${line}</div>`;
+  }).join("");
+  return `<div class="card"><h2>Структура за видом інструмента</h2>
+    <div class="muted" style="margin-bottom:10px">Валютна ціль каже, В ЧОМУ тримати гроші; ця —
+      ЧИМ ризикувати. Частки рахуються від того самого капіталу.</div>
+    ${body}
+    <div class="sub">${targetSum < 99.5
+      ? `Цілями розподілено ${targetSum.toFixed(0)}% капіталу — решта ${(100 - targetSum).toFixed(0)}%
+         лишається на твій розсуд. Застосунок не «дотягує» суму до сотні сам: це підмінило б те, що ти ввів.`
+      : targetSum > 100.5
+        ? `Цілі в сумі дають ${targetSum.toFixed(0)}% — більше за капітал, тож усі одразу недосяжні.`
+        : `Цілі в сумі дають 100% капіталу.`}</div>
+  </div>`;
 }
 
 // «А якби я просто тримав долари?» — питання, на яке досі не було

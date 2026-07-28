@@ -813,6 +813,56 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
+	// Ціна ОДНОГО сертифіката — найдешевшого з тих, що вже в портфелі.
+	// Каталогу цін фондів у застосунку немає (ціна приходить із виписки
+	// разом з операцією), тож про фонд, якого ще не купували, сказати
+	// нічого не можна: 0 означає «невідомо», і ребаланс тоді просто не
+	// перевіряє здійсненність, а не вигадує поріг.
+	minFundPriceUAH := 0.0
+	for _, row := range fundRows {
+		if row.LastPrice <= 0 {
+			continue
+		}
+		cur := row.Currency
+		if cur == "" {
+			cur = money.UAH
+		}
+		minOfFund := row.LastPrice
+		if cur != money.UAH {
+			u, err := fx.ToUAH(money.New(int64(math.Round(row.LastPrice*100)), cur), rates)
+			if err != nil {
+				continue
+			}
+			minOfFund = float64(u.Amount()) / 100
+		}
+		if minFundPriceUAH == 0 || minOfFund < minFundPriceUAH {
+			minFundPriceUAH = minOfFund
+		}
+	}
+
+	// Найдешевший вхід ОКРЕМО по видах — для ребалансу за видом
+	// інструмента. reinvestMin для цього не годиться: він уже змішав
+	// облігації з вкладами (у цьому й був його сенс — «на що завгодно
+	// вистачає раніше»), а тут питання саме «скільки коштує зайти в цей
+	// вид», і змішане число відповіло б на нього неправильно для обох.
+	minBondUAH, minDepositUAH := 0.0, 0.0
+	minOf := func(dst *float64, minor int64, cur string) {
+		u, err := fx.ToUAH(money.New(minor, cur), rates)
+		if err != nil {
+			return
+		}
+		v := float64(u.Amount()) / 100
+		if *dst == 0 || v < *dst {
+			*dst = v
+		}
+	}
+	for cur, minNom := range minNoms {
+		minOf(&minBondUAH, minNom, cur)
+	}
+	for cur, depMin := range depMinByCur {
+		minOf(&minDepositUAH, depMin, cur)
+	}
+
 	settings := &state.SettingsDoc{}
 	if !target.IsZero() {
 		v := float64(target.Amount()) / 100
@@ -865,6 +915,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		{"deposit_rate_uah_pct", &settings.DepositRateUAHPct},
 		{"monthly_expenses_uah", &settings.MonthlyExpensesUAH},
 		{"reserve_target_months", &settings.ReserveTargetMonths},
+		{"target_bonds_pct", &settings.TargetBondsPct},
+		{"target_funds_pct", &settings.TargetFundsPct},
+		{"target_deposits_pct", &settings.TargetDepositsPct},
 	} {
 		if raw, _ := s.st.GetSetting(ctx, g.key); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
 			if f, err := strconv.ParseFloat(raw, 64); err == nil {
@@ -1050,6 +1103,24 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// ринковою вартістю. Саме вона й потрібна проєкціям — до неї капітал
 	// у сертифікатах ріс за ставкою облігацій, яких у ньому немає.
 	nominalMajor := float64(nominalUAH) / 100
+
+	// Капітал — один раз і на всіх. Далі його читають ребаланс, старт
+	// проєкції й сам документ; доти кожен з них складав свою суму, і на
+	// сусідніх картках стояли числа, які не сходились. Номінал по валютах
+	// переводимо в грн-екв. тут, бо частки міряються в спільній одиниці.
+	bondsByCurUAH := map[string]float64{}
+	for cur, minor := range nominalByCur {
+		if u, err := fx.ToUAH(money.New(minor, cur), rates); err == nil {
+			bondsByCurUAH[cur] = float64(u.Amount()) / 100
+		}
+	}
+	capital := state.Capital{
+		BondsUAH: nominalMajor, AccountUAH: float64(accountUAHMinor) / 100,
+		FundsUAH: fundsUAH, DepositsUAH: depositsUAH, ReserveUAH: reserveUAH,
+		BondsByCur: bondsByCurUAH, DepositsByCur: depositsUAHByCur,
+		ReserveByCur: reserveUAHByCur,
+	}
+
 	if nominalMajor+fundsUAH > 0 {
 		blend := func(bond, fund float64) float64 {
 			return math.Round((bond*nominalMajor+fund*fundsUAH)/(nominalMajor+fundsUAH)*100) / 100
@@ -1214,9 +1285,17 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		target = money.New(int64(math.Round(contribM*100)), money.UAH)
 	}
 
-	// Старт проєкції — увесь капітал, разом із сертифікатами: інакше
-	// крива починалась би нижче за плитку «Капітал» на ту саму суму.
-	p0 := float64(accountUAHMinor+nominalUAH)/100 + fundsUAH
+	// Старт проєкції — капітал БЕЗ резерву. Решта входить уся, разом із
+	// сертифікатами й вкладами: інакше крива починалась би нижче за
+	// плитку «Капітал» на ту саму суму (доти так і було — вклади сюди не
+	// потрапляли зовсім).
+	//
+	// Резерв — свідомий виняток, і саме тому він тут віднімається явно, а
+	// не «просто не додається»: він не інвестується й не компаундиться,
+	// тож включити його означало б показати приріст на гроші, які лежать
+	// без руху. Через це проєкція стартує нижче за плитку рівно на суму
+	// матраца — і це правильно, а не розбіжність, яку треба ховати.
+	p0 := capital.TotalUAH() - capital.ReserveUAH
 	projection := make([]state.ProjectionRow, 0, 4)
 	for _, y := range []int{1, 3, 5, 10} {
 		m := y * 12
@@ -1343,11 +1422,17 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	}
 
 	// --- валютне ребалансування: як вийти на цільові частки ---
-	// Рахуємо від СУКУПНОГО капіталу (номінал + рахунок): щоб частка валюти
-	// стала цільовою, треба довести номінал цієї валюти до target×капітал.
+	//
+	// Знаменник і чисельник — ТІ САМІ, що в плитці «Частка USD»: обидва
+	// числа беруться з capital (див. state/capital.go). Доти ребаланс
+	// рахував від «номінал + рахунок» і лише по облігаціях, а плитка — від
+	// усього капіталу з фондами, вкладами й резервом. Стояли вони на
+	// одному екрані й показували різне: 57.6% проти 0% для тієї самої
+	// валюти.
+	//
 	// Окремо перевіряємо здійсненність: найдешевший папір може бути більший
 	// за всю цільову суму — тоді ціль поки недосяжна без перекосу структури.
-	totalMajor := float64(nominalUAH+accountUAHMinor) / 100
+	totalMajor := capital.TotalUAH()
 	targets := map[string]*float64{money.USD: settings.USDTargetSharePct, money.EUR: settings.EURTargetSharePct}
 	var rebalance []state.RebalanceRow
 	for _, cur := range []string{money.USD, money.EUR} {
@@ -1359,11 +1444,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		if rateMajor <= 0 {
 			continue
 		}
-		curUAH := float64(nominalByCur[cur]) / 100 * rateMajor
-		currentPct := 0.0
-		if totalMajor > 0 {
-			currentPct = curUAH / totalMajor * 100
-		}
+		curUAH := capital.ExposureUAH(cur)
+		currentPct := capital.SharePct(cur)
 		targetUAH := totalMajor * (*tp) / 100
 		deficitUAH := math.Max(0, targetUAH-curUAH)
 		cashNative := float64(bal[cur]) / 100
@@ -1397,6 +1479,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			}
 		}
 		rebalance = append(rebalance, state.RebalanceRow{
+			Dimension: "currency", Key: cur,
 			Currency: cur, TargetPct: *tp, CurrentPct: round2(currentPct),
 			DeficitUAH: round2(deficitUAH), DeficitNative: round2(deficitUAH / rateMajor),
 			CashNative: round2(cashNative), BondCostNative: round2(unitNative),
@@ -1404,6 +1487,68 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			MinPortfolioUAH: round2(unitUAH / (*tp / 100)),
 			Feasible:        unitUAH > 0 && unitUAH <= targetUAH,
 			UnitKind:        unitKind,
+		})
+	}
+
+	// --- ребаланс за ВИДОМ інструмента ---
+	//
+	// Валютна ціль каже, в чому тримати гроші; ця — чим ризикувати.
+	// Портфель на 100% в ОВДП і портфель на 100% у фондах можуть мати
+	// однакові валютні частки й геть різну поведінку: у першого ризик
+	// процентний і державний, у другого — ринковий і керуючої компанії.
+	//
+	// Сума цілей НЕ мусить давати 100. Нормалізувати мовчки означало б
+	// підмінити введене користувачем: поставив 40/20 — і отримав 67/33,
+	// не питаючи. Нерозподілене показуємо числом і лишаємо як є.
+	kindTargets := []struct {
+		key    string
+		nowUAH float64
+		target *float64
+		unit   float64 // найдешевший вхід у цей вид, грн-екв.; 0 = невідомо
+	}{
+		{"bonds", capital.BondsUAH, settings.TargetBondsPct, minBondUAH},
+		{"funds", capital.FundsUAH, settings.TargetFundsPct, minFundPriceUAH},
+		{"deposits", capital.DepositsUAH, settings.TargetDepositsPct, minDepositUAH},
+	}
+	for _, k := range kindTargets {
+		if k.target == nil || *k.target <= 0 || totalMajor <= 0 {
+			continue
+		}
+		currentPct := k.nowUAH / totalMajor * 100
+		targetUAH := totalMajor * (*k.target) / 100
+		row := state.RebalanceRow{
+			Dimension: "kind", Key: k.key, Currency: money.UAH,
+			TargetPct: round2(*k.target), CurrentPct: round2(currentPct),
+			DeficitUAH: round2(math.Max(0, targetUAH-k.nowUAH)),
+			// Одиниця входу тут завжди в гривні-еквіваленті: питання «яким
+			// інструментом», а не «якою валютою», і мішати сюди ще й
+			// нативні суми означало б два виміри в одному рядку.
+			BondCostUAH: round2(k.unit), UnitKind: k.key,
+			// Без заданої одиниці входу здійсненність не перевіряється:
+			// у резерв кладуть будь-яку суму, а не «мінімальний внесок».
+			Feasible: k.unit == 0 || k.unit <= targetUAH,
+		}
+		if k.unit > 0 {
+			row.MinPortfolioUAH = round2(k.unit / (*k.target / 100))
+		}
+		rebalance = append(rebalance, row)
+	}
+	// Резерв — рядок БЕЗ цілі, суто довідковий. Спокуса вивести його
+	// цільову частку з місяців витрат виглядає природною, але дає число,
+	// яке нічого не означає: на живих даних ціль у 150 000 ₴ при капіталі
+	// 38 913 ₴ показалась як «385% капіталу». Частка рухається щоразу, коли
+	// росте портфель, навіть якщо резерву ніхто не чіпав, — а ціль резерву
+	// за природою абсолютна, бо міряється місяцями життя, не портфелем.
+	//
+	// Тож ціль лишається там, де вона осмислена (картка резерву, у місяцях
+	// і гривнях), а сюди резерв входить лише щоб картина складу була
+	// повною: без нього частки видів не сходились би з очевидним «а решта
+	// де?».
+	if capital.ReserveUAH > 0 && totalMajor > 0 {
+		rebalance = append(rebalance, state.RebalanceRow{
+			Dimension: "kind", Key: "reserve", Currency: money.UAH,
+			CurrentPct: round2(capital.ReserveUAH / totalMajor * 100),
+			UnitKind:   "reserve", Feasible: true,
 		})
 	}
 

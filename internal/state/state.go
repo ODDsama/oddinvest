@@ -13,7 +13,6 @@ package state
 
 import (
 	"encoding/json"
-	"math"
 	"time"
 
 	money "github.com/Rhymond/go-money"
@@ -28,10 +27,21 @@ type Doc struct {
 	Schema      int    `json:"schema"`
 	GeneratedAt string `json:"generated_at"` // RFC3339
 
-	InvestedUAH   float64 `json:"invested_uah"`   // вартість входу залишків, грн-екв.
-	NominalUAHEq  float64 `json:"nominal_uah_eq"` // номінал портфеля, грн-екв.
-	USDSharePct   float64 `json:"usd_share_pct"`  // частка USD-паперів за номіналом (грн-екв.)
-	EURSharePct   float64 `json:"eur_share_pct"`  // частка EUR-паперів за номіналом (грн-екв.)
+	InvestedUAH  float64 `json:"invested_uah"`   // вартість входу залишків, грн-екв.
+	NominalUAHEq float64 `json:"nominal_uah_eq"` // номінал портфеля, грн-екв.
+	// CapitalUAH — УВЕСЬ капітал: номінал ОВДП + рахунок + фонди + вклади +
+	// резерв (адитивне поле). Знаменник, від якого рахуються всі частки.
+	//
+	// Довго його в документі не було, і кожен споживач складав своє: плитка
+	// «Капітал» на фронтенді — одну суму, картка ребалансу — іншу, старт
+	// проєкції — третю. Числа стояли на сусідніх картках і не сходились.
+	CapitalUAH float64 `json:"capital_uah,omitempty"`
+	// USDSharePct / EURSharePct — частка валюти в КАПІТАЛІ. У чисельнику —
+	// справжня експозиція (папери + вклади + резерв цієї валюти), готівки
+	// брокера там немає: вона от-от стане чимось іншим, тож лише розводить
+	// частки зі знаменника. Див. state.Capital.
+	USDSharePct   float64 `json:"usd_share_pct"`
+	EURSharePct   float64 `json:"eur_share_pct"`
 	UninvestedUAH float64 `json:"uninvested_uah"` // надійшло і не перевкладено, грн-екв.
 
 	// Грошовий рахунок (гаманець). AccountUAH — сумарний баланс у грн-екв.
@@ -253,17 +263,46 @@ type SettingsDoc struct {
 	// достатність резерву від випадкового числа.
 	MonthlyExpensesUAH  *float64 `json:"monthly_expenses_uah,omitempty"`
 	ReserveTargetMonths *float64 `json:"reserve_target_months,omitempty"`
+	// Цільові частки за ВИДОМ інструмента, % капіталу. Валютна ціль
+	// відповідає на «в чому я тримаю гроші», ця — на «чим я ризикую»:
+	// портфель на 100% в ОВДП і портфель на 100% у фондах можуть мати
+	// однакові валютні частки й геть різну поведінку.
+	//
+	// Резерву тут немає навмисно, і це не пропуск. Його ціль уже задана в
+	// МІСЯЦЯХ ВИТРАТ — мірі, яка відповідає на питання, заради якого
+	// резерв і збирають. Друга ціль у відсотках означала б дві величини,
+	// що можуть суперечити одна одній, і жодного правила, яка з них
+	// головна. Тому цільова частка резерву не вводиться, а виводиться:
+	// витрати × місяці ÷ капітал.
+	TargetBondsPct    *float64 `json:"target_bonds_pct,omitempty"`
+	TargetFundsPct    *float64 `json:"target_funds_pct,omitempty"`
+	TargetDepositsPct *float64 `json:"target_deposits_pct,omitempty"`
 }
 
-// RebalanceRow — що треба зробити, щоб вийти на цільову частку валюти.
+// RebalanceRow — що треба зробити, щоб вийти на цільову частку.
 // DeficitUAH — скільки грн-екв бракує до цілі; BondCost* — найдешевша
-// ОДИНИЦЯ входу в цю валюту (облігація АБО вклад — див. UnitKind), а не
-// лише папір: відколи вклад із мінімумом $100/€100 став інструментом
-// ребалансу, добрати частку можна ним задовго до $1000-ї облігації.
+// ОДИНИЦЯ входу (облігація АБО вклад — див. UnitKind), а не лише папір:
+// відколи вклад із мінімумом $100/€100 став інструментом ребалансу,
+// добрати частку можна ним задовго до $1000-ї облігації.
 // ConvertUAH — скільки гривні сконвертувати, щоб її купити; MinPortfolioUAH —
 // розмір портфеля, за якого одна така одиниця вже вписується в цільову
 // частку (Feasible=false, поки не доріс).
+//
+// Рядок описує ВИМІР диверсифікації, а не лише валюту: питання «чи не
+// перекошений портфель» ставлять і до виду інструмента, і до брокера, і
+// до одного паперу, а відповідь усюди має однакову форму — ціль, факт,
+// дефіцит, найдешевший крок до цілі. Тримати під кожен вимір власну
+// структуру означало б чотири рази переписати ту саму арифметику.
 type RebalanceRow struct {
+	// Dimension — за чим міряємо: "currency" | "kind" | "broker" | "isin".
+	// Порожнє = "currency" для сумісності зі старим станом, де інших
+	// вимірів не існувало.
+	Dimension string `json:"dimension,omitempty"`
+	// Key — що саме в цьому вимірі: код валюти, вид інструмента
+	// ("bonds"/"funds"/"deposits"/"reserve"), назва брокера, ISIN.
+	// Для валютних рядків дублює Currency: старі споживачі читають
+	// currency, нові — key.
+	Key             string  `json:"key,omitempty"`
 	Currency        string  `json:"currency"`
 	TargetPct       float64 `json:"target_pct"`
 	CurrentPct      float64 `json:"current_pct"`
@@ -643,34 +682,29 @@ func Build(in Input) (*Doc, error) {
 	}
 	doc.InvestedUAH = float64(investedUAH) / 100
 	doc.NominalUAHEq = float64(nominalUAH) / 100
-	// Частки рахуються від УСЬОГО капіталу: папери за номіналом + кеш на
-	// рахунку + сертифікати фондів. Так вільний кеш «розводить» валютні
-	// частки, а фонди більше не випадають зі знаменника — доки вони в
-	// ньому не враховувались, гривнева частка занижувалась, і застосунок
-	// радив добирати валюту, якої насправді вистачало.
+	// Капітал і частки — з єдиного зведення (див. capital.go). Номінал
+	// ОВДП рахується тут же, з позицій, а решта приходить готовою: інакше
+	// це було б п'яте місце, де «капітал» означає щось своє.
 	accountMinor := int64(0)
 	if in.AccountUAH != nil {
 		accountMinor = in.AccountUAH.Amount()
 	}
-	// Вклади входять у капітал і в частки нарівні з номіналом ОВДП: тіло у
-	// валюті — це той самий капітал у тій самій валюті, лише замкнений на
-	// строк. Без цього гривнева частка занижувалась би на суму валютних
-	// вкладів так само, як колись занижувалась на фонди.
-	depMinor := int64(math.Round(in.DepositsUAH * 100))
-	nominalUSD += int64(math.Round(in.DepositsUAHByCur["USD"] * 100))
-	nominalEUR += int64(math.Round(in.DepositsUAHByCur["EUR"] * 100))
-	// Резерв — і в знаменнику, і в чисельнику (див. коментар до
-	// Doc.ReserveUAH): це не «майже інструмент», як кеш на брокері, а
-	// гроші, які так грішми й лишаться, тож валютний матрац — справжня
-	// валютна експозиція.
-	resMinor := int64(math.Round(in.ReserveUAH * 100))
-	nominalUSD += int64(math.Round(in.ReserveUAHByCur["USD"] * 100))
-	nominalEUR += int64(math.Round(in.ReserveUAHByCur["EUR"] * 100))
-	capital := nominalUAH + accountMinor + int64(math.Round(in.FundsUAH*100)) + depMinor + resMinor
-	if capital > 0 {
-		doc.USDSharePct = float64(nominalUSD) * 100 / float64(capital)
-		doc.EURSharePct = float64(nominalEUR) * 100 / float64(capital)
+	capital := Capital{
+		BondsUAH:    float64(nominalUAH) / 100,
+		AccountUAH:  float64(accountMinor) / 100,
+		FundsUAH:    in.FundsUAH,
+		DepositsUAH: in.DepositsUAH,
+		ReserveUAH:  in.ReserveUAH,
+		BondsByCur: map[string]float64{
+			money.USD: float64(nominalUSD) / 100,
+			money.EUR: float64(nominalEUR) / 100,
+		},
+		DepositsByCur: in.DepositsUAHByCur,
+		ReserveByCur:  in.ReserveUAHByCur,
 	}
+	doc.CapitalUAH = round2(capital.TotalUAH())
+	doc.USDSharePct = capital.SharePct(money.USD)
+	doc.EURSharePct = capital.SharePct(money.EUR)
 
 	doc.MonthInvestedUAH = major(in.MonthInvestedUAH)
 	doc.MonthDepositedUAH = major(in.MonthDepositedUAH)
@@ -747,8 +781,8 @@ func Build(in Input) (*Doc, error) {
 			LastMove: in.ReserveLastMove, MonthlyExpensesUAH: monthlyExp,
 			TargetMonths: targetMonths,
 		}
-		if capital > 0 {
-			r.SharePct = in.ReserveUAH * 100 / (float64(capital) / 100)
+		if total := capital.TotalUAH(); total > 0 {
+			r.SharePct = in.ReserveUAH * 100 / total
 		}
 		if monthlyExp > 0 {
 			r.Months = in.ReserveUAH / monthlyExp

@@ -25,6 +25,9 @@ var settingsKeys = []string{"usd_target_share_pct", "eur_target_share_pct",
 	"deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct",
 	// Резерв: скільки коштує місяць життя і на скільки місяців запас.
 	"monthly_expenses_uah", "reserve_target_months",
+	// Цільові частки за видом інструмента, % капіталу. Резерв сюди не
+	// входить: його ціль задана в місяцях витрат (див. SettingsDoc).
+	"target_bonds_pct", "target_funds_pct", "target_deposits_pct",
 	// import_since рухає сам імпорт, але лишається редагованим: інакше
 	// «перезавантажити позаминулий місяць» стало б неможливим взагалі.
 	"import_since"}
@@ -41,6 +44,7 @@ var numericSettings = map[string]bool{
 	"deposit_min_usd": true, "deposit_min_eur": true, "deposit_min_uah": true,
 	"deposit_rate_usd_pct": true, "deposit_rate_eur_pct": true, "deposit_rate_uah_pct": true,
 	"monthly_expenses_uah": true, "reserve_target_months": true,
+	"target_bonds_pct": true, "target_funds_pct": true, "target_deposits_pct": true,
 }
 
 // depositMinMinorByCur — мінімальне вкладення у вклад по валютах, у МІНОРНИХ
