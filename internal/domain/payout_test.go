@@ -35,6 +35,48 @@ func TestNextPayoutDateSkipsWeekend(t *testing.T) {
 	}
 }
 
+func TestFundDividendFlows(t *testing.T) {
+	// 1000 сертифікатів по 11.00 ₴ = 11 000 ₴; 9.6% річних -> 88 ₴ на місяць.
+	p := &FundPosition{Fund: "Inzhur", Currency: "UAH", Qty: 1000,
+		LastPrice: 110000, PayoutDay: 10}
+	flows := FundDividendFlows(p, 9.6, 3, "2026-08-01")
+	if len(flows) != 3 {
+		t.Fatalf("очікували 3 виплати, маємо %d", len(flows))
+	}
+	// Дати йдуть підряд і не повторюються.
+	want := []Date{"2026-08-10", "2026-09-10", "2026-10-12"} // 10.10.2026 — субота
+	for i, f := range flows {
+		if f.Date != want[i] {
+			t.Errorf("виплата %d: чекали %s, маємо %s", i, want[i], f.Date)
+		}
+		if f.Amount.Amount() != 8800 {
+			t.Errorf("виплата %d: сума %d, чекали 8800", i, f.Amount.Amount())
+		}
+		if !IsFundISIN(f.ISIN) {
+			t.Errorf("потік фонду має бути впізнаваним: %q", f.ISIN)
+		}
+	}
+}
+
+func TestFundDividendFlowsSilentWithoutData(t *testing.T) {
+	full := &FundPosition{Fund: "F", Currency: "UAH", Qty: 100, LastPrice: 110000, PayoutDay: 10}
+	cases := map[string]*FundPosition{
+		"без дня виплати":  {Fund: "F", Currency: "UAH", Qty: 100, LastPrice: 110000},
+		"без сертифікатів": {Fund: "F", Currency: "UAH", PayoutDay: 10},
+	}
+	for name, p := range cases {
+		if got := FundDividendFlows(p, 9.5, 6, "2026-08-01"); got != nil {
+			t.Errorf("%s: мало бути порожньо, маємо %d", name, len(got))
+		}
+	}
+	if got := FundDividendFlows(full, 0, 6, "2026-08-01"); got != nil {
+		t.Errorf("без дохідності мало бути порожньо, маємо %d", len(got))
+	}
+	if got := FundDividendFlows(nil, 9.5, 6, "2026-08-01"); got != nil {
+		t.Error("nil-позиція мала дати порожньо")
+	}
+}
+
 func TestNextPayoutDateRejectsNonsense(t *testing.T) {
 	for _, day := range []int{0, -1, 32} {
 		if _, ok := NextPayoutDate(day, "2026-08-01"); ok {

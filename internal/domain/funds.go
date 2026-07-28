@@ -3,7 +3,10 @@ package domain
 import (
 	"math"
 	"sort"
+	"strings"
 	"time"
+
+	money "github.com/Rhymond/go-money"
 )
 
 // Сертифікати фондів (Inzhur REIT і подібні).
@@ -182,6 +185,58 @@ func FundTotalReturn(ops []FundOp, fund string, asOf Date) (float64, bool) {
 		return 0, false
 	}
 	return math.Round(r*10000) / 100, true
+}
+
+// FundISINPrefix — префікс синтетичного ключа фонду в календарі.
+const FundISINPrefix = "fund:"
+
+// IsFundISIN — чи належить потік фонду. Потрібне там, де фондам не місце:
+// у ціновому ризику (сертифікат не переоцінюється зміною ставок ОВДП) і в
+// ризику перевкладення (безстроковий папір нічого не «повертає» — дивіденд
+// не є поверненням тіла).
+func IsFundISIN(isin string) bool { return strings.HasPrefix(isin, FundISINPrefix) }
+
+// FundDividendFlows — ОЦІНКА майбутніх дивідендів фонду на months місяців
+// уперед.
+//
+// Це єдине місце в календарі, де стоїть не зобовʼязання, а припущення, і
+// саме тому воно окремо: купон ОВДП і відсоток вкладу записані в договорі,
+// а дивіденд фонду — ні. Але без нього календар показував дві третини
+// потоку й мовчав про решту, а «скільки я отримую щомісяця» рахувалось з
+// фондами в одному місці й без них у сусідньому.
+//
+// Сума — рівними частками від річної дохідності на сьогоднішню вартість:
+// точнішого припущення все одно немає, бо виплата залежить від результату
+// місяця. yieldPct береться з обіцянки фонду, якщо вона задана, бо
+// виміряна дивідендна ділить ОСТАННЮ виплату на СЬОГОДНІШНЮ вартість — і
+// на позиції, яку активно докуповують, суттєво занижена.
+func FundDividendFlows(p *FundPosition, yieldPct float64, months int, from Date) []CashflowItem {
+	if p == nil || p.PayoutDay <= 0 || yieldPct <= 0 || months <= 0 {
+		return nil
+	}
+	mv := p.MarketValue()
+	if mv <= 0 {
+		return nil
+	}
+	per := int64(math.Round(float64(mv) * yieldPct / 100 / 12))
+	if per <= 0 {
+		return nil
+	}
+	isin := FundISINPrefix + p.Fund
+	out := make([]CashflowItem, 0, months)
+	d := from
+	for i := 0; i < months; i++ {
+		next, ok := NextPayoutDate(int(p.PayoutDay), d)
+		if !ok {
+			break
+		}
+		out = append(out, CashflowItem{Date: next, ISIN: isin,
+			Type: PayCoupon, Amount: money.New(per, p.Currency)})
+		// Наступний місяць: від дня ПІСЛЯ знайденої дати, інакше та сама
+		// повернеться знов.
+		d = next.AddDays(1)
+	}
+	return out
 }
 
 // NextPayoutDate — коли фонд заплатить наступного разу.

@@ -103,10 +103,39 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 
 	// Вклади мають розклад, тож їхні відсотки й повернення тіла входять у
 	// той самий календар і ту саму драбину, що й купони й погашення ОВДП.
-	// Фонди сюди не потрапляють — у них розкладу немає, і саме ця межа
-	// відрізняє «заплановані потоки» від «оцінки».
 	cashflow = append(cashflow, domain.DepositCashflows(termDeposits, today)...)
 	ladder = append(ladder, domain.DepositLadder(termDeposits, today)...)
+
+	// Фонди теж — але ОЦІНКОЮ, і лише коли відомий день виплати.
+	//
+	// Доти межа була суворою: у календарі стояли самі зобовʼязання. Ціна
+	// суворості виявилась вищою за користь — календар показував дві
+	// третини потоку й мовчав про решту, а «скільки я отримую щомісяця»
+	// рахувалось із фондами в одному місці й без них у сусідньому.
+	//
+	// Оцінка лишається впізнаваною (ключ fund:<назва>), і там, де їй не
+	// місце, вона відсіюється: у ціновому ризику сертифікат не
+	// переоцінюється ставками ОВДП, а в ризику перевкладення дивіденд не
+	// є поверненням тіла.
+	fundPositions := domain.FundPositions(fundOps)
+	fundRefs := map[string]store.Fund{}
+	if refs, ferr := s.st.ListFunds(ctx); ferr == nil {
+		for _, f := range refs {
+			fundRefs[f.Name] = f
+		}
+	}
+	for name, fp := range fundPositions {
+		ref := fundRefs[name]
+		fp.PayoutDay = ref.PayoutDay
+		// Обіцянка фонду, а якщо її немає — виміряна дивідендна: остання
+		// ділить виплату на СЬОГОДНІШНЮ вартість, тож на позиції, яку
+		// докуповують, занижує.
+		y := float64(ref.ExpectedYieldBP) / 100
+		if y <= 0 {
+			y, _ = domain.DividendYieldNet(fundOps, fp, today)
+		}
+		cashflow = append(cashflow, domain.FundDividendFlows(fp, y, 12, today)...)
+	}
 	// next_payment бере перший потік, драбина йде по роках — обидва
 	// покладаються на порядок, який append порушив.
 	sort.Slice(cashflow, func(i, j int) bool { return cashflow[i].Date < cashflow[j].Date })
@@ -544,21 +573,15 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	var fundsUAH float64
 	var fundRows []state.FundPositionRow
 	if len(fundOps) > 0 {
-		// Довідник — по імені: обіцяна дохідність і день виплати з операцій
-		// не виводяться, їх задає людина.
-		refByName := map[string]store.Fund{}
-		if refs, ferr := s.st.ListFunds(ctx); ferr == nil {
-			for _, f := range refs {
-				refByName[f.Name] = f
-			}
-		}
-		positions := domain.FundPositions(fundOps)
+		// Позиції вже зведені вище — там, де з них будувались оцінені
+		// дивідендні потоки. Друге зведення дало б ті самі числа й ще одну
+		// копію, у якій легко забути проставити день виплати.
+		positions := fundPositions
 		names := make([]string, 0, len(positions))
 		for name := range positions {
 			names = append(names, name)
 		}
 		sort.Strings(names)
-		var fundDivNet float64
 		for _, name := range names {
 			fp := positions[name]
 			mv := money.New(fp.MarketValue(), fp.Currency)
@@ -567,10 +590,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				mvUAH = float64(u.Amount()) / 100
 			}
 			fundsUAH += mvUAH
-			// Довідник — ДО розрахунку дохідності: заданий день виплати дає
-			// точний місячний ритм замість припущення.
-			ref := refByName[fp.Fund]
-			fp.PayoutDay = ref.PayoutDay
+			// Довідник і день виплати проставлені вище, разом із потоками.
+			ref := fundRefs[fp.Fund]
 			y, _ := domain.DividendYieldNet(fundOps, fp, today)
 			row := state.FundPositionRow{
 				Fund: fp.Fund, Currency: fp.Currency, Qty: fp.Qty,
@@ -633,12 +654,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				row.YieldBasis = "дивіденди після податку"
 			}
 			fundRows = append(fundRows, row)
-			// Чистий дивідендний потік за рік — у спільний «пасивний дохід».
-			if y > 0 {
-				fundDivNet += mvUAH * y / 100
-			}
 		}
-		incomeMonthlyNow = round2(incomeMonthlyNow + fundDivNet/12)
+		// Дивідендний потік фондів сюди більше НЕ додається окремо: його
+		// оцінка стоїть у cashflow, тож у couponSum вона вже прийшла, і друге
+		// додавання рахувало б той самий потік двічі.
 		// Дохідність фондів — зважена ринковою вартістю: більший фонд
 		// має важити більше, ніж дрібний із гучним відсотком.
 		//
@@ -1329,6 +1348,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		c := cf.Amount.Currency().Code
 		amt := float64(cf.Amount.Amount()) / 100
+		// Фонд не переоцінюється зміною ставок ОВДП: у сертифіката немає ні
+		// строку, ні фіксованого купона, тож дисконтувати його оцінені
+		// дивіденди означало б вигадати ціновий ризик, якого немає.
+		if domain.IsFundISIN(cf.ISIN) {
+			continue
+		}
 		if !domain.IsDepositISIN(cf.ISIN) {
 			ptsByCur[c] = append(ptsByCur[c], domain.CashPoint{Years: yrs, Amount: amt})
 		}
