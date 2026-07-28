@@ -3180,6 +3180,30 @@ func TestCurrencyShareAgreesWithRebalance(t *testing.T) {
 		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("лот: %d %s", resp.StatusCode, b)
 	}
+	// І ПОГАШЕНИЙ папір — саме на ньому дві копії Capital розходились:
+	// одна відкидала погашені, друга ні, тож плитка й картка рахували від
+	// різних знаменників. Довідник заповнюється цілком, тож кладемо обидва
+	// папери разом.
+	if err := st.ReplaceDirectory(ctx, []nbu.Security{{
+		Bond: domain.Bond{ISIN: "UA4000227748", Nominal: money.New(100000, money.UAH),
+			RateBP: 1655, Maturity: "2027-03-17", Descr: "гривневі військові"},
+		Payments: []domain.Payment{
+			{ISIN: "UA4000227748", PayDate: "2027-03-17", Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+		},
+	}, {
+		Bond: domain.Bond{ISIN: "UA4000000001", Nominal: money.New(100000, money.UAH),
+			RateBP: 1600, Maturity: domain.NewDate(time.Now()).AddDays(-20), Descr: "погашений"},
+		Payments: []domain.Payment{
+			{ISIN: "UA4000000001", PayDate: domain.NewDate(time.Now()).AddDays(-20),
+				Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+		},
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000000001","qty":3,"price_per_bond":"1000.00","buy_date":"2026-01-10","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("погашений лот: %d %s", resp.StatusCode, b)
+	}
 	if _, err := st.AddFundOp(ctx, domain.FundOp{
 		Date: domain.NewDate(time.Now()).AddDays(-40), Fund: "Inzhur", Kind: domain.FundBuy,
 		Qty: 1000, Amount: 1000000, Currency: "UAH", Broker: "mono",

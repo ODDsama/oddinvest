@@ -33,7 +33,14 @@ func sampleInput(t *testing.T) Input {
 			{Year: 2027, Currency: "UAH", Nominal: 5_000_000},
 			{Year: 2027, Currency: "USD", Nominal: 200_000},
 		},
-		Rates:             fx.Rates{"USD": 441234},
+		Rates: fx.Rates{"USD": 441234},
+		// Capital подається ГОТОВИМ, як і в живому будівнику: цей пакет
+		// його більше не збирає. Числа мусять відповідати Positions вище —
+		// 50 000 ₴ номіналу гривневих плюс $2 000 × 44.1234 = 88 246.80 ₴.
+		Capital: Capital{
+			BondsUAH:   50_000 + 88_246.80,
+			BondsByCur: map[string]float64{money.USD: 88_246.80},
+		},
 		MonthInvestedUAH:  money.New(450_000, money.UAH),
 		MonthDepositedUAH: money.New(450_000, money.UAH),
 		MonthTargetUAH:    money.New(500_000, money.UAH),

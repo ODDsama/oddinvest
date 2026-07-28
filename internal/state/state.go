@@ -661,15 +661,16 @@ type Input struct {
 	Coupons12m        []MonthAmount
 	FundsUAH          float64
 	Funds             []FundPositionRow
-	// DepositsUAH — тіло діючих вкладів, грн-екв (для капіталу й поля
-	// deposits_uah). DepositsUAHByCur — те саме по валютах (для часток).
-	DepositsUAH      float64
-	DepositsUAHByCur map[string]float64
-	// Резерв: грн-екв усього, по валютах (нативно, для часток), по місцях
-	// і дата останнього руху.
+	// Capital — ГОТОВЕ зведення від будівника. Тут воно лише читається:
+	// капітал і частки мусять мати одну точку збирання, інакше два
+	// визначення розходяться мовчки (див. коментар у Build).
+	Capital Capital
+	// DepositsUAH — тіло діючих вкладів, грн-екв (для поля deposits_uah).
+	DepositsUAH float64
+	// Резерв: грн-екв усього, по валютах (нативно, для картки), по місцях
+	// і дата останнього руху. Валютні частки резерву в Capital, не тут.
 	ReserveUAH          float64
 	ReserveByCur        map[string]float64
-	ReserveUAHByCur     map[string]float64
 	ReservePlaces       map[string]float64
 	ReserveLastMove     string
 	IncomeMonthlyNow    float64
@@ -747,29 +748,21 @@ func Build(in Input) (*Doc, error) {
 	}
 	doc.InvestedUAH = float64(investedUAH) / 100
 	doc.NominalUAHEq = float64(nominalUAH) / 100
-	// Капітал і частки — з єдиного зведення (див. capital.go). Номінал
-	// ОВДП рахується тут же, з позицій, а решта приходить готовою: інакше
-	// це було б п'яте місце, де «капітал» означає щось своє.
-	accountMinor := int64(0)
-	if in.AccountUAH != nil {
-		accountMinor = in.AccountUAH.Amount()
-	}
-	capital := Capital{
-		BondsUAH:    float64(nominalUAH) / 100,
-		AccountUAH:  float64(accountMinor) / 100,
-		FundsUAH:    in.FundsUAH,
-		DepositsUAH: in.DepositsUAH,
-		ReserveUAH:  in.ReserveUAH,
-		BondsByCur: map[string]float64{
-			money.USD: float64(nominalUSD) / 100,
-			money.EUR: float64(nominalEUR) / 100,
-		},
-		DepositsByCur: in.DepositsUAHByCur,
-		ReserveByCur:  in.ReserveUAHByCur,
-	}
-	doc.CapitalUAH = round2(capital.TotalUAH())
-	doc.USDSharePct = capital.SharePct(money.USD)
-	doc.EURSharePct = capital.SharePct(money.EUR)
+	// Капітал приходить ГОТОВИЙ від будівника, і тут не збирається.
+	//
+	// Доти збирався — і це був не другий екземпляр того самого, а друге
+	// ВИЗНАЧЕННЯ. Числа розходились двічі: номінал тут брався з
+	// domain.Positions, яка (до виправлення) не відкидала погашених
+	// паперів, а по валютах сумувався ПОЗИЦІЯМИ, тоді як будівник
+	// конвертував агрегат по валюті — інше банківське заокруглення. Тобто
+	// плитка «Частка USD» і картка ребалансу могли знову розійтись, хоч
+	// саме заради їх сходження Capital і заводився.
+	//
+	// Тепер тип має рівно одну точку збирання (state_builder), а цей пакет
+	// його лише читає.
+	doc.CapitalUAH = round2(in.Capital.TotalUAH())
+	doc.USDSharePct = in.Capital.SharePct(money.USD)
+	doc.EURSharePct = in.Capital.SharePct(money.EUR)
 
 	doc.MonthInvestedUAH = major(in.MonthInvestedUAH)
 	doc.MonthDepositedUAH = major(in.MonthDepositedUAH)
@@ -854,7 +847,7 @@ func Build(in Input) (*Doc, error) {
 			LastMove: in.ReserveLastMove, MonthlyExpensesUAH: monthlyExp,
 			TargetMonths: targetMonths,
 		}
-		if total := capital.TotalUAH(); total > 0 {
+		if total := in.Capital.TotalUAH(); total > 0 {
 			r.SharePct = in.ReserveUAH * 100 / total
 		}
 		if monthlyExp > 0 {
