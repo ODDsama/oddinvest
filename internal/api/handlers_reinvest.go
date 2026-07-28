@@ -10,6 +10,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,9 +67,36 @@ type suggestion struct {
 	Reason        string      `json:"reason"`
 	DurationNow   float64     `json:"duration_now,omitempty"`
 	DurationAfter float64     `json:"duration_after,omitempty"`
-	def           float64
-	ladderNom     float64
-	rate          int64
+	// def — на скільки в.п. капіталу бракує ВАЛЮТИ цього паперу до цілі;
+	// kindDef — те саме для ВИДУ інструмента. Одиниця в них однакова
+	// (відсоткові пункти капіталу), тож у ранжуванні вони складаються:
+	// покупка, що зрушує до політики за обома вимірами одразу, важить
+	// більше за ту, що закриває лише один. Складати їх можна саме тому,
+	// що знаменник тепер один на всіх (див. state.Capital).
+	def       float64
+	kindDef   float64
+	ladderNom float64
+	rate      int64
+	// overLimit — цей папір (або рік його погашення) уже перевищує заданий
+	// ліміт концентрації. Порада НЕ ховається: ліміт міг бути порушений із
+	// причин, яких застосунок не знає, і заборона тут була б порадою
+	// навпаки. Але серед доступних такі опускаються нижче — це те, чого
+	// користувач сам від себе хотів, коли ставив ліміт.
+	//
+	// Брокера сюди не включаємо: він не властивість паперу, той самий
+	// папір можна купити в іншого, і мітка на рядку означала б, що
+	// проблема в папері.
+	overLimit bool
+}
+
+// withKindDef дописує до причини дефіцит за видом інструмента. Поріг
+// 0.5 в.п. той самий, що й у валютного: менше — це шум округлення, а не
+// привід щось радити.
+func withKindDef(base string, def float64, what string) string {
+	if def <= 0.5 {
+		return base
+	}
+	return base + fmt.Sprintf("; добирає %s (%.0f в.п. до цілі)", what, def)
 }
 
 // handleReinvest — помічник реінвестиції: доступні папери з довідника,
@@ -101,6 +129,42 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	target["UAH"] = 100 - target["USD"] - target["EUR"]
 	cur := map[string]float64{"USD": doc.USDSharePct, "EUR": doc.EURSharePct}
 	cur["UAH"] = 100 - doc.USDSharePct - doc.EURSharePct
+
+	// Виміри диверсифікації, зібрані в buildState, доводяться сюди — доти
+	// вони жили самі по собі, і помічник про них не знав нічого: цілі за
+	// видом інструмента стояли в налаштуваннях, а порядок порад від них
+	// не змінювався.
+	//
+	// Беремо ГОТОВІ рядки зі стану, а не рахуємо заново: у цьому файлі вже
+	// одного разу з'явилась власна копія арифметики часток, і саме через
+	// неї плитка й картка показували різні числа.
+	kindDef := map[string]float64{}  // вид інструмента → скільки в.п. бракує
+	overISIN := map[string]float64{} // папір → на скільки в.п. перевищено
+	overYear := map[int]float64{}    // рік погашень → те саме
+	limitISIN, limitYear := 0.0, 0.0 // самі ліміти, для формулювання
+	for _, r := range doc.Rebalance {
+		if r.Dimension != "kind" || r.TargetPct <= 0 {
+			continue
+		}
+		if d := r.TargetPct - r.CurrentPct; d > 0 {
+			kindDef[r.Key] = d
+		}
+	}
+	for _, c := range doc.Concentration {
+		if c.OverUAH <= 0 {
+			continue
+		}
+		switch c.Dimension {
+		case "isin":
+			overISIN[c.Key] = c.SharePct - c.LimitPct
+			limitISIN = c.LimitPct
+		case "year":
+			if y, err := strconv.Atoi(c.Key); err == nil {
+				overYear[y] = c.SharePct - c.LimitPct
+				limitYear = c.LimitPct
+			}
+		}
+	}
 
 	ladderYear := map[int]map[string]float64{}
 	for _, row := range doc.Ladder {
@@ -209,10 +273,24 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		if def > 0.5 {
 			parts = append(parts, fmt.Sprintf("добирає %s (%.0f%% → ціль %.0f%%)", c, cur[c], target[c]))
 		}
+		if kd := kindDef["bonds"]; kd > 0.5 {
+			parts = append(parts, fmt.Sprintf("добирає ОВДП (%.0f в.п. до цілі)", kd))
+		}
 		if lnom == 0 {
 			parts = append(parts, fmt.Sprintf("новий рік %d у драбині", year))
 		} else {
 			parts = append(parts, fmt.Sprintf("рік %d", year))
+		}
+		// Причину перевищення пишемо словами й лишаємо пораду на місці:
+		// це попередження, а не фільтр.
+		note := ""
+		if over, ok := overISIN[b.ISIN]; ok {
+			note = fmt.Sprintf("цього паперу вже %.0f в.п. понад ліміт %.0f%%", over, limitISIN)
+		} else if over, ok := overYear[year]; ok {
+			note = fmt.Sprintf("на %d рік уже припадає %.0f в.п. понад ліміт %.0f%%", year, over, limitYear)
+		}
+		if note != "" {
+			parts = append(parts, "⚠ "+note)
 		}
 		// куди зрушить дюрацію купівля одного такого паперу
 		y := doc.PortfolioYield[c] / 100
@@ -250,7 +328,8 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			Brokers:    fits,
 			Affordable: best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
 			DurationNow: round2(curMac), DurationAfter: round2(newMac),
-			def: def, ladderNom: lnom, rate: b.RateBP,
+			def: def, kindDef: kindDef["bonds"], ladderNom: lnom, rate: b.RateBP,
+			overLimit: note != "",
 		})
 	}
 
@@ -291,6 +370,15 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		fits, best := fitsFor(c, f.LastPrice)
+		parts := []string{"сертифікат: без строку й погашення, ціна ринкова"}
+		if kd := kindDef["funds"]; kd > 0.5 {
+			parts = append(parts, fmt.Sprintf("добирає фонди (%.0f в.п. до цілі)", kd))
+		}
+		note := ""
+		if over, ok := overISIN[domain.FundISINPrefix+f.Fund]; ok {
+			note = fmt.Sprintf("цього фонду вже %.0f в.п. понад ліміт %.0f%%", over, limitISIN)
+			parts = append(parts, "⚠ "+note)
+		}
 		out = append(out, suggestion{
 			Kind: "fund", Label: f.Fund, Currency: c,
 			CostPerBond: toMoneyJSON(money.New(costMinor, c)),
@@ -298,8 +386,10 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			RealPct:     round2(realYield(nominal/100, yc, devalPct) * 100),
 			YieldBasis:  basis,
 			Brokers:     fits, Affordable: best, CanBuy: best > 0,
-			Reason: "сертифікат: без строку й погашення, ціна ринкова",
-			def:    target[c] - cur[c],
+			Reason:    strings.Join(parts, "; "),
+			def:       target[c] - cur[c],
+			kindDef:   kindDef["funds"],
+			overLimit: note != "",
 		})
 	}
 
@@ -337,8 +427,9 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			RealPct:     round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
 			Brokers:     fits, Affordable: best, CanBuy: best > 0,
-			Reason: "поповнення на суму відкриття",
-			def:    target[c] - cur[c],
+			Reason:  withKindDef("поповнення на суму відкриття", kindDef["deposits"], "вклади"),
+			def:     target[c] - cur[c],
+			kindDef: kindDef["deposits"],
 		})
 	}
 
@@ -375,8 +466,10 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			RealPct:     round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
 			Brokers:     fits, Affordable: best, CanBuy: best > 0,
-			Reason: "новий вклад, мінімум " + money.New(minMinor, c).Display(),
-			def:    target[c] - cur[c],
+			Reason: withKindDef("новий вклад, мінімум "+money.New(minMinor, c).Display(),
+				kindDef["deposits"], "вклади"),
+			def:     target[c] - cur[c],
+			kindDef: kindDef["deposits"],
 		})
 	}
 	// Критерій ранжування обирає користувач: «під план» балансує валюту,
@@ -390,10 +483,26 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		}
 		return s.Maturity
 	}
+	// planScore — на скільки в.п. капіталу ця покупка зрушує портфель до
+	// заявленої політики. Валютний і видовий дефіцити СКЛАДАЮТЬСЯ: одиниця
+	// в них однакова (в.п. капіталу від одного знаменника), тож покупка,
+	// що закриває обидва розриви, і має важити вдвічі. Доти видовий вимір
+	// на порядок не впливав узагалі — цілі стояли в налаштуваннях, а
+	// помічник про них не знав.
+	planScore := func(s suggestion) float64 {
+		return math.Max(0, s.def) + math.Max(0, s.kindDef)
+	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.CanBuy != b.CanBuy {
 			return a.CanBuy // те, що вже по кишені, — зверху
+		}
+		// Порушений ліміт опускає пораду, але не ховає її: заборона тут
+		// була б порадою навпаки, а ліміт міг бути перевищений із причин,
+		// яких застосунок не знає. Діє в УСІХ режимах ранжування — це не
+		// критерій вигоди, а те, чого користувач сам від себе хотів.
+		if a.overLimit != b.overLimit {
+			return b.overLimit
 		}
 		switch rank {
 		case "rate":
@@ -414,8 +523,8 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 				return a.RealPct > b.RealPct
 			}
 		default: // plan
-			if a.def != b.def {
-				return a.def > b.def
+			if sa, sb := planScore(a), planScore(b); math.Abs(sa-sb) > 0.01 {
+				return sa > sb
 			}
 			if math.Abs(a.RealPct-b.RealPct) > 0.01 {
 				return a.RealPct > b.RealPct

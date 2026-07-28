@@ -3443,3 +3443,115 @@ func TestConcentrationSeesFundsAndCountsSeparateBases(t *testing.T) {
 		t.Errorf("частки років у сумі = %.2f%%, а мають давати 100%% від усіх погашень", yearSum)
 	}
 }
+
+// Порушений ліміт концентрації ОПУСКАЄ пораду, але не ховає її: заборона
+// тут була б порадою навпаки, а ліміт міг бути перевищений із причин,
+// яких застосунок не знає. Заразом: цілі за видом інструмента тепер
+// впливають на порядок — доти вони стояли в налаштуваннях, а помічник
+// про них не знав нічого.
+func TestReinvestRespectsLimitsWithoutHiding(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st)
+	// Другий папір у довіднику — інакше порівнювати порядок нема з чим:
+	// список із однієї поради «правильно» відсортований завжди.
+	if err := st.ReplaceDirectory(ctx, []nbu.Security{{
+		Bond: domain.Bond{ISIN: "UA4000227748", Nominal: money.New(100000, money.UAH),
+			RateBP: 1655, Maturity: "2027-03-17", Descr: "гривневі військові"},
+		Payments: []domain.Payment{
+			{ISIN: "UA4000227748", PayDate: "2027-03-17", Type: domain.PayCoupon, PerBond: money.New(8275, money.UAH)},
+			{ISIN: "UA4000227748", PayDate: "2027-03-17", Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+		},
+	}, {
+		Bond: domain.Bond{ISIN: "UA4000999999", Nominal: money.New(100000, money.UAH),
+			RateBP: 1600, Maturity: "2028-03-17", Descr: "інші гривневі"},
+		Payments: []domain.Payment{
+			{ISIN: "UA4000999999", PayDate: "2028-03-17", Type: domain.PayCoupon, PerBond: money.New(8000, money.UAH)},
+			{ISIN: "UA4000999999", PayDate: "2028-03-17", Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+		},
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 50000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Увесь портфель в одному папері — ліміт у 10% свідомо порушений.
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":100,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"limit_isin_pct":"10"}`); resp.StatusCode >= 300 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+
+	var sugg []struct {
+		ISIN   string `json:"isin"`
+		CanBuy bool   `json:"can_buy"`
+		Reason string `json:"reason"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
+	if err := json.Unmarshal([]byte(body), &sugg); err != nil {
+		t.Fatalf("reinvest: %v: %s", err, body)
+	}
+	pos, other := -1, -1
+	for i, s := range sugg {
+		if s.ISIN == "UA4000227748" {
+			pos = i
+		} else if other < 0 && s.CanBuy {
+			other = i
+		}
+	}
+	if pos < 0 {
+		t.Fatalf("порада зникла разом із порушенням ліміту — вона мала лишитись: %s", body)
+	}
+	if !strings.Contains(sugg[pos].Reason, "понад ліміт") {
+		t.Errorf("причина не називає порушення: %q", sugg[pos].Reason)
+	}
+	if other < 0 {
+		t.Fatal("у списку немає другої доступної поради — порядок нема з чим порівнювати")
+	}
+	if pos < other {
+		t.Errorf("папір понад лімітом (#%d) стоїть вище за той, що в межах (#%d)", pos, other)
+	}
+}
+
+// Ціль за видом інструмента впливає на порядок «Що купити»: покупка, яка
+// закриває і валютний, і видовий розрив, важить більше за ту, що закриває
+// лише один. Одиниця в обох — відсоткові пункти капіталу від ОДНОГО
+// знаменника, тому їх і можна складати.
+func TestReinvestUsesKindDeficit(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st)
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 20000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"target_bonds_pct":"60"}`); resp.StatusCode >= 300 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+	var sugg []struct {
+		Kind   string `json:"kind"`
+		Reason string `json:"reason"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
+	if err := json.Unmarshal([]byte(body), &sugg); err != nil {
+		t.Fatalf("reinvest: %v: %s", err, body)
+	}
+	found := false
+	for _, s := range sugg {
+		if s.Kind == "bond" && strings.Contains(s.Reason, "добирає ОВДП") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("порада не пояснює видовий дефіцит — ціль 60%% в ОВДП при нулі в портфелі: %s",
+			body[:min(len(body), 600)])
+	}
+}

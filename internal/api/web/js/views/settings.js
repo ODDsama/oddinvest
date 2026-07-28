@@ -229,6 +229,24 @@ export async function renderSettings(ctx, main) {
     </div>
 
     <div class="card">
+      <h2>Порядок у «Що купити»</h2>
+      <div class="muted" style="margin-bottom:10px">За чим ранжувати поради. <b>Під план</b> ставить
+        першим те, що найбільше зрушує портфель до заявленої політики — валютної цілі й цілі за видом
+        інструмента разом; вигода тоді лише розсуджує рівних, тож зверху може опинитись інструмент із
+        меншою дохідністю. Решта режимів прості: <b>за дохідністю</b> — сама реальна дохідність,
+        <b>короткі</b> — найближче погашення, <b>драбина</b> — рік із найменшими поверненнями.
+        Незалежно від режиму: доступне зараз завжди вище за недоступне, а те, що вже перевищує ліміт
+        концентрації, — нижче.</div>
+      <form id="rankForm">
+        <label>Критерій<select name="reinvest_rank">${
+          [["plan", "під план"], ["rate", "за дохідністю"], ["short", "короткі"], ["ladder", "драбина"]]
+            .map(([v, t]) => `<option value="${v}"${(s.reinvest_rank || "plan") === v ? " selected" : ""}>${t}</option>`)
+            .join("")}</select></label>
+        <button type="submit">Зберегти</button>
+      </form>
+    </div>
+
+    <div class="card">
       <h2>Структура за видом інструмента</h2>
       <div class="muted" style="margin-bottom:10px">Валютна ціль вище каже, В ЧОМУ тримати гроші;
         ця — ЧИМ ризикувати. Сума <b>не мусить</b> давати 100: нерозподілене буде показане, а не
@@ -308,6 +326,7 @@ export async function renderSettings(ctx, main) {
     "deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
     "deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct",
   ]));
+  onSubmit(ctx, main.querySelector("#rankForm"), settingsPut(["reinvest_rank"]));
   onSubmit(ctx, main.querySelector("#kindTargetsForm"), settingsPut([
     "target_bonds_pct", "target_funds_pct", "target_deposits_pct",
   ]));
