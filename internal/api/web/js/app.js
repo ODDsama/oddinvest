@@ -80,7 +80,6 @@ export class OddInvestApp extends HTMLElement {
   // ---------- контекст, який отримують розділи ----------
 
   get _ctx() {
-    const app = this;
     return {
       store: this._store,
       api: (method, path, body) => this._api(method, path, body),

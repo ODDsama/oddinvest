@@ -14,7 +14,6 @@ import {
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
-import { tile } from "../components.js";
 import { onSubmit, onDelete } from "../forms.js";
 import { fundStatementHTML, wireFundOps, setFundOps } from "../fund-ops.js";
 import { disclosure, wireDisclosures } from "../disclosure.js";

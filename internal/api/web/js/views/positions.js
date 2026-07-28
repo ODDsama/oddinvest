@@ -4,9 +4,10 @@
 // лоти в облігації, операції у фонді, поповнення у вкладі.
 
 import {
-  esc, curSym, today, dayMonth, pct,
-  uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
+  esc, curSym, today, dayMonth, pct, daysUntil,
+  uah2 as fmtUAH, money as fmtMoney,
 } from "../format.js";
+import { PAYOUT_LABEL } from "../constants.js";
 import { infoBtn } from "../info.js";
 import { yieldPair } from "../components.js";
 import { fundTable } from "../fund-ops.js";

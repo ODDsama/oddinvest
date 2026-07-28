@@ -13,16 +13,6 @@ let snapsCache = [];
 // ---------- склад і структура ----------
 
 
-// seriesFrom — серія, яка починається з першого дня, де є дані. Порожній
-// масив, якщо даних немає взагалі: показувати лінію в нулі означало б
-// стверджувати, що інструмента немає, хоча насправді його просто не
-// записували.
-function seriesFrom(snaps, name, color, pick) {
-  const vals = snaps.map((s) => pick(s) || 0);
-  const from = vals.findIndex((v) => v > 0);
-  if (from < 0) return [];
-  return [{ name, color, values: vals.map((v, i) => (i < from ? null : v)) }];
-}
 
 export function snapNonZero(s) {
   return (s.invested_uah || 0) > 0 || (s.nominal_uah_eq || 0) > 0 || (s.account_uah || 0) > 0;

@@ -5,12 +5,6 @@ import { onSubmit, onDelete } from "../forms.js";
 import { disclosure } from "../disclosure.js";
 
 
-const PAYOUT_LABEL = { end: "у кінці строку", monthly: "щомісяця", quarterly: "щокварталу" };
-
-function daysUntil(iso) {
-  return Math.round((new Date(iso + "T00:00:00").getTime() - Date.now()) / 86400000);
-}
-
 export function depositFormHTML(ctx) {
   return `
     <form id="termDepForm">

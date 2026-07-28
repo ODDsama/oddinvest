@@ -39,7 +39,6 @@ export function capitalChartHTML(ctx) {
 // ---------- ПРОЄКЦІЇ (блок вкладки «Майбутнє») ----------
 export function projectionHTML(ctx) {
   const s = ctx.summary || {};
-  const st = s.settings || {};
   const P0 = (s.nominal_uah_eq || 0) + (s.account_uah || 0);
   const C = s.month_target_uah || 0;
   const rowsData = s.projection || [];

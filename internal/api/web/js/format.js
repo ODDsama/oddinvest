@@ -113,3 +113,7 @@ export const capitalUAH = (s) =>
  *  входу лотів, тож у плитці вони стоять разом. */
 export const fundsCost = (s) =>
   ((s || {}).funds || []).reduce((a, f) => a + (f.cost_basis || 0), 0);
+
+/** Скільки днів лишилось до дати (відʼємне — скільки минуло). */
+export const daysUntil = (iso) =>
+  Math.round((new Date(iso + "T00:00:00").getTime() - Date.now()) / 86400000);
