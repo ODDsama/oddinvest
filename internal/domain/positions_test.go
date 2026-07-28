@@ -76,3 +76,48 @@ func TestPositionsToleratesUnknownISIN(t *testing.T) {
 		t.Errorf("наступна виплата мала бути нульовою, маємо %v", p.NextPayAmt)
 	}
 }
+
+// Погашений папір випадає з позицій: номінал уже повернувся на рахунок
+// звичайною виплатою, і лишати його ще й тут означає порахувати ті самі
+// гроші двічі.
+func TestPositionsDropMaturedBonds(t *testing.T) {
+	bonds := map[string]Bond{
+		"UA1": {ISIN: "UA1", Nominal: uah(100000), Maturity: "2026-01-15"}, // погашений
+		"UA2": {ISIN: "UA2", Nominal: uah(100000), Maturity: "2027-03-01"}, // живий
+	}
+	lots := []Lot{
+		{ID: 1, ISIN: "UA1", Qty: 3, PricePerBond: uah(100000), BuyDate: "2025-06-01"},
+		{ID: 2, ISIN: "UA2", Qty: 2, PricePerBond: uah(100000), BuyDate: "2025-06-01"},
+	}
+	pos, err := Positions(bonds, nil, lots, nil, "2026-07-22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pos) != 1 || pos[0].ISIN != "UA2" {
+		t.Fatalf("мала лишитись лише жива позиція UA2, маємо %+v", pos)
+	}
+}
+
+// Папір БЕЗ дати погашення лишається позицією.
+//
+// Date.Before — це порівняння рядків, тож порожня дата «раніша» за будь-яку:
+// фільтр погашених, написаний без цієї перевірки, тихо викинув би такий
+// папір разом зі справді погашеними.
+func TestPositionsKeepBondWithoutMaturity(t *testing.T) {
+	bonds := map[string]Bond{
+		"UA1": {ISIN: "UA1", Nominal: uah(100000)}, // Maturity порожня
+	}
+	lots := []Lot{
+		{ID: 1, ISIN: "UA1", Qty: 2, PricePerBond: uah(100000), BuyDate: "2026-07-20"},
+	}
+	pos, err := Positions(bonds, nil, lots, nil, "2026-07-22")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pos) != 1 {
+		t.Fatalf("папір без дати погашення мав лишитись видимим, маємо %d", len(pos))
+	}
+	if pos[0].Nominal.Amount() != 200000 {
+		t.Errorf("номінал = %d, чекали 200000", pos[0].Nominal.Amount())
+	}
+}

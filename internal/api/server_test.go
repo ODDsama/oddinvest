@@ -3664,3 +3664,52 @@ func TestProjectionStartsFromWholeCapital(t *testing.T) {
 		t.Errorf("ставка проєкції поза межами: %.2f", doc.ProjectionRatePct)
 	}
 }
+
+// Погашений папір не має лічитись двічі.
+//
+// Погашення повертає номінал на рахунок, але сам лот нікуди не дівається:
+// продажу не було, тож RemainingQtyNow і далі дає повну кількість. Доки
+// domain.Positions не фільтрувала за датою погашення, ті самі гроші стояли
+// і в nominal_uah_eq, і в account_uah — тобто в капіталі двічі.
+//
+// Драбина (domain.Ladder) і YTM-мапа таких паперів уже не бачать; ця
+// перевірка ставить позиції в один ряд з ними.
+func TestMaturedBondNotCountedTwice(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	// І купон, і погашення вже минули: гроші повернулись повністю.
+	seedPastBond(t, st, "UA4000227748",
+		domain.NewDate(time.Now()).AddDays(-120), domain.NewDate(time.Now()).AddDays(-30))
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()).AddDays(-200), Amount: 1000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","buy_date":"`+
+			string(domain.NewDate(time.Now()).AddDays(-180))+`","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+
+	var d struct {
+		NominalUAH float64 `json:"nominal_uah_eq"`
+		AccountUAH float64 `json:"account_uah"`
+		CapitalUAH float64 `json:"capital_uah"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &d); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	// Гроші вже на рахунку: 10 000 внесено − 5 000 куплено + 5 000 погашено
+	// + 413.75 купона.
+	if math.Abs(d.AccountUAH-10413.75) > 0.02 {
+		t.Fatalf("рахунок = %.2f, чекали 10413.75 (погашення й купон повернулись)", d.AccountUAH)
+	}
+	if d.NominalUAH != 0 {
+		t.Errorf("погашений папір лишився в номіналі: %.2f", d.NominalUAH)
+	}
+	if math.Abs(d.CapitalUAH-d.AccountUAH) > 0.02 {
+		t.Errorf("капітал %.2f ≠ рахунок %.2f — номінал погашеного паперу порахований удруге",
+			d.CapitalUAH, d.AccountUAH)
+	}
+}
