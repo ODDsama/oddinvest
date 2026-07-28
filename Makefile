@@ -63,6 +63,7 @@ check:
 	golangci-lint run ./...
 	sh scripts/gen-ui-manifest.sh --check
 	@$(MAKE) --no-print-directory fx-boundary
+	@$(MAKE) --no-print-directory sources-boundary
 
 # fx — ЄДИНА точка конвертації, і масштаб курсу ×10⁴ не має витікати за
 # її межі. Витікав: курс ділили на RateScale вручну в шести місцях, а в
@@ -73,3 +74,13 @@ check:
 fx-boundary:
 	@! grep -rn 'fx\.RateScale' --include='*.go' . \
 		|| { echo 'RateScale поза internal/fx: візьми fx.FromUAH або fx.RateMajor'; exit 1; }
+
+# buildState читає сховище ЛИШЕ через sources (state_sources.go). Доти
+# читання були розсипані по всій функції, і ListDeposits через це
+# викликався двічі за п'ятсот рядків один від одного — обидва місця були
+# певні, що вони єдині. Правило дешеве, поки воно механічне: щойно воно
+# стає домовленістю, наступний запит просто дописують поруч.
+.PHONY: sources-boundary
+sources-boundary:
+	@! grep -n 's\.st\.' internal/api/state_builder.go \
+		|| { echo 'buildState читає сховище повз sources: додай поле в state_sources.go'; exit 1; }

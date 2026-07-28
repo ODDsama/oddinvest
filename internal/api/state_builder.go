@@ -66,30 +66,17 @@ func (s *Server) BuildStateDoc(ctx context.Context, now time.Time) (*state.Doc, 
 }
 
 func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, error) {
-	lots, sales, bonds, pays, err := s.portfolio(ctx)
-	if err != nil {
-		return nil, err
-	}
-	rates, err := s.rates(ctx)
-	if err != nil {
-		return nil, err
-	}
 	today := domain.NewDate(now)
-	// Знецінення — РАЗ на весь документ. Далі його бачать дохідності
-	// позицій, зведені дохідності, прогноз і сценарії; якби кожен читав
-	// сам, вони могли б розійтися між собою в межах однієї відповіді.
-	deval := s.devaluation(ctx)
-
-	// Операції фондів тягнемо РАЗ, як і облігації вище: далі вони
-	// потрібні п'ятьом різним агрегатам (внески місяця, баланс рахунку,
-	// вкладено-по-брокерах, картка фондів, XIRR), і доти, доки кожен
-	// тягнув їх сам, це були п'ять однакових запитів у БД, що теоретично
-	// могли розійтися між собою. Помилку ковтаємо — фонди могли ще не
-	// існувати в старій БД, і це не привід валити весь стан; порожній зріз
-	// просто нічого не додасть у жоден агрегат.
-	fundOps, _ := s.st.ListFundOps(ctx) //nolint:errcheck // свідомо: див. коментар вище — старій БД фондів могло не бути
-	// Вклади — так само раз, третім інструментом поряд із лотами й фондами.
-	termDeposits, _ := s.st.ListTermDeposits(ctx) //nolint:errcheck // свідомо, як і фонди вище: вклади з'явились пізніше за схему
+	// Усі читання сховища — одним місцем (state_sources.go). Доти вони
+	// були розсипані по всій функції, і ListDeposits через це викликався
+	// двічі за пʼятсот рядків один від одного.
+	src, err := s.loadSources(ctx, today)
+	if err != nil {
+		return nil, err
+	}
+	lots, sales, bonds, pays := src.lots, src.sales, src.bonds, src.pays
+	rates, deval := src.rates, src.deval
+	fundOps, termDeposits := src.fundOps, src.termDeposits
 
 	positions, err := domain.Positions(bonds, pays, lots, sales, today)
 	if err != nil {
@@ -118,12 +105,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// переоцінюється ставками ОВДП, а в ризику перевкладення дивіденд не
 	// є поверненням тіла.
 	fundPositions := domain.FundPositions(fundOps)
-	fundRefs := map[string]store.Fund{}
-	if refs, ferr := s.st.ListFunds(ctx); ferr == nil {
-		for _, f := range refs {
-			fundRefs[f.Name] = f
-		}
-	}
+	fundRefs := src.fundRefs
 	for name, fp := range fundPositions {
 		ref := fundRefs[name]
 		fp.PayoutDay = ref.PayoutDay
@@ -184,10 +166,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// (now_uah == account_uah), друге зробило б резерв купівельною
 	// спроможністю, і помічник запропонував би купити папір за аварійні
 	// гроші.
-	reserveOps, err := s.st.ListReserveOps(ctx)
-	if err != nil {
-		return nil, err
-	}
+	reserveOps := src.reserveOps
 	reserveUAH := 0.0
 	reserveByCur := map[string]float64{}
 	reserveUAHByCur := map[string]float64{}
@@ -272,27 +251,25 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// куплений на накопичені купони, — до цілі це не додає нічого.
 	monthDep := money.New(0, money.UAH)
 	monthOut := money.New(0, money.UAH) // зняття цього місяця, додатнім числом
-	if deps, derr := s.st.ListDeposits(ctx); derr == nil {
-		for _, d := range deps {
-			if d.Date.Year() != now.Year() || int(d.Date.Month()) != int(now.Month()) {
-				continue
-			}
-			if d.Amount < 0 {
-				if u, cerr := fx.ToUAH(money.New(-d.Amount, d.Currency), rates); cerr == nil {
-					if sum, aerr := monthOut.Add(u); aerr == nil {
-						monthOut = sum
-					}
+	for _, d := range src.deposits {
+		if d.Date.Year() != now.Year() || int(d.Date.Month()) != int(now.Month()) {
+			continue
+		}
+		if d.Amount < 0 {
+			if u, cerr := fx.ToUAH(money.New(-d.Amount, d.Currency), rates); cerr == nil {
+				if sum, aerr := monthOut.Add(u); aerr == nil {
+					monthOut = sum
 				}
 			}
-			// Нетто, а не сума поповнень: зняття зменшує капітал так само,
-			// як поповнення його збільшує. Без цього переказ між брокерами
-			// (він записується як зняття + поповнення, бо окремої сутності
-			// переказу немає) роздував би «внесено» на свою суму, не
-			// додавши жодної нової копійки.
-			if u, cerr := fx.ToUAH(money.New(d.Amount, d.Currency), rates); cerr == nil {
-				if sum, aerr := monthDep.Add(u); aerr == nil {
-					monthDep = sum
-				}
+		}
+		// Нетто, а не сума поповнень: зняття зменшує капітал так само,
+		// як поповнення його збільшує. Без цього переказ між брокерами
+		// (він записується як зняття + поповнення, бо окремої сутності
+		// переказу немає) роздував би «внесено» на свою суму, не
+		// додавши жодної нової копійки.
+		if u, cerr := fx.ToUAH(money.New(d.Amount, d.Currency), rates); cerr == nil {
+			if sum, aerr := monthDep.Add(u); aerr == nil {
+				monthDep = sum
 			}
 		}
 	}
@@ -324,10 +301,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// й тіло вкладів нижче, у їхньому циклі. Правило одне: запланована
 	// виплата, що вже надійшла і не позначена «перевкладено», — це гроші,
 	// які лежать без діла.
-	statuses, err := s.st.PaymentStatuses(ctx)
-	if err != nil {
-		return nil, err
-	}
+	statuses := src.statuses
 
 	// Чому дата сама по собі не відповідь і навіщо тут кнопка «Отримано» —
 	// у domain.Arrived. Предикат один на застосунок навмисно: доти його
@@ -381,19 +355,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-	depByBC, err := s.st.DepositsByBrokerCurrency(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for k, amt := range depByBC {
+	for k, amt := range src.depByBC {
 		bal[k.Currency] += amt
 		balBC[k] += amt
 	}
-	convBC, err := s.st.ConversionsNetByBroker(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for k, net := range convBC {
+	for k, net := range src.convBC {
 		bal[k.Currency] += net
 		balBC[k] += net
 	}
@@ -867,16 +833,13 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	unin := money.New(idle, money.UAH)
 
 	// найдешевший папір по валютах (нативно) + мінімум у грн-екв.
-	minNoms, err := s.st.MinNominalByCurrency(ctx)
-	if err != nil {
-		return nil, err
-	}
+	minNoms := src.minNominal
 	// Мінімум по валютах у мінорних: спершу найдешевший папір (ОВДП), потім
 	// зливаємо мінімум вкладу. Вклад — теж інструмент реінвесту, тож там, де
 	// його поріг нижчий (або де паперу у валюті немає), «до реінвесту
 	// готовий» настає раніше. Саме це дає простою USD/EUR куди йти без
 	// відповідних облігацій.
-	depMinByCur := s.depositMinMinorByCur(ctx)
+	depMinByCur := src.depositMin
 	minByCur := map[string]int64{}
 	for cur, minNom := range minNoms {
 		minByCur[cur] = minNom
@@ -952,7 +915,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Налаштування — одним проходом по реєстру (settings_registry.go).
 	// Доти двадцять ключів читались циклом, ще шість — окремими блоками
 	// поруч, і два мали третє читання в інших файлах.
-	settings := s.loadSettings(ctx)
+	settings := src.settings
 	// MonthlyTargetUAH проставляється НИЖЧЕ, коли target уже порахований.
 	// Тут стояла перевірка `if !target.IsZero()` — і вона ніколи не
 	// спрацьовувала: target отримує значення лише в блоці місячного плану,
@@ -964,9 +927,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// довідника. У зведенні лишається як рядок навмисно: це похідне поле
 	// для випадайок, а не місце зберігання, і сутності HA, які на нього
 	// підписані, не мусять знати про зміну схеми.
-	if bs, err := s.st.ListBrokers(ctx); err == nil && len(bs) > 0 {
-		names := make([]string, 0, len(bs))
-		for _, b := range bs {
+	if len(src.brokers) > 0 {
+		names := make([]string, 0, len(src.brokers))
+		for _, b := range src.brokers {
 			names = append(names, b.Name)
 		}
 		settings.Channels = strings.Join(names, ", ")
@@ -1105,10 +1068,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// оцінку, і досить коротко, щоб показник відповідав на «як я вкладаю
 	// ЗАРАЗ», а саме це питання йому й ставлять.
 	const actualWindowDays = 183
-	if deps, derr := s.st.ListDeposits(ctx); derr == nil && len(deps) > 0 {
+	if len(src.deposits) > 0 {
 		first := today
 		var totalUAH int64
-		for _, d := range deps {
+		for _, d := range src.deposits {
 			if n := domain.DaysBetween(d.Date, today); n < 0 || n > actualWindowDays {
 				continue
 			}
@@ -1212,10 +1175,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	}
 
 	// Запасна дохідність для валюти, якої ще немає в портфелі.
-	avgRate, err := s.st.AvgRateByCurrency(ctx, today)
-	if err != nil {
-		return nil, err
-	}
+	avgRate := src.avgRate
 
 	// Річне знецінення гривні. Одне число в налаштуваннях, від якого
 	// сценарії розходяться — як і ставка.
@@ -1481,7 +1441,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		forecast = f
 	}
 
-	nbuAt, _ := s.st.GetSetting(ctx, nbuRefreshedKey) //nolint:errcheck // порожньо = довідник ще не оновлювався; це не привід валити стан
+	nbuAt := src.nbuAt
 
 	// --- накопичений купонний дохід (НКД) на сьогодні ---
 	// Гроші, які вже зароблені, але ще не виплачені. Показуємо ОКРЕМО, а не
