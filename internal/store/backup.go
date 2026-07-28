@@ -32,9 +32,24 @@ type Backup struct {
 	TermDeposits []BackupTermDeposit `json:"term_deposits,omitempty"`
 	// DepositTopups omitempty з тієї ж причини: старіші бекапи їх не мають.
 	DepositTopups []BackupDepositTopup `json:"deposit_topups,omitempty"`
-	Settings      map[string]string    `json:"settings"`
-	PaymentStatus []BackupPayStatus    `json:"payment_status"`
-	Snapshots     []BackupSnapshot     `json:"snapshots"`
+	// ReserveOps omitempty з тієї ж причини: бекапи до появи резерву його
+	// не мають, і restore просто не створить жодного руху.
+	ReserveOps    []BackupReserveOp `json:"reserve_ops,omitempty"`
+	Settings      map[string]string `json:"settings"`
+	PaymentStatus []BackupPayStatus `json:"payment_status"`
+	Snapshots     []BackupSnapshot  `json:"snapshots"`
+}
+
+// BackupReserveOp — рух резерву. Резерв невідновний так само, як лоти:
+// це журнал, який більше ніде не записаний, і без нього restore залишив
+// би капітал заниженим рівно на суму матраца.
+type BackupReserveOp struct {
+	ID       int64  `json:"id"`
+	Date     string `json:"date"`
+	Amount   int64  `json:"amount"`
+	Currency string `json:"currency"`
+	Place    string `json:"place"`
+	Note     string `json:"note"`
 }
 
 // BackupDepositTopup — поповнення вкладу. Без нього відновлення втратило б
@@ -158,6 +173,7 @@ type BackupSnapshot struct {
 	FundsUAH       int64  `json:"funds_uah,omitempty"`
 	DepositsUAH    int64  `json:"deposits_uah,omitempty"`
 	FundsCostUAH   int64  `json:"funds_cost_uah,omitempty"`
+	ReserveUAH     int64  `json:"reserve_uah,omitempty"`
 }
 
 // ExportAll читає всі користувацькі таблиці в один знімок.
@@ -259,6 +275,17 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT id,date,amount,currency,place,note FROM reserve_ops ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupReserveOp
+			if err := scan(&r.ID, &r.Date, &r.Amount, &r.Currency, &r.Place, &r.Note); err != nil {
+				return err
+			}
+			b.ReserveOps = append(b.ReserveOps, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT key,value FROM settings`,
 		func(scan func(...any) error) error {
 			var k, v string
@@ -282,11 +309,12 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		return nil, err
 	}
 	if err := s.scan(ctx, `SELECT date,invested_uah,nominal_uah_eq,usd_share_bp,uninvested_uah,
-		month_target_uah,account_uah,funds_uah,deposits_uah,funds_cost_uah FROM snapshots ORDER BY date`,
+		month_target_uah,account_uah,funds_uah,deposits_uah,funds_cost_uah,reserve_uah FROM snapshots ORDER BY date`,
 		func(scan func(...any) error) error {
 			var r BackupSnapshot
 			if err := scan(&r.Date, &r.InvestedUAH, &r.NominalUAHEq, &r.USDShareBP, &r.UninvestedUAH,
-				&r.MonthTargetUAH, &r.AccountUAH, &r.FundsUAH, &r.DepositsUAH, &r.FundsCostUAH); err != nil {
+				&r.MonthTargetUAH, &r.AccountUAH, &r.FundsUAH, &r.DepositsUAH, &r.FundsCostUAH,
+				&r.ReserveUAH); err != nil {
 				return err
 			}
 			b.Snapshots = append(b.Snapshots, r)
@@ -321,8 +349,13 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// DELETE FROM brokers упирався у FK, і restore падав у будь-кого, хто
 	// має бодай один вклад. Поповнення — перед самим вкладом, вони його
 	// діти.
+	//
+	// reserve_ops — той самий випадок, що й вклади: бекап тримає id, тож
+	// забути її в цьому переліку означає не «дублікати», а відмову
+	// відновлення на UNIQUE(id) у будь-кого, хто має бодай один рух
+	// резерву. Перевірено тестом.
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
-		"deposit_topups", "term_deposits",
+		"deposit_topups", "term_deposits", "reserve_ops",
 		"settings", "payment_status", "snapshots", "funds", "brokers"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
@@ -463,6 +496,13 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			return fmt.Errorf("поповнення вкладу %d: %w", t.ID, err)
 		}
 	}
+	for _, r := range b.ReserveOps {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO reserve_ops (id,date,amount,currency,place,note) VALUES (?,?,?,?,?,?)`,
+			r.ID, r.Date, r.Amount, r.Currency, r.Place, r.Note); err != nil {
+			return fmt.Errorf("рух резерву %d: %w", r.ID, err)
+		}
+	}
 	for k, v := range b.Settings {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO settings (key,value) VALUES (?,?)`, k, v); err != nil {
 			return fmt.Errorf("налаштування %q: %w", k, err)
@@ -478,10 +518,11 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	for _, sn := range b.Snapshots {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO snapshots (date,invested_uah,nominal_uah_eq,usd_share_bp,uninvested_uah,
-				month_target_uah,account_uah,funds_uah,deposits_uah,funds_cost_uah)
-				VALUES (?,?,?,?,?,?,?,?,?,?)`,
+				month_target_uah,account_uah,funds_uah,deposits_uah,funds_cost_uah,reserve_uah)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 			sn.Date, sn.InvestedUAH, sn.NominalUAHEq, sn.USDShareBP, sn.UninvestedUAH,
-			sn.MonthTargetUAH, sn.AccountUAH, sn.FundsUAH, sn.DepositsUAH, sn.FundsCostUAH); err != nil {
+			sn.MonthTargetUAH, sn.AccountUAH, sn.FundsUAH, sn.DepositsUAH, sn.FundsCostUAH,
+			sn.ReserveUAH); err != nil {
 			return fmt.Errorf("знімок %s: %w", sn.Date, err)
 		}
 	}

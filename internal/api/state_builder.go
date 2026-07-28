@@ -166,6 +166,55 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		depositsUAHByCur[dep.Currency] += v
 	}
 
+	// Резерв («матрац») — журнал рухів, поточний залишок це Σ сум. Читаємо
+	// весь журнал, а не агрегат: потрібні ще й місця зберігання та дата
+	// останнього руху, а рухів тут одиниці.
+	//
+	// НЕ додається ні до accounts, ні до brokers: перше зіпсувало б звірку
+	// (now_uah == account_uah), друге зробило б резерв купівельною
+	// спроможністю, і помічник запропонував би купити папір за аварійні
+	// гроші.
+	reserveOps, err := s.st.ListReserveOps(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reserveUAH := 0.0
+	reserveByCur := map[string]float64{}
+	reserveUAHByCur := map[string]float64{}
+	reservePlaces := map[string]float64{}
+	reserveLastMove := ""
+	for _, op := range reserveOps {
+		u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates)
+		if cerr != nil {
+			continue
+		}
+		v := float64(u.Amount()) / 100
+		reserveUAH += v
+		reserveUAHByCur[op.Currency] += v
+		reserveByCur[op.Currency] += float64(op.Amount) / 100
+		place := op.Place
+		if place == "" {
+			place = "без місця"
+		}
+		reservePlaces[place] += v
+		if string(op.Date) > reserveLastMove {
+			reserveLastMove = string(op.Date)
+		}
+	}
+	// Місця й валюти, що вийшли в нуль (усе забрали), прибираємо: рядок
+	// «сейф — 0 ₴» описує не стан, а історію, і в картці лише заважає.
+	for k, v := range reservePlaces {
+		if math.Abs(v) < 0.005 {
+			delete(reservePlaces, k)
+		}
+	}
+	for k, v := range reserveByCur {
+		if math.Abs(v) < 0.005 {
+			delete(reserveByCur, k)
+			delete(reserveUAHByCur, k)
+		}
+	}
+
 	// внески місяця: покупки поточного місяця в грн-еквіваленті
 	monthInv := money.New(0, money.UAH)
 	for _, l := range lots {
@@ -234,6 +283,28 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				if sum, aerr := monthDep.Add(u); aerr == nil {
 					monthDep = sum
 				}
+			}
+		}
+	}
+	// Резерв рахується в тому самому нетто, і саме тому, що переміщення
+	// гаманець → матрац записується ДВОМА ногами (мінус у deposits, плюс
+	// тут): порізно перша нога виглядала б як втрата капіталу, а разом
+	// вони дають нуль, як і має бути. Відкладені зовні гроші, які на
+	// рахунок брокера не заходили, це й далі чесний внесок.
+	for _, op := range reserveOps {
+		if op.Date.Year() != now.Year() || int(op.Date.Month()) != int(now.Month()) {
+			continue
+		}
+		if op.Amount < 0 {
+			if u, cerr := fx.ToUAH(money.New(-op.Amount, op.Currency), rates); cerr == nil {
+				if sum, aerr := monthOut.Add(u); aerr == nil {
+					monthOut = sum
+				}
+			}
+		}
+		if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
+			if sum, aerr := monthDep.Add(u); aerr == nil {
+				monthDep = sum
 			}
 		}
 	}
@@ -792,6 +863,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		{"deposit_rate_usd_pct", &settings.DepositRateUSDPct},
 		{"deposit_rate_eur_pct", &settings.DepositRateEURPct},
 		{"deposit_rate_uah_pct", &settings.DepositRateUAHPct},
+		{"monthly_expenses_uah", &settings.MonthlyExpensesUAH},
+		{"reserve_target_months", &settings.ReserveTargetMonths},
 	} {
 		if raw, _ := s.st.GetSetting(ctx, g.key); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
 			if f, err := strconv.ParseFloat(raw, 64); err == nil {
@@ -1458,6 +1531,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		NowUAH:     round2(float64(accountUAHMinor) / 100),
 		In30UAH:    round2(float64(in30) / 100),
 		In90UAH:    round2(float64(in90) / 100),
+		ReserveUAH: round2(reserveUAH),
 		LockedUAH:  round2(float64(lockedUAH) / 100),
 		UnlockDate: string(unlockDate),
 	}
@@ -1472,6 +1546,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
 		FundsUAH: round2(fundsUAH), Funds: fundRows,
 		DepositsUAH: round2(depositsUAH), DepositsUAHByCur: depositsUAHByCur,
+		ReserveUAH: round2(reserveUAH), ReserveByCur: reserveByCur,
+		ReserveUAHByCur: reserveUAHByCur, ReservePlaces: reservePlaces,
+		ReserveLastMove:  reserveLastMove,
 		IncomeMonthlyNow: incomeMonthlyNow,
 		ReinvestMinByCur: reinvestMinByCur, TopN: 5,
 		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,

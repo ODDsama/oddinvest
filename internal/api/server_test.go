@@ -2486,12 +2486,19 @@ func TestSnapshotCarriesEveryInstrument(t *testing.T) {
 	if doc.DepositsUAH <= 0 || doc.FundsUAH <= 0 {
 		t.Fatalf("зведення мало бачити і фонди, і вклади: %+v", doc)
 	}
+	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
+		Date: domain.NewDate(time.Now()).AddDays(-5), Amount: 500000, Currency: "UAH",
+		Place: "готівка",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.SaveSnapshot(ctx, store.Snapshot{
 		Date:         domain.NewDate(time.Now()),
 		NominalUAHEq: int64(doc.NominalUAHEq * 100),
 		FundsUAH:     int64(doc.FundsUAH * 100),
 		DepositsUAH:  int64(doc.DepositsUAH * 100),
 		FundsCostUAH: 1000000, // 10 000 ₴ — за скільки сертифікати куплені
+		ReserveUAH:   500000,  // 5 000 ₴ у матраці
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -2500,6 +2507,7 @@ func TestSnapshotCarriesEveryInstrument(t *testing.T) {
 		FundsUAH     float64 `json:"funds_uah"`
 		DepositsUAH  float64 `json:"deposits_uah"`
 		FundsCostUAH float64 `json:"funds_cost_uah"`
+		ReserveUAH   float64 `json:"reserve_uah"`
 	}
 	_, body = do(t, "GET", srv.URL+"/api/snapshots", "")
 	if err := json.Unmarshal([]byte(body), &snaps); err != nil {
@@ -2529,6 +2537,19 @@ func TestSnapshotCarriesEveryInstrument(t *testing.T) {
 	// такі «дописані пізніше» колонки бекап уже двічі губив мовчки.
 	if len(snaps) == 1 && snaps[0].FundsCostUAH != 10000 {
 		t.Errorf("бекап загубив собівартість фондів: %.2f", snaps[0].FundsCostUAH)
+	}
+	if len(snaps) == 1 && snaps[0].ReserveUAH != 5000 {
+		t.Errorf("бекап загубив резерв у знімку: %.2f", snaps[0].ReserveUAH)
+	}
+	// Сам журнал резерву — теж: він ніде більше не записаний, тож втрата
+	// тут невідновна. Рівно один рух, а не два: reserve_ops немає серед
+	// чужих FK, тож пропуск її в DELETE FROM дав би подвоєння, а не помилку.
+	ops, err := st.ListReserveOps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ops) != 1 || ops[0].Amount != 500000 || ops[0].Place != "готівка" {
+		t.Errorf("бекап зіпсував журнал резерву: %+v", ops)
 	}
 }
 
@@ -2940,5 +2961,187 @@ func TestFundTotalReturnStaysQuietOnShortHistory(t *testing.T) {
 	}
 	if sum.Funds[0].TotalPct != 0 {
 		t.Errorf("на трьох днях історії дохідності бути не мало, маємо %.2f%%", sum.Funds[0].TotalPct)
+	}
+}
+
+// Резерв («матрац») — четверта сутність, і головна вимога до неї не
+// «показати число», а НЕ зіпсувати решту. Він частина капіталу й валютної
+// експозиції, але не купівельна спроможність: якби він потрапив у
+// brokers, помічник запропонував би купити папір за аварійні гроші.
+func TestReserveIsCapitalButNotBuyingPower(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+
+	var before struct {
+		AccountUAH  float64                       `json:"account_uah"`
+		USDSharePct float64                       `json:"usd_share_pct"`
+		Brokers     map[string]map[string]float64 `json:"brokers"`
+		ReserveUAH  float64                       `json:"reserve_uah"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &before); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if before.ReserveUAH != 0 {
+		t.Fatalf("порожній резерв мав бути нулем, маємо %.2f", before.ReserveUAH)
+	}
+
+	// $500 у матраці за курсом 44.1234 = 22 061.70 ₴.
+	if resp, b := do(t, "POST", srv.URL+"/api/reserve",
+		`{"date":"2026-07-20","amount":"500.00","currency":"USD","place":"готівка"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("резерв: %d %s", resp.StatusCode, b)
+	}
+
+	var after struct {
+		AccountUAH  float64                       `json:"account_uah"`
+		USDSharePct float64                       `json:"usd_share_pct"`
+		Brokers     map[string]map[string]float64 `json:"brokers"`
+		ReserveUAH  float64                       `json:"reserve_uah"`
+		Reserve     *struct {
+			UAH        float64            `json:"uah"`
+			SharePct   float64            `json:"share_pct"`
+			ByCurrency map[string]float64 `json:"by_currency"`
+			Places     map[string]float64 `json:"places"`
+			LastMove   string             `json:"last_move"`
+		} `json:"reserve"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &after); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if math.Abs(after.ReserveUAH-22061.70) > 0.02 {
+		t.Errorf("резерв у грн-екв = %.2f, чекали 22061.70", after.ReserveUAH)
+	}
+	// Рахунок не змінився: матрац на брокері не лежить. Це саме те, що
+	// тримає рівність now_uah == account_uah у звірці.
+	if after.AccountUAH != before.AccountUAH {
+		t.Errorf("резерв зачепив рахунок: було %.2f, стало %.2f", before.AccountUAH, after.AccountUAH)
+	}
+	if len(after.Brokers) != len(before.Brokers) {
+		t.Errorf("резерв заліз у brokers і став купівельною спроможністю: %+v", after.Brokers)
+	}
+	// А от валютна частка вирости мусить: $500 у матраці — справжня
+	// валютна експозиція, на відміну від кешу на брокері.
+	if after.USDSharePct <= before.USDSharePct {
+		t.Errorf("валютний резерв не потрапив у частку USD: було %.2f, стало %.2f",
+			before.USDSharePct, after.USDSharePct)
+	}
+	if after.Reserve == nil {
+		t.Fatal("картка резерву не зібралась")
+	}
+	if after.Reserve.Places["готівка"] == 0 || after.Reserve.ByCurrency["USD"] != 500 {
+		t.Errorf("розклад резерву зіпсований: %+v", after.Reserve)
+	}
+	if after.Reserve.LastMove != "2026-07-20" {
+		t.Errorf("дата останнього руху = %q", after.Reserve.LastMove)
+	}
+	if after.Reserve.SharePct <= 0 || after.Reserve.SharePct > 100 {
+		t.Errorf("частка резерву в капіталі = %.2f", after.Reserve.SharePct)
+	}
+}
+
+// Переміщення гаманець → матрац не створює й не знищує грошей, тож
+// «внесено за місяць» мусить лишитись тим самим. Записується воно двома
+// ногами (мінус у deposits, плюс у резерві), і рахувати лише першу
+// означало б показати відкладання як втрату капіталу — псуючи місячний
+// прогрес, фактичний темп внесків і бенчмарк.
+func TestMoveToReserveDoesNotLookLikeLoss(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	today := string(domain.NewDate(time.Now()))
+
+	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
+		`{"date":"`+today+`","amount":"20000.00","currency":"UAH","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("поповнення: %d %s", resp.StatusCode, b)
+	}
+	var before struct {
+		MonthDepositedUAH float64 `json:"month_deposited_uah"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &before); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+
+	// Обидві ноги переміщення 5 000 ₴ на матрац.
+	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
+		`{"date":"`+today+`","amount":"-5000.00","currency":"UAH","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("зняття: %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/reserve",
+		`{"date":"`+today+`","amount":"5000.00","currency":"UAH","place":"сейф"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("резерв: %d %s", resp.StatusCode, b)
+	}
+
+	var after struct {
+		MonthDepositedUAH float64 `json:"month_deposited_uah"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &after); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if math.Abs(after.MonthDepositedUAH-before.MonthDepositedUAH) > 0.02 {
+		t.Errorf("переміщення в резерв змінило «внесено»: було %.2f, стало %.2f",
+			before.MonthDepositedUAH, after.MonthDepositedUAH)
+	}
+}
+
+// Достатність резерву міряється ДВОМА мірами. Без заданих місячних витрат
+// «на скільки вистачить» відповіді не має — і вигадувати її не можна.
+func TestReserveSufficiencyNeedsExpenses(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, b := do(t, "POST", srv.URL+"/api/reserve",
+		`{"date":"2026-07-01","amount":"60000.00","currency":"UAH"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("резерв: %d %s", resp.StatusCode, b)
+	}
+	type resDoc struct {
+		Reserve *struct {
+			Months       float64 `json:"months"`
+			TargetUAH    float64 `json:"target_uah"`
+			GapUAH       float64 `json:"gap_uah"`
+			TargetMonths float64 `json:"target_months"`
+		} `json:"reserve"`
+	}
+	var d resDoc
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &d); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if d.Reserve == nil || d.Reserve.Months != 0 {
+		t.Errorf("без витрат «місяців вистачить» мало лишитись невідомим: %+v", d.Reserve)
+	}
+
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_expenses_uah":"20000","reserve_target_months":"6"}`); resp.StatusCode >= 300 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &d); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if d.Reserve == nil {
+		t.Fatal("картка резерву зникла")
+	}
+	if math.Abs(d.Reserve.Months-3) > 0.01 {
+		t.Errorf("60 000 при витратах 20 000 = 3 місяці, а не %.2f", d.Reserve.Months)
+	}
+	if math.Abs(d.Reserve.TargetUAH-120000) > 0.01 || math.Abs(d.Reserve.GapUAH-60000) > 0.01 {
+		t.Errorf("ціль/брак пораховані неправильно: %+v", d.Reserve)
+	}
+
+	// Перебір резерву — не брак: gap мусить лишитись нулем, а не піти в мінус.
+	if resp, b := do(t, "POST", srv.URL+"/api/reserve",
+		`{"date":"2026-07-02","amount":"100000.00","currency":"UAH"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("резерв: %d %s", resp.StatusCode, b)
+	}
+	// Свіжа змінна навмисно: gap_uah має omitempty, тож нуль у JSON просто
+	// відсутній, і розбір у стару структуру лишив би там попередні 60 000.
+	var over resDoc
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &over); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if over.Reserve.GapUAH != 0 {
+		t.Errorf("перебір резерву показано як брак: %.2f", over.Reserve.GapUAH)
 	}
 }

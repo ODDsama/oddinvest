@@ -321,6 +321,16 @@
           "type": "number",
           "minimum": 0,
           "description": "Річна ставка нового вкладу UAH, % (адитивне поле)"
+        },
+        "monthly_expenses_uah": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Скільки коштує місяць життя, ₴. Задається вручну: від нього рахується достатність резерву (адитивне поле)"
+        },
+        "reserve_target_months": {
+          "type": "number",
+          "minimum": 0,
+          "description": "На скільки місяців витрат хочеться мати резерв (адитивне поле)"
         }
       }
     },
@@ -448,6 +458,34 @@
       "type": "number",
       "description": "Тіло діючих банківських вкладів, грн-екв. Теж окреме поле: вклад — інший інструмент (адитивне поле)"
     },
+    "reserve_uah": {
+      "type": "number",
+      "description": "Резерв («матрац»), грн-екв.: гроші на чорний день. Входить у капітал і валютні частки, але НЕ в brokers і не в дохідності — це не купівельна спроможність (адитивне поле)"
+    },
+    "reserve": {
+      "type": "object",
+      "description": "Стан резерву: скільки, у чому, де і чи вистачає (адитивне поле)",
+      "properties": {
+        "uah": { "type": "number", "description": "Усього, грн-екв." },
+        "by_currency": {
+          "type": "object",
+          "description": "По валютах, нативно",
+          "additionalProperties": { "type": "number" }
+        },
+        "share_pct": { "type": "number", "description": "Частка капіталу, %" },
+        "months": { "type": "number", "description": "На скільки місяців витрат вистачить. 0 = витрати не задані, тож питання без відповіді" },
+        "target_months": { "type": "number", "description": "Ціль у місяцях витрат" },
+        "target_uah": { "type": "number", "description": "Та сама ціль у грошах, ₴" },
+        "gap_uah": { "type": "number", "minimum": 0, "description": "Скільки ще докласти до цілі, ₴. Ніколи не від'ємний: перебір резерву — не брак" },
+        "monthly_expenses_uah": { "type": "number", "description": "Витрати, від яких пораховано «місяців вистачить»" },
+        "places": {
+          "type": "object",
+          "description": "Де лежить, грн-екв. по місцях зберігання",
+          "additionalProperties": { "type": "number" }
+        },
+        "last_move": { "type": "string", "format": "date", "description": "Дата останнього руху" }
+      }
+    },
     "brokers": {
       "type": "object",
       "description": "Баланси в розрізі брокер → валюта → сума. Рахунки роздільні: гривня на inzhur не купить папір у mono (адитивне поле)",
@@ -537,6 +575,7 @@
         "now_uah": { "type": "number" },
         "in_30_uah": { "type": "number" },
         "in_90_uah": { "type": "number" },
+        "reserve_uah": { "type": "number", "description": "Резерв, доступний негайно. Окремо від now_uah: на рівності now_uah == account_uah тримається звірка зі звітом про рух коштів" },
         "locked_uah": { "type": "number", "description": "Замкнене у вкладах: ОБЛІГАЦІЙ тут немає навмисно — застосунок не моделює їхньої ринкової ціни" },
         "unlock_date": { "type": "string" }
       }

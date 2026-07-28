@@ -27,7 +27,7 @@ export function income12mChartHTML(ctx) {
 export function capitalChartHTML(ctx) {
   const proj = (ctx.summary || {}).projection || [];
   if (!proj.length) return "";
-  return `<div class="card"><h4>Крива капіталу ${infoBtn("capital")}</h4>
+  return `<div class="card"><h4>Крива капіталу ${infoBtn("capitalCurve")}</h4>
     ${svgLine(proj.map((p) => p.years + "р"), [
       { color: "var(--oi-series-neutral)", values: proj.map((p) => p.contributed) },
       { color: "var(--oi-series-invested)", values: proj.map((p) => p.with_reinvest) },

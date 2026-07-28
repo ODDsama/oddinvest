@@ -255,6 +255,89 @@ func (s *Store) ListDeposits(ctx context.Context) ([]Deposit, error) {
 	return out, rows.Err()
 }
 
+// --- резерв («матрац») ---
+
+// ReserveOp — один рух резерву: + відклав, − узяв.
+//
+// Схоже на Deposit, але СВІДОМО окрема сутність, а не ще один «брокер»:
+// резерв не є купівельною спроможністю, і якби він лежав у тій самій
+// таблиці, помічник реінвесту порахував би його грішми на покупку.
+// Place — вільний текст (готівка, сейф, картка), а не довідник: за ним
+// нічого не рахується, це підпис для людини.
+type ReserveOp struct {
+	ID       int64
+	Date     domain.Date
+	Amount   int64 // мінорні; + відклав / − узяв
+	Currency string
+	Place    string
+	Note     string
+}
+
+func (s *Store) AddReserveOp(ctx context.Context, r ReserveOp) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO reserve_ops (date, amount, currency, place, note)
+		VALUES (?,?,?,?,?)`, string(r.Date), r.Amount, r.Currency, r.Place, r.Note)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// UpdateReserveOp переписує рух, зберігаючи id.
+func (s *Store) UpdateReserveOp(ctx context.Context, r ReserveOp) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE reserve_ops SET
+		date=?, amount=?, currency=?, place=?, note=? WHERE id=?`,
+		string(r.Date), r.Amount, r.Currency, r.Place, r.Note, r.ID)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "рух резерву")
+}
+
+func (s *Store) DeleteReserveOp(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM reserve_ops WHERE id=?`, id)
+	return err
+}
+
+func (s *Store) ListReserveOps(ctx context.Context) ([]ReserveOp, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, currency, place, note
+		FROM reserve_ops ORDER BY date, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ReserveOp
+	for rows.Next() {
+		var r ReserveOp
+		var dt string
+		if err := rows.Scan(&r.ID, &dt, &r.Amount, &r.Currency, &r.Place, &r.Note); err != nil {
+			return nil, err
+		}
+		r.Date = domain.Date(dt)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// ReserveByCurrency — залишок резерву по валютах (мінорні, нативно).
+func (s *Store) ReserveByCurrency(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT currency, SUM(amount) FROM reserve_ops GROUP BY currency`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var cur string
+		var sum int64
+		if err := rows.Scan(&cur, &sum); err != nil {
+			return nil, err
+		}
+		out[cur] = sum
+	}
+	return out, rows.Err()
+}
+
 // BrokerCur — ключ балансу: рахунки роздільні, тож гроші живуть у розрізі
 // (брокер × валюта), а не просто по валютах.
 type BrokerCur struct {
@@ -682,16 +765,17 @@ func (s *Store) LatestRate(ctx context.Context, code string) (int64, error) {
 func (s *Store) SaveSnapshot(ctx context.Context, sn Snapshot) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO snapshots
 		(date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah, month_target_uah,
-		 account_uah, funds_uah, deposits_uah, funds_cost_uah)
-		VALUES(?,?,?,?,?,?,?,?,?,?)
+		 account_uah, funds_uah, deposits_uah, funds_cost_uah, reserve_uah)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(date) DO UPDATE SET invested_uah=excluded.invested_uah,
 		nominal_uah_eq=excluded.nominal_uah_eq, usd_share_bp=excluded.usd_share_bp,
 		uninvested_uah=excluded.uninvested_uah, month_target_uah=excluded.month_target_uah,
 		account_uah=excluded.account_uah, funds_uah=excluded.funds_uah,
-		deposits_uah=excluded.deposits_uah, funds_cost_uah=excluded.funds_cost_uah`,
+		deposits_uah=excluded.deposits_uah, funds_cost_uah=excluded.funds_cost_uah,
+		reserve_uah=excluded.reserve_uah`,
 		string(sn.Date), sn.InvestedUAH, sn.NominalUAHEq, sn.USDShareBP,
 		sn.UninvestedUAH, sn.MonthTargetUAH, sn.AccountUAH, sn.FundsUAH, sn.DepositsUAH,
-		sn.FundsCostUAH)
+		sn.FundsCostUAH, sn.ReserveUAH)
 	return err
 }
 
@@ -757,11 +841,14 @@ type Snapshot struct {
 	// прибуток на кривій не намалюєш: InvestedUAH — це лише облігації.
 	// Нуль у старих рядках означає те саме «тоді не рахували».
 	FundsCostUAH int64
+	// ReserveUAH — резерв («матрац») у грн-екв. Нуль у старих рядках —
+	// «тоді не рахували» (0021).
+	ReserveUAH int64
 }
 
 func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snapshot, error) {
 	sqlq := `SELECT date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah,
-		month_target_uah, account_uah, funds_uah, deposits_uah, funds_cost_uah
+		month_target_uah, account_uah, funds_uah, deposits_uah, funds_cost_uah, reserve_uah
 		FROM snapshots WHERE 1=1`
 	args := []any{}
 	if from != "" {
@@ -784,7 +871,7 @@ func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snap
 		var d string
 		if err := rows.Scan(&d, &sn.InvestedUAH, &sn.NominalUAHEq, &sn.USDShareBP,
 			&sn.UninvestedUAH, &sn.MonthTargetUAH, &sn.AccountUAH, &sn.FundsUAH,
-			&sn.DepositsUAH, &sn.FundsCostUAH); err != nil {
+			&sn.DepositsUAH, &sn.FundsCostUAH, &sn.ReserveUAH); err != nil {
 			return nil, err
 		}
 		sn.Date = domain.Date(d)

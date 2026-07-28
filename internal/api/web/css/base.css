@@ -151,6 +151,7 @@ tr:last-child td { border-bottom: none; }
 .pill-bond { color: var(--oi-kind-bond); }
 .pill-fund { color: var(--oi-kind-fund); }
 .pill-deposit { color: var(--oi-kind-deposit); }
+.pill-reserve { color: var(--oi-kind-reserve); }
 
 /* Каретка й пігулка — один зоровий об'єкт: інакше у вузькій колонці
    пігулка зривається на другий рядок і рядок росте вдвічі. */

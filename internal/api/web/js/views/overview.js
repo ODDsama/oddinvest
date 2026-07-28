@@ -263,7 +263,7 @@ export function wireReinvest(ctx, main) {
 
 export async function renderOverview(ctx, main) {
   const s = ctx.summary || {};
-  // Капітал — це ВСЕ, що працює. Рахує спільний capitalUAH, а не власна
+  // Капітал — це ВСЕ, що в тебе є. Рахує спільний capitalUAH, а не власна
   // сума: тут довго складались лише номінал, рахунок і фонди, тож тіло
   // банківських вкладів у капітал не входило взагалі — рівно та сама
   // помилка, що колись була з фондами, лише на інструмент пізніше.
@@ -276,6 +276,9 @@ export async function renderOverview(ctx, main) {
   const capSub = [
     usdRate > 0 ? `≈ ${fmtCur(cap / usdRate, "$")}` : "",
     accrued > 0 ? `+ ${fmtUAH(accrued)} НКД зароблено` : "",
+    // Резерв названий окремо: він у капіталі, але не працює, і без цього
+    // рядка сума виглядала б як «стільки в мене інвестовано».
+    s.reserve_uah > 0 ? `з них ${fmtUAH(s.reserve_uah)} у резерві` : "",
   ].filter(Boolean).map((t) => `<div class="sub">${t}</div>`).join("");
   const tiles = `<div class="tiles flush">
     ${tile("Капітал", fmtUAH(cap), capSub)}

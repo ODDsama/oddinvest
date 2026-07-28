@@ -18,19 +18,22 @@ export function snapNonZero(s) {
   return (s.invested_uah || 0) > 0 || (s.nominal_uah_eq || 0) > 0 || (s.account_uah || 0) > 0;
 }
 
-// Собівартість дня: облігації + фонди + вклади.
+// Собівартість дня: облігації + фонди + вклади + резерв.
 //
 // invested_uah — це ЛИШЕ облігації (рахується циклом по позиціях ОВДП),
 // тож саме по собі воно не «скільки я вклав». deposits_uah — внесені
 // гроші, тобто водночас і вартість, і собівартість. Бракувало фондів, і
 // саме заради цього зʼявилась колонка funds_cost_uah (міграція 0018).
+// Резерв — той самий випадок, що й вклад: скільки поклав, стільки й
+// коштує, тож у собівартість він входить сам собою і розриву не додає.
 //
 // null, якщо фонди є, а їхньої собівартості в знімку ще не писали: без
 // неї сума занижена рівно на вартість фондів, і різниця з капіталом
 // прочиталась би як прибуток, якого не було.
 function costOf(s) {
   if ((s.funds_uah || 0) > 0 && !(s.funds_cost_uah > 0)) return null;
-  return (s.invested_uah || 0) + (s.funds_cost_uah || 0) + (s.deposits_uah || 0);
+  return (s.invested_uah || 0) + (s.funds_cost_uah || 0) + (s.deposits_uah || 0) +
+    (s.reserve_uah || 0);
 }
 
 const RANGE_KEY = "oddinvest.planRange";
@@ -72,6 +75,9 @@ function capitalCardHTML(ctx, snaps) {
     { name: "Фонди", color: "var(--oi-series-funds)", area: true, values: snaps.map((s) => s.funds_uah || 0) },
     { name: "Вклади", color: "var(--oi-series-deposits)", area: true, values: snaps.map((s) => s.deposits_uah || 0) },
     { name: "Рахунок", color: "var(--oi-series-account)", area: true, values: snaps.map((s) => s.account_uah || 0) },
+    // Резерв — верхньою смугою: він не працює, тож логічно лежить над
+    // тим, що працює, і його внесок у стос видно окремо.
+    { name: "Резерв", color: "var(--oi-series-reserve)", area: true, values: snaps.map((s) => s.reserve_uah || 0) },
   ].filter((s) => s.values.some((v) => v > 0));
 
   const cost = snaps.map(costOf);
@@ -201,12 +207,14 @@ export function snapshotsTableHTML(ctx) {
   const hasFunds = rows.some((s) => (s.funds_uah || 0) > 0);
   const hasDeps = rows.some((s) => (s.deposits_uah || 0) > 0);
   const hasAcc = rows.some((s) => (s.account_uah || 0) > 0);
+  const hasRes = rows.some((s) => (s.reserve_uah || 0) > 0);
   const col = (on, head, cell) => on ? { head, cell } : null;
   const cols = [
     { head: `<th class="num">ОВДП</th>`, cell: (s) => fmtUAH(s.nominal_uah_eq) },
     col(hasFunds, `<th class="num">Фонди</th>`, (s) => fmtUAH(s.funds_uah || 0)),
     col(hasDeps, `<th class="num">Вклади</th>`, (s) => fmtUAH(s.deposits_uah || 0)),
     col(hasAcc, `<th class="num">Рахунок</th>`, (s) => fmtUAH(s.account_uah || 0)),
+    col(hasRes, `<th class="num">Резерв</th>`, (s) => fmtUAH(s.reserve_uah || 0)),
     { head: `<th class="num">Частка USD</th>`, cell: (s) => `${(s.usd_share_pct || 0).toFixed(1)}%` },
     { head: `<th class="num">Не перевкл.</th>`, cell: (s) => fmtUAH(s.uninvested_uah) },
   ].filter(Boolean);

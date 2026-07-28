@@ -107,6 +107,80 @@ export function wireReconcile(ctx, main) {
   });
 }
 
+// ---------- РЕЗЕРВ («МАТРАЦ») ----------
+// Окрема картка, а не рядок у гаманці: на рахунку брокера лежать гроші,
+// що ЧЕКАЮТЬ на вкладення, а тут — ті, які вкладати не збираються.
+// Змішати їх означало б запропонувати купити папір за аварійні гроші.
+// «1.1 місяць» — двічі неправильно: дробові в українській вимагають
+// родового («1,1 місяця»), якого в plural() немає, а крапка суперечить
+// решті чисел на екрані. Скорочення «міс.» знімає обидва питання.
+const monthsNum = (m) => m.toFixed(1).replace(".", ",");
+
+function reserveHTML(ctx, ops) {
+  const r = (ctx.summary || {}).reserve;
+  const has = r && (r.uah || (ops || []).length);
+  const months = r && r.months ? r.months : 0;
+  const target = r && r.target_months ? r.target_months : 0;
+  // Смужка йде до ЦІЛІ, а не до 100% капіталу: питання «чи вистачить
+  // прожити», а не «яку частку портфеля з'їв матрац» — на друге відповідає
+  // окрема плитка поруч.
+  const fill = target > 0 ? Math.min(100, (months / target) * 100) : 0;
+  const enough = target > 0 && months >= target;
+  const places = r && r.places ? Object.entries(r.places).sort((a, b) => b[1] - a[1]) : [];
+  const byCur = r && r.by_currency ? Object.entries(r.by_currency).sort() : [];
+
+  const tiles = has ? `<div class="tiles" style="margin:0 0 10px">
+      <div class="tile"><div class="lbl">Відкладено</div>
+        <div class="val">${fmtUAH((r && r.uah) || 0)}</div>
+        ${byCur.length > 1 ? `<div class="sub">${byCur.map(([c, v]) =>
+          fmtCur(v, curSym(c))).join(" · ")}</div>` : ""}</div>
+      <div class="tile"><div class="lbl">Вистачить на</div>
+        <div class="val">${months ? `${monthsNum(months)} міс.` : "—"}</div>
+        <div class="sub">${months
+          ? (target ? `ціль — ${target} ${plural(target, "місяць", "місяці", "місяців")}` : "ціль не задана")
+          : "постав місячні витрати в Налаштуваннях"}</div></div>
+      <div class="tile"><div class="lbl">Частка капіталу</div>
+        <div class="val">${r && r.share_pct ? pct(r.share_pct) : "—"}</div>
+        <div class="sub">не інвестиція, але капітал</div></div>
+    </div>
+    ${target > 0 && months ? `<div class="progress" style="margin-bottom:6px">
+      <span style="width:${fill}%;background:${enough ? "var(--oi-ok)" : "var(--oi-info)"}"></span></div>
+      <div class="sub" style="margin-bottom:10px">${enough
+        ? `запас зібраний${r.uah > r.target_uah ? ` — з перевищенням на ${fmtUAH(r.uah - r.target_uah)}` : ""}`
+        : `до цілі ще ${fmtUAH(r.gap_uah || 0)} · ціль ${fmtUAH(r.target_uah || 0)}`}</div>` : ""}
+    ${places.length ? `<div class="sub" style="margin-bottom:10px">Де лежить: ${places.map(([p, v]) =>
+      `${esc(p)} — ${fmtUAH(v)}`).join(" · ")}</div>` : ""}` : "";
+
+  const journal = (ops || []).length
+    ? `<div class="table-scroll"><table><thead><tr><th>Дата</th><th>Рух</th>
+        <th class="num">Сума</th><th>Місце</th><th></th></tr></thead><tbody>
+      ${ops.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id))
+        .map((o) => `<tr><td>${esc(o.date)}</td>
+          <td>${Number(o.amount.amount) >= 0 ? "Відклав" : "Узяв"}</td>
+          <td class="num">${fmtMoney(o.amount)}</td>
+          <td>${esc(o.place || "")}${o.note ? ` <span class="muted">${esc(o.note)}</span>` : ""}</td>
+          <td class="row-actions"><button class="sm warn" data-delres="${o.id}">✕</button></td></tr>`).join("")}
+      </tbody></table></div>`
+    : `<div class="muted">Рухів резерву ще немає.</div>`;
+
+  return `<div class="card">
+    <h2 class="h-row">Резерв ${infoBtn("reserve")}</h2>
+    <div class="muted" style="margin-bottom:10px">Гроші на чорний день. Не інвестиція — але саме тому вони й доступні миттєво, без продажу паперу й розірвання вкладу. У купівельну спроможність не входять.</div>
+    ${tiles}
+    <form id="resForm" style="margin-bottom:12px">
+      <label>Сума (+ відклав / − узяв)<input name="amount" inputmode="decimal" placeholder="5000.00" required></label>
+      <label>Валюта<select name="currency">${["UAH", "USD", "EUR"].map((c) =>
+        `<option${c === "UAH" ? " selected" : ""}>${c}</option>`).join("")}</select></label>
+      <label>Місце<input name="place" placeholder="готівка / сейф / картка"></label>
+      <label>Дата<input name="date" type="date" value="${today()}"></label>
+      <label>Нотатка<input name="note"></label>
+      <button type="submit">Записати</button>
+    </form>
+    <div class="sub" style="margin-bottom:10px">Переклав із рахунку? Запиши ще й зняття в «Додати рух» нижче — інакше відкладене виглядатиме як втрата капіталу.</div>
+    ${journal}
+  </div>`;
+}
+
 // Імпорт виписки. Два кроки навмисно: спершу показати, що буде
 // зроблено, і лише потім писати. Ціна помилки тут — подвоєний баланс,
 // а він знаходиться не одразу.
@@ -272,12 +346,13 @@ function taxHTML(x) {
 }
 
 export async function renderMoney(ctx, main) {
-  const [deposits, conversions, ops, flow, tax] = await Promise.all([
+  const [deposits, conversions, ops, flow, tax, reserve] = await Promise.all([
     ctx.soft("deposits", []),
     ctx.soft("conversions", []),
     ctx.soft("funds", []),
     ctx.soft("cashflow", null),
     ctx.soft("tax", null),
+    ctx.soft("reserve", []),
   ]);
   setFundOps(ops);
   const s = ctx.summary || {};
@@ -300,6 +375,8 @@ export async function renderMoney(ctx, main) {
           <div class="sub">надійшло й ще не вкладено</div></div>
       </div>
     </div>
+
+    ${reserveHTML(ctx, reserve)}
 
     ${flowHTML(flow)}
 
@@ -376,6 +453,17 @@ export async function renderMoney(ctx, main) {
       broker: f.broker.value, date: f.date.value, note: f.note.value.trim(),
     },
     msg: "Конвертацію записано",
+  }));
+  onSubmit(ctx, main.querySelector("#resForm"), (f) => ({
+    path: "reserve",
+    body: {
+      amount: f.amount.value.trim(), currency: f.currency.value,
+      place: f.place.value.trim(), date: f.date.value, note: f.note.value.trim(),
+    },
+    msg: "Рух резерву записано",
+  }));
+  onDelete(ctx, main, "[data-delres]", (b) => ({
+    path: "reserve/" + b.dataset.delres, msg: "Рух видалено",
   }));
   onDelete(ctx, main, "[data-deldep]", (b) => ({
     path: "deposits/" + b.dataset.deldep, msg: "Рух видалено",

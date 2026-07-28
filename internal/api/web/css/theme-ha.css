@@ -72,6 +72,8 @@
   /* Рожевий, бо --oi-kind-deposit дорівнює --oi-series-nominal, і на
      кривій дві лінії зливались би в одну. */
   --oi-series-deposits: #f06292;
+  /* Так само: --oi-kind-reserve сірий, як і пунктир собівартості. */
+  --oi-series-reserve: #a1887f;
   --oi-series-plan: #ffa600;
   --oi-series-neutral: var(--secondary-text-color);
 
@@ -87,6 +89,8 @@
   --oi-kind-bond: #4da3ff;
   --oi-kind-fund: #26c6da;
   --oi-kind-deposit: #2ecc71;
+  /* Резерв — сірий: єдина сутність, яка нічого не заробляє. */
+  --oi-kind-reserve: #8b949e;
 
   --oi-optimistic: #3fb950;
   --oi-realistic: #7b6cf6;

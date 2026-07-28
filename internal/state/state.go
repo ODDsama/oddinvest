@@ -64,6 +64,22 @@ type Doc struct {
 	// /api/term-deposits, тож масиву тут не тримаємо.
 	DepositsUAH float64 `json:"deposits_uah,omitempty"`
 
+	// ReserveUAH — резерв («матрац») у грн-екв.: гроші, відкладені на
+	// чорний день. Четверта сутність, і за природою вона від решти
+	// відрізняється — немає ні дохідності, ні строку, ні ціни.
+	//
+	// Входить у капітал і у валютні частки, але НЕ в дохідності й НЕ в
+	// buying power: резерв — не купівельна спроможність, інакше помічник
+	// реінвесту запропонував би купити папір за аварійні гроші.
+	//
+	// Валютні частки — свідоме розходження з готівкою брокера. Кеш на
+	// рахунку стоїть лише у знаменнику («вільний кеш розводить частки»),
+	// бо він от-от стане чимось іншим. Резерв же грішми й лишиться, тож
+	// $5000 у матраці — справжня валютна експозиція, і рахується вона в
+	// чисельнику нарівні з паперами.
+	ReserveUAH float64  `json:"reserve_uah,omitempty"`
+	Reserve    *Reserve `json:"reserve,omitempty"`
+
 	// Rates — курси НБУ на сьогодні, ₴ за одиницю валюти (адитивне поле).
 	// Досі курс у документ не потрапляв узагалі: UI діставав його
 	// контрабандою як forecast.rate0_usd, тобто лише тоді, коли задано
@@ -226,6 +242,17 @@ type SettingsDoc struct {
 	DepositRateUSDPct *float64 `json:"deposit_rate_usd_pct,omitempty"`
 	DepositRateEURPct *float64 `json:"deposit_rate_eur_pct,omitempty"`
 	DepositRateUAHPct *float64 `json:"deposit_rate_uah_pct,omitempty"`
+	// Резерв. MonthlyExpensesUAH — скільки коштує місяць життя, ₴. У
+	// застосунку не було НІЧОГО про витрати: month_target_uah — це план
+	// внесків, тобто протилежне. ReserveTargetMonths — на скільки місяців
+	// хочеться мати запас (типово 3).
+	//
+	// Витрати живуть у налаштуваннях, а не рахуються зі знять із рахунку:
+	// зняття — це і покупка холодильника, і переказ у резерв, і взагалі
+	// будь-що, тож видавати їх за «місячні витрати» означало б рахувати
+	// достатність резерву від випадкового числа.
+	MonthlyExpensesUAH  *float64 `json:"monthly_expenses_uah,omitempty"`
+	ReserveTargetMonths *float64 `json:"reserve_target_months,omitempty"`
 }
 
 // RebalanceRow — що треба зробити, щоб вийти на цільову частку валюти.
@@ -268,10 +295,48 @@ type RebalanceRow struct {
 // ринку можна, але застосунок ринкової ціни не моделює (те саме рішення
 // записане в domain/xirr.go), і вигадане число тут було б гірше за чесну
 // відсутність.
+// Reserve — стан «матраца»: скільки відкладено, у чому і чи вистачає.
+//
+// Достатність міряється ДВОМА мірами, бо вони відповідають на різні
+// питання. Months («на скільки місяців витрат вистачить») — про життя:
+// саме заради нього резерв і збирають. SharePct («яка це частка
+// капіталу») — про портфель: він показує, чи не з'їв матрац усе, що мало
+// працювати. Одна міра без другої бреше: 12 місяців витрат можуть бути
+// і 5%, і 60% капіталу, і це геть різні ситуації.
+//
+// Months = 0, коли не задано місячні витрати: без них питання «на скільки
+// вистачить» не має відповіді, і вигадувати її не будемо.
+type Reserve struct {
+	UAH        float64            `json:"uah"`
+	ByCurrency map[string]float64 `json:"by_currency,omitempty"` // нативно
+	SharePct   float64            `json:"share_pct"`
+	// Months — на скільки місяців витрат вистачить; TargetMonths — ціль;
+	// TargetUAH — та ціль у грошах; GapUAH — скільки ще докласти (0, якщо
+	// вистачає). MonthlyExpensesUAH — витрати, від яких усе пораховано:
+	// без них число «3.4 місяця» неможливо перевірити.
+	Months             float64 `json:"months,omitempty"`
+	TargetMonths       float64 `json:"target_months,omitempty"`
+	TargetUAH          float64 `json:"target_uah,omitempty"`
+	GapUAH             float64 `json:"gap_uah,omitempty"`
+	MonthlyExpensesUAH float64 `json:"monthly_expenses_uah,omitempty"`
+	// Places — де лежить, грн-екв. по місцях зберігання. Резерв тим і
+	// цінний, що доступний миттєво, а це залежить від місця.
+	Places map[string]float64 `json:"places,omitempty"`
+	// LastMove — дата останнього руху (ISO). Резерв, якого не чіпали рік,
+	// і резерв, з якого щойно взяли, — різні речі.
+	LastMove string `json:"last_move,omitempty"`
+}
+
 type Liquidity struct {
-	NowUAH     float64 `json:"now_uah"`
-	In30UAH    float64 `json:"in_30_uah"`
-	In90UAH    float64 `json:"in_90_uah"`
+	NowUAH  float64 `json:"now_uah"`
+	In30UAH float64 `json:"in_30_uah"`
+	In90UAH float64 `json:"in_90_uah"`
+	// ReserveUAH — резерв, доступний негайно. ОКРЕМИМ полем, а не додатком
+	// до NowUAH: на нього спирається інваріант now_uah == account_uah, який
+	// зводить звіт про рух коштів зі зведенням (TestCashflowStatementReconciles).
+	// LockedUAH теж не підходить — воно означає «доведеться щось ламати», а
+	// резерв на те й резерв, що ламати нічого не треба.
+	ReserveUAH float64 `json:"reserve_uah,omitempty"`
 	LockedUAH  float64 `json:"locked_uah,omitempty"`
 	UnlockDate string  `json:"unlock_date,omitempty"`
 }
@@ -495,8 +560,15 @@ type Input struct {
 	Funds             []FundPositionRow
 	// DepositsUAH — тіло діючих вкладів, грн-екв (для капіталу й поля
 	// deposits_uah). DepositsUAHByCur — те саме по валютах (для часток).
-	DepositsUAH         float64
-	DepositsUAHByCur    map[string]float64
+	DepositsUAH      float64
+	DepositsUAHByCur map[string]float64
+	// Резерв: грн-екв усього, по валютах (нативно, для часток), по місцях
+	// і дата останнього руху.
+	ReserveUAH          float64
+	ReserveByCur        map[string]float64
+	ReserveUAHByCur     map[string]float64
+	ReservePlaces       map[string]float64
+	ReserveLastMove     string
 	IncomeMonthlyNow    float64
 	ReinvestMinByCur    map[string]float64
 	TopN                int
@@ -587,7 +659,14 @@ func Build(in Input) (*Doc, error) {
 	depMinor := int64(math.Round(in.DepositsUAH * 100))
 	nominalUSD += int64(math.Round(in.DepositsUAHByCur["USD"] * 100))
 	nominalEUR += int64(math.Round(in.DepositsUAHByCur["EUR"] * 100))
-	capital := nominalUAH + accountMinor + int64(math.Round(in.FundsUAH*100)) + depMinor
+	// Резерв — і в знаменнику, і в чисельнику (див. коментар до
+	// Doc.ReserveUAH): це не «майже інструмент», як кеш на брокері, а
+	// гроші, які так грішми й лишаться, тож валютний матрац — справжня
+	// валютна експозиція.
+	resMinor := int64(math.Round(in.ReserveUAH * 100))
+	nominalUSD += int64(math.Round(in.ReserveUAHByCur["USD"] * 100))
+	nominalEUR += int64(math.Round(in.ReserveUAHByCur["EUR"] * 100))
+	capital := nominalUAH + accountMinor + int64(math.Round(in.FundsUAH*100)) + depMinor + resMinor
 	if capital > 0 {
 		doc.USDSharePct = float64(nominalUSD) * 100 / float64(capital)
 		doc.EURSharePct = float64(nominalEUR) * 100 / float64(capital)
@@ -608,6 +687,7 @@ func Build(in Input) (*Doc, error) {
 	doc.Income12m = in.Income12m
 	doc.FundsUAH = in.FundsUAH
 	doc.DepositsUAH = in.DepositsUAH
+	doc.ReserveUAH = in.ReserveUAH
 	// Курси віддаємо як звичайні числа: у сховищі вони ×10⁴, але це
 	// внутрішня одиниця, і тягнути її в контракт означало б змусити
 	// кожного споживача ділити самотужки.
@@ -648,6 +728,41 @@ func Build(in Input) (*Doc, error) {
 	doc.NBURefreshedAt = in.NBURefreshedAt
 	doc.ActualMonthlyUAH = in.ActualMonthlyUAH
 	doc.ActualMonths = in.ActualMonths
+
+	// Резерв показуємо, лише коли він є або задано витрати: порожня картка
+	// з нулями нічого не додає, а «0 місяців із 3» без заданих витрат ще й
+	// вигадувала б ціль, якої користувач не ставив.
+	monthlyExp, targetMonths := 0.0, 0.0
+	if in.Settings != nil {
+		if in.Settings.MonthlyExpensesUAH != nil {
+			monthlyExp = *in.Settings.MonthlyExpensesUAH
+		}
+		if in.Settings.ReserveTargetMonths != nil {
+			targetMonths = *in.Settings.ReserveTargetMonths
+		}
+	}
+	if in.ReserveUAH != 0 || monthlyExp > 0 {
+		r := &Reserve{
+			UAH: in.ReserveUAH, ByCurrency: in.ReserveByCur, Places: in.ReservePlaces,
+			LastMove: in.ReserveLastMove, MonthlyExpensesUAH: monthlyExp,
+			TargetMonths: targetMonths,
+		}
+		if capital > 0 {
+			r.SharePct = in.ReserveUAH * 100 / (float64(capital) / 100)
+		}
+		if monthlyExp > 0 {
+			r.Months = in.ReserveUAH / monthlyExp
+			if targetMonths > 0 {
+				r.TargetUAH = monthlyExp * targetMonths
+				// Gap лише додатний: «перебір» резерву не є браком, і
+				// від'ємне число тут UI прочитав би як «докласти −5 000».
+				if gap := r.TargetUAH - in.ReserveUAH; gap > 0 {
+					r.GapUAH = gap
+				}
+			}
+		}
+		doc.Reserve = r
+	}
 
 	nowDate := domain.NewDate(in.Now)
 	var monthIncoming int64

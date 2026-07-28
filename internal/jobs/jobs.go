@@ -136,6 +136,10 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 		FundsUAH:       int64(doc.FundsUAH * 100),
 		DepositsUAH:    int64(doc.DepositsUAH * 100),
 		FundsCostUAH:   int64(fundsCost * 100),
+		// Резерв — частина капіталу, тож без нього крива показувала б
+		// портфель меншим за фактичний. Собівартості в нього немає: вона
+		// дорівнює самій сумі, і в прибуток він не додає нічого.
+		ReserveUAH: int64(doc.ReserveUAH * 100),
 	})
 }
 

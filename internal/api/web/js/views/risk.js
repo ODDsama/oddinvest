@@ -78,6 +78,8 @@ export function yieldTilesHTML(ctx) {
     ${tile("Номінал (грн-екв.)", fmtUAH(s0.nominal_uah_eq))}
     ${s0.deposits_uah > 0 ? tile("Вклади (грн-екв.)", fmtUAH(s0.deposits_uah),
       `<div class="sub">тіло діючих банківських вкладів</div>`) : ""}
+    ${s0.reserve_uah > 0 ? tile(`Резерв (грн-екв.) ${infoBtn("reserve")}`, fmtUAH(s0.reserve_uah),
+      `<div class="sub">не працює навмисно — саме тому доступний миттєво</div>`) : ""}
     ${tile("Накопичений купон", fmtUAH(s0.accrued_uah || 0),
       `<div class="sub">зароблено, ще не виплачено</div>`)}
     ${Object.entries(py).map(([c, v]) => tile(`ОВДП ${curSym(c)}`,

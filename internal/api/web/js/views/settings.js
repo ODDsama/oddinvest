@@ -228,6 +228,19 @@ export async function renderSettings(ctx, main) {
       </form>
     </div>
 
+    <div class="card">
+      <h2>Резерв на чорний день</h2>
+      <div class="muted" style="margin-bottom:10px">Місячні витрати — єдине, від чого можна порахувати,
+        на скільки вистачить матраца. Застосунок їх не вгадує: зняття з рахунку це і покупка холодильника,
+        і переказ у резерв, тож видавати їх за витрати означало б міряти достатність від випадкового числа.
+        Порожньо = «місяців вистачить» не показується взагалі.</div>
+      <form id="reserveSettingsForm">
+        <label>Місячні витрати, ₴<input name="monthly_expenses_uah" inputmode="decimal" placeholder="порожньо = не рахувати" value="${esc(s.monthly_expenses_uah || "")}"></label>
+        <label>Ціль запасу, місяців<input name="reserve_target_months" inputmode="decimal" placeholder="напр. 6" value="${esc(s.reserve_target_months || "")}"></label>
+        <button type="submit">Зберегти</button>
+      </form>
+    </div>
+
     ${devalHTML(deval)}
 
     ${catalogsHTML(ctx)}
@@ -263,6 +276,9 @@ export async function renderSettings(ctx, main) {
   onSubmit(ctx, main.querySelector("#depositSettingsForm"), settingsPut([
     "deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
     "deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct",
+  ]));
+  onSubmit(ctx, main.querySelector("#reserveSettingsForm"), settingsPut([
+    "monthly_expenses_uah", "reserve_target_months",
   ]));
 }
 

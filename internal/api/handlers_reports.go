@@ -149,6 +149,10 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 		// (облігації) і deposits_uah дає повну собівартість, від якої крива
 		// рахує прибуток.
 		FundsCostUAH float64 `json:"funds_cost_uah"`
+		// ReserveUAH — резерв («матрац») у грн-екв. Він частина капіталу, але
+		// не інструмент: собівартість у нього дорівнює сумі, тож на кривій він
+		// іде окремим шаром і в прибуток не додає нічого.
+		ReserveUAH float64 `json:"reserve_uah"`
 	}
 	out := make([]snapJSON, 0, len(snaps))
 	for _, sn := range snaps {
@@ -156,7 +160,8 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 			float64(sn.NominalUAHEq) / 100, float64(sn.USDShareBP) / 100,
 			float64(sn.UninvestedUAH) / 100, float64(sn.MonthTargetUAH) / 100,
 			float64(sn.AccountUAH) / 100, float64(sn.FundsUAH) / 100,
-			float64(sn.DepositsUAH) / 100, float64(sn.FundsCostUAH) / 100})
+			float64(sn.DepositsUAH) / 100, float64(sn.FundsCostUAH) / 100,
+			float64(sn.ReserveUAH) / 100})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

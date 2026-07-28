@@ -23,6 +23,8 @@ var settingsKeys = []string{"usd_target_share_pct", "eur_target_share_pct",
 	// Вклад як інструмент реінвесту: мінімум і ставка нового вкладу по валютах.
 	"deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
 	"deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct",
+	// Резерв: скільки коштує місяць життя і на скільки місяців запас.
+	"monthly_expenses_uah", "reserve_target_months",
 	// import_since рухає сам імпорт, але лишається редагованим: інакше
 	// «перезавантажити позаминулий місяць» стало б неможливим взагалі.
 	"import_since"}
@@ -38,6 +40,7 @@ var numericSettings = map[string]bool{
 	"uah_devaluation_pct": true, "terminal_rate_pct": true, "rate_glide_years": true,
 	"deposit_min_usd": true, "deposit_min_eur": true, "deposit_min_uah": true,
 	"deposit_rate_usd_pct": true, "deposit_rate_eur_pct": true, "deposit_rate_uah_pct": true,
+	"monthly_expenses_uah": true, "reserve_target_months": true,
 }
 
 // depositMinMinorByCur — мінімальне вкладення у вклад по валютах, у МІНОРНИХ
