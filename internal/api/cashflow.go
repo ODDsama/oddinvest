@@ -57,9 +57,7 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		return nil, err
 	}
 	today := domain.NewDate(time.Now())
-	arrived := func(isin string, d domain.Date) bool {
-		return d.Before(today) || statuses[isin+"|"+string(d)] != ""
-	}
+	arrived := domain.Arrived(statuses, today)
 	uah := func(m *money.Money) int64 {
 		if u, err := fx.ToUAH(m, rates); err == nil {
 			return u.Amount()
@@ -320,9 +318,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	}
 	today := domain.NewDate(time.Now())
 	inWindow := func(d domain.Date) bool { return !d.Before(from) && !d.After(to) }
-	arrived := func(isin string, d domain.Date) bool {
-		return d.Before(today) || statuses[isin+"|"+string(d)] != ""
-	}
+	arrived := domain.Arrived(statuses, today)
 	uah := func(m *money.Money) int64 {
 		if u, cerr := fx.ToUAH(m, rates); cerr == nil {
 			return u.Amount()

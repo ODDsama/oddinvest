@@ -267,3 +267,24 @@ func TestReplenishableBackfilledFromExistingTopups(t *testing.T) {
 		t.Error("вклад без поповнень мав лишитись непоповнюваним")
 	}
 }
+
+// Статус виплати лишається рівно один.
+//
+// На цьому тримається domain.Arrived: доти три копії предиката
+// перевіряли різне («received»/«reinvested» проти будь-якого непорожнього),
+// і розійтись вони не могли саме тому, що інших значень у базі не буває —
+// CHECK у міграції 0001, UPDATE у 0017 і ця перевірка. Щойно з'явиться
+// третій статус, злиття доведеться переглянути свідомо, а не виявити
+// потім за розбіжністю звітів.
+func TestPaymentStatusAcceptsOnlyReceived(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	if err := s.SetPaymentStatus(ctx, "UA1", "2026-07-15", "received"); err != nil {
+		t.Fatalf("«received» мав прийнятись: %v", err)
+	}
+	for _, bad := range []string{"reinvested", "pending", "", "RECEIVED"} {
+		if err := s.SetPaymentStatus(ctx, "UA1", "2026-07-15", bad); err == nil {
+			t.Errorf("статус %q мав бути відхилений", bad)
+		}
+	}
+}
