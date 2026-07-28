@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/ODDsama/oddinvest/internal/domain"
 )
 
 // Бекап користувацьких даних. Бекапимо лише те, що введено РУКАМИ й
@@ -37,7 +39,7 @@ type Backup struct {
 	ReserveOps    []BackupReserveOp `json:"reserve_ops,omitempty"`
 	Settings      map[string]string `json:"settings"`
 	PaymentStatus []BackupPayStatus `json:"payment_status"`
-	Snapshots     []BackupSnapshot  `json:"snapshots"`
+	Snapshots     []Snapshot        `json:"snapshots"`
 }
 
 // BackupReserveOp — рух резерву. Резерв невідновний так само, як лоти:
@@ -153,28 +155,13 @@ type BackupPayStatus struct {
 	MarkedAt string `json:"marked_at"`
 }
 
-// BackupSnapshot — рядок історії. Довго ніс лише перші п'ять полів, і
-// відновлення мовчки стирало решту: місячну ціль, рахунок і фонди — усе
-// те, що додавалось у знімок пізніше (міграції 0003, 0005, 0012).
-// Помітно це стало б тоді, коли відновлюватись уже нема з чого, а крива
-// «Як росте» після restore просіла б рівно на вартість фондів.
+// Знімок у бекапі — це та сама Snapshot (snapshot.go), із її json-тегами.
 //
-// Нові поля omitempty: бекапи, зроблені до цієї зміни, читаються
-// по-старому — там, де їх немає, лишається нуль, тобто те саме «тоді не
-// рахували», що й у самій колонці.
-type BackupSnapshot struct {
-	Date           string `json:"date"`
-	InvestedUAH    int64  `json:"invested_uah"`
-	NominalUAHEq   int64  `json:"nominal_uah_eq"`
-	USDShareBP     int64  `json:"usd_share_bp"`
-	UninvestedUAH  int64  `json:"uninvested_uah"`
-	MonthTargetUAH int64  `json:"month_target_uah,omitempty"`
-	AccountUAH     int64  `json:"account_uah,omitempty"`
-	FundsUAH       int64  `json:"funds_uah,omitempty"`
-	DepositsUAH    int64  `json:"deposits_uah,omitempty"`
-	FundsCostUAH   int64  `json:"funds_cost_uah,omitempty"`
-	ReserveUAH     int64  `json:"reserve_uah,omitempty"`
-}
+// Окрема BackupSnapshot тут була доти, і саме вона показує, чому дублі
+// небезпечні: довго вона несла лише перші п'ять полів, і відновлення
+// мовчки стирало решту — місячну ціль, рахунок і фонди. Помітно це стало
+// б тоді, коли відновлюватись уже нема з чого, а крива «Як росте» після
+// restore просіла б рівно на вартість фондів.
 
 // ExportAll читає всі користувацькі таблиці в один знімок.
 func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
@@ -308,15 +295,17 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT date,invested_uah,nominal_uah_eq,usd_share_bp,uninvested_uah,
-		month_target_uah,account_uah,funds_uah,deposits_uah,funds_cost_uah,reserve_uah FROM snapshots ORDER BY date`,
+	// Колонки й цілі для Scan — з реєстру (snapshot.go). Тут це важить
+	// найбільше: s.scan приймає func(...any), тож типи не перевіряються
+	// взагалі, і переплутаний порядок був би тихим до останнього.
+	if err := s.scan(ctx, `SELECT `+snapshotColumnList()+` FROM snapshots ORDER BY date`,
 		func(scan func(...any) error) error {
-			var r BackupSnapshot
-			if err := scan(&r.Date, &r.InvestedUAH, &r.NominalUAHEq, &r.USDShareBP, &r.UninvestedUAH,
-				&r.MonthTargetUAH, &r.AccountUAH, &r.FundsUAH, &r.DepositsUAH, &r.FundsCostUAH,
-				&r.ReserveUAH); err != nil {
+			var r Snapshot
+			var d string
+			if err := scan(snapshotScanTargets(&r, &d)...); err != nil {
 				return err
 			}
+			r.Date = domain.Date(d)
 			b.Snapshots = append(b.Snapshots, r)
 			return nil
 		}); err != nil {
@@ -516,13 +505,12 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 	}
 	for _, sn := range b.Snapshots {
+		// Забута тут колонка означала б, що відновлення мовчки її обнуляє —
+		// і саме це вже двічі ставалось. Перелік і аргументи з реєстру.
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO snapshots (date,invested_uah,nominal_uah_eq,usd_share_bp,uninvested_uah,
-				month_target_uah,account_uah,funds_uah,deposits_uah,funds_cost_uah,reserve_uah)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-			sn.Date, sn.InvestedUAH, sn.NominalUAHEq, sn.USDShareBP, sn.UninvestedUAH,
-			sn.MonthTargetUAH, sn.AccountUAH, sn.FundsUAH, sn.DepositsUAH, sn.FundsCostUAH,
-			sn.ReserveUAH); err != nil {
+			`INSERT INTO snapshots (`+snapshotColumnList()+`)
+			 VALUES (`+snapshotPlaceholders()+`)`,
+			snapshotArgs(&sn)...); err != nil {
 			return fmt.Errorf("знімок %s: %w", sn.Date, err)
 		}
 	}

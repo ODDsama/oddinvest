@@ -135,33 +135,32 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	type snapJSON struct {
-		Date           string  `json:"date"`
-		InvestedUAH    float64 `json:"invested_uah"`
-		NominalUAHEq   float64 `json:"nominal_uah_eq"`
-		USDSharePct    float64 `json:"usd_share_pct"`
-		UninvestedUAH  float64 `json:"uninvested_uah"`
-		MonthTargetUAH float64 `json:"month_target_uah"`
-		AccountUAH     float64 `json:"account_uah"`
-		FundsUAH       float64 `json:"funds_uah"`
-		DepositsUAH    float64 `json:"deposits_uah"`
-		// FundsCostUAH — за скільки фонди куплені. Разом з invested_uah
-		// (облігації) і deposits_uah дає повну собівартість, від якої крива
-		// рахує прибуток.
-		FundsCostUAH float64 `json:"funds_cost_uah"`
-		// ReserveUAH — резерв («матрац») у грн-екв. Він частина капіталу, але
-		// не інструмент: собівартість у нього дорівнює сумі, тож на кривій він
-		// іде окремим шаром і в прибуток не додає нічого.
-		ReserveUAH float64 `json:"reserve_uah"`
-	}
-	out := make([]snapJSON, 0, len(snaps))
-	for _, sn := range snaps {
-		out = append(out, snapJSON{string(sn.Date), float64(sn.InvestedUAH) / 100,
-			float64(sn.NominalUAHEq) / 100, float64(sn.USDShareBP) / 100,
-			float64(sn.UninvestedUAH) / 100, float64(sn.MonthTargetUAH) / 100,
-			float64(sn.AccountUAH) / 100, float64(sn.FundsUAH) / 100,
-			float64(sn.DepositsUAH) / 100, float64(sn.FundsCostUAH) / 100,
-			float64(sn.ReserveUAH) / 100})
+	// Рядок будується з реєстру колонок (store/snapshot.go), а не
+	// неіменованим літералом на десять float64 поспіль: у такому літералі
+	// кількість перевіряє компілятор, а порядок — ніхто, тож сусідні поля
+	// можна поміняти місцями й отримати правильний ключ із чужим числом.
+	//
+	// Ділення на 100 однакове для всіх: гроші йдуть з мінорних у мажорні,
+	// а частка — з базисних пунктів у відсотки. Збіг зручний, але саме
+	// збіг, тож якщо колись з'явиться колонка в інших одиницях — їй
+	// знадобиться свій дільник, і це місце доведеться розділити.
+	//
+	// apiName — єдине розходження між назвою колонки й ключем відповіді:
+	// у БД зберігаються базисні пункти, а віддаються відсотки.
+	apiName := map[string]string{"usd_share_bp": "usd_share_pct"}
+	cols := store.SnapshotColumns()
+	out := make([]map[string]any, 0, len(snaps))
+	for i := range snaps {
+		row := make(map[string]any, len(cols)+1)
+		row["date"] = string(snaps[i].Date)
+		for _, c := range cols {
+			name := c
+			if alt, ok := apiName[c]; ok {
+				name = alt
+			}
+			row[name] = float64(store.SnapshotValue(&snaps[i], c)) / 100
+		}
+		out = append(out, row)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

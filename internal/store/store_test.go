@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,5 +288,147 @@ func TestPaymentStatusAcceptsOnlyReceived(t *testing.T) {
 		if err := s.SetPaymentStatus(ctx, "UA1", "2026-07-15", bad); err == nil {
 			t.Errorf("статус %q мав бути відхилений", bad)
 		}
+	}
+}
+
+// Знімок мусить пережити повний цикл БЕЗ втрат у жодній колонці.
+//
+// Колонку доводилось вписувати у вісім місць, і десять із них ламались
+// тихо. Найтихіше — перелік ON CONFLICT: пропущена там колонка
+// вставляється, але при повторному записі того самого дня не оновлюється
+// НІКОЛИ. Далі позиційні Scan і VALUES(?,…), де сусідні int64 можна
+// поміняти місцями без наслідків для компілятора.
+//
+// Тому кожна колонка отримує СВОЄ, помітно різне значення: збіг двох
+// сусідніх приховав би саме ту помилку, заради якої тест і написаний.
+func TestSnapshotSurvivesEveryColumn(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+
+	cols := SnapshotColumns()
+	var sn Snapshot
+	sn.Date = "2026-07-15"
+	for i, c := range cols {
+		// 1001, 2002, 3003… — і різні, і не схожі на індекс.
+		setSnapshotValue(t, &sn, c, int64((i+1)*1001))
+	}
+
+	if err := s.SaveSnapshot(ctx, sn); err != nil {
+		t.Fatal(err)
+	}
+	check := func(stage string, got []Snapshot) {
+		t.Helper()
+		if len(got) != 1 {
+			t.Fatalf("%s: очікували один знімок, маємо %d", stage, len(got))
+		}
+		for i, c := range cols {
+			want := int64((i + 1) * 1001)
+			if v := SnapshotValue(&got[0], c); v != want {
+				t.Errorf("%s: колонка %s = %d, чекали %d", stage, c, v, want)
+			}
+		}
+	}
+	got, err := s.ListSnapshots(ctx, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("після запису", got)
+
+	// Повторний запис того самого дня — саме тут мовчить забутий
+	// ON CONFLICT. Значення зсуваємо, щоб «не оновилось» було видно.
+	for i, c := range cols {
+		setSnapshotValue(t, &sn, c, int64((i+1)*1001)+7)
+	}
+	if err := s.SaveSnapshot(ctx, sn); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.ListSnapshots(ctx, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("upsert мав лишити один рядок, маємо %d", len(got))
+	}
+	for i, c := range cols {
+		want := int64((i+1)*1001) + 7
+		if v := SnapshotValue(&got[0], c); v != want {
+			t.Errorf("повторний запис: колонка %s лишилась %d замість %d — "+
+				"її немає в ON CONFLICT DO UPDATE SET", c, v, want)
+		}
+	}
+
+	// І бекап: забута там колонка означає, що відновлення її мовчки
+	// обнуляє — це вже двічі ставалось.
+	dump, err := s.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ImportAll(ctx, dump); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.ListSnapshots(ctx, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("після відновлення мав лишитись один знімок, маємо %d", len(got))
+	}
+	for i, c := range cols {
+		want := int64((i+1)*1001) + 7
+		if v := SnapshotValue(&got[0], c); v != want {
+			t.Errorf("бекап загубив колонку %s: %d замість %d", c, v, want)
+		}
+	}
+}
+
+// setSnapshotValue — запис у поле за іменем колонки. Тестовий двійник
+// SnapshotValue; окремо, бо в проді писати знімок по імені нікому не треба.
+func setSnapshotValue(t *testing.T, sn *Snapshot, col string, v int64) {
+	t.Helper()
+	for _, c := range snapshotCols {
+		if c.Name == col {
+			*c.Ptr(sn) = v
+			return
+		}
+	}
+	t.Fatalf("невідома колонка %q", col)
+}
+
+// Реєстр колонок мусить показувати на поле з тим самим іменем.
+//
+// Круговий тест вище цього не побачить: якщо переставити два вказівники
+// місцями, запис і читання підуть тим самим переплутаним шляхом і
+// зійдуться. А в БАЗІ при цьому лежатиме колонка funds_uah зі значенням
+// вкладів — і саме так воно й поїде в /api/snapshots під чужим ключем.
+//
+// Тому звіряємо реєстр зі структурою напряму: json-тег поля мусить
+// збігатися з іменем колонки, на яке вказує акцесор.
+func TestSnapshotRegistryPointsAtMatchingField(t *testing.T) {
+	typ := reflect.TypeOf(Snapshot{})
+	byTag := map[string]int{}
+	for i := 0; i < typ.NumField(); i++ {
+		tag := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
+		if tag != "" && tag != "-" {
+			byTag[tag] = i
+		}
+	}
+	for _, c := range snapshotCols {
+		idx, ok := byTag[c.Name]
+		if !ok {
+			t.Errorf("колонка %q не має поля з таким json-тегом", c.Name)
+			continue
+		}
+		var sn Snapshot
+		const sentinel = 987654
+		*c.Ptr(&sn) = sentinel
+		got := reflect.ValueOf(sn).Field(idx).Int()
+		if got != sentinel {
+			t.Errorf("колонка %q пише не у своє поле: %s лишилось %d",
+				c.Name, typ.Field(idx).Name, got)
+		}
+	}
+	if len(snapshotCols)+1 != len(byTag) {
+		t.Errorf("колонок %d + date, а полів зі json-тегом %d — щось описане лише з одного боку",
+			len(snapshotCols), len(byTag))
 	}
 }

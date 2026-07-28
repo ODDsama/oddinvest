@@ -759,23 +759,20 @@ func (s *Store) LatestRate(ctx context.Context, code string) (int64, error) {
 	return r, err
 }
 
-// SaveSnapshot приймає структуру, а не вісім позиційних int64: у такому
+// SaveSnapshot приймає структуру, а не десяток позиційних int64: у такому
 // списку сусідні аргументи однакового типу рано чи пізно міняються
 // місцями, і помітно це стає вже на графіку.
+//
+// Три узгоджені між собою переліки — колонки, плейсхолдери й ON CONFLICT —
+// будуються з одного реєстру (snapshot.go). Найтихіший із них третій:
+// пропущена там колонка вставляється, але при повторному записі того
+// самого дня не оновлюється ніколи.
 func (s *Store) SaveSnapshot(ctx context.Context, sn Snapshot) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO snapshots
-		(date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah, month_target_uah,
-		 account_uah, funds_uah, deposits_uah, funds_cost_uah, reserve_uah)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(date) DO UPDATE SET invested_uah=excluded.invested_uah,
-		nominal_uah_eq=excluded.nominal_uah_eq, usd_share_bp=excluded.usd_share_bp,
-		uninvested_uah=excluded.uninvested_uah, month_target_uah=excluded.month_target_uah,
-		account_uah=excluded.account_uah, funds_uah=excluded.funds_uah,
-		deposits_uah=excluded.deposits_uah, funds_cost_uah=excluded.funds_cost_uah,
-		reserve_uah=excluded.reserve_uah`,
-		string(sn.Date), sn.InvestedUAH, sn.NominalUAHEq, sn.USDShareBP,
-		sn.UninvestedUAH, sn.MonthTargetUAH, sn.AccountUAH, sn.FundsUAH, sn.DepositsUAH,
-		sn.FundsCostUAH, sn.ReserveUAH)
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO snapshots (`+snapshotColumnList()+`)
+		 VALUES(`+snapshotPlaceholders()+`)
+		 ON CONFLICT(date) DO UPDATE SET `+snapshotUpsertSet(),
+		snapshotArgs(&sn)...)
 	return err
 }
 
@@ -821,35 +818,10 @@ func (s *Store) PaymentStatuses(ctx context.Context) (map[string]string, error) 
 	return out, rows.Err()
 }
 
-// Snapshot — рядок добового знімка для графіка «факт vs модель».
-type Snapshot struct {
-	Date           domain.Date
-	InvestedUAH    int64
-	NominalUAHEq   int64
-	USDShareBP     int64
-	UninvestedUAH  int64
-	MonthTargetUAH int64
-	AccountUAH     int64
-	// FundsUAH — сертифікати фондів у грн-екв. DepositsUAH — тіло
-	// банківських вкладів. Нуль у старих рядках в обох означає «тоді не
-	// рахували», а не «не було»: колонки з'явились пізніше за самі
-	// інструменти (міграції 0012 і 0016).
-	FundsUAH    int64
-	DepositsUAH int64
-	// FundsCostUAH — за скільки ці сертифікати куплені (0018). Разом із
-	// InvestedUAH і DepositsUAH дає повну собівартість портфеля, без якої
-	// прибуток на кривій не намалюєш: InvestedUAH — це лише облігації.
-	// Нуль у старих рядках означає те саме «тоді не рахували».
-	FundsCostUAH int64
-	// ReserveUAH — резерв («матрац») у грн-екв. Нуль у старих рядках —
-	// «тоді не рахували» (0021).
-	ReserveUAH int64
-}
+// Snapshot живе в snapshot.go — разом із реєстром своїх колонок.
 
 func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snapshot, error) {
-	sqlq := `SELECT date, invested_uah, nominal_uah_eq, usd_share_bp, uninvested_uah,
-		month_target_uah, account_uah, funds_uah, deposits_uah, funds_cost_uah, reserve_uah
-		FROM snapshots WHERE 1=1`
+	sqlq := `SELECT ` + snapshotColumnList() + ` FROM snapshots WHERE 1=1`
 	args := []any{}
 	if from != "" {
 		sqlq += ` AND date >= ?`
@@ -869,9 +841,7 @@ func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snap
 	for rows.Next() {
 		var sn Snapshot
 		var d string
-		if err := rows.Scan(&d, &sn.InvestedUAH, &sn.NominalUAHEq, &sn.USDShareBP,
-			&sn.UninvestedUAH, &sn.MonthTargetUAH, &sn.AccountUAH, &sn.FundsUAH,
-			&sn.DepositsUAH, &sn.FundsCostUAH, &sn.ReserveUAH); err != nil {
+		if err := rows.Scan(snapshotScanTargets(&sn, &d)...); err != nil {
 			return nil, err
 		}
 		sn.Date = domain.Date(d)
