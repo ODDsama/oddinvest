@@ -937,26 +937,17 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		minOf(&minDepositUAH, depMin, cur)
 	}
 
-	settings := &state.SettingsDoc{}
-	if !target.IsZero() {
-		v := float64(target.Amount()) / 100
-		settings.MonthlyTargetUAH = &v
-	}
-	if raw, _ := s.st.GetSetting(ctx, "usd_target_share_pct"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
-		if f, err := strconv.ParseFloat(raw, 64); err == nil {
-			settings.USDTargetSharePct = &f
-		}
-	}
-	if raw, _ := s.st.GetSetting(ctx, "eur_target_share_pct"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
-		if f, err := strconv.ParseFloat(raw, 64); err == nil {
-			settings.EURTargetSharePct = &f
-		}
-	}
-	if raw, _ := s.st.GetSetting(ctx, "assumed_rate_pct"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
-		if f, err := strconv.ParseFloat(raw, 64); err == nil {
-			settings.AssumedRatePct = &f
-		}
-	}
+	// Налаштування — одним проходом по реєстру (settings_registry.go).
+	// Доти двадцять ключів читались циклом, ще шість — окремими блоками
+	// поруч, і два мали третє читання в інших файлах.
+	settings := s.loadSettings(ctx)
+	// MonthlyTargetUAH проставляється НИЖЧЕ, коли target уже порахований.
+	// Тут стояла перевірка `if !target.IsZero()` — і вона ніколи не
+	// спрацьовувала: target отримує значення лише в блоці місячного плану,
+	// на чотириста рядків далі. Тобто поле settings.monthly_target_uah
+	// жива служба не віддавала жодного разу, а у фікстурі воно є тільки
+	// тому, що тест проставляє його руками.
+	//
 	// Список брокерів більше не зберігається рядком — він збирається з
 	// довідника. У зведенні лишається як рядок навмисно: це похідне поле
 	// для випадайок, а не місце зберігання, і сутності HA, які на нього
@@ -967,48 +958,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			names = append(names, b.Name)
 		}
 		settings.Channels = strings.Join(names, ", ")
-	}
-	if raw, _ := s.st.GetSetting(ctx, "reinvest_rank"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
-		settings.ReinvestRank = raw
-	}
-	for _, g := range []struct {
-		key string
-		dst **float64
-	}{
-		{"goal_pessimistic_uah", &settings.GoalPessimisticUAH},
-		{"goal_realistic_uah", &settings.GoalRealisticUAH},
-		{"goal_optimistic_uah", &settings.GoalOptimisticUAH},
-		{"uah_devaluation_pct", &settings.UAHDevaluationPct},
-		{"terminal_rate_pct", &settings.TerminalRatePct},
-		{"rate_glide_years", &settings.RateGlideYears},
-		{"deposit_min_usd", &settings.DepositMinUSD},
-		{"deposit_min_eur", &settings.DepositMinEUR},
-		{"deposit_min_uah", &settings.DepositMinUAH},
-		{"deposit_rate_usd_pct", &settings.DepositRateUSDPct},
-		{"deposit_rate_eur_pct", &settings.DepositRateEURPct},
-		{"deposit_rate_uah_pct", &settings.DepositRateUAHPct},
-		{"monthly_expenses_uah", &settings.MonthlyExpensesUAH},
-		{"reserve_target_months", &settings.ReserveTargetMonths},
-		{"target_bonds_pct", &settings.TargetBondsPct},
-		{"target_funds_pct", &settings.TargetFundsPct},
-		{"target_deposits_pct", &settings.TargetDepositsPct},
-		{"limit_isin_pct", &settings.LimitISINPct},
-		{"limit_broker_pct", &settings.LimitBrokerPct},
-		{"limit_year_pct", &settings.LimitYearPct},
-	} {
-		if raw, _ := s.st.GetSetting(ctx, g.key); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
-			if f, err := strconv.ParseFloat(raw, 64); err == nil {
-				*g.dst = &f
-			}
-		}
-	}
-	if raw, _ := s.st.GetSetting(ctx, "goal_amount_uah"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
-		if f, err := strconv.ParseFloat(raw, 64); err == nil {
-			settings.GoalAmountUAH = &f
-		}
-	}
-	if raw, _ := s.st.GetSetting(ctx, "goal_date"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка веде туди ж — до дефолту
-		settings.GoalDate = raw
 	}
 
 	// Фонди входять у XIRR нарівні з облігаціями: показник міряє, скільки
@@ -1396,6 +1345,13 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		contribM = round2(domain.RequiredMonthlySleeves(
 			buildSleeves(1, 0), devalBase, goalAmount, deadlineMonths))
 		target = money.New(int64(math.Round(contribM*100)), money.UAH)
+	}
+	// Ось ТУТ місячний план нарешті існує — і тільки тепер його можна
+	// покласти в налаштування. Раніше присвоєння стояло на чотириста
+	// рядків вище, де target ще нуль, і поле не віддавалось ніколи.
+	if !target.IsZero() {
+		v := float64(target.Amount()) / 100
+		settings.MonthlyTargetUAH = &v
 	}
 
 	// Старт проєкції — капітал БЕЗ резерву. Решта входить уся, разом із

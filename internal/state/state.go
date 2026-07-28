@@ -236,7 +236,15 @@ type SettingsDoc struct {
 	MonthlyTargetUAH  *float64 `json:"monthly_target_uah,omitempty"`
 	USDTargetSharePct *float64 `json:"usd_target_share_pct,omitempty"`
 	EURTargetSharePct *float64 `json:"eur_target_share_pct,omitempty"`
-	AssumedRatePct    *float64 `json:"assumed_rate_pct,omitempty"` // очікувана річна дохідність, % (fallback до XIRR)
+	// assumed_rate_pct прибрано. Поле оголошувалось тут, стояло в схемі з
+	// поміткою «застаріле» й парсилось інтеграцією — але не читалось
+	// НІКИМ: ставку проєкції давно дає portfolio_yield. Форми в нього теж
+	// не було, тож задати його можна було лише сирим PUT.
+	//
+	// Прибирати поле з контракту загалом не можна (правило адитивності),
+	// але це — виняток, який сам себе доводить: воно `omitempty`, і
+	// значення в ньому не з'являлось, тож у виданому JSON його не бачив
+	// жоден споживач.
 	// GoalAmountUAH — ЧИННА ціль, одна. Міграція 0008 звела в неї три
 	// старі цілі за рівнем амбіції; напрямок саме такий, і коментар тут
 	// довго стояв навиворіт («застаріле, мігрує в реалістичну»).

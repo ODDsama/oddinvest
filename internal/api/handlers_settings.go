@@ -14,42 +14,12 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-// «channels» тут більше немає: список брокерів був CSV-рядком у
+// Ключі, які приймає API, і перевірка «мусить бути числом» виводяться з
+// settings_registry.go. Окремих списків тут більше немає: доти їх було
+// два, і розійтись вони могли мовчки.
+//
+// «channels» немає ні там, ні тут: список брокерів був CSV-рядком у
 // налаштуваннях, а тепер це таблиця brokers із власними ендпойнтами.
-var settingsKeys = []string{"usd_target_share_pct", "eur_target_share_pct",
-	"assumed_rate_pct", "goal_amount_uah", "goal_date",
-	"reinvest_rank", "goal_pessimistic_uah", "goal_realistic_uah", "goal_optimistic_uah",
-	"uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years",
-	// Вклад як інструмент реінвесту: мінімум і ставка нового вкладу по валютах.
-	"deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
-	"deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct",
-	// Резерв: скільки коштує місяць життя і на скільки місяців запас.
-	"monthly_expenses_uah", "reserve_target_months",
-	// Цільові частки за видом інструмента, % капіталу. Резерв сюди не
-	// входить: його ціль задана в місяцях витрат (див. SettingsDoc).
-	"target_bonds_pct", "target_funds_pct", "target_deposits_pct",
-	// Ліміти концентрації, % — стеля, а не ціль. Дефолтів немає навмисно:
-	// «не більше 20% в один папір» — це порада, а застосунок їх не дає.
-	"limit_isin_pct", "limit_broker_pct", "limit_year_pct",
-	// import_since рухає сам імпорт, але лишається редагованим: інакше
-	// «перезавантажити позаминулий місяць» стало б неможливим взагалі.
-	"import_since"}
-
-// numericSettings — ключі, значення яких мусять бути невід'ємним числом.
-// Доти перевірявся лише сам ключ: "abc" чи "-5" писались у базу як є, а
-// на читанні мовчки підмінялись дефолтом. Тобто налаштування виглядало
-// збереженим, поводилось як незбережене, і дізнатись про це не було де.
-var numericSettings = map[string]bool{
-	"usd_target_share_pct": true, "eur_target_share_pct": true,
-	"assumed_rate_pct": true, "goal_amount_uah": true,
-	"goal_pessimistic_uah": true, "goal_realistic_uah": true, "goal_optimistic_uah": true,
-	"uah_devaluation_pct": true, "terminal_rate_pct": true, "rate_glide_years": true,
-	"deposit_min_usd": true, "deposit_min_eur": true, "deposit_min_uah": true,
-	"deposit_rate_usd_pct": true, "deposit_rate_eur_pct": true, "deposit_rate_uah_pct": true,
-	"monthly_expenses_uah": true, "reserve_target_months": true,
-	"target_bonds_pct": true, "target_funds_pct": true, "target_deposits_pct": true,
-	"limit_isin_pct": true, "limit_broker_pct": true, "limit_year_pct": true,
-}
 
 // depositMinMinorByCur — мінімальне вкладення у вклад по валютах, у МІНОРНИХ
 // одиницях. Це водночас поріг «простій готовий до реінвесту» і крок поради
@@ -101,18 +71,15 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	allowed := map[string]bool{}
-	for _, k := range settingsKeys {
-		allowed[k] = true
-	}
 	for k, v := range req {
-		if !allowed[k] {
+		d, ok := settingsByKey[k]
+		if !ok {
 			writeErr(w, http.StatusBadRequest, fmt.Errorf("невідомий ключ %q", k))
 			return
 		}
 		// Порожнє значення дозволене й означає «прибрати»: саме так
 		// знецінення повертається з ручного на виміряне.
-		if v != "" && numericSettings[k] {
+		if v != "" && d.numeric() {
 			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
 			if err != nil {
 				writeErr(w, http.StatusBadRequest, fmt.Errorf("%s: %q не число", k, v))
