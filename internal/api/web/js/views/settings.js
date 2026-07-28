@@ -15,11 +15,18 @@ import { onSubmit, onDelete, apply } from "../forms.js";
 //
 // Назва — редаговане поле, збереження по Enter або втраті фокуса:
 // окрема кнопка «зберегти» тут лише додала б клік.
-export function catalogRowHTML(item, currency) {
-  const cur = currency !== undefined
-    ? `<input class="cat-cur" value="${esc(currency)}" style="width:80px">` : "";
+// Поля рядка описуються списком, а не окремими класами: у фонда їх уже
+// пʼять, і кожне нове інакше вимагало б правки і розмітки, і проводки.
+// data-field — це ключ у тілі запиту, тож обидва боки лишаються в одному
+// місці.
+export function catalogRowHTML(item, fields = []) {
+  const inputs = fields.map((f) =>
+    `<input class="cat-f" data-field="${f.key}"${f.num ? ' data-num="1"' : ""}
+       value="${esc(f.value ?? "")}" placeholder="${esc(f.ph || "")}"
+       title="${esc(f.title || "")}" style="width:${f.w || 90}px">`).join("");
   return `<div class="pv-row" data-cat="${item.id}">
-    <span style="display:flex;gap:8px"><input class="cat-name" value="${esc(item.name)}" style="width:200px">${cur}</span>
+    <span style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input class="cat-name" value="${esc(item.name)}" style="width:190px">${inputs}</span>
     <button class="sm warn" data-catdel="${item.id}">✕</button></div>`;
 }
 
@@ -27,8 +34,18 @@ export function catalogsHTML(ctx) {
   const brokers = (ctx.brokers || []).length
     ? ctx.brokers.map((b) => catalogRowHTML(b)).join("")
     : `<div class="sub">Ще немає брокерів. Додай mono, inzhur…</div>`;
+  const fundFields = (f) => [
+    { key: "currency", value: f.currency, w: 70, title: "Валюта сертифіката" },
+    { key: "expected_yield_pct", w: 84, ph: "дохідн., %",
+      value: f.expected_yield_bp ? (f.expected_yield_bp / 100).toFixed(2).replace(/\.?0+$/, "") : "",
+      title: "Обіцяна фондом дохідність. Використовується, доки не набереться історії для виміряної" },
+    { key: "expected_yield_currency", value: f.expected_yield_currency, w: 70, ph: "у валюті",
+      title: "Валюта, В ЯКІЙ обіцяна дохідність. USD для фонду, чия ціна йде за курсом НБУ: тоді гривневе знецінення до неї не застосовується" },
+    { key: "payout_day", value: f.payout_day || "", w: 76, ph: "день", num: true,
+      title: "Число місяця, коли платять дивіденди. Вихідні переносяться на робочий день" },
+  ];
   const funds = (ctx.fundCatalog || []).length
-    ? ctx.fundCatalog.map((f) => catalogRowHTML(f, f.currency)).join("")
+    ? ctx.fundCatalog.map((f) => catalogRowHTML(f, fundFields(f))).join("")
     : `<div class="sub">Фондів ще немає — вони зʼявляться після першої купівлі сертифікатів.</div>`;
   return `<div class="card" id="brokerCard">
       <h2>Брокери</h2>
@@ -42,29 +59,37 @@ export function catalogsHTML(ctx) {
     </div>
     <div class="card" id="fundCatalogCard">
       <h2>Фонди</h2>
-      <div class="muted" style="margin-bottom:10px">Заводяться самі при першій операції. Тут виправляють назву й валюту —
-        помилка в назві більше не розщеплює позицію надвоє.</div>
+      <div class="muted" style="margin-bottom:10px">Заводяться самі при першій операції. Тут виправляють назву й валюту
+        (помилка в назві більше не розщеплює позицію надвоє) і задають те, чого з операцій не вивести:
+        <b>обіцяну фондом дохідність</b> та <b>день виплати</b> дивідендів.</div>
+      <div class="sub" style="margin-bottom:10px">Обіцянка потрібна, доки не набереться історії для виміряної повної
+        дохідності (30 днів, зважених грошима): без неї фонд порівнюється лише за дивідендами й виглядає гіршим,
+        ніж є. Якщо вона у валюті — вкажіть її, і гривневе знецінення до неї не застосується.</div>
       ${funds}
     </div>`;
 }
 
 // Спільна прошивка для обох довідників: різняться лише ендпойнтом.
-export function bindCatalog(ctx, card, path, withCurrency) {
+export function bindCatalog(ctx, card, path) {
   if (!card) return;
   card.querySelectorAll("[data-cat]").forEach((row) => {
     const id = row.dataset.cat;
     const name = row.querySelector(".cat-name");
-    const cur = row.querySelector(".cat-cur");
-    const key = () => name.value.trim() + "|" + (cur ? cur.value.trim() : "");
+    const fields = [...row.querySelectorAll(".cat-f")];
+    const key = () => [name.value.trim(), ...fields.map((f) => f.value.trim())].join("|");
     row.dataset.was = key();
     const commit = async () => {
       if (!name.value.trim() || key() === row.dataset.was) return;
       row.dataset.was = key();
       const body = { name: name.value.trim() };
-      if (withCurrency) body.currency = cur ? cur.value.trim() : "";
+      // Числові поля йдуть числом: порожнє = 0, тобто «не задано».
+      // Відсотки лишаються рядком — так порожнє поле відрізняється від нуля.
+      fields.forEach((f) => {
+        body[f.dataset.field] = f.dataset.num ? Number(f.value.trim()) || 0 : f.value.trim();
+      });
       await apply(ctx, { method: "PUT", path: `${path}/${id}`, body }, "Збережено");
     };
-    for (const el of [name, cur]) {
+    for (const el of [name, ...fields]) {
       if (!el) continue;
       el.addEventListener("blur", commit);
       el.addEventListener("keydown", (e) => { if (e.key === "Enter") el.blur(); });
@@ -76,8 +101,8 @@ export function bindCatalog(ctx, card, path, withCurrency) {
 }
 
 export function bindBrokers(ctx, main) {
-  bindCatalog(ctx, main.querySelector("#brokerCard"), "brokers", false);
-  bindCatalog(ctx, main.querySelector("#fundCatalogCard"), "fund-catalog", true);
+  bindCatalog(ctx, main.querySelector("#brokerCard"), "brokers");
+  bindCatalog(ctx, main.querySelector("#fundCatalogCard"), "fund-catalog");
   onSubmit(ctx, main.querySelector("#brokerAddForm"), (f) => {
     const name = f.broker.value.trim();
     if (!name) return null;

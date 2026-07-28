@@ -26,8 +26,8 @@
     { "path": "js/views/money.js", "sha256": "f34cb0c9f6a13022816191b4485fd42ce230771dcdfabeeab02a40defcd84ecb" },
     { "path": "js/views/overview.js", "sha256": "e65d79495c841ebef95629ef229831c2971dc343c94dd96c4447380d2185c13d" },
     { "path": "js/views/portfolio.js", "sha256": "7481c6819d911d9c41155a327fe96c4fe39b721ef1de38f010e52f5f69cca0d7" },
-    { "path": "js/views/positions.js", "sha256": "5135a040b30ccf093c8a7494791eac756a49a69f49386abd258adbaae0df2e6e" },
+    { "path": "js/views/positions.js", "sha256": "06e27bfa9a23b3b1d98237a04baec8c188e7f4e4110be710db51cd82474cc513" },
     { "path": "js/views/risk.js", "sha256": "e2d94f1b0e8cb446be46a5bc5be7843819940fc0d195bc5b31c3258730e639b8" },
-    { "path": "js/views/settings.js", "sha256": "6ea60cf9772e7e5c095bb3468eddab5f28434a978442b67fc0adc07e78e3a343" }
+    { "path": "js/views/settings.js", "sha256": "185590285df7b801364524f060211896c52dfcf65fc3ca3d03903087ac0da04e" }
   ]
 }

@@ -5,7 +5,10 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 func (s *Server) handleListBrokers(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +82,8 @@ func (s *Server) handleListFundCatalog(w http.ResponseWriter, r *http.Request) {
 }
 
 // Фонд заводиться сам при першій операції, тож окремого POST немає —
-// лишається виправити назву або валюту.
+// лишається виправити назву, валюту й те, чого з операцій не вивести:
+// обіцяну дохідність і день виплати.
 func (s *Server) handleUpdateFundCatalog(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -87,14 +91,33 @@ func (s *Server) handleUpdateFundCatalog(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req struct {
-		Name     string `json:"name"`
+		Name string `json:"name"`
+		// Валюта самого сертифіката (ціна, купівлі, дивіденди).
 		Currency string `json:"currency"`
+		// Обіцяна дохідність у відсотках рядком — як усі відсотки в API,
+		// щоб порожнє поле означало «не задано», а не нуль.
+		ExpectedYieldPct string `json:"expected_yield_pct"`
+		// Валюта, В ЯКІЙ обіцяна дохідність. Може відрізнятись від валюти
+		// фонду: гривневий сертифікат, чия ціна йде за курсом НБУ, обіцяє
+		// у доларах, і гривневий штраф за знецінення до такої обіцянки
+		// застосовувати не можна.
+		ExpectedYieldCurrency string `json:"expected_yield_currency"`
+		PayoutDay             int64  `json:"payout_day"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.st.RenameFund(r.Context(), id, req.Name, req.Currency); err != nil {
+	bp, err := parsePercentBP(req.ExpectedYieldPct)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("обіцяна дохідність: %w", err))
+		return
+	}
+	if err := s.st.RenameFund(r.Context(), id, store.Fund{
+		Name: req.Name, Currency: req.Currency,
+		ExpectedYieldBP: bp, ExpectedYieldCur: req.ExpectedYieldCurrency,
+		PayoutDay: req.PayoutDay,
+	}); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}

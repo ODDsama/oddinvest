@@ -435,6 +435,11 @@
           "realized": { "type": "number" },
           "yield_net_pct": { "type": "number" },
           "total_pct": { "type": "number" },
+          "expected_pct": { "type": "number", "description": "Обіцяна фондом дохідність із довідника — не вимірювання, а введене людиною (адитивне поле)" },
+          "expected_currency": { "type": "string", "description": "Валюта, в якій дана обіцянка; може відрізнятись від валюти сертифіката (адитивне поле)" },
+          "real_pct": { "type": "number" },
+          "yield_basis": { "type": "string", "description": "З чого взято real_pct: «дивіденди + зміна ціни» | «обіцяно фондом» | «дивіденди після податку»" },
+          "next_payout": { "type": "string", "format": "date", "description": "Коли фонд заплатить наступного разу; вихідні перенесені на робочий день (адитивне поле)" },
           "short": { "type": "integer", "description": "Продано більше, ніж куплено — розбіжність даних, яку показуємо вголос" }
         }
       }

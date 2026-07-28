@@ -57,6 +57,12 @@ function fundDetailHTML(ctx, f) {
   if (f.dividends_tax > 0) bits.push(`податок ${fmtUAH(f.dividends_tax)}`);
   if (f.realized) bits.push(`продажі ${fmtUAH(f.realized)}`);
   if (f.last_price_date) bits.push(`ціна від ${dayMonth(f.last_price_date)}`);
+  if (f.next_payout) bits.push(`наступна виплата ${dayMonth(f.next_payout)}`);
+  // Обіцянку показуємо лише тоді, коли вона й пішла в число: інакше поруч
+  // із виміряною дохідністю вона читалась би як друга думка про те саме.
+  if (f.expected_pct && f.yield_basis === "обіцяно фондом") {
+    bits.push(`фонд обіцяє ${pct(f.expected_pct)}`);
+  }
   return `<div class="sub">${bits.join(" · ")}</div>
     <h4 style="margin-top:12px">Лоти</h4>
     ${fundTable(ctx, "buy",

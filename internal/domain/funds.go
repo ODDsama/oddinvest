@@ -3,6 +3,7 @@ package domain
 import (
 	"math"
 	"sort"
+	"time"
 )
 
 // Сертифікати фондів (Inzhur REIT і подібні).
@@ -49,6 +50,10 @@ type FundPosition struct {
 	Fund     string
 	Currency string
 	Qty      int64
+	// PayoutDay — число місяця, коли фонд платить дивіденди (0 = невідомо).
+	// З операцій не виводиться: одна виплата ритму не задає, а дві поспіль
+	// можуть розійтись через вихідні. Заповнюється з довідника.
+	PayoutDay int64
 	// CostBasis — скільки вкладено в поточний залишок (мінорні). Продаж
 	// зменшує його пропорційно проданій частці, тож це саме собівартість
 	// того, що лишилось, а не сума всіх колись сплачених грошей.
@@ -179,6 +184,51 @@ func FundTotalReturn(ops []FundOp, fund string, asOf Date) (float64, bool) {
 	return math.Round(r*10000) / 100, true
 }
 
+// NextPayoutDate — коли фонд заплатить наступного разу.
+//
+// Правило фонду: виплата кожного payDay числа за ПОПЕРЕДНІЙ місяць. Якщо
+// число припадає на вихідний, платять наступного робочого дня — тож дата
+// може виїхати на понеділок або вівторок.
+//
+// Свят тут немає навмисно: виробничий календар довелось би вести руками й
+// щороку оновлювати, а помилка в один-два дні на питання «коли чекати
+// наступну виплату» не впливає. Вихідні натомість відомі назавжди.
+func NextPayoutDate(payDay int, from Date) (Date, bool) {
+	if payDay < 1 || payDay > 31 || from == "" {
+		return "", false
+	}
+	t := from.Time()
+	if t.IsZero() {
+		return "", false
+	}
+	// Цього місяця, а якщо вже минуло — наступного.
+	y, m := t.Year(), t.Month()
+	for i := 0; i < 2; i++ {
+		d := shiftOffWeekend(time.Date(y, m, payDay, 0, 0, 0, 0, time.UTC))
+		if !d.Before(t) {
+			return Date(d.Format(dateLayout)), true
+		}
+		if m == time.December {
+			y, m = y+1, time.January
+		} else {
+			m++
+		}
+	}
+	return "", false
+}
+
+// shiftOffWeekend — субота й неділя переносяться на понеділок.
+func shiftOffWeekend(d time.Time) time.Time {
+	switch d.Weekday() {
+	case time.Saturday:
+		return d.AddDate(0, 0, 2)
+	case time.Sunday:
+		return d.AddDate(0, 0, 1)
+	default:
+		return d
+	}
+}
+
 // DividendYieldNet — чиста дивідендна дохідність позиції, % річних:
 // ОСТАННЯ виплата після податку, приведена до року за ритмом виплат.
 //
@@ -226,8 +276,15 @@ func DividendYieldNet(ops []FundOp, p *FundPosition, on Date) (float64, bool) {
 
 	// Медіана проміжків між сусідніми виплатами; менше двох виплат —
 	// вважаємо місячний ритм.
+	//
+	// Якщо в довіднику заданий день виплати, ритм відомий точно: фонд
+	// платить раз на місяць у це число. Тоді ні медіана, ні припущення не
+	// потрібні — 365/12 замість круглих 30 прибирає похибку в 1.5%, яку
+	// давав «місяць = 30 днів».
 	period := 30.0
-	if len(recent) >= 2 {
+	if p.PayoutDay > 0 {
+		period = 365.0 / 12
+	} else if len(recent) >= 2 {
 		gaps := make([]int, 0, len(recent)-1)
 		for i := 1; i < len(recent); i++ {
 			if g := DaysBetween(recent[i-1].Date, recent[i].Date); g > 0 {

@@ -143,14 +143,25 @@ func (s *Store) DeleteBroker(ctx context.Context, id int64) error {
 }
 
 // Fund — рядок довідника фондів.
+//
+// ExpectedYieldBP — обіцяна фондом дохідність × 100 (9.5% = 950), 0 = не
+// задана. ExpectedYieldCur — валюта, В ЯКІЙ вона обіцяна: сертифікат може
+// бути гривневим, а обіцянка доларовою, і тоді гривневий штраф за
+// знецінення до неї не застосовується. Порожньо = валюта самого фонду.
+// PayoutDay — число місяця, коли платять дивіденди (0 = невідомо).
 type Fund struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Currency string `json:"currency"`
+	ID               int64  `json:"id"`
+	Name             string `json:"name"`
+	Currency         string `json:"currency"`
+	ExpectedYieldBP  int64  `json:"expected_yield_bp"`
+	ExpectedYieldCur string `json:"expected_yield_currency"`
+	PayoutDay        int64  `json:"payout_day"`
 }
 
 func (s *Store) ListFunds(ctx context.Context) ([]Fund, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, currency FROM funds ORDER BY name COLLATE NOCASE`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, currency,
+		expected_yield_bp, expected_yield_currency, payout_day
+		FROM funds ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +169,8 @@ func (s *Store) ListFunds(ctx context.Context) ([]Fund, error) {
 	out := []Fund{}
 	for rows.Next() {
 		var f Fund
-		if err := rows.Scan(&f.ID, &f.Name, &f.Currency); err != nil {
+		if err := rows.Scan(&f.ID, &f.Name, &f.Currency,
+			&f.ExpectedYieldBP, &f.ExpectedYieldCur, &f.PayoutDay); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
@@ -169,15 +181,24 @@ func (s *Store) ListFunds(ctx context.Context) ([]Fund, error) {
 // RenameFund — виправлення назви більше не розщеплює позицію: операції
 // тримаються за id. Досі друкарська помилка в назві мовчки створювала
 // другий фонд, і помічалось це вже за фактом.
-func (s *Store) RenameFund(ctx context.Context, id int64, name, currency string) error {
-	name = strings.TrimSpace(name)
+func (s *Store) RenameFund(ctx context.Context, id int64, f Fund) error {
+	name := strings.TrimSpace(f.Name)
 	if name == "" {
 		return fmt.Errorf("вкажіть назву фонду")
 	}
-	if strings.TrimSpace(currency) == "" {
-		currency = "UAH"
+	cur := strings.TrimSpace(f.Currency)
+	if cur == "" {
+		cur = "UAH"
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE funds SET name=?, currency=? WHERE id=?`, name, currency, id)
+	if f.PayoutDay < 0 || f.PayoutDay > 31 {
+		return fmt.Errorf("день виплати має бути від 1 до 31")
+	}
+	if f.ExpectedYieldBP < 0 {
+		return fmt.Errorf("обіцяна дохідність не може бути відʼємною")
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE funds SET name=?, currency=?,
+		expected_yield_bp=?, expected_yield_currency=?, payout_day=? WHERE id=?`,
+		name, cur, f.ExpectedYieldBP, strings.TrimSpace(f.ExpectedYieldCur), f.PayoutDay, id)
 	if err != nil {
 		return err
 	}

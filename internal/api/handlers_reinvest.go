@@ -255,19 +255,37 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// --- сертифікати фондів ---
-	// Дохідність фонду — ОЦІНКА з останньої виплати після податку, а не
-	// обіцянка: у сертифіката немає ні строку, ні зафіксованої ставки.
-	// Тому вона й порівнюється чесно лише через RealPct, і yield_basis
-	// каже, звідки число взялось.
+	// Тут питання інше, ніж у портфелі, і число інше НАВМИСНО. У портфелі
+	// «скільки я заробив» — факт, дивіденди разом зі зміною ціни. Тут
+	// «скільки дасть, якщо докласти», і минуле подорожчання сертифіката в
+	// цю відповідь не входить: його ніхто не обіцяв, а видавати його за
+	// очікувану дохідність означало б радити купувати те, що вже виросло,
+	// саме тому, що воно вже виросло.
+	//
+	// Обіцяна фондом дохідність — інша річ: вона саме про майбутнє, тож
+	// заміняє дивідендну, коли задана. Без неї фонд, що обіцяє 9.5% у
+	// доларі, порівнювався лише за дивідендами й опинявся в хвості з
+	// −2.9% реальних, тобто в поради не потрапляв ніколи.
 	for _, f := range doc.Funds {
-		if f.YieldNetPct <= 0 || f.LastPrice <= 0 {
-			continue // без виплат чи ціни порівнювати нема чого
+		if f.LastPrice <= 0 {
+			continue
 		}
 		c := f.Currency
 		if c == "" {
 			c = money.UAH
 		}
-		real := realYield(f.YieldNetPct/100, c, devalPct)
+		// Валюта обіцянки може відрізнятись від валюти сертифіката: 9.5% у
+		// доларі вже реальні, і гривневий штраф до них не застосовується.
+		nominal, yc, basis := f.YieldNetPct, c, "дивіденди після податку"
+		if f.ExpectedPct > 0 {
+			nominal, basis = f.ExpectedPct, "обіцяно фондом"
+			if f.ExpectedCurrency != "" {
+				yc = f.ExpectedCurrency
+			}
+		}
+		if nominal <= 0 {
+			continue // порівнювати нема з чим
+		}
 		costMinor := int64(math.Round(f.LastPrice * 100))
 		if costMinor <= 0 {
 			continue
@@ -276,9 +294,9 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		out = append(out, suggestion{
 			Kind: "fund", Label: f.Fund, Currency: c,
 			CostPerBond: toMoneyJSON(money.New(costMinor, c)),
-			NominalPct:  round2(f.YieldNetPct),
-			RealPct:     round2(real * 100),
-			YieldBasis:  "дивіденди після податку",
+			NominalPct:  round2(nominal),
+			RealPct:     round2(realYield(nominal/100, yc, devalPct) * 100),
+			YieldBasis:  basis,
 			Brokers:     fits, Affordable: best, CanBuy: best > 0,
 			Reason: "сертифікат: без строку й погашення, ціна ринкова",
 			def:    target[c] - cur[c],

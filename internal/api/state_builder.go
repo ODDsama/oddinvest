@@ -544,6 +544,14 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	var fundsUAH float64
 	var fundRows []state.FundPositionRow
 	if len(fundOps) > 0 {
+		// Довідник — по імені: обіцяна дохідність і день виплати з операцій
+		// не виводяться, їх задає людина.
+		refByName := map[string]store.Fund{}
+		if refs, ferr := s.st.ListFunds(ctx); ferr == nil {
+			for _, f := range refs {
+				refByName[f.Name] = f
+			}
+		}
 		positions := domain.FundPositions(fundOps)
 		names := make([]string, 0, len(positions))
 		for name := range positions {
@@ -559,6 +567,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				mvUAH = float64(u.Amount()) / 100
 			}
 			fundsUAH += mvUAH
+			// Довідник — ДО розрахунку дохідності: заданий день виплати дає
+			// точний місячний ритм замість припущення.
+			ref := refByName[fp.Fund]
+			fp.PayoutDay = ref.PayoutDay
 			y, _ := domain.DividendYieldNet(fundOps, fp, today)
 			row := state.FundPositionRow{
 				Fund: fp.Fund, Currency: fp.Currency, Qty: fp.Qty,
@@ -581,10 +593,41 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			if cur == "" {
 				cur = money.UAH
 			}
+			if d, ok := domain.NextPayoutDate(int(ref.PayoutDay), today); ok {
+				row.NextPayout = string(d)
+			}
+			// Обіцянка заповнюється ЗАВЖДИ, коли задана, — навіть якщо рядок
+			// портфеля показує виміряну повну дохідність. Помічник реінвесту
+			// бере саме її: там питання про майбутнє, і минулий приріст ціни
+			// туди не годиться.
+			if ref.ExpectedYieldBP > 0 {
+				row.ExpectedPct = float64(ref.ExpectedYieldBP) / 100
+				row.ExpectedCurrency = ref.ExpectedYieldCur
+			}
 			if tot, ok := domain.FundTotalReturn(fundOps, fp.Fund, today); ok {
 				row.TotalPct = tot
 				row.RealPct = round2(realYield(tot/100, cur, deval) * 100)
 				row.YieldBasis = "дивіденди + зміна ціни"
+			} else if ref.ExpectedYieldBP > 0 {
+				// Обіцянка фонду — між виміряною повною і самою дивідендною.
+				// Доти, доки повної немає, дивідендна частина в парі з
+				// гривневим знеціненням давала число, яке вводить в оману:
+				// фонд, що обіцяє 9.5% у доларі, показувався як −2.9%
+				// реальних, бо приросту ціни ще не видно, а штраф уже
+				// відняли. Обіцянка ближча до правди — але це саме обіцянка,
+				// і yield_basis каже про це вголос.
+				//
+				// Валюта береться з ОБІЦЯНКИ, а не з сертифіката: 9.5% у
+				// доларі вже є реальною дохідністю, і гривневий штраф до неї
+				// застосовувати не можна — приріст ціни в гривні і є тією
+				// компенсацією знецінення.
+				expCur := ref.ExpectedYieldCur
+				if expCur == "" {
+					expCur = cur
+				}
+				exp := float64(ref.ExpectedYieldBP) / 100
+				row.RealPct = round2(realYield(exp/100, expCur, deval) * 100)
+				row.YieldBasis = "обіцяно фондом"
 			} else if y > 0 {
 				row.RealPct = round2(realYield(y/100, cur, deval) * 100)
 				row.YieldBasis = "дивіденди після податку"

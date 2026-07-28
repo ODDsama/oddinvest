@@ -402,9 +402,23 @@ type FundPositionRow struct {
 	// це ФАКТ по прожитому, а не обіцянка на майбутнє, як YTM. Коли
 	// історії замало для ануалізації, TotalPct порожній, а RealPct
 	// рахується з самих дивідендів — про що YieldBasis і повідомляє.
-	TotalPct   float64 `json:"total_pct,omitempty"`
-	RealPct    float64 `json:"real_pct,omitempty"`
-	YieldBasis string  `json:"yield_basis,omitempty"`
+	TotalPct float64 `json:"total_pct,omitempty"`
+	// ExpectedPct — обіцяна фондом дохідність, % (з довідника). Не
+	// вимірюється, а задається людиною, тож стоїть окремо від TotalPct і
+	// YieldNetPct: yield_basis каже, котре з трьох потрапило в RealPct.
+	//
+	// ExpectedCurrency — валюта, В ЯКІЙ обіцянка дана. Може відрізнятись
+	// від валюти сертифіката: гривневий фонд, чия ціна йде за курсом НБУ,
+	// обіцяє у доларах, і гривневе знецінення до такої обіцянки не
+	// застосовується — приріст ціни в гривні і є тією компенсацією.
+	ExpectedPct      float64 `json:"expected_pct,omitempty"`
+	ExpectedCurrency string  `json:"expected_currency,omitempty"`
+	RealPct          float64 `json:"real_pct,omitempty"`
+	YieldBasis       string  `json:"yield_basis,omitempty"`
+	// NextPayout — коли фонд заплатить наступного разу (ISO). Рахується з
+	// дня виплати в довіднику з поправкою на вихідні; порожньо = день не
+	// заданий. Сума не прогнозується: вона залежить від результату місяця.
+	NextPayout string `json:"next_payout,omitempty"`
 	// Short — скільки сертифікатів продано понад куплені. Не нуль означає,
 	// що в журналі бракує надходження, і всі числа рядка занижені.
 	Short int64 `json:"short,omitempty"`
