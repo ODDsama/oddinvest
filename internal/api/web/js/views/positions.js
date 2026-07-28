@@ -7,13 +7,12 @@ import {
   esc, curSym, today, dayMonth, pct, daysUntil,
   uah2 as fmtUAH, money as fmtMoney,
 } from "../format.js";
-import { PAYOUT_LABEL } from "../constants.js";
+import { PAYOUT_LABEL, KIND_LABEL } from "../constants.js";
 import { infoBtn } from "../info.js";
 import { yieldPair } from "../components.js";
 import { fundTable } from "../fund-ops.js";
 
 
-const KIND_LABEL = { bond: "ОВДП", fund: "Фонд", deposit: "Вклад" };
 const POS_COLS = 7;
 
 // Які рядки розкриті. Живе поза рендером навмисно: ctx.reload() стирає

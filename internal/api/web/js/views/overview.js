@@ -14,7 +14,8 @@ import {
   uah2 as fmtUAH, cur2 as fmtCur,
 } from "../format.js";
 import { infoBtn } from "../info.js";
-import { tile, yieldNote } from "../components.js";
+import { tile } from "../components.js";
+import { KIND_LABEL } from "../constants.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
@@ -162,12 +163,14 @@ function suggestTitle(r) {
   return { name: esc(r.label || r.isin), sub: `${curSym(r.currency)} · до ${monthYearGen(r.maturity)}` };
 }
 
-// Чим підперта дохідність: номінальне число плюс його природа. Доти в
-// паперу тут стояв YTM, а у фонда й вкладу — самий підпис без числа, і
-// порівняти їх по-номінальному не було з чим.
-function suggestNote(r) {
-  const basis = r.kind === "bond" ? "до погашення" : r.yield_basis || "";
-  return yieldNote(r.nominal_pct != null ? r.nominal_pct : r.ytm_pct, basis);
+// Назва рядка поради. Валюту несе сума поруч, строк переїхав у розкриття,
+// а вид інструмента каже пігулка — тож слова «вклад» і «сертифікат» у
+// назві стали б повтором того, що вже видно.
+function suggestName(r) {
+  // Ставка лишається при вкладі: це умова договору, а не дохідність, і
+  // саме вона відрізняє два вклади в одній валюті один від одного.
+  if (r.kind === "deposit") return `${esc(r.label)} <span class="muted">${pct(r.rate_pct)}</span>`;
+  return esc(r.label || r.isin);
 }
 
 export function reinvestHTML(ctx) {
@@ -189,29 +192,73 @@ export function reinvestHTML(ctx) {
     .flatMap(([b, byCur]) => Object.entries(byCur)
       .filter(([, v]) => v > 0)
       .map(([c, v]) => `${esc(b)} ${fmtCur(v, curSym(c))}`)).join(" · ");
-  const items = rows.map((r) => {
-    const fits = (r.brokers || []).map((f) => `${esc(f.broker)} ×${f.qty}`).join(" · ");
+  // Рядок пропозиції. Одне головне число — РЕАЛЬНА дохідність: саме за нею
+  // список і впорядкований, і саме вона порівнює гривню з доларом. Решта
+  // (номінальна, підстава, розклад по брокерах) — у розкритті: доти вона
+  // стояла в рядку дрібним текстом, і шість пропозицій по чотири рядки
+  // читались як суцільна стіна, у якій не видно головного.
+  const item = (r) => {
+    const key = `${r.kind || "bond"}|${r.currency}`;
+    const open = openSuggest.has(key);
+    const kind = r.kind === "fund" ? "fund" : r.kind === "deposit" ? "deposit" : "bond";
     const cost = r.cost_per_bond ? fmtCur(Number(r.cost_per_bond.amount), curSym(r.currency)) : "";
-    // Коли не по кишені — кажемо СКІЛЬКИ бракує: «ще не по кишені» саме
-    // по собі не підказує, скільки лишилось відкласти.
     const purseCur = Math.max(0, ...Object.values(s.brokers || {}).map((m) => m[r.currency] || 0));
     const need = Number((r.cost_per_bond || {}).amount || 0) - purseCur;
-    const t = suggestTitle(r);
-    return `<div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
-        <span><b>${t.name}</b> <span class="muted" style="font-size:12px">${t.sub}</span></span>
-        <span style="text-align:right"><b>${pct(r.real_pct)}</b>
-          <span class="muted" style="font-size:12px">реальних</span>${suggestNote(r)}</span>
-      </div>
-      <div class="sub-xs">${cost}${
-        fits ? ` · ${fits}` : need > 0 ? ` · бракує ${fmtCur(need, curSym(r.currency))}` : ""}</div>
-      ${r.reason ? `<div class="sub-xs">${esc(r.reason)}</div>` : ""}
-    </div>`;
-  }).join("");
+    // Коли не по кишені — кажемо СКІЛЬКИ бракує: «ще не по кишені» саме по
+    // собі не підказує, скільки лишилось відкласти.
+    const status = r.can_buy
+      ? `<span class="ok-t">вистачає${r.affordable > 1 ? ` ×${r.affordable}` : ""}</span>`
+      : need > 0 ? `бракує ${fmtCur(need, curSym(r.currency))}` : "";
+    const fits = (r.brokers || []).map((f) => `${esc(f.broker)} ×${f.qty}`).join(" · ");
+    const details = [
+      `${pct(r.nominal_pct != null ? r.nominal_pct : r.ytm_pct)} номінальних`,
+      r.kind === "bond" ? "до погашення" : r.yield_basis,
+      r.maturity ? `до ${monthYearGen(r.maturity)}` : "",
+      fits, r.reason,
+    ].filter(Boolean).map(esc).join(" · ");
+    return `<div class="sg" data-sg="${key}">
+      <button class="caret${open ? " open" : ""}" data-sgexp="${key}" aria-expanded="${open}"
+        title="Показати, звідки взялася ця дохідність">▸</button>
+      <span class="pill pill-${kind}">${KIND_LABEL[kind]}</span>
+      <span class="sg-n"><b>${suggestName(r)}</b> <span class="muted">${cost}</span></span>
+      <span class="sg-s muted">${status}</span>
+      <b class="sg-y">${pct(r.real_pct)}</b>
+    </div>
+    <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : ` style="display:none"`}>${details}</div>`;
+  };
+
+  // Групуємо за тим, що вирішує: чи можу купити зараз. Доти шість
+  // пропозицій мали однакову вагу, і те, що до однієї бракує двох гривень,
+  // а до іншої тисячі, треба було вишукувати в дрібному тексті.
+  const ready = rows.filter((r) => r.can_buy);
+  const soon = rows.filter((r) => !r.can_buy);
+  const group = (title, list) => list.length
+    ? `<div class="sg-h">${title}</div>${list.map(item).join("")}` : "";
   return `<div class="card"><h2 class="h-row" style="justify-content:space-between">
-    <span>Що купити ${infoBtn("reinvest")}</span></h2>
-    ${purse ? `<div class="muted" style="font-size:12px;margin-bottom:8px">${purse}</div>` : ""}
-    ${items}</div>`;
+    <span>Що купити ${infoBtn("reinvest")}</span>
+    ${purse ? `<span class="muted" style="font-size:var(--oi-fs-sm)">${purse}</span>` : ""}</h2>
+    ${group("Можеш купити зараз", ready)}
+    ${group(ready.length ? "Ще збираєш" : "Купувати ще рано — ось наскільки близько", soon)}
+    <div class="sub">Відсоток — реальний: після податку й знецінення, тож валюти порівнянні.
+      Каретка показує, звідки він узявся.</div></div>`;
+}
+
+// Розкриті пропозиції живуть поза рендером: ctx.reload() стирає main
+// цілком, і без цього кожне оновлення згортало б те, що ти щойно відкрив.
+const openSuggest = new Set();
+
+export function wireReinvest(ctx, main) {
+  main.querySelectorAll("[data-sgexp]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const key = b.dataset.sgexp;
+      const row = main.querySelector(`[data-sgdetail="${key}"]`);
+      if (!row) return;
+      const open = row.style.display === "none";
+      row.style.display = open ? "" : "none";
+      b.classList.toggle("open", open);
+      b.setAttribute("aria-expanded", String(open));
+      if (open) openSuggest.add(key); else openSuggest.delete(key);
+    }));
 }
 
 export async function renderOverview(ctx, main) {
@@ -265,6 +312,7 @@ export async function renderOverview(ctx, main) {
     ${tiles}
     <div class="ov-grid">${reinvestHTML(ctx)}${paymentsPreviewHTML(ctx)}</div>`;
 
+  wireReinvest(ctx, main);
   main.querySelectorAll("[data-go]").forEach((b) =>
     b.addEventListener("click", () => ctx.goto(b.dataset.go)));
 }

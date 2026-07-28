@@ -344,6 +344,28 @@ input:focus, select:focus { outline: none; border-color: var(--oi-accent); }
 .lg span { display: inline-flex; align-items: center; gap: 7px; }
 .lg i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
 
+/* Рядок поради «Що купити».
+   Одна сітка на всі рядки, щоб числа стояли колонкою: доти кожна порада
+   була власним блоком із вирівнюванням ліво-право, і шість підряд читались
+   зигзагом. Назва стискається (1fr), решта тримає свою ширину. */
+.sg {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--oi-gap-sm);
+  padding: var(--oi-gap-sm) 0;
+  border-top: 1px solid var(--oi-border);
+}
+.sg-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-s { white-space: nowrap; font-size: var(--oi-fs-sm); }
+.sg-y { white-space: nowrap; text-align: right; font-size: var(--oi-fs-md); }
+/* Заголовок групи: він відповідає на головне питання картки — чи можу я
+   купити зараз, — тож стоїть окремим рядком, а не підписом до числа. */
+.sg-h { margin-top: var(--oi-gap); font-size: var(--oi-fs-sm); color: var(--oi-muted); }
+.sg-h:first-of-type { margin-top: 0; }
+.sg-d { padding: 0 0 var(--oi-gap-sm) 26px; }
+.ok-t { color: var(--oi-ok); }
+
 /* Підказка під курсором на кривій.
    Контейнер прокручується по горизонталі (графік ширший за вузьку панель
    HA), тож підказка позиціюється всередині нього, а не в картці. */

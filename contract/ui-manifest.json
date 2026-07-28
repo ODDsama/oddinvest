@@ -2,14 +2,14 @@
   "_comment": "Згенеровано scripts/gen-ui-manifest.sh — руками не правити.",
   "root": "internal/api/web",
   "files": [
-    { "path": "css/base.css", "sha256": "a5629b662fe829b2df83616c3f5910e64840bee48a4d84419761f7e03ced0080" },
+    { "path": "css/base.css", "sha256": "6e79ac007b641e6cb9509429da4ab002955808c48a9b34593930a540cd67813d" },
     { "path": "css/theme-ha.css", "sha256": "2c5eba51a966bec5af43513b6e413433bee4bcc68a897f07053fb7881e2f69a9" },
     { "path": "css/theme-web.css", "sha256": "016b1655ef52283aeff963aa710f766db36dd22e87945b53eaf65393572eba2b" },
     { "path": "css/tokens.css", "sha256": "7f40aebc154d1e549f8d12afd17269dbe0a15dfa1367e1205eacfb05120d7a8c" },
     { "path": "js/app.js", "sha256": "0f8fa1b03887ffe3148ac4993795fe3661f263fb2a09f741a214592d56286a01" },
     { "path": "js/charts.js", "sha256": "f7ac8dbca1ce57b3dfcfcf940a53f218fae4da1b0dbf5afe9d0cc3e8c1e5ad11" },
     { "path": "js/components.js", "sha256": "2116cd17793ed795998bde2bf274b57fc63f5a7c8f2666a70a7ccf52454389e9" },
-    { "path": "js/constants.js", "sha256": "13ce52a80e79b9820b813808683408263cbe7b87494399cd4f9d4d13fec5648f" },
+    { "path": "js/constants.js", "sha256": "28ffc0dc9ae3ff6f387a22646d0167e93c57f550cbb38435a515fb6a1f092fa4" },
     { "path": "js/disclosure.js", "sha256": "28a4313a71fd15a0b12b45695928f4edd16a314afb69ff731ff22a7b4c98dfef" },
     { "path": "js/format.js", "sha256": "d5d7e7f74318cac7fd3db610d8a894beb989e72653aec5a4c656ca52ab450040" },
     { "path": "js/forms.js", "sha256": "971f334403306920b57241636faec6e25121a127f838282333cac9c0d7d28efd" },
@@ -24,9 +24,9 @@
     { "path": "js/views/future.js", "sha256": "37ed0513114392d2cea379ee6424ee9a7ad0620bc7d00e7c1f53ac4d83006326" },
     { "path": "js/views/history.js", "sha256": "7827427e4bbcca35c729f304f5c226b9c7c041d85fba41b44ca35a534c45d508" },
     { "path": "js/views/money.js", "sha256": "f34cb0c9f6a13022816191b4485fd42ce230771dcdfabeeab02a40defcd84ecb" },
-    { "path": "js/views/overview.js", "sha256": "cfba2445d1be7e4e890277085b8a16e3c9c9f7c9e7c4450b59eebadcb5503f02" },
+    { "path": "js/views/overview.js", "sha256": "de5b65709a8bf95b544982a144dfcd4efdafdf1ef9a82248298f3fe0781fb4f3" },
     { "path": "js/views/portfolio.js", "sha256": "7481c6819d911d9c41155a327fe96c4fe39b721ef1de38f010e52f5f69cca0d7" },
-    { "path": "js/views/positions.js", "sha256": "06e27bfa9a23b3b1d98237a04baec8c188e7f4e4110be710db51cd82474cc513" },
+    { "path": "js/views/positions.js", "sha256": "441692c4023cceb45a013191f18d324b92123f29d8ca798c90568dbd78e0c9bc" },
     { "path": "js/views/risk.js", "sha256": "e2d94f1b0e8cb446be46a5bc5be7843819940fc0d195bc5b31c3258730e639b8" },
     { "path": "js/views/settings.js", "sha256": "185590285df7b801364524f060211896c52dfcf65fc3ca3d03903087ac0da04e" }
   ]
