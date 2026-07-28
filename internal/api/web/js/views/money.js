@@ -16,9 +16,8 @@ import {
 import { infoBtn } from "../info.js";
 import { tile } from "../components.js";
 import { onSubmit, onDelete } from "../forms.js";
-import {
-  fundStatementHTML, wireFundOps, setFundOps, wireDisclosures, disclosure,
-} from "./portfolio.js";
+import { fundStatementHTML, wireFundOps, setFundOps } from "../fund-ops.js";
+import { disclosure, wireDisclosures } from "../disclosure.js";
 
 // ---------- РАХУНОК ----------
 // Баланси по брокерах: гроші в одного не купують папір в іншого, тож
