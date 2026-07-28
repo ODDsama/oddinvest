@@ -6,20 +6,21 @@
     { "path": "css/theme-ha.css", "sha256": "2c5eba51a966bec5af43513b6e413433bee4bcc68a897f07053fb7881e2f69a9" },
     { "path": "css/theme-web.css", "sha256": "016b1655ef52283aeff963aa710f766db36dd22e87945b53eaf65393572eba2b" },
     { "path": "css/tokens.css", "sha256": "7f40aebc154d1e549f8d12afd17269dbe0a15dfa1367e1205eacfb05120d7a8c" },
-    { "path": "js/app.js", "sha256": "7e71f06035f0bb7d191a50cb1ed9143d9250b509120da938729acf0c4d2d90d1" },
+    { "path": "js/app.js", "sha256": "e199865ad2cfd287460f0f900cfcfd2c4a30bd2c27418e06f5cb68b2aa8e367c" },
     { "path": "js/charts.js", "sha256": "e06ab10e0b38291f5d82e6d7540e2ef4ecc79b4203ba9b1ca25c6f480802aaf2" },
     { "path": "js/components.js", "sha256": "2116cd17793ed795998bde2bf274b57fc63f5a7c8f2666a70a7ccf52454389e9" },
     { "path": "js/constants.js", "sha256": "8c9cb264fea6104649f1921af6c79ba5d10302678e0c62e25c0ee6e863e1f37a" },
     { "path": "js/format.js", "sha256": "39bbc5a1838d8f41f4bb83d3f00227622b893f1a4dcf0a8f110c61070be53de0" },
+    { "path": "js/forms.js", "sha256": "971f334403306920b57241636faec6e25121a127f838282333cac9c0d7d28efd" },
     { "path": "js/info.js", "sha256": "97db4c9834654009fbc253d356611b556c5f3f9262141527c3bbffb6961dcf83" },
     { "path": "js/store.js", "sha256": "e9acd93d9038e3123583c5d87cd946c1cb5abba67d3cd71d1f00e4d6ada165cf" },
     { "path": "js/styles.js", "sha256": "7f623a4506b4336538ffce25d56eeab347afb912ceacadf76b8cdc05028f943f" },
     { "path": "js/transport.js", "sha256": "7be0b7f7ea8317446ce769fc30c95d8bd281adfdcd67d8dc2350a8b6c96b52ae" },
     { "path": "js/views/forecast.js", "sha256": "87b463d7227f23822c8e4fdb8f1a64cc105e97c3415561ef983f8c3e9b862f2e" },
     { "path": "js/views/future.js", "sha256": "82ae3d09a636d5b4e602edbe664400231acfa3b559d097e1509bfdb625da54c4" },
-    { "path": "js/views/money.js", "sha256": "4d7fd0e84503774c42dfd15515e7dcb2220b49ba26fd9fb0917177d481471faa" },
+    { "path": "js/views/money.js", "sha256": "7b1a42e6ab014188be807dde56227e0d95fe77559a02444ed128d20aee62d6d5" },
     { "path": "js/views/overview.js", "sha256": "e65d79495c841ebef95629ef229831c2971dc343c94dd96c4447380d2185c13d" },
-    { "path": "js/views/portfolio.js", "sha256": "b343659c359e0ad0ed1494bd0be49be0a171af3a68f81d60fd22c5bf6ddba24b" },
-    { "path": "js/views/settings.js", "sha256": "c93911e0054ed35fd6f45086d2c6dde4aa65a7179951d6b3983bbfed6b3a691f" }
+    { "path": "js/views/portfolio.js", "sha256": "b7c378ebb798039cdbebf5660efe4306ac0cd54e9a12ba60d76f06b5f9704bea" },
+    { "path": "js/views/settings.js", "sha256": "c35c88a4ccddf10e861a358290afdd6301844c6d7eda6d1767c6c2d6b1ec2903" }
   ]
 }

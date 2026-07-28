@@ -6,6 +6,7 @@
 
 import { esc, today, pct } from "../format.js";
 import { tile } from "../components.js";
+import { onSubmit, onDelete, apply } from "../forms.js";
 
 // Брокери й фонди — довідники з власними ендпойнтами. Раніше брокери
 // жили CSV-рядком у налаштуваннях, тож «перейменувати» означало лише
@@ -61,37 +62,32 @@ export function bindCatalog(ctx, card, path, withCurrency) {
       row.dataset.was = key();
       const body = { name: name.value.trim() };
       if (withCurrency) body.currency = cur ? cur.value.trim() : "";
-      try { await ctx.api("PUT", `${path}/${id}`, body); ctx.toast("Збережено"); ctx.reload(); }
-      catch (err) { ctx.toast(String(err.message || err), false); }
+      await apply(ctx, { method: "PUT", path: `${path}/${id}`, body }, "Збережено");
     };
     for (const el of [name, cur]) {
       if (!el) continue;
       el.addEventListener("blur", commit);
       el.addEventListener("keydown", (e) => { if (e.key === "Enter") el.blur(); });
     }
-    row.querySelector("[data-catdel]").addEventListener("click", async () => {
-      if (!confirm(`Видалити «${name.value}»?`)) return;
-      try { await ctx.api("DELETE", `${path}/${id}`); ctx.toast("Видалено"); ctx.reload(); }
-      catch (err) { ctx.toast(String(err.message || err), false); }
-    });
+    onDelete(ctx, row, "[data-catdel]", () => ({
+      path: `${path}/${id}`, confirm: `Видалити «${name.value}»?`,
+    }));
   });
 }
 
 export function bindBrokers(ctx, main) {
   bindCatalog(ctx, main.querySelector("#brokerCard"), "brokers", false);
   bindCatalog(ctx, main.querySelector("#fundCatalogCard"), "fund-catalog", true);
-  const form = main.querySelector("#brokerAddForm");
-  if (!form) return;
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const name = e.target.broker.value.trim();
-    if (!name) return;
+  onSubmit(ctx, main.querySelector("#brokerAddForm"), (f) => {
+    const name = f.broker.value.trim();
+    if (!name) return null;
+    // Тезка ловиться тут, а не бекендом: повідомлення зрозуміліше, і зайвий
+    // запит не летить.
     if ((ctx.brokers || []).some((b) => b.name.toLowerCase() === name.toLowerCase())) {
       ctx.toast("Такий брокер уже є", false);
-      return;
+      return null;
     }
-    try { await ctx.api("POST", "brokers", { name }); ctx.toast("Брокера додано"); ctx.reload(); }
-    catch (err) { ctx.toast(String(err.message || err), false); }
+    return { path: "brokers", body: { name }, msg: "Брокера додано" };
   });
 }
 
@@ -196,7 +192,7 @@ export async function renderSettings(ctx, main) {
         входить у прогноз і задає крок поради «відкрити новий вклад». Ставка потрібна лише для поради:
         без неї запис не показується, але поріг усе одно діє. Порожній мінімум USD/EUR = <b>100</b>;
         «0» вимикає валюту. UAH за замовчуванням вимкнено.</div>
-      <form id="depForm">
+      <form id="depositSettingsForm">
         <label>Мінімум вкладу USD<input name="deposit_min_usd" inputmode="decimal" placeholder="порожньо = 100" value="${esc(s.deposit_min_usd || "")}"></label>
         <label>Мінімум вкладу EUR<input name="deposit_min_eur" inputmode="decimal" placeholder="порожньо = 100" value="${esc(s.deposit_min_eur || "")}"></label>
         <label>Мінімум вкладу UAH<input name="deposit_min_uah" inputmode="decimal" placeholder="порожньо = вимкнено" value="${esc(s.deposit_min_uah || "")}"></label>
@@ -224,37 +220,24 @@ export async function renderSettings(ctx, main) {
     </div>`;
   bindBackup(ctx, main);
   bindBrokers(ctx, main);
-  main.querySelector("#setForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const f = e.target;
-    // Збираємо payload лише з полів, які РЕАЛЬНО є у формі. Так
-    // видалення поля не роняє сабміт і — головне — не шле порожнє
-    // значення, яке затерло б налаштування (PUT часткове).
-    // «channels» тут свідомо немає: брокерами керує окрема картка.
-    const payload = {};
-    for (const k of ["usd_target_share_pct", "eur_target_share_pct",
-      "goal_amount_uah", "goal_date",
-      "uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years"]) {
-      if (f.elements[k]) payload[k] = f.elements[k].value.trim();
+  // Обидві форми пишуть у той самий PUT /settings і відрізняються лише
+  // списком полів. Збираємо payload з тих, що РЕАЛЬНО є у формі: PUT
+  // частковий, тож відсутнє поле не шлеться порожнім і не затирає значення.
+  // «channels» тут свідомо немає: брокерами керує окрема картка.
+  const settingsPut = (keys) => (f) => {
+    const body = {};
+    for (const k of keys) {
+      if (f.elements[k]) body[k] = f.elements[k].value.trim();
     }
-    try {
-      await ctx.api("PUT", "settings", payload);
-      ctx.toast("Налаштування збережено"); ctx.reload();
-    } catch (err) { ctx.toast(String(err.message || err), false); }
-  });
-  main.querySelector("#depForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const f = e.target;
-    // Той самий частковий PUT: шлемо лише поля вкладів, решту не чіпаємо.
-    const payload = {};
-    for (const k of ["deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
-      "deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct"]) {
-      if (f.elements[k]) payload[k] = f.elements[k].value.trim();
-    }
-    try {
-      await ctx.api("PUT", "settings", payload);
-      ctx.toast("Налаштування збережено"); ctx.reload();
-    } catch (err) { ctx.toast(String(err.message || err), false); }
-  });
+    return { method: "PUT", path: "settings", body, msg: "Налаштування збережено" };
+  };
+  onSubmit(ctx, main.querySelector("#setForm"), settingsPut([
+    "usd_target_share_pct", "eur_target_share_pct", "goal_amount_uah", "goal_date",
+    "uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years",
+  ]));
+  onSubmit(ctx, main.querySelector("#depositSettingsForm"), settingsPut([
+    "deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
+    "deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct",
+  ]));
 }
 

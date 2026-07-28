@@ -15,6 +15,7 @@ import {
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { tile } from "../components.js";
+import { onSubmit, onDelete } from "../forms.js";
 import {
   fundStatementHTML, wireFundOps, setFundOps, wireDisclosures, disclosure,
 } from "./portfolio.js";
@@ -314,7 +315,7 @@ export async function renderMoney(ctx, main) {
     <div class="card">
       <h2>Додати рух</h2>
       <div class="muted" style="margin-bottom:10px">Поповнення (+) / зняття (−) у своїй валюті. Купівля лота й купони рухають рахунок автоматично.</div>
-      <form id="depForm">
+      <form id="cashForm">
         <label>Сума (+ / −)<input name="amount" inputmode="decimal" placeholder="5000.00" required></label>
         <label>Валюта<select name="currency">${curOpts("UAH")}</select></label>
         <label>Брокер<select name="broker">${ctx.brokerOptions()}</select></label>
@@ -361,39 +362,29 @@ export async function renderMoney(ctx, main) {
     ${importHTML(ctx)}
     ${fundStatementHTML(ctx)}`;
 
-  main.querySelector("#depForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const f = e.target;
-    try {
-      await ctx.api("POST", "deposits", {
-        amount: f.amount.value.trim(), currency: f.currency.value, broker: f.broker.value,
-        date: f.date.value, note: f.note.value.trim(),
-      });
-      ctx.toast("Рух записано"); ctx.reload();
-    } catch (err) { ctx.toast(String(err.message || err), false); }
-  });
-  main.querySelector("#convForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const f = e.target;
-    try {
-      await ctx.api("POST", "conversions", {
-        from_amount: f.from_amount.value.trim(), from_currency: f.from_currency.value,
-        to_amount: f.to_amount.value.trim(), to_currency: f.to_currency.value,
-        broker: f.broker.value, date: f.date.value, note: f.note.value.trim(),
-      });
-      ctx.toast("Конвертацію записано"); ctx.reload();
-    } catch (err) { ctx.toast(String(err.message || err), false); }
-  });
-  main.querySelectorAll("[data-deldep]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      try { await ctx.api("DELETE", "deposits/" + b.dataset.deldep); ctx.toast("Рух видалено"); ctx.reload(); }
-      catch (err) { ctx.toast(String(err.message || err), false); }
-    }));
-  main.querySelectorAll("[data-delconv]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      try { await ctx.api("DELETE", "conversions/" + b.dataset.delconv); ctx.toast("Конвертацію видалено"); ctx.reload(); }
-      catch (err) { ctx.toast(String(err.message || err), false); }
-    }));
+  onSubmit(ctx, main.querySelector("#cashForm"), (f) => ({
+    path: "deposits",
+    body: {
+      amount: f.amount.value.trim(), currency: f.currency.value, broker: f.broker.value,
+      date: f.date.value, note: f.note.value.trim(),
+    },
+    msg: "Рух записано",
+  }));
+  onSubmit(ctx, main.querySelector("#convForm"), (f) => ({
+    path: "conversions",
+    body: {
+      from_amount: f.from_amount.value.trim(), from_currency: f.from_currency.value,
+      to_amount: f.to_amount.value.trim(), to_currency: f.to_currency.value,
+      broker: f.broker.value, date: f.date.value, note: f.note.value.trim(),
+    },
+    msg: "Конвертацію записано",
+  }));
+  onDelete(ctx, main, "[data-deldep]", (b) => ({
+    path: "deposits/" + b.dataset.deldep, msg: "Рух видалено",
+  }));
+  onDelete(ctx, main, "[data-delconv]", (b) => ({
+    path: "conversions/" + b.dataset.delconv, msg: "Конвертацію видалено",
+  }));
   wireReconcile(ctx, main);
   wireImport(ctx, main);
   wireFundOps(ctx, main);

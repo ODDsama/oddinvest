@@ -122,7 +122,7 @@ export class OddInvestApp extends HTMLElement {
     const map = { buy: "portfolio", topup: "portfolio", deposit: "money", convert: "money" };
     this._tab = map[what] || "portfolio";
     await this._loadTab();
-    const sel = { buy: "#lotForm", topup: "#termDepForm", deposit: "#depForm", convert: "#convForm" }[what];
+    const sel = { buy: "#lotForm", topup: "#termDepForm", deposit: "#cashForm", convert: "#convForm" }[what];
     const el = this.shadowRoot.querySelector(sel) || this.shadowRoot.querySelector("#lotForm");
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "center" });

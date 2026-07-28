@@ -23,6 +23,7 @@ import { infoBtn } from "../info.js";
 import { svgBars, svgGrouped, svgDonut, seriesChart } from "../charts.js";
 import { tile, yieldNote, yieldPair } from "../components.js";
 import { FUND_KIND } from "../constants.js";
+import { onSubmit, onDelete } from "../forms.js";
 
 // Журнал операцій із фондами на час одного рендеру: таблиці позицій,
 // лотів, продажів і дивідендів усі читають той самий список, і тягнути
@@ -366,17 +367,17 @@ export function wirePositions(ctx, main) {
 // Лишилось саме видалення: форм більше немає, правити записи виписки
 // руками не дають.
 export function wireFundOps(ctx, main) {
-  main.querySelectorAll("[data-delfund]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      const o = (fundOps || []).find((x) => x.id === +b.dataset.delfund);
-      const what = o ? `${FUND_KIND[o.kind] || o.kind} ${o.fund} від ${o.date}` : "запис #" + b.dataset.delfund;
-      if (!confirm(`Видалити ${what}? Позиція й ціна перерахуються.`)) return;
-      try {
-        await ctx.api("DELETE", "funds/" + b.dataset.delfund);
-        ctx.toast("Запис видалено");
-        await ctx.reload();
-      } catch (err) { ctx.toast(String(err.message || err), false); }
-    }));
+  onDelete(ctx, main, "[data-delfund]", (b) => {
+    // У питанні називаємо саму операцію, а не її номер: «продаж Inzhur REIT
+    // від 12-05» перевіряється поглядом, «запис #37» — ні.
+    const o = (fundOps || []).find((x) => x.id === +b.dataset.delfund);
+    const what = o ? `${FUND_KIND[o.kind] || o.kind} ${o.fund} від ${o.date}` : "запис #" + b.dataset.delfund;
+    return {
+      path: "funds/" + b.dataset.delfund,
+      confirm: `Видалити ${what}? Позиція й ціна перерахуються.`,
+      msg: "Запис видалено",
+    };
+  });
 }
 
 // Плитки дохідностей. Головне число всюди РЕАЛЬНЕ — те саме, що в
@@ -505,12 +506,11 @@ function entryCardHTML(ctx, lots) {
 }
 
 function wireBonds(ctx, main) {
-  main.querySelectorAll("[data-del]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      if (!confirm("Видалити лот #" + b.dataset.del + "?")) return;
-      try { await ctx.api("DELETE", "lots/" + b.dataset.del); ctx.toast("Лот видалено"); ctx.reload(); }
-      catch (err) { ctx.toast(String(err.message || err), false); }
-    }));
+  onDelete(ctx, main, "[data-del]", (b) => ({
+    path: "lots/" + b.dataset.del,
+    confirm: "Видалити лот #" + b.dataset.del + "?",
+    msg: "Лот видалено",
+  }));
 
   // Селектори — від САМОЇ форми, а не від main. Поля звуться загально
   // («isin», «channel»), а розділ тепер зводить в одну сторінку три
@@ -571,36 +571,34 @@ function wireBonds(ctx, main) {
     });
   }
 
-  buyForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const f = e.target;
-    const channel = f.channel_sel.value === "__other__"
-      ? f.channel.value.trim()
-      : f.channel_sel.value.trim();
-    try {
-      await ctx.api("POST", "lots", {
-        isin: f.isin.value.trim(), qty: parseInt(f.qty.value, 10),
-        price_per_bond: f.price_per_bond.value.trim(), fee: f.fee.value.trim(),
-        currency: f.currency.value.trim(), buy_date: f.buy_date.value,
-        channel: channel, note: f.note.value.trim(),
-      });
-      ctx.toast("Лот додано"); ctx.reload();
-    } catch (err) { ctx.toast(String(err.message || err), false); }
-  });
+  onSubmit(ctx, buyForm, (f) => ({
+    path: "lots",
+    body: {
+      isin: f.isin.value.trim(), qty: parseInt(f.qty.value, 10),
+      price_per_bond: f.price_per_bond.value.trim(), fee: f.fee.value.trim(),
+      currency: f.currency.value.trim(), buy_date: f.buy_date.value,
+      // «Інший» відкриває текстове поле поруч із випадайкою.
+      channel: f.channel_sel.value === "__other__"
+        ? f.channel.value.trim()
+        : f.channel_sel.value.trim(),
+      note: f.note.value.trim(),
+    },
+    msg: "Лот додано",
+  }));
 
-  main.querySelector("#saleForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const f = e.target;
+  onSubmit(ctx, main.querySelector("#saleForm"), (f) => {
+    // Валюта продажу — з лота, а не з форми: продати можна лише те, що є.
     const opt = f.lot_id.selectedOptions[0];
-    try {
-      await ctx.api("POST", "sales", {
+    return {
+      path: "sales",
+      body: {
         lot_id: parseInt(f.lot_id.value, 10), sale_date: f.sale_date.value,
         qty: parseInt(f.qty.value, 10), clean_per_bond: f.clean_per_bond.value.trim(),
         accrued: f.accrued.value.trim(), currency: opt ? opt.dataset.cur : "UAH",
         note: f.note.value.trim(),
-      });
-      ctx.toast("Продаж записано"); ctx.reload();
-    } catch (err) { ctx.toast(String(err.message || err), false); }
+      },
+      msg: "Продаж записано",
+    };
   });
 }
 
@@ -973,54 +971,65 @@ export function closedDepositsHTML(ctx, deposits) {
     `${closed.length} ${plural(closed.length, "вклад", "вклади", "вкладів")}`)}</div>`;
 }
 
+// PUT шле вклад ЦІЛКОМ, тож кожна часткова зміна мусить перекласти всі інші
+// поля з уже завантаженого запису. Доти це робилось двічі — окремо при
+// перемиканні «поповнюваний» і окремо при закритті, — і забутий у другій
+// копії replenishable свого часу мовчки скидав прапорець. Тепер тіло
+// збирається в одному місці, а викликач вказує лише те, що змінює.
+function depositBody(d, patch) {
+  return {
+    bank: d.bank, currency: d.principal.currency,
+    principal: d.principal.amount, rate_pct: String(d.rate_pct),
+    open_date: d.open_date, maturity_date: d.maturity_date,
+    payout: d.payout, capitalized: !!d.capitalized,
+    replenishable: !!d.replenishable,
+    tax_pct: String(d.tax_pct), note: d.note || "",
+    closed_date: d.closed_date || "", closed_amount: (d.closed_amount || {}).amount || "",
+    ...patch,
+  };
+}
+
 export function wireDeposits(ctx, main) {
   const byId = new Map((ctx._deposits || []).map((d) => [String(d.id), d]));
 
-  main.querySelector("#termDepForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const f = e.target;
-    try {
-      await ctx.api("POST", "term-deposits", {
-        bank: f.bank.value, currency: f.currency.value,
-        principal: f.principal.value.trim(), rate_pct: f.rate_pct.value.trim(),
-        open_date: f.open_date.value, maturity_date: f.maturity_date.value,
-        payout: f.payout.value, capitalized: f.capitalized.checked,
-        replenishable: f.replenishable.checked,
-        tax_pct: f.tax_pct.value.trim(), note: f.note.value.trim(),
-      });
-      ctx.toast("Вклад додано"); ctx.reload();
-    } catch (err) { ctx.toast(String(err.message || err), false); }
-  });
+  onSubmit(ctx, main.querySelector("#termDepForm"), (f) => ({
+    path: "term-deposits",
+    body: {
+      bank: f.bank.value, currency: f.currency.value,
+      principal: f.principal.value.trim(), rate_pct: f.rate_pct.value.trim(),
+      open_date: f.open_date.value, maturity_date: f.maturity_date.value,
+      payout: f.payout.value, capitalized: f.capitalized.checked,
+      replenishable: f.replenishable.checked,
+      tax_pct: f.tax_pct.value.trim(), note: f.note.value.trim(),
+    },
+    msg: "Вклад додано",
+  }));
 
   // Перемикач «поповнюваний» просто на рядку: це властивість вкладу, яку
   // дізнаєшся вже після відкриття, і заводити заради неї окрему форму
-  // редагування було б надміру. PUT шле вклад цілком — решту полів
-  // беремо з уже завантаженого списку, як і при закритті.
+  // редагування було б надміру.
   main.querySelectorAll("[data-repl]").forEach((cb) =>
     cb.addEventListener("change", async () => {
       const d = byId.get(cb.dataset.repl);
       if (!d) return;
       try {
-        await ctx.api("PUT", "term-deposits/" + d.id, {
-          bank: d.bank, currency: d.principal.currency,
-          principal: d.principal.amount, rate_pct: String(d.rate_pct),
-          open_date: d.open_date, maturity_date: d.maturity_date,
-          payout: d.payout, capitalized: !!d.capitalized,
-          replenishable: cb.checked,
-          tax_pct: String(d.tax_pct), note: d.note || "",
-          closed_date: d.closed_date || "", closed_amount: (d.closed_amount || {}).amount || "",
-        });
+        await ctx.api("PUT", "term-deposits/" + d.id,
+          depositBody(d, { replenishable: cb.checked }));
         ctx.toast(cb.checked ? "Вклад поповнюваний" : "Вклад не поповнюваний");
         ctx.reload();
-      } catch (err) { ctx.toast(String(err.message || err), false); cb.checked = !cb.checked; }
+      } catch (err) {
+        // Галочку повертаємо назад: інакше на екрані лишився б стан, якого
+        // на сервері немає.
+        ctx.toast(String(err.message || err), false);
+        cb.checked = !cb.checked;
+      }
     }));
 
-  main.querySelectorAll("[data-deldep]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      if (!confirm("Видалити вклад #" + b.dataset.deldep + "?")) return;
-      try { await ctx.api("DELETE", "term-deposits/" + b.dataset.deldep); ctx.toast("Вклад видалено"); ctx.reload(); }
-      catch (err) { ctx.toast(String(err.message || err), false); }
-    }));
+  onDelete(ctx, main, "[data-deldep]", (b) => ({
+    path: "term-deposits/" + b.dataset.deldep,
+    confirm: "Видалити вклад #" + b.dataset.deldep + "?",
+    msg: "Вклад видалено",
+  }));
 
   // Окремих кнопок «Поповнити» й «Закрити» більше немає: обидві форми
   // живуть у рядку-деталях, який відкриває та сама стрілка, що показує
@@ -1028,46 +1037,34 @@ export function wireDeposits(ctx, main) {
 
   // Поповнення: сума в валюті вкладу, за замовчуванням = тіло відкриття.
   main.querySelectorAll("[data-topup-form]").forEach((f) =>
-    f.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      try {
-        await ctx.api("POST", "term-deposits/" + f.dataset.topupForm + "/topups", {
-          date: f.date.value, amount: f.amount.value.trim(),
-        });
-        ctx.toast("Поповнення додано"); ctx.reload();
-      } catch (err) { ctx.toast(String(err.message || err), false); }
-    }));
+    onSubmit(ctx, f, () => ({
+      path: "term-deposits/" + f.dataset.topupForm + "/topups",
+      body: { date: f.date.value, amount: f.amount.value.trim() },
+      msg: "Поповнення додано",
+    })));
 
-  main.querySelectorAll("[data-deltopup]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      const [depID, topupID] = b.dataset.deltopup.split(":");
-      try {
-        await ctx.api("DELETE", "term-deposits/" + depID + "/topups/" + topupID);
-        ctx.toast("Поповнення видалено"); ctx.reload();
-      } catch (err) { ctx.toast(String(err.message || err), false); }
-    }));
+  onDelete(ctx, main, "[data-deltopup]", (b) => {
+    const [depID, topupID] = b.dataset.deltopup.split(":");
+    return {
+      path: "term-deposits/" + depID + "/topups/" + topupID,
+      msg: "Поповнення видалено",
+    };
+  });
 
-  // Розірвання = PUT усього вкладу з проставленими closed_*. Решту полів
-  // беремо з уже завантаженого списку — банк перерахує сам, ми лише
-  // вводимо фактично отриману суму.
+  // Розірвання = PUT усього вкладу з проставленими closed_*: банк перерахує
+  // відсотки сам за штрафною ставкою, ми лише вводимо отриману суму.
   main.querySelectorAll("[data-close-form]").forEach((f) =>
-    f.addEventListener("submit", async (e) => {
-      e.preventDefault();
+    onSubmit(ctx, f, () => {
       const d = byId.get(f.dataset.closeForm);
-      if (!d) return;
-      try {
-        await ctx.api("PUT", "term-deposits/" + d.id, {
-          bank: d.bank, currency: d.principal.currency,
-          principal: d.principal.amount, rate_pct: String(d.rate_pct),
-          open_date: d.open_date, maturity_date: d.maturity_date,
-          payout: d.payout, capitalized: !!d.capitalized,
-          replenishable: !!d.replenishable, // PUT шле вклад цілком — без цього
-                                            // закриття скидало б прапорець
-          tax_pct: String(d.tax_pct), note: d.note || "",
-          closed_date: f.closed_date.value, closed_amount: f.closed_amount.value.trim(),
-        });
-        ctx.toast("Вклад закрито"); ctx.reload();
-      } catch (err) { ctx.toast(String(err.message || err), false); }
+      if (!d) return null;
+      return {
+        method: "PUT", path: "term-deposits/" + d.id,
+        body: depositBody(d, {
+          closed_date: f.closed_date.value,
+          closed_amount: f.closed_amount.value.trim(),
+        }),
+        msg: "Вклад закрито",
+      };
     }));
 }
 
