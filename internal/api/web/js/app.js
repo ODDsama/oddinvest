@@ -84,6 +84,9 @@ export class OddInvestApp extends HTMLElement {
     return {
       store: this._store,
       api: (method, path, body) => this._api(method, path, body),
+      // Читання, яке не валить розділ: маршрут може бути новішим за
+      // бекенд, а картка без бенчмарку краща за порожню вкладку.
+      soft: (path, fallback = []) => this._store.soft(path, fallback),
       summary: this._summary,
       brokers: this._brokers,
       fundCatalog: this._fundCatalog,
@@ -177,7 +180,7 @@ export class OddInvestApp extends HTMLElement {
     );
     // попапи «як це читати» — делеговано на весь shadow root
     bindInfo(this.shadowRoot);
-    this.shadowRoot.getElementById("refresh").addEventListener("click", async (e) => {
+    this.shadowRoot.getElementById("refresh")?.addEventListener("click", async (e) => {
       e.target.disabled = true;
       try { await this._api("POST", "refresh"); this._toast("Довідник НБУ оновлено"); this._loadTab(); }
       catch (err) { this._toast(String(err.message || err), false); }
@@ -205,8 +208,8 @@ export class OddInvestApp extends HTMLElement {
   async _loadSummaryData() {
     const [s, brokers, funds] = await Promise.all([
       this._api("GET", "summary"),
-      this._api("GET", "brokers").catch(() => []),
-      this._api("GET", "fund-catalog").catch(() => []),
+      this._store.soft("brokers", []),
+      this._store.soft("fund-catalog", []),
     ]);
     this._summary = s;
     this._brokers = brokers || [];

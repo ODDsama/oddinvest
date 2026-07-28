@@ -52,9 +52,9 @@ export async function renderPortfolio(ctx, main) {
     ctx.api("GET", "positions"),
     ctx.api("GET", "lots"),
     ctx.api("GET", "sales"),
-    ctx.api("GET", "funds").catch(() => []),
-    ctx.api("GET", "term-deposits").catch(() => []),
-    ctx.api("GET", "benchmark").catch(() => null),
+    ctx.soft("funds", []),
+    ctx.soft("term-deposits", []),
+    ctx.soft("benchmark", null),
   ]);
   setFundOps(ops);
   ctx._deposits = deposits; // wireDeposits реконструює вклад для закриття

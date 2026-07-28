@@ -196,7 +196,7 @@ export function wireImport(ctx, main) {
     }
   };
 
-  main.querySelector("#impPreview").addEventListener("click", async (e) => {
+  main.querySelector("#impPreview")?.addEventListener("click", async (e) => {
     e.target.disabled = true;
     try { const res = await send(true); if (res) render(res, true); }
     catch (err) { ctx.toast(String(err.message || err), false); }
@@ -274,11 +274,11 @@ function taxHTML(x) {
 
 export async function renderMoney(ctx, main) {
   const [deposits, conversions, ops, flow, tax] = await Promise.all([
-    ctx.api("GET", "deposits").catch(() => []),
-    ctx.api("GET", "conversions").catch(() => []),
-    ctx.api("GET", "funds").catch(() => []),
-    ctx.api("GET", "cashflow").catch(() => null),
-    ctx.api("GET", "tax").catch(() => null),
+    ctx.soft("deposits", []),
+    ctx.soft("conversions", []),
+    ctx.soft("funds", []),
+    ctx.soft("cashflow", null),
+    ctx.soft("tax", null),
   ]);
   setFundOps(ops);
   const s = ctx.summary || {};

@@ -93,7 +93,7 @@ export function bindBrokers(ctx, main) {
 
 export function bindBackup(ctx, main) {
   // Експорт: тягнемо через проксі (з HA-авторизацією) і зберігаємо як файл.
-  main.querySelector("#btnExport").addEventListener("click", async () => {
+  main.querySelector("#btnExport")?.addEventListener("click", async () => {
     try {
       const resp = await ctx.store.raw("backup");
       if (!resp.ok) throw new Error(await resp.text());
@@ -109,7 +109,7 @@ export function bindBackup(ctx, main) {
   });
 
   // Імпорт: читаємо файл, підтверджуємо (замінює ВСЕ), відновлюємо.
-  main.querySelector("#importFile").addEventListener("change", async (e) => {
+  main.querySelector("#importFile")?.addEventListener("change", async (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     const msg = main.querySelector("#restoreMsg");
@@ -169,7 +169,7 @@ function devalHTML(d) {
 export async function renderSettings(ctx, main) {
   const [s, deval] = await Promise.all([
     ctx.api("GET", "settings"),
-    ctx.api("GET", "devaluation").catch(() => null),
+    ctx.soft("devaluation", null),
   ]);
   main.innerHTML = `
     <div class="card">
