@@ -15,7 +15,7 @@ import {
 import { infoBtn } from "../info.js";
 import { svgBars, svgLine } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
-import { goalsHTML } from "./forecast.js";
+import { goalsHTML, sensitivityHTML } from "./forecast.js";
 
 // Дохід по місяцях: коли саме надійдуть купони й погашення на рік наперед.
 export function income12mChartHTML(ctx) {
@@ -149,6 +149,7 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
 export async function renderFuture(ctx, main) {
   main.innerHTML = `
     ${goalsHTML(ctx)}
+    ${sensitivityHTML(ctx)}
     ${incomeHTML(ctx)}
     <div class="chart-grid">
       ${income12mChartHTML(ctx)}

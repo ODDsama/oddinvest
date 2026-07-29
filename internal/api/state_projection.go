@@ -91,25 +91,52 @@ type projectionPhase struct {
 	// TargetUAH — він самий грішми (нуль, якщо цілі або дедлайну немає).
 	ContribM  float64
 	TargetUAH *money.Money
+	// Sensitivity — «що як»: наслідки зсуву одного входу за раз
+	// (state_sensitivity.go). Рахується тут, бо потребує тієї самої
+	// фабрики рукавів, цілі й дедлайну; окремо вони довелось би вивести
+	// вдруге, і два визначення дедлайну розійшлися б.
+	Sensitivity *state.Sensitivity
 }
 
-// buildProjection рахує криву капіталу, місячний план і віяло прогнозів.
-func buildProjection(in projectionInput) projectionPhase {
-	out := projectionPhase{TargetUAH: money.New(0, money.UAH)}
+// sleeveFactory — усе, що потрібно, щоб зібрати валютні рукави під
+// довільний внесок і зсув ставки.
+//
+// Винесено з тіла buildProjection, бо рукави потрібні ще й фазі
+// чутливості (state_sensitivity.go): вона проганяє ту саму модель із
+// збуреним входом. Тримати збірку замиканням означало б або дублювати її
+// там, або тягти всю проєкцію в чужу фазу.
+type sleeveFactory struct {
+	in     projectionInput
+	share  map[string]float64
+	coupon map[string]map[int]float64
+	redeem map[string]map[int]float64
+	// terminalUAH — куди прийде гривнева ставка; glideYears — за скільки
+	// років вона туди сповзе. Валютні рукави лишаються на своїй ставці.
+	terminalUAH float64
+	glideYears  float64
+}
+
+func newSleeveFactory(in projectionInput) sleeveFactory {
 	today := in.Today
+	f := sleeveFactory{
+		in:          in,
+		share:       map[string]float64{},
+		coupon:      map[string]map[int]float64{},
+		redeem:      map[string]map[int]float64{},
+		terminalUAH: defaultTerminalRatePct,
+		glideYears:  defaultGlideYears,
+	}
 
 	// Реальні майбутні потоки, розкладені по валютах і місяцях.
-	couponByCurMonth := map[string]map[int]float64{}
-	redeemByCurMonth := map[string]map[int]float64{}
 	for _, cf := range in.Cashflow {
 		cur := cf.Amount.Currency().Code
 		mi := (cf.Date.Year()-today.Year())*12 + int(cf.Date.Month()) - int(today.Month())
 		if mi < 1 {
 			mi = 1
 		}
-		dst := couponByCurMonth
+		dst := f.coupon
 		if cf.Type == domain.PayRedemption {
-			dst = redeemByCurMonth
+			dst = f.redeem
 		}
 		if dst[cur] == nil {
 			dst[cur] = map[int]float64{}
@@ -119,95 +146,114 @@ func buildProjection(in projectionInput) projectionPhase {
 
 	// Куди підуть майбутні поповнення: за цільовими валютними частками.
 	// Це вже задано в налаштуваннях, тож нової здогадки не вводимо.
-	share := map[string]float64{}
 	if in.Settings.USDTargetSharePct != nil {
-		share[money.USD] = *in.Settings.USDTargetSharePct / 100
+		f.share[money.USD] = *in.Settings.USDTargetSharePct / 100
 	}
 	if in.Settings.EURTargetSharePct != nil {
-		share[money.EUR] = *in.Settings.EURTargetSharePct / 100
+		f.share[money.EUR] = *in.Settings.EURTargetSharePct / 100
 	}
-	if rest := 1 - share[money.USD] - share[money.EUR]; rest > 0 {
-		share[money.UAH] = rest
+	if rest := 1 - f.share[money.USD] - f.share[money.EUR]; rest > 0 {
+		f.share[money.UAH] = rest
 	} else {
-		share[money.UAH] = 0
+		f.share[money.UAH] = 0
 	}
 
-	// Куди прийде гривнева ставка і як довго вона туди йтиме.
-	terminalUAH := defaultTerminalRatePct
 	if in.Settings.TerminalRatePct != nil && *in.Settings.TerminalRatePct >= 0 {
-		terminalUAH = *in.Settings.TerminalRatePct
+		f.terminalUAH = *in.Settings.TerminalRatePct
 	}
-	glideYears := defaultGlideYears
 	if in.Settings.RateGlideYears != nil && *in.Settings.RateGlideYears >= 0 {
-		glideYears = *in.Settings.RateGlideYears
+		f.glideYears = *in.Settings.RateGlideYears
 	}
+	return f
+}
 
-	// buildSleeves збирає рукави під заданий сумарний внесок і зсув ставки.
-	buildSleeves := func(contribTotal, ratePP float64) []domain.Sleeve {
-		var sleeves []domain.Sleeve
-		for _, cur := range []string{money.UAH, money.USD, money.EUR} {
-			cash := float64(in.CashByCur[cur]) / 100
-			// Замкнений капітал — це НЕ лише номінал ОВДП. Тіло вкладу
-			// поводиться точно як номінал паперу: лежить, платить за
-			// відомим графіком і повертається в кінці строку, — а
-			// сертифікат лежить безстроково й платить дивідендами. Обидва
-			// потоки вже стоять у Coupon/Redeem нижче.
-			//
-			// Доти в базі рукава їх не було, і з цього виходило дві біди.
-			// Перша: погашення вкладу приходило в готівку з тіла, якого
-			// модель не тримала, — гроші зʼявлялись нізвідки. Друга:
-			// колонка «Внесено» стартувала з усього капіталу, а «З
-			// реінвестом» — лише з облігацій і рахунку, тож приріст між
-			// ними був занижений рівно на фонди й вклади, а на портфелі,
-			// де їх більшість, ставав відʼємним.
-			//
-			// Сертифікат лежить у `locked` і сам не росте: його дохід
-			// приходить дивідендами (реальними або обіцяними фондом), а
-			// подорожчання ціни застосунок не моделює ніде — див.
-			// «Що купити». Це занижує довгі горизонти, і краще так, ніж
-			// домальовувати зростання, якого ніхто не обіцяв.
-			nom := float64(in.NominalByCur[cur])/100 +
-				in.DepositBodyByCur[cur] + in.FundValueByCur[cur]
-			contrib := contribTotal * share[cur]
-			if cash == 0 && nom == 0 && contrib == 0 {
-				continue // валюти немає і не планується
-			}
-			rate, ok := in.YieldByCur[cur]
-			if !ok {
-				rate = in.AvgRateByCur[cur] // паперів цієї валюти ще немає
-			}
-			if rate > 40 {
-				rate = 40 // стеля, щоб компаунд не вибухав
-			}
-			// Сьогоднішня ставка — факт: за нею можна купити просто зараз.
-			// Припущенням є те, куди вона прийде, тож розкид сценаріїв
-			// вішаємо на довгострокову ставку, а не на сьогоднішню.
-			terminal := rate
-			if cur == money.UAH {
-				terminal = terminalUAH
-			}
-			if terminal += ratePP; terminal < 0 {
-				terminal = 0
-			}
-			if terminal > 40 {
-				terminal = 40
-			}
-			rate0 := 1.0
-			if cur != money.UAH {
-				u, err := fx.ToUAH(money.New(100, cur), in.Rates)
-				if err != nil {
-					continue // курсу немає — рукав порахувати чесно не вийде
-				}
-				rate0 = float64(u.Amount()) / 100
-			}
-			sleeves = append(sleeves, domain.Sleeve{
-				Currency: cur, Cash0: cash, Nominal0: nom, RatePct: rate,
-				RateTerminalPct: terminal, GlideYears: glideYears,
-				Threshold: in.ReinvestMinByCur[cur], Coupon: couponByCurMonth[cur],
-				Redeem: redeemByCurMonth[cur], ContribUAH: contrib, Rate0: rate0,
-			})
+// build збирає рукави під заданий сумарний внесок і зсув ставки.
+func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
+	in, share := f.in, f.share
+	var sleeves []domain.Sleeve
+	for _, cur := range []string{money.UAH, money.USD, money.EUR} {
+		cash := float64(in.CashByCur[cur]) / 100
+		// Замкнений капітал — це НЕ лише номінал ОВДП. Тіло вкладу
+		// поводиться точно як номінал паперу: лежить, платить за
+		// відомим графіком і повертається в кінці строку, — а
+		// сертифікат лежить безстроково й платить дивідендами. Обидва
+		// потоки вже стоять у Coupon/Redeem нижче.
+		//
+		// Доти в базі рукава їх не було, і з цього виходило дві біди.
+		// Перша: погашення вкладу приходило в готівку з тіла, якого
+		// модель не тримала, — гроші зʼявлялись нізвідки. Друга:
+		// колонка «Внесено» стартувала з усього капіталу, а «З
+		// реінвестом» — лише з облігацій і рахунку, тож приріст між
+		// ними був занижений рівно на фонди й вклади, а на портфелі,
+		// де їх більшість, ставав відʼємним.
+		//
+		// Сертифікат лежить у `locked` і сам не росте: його дохід
+		// приходить дивідендами (реальними або обіцяними фондом), а
+		// подорожчання ціни застосунок не моделює ніде — див.
+		// «Що купити». Це занижує довгі горизонти, і краще так, ніж
+		// домальовувати зростання, якого ніхто не обіцяв.
+		nom := float64(in.NominalByCur[cur])/100 +
+			in.DepositBodyByCur[cur] + in.FundValueByCur[cur]
+		contrib := contribTotal * share[cur]
+		if cash == 0 && nom == 0 && contrib == 0 {
+			continue // валюти немає і не планується
 		}
-		return sleeves
+		rate, ok := in.YieldByCur[cur]
+		if !ok {
+			rate = in.AvgRateByCur[cur] // паперів цієї валюти ще немає
+		}
+		if rate > 40 {
+			rate = 40 // стеля, щоб компаунд не вибухав
+		}
+		// Сьогоднішня ставка — факт: за нею можна купити просто зараз.
+		// Припущенням є те, куди вона прийде, тож розкид сценаріїв
+		// вішаємо на довгострокову ставку, а не на сьогоднішню.
+		terminal := rate
+		if cur == money.UAH {
+			terminal = f.terminalUAH
+		}
+		if terminal += ratePP; terminal < 0 {
+			terminal = 0
+		}
+		if terminal > 40 {
+			terminal = 40
+		}
+		rate0 := 1.0
+		if cur != money.UAH {
+			u, err := fx.ToUAH(money.New(100, cur), in.Rates)
+			if err != nil {
+				continue // курсу немає — рукав порахувати чесно не вийде
+			}
+			rate0 = float64(u.Amount()) / 100
+		}
+		sleeves = append(sleeves, domain.Sleeve{
+			Currency: cur, Cash0: cash, Nominal0: nom, RatePct: rate,
+			RateTerminalPct: terminal, GlideYears: f.glideYears,
+			Threshold: in.ReinvestMinByCur[cur], Coupon: f.coupon[cur],
+			Redeem: f.redeem[cur], ContribUAH: contrib, Rate0: rate0,
+		})
+	}
+	return sleeves
+}
+
+// buildProjection рахує криву капіталу, місячний план і віяло прогнозів.
+func buildProjection(in projectionInput) projectionPhase {
+	out := projectionPhase{TargetUAH: money.New(0, money.UAH)}
+	today := in.Today
+	factory := newSleeveFactory(in)
+	buildSleeves := factory.build
+	glideYears := factory.glideYears
+
+	// Ширина віяла — з налаштувань, зі спадом на ті самі числа, що доти
+	// стояли константами. Доти «песимістично» означало рівно те, що хтось
+	// одного разу вирішив за користувача, і змінити це можна було лише
+	// перезбіркою.
+	rateSpreadPP, devalSpreadPP := defaultRateSpreadPP, defaultDevalSpreadPP
+	if in.Settings.RateSpreadPP != nil && *in.Settings.RateSpreadPP >= 0 {
+		rateSpreadPP = *in.Settings.RateSpreadPP
+	}
+	if in.Settings.DevalSpreadPP != nil && *in.Settings.DevalSpreadPP >= 0 {
+		devalSpreadPP = *in.Settings.DevalSpreadPP
 	}
 
 	if sl := buildSleeves(0, 0); len(sl) > 0 {
@@ -260,6 +306,21 @@ func buildProjection(in projectionInput) projectionPhase {
 		out.TargetUAH = money.New(int64(math.Round(out.ContribM*100)), money.UAH)
 	}
 
+	// «Що як» — від ФАКТИЧНОГО темпу, коли він відомий: людина стоїть
+	// там, де стоїть, і «×2 від плану, якого вона не тягне» — марна
+	// відповідь. Розкид ставки й знецінення береться той самий, що задає
+	// ширину віяла, інакше «песимістично» в одній картці й «гірший ринок»
+	// у сусідній означали б різне.
+	contribBase, baseFrom := out.ContribM, "plan"
+	if in.ActualMonthly > 0 {
+		contribBase, baseFrom = in.ActualMonthly, "actual"
+	}
+	out.Sensitivity = buildSensitivity(sensitivityInput{
+		Factory: factory, Deval: in.Deval, Goal: goalAmount, Deadline: deadlineMonths,
+		ContribBase: contribBase, BaseFrom: baseFrom,
+		RateSpreadPP: rateSpreadPP, DevalSpreadPP: devalSpreadPP, Today: today,
+	})
+
 	// Старт проєкції — капітал БЕЗ резерву. Решта входить уся, разом із
 	// сертифікатами й вкладами: інакше крива починалась би нижче за
 	// плитку «Капітал» на ту саму суму (доти так і було — вклади сюди не
@@ -309,17 +370,6 @@ func buildProjection(in projectionInput) projectionPhase {
 	// ринок і дисципліна — злипались в одне число.
 	if deadlineMonths <= 0 {
 		return out
-	}
-	// Ширина віяла — з налаштувань, зі спадом на ті самі числа, що доти
-	// стояли константами. Доти «песимістично» означало рівно те, що хтось
-	// одного разу вирішив за користувача, і змінити це можна було лише
-	// перезбіркою.
-	rateSpreadPP, devalSpreadPP := defaultRateSpreadPP, defaultDevalSpreadPP
-	if in.Settings.RateSpreadPP != nil && *in.Settings.RateSpreadPP >= 0 {
-		rateSpreadPP = *in.Settings.RateSpreadPP
-	}
-	if in.Settings.DevalSpreadPP != nil && *in.Settings.DevalSpreadPP >= 0 {
-		devalSpreadPP = *in.Settings.DevalSpreadPP
 	}
 	type scenario struct {
 		key, label             string

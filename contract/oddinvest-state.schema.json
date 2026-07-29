@@ -656,6 +656,38 @@
         "unlock_date": { "type": "string" }
       }
     },
+    "sensitivity": {
+      "type": "object",
+      "description": "Що зрушить ціль: наслідки зсуву ОДНОГО входу за раз. Не поради й не рейтинг — рядки стоять сталими групами (адитивне поле)",
+      "properties": {
+        "base_contrib_uah": { "type": "number", "description": "Внесок, від якого відштовхуються важелі, ₴/міс" },
+        "base_from": { "type": "string", "enum": ["actual", "plan"], "description": "Звідки взято базовий внесок: фактичний темп чи план" },
+        "base_goal_months": { "type": "integer", "description": "Місяців до цілі за базового входу; -1 = вже досягнуто, 0 = не досягається за 60 років" },
+        "base_goal_date": { "type": "string", "format": "date" },
+        "base_amount_uah": { "type": "number", "description": "Скільки буде на дедлайн за базового входу, у сьогоднішніх ₴" },
+        "base_goal_pct": { "type": "number", "description": "Яка це частка цілі, %" },
+        "goal_uah": { "type": "number", "description": "Ціль, спільна для всіх рядків" },
+        "deadline_months": { "type": "integer", "description": "Місяців до дедлайну" },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "lever": { "type": "string", "enum": ["contrib", "rate", "deval", "deadline", "goal"], "description": "Який вхід зсунуто" },
+              "factor": { "type": "number", "description": "Множник (важелі contrib і goal)" },
+              "delta_pp": { "type": "number", "description": "Зсув у п.п. (важелі rate і deval)" },
+              "delta_months": { "type": "integer", "description": "Зсув у місяцях (важіль deadline)" },
+              "value": { "type": "number", "description": "Величина ПІСЛЯ зсуву, у своїй одиниці: ₴/міс, %, п.п., ₴ або місяців" },
+              "goal_months": { "type": "integer", "description": "Місяців до цілі за цього входу. Для важеля deadline — базові: місяць досягнення від дедлайну не залежить" },
+              "goal_date": { "type": "string", "format": "date" },
+              "amount_uah": { "type": "number", "description": "Скільки буде на дедлайн, у сьогоднішніх ₴" },
+              "goal_pct": { "type": "number", "description": "Яка це частка цілі, %" }
+            },
+            "required": ["lever", "value", "goal_months", "amount_uah", "goal_pct"]
+          }
+        }
+      }
+    },
     "forecast": {
       "type": "object",
       "description": "Прогноз капіталу до дати цілі: ціль одна, сценарії відрізняються ДОПУЩЕННЯМИ (адитивне поле)",

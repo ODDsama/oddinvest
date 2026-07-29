@@ -748,7 +748,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
 
 		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
-		Rebalance: rebalance, Concentration: concentration,
+		Sensitivity: prj.Sensitivity,
+		Rebalance:   rebalance, Concentration: concentration,
 		RateRisk: rateRisk, Liquidity: liquidity,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,

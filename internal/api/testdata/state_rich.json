@@ -686,6 +686,117 @@
       }
     ]
   },
+  "sensitivity": {
+    "base_contrib_uah": 62987.08,
+    "base_from": "actual",
+    "base_goal_months": 55,
+    "base_goal_date": "2031-02-15",
+    "base_amount_uah": 3152638.68,
+    "base_goal_pct": 78.8,
+    "goal_uah": 4000000,
+    "deadline_months": 39,
+    "rows": [
+      {
+        "lever": "contrib",
+        "factor": 0.5,
+        "value": 31493.54,
+        "goal_months": 112,
+        "goal_date": "2035-11-15",
+        "amount_uah": 2029971.44,
+        "goal_pct": 50.7
+      },
+      {
+        "lever": "contrib",
+        "factor": 1.5,
+        "value": 94480.62,
+        "goal_months": 36,
+        "goal_date": "2029-07-15",
+        "amount_uah": 4275311.82,
+        "goal_pct": 106.9
+      },
+      {
+        "lever": "contrib",
+        "factor": 2,
+        "value": 125974.16,
+        "goal_months": 27,
+        "goal_date": "2028-10-15",
+        "amount_uah": 5397988.76,
+        "goal_pct": 134.9
+      },
+      {
+        "lever": "rate",
+        "delta_pp": 3,
+        "value": 3,
+        "goal_months": 52,
+        "goal_date": "2030-11-15",
+        "amount_uah": 3222769.59,
+        "goal_pct": 80.6
+      },
+      {
+        "lever": "rate",
+        "delta_pp": -3,
+        "value": -3,
+        "goal_months": 58,
+        "goal_date": "2031-05-15",
+        "amount_uah": 3099661.25,
+        "goal_pct": 77.5
+      },
+      {
+        "lever": "deval",
+        "delta_pp": -4,
+        "value": 3,
+        "goal_months": 47,
+        "goal_date": "2030-06-15",
+        "amount_uah": 3478105.59,
+        "goal_pct": 87
+      },
+      {
+        "lever": "deval",
+        "delta_pp": 4,
+        "value": 11,
+        "goal_months": 68,
+        "goal_date": "2032-03-15",
+        "amount_uah": 2873251.57,
+        "goal_pct": 71.8
+      },
+      {
+        "lever": "deadline",
+        "delta_months": 12,
+        "value": 51,
+        "goal_months": 55,
+        "goal_date": "2031-02-15",
+        "amount_uah": 3809485.39,
+        "goal_pct": 95.2
+      },
+      {
+        "lever": "deadline",
+        "delta_months": -12,
+        "value": 27,
+        "goal_months": 55,
+        "goal_date": "2031-02-15",
+        "amount_uah": 2482987.19,
+        "goal_pct": 62.1
+      },
+      {
+        "lever": "goal",
+        "factor": 0.75,
+        "value": 3000000,
+        "goal_months": 37,
+        "goal_date": "2029-08-15",
+        "amount_uah": 3152638.68,
+        "goal_pct": 105.1
+      },
+      {
+        "lever": "goal",
+        "factor": 0.5,
+        "value": 2000000,
+        "goal_months": 19,
+        "goal_date": "2028-02-15",
+        "amount_uah": 3152638.68,
+        "goal_pct": 157.6
+      }
+    ]
+  },
   "rebalance": [
     {
       "dimension": "currency",

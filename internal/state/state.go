@@ -206,6 +206,10 @@ type Doc struct {
 	// трьох наборів допущень. Ціль — одна сума-орієнтир, з якою вони
 	// порівнюються.
 	Forecast *Forecast `json:"forecast,omitempty"`
+	// Sensitivity — що зрушить ціль: по одному зсунутому входу за раз
+	// (адитивне поле). Продовження прогнозу, а не його заміна: той каже
+	// «за фактом 9%», цей — на скільки й від чого ці 9% зміняться.
+	Sensitivity *Sensitivity `json:"sensitivity,omitempty"`
 
 	// Rebalance — підказка виходу на цільові валютні частки (по валютах,
 	// де задано ціль). RateRisk — процентний ризик портфеля (дюрація).
@@ -560,6 +564,62 @@ type ForecastRow struct {
 	// ByCurrency — розклад по валютних рукавах: під що саме росте кожна
 	// валюта і скільки грошей у неї спрямовується.
 	ByCurrency []SleeveRow `json:"by_currency,omitempty"`
+}
+
+// Sensitivity — що станеться з ціллю, якщо змінити ОДИН вхід.
+//
+// Відповідь на питання, з яким лишається користувач після картки
+// прогнозу: «за фактом покривається 9% — а що саме змінити». Кожен рядок
+// рухає рівно один важіль; змішані сценарії виглядають переконливіше,
+// але в них не видно, що саме дало ефект.
+//
+// Рядки НЕ відсортовані «найкращий зверху» і не мають позначки
+// «рекомендовано» — це наслідки припущень, а не поради. Половина
+// важелів (ставка, знецінення) від людини взагалі не залежить.
+type Sensitivity struct {
+	// BaseContribUAH — від чого відштовхуються важелі внеску;
+	// BaseFrom — "actual" (фактичний темп) або "plan". Фактичний
+	// береться, коли відомий: людина стоїть там, де стоїть, і «×2 від
+	// плану, якого вона не тягне» — марна відповідь.
+	BaseContribUAH float64 `json:"base_contrib_uah"`
+	BaseFrom       string  `json:"base_from"`
+	// Базовий результат — із чим порівнюються рядки. GoalMonths: -1 =
+	// вже досягнуто, 0 = не досягається за 60 років.
+	BaseGoalMonths int     `json:"base_goal_months"`
+	BaseGoalDate   string  `json:"base_goal_date,omitempty"`
+	BaseAmountUAH  float64 `json:"base_amount_uah"`
+	BaseGoalPct    float64 `json:"base_goal_pct"`
+	// Умови, спільні для всіх рядків.
+	GoalUAH        float64          `json:"goal_uah"`
+	DeadlineMonths int              `json:"deadline_months"`
+	Rows           []SensitivityRow `json:"rows,omitempty"`
+}
+
+// SensitivityRow — один зсунутий вхід.
+//
+// Заповнене рівно одне зі зсувів: Factor (внесок, ціль), DeltaPP
+// (ставка, знецінення) або DeltaMonths (дедлайн). Value — сама величина
+// ПІСЛЯ зсуву, у своїй одиниці: ₴/міс для внеску, % для знецінення, п.п.
+// для ставки, ₴ для цілі, місяців для дедлайну.
+//
+// Підписів тут немає навмисно: складати «внесок ×2» у бекенді означало б
+// тримати форматування у двох місцях — тут і в панелі.
+type SensitivityRow struct {
+	Lever       string  `json:"lever"` // contrib | rate | deval | deadline | goal
+	Factor      float64 `json:"factor,omitempty"`
+	DeltaPP     float64 `json:"delta_pp,omitempty"`
+	DeltaMonths int     `json:"delta_months,omitempty"`
+	Value       float64 `json:"value"`
+	// GoalMonths / GoalDate — коли ціль буде досягнута за цього входу.
+	// Для важеля «дедлайн» вони БАЗОВІ, і це не помилка: місяць
+	// досягнення від дедлайну не залежить — він каже, коли ціль буде
+	// досягнута, а не коли її чекають.
+	GoalMonths int    `json:"goal_months"`
+	GoalDate   string `json:"goal_date,omitempty"`
+	// AmountUAH — скільки буде на дедлайн, у сьогоднішніх гривнях;
+	// GoalPct — яка це частка цілі.
+	AmountUAH float64 `json:"amount_uah"`
+	GoalPct   float64 `json:"goal_pct"`
 }
 
 // SleeveRow — один валютний рукав сценарію. Amount — у НАТИВНІЙ валюті.

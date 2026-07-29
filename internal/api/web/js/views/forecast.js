@@ -124,3 +124,95 @@ export function goalsHTML(ctx) {
     ${head}${range}${marketRows}${actualBlock}</div>`;
 }
 
+// ---------- «Що як»: який важіль наскільки зрушує ціль ----------
+//
+// Продовження картки прогнозу, а не її заміна. Та каже «за фактом
+// покривається 9%» і зупиняється; ця відповідає на питання, з яким після
+// цього лишається читач.
+//
+// Рядки НЕ сортуються «найкращий зверху» і не мають позначки
+// «рекомендовано»: у коді записано «Це інструмент, не порада», і половина
+// важелів (ставка, знецінення) від людини взагалі не залежить. Групи
+// стоять у сталому порядку — спершу те, що людина рухає сама, потім
+// погода, потім самі умови задачі.
+
+// Підпис важеля будується ТУТ, а не в бекенді: документ несе числа й
+// ключ, як RebalanceRow. Інакше форматування жило б у двох місцях.
+const LEVER_GROUP = [
+  ["contrib", "Внесок", "єдине, що ти рухаєш сам"],
+  ["rate", "Ставка", "куди прийде довгострокова"],
+  ["deval", "Знецінення", "як швидко слабшає гривня"],
+  ["deadline", "Дедлайн", "коли саме ти чекаєш ціль"],
+  ["goal", "Ціль", "скільки з неї вже покривається"],
+];
+
+// Як прочитати зсув рядка. Множник для внеску й цілі, п.п. для ринку,
+// місяці для дедлайну — заповнене рівно одне.
+function leverShift(r) {
+  if (r.factor) return `×${String(r.factor).replace(".", ",")}`;
+  if (r.delta_pp) return `${r.delta_pp > 0 ? "+" : "−"}${Math.abs(r.delta_pp)} п.п.`;
+  if (r.delta_months) return `${r.delta_months > 0 ? "+" : "−"}${Math.abs(r.delta_months)} міс`;
+  return "";
+}
+
+// Величина після зсуву — у своїй одиниці. Одиницю знає лише важіль, тож
+// вибір тут, а не у форматері.
+function leverValue(r) {
+  const round = (v) => Math.round(v || 0).toLocaleString("uk-UA");
+  switch (r.lever) {
+    case "contrib": return `${round(r.value)} ₴/міс`;
+    case "rate": return `${r.value > 0 ? "+" : ""}${r.value} п.п.`;
+    case "deval": return `${pct(r.value)}/рік`;
+    case "deadline": return humanMonths(r.value);
+    case "goal": return `${round(r.value)} ₴`;
+    default: return "";
+  }
+}
+
+// Коли ціль буде досягнута. Нуль означає «не досягається за 60 років» —
+// саме так, а не «0 місяців»: різниця між «нескоро» й «негайно»
+// протилежна, і плутати їх не можна.
+function goalWhen(months, date) {
+  if (months === -1) return "вже";
+  if (months > 0) return monthYear(date);
+  return "не досягається";
+}
+
+export function sensitivityHTML(ctx) {
+  const s = (ctx.summary || {}).sensitivity;
+  if (!s || !(s.rows || []).length) return "";
+  const round = (v) => Math.round(v || 0).toLocaleString("uk-UA");
+  const baseWhen = goalWhen(s.base_goal_months, s.base_goal_date);
+  const baseFrom = s.base_from === "actual"
+    ? "від фактичного темпу" : "від планового внеску";
+
+  const groups = LEVER_GROUP.map(([key, title, why]) => {
+    const rows = s.rows.filter((r) => r.lever === key);
+    if (!rows.length) return "";
+    const items = rows.map((r) => {
+      const when = goalWhen(r.goal_months, r.goal_date);
+      // Стрілка лише там, де є що порівнювати: для дедлайну місяць
+      // досягнення навмисно базовий, тож рухається сама сума.
+      const moved = r.goal_months !== s.base_goal_months;
+      return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:5px">
+        <span><b>${esc(leverShift(r))}</b> <span class="muted" style="font-size:12px">${esc(leverValue(r))}</span></span>
+        <span style="text-align:right">
+          ${moved ? `<b>${esc(when)}</b>` : `<span class="muted">${esc(when)}</span>`}
+          <span class="muted" style="font-size:11px"> · ${(r.goal_pct || 0).toFixed(0)}% цілі</span>
+        </span>
+      </div>`;
+    }).join("");
+    return `<div style="margin-bottom:12px">
+      <div class="sub-xs" style="margin-bottom:4px"><b>${esc(title)}</b> · ${esc(why)}</div>
+      ${items}</div>`;
+  }).join("");
+
+  return `<div class="card"><h2 class="h-row"><span>Що зрушить ціль ${infoBtn("sensitivity")}</span></h2>
+    <div class="sub">Один вхід за раз, ${esc(baseFrom)} ${round(s.base_contrib_uah)} ₴/міс.
+      Зараз ціль ${esc(baseWhen)} — ${(s.base_goal_pct || 0).toFixed(0)}% на дедлайн.</div>
+    <div class="sub-xs" style="margin-bottom:10px">Це наслідки припущень, а не поради: рядки не
+      відсортовані «найкращий зверху», і половина з них — ставка й знецінення — від тебе не
+      залежить узагалі.</div>
+    ${groups}</div>`;
+}
+
