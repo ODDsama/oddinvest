@@ -109,6 +109,7 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 			"lots": len(b.Lots), "sales": len(b.Sales), "deposits": len(b.Deposits),
 			"conversions": len(b.Conversions), "fund_ops": len(b.FundOps),
 			"term_deposits": len(b.TermDeposits), "deposit_topups": len(b.DepositTopups),
+			"funds": len(b.Funds), "brokers": len(b.Brokers),
 			"settings":       len(b.Settings),
 			"payment_status": len(b.PaymentStatus), "snapshots": len(b.Snapshots),
 		},

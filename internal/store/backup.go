@@ -36,10 +36,48 @@ type Backup struct {
 	DepositTopups []BackupDepositTopup `json:"deposit_topups,omitempty"`
 	// ReserveOps omitempty з тієї ж причини: бекапи до появи резерву його
 	// не мають, і restore просто не створить жодного руху.
-	ReserveOps    []BackupReserveOp `json:"reserve_ops,omitempty"`
+	ReserveOps []BackupReserveOp `json:"reserve_ops,omitempty"`
+	// Довідники. omitempty з тієї ж причини, що й усе вище: бекапи, зроблені
+	// до їхньої появи, читаються без цих полів так само, як раніше — фонди й
+	// брокери відновляться з назв в операціях, рівно як доти.
+	Funds         []BackupFund      `json:"funds,omitempty"`
+	Brokers       []BackupBroker    `json:"brokers,omitempty"`
 	Settings      map[string]string `json:"settings"`
 	PaymentStatus []BackupPayStatus `json:"payment_status"`
 	Snapshots     []Snapshot        `json:"snapshots"`
+}
+
+// BackupFund — рядок довідника фондів (refs.go: Fund).
+//
+// Довідник довго відновлювався ПОБІЧНИМ ЕФЕКТОМ: фонд заводився з назви й
+// валюти першої-ліпшої операції, а все, чого з операцій не вивести —
+// обіцяна дохідність, її валюта й день виплати, — мовчки ставало нулем.
+// Наслідок був не косметичний. У фонду з обіцянкою 9.5% USD відновлення
+// збивало yield_basis з «обіцяно фондом» на «дивіденди після податку»,
+// прибирало з календаря всі оцінені виплати (12 → 0) і разом із ними
+// next_payout, а income_monthly_now просідав на чверть. Тобто restore тихо
+// змінював числа портфеля — найгірший різновид втрати, бо цифри лишаються
+// правдоподібними.
+//
+// Ключ — НАЗВА, а не id: бекап тримається назв усюди (див. ExportAll), і
+// саме тому формат пережив нормалізацію.
+type BackupFund struct {
+	Name     string `json:"name"`
+	Currency string `json:"currency"`
+	// Три поля нижче — те, чого з операцій не вивести взагалі. omitempty:
+	// у фонду без заданої обіцянки вони нулі, і дамп виглядає як раніше.
+	ExpectedYieldBP  int64  `json:"expected_yield_bp,omitempty"`
+	ExpectedYieldCur string `json:"expected_yield_currency,omitempty"`
+	PayoutDay        int64  `json:"payout_day,omitempty"`
+}
+
+// BackupBroker — рядок довідника брокерів.
+//
+// Самих назв в операціях мало: брокер, заведений наперед і ще не вжитий у
+// жодному записі, не згадується ніде, тож відновлення його просто губило —
+// разом із випадайкою, до якої людина звикла.
+type BackupBroker struct {
+	Name string `json:"name"`
 }
 
 // BackupReserveOp — рух резерву. Резерв невідновний так само, як лоти:
@@ -273,6 +311,32 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	// Довідники — цілком, а не лише тими рядками, які згадані в операціях.
+	// Порядок за назвою, як у ListFunds/ListBrokers: дамп того самого стану
+	// має бути тим самим файлом.
+	if err := s.scan(ctx, `SELECT name,currency,expected_yield_bp,expected_yield_currency,payout_day
+		FROM funds ORDER BY name COLLATE NOCASE`,
+		func(scan func(...any) error) error {
+			var r BackupFund
+			if err := scan(&r.Name, &r.Currency, &r.ExpectedYieldBP, &r.ExpectedYieldCur, &r.PayoutDay); err != nil {
+				return err
+			}
+			b.Funds = append(b.Funds, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT name FROM brokers ORDER BY name COLLATE NOCASE`,
+		func(scan func(...any) error) error {
+			var r BackupBroker
+			if err := scan(&r.Name); err != nil {
+				return err
+			}
+			b.Brokers = append(b.Brokers, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT key,value FROM settings`,
 		func(scan func(...any) error) error {
 			var k, v string
@@ -393,6 +457,32 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 		funds[name] = id
 		return id, nil
+	}
+
+	// Довідники — ПЕРШИМИ й цілком, доки жодна операція їх ще не завела
+	// побічним ефектом. Порядок тут і є суттю виправлення: fundRef задає
+	// валюту ЛИШЕ при створенні й нічого не знає про обіцяну дохідність,
+	// тож фонд, заведений з операції, назавжди лишався б із нулями в
+	// трьох полях, яких з операцій не вивести. Заселивши довідник наперед,
+	// ми робимо подальший fundRef простим пошуком у мапі.
+	//
+	// Старі дампи цих переліків не мають — обидва цикли просто не
+	// виконуються, і відновлення йде рівно тим шляхом, що й доти.
+	for _, br := range b.Brokers {
+		if _, err := brokerRef(br.Name); err != nil {
+			return fmt.Errorf("брокер %q: %w", br.Name, err)
+		}
+	}
+	for _, f := range b.Funds {
+		id, err := fundRef(f.Name, f.Currency)
+		if err != nil {
+			return fmt.Errorf("фонд %q: %w", f.Name, err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE funds SET expected_yield_bp=?,
+			expected_yield_currency=?, payout_day=? WHERE id=?`,
+			f.ExpectedYieldBP, strings.TrimSpace(f.ExpectedYieldCur), f.PayoutDay, id); err != nil {
+			return fmt.Errorf("фонд %q: %w", f.Name, err)
+		}
 	}
 
 	for _, l := range b.Lots {

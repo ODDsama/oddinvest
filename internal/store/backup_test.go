@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	money "github.com/Rhymond/go-money"
@@ -244,5 +246,190 @@ func TestBackupRoundTripKeepsDepositTopups(t *testing.T) {
 	// Накопичене тіло = 100к + 100к + 100к = 300к.
 	if bal := deps[0].BalanceAt("2026-12-01"); bal != 30000000 {
 		t.Errorf("накопичене тіло після відновлення: маємо %d, хочемо 30000000", bal)
+	}
+}
+
+// Довідник фондів мусить пережити круговий обіг у КОЖНОМУ полі.
+//
+// Це не гіпотетика. Доти бекап довідника не ніс зовсім, і фонд
+// відновлювався побічним ефектом — заводився з назви й валюти першої-ліпшої
+// операції. Усе, чого з операцій не вивести, мовчки ставало нулем, і на
+// копії бойових даних це виглядало так: у фонду з обіцянкою 9.5% USD
+// yield_basis падав з «обіцяно фондом» на «дивіденди після податку», з
+// календаря зникали всі 12 оцінених виплат разом із next_payout, а
+// income_monthly_now просідав зі 191.51 до 140.21 ₴/міс. Числа лишались
+// правдоподібними — тому відновлення й мовчало.
+//
+// Обіг іде ЧЕРЕЗ JSON навмисно: у пам'яті поле без json-тегу переживе
+// ExportAll→ImportAll і загубиться рівно там, де бекап і живе, — у файлі.
+func TestBackupRoundTripKeepsFundCatalog(t *testing.T) {
+	ctx := context.Background()
+	src := openTest(t)
+
+	// Окремого «створити фонд» немає: фонд заводить перша операція, а
+	// довідник дописує те, чого з неї не вивести.
+	if _, err := src.AddFundOp(ctx, domain.FundOp{
+		Date: "2025-09-04", Fund: "Inzhur REIT", Kind: domain.FundBuy,
+		Qty: 1738, Amount: 1738000, Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	funds, err := src.ListFunds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(funds) != 1 {
+		t.Fatalf("операція мала завести один фонд, маємо %d", len(funds))
+	}
+	// Обіцянка в ЧУЖІЙ валюті: сертифікат гривневий, обіцянка доларова —
+	// саме та пара, через яку валюту обіцянки й винесли в окреме поле.
+	want := funds[0]
+	want.Currency = money.UAH
+	want.ExpectedYieldBP = 950
+	want.ExpectedYieldCur = money.USD
+	want.PayoutDay = 10
+	if err := src.RenameFund(ctx, want.ID, want); err != nil {
+		t.Fatal(err)
+	}
+	// Нульове поле тест «зберегти» не може: нуль після відновлення і є те,
+	// що ми ловимо. Тож нова колонка довідника валить перевірку доти, доки
+	// їй не припишуть тут помітного значення.
+	wv := reflect.ValueOf(want)
+	for i := 0; i < wv.NumField(); i++ {
+		if wv.Field(i).IsZero() {
+			t.Fatalf("поле %s лишилось нульовим — дай йому помітне значення, "+
+				"інакше тест не побачить, що бекап його губить", wv.Type().Field(i).Name)
+		}
+	}
+
+	dump, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dump.Funds) != 1 {
+		t.Fatalf("експорт мав узяти довідник з одного фонду, маємо %d", len(dump.Funds))
+	}
+	raw, err := json.Marshal(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onDisk Backup
+	if err := json.Unmarshal(raw, &onDisk); err != nil {
+		t.Fatal(err)
+	}
+
+	// катастрофа: чиста база
+	dst := openTest(t)
+	if err := dst.ImportAll(ctx, &onDisk); err != nil {
+		t.Fatalf("імпорт: %v", err)
+	}
+	got, err := dst.ListFunds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("після відновлення %d фондів замість 1", len(got))
+	}
+	gv := reflect.ValueOf(got[0])
+	for i := 0; i < wv.NumField(); i++ {
+		// id не переносимо навмисно: бекап тримається НАЗВ, і саме тому
+		// формат пережив нормалізацію (див. ExportAll).
+		if name := wv.Type().Field(i).Name; name == "ID" {
+			continue
+		}
+		if !reflect.DeepEqual(gv.Field(i).Interface(), wv.Field(i).Interface()) {
+			t.Errorf("бекап загубив поле %s: %v замість %v",
+				wv.Type().Field(i).Name, gv.Field(i).Interface(), wv.Field(i).Interface())
+		}
+	}
+	// І операція мусить лишитись причепленою до того самого фонду, а не до
+	// другого з тією ж назвою: заселення довідника наперед не має плодити дублів.
+	ops, err := dst.ListFundOps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ops) != 1 || ops[0].Fund != want.Name {
+		t.Fatalf("операція відчепилась від фонду: %+v", ops)
+	}
+}
+
+// Брокер, заведений наперед і ще не вжитий у жодному записі, не згадується
+// в операціях — з самих назв в операціях його не відновити, і відновлення
+// губило його разом із випадайкою, до якої людина звикла.
+func TestBackupRoundTripKeepsUnusedBroker(t *testing.T) {
+	ctx := context.Background()
+	src := openTest(t)
+	if _, err := src.AddBroker(ctx, "ПУМБ"); err != nil {
+		t.Fatal(err)
+	}
+	dump, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dst := openTest(t)
+	if err := dst.ImportAll(ctx, dump); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dst.ListBrokers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "ПУМБ" {
+		t.Fatalf("невживаний брокер не пережив відновлення: %+v", got)
+	}
+}
+
+// Схема бекапу росте АДИТИВНО: дамп, зроблений до появи поля, мусить
+// читатись без помилки й відновлюватись рівно тим шляхом, що й доти.
+//
+// Тут це важить окремо: довідники — не просто нові поля, вони змінюють
+// ПОРЯДОК заселення при імпорті. Старий дамп їх не має, обидва цикли не
+// виконуються, і фонд із брокером, як і раніше, заводяться з назв в
+// операціях.
+func TestImportBackupWithoutDirectories(t *testing.T) {
+	const old = `{
+	  "schema": 1,
+	  "app": "oddinvest",
+	  "exported_at": "2026-07-01T00:00:00Z",
+	  "lots": [],
+	  "sales": [],
+	  "deposits": [],
+	  "conversions": [],
+	  "fund_ops": [
+	    {"id": 1, "date": "2025-09-04", "fund": "Inzhur REIT", "kind": "buy",
+	     "qty": 1738, "amount": 1738000, "tax": 0, "currency": "UAH",
+	     "broker": "inzhur", "note": ""}
+	  ],
+	  "settings": {"monthly_target_uah": "5000"},
+	  "payment_status": [],
+	  "snapshots": []
+	}`
+	var b Backup
+	if err := json.Unmarshal([]byte(old), &b); err != nil {
+		t.Fatalf("старий дамп мусить читатись: %v", err)
+	}
+	if b.Funds != nil || b.Brokers != nil {
+		t.Fatalf("довідники мали лишитись порожніми: %+v / %+v", b.Funds, b.Brokers)
+	}
+
+	ctx := context.Background()
+	st := openTest(t)
+	if err := st.ImportAll(ctx, &b); err != nil {
+		t.Fatalf("відновлення старого дампу: %v", err)
+	}
+	funds, err := st.ListFunds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(funds) != 1 || funds[0].Name != "Inzhur REIT" || funds[0].Currency != money.UAH {
+		t.Fatalf("фонд мав завестись з операції: %+v", funds)
+	}
+	brokers, err := st.ListBrokers(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(brokers) != 1 || brokers[0].Name != "inzhur" {
+		t.Fatalf("брокер мав завестись з операції: %+v", brokers)
 	}
 }
