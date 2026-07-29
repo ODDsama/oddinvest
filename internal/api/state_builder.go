@@ -161,99 +161,18 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-	// внески місяця: покупки поточного місяця в грн-еквіваленті
-	monthInv := money.New(0, money.UAH)
-	for _, l := range hold.Lots {
-		// Уся куплена кількість, а не залишок: питання «скільки я вклав
-		// цього місяця», і продаж наступного дня факту покупки не скасовує.
-		if l.BuyDate.Year() == now.Year() && l.BuyDate.Month() == now.Month() {
-			cost := domain.MulQty(l.PricePerBond, l.Qty)
-			if l.Fee != nil && !l.Fee.IsZero() {
-				if cost, err = cost.Add(l.Fee); err != nil {
-					return nil, err
-				}
-			}
-			uahAmt, err := fx.ToUAH(cost, rates)
-			if err != nil {
-				return nil, err
-			}
-			monthInv, err = monthInv.Add(uahAmt)
-			if err != nil {
-				return nil, err
-			}
-		}
+	// Рухи поточного місяця й фактичний темп (state_month.go).
+	mth, err := buildMonth(src, hold, rates, now, today)
+	if err != nil {
+		return nil, err
 	}
-
-	// Сертифікати фондів — теж купівля паперів, тож у «вкладено цього
-	// місяця» вони входять нарівні з облігаціями. Досі не входили лише
-	// тому, що фонди прибудовувались до моделі пізніше.
-	for _, op := range fundOps {
-		if op.Kind != domain.FundBuy ||
-			op.Date.Year() != now.Year() || op.Date.Month() != now.Month() {
-			continue
-		}
-		if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
-			if sum, aerr := monthInv.Add(u); aerr == nil {
-				monthInv = sum
-			}
-		}
-	}
+	monthInv := mth.InvestedUAH
+	monthDep, monthOut := mth.DepositedUAH, mth.WithdrawnUAH
+	actualMonthly, actualMonths := mth.ActualMonthlyUAH, mth.ActualMonths
 
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну нижче, коли вже зібрані валютні рукави.
 	target := money.New(0, money.UAH)
-
-	// Поповнення за поточний місяць. Саме поповнення, а не купівлі:
-	// план тепер означає «скільки НОВИХ грошей треба вносити до цілі»,
-	// а купівля лише переносить гроші з рахунку в папери. Порівнювати
-	// план із купівлями означало б показувати 100% виконання за папір,
-	// куплений на накопичені купони, — до цілі це не додає нічого.
-	monthDep := money.New(0, money.UAH)
-	monthOut := money.New(0, money.UAH) // зняття цього місяця, додатнім числом
-	for _, d := range src.deposits {
-		if d.Date.Year() != now.Year() || int(d.Date.Month()) != int(now.Month()) {
-			continue
-		}
-		if d.Amount < 0 {
-			if u, cerr := fx.ToUAH(money.New(-d.Amount, d.Currency), rates); cerr == nil {
-				if sum, aerr := monthOut.Add(u); aerr == nil {
-					monthOut = sum
-				}
-			}
-		}
-		// Нетто, а не сума поповнень: зняття зменшує капітал так само,
-		// як поповнення його збільшує. Без цього переказ між брокерами
-		// (він записується як зняття + поповнення, бо окремої сутності
-		// переказу немає) роздував би «внесено» на свою суму, не
-		// додавши жодної нової копійки.
-		if u, cerr := fx.ToUAH(money.New(d.Amount, d.Currency), rates); cerr == nil {
-			if sum, aerr := monthDep.Add(u); aerr == nil {
-				monthDep = sum
-			}
-		}
-	}
-	// Резерв рахується в тому самому нетто, і саме тому, що переміщення
-	// гаманець → матрац записується ДВОМА ногами (мінус у deposits, плюс
-	// тут): порізно перша нога виглядала б як втрата капіталу, а разом
-	// вони дають нуль, як і має бути. Відкладені зовні гроші, які на
-	// рахунок брокера не заходили, це й далі чесний внесок.
-	for _, op := range reserveOps {
-		if op.Date.Year() != now.Year() || int(op.Date.Month()) != int(now.Month()) {
-			continue
-		}
-		if op.Amount < 0 {
-			if u, cerr := fx.ToUAH(money.New(-op.Amount, op.Currency), rates); cerr == nil {
-				if sum, aerr := monthOut.Add(u); aerr == nil {
-					monthOut = sum
-				}
-			}
-		}
-		if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
-			if sum, aerr := monthDep.Add(u); aerr == nil {
-				monthDep = sum
-			}
-		}
-	}
 
 	// Неперевкладені: надійшлі виплати без статусу reinvested. Рахуються по
 	// ВСІХ інструментах із розкладом — купони й погашення ОВДП тут, відсотки
@@ -732,62 +651,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	portfolioYield, portfolioYieldReal := bnd.YieldPct, bnd.YieldRealPct
 	portfolioYieldByCur := bnd.YieldByCur
 	portfolioYieldRealByCur := bnd.YieldRealByCur
-
-	// --- фактичний темп поповнень ---
-	// План може розходитись із реальністю, тож рахуємо ще й середній темп
-	// НОВИХ грошей. Саме поповнень, а не покупок: покупка лише переносить
-	// гроші з рахунку в папери й нового капіталу не додає (а купони вже
-	// враховані окремо).
-	//
-	// Знаменник — це +1 місяць до проміжку «перше поповнення … сьогодні», і
-	// це не косметика. Поповнення фінансують ПЕРІОДИ, а не проміжок між
-	// собою: три щомісячні внески покривають три місяці, тоді як від
-	// першого до сьогодні минуло лише два. Ділення на проміжок завищувало
-	// темп у півтора раза (15 000 за 60 днів давали 7 610 ₴/міс замість
-	// 5 000). Та сама поправка знімає й вибух на старті: одне поповнення
-	// сьогодні дає знаменник 1, а не 0.1, тож окремий поріг більше не
-	// потрібен — темп показуємо одразу, а поруч пишемо, на якій довжині
-	// історії він порахований, щоб було видно, наскільки йому вірити.
-	var actualMonthly float64
-	var actualMonths int
-	// Вікно — останні півроку, а не вся історія.
-	//
-	// Усереднення за весь час міряє не темп, а біографію: якщо портфель
-	// колись виходив у нуль і починався заново, внески «до» і виведення
-	// «під час» гасять одне одного, і сьогоднішні 7 500 ₴/міс виглядають
-	// як 430. На реальних даних саме так і сталось — 29 місяців історії з
-	// повним виходом посередині дали 0% від потрібного при живих внесках.
-	//
-	// Півроку — компроміс: досить довго, щоб пропущений місяць не обвалив
-	// оцінку, і досить коротко, щоб показник відповідав на «як я вкладаю
-	// ЗАРАЗ», а саме це питання йому й ставлять.
-	const actualWindowDays = 183
-	if len(src.deposits) > 0 {
-		first := today
-		var totalUAH int64
-		for _, d := range src.deposits {
-			if n := domain.DaysBetween(d.Date, today); n < 0 || n > actualWindowDays {
-				continue
-			}
-			if d.Date.Before(first) {
-				first = d.Date
-			}
-			// Нетто: зняття теж рух капіталу. Інакше переказ між брокерами
-			// (зняття + поповнення) завищував би темп на свою суму, а
-			// прогноз «За фактом» через це малював би дисципліну, якої немає.
-			if u, cerr := fx.ToUAH(money.New(d.Amount, d.Currency), rates); cerr == nil {
-				totalUAH += u.Amount()
-			}
-		}
-		if totalUAH > 0 {
-			months := float64(domain.DaysBetween(first, today))/30.44 + 1
-			if months < 1 {
-				months = 1
-			}
-			actualMonths = int(months + 0.5)
-			actualMonthly = round2(float64(totalUAH) / 100 / months)
-		}
-	}
 
 	// --- проєкція капіталу: помісячна симуляція РЕАЛЬНИХ потоків ---
 	// (купони/погашення наявних паперів) + внески; реінвест під дохідність
