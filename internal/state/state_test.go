@@ -12,9 +12,29 @@ import (
 	"github.com/ODDsama/oddinvest/internal/fx"
 )
 
-func sampleInput(t *testing.T) Input {
+// sampleDoc — документ у тому вигляді, у якому його заповнює будівник:
+// прямі поля кладуться в Doc, похідні добудовує Derive.
+//
+// Доти тут був один літерал Input на пʼятдесят полів, і він працював ще й
+// як чек-лист: видно було, що подано все. Тепер прямі поля й входи
+// похідних розділені, і саме це розділення й перевіряється.
+func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 	t.Helper()
-	return Input{
+	monthDep := money.New(450_000, money.UAH)
+	monthTarget := money.New(500_000, money.UAH)
+	settings := func() *SettingsDoc {
+		tgt, u := 5000.0, 50.0
+		return &SettingsDoc{MonthlyTargetUAH: &tgt, USDTargetSharePct: &u}
+	}()
+	doc := &Doc{
+		MonthInvestedUAH:  Major(money.New(450_000, money.UAH)),
+		MonthDepositedUAH: Major(monthDep),
+		MonthTargetUAH:    Major(monthTarget),
+		UninvestedUAH:     Major(money.New(0, money.UAH)),
+		Settings:          settings,
+		XIRRPct:           map[string]float64{"UAH": 16.51, "USD": 3.22},
+	}
+	in := DeriveInput{
 		Now: time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC),
 		Positions: []domain.Position{
 			{ISIN: "UA4000227748", Currency: "UAH", Qty: 50,
@@ -41,25 +61,16 @@ func sampleInput(t *testing.T) Input {
 			BondsUAH:   50_000 + 88_246.80,
 			BondsByCur: map[string]float64{money.USD: 88_246.80},
 		},
-		MonthInvestedUAH:  money.New(450_000, money.UAH),
-		MonthDepositedUAH: money.New(450_000, money.UAH),
-		MonthTargetUAH:    money.New(500_000, money.UAH),
-		UninvestedUAH:     money.New(0, money.UAH),
-		TopN:              5,
-		Settings: func() *SettingsDoc {
-			t, u := 5000.0, 50.0
-			return &SettingsDoc{
-				MonthlyTargetUAH:  &t,
-				USDTargetSharePct: &u,
-			}
-		}(),
-		XIRRPct: map[string]float64{"UAH": 16.51, "USD": 3.22},
+		MonthDeposited: monthDep,
+		MonthTarget:    monthTarget,
+		TopN:           5,
 	}
+	return doc, in
 }
 
-func TestBuild(t *testing.T) {
-	doc, err := Build(sampleInput(t))
-	if err != nil {
+func TestDerive(t *testing.T) {
+	doc, in := sampleDoc(t)
+	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
 	}
 	if doc.Schema != 1 {
@@ -100,8 +111,48 @@ func TestBuild(t *testing.T) {
 	}
 }
 
-func TestBuildEmptyPortfolio(t *testing.T) {
-	doc, err := Build(Input{Now: time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)})
+// TestDeriveNextPaymentSkipsPast — «найближча виплата» не може бути
+// вчорашньою.
+//
+// Сьогодні цю перевірку не видно ні в golden, ні у фікстурі: будівник
+// складає календар уже відфільтрованим від сьогоднішнього дня, тож
+// минулих виплат у ньому не буває, і мутація «прибрати фільтр» нічого не
+// ламає. Тобто вона захисна, а не жива.
+//
+// Прибирати її через це не варто: Derive — публічна межа пакета, і
+// нізвідки не випливає, що календар завжди прийде обрізаним. Але
+// незакрита захисна перевірка нічим не краща за її відсутність, тож
+// перевіряємо прямо — подаємо календар із минулим у ньому.
+func TestDeriveNextPaymentSkipsPast(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	doc := &Doc{}
+	err := Derive(doc, DeriveInput{
+		Now: now,
+		Cashflow: []domain.CashflowItem{
+			{Date: "2026-06-01", ISIN: "UA1", Type: domain.PayCoupon, Amount: money.New(100_00, money.UAH)},
+			{Date: "2026-08-01", ISIN: "UA2", Type: domain.PayCoupon, Amount: money.New(200_00, money.UAH)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.NextPayment == nil {
+		t.Fatal("найближчої виплати немає, хоч майбутня в календарі є")
+	}
+	if doc.NextPayment.Date != "2026-08-01" {
+		t.Errorf("найближча виплата %q — це вчорашній день, а не наступний",
+			doc.NextPayment.Date)
+	}
+	// Календар при цьому лишається ПОВНИМ: він відповідає на інше питання,
+	// і викидати з нього минуле означало б зламати звірку.
+	if len(doc.Calendar) != 2 {
+		t.Errorf("у календарі %d рядків, очікували 2 — минуле з нього не зникає", len(doc.Calendar))
+	}
+}
+
+func TestDeriveEmptyPortfolio(t *testing.T) {
+	doc := &Doc{}
+	err := Derive(doc, DeriveInput{Now: time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,8 +164,8 @@ func TestBuildEmptyPortfolio(t *testing.T) {
 // TestFixtureUpToDate гарантує, що фікстура контракту в contract/fixtures
 // зібрана саме цим кодом: інтеграція (репо ha-oddinvest) тестується проти неї.
 func TestFixtureUpToDate(t *testing.T) {
-	doc, err := Build(sampleInput(t))
-	if err != nil {
+	doc, in := sampleDoc(t)
+	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
 	}
 	got, err := json.MarshalIndent(doc, "", "  ")

@@ -13,12 +13,10 @@ package state
 
 import (
 	"encoding/json"
-	"time"
 
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
-	"github.com/ODDsama/oddinvest/internal/fx"
 )
 
 const SchemaVersion = 1
@@ -660,65 +658,6 @@ type PaymentRow struct {
 	Currency string  `json:"currency"`
 }
 
-// Input — все, що потрібно для побудови документа (домен уже порахований).
-type Input struct {
-	Now               time.Time
-	Positions         []domain.Position
-	Cashflow          []domain.CashflowItem // майбутні виплати від сьогодні
-	Ladder            []domain.LadderEntry
-	Rates             fx.Rates
-	MonthInvestedUAH  *money.Money
-	MonthDepositedUAH *money.Money
-	MonthWithdrawnUAH *money.Money
-	MonthTargetUAH    *money.Money
-	UninvestedUAH     *money.Money
-	AccountUAH        *money.Money
-	ReinvestMinUAH    *money.Money
-	Accounts          map[string]float64
-	Brokers           map[string]map[string]float64
-	InvestedByBroker  map[string]float64
-	LadderUAH         []YearAmount
-	Income12m         []MonthAmount
-	Coupons12m        []MonthAmount
-	FundsUAH          float64
-	Funds             []FundPositionRow
-	// Capital — ГОТОВЕ зведення від будівника. Тут воно лише читається:
-	// капітал і частки мусять мати одну точку збирання, інакше два
-	// визначення розходяться мовчки (див. коментар у Build).
-	Capital Capital
-	// DepositsUAH — тіло діючих вкладів, грн-екв (для поля deposits_uah).
-	DepositsUAH float64
-	// Резерв: грн-екв усього, по валютах (нативно, для картки), по місцях
-	// і дата останнього руху. Валютні частки резерву в Capital, не тут.
-	ReserveUAH          float64
-	ReserveByCur        map[string]float64
-	ReservePlaces       map[string]float64
-	ReserveLastMove     string
-	IncomeMonthlyNow    float64
-	ReinvestMinByCur    map[string]float64
-	TopN                int
-	Settings            *SettingsDoc
-	XIRRPct             map[string]float64
-	PortfolioYieldPct   float64
-	FundsYieldPct       float64
-	BlendedYieldPct     float64
-	PortfolioYield      map[string]float64
-	PortfolioYieldReal  map[string]float64
-	FundsYieldRealPct   float64
-	BlendedYieldRealPct float64
-	Projection          []ProjectionRow
-	ProjectionRatePct   float64
-	Forecast            *Forecast
-	Rebalance           []RebalanceRow
-	Concentration       []ConcentrationRow
-	RateRisk            *RateRisk
-	Liquidity           *Liquidity
-	AccruedUAH          float64
-	NBURefreshedAt      string
-	ActualMonthlyUAH    float64
-	ActualMonths        int
-}
-
 func payTypeStr(t domain.PayType) string {
 	switch t {
 	case domain.PayCoupon:
@@ -731,234 +670,15 @@ func payTypeStr(t domain.PayType) string {
 	return "unknown"
 }
 
-func major(m *money.Money) float64 {
+// Major — мінорні одиниці в мажорні. Експортована, бо будівник кладе в
+// документ сім грошових полів, і робити для кожного окремий вхід у Derive
+// означало б відновити той самий п'ятдесятипольовий літерал, від якого
+// Derive і рятує.
+func Major(m *money.Money) float64 {
 	if m == nil {
 		return 0
 	}
 	return float64(m.Amount()) / 100.0
-}
-
-// Build збирає документ стану.
-func Build(in Input) (*Doc, error) {
-	doc := &Doc{
-		Schema:      SchemaVersion,
-		GeneratedAt: in.Now.UTC().Format(time.RFC3339),
-		Ladder:      []LadderRow{},
-		TopPayments: []PaymentRow{},
-		Calendar:    []PaymentRow{},
-	}
-
-	var investedUAH, nominalUAH, nominalUSD, nominalEUR int64
-	for _, p := range in.Positions {
-		inv, err := fx.ToUAH(p.Invested, in.Rates)
-		if err != nil {
-			return nil, err
-		}
-		nom, err := fx.ToUAH(p.Nominal, in.Rates)
-		if err != nil {
-			return nil, err
-		}
-		investedUAH += inv.Amount()
-		nominalUAH += nom.Amount()
-		switch p.Currency {
-		case money.USD:
-			nominalUSD += nom.Amount()
-		case money.EUR:
-			nominalEUR += nom.Amount()
-		}
-	}
-	doc.InvestedUAH = float64(investedUAH) / 100
-	doc.NominalUAHEq = float64(nominalUAH) / 100
-	// Капітал приходить ГОТОВИЙ від будівника, і тут не збирається.
-	//
-	// Доти збирався — і це був не другий екземпляр того самого, а друге
-	// ВИЗНАЧЕННЯ. Числа розходились двічі: номінал тут брався з
-	// domain.Positions, яка (до виправлення) не відкидала погашених
-	// паперів, а по валютах сумувався ПОЗИЦІЯМИ, тоді як будівник
-	// конвертував агрегат по валюті — інше банківське заокруглення. Тобто
-	// плитка «Частка USD» і картка ребалансу могли знову розійтись, хоч
-	// саме заради їх сходження Capital і заводився.
-	//
-	// Тепер тип має рівно одну точку збирання (state_builder), а цей пакет
-	// його лише читає.
-	doc.CapitalUAH = round2(in.Capital.TotalUAH())
-	doc.USDSharePct = in.Capital.SharePct(money.USD)
-	doc.EURSharePct = in.Capital.SharePct(money.EUR)
-
-	doc.MonthInvestedUAH = major(in.MonthInvestedUAH)
-	doc.MonthDepositedUAH = major(in.MonthDepositedUAH)
-	doc.MonthWithdrawnUAH = major(in.MonthWithdrawnUAH)
-	doc.MonthTargetUAH = major(in.MonthTargetUAH)
-	doc.MonthProgressPct = domain.ProgressPct(in.MonthDepositedUAH, in.MonthTargetUAH)
-	doc.UninvestedUAH = major(in.UninvestedUAH)
-	doc.AccountUAH = major(in.AccountUAH)
-	doc.ReinvestMinUAH = major(in.ReinvestMinUAH)
-	doc.Accounts = in.Accounts
-	doc.Brokers = in.Brokers
-	doc.InvestedByBroker = in.InvestedByBroker
-	doc.LadderUAH = in.LadderUAH
-	doc.Income12m = in.Income12m
-	doc.FundsUAH = in.FundsUAH
-	doc.DepositsUAH = in.DepositsUAH
-	doc.ReserveUAH = in.ReserveUAH
-	// Курси віддаємо як звичайні числа: у сховищі вони ×10⁴, але це
-	// внутрішня одиниця, і тягнути її в контракт означало б змусити
-	// кожного споживача ділити самотужки.
-	if len(in.Rates) > 0 {
-		doc.Rates = make(map[string]float64, len(in.Rates))
-		for code, e4 := range in.Rates {
-			if e4 > 0 {
-				if v, ok := fx.RateMajor(code, in.Rates); ok {
-					doc.Rates[code] = v
-				}
-			}
-		}
-	}
-	doc.Funds = in.Funds
-	// Собівартість фондів — ЄДИНА сума, і зводиться вона тут, із тих самих
-	// позицій, що йдуть у документ. Складати її окремо десь іще означало б
-	// завести другу відповідь на те саме питання.
-	for _, f := range in.Funds {
-		doc.FundsCostUAH += f.CostBasis
-	}
-	doc.FundsCostUAH = round2(doc.FundsCostUAH)
-	doc.Coupons12m = in.Coupons12m
-	doc.IncomeMonthlyNow = in.IncomeMonthlyNow
-	doc.ReinvestMin = in.ReinvestMinByCur
-	if doc.Accounts == nil {
-		doc.Accounts = map[string]float64{}
-	}
-	if doc.ReinvestMin == nil {
-		doc.ReinvestMin = map[string]float64{}
-	}
-	doc.Settings = in.Settings
-	doc.XIRRPct = in.XIRRPct
-	doc.PortfolioYieldPct = in.PortfolioYieldPct
-	doc.FundsYieldPct = in.FundsYieldPct
-	doc.BlendedYieldPct = in.BlendedYieldPct
-	doc.PortfolioYield = in.PortfolioYield
-	doc.FundsYieldRealPct = in.FundsYieldRealPct
-	doc.BlendedYieldRealPct = in.BlendedYieldRealPct
-	doc.PortfolioYieldReal = in.PortfolioYieldReal
-	doc.Projection = in.Projection
-	doc.ProjectionRatePct = in.ProjectionRatePct
-	doc.Forecast = in.Forecast
-	doc.Rebalance = in.Rebalance
-	doc.Concentration = in.Concentration
-	doc.RateRisk = in.RateRisk
-	doc.Liquidity = in.Liquidity
-	doc.AccruedUAH = in.AccruedUAH
-	doc.NBURefreshedAt = in.NBURefreshedAt
-	doc.ActualMonthlyUAH = in.ActualMonthlyUAH
-	doc.ActualMonths = in.ActualMonths
-
-	// Резерв показуємо, лише коли він є або задано витрати: порожня картка
-	// з нулями нічого не додає, а «0 місяців із 3» без заданих витрат ще й
-	// вигадувала б ціль, якої користувач не ставив.
-	monthlyExp, targetMonths := 0.0, 0.0
-	if in.Settings != nil {
-		if in.Settings.MonthlyExpensesUAH != nil {
-			monthlyExp = *in.Settings.MonthlyExpensesUAH
-		}
-		if in.Settings.ReserveTargetMonths != nil {
-			targetMonths = *in.Settings.ReserveTargetMonths
-		}
-	}
-	if in.ReserveUAH != 0 || monthlyExp > 0 {
-		r := &Reserve{
-			UAH: in.ReserveUAH, ByCurrency: in.ReserveByCur, Places: in.ReservePlaces,
-			LastMove: in.ReserveLastMove, MonthlyExpensesUAH: monthlyExp,
-			TargetMonths: targetMonths,
-		}
-		if total := in.Capital.TotalUAH(); total > 0 {
-			r.SharePct = in.ReserveUAH * 100 / total
-		}
-		if monthlyExp > 0 {
-			r.Months = in.ReserveUAH / monthlyExp
-			if targetMonths > 0 {
-				r.TargetUAH = monthlyExp * targetMonths
-				// Gap лише додатний: «перебір» резерву не є браком, і
-				// від'ємне число тут UI прочитав би як «докласти −5 000».
-				if gap := r.TargetUAH - in.ReserveUAH; gap > 0 {
-					r.GapUAH = gap
-				}
-			}
-		}
-		doc.Reserve = r
-	}
-
-	nowDate := domain.NewDate(in.Now)
-	var monthIncoming int64
-	for _, cf := range in.Cashflow {
-		if cf.Date.Year() == in.Now.Year() && cf.Date.Month() == in.Now.Month() {
-			uahAmt, err := fx.ToUAH(cf.Amount, in.Rates)
-			if err != nil {
-				return nil, err
-			}
-			monthIncoming += uahAmt.Amount()
-		}
-	}
-	doc.MonthIncomingUAH = float64(monthIncoming) / 100
-
-	for _, cf := range in.Cashflow {
-		if cf.Date.Before(nowDate) {
-			continue
-		}
-		doc.NextPayment = &NextPayment{
-			Date:     string(cf.Date),
-			ISIN:     cf.ISIN,
-			Type:     payTypeStr(cf.Type),
-			Amount:   major(cf.Amount),
-			Currency: cf.Amount.Currency().Code,
-		}
-		break
-	}
-
-	// Складаємо, а не присвоюємо. Доки в драбині були самі облігації, на
-	// рік і валюту припадав рівно один запис, і різниці не було. Відколи
-	// туди ж лягли вклади, їх стало два — і облігації, що гасяться того ж
-	// року в тій самій валюті, зникали з рядка. Стовпчики над таблицею
-	// весь цей час сумували чесно, тож числа розходились одне з одним.
-	byYear := map[int]*LadderRow{}
-	years := []int{}
-	for _, le := range in.Ladder {
-		row, ok := byYear[le.Year]
-		if !ok {
-			row = &LadderRow{Year: le.Year}
-			byYear[le.Year] = row
-			years = append(years, le.Year)
-		}
-		switch le.Currency {
-		case money.UAH:
-			row.UAH += float64(le.Nominal) / 100
-		case money.USD:
-			row.USD += float64(le.Nominal) / 100
-		case money.EUR:
-			row.EUR += float64(le.Nominal) / 100
-		}
-	}
-	for _, y := range years {
-		doc.Ladder = append(doc.Ladder, *byYear[y])
-	}
-
-	topN := in.TopN
-	if topN <= 0 {
-		topN = 5
-	}
-	for i, cf := range in.Cashflow {
-		row := PaymentRow{
-			Date:     string(cf.Date),
-			ISIN:     cf.ISIN,
-			Type:     payTypeStr(cf.Type),
-			Amount:   major(cf.Amount),
-			Currency: cf.Amount.Currency().Code,
-		}
-		doc.Calendar = append(doc.Calendar, row)
-		if i < topN {
-			doc.TopPayments = append(doc.TopPayments, row)
-		}
-	}
-	return doc, nil
 }
 
 func (d *Doc) JSON() ([]byte, error) { return json.Marshal(d) }

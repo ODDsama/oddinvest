@@ -13,13 +13,15 @@ var update = flag.Bool("update", false, "перегенерувати фікст
 func TestMain(m *testing.M) {
 	flag.Parse()
 	if *update {
-		doc, err := Build(sampleInputForUpdate())
-		if err != nil {
+		doc, in := sampleDoc(&testing.T{})
+		if err := Derive(doc, in); err != nil {
 			panic(err)
 		}
 		b, _ := json.MarshalIndent(doc, "", "  ")
 		os.WriteFile("../../contract/fixtures/basic.json", append(b, '\n'), 0o644)
-		empty, err := Build(Input{Now: time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)})
+
+		empty := &Doc{}
+		err := Derive(empty, DeriveInput{Now: time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)})
 		if err != nil {
 			panic(err)
 		}
@@ -28,11 +30,3 @@ func TestMain(m *testing.M) {
 	}
 	os.Exit(m.Run())
 }
-
-func sampleInputForUpdate() Input {
-	t := &testing.T{}
-	_ = t
-	return sampleInput(&testing.T{})
-}
-
-var _ = time.Now

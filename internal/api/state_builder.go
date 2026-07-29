@@ -722,32 +722,46 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	})
 	rateRisk, liquidity, accruedUAH := rsk.RateRisk, rsk.Liquidity, rsk.AccruedUAH
 
-	return state.Build(state.Input{
-		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
-		Rates: rates, MonthInvestedUAH: monthInv, MonthDepositedUAH: monthDep,
-		MonthWithdrawnUAH: monthOut,
-		MonthTargetUAH:    target,
-		UninvestedUAH:     unin, AccountUAH: account, ReinvestMinUAH: reinvestMin,
+	// Документ заповнюється НАПРЯМУ, а не через проміжний літерал на
+	// пʼятдесят полів: тридцять із них були дзеркалом Doc, тобто пакет
+	// state здебільшого переписував із однієї структури в іншу.
+	doc := &state.Doc{
+		MonthInvestedUAH:  state.Major(monthInv),
+		MonthDepositedUAH: state.Major(monthDep),
+		MonthWithdrawnUAH: state.Major(monthOut),
+		MonthTargetUAH:    state.Major(target),
+		UninvestedUAH:     state.Major(unin),
+		AccountUAH:        state.Major(account),
+		ReinvestMinUAH:    state.Major(reinvestMin),
+
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
 		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
 		FundsUAH: round2(fundsUAH), Funds: fundRows,
-		// Capital зібраний вище один раз; state його лише читає.
-		Capital:     capital,
-		DepositsUAH: round2(depositsUAH),
-		ReserveUAH:  round2(reserveUAH), ReserveByCur: reserveByCur,
-		ReservePlaces:    reservePlaces,
-		ReserveLastMove:  reserveLastMove,
-		IncomeMonthlyNow: incomeMonthlyNow,
-		ReinvestMinByCur: reinvestMinByCur, TopN: 5,
-		Settings: settings, XIRRPct: xirr, PortfolioYieldPct: portfolioYield,
-		FundsYieldPct: fundsYield, BlendedYieldPct: blendedYield,
-		PortfolioYield:    portfolioYieldByCur,
-		FundsYieldRealPct: fundsYieldReal, BlendedYieldRealPct: blendedYieldReal,
+		DepositsUAH: round2(depositsUAH), ReserveUAH: round2(reserveUAH),
+		IncomeMonthlyNow: incomeMonthlyNow, ReinvestMin: reinvestMinByCur,
+
+		Settings: settings, XIRRPct: xirr,
+		PortfolioYieldPct: portfolioYield, PortfolioYield: portfolioYieldByCur,
 		PortfolioYieldReal: portfolioYieldRealByCur,
-		Projection:         projection, ProjectionRatePct: capRate, Forecast: forecast,
+		FundsYieldPct:      fundsYield, FundsYieldRealPct: fundsYieldReal,
+		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
+
+		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
 		Rebalance: rebalance, Concentration: concentration,
 		RateRisk: rateRisk, Liquidity: liquidity,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,
-	})
+	}
+	// Похідні — те, що виводиться з уже покладеного (state/derive.go).
+	// Capital зібраний вище один раз; state його лише читає.
+	if err := state.Derive(doc, state.DeriveInput{
+		Now: now, Positions: positions, Rates: rates, Capital: capital,
+		Cashflow: cashflow, Ladder: ladder,
+		MonthDeposited: monthDep, MonthTarget: target,
+		ReserveByCur: reserveByCur, ReservePlaces: reservePlaces,
+		ReserveLastMove: reserveLastMove, TopN: 5,
+	}); err != nil {
+		return nil, err
+	}
+	return doc, nil
 }
