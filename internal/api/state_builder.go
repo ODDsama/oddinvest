@@ -702,25 +702,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 
 	nbuAt := src.nbuAt
 
-	// --- накопичений купонний дохід (НКД) на сьогодні ---
-	// Гроші, які вже зароблені, але ще не виплачені. Показуємо ОКРЕМО, а не
-	// додаємо в капітал проєкцій: у симуляції майбутні купони вже враховані
-	// повністю, тож додавання НКД було б подвійним рахунком.
-	var accruedUAH int64
-	for _, l := range hold.Lots {
-		q := l.Remaining
-		if q == 0 {
-			continue
-		}
-		acc, err := domain.EstimateAccrued(pays, l.ISIN, today)
-		if err != nil || acc == nil || acc.IsZero() {
-			continue
-		}
-		if u, err := fx.ToUAH(money.New(acc.Amount()*q, acc.Currency().Code), rates); err == nil {
-			accruedUAH += u.Amount()
-		}
-	}
-
 	// Ребаланс і концентрація (state_rebalance.go).
 	rbl := buildRebalance(rebalanceInput{
 		Capital: capital, Settings: settings, Rates: rates,
@@ -732,128 +713,14 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	})
 	rebalance, concentration := rbl.Rebalance, rbl.Concentration
 
-	// --- процентний ризик: два різні ризики з одного графіка виплат ---
-	//
-	// Ціновий (сценарії ±п.п.) — лише ОВДП: переоцінюється те, що має
-	// вторинний ринок. Перевкладення (коли гроші повернуться) — ОВДП і
-	// вклади разом, бо гасяться обидва.
-	ptsByCur := map[string][]domain.CashPoint{}
-	var backWeighted, backUAH, backSoonUAH float64
-	for _, cf := range cashflow {
-		yrs := float64(domain.DaysBetween(today, cf.Date)) / 365.0
-		if yrs < 0 {
-			continue
-		}
-		c := cf.Amount.Currency().Code
-		amt := float64(cf.Amount.Amount()) / 100
-		// Фонд не переоцінюється зміною ставок ОВДП: у сертифіката немає ні
-		// строку, ні фіксованого купона, тож дисконтувати його оцінені
-		// дивіденди означало б вигадати ціновий ризик, якого немає.
-		if domain.IsFundISIN(cf.ISIN) {
-			continue
-		}
-		if !domain.IsDepositISIN(cf.ISIN) {
-			ptsByCur[c] = append(ptsByCur[c], domain.CashPoint{Years: yrs, Amount: amt})
-		}
-		// Строк перевкладення — у гривні, щоб валюти складались, і БЕЗ
-		// дисконтування: тут питають, коли гроші прийдуть, а не скільки
-		// вони варті сьогодні.
-		rateMajor, _ := fx.RateMajor(c, rates)
-		uah := amt * rateMajor
-		backUAH += uah
-		backWeighted += yrs * uah
-		if yrs <= 1 {
-			backSoonUAH += uah
-		}
-	}
-	var rateRisk *state.RateRisk
-	byCurDur := map[string]float64{}
-	var pvUAHTotal, macWeighted float64
-	for c, pts := range ptsByCur {
-		y := portfolioYieldByCur[c] / 100
-		if y <= 0 {
-			y = portfolioYield / 100
-		}
-		mac, mod, pv := domain.Duration(pts, y)
-		if pv <= 0 {
-			continue
-		}
-		rateMajor, _ := fx.RateMajor(c, rates)
-		pvUAH := pv * rateMajor
-		pvUAHTotal += pvUAH
-		macWeighted += mac * pvUAH
-		byCurDur[c] = round2(mod)
-	}
-	if pvUAHTotal > 0 {
-		mac := macWeighted / pvUAHTotal
-		mod := mac / (1 + portfolioYield/100)
-		scen := make([]state.RiskScenario, 0, 4)
-		for _, d := range []float64{-2, -1, 1, 2} {
-			chg := domain.PriceChangePct(mod, d)
-			scen = append(scen, state.RiskScenario{
-				DeltaPP: d, ChangePct: round2(chg), ChangeUAH: round2(chg / 100 * pvUAHTotal),
-			})
-		}
-		rateRisk = &state.RateRisk{
-			DurationYears: round2(mac), ModifiedDur: round2(mod), PVUAH: round2(pvUAHTotal),
-			ByCurrency: byCurDur, Scenarios: scen,
-		}
-	}
-	// Строк перевкладення живе й без облігацій: портфель із самих вкладів
-	// цінового ризику не має, але питання «коли перевкладати» — має.
-	if backUAH > 0 {
-		if rateRisk == nil {
-			rateRisk = &state.RateRisk{}
-		}
-		rateRisk.ReinvestYears = round2(backWeighted / backUAH)
-		rateRisk.ReturningUAH = round2(backUAH)
-		rateRisk.ReinvestSoonUAH = round2(backSoonUAH)
-	}
-
-	// --- ліквідність: коли гроші стають доступні ---
-	// Питання не про дохідність, а про те, що робити, коли гроші раптом
-	// знадобились. Вікна НАКОПИЧУВАЛЬНІ: «за 90 днів» уже містить «за
-	// 30», бо саме так на нього й дивляться — скільки буде в розпорядженні
-	// на той момент, якщо нічого не купувати.
-	d30 := domain.NewDate(now.AddDate(0, 0, 30))
-	d90 := domain.NewDate(now.AddDate(0, 0, 90))
-	in30, in90 := accountUAHMinor, accountUAHMinor
-	for _, cf := range cashflow {
-		if cf.Date.After(d90) {
-			continue
-		}
-		u, cerr := fx.ToUAH(cf.Amount, rates)
-		if cerr != nil {
-			continue
-		}
-		if !cf.Date.After(d30) {
-			in30 += u.Amount()
-		}
-		in90 += u.Amount()
-	}
-	var lockedUAH int64
-	var unlockDate domain.Date
-	for _, dep := range termDeposits {
-		// Вклад, що гаситься у вікні, вже порахований потоками вище —
-		// інакше та сама сума стояла б і в «доступному», і в «замкненому».
-		if dep.ClosedDate != "" || !dep.Active(today) || !dep.MaturityDate.After(d90) {
-			continue
-		}
-		if u, cerr := fx.ToUAH(money.New(dep.BalanceAt(today), dep.Currency), rates); cerr == nil {
-			lockedUAH += u.Amount()
-		}
-		if unlockDate == "" || dep.MaturityDate.Before(unlockDate) {
-			unlockDate = dep.MaturityDate
-		}
-	}
-	liquidity := &state.Liquidity{
-		NowUAH:     round2(float64(accountUAHMinor) / 100),
-		In30UAH:    round2(float64(in30) / 100),
-		In90UAH:    round2(float64(in90) / 100),
-		ReserveUAH: round2(reserveUAH),
-		LockedUAH:  round2(float64(lockedUAH) / 100),
-		UnlockDate: string(unlockDate),
-	}
+	// Процентний ризик, ліквідність і НКД (state_risk.go).
+	rsk := buildRisk(riskInput{
+		Cashflow: cashflow, Holdings: hold, Pays: pays, TermDeposits: termDeposits,
+		Rates: rates, YieldPct: portfolioYield, YieldByCur: portfolioYieldByCur,
+		AccountMinor: accountUAHMinor, ReserveUAH: reserveUAH,
+		Now: now, Today: today,
+	})
+	rateRisk, liquidity, accruedUAH := rsk.RateRisk, rsk.Liquidity, rsk.AccruedUAH
 
 	return state.Build(state.Input{
 		Now: now, Positions: positions, Cashflow: cashflow, Ladder: ladder,
