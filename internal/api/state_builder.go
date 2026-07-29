@@ -14,7 +14,6 @@ import (
 	"math"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -722,209 +721,16 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-	// --- валютне ребалансування: як вийти на цільові частки ---
-	//
-	// Знаменник і чисельник — ТІ САМІ, що в плитці «Частка USD»: обидва
-	// числа беруться з capital (див. state/capital.go). Доти ребаланс
-	// рахував від «номінал + рахунок» і лише по облігаціях, а плитка — від
-	// усього капіталу з фондами, вкладами й резервом. Стояли вони на
-	// одному екрані й показували різне: 57.6% проти 0% для тієї самої
-	// валюти.
-	//
-	// Окремо перевіряємо здійсненність: найдешевший папір може бути більший
-	// за всю цільову суму — тоді ціль поки недосяжна без перекосу структури.
-	totalMajor := capital.TotalUAH()
-	targets := map[string]*float64{money.USD: settings.USDTargetSharePct, money.EUR: settings.EURTargetSharePct}
-	var rebalance []state.RebalanceRow
-	for _, cur := range []string{money.USD, money.EUR} {
-		tp := targets[cur]
-		if tp == nil || *tp <= 0 {
-			continue
-		}
-		rateMajor, ok := fx.RateMajor(cur, rates)
-		if !ok {
-			continue // курсу немає — рядок чесніше не малювати
-		}
-		curUAH := capital.ExposureUAH(cur)
-		currentPct := capital.SharePct(cur)
-		targetUAH := totalMajor * (*tp) / 100
-		deficitUAH := math.Max(0, targetUAH-curUAH)
-		cashNative := float64(bal[cur]) / 100
-		// Одиниця входу з ПРІОРИТЕТОМ облігації: якщо найдешевший папір
-		// вписується в цільову частку — радимо його (безподатковий купон,
-		// справжній інструмент). Вклад ($100/€100) — запасний, менший вхід
-		// лише коли до облігації ще не доросли: доти картка казала «ще
-		// зарано» на $1000-й папір, хоча частку добирає й вклад на $100.
-		bondNative := float64(minNoms[cur]) / 100
-		bondUAH := bondNative * rateMajor
-		depNative := 0.0
-		if dm, ok := depMinByCur[cur]; ok {
-			depNative = float64(dm) / 100
-		}
-		var unitNative, unitUAH float64
-		var unitKind string
-		switch {
-		case bondNative > 0 && bondUAH <= targetUAH:
-			unitNative, unitUAH, unitKind = bondNative, bondUAH, "bond"
-		case depNative > 0:
-			unitNative, unitUAH, unitKind = depNative, depNative*rateMajor, "deposit"
-		default:
-			unitNative, unitUAH, unitKind = bondNative, bondUAH, "bond"
-		}
-		var canBuy int64
-		convertUAH := 0.0
-		if unitNative > 0 {
-			canBuy = int64(cashNative / unitNative)
-			if cashNative < unitNative {
-				convertUAH = (unitNative - cashNative) * rateMajor
-			}
-		}
-		rebalance = append(rebalance, state.RebalanceRow{
-			Dimension: "currency", Key: cur,
-			Currency: cur, TargetPct: *tp, CurrentPct: round2(currentPct),
-			DeficitUAH: round2(deficitUAH), DeficitNative: round2(deficitUAH / rateMajor),
-			CashNative: round2(cashNative), BondCostNative: round2(unitNative),
-			BondCostUAH: round2(unitUAH), CanBuy: canBuy, ConvertUAH: round2(convertUAH),
-			MinPortfolioUAH: round2(unitUAH / (*tp / 100)),
-			Feasible:        unitUAH > 0 && unitUAH <= targetUAH,
-			UnitKind:        unitKind,
-		})
-	}
-
-	// --- ребаланс за ВИДОМ інструмента ---
-	//
-	// Валютна ціль каже, в чому тримати гроші; ця — чим ризикувати.
-	// Портфель на 100% в ОВДП і портфель на 100% у фондах можуть мати
-	// однакові валютні частки й геть різну поведінку: у першого ризик
-	// процентний і державний, у другого — ринковий і керуючої компанії.
-	//
-	// Сума цілей НЕ мусить давати 100. Нормалізувати мовчки означало б
-	// підмінити введене користувачем: поставив 40/20 — і отримав 67/33,
-	// не питаючи. Нерозподілене показуємо числом і лишаємо як є.
-	kindTargets := []struct {
-		key    string
-		nowUAH float64
-		target *float64
-		unit   float64 // найдешевший вхід у цей вид, грн-екв.; 0 = невідомо
-	}{
-		{"bonds", capital.BondsUAH, settings.TargetBondsPct, minBondUAH},
-		{"funds", capital.FundsUAH, settings.TargetFundsPct, minFundPriceUAH},
-		{"deposits", capital.DepositsUAH, settings.TargetDepositsPct, minDepositUAH},
-	}
-	for _, k := range kindTargets {
-		if k.target == nil || *k.target <= 0 || totalMajor <= 0 {
-			continue
-		}
-		currentPct := k.nowUAH / totalMajor * 100
-		targetUAH := totalMajor * (*k.target) / 100
-		row := state.RebalanceRow{
-			Dimension: "kind", Key: k.key, Currency: money.UAH,
-			TargetPct: round2(*k.target), CurrentPct: round2(currentPct),
-			DeficitUAH: round2(math.Max(0, targetUAH-k.nowUAH)),
-			// Одиниця входу тут завжди в гривні-еквіваленті: питання «яким
-			// інструментом», а не «якою валютою», і мішати сюди ще й
-			// нативні суми означало б два виміри в одному рядку.
-			BondCostUAH: round2(k.unit), UnitKind: k.key,
-			// Без заданої одиниці входу здійсненність не перевіряється:
-			// у резерв кладуть будь-яку суму, а не «мінімальний внесок».
-			Feasible: k.unit == 0 || k.unit <= targetUAH,
-		}
-		if k.unit > 0 {
-			row.MinPortfolioUAH = round2(k.unit / (*k.target / 100))
-		}
-		rebalance = append(rebalance, row)
-	}
-	// Резерв — рядок БЕЗ цілі, суто довідковий. Спокуса вивести його
-	// цільову частку з місяців витрат виглядає природною, але дає число,
-	// яке нічого не означає: на живих даних ціль у 150 000 ₴ при капіталі
-	// 38 913 ₴ показалась як «385% капіталу». Частка рухається щоразу, коли
-	// росте портфель, навіть якщо резерву ніхто не чіпав, — а ціль резерву
-	// за природою абсолютна, бо міряється місяцями життя, не портфелем.
-	//
-	// Тож ціль лишається там, де вона осмислена (картка резерву, у місяцях
-	// і гривнях), а сюди резерв входить лише щоб картина складу була
-	// повною: без нього частки видів не сходились би з очевидним «а решта
-	// де?».
-	if capital.ReserveUAH > 0 && totalMajor > 0 {
-		rebalance = append(rebalance, state.RebalanceRow{
-			Dimension: "kind", Key: "reserve", Currency: money.UAH,
-			CurrentPct: round2(capital.ReserveUAH / totalMajor * 100),
-			UnitKind:   "reserve", Feasible: true,
-		})
-	}
-
-	// --- концентрація: де зібрано надто щільно ---
-	//
-	// Три виміри, три різні питання. Один папір — «що буде, якщо саме цей
-	// емітент не заплатить». Одна установа — «що буде, якщо цей брокер чи
-	// банк зникне». Один рік драбини — «що буде, якщо саме тоді ставки
-	// впадуть»: гроші повернуться всі одразу й підуть за гіршою ставкою.
-	//
-	// Показуємо ВСІ рядки з заданим лімітом, а не самі порушення: «45% при
-	// ліміті 50%» теж варте знання, а список, що з'являється лише коли вже
-	// пізно, читається як аварія, а не як приладова панель.
-	var concentration []state.ConcentrationRow
-	addConc := func(dim, key, label string, amount, base, limit float64) {
-		if base <= 0 {
-			return
-		}
-		share := amount / base * 100
-		row := state.ConcentrationRow{
-			Dimension: dim, Key: key, Label: label,
-			AmountUAH: round2(amount), SharePct: round2(share), LimitPct: limit,
-		}
-		if share > limit {
-			row.OverUAH = round2(amount - base*limit/100)
-		}
-		concentration = append(concentration, row)
-	}
-	if settings.LimitISINPct != nil && *settings.LimitISINPct > 0 {
-		for isin, minor := range nominalByISIN {
-			label := ""
-			if b, ok := bonds[isin]; ok {
-				label = b.Descr
-			}
-			addConc("isin", isin, label, float64(minor)/100, totalMajor, *settings.LimitISINPct)
-		}
-		// Фонди — сюди ж. Питання виміру не «скільки в облігаціях», а
-		// «скільки залежить від ОДНОГО емітента», і сертифікат відповідає
-		// на нього так само, як папір. Без цього список брехав найгучніше
-		// саме там, де ризик найбільший: на живих даних один фонд важив
-		// 16.7% капіталу — більше за будь-яку окрему облігацію в списку.
-		for _, row := range fundRows {
-			if row.MarketValue <= 0 {
-				continue
-			}
-			addConc("isin", domain.FundISINPrefix+row.Fund, row.Fund,
-				row.MarketValue, totalMajor, *settings.LimitISINPct)
-		}
-	}
-	if settings.LimitBrokerPct != nil && *settings.LimitBrokerPct > 0 {
-		for name, v := range brokerExposureUAH {
-			addConc("broker", name, "", v, totalMajor, *settings.LimitBrokerPct)
-		}
-	}
-	if settings.LimitYearPct != nil && *settings.LimitYearPct > 0 {
-		// База тут — УСІ погашення, а не капітал: питання «чи рівномірно
-		// рознесені повернення», і міряти його від капіталу означало б
-		// вважати порушенням будь-яку драбину в портфелі, де більшість
-		// грошей у фондах, — тобто там, де погашень немає взагалі.
-		ladderTotal := 0.0
-		for _, y := range ladderUAH {
-			ladderTotal += y.UAH
-		}
-		for _, y := range ladderUAH {
-			addConc("year", strconv.Itoa(y.Year), "", y.UAH, ladderTotal, *settings.LimitYearPct)
-		}
-	}
-	// Найщільніше — зверху: список читають згори, і перше, що впадає в
-	// око, має бути найбільшим ризиком, а не найдавнішим роком.
-	sort.Slice(concentration, func(i, j int) bool {
-		if concentration[i].Dimension != concentration[j].Dimension {
-			return concentration[i].Dimension < concentration[j].Dimension
-		}
-		return concentration[i].SharePct > concentration[j].SharePct
+	// Ребаланс і концентрація (state_rebalance.go).
+	rbl := buildRebalance(rebalanceInput{
+		Capital: capital, Settings: settings, Rates: rates,
+		CashByCur: bal, MinNominalByCur: minNoms, DepositMinByCur: depMinByCur,
+		MinBondUAH: minBondUAH, MinFundUAH: minFundPriceUAH,
+		MinDepositUAH: minDepositUAH,
+		NominalByISIN: nominalByISIN, Bonds: bonds, FundRows: fundRows,
+		BrokerExposureUAH: brokerExposureUAH, LadderUAH: ladderUAH,
 	})
+	rebalance, concentration := rbl.Rebalance, rbl.Concentration
 
 	// --- процентний ризик: два різні ризики з одного графіка виплат ---
 	//
