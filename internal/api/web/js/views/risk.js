@@ -86,7 +86,7 @@ export function yieldTilesHTML(ctx) {
       pct(pyReal[c] != null ? pyReal[c] : v),
       yieldNote(v, "до погашення, від сплаченої ціни"))).join("")}
     ${s0.funds_yield_pct > 0 ? tile("Фонди", pct(s0.funds_yield_real_pct),
-      yieldNote(s0.funds_yield_pct, "дивіденди + зміна ціни")) : ""}
+      yieldNote(s0.funds_yield_pct, s0.funds_yield_basis || "")) : ""}
     ${s0.blended_yield_pct > 0 ? tile(`Дохідність портфеля ${infoBtn("yields")}`,
       pct(s0.blended_yield_real_pct),
       yieldNote(s0.blended_yield_pct, "ОВДП і фонди разом, зважено вкладеним")) : ""}

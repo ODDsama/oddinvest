@@ -180,6 +180,14 @@ type Doc struct {
 	PortfolioYieldReal  map[string]float64 `json:"portfolio_yield_real,omitempty"`
 	FundsYieldRealPct   float64            `json:"funds_yield_real_pct,omitempty"`
 	BlendedYieldRealPct float64            `json:"blended_yield_real_pct,omitempty"`
+	// FundsYieldBasis — ЗВІДКИ взялась дохідність фондів: «дивіденди +
+	// зміна ціни», «обіцяно фондом», «дивіденди після податку» або «різні
+	// основи», коли фонди міряні по-різному (адитивне поле).
+	//
+	// Без нього плитка зашивала основу рядком і називала ту, якої в числі
+	// могло не бути: на живих даних вона писала «дивіденди + зміна ціни»
+	// для фонду, у якого основою була обіцянка.
+	FundsYieldBasis string `json:"funds_yield_basis,omitempty"`
 
 	// Projection — прогноз капіталу помісячною симуляцією реальних потоків
 	// (купони/погашення наявних паперів + внески, реінвест під дохідність).

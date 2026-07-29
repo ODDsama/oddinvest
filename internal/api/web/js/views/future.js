@@ -161,9 +161,16 @@ export async function renderFuture(ctx, main) {
 
 // ---------- пасивний дохід ----------
 
-// Пасивний дохід: скільки папери приноситимуть щомісяця. Саме КУПОННИЙ
+// Пасивний дохід: скільки ПОРТФЕЛЬ приноситиме щомісяця. Саме дохідний
 // потік — погашення це повернення власного тіла, а не дохід, і плутати
 // їх означало б завищувати відповідь удвічі на коротких горизонтах.
+//
+// Інструменти всі три, і підпис мусить це казати. Доти він казав
+// «папери», хоч у числі вже сиділи й відсотки вкладів, і оцінені
+// дивіденди фондів: на живих даних із 32 виплат календаря 12 були
+// фондові. Різниця не косметична — купон і відсоток вкладу це
+// зобовʼязання за графіком, а дивіденд фонду ОЦІНКА, і читач має право
+// знати, що частина числа саме така.
 export function incomeHTML(ctx) {
   const s = ctx.summary || {};
   const rows = (s.projection || []).filter((r) => r.income_monthly > 0);
@@ -180,7 +187,8 @@ export function incomeHTML(ctx) {
       ? ` <span class="muted" style="font-size:11px">· за фактом ${inc(r.income_monthly_actual)}</span>` : "")).join("");
   return `<div class="card"><h2 class="h-row" style="justify-content:space-between">
     <span>Пасивний дохід ${infoBtn("income")}</span></h2>
-    <div class="muted" style="font-size:12px;margin-bottom:8px">скільки папери приноситимуть щомісяця, у сьогоднішніх гривнях</div>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">скільки портфель приноситиме щомісяця, у сьогоднішніх гривнях</div>
+    <div class="sub-xs" style="margin-bottom:8px">купони ОВДП і відсотки вкладів — за графіком; дивіденди фондів — оцінка</div>
     ${line("зараз", now)}
     <div style="border-top:1px solid var(--oi-border);padding-top:6px;margin-top:4px">${body}</div>
   </div>`;

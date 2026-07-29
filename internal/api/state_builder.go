@@ -744,6 +744,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		PortfolioYieldPct: portfolioYield, PortfolioYield: portfolioYieldByCur,
 		PortfolioYieldReal: portfolioYieldRealByCur,
 		FundsYieldPct:      fundsYield, FundsYieldRealPct: fundsYieldReal,
+		FundsYieldBasis: fnd.Basis,
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
 
 		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,

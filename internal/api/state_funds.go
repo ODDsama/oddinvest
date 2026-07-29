@@ -45,6 +45,25 @@ type fundsPhase struct {
 	// читається як помилка, бо той самий інструмент показує різні числа.
 	YieldPct     float64
 	YieldRealPct float64
+	// Basis — ЗВІДКИ це число: та сама основа, що в рядку фонду
+	// («дивіденди + зміна ціни», «обіцяно фондом», «дивіденди після
+	// податку»), або «різні основи», коли рядки міряні по-різному.
+	//
+	// Доти зведення основи не мало взагалі, і плитка зашивала її рядком —
+	// тобто називала основу, якої в числі могло й не бути.
+	Basis string
+}
+
+// fundWeight — внесок одного фонду в зведену дохідність.
+//
+// Номінальна й реальна тут ідуть ПАРОЮ з одного джерела. Тримати їх
+// нарізно означає рано чи пізно зважити реальну з обіцянки поруч із
+// номінальною з виміру — і отримати реальну, вищу за номінальну.
+type fundWeight struct {
+	MarketValue float64
+	NominalPct  float64
+	RealPct     float64
+	Basis       string
 }
 
 // buildFunds зводить позиції фондів у рядки картки.
@@ -54,6 +73,7 @@ type fundsPhase struct {
 func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 	deval float64, today domain.Date) fundsPhase {
 	out := fundsPhase{ValueByCur: map[string]float64{}}
+	weights := make([]fundWeight, 0, len(hold.Funds))
 	// Позиції зведені раз, у Holdings, і вже у сталому порядку за назвою —
 	// сортувати тут більше нема чого.
 	for i := range hold.Funds {
@@ -111,10 +131,22 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			row.ExpectedPct = float64(ref.ExpectedYieldBP) / 100
 			row.ExpectedCurrency = ref.ExpectedYieldCur
 		}
+		// nominalPct — НОМІНАЛЬНИЙ ДВІЙНИК RealPct: те саме число до
+		// поправки на знецінення, з того самого джерела.
+		//
+		// Тримається поруч навмисно. Доти зведення брало номінальну окремо
+		// (TotalPct зі спадом на YieldNetPct), і в гілці «обіцяно фондом»
+		// це давало пару з РІЗНИХ джерел: реальна з доларової обіцянки
+		// (9.5%), номінальна з виміряних гривневих дивідендів (2.77%).
+		// Плитка ставила їх поруч як «реальна / номінальна», хоч друге не
+		// є першим до поправки, і виходило неможливе — реальна ВИЩА за
+		// номінальну.
+		var nominalPct float64
 		if tot, ok := domain.FundTotalReturn(src.fundOps, fp.Fund, today); ok {
 			row.TotalPct = tot
 			row.RealPct = round2(realYield(tot/100, cur, deval) * 100)
 			row.YieldBasis = "дивіденди + зміна ціни"
+			nominalPct = tot
 		} else if ref.ExpectedYieldBP > 0 {
 			// Обіцянка фонду — між виміряною повною і самою дивідендною.
 			// Доти, доки повної немає, дивідендна частина в парі з
@@ -135,11 +167,23 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			exp := float64(ref.ExpectedYieldBP) / 100
 			row.RealPct = round2(realYield(exp/100, expCur, deval) * 100)
 			row.YieldBasis = "обіцяно фондом"
+			// Номінальна тут — сама обіцянка, ЯК ВОНА ЗАДАНА, без переводу
+			// в гривню. Це та сама угода, що й для валютних ОВДП: доларовий
+			// папір під 4% показує 4% і номінальних, і реальних, бо ставка
+			// котирується у своїй валюті, а не в гривневому еквіваленті.
+			// Пара знову стає парою, і real <= nominal тримається за
+			// побудовою.
+			nominalPct = exp
 		} else if y > 0 {
 			row.RealPct = round2(realYield(y/100, cur, deval) * 100)
 			row.YieldBasis = "дивіденди після податку"
+			nominalPct = y
 		}
 		out.Rows = append(out.Rows, row)
+		weights = append(weights, fundWeight{
+			MarketValue: row.MarketValue, NominalPct: nominalPct,
+			RealPct: row.RealPct, Basis: row.YieldBasis,
+		})
 	}
 
 	// Дивідендний потік фондів сюди НЕ додається окремо: його оцінка
@@ -147,27 +191,34 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 	// додавання рахувало б той самий потік двічі.
 	//
 	// Дохідність фондів — зважена ринковою вартістю: більший фонд має
-	// важити більше, ніж дрібний із гучним відсотком. Зважуємо ПОВНУ
-	// дохідність, а не саму дивідендну: у рядку позиції показано саме її,
-	// і плитка, що підсумовує ті самі фонди іншою мірою, суперечила б
-	// таблиці під собою. Де повної ще немає (замало історії) — падаємо на
-	// дивідендну, як і сам рядок.
+	// важити більше, ніж дрібний із гучним відсотком.
 	var wSum, wReal, w float64
-	for _, row := range out.Rows {
-		if row.MarketValue <= 0 {
+	basis := ""
+	mixed := false
+	for _, k := range weights {
+		if k.MarketValue <= 0 {
 			continue
 		}
-		nominal := row.TotalPct
-		if nominal == 0 {
-			nominal = row.YieldNetPct
+		wSum += k.NominalPct * k.MarketValue
+		wReal += k.RealPct * k.MarketValue
+		w += k.MarketValue
+		switch {
+		case basis == "":
+			basis = k.Basis
+		case basis != k.Basis:
+			mixed = true
 		}
-		wSum += nominal * row.MarketValue
-		wReal += row.RealPct * row.MarketValue
-		w += row.MarketValue
 	}
 	if w > 0 {
 		out.YieldPct = math.Round(wSum/w*100) / 100
 		out.YieldRealPct = math.Round(wReal/w*100) / 100
+		// Основа зведення має сенс, лише коли всі рядки міряні однаково.
+		// Інакше чесніше сказати, що вона змішана, ніж назвати основу
+		// найбільшого фонду й видати її за спільну.
+		out.Basis = basis
+		if mixed {
+			out.Basis = "різні основи"
+		}
 	}
 	return out
 }
