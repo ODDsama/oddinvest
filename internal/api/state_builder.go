@@ -1,9 +1,11 @@
 // Збирання документа стану — головна операція сервісу.
 //
-// УВАГА: ті самі величини рахує ще cashEvents у cashflow.go — там та сама
-// арифметика, але розкладена на окремі події. Дві реалізації мусять
-// сходитись, і єдиний захист від їх розходження — тест
-// TestCashflowStatementReconciles. Міняєш тут — дивись і туди.
+// Читання сховища — у state_sources.go, зведення лотів і фондів — у
+// domain/holdings.go, гаманець — у state_cash.go. Там же й попередження
+// про те, що ті самі гроші рахує ще cashEvents у cashflow.go: воно
+// переїхало РАЗОМ із кодом, до якого стосується. Коментар-ADR за дві
+// функції від того, що він пояснює, читають випадково, а не тоді, коли
+// він потрібен.
 
 package api
 
@@ -20,7 +22,6 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
-	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -324,13 +325,21 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Дохід і покупки збираємо подіями, а рахуємо простій наприкінці —
 	// коли вже відомий баланс рахунків, яким число обмежується.
 	var incomeEvents, purchaseEvents []domain.CashEvent
-	bal := map[string]int64{} // валюта -> мінорні (нативно): баланс рахунку
+	// --- гаманець: (брокер × валюта), зведення по валютах виводиться ---
+	// Формула: Σ поповнень + Σ конвертацій + Σ отриманих виплат −
+	// Σ вартості лотів (усе нативно, у своїй валюті). Див. state_cash.go
+	// про те, чому акумулятор тут один, а не два.
+	cash := newCashLedger()
 	for _, cf := range pastCF {
 		if !arrived(cf.ISIN, cf.Date) {
 			continue
 		}
-		// отримана виплата кредитує рахунок у своїй валюті
-		bal[cf.Amount.Currency().Code] += cf.Amount.Amount()
+		// Тут рахунок НЕ кредитується: ту саму виплату нижче розносить по
+		// брокерах цикл по pays×lots, і зведення по валютах виводиться вже
+		// з нього. Доти це були два різні обчислення одного числа —
+		// агрегат по (дата, ISIN, тип) проти суми по лотах, — і сходились
+		// вони лише тому, що MulQty множить цілі мінорні одиниці й тому
+		// точно лінійна. Домовленість, а не механізм.
 		uahAmt, err := fx.ToUAH(cf.Amount, rates)
 		if err != nil {
 			return nil, err
@@ -338,18 +347,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		incomeEvents = append(incomeEvents, domain.CashEvent{Date: cf.Date, Amount: uahAmt.Amount()})
 	}
 
-	// --- грошові рахунки: (брокер × валюта) ---
-	// Рахунки роздільні: гривня в mono не купить папір в inzhur, тож
-	// баланс ведемо по кожному брокеру окремо. `bal` лишається зведеним
-	// по валютах — його використовують портфельні показники.
-	// Формула однакова: Σ поповнень + Σ конвертацій + Σ отриманих виплат −
-	// Σ вартості лотів (усе нативно, у своїй валюті).
-	balBC := map[store.BrokerCur]int64{}
-
 	// купон кредитує рахунок ТОГО брокера, де куплено папір.
-	// Умова та сама, що й для зведеного балансу вище: розійтись їм не
-	// можна, інакше «Разом» і сума по брокерах показували б різне, а
-	// звірка вигадала б розбіжність рівно на цей купон.
 	for _, p := range pays {
 		if !arrived(p.ISIN, p.PayDate) {
 			continue
@@ -360,18 +358,16 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			}
 			if q := domain.HolderQty(l, sales, p.PayDate); q > 0 {
 				amt := domain.MulQty(p.PerBond, q)
-				balBC[store.BrokerCur{Broker: l.Channel, Currency: amt.Currency().Code}] += amt.Amount()
+				cash.add(l.Channel, amt.Currency().Code, amt.Amount())
 			}
 		}
 	}
 
 	for k, amt := range src.depByBC {
-		bal[k.Currency] += amt
-		balBC[k] += amt
+		cash.add(k.Broker, k.Currency, amt)
 	}
 	for k, net := range src.convBC {
-		bal[k.Currency] += net
-		balBC[k] += net
+		cash.add(k.Broker, k.Currency, net)
 	}
 	for _, l := range hold.Lots {
 		cost := domain.MulQty(l.PricePerBond, l.Qty)
@@ -380,8 +376,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				return nil, err
 			}
 		}
-		bal[cost.Currency().Code] -= cost.Amount()
-		balBC[store.BrokerCur{Broker: l.Channel, Currency: cost.Currency().Code}] -= cost.Amount()
+		cash.add(l.Channel, cost.Currency().Code, -cost.Amount())
 		if u, cerr := fx.ToUAH(cost, rates); cerr == nil {
 			purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: l.BuyDate, Amount: u.Amount()})
 		}
@@ -410,8 +405,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 				}
 			}
 		}
-		bal[op.Currency] += delta
-		balBC[store.BrokerCur{Broker: op.Broker, Currency: op.Currency}] += delta
+		cash.add(op.Broker, op.Currency, delta)
 	}
 
 	// Вклади рухають гаманець так само, як лоти й фонди: розміщення
@@ -423,11 +417,9 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Закритий вклад — за фактом: списане тіло при відкритті й повернута
 	// сума ClosedAmount на дату розірвання (як фактична ціна продажу лота).
 	for _, dep := range termDeposits {
-		bc := store.BrokerCur{Broker: dep.Bank, Currency: dep.Currency}
 		// розміщення: −тіло на дату відкриття (якщо вона вже настала)
 		if !dep.OpenDate.After(today) {
-			bal[dep.Currency] -= dep.Principal
-			balBC[bc] -= dep.Principal
+			cash.add(dep.Bank, dep.Currency, -dep.Principal)
 			// Відкрити вклад — така сама покупка, як узяти папір: гроші
 			// пішли в діло.
 			if u, cerr := fx.ToUAH(money.New(dep.Principal, dep.Currency), rates); cerr == nil {
@@ -438,8 +430,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		// це записаний факт, тож arrived() не потрібен
 		for _, t := range dep.Topups {
 			if !t.Date.After(today) {
-				bal[dep.Currency] -= t.Amount
-				balBC[bc] -= t.Amount
+				cash.add(dep.Bank, dep.Currency, -t.Amount)
 				if u, cerr := fx.ToUAH(money.New(t.Amount, dep.Currency), rates); cerr == nil {
 					purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: t.Date, Amount: u.Amount()})
 				}
@@ -447,8 +438,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 		if dep.ClosedDate != "" {
 			if !dep.ClosedDate.After(today) {
-				bal[dep.Currency] += dep.ClosedAmount
-				balBC[bc] += dep.ClosedAmount
+				cash.add(dep.Bank, dep.Currency, dep.ClosedAmount)
 			}
 			// У «не перевкладено» розірвання НЕ входить: це дискреційний
 			// вихід, як продаж лота на вторинці, а не запланована виплата.
@@ -463,8 +453,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 			if !arrived(cf.ISIN, cf.Date) {
 				continue
 			}
-			bal[cf.Amount.Currency().Code] += cf.Amount.Amount()
-			balBC[store.BrokerCur{Broker: dep.Bank, Currency: cf.Amount.Currency().Code}] += cf.Amount.Amount()
+			cash.add(dep.Bank, cf.Amount.Currency().Code, cf.Amount.Amount())
 			// Відсотки вкладу — такий самий дохід, як купон, і в чергу
 			// простою стають нарівні з ним.
 			if u, cerr := fx.ToUAH(cf.Amount, rates); cerr == nil {
@@ -473,18 +462,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-	// брокер -> валюта -> сума (major), для UI і для «чи вистачає на папір»
-	brokers := map[string]map[string]float64{}
-	for k, m := range balBC {
-		name := k.Broker
-		if name == "" {
-			name = "—"
-		}
-		if brokers[name] == nil {
-			brokers[name] = map[string]float64{}
-		}
-		brokers[name][k.Currency] = float64(m) / 100
-	}
+	// Гаманець зібрано. Далі — лише похідні від нього зрізи: зведення по
+	// валютах і розклад по брокерах. Обидва ВИВОДЯТЬСЯ, тож розійтись їм
+	// більше нема як.
+	bal := cash.byCurrency()
+	brokers := cash.byBroker()
 
 	// Скільки грошей стоїть за КОЖНИМ контрагентом, грн-екв. — для ліміту
 	// концентрації. Це не investedByBroker нижче: там собівартість, бо
