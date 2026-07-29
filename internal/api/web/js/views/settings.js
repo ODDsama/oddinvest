@@ -293,6 +293,26 @@ export async function renderSettings(ctx, main) {
       </form>
     </div>
 
+    <div class="card">
+      <h2>Припущення прогнозу</h2>
+      <div class="muted" style="margin-bottom:10px">Чим живляться картки у «Майбутньому».
+        Перші два — про тебе: який дохід ти вважаєш достатнім і скільки збирався б знімати,
+        якби перестав вносити. Порожньо в обох = місячні витрати вище, бо це найчастіша
+        відповідь, але не єдина розумна: половина витрат — теж ціль.
+        Другі два — про ринок: наскільки далеко один від одного стоять оптимістичний і
+        песимістичний сценарії. Доти ці числа були зашиті в коді, тобто «песимістично»
+        означало рівно те, що вирішив автор. Розкид вішається на ДОВГОСТРОКОВУ ставку:
+        сьогоднішня — факт, за яким можна купити просто зараз, а припущенням є те,
+        куди вона прийде.</div>
+      <form id="forecastAssumptionsForm">
+        <label>Достатній дохід, ₴/міс<input name="income_target_uah" inputmode="decimal" placeholder="порожньо = місячні витрати" value="${esc(s.income_target_uah || "")}"></label>
+        <label>Знімати щомісяця, ₴<input name="withdraw_monthly_uah" inputmode="decimal" placeholder="порожньо = місячні витрати" value="${esc(s.withdraw_monthly_uah || "")}"></label>
+        <label>Розкид ставки, п.п.<input name="rate_spread_pp" inputmode="decimal" placeholder="порожньо = 3" value="${esc(s.rate_spread_pp || "")}"></label>
+        <label>Розкид знецінення, п.п.<input name="deval_spread_pp" inputmode="decimal" placeholder="порожньо = 4" value="${esc(s.deval_spread_pp || "")}"></label>
+        <button type="submit">Зберегти</button>
+      </form>
+    </div>
+
     ${devalHTML(deval)}
 
     ${catalogsHTML(ctx)}
@@ -339,6 +359,9 @@ export async function renderSettings(ctx, main) {
   ]));
   onSubmit(ctx, main.querySelector("#reserveSettingsForm"), settingsPut([
     "monthly_expenses_uah", "reserve_target_months",
+  ]));
+  onSubmit(ctx, main.querySelector("#forecastAssumptionsForm"), settingsPut([
+    "income_target_uah", "withdraw_monthly_uah", "rate_spread_pp", "deval_spread_pp",
   ]));
 }
 

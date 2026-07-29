@@ -30,6 +30,15 @@ import (
 // goalHorizonMonths — 60 років; далі ціль вважаємо недосяжною.
 const goalHorizonMonths = 720
 
+// Ширина віяла сценаріїв за замовчуванням, п.п. Не «правильні» числа, а
+// розумний старт: розкид вішається на ДОВГОСТРОКОВУ ставку, бо
+// сьогоднішня — факт, за яким можна купити просто зараз, а припущенням є
+// те, куди вона прийде.
+const (
+	defaultRateSpreadPP  = 3.0
+	defaultDevalSpreadPP = 4.0
+)
+
 // projectionInput — усе, від чого залежить проєкція.
 //
 // Перелік довгий, і це не вада, а те, заради чого фаза виділена: він
@@ -301,8 +310,17 @@ func buildProjection(in projectionInput) projectionPhase {
 	if deadlineMonths <= 0 {
 		return out
 	}
-	const rateSpreadPP = 3.0  // ± п.п. до ставки реінвесту
-	const devalSpreadPP = 4.0 // ± п.п. до знецінення гривні
+	// Ширина віяла — з налаштувань, зі спадом на ті самі числа, що доти
+	// стояли константами. Доти «песимістично» означало рівно те, що хтось
+	// одного разу вирішив за користувача, і змінити це можна було лише
+	// перезбіркою.
+	rateSpreadPP, devalSpreadPP := defaultRateSpreadPP, defaultDevalSpreadPP
+	if in.Settings.RateSpreadPP != nil && *in.Settings.RateSpreadPP >= 0 {
+		rateSpreadPP = *in.Settings.RateSpreadPP
+	}
+	if in.Settings.DevalSpreadPP != nil && *in.Settings.DevalSpreadPP >= 0 {
+		devalSpreadPP = *in.Settings.DevalSpreadPP
+	}
 	type scenario struct {
 		key, label             string
 		contrib, ratePP, deval float64

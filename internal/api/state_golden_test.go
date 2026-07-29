@@ -226,6 +226,11 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		"deposit_min_usd": "100", "deposit_min_eur": "100", "deposit_min_uah": "5000",
 		"deposit_rate_usd_pct": "1.7", "deposit_rate_eur_pct": "0.7", "deposit_rate_uah_pct": "16",
 		"monthly_expenses_uah": "25000", "reserve_target_months": "6",
+		// Припущення прогнозу. Ціль доходу НЕ дорівнює витратам навмисно:
+		// інакше спад «порожньо = витрати» був би невідрізнимий від
+		// заданого значення, і зламаний спад пройшов би повз тест.
+		"income_target_uah": "30000", "withdraw_monthly_uah": "20000",
+		"rate_spread_pp": "3", "deval_spread_pp": "4",
 		"target_bonds_pct": "45", "target_funds_pct": "20", "target_deposits_pct": "15",
 		"limit_isin_pct": "20", "limit_broker_pct": "50", "limit_year_pct": "40",
 		"goal_pessimistic_uah": "200000", "goal_realistic_uah": "500000",

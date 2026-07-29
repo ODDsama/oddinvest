@@ -298,6 +298,21 @@ type SettingsDoc struct {
 	// достатність резерву від випадкового числа.
 	MonthlyExpensesUAH  *float64 `json:"monthly_expenses_uah,omitempty"`
 	ReserveTargetMonths *float64 `json:"reserve_target_months,omitempty"`
+	// IncomeTargetUAH — який пасивний дохід вважати достатнім, ₴/міс.
+	// Порожньо = місячні витрати: за замовчуванням «достатньо» означає
+	// «покриває життя», але ціль може бути й іншою — половина витрат теж
+	// відповідь, і вигадувати за користувача ми не будемо.
+	//
+	// WithdrawMonthlyUAH — скільки знімати щомісяця в розрахунку «на
+	// скільки вистачить». Теж порожньо = витрати.
+	IncomeTargetUAH    *float64 `json:"income_target_uah,omitempty"`
+	WithdrawMonthlyUAH *float64 `json:"withdraw_monthly_uah,omitempty"`
+	// Ширина віяла сценаріїв, п.п. Доти обидва числа були константами в
+	// коді, тобто «песимістично» означало рівно те, що хтось одного разу
+	// вирішив за користувача. Дефолти ті самі (3 і 4), але тепер це його
+	// припущення про ринок, а не наше.
+	RateSpreadPP  *float64 `json:"rate_spread_pp,omitempty"`
+	DevalSpreadPP *float64 `json:"deval_spread_pp,omitempty"`
 	// Цільові частки за ВИДОМ інструмента, % капіталу. Валютна ціль
 	// відповідає на «в чому я тримаю гроші», ця — на «чим я ризикую»:
 	// портфель на 100% в ОВДП і портфель на 100% у фондах можуть мати

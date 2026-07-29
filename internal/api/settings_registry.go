@@ -76,6 +76,19 @@ var settingsRegistry = []settingDef{
 		Why: "скільки коштує місяць життя; від нього достатність резерву"},
 	{Key: "reserve_target_months", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveTargetMonths },
 		Why: "на скільки місяців витрат хочеться запас"},
+	{Key: "income_target_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.IncomeTargetUAH },
+		Why: "який пасивний дохід вважати достатнім; порожньо = місячні витрати"},
+	{Key: "withdraw_monthly_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.WithdrawMonthlyUAH },
+		Why: "скільки знімати щомісяця в розрахунку «на скільки вистачить»; порожньо = місячні витрати"},
+
+	// Ширина віяла сценаріїв. Доти це були дві константи в коді, і
+	// «песимістично» означало рівно те, що хтось одного разу вирішив за
+	// користувача. Числа лишились ті самі за замовчуванням, але тепер це
+	// його припущення, а не наше.
+	{Key: "rate_spread_pp", Num: func(s *state.SettingsDoc) **float64 { return &s.RateSpreadPP },
+		Why: "на скільки п.п. розходяться ставки сценаріїв; порожньо = 3"},
+	{Key: "deval_spread_pp", Num: func(s *state.SettingsDoc) **float64 { return &s.DevalSpreadPP },
+		Why: "на скільки п.п. розходиться знецінення сценаріїв; порожньо = 4"},
 
 	{Key: "target_bonds_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.TargetBondsPct },
 		Why: "цільова частка за видом інструмента"},
