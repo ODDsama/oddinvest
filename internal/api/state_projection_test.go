@@ -94,6 +94,68 @@ func TestForecastSpreadDefaultsMatchOldConstants(t *testing.T) {
 	}
 }
 
+// TestForecastCurveEndsAtScenarioAmounts — кінець кривої дорівнює сумі
+// того самого сценарію в рядках прогнозу.
+//
+// Це два числа про одне й те саме на одному екрані: рядок каже «на
+// дедлайн буде X», крива веде туди лінією. Розійтись їм не можна —
+// читач побачив би лінію, яка закінчується не там, де написано.
+//
+// Перевіряються ВСІ чотири сценарії. Збіг одного буває випадковим:
+// сценарії відрізняються лише допущеннями, і легко зібрати криву для
+// одного набору, а підпис узяти з іншого.
+func TestForecastCurveEndsAtScenarioAmounts(t *testing.T) {
+	in := forecastInput(t, goalSettings("", "2030-01-01"))
+	in.ActualMonthly = 12_000
+	f := buildProjection(in).Forecast
+	if f == nil || f.Curve == nil || len(f.Curve.Points) == 0 {
+		t.Fatal("кривої немає")
+	}
+	last := f.Curve.Points[len(f.Curve.Points)-1]
+	if last.Month != f.Months {
+		t.Errorf("крива обривається на місяці %d, а дедлайн на %d", last.Month, f.Months)
+	}
+	byKey := map[string]float64{}
+	for _, r := range f.Rows {
+		byKey[r.Key] = r.Amount
+	}
+	for _, c := range []struct {
+		key  string
+		curv float64
+	}{
+		{"realistic", last.Plan},
+		{"optimistic", last.Optimistic},
+		{"pessimistic", last.Pessimistic},
+		{"actual", last.Actual},
+	} {
+		if want, ok := byKey[c.key]; ok && want != c.curv {
+			t.Errorf("%s: рядок каже %v, крива веде до %v", c.key, want, c.curv)
+		}
+	}
+	// Ціль лежить у самій кривій, щоб UI не діставав її з іншого місця й
+	// не малював лінію проти числа, якого в цьому ж обʼєкті немає.
+	if f.Curve.GoalUAH != f.GoalAmount {
+		t.Errorf("ціль у кривій %v, а в прогнозі %v", f.Curve.GoalUAH, f.GoalAmount)
+	}
+}
+
+// TestForecastCurveStaysSmall — точок близько дюжини, а не помісячно.
+//
+// Помісячна крива на десятирічному горизонті це 120 точок на серію,
+// тобто півтисячі чисел у документі заради лінії, у якій сусідні місяці
+// візуально не відрізняються. Документ читає ще й Home Assistant.
+func TestForecastCurveStaysSmall(t *testing.T) {
+	in := forecastInput(t, goalSettings("", "2036-07-01")) // ~10 років
+	f := buildProjection(in).Forecast
+	if f.Curve == nil {
+		t.Fatal("кривої немає")
+	}
+	if n := len(f.Curve.Points); n > 16 {
+		t.Errorf("точок %d за %d місяців — крок мусить рости з горизонтом",
+			n, f.Months)
+	}
+}
+
 // TestForecastWiderSpreadWidensFan — більший розкид розводить сценарії
 // далі один від одного. Напрямок, а не конкретні числа: конкретні
 // стереже golden.

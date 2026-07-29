@@ -76,6 +76,49 @@ export function svgLine(xlabels, series) {
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${lines}${xl}</svg>`;
 }
 
+/** Крива прогнозу: коридор між двома серіями, лінії всередині нього і
+ *  горизонтальна лінія цілі.
+ *
+ *  Окремо від svgLine навмисно. Той малює рівноправні серії по спільних
+ *  мітках; тут же в серій РІЗНІ ролі — дві задають межі коридору, третя
+ *  йде посередині, четверта показує відхилення від неї, а ціль це взагалі
+ *  не серія, а орієнтир. Запхати ролі в svgLine означало б додати йому
+ *  чотири прапорці й зламати два наявні виклики.
+ *
+ *  bands: {lo, hi} — значення нижньої й верхньої межі коридору (може
+ *  бути порожньо). lines: [{color, values, dash}]. goal — число або 0.
+ *  xlabels — підписи, порожній рядок = мітки немає. */
+export function svgBandLine(xlabels, bands, lines, goal) {
+  const W = 320, H = 170, Pl = 8, Pr = 8, Pt = 14, Pb = 28;
+  const iw = W - Pl - Pr, ih = H - Pt - Pb;
+  const n = Math.max(1, xlabels.length);
+  // Ціль входить у масштаб: інакше лінія цілі вилітала б за полотно, і
+  // «не дотягуємо» виглядало б як «дотягуємо».
+  const all = lines.flatMap((s) => s.values).concat(bands.hi || [], [goal || 0]);
+  const max = Math.max(1, ...all);
+  const X = (i) => Pl + (n <= 1 ? iw / 2 : (iw * i) / (n - 1));
+  const Y = (v) => Pt + ih - (v / max) * ih;
+  let out = "";
+  if ((bands.lo || []).length && (bands.hi || []).length) {
+    const up = bands.hi.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`);
+    const down = bands.lo.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).reverse();
+    out += `<polygon points="${up.concat(down).join(" ")}" fill="var(--oi-series-invested)" opacity="0.12"/>`;
+  }
+  if (goal > 0) {
+    const y = Y(goal).toFixed(1);
+    out += `<line x1="${Pl}" y1="${y}" x2="${W - Pr}" y2="${y}" stroke="${AXIS}"`
+      + ` stroke-width="1" stroke-dasharray="4 3"/>`;
+  }
+  out += lines.map((s) =>
+    `<polyline points="${s.values.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}"`
+    + ` fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round"`
+    + `${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`).join("");
+  out += xlabels.map((l, i) => l
+    ? `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="${AXIS}">${esc(l)}</text>`
+    : "").join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${out}</svg>`;
+}
+
 /** Кільце часток. parts: [{label, value}] — уже відсортовані.
  *  Повертає {svg, colors}: легенду малює той, хто кличе, бо підпис
  *  частки в різних місцях різний (сума, відсоток, і те й те). */

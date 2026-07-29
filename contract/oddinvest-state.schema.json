@@ -712,6 +712,28 @@
         "contrib_plan": { "type": "number" },
         "rate0_usd": { "type": "number" },
         "glide_years": { "type": "number" },
+        "curve": {
+          "type": "object",
+          "description": "Та сама модель помісячно: рядки кажуть, ЧИМ усе скінчиться, крива — коли саме траєкторія розходиться з планом (адитивне поле)",
+          "properties": {
+            "step_months": { "type": "integer", "minimum": 1, "description": "Крок між точками; росте з горизонтом, щоб точок лишалось близько дюжини" },
+            "goal_uah": { "type": "number", "description": "Лінія цілі, щоб UI не діставав її з іншого місця" },
+            "points": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "month": { "type": "integer", "minimum": 0, "description": "Місяць від сьогодні; 0 — сьогоднішній капітал" },
+                  "plan": { "type": "number", "description": "Реалістичний сценарій, у сьогоднішніх ₴" },
+                  "optimistic": { "type": "number" },
+                  "pessimistic": { "type": "number" },
+                  "actual": { "type": "number", "description": "За фактичним темпом поповнень; відсутнє, поки темп невідомий" }
+                },
+                "required": ["month", "plan"]
+              }
+            }
+          }
+        },
         "rows": {
           "type": "array",
           "items": { "type": "object" }

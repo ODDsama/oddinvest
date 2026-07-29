@@ -13,7 +13,7 @@ import {
   uah2 as fmtUAH, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
-import { svgBars, svgLine } from "../charts.js";
+import { svgBars, svgLine, svgBandLine } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
 import { goalsHTML, sensitivityHTML } from "./forecast.js";
 
@@ -26,9 +26,46 @@ export function income12mChartHTML(ctx) {
     <div class="sub">Купони + погашення на рік наперед (грн-екв.).</div></div>`;
 }
 
-// Крива капіталу: внески без відсотків проти внесків із реінвестом.
+// Крива капіталу до дедлайну.
+//
+// Доти тут була лінія по чотирьох точках (1/3/5/10 років) — тих самих, що
+// в таблиці нижче. Вона казала, ЧИМ усе скінчиться, і мовчала про те, коли
+// саме траєкторія розходиться з планом. А розходиться вона не рівномірно:
+// перші роки будуються з фактичного календаря виплат, тож мають форму,
+// якої в сухому складному відсотку немає.
+//
+// Тепер помісячна крива з бекенда: коридор між песимістичним і
+// оптимістичним, план посередині, пунктиром — фактичний темп, і
+// горизонтальна лінія цілі. Розрив між планом і фактом тут видно як
+// відстань, а не як два числа в різних рядках.
+//
+// Запасний варіант лишається: старі бекенди кривої не надсилають, і
+// панель не мусить показувати порожньо.
 export function capitalChartHTML(ctx) {
-  const proj = (ctx.summary || {}).projection || [];
+  const s = ctx.summary || {};
+  const curve = (s.forecast || {}).curve;
+  if (curve && (curve.points || []).length > 1) {
+    const pts = curve.points;
+    const has = (k) => pts.some((p) => (p[k] || 0) > 0);
+    // Мітки лише на роках: 14 підписів на 320 пікселів злипаються в
+    // сіру смугу, а рік — та одиниця, у якій читають горизонт.
+    const labels = pts.map((p) => p.month % 12 === 0 ? `${p.month / 12}р` : "");
+    const lines = [{ color: "var(--oi-series-invested)", values: pts.map((p) => p.plan) }];
+    if (has("actual")) {
+      lines.push({ color: "var(--oi-series-neutral)", values: pts.map((p) => p.actual), dash: "5 3" });
+    }
+    const bands = has("optimistic") && has("pessimistic")
+      ? { lo: pts.map((p) => p.pessimistic), hi: pts.map((p) => p.optimistic) } : {};
+    return `<div class="card"><h4>Крива капіталу ${infoBtn("capitalCurve")}</h4>
+      ${svgBandLine(labels, bands, lines, curve.goal_uah || 0)}
+      <div class="lg"><span><i style="background:var(--oi-series-invested)"></i>за планом</span>
+        ${has("actual") ? `<span><i style="background:var(--oi-series-neutral)"></i>за фактом</span>` : ""}
+        ${bands.lo ? `<span><i style="background:var(--oi-series-invested);opacity:.3"></i>коридор ринку</span>` : ""}
+        ${curve.goal_uah > 0 ? `<span><i style="background:var(--oi-muted)"></i>ціль</span>` : ""}</div>
+      <div class="sub-xs">У сьогоднішніх гривнях, до дедлайну цілі. Крок ${curve.step_months} міс.</div></div>`;
+  }
+  // Запасний вигляд для старого бекенда: ті самі чотири точки.
+  const proj = s.projection || [];
   if (!proj.length) return "";
   return `<div class="card"><h4>Крива капіталу ${infoBtn("capitalCurve")}</h4>
     ${svgLine(proj.map((p) => p.years + "р"), [

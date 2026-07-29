@@ -684,7 +684,111 @@
           }
         ]
       }
-    ]
+    ],
+    "curve": {
+      "step_months": 3,
+      "goal_uah": 4000000,
+      "points": [
+        {
+          "month": 0,
+          "plan": 874996.99,
+          "optimistic": 874996.99,
+          "pessimistic": 874996.99,
+          "actual": 874996.99
+        },
+        {
+          "month": 3,
+          "plan": 1132780.51,
+          "optimistic": 1140845.85,
+          "pessimistic": 1125088.63,
+          "actual": 1062250.65
+        },
+        {
+          "month": 6,
+          "plan": 1391825.24,
+          "optimistic": 1412479.28,
+          "pessimistic": 1372356.62,
+          "actual": 1251880.5
+        },
+        {
+          "month": 9,
+          "plan": 1643396.9,
+          "optimistic": 1681274.51,
+          "pessimistic": 1608117.47,
+          "actual": 1435083.04
+        },
+        {
+          "month": 12,
+          "plan": 1891506.46,
+          "optimistic": 1951516.84,
+          "pessimistic": 1836309.56,
+          "actual": 1615807.66
+        },
+        {
+          "month": 15,
+          "plan": 2134979.75,
+          "optimistic": 2222111.09,
+          "pessimistic": 2055841.75,
+          "actual": 1792822.59
+        },
+        {
+          "month": 18,
+          "plan": 2375580.7,
+          "optimistic": 2495014.11,
+          "pessimistic": 2268481.56,
+          "actual": 1967838.09
+        },
+        {
+          "month": 21,
+          "plan": 2613598.4,
+          "optimistic": 2770733.65,
+          "pessimistic": 2474507.01,
+          "actual": 2141077.63
+        },
+        {
+          "month": 24,
+          "plan": 2849306.38,
+          "optimistic": 3049776.54,
+          "pessimistic": 2674172.81,
+          "actual": 2312764.49
+        },
+        {
+          "month": 27,
+          "plan": 3082872.39,
+          "optimistic": 3332670.56,
+          "pessimistic": 2867621.47,
+          "actual": 2482987.19
+        },
+        {
+          "month": 30,
+          "plan": 3314628.3,
+          "optimistic": 3620292.07,
+          "pessimistic": 3055107.06,
+          "actual": 2652052.12
+        },
+        {
+          "month": 33,
+          "plan": 3544650.27,
+          "optimistic": 3912824.32,
+          "pessimistic": 3236729.64,
+          "actual": 2819959.32
+        },
+        {
+          "month": 36,
+          "plan": 3773042.08,
+          "optimistic": 4210451.13,
+          "pessimistic": 3412626.23,
+          "actual": 2986771.46
+        },
+        {
+          "month": 39,
+          "plan": 3999999.87,
+          "optimistic": 4513659.35,
+          "pessimistic": 3582970.23,
+          "actual": 3152638.68
+        }
+      ]
+    }
   },
   "sensitivity": {
     "base_contrib_uah": 62987.08,

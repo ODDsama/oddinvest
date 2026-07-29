@@ -184,6 +184,61 @@ func MonthsToReachSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths 
 	return 0
 }
 
+// SeriesPoint — капітал у сьогоднішніх гривнях на місяці Month.
+type SeriesPoint struct {
+	Month int
+	UAH   float64
+}
+
+// ProjectSleevesSeries — та сама симуляція, що й ProjectSleeves, але з
+// відліком на кожному кроці, а не лише на кінці.
+//
+// Потрібна кривій до дедлайну: чотири точки (1/3/5/10 років) кажуть, чим
+// усе скінчиться, і мовчать про те, КОЛИ саме траєкторія розходиться з
+// планом. А розходиться вона не рівномірно: біля-термінова частина
+// будується з фактичного календаря виплат, тож перші роки мають форму,
+// якої в сухому складному відсотку немає.
+//
+// Рукави крокують у лок-степі — як у MonthsToReachSleeves і з тієї самої
+// причини: підсумок береться по всіх валютах разом, і кожна мусить бути
+// на тому самому місяці.
+//
+// step — крок у місяцях, щоб не роздувати документ. Точка на нулі є
+// завжди (це сьогоднішній капітал), і остання точка завжди дорівнює
+// months, навіть якщо крок туди не потрапляє: інакше кінець кривої
+// розходився б із сумою, яку та сама модель показує в картці прогнозу.
+func ProjectSleevesSeries(sleeves []Sleeve, devalPct float64, months, step int) []SeriesPoint {
+	if months <= 0 {
+		return nil
+	}
+	if step < 1 {
+		step = 1
+	}
+	dM := MonthlyRate(devalPct)
+	sts := make([]projState, len(sleeves))
+	for i, s := range sleeves {
+		sts[i] = projState{cash: s.Cash0, locked: s.Nominal0}
+	}
+	totalToday := func(m int) float64 {
+		sum := 0.0
+		for i, s := range sleeves {
+			today, _ := s.toUAH(sts[i].total(), dM, m)
+			sum += today
+		}
+		return sum
+	}
+	out := []SeriesPoint{{Month: 0, UAH: totalToday(0)}}
+	for m := 1; m <= months; m++ {
+		for i, s := range sleeves {
+			sts[i].step(MonthlyRate(s.rateAt(m)), s.contribAt(m, dM), s.Threshold, s.Coupon[m], s.Redeem[m])
+		}
+		if m%step == 0 || m == months {
+			out = append(out, SeriesPoint{Month: m, UAH: totalToday(m)})
+		}
+	}
+	return out
+}
+
 // MonthsToIncomeSleeves — за скільки місяців МІСЯЧНИЙ ДОХІД портфеля в
 // сьогоднішніх гривнях сягне target. -1 = вже, 0 = не досягається за
 // maxMonths.

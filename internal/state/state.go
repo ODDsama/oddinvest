@@ -539,6 +539,40 @@ type Forecast struct {
 	// до довгострокової.
 	GlideYears float64       `json:"glide_years,omitempty"`
 	Rows       []ForecastRow `json:"rows"`
+	// Curve — та сама модель, але помісячно, а не самим кінцем.
+	//
+	// Рядки вище кажуть, ЧИМ усе скінчиться; крива — коли саме траєкторія
+	// розходиться з планом. А розходиться вона не рівномірно: перші роки
+	// будуються з фактичного календаря виплат, тож мають форму, якої в
+	// сухому складному відсотку немає.
+	Curve *ForecastCurve `json:"curve,omitempty"`
+}
+
+// ForecastCurve — помісячна траєкторія капіталу до дедлайну, у
+// СЬОГОДНІШНІХ гривнях (як і суми в рядках прогнозу).
+type ForecastCurve struct {
+	// StepMonths — крок між точками. Не одиниця навмисно: на десятирічному
+	// горизонті помісячна крива це 120 точок на серію, тобто півтисячі
+	// чисел у документі заради лінії, у якій сусідні місяці візуально не
+	// відрізняються.
+	StepMonths int `json:"step_months"`
+	// GoalUAH — лінія цілі, щоб UI не діставав її з іншого місця й не
+	// малював криву проти числа, якого в цьому ж об'єкті немає.
+	GoalUAH float64              `json:"goal_uah,omitempty"`
+	Points  []ForecastCurvePoint `json:"points"`
+}
+
+// ForecastCurvePoint — один зріз. Місяць 0 — це сьогодні.
+//
+// Optimistic/Pessimistic задають коридор ринку, Plan іде посередині.
+// Actual зʼявляється лише коли відомий фактичний темп поповнень — і саме
+// його розрив із Plan показує, що це поведінка, а не ринок.
+type ForecastCurvePoint struct {
+	Month       int     `json:"month"`
+	Plan        float64 `json:"plan"`
+	Optimistic  float64 `json:"optimistic,omitempty"`
+	Pessimistic float64 `json:"pessimistic,omitempty"`
+	Actual      float64 `json:"actual,omitempty"`
 }
 
 // ForecastRow — один сценарій: допущення і що з них виходить.

@@ -39,6 +39,17 @@ const (
 	defaultDevalSpreadPP = 4.0
 )
 
+// scenarioDef — один набір допущень віяла: що вносимо і який ринок.
+//
+// Тип рівня пакета, а не локальний, бо ті самі набори проганяє ще й
+// крива (buildForecastCurve). Доти він жив усередині функції, і крива
+// мусила б їх перелічити вдруге — з тим самим шансом розійтись, який уже
+// коштував нам двох визначень капіталу.
+type scenarioDef struct {
+	key, label             string
+	contrib, ratePP, deval float64
+}
+
 // projectionInput — усе, від чого залежить проєкція.
 //
 // Перелік довгий, і це не вада, а те, заради чого фаза виділена: він
@@ -395,17 +406,13 @@ func buildProjection(in projectionInput) projectionPhase {
 	if deadlineMonths <= 0 {
 		return out
 	}
-	type scenario struct {
-		key, label             string
-		contrib, ratePP, deval float64
-	}
-	defs := []scenario{
+	defs := []scenarioDef{
 		{"optimistic", "Оптимістично", out.ContribM, rateSpreadPP, math.Max(0, in.Deval-devalSpreadPP)},
 		{"realistic", "Реалістично", out.ContribM, 0, in.Deval},
 		{"pessimistic", "Песимістично", out.ContribM, -rateSpreadPP, in.Deval + devalSpreadPP},
 	}
 	if in.ActualMonthly > 0 {
-		defs = append(defs, scenario{"actual", "За фактом", in.ActualMonthly, 0, in.Deval})
+		defs = append(defs, scenarioDef{"actual", "За фактом", in.ActualMonthly, 0, in.Deval})
 	}
 	f := &state.Forecast{
 		Date:        string(domain.NewDate(today.Time().AddDate(0, deadlineMonths, 0))),
@@ -452,6 +459,56 @@ func buildProjection(in projectionInput) projectionPhase {
 		}
 		f.Rows = append(f.Rows, row)
 	}
+	f.Curve = buildForecastCurve(factory, defs, in.Deval, goalAmount, deadlineMonths)
 	out.Forecast = f
+	return out
+}
+
+// buildForecastCurve — помісячна траєкторія кожного сценарію.
+//
+// Одна симуляція на сценарій, тобто чотири разом: ProjectSleevesSeries
+// проходить місяці один раз і віддає зрізи, а не перезапускається на
+// кожну точку.
+//
+// Крок підбирається так, щоб точок було близько дюжини. Помісячна крива
+// на десятирічному горизонті — це 120 точок на серію, тобто півтисячі
+// чисел у документі заради лінії, у якій сусідні місяці візуально не
+// відрізняються.
+func buildForecastCurve(factory sleeveFactory, defs []scenarioDef,
+	deval, goal float64, months int) *state.ForecastCurve {
+	if months <= 0 {
+		return nil
+	}
+	step := months / 12
+	if step < 1 {
+		step = 1
+	}
+	// Ключ сценарію → зрізи. Місяці в усіх однакові, бо крок і горизонт
+	// одні; збирати їх у точки можна за індексом.
+	series := map[string][]domain.SeriesPoint{}
+	for _, d := range defs {
+		series[d.key] = domain.ProjectSleevesSeries(
+			factory.build(d.contrib, d.ratePP), d.deval, months, step)
+	}
+	plan := series["realistic"]
+	if len(plan) == 0 {
+		return nil
+	}
+	at := func(key string, i int) float64 {
+		s := series[key]
+		if i >= len(s) {
+			return 0
+		}
+		return round2(s[i].UAH)
+	}
+	out := &state.ForecastCurve{StepMonths: step, GoalUAH: goal}
+	for i, p := range plan {
+		out.Points = append(out.Points, state.ForecastCurvePoint{
+			Month: p.Month, Plan: round2(p.UAH),
+			Optimistic:  at("optimistic", i),
+			Pessimistic: at("pessimistic", i),
+			Actual:      at("actual", i),
+		})
+	}
 	return out
 }
