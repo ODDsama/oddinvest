@@ -911,6 +911,13 @@
     "actual_date": "2032-07-15",
     "capital_uah": 5194491.3
   },
+  "drawdown": {
+    "withdraw_uah": 20000,
+    "withdraw_from": "setting",
+    "months": 45,
+    "until": "2030-04-15",
+    "covered_pct": 7.7
+  },
   "rebalance": [
     {
       "dimension": "currency",

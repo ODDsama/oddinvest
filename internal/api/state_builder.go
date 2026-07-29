@@ -750,6 +750,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 
 		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
 		Sensitivity: prj.Sensitivity, Independence: prj.Independence,
+		Drawdown:  prj.Drawdown,
 		Rebalance: rebalance, Concentration: concentration,
 		RateRisk: rateRisk, Liquidity: liquidity,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,

@@ -114,6 +114,8 @@ type projectionPhase struct {
 	// Independence — коли дохід покриє життя (state_independence.go).
 	// Теж тут і з тієї самої причини: потрібна та сама фабрика.
 	Independence *state.Independence
+	// Drawdown — на скільки вистачить без внесків (там само).
+	Drawdown *state.Drawdown
 }
 
 // sleeveFactory — усе, що потрібно, щоб зібрати валютні рукави під
@@ -353,6 +355,21 @@ func buildProjection(in projectionInput) projectionPhase {
 		Factory: factory, Deval: in.Deval,
 		ContribPlan: out.ContribM, ContribActual: in.ActualMonthly,
 		TargetUAH: incomeTarget, TargetFrom: targetFrom,
+		IncomeNowUAH: in.IncomeMonthlyNow, Today: today,
+	})
+
+	// Скільки знімати — окреме питання від того, який дохід достатній:
+	// жити можна й скромніше за ціль. Спад той самий, на витрати.
+	withdraw, withdrawFrom := 0.0, "expenses"
+	if in.Settings.MonthlyExpensesUAH != nil {
+		withdraw = *in.Settings.MonthlyExpensesUAH
+	}
+	if in.Settings.WithdrawMonthlyUAH != nil && *in.Settings.WithdrawMonthlyUAH > 0 {
+		withdraw, withdrawFrom = *in.Settings.WithdrawMonthlyUAH, "setting"
+	}
+	out.Drawdown = buildDrawdown(drawdownInput{
+		Factory: factory, Deval: in.Deval,
+		WithdrawUAH: withdraw, WithdrawFrom: withdrawFrom,
 		IncomeNowUAH: in.IncomeMonthlyNow, Today: today,
 	})
 

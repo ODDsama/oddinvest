@@ -212,6 +212,9 @@ type Doc struct {
 	Sensitivity *Sensitivity `json:"sensitivity,omitempty"`
 	// Independence — коли пасивний дохід покриє життя (адитивне поле).
 	Independence *Independence `json:"independence,omitempty"`
+	// Drawdown — на скільки вистачить, якщо перестати вносити й почати
+	// знімати (адитивне поле).
+	Drawdown *Drawdown `json:"drawdown,omitempty"`
 
 	// Rebalance — підказка виходу на цільові валютні частки (по валютах,
 	// де задано ціль). RateRisk — процентний ризик портфеля (дюрація).
@@ -661,6 +664,29 @@ type Independence struct {
 	// ставки на той момент, і називати її окремо означало б дати друге,
 	// незалежне число про те саме.
 	CapitalUAH float64 `json:"capital_uah,omitempty"`
+}
+
+// Drawdown — на скільки вистачить, якщо перестати вносити й почати
+// знімати. Питання, зворотне до всього іншого в застосунку.
+//
+// Одне число тут спирається на чотири припущення, і вони названі в
+// domain/drawdown.go: знімаємо спершу готівку, потім працююче; замкнене
+// достроково НЕ продаємо; зняття задане в сьогоднішніх гривнях; між
+// валютами ділиться пропорційно їхнім часткам.
+type Drawdown struct {
+	// WithdrawUAH — скільки знімати щомісяця, ₴ у сьогоднішніх грошах;
+	// WithdrawFrom — "setting" чи "expenses".
+	WithdrawUAH  float64 `json:"withdraw_uah"`
+	WithdrawFrom string  `json:"withdraw_from"`
+	// Months — на скільки місяців вистачить; -1 = не вичерпується за 60
+	// років, бо потоки покривають зняття. Нуль означає, що не вистачає
+	// навіть на перший місяць, і це теж відповідь.
+	Months int    `json:"months"`
+	Until  string `json:"until,omitempty"`
+	// CoveredPct — яку частку зняття покриває сьогоднішній дохід. Саме
+	// вона пояснює, ЧОМУ число таке: покриття 100% означає, що портфель
+	// живе з потоку й тіла не чіпає.
+	CoveredPct float64 `json:"covered_pct"`
 }
 
 // SensitivityRow — один зсунутий вхід.

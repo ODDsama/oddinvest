@@ -17,6 +17,66 @@ func indepInput(t *testing.T, expenses, target float64) projectionInput {
 	return in
 }
 
+// TestDrawdownWithdrawPrefersSetting — «скільки знімати» окреме питання
+// від «який дохід достатній»: жити можна й скромніше за ціль.
+func TestDrawdownWithdrawPrefersSetting(t *testing.T) {
+	in := indepInput(t, 50_000, 30_000)
+	w := 12_000.0
+	in.Settings.WithdrawMonthlyUAH = &w
+	out := buildProjection(in).Drawdown
+	if out == nil {
+		t.Fatal("декумуляції немає")
+	}
+	if out.WithdrawUAH != 12_000 || out.WithdrawFrom != "setting" {
+		t.Errorf("зняття %v (%s); очікували 12000 із налаштування",
+			out.WithdrawUAH, out.WithdrawFrom)
+	}
+	fallback := buildProjection(indepInput(t, 50_000, 30_000)).Drawdown
+	if fallback.WithdrawUAH != 50_000 || fallback.WithdrawFrom != "expenses" {
+		t.Errorf("спад дав %v (%s); очікували 50000 із витрат",
+			fallback.WithdrawUAH, fallback.WithdrawFrom)
+	}
+}
+
+// TestDrawdownBiggerWithdrawalLastsLess — більше зняття вичерпує портфель
+// раніше.
+//
+// Нуль тут неможливий (перший непокритий місяць це вже 1), а −1 означає
+// «не вичерпується», тобто НАЙДОВШЕ. Порівнювати його як число не можна.
+func TestDrawdownBiggerWithdrawalLastsLess(t *testing.T) {
+	small := 3_000.0
+	in := indepInput(t, 50_000, 30_000)
+	in.Settings.WithdrawMonthlyUAH = &small
+	a := buildProjection(in).Drawdown.Months
+
+	big := 30_000.0
+	in2 := indepInput(t, 50_000, 30_000)
+	in2.Settings.WithdrawMonthlyUAH = &big
+	b := buildProjection(in2).Drawdown.Months
+
+	rank := func(m int) int {
+		if m == -1 {
+			return 1 << 30 // не вичерпується — найдовше з можливого
+		}
+		return m
+	}
+	if rank(b) >= rank(a) {
+		t.Errorf("зняття 30 000 вистачило на %d, а 3 000 — на %d", b, a)
+	}
+}
+
+// TestDrawdownCoveredPctExplainsTheNumber — покриття рахується від того
+// самого доходу, що в сусідніх картках.
+func TestDrawdownCoveredPctExplainsTheNumber(t *testing.T) {
+	in := indepInput(t, 50_000, 30_000) // IncomeMonthlyNow = 1234.56
+	w := 12_345.6
+	in.Settings.WithdrawMonthlyUAH = &w
+	out := buildProjection(in).Drawdown
+	if out.CoveredPct != 10 {
+		t.Errorf("покриття %v%%, очікували 10 (1234.56 з 12345.60)", out.CoveredPct)
+	}
+}
+
 // TestIndependenceTargetPrefersSetting — явна ціль доходу перемагає
 // місячні витрати.
 //

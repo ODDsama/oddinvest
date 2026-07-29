@@ -16,6 +16,8 @@
 package api
 
 import (
+	"math"
+
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
@@ -68,3 +70,42 @@ func buildIndependence(in independenceInput) *state.Independence {
 	}
 	return out
 }
+
+// drawdownInput — понад те, що вже порахувала проєкція.
+type drawdownInput struct {
+	Factory sleeveFactory
+	Deval   float64
+	// WithdrawUAH — скільки знімати щомісяця, у СЬОГОДНІШНІХ гривнях;
+	// WithdrawFrom — "setting" чи "expenses".
+	WithdrawUAH  float64
+	WithdrawFrom string
+	// IncomeNowUAH — сьогоднішній дохід. Потрібен, щоб сказати, яку
+	// частку зняття портфель покриває вже зараз: саме це пояснює, чому
+	// число вийшло таким, а не інакшим.
+	IncomeNowUAH float64
+	Today        domain.Date
+}
+
+// buildDrawdown рахує, на скільки вистачить без внесків.
+func buildDrawdown(in drawdownInput) *state.Drawdown {
+	if in.WithdrawUAH <= 0 {
+		return nil
+	}
+	// Рукави БЕЗ внеску: це й є декумуляція.
+	sl := in.Factory.build(0, 0)
+	months := domain.DrawdownMonths(sl, in.Deval, in.WithdrawUAH, goalHorizonMonths)
+	out := &state.Drawdown{
+		WithdrawUAH:  round2(in.WithdrawUAH),
+		WithdrawFrom: in.WithdrawFrom,
+		Months:       months,
+		CoveredPct:   round1(in.IncomeNowUAH / in.WithdrawUAH * 100),
+	}
+	if months > 0 {
+		out.Until = string(domain.NewDate(in.Today.Time().AddDate(0, months, 0)))
+	}
+	return out
+}
+
+// round1 — одна десята. Той самий крок, що й у goal_pct: два різні
+// заокруглення для однорідних відсотків читались би як розбіжність.
+func round1(v float64) float64 { return math.Round(v*10) / 10 }

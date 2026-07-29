@@ -192,7 +192,8 @@ export async function renderFuture(ctx, main) {
       ${income12mChartHTML(ctx)}
       ${capitalChartHTML(ctx)}
     </div>
-    ${projectionHTML(ctx)}`;
+    ${projectionHTML(ctx)}
+    ${drawdownHTML(ctx)}`;
   await renderCalendar(ctx, main, { append: true });
 }
 
@@ -230,6 +231,54 @@ export function incomeHTML(ctx) {
     ${line("зараз", now)}
     <div style="border-top:1px solid var(--oi-border);padding-top:6px;margin-top:4px">${body}</div>
     ${independenceHTML(ctx)}
+  </div>`;
+}
+
+// ---------- декумуляція: на скільки вистачить ----------
+//
+// Питання, зворотне до всієї решти вкладки: не «скільки накопичу», а «на
+// скільки цього вистачить, якщо перестати вносити». Тому й стоїть
+// останньою, після проєкцій.
+//
+// Головне тут — не саме число, а припущення за ним, і картка називає їх
+// вголос. Найважливіше: замкнене (номінал ОВДП, тіло вкладів,
+// сертифікати) достроково НЕ продається. Це найконсервативніша з розумних
+// угод — продати ОВДП на вторинці можна, але за ціною, якої застосунок не
+// знає, а вклад — із втратою відсотків.
+export function drawdownHTML(ctx) {
+  const d = (ctx.summary || {}).drawdown;
+  if (!d || !d.withdraw_uah) return "";
+  const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
+  const from = d.withdraw_from === "expenses"
+    ? "стільки коштує місяць життя" : "задано в налаштуваннях";
+  // Три різні відповіді, і жодну не можна показати замість іншої.
+  // −1 — портфель живе з потоку; 0 неможливий (перший непокритий місяць
+  // це вже 1); 1 — не вистачає навіть на місяць.
+  let head, note;
+  if (d.months === -1) {
+    head = `<span class="ok-t">не вичерпується</span>`;
+    note = "потоки покривають зняття — тіло лишається на місці";
+  } else if (d.months <= 1) {
+    head = `<span class="warn-t">не вистачить і на місяць</span>`;
+    note = "ліквідної частини менше за одне зняття; замкнене не продається достроково";
+  } else {
+    head = `<b>${humanMonths(d.months)}</b>`;
+    note = `до ${monthYear(d.until)}`;
+  }
+  return `<div class="card"><h2 class="h-row"><span>На скільки вистачить ${infoBtn("drawdown")}</span></h2>
+    <div class="sub">Якщо перестати вносити й знімати ${inc(d.withdraw_uah)}/міс
+      <span class="muted">· ${esc(from)}</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-top:8px">
+      <span class="muted" style="font-size:13px">вистачить</span>
+      <span>${head} <span class="muted" style="font-size:12px">${esc(note)}</span></span>
+    </div>
+    <div class="progress" style="margin-top:8px"><span style="width:${
+      Math.min(100, d.covered_pct || 0)}%;background:var(--oi-info)"></span></div>
+    <div class="sub-xs" style="margin-top:4px">Сьогоднішній дохід покриває
+      ${(d.covered_pct || 0).toFixed(0)}% зняття. Решту доводиться брати з тіла — і саме
+      тому число таке.</div>
+    <div class="sub-xs">Замкнене (номінал ОВДП, тіло вкладів, сертифікати) достроково
+      не продається: воно лише віддає купони й погашення за графіком.</div>
   </div>`;
 }
 
