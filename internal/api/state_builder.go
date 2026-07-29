@@ -33,19 +33,6 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, doc)
 }
 
-// ytmLot — лот у вигляді, який розуміє розрахунок дохідності: собівартість
-// одного паперу — «брудна» ціна плюс частка комісії. Комісія теж з'їдає
-// дохідність, тож ховати її означало б завищувати результат.
-func ytmLot(l domain.Lot, qty int64) domain.YTMLot {
-	cost := l.PricePerBond
-	if fee, err := domain.Apportion(l.Fee, 1, l.Qty); err == nil && !fee.IsZero() {
-		if c2, aerr := cost.Add(fee); aerr == nil {
-			cost = c2
-		}
-	}
-	return domain.YTMLot{CostPerBond: cost, Qty: qty, BuyDate: l.BuyDate, ISIN: l.ISIN}
-}
-
 // defaultTerminalRatePct — довгострокова гривнева ставка ОВДП, до якої
 // сповзає сьогоднішня. 11% — це ціль НБУ по інфляції (5%) плюс типова
 // реальна премія держпаперу. Сьогоднішні 16-17% — наслідок війни, а не
@@ -739,68 +726,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		}
 	}
 
-	// Очікувана дохідність за придбаними паперами — ДОХІДНІСТЬ ДО
-	// ПОГАШЕННЯ (YTM) від того, що фактично сплачено, зважена вкладеними
-	// грішми. Це орієнтир для проєкцій замість ручного вводу.
-	//
-	// Раніше тут було «річний купон ÷ номінал». Воно відповідало на питання
-	// «скільки папір платить», а не «скільки я заробляю»: ціна купівлі не
-	// впливала взагалі, тож папір, узятий із дисконтом, і папір, узятий з
-	// премією, виглядали однаково. YTM бачить і дисконт, і комісію, і те,
-	// що піврічний купон складається всередині року.
-	var nominalUAH int64                // сумарний номінал у грн-екв.
-	nominalByCur := map[string]int64{}  // номінал нативно по валютах
-	nominalByISIN := map[string]int64{} // номінал по ПАПЕРАХ, грн-екв.
-	ytmLotsByCur := map[string][]domain.YTMLot{}
-	var ytmWeightUAH, ytmWeightedUAH, ytmWeightedRealUAH float64
-	for _, l := range hold.Lots {
-		if !l.Held() {
-			continue
-		}
-		b, q := l.Bond, l.Remaining
-		cur := b.Nominal.Currency().Code
-		nominalByCur[cur] += b.Nominal.Amount() * q
-		if n, err := fx.ToUAH(money.New(b.Nominal.Amount()*q, cur), rates); err == nil {
-			nominalUAH += n.Amount()
-			// Частка на ОДИН папір рахувалась тут транзитом і викидалась —
-			// а це єдиний вимір диверсифікації, якого в застосунку не було
-			// зовсім: «половина портфеля в одному ISIN» побачити не було де.
-			nominalByISIN[l.ISIN] += n.Amount()
-		}
-		lot := ytmLot(l.Lot, q)
-		cost := lot.CostPerBond
-		ytmLotsByCur[cur] = append(ytmLotsByCur[cur], lot)
-		// Для зведеної цифри вагу переводимо в гривню, щоб валюти
-		// складались коректно, а самі ставки лишались нативними.
-		if y, ok := domain.WeightedYTM([]domain.YTMLot{lot}, pays); ok {
-			if w, err := fx.ToUAH(money.New(cost.Amount()*q, cur), rates); err == nil {
-				ytmWeightUAH += float64(w.Amount())
-				ytmWeightedUAH += float64(w.Amount()) * y
-				// Реальну зважуємо тут само, лотом за лотом, а не ділимо
-				// готову суміш на знецінення: знецінення торкається лише
-				// гривневих рукавів, і поділ суміші цілком занизив би
-				// доларову частину.
-				ytmWeightedRealUAH += float64(w.Amount()) * realYield(y/100, cur, deval) * 100
-			}
-		}
-	}
-	var portfolioYield, portfolioYieldReal float64
-	if ytmWeightUAH > 0 {
-		portfolioYield = math.Round(ytmWeightedUAH/ytmWeightUAH*100) / 100
-		portfolioYieldReal = math.Round(ytmWeightedRealUAH/ytmWeightUAH*100) / 100
-	}
-	portfolioYieldByCur := map[string]float64{}
-	// Реальний двійник кожної зведеної дохідності. Доти плитки говорили
-	// номінальними числами, а таблиця під ними — реальними, і той самий
-	// папір показувався двома різними числами на одному екрані без жодної
-	// позначки, що бази різні.
-	portfolioYieldRealByCur := map[string]float64{}
-	for cur, ls := range ytmLotsByCur {
-		if y, ok := domain.WeightedYTM(ls, pays); ok {
-			portfolioYieldByCur[cur] = math.Round(y*100) / 100
-			portfolioYieldRealByCur[cur] = round2(realYield(y/100, cur, deval) * 100)
-		}
-	}
+	// Облігації: номінал і дохідність до погашення (state_bonds.go).
+	bnd := buildBonds(hold, pays, rates, deval)
+	nominalByCur, nominalByISIN := bnd.NominalByCur, bnd.NominalByISIN
+	portfolioYield, portfolioYieldReal := bnd.YieldPct, bnd.YieldRealPct
+	portfolioYieldByCur := bnd.YieldByCur
+	portfolioYieldRealByCur := bnd.YieldRealByCur
 
 	// --- фактичний темп поповнень ---
 	// План може розходитись із реальністю, тож рахуємо ще й середній темп
@@ -871,32 +802,21 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Зведена дохідність: облігації важать номіналом у грн-екв., фонди —
 	// ринковою вартістю. Саме вона й потрібна проєкціям — до неї капітал
 	// у сертифікатах ріс за ставкою облігацій, яких у ньому немає.
-	nominalMajor := float64(nominalUAH) / 100
+	nominalMajor := float64(bnd.NominalUAH) / 100
 
-	// Капітал — один раз і на всіх. Далі його читають ребаланс, старт
-	// проєкції й сам документ; доти кожен з них складав свою суму, і на
-	// сусідніх картках стояли числа, які не сходились. Номінал по валютах
-	// переводимо в грн-екв. тут, бо частки міряються в спільній одиниці.
-	bondsByCurUAH := map[string]float64{}
-	for cur, minor := range nominalByCur {
-		if u, err := fx.ToUAH(money.New(minor, cur), rates); err == nil {
-			bondsByCurUAH[cur] = float64(u.Amount()) / 100
-		}
-	}
+	// Капітал — один раз і на всіх, і саме тут: це ТОЧКА ЗБІРКИ п'яти
+	// інструментів, а не частина котрогось із них. Далі його читають
+	// ребаланс, старт проєкції й сам документ; доти кожен з них складав
+	// свою суму, і на сусідніх картках стояли числа, які не сходились.
 	capital := state.Capital{
 		BondsUAH: nominalMajor, AccountUAH: float64(accountUAHMinor) / 100,
 		FundsUAH: fundsUAH, DepositsUAH: depositsUAH, ReserveUAH: reserveUAH,
-		BondsByCur: bondsByCurUAH, DepositsByCur: depositsUAHByCur,
+		BondsByCur: bnd.NominalByCurUAH, DepositsByCur: depositsUAHByCur,
 		ReserveByCur: reserveUAHByCur,
 	}
 
-	if nominalMajor+fundsUAH > 0 {
-		blend := func(bond, fund float64) float64 {
-			return math.Round((bond*nominalMajor+fund*fundsUAH)/(nominalMajor+fundsUAH)*100) / 100
-		}
-		blendedYield = blend(portfolioYield, fundsYield)
-		blendedYieldReal = blend(portfolioYieldReal, fundsYieldReal)
-	}
+	blendedYield = blendYield(portfolioYield, fundsYield, nominalMajor, fundsUAH)
+	blendedYieldReal = blendYield(portfolioYieldReal, fundsYieldReal, nominalMajor, fundsUAH)
 
 	// contribM — місячний внесок плану. Виводиться з ЦІЛІ й ДЕДЛАЙНУ
 	// нижче, коли вже зібрані валютні рукави: окреме ручне число дублювало
