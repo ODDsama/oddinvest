@@ -11,7 +11,6 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"net/http"
 	"sort"
@@ -92,50 +91,13 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	if err != nil {
 		return nil, err
 	}
-	cashflow, err := domain.FuturePayments(pays, lots, sales, today)
+	// Розклад — календар виплат і драбина погашень (state_schedule.go).
+	sch, err := buildSchedule(src, hold, today)
 	if err != nil {
 		return nil, err
 	}
-	ladder := domain.Ladder(bonds, lots, sales, today)
-
-	// Вклади мають розклад, тож їхні відсотки й повернення тіла входять у
-	// той самий календар і ту саму драбину, що й купони й погашення ОВДП.
-	cashflow = append(cashflow, domain.DepositCashflows(termDeposits, today)...)
-	ladder = append(ladder, domain.DepositLadder(termDeposits, today)...)
-
-	// Фонди теж — але ОЦІНКОЮ, і лише коли відомий день виплати.
-	//
-	// Доти межа була суворою: у календарі стояли самі зобовʼязання. Ціна
-	// суворості виявилась вищою за користь — календар показував дві
-	// третини потоку й мовчав про решту, а «скільки я отримую щомісяця»
-	// рахувалось із фондами в одному місці й без них у сусідньому.
-	//
-	// Оцінка лишається впізнаваною (ключ fund:<назва>), і там, де їй не
-	// місце, вона відсіюється: у ціновому ризику сертифікат не
-	// переоцінюється ставками ОВДП, а в ризику перевкладення дивіденд не
-	// є поверненням тіла.
+	cashflow, ladder := sch.Cashflow, sch.Ladder
 	fundRefs := src.fundRefs
-	for i := range hold.Funds {
-		fp := &hold.Funds[i].FundPosition
-		ref := fundRefs[fp.Fund]
-		// Обіцянка фонду, а якщо її немає — виміряна дивідендна: остання
-		// ділить виплату на СЬОГОДНІШНЮ вартість, тож на позиції, яку
-		// докуповують, занижує.
-		y := float64(ref.ExpectedYieldBP) / 100
-		if y <= 0 {
-			y, _ = domain.DividendYieldNet(fundOps, fp, today)
-		}
-		cashflow = append(cashflow, domain.FundDividendFlows(fp, y, 12, today)...)
-	}
-	// next_payment бере перший потік, драбина йде по роках — обидва
-	// покладаються на порядок, який append порушив.
-	sort.Slice(cashflow, func(i, j int) bool { return cashflow[i].Date < cashflow[j].Date })
-	sort.Slice(ladder, func(i, j int) bool {
-		if ladder[i].Year != ladder[j].Year {
-			return ladder[i].Year < ladder[j].Year
-		}
-		return ladder[i].Currency < ladder[j].Currency
-	})
 
 	// Тіло діючих вкладів у грн-екв: усього й по валютах — для капіталу й
 	// валютних часток. Розірвані/погашені не рахуємо: їхнє тіло вже не
@@ -596,56 +558,11 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		addExposure(bank, v)
 	}
 
-	// Драбина в грн-екв.: номінал, що повертається щороку (для стовпчиків).
-	ladderByYear := map[int]int64{}
-	for _, e := range ladder {
-		if u, err := fx.ToUAH(money.New(e.Nominal, e.Currency), rates); err == nil {
-			ladderByYear[e.Year] += u.Amount()
-		}
-	}
-	years := make([]int, 0, len(ladderByYear))
-	for y := range ladderByYear {
-		years = append(years, y)
-	}
-	sort.Ints(years)
-	ladderUAH := make([]state.YearAmount, 0, len(years))
-	for _, y := range years {
-		ladderUAH = append(ladderUAH, state.YearAmount{Year: y, UAH: round2(float64(ladderByYear[y]) / 100)})
-	}
-
-	// Надходження по місяцях на рік наперед, грн-екв. КУПОНИ рахуємо
-	// окремо від погашень: погашення — це повернення власного тіла, а не
-	// дохід, тож на питання «скільки я отримую» відповідають лише купони.
-	incByMonth := map[string]float64{}
-	couByMonth := map[string]float64{}
-	for _, cf := range cashflow {
-		u, err := fx.ToUAH(cf.Amount, rates)
-		if err != nil {
-			continue
-		}
-		key := fmt.Sprintf("%04d-%02d", cf.Date.Year(), int(cf.Date.Month()))
-		v := float64(u.Amount()) / 100
-		incByMonth[key] += v
-		if cf.Type != domain.PayRedemption {
-			couByMonth[key] += v
-		}
-	}
-	income12m := make([]state.MonthAmount, 0, 12)
-	coupons12m := make([]state.MonthAmount, 0, 12)
-	couponSum := 0.0
-	for i := 0; i < 12; i++ {
-		t := today.Time().AddDate(0, i, 0)
-		key := fmt.Sprintf("%04d-%02d", t.Year(), int(t.Month()))
-		income12m = append(income12m, state.MonthAmount{Month: key, Amount: round2(incByMonth[key])})
-		coupons12m = append(coupons12m, state.MonthAmount{Month: key, Amount: round2(couByMonth[key])})
-		couponSum += couByMonth[key]
-	}
-	// Число ЧИСТЕ, і це не збіг трьох різних правил, а наслідок одного:
-	// сюди все потрапляє вже після податку. Купон ОВДП від нього
-	// звільнений (брутто = нетто), відсотки вкладу графік віддає
-	// після утримання, дивіденди фондів додаються нижче теж чистими.
-	// Скільки саме забрав податок — окремо, у /api/tax.
-	incomeMonthlyNow := round2(couponSum / 12)
+	// Розклад, зведений у показники документа (state_schedule.go).
+	inc := summarizeIncome(sch, rates, today)
+	ladderUAH := inc.LadderUAH
+	income12m, coupons12m := inc.Income12m, inc.Coupons12m
+	incomeMonthlyNow := inc.MonthlyNow
 
 	// --- сертифікати фондів ---
 	// Позиція — сальдо журналу операцій. Дивіденди беремо ПІСЛЯ податку:
