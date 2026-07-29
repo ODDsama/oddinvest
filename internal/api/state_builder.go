@@ -686,7 +686,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		DepositBodyByCur: depositBodyByCur, FundValueByCur: fundValueByCur,
 		YieldByCur: portfolioYieldByCur, AvgRateByCur: src.avgRate,
 		ReinvestMinByCur: reinvestMinByCur,
-		Rates:            rates, Deval: deval, ActualMonthly: actualMonthly, Today: today,
+		Rates:            rates, Deval: deval, ActualMonthly: actualMonthly,
+		IncomeMonthlyNow: incomeMonthlyNow, Today: today,
 	})
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну (див. state_projection.go).
@@ -748,8 +749,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
 
 		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
-		Sensitivity: prj.Sensitivity,
-		Rebalance:   rebalance, Concentration: concentration,
+		Sensitivity: prj.Sensitivity, Independence: prj.Independence,
+		Rebalance: rebalance, Concentration: concentration,
 		RateRisk: rateRisk, Liquidity: liquidity,
 		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,

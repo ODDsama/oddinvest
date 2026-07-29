@@ -210,6 +210,8 @@ type Doc struct {
 	// (адитивне поле). Продовження прогнозу, а не його заміна: той каже
 	// «за фактом 9%», цей — на скільки й від чого ці 9% зміняться.
 	Sensitivity *Sensitivity `json:"sensitivity,omitempty"`
+	// Independence — коли пасивний дохід покриє життя (адитивне поле).
+	Independence *Independence `json:"independence,omitempty"`
 
 	// Rebalance — підказка виходу на цільові валютні частки (по валютах,
 	// де задано ціль). RateRisk — процентний ризик портфеля (дюрація).
@@ -593,6 +595,38 @@ type Sensitivity struct {
 	GoalUAH        float64          `json:"goal_uah"`
 	DeadlineMonths int              `json:"deadline_months"`
 	Rows           []SensitivityRow `json:"rows,omitempty"`
+}
+
+// Independence — коли пасивний дохід покриє життя.
+//
+// Продовження картки «Пасивний дохід», а не окреме питання: та каже,
+// скільки портфель приноситиме, ця — коли цього стане досить. Досить —
+// це IncomeTargetUAH із налаштувань, зі спадом на місячні витрати.
+//
+// Дві дати навмисно. За планом — якщо вносити стільки, скільки виходить
+// із цілі; за фактом — якщо вносити стільки, скільки виходить насправді.
+// Одна дата без другої або лестить, або лякає, а різниця між ними — це
+// рівно ціна дисципліни.
+type Independence struct {
+	// TargetUAH — який дохід вважаємо достатнім, ₴/міс; IncomeNowUAH —
+	// скільки портфель приносить уже зараз.
+	TargetUAH    float64 `json:"target_uah"`
+	IncomeNowUAH float64 `json:"income_now_uah"`
+	// TargetFrom — "setting" (задано явно) чи "expenses" (спад на місячні
+	// витрати). Читач має право знати, з чим саме порівнюють.
+	TargetFrom string `json:"target_from"`
+	// PlanMonths / ActualMonths: -1 = дохід уже покриває, 0 = не
+	// досягається за 60 років. ActualMonths від'ємний лишається нулем,
+	// коли фактичного темпу ще немає.
+	PlanMonths   int    `json:"plan_months"`
+	PlanDate     string `json:"plan_date,omitempty"`
+	ActualMonths int    `json:"actual_months,omitempty"`
+	ActualDate   string `json:"actual_date,omitempty"`
+	// CapitalUAH — скільки капіталу буде на плановий момент, у
+	// сьогоднішніх гривнях. Не «скільки треба»: потрібна сума залежить від
+	// ставки на той момент, і називати її окремо означало б дати друге,
+	// незалежне число про те саме.
+	CapitalUAH float64 `json:"capital_uah,omitempty"`
 }
 
 // SensitivityRow — один зсунутий вхід.

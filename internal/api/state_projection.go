@@ -71,7 +71,11 @@ type projectionInput struct {
 	Deval float64
 	// ActualMonthly — фактичний темп поповнень, ₴/міс (0 = історії замало).
 	ActualMonthly float64
-	Today         domain.Date
+	// IncomeMonthlyNow — скільки портфель приносить УЖЕ, ₴/міс. Готове
+	// число з фази доходу, а не порахуване вдруге: те саме значення на
+	// двох сусідніх картках мусить бути тим самим.
+	IncomeMonthlyNow float64
+	Today            domain.Date
 }
 
 // projectionPhase — те, що проєкція віддає документу.
@@ -96,6 +100,9 @@ type projectionPhase struct {
 	// фабрики рукавів, цілі й дедлайну; окремо вони довелось би вивести
 	// вдруге, і два визначення дедлайну розійшлися б.
 	Sensitivity *state.Sensitivity
+	// Independence — коли дохід покриє життя (state_independence.go).
+	// Теж тут і з тієї самої причини: потрібна та сама фабрика.
+	Independence *state.Independence
 }
 
 // sleeveFactory — усе, що потрібно, щоб зібрати валютні рукави під
@@ -319,6 +326,23 @@ func buildProjection(in projectionInput) projectionPhase {
 		Factory: factory, Deval: in.Deval, Goal: goalAmount, Deadline: deadlineMonths,
 		ContribBase: contribBase, BaseFrom: baseFrom,
 		RateSpreadPP: rateSpreadPP, DevalSpreadPP: devalSpreadPP, Today: today,
+	})
+
+	// Достатній дохід — з налаштувань, зі спадом на місячні витрати.
+	// Спад найчастіший, але не єдиний розумний, тож у документ іде ще й
+	// звідки взято: читач має право знати, з чим саме порівнюють.
+	incomeTarget, targetFrom := 0.0, "expenses"
+	if in.Settings.MonthlyExpensesUAH != nil {
+		incomeTarget = *in.Settings.MonthlyExpensesUAH
+	}
+	if in.Settings.IncomeTargetUAH != nil && *in.Settings.IncomeTargetUAH > 0 {
+		incomeTarget, targetFrom = *in.Settings.IncomeTargetUAH, "setting"
+	}
+	out.Independence = buildIndependence(independenceInput{
+		Factory: factory, Deval: in.Deval,
+		ContribPlan: out.ContribM, ContribActual: in.ActualMonthly,
+		TargetUAH: incomeTarget, TargetFrom: targetFrom,
+		IncomeNowUAH: in.IncomeMonthlyNow, Today: today,
 	})
 
 	// Старт проєкції — капітал БЕЗ резерву. Решта входить уся, разом із

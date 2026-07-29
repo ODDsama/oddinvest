@@ -184,6 +184,57 @@ func MonthsToReachSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths 
 	return 0
 }
 
+// MonthsToIncomeSleeves — за скільки місяців МІСЯЧНИЙ ДОХІД портфеля в
+// сьогоднішніх гривнях сягне target. -1 = вже, 0 = не досягається за
+// maxMonths.
+//
+// Дзеркало MonthsToReachSleeves, і різниця між ними — не технічна.
+// Капітал відповідає на «скільки я накопичу», дохід — на «коли можна
+// перестати». Це різні питання й різні відповіді: капітал у 4 млн і
+// потік, який покриває життя, настають у різні місяці, бо потік залежить
+// ще й від того, під яку ставку капітал працює на той момент.
+//
+// Окрема функція, а не ProjectSleeves у циклі, з тієї самої причини, що й
+// у MonthsToReachSleeves: та віддає дохід ЛИШЕ на кінці періоду, тож
+// пошук місяця перетину коштував би однієї повної симуляції на кожен
+// пробний місяць. Тут рукави крокують раз, у лок-степі.
+//
+// Дохід рахується з ПРАЦЮЮЧОЇ частини — та сама формула, що в
+// ProjectSleeves: готівка, яка не дотягла до найдешевшого паперу, нічого
+// не приносить, і вважати її дохідною означало б обіцяти потік із грошей,
+// що лежать.
+func MonthsToIncomeSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths int) int {
+	if target <= 0 {
+		return 0
+	}
+	dM := MonthlyRate(devalPct)
+	sts := make([]projState, len(sleeves))
+	for i, s := range sleeves {
+		sts[i] = projState{cash: s.Cash0, locked: s.Nominal0}
+	}
+	incomeToday := func(m int) float64 {
+		sum := 0.0
+		for i, s := range sleeves {
+			working := (sts[i].invested + sts[i].locked) * MonthlyRate(s.rateAt(m))
+			today, _ := s.toUAH(working, dM, m)
+			sum += today
+		}
+		return sum
+	}
+	if incomeToday(0) >= target {
+		return -1
+	}
+	for m := 1; m <= maxMonths; m++ {
+		for i, s := range sleeves {
+			sts[i].step(MonthlyRate(s.rateAt(m)), s.contribAt(m, dM), s.Threshold, s.Coupon[m], s.Redeem[m])
+		}
+		if incomeToday(m) >= target {
+			return m
+		}
+	}
+	return 0
+}
+
 // RequiredMonthlySleeves — бісекцією підбирає СУМАРНИЙ гривневий внесок,
 // за якого капітал у сьогоднішніх гривнях сягає цілі рівно на місяці
 // months. Внесок розкладається по рукавах у тих самих пропорціях, що й

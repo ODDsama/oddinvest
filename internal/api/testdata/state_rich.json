@@ -797,6 +797,16 @@
       }
     ]
   },
+  "independence": {
+    "target_uah": 30000,
+    "income_now_uah": 1546.18,
+    "target_from": "setting",
+    "plan_months": 55,
+    "plan_date": "2031-02-15",
+    "actual_months": 72,
+    "actual_date": "2032-07-15",
+    "capital_uah": 5194491.3
+  },
   "rebalance": [
     {
       "dimension": "currency",

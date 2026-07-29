@@ -9,7 +9,7 @@
 // самого, кожен зі своїм шансом відстати від іншого.
 
 import {
-  esc, today, humanMonths, pct, capitalUAH,
+  esc, today, humanMonths, monthYear, pct, capitalUAH,
   uah2 as fmtUAH, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
@@ -192,6 +192,47 @@ export function incomeHTML(ctx) {
     <div class="sub-xs" style="margin-bottom:8px">купони ОВДП і відсотки вкладів — за графіком; дивіденди фондів — оцінка</div>
     ${line("зараз", now)}
     <div style="border-top:1px solid var(--oi-border);padding-top:6px;margin-top:4px">${body}</div>
+    ${independenceHTML(ctx)}
+  </div>`;
+}
+
+// ---------- точка незалежності ----------
+//
+// Висновок картки вище, а не окреме питання: та каже, скільки портфель
+// приноситиме, ця — коли цього стане ДОСИТЬ. Тому живе всередині тієї
+// самої картки, під горизонтами, а не окремим блоком.
+//
+// Дві дати навмисно. За планом — якщо вносити стільки, скільки виходить
+// із цілі; за фактом — скільки виходить насправді. Одна без другої або
+// лестить, або лякає, а різниця між ними це ціна дисципліни, не ринку.
+function independenceHTML(ctx) {
+  const ind = (ctx.summary || {}).independence;
+  if (!ind || !ind.target_uah) return "";
+  const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
+  // Нуль означає «не досягається за 60 років», −1 — «уже». Різниця між
+  // ними протилежна за змістом, тож жодного спільного «немає даних».
+  const when = (m, d) => m === -1 ? "вже покриває"
+    : m > 0 ? `${monthYear(d)} · через ${humanMonths(m)}`
+    : "не досягається за 60 років";
+  const from = ind.target_from === "expenses"
+    ? "стільки коштує місяць життя" : "задано в налаштуваннях";
+  // Рядок «за фактом» лише тоді, коли темп відомий і відрізняється:
+  // дві однакові дати поруч читаються як помилка, а не як збіг.
+  const showActual = ind.actual_months !== undefined
+    && ind.actual_months !== ind.plan_months;
+  return `<div style="border-top:1px solid var(--oi-border);padding-top:10px;margin-top:10px">
+    <div class="sub-xs" style="margin-bottom:4px">Коли дохід покриє ${inc(ind.target_uah)}/міс
+      <span class="muted">· ${esc(from)}</span></div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+      <span class="muted" style="font-size:13px">за планом</span>
+      <span><b>${esc(when(ind.plan_months, ind.plan_date))}</b></span>
+    </div>
+    ${showActual ? `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-top:3px">
+      <span class="muted" style="font-size:13px">за фактичним темпом</span>
+      <span>${esc(when(ind.actual_months, ind.actual_date))}</span>
+    </div>` : ""}
+    ${ind.capital_uah > 0 ? `<div class="sub-xs" style="margin-top:4px">на той момент за цим стоятиме
+      ${fmtUAH(ind.capital_uah)} капіталу</div>` : ""}
   </div>`;
 }
 

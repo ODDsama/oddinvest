@@ -656,6 +656,20 @@
         "unlock_date": { "type": "string" }
       }
     },
+    "independence": {
+      "type": "object",
+      "description": "Коли пасивний дохід покриє життя. Дві дати: за плановим внеском і за фактичним темпом — різниця між ними це ціна дисципліни, а не ринку (адитивне поле)",
+      "properties": {
+        "target_uah": { "type": "number", "description": "Який дохід вважаємо достатнім, ₴/міс" },
+        "income_now_uah": { "type": "number", "description": "Скільки портфель приносить уже зараз, ₴/міс" },
+        "target_from": { "type": "string", "enum": ["setting", "expenses"], "description": "Ціль задана явно чи взята з місячних витрат" },
+        "plan_months": { "type": "integer", "description": "Місяців до перетину за плановим внеском; -1 = дохід уже покриває, 0 = не досягається за 60 років" },
+        "plan_date": { "type": "string", "format": "date" },
+        "actual_months": { "type": "integer", "description": "Те саме за фактичним темпом поповнень" },
+        "actual_date": { "type": "string", "format": "date" },
+        "capital_uah": { "type": "number", "description": "Скільки капіталу буде на плановий момент, у сьогоднішніх ₴" }
+      }
+    },
     "sensitivity": {
       "type": "object",
       "description": "Що зрушить ціль: наслідки зсуву ОДНОГО входу за раз. Не поради й не рейтинг — рядки стоять сталими групами (адитивне поле)",
