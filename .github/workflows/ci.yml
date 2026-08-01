@@ -6,7 +6,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         # Версія одна на всі місця: go.mod, Dockerfile і deploy/proxmox-lxc.sh
         # мали три різні, і «яка в нас насправді» ставало питанням.
@@ -44,7 +44,7 @@ jobs:
     name: спільний UI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Збірки в UI немає навмисно (сервіс ставиться в LXC без Node, модулі
       # віддаються браузеру як є), тож бандлера, який ловив би друкарські
       # помилки, теж немає. Ці дві перевірки — його заміна.
