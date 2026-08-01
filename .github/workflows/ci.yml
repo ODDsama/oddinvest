@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         # Версія одна на всі місця: go.mod, Dockerfile і deploy/proxmox-lxc.sh
         # мали три різні, і «яка в нас насправді» ставало питанням.
         with: { go-version-file: go.mod }
