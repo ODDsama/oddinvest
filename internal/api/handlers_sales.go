@@ -20,39 +20,95 @@ type saleReq struct {
 	Note     string `json:"note"`
 }
 
+// saleFromReq — розбір тіла запиту в продаж. Спільний для POST і PUT,
+// за тією ж причиною, що й lotFromReq: дві копії правил (дата, валюта,
+// НКД) розійшлись би, і редагування почало б приймати не те, що
+// створення.
+func saleFromReq(req saleReq) (domain.Sale, error) {
+	var out domain.Sale
+	sd, err := domain.ParseDate(req.SaleDate)
+	if err != nil {
+		return out, err
+	}
+	clean, err := parseMoney(req.Clean, req.Currency)
+	if err != nil {
+		return out, err
+	}
+	accrued := money.New(0, req.Currency)
+	if req.Accrued != "" {
+		if accrued, err = parseMoney(req.Accrued, req.Currency); err != nil {
+			return out, err
+		}
+	}
+	return domain.Sale{LotID: req.LotID, SaleDate: sd, Qty: req.Qty,
+		CleanPerBond: clean, Accrued: accrued, Note: req.Note}, nil
+}
+
 func (s *Server) handleAddSale(w http.ResponseWriter, r *http.Request) {
 	var req saleReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	sd, err := domain.ParseDate(req.SaleDate)
+	sale, err := saleFromReq(req)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	clean, err := parseMoney(req.Clean, req.Currency)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	accrued := money.New(0, req.Currency)
-	if req.Accrued != "" {
-		if accrued, err = parseMoney(req.Accrued, req.Currency); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
-			return
-		}
-	}
-	id, err := s.st.AddSale(r.Context(), domain.Sale{
-		LotID: req.LotID, SaleDate: sd, Qty: req.Qty,
-		CleanPerBond: clean, Accrued: accrued, Note: req.Note,
-	})
+	id, err := s.st.AddSale(r.Context(), sale)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+// handleUpdateSale — виправлення вже записаного продажу.
+//
+// Доти продаж був єдиною операцією, яку не можна ні виправити, ні
+// скасувати: у роутері стояли самі POST і GET. А помилка в ньому не
+// косметична — від кількості й ціни залежать і реалізований результат,
+// і залишок лота, і XIRR, тобто рівно ті числа, заради яких застосунок
+// існує. Перерахувати їх «в голові» не можна: вони зводяться з усієї
+// історії.
+func (s *Server) handleUpdateSale(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var req saleReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	sale, err := saleFromReq(req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	sale.ID = id
+	if err := s.st.UpdateSale(r.Context(), sale); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleDeleteSale(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.DeleteSale(r.Context(), id); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleListSales(w http.ResponseWriter, r *http.Request) {

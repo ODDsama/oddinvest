@@ -127,29 +127,48 @@ func (s *Store) ListLots(ctx context.Context) ([]domain.Lot, error) {
 
 // --- продажі ---
 
-func (s *Store) AddSale(ctx context.Context, sl domain.Sale) (int64, error) {
-	// валідація: не продати більше, ніж залишилось у лоті
+// saleFits — чи влазить продаж у залишок лота; повертає валюту лота,
+// якою продаж і записується. Спільне для вставки й редагування: різні
+// правила на «додати» і «виправити» означали б, що редагуванням можна
+// привести портфель у стан, якого не можна створити.
+//
+// exclude — id продажу, який САМЕ ЗАРАЗ редагується. Без нього перевірка
+// рахувала б цей самий продаж двічі — як «продано раніше» і як новий, —
+// і відхиляла б будь-яке збільшення кількості, навіть у межах лота. Для
+// вставки exclude = 0: такого id не буває, і умова нікого не виключає.
+func (s *Store) saleFits(ctx context.Context, sl domain.Sale, exclude int64) (string, error) {
+	if sl.Qty <= 0 {
+		return "", fmt.Errorf("кількість продажу має бути > 0, а не %d", sl.Qty)
+	}
 	var lotQty int64
 	var lotCur string
 	err := s.db.QueryRowContext(ctx, `SELECT qty, currency FROM lots WHERE id=?`, sl.LotID).
 		Scan(&lotQty, &lotCur)
 	if err == sql.ErrNoRows {
-		return 0, fmt.Errorf("лот %d не існує", sl.LotID)
+		return "", fmt.Errorf("лот %d не існує", sl.LotID)
 	}
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	if lotCur != sl.CleanPerBond.Currency().Code {
-		return 0, fmt.Errorf("валюта продажу %s не збігається з валютою лота %s",
+		return "", fmt.Errorf("валюта продажу %s не збігається з валютою лота %s",
 			sl.CleanPerBond.Currency().Code, lotCur)
 	}
 	var sold sql.NullInt64
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT SUM(qty) FROM sales WHERE lot_id=?`, sl.LotID).Scan(&sold); err != nil {
-		return 0, err
+		`SELECT SUM(qty) FROM sales WHERE lot_id=? AND id<>?`, sl.LotID, exclude).Scan(&sold); err != nil {
+		return "", err
 	}
 	if sold.Int64+sl.Qty > lotQty {
-		return 0, fmt.Errorf("продаж %d + продано раніше %d > лот %d", sl.Qty, sold.Int64, lotQty)
+		return "", fmt.Errorf("продаж %d + продано раніше %d > лот %d", sl.Qty, sold.Int64, lotQty)
+	}
+	return lotCur, nil
+}
+
+func (s *Store) AddSale(ctx context.Context, sl domain.Sale) (int64, error) {
+	lotCur, err := s.saleFits(ctx, sl, 0)
+	if err != nil {
+		return 0, err
 	}
 	accrued := int64(0)
 	if sl.Accrued != nil {
@@ -163,6 +182,41 @@ func (s *Store) AddSale(ctx context.Context, sl domain.Sale) (int64, error) {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// UpdateSale — правка продажу на місці. Видалити й створити заново не те
+// саме: id продажу лишається адресою, за якою на нього посилаються, а
+// пара «видалив-створив» на півдорозі лишає портфель без запису взагалі.
+func (s *Store) UpdateSale(ctx context.Context, sl domain.Sale) error {
+	lotCur, err := s.saleFits(ctx, sl, sl.ID)
+	if err != nil {
+		return err
+	}
+	accrued := int64(0)
+	if sl.Accrued != nil {
+		accrued = sl.Accrued.Amount()
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE sales SET
+		lot_id=?, sale_date=?, qty=?, clean_per_bond=?, accrued=?, currency=?, note=?
+		WHERE id=?`,
+		sl.LotID, string(sl.SaleDate), sl.Qty, sl.CleanPerBond.Amount(), accrued, lotCur,
+		sl.Note, sl.ID)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "продаж")
+}
+
+// DeleteSale — скасування продажу. Перевірки залишку тут немає навмисно:
+// продаж лише ЗАЙМАЄ кількість лота, тож його зникнення може зробити
+// залишок хіба що більшим. Стан, у який це переводить портфель, досяжний
+// і без цього продажу — а отже, завжди дійсний.
+func (s *Store) DeleteSale(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM sales WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "продаж")
 }
 
 func (s *Store) ListSales(ctx context.Context) ([]domain.Sale, error) {

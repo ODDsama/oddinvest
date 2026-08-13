@@ -138,6 +138,84 @@ func TestLotLifecycleAndSummary(t *testing.T) {
 	}
 }
 
+// Продаж доти був єдиною операцією, яку не можна ні виправити, ні
+// скасувати: у роутері стояли самі POST і GET. А помилка в ньому не
+// косметична — від кількості й ціни залежать реалізований результат,
+// залишок лота й календар виплат, і перерахувати їх руками не можна:
+// вони зводяться з усієї історії.
+//
+// Тест знімає стан ДО продажу й вимагає, щоб скасування повернуло рівно
+// його: інакше «скасування» лишало б хвіст, якого не видно на екрані.
+func TestSaleEditAndDelete(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+
+	if resp, body := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"995.00","buy_date":"2026-07-01"}`,
+	); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, body)
+	}
+	_, calBefore := do(t, "GET", srv.URL+"/api/calendar", "")
+	if !strings.Contains(calBefore, `"413.75"`) { // 5 × 82.75
+		t.Fatalf("календар до продажу: %s", calBefore)
+	}
+
+	if resp, body := do(t, "POST", srv.URL+"/api/sales",
+		`{"lot_id":1,"sale_date":"2026-08-01","qty":2,"clean_per_bond":"1001.00","currency":"UAH"}`,
+	); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("продаж: %d %s", resp.StatusCode, body)
+	}
+
+	// Правка 2 → 3: і результат, і календар мусять піти за нею.
+	if resp, body := do(t, "PUT", srv.URL+"/api/sales/1",
+		`{"lot_id":1,"sale_date":"2026-08-01","qty":3,"clean_per_bond":"1001.00","currency":"UAH"}`,
+	); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("правка продажу: %d %s", resp.StatusCode, body)
+	}
+	if _, body := do(t, "GET", srv.URL+"/api/sales", ""); !strings.Contains(body, `"18.00"`) {
+		t.Errorf("результат після правки (3×1001 − 3×995 = 18.00): %s", body)
+	}
+	if _, body := do(t, "GET", srv.URL+"/api/calendar", ""); !strings.Contains(body, `"165.50"`) {
+		t.Errorf("календар на залишок 2 (2×82.75): %s", body)
+	}
+
+	// Правка ПОНАД лот відхиляється так само, як зайвий продаж.
+	if resp, _ := do(t, "PUT", srv.URL+"/api/sales/1",
+		`{"lot_id":1,"sale_date":"2026-08-01","qty":6,"clean_per_bond":"1001.00","currency":"UAH"}`,
+	); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("правка понад лот мала повернути 400, маємо %d", resp.StatusCode)
+	}
+
+	// А правка ДО ПОВНОГО лота — ні. Це вартовий на exclude у saleFits:
+	// без нього перевірка рахувала б цей самий продаж і як «продано
+	// раніше», і як новий (3 + 5 > 5), і жодне збільшення не проходило б.
+	if resp, body := do(t, "PUT", srv.URL+"/api/sales/1",
+		`{"lot_id":1,"sale_date":"2026-08-01","qty":5,"clean_per_bond":"1001.00","currency":"UAH"}`,
+	); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("правка до повного лота: %d %s", resp.StatusCode, body)
+	}
+
+	// Скасування повертає стан рівно до того, який був до продажу.
+	if resp, body := do(t, "DELETE", srv.URL+"/api/sales/1", ""); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("скасування продажу: %d %s", resp.StatusCode, body)
+	}
+	if _, body := do(t, "GET", srv.URL+"/api/sales", ""); body != "[]\n" {
+		t.Errorf("після скасування продажів бути не мало: %q", body)
+	}
+	if _, body := do(t, "GET", srv.URL+"/api/calendar", ""); body != calBefore {
+		t.Errorf("календар не повернувся до стану до продажу:\nбуло %s\nстало %s", calBefore, body)
+	}
+	if _, body := do(t, "GET", srv.URL+"/api/lots", ""); !strings.Contains(body, `"remaining":5`) {
+		t.Errorf("залишок лота після скасування: %s", body)
+	}
+
+	// Скасувати те, чого немає, — помилка, а не тихий успіх: інакше
+	// друга спроба з UI виглядала б так само, як перша.
+	if resp, _ := do(t, "DELETE", srv.URL+"/api/sales/1", ""); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("повторне скасування мало повернути 400, маємо %d", resp.StatusCode)
+	}
+}
+
 func TestSettingsRoundTrip(t *testing.T) {
 	srv, _ := testServer(t)
 	resp, _ := do(t, "PUT", srv.URL+"/api/settings", `{"uah_devaluation_pct":"6"}`)

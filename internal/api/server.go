@@ -45,6 +45,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/lots/{id}", s.handleDeleteLot)
 	mux.HandleFunc("POST /api/sales", s.handleAddSale)
 	mux.HandleFunc("GET /api/sales", s.handleListSales)
+	mux.HandleFunc("PUT /api/sales/{id}", s.handleUpdateSale)
+	mux.HandleFunc("DELETE /api/sales/{id}", s.handleDeleteSale)
 	mux.HandleFunc("GET /api/deposits", s.handleListDeposits)
 	mux.HandleFunc("POST /api/deposits", s.handleAddDeposit)
 	mux.HandleFunc("PUT /api/deposits/{id}", s.handleUpdateDeposit)
