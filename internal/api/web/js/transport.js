@@ -20,7 +20,13 @@ async function unwrap(resp) {
       const j = JSON.parse(txt);
       if (j && j.error) msg = j.error;
     } catch (_) { /* не JSON — лишаємо як є */ }
-    throw new Error(`${resp.status}: ${msg}`);
+    const err = new Error(`${resp.status}: ${msg}`);
+    // Статус ще й окремим полем. soft() мусить відрізнити «маршруту ще
+    // немає» (404 на старшому бекенді — очікувано) від поломки, а
+    // виколупувати число регуляркою з тексту означало б прив'язати цю
+    // відмінність до формату повідомлення.
+    err.status = resp.status;
+    throw err;
   }
   const ct = resp.headers.get("content-type") || "";
   if (resp.status === 204 || !ct.includes("application/json")) return null;

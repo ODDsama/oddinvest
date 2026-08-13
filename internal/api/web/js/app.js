@@ -58,8 +58,20 @@ export class OddInvestApp extends HTMLElement {
   /** Транспорт до бекенда. Ставиться поверхнею; поки його немає —
    *  малювати нема з чого, тож старт відкладається до цього моменту. */
   set transport(t) {
-    this._store = createStore(t);
+    this._store = createStore(t, (path, err) => this._reportSoft(path, err));
     this._start();
+  }
+
+  // Поломка, проковтнута soft(). У консоль іде кожна — саме там її
+  // шукатимуть; тостом показуємо ЛИШЕ ПЕРШУ за завантаження вкладки:
+  // коли бекенд ліг цілком, кожен м'який маршрут дасть свою помилку, і
+  // чотири тости підряд кажуть менше, ніж один.
+  _reportSoft(path, err) {
+    const msg = (err && err.message) || String(err);
+    console.warn(`[oddinvest] ${path}: ${msg}`);
+    if (!this._started || this._softShown) return;
+    this._softShown = true;
+    this._toast(`${path} не завантажився: ${msg}`, false);
   }
 
   /** "web" | "ha" — який файл теми одягнути. */
@@ -202,6 +214,7 @@ export class OddInvestApp extends HTMLElement {
       a.classList.toggle("active", a.dataset.tab === this._tab));
     const main = this.shadowRoot.getElementById("main");
     this._alert("");
+    this._softShown = false;
     main.innerHTML = `<div class="muted">Завантаження…</div>`;
 
     // Зведення вантажиться ОКРЕМО від розділу. Доти воно стояло в тому
