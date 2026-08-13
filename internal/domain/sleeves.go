@@ -42,10 +42,15 @@ type Sleeve struct {
 	// ставкою можна купити сьогодні), а припущенням стає саме RateTerminalPct.
 	RateTerminalPct float64
 	GlideYears      float64
-	// Accum — накопичувальні позиції рукава (accum.go). Вони не входять
-	// ані в Cash0, ані в Nominal0: у замкненому вони лежали б цеглиною,
-	// бо замкнене не росте, а весь їхній дохід саме в зростанні.
+	// Accum / Dist — позиції фондів (accum.go, dist.go). Жодна з них не
+	// входить ані в Cash0, ані в Nominal0, і причини різні.
+	//
+	// Накопичувальна в замкненому лежала б цеглиною: воно не росте, а
+	// весь її дохід саме в зростанні. Розподільна в замкненому платила б
+	// ОБЛІГАЦІЙНОЮ ставкою замість власної дивідендної — і лише рік, бо
+	// далі оцінка календаря закінчувалась.
 	Accum []Accum
+	Dist  []Dist
 }
 
 // rateAt — ставка реінвесту на місяці m: лінійний спуск від сьогоднішньої
@@ -103,9 +108,7 @@ func ProjectSleeves(sleeves []Sleeve, devalPct float64, months int) SleeveResult
 		today, nominal := s.toUAH(total, dM, months)
 		out.TodayUAH += today
 		out.NominalUAH += nominal
-		// Дохідний потік рахуємо з ПРАЦЮЮЧОЇ частини: готівка, що не
-		// дотягла до найдешевшого паперу, нічого не приносить.
-		incToday, _ := s.toUAH((st.invested+st.locked)*MonthlyRate(s.rateAt(months)), dM, months)
+		incToday, _ := s.toUAH(st.incomeMonthly(s, months), dM, months)
 		out.IncomeMonthlyTodayUAH += incToday
 	}
 	return out
@@ -258,10 +261,10 @@ func ProjectSleevesSeries(sleeves []Sleeve, devalPct float64, months, step int) 
 // пошук місяця перетину коштував би однієї повної симуляції на кожен
 // пробний місяць. Тут рукави крокують раз, у лок-степі.
 //
-// Дохід рахується з ПРАЦЮЮЧОЇ частини — та сама формула, що в
-// ProjectSleeves: готівка, яка не дотягла до найдешевшого паперу, нічого
-// не приносить, і вважати її дохідною означало б обіцяти потік із грошей,
-// що лежать.
+// Дохід рахує projState.incomeMonthly — буквально та сама функція, що й у
+// ProjectSleeves. Доти формула стояла двома копіями за сто рядків одна
+// від одної: сусідні картки відповідали на те саме питання власним
+// підрахунком, і нова сутність капіталу мусила бути дописана в обидві.
 func MonthsToIncomeSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths int) int {
 	if target <= 0 {
 		return 0
@@ -274,8 +277,7 @@ func MonthsToIncomeSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths
 	incomeToday := func(m int) float64 {
 		sum := 0.0
 		for i, s := range sleeves {
-			working := (sts[i].invested + sts[i].locked) * MonthlyRate(s.rateAt(m))
-			today, _ := s.toUAH(working, dM, m)
+			today, _ := s.toUAH(sts[i].incomeMonthly(s, m), dM, m)
 			sum += today
 		}
 		return sum

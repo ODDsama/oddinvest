@@ -8,6 +8,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -126,8 +127,8 @@ func TestFundsAccumulatingLeavesLockedCapital(t *testing.T) {
 	ref.Kind = store.FundAccumulating
 	acc := buildFunds(&sources{fundOps: ops,
 		fundRefs: map[string]store.Fund{"MilTech": ref}}, hold, fx.Rates{}, 0, today)
-	if acc.ValueByCur[money.UAH] != 0 {
-		t.Errorf("накопичувальний лишився в замкненому капіталі: %v", acc.ValueByCur[money.UAH])
+	if len(acc.Dist) != 0 {
+		t.Errorf("накопичувальний потрапив у розподільний кошик: %+v", acc.Dist)
 	}
 	if len(acc.Accum[money.UAH]) != 1 {
 		t.Fatalf("накопичувальний не потрапив у власний кошик: %+v", acc.Accum)
@@ -148,11 +149,95 @@ func TestFundsAccumulatingLeavesLockedCapital(t *testing.T) {
 	ref.Kind = store.FundDistributing
 	dis := buildFunds(&sources{fundOps: ops,
 		fundRefs: map[string]store.Fund{"MilTech": ref}}, hold, fx.Rates{}, 0, today)
-	if dis.ValueByCur[money.UAH] != 5000 {
-		t.Errorf("розподільний мав лишитись у замкненому: %v", dis.ValueByCur[money.UAH])
-	}
 	if len(dis.Accum) != 0 {
 		t.Errorf("розподільний потрапив у кошик зростання: %+v", dis.Accum)
+	}
+	if len(dis.Dist[money.UAH]) != 1 {
+		t.Fatalf("розподільний не потрапив у власний кошик: %+v", dis.Dist)
+	}
+	d := dis.Dist[money.UAH][0]
+	if d.Value != 5000 {
+		t.Errorf("вартість %v, очікували 5000", d.Value)
+	}
+	// Ставка виплат — обіцянка фонду, та сама, з якої календар оцінює
+	// найближчі дивіденди. Два різні числа на той самий потік означали б,
+	// що картка виплат і крива капіталу говорять про різні фонди.
+	if d.RatePct != 25 {
+		t.Errorf("ставка виплат %v, очікували 25 (обіцянка фонду)", d.RatePct)
+	}
+}
+
+// TestForeignPromiseConvertsForGrowthNotForPayouts — валютна поправка
+// застосовується до ЗРОСТАННЯ і не застосовується до ВИПЛАТ.
+//
+// Одна обіцянка, два різні сенси. Гривневий сертифікат, чия ціна йде за
+// курсом НБУ, обіцяє 9.5% у доларі. Для накопичувального це опис того, як
+// росте вартість, — і гривнева вартість справді росте на знецінення
+// понад обіцянку. Для розподільного та сама обіцянка описує виплати, а
+// цінова частина сидить у ціні сертифіката й готівкою не приходить.
+//
+// Переплутати легко, і я переплутав: спершу поправка стояла в спільній
+// функції й текла в обидва кошики. На живих даних це видно — виміряна
+// дивідендна тієї самої позиції близько 8%, тобто поруч із самою
+// обіцянкою (9.5%), а не з переведеною (17.2%).
+func TestForeignPromiseConvertsForGrowthNotForPayouts(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	ops := []domain.FundOp{
+		{Date: "2026-06-20", Fund: "REIT", Kind: domain.FundBuy,
+			Qty: 100, Amount: 100_000, Currency: money.UAH},
+	}
+	ref := store.Fund{Name: "REIT", Currency: money.UAH,
+		ExpectedYieldBP: 950, ExpectedYieldCur: money.USD}
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, today)
+	const deval = 7.0
+
+	ref.Kind = store.FundDistributing
+	dis := buildFunds(&sources{fundOps: ops,
+		fundRefs: map[string]store.Fund{"REIT": ref}}, hold, fx.Rates{}, deval, today)
+	if got := dis.Dist[money.UAH][0].RatePct; math.Abs(got-9.5) > 0.01 {
+		t.Errorf("ставка виплат %v, очікували 9.5 — обіцянку як дану, без валютної поправки", got)
+	}
+
+	ref.Kind = store.FundAccumulating
+	acc := buildFunds(&sources{fundOps: ops,
+		fundRefs: map[string]store.Fund{"REIT": ref}}, hold, fx.Rates{}, deval, today)
+	want := ((1+0.095)*(1+0.07) - 1) * 100 // 17.165
+	if got := acc.Accum[money.UAH][0].RatePct; math.Abs(got-want) > 0.01 {
+		t.Errorf("ставка зростання %v, очікували %.3f — доларова обіцянка в гривневій вартості",
+			got, want)
+	}
+}
+
+// TestProjectionDropsEstimatedFundFlows — оцінені дивіденди фондів не
+// потрапляють у купони рукава.
+//
+// Це сторож проти ПОДВІЙНОГО РАХУНКУ. Календар оцінює виплати фонду на рік
+// уперед, і ці ж потоки доти лягали в купони симуляції. Тепер потік фонду
+// народжується в кошику Dist і живе весь горизонт — лишити поруч ще й
+// оцінку означало б порахувати перший рік двічі.
+//
+// Купон облігації в тому ж наборі мусить пройти: якби фільтр викидав усе
+// підряд, тест зеленів би з хибної причини.
+func TestProjectionDropsEstimatedFundFlows(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	in := projectionInput{
+		Settings:     &state.SettingsDoc{},
+		CashByCur:    map[string]int64{},
+		NominalByCur: map[string]int64{},
+		YieldByCur:   map[string]float64{money.UAH: 16},
+		Rates:        fx.Rates{},
+		Today:        today,
+		Cashflow: []domain.CashflowItem{
+			{Date: "2026-08-10", ISIN: "UA4000227748", Type: domain.PayCoupon,
+				Amount: money.New(80_00, money.UAH)},
+			{Date: "2026-08-10", ISIN: domain.FundISINPrefix + "Inzhur REIT",
+				Type: domain.PayCoupon, Amount: money.New(60_00, money.UAH)},
+		},
+	}
+	f := newSleeveFactory(in)
+	if got := f.coupon[money.UAH][1]; got != 80 {
+		t.Errorf("купон першого місяця %v, очікували 80: облігаційний лишається, "+
+			"оцінка фонду відсіюється", got)
 	}
 }
 

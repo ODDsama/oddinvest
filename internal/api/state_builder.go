@@ -468,7 +468,6 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// (state_funds.go).
 	fnd := buildFunds(src, hold, rates, deval, today)
 	fundRows, fundsUAH := fnd.Rows, fnd.TotalUAH
-	fundValueByCur := fnd.ValueByCur
 	fundsYield, fundsYieldReal := fnd.YieldPct, fnd.YieldRealPct
 	// Зведена по портфелю — окремо від фондової: це третє число, а не
 	// уточнення другого, і рахується воно нижче, коли вже відома
@@ -683,8 +682,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	prj := buildProjection(projectionInput{
 		Capital: capital, Cashflow: cashflow, Settings: settings,
 		CashByCur: bal, NominalByCur: nominalByCur,
-		DepositBodyByCur: depositBodyByCur, FundValueByCur: fundValueByCur,
-		AccumByCur: fnd.Accum,
+		DepositBodyByCur: depositBodyByCur,
+		AccumByCur:       fnd.Accum, DistByCur: fnd.Dist,
 		YieldByCur: portfolioYieldByCur, AvgRateByCur: src.avgRate,
 		ReinvestMinByCur: reinvestMinByCur,
 		Rates:            rates, Deval: deval, ActualMonthly: actualMonthly,

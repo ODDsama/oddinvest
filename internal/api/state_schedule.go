@@ -64,14 +64,17 @@ func buildSchedule(src *sources, hold domain.Holdings, today domain.Date) (sched
 	// є поверненням тіла.
 	for i := range hold.Funds {
 		fp := &hold.Funds[i].FundPosition
-		ref := src.fundRefs[fp.Fund]
-		// Обіцянка фонду, а якщо її немає — виміряна дивідендна: остання
-		// ділить виплату на СЬОГОДНІШНЮ вартість, тож на позиції, яку
-		// докуповують, занижує.
-		y := float64(ref.ExpectedYieldBP) / 100
-		if y <= 0 {
-			y, _ = domain.DividendYieldNet(src.fundOps, fp, today)
-		}
+		// Ставка — ВЛАСНА фондова, і береться вона тією самою функцією,
+		// що й кошик виплат у симуляції (state_funds.go): обіцянка
+		// фонду, якщо задана, інакше виміряна дивідендна. Два різні
+		// числа на той самий потік означали б, що картка «найближчі
+		// виплати» і крива капіталу говорять про різні фонди.
+		//
+		// Доти тут стояло сире expected_yield_bp — тобто на фонді з
+		// простою обіцянкою бралось число, яке модель компаундить
+		// інакше, ніж мав на увазі фонд.
+		measured, _ := domain.DividendYieldNet(src.fundOps, fp, today)
+		y := fundOwnRatePct(src.fundRefs[fp.Fund], measured)
 		cashflow = append(cashflow, domain.FundDividendFlows(fp, y, 12, today)...)
 	}
 

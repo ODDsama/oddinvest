@@ -67,10 +67,12 @@ type projectionInput struct {
 	CashByCur        map[string]int64
 	NominalByCur     map[string]int64
 	DepositBodyByCur map[string]float64
-	FundValueByCur   map[string]float64
-	// AccumByCur — накопичувальні позиції фондів. У FundValueByCur їх
-	// немає: там замкнений капітал, а ці ростуть.
+	// AccumByCur / DistByCur — позиції фондів. У замкнений капітал
+	// (NominalByCur + DepositBodyByCur) сертифікати не входять узагалі:
+	// накопичувальні ростуть, розподільні платять власною ставкою, і
+	// жодне з двох замкнене не вміє.
 	AccumByCur map[string][]domain.Accum
+	DistByCur  map[string][]domain.Dist
 
 	// Ставки: дохідність портфеля по валютах, запасна середня для валюти,
 	// якої ще немає, і поріг докупівлі.
@@ -151,7 +153,19 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	}
 
 	// Реальні майбутні потоки, розкладені по валютах і місяцях.
+	//
+	// Оцінені дивіденди фондів сюди НЕ входять, хоч у календарі й стоять.
+	// Календар оцінює їх на рік уперед — рівно стільки, скільки заслуговує
+	// припущення на питання «що впаде на рахунок найближчим часом». Для
+	// симуляції цього мало: на тринадцятому місяці фонд замовкав би
+	// назавжди, і на десятирічному горизонті дев'ять років позиція не
+	// давала б нічого й не зникала. Її потік народжується в кошику Dist і
+	// живе весь горизонт; лишити тут ще й оцінку означало б порахувати
+	// перший рік двічі.
 	for _, cf := range in.Cashflow {
+		if domain.IsFundISIN(cf.ISIN) {
+			continue
+		}
 		cur := cf.Amount.Currency().Code
 		mi := (cf.Date.Year()-today.Year())*12 + int(cf.Date.Month()) - int(today.Month())
 		if mi < 1 {
@@ -210,21 +224,19 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 		// ними був занижений рівно на фонди й вклади, а на портфелі,
 		// де їх більшість, ставав відʼємним.
 		//
-		// РОЗПОДІЛЬНИЙ сертифікат лежить у `locked` і сам не росте: його
-		// дохід приходить дивідендами — реальними або оціненими з
-		// обіцянки, — і вони вже стоять у Coupon нижче. Подорожчання
-		// ціни застосунок не моделює: його ніхто не обіцяв.
+		// Сертифікатів фондів тут немає — жодного виду. Замкнене вміє
+		// рівно одне: лежати за номіналом і віддавати купони за
+		// графіком. Так поводяться ОВДП і тіло вкладу, і саме їхній
+		// купон задає ставку рукава.
 		//
-		// Накопичувальний у `locked` лежати не може, і саме тут це доти
-		// й ламалось. Дивідендів у нього немає за природою, замкнене не
-		// росте за побудовою, — тож фонд, який обіцяє 25% річних, у
-		// проєкції не додавав анічого. Він іде окремим кошиком (Accum),
-		// росте власною ставкою й повертає гроші в дату закриття.
-		nom := float64(in.NominalByCur[cur])/100 +
-			in.DepositBodyByCur[cur] + in.FundValueByCur[cur]
-		accum := in.AccumByCur[cur]
+		// Накопичувальний у замкненому не додавав анічого: потоку немає
+		// за природою, замкнене не росте за побудовою. Розподільний
+		// платив облігаційною ставкою замість власної — і лише рік, доки
+		// вистачало оцінки календаря. Обидва пішли у власні кошики.
+		nom := float64(in.NominalByCur[cur])/100 + in.DepositBodyByCur[cur]
+		accum, dist := in.AccumByCur[cur], in.DistByCur[cur]
 		contrib := contribTotal * share[cur]
-		if cash == 0 && nom == 0 && contrib == 0 && len(accum) == 0 {
+		if cash == 0 && nom == 0 && contrib == 0 && len(accum) == 0 && len(dist) == 0 {
 			continue // валюти немає і не планується
 		}
 		rate, ok := in.YieldByCur[cur]
@@ -260,7 +272,7 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 			RateTerminalPct: terminal, GlideYears: f.glideYears,
 			Threshold: in.ReinvestMinByCur[cur], Coupon: f.coupon[cur],
 			Redeem: f.redeem[cur], ContribUAH: contrib, Rate0: rate0,
-			Accum: accum,
+			Accum: accum, Dist: dist,
 		})
 	}
 	return sleeves
