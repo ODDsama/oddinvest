@@ -2,7 +2,7 @@
   "_comment": "Згенеровано scripts/gen-ui-manifest.sh — руками не правити.",
   "root": "internal/api/web",
   "files": [
-    { "path": "css/base.css", "sha256": "0e151e23cc04a998fb1173073c5a7d3931e1c144228e06307058f4a8125ccb42" },
+    { "path": "css/base.css", "sha256": "fe87f1d51844a1f7aa7de769a31c66c9205f614ac979eb0260d1084944bc25b9" },
     { "path": "css/theme-ha.css", "sha256": "30b8291a9088b50edf925c41b1ce9e454032f1379c03ceaf0a04e99e0362af8d" },
     { "path": "css/theme-web.css", "sha256": "c715fb6ccbd354b01a8d55b052a4c161b49c8f46756ecef2e97dd9e6a0e43b99" },
     { "path": "css/tokens.css", "sha256": "7f40aebc154d1e549f8d12afd17269dbe0a15dfa1367e1205eacfb05120d7a8c" },
@@ -18,7 +18,7 @@
     { "path": "js/store.js", "sha256": "e7bba69719e479b71c572bd65dbbdf0946b010c78ed5bf4f0855da655cfbd6aa" },
     { "path": "js/styles.js", "sha256": "7f623a4506b4336538ffce25d56eeab347afb912ceacadf76b8cdc05028f943f" },
     { "path": "js/transport.js", "sha256": "462c6263a80366cb861a95672ffbbb2dafe998889516f906a868ccc957685bc0" },
-    { "path": "js/views/bonds.js", "sha256": "cbf6d03bc97ed22f21b58bad7dc52cfd072a844c9c139a154b4784452c43d32a" },
+    { "path": "js/views/bonds.js", "sha256": "cc600b3587e5ea64a7104559e6fa384da90b6561dfd6f457a8224ec88700783d" },
     { "path": "js/views/deposits.js", "sha256": "91b3d789c53293885b994ea44e63bba6f726591d08db09177d28b2b4b75e4bca" },
     { "path": "js/views/forecast.js", "sha256": "684c87ac6ea0e92f82fd0cd45cdb1cd88f329d23c967c4eced00dae8e0f6bdd7" },
     { "path": "js/views/future.js", "sha256": "55cb590e7603b864ebc44e0efdce15b14244f4b20dc36f05ad96774318953a04" },
@@ -26,7 +26,7 @@
     { "path": "js/views/money.js", "sha256": "63a25e448969cf90472f81cbe36e01b58fbfcb4d68842f1c9575faedc98eec7e" },
     { "path": "js/views/overview.js", "sha256": "38799ae16da85dcf1c243c462c485039c90b7eb7f1b830f0602e507ce01327e6" },
     { "path": "js/views/portfolio.js", "sha256": "f2e0dfbc6ed135e9527f2ccdce3b61af81a6299baa2066cdc90e2932207b22c9" },
-    { "path": "js/views/positions.js", "sha256": "433ff00bafb10e9758b66a9f9b495a949d6fbaa16e05e86eda667bf884a12c49" },
+    { "path": "js/views/positions.js", "sha256": "a537df42ba32dcb27e105eae899cb30715633a69c9b9322f20f60c6ca470d69a" },
     { "path": "js/views/risk.js", "sha256": "ea4bb72e2ccfc9ee8c8271772bb8b9ef0e01b78673151a1caef6046715362565" },
     { "path": "js/views/settings.js", "sha256": "066f851bed3548f0f42b18a90721e03f268b19ab97ab8f03c60feacc25f89c75" },
     { "path": "js/views/strategy.js", "sha256": "8fa85c469090aa4cdf46581c47ec90d0f71b8fe552e9e6014c7cffde10544135" }

@@ -43,12 +43,27 @@ function bondDetailHTML(p, lots, sales) {
         <td>${esc(l.buy_date)}</td><td>${esc(l.channel || "")}</td>
         <td class="row-actions"><button class="sm warn" data-del="${l.id}">✕</button></td></tr>`).join("")}
       </tbody></table>` : "";
+  // Продажі редагуються на місці. Лот поруч — лише з кнопкою видалення,
+  // і різниця навмисна: помилку в лоті видно одразу (він з'явився не з
+  // тим ISIN), а в продажі — ні, бо на екрані стоїть уже ЗВЕДЕНИЙ
+  // результат, і розходження з випискою брокера в 6 гривень не каже,
+  // котре з чотирьох полів набрано не так.
+  //
+  // lot_id і валюта їдуть у data-атрибутах: PUT замінює продаж цілком,
+  // а в самому рядку їх не видно.
+  const saleF = (field, attrs) =>
+    `<td class="num"><input class="sale-f" data-field="${field}" ${attrs}></td>`;
   const salesTbl = mySales.length ? `<h4 style="margin-top:12px">Продажі</h4><table><thead><tr>
       <th>Дата</th><th class="num">К-сть</th><th class="num">Чиста</th>
-      <th class="num">НКД</th><th class="num">Результат</th></tr></thead><tbody>
-      ${mySales.map((s) => `<tr><td>${esc(s.sale_date)}</td><td class="num">${s.qty}</td>
-        <td class="num">${fmtMoney(s.clean_per_bond)}</td><td class="num">${fmtMoney(s.accrued)}</td>
-        <td class="num">${fmtMoney(s.realized_result)}</td></tr>`).join("")}
+      <th class="num">НКД</th><th class="num">Результат</th><th></th></tr></thead><tbody>
+      ${mySales.map((s) => `<tr data-sale="${s.id}" data-lot="${s.lot_id}"
+        data-cur="${esc(s.clean_per_bond.currency)}">
+        <td><input class="sale-f" data-field="sale_date" type="date" value="${esc(s.sale_date)}"></td>
+        ${saleF("qty", `data-num="1" type="number" min="1" step="1" value="${s.qty}"`)}
+        ${saleF("clean_per_bond", `inputmode="decimal" value="${esc(s.clean_per_bond.amount)}"`)}
+        ${saleF("accrued", `inputmode="decimal" value="${esc(s.accrued.amount)}"`)}
+        <td class="num">${fmtMoney(s.realized_result)}</td>
+        <td class="row-actions"><button class="sm warn" data-delsale="${s.id}">✕</button></td></tr>`).join("")}
       </tbody></table>` : "";
   return next + lotsTbl + salesTbl;
 }

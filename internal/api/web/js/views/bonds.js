@@ -2,7 +2,7 @@
 // ринку.
 
 import { esc, today, money as fmtMoney } from "../format.js";
-import { onSubmit, onDelete } from "../forms.js";
+import { onSubmit, onDelete, apply } from "../forms.js";
 
 
 export function bondBuyFormHTML(ctx, lots) {
@@ -48,12 +48,53 @@ export function bondSaleFormHTML(ctx, lots) {
 }
 
 
+// Продажі: скасування й правка на місці.
+//
+// Правка тим самим патерном, що й довідники в «Налаштуваннях»
+// (blur/change → PUT), бо питання те саме: виправити одне поле в уже
+// записаному рядку. Тіло збирається з УСІХ полів плюс lot_id і валюта з
+// data-атрибутів: часткового оновлення бекенд не знає, і надіслати саму
+// кількість означало б обнулити ціну.
+//
+// change поруч із blur потрібен полю дати: вибір у календарі фокуса не
+// знімає, і на самому blur правка зберігалась би аж після кліку повз.
+// Для решти полів це зайвий виклик, але не зайва робота — commit
+// виходить одразу, якщо з минулого разу нічого не змінилось.
+function wireSales(ctx, main) {
+  onDelete(ctx, main, "[data-delsale]", (b) => ({
+    path: "sales/" + b.dataset.delsale,
+    confirm: "Скасувати продаж #" + b.dataset.delsale
+      + "? Реалізований результат і залишок лота повернуться до стану до нього.",
+    msg: "Продаж скасовано",
+  }));
+  main.querySelectorAll("[data-sale]").forEach((row) => {
+    const fields = [...row.querySelectorAll(".sale-f")];
+    const key = () => fields.map((f) => f.value.trim()).join("|");
+    row.dataset.was = key();
+    const commit = async () => {
+      if (key() === row.dataset.was) return;
+      row.dataset.was = key();
+      const body = { lot_id: Number(row.dataset.lot), currency: row.dataset.cur };
+      fields.forEach((f) => {
+        body[f.dataset.field] = f.dataset.num ? Number(f.value.trim()) || 0 : f.value.trim();
+      });
+      await apply(ctx, { method: "PUT", path: "sales/" + row.dataset.sale, body },
+        "Продаж виправлено");
+    };
+    fields.forEach((f) => {
+      f.addEventListener("blur", commit);
+      f.addEventListener("change", commit);
+    });
+  });
+}
+
 export function wireBonds(ctx, main) {
   onDelete(ctx, main, "[data-del]", (b) => ({
     path: "lots/" + b.dataset.del,
     confirm: "Видалити лот #" + b.dataset.del + "?",
     msg: "Лот видалено",
   }));
+  wireSales(ctx, main);
 
   // Селектори — від САМОЇ форми, а не від main. Поля звуться загально
   // («isin», «channel»), а розділ тепер зводить в одну сторінку три
