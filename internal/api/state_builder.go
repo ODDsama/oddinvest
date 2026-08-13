@@ -67,18 +67,14 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	// Чим володіємо — зведене за ОДИН прохід (domain/holdings.go). Доти
 	// lots обходився тут сімома циклами, а залишок після продажів
 	// рахувався по чотири рази на лот, щоразу наново.
-	payoutDays := make(map[string]int64, len(src.fundRefs))
-	for name, ref := range src.fundRefs {
-		payoutDays[name] = ref.PayoutDay
-	}
-	hold := domain.NewHoldings(lots, sales, bonds, fundOps, payoutDays, today)
+	hold := domain.NewHoldings(lots, sales, bonds, fundOps, src.payoutDays(), today)
 
 	positions, err := domain.Positions(bonds, pays, lots, sales, today)
 	if err != nil {
 		return nil, err
 	}
 	// Розклад — календар виплат і драбина погашень (state_schedule.go).
-	sch, err := buildSchedule(src, hold, today)
+	sch, err := buildSchedule(src, hold, today, today)
 	if err != nil {
 		return nil, err
 	}

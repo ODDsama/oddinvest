@@ -39,8 +39,21 @@ type schedule struct {
 }
 
 // buildSchedule складає календар і драбину з усіх трьох інструментів.
-func buildSchedule(src *sources, hold domain.Holdings, today domain.Date) (schedule, error) {
-	cashflow, err := domain.FuturePayments(src.pays, src.lots, src.sales, today)
+//
+// ДВІ дати, і різниця між ними суттєва. from — звідки ПОКАЗУВАТИ вже
+// відомі виплати: зведенню це сьогодні, а вкладці «Календар» — 1970-й,
+// бо там гортають і минуле. today — від чого рахувати ОЦІНКИ, і це
+// завжди справжній сьогоднішній день: оцінених дивідендів у минулому не
+// буває, там є фактичні операції фонду.
+//
+// Доти цієї функції існувало дві. Ендпойнт /api/calendar збирав потоки
+// сам — облігації плюс вклади, — і фонди в нього не потрапляли взагалі.
+// На живих даних це виглядало так: у зведенні REIT платить 10 числа
+// щомісяця й дає чверть усього доходу, а у вкладці «Календар» за рік
+// 26 рядків і жодного фондового. Одне питання, дві відповіді, і жодного
+// способу помітити розбіжність, окрім як звірити очима.
+func buildSchedule(src *sources, hold domain.Holdings, from, today domain.Date) (schedule, error) {
+	cashflow, err := domain.FuturePayments(src.pays, src.lots, src.sales, from)
 	if err != nil {
 		return schedule{}, err
 	}
@@ -48,7 +61,7 @@ func buildSchedule(src *sources, hold domain.Holdings, today domain.Date) (sched
 
 	// Вклади мають розклад, тож їхні відсотки й повернення тіла входять у
 	// той самий календар і ту саму драбину, що й купони й погашення ОВДП.
-	cashflow = append(cashflow, domain.DepositCashflows(src.termDeposits, today)...)
+	cashflow = append(cashflow, domain.DepositCashflows(src.termDeposits, from)...)
 	ladder = append(ladder, domain.DepositLadder(src.termDeposits, today)...)
 
 	// Фонди теж — але ОЦІНКОЮ, і лише коли відомий день виплати.

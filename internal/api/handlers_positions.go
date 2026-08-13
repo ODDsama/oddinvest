@@ -89,34 +89,35 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	lots, sales, _, pays, err := s.portfolio(ctx)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	from := domain.NewDate(time.Now())
+	today := domain.NewDate(time.Now())
+	from := today
 	if q := r.URL.Query().Get("from"); q != "" {
 		if d, err := domain.ParseDate(q); err == nil {
 			from = d
 		}
 	}
-	cf, err := domain.FuturePayments(pays, lots, sales, from)
+	// Розклад збирає buildSchedule — та сама функція, що й для зведення.
+	// Доти цей обробник мав власного збирача: облігації плюс вклади, і
+	// фонди повз нього. На живих даних REIT платив 10 числа щомісяця, у
+	// зведенні давав чверть доходу, а тут його не було взагалі — одне
+	// питання, дві відповіді.
+	//
+	// from і today різні навмисно: показуємо з дати запиту (вкладка
+	// гортає й минуле), а оцінки рахуємо від справжнього сьогодні —
+	// оцінених дивідендів у минулому не буває, там фактичні операції.
+	src, err := s.loadSources(ctx, today)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	deposits, err := s.st.ListTermDeposits(ctx)
+	hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps,
+		src.payoutDays(), today)
+	sch, err := buildSchedule(src, hold, from, today)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	cf = append(cf, domain.DepositCashflows(deposits, from)...)
-	sort.Slice(cf, func(i, j int) bool { return cf[i].Date < cf[j].Date })
-	statuses, err := s.st.PaymentStatuses(ctx)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
+	cf, statuses := sch.Cashflow, src.statuses
 	type cfJSON struct {
 		Date   string    `json:"date"`
 		ISIN   string    `json:"isin"`

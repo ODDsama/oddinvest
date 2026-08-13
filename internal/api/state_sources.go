@@ -124,3 +124,14 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	}
 	return src, nil
 }
+
+// payoutDays — день виплати кожного фонду в тому вигляді, якого чекає
+// NewHoldings. З журналу операцій його не вивести: одна виплата ритму не
+// задає, а дві поспіль можуть розійтись через вихідні.
+func (s *sources) payoutDays() map[string]int64 {
+	out := make(map[string]int64, len(s.fundRefs))
+	for name, ref := range s.fundRefs {
+		out[name] = ref.PayoutDay
+	}
+	return out
+}
