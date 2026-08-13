@@ -67,6 +67,19 @@ type suggestion struct {
 	Reason        string      `json:"reason"`
 	DurationNow   float64     `json:"duration_now,omitempty"`
 	DurationAfter float64     `json:"duration_after,omitempty"`
+	// LastAuction / LastAuctionPct — коли цей самий папір востаннє
+	// розміщували на аукціоні Мінфіну й під скільки. Порожньо означає, що
+	// за все відоме нам вікно його не розміщували жодного разу, тобто
+	// взяти його можна хіба на вторинному ринку.
+	LastAuction    string  `json:"last_auction,omitempty"`
+	LastAuctionPct float64 `json:"last_auction_pct,omitempty"`
+	// stale — папір без розміщення за відоме вікно. Це твердження про
+	// НАШУ ВПЕВНЕНІСТЬ, а не про якість паперу: ціна в цьому рядку
+	// рахується як «номінал + НКД», тобто за первинним розміщенням, і
+	// для паперу, якого рік не розміщували, така база — вигадка. Тому
+	// такі рядки опускаються нижче, але не ховаються: чому саме ліміт
+	// нічого не ховає, сказано в overLimit вище.
+	stale bool
 	// def — на скільки в.п. капіталу бракує ВАЛЮТИ цього паперу до цілі;
 	// kindDef — те саме для ВИДУ інструмента. Одиниця в них однакова
 	// (відсоткові пункти капіталу), тож у ранжуванні вони складаються:
@@ -97,6 +110,14 @@ func withKindDef(base string, def float64, what string) string {
 	}
 	return base + fmt.Sprintf("; добирає %s (%.0f в.п. до цілі)", what, def)
 }
+
+// staleAfterDays — за скільки днів без розміщення папір вважається таким,
+// чиєї сьогоднішньої ціни ми не знаємо.
+//
+// Дорівнює вікну бекфілу аукціонів (52 тижні) НАВМИСНО: поріг, довший за
+// дані, які ми взагалі тягнемо, був би заявою, яку нема чим підперти —
+// ми б називали «несвіжим» те, про що просто не питали.
+const staleAfterDays = 365
 
 // handleReinvest — помічник реінвестиції: доступні папери з довідника,
 // відранжовані під план (розрив до цільової частки — валютної й за видом
@@ -207,6 +228,18 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	for _, p := range allPays {
 		paysByISIN[p.ISIN] = append(paysByISIN[p.ISIN], p)
 	}
+	// Останнє розміщення кожного паперу — одним запитом, не по одному на
+	// ISIN: інакше відкриття «Огляду» коштувало б 187 звернень до бази.
+	//
+	// Помилка тут не фатальна: без аукціонів помічник працює рівно як
+	// раніше. І поки їх немає взагалі (свіжа інсталяція, бекфіл ще в
+	// фоні), про них не сказано НІ СЛОВА — написати «не розміщувався»
+	// там, де ми просто не дивились, означало б видати незнання за факт.
+	lastAuction, aerr := s.st.LastAuctionByISIN(ctx)
+	if aerr != nil {
+		lastAuction = nil
+	}
+	knowAuctions := len(lastAuction) > 0
 
 	// fitsFor — скільки таких кроків тягне кожен брокер окремо. Баланси
 	// роздільні: гривня на inzhur не купить папір у mono.
@@ -292,6 +325,34 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		} else if over, ok := overYear[year]; ok {
 			note = fmt.Sprintf("на %d рік уже припадає %.0f в.п. понад ліміт %.0f%%", year, over, limitYear)
 		}
+		// Чи розміщують цей папір узагалі. Довідник тримає 187 паперів і
+		// показує їх однаково купованими, але на аукціонах за рік буває
+		// три десятки: решту можна взяти лише на вторинному ринку й за
+		// ціною, якої тут ніхто не знає.
+		lastAucDate, lastAucPct, stale := "", 0.0, false
+		if knowAuctions {
+			if p, ok := lastAuction[b.ISIN]; ok {
+				lastAucDate = string(p.Date)
+				lastAucPct = float64(p.IncomeBP) / 100
+				stale = domain.DaysBetween(p.Date, today) > staleAfterDays
+			} else {
+				stale = true
+			}
+			// Причина несе ЛИШЕ попередження — те, що міняє зміст рядка.
+			// Саме «коли й під скільки» їде окремими полями: це нейтральний
+			// факт, і UI має право показати його своїм форматом дати. Двічі
+			// одне й те саме — і в прозі, і полем — читалось би як помилка.
+			//
+			// «Не розміщувався» там, де розміщували два роки тому, було б
+			// неправдою: папір існує, застаріла лише ціна. Тому стани різні.
+			switch {
+			case !stale: // свіже розміщення — попереджати нема про що
+			case lastAucDate != "":
+				parts = append(parts, "відтоді лише вторинний ринок")
+			default:
+				parts = append(parts, "на аукціонах не розміщувався — лише вторинний ринок")
+			}
+		}
 		if note != "" {
 			parts = append(parts, "⚠ "+note)
 		}
@@ -331,8 +392,9 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			Brokers:    fits,
 			Affordable: best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
 			DurationNow: round2(curMac), DurationAfter: round2(newMac),
+			LastAuction: lastAucDate, LastAuctionPct: round2(lastAucPct),
 			def: def, kindDef: kindDef["bonds"], ladderNom: lnom,
-			overLimit: note != "",
+			overLimit: note != "", stale: stale,
 		})
 	}
 
@@ -553,6 +615,17 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		// критерій вигоди, а те, чого користувач сам від себе хотів.
 		if a.overLimit != b.overLimit {
 			return b.overLimit
+		}
+		// Папір, якого рік не розміщували, — нижче за той, що розміщують
+		// зараз, і теж в УСІХ режимах. Підстава інша, ніж у ліміту, і
+		// сказати її треба точно: це не судження про папір, а визнання,
+		// що ЦІНА В ЦЬОМУ РЯДКУ рахується за номіналом, тобто за
+		// первинним розміщенням. Для паперу, який розміщують сьогодні, це
+		// чесне наближення; для того, якого рік не розміщували, — вигадка,
+		// і головне число рядка варте менше. Сортувати за впевненістю в
+		// власних числах застосунок має право; це не порада.
+		if a.stale != b.stale {
+			return b.stale
 		}
 		switch rank {
 		case "rate":

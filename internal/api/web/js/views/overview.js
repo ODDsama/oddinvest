@@ -210,6 +210,13 @@ export function reinvestHTML(ctx) {
       ? `<span class="ok-t">вистачає${r.affordable > 1 ? ` ×${r.affordable}` : ""}</span>`
       : need > 0 ? `бракує ${fmtCur(need, curSym(r.currency))}` : "";
     const fits = (r.brokers || []).map((f) => `${esc(f.broker)} ×${f.qty}`).join(" · ");
+    // Останнє розміщення — окремим рядком, а не в загальній стрічці: це
+    // єдине тут число із ЗОВНІШНЬОГО світу, скільки платить ринок за той
+    // самий папір. Прозою бекенд його не дублює — у причині лишається
+    // тільки попередження, коли розміщення застаріле.
+    const auc = r.last_auction
+      ? `<div>на аукціоні ${esc(dayMonth(r.last_auction))} давали ${pct(r.last_auction_pct)}</div>`
+      : "";
     const details = [
       `${pct(r.nominal_pct != null ? r.nominal_pct : r.ytm_pct)} номінальних`,
       r.kind === "bond" ? "до погашення" : r.yield_basis,
@@ -224,7 +231,7 @@ export function reinvestHTML(ctx) {
       <span class="sg-s muted">${status}</span>
       <b class="sg-y">${pct(r.real_pct)}</b>
     </div>
-    <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : ` style="display:none"`}>${details}</div>`;
+    <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : ` style="display:none"`}>${details}${auc}</div>`;
   };
 
   // Групуємо за тим, що вирішує: чи можу купити зараз. Доти шість

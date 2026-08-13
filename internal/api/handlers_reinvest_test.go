@@ -11,6 +11,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/nbu"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -129,5 +130,123 @@ func TestReinvestComparesFundNetOfTax(t *testing.T) {
 	// «до погашення» воно читалось би як така сама брутто-величина.
 	if !strings.Contains(net[0].YieldBasis, "після податку") {
 		t.Errorf("основа %q мовчить про податок", net[0].YieldBasis)
+	}
+}
+
+// Довідник НБУ тримає майже дві сотні паперів і показує їх однаково
+// купованими. Насправді на аукціонах за рік буває три десятки: решту
+// взяти можна хіба на вторинному ринку й за ціною, якої застосунок не
+// знає, — а ціна в рядку поради рахується саме за номіналом, тобто за
+// первинним розміщенням.
+//
+// Несвіжий папір тут НАВМИСНО вигідніший за свіжий (16.55% проти 14%):
+// без опускання він стояв би зверху, тож тест стереже саме його.
+func TestReinvestDemotesPapersNotPlacedInAYear(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+	const fresh, stale = "UA4000239016", "UA4000227748"
+	bond := func(isin string, rateBP int64, coupon int64) nbu.Security {
+		return nbu.Security{
+			Bond: domain.Bond{ISIN: isin, Nominal: money.New(100000, money.UAH),
+				RateBP: rateBP, Maturity: "2028-03-17"},
+			Payments: []domain.Payment{
+				{ISIN: isin, PayDate: "2028-03-17", Type: domain.PayCoupon, PerBond: money.New(coupon, money.UAH)},
+				{ISIN: isin, PayDate: "2028-03-17", Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+			},
+		}
+	}
+	if err := st.ReplaceDirectory(ctx, []nbu.Security{
+		bond(fresh, 1400, 8000), bond(stale, 1655, 12000),
+	}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveRate(ctx, "USD", 441234, "2026-07-15"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
+		Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Один розміщували вчора, другий — два роки тому.
+	now := time.Now()
+	if err := st.SaveAuctions(ctx, []nbu.Auction{
+		{Date: domain.NewDate(now.AddDate(0, 0, -1)), ISIN: fresh, Num: "91",
+			Currency: money.UAH, Bucket: "1.5y", IncomeBP: 1519, DaysToRepay: 580},
+		{Date: domain.NewDate(now.AddDate(-2, 0, 0)), ISIN: stale, Num: "12",
+			Currency: money.UAH, Bucket: "3y", IncomeBP: 1655, DaysToRepay: 1100},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
+	var got []struct {
+		Kind           string  `json:"kind"`
+		ISIN           string  `json:"isin"`
+		Reason         string  `json:"reason"`
+		LastAuction    string  `json:"last_auction"`
+		LastAuctionPct float64 `json:"last_auction_pct"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("%v: %s", err, body)
+	}
+	var bonds []int
+	for i, g := range got {
+		if g.Kind == "bond" {
+			bonds = append(bonds, i)
+		}
+	}
+	if len(bonds) != 2 {
+		t.Fatalf("очікували дві облігації, маємо %d: %s", len(bonds), body)
+	}
+	first, second := got[bonds[0]], got[bonds[1]]
+	if first.ISIN != fresh {
+		t.Errorf("зверху мав бути свіжо розміщений %s, маємо %s (%s)", fresh, first.ISIN, body)
+	}
+	if second.ISIN != stale {
+		t.Errorf("несвіжий %s мав опуститись, маємо %s", stale, second.ISIN)
+	}
+	// Свіжий каже, коли й під скільки; несвіжий — що його там не було.
+	if first.LastAuction == "" || first.LastAuctionPct != 15.19 {
+		t.Errorf("свіжий рядок мовчить про розміщення: %+v", first)
+	}
+	// Свіже розміщення попереджати нема про що: сам факт їде полями, а
+	// проза лишається чистою.
+	if strings.Contains(first.Reason, "вторинний ринок") {
+		t.Errorf("свіжий рядок не мав попереджати: %q", first.Reason)
+	}
+	// Несвіжий, але ВІДОМИЙ папір каже саме «відтоді»: сказати про нього
+	// «не розміщувався» було б неправдою — він існує, застаріла лише ціна,
+	// і дата з рівнем поруч це показують.
+	if !strings.Contains(second.Reason, "відтоді лише вторинний ринок") {
+		t.Errorf("причина несвіжого: %q", second.Reason)
+	}
+	if second.LastAuction == "" || second.LastAuctionPct != 16.55 {
+		t.Errorf("несвіжий рядок мав зберегти дату й рівень: %+v", second)
+	}
+	// Нічого не сховано: обидва лишаються в переліку.
+	if len(bonds) != 2 {
+		t.Error("порада зникла — ліміти й несвіжість опускають, а не ховають")
+	}
+}
+
+// Поки історії аукціонів немає (свіжа інсталяція, бекфіл ще в фоні),
+// про них не сказано ні слова. Написати «не розміщувався» там, де ми
+// просто не дивились, означало б видати незнання за факт.
+func TestReinvestSilentWithoutAuctionHistory(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if _, err := st.AddDeposit(context.Background(), store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
+		Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
+	for _, word := range []string{"вторинний ринок", "останнє розміщення", "last_auction"} {
+		if strings.Contains(body, word) {
+			t.Errorf("без історії аукціонів згадки про них бути не мало (%q): %s", word, body)
+		}
 	}
 }
