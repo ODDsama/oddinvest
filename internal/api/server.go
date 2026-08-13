@@ -89,6 +89,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/term-deposits/{id}/topups", s.handleAddDepositTopup)
 	mux.HandleFunc("DELETE /api/term-deposits/{id}/topups/{topupId}", s.handleDeleteDepositTopup)
 	mux.HandleFunc("GET /api/reinvest", s.handleReinvest)
+	mux.HandleFunc("GET /api/auctions/curve", s.handleAuctionsCurve)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("GET /api/backup", s.handleBackupExport)

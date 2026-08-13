@@ -14,7 +14,7 @@
     { "path": "js/format.js", "sha256": "ebf4800d3d52b3154cbd937b228bd2f4f16975e83620b9ed096ee29380592491" },
     { "path": "js/forms.js", "sha256": "971f334403306920b57241636faec6e25121a127f838282333cac9c0d7d28efd" },
     { "path": "js/fund-ops.js", "sha256": "7efc8885a39a054655824315840bba89c6a60ed6ce0c1c597902fe100858c79b" },
-    { "path": "js/info.js", "sha256": "edac1c11b650dc98254f315b94066e52310d25637461c3f82064f96b39ffc920" },
+    { "path": "js/info.js", "sha256": "20661bfdcc070f73451a40acc47d1358eb372ef96880061bcf69b01b9d572a8c" },
     { "path": "js/store.js", "sha256": "e7bba69719e479b71c572bd65dbbdf0946b010c78ed5bf4f0855da655cfbd6aa" },
     { "path": "js/styles.js", "sha256": "7f623a4506b4336538ffce25d56eeab347afb912ceacadf76b8cdc05028f943f" },
     { "path": "js/transport.js", "sha256": "462c6263a80366cb861a95672ffbbb2dafe998889516f906a868ccc957685bc0" },
@@ -25,9 +25,9 @@
     { "path": "js/views/history.js", "sha256": "6e6efb9e2221e78cbd2274990c8039348c29cd35ddc3204fead0969cdbc08545" },
     { "path": "js/views/money.js", "sha256": "63a25e448969cf90472f81cbe36e01b58fbfcb4d68842f1c9575faedc98eec7e" },
     { "path": "js/views/overview.js", "sha256": "7727e46eac73f4c35c4ddae44dc82b0b83a385a3bcad1d2ba06927ece53eb735" },
-    { "path": "js/views/portfolio.js", "sha256": "f2e0dfbc6ed135e9527f2ccdce3b61af81a6299baa2066cdc90e2932207b22c9" },
+    { "path": "js/views/portfolio.js", "sha256": "9d8178983c8bb8317cf3e1dee97e6a656c9a7591f0b4064665917693f34da563" },
     { "path": "js/views/positions.js", "sha256": "a537df42ba32dcb27e105eae899cb30715633a69c9b9322f20f60c6ca470d69a" },
-    { "path": "js/views/risk.js", "sha256": "ea4bb72e2ccfc9ee8c8271772bb8b9ef0e01b78673151a1caef6046715362565" },
+    { "path": "js/views/risk.js", "sha256": "a9e2cda45b653e2cb0c910f45352231fabb3b009ea96a4b001539b34212fcbe2" },
     { "path": "js/views/settings.js", "sha256": "066f851bed3548f0f42b18a90721e03f268b19ab97ab8f03c60feacc25f89c75" },
     { "path": "js/views/strategy.js", "sha256": "8fa85c469090aa4cdf46581c47ec90d0f71b8fe552e9e6014c7cffde10544135" }
   ]

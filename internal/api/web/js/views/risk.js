@@ -1,7 +1,9 @@
 // Чим ризикую: розклад по брокерах і валютах, ребалансування,
 // ліквідність, процентний ризик, бенчмарк і драбина.
 
-import { esc, curSym, pct, uah2 as fmtUAH, cur2 as fmtCur, fundsCost, capitalUAH } from "../format.js";
+import {
+  esc, curSym, dayMonth, pct, uah2 as fmtUAH, cur2 as fmtCur, fundsCost, capitalUAH,
+} from "../format.js";
 import { infoBtn } from "../info.js";
 import { svgBars, svgGrouped, svgDonut } from "../charts.js";
 import { tile, yieldNote, needsSetting } from "../components.js";
@@ -435,3 +437,45 @@ export function ladderTableHTML(ctx) {
 // ---------- історія ----------
 
 
+
+// ---------- крива первинного ринку ----------
+
+// Під скільки Мінфін розміщує ОВДП на кожен строк — єдиний зовнішній
+// орієнтир у застосунку. Доти дохідність портфеля не порівнювалась ні з
+// чим, і питання «13.4% — це нормально?» не мало відповіді взагалі.
+//
+// Живе в «Портфелі», а не на «Огляді»: «Огляд» відповідає на «що робити
+// зараз», а це контекст — із чим порівняти те, що вже маєш.
+//
+// Один графік НА ВАЛЮТУ. Гривня стоїть біля 16%, долар біля 3%: на
+// спільній осі валютна крива лягла б пласкою смужкою по нулю, і саме та
+// крива, заради якої дивишся, стала б нечитанною.
+//
+// Числа тут — дохідність РОЗМІЩЕННЯ: середньозважена ставка, прийнята
+// первинними дилерами в дилерських обсягах того дня. Те, що заплатиш у
+// брокера, буде іншим, і картка каже це вголос.
+export function marketCurveCard(ctx, curve) {
+  const rows = (curve || []).filter((r) => r.pct > 0);
+  if (!rows.length) return "";
+  const byCur = new Map();
+  for (const r of rows) {
+    if (!byCur.has(r.currency)) byCur.set(r.currency, []);
+    byCur.get(r.currency).push(r);
+  }
+  const blocks = [...byCur.entries()].map(([c, list]) => {
+    const hasPrev = list.some((r) => r.prev_pct > 0);
+    const groups = list.map((r) => ({ label: r.bucket, a: r.pct, b: r.prev_pct || 0 }));
+    const freshest = list.reduce((a, b) => (a.date > b.date ? a : b)).date;
+    return `<div class="card"><h4>${esc(curSym(c))} ${esc(c)}</h4>
+      ${svgGrouped(groups)}
+      <div class="lg"><span><i style="background:var(--oi-series-invested)"></i>зараз</span>
+        ${hasPrev ? `<span><i style="background:var(--oi-series-neutral)"></i>рік тому</span>` : ""}</div>
+      <div class="sub-xs">останнє розміщення ${esc(dayMonth(freshest))}</div></div>`;
+  }).join("");
+  return `<div class="card"><h2 class="h-row">Скільки платить ринок ${infoBtn("market")}</h2>
+    <div class="sub">Дохідність, під яку Мінфін РОЗМІЩУЄ ОВДП на аукціоні, за строками.
+      Це те, з чим можна порівняти власну дохідність портфеля вище — більше в застосунку
+      порівнювати нема з чим. Але це ставка первинних дилерів у дилерських обсягах:
+      у брокера ціна інша, і дохідність теж.</div>
+    <div class="chart-grid">${blocks}</div></div>`;
+}

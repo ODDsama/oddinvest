@@ -22,7 +22,7 @@ import { positionsTableHTML, wirePositions } from "./positions.js";
 import {
   brokerDonutHTML, currencyChartHTML, yieldTilesHTML, shareTilesHTML,
   rebalanceCard, kindMixCard, concentrationCard, ladderTableHTML, benchmarkCard,
-  liquidityCard, rateRiskCard,
+  liquidityCard, rateRiskCard, marketCurveCard,
 } from "./risk.js";
 import { bondBuyFormHTML, bondSaleFormHTML, wireBonds } from "./bonds.js";
 import { depositFormHTML, closedDepositsHTML, wireDeposits } from "./deposits.js";
@@ -49,13 +49,14 @@ function entryCardHTML(ctx, lots) {
 // всього і як росте → як розкладене → ЩО САМЕ я маю (одна таблиця на всі
 // інструменти) → чим ризикую → чим записати нову операцію.
 export async function renderPortfolio(ctx, main) {
-  const [positions, lots, sales, ops, deposits, bench] = await Promise.all([
+  const [positions, lots, sales, ops, deposits, bench, curve] = await Promise.all([
     ctx.api("GET", "positions"),
     ctx.api("GET", "lots"),
     ctx.api("GET", "sales"),
     ctx.soft("funds", []),
     ctx.soft("term-deposits", []),
     ctx.soft("benchmark", null),
+    ctx.soft("auctions/curve", []),
   ]);
   setFundOps(ops);
   ctx._deposits = deposits; // wireDeposits реконструює вклад для закриття
@@ -75,6 +76,7 @@ export async function renderPortfolio(ctx, main) {
     ${ladderTableHTML(ctx)}
     ${positionsTableHTML(ctx, positions, lots, sales, deposits)}
     ${entryCardHTML(ctx, lots)}
+    ${marketCurveCard(ctx, curve)}
     ${benchmarkCard(ctx, bench)}
     ${liquidityCard(ctx)}
     ${rateRiskCard(ctx)}

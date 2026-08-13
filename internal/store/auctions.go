@@ -86,8 +86,8 @@ func (s *Store) CountAuctionDays(ctx context.Context) (int, error) {
 }
 
 // scanPoints — спільне вичитування для обох запитів нижче.
-func (s *Store) scanPoints(ctx context.Context, q string) ([]AuctionPoint, error) {
-	rows, err := s.db.QueryContext(ctx, q)
+func (s *Store) scanPoints(ctx context.Context, q string, args ...any) ([]AuctionPoint, error) {
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -129,15 +129,31 @@ func (s *Store) LastAuctionByISIN(ctx context.Context) (map[string]AuctionPoint,
 
 // AuctionLatestByBucket — остання дохідність розміщення за кожною парою
 // (валюта, строк). Це і є крива первинного ринку на сьогодні.
+func (s *Store) AuctionLatestByBucket(ctx context.Context) ([]AuctionPoint, error) {
+	return s.AuctionByBucketAsOf(ctx, "")
+}
+
+// AuctionByBucketAsOf — те саме, але станом на дату: останнє розміщення
+// НЕ ПІЗНІШЕ за on. Порожня on означає «на сьогодні».
+//
+// Потрібне, щоб криву було з чим порівняти: сама по собі вона каже, що
+// ринок платить, і мовчить про те, куди він рухається. Рік тому —
+// найкоротша чесна відповідь на друге питання.
 //
 // Впорядкування в Go, а не в SQL: ORDER BY по колонці, якої немає в
 // GROUP BY, у агрегатному запиті бере значення з невизначеного рядка, і
 // покладатись на це поруч із уже задекларованою особливістю MAX() було б
 // однією хиткою підставою забагато.
-func (s *Store) AuctionLatestByBucket(ctx context.Context) ([]AuctionPoint, error) {
-	pts, err := s.scanPoints(ctx, `SELECT isin, MAX(auction_date), currency, bucket,
-		income_bp, days_to_repay FROM ovdp_auctions WHERE bucket <> ''
-		GROUP BY currency, bucket`)
+func (s *Store) AuctionByBucketAsOf(ctx context.Context, on domain.Date) ([]AuctionPoint, error) {
+	q := `SELECT isin, MAX(auction_date), currency, bucket, income_bp, days_to_repay
+		FROM ovdp_auctions WHERE bucket <> ''`
+	var args []any
+	if on != "" {
+		q += ` AND auction_date <= ?`
+		args = append(args, string(on))
+	}
+	q += ` GROUP BY currency, bucket`
+	pts, err := s.scanPoints(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
