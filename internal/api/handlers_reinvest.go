@@ -272,15 +272,9 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		if nomMajor <= 0 {
 			continue
 		}
-		// Ціна входу сьогодні: номінал плюс НКД. Ціни в довіднику НБУ
-		// немає, тож рахуємо «за номіналом» — це чесне наближення, і
-		// принаймні НКД воно враховує, а він реально сплачується.
-		cost := b.Nominal
-		if acc, aerr := domain.EstimateAccrued(paysByISIN[b.ISIN], b.ISIN, today); aerr == nil && acc != nil {
-			if c2, err2 := cost.Add(acc); err2 == nil {
-				cost = c2
-			}
-		}
+		// Ціна входу сьогодні — спільна з кошиком (unit_cost.go): два
+		// обчислення давали б на екрані дві ціни того самого паперу.
+		cost := bondUnitCost(b, paysByISIN[b.ISIN], today)
 		costMajor := float64(cost.Amount()) / 100
 		if costMajor <= 0 {
 			continue
@@ -456,8 +450,8 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			nominal = round2(domain.NetOfTax(nominal, f.IncomeTaxPct, years))
 			basis += ", після податку"
 		}
-		costMinor := int64(math.Round(f.LastPrice * 100))
-		if costMinor <= 0 {
+		fundCost := fundUnitCost(f.LastPrice, c) // спільне з кошиком (unit_cost.go)
+		if fundCost.Amount() <= 0 {
 			continue
 		}
 		fits, best := fitsFor(c, f.LastPrice)
@@ -483,7 +477,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, suggestion{
 			Kind: "fund", Label: f.Fund, Currency: c,
-			CostPerBond: toMoneyJSON(money.New(costMinor, c)),
+			CostPerBond: toMoneyJSON(fundCost),
 			NominalPct:  round2(nominal),
 			RealPct:     round2(realYield(nominal/100, yc, devalPct) * 100),
 			YieldBasis:  basis,
