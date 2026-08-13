@@ -33,6 +33,12 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		UninvestedUAH:     Major(money.New(0, money.UAH)),
 		Settings:          settings,
 		XIRRPct:           map[string]float64{"UAH": 16.51, "USD": 3.22},
+		// Дві валюти, щоб у фікстурі було видно, що строки не змішуються
+		// в одну криву: 16% гривні й 3% долара — це різні шкали.
+		MarketYield: []MarketYieldRow{
+			{Currency: "UAH", Bucket: "1.5y", Pct: 15.65, Date: "2026-07-14", ISIN: "UA4000239040"},
+			{Currency: "USD", Bucket: "2y", Pct: 3.15, Date: "2026-05-05", ISIN: "UA4000239032"},
+		},
 	}
 	in := DeriveInput{
 		Now: time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC),

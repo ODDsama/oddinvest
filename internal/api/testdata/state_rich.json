@@ -1165,6 +1165,36 @@
     "locked_uah": 120000,
     "unlock_date": "2027-04-16"
   },
+  "market_yield": [
+    {
+      "currency": "EUR",
+      "bucket": "2.5y",
+      "pct": 3.2,
+      "date": "2026-06-05",
+      "isin": "UA4000239065"
+    },
+    {
+      "currency": "UAH",
+      "bucket": "1.5y",
+      "pct": 15.65,
+      "date": "2026-07-12",
+      "isin": "UA4000227748"
+    },
+    {
+      "currency": "UAH",
+      "bucket": "2y",
+      "pct": 16.1,
+      "date": "2026-07-05",
+      "isin": "UA4000239107"
+    },
+    {
+      "currency": "UAH",
+      "bucket": "3y",
+      "pct": 17.8,
+      "date": "2025-06-10",
+      "isin": "UA4000000001"
+    }
+  ],
   "accrued_uah": 209.04,
   "nbu_refreshed_at": "2026-07-15T06:00:00Z",
   "actual_monthly_uah": 62987.08,

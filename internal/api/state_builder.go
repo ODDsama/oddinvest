@@ -719,6 +719,10 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	})
 	rateRisk, liquidity, accruedUAH := rsk.RateRisk, rsk.Liquidity, rsk.AccruedUAH
 
+	// Що первинний ринок платить за строк (state_market.go). Єдина фаза,
+	// яка дивиться назовні, а не зводить портфель.
+	mkt := buildMarket(src.auctions)
+
 	// Документ заповнюється НАПРЯМУ, а не через проміжний літерал на
 	// пʼятдесят полів: тридцять із них були дзеркалом Doc, тобто пакет
 	// state здебільшого переписував із однієї структури в іншу.
@@ -749,7 +753,8 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Drawdown:  prj.Drawdown,
 		Rebalance: rebalance, Concentration: concentration,
 		RateRisk: rateRisk, Liquidity: liquidity,
-		AccruedUAH: round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
+		MarketYield: mkt.yield,
+		AccruedUAH:  round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,
 	}
 	// Похідні — те, що виводиться з уже покладеного (state/derive.go).

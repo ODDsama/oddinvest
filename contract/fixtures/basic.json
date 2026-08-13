@@ -84,6 +84,22 @@
     "UAH": 16.51,
     "USD": 3.22
   },
+  "market_yield": [
+    {
+      "currency": "UAH",
+      "bucket": "1.5y",
+      "pct": 15.65,
+      "date": "2026-07-14",
+      "isin": "UA4000239040"
+    },
+    {
+      "currency": "USD",
+      "bucket": "2y",
+      "pct": 3.15,
+      "date": "2026-05-05",
+      "isin": "UA4000239032"
+    }
+  ],
   "settings": {
     "monthly_target_uah": 5000,
     "usd_target_share_pct": 50

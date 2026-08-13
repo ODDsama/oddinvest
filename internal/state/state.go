@@ -228,6 +228,19 @@ type Doc struct {
 	// Liquidity — коли гроші стають доступні (адитивне поле).
 	Liquidity *Liquidity `json:"liquidity,omitempty"`
 
+	// MarketYield — що ПЕРВИННИЙ ринок платить сьогодні: останній рівень
+	// розміщення Мінфіну по кожній парі (валюта, строк).
+	//
+	// Єдиний зовнішній орієнтир у документі: доти PortfolioYieldPct не
+	// було з чим порівняти взагалі, і питання «13.4% — це нормально?» не
+	// мало відповіді ні тут, ні в Home Assistant.
+	//
+	// Історії тут НЕМАЄ навмисно — вона в /api/auctions/curve. Retained-
+	// повідомлення це СТАН, а не довідник; те саме рішення вже записане
+	// для знецінення, і ряд на кілька десятків точок роздув би стан, який
+	// брокер тримає в пам'яті постійно.
+	MarketYield []MarketYieldRow `json:"market_yield,omitempty"`
+
 	// AccruedUAH — накопичений купонний дохід на сьогодні, грн-екв.:
 	// зароблено, але ще не виплачено. У проєкції НЕ додається (там майбутні
 	// купони враховані повністю). NBURefreshedAt — коли востаннє успішно
@@ -843,6 +856,20 @@ type NextPayment struct {
 	Type     string  `json:"type"` // coupon | redemption | early
 	Amount   float64 `json:"amount"`
 	Currency string  `json:"currency"`
+}
+
+// MarketYieldRow — один строк однієї валюти на первинному ринку.
+//
+// Дата тут обов'язкова разом із рівнем: аукціони бувають раз на тиждень,
+// а на валютні строки — раз на місяць і рідше, тож «3.2%» без дати не
+// каже, це позавчора чи півроку тому. ISIN поруч — щоб було видно, який
+// саме папір тоді розміщували.
+type MarketYieldRow struct {
+	Currency string  `json:"currency"`
+	Bucket   string  `json:"bucket"` // строк, як його назвав НБУ: "1y", "1.5y"…
+	Pct      float64 `json:"pct"`    // дохідність розміщення, до податку
+	Date     string  `json:"date"`   // день аукціону, ISO
+	ISIN     string  `json:"isin"`
 }
 
 type LadderRow struct {

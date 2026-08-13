@@ -105,6 +105,22 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		}
 	}
 
+	// Аукціони: три строки в гривні й один у євро. Один із гривневих —
+	// торішній, щоб на фікстурі був і свіжий рівень, і застарілий: саме
+	// на цій різниці тримається «несвіжий папір нижче» в помічнику.
+	if err := st.SaveAuctions(ctx, []nbu.Auction{
+		{Date: d(-3), ISIN: uahBond.ISIN, Num: "91", Currency: money.UAH,
+			Bucket: "1.5y", IncomeBP: 1565, DaysToRepay: 600},
+		{Date: d(-10), ISIN: "UA4000239107", Num: "92", Currency: money.UAH,
+			Bucket: "2y", IncomeBP: 1610, DaysToRepay: 910},
+		{Date: d(-400), ISIN: "UA4000000001", Num: "12", Currency: money.UAH,
+			Bucket: "3y", IncomeBP: 1780, DaysToRepay: 1100},
+		{Date: d(-40), ISIN: eurBond.ISIN, Num: "93", Currency: money.EUR,
+			Bucket: "2.5y", IncomeBP: 320, DaysToRepay: 900},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	// Гроші на ДВА брокери й у трьох валютах.
 	for _, dep := range []store.Deposit{
 		{Date: d(-200), Amount: 50000000, Currency: money.UAH, Broker: "mono"},
