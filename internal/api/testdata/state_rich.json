@@ -84,7 +84,11 @@
       "expected_simple_pct": 25,
       "expected_simple_years": 3,
       "real_pct": 12.63,
-      "yield_basis": "обіцяно фондом"
+      "yield_basis": "обіцяно фондом",
+      "kind": "accum",
+      "close_date": "2029-01-15",
+      "buy_until": "2026-11-15",
+      "income_tax_pct": 14
     }
   ],
   "funds_cost_uah": 10000,

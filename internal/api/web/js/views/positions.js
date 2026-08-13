@@ -151,9 +151,14 @@ function positionItems(ctx, positions, lots, sales, deposits) {
         nominal: f.yield_basis === "обіцяно фондом"
           ? f.expected_pct
           : f.total_pct || f.yield_net_pct,
-        // У сертифіката строку немає — на його місці те, що для фонду
-        // важить натомість: скільки їх і почім останній раз.
-        term: `<span class="muted">безстроково</span><div class="sub-xs">${f.qty} серт. · ${(f.last_price || 0).toFixed(4)} ${curSym(f.currency)}</div>`,
+        // У БЕЗСТРОКОВОГО сертифіката строку немає — на його місці те, що
+        // для фонду важить натомість: скільки їх і почім останній раз.
+        // У строкового строк є, і писати «безстроково» означало б
+        // сховати найважливіше про інструмент: дату, коли він
+        // закривається й повертає гроші.
+        term: `<span class="muted">${f.close_date
+          ? "до " + dayMonth(f.close_date)
+          : "безстроково"}</span><div class="sub-xs">${f.qty} серт. · ${(f.last_price || 0).toFixed(4)} ${curSym(f.currency)}</div>`,
         actions: "", sortBy: f.cost_basis,
         detail: fundDetailHTML(ctx, f),
       };

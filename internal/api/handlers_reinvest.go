@@ -368,12 +368,49 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		if nominal <= 0 {
 			continue // порівнювати нема з чим
 		}
+		// Фонд із закритим вікном залучення не пропонується взагалі.
+		// Inzhur MilTech приймає гроші до 31.12.2026 і після цього не
+		// приймає нікого; порада купити його в 2027-му — це порада
+		// зробити неможливе.
+		if f.BuyUntil != "" && f.BuyUntil < string(today) {
+			continue
+		}
+		// Обіцянка йде в порівняння НЕТТО, як і ставка вкладу поруч.
+		// Купон ОВДП від податку звільнений, дохід фонду ні, і брутто
+		// поруч із ними робило фонд систематично кращим, ніж він є.
+		//
+		// Строк вирішує, коли податок береться: у фонду, що доживає до
+		// закриття, дохід накопичується всередині й оподатковується один
+		// раз у кінці, тож податок б'є по сумарному приросту, а не щороку.
+		years := 0.0
+		if f.CloseDate != "" {
+			if d, derr := domain.ParseDate(f.CloseDate); derr == nil {
+				if m := domain.MonthsBetween(today, d); m > 0 {
+					years = float64(m) / 12
+				}
+			}
+		}
+		if f.IncomeTaxPct > 0 {
+			nominal = round2(domain.NetOfTax(nominal, f.IncomeTaxPct, years))
+			basis += ", після податку"
+		}
 		costMinor := int64(math.Round(f.LastPrice * 100))
 		if costMinor <= 0 {
 			continue
 		}
 		fits, best := fitsFor(c, f.LastPrice)
-		parts := []string{"сертифікат: без строку й погашення, ціна ринкова"}
+		// Рядок, який довго був неправдою для строкового фонду. У REIT
+		// строку справді немає; у MilTech є і строк, і погашення активів,
+		// і дата, після якої його не купити.
+		term := "сертифікат: без строку й погашення, ціна ринкова"
+		if f.CloseDate != "" {
+			term = fmt.Sprintf("сертифікат зі строком: фонд закривається %s, ціна ринкова",
+				f.CloseDate)
+		}
+		parts := []string{term}
+		if f.BuyUntil != "" {
+			parts = append(parts, "купити можна до "+f.BuyUntil)
+		}
 		if kd := kindDef["funds"]; kd > 0.5 {
 			parts = append(parts, fmt.Sprintf("добирає фонди (%.0f в.п. до цілі)", kd))
 		}

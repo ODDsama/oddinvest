@@ -197,6 +197,12 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		if d, ok := domain.NextPayoutDate(int(ref.PayoutDay), today); ok {
 			row.NextPayout = string(d)
 		}
+		// Строк фонду — у документ як є. Помічник реінвесту й таблиця
+		// позицій читають документ, а не довідник, і без цих полів обидва
+		// говорили про сертифікат як про безстроковий.
+		row.Kind = ref.Kind
+		row.CloseDate, row.BuyUntil = ref.CloseDate, ref.BuyUntil
+		row.IncomeTaxPct = float64(ref.IncomeTaxBP) / 100
 		// Обіцянка заповнюється ЗАВЖДИ, коли задана, — навіть якщо рядок
 		// портфеля показує виміряну повну дохідність. Помічник реінвесту
 		// бере саме її: там питання про майбутнє, і минулий приріст ціни
