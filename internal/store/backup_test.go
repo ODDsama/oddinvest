@@ -288,6 +288,15 @@ func TestBackupRoundTripKeepsFundCatalog(t *testing.T) {
 	want.ExpectedYieldBP = 950
 	want.ExpectedYieldCur = money.USD
 	want.PayoutDay = 10
+	// Рядок навмисно НЕМОЖЛИВИЙ: накопичувальний фонд із днем виплати не
+	// буває. Тест питає не «чи має сенс такий фонд», а «чи донесе бекап
+	// кожне поле», і одна позиція з усіма заповненими одразу перевіряє це
+	// коротше, ніж три правдоподібні.
+	want.Kind = FundAccumulating
+	want.CloseDate = "2029-07-26"
+	want.BuyUntil = "2026-12-31"
+	want.IncomeTaxBP = 1400
+	want.YieldSimpleYears = 3
 	if err := src.RenameFund(ctx, want.ID, want); err != nil {
 		t.Fatal(err)
 	}

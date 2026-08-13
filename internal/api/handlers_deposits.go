@@ -40,6 +40,22 @@ func parsePercentBP(s string) (int64, error) {
 	return domain.ParseDecimalToMinor(strings.TrimSpace(s), money.UAH)
 }
 
+// parsePercentBPOpt — те саме, але ПОРОЖНЄ поле означає «не задано», а не
+// помилку.
+//
+// Відсотки їздять по API рядком саме заради цієї різниці, і в довіднику
+// фондів так і написано в коментарі. Код при цьому робив протилежне:
+// parsePercentBP кличеться беззастережно, а big.Rat на порожньому рядку
+// віддає «невалідне десяткове число». Наслідок помітний не одразу, бо в
+// обох наявних фондів обіцянка задана: щойно заведений операцією фонд —
+// у якого її ще немає — не перейменовувався взагалі, PUT падав з 400.
+func parsePercentBPOpt(s string) (int64, error) {
+	if strings.TrimSpace(s) == "" {
+		return 0, nil
+	}
+	return parsePercentBP(s)
+}
+
 func termDepositFromReq(req termDepositReq) (domain.Deposit, error) {
 	var out domain.Deposit
 	cur := strings.TrimSpace(req.Currency)

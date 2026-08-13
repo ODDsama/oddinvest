@@ -21,14 +21,29 @@ import { strategyCardHTML, wireStrategy } from "./strategy.js";
 // data-field — це ключ у тілі запиту, тож обидва боки лишаються в одному
 // місці.
 export function catalogRowHTML(item, fields = []) {
-  const inputs = fields.map((f) =>
-    `<input class="cat-f" data-field="${f.key}"${f.num ? ' data-num="1"' : ""}
-       value="${esc(f.value ?? "")}" placeholder="${esc(f.ph || "")}"
-       title="${esc(f.title || "")}" style="width:${f.w || 90}px">`).join("");
+  // Поле з опціями стає списком, а не текстовим полем: вид фонду має рівно
+  // два значення, і вводити їх руками означало б ловити друкарські
+  // помилки там, де вибір скінченний. Клас той самий, тож проводка нижче
+  // не розрізняє select від input — обидва мають .value.
+  const inputs = fields.map((f) => {
+    const attrs = `class="cat-f" data-field="${f.key}" title="${esc(f.title || "")}"
+       style="width:${f.w || 90}px"`;
+    if (f.opts) {
+      const opts = f.opts.map((o) =>
+        `<option value="${esc(o.v)}"${o.v === (f.value ?? "") ? " selected" : ""}>${esc(o.t)}</option>`).join("");
+      return `<select ${attrs}>${opts}</select>`;
+    }
+    return `<input ${attrs}${f.num ? ' data-num="1"' : ""}
+       value="${esc(f.value ?? "")}" placeholder="${esc(f.ph || "")}">`;
+  }).join("");
+  // align-self кнопці потрібен саме тут: .pv-row тягне дітей на всю
+  // висоту, і доки поля фонда вміщались в один рядок, це було непомітно.
+  // Дев'ять полів переносяться, і ✕ розтягувався червоною смугою на дві
+  // лінії. Правити .pv-row не можна — на ній стоять усі списки позицій.
   return `<div class="pv-row" data-cat="${item.id}">
     <span style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
       <input class="cat-name" value="${esc(item.name)}" style="width:190px">${inputs}</span>
-    <button class="sm warn" data-catdel="${item.id}">✕</button></div>`;
+    <button class="sm warn" data-catdel="${item.id}" style="align-self:flex-start">✕</button></div>`;
 }
 
 export function catalogsHTML(ctx) {
@@ -42,8 +57,23 @@ export function catalogsHTML(ctx) {
       title: "Обіцяна фондом дохідність. Використовується, доки не набереться історії для виміряної" },
     { key: "expected_yield_currency", value: f.expected_yield_currency, w: 70, ph: "у валюті",
       title: "Валюта, В ЯКІЙ обіцяна дохідність. USD для фонду, чия ціна йде за курсом НБУ: тоді гривневе знецінення до неї не застосовується" },
+    { key: "yield_simple_years", value: f.yield_simple_years || "", w: 92, ph: "проста, р.", num: true,
+      title: "Заповнюйте, лише якщо фонд називає дохідність ПРОСТОЮ середньорічною: скільки років вона охоплює. "
+        + "Проста 25% за 3 роки — це ×1.75, тобто 20.5% складних. Порожньо = ставка складна, як усі інші" },
     { key: "payout_day", value: f.payout_day || "", w: 76, ph: "день", num: true,
       title: "Число місяця, коли платять дивіденди. Вихідні переносяться на робочий день" },
+    { key: "kind", value: f.kind || "", w: 130,
+      title: "Накопичувальний не платить нічого: увесь дохід сидить у ціні сертифіката. "
+        + "Порожній день виплати цього не означає — він означає лише, що день невідомий",
+      opts: [{ v: "", t: "розподільний" }, { v: "accum", t: "накопичувальний" }] },
+    { key: "close_date", value: f.close_date, w: 110, ph: "закриття",
+      title: "Дата, коли фонд закривається й повертає гроші. Порожньо = безстроковий" },
+    { key: "buy_until", value: f.buy_until, w: 110, ph: "купувати до",
+      title: "Остання дата, коли фонд можна купити. Після неї він не потрапляє в «Що купити»" },
+    { key: "income_tax_pct", w: 84, ph: "податок, %",
+      value: f.income_tax_bp ? (f.income_tax_bp / 100).toFixed(2).replace(/\.?0+$/, "") : "",
+      title: "Податок на дохід фонду. Купон ОВДП від нього звільнений, дохід фонду ні — "
+        + "без цього числа вони порівнюються в різних мірах" },
   ];
   const funds = (ctx.fundCatalog || []).length
     ? ctx.fundCatalog.map((f) => catalogRowHTML(f, fundFields(f))).join("")
@@ -62,10 +92,14 @@ export function catalogsHTML(ctx) {
       <h2>Фонди</h2>
       <div class="muted" style="margin-bottom:10px">Заводяться самі при першій операції. Тут виправляють назву й валюту
         (помилка в назві більше не розщеплює позицію надвоє) і задають те, чого з операцій не вивести:
-        <b>обіцяну фондом дохідність</b> та <b>день виплати</b> дивідендів.</div>
+        <b>обіцяну фондом дохідність</b>, <b>день виплати</b> дивідендів і <b>строк</b> фонду.</div>
       <div class="sub" style="margin-bottom:10px">Обіцянка потрібна, доки не набереться історії для виміряної повної
         дохідності (30 днів, зважених грошима): без неї фонд порівнюється лише за дивідендами й виглядає гіршим,
         ніж є. Якщо вона у валюті — вкажіть її, і гривневе знецінення до неї не застосується.</div>
+      <div class="sub" style="margin-bottom:10px">Строковий фонд відрізняється від REIT усім, на чому тримається
+        решта моделі: він <b>закривається</b> в задану дату, повертає гроші з податком і купувати його можна
+        <b>не завжди</b>. Накопичувальний до того ж не платить нічого — увесь дохід сидить у ціні сертифіката.
+        Порожній день виплати цього <i>не</i> означає: він каже лише, що день невідомий.</div>
       ${funds}
     </div>`;
 }
@@ -93,6 +127,11 @@ export function bindCatalog(ctx, card, path) {
     for (const el of [name, ...fields]) {
       if (!el) continue;
       el.addEventListener("blur", commit);
+      // change потрібен випадайці: вибір мишею фокуса не знімає, тож на
+      // самому blur вид фонду зберігався б аж після кліку кудись повз.
+      // Для текстових полів це зайвий виклик, але не зайва робота —
+      // commit виходить одразу, якщо з минулого разу нічого не змінилось.
+      el.addEventListener("change", commit);
       el.addEventListener("keydown", (e) => { if (e.key === "Enter") el.blur(); });
     }
     onDelete(ctx, row, "[data-catdel]", () => ({

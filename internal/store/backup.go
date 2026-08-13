@@ -69,6 +69,14 @@ type BackupFund struct {
 	ExpectedYieldBP  int64  `json:"expected_yield_bp,omitempty"`
 	ExpectedYieldCur string `json:"expected_yield_currency,omitempty"`
 	PayoutDay        int64  `json:"payout_day,omitempty"`
+	// Строк, вид і податок — так само невивідні з операцій (міграція
+	// 0022). Журнал купівель нічого не знає ні про те, що фонд
+	// закривається в липні 2029, ні про те, що обіцянка задана простою.
+	Kind             string `json:"kind,omitempty"`
+	CloseDate        string `json:"close_date,omitempty"`
+	BuyUntil         string `json:"buy_until,omitempty"`
+	IncomeTaxBP      int64  `json:"income_tax_bp,omitempty"`
+	YieldSimpleYears int64  `json:"yield_simple_years,omitempty"`
 }
 
 // BackupBroker — рядок довідника брокерів.
@@ -314,11 +322,13 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 	// Довідники — цілком, а не лише тими рядками, які згадані в операціях.
 	// Порядок за назвою, як у ListFunds/ListBrokers: дамп того самого стану
 	// має бути тим самим файлом.
-	if err := s.scan(ctx, `SELECT name,currency,expected_yield_bp,expected_yield_currency,payout_day
+	if err := s.scan(ctx, `SELECT name,currency,expected_yield_bp,expected_yield_currency,payout_day,
+		kind,close_date,buy_until,income_tax_bp,yield_simple_years
 		FROM funds ORDER BY name COLLATE NOCASE`,
 		func(scan func(...any) error) error {
 			var r BackupFund
-			if err := scan(&r.Name, &r.Currency, &r.ExpectedYieldBP, &r.ExpectedYieldCur, &r.PayoutDay); err != nil {
+			if err := scan(&r.Name, &r.Currency, &r.ExpectedYieldBP, &r.ExpectedYieldCur, &r.PayoutDay,
+				&r.Kind, &r.CloseDate, &r.BuyUntil, &r.IncomeTaxBP, &r.YieldSimpleYears); err != nil {
 				return err
 			}
 			b.Funds = append(b.Funds, r)
@@ -478,9 +488,22 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return fmt.Errorf("фонд %q: %w", f.Name, err)
 		}
+		// Дати з чужого файла перевіряються тут-таки: інакше сміття лягло
+		// б у базу мовчки, а зламалось би вже в моделі, за три фази звідси.
+		closeDate, err := checkFundDate("дата закриття", f.CloseDate)
+		if err != nil {
+			return fmt.Errorf("фонд %q: %w", f.Name, err)
+		}
+		buyUntil, err := checkFundDate("остання дата купівлі", f.BuyUntil)
+		if err != nil {
+			return fmt.Errorf("фонд %q: %w", f.Name, err)
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE funds SET expected_yield_bp=?,
-			expected_yield_currency=?, payout_day=? WHERE id=?`,
-			f.ExpectedYieldBP, strings.TrimSpace(f.ExpectedYieldCur), f.PayoutDay, id); err != nil {
+			expected_yield_currency=?, payout_day=?, kind=?, close_date=?,
+			buy_until=?, income_tax_bp=?, yield_simple_years=? WHERE id=?`,
+			f.ExpectedYieldBP, strings.TrimSpace(f.ExpectedYieldCur), f.PayoutDay,
+			strings.TrimSpace(f.Kind), closeDate, buyUntil, f.IncomeTaxBP,
+			f.YieldSimpleYears, id); err != nil {
 			return fmt.Errorf("фонд %q: %w", f.Name, err)
 		}
 	}

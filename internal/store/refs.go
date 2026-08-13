@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // brokerRef повертає id брокера за назвою, заводячи його за потреби.
@@ -149,6 +150,10 @@ func (s *Store) DeleteBroker(ctx context.Context, id int64) error {
 // бути гривневим, а обіцянка доларовою, і тоді гривневий штраф за
 // знецінення до неї не застосовується. Порожньо = валюта самого фонду.
 // PayoutDay — число місяця, коли платять дивіденди (0 = невідомо).
+//
+// Kind, CloseDate, BuyUntil, IncomeTaxBP і YieldSimpleYears — те, чим
+// строковий фонд відрізняється від безстрокового (міграція 0022).
+// Порожні для звичайного REIT, і доти застосунок поводиться як раніше.
 type Fund struct {
 	ID               int64  `json:"id"`
 	Name             string `json:"name"`
@@ -156,11 +161,47 @@ type Fund struct {
 	ExpectedYieldBP  int64  `json:"expected_yield_bp"`
 	ExpectedYieldCur string `json:"expected_yield_currency"`
 	PayoutDay        int64  `json:"payout_day"`
+	// Kind — FundDistributing ('') або FundAccumulating ('accum').
+	Kind string `json:"kind"`
+	// CloseDate — коли фонд закривається й повертає гроші; BuyUntil —
+	// остання дата, коли його ще можна купити. Порожньо = безстроковий,
+	// купувати можна завжди.
+	CloseDate string `json:"close_date"`
+	BuyUntil  string `json:"buy_until"`
+	// IncomeTaxBP — податок на дохід фонду × 100 (14% = 1400).
+	IncomeTaxBP int64 `json:"income_tax_bp"`
+	// YieldSimpleYears — за скільки років обіцянка задана ПРОСТОЮ
+	// середньорічною. 0 = обіцянка складна, як усі ставки застосунку.
+	YieldSimpleYears int64 `json:"yield_simple_years"`
+}
+
+// Вид фонду. Розподільний лишається порожнім рядком навмисно: усі наявні
+// записи такі, і міграція не мусить їх переписувати.
+const (
+	FundDistributing = ""
+	FundAccumulating = "accum"
+)
+
+// checkFundDate — порожньо або YYYY-MM-DD, інакше помилка з назвою поля.
+//
+// Перевірка стоїть у сховищі, а не лише в обробнику, бо писати в довідник
+// уміє ще й відновлення бекапу: дата з чужого файла інакше лягла б у базу
+// як завгодно, а зламалась би вже в моделі, за три фази звідси.
+func checkFundDate(what, v string) (string, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", nil
+	}
+	if _, err := time.Parse("2006-01-02", v); err != nil {
+		return "", fmt.Errorf("%s: очікується РРРР-ММ-ДД, маємо %q", what, v)
+	}
+	return v, nil
 }
 
 func (s *Store) ListFunds(ctx context.Context) ([]Fund, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, currency,
-		expected_yield_bp, expected_yield_currency, payout_day
+		expected_yield_bp, expected_yield_currency, payout_day,
+		kind, close_date, buy_until, income_tax_bp, yield_simple_years
 		FROM funds ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
@@ -170,7 +211,9 @@ func (s *Store) ListFunds(ctx context.Context) ([]Fund, error) {
 	for rows.Next() {
 		var f Fund
 		if err := rows.Scan(&f.ID, &f.Name, &f.Currency,
-			&f.ExpectedYieldBP, &f.ExpectedYieldCur, &f.PayoutDay); err != nil {
+			&f.ExpectedYieldBP, &f.ExpectedYieldCur, &f.PayoutDay,
+			&f.Kind, &f.CloseDate, &f.BuyUntil, &f.IncomeTaxBP,
+			&f.YieldSimpleYears); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
@@ -196,9 +239,33 @@ func (s *Store) RenameFund(ctx context.Context, id int64, f Fund) error {
 	if f.ExpectedYieldBP < 0 {
 		return fmt.Errorf("обіцяна дохідність не може бути відʼємною")
 	}
+	kind := strings.TrimSpace(f.Kind)
+	if kind != FundDistributing && kind != FundAccumulating {
+		return fmt.Errorf("вид фонду має бути порожнім (розподільний) або %q", FundAccumulating)
+	}
+	closeDate, err := checkFundDate("дата закриття", f.CloseDate)
+	if err != nil {
+		return err
+	}
+	buyUntil, err := checkFundDate("остання дата купівлі", f.BuyUntil)
+	if err != nil {
+		return err
+	}
+	if f.IncomeTaxBP < 0 || f.IncomeTaxBP >= 10000 {
+		return fmt.Errorf("податок на дохід має бути від 0 до 100%%")
+	}
+	// Стеля на строк обіцянки — не примха: yield_simple_years стоїть у
+	// показнику 1/n, і нуль там дав би ділення на нуль, а сто років —
+	// число, яке нічого не означає.
+	if f.YieldSimpleYears < 0 || f.YieldSimpleYears > 50 {
+		return fmt.Errorf("строк простої дохідності має бути від 1 до 50 років")
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE funds SET name=?, currency=?,
-		expected_yield_bp=?, expected_yield_currency=?, payout_day=? WHERE id=?`,
-		name, cur, f.ExpectedYieldBP, strings.TrimSpace(f.ExpectedYieldCur), f.PayoutDay, id)
+		expected_yield_bp=?, expected_yield_currency=?, payout_day=?,
+		kind=?, close_date=?, buy_until=?, income_tax_bp=?, yield_simple_years=?
+		WHERE id=?`,
+		name, cur, f.ExpectedYieldBP, strings.TrimSpace(f.ExpectedYieldCur), f.PayoutDay,
+		kind, closeDate, buyUntil, f.IncomeTaxBP, f.YieldSimpleYears, id)
 	if err != nil {
 		return err
 	}
