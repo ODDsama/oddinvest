@@ -42,6 +42,10 @@ type Sleeve struct {
 	// ставкою можна купити сьогодні), а припущенням стає саме RateTerminalPct.
 	RateTerminalPct float64
 	GlideYears      float64
+	// Accum — накопичувальні позиції рукава (accum.go). Вони не входять
+	// ані в Cash0, ані в Nominal0: у замкненому вони лежали б цеглиною,
+	// бо замкнене не росте, а весь їхній дохід саме в зростанні.
+	Accum []Accum
 }
 
 // rateAt — ставка реінвесту на місяці m: лінійний спуск від сьогоднішньої
@@ -90,9 +94,9 @@ func ProjectSleeves(sleeves []Sleeve, devalPct float64, months int) SleeveResult
 	dM := MonthlyRate(devalPct)
 	out := SleeveResult{ByCurrency: map[string]float64{}}
 	for _, s := range sleeves {
-		st := projState{cash: s.Cash0, locked: s.Nominal0}
+		st := s.newState()
 		for m := 1; m <= months; m++ {
-			st.step(MonthlyRate(s.rateAt(m)), s.contribAt(m, dM), s.Threshold, s.Coupon[m], s.Redeem[m])
+			st.stepSleeve(s, m, s.contribAt(m, dM))
 		}
 		total := st.total()
 		out.ByCurrency[s.Currency] += total
@@ -160,7 +164,7 @@ func MonthsToReachSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths 
 	dM := MonthlyRate(devalPct)
 	sts := make([]projState, len(sleeves))
 	for i, s := range sleeves {
-		sts[i] = projState{cash: s.Cash0, locked: s.Nominal0}
+		sts[i] = s.newState()
 	}
 	totalToday := func(m int) float64 {
 		sum := 0.0
@@ -175,7 +179,7 @@ func MonthsToReachSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths 
 	}
 	for m := 1; m <= maxMonths; m++ {
 		for i, s := range sleeves {
-			sts[i].step(MonthlyRate(s.rateAt(m)), s.contribAt(m, dM), s.Threshold, s.Coupon[m], s.Redeem[m])
+			sts[i].stepSleeve(s, m, s.contribAt(m, dM))
 		}
 		if totalToday(m) >= target {
 			return m
@@ -217,7 +221,7 @@ func ProjectSleevesSeries(sleeves []Sleeve, devalPct float64, months, step int) 
 	dM := MonthlyRate(devalPct)
 	sts := make([]projState, len(sleeves))
 	for i, s := range sleeves {
-		sts[i] = projState{cash: s.Cash0, locked: s.Nominal0}
+		sts[i] = s.newState()
 	}
 	totalToday := func(m int) float64 {
 		sum := 0.0
@@ -230,7 +234,7 @@ func ProjectSleevesSeries(sleeves []Sleeve, devalPct float64, months, step int) 
 	out := []SeriesPoint{{Month: 0, UAH: totalToday(0)}}
 	for m := 1; m <= months; m++ {
 		for i, s := range sleeves {
-			sts[i].step(MonthlyRate(s.rateAt(m)), s.contribAt(m, dM), s.Threshold, s.Coupon[m], s.Redeem[m])
+			sts[i].stepSleeve(s, m, s.contribAt(m, dM))
 		}
 		if m%step == 0 || m == months {
 			out = append(out, SeriesPoint{Month: m, UAH: totalToday(m)})
@@ -265,7 +269,7 @@ func MonthsToIncomeSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths
 	dM := MonthlyRate(devalPct)
 	sts := make([]projState, len(sleeves))
 	for i, s := range sleeves {
-		sts[i] = projState{cash: s.Cash0, locked: s.Nominal0}
+		sts[i] = s.newState()
 	}
 	incomeToday := func(m int) float64 {
 		sum := 0.0
@@ -281,7 +285,7 @@ func MonthsToIncomeSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths
 	}
 	for m := 1; m <= maxMonths; m++ {
 		for i, s := range sleeves {
-			sts[i].step(MonthlyRate(s.rateAt(m)), s.contribAt(m, dM), s.Threshold, s.Coupon[m], s.Redeem[m])
+			sts[i].stepSleeve(s, m, s.contribAt(m, dM))
 		}
 		if incomeToday(m) >= target {
 			return m

@@ -150,10 +150,12 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		t.Fatalf("продаж: %d %s", resp.StatusCode, b)
 	}
 
-	// Фонди: один живий, другий із «короткою» дірою в журналі.
+	// Фонди: один живий розподільний, один накопичувальний зі строком,
+	// один із «короткою» дірою в журналі.
 	for _, op := range []domain.FundOp{
 		{Date: d(-140), Fund: "Inzhur REIT", Kind: domain.FundBuy, Qty: 500, Amount: 500000, Currency: money.UAH, Broker: "inzhur"},
 		{Date: d(-40), Fund: "Inzhur REIT", Kind: domain.FundDividend, Amount: 12000, Tax: 1680, Currency: money.UAH, Broker: "inzhur"},
+		{Date: d(-20), Fund: "Строковий фонд", Kind: domain.FundBuy, Qty: 5, Amount: 500000, Currency: money.UAH, Broker: "inzhur"},
 		{Date: d(-70), Fund: "Short Fund", Kind: domain.FundSell, Qty: 10, Amount: 20000, Currency: money.UAH, Broker: "mono"},
 	} {
 		if _, err := st.AddFundOp(ctx, op); err != nil {
@@ -169,10 +171,24 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		t.Fatal(err)
 	}
 	for _, f := range funds {
-		if f.Name != "Inzhur REIT" {
+		switch f.Name {
+		case "Inzhur REIT":
+			f.ExpectedYieldBP, f.ExpectedYieldCur, f.PayoutDay = 950, money.USD, 10
+		case "Строковий фонд":
+			// Накопичувальний зі строком: обіцянка задана ПРОСТОЮ
+			// середньорічною за три роки, закриття — рівно через 30
+			// місяців від сьогодні, податок на дохід 14%. Без такого
+			// фонду у фікстурі накопичувальна гілка не перевіряється
+			// зовсім: усі поля строку лишаються нулями, і TestDocFields
+			// цього не бачить.
+			f.Kind = store.FundAccumulating
+			f.ExpectedYieldBP, f.ExpectedYieldCur = 2500, money.UAH
+			f.YieldSimpleYears, f.IncomeTaxBP = 3, 1400
+			f.CloseDate = string(d(0).AddMonths(30))
+			f.BuyUntil = string(d(0).AddMonths(4))
+		default:
 			continue
 		}
-		f.ExpectedYieldBP, f.ExpectedYieldCur, f.PayoutDay = 950, money.USD, 10
 		if err := st.RenameFund(ctx, f.ID, f); err != nil {
 			t.Fatal(err)
 		}

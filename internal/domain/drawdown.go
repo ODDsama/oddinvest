@@ -39,7 +39,7 @@ func DrawdownMonths(sleeves []Sleeve, devalPct, withdrawUAH float64, maxMonths i
 	dM := MonthlyRate(devalPct)
 	sts := make([]projState, len(sleeves))
 	for i, s := range sleeves {
-		sts[i] = projState{cash: s.Cash0, locked: s.Nominal0}
+		sts[i] = s.newState()
 	}
 	// liquidOf — скільки з рукава МОЖНА зняти, у сьогоднішніх гривнях:
 	// готівка плюс працююча частина, без замкненого.
@@ -69,7 +69,7 @@ func DrawdownMonths(sleeves []Sleeve, devalPct, withdrawUAH float64, maxMonths i
 		// поріг лишається той самий: гроші, які не пішли на життя, знову
 		// стають до роботи, щойно їх вистачає на найдешевший папір.
 		for i, s := range sleeves {
-			sts[i].step(MonthlyRate(s.rateAt(m)), 0, s.Threshold, s.Coupon[m], s.Redeem[m])
+			sts[i].stepSleeve(s, m, 0)
 		}
 		// Скільки треба зняти цього місяця, у сьогоднішніх гривнях. Саме
 		// стала сума: індексація сидить у тому, що вартість портфеля

@@ -59,6 +59,103 @@ func TestFundsPromiseYieldPairsWithItself(t *testing.T) {
 	}
 }
 
+// TestFundsSimplePromiseBecomesCompoundEverywhere — обіцянка, задана
+// ПРОСТОЮ, доходить до всіх трьох чисел рядка вже складною.
+//
+// Одиниця має бути одна на весь рядок. Доти переведення стояло лише в
+// expected_pct, а real_pct і вага зведення рахувались наново з довідника,
+// тобто з сирих 25% — і в одному рядку опинялись 20.51% номінальних
+// поруч із реальними, порахованими з 25%. Та сама пара з різних джерел,
+// від якої стереже сусідній тест, лише сховані на рівень глибше.
+func TestFundsSimplePromiseBecomesCompoundEverywhere(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	ops := []domain.FundOp{
+		{Date: "2026-06-20", Fund: "MilTech", Kind: domain.FundBuy,
+			Qty: 5, Amount: 500_000, Currency: money.UAH},
+	}
+	src := &sources{fundOps: ops, fundRefs: map[string]store.Fund{
+		"MilTech": {Name: "MilTech", Currency: money.UAH,
+			ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
+			YieldSimpleYears: 3, Kind: store.FundAccumulating},
+	}}
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, today)
+	out := buildFunds(src, hold, fx.Rates{}, 0 /* без знецінення */, today)
+
+	if len(out.Rows) != 1 {
+		t.Fatalf("очікували один рядок, маємо %d", len(out.Rows))
+	}
+	row := out.Rows[0]
+	const want = 20.51 // (1 + 0.25×3)^(1/3) − 1
+	if math.Abs(row.ExpectedPct-want) > 0.01 {
+		t.Errorf("expected_pct %v, очікували %v складних", row.ExpectedPct, want)
+	}
+	// Обіцянка «як її назвав фонд» лишається поруч — інакше різницю між
+	// вписаними 25 і показаними 20.51 нічим не пояснити.
+	if row.ExpectedSimplePct != 25 || row.ExpectedSimpleYears != 3 {
+		t.Errorf("проста обіцянка в рядку: %v за %v р.; очікували 25 за 3",
+			row.ExpectedSimplePct, row.ExpectedSimpleYears)
+	}
+	// Без знецінення реальна дорівнює номінальній — і тій самій, що в
+	// expected_pct. Якщо десь лишилось сире 25, це видно тут.
+	if math.Abs(row.RealPct-want) > 0.01 {
+		t.Errorf("real_pct %v, а номінальна в тому ж рядку %v — рахувались із різних чисел",
+			row.RealPct, row.ExpectedPct)
+	}
+	if math.Abs(out.YieldPct-want) > 0.01 {
+		t.Errorf("зведена дохідність %v, очікували %v: вага мусить брати ту саму обіцянку",
+			out.YieldPct, want)
+	}
+}
+
+// TestFundsAccumulatingLeavesLockedCapital — накопичувальний фонд не
+// потрапляє в замкнений капітал проєкції, а розподільний потрапляє.
+//
+// Це вся суть поділу: у замкненому позиція лежить цеглиною, бо воно не
+// росте, а весь дохід накопичувального саме в зростанні.
+func TestFundsAccumulatingLeavesLockedCapital(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	ops := []domain.FundOp{
+		{Date: "2026-06-20", Fund: "MilTech", Kind: domain.FundBuy,
+			Qty: 5, Amount: 500_000, Currency: money.UAH},
+	}
+	ref := store.Fund{Name: "MilTech", Currency: money.UAH,
+		ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
+		CloseDate: "2029-07-26", IncomeTaxBP: 1400}
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, today)
+
+	ref.Kind = store.FundAccumulating
+	acc := buildFunds(&sources{fundOps: ops,
+		fundRefs: map[string]store.Fund{"MilTech": ref}}, hold, fx.Rates{}, 0, today)
+	if acc.ValueByCur[money.UAH] != 0 {
+		t.Errorf("накопичувальний лишився в замкненому капіталі: %v", acc.ValueByCur[money.UAH])
+	}
+	if len(acc.Accum[money.UAH]) != 1 {
+		t.Fatalf("накопичувальний не потрапив у власний кошик: %+v", acc.Accum)
+	}
+	a := acc.Accum[money.UAH][0]
+	if a.Value0 != 5000 || a.Cost0 != 5000 {
+		t.Errorf("вартість/собівартість %v/%v, очікували 5000/5000", a.Value0, a.Cost0)
+	}
+	if a.TaxPct != 14 {
+		t.Errorf("податок %v, очікували 14", a.TaxPct)
+	}
+	// 2026-07 → 2029-07 це 36 місяців. День місяця не враховується — так
+	// само, як для купонів, інакше гроші фонду лягли б у сусідній крок.
+	if a.CloseM != 36 {
+		t.Errorf("місяць закриття %d, очікували 36", a.CloseM)
+	}
+
+	ref.Kind = store.FundDistributing
+	dis := buildFunds(&sources{fundOps: ops,
+		fundRefs: map[string]store.Fund{"MilTech": ref}}, hold, fx.Rates{}, 0, today)
+	if dis.ValueByCur[money.UAH] != 5000 {
+		t.Errorf("розподільний мав лишитись у замкненому: %v", dis.ValueByCur[money.UAH])
+	}
+	if len(dis.Accum) != 0 {
+		t.Errorf("розподільний потрапив у кошик зростання: %+v", dis.Accum)
+	}
+}
+
 // TestFundsMixedBasesSayMixed — коли фонди міряні по-різному, зведення
 // не приписує собі основу найбільшого з них.
 func TestFundsMixedBasesSayMixed(t *testing.T) {

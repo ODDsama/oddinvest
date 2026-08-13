@@ -68,6 +68,9 @@ type projectionInput struct {
 	NominalByCur     map[string]int64
 	DepositBodyByCur map[string]float64
 	FundValueByCur   map[string]float64
+	// AccumByCur — накопичувальні позиції фондів. У FundValueByCur їх
+	// немає: там замкнений капітал, а ці ростуть.
+	AccumByCur map[string][]domain.Accum
 
 	// Ставки: дохідність портфеля по валютах, запасна середня для валюти,
 	// якої ще немає, і поріг докупівлі.
@@ -207,15 +210,21 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 		// ними був занижений рівно на фонди й вклади, а на портфелі,
 		// де їх більшість, ставав відʼємним.
 		//
-		// Сертифікат лежить у `locked` і сам не росте: його дохід
-		// приходить дивідендами (реальними або обіцяними фондом), а
-		// подорожчання ціни застосунок не моделює ніде — див.
-		// «Що купити». Це занижує довгі горизонти, і краще так, ніж
-		// домальовувати зростання, якого ніхто не обіцяв.
+		// РОЗПОДІЛЬНИЙ сертифікат лежить у `locked` і сам не росте: його
+		// дохід приходить дивідендами — реальними або оціненими з
+		// обіцянки, — і вони вже стоять у Coupon нижче. Подорожчання
+		// ціни застосунок не моделює: його ніхто не обіцяв.
+		//
+		// Накопичувальний у `locked` лежати не може, і саме тут це доти
+		// й ламалось. Дивідендів у нього немає за природою, замкнене не
+		// росте за побудовою, — тож фонд, який обіцяє 25% річних, у
+		// проєкції не додавав анічого. Він іде окремим кошиком (Accum),
+		// росте власною ставкою й повертає гроші в дату закриття.
 		nom := float64(in.NominalByCur[cur])/100 +
 			in.DepositBodyByCur[cur] + in.FundValueByCur[cur]
+		accum := in.AccumByCur[cur]
 		contrib := contribTotal * share[cur]
-		if cash == 0 && nom == 0 && contrib == 0 {
+		if cash == 0 && nom == 0 && contrib == 0 && len(accum) == 0 {
 			continue // валюти немає і не планується
 		}
 		rate, ok := in.YieldByCur[cur]
@@ -251,6 +260,7 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 			RateTerminalPct: terminal, GlideYears: f.glideYears,
 			Threshold: in.ReinvestMinByCur[cur], Coupon: f.coupon[cur],
 			Redeem: f.redeem[cur], ContribUAH: contrib, Rate0: rate0,
+			Accum: accum,
 		})
 	}
 	return sleeves

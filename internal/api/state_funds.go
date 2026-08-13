@@ -26,6 +26,7 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
+	"github.com/ODDsama/oddinvest/internal/store"
 
 	money "github.com/Rhymond/go-money"
 )
@@ -39,7 +40,19 @@ type fundsPhase struct {
 	// ValueByCur — та сама вартість, але в НАТИВНІЙ валюті: рукави
 	// проєкції рахують кожен у своїй, і грн-еквівалент там був би
 	// подвійним переведенням.
+	//
+	// РОЗПОДІЛЬНІ фонди, і лише вони. Накопичувальні виходять окремо, у
+	// Accum: у проєкції їм місце не в замкненому капіталі, а у власному
+	// кошику, який росте.
 	ValueByCur map[string]float64
+	// Accum — накопичувальні позиції, розкладені по валютах сертифіката.
+	//
+	// Окремо від ValueByCur, бо це різні ролі в симуляції, а не різні
+	// суми. Доти обидва види лежали в замкненому: розподільному там
+	// правильно (він віддає дивіденди в календар), накопичувальному —
+	// ні. Фонд, що обіцяв 25% річних, у проєкції не додавав НІЧОГО, бо
+	// потоку в нього немає за природою, а замкнене не росте за побудовою.
+	Accum map[string][]domain.Accum
 	// YieldPct / YieldRealPct — зважена ринковою вартістю дохідність,
 	// номінальна й реальна. Парою навмисно: одна без одної на екрані
 	// читається як помилка, бо той самий інструмент показує різні числа.
@@ -66,13 +79,56 @@ type fundWeight struct {
 	Basis       string
 }
 
+// accumRatePct — ставка, під яку накопичувальна позиція росте В СВОЇЙ
+// валюті.
+//
+// Обіцянка може бути в чужій валюті: гривневий сертифікат, чия ціна йде
+// за курсом НБУ, обіцяє у доларах. Така обіцянка вже РЕАЛЬНА — приріст
+// ціни в гривні і є компенсацією знецінення, — тож у гривневому рукаві
+// вона мусить зрости на це знецінення, інакше модель загубить рівно ту
+// частину, заради якої валютний інструмент і тримають.
+//
+// Дзеркало realYield, який ходить у зворотний бік.
+func accumRatePct(expected float64, expCur, fundCur string, deval float64) float64 {
+	if expected <= 0 || expCur == "" || expCur == fundCur {
+		return expected
+	}
+	if fundCur != money.UAH {
+		// Обіцянка в одній чужій валюті, сертифікат в іншій. Курсу між
+		// ними модель не тримає, і вигадувати його гірше, ніж лишити
+		// ставку як є.
+		return expected
+	}
+	return ((1+expected/100)*(1+deval/100) - 1) * 100
+}
+
+// accumCloseM — на якому місяці симуляції фонд закривається.
+// 0 = не закривається; дата в минулому теж дає 0, бо закриття, яке вже
+// сталося, у майбутню симуляцію не переносять.
+func accumCloseM(closeDate string, today domain.Date) int {
+	if closeDate == "" {
+		return 0
+	}
+	d, err := domain.ParseDate(closeDate)
+	if err != nil {
+		return 0
+	}
+	if m := domain.MonthsBetween(today, d); m > 0 {
+		return m
+	}
+	return 0
+}
+
 // buildFunds зводить позиції фондів у рядки картки.
 //
 // Окремої перевірки «а чи є взагалі операції» тут немає: порожній журнал
 // дає порожній hold.Funds, і цикл просто не виконається.
 func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 	deval float64, today domain.Date) fundsPhase {
-	out := fundsPhase{ValueByCur: map[string]float64{}}
+	out := fundsPhase{
+		ValueByCur: map[string]float64{},
+		Accum:      map[string][]domain.Accum{},
+	}
 	weights := make([]fundWeight, 0, len(hold.Funds))
 	// Позиції зведені раз, у Holdings, і вже у сталому порядку за назвою —
 	// сортувати тут більше нема чого.
@@ -88,7 +144,6 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		if fcur == "" {
 			fcur = money.UAH
 		}
-		out.ValueByCur[fcur] += float64(fp.MarketValue()) / 100
 
 		toUAH := func(minor int64) float64 {
 			if u, cerr := fx.ToUAH(money.New(minor, fp.Currency), rates); cerr == nil {
@@ -127,9 +182,39 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		// портфеля показує виміряну повну дохідність. Помічник реінвесту
 		// бере саме її: там питання про майбутнє, і минулий приріст ціни
 		// туди не годиться.
+		//
+		// І заповнюється вона СКЛАДНОЮ річною, хоч би як її назвав фонд.
+		// Це не косметика: ExpectedPct стоїть поруч із YTM облігації в
+		// одній таблиці, іде в помічник реінвесту й задає ставку росту в
+		// проєкції — усюди як складна. Фонд же обіцяє «середньорічну
+		// ПРОСТУ 25% за три роки», і це ×1.75, а не ×1.95. Переводимо
+		// тут, один раз, щоб далі по застосунку їздила одна одиниця.
+		//
+		// Обіцянка «як її назвав фонд» лишається поруч окремими полями:
+		// інакше людина бачила б у картці 20.5% там, де сама вписала 25,
+		// і не мала б жодного способу зрозуміти, звідки взялась різниця.
 		if ref.ExpectedYieldBP > 0 {
-			row.ExpectedPct = float64(ref.ExpectedYieldBP) / 100
+			simple := float64(ref.ExpectedYieldBP) / 100
+			row.ExpectedPct = round2(domain.CompoundFromSimple(simple, int(ref.YieldSimpleYears)))
 			row.ExpectedCurrency = ref.ExpectedYieldCur
+			if ref.YieldSimpleYears > 0 {
+				row.ExpectedSimplePct = simple
+				row.ExpectedSimpleYears = int(ref.YieldSimpleYears)
+			}
+		}
+		// Накопичувальний фонд виходить із замкненого капіталу у власний
+		// кошик; розподільний лишається там, де був, бо його дохід і
+		// далі приходить дивідендами в календар.
+		if ref.Kind == store.FundAccumulating {
+			out.Accum[fcur] = append(out.Accum[fcur], domain.Accum{
+				Value0:  float64(fp.MarketValue()) / 100,
+				Cost0:   float64(fp.CostBasis) / 100,
+				RatePct: accumRatePct(row.ExpectedPct, row.ExpectedCurrency, fcur, deval),
+				CloseM:  accumCloseM(ref.CloseDate, today),
+				TaxPct:  float64(ref.IncomeTaxBP) / 100,
+			})
+		} else {
+			out.ValueByCur[fcur] += float64(fp.MarketValue()) / 100
 		}
 		// nominalPct — НОМІНАЛЬНИЙ ДВІЙНИК RealPct: те саме число до
 		// поправки на знецінення, з того самого джерела.
@@ -164,7 +249,14 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			if expCur == "" {
 				expCur = cur
 			}
-			exp := float64(ref.ExpectedYieldBP) / 100
+			// Обіцянка береться з РЯДКА, а не заново з довідника, і це не
+			// економія рядка. У довіднику вона лежить так, як її назвав
+			// фонд, — а назвати він міг простою середньорічною. Порахувати
+			// реальну з сирих 25%, поки номінальна в тому ж рядку вже
+			// 20.5% складних, означає поставити поруч дві величини з
+			// однією назвою й різними одиницями. Рівно те, від чого
+			// стереже коментар нижче про пару.
+			exp := row.ExpectedPct
 			row.RealPct = round2(realYield(exp/100, expCur, deval) * 100)
 			row.YieldBasis = "обіцяно фондом"
 			// Номінальна тут — сама обіцянка, ЯК ВОНА ЗАДАНА, без переводу

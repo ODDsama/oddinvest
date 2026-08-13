@@ -684,6 +684,7 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 		Capital: capital, Cashflow: cashflow, Settings: settings,
 		CashByCur: bal, NominalByCur: nominalByCur,
 		DepositBodyByCur: depositBodyByCur, FundValueByCur: fundValueByCur,
+		AccumByCur: fnd.Accum,
 		YieldByCur: portfolioYieldByCur, AvgRateByCur: src.avgRate,
 		ReinvestMinByCur: reinvestMinByCur,
 		Rates:            rates, Deval: deval, ActualMonthly: actualMonthly,

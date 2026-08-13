@@ -64,6 +64,7 @@ check:
 	sh scripts/gen-ui-manifest.sh --check
 	@$(MAKE) --no-print-directory fx-boundary
 	@$(MAKE) --no-print-directory sources-boundary
+	@$(MAKE) --no-print-directory sleeve-state
 
 # fx — ЄДИНА точка конвертації, і масштаб курсу ×10⁴ не має витікати за
 # її межі. Витікав: курс ділили на RateScale вручну в шести місцях, а в
@@ -89,3 +90,14 @@ sources-boundary:
 		|| { echo 'buildState читає сховище повз sources: додай поле в state_sources.go'; exit 1; }
 	@! grep -nE 'domain\.(FundPositions|RemainingQtyNow)\(' internal/api/state_builder.go \
 		|| { echo 'buildState зводить факти повз Holdings: візьми hold.Funds / hold.Lots'; exit 1; }
+
+# Шість симуляцій рукавів (проєкція, крива, місяць до цілі, місяць до
+# доходу, потрібний внесок, декумуляція) мусять збирати стан ОДНИМ
+# конструктором — Sleeve.newState. Доти кожна писала projState літералом
+# у себе, і новий кошик капіталу довелось би дописувати в шість місць.
+# Забутий в одному не впав би тестом: симуляція просто відповіла б інакше
+# на те саме питання, і розійшлись би сусідні картки, а не збірка.
+.PHONY: sleeve-state
+sleeve-state:
+	@! grep -nE 'projState\{|\.step\(' internal/domain/sleeves.go internal/domain/drawdown.go \
+		|| { echo 'симуляція рукава чіпає стан повз newState/stepSleeve (projection.go): накопичувальні позиції не виростуть'; exit 1; }

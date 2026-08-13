@@ -62,7 +62,13 @@ function fundDetailHTML(ctx, f) {
   // Обіцянку показуємо лише тоді, коли вона й пішла в число: інакше поруч
   // із виміряною дохідністю вона читалась би як друга думка про те саме.
   if (f.expected_pct && f.yield_basis === "обіцяно фондом") {
-    bits.push(`фонд обіцяє ${pct(f.expected_pct)}`);
+    // Обіцянку, задану ПРОСТОЮ, показуємо обома числами. Інакше в картці
+    // стоїть 20.5% там, де людина вписала 25, і зрозуміти різницю нізвідки:
+    // проста 25% за три роки це ×1.75, а не ×1.95.
+    bits.push(f.expected_simple_years
+      ? `фонд обіцяє ${pct(f.expected_simple_pct)} простих за ${f.expected_simple_years} р.
+         = ${pct(f.expected_pct)} складних`
+      : `фонд обіцяє ${pct(f.expected_pct)}`);
   }
   return `<div class="sub">${bits.join(" · ")}</div>
     <h4 style="margin-top:12px">Лоти</h4>
@@ -135,10 +141,16 @@ function positionItems(ctx, positions, lots, sales, deposits) {
         name: `<b>${esc(f.fund)}</b>${short}`,
         invested: fmtUAH(f.cost_basis),
         value: `${fmtUAH(f.market_value)}<div class="sub-xs" style="color:${col}">${pnl >= 0 ? "+" : ""}${fmtUAH(pnl)}</div>`,
-        // Номінальна фонду — повна (дивіденди зі зміною ціни); поки
-        // історії замало, вона порожня, і в підпис іде дивідендна, з
-        // якої тоді ж рахується й реальна.
-        pct: f.real_pct, nominal: f.total_pct || f.yield_net_pct, basis: f.yield_basis,
+        // Номінальна мусить бути двійником реальної, тобто тим самим
+        // числом до поправки на знецінення. Тому вона йде за ОСНОВОЮ:
+        // коли real_pct порахований з обіцянки, поруч має стояти
+        // обіцянка, а не виміряні дивіденди. Доти тут завжди бралась
+        // виміряна, і в рядку опинялась пара з різних джерел — той самий
+        // ґандж, що колись давав реальну вищу за номінальну в плитці.
+        pct: f.real_pct, basis: f.yield_basis,
+        nominal: f.yield_basis === "обіцяно фондом"
+          ? f.expected_pct
+          : f.total_pct || f.yield_net_pct,
         // У сертифіката строку немає — на його місці те, що для фонду
         // важить натомість: скільки їх і почім останній раз.
         term: `<span class="muted">безстроково</span><div class="sub-xs">${f.qty} серт. · ${(f.last_price || 0).toFixed(4)} ${curSym(f.currency)}</div>`,

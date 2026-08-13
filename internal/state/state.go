@@ -775,10 +775,23 @@ type FundPositionRow struct {
 	// від валюти сертифіката: гривневий фонд, чия ціна йде за курсом НБУ,
 	// обіцяє у доларах, і гривневе знецінення до такої обіцянки не
 	// застосовується — приріст ціни в гривні і є тією компенсацією.
+	//
+	// ExpectedPct — завжди СКЛАДНА річна, хоч би як її назвав фонд: воно
+	// стоїть поруч із YTM облігації, іде в помічник реінвесту й задає
+	// ставку росту в проєкції, а там усюди складна.
 	ExpectedPct      float64 `json:"expected_pct,omitempty"`
 	ExpectedCurrency string  `json:"expected_currency,omitempty"`
-	RealPct          float64 `json:"real_pct,omitempty"`
-	YieldBasis       string  `json:"yield_basis,omitempty"`
+	// ExpectedSimplePct / ExpectedSimpleYears — обіцянка ЯК ЇЇ НАЗИВАЄ
+	// ФОНД, коли вона задана простою середньорічною: 25% за 3 роки.
+	// Порожні, коли обіцянка й так складна.
+	//
+	// Потрібні саме для показу. Проста 25% за три роки — це ×1.75, тобто
+	// 20.5% складних, і без цієї пари людина бачила б у картці 20.5% там,
+	// де сама вписала 25, без жодного способу зрозуміти різницю.
+	ExpectedSimplePct   float64 `json:"expected_simple_pct,omitempty"`
+	ExpectedSimpleYears int     `json:"expected_simple_years,omitempty"`
+	RealPct             float64 `json:"real_pct,omitempty"`
+	YieldBasis          string  `json:"yield_basis,omitempty"`
 	// NextPayout — коли фонд заплатить наступного разу (ISO). Рахується з
 	// дня виплати в довіднику з поправкою на вихідні; порожньо = день не
 	// заданий. Сума не прогнозується: вона залежить від результату місяця.

@@ -41,9 +41,17 @@ func MonthlyRate(annualPct float64) float64 {
 
 // projState — стан симуляції. Винесено окремо, щоб ProjectCapital і
 // MonthsToReach крокували ідентично й не розїхались із часом.
-type projState struct{ cash, invested, locked float64 }
+//
+// accum — накопичувальні позиції (accum.go). Порожній для всього, крім
+// рукавів із фондами, і тоді стан поводиться точно як раніше.
+type projState struct {
+	cash, invested, locked float64
+	accum                  []accumState
+}
 
-func (p *projState) total() float64 { return p.invested + p.locked + p.cash }
+func (p *projState) total() float64 {
+	return p.invested + p.locked + p.cash + p.accumTotal()
+}
 
 func (p *projState) step(rMonthly, contrib, threshold, coupon, redeem float64) {
 	p.invested *= 1 + rMonthly
@@ -61,6 +69,42 @@ func (p *projState) step(rMonthly, contrib, threshold, coupon, redeem float64) {
 		p.invested += p.cash
 		p.cash = 0
 	}
+}
+
+// newState — стартовий стан рукава.
+//
+// Один конструктор на всі шість симуляцій навмисно. Доти кожна збирала
+// projState літералом у себе, і нове поле довелось би дописувати в шість
+// місць — забуте в одному дало б симуляцію, що тихо розходиться з
+// рештою, причому не помилкою, а іншою відповіддю на те саме питання.
+func (s Sleeve) newState() projState {
+	var st projState
+	st.cash, st.locked = s.Cash0, s.Nominal0
+	if len(s.Accum) > 0 {
+		st.accum = make([]accumState, 0, len(s.Accum))
+		for _, a := range s.Accum {
+			st.accum = append(st.accum, accumState{
+				value: a.Value0, cost: a.Cost0, rM: MonthlyRate(a.RatePct),
+				closeM: a.CloseM, taxPct: a.TaxPct,
+			})
+		}
+	}
+	return st
+}
+
+// stepSleeve — крок рукава на місяці m із заданим внеском.
+//
+// Спершу ростуть накопичувальні позиції, і якщо котрась цього місяця
+// закрилась, її гроші приходять ТИМ САМИМ входом, що й купон: далі вони
+// лежать готівкою, доки не назбирається на найдешевший папір, і працюють
+// уже за ставкою рукава. Фонду на той момент немає, тож тягти за собою
+// його ставку не можна.
+//
+// Внесок передається зовні, а не береться з рукава, бо декумуляція
+// крокує тими самими правилами, але без внесків.
+func (p *projState) stepSleeve(s Sleeve, m int, contrib float64) {
+	released := p.grow(m)
+	p.step(MonthlyRate(s.rateAt(m)), contrib, s.Threshold, s.Coupon[m]+released, s.Redeem[m])
 }
 
 // MonthsToReach — за скільки місяців капітал сягне кожної з цілей за
