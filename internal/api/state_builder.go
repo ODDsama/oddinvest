@@ -51,7 +51,40 @@ func (s *Server) BuildStateDoc(ctx context.Context, now time.Time) (*state.Doc, 
 	return s.buildState(ctx, now)
 }
 
+// hypothetical — покупки, яких ЩЕ НЕМАЄ. Порожня структура означає
+// звичайний стан, і саме тому buildState нижче лишається однорядковою
+// обгорткою: жоден із його викликів не знає, що така можливість є.
+//
+// Навіщо взагалі. Кошик покупки питає «що станеться з портфелем, якщо це
+// купити», і відповідь на це — той самий документ стану, тільки над
+// портфелем, у якому покупки вже записані. Домішуються вони ОДРАЗУ після
+// loadSources, і далі все правильне за побудовою: капітал, валютні
+// частки, вид інструмента, драбина, дюрація, концентрація й готівка по
+// брокерах рахуються тим самим кодом, що й завжди.
+//
+// Другого способу порахувати частки в застосунку немає навмисно —
+// state.Capital документує, чим це закінчилось минулого разу.
+type hypothetical struct {
+	lots    []domain.Lot
+	fundOps []domain.FundOp
+}
+
+// empty — чи це звичайна збірка. Дешевша перевірка, ніж порівняння
+// структур, і читається на місці виклику.
+func (h hypothetical) empty() bool { return len(h.lots) == 0 && len(h.fundOps) == 0 }
+
+// buildState — стан портфеля яким він є.
 func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, error) {
+	return s.buildStateWith(ctx, now, hypothetical{})
+}
+
+// buildStateWith — той самий стан, але портфель можна доповнити
+// покупками, яких ще не зробили.
+//
+// Публічний вхід лишився байт у байт тим самим свідомо: документ
+// публікується в MQTT і щодня лягає в знімок, і якби гіпотезу приймав
+// САМ buildState, рано чи пізно хтось опублікував би вигадку як стан.
+func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothetical) (*state.Doc, error) {
 	today := domain.NewDate(now)
 	// Усі читання сховища — одним місцем (state_sources.go). Доти вони
 	// були розсипані по всій функції, і ListDeposits через це викликався
@@ -59,6 +92,13 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 	src, err := s.loadSources(ctx, today)
 	if err != nil {
 		return nil, err
+	}
+	// Гіпотетичні покупки дописуються рівно тут — до першого читання
+	// src і до Holdings. Нижче за текстом жодна фаза не має знати, що
+	// частина лотів іще не куплена: у цьому вся суть прийому.
+	if !what.empty() {
+		src.lots = append(append([]domain.Lot{}, src.lots...), what.lots...)
+		src.fundOps = append(append([]domain.FundOp{}, src.fundOps...), what.fundOps...)
 	}
 	lots, sales, bonds, pays := src.lots, src.sales, src.bonds, src.pays
 	rates, deval := src.rates, src.deval
