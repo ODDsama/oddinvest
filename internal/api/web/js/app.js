@@ -138,11 +138,23 @@ export class OddInvestApp extends HTMLElement {
     await this._loadTab();
     const sel = { buy: "#lotForm", topup: "#termDepForm", deposit: "#cashForm", convert: "#convForm" }[what];
     const el = this.shadowRoot.querySelector(sel) || this.shadowRoot.querySelector("#lotForm");
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      const first = el.querySelector && el.querySelector("input");
-      if (first) first.focus();
+    if (!el) return;
+    // Форми живуть у згорнутих <details>: у складі портфеля вони займали
+    // п'яту частину висоти, хоч потрібні кілька разів на місяць. Але
+    // банер «Огляду» веде саме в них — і доти кнопка «Купити папір»
+    // скролила до ЗАКРИТОЇ секції, тобто в порожнє місце, а .focus()
+    // всередині закритого <details> не робить нічого взагалі.
+    //
+    // Циклом, а не одним closest: секція може лежати в секції, і
+    // відкрити треба весь ланцюг, інакше зовнішня лишить внутрішню
+    // невидимою. Слухач toggle від wireDisclosures на цьому спрацює й
+    // запам'ятає секцію відкритою — так і треба: її щойно відкрили.
+    for (let d = el.closest("details"); d; d = d.parentElement && d.parentElement.closest("details")) {
+      d.open = true;
     }
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const first = el.querySelector && el.querySelector("input");
+    if (first) first.focus();
   }
 
   // Брокери: з довідника ∪ ті, що вже зустрічались у лотах і балансах.
