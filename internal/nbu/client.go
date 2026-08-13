@@ -24,7 +24,12 @@ const (
 	// pgs_date/val_code/payments[]). Саме його чекає parseSecurities.
 	securitiesURI = "/depo_securities?json"
 	exchangeURI   = "/NBUStatService/v1/statdirectory/exchange?valcode=%s&json"
-	userAgent     = "Mozilla/5.0 (compatible; oddinvestd/1.0)"
+	// Результати аукціонів Мінфіну: під яку дохідність розміщували кожен
+	// папір кожного дня. Це ЄДИНЕ джерело в застосунку, що каже, скільки
+	// платить ринок за строк, — довідник знає ставку паперу, але не знає
+	// строку як виміру.
+	auctionsURI = "/NBU_ovdp?json"
+	userAgent   = "Mozilla/5.0 (compatible; oddinvestd/1.0)"
 )
 
 type Client struct {
@@ -171,6 +176,172 @@ func parseRateBP(s string) (int64, error) {
 	}
 	r.Mul(r, new(big.Rat).SetInt64(100))
 	return domain.RatToInt64HalfEven(r)
+}
+
+// --- аукціони Мінфіну ---
+
+type rawAuction struct {
+	AuctionDate string      `json:"AuctionDate"` // DD.MM.YYYY
+	AuctionNum  string      `json:"AuctionNum"`
+	ValCode     string      `json:"ValCode"`
+	StockCode   string      `json:"StockCode"` // ISIN, як cpcode в довіднику
+	RepayDate   string      `json:"RepayDate"`
+	DaysToRepay json.Number `json:"DaysToRepay"`
+	Bucket      string      `json:"Bucket"`      // "1y", "1,5y", "2y"…
+	IncomeLevel json.Number `json:"IncomeLevel"` // середньозважена дохідність, %
+	MinLevel    json.Number `json:"MinLevel"`
+	MaxLevel    json.Number `json:"MaxLevel"`
+	BTC         json.Number `json:"BTC"` // заявок до розміщеного
+	VolumeSold  json.Number `json:"VolumeSold"`
+}
+
+// Auction — один рядок результатів аукціону: скільки й під яку дохідність
+// розмістили конкретний папір конкретного дня.
+type Auction struct {
+	Date        domain.Date
+	Num         string
+	ISIN        string
+	Currency    string
+	Bucket      string // строк, як його назвав НБУ
+	DaysToRepay int64
+	RepayDate   domain.Date
+	IncomeBP    int64 // дохідність розміщення, % × 100
+	MinBP       int64 // найнижча і найвища прийняті заявки
+	MaxBP       int64
+	BTCx100     int64 // bid-to-cover × 100 — більше НБУ й не публікує
+	SoldMinor   int64 // розміщено за номіналом, мінорні одиниці Currency
+}
+
+// Auctions — результати аукціонів ОВДП за ОДИН день. Порожня on означає
+// «останній аукціонний день», і на цьому тримається вся стратегія
+// опитування: один запит без параметрів каже, чи з'явилось узагалі щось
+// нове, не перебираючи дати.
+//
+// ФОРМАТ ДАТИ ТУТ ІНШИЙ, ніж у сусідньому exchange, і це не помилка
+// оформлення: цей ендпойнт хоче DD.MM.YYYY, а на YYYYMMDD відповідає
+// HTTP 500 з ораклівським «literal does not match format string». Два
+// ендпойнти одного API розходяться в цьому назавжди, тож звести їх до
+// спільного хелпера дат не можна — саме тому формат тут заданий на місці.
+//
+// День без аукціону — порожній масив, і це НЕ помилка: аукціони бувають
+// раз на тиждень, тож порожньо тут звичайна відповідь, а не збій.
+func (c *Client) Auctions(ctx context.Context, on domain.Date) ([]Auction, error) {
+	url := c.base + auctionsURI
+	if on != "" {
+		d, err := time.Parse("2006-01-02", string(on))
+		if err != nil {
+			return nil, fmt.Errorf("НБУ аукціони: дата %q: %w", on, err)
+		}
+		url += "&date=" + d.Format("02.01.2006")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("НБУ аукціони: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("НБУ аукціони: HTTP %d", resp.StatusCode)
+	}
+	var raw []rawAuction
+	dec := json.NewDecoder(resp.Body)
+	dec.UseNumber()
+	if err := dec.Decode(&raw); err != nil {
+		return nil, fmt.Errorf("НБУ аукціони: декодування: %w", err)
+	}
+	return parseAuctions(raw)
+}
+
+func parseAuctions(raw []rawAuction) ([]Auction, error) {
+	out := make([]Auction, 0, len(raw))
+	for _, r := range raw {
+		if r.StockCode == "" || r.ValCode == "" {
+			continue
+		}
+		// Лише домашні ОВДП — той самий відбір, що й у parseSecurities, і з
+		// тієї ж причини: два джерела мусять описувати ОДНЕ коло паперів.
+		// Інакше зовнішня ОЗДП, розміщена в доларі під зовсім іншу ставку,
+		// потрапила б у криву внутрішнього ринку й зсунула б орієнтир, з
+		// яким людина порівнює свій портфель.
+		if !strings.HasPrefix(strings.ToUpper(r.StockCode), "UA") {
+			continue
+		}
+		code := strings.ToUpper(r.ValCode)
+		if money.GetCurrency(code) == nil {
+			continue
+		}
+		d, err := parseNBUDate(r.AuctionDate)
+		if err != nil {
+			return nil, fmt.Errorf("%s: AuctionDate: %w", r.StockCode, err)
+		}
+		income, err := parseRateBPOrZero(r.IncomeLevel)
+		if err != nil {
+			return nil, fmt.Errorf("%s: IncomeLevel: %w", r.StockCode, err)
+		}
+		// Рядок без прийнятої дохідності пропускаємо. Аукціон, на якому
+		// нічого не розмістили, буває, і для календаря подій він факт — але
+		// тут нас цікавить саме РІВЕНЬ, а нуль у кривій дохідності це не
+		// «нуль відсотків», це «невідомо», і зберігати їх однаково не можна.
+		if income <= 0 {
+			continue
+		}
+		minBP, err := parseRateBPOrZero(r.MinLevel)
+		if err != nil {
+			return nil, fmt.Errorf("%s: MinLevel: %w", r.StockCode, err)
+		}
+		maxBP, err := parseRateBPOrZero(r.MaxLevel)
+		if err != nil {
+			return nil, fmt.Errorf("%s: MaxLevel: %w", r.StockCode, err)
+		}
+		btc, err := parseRateBPOrZero(r.BTC) // теж ×100, і більше НБУ не дає
+		if err != nil {
+			return nil, fmt.Errorf("%s: BTC: %w", r.StockCode, err)
+		}
+		var sold int64
+		if s := strings.TrimSpace(r.VolumeSold.String()); s != "" {
+			if sold, err = domain.ParseDecimalToMinor(s, code); err != nil {
+				return nil, fmt.Errorf("%s: VolumeSold: %w", r.StockCode, err)
+			}
+		}
+		var days int64
+		if s := strings.TrimSpace(r.DaysToRepay.String()); s != "" {
+			if days, err = r.DaysToRepay.Int64(); err != nil {
+				return nil, fmt.Errorf("%s: DaysToRepay: %w", r.StockCode, err)
+			}
+		}
+		// Дата погашення тут довідкова: якщо НБУ її не дав, це не привід
+		// втратити рівень дохідності, заради якого рядок і потрібен.
+		repay, _ := parseNBUDate(r.RepayDate) //nolint:errcheck // необов'язкове поле: без нього рядок лишається придатним
+		out = append(out, Auction{
+			Date: d, Num: strings.TrimSpace(r.AuctionNum), ISIN: r.StockCode,
+			Currency: code, Bucket: normalizeBucket(r.Bucket),
+			DaysToRepay: days, RepayDate: repay,
+			IncomeBP: income, MinBP: minBP, MaxBP: maxBP,
+			BTCx100: btc, SoldMinor: sold,
+		})
+	}
+	return out, nil
+}
+
+// normalizeBucket — «1,5y» -> «1.5y». Кома тут локальний артефакт
+// джерела, а не значення: строк один і той самий, як його не запиши, а
+// два написання одного строку розкололи б криву на дві.
+func normalizeBucket(s string) string {
+	return strings.ReplaceAll(strings.TrimSpace(s), ",", ".")
+}
+
+// parseRateBPOrZero — те саме, що parseRateBP, але порожнє поле це нуль,
+// а не помилка: у відповіді аукціону частина рівнів буває відсутня.
+func parseRateBPOrZero(n json.Number) (int64, error) {
+	s := strings.TrimSpace(n.String())
+	if s == "" {
+		return 0, nil
+	}
+	return parseRateBP(s)
 }
 
 // rawExchange — відповідь exchange?valcode=XXX&json.

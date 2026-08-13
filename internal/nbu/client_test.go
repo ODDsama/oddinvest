@@ -143,3 +143,113 @@ func TestParseNBUDateFormats(t *testing.T) {
 		t.Error("очікували помилку на нерозпізнаному форматі")
 	}
 }
+
+// --- аукціони ---
+
+func TestParseAuctionsFixture(t *testing.T) {
+	raw, err := os.ReadFile("testdata/auctions_sample.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ra []rawAuction
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&ra); err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseAuctions(ra)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// З чотирьох рядків лишається два: рядок без прийнятої дохідності
+	// (нуль — це «невідомо», а не «нуль відсотків») і зовнішня ОЗДП з
+	// ISIN XS… відсіваються.
+	if len(got) != 2 {
+		t.Fatalf("очікували 2 рядки, маємо %d: %+v", len(got), got)
+	}
+	a := got[0]
+	if a.ISIN != "UA4000239040" || a.Currency != money.UAH {
+		t.Errorf("перший рядок: %+v", a)
+	}
+	// 15.65% -> 1565 базисних пунктів, без float64 у ланцюжку.
+	if a.IncomeBP != 1565 || a.MinBP != 1540 || a.MaxBP != 1585 {
+		t.Errorf("рівні: income=%d min=%d max=%d", a.IncomeBP, a.MinBP, a.MaxBP)
+	}
+	// Кома в строку — артефакт джерела, не значення: два написання одного
+	// строку розкололи б криву на дві.
+	if a.Bucket != "1.5y" {
+		t.Errorf("строк = %q, хочемо «1.5y»", a.Bucket)
+	}
+	if a.Date != domain.Date("2026-08-11") || a.RepayDate != domain.Date("2028-04-26") {
+		t.Errorf("дати: аукціон=%q погашення=%q", a.Date, a.RepayDate)
+	}
+	if a.BTCx100 != 180 {
+		t.Errorf("bid-to-cover ×100 = %d, хочемо 180", a.BTCx100)
+	}
+	if a.SoldMinor != 54942900000 {
+		t.Errorf("розміщено (мінорні) = %d", a.SoldMinor)
+	}
+	if a.DaysToRepay != 623 || a.Num != "92" {
+		t.Errorf("днів=%d номер=%q", a.DaysToRepay, a.Num)
+	}
+	// Другий рядок — валютний, і в ньому частини полів просто немає:
+	// відсутнє поле це нуль, а не помилка розбору.
+	if e := got[1]; e.Currency != money.EUR || e.IncomeBP != 320 || e.SoldMinor != 1250000000 {
+		t.Errorf("EUR рядок: %+v", e)
+	}
+}
+
+// Формат дати тут ІНШИЙ, ніж у сусіднього exchange: цей ендпойнт хоче
+// DD.MM.YYYY, а на YYYYMMDD відповідає HTTP 500 з ораклівською помилкою.
+// Тест стереже саме рядок запиту — інакше «уніфікація» хелперів дат
+// зламала б підтягування мовчки, а виглядало б це як «аукціонів не було».
+func TestAuctionsSendsDottedDate(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	if _, err := New(srv.URL).Auctions(context.Background(), "2026-08-11"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(gotQuery, "date=11.08.2026") {
+		t.Errorf("дата мала піти як DD.MM.YYYY, маємо %q", gotQuery)
+	}
+	if strings.Contains(gotQuery, "date=20260811") {
+		t.Errorf("формат exchange тут не працює — HTTP 500 від НБУ: %q", gotQuery)
+	}
+}
+
+// Без дати — останній аукціонний день. На цьому тримається вся стратегія
+// опитування: один запит каже, чи з'явилось нове, не перебираючи дати.
+func TestAuctionsWithoutDateAsksLatest(t *testing.T) {
+	var gotQuery string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	if _, err := New(srv.URL).Auctions(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(gotQuery, "date=") {
+		t.Errorf("без дати параметра бути не мало, маємо %q", gotQuery)
+	}
+}
+
+// День без аукціону — звичайна відповідь, а не збій: аукціони бувають раз
+// на тиждень, і помилка тут зупиняла б добову джобу чотири дні з п'яти.
+func TestAuctionsEmptyDayIsNotError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Write([]byte("[ \n\n ]"))
+	}))
+	defer srv.Close()
+	got, err := New(srv.URL).Auctions(context.Background(), "2026-08-09")
+	if err != nil {
+		t.Fatalf("порожній день не мав бути помилкою: %v", err)
+	}
+	if got == nil || len(got) != 0 {
+		t.Errorf("хочемо порожній зріз, маємо %#v", got)
+	}
+}
