@@ -67,6 +67,14 @@ func main() {
 		defer cancel()
 		runner.BackfillIfThin(c, "USD", 10, 100)
 	}()
+	// Історія аукціонів Мінфіну за рік — з неї будується єдиний у
+	// застосунку орієнтир «скільки ринок платить за строк». ~365 запитів
+	// разово, теж у фоні й теж лише коли історії справді мало.
+	go func() {
+		c, cancel := context.WithTimeout(ctx, 30*time.Minute)
+		defer cancel()
+		runner.BackfillAuctionsIfThin(c, 52, 20)
+	}()
 	// стартова публікація, якщо стан уже є
 	go func() {
 		c, cancel := context.WithTimeout(ctx, time.Minute)

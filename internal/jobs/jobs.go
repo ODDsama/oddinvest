@@ -24,6 +24,10 @@ type Runner struct {
 	log        *slog.Logger
 	loc        *time.Location
 	backupPath string // куди щодня писати JSON-дамп (порожньо = вимкнено)
+	// pause — витримка між запитами до НБУ при переборі дат. Поле, а не
+	// константа, лише щоб тести не чекали хвилинами на те, що вони й не
+	// перевіряють; у бою вона завжди така, як її ставить New.
+	pause time.Duration
 }
 
 func New(st *store.Store, nc *nbu.Client, pub *mqtt.Publisher,
@@ -32,7 +36,8 @@ func New(st *store.Store, nc *nbu.Client, pub *mqtt.Publisher,
 	if err != nil {
 		loc = time.FixedZone("EET", 2*3600)
 	}
-	return &Runner{st: st, nbu: nc, pub: pub, build: build, log: log, loc: loc, backupPath: backupPath}
+	return &Runner{st: st, nbu: nc, pub: pub, build: build, log: log, loc: loc,
+		backupPath: backupPath, pause: 250 * time.Millisecond}
 }
 
 // dumpBackup — щоденний JSON-дамп користувацьких даних поряд із БД.
@@ -103,11 +108,153 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 		r.log.Info("курс збережено", "code", code, "rate_e4", rate, "дата", string(d))
 	}
 
+	// Аукціони не фатальні, як і курс: без них не буде кривої первинного
+	// ринку, але портфель рахується й публікується далі.
+	if err := r.RefreshAuctions(ctx); err != nil {
+		r.log.Warn("аукціони недоступні", "err", err)
+	}
+
 	if err := r.Snapshot(ctx); err != nil {
 		r.log.Warn("знімок не збережено", "err", err)
 	}
 	r.dumpBackup(ctx)
 	return r.PublishState(ctx)
+}
+
+// auctionWatermark — до якого дня аукціони вже переглянуто. Робочий стан
+// джоби, а не політика портфеля, тому в реєстрі налаштувань його немає —
+// так само, як nbu_refreshed_at поруч.
+const auctionWatermark = "ovdp_auctions_polled_through"
+
+// auctionCatchupCap — скільки днів максимум догоняти за один прогін.
+// RefreshAll живе під п'ятихвилинним контекстом, а сервіс міг стояти
+// вимкненим місяцями: без стелі перший запуск після довгої паузи з'їв би
+// увесь контекст на перебір дат і не дійшов би ні до знімка, ні до
+// публікації стану.
+const auctionCatchupCap = 60
+
+// RefreshAuctions — результати аукціонів за дні, яких ще немає.
+//
+// Усталений режим — ОДИН запит на добу, і тримається він на тому, що
+// запит без дати віддає останній аукціонний день. Якщо цей день не
+// новіший за той, до якого ми вже дійшли, то між ними й немає нічого:
+// аукціону, свіжішого за найсвіжіший, не буває. Перебирати дати треба
+// лише тоді, коли сервіс стояв і пропустив тижні.
+//
+// Аукціони бувають раз на тиждень, тож чотири дні з п'яти відповідь
+// порожня — і це не привід ні для помилки, ні для запитів.
+func (r *Runner) RefreshAuctions(ctx context.Context) error {
+	today := domain.NewDate(time.Now().In(r.loc))
+	latest, err := r.nbu.Auctions(ctx, "")
+	if err != nil {
+		return err
+	}
+	if err := r.st.SaveAuctions(ctx, latest); err != nil {
+		return err
+	}
+	through, err := r.st.GetSetting(ctx, auctionWatermark)
+	if err != nil {
+		return err
+	}
+	var newest domain.Date
+	for _, a := range latest {
+		if a.Date > newest {
+			newest = a.Date
+		}
+	}
+	// Перший запуск історію не тягне — це справа бекфілу, який іде
+	// власною горутиною й має власний, довгий таймаут. Добова джоба не
+	// місце для сотні запитів.
+	from, perr := time.Parse("2006-01-02", through)
+	if through == "" || perr != nil || (newest != "" && string(newest) <= through) {
+		return r.st.SetSetting(ctx, auctionWatermark, string(today))
+	}
+	end := time.Now().In(r.loc)
+	if d := end.AddDate(0, 0, -auctionCatchupCap); d.After(from) {
+		r.log.Info("аукціони: догін обрізано стелею",
+			"від", through, "беремо з", domain.NewDate(d), "стеля_днів", auctionCatchupCap)
+		from = d
+	}
+	var got int
+	for d := from.AddDate(0, 0, 1); !d.After(end); d = d.AddDate(0, 0, 1) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		as, err := r.nbu.Auctions(ctx, domain.NewDate(d))
+		if err != nil {
+			// Один недоступний день не привід кидати решту: наступний
+			// прогін догоняє його з того самого знака.
+			r.log.Debug("аукціони: день пропущено", "date", domain.NewDate(d), "err", err)
+			time.Sleep(r.pause)
+			continue
+		}
+		if err := r.st.SaveAuctions(ctx, as); err != nil {
+			return err
+		}
+		got += len(as)
+		time.Sleep(r.pause)
+	}
+	r.log.Info("аукціони догнано", "рядків", got, "від", through, "до", string(today))
+	return r.st.SetSetting(ctx, auctionWatermark, string(today))
+}
+
+// BackfillAuctions — разово підтягує історію аукціонів за weeks тижнів.
+//
+// ЩОДНЯ, а не помісячно, як BackfillRates поруч, і це не недогляд.
+// Курс — рівень, який існує кожного дня, тож місячної сітки для річного
+// темпу досить. Аукціон — ПОДІЯ: він або був того дня, або ні, і
+// місячна сітка пропустила б їх майже всі.
+//
+// 52 тижні, хоч НБУ віддає історію років на десять. Жодне питання в
+// застосунку не питає про первинний ринок 2015 року, а 3650 запитів —
+// це рівно те зловживання чужим сервісом, від якого відмовляється
+// BackfillRates. Те саме число стоїть порогом «несвіжості» в помічнику
+// реінвесту: застосунок не заявляє знання глибше, ніж тягне.
+func (r *Runner) BackfillAuctions(ctx context.Context, weeks int) error {
+	end := time.Now().In(r.loc)
+	start := end.AddDate(0, 0, -weeks*7)
+	var got, failed int
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		as, err := r.nbu.Auctions(ctx, domain.NewDate(d))
+		if err != nil {
+			failed++
+			r.log.Debug("бекфіл аукціонів: день пропущено", "date", domain.NewDate(d), "err", err)
+			time.Sleep(r.pause)
+			continue
+		}
+		if err := r.st.SaveAuctions(ctx, as); err != nil {
+			return err
+		}
+		got += len(as)
+		time.Sleep(r.pause)
+	}
+	r.log.Info("історію аукціонів підтягнуто", "рядків", got, "днів_пропущено", failed)
+	return r.st.SetSetting(ctx, auctionWatermark, string(domain.NewDate(end)))
+}
+
+// BackfillAuctionsIfThin — бекфіл лише тоді, коли історії справді мало.
+// Викликається при старті у власній горутині: мережа може лежати, і
+// сервіс не має через це не піднятись.
+func (r *Runner) BackfillAuctionsIfThin(ctx context.Context, weeks, minDays int) {
+	have, err := r.st.CountAuctionDays(ctx)
+	if err != nil {
+		r.log.Warn("бекфіл аукціонів: не вдалось порахувати історію", "err", err)
+		return
+	}
+	if have >= minDays {
+		return
+	}
+	r.log.Info("історії аукціонів замало — тягнемо з НБУ", "днів", have, "треба", minDays)
+	if err := r.BackfillAuctions(ctx, weeks); err != nil {
+		r.log.Warn("бекфіл аукціонів не завершився", "err", err)
+	}
 }
 
 // Snapshot зберігає добовий знімок агрегатів для майбутнього графіка
