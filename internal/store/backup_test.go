@@ -296,6 +296,7 @@ func TestBackupRoundTripKeepsFundCatalog(t *testing.T) {
 	want.CloseDate = "2029-07-26"
 	want.BuyUntil = "2026-12-31"
 	want.IncomeTaxBP = 1400
+	want.ExitTaxBP = 2300
 	want.YieldSimpleYears = 3
 	if err := src.RenameFund(ctx, want.ID, want); err != nil {
 		t.Fatal(err)

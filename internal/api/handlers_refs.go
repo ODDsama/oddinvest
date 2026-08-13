@@ -111,6 +111,7 @@ func (s *Server) handleUpdateFundCatalog(w http.ResponseWriter, r *http.Request)
 		CloseDate        string `json:"close_date"`
 		BuyUntil         string `json:"buy_until"`
 		IncomeTaxPct     string `json:"income_tax_pct"`
+		ExitTaxPct       string `json:"exit_tax_pct"`
 		YieldSimpleYears int64  `json:"yield_simple_years"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -127,12 +128,18 @@ func (s *Server) handleUpdateFundCatalog(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("податок на дохід: %w", err))
 		return
 	}
+	exitBP, err := parsePercentBPOpt(req.ExitTaxPct)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("податок при виході: %w", err))
+		return
+	}
 	if err := s.st.RenameFund(r.Context(), id, store.Fund{
 		Name: req.Name, Currency: req.Currency,
 		ExpectedYieldBP: bp, ExpectedYieldCur: req.ExpectedYieldCurrency,
 		PayoutDay: req.PayoutDay, Kind: req.Kind,
 		CloseDate: req.CloseDate, BuyUntil: req.BuyUntil,
 		IncomeTaxBP: taxBP, YieldSimpleYears: req.YieldSimpleYears,
+		ExitTaxBP: exitBP,
 	}); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return

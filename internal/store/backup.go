@@ -77,6 +77,7 @@ type BackupFund struct {
 	BuyUntil         string `json:"buy_until,omitempty"`
 	IncomeTaxBP      int64  `json:"income_tax_bp,omitempty"`
 	YieldSimpleYears int64  `json:"yield_simple_years,omitempty"`
+	ExitTaxBP        int64  `json:"exit_tax_bp,omitempty"`
 }
 
 // BackupBroker — рядок довідника брокерів.
@@ -323,12 +324,13 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 	// Порядок за назвою, як у ListFunds/ListBrokers: дамп того самого стану
 	// має бути тим самим файлом.
 	if err := s.scan(ctx, `SELECT name,currency,expected_yield_bp,expected_yield_currency,payout_day,
-		kind,close_date,buy_until,income_tax_bp,yield_simple_years
+		kind,close_date,buy_until,income_tax_bp,yield_simple_years,exit_tax_bp
 		FROM funds ORDER BY name COLLATE NOCASE`,
 		func(scan func(...any) error) error {
 			var r BackupFund
 			if err := scan(&r.Name, &r.Currency, &r.ExpectedYieldBP, &r.ExpectedYieldCur, &r.PayoutDay,
-				&r.Kind, &r.CloseDate, &r.BuyUntil, &r.IncomeTaxBP, &r.YieldSimpleYears); err != nil {
+				&r.Kind, &r.CloseDate, &r.BuyUntil, &r.IncomeTaxBP, &r.YieldSimpleYears,
+				&r.ExitTaxBP); err != nil {
 				return err
 			}
 			b.Funds = append(b.Funds, r)
@@ -500,10 +502,11 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE funds SET expected_yield_bp=?,
 			expected_yield_currency=?, payout_day=?, kind=?, close_date=?,
-			buy_until=?, income_tax_bp=?, yield_simple_years=? WHERE id=?`,
+			buy_until=?, income_tax_bp=?, yield_simple_years=?, exit_tax_bp=?
+			WHERE id=?`,
 			f.ExpectedYieldBP, strings.TrimSpace(f.ExpectedYieldCur), f.PayoutDay,
 			strings.TrimSpace(f.Kind), closeDate, buyUntil, f.IncomeTaxBP,
-			f.YieldSimpleYears, id); err != nil {
+			f.YieldSimpleYears, f.ExitTaxBP, id); err != nil {
 			return fmt.Errorf("фонд %q: %w", f.Name, err)
 		}
 	}

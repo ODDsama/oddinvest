@@ -47,7 +47,7 @@ func TestFundCatalogPutCarriesEveryField(t *testing.T) {
 	body := `{"name":"Inzhur MilTech","currency":"UAH","expected_yield_pct":"25",
 		"expected_yield_currency":"UAH","payout_day":0,"kind":"accum",
 		"close_date":"2029-07-26","buy_until":"2026-12-31",
-		"income_tax_pct":"14","yield_simple_years":3}`
+		"income_tax_pct":"14","exit_tax_pct":"23","yield_simple_years":3}`
 	resp, out := do(t, "PUT", fmt.Sprintf("%s/api/fund-catalog/%d", srv.URL, funds[0].ID), body)
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("PUT дав %d: %s", resp.StatusCode, out)
@@ -74,6 +74,7 @@ func TestFundCatalogPutCarriesEveryField(t *testing.T) {
 		{"close_date", f.CloseDate, "2029-07-26"},
 		{"buy_until", f.BuyUntil, "2026-12-31"},
 		{"income_tax_bp", f.IncomeTaxBP, int64(1400)},
+		{"exit_tax_bp", f.ExitTaxBP, int64(2300)},
 		{"yield_simple_years", f.YieldSimpleYears, int64(3)},
 		{"expected_yield_bp", f.ExpectedYieldBP, int64(2500)},
 	} {

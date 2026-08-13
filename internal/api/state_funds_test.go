@@ -121,7 +121,7 @@ func TestFundsAccumulatingLeavesLockedCapital(t *testing.T) {
 	}
 	ref := store.Fund{Name: "MilTech", Currency: money.UAH,
 		ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
-		CloseDate: "2029-07-26", IncomeTaxBP: 1400}
+		CloseDate: "2029-07-26", IncomeTaxBP: 1400, ExitTaxBP: 2300}
 	hold := domain.NewHoldings(nil, nil, nil, ops, nil, today)
 
 	ref.Kind = store.FundAccumulating
@@ -138,7 +138,13 @@ func TestFundsAccumulatingLeavesLockedCapital(t *testing.T) {
 		t.Errorf("вартість/собівартість %v/%v, очікували 5000/5000", a.Value0, a.Cost0)
 	}
 	if a.TaxPct != 14 {
-		t.Errorf("податок %v, очікували 14", a.TaxPct)
+		t.Errorf("податок при закритті %v, очікували 14", a.TaxPct)
+	}
+	// Дострокова ставка — окреме число, і губиться воно тихо: у багатій
+	// фікстурі сертифікатів на 10 000 при знятті 20 000/міс, тож golden
+	// нуль замість 23% не показує взагалі.
+	if a.ExitTaxPct != 23 {
+		t.Errorf("податок при виході %v, очікували 23", a.ExitTaxPct)
 	}
 	// 2026-07 → 2029-07 це 36 місяців. День місяця не враховується — так
 	// само, як для купонів, інакше гроші фонду лягли б у сусідній крок.
@@ -156,8 +162,14 @@ func TestFundsAccumulatingLeavesLockedCapital(t *testing.T) {
 		t.Fatalf("розподільний не потрапив у власний кошик: %+v", dis.Dist)
 	}
 	d := dis.Dist[money.UAH][0]
-	if d.Value != 5000 {
-		t.Errorf("вартість %v, очікували 5000", d.Value)
+	if d.Value != 5000 || d.Cost != 5000 {
+		t.Errorf("вартість/собівартість %v/%v, очікували 5000/5000", d.Value, d.Cost)
+	}
+	// Собівартість і ставка виходу потрібні декумуляції: без них продаж
+	// сертифікатів виглядає безподатковим. Губляться вони тихо — golden
+	// на таку різницю не реагує.
+	if d.ExitTaxPct != 23 {
+		t.Errorf("податок при виході %v, очікували 23", d.ExitTaxPct)
 	}
 	// Ставка виплат — обіцянка фонду, та сама, з якої календар оцінює
 	// найближчі дивіденди. Два різні числа на той самий потік означали б,

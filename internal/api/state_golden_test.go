@@ -183,7 +183,7 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 			// цього не бачить.
 			f.Kind = store.FundAccumulating
 			f.ExpectedYieldBP, f.ExpectedYieldCur = 2500, money.UAH
-			f.YieldSimpleYears, f.IncomeTaxBP = 3, 1400
+			f.YieldSimpleYears, f.IncomeTaxBP, f.ExitTaxBP = 3, 1400, 2300
 			f.CloseDate = string(d(0).AddMonths(30))
 			f.BuyUntil = string(d(0).AddMonths(4))
 		default:

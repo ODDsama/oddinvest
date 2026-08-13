@@ -168,8 +168,13 @@ type Fund struct {
 	// купувати можна завжди.
 	CloseDate string `json:"close_date"`
 	BuyUntil  string `json:"buy_until"`
-	// IncomeTaxBP — податок на дохід фонду × 100 (14% = 1400).
+	// IncomeTaxBP — податок на дохід фонду × 100 (14% = 1400), коли фонд
+	// доживає до закриття й віддає дохід дивідендами. ExitTaxBP — податок
+	// при ДОСТРОКОВОМУ виході, тобто на різницю між купівлею й продажем
+	// сертифікатів (для Inzhur MilTech це 23%). Настає рівно одна з двох
+	// подій, тож і чисел два.
 	IncomeTaxBP int64 `json:"income_tax_bp"`
+	ExitTaxBP   int64 `json:"exit_tax_bp"`
 	// YieldSimpleYears — за скільки років обіцянка задана ПРОСТОЮ
 	// середньорічною. 0 = обіцянка складна, як усі ставки застосунку.
 	YieldSimpleYears int64 `json:"yield_simple_years"`
@@ -201,7 +206,8 @@ func checkFundDate(what, v string) (string, error) {
 func (s *Store) ListFunds(ctx context.Context) ([]Fund, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, currency,
 		expected_yield_bp, expected_yield_currency, payout_day,
-		kind, close_date, buy_until, income_tax_bp, yield_simple_years
+		kind, close_date, buy_until, income_tax_bp, yield_simple_years,
+		exit_tax_bp
 		FROM funds ORDER BY name COLLATE NOCASE`)
 	if err != nil {
 		return nil, err
@@ -213,7 +219,7 @@ func (s *Store) ListFunds(ctx context.Context) ([]Fund, error) {
 		if err := rows.Scan(&f.ID, &f.Name, &f.Currency,
 			&f.ExpectedYieldBP, &f.ExpectedYieldCur, &f.PayoutDay,
 			&f.Kind, &f.CloseDate, &f.BuyUntil, &f.IncomeTaxBP,
-			&f.YieldSimpleYears); err != nil {
+			&f.YieldSimpleYears, &f.ExitTaxBP); err != nil {
 			return nil, err
 		}
 		out = append(out, f)
@@ -254,6 +260,9 @@ func (s *Store) RenameFund(ctx context.Context, id int64, f Fund) error {
 	if f.IncomeTaxBP < 0 || f.IncomeTaxBP >= 10000 {
 		return fmt.Errorf("податок на дохід має бути від 0 до 100%%")
 	}
+	if f.ExitTaxBP < 0 || f.ExitTaxBP >= 10000 {
+		return fmt.Errorf("податок при виході має бути від 0 до 100%%")
+	}
 	// Стеля на строк обіцянки — не примха: yield_simple_years стоїть у
 	// показнику 1/n, і нуль там дав би ділення на нуль, а сто років —
 	// число, яке нічого не означає.
@@ -262,10 +271,10 @@ func (s *Store) RenameFund(ctx context.Context, id int64, f Fund) error {
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE funds SET name=?, currency=?,
 		expected_yield_bp=?, expected_yield_currency=?, payout_day=?,
-		kind=?, close_date=?, buy_until=?, income_tax_bp=?, yield_simple_years=?
-		WHERE id=?`,
+		kind=?, close_date=?, buy_until=?, income_tax_bp=?, yield_simple_years=?,
+		exit_tax_bp=? WHERE id=?`,
 		name, cur, f.ExpectedYieldBP, strings.TrimSpace(f.ExpectedYieldCur), f.PayoutDay,
-		kind, closeDate, buyUntil, f.IncomeTaxBP, f.YieldSimpleYears, id)
+		kind, closeDate, buyUntil, f.IncomeTaxBP, f.YieldSimpleYears, f.ExitTaxBP, id)
 	if err != nil {
 		return err
 	}

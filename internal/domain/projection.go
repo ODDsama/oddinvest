@@ -108,14 +108,17 @@ func (s Sleeve) newState() projState {
 		for _, a := range s.Accum {
 			st.accum = append(st.accum, accumState{
 				value: a.Value0, cost: a.Cost0, rM: MonthlyRate(a.RatePct),
-				closeM: a.CloseM, taxPct: a.TaxPct,
+				closeM: a.CloseM, taxPct: a.TaxPct, exitTaxPct: a.ExitTaxPct,
 			})
 		}
 	}
 	if len(s.Dist) > 0 {
 		st.dist = make([]distState, 0, len(s.Dist))
 		for _, d := range s.Dist {
-			st.dist = append(st.dist, distState{value: d.Value, rM: MonthlyRate(d.RatePct)})
+			st.dist = append(st.dist, distState{
+				value: d.Value, cost: d.Cost, rM: MonthlyRate(d.RatePct),
+				exitTaxPct: d.ExitTaxPct,
+			})
 		}
 	}
 	return st

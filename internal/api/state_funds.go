@@ -231,18 +231,23 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		// ВИПЛАТИ, а цінова частина доларової обіцянки сидить у ціні
 		// сертифіката й готівкою не приходить.
 		value := float64(fp.MarketValue()) / 100
+		cost := float64(fp.CostBasis) / 100
 		rate := fundOwnRatePct(ref, y)
+		exitTax := float64(ref.ExitTaxBP) / 100
 		if ref.Kind == store.FundAccumulating {
 			out.Accum[fcur] = append(out.Accum[fcur], domain.Accum{
 				Value0:  value,
-				Cost0:   float64(fp.CostBasis) / 100,
+				Cost0:   cost,
 				RatePct: inFundCurrency(rate, ref.ExpectedYieldCur, fcur, deval),
 				CloseM:  accumCloseM(ref.CloseDate, today),
 				TaxPct:  float64(ref.IncomeTaxBP) / 100,
+				// Дострокова ставка — окреме число: дожити до закриття й
+				// вийти раніше це різні події з різними податками.
+				ExitTaxPct: exitTax,
 			})
 		} else {
 			out.Dist[fcur] = append(out.Dist[fcur], domain.Dist{
-				Value: value, RatePct: rate,
+				Value: value, Cost: cost, RatePct: rate, ExitTaxPct: exitTax,
 			})
 		}
 		// nominalPct — НОМІНАЛЬНИЙ ДВІЙНИК RealPct: те саме число до

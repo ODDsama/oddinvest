@@ -32,16 +32,21 @@ type Dist struct {
 	// Value — ринкова вартість позиції. Не змінюється: увесь дохід іде
 	// виплатами, а зростання ціни модель не обіцяє.
 	Value float64
+	// Cost — за скільки куплено: база податку, коли позицію продають.
+	Cost float64
 	// RatePct — власна дохідність, складна річна, у валюті рукава. Та
 	// сама, що й у календарі: обіцянка фонду, якщо задана, інакше
 	// виміряна дивідендна.
 	RatePct float64
+	// ExitTaxPct — податок на дохід при продажу сертифікатів, %.
+	ExitTaxPct float64
 }
 
 // distState — розподільна позиція під час симуляції.
 type distState struct {
-	value float64
-	rM    float64 // місячна ставка, порахована раз
+	value, cost float64
+	rM          float64 // місячна ставка, порахована раз
+	exitTaxPct  float64
 }
 
 // pay — виплати цього місяця, які стають готівкою.
@@ -60,4 +65,41 @@ func (p *projState) distTotal() float64 {
 		sum += p.dist[i].value
 	}
 	return sum
+}
+
+// distNet — скільки дали б розподільні позиції, якби їх продали сьогодні.
+func (p *projState) distNet() float64 {
+	sum := 0.0
+	for i := range p.dist {
+		sum += netAfterExitTax(p.dist[i].value, p.dist[i].cost, p.dist[i].exitTaxPct)
+	}
+	return sum
+}
+
+// sellDist — продати сертифікатів на want грошей ПІСЛЯ податку.
+// Повертає виручене. Дзеркало sellAccum, і різниця лише в тому, що тут
+// немає строку, а отже й поняття «достроково».
+func (p *projState) sellDist(want float64) float64 {
+	got := 0.0
+	for i := range p.dist {
+		d := &p.dist[i]
+		if got+1e-9 >= want || d.value <= 0 {
+			continue
+		}
+		net := netAfterExitTax(d.value, d.cost, d.exitTaxPct)
+		if net <= 0 {
+			continue
+		}
+		need := want - got
+		if need >= net {
+			got += net
+			d.value, d.cost = 0, 0
+			continue
+		}
+		part := need / net
+		got += need
+		d.value -= d.value * part
+		d.cost -= d.cost * part
+	}
+	return got
 }

@@ -1,6 +1,12 @@
 package api
 
-import "testing"
+import (
+	"testing"
+
+	money "github.com/Rhymond/go-money"
+
+	"github.com/ODDsama/oddinvest/internal/domain"
+)
 
 func indepInput(t *testing.T, expenses, target float64) projectionInput {
 	t.Helper()
@@ -35,6 +41,56 @@ func TestDrawdownWithdrawPrefersSetting(t *testing.T) {
 	if fallback.WithdrawUAH != 50_000 || fallback.WithdrawFrom != "expenses" {
 		t.Errorf("спад дав %v (%s); очікували 50000 із витрат",
 			fallback.WithdrawUAH, fallback.WithdrawFrom)
+	}
+}
+
+// TestDrawdownSeesFundCertificates — сертифікати доходять до картки «На
+// скільки вистачить» і тримають зняття нарівні з готівкою.
+//
+// Сторож саме на ПРОВОДКУ, а не на модель. У домені це вже перевірено, а
+// от чи дійшли кошики фондів із фази фондів у рукави декумуляції — ні:
+// у багатій фікстурі сертифікатів на 10 000 при знятті 20 000/міс, тобто
+// менш ніж пів місяця, і golden такої різниці не показує взагалі.
+//
+// Порівнюємо з ПОРОЖНІМ портфелем, а не з готівкою. Готівка тримає на
+// місяць довше, і це правильно: вона реінвестується під ставку рукава, а
+// сертифікат у моделі не дорожчає — приросту ціни ніхто не обіцяв. Я
+// спершу написав тут рівність із готівкою й отримав червоне саме на цій
+// різниці.
+func TestDrawdownSeesFundCertificates(t *testing.T) {
+	months := func(fill func(in *projectionInput)) int {
+		in := indepInput(t, 50_000, 30_000)
+		in.CashByCur = map[string]int64{}
+		// Без знецінення, щоб число читалось прямо: зняття лишається
+		// сталим і в номіналі, тож 12000 це рівно дванадцять знять.
+		in.Deval = 0
+		w := 1_000.0
+		in.Settings.WithdrawMonthlyUAH = &w
+		fill(&in)
+		out := buildProjection(in).Drawdown
+		if out == nil {
+			t.Fatal("декумуляції немає")
+		}
+		return out.Months
+	}
+	dist := months(func(in *projectionInput) {
+		in.DistByCur = map[string][]domain.Dist{
+			money.UAH: {{Value: 12_000, Cost: 12_000}},
+		}
+	})
+	accum := months(func(in *projectionInput) {
+		in.AccumByCur = map[string][]domain.Accum{
+			money.UAH: {{Value0: 12_000, Cost0: 12_000}},
+		}
+	})
+	// 12000, які не ростуть і не платять, під 1000/міс — рівно дванадцять
+	// повних знять, на тринадцятому вже нема з чого.
+	if dist != 13 {
+		t.Errorf("розподільні сертифікати протримали до місяця %d, очікували 13. "+
+			"Одиниця означала б, що вони не дійшли до декумуляції", dist)
+	}
+	if accum != 13 {
+		t.Errorf("накопичувальні сертифікати протримали до місяця %d, очікували 13", accum)
 	}
 }
 
