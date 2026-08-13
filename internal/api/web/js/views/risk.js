@@ -4,7 +4,7 @@
 import { esc, curSym, pct, uah2 as fmtUAH, cur2 as fmtCur, fundsCost, capitalUAH } from "../format.js";
 import { infoBtn } from "../info.js";
 import { svgBars, svgGrouped, svgDonut } from "../charts.js";
-import { tile, yieldNote } from "../components.js";
+import { tile, yieldNote, needsSetting } from "../components.js";
 import { disclosure } from "../disclosure.js";
 
 
@@ -116,7 +116,11 @@ export function rebalanceCard(ctx) {
   // старий бекенд, де інших вимірів не існувало.
   const rows = ((ctx.summary && ctx.summary.rebalance) || [])
     .filter((r) => !r.dimension || r.dimension === "currency");
-  if (!rows.length) return "";
+  if (!rows.length) {
+    return needsSetting("Валютне ребалансування",
+      "Цільові частки USD і EUR не задані, тож відхилятись немає від чого. "
+      + "Задай їх у «Налаштуваннях» — і тут буде видно, чого і на скільки бракує.");
+  }
   const sym = { USD: "$", EUR: "€" };
   const num = (v, d = 2) => Number(v || 0).toLocaleString("uk-UA", { maximumFractionDigits: d });
   const body = rows.map((r) => {
@@ -176,7 +180,12 @@ const KIND_TITLE = {
 export function kindMixCard(ctx) {
   const s = ctx.summary || {};
   const rows = (s.rebalance || []).filter((r) => r.dimension === "kind");
-  if (!rows.length) return "";
+  if (!rows.length) {
+    return needsSetting(`Структура за видом інструмента ${infoBtn("kindmix")}`,
+      "Цілі за видом (ОВДП / фонди / вклади / резерв) не задані. "
+      + "Задай їх у «Налаштуваннях» — і «Що купити» почне зважати ще й на них, "
+      + "а не лише на валютну частку.");
+  }
   const cap = capitalUAH(s);
   // Нерозподілене — це те, під що цілі не ставили. Показуємо числом і
   // НЕ нормалізуємо: підмінити введені 40/20 на 67/33, не питаючи, було б
@@ -242,7 +251,12 @@ const CONC_BLOCK = {
 
 export function concentrationCard(ctx) {
   const rows = (ctx.summary || {}).concentration || [];
-  if (!rows.length) return "";
+  if (!rows.length) {
+    return needsSetting(`Концентрація ${infoBtn("concentration")}`,
+      "Ліміти концентрації не задані, а дефолтів у них немає навмисно: "
+      + "«не більше 20% в один папір» — це порада, а застосунок їх не дає. "
+      + "Задай свої в «Налаштуваннях» — і тут буде видно, де портфель до них підійшов.");
+  }
   const blocks = Object.keys(CONC_BLOCK).map((dim) => {
     const list = rows.filter((r) => r.dimension === dim);
     if (!list.length) return "";
@@ -413,7 +427,7 @@ export function ladderTableHTML(ctx) {
         <td class="num">${r.uah ? fmtUAH(r.uah) : "—"}</td><td>${bar(r.uah, "var(--oi-accent)")}</td>
         <td class="num">${fx(r.usd, "$")}</td><td>${bar(r.usd, "var(--oi-info)")}</td>
         <td class="num">${fx(r.eur, "€")}</td><td>${bar(r.eur, "var(--oi-warn)")}</td></tr>`).join("")}</tbody></table>`
-      : `<div class="muted">Драбина порожня — додайте папери в портфель.</div>`}
+      : `<div class="muted">Драбина порожня — додай папери в портфель.</div>`}
   </div>`;
 }
 

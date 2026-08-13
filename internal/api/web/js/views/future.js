@@ -13,6 +13,7 @@ import {
   uah2 as fmtUAH, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
+import { needsSetting } from "../components.js";
 import { svgBars, svgLine, svgBandLine } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
 import { goalsHTML, sensitivityHTML } from "./forecast.js";
@@ -260,7 +261,13 @@ export function incomeHTML(ctx) {
 // знає, а вклад — із втратою відсотків.
 export function drawdownHTML(ctx) {
   const d = (ctx.summary || {}).drawdown;
-  if (!d || !d.withdraw_uah) return "";
+  if (!d || !d.withdraw_uah) {
+    return needsSetting(`На скільки вистачить ${infoBtn("drawdown")}`,
+      "Скільки знімати — застосунок сам не виводить: зняття з рахунку це і покупка "
+      + "холодильника, і переказ у резерв, тож міряти від них «місяць життя» означало б "
+      + "рахувати від випадкового числа. Задай «місячні витрати» або «скільки знімати» "
+      + "в «Налаштуваннях».");
+  }
   const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
   const from = d.withdraw_from === "expenses"
     ? "стільки коштує місяць життя" : "задано в налаштуваннях";
@@ -306,7 +313,14 @@ export function drawdownHTML(ctx) {
 // лестить, або лякає, а різниця між ними це ціна дисципліни, не ринку.
 function independenceHTML(ctx) {
   const ind = (ctx.summary || {}).independence;
-  if (!ind || !ind.target_uah) return "";
+  // Тут не needsSetting: блок живе ВСЕРЕДИНІ картки «Пасивний дохід», і
+  // картка в картці виглядала б поломкою. Той самий зміст, та сама
+  // адреса налаштування — тільки рядком, а не окремою плиткою.
+  if (!ind || !ind.target_uah) {
+    return `<div style="border-top:1px solid var(--oi-border);padding-top:10px;margin-top:10px">
+      <div class="sub-xs">Щоб побачити, коли дохід покриє життя, задай «цільовий дохід»
+        або «місячні витрати» в «Налаштуваннях».</div></div>`;
+  }
   const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
   // Нуль означає «не досягається за 60 років», −1 — «уже». Різниця між
   // ними протилежна за змістом, тож жодного спільного «немає даних».
