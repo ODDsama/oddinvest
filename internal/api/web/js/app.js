@@ -170,6 +170,7 @@ export class OddInvestApp extends HTMLElement {
         <button class="ghost" id="refresh">↻ Оновити НБУ</button>
       </header>
       <nav>${TABS.map(([k, t]) => `<a data-tab="${k}">${t}</a>`).join("")}</nav>
+      <div id="alert" hidden></div>
       <main id="main"></main>
       <div id="toast" class="toast"></div>
       <div class="infopop" id="infoPop"><div class="box"></div></div>
@@ -187,13 +188,54 @@ export class OddInvestApp extends HTMLElement {
     });
   }
 
+  // Смуга стану під навігацією. Це факт про застосунок цілком, а не про
+  // якусь картку, і живе він ПОЗА <main> навмисно: розділи перемальовують
+  // main цілком і стерли б її першим же рендером.
+  _alert(html) {
+    const el = this.shadowRoot.getElementById("alert");
+    el.innerHTML = html || "";
+    el.hidden = !html;
+  }
+
   async _loadTab() {
     this.shadowRoot.querySelectorAll("nav a").forEach((a) =>
       a.classList.toggle("active", a.dataset.tab === this._tab));
     const main = this.shadowRoot.getElementById("main");
+    this._alert("");
     main.innerHTML = `<div class="muted">Завантаження…</div>`;
+
+    // Зведення вантажиться ОКРЕМО від розділу. Доти воно стояло в тому
+    // самому try, і будь-яка його помилка ставала помилкою ВСІХ вкладок
+    // одразу — включно з «Налаштуваннями», де живе бекап. Тобто
+    // відновлення було недосяжне рівно тоді, коли воно й потрібне.
+    // А падає саме зведення: /api/summary — найскладніший шлях у
+    // бекенді, і його поломка нічого не каже про решту API.
+    let broken = null;
     try {
       await this._loadSummaryData();
+    } catch (err) {
+      broken = err;
+      // Порожнє, а не останнє відоме: вчорашні числа, показані як
+      // сьогоднішні, гірші за їх відсутність.
+      this._summary = {};
+    }
+
+    if (broken) {
+      this._alert(`<div class="banner wait"><div class="b-ic">⚠</div><div class="b-tx">
+        <div class="b-t">Бекенд не віддає зведення</div>
+        <div class="b-s">${esc(broken.message || broken)}${this._tab === "settings" ? ""
+          : " · «Налаштування» зведення не читають — бекап і відновлення доступні там"}</div>
+      </div></div>`);
+      // Розділи, що читають зведення, без нього показали б не «даних
+      // немає», а нулі — і нуль тут невідрізнимий від справжнього нуля.
+      // «Налаштування» зведення не читають узагалі, тож малюються.
+      if (this._tab !== "settings") {
+        main.innerHTML = "";
+        return;
+      }
+    }
+
+    try {
       const render = VIEWS[this._tab] || VIEWS.overview;
       await render(this._ctx, main);
     } catch (err) {

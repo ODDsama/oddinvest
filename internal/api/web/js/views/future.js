@@ -135,7 +135,20 @@ export function projectionHTML(ctx) {
 // затирає його: у «Майбутньому» він стоїть останнім блоком, після
 // прогнозів.
 export async function renderCalendar(ctx, main, { append = false } = {}) {
-  const cal = await ctx.api("GET", "calendar?from=1970-01-01");
+  let cal;
+  try {
+    cal = await ctx.api("GET", "calendar?from=1970-01-01");
+  } catch (err) {
+    // append означає, що вище вже намальовані прогнози. Кинути звідси
+    // помилку — стерти їх усі заради однієї таблиці, якої не вистачило:
+    // розділ ловить виняток і замінює main карткою з текстом помилки.
+    // Тож своя помилка лишається своєю.
+    const card = `<div class="card"><h2>Виплати</h2>
+      <div class="muted">Календар не завантажився: ${esc(err.message || err)}</div></div>`;
+    if (append) main.insertAdjacentHTML("beforeend", card);
+    else main.innerHTML = card;
+    return;
+  }
   const now = today();
   const rows = cal.slice().sort((a, b) => a.date.localeCompare(b.date));
   const html = `

@@ -66,6 +66,16 @@ nav a.active {
   font-weight: 500;
 }
 
+/* Смуга стану застосунку — між навігацією і розділом. Ті самі поля, що
+   в main, бо читається як його перший блок; але це НЕ main, і саме в
+   цьому суть: розділи перемальовують main цілком, і всередині нього
+   смуга не пережила б жодного рендеру. */
+#alert {
+  padding: var(--oi-gap) var(--oi-gap-xl) 0;
+  max-width: var(--oi-max-width);
+  margin: 0 auto;
+}
+
 main {
   padding: 0 var(--oi-gap-xl) var(--oi-gap-xl);
   max-width: var(--oi-max-width);
