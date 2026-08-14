@@ -250,3 +250,66 @@ func TestReinvestSilentWithoutAuctionHistory(t *testing.T) {
 		}
 	}
 }
+
+// TestReinvestCarriesNoDeadFields — у рядку немає нічого, чого не читає
+// жоден екран.
+//
+// Тест негативний навмисно, бо обидва поля видалили не за помилковість, а
+// за невживаність, і саме таке легко повертається «на всяк випадок»:
+//
+//   - duration_now/duration_after рахувались на КОЖНОГО кандидата (Duration
+//     плюс перевід у гривню, при вибірці в п'ять тисяч паперів довідника) і
+//     не читались ніде — ані у вебі, ані в інтеграції;
+//   - rate_pct у ОБЛІГАЦІЇ — те саме: UI малює це поле лише під
+//     kind == "deposit", а купонна ставка незіставна між валютами.
+//
+// Для вкладу rate_pct лишається і мусить бути на місці: це його договірна
+// ставка, і саме її там показують.
+func TestReinvestCarriesNoDeadFields(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if _, err := st.AddDeposit(context.Background(), store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
+		Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Щоб у переліку був і вклад: без ставки й суми відкриття його немає.
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"deposit_rate_uah_pct":"15","deposit_min_uah":"10000"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("налаштування вкладу: %d %s", resp.StatusCode, b)
+	}
+
+	_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
+	for _, dead := range []string{"duration_now", "duration_after"} {
+		if strings.Contains(body, dead) {
+			t.Errorf("мертве поле %q повернулось у відповідь: %s", dead, body)
+		}
+	}
+
+	var got []struct {
+		Kind    string `json:"kind"`
+		RatePct string `json:"rate_pct"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("розбір: %v (%s)", err, body)
+	}
+	var bonds, deposits int
+	for _, g := range got {
+		switch g.Kind {
+		case "bond":
+			bonds++
+			if g.RatePct != "" {
+				t.Errorf("в облігації лишилась купонна ставка %q — її не показує жоден екран", g.RatePct)
+			}
+		case "deposit":
+			deposits++
+			if g.RatePct == "" {
+				t.Error("у вкладу зникла договірна ставка — саме її UI і малює")
+			}
+		}
+	}
+	if bonds == 0 || deposits == 0 {
+		t.Fatalf("тест нічого не перевірив: облігацій %d, вкладів %d (%s)", bonds, deposits, body)
+	}
+}

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
-	"github.com/ODDsama/oddinvest/internal/fx"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -37,10 +36,17 @@ type brokerFit struct {
 type suggestion struct {
 	// Kind — bond | fund | deposit. Label — те, що показуємо людині
 	// (ISIN, назва фонду, «вклад <банк>»).
-	Kind     string    `json:"kind"`
-	Label    string    `json:"label"`
-	ISIN     string    `json:"isin,omitempty"`
-	Currency string    `json:"currency"`
+	Kind     string `json:"kind"`
+	Label    string `json:"label"`
+	ISIN     string `json:"isin,omitempty"`
+	Currency string `json:"currency"`
+	// RatePct — ДОГОВІРНА ставка вкладу, і лише вкладу. Це не дохідність:
+	// порівнювати рядки між собою можна тільки за RealPct нижче.
+	//
+	// В облігації тут колись стояла купонна ставка з довідника. Вона не
+	// показувалась ніде (UI малює це поле під kind == "deposit") і не могла
+	// б: сира купонна ставка незіставна між валютами, а дохідність паперу
+	// вже є поруч двома чесними числами — YTMPct і RealPct.
 	RatePct  string    `json:"rate_pct,omitempty"`
 	Maturity string    `json:"maturity,omitempty"`
 	Nominal  moneyJSON `json:"nominal,omitempty"`
@@ -58,15 +64,13 @@ type suggestion struct {
 	// YTMPct поруч є лише в облігацій, тож без цього поля фонд і
 	// вклад показувались у списку самою реальною, а папір — двома
 	// числами, і порівняти їх по-номінальному було ні з чим.
-	NominalPct    float64     `json:"nominal_pct,omitempty"`
-	RealPct       float64     `json:"real_pct"`
-	YieldBasis    string      `json:"yield_basis"`
-	Brokers       []brokerFit `json:"brokers,omitempty"`
-	Affordable    int64       `json:"affordable"`
-	CanBuy        bool        `json:"can_buy"`
-	Reason        string      `json:"reason"`
-	DurationNow   float64     `json:"duration_now,omitempty"`
-	DurationAfter float64     `json:"duration_after,omitempty"`
+	NominalPct float64     `json:"nominal_pct,omitempty"`
+	RealPct    float64     `json:"real_pct"`
+	YieldBasis string      `json:"yield_basis"`
+	Brokers    []brokerFit `json:"brokers,omitempty"`
+	Affordable int64       `json:"affordable"`
+	CanBuy     bool        `json:"can_buy"`
+	Reason     string      `json:"reason"`
 	// LastAuction / LastAuctionPct — коли цей самий папір востаннє
 	// розміщували на аукціоні Мінфіну й під скільки. Порожньо означає, що
 	// за все відоме нам вікно його не розміщували жодного разу, тобто
@@ -195,14 +199,6 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		ladderYear[row.Year] = map[string]float64{"UAH": row.UAH, "USD": row.USD, "EUR": row.EUR}
 	}
 
-	// Поточна дюрація/PV портфеля та цільова дюрація: для кожного паперу
-	// рахуємо, куди зрушить дюрацію його купівля. Комбінована дюрація —
-	// це середньозважена за приведеною вартістю, тож додавання паперу
-	// рахується точно, без перебудови всього портфеля.
-	var curMac, curPV float64
-	if doc.RateRisk != nil {
-		curMac, curPV = doc.RateRisk.DurationYears, doc.RateRisk.PVUAH
-	}
 	rank := "plan"
 	if doc.Settings != nil && doc.Settings.ReinvestRank != "" {
 		rank = doc.Settings.ReinvestRank
@@ -210,11 +206,6 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	// Знецінення гривні: те саме припущення, що й у прогнозі, інакше
 	// помічник радив би одне, а прогноз малював інше.
 	devalPct := s.devaluation(ctx)
-	rates, err := s.rates(ctx)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
 	isins := make([]string, 0, len(bonds))
 	for _, b := range bonds {
 		isins = append(isins, b.ISIN)
@@ -350,34 +341,9 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		if note != "" {
 			parts = append(parts, "⚠ "+note)
 		}
-		// куди зрушить дюрацію купівля одного такого паперу
-		y := doc.PortfolioYield[c] / 100
-		if y <= 0 {
-			y = doc.PortfolioYieldPct / 100
-		}
-		var pts []domain.CashPoint
-		for _, p := range paysByISIN[b.ISIN] {
-			if d := domain.DaysBetween(today, p.PayDate); d > 0 {
-				pts = append(pts, domain.CashPoint{
-					Years: float64(d) / 365, Amount: float64(p.PerBond.Amount()) / 100,
-				})
-			}
-		}
-		bMac, _, bPV := domain.Duration(pts, y)
-		fxr := 1.0
-		if c != money.UAH {
-			fxr, _ = fx.RateMajor(c, rates)
-		}
-		bPVUAH := bPV * fxr
-		newMac := curMac
-		if curPV+bPVUAH > 0 {
-			newMac = (curMac*curPV + bMac*bPVUAH) / (curPV + bPVUAH)
-		}
-
 		out = append(out, suggestion{
 			Kind: "bond", Label: b.ISIN,
 			ISIN: b.ISIN, Currency: c,
-			RatePct:  fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
 			Maturity: string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
 			CostPerBond: toMoneyJSON(cost),
 			YTMPct:      round2(ytm * 100), NominalPct: round2(ytm * 100),
@@ -385,7 +351,6 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			YieldBasis: "до погашення",
 			Brokers:    fits,
 			Affordable: best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
-			DurationNow: round2(curMac), DurationAfter: round2(newMac),
 			LastAuction: lastAucDate, LastAuctionPct: round2(lastAucPct),
 			def: def, kindDef: kindDef["bonds"], ladderNom: lnom,
 			overLimit: note != "", stale: stale,
@@ -575,10 +540,15 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	// Причина не в тому, що її забули: балансувати дюрацію нема до чого.
 	// Цілі за нею користувач ніде не задає, а без цілі «більша» й «менша»
 	// однаково не кращі — на відміну від валютної частки чи року драбини,
-	// де ціль є і відхилення від неї вимірне. DurationNow/DurationAfter
-	// лишаються в рядку як ДОВІДКА: видно, куди зрушить портфель ця
-	// купівля, і рішення за людиною. Впорядковувати за числом, до якого
-	// немає цілі, означало б вигадати цю ціль за неї.
+	// де ціль є і відхилення від неї вимірне. Впорядковувати за числом, до
+	// якого немає цілі, означало б вигадати цю ціль за неї.
+	//
+	// Полів duration_now/duration_after у рядку теж немає, хоч цей самий
+	// коментар довго обіцяв їх «як довідку». Довідки не вийшло: жоден
+	// екран їх не читав — ані веб, ані інтеграція, — а рахувались вони на
+	// КОЖНОГО кандидата (Duration плюс перевід у гривню на папір із
+	// п'яти тисяч довідника) при кожному відкритті «Огляду». Обіцянка,
+	// яку ніхто не спожив, коштувала більше за все, що вона мала дати.
 	//
 	// У сертифіката дати погашення немає — для впорядкування це «ніколи»,
 	// а не «сьогодні»: інакше в режимі «короткі» фонди хибно вигравали б
