@@ -78,12 +78,12 @@ export function goalsHTML(ctx) {
     const val = asPayment ? payOf(r) : (r.amount || 0);
     // Позначки «найімовірніше» тут немає: її вже сказано у вилці вище,
     // а реалістичний рядок і так виділений кольором.
-    return `<div style="margin-bottom:8px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+    return `<div style="margin-bottom:var(--oi-gap-sm)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm)">
         <span style="color:${COLOR[r.key] || "inherit"}">${esc(r.label)}</span>
         <span><b>${asPayment ? pay(val) + "/міс" : money(val)}</b></span>
       </div>
-      <div class="muted" style="font-size:11px;margin-top:1px">${termRates(r)} номінальних · гривня слабшає ${pct(r.devaluation_pct)}/рік</div>
+      <div class="muted" style="font-size:var(--oi-fs-xs);margin-top:1px">${termRates(r)} номінальних · гривня слабшає ${pct(r.devaluation_pct)}/рік</div>
     </div>`;
   }).join("");
 
@@ -95,13 +95,13 @@ export function goalsHTML(ctx) {
       : actual.goal_months > 0 ? `${monthYear(actual.goal_date)}`
       : "не досягається за 60 років";
     actualBlock = `<div style="border-top:1px solid var(--oi-border);padding-top:10px;margin-top:10px">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm)">
         <span>За фактом ${hist > 0 ? `<span class="muted" style="font-size:12px">за ${humanMonths(hist)} історії</span>` : ""}</span>
         <span><b>${pay(payOf(actual))}/міс</b>${asPayment && need > 0
           ? ` <span style="color:var(--oi-info)">— ${share.toFixed(0)}% від потрібного</span>` : ""}</span>
       </div>
       ${asPayment && need > 0 ? `<div class="progress" style="margin-top:6px"><span style="width:${share}%;background:var(--oi-info)"></span></div>` : ""}
-      <div class="muted" style="font-size:11px;margin-top:4px">на дедлайн ${goalFmt(actual.amount)}${
+      <div class="muted" style="font-size:var(--oi-fs-xs);margin-top:var(--oi-gap-xs)">на дедлайн ${goalFmt(actual.amount)}${
         goal > 0 ? ` — ${(actual.goal_pct || 0).toFixed(1)}% цілі` : ""} · за цим темпом ціль ${eta}</div>
     </div>`;
   } else {
@@ -194,16 +194,16 @@ export function sensitivityHTML(ctx) {
       // Стрілка лише там, де є що порівнювати: для дедлайну місяць
       // досягнення навмисно базовий, тож рухається сама сума.
       const moved = r.goal_months !== s.base_goal_months;
-      return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:5px">
+      return `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm);margin-bottom:5px">
         <span><b>${esc(leverShift(r))}</b> <span class="muted" style="font-size:12px">${esc(leverValue(r))}</span></span>
         <span style="text-align:right">
           ${moved ? `<b>${esc(when)}</b>` : `<span class="muted">${esc(when)}</span>`}
-          <span class="muted" style="font-size:11px"> · ${(r.goal_pct || 0).toFixed(0)}% цілі</span>
+          <span class="muted" style="font-size:var(--oi-fs-xs)"> · ${(r.goal_pct || 0).toFixed(0)}% цілі</span>
         </span>
       </div>`;
     }).join("");
-    return `<div style="margin-bottom:12px">
-      <div class="sub-xs" style="margin-bottom:4px"><b>${esc(title)}</b> · ${esc(why)}</div>
+    return `<div style="margin-bottom:var(--oi-gap)">
+      <div class="sub-xs" style="margin-bottom:var(--oi-gap-xs)"><b>${esc(title)}</b> · ${esc(why)}</div>
       ${items}</div>`;
   }).join("");
 

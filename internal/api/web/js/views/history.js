@@ -2,13 +2,31 @@
 
 import { esc, curSym, plural, uah2 as fmtUAH } from "../format.js";
 import { infoBtn } from "../info.js";
-import { seriesChart, wireChartTips } from "../charts.js";
+import { seriesChart, wireChartTips, fluid, seriesLegend } from "../charts.js";
 import { disclosure } from "../disclosure.js";
 
 
 // Знімки для кривої «Як росте»: тягнуться раз, читаються графіком і
 // таблицею під ним.
 let snapsCache = [];
+
+// Розмітка підказки під курсором. На рівні модуля, а не в проводці:
+// кличе її onMount рамки графіка, тобто момент, до якого локальні
+// змінні wireHistory уже не існують.
+const tipMoney = (v) => (v == null ? "—" : fmtUAH(v));
+
+function tipRows(tip, i, extra) {
+  if (!tip) return "";
+  const list = tip.series.map((s) =>
+    `<div class="r"><span><i style="background:${s.color}"></i>${esc(s.name)}</span>
+      <b>${tipMoney(s.values[i])}</b></div>`).join("");
+  return `<div><b>${esc(tip.dates[i])}</b></div>${list}${extra || ""}`;
+}
+
+const capTipHTML = (i) => tipRows(capTip, i, capTip
+  ? `<div class="r tot"><span>Разом</span><b>${tipMoney(capTip.total[i])}</b></div>` : "");
+
+const planTipHTML = (i) => tipRows(planTip, i);
 
 // ---------- склад і структура ----------
 
@@ -93,7 +111,10 @@ function capitalCardHTML(ctx, snaps) {
     ? [{ name: "Собівартість", color: "var(--oi-series-neutral)", values: cost, dash: true }] : []);
 
   capTip = { dates, series, total: snaps.map((_, i) => areas.reduce((sum, a) => sum + a.values[i], 0)), cost };
-  const { svg, legend } = seriesChart(dates, series, { label: "Структура капіталу по днях" });
+  const frame = fluid(
+    (w, h) => seriesChart(dates, series, { width: w, height: h, label: "Структура капіталу по днях" }).svg,
+    { cls: "tall", onMount: (box) => wireChartTips(box.closest(".chart-wrap"), capTipHTML) });
+  const legend = seriesLegend(series);
   const gain = cost[cost.length - 1] != null
     ? capTip.total[capTip.total.length - 1] - cost[cost.length - 1] : null;
   // Розрив може бути й відʼємним — тоді це збиток, і називати його
@@ -104,7 +125,7 @@ function capitalCardHTML(ctx, snaps) {
       ? `Розрив між верхом смуг і пунктиром — заробіток: зараз <b>${fmtUAH(gain)}</b>.`
       : `Зараз капітал НИЖЧЕ за вкладене на <b>${fmtUAH(-gain)}</b> — пунктир іде поверх смуг.`;
   return `<div class="card"><h2 class="h-row">Капітал ${infoBtn("capital")}</h2>
-    <div class="chart-wrap">${svg}<div class="chart-tip" data-tip="cap"></div></div>
+    <div class="chart-wrap">${frame}<div class="chart-tip" data-tip="cap"></div></div>
     <div class="lg">${legend}</div>
     <div class="sub">Смуги складаються одна на одну, тож верхня межа — увесь капітал. ${gainLine}</div></div>`;
 }
@@ -147,7 +168,10 @@ function planCardHTML(ctx, allSnaps) {
   const series = [{ name: "Внесено", color: "var(--oi-series-invested)", values: fact }];
   if (anyTarget) series.push({ name: "План", color: "var(--oi-series-plan)", values: plan, dash: true });
   planTip = { dates, series };
-  const { svg, legend } = seriesChart(dates, series, { label: "Внесено проти плану" });
+  const frame = fluid(
+    (w, h) => seriesChart(dates, series, { width: w, height: h, label: "Внесено проти плану" }).svg,
+    { cls: "tall", onMount: (box) => wireChartTips(box.closest(".chart-wrap"), planTipHTML) });
+  const legend = seriesLegend(series);
 
   const last = fact[fact.length - 1], target = plan[plan.length - 1];
   const verdict = !anyTarget ? `Ціль не задана — пунктира немає. Задається в «Налаштуваннях».`
@@ -157,7 +181,7 @@ function planCardHTML(ctx, allSnaps) {
       : `Відстаєш від плану на <b>${fmtUAH(target - last)}</b>.`;
   const scope = mode === "month" ? "цього місяця" : "за всю історію знімків";
   return `<div class="card">${head}
-    <div class="chart-wrap">${svg}<div class="chart-tip" data-tip="plan"></div></div>
+    <div class="chart-wrap">${frame}<div class="chart-tip" data-tip="plan"></div></div>
     <div class="lg">${legend}</div>
     <div class="sub">Обидві лінії рахуються від початку періоду, тож порівнюються напряму.
       Внесено ${scope}: <b>${last == null ? "—" : fmtUAH(last)}</b>. ${verdict}</div></div>`;
@@ -180,21 +204,14 @@ export async function chartBlockHTML(ctx) {
     <div class="card"><div class="sub">${xirrLine}</div></div>`;
 }
 
-// Проводка обох графіків: підказки під курсором і перемикач періоду.
+// Проводка обох графіків: перемикач періоду.
+//
+// Підказок тут більше немає, і це не втрата, а наслідок відкладеного
+// малювання: на момент проводки розділу SVG ще не існує (його малює
+// fitCharts, коли стає відома ширина картки), тож чіплятись було б нема
+// до чого. Тепер їх ставить onMount самої рамки — тобто рівно тоді,
+// коли смуги влучання з'явились.
 export function wireHistory(ctx, main) {
-  const money = (v) => (v == null ? "—" : fmtUAH(v));
-  const rows = (tip, i, extra) => {
-    if (!tip) return "";
-    const list = tip.series.map((s) =>
-      `<div class="r"><span><i style="background:${s.color}"></i>${esc(s.name)}</span>
-        <b>${money(s.values[i])}</b></div>`).join("");
-    return `<div><b>${esc(tip.dates[i])}</b></div>${list}${extra || ""}`;
-  };
-  wireChartTips(main.querySelector('[data-tip="cap"]')?.closest(".chart-wrap"), (i) =>
-    rows(capTip, i, capTip
-      ? `<div class="r tot"><span>Разом</span><b>${money(capTip.total[i])}</b></div>` : ""));
-  wireChartTips(main.querySelector('[data-tip="plan"]')?.closest(".chart-wrap"), (i) => rows(planTip, i));
-
   main.querySelectorAll("[data-range]").forEach((b) =>
     b.addEventListener("click", () => {
       try { localStorage.setItem(RANGE_KEY, b.dataset.range); } catch (_) {}
@@ -230,7 +247,7 @@ export function snapshotsTableHTML(ctx) {
   // сховаєш — тож тут те саме доводиться сказати словами.
   const gap = (hasDeps && rows.some((s) => !(s.deposits_uah > 0)))
     || (hasFunds && rows.some((s) => !(s.funds_uah > 0)))
-    ? `<div class="sub" style="margin-top:8px">Нулі на ранніх днях означають «тоді ще не записували
+    ? `<div class="sub" style="margin-top:var(--oi-gap-sm)">Нулі на ранніх днях означають «тоді ще не записували
        в історію», а не «тоді цього не було»: колонки фондів і вкладів з'явились у знімку пізніше
        за самі інструменти.</div>` : "";
   return `<div class="card">${disclosure("snaps", "Останні знімки", `

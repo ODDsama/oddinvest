@@ -16,7 +16,7 @@ import {
 import { infoBtn } from "../info.js";
 import { onSubmit, onDelete } from "../forms.js";
 import { fundStatementHTML, wireFundOps, setFundOps } from "../fund-ops.js";
-import { disclosure, wireDisclosures } from "../disclosure.js";
+import { disclosure, section, wireDisclosures } from "../disclosure.js";
 
 // ---------- РАХУНОК ----------
 // Баланси по брокерах: гроші в одного не купують папір в іншого, тож
@@ -39,7 +39,7 @@ export function brokerBalancesHTML(ctx) {
       return `<div class="pv-row"><span>${esc(c)} · <b>${fmtCur(v, sym[c] || c)}</b></span>
         <span class="${enough ? "" : "muted"}" style="${enough ? "color:var(--oi-ok)" : ""}">${hint}</span></div>`;
     }).join("");
-    return `<div style="margin-bottom:14px"><div style="margin-bottom:4px"><b>${esc(b)}</b></div>${parts}</div>`;
+    return `<div style="margin-bottom:14px"><div style="margin-bottom:var(--oi-gap-xs)"><b>${esc(b)}</b></div>${parts}</div>`;
   }).join("");
   return `<div class="card"><h2>Рахунки по брокерах</h2>
     <div class="muted" style="margin-bottom:10px">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.</div>
@@ -167,7 +167,7 @@ function reserveHTML(ctx, ops) {
     <h2 class="h-row">Резерв ${infoBtn("reserve")}</h2>
     <div class="muted" style="margin-bottom:10px">Гроші на чорний день. Не інвестиція — але саме тому вони й доступні миттєво, без продажу паперу й розірвання вкладу. У купівельну спроможність не входять.</div>
     ${tiles}
-    <form id="resForm" style="margin-bottom:12px">
+    <form id="resForm" style="margin-bottom:var(--oi-gap)">
       <label>Сума (+ відклав / − узяв)<input name="amount" inputmode="decimal" placeholder="5000.00" required></label>
       <label>Валюта<select name="currency">${["UAH", "USD", "EUR"].map((c) =>
         `<option${c === "UAH" ? " selected" : ""}>${c}</option>`).join("")}</select></label>
@@ -187,12 +187,12 @@ function reserveHTML(ctx, ops) {
 export function importHTML(ctx) {
   return `<div class="card"><h2 class="h-row" style="justify-content:space-between">
     <span>Імпорт виписки ${infoBtn("import")}</span></h2>
-    <div class="muted" style="font-size:12px;margin-bottom:8px">Файл Inzhur (.xlsx). Спершу перегляд — нічого не записується.</div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div class="muted" style="font-size:12px;margin-bottom:var(--oi-gap-sm)">Файл Inzhur (.xlsx). Спершу перегляд — нічого не записується.</div>
+    <div style="display:flex;gap:var(--oi-gap-sm);align-items:center;flex-wrap:wrap">
       <input type="file" id="impFile" accept=".xlsx">
       <button id="impPreview">Переглянути</button>
     </div>
-    <div class="muted" style="font-size:12px;margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <div class="muted" style="font-size:12px;margin-top:var(--oi-gap-sm);display:flex;gap:var(--oi-gap-sm);align-items:center;flex-wrap:wrap">
       Враховувати зміни від <input type="date" id="impSince" style="width:150px">
       <span>рухається сама після кожного імпорту</span>
     </div>
@@ -235,14 +235,14 @@ export function wireImport(ctx, main) {
   const render = (res, dry) => {
     const rows = (res.rows || []).map((r) => {
       const tag = r.conflict
-        ? `<div style="color:var(--oi-danger);font-size:11px">⚠ ${esc(r.conflict)}</div>`
-        : r.exists ? `<span class="muted" style="font-size:11px">вже є</span>` : "";
+        ? `<div style="color:var(--oi-danger);font-size:var(--oi-fs-xs)">⚠ ${esc(r.conflict)}</div>`
+        : r.exists ? `<span class="muted" style="font-size:var(--oi-fs-xs)">вже є</span>` : "";
       return `<div style="margin-bottom:6px">
-        <div style="display:flex;justify-content:space-between;gap:8px">
+        <div style="display:flex;justify-content:space-between;gap:var(--oi-gap-sm)">
           <span>${dayMonth(r.date)} · ${KIND[r.kind] || r.kind}${
             r.fund ? ` <span class="muted">${esc(r.fund)}</span>` : ""}${
             r.qty ? ` <span class="muted">${r.qty} серт.</span>` : ""}</span>
-          <span><b>${esc(r.amount)}</b>${r.tax && r.tax !== "0.00" ? ` <span class="muted" style="font-size:11px">податок ${esc(r.tax)}</span>` : ""} ${r.exists && !r.conflict ? `<span class="muted" style="font-size:11px">вже є</span>` : ""}</span>
+          <span><b>${esc(r.amount)}</b>${r.tax && r.tax !== "0.00" ? ` <span class="muted" style="font-size:var(--oi-fs-xs)">податок ${esc(r.tax)}</span>` : ""} ${r.exists && !r.conflict ? `<span class="muted" style="font-size:var(--oi-fs-xs)">вже є</span>` : ""}</span>
         </div>${r.conflict ? tag : ""}</div>`;
     }).join("");
     const skipped = (res.skipped || []).map((s) =>
@@ -250,15 +250,15 @@ export function wireImport(ctx, main) {
     const conflicts = (res.rows || []).filter((r) => r.conflict).length;
     if (!dry && res.since && since) since.value = res.since;
     out.innerHTML = `
-      <div style="margin-bottom:8px">Знайдено ${(res.rows || []).length} операцій · <b>${res.new}</b> нових${
+      <div style="margin-bottom:var(--oi-gap-sm)">Знайдено ${(res.rows || []).length} операцій · <b>${res.new}</b> нових${
         conflicts ? ` · <span style="color:var(--oi-danger)">${conflicts} з конфліктом</span>` : ""}</div>
-      ${res.before ? `<div class="muted" style="font-size:12px;margin-bottom:8px">${res.before} рядків старші за ${
+      ${res.before ? `<div class="muted" style="font-size:12px;margin-bottom:var(--oi-gap-sm)">${res.before} рядків старші за ${
         dayMonth(res.since)} — не розглядались</div>` : ""}
       ${rows}
-      ${skipped ? `<div style="border-top:1px solid var(--oi-border);margin-top:8px;padding-top:6px">
-        <div class="muted" style="font-size:12px;margin-bottom:4px">пропущено:</div>${skipped}</div>` : ""}
+      ${skipped ? `<div style="border-top:1px solid var(--oi-border);margin-top:var(--oi-gap-sm);padding-top:6px">
+        <div class="muted" style="font-size:12px;margin-bottom:var(--oi-gap-xs)">пропущено:</div>${skipped}</div>` : ""}
       ${dry && res.new > 0 ? `<button id="impGo" style="margin-top:10px">Імпортувати ${res.new}</button>` : ""}
-      ${!dry ? `<div style="margin-top:8px;color:var(--oi-ok)">Записано ${res.imported}</div>` : ""}`;
+      ${!dry ? `<div style="margin-top:var(--oi-gap-sm);color:var(--oi-ok)">Записано ${res.imported}</div>` : ""}`;
     const go = out.querySelector("#impGo");
     if (go) {
       go.addEventListener("click", async () => {
@@ -365,7 +365,7 @@ function taxHTML(x) {
     `<div class="sub h-row" style="justify-content:space-between;margin-bottom:10px">
        <span>${esc(x.from)} → ${esc(x.to)}</span><span>рік: ${picker}</span></div>
      ${body}
-     <div class="sub h-row" style="margin-top:8px;justify-content:space-between;gap:var(--oi-gap-sm)">
+     <div class="sub h-row" style="margin-top:var(--oi-gap-sm);justify-content:space-between;gap:var(--oi-gap-sm)">
        <span>Купон ОВДП звільнений від податку, дивіденд фонду й відсотки вкладу — ні.
          Ставки не зашиті: у фонду береться фактично утримане з виписки, у вкладу —
          ставка самого вкладу.</span>
@@ -394,10 +394,15 @@ export async function renderMoney(ctx, main) {
     ...deposits.map((d) => ({ date: d.date, id: d.id, kind: "dep", amount: d.amount, note: d.note })),
     ...conversions.map((c) => ({ date: c.date, id: c.id, kind: "conv", from: c.from, to: c.to, note: c.note })),
   ].sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : y.id - x.id));
+  // Три секції за трьома питаннями: скільки і де воно лежить, куди
+  // рухалось, і чим це записати. Десять однакових карток підряд не
+  // давали жодної підказки, яка з них відповідає на що, і «Історію
+  // рухів» доводилось шукати очима серед форм.
   main.innerHTML = `
+    ${section("where", "Скільки і де", `
     <div class="card">
       <h2>Рахунок (гаманець)</h2>
-      <div class="tiles" style="margin:0 0 4px">
+      <div class="tiles flush">
         <div class="tile"><div class="lbl">UAH</div><div class="val">${fmtUAH(a.UAH || 0)}</div></div>
         <div class="tile"><div class="lbl">USD</div><div class="val">${fmtCur(a.USD || 0, "$")}</div></div>
         <div class="tile"><div class="lbl">EUR</div><div class="val">${fmtCur(a.EUR || 0, "€")}</div></div>
@@ -408,16 +413,36 @@ export async function renderMoney(ctx, main) {
       </div>
     </div>
 
-    ${reserveHTML(ctx, reserve)}
-
-    ${flowHTML(flow)}
-
-    ${taxHTML(tax)}
-
     ${brokerBalancesHTML(ctx)}
+    ${reserveHTML(ctx, reserve)}`, { open: true })}
 
+    ${section("flows", "Куди воно рухалось", `
+    ${flowHTML(flow)}
+    ${taxHTML(tax)}
+    <div class="card">
+      <h2>Історія рухів</h2>
+      ${moves.length ? `<table><thead><tr>
+        <th scope="col">Дата</th><th scope="col">Тип</th><th scope="col">Сума</th>
+        <th scope="col">Нотатка</th><th scope="col"><span class="sr-only">Дії</span></th></tr></thead><tbody>
+        ${moves.map((m) => {
+          if (m.kind === "dep") {
+            const label = Number(m.amount.amount) >= 0 ? "Поповнення" : "Зняття";
+            return `<tr><td>${esc(m.date)}</td><td>${label}</td><td class="num">${fmtMoney(m.amount)}</td>
+              <td>${esc(m.note || "")}</td>
+              <td class="row-actions"><button class="sm warn" data-deldep="${m.id}"
+                aria-label="Видалити рух від ${esc(m.date)}">✕</button></td></tr>`;
+          }
+          const rate = Number(m.from.amount) / Number(m.to.amount);
+          return `<tr><td>${esc(m.date)}</td><td>Конвертація</td>
+            <td class="num">${fmtMoney(m.from)} → ${fmtMoney(m.to)}</td>
+            <td>${esc(m.note || "")}${isFinite(rate) ? ` (${rate.toFixed(4)})` : ""}</td>
+            <td class="row-actions"><button class="sm warn" data-delconv="${m.id}"
+              aria-label="Видалити конвертацію від ${esc(m.date)}">✕</button></td></tr>`;
+        }).join("")}</tbody></table>` : `<div class="muted">Рухів ще немає.</div>`}
+    </div>`, { open: true })}
+
+    ${section("entry", "Записати", `
     ${reconcileHTML(ctx)}
-
 
     <div class="card">
       <h2>Додати рух</h2>
@@ -447,27 +472,8 @@ export async function renderMoney(ctx, main) {
       </form>
     </div>
 
-    <div class="card">
-      <h2>Історія рухів</h2>
-      ${moves.length ? `<table><thead><tr>
-        <th>Дата</th><th>Тип</th><th>Сума</th><th>Нотатка</th><th></th></tr></thead><tbody>
-        ${moves.map((m) => {
-          if (m.kind === "dep") {
-            const label = Number(m.amount.amount) >= 0 ? "Поповнення" : "Зняття";
-            return `<tr><td>${esc(m.date)}</td><td>${label}</td><td class="num">${fmtMoney(m.amount)}</td>
-              <td>${esc(m.note || "")}</td>
-              <td class="row-actions"><button class="sm warn" data-deldep="${m.id}">✕</button></td></tr>`;
-          }
-          const rate = Number(m.from.amount) / Number(m.to.amount);
-          return `<tr><td>${esc(m.date)}</td><td>Конвертація</td>
-            <td class="num">${fmtMoney(m.from)} → ${fmtMoney(m.to)}</td>
-            <td>${esc(m.note || "")}${isFinite(rate) ? ` (${rate.toFixed(4)})` : ""}</td>
-            <td class="row-actions"><button class="sm warn" data-delconv="${m.id}">✕</button></td></tr>`;
-        }).join("")}</tbody></table>` : `<div class="muted">Рухів ще немає.</div>`}
-    </div>
-
     ${importHTML(ctx)}
-    ${fundStatementHTML(ctx)}`;
+    ${fundStatementHTML(ctx)}`, { hint: "форми й імпорт виписки" })}`;
 
   onSubmit(ctx, main.querySelector("#cashForm"), (f) => ({
     path: "deposits",

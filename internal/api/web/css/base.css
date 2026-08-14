@@ -22,49 +22,152 @@ body, :host {
   font-family: var(--oi-font);
   font-size: var(--oi-fs-md);
   line-height: var(--oi-lh);
+  /* Табличні цифри на всьому. Доти вони стояли рівно на `td.num` нижче —
+     тобто числа в таблицях не пливли, а числа в плитках, найбільші в
+     застосунку, пливли. Успадкування дістає й <text> усередині SVG. */
+  font-variant-numeric: var(--oi-numeric);
 }
 
-/* --- шапка й навігація --- */
+/* Фокус. Одне правило на весь застосунок замість `outline: none` на полях
+   і НІЧОГО на всьому іншому: кнопки, посилання, підсумки згорнутих секцій
+   і каретки в таблиці не мали видимого фокуса взагалі, тобто клавіатурою
+   тут можна було ходити наосліп.
+   :focus-visible, а не :focus, — миша кільця не отримує. */
+:where(a, button, summary, input, select, textarea, [tabindex]):focus-visible {
+  outline: var(--oi-focus-width) solid var(--oi-focus);
+  outline-offset: 2px;
+  border-radius: var(--oi-radius-sm);
+}
+
+/* Рух. Кожен перехід у файлі зобов'язаний це поважати, і дешевше сказати
+   один раз тут, ніж пам'ятати в кожному правилі. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- сховане від ока, видиме читачеві екрана --- */
+
+/* Потрібне підписам таблиць, посиланню «до вмісту» й смузі оголошень.
+   Не display:none і не visibility:hidden — обидва прибирають вузол і з
+   дерева доступності теж, тобто рівно те, чого тут не треба. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Посилання «до вмісту»: видиме лише під фокусом. Перший Tab на сторінці
+   мусить давати спосіб перестрибнути шапку й п'ять вкладок, інакше
+   клавіатурою до самого розділу йти шість натискань щоразу. */
+.skip {
+  position: absolute;
+  left: var(--oi-gap-sm);
+  top: calc(-1 * var(--oi-gap-3xl));
+  z-index: var(--oi-z-modal);
+  background: var(--oi-surface-3);
+  color: var(--oi-text);
+  border: 1px solid var(--oi-border-strong);
+  border-radius: var(--oi-radius-sm);
+  padding: var(--oi-gap-sm) var(--oi-gap);
+  font-size: var(--oi-fs);
+  text-decoration: none;
+  transition: top var(--oi-dur-fast) var(--oi-ease);
+}
+.skip:focus { top: var(--oi-gap-sm); }
+
+/* --- шапка й навігація ---
+ *
+ * Далі файл написаний ВІД ТЕЛЕФОНА: базові правила описують вузький
+ * екран, а min-width-запити додають десктоп. Доти було навпаки, і на
+ * весь застосунок припадав один-єдиний медіазапит — тобто кожне нове
+ * правило народжувалось десктопним, і телефон дізнавався про це
+ * останнім. Зворотний порядок робить вузький екран станом за
+ * замовчуванням: забути про нього тепер треба навмисно.
+ *
+ * Літерали 640/900/1200 у @media неминучі — var() там не працює.
+ * Їхні двійники лежать у tokens.css як --oi-bp-*.
+ */
 
 header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--oi-gap);
-  padding: var(--oi-gap) var(--oi-gap-xl);
+  gap: var(--oi-gap-sm) var(--oi-gap);
+  padding: var(--oi-gap-sm) var(--oi-gap);
   background: var(--oi-header-bg);
   color: var(--oi-header-text);
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: var(--oi-z-header);
 }
-header h1 { font-size: var(--oi-fs-xl); margin: 0; font-weight: 500; }
+/* На телефоні назва ховається, а знак лишається: логотип упізнають по
+   знаку, і 90px тексту поруч із ним коштують дорожче за кнопку. */
+header h1 {
+  font-size: var(--oi-fs-xl);
+  margin: 0;
+  font-weight: var(--oi-fw-medium);
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
 header .sp { flex: 1; }
-
-/* Знак у шапці. Колір іде окремим токеном, а не спільним акцентом:
-   шапка тієї ж масті, що й картка, і знак має право бути акцентним —
-   але на іншому тлі акцент злився б, і тоді міняється одне значення,
-   а не правило. */
 header .mark { width: 22px; height: 22px; flex: 0 0 auto; color: var(--oi-header-mark); }
 
 nav {
-  display: flex;
-  gap: var(--oi-gap-xs);
-  padding: 0 var(--oi-gap-lg);
+  /* Знизу — під великий палець. П'ять вкладок це рівно та кількість, під
+     яку нижня панель і зроблена; горизонтальна смуга з прокруткою ховала
+     п'яту вкладку за краєм екрана, ще й без натяку, що там щось є. */
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  display: grid;
+  /* minmax(0, 1fr), а не 1fr: типове 1fr це minmax(AUTO, 1fr), тобто
+     колонка не має права стати вужчою за min-content свого вмісту —
+     і «Налаштування» одним словом розпирало панель до 605px на екрані
+     в 375. Нуль знімає цю підлогу, а переносити слово дозволяє
+     overflow-wrap нижче. */
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   background: var(--oi-surface);
-  border-bottom: 1px solid var(--oi-border);
-  overflow-x: auto;
+  border-top: 1px solid var(--oi-border);
+  padding: 0 0 env(safe-area-inset-bottom);   /* смуга жесту на iPhone */
+  z-index: var(--oi-z-header);
+  overflow: visible;
 }
 nav a {
-  padding: var(--oi-gap) var(--oi-gap-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: var(--oi-touch);
+  padding: var(--oi-gap-sm) var(--oi-gap-xs);
   cursor: pointer;
-  white-space: nowrap;
+  text-align: center;
+  text-decoration: none;
   color: var(--oi-muted);
-  border-bottom: 3px solid transparent;
+  font-size: var(--oi-fs-xs);
+  line-height: var(--oi-lh-snug);
+  /* «Налаштування» не має пробілу, де ламатись, а скорочувати підпис
+     означало б покласти presentation у constants.js, де живе модель. */
+  overflow-wrap: anywhere;
+  border-top: 3px solid transparent;
 }
-nav a.active {
+/* Два селектори на один стан: джерелом правди стає aria-current, але
+   клас .active ще ставить app.js, і поки він там — вигляд не має
+   залежати від того, який із двох приїхав першим. */
+nav a[aria-current="page"] {
   color: var(--oi-accent);
-  border-bottom-color: var(--oi-accent);
-  font-weight: 500;
+  border-top-color: var(--oi-accent);
+  font-weight: var(--oi-fw-medium);
 }
 
 /* Смуга стану застосунку — між навігацією і розділом. Ті самі поля, що
@@ -72,15 +175,64 @@ nav a.active {
    цьому суть: розділи перемальовують main цілком, і всередині нього
    смуга не пережила б жодного рендеру. */
 #alert {
-  padding: var(--oi-gap) var(--oi-gap-xl) 0;
+  padding: var(--oi-gap) var(--oi-gap) 0;
   max-width: var(--oi-max-width);
   margin: 0 auto;
 }
 
 main {
-  padding: 0 var(--oi-gap-xl) var(--oi-gap-xl);
+  /* Нижній відступ звільняє місце під панель навігації: без нього
+     останній рядок розділу назавжди лишався б під нею. */
+  padding: 0 var(--oi-gap)
+           calc(var(--oi-touch) + var(--oi-gap-xl) + env(safe-area-inset-bottom));
   max-width: var(--oi-max-width);
   margin: 0 auto;
+}
+/* Головна область отримує фокус програмно при зміні розділу — щоб читач
+   екрана дізнався, що вміст замінився. Кільця на ній не треба: це не
+   керований елемент, а місце, куди фокус переставили. */
+main:focus { outline: none; }
+
+@media (min-width: 640px) {
+  header { padding: var(--oi-gap-sm) var(--oi-gap-lg); }
+  header h1 { position: static; width: auto; height: auto; clip-path: none; }
+  #alert { padding: var(--oi-gap) var(--oi-gap-lg) 0; }
+  main { padding-left: var(--oi-gap-lg); padding-right: var(--oi-gap-lg); }
+}
+
+@media (min-width: 900px) {
+  header { flex-wrap: nowrap; padding: var(--oi-gap) var(--oi-gap-xl); }
+
+  /* Досить місця — панель повертається під шапку смугою, у звичайному
+     потоці. Липкою вона тут не стає навмисно: липка була б прив'язана
+     до висоти шапки, а та зверстана вмістом і числа не має. Другий
+     липкий рядок і без того з'їдав би висоту, якої на розділ із
+     шістнадцятьма блоками і так не вистачає. */
+  nav {
+    position: static;
+    display: flex;
+    gap: var(--oi-gap-xs);
+    padding: 0 var(--oi-gap-lg);
+    border-top: none;
+    border-bottom: 1px solid var(--oi-border);
+  }
+  nav a {
+    flex-direction: row;
+    min-height: 0;
+    padding: var(--oi-gap) var(--oi-gap-lg);
+    font-size: var(--oi-fs-md);
+    white-space: nowrap;
+    border-top: none;
+    border-bottom: 3px solid transparent;
+  }
+  nav a.active,
+  nav a[aria-current="page"] {
+    border-top-color: transparent;
+    border-bottom-color: var(--oi-accent);
+  }
+
+  #alert { padding: var(--oi-gap) var(--oi-gap-xl) 0; }
+  main { padding: 0 var(--oi-gap-xl) var(--oi-gap-xl); }
 }
 
 /* --- кнопки --- */
@@ -96,15 +248,34 @@ button {
   color: var(--oi-on-accent);
 }
 button:disabled { opacity: .5; cursor: default; }
-button.ghost { background: var(--oi-soft-ok-btn-bg); color: var(--oi-header-text); }
+/* Кнопка в шапці. Називалась ghost, а малювалась суцільною ЗЕЛЕНОЮ — і
+   виходило, що найгучніший колір на екрані витрачено на «оновити
+   довідник», тобто на дію, яка нічого не вирішує. Зелений тут потрібен
+   для стану («можна купувати»), а не для кнопки поруч із логотипом. */
+button.ghost {
+  background: none;
+  color: var(--oi-header-text);
+  border: 1px solid var(--oi-border-strong);
+}
+button.ghost:hover { border-color: var(--oi-accent); }
 button.sm { padding: var(--oi-gap-xs) 10px; font-size: var(--oi-fs-sm); }
-button.warn { background: var(--oi-danger); color: #fff; }
+button.warn { background: var(--oi-danger); color: var(--oi-on-signal); }
 button.quiet {
   background: var(--oi-surface-3);
   color: var(--oi-text);
   border: 1px solid var(--oi-border-strong);
 }
 button.link { background: none; border: none; color: var(--oi-danger); padding: 0 var(--oi-gap-xs); }
+
+/* Текстове посилання всередині розділу. Акцент тут доречний саме тому,
+   що це єдине місце, де він означає «звідси можна піти». */
+.lnk {
+  color: var(--oi-accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  font-size: var(--oi-fs);
+}
+.lnk:hover { border-bottom-color: currentColor; }
 
 /* --- картки й плитки --- */
 
@@ -117,33 +288,79 @@ button.link { background: none; border: none; color: var(--oi-danger); padding: 
   gap: var(--oi-gap);
   max-width: var(--oi-max-width);
   margin: var(--oi-gap-lg) auto;
-  padding: 0 var(--oi-gap-xl);
+  padding: 0 var(--oi-gap);
 }
 .tile {
   background: var(--oi-surface);
   border-radius: var(--oi-radius);
-  padding: 14px;
+  padding: var(--oi-gap);
   box-shadow: var(--oi-shadow);
 }
 .tile .lbl { font-size: var(--oi-fs-sm); color: var(--oi-muted); }
-.tile .val { font-size: var(--oi-fs-xl); font-weight: 600; margin-top: var(--oi-gap-xs); }
+/* Трекінг: 21px табличних цифр без нього виглядають розсипаними —
+   табличні метрики й самі додають повітря між знаками. */
+.tile .val {
+  font-size: var(--oi-fs-xl);
+  font-weight: var(--oi-fw-bold);
+  line-height: var(--oi-lh-tight);
+  letter-spacing: var(--oi-ls-tight);
+  margin-top: var(--oi-gap-xs);
+}
 
 .card {
   background: var(--oi-surface);
   border-radius: var(--oi-radius);
-  padding: var(--oi-gap-lg);
-  margin-bottom: var(--oi-gap-lg);
+  padding: var(--oi-card-pad);
+  margin-bottom: var(--oi-gap);
   box-shadow: var(--oi-shadow);
 }
 .card h2 { font-size: var(--oi-fs-lg); margin: 0 0 var(--oi-gap); }
-.card h4 { margin: 0 0 var(--oi-gap-sm); font-size: var(--oi-fs); font-weight: 600; }
+.card h4 { margin: 0 0 var(--oi-gap-sm); font-size: var(--oi-fs); font-weight: var(--oi-fw-bold); }
+
+@media (min-width: 640px) {
+  /* Щільність перемикається двома змінними, а не тридцятьма правилами.
+     На телефоні поля картки стискаються (кожен піксель ширини потрібен
+     числу), а рядок таблиці, навпаки, вищий — палець не курсор. Далі
+     обидва повертаються до звичних. */
+  :root, :host {
+    --oi-card-pad: var(--oi-gap-lg);
+    --oi-cell-pad-y: var(--oi-gap-sm);
+  }
+  .tiles { padding: 0 var(--oi-gap-lg); margin-bottom: var(--oi-gap-lg); }
+  .card { margin-bottom: var(--oi-gap-lg); }
+}
+@media (min-width: 900px) {
+  .tiles { padding: 0 var(--oi-gap-xl); }
+}
 
 /* --- таблиці --- */
 
-table { width: 100%; border-collapse: collapse; font-size: var(--oi-fs); }
-th, td { text-align: left; padding: var(--oi-gap-sm) 10px; border-bottom: 1px solid var(--oi-border); }
-th { color: var(--oi-muted); font-weight: 500; }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* На телефоні кожна таблиця прокручується ВСЕРЕДИНІ своєї коробки.
+   `.table-scroll` для цього й існує, але обгортку мали не всі дев'ять
+   таблиць застосунку — і ті, що не мали, розсували по горизонталі ВСЮ
+   сторінку, разом із шапкою й панеллю вкладок. Одне правило замість
+   дев'яти правок розмітки, і воно накриває ще й ті таблиці, яких я не
+   бачив. display:block ламає розтягування на всю ширину — на вузькому
+   екрані це навіть краще, бо колонки перестають бути гумовими. */
+table {
+  display: block;
+  overflow-x: auto;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--oi-fs);
+}
+@media (min-width: 640px) {
+  table { display: table; overflow-x: visible; }
+}
+th, td {
+  text-align: left;
+  padding: var(--oi-cell-pad-y) var(--oi-cell-pad-x);
+  border-bottom: 1px solid var(--oi-border);
+}
+th { color: var(--oi-muted); font-weight: var(--oi-fw-medium); }
+/* Вирівнювання праворуч — усе, що тут лишилось: табличні цифри тепер
+   стоять на body/:host і успадковуються сюди самі. */
+td.num, th.num { text-align: right; }
 tr:last-child td { border-bottom: none; }
 
 /* --- єдина таблиця позицій --- */
@@ -176,6 +393,125 @@ tr:last-child td { border-bottom: none; }
    Хай їде таблиця всередині своєї картки, а сторінка стоїть. */
 .table-scroll { overflow-x: auto; }
 
+/* --- три яруси таблиці позицій ---
+ *
+ * Сенс єдиної таблиці — побачити портфель ОДНИМ поглядом (див. коментар
+ * на початку portfolio.js), тож картка-на-рядок вмикається тільки там,
+ * де таблицею вже неможливо: на телефоні. Ширше вона лишається
+ * таблицею, просто з меншою кількістю колонок.
+ *
+ *   < 640  картка-рядок: тип+назва+дохідність зверху, решта дрібним рядком
+ *   640-899 таблиця без «Вкладено» (воно й так усередині рядка деталей)
+ *   >= 900  усі сім колонок
+ *
+ * Керується це двома атрибутами в розмітці (data-label, data-prio) —
+ * жодного дублювання розмітки під різні ширини немає.
+ *
+ * УСІ селектори нижче йдуть через прямих нащадків (`>`). Це не
+ * охайність, а необхідність: у рядку деталей живуть ВКЛАДЕНІ таблиці
+ * (лоти, продажі, поповнення), і `.pos-table td` дотягувався б і до них
+ * — тобто варто було розкрити позицію, як її ж деталі складались би в
+ * ту саму картку-рядок, тільки без жодного сенсу.
+ */
+.pos-table,
+.pos-table > tbody,
+.pos-table > tbody > tr,
+.pos-table > tbody > tr > td { display: block; width: 100%; }
+.pos-table > thead {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+/* Кожна комірка дістає ВЛАСНУ область. Спільної області на три комірки
+   бути не може: діти grid-контейнера примусово блокуються (display:inline
+   на них не діє), тож в одній області вони лягли б одна на одну. */
+.pos-table > tbody > tr:not(.detail-row) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "kind name  yield"
+    "kind value term"
+    "kind acts  acts";
+  gap: var(--oi-gap-xs) var(--oi-gap-sm);
+  align-items: baseline;
+  padding: var(--oi-gap-sm) 0;
+  border-bottom: 1px solid var(--oi-border);
+  min-height: var(--oi-touch);
+}
+.pos-table > tbody > tr:not(.detail-row) > td { border-bottom: none; padding: 0; }
+.pos-table > tbody > tr > td.col-kind { grid-area: kind; align-self: start; }
+.pos-table > tbody > tr > td[data-label="Назва"] { grid-area: name; }
+.pos-table > tbody > tr > td.col-yield { grid-area: yield; text-align: right; min-width: 0; }
+.pos-table > tbody > tr > td[data-label="Вартість"] { grid-area: value; }
+.pos-table > tbody > tr > td[data-label="Строк"] { grid-area: term; text-align: right; }
+.pos-table > tbody > tr > td.row-actions { grid-area: acts; }
+/* Другий рядок картки — дрібним і з підписами: «214 900 ₴» саме по собі
+   не каже, вкладено це чи коштує сьогодні. */
+.pos-table > tbody > tr > td[data-prio] {
+  font-size: var(--oi-fs-xs);
+  color: var(--oi-muted);
+}
+.pos-table > tbody > tr > td[data-prio]::before {
+  content: attr(data-label) " ";
+  color: var(--oi-text-faint);
+}
+/* «Вкладено» на телефоні не показуємо: третє число в рядку з двох
+   рядків — це вже не картка, а таблиця без заголовків. Воно є в
+   розкритому рядку деталей, куди по нього й ходять. */
+.pos-table > thead > tr > th[data-prio="3"],
+.pos-table > tbody > tr > td[data-prio="3"] { display: none; }
+/* Деталі прокручуються самі. Без цього широка вкладена таблиця (лоти —
+   вісім колонок) розсувала ВЕСЬ .pos-table, і разом із нею по горизонталі
+   починали їздити картки-рядки, які самі чудово вміщались. */
+.pos-table > tbody > .detail-row > td {
+  padding: var(--oi-gap) var(--oi-gap);
+  overflow-x: auto;
+}
+
+@media (min-width: 640px) {
+  /* Назад у таблицю. display повертається до табличних значень явно —
+     інакше блокові з базового ярусу лишились би. */
+  .pos-table { display: table; }
+  .pos-table > thead {
+    display: table-header-group;
+    position: static;
+    width: auto; height: auto;
+    clip-path: none;
+  }
+  .pos-table > tbody { display: table-row-group; }
+  .pos-table > tbody > tr,
+  .pos-table > tbody > tr:not(.detail-row) {
+    display: table-row;
+    gap: 0;
+    padding: 0;
+    min-height: 0;
+    border-bottom: none;
+  }
+  .pos-table > tbody > tr > td,
+  .pos-table > tbody > tr:not(.detail-row) > td {
+    display: table-cell;
+    padding: var(--oi-cell-pad-y) var(--oi-cell-pad-x);
+    border-bottom: 1px solid var(--oi-border);
+  }
+  .pos-table > tbody > tr > td[data-prio] {
+    font-size: var(--oi-fs);
+    color: inherit;
+  }
+  .pos-table > tbody > tr > td[data-label="Строк"] { text-align: left; }
+  .pos-table > tbody > tr > td.num[data-prio] { text-align: right; }
+  .pos-table > tbody > tr > td[data-prio]::before { content: none; }
+  /* «Вкладено» лишається схованим і тут: на 640-899 місця не досить на
+     сім колонок. Повертається на 900, де воно є. */
+  .pos-table > tbody > tr:last-child > td { border-bottom: none; }
+}
+
+@media (min-width: 900px) {
+  .pos-table > thead > tr > th[data-prio="3"],
+  .pos-table > tbody > tr > td[data-prio="3"] { display: table-cell; }
+  .pos-table > tbody > tr > td.num[data-prio="3"] { text-align: right; }
+}
+
 /* Каретка розкриття. Кнопка, а не span: рядок деталей — це той самий
    disclosure, і клавіатура має його діставати. */
 .caret {
@@ -186,7 +522,7 @@ tr:last-child td { border-bottom: none; }
   padding: 0 var(--oi-gap-xs) 0 0;
   font-size: var(--oi-fs-sm);
   line-height: 1;
-  transition: transform .12s ease;
+  transition: transform var(--oi-dur-fast) var(--oi-ease);
   display: inline-block;
 }
 .caret.open { transform: rotate(90deg); }
@@ -236,7 +572,7 @@ tr:last-child td { border-bottom: none; }
   content: "▸";
   color: var(--oi-muted);
   font-size: var(--oi-fs-sm);
-  transition: transform .12s ease;
+  transition: transform var(--oi-dur-fast) var(--oi-ease);
   display: inline-block;
 }
 .disclosure[open] > summary::before { transform: rotate(90deg); }
@@ -253,9 +589,15 @@ tr:last-child td { border-bottom: none; }
 
 form {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  /* На телефоні — одна колонка. minmax(150px, …) на екрані 360px давав
+     дві колонки по 168px, у яких підпис «Ціна за папір, брудна» ламався
+     на три рядки, а поле дати не влазило цілком. */
+  grid-template-columns: 1fr;
   gap: var(--oi-gap);
   align-items: end;
+}
+@media (min-width: 640px) {
+  form { grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); }
 }
 label { display: flex; flex-direction: column; gap: var(--oi-gap-xs); font-size: var(--oi-fs-sm); color: var(--oi-muted); }
 input, select {
@@ -265,9 +607,19 @@ input, select {
   background: var(--oi-surface-2);
   color: var(--oi-text);
   font-family: inherit;
-  font-size: var(--oi-fs);
+  /* 16px на телефоні — не смак: усе, менше за 16, змушує Safari на iOS
+     наближати сторінку при фокусі в поле, і назад вона вже не від'їжджає.
+     Далі повертаємось до щільного розміру решти інтерфейсу. */
+  font-size: var(--oi-fs-lg);
 }
-input:focus, select:focus { outline: none; border-color: var(--oi-accent); }
+@media (min-width: 640px) {
+  input, select { font-size: var(--oi-fs); }
+}
+/* Акцентна рамка лишається — але вже НЕ замість кільця фокуса, а разом
+   із ним (кільце задане одним правилом угорі файлу). Рамка каже «тут
+   пишуть», кільце — «тут зараз клавіатура»; це різні факти, і доти
+   другий просто не повідомлявся. */
+input:focus, select:focus { border-color: var(--oi-accent); }
 
 /* Поле правки просто в рядку таблиці — вужче за формове, бо рядок
    продажу читають як число, а не як анкету. */
@@ -277,7 +629,7 @@ td.num .sale-f { text-align: right; }
 .suggest {
   position: absolute;
   top: 100%; left: 0; right: 0;
-  z-index: 6;
+  z-index: var(--oi-z-popover);
   margin-top: 2px;
   background: var(--oi-surface);
   border: 1px solid var(--oi-border);
@@ -301,18 +653,32 @@ td.num .sale-f { text-align: right; }
 /* --- сигнальні блоки --- */
 
 .banner {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--oi-gap);
+  /* На телефоні банер складається: іконка з текстом у ряд, кнопка —
+     окремим рядком на всю ширину. Доти кнопка тиснула текст у колонку
+     на два слова, і «Можна купувати 48 300 ₴» ставало чотирма рядками. */
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--oi-gap-sm) var(--oi-gap);
+  align-items: start;
   border-radius: var(--oi-radius);
-  padding: 14px var(--oi-gap-lg);
+  padding: var(--oi-gap) var(--oi-card-pad);
   margin-bottom: var(--oi-gap);
 }
-.banner .b-ic { font-size: 18px; line-height: 1.4; }
-.banner .b-tx { flex: 1; }
+.banner .b-ic { font-size: var(--oi-fs-lg); line-height: var(--oi-lh-snug); }
+.banner .b-tx { min-width: 0; }
 .banner .b-t { font-size: var(--oi-fs-lg); }
 .banner .b-s { font-size: var(--oi-fs-sm); opacity: .9; margin-top: 3px; }
-.banner button { margin-left: auto; align-self: center; white-space: nowrap; font-weight: 600; }
+.banner button {
+  grid-column: 2;
+  justify-self: start;
+  white-space: nowrap;
+  font-weight: var(--oi-fw-bold);
+  min-height: var(--oi-touch);
+}
+@media (min-width: 640px) {
+  .banner { grid-template-columns: auto 1fr auto; align-items: center; }
+  .banner button { grid-column: 3; align-self: center; min-height: 0; }
+}
 .banner.ok { background: var(--oi-soft-ok-bg); color: var(--oi-soft-ok-fg); border: 1px solid var(--oi-soft-ok-border); }
 .banner.ok button { background: var(--oi-soft-ok-btn-bg); color: var(--oi-soft-ok-btn-fg); }
 .banner.wait { background: var(--oi-soft-warn-bg); color: var(--oi-soft-warn-fg); border: 1px solid var(--oi-soft-warn-border); }
@@ -329,19 +695,33 @@ td.num .sale-f { text-align: right; }
 
 /* --- дрібні розкладки --- */
 
-.quick { display: flex; gap: var(--oi-gap-sm); margin-bottom: 14px; flex-wrap: wrap; }
-.quick button {
+.quick { display: flex; gap: var(--oi-gap-sm); margin-bottom: var(--oi-gap); flex-wrap: wrap; }
+/* Тут і <button>, і <a class="btn">: швидкі дії стали справжніми
+   посиланнями (у них тепер є адреса), а вигляд у них має лишитись той
+   самий — це та сама дія, лише тепер її можна покласти в закладки. */
+.quick button, .quick .btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 1;
   min-width: 130px;
+  min-height: var(--oi-touch);
+  padding: var(--oi-gap-sm) var(--oi-gap);
+  border-radius: var(--oi-radius-sm);
+  font-size: var(--oi-fs);
+  text-decoration: none;
+  cursor: pointer;
   background: var(--oi-surface);
   color: var(--oi-text);
   border: 1px solid var(--oi-border-strong);
 }
-.quick button:hover { border-color: var(--oi-accent); color: var(--oi-accent); }
+/* Наведення міняє рамку, а не текст: акцент у тексті тут змагався б із
+   рештою акцентів на екрані, а рамки досить, щоб сказати «клікабельно». */
+.quick button:hover, .quick .btn:hover { border-color: var(--oi-accent); }
 
-.ov-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: var(--oi-gap); align-items: start; }
+.ov-grid { display: grid; grid-template-columns: 1fr; gap: var(--oi-gap); align-items: start; }
 .ov-grid > .card { min-width: 0; }
-@media (max-width: 820px) { .ov-grid { grid-template-columns: 1fr; } }
+@media (min-width: 900px) { .ov-grid { grid-template-columns: 1.5fr 1fr; } }
 
 .pv-row {
   display: flex;
@@ -386,7 +766,25 @@ td.num .sale-f { text-align: right; }
 /* Підказка під курсором на кривій.
    Контейнер прокручується по горизонталі (графік ширший за вузьке
    вікно), тож підказка позиціюється всередині нього, а не в картці. */
+/* Рамка графіка. Висоту задає вона, ширину — картка, у якій вона лежить;
+   малює всередину fitCharts(), уже знаючи обидві. Висота саме тут, а не
+   в JS, бо це питання розкладки: на телефоні графік нижчий. */
+.chart-frame { width: 100%; height: 170px; }
+.chart-frame.tall { height: 230px; }
+.chart-frame > svg { display: block; }
+@media (min-width: 640px) {
+  .chart-frame { height: 210px; }
+  .chart-frame.tall { height: 300px; }
+}
+
 .chart-wrap { position: relative; overflow-x: auto; }
+/* На телефоні крива вміщується цілком: поріг ширини знімається, а
+   seriesChart сам рідше підписує дати. Свайпати рік історії через
+   екран у 375px — гірше, ніж бачити менше підписів. */
+@media (max-width: 639px) { .chart-wrap { --oi-chart-min: 0px; } }
+/* Смуга влучання досяжна з клавіатури — кільце малюємо їй самій,
+   бо прозорий прямокутник інакше ніяк не покажеш. */
+.chart-hit:focus-visible { fill: var(--oi-focus); fill-opacity: .12; }
 .chart-tip {
   position: absolute;
   top: var(--oi-gap-xs);
@@ -399,7 +797,7 @@ td.num .sale-f { text-align: right; }
   font-size: var(--oi-fs-sm);
   box-shadow: var(--oi-shadow);
   white-space: nowrap;
-  z-index: 2;
+  z-index: var(--oi-z-sticky);
 }
 .chart-tip.show { display: block; }
 .chart-tip b { font-weight: 600; }
@@ -438,41 +836,56 @@ td.num .sale-f { text-align: right; }
 
 /* --- пояснення «як це читати» --- */
 
+/* Кружечок «i». Лишається дрібним на око — поруч із заголовком картки
+   він і має бути тихим, — але ціль дотику розширена невидимим полем:
+   20×20 це менше за будь-який палець, і на телефоні в неї доводилось
+   цілитись двічі. */
 .info {
+  position: relative;
   width: 20px; height: 20px;
   border-radius: 50%;
   border: 1px solid var(--oi-border-strong);
   background: none;
   color: var(--oi-muted);
-  font: italic 600 12px Georgia, serif;
+  font: italic var(--oi-fw-bold) var(--oi-fs-sm) Georgia, serif;
   cursor: pointer;
   flex: 0 0 auto;
   line-height: 1;
   padding: 0;
   margin-left: var(--oi-gap-sm);
 }
+.info::after {
+  content: "";
+  position: absolute;
+  inset: calc((20px - var(--oi-touch)) / 2);
+}
 .info:hover { border-color: var(--oi-accent); color: var(--oi-accent); }
 
+/* Нативний <dialog>. Позиціювання, верхній шар і підкладку малює
+   браузер, тож від колишнього фіксованого шару лишився самий вигляд
+   коробки. z-index не потрібен зовсім: top layer стоїть над усім. */
 .infopop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, .55);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-  padding: var(--oi-gap-xl);
-}
-.infopop.show { display: flex; }
-.infopop .box {
   background: var(--oi-surface);
+  color: var(--oi-text);
   border: 1px solid var(--oi-border-strong);
-  border-radius: var(--oi-radius);
-  padding: var(--oi-gap-xl) 22px;
-  max-width: 460px;
+  border-radius: var(--oi-radius-lg);
+  padding: 0;
+  max-width: min(460px, calc(100vw - 2 * var(--oi-gap)));
+  /* dvh, а не vh: на телефоні адресний рядок з'їдає частину vh, і довге
+     пояснення обрізалось знизу рівно там, де його не видно. */
+  max-height: min(80dvh, 720px);
+  overflow: auto;
 }
-.infopop h4 { margin: 0 0 10px; font-size: var(--oi-fs-lg); }
-.infopop p { margin: 0; color: var(--oi-text); line-height: 1.6; font-size: var(--oi-fs); }
+.infopop::backdrop { background: var(--oi-overlay); }
+.infopop .box { padding: var(--oi-gap-lg); }
+.infopop h4 { margin: 0 0 var(--oi-gap-sm); font-size: var(--oi-fs-lg); }
+.infopop p {
+  margin: 0 0 var(--oi-gap);
+  color: var(--oi-text);
+  line-height: var(--oi-lh-prose);
+  font-size: var(--oi-fs);
+}
+.infopop p:last-child { margin-bottom: 0; }
 .infopop .x {
   float: right;
   background: none;
@@ -480,26 +893,103 @@ td.num .sale-f { text-align: right; }
   color: var(--oi-muted);
   font-size: var(--oi-fs-xl);
   cursor: pointer;
-  margin: -6px -6px 0 0;
+  min-width: var(--oi-touch);
+  min-height: var(--oi-touch);
+  margin: calc(-1 * var(--oi-gap)) calc(-1 * var(--oi-gap)) 0 0;
   padding: 0;
 }
+@media (min-width: 640px) {
+  .infopop { max-width: 460px; }
+  .infopop .box { padding: var(--oi-gap-xl); }
+}
+
+/* --- секції: група карток під спільним питанням --- */
+
+.sect { margin-bottom: var(--oi-gap-2xl); }
+.sect > .sect-d { border-top: none; }
+.sect > .sect-d > summary {
+  padding: 0 0 var(--oi-gap);
+  border-bottom: 1px solid var(--oi-border);
+  margin-bottom: var(--oi-gap-lg);
+}
+.sect-t {
+  font-size: var(--oi-fs-lg);
+  line-height: var(--oi-lh-tight);
+  font-weight: var(--oi-fw-medium);
+  margin: 0;
+  /* Заголовок усередині <summary> — інлайновий: блоковий скинув би
+     маркер-каретку на власний рядок. */
+  display: inline;
+}
+/* Згорнута секція не лишає під собою порожнього місця. */
+.sect > .sect-d:not([open]) > summary { margin-bottom: 0; }
+
+/* --- порожній стан --- */
+
+/* Картка, якої ще немає, має сказати дві речі: чому її не видно і що
+   зробити, щоб була. Доти половина таких місць повертала порожній
+   рядок, а друга половина — сірий текст без жодного виходу. */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--oi-gap-sm);
+  padding: var(--oi-gap-lg) 0;
+  color: var(--oi-muted);
+  font-size: var(--oi-fs);
+}
+.empty-t { color: var(--oi-text); font-size: var(--oi-fs-md); }
+.empty-w { max-width: 52ch; line-height: var(--oi-lh); }
+
+/* --- скелети --- */
+
+.skel-card, .skel-tile, .skel-banner {
+  background: var(--oi-surface);
+  border-radius: var(--oi-radius);
+  padding: var(--oi-card-pad);
+  margin-bottom: var(--oi-gap);
+}
+.skel-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--oi-gap); }
+.skel-tiles .skel-tile { margin-bottom: var(--oi-gap); }
+.skel-line { height: 1em; border-radius: var(--oi-radius-sm); background: var(--oi-surface-3); }
+.skel-line + .skel-line { margin-top: var(--oi-gap-sm); }
+.skel-chart { height: 180px; border-radius: var(--oi-radius-sm); background: var(--oi-surface-3); margin-top: var(--oi-gap); }
+.skel-rows { margin-top: var(--oi-gap); }
+.skel-row { height: 32px; border-radius: var(--oi-radius-sm); background: var(--oi-surface-3); }
+.skel-row + .skel-row { margin-top: var(--oi-gap-sm); }
+
+/* Мерехтіння — лише там, де рух дозволено. Базовий стан статичний
+   навмисно: анімація мусить бути додатком, а не умовою читабельності. */
+@media (prefers-reduced-motion: no-preference) {
+  .skel-line, .skel-chart, .skel-row { animation: oi-shimmer 1.4s var(--oi-ease) infinite; }
+  @keyframes oi-shimmer { 50% { opacity: .45; } }
+}
+
+/* Теплий перерендер: старий вміст лишається на місці, лише притухає.
+   Доти будь-яке збереження стирало main цілком і показувало слово
+   «Завантаження…» — тобто після додавання лота екран блимав порожнечею
+   на кожен запис. */
+main[data-busy] { opacity: .55; pointer-events: none; }
 
 /* --- сповіщення --- */
 
 .toast {
   position: fixed;
-  bottom: var(--oi-gap-xl);
+  /* Над панеллю навігації, а не під нею: доти тост з'являвся рівно там,
+     де тепер стоять вкладки, і «Збережено» ховалось за ними. */
+  bottom: calc(var(--oi-touch) + var(--oi-gap-lg) + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%) translateY(80px);
   padding: var(--oi-gap) var(--oi-gap-xl);
-  border-radius: 10px;
-  color: #fff;
+  border-radius: var(--oi-radius);
+  color: var(--oi-on-signal);
   opacity: 0;
-  transition: .25s;
-  z-index: 9;
+  transition: var(--oi-dur-slow) var(--oi-ease);
+  z-index: var(--oi-z-toast);
   max-width: 80vw;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+@media (min-width: 900px) { .toast { bottom: var(--oi-gap-xl); } }
 .toast.ok { background: var(--oi-ok); }
 .toast.err { background: var(--oi-danger); }
 

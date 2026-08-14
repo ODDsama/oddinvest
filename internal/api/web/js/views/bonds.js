@@ -25,7 +25,7 @@ export function bondBuyFormHTML(ctx, lots) {
         <label>Нотатка<input name="note"></label>
         <button type="submit">Додати</button>
       </form>
-      <div class="muted" id="bondInfo" style="margin-top:8px"></div>`;
+      <div class="muted" id="bondInfo" style="margin-top:var(--oi-gap-sm)"></div>`;
 }
 
 export function bondSaleFormHTML(ctx, lots) {

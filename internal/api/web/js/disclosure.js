@@ -19,11 +19,17 @@ function readFolds() {
 export function wireDisclosures(main) {
   const folds = readFolds();
   main.querySelectorAll("[data-fold]").forEach((d) => {
-    if (folds[d.dataset.fold]) d.open = true;
+    // Записане значення перекриває розмітку — В ОБИДВА боки. Доти пам'ять
+    // уміла тільки відкривати, і поки всі секції за замовчуванням були
+    // згорнуті, різниці не було. З появою секцій, розгорнутих одразу
+    // (section({open:true})), вона з'явилась: згорнуту людиною секцію
+    // наступний рендер відкривав би назад, бо `open` стоїть у розмітці.
+    const saved = folds[d.dataset.fold];
+    if (saved !== undefined) d.open = saved;
     // Слухач на кожному, а не делегований: подія toggle не спливає.
     d.addEventListener("toggle", () => {
       const cur = readFolds();
-      if (d.open) cur[d.dataset.fold] = true; else delete cur[d.dataset.fold];
+      cur[d.dataset.fold] = d.open;
       try { localStorage.setItem(FOLDS_KEY, JSON.stringify(cur)); } catch (_) {}
     });
   });
@@ -37,6 +43,29 @@ export function disclosure(key, title, body, hint = "") {
     <summary>${title}${hint ? `<span class="hint">${hint}</span>` : ""}</summary>
     <div class="disclosure-body">${body}</div>
   </details>`;
+}
+
+
+// section — той самий механізм, лише крупнішим зерном: не картка
+// всередині розділу, а ГРУПА карток під спільним питанням.
+//
+// Завелось це через «Портфель»: шістнадцять карток підряд, і таблиця
+// позицій — те, заради чого туди й заходять, — дев'ята. Розбити вкладку
+// на дві заборонено (шоста вкладка це відповідь на розділ, який не
+// тримає своє питання), та й не треба: питання в розділу одне, просто
+// відповідей на нього шістнадцять. Іменована група каже, яка відповідь
+// на що, і дозволяє згорнути ті, по які приходять раз на місяць.
+//
+// Жодної нової машинерії стану: це той самий <details data-fold> із
+// пам'яттю в localStorage, і wireDisclosures підхоплює його як є.
+export function section(key, title, body, { open = false, hint = "" } = {}) {
+  return `<section class="sect">
+    <details class="disclosure sect-d" data-fold="sect.${key}"${open ? " open" : ""}>
+      <summary><h2 class="sect-t">${title}</h2>${
+        hint ? `<span class="hint">${hint}</span>` : ""}</summary>
+      <div class="sect-body">${body}</div>
+    </details>
+  </section>`;
 }
 
 

@@ -7,6 +7,7 @@
 import { esc, today, pct } from "../format.js";
 import { tile } from "../components.js";
 import { onSubmit, onDelete, apply } from "../forms.js";
+import { section, wireDisclosures } from "../disclosure.js";
 import { strategyCardHTML, wireStrategy } from "./strategy.js";
 
 // Брокери й фонди — довідники з власними ендпойнтами. Раніше брокери
@@ -41,7 +42,7 @@ export function catalogRowHTML(item, fields = []) {
   // Дев'ять полів переносяться, і ✕ розтягувався червоною смугою на дві
   // лінії. Правити .pv-row не можна — на ній стоять усі списки позицій.
   return `<div class="pv-row" data-cat="${item.id}">
-    <span style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <span style="display:flex;gap:var(--oi-gap-sm);flex-wrap:wrap;align-items:center">
       <input class="cat-name" value="${esc(item.name)}" style="width:190px">${inputs}</span>
     <button class="sm warn" data-catdel="${item.id}" style="align-self:flex-start">✕</button></div>`;
 }
@@ -87,7 +88,7 @@ export function catalogsHTML(ctx) {
       <div class="muted" style="margin-bottom:10px">Рахунки, на яких лежать гроші й папери. Перейменування підхоплюють
         усі записи разом. Видалити можна лише того, за ким не лишилось записів.</div>
       ${brokers}
-      <form id="brokerAddForm" style="margin-top:10px;display:flex;gap:8px">
+      <form id="brokerAddForm" style="margin-top:10px;display:flex;gap:var(--oi-gap-sm)">
         <input name="broker" placeholder="назва брокера" style="flex:0 0 200px" autocomplete="off">
         <button type="submit">Додати</button>
       </form>
@@ -219,16 +220,16 @@ function devalHTML(d) {
     <td class="muted sub-xs">${esc(w.from)} → ${esc(w.to)}</td></tr>`).join("");
   return `<div class="card">
     <h2>Знецінення гривні</h2>
-    <div class="tiles flush" style="margin-bottom:12px">
+    <div class="tiles flush" style="margin-bottom:var(--oi-gap)">
       ${tile("Чинне значення", pct(d.effective_pct), `<div class="sub">${src}</div>`)}
     </div>
-    <div class="muted" style="font-size:13px;margin-bottom:10px">Це число ділить <b>кожну реальну
+    <div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:10px">Це число ділить <b>кожну реальну
       дохідність</b> у застосунку й керує прогнозом. Порожнє поле «Гривня слабшає» вище означає
       «бери виміряне» — саме так його й повертають назад на автоматику.</div>
     ${rows ? `<div class="table-scroll"><table><thead><tr>
         <th>Вікно</th><th class="num">%/рік</th><th>Курс від → до</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-      <div class="sub" style="margin-top:8px">Застосунок бере <b>десятирічне</b> вікно, і різниця між
+      <div class="sub" style="margin-top:var(--oi-gap-sm)">Застосунок бере <b>десятирічне</b> вікно, і різниця між
         рядками пояснює чому: гривня падає стрибками, тож коротке вікно ловить або стрибок, або
         затишшя між ними. Довге усереднює і те, і те.</div>`
       : `<div class="muted">${esc(d.note || "історії курсу ще немає")}</div>`}
@@ -240,7 +241,17 @@ export async function renderSettings(ctx, main) {
     ctx.api("GET", "settings"),
     ctx.soft("devaluation", null),
   ]);
+  // Одинадцять однакових карток підряд — найдовший скрол у застосунку, і
+  // жодна з них не каже, до чого належить: щоб знайти «Ліміти
+  // концентрації», доводилось прочитати десять заголовків. Чотири
+  // секції за питаннями, і три з них згорнуті: у політику заходять
+  // регулярно, у довідники — раз на кілька місяців.
+  //
+  // Групи навмисно збігаються з наявним порядком карток: переставляти їх
+  // місцями всередині одного великого шаблонного рядка — та правка, яку
+  // найлегше зробити наполовину.
   main.innerHTML = `
+    ${section("policy", "Політика", `
     ${strategyCardHTML(s)}
 
     <div class="card">
@@ -255,8 +266,9 @@ export async function renderSettings(ctx, main) {
         <label>Ставка сповзає туди за, років<input name="rate_glide_years" inputmode="decimal" placeholder="порожньо = 5" value="${esc(s.rate_glide_years || "")}"></label>
         <button type="submit">Зберегти</button>
       </form>
-    </div>
+    </div>`, { open: true, hint: "цілі, ліміти, порядок порад" })}
 
+    ${section("instruments", "Інструменти й межі", `
     <div class="card">
       <h2>Вклади як інструмент реінвесту</h2>
       <div class="muted" style="margin-bottom:10px">Мінімум робить простій валюти «готовим до реінвесту» —
@@ -334,8 +346,9 @@ export async function renderSettings(ctx, main) {
         <label>Ціль запасу, місяців<input name="reserve_target_months" inputmode="decimal" placeholder="напр. 6" value="${esc(s.reserve_target_months || "")}"></label>
         <button type="submit">Зберегти</button>
       </form>
-    </div>
+    </div>`, { hint: "вклади, види, ліміти, резерв" })}
 
+    ${section("assumptions", "Припущення", `
     <div class="card">
       <h2>Припущення прогнозу</h2>
       <div class="muted" style="margin-bottom:10px">Чим живляться картки у «Майбутньому».
@@ -356,21 +369,22 @@ export async function renderSettings(ctx, main) {
       </form>
     </div>
 
-    ${devalHTML(deval)}
+    ${devalHTML(deval)}`, { hint: "що застосунок вважає ймовірним" })}
 
+    ${section("refs", "Довідники й обслуговування", `
     ${catalogsHTML(ctx)}
 
     <div class="card">
       <h2>Бекап</h2>
       <div class="muted" style="margin-bottom:10px">Твої лоти, поповнення, конвертації, налаштування й статуси виплат.
         Довідник НБУ не входить — він відновлюється сам. Плюс сервер щодня пише копію поряд із БД (потрапляє в бекап Proxmox).</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div style="display:flex;gap:var(--oi-gap-sm);flex-wrap:wrap;align-items:center">
         <button type="button" id="btnExport">Завантажити бекап</button>
-        <label style="display:inline-block"><span class="muted" style="font-size:13px">Відновити з файлу:</span>
+        <label style="display:inline-block"><span class="muted" style="font-size:var(--oi-fs-sm)">Відновити з файлу:</span>
           <input type="file" id="importFile" accept="application/json,.json" style="margin-top:6px"></label>
       </div>
-      <div class="muted" id="restoreMsg" style="margin-top:8px;font-size:13px"></div>
-    </div>`;
+      <div class="muted" id="restoreMsg" style="margin-top:var(--oi-gap-sm);font-size:var(--oi-fs-sm)"></div>
+    </div>`, { hint: "брокери, фонди, бекап" })}`;
   bindBackup(ctx, main);
   bindBrokers(ctx, main);
   // Обидві форми пишуть у той самий PUT /settings і відрізняються лише
@@ -406,5 +420,8 @@ export async function renderSettings(ctx, main) {
   onSubmit(ctx, main.querySelector("#forecastAssumptionsForm"), settingsPut([
     "income_target_uah", "withdraw_monthly_uah", "rate_spread_pp", "deval_spread_pp",
   ]));
+  // Останнім: до цього моменту вся розмітка вже на місці, включно з тією,
+  // що всередині згорнутих секцій.
+  wireDisclosures(main);
 }
 

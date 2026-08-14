@@ -46,7 +46,13 @@ export const infoBtn = (k) =>
  *  функція не залежить від того: document і shadowRoot однаково вміють
  *  getElementById і addEventListener, тож перевіряти тут нема чого.
  *
- *  Очікує в root елемент `<div class="infopop" id="infoPop"><div class="box"></div></div>`. */
+ *  Очікує в root елемент `<dialog class="infopop" id="infoPop"><div class="box"></div></dialog>`.
+ *
+ *  Нативний <dialog> замість <div> із класом .show дає задарма чотири
+ *  речі, яких не було жодної: пастку фокуса, закриття на Escape,
+ *  повернення фокуса на ту саму кнопку «i» після закриття і власний
+ *  верхній шар — тобто попап більше не залежить від z-index сусідів.
+ *  Усе це працює й усередині shadow root. Коду при цьому стало менше. */
 export function bindInfo(root) {
   root.addEventListener("click", (e) => {
     const pop = root.getElementById("infoPop");
@@ -60,12 +66,23 @@ export function bindInfo(root) {
       // означало б тримати HTML там, де має бути текст.
       const body = entry[1].split("\n\n").map((t) => `<p>${t}</p>`).join("");
       pop.querySelector(".box").innerHTML =
-        `<button class="x" data-closeinfo>×</button><h4>${entry[0]}</h4>${body}`;
-      pop.classList.add("show");
+        `<button class="x" data-closeinfo aria-label="Закрити">×</button>` +
+        `<h4 id="infoPopTitle">${entry[0]}</h4>${body}`;
+      pop.showModal();
       return;
     }
-    if ((e.target.closest && e.target.closest("[data-closeinfo]")) || e.target.id === "infoPop") {
-      pop.classList.remove("show");
+    if (e.target.closest && e.target.closest("[data-closeinfo]")) {
+      pop.close();
+      return;
+    }
+    // Клік по підкладці. У <dialog> ::backdrop — частина самого елемента,
+    // тож подія приходить на нього; лишається перевірити, що влучили
+    // повз коробку з текстом, а не в неї.
+    if (e.target === pop) {
+      const r = pop.getBoundingClientRect();
+      const out = e.clientX < r.left || e.clientX > r.right
+        || e.clientY < r.top || e.clientY > r.bottom;
+      if (out) pop.close();
     }
   });
 }

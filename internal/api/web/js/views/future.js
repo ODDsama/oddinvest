@@ -14,7 +14,7 @@ import {
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { needsSetting } from "../components.js";
-import { svgBars, svgLine, svgBandLine } from "../charts.js";
+import { svgBars, svgLine, svgBandLine, fluid } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
 import { goalsHTML, sensitivityHTML } from "./forecast.js";
 
@@ -23,7 +23,9 @@ export function income12mChartHTML(ctx) {
   const inc = (ctx.summary || {}).income_12m || [];
   if (!inc.some((m) => m.amount > 0)) return "";
   return `<div class="card"><h4>Дохід по місяцях ${infoBtn("income12m")}</h4>
-    ${svgBars(inc.map((m) => ({ label: m.month.slice(5), value: m.amount, color: "var(--oi-series-nominal)" })))}
+    ${fluid((w, h) => svgBars(
+      inc.map((m) => ({ label: m.month.slice(5), value: m.amount, color: "var(--oi-series-nominal)" })),
+      { W: w, H: h }))}
     <div class="sub">Купони + погашення на рік наперед (грн-екв.).</div></div>`;
 }
 
@@ -58,7 +60,7 @@ export function capitalChartHTML(ctx) {
     const bands = has("optimistic") && has("pessimistic")
       ? { lo: pts.map((p) => p.pessimistic), hi: pts.map((p) => p.optimistic) } : {};
     return `<div class="card"><h4>Крива капіталу ${infoBtn("capitalCurve")}</h4>
-      ${svgBandLine(labels, bands, lines, curve.goal_uah || 0)}
+      ${fluid((w, h) => svgBandLine(labels, bands, lines, curve.goal_uah || 0, { W: w, H: h }))}
       <div class="lg"><span><i style="background:var(--oi-series-invested)"></i>за планом</span>
         ${has("actual") ? `<span><i style="background:var(--oi-series-neutral)"></i>за фактом</span>` : ""}
         ${bands.lo ? `<span><i style="background:var(--oi-series-invested);opacity:.3"></i>коридор ринку</span>` : ""}
@@ -69,10 +71,10 @@ export function capitalChartHTML(ctx) {
   const proj = s.projection || [];
   if (!proj.length) return "";
   return `<div class="card"><h4>Крива капіталу ${infoBtn("capitalCurve")}</h4>
-    ${svgLine(proj.map((p) => p.years + "р"), [
+    ${fluid((w, h) => svgLine(proj.map((p) => p.years + "р"), [
       { color: "var(--oi-series-neutral)", values: proj.map((p) => p.contributed) },
       { color: "var(--oi-series-invested)", values: proj.map((p) => p.with_reinvest) },
-    ])}
+    ], { W: w, H: h }))}
     <div class="lg"><span><i style="background:var(--oi-series-neutral)"></i>внесено</span>
       <span><i style="background:var(--oi-series-invested)"></i>з реінвестом</span></div></div>`;
 }
@@ -111,8 +113,8 @@ export function projectionHTML(ctx) {
       <td class="num">${fmtUAH(r.with_reinvest - r.contributed)}</td></tr>`).join("")
     : `<tr><td colspan="${hasActual ? 5 : 4}" class="muted">Додай папери й ціль на місяць, щоб побачити проєкцію.</td></tr>`;
   const paceNote = hasActual
-    ? `<div class="muted" style="margin-bottom:10px;font-size:13px">Фактичний темп поповнень: <b>${fmtUAH(s.actual_monthly_uah)}/міс</b> за ${s.actual_months} міс історії (план — ${fmtUAH(C)}/міс).</div>`
-    : `<div class="muted" style="margin-bottom:10px;font-size:13px">Прогноз за фактичним темпом зʼявиться після першого поповнення.</div>`;
+    ? `<div class="muted" style="margin-bottom:10px;font-size:var(--oi-fs-sm)">Фактичний темп поповнень: <b>${fmtUAH(s.actual_monthly_uah)}/міс</b> за ${s.actual_months} міс історії (план — ${fmtUAH(C)}/міс).</div>`
+    : `<div class="muted" style="margin-bottom:10px;font-size:var(--oi-fs-sm)">Прогноз за фактичним темпом зʼявиться після першого поповнення.</div>`;
 
   return `
     <div class="card">
@@ -161,6 +163,15 @@ const calQuery = (mode) => {
 // append=true дописує календар до вже намальованого розділу, а не
 // затирає його: у «Майбутньому» він стоїть останнім блоком, після
 // прогнозів.
+// Куди лягає готовий календар: на місце заглушки, якщо вона є, інакше
+// просто в кінець. Заглушка тримає висоту, поки триває запит, — інакше
+// сторінка підстрибує на цілу картку рівно тоді, коли її вже читають.
+function place(main, html) {
+  const hold = main.querySelector("#calHold");
+  if (hold) hold.outerHTML = html;
+  else main.insertAdjacentHTML("beforeend", html);
+}
+
 export async function renderCalendar(ctx, main, { append = false } = {}) {
   const mode = calRange();
   let cal;
@@ -173,7 +184,7 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
     // Тож своя помилка лишається своєю.
     const card = `<div class="card"><h2>Виплати</h2>
       <div class="muted">Календар не завантажився: ${esc(err.message || err)}</div></div>`;
-    if (append) main.insertAdjacentHTML("beforeend", card);
+    if (append) place(main, card);
     else main.innerHTML = card;
     return;
   }
@@ -216,7 +227,7 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
         }).join("")}</tbody></table>` : `<div class="muted">${mode === "past"
           ? "Виплат у минулому ще не було." : "Попереду виплат немає."}</div>`}
     </div>`;
-  if (append) main.insertAdjacentHTML("beforeend", html);
+  if (append) place(main, html);
   else main.innerHTML = html;
   main.querySelectorAll("[data-cal]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -239,14 +250,24 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
 export async function renderFuture(ctx, main) {
   main.innerHTML = `
     ${goalsHTML(ctx)}
-    ${sensitivityHTML(ctx)}
     ${incomeHTML(ctx)}
     <div class="chart-grid">
       ${income12mChartHTML(ctx)}
       ${capitalChartHTML(ctx)}
     </div>
     ${projectionHTML(ctx)}
-    ${drawdownHTML(ctx)}`;
+    ${drawdownHTML(ctx)}
+    ${/* Важелі чутливості переїхали з другого місця сюди. Це
+          найрідше питання розділу («що буде, якщо покрутити припущення»)
+          — а стояли вони одразу під головним, тобто між відповіддю і
+          рештою відповідей. */""}
+    ${sensitivityHTML(ctx)}
+    ${/* Календар доїжджає окремим запитом, тобто помітно пізніше за
+          решту. Заглушка тримає його висоту: без неї сторінка
+          підстрибувала рівно тоді, коли на ній уже почали читати. */""}
+    <div class="card" id="calHold"><h2>Виплати</h2>
+      <div class="skel" aria-hidden="true"><div class="skel-rows">${
+        Array.from({ length: 5 }, () => `<div class="skel-row"></div>`).join("")}</div></div></div>`;
   await renderCalendar(ctx, main, { append: true });
 }
 
@@ -271,18 +292,18 @@ export function incomeHTML(ctx) {
   // Без копійок, як і в решті планових чисел: дробова частина місячного
   // доходу на горизонті в роки — це точність, якої в оцінці немає.
   const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
-  const line = (label, v, extra = "") => `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:6px">
-    <span class="muted" style="font-size:13px">${label}</span>
+  const line = (label, v, extra = "") => `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm);margin-bottom:6px">
+    <span class="muted" style="font-size:var(--oi-fs-sm)">${label}</span>
     <span><b>${inc(v)}</b><span class="muted" style="font-size:12px">/міс</span>${extra}</span></div>`;
   const body = rows.map((r) => line(`через ${humanMonths(r.years * 12)}`, r.income_monthly,
     r.income_monthly_actual > 0 && Math.abs(r.income_monthly_actual - r.income_monthly) > 1
-      ? ` <span class="muted" style="font-size:11px">· за фактом ${inc(r.income_monthly_actual)}</span>` : "")).join("");
+      ? ` <span class="muted" style="font-size:var(--oi-fs-xs)">· за фактом ${inc(r.income_monthly_actual)}</span>` : "")).join("");
   return `<div class="card"><h2 class="h-row" style="justify-content:space-between">
     <span>Пасивний дохід ${infoBtn("income")}</span></h2>
-    <div class="muted" style="font-size:12px;margin-bottom:8px">скільки портфель приноситиме щомісяця, у сьогоднішніх гривнях</div>
-    <div class="sub-xs" style="margin-bottom:8px">купони ОВДП і відсотки вкладів — за графіком; дивіденди фондів — оцінка</div>
+    <div class="muted" style="font-size:12px;margin-bottom:var(--oi-gap-sm)">скільки портфель приноситиме щомісяця, у сьогоднішніх гривнях</div>
+    <div class="sub-xs" style="margin-bottom:var(--oi-gap-sm)">купони ОВДП і відсотки вкладів — за графіком; дивіденди фондів — оцінка</div>
     ${line("зараз", now)}
-    <div style="border-top:1px solid var(--oi-border);padding-top:6px;margin-top:4px">${body}</div>
+    <div style="border-top:1px solid var(--oi-border);padding-top:6px;margin-top:var(--oi-gap-xs)">${body}</div>
     ${independenceHTML(ctx)}
   </div>`;
 }
@@ -327,13 +348,13 @@ export function drawdownHTML(ctx) {
   return `<div class="card"><h2 class="h-row"><span>На скільки вистачить ${infoBtn("drawdown")}</span></h2>
     <div class="sub">Якщо перестати вносити й знімати ${inc(d.withdraw_uah)}/міс
       <span class="muted">· ${esc(from)}</span></div>
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-top:8px">
-      <span class="muted" style="font-size:13px">вистачить</span>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm);margin-top:var(--oi-gap-sm)">
+      <span class="muted" style="font-size:var(--oi-fs-sm)">вистачить</span>
       <span>${head} <span class="muted" style="font-size:12px">${esc(note)}</span></span>
     </div>
-    <div class="progress" style="margin-top:8px"><span style="width:${
+    <div class="progress" style="margin-top:var(--oi-gap-sm)"><span style="width:${
       Math.min(100, d.covered_pct || 0)}%;background:var(--oi-info)"></span></div>
-    <div class="sub-xs" style="margin-top:4px">Сьогоднішній дохід покриває
+    <div class="sub-xs" style="margin-top:var(--oi-gap-xs)">Сьогоднішній дохід покриває
       ${(d.covered_pct || 0).toFixed(0)}% зняття. Решту доводиться брати з тіла — і саме
       тому число таке.</div>
     <div class="sub-xs">Замкнене (номінал ОВДП, тіло вкладів, сертифікати) достроково
@@ -373,17 +394,17 @@ function independenceHTML(ctx) {
   const showActual = ind.actual_months !== undefined
     && ind.actual_months !== ind.plan_months;
   return `<div style="border-top:1px solid var(--oi-border);padding-top:10px;margin-top:10px">
-    <div class="sub-xs" style="margin-bottom:4px">Коли дохід покриє ${inc(ind.target_uah)}/міс
+    <div class="sub-xs" style="margin-bottom:var(--oi-gap-xs)">Коли дохід покриє ${inc(ind.target_uah)}/міс
       <span class="muted">· ${esc(from)}</span></div>
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
-      <span class="muted" style="font-size:13px">за планом</span>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm)">
+      <span class="muted" style="font-size:var(--oi-fs-sm)">за планом</span>
       <span><b>${esc(when(ind.plan_months, ind.plan_date))}</b></span>
     </div>
-    ${showActual ? `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-top:3px">
-      <span class="muted" style="font-size:13px">за фактичним темпом</span>
+    ${showActual ? `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm);margin-top:3px">
+      <span class="muted" style="font-size:var(--oi-fs-sm)">за фактичним темпом</span>
       <span>${esc(when(ind.actual_months, ind.actual_date))}</span>
     </div>` : ""}
-    ${ind.capital_uah > 0 ? `<div class="sub-xs" style="margin-top:4px">на той момент за цим стоятиме
+    ${ind.capital_uah > 0 ? `<div class="sub-xs" style="margin-top:var(--oi-gap-xs)">на той момент за цим стоятиме
       ${fmtUAH(ind.capital_uah)} капіталу</div>` : ""}
   </div>`;
 }

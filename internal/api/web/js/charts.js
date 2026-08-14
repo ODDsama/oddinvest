@@ -22,9 +22,91 @@ export const CAT_COLORS = [
 const AXIS = "var(--oi-muted)";
 const GRID = "var(--oi-border)";
 
+// Полотно малих графіків.
+//
+// Було 320×170, і в цьому й полягала вада, яку довго приймали за
+// «графіки не гумові». Гумовими вони були завжди (style="width:100%"),
+// біда протилежна: viewBox масштабується ЦІЛКОМ, разом із текстом. У
+// картці на 1000px полотно шириною 320 розтягується втричі — і підпис
+// font-size="10" приїжджає на екран розміром 31px, більшим за заголовок
+// картки. На телефоні той самий графік малює ті самі 10px.
+//
+// Ширше полотно зменшує коефіцієнт розтягу: у півширинній картці
+// десктопа він стає ~0.8 замість ~1.6. Разом із більшим базовим
+// кеглем (13 замість 10) підписи приземляються на 10-11px СКРІЗЬ.
+//
+// Викликач може задати своє W/H — об'єкт опцій необов'язковий, тож усі
+// наявні виклики працюють без змін.
+const W0 = 640, H0 = 220;
+// Кегль підписів. Тепер це справжні пікселі на екрані, а не значення в
+// довільно розтягнутій системі координат, — тож він мусить збігатися з
+// рядом типографіки: --oi-fs-xs у tokens.css описаний рівно як «підписи
+// осей». Різниці між підписом осі й числом над стовпчиком не робимо:
+// далі 11px іде вже нечитабельне.
+const FS = 11;
+const FS_SM = 11;
+
+// ---------- відкладене малювання ----------
+//
+// Фіксований viewBox не може бути правильним двічі. Картка буває
+// шириною 351px на телефоні й 1030px на десктопі, а між ними ще
+// півширинна на ~500 — і той самий viewBox дає коефіцієнт розтягу від
+// 0.55 до 1.6. Текст усередині SVG розтягується РАЗОМ із полотном, тож
+// один і той самий підпис приїжджає то 7px, то 21px. Жодне значення W
+// цього не лікує: лікує лише збіг viewBox із фактичною шириною, коли
+// коефіцієнт стає рівно 1.
+//
+// Тому графік малюється у два проходи. Розділ вставляє порожню рамку
+// (розмітка це рядок, ширини на той момент ще не існує), а після
+// вставки fitCharts() міряє рамку й кличе саму функцію малювання вже зі
+// справжніми розмірами. Заразом це дає перемальовування при зміні
+// розміру вікна — доти графіки просто розтягувались.
+
+let seq = 0;
+const queued = new Map();       // id -> draw, живе до першої вставки
+const mounted = new WeakMap();  // рамка -> draw, щоб перемалювати на resize
+
+/** Місце під графік. draw(w, h) поверне SVG, коли стануть відомі розміри.
+ *
+ *  onMount(box) — те, що треба зробити ПІСЛЯ появи SVG: підказки під
+ *  курсором інакше не було б до чого чіпляти, бо на момент звичайної
+ *  проводки розділу малюнка ще не існує.
+ *  cls — додатковий клас рамки (наприклад «вищий графік»). */
+export function fluid(draw, { onMount = null, cls = "" } = {}) {
+  const id = `oi-c${++seq}`;
+  queued.set(id, { draw, onMount });
+  return `<div class="chart-frame${cls ? " " + cls : ""}" data-chart="${id}"></div>`;
+}
+
+/** Домалювати всі рамки в root. Кличеться після вставки розмітки і на
+ *  зміну розміру вікна. */
+export function fitCharts(root) {
+  if (!root) return;
+  root.querySelectorAll("[data-chart]").forEach((box) => {
+    const rec = queued.get(box.dataset.chart) || mounted.get(box);
+    if (!rec) return;
+    const b = box.getBoundingClientRect();
+    const w = Math.round(b.width);
+    // Нуль означає, що рамка ще не в розкладці (згорнута секція,
+    // display:none). Малювати нема під що — домалюємо, коли розгорнуть.
+    if (!w) return;
+    mounted.set(box, rec);
+    box.innerHTML = rec.draw(w, Math.round(b.height) || Math.round(w / 2.6));
+    if (rec.onMount) rec.onMount(box);
+  });
+  queued.clear();
+}
+
+/** Легенда серій. Окремо від seriesChart, бо рамка малює лише SVG, а
+ *  легенда стоїть під нею й ширини не потребує. */
+export function seriesLegend(series) {
+  return series.map((s) =>
+    `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("");
+}
+
 /** Стовпчики. items: [{label, value, color?}]. showVals — підпис суми зверху. */
-export function svgBars(items, { showVals = false } = {}) {
-  const W = 320, H = 170, Pl = 6, Pr = 6, Pt = 18, Pb = 30;
+export function svgBars(items, { showVals = false, W = W0, H = H0 } = {}) {
+  const Pl = 6, Pr = 6, Pt = 18, Pb = 30;
   const iw = W - Pl - Pr, ih = H - Pt - Pb, n = Math.max(1, items.length);
   const max = Math.max(1, ...items.map((i) => i.value));
   const gap = iw / n, bw = Math.min(46, gap * 0.62);
@@ -34,17 +116,17 @@ export function svgBars(items, { showVals = false } = {}) {
     out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}"`
       + ` rx="2" fill="${it.color || "var(--oi-series-invested)"}">`
       + `<title>${esc(it.label)}: ${Math.round(it.value).toLocaleString("uk")} ₴</title></rect>`;
-    out += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="${AXIS}">${esc(it.label)}</text>`;
+    out += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(it.label)}</text>`;
     if (showVals && it.value > 0) {
-      out += `<text x="${(x + bw / 2).toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle" font-size="9" fill="${AXIS}">${compact(it.value)}</text>`;
+      out += `<text x="${(x + bw / 2).toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle" font-size="${FS_SM}" fill="${AXIS}">${compact(it.value)}</text>`;
     }
   });
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${out}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${out}</svg>`;
 }
 
 /** Згруповані пари стовпчиків (факт vs ціль). groups: [{label, a, b}] */
-export function svgGrouped(groups) {
-  const W = 320, H = 170, Pl = 6, Pr = 6, Pt = 14, Pb = 30;
+export function svgGrouped(groups, { W = W0, H = H0 } = {}) {
+  const Pl = 6, Pr = 6, Pt = 14, Pb = 30;
   const iw = W - Pl - Pr, ih = H - Pt - Pb, n = Math.max(1, groups.length);
   const max = Math.max(1, ...groups.flatMap((g) => [g.a, g.b]));
   const gap = iw / n, bw = Math.min(22, gap * 0.28);
@@ -56,15 +138,15 @@ export function svgGrouped(groups) {
       out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw}" height="${Math.max(0, h).toFixed(1)}"`
         + ` rx="2" fill="${col}"><title>${v.toFixed(1)}%</title></rect>`;
     });
-    out += `<text x="${cx.toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="${AXIS}">${esc(g.label)}</text>`;
+    out += `<text x="${cx.toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(g.label)}</text>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${out}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${out}</svg>`;
 }
 
 /** Лінійний графік із кількома серіями по спільних x-мітках.
  *  series: [{color, values}] */
-export function svgLine(xlabels, series) {
-  const W = 320, H = 170, Pl = 8, Pr = 8, Pt = 14, Pb = 28;
+export function svgLine(xlabels, series, { W = W0, H = H0 } = {}) {
+  const Pl = 8, Pr = 8, Pt = 14, Pb = 28;
   const iw = W - Pl - Pr, ih = H - Pt - Pb, n = Math.max(1, xlabels.length);
   const max = Math.max(1, ...series.flatMap((s) => s.values));
   const X = (i) => Pl + (n <= 1 ? iw / 2 : (iw * i) / (n - 1));
@@ -73,8 +155,8 @@ export function svgLine(xlabels, series) {
     `<polyline points="${s.values.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}"`
     + ` fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round"/>`).join("");
   const xl = xlabels.map((l, i) =>
-    `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="${AXIS}">${esc(l)}</text>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${lines}${xl}</svg>`;
+    `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(l)}</text>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${lines}${xl}</svg>`;
 }
 
 /** Крива прогнозу: коридор між двома серіями, лінії всередині нього і
@@ -89,8 +171,8 @@ export function svgLine(xlabels, series) {
  *  bands: {lo, hi} — значення нижньої й верхньої межі коридору (може
  *  бути порожньо). lines: [{color, values, dash}]. goal — число або 0.
  *  xlabels — підписи, порожній рядок = мітки немає. */
-export function svgBandLine(xlabels, bands, lines, goal) {
-  const W = 320, H = 170, Pl = 8, Pr = 8, Pt = 14, Pb = 28;
+export function svgBandLine(xlabels, bands, lines, goal, { W = W0, H = H0 } = {}) {
+  const Pl = 8, Pr = 8, Pt = 14, Pb = 28;
   const iw = W - Pl - Pr, ih = H - Pt - Pb;
   const n = Math.max(1, xlabels.length);
   // Ціль входить у масштаб: інакше лінія цілі вилітала б за полотно, і
@@ -115,9 +197,9 @@ export function svgBandLine(xlabels, bands, lines, goal) {
     + ` fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round"`
     + `${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`).join("");
   out += xlabels.map((l, i) => l
-    ? `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="10" fill="${AXIS}">${esc(l)}</text>`
+    ? `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(l)}</text>`
     : "").join("");
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">${out}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${out}</svg>`;
 }
 
 /** Кільце часток. parts: [{label, value}] — уже відсортовані.
@@ -161,21 +243,28 @@ export function wireChartTips(wrap, buildHTML) {
   // біля чужої дати.
   wrap.addEventListener("scroll", hide);
 
+  const show = (hit) => {
+    const html = buildHTML(+hit.dataset.i);
+    if (!html) return;
+    tip.innerHTML = html;
+    tip.classList.add("show");
+    // Рахуємо від контейнера, а не від viewBox: SVG масштабується під
+    // ширину картки, тож координати всередині нього до пікселів сторінки
+    // не сходяться.
+    const hb = hit.getBoundingClientRect(), wb = wrap.getBoundingClientRect();
+    const cx = hb.left - wb.left + hb.width / 2 + wrap.scrollLeft;
+    const half = tip.offsetWidth / 2;
+    const max = wrap.scrollWidth - tip.offsetWidth - 4;
+    tip.style.left = Math.max(4, Math.min(cx - half, max)) + "px";
+  };
+
   wrap.querySelectorAll(".chart-hit").forEach((hit) => {
-    hit.addEventListener("mouseenter", () => {
-      const html = buildHTML(+hit.dataset.i);
-      if (!html) return;
-      tip.innerHTML = html;
-      tip.classList.add("show");
-      // Рахуємо від контейнера, а не від viewBox: SVG масштабується під
-      // ширину картки, тож координати всередині нього до пікселів сторінки
-      // не сходяться.
-      const hb = hit.getBoundingClientRect(), wb = wrap.getBoundingClientRect();
-      const cx = hb.left - wb.left + hb.width / 2 + wrap.scrollLeft;
-      const half = tip.offsetWidth / 2;
-      const max = wrap.scrollWidth - tip.offsetWidth - 4;
-      tip.style.left = Math.max(4, Math.min(cx - half, max)) + "px";
-    });
+    hit.addEventListener("mouseenter", () => show(hit));
+    // Клавіатура теж. Смуги влучання були mouseenter-only, тобто крива —
+    // єдиний блок застосунку, який без миші не читався взагалі: підказка
+    // й є той спосіб дізнатися числа за день.
+    hit.addEventListener("focus", () => show(hit));
+    hit.addEventListener("blur", hide);
   });
 }
 
@@ -237,8 +326,10 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
 
   // Останню дату підписуємо завжди: без неї з графіка не прочитати, станом
   // на коли він узагалі намальований.
+  // Крок підписів залежить від ширини полотна: на вузькому екрані
+  // дванадцять дат злипаються в сіру смугу, а п'ять читаються.
   let xlabels = "";
-  const step = Math.max(1, Math.floor(n / 5));
+  const step = Math.max(1, Math.floor(n / (width < 560 ? 3 : 5)));
   const marks = new Set();
   for (let i = 0; i < n; i += step) marks.add(i);
   if (n) marks.add(n - 1);
@@ -277,16 +368,23 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
     const bw = iw / (n - 1);
     for (let i = 0; i < n; i++) {
       const hx = Math.max(P.l, x(i) - bw / 2);
-      hits += `<rect class="chart-hit" data-i="${i}" x="${hx.toFixed(1)}" y="${P.t}"`
+      // tabindex — щоб до підказки можна було дійти з клавіатури; role і
+      // aria-label — щоб дійшовши, було що почути.
+      hits += `<rect class="chart-hit" data-i="${i}" tabindex="0" role="button"`
+        + ` aria-label="${esc(dates[i])}" x="${hx.toFixed(1)}" y="${P.t}"`
         + ` width="${Math.min(bw, width - P.r - hx).toFixed(1)}" height="${ih}" fill="transparent"/>`;
     }
   }
 
-  const legend = series.map((s) =>
-    `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("");
+  const legend = seriesLegend(series);
 
+  // viewBox збігається з фактичною шириною рамки (її передає fitCharts),
+  // тож коефіцієнт розтягу дорівнює одиниці й підписи мають рівно той
+  // кегль, який тут написаний. minWidth лишається як запобіжник для
+  // прямих викликів повз рамку.
   const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img"`
-    + ` style="width:100%;min-width:${minWidth}px;height:auto">`
+    + ` aria-label="${esc(label || "Історія портфеля")}"`
+    + ` style="width:100%;min-width:var(--oi-chart-min, ${minWidth}px);height:auto">`
     + `<title>${esc(label || "Історія портфеля")}</title>`
     + `${grid}${ylabels}${xlabels}${bands}${paths}${hits}</svg>`;
   return { svg, legend };

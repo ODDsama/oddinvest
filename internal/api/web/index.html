@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Тема одна, темна. Тут це кажемо самому документу — щоб смуга
+     прокрутки сторінки й полотно під компонентом були тих самих тонів;
+     усередині shadow root те саме робить color-scheme у theme-web.css. -->
+<meta name="color-scheme" content="dark">
 <title>ODD Invest</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
 <!--
@@ -17,8 +21,12 @@
 -->
 <style>
   /* Фон сторінки — до того, як компонент одягнеться: інакше на перший
-     кадр блимає біле. Далі тло малює вже сам :host. */
-  html, body { margin: 0; min-height: 100%; background: #111418; }
+     кадр блимає біле. Далі тло малює вже сам :host.
+
+     Це єдиний літеральний колір у застосунку, і причина в порядку
+     подій: токенів на цей момент ще немає — CSS вантажиться пізніше,
+     з js/styles.js. Значення мусить збігатися з --oi-bg. */
+  html, body { margin: 0; min-height: 100%; background: #0e1116; }
 </style>
 </head>
 <body>

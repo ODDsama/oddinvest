@@ -6,7 +6,7 @@ import {
   fundsCost, marketCostUAH, capitalUAH,
 } from "../format.js";
 import { infoBtn } from "../info.js";
-import { svgBars, svgGrouped, svgDonut } from "../charts.js";
+import { svgBars, svgGrouped, svgDonut, fluid } from "../charts.js";
 import { tile, yieldNote, needsSetting } from "../components.js";
 import { disclosure } from "../disclosure.js";
 
@@ -37,7 +37,8 @@ export function brokerDonutHTML(ctx) {
 function ladderBarsHTML(ctx) {
   const lad = (ctx.summary || {}).ladder_uah || [];
   if (!lad.length) return "";
-  return svgBars(lad.map((r) => ({ label: String(r.year), value: r.uah })), { showVals: true });
+  return fluid((w, h) => svgBars(
+    lad.map((r) => ({ label: String(r.year), value: r.uah })), { showVals: true, W: w, H: h }));
 }
 
 // Валютні частки проти цільових.
@@ -50,7 +51,8 @@ export function currencyChartHTML(ctx) {
     { label: "USD", a: s.usd_share_pct || 0, b: usdT },
     { label: "EUR", a: s.eur_share_pct || 0, b: eurT },
   ];
-  return `<div class="card"><h4>Валюта: факт vs ціль ${infoBtn("currency")}</h4>${svgGrouped(groups)}
+  return `<div class="card"><h4>Валюта: факт vs ціль ${infoBtn("currency")}</h4>${
+    fluid((w, h) => svgGrouped(groups, { W: w, H: h }))}
     <div class="lg"><span><i style="background:var(--oi-series-invested)"></i>факт</span>
       <span><i style="background:var(--oi-series-neutral)"></i>ціль</span></div></div>`;
 }
@@ -143,15 +145,15 @@ export function rebalanceCard(ctx) {
       // досягнута ✅», і перебір читався як добра новина.
       const over = (r.current_pct || 0) - (r.target_pct || 0);
       return over > 1
-        ? `<div style="margin-bottom:12px">${head} —
+        ? `<div style="margin-bottom:var(--oi-gap)">${head} —
              <span style="color:var(--oi-warn)">перебір на ${over.toFixed(1)} п.п.</span><br>
              <span class="sub">Добирати цю валюту більше не треба. Довести частку до цілі можна
              або продажем, або — простіше — купівлею в інших валютах, поки капітал росте.</span></div>`
-        : `<div style="margin-bottom:12px">${head} — <span style="color:var(--oi-ok)">ціль досягнута ✅</span></div>`;
+        : `<div style="margin-bottom:var(--oi-gap)">${head} — <span style="color:var(--oi-ok)">ціль досягнута ✅</span></div>`;
     }
     const need = `Бракує до цілі: <b>${fmtUAH(r.deficit_uah)}</b> (≈ ${num(r.deficit_native)} ${s})`;
     if (!r.feasible) {
-      return `<div style="margin-bottom:12px">${head}<br>${need}<br>
+      return `<div style="margin-bottom:var(--oi-gap)">${head}<br>${need}<br>
         <span style="color:var(--oi-warn)">⚠ Ще зарано:</span> ${unitLabel} коштує
         ${fmtUAH(r.bond_cost_uah)} (${num(r.bond_cost_native, 0)} ${s}) — це більше за всю цільову суму.
         Стільки вписалося б у ціль ${r.target_pct}% при капіталі <b>${fmtUAH(r.min_portfolio_uah)}</b>.</div>`;
@@ -159,7 +161,7 @@ export function rebalanceCard(ctx) {
     const buy = r.can_buy > 0
       ? `вистачає на <b>${r.can_buy}</b> ${unitPlural}`
       : `бракує — сконвертуй ще ≈ <b>${fmtUAH(r.convert_uah)}</b>`;
-    return `<div style="margin-bottom:12px">${head}<br>${need}<br>
+    return `<div style="margin-bottom:var(--oi-gap)">${head}<br>${need}<br>
       ${unitShort}: ${num(r.bond_cost_native, 0)} ${s} ≈ ${fmtUAH(r.bond_cost_uah)}.
       Готівка: ${num(r.cash_native)} ${s} — ${buy}.</div>`;
   }).join("");
@@ -203,7 +205,7 @@ export function kindMixCard(ctx) {
     // рухалась би щоразу, коли росте портфель, навіть якби резерву ніхто
     // не чіпав.
     if (!r.target_pct) {
-      return `<div style="margin-bottom:12px"><b>${esc(title)}</b> —
+      return `<div style="margin-bottom:var(--oi-gap)"><b>${esc(title)}</b> —
         <span class="muted">${r.current_pct}% (${fmtUAH(nowUAH)}), цілі за часткою немає</span><br>
         <span class="sub">${r.key === "reserve"
           ? "ціль резерву задана в місяцях витрат — див. картку «Резерв» у «Грошах»"
@@ -220,7 +222,7 @@ export function kindMixCard(ctx) {
       : over
         ? `<span style="color:var(--oi-warn)">перебір</span> — ціль уже перевищена`
         : `<span style="color:var(--oi-ok)">ціль досягнута ✅</span>`;
-    return `<div style="margin-bottom:12px">
+    return `<div style="margin-bottom:var(--oi-gap)">
       <b>${esc(title)}</b> — ціль ${r.target_pct}%, зараз ${r.current_pct}%
       <span class="muted">(${fmtUAH(nowUAH)})</span><br>
       <div class="progress" style="margin:4px 0"><span style="width:${bar}%;background:${
@@ -273,8 +275,8 @@ export function concentrationCard(ctx) {
       // у брокера), але для фонду він лише повторює назву: ключ там —
       // службовий «fund:Назва».
       const showKey = r.label && !r.key.endsWith(r.label);
-      return `<div style="margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;gap:8px">
+      return `<div style="margin-bottom:var(--oi-gap-sm)">
+        <div style="display:flex;justify-content:space-between;gap:var(--oi-gap-sm)">
           <span>${esc(r.label || r.key)}${showKey ? ` <span class="muted">${esc(r.key)}</span>` : ""}</span>
           <span${over ? ` style="color:var(--oi-warn)"` : ""}><b>${r.share_pct}%</b>
             <span class="muted">${fmtUAH(r.amount_uah)}</span></span>
@@ -324,7 +326,7 @@ export function benchmarkCard(ctx, b) {
       ${tile("Різниця", `<span style="color:${col}">${won ? "+" : ""}${fmtUAH(b.diff_uah)}</span>`,
         `<div class="sub" style="color:${col}">${won ? "+" : ""}${pct(b.diff_pct)}</div>`)}
     </div>
-    <div class="muted" style="font-size:13px">Кожне твоє поповнення переведено в долари за курсом
+    <div class="muted" style="font-size:var(--oi-fs-sm)">Кожне твоє поповнення переведено в долари за курсом
       ТОГО дня, а сума оцінена сьогоднішнім (${fmtUAH(b.rate_now)}/$).
       Бенчмарк навмисно не приносить відсотків — це поведінка «нічого не робити», з якою й
       порівнюють. Купони, дивіденди й відсотки в нього не входять: вони й є те, що ти отримав
@@ -347,7 +349,7 @@ export function liquidityCard(ctx) {
       ${l.locked_uah > 0 ? tile("Замкнено", fmtUAH(l.locked_uah),
         l.unlock_date ? `<div class="sub">найближче відкриється ${esc(l.unlock_date)}</div>` : "") : ""}
     </div>
-    <div class="muted" style="font-size:13px">Вікна накопичувальні: «за 90 днів» уже містить «за 30».
+    <div class="muted" style="font-size:var(--oi-fs-sm)">Вікна накопичувальні: «за 90 днів» уже містить «за 30».
       Рахуються гроші на рахунках плюс купони, погашення й тіла вкладів, що гасяться у вікні.
       «Замкнено» — тіла вкладів зі строком далі: дістати їх можна лише розірвавши вклад, тобто
       втративши відсотки.<br><br>
@@ -382,7 +384,7 @@ export function rateRiskCard(ctx) {
           <td class="num" style="color:${col}">${sgn(x.change_pct)}${x.change_pct}%</td>
           <td class="num" style="color:${col}">${sgn(x.change_uah)}${fmtUAH(x.change_uah)}</td></tr>`;
       }).join("")}</tbody></table></div>
-    <div class="muted" style="margin-top:8px;font-size:13px">Модифікована дюрація показує, на скільки %
+    <div class="muted" style="margin-top:var(--oi-gap-sm);font-size:var(--oi-fs-sm)">Модифікована дюрація показує, на скільки %
       змінюється ціна паперів при зміні ставок на 1 п.п. <b>Тримаєш до погашення — просадка лише
       паперова</b>: ризик реалізується при продажі на вторинці. Вклади сюди не входять — переоцінити
       їх нікуди, сума погашення записана в договорі.</div>` : "";
@@ -397,7 +399,7 @@ export function rateRiskCard(ctx) {
       <div class="tile"><div class="lbl">З них за 12 міс.</div><div class="val">${fmtUAH(rr.reinvest_soon_uah)}</div>
         <div class="sub">перевкладати за новою ставкою</div></div>
     </div>
-    <div class="muted" style="font-size:13px">Це ризик протилежного знаку: якщо ставки ПАДАЮТЬ, папери
+    <div class="muted" style="font-size:var(--oi-fs-sm)">Це ризик протилежного знаку: якщо ставки ПАДАЮТЬ, папери
       дорожчають, але повернуті гроші доведеться вкладати дешевше. Чим коротший середній строк, тим
       швидше портфель переїде на нові ставки — вгору чи вниз.</div>` : "";
 
@@ -495,7 +497,7 @@ export function marketCurveCard(ctx, curve) {
     const fresh = list.reduce((a, b) => (a.date > b.date ? a : b));
     const ctxLine = context(fresh);
     return `<div class="card"><h4>${esc(curSym(c))} ${esc(c)}</h4>
-      ${svgGrouped(groups)}
+      ${fluid((w, h) => svgGrouped(groups, { W: w, H: h }))}
       <div class="lg"><span><i style="background:var(--oi-series-invested)"></i>зараз</span>
         ${hasPrev ? `<span><i style="background:var(--oi-series-neutral)"></i>рік тому</span>` : ""}</div>
       <div class="sub-xs">останнє розміщення ${esc(dayMonth(fresh.date))}${

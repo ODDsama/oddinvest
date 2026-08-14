@@ -19,6 +19,9 @@ import { TABS } from "./constants.js";
 import { bindInfo } from "./info.js";
 import { adoptStyles } from "./styles.js";
 import { createStore } from "./store.js";
+import { skeleton } from "./skeleton.js";
+import { fitCharts } from "./charts.js";
+import { parseRoute, routeFor, ANCHORS } from "./routes.js";
 
 import { renderOverview } from "./views/overview.js";
 import { renderPortfolio } from "./views/portfolio.js";
@@ -45,6 +48,10 @@ const VIEWS = {
   future: renderFuture,
   settings: renderSettings,
 };
+
+// Розділ живе в хеші адреси, а не тільки в пам'яті компонента. Розбір
+// маршруту й адреси форм — у js/routes.js: їх будують самі розділи, і
+// тримати їх тут означало б замкнути граф імпортів у кільце.
 
 export class OddInvestApp extends HTMLElement {
   constructor() {
@@ -79,7 +86,58 @@ export class OddInvestApp extends HTMLElement {
     if (this._started || !this._store || !this.isConnected) return;
     this._started = true;
     this._renderShell();
-    this._loadTab();
+    // Слухач ставиться ДО першого маршруту: перехід, що стався поки
+    // вантажився транспорт, інакше загубився б.
+    this._onHash = () => this._route();
+    window.addEventListener("hashchange", this._onHash);
+    // Зміна ширини вікна міняє ширину карток, а з нею — правильний
+    // розмір полотна графіка. Із затримкою, бо під час перетягування
+    // рамки вікна подія летить десятками за секунду.
+    this._onResize = () => {
+      clearTimeout(this._resizeTimer);
+      this._resizeTimer = setTimeout(
+        () => fitCharts(this.shadowRoot.getElementById("main")), 150);
+    };
+    window.addEventListener("resize", this._onResize);
+    this._route();
+  }
+
+  disconnectedCallback() {
+    if (this._onHash) window.removeEventListener("hashchange", this._onHash);
+    if (this._onResize) window.removeEventListener("resize", this._onResize);
+  }
+
+  async _route() {
+    const { tab, anchor } = parseRoute(window.location.hash);
+    const changed = tab !== this._tab;
+    this._tab = tab;
+    if (changed || !this._painted) {
+      await this._loadTab();
+      this._painted = true;
+      // Фокус їде в розділ: без цього читач екрана лишається на
+      // посиланні вкладки й не дізнається, що вміст замінився цілком.
+      if (changed) this.shadowRoot.getElementById("main").focus({ preventScroll: true });
+    }
+    if (anchor) this._reveal(anchor);
+  }
+
+  // Те, що робив хвіст _goto: розкрити ланцюг згорнутих секцій, довести
+  // до форми й поставити курсор у перше поле. Тепер це наслідок
+  // маршруту, а не окремий шлях виконання.
+  _reveal(anchor) {
+    const a = ANCHORS[anchor];
+    const el = a && this.shadowRoot.querySelector(a.sel);
+    if (!el) return;
+    // Циклом, а не одним closest: секція може лежати в секції, і
+    // відкрити треба весь ланцюг, інакше зовнішня лишить внутрішню
+    // невидимою. Слухач toggle від wireDisclosures на цьому спрацює й
+    // запам'ятає секцію відкритою — так і треба: її щойно відкрили.
+    for (let d = el.closest("details"); d; d = d.parentElement && d.parentElement.closest("details")) {
+      d.open = true;
+    }
+    const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
+    el.querySelector("input, select")?.focus();
   }
 
   // ---------- контекст, який отримують розділи ----------
@@ -97,7 +155,8 @@ export class OddInvestApp extends HTMLElement {
       root: this.shadowRoot,
       toast: (msg, ok) => this._toast(msg, ok),
       goto: (what) => this._goto(what),
-      reload: () => this._loadTab(),
+      // Теплий перерендер: розділ уже на екрані, змінилось одне число.
+      reload: () => this._loadTab({ warm: true }),
       brokerList: (lots) => this._brokerList(lots),
       brokerOptions: (sel) => this._brokerOptions(sel),
       channelOptions: (lots) => this._channelOptions(lots),
@@ -121,33 +180,18 @@ export class OddInvestApp extends HTMLElement {
     this._toastTimer = setTimeout(() => t.classList.remove("show"), 4000);
   }
 
-  // Швидкий перехід із «Огляду» просто в потрібну форму: банер каже, що
-  // зробити, і кнопка має доводити саме туди, а не «десь на вкладку».
-  async _goto(what) {
-    // topup — секція вкладів у «Портфелі» (не плутати з deposit: то
-    // поповнення грошового рахунку в «Грошах»).
-    const map = { buy: "portfolio", topup: "portfolio", deposit: "money", convert: "money" };
-    this._tab = map[what] || "portfolio";
-    await this._loadTab();
-    const sel = { buy: "#lotForm", topup: "#termDepForm", deposit: "#cashForm", convert: "#convForm" }[what];
-    const el = this.shadowRoot.querySelector(sel) || this.shadowRoot.querySelector("#lotForm");
-    if (!el) return;
-    // Форми живуть у згорнутих <details>: у складі портфеля вони займали
-    // п'яту частину висоти, хоч потрібні кілька разів на місяць. Але
-    // банер «Огляду» веде саме в них — і доти кнопка «Купити папір»
-    // скролила до ЗАКРИТОЇ секції, тобто в порожнє місце, а .focus()
-    // всередині закритого <details> не робить нічого взагалі.
-    //
-    // Циклом, а не одним closest: секція може лежати в секції, і
-    // відкрити треба весь ланцюг, інакше зовнішня лишить внутрішню
-    // невидимою. Слухач toggle від wireDisclosures на цьому спрацює й
-    // запам'ятає секцію відкритою — так і треба: її щойно відкрили.
-    for (let d = el.closest("details"); d; d = d.parentElement && d.parentElement.closest("details")) {
-      d.open = true;
-    }
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    const first = el.querySelector && el.querySelector("input");
-    if (first) first.focus();
+  // Перехід із «Огляду» просто в потрібну форму. Лишається як шов для
+  // розділів, які кличуть ctx.goto(), — але всередині тепер звичайна
+  // навігація, тож перехід потрапляє в історію браузера й на нього
+  // працює «назад». Форми живуть у згорнутих <details>, і розкриває їх
+  // _reveal(): доти кнопка «Купити папір» скролила до ЗАКРИТОЇ секції,
+  // тобто в порожнє місце, а .focus() всередині закритого <details> не
+  // робить нічого взагалі.
+  _goto(what) {
+    const next = routeFor(what);
+    // Той самий маршрут не породжує hashchange — розкриваємо форму самі.
+    if (window.location.hash === next) this._reveal(what);
+    else window.location.hash = next;
   }
 
   // Брокери: з довідника ∪ ті, що вже зустрічались у лотах і балансах.
@@ -179,6 +223,11 @@ export class OddInvestApp extends HTMLElement {
   _renderShell() {
     adoptStyles(this.shadowRoot);
     this.shadowRoot.innerHTML = `
+      <!-- Кнопка, а не посилання з href="#main": усередині shadow root
+           фрагмент документа не знаходить нічого, а хеш у адресному
+           рядку ще й посварився б із маршрутом розділу. Читач екрана
+           оголосить це кнопкою — жест той самий. -->
+      <button class="skip" id="skip">До вмісту</button>
       <header>
         ${MARK}
         <h1>ODD Invest</h1>
@@ -186,20 +235,38 @@ export class OddInvestApp extends HTMLElement {
         <span id="avail" class="muted" style="color:inherit;opacity:.85"></span>
         <button class="ghost" id="refresh">↻ Оновити НБУ</button>
       </header>
-      <nav>${TABS.map(([k, t]) => `<a data-tab="${k}">${t}</a>`).join("")}</nav>
-      <div id="alert" hidden></div>
-      <main id="main"></main>
-      <div id="toast" class="toast"></div>
-      <div class="infopop" id="infoPop"><div class="box"></div></div>
+      <!-- href, а не голий <a>: доти вкладки не мали ні адреси, ні
+           tabindex, тобто головна навігація застосунку була недосяжна
+           з клавіатури ЗОВСІМ. Тепер це звичайні посилання, і браузер
+           сам дає і фокус, і Enter, і «відкрити в новій вкладці». -->
+      <nav aria-label="Розділи застосунку">${
+        TABS.map(([k, t]) => `<a href="#/${k}" data-tab="${k}">${t}</a>`).join("")}</nav>
+      <!-- role="alert", бо сюди пише рівно одна річ: «бекенд не віддає
+           зведення». Це той єдиний випадок у застосунку, який має право
+           перебити читача екрана посеред речення. -->
+      <div id="alert" role="alert" hidden></div>
+      <main id="main" tabindex="-1"></main>
+      <div id="live" class="sr-only" role="status" aria-live="polite"></div>
+      <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
+      <dialog class="infopop" id="infoPop" aria-labelledby="infoPopTitle"><div class="box"></div></dialog>
     `;
-    this.shadowRoot.querySelectorAll("nav a").forEach((a) =>
-      a.addEventListener("click", () => { this._tab = a.dataset.tab; this._loadTab(); })
-    );
+    // Обробника кліку на вкладках тут більше немає: посилання веде в
+    // хеш, hashchange будить _route(), і той малює розділ. Один шлях
+    // виконання замість двох, і «назад» працює задарма.
+    this.shadowRoot.getElementById("skip")?.addEventListener("click", () => {
+      const main = this.shadowRoot.getElementById("main");
+      main.focus();
+      main.scrollIntoView({ block: "start" });
+    });
     // попапи «як це читати» — делеговано на весь shadow root
     bindInfo(this.shadowRoot);
     this.shadowRoot.getElementById("refresh")?.addEventListener("click", async (e) => {
       e.target.disabled = true;
-      try { await this._api("POST", "refresh"); this._toast("Довідник НБУ оновлено"); this._loadTab(); }
+      try {
+        await this._api("POST", "refresh");
+        this._toast("Довідник НБУ оновлено");
+        this._loadTab({ warm: true });
+      }
       catch (err) { this._toast(String(err.message || err), false); }
       finally { e.target.disabled = false; }
     });
@@ -214,13 +281,68 @@ export class OddInvestApp extends HTMLElement {
     el.hidden = !html;
   }
 
-  async _loadTab() {
-    this.shadowRoot.querySelectorAll("nav a").forEach((a) =>
-      a.classList.toggle("active", a.dataset.tab === this._tab));
+  // Смуга оголошень. Розділ змінюється БЕЗ переходу сторінки, тож читач
+  // екрана про це не дізнається ніяк — крім як звідси.
+  _announce(msg) {
+    const el = this.shadowRoot.getElementById("live");
+    if (el) el.textContent = msg;
+  }
+
+  // Що зараз під фокусом — так, щоб це пережило перемальовування. Ім'я
+  // поля плюс форма, у якій воно лежить: після ctx.reload() елемента з
+  // тим самим посиланням уже не існує, а поле з тим самим іменем у тій
+  // самій формі — те саме поле для того, хто в ньому друкував.
+  _focusKey() {
+    const el = this.shadowRoot.activeElement;
+    if (!el || !el.name) return null;
+    const form = el.closest("form");
+    return { form: form && form.id, name: el.name, start: el.selectionStart, end: el.selectionEnd };
+  }
+
+  _restoreFocus(k) {
+    if (!k) return;
+    const scope = (k.form && this.shadowRoot.getElementById(k.form)) || this.shadowRoot;
+    // Перебором за властивістю name, а не селектором [name="…"]: селектор
+    // довелось би екранувати (CSS.escape), а це ще одна глобаль у списку
+    // eslint заради випадку, якого в застосунку немає.
+    const el = [...scope.querySelectorAll("input, select, textarea")].find((e) => e.name === k.name);
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    // Позиція курсора теж: без неї фокус повертається, але текст
+    // виділяється цілком, і наступний символ стирає введене.
+    try { el.setSelectionRange(k.start, k.end); } catch (_) { /* не текстове поле */ }
+  }
+
+  /** @param {{warm?: boolean}} opts warm — перемальовування після запису:
+   *  старий вміст лишається на екрані, скрол і фокус зберігаються. */
+  async _loadTab({ warm = false } = {}) {
+    // aria-current — єдине джерело правди про активну вкладку. Класу
+    // .active більше немає: два позначення того самого стану рано чи
+    // пізно розходяться, а CSS однаково вміє вибирати за атрибутом.
+    this.shadowRoot.querySelectorAll("nav a").forEach((a) => {
+      if (a.dataset.tab === this._tab) a.setAttribute("aria-current", "page");
+      else a.removeAttribute("aria-current");
+    });
+    this._announce(TABS.find(([k]) => k === this._tab)?.[1] || "");
     const main = this.shadowRoot.getElementById("main");
     this._alert("");
     this._softShown = false;
-    main.innerHTML = `<div class="muted">Завантаження…</div>`;
+
+    // Два різні очікування, і плутати їх не можна.
+    //
+    // ХОЛОДНЕ (зміна розділу) — показуємо скелет форми розділу: вмісту
+    // ще немає, і чекати доведеться помітно.
+    //
+    // ТЕПЛЕ (ctx.reload() після запису) — не витираємо НІЧОГО. Доти
+    // кожне збереження стирало main і писало «Завантаження…», тобто
+    // після додавання лота екран блимав порожнечею, скрол злітав угору,
+    // а курсор із форми зникав. Дані вже на екрані правильні майже
+    // цілком; міняється одне число.
+    const scrollY = window.scrollY;
+    const focusKey = warm ? this._focusKey() : null;
+    if (warm) main.dataset.busy = "1";
+    else main.innerHTML = skeleton(this._tab);
+    main.setAttribute("aria-busy", "true");
 
     // Зведення вантажиться ОКРЕМО від розділу. Доти воно стояло в тому
     // самому try, і будь-яка його помилка ставала помилкою ВСІХ вкладок
@@ -249,6 +371,7 @@ export class OddInvestApp extends HTMLElement {
       // «Налаштування» зведення не читають узагалі, тож малюються.
       if (this._tab !== "settings") {
         main.innerHTML = "";
+        this._settle(main);
         return;
       }
     }
@@ -259,6 +382,31 @@ export class OddInvestApp extends HTMLElement {
     } catch (err) {
       main.innerHTML = `<div class="card">Помилка: ${esc(err.message || err)}</div>`;
     }
+
+    // Графіки малюються ПІСЛЯ вставки: рамка вже в розкладці, тож її
+    // ширина відома, і полотно можна зробити рівно таким — інакше
+    // viewBox розтягується разом із текстом усередині.
+    fitCharts(main);
+    // Рамка всередині ЗГОРНУТОЇ секції має нульову ширину, тобто малювати
+    // її нема під що. Домальовуємо в мить розкриття. Слухач на кожному
+    // <details>, а не делегований: подія toggle не спливає.
+    main.querySelectorAll("details").forEach((d) =>
+      d.addEventListener("toggle", () => { if (d.open) fitCharts(main); }));
+
+    this._settle(main);
+    if (warm) {
+      // Після кадру, а не одразу: доти розкладка ще не порахована, і
+      // scrollTo впирається у висоту, якої ще немає.
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: scrollY, behavior: "instant" });
+        this._restoreFocus(focusKey);
+      });
+    }
+  }
+
+  _settle(main) {
+    delete main.dataset.busy;
+    main.setAttribute("aria-busy", "false");
   }
 
   // Дані зведення (без рендеру: плитки живуть у розділах). Довідники

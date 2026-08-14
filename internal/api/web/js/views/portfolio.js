@@ -17,7 +17,7 @@
 
 import { infoBtn } from "../info.js";
 import { setFundOps, wireFundOps } from "../fund-ops.js";
-import { disclosure, wireDisclosures } from "../disclosure.js";
+import { disclosure, section, wireDisclosures } from "../disclosure.js";
 import { positionsTableHTML, wirePositions } from "./positions.js";
 import {
   brokerDonutHTML, currencyChartHTML, yieldTilesHTML, shareTilesHTML,
@@ -39,15 +39,27 @@ function entryCardHTML(ctx, lots) {
     ${disclosure("buy", "Нова покупка ОВДП", bondBuyFormHTML(ctx, lots))}
     ${disclosure("sale", "Продаж на вторинному ринку", bondSaleFormHTML(ctx, lots))}
     ${disclosure("dep", `Новий вклад ${infoBtn("deposit")}`, depositFormHTML(ctx))}
-    <div class="sub" style="margin-top:12px">Сертифікати фондів сюди не вносять руками —
+    <div class="sub" style="margin-top:var(--oi-gap)">Сертифікати фондів сюди не вносять руками —
       їх приносить імпорт виписки в розділі «Гроші».</div>
   </div>`;
 }
 
 
-// «Портфель» = склад цілком. Порядок відповідає порядку питань: скільки
-// всього і як росте → як розкладене → ЩО САМЕ я маю (одна таблиця на всі
-// інструменти) → чим ризикую → чим записати нову операцію.
+// «Портфель» = склад цілком.
+//
+// Порядок змінено на один, але важливий: таблиця позицій стоїть ДРУГОЮ,
+// а не дев'ятою. Вона й є відповідь на питання розділу — «що я маю», — а
+// перед нею лежало вісім карток про те, як воно розкладене й чим
+// ризикує: характеристики того, чого ще не видно.
+//
+// Решта не зникла, а згрупована в чотири іменовані секції, і три з
+// чотирьох згорнуті за замовчуванням. Розбити вкладку надвоє не можна
+// (шоста вкладка — це відповідь на розділ, який не тримає своє питання),
+// та й не треба: питання в розділу одне, просто відповідей на нього
+// шістнадцять, і секція каже, яка відповідь на що.
+//
+// Механізм той самий <details> із пам'яттю в localStorage, тож людина,
+// яка розгорне «Чим ризикую», більше його не згортатиме щоразу.
 export async function renderPortfolio(ctx, main) {
   const [positions, lots, sales, ops, deposits, bench, curve] = await Promise.all([
     ctx.api("GET", "positions"),
@@ -64,24 +76,32 @@ export async function renderPortfolio(ctx, main) {
   const chart = await chartBlockHTML(ctx);
   main.innerHTML = `
     ${yieldTilesHTML(ctx)}
-    ${chart}
-    <div class="chart-grid">
-      ${brokerDonutHTML(ctx)}
-      ${currencyChartHTML(ctx)}
-    </div>
-    ${shareTilesHTML(ctx)}
-    ${rebalanceCard(ctx)}
-    ${kindMixCard(ctx)}
-    ${concentrationCard(ctx)}
-    ${ladderTableHTML(ctx)}
     ${positionsTableHTML(ctx, positions, lots, sales, deposits)}
-    ${entryCardHTML(ctx, lots)}
-    ${marketCurveCard(ctx, curve)}
-    ${benchmarkCard(ctx, bench)}
-    ${liquidityCard(ctx)}
-    ${rateRiskCard(ctx)}
-    ${closedDepositsHTML(ctx, deposits)}
-    ${snapshotsTableHTML(ctx)}
+
+    ${section("history", "Як росте", `
+      ${chart}
+      ${snapshotsTableHTML(ctx)}`, { open: true })}
+
+    ${section("structure", "Як розкладене", `
+      <div class="chart-grid">
+        ${brokerDonutHTML(ctx)}
+        ${currencyChartHTML(ctx)}
+      </div>
+      ${shareTilesHTML(ctx)}
+      ${rebalanceCard(ctx)}
+      ${kindMixCard(ctx)}`, { hint: "брокери, валюти, види" })}
+
+    ${section("risk", "Чим ризикую", `
+      ${concentrationCard(ctx)}
+      ${ladderTableHTML(ctx)}
+      ${liquidityCard(ctx)}
+      ${rateRiskCard(ctx)}
+      ${benchmarkCard(ctx, bench)}
+      ${marketCurveCard(ctx, curve)}`, { hint: "концентрація, строки, ставки" })}
+
+    ${section("entry", "Записати операцію", `
+      ${entryCardHTML(ctx, lots)}
+      ${closedDepositsHTML(ctx, deposits)}`, { hint: "кілька разів на місяць" })}
   `;
 
   wirePositions(ctx, main);

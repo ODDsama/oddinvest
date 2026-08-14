@@ -16,6 +16,8 @@ import {
 import { infoBtn } from "../info.js";
 import { tile } from "../components.js";
 import { KIND_LABEL } from "../constants.js";
+import { isOpen, remember } from "../uistate.js";
+import { routeFor } from "../routes.js";
 import { basketHTML, wireBasket } from "./basket.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
@@ -200,7 +202,7 @@ export function reinvestHTML(ctx) {
   // читались як суцільна стіна, у якій не видно головного.
   const item = (r) => {
     const key = `${r.kind || "bond"}|${r.currency}`;
-    const open = openSuggest.has(key);
+    const open = isOpen(OPEN_SCOPE, key);
     const kind = r.kind === "fund" ? "fund" : r.kind === "deposit" ? "deposit" : "bond";
     const cost = r.cost_per_bond ? fmtCur(Number(r.cost_per_bond.amount), curSym(r.currency)) : "";
     const purseCur = Math.max(0, ...Object.values(s.brokers || {}).map((m) => m[r.currency] || 0));
@@ -255,7 +257,9 @@ export function reinvestHTML(ctx) {
 
 // Розкриті пропозиції живуть поза рендером: ctx.reload() стирає main
 // цілком, і без цього кожне оновлення згортало б те, що ти щойно відкрив.
-const openSuggest = new Set();
+// Спільне сховище (js/uistate.js), а не власний Set: той вмирав разом зі
+// вкладкою, тобто перехід у «Портфель» і назад згортав усе.
+const OPEN_SCOPE = "suggest";
 
 export function wireReinvest(ctx, main) {
   main.querySelectorAll("[data-sgexp]").forEach((b) =>
@@ -267,7 +271,7 @@ export function wireReinvest(ctx, main) {
       row.style.display = open ? "" : "none";
       b.classList.toggle("open", open);
       b.setAttribute("aria-expanded", String(open));
-      if (open) openSuggest.add(key); else openSuggest.delete(key);
+      remember(OPEN_SCOPE, key, open);
     }));
 }
 
@@ -314,21 +318,30 @@ export async function renderOverview(ctx, main) {
   // картка не «доїжджала» після решти.
   try { reinvest = await ctx.api("GET", "reinvest"); }
   catch (_) { reinvest = []; }
+  // Порядок відповідає тому, як читають екран рішення.
+  //
+  // Банер іде ПЕРШИМ і сам: він і є відповідь на питання розділу. Доти
+  // над ним стояло попередження про застарілий довідник НБУ — тобто
+  // перше, що бачила людина, було господарство, а не рішення. Воно
+  // переїхало вниз: знати про це треба, але не замість.
+  //
+  // Швидкі дії — ПІД плитками. Угорі вони змагались із банером за роль
+  // головної кнопки, хоч ведуть просто у форми. І тепер це справжні
+  // посилання: маршрут у них є, тож їх можна відкрити в новій вкладці
+  // або покласти в закладки, а «назад» повертає звідки прийшов.
   main.innerHTML = `
-    ${nbuStaleHTML(ctx)}
     ${actionBannerHTML(ctx)}
-    <div class="quick">
-      <button data-go="buy">Купівля</button>
-      <button data-go="deposit">Поповнення</button>
-      <button data-go="convert">Конвертація</button>
-    </div>
     ${tiles}
+    <div class="quick">
+      <a class="btn" href="${routeFor("buy")}">Купівля</a>
+      <a class="btn" href="${routeFor("deposit")}">Поповнення</a>
+      <a class="btn" href="${routeFor("convert")}">Конвертація</a>
+    </div>
     <div class="ov-grid">${reinvestHTML(ctx)}${paymentsPreviewHTML(ctx)}</div>
-    ${await basketHTML(ctx)}`;
+    ${await basketHTML(ctx)}
+    ${nbuStaleHTML(ctx)}`;
 
   wireReinvest(ctx, main);
   wireBasket(ctx, main);
-  main.querySelectorAll("[data-go]").forEach((b) =>
-    b.addEventListener("click", () => ctx.goto(b.dataset.go)));
 }
 

@@ -13,6 +13,7 @@ import { PAYOUT_LABEL, KIND_LABEL } from "../constants.js";
 import { infoBtn } from "../info.js";
 import { yieldPair } from "../components.js";
 import { fundTable } from "../fund-ops.js";
+import { isOpen, remember } from "../uistate.js";
 
 
 const POS_COLS = 7;
@@ -20,14 +21,19 @@ const POS_COLS = 7;
 // Які рядки розкриті. Живе поза рендером навмисно: ctx.reload() стирає
 // main.innerHTML цілком, і без цього кожне поповнення згортало б той
 // вклад, у якому ти його щойно записав.
-const openRows = new Set();
+//
+// Було Set на рівні модуля: він переживав перемальовування, але вмирав
+// разом зі вкладкою — перехід у «Гроші» й назад згортав усе. Тепер це
+// спільне сховище (js/uistate.js), і розкрите живе далі навіть після
+// перезавантаження сторінки.
+const OPEN_SCOPE = "positions";
 
 // Реальна дохідність — колонка, заради якої таблиця й спільна. Під нею
 // номінальна й основа: з чого число взялося — обіцянка (купон, ставка)
 // чи факт (дивіденди зі зміною ціни). Ховати цю різницю нечесно.
 function realCell(real, nominal, basis) {
-  if (!real) return `<td class="num muted col-yield">—</td>`;
-  return `<td class="num col-yield">${yieldPair(real, nominal, basis)}</td>`;
+  if (!real) return `<td class="num muted col-yield" data-label="Дохідність">—</td>`;
+  return `<td class="num col-yield" data-label="Дохідність">${yieldPair(real, nominal, basis)}</td>`;
 }
 
 function bondDetailHTML(p, lots, sales) {
@@ -53,7 +59,7 @@ function bondDetailHTML(p, lots, sales) {
   // а в самому рядку їх не видно.
   const saleF = (field, attrs) =>
     `<td class="num"><input class="sale-f" data-field="${field}" ${attrs}></td>`;
-  const salesTbl = mySales.length ? `<h4 style="margin-top:12px">Продажі</h4><table><thead><tr>
+  const salesTbl = mySales.length ? `<h4 style="margin-top:var(--oi-gap)">Продажі</h4><table><thead><tr>
       <th>Дата</th><th class="num">К-сть</th><th class="num">Чиста</th>
       <th class="num">НКД</th><th class="num">Результат</th><th></th></tr></thead><tbody>
       ${mySales.map((s) => `<tr data-sale="${s.id}" data-lot="${s.lot_id}"
@@ -86,7 +92,7 @@ function fundDetailHTML(ctx, f) {
       : `фонд обіцяє ${pct(f.expected_pct)}`);
   }
   return `<div class="sub">${bits.join(" · ")}</div>
-    <h4 style="margin-top:12px">Лоти</h4>
+    <h4 style="margin-top:var(--oi-gap)">Лоти</h4>
     ${fundTable(ctx, "buy",
       `<th class="num">ID</th><th>Фонд</th><th class="num">К-сть</th><th class="num">Ціна</th><th class="num">Сплачено</th>`,
       (o, c) => `<td class="num">${o.qty}</td><td class="num">${c.price(o)}</td><td class="num">${c.money(o.amount)}</td>`,
@@ -103,12 +109,12 @@ function depositDetailHTML(d) {
       <label>Сума<input name="amount" inputmode="decimal" value="${d.principal.amount}" required></label>
       <button type="submit">Поповнити</button>
     </form>` : "";
-  const topupsTbl = topups.length ? `<h4 style="margin-top:12px">Поповнення</h4><table><tbody>
+  const topupsTbl = topups.length ? `<h4 style="margin-top:var(--oi-gap)">Поповнення</h4><table><tbody>
     ${topups.map((t) => `<tr><td class="muted">${esc(t.date)}</td><td class="num">${fmtMoney(t.amount)}</td>
       <td class="row-actions"><button class="sm warn" data-deltopup="${d.id}:${t.id}">✕</button></td></tr>`).join("")}
     </tbody></table>` : "";
   return `${topupForm}${topupsTbl}
-    <h4 style="margin-top:12px">Розірвати достроково</h4>
+    <h4 style="margin-top:var(--oi-gap)">Розірвати достроково</h4>
     <form class="close-form" data-close-form="${d.id}">
       <label>Дата розірвання<input name="closed_date" type="date" value="${today()}" required></label>
       <label>Отримано (тіло + відсотки)<input name="closed_amount" inputmode="decimal" placeholder="${d.balance.amount}" required></label>
@@ -235,26 +241,40 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
     return `<div class="card"><h2>Позиції</h2>
       <div class="muted">Позицій ще немає — почни з покупки або відкрий вклад нижче.</div></div>`;
   }
+  // data-label і data-prio — увесь механізм адаптивності цієї таблиці.
+  // Ширина вирішує CSS, а розмітка лише каже, ЯК називається кожна
+  // комірка (щоб на телефоні підпис можна було дописати перед числом)
+  // і НАСКІЛЬКИ вона потрібна (щоб у тісноті прибрати найменш потрібну).
+  // Пріоритет 1 — те, без чого рядок не має сенсу; 3 — те, що і так
+  // повторюється в рядку деталей.
   const rows = items.map((it) => {
-    const open = openRows.has(it.key);
+    const open = isOpen(OPEN_SCOPE, it.key);
+    const detailId = `pos-d-${it.key}`.replace(/[^\w-]/g, "-");
     return `<tr>
-      <td class="col-kind"><button class="caret${open ? " open" : ""}" data-exp="${it.key}"
-            aria-expanded="${open}" title="Показати, звідки взялася позиція">▸</button><span
+      <td class="col-kind" data-label="Тип"><button class="caret${open ? " open" : ""}"
+            data-exp="${it.key}" aria-expanded="${open}" aria-controls="${detailId}"
+            title="Показати, звідки взялася позиція">▸</button><span
           class="pill pill-${it.kind}">${KIND_LABEL[it.kind]}</span></td>
-      <td>${it.name}</td>
-      <td class="num">${it.invested}</td>
-      <td class="num">${it.value}</td>
+      <td data-label="Назва">${it.name}</td>
+      <td class="num" data-label="Вкладено" data-prio="3">${it.invested}</td>
+      <td class="num" data-label="Вартість" data-prio="2">${it.value}</td>
       ${realCell(it.pct, it.nominal, it.basis)}
-      <td>${it.term}</td>
+      <td data-label="Строк" data-prio="2">${it.term}</td>
       <td class="row-actions" style="white-space:nowrap">${it.actions}</td></tr>
-    <tr class="detail-row" data-detail="${it.key}"${open ? "" : ` style="display:none"`}>
+    <tr class="detail-row" id="${detailId}" data-detail="${it.key}"${open ? "" : ` style="display:none"`}>
       <td colspan="${POS_COLS}">${it.detail}</td></tr>`;
   }).join("");
 
   return `<div class="card"><h2 class="h-row">Позиції ${infoBtn("positions")}</h2>
-    <div class="table-scroll"><table><thead><tr>
-      <th class="col-kind">Тип</th><th>Назва</th><th class="num">Вкладено</th><th class="num">Вартість</th>
-      <th class="num col-yield">Дохідність</th><th>Строк</th><th></th></tr></thead>
+    <div class="table-scroll"><table class="pos-table">
+      <caption class="sr-only">Позиції портфеля: ОВДП, фонди, вклади й резерв</caption>
+      <thead><tr>
+      <th class="col-kind" scope="col">Тип</th><th scope="col">Назва</th>
+      <th class="num" scope="col" data-prio="3">Вкладено</th>
+      <th class="num" scope="col" data-prio="2">Вартість</th>
+      <th class="num col-yield" scope="col">Дохідність</th>
+      <th scope="col" data-prio="2">Строк</th><th scope="col"><span class="sr-only">Дії</span></th>
+      </tr></thead>
       <tbody>${rows}</tbody></table></div>
     <div class="sub" style="margin-top:10px">Велике число — <b>реальна</b> річна дохідність після
       податку, у сьогоднішній купівельній спроможності: саме вона порівнює ОВДП, фонд і вклад між
@@ -276,7 +296,7 @@ export function wirePositions(ctx, main) {
       row.style.display = open ? "" : "none";
       b.classList.toggle("open", open);
       b.setAttribute("aria-expanded", String(open));
-      if (open) openRows.add(key); else openRows.delete(key);
+      remember(OPEN_SCOPE, key, open);
     }));
 }
 
