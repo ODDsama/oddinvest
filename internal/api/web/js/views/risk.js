@@ -2,7 +2,8 @@
 // ліквідність, процентний ризик, бенчмарк і драбина.
 
 import {
-  esc, curSym, dayMonth, pct, uah2 as fmtUAH, cur2 as fmtCur, fundsCost, capitalUAH,
+  esc, curSym, dayMonth, pct, uah2 as fmtUAH, cur2 as fmtCur,
+  fundsCost, marketCostUAH, capitalUAH,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { svgBars, svgGrouped, svgDonut } from "../charts.js";
@@ -75,8 +76,9 @@ export function yieldTilesHTML(ctx) {
     : tile("XIRR", "—",
         `<div class="sub">гроші мають попрацювати ≥30 днів у середньому</div>`);
   return `<div class="tiles flush">
-    ${tile("Вкладено (грн-екв.)", fmtUAH(s0.invested_uah + fundsCost(s0)),
-      fundsCost(s0) > 0 ? `<div class="sub">з них ${fmtUAH(fundsCost(s0))} у фондах</div>` : "")}
+    ${tile("Вкладено: ОВДП + фонди (грн-екв.)", fmtUAH(marketCostUAH(s0)),
+      `${fundsCost(s0) > 0 ? `<div class="sub">з них ${fmtUAH(fundsCost(s0))} у фондах</div>` : ""}
+       <div class="sub-xs">без вкладів і резерву — вони коштують рівно те, що в них</div>`)}
     ${tile("Номінал (грн-екв.)", fmtUAH(s0.nominal_uah_eq))}
     ${s0.deposits_uah > 0 ? tile("Вклади (грн-екв.)", fmtUAH(s0.deposits_uah),
       `<div class="sub">тіло діючих банківських вкладів</div>`) : ""}

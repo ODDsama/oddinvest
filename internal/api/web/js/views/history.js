@@ -18,7 +18,7 @@ export function snapNonZero(s) {
   return (s.invested_uah || 0) > 0 || (s.nominal_uah_eq || 0) > 0 || (s.account_uah || 0) > 0;
 }
 
-// Собівартість дня: облігації + фонди + вклади + резерв.
+// Собівартість дня зі ЗНІМКА: облігації + фонди + вклади + резерв.
 //
 // invested_uah — це ЛИШЕ облігації (рахується циклом по позиціях ОВДП),
 // тож саме по собі воно не «скільки я вклав». deposits_uah — внесені
@@ -27,10 +27,18 @@ export function snapNonZero(s) {
 // Резерв — той самий випадок, що й вклад: скільки поклав, стільки й
 // коштує, тож у собівартість він входить сам собою і розриву не додає.
 //
+// Це НЕ те саме, що marketCostUAH у format.js, і різниця тут навмисна за
+// двома вимірами одразу. Знаменник: там лише те, що переоцінюється
+// (ОВДП + фонди), бо там питання — «наскільки вартість розійшлась із
+// ціною купівлі». Джерело: там документ стану на сьогодні, тут рядок
+// знімка за кожен день, тобто те, що було записане тоді. Доти обидві
+// формули стояли безіменні на сусідніх вкладках, і будь-яка розбіжність
+// їхніх чисел читалась як поломка, а не як два різні питання.
+//
 // null, якщо фонди є, а їхньої собівартості в знімку ще не писали: без
 // неї сума занижена рівно на вартість фондів, і різниця з капіталом
 // прочиталась би як прибуток, якого не було.
-function costOf(s) {
+function snapCostUAH(s) {
   if ((s.funds_uah || 0) > 0 && !(s.funds_cost_uah > 0)) return null;
   return (s.invested_uah || 0) + (s.funds_cost_uah || 0) + (s.deposits_uah || 0) +
     (s.reserve_uah || 0);
@@ -80,7 +88,7 @@ function capitalCardHTML(ctx, snaps) {
     { name: "Резерв", color: "var(--oi-series-reserve)", area: true, values: snaps.map((s) => s.reserve_uah || 0) },
   ].filter((s) => s.values.some((v) => v > 0));
 
-  const cost = snaps.map(costOf);
+  const cost = snaps.map(snapCostUAH);
   const series = areas.concat(cost.some((v) => v != null)
     ? [{ name: "Собівартість", color: "var(--oi-series-neutral)", values: cost, dash: true }] : []);
 
@@ -132,7 +140,7 @@ function planCardHTML(ctx, allSnaps) {
     acc += t / daysInMonth(s.date);
     return acc;
   });
-  const cost = snaps.map(costOf);
+  const cost = snaps.map(snapCostUAH);
   const base = cost.find((v) => v != null);
   const fact = cost.map((v) => (v == null || base == null ? null : v - base));
 
