@@ -41,7 +41,7 @@ export function income12mChartHTML(ctx) {
 // відстань, а не як два числа в різних рядках.
 //
 // Запасний варіант лишається: старі бекенди кривої не надсилають, і
-// панель не мусить показувати порожньо.
+// картка не мусить показувати порожньо.
 export function capitalChartHTML(ctx) {
   const s = ctx.summary || {};
   const curve = (s.forecast || {}).curve;

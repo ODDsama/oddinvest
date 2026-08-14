@@ -42,9 +42,9 @@ export const INFO = {
 export const infoBtn = (k) =>
   `<button class="info" data-info="${k}" aria-label="Як це читати" title="Як це читати">i</button>`;
 
-/** Делегований обробник кнопок «i». root — document (веб) або shadowRoot
- *  (панель): обидва вміють getElementById і addEventListener, тож
- *  розрізняти поверхні тут не треба.
+/** Делегований обробник кнопок «i». root — shadowRoot компонента, але
+ *  функція не залежить від того: document і shadowRoot однаково вміють
+ *  getElementById і addEventListener, тож перевіряти тут нема чого.
  *
  *  Очікує в root елемент `<div class="infopop" id="infoPop"><div class="box"></div></div>`. */
 export function bindInfo(root) {
