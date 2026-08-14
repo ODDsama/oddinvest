@@ -4,14 +4,15 @@
 # і CI робили те саме різними способами — а найдорожчою була церемонія
 # синхронізації UI: правка одного символу в CSS вимагала regen манiфесту
 # тут, коміт, пуш, а тоді ще синк і коміт у сусідньому репозиторії.
+# Церемонії більше немає разом із панеллю: поверхня одна, і цілей
+# `manifest`/`ui` тут теж немає — правка в web/ нікуди далі не їде.
 #
 # Тести: internal/api і internal/store потребують CGO (драйвер SQLite),
 # тож без gcc локально бігають лише чисті пакети — `make test-pure`.
 
 GO ?= go
-HA_REPO ?= ../ha-oddinvest
 
-.PHONY: help fmt lint vet test test-pure build manifest ui check
+.PHONY: help fmt lint vet test test-pure build check
 
 help:
 	@echo 'fmt        — gofmt -w .'
@@ -19,8 +20,6 @@ help:
 	@echo 'test       — усі тести під -race (потрібен CGO)'
 	@echo 'test-pure  — лише пакети без CGO (працює без gcc)'
 	@echo 'build      — зібрати oddinvestd'
-	@echo 'manifest   — перегенерувати contract/ui-manifest.json'
-	@echo 'ui         — manifest + синхронізувати вендор у $(HA_REPO)'
 	@echo 'check      — те, що ганяє CI'
 
 fmt:
@@ -43,25 +42,12 @@ test-pure:
 build:
 	$(GO) build -o oddinvestd ./cmd/oddinvestd
 
-manifest:
-	sh scripts/gen-ui-manifest.sh
-
-# Обидва кроки разом: манiфест мусить бути свіжим ДО синку, інакше
-# перевірка sha256 на тому боці звіряється зі вчорашніми хешами.
-ui: manifest
-	@if [ -d "$(HA_REPO)" ]; then \
-		cd "$(HA_REPO)" && sh scripts/sync-ui.sh --from "$(CURDIR)"; \
-	else \
-		echo "сусідній репозиторій $(HA_REPO) не знайдено — синк пропущено"; \
-	fi
-
 # Те саме, що в .github/workflows/ci.yml, щоб не дізнаватись про поламане
 # вже після пушу.
 check:
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo 'запусти: make fmt'; exit 1; }
 	$(GO) vet ./...
 	golangci-lint run ./...
-	sh scripts/gen-ui-manifest.sh --check
 	@$(MAKE) --no-print-directory fx-boundary
 	@$(MAKE) --no-print-directory sources-boundary
 	@$(MAKE) --no-print-directory sleeve-state
