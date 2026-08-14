@@ -18,13 +18,30 @@ import (
 // Доти тут був один літерал Input на пʼятдесят полів, і він працював ще й
 // як чек-лист: видно було, що подано все. Тепер прямі поля й входи
 // похідних розділені, і саме це розділення й перевіряється.
+//
+// ІНВАРІАНТ, який дорожчий за все інше в цьому файлі: тут мусить бути
+// КОЖНЕ поле, яке читає інтеграція Home Assistant.
+//
+// Причина механічна. З цього документа генерується contract/fixtures/
+// basic.json, і ця фікстура — ЄДИНЕ, проти чого тестується репозиторій
+// ha-oddinvest: його pytest бачить лише її. Поле, якого тут немає,
+// приїжджає в парсер інтеграції неперевіреним — не «перевіреним слабко»,
+// а взагалі. Тож коли в HA додається читання нового поля, першим кроком
+// воно додається сюди.
 func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 	t.Helper()
 	monthDep := money.New(450_000, money.UAH)
 	monthTarget := money.New(500_000, money.UAH)
 	settings := func() *SettingsDoc {
 		tgt, u := 5000.0, 50.0
-		return &SettingsDoc{MonthlyTargetUAH: &tgt, USDTargetSharePct: &u}
+		// Витрати й ціль резерву задані, щоб deriveReserve добудував
+		// картку цілком: без них він віддає саму лише суму, і поля
+		// months/target_uah/gap_uah у фікстурі не зʼявились би.
+		exp, months := 30_000.0, 3.0
+		return &SettingsDoc{
+			MonthlyTargetUAH: &tgt, USDTargetSharePct: &u,
+			MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months,
+		}
 	}()
 	doc := &Doc{
 		MonthInvestedUAH:  Major(money.New(450_000, money.UAH)),
@@ -35,9 +52,48 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		XIRRPct:           map[string]float64{"UAH": 16.51, "USD": 3.22},
 		// Дві валюти, щоб у фікстурі було видно, що строки не змішуються
 		// в одну криву: 16% гривні й 3% долара — це різні шкали.
+		//
+		// VsPortfolioPP тут проставлено руками: різницю рахує buildMarket
+		// в internal/api, а цей пакет її лише несе. Знаки різні навмисно —
+		// ринок буває і вищим за портфель, і нижчим, і споживач мусить
+		// побачити обидва випадки, а не лише приємний.
 		MarketYield: []MarketYieldRow{
-			{Currency: "UAH", Bucket: "1.5y", Pct: 15.65, Date: "2026-07-14", ISIN: "UA4000239040"},
-			{Currency: "USD", Bucket: "2y", Pct: 3.15, Date: "2026-05-05", ISIN: "UA4000239032"},
+			{Currency: "UAH", Bucket: "1.5y", Pct: 15.65, Date: "2026-07-14",
+				ISIN: "UA4000239040", VsPortfolioPP: 0.72},
+			{Currency: "USD", Bucket: "2y", Pct: 3.15, Date: "2026-05-05",
+				ISIN: "UA4000239032", VsPortfolioPP: -0.4},
+		},
+		// Нижче — поля, які читає інтеграція. Числа тут не мусять бути
+		// звʼязними з портфелем вище (Derive їх не рахує й не звіряє), але
+		// мусять бути НЕНУЛЬОВИМИ: нуль у фікстурі не відрізнити від
+		// відсутнього поля, і тест «старий сервіс не надсилає» на тому боці
+		// перестав би щось означати.
+		ReserveUAH:          60_000,
+		IncomeMonthlyNow:    1_240.50,
+		AccruedUAH:          812.33,
+		PortfolioYieldPct:   14.93,
+		FundsYieldPct:       11.20,
+		BlendedYieldPct:     14.10,
+		BlendedYieldRealPct: 6.85,
+		NBURefreshedAt:      "2026-07-15T06:10:00Z",
+		Liquidity: &Liquidity{
+			NowUAH: 1_500, In30UAH: 5_637.50, In90UAH: 9_775,
+			ReserveUAH: 60_000, LockedUAH: 120_000, UnlockDate: "2027-03-17",
+		},
+		Independence: &Independence{
+			TargetUAH: 30_000, IncomeNowUAH: 1_240.50, TargetFrom: "expenses",
+			PlanMonths: 214, PlanDate: "2044-05-15",
+			ActualMonths: 262, ActualDate: "2048-05-15",
+		},
+		// Два рядки з різними вимірами й лише ОДИН із перевищенням:
+		// споживачеві треба вміти відрізнити «ліміт заданий і дотриманий»
+		// від «перевищено», а з однорідного переліку це не видно.
+		Concentration: []ConcentrationRow{
+			{Dimension: "isin", Key: "UA4000230114", AmountUAH: 88_246.80,
+				SharePct: 34.2, LimitPct: 25, OverUAH: 23_746.80,
+				Label: "валютні військові"},
+			{Dimension: "year", Key: "2027", AmountUAH: 138_246.80,
+				SharePct: 100, LimitPct: 100},
 		},
 	}
 	in := DeriveInput{
@@ -50,7 +106,17 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 				Invested: money.New(199_000, money.USD), Nominal: money.New(200_000, money.USD),
 				Maturity: "2027-09-17"},
 		},
+		// Перший рядок — ВКЛАД, і він тут не для повноти переліку.
+		//
+		// Вклад ходить у розкладі під синтетичним ключем "deposit:<id>", і
+		// саме він може опинитися найближчою виплатою. Доти схема вимагала
+		// від next_payment.isin патерн UA[0-9A-Z]{10}, тобто документ у
+		// цьому випадку не проходив власної схеми — і жодна фікстура цього
+		// не показувала, бо вкладів у них не було. Тепер показує.
+		//
+		// Заразом це єдине місце, де в фікстурі непорожній label.
 		Cashflow: []domain.CashflowItem{
+			{Date: "2026-07-18", ISIN: "deposit:1", Type: domain.PayCoupon, Amount: money.New(30_000, money.UAH)},
 			{Date: "2026-07-20", ISIN: "UA4000227748", Type: domain.PayCoupon, Amount: money.New(413_750, money.UAH)},
 			{Date: "2026-09-16", ISIN: "UA4000227748", Type: domain.PayCoupon, Amount: money.New(413_750, money.UAH)},
 			{Date: "2027-03-17", ISIN: "UA4000227748", Type: domain.PayRedemption, Amount: money.New(5_000_000, money.UAH)},
@@ -63,8 +129,15 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		// Capital подається ГОТОВИМ, як і в живому будівнику: цей пакет
 		// його більше не збирає. Числа мусять відповідати Positions вище —
 		// 50 000 ₴ номіналу гривневих плюс $2 000 × 44.1234 = 88 246.80 ₴.
+		//
+		// Резерв тут ОБОВʼЯЗКОВО той самий, що й doc.ReserveUAH: капітал за
+		// визначенням містить його (див. Capital.TotalUAH), і фікстура, у
+		// якій резерв є, а в капіталі його немає, описувала б неможливий
+		// портфель. ReserveByCur порожній — матрац гривневий, валютної
+		// експозиції не додає.
 		Capital: Capital{
 			BondsUAH:   50_000 + 88_246.80,
+			ReserveUAH: 60_000,
 			BondsByCur: map[string]float64{money.USD: 88_246.80},
 		},
 		MonthDeposited: monthDep,
@@ -86,8 +159,19 @@ func TestDerive(t *testing.T) {
 	if doc.InvestedUAH != 137305.57 {
 		t.Errorf("invested_uah = %v", doc.InvestedUAH)
 	}
-	if doc.NextPayment == nil || doc.NextPayment.Date != "2026-07-20" || doc.NextPayment.Type != "coupon" {
+	// Найближча виплата — відсотки ВКЛАДУ, і разом із нею перевіряється
+	// підпис: голий "deposit:1" на екрані показувати не можна, тож правило
+	// живе в документі, а не в трьох клієнтах.
+	if doc.NextPayment == nil || doc.NextPayment.Date != "2026-07-18" ||
+		doc.NextPayment.Type != "coupon" || doc.NextPayment.ISIN != "deposit:1" {
 		t.Errorf("next_payment: %+v", doc.NextPayment)
+	}
+	if doc.NextPayment != nil && doc.NextPayment.Label != "вклад" {
+		t.Errorf("виплата вкладу без підпису: %+v", doc.NextPayment)
+	}
+	// В облігації підпис порожній навмисно: її ISIN і є назвою.
+	if doc.Calendar[1].ISIN != "UA4000227748" || doc.Calendar[1].Label != "" {
+		t.Errorf("облігація дістала зайвий підпис: %+v", doc.Calendar[1])
 	}
 	// Прогрес рахується від ПОПОВНЕНЬ, а не купівель: план виведений із
 	// цілі й означає нові гроші.
@@ -97,16 +181,22 @@ func TestDerive(t *testing.T) {
 	if doc.MonthDepositedUAH != 4500 {
 		t.Errorf("month_deposited = %v", doc.MonthDepositedUAH)
 	}
-	if doc.MonthIncomingUAH != 4137.50 {
+	// 4137.50 купона + 300.00 відсотків вкладу: у «надходженнях місяця»
+	// вклад рахується нарівні з папером.
+	if doc.MonthIncomingUAH != 4437.50 {
 		t.Errorf("month_incoming = %v", doc.MonthIncomingUAH)
 	}
 	if len(doc.Ladder) != 1 || doc.Ladder[0].UAH != 50000 || doc.Ladder[0].USD != 2000 {
 		t.Errorf("ladder: %+v", doc.Ladder)
 	}
-	if doc.USDSharePct < 63 || doc.USDSharePct > 64.5 {
+	// $2 000 × 44.1234 = 88 246.80 ₴ від капіталу 198 246.80 ₴ (номінал
+	// 138 246.80 + резерв 60 000) — тобто ~44.5%. Резерв стоїть у
+	// ЗНАМЕННИКУ, хоч сам гривневий: він частина капіталу, і саме тому
+	// поповнення матраца зменшує валютну частку, нічого не продаючи.
+	if doc.USDSharePct < 44 || doc.USDSharePct > 45 {
 		t.Errorf("usd_share_pct = %v", doc.USDSharePct)
 	}
-	if len(doc.Calendar) != 3 || doc.Calendar[2].Type != "redemption" {
+	if len(doc.Calendar) != 4 || doc.Calendar[3].Type != "redemption" {
 		t.Errorf("calendar: %+v", doc.Calendar)
 	}
 	if doc.Settings == nil || *doc.Settings.MonthlyTargetUAH != 5000 {

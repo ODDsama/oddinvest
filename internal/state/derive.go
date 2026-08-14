@@ -155,6 +155,7 @@ func Derive(doc *Doc, in DeriveInput) error {
 			Type:     payTypeStr(cf.Type),
 			Amount:   Major(cf.Amount),
 			Currency: cf.Amount.Currency().Code,
+			Label:    payLabel(cf.ISIN),
 		}
 		break
 	}
@@ -197,6 +198,7 @@ func Derive(doc *Doc, in DeriveInput) error {
 			Type:     payTypeStr(cf.Type),
 			Amount:   Major(cf.Amount),
 			Currency: cf.Amount.Currency().Code,
+			Label:    payLabel(cf.ISIN),
 		}
 		doc.Calendar = append(doc.Calendar, row)
 		if i < topN {
@@ -204,6 +206,24 @@ func Derive(doc *Doc, in DeriveInput) error {
 		}
 	}
 	return nil
+}
+
+// payLabel — людська назва виплати, коли ISIN сам по собі мовчить.
+//
+// Один помічник на обидва місця, де будуються рядки виплат (next_payment
+// і calendar/top_payments): доти правило жило у фронтенді, і другий
+// споживач написав би його вдруге.
+//
+// Назви банку тут немає навмисно: domain.CashflowItem несе лише дату,
+// ключ, тип і суму, а тягти сюди перелік вкладів заради одного слова
+// означало б розширити вхід Derive заради оформлення. «Вклад» — рівно те,
+// що показував UI, і воно відрізняє потік від облігації, а більше від
+// цього поля нічого й не потрібно.
+func payLabel(isin string) string {
+	if domain.IsDepositISIN(isin) {
+		return "вклад"
+	}
+	return ""
 }
 
 // deriveReserve — картка резерву.

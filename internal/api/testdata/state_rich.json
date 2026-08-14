@@ -238,7 +238,8 @@
     "isin": "deposit:1",
     "type": "coupon",
     "amount": 1270.36,
-    "currency": "UAH"
+    "currency": "UAH",
+    "label": "вклад"
   },
   "ladder": [
     {
@@ -260,7 +261,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1270.36,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2026-08-10",
@@ -274,7 +276,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1312.7,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2026-09-10",
@@ -288,7 +291,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1312.7,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     }
   ],
   "calendar": [
@@ -297,7 +301,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1270.36,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2026-08-10",
@@ -311,7 +316,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1312.7,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2026-09-10",
@@ -325,7 +331,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1312.7,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2026-10-12",
@@ -339,7 +346,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1270.36,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2026-11-10",
@@ -353,7 +361,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1312.7,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2026-12-10",
@@ -374,7 +383,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1270.36,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2027-01-11",
@@ -388,7 +398,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1312.7,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2027-01-31",
@@ -409,7 +420,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1312.7,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2027-03-10",
@@ -423,7 +435,8 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1185.67,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2027-04-12",
@@ -437,14 +450,16 @@
       "isin": "deposit:1",
       "type": "redemption",
       "amount": 120000,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2027-04-16",
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 1312.7,
-      "currency": "UAH"
+      "currency": "UAH",
+      "label": "вклад"
     },
     {
       "date": "2027-05-10",
@@ -1171,28 +1186,32 @@
       "bucket": "2.5y",
       "pct": 3.2,
       "date": "2026-06-05",
-      "isin": "UA4000239065"
+      "isin": "UA4000239065",
+      "vs_portfolio_pp": 2.66
     },
     {
       "currency": "UAH",
       "bucket": "1.5y",
       "pct": 15.65,
       "date": "2026-07-12",
-      "isin": "UA4000227748"
+      "isin": "UA4000227748",
+      "vs_portfolio_pp": 8.83
     },
     {
       "currency": "UAH",
       "bucket": "2y",
       "pct": 16.1,
       "date": "2026-07-05",
-      "isin": "UA4000239107"
+      "isin": "UA4000239107",
+      "vs_portfolio_pp": 9.28
     },
     {
       "currency": "UAH",
       "bucket": "3y",
       "pct": 17.8,
       "date": "2025-06-10",
-      "isin": "UA4000000001"
+      "isin": "UA4000000001",
+      "vs_portfolio_pp": 10.98
     }
   ],
   "accrued_uah": 209.04,

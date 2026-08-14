@@ -856,6 +856,8 @@ type NextPayment struct {
 	Type     string  `json:"type"` // coupon | redemption | early
 	Amount   float64 `json:"amount"`
 	Currency string  `json:"currency"`
+	// Label — те саме, що в PaymentRow: див. коментар там.
+	Label string `json:"label,omitempty"`
 }
 
 // MarketYieldRow — один строк однієї валюти на первинному ринку.
@@ -870,6 +872,23 @@ type MarketYieldRow struct {
 	Pct      float64 `json:"pct"`    // дохідність розміщення, до податку
 	Date     string  `json:"date"`   // день аукціону, ISO
 	ISIN     string  `json:"isin"`
+	// VsPortfolioPP — на скільки п.п. рівень розміщення вищий за дохідність
+	// портфеля В ЦІЙ САМІЙ ВАЛЮТІ (відʼємне — нижчий). Порожньо, якщо
+	// паперів цієї валюти в портфелі немає: порівнювати нема з чим.
+	//
+	// Порівнюється саме з НОМІНАЛЬНОЮ дохідністю (portfolio_yield), не з
+	// реальною. Аукціонний рівень — до податку й до знецінення, тож
+	// поставити проти нього portfolio_yield_real означало б відняти в
+	// однієї сторони те, чого не віднімали в другої, і різниця системно
+	// завищувалась би на всю інфляцію. Те саме правило вже сформульоване
+	// для читача у web/js/info.js під ключем "market"; тут воно вдруге,
+	// але машиночитно — щоб наступний споживач (сповіщення в HA) не
+	// виводив його втретє й не помилився на цьому самому місці.
+	//
+	// Це РІЗНИЦЯ ДВОХ УЖЕ ОПУБЛІКОВАНИХ ДОХІДНОСТЕЙ, а не рівень: ціною
+	// паперу її не сплутати навіть випадково. Чому ціни з аукціону не
+	// виводимо взагалі — у README, розділ «Чого тут свідомо немає».
+	VsPortfolioPP float64 `json:"vs_portfolio_pp,omitempty"`
 }
 
 type LadderRow struct {
@@ -885,6 +904,18 @@ type PaymentRow struct {
 	Type     string  `json:"type"`
 	Amount   float64 `json:"amount"`
 	Currency string  `json:"currency"`
+	// Label — людська назва, коли ISIN сам по собі мовчить. Той самий
+	// випадок, що й ConcentrationRow.Label вище.
+	//
+	// Вклад ходить у розкладі під синтетичним ключем "deposit:<id>"
+	// (domain.DepositISINPrefix), і показувати цей ключ людині не можна.
+	// Правило «якщо deposit: — пиши "вклад"» уже жило у views/future.js;
+	// коли те саме знадобилось сповіщенням Home Assistant, воно мало
+	// зʼявитись утретє й ТРЕТЬОЮ мовою. Тому воно тут, у документі: там,
+	// де рядок будується, а не там, де його малюють.
+	//
+	// Порожньо для облігації навмисно: її ISIN і є назвою.
+	Label string `json:"label,omitempty"`
 }
 
 func payTypeStr(t domain.PayType) string {

@@ -3,28 +3,40 @@
   "generated_at": "2026-07-15T10:00:00Z",
   "invested_uah": 137305.57,
   "nominal_uah_eq": 138246.8,
-  "capital_uah": 138246.8,
-  "usd_share_pct": 63.832797576508106,
+  "capital_uah": 198246.8,
+  "usd_share_pct": 44.513606272585484,
   "eur_share_pct": 0,
   "uninvested_uah": 0,
   "account_uah": 0,
   "reinvest_min_uah": 0,
   "accounts": {},
   "reinvest_min": {},
+  "reserve_uah": 60000,
+  "reserve": {
+    "uah": 60000,
+    "share_pct": 30.26530566949883,
+    "months": 2,
+    "target_months": 3,
+    "target_uah": 90000,
+    "gap_uah": 30000,
+    "monthly_expenses_uah": 30000
+  },
   "rates": {
     "USD": 44.1234
   },
+  "income_monthly_now": 1240.5,
   "month_invested_uah": 4500,
   "month_deposited_uah": 4500,
   "month_target_uah": 5000,
   "month_progress_pct": 90,
-  "month_incoming_uah": 4137.5,
+  "month_incoming_uah": 4437.5,
   "next_payment": {
-    "date": "2026-07-20",
-    "isin": "UA4000227748",
+    "date": "2026-07-18",
+    "isin": "deposit:1",
     "type": "coupon",
-    "amount": 4137.5,
-    "currency": "UAH"
+    "amount": 300,
+    "currency": "UAH",
+    "label": "вклад"
   },
   "ladder": [
     {
@@ -35,6 +47,14 @@
     }
   ],
   "top_payments": [
+    {
+      "date": "2026-07-18",
+      "isin": "deposit:1",
+      "type": "coupon",
+      "amount": 300,
+      "currency": "UAH",
+      "label": "вклад"
+    },
     {
       "date": "2026-07-20",
       "isin": "UA4000227748",
@@ -58,6 +78,14 @@
     }
   ],
   "calendar": [
+    {
+      "date": "2026-07-18",
+      "isin": "deposit:1",
+      "type": "coupon",
+      "amount": 300,
+      "currency": "UAH",
+      "label": "вклад"
+    },
     {
       "date": "2026-07-20",
       "isin": "UA4000227748",
@@ -84,24 +112,69 @@
     "UAH": 16.51,
     "USD": 3.22
   },
+  "portfolio_yield_pct": 14.93,
+  "funds_yield_pct": 11.2,
+  "blended_yield_pct": 14.1,
+  "blended_yield_real_pct": 6.85,
+  "independence": {
+    "target_uah": 30000,
+    "income_now_uah": 1240.5,
+    "target_from": "expenses",
+    "plan_months": 214,
+    "plan_date": "2044-05-15",
+    "actual_months": 262,
+    "actual_date": "2048-05-15"
+  },
+  "concentration": [
+    {
+      "dimension": "isin",
+      "key": "UA4000230114",
+      "amount_uah": 88246.8,
+      "share_pct": 34.2,
+      "limit_pct": 25,
+      "over_uah": 23746.8,
+      "label": "валютні військові"
+    },
+    {
+      "dimension": "year",
+      "key": "2027",
+      "amount_uah": 138246.8,
+      "share_pct": 100,
+      "limit_pct": 100
+    }
+  ],
+  "liquidity": {
+    "now_uah": 1500,
+    "in_30_uah": 5637.5,
+    "in_90_uah": 9775,
+    "reserve_uah": 60000,
+    "locked_uah": 120000,
+    "unlock_date": "2027-03-17"
+  },
   "market_yield": [
     {
       "currency": "UAH",
       "bucket": "1.5y",
       "pct": 15.65,
       "date": "2026-07-14",
-      "isin": "UA4000239040"
+      "isin": "UA4000239040",
+      "vs_portfolio_pp": 0.72
     },
     {
       "currency": "USD",
       "bucket": "2y",
       "pct": 3.15,
       "date": "2026-05-05",
-      "isin": "UA4000239032"
+      "isin": "UA4000239032",
+      "vs_portfolio_pp": -0.4
     }
   ],
+  "accrued_uah": 812.33,
+  "nbu_refreshed_at": "2026-07-15T06:10:00Z",
   "settings": {
     "monthly_target_uah": 5000,
-    "usd_target_share_pct": 50
+    "usd_target_share_pct": 50,
+    "monthly_expenses_uah": 30000,
+    "reserve_target_months": 3
   }
 }

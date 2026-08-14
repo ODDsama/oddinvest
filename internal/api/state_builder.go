@@ -761,7 +761,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 
 	// Що первинний ринок платить за строк (state_market.go). Єдина фаза,
 	// яка дивиться назовні, а не зводить портфель.
-	mkt := buildMarket(src.auctions)
+	mkt := buildMarket(src.auctions, portfolioYieldByCur)
 
 	// Документ заповнюється НАПРЯМУ, а не через проміжний літерал на
 	// пʼятдесят полів: тридцять із них були дзеркалом Doc, тобто пакет
