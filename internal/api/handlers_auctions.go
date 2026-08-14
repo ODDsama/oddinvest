@@ -36,6 +36,27 @@ type curveRow struct {
 	// падіння з 15% у нікуди.
 	PrevPct  float64 `json:"prev_pct,omitempty"`
 	PrevDate string  `json:"prev_date,omitempty"`
+	// Обставини того аукціону — не «скільки платять», а «як його брали».
+	//
+	// MinPct/MaxPct — смуга ПРИЙНЯТИХ заявок: вузька означає, що дилери
+	// зійшлись, широка — що згоди не було й середнє число менш надійне.
+	// Demand — bid-to-cover: скільки просили проти скільки взяли; нижче
+	// одиниці означає, що охочих було менше за пропозицію. Sold — обсяг
+	// розміщення у валюті ЦЬОГО рядка (без переводу в гривню: це факт про
+	// аукціон, а не про портфель, і курс тут нічого не додає).
+	//
+	// Усе це лишається в REST і НЕ їде в документ стану. Причина та сама,
+	// що вже записана для історії кривої в state.go над MarketYield:
+	// retained-повідомлення в MQTT — це стан портфеля, а не ринковий
+	// довідник, і контракт з інтеграцією свідомо є підмножиною.
+	//
+	// І окремо: жодне з цих чисел не є ціною й не наближає до неї. Чому
+	// ціни з аукціонного рівня не виводимо взагалі — у README, розділ
+	// «Чого тут свідомо немає».
+	MinPct float64 `json:"min_pct,omitempty"`
+	MaxPct float64 `json:"max_pct,omitempty"`
+	Demand float64 `json:"demand,omitempty"`
+	Sold   float64 `json:"sold,omitempty"`
 }
 
 // handleAuctionsCurve — крива під ту саму картку, що її й показує (як
@@ -64,6 +85,10 @@ func (s *Server) handleAuctionsCurve(w http.ResponseWriter, r *http.Request) {
 			Currency: p.Currency, Bucket: p.Bucket, Days: p.Days,
 			Pct:  round2(float64(p.IncomeBP) / 100),
 			Date: string(p.Date), ISIN: p.ISIN,
+			MinPct: round2(float64(p.MinBP) / 100),
+			MaxPct: round2(float64(p.MaxBP) / 100),
+			Demand: round2(float64(p.BTCx100) / 100),
+			Sold:   round2(float64(p.SoldMinor) / 100),
 		}
 		// Порівнюємо лише з ІНШИМ розміщенням: коли за рік нового не
 		// було, «тоді» і «зараз» — це один і той самий аукціон, і два

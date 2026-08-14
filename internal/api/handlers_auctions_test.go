@@ -20,6 +20,10 @@ type curveJSON struct {
 	Date     string  `json:"date"`
 	PrevPct  float64 `json:"prev_pct"`
 	PrevDate string  `json:"prev_date"`
+	MinPct   float64 `json:"min_pct"`
+	MaxPct   float64 `json:"max_pct"`
+	Demand   float64 `json:"demand"`
+	Sold     float64 `json:"sold"`
 }
 
 func TestAuctionsCurve(t *testing.T) {
@@ -28,9 +32,12 @@ func TestAuctionsCurve(t *testing.T) {
 	now := time.Now()
 	old := domain.NewDate(now.AddDate(-1, 0, -30)) // трохи більше року тому
 	if err := st.SaveAuctions(ctx, []nbu.Auction{
-		// Гривня: два строки, обидва мають із чим порівнятись.
+		// Гривня: два строки, обидва мають із чим порівнятись. У найсвіжішого
+		// заповнені й обставини — попит, смуга заявок, обсяг: усе це лежало
+		// в таблиці від міграції 0024 й до цього не читалось назад узагалі.
 		{Date: domain.NewDate(now.AddDate(0, 0, -3)), ISIN: "UA1", Num: "1",
-			Currency: money.UAH, Bucket: "1y", IncomeBP: 1519, DaysToRepay: 343},
+			Currency: money.UAH, Bucket: "1y", IncomeBP: 1519, DaysToRepay: 343,
+			MinBP: 1490, MaxBP: 1540, BTCx100: 235, SoldMinor: 5_200_000_000_00},
 		{Date: old, ISIN: "UA1", Num: "9",
 			Currency: money.UAH, Bucket: "1y", IncomeBP: 1780, DaysToRepay: 350},
 		{Date: domain.NewDate(now.AddDate(0, 0, -3)), ISIN: "UA2", Num: "2",
@@ -70,6 +77,24 @@ func TestAuctionsCurve(t *testing.T) {
 	}
 	if r := byKey["EUR|1.5y"]; r.Pct != 3.20 || r.PrevPct != 0 {
 		t.Errorf("EUR 1.5y: %+v", r)
+	}
+	// Обставини аукціону доходять до картки: попит, смуга прийнятих заявок
+	// і обсяг. Це факти ПРО АУКЦІОН, а не ціна паперу для тебе, — але доти
+	// вони писались у базу й не читались назад ніде.
+	if r := byKey["UAH|1y"]; r.Demand != 2.35 || r.MinPct != 14.90 || r.MaxPct != 15.40 {
+		t.Errorf("обставини UAH 1y не доїхали: %+v", r)
+	}
+	// Обсяг приходить у МАЖОРНИХ одиницях валюти свого рядка: у базі він
+	// мінорний (5_200_000_000_00 копійок), на межі документа — 5.2 млрд ₴.
+	// Переводити в гривню нема за чим — це факт про аукціон, а не про
+	// портфель, і курс тут нічого не додає.
+	if r := byKey["UAH|1y"]; r.Sold != 5_200_000_000 {
+		t.Errorf("обсяг розміщення UAH 1y = %v, хотіли 5.2 млрд ₴", r.Sold)
+	}
+	// Рядок без обставин лишається без них, а не з нулями впоперек картки:
+	// «попит 0×» читалось би як «ніхто не прийшов».
+	if r := byKey["UAH|2y"]; r.Demand != 0 || r.MinPct != 0 || r.Sold != 0 {
+		t.Errorf("UAH 2y дістав обставини, яких у нього немає: %+v", r)
 	}
 }
 

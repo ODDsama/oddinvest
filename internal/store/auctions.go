@@ -28,7 +28,28 @@ type AuctionPoint struct {
 	// впорядкування: назви строків сортуються за абеткою неправильно
 	// («1.5y» < «1y» < «2y»), а криву читають зліва направо за строком.
 	Days int64 `json:"days"`
+	// Нижче — те, що таблиця несла від самого початку (міграція 0024), а
+	// читати ніхто не читав: рівень розміщення відповідав на питання
+	// «скільки платять», і на цьому спинились.
+	//
+	// MinBP / MaxBP — смуга ПРИЙНЯТИХ заявок: наскільки згодні між собою
+	// були дилери того дня. BTCx100 — bid-to-cover ×100: скільки просили
+	// проти скільки взяли, тобто попит. SoldMinor — обсяг розміщення в
+	// мінорних одиницях валюти рядка. Num і RepayDate — номер аукціону й
+	// дата погашення паперу, який тоді розміщували.
+	Num       string      `json:"num,omitempty"`
+	RepayDate domain.Date `json:"repay_date,omitempty"`
+	MinBP     int64       `json:"min_bp,omitempty"`
+	MaxBP     int64       `json:"max_bp,omitempty"`
+	BTCx100   int64       `json:"btc_x100,omitempty"`
+	SoldMinor int64       `json:"sold_minor,omitempty"`
 }
+
+// auctionCols — перелік колонок для scanPoints, у порядку сканування.
+// Один на всі запити: два різні переліки розійшлись би на першому ж
+// новому полі, і мовчки — Scan упав би лише на кількості.
+const auctionCols = `isin, MAX(auction_date), currency, bucket, income_bp,
+	days_to_repay, auction_num, repay_date, min_bp, max_bp, btc_x100, sold_minor`
 
 // SaveAuctions записує результати аукціонів. Ідемпотентно за ключем
 // (день, папір, номер): повторний бекфіл нічого не дублює, тож його
@@ -95,11 +116,13 @@ func (s *Store) scanPoints(ctx context.Context, q string, args ...any) ([]Auctio
 	out := []AuctionPoint{}
 	for rows.Next() {
 		var p AuctionPoint
-		var d string
-		if err := rows.Scan(&p.ISIN, &d, &p.Currency, &p.Bucket, &p.IncomeBP, &p.Days); err != nil {
+		var d, repay string
+		if err := rows.Scan(&p.ISIN, &d, &p.Currency, &p.Bucket, &p.IncomeBP, &p.Days,
+			&p.Num, &repay, &p.MinBP, &p.MaxBP, &p.BTCx100, &p.SoldMinor); err != nil {
 			return nil, err
 		}
 		p.Date = domain.Date(d)
+		p.RepayDate = domain.Date(repay)
 		out = append(out, p)
 	}
 	return out, rows.Err()
@@ -110,13 +133,16 @@ func (s *Store) scanPoints(ctx context.Context, q string, args ...any) ([]Auctio
 // якому максимум і досягнуто. Це не загальний SQL, і саме тому сказано
 // вголос — на іншій СУБД тут знадобиться віконна функція.
 //
+// Колонок, що їдуть із того рядка, тепер дванадцять, а не шість: попит,
+// смуга заявок і обсяг лежали в таблиці від міграції 0024 й не читались
+// ніде. Ціна цього нуль — рядок той самий, просто беремо його цілком.
+//
 // Один запит, а не по одному на папір: інакше помічник реінвесту робив
 // би 187 звернень до бази на кожне відкриття «Огляду».
 
 // LastAuctionByISIN — коли й під скільки востаннє розміщували кожен папір.
 func (s *Store) LastAuctionByISIN(ctx context.Context) (map[string]AuctionPoint, error) {
-	pts, err := s.scanPoints(ctx, `SELECT isin, MAX(auction_date), currency, bucket,
-		income_bp, days_to_repay FROM ovdp_auctions GROUP BY isin`)
+	pts, err := s.scanPoints(ctx, `SELECT `+auctionCols+` FROM ovdp_auctions GROUP BY isin`)
 	if err != nil {
 		return nil, err
 	}
@@ -145,8 +171,7 @@ func (s *Store) AuctionLatestByBucket(ctx context.Context) ([]AuctionPoint, erro
 // покладатись на це поруч із уже задекларованою особливістю MAX() було б
 // однією хиткою підставою забагато.
 func (s *Store) AuctionByBucketAsOf(ctx context.Context, on domain.Date) ([]AuctionPoint, error) {
-	q := `SELECT isin, MAX(auction_date), currency, bucket, income_bp, days_to_repay
-		FROM ovdp_auctions WHERE bucket <> ''`
+	q := `SELECT ` + auctionCols + ` FROM ovdp_auctions WHERE bucket <> ''`
 	var args []any
 	if on != "" {
 		q += ` AND auction_date <= ?`

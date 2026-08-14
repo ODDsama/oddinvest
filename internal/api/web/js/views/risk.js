@@ -464,15 +464,42 @@ export function marketCurveCard(ctx, curve) {
     if (!byCur.has(r.currency)) byCur.set(r.currency, []);
     byCur.get(r.currency).push(r);
   }
+  // Обставини найсвіжішого аукціону цієї валюти: як його брали.
+  //
+  // Формулювання несуче. Це факти ПРО АУКЦІОН, а не про твій папір:
+  // «попит» — скільки просили проти скільки взяли, «прийняті заявки» —
+  // смуга, у якій зійшлись дилери. Жодне з них не є ціною, і слова
+  // «коштує» тут бути не повинно.
+  // Обсяги аукціону — це мільйони й мільярди, і копійки в них лише
+  // заважають: «1 000 000 000,00 ₴» довше читати, ніж «1,0 млрд ₴», а
+  // точність тут нічого не вирішує. Спільний compact() не підходить —
+  // він знає лише «М» і на мільярді дав би «5000,0М».
+  const volume = (v, cur) => {
+    const s = v >= 1e9 ? `${(v / 1e9).toFixed(1)} млрд`
+      : v >= 1e6 ? `${(v / 1e6).toFixed(1)} млн`
+        : Math.round(v).toLocaleString("uk");
+    return `${s.replace(".", ",")} ${curSym(cur)}`;
+  };
+  const context = (r) => {
+    const bits = [];
+    if (r.demand > 0) bits.push(`попит ${r.demand.toFixed(1)}×`);
+    if (r.min_pct > 0 && r.max_pct > 0 && r.max_pct > r.min_pct) {
+      bits.push(`прийняті заявки ${pct(r.min_pct)}–${pct(r.max_pct)}`);
+    }
+    if (r.sold > 0) bits.push(`розміщено ${volume(r.sold, r.currency)}`);
+    return bits.join(" · ");
+  };
   const blocks = [...byCur.entries()].map(([c, list]) => {
     const hasPrev = list.some((r) => r.prev_pct > 0);
     const groups = list.map((r) => ({ label: r.bucket, a: r.pct, b: r.prev_pct || 0 }));
-    const freshest = list.reduce((a, b) => (a.date > b.date ? a : b)).date;
+    const fresh = list.reduce((a, b) => (a.date > b.date ? a : b));
+    const ctxLine = context(fresh);
     return `<div class="card"><h4>${esc(curSym(c))} ${esc(c)}</h4>
       ${svgGrouped(groups)}
       <div class="lg"><span><i style="background:var(--oi-series-invested)"></i>зараз</span>
         ${hasPrev ? `<span><i style="background:var(--oi-series-neutral)"></i>рік тому</span>` : ""}</div>
-      <div class="sub-xs">останнє розміщення ${esc(dayMonth(freshest))}</div></div>`;
+      <div class="sub-xs">останнє розміщення ${esc(dayMonth(fresh.date))}${
+        ctxLine ? ` · ${esc(ctxLine)}` : ""}</div></div>`;
   }).join("");
   return `<div class="card"><h2 class="h-row">Скільки платить ринок ${infoBtn("market")}</h2>
     <div class="sub">Дохідність, під яку Мінфін РОЗМІЩУЄ ОВДП на аукціоні, за строками.

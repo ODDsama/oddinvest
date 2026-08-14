@@ -113,6 +113,57 @@ func TestLastAuctionByISINTakesNewest(t *testing.T) {
 	}
 }
 
+// TestAuctionPointCarriesDemandAndVolume — з рядка приїжджає ВЕСЬ рядок.
+//
+// Міграція 0024 завела дванадцять колонок, а читалось шість: попит
+// (bid-to-cover), смуга прийнятих заявок, обсяг розміщення, номер аукціону
+// й дата погашення писались щодня й не читались назад ніде. Помилка була
+// не в записі й не в схемі, а рівно в переліку колонок SELECT — місці,
+// яке нічим не падає: Scan звіряє КІЛЬКІСТЬ, тож поки обидва переліки
+// однаково короткі, все «працює».
+func TestAuctionPointCarriesDemandAndVolume(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	if err := s.SaveAuctions(ctx, []nbu.Auction{{
+		Date: "2026-08-11", ISIN: "UA4000239016", Num: "91", Currency: money.UAH,
+		Bucket: "1y", DaysToRepay: 343, RepayDate: "2027-07-20", IncomeBP: 1519,
+		MinBP: 1490, MaxBP: 1540, BTCx100: 235, SoldMinor: 5_200_000_000_00,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	check := func(what string, p AuctionPoint) {
+		t.Helper()
+		if p.MinBP != 1490 || p.MaxBP != 1540 {
+			t.Errorf("%s: смуга прийнятих заявок не доїхала: %+v", what, p)
+		}
+		if p.BTCx100 != 235 {
+			t.Errorf("%s: попит не доїхав: btc=%d", what, p.BTCx100)
+		}
+		if p.SoldMinor != 5_200_000_000_00 {
+			t.Errorf("%s: обсяг не доїхав: sold=%d", what, p.SoldMinor)
+		}
+		if p.Num != "91" || p.RepayDate != domain.Date("2027-07-20") {
+			t.Errorf("%s: номер/дата погашення не доїхали: %+v", what, p)
+		}
+	}
+	// Обидва шляхи вичитування спільні (auctionCols), і саме тому
+	// перевіряються обидва: розійшовшись, вони розійшлись би мовчки.
+	byISIN, err := s.LastAuctionByISIN(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("LastAuctionByISIN", byISIN["UA4000239016"])
+
+	byBucket, err := s.AuctionLatestByBucket(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byBucket) != 1 {
+		t.Fatalf("хочемо один строк, маємо %d", len(byBucket))
+	}
+	check("AuctionLatestByBucket", byBucket[0])
+}
+
 // Порожня база не помилка, а звичайний стан свіжої інсталяції: доти,
 // доки бекфіл не відпрацював, кривої просто немає.
 func TestNewestAuctionDateOnEmpty(t *testing.T) {
