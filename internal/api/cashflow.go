@@ -290,7 +290,7 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// handleTax — GET /api/tax?from=&to=
+// handleTax — GET /api/tax?year= (або ?from=&to=)
 //
 // Скільки з доходу забрала держава. Асиметрія між інструментами вже
 // зашита в real_pct, але відсотком її не відчуваєш: вклад під 16% і
@@ -301,15 +301,16 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 // (нині 14% = ПДФО 9% + військовий збір 5%), відсотки вкладу теж (19.5%
 // = ПДФО 18% + ВЗ 1.5%). Ставки НЕ зашиті: у фонду беремо фактично
 // утримане з операції, у вкладу — ставку з самого вкладу.
+//
+// Період — через taxYear (taxyear.go), спільний із /api/export/csv.
+// Доти цей обробник типово брав ковзні дванадцять місяців, а вивантаження
+// поруч — календарний рік, і зійтись вони могли хіба випадково.
 func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	to := domain.Date(r.URL.Query().Get("to"))
-	if to == "" {
-		to = domain.NewDate(time.Now())
-	}
-	from := domain.Date(r.URL.Query().Get("from"))
-	if from == "" {
-		from = domain.NewDate(time.Now().AddDate(-1, 0, 0))
+	year, from, to, err := taxYear(r.URL.Query(), time.Now())
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
 	}
 
 	rates, err := s.rates(ctx)
@@ -400,6 +401,9 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		return l
 	}
 	out := struct {
+		// Year — 0, коли період заданий парою from/to, а не роком. Клієнту
+		// це потрібно, щоб не підписувати довільний відрізок роком.
+		Year     int     `json:"year,omitempty"`
 		From     string  `json:"from"`
 		To       string  `json:"to"`
 		GrossUAH float64 `json:"gross_uah"`
@@ -407,7 +411,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		NetUAH   float64 `json:"net_uah"`
 		RatePct  float64 `json:"rate_pct"`
 		ByKind   []line  `json:"by_kind,omitempty"`
-	}{From: string(from), To: string(to)}
+	}{Year: year, From: string(from), To: string(to)}
 	for _, l := range []line{
 		mk("bond", "Купони ОВДП", bondGross, 0),
 		mk("fund", "Дивіденди фондів", fundGross, fundTax),

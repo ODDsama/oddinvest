@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -169,10 +168,17 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 // handleExportCSV — рухи за рік для декларації: отримані виплати і
 // продажі з реалізованим результатом. Роздільник ';' і UTF-8 BOM —
 // щоб україномовний Excel відкривав без танців.
+//
+// Період — через taxYear (taxyear.go), той самий, що й у /api/tax.
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
-	year := r.URL.Query().Get("year")
-	if year == "" {
-		year = fmt.Sprintf("%d", time.Now().Year())
+	yearNum, from, to, err := taxYear(r.URL.Query(), time.Now())
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	name := fmt.Sprintf("%d", yearNum)
+	if yearNum == 0 {
+		name = string(from) + "_" + string(to)
 	}
 	ctx := r.Context()
 	lots, sales, _, pays, err := s.portfolio(ctx)
@@ -180,16 +186,17 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	past, err := domain.FuturePayments(pays, lots, sales, domain.Date(year+"-01-01"))
+	past, err := domain.FuturePayments(pays, lots, sales, from)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	today := domain.NewDate(time.Now())
+	inWindow := func(d domain.Date) bool { return !d.Before(from) && !d.After(to) }
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition",
-		fmt.Sprintf("attachment; filename=oddinvest-%s.csv", year))
+		fmt.Sprintf("attachment; filename=oddinvest-%s.csv", name))
 	w.Write([]byte{0xEF, 0xBB, 0xBF}) // BOM
 	cw := csv.NewWriter(w)
 	cw.Comma = ';'
@@ -200,7 +207,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		domain.PayEarly: "дострокове погашення",
 	}
 	for _, cf := range past {
-		if !strings.HasPrefix(string(cf.Date), year) || cf.Date.After(today) {
+		if !inWindow(cf.Date) || cf.Date.After(today) {
 			continue
 		}
 		cw.Write([]string{typeNames[cf.Type], string(cf.Date), cf.ISIN, "",
@@ -211,7 +218,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		lotByID[l.ID] = l
 	}
 	for _, sl := range sales {
-		if !strings.HasPrefix(string(sl.SaleDate), year) {
+		if !inWindow(sl.SaleDate) {
 			continue
 		}
 		lot := lotByID[sl.LotID]

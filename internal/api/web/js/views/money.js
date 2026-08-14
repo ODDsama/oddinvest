@@ -320,11 +320,32 @@ function flowHTML(f) {
 // Асиметрія між інструментами вже зашита в реальну дохідність, але
 // відсотком її не відчуваєш. Вклад під 16% і папір під 16% — це різні
 // гроші, і рядок «податок з'їв стільки-то» каже це пряміше.
+// Рік звітності. Живе в localStorage, як і решта перемикачів періоду:
+// декларацію заповнюють не в той самий день, коли дивляться картку, і
+// повертатись до того самого року щоразу руками — зайва робота.
+const TAX_KEY = "oddinvest.taxYear";
+export function taxYear() {
+  const now = new Date().getFullYear();
+  try {
+    const v = parseInt(localStorage.getItem(TAX_KEY), 10);
+    // Межа знизу та сама, що й у бекенді: сміття в сховищі не має
+    // перетворюватись на запит, який упаде чотирисоткою.
+    if (v >= 1990 && v <= now) return v;
+  } catch (_) { /* приватний режим */ }
+  return now;
+}
+
 function taxHTML(x) {
-  if (!x || !(x.by_kind || []).length) return "";
-  return `<div class="card">${disclosure("tax", "Податок на дохід",
-    `<div class="sub" style="margin-bottom:10px">${esc(x.from)} → ${esc(x.to)}</div>
-     <div class="table-scroll"><table>
+  if (!x) return "";
+  const now = new Date().getFullYear();
+  const sel = x.year || taxYear();
+  const years = Array.from({ length: 5 }, (_, i) => now - i);
+  const picker = `<select data-tax-year>${years.map((y) =>
+    `<option value="${y}"${y === sel ? " selected" : ""}>${y}</option>`).join("")}</select>`;
+  // Порожній рік — не привід ховати картку: «за 2023-й податків не було»
+  // це відповідь, а зникла картка читається як поломка.
+  const body = (x.by_kind || []).length
+    ? `<div class="table-scroll"><table>
        <thead><tr><th>Джерело</th><th class="num">Нараховано</th>
          <th class="num">Податок</th><th class="num">Чистими</th><th class="num">Ставка</th></tr></thead>
        <tbody>${(x.by_kind || []).map((l) => `<tr>
@@ -338,7 +359,12 @@ function taxHTML(x) {
            <td class="num">−${fmtUAH(x.tax_uah)}</td>
            <td class="num">${fmtUAH(x.net_uah)}</td>
            <td class="num">${pct(x.rate_pct)}</td></tr>
-       </tbody></table></div>
+       </tbody></table></div>`
+    : `<div class="muted">За цей рік оподаткованого доходу не було.</div>`;
+  return `<div class="card">${disclosure("tax", "Податок на дохід",
+    `<div class="sub h-row" style="justify-content:space-between;margin-bottom:10px">
+       <span>${esc(x.from)} → ${esc(x.to)}</span><span>рік: ${picker}</span></div>
+     ${body}
      <div class="sub" style="margin-top:8px">Купон ОВДП звільнений від податку, дивіденд фонду й
        відсотки вкладу — ні. Ставки не зашиті: у фонду береться фактично утримане з виписки, у
        вкладу — ставка самого вкладу.</div>`,
@@ -351,7 +377,7 @@ export async function renderMoney(ctx, main) {
     ctx.soft("conversions", []),
     ctx.soft("funds", []),
     ctx.soft("cashflow", null),
-    ctx.soft("tax", null),
+    ctx.soft("tax?year=" + taxYear(), null),
     ctx.soft("reserve", []),
   ]);
   setFundOps(ops);
@@ -471,6 +497,10 @@ export async function renderMoney(ctx, main) {
   onDelete(ctx, main, "[data-delconv]", (b) => ({
     path: "conversions/" + b.dataset.delconv, msg: "Конвертацію видалено",
   }));
+  main.querySelector("[data-tax-year]")?.addEventListener("change", (e) => {
+    try { localStorage.setItem(TAX_KEY, e.target.value); } catch (_) { /* приватний режим */ }
+    ctx.reload();
+  });
   wireReconcile(ctx, main);
   wireImport(ctx, main);
   wireFundOps(ctx, main);
