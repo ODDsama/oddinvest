@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"time"
 
+	money "github.com/Rhymond/go-money"
+
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -165,11 +167,24 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// handleExportCSV — рухи за рік для декларації: отримані виплати і
-// продажі з реалізованим результатом. Роздільник ';' і UTF-8 BOM —
-// щоб україномовний Excel відкривав без танців.
+// handleExportCSV — усі оподатковувані рухи за рік, одним файлом, який
+// можна нести до декларації. Роздільник ';' і UTF-8 BOM — щоб
+// україномовний Excel відкривав без танців.
 //
 // Період — через taxYear (taxyear.go), той самий, що й у /api/tax.
+// Курс — через asOfRates (fx_asof.go), теж той самий: на дату події, а не
+// сьогоднішній.
+//
+// ІНВАРІАНТ, який робить розходження неповторюваним: сума колонки
+// «податок_грн» тут мусить дорівнювати tax_uah з /api/tax за той самий
+// період. Обидва маршрути читають ті самі події, тим самим вікном і тим
+// самим курсом — і саме тому на це є тест (TestCSVTaxMatchesTaxEndpoint),
+// а не лише сподівання. Це та сама роль, яку в бекенді грає
+// TestCashflowStatementReconciles для зведення й руху коштів.
+//
+// Доти файл містив лише виплати й продажі, без жодного податку: дивіденди
+// фондів і відсотки вкладів — тобто ЄДИНЕ, з чого податок реально
+// утримують, — у нього не потрапляли зовсім.
 func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	yearNum, from, to, err := taxYear(r.URL.Query(), time.Now())
 	if err != nil {
@@ -191,8 +206,25 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	fundOps, err := s.st.ListFundOps(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	termDeposits, err := s.st.ListTermDeposits(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	statuses, err := s.st.PaymentStatuses(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	today := domain.NewDate(time.Now())
 	inWindow := func(d domain.Date) bool { return !d.Before(from) && !d.After(to) }
+	arrived := domain.Arrived(statuses, today)
+	asOf := newAsOfRates(s.st)
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition",
@@ -200,19 +232,59 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte{0xEF, 0xBB, 0xBF}) // BOM
 	cw := csv.NewWriter(w)
 	cw.Comma = ';'
-	cw.Write([]string{"тип", "дата", "ISIN", "кількість", "сума", "валюта", "коментар"})
+	cw.Write([]string{"тип", "дата", "ISIN", "назва", "кількість", "сума",
+		"валюта", "курс", "сума_грн", "податок_грн", "коментар"})
+
+	// dec — числа для Excel із КРАПКОЮ: кома вже роздільник колонок, і
+	// українська локаль тут зіграла б проти нас.
+	dec := func(minor int64) string { return fmt.Sprintf("%.2f", float64(minor)/100) }
+	// rate — курс, за яким рядок переведено. Порожньо для гривні: писати
+	// «1.0000» означало б удавати конвертацію, якої не було.
+	rate := func(m *money.Money, on domain.Date) string {
+		if m == nil || m.Currency().Code == money.UAH {
+			return ""
+		}
+		e4, rerr := asOf.rate(ctx, m.Currency().Code, on)
+		if rerr != nil || e4 <= 0 {
+			return ""
+		}
+		return fmt.Sprintf("%.4f", float64(e4)/10000)
+	}
+	row := func(kind string, d domain.Date, isin, label, qty string,
+		amt *money.Money, taxUAH int64, note string) {
+		uah, uerr := asOf.uah(ctx, amt, d)
+		if uerr != nil {
+			return
+		}
+		cur := ""
+		amount := ""
+		if amt != nil {
+			cur = amt.Currency().Code
+			amount = toMoneyJSON(amt).Amount
+		}
+		cw.Write([]string{kind, string(d), isin, label, qty, amount, cur,
+			rate(amt, d), dec(uah), dec(taxUAH), note})
+	}
 
 	typeNames := map[domain.PayType]string{
 		domain.PayCoupon: "купон", domain.PayRedemption: "погашення",
 		domain.PayEarly: "дострокове погашення",
 	}
+	// ОВДП: податку немає за законом, тож нуль у колонці — не пропуск.
 	for _, cf := range past {
 		if !inWindow(cf.Date) || cf.Date.After(today) {
 			continue
 		}
-		cw.Write([]string{typeNames[cf.Type], string(cf.Date), cf.ISIN, "",
-			toMoneyJSON(cf.Amount).Amount, cf.Amount.Currency().Code, ""})
+		note := ""
+		if cf.Type != domain.PayRedemption && !arrived(cf.ISIN, cf.Date) {
+			// Те, що ще не позначене отриманим, у /api/tax не рахується.
+			// Лишаємо рядок у файлі — але з поміткою, щоб різниця з
+			// карткою не виглядала розходженням.
+			note = "не позначено отриманим"
+		}
+		row(typeNames[cf.Type], cf.Date, cf.ISIN, "", "", cf.Amount, 0, note)
 	}
+
 	lotByID := map[int64]domain.Lot{}
 	for _, l := range lots {
 		lotByID[l.ID] = l
@@ -222,15 +294,50 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		lot := lotByID[sl.LotID]
-		res, err := domain.RealizedResult(lot, sl, pays)
-		if err != nil {
+		res, rerr := domain.RealizedResult(lot, sl, pays)
+		if rerr != nil {
 			continue
 		}
 		proceeds, _ := domain.SaleProceeds(sl) //nolint:errcheck // RealizedResult вище вже відсіяв биті продажі
-		cw.Write([]string{"продаж", string(sl.SaleDate), lot.ISIN,
-			fmt.Sprintf("%d", sl.Qty), toMoneyJSON(proceeds).Amount,
-			proceeds.Currency().Code,
-			"результат " + toMoneyJSON(res).Amount + " " + res.Currency().Code})
+		row("продаж", sl.SaleDate, lot.ISIN, "", fmt.Sprintf("%d", sl.Qty),
+			proceeds, 0,
+			"результат "+toMoneyJSON(res).Amount+" "+res.Currency().Code)
+	}
+
+	// Дивіденди фондів: податок ФАКТИЧНО утриманий, а не ставка. Ставка
+	// змінювалась і ще змінюватиметься, у виписці стоїть те, що забрали.
+	for _, op := range fundOps {
+		if op.Kind != domain.FundDividend || !inWindow(op.Date) {
+			continue
+		}
+		taxUAH, terr := asOf.uah(ctx, money.New(op.Tax, op.Currency), op.Date)
+		if terr != nil {
+			continue
+		}
+		row("дивіденд", op.Date, "", op.Fund, "",
+			money.New(op.Amount, op.Currency), taxUAH, "")
+	}
+
+	// Відсотки вкладів: брутто й податок з одного проходу — так само, як
+	// у /api/tax, інакше два способи порахувати одне число розійшлись би.
+	// Дата — кінець періоду: DepositInterestTax зводить нарахування вікна
+	// в одну суму, і розкладати її назад заради курсу означало б рахувати
+	// відсотки вдруге.
+	for _, dep := range termDeposits {
+		g, tx := domain.DepositInterestTax(dep, from, to)
+		if g == 0 {
+			continue
+		}
+		taxUAH, terr := asOf.uah(ctx, money.New(tx, dep.Currency), to)
+		if terr != nil {
+			continue
+		}
+		row("відсотки вкладу", to, "", dep.Bank, "",
+			money.New(g, dep.Currency), taxUAH, "за період "+string(from)+" → "+string(to))
+	}
+
+	if note := asOf.note(); note != "" {
+		cw.Write([]string{"# " + note, "", "", "", "", "", "", "", "", "", ""})
 	}
 	cw.Flush()
 }

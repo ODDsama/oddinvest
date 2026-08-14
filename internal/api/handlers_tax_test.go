@@ -280,6 +280,101 @@ func TestTaxReportsFXBasisAndGaps(t *testing.T) {
 	}
 }
 
+// TestCSVTaxMatchesTaxEndpoint — сума податку у файлі дорівнює числу на
+// картці.
+//
+// Це головний тест треку. Картка й вивантаження читають ті самі події,
+// тим самим вікном і тим самим курсом — і саме тому їхнє розходження має
+// падати тестом, а не виявлятись у податковій. Доти CSV податку не
+// містив узагалі: у нього не потрапляли ні дивіденди фондів, ні відсотки
+// вкладів, тобто ЄДИНЕ, з чого податок реально утримують.
+func TestCSVTaxMatchesTaxEndpoint(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+	year := time.Now().Year()
+	seed(t, st)
+
+	// Курси на дві різні дати: якщо котрийсь із маршрутів візьме
+	// сьогоднішній замість історичного, суми розійдуться.
+	if err := st.SaveRate(ctx, money.USD, 30_0000, domain.Date(fmt.Sprintf("%d-02-01", year))); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveRate(ctx, money.USD, 45_0000, domain.NewDate(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	// Валютний дивіденд із утриманим податком.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.Date(fmt.Sprintf("%d-02-14", year)), Fund: "Inzhur REIT",
+		Kind: domain.FundDividend, Amount: 200_00, Tax: 28_00,
+		Currency: money.USD, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Гривневий дивіденд — щоб у сумі були обидві валюти.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.Date(fmt.Sprintf("%d-05-20", year)), Fund: "Inzhur Земля",
+		Kind: domain.FundDividend, Amount: 5_000_00, Tax: 700_00,
+		Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Вклад: відсотки оподатковуються, і вони теж мусять бути в обох.
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: money.UAH, Principal: 100_000_00, RateBP: 1600,
+		OpenDate:     domain.Date(fmt.Sprintf("%d-01-10", year)),
+		MaturityDate: domain.Date(fmt.Sprintf("%d-01-10", year+2)),
+		Payout:       domain.PayoutMonthly, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	card := getTax(t, srv.URL, "")
+	resp, csvBody := do(t, "GET", srv.URL+"/api/export/csv", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("csv дав %d", resp.StatusCode)
+	}
+
+	// Сума колонки «податок_грн».
+	var total float64
+	// Знімаємо BOM, який обробник пише заради українського Excel. Саме
+	// екранованою послідовністю: сам символ у тілі go-файлу компілятор
+	// відкидає як illegal byte order mark.
+	lines := strings.Split(strings.TrimPrefix(csvBody, "\ufeff"), "\n")
+	head := strings.Split(strings.TrimSpace(lines[0]), ";")
+	col := -1
+	for i, h := range head {
+		if h == "податок_грн" {
+			col = i
+		}
+	}
+	if col < 0 {
+		t.Fatalf("у шапці CSV немає колонки податку: %q", lines[0])
+	}
+	for _, ln := range lines[1:] {
+		ln = strings.TrimSpace(ln)
+		if ln == "" || strings.HasPrefix(ln, "#") {
+			continue
+		}
+		f := strings.Split(ln, ";")
+		if len(f) <= col {
+			continue
+		}
+		var v float64
+		if _, err := fmt.Sscanf(f[col], "%f", &v); err == nil {
+			total += v
+		}
+	}
+
+	if card.TaxUAH == 0 {
+		t.Fatalf("картка не показала податку — тест нічого не перевіряє: %+v", card)
+	}
+	// Копійка допуску: обидва боки округлюють до сотих незалежно.
+	if diff := card.TaxUAH - total; diff > 0.01 || diff < -0.01 {
+		t.Errorf("податок розійшовся: картка %.2f, CSV %.2f (різниця %.2f)\n%s",
+			card.TaxUAH, total, diff, csvBody)
+	}
+}
+
 // Купони ОВДП звільнені від податку — це закон, а не налаштування, тож
 // нуль у рядку «Купони ОВДП» мусить лишатись нулем.
 func TestTaxBondCouponsAreExempt(t *testing.T) {

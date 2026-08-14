@@ -365,9 +365,11 @@ function taxHTML(x) {
     `<div class="sub h-row" style="justify-content:space-between;margin-bottom:10px">
        <span>${esc(x.from)} → ${esc(x.to)}</span><span>рік: ${picker}</span></div>
      ${body}
-     <div class="sub" style="margin-top:8px">Купон ОВДП звільнений від податку, дивіденд фонду й
-       відсотки вкладу — ні. Ставки не зашиті: у фонду береться фактично утримане з виписки, у
-       вкладу — ставка самого вкладу.</div>
+     <div class="sub h-row" style="margin-top:8px;justify-content:space-between;gap:var(--oi-gap-sm)">
+       <span>Купон ОВДП звільнений від податку, дивіденд фонду й відсотки вкладу — ні.
+         Ставки не зашиті: у фонду береться фактично утримане з виписки, у вкладу —
+         ставка самого вкладу.</span>
+       <button class="sm" data-tax-csv="${sel}">Завантажити CSV</button></div>
      ${x.fx_basis ? `<div class="sub-xs">Валютні суми: ${esc(x.fx_basis)}${
         x.fx_max_lag_days > 1 ? `; найбільше відставання ${x.fx_max_lag_days} ${
           plural(x.fx_max_lag_days, "день", "дні", "днів")}` : ""}.${
@@ -504,6 +506,22 @@ export async function renderMoney(ctx, main) {
   main.querySelector("[data-tax-year]")?.addEventListener("change", (e) => {
     try { localStorage.setItem(TAX_KEY, e.target.value); } catch (_) { /* приватний режим */ }
     ctx.reload();
+  });
+  // Вивантаження — тим самим шляхом, що й бекап у «Налаштуваннях»:
+  // сирий запит через транспорт, далі blob у файл.
+  main.querySelector("[data-tax-csv]")?.addEventListener("click", async (e) => {
+    const y = e.currentTarget.dataset.taxCsv;
+    try {
+      const resp = await ctx.store.raw("export/csv?year=" + y);
+      if (!resp.ok) throw new Error(await resp.text());
+      const url = URL.createObjectURL(await resp.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `oddinvest-${y}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      ctx.toast(`Звіт за ${y} завантажено`);
+    } catch (err) { ctx.toast(String(err.message || err), false); }
   });
   wireReconcile(ctx, main);
   wireImport(ctx, main);
