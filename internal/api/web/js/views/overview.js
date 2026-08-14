@@ -16,6 +16,7 @@ import {
 import { infoBtn } from "../info.js";
 import { tile } from "../components.js";
 import { KIND_LABEL } from "../constants.js";
+import { basketHTML, wireBasket } from "./basket.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
@@ -230,6 +231,8 @@ export function reinvestHTML(ctx) {
       <span class="sg-n"><b>${suggestName(r)}</b> <span class="muted">${cost}</span></span>
       <span class="sg-s muted">${status}</span>
       <b class="sg-y">${pct(r.real_pct)}</b>
+      ${kind === "deposit" ? "" : `<button class="sm quiet" data-bskadd="${esc(kind)}|${esc(
+        kind === "fund" ? r.label : r.isin)}" title="Додати в кошик і побачити наслідки">+</button>`}
     </div>
     <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : ` style="display:none"`}>${details}${auc}</div>`;
   };
@@ -320,9 +323,11 @@ export async function renderOverview(ctx, main) {
       <button data-go="convert">Конвертація</button>
     </div>
     ${tiles}
-    <div class="ov-grid">${reinvestHTML(ctx)}${paymentsPreviewHTML(ctx)}</div>`;
+    <div class="ov-grid">${reinvestHTML(ctx)}${paymentsPreviewHTML(ctx)}</div>
+    ${await basketHTML(ctx)}`;
 
   wireReinvest(ctx, main);
+  wireBasket(ctx, main);
   main.querySelectorAll("[data-go]").forEach((b) =>
     b.addEventListener("click", () => ctx.goto(b.dataset.go)));
 }
