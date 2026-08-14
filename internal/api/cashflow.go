@@ -313,11 +313,6 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rates, err := s.rates(ctx)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
 	lots, sales, _, pays, err := s.portfolio(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -331,12 +326,26 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	today := domain.NewDate(time.Now())
 	inWindow := func(d domain.Date) bool { return !d.Before(from) && !d.After(to) }
 	arrived := domain.Arrived(statuses, today)
-	uah := func(m *money.Money) int64 {
-		if u, cerr := fx.ToUAH(m, rates); cerr == nil {
-			return u.Amount()
+
+	// Курс НА ДАТУ ПОДІЇ, а не сьогоднішній (fx_asof.go). Доти всі валютні
+	// суми переводились одним поточним курсом: на портфелі, де долар
+	// купували по 27, а дивляться на нього по 44, податок за минулий рік
+	// виходив у півтора раза більшим за реально сплачений.
+	asOf := newAsOfRates(s.st)
+	var fxErr error
+	uah := func(m *money.Money, on domain.Date) int64 {
+		v, err := asOf.uah(ctx, m, on)
+		if err != nil && fxErr == nil {
+			fxErr = err
 		}
-		return 0
+		return v
 	}
+
+	// bondTaxUAH — податок із купонів ОВДП. Нуль за законом: доходи з
+	// державних облігацій звільнені і від ПДФО, і від військового збору.
+	// Іменована константа замість голого нуля в рядку нижче — щоб було
+	// видно, що це рішення законодавця, а не незаповнене поле.
+	const bondTaxUAH int64 = 0
 
 	type line struct {
 		Kind     string  `json:"kind"`
@@ -358,7 +367,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		if cf.Type == domain.PayRedemption || !inWindow(cf.Date) || !arrived(cf.ISIN, cf.Date) {
 			continue
 		}
-		bondGross += uah(cf.Amount)
+		bondGross += uah(cf.Amount, cf.Date)
 	}
 	// Фонди: беремо ФАКТИЧНО утримане, а не ставку. Ставка змінювалась і
 	// ще змінюватиметься, а у виписці стоїть те, що забрали насправді.
@@ -371,8 +380,8 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		if op.Kind != domain.FundDividend || !inWindow(op.Date) {
 			continue
 		}
-		fundGross += uah(money.New(op.Amount, op.Currency))
-		fundTax += uah(money.New(op.Tax, op.Currency))
+		fundGross += uah(money.New(op.Amount, op.Currency), op.Date)
+		fundTax += uah(money.New(op.Tax, op.Currency), op.Date)
 	}
 	// Вклади: брутто й податок із того самого проходу, що й самі
 	// відсотки — графік показує нетто, і ділити його назад означало б
@@ -387,8 +396,17 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		if g == 0 {
 			continue
 		}
-		depGross += uah(money.New(g, dep.Currency))
-		depTax += uah(money.New(tx, dep.Currency))
+		// Дата події для вкладу — кінець періоду, а не дати окремих
+		// нарахувань: DepositInterestTax зводить їх в одну суму за вікно,
+		// і розкладати назад заради курсу означало б рахувати відсотки
+		// вдруге, іншим способом. Для календарного року це курс 31 грудня,
+		// тобто рівно те, чим користуються в декларації.
+		depGross += uah(money.New(g, dep.Currency), to)
+		depTax += uah(money.New(tx, dep.Currency), to)
+	}
+	if fxErr != nil {
+		writeErr(w, http.StatusInternalServerError, fxErr)
+		return
 	}
 
 	minor := func(v int64) float64 { return round2(float64(v) / 100) }
@@ -411,9 +429,26 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		NetUAH   float64 `json:"net_uah"`
 		RatePct  float64 `json:"rate_pct"`
 		ByKind   []line  `json:"by_kind,omitempty"`
-	}{Year: year, From: string(from), To: string(to)}
+		// Звідки взялись гривневі числа. Читач має право знати, що це не
+		// сьогоднішній курс, і наскільки в найгіршому разі відстала точка,
+		// з якої курс узято: помісячний бекфіл на подіях 2019 року дає
+		// відставання до тридцяти днів, і мовчати про це означало б
+		// видавати оцінку за факт.
+		FXBasis     string `json:"fx_basis"`
+		FXMaxLagDay int    `json:"fx_max_lag_days,omitempty"`
+		Note        string `json:"note,omitempty"`
+	}{
+		Year: year, From: string(from), To: string(to),
+		FXBasis:     "курс НБУ на дату події або найближчий попередній",
+		FXMaxLagDay: asOf.maxLag,
+		Note:        asOf.note(),
+	}
 	for _, l := range []line{
-		mk("bond", "Купони ОВДП", bondGross, 0),
+		// Нуль тут — не «податку немає в наших даних», а законодавче
+		// звільнення: доходи з ОВДП не оподатковуються ні ПДФО, ні
+		// військовим збором. Константа, а не літерал, щоб зміна закону
+		// була одним правленням, а не полюванням по файлу.
+		mk("bond", "Купони ОВДП", bondGross, bondTaxUAH),
 		mk("fund", "Дивіденди фондів", fundGross, fundTax),
 		mk("deposit", "Відсотки вкладів", depGross, depTax),
 	} {

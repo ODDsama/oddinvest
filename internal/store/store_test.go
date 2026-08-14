@@ -432,3 +432,48 @@ func TestSnapshotRegistryPointsAtMatchingField(t *testing.T) {
 			len(snapshotCols), len(byTag))
 	}
 }
+
+// TestRatePointOnOrBeforeCarriesItsDate — курс приходить разом із датою,
+// з якої його взято.
+//
+// Сама дата важить не менше за число. Історія накопичена ПОМІСЯЧНО за
+// десять років назад і поденно лише вперед, тож для події 2019 року
+// найближча попередня точка може відставати на тижні. Без дати це
+// відставання невидиме, і оцінка виглядає як факт; із датою викликач
+// може його виміряти й сказати вголос (див. asOfRates у internal/api).
+func TestRatePointOnOrBeforeCarriesItsDate(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	if err := s.SaveRate(ctx, money.USD, 27_0000, "2022-02-01"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveRate(ctx, money.USD, 44_0000, "2026-07-15"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Подія між точками бере ПОПЕРЕДНЮ: наступна оцінювала б минуле
+	// курсом, якого тоді ще не існувало.
+	p, err := s.RatePointOnOrBefore(ctx, money.USD, "2022-03-20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.RateE4 != 27_0000 || p.Date != domain.Date("2022-02-01") {
+		t.Errorf("між точками: %+v", p)
+	}
+
+	// Точний збіг — сам себе.
+	if p, _ := s.RatePointOnOrBefore(ctx, money.USD, "2026-07-15"); p.RateE4 != 44_0000 {
+		t.Errorf("точний збіг: %+v", p)
+	}
+
+	// До початку історії — порожньо, а не мовчазна підміна найближчим
+	// НАСТУПНИМ курсом.
+	if p, _ := s.RatePointOnOrBefore(ctx, money.USD, "2019-01-01"); p.RateE4 != 0 || p.Date != "" {
+		t.Errorf("до початку історії: %+v", p)
+	}
+
+	// Стара обгортка лишається сумісною: вона тепер той самий запит.
+	if r, _ := s.RateOnOrBefore(ctx, money.USD, "2022-03-20"); r != 27_0000 {
+		t.Errorf("RateOnOrBefore = %d", r)
+	}
+}

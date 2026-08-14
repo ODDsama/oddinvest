@@ -775,22 +775,42 @@ func (s *Store) NewestRate(ctx context.Context, code string) (RatePoint, error) 
 	return p, err
 }
 
-// RateOnOrBefore — курс на дату або найближчий ПОПЕРЕДНІЙ. Історія
-// накопичена помісячно (backfill) і поденно (добова джоба), тож точного
-// збігу з довільною датою зазвичай немає; брати наступний за нею
-// означало б оцінювати минулу операцію курсом, якого тоді ще не було.
+// RatePointOnOrBefore — курс на дату або найближчий ПОПЕРЕДНІЙ, разом із
+// датою, з якої його взято.
 //
-// Нуль, якщо старішої точки немає взагалі — тоді викликач має вирішити,
-// що з цим робити, а не отримати мовчазну підміну сьогоднішнім курсом.
-func (s *Store) RateOnOrBefore(ctx context.Context, code string, on domain.Date) (int64, error) {
-	var r int64
+// Історія накопичена помісячно (backfill за десять років) і поденно
+// (добова джоба вперед), тож точного збігу з довільною датою зазвичай
+// немає; брати наступний за нею означало б оцінювати минулу операцію
+// курсом, якого тоді ще не було.
+//
+// Порожня точка, якщо старішої немає взагалі — тоді викликач має
+// вирішити, що з цим робити, а не отримати мовчазну підміну сьогоднішнім
+// курсом.
+//
+// Дата повертається, бо самого курсу замало: помісячна історія означає,
+// що для події 2019 року найближча попередня точка може відставати на
+// три тижні, і викликач мусить мати змогу це ВИМІРЯТИ й показати. Без
+// дати відставання лишається невидимим — а невидиме відставання гірше за
+// назване, бо число виглядає точним.
+func (s *Store) RatePointOnOrBefore(ctx context.Context, code string, on domain.Date) (RatePoint, error) {
+	var p RatePoint
+	var d string
 	err := s.db.QueryRowContext(ctx,
-		`SELECT rate_e4 FROM fx_rates WHERE code=? AND date<=? ORDER BY date DESC LIMIT 1`,
-		code, string(on)).Scan(&r)
+		`SELECT date, rate_e4 FROM fx_rates WHERE code=? AND date<=? ORDER BY date DESC LIMIT 1`,
+		code, string(on)).Scan(&d, &p.RateE4)
 	if err == sql.ErrNoRows {
-		return 0, nil
+		return RatePoint{}, nil
 	}
-	return r, err
+	p.Date = domain.Date(d)
+	return p, err
+}
+
+// RateOnOrBefore — те саме, коли дата джерела не потрібна. Один запит на
+// обидва виклики: два майже однакові SELECT розійшлись би на першій же
+// правці, і мовчки.
+func (s *Store) RateOnOrBefore(ctx context.Context, code string, on domain.Date) (int64, error) {
+	p, err := s.RatePointOnOrBefore(ctx, code, on)
+	return p.RateE4, err
 }
 
 // RateMonthCount — скільки РІЗНИХ місяців є в історії. Саме місяців, а не

@@ -178,6 +178,108 @@ func TestTaxAndCSVAgreeOnPeriod(t *testing.T) {
 	}
 }
 
+// TestTaxUsesRateOnEventDate — валютний дохід переводиться курсом ТОГО
+// ДНЯ, а не сьогоднішнім.
+//
+// Доти /api/tax брав один поточний курс на всі події. На портфелі, де
+// долар купували по 27, а дивляться на нього по 44, це не похибка
+// округлення: податок за минулий рік виходив у півтора раза більшим за
+// реально сплачений. Історія курсів у базі лежала весь цей час.
+func TestTaxUsesRateOnEventDate(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+	year := time.Now().Year()
+	div := domain.Date(fmt.Sprintf("%d-03-10", year))
+
+	// Курс НА ДАТУ ПОДІЇ вдвічі нижчий за сьогоднішній: якщо обробник
+	// візьме сьогоднішній, сума буде вдвічі більшою, і сплутати це з
+	// округленням неможливо.
+	if err := st.SaveRate(ctx, money.USD, 20_0000, div); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveRate(ctx, money.USD, 40_0000, domain.NewDate(time.Now())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: div, Fund: "Inzhur REIT", Kind: domain.FundDividend,
+		Amount: 100_00, Tax: 14_00, Currency: money.USD, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := getTax(t, srv.URL, "")
+	// $100 × 20 = 2000 ₴, а не $100 × 40 = 4000 ₴.
+	if got.GrossUAH != 2000 {
+		t.Errorf("нараховано %v ₴, очікували 2000 (курс 20 на дату події, а не 40 сьогодні)", got.GrossUAH)
+	}
+	if got.TaxUAH != 280 {
+		t.Errorf("податок %v ₴, очікували 280", got.TaxUAH)
+	}
+}
+
+// TestTaxReportsFXBasisAndGaps — застосунок КАЖЕ, звідки взявся курс і
+// чого йому забракло.
+//
+// Помісячний бекфіл означає, що подія може відставати від найближчої
+// точки на тижні. Мовчати про це означало б видавати оцінку за факт, тож
+// картка отримує і правило, і найгірше відставання, і лічильник
+// пропущеного — у тій самій формі, що вже вживається в /api/benchmark.
+func TestTaxReportsFXBasisAndGaps(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+	year := time.Now().Year()
+
+	// Курс є, але на місяць раніше за подію — саме той випадок, який дає
+	// помісячна історія.
+	if err := st.SaveRate(ctx, money.USD, 40_0000, domain.Date(fmt.Sprintf("%d-02-01", year))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.Date(fmt.Sprintf("%d-03-03", year)), Fund: "REIT",
+		Kind: domain.FundDividend, Amount: 100_00, Tax: 0,
+		Currency: money.USD, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// А цей — узагалі до початку історії курсів: врахувати нема чим.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.Date(fmt.Sprintf("%d-01-05", year)), Fund: "REIT",
+		Kind: domain.FundDividend, Amount: 500_00, Tax: 0,
+		Currency: money.EUR, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := do(t, "GET", srv.URL+"/api/tax", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("%d %s", resp.StatusCode, body)
+	}
+	var out struct {
+		GrossUAH float64 `json:"gross_uah"`
+		FXBasis  string  `json:"fx_basis"`
+		MaxLag   int     `json:"fx_max_lag_days"`
+		Note     string  `json:"note"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.FXBasis == "" {
+		t.Error("картка мовчить про те, за яким курсом рахувала")
+	}
+	// 30 днів між 01-02 і 03-03 (лютий 28 днів + 2).
+	if out.MaxLag < 25 || out.MaxLag > 35 {
+		t.Errorf("найгірше відставання %d днів — очікували близько 30", out.MaxLag)
+	}
+	if !strings.Contains(out.Note, "без курсу") {
+		t.Errorf("про подію без курсу не сказано: %q", out.Note)
+	}
+	// Дохід із курсом усе одно порахований: одна подія без курсу не
+	// привід не показати звіт.
+	if out.GrossUAH != 4000 {
+		t.Errorf("нараховано %v, очікували 4000 (лише подія з курсом)", out.GrossUAH)
+	}
+}
+
 // Купони ОВДП звільнені від податку — це закон, а не налаштування, тож
 // нуль у рядку «Купони ОВДП» мусить лишатись нулем.
 func TestTaxBondCouponsAreExempt(t *testing.T) {

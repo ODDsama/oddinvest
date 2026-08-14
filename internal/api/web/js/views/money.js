@@ -367,7 +367,11 @@ function taxHTML(x) {
      ${body}
      <div class="sub" style="margin-top:8px">Купон ОВДП звільнений від податку, дивіденд фонду й
        відсотки вкладу — ні. Ставки не зашиті: у фонду береться фактично утримане з виписки, у
-       вкладу — ставка самого вкладу.</div>`,
+       вкладу — ставка самого вкладу.</div>
+     ${x.fx_basis ? `<div class="sub-xs">Валютні суми: ${esc(x.fx_basis)}${
+        x.fx_max_lag_days > 1 ? `; найбільше відставання ${x.fx_max_lag_days} ${
+          plural(x.fx_max_lag_days, "день", "дні", "днів")}` : ""}.${
+        x.note ? ` ${esc(x.note)}.` : ""}</div>` : ""}`,
     pct(x.rate_pct))}</div>`;
 }
 
