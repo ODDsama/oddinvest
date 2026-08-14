@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -186,6 +187,82 @@ func TestCalendarShowsThePastWhenAsked(t *testing.T) {
 	}
 	if b, d := pastRows(string(today)); b != 0 || d != 0 {
 		t.Errorf("запит від сьогодні дав %d минулих купонів і %d відсотків — from не фільтрує", b, d)
+	}
+}
+
+// TestCalendarRespectsTo — верхня межа періоду є і працює, а її
+// відсутність нічого не змінює.
+//
+// Друге твердження тут важливіше за перше: /api/tax і /api/cashflow давно
+// беруть пару from+to, календар лишався єдиним періодним маршрутом лише з
+// from — і саме тому вкладка просила «весь архів» і малювала його цілком.
+// Параметр адитивний: запит без `to` мусить дати рівно те саме, що й
+// раніше, інакше це вже не нова межа, а зміна поведінки.
+func TestCalendarRespectsTo(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+	today := domain.NewDate(time.Now())
+	past, future := today.AddDays(-30), today.AddDays(60)
+	secs := []nbu.Security{{
+		Bond: domain.Bond{ISIN: "UA4000999999", Nominal: money.New(100000, money.UAH),
+			RateBP: 1600, Maturity: future, Descr: "купон позаду, погашення попереду"},
+		Payments: []domain.Payment{
+			{ISIN: "UA4000999999", PayDate: past, Type: domain.PayCoupon, PerBond: money.New(8000, money.UAH)},
+			{ISIN: "UA4000999999", PayDate: future, Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+		},
+	}}
+	if err := st.ReplaceDirectory(ctx, secs, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		fmt.Sprintf(`{"isin":"UA4000999999","qty":10,"price_per_bond":"1000.00","buy_date":%q,"channel":"inzhur"}`,
+			string(today.AddDays(-60)))); resp.StatusCode != 201 {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+
+	dates := func(query string) []string {
+		t.Helper()
+		resp, body := do(t, "GET", srv.URL+"/api/calendar?"+query, "")
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("calendar?%s дав %d: %s", query, resp.StatusCode, body)
+		}
+		var rows []struct {
+			Date string `json:"date"`
+		}
+		if err := json.Unmarshal([]byte(body), &rows); err != nil {
+			t.Fatalf("розбір: %v", err)
+		}
+		out := make([]string, 0, len(rows))
+		for _, r := range rows {
+			out = append(out, r.Date)
+		}
+		return out
+	}
+	has := func(ds []string, want domain.Date) bool {
+		return slices.Contains(ds, string(want))
+	}
+
+	all := dates("from=1970-01-01")
+	if !has(all, past) || !has(all, future) {
+		t.Fatalf("без межі мали бути обидві виплати, маємо %v", all)
+	}
+	// Межа сьогоднішнім днем відрізає майбутнє погашення й лишає минулий купон.
+	bounded := dates("from=1970-01-01&to=" + string(today))
+	if !has(bounded, past) {
+		t.Errorf("to=сьогодні зрізало й минулий купон %s: %v", past, bounded)
+	}
+	if has(bounded, future) {
+		t.Errorf("to=сьогодні не відрізало погашення %s: %v", future, bounded)
+	}
+	// Межа за обрієм не зрізає нічого — це доводить, що фільтр саме
+	// по даті, а не «перші N рядків».
+	if far := dates("from=1970-01-01&to=2099-12-31"); len(far) != len(all) {
+		t.Errorf("межа за обрієм змінила перелік: %d проти %d", len(far), len(all))
+	}
+	// Порожнє to читається як «без межі», а не як «до нуля»: інакше
+	// старіший клієнт, який передає порожній параметр, дістав би порожньо.
+	if empty := dates("from=1970-01-01&to="); len(empty) != len(all) {
+		t.Errorf("порожнє to зрізало перелік: %d проти %d", len(empty), len(all))
 	}
 }
 

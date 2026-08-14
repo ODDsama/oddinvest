@@ -87,6 +87,22 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// handleCalendar — усі рухи грошей від `from` (типово сьогодні) до `to`
+// (типово без межі).
+//
+// `to` тут зʼявилось пізніше за `from`, і саме тому вкладка «Майбутнє»
+// довго просила `from=1970-01-01` і малювала ВЕСЬ архів одним столом.
+// /api/tax і /api/cashflow обидва беруть пару from+to; календар лишався
+// винятком без причини.
+//
+// Межа, а не сторінка: помічник реінвесту відмовляється обмежувати свій
+// перелік, бо «у таблиці є фільтри, сортування й пагінація»
+// (handlers_reinvest.go). Правильне прочитання цього для календаря —
+// дати таблиці фільтр, а не дати API курсор: серверна пагінація забрала б
+// клієнтське сортування, тобто виміняла б одну ваду на гіршу.
+//
+// Порожнє `to` означає «без межі» — тому додавання параметра нічого не
+// змінює для того, хто його не передає.
 func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	today := domain.NewDate(time.Now())
@@ -94,6 +110,12 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	if q := r.URL.Query().Get("from"); q != "" {
 		if d, err := domain.ParseDate(q); err == nil {
 			from = d
+		}
+	}
+	var to domain.Date
+	if q := r.URL.Query().Get("to"); q != "" {
+		if d, err := domain.ParseDate(q); err == nil {
+			to = d
 		}
 	}
 	// Розклад збирає buildSchedule — та сама функція, що й для зведення.
@@ -127,6 +149,9 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]cfJSON, 0, len(cf))
 	for _, item := range cf {
+		if to != "" && item.Date > to {
+			continue
+		}
 		out = append(out, cfJSON{string(item.Date), item.ISIN, int(item.Type),
 			toMoneyJSON(item.Amount), statuses[item.ISIN+"|"+string(item.Date)]})
 	}

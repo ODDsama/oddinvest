@@ -132,13 +132,40 @@ export function projectionHTML(ctx) {
 }
 
 // ---------- КАЛЕНДАР ----------
+
+// Два НЕПЕРЕСІЧНІ види замість одного столу на всю історію.
+//
+// Доти картка завжди просила `from=1970-01-01` і малювала весь архів
+// разом із майбутнім — сотні рядків без фільтра, сортування й пагінації,
+// хоч вкладка називається «Майбутнє». Помічник реінвесту відмовляється
+// обмежувати свій перелік саме тому, що в його таблиці все це є; тут
+// нічого з того не було, тож правильна відповідь — не курсор в API, а
+// поділ на два питання.
+//
+// Межі підібрані так, щоб види не накладались: «Попереду» починається
+// сьогодні, «Архів» закінчується вчора. Кожен бере рівно ту межу, якої
+// потребує, — саме заради архіву в /api/calendar і зʼявився `to`.
+const CAL_KEY = "oddinvest.calRange";
+const calRange = () => {
+  try { return localStorage.getItem(CAL_KEY) === "past" ? "past" : "ahead"; }
+  catch (_) { return "ahead"; }
+};
+const calQuery = (mode) => {
+  const now = today();
+  if (mode !== "past") return "from=" + now;
+  const d = new Date(now);
+  d.setDate(d.getDate() - 1);
+  return "from=1970-01-01&to=" + d.toISOString().slice(0, 10);
+};
+
 // append=true дописує календар до вже намальованого розділу, а не
 // затирає його: у «Майбутньому» він стоїть останнім блоком, після
 // прогнозів.
 export async function renderCalendar(ctx, main, { append = false } = {}) {
+  const mode = calRange();
   let cal;
   try {
-    cal = await ctx.api("GET", "calendar?from=1970-01-01");
+    cal = await ctx.api("GET", "calendar?" + calQuery(mode));
   } catch (err) {
     // append означає, що вище вже намальовані прогнози. Кинути звідси
     // помилку — стерти їх усі заради однієї таблиці, якої не вистачило:
@@ -151,10 +178,16 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
     return;
   }
   const now = today();
-  const rows = cal.slice().sort((a, b) => a.date.localeCompare(b.date));
+  // Архів читається від найновішого: у минулому цікавить те, що щойно
+  // сталось, а не перша виплата за всю історію.
+  const rows = cal.slice().sort((a, b) => (mode === "past"
+    ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
+  const btn = (v, t) => `<button class="sm ${mode === v ? "" : "quiet"}" data-cal="${v}">${t}</button>`;
   const html = `
     <div class="card">
-      <h2>Виплати</h2>
+      <h2 class="h-row" style="justify-content:space-between">
+        <span>Виплати</span>
+        <span style="display:flex;gap:var(--oi-gap-xs)">${btn("ahead", "попереду")}${btn("past", "архів")}</span></h2>
       <div class="muted" style="margin-bottom:10px">Виплату, датовану сьогодні чи наперед, можна
         позначити <b>отриманою</b> — тоді вона ляже на рахунок, не чекаючи опівночі. Окремої позначки
         «перевкладено» більше немає: чи пішли гроші в діло, застосунок бачить сам із твоїх покупок.</div>
@@ -180,10 +213,16 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
               ? `<button class="sm quiet" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="none">Скасувати</button>`
               : `<button class="sm" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="received">Отримано</button>`) : ""}</td>
           </tr>`;
-        }).join("")}</tbody></table>` : `<div class="muted">Виплат немає.</div>`}
+        }).join("")}</tbody></table>` : `<div class="muted">${mode === "past"
+          ? "Виплат у минулому ще не було." : "Попереду виплат немає."}</div>`}
     </div>`;
   if (append) main.insertAdjacentHTML("beforeend", html);
   else main.innerHTML = html;
+  main.querySelectorAll("[data-cal]").forEach((b) =>
+    b.addEventListener("click", () => {
+      try { localStorage.setItem(CAL_KEY, b.dataset.cal); } catch (_) { /* приватний режим */ }
+      ctx.reload();
+    }));
   main.querySelectorAll("[data-st]").forEach((b) =>
     b.addEventListener("click", async () => {
       try {
