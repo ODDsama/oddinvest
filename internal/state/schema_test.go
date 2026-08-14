@@ -65,6 +65,24 @@ func nested(t *testing.T, props map[string]any, key string) map[string]any {
 	return inner
 }
 
+// items — властивості ЕЛЕМЕНТА масиву (properties.<key>.items.properties).
+func items(t *testing.T, props map[string]any, key string) map[string]any {
+	t.Helper()
+	obj, ok := props[key].(map[string]any)
+	if !ok {
+		t.Fatalf("у схемі немає масиву %q", key)
+	}
+	it, ok := obj["items"].(map[string]any)
+	if !ok {
+		t.Fatalf("у схемі немає %q.items", key)
+	}
+	inner, ok := it["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("у схемі немає %q.items.properties", key)
+	}
+	return inner
+}
+
 func checkAgainst(t *testing.T, what string, typ reflect.Type, props map[string]any) {
 	t.Helper()
 	fields := jsonNames(typ)
@@ -90,4 +108,57 @@ func TestSchemaMatchesDoc(t *testing.T) {
 func TestSchemaMatchesSettings(t *testing.T) {
 	props := schemaProps(t)
 	checkAgainst(t, "SettingsDoc", reflect.TypeOf(SettingsDoc{}), nested(t, props, "settings"))
+}
+
+// TestSchemaMatchesNestedTypes — те саме правило на рівень глибше.
+//
+// Доти сторож дивився ЛИШЕ на верхній рівень Doc і на settings, тож
+// вкладені рядки могли розходитися зі схемою скільки завгодно й нічим не
+// падати. Небезпека тут гостріша, ніж нагорі, з двох причин.
+//
+// По-перше, схема не має $defs: форма PaymentRow виписана в ній ТРИЧІ —
+// у calendar.items, top_payments.items і next_payment, — і кожне нове
+// поле треба дописати в усі три. Забути одне з трьох легко, а помітити
+// нічим: фікстура валідується проти схеми, а зайве поле схема просто
+// пропускає повз.
+//
+// По-друге, саме сюди й ростуть нові поля контракту: верхній рівень
+// стабільний, а рядки набирають ознак.
+func TestSchemaMatchesNestedTypes(t *testing.T) {
+	props := schemaProps(t)
+	// Масиви: тип елемента проти <ключ>.items.properties.
+	for _, c := range []struct {
+		key string
+		typ reflect.Type
+	}{
+		{"ladder", reflect.TypeOf(LadderRow{})},
+		{"top_payments", reflect.TypeOf(PaymentRow{})},
+		{"calendar", reflect.TypeOf(PaymentRow{})},
+		{"projection", reflect.TypeOf(ProjectionRow{})},
+		{"rebalance", reflect.TypeOf(RebalanceRow{})},
+		{"concentration", reflect.TypeOf(ConcentrationRow{})},
+		{"market_yield", reflect.TypeOf(MarketYieldRow{})},
+		{"funds", reflect.TypeOf(FundPositionRow{})},
+		{"ladder_uah", reflect.TypeOf(YearAmount{})},
+		{"income_12m", reflect.TypeOf(MonthAmount{})},
+		{"coupons_12m", reflect.TypeOf(MonthAmount{})},
+	} {
+		checkAgainst(t, c.key+".items", c.typ, items(t, props, c.key))
+	}
+	// Об'єкти: тип проти <ключ>.properties.
+	for _, c := range []struct {
+		key string
+		typ reflect.Type
+	}{
+		{"next_payment", reflect.TypeOf(NextPayment{})},
+		{"reserve", reflect.TypeOf(Reserve{})},
+		{"liquidity", reflect.TypeOf(Liquidity{})},
+		{"rate_risk", reflect.TypeOf(RateRisk{})},
+		{"drawdown", reflect.TypeOf(Drawdown{})},
+		{"independence", reflect.TypeOf(Independence{})},
+		{"sensitivity", reflect.TypeOf(Sensitivity{})},
+		{"forecast", reflect.TypeOf(Forecast{})},
+	} {
+		checkAgainst(t, c.key, c.typ, nested(t, props, c.key))
+	}
 }

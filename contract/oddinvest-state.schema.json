@@ -105,7 +105,8 @@
         },
         "isin": {
           "type": "string",
-          "pattern": "^UA[0-9A-Z]{10}$"
+          "description": "ISIN паперу або синтетичний ключ вкладу deposit:<id> (domain.DepositISINPrefix). Вклад ходить у розкладі виплат нарівні з облігацією, тож і в next_payment він може опинитися першим — обмеження самим лише UA[0-9A-Z]{10} робило документ невалідним за власною схемою рівно в цьому випадку.",
+          "pattern": "^(UA[0-9A-Z]{10}|deposit:[0-9]+)$"
         },
         "type": {
           "enum": [
@@ -145,6 +146,11 @@
           "usd": {
             "type": "number",
             "minimum": 0
+          },
+          "eur": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Номінал року в євро (не еквівалент). Код віддає його відколи зʼявилась підтримка євро; схема мовчала, бо сторож не заглядав усередину масивів"
           }
         }
       }
@@ -420,8 +426,11 @@
         "type": "object",
         "properties": {
           "years": { "type": "integer" },
-          "contributed": { "type": "number" },
-          "with_reinvest": { "type": "number" }
+          "contributed": { "type": "number", "description": "Внесено без відсотків, грн-екв." },
+          "with_reinvest": { "type": "number", "description": "З реінвестом за ПЛАНОМ, грн-екв." },
+          "with_reinvest_actual": { "type": "number", "description": "Те саме за ФАКТИЧНИМ темпом поповнень, грн-екв." },
+          "income_monthly": { "type": "number", "description": "Скільки капітал приноситиме ЩОМІСЯЦЯ на цьому горизонті, у сьогоднішніх гривнях: потік, який можна забирати, не проїдаючи тіло" },
+          "income_monthly_actual": { "type": "number", "description": "Те саме за фактичним темпом поповнень" }
         }
       }
     },
