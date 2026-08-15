@@ -325,6 +325,10 @@ export class OddInvestApp extends HTMLElement {
     });
     this._announce(TABS.find(([k]) => k === this._tab)?.[1] || "");
     const main = this.shadowRoot.getElementById("main");
+    // Розділ у атрибуті: «Портфель» має право бути ширшим за решту —
+    // у нього сім колонок і рік історії, а в тексту й форм оптимальна
+    // ширина не залежить від того, скільки місця на екрані.
+    main.dataset.tab = this._tab;
     this._alert("");
     this._softShown = false;
 
@@ -361,7 +365,7 @@ export class OddInvestApp extends HTMLElement {
     }
 
     if (broken) {
-      this._alert(`<div class="banner wait"><div class="b-ic">⚠</div><div class="b-tx">
+      this._alert(`<div class="banner danger"><div class="b-ic" aria-hidden="true">⚠</div><div class="b-tx">
         <div class="b-t">Бекенд не віддає зведення</div>
         <div class="b-s">${esc(broken.message || broken)}${this._tab === "settings" ? ""
           : " · «Налаштування» зведення не читають — бекап і відновлення доступні там"}</div>

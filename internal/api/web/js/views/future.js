@@ -13,7 +13,7 @@ import {
   uah2 as fmtUAH, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
-import { needsSetting } from "../components.js";
+import { needsSetting, empty } from "../components.js";
 import { svgBars, svgLine, svgBandLine, fluid } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
 import { goalsHTML, sensitivityHTML } from "./forecast.js";
@@ -111,15 +111,17 @@ export function projectionHTML(ctx) {
       <td class="num">${fmtUAH(r.with_reinvest)}</td>
       ${hasActual ? `<td class="num">${fmtUAH(r.with_reinvest_actual || 0)}</td>` : ""}
       <td class="num">${fmtUAH(r.with_reinvest - r.contributed)}</td></tr>`).join("")
-    : `<tr><td colspan="${hasActual ? 5 : 4}" class="muted">Додай папери й ціль на місяць, щоб побачити проєкцію.</td></tr>`;
+    : `<tr><td colspan="${hasActual ? 5 : 4}">${empty(
+        "", "Проєкція будується з капіталу й місячної цілі — щойно буде і те, і те, таблиця заповниться сама.",
+        { href: "#/settings", label: "Задати ціль" })}</td></tr>`;
   const paceNote = hasActual
-    ? `<div class="muted" style="margin-bottom:10px;font-size:var(--oi-fs-sm)">Фактичний темп поповнень: <b>${fmtUAH(s.actual_monthly_uah)}/міс</b> за ${s.actual_months} міс історії (план — ${fmtUAH(C)}/міс).</div>`
-    : `<div class="muted" style="margin-bottom:10px;font-size:var(--oi-fs-sm)">Прогноз за фактичним темпом зʼявиться після першого поповнення.</div>`;
+    ? `<div class="muted" style="margin-bottom:var(--oi-gap);font-size:var(--oi-fs-sm)">Фактичний темп поповнень: <b>${fmtUAH(s.actual_monthly_uah)}/міс</b> за ${s.actual_months} міс історії (план — ${fmtUAH(C)}/міс).</div>`
+    : `<div class="muted" style="margin-bottom:var(--oi-gap);font-size:var(--oi-fs-sm)">Прогноз за фактичним темпом зʼявиться після першого поповнення.</div>`;
 
   return `
     <div class="card">
       <h2>Проєкції капіталу</h2>
-      <div class="muted" style="margin-bottom:10px">Старт = капітал ${fmtUAH(P0)}${
+      <div class="note">Старт = капітал ${fmtUAH(P0)}${
         s.reserve_uah > 0 ? ` <b>без резерву</b> (${fmtUAH(s.reserve_uah)} у матраці не інвестуються, тож і не ростуть — крива стартує нижче за плитку «Капітал» рівно на цю суму)` : ""
       }, внесок = ${fmtUAH(C)}/міс, ставка = ${rateSrc}. Модель: справжні купони й погашення наявних паперів + внески, реінвест під ставку; готівка не працює до реінвесту. Тіло вкладів і сертифікати фондів входять у старт нарівні з номіналом ОВДП: вклад повертається за графіком, сертифікат лежить безстроково й платить дивідендами. Подорожчання сертифіката модель не малює — його ніхто не обіцяв. <b>Ставка номінальна, суми реальні</b>: знецінення застосовується всередині моделі, окремо до кожного валютного рукава, тож усі колонки — у гривні сьогоднішньої купівельної спроможності. «Внесено» через це теж знецінюється, і приріст показує, наскільки вкладати вигідніше, ніж просто відкладати. Це припущення, не гарантія.</div>
       ${paceNote}
@@ -193,13 +195,16 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
   // сталось, а не перша виплата за всю історію.
   const rows = cal.slice().sort((a, b) => (mode === "past"
     ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
-  const btn = (v, t) => `<button class="sm ${mode === v ? "" : "quiet"}" data-cal="${v}">${t}</button>`;
+  // aria-pressed, а не клас .quiet на НЕактивній: доти активний стан
+  // читався із заперечення — і в розмітці, і читачем екрана, який про
+  // нього не дізнавався взагалі.
+  const btn = (v, t) => `<button data-cal="${v}" aria-pressed="${mode === v}">${t}</button>`;
   const html = `
     <div class="card">
-      <h2 class="h-row" style="justify-content:space-between">
+      <h2 class="card-head">
         <span>Виплати</span>
-        <span style="display:flex;gap:var(--oi-gap-xs)">${btn("ahead", "попереду")}${btn("past", "архів")}</span></h2>
-      <div class="muted" style="margin-bottom:10px">Виплату, датовану сьогодні чи наперед, можна
+        <span class="seg">${btn("ahead", "попереду")}${btn("past", "архів")}</span></h2>
+      <div class="note">Виплату, датовану сьогодні чи наперед, можна
         позначити <b>отриманою</b> — тоді вона ляже на рахунок, не чекаючи опівночі. Окремої позначки
         «перевкладено» більше немає: чи пішли гроші в діло, застосунок бачить сам із твоїх покупок.</div>
       ${rows.length ? `<table><thead><tr>
@@ -292,18 +297,18 @@ export function incomeHTML(ctx) {
   // Без копійок, як і в решті планових чисел: дробова частина місячного
   // доходу на горизонті в роки — це точність, якої в оцінці немає.
   const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
-  const line = (label, v, extra = "") => `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm);margin-bottom:6px">
+  const line = (label, v, extra = "") => `<div class="kv" style="margin-bottom:var(--oi-gap-sm)">
     <span class="muted" style="font-size:var(--oi-fs-sm)">${label}</span>
-    <span><b>${inc(v)}</b><span class="muted" style="font-size:12px">/міс</span>${extra}</span></div>`;
+    <span><b>${inc(v)}</b><span class="muted" style="font-size:var(--oi-fs-sm)">/міс</span>${extra}</span></div>`;
   const body = rows.map((r) => line(`через ${humanMonths(r.years * 12)}`, r.income_monthly,
     r.income_monthly_actual > 0 && Math.abs(r.income_monthly_actual - r.income_monthly) > 1
       ? ` <span class="muted" style="font-size:var(--oi-fs-xs)">· за фактом ${inc(r.income_monthly_actual)}</span>` : "")).join("");
-  return `<div class="card"><h2 class="h-row" style="justify-content:space-between">
+  return `<div class="card"><h2 class="card-head">
     <span>Пасивний дохід ${infoBtn("income")}</span></h2>
-    <div class="muted" style="font-size:12px;margin-bottom:var(--oi-gap-sm)">скільки портфель приноситиме щомісяця, у сьогоднішніх гривнях</div>
+    <div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:var(--oi-gap-sm)">скільки портфель приноситиме щомісяця, у сьогоднішніх гривнях</div>
     <div class="sub-xs" style="margin-bottom:var(--oi-gap-sm)">купони ОВДП і відсотки вкладів — за графіком; дивіденди фондів — оцінка</div>
     ${line("зараз", now)}
-    <div style="border-top:1px solid var(--oi-border);padding-top:6px;margin-top:var(--oi-gap-xs)">${body}</div>
+    <div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap-sm);margin-top:var(--oi-gap-xs)">${body}</div>
     ${independenceHTML(ctx)}
   </div>`;
 }
@@ -348,9 +353,9 @@ export function drawdownHTML(ctx) {
   return `<div class="card"><h2 class="h-row"><span>На скільки вистачить ${infoBtn("drawdown")}</span></h2>
     <div class="sub">Якщо перестати вносити й знімати ${inc(d.withdraw_uah)}/міс
       <span class="muted">· ${esc(from)}</span></div>
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm);margin-top:var(--oi-gap-sm)">
+    <div class="kv" style="margin-top:var(--oi-gap-sm)">
       <span class="muted" style="font-size:var(--oi-fs-sm)">вистачить</span>
-      <span>${head} <span class="muted" style="font-size:12px">${esc(note)}</span></span>
+      <span>${head} <span class="muted" style="font-size:var(--oi-fs-sm)">${esc(note)}</span></span>
     </div>
     <div class="progress" style="margin-top:var(--oi-gap-sm)"><span style="width:${
       Math.min(100, d.covered_pct || 0)}%;background:var(--oi-info)"></span></div>
@@ -377,7 +382,7 @@ function independenceHTML(ctx) {
   // картка в картці виглядала б поломкою. Той самий зміст, та сама
   // адреса налаштування — тільки рядком, а не окремою плиткою.
   if (!ind || !ind.target_uah) {
-    return `<div style="border-top:1px solid var(--oi-border);padding-top:10px;margin-top:10px">
+    return `<div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap);margin-top:var(--oi-gap)">
       <div class="sub-xs">Щоб побачити, коли дохід покриє життя, задай «цільовий дохід»
         або «місячні витрати» в «Налаштуваннях».</div></div>`;
   }
@@ -393,14 +398,14 @@ function independenceHTML(ctx) {
   // дві однакові дати поруч читаються як помилка, а не як збіг.
   const showActual = ind.actual_months !== undefined
     && ind.actual_months !== ind.plan_months;
-  return `<div style="border-top:1px solid var(--oi-border);padding-top:10px;margin-top:10px">
+  return `<div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap);margin-top:var(--oi-gap)">
     <div class="sub-xs" style="margin-bottom:var(--oi-gap-xs)">Коли дохід покриє ${inc(ind.target_uah)}/міс
       <span class="muted">· ${esc(from)}</span></div>
-    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm)">
+    <div class="kv">
       <span class="muted" style="font-size:var(--oi-fs-sm)">за планом</span>
       <span><b>${esc(when(ind.plan_months, ind.plan_date))}</b></span>
     </div>
-    ${showActual ? `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--oi-gap-sm);margin-top:3px">
+    ${showActual ? `<div class="kv" style="margin-top:3px">
       <span class="muted" style="font-size:var(--oi-fs-sm)">за фактичним темпом</span>
       <span>${esc(when(ind.actual_months, ind.actual_date))}</span>
     </div>` : ""}

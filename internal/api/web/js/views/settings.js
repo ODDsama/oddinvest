@@ -7,6 +7,7 @@
 import { esc, today, pct } from "../format.js";
 import { tile } from "../components.js";
 import { onSubmit, onDelete, apply } from "../forms.js";
+import { infoBtn } from "../info.js";
 import { section, wireDisclosures } from "../disclosure.js";
 import { strategyCardHTML, wireStrategy } from "./strategy.js";
 
@@ -84,27 +85,15 @@ export function catalogsHTML(ctx) {
     ? ctx.fundCatalog.map((f) => catalogRowHTML(f, fundFields(f))).join("")
     : `<div class="sub">Фондів ще немає — вони зʼявляться після першої купівлі сертифікатів.</div>`;
   return `<div class="card" id="brokerCard">
-      <h2>Брокери</h2>
-      <div class="muted" style="margin-bottom:10px">Рахунки, на яких лежать гроші й папери. Перейменування підхоплюють
-        усі записи разом. Видалити можна лише того, за ким не лишилось записів.</div>
+      <h2 class="h-row">Брокери ${infoBtn("setBrokers")}</h2>
       ${brokers}
-      <form id="brokerAddForm" style="margin-top:10px;display:flex;gap:var(--oi-gap-sm)">
+      <form id="brokerAddForm" style="margin-top:var(--oi-gap);display:flex;gap:var(--oi-gap-sm)">
         <input name="broker" placeholder="назва брокера" style="flex:0 0 200px" autocomplete="off">
-        <button type="submit">Додати</button>
+        <div class="form-actions"><button type="submit">Додати</button></div>
       </form>
     </div>
     <div class="card" id="fundCatalogCard">
-      <h2>Фонди</h2>
-      <div class="muted" style="margin-bottom:10px">Заводяться самі при першій операції. Тут виправляють назву й валюту
-        (помилка в назві більше не розщеплює позицію надвоє) і задають те, чого з операцій не вивести:
-        <b>обіцяну фондом дохідність</b>, <b>день виплати</b> дивідендів і <b>строк</b> фонду.</div>
-      <div class="sub" style="margin-bottom:10px">Обіцянка потрібна, доки не набереться історії для виміряної повної
-        дохідності (30 днів, зважених грошима): без неї фонд порівнюється лише за дивідендами й виглядає гіршим,
-        ніж є. Якщо вона у валюті — вкажіть її, і гривневе знецінення до неї не застосується.</div>
-      <div class="sub" style="margin-bottom:10px">Строковий фонд відрізняється від REIT усім, на чому тримається
-        решта моделі: він <b>закривається</b> в задану дату, повертає гроші з податком і купувати його можна
-        <b>не завжди</b>. Накопичувальний до того ж не платить нічого — увесь дохід сидить у ціні сертифіката.
-        Порожній день виплати цього <i>не</i> означає: він каже лише, що день невідомий.</div>
+      <h2 class="h-row">Фонди ${infoBtn("setFunds")}</h2>
       ${funds}
     </div>`;
 }
@@ -223,7 +212,7 @@ function devalHTML(d) {
     <div class="tiles flush" style="margin-bottom:var(--oi-gap)">
       ${tile("Чинне значення", pct(d.effective_pct), `<div class="sub">${src}</div>`)}
     </div>
-    <div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:10px">Це число ділить <b>кожну реальну
+    <div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:var(--oi-gap)">Це число ділить <b>кожну реальну
       дохідність</b> у застосунку й керує прогнозом. Порожнє поле «Гривня слабшає» вище означає
       «бери виміряне» — саме так його й повертають назад на автоматику.</div>
     ${rows ? `<div class="table-scroll"><table><thead><tr>
@@ -264,17 +253,13 @@ export async function renderSettings(ctx, main) {
         <label>Гривня слабшає, %/рік<input name="uah_devaluation_pct" inputmode="decimal" placeholder="порожньо = виміряне" value="${esc(s.uah_devaluation_pct || "")}"></label>
         <label>Довгострокова ставка ОВДП, %<input name="terminal_rate_pct" inputmode="decimal" placeholder="порожньо = 11" value="${esc(s.terminal_rate_pct || "")}"></label>
         <label>Ставка сповзає туди за, років<input name="rate_glide_years" inputmode="decimal" placeholder="порожньо = 5" value="${esc(s.rate_glide_years || "")}"></label>
-        <button type="submit">Зберегти</button>
+        <div class="form-actions"><button type="submit">Зберегти</button></div>
       </form>
     </div>`, { open: true, hint: "цілі, ліміти, порядок порад" })}
 
     ${section("instruments", "Інструменти й межі", `
     <div class="card">
-      <h2>Вклади як інструмент реінвесту</h2>
-      <div class="muted" style="margin-bottom:10px">Мінімум робить простій валюти «готовим до реінвесту» —
-        входить у прогноз і задає крок поради «відкрити новий вклад». Ставка потрібна лише для поради:
-        без неї запис не показується, але поріг усе одно діє. Порожній мінімум USD/EUR = <b>100</b>;
-        «0» вимикає валюту. UAH за замовчуванням вимкнено.</div>
+      <h2 class="h-row">Вклади як інструмент реінвесту ${infoBtn("setDeposits")}</h2>
       <form id="depositSettingsForm">
         <label>Мінімум вкладу USD<input name="deposit_min_usd" inputmode="decimal" placeholder="порожньо = 100" value="${esc(s.deposit_min_usd || "")}"></label>
         <label>Мінімум вкладу EUR<input name="deposit_min_eur" inputmode="decimal" placeholder="порожньо = 100" value="${esc(s.deposit_min_eur || "")}"></label>
@@ -282,90 +267,59 @@ export async function renderSettings(ctx, main) {
         <label>Ставка нового вкладу USD, %<input name="deposit_rate_usd_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_usd_pct || "")}"></label>
         <label>Ставка нового вкладу EUR, %<input name="deposit_rate_eur_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_eur_pct || "")}"></label>
         <label>Ставка нового вкладу UAH, %<input name="deposit_rate_uah_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_uah_pct || "")}"></label>
-        <button type="submit">Зберегти</button>
+        <div class="form-actions"><button type="submit">Зберегти</button></div>
       </form>
     </div>
 
     <div class="card">
-      <h2>Порядок у «Що купити»</h2>
-      <div class="muted" style="margin-bottom:10px">За чим ранжувати поради. <b>Під план</b> ставить
-        першим те, що найбільше зрушує портфель до заявленої політики — валютної цілі й цілі за видом
-        інструмента разом; вигода тоді лише розсуджує рівних, тож зверху може опинитись інструмент із
-        меншою дохідністю. Решта режимів прості: <b>за дохідністю</b> — сама реальна дохідність,
-        <b>короткі</b> — найближче погашення, <b>драбина</b> — рік із найменшими поверненнями.
-        Незалежно від режиму: доступне зараз завжди вище за недоступне, а те, що вже перевищує ліміт
-        концентрації, — нижче.</div>
+      <h2 class="h-row">Порядок у «Що купити» ${infoBtn("setRank")}</h2>
       <form id="rankForm">
         <label>Критерій<select name="reinvest_rank">${
           [["plan", "під план"], ["rate", "за дохідністю"], ["short", "короткі"], ["ladder", "драбина"]]
             .map(([v, t]) => `<option value="${v}"${(s.reinvest_rank || "plan") === v ? " selected" : ""}>${t}</option>`)
             .join("")}</select></label>
-        <button type="submit">Зберегти</button>
+        <div class="form-actions"><button type="submit">Зберегти</button></div>
       </form>
     </div>
 
     <div class="card">
-      <h2>Структура за видом інструмента</h2>
-      <div class="muted" style="margin-bottom:10px">Валютна ціль вище каже, В ЧОМУ тримати гроші;
-        ця — ЧИМ ризикувати. Сума <b>не мусить</b> давати 100: нерозподілене буде показане, а не
-        розтягнуте до сотні мовчки. Порожньо = цілі за цим видом немає, і в «Портфелі» він не
-        з'явиться. Резерв тут відсутній навмисно — його ціль задається нижче в місяцях витрат,
-        бо саме на це питання він і відповідає.</div>
+      <h2 class="h-row">Структура за видом інструмента ${infoBtn("setKinds")}</h2>
       <form id="kindTargetsForm">
         <label>Ціль ОВДП, %<input name="target_bonds_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_bonds_pct || "")}"></label>
         <label>Ціль фондів, %<input name="target_funds_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_funds_pct || "")}"></label>
         <label>Ціль вкладів, %<input name="target_deposits_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_deposits_pct || "")}"></label>
-        <button type="submit">Зберегти</button>
+        <div class="form-actions"><button type="submit">Зберегти</button></div>
       </form>
     </div>
 
     <div class="card">
-      <h2>Ліміти концентрації</h2>
-      <div class="muted" style="margin-bottom:10px">Стеля, а не ціль: скільки максимум дозволено
-        зібрати в одному місці. Три різні питання — що буде, якщо <b>цей емітент</b> не заплатить,
-        якщо <b>ця установа</b> зникне, якщо саме <b>того року</b> ставки впадуть і всі погашення
-        доведеться вкладати заново за гіршою ставкою. Порожньо = ліміту немає, і вимір не
-        показується. Готових чисел застосунок не підставляє: «не більше 20% в один папір» — це
-        порада, а він їх не дає.</div>
+      <h2 class="h-row">Ліміти концентрації ${infoBtn("setLimits")}</h2>
       <form id="limitsForm">
         <label>Макс. в одному папері, %<input name="limit_isin_pct" inputmode="decimal" placeholder="порожньо = без ліміту" value="${esc(s.limit_isin_pct || "")}"></label>
         <label>Макс. в одній установі, %<input name="limit_broker_pct" inputmode="decimal" placeholder="брокер або банк" value="${esc(s.limit_broker_pct || "")}"></label>
         <label>Макс. погашень в один рік, %<input name="limit_year_pct" inputmode="decimal" placeholder="від усіх погашень" value="${esc(s.limit_year_pct || "")}"></label>
-        <button type="submit">Зберегти</button>
+        <div class="form-actions"><button type="submit">Зберегти</button></div>
       </form>
     </div>
 
     <div class="card">
-      <h2>Резерв на чорний день</h2>
-      <div class="muted" style="margin-bottom:10px">Місячні витрати — єдине, від чого можна порахувати,
-        на скільки вистачить матраца. Застосунок їх не вгадує: зняття з рахунку це і покупка холодильника,
-        і переказ у резерв, тож видавати їх за витрати означало б міряти достатність від випадкового числа.
-        Порожньо = «місяців вистачить» не показується взагалі.</div>
+      <h2 class="h-row">Резерв на чорний день ${infoBtn("setReserve")}</h2>
       <form id="reserveSettingsForm">
         <label>Місячні витрати, ₴<input name="monthly_expenses_uah" inputmode="decimal" placeholder="порожньо = не рахувати" value="${esc(s.monthly_expenses_uah || "")}"></label>
         <label>Ціль запасу, місяців<input name="reserve_target_months" inputmode="decimal" placeholder="напр. 6" value="${esc(s.reserve_target_months || "")}"></label>
-        <button type="submit">Зберегти</button>
+        <div class="form-actions"><button type="submit">Зберегти</button></div>
       </form>
     </div>`, { hint: "вклади, види, ліміти, резерв" })}
 
     ${section("assumptions", "Припущення", `
     <div class="card">
-      <h2>Припущення прогнозу</h2>
-      <div class="muted" style="margin-bottom:10px">Чим живляться картки у «Майбутньому».
-        Перші два — про тебе: який дохід ти вважаєш достатнім і скільки збирався б знімати,
-        якби перестав вносити. Порожньо в обох = місячні витрати вище, бо це найчастіша
-        відповідь, але не єдина розумна: половина витрат — теж ціль.
-        Другі два — про ринок: наскільки далеко один від одного стоять оптимістичний і
-        песимістичний сценарії. Доти ці числа були зашиті в коді, тобто «песимістично»
-        означало рівно те, що вирішив автор. Розкид вішається на ДОВГОСТРОКОВУ ставку:
-        сьогоднішня — факт, за яким можна купити просто зараз, а припущенням є те,
-        куди вона прийде.</div>
+      <h2 class="h-row">Припущення прогнозу ${infoBtn("setForecast")}</h2>
       <form id="forecastAssumptionsForm">
         <label>Достатній дохід, ₴/міс<input name="income_target_uah" inputmode="decimal" placeholder="порожньо = місячні витрати" value="${esc(s.income_target_uah || "")}"></label>
         <label>Знімати щомісяця, ₴<input name="withdraw_monthly_uah" inputmode="decimal" placeholder="порожньо = місячні витрати" value="${esc(s.withdraw_monthly_uah || "")}"></label>
         <label>Розкид ставки, п.п.<input name="rate_spread_pp" inputmode="decimal" placeholder="порожньо = 3" value="${esc(s.rate_spread_pp || "")}"></label>
         <label>Розкид знецінення, п.п.<input name="deval_spread_pp" inputmode="decimal" placeholder="порожньо = 4" value="${esc(s.deval_spread_pp || "")}"></label>
-        <button type="submit">Зберегти</button>
+        <div class="form-actions"><button type="submit">Зберегти</button></div>
       </form>
     </div>
 
@@ -375,13 +329,11 @@ export async function renderSettings(ctx, main) {
     ${catalogsHTML(ctx)}
 
     <div class="card">
-      <h2>Бекап</h2>
-      <div class="muted" style="margin-bottom:10px">Твої лоти, поповнення, конвертації, налаштування й статуси виплат.
-        Довідник НБУ не входить — він відновлюється сам. Плюс сервер щодня пише копію поряд із БД (потрапляє в бекап Proxmox).</div>
+      <h2 class="h-row">Бекап ${infoBtn("setBackup")}</h2>
       <div style="display:flex;gap:var(--oi-gap-sm);flex-wrap:wrap;align-items:center">
         <button type="button" id="btnExport">Завантажити бекап</button>
         <label style="display:inline-block"><span class="muted" style="font-size:var(--oi-fs-sm)">Відновити з файлу:</span>
-          <input type="file" id="importFile" accept="application/json,.json" style="margin-top:6px"></label>
+          <input type="file" id="importFile" accept="application/json,.json" style="margin-top:var(--oi-gap-sm)"></label>
       </div>
       <div class="muted" id="restoreMsg" style="margin-top:var(--oi-gap-sm);font-size:var(--oi-fs-sm)"></div>
     </div>`, { hint: "брокери, фонди, бекап" })}`;

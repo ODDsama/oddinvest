@@ -14,6 +14,8 @@ import {
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
+import { empty } from "../components.js";
+import { routeFor } from "../routes.js";
 import { onSubmit, onDelete } from "../forms.js";
 import { fundStatementHTML, wireFundOps, setFundOps } from "../fund-ops.js";
 import { disclosure, section, wireDisclosures } from "../disclosure.js";
@@ -42,7 +44,7 @@ export function brokerBalancesHTML(ctx) {
     return `<div style="margin-bottom:14px"><div style="margin-bottom:var(--oi-gap-xs)"><b>${esc(b)}</b></div>${parts}</div>`;
   }).join("");
   return `<div class="card"><h2>Рахунки по брокерах</h2>
-    <div class="muted" style="margin-bottom:10px">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.</div>
+    <div class="note">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.</div>
     ${rows}</div>`;
 }
 
@@ -54,7 +56,7 @@ export function reconcileHTML(ctx) {
   const rows = Object.entries(brokers).flatMap(([b, byCur]) =>
     Object.entries(byCur).map(([c, v]) => ({ b, c, v })));
   if (!rows.length) return "";
-  return `<div class="card"><h2 class="h-row" style="justify-content:space-between">
+  return `<div class="card"><h2 class="card-head">
     <span>Звірка рахунку ${infoBtn("reconcile")}</span></h2>
     <table><thead><tr><th>Брокер</th><th class="num">За записами</th>
       <th class="num">Фактично</th><th class="num">Розбіжність</th><th></th></tr></thead>
@@ -143,12 +145,12 @@ function reserveHTML(ctx, ops) {
         <div class="val">${r && r.share_pct ? pct(r.share_pct) : "—"}</div>
         <div class="sub">не інвестиція, але капітал</div></div>
     </div>
-    ${target > 0 && months ? `<div class="progress" style="margin-bottom:6px">
+    ${target > 0 && months ? `<div class="progress" style="margin-bottom:var(--oi-gap-sm)">
       <span style="width:${fill}%;background:${enough ? "var(--oi-ok)" : "var(--oi-info)"}"></span></div>
-      <div class="sub" style="margin-bottom:10px">${enough
+      <div class="note">${enough
         ? `запас зібраний${r.uah > r.target_uah ? ` — з перевищенням на ${fmtUAH(r.uah - r.target_uah)}` : ""}`
         : `до цілі ще ${fmtUAH(r.gap_uah || 0)} · ціль ${fmtUAH(r.target_uah || 0)}`}</div>` : ""}
-    ${places.length ? `<div class="sub" style="margin-bottom:10px">Де лежить: ${places.map(([p, v]) =>
+    ${places.length ? `<div class="note">Де лежить: ${places.map(([p, v]) =>
       `${esc(p)} — ${fmtUAH(v)}`).join(" · ")}</div>` : ""}` : "";
 
   const journal = (ops || []).length
@@ -161,11 +163,11 @@ function reserveHTML(ctx, ops) {
           <td>${esc(o.place || "")}${o.note ? ` <span class="muted">${esc(o.note)}</span>` : ""}</td>
           <td class="row-actions"><button class="sm warn" data-delres="${o.id}">✕</button></td></tr>`).join("")}
       </tbody></table></div>`
-    : `<div class="muted">Рухів резерву ще немає.</div>`;
+    : empty("", "Рухів резерву ще немає — перший запис заведе матрац і покаже, на скільки місяців його вистачає.");
 
   return `<div class="card">
     <h2 class="h-row">Резерв ${infoBtn("reserve")}</h2>
-    <div class="muted" style="margin-bottom:10px">Гроші на чорний день. Не інвестиція — але саме тому вони й доступні миттєво, без продажу паперу й розірвання вкладу. У купівельну спроможність не входять.</div>
+    <div class="note">Гроші на чорний день. Не інвестиція — але саме тому вони й доступні миттєво, без продажу паперу й розірвання вкладу. У купівельну спроможність не входять.</div>
     ${tiles}
     <form id="resForm" style="margin-bottom:var(--oi-gap)">
       <label>Сума (+ відклав / − узяв)<input name="amount" inputmode="decimal" placeholder="5000.00" required></label>
@@ -174,9 +176,9 @@ function reserveHTML(ctx, ops) {
       <label>Місце<input name="place" placeholder="готівка / сейф / картка"></label>
       <label>Дата<input name="date" type="date" value="${today()}"></label>
       <label>Нотатка<input name="note"></label>
-      <button type="submit">Записати</button>
+      <div class="form-actions"><button type="submit">Записати</button></div>
     </form>
-    <div class="sub" style="margin-bottom:10px">Переклав із рахунку? Запиши ще й зняття в «Додати рух» нижче — інакше відкладене виглядатиме як втрата капіталу.</div>
+    <div class="note">Переклав із рахунку? Запиши ще й зняття в «Додати рух» нижче — інакше відкладене виглядатиме як втрата капіталу.</div>
     ${journal}
   </div>`;
 }
@@ -185,18 +187,18 @@ function reserveHTML(ctx, ops) {
 // зроблено, і лише потім писати. Ціна помилки тут — подвоєний баланс,
 // а він знаходиться не одразу.
 export function importHTML(ctx) {
-  return `<div class="card"><h2 class="h-row" style="justify-content:space-between">
+  return `<div class="card"><h2 class="card-head">
     <span>Імпорт виписки ${infoBtn("import")}</span></h2>
-    <div class="muted" style="font-size:12px;margin-bottom:var(--oi-gap-sm)">Файл Inzhur (.xlsx). Спершу перегляд — нічого не записується.</div>
+    <div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:var(--oi-gap-sm)">Файл Inzhur (.xlsx). Спершу перегляд — нічого не записується.</div>
     <div style="display:flex;gap:var(--oi-gap-sm);align-items:center;flex-wrap:wrap">
       <input type="file" id="impFile" accept=".xlsx">
       <button id="impPreview">Переглянути</button>
     </div>
-    <div class="muted" style="font-size:12px;margin-top:var(--oi-gap-sm);display:flex;gap:var(--oi-gap-sm);align-items:center;flex-wrap:wrap">
+    <div class="muted" style="font-size:var(--oi-fs-sm);margin-top:var(--oi-gap-sm);display:flex;gap:var(--oi-gap-sm);align-items:center;flex-wrap:wrap">
       Враховувати зміни від <input type="date" id="impSince" style="width:150px">
       <span>рухається сама після кожного імпорту</span>
     </div>
-    <div id="impOut" style="margin-top:10px"></div></div>`;
+    <div id="impOut" style="margin-top:var(--oi-gap)"></div></div>`;
 }
 
 export function wireImport(ctx, main) {
@@ -237,8 +239,8 @@ export function wireImport(ctx, main) {
       const tag = r.conflict
         ? `<div style="color:var(--oi-danger);font-size:var(--oi-fs-xs)">⚠ ${esc(r.conflict)}</div>`
         : r.exists ? `<span class="muted" style="font-size:var(--oi-fs-xs)">вже є</span>` : "";
-      return `<div style="margin-bottom:6px">
-        <div style="display:flex;justify-content:space-between;gap:var(--oi-gap-sm)">
+      return `<div style="margin-bottom:var(--oi-gap-sm)">
+        <div class="kv">
           <span>${dayMonth(r.date)} · ${KIND[r.kind] || r.kind}${
             r.fund ? ` <span class="muted">${esc(r.fund)}</span>` : ""}${
             r.qty ? ` <span class="muted">${r.qty} серт.</span>` : ""}</span>
@@ -252,12 +254,12 @@ export function wireImport(ctx, main) {
     out.innerHTML = `
       <div style="margin-bottom:var(--oi-gap-sm)">Знайдено ${(res.rows || []).length} операцій · <b>${res.new}</b> нових${
         conflicts ? ` · <span style="color:var(--oi-danger)">${conflicts} з конфліктом</span>` : ""}</div>
-      ${res.before ? `<div class="muted" style="font-size:12px;margin-bottom:var(--oi-gap-sm)">${res.before} рядків старші за ${
+      ${res.before ? `<div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:var(--oi-gap-sm)">${res.before} рядків старші за ${
         dayMonth(res.since)} — не розглядались</div>` : ""}
       ${rows}
-      ${skipped ? `<div style="border-top:1px solid var(--oi-border);margin-top:var(--oi-gap-sm);padding-top:6px">
-        <div class="muted" style="font-size:12px;margin-bottom:var(--oi-gap-xs)">пропущено:</div>${skipped}</div>` : ""}
-      ${dry && res.new > 0 ? `<button id="impGo" style="margin-top:10px">Імпортувати ${res.new}</button>` : ""}
+      ${skipped ? `<div style="border-top:1px solid var(--oi-border);margin-top:var(--oi-gap-sm);padding-top:var(--oi-gap-sm)">
+        <div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:var(--oi-gap-xs)">пропущено:</div>${skipped}</div>` : ""}
+      ${dry && res.new > 0 ? `<button id="impGo" style="margin-top:var(--oi-gap)">Імпортувати ${res.new}</button>` : ""}
       ${!dry ? `<div style="margin-top:var(--oi-gap-sm);color:var(--oi-ok)">Записано ${res.imported}</div>` : ""}`;
     const go = out.querySelector("#impGo");
     if (go) {
@@ -293,7 +295,7 @@ function flowHTML(f) {
   const detail = (f.rows || []).filter((r) => r.kind === "purchase" && r.uah < 0);
   return `<div class="card">
     <h2 class="h-row">Рух грошей ${infoBtn("cashflow")}</h2>
-    <div class="sub" style="margin-bottom:10px">${esc(f.from)} → ${esc(f.to)}</div>
+    <div class="note">${esc(f.from)} → ${esc(f.to)}</div>
     <div class="table-scroll"><table><tbody>
       ${row("Було на рахунках", f.opening_uah)}
       ${row("+ надійшло доходу", f.income_uah, "+")}
@@ -360,12 +362,12 @@ function taxHTML(x) {
            <td class="num">${fmtUAH(x.net_uah)}</td>
            <td class="num">${pct(x.rate_pct)}</td></tr>
        </tbody></table></div>`
-    : `<div class="muted">За цей рік оподаткованого доходу не було.</div>`;
+    : empty("", "За цей рік оподаткованого доходу не було.");
   return `<div class="card">${disclosure("tax", "Податок на дохід",
-    `<div class="sub h-row" style="justify-content:space-between;margin-bottom:10px">
+    `<div class="sub card-head">
        <span>${esc(x.from)} → ${esc(x.to)}</span><span>рік: ${picker}</span></div>
      ${body}
-     <div class="sub h-row" style="margin-top:var(--oi-gap-sm);justify-content:space-between;gap:var(--oi-gap-sm)">
+     <div class="sub card-head" style="margin-top:var(--oi-gap-sm)">
        <span>Купон ОВДП звільнений від податку, дивіденд фонду й відсотки вкладу — ні.
          Ставки не зашиті: у фонду береться фактично утримане з виписки, у вкладу —
          ставка самого вкладу.</span>
@@ -438,7 +440,10 @@ export async function renderMoney(ctx, main) {
             <td>${esc(m.note || "")}${isFinite(rate) ? ` (${rate.toFixed(4)})` : ""}</td>
             <td class="row-actions"><button class="sm warn" data-delconv="${m.id}"
               aria-label="Видалити конвертацію від ${esc(m.date)}">✕</button></td></tr>`;
-        }).join("")}</tbody></table>` : `<div class="muted">Рухів ще немає.</div>`}
+        }).join("")}</tbody></table>` : empty(
+          "Рухів ще немає",
+          "Сюди лягають поповнення, зняття й конвертації. Купівлі паперів і купони рухають рахунок самі.",
+          { href: routeFor("deposit"), label: "Додати рух" })}
     </div>`, { open: true })}
 
     ${section("entry", "Записати", `
@@ -446,20 +451,20 @@ export async function renderMoney(ctx, main) {
 
     <div class="card">
       <h2>Додати рух</h2>
-      <div class="muted" style="margin-bottom:10px">Поповнення (+) / зняття (−) у своїй валюті. Купівля лота й купони рухають рахунок автоматично.</div>
+      <div class="note">Поповнення (+) / зняття (−) у своїй валюті. Купівля лота й купони рухають рахунок автоматично.</div>
       <form id="cashForm">
         <label>Сума (+ / −)<input name="amount" inputmode="decimal" placeholder="5000.00" required></label>
         <label>Валюта<select name="currency">${curOpts("UAH")}</select></label>
         <label>Брокер<select name="broker">${ctx.brokerOptions()}</select></label>
         <label>Дата<input name="date" type="date" value="${today()}"></label>
         <label>Нотатка<input name="note"></label>
-        <button type="submit">Записати</button>
+        <div class="form-actions"><button type="submit">Записати</button></div>
       </form>
     </div>
 
     <div class="card">
       <h2>Конвертація валют</h2>
-      <div class="muted" style="margin-bottom:10px">Віддав → отримав (курс рахується сам із сум — те, що реально сталося на Monobank).</div>
+      <div class="note">Віддав → отримав (курс рахується сам із сум — те, що реально сталося на Monobank).</div>
       <form id="convForm">
         <label>Віддав<input name="from_amount" inputmode="decimal" placeholder="40000.00" required></label>
         <label>Валюта<select name="from_currency">${curOpts("UAH")}</select></label>
@@ -468,7 +473,7 @@ export async function renderMoney(ctx, main) {
         <label>Брокер<select name="broker">${ctx.brokerOptions()}</select></label>
         <label>Дата<input name="date" type="date" value="${today()}"></label>
         <label>Нотатка<input name="note"></label>
-        <button type="submit">Записати</button>
+        <div class="form-actions"><button type="submit">Записати</button></div>
       </form>
     </div>
 

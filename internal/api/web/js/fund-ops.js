@@ -63,7 +63,7 @@ export function fundTable(ctx, kind, head, cells, empty, filter) {
 export function fundStatementHTML(ctx) {
   if (!(fundOps || []).length) return "";
   return `<div class="card"><h2>Продажі сертифікатів</h2>
-      <div class="muted" style="margin-bottom:10px">Що принесла виписка. Тут же ✕, якщо принесла зайве.</div>
+      <div class="note">Що принесла виписка. Тут же ✕, якщо принесла зайве.</div>
       ${fundTable(ctx, "sell",
         `<th class="num">ID</th><th>Фонд</th><th class="num">К-сть</th><th class="num">Ціна</th><th class="num">Отримано</th><th class="num">Податок</th>`,
         (o, c) => `<td class="num">${o.qty}</td><td class="num">${c.price(o)}</td>

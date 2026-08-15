@@ -235,6 +235,13 @@ main:focus { outline: none; }
   main { padding: 0 var(--oi-gap-xl) var(--oi-gap-xl); }
 }
 
+@media (min-width: 1200px) {
+  /* «Портфель» ширший за решту: там таблиця на сім колонок і крива на
+     рік. У тексту й форм оптимальна ширина своя й від розміру екрана
+     не залежить, тож решта розділів лишається на --oi-max-width. */
+  main[data-tab="portfolio"] { max-width: var(--oi-max-width-wide); }
+}
+
 /* --- кнопки --- */
 
 button {
@@ -316,6 +323,53 @@ button.link { background: none; border: none; color: var(--oi-danger); padding: 
 }
 .card h2 { font-size: var(--oi-fs-lg); margin: 0 0 var(--oi-gap); }
 .card h4 { margin: 0 0 var(--oi-gap-sm); font-size: var(--oi-fs); font-weight: var(--oi-fw-bold); }
+
+/* Шапка картки: заголовок ліворуч, супутнє праворуч (перемикач періоду,
+   рік податку, кнопка «i»). Доти кожне таке місце писало власний
+   inline-стиль `justify-content:space-between` — сорок разів те саме
+   правило, і кожне з шансом розійтися з рештою. */
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--oi-gap-sm);
+  flex-wrap: wrap;
+  margin: 0 0 var(--oi-gap);
+}
+/* Пара до .card-head: рядок «підпис — значення» всередині картки. Той
+   самий набір із чотирьох властивостей писався інлайном сім разів, і
+   кожне входження мало власний шанс розійтися з рештою на пару пікселів
+   або забути baseline — через що число з'їжджало відносно свого підпису. */
+.kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--oi-gap-sm);
+}
+
+/* Плитка-герой: головне число екрана. Саме заради неї заводився
+   --oi-fs-hero, який до цього моменту цілий реліз пролежав без жодного
+   споживача — тобто був не токеном, а обіцянкою. */
+/* grid-column, а не flex: .tiles — сітка, і flex тут не робив би нічого.
+   На телефоні плитка й так на всю ширину, тож розтягувати нема куди. */
+.tile.hero .val { font-size: var(--oi-fs-hero); }
+@media (min-width: 640px) { .tile.hero { grid-column: span 2; } }
+
+/* Сегментний перемикач: кілька взаємовиключних варіантів одного
+   питання (період графіка, «попереду / архів», рік податку). Доти це
+   щоразу збиралось із двох кнопок, де активна відрізнялась відсутністю
+   класу .quiet — тобто стан читався з ЗАПЕРЕЧЕННЯ. */
+.seg { display: inline-flex; gap: 0; border: 1px solid var(--oi-border-strong); border-radius: var(--oi-radius-sm); overflow: hidden; }
+.seg > button {
+  background: none;
+  color: var(--oi-muted);
+  border: none;
+  border-radius: 0;
+  padding: var(--oi-gap-xs) var(--oi-gap);
+  font-size: var(--oi-fs-sm);
+}
+.seg > button + button { border-left: 1px solid var(--oi-border-strong); }
+.seg > button[aria-pressed="true"] { background: var(--oi-surface-3); color: var(--oi-text); font-weight: var(--oi-fw-medium); }
 
 @media (min-width: 640px) {
   /* Щільність перемикається двома змінними, а не тридцятьма правилами.
@@ -576,7 +630,7 @@ tr:last-child td { border-bottom: none; }
   display: inline-block;
 }
 .disclosure[open] > summary::before { transform: rotate(90deg); }
-.disclosure > summary .hint { font-weight: 400; color: var(--oi-muted); font-size: var(--oi-fs-sm); }
+.disclosure > summary .hint { font-weight: var(--oi-fw); color: var(--oi-muted); font-size: var(--oi-fs-sm); }
 .disclosure-body { padding: 0 0 var(--oi-gap-lg); }
 
 /* Картка, що вся є одним дисклоужером: заголовок стає підсумком, тож
@@ -598,6 +652,18 @@ form {
 }
 @media (min-width: 640px) {
   form { grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); }
+}
+/* Рядок дій форми. Доти кнопка «Зберегти» була просто ще одним елементом
+   сітки полів — тобто приземлялась у випадкову комірку останнього ряду,
+   і в формі з п'ятьма полями стояла посеред них, а з шістьма — під
+   крайнім лівим. Власний ряд на всю ширину прибирає цю випадковість. */
+.form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--oi-gap-sm);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--oi-gap-xs);
 }
 label { display: flex; flex-direction: column; gap: var(--oi-gap-xs); font-size: var(--oi-fs-sm); color: var(--oi-muted); }
 input, select {
@@ -682,6 +748,10 @@ td.num .sale-f { text-align: right; }
 .banner.ok { background: var(--oi-soft-ok-bg); color: var(--oi-soft-ok-fg); border: 1px solid var(--oi-soft-ok-border); }
 .banner.ok button { background: var(--oi-soft-ok-btn-bg); color: var(--oi-soft-ok-btn-fg); }
 .banner.wait { background: var(--oi-soft-warn-bg); color: var(--oi-soft-warn-fg); border: 1px solid var(--oi-soft-warn-border); }
+/* Відмова, а не пересторога. Бурштин каже «зверни увагу», і саме ним був
+   позначений єдиний випадок, коли застосунок не працює зовсім, — поруч
+   із бурштиновим же «довідник НБУ застарів», який нічому не заважає. */
+.banner.danger { background: var(--oi-soft-danger-bg); color: var(--oi-soft-danger-fg); border: 1px solid var(--oi-soft-danger-border); }
 .banner.neutral { background: var(--oi-surface); border: 1px solid var(--oi-border-strong); box-shadow: var(--oi-shadow); }
 
 /* Пігулки типу виплати користуються тією ж базою .pill вище. Тут довго
@@ -814,6 +884,13 @@ td.num .sale-f { text-align: right; }
 /* Дрібний пояснювальний рядок під заголовком чи числом. Зустрічається
    десятками — доти, доки писався інлайном, кожне входження мало шанс
    розійтися з рештою на пару пікселів. */
+/* Пояснювальний рядок ПІД заголовком картки, перед вмістом. Пара до
+   .sub, який іде під числом: у цього відступ знизу, а не зверху. Писався
+   інлайном дев'ятнадцять разів як `class="muted" style="margin-bottom:10px"`
+   — і десять пікселів у ньому були єдиним місцем в усьому застосунку, де
+   відступ не лягав на крок сітки. */
+.note { color: var(--oi-muted); font-size: var(--oi-fs); margin-bottom: var(--oi-gap); }
+
 .sub { color: var(--oi-muted); font-size: var(--oi-fs-sm); margin-top: var(--oi-gap-xs); }
 .sub-xs { color: var(--oi-muted); font-size: var(--oi-fs-xs); margin-top: 2px; }
 
@@ -970,6 +1047,9 @@ td.num .sale-f { text-align: right; }
    «Завантаження…» — тобто після додавання лота екран блимав порожнечею
    на кожен запис. */
 main[data-busy] { opacity: .55; pointer-events: none; }
+/* Притухання плавне: миттєвий стрибок прозорості читається як блимання —
+   рівно те, від чого теплий перерендер і рятує. */
+main { transition: opacity var(--oi-dur) var(--oi-ease); }
 
 /* --- сповіщення --- */
 

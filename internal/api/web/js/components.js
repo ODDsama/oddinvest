@@ -6,8 +6,12 @@
 
 import { esc, pct } from "./format.js";
 
-export function tile(l, v, extra = "") {
-  return `<div class="tile"><div class="lbl">${l}</div><div class="val">${v}</div>${extra}</div>`;
+/** Плитка. hero — головне число екрана: більший кегль і подвійна ширина.
+ *  Рівно одна на розділ; друга «головна» плитка означала б, що головного
+ *  немає. */
+export function tile(l, v, extra = "", { hero = false } = {}) {
+  return `<div class="tile${hero ? " hero" : ""}"><div class="lbl">${l}</div>` +
+    `<div class="val">${v}</div>${extra}</div>`;
 }
 
 // У застосунку рівно два слова про дохідність, і жодне число не

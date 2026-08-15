@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/store"
@@ -99,7 +100,28 @@ func (s *Server) Handler() http.Handler {
 
 	sub, _ := fs.Sub(webFS, "web") //nolint:errcheck // шлях у go:embed — константа, помилка неможлива
 	mux.Handle("GET /", noCache(http.FileServerFS(sub)))
-	return logMiddleware(s.log, mux)
+	return logMiddleware(s.log, noStoreAPI(mux))
+}
+
+// noStoreAPI забороняє кешувати ВІДПОВІДІ API взагалі.
+//
+// noCache нижче накритий лише статикою, а маршрути /api/ не мали
+// заголовків кешу жодних — і тоді браузер має право застосувати
+// евристику й віддати стару відповідь із власного кешу. Спіймалось це
+// живцем: після відновлення бекапу сторінка й далі показувала попередній
+// набір знімків, хоча сервер уже віддавав новий.
+//
+// Різниця з noCache навмисна. Статику перепитувати можна й треба
+// (no-cache = «спитай, чи не змінилось»), а відповідь API не має сенсу
+// зберігати взагалі: вона правдива рівно в момент запиту, і вчорашній
+// капітал, показаний як сьогоднішній, гірший за його відсутність.
+func noStoreAPI(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // noCache забороняє браузеру віддавати статику з кешу без перепитування.

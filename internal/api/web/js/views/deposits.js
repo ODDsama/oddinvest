@@ -25,7 +25,7 @@ export function depositFormHTML(ctx) {
         <input name="replenishable" type="checkbox" style="width:auto">Поповнюваний</label>
       <label>Податок, %<input name="tax_pct" inputmode="decimal" placeholder="19.5 (за замовч.)"></label>
       <label>Нотатка<input name="note"></label>
-      <button type="submit">Додати</button>
+      <div class="form-actions"><button type="submit">Додати</button></div>
     </form>`;
 }
 

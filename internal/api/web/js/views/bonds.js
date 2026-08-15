@@ -21,9 +21,9 @@ export function bondBuyFormHTML(ctx, lots) {
         </select></label>
         <label>Дата купівлі<input name="buy_date" type="date" value="${today()}" required></label>
         <label>Брокер<select name="channel_sel">${ctx.channelOptions(lots)}</select>
-          <input name="channel" placeholder="назва каналу" style="margin-top:6px;display:none"></label>
+          <input name="channel" placeholder="назва каналу" style="margin-top:var(--oi-gap-sm);display:none"></label>
         <label>Нотатка<input name="note"></label>
-        <button type="submit">Додати</button>
+        <div class="form-actions"><button type="submit">Додати</button></div>
       </form>
       <div class="muted" id="bondInfo" style="margin-top:var(--oi-gap-sm)"></div>`;
 }
@@ -41,9 +41,9 @@ export function bondSaleFormHTML(ctx, lots) {
         <label>Чиста ціна/папір<input name="clean_per_bond" inputmode="decimal" placeholder="1001.50" required></label>
         <label>НКД (сумарно)<input name="accrued" inputmode="decimal" placeholder="0.00"></label>
         <label>Нотатка<input name="note"></label>
-        <button type="submit">Записати</button>
+        <div class="form-actions"><button type="submit">Записати</button></div>
       </form>
-      <div class="sub" style="margin-top:10px">Записані продажі видно в рядку того паперу, якого вони
+      <div class="sub" style="margin-top:var(--oi-gap)">Записані продажі видно в рядку того паперу, якого вони
         стосуються — розкрий позицію стрілкою.</div>`;
 }
 

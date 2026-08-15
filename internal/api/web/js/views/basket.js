@@ -127,15 +127,15 @@ export async function basketHTML(ctx) {
     `${esc(s.broker)}: бракує ${fmtCur(Number(s.short.amount), curSym(s.currency))}`).join(" · ");
   const durNow = (before.rate_risk || {}).duration_years || 0;
   const durWill = (after.rate_risk || {}).duration_years || 0;
-  return `<div class="card"><h2 class="h-row" style="justify-content:space-between">
+  return `<div class="card"><h2 class="card-head">
       <span>Кошик покупки ${infoBtn("basket")}</span>
       <button class="sm quiet" data-bskclear>Очистити</button></h2>
     ${linesHTML(basket)}
-    <div class="pv-row" style="margin-top:10px"><span><b>Разом</b></span><span><b>${totals}</b></span></div>
+    <div class="pv-row" style="margin-top:var(--oi-gap)"><span><b>Разом</b></span><span><b>${totals}</b></span></div>
     ${shorts ? `<div class="sub-xs warn-t" style="margin-top:var(--oi-gap-xs)">${esc(shorts)}</div>`
       : `<div class="sub-xs ok-t" style="margin-top:var(--oi-gap-xs)">грошей вистачає</div>`}
-    <div style="border-top:1px solid var(--oi-border);padding-top:10px;margin-top:10px">
-      <div class="sub" style="margin-bottom:6px">Що станеться з портфелем</div>
+    <div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap);margin-top:var(--oi-gap)">
+      <div class="sub" style="margin-bottom:var(--oi-gap-sm)">Що станеться з портфелем</div>
       ${delta("Капітал", before.capital_uah, after.capital_uah, fmtUAH)}
       ${delta("Частка USD", before.usd_share_pct, after.usd_share_pct, asPct, st.usd_target_share_pct)}
       ${delta("Частка EUR", before.eur_share_pct, after.eur_share_pct, asPct, st.eur_target_share_pct)}

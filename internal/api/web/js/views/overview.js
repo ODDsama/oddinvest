@@ -138,7 +138,7 @@ export function nbuStaleHTML(ctx) {
   if (!at) return "";
   const days = Math.floor((Date.now() - new Date(at).getTime()) / 86400000);
   if (days < 3) return "";
-  return `<div class="banner wait" style="padding:10px 16px"><div class="b-tx">
+  return `<div class="banner wait" style="padding:var(--oi-gap) 16px"><div class="b-tx">
     <div class="b-s" style="opacity:1">Довідник НБУ не оновлювався <b>${days} дн.</b> —
     ставки й графіки виплат можуть бути несвіжі. Натисни «↻ Оновити НБУ».</div></div></div>`;
 }
@@ -246,7 +246,7 @@ export function reinvestHTML(ctx) {
   const soon = rows.filter((r) => !r.can_buy);
   const group = (title, list) => list.length
     ? `<div class="sg-h">${title}</div>${list.map(item).join("")}` : "";
-  return `<div class="card"><h2 class="h-row" style="justify-content:space-between">
+  return `<div class="card"><h2 class="card-head">
     <span>Що купити ${infoBtn("reinvest")}</span>
     ${purse ? `<span class="muted" style="font-size:var(--oi-fs-sm)">${purse}</span>` : ""}</h2>
     ${group("Можеш купити зараз", ready)}
@@ -294,8 +294,12 @@ export async function renderOverview(ctx, main) {
     // рядка сума виглядала б як «стільки в мене інвестовано».
     s.reserve_uah > 0 ? `з них ${fmtUAH(s.reserve_uah)} у резерві` : "",
   ].filter(Boolean).map((t) => `<div class="sub">${t}</div>`).join("");
+  // Капітал — героєм: це головне число застосунку, і решта плиток поруч
+  // із ним лише контекст. Доти всі три були однакового кегля, тобто
+  // «скільки в мене всього» важило рівно стільки ж, скільки «коли
+  // наступна виплата».
   const tiles = `<div class="tiles flush">
-    ${tile("Капітал", fmtUAH(cap), capSub)}
+    ${tile("Капітал", fmtUAH(cap), capSub, { hero: true })}
     ${tile("Цей місяць", s.month_target_uah > 0 ? `${s.month_progress_pct || 0}%` : "—",
       s.month_target_uah > 0
         ? `<div class="progress"><span style="width:${Math.min(100, s.month_progress_pct || 0)}%"></span></div>

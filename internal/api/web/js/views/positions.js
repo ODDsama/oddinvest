@@ -11,7 +11,8 @@ import {
 } from "../format.js";
 import { PAYOUT_LABEL, KIND_LABEL } from "../constants.js";
 import { infoBtn } from "../info.js";
-import { yieldPair } from "../components.js";
+import { yieldPair, empty } from "../components.js";
+import { routeFor } from "../routes.js";
 import { fundTable } from "../fund-ops.js";
 import { isOpen, remember } from "../uistate.js";
 
@@ -107,7 +108,7 @@ function depositDetailHTML(d) {
     <form class="topup-form" data-topup-form="${d.id}">
       <label>Дата поповнення<input name="date" type="date" value="${today()}" required></label>
       <label>Сума<input name="amount" inputmode="decimal" value="${d.principal.amount}" required></label>
-      <button type="submit">Поповнити</button>
+      <div class="form-actions"><button type="submit">Поповнити</button></div>
     </form>` : "";
   const topupsTbl = topups.length ? `<h4 style="margin-top:var(--oi-gap)">Поповнення</h4><table><tbody>
     ${topups.map((t) => `<tr><td class="muted">${esc(t.date)}</td><td class="num">${fmtMoney(t.amount)}</td>
@@ -118,7 +119,7 @@ function depositDetailHTML(d) {
     <form class="close-form" data-close-form="${d.id}">
       <label>Дата розірвання<input name="closed_date" type="date" value="${today()}" required></label>
       <label>Отримано (тіло + відсотки)<input name="closed_amount" inputmode="decimal" placeholder="${d.balance.amount}" required></label>
-      <button type="submit">Підтвердити розірвання</button>
+      <div class="form-actions"><button type="submit">Підтвердити розірвання</button></div>
     </form>`;
 }
 
@@ -199,7 +200,7 @@ function positionItems(ctx, positions, lots, sales, deposits) {
       // дохідність, і слово поруч рятує від читання її як третього
       // числа в тому самому рядку.
       term: `${esc(d.maturity_date)}<div class="sub-xs">${daysUntil(d.maturity_date)} дн. · ставка ${pct(d.rate_pct)}</div>`,
-      actions: `<label class="sub-xs" style="flex-direction:row;align-items:center;gap:4px;display:inline-flex"
+      actions: `<label class="sub-xs" style="flex-direction:row;align-items:center;gap:var(--oi-gap-xs);display:inline-flex"
              title="Чи приймає цей вклад поповнення — від цього залежить, чи радить його помічник">
           <input type="checkbox" data-repl="${d.id}" style="width:auto"${d.replenishable ? " checked" : ""}>попов.</label>
         <button class="sm warn" data-deldep="${d.id}">✕</button>`,
@@ -238,8 +239,10 @@ function positionItems(ctx, positions, lots, sales, deposits) {
 export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
   const items = positionItems(ctx, positions, lots, sales, deposits);
   if (!items.length) {
-    return `<div class="card"><h2>Позиції</h2>
-      <div class="muted">Позицій ще немає — почни з покупки або відкрий вклад нижче.</div></div>`;
+    return `<div class="card"><h2>Позиції</h2>${empty(
+      "Тут ще порожньо",
+      "Позиція з'явиться після першої покупки паперу або відкритого вкладу.",
+      { href: routeFor("buy"), label: "Записати покупку" })}</div>`;
   }
   // data-label і data-prio — увесь механізм адаптивності цієї таблиці.
   // Ширина вирішує CSS, а розмітка лише каже, ЯК називається кожна
@@ -276,7 +279,7 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
       <th scope="col" data-prio="2">Строк</th><th scope="col"><span class="sr-only">Дії</span></th>
       </tr></thead>
       <tbody>${rows}</tbody></table></div>
-    <div class="sub" style="margin-top:10px">Велике число — <b>реальна</b> річна дохідність після
+    <div class="sub" style="margin-top:var(--oi-gap)">Велике число — <b>реальна</b> річна дохідність після
       податку, у сьогоднішній купівельній спроможності: саме вона порівнює ОВДП, фонд і вклад між
       собою. Дрібне під ним — <b>номінальна</b>: скільки гривень додасться, те, що видно у виписці.
       Далі — звідки число взялося: у ОВДП і вкладу це <b>обіцянка</b>, ставка зафіксована до

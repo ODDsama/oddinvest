@@ -2,6 +2,7 @@
 
 import { esc, curSym, plural, uah2 as fmtUAH } from "../format.js";
 import { infoBtn } from "../info.js";
+import { empty } from "../components.js";
 import { seriesChart, wireChartTips, fluid, seriesLegend } from "../charts.js";
 import { disclosure } from "../disclosure.js";
 
@@ -84,9 +85,9 @@ function usableSnaps(all) {
 
 function tooShortHTML(title, key, n) {
   return `<div class="card"><h2 class="h-row">${title} ${infoBtn(key)}</h2>
-    <div class="muted">Крива будується з добових знімків (пишуться щодня о 06:10,
-    або одразу після «↻ Оновити НБУ»). Потрібно ≥2 знімки з даними — наразі ${n}.
-    Порожні знімки до появи портфеля не рахуються.</div></div>`;
+    ${empty("", `Крива будується з добових знімків (пишуться щодня о 06:10, або одразу після
+      «↻ Оновити НБУ»). Потрібно ≥2 знімки з даними — наразі ${n}. Порожні знімки до появи
+      портфеля не рахуються.`)}</div>`;
 }
 
 // ---------- картка 1: з чого складається капітал ----------
@@ -141,14 +142,16 @@ function planCardHTML(ctx, allSnaps) {
   const mode = planRange();
   const month = (allSnaps[allSnaps.length - 1].date || "").slice(0, 7);
   const snaps = mode === "month" ? allSnaps.filter((s) => s.date.slice(0, 7) === month) : allSnaps;
-  const btn = (v, t) => `<button class="sm ${mode === v ? "" : "quiet"}" data-range="${v}">${t}</button>`;
-  const head = `<h2 class="h-row" style="justify-content:space-between">
+  // aria-pressed, а не клас .quiet на НЕактивній: доти активний стан
+  // читався із заперечення — і в розмітці, і читачем екрана.
+  const btn = (v, t) => `<button data-range="${v}" aria-pressed="${mode === v}">${t}</button>`;
+  const head = `<h2 class="card-head">
     <span>Факт vs план ${infoBtn("plan")}</span>
-    <span style="display:flex;gap:var(--oi-gap-xs)">${btn("month", "місяць")}${btn("all", "уся історія")}</span></h2>`;
+    <span class="seg">${btn("month", "місяць")}${btn("all", "уся історія")}</span></h2>`;
 
   if (snaps.length < 2) {
-    return `<div class="card">${head}<div class="muted">Для цього періоду ще замало знімків —
-      наразі ${snaps.length}. Зʼявляться протягом місяця.</div></div>`;
+    return `<div class="card">${head}${empty("",
+      `Для цього періоду ще замало знімків — наразі ${snaps.length}. Зʼявляться протягом місяця.`)}</div>`;
   }
   const dates = snaps.map((s) => s.date);
   // План: кожен день додає ціль ТОГО дня ÷ днів у місяці. Зміна цілі

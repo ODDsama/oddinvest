@@ -169,9 +169,9 @@ export function strategyCardHTML(current) {
   const answers = readAnswers();
   const answered = QUESTIONS.filter((q) => answers[q.id]).length;
 
-  const quiz = QUESTIONS.map((q) => `<div style="margin-bottom:10px">
+  const quiz = QUESTIONS.map((q) => `<div style="margin-bottom:var(--oi-gap)">
     <div style="margin-bottom:var(--oi-gap-xs)">${esc(q.q)}</div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap">
+    <div style="display:flex;gap:var(--oi-gap-sm);flex-wrap:wrap">
       ${q.opts.map(([v, t]) => `<button type="button" class="sm${
         answers[q.id] === v ? "" : " quiet"}" data-answer="${q.id}:${v}">${esc(t)}</button>`).join("")}
     </div></div>`).join("");
@@ -190,14 +190,14 @@ export function strategyCardHTML(current) {
           : `<span class="muted">до названих обмежень байдужий</span>`;
     const why = [...clash.map((c) => `<div class="sub-xs" style="color:var(--oi-warn)">✕ ${esc(c.q)} → «${esc(c.a)}»</div>`),
       ...ok.map((c) => `<div class="sub-xs">✓ ${esc(c.q)} → «${esc(c.a)}»</div>`)].join("");
-    return `<div style="border-top:1px solid var(--oi-border);padding-top:10px;margin-top:10px">
-      <div style="display:flex;justify-content:space-between;gap:var(--oi-gap-sm);flex-wrap:wrap">
+    return `<div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap);margin-top:var(--oi-gap)">
+      <div class="kv" style="flex-wrap:wrap">
         <b>${esc(p.name)}</b>${verdict}
       </div>
       <div class="sub">Дає: ${esc(p.gives)}</div>
       <div class="sub">Платить: ${esc(p.costs)}</div>
       ${why}
-      <div style="margin-top:6px">
+      <div style="margin-top:var(--oi-gap-sm)">
         ${diff.length
           ? `<button class="sm" data-preset="${p.key}">Показати, що зміниться (${diff.length})</button>`
           : `<span class="sub">усе вже стоїть саме так</span>`}

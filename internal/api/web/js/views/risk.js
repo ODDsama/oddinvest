@@ -7,7 +7,8 @@ import {
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { svgBars, svgGrouped, svgDonut, fluid } from "../charts.js";
-import { tile, yieldNote, needsSetting } from "../components.js";
+import { tile, yieldNote, needsSetting, empty } from "../components.js";
+import { routeFor } from "../routes.js";
 import { disclosure } from "../disclosure.js";
 
 
@@ -166,7 +167,7 @@ export function rebalanceCard(ctx) {
       Готівка: ${num(r.cash_native)} ${s} — ${buy}.</div>`;
   }).join("");
   return `<div class="card"><h2>Валютне ребалансування</h2>
-    <div class="muted" style="margin-bottom:10px">Частки рахуються від УСЬОГО капіталу — папери,
+    <div class="note">Частки рахуються від УСЬОГО капіталу — папери,
       рахунок, фонди, вклади й резерв, — тож це те саме число, що в плитці «Частка USD» вище.
       Доти тут був інший знаменник, і два числа на одному екрані не сходились.</div>
     ${body}</div>`;
@@ -230,7 +231,7 @@ export function kindMixCard(ctx) {
       ${line}</div>`;
   }).join("");
   return `<div class="card"><h2 class="h-row">Структура за видом інструмента ${infoBtn("kindmix")}</h2>
-    <div class="muted" style="margin-bottom:10px">Валютна ціль каже, В ЧОМУ тримати гроші; ця —
+    <div class="note">Валютна ціль каже, В ЧОМУ тримати гроші; ця —
       ЧИМ ризикувати. Частки рахуються від того самого капіталу.</div>
     ${body}
     <div class="sub">${targetSum < 99.5
@@ -276,7 +277,7 @@ export function concentrationCard(ctx) {
       // службовий «fund:Назва».
       const showKey = r.label && !r.key.endsWith(r.label);
       return `<div style="margin-bottom:var(--oi-gap-sm)">
-        <div style="display:flex;justify-content:space-between;gap:var(--oi-gap-sm)">
+        <div class="kv">
           <span>${esc(r.label || r.key)}${showKey ? ` <span class="muted">${esc(r.key)}</span>` : ""}</span>
           <span${over ? ` style="color:var(--oi-warn)"` : ""}><b>${r.share_pct}%</b>
             <span class="muted">${fmtUAH(r.amount_uah)}</span></span>
@@ -295,14 +296,14 @@ export function concentrationCard(ctx) {
       ? `<div class="sub-xs">Резерв (${fmtUAH(s.reserve_uah)}) сюди не входить: у нього немає
          контрагента, який міг би зникнути, — тому частки в сумі й не дають 100%.</div>` : "";
     return `<div style="margin-bottom:16px">
-      <div style="margin-bottom:6px"><b>${title}</b> — ліміт ${limit}${
+      <div style="margin-bottom:var(--oi-gap-sm)"><b>${title}</b> — ліміт ${limit}${
         unit === "% капіталу" ? "% капіталу" : "% усіх погашень"}
         <span class="muted">· ${why}</span></div>
       ${items}${gap}</div>`;
   }).join("");
   const broken = rows.filter((r) => r.over_uah > 0).length;
   return `<div class="card"><h2 class="h-row">Концентрація ${infoBtn("concentration")}</h2>
-    <div class="muted" style="margin-bottom:10px">${broken
+    <div class="note">${broken
       ? `Перевищено лімітів: <b>${broken}</b>.`
       : "Усі задані ліміти витримані."}
       Це спостереження, а не заборона: поради в «Що купити» від нього не змінюються й нічого
@@ -433,7 +434,9 @@ export function ladderTableHTML(ctx) {
         <td class="num">${r.uah ? fmtUAH(r.uah) : "—"}</td><td>${bar(r.uah, "var(--oi-accent)")}</td>
         <td class="num">${fx(r.usd, "$")}</td><td>${bar(r.usd, "var(--oi-info)")}</td>
         <td class="num">${fx(r.eur, "€")}</td><td>${bar(r.eur, "var(--oi-warn)")}</td></tr>`).join("")}</tbody></table>`
-      : `<div class="muted">Драбина порожня — додай папери в портфель.</div>`}
+      : empty("Драбини ще немає",
+          "Драбина показує, скільки повертається кожного року. Вона будується з погашень, тож з'явиться разом із першим папером.",
+          { href: routeFor("buy"), label: "Записати покупку" })}
   </div>`;
 }
 
