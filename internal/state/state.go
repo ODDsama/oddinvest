@@ -619,13 +619,29 @@ type ForecastRow struct {
 	// але ринок вирішує, наскільки він посильний. Для рядка «За фактом»
 	// порожнє — там головне число це сам фактичний темп.
 	RequiredMonthly float64 `json:"required_monthly,omitempty"`
-	RatePct         float64 `json:"rate_pct"`                    // сьогоднішня дохідність гривневої частини
-	RateTerminalPct float64 `json:"rate_terminal_pct,omitempty"` // куди вона сповзає
-	ContribMonthly  float64 `json:"contrib_monthly"`             // припущений внесок, ₴/міс
-	DevaluationPct  float64 `json:"devaluation_pct"`             // припущене знецінення гривні, %/рік
-	GoalPct         float64 `json:"goal_pct,omitempty"`
-	GoalMonths      int     `json:"goal_months,omitempty"`
-	GoalDate        string  `json:"goal_date,omitempty"`
+	// RequiredTotalMonthly — те саме, але З НУЛЯ: план ігнорується цілком.
+	//
+	// Різниця між двома полями і є причина, чому обидва потрібні.
+	// RequiredMonthly відповідає «скільки ще ДОКЛАСТИ понад те, що план уже
+	// дає» — бо бісекція чіпає лише ContribUAH, а план живе в
+	// ContribByMonth і лишається незайманим. Це корисне число, але воно не
+	// порівнюване ні з planProvidesUAH, ні з фактичним темпом: ті два
+	// описують надходження, а воно — нестачу.
+	//
+	// RequiredTotalMonthly ставить усі три на одну основу: скільки МАЄ
+	// заходити щомісяця, скільки дає план, скільки заходить насправді. На
+	// порожньому плані збігається з RequiredMonthly рівно (тест), на
+	// непорожньому — більше на те, що план і так дає.
+	//
+	// Порожнє для рядка «За фактом», як і RequiredMonthly.
+	RequiredTotalMonthly float64 `json:"required_total_monthly,omitempty"`
+	RatePct              float64 `json:"rate_pct"`                    // сьогоднішня дохідність гривневої частини
+	RateTerminalPct      float64 `json:"rate_terminal_pct,omitempty"` // куди вона сповзає
+	ContribMonthly       float64 `json:"contrib_monthly"`             // припущений внесок, ₴/міс
+	DevaluationPct       float64 `json:"devaluation_pct"`             // припущене знецінення гривні, %/рік
+	GoalPct              float64 `json:"goal_pct,omitempty"`
+	GoalMonths           int     `json:"goal_months,omitempty"`
+	GoalDate             string  `json:"goal_date,omitempty"`
 	// ByCurrency — розклад по валютних рукавах: під що саме росте кожна
 	// валюта і скільки грошей у неї спрямовується.
 	ByCurrency []SleeveRow `json:"by_currency,omitempty"`

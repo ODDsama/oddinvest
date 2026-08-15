@@ -158,6 +158,72 @@ func TestPlanFlowProvidesSumsToPlanProvides(t *testing.T) {
 	}
 }
 
+// Потік, закритий заднім числом, не платить БІЛЬШЕ НІЧОГО.
+//
+// Доти дата кінця обрізалась знизу одиницею — так само, як дата початку, —
+// і це давало end = 1, а перевірка ловила лише m > end. На першому місяці
+// умова була хибна, тож джерело доходу, якого вже пів року немає, платило
+// ще один раз: зайвий місяць у проєкції й зайва 1/12 у колонці.
+//
+// Для дати ПОЧАТКУ те саме обрізання лишається правильним, і сусідній
+// підтест це стереже: потік, заведений торік, уже діє.
+func TestPlanFlowClosedInPastPaysNothing(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	closed := store.PlanFlow{
+		Name: "Стара робота", Kind: "income", Amount: 4_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2024-01-01", UntilDate: "2026-01-31", InvestBP: 10000,
+	}
+	for m := 1; m <= 24; m++ {
+		if got := planFlowNative(closed, today, m); got != 0 {
+			t.Fatalf("місяць %d: закритий торік потік мав дати 0, маємо %.2f", m, got)
+		}
+	}
+	if got := planFlowProvidesUAH(closed, today, fx.Rates{}, planProvidesMonths); got != 0 {
+		t.Errorf("колонка «дає ₴/міс» мала бути 0, маємо %.2f", got)
+	}
+
+	// Контроль: початок у минулому й далі означає «вже діє».
+	running := closed
+	running.UntilDate = ""
+	if got := planFlowNative(running, today, 1); got != 40000 {
+		t.Errorf("потік, заведений торік і не закритий, мав платити 40000, маємо %.2f", got)
+	}
+
+	// МЕЖА, на якій легко перестаратись у ДРУГИЙ бік: кінець ЦЬОГО місяця
+	// теж дає нуль, бо місяць 1 — це НАСТУПНИЙ місяць (профіль підписує
+	// точки як today.AddMonths(m) від m=1). Потік, що закінчується до
+	// початку вікна, у вікно не потрапляє.
+	//
+	// Саме цей випадок робить кнопка «⇗»: закриваючи старий рядок
+	// напередодні нової зарплати з 1-го числа наступного місяця, вона
+	// ставить кінець поточного — і перекриття з новим рядком не виникає.
+	thisMonth := closed
+	thisMonth.UntilDate = "2026-07-31" // той самий місяць, що й today
+	for m := 1; m <= 3; m++ {
+		if got := planFlowNative(thisMonth, today, m); got != 0 {
+			t.Errorf("місяць %d: кінець поточного місяця мав дати 0, маємо %.2f", m, got)
+		}
+	}
+	// І симетрично: наступник, що починається з 1-го наступного місяця,
+	// платить із першого ж місяця вікна — разом вони дають рівно один
+	// потік без діри й без перекриття.
+	next := closed
+	next.FromDate, next.UntilDate, next.Amount = "2026-08-01", "", 5_000_000
+	if got := planFlowNative(next, today, 1); got != 50000 {
+		t.Errorf("наступник мав платити 50000 з першого місяця, маємо %.2f", got)
+	}
+
+	// І далі по осі: останній місяць дії платить, наступний — уже ні.
+	ending := closed
+	ending.UntilDate = "2026-09-15" // +2 місяці від today
+	if got := planFlowNative(ending, today, 2); got == 0 {
+		t.Error("останній місяць дії мав заплатити")
+	}
+	if got := planFlowNative(ending, today, 3); got != 0 {
+		t.Errorf("після дати кінця мав дати 0, маємо %.2f", got)
+	}
+}
+
 // Разова стаття всередині річного вікна дає суму/12, поза ним — рівно
 // нуль. Це та межа, на якій колонка найлегше починає брехати.
 func TestPlanFlowProvidesOnceWindow(t *testing.T) {
@@ -172,6 +238,154 @@ func TestPlanFlowProvidesOnceWindow(t *testing.T) {
 	}
 	if got := planFlowProvidesUAH(far, today, fx.Rates{}, planProvidesMonths); got != 0 {
 		t.Errorf("разова поза вікном мала дати 0, маємо %.2f", got)
+	}
+}
+
+// marketRows — три ринкові сценарії прогнозу (без рядка «За фактом»).
+func marketRows(t *testing.T, in projectionInput) []state.ForecastRow {
+	t.Helper()
+	out := buildProjection(in)
+	if out.Forecast == nil {
+		t.Fatal("прогнозу немає — тест нічого не перевірить")
+	}
+	var rows []state.ForecastRow
+	for _, r := range out.Forecast.Rows {
+		if r.Key != "actual" {
+			rows = append(rows, r)
+		}
+	}
+	if len(rows) != 3 {
+		t.Fatalf("мало бути 3 ринкові сценарії, маємо %d", len(rows))
+	}
+	return rows
+}
+
+// Інваріант 1, найсильніший: БЕЗ плану «треба з нуля» і «треба понад план»
+// — це те саме число, точно.
+//
+// Тримається бітово, а не приблизно: newSleeveFactory завжди виділяє
+// f.plan[cur], тож єдина різниця плановільного шляху — nil замість
+// занулених слайсів, а contribAt перевіряє на nil і додає той самий нуль.
+//
+// ПАСТКА: не порівнювати самі []domain.Sleeve через reflect.DeepEqual —
+// вони різняться рівно цим nil-проти-порожнього, і тест завалився б на
+// істинному інваріанті. Порівнюємо числа.
+func TestRequiredTotalEqualsRequiredOnEmptyPlan(t *testing.T) {
+	in := forecastInput(t, goalSettings("", "2030-07-15"))
+	for _, r := range marketRows(t, in) {
+		if r.RequiredMonthly != r.RequiredTotalMonthly {
+			t.Errorf("%s: без плану числа мали збігтись, маємо %.2f проти %.2f",
+				r.Key, r.RequiredTotalMonthly, r.RequiredMonthly)
+		}
+		if r.RequiredMonthly == 0 {
+			t.Errorf("%s: тест нічого не перевірив — обидва нулі", r.Key)
+		}
+	}
+}
+
+// realisticRow — реалістичний сценарій прогнозу для заданого входу.
+func realisticRow(t *testing.T, in projectionInput) (state.ForecastRow, projectionPhase) {
+	t.Helper()
+	out := buildProjection(in)
+	if out.Forecast == nil {
+		t.Fatal("прогнозу немає — тест нічого не перевірить")
+	}
+	for _, r := range out.Forecast.Rows {
+		if r.Key == "realistic" {
+			return r, out
+		}
+	}
+	t.Fatal("реалістичного сценарію немає")
+	return state.ForecastRow{}, out
+}
+
+// Інваріант 2: на РІВНОМУ плані «треба з нуля» = «дає план» + «бракує» —
+// але ЛИШЕ поки плану справді бракує.
+//
+// Друга половина тесту фіксує межу, на яку легко натрапити випадково:
+// «бракує» впирається в нуль знизу (більше, ніж досить, — це все одно
+// нуль), тож щойно план перекриває ціль, тотожність перестає триматись, і
+// «треба» стає МЕНШИМ за сам план. Це не вада: питання «скільки бракує»
+// просто не має відʼємної відповіді.
+//
+// Допуск 1 ₴, а не 0.02: три незалежні round2 плюс 60 ітерацій бісекції.
+// Сама рівність можлива лише тому, що потік рівний і гривневий — тоді
+// 12-місячне середнє плану й плаский внесок бісекції взаємозамінні.
+func TestRequiredTotalMinusPlanEqualsGapOnFlatPlan(t *testing.T) {
+	flow := func(amount int64) []store.PlanFlow {
+		return []store.PlanFlow{{
+			Name: "Зарплата", Kind: "income", Amount: amount, Currency: "UAH",
+			Cadence: "month", FromDate: "2026-07-15", InvestBP: 10000,
+		}}
+	}
+
+	// План, якого НЕ ВИСТАЧАЄ: 3 000 ₴/міс проти потрібних ~7 900.
+	in := forecastInput(t, goalSettings("", "2030-07-15"))
+	in.PlanFlows = flow(300_000)
+	real, out := realisticRow(t, in)
+	if real.RequiredMonthly <= 0 {
+		t.Fatalf("план мав лишити нестачу, інакше тотожність не перевіряється: бракує=%.2f",
+			real.RequiredMonthly)
+	}
+	if d := real.RequiredTotalMonthly - out.PlanProvidesUAH - real.RequiredMonthly; math.Abs(d) > 1 {
+		t.Errorf("треба(%.2f) − план(%.2f) − бракує(%.2f) = %.2f, мало бути ~0",
+			real.RequiredTotalMonthly, out.PlanProvidesUAH, real.RequiredMonthly, d)
+	}
+
+	// План, якого З ЛИШКОМ: «бракує» лягає в нуль, і «треба» лишається
+	// меншим за план — саме так це й має читатись на екрані («із запасом»).
+	rich := forecastInput(t, goalSettings("", "2030-07-15"))
+	rich.PlanFlows = flow(2_000_000)
+	realRich, outRich := realisticRow(t, rich)
+	if realRich.RequiredMonthly != 0 {
+		t.Errorf("план із лишком мав дати нульову нестачу, маємо %.2f", realRich.RequiredMonthly)
+	}
+	if realRich.RequiredTotalMonthly >= outRich.PlanProvidesUAH {
+		t.Errorf("треба(%.2f) мало лишитись меншим за план(%.2f)",
+			realRich.RequiredTotalMonthly, outRich.PlanProvidesUAH)
+	}
+	// І головне: саме «треба» не залежить від того, який у тебе план.
+	if math.Abs(realRich.RequiredTotalMonthly-real.RequiredTotalMonthly) > 1 {
+		t.Errorf("«треба з нуля» не сміє залежати від плану: %.2f проти %.2f",
+			realRich.RequiredTotalMonthly, real.RequiredTotalMonthly)
+	}
+}
+
+// Інваріант 3: на НЕРІВНОМУ плані лишається сама нерівність, і це не
+// послаблення тесту, а зафіксована причина.
+//
+// Рівність із попереднього тесту тут НЕ тримається, бо (а) plan_provides
+// — середнє за 12 місяців, а план діє на весь горизонт до дедлайну, тож
+// разова премія дає суму/12 у число й нічого в роки 2-5; і (б) ранні
+// гроші компаундяться довше, тож фронт-навантажений план вартий більше за
+// рівний потік того самого середнього.
+//
+// ПЕРЕДУМОВА: нерівність тримається, поки місячний вектор плану
+// невідʼємний. Витратні потоки можуть зробити «бракує» БІЛЬШИМ за «треба
+// з нуля» — це законно, а не баг, тож тест ганяє самі доходи.
+func TestRequiredTotalOnlyDominatesGapOnUnevenPlan(t *testing.T) {
+	in := forecastInput(t, goalSettings("", "2030-07-15"))
+	in.PlanFlows = []store.PlanFlow{
+		{Name: "Премія", Kind: "income", Amount: 15_000_000, Currency: "UAH",
+			Cadence: "once", FromDate: "2026-10-15", InvestBP: 10000},
+		{Name: "Квартальна", Kind: "income", Amount: 6_000_000, Currency: "UAH",
+			Cadence: "quarter", FromDate: "2026-08-15", InvestBP: 10000},
+	}
+	out := buildProjection(in)
+	var real state.ForecastRow
+	for _, r := range out.Forecast.Rows {
+		if r.Key == "realistic" {
+			real = r
+		}
+	}
+	if real.RequiredTotalMonthly < real.RequiredMonthly {
+		t.Errorf("треба з нуля (%.2f) не може бути меншим за нестачу понад план (%.2f)",
+			real.RequiredTotalMonthly, real.RequiredMonthly)
+	}
+	// І документуємо, що проста рівність тут саме НЕ виконується.
+	if d := math.Abs(real.RequiredTotalMonthly - out.PlanProvidesUAH - real.RequiredMonthly); d <= 1 {
+		t.Errorf("на нерівному плані рівність не мала триматись, а розбіжність лише %.2f — "+
+			"схоже, план став рівним і тест перевіряє не те, що заявляє", d)
 	}
 }
 
