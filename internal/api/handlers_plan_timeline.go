@@ -11,6 +11,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/store"
 
 	money "github.com/Rhymond/go-money"
 )
@@ -56,6 +57,29 @@ type timelineCurvePoint struct {
 	Actual      float64 `json:"actual,omitempty"`
 }
 
+// profileSeries / profilePoint — «форма плану в часі»: скільки ₴/міс
+// заходить у кожен місяць горизонту, з розкладом по потоках.
+//
+// Values іде в тому самому порядку, що й Series, — тобто масив чисел, а не
+// мапа: рядів одиниці, а мапа коштувала б назви потоку в кожній точці.
+type profileSeries struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Kind string `json:"kind"` // income | expense
+}
+
+type profilePoint struct {
+	Date   string    `json:"date"`
+	Values []float64 `json:"values"`
+	Net    float64   `json:"net"`
+}
+
+type planProfile struct {
+	StepMonths int             `json:"step_months"`
+	Series     []profileSeries `json:"series"`
+	Points     []profilePoint  `json:"points"`
+}
+
 type timelineDoc struct {
 	From        string               `json:"from"`
 	To          string               `json:"to"`
@@ -64,6 +88,53 @@ type timelineDoc struct {
 	Instruments []timelineInstrument `json:"instruments"`
 	Milestones  []timelineMilestone  `json:"milestones"`
 	Curve       []timelineCurvePoint `json:"curve,omitempty"`
+	Profile     *planProfile         `json:"profile,omitempty"`
+}
+
+// profileMaxPoints — стеля точок профілю. Довший горизонт малюється з
+// кроком у квартал: 120 місячних точок на графік завширшки з картку — це
+// вже менше пікселя на точку, і крок дрібніший за них нічого не додає, а
+// відповідь роздуває.
+const profileMaxPoints = 120
+
+// buildPlanProfile розгортає потоки в помісячні суми на тому самому
+// ядрі, що й проєкція з колонкою «дає ₴/міс» (planFlowMonthlyUAH) — тож
+// третього означення надходжень не з'являється, і форма на картинці не
+// може розійтися з числом над нею.
+func buildPlanProfile(flows []store.PlanFlow, today, to domain.Date, rates fx.Rates) *planProfile {
+	if len(flows) == 0 {
+		return nil
+	}
+	months := monthOffsetRaw(today, to)
+	if months < 12 {
+		months = 12
+	}
+	step := 1
+	for months/step > profileMaxPoints {
+		step += 2 // 1 → 3 → 5 …: квартал, потім рідше
+	}
+	p := &planProfile{StepMonths: step}
+	for _, f := range flows {
+		p.Series = append(p.Series, profileSeries{ID: f.ID, Name: f.Name, Kind: f.Kind})
+	}
+	for m := 1; m <= months; m += step {
+		pt := profilePoint{Date: string(today.AddMonths(m)), Values: make([]float64, len(flows))}
+		for i, f := range flows {
+			// Крок > 1 усереднює вікно, а не бере його перший місяць:
+			// інакше квартальний потік то потрапляв би в точку, то ні, і
+			// картинка стрибала б від вибору кроку, а не від плану.
+			var sum float64
+			for k := 0; k < step; k++ {
+				sum += planFlowMonthlyUAH(f, today, rates, m+k)
+			}
+			v := round2(sum / float64(step))
+			pt.Values[i] = v
+			pt.Net += v
+		}
+		pt.Net = round2(pt.Net)
+		p.Points = append(p.Points, pt)
+	}
+	return p
 }
 
 // handlePlanTimeline — GET /api/plan. Той самий buildState, що й
@@ -179,6 +250,8 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 		out.Instruments = append(out.Instruments,
 			timelineInstrument{Kind: "fund", Label: f.Name, To: f.CloseDate, BuyUntil: f.BuyUntil})
 	}
+
+	out.Profile = buildPlanProfile(flows, today, to, rates)
 
 	out.Milestones = append(out.Milestones, timelineMilestone{Date: string(today), Label: "сьогодні"})
 	if doc.Forecast != nil && doc.Forecast.Date != "" {

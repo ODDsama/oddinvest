@@ -100,11 +100,182 @@ func TestPlanActionCRUD(t *testing.T) {
 		t.Errorf("lock-дія не потрапила у список: %s", body)
 	}
 
+	// Правка дії доти не мала тесту взагалі, хоча PUT — повна заміна рядка
+	// тим самим валідатором, що й POST: пропущене поле не «лишається як
+	// було», а стирається.
+	if resp, body := do(t, "PUT", srv.URL+"/api/plan/actions/2",
+		`{"date":"2026-12-01","type":"lock","amount":"70000.00","rate_pct":"25","months":36,"name":"MilTech"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("правка дії: %d %s", resp.StatusCode, body)
+	}
+	_, body = do(t, "GET", srv.URL+"/api/plan/actions", "")
+	if !strings.Contains(body, `"70000.00"`) {
+		t.Errorf("правка дії не застосувалась: %s", body)
+	}
+	// Правка lock без назви відхиляється так само, як і додавання.
+	if resp, _ := do(t, "PUT", srv.URL+"/api/plan/actions/2",
+		`{"date":"2026-12-01","type":"lock","amount":"70000.00","rate_pct":"25","months":36}`); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("правка lock без назви мала дати 400, маємо %d", resp.StatusCode)
+	}
+
 	if resp, body := do(t, "DELETE", srv.URL+"/api/plan/actions/2", ""); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("видалення дії: %d %s", resp.StatusCode, body)
 	}
 	if _, body := do(t, "GET", srv.URL+"/api/plan/actions", ""); strings.Contains(body, "MilTech") {
 		t.Errorf("видалена дія лишилась у списку: %s", body)
+	}
+}
+
+// Профіль надходжень стоїть на тому самому ядрі, що й колонка та плитка,
+// тож середнє його net за перші 12 місяців мусить збігтися з
+// plan_provides_uah. Це не декоративна перевірка: якби профіль рахувався
+// власною арифметикою, картинка розійшлася б із числом просто над нею.
+func TestPlanProfileMatchesProvides(t *testing.T) {
+	srv, _ := testServer(t)
+
+	for _, b := range []string{
+		`{"name":"Зарплата","kind":"income","amount":"40000.00","cadence":"month","from_date":"2020-01-01","invest_pct":"60"}`,
+		`{"name":"Премія","kind":"income","amount":"120000.00","cadence":"year","from_date":"2020-03-01"}`,
+		`{"name":"Оренда","kind":"expense","amount":"16000.00","cadence":"month","from_date":"2020-01-01"}`,
+	} {
+		if resp, body := do(t, "POST", srv.URL+"/api/plan/flows", b); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("потік: %d %s", resp.StatusCode, body)
+		}
+	}
+
+	_, body := do(t, "GET", srv.URL+"/api/plan", "")
+	var doc struct {
+		Profile *struct {
+			StepMonths int `json:"step_months"`
+			Series     []struct {
+				Name string `json:"name"`
+				Kind string `json:"kind"`
+			} `json:"series"`
+			Points []struct {
+				Date string  `json:"date"`
+				Net  float64 `json:"net"`
+			} `json:"points"`
+		} `json:"profile"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("розбір /api/plan: %v", err)
+	}
+	if doc.Profile == nil {
+		t.Fatal("профілю немає у відповіді")
+	}
+	if len(doc.Profile.Series) != 3 {
+		t.Fatalf("рядів мало бути 3, маємо %d", len(doc.Profile.Series))
+	}
+	if len(doc.Profile.Points) < 12 {
+		t.Fatalf("точок мало бути щонайменше 12, маємо %d", len(doc.Profile.Points))
+	}
+	if doc.Profile.StepMonths != 1 {
+		t.Errorf("на короткому горизонті крок мав лишитись місячним, маємо %d", doc.Profile.StepMonths)
+	}
+
+	var sum float64
+	for i := 0; i < 12; i++ {
+		sum += doc.Profile.Points[i].Net
+	}
+	avg := sum / 12
+
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	var s struct {
+		PlanProvidesUAH float64 `json:"plan_provides_uah"`
+	}
+	if err := json.Unmarshal([]byte(body), &s); err != nil {
+		t.Fatalf("розбір зведення: %v", err)
+	}
+	if diff := avg - s.PlanProvidesUAH; diff > 0.01 || diff < -0.01 {
+		t.Errorf("середнє профілю %.2f ≠ plan_provides_uah %.2f", avg, s.PlanProvidesUAH)
+	}
+}
+
+// Колонка «дає ₴/міс» приїжджає з бекенда, а не рахується в браузері:
+// інакше періодичність, індексація, курс і частка в портфель були б
+// означені вдруге — у JS, — і розійшлися б із плиткою при першій же правці.
+func TestPlanFlowRowProvides(t *testing.T) {
+	srv, _ := testServer(t)
+
+	if resp, body := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"40000.00","cadence":"month","from_date":"2020-01-01","invest_pct":"40"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("додавання потоку: %d %s", resp.StatusCode, body)
+	}
+
+	_, body := do(t, "GET", srv.URL+"/api/plan/flows", "")
+	var rows []struct {
+		ProvidesUAH float64 `json:"provides_uah"`
+		GrossUAH    float64 `json:"gross_uah"`
+	}
+	if err := json.Unmarshal([]byte(body), &rows); err != nil {
+		t.Fatalf("розбір списку: %v (%s)", err, body)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("мав бути 1 рядок, маємо %d", len(rows))
+	}
+	// 40 000 щомісяця, у портфель іде 40% → 16 000 ₴/міс; брутто — 40 000.
+	if rows[0].ProvidesUAH != 16000 {
+		t.Errorf("provides_uah: хотіли 16000, маємо %v", rows[0].ProvidesUAH)
+	}
+	if rows[0].GrossUAH != 40000 {
+		t.Errorf("gross_uah: хотіли 40000, маємо %v", rows[0].GrossUAH)
+	}
+
+	// І та сама тотожність наскрізь через HTTP: сума колонки == плитка.
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	var sum struct {
+		PlanProvidesUAH float64 `json:"plan_provides_uah"`
+	}
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("розбір зведення: %v", err)
+	}
+	if sum.PlanProvidesUAH != rows[0].ProvidesUAH {
+		t.Errorf("плитка %v ≠ сума колонки %v", sum.PlanProvidesUAH, rows[0].ProvidesUAH)
+	}
+}
+
+// «Такого id немає» — це 404, а не 400: доти обидва випадки віддавали один
+// код, і клієнт не міг відрізнити власну дурницю від рядка, видаленого в
+// сусідній вкладці. Видалення при цьому взагалі мовчало — 204 на будь-який
+// id, тобто «видалено» звучало однаково і коли видаляти було нічого.
+func TestPlanMissingIDIsNotFound(t *testing.T) {
+	srv, _ := testServer(t)
+
+	flow := `{"name":"Зарплата","kind":"income","amount":"1.00","cadence":"month","from_date":"2026-09-01"}`
+	action := `{"date":"2027-01-01","type":"set_shares","usd_share_pct":"10"}`
+	for _, c := range []struct {
+		method, path, body string
+	}{
+		{"PUT", "/api/plan/flows/999", flow},
+		{"DELETE", "/api/plan/flows/999", ""},
+		{"PUT", "/api/plan/actions/999", action},
+		{"DELETE", "/api/plan/actions/999", ""},
+	} {
+		if resp, body := do(t, c.method, srv.URL+c.path, c.body); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("%s %s: мали 404, маємо %d %s", c.method, c.path, resp.StatusCode, body)
+		}
+	}
+}
+
+// Індексація складається щороку на весь горизонт, тож описка в один
+// порядок робить ціль «досягнутою» мовчки.
+func TestPlanFlowGrowthBounds(t *testing.T) {
+	srv, _ := testServer(t)
+	body := func(g string) string {
+		return `{"name":"Зарплата","kind":"income","amount":"100.00","cadence":"month",` +
+			`"from_date":"2026-09-01","growth_pct":"` + g + `"}`
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/plan/flows", body("1000")); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("індексація 1000%%/рік мала дати 400, маємо %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/plan/flows", body("-100")); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("індексація -100%% мала дати 400, маємо %d %s", resp.StatusCode, b)
+	}
+	// Межі включно з нею самою лишаються прохідними.
+	if resp, b := do(t, "POST", srv.URL+"/api/plan/flows", body("100")); resp.StatusCode != http.StatusCreated {
+		t.Errorf("індексація 100%%/рік мала пройти, маємо %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/plan/flows", body("-50")); resp.StatusCode != http.StatusCreated {
+		t.Errorf("спадний потік -50%%/рік мав пройти, маємо %d %s", resp.StatusCode, b)
 	}
 }
 

@@ -48,6 +48,21 @@ type Sleeve struct {
 	// окремої функції для цього не треба, бо бісекція чіпає лише
 	// ContribUAH і лишає ContribByMonth незайманим.
 	ContribByMonth []float64
+	// ContribNativeByMonth — внесок у НАТИВНІЙ валюті рукава (індекс 1..),
+	// курс до нього не застосовується.
+	//
+	// Потрібне для потоків, заведених у валюті. Гривневий вектор вище
+	// описує гроші, які треба ще купити за курсом, і contribAt чесно
+	// ділить його на курс, що росте. Але зарплата в доларах доларом і
+	// приходить: переклавши її в гривню сьогоднішнім курсом і поділивши
+	// потім на завтрашній, модель тихо з'їдала рівно множник знецінення —
+	// $500/міс перетворювались на ~$275 до кінця десятирічного горизонту.
+	// Тут вони лишаються $500.
+	//
+	// Наслідок, який варто знати: такий потік обходить розклад за
+	// цільовими частками. Це навмисно — частки кажуть, у ЩО перекладати
+	// гривню, а не в чому тобі платять.
+	ContribNativeByMonth []float64
 	// Rate0 — сьогоднішній курс, ₴ за одиницю валюти. Для UAH = 1.
 	Rate0 float64
 	// RateTerminalPct — довгострокова ставка, до якої сповзає RatePct за
@@ -153,15 +168,27 @@ func (s Sleeve) baseContribUAH(m int) float64 {
 // contribAt — внесок у НАТИВНІЙ валюті на місяці m. Для гривні це просто
 // сума з baseContribUAH; для валютних рукавів гривневий внесок щомісяця
 // купує менше валюти, бо курс росте.
+//
+// ContribNativeByMonth додається ПІСЛЯ ділення й саме тому окремим
+// доданком: він уже в потрібній валюті, курс до нього не застосовується
+// взагалі (див. поле).
 func (s Sleeve) contribAt(m int, dM float64) float64 {
+	native := s.nativeContribAt(m)
 	total := s.baseContribUAH(m)
 	if s.isUAH() {
-		return total
+		return total + native
 	}
 	if s.Rate0 <= 0 {
-		return 0
+		return native
 	}
-	return total / (s.Rate0 * math.Pow(1+dM, float64(m)))
+	return total/(s.Rate0*math.Pow(1+dM, float64(m))) + native
+}
+
+func (s Sleeve) nativeContribAt(m int) float64 {
+	if s.ContribNativeByMonth != nil && m >= 1 && m-1 < len(s.ContribNativeByMonth) {
+		return s.ContribNativeByMonth[m-1]
+	}
+	return 0
 }
 
 // toUAH переводить підсумок рукава в сьогоднішні й номінальні гривні.

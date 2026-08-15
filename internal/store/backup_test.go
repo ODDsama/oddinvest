@@ -199,6 +199,123 @@ func TestBackupRoundTripKeepsTermDeposits(t *testing.T) {
 	}
 }
 
+func TestBackupRoundTripKeepsPlanFlows(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	// Валюта, індексація, обмежене вікно й частка в портфель — усе, чого не
+	// вивести нізвідки, якщо бекап потоку не забрав.
+	want := PlanFlow{
+		Name: "Зарплата", Kind: "income", Amount: 50000, Currency: "USD",
+		Cadence: "month", FromDate: "2026-09-01", UntilDate: "2028-09-01",
+		GrowthBP: 1000, InvestBP: 4000, Note: "нетто",
+	}
+	if _, err := src.AddPlanFlow(ctx, want); err != nil {
+		t.Fatal(err)
+	}
+	b, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.PlanFlows) != 1 {
+		t.Fatalf("експорт мав узяти 1 потік, маємо %d", len(b.PlanFlows))
+	}
+
+	dst, err := Open(filepath.Join(t.TempDir(), "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportAll(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dst.ListPlanFlows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("після відновлення %d потоків замість 1", len(got))
+	}
+	g := got[0]
+	if g.Name != want.Name || g.Kind != want.Kind || g.Amount != want.Amount ||
+		g.Currency != want.Currency || g.Cadence != want.Cadence ||
+		g.FromDate != want.FromDate || g.UntilDate != want.UntilDate ||
+		g.GrowthBP != want.GrowthBP || g.InvestBP != want.InvestBP || g.Note != want.Note {
+		t.Errorf("потік поїхав: %+v vs %+v", g, want)
+	}
+}
+
+// Бекап дій стереже сентинел -1. Нуль тут ЛЕГАЛЬНА задана частка («долара
+// не лишається зовсім»), і сплутати його з «не задано» означає мовчки
+// змінити сенс дії — єдине поле плану, яке можна зіпсувати непомітно.
+func TestBackupRoundTripKeepsPlanActions(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	shares := PlanAction{
+		Date: "2027-01-01", Type: "set_shares", USDBP: 0, EURBP: -1, Note: "виходимо з долара",
+	}
+	lock := PlanAction{
+		Date: "2026-12-01", Type: "lock", USDBP: -1, EURBP: -1,
+		Amount: 5000000, Currency: "UAH", RateBP: 2500, Months: 0, Name: "MilTech",
+	}
+	for _, a := range []PlanAction{shares, lock} {
+		if _, err := src.AddPlanAction(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.PlanActions) != 2 {
+		t.Fatalf("експорт мав узяти 2 дії, маємо %d", len(b.PlanActions))
+	}
+	// Сентинел мусить пережити ще й JSON: omitempty на int64 з'їв би нуль
+	// саме тут, а не в SQL.
+	raw, err := json.Marshal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back Backup
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+
+	dst, err := Open(filepath.Join(t.TempDir(), "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportAll(ctx, &back); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dst.ListPlanActions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("після відновлення %d дій замість 2", len(got))
+	}
+	byType := map[string]PlanAction{}
+	for _, a := range got {
+		byType[a.Type] = a
+	}
+	if s := byType["set_shares"]; s.USDBP != 0 || s.EURBP != -1 {
+		t.Errorf("частки поїхали: USDBP=%d (хотіли 0), EURBP=%d (хотіли -1)", s.USDBP, s.EURBP)
+	}
+	l := byType["lock"]
+	if l.Amount != lock.Amount || l.RateBP != lock.RateBP || l.Months != 0 || l.Name != lock.Name {
+		t.Errorf("замок поїхав: %+v vs %+v", l, lock)
+	}
+}
+
 func TestBackupRoundTripKeepsDepositTopups(t *testing.T) {
 	ctx := context.Background()
 	src, err := Open(filepath.Join(t.TempDir(), "src.db"))

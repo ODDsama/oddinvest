@@ -12,11 +12,28 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
+
+// writeStoreErr розрізняє «такого id немає» й решту. Доти PUT за
+// неіснуючим id віддавав 400 — той самий код, що й «сума має бути > 0», —
+// і клієнт не міг відповісти на просте питання: це я надіслав дурницю чи
+// рядок уже видалили в іншій вкладці.
+//
+// store.ErrNotFound поки читають лише планові гендлери; решта користується
+// тим самим affectedOne і далі віддає 400 (див. коментар при сентинелі).
+func writeStoreErr(w http.ResponseWriter, err error, fallback int) {
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	writeErr(w, fallback, err)
+}
 
 // --- потоки ---
 
@@ -75,6 +92,14 @@ func planFlowFromReq(req planFlowReq) (store.PlanFlow, error) {
 			return out, fmt.Errorf("індексація: %w", err)
 		}
 	}
+	// Межі, бо індексація складається щороку на весь горизонт: описка
+	// «1000» замість «10» дає ×11 на рік, тобто на десятирічному прогнозі
+	// число, у яке ніхто не вдивлятиметься — воно просто зробить ціль
+	// «досягнутою». −100% знизу виключено: потік, що за рік зникає
+	// повністю, описується датою завершення, а не індексацією.
+	if growth <= -10000 || growth > 10000 {
+		return out, errors.New("індексація має бути більшою за -100% і не більшою за 100%/рік")
+	}
 	// invest_pct за замовчуванням 100%: типовий випадок — уся сума йде в
 	// портфель — не має вимагати вписувати очевидне число.
 	invest := int64(10000)
@@ -107,15 +132,29 @@ type planFlowRow struct {
 	GrowthPct float64   `json:"growth_pct,omitempty"`
 	InvestPct float64   `json:"invest_pct"`
 	Note      string    `json:"note,omitempty"`
+	// ProvidesUAH — скільки цей рядок дає в середньому за найближчі 12
+	// місяців, ₴/міс; GrossUAH — те саме до «частки в портфель».
+	//
+	// БЕЗ omitempty обидва: нуль тут осмислена відповідь («цей потік
+	// почнеться пізніше ніж за рік»), і колонка мусить його намалювати, а
+	// не лишити порожнє місце, яке читається як помилка.
+	//
+	// Сума ProvidesUAH по всіх рядках == summary.plan_provides_uah. Це не
+	// збіг, а те саме означення з переставленими сумами — і воно закріплене
+	// тестом, бо саме на ньому стоїть підсумок таблиці.
+	ProvidesUAH float64 `json:"provides_uah"`
+	GrossUAH    float64 `json:"gross_uah"`
 }
 
-func toPlanFlowRow(f store.PlanFlow) planFlowRow {
+func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates) planFlowRow {
 	return planFlowRow{
 		ID: f.ID, Name: f.Name, Kind: f.Kind,
 		Amount: toMoneyJSON(money.New(f.Amount, f.Currency)), Cadence: f.Cadence,
 		FromDate: string(f.FromDate), UntilDate: string(f.UntilDate),
 		GrowthPct: round2(float64(f.GrowthBP) / 100), InvestPct: round2(float64(f.InvestBP) / 100),
-		Note: f.Note,
+		Note:        f.Note,
+		ProvidesUAH: round2(planFlowProvidesUAH(f, today, rates, planProvidesMonths)),
+		GrossUAH:    round2(planFlowGrossUAH(f, today, rates, planProvidesMonths)),
 	}
 }
 
@@ -125,9 +164,15 @@ func (s *Server) handleListPlanFlows(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Курс ковтаємо свідомо: без нього валютні потоки дадуть 0 у гривневій
+	// колонці — рівно те, що вже робить plan_provides_uah, тож тотожність
+	// не ламається. Єдина поверхня правки плану не має вмирати від того,
+	// що довідник НБУ сьогодні не оновився.
+	today := domain.NewDate(time.Now())
+	rates, _ := s.rates(r.Context()) //nolint:errcheck // свідомо: див. вище
 	out := make([]planFlowRow, 0, len(flows))
 	for _, f := range flows {
-		out = append(out, toPlanFlowRow(f))
+		out = append(out, toPlanFlowRow(f, today, rates))
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -170,7 +215,7 @@ func (s *Server) handleUpdatePlanFlow(w http.ResponseWriter, r *http.Request) {
 	}
 	f.ID = id
 	if err := s.st.UpdatePlanFlow(r.Context(), f); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -184,7 +229,7 @@ func (s *Server) handleDeletePlanFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.DeletePlanFlow(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()
@@ -369,7 +414,7 @@ func (s *Server) handleUpdatePlanAction(w http.ResponseWriter, r *http.Request) 
 	}
 	a.ID = id
 	if err := s.st.UpdatePlanAction(r.Context(), a); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -383,7 +428,7 @@ func (s *Server) handleDeletePlanAction(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.st.DeletePlanAction(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()

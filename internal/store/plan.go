@@ -72,9 +72,15 @@ func (s *Store) UpdatePlanFlow(ctx context.Context, f PlanFlow) error {
 	return affectedOne(res, "плановий потік")
 }
 
+// Видалення теж через affectedOne: доти DELETE за неіснуючим id віддавав
+// 204, тобто «видалено» звучало однаково і коли справді видалили, і коли
+// видаляти було нічого.
 func (s *Store) DeletePlanFlow(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM plan_flows WHERE id=?`, id)
-	return err
+	res, err := s.db.ExecContext(ctx, `DELETE FROM plan_flows WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "плановий потік")
 }
 
 func (s *Store) ListPlanFlows(ctx context.Context) ([]PlanFlow, error) {
@@ -122,8 +128,11 @@ func (s *Store) UpdatePlanAction(ctx context.Context, a PlanAction) error {
 }
 
 func (s *Store) DeletePlanAction(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM plan_actions WHERE id=?`, id)
-	return err
+	res, err := s.db.ExecContext(ctx, `DELETE FROM plan_actions WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "планова дія")
 }
 
 func (s *Store) ListPlanActions(ctx context.Context) ([]PlanAction, error) {

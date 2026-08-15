@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -49,6 +50,28 @@ func TestPlanFlowUpdateMissingFails(t *testing.T) {
 		Amount: 100, Currency: "UAH", Cadence: "once", FromDate: "2026-01-01"})
 	if err == nil {
 		t.Fatal("очікували помилку на неіснуючому id")
+	}
+}
+
+func TestPlanActionUpdateMissingFails(t *testing.T) {
+	s := openTest(t)
+	err := s.UpdatePlanAction(context.Background(),
+		PlanAction{ID: 42, Date: "2027-01-01", Type: "set_shares", USDBP: 1000, EURBP: -1})
+	if !errors.Is(err, ErrNotFound) {
+		t.Fatalf("правка неіснуючої дії мала дати ErrNotFound, маємо %v", err)
+	}
+}
+
+// Видалення доти мовчало: DELETE неіснуючого id віддавав успіх, тобто
+// «видалено» звучало однаково і тоді, коли видаляти було нічого.
+func TestPlanDeleteMissingFails(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	if err := s.DeletePlanFlow(ctx, 42); !errors.Is(err, ErrNotFound) {
+		t.Errorf("видалення неіснуючого потоку мало дати ErrNotFound, маємо %v", err)
+	}
+	if err := s.DeletePlanAction(ctx, 42); !errors.Is(err, ErrNotFound) {
+		t.Errorf("видалення неіснуючої дії мало дати ErrNotFound, маємо %v", err)
 	}
 }
 

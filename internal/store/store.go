@@ -6,6 +6,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -36,6 +37,16 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // --- лоти ---
 
+// ErrNotFound — запису з таким id немає. Обгортка потрібна, бо доти
+// «не знайдено» відрізнялось від «дані не пройшли валідацію» лише текстом,
+// і гендлери віддавали на обидва випадки 400. Розрізняти через errors.Is,
+// а не порівнянням рядків.
+//
+// ЗАСТЕРЕЖЕННЯ: сентинел уміють читати поки що лише планові гендлери.
+// Продажі, вклади й довідники користуються тим самим affectedOne і далі
+// віддають 400 на неіснуючий id — це не недогляд, а межа цієї фази.
+var ErrNotFound = errors.New("не знайдено")
+
 // affectedOne перетворює «оновлено 0 рядків» на помилку: без цього PUT за
 // неіснуючим id тихо повертав би успіх.
 func affectedOne(res sql.Result, what string) error {
@@ -44,7 +55,7 @@ func affectedOne(res sql.Result, what string) error {
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("%s не знайдено", what)
+		return fmt.Errorf("%s %w", what, ErrNotFound)
 	}
 	return nil
 }

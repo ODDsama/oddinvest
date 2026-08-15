@@ -9,9 +9,10 @@ import (
 )
 
 // Бекап користувацьких даних. Бекапимо лише те, що введено РУКАМИ й
-// невідновне: лоти, продажі, поповнення, конвертації, налаштування,
-// статуси виплат і добові знімки. Довідник НБУ, графіки виплат і курси —
-// похідні, повертаються командою «Оновити НБУ», тож у бекап не входять.
+// невідновне: лоти, продажі, поповнення, конвертації, вклади, рухи
+// резерву, план (потоки й дії), довідники, налаштування, статуси виплат і
+// добові знімки. Довідник НБУ, графіки виплат і курси — похідні,
+// повертаються командою «Оновити НБУ», тож у бекап не входять.
 //
 // Формат — сирі колонки в мінорних одиницях (як у БД), із збереженими ID:
 // продажі посилаються на лоти за id, і при відновленні цей зв'язок має
@@ -37,6 +38,10 @@ type Backup struct {
 	// ReserveOps omitempty з тієї ж причини: бекапи до появи резерву його
 	// не мають, і restore просто не створить жодного руху.
 	ReserveOps []BackupReserveOp `json:"reserve_ops,omitempty"`
+	// План (фаза 9) — так само невідновний журнал, і так само omitempty:
+	// бекапи, зроблені до його появи, читаються без цих полів.
+	PlanFlows   []BackupPlanFlow   `json:"plan_flows,omitempty"`
+	PlanActions []BackupPlanAction `json:"plan_actions,omitempty"`
 	// Довідники. omitempty з тієї ж причини, що й усе вище: бекапи, зроблені
 	// до їхньої появи, читаються без цих полів так само, як раніше — фонди й
 	// брокери відновляться з назв в операціях, рівно як доти.
@@ -98,6 +103,44 @@ type BackupReserveOp struct {
 	Amount   int64  `json:"amount"`
 	Currency string `json:"currency"`
 	Place    string `json:"place"`
+	Note     string `json:"note"`
+}
+
+// BackupPlanFlow — джерело доходу чи витрат із розділу «План». Невідновне
+// так само, як резерв: цього журналу немає більше ніде, а без нього
+// проєкція повертається до гіпотетичного рівного внеску й тихо показує
+// зовсім інше майбутнє.
+type BackupPlanFlow struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Amount    int64  `json:"amount"`
+	Currency  string `json:"currency"`
+	Cadence   string `json:"cadence"`
+	FromDate  string `json:"from_date"`
+	UntilDate string `json:"until_date"`
+	GrowthBP  int64  `json:"growth_bp"`
+	InvestBP  int64  `json:"invest_bp"`
+	Note      string `json:"note"`
+}
+
+// BackupPlanAction — планова дія (set_shares або lock).
+//
+// USDBP/EURBP БЕЗ omitempty, і це не недогляд: -1 означає «не задано», а 0
+// — «долара не лишається зовсім» (див. 0025_plan.sql). omitempty на int64
+// з'їв би нуль і перетворив задану частку на незадану, тобто відновлення
+// мовчки змінило б сенс дії.
+type BackupPlanAction struct {
+	ID       int64  `json:"id"`
+	Date     string `json:"date"`
+	Type     string `json:"type"`
+	USDBP    int64  `json:"usd_bp"`
+	EURBP    int64  `json:"eur_bp"`
+	Amount   int64  `json:"amount"`
+	Currency string `json:"currency"`
+	RateBP   int64  `json:"rate_bp"`
+	Months   int64  `json:"months"`
+	Name     string `json:"name"`
 	Note     string `json:"note"`
 }
 
@@ -320,6 +363,32 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT id,name,kind,amount,currency,cadence,from_date,until_date,
+		growth_bp,invest_bp,note FROM plan_flows ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupPlanFlow
+			if err := scan(&r.ID, &r.Name, &r.Kind, &r.Amount, &r.Currency, &r.Cadence,
+				&r.FromDate, &r.UntilDate, &r.GrowthBP, &r.InvestBP, &r.Note); err != nil {
+				return err
+			}
+			b.PlanFlows = append(b.PlanFlows, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT id,date,type,usd_bp,eur_bp,amount,currency,rate_bp,months,name,note
+		FROM plan_actions ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupPlanAction
+			if err := scan(&r.ID, &r.Date, &r.Type, &r.USDBP, &r.EURBP, &r.Amount,
+				&r.Currency, &r.RateBP, &r.Months, &r.Name, &r.Note); err != nil {
+				return err
+			}
+			b.PlanActions = append(b.PlanActions, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	// Довідники — цілком, а не лише тими рядками, які згадані в операціях.
 	// Порядок за назвою, як у ListFunds/ListBrokers: дамп того самого стану
 	// має бути тим самим файлом.
@@ -419,8 +488,12 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// забути її в цьому переліку означає не «дублікати», а відмову
 	// відновлення на UNIQUE(id) у будь-кого, хто має бодай один рух
 	// резерву. Перевірено тестом.
+	// plan_flows/plan_actions — рівно той самий випадок, що й reserve_ops:
+	// бекап тримає id, тож забути їх ТУТ означає не «дублікати після
+	// відновлення», а відмову на UNIQUE(id) у будь-кого, хто має бодай
+	// один рядок плану.
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
-		"deposit_topups", "term_deposits", "reserve_ops",
+		"deposit_topups", "term_deposits", "reserve_ops", "plan_flows", "plan_actions",
 		"settings", "payment_status", "snapshots", "funds", "brokers"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
@@ -606,6 +679,25 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			`INSERT INTO reserve_ops (id,date,amount,currency,place,note) VALUES (?,?,?,?,?,?)`,
 			r.ID, r.Date, r.Amount, r.Currency, r.Place, r.Note); err != nil {
 			return fmt.Errorf("рух резерву %d: %w", r.ID, err)
+		}
+	}
+	// План FK не має — порядок серед решти вставок вільний.
+	for _, f := range b.PlanFlows {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO plan_flows (id,name,kind,amount,currency,cadence,from_date,until_date,
+			 growth_bp,invest_bp,note) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			f.ID, f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, f.FromDate, f.UntilDate,
+			f.GrowthBP, f.InvestBP, f.Note); err != nil {
+			return fmt.Errorf("плановий потік %d: %w", f.ID, err)
+		}
+	}
+	for _, a := range b.PlanActions {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO plan_actions (id,date,type,usd_bp,eur_bp,amount,currency,rate_bp,months,name,note)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			a.ID, a.Date, a.Type, a.USDBP, a.EURBP, a.Amount, a.Currency, a.RateBP,
+			a.Months, a.Name, a.Note); err != nil {
+			return fmt.Errorf("планова дія %d: %w", a.ID, err)
 		}
 	}
 	for k, v := range b.Settings {

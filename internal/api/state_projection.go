@@ -164,7 +164,12 @@ type sleeveFactory struct {
 	// фаза, дії «замкнути на строк»: валюта → місяць → сума.
 	plan      map[string][]float64
 	planTotal []float64
-	lock      map[string]map[int]float64
+	// planNative — потоки, заведені у валюті: валюта → помісячний вектор у
+	// ЦІЙ валюті. Повз конверсію й повз розклад за частками, бо долар,
+	// який тобі платять доларом, перекладати нема з чого (див.
+	// newSleeveFactory і Sleeve.ContribNativeByMonth).
+	planNative map[string][]float64
+	lock       map[string]map[int]float64
 	// shareBreaks — точки зламу валютних часток від дій set_shares,
 	// відсортовані за місяцем. Порожньо = частки з налаштувань незмінні
 	// на весь горизонт, як і до фази «План».
@@ -277,25 +282,53 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	// MonthsToReachSleeves, а не лише дедлайн цілі — сленеви несуть
 	// вектор незалежно від того, для якого горизонту їх зрештою
 	// прогонятимуть.
-	planTotal := make([]float64, goalHorizonMonths)
+	// Валюта потоку вирішує, яким із двох шляхів він іде, і це не
+	// косметика.
+	//
+	// Гривневий потік — це гроші, які ще треба РОЗКЛАСТИ: скільки лишити в
+	// гривні, скільки перекласти в долар, скільки в євро. Ним і керують
+	// цільові частки, і рукав чесно ділить його на курс, що росте.
+	//
+	// Потік у валюті нічого перекладати не треба — він уже прийшов у своїй
+	// валюті. Пропустивши його через гривню сьогоднішнім курсом, а потім
+	// поділивши на завтрашній (sleeves.go:contribAt), модель тихо
+	// з'їдала рівно множник знецінення: $500/міс ставали ~$275 до кінця
+	// десятирічного горизонту. Тому він іде НАТИВНО, прямо у свій рукав,
+	// повз конверсію й повз розклад за частками.
+	planTotal := make([]float64, goalHorizonMonths)   // гривневий, для розкладу
+	planUAHOnly := make([]float64, goalHorizonMonths) // те саме, але лише UAH-потоки
+	planNative := map[string][]float64{}              // валюта → нативний вектор
 	for _, fl := range in.PlanFlows {
+		native := fl.Currency != "" && fl.Currency != money.UAH
+		if native && planNative[fl.Currency] == nil {
+			planNative[fl.Currency] = make([]float64, goalHorizonMonths)
+		}
 		for m := 1; m <= goalHorizonMonths; m++ {
+			// planTotal лишається гривневим і включає ВСЕ: на ньому стоїть
+			// PlanProvidesUAH («скільки план дає зараз»), якому валюта
+			// байдужа, і воно свідомо міряне сьогоднішнім курсом.
 			planTotal[m-1] += planFlowMonthlyUAH(fl, today, in.Rates, m)
+			if native {
+				planNative[fl.Currency][m-1] += planFlowNative(fl, today, m)
+			} else {
+				planUAHOnly[m-1] += planFlowMonthlyUAH(fl, today, in.Rates, m)
+			}
 		}
 	}
 	f.planTotal = planTotal
+	f.planNative = planNative
 	f.plan = map[string][]float64{
 		money.UAH: make([]float64, goalHorizonMonths),
 		money.USD: make([]float64, goalHorizonMonths),
 		money.EUR: make([]float64, goalHorizonMonths),
 	}
 	for m := 1; m <= goalHorizonMonths; m++ {
-		if planTotal[m-1] == 0 {
+		if planUAHOnly[m-1] == 0 {
 			continue
 		}
 		sh := f.shareAt(m)
 		for _, cur := range []string{money.UAH, money.USD, money.EUR} {
-			f.plan[cur][m-1] = planTotal[m-1] * sh[cur]
+			f.plan[cur][m-1] = planUAHOnly[m-1] * sh[cur]
 		}
 	}
 
@@ -367,8 +400,9 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 		// від contribTotal/ratePP цього виклику, вони приходять із f і
 		// стоять на кожному рукаві, який factory будь-коли збирає.
 		planVec, lockMap := f.plan[cur], f.lock[cur]
+		nativeVec := f.planNative[cur]
 		if cash == 0 && nom == 0 && contrib == 0 && len(accum) == 0 && len(dist) == 0 &&
-			!anyNonZero(planVec) && len(lockMap) == 0 {
+			!anyNonZero(planVec) && !anyNonZero(nativeVec) && len(lockMap) == 0 {
 			continue // валюти немає і не планується
 		}
 		rate, ok := in.YieldByCur[cur]
@@ -405,7 +439,7 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 			Threshold: in.ReinvestMinByCur[cur], Coupon: f.coupon[cur],
 			Redeem: f.redeem[cur], ContribUAH: contrib, Rate0: rate0,
 			Accum: accum, Dist: dist,
-			ContribByMonth: planVec, Lock: lockMap,
+			ContribByMonth: planVec, ContribNativeByMonth: nativeVec, Lock: lockMap,
 		})
 	}
 	return sleeves
@@ -435,8 +469,8 @@ func buildProjection(in projectionInput) projectionPhase {
 	// горизонт, якщо факторі побудовано на менше) — щоб разова стаття
 	// (премія, ремонт) не смикала число вгору-вниз щомісяця.
 	if n := len(factory.planTotal); n > 0 {
-		if n > 12 {
-			n = 12
+		if n > planProvidesMonths {
+			n = planProvidesMonths
 		}
 		var sum float64
 		for i := 0; i < n; i++ {

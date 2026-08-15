@@ -175,6 +175,38 @@ func TestContribByMonthIsAdditiveLayer(t *testing.T) {
 	approx(t, "без плану", plain.contribAt(1, 0), 1000, 0.001)
 }
 
+// ContribNativeByMonth курсу не бачить: він УЖЕ у валюті рукава.
+//
+// Гривневий вектор — це гроші, які треба ще купити, і contribAt чесно
+// ділить його на курс, що росте. Зарплата в доларах доларом і приходить,
+// тож ділити її нема на що: доти вона переводилась у гривню сьогоднішнім
+// курсом, а потім ділилась на завтрашній, і модель тихо з'їдала рівно
+// множник знецінення.
+func TestContribNativeByMonthIgnoresRate(t *testing.T) {
+	s := Sleeve{Currency: "USD", Rate0: 42, ContribNativeByMonth: []float64{500, 500, 500}}
+
+	// Знецінення не рухає нативний внесок ні на першому місяці, ні на
+	// сотому — на відміну від гривневого вектора нижче.
+	approx(t, "місяць 1, dM=0", s.contribAt(1, 0), 500, 0.001)
+	approx(t, "місяць 1, dM=0.5%", s.contribAt(1, 0.005), 500, 0.001)
+	approx(t, "місяць 3, dM=2%", s.contribAt(3, 0.02), 500, 0.001)
+	// За межею вектора — нуль, а не остання відома величина.
+	approx(t, "місяць 9, за межею", s.contribAt(9, 0.005), 0, 0.001)
+
+	// Той самий рукав, але сума прийшла гривнею: 21 000 ₴ = $500 сьогодні,
+	// а на третьому місяці вже менше — і це правильно.
+	uahFed := Sleeve{Currency: "USD", Rate0: 42, ContribByMonth: []float64{21000, 21000, 21000}}
+	approx(t, "гривневий вектор, місяць 1, dM=0", uahFed.contribAt(1, 0), 500, 0.001)
+	if got := uahFed.contribAt(3, 0.02); got >= 500 {
+		t.Errorf("гривневий вектор мав купити МЕНШЕ за $500 на 3-му місяці, маємо %.2f", got)
+	}
+
+	// Обидва шари складаються, як і ContribUAH із ContribByMonth.
+	both := Sleeve{Currency: "USD", Rate0: 42,
+		ContribByMonth: []float64{21000}, ContribNativeByMonth: []float64{500}}
+	approx(t, "обидва шари", both.contribAt(1, 0), 1000, 0.001)
+}
+
 // Головний інваріант фази «План»: коли sleeves несуть справжній план
 // (ContribByMonth), RequiredMonthlySleeves автоматично рахує «скільки
 // бракує ПОНАД план» — жодної окремої функції для цього не знадобилось,
