@@ -237,11 +237,13 @@ export function svgInflowProfile(profile, actions = [], milestones = [], { W = W
 
   // Масштаб охоплює і плюс, і мінус: витратний потік малюється вниз, і
   // нуль мусить стояти там, де він справді нуль, а не внизу полотна.
+  // Дохід портфеля лягає ПОВЕРХ додатного стосу, тож у стелю входить
+  // разом із ним.
+  const up = (p) => p.values.reduce((a, v) => a + (v >= 0 ? v : 0), 0);
   let hi = 0, lo = 0;
   for (const p of pts) {
-    let up = 0, dn = 0;
-    p.values.forEach((v) => { if (v >= 0) up += v; else dn += v; });
-    hi = Math.max(hi, up, p.net);
+    const dn = p.values.reduce((a, v) => a + (v < 0 ? v : 0), 0);
+    hi = Math.max(hi, up(p) + (p.income || 0), p.net);
     lo = Math.min(lo, dn, p.net);
   }
   if (hi === 0 && lo === 0) return "";
@@ -269,8 +271,35 @@ export function svgInflowProfile(profile, actions = [], milestones = [], { W = W
       opacity="0.55"><title>${esc(s.name)}</title></polygon>`;
   }).join("");
 
+  // Дохід портфеля — ОКРЕМИЙ шар поверх плану, а не ще один ряд у стосі.
+  //
+  // Різниця принципова: план це гроші, які ти вносиш, а це — які портфель
+  // заробляє сам. Змішавши їх, довелось би або зламати рівність лінії
+  // «план» із плиткою «План дає», або вдавати, що купон — твій внесок.
+  const hasIncome = pts.some((p) => (p.income || 0) > 0);
+  let incomeArea = "";
+  if (hasIncome) {
+    const top = [], bot = [];
+    for (const p of pts) {
+      const base = up(p);
+      top.push(`${X(p.date).toFixed(1)},${Y(base + (p.income || 0)).toFixed(1)}`);
+      bot.push(`${X(p.date).toFixed(1)},${Y(base).toFixed(1)}`);
+    }
+    incomeArea = `<polygon points="${top.concat(bot.reverse()).join(" ")}"
+      fill="var(--oi-series-nominal)" opacity="0.35"><title>дохід портфеля</title></polygon>`;
+  }
+
   const net = `<polyline points="${pts.map((p) => `${X(p.date).toFixed(1)},${Y(p.net).toFixed(1)}`).join(" ")}"
     fill="none" stroke="var(--oi-series-invested)" stroke-width="1.5" stroke-linejoin="round"/>`;
+
+  // «Усе разом» — план плюс дохід портфеля. Пунктиром і лише коли дохід
+  // справді є: інакше це була б друга лінія поверх першої.
+  const total = hasIncome
+    ? `<polyline points="${pts.map((p) =>
+      `${X(p.date).toFixed(1)},${Y(p.net + (p.income || 0)).toFixed(1)}`).join(" ")}"
+      fill="none" stroke="var(--oi-series-neutral)" stroke-width="1.5"
+      stroke-dasharray="5 3" stroke-linejoin="round"/>`
+    : "";
 
   // Вісь Y: нуль плюс дві межі. Більше підписів на 260px злиплись би, а
   // менше — і масштаб знову став би невідомим.
@@ -320,9 +349,26 @@ export function svgInflowProfile(profile, actions = [], milestones = [], { W = W
       + ` fill="${color}"><title>${esc(title)}</title></polygon>`;
   }).join("");
 
+  // Повернення тіла — трикутники ПІД нульовою лінією, щоб їх не плутати з
+  // ромбами дій плану. Це не дохід і не внесок: твої ж гроші повертаються
+  // з паперу на рахунок, і питання, яке вони ставлять, інше — «що з ними
+  // робити далі».
+  const EVENT_COLOR = {
+    bond: "var(--oi-kind-bond)", deposit: "var(--oi-kind-deposit)", fund: "var(--oi-kind-fund)",
+  };
+  const events = ((profile && profile.events) || []).map((e) => {
+    const x = X(e.date);
+    if (x < Pl - 1 || x > Pl + iw + 1) return "";
+    const r = 4, y = zero + 3;
+    return `<polygon points="${x.toFixed(1)},${(y + r).toFixed(1)} ${(x + r).toFixed(1)},${y.toFixed(1)}`
+      + ` ${(x - r).toFixed(1)},${y.toFixed(1)}"`
+      + ` fill="${EVENT_COLOR[e.kind] || AXIS}"><title>${esc(e.label)}: повертається ${
+        Math.round(e.amount_uah).toLocaleString("uk-UA")} ₴</title></polygon>`;
+  }).join("");
+
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
     aria-label="Профіль надходжень плану, гривень на місяць">`
-    + `${yTicks}${xlabels}${areas}${net}${marks}${acts}</svg>`;
+    + `${yTicks}${xlabels}${areas}${incomeArea}${net}${total}${marks}${acts}${events}</svg>`;
 }
 
 /** Кільце часток. parts: [{label, value}] — уже відсортовані.

@@ -190,6 +190,78 @@ func TestPlanProfileMatchesProvides(t *testing.T) {
 	}
 }
 
+// Дохід портфеля на профілі НЕ сміє потрапити в net.
+//
+// net — це план, і на ньому стоїть рівність із плиткою «План дає»
+// (TestPlanProfileMatchesProvides). Купон ОВДП чи дивіденд фонду — гроші,
+// які портфель заробляє сам, а не які ти вносиш; змішавши їх, ми або
+// зламали б ту рівність, або вдавали б, що купон це твій внесок.
+func TestPlanProfileKeepsPortfolioIncomeApartFromNet(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	// Саме ЛОТ, а не лише довідник: купон нараховується на те, чим
+	// володієш, тож без покупки профіль лишився б без доходу й тест
+	// перевіряв би порожнечу.
+	if resp, body := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":50,"price_per_bond":"995.00","buy_date":"2026-07-01"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, body)
+	}
+
+	if resp, body := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"40000.00","cadence":"month","from_date":"2020-01-01"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("потік: %d %s", resp.StatusCode, body)
+	}
+
+	_, body := do(t, "GET", srv.URL+"/api/plan", "")
+	var doc struct {
+		Profile *struct {
+			Points []struct {
+				Net    float64 `json:"net"`
+				Income float64 `json:"income"`
+			} `json:"points"`
+			Events []struct {
+				Kind      string  `json:"kind"`
+				AmountUAH float64 `json:"amount_uah"`
+			} `json:"events"`
+		} `json:"profile"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("розбір /api/plan: %v", err)
+	}
+	if doc.Profile == nil {
+		t.Fatal("профілю немає")
+	}
+
+	// Кожна точка: net — рівно план, без домішки доходу.
+	for i, p := range doc.Profile.Points {
+		if p.Net != 40000 {
+			t.Fatalf("точка %d: net = %.2f, а мав лишитись планом 40000", i, p.Net)
+		}
+	}
+	// І сам дохід десь таки є — інакше тест перевіряв би порожнечу.
+	if !hasPositive(doc.Profile.Points) {
+		t.Error("портфель із паперами мав дати хоч один місяць доходу")
+	}
+	// Погашення в дохід не входять — вони окремими подіями.
+	for _, e := range doc.Profile.Events {
+		if e.AmountUAH <= 0 {
+			t.Errorf("подія %s без суми", e.Kind)
+		}
+	}
+}
+
+func hasPositive(points []struct {
+	Net    float64 `json:"net"`
+	Income float64 `json:"income"`
+}) bool {
+	for _, p := range points {
+		if p.Income > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // Колонка «дає ₴/міс» приїжджає з бекенда, а не рахується в браузері:
 // інакше періодичність, індексація, курс і частка в портфель були б
 // означені вдруге — у JS, — і розійшлися б із плиткою при першій же правці.

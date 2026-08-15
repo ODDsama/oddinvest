@@ -7,10 +7,13 @@ package api
 
 import (
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 
 	money "github.com/Rhymond/go-money"
@@ -72,12 +75,34 @@ type profilePoint struct {
 	Date   string    `json:"date"`
 	Values []float64 `json:"values"`
 	Net    float64   `json:"net"`
+	// Income — що ЦЬОГО місяця приносить сам портфель: купони ОВДП,
+	// відсотки вкладів, дивіденди фондів. Окремо від Values і від Net
+	// навмисно: Net мусить і далі точно дорівнювати плитці «План дає»,
+	// інакше картинка знову розійдеться з числом над нею.
+	Income float64 `json:"income,omitempty"`
+}
+
+// profileEvent — повернення ТІЛА: погашення ОВДП, закриття вкладу,
+// закриття фонду.
+//
+// Не площею, а подією на осі, і це не про вигляд. По-перше, це твої ж
+// гроші, що повертаються, а не новий дохід — у стосі надходжень вони
+// збрехали б. По-друге, площею одне погашення дало б шпиль на пів графіка
+// й розчавило б решту в смужку. По-третє, профіль усереднює вікно кроку,
+// тож на довгому горизонті одноразова подія розмазалась би на квартал і
+// виглядала втричі меншою, ніж вона є.
+type profileEvent struct {
+	Date      string  `json:"date"`
+	Kind      string  `json:"kind"` // bond | deposit | fund
+	Label     string  `json:"label"`
+	AmountUAH float64 `json:"amount_uah"`
 }
 
 type planProfile struct {
 	StepMonths int             `json:"step_months"`
 	Series     []profileSeries `json:"series"`
 	Points     []profilePoint  `json:"points"`
+	Events     []profileEvent  `json:"events,omitempty"`
 }
 
 type timelineDoc struct {
@@ -97,11 +122,17 @@ type timelineDoc struct {
 // відповідь роздуває.
 const profileMaxPoints = 120
 
+// profileFundMonths — горизонт оцінки дивідендів для профілю. Стеля
+// профілю в точках усе одно обріже зайве, а от коротший горизонт лишив би
+// на графіку сходинку в тому місці, де просто закінчилась оцінка.
+const profileFundMonths = 720
+
 // buildPlanProfile розгортає потоки в помісячні суми на тому самому
 // ядрі, що й проєкція з колонкою «дає ₴/міс» (planFlowMonthlyUAH) — тож
 // третього означення надходжень не з'являється, і форма на картинці не
 // може розійтися з числом над нею.
-func buildPlanProfile(flows []store.PlanFlow, today, to domain.Date, rates fx.Rates) *planProfile {
+func buildPlanProfile(flows []store.PlanFlow, today, to domain.Date, rates fx.Rates,
+	cashflow []domain.CashflowItem) *planProfile {
 	if len(flows) == 0 {
 		return nil
 	}
@@ -117,8 +148,33 @@ func buildPlanProfile(flows []store.PlanFlow, today, to domain.Date, rates fx.Ra
 	for _, f := range flows {
 		p.Series = append(p.Series, profileSeries{ID: f.ID, Name: f.Name, Kind: f.Kind})
 	}
+
+	// Дохід портфеля розкладаємо по тих самих місяцях, що й план. Джерело
+	// — buildSchedule, тобто рівно те, з чого живуть «Виплати» й зведення:
+	// власного означення купона тут не з'являється.
+	income := make(map[int]float64)
+	for _, cf := range cashflow {
+		if cf.Type == domain.PayRedemption {
+			continue // повернення тіла — подія, не дохід (див. profileEvent)
+		}
+		mi := monthOffsetRaw(today, cf.Date)
+		if mi < 1 || mi > months {
+			continue
+		}
+		u, err := fx.ToUAH(cf.Amount, rates)
+		if err != nil {
+			continue
+		}
+		income[mi] += float64(u.Amount()) / 100
+	}
+
 	for m := 1; m <= months; m += step {
 		pt := profilePoint{Date: string(today.AddMonths(m)), Values: make([]float64, len(flows))}
+		var inc float64
+		for k := 0; k < step; k++ {
+			inc += income[m+k]
+		}
+		pt.Income = round2(inc / float64(step))
 		for i, f := range flows {
 			// Крок > 1 усереднює вікно, а не бере його перший місяць:
 			// інакше квартальний потік то потрапляв би в точку, то ні, і
@@ -131,10 +187,78 @@ func buildPlanProfile(flows []store.PlanFlow, today, to domain.Date, rates fx.Ra
 			pt.Values[i] = v
 			pt.Net += v
 		}
+		// Net — САМЕ план, без доходу портфеля: на ньому стоїть рівність
+		// із плиткою «План дає», і тест її стереже.
 		pt.Net = round2(pt.Net)
 		p.Points = append(p.Points, pt)
 	}
 	return p
+}
+
+// profileEvents — повернення тіла на горизонті профілю.
+//
+// Погашення ОВДП і закриття вкладів беруться з того самого розкладу, що й
+// дохід (там вони позначені PayRedemption). Закриття фонду в розкладі
+// НЕМАЄ — воно живе лише в симуляції, — тож рахується окремо
+// domain.AccumCloseValue, і тест стереже, що та функція дає рівно те, що
+// випускає симуляція.
+func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
+	refs []store.Fund, today, to domain.Date, rates fx.Rates) []profileEvent {
+	var out []profileEvent
+	for _, cf := range cashflow {
+		if cf.Type != domain.PayRedemption || cf.Date < today || cf.Date > to {
+			continue
+		}
+		u, err := fx.ToUAH(cf.Amount, rates)
+		if err != nil {
+			continue
+		}
+		kind, label := "bond", cf.ISIN
+		if domain.IsFundISIN(cf.ISIN) {
+			continue // у фонда своя подія нижче, з податком на закритті
+		}
+		if strings.HasPrefix(cf.ISIN, "deposit:") {
+			kind, label = "deposit", "вклад"
+		}
+		out = append(out, profileEvent{
+			Date: string(cf.Date), Kind: kind, Label: label,
+			AmountUAH: round2(float64(u.Amount()) / 100),
+		})
+	}
+
+	// Накопичувальний фонд віддає гроші рівно раз — на закритті, і саме
+	// цього моменту в розкладі немає взагалі.
+	byName := map[string]store.Fund{}
+	for _, f := range refs {
+		byName[f.Name] = f
+	}
+	for _, r := range rows {
+		ref := byName[r.Fund]
+		if ref.Kind != store.FundAccumulating || ref.CloseDate == "" {
+			continue
+		}
+		close := domain.Date(ref.CloseDate)
+		if close < today || close > to {
+			continue
+		}
+		closeM := monthOffsetRaw(today, close)
+		if closeM < 1 {
+			continue
+		}
+		// MarketValue у рядку документа вже гривневий, тож і подія гривнева.
+		v := domain.AccumCloseValue(domain.Accum{
+			Value0: r.MarketValue, Cost0: r.CostBasis,
+			RatePct: r.ExpectedPct, CloseM: closeM, TaxPct: r.IncomeTaxPct,
+		})
+		if v <= 0 {
+			continue
+		}
+		out = append(out, profileEvent{
+			Date: ref.CloseDate, Kind: "fund", Label: r.Fund, AmountUAH: round2(v),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
+	return out
 }
 
 // handlePlanTimeline — GET /api/plan. Той самий buildState, що й
@@ -181,6 +305,22 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 	// чи фондів — звичайний стан, не привід валити стрічку.
 	termDeposits, _ := s.st.ListTermDeposits(ctx) //nolint:errcheck
 	funds, _ := s.st.ListFunds(ctx)               //nolint:errcheck
+
+	// Дохід портфеля для профілю — тим самим збирачем, що й «Виплати» зі
+	// зведенням. Свого не пишемо: у календаря колись був власний, і фонди
+	// повз нього пролітали — одне питання давало дві відповіді
+	// (handlers_positions.go). Горизонт дивідендів тут ширший за річний,
+	// бо профіль малює форму до дедлайну, а фонд, що замовкає на 13-му
+	// місяці, лишив би сходинку, якої в житті немає.
+	//
+	// Помилка збирача профіль не валить: стрічка малюється й без доходу.
+	var portfolioCF []domain.CashflowItem
+	if src, serr := s.loadSources(ctx, today); serr == nil {
+		hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps, src.payoutDays(), today)
+		if sch, serr := buildSchedule(src, hold, today, today, profileFundMonths); serr == nil {
+			portfolioCF = sch.Cashflow
+		}
+	}
 
 	out := timelineDoc{From: string(today)}
 
@@ -251,7 +391,10 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 			timelineInstrument{Kind: "fund", Label: f.Name, To: f.CloseDate, BuyUntil: f.BuyUntil})
 	}
 
-	out.Profile = buildPlanProfile(flows, today, to, rates)
+	out.Profile = buildPlanProfile(flows, today, to, rates, portfolioCF)
+	if out.Profile != nil {
+		out.Profile.Events = profileEvents(portfolioCF, doc.Funds, funds, today, to, rates)
+	}
 
 	out.Milestones = append(out.Milestones, timelineMilestone{Date: string(today), Label: "сьогодні"})
 	if doc.Forecast != nil && doc.Forecast.Date != "" {

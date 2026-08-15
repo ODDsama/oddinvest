@@ -106,6 +106,47 @@ func TestAccumCloseTaxesOnlyTheGain(t *testing.T) {
 	}
 }
 
+// AccumCloseValue мусить давати РІВНО те саме, що симуляція випускає в
+// місяць закриття.
+//
+// Ця функція існує лише тому, що закриття фонду потрібне за межами
+// симуляції: профіль надходжень малює його подією на осі, а projState вміє
+// тільки вмішати суму в загальний потік місяця й забути, звідки вона.
+// Тобто арифметика описана двічі — і цей тест єдине, що не дає двом
+// описам розійтись.
+//
+// Порівнюємо з рукавом БЕЗ ставки й без порога: тоді все, що вийшло з
+// фонду, просто лягає в підсумок і не змішується з відсотками рукава.
+func TestAccumCloseValueMatchesSimulation(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		a    Accum
+	}{
+		{"із прибутком", Accum{Value0: 5000, Cost0: 4000, RatePct: 25, CloseM: 12, TaxPct: 14}},
+		{"збиткова — податку немає", Accum{Value0: 3000, Cost0: 4000, RatePct: 0, CloseM: 6, TaxPct: 14}},
+		{"без податку", Accum{Value0: 5000, Cost0: 4000, RatePct: 10, CloseM: 24}},
+		{"довгий строк", Accum{Value0: 1000, Cost0: 1000, RatePct: 18, CloseM: 36, TaxPct: 19.5}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := Sleeve{Currency: "UAH", Rate0: 1, Accum: []Accum{c.a}}
+			// Горизонт = місяць закриття: гроші виходять і більше ніде не
+			// працюють, тож підсумок рукава і є сума закриття.
+			sim := ProjectSleeves([]Sleeve{s}, 0, c.a.CloseM).TodayUAH
+			got := AccumCloseValue(c.a)
+			if math.Abs(sim-got) > 0.01 {
+				t.Errorf("AccumCloseValue дала %.2f, симуляція випустила %.2f", got, sim)
+			}
+			if got <= 0 {
+				t.Errorf("тест нічого не перевірив: %.2f", got)
+			}
+		})
+	}
+	// Фонд, що не закривається, події не має.
+	if got := AccumCloseValue(Accum{Value0: 5000, Cost0: 4000, RatePct: 25}); got != 0 {
+		t.Errorf("без дати закриття мало бути 0, маємо %.2f", got)
+	}
+}
+
 // TestAccumStopsGrowingAfterClose — після закриття гроші працюють за
 // ставкою рукава, а не далі за фондовою.
 //

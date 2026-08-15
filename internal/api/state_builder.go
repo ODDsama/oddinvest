@@ -114,7 +114,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		return nil, err
 	}
 	// Розклад — календар виплат і драбина погашень (state_schedule.go).
-	sch, err := buildSchedule(src, hold, today, today)
+	sch, err := buildSchedule(src, hold, today, today, scheduleFundMonths)
 	if err != nil {
 		return nil, err
 	}

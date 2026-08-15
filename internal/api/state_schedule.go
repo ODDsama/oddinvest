@@ -25,6 +25,7 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
+	"github.com/ODDsama/oddinvest/internal/store"
 
 	money "github.com/Rhymond/go-money"
 )
@@ -52,7 +53,16 @@ type schedule struct {
 // щомісяця й дає чверть усього доходу, а у вкладці «Календар» за рік
 // 26 рядків і жодного фондового. Одне питання, дві відповіді, і жодного
 // способу помітити розбіжність, окрім як звірити очима.
-func buildSchedule(src *sources, hold domain.Holdings, from, today domain.Date) (schedule, error) {
+// fundMonths — на скільки місяців уперед оцінювати дивіденди фондів.
+//
+// Параметр, а не константа, бо в двох питань різні горизонти. Календар і
+// зведення дивляться на рік — рівно стільки заслуговує ОЦІНКА на питання
+// «що впаде на рахунок найближчим часом». Профіль надходжень малює форму
+// плану на весь горизонт до дедлайну, і фонд, що замовкає на тринадцятому
+// місяці, лишив би там сходинку, якої в житті немає.
+const scheduleFundMonths = 12
+
+func buildSchedule(src *sources, hold domain.Holdings, from, today domain.Date, fundMonths int) (schedule, error) {
 	cashflow, err := domain.FuturePayments(src.pays, src.lots, src.sales, from)
 	if err != nil {
 		return schedule{}, err
@@ -77,6 +87,16 @@ func buildSchedule(src *sources, hold domain.Holdings, from, today domain.Date) 
 	// є поверненням тіла.
 	for i := range hold.Funds {
 		fp := &hold.Funds[i].FundPosition
+		// Накопичувальний фонд не платить нічого — увесь його дохід сидить
+		// у ціні сертифіката й виходить назовні лише на закритті.
+		//
+		// Доти цієї перевірки не було, і оцінка трималась виключно на
+		// домовленості «в accum-рядка payout_day лишають нулем». Варто
+		// комусь його проставити — і календар вигадав би щомісячні
+		// дивіденди фонду, який їх не платить.
+		if src.fundRefs[fp.Fund].Kind == store.FundAccumulating {
+			continue
+		}
 		// Ставка — ВЛАСНА фондова, і береться вона тією самою функцією,
 		// що й кошик виплат у симуляції (state_funds.go): обіцянка
 		// фонду, якщо задана, інакше виміряна дивідендна. Два різні
@@ -88,7 +108,7 @@ func buildSchedule(src *sources, hold domain.Holdings, from, today domain.Date) 
 		// інакше, ніж мав на увазі фонд.
 		measured, _ := domain.DividendYieldNet(src.fundOps, fp, today)
 		y := fundOwnRatePct(src.fundRefs[fp.Fund], measured)
-		cashflow = append(cashflow, domain.FundDividendFlows(fp, y, 12, today)...)
+		cashflow = append(cashflow, domain.FundDividendFlows(fp, y, fundMonths, today)...)
 	}
 
 	// next_payment бере перший потік, драбина йде по роках — обидва

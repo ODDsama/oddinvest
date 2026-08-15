@@ -355,19 +355,27 @@ export function profileHTML(doc) {
       infoBtn("planTimeline")}</span></h2>
       ${empty("", "Заведи перший потік — і тут з'явиться, як план виглядає в часі.")}</div>`;
   }
+  const hasIncome = (profile.points || []).some((p) => (p.income || 0) > 0);
   const names = (profile.series || []).map((s, i) => ({
     color: s.kind === "expense" ? "var(--oi-warn)" : CAT_COLORS[i % CAT_COLORS.length],
     label: s.name,
   }));
+  const extra = [
+    hasIncome && { color: "var(--oi-series-nominal)", label: "дохід портфеля", faint: true },
+    { color: "var(--oi-series-invested)", label: "план разом" },
+    hasIncome && { color: "var(--oi-series-neutral)", label: "усе разом" },
+  ].filter(Boolean);
   const step = profile.step_months > 1
     ? ` Крок ${profile.step_months} міс.` : "";
   return `<div class="card"><h2 class="card-head"><span>Профіль надходжень ${
     infoBtn("planTimeline")}</span></h2>
     ${fluid((w, h) => svgInflowProfile(profile, doc.actions || [], doc.milestones || [],
     { W: w, H: h }), { cls: "tall" })}
-    ${legend(names.concat([{ color: "var(--oi-series-invested)", label: "разом" }]))}
+    ${legend(names.concat(extra))}
     <div class="sub-xs">Скільки ₴/міс заходить у портфель — уже після «частки в портфель».
-      Витрати йдуть униз від нуля, ромби на нулі — дії плану.${step}</div></div>`;
+      Витрати йдуть униз від нуля, ромби на нулі — дії плану${hasIncome
+    ? ", трикутники під нулем — повернення тіла (погашення, закриття вкладу чи фонду)"
+    : ""}.${step}</div></div>`;
 }
 
 // ---------- дії: список ----------
