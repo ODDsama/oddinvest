@@ -27,7 +27,14 @@ let reinvest = [];
 // що робити: почати, купити або накопичувати далі.
 export function actionBannerHTML(ctx) {
   const s = ctx.summary || {};
-  const hasPortfolio = (s.nominal_uah_eq || 0) > 0;
+  // Портфель — це БУДЬ-ЯКИЙ з чотирьох інструментів, не лише ОВДП: доти
+  // тут дивились тільки на nominal_uah_eq, тож портфель із самих
+  // сертифікатів фонду, вкладів і резерву (без жодного лоту) читався як
+  // порожній, і банер «Почни з першої покупки» стояв над плиткою з
+  // капіталом у сотні тисяч. account_uah свідомо НЕ тут — це вільна
+  // готівка на рахунку, а не позиція, і сама по собі «почав» не означає.
+  const hasPortfolio = (s.nominal_uah_eq || 0) > 0 || (s.funds_uah || 0) > 0 ||
+    (s.deposits_uah || 0) > 0 || (s.reserve_uah || 0) > 0;
   const box = (cls, icon, title, sub, btn = "") =>
     `<div class="banner ${cls}"><div class="b-ic">${icon}</div><div class="b-tx">
        <div class="b-t">${title}</div>${sub ? `<div class="b-s">${sub}</div>` : ""}</div>${btn}</div>`;

@@ -2634,6 +2634,63 @@ func TestSnapshotCarriesEveryInstrument(t *testing.T) {
 	}
 }
 
+// Портфель без жодного лоту ОВДП, але з фондом, вкладом і резервом — не
+// порожній портфель. Доти банер «Огляду» (actionBannerHTML,
+// web/js/views/overview.js) вважав інакше: дивився лише на
+// nominal_uah_eq і показував «Почни з першої покупки» просто над
+// плиткою з капіталом у сотні тисяч гривень — те саме бачила крива «Як
+// росте» (snapNonZero, web/js/views/history.js), відрізаючи такі дні як
+// «порожні». Фронтенд це не тестується тут, але цей тест фіксує
+// контракт зведення, на який спирається виправлення обох місць:
+// nominal_uah_eq може бути нулем, поки funds_uah/deposits_uah/reserve_uah
+// і, зрештою, capital_uah — ні.
+func TestSummaryNonZeroWithoutBonds(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-40), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 1000, Amount: 1000000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
+		OpenDate:     domain.NewDate(time.Now()).AddDays(-10),
+		MaturityDate: domain.NewDate(time.Now()).AddDays(355),
+		Payout:       domain.PayoutEnd, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
+		Date: domain.NewDate(time.Now()).AddDays(-5), Amount: 500000, Currency: "UAH",
+		Place: "готівка",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var sum struct {
+		NominalUAHEq float64 `json:"nominal_uah_eq"`
+		FundsUAH     float64 `json:"funds_uah"`
+		DepositsUAH  float64 `json:"deposits_uah"`
+		ReserveUAH   float64 `json:"reserve_uah"`
+		CapitalUAH   float64 `json:"capital_uah"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if sum.NominalUAHEq != 0 {
+		t.Fatalf("фікстура мала бути без ОВДП — інакше тест нічого не доводить: %+v", sum)
+	}
+	if sum.FundsUAH <= 0 || sum.DepositsUAH <= 0 || sum.ReserveUAH <= 0 {
+		t.Fatalf("фонд/вклад/резерв мали дати ненульові суми: %+v", sum)
+	}
+	if sum.CapitalUAH <= 0 {
+		t.Errorf("капітал без ОВДП мав лишитись ненульовим: %+v", sum)
+	}
+}
+
 // Вклад не має вторинного ринку, тож і цінового ризику в нього немає:
 // сума погашення записана в договорі. Доти його потоки потрапляли в ті
 // самі сценарії, що й облігаційні, і портфель із самого вкладу на 100 000
