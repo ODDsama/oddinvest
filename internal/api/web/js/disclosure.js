@@ -38,8 +38,13 @@ export function wireDisclosures(main) {
 
 // disclosure — згорнута секція з підписом. hint — сірий текст праворуч
 // від заголовка, коли треба сказати, коли цим користуються.
-export function disclosure(key, title, body, hint = "") {
-  return `<details class="disclosure" data-fold="${key}">
+//
+// open розкриває її одразу — для випадку, коли всередині вже щось є й
+// сховати це означало б збрехати (форма правки з заповненими полями).
+// Пам'ять розкриття (wireDisclosures) поверх цього все одно чинна там, де
+// вона взагалі підключена.
+export function disclosure(key, title, body, hint = "", open = false) {
+  return `<details class="disclosure" data-fold="${key}"${open ? " open" : ""}>
     <summary>${title}${hint ? `<span class="hint">${hint}</span>` : ""}</summary>
     <div class="disclosure-body">${body}</div>
   </details>`;

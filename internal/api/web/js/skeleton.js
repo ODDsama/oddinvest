@@ -42,8 +42,11 @@ const SHAPES = {
   portfolio: () => tiles(4) + table(8) + chart(),
   risk: () => tiles(2) + card(4) + card(4) + card(3),
   money: () => tiles(5) + card(5) + card(4),
-  plan: () => card(2) + chart() + table(4),
-  future: () => card(4) + chart() + chart() + table(6),
+  // plan увібрав колишнє «Майбутнє»: вердикт, профіль надходжень, таблиця
+  // потоків, а далі згорнуті секції з проєкціями й календарем. Скелет
+  // малює лише те, що видно ДО розкриття секцій, — інакше він обіцяв би
+  // екран, якого не буде.
+  plan: () => card(2) + chart() + table(4) + card(3),
   settings: () => card(3) + card(6) + card(6),
 };
 

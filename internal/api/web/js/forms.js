@@ -11,14 +11,21 @@
 // означало б завести конфіг на кожне поле — довше за сам код. Спільне тут
 // інше: що робиться ПІСЛЯ, і саме воно й дублювалось.
 
-/** Виконати запит і показати результат. Спільне ядро для форм і кнопок. */
+/** Виконати запит і показати результат. Спільне ядро для форм і кнопок.
+ *
+ *  Повертає true/false — вийшло чи ні. Двом десяткам наявних викликачів
+ *  це байдуже (значення просто ігнорується), а модальній правці — ні:
+ *  без нього вона не відрізнить «збережено» від «400 від валідатора» і
+ *  або закриється, зʼївши введене, або не закриється ніколи. */
 export async function apply(ctx, { method = "POST", path, body }, msg) {
   try {
     await ctx.api(method, path, body);
     if (msg) ctx.toast(msg);
     ctx.reload();
+    return true;
   } catch (err) {
     ctx.toast(String(err.message || err), false);
+    return false;
   }
 }
 
@@ -88,7 +95,7 @@ export function confirmDialog(ctx, message) {
     };
     const onYes = () => finish(true);
     const onNo = () => finish(false);
-    // Escape (через bindConfirmDialog/info.js) чи клік по підкладці
+    // Escape (через bindDialogBackdrop/info.js) чи клік по підкладці
     // закривають <dialog> нативно — це та сама відповідь, що й
     // «Скасувати», тож саме подія close, а не власний слухач, дає
     // йому означати «ні».
@@ -100,16 +107,96 @@ export function confirmDialog(ctx, message) {
   });
 }
 
-/** Клік по підкладці підтвердження скасовує його — той самий прийом,
- *  що й у попапу «i» (info.js:bindInfo), і з тієї самої причини:
- *  ::backdrop нативного <dialog> сам по собі клік не закриває. */
-export function bindConfirmDialog(root) {
+/** Клік по підкладці будь-якого відкритого <dialog> скасовує його — той
+ *  самий прийом, що й у попапу «i» (info.js:bindInfo), і з тієї самої
+ *  причини: ::backdrop нативного <dialog> сам по собі клік не закриває.
+ *
+ *  Шукає dialog[open], а не жорсткий #confirmPop: діалогів у оболонці
+ *  тепер три (довідка, підтвердження, правка), і третя копія того самого
+ *  прийому не потрібна. Та сама форма, що вже має обробник Escape. */
+export function bindDialogBackdrop(root) {
   root.addEventListener("click", (e) => {
-    const pop = root.getElementById("confirmPop");
+    const pop = root.querySelector("dialog[open]");
     if (!pop || e.target !== pop) return;
     const r = pop.getBoundingClientRect();
     const out = e.clientX < r.left || e.clientX > r.right
       || e.clientY < r.top || e.clientY > r.bottom;
     if (out) pop.close();
+  });
+}
+
+/** Заповнити форму значеннями за іменами полів.
+ *
+ *  Відсутні в формі ключі мовчки пропускаються, а відсутні у values поля
+ *  лишаються як є — тож одна й та сама мапа годиться і формі додавання,
+ *  і тілу модалки, і кнопці «копія». */
+export function fillForm(form, values) {
+  if (!form || !values) return;
+  for (const [name, v] of Object.entries(values)) {
+    const el = form.elements[name];
+    if (!el || el.type === "submit") continue;
+    if (el.type === "checkbox") el.checked = !!v;
+    else el.value = v == null ? "" : String(v);
+  }
+}
+
+/** Модальна правка рядка.
+ *
+ *  fields — HTML полів, той самий набір, що й у формі додавання (саме тому
+ *  розмітку малює одна функція: два списки полів розійшлися б на першій же
+ *  зміні). build(form) повертає {method, path, body, msg} як в onSubmit,
+ *  або null, щоб тихо скасувати.
+ *
+ *  Діалог живе в ОБОЛОНЦІ (#editPop), а не в розділі, і це не смак:
+ *  apply() після успішного запису кличе ctx.reload(), а той переписує
+ *  main.innerHTML цілком — діалог усередині main знищився б у мить, коли
+ *  він ще відкритий і тримає top layer.
+ *
+ *  Escape сюди приходить задарма: спільний обробник (info.js:bindInfo)
+ *  ловить dialog[open] загалом. Покладатись на нативний cancel не можна —
+ *  усередині shadow root він не настає.
+ *
+ *  → Promise<boolean>: збережено чи ні. Помилка бекенда лишає діалог
+ *  відкритим разом із уже введеним. */
+export function openEdit(ctx, { title, fields, submit = "Зберегти" }, build) {
+  const root = ctx && ctx.root;
+  const pop = root && root.getElementById && root.getElementById("editPop");
+  if (!pop) {
+    ctx.toast("Правка недоступна", false);
+    return Promise.resolve(false);
+  }
+  const box = pop.querySelector(".box");
+  box.innerHTML = `<h4 id="editPopTitle">${title}</h4>
+    <form id="editForm">${fields}
+      <div class="form-actions">
+        <button type="submit">${submit}</button>
+        <button type="button" class="quiet" data-editcancel>Скасувати</button>
+      </div>
+    </form>`;
+  const form = box.querySelector("#editForm");
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      pop.removeEventListener("close", onClose);
+      if (pop.open) pop.close();
+      box.innerHTML = "";
+      resolve(val);
+    };
+    const onClose = () => finish(false);
+    pop.addEventListener("close", onClose);
+    box.querySelector("[data-editcancel]").addEventListener("click", () => finish(false));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const req = build(form);
+      if (!req) return finish(false);
+      if (await apply(ctx, req, req.msg)) finish(true);
+      // Інакше нічого не робимо: тост уже сказав, що не так, а введене
+      // лишається в полях — саме заради цього apply і повертає результат.
+    });
+    pop.showModal();
+    const first = form.querySelector("input, select, textarea");
+    if (first) first.focus();
   });
 }

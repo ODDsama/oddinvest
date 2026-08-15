@@ -17,7 +17,7 @@
 import { esc } from "./format.js";
 import { TABS } from "./constants.js";
 import { bindInfo } from "./info.js";
-import { bindConfirmDialog } from "./forms.js";
+import { bindDialogBackdrop } from "./forms.js";
 import { adoptStyles } from "./styles.js";
 import { createStore } from "./store.js";
 import { skeleton } from "./skeleton.js";
@@ -29,7 +29,6 @@ import { renderPortfolio } from "./views/portfolio.js";
 import { renderRisk } from "./views/risk-tab.js";
 import { renderMoney } from "./views/money.js";
 import { renderPlan } from "./views/plan.js";
-import { renderFuture } from "./views/future.js";
 import { renderSettings } from "./views/settings.js";
 
 // Знак: три квадрати, складені сходами. Один квадрат — один папір, і
@@ -49,8 +48,10 @@ const VIEWS = {
   portfolio: renderPortfolio,
   risk: renderRisk,
   money: renderMoney,
+  // future тут більше немає: розділ злився з plan. Стара закладка
+  // #/future не 404-иться, а тихо веде на «Огляд» — parseRoute
+  // (routes.js) відкочується на нього для будь-якого невідомого ключа.
   plan: renderPlan,
-  future: renderFuture,
   settings: renderSettings,
 };
 
@@ -277,6 +278,16 @@ export class OddInvestApp extends HTMLElement {
           </div>
         </div>
       </dialog>
+      <!-- Правка рядка (forms.js:openEdit). Тіло малює той, хто відкриває.
+           Стоїть ТУТ, а не в розділі, з конкретної причини: після
+           успішного запису apply() кличе ctx.reload(), а той переписує
+           main.innerHTML цілком — діалог усередині main знищився б у мить,
+           коли він ще відкритий і тримає top layer.
+           Escape приходить сюди задарма: спільний обробник (info.js:bindInfo)
+           ловить dialog[open] загалом, а не якийсь один попап. -->
+      <dialog class="infopop editpop" id="editPop" aria-labelledby="editPopTitle">
+        <div class="box"></div>
+      </dialog>
     `;
     // Обробника кліку на вкладках тут більше немає: посилання веде в
     // хеш, hashchange будить _route(), і той малює розділ. Один шлях
@@ -288,7 +299,7 @@ export class OddInvestApp extends HTMLElement {
     });
     // попапи «як це читати» — делеговано на весь shadow root
     bindInfo(this.shadowRoot);
-    bindConfirmDialog(this.shadowRoot);
+    bindDialogBackdrop(this.shadowRoot);
     this.shadowRoot.getElementById("refresh")?.addEventListener("click", async (e) => {
       e.target.disabled = true;
       try {
@@ -324,6 +335,12 @@ export class OddInvestApp extends HTMLElement {
   _focusKey() {
     const el = this.shadowRoot.activeElement;
     if (!el || !el.name) return null;
+    // Поле всередині <dialog> не відновлюємо. Модалка правки живе в
+    // оболонці й закривається одразу після запису, а її поля звуться так
+    // само, як у формі додавання (name, amount, note) — тож пошук за
+    // іменем після ре-рендеру знайшов би ЧУЖЕ поле й кинув би туди
+    // курсор. Стан модалки транзитний: відновлювати там нема чого.
+    if (el.closest("dialog")) return null;
     const form = el.closest("form");
     return { form: form && form.id, name: el.name, start: el.selectionStart, end: el.selectionEnd };
   }
