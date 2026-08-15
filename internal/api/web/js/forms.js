@@ -49,8 +49,67 @@ export function onDelete(ctx, root, sel, build) {
     btn.addEventListener("click", async () => {
       const req = build(btn);
       if (!req) return;
-      if (req.confirm && !confirm(req.confirm)) return;
+      if (req.confirm && !(await confirmDialog(ctx, req.confirm))) return;
       await apply(ctx, { method: "DELETE", path: req.path }, req.msg || "Видалено");
     });
+  });
+}
+
+/** Своє підтвердження замість window.confirm().
+ *
+ *  Нативний confirm() тут не годиться: у застосунку, вбудованому в чужу
+ *  сторінку чи автоматизований браузер, він мовчки повертає false —
+ *  запит на видалення просто ніколи не йде, а кнопка виглядає
+ *  зламаною. Той самий клас середовищ, де вже довелось патчити Escape
+ *  для попапу «i» (info.js) — shadow root заважає нативному діалогу
+ *  так само, і власний <dialog> від цих квирків не залежить, бо
+ *  показує й закриває його сам застосунок.
+ *
+ *  ctx.root — shadowRoot компонента. Немає розмітки (старий шаблон
+ *  шапки) — падаємо назад на window.confirm(), щоб видалення хоч якось
+ *  працювало, а не мовчало. */
+export function confirmDialog(ctx, message) {
+  const root = ctx && ctx.root;
+  const pop = root && root.getElementById && root.getElementById("confirmPop");
+  if (!pop) return Promise.resolve(window.confirm(message));
+  return new Promise((resolve) => {
+    pop.querySelector("#confirmPopText").textContent = message;
+    const yes = pop.querySelector("[data-confirm-yes]");
+    const no = pop.querySelector("[data-confirm-no]");
+    let decided = false;
+    const finish = (val) => {
+      if (decided) return;
+      decided = true;
+      yes.removeEventListener("click", onYes);
+      no.removeEventListener("click", onNo);
+      pop.removeEventListener("close", onClose);
+      if (pop.open) pop.close();
+      resolve(val);
+    };
+    const onYes = () => finish(true);
+    const onNo = () => finish(false);
+    // Escape (через bindConfirmDialog/info.js) чи клік по підкладці
+    // закривають <dialog> нативно — це та сама відповідь, що й
+    // «Скасувати», тож саме подія close, а не власний слухач, дає
+    // йому означати «ні».
+    const onClose = () => finish(false);
+    yes.addEventListener("click", onYes);
+    no.addEventListener("click", onNo);
+    pop.addEventListener("close", onClose);
+    pop.showModal();
+  });
+}
+
+/** Клік по підкладці підтвердження скасовує його — той самий прийом,
+ *  що й у попапу «i» (info.js:bindInfo), і з тієї самої причини:
+ *  ::backdrop нативного <dialog> сам по собі клік не закриває. */
+export function bindConfirmDialog(root) {
+  root.addEventListener("click", (e) => {
+    const pop = root.getElementById("confirmPop");
+    if (!pop || e.target !== pop) return;
+    const r = pop.getBoundingClientRect();
+    const out = e.clientX < r.left || e.clientX > r.right
+      || e.clientY < r.top || e.clientY > r.bottom;
+    if (out) pop.close();
   });
 }

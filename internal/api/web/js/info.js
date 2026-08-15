@@ -85,10 +85,14 @@ export function bindInfo(root) {
   // що діалог живе всередині shadow root; але з'ясовувати її дорожче,
   // ніж написати три рядки, після яких поведінка перестає залежати від
   // особливостей рушія взагалі.
+  //
+  // dialog[open], а не жорстко #infoPop: той самий обробник закриває й
+  // #confirmPop (forms.js) — діалог у застосунку рівно один відкритий
+  // одночасно, тож який саме відкритий, шукати нема потреби.
   root.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    const pop = root.getElementById("infoPop");
-    if (!pop || !pop.open) return;
+    const pop = root.querySelector("dialog[open]");
+    if (!pop) return;
     e.preventDefault();
     pop.close();
   });

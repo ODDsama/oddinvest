@@ -17,6 +17,7 @@
 import { esc } from "./format.js";
 import { TABS } from "./constants.js";
 import { bindInfo } from "./info.js";
+import { bindConfirmDialog } from "./forms.js";
 import { adoptStyles } from "./styles.js";
 import { createStore } from "./store.js";
 import { skeleton } from "./skeleton.js";
@@ -260,6 +261,22 @@ export class OddInvestApp extends HTMLElement {
       <div id="live" class="sr-only" role="status" aria-live="polite"></div>
       <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
       <dialog class="infopop" id="infoPop" aria-labelledby="infoPopTitle"><div class="box"></div></dialog>
+      <!-- Підтвердження видалення. Нативний window.confirm() тут НЕ
+           годиться: у застосунках, вбудованих у чужу сторінку чи
+           автоматизований браузер (той самий клас середовищ, де вже
+           довелось патчити Escape для #infoPop — shadow root), він
+           мовчки повертає false, і кнопка «видалити» лише виглядає
+           зламаною — запит просто ніколи не йде. Свій <dialog> від
+           цього не залежить: показує й закриває його сам застосунок. -->
+      <dialog class="infopop" id="confirmPop" aria-labelledby="confirmPopText">
+        <div class="box">
+          <p id="confirmPopText"></p>
+          <div class="form-actions">
+            <button type="button" class="warn" data-confirm-yes>Видалити</button>
+            <button type="button" class="quiet" data-confirm-no>Скасувати</button>
+          </div>
+        </div>
+      </dialog>
     `;
     // Обробника кліку на вкладках тут більше немає: посилання веде в
     // хеш, hashchange будить _route(), і той малює розділ. Один шлях
@@ -271,6 +288,7 @@ export class OddInvestApp extends HTMLElement {
     });
     // попапи «як це читати» — делеговано на весь shadow root
     bindInfo(this.shadowRoot);
+    bindConfirmDialog(this.shadowRoot);
     this.shadowRoot.getElementById("refresh")?.addEventListener("click", async (e) => {
       e.target.disabled = true;
       try {
