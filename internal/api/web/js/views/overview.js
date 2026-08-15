@@ -14,8 +14,7 @@ import {
   uah2 as fmtUAH, cur2 as fmtCur,
 } from "../format.js";
 import { infoBtn } from "../info.js";
-import { tile } from "../components.js";
-import { KIND_LABEL } from "../constants.js";
+import { tile, kindPill } from "../components.js";
 import { isOpen, remember } from "../uistate.js";
 import { routeFor } from "../routes.js";
 import { basketHTML, wireBasket } from "./basket.js";
@@ -145,8 +144,8 @@ export function nbuStaleHTML(ctx) {
   if (!at) return "";
   const days = Math.floor((Date.now() - new Date(at).getTime()) / 86400000);
   if (days < 3) return "";
-  return `<div class="banner wait" style="padding:var(--oi-gap) 16px"><div class="b-tx">
-    <div class="b-s" style="opacity:1">Довідник НБУ не оновлювався <b>${days} дн.</b> —
+  return `<div class="banner wait"><div class="b-tx">
+    <div class="b-s">Довідник НБУ не оновлювався <b>${days} дн.</b> —
     ставки й графіки виплат можуть бути несвіжі. Натисни «↻ Оновити НБУ».</div></div></div>`;
 }
 
@@ -217,7 +216,7 @@ export function reinvestHTML(ctx) {
     // Коли не по кишені — кажемо СКІЛЬКИ бракує: «ще не по кишені» саме по
     // собі не підказує, скільки лишилось відкласти.
     const status = r.can_buy
-      ? `<span class="ok-t">вистачає${r.affordable > 1 ? ` ×${r.affordable}` : ""}</span>`
+      ? `<span class="t-ok">вистачає${r.affordable > 1 ? ` ×${r.affordable}` : ""}</span>`
       : need > 0 ? `бракує ${fmtCur(need, curSym(r.currency))}` : "";
     const fits = (r.brokers || []).map((f) => `${esc(f.broker)} ×${f.qty}`).join(" · ");
     // Останнє розміщення — окремим рядком, а не в загальній стрічці: це
@@ -236,14 +235,14 @@ export function reinvestHTML(ctx) {
     return `<div class="sg" data-sg="${key}">
       <button class="caret${open ? " open" : ""}" data-sgexp="${key}" aria-expanded="${open}"
         title="Показати, звідки взялася ця дохідність">▸</button>
-      <span class="pill pill-${kind}">${KIND_LABEL[kind]}</span>
+      ${kindPill(kind)}
       <span class="sg-n"><b>${suggestName(r)}</b> <span class="muted">${cost}</span></span>
       <span class="sg-s muted">${status}</span>
       <b class="sg-y">${pct(r.real_pct)}</b>
       ${kind === "deposit" ? "" : `<button class="sm quiet" data-bskadd="${esc(kind)}|${esc(
         kind === "fund" ? r.label : r.isin)}" title="Додати в кошик і побачити наслідки">+</button>`}
     </div>
-    <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : ` style="display:none"`}>${details}${auc}</div>`;
+    <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : " hidden"}>${details}${auc}</div>`;
   };
 
   // Групуємо за тим, що вирішує: чи можу купити зараз. Доти шість
@@ -255,7 +254,7 @@ export function reinvestHTML(ctx) {
     ? `<div class="sg-h">${title}</div>${list.map(item).join("")}` : "";
   return `<div class="card"><h2 class="card-head">
     <span>Що купити ${infoBtn("reinvest")}</span>
-    ${purse ? `<span class="muted" style="font-size:var(--oi-fs-sm)">${purse}</span>` : ""}</h2>
+    ${purse ? `<span class="muted fine">${purse}</span>` : ""}</h2>
     ${group("Можеш купити зараз", ready)}
     ${group(ready.length ? "Ще збираєш" : "Купувати ще рано — ось наскільки близько", soon)}
     <div class="sub">Відсоток — реальний: після податку й знецінення, тож валюти порівнянні.
@@ -274,8 +273,10 @@ export function wireReinvest(ctx, main) {
       const key = b.dataset.sgexp;
       const row = main.querySelector(`[data-sgdetail="${key}"]`);
       if (!row) return;
-      const open = row.style.display === "none";
-      row.style.display = open ? "" : "none";
+      // hidden, а не style.display: видимість рядка деталей — стан, і
+      // атрибут його ЗАЯВЛЯЄ, тоді як інлайновий стиль лише малює.
+      const open = row.hidden;
+      row.hidden = !open;
       b.classList.toggle("open", open);
       b.setAttribute("aria-expanded", String(open));
       remember(OPEN_SCOPE, key, open);
@@ -309,7 +310,7 @@ export async function renderOverview(ctx, main) {
     ${tile("Капітал", fmtUAH(cap), capSub, { hero: true })}
     ${tile("Цей місяць", s.month_target_uah > 0 ? `${s.month_progress_pct || 0}%` : "—",
       s.month_target_uah > 0
-        ? `<div class="progress"><span style="width:${Math.min(100, s.month_progress_pct || 0)}%"></span></div>
+        ? `<div class="progress"><span style="--oi-fill:${Math.min(100, s.month_progress_pct || 0)}%"></span></div>
            <div class="sub">${
              s.month_deposited_uah === undefined
                ? `вкладено ${fmtUAH(s.month_invested_uah)}` // старий бекенд рахував купівлі

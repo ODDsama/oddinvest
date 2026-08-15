@@ -68,25 +68,11 @@ jobs:
       # 2. Чи резолвиться КОЖЕН імпорт. node --check бачить лише синтаксис і
       #    пропускає «does not provide an export named X» — найімовірнішу
       #    помилку після перейменування чи переносу функції між модулями.
+      #
+      #    Скрипт лежить у репозиторії, а не heredoc'ом тут: доти цей крок
+      #    існував рівно в CI, і `make ui` відтворити його не міг нічим.
       - name: Граф імпортів
-        working-directory: internal/api/web
-        run: |
-          cat > /tmp/imports.mjs <<'EOF'
-          globalThis.HTMLElement = class { attachShadow() { return {}; } };
-          globalThis.customElements = { get: () => undefined, define: () => {} };
-          globalThis.localStorage = { getItem: () => null, setItem: () => {} };
-          globalThis.Document = { prototype: {} };
-          import { readdirSync, statSync } from "node:fs";
-          const walk = (d) => readdirSync(d).flatMap((f) =>
-            statSync(`${d}/${f}`).isDirectory() ? walk(`${d}/${f}`) : [`${d}/${f}`]);
-          let bad = 0;
-          for (const m of walk("js").filter((f) => f.endsWith(".js")).sort()) {
-            try { await import(`${process.cwd()}/${m}`); console.log(`ok   ${m}`); }
-            catch (e) { bad++; console.log(`FAIL ${m}\n     ${e.message.split("\n")[0]}`); }
-          }
-          process.exit(bad ? 1 : 0);
-          EOF
-          node /tmp/imports.mjs
+        run: node web-imports-check.mjs
 
       # 3. Чи ВИЗНАЧЕНЕ кожне вжите імʼя. Дві перевірки вище цього не бачать:
       #    модуль із `fmtCur(...)` у тілі й без `fmtCur` у шапці імпорту має

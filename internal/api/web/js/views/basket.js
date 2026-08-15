@@ -74,7 +74,7 @@ function delta(label, now, will, fmt, target) {
   const arrow = moved ? `<b>${fmt(will || 0)}</b>` : `<span class="muted">без змін</span>`;
   return `<div class="pv-row"><span>${esc(label)}</span>
     <span><span class="muted">${fmt(now || 0)} →</span> ${arrow}${
-      target ? ` <span class="muted" style="font-size:var(--oi-fs-xs)">· ціль ${target}%</span>` : ""
+      target ? ` <span class="muted fine-xs">· ціль ${target}%</span>` : ""
     }</span></div>`;
 }
 
@@ -88,7 +88,7 @@ function newBreaches(before, after) {
     .filter((c) => c.over_uah > 0 && !was.has(c.dimension + "|" + c.key));
   if (!now.length) return "";
   const what = { isin: "папері", broker: "установі", year: "році погашень" };
-  return `<div class="sub-xs" style="margin-top:var(--oi-gap-sm)">⚠ після цієї покупки ліміт буде перевищено:
+  return `<div class="sub-xs mt-sm">⚠ після цієї покупки ліміт буде перевищено:
     ${now.map((c) => `в одному ${what[c.dimension] || c.dimension}
       <b>${esc(c.label || c.key)}</b> — ${c.share_pct.toFixed(1)}% при ліміті ${c.limit_pct}%`).join("; ")}</div>`;
 }
@@ -101,7 +101,7 @@ function linesHTML(basket) {
       <td class="num">${fmtCur(Number(l.unit.amount), curSym(l.currency))}</td>
       <td class="num">${fmtCur(Number(l.total.amount), curSym(l.currency))}</td>
       <td>${esc(l.broker)}${l.broker_assumed
-        ? `<span class="muted" style="font-size:var(--oi-fs-xs)"> · обрано за залишком</span>` : ""}</td>
+        ? `<span class="muted fine-xs"> · обрано за залишком</span>` : ""}</td>
       <td class="row-actions"><button class="sm warn" data-bskdel="${esc(l.kind)}|${esc(l.label)}">✕</button></td>
     </tr>`).join("")}</tbody></table>`;
 }
@@ -131,11 +131,11 @@ export async function basketHTML(ctx) {
       <span>Кошик покупки ${infoBtn("basket")}</span>
       <button class="sm quiet" data-bskclear>Очистити</button></h2>
     ${linesHTML(basket)}
-    <div class="pv-row" style="margin-top:var(--oi-gap)"><span><b>Разом</b></span><span><b>${totals}</b></span></div>
-    ${shorts ? `<div class="sub-xs warn-t" style="margin-top:var(--oi-gap-xs)">${esc(shorts)}</div>`
-      : `<div class="sub-xs ok-t" style="margin-top:var(--oi-gap-xs)">грошей вистачає</div>`}
-    <div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap);margin-top:var(--oi-gap)">
-      <div class="sub" style="margin-bottom:var(--oi-gap-sm)">Що станеться з портфелем</div>
+    <div class="pv-row mt"><span><b>Разом</b></span><span><b>${totals}</b></span></div>
+    ${shorts ? `<div class="sub-xs t-warn mt-xs">${esc(shorts)}</div>`
+      : `<div class="sub-xs t-ok mt-xs">грошей вистачає</div>`}
+    <div class="rule-top">
+      <div class="sub mb-sm">Що станеться з портфелем</div>
       ${delta("Капітал", before.capital_uah, after.capital_uah, fmtUAH)}
       ${delta("Частка USD", before.usd_share_pct, after.usd_share_pct, asPct, st.usd_target_share_pct)}
       ${delta("Частка EUR", before.eur_share_pct, after.eur_share_pct, asPct, st.eur_target_share_pct)}
@@ -143,7 +143,7 @@ export async function basketHTML(ctx) {
         ? delta("Дюрація", durNow, durWill, (v) => `${v.toFixed(2)} р.`) : ""}
     </div>
     ${newBreaches(before, after)}
-    <div class="sub-xs" style="margin-top:var(--oi-gap-sm)">Ціна тут — «номінал + НКД» для паперу й остання
+    <div class="sub-xs mt-sm">Ціна тут — «номінал + НКД» для паперу й остання
       відома ціна для сертифіката. У брокера може бути інша, і тоді інші будуть усі числа нижче.</div>
   </div>`;
 }

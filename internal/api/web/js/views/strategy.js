@@ -169,9 +169,9 @@ export function strategyCardHTML(current) {
   const answers = readAnswers();
   const answered = QUESTIONS.filter((q) => answers[q.id]).length;
 
-  const quiz = QUESTIONS.map((q) => `<div style="margin-bottom:var(--oi-gap)">
-    <div style="margin-bottom:var(--oi-gap-xs)">${esc(q.q)}</div>
-    <div style="display:flex;gap:var(--oi-gap-sm);flex-wrap:wrap">
+  const quiz = QUESTIONS.map((q) => `<div class="mb">
+    <div class="mb-xs">${esc(q.q)}</div>
+    <div class="row-h">
       ${q.opts.map(([v, t]) => `<button type="button" class="sm${
         answers[q.id] === v ? "" : " quiet"}" data-answer="${q.id}:${v}">${esc(t)}</button>`).join("")}
     </div></div>`).join("");
@@ -184,20 +184,20 @@ export function strategyCardHTML(current) {
     const verdict = !answered
       ? `<span class="muted">обмеження ще не названі</span>`
       : clash.length
-        ? `<span style="color:var(--oi-warn)">суперечить ${clash.length} з названих обмежень</span>`
+        ? `<span class="t-warn">суперечить ${clash.length} з названих обмежень</span>`
         : ok.length
-          ? `<span style="color:var(--oi-ok)">не суперечить жодному з ${ok.length} названих</span>`
+          ? `<span class="t-ok">не суперечить жодному з ${ok.length} названих</span>`
           : `<span class="muted">до названих обмежень байдужий</span>`;
-    const why = [...clash.map((c) => `<div class="sub-xs" style="color:var(--oi-warn)">✕ ${esc(c.q)} → «${esc(c.a)}»</div>`),
+    const why = [...clash.map((c) => `<div class="sub-xs t-warn">✕ ${esc(c.q)} → «${esc(c.a)}»</div>`),
       ...ok.map((c) => `<div class="sub-xs">✓ ${esc(c.q)} → «${esc(c.a)}»</div>`)].join("");
-    return `<div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap);margin-top:var(--oi-gap)">
-      <div class="kv" style="flex-wrap:wrap">
+    return `<div class="rule-top">
+      <div class="kv wrap">
         <b>${esc(p.name)}</b>${verdict}
       </div>
       <div class="sub">Дає: ${esc(p.gives)}</div>
       <div class="sub">Платить: ${esc(p.costs)}</div>
       ${why}
-      <div style="margin-top:var(--oi-gap-sm)">
+      <div class="mt-sm">
         ${diff.length
           ? `<button class="sm" data-preset="${p.key}">Показати, що зміниться (${diff.length})</button>`
           : `<span class="sub">усе вже стоїть саме так</span>`}
@@ -208,7 +208,7 @@ export function strategyCardHTML(current) {
 
   return `<div class="card">
     <h2 class="h-row">Готові набори налаштувань ${infoBtn("strategy")}</h2>
-    <div class="muted" style="margin-bottom:var(--oi-gap)">Це не поради, а іменовані комбінації тих самих
+    <div class="muted mb">Це не поради, а іменовані комбінації тих самих
       цілей і лімітів, що у формах нижче — з підписом, що кожна дає і чим за це платить. Питання
       нижче ні на що не впливають самі по собі: вони лише позначають, який набір не суперечить
       обмеженням, які ви назвали. Застосувати можна будь-який, і будь-яке число потім змінити
@@ -241,13 +241,13 @@ export function wireStrategy(ctx, main, current) {
       // налаштувань одразу, і «застосував і не помітив, що затер валютну
       // ціль» — помилка, яка знаходиться не одразу.
       const diff = Object.entries(p.values).filter(([k, v]) => (current[k] || "") !== v);
-      box.innerHTML = `<div class="table-scroll" style="margin-top:var(--oi-gap-sm)"><table><thead><tr>
+      box.innerHTML = `<div class="table-scroll mt-sm"><table><thead><tr>
           <th>Налаштування</th><th class="num">Зараз</th><th class="num">Стане</th></tr></thead><tbody>
           ${diff.map(([k, v]) => `<tr><td>${esc(FIELD_LABEL[k] || k)}</td>
             <td class="num muted">${current[k] ? esc(current[k]) : "не задано"}</td>
             <td class="num"><b>${v ? esc(v) : "прибрати"}</b></td></tr>`).join("")}
         </tbody></table></div>
-        <button class="sm" data-apply="${p.key}" style="margin-top:var(--oi-gap-sm)">Застосувати «${esc(p.name)}»</button>`;
+        <button class="sm mt-sm" data-apply="${p.key}">Застосувати «${esc(p.name)}»</button>`;
       box.querySelector("[data-apply]").addEventListener("click", async (e) => {
         e.target.disabled = true;
         await apply(ctx, { method: "PUT", path: "settings", body: p.values },

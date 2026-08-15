@@ -39,9 +39,9 @@ export function brokerBalancesHTML(ctx) {
         ? (enough ? `вистачає на ${Math.floor(v / min)}` : `до паперу ще ${fmtCur(min - v, sym[c] || c)}`)
         : "";
       return `<div class="pv-row"><span>${esc(c)} · <b>${fmtCur(v, sym[c] || c)}</b></span>
-        <span class="${enough ? "" : "muted"}" style="${enough ? "color:var(--oi-ok)" : ""}">${hint}</span></div>`;
+        <span class="${enough ? "t-ok" : "muted"}">${hint}</span></div>`;
     }).join("");
-    return `<div style="margin-bottom:14px"><div style="margin-bottom:var(--oi-gap-xs)"><b>${esc(b)}</b></div>${parts}</div>`;
+    return `<div class="mb-lg"><div class="mb-xs"><b>${esc(b)}</b></div>${parts}</div>`;
   }).join("");
   return `<div class="card"><h2>Рахунки по брокерах</h2>
     <div class="note">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.</div>
@@ -63,7 +63,7 @@ export function reconcileHTML(ctx) {
     <tbody>${rows.map((r) => `<tr data-rec="${esc(r.b)}|${esc(r.c)}">
       <td>${esc(r.b)} ${curSym(r.c)}</td>
       <td class="num">${fmtCur(r.v, curSym(r.c))}</td>
-      <td class="num"><input class="recAct" inputmode="decimal" style="width:110px;text-align:right"
+      <td class="num"><input class="recAct num-in" inputmode="decimal"
         data-expected="${r.v}" placeholder="—"></td>
       <td class="num recDiff muted">—</td>
       <td class="num"><button class="recFix" disabled>виправити</button></td>
@@ -85,7 +85,10 @@ export function wireReconcile(ctx, main) {
       }
       const diff = Math.round((actual - Number(inp.dataset.expected)) * 100) / 100;
       out.textContent = diff === 0 ? "сходиться" : (diff > 0 ? "+" : "") + fmtCur(diff, curSym(currency));
-      out.className = "num recDiff" + (diff === 0 ? " ok" : "");
+      // t-ok, а не ok: класу .ok у CSS не існує й ніколи не існувало,
+      // тож «сходиться» два роки виходило звичайним текстом — рівно тим
+      // самим, що й розбіжність.
+      out.className = "num recDiff" + (diff === 0 ? " t-ok" : "");
       btn.disabled = diff === 0;
       return diff;
     };
@@ -131,7 +134,7 @@ function reserveHTML(ctx, ops) {
   const places = r && r.places ? Object.entries(r.places).sort((a, b) => b[1] - a[1]) : [];
   const byCur = r && r.by_currency ? Object.entries(r.by_currency).sort() : [];
 
-  const tiles = has ? `<div class="tiles" style="margin:0 0 10px">
+  const tiles = has ? `<div class="tiles flush">
       <div class="tile"><div class="lbl">Відкладено</div>
         <div class="val">${fmtUAH((r && r.uah) || 0)}</div>
         ${byCur.length > 1 ? `<div class="sub">${byCur.map(([c, v]) =>
@@ -145,8 +148,8 @@ function reserveHTML(ctx, ops) {
         <div class="val">${r && r.share_pct ? pct(r.share_pct) : "—"}</div>
         <div class="sub">не інвестиція, але капітал</div></div>
     </div>
-    ${target > 0 && months ? `<div class="progress" style="margin-bottom:var(--oi-gap-sm)">
-      <span style="width:${fill}%;background:${enough ? "var(--oi-ok)" : "var(--oi-info)"}"></span></div>
+    ${target > 0 && months ? `<div class="progress mb-sm">
+      <span style="--oi-fill:${fill}%;--oi-c:${enough ? "var(--oi-ok)" : "var(--oi-info)"}"></span></div>
       <div class="note">${enough
         ? `запас зібраний${r.uah > r.target_uah ? ` — з перевищенням на ${fmtUAH(r.uah - r.target_uah)}` : ""}`
         : `до цілі ще ${fmtUAH(r.gap_uah || 0)} · ціль ${fmtUAH(r.target_uah || 0)}`}</div>` : ""}
@@ -169,7 +172,7 @@ function reserveHTML(ctx, ops) {
     <h2 class="h-row">Резерв ${infoBtn("reserve")}</h2>
     <div class="note">Гроші на чорний день. Не інвестиція — але саме тому вони й доступні миттєво, без продажу паперу й розірвання вкладу. У купівельну спроможність не входять.</div>
     ${tiles}
-    <form id="resForm" style="margin-bottom:var(--oi-gap)">
+    <form id="resForm" class="mb">
       <label>Сума (+ відклав / − узяв)<input name="amount" inputmode="decimal" placeholder="5000.00" required></label>
       <label>Валюта<select name="currency">${["UAH", "USD", "EUR"].map((c) =>
         `<option${c === "UAH" ? " selected" : ""}>${c}</option>`).join("")}</select></label>
@@ -189,16 +192,16 @@ function reserveHTML(ctx, ops) {
 export function importHTML(ctx) {
   return `<div class="card"><h2 class="card-head">
     <span>Імпорт виписки ${infoBtn("import")}</span></h2>
-    <div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:var(--oi-gap-sm)">Файл Inzhur (.xlsx). Спершу перегляд — нічого не записується.</div>
-    <div style="display:flex;gap:var(--oi-gap-sm);align-items:center;flex-wrap:wrap">
+    <div class="muted fine mb-sm">Файл Inzhur (.xlsx). Спершу перегляд — нічого не записується.</div>
+    <div class="row-h">
       <input type="file" id="impFile" accept=".xlsx">
       <button id="impPreview">Переглянути</button>
     </div>
-    <div class="muted" style="font-size:var(--oi-fs-sm);margin-top:var(--oi-gap-sm);display:flex;gap:var(--oi-gap-sm);align-items:center;flex-wrap:wrap">
-      Враховувати зміни від <input type="date" id="impSince" style="width:150px">
+    <div class="muted fine mt-sm row-h">
+      Враховувати зміни від <input type="date" id="impSince" class="w-md">
       <span>рухається сама після кожного імпорту</span>
     </div>
-    <div id="impOut" style="margin-top:var(--oi-gap)"></div></div>`;
+    <div id="impOut" class="mt"></div></div>`;
 }
 
 export function wireImport(ctx, main) {
@@ -237,14 +240,14 @@ export function wireImport(ctx, main) {
   const render = (res, dry) => {
     const rows = (res.rows || []).map((r) => {
       const tag = r.conflict
-        ? `<div style="color:var(--oi-danger);font-size:var(--oi-fs-xs)">⚠ ${esc(r.conflict)}</div>`
-        : r.exists ? `<span class="muted" style="font-size:var(--oi-fs-xs)">вже є</span>` : "";
-      return `<div style="margin-bottom:var(--oi-gap-sm)">
+        ? `<div class="t-danger fine-xs">⚠ ${esc(r.conflict)}</div>`
+        : r.exists ? `<span class="muted fine-xs">вже є</span>` : "";
+      return `<div class="mb-sm">
         <div class="kv">
           <span>${dayMonth(r.date)} · ${KIND[r.kind] || r.kind}${
             r.fund ? ` <span class="muted">${esc(r.fund)}</span>` : ""}${
             r.qty ? ` <span class="muted">${r.qty} серт.</span>` : ""}</span>
-          <span><b>${esc(r.amount)}</b>${r.tax && r.tax !== "0.00" ? ` <span class="muted" style="font-size:var(--oi-fs-xs)">податок ${esc(r.tax)}</span>` : ""} ${r.exists && !r.conflict ? `<span class="muted" style="font-size:var(--oi-fs-xs)">вже є</span>` : ""}</span>
+          <span><b>${esc(r.amount)}</b>${r.tax && r.tax !== "0.00" ? ` <span class="muted fine-xs">податок ${esc(r.tax)}</span>` : ""} ${r.exists && !r.conflict ? `<span class="muted fine-xs">вже є</span>` : ""}</span>
         </div>${r.conflict ? tag : ""}</div>`;
     }).join("");
     const skipped = (res.skipped || []).map((s) =>
@@ -252,15 +255,15 @@ export function wireImport(ctx, main) {
     const conflicts = (res.rows || []).filter((r) => r.conflict).length;
     if (!dry && res.since && since) since.value = res.since;
     out.innerHTML = `
-      <div style="margin-bottom:var(--oi-gap-sm)">Знайдено ${(res.rows || []).length} операцій · <b>${res.new}</b> нових${
-        conflicts ? ` · <span style="color:var(--oi-danger)">${conflicts} з конфліктом</span>` : ""}</div>
-      ${res.before ? `<div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:var(--oi-gap-sm)">${res.before} рядків старші за ${
+      <div class="mb-sm">Знайдено ${(res.rows || []).length} операцій · <b>${res.new}</b> нових${
+        conflicts ? ` · <span class="t-danger">${conflicts} з конфліктом</span>` : ""}</div>
+      ${res.before ? `<div class="muted fine mb-sm">${res.before} рядків старші за ${
         dayMonth(res.since)} — не розглядались</div>` : ""}
       ${rows}
-      ${skipped ? `<div style="border-top:1px solid var(--oi-border);margin-top:var(--oi-gap-sm);padding-top:var(--oi-gap-sm)">
-        <div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:var(--oi-gap-xs)">пропущено:</div>${skipped}</div>` : ""}
-      ${dry && res.new > 0 ? `<button id="impGo" style="margin-top:var(--oi-gap)">Імпортувати ${res.new}</button>` : ""}
-      ${!dry ? `<div style="margin-top:var(--oi-gap-sm);color:var(--oi-ok)">Записано ${res.imported}</div>` : ""}`;
+      ${skipped ? `<div class="rule-top tight">
+        <div class="muted fine mb-xs">пропущено:</div>${skipped}</div>` : ""}
+      ${dry && res.new > 0 ? `<button id="impGo" class="mt">Імпортувати ${res.new}</button>` : ""}
+      ${!dry ? `<div class="mt-sm t-ok">Записано ${res.imported}</div>` : ""}`;
     const go = out.querySelector("#impGo");
     if (go) {
       go.addEventListener("click", async () => {
@@ -303,7 +306,7 @@ function flowHTML(f) {
       ${row("− куплено", f.purchased_uah, "−")}
       ${f.conversions_uah ? row("± конвертації", f.conversions_uah,
         f.conversions_uah > 0 ? "+" : "−") : ""}
-      <tr style="font-weight:600"><td>= лишилось</td>
+      <tr class="tot"><td>= лишилось</td>
         <td class="num">${fmtUAH(f.closing_uah || 0)}</td></tr>
     </tbody></table></div>
     ${detail.length ? `<details class="disclosure" data-fold="flowbuys">
@@ -356,7 +359,7 @@ function taxHTML(x) {
          <td class="num">${l.tax_uah ? "−" + fmtUAH(l.tax_uah) : "—"}</td>
          <td class="num">${fmtUAH(l.net_uah)}</td>
          <td class="num">${l.gross_uah ? pct(l.rate_pct) : "—"}</td></tr>`).join("")}
-         <tr style="font-weight:600"><td>Разом</td>
+         <tr class="tot"><td>Разом</td>
            <td class="num">${fmtUAH(x.gross_uah)}</td>
            <td class="num">−${fmtUAH(x.tax_uah)}</td>
            <td class="num">${fmtUAH(x.net_uah)}</td>
@@ -367,7 +370,7 @@ function taxHTML(x) {
     `<div class="sub card-head">
        <span>${esc(x.from)} → ${esc(x.to)}</span><span>рік: ${picker}</span></div>
      ${body}
-     <div class="sub card-head" style="margin-top:var(--oi-gap-sm)">
+     <div class="sub card-head mt-sm">
        <span>Купон ОВДП звільнений від податку, дивіденд фонду й відсотки вкладу — ні.
          Ставки не зашиті: у фонду береться фактично утримане з виписки, у вкладу —
          ставка самого вкладу.</span>

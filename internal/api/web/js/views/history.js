@@ -19,7 +19,7 @@ const tipMoney = (v) => (v == null ? "—" : fmtUAH(v));
 function tipRows(tip, i, extra) {
   if (!tip) return "";
   const list = tip.series.map((s) =>
-    `<div class="r"><span><i style="background:${s.color}"></i>${esc(s.name)}</span>
+    `<div class="r"><span><i style="--oi-c:${s.color}"></i>${esc(s.name)}</span>
       <b>${tipMoney(s.values[i])}</b></div>`).join("");
   return `<div><b>${esc(tip.dates[i])}</b></div>${list}${extra || ""}`;
 }
@@ -256,7 +256,7 @@ export function snapshotsTableHTML(ctx) {
   // сховаєш — тож тут те саме доводиться сказати словами.
   const gap = (hasDeps && rows.some((s) => !(s.deposits_uah > 0)))
     || (hasFunds && rows.some((s) => !(s.funds_uah > 0)))
-    ? `<div class="sub" style="margin-top:var(--oi-gap-sm)">Нулі на ранніх днях означають «тоді ще не записували
+    ? `<div class="sub mt-sm">Нулі на ранніх днях означають «тоді ще не записували
        в історію», а не «тоді цього не було»: колонки фондів і вкладів з'явились у знімку пізніше
        за самі інструменти.</div>` : "";
   return `<div class="card">${disclosure("snaps", "Останні знімки", `

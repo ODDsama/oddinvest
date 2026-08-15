@@ -5,6 +5,7 @@
 // summary, він уже не компонент, а частина розділу.
 
 import { esc, pct } from "./format.js";
+import { KIND_LABEL } from "./constants.js";
 
 /** Плитка. hero — головне число екрана: більший кегль і подвійна ширина.
  *  Рівно одна на розділ; друга «головна» плитка означала б, що головного
@@ -74,6 +75,23 @@ export function empty(title, why, action = null) {
     <div class="empty-w">${why}</div>
     ${action ? `<a class="lnk" href="${action.href}">${action.label}</a>` : ""}
   </div>`;
+}
+
+/** Пігулка виду інструмента: колір несе значення (ОВДП / фонд / вклад /
+ *  резерв), тож завжди беремо той самий підпис із того самого словника —
+ *  розбіжність тут читалась би як четвертий вид інструмента. */
+export function kindPill(kind) {
+  return `<span class="pill pill-${kind}">${KIND_LABEL[kind]}</span>`;
+}
+
+/** Легенда під графіком: кольоровий квадратик + підпис, кілька штук
+ *  поспіль. Items — масив {color, label, faint?}; falsy-елемент
+ *  пропускається, щоб умовний пункт («коридор ринку», «рік тому») писався
+ *  одним виразом замість неповного рядка розмітки в кожному виклику. */
+export function legend(items) {
+  return `<div class="lg">${items.filter(Boolean).map((it) =>
+    `<span><i${it.faint ? ` class="faint"` : ""} style="--oi-c:${it.color}"></i>${esc(it.label)}</span>`,
+  ).join("")}</div>`;
 }
 
 export function needsSetting(title, why) {

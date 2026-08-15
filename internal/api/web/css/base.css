@@ -66,8 +66,8 @@ body, :host {
 }
 
 /* Посилання «до вмісту»: видиме лише під фокусом. Перший Tab на сторінці
-   мусить давати спосіб перестрибнути шапку й п'ять вкладок, інакше
-   клавіатурою до самого розділу йти шість натискань щоразу. */
+   мусить давати спосіб перестрибнути шапку й вкладки, інакше клавіатурою
+   до самого розділу йти на одне натискання більше, ніж вкладок, щоразу. */
 .skip {
   position: absolute;
   left: var(--oi-gap-sm);
@@ -75,7 +75,7 @@ body, :host {
   z-index: var(--oi-z-modal);
   background: var(--oi-surface-3);
   color: var(--oi-text);
-  border: 1px solid var(--oi-border-strong);
+  border: var(--oi-rule) solid var(--oi-border-strong);
   border-radius: var(--oi-radius-sm);
   padding: var(--oi-gap-sm) var(--oi-gap);
   font-size: var(--oi-fs);
@@ -122,6 +122,28 @@ header h1 {
 }
 header .sp { flex: 1; }
 header .mark { width: 22px; height: 22px; flex: 0 0 auto; color: var(--oi-header-mark); }
+/* Шестерня «Налаштувань» — заміна шостої кнопки в панелі знизу на
+   вузькому екрані. min-width/height, а не padding: тут це коло, і
+   квадратна ціль дотику мусить лишитись такою ж, як у решти кнопок
+   шапки, попри те, що вміст — один символ, а не слово. Видимість
+   перемикають одне з одним нижче: до 900px гвинтик, від 900px —
+   вкладка «Налаштування» в самій панелі. */
+.gear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--oi-touch);
+  min-height: var(--oi-touch);
+  padding: 0;
+  font-size: var(--oi-fs-lg);
+  line-height: 1;
+}
+@media (min-width: 900px) { .gear { display: none; } }
+/* «Стан на …» у шапці. Не .muted: приглушений там читався б як
+   попередження про несвіжість, а це просто час останнього перерахунку.
+   Доти рядок мав клас .muted і тут-таки інлайном його скасовував —
+   тобто клас брали заради розміру, а колір відмотували назад. */
+.hdr-stamp { color: var(--oi-header-text); opacity: .85; }
 
 nav {
   /* Знизу — під великий палець. П'ять вкладок це рівно та кількість, під
@@ -137,11 +159,18 @@ nav {
      overflow-wrap нижче. */
   grid-template-columns: repeat(5, minmax(0, 1fr));
   background: var(--oi-surface);
-  border-top: 1px solid var(--oi-border);
+  border-top: var(--oi-rule) solid var(--oi-border);
   padding: 0 0 env(safe-area-inset-bottom);   /* смуга жесту на iPhone */
   z-index: var(--oi-z-header);
   overflow: visible;
 }
+/* Шоста вкладка не додає шосту колонку сюди: display:none виймає
+   елемент із grid цілком, і repeat(5, …) вище лишається правильним для
+   п'яти, що видно, — «Налаштування» на вузькому екрані живуть у шапці
+   (.gear). Разом, а не окремим правилом .gear, щоб перемикання не могло
+   розійтися: одне показане завжди означає інше сховане. */
+nav a[data-tab="settings"] { display: none; }
+@media (min-width: 900px) { nav a[data-tab="settings"] { display: flex; } }
 nav a {
   display: flex;
   flex-direction: column;
@@ -214,7 +243,7 @@ main:focus { outline: none; }
     gap: var(--oi-gap-xs);
     padding: 0 var(--oi-gap-lg);
     border-top: none;
-    border-bottom: 1px solid var(--oi-border);
+    border-bottom: var(--oi-rule) solid var(--oi-border);
   }
   nav a {
     flex-direction: row;
@@ -262,7 +291,7 @@ button:disabled { opacity: .5; cursor: default; }
 button.ghost {
   background: none;
   color: var(--oi-header-text);
-  border: 1px solid var(--oi-border-strong);
+  border: var(--oi-rule) solid var(--oi-border-strong);
 }
 button.ghost:hover { border-color: var(--oi-accent); }
 button.sm { padding: var(--oi-gap-xs) 10px; font-size: var(--oi-fs-sm); }
@@ -270,7 +299,7 @@ button.warn { background: var(--oi-danger); color: var(--oi-on-signal); }
 button.quiet {
   background: var(--oi-surface-3);
   color: var(--oi-text);
-  border: 1px solid var(--oi-border-strong);
+  border: var(--oi-rule) solid var(--oi-border-strong);
 }
 button.link { background: none; border: none; color: var(--oi-danger); padding: 0 var(--oi-gap-xs); }
 
@@ -284,45 +313,95 @@ button.link { background: none; border: none; color: var(--oi-danger); padding: 
 }
 .lnk:hover { border-bottom-color: currentColor; }
 
-/* --- картки й плитки --- */
+/* --- ряд чисел і блок --- */
 
+/* Ряд чисел. Доти це була сітка ПЛИТОК: кожне число сиділо у власній
+   коробці з заливкою й радіусом, і чотири числа поспіль читались як
+   чотири окремі картки — тобто рівня «підсумок розділу» не існувало,
+   бо все на екрані було одного рівня. Тепер це рядок звіту: числа
+   розділяє повітря, а весь ряд відкриває одна лінійка згори. */
 .tiles {
   display: grid;
   /* auto-fit, а не auto-fill: при трьох плитках на широкому екрані
      auto-fill лишав три порожні колонки, і плитки тулились ліворуч
-     купкою. auto-fit згортає порожні треки, і ряд заповнюється. */
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--oi-gap);
+     купкою. auto-fit згортає порожні треки, і ряд заповнюється.
+     150px, а не 180: коробки більше немає, тож ширину тримає саме
+     число, а не поля навколо нього. */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  /* По вертикалі проміжок більший за горизонтальний. Без рамок ряд
+     інакше склеюється з наступним блоком, і єдине, що їх розводить, —
+     це повітря. */
+  gap: var(--oi-gap-xl) var(--oi-gap-lg);
   max-width: var(--oi-max-width);
-  margin: var(--oi-gap-lg) auto;
-  padding: 0 var(--oi-gap);
+  margin: var(--oi-gap-xl) auto;
+  padding: var(--oi-gap-lg) var(--oi-gap) 0;
+  border-top: var(--oi-rule) solid var(--oi-border);
 }
-.tile {
-  background: var(--oi-surface);
-  border-radius: var(--oi-radius);
-  padding: var(--oi-gap);
-  box-shadow: var(--oi-shadow);
+/* Підпис тихішає — але РОЗМІРОМ, а не кольором. Доки була заливка,
+   підпис відділявся від сусіднього числа краєм коробки; без неї 13px
+   починають змагатися з числом, під яким стоять, і 11px цю різницю
+   відновлюють.
+
+   --oi-text-faint тут стояв і був помилкою: 3.6:1 у темі позначені як
+   придатні лише для того, що ДУБЛЮЄ вже сказане, а підпис плитки —
+   єдине, що пояснює, чиє це число. Тихішати за рахунок читабельності
+   тому, що пояснює, не можна. */
+.tile .lbl {
+  font-size: var(--oi-fs-xs);
+  line-height: var(--oi-lh-snug);
+  color: var(--oi-muted);
 }
-.tile .lbl { font-size: var(--oi-fs-sm); color: var(--oi-muted); }
 /* Трекінг: 21px табличних цифр без нього виглядають розсипаними —
-   табличні метрики й самі додають повітря між знаками. */
-.tile .val {
+   табличні метрики й самі додають повітря між знаками.
+   Вага впала з 600 до 500: у табличних цифрах напівжирний читається як
+   крик, а підсилювати число більше нема від чого — навколо нього тепер
+   порожньо, а не рамка.
+
+   Селектор без .tile навмисно: «головне число блока» буває й поза рядом
+   чисел — у прогнозі так стоїть вилка потрібного внеску, і вона писала
+   собі 22px/600 інлайном, тобто заводила ДРУГИЙ розмір головного числа
+   на два пікселі більший за системний. */
+.val {
   font-size: var(--oi-fs-xl);
-  font-weight: var(--oi-fw-bold);
+  font-weight: var(--oi-fw-medium);
   line-height: var(--oi-lh-tight);
   letter-spacing: var(--oi-ls-tight);
   margin-top: var(--oi-gap-xs);
 }
 
-.card {
-  background: var(--oi-surface);
-  border-radius: var(--oi-radius);
-  padding: var(--oi-card-pad);
-  margin-bottom: var(--oi-gap);
-  box-shadow: var(--oi-shadow);
+/* Блок. Уже не картка: ні заливки, ні рамки, ні радіуса, ні полів.
+   Групу тримають лінійка згори й повітря знизу — і саме тому лінійка
+   висить на СУСІДСТВІ (.card + .card), а не на кожному блоці: першому
+   блоку розділу відділятись нема від чого, і лінійка над ним читалась
+   би як обрізаний згори вміст.
+
+   Ширину блок НЕ обмежує. Спокуса була: дати картці колонку читання й
+   випускати з неї лише широке. На екрані це виявилось помилкою — тут
+   майже кожен блок або таблиця на сім колонок, або крива на півтора
+   роки, тож «широких» більшість, а решта половина монітора стоїть
+   порожня. Довгий рядок — проблема ТЕКСТУ, а не контейнера, і міра
+   лежить там, де текст: на .note, .sub і прозі пояснень. */
+.card { margin: 0 0 var(--oi-gap-2xl); }
+.card + .card {
+  border-top: var(--oi-rule) solid var(--oi-rule-hair);
+  padding-top: var(--oi-gap-xl);
 }
-.card h2 { font-size: var(--oi-fs-lg); margin: 0 0 var(--oi-gap); }
-.card h4 { margin: 0 0 var(--oi-gap-sm); font-size: var(--oi-fs); font-weight: var(--oi-fw-bold); }
+/* Блоки, розкладені ПОРУЧ, лінійкою не розділяються: там сусідство
+   горизонтальне, і межа між ними вже є — проміжок сітки. Правило вище
+   інакше малювало б рису над кожним, крім найлівішого. */
+.ov-grid > .card + .card,
+.chart-grid > .card + .card { border-top: none; padding-top: 0; }
+
+.card h2 { font-size: var(--oi-fs-lg); font-weight: var(--oi-fw-medium); margin: 0 0 var(--oi-gap); }
+/* Підзаголовок усередині блока стає підписом, а не другим заголовком:
+   напівжирний того ж кольору, що й h2, робив із них два рівні одного
+   голосу — і на «Портфелі» це давало вісімнадцять однакових вигуків. */
+.card h4 {
+  margin: 0 0 var(--oi-gap-sm);
+  font-size: var(--oi-fs);
+  font-weight: var(--oi-fw-medium);
+  color: var(--oi-muted);
+}
 
 /* Шапка картки: заголовок ліворуч, супутнє праворуч (перемикач періоду,
    рік податку, кнопка «i»). Доти кожне таке місце писало власний
@@ -347,29 +426,55 @@ button.link { background: none; border: none; color: var(--oi-danger); padding: 
   gap: var(--oi-gap-sm);
 }
 
-/* Плитка-герой: головне число екрана. Саме заради неї заводився
-   --oi-fs-hero, який до цього моменту цілий реліз пролежав без жодного
-   споживача — тобто був не токеном, а обіцянкою. */
+/* Плитка-герой: головне число екрана. Кегль тепер плаває з шириною вікна
+   (--oi-fs-display), а разом із ним мусять їхати міжрядковий і трекінг:
+   1.25 й -0.01em підбирались під фіксовані 28px, і на 52px перший давав
+   зайвий рядок повітря, а другий переставав бути помітним узагалі. */
 /* grid-column, а не flex: .tiles — сітка, і flex тут не робив би нічого.
-   На телефоні плитка й так на всю ширину, тож розтягувати нема куди. */
-.tile.hero .val { font-size: var(--oi-fs-hero); }
+   На всю ширину ряду — і на телефоні теж. Твердження «там вона й так на
+   всю ширину» було просто неправдою: auto-fit при minmax(150px) складає
+   на 390px рівно дві колонки, тобто героєві діставалось 173px, і
+   «739 622,84 ₴» ламалось так, що ₴ їхала на власний рядок. Помітно це
+   стало лише тоді, коли кегль виріс, але сітка була такою й доти. */
+.tile.hero .val {
+  font-size: var(--oi-fs-display);
+  line-height: var(--oi-lh-display);
+  letter-spacing: var(--oi-ls-display);
+}
+.tile.hero { grid-column: 1 / -1; }
+/* Ширше за дві колонки герой не росте: розтягнутий на всі п'ять, він
+   лишає під числом пів екрана порожнечі, а сусідні плитки з'їжджають у
+   другий ряд без потреби. */
 @media (min-width: 640px) { .tile.hero { grid-column: span 2; } }
 
 /* Сегментний перемикач: кілька взаємовиключних варіантів одного
    питання (період графіка, «попереду / архів», рік податку). Доти це
    щоразу збиралось із двох кнопок, де активна відрізнялась відсутністю
    класу .quiet — тобто стан читався з ЗАПЕРЕЧЕННЯ. */
-.seg { display: inline-flex; gap: 0; border: 1px solid var(--oi-border-strong); border-radius: var(--oi-radius-sm); overflow: hidden; }
+/* Коробка з перегородками поступилась підкресленню — тому самому жесту,
+   яким позначена активна вкладка в nav. Це не економія пікселів: доти в
+   застосунку було два різні способи сказати «оце зараз обране», і
+   сегментний перемикач своїм рамковим виглядом читався як група кнопок,
+   тобто як дія, а не як стан. */
+.seg { display: inline-flex; gap: var(--oi-gap-lg); border: none; }
 .seg > button {
   background: none;
   color: var(--oi-muted);
   border: none;
   border-radius: 0;
-  padding: var(--oi-gap-xs) var(--oi-gap);
+  border-bottom: 3px solid transparent;
+  padding: var(--oi-gap-xs) 0;
+  /* Без рамки кнопка втратила поля, а разом із ними — ціль дотику.
+     Повна --oi-touch тут завелика (перемикач стоїть у рядку заголовка й
+     розсунув би його), але 32px пальцем беруться. */
+  min-height: 32px;
   font-size: var(--oi-fs-sm);
 }
-.seg > button + button { border-left: 1px solid var(--oi-border-strong); }
-.seg > button[aria-pressed="true"] { background: var(--oi-surface-3); color: var(--oi-text); font-weight: var(--oi-fw-medium); }
+.seg > button[aria-pressed="true"] {
+  color: var(--oi-text);
+  font-weight: var(--oi-fw-medium);
+  border-bottom-color: var(--oi-accent);
+}
 
 @media (min-width: 640px) {
   /* Щільність перемикається двома змінними, а не тридцятьма правилами.
@@ -380,11 +485,13 @@ button.link { background: none; border: none; color: var(--oi-danger); padding: 
     --oi-card-pad: var(--oi-gap-lg);
     --oi-cell-pad-y: var(--oi-gap-sm);
   }
-  .tiles { padding: 0 var(--oi-gap-lg); margin-bottom: var(--oi-gap-lg); }
-  .card { margin-bottom: var(--oi-gap-lg); }
+  /* Ростуть лише БІЧНІ поля ряду. Верхнє тримає лінійку на відстані від
+     попереднього блока, і ця відстань від ширини екрана не залежить —
+     вона задає ритм читання, а не щільність. */
+  .tiles { padding: var(--oi-gap-lg) var(--oi-gap-lg) 0; }
 }
 @media (min-width: 900px) {
-  .tiles { padding: 0 var(--oi-gap-xl); }
+  .tiles { padding: var(--oi-gap-lg) var(--oi-gap-xl) 0; }
 }
 
 /* --- таблиці --- */
@@ -406,16 +513,32 @@ table {
 @media (min-width: 640px) {
   table { display: table; overflow-x: visible; }
 }
+/* Рядок від рядка розділяє найтихіша лінійка. --oi-border тут читався як
+   сітка бухгалтерської книги: на двадцяти рядках двадцять однакових рис
+   важать разом більше за самі числа, а рахувати треба числа. Шапка
+   таблиці лишається на тон гучнішій — вона межа, а не роздільник. */
 th, td {
   text-align: left;
   padding: var(--oi-cell-pad-y) var(--oi-cell-pad-x);
-  border-bottom: 1px solid var(--oi-border);
+  border-bottom: var(--oi-rule) solid var(--oi-rule-hair);
 }
-th { color: var(--oi-muted); font-weight: var(--oi-fw-medium); }
+/* Шапка тихішає розміром і вагою, але не кольором: назва колонки —
+   єдине, що каже, ЩО саме в цьому стовпчику, і 3.6:1 для неї замало. */
+th {
+  color: var(--oi-muted);
+  font-weight: var(--oi-fw);
+  font-size: var(--oi-fs-xs);
+  border-bottom-color: var(--oi-border);
+}
 /* Вирівнювання праворуч — усе, що тут лишилось: табличні цифри тепер
    стоять на body/:host і успадковуються сюди самі. */
 td.num, th.num { text-align: right; }
 tr:last-child td { border-bottom: none; }
+/* Підсумковий рядок таблиці. Вагою, а не заливкою: у звіті підсумок
+   відрізняється тим, що він підсумок, а не тим, що він кольоровий.
+   Лінійка згори повертається до тону «між блоками» — вона тут відділяє
+   інший рівень числа, а не черговий рядок. */
+tr.tot > td { font-weight: var(--oi-fw-medium); border-top: var(--oi-rule) solid var(--oi-border); }
 
 /* --- єдина таблиця позицій --- */
 
@@ -424,10 +547,11 @@ tr:last-child td { border-bottom: none; }
    заливка на всю висоту рядка кричала б голосніше за самі числа. */
 .pill {
   display: inline-block;
-  padding: 1px var(--oi-gap-sm);
+  padding: 0 var(--oi-gap-sm);
+  line-height: 1.6;
   border-radius: var(--oi-radius-pill);
   font-size: var(--oi-fs-xs);
-  border: 1px solid currentColor;
+  border: var(--oi-rule) solid currentColor;
   white-space: nowrap;
 }
 .pill-bond { color: var(--oi-kind-bond); }
@@ -490,9 +614,14 @@ tr:last-child td { border-bottom: none; }
   gap: var(--oi-gap-xs) var(--oi-gap-sm);
   align-items: baseline;
   padding: var(--oi-gap-sm) 0;
-  border-bottom: 1px solid var(--oi-border);
+  border-bottom: var(--oi-rule) solid var(--oi-rule-hair);
   min-height: var(--oi-touch);
 }
+/* Рядок деталей ховається АТРИБУТОМ, і без цього правила він не
+   ховається зовсім: `[hidden] { display: none }` живе в стилі браузера з
+   нульовою специфічністю, а три яруси правил вище задають display
+   явно — і перемагають. */
+.pos-table > tbody > tr[hidden] { display: none; }
 .pos-table > tbody > tr:not(.detail-row) > td { border-bottom: none; padding: 0; }
 .pos-table > tbody > tr > td.col-kind { grid-area: kind; align-self: start; }
 .pos-table > tbody > tr > td[data-label="Назва"] { grid-area: name; }
@@ -546,7 +675,7 @@ tr:last-child td { border-bottom: none; }
   .pos-table > tbody > tr:not(.detail-row) > td {
     display: table-cell;
     padding: var(--oi-cell-pad-y) var(--oi-cell-pad-x);
-    border-bottom: 1px solid var(--oi-border);
+    border-bottom: var(--oi-rule) solid var(--oi-border);
   }
   .pos-table > tbody > tr > td[data-prio] {
     font-size: var(--oi-fs);
@@ -606,14 +735,14 @@ tr:last-child td { border-bottom: none; }
    Згортаємо те, до чого звертаються рідко: форми (записуєш операцію
    кілька разів на місяць) і архівні таблиці. Постійно розгорнуті, вони
    займали більше місця, ніж усе, заради чого сюди заходиш. */
-.disclosure { border-top: 1px solid var(--oi-border); }
+.disclosure { border-top: var(--oi-rule) solid var(--oi-rule-hair); }
 .disclosure:first-of-type { border-top: none; }
 
 .disclosure > summary {
   cursor: pointer;
   padding: var(--oi-gap) 0;
   font-size: var(--oi-fs-md);
-  font-weight: 600;
+  font-weight: var(--oi-fw-bold);
   list-style: none;
   display: flex;
   align-items: center;
@@ -666,13 +795,24 @@ form {
   margin-top: var(--oi-gap-xs);
 }
 label { display: flex; flex-direction: column; gap: var(--oi-gap-xs); font-size: var(--oi-fs-sm); color: var(--oi-muted); }
+/* Поле, під яким випадає список підказок. .suggest позиціюється
+   абсолютно, тож йому потрібен позиціонований предок — саме це, і нічого
+   більше, тут і сказано. */
+.has-suggest { position: relative; }
 input, select {
   padding: var(--oi-gap-sm);
   border-radius: var(--oi-radius-sm);
-  border: 1px solid var(--oi-border-strong);
+  border: var(--oi-rule) solid var(--oi-border-strong);
   background: var(--oi-surface-2);
   color: var(--oi-text);
   font-family: inherit;
+  /* Поле не має права бути ширшим за те, у чому лежить. Здавалося б,
+     очевидно — але в input[type=file] є ВЛАСНА внутрішня ширина, яка ні
+     від чого не залежить: на 390px він виходив на 16px за край, і разом
+     із ним по горизонталі їхала вся сторінка, включно з панеллю вкладок
+     (вона fixed, тобто міряється від вікна, яке щойно поширшало).
+     Виглядало це як «на „Грошах“ чомусь смикається низ екрана». */
+  max-width: 100%;
   /* 16px на телефоні — не смак: усе, менше за 16, змушує Safari на iOS
      наближати сторінку при фокусі в поле, і назад вона вже не від'їжджає.
      Далі повертаємось до щільного розміру решти інтерфейсу. */
@@ -696,14 +836,14 @@ td.num .sale-f { text-align: right; }
   position: absolute;
   top: 100%; left: 0; right: 0;
   z-index: var(--oi-z-popover);
-  margin-top: 2px;
+  margin-top: var(--oi-gap-xs);
   background: var(--oi-surface);
-  border: 1px solid var(--oi-border);
+  border: var(--oi-rule) solid var(--oi-border);
   border-radius: var(--oi-radius-sm);
   max-height: 240px;
   overflow: auto;
   display: none;
-  box-shadow: var(--oi-shadow);
+  box-shadow: var(--oi-shadow-pop);
 }
 .suggest.show { display: block; }
 .suggest-item {
@@ -726,14 +866,23 @@ td.num .sale-f { text-align: right; }
   grid-template-columns: auto 1fr;
   gap: var(--oi-gap-sm) var(--oi-gap);
   align-items: start;
-  border-radius: var(--oi-radius);
+  /* Смуга зліва замість рамки навколо. Заливку банер зберігає — це
+     СТАН, тобто рівно та категорія, де колір щось означає, — але
+     замкнений контур робив із нього ще одну картку на екрані, з якого
+     картки саме прибирають. Смуга каже те саме одним рухом. */
+  border-left: var(--oi-rule-strong) solid var(--oi-border-strong);
   padding: var(--oi-gap) var(--oi-card-pad);
-  margin-bottom: var(--oi-gap);
+  margin-bottom: var(--oi-gap-lg);
 }
 .banner .b-ic { font-size: var(--oi-fs-lg); line-height: var(--oi-lh-snug); }
 .banner .b-tx { min-width: 0; }
-.banner .b-t { font-size: var(--oi-fs-lg); }
-.banner .b-s { font-size: var(--oi-fs-sm); opacity: .9; margin-top: 3px; }
+.banner .b-t { font-size: var(--oi-fs-lg); font-weight: var(--oi-fw-medium); }
+.banner .b-s { font-size: var(--oi-fs-sm); opacity: .9; margin-top: var(--oi-gap-xs); }
+/* Банер без заголовка: підрядок у ньому і Є повідомлення, тож приглушати
+   його нема від чого. Доти цей випадок (застарілий довідник НБУ)
+   скасовував прозорість інлайном — тобто правило знало про виняток, але
+   виняток жив не тут. */
+.banner .b-tx > .b-s:only-child { opacity: 1; margin-top: 0; }
 .banner button {
   grid-column: 2;
   justify-self: start;
@@ -745,14 +894,18 @@ td.num .sale-f { text-align: right; }
   .banner { grid-template-columns: auto 1fr auto; align-items: center; }
   .banner button { grid-column: 3; align-self: center; min-height: 0; }
 }
-.banner.ok { background: var(--oi-soft-ok-bg); color: var(--oi-soft-ok-fg); border: 1px solid var(--oi-soft-ok-border); }
+/* Колір смуги береться з --oi-soft-*-border, а не з currentColor, і це
+   не зайвий крок: currentColor зробив би три токени безспоживчими, а
+   мертвий токен у цьому проєкті валить збірку — і, що гірше, читається
+   наступним автором як зразок. */
+.banner.ok { background: var(--oi-soft-ok-bg); color: var(--oi-soft-ok-fg); border-left-color: var(--oi-soft-ok-border); }
 .banner.ok button { background: var(--oi-soft-ok-btn-bg); color: var(--oi-soft-ok-btn-fg); }
-.banner.wait { background: var(--oi-soft-warn-bg); color: var(--oi-soft-warn-fg); border: 1px solid var(--oi-soft-warn-border); }
+.banner.wait { background: var(--oi-soft-warn-bg); color: var(--oi-soft-warn-fg); border-left-color: var(--oi-soft-warn-border); }
 /* Відмова, а не пересторога. Бурштин каже «зверни увагу», і саме ним був
    позначений єдиний випадок, коли застосунок не працює зовсім, — поруч
    із бурштиновим же «довідник НБУ застарів», який нічому не заважає. */
-.banner.danger { background: var(--oi-soft-danger-bg); color: var(--oi-soft-danger-fg); border: 1px solid var(--oi-soft-danger-border); }
-.banner.neutral { background: var(--oi-surface); border: 1px solid var(--oi-border-strong); box-shadow: var(--oi-shadow); }
+.banner.danger { background: var(--oi-soft-danger-bg); color: var(--oi-soft-danger-fg); border-left-color: var(--oi-soft-danger-border); }
+.banner.neutral { background: var(--oi-surface); }
 
 /* Пігулки типу виплати користуються тією ж базою .pill вище. Тут довго
    лежало ДРУГЕ визначення .pill — воно перекривало навмисний вигляд
@@ -783,7 +936,7 @@ td.num .sale-f { text-align: right; }
   cursor: pointer;
   background: var(--oi-surface);
   color: var(--oi-text);
-  border: 1px solid var(--oi-border-strong);
+  border: var(--oi-rule) solid var(--oi-border-strong);
 }
 /* Наведення міняє рамку, а не текст: акцент у тексті тут змагався б із
    рештою акцентів на екрані, а рамки досить, щоб сказати «клікабельно». */
@@ -797,8 +950,8 @@ td.num .sale-f { text-align: right; }
   display: flex;
   justify-content: space-between;
   font-size: var(--oi-fs);
-  padding: 7px 0;
-  border-bottom: 1px solid var(--oi-border);
+  padding: var(--oi-gap-sm) 0;
+  border-bottom: var(--oi-rule) solid var(--oi-border);
 }
 .pv-row:last-of-type { border-bottom: none; }
 
@@ -808,8 +961,8 @@ td.num .sale-f { text-align: right; }
 .chart-grid .card h4 { display: flex; align-items: center; justify-content: space-between; }
 
 .lg { display: flex; gap: var(--oi-gap-lg); flex-wrap: wrap; margin-top: var(--oi-gap-sm); font-size: var(--oi-fs); color: var(--oi-text); }
-.lg span { display: inline-flex; align-items: center; gap: 7px; }
-.lg i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.lg span { display: inline-flex; align-items: center; gap: var(--oi-gap-xs); }
+.lg i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; background: var(--oi-c, var(--oi-muted)); }
 
 /* Рядок поради «Що купити».
    Одна сітка на всі рядки, щоб числа стояли колонкою: доти кожна порада
@@ -821,7 +974,7 @@ td.num .sale-f { text-align: right; }
   align-items: center;
   gap: var(--oi-gap-sm);
   padding: var(--oi-gap-sm) 0;
-  border-top: 1px solid var(--oi-border);
+  border-top: var(--oi-rule) solid var(--oi-border);
 }
 .sg-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sg-s { white-space: nowrap; font-size: var(--oi-fs-sm); }
@@ -831,7 +984,6 @@ td.num .sale-f { text-align: right; }
 .sg-h { margin-top: var(--oi-gap); font-size: var(--oi-fs-sm); color: var(--oi-muted); }
 .sg-h:first-of-type { margin-top: 0; }
 .sg-d { padding: 0 0 var(--oi-gap-sm) 26px; }
-.ok-t { color: var(--oi-ok); }
 
 /* Підказка під курсором на кривій.
    Контейнер прокручується по горизонталі (графік ширший за вузьке
@@ -861,21 +1013,21 @@ td.num .sale-f { text-align: right; }
   display: none;
   pointer-events: none;
   background: var(--oi-surface-2);
-  border: 1px solid var(--oi-border-strong);
+  border: var(--oi-rule) solid var(--oi-border-strong);
   border-radius: var(--oi-radius-sm);
   padding: var(--oi-gap-sm) var(--oi-gap);
   font-size: var(--oi-fs-sm);
-  box-shadow: var(--oi-shadow);
+  box-shadow: var(--oi-shadow-pop);
   white-space: nowrap;
   z-index: var(--oi-z-sticky);
 }
 .chart-tip.show { display: block; }
-.chart-tip b { font-weight: 600; }
+.chart-tip b { font-weight: var(--oi-fw-bold); }
 .chart-tip .r { display: flex; align-items: center; gap: var(--oi-gap-sm); justify-content: space-between; }
-.chart-tip .r i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: 0 0 auto; }
-.chart-tip .r span { display: inline-flex; align-items: center; gap: 6px; }
+.chart-tip .r i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: 0 0 auto; background: var(--oi-c, var(--oi-muted)); }
+.chart-tip .r span { display: inline-flex; align-items: center; gap: var(--oi-gap-xs); }
 /* Підсумковий рядок відділяємо: він про суму, а не про ще один інструмент. */
-.chart-tip .tot { border-top: 1px solid var(--oi-border); margin-top: var(--oi-gap-xs); padding-top: var(--oi-gap-xs); }
+.chart-tip .tot { border-top: var(--oi-rule) solid var(--oi-rule-hair); margin-top: var(--oi-gap-xs); padding-top: var(--oi-gap-xs); }
 /* Смуга наведення невидима, але курсор має показувати, що тут щось є. */
 .chart-hit { cursor: crosshair; }
 
@@ -889,27 +1041,49 @@ td.num .sale-f { text-align: right; }
    інлайном дев'ятнадцять разів як `class="muted" style="margin-bottom:10px"`
    — і десять пікселів у ньому були єдиним місцем в усьому застосунку, де
    відступ не лягав на крок сітки. */
-.note { color: var(--oi-muted); font-size: var(--oi-fs); margin-bottom: var(--oi-gap); }
+/* Міра рядка стоїть саме тут — на тексті, а не на блоці, який його
+   містить. Блок буває завширшки з таблицю на сім колонок, і це
+   правильно; рядок пояснення такої ширини — ні: на моніторі він виходить
+   за двісті знаків, а на такому рядку око губить початок наступного. */
+.note {
+  color: var(--oi-muted);
+  font-size: var(--oi-fs);
+  margin-bottom: var(--oi-gap);
+  max-width: var(--oi-measure);
+}
 
-.sub { color: var(--oi-muted); font-size: var(--oi-fs-sm); margin-top: var(--oi-gap-xs); }
-.sub-xs { color: var(--oi-muted); font-size: var(--oi-fs-xs); margin-top: 2px; }
+.sub { color: var(--oi-muted); font-size: var(--oi-fs-sm); margin-top: var(--oi-gap-xs); max-width: var(--oi-measure); }
+.sub-xs { color: var(--oi-muted); font-size: var(--oi-fs-xs); margin-top: var(--oi-gap-xs); }
 
-/* Сітка плиток, вбудована в розділ: без власних полів і відступів, бо
-   їх уже дає main. */
-.tiles.flush { margin: 0 0 var(--oi-gap); padding: 0; }
+/* Ряд чисел, вбудований у розділ: без бічних полів, бо їх уже дає main.
+   Лінійка й верхній відступ лишаються — це не поле, а те, чим ряд
+   відділений від попереднього блока. */
+.tiles.flush { margin: 0 0 var(--oi-gap-xl); padding: var(--oi-gap-lg) 0 0; }
 
-/* Кольоровий квадратик у легенді. */
-.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: var(--oi-gap-sm); vertical-align: -1px; }
+/* Кольоровий квадратик у легенді.
+   Колір приходить із JS кастомною властивістю: який саме ряд якого
+   кольору — відомо лише в момент малювання, але ЩО саме цим кольором
+   фарбують, сказано тут, а не в шістьох місцях розмітки. */
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: var(--oi-gap-sm); vertical-align: -1px; background: var(--oi-c, var(--oi-muted)); }
 
 /* Кільце й легенда поруч, із переносом на вузькому екрані. */
-.donut-row { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.donut-row { display: flex; gap: var(--oi-gap-lg); align-items: center; flex-wrap: wrap; }
 .donut-legend { flex: 1; min-width: 180px; }
-.row-actions { display: flex; gap: 6px; }
-.bar { height: 14px; border-radius: var(--oi-radius-sm); display: inline-block; vertical-align: middle; }
+.row-actions { display: flex; gap: var(--oi-gap-xs); }
+/* Ширину й колір смуга дістає з JS — це частка, відома лише в момент
+   малювання. Решта форми належить сюди. */
+.bar {
+  height: 14px;
+  border-radius: var(--oi-radius-sm);
+  display: inline-block;
+  vertical-align: middle;
+  width: var(--oi-w, 0);
+  background: var(--oi-c, var(--oi-accent));
+}
 .muted { color: var(--oi-muted); }
 
-.progress { height: var(--oi-gap-sm); border-radius: 6px; background: var(--oi-border); overflow: hidden; margin-top: 6px; }
-.progress > span { display: block; height: 100%; background: var(--oi-accent); }
+.progress { height: var(--oi-gap-sm); border-radius: var(--oi-radius-sm); background: var(--oi-border); overflow: hidden; margin-top: var(--oi-gap-xs); }
+.progress > span { display: block; height: 100%; width: var(--oi-fill, 0%); background: var(--oi-c, var(--oi-accent)); }
 
 /* --- пояснення «як це читати» --- */
 
@@ -921,10 +1095,10 @@ td.num .sale-f { text-align: right; }
   position: relative;
   width: 20px; height: 20px;
   border-radius: 50%;
-  border: 1px solid var(--oi-border-strong);
+  border: var(--oi-rule) solid var(--oi-border-strong);
   background: none;
   color: var(--oi-muted);
-  font: italic var(--oi-fw-bold) var(--oi-fs-sm) Georgia, serif;
+  font: italic var(--oi-fw-bold) var(--oi-fs-sm) var(--oi-font-display);
   cursor: pointer;
   flex: 0 0 auto;
   line-height: 1;
@@ -944,10 +1118,18 @@ td.num .sale-f { text-align: right; }
 .infopop {
   background: var(--oi-surface);
   color: var(--oi-text);
-  border: 1px solid var(--oi-border-strong);
-  border-radius: var(--oi-radius-lg);
+  border: var(--oi-rule) solid var(--oi-border-strong);
+  border-radius: var(--oi-radius);
+  box-shadow: var(--oi-shadow-pop);
   padding: 0;
-  max-width: min(460px, calc(100vw - 2 * var(--oi-gap)));
+  /* Ширину задає МІРА РЯДКА, а не кругле число. 460px бралися з
+     міркування «щоб влізло», і сорок пояснень по п'ять-п'ятнадцять
+     абзаців читались колонкою завширшки з таблицю: рядок виходив
+     задовгим на моніторі й закоротким на телефоні одночасно. 66ch — це
+     ширина, за якою око впевнено знаходить початок наступного рядка, і
+     вона їде разом із кеглем читача, а не всупереч йому. */
+  max-width: min(calc(var(--oi-measure) + 2 * var(--oi-gap-xl)),
+                 calc(100vw - 2 * var(--oi-gap)));
   /* dvh, а не vh: на телефоні адресний рядок з'їдає частину vh, і довге
      пояснення обрізалось знизу рівно там, де його не видно. */
   max-height: min(80dvh, 720px);
@@ -955,12 +1137,25 @@ td.num .sale-f { text-align: right; }
 }
 .infopop::backdrop { background: var(--oi-overlay); }
 .infopop .box { padding: var(--oi-gap-lg); }
-.infopop h4 { margin: 0 0 var(--oi-gap-sm); font-size: var(--oi-fs-lg); }
+/* Єдине місце застосунку, де тексту більше, ніж чисел, — і єдине, де
+   доречний серіф. Він тут не прикраса: у суцільній прозі зарубки ведуть
+   око по рядку, і саме тому вони живуть у книжках, а не в таблицях.
+   Гротеск лишається всьому іншому. */
+.infopop h4 {
+  margin: 0 0 var(--oi-gap-sm);
+  font-family: var(--oi-font-display);
+  font-size: var(--oi-fs-xl);
+  font-weight: var(--oi-fw-medium);
+}
 .infopop p {
   margin: 0 0 var(--oi-gap);
   color: var(--oi-text);
+  font-family: var(--oi-font-display);
   line-height: var(--oi-lh-prose);
-  font-size: var(--oi-fs);
+  /* На кегль більше: серіф при тому самому розмірі читається дрібнішим
+     за гротеск — у нього менша висота рядкових. */
+  font-size: var(--oi-fs-md);
+  max-width: var(--oi-measure);
 }
 .infopop p:last-child { margin-bottom: 0; }
 .infopop .x {
@@ -976,17 +1171,24 @@ td.num .sale-f { text-align: right; }
   padding: 0;
 }
 @media (min-width: 640px) {
-  .infopop { max-width: 460px; }
+  /* Ширину тут більше не перевизначаємо: міра рядка від ширини вікна не
+     залежить — у цьому вся її суть. Росте лише поле навколо тексту. */
   .infopop .box { padding: var(--oi-gap-xl); }
 }
 
 /* --- секції: група карток під спільним питанням --- */
 
-.sect { margin-bottom: var(--oi-gap-2xl); }
+.sect { margin-bottom: var(--oi-gap-3xl); }
 .sect > .sect-d { border-top: none; }
+/* Лінійка ВІДКРИВАЄ секцію, а не підкреслює її заголовок. Різниця не
+   косметична: підкреслення прив'язує рису до тексту, тобто каже «ось
+   заголовок», а риса згори прив'язує її до порожнечі перед секцією й
+   каже «тут починається інше». Друге і є те, чого від секції треба, —
+   надто коли їх чотири поспіль. */
 .sect > .sect-d > summary {
-  padding: 0 0 var(--oi-gap);
-  border-bottom: 1px solid var(--oi-border);
+  padding: var(--oi-gap-lg) 0 var(--oi-gap);
+  border-top: var(--oi-rule) solid var(--oi-border-strong);
+  border-bottom: none;
   margin-bottom: var(--oi-gap-lg);
 }
 .sect-t {
@@ -1016,19 +1218,30 @@ td.num .sale-f { text-align: right; }
   font-size: var(--oi-fs);
 }
 .empty-t { color: var(--oi-text); font-size: var(--oi-fs-md); }
-.empty-w { max-width: 52ch; line-height: var(--oi-lh); }
+.empty-w { max-width: var(--oi-measure-narrow); line-height: var(--oi-lh); }
 
 /* --- скелети --- */
 
-.skel-card, .skel-tile, .skel-banner {
+/* Скелет мусить мати форму того, що прийде на його місце, — інакше при
+   заміні вміст стрибає, і рівно це й було б, лишись у нього коробка:
+   блок її втратив, а скелет ні. Заливка й поля лишились банеру: він
+   єдиний із трьох, у кого вони справді є. */
+.skel-card { margin-bottom: var(--oi-gap-2xl); }
+.skel-banner {
   background: var(--oi-surface);
-  border-radius: var(--oi-radius);
-  padding: var(--oi-card-pad);
-  margin-bottom: var(--oi-gap);
+  border-left: var(--oi-rule-strong) solid var(--oi-border-strong);
+  padding: var(--oi-gap) var(--oi-card-pad);
+  margin-bottom: var(--oi-gap-lg);
 }
-.skel-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--oi-gap); }
-.skel-tiles .skel-tile { margin-bottom: var(--oi-gap); }
-.skel-line { height: 1em; border-radius: var(--oi-radius-sm); background: var(--oi-surface-3); }
+.skel-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--oi-gap-xl) var(--oi-gap-lg);
+  padding-top: var(--oi-gap-lg);
+  border-top: var(--oi-rule) solid var(--oi-border);
+  margin-bottom: var(--oi-gap-xl);
+}
+.skel-line { height: 1em; border-radius: var(--oi-radius-sm); background: var(--oi-surface-3); width: var(--oi-w, 100%); }
 .skel-line + .skel-line { margin-top: var(--oi-gap-sm); }
 .skel-chart { height: 180px; border-radius: var(--oi-radius-sm); background: var(--oi-surface-3); margin-top: var(--oi-gap); }
 .skel-rows { margin-top: var(--oi-gap); }
@@ -1072,4 +1285,109 @@ main { transition: opacity var(--oi-dur) var(--oi-ease); }
 @media (min-width: 900px) { .toast { bottom: var(--oi-gap-xl); } }
 .toast.ok { background: var(--oi-ok); }
 .toast.err { background: var(--oi-danger); }
+
+/* --- ритм і дрібні носії --- */
+
+/* Далі йде те, на що в цьому файлі раніше дивились косо: класи без
+   власного змісту. Причина, чому вони все-таки тут, механічна, а не
+   смакова. Ці ж декларації лежали інлайном у розмітці — сто дев'яносто
+   входжень на вісімдесят два різні значення, — і кожне входження мало
+   власний шанс розійтися з рештою: `margin:0 0 10px` серед дванадцяти
+   `margin-bottom: var(--oi-gap)` не помітно ніяк, а сусідні картки від
+   нього стоять на різній висоті.
+   Правило просте: клас каже ЩО (сигнал, проза, ритм), інлайн лишається
+   рівно для того, що не можна знати наперед, — і лише кастомною
+   властивістю, яку читає правило нижче. */
+
+.mt-xs { margin-top: var(--oi-gap-xs); }
+.mt-sm { margin-top: var(--oi-gap-sm); }
+.mt    { margin-top: var(--oi-gap); }
+.mt-lg { margin-top: var(--oi-gap-lg); }
+.mb-xs { margin-bottom: var(--oi-gap-xs); }
+.mb-sm { margin-bottom: var(--oi-gap-sm); }
+.mb    { margin-bottom: var(--oi-gap); }
+.mb-lg { margin-bottom: var(--oi-gap-lg); }
+
+/* Ритм між сусідами замість відступу на кожному: не треба пам'ятати, що
+   останній елемент відступу знизу не має. */
+.flow > * + * { margin-top: var(--oi-flow); }
+
+/* Підсумковий рядок під переліком. Той самий набір із трьох
+   властивостей писався інлайном п'ять разів. */
+.rule-top {
+  border-top: var(--oi-rule) solid var(--oi-rule-hair);
+  padding-top: var(--oi-gap);
+  margin-top: var(--oi-gap);
+}
+/* Та сама лінійка щільніше — коли підсумок стоїть одразу під переліком
+   із двох рядків, а не під картою на пів екрана. */
+.rule-top.tight { padding-top: var(--oi-gap-sm); margin-top: var(--oi-gap-xs); }
+/* Зразок кольору, послаблений до заливки смуги на графіку: коридор
+   малюється тим самим кольором, що й лінія плану, але прозорим. */
+.lg i.faint { opacity: .3; }
+
+/* Дрібне без власних відступів: .sub і .note їх мають, і там, де відступ
+   уже задано сусідством, вони заважали. */
+.fine    { font-size: var(--oi-fs-sm); }
+.fine-xs { font-size: var(--oi-fs-xs); }
+
+/* Проза з мірою — для довгих пояснень поза модалкою «як це читати». */
+.prose { max-width: var(--oi-measure); line-height: var(--oi-lh-prose); }
+
+/* Сигнал у тексті. Доти ім'я мав рівно один із них — .ok-t, — а бурштин
+   і червоний писались кольором прямо в розмітці, десять і три рази.
+   Гірше: у двох місцях стояв клас .warn-t, якого в CSS НЕ БУЛО ніколи
+   («не вистачить і на місяць» у прогнозі й нестача грошей у кошику).
+   Обидва попередження малювались звичайним текстом, і побачити це можна
+   було лише знаючи, якого кольору вони мали бути. */
+.t-ok     { color: var(--oi-ok); }
+.t-warn   { color: var(--oi-warn); }
+.t-danger { color: var(--oi-danger); }
+.t-info   { color: var(--oi-info); }
+
+.row-h { display: flex; gap: var(--oi-gap-sm); align-items: center; flex-wrap: wrap; }
+/* Той самий рядок, але всередині клітинки таблиці, де він мусить стояти
+   в потоці поруч із кнопкою, а не займати свою лінію. */
+.row-h.inline { display: inline-flex; gap: var(--oi-gap-xs); flex-wrap: nowrap; }
+.nowrap { white-space: nowrap; }
+.ta-r { text-align: right; }
+/* Одиниця виміру при числі («/міс»): повертає рядковий кегль і вагу,
+   бо всередині .val успадкувала б обидва від числа. */
+.unit { font-size: var(--oi-fs); font-weight: var(--oi-fw); }
+/* Колір, відомий лише в момент малювання (сценарій прогнозу, ряд
+   графіка). Той самий шов, що й --oi-c у смужок, лише для тексту. */
+.tone { color: var(--oi-c, inherit); }
+/* Поле, що стоїть у рядку, а не колонкою форми. */
+.w-auto { width: auto; }
+/* Числове поле в клітинці таблиці: вирівняне праворуч, як і число, яке
+   воно заміщає, і завширшки з нього ж. */
+.num-in { width: 110px; text-align: right; }
+/* Три ширини полів, які стоять у рядку, а не колонкою форми: дата,
+   назва, назва довша. Четвертої не заводити — щойно їх стане більше,
+   ніж пам'ятає око, вони почнуть розходитись між собою. */
+.w-md { width: 150px; }
+.w-lg { width: 190px; }
+.w-xl { flex: 0 0 200px; }
+/* Поле довідника: ширину задає сам довідник (у різних колонок вона
+   різна), тож вона приходить кастомною властивістю. */
+.cat-f { width: var(--oi-w, 90px); }
+.self-start { align-self: flex-start; }
+.inline-block { display: inline-block; }
+.wrap { flex-wrap: wrap; }
+
+/* SVG розтягується на всю ширину рамки, а висоту бере з viewBox. Це
+   стояло інлайном на кожному з чотирьох різновидів графіка — тобто
+   правило про ВСІ графіки було записане в чотирьох місцях і в жодному
+   не було видно, що воно спільне. */
+.chart-frame > svg { display: block; width: 100%; height: auto; }
+/* Крива ширша за вузьке вікно прокручується всередині обгортки. Поріг
+   приходить із JS (він залежить від кількості точок), тож це єдине, що
+   тут лишається змінною. */
+.chart-wrap .chart-frame > svg { min-width: var(--oi-chart-min, var(--oi-chart-w, 0px)); }
+/* Кільце брокерів починається згори, а не праворуч. */
+.donut { transform: rotate(-90deg); flex: 0 0 auto; }
+/* Підписи всередині SVG беруть родину явно: успадкування крізь межу
+   тіньового дерева до <text> доходить, але покладатись на нього після
+   появи власної гарнітури дорого — фолбек тут видно одразу. */
+.chart-frame svg text { font-family: var(--oi-font); }
 

@@ -11,11 +11,13 @@
 // точніший лише дорожче коштує в підтримці, бо його доводиться правити
 // разом із кожним розділом.
 
-const line = (w) => `<div class="skel-line" style="width:${w}"></div>`;
+// Ширина приходить кастомною властивістю: конкретні відсотки тут —
+// випадковий шум, який імітує різну довжину рядків, а не рішення.
+const line = (w) => `<div class="skel-line" style="--oi-w:${w}"></div>`;
 
 const tiles = (n) =>
   `<div class="skel-tiles">${Array.from({ length: n }, () =>
-    `<div class="skel-tile">${line("55%")}${line("80%")}</div>`).join("")}</div>`;
+    `<div>${line("55%")}${line("80%")}</div>`).join("")}</div>`;
 
 const card = (rows) =>
   `<div class="skel-card">${line("38%")}${Array.from({ length: rows }, (_, i) =>
@@ -30,9 +32,15 @@ const table = (rows) =>
 const banner = () => `<div class="skel-banner">${line("45%")}${line("70%")}</div>`;
 
 // Що з чого складається. Ключі — ті самі, що в TABS.
+//
+// portfolio й risk були одним розділом на вісімнадцять блоків — форма
+// нижче все ще та сама сума, просто розділена по двох скелетах у місці
+// розрізу з constants.js: склад (плитки дохідностей, таблиця позицій,
+// крива капіталу) окремо від ризику (плитки часток, три секції карток).
 const SHAPES = {
   overview: () => banner() + tiles(3) + card(6) + card(4),
-  portfolio: () => tiles(4) + table(8) + card(3),
+  portfolio: () => tiles(4) + table(8) + chart(),
+  risk: () => tiles(2) + card(4) + card(4) + card(3),
   money: () => tiles(5) + card(5) + card(4),
   future: () => card(4) + chart() + chart() + table(6),
   settings: () => card(3) + card(6) + card(6),

@@ -19,10 +19,10 @@ export function depositFormHTML(ctx) {
         <option value="monthly">щомісяця</option>
         <option value="quarterly">щокварталу</option>
       </select></label>
-      <label style="flex-direction:row;align-items:center;gap:var(--oi-gap-sm)">
-        <input name="capitalized" type="checkbox" style="width:auto">Капіталізація</label>
-      <label style="flex-direction:row;align-items:center;gap:var(--oi-gap-sm)">
-        <input name="replenishable" type="checkbox" style="width:auto">Поповнюваний</label>
+      <label class="row-h">
+        <input name="capitalized" type="checkbox" class="w-auto">Капіталізація</label>
+      <label class="row-h">
+        <input name="replenishable" type="checkbox" class="w-auto">Поповнюваний</label>
       <label>Податок, %<input name="tax_pct" inputmode="decimal" placeholder="19.5 (за замовч.)"></label>
       <label>Нотатка<input name="note"></label>
       <div class="form-actions"><button type="submit">Додати</button></div>

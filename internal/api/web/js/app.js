@@ -25,6 +25,7 @@ import { parseRoute, routeFor, ANCHORS } from "./routes.js";
 
 import { renderOverview } from "./views/overview.js";
 import { renderPortfolio } from "./views/portfolio.js";
+import { renderRisk } from "./views/risk-tab.js";
 import { renderMoney } from "./views/money.js";
 import { renderFuture } from "./views/future.js";
 import { renderSettings } from "./views/settings.js";
@@ -44,6 +45,7 @@ const MARK = `<svg class="mark" viewBox="0 0 24 24" fill="currentColor" aria-hid
 const VIEWS = {
   overview: renderOverview,
   portfolio: renderPortfolio,
+  risk: renderRisk,
   money: renderMoney,
   future: renderFuture,
   settings: renderSettings,
@@ -232,7 +234,14 @@ export class OddInvestApp extends HTMLElement {
         ${MARK}
         <h1>ODD Invest</h1>
         <span class="sp"></span>
-        <span id="avail" class="muted" style="color:inherit;opacity:.85"></span>
+        <span id="avail" class="hdr-stamp"></span>
+        <!-- Налаштування ходять раз на місяць, а не щодня, — тож на
+             телефоні їм зручніше в шапці, ніж шостою кнопкою в панелі
+             знизу: шість колонок на 375px дають по 62px, а «Налаштування»
+             (12 літер) уже переносилось і на п'яти. Клас .gear (base.css)
+             ховає цю кнопку від 900px, де в панелі вистачає місця всім
+             шістьом, і показує там саму вкладку «Налаштування» назад. -->
+        <a class="ghost gear" href="#/settings" aria-label="Налаштування">⚙</a>
         <button class="ghost" id="refresh">↻ Оновити НБУ</button>
       </header>
       <!-- href, а не голий <a>: доти вкладки не мали ні адреси, ні

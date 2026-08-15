@@ -63,7 +63,7 @@ export function section(key, title, body, { open = false, hint = "" } = {}) {
     <details class="disclosure sect-d" data-fold="sect.${key}"${open ? " open" : ""}>
       <summary><h2 class="sect-t">${title}</h2>${
         hint ? `<span class="hint">${hint}</span>` : ""}</summary>
-      <div class="sect-body">${body}</div>
+      <div>${body}</div>
     </details>
   </section>`;
 }

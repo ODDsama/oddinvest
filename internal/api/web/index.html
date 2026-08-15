@@ -9,6 +9,15 @@
 <meta name="color-scheme" content="dark">
 <title>ODD Invest</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<!-- Шрифти. Єдиний CSS, який підключається сторінкою, а не js/styles.js:
+     @font-face належить документу й усередині shadow root не реєструється.
+
+     crossorigin обов'язковий навіть на своєму походженні — шрифти завжди
+     тягнуться в CORS-режимі, і без атрибута preload качає файл вдруге,
+     тобто робить рівно протилежне до задуманого. -->
+<link rel="preload" href="./fonts/inter-var.v1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="./fonts/source-serif-4-var.v1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="./css/fonts.css">
 <!--
   Хост застосунку. Уся розмітка й логіка — у <odd-invest-app> (js/app.js);
   тут лишається рівно одне: чим компоненту ходити в бекенд.

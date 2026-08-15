@@ -4,15 +4,25 @@
 # і CI робили те саме різними способами — а найдорожчою була церемонія
 # синхронізації UI: правка одного символу в CSS вимагала regen манiфесту
 # тут, коміт, пуш, а тоді ще синк і коміт у сусідньому репозиторії.
-# Церемонії більше немає разом із панеллю: поверхня одна, і цілей
-# `manifest`/`ui` тут теж немає — правка в web/ нікуди далі не їде.
+# Церемонії більше немає разом із панеллю: поверхня одна, цілі `manifest`
+# тут немає — правка в web/ нікуди далі не їде.
+#
+# Ціль `ui` лишилась, але означає геть інше, ніж колись: не синхронізацію
+# з сусіднім репозиторієм, а чотири перевірки фронтенду. Збірки в UI немає
+# навмисно, тож бандлера, який ловив би описки, теж немає — і відколи
+# панель прибрана, ці перевірки ЄДИНА сітка під web/. Доти вони жили лише
+# в .github/workflows/ci.yml, тобто про поламане дізнавались після пушу.
 #
 # Тести: internal/api і internal/store потребують CGO (драйвер SQLite),
 # тож без gcc локально бігають лише чисті пакети — `make test-pure`.
+#
+# `check` навмисно не тягне `ui`: Go і Node — різні набори інструментів, у
+# CI це теж дві окремі джоби, і людині без node має лишатись робочий
+# `make check`.
 
 GO ?= go
 
-.PHONY: help fmt lint vet test test-pure build check
+.PHONY: help fmt lint vet test test-pure build check ui
 
 help:
 	@echo 'fmt        — gofmt -w .'
@@ -20,7 +30,8 @@ help:
 	@echo 'test       — усі тести під -race (потрібен CGO)'
 	@echo 'test-pure  — лише пакети без CGO (працює без gcc)'
 	@echo 'build      — зібрати oddinvestd'
-	@echo 'check      — те, що ганяє CI'
+	@echo 'check      — те, що ганяє CI по Go'
+	@echo 'ui         — те, що ганяє CI по web/ (потрібен node)'
 
 fmt:
 	$(GO) fmt ./...
@@ -41,6 +52,20 @@ test-pure:
 
 build:
 	$(GO) build -o oddinvestd ./cmd/oddinvestd
+
+# Дзеркало джоби `ui` з ci.yml, крок у крок. Порядок від дешевого до
+# дорогого: синтаксис кожного модуля, потім чи резолвиться кожен імпорт,
+# потім чи визначене кожне вжите імʼя, потім шар токенів CSS.
+#
+# eslint тут CI-only: ставиться через npx і в застосунок не потрапляє —
+# правило «жодних залежностей у web/» не порушене.
+ui:
+	@cd internal/api/web && for f in $$(find js -name '*.js'); do \
+		node --check "$$f" || exit 1; \
+	done
+	@node web-imports-check.mjs >/dev/null || { node web-imports-check.mjs | grep FAIL; exit 1; }
+	npx --yes eslint@9 internal/api/web/js
+	node css-tokens-check.mjs
 
 # Те саме, що в .github/workflows/ci.yml, щоб не дізнаватись про поламане
 # вже після пушу.

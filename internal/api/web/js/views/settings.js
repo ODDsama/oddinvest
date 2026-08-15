@@ -29,7 +29,7 @@ export function catalogRowHTML(item, fields = []) {
   // не розрізняє select від input — обидва мають .value.
   const inputs = fields.map((f) => {
     const attrs = `class="cat-f" data-field="${f.key}" title="${esc(f.title || "")}"
-       style="width:${f.w || 90}px"`;
+       style="--oi-w:${f.w || 90}px"`;
     if (f.opts) {
       const opts = f.opts.map((o) =>
         `<option value="${esc(o.v)}"${o.v === (f.value ?? "") ? " selected" : ""}>${esc(o.t)}</option>`).join("");
@@ -43,9 +43,9 @@ export function catalogRowHTML(item, fields = []) {
   // Дев'ять полів переносяться, і ✕ розтягувався червоною смугою на дві
   // лінії. Правити .pv-row не можна — на ній стоять усі списки позицій.
   return `<div class="pv-row" data-cat="${item.id}">
-    <span style="display:flex;gap:var(--oi-gap-sm);flex-wrap:wrap;align-items:center">
-      <input class="cat-name" value="${esc(item.name)}" style="width:190px">${inputs}</span>
-    <button class="sm warn" data-catdel="${item.id}" style="align-self:flex-start">✕</button></div>`;
+    <span class="row-h">
+      <input class="cat-name w-lg" value="${esc(item.name)}">${inputs}</span>
+    <button class="sm warn self-start" data-catdel="${item.id}">✕</button></div>`;
 }
 
 export function catalogsHTML(ctx) {
@@ -87,8 +87,8 @@ export function catalogsHTML(ctx) {
   return `<div class="card" id="brokerCard">
       <h2 class="h-row">Брокери ${infoBtn("setBrokers")}</h2>
       ${brokers}
-      <form id="brokerAddForm" style="margin-top:var(--oi-gap);display:flex;gap:var(--oi-gap-sm)">
-        <input name="broker" placeholder="назва брокера" style="flex:0 0 200px" autocomplete="off">
+      <form id="brokerAddForm" class="row-h mt">
+        <input name="broker" class="w-xl" placeholder="назва брокера" autocomplete="off">
         <div class="form-actions"><button type="submit">Додати</button></div>
       </form>
     </div>
@@ -209,16 +209,16 @@ function devalHTML(d) {
     <td class="muted sub-xs">${esc(w.from)} → ${esc(w.to)}</td></tr>`).join("");
   return `<div class="card">
     <h2>Знецінення гривні</h2>
-    <div class="tiles flush" style="margin-bottom:var(--oi-gap)">
+    <div class="tiles flush mb">
       ${tile("Чинне значення", pct(d.effective_pct), `<div class="sub">${src}</div>`)}
     </div>
-    <div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:var(--oi-gap)">Це число ділить <b>кожну реальну
+    <div class="muted fine mb">Це число ділить <b>кожну реальну
       дохідність</b> у застосунку й керує прогнозом. Порожнє поле «Гривня слабшає» вище означає
       «бери виміряне» — саме так його й повертають назад на автоматику.</div>
     ${rows ? `<div class="table-scroll"><table><thead><tr>
         <th>Вікно</th><th class="num">%/рік</th><th>Курс від → до</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
-      <div class="sub" style="margin-top:var(--oi-gap-sm)">Застосунок бере <b>десятирічне</b> вікно, і різниця між
+      <div class="sub mt-sm">Застосунок бере <b>десятирічне</b> вікно, і різниця між
         рядками пояснює чому: гривня падає стрибками, тож коротке вікно ловить або стрибок, або
         затишшя між ними. Довге усереднює і те, і те.</div>`
       : `<div class="muted">${esc(d.note || "історії курсу ще немає")}</div>`}
@@ -330,12 +330,12 @@ export async function renderSettings(ctx, main) {
 
     <div class="card">
       <h2 class="h-row">Бекап ${infoBtn("setBackup")}</h2>
-      <div style="display:flex;gap:var(--oi-gap-sm);flex-wrap:wrap;align-items:center">
+      <div class="row-h">
         <button type="button" id="btnExport">Завантажити бекап</button>
-        <label style="display:inline-block"><span class="muted" style="font-size:var(--oi-fs-sm)">Відновити з файлу:</span>
-          <input type="file" id="importFile" accept="application/json,.json" style="margin-top:var(--oi-gap-sm)"></label>
+        <label class="inline-block"><span class="muted fine">Відновити з файлу:</span>
+          <input type="file" id="importFile" accept="application/json,.json" class="mt-sm"></label>
       </div>
-      <div class="muted" id="restoreMsg" style="margin-top:var(--oi-gap-sm);font-size:var(--oi-fs-sm)"></div>
+      <div class="muted mt-sm fine" id="restoreMsg"></div>
     </div>`, { hint: "брокери, фонди, бекап" })}`;
   bindBackup(ctx, main);
   bindBrokers(ctx, main);

@@ -62,9 +62,9 @@ export function goalsHTML(ctx) {
   if (asPayment && market.length) {
     const vals = market.map(payOf).filter((v) => v > 0).sort((a, b) => a - b);
     if (vals.length) {
-      range = `<div style="margin:2px 0 12px">
-        <div style="font-size:22px;font-weight:600">${Math.round(vals[0]).toLocaleString("uk-UA")} — ${pay(vals[vals.length - 1])}<span style="font-size:14px;font-weight:400">/міс</span></div>
-        ${need > 0 ? `<div class="muted" style="font-size:var(--oi-fs-sm);margin-top:2px">найімовірніше ${pay(need)}/міс</div>` : ""}
+      range = `<div class="mb">
+        <div class="val">${Math.round(vals[0]).toLocaleString("uk-UA")} — ${pay(vals[vals.length - 1])}<span class="unit">/міс</span></div>
+        ${need > 0 ? `<div class="muted fine mt-xs">найімовірніше ${pay(need)}/міс</div>` : ""}
       </div>`;
     }
   }
@@ -81,12 +81,12 @@ export function goalsHTML(ctx) {
     const val = asPayment ? payOf(r) : (r.amount || 0);
     // Позначки «найімовірніше» тут немає: її вже сказано у вилці вище,
     // а реалістичний рядок і так виділений кольором.
-    return `<div style="margin-bottom:var(--oi-gap-sm)">
+    return `<div class="mb-sm">
       <div class="kv">
-        <span style="color:${COLOR[r.key] || "inherit"}">${esc(r.label)}</span>
+        <span class="tone" style="--oi-c:${COLOR[r.key] || "inherit"}">${esc(r.label)}</span>
         <span><b>${asPayment ? pay(val) + "/міс" : money(val)}</b></span>
       </div>
-      <div class="muted" style="font-size:var(--oi-fs-xs);margin-top:1px">${termRates(r)} номінальних · гривня слабшає ${pct(r.devaluation_pct)}/рік</div>
+      <div class="muted fine-xs mt-xs">${termRates(r)} номінальних · гривня слабшає ${pct(r.devaluation_pct)}/рік</div>
     </div>`;
   }).join("");
 
@@ -97,18 +97,18 @@ export function goalsHTML(ctx) {
     const eta = actual.goal_months === -1 ? "вже досягнуто"
       : actual.goal_months > 0 ? `${monthYear(actual.goal_date)}`
       : "не досягається за 60 років";
-    actualBlock = `<div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap);margin-top:var(--oi-gap)">
+    actualBlock = `<div class="rule-top">
       <div class="kv">
-        <span>За фактом ${hist > 0 ? `<span class="muted" style="font-size:var(--oi-fs-sm)">за ${humanMonths(hist)} історії</span>` : ""}</span>
+        <span>За фактом ${hist > 0 ? `<span class="muted fine">за ${humanMonths(hist)} історії</span>` : ""}</span>
         <span><b>${pay(payOf(actual))}/міс</b>${asPayment && need > 0
-          ? ` <span style="color:var(--oi-info)">— ${share.toFixed(0)}% від потрібного</span>` : ""}</span>
+          ? ` <span class="t-info">— ${share.toFixed(0)}% від потрібного</span>` : ""}</span>
       </div>
-      ${asPayment && need > 0 ? `<div class="progress" style="margin-top:var(--oi-gap-sm)"><span style="width:${share}%;background:var(--oi-info)"></span></div>` : ""}
-      <div class="muted" style="font-size:var(--oi-fs-xs);margin-top:var(--oi-gap-xs)">на дедлайн ${goalFmt(actual.amount)}${
+      ${asPayment && need > 0 ? `<div class="progress mt-sm"><span style="--oi-fill:${share}%;--oi-c:var(--oi-info)"></span></div>` : ""}
+      <div class="muted fine-xs mt-xs">на дедлайн ${goalFmt(actual.amount)}${
         goal > 0 ? ` — ${(actual.goal_pct || 0).toFixed(1)}% цілі` : ""} · за цим темпом ціль ${eta}</div>
     </div>`;
   } else {
-    actualBlock = `<div class="muted" style="font-size:var(--oi-fs-sm);border-top:1px solid var(--oi-border);padding-top:var(--oi-gap);margin-top:var(--oi-gap)">
+    actualBlock = `<div class="muted fine rule-top">
       Прогноз за фактичним темпом зʼявиться після першого поповнення.</div>`;
   }
 
@@ -197,23 +197,23 @@ export function sensitivityHTML(ctx) {
       // Стрілка лише там, де є що порівнювати: для дедлайну місяць
       // досягнення навмисно базовий, тож рухається сама сума.
       const moved = r.goal_months !== s.base_goal_months;
-      return `<div class="kv" style="margin-bottom:5px">
-        <span><b>${esc(leverShift(r))}</b> <span class="muted" style="font-size:var(--oi-fs-sm)">${esc(leverValue(r))}</span></span>
-        <span style="text-align:right">
+      return `<div class="kv mb-xs">
+        <span><b>${esc(leverShift(r))}</b> <span class="muted fine">${esc(leverValue(r))}</span></span>
+        <span class="ta-r">
           ${moved ? `<b>${esc(when)}</b>` : `<span class="muted">${esc(when)}</span>`}
-          <span class="muted" style="font-size:var(--oi-fs-xs)"> · ${(r.goal_pct || 0).toFixed(0)}% цілі</span>
+          <span class="muted fine-xs"> · ${(r.goal_pct || 0).toFixed(0)}% цілі</span>
         </span>
       </div>`;
     }).join("");
-    return `<div style="margin-bottom:var(--oi-gap)">
-      <div class="sub-xs" style="margin-bottom:var(--oi-gap-xs)"><b>${esc(title)}</b> · ${esc(why)}</div>
+    return `<div class="mb">
+      <div class="sub-xs mb-xs"><b>${esc(title)}</b> · ${esc(why)}</div>
       ${items}</div>`;
   }).join("");
 
   return `<div class="card"><h2 class="h-row"><span>Що зрушить ціль ${infoBtn("sensitivity")}</span></h2>
     <div class="sub">Один вхід за раз, ${esc(baseFrom)} ${round(s.base_contrib_uah)} ₴/міс.
       Зараз ціль ${esc(baseWhen)} — ${(s.base_goal_pct || 0).toFixed(0)}% на дедлайн.</div>
-    <div class="sub-xs" style="margin-bottom:var(--oi-gap)">Це наслідки припущень, а не поради: рядки не
+    <div class="sub-xs mb">Це наслідки припущень, а не поради: рядки не
       відсортовані «найкращий зверху», і половина з них — ставка й знецінення — від тебе не
       залежить узагалі.</div>
     ${groups}</div>`;

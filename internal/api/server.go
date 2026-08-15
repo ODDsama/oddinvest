@@ -136,9 +136,20 @@ func noStoreAPI(next http.Handler) http.Handler {
 // вбудовані через go:embed з нульовим ModTime, тож Last-Modified немає і
 // відповісти 304 нема на що. Для домашнього сервісу в локальній мережі
 // це дешевше за годину пошуку «чому не оновилось».
+//
+// Виняток один — шрифти. Вони важать більше за весь решту застосунку
+// разом, і та сама відсутність ModTime означала б 88 КБ на КОЖНЕ
+// відкриття сторінки. Кешувати їх назавжди можна саме тому, чому не
+// можна модулі: вміст файла шрифту незмінний за побудовою, бо нова
+// версія — це нове імʼя (inter-var.v1.woff2 → …v2…, див.
+// web-fonts-build.sh). Модулі такої властивості не мають.
 func noCache(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache")
+		if strings.HasPrefix(r.URL.Path, "/fonts/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

@@ -19,8 +19,16 @@ export const CAT_COLORS = [
   "var(--oi-cat-5)", "var(--oi-cat-6)", "var(--oi-cat-7)",
 ];
 
-const AXIS = "var(--oi-muted)";
-const GRID = "var(--oi-border)";
+// Підписи — найтихіший рівень тексту: вони супроводжують число чи стовпчик,
+// а не несуть власний зміст, тож --oi-text-faint (3.6:1) тут доречний рівно
+// за визначенням цього токена в темі. Було --oi-muted — рівень для тексту,
+// що читають САМ, а вісь ніхто не читає окремо від того, що на ній стоїть.
+const AXIS = "var(--oi-text-faint)";
+// Сітка й розділові лінії — рядок від рядка всередині одного полотна,
+// тобто та сама роль, що в таблиць: --oi-rule-hair, а не --oi-border. Базова
+// лінія осі (нуль) лишається на --oi-border — вона межа полотна, а не
+// проміжна позначка.
+const GRID = "var(--oi-rule-hair)";
 
 // Полотно малих графіків.
 //
@@ -101,7 +109,7 @@ export function fitCharts(root) {
  *  легенда стоїть під нею й ширини не потребує. */
 export function seriesLegend(series) {
   return series.map((s) =>
-    `<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join("");
+    `<span><i style="--oi-c:${s.color}"></i>${esc(s.name)}</span>`).join("");
 }
 
 /** Стовпчики. items: [{label, value, color?}]. showVals — підпис суми зверху. */
@@ -114,14 +122,14 @@ export function svgBars(items, { showVals = false, W = W0, H = H0 } = {}) {
   items.forEach((it, i) => {
     const h = (it.value / max) * ih, x = Pl + gap * i + (gap - bw) / 2, y = Pt + ih - h;
     out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}"`
-      + ` rx="2" fill="${it.color || "var(--oi-series-invested)"}">`
+      + ` fill="${it.color || "var(--oi-series-invested)"}">`
       + `<title>${esc(it.label)}: ${Math.round(it.value).toLocaleString("uk")} ₴</title></rect>`;
     out += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(it.label)}</text>`;
     if (showVals && it.value > 0) {
       out += `<text x="${(x + bw / 2).toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle" font-size="${FS_SM}" fill="${AXIS}">${compact(it.value)}</text>`;
     }
   });
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${out}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
 }
 
 /** Згруповані пари стовпчиків (факт vs ціль). groups: [{label, a, b}] */
@@ -136,11 +144,11 @@ export function svgGrouped(groups, { W = W0, H = H0 } = {}) {
     [[g.a, "var(--oi-series-invested)", -bw - 2], [g.b, "var(--oi-series-neutral)", 2]].forEach(([v, col, dx]) => {
       const h = (v / max) * ih, x = cx + dx, y = Pt + ih - h;
       out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw}" height="${Math.max(0, h).toFixed(1)}"`
-        + ` rx="2" fill="${col}"><title>${v.toFixed(1)}%</title></rect>`;
+        + ` fill="${col}"><title>${v.toFixed(1)}%</title></rect>`;
     });
     out += `<text x="${cx.toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(g.label)}</text>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${out}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
 }
 
 /** Лінійний графік із кількома серіями по спільних x-мітках.
@@ -153,10 +161,10 @@ export function svgLine(xlabels, series, { W = W0, H = H0 } = {}) {
   const Y = (v) => Pt + ih - (v / max) * ih;
   const lines = series.map((s) =>
     `<polyline points="${s.values.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}"`
-    + ` fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round"/>`).join("");
+    + ` fill="none" stroke="${s.color}" stroke-width="1.5" stroke-linejoin="round"/>`).join("");
   const xl = xlabels.map((l, i) =>
     `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(l)}</text>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${lines}${xl}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${lines}${xl}</svg>`;
 }
 
 /** Крива прогнозу: коридор між двома серіями, лінії всередині нього і
@@ -185,28 +193,32 @@ export function svgBandLine(xlabels, bands, lines, goal, { W = W0, H = H0 } = {}
   if ((bands.lo || []).length && (bands.hi || []).length) {
     const up = bands.hi.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`);
     const down = bands.lo.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).reverse();
-    out += `<polygon points="${up.concat(down).join(" ")}" fill="var(--oi-series-invested)" opacity="0.12"/>`;
+    out += `<polygon points="${up.concat(down).join(" ")}" fill="var(--oi-series-invested)" opacity="0.09"/>`;
   }
   if (goal > 0) {
     const y = Y(goal).toFixed(1);
-    out += `<line x1="${Pl}" y1="${y}" x2="${W - Pr}" y2="${y}" stroke="${AXIS}"`
-      + ` stroke-width="1" stroke-dasharray="4 3"/>`;
+    out += `<line x1="${Pl}" y1="${y}" x2="${W - Pr}" y2="${y}" stroke="${GRID}"`
+      + ` stroke-width="1" stroke-dasharray="2 4"/>`;
   }
   out += lines.map((s) =>
     `<polyline points="${s.values.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}"`
-    + ` fill="none" stroke="${s.color}" stroke-width="2.5" stroke-linejoin="round"`
+    + ` fill="none" stroke="${s.color}" stroke-width="1.5" stroke-linejoin="round"`
     + `${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`).join("");
   out += xlabels.map((l, i) => l
     ? `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(l)}</text>`
     : "").join("");
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto">${out}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
 }
 
 /** Кільце часток. parts: [{label, value}] — уже відсортовані.
  *  Повертає {svg, colors}: легенду малює той, хто кличе, бо підпис
  *  частки в різних місцях різний (сума, відсоток, і те й те). */
 export function svgDonut(parts) {
-  const R = 60, WIDTH = 22, C = 2 * Math.PI * R;
+  // Тонше кільце: доти товщина штриха (22) майже дорівнювала радіусу (60),
+  // і форма читалась ближче до товстого бублика, ніж до лінії частки.
+  // Ширший радіус (64) заразом лишає більше повітря всередині — там, де
+  // в редизайні стоїть легенда.
+  const R = 64, WIDTH = 12, C = 2 * Math.PI * R;
   const total = parts.reduce((s, p) => s + p.value, 0) || 1;
   const colors = parts.map((_, i) => CAT_COLORS[i % CAT_COLORS.length]);
   let acc = 0;
@@ -217,7 +229,7 @@ export function svgDonut(parts) {
     acc += len;
     return arc;
   }).join("");
-  const svg = `<svg viewBox="0 0 160 160" width="140" height="140" style="transform:rotate(-90deg);flex:0 0 auto">${arcs}</svg>`;
+  const svg = `<svg class="donut" viewBox="0 0 160 160" width="140" height="140">${arcs}</svg>`;
   return { svg, colors };
 }
 
@@ -320,7 +332,10 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
   let grid = "", ylabels = "";
   for (let r = 0; r <= 4; r++) {
     const gv = (ymax * r) / 4, gy = y(gv);
-    grid += `<line x1="${P.l}" y1="${gy.toFixed(1)}" x2="${width - P.r}" y2="${gy.toFixed(1)}" stroke="${GRID}" stroke-width="1"/>`;
+    // Базова лінія (r=0, нуль осі) — межа полотна, тож лишається на
+    // --oi-border; чотири проміжні лінії над нею — рядок від рядка, тобто
+    // --oi-rule-hair, найтихіший рівень.
+    grid += `<line x1="${P.l}" y1="${gy.toFixed(1)}" x2="${width - P.r}" y2="${gy.toFixed(1)}" stroke="${r === 0 ? "var(--oi-border)" : GRID}" stroke-width="1"/>`;
     ylabels += `<text x="${P.l - 8}" y="${(gy + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${AXIS}">${compact(gv)}</text>`;
   }
 
@@ -345,7 +360,7 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
     const bottom = (k ? tops[k - 1] : s.values.map(() => 0))
       .map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).reverse();
     return `<polygon points="${top.concat(bottom).join(" ")}" fill="${s.color}"`
-      + ` fill-opacity="0.55" stroke="${s.color}" stroke-width="1"/>`;
+      + ` fill-opacity="0.16" stroke="${s.color}" stroke-width="1.25"/>`;
   }).join("");
 
   const paths = lines.map((s) => {
@@ -356,7 +371,7 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
     const pts = s.values
       .map((v, i) => (v == null ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
       .filter(Boolean).join(" ");
-    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2.5"`
+    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="1.5"`
       + `${s.dash ? ' stroke-dasharray="6 5"' : ""} stroke-linejoin="round"/>`;
   }).join("");
 
@@ -382,9 +397,13 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
   // тож коефіцієнт розтягу дорівнює одиниці й підписи мають рівно той
   // кегль, який тут написаний. minWidth лишається як запобіжник для
   // прямих викликів повз рамку.
+  // Ширину й висоту малює CSS (.chart-frame > svg). Звідси приходить лише
+  // ЗАПАСНИЙ поріг мінімальної ширини — він залежить від кількості точок,
+  // тобто відомий тільки тут; --oi-chart-min поверх нього ставить
+  // медіазапит, коли крива має вміститись у телефон цілком.
   const svg = `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img"`
     + ` aria-label="${esc(label || "Історія портфеля")}"`
-    + ` style="width:100%;min-width:var(--oi-chart-min, ${minWidth}px);height:auto">`
+    + ` style="--oi-chart-w:${minWidth}px">`
     + `<title>${esc(label || "Історія портфеля")}</title>`
     + `${grid}${ylabels}${xlabels}${bands}${paths}${hits}</svg>`;
   return { svg, legend };

@@ -9,9 +9,9 @@ import {
   esc, curSym, today, dayMonth, pct, daysUntil,
   uah2 as fmtUAH, money as fmtMoney,
 } from "../format.js";
-import { PAYOUT_LABEL, KIND_LABEL } from "../constants.js";
+import { PAYOUT_LABEL } from "../constants.js";
 import { infoBtn } from "../info.js";
-import { yieldPair, empty } from "../components.js";
+import { yieldPair, empty, kindPill } from "../components.js";
 import { routeFor } from "../routes.js";
 import { fundTable } from "../fund-ops.js";
 import { isOpen, remember } from "../uistate.js";
@@ -60,7 +60,7 @@ function bondDetailHTML(p, lots, sales) {
   // а в самому рядку їх не видно.
   const saleF = (field, attrs) =>
     `<td class="num"><input class="sale-f" data-field="${field}" ${attrs}></td>`;
-  const salesTbl = mySales.length ? `<h4 style="margin-top:var(--oi-gap)">Продажі</h4><table><thead><tr>
+  const salesTbl = mySales.length ? `<h4 class="mt">Продажі</h4><table><thead><tr>
       <th>Дата</th><th class="num">К-сть</th><th class="num">Чиста</th>
       <th class="num">НКД</th><th class="num">Результат</th><th></th></tr></thead><tbody>
       ${mySales.map((s) => `<tr data-sale="${s.id}" data-lot="${s.lot_id}"
@@ -93,7 +93,7 @@ function fundDetailHTML(ctx, f) {
       : `фонд обіцяє ${pct(f.expected_pct)}`);
   }
   return `<div class="sub">${bits.join(" · ")}</div>
-    <h4 style="margin-top:var(--oi-gap)">Лоти</h4>
+    <h4 class="mt">Лоти</h4>
     ${fundTable(ctx, "buy",
       `<th class="num">ID</th><th>Фонд</th><th class="num">К-сть</th><th class="num">Ціна</th><th class="num">Сплачено</th>`,
       (o, c) => `<td class="num">${o.qty}</td><td class="num">${c.price(o)}</td><td class="num">${c.money(o.amount)}</td>`,
@@ -105,18 +105,18 @@ function depositDetailHTML(d) {
   // Поповнення дозволяємо лише позначеному вкладу, а розірвання — будь-
   // якому: закрити достроково можна який завгодно.
   const topupForm = d.replenishable ? `<h4>Поповнити</h4>
-    <form class="topup-form" data-topup-form="${d.id}">
+    <form data-topup-form="${d.id}">
       <label>Дата поповнення<input name="date" type="date" value="${today()}" required></label>
       <label>Сума<input name="amount" inputmode="decimal" value="${d.principal.amount}" required></label>
       <div class="form-actions"><button type="submit">Поповнити</button></div>
     </form>` : "";
-  const topupsTbl = topups.length ? `<h4 style="margin-top:var(--oi-gap)">Поповнення</h4><table><tbody>
+  const topupsTbl = topups.length ? `<h4 class="mt">Поповнення</h4><table><tbody>
     ${topups.map((t) => `<tr><td class="muted">${esc(t.date)}</td><td class="num">${fmtMoney(t.amount)}</td>
       <td class="row-actions"><button class="sm warn" data-deltopup="${d.id}:${t.id}">✕</button></td></tr>`).join("")}
     </tbody></table>` : "";
   return `${topupForm}${topupsTbl}
-    <h4 style="margin-top:var(--oi-gap)">Розірвати достроково</h4>
-    <form class="close-form" data-close-form="${d.id}">
+    <h4 class="mt">Розірвати достроково</h4>
+    <form data-close-form="${d.id}">
       <label>Дата розірвання<input name="closed_date" type="date" value="${today()}" required></label>
       <label>Отримано (тіло + відсотки)<input name="closed_amount" inputmode="decimal" placeholder="${d.balance.amount}" required></label>
       <div class="form-actions"><button type="submit">Підтвердити розірвання</button></div>
@@ -134,7 +134,7 @@ function positionItems(ctx, positions, lots, sales, deposits) {
     // повернеться», а насправді це «ми не знаємо». Так буває, коли папір
     // щойно розміщений або лот прийшов із виписки раніше за оновлення.
     name: `<b>${esc(p.isin)}</b>${p.unknown
-      ? `<div class="sub-xs" style="color:var(--oi-warn)">⚠ немає в довіднику НБУ —
+      ? `<div class="sub-xs t-warn">⚠ немає в довіднику НБУ —
          номінал і строк невідомі, оновити можна кнопкою «↻ Оновити НБУ»</div>` : ""}
       <div class="sub-xs">${p.qty} шт.</div>`,
     invested: fmtMoney(p.invested),
@@ -154,15 +154,18 @@ function positionItems(ctx, positions, lots, sales, deposits) {
     .filter((f) => f.qty > 0 || f.short > 0)
     .map((f) => {
       const pnl = f.market_value - f.cost_basis;
-      const col = pnl >= 0 ? "var(--oi-ok)" : "var(--oi-danger)";
+      // Клас, а не колір: знак прибутку — це СТАН, і називати його
+      // «зелений» означає домовлятись про колір у чотирнадцяти місцях
+      // замість одного.
+      const pnlTone = pnl >= 0 ? "t-ok" : "t-danger";
       const short = f.short > 0
-        ? `<div class="sub-xs" style="color:var(--oi-warn)">⚠ продано на ${f.short} серт. більше,
+        ? `<div class="sub-xs t-warn">⚠ продано на ${f.short} серт. більше,
            ніж куплено — у журналі бракує надходження, числа занижені</div>` : "";
       return {
         key: "fund:" + f.fund, kind: "fund",
         name: `<b>${esc(f.fund)}</b>${short}`,
         invested: fmtUAH(f.cost_basis),
-        value: `${fmtUAH(f.market_value)}<div class="sub-xs" style="color:${col}">${pnl >= 0 ? "+" : ""}${fmtUAH(pnl)}</div>`,
+        value: `${fmtUAH(f.market_value)}<div class="sub-xs ${pnlTone}">${pnl >= 0 ? "+" : ""}${fmtUAH(pnl)}</div>`,
         // Номінальна мусить бути двійником реальної, тобто тим самим
         // числом до поправки на знецінення. Тому вона йде за ОСНОВОЮ:
         // коли real_pct порахований з обіцянки, поруч має стояти
@@ -200,9 +203,9 @@ function positionItems(ctx, positions, lots, sales, deposits) {
       // дохідність, і слово поруч рятує від читання її як третього
       // числа в тому самому рядку.
       term: `${esc(d.maturity_date)}<div class="sub-xs">${daysUntil(d.maturity_date)} дн. · ставка ${pct(d.rate_pct)}</div>`,
-      actions: `<label class="sub-xs" style="flex-direction:row;align-items:center;gap:var(--oi-gap-xs);display:inline-flex"
+      actions: `<label class="sub-xs row-h inline"
              title="Чи приймає цей вклад поповнення — від цього залежить, чи радить його помічник">
-          <input type="checkbox" data-repl="${d.id}" style="width:auto"${d.replenishable ? " checked" : ""}>попов.</label>
+          <input type="checkbox" class="w-auto" data-repl="${d.id}"${d.replenishable ? " checked" : ""}>попов.</label>
         <button class="sm warn" data-deldep="${d.id}">✕</button>`,
       sortBy: Number(d.principal.amount), detail: depositDetailHTML(d),
     };
@@ -256,15 +259,14 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
     return `<tr>
       <td class="col-kind" data-label="Тип"><button class="caret${open ? " open" : ""}"
             data-exp="${it.key}" aria-expanded="${open}" aria-controls="${detailId}"
-            title="Показати, звідки взялася позиція">▸</button><span
-          class="pill pill-${it.kind}">${KIND_LABEL[it.kind]}</span></td>
+            title="Показати, звідки взялася позиція">▸</button>${kindPill(it.kind)}</td>
       <td data-label="Назва">${it.name}</td>
       <td class="num" data-label="Вкладено" data-prio="3">${it.invested}</td>
       <td class="num" data-label="Вартість" data-prio="2">${it.value}</td>
       ${realCell(it.pct, it.nominal, it.basis)}
       <td data-label="Строк" data-prio="2">${it.term}</td>
-      <td class="row-actions" style="white-space:nowrap">${it.actions}</td></tr>
-    <tr class="detail-row" id="${detailId}" data-detail="${it.key}"${open ? "" : ` style="display:none"`}>
+      <td class="row-actions nowrap">${it.actions}</td></tr>
+    <tr class="detail-row" id="${detailId}" data-detail="${it.key}"${open ? "" : " hidden"}>
       <td colspan="${POS_COLS}">${it.detail}</td></tr>`;
   }).join("");
 
@@ -279,7 +281,7 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
       <th scope="col" data-prio="2">Строк</th><th scope="col"><span class="sr-only">Дії</span></th>
       </tr></thead>
       <tbody>${rows}</tbody></table></div>
-    <div class="sub" style="margin-top:var(--oi-gap)">Велике число — <b>реальна</b> річна дохідність після
+    <div class="sub mt">Велике число — <b>реальна</b> річна дохідність після
       податку, у сьогоднішній купівельній спроможності: саме вона порівнює ОВДП, фонд і вклад між
       собою. Дрібне під ним — <b>номінальна</b>: скільки гривень додасться, те, що видно у виписці.
       Далі — звідки число взялося: у ОВДП і вкладу це <b>обіцянка</b>, ставка зафіксована до
@@ -295,8 +297,13 @@ export function wirePositions(ctx, main) {
       const key = b.dataset.exp;
       const row = main.querySelector(`[data-detail="${key}"]`);
       if (!row) return;
-      const open = row.style.display === "none";
-      row.style.display = open ? "" : "none";
+      // hidden, а не style.display. Тут це не лише охайність: рядок
+      // деталей у .pos-table має ТРИ яруси розкладки (картка-рядок до
+      // 640, шість колонок до 900, сім далі), і кожен задає display
+      // явно. Інлайновий стиль їх перебивав, атрибут — ні, тому в
+      // base.css поруч із ярусами стоїть правило `tr[hidden]`.
+      const open = row.hidden;
+      row.hidden = !open;
       b.classList.toggle("open", open);
       b.setAttribute("aria-expanded", String(open));
       remember(OPEN_SCOPE, key, open);

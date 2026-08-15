@@ -8,7 +8,7 @@ import { onSubmit, onDelete, apply } from "../forms.js";
 export function bondBuyFormHTML(ctx, lots) {
   return `
       <form id="lotForm">
-        <label style="position:relative">ISIN<input name="isin" required placeholder="UA4000..." autocomplete="off">
+        <label class="has-suggest">ISIN<input name="isin" required placeholder="UA4000..." autocomplete="off">
           <div id="bondSuggest" class="suggest"></div></label>
         <label>Кількість<input name="qty" type="number" min="1" step="1" required></label>
         <label>Ціна за папір (брудна)<input name="price_per_bond" inputmode="decimal" placeholder="995.00" required></label>
@@ -21,11 +21,11 @@ export function bondBuyFormHTML(ctx, lots) {
         </select></label>
         <label>Дата купівлі<input name="buy_date" type="date" value="${today()}" required></label>
         <label>Брокер<select name="channel_sel">${ctx.channelOptions(lots)}</select>
-          <input name="channel" placeholder="назва каналу" style="margin-top:var(--oi-gap-sm);display:none"></label>
+          <input name="channel" class="mt-sm" placeholder="назва каналу" hidden></label>
         <label>Нотатка<input name="note"></label>
         <div class="form-actions"><button type="submit">Додати</button></div>
       </form>
-      <div class="muted" id="bondInfo" style="margin-top:var(--oi-gap-sm)"></div>`;
+      <div class="muted mt-sm" id="bondInfo"></div>`;
 }
 
 export function bondSaleFormHTML(ctx, lots) {
@@ -43,7 +43,7 @@ export function bondSaleFormHTML(ctx, lots) {
         <label>Нотатка<input name="note"></label>
         <div class="form-actions"><button type="submit">Записати</button></div>
       </form>
-      <div class="sub" style="margin-top:var(--oi-gap)">Записані продажі видно в рядку того паперу, якого вони
+      <div class="sub mt">Записані продажі видно в рядку того паперу, якого вони
         стосуються — розкрий позицію стрілкою.</div>`;
 }
 
@@ -150,7 +150,11 @@ export function wireBonds(ctx, main) {
   if (chSel && chIn) {
     chSel.addEventListener("change", () => {
       const other = chSel.value === "__other__";
-      chIn.style.display = other ? "" : "none";
+      // hidden, а не style.display: видимість — це СТАН елемента, і в
+      // атрибуті його видно і в DOM-інспекторі, і читачеві екрана, тоді
+      // як інлайновий стиль лише малює. Заразом це знімає єдину причину
+      // тримати тут `display` — правило про відступ поля лишається в CSS.
+      chIn.hidden = !other;
       if (other) { chIn.value = ""; chIn.focus(); }
     });
   }

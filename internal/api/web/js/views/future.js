@@ -13,7 +13,7 @@ import {
   uah2 as fmtUAH, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
-import { needsSetting, empty } from "../components.js";
+import { needsSetting, empty, legend } from "../components.js";
 import { svgBars, svgLine, svgBandLine, fluid } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
 import { goalsHTML, sensitivityHTML } from "./forecast.js";
@@ -61,10 +61,12 @@ export function capitalChartHTML(ctx) {
       ? { lo: pts.map((p) => p.pessimistic), hi: pts.map((p) => p.optimistic) } : {};
     return `<div class="card"><h4>Крива капіталу ${infoBtn("capitalCurve")}</h4>
       ${fluid((w, h) => svgBandLine(labels, bands, lines, curve.goal_uah || 0, { W: w, H: h }))}
-      <div class="lg"><span><i style="background:var(--oi-series-invested)"></i>за планом</span>
-        ${has("actual") ? `<span><i style="background:var(--oi-series-neutral)"></i>за фактом</span>` : ""}
-        ${bands.lo ? `<span><i style="background:var(--oi-series-invested);opacity:.3"></i>коридор ринку</span>` : ""}
-        ${curve.goal_uah > 0 ? `<span><i style="background:var(--oi-muted)"></i>ціль</span>` : ""}</div>
+      ${legend([
+        { color: "var(--oi-series-invested)", label: "за планом" },
+        has("actual") && { color: "var(--oi-series-neutral)", label: "за фактом" },
+        bands.lo && { color: "var(--oi-series-invested)", label: "коридор ринку", faint: true },
+        curve.goal_uah > 0 && { color: "var(--oi-muted)", label: "ціль" },
+      ])}
       <div class="sub-xs">У сьогоднішніх гривнях, до дедлайну цілі. Крок ${curve.step_months} міс.</div></div>`;
   }
   // Запасний вигляд для старого бекенда: ті самі чотири точки.
@@ -75,8 +77,10 @@ export function capitalChartHTML(ctx) {
       { color: "var(--oi-series-neutral)", values: proj.map((p) => p.contributed) },
       { color: "var(--oi-series-invested)", values: proj.map((p) => p.with_reinvest) },
     ], { W: w, H: h }))}
-    <div class="lg"><span><i style="background:var(--oi-series-neutral)"></i>внесено</span>
-      <span><i style="background:var(--oi-series-invested)"></i>з реінвестом</span></div></div>`;
+    ${legend([
+      { color: "var(--oi-series-neutral)", label: "внесено" },
+      { color: "var(--oi-series-invested)", label: "з реінвестом" },
+    ])}</div>`;
 }
 
 // ---------- ПРОЄКЦІЇ (блок вкладки «Майбутнє») ----------
@@ -115,8 +119,8 @@ export function projectionHTML(ctx) {
         "", "Проєкція будується з капіталу й місячної цілі — щойно буде і те, і те, таблиця заповниться сама.",
         { href: "#/settings", label: "Задати ціль" })}</td></tr>`;
   const paceNote = hasActual
-    ? `<div class="muted" style="margin-bottom:var(--oi-gap);font-size:var(--oi-fs-sm)">Фактичний темп поповнень: <b>${fmtUAH(s.actual_monthly_uah)}/міс</b> за ${s.actual_months} міс історії (план — ${fmtUAH(C)}/міс).</div>`
-    : `<div class="muted" style="margin-bottom:var(--oi-gap);font-size:var(--oi-fs-sm)">Прогноз за фактичним темпом зʼявиться після першого поповнення.</div>`;
+    ? `<div class="muted mb fine">Фактичний темп поповнень: <b>${fmtUAH(s.actual_monthly_uah)}/міс</b> за ${s.actual_months} міс історії (план — ${fmtUAH(C)}/міс).</div>`
+    : `<div class="muted mb fine">Прогноз за фактичним темпом зʼявиться після першого поповнення.</div>`;
 
   return `
     <div class="card">
@@ -297,18 +301,18 @@ export function incomeHTML(ctx) {
   // Без копійок, як і в решті планових чисел: дробова частина місячного
   // доходу на горизонті в роки — це точність, якої в оцінці немає.
   const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
-  const line = (label, v, extra = "") => `<div class="kv" style="margin-bottom:var(--oi-gap-sm)">
-    <span class="muted" style="font-size:var(--oi-fs-sm)">${label}</span>
-    <span><b>${inc(v)}</b><span class="muted" style="font-size:var(--oi-fs-sm)">/міс</span>${extra}</span></div>`;
+  const line = (label, v, extra = "") => `<div class="kv mb-sm">
+    <span class="muted fine">${label}</span>
+    <span><b>${inc(v)}</b><span class="muted fine">/міс</span>${extra}</span></div>`;
   const body = rows.map((r) => line(`через ${humanMonths(r.years * 12)}`, r.income_monthly,
     r.income_monthly_actual > 0 && Math.abs(r.income_monthly_actual - r.income_monthly) > 1
-      ? ` <span class="muted" style="font-size:var(--oi-fs-xs)">· за фактом ${inc(r.income_monthly_actual)}</span>` : "")).join("");
+      ? ` <span class="muted fine-xs">· за фактом ${inc(r.income_monthly_actual)}</span>` : "")).join("");
   return `<div class="card"><h2 class="card-head">
     <span>Пасивний дохід ${infoBtn("income")}</span></h2>
-    <div class="muted" style="font-size:var(--oi-fs-sm);margin-bottom:var(--oi-gap-sm)">скільки портфель приноситиме щомісяця, у сьогоднішніх гривнях</div>
-    <div class="sub-xs" style="margin-bottom:var(--oi-gap-sm)">купони ОВДП і відсотки вкладів — за графіком; дивіденди фондів — оцінка</div>
+    <div class="muted fine mb-sm">скільки портфель приноситиме щомісяця, у сьогоднішніх гривнях</div>
+    <div class="sub-xs mb-sm">купони ОВДП і відсотки вкладів — за графіком; дивіденди фондів — оцінка</div>
     ${line("зараз", now)}
-    <div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap-sm);margin-top:var(--oi-gap-xs)">${body}</div>
+    <div class="rule-top tight">${body}</div>
     ${independenceHTML(ctx)}
   </div>`;
 }
@@ -341,10 +345,10 @@ export function drawdownHTML(ctx) {
   // це вже 1); 1 — не вистачає навіть на місяць.
   let head, note;
   if (d.months === -1) {
-    head = `<span class="ok-t">не вичерпується</span>`;
+    head = `<span class="t-ok">не вичерпується</span>`;
     note = "потоки покривають зняття — тіло лишається на місці";
   } else if (d.months <= 1) {
-    head = `<span class="warn-t">не вистачить і на місяць</span>`;
+    head = `<span class="t-warn">не вистачить і на місяць</span>`;
     note = "ліквідної частини менше за одне зняття; замкнене не продається достроково";
   } else {
     head = `<b>${humanMonths(d.months)}</b>`;
@@ -353,13 +357,13 @@ export function drawdownHTML(ctx) {
   return `<div class="card"><h2 class="h-row"><span>На скільки вистачить ${infoBtn("drawdown")}</span></h2>
     <div class="sub">Якщо перестати вносити й знімати ${inc(d.withdraw_uah)}/міс
       <span class="muted">· ${esc(from)}</span></div>
-    <div class="kv" style="margin-top:var(--oi-gap-sm)">
-      <span class="muted" style="font-size:var(--oi-fs-sm)">вистачить</span>
-      <span>${head} <span class="muted" style="font-size:var(--oi-fs-sm)">${esc(note)}</span></span>
+    <div class="kv mt-sm">
+      <span class="muted fine">вистачить</span>
+      <span>${head} <span class="muted fine">${esc(note)}</span></span>
     </div>
-    <div class="progress" style="margin-top:var(--oi-gap-sm)"><span style="width:${
-      Math.min(100, d.covered_pct || 0)}%;background:var(--oi-info)"></span></div>
-    <div class="sub-xs" style="margin-top:var(--oi-gap-xs)">Сьогоднішній дохід покриває
+    <div class="progress mt-sm"><span style="--oi-fill:${
+      Math.min(100, d.covered_pct || 0)}%;--oi-c:var(--oi-info)"></span></div>
+    <div class="sub-xs mt-xs">Сьогоднішній дохід покриває
       ${(d.covered_pct || 0).toFixed(0)}% зняття. Решту доводиться брати з тіла — і саме
       тому число таке.</div>
     <div class="sub-xs">Замкнене (номінал ОВДП, тіло вкладів, сертифікати) достроково
@@ -382,7 +386,7 @@ function independenceHTML(ctx) {
   // картка в картці виглядала б поломкою. Той самий зміст, та сама
   // адреса налаштування — тільки рядком, а не окремою плиткою.
   if (!ind || !ind.target_uah) {
-    return `<div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap);margin-top:var(--oi-gap)">
+    return `<div class="rule-top">
       <div class="sub-xs">Щоб побачити, коли дохід покриє життя, задай «цільовий дохід»
         або «місячні витрати» в «Налаштуваннях».</div></div>`;
   }
@@ -398,18 +402,18 @@ function independenceHTML(ctx) {
   // дві однакові дати поруч читаються як помилка, а не як збіг.
   const showActual = ind.actual_months !== undefined
     && ind.actual_months !== ind.plan_months;
-  return `<div style="border-top:1px solid var(--oi-border);padding-top:var(--oi-gap);margin-top:var(--oi-gap)">
-    <div class="sub-xs" style="margin-bottom:var(--oi-gap-xs)">Коли дохід покриє ${inc(ind.target_uah)}/міс
+  return `<div class="rule-top">
+    <div class="sub-xs mb-xs">Коли дохід покриє ${inc(ind.target_uah)}/міс
       <span class="muted">· ${esc(from)}</span></div>
     <div class="kv">
-      <span class="muted" style="font-size:var(--oi-fs-sm)">за планом</span>
+      <span class="muted fine">за планом</span>
       <span><b>${esc(when(ind.plan_months, ind.plan_date))}</b></span>
     </div>
-    ${showActual ? `<div class="kv" style="margin-top:3px">
-      <span class="muted" style="font-size:var(--oi-fs-sm)">за фактичним темпом</span>
+    ${showActual ? `<div class="kv mt-xs">
+      <span class="muted fine">за фактичним темпом</span>
       <span>${esc(when(ind.actual_months, ind.actual_date))}</span>
     </div>` : ""}
-    ${ind.capital_uah > 0 ? `<div class="sub-xs" style="margin-top:var(--oi-gap-xs)">на той момент за цим стоятиме
+    ${ind.capital_uah > 0 ? `<div class="sub-xs mt-xs">на той момент за цим стоятиме
       ${fmtUAH(ind.capital_uah)} капіталу</div>` : ""}
   </div>`;
 }

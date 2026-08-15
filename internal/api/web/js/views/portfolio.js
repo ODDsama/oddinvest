@@ -1,10 +1,15 @@
 // Розділ «Портфель» — що в мене є.
 //
 // Усе про склад: позиції ОВДП і сертифікати фондів, лоти, продажі,
-// дивіденди, дохідності — і характеристики того, що вже куплено:
-// частки по брокерах і валютах, драбина погашень, процентний ризик,
-// історія «Як росте». Раніше це було розкидано по трьох вкладках
-// («Портфель», «План») і «Огляду», хоча відповідає на одне питання.
+// дивіденди, дохідності, історія «Як росте». Раніше це було розкидано по
+// трьох вкладках («Портфель», «План») і «Огляду», хоча відповідає на
+// одне питання.
+//
+// Розклад по брокерах і валютах, ребалансування, концентрація, драбина,
+// ліквідність, ставки й бенчмарк переїхали в окрему вкладку «Ризик»
+// (views/risk-tab.js) — вони відповідають не на «що я маю», а на «чим я
+// ризикую», і причина розрізу записана в constants.js. risk.js як
+// джерело функцій лишається спільним для обох розділів.
 //
 // Позиції всіх трьох інструментів — в ОДНІЙ таблиці. Раніше вони жили
 // трьома секціями зі своїми колонками, бо в сертифіката немає ні
@@ -19,11 +24,7 @@ import { infoBtn } from "../info.js";
 import { setFundOps, wireFundOps } from "../fund-ops.js";
 import { disclosure, section, wireDisclosures } from "../disclosure.js";
 import { positionsTableHTML, wirePositions } from "./positions.js";
-import {
-  brokerDonutHTML, currencyChartHTML, yieldTilesHTML, shareTilesHTML,
-  rebalanceCard, kindMixCard, concentrationCard, ladderTableHTML, benchmarkCard,
-  liquidityCard, rateRiskCard, marketCurveCard,
-} from "./risk.js";
+import { yieldTilesHTML } from "./risk.js";
 import { bondBuyFormHTML, bondSaleFormHTML, wireBonds } from "./bonds.js";
 import { depositFormHTML, closedDepositsHTML, wireDeposits } from "./deposits.js";
 import { chartBlockHTML, snapshotsTableHTML, wireHistory } from "./history.js";
@@ -39,7 +40,7 @@ function entryCardHTML(ctx, lots) {
     ${disclosure("buy", "Нова покупка ОВДП", bondBuyFormHTML(ctx, lots))}
     ${disclosure("sale", "Продаж на вторинному ринку", bondSaleFormHTML(ctx, lots))}
     ${disclosure("dep", `Новий вклад ${infoBtn("deposit")}`, depositFormHTML(ctx))}
-    <div class="sub" style="margin-top:var(--oi-gap)">Сертифікати фондів сюди не вносять руками —
+    <div class="sub mt">Сертифікати фондів сюди не вносять руками —
       їх приносить імпорт виписки в розділі «Гроші».</div>
   </div>`;
 }
@@ -47,28 +48,18 @@ function entryCardHTML(ctx, lots) {
 
 // «Портфель» = склад цілком.
 //
-// Порядок змінено на один, але важливий: таблиця позицій стоїть ДРУГОЮ,
-// а не дев'ятою. Вона й є відповідь на питання розділу — «що я маю», — а
-// перед нею лежало вісім карток про те, як воно розкладене й чим
-// ризикує: характеристики того, чого ще не видно.
-//
-// Решта не зникла, а згрупована в чотири іменовані секції, і три з
-// чотирьох згорнуті за замовчуванням. Розбити вкладку надвоє не можна
-// (шоста вкладка — це відповідь на розділ, який не тримає своє питання),
-// та й не треба: питання в розділу одне, просто відповідей на нього
-// шістнадцять, і секція каже, яка відповідь на що.
-//
-// Механізм той самий <details> із пам'яттю в localStorage, тож людина,
-// яка розгорне «Чим ризикую», більше його не згортатиме щоразу.
+// Таблиця позицій стоїть ДРУГОЮ, а не дев'ятою: вона й є відповідь на
+// питання розділу — «що я маю». Решта — історія й запис операцій, обидві
+// секціями з памʼяттю в localStorage; «Записати операцію» згорнута
+// за замовчуванням, «Як росте» — ні, бо саме заради неї сюди заходять
+// частіше, ніж заради форми.
 export async function renderPortfolio(ctx, main) {
-  const [positions, lots, sales, ops, deposits, bench, curve] = await Promise.all([
+  const [positions, lots, sales, ops, deposits] = await Promise.all([
     ctx.api("GET", "positions"),
     ctx.api("GET", "lots"),
     ctx.api("GET", "sales"),
     ctx.soft("funds", []),
     ctx.soft("term-deposits", []),
-    ctx.soft("benchmark", null),
-    ctx.soft("auctions/curve", []),
   ]);
   setFundOps(ops);
   ctx._deposits = deposits; // wireDeposits реконструює вклад для закриття
@@ -81,23 +72,6 @@ export async function renderPortfolio(ctx, main) {
     ${section("history", "Як росте", `
       ${chart}
       ${snapshotsTableHTML(ctx)}`, { open: true })}
-
-    ${section("structure", "Як розкладене", `
-      <div class="chart-grid">
-        ${brokerDonutHTML(ctx)}
-        ${currencyChartHTML(ctx)}
-      </div>
-      ${shareTilesHTML(ctx)}
-      ${rebalanceCard(ctx)}
-      ${kindMixCard(ctx)}`, { hint: "брокери, валюти, види" })}
-
-    ${section("risk", "Чим ризикую", `
-      ${concentrationCard(ctx)}
-      ${ladderTableHTML(ctx)}
-      ${liquidityCard(ctx)}
-      ${rateRiskCard(ctx)}
-      ${benchmarkCard(ctx, bench)}
-      ${marketCurveCard(ctx, curve)}`, { hint: "концентрація, строки, ставки" })}
 
     ${section("entry", "Записати операцію", `
       ${entryCardHTML(ctx, lots)}
