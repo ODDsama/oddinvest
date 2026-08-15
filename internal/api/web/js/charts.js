@@ -210,6 +210,134 @@ export function svgBandLine(xlabels, bands, lines, goal, { W = W0, H = H0 } = {}
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
 }
 
+/** Стрічка часу плану: смуги потоків і термінів під спільною віссю X
+ *  (дати) із кривою капіталу знизу — ОДИН <svg>, а не два графіки поруч.
+ *
+ *  Два окремі .chart-frame міряються незалежно, і збіг їхніх ширин був
+ *  би збігом, а не гарантією; тут вісь одна фізично, тож зламу кривої
+ *  ЗАВЖДИ стоїть рівно під смугою, яка його спричинила.
+ *
+ *  doc — відповідь GET /api/plan: {from, to, flows, actions,
+ *  instruments, milestones, curve}. Порожні масиви — законний стан
+ *  (щойно завели перший потік, дій і термінів ще нема), тож кожен блок
+ *  малює нуль рядків мовчки, а не падає. */
+export function svgTimeline(doc, { W = W0, H = 420 } = {}) {
+  const Pl = 10, Pr = 10;
+  const day = (iso) => Date.parse(iso + "T00:00:00Z") / 86400000;
+  const d0 = day(doc.from), d1 = Math.max(day(doc.to), d0 + 1);
+  const iw = W - Pl - Pr;
+  const X = (iso) => Pl + ((day(iso) - d0) / (d1 - d0)) * iw;
+
+  const LANE_COLOR = {
+    income: "var(--oi-ok)", expense: "var(--oi-warn)",
+    bond: "var(--oi-kind-bond)", deposit: "var(--oi-kind-deposit)", fund: "var(--oi-kind-fund)",
+  };
+  const diamond = (cx, cy, color, title) => {
+    const r = 4;
+    return `<polygon points="${cx.toFixed(1)},${(cy - r).toFixed(1)} ${(cx + r).toFixed(1)},${cy.toFixed(1)}`
+      + ` ${cx.toFixed(1)},${(cy + r).toFixed(1)} ${(cx - r).toFixed(1)},${cy.toFixed(1)}"`
+      + ` fill="${color}"><title>${esc(title)}</title></polygon>`;
+  };
+
+  // ---------- верхня панель: смуги потоків, термінів і ромби дій ----------
+  const flows = doc.flows || [], instruments = doc.instruments || [], actions = doc.actions || [];
+  const ROW_H = 18, ROW_GAP = 3, Pt = 12;
+  const rowCount = flows.length + instruments.length + (actions.length ? 1 : 0);
+  const topH = rowCount ? rowCount * (ROW_H + ROW_GAP) : ROW_H;
+
+  let y = Pt, bars = "";
+  flows.forEach((f) => {
+    const cy = y + ROW_H / 2;
+    const color = LANE_COLOR[f.kind] || AXIS;
+    if (f.cadence === "once") {
+      bars += diamond(X(f.from), cy, color, `${f.name}: ${Math.round(Math.abs(f.amount_uah))} ₴`);
+    } else {
+      const x1 = Math.max(Pl, X(f.from));
+      const x2 = f.until ? Math.min(Pl + iw, X(f.until)) : Pl + iw;
+      bars += `<rect x="${x1.toFixed(1)}" y="${(cy - 5).toFixed(1)}" width="${Math.max(1, x2 - x1).toFixed(1)}"`
+        + ` height="10" rx="3" fill="${color}" opacity="0.75">`
+        + `<title>${esc(f.name)}: ${Math.round(Math.abs(f.amount_uah))} ₴/${
+          f.cadence === "month" ? "міс" : f.cadence === "quarter" ? "квартал" : "рік"}</title></rect>`;
+    }
+    bars += `<text x="${Pl}" y="${(cy - 7).toFixed(1)}" font-size="9" fill="${AXIS}">${esc(f.name)}</text>`;
+    y += ROW_H + ROW_GAP;
+  });
+  instruments.forEach((it) => {
+    const cy = y + ROW_H / 2;
+    const color = LANE_COLOR[it.kind] || AXIS;
+    const x1 = it.from ? Math.max(Pl, X(it.from)) : Pl;
+    const end = it.to || it.buy_until;
+    const x2 = end ? Math.min(Pl + iw, X(end)) : Pl + iw;
+    bars += `<rect x="${x1.toFixed(1)}" y="${(cy - 4).toFixed(1)}" width="${Math.max(1, x2 - x1).toFixed(1)}"`
+      + ` height="8" rx="2" fill="${color}" opacity="0.4"><title>${esc(it.label)}</title></rect>`;
+    if (it.buy_until) {
+      bars += diamond(X(it.buy_until), cy, "var(--oi-warn)", `${it.label}: вікно купівлі закривається`);
+    }
+    bars += `<text x="${Pl}" y="${(cy - 7).toFixed(1)}" font-size="9" fill="${AXIS}">${esc(it.label)}</text>`;
+    y += ROW_H + ROW_GAP;
+  });
+  if (actions.length) {
+    const cy = y + ROW_H / 2;
+    actions.forEach((a) => {
+      const color = a.type === "lock" ? "var(--oi-series-invested)" : "var(--oi-info)";
+      const title = a.name || (a.type === "lock" ? "замок" : "зміна часток");
+      bars += diamond(X(a.date), cy, color, a.amount_uah
+        ? `${title}: ${Math.round(a.amount_uah)} ₴` : title);
+    });
+    bars += `<text x="${Pl}" y="${(cy - 7).toFixed(1)}" font-size="9" fill="${AXIS}">дії</text>`;
+  }
+
+  // ---------- нижня панель: крива капіталу, та сама вісь X ----------
+  const curve = doc.curve || [];
+  const curveTop = Pt + topH + 16, Pb = 22;
+  const curveH = Math.max(70, H - curveTop - Pb);
+  const vals = curve.flatMap((p) => [p.plan, p.optimistic, p.pessimistic, p.actual].filter((v) => v != null));
+  const max = Math.max(1, ...vals);
+  const Y = (v) => curveTop + curveH - ((v || 0) / max) * curveH;
+
+  let curveSvg = "";
+  if (curve.length > 1) {
+    if (curve.some((p) => p.optimistic != null) && curve.some((p) => p.pessimistic != null)) {
+      const up = curve.map((p) => `${X(p.date).toFixed(1)},${Y(p.optimistic).toFixed(1)}`);
+      const down = curve.slice().reverse().map((p) => `${X(p.date).toFixed(1)},${Y(p.pessimistic).toFixed(1)}`);
+      curveSvg += `<polygon points="${up.concat(down).join(" ")}" fill="var(--oi-series-invested)" opacity="0.09"/>`;
+    }
+    curveSvg += `<polyline points="${curve.map((p) => `${X(p.date).toFixed(1)},${Y(p.plan).toFixed(1)}`).join(" ")}"`
+      + ` fill="none" stroke="var(--oi-series-invested)" stroke-width="1.5" stroke-linejoin="round"/>`;
+    const actualPts = curve.filter((p) => p.actual != null);
+    if (actualPts.length > 1) {
+      curveSvg += `<polyline points="${actualPts.map((p) => `${X(p.date).toFixed(1)},${Y(p.actual).toFixed(1)}`).join(" ")}"`
+        + ` fill="none" stroke="var(--oi-series-neutral)" stroke-width="1.5" stroke-dasharray="5 3" stroke-linejoin="round"/>`;
+    }
+  }
+
+  // базова лінія нуля — межа кривої, той самий рівень токена, що й у seriesChart
+  curveSvg += `<line x1="${Pl}" y1="${(curveTop + curveH).toFixed(1)}" x2="${(Pl + iw).toFixed(1)}"`
+    + ` y2="${(curveTop + curveH).toFixed(1)}" stroke="var(--oi-border)" stroke-width="1"/>`;
+
+  // ---------- віхи: вертикалі через ОБИДВІ панелі — саме заради них стрічка одна ----------
+  const milestones = (doc.milestones || []).map((m) => {
+    const x = X(m.date);
+    return `<line x1="${x.toFixed(1)}" y1="${Pt}" x2="${x.toFixed(1)}" y2="${(curveTop + curveH).toFixed(1)}"`
+      + ` stroke="${GRID}" stroke-width="1" stroke-dasharray="2 4"/>`
+      + `<text x="${x.toFixed(1)}" y="${(Pt - 3).toFixed(1)}" text-anchor="middle" font-size="9" fill="${AXIS}">${esc(m.label)}</text>`;
+  }).join("");
+
+  // вісь X — роки, під нижньою панеллю
+  let xlabels = "";
+  const y0 = new Date(doc.from).getUTCFullYear(), y1 = new Date(doc.to).getUTCFullYear();
+  for (let yr = y0; yr <= y1; yr++) {
+    const iso = `${yr}-01-01`;
+    if (day(iso) < d0 || day(iso) > d1) continue;
+    const x = X(iso);
+    xlabels += `<text x="${x.toFixed(1)}" y="${(curveTop + curveH + 16).toFixed(1)}"`
+      + ` text-anchor="middle" font-size="${FS}" fill="${AXIS}">${yr}</text>`;
+  }
+
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Стрічка часу плану">`
+    + `${bars}${curveSvg}${milestones}${xlabels}</svg>`;
+}
+
 /** Кільце часток. parts: [{label, value}] — уже відсортовані.
  *  Повертає {svg, colors}: легенду малює той, хто кличе, бо підпис
  *  частки в різних місцях різний (сума, відсоток, і те й те). */

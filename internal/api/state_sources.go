@@ -46,6 +46,11 @@ type sources struct {
 	termDeposits []domain.Deposit
 	reserveOps   []store.ReserveOp
 
+	// План (фаза 9): джерела доходу й точкові дії. Сирі рядки — розгортання
+	// в помісячні вектори робить sleeveFactory (state_projection.go).
+	planFlows   []store.PlanFlow
+	planActions []store.PlanAction
+
 	// auctions — останнє розміщення Мінфіну по кожній парі (валюта,
 	// строк). Єдине, що приходить сюди із ЗОВНІШНЬОГО світу, а не з
 	// портфеля користувача.
@@ -121,6 +126,8 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	src.brokers, _ = s.st.ListBrokers(ctx)               //nolint:errcheck // свідомо: список для випадайок, не джерело істини
 	src.nbuAt, _ = s.st.GetSetting(ctx, nbuRefreshedKey) //nolint:errcheck // свідомо: порожньо = довідник ще не оновлювався
 	src.auctions, _ = s.st.AuctionLatestByBucket(ctx)    //nolint:errcheck // свідомо: на свіжій БД аукціонів ще немає, і портфель має малюватись
+	src.planFlows, _ = s.st.ListPlanFlows(ctx)           //nolint:errcheck // свідомо: порожній план — звичайний стан, не привід валити документ
+	src.planActions, _ = s.st.ListPlanActions(ctx)       //nolint:errcheck // те саме
 
 	src.fundRefs = map[string]store.Fund{}
 	if refs, ferr := s.st.ListFunds(ctx); ferr == nil {

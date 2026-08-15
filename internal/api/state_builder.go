@@ -724,6 +724,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		ReinvestMinByCur: reinvestMinByCur,
 		Rates:            rates, Deval: deval, ActualMonthly: actualMonthly,
 		IncomeMonthlyNow: incomeMonthlyNow, Today: today,
+		PlanFlows: src.planFlows, PlanActions: src.planActions,
 	})
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну (див. state_projection.go).
@@ -789,7 +790,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
 
 		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
-		Sensitivity: prj.Sensitivity, Independence: prj.Independence,
+		PlanProvidesUAH: prj.PlanProvidesUAH,
+		Sensitivity:     prj.Sensitivity, Independence: prj.Independence,
 		Drawdown:  prj.Drawdown,
 		Rebalance: rebalance, Concentration: concentration,
 		RateRisk: rateRisk, Liquidity: liquidity,

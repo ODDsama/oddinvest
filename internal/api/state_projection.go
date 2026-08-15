@@ -19,10 +19,12 @@ package api
 
 import (
 	"math"
+	"sort"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
+	"github.com/ODDsama/oddinvest/internal/store"
 
 	money "github.com/Rhymond/go-money"
 )
@@ -85,6 +87,14 @@ type projectionInput struct {
 	// прогноз і помічник зобов'язані виходити з одного припущення, інакше
 	// вони суперечать одне одному на одному екрані.
 	Deval float64
+
+	// PlanFlows/PlanActions — фаза 9 «План»: справжні джерела доходу й
+	// точкові рішення, з датами. sleeveFactory розгортає їх у
+	// ContribByMonth і Lock кожного рукава; порожній план (nil) дає
+	// нульові вектори всюди, тож поведінка лишається такою, як була до
+	// фази «План», — це і є головний тест.
+	PlanFlows   []store.PlanFlow
+	PlanActions []store.PlanAction
 	// ActualMonthly — фактичний темп поповнень, ₴/міс (0 = історії замало).
 	ActualMonthly float64
 	// IncomeMonthlyNow — скільки портфель приносить УЖЕ, ₴/міс. Готове
@@ -109,8 +119,15 @@ type projectionPhase struct {
 	CapRatePct float64
 	// ContribM — місячний внесок плану, виведений із цілі й дедлайну;
 	// TargetUAH — він самий грішми (нуль, якщо цілі або дедлайну немає).
+	//
+	// Щойно в PlanFlows зʼявляються справжні джерела доходу, ContribM
+	// перестає бути «скільки треба з нуля» й стає «скільки бракує
+	// ПОНАД план» — детальніше в state.Doc.PlanProvidesUAH.
 	ContribM  float64
 	TargetUAH *money.Money
+	// PlanProvidesUAH — скільки джерела доходу плану дають щомісяця
+	// зараз, незалежно від цілі й дедлайну (0, якщо потоків ще немає).
+	PlanProvidesUAH float64
 	// Sensitivity — «що як»: наслідки зсуву одного входу за раз
 	// (state_sensitivity.go). Рахується тут, бо потребує тієї самої
 	// фабрики рукавів, цілі й дедлайну; окремо вони довелось би вивести
@@ -139,6 +156,39 @@ type sleeveFactory struct {
 	// років вона туди сповзе. Валютні рукави лишаються на своїй ставці.
 	terminalUAH float64
 	glideYears  float64
+
+	// plan — справжній план (фаза 9): валюта → помісячний вектор
+	// (індекс 0 = місяць 1), уже розкладений за shareAt. planTotal —
+	// той самий план ДО розкладання по валютах, для «скільки дає план
+	// зараз» (PlanProvidesUAH), якому валюта байдужа. lock — та сама
+	// фаза, дії «замкнути на строк»: валюта → місяць → сума.
+	plan      map[string][]float64
+	planTotal []float64
+	lock      map[string]map[int]float64
+	// shareBreaks — точки зламу валютних часток від дій set_shares,
+	// відсортовані за місяцем. Порожньо = частки з налаштувань незмінні
+	// на весь горизонт, як і до фази «План».
+	shareBreaks []shareBreak
+}
+
+// shareBreak — одна точка зламу валютних часток: із місяця month
+// (включно) план веде гроші за share.
+type shareBreak struct {
+	month int
+	share map[string]float64
+}
+
+// shareAt — валютні частки, чинні на місяці m: остання точка зламу з
+// month <= m, а без жодної — базові частки з налаштувань.
+func (f sleeveFactory) shareAt(m int) map[string]float64 {
+	cur := f.share
+	for _, b := range f.shareBreaks { // відсортовані зростанням за month
+		if b.month > m {
+			break
+		}
+		cur = b.share
+	}
+	return cur
 }
 
 func newSleeveFactory(in projectionInput) sleeveFactory {
@@ -183,17 +233,14 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 
 	// Куди підуть майбутні поповнення: за цільовими валютними частками.
 	// Це вже задано в налаштуваннях, тож нової здогадки не вводимо.
+	usd, eur := 0.0, 0.0
 	if in.Settings.USDTargetSharePct != nil {
-		f.share[money.USD] = *in.Settings.USDTargetSharePct / 100
+		usd = *in.Settings.USDTargetSharePct / 100
 	}
 	if in.Settings.EURTargetSharePct != nil {
-		f.share[money.EUR] = *in.Settings.EURTargetSharePct / 100
+		eur = *in.Settings.EURTargetSharePct / 100
 	}
-	if rest := 1 - f.share[money.USD] - f.share[money.EUR]; rest > 0 {
-		f.share[money.UAH] = rest
-	} else {
-		f.share[money.UAH] = 0
-	}
+	f.share = shareFromUSDEUR(usd, eur)
 
 	if in.Settings.TerminalRatePct != nil && *in.Settings.TerminalRatePct >= 0 {
 		f.terminalUAH = *in.Settings.TerminalRatePct
@@ -201,6 +248,86 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	if in.Settings.RateGlideYears != nil && *in.Settings.RateGlideYears >= 0 {
 		f.glideYears = *in.Settings.RateGlideYears
 	}
+
+	// --- план (фаза 9): точки зламу часток від set_shares ---
+	//
+	// Сортуємо за датою й ідемо по черзі: кожна дія перекриває лише
+	// задані нею валюти (USDBP/EURBP >= 0), решту успадковує з
+	// попередньої точки — включно з базовою, якщо це перша дія.
+	actions := append([]store.PlanAction{}, in.PlanActions...)
+	sort.Slice(actions, func(i, j int) bool { return actions[i].Date < actions[j].Date })
+	prevUSD, prevEUR := usd, eur
+	for _, a := range actions {
+		if a.Type != "set_shares" {
+			continue
+		}
+		if a.USDBP >= 0 {
+			prevUSD = float64(a.USDBP) / 10000
+		}
+		if a.EURBP >= 0 {
+			prevEUR = float64(a.EURBP) / 10000
+		}
+		f.shareBreaks = append(f.shareBreaks,
+			shareBreak{month: monthOffset(today, a.Date), share: shareFromUSDEUR(prevUSD, prevEUR)})
+	}
+
+	// --- план (фаза 9): помісячний вектор реальних джерел доходу ---
+	//
+	// Горизонт — goalHorizonMonths (60 років): той самий, на який рахує
+	// MonthsToReachSleeves, а не лише дедлайн цілі — сленеви несуть
+	// вектор незалежно від того, для якого горизонту їх зрештою
+	// прогонятимуть.
+	planTotal := make([]float64, goalHorizonMonths)
+	for _, fl := range in.PlanFlows {
+		for m := 1; m <= goalHorizonMonths; m++ {
+			planTotal[m-1] += planFlowMonthlyUAH(fl, today, in.Rates, m)
+		}
+	}
+	f.planTotal = planTotal
+	f.plan = map[string][]float64{
+		money.UAH: make([]float64, goalHorizonMonths),
+		money.USD: make([]float64, goalHorizonMonths),
+		money.EUR: make([]float64, goalHorizonMonths),
+	}
+	for m := 1; m <= goalHorizonMonths; m++ {
+		if planTotal[m-1] == 0 {
+			continue
+		}
+		sh := f.shareAt(m)
+		for _, cur := range []string{money.UAH, money.USD, money.EUR} {
+			f.plan[cur][m-1] = planTotal[m-1] * sh[cur]
+		}
+	}
+
+	// --- план (фаза 9): дії lock — купон/погашення в ті самі мапи, що й
+	// реальні папери, плюс сама сума в f.lock ---
+	f.lock = map[string]map[int]float64{}
+	for _, a := range actions {
+		if a.Type != "lock" {
+			continue
+		}
+		m0, amount, coupon, redeem := planLockFlows(a, today, goalHorizonMonths)
+		if amount <= 0 {
+			continue
+		}
+		if f.lock[a.Currency] == nil {
+			f.lock[a.Currency] = map[int]float64{}
+		}
+		f.lock[a.Currency][m0] += amount
+		if f.coupon[a.Currency] == nil {
+			f.coupon[a.Currency] = map[int]float64{}
+		}
+		if f.redeem[a.Currency] == nil {
+			f.redeem[a.Currency] = map[int]float64{}
+		}
+		for m, v := range coupon {
+			f.coupon[a.Currency][m] += v
+		}
+		for m, v := range redeem {
+			f.redeem[a.Currency][m] += v
+		}
+	}
+
 	return f
 }
 
@@ -236,7 +363,12 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 		nom := float64(in.NominalByCur[cur])/100 + in.DepositBodyByCur[cur]
 		accum, dist := in.AccumByCur[cur], in.DistByCur[cur]
 		contrib := contribTotal * share[cur]
-		if cash == 0 && nom == 0 && contrib == 0 && len(accum) == 0 && len(dist) == 0 {
+		// План (фаза 9): справжній вектор внеску й дії lock — незалежно
+		// від contribTotal/ratePP цього виклику, вони приходять із f і
+		// стоять на кожному рукаві, який factory будь-коли збирає.
+		planVec, lockMap := f.plan[cur], f.lock[cur]
+		if cash == 0 && nom == 0 && contrib == 0 && len(accum) == 0 && len(dist) == 0 &&
+			!anyNonZero(planVec) && len(lockMap) == 0 {
 			continue // валюти немає і не планується
 		}
 		rate, ok := in.YieldByCur[cur]
@@ -273,9 +405,22 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 			Threshold: in.ReinvestMinByCur[cur], Coupon: f.coupon[cur],
 			Redeem: f.redeem[cur], ContribUAH: contrib, Rate0: rate0,
 			Accum: accum, Dist: dist,
+			ContribByMonth: planVec, Lock: lockMap,
 		})
 	}
 	return sleeves
+}
+
+// anyNonZero — чи є в векторі хоч одне ненульове значення. build()
+// пропускає валюту, у якій немає нічого; порожній чи нульовий план не
+// має рятувати валюту від пропуску сам по собі.
+func anyNonZero(v []float64) bool {
+	for _, x := range v {
+		if x != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // buildProjection рахує криву капіталу, місячний план і віяло прогнозів.
@@ -285,6 +430,20 @@ func buildProjection(in projectionInput) projectionPhase {
 	factory := newSleeveFactory(in)
 	buildSleeves := factory.build
 	glideYears := factory.glideYears
+
+	// Скільки план дає ЗАРАЗ: середнє за найближчий рік (чи коротший
+	// горизонт, якщо факторі побудовано на менше) — щоб разова стаття
+	// (премія, ремонт) не смикала число вгору-вниз щомісяця.
+	if n := len(factory.planTotal); n > 0 {
+		if n > 12 {
+			n = 12
+		}
+		var sum float64
+		for i := 0; i < n; i++ {
+			sum += factory.planTotal[i]
+		}
+		out.PlanProvidesUAH = round2(sum / float64(n))
+	}
 
 	// Ширина віяла — з налаштувань, зі спадом на ті самі числа, що доти
 	// стояли константами. Доти «песимістично» означало рівно те, що хтось

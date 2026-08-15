@@ -42,6 +42,7 @@ const SHAPES = {
   portfolio: () => tiles(4) + table(8) + chart(),
   risk: () => tiles(2) + card(4) + card(4) + card(3),
   money: () => tiles(5) + card(5) + card(4),
+  plan: () => card(2) + chart() + table(4),
   future: () => card(4) + chart() + chart() + table(6),
   settings: () => card(3) + card(6) + card(6),
 };

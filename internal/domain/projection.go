@@ -134,7 +134,20 @@ func (s Sleeve) newState() projState {
 //
 // Внесок передається зовні, а не береться з рукава, бо декумуляція
 // крокує тими самими правилами, але без внесків.
+//
+// Lock (планова дія «замкнути суму на строк») переносить гроші з
+// ліквідного в locked ДО звичайного кроку: до місяця m готівку вже могло
+// змести в invested порогом (step нижче), тож замок бере спершу звідти,
+// потім із cash. Якщо не вистачає жодного — cash іде в мінус: застосунок
+// показує наслідок гіпотези, а не блокує її, як і кошик покупки
+// (handlers_whatif.go).
 func (p *projState) stepSleeve(s Sleeve, m int, contrib float64) {
+	if amt := s.Lock[m]; amt > 0 {
+		fromInvested := math.Min(amt, p.invested)
+		p.invested -= fromInvested
+		p.cash -= amt - fromInvested
+		p.locked += amt
+	}
 	fromFunds := p.grow(m) + p.pay()
 	p.step(MonthlyRate(s.rateAt(m)), contrib, s.Threshold, s.Coupon[m]+fromFunds, s.Redeem[m])
 }

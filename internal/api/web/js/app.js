@@ -27,6 +27,7 @@ import { renderOverview } from "./views/overview.js";
 import { renderPortfolio } from "./views/portfolio.js";
 import { renderRisk } from "./views/risk-tab.js";
 import { renderMoney } from "./views/money.js";
+import { renderPlan } from "./views/plan.js";
 import { renderFuture } from "./views/future.js";
 import { renderSettings } from "./views/settings.js";
 
@@ -47,6 +48,7 @@ const VIEWS = {
   portfolio: renderPortfolio,
   risk: renderRisk,
   money: renderMoney,
+  plan: renderPlan,
   future: renderFuture,
   settings: renderSettings,
 };

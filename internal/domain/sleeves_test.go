@@ -158,6 +158,55 @@ func TestRequiredMonthlySleevesHitsGoal(t *testing.T) {
 	approx(t, "підібраний внесок виводить на ціль", got, goal, goal*0.001)
 }
 
+// ContribByMonth — окремий шар поверх ContribUAH, а не заміна: нульовий
+// (nil) вектор має лишати contribAt рівно таким, як був до фази «План».
+func TestContribByMonthIsAdditiveLayer(t *testing.T) {
+	plain := uahSleeve(0, 0, 10, 1000)
+	withPlan := plain
+	withPlan.ContribByMonth = []float64{500, 500, 0, 2000}
+
+	// Місяць 1: 1000 (ContribUAH) + 500 (план) = 1500.
+	approx(t, "місяць 1", withPlan.contribAt(1, 0), 1500, 0.001)
+	// Місяць 3: вектор дає 0, лишається сам флет.
+	approx(t, "місяць 3", withPlan.contribAt(3, 0), 1000, 0.001)
+	// Місяць 5: вектор коротший за m — так само лишається сам флет.
+	approx(t, "місяць 5, за межею вектора", withPlan.contribAt(5, 0), 1000, 0.001)
+	// nil-вектор (plain) — стара поведінка, незалежно від місяця.
+	approx(t, "без плану", plain.contribAt(1, 0), 1000, 0.001)
+}
+
+// Головний інваріант фази «План»: коли sleeves несуть справжній план
+// (ContribByMonth), RequiredMonthlySleeves автоматично рахує «скільки
+// бракує ПОНАД план» — жодної окремої функції для цього не знадобилось,
+// бо бісекція чіпає лише ContribUAH і лишає ContribByMonth незайманим.
+func TestRequiredMonthlySleevesTreatsContribByMonthAsBase(t *testing.T) {
+	const goal, months = 500000.0, 36
+
+	bare := []Sleeve{uahSleeve(1000, 5000, 15, 1)} // проб (1) для пропорцій
+	needFromZero := RequiredMonthlySleeves(bare, 6, goal, months)
+
+	// Той самий рукав, але з планом, що ВЖЕ несе частину шляху до цілі:
+	// щомісяця 3000 ₴ увесь горизонт.
+	planVec := make([]float64, months)
+	for i := range planVec {
+		planVec[i] = 3000
+	}
+	withPlan := []Sleeve{uahSleeve(1000, 5000, 15, 1)}
+	withPlan[0].ContribByMonth = planVec
+	needOnTopOfPlan := RequiredMonthlySleeves(withPlan, 6, goal, months)
+
+	if needOnTopOfPlan >= needFromZero {
+		t.Fatalf("з планом надбавка мала бути МЕНШОЮ за розрахунок з нуля: %.2f vs %.2f",
+			needOnTopOfPlan, needFromZero)
+	}
+	// І підсумковий капітал справді сходиться на цілі: план (3000/міс) +
+	// надбавка (needOnTopOfPlan) дають ту саму ціль, що й needFromZero сам.
+	scaled := []Sleeve{uahSleeve(1000, 5000, 15, needOnTopOfPlan)}
+	scaled[0].ContribByMonth = planVec
+	got := ProjectSleeves(scaled, 6, months).TodayUAH
+	approx(t, "план + надбавка виводять на ціль", got, goal, goal*0.001)
+}
+
 // Колонки «внесено» і «за планом» мають жити в одній одиниці — інакше
 // таблиця віднімає номінальні гроші від реальних і на коротких
 // горизонтах малює від'ємний приріст при цілком здоровому портфелі.
@@ -210,4 +259,37 @@ func TestRateGlidesToTerminal(t *testing.T) {
 	if withGlide >= forever {
 		t.Errorf("спуск ставки мав дати менший капітал: %.0f vs %.0f", withGlide, forever)
 	}
+}
+
+// Lock — планова дія «замкнути суму на строк». Сам перехід у locked не
+// має ні губити, ні додавати капітал: за ставки 0 і без внесків сума до
+// й після місяця замка мусить збігтись.
+func TestLockTransfersCapitalWithoutLoss(t *testing.T) {
+	s := uahSleeve(100000, 0, 0, 0)
+	s.Lock = map[int]float64{6: 50000}
+	before := ProjectSleeves([]Sleeve{s}, 0, 5).TodayUAH
+	after := ProjectSleeves([]Sleeve{s}, 0, 6).TodayUAH
+	approx(t, "замок не губить і не додає капітал", after, before, 0.01)
+}
+
+// До місяця замка готівку вже могло змести в invested порогом (тут поріг
+// 0, тобто змітає завжди) — замок мусить уміти взяти звідти, а не чекати,
+// поки на рахунку знову набіжить готівка.
+func TestLockPrefersInvestedOverCash(t *testing.T) {
+	s := uahSleeve(200, 0, 0, 1000)
+	s.Lock = map[int]float64{2: 500}
+	got := ProjectSleeves([]Sleeve{s}, 0, 2).TodayUAH
+	approx(t, "сума не змінюється від переходу в locked", got, 200+1000*2, 0.01)
+}
+
+// Купон і повернення тіла замка — звичайні Coupon/Redeem: жодного нового
+// коду для них не знадобилось, замок економічно не відрізняється від
+// вкладу чи облігації, щойно гроші в ньому опинились.
+func TestLockPaysCouponAndRedeemsAtTerm(t *testing.T) {
+	s := uahSleeve(10000, 0, 0, 0)
+	s.Lock = map[int]float64{1: 10000}
+	s.Coupon = map[int]float64{2: 100, 3: 100}
+	s.Redeem = map[int]float64{3: 10000}
+	got := ProjectSleeves([]Sleeve{s}, 0, 3).TodayUAH
+	approx(t, "тіло + два купони", got, 10000+200, 0.01)
 }

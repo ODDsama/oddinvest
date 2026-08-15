@@ -278,6 +278,20 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 			t.Fatal(err)
 		}
 	}
+
+	// План (фаза 9): одне джерело доходу й одна дія — інакше
+	// plan_provides_uah, ContribByMonth і Lock лишаються неперевіреними
+	// нулями на цій фікстурі, а TestDocFieldsPopulated про це мовчить,
+	// бо *план* технічно заповнений (лише не впливає на суму).
+	if resp, b := do(t, "POST", srv+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"40000.00","cadence":"month","from_date":"`+
+			string(d(-30))+`","invest_pct":"40"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік плану: %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "POST", srv+"/api/plan/actions",
+		`{"date":"`+string(d(200))+`","type":"lock","amount":"50000.00","rate_pct":"20","months":24,"name":"MilTech"}`); resp.StatusCode != 201 {
+		t.Fatalf("дія плану: %d %s", resp.StatusCode, b)
+	}
 }
 
 // buildRichDoc піднімає сервер на багатій фікстурі й будує документ на

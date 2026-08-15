@@ -40,6 +40,7 @@ export const ANCHORS = {
   topup: { tab: "portfolio", sel: "#termDepForm" },
   deposit: { tab: "money", sel: "#cashForm" },
   convert: { tab: "money", sel: "#convForm" },
+  planflow: { tab: "plan", sel: "#planFlowForm" },
 };
 
 /** Адреса, за якою відкривається потрібна форма або розділ. */

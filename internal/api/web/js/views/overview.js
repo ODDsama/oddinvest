@@ -10,7 +10,7 @@
 // склад і історія — у «Портфель», потоки й прогнози — у «Майбутнє».
 
 import {
-  esc, curSym, monthYearGen, dayMonth, pct, plural, capitalUAH,
+  esc, curSym, monthYearGen, dayMonth, pct, plural, capitalUAH, today,
   uah2 as fmtUAH, cur2 as fmtCur,
 } from "../format.js";
 import { infoBtn } from "../info.js";
@@ -283,6 +283,42 @@ export function wireReinvest(ctx, main) {
     }));
 }
 
+// Найближча ПОДІЯ плану — дія (замок, зміна часток) чи вікно купівлі
+// фонду, що закривається. НЕ терміни погашення (їх і так повно на
+// «Майбутньому», тут місце для того, що вимагає РІШЕННЯ до дати, а не
+// просто настане).
+function nearestPlanEvent(doc, todayIso) {
+  const items = [];
+  (doc.actions || []).forEach((a) => items.push({
+    date: a.date, label: a.name || (a.type === "lock" ? "замок" : "зміна часток"),
+  }));
+  (doc.instruments || []).forEach((it) => {
+    if (it.buy_until) items.push({ date: it.buy_until, label: `${it.label}: вікно купівлі закривається` });
+  });
+  const upcoming = items.filter((e) => e.date >= todayIso).sort((a, b) => a.date < b.date ? -1 : 1);
+  return upcoming[0] || null;
+}
+
+// Друга половина плитки: чи є план, чи вистачає його на ціль, і якщо ні
+// ні на що дивитись — найближча дата, коли доведеться щось вирішити.
+function planTileSub(ctx, doc) {
+  const s = ctx.summary || {};
+  if (!(s.plan_provides_uah > 0)) {
+    return `<div class="sub"><a class="lnk" href="${routeFor("planflow")}">додай перше джерело доходу</a></div>`;
+  }
+  const f = s.forecast;
+  if (f && f.goal_amount > 0) {
+    const gap = f.contrib_plan || 0;
+    return gap > 0
+      ? `<div class="sub">до цілі бракує ${fmtUAH(gap)}/міс</div>`
+      : `<div class="sub t-ok">із запасом виводить на ціль</div>`;
+  }
+  const ev = doc && nearestPlanEvent(doc, today());
+  return ev
+    ? `<div class="sub">${monthYearGen(ev.date)} — ${esc(ev.label)}</div>`
+    : `<div class="sub">задай ціль у «Налаштуваннях», щоб побачити, чи цього досить</div>`;
+}
+
 export async function renderOverview(ctx, main) {
   const s = ctx.summary || {};
   // Капітал — це ВСЕ, що в тебе є. Рахує спільний capitalUAH, а не власна
@@ -302,6 +338,10 @@ export async function renderOverview(ctx, main) {
     // рядка сума виглядала б як «стільки в мене інвестовано».
     s.reserve_uah > 0 ? `з них ${fmtUAH(s.reserve_uah)} у резерві` : "",
   ].filter(Boolean).map((t) => `<div class="sub">${t}</div>`).join("");
+  // План — окремий запит: summary несе plan_provides_uah і forecast, але
+  // найближча подія (замок, вікно купівлі фонду) живе лише в /api/plan.
+  // Той самий /api/plan, що малює стрічку часу на вкладці «План».
+  const planDoc = await ctx.soft("plan", null);
   // Капітал — героєм: це головне число застосунку, і решта плиток поруч
   // із ним лише контекст. Доти всі три були однакового кегля, тобто
   // «скільки в мене всього» важило рівно стільки ж, скільки «коли
@@ -324,6 +364,9 @@ export async function renderOverview(ctx, main) {
     ${tile("Наступна виплата",
       np ? `${Number(np.amount).toLocaleString("uk-UA", { minimumFractionDigits: 2 })} ${curSym(np.currency)}` : "—",
       np ? `<div class="sub">${dayMonth(np.date)}</div>` : "")}
+    ${tile("План",
+      s.plan_provides_uah > 0 ? `${fmtUAH(s.plan_provides_uah)}/міс` : "—",
+      planTileSub(ctx, planDoc))}
   </div>`;
 
   // Помічник живе на окремому маршруті: тягнемо разом з оглядом, щоб
