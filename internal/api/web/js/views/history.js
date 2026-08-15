@@ -175,7 +175,17 @@ function planCardHTML(ctx, allSnaps) {
   const fact = cost.map((v) => (v == null || base == null ? null : v - base));
 
   const series = [{ name: "Внесено", color: "var(--oi-series-invested)", values: fact }];
-  if (anyTarget) series.push({ name: "План", color: "var(--oi-series-plan)", values: plan, dash: true });
+  // Підпис навмисно не «План»: у знімках лежить month_target_uah — те, що
+  // застосунок вважав місячною ціллю ТОГО дня, тобто нестача понад план
+  // за тодішніми даними. Перерахувати минуле не можна (знімок несе десять
+  // колонок і не знає ні плану, ні цілі), тож чесніше назвати рядок так,
+  // як він рахувався, ніж підписати його одним із трьох нових слів.
+  if (anyTarget) {
+    series.push({
+      name: "Місячна ціль (як була тоді)",
+      color: "var(--oi-series-plan)", values: plan, dash: true,
+    });
+  }
   planTip = { dates, series };
   const frame = fluid(
     (w, h) => seriesChart(dates, series, { width: w, height: h, label: "Внесено проти плану" }).svg,
@@ -193,7 +203,10 @@ function planCardHTML(ctx, allSnaps) {
     <div class="chart-wrap">${frame}<div class="chart-tip" data-tip="plan"></div></div>
     <div class="lg">${legend}</div>
     <div class="sub">Обидві лінії рахуються від початку періоду, тож порівнюються напряму.
-      Внесено ${scope}: <b>${last == null ? "—" : fmtUAH(last)}</b>. ${verdict}</div></div>`;
+      Внесено ${scope}: <b>${last == null ? "—" : fmtUAH(last)}</b>. ${verdict}</div>
+    ${anyTarget ? `<div class="sub-xs">Пунктир — місячна ціль у тому сенсі, який застосунок
+      мав на той день; знімок несе саме її й не знає ні плану, ні потрібної суми, тож
+      перерахувати старі точки під теперішні «треба / план / факт» нема з чого.</div>` : ""}</div>`;
 }
 
 // Блок історії — угорі «Портфеля», одразу під плитками дохідностей:

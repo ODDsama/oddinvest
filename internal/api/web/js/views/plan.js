@@ -16,6 +16,7 @@ import { infoBtn } from "../info.js";
 import { empty, legend } from "../components.js";
 import { onSubmit, onDelete, openEdit, fillForm } from "../forms.js";
 import { disclosure, section, wireDisclosures } from "../disclosure.js";
+import { CONTRIB, contribTriad } from "../contrib.js";
 import { fluid, svgInflowProfile, CAT_COLORS } from "../charts.js";
 import {
   income12mChartHTML, capitalChartHTML, projectionHTML, incomeHTML, drawdownHTML,
@@ -27,43 +28,63 @@ const CADENCE_LABEL = { month: "щомісяця", quarter: "щоквартал�
 
 // ---------- вердикт ----------
 //
-// Три стани, і плутати їх не можна. Порожній план — запрошення додати
-// перший потік. Є потік, немає цілі — саме число, без порівняння: цілі
-// немає, тож «бракує/вистачає» відповіді не має. Є й те, й те — порівняння,
-// заради якого розділ і існує.
+// Три показники на ОДНІЙ основі, і саме тому їх можна ставити поруч:
+// скільки має заходити щомісяця, скільки дає план, скільки заходить
+// насправді. Підписи беруться з CONTRIB — спільного словника, бо ті самі
+// три слова потрібні ще пʼятьом місцям застосунку.
+//
+// «Бракує» тут НЕ плитка, а підрядок: це різниця двох чисел вище, а не
+// четвертий показник. Доти воно стояло плиткою поруч із планом і читалось
+// як рівноправне — звідси й бралася плутанина, бо те саме значення
+// водночас звалось «скільки треба вносити» в сусідній картці.
 export function planVerdictHTML(ctx) {
-  const s = ctx.summary || {};
-  const provides = s.plan_provides_uah || 0;
-  const f = s.forecast;
-  const hasGoal = !!(f && f.goal_amount > 0);
+  const t = contribTriad(ctx);
 
-  if (!provides && !hasGoal) {
+  if (!t.hasPlan && !t.hasGoal) {
     return `<div class="card"><h2 class="card-head"><span>План ${infoBtn("planFlows")}</span></h2>
       ${empty("", "Заведи перше джерело доходу нижче — і побачиш, скільки план реально дає щомісяця.")}</div>`;
   }
 
-  const provideTile = `<div class="tile hero"><div class="lbl">План дає</div>
-    <div class="val">${fmtUAH(provides)}<span class="muted fine">/міс</span></div></div>`;
+  const tile = (label, val, cls = "", hero = false) =>
+    `<div class="tile${hero ? " hero" : ""}"><div class="lbl">${label}</div>
+      <div class="val${cls ? " " + cls : ""}">${fmtUAH(val)}<span class="muted fine">/міс</span></div></div>`;
 
-  if (!hasGoal) {
+  // Без цілі «треба» не існує — і це не порожнє місце, а чесна відповідь:
+  // не задавши цілі, ти не питав, скільки треба.
+  if (!t.hasGoal) {
     return `<div class="card"><h2 class="card-head"><span>План ${infoBtn("planFlows")}</span></h2>
-      <div class="tiles flush">${provideTile}</div>
+      <div class="tiles flush">${tile(CONTRIB.plan.label, t.plan, "", true)}${
+  t.hasActual ? tile(CONTRIB.actual.label, t.actual) : ""}</div>
       <div class="sub-xs mt-sm">Задай ціль і дедлайн у «Налаштуваннях», щоб побачити, чи цього досить.</div></div>`;
   }
 
-  // contrib_plan — те, чого плану бракує ПОНАД себе самого, щоб устигнути
-  // до дедлайну (state.Forecast.ContribPlan; коментар у Go — чому саме
-  // так). Нуль означає, що план сам виводить на ціль.
-  const gap = f.contrib_plan || 0;
-  const gapTile = gap > 0
-    ? `<div class="tile"><div class="lbl">До цілі бракує ще</div>
-        <div class="val t-warn">${fmtUAH(gap)}<span class="muted fine">/міс</span></div></div>`
-    : `<div class="tile"><div class="lbl">До цілі</div><div class="val t-ok">із запасом</div></div>`;
+  const tiles = tile(CONTRIB.need.label, t.need, "", true)
+    + (t.hasPlan ? tile(CONTRIB.plan.label, t.plan) : "")
+    + (t.hasActual ? tile(CONTRIB.actual.label, t.actual) : "");
+
+  // gap === 0 — законна відповідь «вистачає», а не «немає даних», тож
+  // перевіряємо саме на null, а не на істинність.
+  let verdict = "";
+  if (t.gap != null && t.gap > 0) {
+    verdict = `<span class="t-warn">${CONTRIB.gap.label.toLowerCase()} ${fmtUAH(t.gap)}/міс</span>`;
+  } else if (t.gap != null) {
+    verdict = `<span class="t-ok">план сам виводить на ціль</span>`;
+  }
+
+  // Пастка, у яку легко втрапити після «⇗»: план, що закінчується раніше
+  // за дедлайн, дає велике 12-місячне середнє й майже нічого на весь
+  // горизонт. Тоді ПЛАН на екрані більший за ТРЕБА, а БРАКУЄ все одно
+  // додатне — і без цього рядка це читається як помилка розрахунку.
+  const outlives = t.hasPlan && t.hasGoal && t.gap > 0 && t.plan >= t.need
+    ? `<div class="sub-xs mt-xs t-warn">План більший за потрібне лише поки триває:
+        до дедлайну він не дотягує, тож на весь горизонт його все одно бракує.</div>`
+    : "";
 
   return `<div class="card"><h2 class="card-head"><span>План ${infoBtn("planFlows")}</span></h2>
-    <div class="tiles flush">${provideTile}${gapTile}</div>
-    <div class="sub-xs mt-sm">Ціль ${fmtUAH(f.goal_amount)} до ${esc(f.date)}.</div>
-    ${leversHTML(ctx)}</div>`;
+    <div class="tiles flush">${tiles}</div>
+    <div class="sub-xs mt-sm">Ціль ${fmtUAH(t.goal)} до ${esc(t.date)}${
+  verdict ? " · " + verdict : ""}.</div>
+    ${outlives}${leversHTML(ctx)}</div>`;
 }
 
 // ---------- важелі ----------
@@ -79,8 +100,8 @@ export function planVerdictHTML(ctx) {
 function leversHTML(ctx) {
   const s = ctx.summary || {};
   const f = s.forecast || {};
-  const gap = f.contrib_plan || 0;
-  if (gap <= 0) return ""; // ціль і так береться — важелі ні до чого
+  const { gap } = contribTriad(ctx);
+  if (gap == null || gap <= 0) return ""; // ціль і так береться — важелі ні до чого
 
   const bits = [];
   // 1. Посунути дедлайн: наскільки пізніше план дійде сам.
@@ -166,25 +187,78 @@ function flowFormValues(f) {
   };
 }
 
-// Тіло запиту з форми. Порожні відсоткові поля дописуються ЯВНО тими
-// значеннями, які підставив би бекенд: інакше стерта «частка в портфель»
-// тихо означала б 100% — тобто протилежне тому, навіщо її стирали.
-function flowBody(f) {
+// Тіло запиту з набору значень — ЄДИНЕ місце, де описана форма запиту.
+// PUT замінює рядок цілком, тож будь-яке поле, забуте тут, не «лишиться як
+// було», а зникне.
+//
+// Порожні відсоткові поля дописуються ЯВНО тими значеннями, які підставив
+// би бекенд: інакше стерта «частка в портфель» тихо означала б 100% —
+// тобто протилежне тому, навіщо її стирали.
+function flowBodyFromValues(v) {
   return {
-    name: f.name.value.trim(), kind: f.kind.value,
-    amount: f.amount.value.trim(), currency: f.currency.value,
-    cadence: f.cadence.value, from_date: f.from_date.value,
-    until_date: f.until_date.value,
-    growth_pct: f.growth_pct.value.trim() || "0",
-    invest_pct: f.invest_pct.value.trim() || "100",
-    note: f.note.value.trim(),
+    name: String(v.name || "").trim(), kind: v.kind,
+    amount: String(v.amount || "").trim(), currency: v.currency,
+    cadence: v.cadence, from_date: v.from_date,
+    until_date: v.until_date || "",
+    growth_pct: String(v.growth_pct ?? 0).trim() || "0",
+    invest_pct: String(v.invest_pct ?? 100).trim() || "100",
+    note: String(v.note || "").trim(),
   };
+}
+
+// Те саме з живої форми: знімаємо значення, далі спільний збирач.
+function flowBody(f) {
+  return flowBodyFromValues({
+    name: f.name.value, kind: f.kind.value, amount: f.amount.value,
+    currency: f.currency.value, cadence: f.cadence.value,
+    from_date: f.from_date.value, until_date: f.until_date.value,
+    growth_pct: f.growth_pct.value, invest_pct: f.invest_pct.value,
+    note: f.note.value,
+  });
 }
 
 export function planFlowFormHTML() {
   return `<form id="planFlowForm">${flowFields()}
     <div class="form-actions"><button type="submit">Додати</button></div>
   </form>`;
+}
+
+// ---------- зміна потоку з дати ----------
+//
+// Дві найчастіші зміни плану — «зарплата виросла» і «цей дохід
+// закінчився» — це та сама операція з різним значенням одного поля, тож і
+// дія одна. Порожня сума означає, що потік просто закінчується.
+//
+// Робити це правкою суми НА МІСЦІ не можна: модель тоді вважає, що так
+// було завжди. Профіль не покаже сходинки, а колонка «дає ₴/міс» видасть
+// нову суму так, ніби вона діяла весь рік. Тому старий рядок закривається
+// датою, а новий починається наступного дня — два записи, одна дія.
+
+/** iso ± n днів. Своя арифметика, бо в format.js її немає, а Date тут
+ *  безпечний: рядок «YYYY-MM-DD» розбирається як UTC-північ, тож зсув
+ *  цілими днями не залежить від часового поясу. */
+function shiftDays(iso, n) {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Перше число наступного місяця — типова дата, з якої починає діяти нова
+ *  зарплата. */
+function firstOfNextMonth() {
+  const t = today().split("-");
+  const y = +t[0], m = +t[1];
+  return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+}
+
+function changeFields(f) {
+  return `
+    <label>З дати<input name="date" type="date" value="${firstOfNextMonth()}" required></label>
+    <label>Нова сума<input name="amount" inputmode="decimal"
+      placeholder="порожньо — потік закінчується"></label>
+    <div class="sub-xs">Старий рядок закриється напередодні, новий почнеться з цієї дати —
+      тож на профілі буде сходинка, а не переписана історія. Порожня сума означає, що
+      «${esc(f.name)}» просто більше не надходить.</div>`;
 }
 
 // ---------- потоки: список ----------
@@ -220,6 +294,8 @@ export function planFlowsListHTML(flows, provides = 0) {
       <td class="num">${pct(f.invest_pct)}</td>
       <td class="row-actions">
         <button class="sm" data-editflow="${f.id}" aria-label="Змінити потік ${esc(f.name)}">✎</button>
+        <button class="sm" data-changeflow="${f.id}"
+          aria-label="Змінити потік ${esc(f.name)} з дати: підвищення або завершення">⇗</button>
         <button class="sm quiet" data-copyflow="${f.id}"
           aria-label="Скопіювати потік ${esc(f.name)} у форму">⧉</button>
         <button class="sm warn" data-delflow="${f.id}"
@@ -502,6 +578,32 @@ function wirePlanFlows(ctx, main, flows) {
       (form2) => ({
         method: "PUT", path: "plan/flows/" + f.id, body: flowBody(form2), msg: "Потік змінено",
       }));
+  }));
+
+  main.querySelectorAll("[data-changeflow]").forEach((b) => b.addEventListener("click", () => {
+    const f = byId.get(b.dataset.changeflow);
+    if (!f) return;
+    openEdit(ctx, {
+      title: `«${esc(f.name)}» з дати`,
+      fields: changeFields(f),
+      submit: "Застосувати",
+    }, (form2) => {
+      const date = form2.date.value;
+      if (!date) return null;
+      const v = flowFormValues(f);
+      // Старий рядок закривається НАПЕРЕДОДНІ, а не тією ж датою: інакше
+      // місяць зміни оплатили б обидва рядки.
+      const closed = { ...flowBodyFromValues(v), until_date: shiftDays(date, -1) };
+      const requests = [{ method: "PUT", path: "plan/flows/" + f.id, body: closed }];
+      const amount = form2.amount.value.trim();
+      if (amount) {
+        requests.push({
+          method: "POST", path: "plan/flows",
+          body: { ...flowBodyFromValues(v), amount, from_date: date, until_date: "" },
+        });
+      }
+      return { requests, msg: amount ? "Потік змінено з дати" : "Потік закрито" };
+    });
   }));
 
   // «Копія» — префіл форми, а не мутація: жодного запиту не йде. Цим

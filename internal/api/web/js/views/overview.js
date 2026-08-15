@@ -17,6 +17,7 @@ import { infoBtn } from "../info.js";
 import { tile, kindPill } from "../components.js";
 import { isOpen, remember } from "../uistate.js";
 import { routeFor } from "../routes.js";
+import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
 import { basketHTML, wireBasket } from "./basket.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
@@ -75,7 +76,12 @@ export function actionBannerHTML(ctx) {
 
   // Нічого не по кишені: кажемо, ЩО саме найкраще і скільки до нього.
   const np = s.next_payment;
-  const perDay = (s.month_target_uah || 0) / 30;
+  // «≈ N днів за твоїм темпом» мусить рахуватись від ТЕМПУ, а не від
+  // нестачі. month_target_uah — це скільки бракує ПОНАД план, тобто чим
+  // більший план, тим меншим виходило perDay і тим довшим — очікування.
+  // Беремо ФАКТ (як гроші справді надходять), а без історії — ТРЕБА.
+  const tri = contribTriad(ctx);
+  const perDay = (tri.actual ?? tri.need ?? s.month_target_uah ?? 0) / 30;
   if (bestAny) {
     const purseCur = Math.max(0, ...Object.values(s.brokers || {}).map((m) => m[bestAny.currency] || 0));
     const need = Math.max(0, Number((bestAny.cost_per_bond || {}).amount || 0) - purseCur);
@@ -299,18 +305,59 @@ function nearestPlanEvent(doc, todayIso) {
   return upcoming[0] || null;
 }
 
+// Плитка «Цей місяць»: скільки з ПОТРІБНОГО вже зайшло.
+//
+// Знаменник — ТРЕБА, а не нестача понад план, і це не косметика. Гроші
+// плану теж мусять реально надійти на рахунок, їх ніхто не кредитує
+// наперед; міряючи проти нестачі, плитка лестила рівно на суму плану, а
+// щойно план перекривав ціль — гасла в «—», хоч ціль стояла й місяць
+// тривав.
+//
+// Ціна: month_progress_pct рахує бекенд саме проти month_target_uah, тож
+// відсоток тут рахуємо самі. Обидва поля лишаються в документі байт у
+// байт — їх жорстко читає інтеграція Home Assistant.
+function monthTile(ctx, s) {
+  const t = contribTriad(ctx);
+  const done = s.month_deposited_uah === undefined ? s.month_invested_uah : s.month_deposited_uah;
+  const doneLabel = s.month_deposited_uah === undefined
+    ? `вкладено ${fmtUAH(s.month_invested_uah)}` // старий бекенд рахував купівлі
+    : `внесено ${fmtUAH(s.month_deposited_uah)}`;
+  const extra = `${s.month_withdrawn_uah > 0
+    ? `<div class="sub-xs">нетто: поповнення ${
+      fmtUAH((s.month_deposited_uah || 0) + s.month_withdrawn_uah)} − зняття ${fmtUAH(s.month_withdrawn_uah)}</div>` : ""}
+    ${s.month_invested_uah > 0
+    ? `<div class="sub">куплено паперів на ${fmtUAH(s.month_invested_uah)}</div>` : ""}`;
+
+  if (t.hasGoal) {
+    const share = shareOfNeed(done, t.need) || 0;
+    return tile("Цей місяць", `${Math.round(share)}%`,
+      `<div class="progress"><span style="--oi-fill:${share}%"></span></div>
+       <div class="sub">${doneLabel} з ${fmtUAH(t.need)}${
+  t.hasPlan ? ` · ${CONTRIB.plan.label.toLowerCase()} дає ${fmtUAH(t.plan)}` : ""}</div>
+       ${extra}`);
+  }
+  // Без цілі «треба» не існує — лишається стара пара з бекенда.
+  if (s.month_target_uah > 0) {
+    return tile("Цей місяць", `${s.month_progress_pct || 0}%`,
+      `<div class="progress"><span style="--oi-fill:${Math.min(100, s.month_progress_pct || 0)}%"></span></div>
+       <div class="sub">${doneLabel} з ${fmtUAH(s.month_target_uah)}</div>
+       ${extra}`);
+  }
+  return tile("Цей місяць", "—", `<div class="sub">задай ціль і дедлайн — план порахується сам</div>`);
+}
+
 // Друга половина плитки: чи є план, чи вистачає його на ціль, і якщо ні
 // ні на що дивитись — найближча дата, коли доведеться щось вирішити.
 function planTileSub(ctx, doc) {
-  const s = ctx.summary || {};
-  if (!(s.plan_provides_uah > 0)) {
+  const t = contribTriad(ctx);
+  if (!t.hasPlan) {
     return `<div class="sub"><a class="lnk" href="${routeFor("planflow")}">додай перше джерело доходу</a></div>`;
   }
-  const f = s.forecast;
-  if (f && f.goal_amount > 0) {
-    const gap = f.contrib_plan || 0;
-    return gap > 0
-      ? `<div class="sub">до цілі бракує ${fmtUAH(gap)}/міс</div>`
+  if (t.hasGoal) {
+    // Обидва канонічні слова в одному рядку — щоб плитка сама пояснювала,
+    // від чого рахується нестача.
+    return t.gap > 0
+      ? `<div class="sub">${CONTRIB.gap.label.toLowerCase()} ${fmtUAH(t.gap)}/міс до потрібних ${fmtUAH(t.need)}/міс</div>`
       : `<div class="sub t-ok">із запасом виводить на ціль</div>`;
   }
   const ev = doc && nearestPlanEvent(doc, today());
@@ -348,19 +395,7 @@ export async function renderOverview(ctx, main) {
   // наступна виплата».
   const tiles = `<div class="tiles flush">
     ${tile("Капітал", fmtUAH(cap), capSub, { hero: true })}
-    ${tile("Цей місяць", s.month_target_uah > 0 ? `${s.month_progress_pct || 0}%` : "—",
-      s.month_target_uah > 0
-        ? `<div class="progress"><span style="--oi-fill:${Math.min(100, s.month_progress_pct || 0)}%"></span></div>
-           <div class="sub">${
-             s.month_deposited_uah === undefined
-               ? `вкладено ${fmtUAH(s.month_invested_uah)}` // старий бекенд рахував купівлі
-               : `внесено ${fmtUAH(s.month_deposited_uah)}`} з ${fmtUAH(s.month_target_uah)}</div>
-           ${s.month_withdrawn_uah > 0
-             ? `<div class="sub-xs">нетто: поповнення ${
-                 fmtUAH((s.month_deposited_uah || 0) + s.month_withdrawn_uah)} − зняття ${fmtUAH(s.month_withdrawn_uah)}</div>` : ""}
-           ${s.month_invested_uah > 0
-             ? `<div class="sub">куплено паперів на ${fmtUAH(s.month_invested_uah)}</div>` : ""}`
-        : `<div class="sub">задай ціль і дедлайн — план порахується сам</div>`)}
+    ${monthTile(ctx, s)}
     ${tile("Наступна виплата",
       np ? `${Number(np.amount).toLocaleString("uk-UA", { minimumFractionDigits: 2 })} ${curSym(np.currency)}` : "—",
       np ? `<div class="sub">${dayMonth(np.date)}</div>` : "")}

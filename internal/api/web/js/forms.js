@@ -29,6 +29,31 @@ export async function apply(ctx, { method = "POST", path, body }, msg) {
   }
 }
 
+/** Кілька записів поспіль як ОДНА правка: усі запити по черзі, тост і
+ *  перемальовування — раз наприкінці.
+ *
+ *  Потрібне там, де одна дія користувача — це дві операції над моделлю.
+ *  Підвищення зарплати, наприклад: старий потік закривається датою, новий
+ *  відкривається з наступного дня. Через два окремі apply() це дало б два
+ *  тости й два перемальовування, а на помилці другого запиту — половину
+ *  зробленої зміни без жодного натяку, що сталось.
+ *
+ *  Зупиняється на першій помилці: решта не виконується, тост каже, що
+ *  саме не вийшло. */
+export async function applyAll(ctx, reqs, msg) {
+  try {
+    for (const { method = "POST", path, body } of reqs) {
+      await ctx.api(method, path, body);
+    }
+    if (msg) ctx.toast(msg);
+    ctx.reload();
+    return true;
+  } catch (err) {
+    ctx.toast(String(err.message || err), false);
+    return false;
+  }
+}
+
 /** Сабміт форми. build(form) повертає {method?, path, body, msg}
  *  або null/undefined, щоб тихо скасувати відправку.
  *
@@ -145,6 +170,7 @@ export function fillForm(form, values) {
  *  fields — HTML полів, той самий набір, що й у формі додавання (саме тому
  *  розмітку малює одна функція: два списки полів розійшлися б на першій же
  *  зміні). build(form) повертає {method, path, body, msg} як в onSubmit,
+ *  {requests: [...], msg} для правки з кількох записів (див. applyAll),
  *  або null, щоб тихо скасувати.
  *
  *  Діалог живе в ОБОЛОНЦІ (#editPop), а не в розділі, і це не смак:
@@ -191,7 +217,10 @@ export function openEdit(ctx, { title, fields, submit = "Зберегти" }, bu
       e.preventDefault();
       const req = build(form);
       if (!req) return finish(false);
-      if (await apply(ctx, req, req.msg)) finish(true);
+      const ok = req.requests
+        ? await applyAll(ctx, req.requests, req.msg)
+        : await apply(ctx, req, req.msg);
+      if (ok) finish(true);
       // Інакше нічого не робимо: тост уже сказав, що не так, а введене
       // лишається в полях — саме заради цього apply і повертає результат.
     });

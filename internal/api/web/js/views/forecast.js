@@ -1,13 +1,19 @@
 // Картка прогнозу: скільки треба вносити щомісяця, щоб дійти до цілі.
 //
+// Заголовок нарешті означає те, що каже. Доти головним числом тут була
+// НЕСТАЧА понад план, і саме воно ж стояло у вердикті «Плану» під написом
+// «До цілі бракує ще» — одне значення, дві назви, один екран. Тепер
+// картка показує ТРЕБА (усю суму з нуля), а нестача лишається вердикту.
+//
 // Живе окремим модулем, бо потрібна двом розділам одразу — «Огляду»
-// (коротко, як орієнтир) і «Майбутньому» (у повному оточенні проєкцій).
+// (коротко, як орієнтир) і «Плану» (у повному оточенні проєкцій).
 // Доки вона була методом, обидва розділи малювали її НЕЗАЛЕЖНО, і будь-яка
 // правка формулювання мала шанс поїхати лише в одному з них.
 
 import { esc, curSym, humanMonths, monthYear, monthYearGen, pct, uah2 as fmtUAH } from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty } from "../components.js";
+import { contribTriad, shareOfNeed } from "../contrib.js";
 
 // Віяло розкидає ПОТРІБНИЙ ВНЕСОК, а не суму на дедлайн: щойно внесок
 // підбирається під ціль, сума на дедлайн у всіх сценаріях однакова —
@@ -42,10 +48,20 @@ export function goalsHTML(ctx) {
   const money = (v) => fmtUAH(v);
   const goal = f.goal_amount || 0;
   const hist = Number(s.actual_months || 0);
-  const asPayment = f.rows.some((r) => r.required_monthly > 0);
+  const t = contribTriad(ctx);
+  const asPayment = t.hasGoal;
   // Внески лишаються в гривні навіть у доларовому вигляді: відкладаєш
   // ти гривні, і рішення про суму приймаєш теж у гривнях.
-  const payOf = (r) => (r.key === "actual" ? r.contrib_monthly : r.required_monthly) || 0;
+  //
+  // Ринкові рядки показують ТРЕБА — усю суму з нуля, — а не нестачу понад
+  // план. Доти заголовок «Скільки треба вносити» стояв над другим, і те
+  // саме число водночас звалось «До цілі бракує ще» у вердикті двома
+  // екранами вище. required_total_monthly з'явилось саме щоб це розвести;
+  // старий бекенд його не надсилає, і тоді contribTriad чесно віддає
+  // null, а не підставляє нестачу під чужим написом.
+  const payOf = (r) => (r.key === "actual"
+    ? r.contrib_monthly
+    : r.required_total_monthly) || 0;
   const market = f.rows.filter((r) => r.key !== "actual");
   const actual = f.rows.find((r) => r.key === "actual");
   const real = market.find((r) => r.key === "realistic") || {};
@@ -90,23 +106,43 @@ export function goalsHTML(ctx) {
     </div>`;
   }).join("");
 
-  // Факт: головне тут не сума, а яку частку потрібного ти покриваєш.
+  // Два рядки покриття — ПЛАН і ФАКТ — на ОДНОМУ знаменнику: скільки з
+  // потрібного дає кожен. У цьому й сенс усієї перебудови: доти план і
+  // факт міряли різними лінійками (та й та, що була, показувала нестачу,
+  // а не потребу), тож порівняти їх поглядом не виходило.
+  //
+  // Наслідок, який варто розуміти: надрукований відсоток ФАКТУ ВПАВ
+  // проти попередніх версій — не тому, що ти став вносити менше, а тому,
+  // що знаменник виріс із нестачі до всієї потрібної суми.
+  const coverRow = (label, value, color, extra = "") => {
+    const share = shareOfNeed(value, need);
+    return `<div class="rule-top">
+      <div class="kv">
+        <span>${label}</span>
+        <span><b>${pay(value)}/міс</b>${share != null
+    ? ` <span class="t-info">— ${share.toFixed(0)}% від потрібного</span>` : ""}</span>
+      </div>
+      ${share != null
+    ? `<div class="progress mt-sm"><span style="--oi-fill:${share}%;--oi-c:${color}"></span></div>` : ""}
+      ${extra}
+    </div>`;
+  };
+
+  const planBlock = t.hasPlan
+    ? coverRow(`За планом <span class="muted fine">джерела доходу</span>`,
+      t.plan, "var(--oi-series-invested)")
+    : "";
+
   let actualBlock = "";
   if (actual) {
-    const share = need > 0 ? Math.min(100, payOf(actual) / need * 100) : 0;
     const eta = actual.goal_months === -1 ? "вже досягнуто"
       : actual.goal_months > 0 ? `${monthYear(actual.goal_date)}`
       : "не досягається за 60 років";
-    actualBlock = `<div class="rule-top">
-      <div class="kv">
-        <span>За фактом ${hist > 0 ? `<span class="muted fine">за ${humanMonths(hist)} історії</span>` : ""}</span>
-        <span><b>${pay(payOf(actual))}/міс</b>${asPayment && need > 0
-          ? ` <span class="t-info">— ${share.toFixed(0)}% від потрібного</span>` : ""}</span>
-      </div>
-      ${asPayment && need > 0 ? `<div class="progress mt-sm"><span style="--oi-fill:${share}%;--oi-c:var(--oi-info)"></span></div>` : ""}
-      <div class="muted fine-xs mt-xs">на дедлайн ${goalFmt(actual.amount)}${
-        goal > 0 ? ` — ${(actual.goal_pct || 0).toFixed(1)}% цілі` : ""} · за цим темпом ціль ${eta}</div>
-    </div>`;
+    actualBlock = coverRow(
+      `За фактом ${hist > 0 ? `<span class="muted fine">за ${humanMonths(hist)} історії</span>` : ""}`,
+      payOf(actual), "var(--oi-info)",
+      `<div class="muted fine-xs mt-xs">на дедлайн ${goalFmt(actual.amount)}${
+        goal > 0 ? ` — ${(actual.goal_pct || 0).toFixed(1)}% цілі` : ""} · за цим темпом ціль ${eta}</div>`);
   } else {
     actualBlock = `<div class="muted fine rule-top">
       Прогноз за фактичним темпом зʼявиться після першого поповнення.</div>`;
@@ -124,7 +160,7 @@ export function goalsHTML(ctx) {
       враховане всередині моделі, тож із сьогоднішніми витратами їх можна порівнювати прямо.</div>`;
   return `<div class="card" id="fcCard"><h2 class="h-row">
     <span>${asPayment ? "Скільки треба вносити" : "Скільки буде на дедлайн"} ${infoBtn("forecast")}</span></h2>
-    ${head}${range}${marketRows}${actualBlock}</div>`;
+    ${head}${range}${marketRows}${planBlock}${actualBlock}</div>`;
 }
 
 // ---------- «Що як»: який важіль наскільки зрушує ціль ----------
