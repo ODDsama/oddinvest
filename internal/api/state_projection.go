@@ -95,6 +95,12 @@ type projectionInput struct {
 	// фази «План», — це і є головний тест.
 	PlanFlows   []store.PlanFlow
 	PlanActions []store.PlanAction
+	// PlanReceipts — відмітки фактичних надходжень (0027). Відмітка на
+	// МАЙБУТНІЙ місяць заміщає планову суму того місяця, тож «відпускні
+	// прийшли наперед, далі два місяці нуль» перестає бути знанням у голові
+	// й стає числом у проєкції. Порожній список нічого не міняє — рівно так
+	// само, як порожній PlanFlows.
+	PlanReceipts []store.PlanReceipt
 	// ActualMonthly — фактичний темп поповнень, ₴/міс (0 = історії замало).
 	ActualMonthly float64
 	// IncomeMonthlyNow — скільки портфель приносить УЖЕ, ₴/міс. Готове
@@ -298,6 +304,10 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	planTotal := make([]float64, goalHorizonMonths)   // гривневий, для розкладу
 	planUAHOnly := make([]float64, goalHorizonMonths) // те саме, але лише UAH-потоки
 	planNative := map[string][]float64{}              // валюта → нативний вектор
+	// Відмітки заходять сюди тим самим ядром, що й сам план, а не окремим
+	// проходом зверху: інакше «скільки план дає» рахувалось би з відмітками
+	// в одному місці й без них у другому.
+	marks := newPlanMarks(in.PlanReceipts)
 	for _, fl := range in.PlanFlows {
 		native := fl.Currency != "" && fl.Currency != money.UAH
 		if native && planNative[fl.Currency] == nil {
@@ -307,11 +317,11 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 			// planTotal лишається гривневим і включає ВСЕ: на ньому стоїть
 			// PlanProvidesUAH («скільки план дає зараз»), якому валюта
 			// байдужа, і воно свідомо міряне сьогоднішнім курсом.
-			planTotal[m-1] += planFlowMonthlyUAH(fl, today, in.Rates, m)
+			planTotal[m-1] += planFlowMonthlyUAH(fl, today, in.Rates, m, marks)
 			if native {
-				planNative[fl.Currency][m-1] += planFlowNative(fl, today, m)
+				planNative[fl.Currency][m-1] += planFlowNative(fl, today, m, marks)
 			} else {
-				planUAHOnly[m-1] += planFlowMonthlyUAH(fl, today, in.Rates, m)
+				planUAHOnly[m-1] += planFlowMonthlyUAH(fl, today, in.Rates, m, marks)
 			}
 		}
 	}

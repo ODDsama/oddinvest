@@ -48,6 +48,12 @@ type Backup struct {
 	// знову почав би виводитись із теперішньої таблиці, тобто минуле знову
 	// стало б переписуваним.
 	PlanFlowRevisions []BackupPlanFlowRevision `json:"plan_flow_revisions,omitempty"`
+	// Відмітки надходжень (0027) — журнал, якого немає більше ніде: чи
+	// прийшла зарплата, не вивести ні з поповнень, ні з потоків. Без нього
+	// відновлення стерло б і минулі відмітки, і майбутні нулі, а прогноз
+	// тихо повернувся б до рівного плану — тобто числа лишились би
+	// правдоподібними й неправильними.
+	PlanReceipts []BackupPlanReceipt `json:"plan_receipts,omitempty"`
 	// Довідники. omitempty з тієї ж причини, що й усе вище: бекапи, зроблені
 	// до їхньої появи, читаються без цих полів так само, як раніше — фонди й
 	// брокери відновляться з назв в операціях, рівно як доти.
@@ -150,6 +156,23 @@ type BackupPlanFlowRevision struct {
 	GrowthBP  int64  `json:"growth_bp"`
 	InvestBP  int64  `json:"invest_bp"`
 	Note      string `json:"note"`
+}
+
+// BackupPlanReceipt — відмітка фактичного надходження.
+//
+// Amount БЕЗ omitempty, і це не недогляд, а рівно та сама пастка, що
+// описана в BackupPlanAction: нуль тут означає «не прийшло» — саме той
+// факт, заради якого таблиця й існує. omitempty з'їв би його, і
+// відновлення перетворило б записаний нуль на невідмічений місяць.
+type BackupPlanReceipt struct {
+	ID       int64  `json:"id"`
+	FlowID   int64  `json:"flow_id"`
+	Month    string `json:"month"`
+	Name     string `json:"name"`
+	Amount   int64  `json:"amount"`
+	Currency string `json:"currency"`
+	InvestBP int64  `json:"invest_bp"`
+	Note     string `json:"note"`
 }
 
 // BackupPlanAction — планова дія (set_shares або lock).
@@ -418,6 +441,19 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT id,flow_id,month,name,amount,currency,invest_bp,note
+		FROM plan_receipts ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupPlanReceipt
+			if err := scan(&r.ID, &r.FlowID, &r.Month, &r.Name, &r.Amount,
+				&r.Currency, &r.InvestBP, &r.Note); err != nil {
+				return err
+			}
+			b.PlanReceipts = append(b.PlanReceipts, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT id,date,type,usd_bp,eur_bp,amount,currency,rate_bp,months,name,note
 		FROM plan_actions ORDER BY id`,
 		func(scan func(...any) error) error {
@@ -536,7 +572,8 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// один рядок плану.
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
 		"deposit_topups", "term_deposits", "reserve_ops", "plan_flows", "plan_flow_revisions",
-		"plan_actions", "settings", "payment_status", "snapshots", "funds", "brokers"} {
+		"plan_receipts", "plan_actions", "settings", "payment_status", "snapshots",
+		"funds", "brokers"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
 		}
@@ -743,6 +780,16 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			r.ID, r.FlowID, r.ChangedAt, r.Op, r.Name, r.Kind, r.Amount, r.Currency,
 			r.Cadence, r.FromDate, r.UntilDate, r.GrowthBP, r.InvestBP, r.Note); err != nil {
 			return fmt.Errorf("ревізія потоку %d: %w", r.ID, err)
+		}
+	}
+	// Відмітки — після потоків із тієї ж причини, що й ревізії: FK між ними
+	// немає, але порядок читається як «спершу план, потім що з нього вийшло».
+	for _, r := range b.PlanReceipts {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO plan_receipts (id,flow_id,month,name,amount,currency,invest_bp,note)
+			 VALUES (?,?,?,?,?,?,?,?)`,
+			r.ID, r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Note); err != nil {
+			return fmt.Errorf("відмітка надходження %d: %w", r.ID, err)
 		}
 	}
 	for _, a := range b.PlanActions {

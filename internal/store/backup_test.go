@@ -635,3 +635,69 @@ func TestBackupRoundTripKeepsPlanFlowRevisions(t *testing.T) {
 		t.Error("час ревізії не пережив бекап")
 	}
 }
+
+// Відмітки надходжень мусять пережити відновлення, і НУЛЬ серед них —
+// найважливіший рядок: він означає «зарплати не було». Загубивши його,
+// restore перетворив би записаний факт на невідмічений місяць, а прогноз
+// тихо повернувся б до рівного плану — числа лишились би правдоподібними
+// й неправильними.
+func TestBackupRoundTripKeepsPlanReceipts(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+
+	flow, err := src.AddPlanFlow(ctx, PlanFlow{
+		Name: "Зарплата", Kind: "income", Amount: 3_200_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2026-01-17", InvestBP: 4000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.AddPlanReceipt(ctx, PlanReceipt{
+		FlowID: flow, Month: "2026-05", Name: "Зарплата", Amount: 0,
+		Currency: "UAH", InvestBP: 10000, Note: "відпускні прийшли наперед",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.AddPlanReceipt(ctx, PlanReceipt{
+		FlowID: 0, Month: "2026-04", Name: "Премія", Amount: 1_500_000,
+		Currency: "UAH", InvestBP: 5000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.PlanReceipts) != 2 {
+		t.Fatalf("експорт мав узяти 2 відмітки, маємо %d", len(b.PlanReceipts))
+	}
+
+	dst, err := Open(filepath.Join(t.TempDir(), "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportAll(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dst.ListPlanReceipts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("після відновлення %d відміток замість 2: %+v", len(got), got)
+	}
+	// Порядок — за місяцем: квітнева премія попереду травневого нуля.
+	if got[0].Name != "Премія" || got[0].Amount != 1_500_000 || got[0].InvestBP != 5000 {
+		t.Errorf("позапланова відмітка поїхала: %+v", got[0])
+	}
+	if got[1].FlowID != flow || got[1].Amount != 0 ||
+		got[1].Note != "відпускні прийшли наперед" {
+		t.Errorf("нульова відмітка поїхала: %+v", got[1])
+	}
+}

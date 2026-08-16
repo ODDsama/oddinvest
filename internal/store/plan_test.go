@@ -7,6 +7,78 @@ import (
 	"time"
 )
 
+func TestPlanReceiptRoundTrip(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	id, err := s.AddPlanReceipt(ctx, PlanReceipt{
+		FlowID: 7, Month: "2026-05", Name: "Зарплата", Amount: 3200000,
+		Currency: "UAH", InvestBP: 10000, Note: "відпустка",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := s.ListPlanReceipts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 1 || rs[0].ID != id || rs[0].Month != "2026-05" || rs[0].Note != "відпустка" {
+		t.Fatalf("round-trip: %+v", rs)
+	}
+
+	rs[0].Amount = 0
+	rs[0].Note = "не прийшло"
+	if err := s.UpdatePlanReceipt(ctx, rs[0]); err != nil {
+		t.Fatal(err)
+	}
+	rs, _ = s.ListPlanReceipts(ctx)
+	if rs[0].Amount != 0 || rs[0].Note != "не прийшло" {
+		t.Fatalf("update не застосувався: %+v", rs[0])
+	}
+
+	if err := s.DeletePlanReceipt(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	if rs, _ = s.ListPlanReceipts(ctx); len(rs) != 0 {
+		t.Fatalf("очікували порожньо після видалення, маємо %+v", rs)
+	}
+	if err := s.DeletePlanReceipt(ctx, 42); !errors.Is(err, ErrNotFound) {
+		t.Errorf("видалення неіснуючої відмітки мало дати ErrNotFound, маємо %v", err)
+	}
+}
+
+// Одне джерело — одна відмітка на місяць, а «іншого» скільки завгодно.
+//
+// Часткова унікальність тут не косметика: без неї подвійний клік по «✓
+// прийшло» записав би зарплату двічі, і місяць тихо показав би подвійне
+// надходження. Друга половина правила так само потрібна: премія й
+// подарунок у тому самому серпні — два різні факти.
+func TestPlanReceiptOnePerFlowPerMonth(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	rec := PlanReceipt{FlowID: 7, Month: "2026-05", Amount: 100, Currency: "UAH", InvestBP: 10000}
+	if _, err := s.AddPlanReceipt(ctx, rec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddPlanReceipt(ctx, rec); !errors.Is(err, ErrConflict) {
+		t.Errorf("друга відмітка того самого джерела мала дати ErrConflict, маємо %v", err)
+	}
+	// Інший місяць того самого джерела — не конфлікт.
+	rec.Month = "2026-06"
+	if _, err := s.AddPlanReceipt(ctx, rec); err != nil {
+		t.Errorf("інший місяць мав пройти: %v", err)
+	}
+	// Позапланове (flow_id = 0) під частковий індекс не підпадає.
+	other := PlanReceipt{FlowID: 0, Month: "2026-05", Name: "Премія", Amount: 500,
+		Currency: "UAH", InvestBP: 10000}
+	if _, err := s.AddPlanReceipt(ctx, other); err != nil {
+		t.Fatal(err)
+	}
+	other.Name = "Подарунок"
+	if _, err := s.AddPlanReceipt(ctx, other); err != nil {
+		t.Errorf("друге позапланове в тому ж місяці мало пройти: %v", err)
+	}
+}
+
 func TestPlanFlowRoundTrip(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()

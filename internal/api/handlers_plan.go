@@ -32,6 +32,13 @@ func writeStoreErr(w http.ResponseWriter, err error, fallback int) {
 		writeErr(w, http.StatusNotFound, err)
 		return
 	}
+	// 409 — «цей місяць уже відмічено». Той самий доказ, що й у 404 вище:
+	// без окремого коду клієнт не відрізнив би дурницю у формі від гонки з
+	// іншою вкладкою, а перше лікується правкою поля, друге — перезавантаженням.
+	if errors.Is(err, store.ErrConflict) {
+		writeErr(w, http.StatusConflict, err)
+		return
+	}
 	writeErr(w, fallback, err)
 }
 
@@ -165,20 +172,28 @@ type planFlowRow struct {
 	NextMonthUAH float64 `json:"next_month_uah"`
 }
 
-func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates) planFlowRow {
+// toPlanFlowRow. marks обов'язковий саме тут, і забути його було б тихо:
+// сума колонки ProvidesUAH мусить дорівнювати плитці «План дає», а та
+// рахується з відмітками (state_projection.go). Без них таблиця показувала
+// б план так, ніби майбутніх нулів ніхто не відмічав, а підсумок під нею —
+// уже з ними. Тест тримає рівність.
+func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates, marks planMarks) planFlowRow {
 	return planFlowRow{
 		ID: f.ID, Name: f.Name, Kind: f.Kind,
 		Amount: toMoneyJSON(money.New(f.Amount, f.Currency)), Cadence: f.Cadence,
 		FromDate: string(f.FromDate), UntilDate: string(f.UntilDate),
 		GrowthPct: round2(float64(f.GrowthBP) / 100), InvestPct: round2(float64(f.InvestBP) / 100),
 		Note:        f.Note,
-		ProvidesUAH: round2(planFlowProvidesUAH(f, today, rates, planProvidesMonths)),
-		GrossUAH:    round2(planFlowGrossUAH(f, today, rates, planProvidesMonths)),
+		ProvidesUAH: round2(planFlowProvidesUAH(f, today, rates, planProvidesMonths, marks)),
+		GrossUAH:    round2(planFlowGrossUAH(f, today, rates, planProvidesMonths, marks)),
 
-		AmountUAH:       round2(planFlowUAH(float64(f.Amount)/100, f.Currency, rates)),
+		AmountUAH: round2(planFlowUAH(float64(f.Amount)/100, f.Currency, rates)),
+		// Стала ставка відміток НЕ бачить, і це навмисно: вона відповідає на
+		// «скільки цей потік платить, коли платить», — питання без місяця,
+		// тож і замістити в ньому нема чого.
 		MonthlyUAH:      round2(planFlowUAH(planFlowSteadyNative(f, today, true), f.Currency, rates)),
 		MonthlyGrossUAH: round2(planFlowUAH(planFlowSteadyNative(f, today, false), f.Currency, rates)),
-		NextMonthUAH:    round2(planFlowMonthlyUAH(f, today, rates, 1)),
+		NextMonthUAH:    round2(planFlowMonthlyUAH(f, today, rates, 1, marks)),
 	}
 }
 
@@ -194,9 +209,13 @@ func (s *Server) handleListPlanFlows(w http.ResponseWriter, r *http.Request) {
 	// що довідник НБУ сьогодні не оновився.
 	today := domain.NewDate(time.Now())
 	rates, _ := s.rates(r.Context()) //nolint:errcheck // свідомо: див. вище
+	// Відмітки ковтаємо з тієї ж причини й з тим самим наслідком: без них
+	// колонка покаже чистий план. Порожні відмітки — звичайний стан.
+	receipts, _ := s.st.ListPlanReceipts(r.Context()) //nolint:errcheck // свідомо: див. вище
+	marks := newPlanMarks(receipts)
 	out := make([]planFlowRow, 0, len(flows))
 	for _, f := range flows {
-		out = append(out, toPlanFlowRow(f, today, rates))
+		out = append(out, toPlanFlowRow(f, today, rates, marks))
 	}
 	writeJSON(w, http.StatusOK, out)
 }

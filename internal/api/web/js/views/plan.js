@@ -17,7 +17,7 @@ import {
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty, legend } from "../components.js";
-import { onSubmit, onDelete, openEdit, fillForm } from "../forms.js";
+import { apply, onSubmit, onDelete, openEdit, fillForm } from "../forms.js";
 import { disclosure, section, wireDisclosures } from "../disclosure.js";
 import { CONTRIB, contribTriad } from "../contrib.js";
 import {
@@ -42,8 +42,40 @@ const CADENCE_LABEL = { month: "щомісяця", quarter: "щоквартал�
 // четвертий показник. Доти воно стояло плиткою поруч із планом і читалось
 // як рівноправне — звідси й бралася плутанина, бо те саме значення
 // водночас звалось «скільки треба вносити» в сусідній картці.
-export function planVerdictHTML(ctx) {
+// thisMonthHTML — підрядок про ПОТОЧНИЙ місяць: скільки з обіцяного вже
+// відмічено.
+//
+// Саме підрядок, а не четверта плитка. Тріада Треба/План/Факт канонічна —
+// ті самі три слова названі в CONTRIB і стоять ще в п'яти місцях
+// застосунку, — і четверта плитка поруч читалася б як рівноправний
+// показник, тоді як це зріз одного місяця, а не темп.
+//
+// Поточний місяць не входить у стовпчики «Плану проти факту» (він ще
+// триває), тож без цього рядка про нього не сказано ніде.
+function thisMonthHTML(doc) {
+  const key = monthKeyOffset(0);
+  const rows = (doc.expected || []).filter((e) => e.month === key);
+  if (!rows.length) return "";
+  const marked = rows.filter((e) => e.receipt);
+  if (!marked.length) {
+    return `<div class="sub-xs mt-xs">${esc(monthYear(key + "-01"))}: жодне з
+      ${rows.length} ${plural(rows.length, "джерела", "джерел", "джерел")} ще не відмічене.</div>`;
+  }
+  const got = marked.reduce((a, e) => a + (e.receipt.gives_uah || 0), 0);
+  const planned = rows.reduce((a, e) => a + (e.plan_uah || 0), 0);
+  // Ті, що НЕ прийшли, називаються поіменно: «надійшло менше» без причини
+  // — це половина відповіді, а причина вже записана в самій відмітці.
+  const missed = marked.filter((e) => amtOf(e.receipt.amount) === 0)
+    .map((e) => esc(e.name) + (e.receipt.note ? ` (${esc(e.receipt.note)})` : ""));
+  return `<div class="sub-xs mt-xs">${esc(monthYear(key + "-01"))}: відмічено
+    ${marked.length} із ${rows.length} — надійшло <b>${fmtUAH(got)}</b> із запланованих
+    <b>${fmtUAH(planned)}</b>${missed.length
+    ? ` · <span class="t-warn">не прийшло: ${missed.join(", ")}</span>` : ""}.</div>`;
+}
+
+export function planVerdictHTML(ctx, doc = null) {
   const t = contribTriad(ctx);
+  const month = doc ? thisMonthHTML(doc) : "";
 
   if (!t.hasPlan && !t.hasGoal) {
     return `<div class="card"><h2 class="card-head"><span>План ${infoBtn("planFlows")}</span></h2>
@@ -60,7 +92,8 @@ export function planVerdictHTML(ctx) {
     return `<div class="card"><h2 class="card-head"><span>План ${infoBtn("planFlows")}</span></h2>
       <div class="tiles flush">${tile(CONTRIB.plan.label, t.plan, "", true)}${
   t.hasActual ? tile(CONTRIB.actual.label, t.actual) : ""}</div>
-      <div class="sub-xs mt-sm">Задай ціль і дедлайн у «Налаштуваннях», щоб побачити, чи цього досить.</div></div>`;
+      <div class="sub-xs mt-sm">Задай ціль і дедлайн у «Налаштуваннях», щоб побачити, чи цього досить.</div>
+      ${month}</div>`;
   }
 
   const tiles = tile(CONTRIB.need.label, t.need, "", true)
@@ -89,7 +122,7 @@ export function planVerdictHTML(ctx) {
     <div class="tiles flush">${tiles}</div>
     <div class="sub-xs mt-sm">Ціль ${fmtUAH(t.goal)} до ${esc(t.date)}${
   verdict ? " · " + verdict : ""}.</div>
-    ${outlives}${leversHTML(ctx)}</div>`;
+    ${month}${outlives}${leversHTML(ctx)}</div>`;
 }
 
 // ---------- важелі ----------
@@ -650,8 +683,16 @@ export function profileHTML(doc) {
 // журнал накриє все вікно, застереження зникне з картки САМО, а не
 // лишиться висіти вічним дисклеймером.
 
+// Четвертий ряд — «надійшло»: скільки грошей ПРИЙШЛО за відмітками, тоді
+// як «факт» поруч — скільки з них зрештою внесено в портфель. Різниця між
+// ними і є те, що досі не було видно ніде: зарплата могла прийти вся, а
+// доїхати до брокера — наполовину.
+//
+// Зелений (--oi-series-nominal) вільний і не збігається ні з планом, ні з
+// поповненнями, ні з нестачею — нового токена заводити не довелось.
 const PLAN_FACT_COLORS = [
-  "var(--oi-series-plan)", "var(--oi-series-invested)", "var(--oi-series-neutral)",
+  "var(--oi-series-plan)", "var(--oi-series-nominal)",
+  "var(--oi-series-invested)", "var(--oi-series-neutral)",
 ];
 
 let factTip = null;
@@ -668,10 +709,16 @@ function factTipHTML(i) {
   const done = p.plan_uah > 0
     ? `<div class="r"><span class="muted">виконано</span><b>${pct(
       (p.actual_uah / p.plan_uah) * 100, 0)}</b></div>` : "";
+  // Саме p.marked, а не p.received_uah: нуль тут означає «нічого не
+  // прийшло» — записаний факт, — і показати його треба, а не сховати за
+  // хибністю числа.
+  const recv = p.marked
+    ? r("Надійшло", p.received_uah || 0, PLAN_FACT_COLORS[1]) : "";
   return `<div><b>${esc(monthYear(p.month + "-01"))}</b></div>
     ${r("План", p.plan_uah, PLAN_FACT_COLORS[0])}
-    ${r("Факт", p.actual_uah, PLAN_FACT_COLORS[1])}
-    ${p.gap_uah ? r("Бракувало (як тоді)", p.gap_uah, PLAN_FACT_COLORS[2]) : ""}
+    ${recv}
+    ${r("Внесено", p.actual_uah, PLAN_FACT_COLORS[2])}
+    ${p.gap_uah ? r("Бракувало (як тоді)", p.gap_uah, PLAN_FACT_COLORS[3]) : ""}
     ${r(diff >= 0 ? "Понад план" : "Недобрано", Math.abs(diff), "", "tot")}${done}
     ${p.plan_derived
     ? `<div class="r tip-note"><span class="muted fine-xs">план виведено з теперішньої
@@ -687,15 +734,25 @@ export function planVsFactHTML(doc, summary) {
        два місяці з потоками або поповненнями.`)}</div>`;
   }
   const hasGap = pts.some((p) => (p.gap_uah || 0) > 0);
+  // Ряд «надійшло» вмикається лише тоді, коли є що показувати, — тим самим
+  // прийомом, що вже вмикає «бракувало». Порожній четвертий стовпчик у
+  // кожному місяці означав би «надійшло нуль», а не «ще не відмічали».
+  const hasRecv = pts.some((p) => p.marked);
+  // Місяць БЕЗ відмітки в цьому ряду отримує нуль, і намалюється він як
+  // відсутній стовпчик — те саме, що показує сама відсутність запису.
+  const recvOf = (p) => (p.marked ? p.received_uah || 0 : 0);
   const groups = pts.map((p) => ({
     // Підпис — місяць без року: дванадцять «2026-07» злиплись би в сіру
     // смугу, а рік і так один-два на все вікно.
     label: monthShort(p.month),
-    values: hasGap
-      ? [p.plan_uah || 0, p.actual_uah || 0, p.gap_uah || 0]
-      : [p.plan_uah || 0, p.actual_uah || 0],
-    // Контуром малюється тільки план: факт і нестача записані завжди.
-    derived: [!!p.plan_derived, false, false],
+    values: [
+      p.plan_uah || 0,
+      ...(hasRecv ? [recvOf(p)] : []),
+      p.actual_uah || 0,
+      ...(hasGap ? [p.gap_uah || 0] : []),
+    ],
+    // Контуром малюється тільки план: решта рядів записана завжди.
+    derived: [!!p.plan_derived, false, false, false],
   }));
   const anyDerived = pts.some((p) => p.plan_derived);
   factTip = { points: pts };
@@ -706,8 +763,9 @@ export function planVsFactHTML(doc, summary) {
 
   const names = [
     { color: PLAN_FACT_COLORS[0], label: "план" },
-    { color: PLAN_FACT_COLORS[1], label: "факт" },
-    hasGap && { color: PLAN_FACT_COLORS[2], label: "бракувало (як тоді)" },
+    hasRecv && { color: PLAN_FACT_COLORS[1], label: "надійшло" },
+    { color: PLAN_FACT_COLORS[2], label: "внесено" },
+    hasGap && { color: PLAN_FACT_COLORS[3], label: "бракувало (як тоді)" },
   ].filter(Boolean);
 
   // Підсумок береться по ТИХ САМИХ місяцях, що на графіку: середнє за
@@ -732,6 +790,31 @@ export function planVsFactHTML(doc, summary) {
   // Застереження про виведені місяці стоїть, лише поки такі місяці є: коли
   // журнал накриє все вікно, воно зникне САМО, а не лишиться вічним
   // дисклеймером, який усі навчились не читати.
+  // Різниця «надійшло → внесено» — це найцікавіше, що картка вміє сказати
+  // після появи відміток, і сказати це варто числом, а не лишити читачеві
+  // віднімати два стовпчики очима. Лише по відмічених місяцях: решта до
+  // цього порівняння не входить узагалі.
+  //
+  // Частка «дійшло до портфеля» рахується ЛИШЕ коли внесено не більше, ніж
+  // надійшло. Інакше вона виглядає як 1667%, і це не курйоз, а типовий стан
+  // на початку: відмічено одне джерело з п'яти, тоді як поповнення в
+  // місяці всі. Показувати відсоток там означало б видавати неповноту
+  // відміток за дисципліну.
+  const recvWin = win.filter((p) => p.marked);
+  const recvLine = recvWin.length
+    ? (() => {
+      const r = recvWin.reduce((a, p) => a + (p.received_uah || 0), 0) / recvWin.length;
+      const a = recvWin.reduce((x, p) => x + (p.actual_uah || 0), 0) / recvWin.length;
+      const tail = r > 0 && a <= r
+        ? ` — до портфеля дійшло ${pct((a / r) * 100, 0)} того, що прийшло`
+        : ` — внесено більше, ніж відмічено: або в цих місяцях відмічені не всі
+            джерела, або гроші прийшли не лише з плану`;
+      return `<div class="sub-xs">За ${recvWin.length} ${plural(recvWin.length,
+        "відмічений місяць", "відмічені місяці", "відмічених місяців")} надійшло
+        <b>${fmtUAH(r)}</b>/міс, а внесено <b>${fmtUAH(a)}</b>/міс${tail}.</div>`;
+    })()
+    : "";
+
   const derivedLine = anyDerived
     ? `<div class="sub-xs">Порожні стовпчики плану — місяці, старші за журнал правок: за них
        план не записаний, а виведений із теперішньої таблиці, тож давня правка суми на місці
@@ -743,11 +826,319 @@ export function planVsFactHTML(doc, summary) {
     ${legend(names)}
     <div class="sub">${verdict}</div>
     ${nowLine}${derivedLine}
-    <div class="sub-xs">Факт — реальні поповнення, нетто зі зняттями (купівля паперів сюди не
+    ${recvLine}
+    <div class="sub-xs">Внесено — реальні поповнення, нетто зі зняттями (купівля паперів сюди не
       входить: вона лише переносить гроші з рахунку в папери). План береться з журналу правок —
       зі стану потоків на кінець того місяця, тож пізніше підвищення минулого не переписує.
-      Валютні суми переведено сьогоднішнім курсом — обидва ряди в одних грошах, але це не ті
+      Валютні суми переведено сьогоднішнім курсом — усі ряди в одних грошах, але це не ті
       гривні, що були тоді.</div></div>`;
+}
+
+// ---------- надходження місяця ----------
+//
+// ЧЕКЛИСТ, а не журнал, і це головне рішення картки. Форма «заведи запис
+// про надходження» вимагала б щоразу пригадувати, скільки мало прийти, і
+// вписувати те, що застосунок уже знає. Тут навпаки: рядки розгортає план
+// («зп 17-го — 32 000»), а від людини потрібен один тик.
+//
+// Три стани, і жоден не можна злити з іншим: «ще не відмічено» (кнопки),
+// «прийшло стільки» і «не прийшло». Останні два — це записаний факт;
+// перший — його відсутність. Саме заради цієї різниці таблиця й існує:
+// нуль, який означає «зарплати не було», мусить виглядати інакше за
+// місяць, до якого просто не дійшли руки.
+//
+// Вікно навігації збігається з тим, де відмітка щось міняє: назад — стільки
+// ж, скільки показує «План проти факту», уперед — вікно, за яким
+// усереднюється «План дає». Далі тицяти просто нема сенсу.
+
+// monthSel — вибраний місяць зсувом від поточного. Модульна змінна, як
+// factTip нижче: ctx.reload() перемальовує розділ, але не перезавантажує
+// модуль, тож вибір переживає і збереження відмітки, і перемальовування.
+// У localStorage не їде навмисно — «який місяць я гортав учора» не той
+// стан, який варто пам'ятати між сеансами.
+let monthSel = 0;
+
+const RECEIPT_BACK = 12;
+const RECEIPT_FWD = 12;
+
+/** "YYYY-MM" зі зсувом n від поточного місяця.
+ *
+ *  Арифметикою над роком і місяцем, а не Date.setMonth: та має семантику
+ *  переповнення (31 березня мінус місяць = 3 березня), і ключ місяця з неї
+ *  часом виходив би не тим. Той самий розрахунок, що monthKeyAt на
+ *  бекенді, — інакше браузер і сервер називали б «травнем» різні місяці. */
+function monthKeyOffset(n) {
+  const d = new Date();
+  const t = d.getFullYear() * 12 + d.getMonth() + n;
+  return `${String(Math.floor(t / 12)).padStart(4, "0")}-${
+    String((t % 12) + 1).padStart(2, "0")}`;
+}
+
+const amtOf = (m) => parseFloat(String((m || {}).amount || "0").replace(",", ".")) || 0;
+
+// Різниця «факт проти обіцяного» у валюті потоку. Показується лише коли
+// вона є: рівно за планом — це нормальний випадок, і підпис «0» під ним
+// був би шумом.
+function receiptDiffHTML(e) {
+  const r = e.receipt;
+  if (!r) return "";
+  const diff = amtOf(r.amount) - amtOf(e.amount);
+  if (Math.abs(diff) < 0.005) return "";
+  const cur = (e.amount || {}).currency || "UAH";
+  const sign = diff > 0 ? "+" : "−";
+  return ` <span class="fine ${diff > 0 ? "t-ok" : "t-warn"}">${sign}${
+    esc(cur2(Math.abs(diff), cur))}</span>`;
+}
+
+function receiptStateHTML(e) {
+  const r = e.receipt;
+  if (!r) {
+    // Дві кнопки, а не форма: у 95% випадків прийшло рівно те, що обіцяв
+    // план, і питати про суму в цьому випадку означає питати даремно.
+    return `<button type="button" class="sm" data-mark="${e.flow_id}"
+        data-month="${esc(e.month)}" data-amt="${esc((e.amount || {}).amount || "")}"
+        aria-label="Відмітити, що «${esc(e.name)}» надійшло">✓ прийшло</button>
+      <button type="button" class="sm quiet" data-skip="${e.flow_id}"
+        data-month="${esc(e.month)}"
+        aria-label="Відмітити, що «${esc(e.name)}» не прийшло">✕ не прийшло</button>`;
+  }
+  return amtOf(r.amount) === 0
+    ? `<span class="pill redemption">не прийшло</span>`
+    : `<span class="pill coupon">${esc(fmtMoney(r.amount))}</span>${receiptDiffHTML(e)}`;
+}
+
+const receiptNoteHTML = (r) =>
+  (r && r.note ? `<div class="fine-xs muted">${esc(r.note)}</div>` : "");
+
+// Рядок таблиці. Кнопки правки й зняття стоять лише там, де є що правити:
+// «скасувати відмітку» для невідміченого рядка означало б нічого.
+function expectedRowHTML(e) {
+  const r = e.receipt;
+  return `<tr>
+    <td>${esc(e.name)}${receiptNoteHTML(r)}</td>
+    <td class="num">${e.due_date ? esc(dayMonth(e.due_date)) : DASH}</td>
+    <td class="num">${esc(fmtMoney(e.amount))}</td>
+    <td>${receiptStateHTML(e)}</td>
+    <td class="row-actions">
+      <button type="button" class="sm" data-editrec="${e.flow_id}"
+        data-month="${esc(e.month)}" aria-label="Вписати суму для «${esc(e.name)}»">✎</button>
+      ${r ? `<button type="button" class="sm warn" data-delrec="${r.id}"
+        aria-label="Зняти відмітку з «${esc(e.name)}»">✕</button>` : ""}
+    </td>
+  </tr>`;
+}
+
+// Позапланове — тими самими рядками, але без плану: колонки «коли» й
+// «скільки мало» в нього просто немає, і прочерк каже про це чесніше, ніж
+// підставлений нуль.
+function otherRowHTML(r) {
+  return `<tr>
+    <td>${esc(r.name)} <span class="fine muted">позапланово</span>${receiptNoteHTML(r)}</td>
+    <td class="num">${DASH}</td>
+    <td class="num">${DASH}</td>
+    <td><span class="pill coupon">${esc(fmtMoney(r.amount))}</span></td>
+    <td class="row-actions">
+      <button type="button" class="sm" data-editother="${r.id}"
+        aria-label="Змінити «${esc(r.name)}»">✎</button>
+      <button type="button" class="sm warn" data-delrec="${r.id}"
+        aria-label="Видалити «${esc(r.name)}»">✕</button>
+    </td>
+  </tr>`;
+}
+
+// Поля правки прив'язаної відмітки: сума й причина, більше нічого. Валюта
+// й джерело задані самим потоком, а місяць — рядком, у якому натиснули.
+function receiptFields(values = null) {
+  const v = values || {};
+  const val = (k, d = "") => `value="${esc(v[k] != null ? v[k] : d)}"`;
+  return `
+    <label>Скільки надійшло<input name="amount" inputmode="decimal"
+      ${val("amount")} required></label>
+    <label>Причина<input name="note" placeholder="вийшов з відпустки, 2 дні"
+      ${val("note")}></label>
+    <div class="sub-xs">Нуль означає «не прийшло». Сума валова — та, що прийшла на руки;
+      скільки з неї доходить до портфеля, визначає частка самого джерела.</div>`;
+}
+
+// Поля позапланового надходження. Частка тут своя, бо успадковувати її
+// нема від чого: у премії немає планового рядка з «часткою в портфель».
+function otherFields(values = null) {
+  const v = values || {};
+  const val = (k, d = "") => `value="${esc(v[k] != null ? v[k] : d)}"`;
+  const sel = (k, opts, d) => opts.map(([o, label]) =>
+    `<option value="${o}"${(v[k] != null ? v[k] : d) === o ? " selected" : ""}>${label}</option>`)
+    .join("");
+  return `
+    <label>Що це<input name="name" placeholder="Премія" ${val("name")} required></label>
+    <label>Сума<input name="amount" inputmode="decimal" ${val("amount")} required></label>
+    <label>Валюта<select name="currency">${
+  sel("currency", [["UAH", "UAH"], ["USD", "USD"], ["EUR", "EUR"]], "UAH")}</select></label>
+    <label>Частка в портфель, %<input name="invest_pct" type="number" step="0.01"
+      min="0" max="100" ${val("invest_pct", "100")}></label>
+    <label>Причина<input name="note" ${val("note")}></label>`;
+}
+
+const otherBody = (f, month) => ({
+  flow_id: 0, month, name: f.name.value.trim(), amount: f.amount.value.trim(),
+  currency: f.currency.value, invest_pct: f.invest_pct.value.trim() || "100",
+  note: f.note.value.trim(),
+});
+
+export function receiptsHTML(doc) {
+  const expected = doc.expected || [];
+  const all = doc.receipts || [];
+  if (!expected.length && !all.length) return ""; // плану доходу ще немає
+
+  const key = monthKeyOffset(monthSel);
+  const rows = expected.filter((e) => e.month === key);
+  const others = all.filter((r) => r.flow_id === 0 && r.month === key);
+  const future = monthSel > 0;
+
+  const nav = `<div class="row-actions">
+    <button type="button" class="sm quiet" data-monthstep="-1"
+      ${monthSel <= -RECEIPT_BACK ? "disabled" : ""} aria-label="Попередній місяць">‹</button>
+    <b>${esc(monthYear(key + "-01"))}</b>
+    <button type="button" class="sm quiet" data-monthstep="1"
+      ${monthSel >= RECEIPT_FWD ? "disabled" : ""} aria-label="Наступний місяць">›</button>
+    ${monthSel !== 0
+    ? `<button type="button" class="sm quiet" data-monthstep="0">сьогодні</button>` : ""}
+  </div>`;
+
+  const head = `<h2 class="card-head"><span>Надходження ${infoBtn("planReceipts")}</span>${nav}</h2>`;
+
+  if (!rows.length && !others.length) {
+    return `<div class="card">${head}${empty("",
+      future
+        ? `Цього місяця план нічого не обіцяє — відмічати нема чого.`
+        : `Цього місяця план нічого не обіцяв. Позапланове надходження можна дописати
+           нижче, у місяці, який уже настав.`)}
+      ${future ? "" : otherFormHTML(key)}</div>`;
+  }
+
+  // Підсумок рахується по ТИХ САМИХ рядках, що на екрані. «Надійшло» — у
+  // гривні (gives_uah), бо це єдине число, у якому можна скласти зарплату в
+  // доларах із премією в гривні; планова сума в рядку лишається валютною.
+  const marked = rows.filter((e) => e.receipt).length;
+  const planSum = rows.reduce((a, e) => a + (e.plan_uah || 0), 0);
+  const gotSum = rows.reduce((a, e) => a + (e.receipt ? e.receipt.gives_uah || 0 : 0), 0)
+    + others.reduce((a, r) => a + (r.gives_uah || 0), 0);
+  const left = rows.length - marked;
+
+  const summary = `<div class="sub">Відмічено <b>${marked}</b> із ${rows.length}${
+    left ? ` · лишилось ${left}` : ""} · план дає <b>${fmtUAH(planSum)}</b> · надійшло
+    <b>${fmtUAH(gotSum)}</b>.</div>`;
+
+  // Застереження про майбутнє коротке й стоїть лише в майбутньому: у
+  // минулому відмітка нічого не прогнозує, і той самий текст там читався б
+  // як попередження ні про що.
+  const futureNote = future
+    ? `<div class="sub-xs">Місяць ще не настав: відмічене тут не «сталося», а «відомо
+       наперед» — і саме так воно й піде в прогноз, замістивши план цього місяця.</div>`
+    : "";
+
+  return `<div class="card">${head}
+    <div class="table-scroll"><table><thead><tr>
+      <th scope="col">Джерело</th><th scope="col" class="num">Коли</th>
+      <th scope="col" class="num">План</th><th scope="col">Факт</th>
+      <th scope="col"><span class="sr-only">Дії</span></th>
+    </tr></thead><tbody>
+      ${rows.map(expectedRowHTML).join("")}
+      ${others.map(otherRowHTML).join("")}
+    </tbody></table></div>
+    ${summary}${futureNote}
+    ${future ? "" : otherFormHTML(key)}</div>`;
+}
+
+// Форма позапланового — згорнута: це рідкісний випадок, і розгорнутою вона
+// відтягувала б увагу від чеклиста, заради якого картка й існує.
+function otherFormHTML(month) {
+  return disclosure("planOtherReceipt", "Інше надходження", `
+    <form id="otherReceiptForm" data-month="${esc(month)}">${otherFields()}
+      <div class="form-actions"><button type="submit">Відмітити</button></div>
+    </form>`, "премія, подарунок, продаж — те, чого в плані немає");
+}
+
+function wirePlanReceipts(ctx, main, doc) {
+  const key = monthKeyOffset(monthSel);
+  const expected = (doc.expected || []).filter((e) => e.month === key);
+  const byFlow = new Map(expected.map((e) => [String(e.flow_id), e]));
+  const others = new Map((doc.receipts || []).map((r) => [String(r.id), r]));
+
+  main.querySelectorAll("[data-monthstep]").forEach((b) => b.addEventListener("click", () => {
+    const step = +b.dataset.monthstep;
+    monthSel = step === 0 ? 0 : monthSel + step;
+    if (monthSel < -RECEIPT_BACK) monthSel = -RECEIPT_BACK;
+    if (monthSel > RECEIPT_FWD) monthSel = RECEIPT_FWD;
+    // Тепле перемальовування: дані вже в кеші store, тож мережі тут немає,
+    // а розділ не блимає (app.js:_loadTab, warm).
+    ctx.reload();
+  }));
+
+  // Один тик = планова сума. Саме валова: чеклист звіряється з випискою.
+  main.querySelectorAll("[data-mark]").forEach((b) => b.addEventListener("click", () => {
+    apply(ctx, {
+      path: "plan/receipts",
+      body: { flow_id: +b.dataset.mark, month: b.dataset.month, amount: b.dataset.amt },
+    }, "Надходження відмічено");
+  }));
+
+  main.querySelectorAll("[data-skip]").forEach((b) => b.addEventListener("click", () => {
+    apply(ctx, {
+      path: "plan/receipts",
+      body: { flow_id: +b.dataset.skip, month: b.dataset.month, amount: "0" },
+    }, "Відмічено: не прийшло");
+  }));
+
+  onDelete(ctx, main, "[data-delrec]", (b) => ({
+    path: "plan/receipts/" + b.dataset.delrec,
+    confirm: "Зняти відмітку?",
+    msg: "Відмітку знято",
+  }));
+
+  main.querySelectorAll("[data-editrec]").forEach((b) => b.addEventListener("click", () => {
+    const e = byFlow.get(b.dataset.editrec);
+    if (!e) return;
+    const r = e.receipt;
+    // Префіл — фактом, якщо він уже є, інакше планом: правка існуючої
+    // відмітки має показувати те, що правиться, а перша — те, з чим
+    // порівнюють.
+    const values = {
+      amount: (r ? (r.amount || {}).amount : (e.amount || {}).amount) || "",
+      note: (r && r.note) || "",
+    };
+    const body = (f) => ({
+      flow_id: e.flow_id, month: e.month,
+      amount: f.amount.value.trim(), note: f.note.value.trim(),
+    });
+    openEdit(ctx, {
+      title: `«${esc(e.name)}» за ${esc(monthYear(e.month + "-01"))}`,
+      fields: receiptFields(values),
+      submit: r ? "Зберегти" : "Відмітити",
+    }, (f) => (r
+      ? { method: "PUT", path: "plan/receipts/" + r.id, body: body(f), msg: "Відмітку змінено" }
+      : { path: "plan/receipts", body: body(f), msg: "Надходження відмічено" }));
+  }));
+
+  onSubmit(ctx, main.querySelector("#otherReceiptForm"), (f) => ({
+    path: "plan/receipts", body: otherBody(f, f.dataset.month), msg: "Надходження відмічено",
+  }));
+
+  main.querySelectorAll("[data-editother]").forEach((b) => b.addEventListener("click", () => {
+    const r = others.get(b.dataset.editother);
+    if (!r) return;
+    openEdit(ctx, {
+      title: `Правка «${esc(r.name)}»`,
+      fields: otherFields({
+        name: r.name, amount: (r.amount || {}).amount || "",
+        currency: (r.amount || {}).currency || "UAH",
+        invest_pct: r.invest_pct != null ? r.invest_pct : 100,
+        note: r.note || "",
+      }),
+    }, (f) => ({
+      method: "PUT", path: "plan/receipts/" + r.id,
+      body: otherBody(f, r.month), msg: "Відмітку змінено",
+    }));
+  }));
 }
 
 // ---------- дії: список ----------
@@ -896,7 +1287,8 @@ export async function renderPlan(ctx, main) {
   ]);
 
   main.innerHTML = `
-    ${planVerdictHTML(ctx)}
+    ${planVerdictHTML(ctx, timeline)}
+    ${timeline ? receiptsHTML(timeline) : ""}
     ${timeline ? profileHTML(timeline) : ""}
     ${timeline ? planVsFactHTML(timeline, ctx.summary) : ""}
     ${section("inflow", "Що заходить", `
@@ -932,6 +1324,7 @@ export async function renderPlan(ctx, main) {
 
   wirePlanFlows(ctx, main, flows);
   wirePlanActions(ctx, main, actions, timeline);
+  if (timeline) wirePlanReceipts(ctx, main, timeline);
   // Без цього «Ще» й самі секції згортались би після кожного збереження:
   // ctx.reload() переписує main, а пам'ять розкриття живе саме тут.
   // «План» був єдиним розділом, який цього не робив.

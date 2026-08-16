@@ -22,6 +22,51 @@ func monthOffsetRaw(today, d domain.Date) int {
 	return (d.Year()-today.Year())*12 + int(d.Month()) - int(today.Month())
 }
 
+// planMarks — відмітки надходжень (0027), розкладені за потоком і місяцем.
+//
+// Живуть саме ТУТ, у ядрі, а не в кожного споживача окремо, і це головне
+// рішення фази. Накласти факт можна було б у трьох місцях — у фабриці
+// рукавів, у профілі надходжень і в картці «План проти факту», — і кожне з
+// них виглядало б простішим за це. Ціною були б три означення надходження
+// замість одного, а разом із ними дві тотожності, які застосунок стереже
+// тестами: плитка «План дає» = сумі колонки «дає ₴/міс», і середнє профілю
+// = plan_provides_uah. Розійшлися б вони не одразу, а тихо й пізніше.
+//
+// Відмітки «інше» (FlowID = 0) сюди не потрапляють: позаплановий дохід не
+// прив'язаний до жодного потоку, тож заміщати йому нема чого. Він живе
+// лише в історії й у вердикті — див. buildPlanHistory.
+type markKey struct {
+	flow  int64
+	month string // YYYY-MM
+}
+
+type planMarks map[markKey]store.PlanReceipt
+
+func newPlanMarks(rs []store.PlanReceipt) planMarks {
+	if len(rs) == 0 {
+		return nil
+	}
+	pm := make(planMarks, len(rs))
+	for _, r := range rs {
+		if r.FlowID == 0 {
+			continue
+		}
+		pm[markKey{flow: r.FlowID, month: r.Month}] = r
+	}
+	return pm
+}
+
+// at — відмітка потоку на місяці m відносно today (m може бути й від'ємним:
+// ключ місяця той самий, що його дає monthKeyAt, тож минуле й майбутнє
+// шукаються однаково).
+func (pm planMarks) at(flowID int64, today domain.Date, m int) (store.PlanReceipt, bool) {
+	if pm == nil || flowID == 0 {
+		return store.PlanReceipt{}, false
+	}
+	r, ok := pm[markKey{flow: flowID, month: monthKeyAt(today, m)}]
+	return r, ok
+}
+
 // monthOffset — те саме, але не менше 1: дата в минулому чи сьогодні
 // означає «вже діє», а не «ніколи». Той самий компроміс, що й у
 // сирих потоках Cashflow (sleeveFactory, збірка Coupon/Redeem): подія,
@@ -42,7 +87,7 @@ func monthOffset(today, d domain.Date) int {
 // Це єдине означення періодичності й індексації в застосунку: гривневий
 // вигляд (planFlowMonthlyUAH), колонка «дає ₴/міс» і профіль надходжень —
 // усі три стоять на ньому, тож розійтись їм нема на чому.
-func planFlowNative(f store.PlanFlow, today domain.Date, m int) float64 {
+func planFlowNative(f store.PlanFlow, today domain.Date, m int, marks planMarks) float64 {
 	raw := monthOffsetRaw(today, f.FromDate)
 	var start int
 	switch f.Cadence {
@@ -60,7 +105,7 @@ func planFlowNative(f store.PlanFlow, today domain.Date, m int) float64 {
 			start = 1
 		}
 	}
-	return planFlowAmount(f, today, start, m)
+	return planFlowAmount(f, today, start, m, marks)
 }
 
 // planFlowNativePast — те саме для МИНУЛИХ місяців (m <= 0).
@@ -74,14 +119,14 @@ func planFlowNative(f store.PlanFlow, today domain.Date, m int) float64 {
 // Означення періодичності, індексації, дати «до» й частки в портфель тут
 // НЕ дублюється — воно спільне (planFlowAmount). Другого означення
 // надходжень у застосунку не з'являється, як і не з'явилось для профілю.
-func planFlowNativePast(f store.PlanFlow, today domain.Date, m int) float64 {
-	return planFlowAmount(f, today, monthOffsetRaw(today, f.FromDate), m)
+func planFlowNativePast(f store.PlanFlow, today domain.Date, m int, marks planMarks) float64 {
+	return planFlowAmount(f, today, monthOffsetRaw(today, f.FromDate), m, marks)
 }
 
 // planFlowAmount — спільне ядро: періодичність, «до», індексація, частка в
 // портфель і знак. start — місяць першої виплати відносно today; рішення,
 // підтягувати його чи ні, ухвалює викликач.
-func planFlowAmount(f store.PlanFlow, today domain.Date, start, m int) float64 {
+func planFlowAmount(f store.PlanFlow, today domain.Date, start, m int, marks planMarks) float64 {
 	if m < start {
 		return 0
 	}
@@ -149,9 +194,28 @@ func planFlowAmount(f store.PlanFlow, today domain.Date, start, m int) float64 {
 	}
 
 	amt := float64(f.Amount) / 100
-	// Індексація — лише для регулярних потоків: разова виплата не має
-	// «наступного разу», де зростання мало б сенс.
-	if f.GrowthBP != 0 && f.Cadence != "once" {
+	// Відмітка надходження (0027) заміщає СУМУ виплати, а не сам факт того,
+	// що виплата в цьому місяці є. Тому гілка стоїть саме тут, ПІСЛЯ
+	// перевірок «до», періодичності й дати початку, а не на вході функції.
+	//
+	// Різниця не теоретична. Зверху відмітка вміла б СТВОРЮВАТИ виплату
+	// там, де план її не передбачає: досить було відмітити квартальний
+	// потік, а потім перевести його на місячний — і стара відмітка почала б
+	// платити в чужому місяці. Знизу вона може лише замістити те, що й так
+	// мало прийти, і застаріла відмітка тихо перестає діяти замість тихо
+	// додавати гроші.
+	//
+	// Індексація для відміченого місяця не застосовується: сума з відмітки
+	// — це те, що прийшло насправді, зростання в неї вже або враховане, або
+	// не сталося. Частка в портфель, навпаки, застосовується нижче на
+	// загальних підставах — і саме тому фокус planFlowGrossUAH (копія
+	// потоку зі InvestBP = 10000) працює для відмічених місяців так само,
+	// як для решти, без жодної окремої гілки.
+	if r, ok := marks.at(f.ID, today, m); ok {
+		amt = float64(r.Amount) / 100
+	} else if f.GrowthBP != 0 && f.Cadence != "once" {
+		// Індексація — лише для регулярних потоків: разова виплата не має
+		// «наступного разу», де зростання мало б сенс.
 		if years := (m - start) / 12; years > 0 {
 			amt *= math.Pow(1+float64(f.GrowthBP)/10000, float64(years))
 		}
@@ -219,8 +283,8 @@ func planFlowSteadyNative(f store.PlanFlow, today domain.Date, applyShare bool) 
 // що росте (sleeves.go:contribAt), і $500 на 120-му місяці перетворюються
 // приблизно на $275. Тому в проєкцію валютні потоки йдуть НЕ через цю
 // функцію, а нативними — див. newSleeveFactory.
-func planFlowMonthlyUAH(f store.PlanFlow, today domain.Date, rates fx.Rates, m int) float64 {
-	return planFlowUAH(planFlowNative(f, today, m), f.Currency, rates)
+func planFlowMonthlyUAH(f store.PlanFlow, today domain.Date, rates fx.Rates, m int, marks planMarks) float64 {
+	return planFlowUAH(planFlowNative(f, today, m, marks), f.Currency, rates)
 }
 
 // planFlowMonthlyUAHPast — те саме для минулого місяця (m <= 0).
@@ -231,8 +295,8 @@ func planFlowMonthlyUAH(f store.PlanFlow, today domain.Date, rates fx.Rates, m i
 // грошах. Це та сама одиниця, у якій міряється факт (ActualMonthlyUAH
 // рахується так само), тож порівняння план↔факт лишається чесним — а от
 // читати ці числа як «стільки гривень тоді заходило» не можна.
-func planFlowMonthlyUAHPast(f store.PlanFlow, today domain.Date, rates fx.Rates, m int) float64 {
-	return planFlowUAH(planFlowNativePast(f, today, m), f.Currency, rates)
+func planFlowMonthlyUAHPast(f store.PlanFlow, today domain.Date, rates fx.Rates, m int, marks planMarks) float64 {
+	return planFlowUAH(planFlowNativePast(f, today, m, marks), f.Currency, rates)
 }
 
 // planFlowUAH — конвертація суми потоку в гривню. Спільна для обох
@@ -275,13 +339,13 @@ const planProvidesMonths = 12
 // суму/12, поза вікном — 0; квартальний потік із початком зараз влучає в 4
 // місяці з 12, тобто суму/3; потік, що починається пізніше ніж за рік,
 // показує 0 — і це те саме, що вже показує число вгорі.
-func planFlowProvidesUAH(f store.PlanFlow, today domain.Date, rates fx.Rates, months int) float64 {
+func planFlowProvidesUAH(f store.PlanFlow, today domain.Date, rates fx.Rates, months int, marks planMarks) float64 {
 	if months <= 0 {
 		return 0
 	}
 	var sum float64
 	for m := 1; m <= months; m++ {
-		sum += planFlowMonthlyUAH(f, today, rates, m)
+		sum += planFlowMonthlyUAH(f, today, rates, m, marks)
 	}
 	return sum / float64(months)
 }
@@ -291,9 +355,9 @@ func planFlowProvidesUAH(f store.PlanFlow, today domain.Date, rates fx.Rates, mo
 // Рахується тією ж функцією на копії потоку зі 100%: invest_bp
 // застосовується останнім скаляром (planFlowNative), тож множення
 // комутує й нової арифметики тут не з'являється.
-func planFlowGrossUAH(f store.PlanFlow, today domain.Date, rates fx.Rates, months int) float64 {
+func planFlowGrossUAH(f store.PlanFlow, today domain.Date, rates fx.Rates, months int, marks planMarks) float64 {
 	f.InvestBP = 10000
-	return planFlowProvidesUAH(f, today, rates, months)
+	return planFlowProvidesUAH(f, today, rates, months, marks)
 }
 
 // planLockFlows розкладає дію lock у місяць переходу m0, суму (нативна

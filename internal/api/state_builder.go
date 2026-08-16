@@ -725,6 +725,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		Rates:            rates, Deval: deval, ActualMonthly: actualMonthly,
 		IncomeMonthlyNow: incomeMonthlyNow, Today: today,
 		PlanFlows: src.planFlows, PlanActions: src.planActions,
+		PlanReceipts: src.planReceipts,
 	})
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну (див. state_projection.go).

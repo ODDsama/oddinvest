@@ -50,6 +50,11 @@ type sources struct {
 	// в помісячні вектори робить sleeveFactory (state_projection.go).
 	planFlows   []store.PlanFlow
 	planActions []store.PlanAction
+	// planReceipts — відмітки фактичних надходжень (0027). Так само сирі:
+	// індекс (потік, місяць) будує newPlanMarks, а заміщення планової суми
+	// робить те саме ядро, що й розгортання, — щоб означення надходження
+	// лишалось одне.
+	planReceipts []store.PlanReceipt
 
 	// auctions — останнє розміщення Мінфіну по кожній парі (валюта,
 	// строк). Єдине, що приходить сюди із ЗОВНІШНЬОГО світу, а не з
@@ -128,6 +133,7 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	src.auctions, _ = s.st.AuctionLatestByBucket(ctx)    //nolint:errcheck // свідомо: на свіжій БД аукціонів ще немає, і портфель має малюватись
 	src.planFlows, _ = s.st.ListPlanFlows(ctx)           //nolint:errcheck // свідомо: порожній план — звичайний стан, не привід валити документ
 	src.planActions, _ = s.st.ListPlanActions(ctx)       //nolint:errcheck // те саме
+	src.planReceipts, _ = s.st.ListPlanReceipts(ctx)     //nolint:errcheck // те саме: невідмічений план — звичайний стан
 
 	src.fundRefs = map[string]store.Fund{}
 	if refs, ferr := s.st.ListFunds(ctx); ferr == nil {

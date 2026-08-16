@@ -44,7 +44,7 @@ func TestBuildPlanHistory(t *testing.T) {
 		{Date: "2026-07-31", MonthTargetUAH: 900_000},
 	}
 
-	got := buildPlanHistory(flows, deposits, reserve, snaps, nil, today, rates)
+	got := buildPlanHistory(flows, deposits, reserve, snaps, nil, nil, today, rates)
 	if len(got) != planHistoryMonths {
 		t.Fatalf("мало бути %d місяців, маємо %d", planHistoryMonths, len(got))
 	}
@@ -74,6 +74,55 @@ func TestBuildPlanHistory(t *testing.T) {
 	}
 }
 
+// Ряд «надійшло» — четверте число історії, і воно НЕ заміщає план.
+//
+// Це головна асиметрія фази: у майбутньому відмітка стає планом (там вона
+// найкраще відоме про місяць), а в минулому — стоїть поруч із ним. Злити
+// їх означало б зробити обидва ряди рівними за побудовою, тобто прибрати
+// саме те порівняння, заради якого картка існує.
+func TestBuildPlanHistoryReceived(t *testing.T) {
+	today := domain.Date("2026-08-15")
+	flows := []store.PlanFlow{{
+		ID: 1, Name: "зарплата", Kind: "income", Amount: 4_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2025-01-17", InvestBP: 5000,
+	}}
+	receipts := []store.PlanReceipt{
+		// Прийшла третина: вийшов з відпустки, відпрацював кілька днів.
+		{FlowID: 1, Month: "2026-06", Amount: 1_200_000, Currency: "UAH", InvestBP: 10000},
+		// Не прийшло нічого — записаний нуль.
+		{FlowID: 1, Month: "2026-07", Amount: 0, Currency: "UAH", InvestBP: 10000},
+		// Позапланова премія, зі своєю часткою в портфель.
+		{FlowID: 0, Month: "2026-07", Name: "Премія", Amount: 1_000_000,
+			Currency: "UAH", InvestBP: 2000},
+	}
+
+	got := buildPlanHistory(flows, nil, nil, nil, nil, receipts, today, fx.Rates{})
+	byMonth := map[string]planHistoryPoint{}
+	for _, p := range got {
+		byMonth[p.Month] = p
+	}
+
+	// План скрізь той самий: 40 000 × 50% = 20 000. Відмітка його не чіпає.
+	for _, m := range []string{"2026-05", "2026-06", "2026-07"} {
+		if p := byMonth[m]; p.PlanUAH != 20000 {
+			t.Errorf("%s: план мав лишитись 20000, маємо %v", m, p.PlanUAH)
+		}
+	}
+	// Червень: 12 000 × 50% (частка ПОТОКУ) = 6 000.
+	if p := byMonth["2026-06"]; !p.Marked || p.ReceivedUAH != 6000 {
+		t.Errorf("червень: чекали відмічені 6000, маємо marked=%v %v", p.Marked, p.ReceivedUAH)
+	}
+	// Липень: зарплата 0 плюс премія 10 000 × 20% (частка ВІДМІТКИ) = 2 000.
+	if p := byMonth["2026-07"]; !p.Marked || p.ReceivedUAH != 2000 {
+		t.Errorf("липень: чекали відмічені 2000, маємо marked=%v %v", p.Marked, p.ReceivedUAH)
+	}
+	// Травень не відмічали: нуль тут означає «не відмічено», і прапорець
+	// мусить це сказати — інакше графік намалював би провалений місяць.
+	if p := byMonth["2026-05"]; p.Marked || p.ReceivedUAH != 0 {
+		t.Errorf("травень мав лишитись невідміченим, маємо marked=%v %v", p.Marked, p.ReceivedUAH)
+	}
+}
+
 // Порожній початок відрізається: місяці до появи і плану, і поповнень — це
 // «застосунком тоді ще не користувались», а не провалений план. Менше двох
 // таких місяців — картки немає взагалі.
@@ -84,7 +133,7 @@ func TestBuildPlanHistoryTrimsEmptyHead(t *testing.T) {
 		Cadence: "month", FromDate: "2026-05-01", InvestBP: 10000,
 	}}
 
-	got := buildPlanHistory(flows, nil, nil, nil, nil, today, fx.Rates{})
+	got := buildPlanHistory(flows, nil, nil, nil, nil, nil, today, fx.Rates{})
 	if len(got) != 3 {
 		t.Fatalf("мали лишитись травень-липень, маємо %d місяців: %+v", len(got), got)
 	}
@@ -97,10 +146,10 @@ func TestBuildPlanHistoryTrimsEmptyHead(t *testing.T) {
 		Name: "зарплата", Kind: "income", Amount: 1_000_000, Currency: "UAH",
 		Cadence: "month", FromDate: "2026-07-01", InvestBP: 10000,
 	}}
-	if got := buildPlanHistory(short, nil, nil, nil, nil, today, fx.Rates{}); got != nil {
+	if got := buildPlanHistory(short, nil, nil, nil, nil, nil, today, fx.Rates{}); got != nil {
 		t.Errorf("на одному місяці історії картки не мало бути, маємо %+v", got)
 	}
-	if got := buildPlanHistory(nil, nil, nil, nil, nil, today, fx.Rates{}); got != nil {
+	if got := buildPlanHistory(nil, nil, nil, nil, nil, nil, today, fx.Rates{}); got != nil {
 		t.Errorf("без плану й поповнень мав бути nil, маємо %+v", got)
 	}
 }
@@ -194,7 +243,7 @@ func TestBuildPlanHistoryReadsJournalNotTodaysTable(t *testing.T) {
 			Op: "update", Flow: flows[0]},
 	}
 
-	got := buildPlanHistory(flows, nil, nil, nil, revs, today, fx.Rates{})
+	got := buildPlanHistory(flows, nil, nil, nil, revs, nil, today, fx.Rates{})
 	byMonth := map[string]planHistoryPoint{}
 	for _, p := range got {
 		byMonth[p.Month] = p

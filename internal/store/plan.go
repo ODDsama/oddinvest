@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -63,6 +64,28 @@ type PlanFlowRevision struct {
 	ChangedAt time.Time
 	Op        string // seed | create | update | delete
 	Flow      PlanFlow
+}
+
+// PlanReceipt — відмітка про фактичне надходження за місяць (міграція 0027).
+//
+// Факт до плану, якого доти не було: «факт» на картці «План проти факту»
+// означав поповнення портфеля, а не те, чи прийшла зарплата. Amount —
+// ВАЛОВА сума в мінорних, завжди >= 0; нуль легальний і означає «не
+// прийшло», тож відрізняти його від відсутнього рядка обов'язково.
+//
+// FlowID = 0 — «інше», позаплановий дохід. Лише в цьому випадку читається
+// InvestBP: відмітка, прив'язана до потоку, бере частку з самого потоку
+// (для минулого — з його тодішньої ревізії), і саме тому пізніша правка
+// частки не переписує вже записану історію.
+type PlanReceipt struct {
+	ID       int64
+	FlowID   int64
+	Month    string // YYYY-MM
+	Name     string
+	Amount   int64
+	Currency string
+	InvestBP int64
+	Note     string
 }
 
 const (
@@ -257,6 +280,78 @@ func (s *Store) DeletePlanAction(ctx context.Context, id int64) error {
 		return err
 	}
 	return affectedOne(res, "планова дія")
+}
+
+// --- відмітки надходжень (0027) ---
+//
+// Простий CRUD, як у ReserveOp, і БЕЗ журналу ревізій — на відміну від
+// самих потоків. Різниця принципова: план — це намір, який мінявся в часі,
+// і питання «яким він був у травні» має відповідь лише в журналі. Факт же
+// або записаний правильно, або виправлений; історії в нього немає.
+
+// planReceiptConflict перекладає порушення часткового UNIQUE-індексу в
+// сентинел. Рядком, а не типом драйвера, — щоб internal/store не тягнув
+// go-sqlite3 у сигнатури заради однієї перевірки; текст SQLite для UNIQUE
+// стабільний десятиліттями.
+func planReceiptConflict(err error) error {
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return fmt.Errorf("надходження за цей місяць уже відмічено: %w", ErrConflict)
+	}
+	return err
+}
+
+func (s *Store) AddPlanReceipt(ctx context.Context, r PlanReceipt) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `INSERT INTO plan_receipts
+		(flow_id, month, name, amount, currency, invest_bp, note)
+		VALUES (?,?,?,?,?,?,?)`,
+		r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Note)
+	if err != nil {
+		return 0, planReceiptConflict(err)
+	}
+	return res.LastInsertId()
+}
+
+// UpdatePlanReceipt переписує відмітку, зберігаючи id. FlowID і Month теж
+// переписуються: перенести відмітку на інший місяць — це правка, а не
+// «видалити й завести», і другий шлях загубив би id, на який дивиться UI.
+func (s *Store) UpdatePlanReceipt(ctx context.Context, r PlanReceipt) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE plan_receipts SET
+		flow_id=?, month=?, name=?, amount=?, currency=?, invest_bp=?, note=? WHERE id=?`,
+		r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Note, r.ID)
+	if err != nil {
+		return planReceiptConflict(err)
+	}
+	return affectedOne(res, "відмітка надходження")
+}
+
+func (s *Store) DeletePlanReceipt(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM plan_receipts WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "відмітка надходження")
+}
+
+// ListPlanReceipts — усі відмітки, за місяцем і id. Порядок за id вторинний
+// із тієї ж причини, що й у журналі ревізій: «іншого» за місяць буває
+// кілька, і сталий порядок робить документ відтворюваним.
+func (s *Store) ListPlanReceipts(ctx context.Context) ([]PlanReceipt, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, flow_id, month, name, amount,
+		currency, invest_bp, note FROM plan_receipts ORDER BY month, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PlanReceipt
+	for rows.Next() {
+		var r PlanReceipt
+		if err := rows.Scan(&r.ID, &r.FlowID, &r.Month, &r.Name, &r.Amount,
+			&r.Currency, &r.InvestBP, &r.Note); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) ListPlanActions(ctx context.Context) ([]PlanAction, error) {
