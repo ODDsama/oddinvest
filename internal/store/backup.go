@@ -42,6 +42,12 @@ type Backup struct {
 	// бекапи, зроблені до його появи, читаються без цих полів.
 	PlanFlows   []BackupPlanFlow   `json:"plan_flows,omitempty"`
 	PlanActions []BackupPlanAction `json:"plan_actions,omitempty"`
+	// Журнал ревізій потоків (0026). Без нього відновлення тихо стирало б
+	// історію правок — а на ній стоїть увесь сенс картки «План проти
+	// факту»: план за минулий місяць читається з журналу, і без журналу він
+	// знову почав би виводитись із теперішньої таблиці, тобто минуле знову
+	// стало б переписуваним.
+	PlanFlowRevisions []BackupPlanFlowRevision `json:"plan_flow_revisions,omitempty"`
 	// Довідники. omitempty з тієї ж причини, що й усе вище: бекапи, зроблені
 	// до їхньої появи, читаються без цих полів так само, як раніше — фонди й
 	// брокери відновляться з назв в операціях, рівно як доти.
@@ -112,6 +118,28 @@ type BackupReserveOp struct {
 // зовсім інше майбутнє.
 type BackupPlanFlow struct {
 	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	Amount    int64  `json:"amount"`
+	Currency  string `json:"currency"`
+	Cadence   string `json:"cadence"`
+	FromDate  string `json:"from_date"`
+	UntilDate string `json:"until_date"`
+	GrowthBP  int64  `json:"growth_bp"`
+	InvestBP  int64  `json:"invest_bp"`
+	Note      string `json:"note"`
+}
+
+// BackupPlanFlowRevision — рядок журналу правок потоку.
+//
+// FlowID навмисно НЕ посилається на живий потік: ревізія переживає той
+// потік, про який вона розповідає, і саме тому видалення взагалі можна
+// відрізнити від «ніколи не було».
+type BackupPlanFlowRevision struct {
+	ID        int64  `json:"id"`
+	FlowID    int64  `json:"flow_id"`
+	ChangedAt string `json:"changed_at"`
+	Op        string `json:"op"`
 	Name      string `json:"name"`
 	Kind      string `json:"kind"`
 	Amount    int64  `json:"amount"`
@@ -376,6 +404,20 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT id,flow_id,changed_at,op,name,kind,amount,currency,cadence,
+		from_date,until_date,growth_bp,invest_bp,note FROM plan_flow_revisions ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupPlanFlowRevision
+			if err := scan(&r.ID, &r.FlowID, &r.ChangedAt, &r.Op, &r.Name, &r.Kind,
+				&r.Amount, &r.Currency, &r.Cadence, &r.FromDate, &r.UntilDate,
+				&r.GrowthBP, &r.InvestBP, &r.Note); err != nil {
+				return err
+			}
+			b.PlanFlowRevisions = append(b.PlanFlowRevisions, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT id,date,type,usd_bp,eur_bp,amount,currency,rate_bp,months,name,note
 		FROM plan_actions ORDER BY id`,
 		func(scan func(...any) error) error {
@@ -493,8 +535,8 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// відновлення», а відмову на UNIQUE(id) у будь-кого, хто має бодай
 	// один рядок плану.
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
-		"deposit_topups", "term_deposits", "reserve_ops", "plan_flows", "plan_actions",
-		"settings", "payment_status", "snapshots", "funds", "brokers"} {
+		"deposit_topups", "term_deposits", "reserve_ops", "plan_flows", "plan_flow_revisions",
+		"plan_actions", "settings", "payment_status", "snapshots", "funds", "brokers"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
 		}
@@ -689,6 +731,18 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			f.ID, f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, f.FromDate, f.UntilDate,
 			f.GrowthBP, f.InvestBP, f.Note); err != nil {
 			return fmt.Errorf("плановий потік %d: %w", f.ID, err)
+		}
+	}
+	// Ревізії — після потоків, хоч FK між ними й немає: порядок читається
+	// як «спершу що є, потім як воно таким стало».
+	for _, r := range b.PlanFlowRevisions {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO plan_flow_revisions (id,flow_id,changed_at,op,name,kind,amount,currency,
+			 cadence,from_date,until_date,growth_bp,invest_bp,note)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			r.ID, r.FlowID, r.ChangedAt, r.Op, r.Name, r.Kind, r.Amount, r.Currency,
+			r.Cadence, r.FromDate, r.UntilDate, r.GrowthBP, r.InvestBP, r.Note); err != nil {
+			return fmt.Errorf("ревізія потоку %d: %w", r.ID, err)
 		}
 	}
 	for _, a := range b.PlanActions {

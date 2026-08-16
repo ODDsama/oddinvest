@@ -1009,6 +1009,10 @@ td.num .sale-f { text-align: right; }
 /* Смуга влучання досяжна з клавіатури — кільце малюємо їй самій,
    бо прозорий прямокутник інакше ніяк не покажеш. */
 .chart-hit:focus-visible { fill: var(--oi-focus); fill-opacity: .12; }
+/* Те саме під курсором, тільки тихіше: смуга під мишею — і є перехрестя.
+   Окремої вертикалі малювати не треба, а разом із підказкою видно, ЯКА
+   саме дата зараз читається. */
+.chart-hit:hover { fill: var(--oi-focus); fill-opacity: .07; }
 .chart-tip {
   position: absolute;
   top: var(--oi-gap-xs);
@@ -1030,6 +1034,12 @@ td.num .sale-f { text-align: right; }
 .chart-tip .r span { display: inline-flex; align-items: center; gap: var(--oi-gap-xs); }
 /* Підсумковий рядок відділяємо: він про суму, а не про ще один інструмент. */
 .chart-tip .tot { border-top: var(--oi-rule) solid var(--oi-rule-hair); margin-top: var(--oi-gap-xs); padding-top: var(--oi-gap-xs); }
+/* Речення в підказці — єдине, що переноситься. Решта її вмісту — пари
+   «підпис — число», яким nowrap і потрібен, а от застереження на рядок
+   тексту при ньому розсувало підказку до 410px і на телефоні вилазило за
+   картку. Ширина в ch, а не px: міряти рядок тексту символами природніше,
+   і при іншому кеглі вона лишається тією самою. */
+.chart-tip .tip-note { white-space: normal; max-width: 30ch; }
 /* Смуга наведення невидима, але курсор має показувати, що тут щось є. */
 .chart-hit { cursor: crosshair; }
 

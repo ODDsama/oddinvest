@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	money "github.com/Rhymond/go-money"
 
@@ -558,5 +559,79 @@ func TestImportBackupWithoutDirectories(t *testing.T) {
 	}
 	if len(brokers) != 1 || brokers[0].Name != "inzhur" {
 		t.Fatalf("брокер мав завестись з операції: %+v", brokers)
+	}
+}
+
+// Журнал ревізій переживає бекап.
+//
+// Без нього відновлення тихо стирало б історію правок — і план за минулий
+// місяць знову почав би виводитись із теперішньої таблиці, тобто минуле
+// знову стало б переписуваним. Тест перевіряє й те, що ревізії ВИДАЛЕНОГО
+// потоку не зникають: саме вони відрізняють «видалили» від «не було».
+func TestBackupRoundTripKeepsPlanFlowRevisions(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+
+	id, err := src.AddPlanFlow(ctx, PlanFlow{
+		Name: "Зарплата", Kind: "income", Amount: 4_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2026-01-17", InvestBP: 10000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flows, _ := src.ListPlanFlows(ctx)
+	flows[0].Amount = 4_500_000
+	if err := src.UpdatePlanFlow(ctx, flows[0]); err != nil {
+		t.Fatal(err)
+	}
+	// Другий потік — заведений і видалений: його ревізії теж мусять доїхати.
+	gone, err := src.AddPlanFlow(ctx, PlanFlow{
+		Name: "Підробіток", Kind: "income", Amount: 1_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2026-02-01", InvestBP: 10000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := src.DeletePlanFlow(ctx, gone); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.PlanFlowRevisions) != 4 {
+		t.Fatalf("експорт мав узяти 4 ревізії, маємо %d", len(b.PlanFlowRevisions))
+	}
+
+	dst, err := Open(filepath.Join(t.TempDir(), "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportAll(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dst.ListPlanFlowRevisions(ctx, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 4 {
+		t.Fatalf("після відновлення %d ревізій замість 4: %+v", len(got), got)
+	}
+	// Сума ДО правки мусить лишитись читаною — це і є та історія, яку
+	// журнал зберігає.
+	if got[0].Op != "create" || got[0].Flow.Amount != 4_000_000 || got[0].FlowID != id {
+		t.Errorf("перша ревізія поїхала: %+v", got[0])
+	}
+	if got[3].Op != "delete" || got[3].Flow.Name != "Підробіток" {
+		t.Errorf("ревізія видалення поїхала: %+v", got[3])
+	}
+	if got[0].ChangedAt.IsZero() {
+		t.Error("час ревізії не пережив бекап")
 	}
 }

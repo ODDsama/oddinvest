@@ -19,6 +19,13 @@ export const CAT_COLORS = [
   "var(--oi-cat-5)", "var(--oi-cat-6)", "var(--oi-cat-7)",
 ];
 
+/** Кольори повернень тіла за видом інструмента. Експортуються, бо той самий
+ *  колір мусить збігтися між маркером на графіку й рядком у списку під ним:
+ *  порізно вони роз'їхались би при першій же правці токена. */
+export const EVENT_COLORS = {
+  bond: "var(--oi-kind-bond)", deposit: "var(--oi-kind-deposit)", fund: "var(--oi-kind-fund)",
+};
+
 // Підписи — найтихіший рівень тексту: вони супроводжують число чи стовпчик,
 // а не несуть власний зміст, тож --oi-text-faint (3.6:1) тут доречний рівно
 // за визначенням цього токена в темі. Було --oi-muted — рівень для тексту,
@@ -132,23 +139,55 @@ export function svgBars(items, { showVals = false, W = W0, H = H0 } = {}) {
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
 }
 
-/** Згруповані пари стовпчиків (факт vs ціль). groups: [{label, a, b}] */
-export function svgGrouped(groups, { W = W0, H = H0 } = {}) {
+/** Згруповані стовпчики. groups: [{label, values: [..], derived: [bool]}]
+ *  або, як було, [{label, a, b}] — пара читається як values з двох чисел.
+ *
+ *  derived позначає стовпчики, чиє число ВИВЕДЕНЕ, а не записане: такі
+ *  малюються контуром.
+ *
+ *  keys/colors/fmt лишаються з типовими значеннями «факт vs ціль у
+ *  відсотках»: обидва старі виклики (валютні частки, крива аукціонів) від
+ *  узагальнення не змінились. Третій ряд знадобився «Плану проти факту»,
+ *  де стовпчиків три й вони в гривнях, а не у відсотках. */
+export function svgGrouped(groups, {
+  W = W0, H = H0,
+  colors = ["var(--oi-series-invested)", "var(--oi-series-neutral)"],
+  fmt = (v) => `${v.toFixed(1)}%`,
+  hits = false,
+} = {}) {
   const Pl = 6, Pr = 6, Pt = 14, Pb = 30;
   const iw = W - Pl - Pr, ih = H - Pt - Pb, n = Math.max(1, groups.length);
-  const max = Math.max(1, ...groups.flatMap((g) => [g.a, g.b]));
-  const gap = iw / n, bw = Math.min(22, gap * 0.28);
-  let out = "";
+  const vals = (g) => (g.values || [g.a, g.b]).map((v) => v || 0);
+  const max = Math.max(1, ...groups.flatMap((g) => vals(g)));
+  const k = Math.max(1, ...groups.map((g) => vals(g).length));
+  const gap = iw / n, bw = Math.min(22, (gap * 0.72) / k);
+  let out = "", hitRects = "";
   groups.forEach((g, i) => {
     const cx = Pl + gap * i + gap / 2;
-    [[g.a, "var(--oi-series-invested)", -bw - 2], [g.b, "var(--oi-series-neutral)", 2]].forEach(([v, col, dx]) => {
-      const h = (v / max) * ih, x = cx + dx, y = Pt + ih - h;
-      out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw}" height="${Math.max(0, h).toFixed(1)}"`
-        + ` fill="${col}"><title>${v.toFixed(1)}%</title></rect>`;
+    vals(g).forEach((v, j) => {
+      // Стовпчики розходяться від центру групи: при двох це та сама
+      // картинка, що й доти (−bw−2 / +2), при трьох середній стоїть на осі.
+      const h = (v / max) * ih;
+      const x = cx + (j - k / 2) * (bw + 2) + 1, y = Pt + ih - h;
+      // derived — стовпчик малюється контуром: це число не записане, а
+      // виведене. Контур замість <pattern>: патерн у тіньовому дереві
+      // вимагає власного <defs> з унікальним id на кожен графік, а різниця
+      // «залите vs порожнє» читається й без нього.
+      const col = colors[j % colors.length];
+      const hollow = (g.derived || [])[j];
+      out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}"`
+        + ` height="${Math.max(0, h).toFixed(1)}" fill="${col}"`
+        + (hollow ? ` fill-opacity="0.3" stroke="${col}" stroke-width="1"` : "")
+        + `><title>${esc(fmt(v))}</title></rect>`;
     });
     out += `<text x="${cx.toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(g.label)}</text>`;
+    if (hits) {
+      hitRects += `<rect class="chart-hit" data-i="${i}" tabindex="0" role="button"
+        aria-label="${esc(g.label)}" x="${(Pl + gap * i).toFixed(1)}" y="${Pt}"
+        width="${gap.toFixed(1)}" height="${ih}" fill="transparent"/>`;
+    }
   });
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}${hitRects}</svg>`;
 }
 
 /** Лінійний графік із кількома серіями по спільних x-мітках.
@@ -231,7 +270,10 @@ export function svgInflowProfile(profile, actions = [], milestones = [], { W = W
   const day = (iso) => Date.parse(iso + "T00:00:00Z") / 86400000;
   const d0 = day(pts[0].date), d1 = Math.max(day(pts[pts.length - 1].date), d0 + 1);
   // Ліве поле під підписи осі Y: без нього «122к» вилазило б за полотно.
-  const Pl = 46, Pr = 10, Pt = 12, Pb = 26;
+  // Нижнє поле ширше, коли є повернення тіла: маркер росте вниз від нуля, а
+  // на 26px він або наліз би на підписи років, або лишився б пилинкою.
+  const hasEvents = ((profile && profile.events) || []).length > 0;
+  const Pl = 46, Pr = 10, Pt = 12, Pb = hasEvents ? 32 : 26;
   const iw = W - Pl - Pr, ih = H - Pt - Pb;
   const X = (iso) => Pl + ((day(iso) - d0) / (d1 - d0)) * iw;
 
@@ -353,22 +395,41 @@ export function svgInflowProfile(profile, actions = [], milestones = [], { W = W
   // ромбами дій плану. Це не дохід і не внесок: твої ж гроші повертаються
   // з паперу на рахунок, і питання, яке вони ставлять, інше — «що з ними
   // робити далі».
-  const EVENT_COLOR = {
-    bond: "var(--oi-kind-bond)", deposit: "var(--oi-kind-deposit)", fund: "var(--oi-kind-fund)",
-  };
+  //
+  // Розмір маркера НЕ пропорційний сумі, і це навмисно: погашення на 1 000 ₴
+  // проти осі в 42 000 дало б смужку в два пікселі, тобто «події немає».
+  // Питання тут не «скільки», а «коли» — на «скільки» відповідає підказка й
+  // список під графіком. Стебло від нульової лінії робить подію засічкою на
+  // осі: доти чотирипіксельний трикутник під віссю читався як пилинка.
   const events = ((profile && profile.events) || []).map((e) => {
     const x = X(e.date);
     if (x < Pl - 1 || x > Pl + iw + 1) return "";
-    const r = 4, y = zero + 3;
-    return `<polygon points="${x.toFixed(1)},${(y + r).toFixed(1)} ${(x + r).toFixed(1)},${y.toFixed(1)}`
-      + ` ${(x - r).toFixed(1)},${y.toFixed(1)}"`
-      + ` fill="${EVENT_COLOR[e.kind] || AXIS}"><title>${esc(e.label)}: повертається ${
-        Math.round(e.amount_uah).toLocaleString("uk-UA")} ₴</title></polygon>`;
+    const r = 5, y = zero + 5, color = EVENT_COLORS[e.kind] || AXIS;
+    const title = `<title>${esc(e.label)}: повертається ${
+      Math.round(e.amount_uah).toLocaleString("uk-UA")} ₴</title>`;
+    return `<line x1="${x.toFixed(1)}" y1="${zero.toFixed(1)}" x2="${x.toFixed(1)}"
+        y2="${y.toFixed(1)}" stroke="${color}" stroke-width="1.5">${title}</line>
+      <polygon points="${x.toFixed(1)},${(y + r).toFixed(1)} ${(x + r).toFixed(1)},${y.toFixed(1)}`
+      + ` ${(x - r).toFixed(1)},${y.toFixed(1)}" fill="${color}">${title}</polygon>`;
+  }).join("");
+
+  // Смуги влучання — по одній на точку, на всю висоту полотна: розмітку
+  // підказки будує той, хто знає дані (див. wireChartTips), а тут лише
+  // геометрія. Межі — середини між сусідніми точками, а не рівна сітка:
+  // крок по датах нерівномірний (місяці різної довжини), і рівна сітка
+  // поволі з'їжджала б із точок під кінець горизонту.
+  const hits = pts.map((p, i) => {
+    const cx = X(p.date);
+    const lo = i === 0 ? Pl : (X(pts[i - 1].date) + cx) / 2;
+    const hi2 = i === pts.length - 1 ? Pl + iw : (cx + X(pts[i + 1].date)) / 2;
+    return `<rect class="chart-hit" data-i="${i}" tabindex="0" role="button"
+      aria-label="${esc(p.date)}" x="${lo.toFixed(1)}" y="${Pt}"
+      width="${Math.max(1, hi2 - lo).toFixed(1)}" height="${ih}" fill="transparent"/>`;
   }).join("");
 
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"
     aria-label="Профіль надходжень плану, гривень на місяць">`
-    + `${yTicks}${xlabels}${areas}${incomeArea}${net}${total}${marks}${acts}${events}</svg>`;
+    + `${yTicks}${xlabels}${areas}${incomeArea}${net}${total}${marks}${acts}${events}${hits}</svg>`;
 }
 
 /** Кільце часток. parts: [{label, value}] — уже відсортовані.

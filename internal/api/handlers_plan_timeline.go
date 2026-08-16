@@ -6,6 +6,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -105,15 +106,72 @@ type planProfile struct {
 	Events     []profileEvent  `json:"events,omitempty"`
 }
 
+// planHistoryPoint — один МИНУЛИЙ місяць трьома числами: скільки план мав
+// завести, скільки нових грошей зайшло насправді і скільки застосунок тоді
+// вважав нестачею понад план.
+//
+// Три різні джерела, і плутати їх не можна (той самий урок, що записаний у
+// contrib.js). PlanUAH читається з ЖУРНАЛУ РЕВІЗІЙ — з того стану таблиці
+// потоків, який діяв на кінець того місяця (planAsOf), тож пізніша правка
+// суми на нього не впливає. ActualUAH — реальні поповнення з датами,
+// нетто зі зняттями. GapUAH береться зі знімка того місяця й НЕ
+// перераховується: це те, що застосунок вважав нестачею ТОДІ.
+//
+// GapUAH — саме «бракує», а не «треба»: month_target_uah виводиться з цілі
+// ПОНАД те, що вже дає план (state_builder.go, target := prj.TargetUAH).
+// Підписати його словом «треба» означало б повторити ту саму підміну, через
+// яку колись «до цілі бракує ще 70 270» і «скільки треба вносити: 70 270»
+// читались як два різні показники.
+// PlanDerived — план за цей місяць не прочитано з журналу, а ВИВЕДЕНО з
+// теперішньої таблиці потоків: журнал тоді ще не існував. Позначка їде в
+// UI, бо різницю між «так було» і «так виходить, якщо припустити, що
+// нічого не мінялось» читач мусить бачити, а не вгадувати.
+type planHistoryPoint struct {
+	Month       string  `json:"month"` // YYYY-MM
+	PlanUAH     float64 `json:"plan_uah"`
+	ActualUAH   float64 `json:"actual_uah"`
+	GapUAH      float64 `json:"gap_uah,omitempty"`
+	PlanDerived bool    `json:"plan_derived,omitempty"`
+}
+
+// flowRevisionRow — рядок «Історії правок» для UI.
+//
+// Журнал, якого не прочитати, — це просто прихована таблиця, тож те саме,
+// на чому стоїть реконструкція, показується й людині.
+// FlowID тут обов'язковий: попередню ревізію шукають саме по ньому, а НЕ
+// по назві. Після «⇗» два рядки називаються однаково («Зарплата»), і
+// порівняння по назві показувало б підвищення як правку старого рядка.
+type flowRevisionRow struct {
+	At     string  `json:"at"` // RFC3339
+	Op     string  `json:"op"` // seed | create | update | delete
+	FlowID int64   `json:"flow_id"`
+	Name   string  `json:"name"`
+	Flow   planRev `json:"flow"`
+}
+
+// planRev — поля потоку, які має сенс порівнювати між ревізіями. Сума
+// рядком у мінорних одиницях не потрібна: UI показує гроші, а не int64.
+type planRev struct {
+	Amount    float64 `json:"amount"`
+	Currency  string  `json:"currency"`
+	Cadence   string  `json:"cadence"`
+	FromDate  string  `json:"from_date"`
+	UntilDate string  `json:"until_date,omitempty"`
+	InvestPct float64 `json:"invest_pct"`
+	GrowthPct float64 `json:"growth_pct,omitempty"`
+}
+
 type timelineDoc struct {
-	From        string               `json:"from"`
-	To          string               `json:"to"`
-	Flows       []timelineFlow       `json:"flows"`
-	Actions     []timelineAction     `json:"actions"`
-	Instruments []timelineInstrument `json:"instruments"`
-	Milestones  []timelineMilestone  `json:"milestones"`
-	Curve       []timelineCurvePoint `json:"curve,omitempty"`
-	Profile     *planProfile         `json:"profile,omitempty"`
+	From          string               `json:"from"`
+	To            string               `json:"to"`
+	Flows         []timelineFlow       `json:"flows"`
+	Actions       []timelineAction     `json:"actions"`
+	Instruments   []timelineInstrument `json:"instruments"`
+	Milestones    []timelineMilestone  `json:"milestones"`
+	Curve         []timelineCurvePoint `json:"curve,omitempty"`
+	Profile       *planProfile         `json:"profile,omitempty"`
+	History       []planHistoryPoint   `json:"history,omitempty"`
+	FlowRevisions []flowRevisionRow    `json:"flow_revisions,omitempty"`
 }
 
 // profileMaxPoints — стеля точок профілю. Довший горизонт малюється з
@@ -193,6 +251,190 @@ func buildPlanProfile(flows []store.PlanFlow, today, to domain.Date, rates fx.Ra
 		p.Points = append(p.Points, pt)
 	}
 	return p
+}
+
+// planHistoryMonths — скільки минулих місяців показує «План проти факту».
+// Рік: коротше вікно не показало б ані сезонності, ані того, що сталося з
+// планом після підвищення, а довше впирається в те, що застосунком просто
+// ще не користувались стільки часу.
+const planHistoryMonths = 12
+
+// monthKeyAt — календарний місяць, зсунутий на m від today, як "YYYY-MM".
+//
+// Рахується арифметикою над роком і місяцем, а НЕ через Date.AddMonths: та
+// має Go-семантику переповнення (31 березня мінус місяць = 3 березня), і
+// ключ місяця з неї часом виходив би не тим. Тут та сама формула, що і в
+// monthOffsetRaw, тільки в інший бік — тож місяць, який monthOffsetRaw
+// називає m-им, і місяць, який називає ним ця функція, завжди один і той же.
+func monthKeyAt(today domain.Date, m int) string {
+	tot := today.Year()*12 + int(today.Month()) - 1 + m
+	return fmt.Sprintf("%04d-%02d", tot/12, tot%12+1)
+}
+
+// planAsOf — план таким, яким він був ВІДОМИЙ на момент t: остання ревізія
+// кожного потоку з changed_at <= t, без тих, чия остання ревізія — delete.
+//
+// Саме тут минуле перестає переписуватись. Доти «скільки план давав у
+// травні» виводилось із теперішньої таблиці, тож виправлена на місці
+// зарплата робила вигляд, ніби вона була такою завжди. Тепер травень
+// читає ту ревізію, яка діяла в травні, і пізніша правка на нього не
+// впливає взагалі.
+//
+// revs мусять бути в хронологічному порядку — так їх і віддає
+// ListPlanFlowRevisions.
+func planAsOf(revs []store.PlanFlowRevision, t time.Time) []store.PlanFlow {
+	last := map[int64]store.PlanFlowRevision{}
+	var order []int64
+	for _, r := range revs {
+		if r.ChangedAt.After(t) {
+			break // хронологія — далі лише пізніші
+		}
+		if _, seen := last[r.FlowID]; !seen {
+			order = append(order, r.FlowID)
+		}
+		last[r.FlowID] = r
+	}
+	out := make([]store.PlanFlow, 0, len(order))
+	for _, id := range order {
+		r := last[id]
+		if r.Op == "delete" {
+			continue // потік на той момент уже не існував
+		}
+		out = append(out, r.Flow)
+	}
+	return out
+}
+
+// flowRevisionsShown — скільки правок показує «Історія правок». Стеля, а
+// не вікно: журнал сам по собі читається за рік, а список під таблицею —
+// це «що мінялось останнім часом», а не архів.
+const flowRevisionsShown = 50
+
+// flowRevisionRows — журнал для UI, найновіші згори. Порівняння «що саме
+// змінилось» робить браузер: там уже є і форматування грошей, і підписи
+// періодичності, а другий їх набір тут неминуче розійшовся б із першим.
+func flowRevisionRows(revs []store.PlanFlowRevision) []flowRevisionRow {
+	out := make([]flowRevisionRow, 0, len(revs))
+	for i := len(revs) - 1; i >= 0 && len(out) < flowRevisionsShown; i-- {
+		r := revs[i]
+		out = append(out, flowRevisionRow{
+			At: r.ChangedAt.Format(time.RFC3339), Op: r.Op,
+			FlowID: r.FlowID, Name: r.Flow.Name,
+			Flow: planRev{
+				Amount:    float64(r.Flow.Amount) / 100,
+				Currency:  r.Flow.Currency,
+				Cadence:   r.Flow.Cadence,
+				FromDate:  string(r.Flow.FromDate),
+				UntilDate: string(r.Flow.UntilDate),
+				InvestPct: float64(r.Flow.InvestBP) / 100,
+				GrowthPct: float64(r.Flow.GrowthBP) / 100,
+			},
+		})
+	}
+	return out
+}
+
+// monthEnd — остання мить місяця "YYYY-MM". Найперше число НАСТУПНОГО
+// місяця мінус наносекунда, а не «31-ше»: різна довжина місяців тут не
+// має ставати ще одним місцем, де можна помилитись.
+func monthEnd(key string) time.Time {
+	y, mo := 0, 0
+	if _, err := fmt.Sscanf(key, "%04d-%02d", &y, &mo); err != nil {
+		return time.Time{}
+	}
+	return time.Date(y, time.Month(mo)+1, 1, 0, 0, 0, 0, time.UTC).Add(-time.Nanosecond)
+}
+
+// buildPlanHistory — минулий рік помісячно: план, факт, нестача.
+//
+// Факт міряється ПОПОВНЕННЯМИ, а не покупками, і це не дрібниця: купівля
+// лише переносить гроші з рахунку в папери й до цілі не додає нічого
+// (те саме означення, що й у buildMonth — state_month.go). Нетто зі
+// зняттями — щоб переказ між брокерами (він записується як зняття плюс
+// поповнення) не роздував факт на свою суму. Резерв входить сюди ж: гроші,
+// відкладені в матрац, це такий самий внесок, а переміщення гаманець →
+// матрац записане двома ногами й у сумі дає нуль.
+func buildPlanHistory(flows []store.PlanFlow, deposits []store.Deposit,
+	reserveOps []store.ReserveOp, snaps []store.Snapshot, revs []store.PlanFlowRevision,
+	today domain.Date, rates fx.Rates) []planHistoryPoint {
+	if len(flows) == 0 && len(deposits) == 0 {
+		return nil
+	}
+	first := monthKeyAt(today, -planHistoryMonths)
+	last := monthKeyAt(today, -1)
+
+	actual := map[string]float64{}
+	addMove := func(d domain.Date, amount int64, cur string) {
+		key := string(d)
+		if len(key) < 7 {
+			return
+		}
+		key = key[:7]
+		if key < first || key > last {
+			return
+		}
+		// Знак зберігається: зняття зменшує внесок місяця так само, як
+		// поповнення його збільшує.
+		if u, err := fx.ToUAH(money.New(amount, cur), rates); err == nil {
+			actual[key] += float64(u.Amount()) / 100
+		}
+	}
+	for _, d := range deposits {
+		addMove(d.Date, d.Amount, d.Currency)
+	}
+	for _, op := range reserveOps {
+		addMove(op.Date, op.Amount, op.Currency)
+	}
+
+	// Нестача — з ОСТАННЬОГО знімка місяця: цифра дня, найближчого до
+	// підсумку. Знімки приходять упорядкованими за датою, тож просто
+	// перезаписуємо.
+	gap := map[string]float64{}
+	for _, s := range snaps {
+		key := string(s.Date)
+		if len(key) < 7 {
+			continue
+		}
+		key = key[:7]
+		if key < first || key > last {
+			continue
+		}
+		gap[key] = float64(s.MonthTargetUAH) / 100
+	}
+
+	out := make([]planHistoryPoint, 0, planHistoryMonths)
+	for k := planHistoryMonths; k >= 1; k-- {
+		key := monthKeyAt(today, -k)
+		// Стан плану беремо на КІНЕЦЬ місяця: питання «скільки план давав
+		// у травні» про травень цілком, а не про якийсь його день.
+		asOf := monthEnd(key)
+		// Журнал ще не існував — виводимо з теперішньої таблиці, як доти, і
+		// чесно кажемо про це позначкою.
+		derived := len(revs) == 0 || revs[0].ChangedAt.After(asOf)
+		src := flows
+		if !derived {
+			src = planAsOf(revs, asOf)
+		}
+		var plan float64
+		for _, f := range src {
+			plan += planFlowMonthlyUAHPast(f, today, rates, -k)
+		}
+		out = append(out, planHistoryPoint{
+			Month: key, PlanUAH: round2(plan), PlanDerived: derived,
+			ActualUAH: round2(actual[key]), GapUAH: round2(gap[key]),
+		})
+	}
+	// Порожній хвіст на початку — це не «нуль», а «застосунком тоді ще не
+	// користувались»: намальований нулем він читався б як провалений план.
+	// Той самий прийом, що й usableSnaps на кривій «Як росте».
+	i := 0
+	for i < len(out) && out[i].PlanUAH == 0 && out[i].ActualUAH == 0 && out[i].GapUAH == 0 {
+		i++
+	}
+	if i >= len(out)-1 {
+		return nil // менше двох місяців — порівнювати нема чого
+	}
+	return out[i:]
 }
 
 // profileEvents — повернення тіла на горизонті профілю.
@@ -315,12 +557,28 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 	//
 	// Помилка збирача профіль не валить: стрічка малюється й без доходу.
 	var portfolioCF []domain.CashflowItem
+	var moves, reserveMoves = []store.Deposit(nil), []store.ReserveOp(nil)
 	if src, serr := s.loadSources(ctx, today); serr == nil {
 		hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps, src.payoutDays(), today)
 		if sch, serr := buildSchedule(src, hold, today, today, profileFundMonths); serr == nil {
 			portfolioCF = sch.Cashflow
 		}
+		// Рух грошей для «Плану проти факту». Читається звідси, а не окремим
+		// запитом: loadSources уже сходив по нього для решти документа.
+		moves, reserveMoves = src.deposits, src.reserveOps
 	}
+	// Знімки потрібні лише заради колонки «бракувало». Помилку ковтаємо
+	// свідомо: без них картка малює два ряди замість трьох, а не зникає.
+	snaps, _ := s.st.ListSnapshots(ctx, today.AddMonths(-planHistoryMonths-1), today) //nolint:errcheck
+	// Журнал ревізій — те, з чого читається «яким план БУВ». Помилка так
+	// само не валить стрічку: без журналу історія просто виводиться з
+	// теперішньої таблиці й каже про це позначкою.
+	//
+	// Вікно на місяць ширше за саму картку: щоб знати стан на початок
+	// найдавнішого показаного місяця, потрібна ревізія, що йому передує.
+	revSince := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).
+		AddDate(0, -planHistoryMonths-1, 0)
+	revs, _ := s.st.ListPlanFlowRevisions(ctx, revSince) //nolint:errcheck
 
 	out := timelineDoc{From: string(today)}
 
@@ -395,6 +653,8 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 	if out.Profile != nil {
 		out.Profile.Events = profileEvents(portfolioCF, doc.Funds, funds, today, to, rates)
 	}
+	out.History = buildPlanHistory(flows, moves, reserveMoves, snaps, revs, today, rates)
+	out.FlowRevisions = flowRevisionRows(revs)
 
 	out.Milestones = append(out.Milestones, timelineMilestone{Date: string(today), Label: "сьогодні"})
 	if doc.Forecast != nil && doc.Forecast.Date != "" {

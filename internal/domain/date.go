@@ -33,6 +33,7 @@ func (d Date) Valid() bool {
 
 func (d Date) Year() int          { return d.Time().Year() }
 func (d Date) Month() time.Month  { return d.Time().Month() }
+func (d Date) Day() int           { return d.Time().Day() }
 func (d Date) Before(o Date) bool { return d < o }
 func (d Date) After(o Date) bool  { return d > o }
 

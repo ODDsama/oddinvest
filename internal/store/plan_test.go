@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestPlanFlowRoundTrip(t *testing.T) {
@@ -117,5 +118,89 @@ func TestPlanActionRoundTrip(t *testing.T) {
 	actions, _ = s.ListPlanActions(ctx)
 	if len(actions) != 1 {
 		t.Fatalf("очікували одну дію після видалення, маємо %d", len(actions))
+	}
+}
+
+// Журнал (0026): кожна правка лишає рядок, а видалення пам'ятає, ЩО зникло.
+//
+// Це та властивість, на якій стоїть уся картка «План проти факту»: без
+// запису про стан ДО правки місяць до неї довелось би виводити з
+// теперішньої таблиці, тобто переписувати минуле.
+func TestPlanFlowRevisionsJournal(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+
+	id, err := s.AddPlanFlow(ctx, PlanFlow{
+		Name: "Зарплата", Kind: "income", Amount: 4_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2026-01-17", InvestBP: 10000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flows, _ := s.ListPlanFlows(ctx)
+	flows[0].Amount = 4_500_000
+	if err := s.UpdatePlanFlow(ctx, flows[0]); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeletePlanFlow(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+
+	revs, err := s.ListPlanFlowRevisions(ctx, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revs) != 3 {
+		t.Fatalf("мало бути три ревізії (create/update/delete), маємо %d: %+v", len(revs), revs)
+	}
+	want := []struct {
+		op     string
+		amount int64
+	}{{"create", 4_000_000}, {"update", 4_500_000}, {"delete", 4_500_000}}
+	for i, w := range want {
+		if revs[i].Op != w.op || revs[i].Flow.Amount != w.amount {
+			t.Errorf("ревізія %d: маємо %s/%d, чекали %s/%d",
+				i, revs[i].Op, revs[i].Flow.Amount, w.op, w.amount)
+		}
+		if revs[i].FlowID != id || revs[i].Flow.Name != "Зарплата" ||
+			revs[i].Flow.FromDate != "2026-01-17" {
+			t.Errorf("ревізія %d втратила поля потоку: %+v", i, revs[i])
+		}
+		if revs[i].ChangedAt.IsZero() {
+			t.Errorf("ревізія %d без часу", i)
+		}
+	}
+
+	// Хронологія не спадає — на ній стоїть реконструкція «яким план був».
+	for i := 1; i < len(revs); i++ {
+		if revs[i].ChangedAt.Before(revs[i-1].ChangedAt) {
+			t.Errorf("ревізії вийшли не в хронологічному порядку: %v перед %v",
+				revs[i-1].ChangedAt, revs[i].ChangedAt)
+		}
+	}
+
+	// since відрізає: журнал читається вікном, а не цілком.
+	if got, _ := s.ListPlanFlowRevisions(ctx, time.Now().Add(time.Hour)); len(got) != 0 {
+		t.Errorf("since у майбутньому мав дати порожньо, маємо %d", len(got))
+	}
+}
+
+// Невдала мутація не лишає ревізії: рядок журналу й сама правка їдуть
+// однією транзакцією, тож «історія показує зміну, якої не сталося»
+// неможлива за побудовою.
+func TestPlanFlowRevisionsAtomicWithMutation(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+
+	if err := s.UpdatePlanFlow(ctx, PlanFlow{ID: 404, Name: "нема", Kind: "income",
+		Amount: 100, Currency: "UAH", Cadence: "once", FromDate: "2026-01-01"}); err == nil {
+		t.Fatal("правка неіснуючого потоку мала впасти")
+	}
+	if err := s.DeletePlanFlow(ctx, 404); err == nil {
+		t.Fatal("видалення неіснуючого потоку мало впасти")
+	}
+	revs, _ := s.ListPlanFlowRevisions(ctx, time.Time{})
+	if len(revs) != 0 {
+		t.Fatalf("невдалі мутації не мали лишити ревізій, маємо %+v", revs)
 	}
 }

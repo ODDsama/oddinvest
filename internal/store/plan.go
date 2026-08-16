@@ -9,6 +9,10 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 )
@@ -47,8 +51,46 @@ type PlanAction struct {
 	Note     string
 }
 
+// PlanFlowRevision — стан потоку на момент правки (міграція 0026).
+//
+// Журнал існує заради одного питання: «скільки план давав У ТРАВНІ» —
+// відповідь на нього мусить читатися, а не виводитись із того, яким план
+// став сьогодні. Op каже, що саме сталося; Flow — знімок ПІСЛЯ правки, а
+// для delete останній відомий стан.
+type PlanFlowRevision struct {
+	ID        int64
+	FlowID    int64
+	ChangedAt time.Time
+	Op        string // seed | create | update | delete
+	Flow      PlanFlow
+}
+
+const (
+	planRevCreate = "create"
+	planRevUpdate = "update"
+	planRevDelete = "delete"
+)
+
+// journalPlanFlow — один рядок журналу в ТІЙ САМІЙ транзакції, що й сама
+// мутація. Порізно вони рано чи пізно розійшлися б, і розійшлися б тихо:
+// потік змінився, а історія показувала б стару суму як чинну.
+func journalPlanFlow(ctx context.Context, tx *sql.Tx, at time.Time, op string, f PlanFlow) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO plan_flow_revisions
+		(flow_id, changed_at, op, name, kind, amount, currency, cadence,
+		 from_date, until_date, growth_bp, invest_bp, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		f.ID, at.UTC().Format(time.RFC3339), op, f.Name, f.Kind, f.Amount, f.Currency,
+		f.Cadence, string(f.FromDate), string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Note)
+	return err
+}
+
 func (s *Store) AddPlanFlow(ctx context.Context, f PlanFlow) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO plan_flows
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // відкат після Commit — no-op
+	res, err := tx.ExecContext(ctx, `INSERT INTO plan_flows
 		(name, kind, amount, currency, cadence, from_date, until_date, growth_bp, invest_bp, note)
 		VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, string(f.FromDate),
@@ -56,12 +98,25 @@ func (s *Store) AddPlanFlow(ctx context.Context, f PlanFlow) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	f.ID = id
+	if err := journalPlanFlow(ctx, tx, time.Now(), planRevCreate, f); err != nil {
+		return 0, err
+	}
+	return id, tx.Commit()
 }
 
 // UpdatePlanFlow переписує потік, зберігаючи id.
 func (s *Store) UpdatePlanFlow(ctx context.Context, f PlanFlow) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE plan_flows SET
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	res, err := tx.ExecContext(ctx, `UPDATE plan_flows SET
 		name=?, kind=?, amount=?, currency=?, cadence=?, from_date=?, until_date=?,
 		growth_bp=?, invest_bp=?, note=? WHERE id=?`,
 		f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, string(f.FromDate),
@@ -69,18 +124,87 @@ func (s *Store) UpdatePlanFlow(ctx context.Context, f PlanFlow) error {
 	if err != nil {
 		return err
 	}
-	return affectedOne(res, "плановий потік")
+	if err := affectedOne(res, "плановий потік"); err != nil {
+		return err
+	}
+	if err := journalPlanFlow(ctx, tx, time.Now(), planRevUpdate, f); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Видалення теж через affectedOne: доти DELETE за неіснуючим id віддавав
 // 204, тобто «видалено» звучало однаково і коли справді видалили, і коли
 // видаляти було нічого.
 func (s *Store) DeletePlanFlow(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM plan_flows WHERE id=?`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return affectedOne(res, "плановий потік")
+	defer tx.Rollback() //nolint:errcheck
+	// Спершу читаємо, що саме зникає: без цього рядок журналу не зміг би
+	// відповісти, ЩО видалили, і видалення не відрізнялось би від
+	// «такого потоку ніколи не було».
+	var f PlanFlow
+	var from, until string
+	err = tx.QueryRowContext(ctx, `SELECT id, name, kind, amount, currency, cadence,
+		from_date, until_date, growth_bp, invest_bp, note FROM plan_flows WHERE id=?`, id).
+		Scan(&f.ID, &f.Name, &f.Kind, &f.Amount, &f.Currency, &f.Cadence,
+			&from, &until, &f.GrowthBP, &f.InvestBP, &f.Note)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("плановий потік %w", ErrNotFound)
+	}
+	if err != nil {
+		return err
+	}
+	f.FromDate, f.UntilDate = domain.Date(from), domain.Date(until)
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM plan_flows WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if err := affectedOne(res, "плановий потік"); err != nil {
+		return err
+	}
+	if err := journalPlanFlow(ctx, tx, time.Now(), planRevDelete, f); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ListPlanFlowRevisions — журнал від since (включно), у хронологічному
+// порядку. Порядок тут не косметика: реконструкція бере ОСТАННЮ ревізію
+// кожного потоку до заданого моменту, і покладається саме на нього.
+//
+// id як вторинне сортування — щоб дві правки в ту саму секунду лишались
+// у тому порядку, у якому вони сталися.
+func (s *Store) ListPlanFlowRevisions(ctx context.Context, since time.Time) ([]PlanFlowRevision, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, flow_id, changed_at, op,
+		name, kind, amount, currency, cadence, from_date, until_date, growth_bp, invest_bp, note
+		FROM plan_flow_revisions WHERE changed_at >= ? ORDER BY changed_at, id`,
+		since.UTC().Format(time.RFC3339))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PlanFlowRevision
+	for rows.Next() {
+		var r PlanFlowRevision
+		var at, from, until string
+		if err := rows.Scan(&r.ID, &r.FlowID, &at, &r.Op, &r.Flow.Name, &r.Flow.Kind,
+			&r.Flow.Amount, &r.Flow.Currency, &r.Flow.Cadence, &from, &until,
+			&r.Flow.GrowthBP, &r.Flow.InvestBP, &r.Flow.Note); err != nil {
+			return nil, err
+		}
+		// Час, який не розібрався, — нульовий, і реконструкція побачить
+		// його як «було завжди». Це чесніше за падіння на одному кривому
+		// рядку: журнал читають заради картинки, а не заради грошей.
+		r.ChangedAt, _ = time.Parse(time.RFC3339, at) //nolint:errcheck
+		r.Flow.ID = r.FlowID
+		r.Flow.FromDate, r.Flow.UntilDate = domain.Date(from), domain.Date(until)
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) ListPlanFlows(ctx context.Context) ([]PlanFlow, error) {

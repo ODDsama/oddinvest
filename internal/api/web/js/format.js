@@ -45,6 +45,17 @@ export function monthYear(iso) {
   return `${MON_NOM[+p[1] - 1] || p[1]} ${p[0]}`;
 }
 
+/** «2026-07» -> «лип», а січень — «січ 26»: підпис осі, де місяців дванадцять
+ *  і повні назви злиплись би в сіру смугу. Рік показуємо лише там, де він
+ *  міняється, — інакше на кожному стовпчику стояло б те саме число. */
+export function monthShort(iso) {
+  const p = String(iso || "").split("-");
+  if (p.length < 2) return String(iso || "");
+  const m = +p[1];
+  const short = (MON_NOM[m - 1] || p[1]).slice(0, 3);
+  return m === 1 ? `${short} ${p[0].slice(2)}` : short;
+}
+
 /** «2029-03-17» -> «березня 2029»: родовий відмінок для конструкцій
  *  «до <місяця>», де називний дав би «до березень». */
 export function monthYearGen(iso) {

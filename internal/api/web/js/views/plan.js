@@ -11,13 +11,18 @@
 // state_plan.go. Порахувавши їх удруге в браузері, ми б гарантували собі
 // розбіжність із плиткою вгорі при першій же правці двигуна.
 
-import { esc, today, money as fmtMoney, uah0 as fmtUAH, pct, dayMonth, humanMonths } from "../format.js";
+import {
+  esc, today, money as fmtMoney, uah0 as fmtUAH, cur2, pct, dayMonth, humanMonths,
+  monthYear, monthShort, plural,
+} from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty, legend } from "../components.js";
 import { onSubmit, onDelete, openEdit, fillForm } from "../forms.js";
 import { disclosure, section, wireDisclosures } from "../disclosure.js";
 import { CONTRIB, contribTriad } from "../contrib.js";
-import { fluid, svgInflowProfile, CAT_COLORS } from "../charts.js";
+import {
+  fluid, svgInflowProfile, svgGrouped, wireChartTips, CAT_COLORS, EVENT_COLORS,
+} from "../charts.js";
 import {
   income12mChartHTML, capitalChartHTML, projectionHTML, incomeHTML, drawdownHTML,
   renderCalendar, calendarPlaceholderHTML,
@@ -272,6 +277,29 @@ const FLOW_PRESETS = [
   ["Комуналка", { name: "Комуналка", kind: "expense", cadence: "month" }],
 ];
 
+// PROVIDES_MONTHS — вікно, за яким бекенд усереднює «дає ₴/міс»
+// (planProvidesMonths у state_plan.go). Тут воно потрібне ЛИШЕ для підписів:
+// саме число рахується там і сюди приходить готовим. Розійтись вони можуть
+// тільки в тексті, і саме тому текст стоїть в одному місці, а не в трьох.
+const PROVIDES_MONTHS = 12;
+
+// Разова стаття в колонці «дає ₴/міс» — це сума, поділена на 12, а не
+// щомісячний платіж: вікно усереднення однакове для всіх рядків, інакше
+// плитка «План дає» стрибала б на всю премію в місяць виплати й назад.
+// Без мітки рядок читається як платіж, якого не існує, — і не сходиться з
+// профілем, де та сама стаття стоїть чесним шпилем в один місяць.
+const isOnceSpread = (f) => f.cadence === "once" && (f.provides_uah || 0) !== 0;
+
+function onceTitle(f) {
+  if (!isOnceSpread(f)) return "";
+  const full = (f.gross_uah || 0) * PROVIDES_MONTHS;
+  return ` title="разова виплата ${fmtUAH(full)} ${dayMonth(f.from_date)}, розкладена на ${
+    PROVIDES_MONTHS} місяців"`;
+}
+
+const onceHint = (f) => (isOnceSpread(f)
+  ? `<div class="fine-xs muted">разова ÷${PROVIDES_MONTHS} міс</div>` : "");
+
 export function planFlowsListHTML(flows, provides = 0) {
   if (!flows.length) {
     return `${empty("", "Джерел доходу й витрат ще немає — перше додасть форма нижче.")}
@@ -287,11 +315,13 @@ export function planFlowsListHTML(flows, provides = 0) {
       <td><span class="pill ${f.kind === "income" ? "coupon" : "redemption"}">${
   f.kind === "income" ? "дохід" : "витрата"}</span></td>
       <td class="num">${fmtMoney(f.amount)}</td>
-      <td class="num${(f.provides_uah || 0) < 0 ? " t-warn" : ""}">${fmtUAH(f.provides_uah || 0)}</td>
+      <td class="num${(f.gross_uah || 0) < 0 ? " t-warn" : ""}">${fmtUAH(f.gross_uah || 0)}</td>
+      <td class="num">${pct(f.invest_pct)}</td>
+      <td class="num${(f.provides_uah || 0) < 0 ? " t-warn" : ""}"${onceTitle(f)}>${
+  fmtUAH(f.provides_uah || 0)}${onceHint(f)}</td>
       <td>${CADENCE_LABEL[f.cadence] || esc(f.cadence)}</td>
       <td>${esc(dayMonth(f.from_date))}</td>
       <td>${f.until_date ? esc(dayMonth(f.until_date)) : "безстроково"}</td>
-      <td class="num">${pct(f.invest_pct)}</td>
       <td class="row-actions">
         <button class="sm" data-editflow="${f.id}" aria-label="Змінити потік ${esc(f.name)}">✎</button>
         <button class="sm" data-changeflow="${f.id}"
@@ -302,11 +332,17 @@ export function planFlowsListHTML(flows, provides = 0) {
           aria-label="Видалити потік ${esc(f.name)}">✕</button>
       </td>
     </tr>`).join("");
+  // Порядок колонок — це арифметика зліва направо: 89 420 ₴ × 10.0% = 8 941 ₴.
+  // Доти «повного» числа не було видно ніде, тож перевірити рядок очима було
+  // нічим — а підсумок «Доходи» під таблицею складався саме з нього й через
+  // це читався як помилка розрахунку (224 521 під колонкою, що дає 31 390).
   return `<div class="table-scroll"><table><thead><tr>
     <th scope="col">Назва</th><th scope="col">Тип</th><th scope="col" class="num">Сума</th>
-    <th scope="col" class="num" title="середнє за найближчі 12 місяців">дає ₴/міс</th>
+    <th scope="col" class="num" title="до «частки в портфель», за сьогоднішнім курсом">повне ₴/міс</th>
+    <th scope="col" class="num">У портфель</th>
+    <th scope="col" class="num" title="середнє за найближчі ${PROVIDES_MONTHS} місяців">дає ₴/міс</th>
     <th scope="col">Період</th><th scope="col">З</th><th scope="col">До</th>
-    <th scope="col" class="num">У портфель</th><th scope="col"><span class="sr-only">Дії</span></th>
+    <th scope="col"><span class="sr-only">Дії</span></th>
     </tr></thead><tbody>${rows}</tbody>${flowsFootHTML(flows, provides)}</table></div>`;
 }
 
@@ -330,15 +366,89 @@ function flowsFootHTML(flows, provides) {
   // nowrap на числі: колонка «дає ₴/міс» вузька за вмістом рядків, і без
   // нього «49 563 ₴» переносило гривню на другий рядок — підсумок,
   // заради якого таблиця й має tfoot, читався найгірше з усього.
+  //
+  // Кожне число стоїть рівно під СВОЄЮ колонкою, і це не косметика: «Доходи»
+  // рахуються з gross_uah, решта — з provides_uah, і поки обидва підсумки
+  // стояли в одному стовпці, перший читався як помилка (224 521 ₴ під
+  // колонкою, чиї рядки дають 31 390 ₴). Тепер кожен складається з того, що
+  // видно над ним.
   const row = (label, val, cls = "") =>
+    `<tr class="${cls}"><td colspan="5">${label}</td>
+      <td class="num nowrap">${fmtUAH(val)}</td><td colspan="4"></td></tr>`;
+  const grossRow = (label, val, cls = "") =>
     `<tr class="${cls}"><td colspan="3">${label}</td>
-      <td class="num nowrap">${fmtUAH(val)}</td><td colspan="5"></td></tr>`;
+      <td class="num nowrap">${fmtUAH(val)}</td><td colspan="6"></td></tr>`;
   return `<tfoot>
-    ${row("Доходи", gross, "muted")}
+    ${grossRow("Доходи", gross, "muted")}
     ${cut ? row("Не доходить до портфеля (частка)", -cut, "muted") : ""}
     ${exp ? row("Витратні потоки", exp, "muted") : ""}
     ${row("План дає", provides, "tot")}
   </tfoot>`;
+}
+
+// ---------- історія правок ----------
+//
+// Журнал, якого не прочитати, — це просто прихована таблиця. Те саме, з
+// чого картка «План проти факту» читає минуле, показується й людині: коли
+// що змінилось і на що саме.
+//
+// Порівняння робить браузер, а не бекенд: тут уже є і форматування грошей,
+// і підписи періодичності, а другий їхній набір на сервері неминуче
+// розійшовся б із цим.
+
+const REV_OP = {
+  seed: "заведено до появи журналу",
+  create: "додано",
+  update: "змінено",
+  delete: "видалено",
+};
+
+// Поля, за якими має сенс питати «що змінилось», у порядку читання.
+const REV_FIELDS = [
+  ["amount", "сума", (r) => `${cur2(r.amount, r.currency)}`],
+  ["cadence", "період", (r) => CADENCE_LABEL[r.cadence] || r.cadence],
+  ["from_date", "з", (r) => dayMonth(r.from_date)],
+  ["until_date", "до", (r) => (r.until_date ? dayMonth(r.until_date) : "безстроково")],
+  ["invest_pct", "у портфель", (r) => pct(r.invest_pct)],
+  ["growth_pct", "індексація", (r) => pct(r.growth_pct)],
+];
+
+// Що змінилось порівняно з попередньою ревізією ТОГО САМОГО потоку.
+// Валюта порівнюється разом із сумою: «1 700 → 2 000» без неї брехало б,
+// якби змінилась саме валюта.
+function revDiff(cur, prev) {
+  if (!prev) return "";
+  return REV_FIELDS.map(([key, label, show]) => {
+    const a = key === "amount" ? `${cur[key]}|${cur.currency}` : cur[key];
+    const b = key === "amount" ? `${prev[key]}|${prev.currency}` : prev[key];
+    return a === b ? "" : `${label}: ${esc(show(prev))} → <b>${esc(show(cur))}</b>`;
+  }).filter(Boolean).join(" · ");
+}
+
+function revisionsHTML(revs) {
+  if (!revs.length) return "";
+  // Журнал приходить найновішими згори, а «попередня ревізія» — це та, що
+  // йде в списку ПІСЛЯ поточної для того самого потоку.
+  const rows = revs.map((r, i) => {
+    // Попередня ревізія шукається за flow_id, а НЕ за назвою: після «⇗» два
+    // рядки називаються однаково, і за назвою підвищення виглядало б як
+    // правка старого рядка.
+    const prev = revs.slice(i + 1).find((o) => o.flow_id === r.flow_id);
+    const what = r.op === "update" ? revDiff(r.flow, prev && prev.flow) : "";
+    return `<tr>
+      <td class="nowrap">${esc(dayMonth(r.at.slice(0, 10)))}</td>
+      <td>${esc(r.name)}</td>
+      <td>${what || `<span class="muted">${REV_OP[r.op] || esc(r.op)}</span>`}</td>
+    </tr>`;
+  }).join("");
+  const body = `<div class="table-scroll"><table><thead><tr>
+    <th scope="col">Коли</th><th scope="col">Потік</th><th scope="col">Що змінилось</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="sub-xs">Саме з цього журналу картка «План проти факту» читає, скільки план
+      давав у минулому місяці. Тому правка суми на місці більше не переписує минуле:
+      місяці до неї лишаються з тією сумою, яка діяла тоді.</div>`;
+  return disclosure("planRevisions", "Історія правок", body,
+    `${revs.length} ${plural(revs.length, "запис", "записи", "записів")}`);
 }
 
 // ---------- профіль надходжень ----------
@@ -348,6 +458,86 @@ function flowsFootHTML(flows, provides) {
 // може, — ФОРМА плану в часі: коли надходження підскочить, коли просяде,
 // де його зжере разова витрата. Криву капіталу тут не малюємо — вона
 // лишається власною карткою, де вже має і вісь, і лінію цілі.
+
+// Дані підказки профілю. На рівні модуля з тієї ж причини, що й capTip у
+// history.js: будує її onMount рамки, тобто момент, коли локальних змінних
+// profileHTML уже немає.
+let profTip = null;
+
+// Назва події так, як її читають: ISIN сам по собі не каже, що це ОВДП, а
+// назва фонду вже містить усе потрібне.
+const eventName = (e) => (e.kind === "bond" ? `ОВДП ${e.label}` : e.label);
+
+// Розмітка підказки. Нулі не показуємо: у профілі більшість рядів мовчить
+// у більшості місяців (разова премія — в одинадцяти з дванадцяти), і
+// список із п'яти нулів ховав би те єдине, що цього місяця сталося.
+function profTipHTML(i) {
+  if (!profTip || !profTip.points[i]) return "";
+  const p = profTip.points[i];
+  const r = (label, val, color, cls = "") =>
+    `<div class="r${cls ? " " + cls : ""}"><span>${color
+      ? `<i style="--oi-c:${color}"></i>` : ""}${esc(label)}</span><b>${fmtUAH(val)}</b></div>`;
+
+  const rows = profTip.series.map((s, k) => {
+    const v = p.values[k] || 0;
+    return v === 0 ? "" : r(s.name, v, s.color);
+  }).join("");
+  const inc = p.income || 0;
+  const evs = (profTip.byIdx[i] || []).map((e) =>
+    r(`↩ ${eventName(e)}`, e.amount_uah, EVENT_COLORS[e.kind])).join("");
+  const acts = (profTip.actsByIdx[i] || []).map((a) =>
+    `<div class="r"><span>◆ ${esc(a.name || (a.type === "lock" ? "замок" : "зміна часток"))}</span>${
+      a.amount_uah ? `<b>${fmtUAH(a.amount_uah)}</b>` : ""}</div>`).join("");
+
+  return `<div><b>${esc(monthYear(p.date))}</b>${profTip.step > 1
+    ? ` <span class="muted">· у середньому за ${profTip.step} міс.</span>` : ""}</div>
+    ${rows}${r("План разом", p.net, "var(--oi-series-invested)", "tot")}
+    ${inc ? r("дохід портфеля", inc, "var(--oi-series-nominal)") : ""}
+    ${inc ? r("Усе разом", p.net + inc, "var(--oi-series-neutral)") : ""}
+    ${evs || acts ? `<div class="r tot"><span class="muted">цього місяця</span></div>${evs}${acts}` : ""}`;
+}
+
+// Подія лягає в ту точку, чиє вікно [дата_i, дата_{i+1}) її містить;
+// остання точка забирає все, що після неї. Рахується один раз тут, а не в
+// підказці: інакше кожне наведення перебирало б усі події заново.
+function bucketByPoint(pts, items) {
+  const out = {};
+  if (!pts.length) return out;
+  for (const it of items || []) {
+    if (!it.date || it.date < pts[0].date) continue;
+    let idx = pts.length - 1;
+    for (let i = 0; i < pts.length - 1; i++) {
+      if (it.date < pts[i + 1].date) { idx = i; break; }
+    }
+    (out[idx] = out[idx] || []).push(it);
+  }
+  return out;
+}
+
+// Список повернень тіла — те, чого з картинки не прочитати: маркер каже
+// «коли», а «скільки» й «чого саме» доти лишалось у нативному <title> на
+// п'яти пікселях. Згорнутий, бо це довідка до графіка, а не сам графік.
+function returnsHTML(events) {
+  if (!events.length) return "";
+  const total = events.reduce((a, e) => a + (e.amount_uah || 0), 0);
+  // Рік дописує сам dayMonth — і лише там, де він не цьогорічний. Дописати
+  // його ще раз тут означало б «18 листопада 2026 2026».
+  const rows = events.map((e) => `<tr>
+    <td class="nowrap">${esc(dayMonth(e.date))}</td>
+    <td><i class="swatch" style="--oi-c:${EVENT_COLORS[e.kind] || "var(--oi-muted)"}"></i>${
+  esc(eventName(e))}</td>
+    <td class="num nowrap">${fmtUAH(e.amount_uah)}</td></tr>`).join("");
+  const body = `<div class="table-scroll"><table><thead><tr>
+    <th scope="col">Дата</th><th scope="col">Що</th><th scope="col" class="num">Сума</th>
+    </tr></thead><tbody>${rows}</tbody><tfoot><tr class="tot">
+    <td colspan="2">Разом</td><td class="num nowrap">${fmtUAH(total)}</td>
+    </tr></tfoot></table></div>
+    <div class="sub-xs">Це не дохід і не внесок: власне тіло виходить із паперу на рахунок,
+      і питання воно ставить інше — що з ним робити далі.</div>`;
+  return disclosure("planReturns", "Що повертається", body,
+    `${events.length} ${plural(events.length, "подія", "події", "подій")} на ${fmtUAH(total)}`);
+}
+
 export function profileHTML(doc) {
   const profile = doc.profile;
   if (!profile || (profile.points || []).length < 2) {
@@ -367,15 +557,143 @@ export function profileHTML(doc) {
   ].filter(Boolean);
   const step = profile.step_months > 1
     ? ` Крок ${profile.step_months} міс.` : "";
+  const pts = profile.points || [];
+  const events = profile.events || [];
+  profTip = {
+    points: pts, step: profile.step_months || 1,
+    series: (profile.series || []).map((s, i) => ({ name: s.name, color: names[i].color })),
+    byIdx: bucketByPoint(pts, events),
+    actsByIdx: bucketByPoint(pts, doc.actions || []),
+  };
+  const frame = fluid((w, h) => svgInflowProfile(profile, doc.actions || [], doc.milestones || [],
+    { W: w, H: h }),
+  { cls: "tall", onMount: (box) => wireChartTips(box.closest(".chart-wrap"), profTipHTML) });
   return `<div class="card"><h2 class="card-head"><span>Профіль надходжень ${
     infoBtn("planTimeline")}</span></h2>
-    ${fluid((w, h) => svgInflowProfile(profile, doc.actions || [], doc.milestones || [],
-    { W: w, H: h }), { cls: "tall" })}
+    <div class="chart-wrap">${frame}<div class="chart-tip" data-tip="profile"></div></div>
     ${legend(names.concat(extra))}
     <div class="sub-xs">Скільки ₴/міс заходить у портфель — уже після «частки в портфель».
-      Витрати йдуть униз від нуля, ромби на нулі — дії плану${hasIncome
-    ? ", трикутники під нулем — повернення тіла (погашення, закриття вкладу чи фонду)"
-    : ""}.${step}</div></div>`;
+      Наведи мишу на місяць — побачиш розклад по джерелах. Витрати йдуть униз від нуля,
+      ромби на нулі — дії плану${events.length
+    ? ", засічки під нулем — повернення тіла (погашення, закриття вкладу чи фонду)"
+    : ""}.${step}</div>
+    ${returnsHTML(events)}</div>`;
+}
+
+// ---------- план проти факту ----------
+//
+// Дзеркало профілю: той малює майбутнє, ця картка — минуле. Питання до неї
+// одне й дуже конкретне: «план обіцяв 32 тисячі, а скільки вийшло?».
+//
+// Три числа з трьох РІЗНИХ джерел, і саме тому вони підписані по-різному.
+// План читається з журналу ревізій — зі стану таблиці потоків на кінець
+// того місяця, тож пізніша правка суми його не переписує. Факт — реальні
+// поповнення, нетто зі зняттями. «Бракувало» береться зі знімка того
+// місяця й НЕ перераховується: це те, що застосунок вважав нестачею тоді.
+//
+// Місяці, старші за журнал, план усе ж виводить із теперішньої таблиці —
+// такі стовпчики малюються контуром і кажуть про це в підказці. Коли
+// журнал накриє все вікно, застереження зникне з картки САМО, а не
+// лишиться висіти вічним дисклеймером.
+
+const PLAN_FACT_COLORS = [
+  "var(--oi-series-plan)", "var(--oi-series-invested)", "var(--oi-series-neutral)",
+];
+
+let factTip = null;
+
+function factTipHTML(i) {
+  if (!factTip || !factTip.points[i]) return "";
+  const p = factTip.points[i];
+  const diff = (p.actual_uah || 0) - (p.plan_uah || 0);
+  const r = (label, val, color, cls = "") =>
+    `<div class="r${cls ? " " + cls : ""}"><span>${color
+      ? `<i style="--oi-c:${color}"></i>` : ""}${esc(label)}</span><b>${fmtUAH(val)}</b></div>`;
+  // Відсоток виконання лише коли план був: 45 000 із нуля — це не «нескінченно
+  // добре», а просто місяць без плану.
+  const done = p.plan_uah > 0
+    ? `<div class="r"><span class="muted">виконано</span><b>${pct(
+      (p.actual_uah / p.plan_uah) * 100, 0)}</b></div>` : "";
+  return `<div><b>${esc(monthYear(p.month + "-01"))}</b></div>
+    ${r("План", p.plan_uah, PLAN_FACT_COLORS[0])}
+    ${r("Факт", p.actual_uah, PLAN_FACT_COLORS[1])}
+    ${p.gap_uah ? r("Бракувало (як тоді)", p.gap_uah, PLAN_FACT_COLORS[2]) : ""}
+    ${r(diff >= 0 ? "Понад план" : "Недобрано", Math.abs(diff), "", "tot")}${done}
+    ${p.plan_derived
+    ? `<div class="r tip-note"><span class="muted fine-xs">план виведено з теперішньої
+        таблиці — журнал правок тоді ще не вівся</span></div>` : ""}`;
+}
+
+export function planVsFactHTML(doc, summary) {
+  const pts = doc.history || [];
+  const head = `<h2 class="card-head"><span>План проти факту ${infoBtn("planVsFact")}</span></h2>`;
+  if (pts.length < 2) {
+    return `<div class="card">${head}${empty("",
+      `Тут з'явиться, як план розходився з фактом по місяцях — щойно набереться
+       два місяці з потоками або поповненнями.`)}</div>`;
+  }
+  const hasGap = pts.some((p) => (p.gap_uah || 0) > 0);
+  const groups = pts.map((p) => ({
+    // Підпис — місяць без року: дванадцять «2026-07» злиплись би в сіру
+    // смугу, а рік і так один-два на все вікно.
+    label: monthShort(p.month),
+    values: hasGap
+      ? [p.plan_uah || 0, p.actual_uah || 0, p.gap_uah || 0]
+      : [p.plan_uah || 0, p.actual_uah || 0],
+    // Контуром малюється тільки план: факт і нестача записані завжди.
+    derived: [!!p.plan_derived, false, false],
+  }));
+  const anyDerived = pts.some((p) => p.plan_derived);
+  factTip = { points: pts };
+
+  const frame = fluid((w, h) => svgGrouped(groups, {
+    W: w, H: h, colors: PLAN_FACT_COLORS, fmt: fmtUAH, hits: true,
+  }), { onMount: (box) => wireChartTips(box.closest(".chart-wrap"), factTipHTML) });
+
+  const names = [
+    { color: PLAN_FACT_COLORS[0], label: "план" },
+    { color: PLAN_FACT_COLORS[1], label: "факт" },
+    hasGap && { color: PLAN_FACT_COLORS[2], label: "бракувало (як тоді)" },
+  ].filter(Boolean);
+
+  // Підсумок береться по ТИХ САМИХ місяцях, що на графіку: середнє за
+  // півроку на вікні з трьох місяців було б середнім за три.
+  const win = pts.slice(-6);
+  const avg = (key) => win.reduce((a, p) => a + (p[key] || 0), 0) / win.length;
+  const plan = avg("plan_uah"), fact = avg("actual_uah");
+  const verdict = plan > 0
+    ? `За останні ${win.length} ${plural(win.length, "місяць", "місяці", "місяців")} план обіцяв
+       <b>${fmtUAH(plan)}</b>/міс, зайшло <b>${fmtUAH(fact)}</b>/міс — це ${pct(
+    (fact / plan) * 100, 0)} плану.`
+    : `За ці місяці плану заведено не було, тож порівнювати факт нема з чим.`;
+
+  // Поточний місяць у стовпчики не входить — він ще триває, і півмісяця
+  // поповнень читались би як провалений план. Але сказати, скільки вже
+  // зайшло, варто: число вже пораховане у зведенні.
+  const now = (summary || {}).month_deposited_uah;
+  const nowLine = now == null ? ""
+    : `<div class="sub-xs">Поточний місяць ще триває й у стовпчики не входить — у ньому вже
+       внесено <b>${fmtUAH(now)}</b>.</div>`;
+
+  // Застереження про виведені місяці стоїть, лише поки такі місяці є: коли
+  // журнал накриє все вікно, воно зникне САМО, а не лишиться вічним
+  // дисклеймером, який усі навчились не читати.
+  const derivedLine = anyDerived
+    ? `<div class="sub-xs">Порожні стовпчики плану — місяці, старші за журнал правок: за них
+       план не записаний, а виведений із теперішньої таблиці, тож давня правка суми на місці
+       їх усе ще зачіпає. Кожен новий місяць уже записується, і позначка сходить сама.</div>`
+    : "";
+
+  return `<div class="card">${head}
+    <div class="chart-wrap">${frame}<div class="chart-tip" data-tip="planfact"></div></div>
+    ${legend(names)}
+    <div class="sub">${verdict}</div>
+    ${nowLine}${derivedLine}
+    <div class="sub-xs">Факт — реальні поповнення, нетто зі зняттями (купівля паперів сюди не
+      входить: вона лише переносить гроші з рахунку в папери). План береться з журналу правок —
+      зі стану потоків на кінець того місяця, тож пізніше підвищення минулого не переписує.
+      Валютні суми переведено сьогоднішнім курсом — обидва ряди в одних грошах, але це не ті
+      гривні, що були тоді.</div></div>`;
 }
 
 // ---------- дії: список ----------
@@ -526,6 +844,7 @@ export async function renderPlan(ctx, main) {
   main.innerHTML = `
     ${planVerdictHTML(ctx)}
     ${timeline ? profileHTML(timeline) : ""}
+    ${timeline ? planVsFactHTML(timeline, ctx.summary) : ""}
     ${section("inflow", "Що заходить", `
       <div class="card">
         <h2 class="card-head"><span>Джерела доходу й витрат</span></h2>
@@ -533,6 +852,7 @@ export async function renderPlan(ctx, main) {
           доходить до портфеля. Колонка «дає ₴/міс» показує внесок саме цього рядка в число
           вгорі; підсумок під таблицею розкладає його на складники.</div>
         ${planFlowsListHTML(flows, (ctx.summary || {}).plan_provides_uah || 0)}
+        ${revisionsHTML((timeline || {}).flow_revisions || [])}
         ${planFlowFormHTML()}
       </div>
       <div class="card">

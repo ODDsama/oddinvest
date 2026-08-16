@@ -527,3 +527,108 @@ func TestPlanLockActionAppliesToProjection(t *testing.T) {
 		}
 	}
 }
+
+// Розгортання плану НАЗАД у часі. Це окрема функція саме тому, що для
+// минулого дата початку не підтягується до першого місяця, а дата «до» не
+// стирає потік із минулого: обидва підтягування правильні лише вперед.
+func TestPlanFlowNativePast(t *testing.T) {
+	today := domain.Date("2026-08-15")
+
+	old := store.PlanFlow{
+		Name: "стара зарплата", Kind: "income", Amount: 3_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2025-03-10", UntilDate: "2026-05-20", InvestBP: 10000,
+	}
+	// Закрита «⇗» у травні — у квітні (m=-4) ще платила, у липні (m=-1) уже ні.
+	if got := planFlowNativePast(old, today, -4); got != 30000 {
+		t.Errorf("квітень: закритий у травні потік мав ще платити 30000, маємо %v", got)
+	}
+	if got := planFlowNativePast(old, today, -1); got != 0 {
+		t.Errorf("липень: потік, закритий у травні, платити не мав, маємо %v", got)
+	}
+	// Вперед поведінка та сама, що й була: закритий торік не платить нічого.
+	if got := planFlowNative(old, today, 1); got != 0 {
+		t.Errorf("уперед закритий потік мав давати 0, маємо %v", got)
+	}
+
+	// Заведений цього тижня в минулому НЕ платив: підтягування start до
+	// одиниці («уже діє») чинне лише для майбутнього.
+	fresh := store.PlanFlow{
+		Name: "нова", Kind: "income", Amount: 1_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2026-08-12", InvestBP: 10000,
+	}
+	if got := planFlowNativePast(fresh, today, -1); got != 0 {
+		t.Errorf("липень: потік із 12 серпня в липні не платив, маємо %v", got)
+	}
+	if got := planFlowNative(fresh, today, 1); got != 10000 {
+		t.Errorf("уперед потік із 12 серпня мав платити 10000, маємо %v", got)
+	}
+
+	// Разова виплата минулого місяця влучає рівно у свій місяць.
+	once := store.PlanFlow{
+		Name: "премія", Kind: "income", Amount: 2_500_000, Currency: "UAH",
+		Cadence: "once", FromDate: "2026-06-01", InvestBP: 10000,
+	}
+	if got := planFlowNativePast(once, today, -2); got != 25000 {
+		t.Errorf("червень: разова мала дати 25000, маємо %v", got)
+	}
+	if got := planFlowNativePast(once, today, -3); got != 0 {
+		t.Errorf("травень: разової червневої там бути не мало, маємо %v", got)
+	}
+
+	// Частка в портфель і знак витрати діють назад так само, як уперед:
+	// ядро в обох напрямків одне.
+	exp := store.PlanFlow{
+		Name: "оренда", Kind: "expense", Amount: 1_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2025-01-10", InvestBP: 5000,
+	}
+	if got := planFlowNativePast(exp, today, -6); got != -5000 {
+		t.Errorf("витрата з часткою 50%% мала дати -5000, маємо %v", got)
+	}
+}
+
+// Місяць ПЕРЕДАЧІ платить один раз, а не двічі.
+//
+// Це намір, записаний у самій кнопці «⇗»: вона закриває старий рядок
+// напередодні нової дати, «щоб місяць зміни не оплатили обидва рядки». Доти
+// намір не виконувався — monthOffsetRaw бачить лише рік і місяць, тож 16 і
+// 17 травня для нього однакові, і травень платив 21 041 ₴ замість 8 941 ₴.
+func TestPlanFlowHandoverMonthPaysOnce(t *testing.T) {
+	today := domain.Date("2026-08-15")
+	// Зарплата 17-го числа, підвищена з 17 травня: старий рядок закритий
+	// 16-м, як це робить «⇗».
+	old := store.PlanFlow{
+		Name: "стара", Kind: "income", Amount: 1_700_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2025-11-17", UntilDate: "2026-05-16", InvestBP: 10000,
+	}
+	next := store.PlanFlow{
+		Name: "нова", Kind: "income", Amount: 2_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2026-05-17", InvestBP: 10000,
+	}
+	const may = -3 // травень 2026 відносно 15 серпня 2026
+
+	if got := planFlowNativePast(old, today, may); got != 0 {
+		t.Errorf("стара зарплата закрита 16-м, а платіжний день 17-й — мала дати 0, маємо %v", got)
+	}
+	if got := planFlowNativePast(next, today, may); got != 20000 {
+		t.Errorf("нова зарплата з 17 травня мала заплатити 20000, маємо %v", got)
+	}
+	if got := planFlowNativePast(old, today, may-1); got != 17000 {
+		t.Errorf("квітень: стара зарплата ще діяла й мала дати 17000, маємо %v", got)
+	}
+
+	// Зворотний випадок: зміна з дати ПІЗНІШОЇ за платіжний день. Оклад
+	// приходить 5-го, нова сума з 20-го — того місяця справді приходять
+	// обидві виплати, і модель мусить це показати, а не «виправити».
+	early := old
+	early.FromDate, early.UntilDate = "2025-11-05", "2026-05-19"
+	if got := planFlowNativePast(early, today, may); got != 17000 {
+		t.Errorf("оклад 5-го, закритий 19-м, того місяця ще приходив — чекали 17000, маємо %v", got)
+	}
+
+	// І межа рівності: закриття рівно в платіжний день ще платить.
+	same := old
+	same.UntilDate = "2026-05-17"
+	if got := planFlowNativePast(same, today, may); got != 17000 {
+		t.Errorf("закриття рівно в платіжний день мало ще заплатити 17000, маємо %v", got)
+	}
+}
