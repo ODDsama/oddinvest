@@ -144,6 +144,25 @@ type planFlowRow struct {
 	// тестом, бо саме на ньому стоїть підсумок таблиці.
 	ProvidesUAH float64 `json:"provides_uah"`
 	GrossUAH    float64 `json:"gross_uah"`
+
+	// Далі — три різні відповіді на «скільки це в гривні», і плутати їх не
+	// можна, бо саме плутанина між ними й породила цей набір полів.
+	//
+	// AmountUAH — САМА сума за сьогоднішнім курсом: без частки, без
+	// періоду, без вікна. Єдине число, яке для разової виплати показує її
+	// справжній розмір. Рахувати його в браузері як GrossUAH×12 не можна:
+	// у разової поза вікном GrossUAH нуль, і множення сказало б, що премії
+	// немає.
+	AmountUAH float64 `json:"amount_uah"`
+	// MonthlyUAH — СТАЛА ставка на місяць (сума ÷ період, частка
+	// застосована); MonthlyGrossUAH — вона ж до частки. Для разової обидва
+	// нулі: у неї немає «щомісяця».
+	MonthlyUAH      float64 `json:"monthly_uah"`
+	MonthlyGrossUAH float64 `json:"monthly_gross_uah"`
+	// NextMonthUAH — скільки потік дає в НАЙБЛИЖЧОМУ місяці плану (місяць 1
+	// моделі). Саме тут разова виплата показує повну суму — того місяця
+	// вона справді приходить.
+	NextMonthUAH float64 `json:"next_month_uah"`
 }
 
 func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates) planFlowRow {
@@ -155,6 +174,11 @@ func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates) planFlow
 		Note:        f.Note,
 		ProvidesUAH: round2(planFlowProvidesUAH(f, today, rates, planProvidesMonths)),
 		GrossUAH:    round2(planFlowGrossUAH(f, today, rates, planProvidesMonths)),
+
+		AmountUAH:       round2(planFlowUAH(float64(f.Amount)/100, f.Currency, rates)),
+		MonthlyUAH:      round2(planFlowUAH(planFlowSteadyNative(f, today, true), f.Currency, rates)),
+		MonthlyGrossUAH: round2(planFlowUAH(planFlowSteadyNative(f, today, false), f.Currency, rates)),
+		NextMonthUAH:    round2(planFlowMonthlyUAH(f, today, rates, 1)),
 	}
 }
 

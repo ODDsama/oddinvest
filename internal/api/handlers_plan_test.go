@@ -2,9 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Потоки й дії плану — CRUD за зразком продажів/поповнень: додати, дістати
@@ -451,5 +453,172 @@ func TestPlanTimelineDoc(t *testing.T) {
 	}
 	if got.Curve[0].Date != got.From {
 		t.Errorf("перша точка кривої мала бути на сьогодні (%s), маємо %s", got.From, got.Curve[0].Date)
+	}
+}
+
+// Три різні відповіді на «скільки це в гривні» — і кожна про своє.
+//
+// AmountUAH — сама сума за курсом; MonthlyUAH — стала ставка на місяць
+// (сума ÷ період); NextMonthUAH — найближчий місяць плану. Розділити їх
+// довелось саме через разову виплату: у колонці «₴/міс» вона показувала
+// дванадцяту частину премії, тобто число, яке не дорівнює ні сумі, ні
+// тому, що прийде.
+func TestPlanFlowRowMonthlyAndNextMonth(t *testing.T) {
+	srv, _ := testServer(t)
+	now := time.Now()
+	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	nextMonth := first.AddDate(0, 1, 0).Format("2006-01-02")
+	// Поза дванадцятимісячним вікном: там provides/gross обнуляються, а
+	// amount_uah зобов'язаний вижити.
+	farFuture := first.AddDate(2, 1, 0).Format("2006-01-02")
+
+	for _, body := range []string{
+		`{"name":"місячна","kind":"income","amount":"40000.00","cadence":"month","from_date":"2020-01-01","invest_pct":"40"}`,
+		`{"name":"квартальна","kind":"income","amount":"30000.00","cadence":"quarter","from_date":"2020-01-01","invest_pct":"100"}`,
+		`{"name":"річна","kind":"income","amount":"120000.00","cadence":"year","from_date":"2020-01-01","invest_pct":"100"}`,
+		`{"name":"разова скоро","kind":"income","amount":"5000.00","cadence":"once","from_date":"` + nextMonth + `","invest_pct":"100"}`,
+		`{"name":"разова нескоро","kind":"income","amount":"7000.00","cadence":"once","from_date":"` + farFuture + `","invest_pct":"100"}`,
+	} {
+		if resp, got := do(t, "POST", srv.URL+"/api/plan/flows", body); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("додавання потоку: %d %s", resp.StatusCode, got)
+		}
+	}
+
+	_, body := do(t, "GET", srv.URL+"/api/plan/flows", "")
+	var rows []struct {
+		Name            string  `json:"name"`
+		AmountUAH       float64 `json:"amount_uah"`
+		MonthlyUAH      float64 `json:"monthly_uah"`
+		MonthlyGrossUAH float64 `json:"monthly_gross_uah"`
+		NextMonthUAH    float64 `json:"next_month_uah"`
+		GrossUAH        float64 `json:"gross_uah"`
+	}
+	if err := json.Unmarshal([]byte(body), &rows); err != nil {
+		t.Fatalf("розбір списку: %v (%s)", err, body)
+	}
+	byName := map[string]int{}
+	for i, r := range rows {
+		byName[r.Name] = i
+	}
+
+	for _, c := range []struct {
+		name                            string
+		amount, monthly, gross, nextMon float64
+	}{
+		// 40 000 щомісяця, 40% у портфель. Брутто тут дорівнює сумі лише
+		// тому, що період місячний.
+		{"місячна", 40000, 16000, 40000, 16000},
+		// 30 000 щокварталу — це 10 000 щомісяця, і брутто теж 10 000:
+		// «щомісяця» ділиться на період ДО частки, інакше множення
+		// «повне × частка = щомісяця» в рядку не сходилось би. А наступного
+		// місяця приходить увесь платіж, тобто 30 000.
+		{"квартальна", 30000, 10000, 10000, 30000},
+		{"річна", 120000, 10000, 10000, 120000},
+		// Разова: «щомісяця» в неї немає взагалі, а наступного місяця
+		// приходить уся сума.
+		{"разова скоро", 5000, 0, 0, 5000},
+		{"разова нескоро", 7000, 0, 0, 0},
+	} {
+		i, ok := byName[c.name]
+		if !ok {
+			t.Fatalf("рядка «%s» немає у відповіді", c.name)
+		}
+		r := rows[i]
+		if r.AmountUAH != c.amount || r.MonthlyUAH != c.monthly ||
+			r.MonthlyGrossUAH != c.gross || r.NextMonthUAH != c.nextMon {
+			t.Errorf("%s: маємо сума=%v щомісяця=%v брутто=%v наступний=%v, чекали %v/%v/%v/%v",
+				c.name, r.AmountUAH, r.MonthlyUAH, r.MonthlyGrossUAH, r.NextMonthUAH,
+				c.amount, c.monthly, c.gross, c.nextMon)
+		}
+	}
+
+	// Головне, заради чого amount_uah окреме поле: разова ПОЗА вікном має
+	// нульовий gross_uah, тож gross×12 у браузері показав би, що премії
+	// немає взагалі.
+	far := rows[byName["разова нескоро"]]
+	if far.GrossUAH != 0 {
+		t.Errorf("разова поза вікном мала дати gross_uah 0, маємо %v", far.GrossUAH)
+	}
+	if far.AmountUAH != 7000 {
+		t.Errorf("а її справжня сума мала лишитись 7000, маємо %v", far.AmountUAH)
+	}
+}
+
+// Множення в рядку мусить сходитись: «повне ₴/міс» × частка = «щомісяця».
+// Саме заради цієї перевірки очима колонки й розводились, тож вона варта
+// власного тесту, а не приміток у сусідньому.
+func TestPlanFlowRowMonthlyMatchesShare(t *testing.T) {
+	srv, _ := testServer(t)
+	for _, body := range []string{
+		`{"name":"десята","kind":"income","amount":"2000.00","cadence":"month","from_date":"2020-01-01","invest_pct":"10"}`,
+		`{"name":"третина кварталу","kind":"income","amount":"9000.00","cadence":"quarter","from_date":"2020-01-01","invest_pct":"25"}`,
+		`{"name":"витрата","kind":"expense","amount":"1200.00","cadence":"year","from_date":"2020-01-01","invest_pct":"100"}`,
+	} {
+		if resp, got := do(t, "POST", srv.URL+"/api/plan/flows", body); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("додавання потоку: %d %s", resp.StatusCode, got)
+		}
+	}
+	_, body := do(t, "GET", srv.URL+"/api/plan/flows", "")
+	var rows []struct {
+		Name            string  `json:"name"`
+		InvestPct       float64 `json:"invest_pct"`
+		MonthlyUAH      float64 `json:"monthly_uah"`
+		MonthlyGrossUAH float64 `json:"monthly_gross_uah"`
+	}
+	if err := json.Unmarshal([]byte(body), &rows); err != nil {
+		t.Fatalf("розбір списку: %v (%s)", err, body)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("мало бути 3 рядки, маємо %d", len(rows))
+	}
+	for _, r := range rows {
+		want := r.MonthlyGrossUAH * r.InvestPct / 100
+		if math.Abs(want-r.MonthlyUAH) > 0.005 {
+			t.Errorf("%s: %v × %v%% = %v, а «щомісяця» каже %v",
+				r.Name, r.MonthlyGrossUAH, r.InvestPct, want, r.MonthlyUAH)
+		}
+	}
+}
+
+// Закритий потік не дає нічого «щомісяця».
+//
+// Асиметрія з датою ПОЧАТКУ навмисна: потік, що стартує за пів року, свою
+// ставку має (і колонка «З» каже, коли вона почнеться), а закритий «⇗» —
+// уже ні. Без цього стара й нова зарплати підсумувались би разом, і
+// «щомісячний дохід» показав би обидві.
+func TestPlanFlowMonthlyIgnoresClosedFlows(t *testing.T) {
+	srv, _ := testServer(t)
+	now := time.Now()
+	past := now.AddDate(0, -3, 0).Format("2006-01-02")
+	future := now.AddDate(1, 0, 0).Format("2006-01-02")
+
+	for _, body := range []string{
+		`{"name":"стара","kind":"income","amount":"30000.00","cadence":"month","from_date":"2020-01-01","until_date":"` + past + `","invest_pct":"100"}`,
+		`{"name":"нова","kind":"income","amount":"40000.00","cadence":"month","from_date":"` + past + `","invest_pct":"100"}`,
+		`{"name":"майбутня","kind":"income","amount":"50000.00","cadence":"month","from_date":"` + future + `","invest_pct":"100"}`,
+	} {
+		if resp, got := do(t, "POST", srv.URL+"/api/plan/flows", body); resp.StatusCode != http.StatusCreated {
+			t.Fatalf("додавання потоку: %d %s", resp.StatusCode, got)
+		}
+	}
+	_, body := do(t, "GET", srv.URL+"/api/plan/flows", "")
+	var rows []struct {
+		Name       string  `json:"name"`
+		MonthlyUAH float64 `json:"monthly_uah"`
+		AmountUAH  float64 `json:"amount_uah"`
+	}
+	if err := json.Unmarshal([]byte(body), &rows); err != nil {
+		t.Fatalf("розбір списку: %v (%s)", err, body)
+	}
+	want := map[string]float64{"стара": 0, "нова": 40000, "майбутня": 50000}
+	for _, r := range rows {
+		if r.MonthlyUAH != want[r.Name] {
+			t.Errorf("%s: «щомісяця» мало бути %v, маємо %v", r.Name, want[r.Name], r.MonthlyUAH)
+		}
+		// Сума закритого потоку лишається видимою — рядок і далі про щось
+		// розповідає, просто вже не про майбутнє.
+		if r.AmountUAH == 0 {
+			t.Errorf("%s: сума за курсом не мала обнулятись", r.Name)
+		}
 	}
 }

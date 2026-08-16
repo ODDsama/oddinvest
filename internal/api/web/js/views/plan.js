@@ -283,22 +283,36 @@ const FLOW_PRESETS = [
 // тільки в тексті, і саме тому текст стоїть в одному місці, а не в трьох.
 const PROVIDES_MONTHS = 12;
 
-// Разова стаття в колонці «дає ₴/міс» — це сума, поділена на 12, а не
-// щомісячний платіж: вікно усереднення однакове для всіх рядків, інакше
-// плитка «План дає» стрибала б на всю премію в місяць виплати й назад.
-// Без мітки рядок читається як платіж, якого не існує, — і не сходиться з
-// профілем, де та сама стаття стоїть чесним шпилем в один місяць.
-const isOnceSpread = (f) => f.cadence === "once" && (f.provides_uah || 0) !== 0;
+// У разової виплати немає «щомісяця» — і це не діра в даних, а властивість
+// потоку: премія приходить один раз. Тому в колонці стоїть прочерк, а її
+// справжній розмір видно у двох сусідніх — «повне ₴/міс» (уся сума за
+// курсом) і в місяці, коли вона справді прийде.
+//
+// Доти в цій колонці стояла дванадцята частина премії, бо plan_provides_uah
+// усереднює вікно у 12 місяців. Число правильне для ПЛИТКИ, але в рядку
+// читалось як щомісячний платіж, якого не існує, — і ламало єдине, заради
+// чого «повне ₴/міс» узагалі з'явилась: множення 250 USD × курс мало
+// давати те, що поруч.
+const isOnce = (f) => f.cadence === "once";
 
-function onceTitle(f) {
-  if (!isOnceSpread(f)) return "";
-  const full = (f.gross_uah || 0) * PROVIDES_MONTHS;
-  return ` title="разова виплата ${fmtUAH(full)} ${dayMonth(f.from_date)}, розкладена на ${
-    PROVIDES_MONTHS} місяців"`;
+const DASH = "—";
+
+// Назва найближчого місяця плану — місяця 1 моделі, тобто НАСТУПНОГО
+// календарного. Саме назвою, а не «цього місяця»: сьогодні шістнадцяте
+// серпня, і «цього» читалось би як серпень, тоді як число в колонці — про
+// вересень.
+function nextMonthLabel() {
+  const n = new Date();
+  // Через Date, а не «місяць + 1» рядком: у грудні додавання дало б
+  // тринадцятий місяць, і в шапці стояло б «13».
+  const d = new Date(n.getFullYear(), n.getMonth() + 1, 1);
+  return monthYear(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`)
+    .split(" ")[0];
 }
 
-const onceHint = (f) => (isOnceSpread(f)
-  ? `<div class="fine-xs muted">разова ÷${PROVIDES_MONTHS} міс</div>` : "");
+// «повне ₴/міс» — для регулярних стала ставка до частки, для разової вся
+// сума: це єдине число, яке говорить про премію правду.
+const fullCell = (f) => (isOnce(f) ? (f.amount_uah || 0) : (f.monthly_gross_uah || 0));
 
 export function planFlowsListHTML(flows, provides = 0) {
   if (!flows.length) {
@@ -315,10 +329,14 @@ export function planFlowsListHTML(flows, provides = 0) {
       <td><span class="pill ${f.kind === "income" ? "coupon" : "redemption"}">${
   f.kind === "income" ? "дохід" : "витрата"}</span></td>
       <td class="num">${fmtMoney(f.amount)}</td>
-      <td class="num${(f.gross_uah || 0) < 0 ? " t-warn" : ""}">${fmtUAH(f.gross_uah || 0)}</td>
+      <td class="num${fullCell(f) < 0 ? " t-warn" : ""}">${fmtUAH(fullCell(f))}${isOnce(f)
+    ? `<div class="fine-xs muted">разова</div>` : ""}</td>
       <td class="num">${pct(f.invest_pct)}</td>
-      <td class="num${(f.provides_uah || 0) < 0 ? " t-warn" : ""}"${onceTitle(f)}>${
-  fmtUAH(f.provides_uah || 0)}${onceHint(f)}</td>
+      <td class="num${(f.monthly_uah || 0) < 0 ? " t-warn" : ""}"${isOnce(f)
+    ? ` title="разова виплата ${esc(dayMonth(f.from_date))} не дає нічого щомісяця — її внесок у план стоїть рядком «Разові» під таблицею"`
+    : ""}>${isOnce(f) ? DASH : fmtUAH(f.monthly_uah || 0)}</td>
+      <td class="num${(f.next_month_uah || 0) < 0 ? " t-warn" : ""}">${
+  fmtUAH(f.next_month_uah || 0)}</td>
       <td>${CADENCE_LABEL[f.cadence] || esc(f.cadence)}</td>
       <td>${esc(dayMonth(f.from_date))}</td>
       <td>${f.until_date ? esc(dayMonth(f.until_date)) : "безстроково"}</td>
@@ -332,15 +350,21 @@ export function planFlowsListHTML(flows, provides = 0) {
           aria-label="Видалити потік ${esc(f.name)}">✕</button>
       </td>
     </tr>`).join("");
-  // Порядок колонок — це арифметика зліва направо: 89 420 ₴ × 10.0% = 8 941 ₴.
+  // Порядок колонок — це арифметика зліва направо: 89 412 ₴ × 10.0% = 8 941 ₴.
   // Доти «повного» числа не було видно ніде, тож перевірити рядок очима було
   // нічим — а підсумок «Доходи» під таблицею складався саме з нього й через
   // це читався як помилка розрахунку (224 521 під колонкою, що дає 31 390).
+  //
+  // Дві гривневі колонки замість однієї — бо питань справді два, і разова
+  // виплата відповідає на них по-різному: щомісяця вона не дає нічого,
+  // а в свій місяць приносить усю суму.
   return `<div class="table-scroll"><table><thead><tr>
     <th scope="col">Назва</th><th scope="col">Тип</th><th scope="col" class="num">Сума</th>
-    <th scope="col" class="num" title="до «частки в портфель», за сьогоднішнім курсом">повне ₴/міс</th>
+    <th scope="col" class="num" title="сума за сьогоднішнім курсом, до «частки в портфель»">повне ₴/міс</th>
     <th scope="col" class="num">У портфель</th>
-    <th scope="col" class="num" title="середнє за найближчі ${PROVIDES_MONTHS} місяців">дає ₴/міс</th>
+    <th scope="col" class="num" title="стала ставка: сума × частка ÷ період. Не залежить ні від дати початку, ні від вікна усереднення">щомісяця</th>
+    <th scope="col" class="num" title="скільки заходить у найближчому місяці плану">${
+  esc(nextMonthLabel())}</th>
     <th scope="col">Період</th><th scope="col">З</th><th scope="col">До</th>
     <th scope="col"><span class="sr-only">Дії</span></th>
     </tr></thead><tbody>${rows}</tbody>${flowsFootHTML(flows, provides)}</table></div>`;
@@ -354,35 +378,65 @@ export function planFlowsListHTML(flows, provides = 0) {
 // помиляються потім. Тут обидва віднімання стоять сусідніми рядками зі
 // своїми числами: побачивши −16 000 і −16 000, важко не помітити.
 //
-// Останній рядок береться з плитки, а не складається з колонки: Σ
-// округлених рядків ≠ округлена Σ, і підсумок таблиці розійшовся б із
-// числом угорі на копійки — що читалось би як помилка розрахунку.
+// ЧОМУ ПІДСУМКИ СКЛАДАЮТЬСЯ З ОКРУГЛЕНИХ РЯДКІВ. Доти вони бралися з
+// точних чисел, а колонка показує округлені — і Σ видимого давала 224 520
+// проти 224 521 у підсумку. Ланцюг теж не закривався: 224 521 − 193 130 =
+// 31 391, а «План дає» казав 31 390. Число, поставлене під колонкою, це
+// обіцянка, що воно і є її сума; тримати цю обіцянку важливіше за зайву
+// точність у числі, яке однаково показується цілими гривнями.
+//
+// Гривня округлення мусить десь осісти, і осідає вона в «Не доходить до
+// портфеля»: це єдине похідне число підвалу, своєї колонки в нього немає,
+// тож скласти його очима нізвідки. А «У середньому за 12 міс» лишається з
+// плитки — те саме число з тим самим іменем не має права мати два значення
+// на одній сторінці.
 function flowsFootHTML(flows, provides) {
+  const r0 = (v) => Math.round(v || 0);
   const inc = flows.filter((f) => f.kind === "income");
-  const gross = inc.reduce((a, f) => a + (f.gross_uah || 0), 0);
-  const cut = inc.reduce((a, f) => a + ((f.gross_uah || 0) - (f.provides_uah || 0)), 0);
-  const exp = flows.filter((f) => f.kind === "expense")
-    .reduce((a, f) => a + (f.provides_uah || 0), 0);
-  // nowrap на числі: колонка «дає ₴/міс» вузька за вмістом рядків, і без
-  // нього «49 563 ₴» переносило гривню на другий рядок — підсумок,
-  // заради якого таблиця й має tfoot, читався найгірше з усього.
-  //
-  // Кожне число стоїть рівно під СВОЄЮ колонкою, і це не косметика: «Доходи»
-  // рахуються з gross_uah, решта — з provides_uah, і поки обидва підсумки
-  // стояли в одному стовпці, перший читався як помилка (224 521 ₴ під
-  // колонкою, чиї рядки дають 31 390 ₴). Тепер кожен складається з того, що
-  // видно над ним.
-  const row = (label, val, cls = "") =>
-    `<tr class="${cls}"><td colspan="5">${label}</td>
-      <td class="num nowrap">${fmtUAH(val)}</td><td colspan="4"></td></tr>`;
-  const grossRow = (label, val, cls = "") =>
-    `<tr class="${cls}"><td colspan="3">${label}</td>
-      <td class="num nowrap">${fmtUAH(val)}</td><td colspan="6"></td></tr>`;
+  // Разові рахуються окремо від щомісячних, бо це різні за природою гроші:
+  // 11 177 ₴ премії не можна складати з 89 412 ₴ зарплати й називати суму
+  // місячним доходом.
+  const regular = inc.filter((f) => !isOnce(f));
+  const once = inc.filter(isOnce);
+
+  const monthlyGross = regular.reduce((a, f) => a + r0(f.monthly_gross_uah), 0);
+  const onceTotal = once.reduce((a, f) => a + r0(f.amount_uah), 0);
+  const onceAvg = once.reduce((a, f) => a + r0(f.provides_uah), 0);
+  const monthly = regular.reduce((a, f) => a + r0(f.monthly_uah), 0);
+  const exp = flows.filter((f) => f.kind === "expense").reduce((a, f) => a + r0(f.monthly_uah), 0);
+  const nextMon = flows.reduce((a, f) => a + r0(f.next_month_uah), 0);
+  const avg12 = r0(provides);
+  // Залишок: ланцюг «щомісячний дохід − не доходить = щомісяця» закривається
+  // за побудовою, а не за щасливим збігом округлень.
+  const cut = monthlyGross + exp - monthly;
+
+  // nowrap на числах: колонки вузькі за вмістом рядків, і без нього
+  // «49 563 ₴» переносило гривню на другий рядок — підсумок, заради якого
+  // таблиця й має tfoot, читався найгірше з усього.
+  const num = (v) => `<td class="num nowrap">${fmtUAH(v)}</td>`;
+  const blank = (n) => (n > 0 ? `<td colspan="${n}"></td>` : "");
+  // 11 колонок; число стоїть рівно під своєю. cols — індекси колонок із
+  // числами (3 = «повне ₴/міс», 5 = «щомісяця», 6 = найближчий місяць).
+  const at = (label, cells, cls = "") => {
+    let html = `<tr class="${cls}"><td colspan="3">${label}</td>`, prev = 3;
+    for (const [col, val] of cells) {
+      html += blank(col - prev) + num(val);
+      prev = col + 1;
+    }
+    return `${html}${blank(11 - prev)}</tr>`;
+  };
+
+  const onceNote = onceAvg
+    ? ` <span class="muted fine-xs">→ +${fmtUAH(onceAvg)}/міс у середньому</span>`
+    : ` <span class="muted fine-xs">поза вікном ${PROVIDES_MONTHS} міс</span>`;
+
   return `<tfoot>
-    ${grossRow("Доходи", gross, "muted")}
-    ${cut ? row("Не доходить до портфеля (частка)", -cut, "muted") : ""}
-    ${exp ? row("Витратні потоки", exp, "muted") : ""}
-    ${row("План дає", provides, "tot")}
+    ${at("Щомісячний дохід", [[3, monthlyGross]], "muted")}
+    ${once.length ? at(`Разові${onceNote}`, [[3, onceTotal]], "muted") : ""}
+    ${cut ? at("Не доходить до портфеля (частка)", [[5, -cut]], "muted") : ""}
+    ${exp ? at("Витратні потоки", [[5, exp]], "muted") : ""}
+    ${at("План дає", [[5, monthly + exp], [6, nextMon]], "tot")}
+    ${at(`У середньому за ${PROVIDES_MONTHS} міс`, [[5, avg12]], "muted")}
   </tfoot>`;
 }
 
