@@ -1,4 +1,4 @@
-// Розділ «План» — джерела доходу й витрат, з датами.
+// Розділ «План» — джерела доходу й витрат, з датами. Чотири сторінки.
 //
 // Двигун (state_projection.go) бачить ці потоки самостійно: вони живлять
 // криву капіталу, віяло сценаріїв, чутливість і незалежність без жодної
@@ -11,15 +11,25 @@
 // state_plan.go. Порахувавши їх удруге в браузері, ми б гарантували собі
 // розбіжність із плиткою вгорі при першій же правці двигуна.
 //
-// Сам файл — тонкий композитор: тисяча п'ятсот рядків роз'їхалась по
-// чотирьох модулях поруч, і межі між ними проведені не за розміром, а за
-// сутністю — картки без форм, потоки, надходження, дії. Наступний крок
-// розділить і цю функцію: кожна з чотирьох секцій нижче стане власною
-// сторінкою, і тоді композитору не доведеться вантажити стрічку, потоки й
-// дії разом заради того, на що дивляться поодинці.
+// Порядок сторінок веде причиною до наслідку: що заходить → куди це йде →
+// чим це зрушити → коли саме платять. Доти перші дві половини стояли в
+// РІЗНИХ вкладках, і читач мав тримати в голові, що «до цілі бракує ще
+// 41 769» тут і «внесок 41 769/міс» там — одне й те саме число. Потім вони
+// стали чотирма згорнутими секціями однієї вкладки, тобто малювались усі
+// заради тієї, яку розгорнули. Тепер це чотири адреси.
+//
+// ВЕРДИКТ СТОЇТЬ НА ВСІХ ЧОТИРЬОХ, і це єдине навмисне дублювання в
+// розділі. Він не картка серед карток, а рамка: три числа й одне речення
+// про те, чи план узагалі виводить на ціль. Сторінка «Важелі» без нього
+// відповідала б на питання «що зрушить», не сказавши, чи є що зрушувати.
+//
+// Кожна сторінка тягне рівно своє. Стрічку (plan) читають усі чотири —
+// з неї вердикт бере підрядок про поточний місяць, — але це один запит на
+// весь обхід розділу: GET-и йдуть через кеш store.js і скидаються лише
+// записом.
 
 import { infoBtn } from "../info.js";
-import { section, wireDisclosures } from "../disclosure.js";
+import { wireDisclosures } from "../disclosure.js";
 import {
   income12mChartHTML, capitalChartHTML, projectionHTML, incomeHTML, drawdownHTML,
   renderCalendar, calendarPlaceholderHTML,
@@ -34,14 +44,13 @@ import {
   planActionsListHTML, planSetSharesFormHTML, planLockFormHTML, wirePlanActions,
 } from "./plan-actions.js";
 
-// Розділ веде читача причиною до наслідку: що заходить → куди це йде →
-// чим це зрушити → коли саме платять. Доти перші дві половини стояли в
-// РІЗНИХ вкладках, і читач мав тримати в голові, що «до цілі бракує ще
-// 41 769» тут і «внесок 41 769/міс» там — одне й те саме число.
-//
-// Одинадцять карток пласким списком неможливі, тож групи — через
-// section(); жодна з двох вкладок доти його не використовувала.
-export async function renderPlan(ctx, main) {
+/** Що заходить: обіцянки (потоки), факт проти них (надходження) і точкові
+ *  рішення на дату (дії).
+ *
+ *  Профіль надходжень і «план проти факту» стоять саме тут, а не на «Цілі»,
+ *  хоч обидва й малюють графіки: вони відповідають на «чи прийшло те, що
+ *  планувалось», тобто на питання ЦІЄЇ сторінки, а не на «куди це веде». */
+export async function inflow(ctx, main) {
   const [flows, actions, timeline] = await Promise.all([
     ctx.soft("plan/flows", []),
     ctx.soft("plan/actions", []),
@@ -53,45 +62,69 @@ export async function renderPlan(ctx, main) {
     ${timeline ? receiptsHTML(timeline) : ""}
     ${timeline ? profileHTML(timeline) : ""}
     ${timeline ? planVsFactHTML(timeline, ctx.summary) : ""}
-    ${section("inflow", "Що заходить", `
-      <div class="card">
-        <h2 class="card-head"><span>Джерела доходу й витрат</span></h2>
-        <div class="note">Кожен потік — сума з датою, періодичністю й тим, яка його частка
-          доходить до портфеля. Колонка «дає ₴/міс» показує внесок саме цього рядка в число
-          вгорі; підсумок під таблицею розкладає його на складники.</div>
-        ${planFlowsListHTML(flows, (ctx.summary || {}).plan_provides_uah || 0)}
-        ${revisionsHTML((timeline || {}).flow_revisions || [])}
-        ${planFlowFormHTML(ctx)}
-      </div>
-      <div class="card">
-        <h2 class="card-head"><span>Дії ${infoBtn("planActions")}</span></h2>
-        <div class="note">Точкові рішення на дату: перевести майбутні внески в іншу валюту
-          або замкнути суму під ставку на строк — вклад і накопичувальний фонд для проєкції
-          не відрізняються, обидва просто лежать і платять за графіком.</div>
-        ${planActionsListHTML(actions)}
-        ${planSetSharesFormHTML(ctx)}
-        ${planLockFormHTML()}
-      </div>`, { open: true, hint: "потоки й дії" })}
-    ${section("outcome", "Куди це йде", `
-      ${goalsHTML(ctx)}
-      ${incomeHTML(ctx)}
-      <div class="chart-grid">
-        ${income12mChartHTML(ctx)}
-        ${capitalChartHTML(ctx)}
-      </div>
-      ${projectionHTML(ctx)}
-      ${drawdownHTML(ctx)}`, { hint: "ціль, дохід, проєкції" })}
-    ${section("levers", "Що зрушить ціль", sensitivityHTML(ctx), { hint: "чутливість до припущень" })}
-    ${section("payouts", "Виплати", calendarPlaceholderHTML(), { hint: "календар за датами" })}`;
+    <div class="card">
+      <h2 class="card-head"><span>Джерела доходу й витрат</span></h2>
+      <div class="note">Кожен потік — сума з датою, періодичністю й тим, яка його частка
+        доходить до портфеля. Колонка «дає ₴/міс» показує внесок саме цього рядка в число
+        вгорі; підсумок під таблицею розкладає його на складники.</div>
+      ${planFlowsListHTML(flows, (ctx.summary || {}).plan_provides_uah || 0)}
+      ${revisionsHTML((timeline || {}).flow_revisions || [])}
+      ${planFlowFormHTML(ctx)}
+    </div>
+    <div class="card">
+      <h2 class="card-head"><span>Дії ${infoBtn("planActions")}</span></h2>
+      <div class="note">Точкові рішення на дату: перевести майбутні внески в іншу валюту
+        або замкнути суму під ставку на строк — вклад і накопичувальний фонд для проєкції
+        не відрізняються, обидва просто лежать і платять за графіком.</div>
+      ${planActionsListHTML(actions)}
+      ${planSetSharesFormHTML(ctx)}
+      ${planLockFormHTML()}
+    </div>`;
 
   wirePlanFlows(ctx, main, flows);
   wirePlanActions(ctx, main, actions, timeline);
   if (timeline) wirePlanReceipts(ctx, main, timeline);
-  // Без цього «Ще» й самі секції згортались би після кожного збереження:
-  // ctx.reload() переписує main, а пам'ять розкриття живе саме тут.
-  // «План» був єдиним розділом, який цього не робив.
+  // Без цього «Ще» всередині форм згортались би після кожного збереження:
+  // ctx.reload() переписує сторінку, а пам'ять розкриття живе саме тут.
   wireDisclosures(main);
-  // Календар — окремим запитом, тож після решти розмітки; власний
-  // try/catch усередині лишає прогнози на місці, якщо він упаде.
+}
+
+/** Куди це йде: ціль, дохід із наявного, проєкції на роки вперед. */
+export async function goal(ctx, main) {
+  const timeline = await ctx.soft("plan", null);
+  main.innerHTML = `
+    ${planVerdictHTML(ctx, timeline)}
+    ${goalsHTML(ctx)}
+    ${incomeHTML(ctx)}
+    <div class="chart-grid">
+      ${income12mChartHTML(ctx)}
+      ${capitalChartHTML(ctx)}
+    </div>
+    ${projectionHTML(ctx)}
+    ${drawdownHTML(ctx)}`;
+  wireDisclosures(main);
+}
+
+/** Що зрушить ціль: чутливість до припущень. */
+export async function levers(ctx, main) {
+  const timeline = await ctx.soft("plan", null);
+  main.innerHTML = `
+    ${planVerdictHTML(ctx, timeline)}
+    ${sensitivityHTML(ctx)}`;
+  wireDisclosures(main);
+}
+
+/** Календар виплат за датами.
+ *
+ *  Заглушка лишається, хоч сторінка тепер і своя: календар доїжджає
+ *  окремим запитом помітно пізніше за вердикт, і без неї сторінка
+ *  підстрибувала б на цілу картку рівно тоді, коли її вже читають.
+ *  append:true не «дописує в кінець розділу», як було в спільній вкладці, а
+ *  замінює саме заглушку — place() у future.js шукає її першою. */
+export async function payouts(ctx, main) {
+  const timeline = await ctx.soft("plan", null);
+  main.innerHTML = `
+    ${planVerdictHTML(ctx, timeline)}
+    ${calendarPlaceholderHTML()}`;
   await renderCalendar(ctx, main, { append: true });
 }

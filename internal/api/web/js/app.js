@@ -26,10 +26,10 @@ import { parseRoute, ANCHORS } from "./routes.js";
 
 import { renderOverview } from "./views/overview.js";
 import { renderPortfolio } from "./views/portfolio.js";
-import { renderRisk } from "./views/risk-tab.js";
 import { renderMoney } from "./views/money.js";
-import { renderPlan } from "./views/plan-view.js";
 import { renderSettings } from "./views/settings.js";
+import * as plan from "./views/plan-view.js";
+import * as risk from "./views/risk-view.js";
 
 // Знак: три квадрати, складені сходами. Один квадрат — один папір, і
 // саме так портфель і росте: по одному, коли назбиралось на наступний.
@@ -45,7 +45,16 @@ const MARK = `<svg class="mark" viewBox="0 0 24 24" fill="currentColor" aria-hid
 
 // Сторінка на підрозділ: ключ — повний шлях «розділ/підрозділ».
 // Заповнюється в міру того, як розділи розбираються на сторінки.
-const VIEWS = {};
+const VIEWS = {
+  "plan/inflow": plan.inflow,
+  "plan/goal": plan.goal,
+  "plan/levers": plan.levers,
+  "plan/payouts": plan.payouts,
+
+  "risk/structure": risk.structure,
+  "risk/limits": risk.limits,
+  "risk/compare": risk.compare,
+};
 
 // ТИМЧАСОВО, на час розбиття. Доки розділ не розібраний, усі його
 // підрозділи малює той самий старий рендерер — тобто адреси вже працюють,
@@ -60,8 +69,6 @@ const LEGACY_VIEW = {
   now: renderOverview,
   assets: renderPortfolio,
   money: renderMoney,
-  risk: renderRisk,
-  plan: renderPlan,
   entry: renderPortfolio,
   policy: renderSettings,
   settings: renderSettings,
