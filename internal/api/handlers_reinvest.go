@@ -582,9 +582,24 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		if ccy == "" {
 			ccy = money.UAH
 		}
-		// «Будь-яка сума» перевіряється по всіх брокерах разом: конкретного
-		// порога немає, тож питання лише в тому, чи є взагалі з чого внести.
-		fits, best := fitsFor(ccy, 0)
+		// «Будь-яка сума» рахується ОКРЕМО від fitsFor, а не нульовою ціною
+		// через нього: там ціна — знаменник, і нуль чесно дає нуль.
+		//
+		// А нуль тут читався б як «ще збираєш на 0 ₴» — тобто рядок падав
+		// би в блок недоступних із порогом, якого не існує. Питання до
+		// пенсійного інше: не «чи вистачає на одну штуку», а «чи є взагалі
+		// з чого внести». Штук у нього немає.
+		var maxOne float64
+		var fits []brokerFit
+		for name, byCur := range doc.Brokers {
+			if v := byCur[ccy]; v > 0 {
+				fits = append(fits, brokerFit{Broker: name, Qty: 1})
+				if v > maxOne {
+					maxOne = v
+				}
+			}
+		}
+		sort.Slice(fits, func(i, j int) bool { return fits[i].Broker < fits[j].Broker })
 		nominal := n.NavReturnPct
 		if nominal == 0 {
 			nominal = n.ExpectedPct
@@ -599,7 +614,10 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 			NominalPct:  nominal,
 			RealPct:     real,
 			YieldBasis:  n.YieldBasis + "; замкнено до " + n.AccessDate,
-			Brokers:     fits, Affordable: best, CanBuy: best > 0,
+			// Affordable = 1, бо «скільки штук» до пенсійного не стосується:
+			// нуль читався б як «жодної», а справжня відповідь — «будь-яка
+			// сума». CanBuy — чи є хоч десь гроші цієї валюти.
+			Brokers: fits, Affordable: 1, CanBuy: maxOne > 0,
 			Reason:      withKindDef(reason, kindDef["npf"], "НПФ"),
 			Locked:      true,
 			LockedUntil: n.AccessDate,
