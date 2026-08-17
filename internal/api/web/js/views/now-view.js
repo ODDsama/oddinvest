@@ -14,7 +14,7 @@ import {
   uah2 as fmtUAH, cur2 as fmtCur,
 } from "../format.js";
 import { infoBtn } from "../info.js";
-import { tile, kindPill } from "../components.js";
+import { tile, kindPill, empty } from "../components.js";
 import { isOpen, remember } from "../uistate.js";
 import { routeFor } from "../routes.js";
 import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
@@ -391,17 +391,33 @@ function planTileSub(ctx, doc) {
     : `<div class="sub">задай ціль у «Налаштуваннях», щоб побачити, чи цього досить</div>`;
 }
 
-export async function renderOverview(ctx, main) {
+// Помічник тягнеться ДВІЧІ — і «Що робити», і «Що купити» його читають.
+// Банер відповідає на «чи можна вже купувати», а список показує, що саме;
+// це одні й ті самі поради, лише з різною глибиною. Модульна змінна
+// лишається тією ж, що й була, тож обидві сторінки бачать однакове.
+async function loadReinvest(ctx) {
+  try { reinvest = await ctx.api("GET", "reinvest"); }
+  catch (_) { reinvest = []; }
+}
+
+/** Що робити зараз — головна сторінка застосунку.
+ *
+ *  Банер іде ПЕРШИМ і сам: він і є відповідь на питання розділу. Доти над
+ *  ним стояло попередження про застарілий довідник НБУ — тобто перше, що
+ *  бачила людина, було господарство, а не рішення. Воно лишається внизу:
+ *  знати про це треба, але не замість.
+ *
+ *  Блока швидких дій тут більше немає. Три посилання на «Купівлю»,
+ *  «Поповнення» й «Конвертацію» мали сенс, поки форми лежали по чужих
+ *  вкладках під згорнутими секціями. Тепер у меню є «Записати» з вісьмома
+ *  іменованими входами, і другий набір ярликів до трьох із них — це те,
+ *  що застаріє першим.
+ */
+export async function todo(ctx, main) {
   const s = ctx.summary || {};
-  // Капітал — це ВСЕ, що в тебе є. Рахує спільний capitalUAH, а не власна
-  // сума: тут довго складались лише номінал, рахунок і фонди, тож тіло
-  // банківських вкладів у капітал не входило взагалі — рівно та сама
-  // помилка, що колись була з фондами, лише на інструмент пізніше.
   const cap = capitalUAH(s);
   const np = s.next_payment;
   const accrued = s.accrued_uah || 0;
-  // Долар — одиниця, якою тут справді міряють. Курс беремо зі зведення;
-  // доки його там не було, це число просто не можна було показати.
   const usdRate = (s.rates || {}).USD || 0;
   const capSub = [
     usdRate > 0 ? `≈ ${fmtCur(cap / usdRate, "$")}` : "",
@@ -412,51 +428,53 @@ export async function renderOverview(ctx, main) {
   ].filter(Boolean).map((t) => `<div class="sub">${t}</div>`).join("");
   // План — окремий запит: summary несе plan_provides_uah і forecast, але
   // найближча подія (замок, вікно купівлі фонду) живе лише в /api/plan.
-  // Той самий /api/plan, що малює стрічку часу на вкладці «План».
-  const planDoc = await ctx.soft("plan", null);
-  // Капітал — героєм: це головне число застосунку, і решта плиток поруч
-  // із ним лише контекст. Доти всі три були однакового кегля, тобто
-  // «скільки в мене всього» важило рівно стільки ж, скільки «коли
-  // наступна виплата».
-  const tiles = `<div class="tiles flush">
-    ${tile("Капітал", fmtUAH(cap), capSub, { hero: true })}
-    ${monthTile(ctx, s)}
-    ${tile("Наступна виплата",
-      np ? `${Number(np.amount).toLocaleString("uk-UA", { minimumFractionDigits: 2 })} ${curSym(np.currency)}` : "—",
-      np ? `<div class="sub">${dayMonth(np.date)}</div>` : "")}
-    ${tile("План",
-      s.plan_provides_uah > 0 ? `${fmtUAH(s.plan_provides_uah)}/міс` : "—",
-      planTileSub(ctx, planDoc))}
-  </div>`;
-
-  // Помічник живе на окремому маршруті: тягнемо разом з оглядом, щоб
-  // картка не «доїжджала» після решти.
-  try { reinvest = await ctx.api("GET", "reinvest"); }
-  catch (_) { reinvest = []; }
-  // Порядок відповідає тому, як читають екран рішення.
-  //
-  // Банер іде ПЕРШИМ і сам: він і є відповідь на питання розділу. Доти
-  // над ним стояло попередження про застарілий довідник НБУ — тобто
-  // перше, що бачила людина, було господарство, а не рішення. Воно
-  // переїхало вниз: знати про це треба, але не замість.
-  //
-  // Швидкі дії — ПІД плитками. Угорі вони змагались із банером за роль
-  // головної кнопки, хоч ведуть просто у форми. І тепер це справжні
-  // посилання: маршрут у них є, тож їх можна відкрити в новій вкладці
-  // або покласти в закладки, а «назад» повертає звідки прийшов.
+  const [planDoc] = await Promise.all([ctx.soft("plan", null), loadReinvest(ctx)]);
   main.innerHTML = `
     ${actionBannerHTML(ctx)}
-    ${tiles}
-    <div class="quick">
-      <a class="btn" href="${routeFor("buy")}">Купівля</a>
-      <a class="btn" href="${routeFor("deposit")}">Поповнення</a>
-      <a class="btn" href="${routeFor("convert")}">Конвертація</a>
+    <div class="tiles flush">
+      ${tile("Капітал", fmtUAH(cap), capSub, { hero: true })}
+      ${monthTile(ctx, s)}
+      ${tile("Наступна виплата",
+    np ? `${Number(np.amount).toLocaleString("uk-UA", { minimumFractionDigits: 2 })} ${curSym(np.currency)}` : "—",
+    np ? `<div class="sub">${dayMonth(np.date)}</div>` : "")}
+      ${tile("План",
+    s.plan_provides_uah > 0 ? `${fmtUAH(s.plan_provides_uah)}/міс` : "—",
+    planTileSub(ctx, planDoc))}
     </div>
-    <div class="ov-grid">${reinvestHTML(ctx)}${paymentsPreviewHTML(ctx)}</div>
-    ${await basketHTML(ctx)}
+    ${paymentsPreviewHTML(ctx)}
     ${nbuStaleHTML(ctx)}`;
-
-  wireReinvest(ctx, main);
-  wireBasket(ctx, main);
 }
 
+/** Що купити — ранжований список порад.
+ *
+ *  Порожній стан малюється ТУТ, як і в кошика: reinvestHTML лишається
+ *  карткою, яка без порад не малює нічого, а сторінка, на яку можна прийти
+ *  за посиланням, мусить пояснити, чому вона порожня. Причин рівно дві —
+ *  або довідник ще не завантажений, або жоден інструмент не проходить за
+ *  умовами, — і обидві виправляються не тут. */
+export async function buy(ctx, main) {
+  await loadReinvest(ctx);
+  main.innerHTML = reinvestHTML(ctx)
+    || `<div class="card"><h2 class="h-row">Що купити ${infoBtn("reinvest")}</h2>${empty(
+      "Порад поки немає",
+      "Помічник радить із довідника НБУ, каталогу фондів і ставок вкладів. Якщо тут порожньо — "
+      + "або довідник ще не оновлювався, або жоден інструмент не проходить за твоїми умовами "
+      + "(мінімум вкладу, порядок порад, ліміти концентрації).",
+      { href: routeFor("policy/instruments"), label: "Умови реінвесту" })}</div>`;
+  wireReinvest(ctx, main);
+}
+
+/** Кошик покупки: що буде з портфелем, якщо взяти оце.
+ *
+ *  Порожній стан малюється ТУТ, а не в basketHTML: та лишається карткою,
+ *  яка з порожнім кошиком не малює нічого (і правильно робить — на
+ *  «Що робити» порожня рамка лише заважала б), а от сторінка, на яку можна
+ *  прийти за посиланням, мусить сказати хоч щось. */
+export async function basket(ctx, main) {
+  main.innerHTML = await basketHTML(ctx)
+    || `<div class="card"><h2>Кошик покупки</h2>${empty(
+      "Кошик порожній",
+      "Додай сюди те, що збираєшся взяти, — і побачиш, що станеться з капіталом, частками й ризиком ДО того, як гроші підуть.",
+      { href: routeFor("now/buy"), label: "Подивитись, що купити" })}</div>`;
+  wireBasket(ctx, main);
+}

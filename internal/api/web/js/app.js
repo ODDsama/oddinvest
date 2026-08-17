@@ -24,7 +24,7 @@ import { skeleton } from "./skeleton.js";
 import { fitCharts } from "./charts.js";
 import { parseRoute, ANCHORS } from "./routes.js";
 
-import { renderOverview } from "./views/overview.js";
+import * as now from "./views/now-view.js";
 import * as assets from "./views/assets-view.js";
 import * as policy from "./views/policy-view.js";
 import * as settings from "./views/settings-view.js";
@@ -45,9 +45,29 @@ const MARK = `<svg class="mark" viewBox="0 0 24 24" fill="currentColor" aria-hid
   <rect x="14" y="2.5" width="7.5" height="7.5" rx="2"/>
 </svg>`;
 
+// Розділи, які малюються НАВІТЬ коли /api/summary не віддається.
+//
+// Це не поблажка, а факт про них: жодна сторінка в цих двох не читає
+// зведення. «Політика» живе на GET /api/settings, «Налаштування» — на
+// довідниках (м'які читання) і на власних кнопках. А /api/summary —
+// найскладніший шлях у бекенді, і його поломка нічого не каже про решту
+// API, тож гасити разом із ним те, що працює, було б втратою даремно.
+//
+// Практичний бік: саме тут живе відновлення з резервної копії, тобто
+// сторінка, потрібна рівно тоді, коли все інше зламалось.
+const SUMMARY_FREE = new Set(["policy", "settings"]);
+
 // Сторінка на підрозділ: ключ — повний шлях «розділ/підрозділ».
-// Заповнюється в міру того, як розділи розбираються на сторінки.
+//
+// Таблиця пласка, а не дерево, навмисно: маршрут приходить рядком, і
+// шукати по ньому одним звертанням дешевше й читабельніше, ніж спускатись
+// двома рівнями. Порядок груп — той самий, що в nav.js; розійтись вони не
+// можуть, бо шлях, якого тут немає, впаде на очах при першому ж переході.
 const VIEWS = {
+  "now/todo": now.todo,
+  "now/buy": now.buy,
+  "now/basket": now.basket,
+
   "assets/positions": assets.positions,
   "assets/bonds": assets.bonds,
   "assets/funds": assets.funds,
@@ -89,18 +109,6 @@ const VIEWS = {
   "settings/backup": settings.backup,
 };
 
-// ТИМЧАСОВО, на час розбиття. Доки розділ не розібраний, усі його
-// підрозділи малює той самий старий рендерер — тобто адреси вже працюють,
-// а вміст на них поки однаковий. Кожен наступний коміт забирає звідси по
-// рядку; коли таблиця спорожніє, її треба видалити разом із цим абзацом.
-//
-// Проміжний стан навмисно видимий, а не схований за «зробимо все одразу»:
-// маршрутизація й розкладка — самі по собі велика зміна, і везти її разом
-// із перекладанням десяти тисяч рядків в'юшок означало б один коміт, який
-// неможливо ні перевірити, ні відкотити частинами.
-const LEGACY_VIEW = {
-  now: renderOverview,
-};
 
 // Розділ живе в хеші адреси, а не тільки в пам'яті компонента. Розбір
 // маршруту й адреси форм — у js/routes.js: їх будують самі розділи, і
@@ -601,12 +609,13 @@ export class OddInvestApp extends HTMLElement {
     const body = main.querySelector("#pbody");
     main.setAttribute("aria-busy", "true");
 
-    // Зведення вантажиться ОКРЕМО від розділу. Доти воно стояло в тому
-    // самому try, і будь-яка його помилка ставала помилкою ВСІХ вкладок
-    // одразу — включно з «Налаштуваннями», де живе бекап. Тобто
-    // відновлення було недосяжне рівно тоді, коли воно й потрібне.
-    // А падає саме зведення: /api/summary — найскладніший шлях у
-    // бекенді, і його поломка нічого не каже про решту API.
+    // Зведення вантажиться ОКРЕМО від сторінки й ОКРЕМО від довідників.
+    // Доти все стояло в одному try, і будь-яка його помилка ставала
+    // помилкою всіх сторінок одразу — включно з бекапом, тобто відновлення
+    // було недосяжне рівно тоді, коли воно й потрібне. Довідники ж
+    // віддаються й тоді, коли зведення не порахувалось: вони прості
+    // читання таблиць.
+    await this._loadRefs();
     let broken = null;
     try {
       await this._loadSummaryData();
@@ -620,17 +629,16 @@ export class OddInvestApp extends HTMLElement {
     if (broken) {
       this._alert(`<div class="banner danger"><div class="b-ic" aria-hidden="true">⚠</div><div class="b-tx">
         <div class="b-t">Бекенд не віддає зведення</div>
-        <div class="b-s">${esc(broken.message || broken)}${this._section === "settings" ? ""
-          : " · «Налаштування → Резервна копія» зведення не читають — відновлення доступне там"}</div>
+        <div class="b-s">${esc(broken.message || broken)}${SUMMARY_FREE.has(this._section) ? ""
+          : " · «Політика» й «Налаштування» зведення не читають — відновлення з копії доступне там"}</div>
       </div></div>`);
       // Сторінки, що читають зведення, без нього показали б не «даних
       // немає», а нулі — і нуль тут невідрізнимий від справжнього нуля.
-      // «Налаштування» зведення не читають узагалі, тож малюються.
       //
       // Заголовок сторінки при цьому лишається: він приходить із дерева
       // навігації, а не з даних, і сказати «ти в „Позиціях“, але їх нема
       // звідки взяти» чесніше, ніж показати порожнечу без підпису.
-      if (this._section !== "settings") {
+      if (!SUMMARY_FREE.has(this._section)) {
         body.innerHTML = "";
         this._settle(main);
         return;
@@ -638,8 +646,11 @@ export class OddInvestApp extends HTMLElement {
     }
 
     try {
-      const render = VIEWS[path] || LEGACY_VIEW[this._section] || LEGACY_VIEW.now;
-      await render(this._ctx, body);
+      // Відкоту на «якийсь інший рендерер» тут немає навмисно: маршрут
+      // приходить із nav.js уже звіреним (parseRoute не пропускає шлях,
+      // якого немає в PATHS), тож відсутність сторінки в цій таблиці —
+      // помилка програміста, і хай вона буде видна одразу.
+      await VIEWS[path](this._ctx, body);
     } catch (err) {
       body.innerHTML = `<div class="card">Помилка: ${esc(err.message || err)}</div>`;
     }
@@ -670,25 +681,36 @@ export class OddInvestApp extends HTMLElement {
     main.setAttribute("aria-busy", "false");
   }
 
-  // Дані зведення (без рендеру: плитки живуть у розділах). Довідники
-  // тягнемо разом зі зведенням: випадайки брокерів малюються в кожному
-  // розділі, тож на момент рендеру список має вже бути.
-  async _loadSummaryData() {
-    const [s, brokers, funds, npf] = await Promise.all([
-      this._api("GET", "summary"),
+  // Довідники: брокери, фонди, пенсійні рахунки. Випадайки з них
+  // малюються майже на кожній сторінці, тож на момент рендеру списки мають
+  // уже бути.
+  //
+  // ОКРЕМО від зведення, і це не косметика. Доти всі чотири читання стояли
+  // в одному Promise.all — а він відхиляється ПЕРШИМ відхиленням, тобто
+  // падіння /api/summary забирало з собою й довідники, які самі по собі
+  // віддавались чудово. «Налаштування» через це малювались лише тому, що
+  // catalogsHTML терпить порожні списки: вони не «виживали», а показували
+  // порожньо. Тепер м'які читання осідають самі по собі й від зведення не
+  // залежать.
+  async _loadRefs() {
+    const [brokers, funds, npf] = await Promise.all([
       this._store.soft("brokers", []),
       this._store.soft("fund-catalog", []),
-      // Довідник НПФ разом зі зведенням, як і решта: його читають і
-      // «Налаштування» (картка рахунків), і «Портфель» (деталі рядка), тож
-      // на момент рендеру список має вже бути.
       this._store.soft("npf-accounts", []),
     ]);
-    this._summary = s;
     this._brokers = brokers || [];
     this._fundCatalog = funds || [];
     this._npfAccounts = npf || [];
+  }
+
+  // Саме зведення (без рендеру: плитки живуть у сторінках). Кидає — і
+  // має кидати: /api/summary найскладніший шлях у бекенді, і сторінка, що
+  // читає з нього числа, без нього показала б не «даних немає», а нулі.
+  async _loadSummaryData() {
+    this._summary = await this._api("GET", "summary");
     const avail = this.shadowRoot.getElementById("avail");
-    avail.textContent = s.generated_at ? "стан на " + new Date(s.generated_at).toLocaleString("uk-UA") : "";
+    avail.textContent = this._summary.generated_at
+      ? "стан на " + new Date(this._summary.generated_at).toLocaleString("uk-UA") : "";
   }
 }
 

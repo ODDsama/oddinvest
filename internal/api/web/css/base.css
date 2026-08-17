@@ -982,29 +982,11 @@ td.num .sale-f { text-align: right; }
 
 /* --- дрібні розкладки --- */
 
-.quick { display: flex; gap: var(--oi-gap-sm); margin-bottom: var(--oi-gap); flex-wrap: wrap; }
-/* Тут і <button>, і <a class="btn">: швидкі дії стали справжніми
-   посиланнями (у них тепер є адреса), а вигляд у них має лишитись той
-   самий — це та сама дія, лише тепер її можна покласти в закладки. */
-.quick button, .quick .btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  min-width: 130px;
-  min-height: var(--oi-touch);
-  padding: var(--oi-gap-sm) var(--oi-gap);
-  border-radius: var(--oi-radius-sm);
-  font-size: var(--oi-fs);
-  text-decoration: none;
-  cursor: pointer;
-  background: var(--oi-surface);
-  color: var(--oi-text);
-  border: var(--oi-rule) solid var(--oi-border-strong);
-}
-/* Наведення міняє рамку, а не текст: акцент у тексті тут змагався б із
-   рештою акцентів на екрані, а рамки досить, щоб сказати «клікабельно». */
-.quick button:hover, .quick .btn:hover { border-color: var(--oi-accent); }
+/* .quick тут більше немає: блок швидких дій в «Огляді» мав сенс, поки
+   форми лежали по чужих вкладках під згорнутими секціями. Тепер у меню є
+   «Записати» з вісьмома іменованими входами, і три ярлики до трьох із них
+   були б набором, який застаріє першим. Перевірка класів (css-tokens-check)
+   такого не ловить: вона дивиться з розмітки в CSS, а не навпаки. */
 
 .ov-grid { display: grid; grid-template-columns: 1fr; gap: var(--oi-gap); align-items: start; }
 .ov-grid > .card { min-width: 0; }
