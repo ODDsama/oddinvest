@@ -25,10 +25,10 @@ import { fitCharts } from "./charts.js";
 import { parseRoute, ANCHORS } from "./routes.js";
 
 import { renderOverview } from "./views/overview.js";
-import { renderPortfolio } from "./views/portfolio.js";
-import { renderMoney } from "./views/money.js";
 import { renderSettings } from "./views/settings.js";
 import * as assets from "./views/assets-view.js";
+import * as money from "./views/money-view.js";
+import * as entry from "./views/entry-view.js";
 import * as plan from "./views/plan-view.js";
 import * as risk from "./views/risk-view.js";
 
@@ -55,6 +55,20 @@ const VIEWS = {
   "assets/reserve": assets.reserve,
   "assets/growth": assets.growth,
 
+  "money/balances": money.balances,
+  "money/flows": money.flows,
+  "money/tax": money.tax,
+
+  "entry/bond": entry.bond,
+  "entry/deposit": entry.deposit,
+  "entry/npf": entry.npf,
+  "entry/reserve": entry.reserve,
+  "entry/cash": entry.cash,
+  "entry/convert": entry.convert,
+  // importStatement, а не import: останнє — зарезервоване слово.
+  "entry/import": entry.importStatement,
+  "entry/reconcile": entry.reconcile,
+
   "plan/inflow": plan.inflow,
   "plan/goal": plan.goal,
   "plan/levers": plan.levers,
@@ -76,11 +90,6 @@ const VIEWS = {
 // неможливо ні перевірити, ні відкотити частинами.
 const LEGACY_VIEW = {
   now: renderOverview,
-  money: renderMoney,
-  // «Записати» досі малює старий «Портфель» цілком — форми купівлі,
-  // продажу й вкладу живуть саме там. Наступний коміт забирає їх звідти
-  // разом із рештою форм, і тоді portfolio.js піде теж.
-  entry: renderPortfolio,
   policy: renderSettings,
   settings: renderSettings,
 };

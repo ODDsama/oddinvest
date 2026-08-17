@@ -24,6 +24,9 @@
 
 import { setFundOps, wireFundOps } from "../fund-ops.js";
 import { setNPF, wireNPF } from "../npf.js";
+import { empty } from "../components.js";
+import { onDelete } from "../forms.js";
+import { reserveTilesHTML, reserveJournalHTML } from "./money-cards.js";
 import { wireDisclosures } from "../disclosure.js";
 import { positionsTableHTML, wirePositions } from "./positions.js";
 import { yieldTilesHTML } from "./risk.js";
@@ -115,10 +118,29 @@ export const deposits = kindPage("deposit", "Вклади", {
   action: { href: routeFor("topup"), label: "Відкрити вклад" },
 }, (ctx, d) => closedDepositsHTML(ctx, d.deposits));
 
-export const reserve = kindPage("reserve", "Резерв", {
-  text: "Резерв — це те, що лежить доступним миттєво й без втрат, коли гроші раптом знадобились.",
-  action: { href: routeFor("entry/reserve"), label: "Записати рух" },
-});
+/** Резерв — єдина сторінка виду БЕЗ таблиці позицій, і це не непослідовність.
+ *
+ *  Рядок у таблиці існує заради того, щоб капітал сходився: колонки в ній
+ *  розраховані на те, що заробляє, а резерв не заробляє нічого — там у
+ *  нього прочерк у дохідності й «без строку» у строку. Питання цієї
+ *  сторінки інше: чи вистачить прожити. На нього відповідають плитки —
+ *  скільки місяців витрат покрито й скільки лишилось до цілі, — і повторити
+ *  над ними рядок означало б написати ту саму суму втретє на одному екрані.
+ *
+ *  Форма руху живе в «Записати → Резерв»: журнал і запис розведені так само,
+ *  як усюди в застосунку. */
+export async function reserve(ctx, main) {
+  const ops = await ctx.soft("reserve", []);
+  main.innerHTML = `
+    ${reserveTilesHTML(ctx) || `<div class="card"><h2>Резерв</h2>${empty(
+    "Резерву ще немає",
+    "Резерв — те, що доступне миттєво й без втрат, коли гроші раптом знадобились.",
+    { href: routeFor("entry/reserve"), label: "Записати рух" })}</div>`}
+    ${reserveJournalHTML(ops)}`;
+  onDelete(ctx, main, "[data-delres]", (b) => ({
+    path: "reserve/" + b.dataset.delres, msg: "Рух видалено",
+  }));
+}
 
 /** Як росте: крива капіталу й таблиця знімків. Єдина сторінка розділу без
  *  таблиці позицій — вона відповідає не «що я маю», а «звідки це взялось». */

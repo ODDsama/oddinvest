@@ -1,13 +1,15 @@
-// Розділ «Гроші» — де вони лежать і звідки взялись.
+// Картки «Грошей»: баланси, звірка, резерв, рухи, потік, податок, імпорт.
 //
-// Баланси по брокерах (роздільні: гривня в одного не купує папір в
-// іншого), рухи, конвертації, звірка з тим, що показує брокер, і імпорт
-// виписки.
+// Бібліотека, а не розділ. Складають її дві сторони, і саме через це вона
+// й виділена: журнал живе в «Грошах» і «Активах», а форми — у «Записати»,
+// тобто одна й та сама сутність тепер показується у двох різних місцях із
+// різних причин. Доти все це лежало в одному файлі поруч зі своїм
+// рендером, і кожна картка мовчки вважала, що поверхня в неї одна.
 //
-// Імпорт мав власну вкладку — цілу вкладку на одну дію, до якої
-// звертаються раз на місяць. Він тут тому, що це не окрема тема, а
-// СПОСІБ поповнити цей самий журнал: після імпорту дивишся на ті самі
-// рухи й ту саму звірку, які лежать вище.
+// Резерв через це розколотий на три частини (плитки, журнал, форма): він
+// єдиний, чиї числа читають в «Активах», а рухи записують у «Записати».
+// Розкол зроблено функціями, а не прапорцем-режимом: аргумент «покажи
+// мені половину себе» читається гірше, ніж три імені.
 
 import {
   esc, curSym, today, dayMonth, plural, pct,
@@ -16,9 +18,145 @@ import {
 import { infoBtn } from "../info.js";
 import { empty } from "../components.js";
 import { routeFor } from "../routes.js";
-import { onSubmit, onDelete } from "../forms.js";
-import { fundStatementHTML, wireFundOps, setFundOps } from "../fund-ops.js";
-import { disclosure, section, wireDisclosures } from "../disclosure.js";
+import { disclosure } from "../disclosure.js";
+
+// ---------- ГАМАНЕЦЬ ----------
+
+/** Скільки лежить на рахунках, по валютах. «Дохід без діла» тут не
+ *  прикраса, а єдине місце, де видно гроші, що надійшли й лежать. */
+export function walletHTML(ctx) {
+  const s = ctx.summary || {};
+  const a = s.accounts || {};
+  return `<div class="card">
+    <h2>Рахунок (гаманець)</h2>
+    <div class="tiles flush">
+      <div class="tile"><div class="lbl">UAH</div><div class="val">${fmtUAH(a.UAH || 0)}</div></div>
+      <div class="tile"><div class="lbl">USD</div><div class="val">${fmtCur(a.USD || 0, "$")}</div></div>
+      <div class="tile"><div class="lbl">EUR</div><div class="val">${fmtCur(a.EUR || 0, "€")}</div></div>
+      <div class="tile"><div class="lbl">Разом (грн-екв.)</div><div class="val">${fmtUAH(s.account_uah || 0)}</div></div>
+      <div class="tile"><div class="lbl">Дохід без діла ${infoBtn("idle")}</div>
+        <div class="val">${fmtUAH(s.uninvested_uah || 0)}</div>
+        <div class="sub">надійшло й ще не вкладено</div></div>
+    </div>
+  </div>`;
+}
+
+/** Історія рухів: поповнення, зняття, конвертації одним списком за датою.
+ *  Купівлі паперів і купони сюди не пишуться — вони рухають рахунок самі. */
+export function movesHTML(deposits, conversions) {
+  const moves = [
+    ...deposits.map((d) => ({ date: d.date, id: d.id, kind: "dep", amount: d.amount, note: d.note })),
+    ...conversions.map((c) => ({ date: c.date, id: c.id, kind: "conv", from: c.from, to: c.to, note: c.note })),
+  ].sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : y.id - x.id));
+  return `<div class="card">
+    <h2>Історія рухів</h2>
+    ${moves.length ? `<table><thead><tr>
+      <th scope="col">Дата</th><th scope="col">Тип</th><th scope="col">Сума</th>
+      <th scope="col">Нотатка</th><th scope="col"><span class="sr-only">Дії</span></th></tr></thead><tbody>
+      ${moves.map((m) => {
+    if (m.kind === "dep") {
+      const label = Number(m.amount.amount) >= 0 ? "Поповнення" : "Зняття";
+      return `<tr><td>${esc(m.date)}</td><td>${label}</td><td class="num">${fmtMoney(m.amount)}</td>
+        <td>${esc(m.note || "")}</td>
+        <td class="row-actions"><button class="sm warn" data-deldep="${m.id}"
+          aria-label="Видалити рух від ${esc(m.date)}">✕</button></td></tr>`;
+    }
+    const rate = Number(m.from.amount) / Number(m.to.amount);
+    return `<tr><td>${esc(m.date)}</td><td>Конвертація</td>
+      <td class="num">${fmtMoney(m.from)} → ${fmtMoney(m.to)}</td>
+      <td>${esc(m.note || "")}${isFinite(rate) ? ` (${rate.toFixed(4)})` : ""}</td>
+      <td class="row-actions"><button class="sm warn" data-delconv="${m.id}"
+        aria-label="Видалити конвертацію від ${esc(m.date)}">✕</button></td></tr>`;
+  }).join("")}</tbody></table>` : empty(
+    "Рухів ще немає",
+    "Сюди лягають поповнення, зняття й конвертації. Купівлі паперів і купони рухають рахунок самі.",
+    { href: routeFor("deposit"), label: "Додати рух" })}
+  </div>`;
+}
+
+// ---------- РЕЗЕРВ («МАТРАЦ») ----------
+// Окрема сутність, а не рядок у гаманці: на рахунку брокера лежать гроші,
+// що ЧЕКАЮТЬ на вкладення, а тут — ті, які вкладати не збираються.
+// Змішати їх означало б запропонувати купити папір за аварійні гроші.
+// «1.1 місяць» — двічі неправильно: дробові в українській вимагають
+// родового («1,1 місяця»), якого в plural() немає, а крапка суперечить
+// решті чисел на екрані. Скорочення «міс.» знімає обидва питання.
+const monthsNum = (m) => m.toFixed(1).replace(".", ",");
+
+/** Плитки резерву: скільки відкладено, на скільки місяців вистачить, яку
+ *  частку капіталу з'їло. Смужка йде до ЦІЛІ, а не до 100% капіталу:
+ *  питання «чи вистачить прожити», а не «яку частку портфеля з'їв
+ *  матрац» — на друге відповідає окрема плитка поруч. */
+export function reserveTilesHTML(ctx) {
+  const r = (ctx.summary || {}).reserve;
+  if (!r || !r.uah) return "";
+  const months = r.months || 0;
+  const target = r.target_months || 0;
+  const fill = target > 0 ? Math.min(100, (months / target) * 100) : 0;
+  const enough = target > 0 && months >= target;
+  const places = r.places ? Object.entries(r.places).sort((a, b) => b[1] - a[1]) : [];
+  const byCur = r.by_currency ? Object.entries(r.by_currency).sort() : [];
+  return `<div class="card">
+    <h2 class="h-row">Резерв ${infoBtn("reserve")}</h2>
+    <div class="note">Гроші на чорний день. Не інвестиція — але саме тому вони й доступні миттєво, без продажу паперу й розірвання вкладу. У купівельну спроможність не входять.</div>
+    <div class="tiles flush">
+      <div class="tile"><div class="lbl">Відкладено</div>
+        <div class="val">${fmtUAH(r.uah || 0)}</div>
+        ${byCur.length > 1 ? `<div class="sub">${byCur.map(([c, v]) =>
+    fmtCur(v, curSym(c))).join(" · ")}</div>` : ""}</div>
+      <div class="tile"><div class="lbl">Вистачить на</div>
+        <div class="val">${months ? `${monthsNum(months)} міс.` : "—"}</div>
+        <div class="sub">${months
+    ? (target ? `ціль — ${target} ${plural(target, "місяць", "місяці", "місяців")}` : "ціль не задана")
+    : "постав місячні витрати в «Політиці»"}</div></div>
+      <div class="tile"><div class="lbl">Частка капіталу</div>
+        <div class="val">${r.share_pct ? pct(r.share_pct) : "—"}</div>
+        <div class="sub">не інвестиція, але капітал</div></div>
+    </div>
+    ${target > 0 && months ? `<div class="progress mb-sm">
+      <span style="--oi-fill:${fill}%;--oi-c:${enough ? "var(--oi-ok)" : "var(--oi-info)"}"></span></div>
+      <div class="note">${enough
+    ? `запас зібраний${r.uah > r.target_uah ? ` — з перевищенням на ${fmtUAH(r.uah - r.target_uah)}` : ""}`
+    : `до цілі ще ${fmtUAH(r.gap_uah || 0)} · ціль ${fmtUAH(r.target_uah || 0)}`}</div>` : ""}
+    ${places.length ? `<div class="note">Де лежить: ${places.map(([p, v]) =>
+    `${esc(p)} — ${fmtUAH(v)}`).join(" · ")}</div>` : ""}
+  </div>`;
+}
+
+/** Журнал рухів резерву. */
+export function reserveJournalHTML(ops) {
+  const list = ops || [];
+  return `<div class="card"><h2>Рухи резерву</h2>
+    ${list.length
+    ? `<div class="table-scroll"><table><thead><tr><th>Дата</th><th>Рух</th>
+        <th class="num">Сума</th><th>Місце</th><th></th></tr></thead><tbody>
+      ${list.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id))
+    .map((o) => `<tr><td>${esc(o.date)}</td>
+          <td>${Number(o.amount.amount) >= 0 ? "Відклав" : "Узяв"}</td>
+          <td class="num">${fmtMoney(o.amount)}</td>
+          <td>${esc(o.place || "")}${o.note ? ` <span class="muted">${esc(o.note)}</span>` : ""}</td>
+          <td class="row-actions"><button class="sm warn" data-delres="${o.id}">✕</button></td></tr>`).join("")}
+      </tbody></table></div>`
+    : empty("", "Рухів резерву ще немає — перший запис заведе матрац і покаже, на скільки місяців його вистачає.")}
+  </div>`;
+}
+
+/** Форма руху резерву. */
+export function reserveFormHTML() {
+  return `<div class="card"><h2 class="h-row">Рух резерву ${infoBtn("reserve")}</h2>
+    <form id="resForm" class="mb">
+      <label>Сума (+ відклав / − узяв)<input name="amount" inputmode="decimal" placeholder="5000.00" required></label>
+      <label>Валюта<select name="currency">${["UAH", "USD", "EUR"].map((c) =>
+    `<option${c === "UAH" ? " selected" : ""}>${c}</option>`).join("")}</select></label>
+      <label>Місце<input name="place" placeholder="готівка / сейф / картка"></label>
+      <label>Дата<input name="date" type="date" value="${today()}"></label>
+      <label>Нотатка<input name="note"></label>
+      <div class="form-actions"><button type="submit">Записати</button></div>
+    </form>
+    <div class="note">Переклав із рахунку? Запиши ще й зняття в «Записати → Готівка» —
+      інакше відкладене виглядатиме як втрата капіталу.</div>
+  </div>`;
+}
 
 // ---------- РАХУНОК ----------
 // Баланси по брокерах: гроші в одного не купують папір в іншого, тож
@@ -110,80 +248,6 @@ export function wireReconcile(ctx, main) {
       }
     });
   });
-}
-
-// ---------- РЕЗЕРВ («МАТРАЦ») ----------
-// Окрема картка, а не рядок у гаманці: на рахунку брокера лежать гроші,
-// що ЧЕКАЮТЬ на вкладення, а тут — ті, які вкладати не збираються.
-// Змішати їх означало б запропонувати купити папір за аварійні гроші.
-// «1.1 місяць» — двічі неправильно: дробові в українській вимагають
-// родового («1,1 місяця»), якого в plural() немає, а крапка суперечить
-// решті чисел на екрані. Скорочення «міс.» знімає обидва питання.
-const monthsNum = (m) => m.toFixed(1).replace(".", ",");
-
-function reserveHTML(ctx, ops) {
-  const r = (ctx.summary || {}).reserve;
-  const has = r && (r.uah || (ops || []).length);
-  const months = r && r.months ? r.months : 0;
-  const target = r && r.target_months ? r.target_months : 0;
-  // Смужка йде до ЦІЛІ, а не до 100% капіталу: питання «чи вистачить
-  // прожити», а не «яку частку портфеля з'їв матрац» — на друге відповідає
-  // окрема плитка поруч.
-  const fill = target > 0 ? Math.min(100, (months / target) * 100) : 0;
-  const enough = target > 0 && months >= target;
-  const places = r && r.places ? Object.entries(r.places).sort((a, b) => b[1] - a[1]) : [];
-  const byCur = r && r.by_currency ? Object.entries(r.by_currency).sort() : [];
-
-  const tiles = has ? `<div class="tiles flush">
-      <div class="tile"><div class="lbl">Відкладено</div>
-        <div class="val">${fmtUAH((r && r.uah) || 0)}</div>
-        ${byCur.length > 1 ? `<div class="sub">${byCur.map(([c, v]) =>
-          fmtCur(v, curSym(c))).join(" · ")}</div>` : ""}</div>
-      <div class="tile"><div class="lbl">Вистачить на</div>
-        <div class="val">${months ? `${monthsNum(months)} міс.` : "—"}</div>
-        <div class="sub">${months
-          ? (target ? `ціль — ${target} ${plural(target, "місяць", "місяці", "місяців")}` : "ціль не задана")
-          : "постав місячні витрати в Налаштуваннях"}</div></div>
-      <div class="tile"><div class="lbl">Частка капіталу</div>
-        <div class="val">${r && r.share_pct ? pct(r.share_pct) : "—"}</div>
-        <div class="sub">не інвестиція, але капітал</div></div>
-    </div>
-    ${target > 0 && months ? `<div class="progress mb-sm">
-      <span style="--oi-fill:${fill}%;--oi-c:${enough ? "var(--oi-ok)" : "var(--oi-info)"}"></span></div>
-      <div class="note">${enough
-        ? `запас зібраний${r.uah > r.target_uah ? ` — з перевищенням на ${fmtUAH(r.uah - r.target_uah)}` : ""}`
-        : `до цілі ще ${fmtUAH(r.gap_uah || 0)} · ціль ${fmtUAH(r.target_uah || 0)}`}</div>` : ""}
-    ${places.length ? `<div class="note">Де лежить: ${places.map(([p, v]) =>
-      `${esc(p)} — ${fmtUAH(v)}`).join(" · ")}</div>` : ""}` : "";
-
-  const journal = (ops || []).length
-    ? `<div class="table-scroll"><table><thead><tr><th>Дата</th><th>Рух</th>
-        <th class="num">Сума</th><th>Місце</th><th></th></tr></thead><tbody>
-      ${ops.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id))
-        .map((o) => `<tr><td>${esc(o.date)}</td>
-          <td>${Number(o.amount.amount) >= 0 ? "Відклав" : "Узяв"}</td>
-          <td class="num">${fmtMoney(o.amount)}</td>
-          <td>${esc(o.place || "")}${o.note ? ` <span class="muted">${esc(o.note)}</span>` : ""}</td>
-          <td class="row-actions"><button class="sm warn" data-delres="${o.id}">✕</button></td></tr>`).join("")}
-      </tbody></table></div>`
-    : empty("", "Рухів резерву ще немає — перший запис заведе матрац і покаже, на скільки місяців його вистачає.");
-
-  return `<div class="card">
-    <h2 class="h-row">Резерв ${infoBtn("reserve")}</h2>
-    <div class="note">Гроші на чорний день. Не інвестиція — але саме тому вони й доступні миттєво, без продажу паперу й розірвання вкладу. У купівельну спроможність не входять.</div>
-    ${tiles}
-    <form id="resForm" class="mb">
-      <label>Сума (+ відклав / − узяв)<input name="amount" inputmode="decimal" placeholder="5000.00" required></label>
-      <label>Валюта<select name="currency">${["UAH", "USD", "EUR"].map((c) =>
-        `<option${c === "UAH" ? " selected" : ""}>${c}</option>`).join("")}</select></label>
-      <label>Місце<input name="place" placeholder="готівка / сейф / картка"></label>
-      <label>Дата<input name="date" type="date" value="${today()}"></label>
-      <label>Нотатка<input name="note"></label>
-      <div class="form-actions"><button type="submit">Записати</button></div>
-    </form>
-    <div class="note">Переклав із рахунку? Запиши ще й зняття в «Додати рух» нижче — інакше відкладене виглядатиме як втрата капіталу.</div>
-    ${journal}
-  </div>`;
 }
 
 // Імпорт виписки. Два кроки навмисно: спершу показати, що буде
@@ -291,7 +355,7 @@ export function wireImport(ctx, main) {
 //
 // Тотожність унизу — не оздоба: якщо вона не сходиться, розійшлись облік
 // і дійсність, і це має бути видно.
-function flowHTML(f) {
+export function flowHTML(f) {
   if (!f) return "";
   const row = (lbl, v, sign = "") => `<tr><td>${lbl}</td>
     <td class="num">${sign}${fmtUAH(Math.abs(v || 0))}</td></tr>`;
@@ -340,7 +404,7 @@ export function taxYear() {
   return now;
 }
 
-function taxHTML(x) {
+export function taxHTML(x) {
   if (!x) return "";
   const now = new Date().getFullYear();
   const sel = x.year || taxYear();
@@ -398,165 +462,3 @@ function taxHTML(x) {
         x.note ? ` ${esc(x.note)}.` : ""}</div>` : ""}`,
     pct(x.rate_pct))}</div>`;
 }
-
-export async function renderMoney(ctx, main) {
-  const [deposits, conversions, ops, flow, tax, reserve] = await Promise.all([
-    ctx.soft("deposits", []),
-    ctx.soft("conversions", []),
-    ctx.soft("funds", []),
-    ctx.soft("cashflow", null),
-    ctx.soft("tax?year=" + taxYear(), null),
-    ctx.soft("reserve", []),
-  ]);
-  setFundOps(ops);
-  const s = ctx.summary || {};
-  const a = s.accounts || {};
-  const curOpts = (sel) => ["UAH", "USD", "EUR"].map((c) => `<option${c === sel ? " selected" : ""}>${c}</option>`).join("");
-  const moves = [
-    ...deposits.map((d) => ({ date: d.date, id: d.id, kind: "dep", amount: d.amount, note: d.note })),
-    ...conversions.map((c) => ({ date: c.date, id: c.id, kind: "conv", from: c.from, to: c.to, note: c.note })),
-  ].sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : y.id - x.id));
-  // Три секції за трьома питаннями: скільки і де воно лежить, куди
-  // рухалось, і чим це записати. Десять однакових карток підряд не
-  // давали жодної підказки, яка з них відповідає на що, і «Історію
-  // рухів» доводилось шукати очима серед форм.
-  main.innerHTML = `
-    ${section("where", "Скільки і де", `
-    <div class="card">
-      <h2>Рахунок (гаманець)</h2>
-      <div class="tiles flush">
-        <div class="tile"><div class="lbl">UAH</div><div class="val">${fmtUAH(a.UAH || 0)}</div></div>
-        <div class="tile"><div class="lbl">USD</div><div class="val">${fmtCur(a.USD || 0, "$")}</div></div>
-        <div class="tile"><div class="lbl">EUR</div><div class="val">${fmtCur(a.EUR || 0, "€")}</div></div>
-        <div class="tile"><div class="lbl">Разом (грн-екв.)</div><div class="val">${fmtUAH(s.account_uah || 0)}</div></div>
-        <div class="tile"><div class="lbl">Дохід без діла ${infoBtn("idle")}</div>
-          <div class="val">${fmtUAH(s.uninvested_uah || 0)}</div>
-          <div class="sub">надійшло й ще не вкладено</div></div>
-      </div>
-    </div>
-
-    ${brokerBalancesHTML(ctx)}
-    ${reserveHTML(ctx, reserve)}`, { open: true })}
-
-    ${section("flows", "Куди воно рухалось", `
-    ${flowHTML(flow)}
-    ${taxHTML(tax)}
-    <div class="card">
-      <h2>Історія рухів</h2>
-      ${moves.length ? `<table><thead><tr>
-        <th scope="col">Дата</th><th scope="col">Тип</th><th scope="col">Сума</th>
-        <th scope="col">Нотатка</th><th scope="col"><span class="sr-only">Дії</span></th></tr></thead><tbody>
-        ${moves.map((m) => {
-          if (m.kind === "dep") {
-            const label = Number(m.amount.amount) >= 0 ? "Поповнення" : "Зняття";
-            return `<tr><td>${esc(m.date)}</td><td>${label}</td><td class="num">${fmtMoney(m.amount)}</td>
-              <td>${esc(m.note || "")}</td>
-              <td class="row-actions"><button class="sm warn" data-deldep="${m.id}"
-                aria-label="Видалити рух від ${esc(m.date)}">✕</button></td></tr>`;
-          }
-          const rate = Number(m.from.amount) / Number(m.to.amount);
-          return `<tr><td>${esc(m.date)}</td><td>Конвертація</td>
-            <td class="num">${fmtMoney(m.from)} → ${fmtMoney(m.to)}</td>
-            <td>${esc(m.note || "")}${isFinite(rate) ? ` (${rate.toFixed(4)})` : ""}</td>
-            <td class="row-actions"><button class="sm warn" data-delconv="${m.id}"
-              aria-label="Видалити конвертацію від ${esc(m.date)}">✕</button></td></tr>`;
-        }).join("")}</tbody></table>` : empty(
-          "Рухів ще немає",
-          "Сюди лягають поповнення, зняття й конвертації. Купівлі паперів і купони рухають рахунок самі.",
-          { href: routeFor("deposit"), label: "Додати рух" })}
-    </div>`, { open: true })}
-
-    ${section("entry", "Записати", `
-    ${reconcileHTML(ctx)}
-
-    <div class="card">
-      <h2>Додати рух</h2>
-      <div class="note">Поповнення (+) / зняття (−) у своїй валюті. Купівля лота й купони рухають рахунок автоматично.</div>
-      <form id="cashForm">
-        <label>Сума (+ / −)<input name="amount" inputmode="decimal" placeholder="5000.00" required></label>
-        <label>Валюта<select name="currency">${curOpts("UAH")}</select></label>
-        <label>Брокер<select name="broker">${ctx.brokerOptions()}</select></label>
-        <label>Дата<input name="date" type="date" value="${today()}"></label>
-        <label>Нотатка<input name="note"></label>
-        <div class="form-actions"><button type="submit">Записати</button></div>
-      </form>
-    </div>
-
-    <div class="card">
-      <h2>Конвертація валют</h2>
-      <div class="note">Віддав → отримав (курс рахується сам із сум — те, що реально сталося на Monobank).</div>
-      <form id="convForm">
-        <label>Віддав<input name="from_amount" inputmode="decimal" placeholder="40000.00" required></label>
-        <label>Валюта<select name="from_currency">${curOpts("UAH")}</select></label>
-        <label>Отримав<input name="to_amount" inputmode="decimal" placeholder="1000.00" required></label>
-        <label>Валюта<select name="to_currency">${curOpts("USD")}</select></label>
-        <label>Брокер<select name="broker">${ctx.brokerOptions()}</select></label>
-        <label>Дата<input name="date" type="date" value="${today()}"></label>
-        <label>Нотатка<input name="note"></label>
-        <div class="form-actions"><button type="submit">Записати</button></div>
-      </form>
-    </div>
-
-    ${importHTML(ctx)}
-    ${fundStatementHTML(ctx)}`, { hint: "форми й імпорт виписки" })}`;
-
-  onSubmit(ctx, main.querySelector("#cashForm"), (f) => ({
-    path: "deposits",
-    body: {
-      amount: f.amount.value.trim(), currency: f.currency.value, broker: f.broker.value,
-      date: f.date.value, note: f.note.value.trim(),
-    },
-    msg: "Рух записано",
-  }));
-  onSubmit(ctx, main.querySelector("#convForm"), (f) => ({
-    path: "conversions",
-    body: {
-      from_amount: f.from_amount.value.trim(), from_currency: f.from_currency.value,
-      to_amount: f.to_amount.value.trim(), to_currency: f.to_currency.value,
-      broker: f.broker.value, date: f.date.value, note: f.note.value.trim(),
-    },
-    msg: "Конвертацію записано",
-  }));
-  onSubmit(ctx, main.querySelector("#resForm"), (f) => ({
-    path: "reserve",
-    body: {
-      amount: f.amount.value.trim(), currency: f.currency.value,
-      place: f.place.value.trim(), date: f.date.value, note: f.note.value.trim(),
-    },
-    msg: "Рух резерву записано",
-  }));
-  onDelete(ctx, main, "[data-delres]", (b) => ({
-    path: "reserve/" + b.dataset.delres, msg: "Рух видалено",
-  }));
-  onDelete(ctx, main, "[data-deldep]", (b) => ({
-    path: "deposits/" + b.dataset.deldep, msg: "Рух видалено",
-  }));
-  onDelete(ctx, main, "[data-delconv]", (b) => ({
-    path: "conversions/" + b.dataset.delconv, msg: "Конвертацію видалено",
-  }));
-  main.querySelector("[data-tax-year]")?.addEventListener("change", (e) => {
-    try { localStorage.setItem(TAX_KEY, e.target.value); } catch (_) { /* приватний режим */ }
-    ctx.reload();
-  });
-  // Вивантаження — тим самим шляхом, що й бекап у «Налаштуваннях»:
-  // сирий запит через транспорт, далі blob у файл.
-  main.querySelector("[data-tax-csv]")?.addEventListener("click", async (e) => {
-    const y = e.currentTarget.dataset.taxCsv;
-    try {
-      const resp = await ctx.store.raw("export/csv?year=" + y);
-      if (!resp.ok) throw new Error(await resp.text());
-      const url = URL.createObjectURL(await resp.blob());
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `oddinvest-${y}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      ctx.toast(`Звіт за ${y} завантажено`);
-    } catch (err) { ctx.toast(String(err.message || err), false); }
-  });
-  wireReconcile(ctx, main);
-  wireImport(ctx, main);
-  wireFundOps(ctx, main);
-  wireDisclosures(main);
-}
-
