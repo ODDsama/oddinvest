@@ -69,13 +69,9 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 		if l.BuyDate.Year() != now.Year() || l.BuyDate.Month() != now.Month() {
 			continue
 		}
-		cost := domain.MulQty(l.PricePerBond, l.Qty)
-		if l.Fee != nil && !l.Fee.IsZero() {
-			c2, err := cost.Add(l.Fee)
-			if err != nil {
-				return out, err
-			}
-			cost = c2
+		cost, err := domain.LotCost(l.Lot)
+		if err != nil {
+			return out, err
 		}
 		uahAmt, err := fx.ToUAH(cost, rates)
 		if err != nil {

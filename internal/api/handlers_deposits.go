@@ -198,6 +198,53 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// topupFromReq — розбір поповнення разом із вкладом, до якого воно йде.
+//
+// Спільний для запису й для /check, як lotFromReq для лота: валюта, банк
+// і правило «сума > 0» мусять означати те саме в обох, інакше перевірка
+// відповідала б про одну операцію, а записувалась інша.
+//
+// Статус повертається окремо, бо гілки тут різні за природою: невідомий
+// вклад — 404, а невалідна сума — 400, і зводити їх до одного коду
+// означало б збіднити відповідь.
+func (s *Server) topupFromReq(r *http.Request, depID int64) (domain.DepositTopup, domain.Deposit, int, error) {
+	var req struct {
+		Date   string `json:"date"`
+		Amount string `json:"amount"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return domain.DepositTopup{}, domain.Deposit{}, http.StatusBadRequest, err
+	}
+	// Валюта поповнення = валюта вкладу; тягнемо вклад, щоб її знати.
+	deps, err := s.st.ListTermDeposits(r.Context())
+	if err != nil {
+		return domain.DepositTopup{}, domain.Deposit{}, http.StatusInternalServerError, err
+	}
+	var dep domain.Deposit
+	for _, d := range deps {
+		if d.ID == depID {
+			dep = d
+		}
+	}
+	if dep.Currency == "" {
+		return domain.DepositTopup{}, domain.Deposit{}, http.StatusNotFound,
+			errors.New("вклад не знайдено")
+	}
+	d, err := domain.ParseDate(req.Date)
+	if err != nil {
+		return domain.DepositTopup{}, dep, http.StatusBadRequest, err
+	}
+	amt, err := domain.ParseDecimalToMinor(req.Amount, dep.Currency)
+	if err != nil {
+		return domain.DepositTopup{}, dep, http.StatusBadRequest, err
+	}
+	if amt <= 0 {
+		return domain.DepositTopup{}, dep, http.StatusBadRequest,
+			errors.New("сума поповнення має бути > 0")
+	}
+	return domain.DepositTopup{DepositID: depID, Date: d, Amount: amt}, dep, http.StatusOK, nil
+}
+
 // handleAddDepositTopup — POST /api/term-deposits/{id}/topups.
 // Сума в валюті вкладу; за замовчуванням у UI — тіло відкриття.
 func (s *Server) handleAddDepositTopup(w http.ResponseWriter, r *http.Request) {
@@ -206,51 +253,51 @@ func (s *Server) handleAddDepositTopup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	var req struct {
-		Date   string `json:"date"`
-		Amount string `json:"amount"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	// Валюта поповнення = валюта вкладу; тягнемо вклад, щоб її знати.
-	deps, err := s.st.ListTermDeposits(r.Context())
+	t, _, code, err := s.topupFromReq(r, depID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeErr(w, code, err)
 		return
 	}
-	var cur string
-	for _, d := range deps {
-		if d.ID == depID {
-			cur = d.Currency
-		}
-	}
-	if cur == "" {
-		writeErr(w, http.StatusNotFound, errors.New("вклад не знайдено"))
-		return
-	}
-	d, err := domain.ParseDate(req.Date)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	amt, err := domain.ParseDecimalToMinor(req.Amount, cur)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	if amt <= 0 {
-		writeErr(w, http.StatusBadRequest, errors.New("сума поповнення має бути > 0"))
-		return
-	}
-	id, err := s.st.AddDepositTopup(r.Context(), domain.DepositTopup{DepositID: depID, Date: d, Amount: amt})
+	id, err := s.st.AddDepositTopup(r.Context(), t)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+// handleTermDepositCheck — POST /api/term-deposits/check.
+// Чи вистачить на рахунку банку тіла вкладу. Тіло запиту те саме, що й
+// у POST /api/term-deposits.
+func (s *Server) handleTermDepositCheck(w http.ResponseWriter, r *http.Request) {
+	var req termDepositReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	d, err := termDepositFromReq(req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.writeCashCheck(w, r, cashDebit{Broker: d.Bank, Currency: d.Currency, Amount: d.Principal})
+}
+
+// handleDepositTopupCheck — POST /api/term-deposits/{id}/topups/check.
+// Банк і валюту бере з самого вкладу, як і запис.
+func (s *Server) handleDepositTopupCheck(w http.ResponseWriter, r *http.Request) {
+	depID, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	t, dep, code, err := s.topupFromReq(r, depID)
+	if err != nil {
+		writeErr(w, code, err)
+		return
+	}
+	s.writeCashCheck(w, r, cashDebit{Broker: dep.Bank, Currency: dep.Currency, Amount: t.Amount})
 }
 
 // handleDeleteDepositTopup — DELETE /api/term-deposits/{id}/topups/{topupId}.

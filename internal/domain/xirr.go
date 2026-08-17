@@ -88,12 +88,9 @@ func PortfolioFlows(bonds map[string]Bond, payments []Payment, lots []Lot,
 			continue
 		}
 		lotByID[l.ID] = l
-		out := MulQty(l.PricePerBond, l.Qty)
-		if l.Fee != nil && !l.Fee.IsZero() {
-			var err error
-			if out, err = out.Add(l.Fee); err != nil {
-				return nil, err
-			}
+		out, err := LotCost(l)
+		if err != nil {
+			return nil, err
 		}
 		flows = append(flows, Flow{Date: l.BuyDate, Amount: -out.Amount()})
 	}

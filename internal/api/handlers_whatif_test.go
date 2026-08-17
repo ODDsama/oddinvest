@@ -150,6 +150,9 @@ func TestWhatIfReportsShortfallWithoutBlocking(t *testing.T) {
 	}
 	var got struct {
 		Basket struct {
+			Totals []struct {
+				Amount string `json:"amount"`
+			} `json:"totals"`
 			Shorts []struct {
 				Broker string `json:"broker"`
 				Short  struct {
@@ -164,8 +167,25 @@ func TestWhatIfReportsShortfallWithoutBlocking(t *testing.T) {
 	if len(got.Basket.Shorts) != 1 || got.Basket.Shorts[0].Broker != "mono" {
 		t.Fatalf("нестача не названа: %s", body)
 	}
-	if got.Basket.Shorts[0].Short.Amount == "0.00" {
-		t.Error("нестача нульова")
+	// Точна арифметика, а не «не нуль»: кошик і форма покупки рахують
+	// нестачу одним shortfallMinor, і саме тут видно, що кошик справді
+	// віднімає БАЛАНС, а не щось на нього схоже.
+	//
+	// Сама вартість 500 паперів залежить від НКД на сьогодні, тож у числі
+	// її не фіксуємо — беремо з тієї ж відповіді. Баланс же відомий точно:
+	// 100 000 ₴ поповнення мінус лот 5×995 у whatIfServer.
+	if len(got.Basket.Totals) != 1 {
+		t.Fatalf("чекали один підсумок валюти: %s", body)
+	}
+	const haveMinor = 95_025_00
+	total, err := domain.ParseDecimalToMinor(got.Basket.Totals[0].Amount, money.UAH)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := toMoneyJSON(money.New(total-haveMinor, money.UAH)).Amount
+	if got.Basket.Shorts[0].Short.Amount != want {
+		t.Errorf("нестача %s, чекали %s (кошик %s мінус баланс 95025.00)",
+			got.Basket.Shorts[0].Short.Amount, want, got.Basket.Totals[0].Amount)
 	}
 }
 

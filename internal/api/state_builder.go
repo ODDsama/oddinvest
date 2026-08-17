@@ -268,11 +268,9 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		cash.add(k.Broker, k.Currency, net)
 	}
 	for _, l := range hold.Lots {
-		cost := domain.MulQty(l.PricePerBond, l.Qty)
-		if l.Fee != nil && !l.Fee.IsZero() {
-			if cost, err = cost.Add(l.Fee); err != nil {
-				return nil, err
-			}
+		cost, cerr := domain.LotCost(l.Lot)
+		if cerr != nil {
+			return nil, cerr
 		}
 		cash.add(l.Channel, cost.Currency().Code, -cost.Amount())
 		if u, cerr := fx.ToUAH(cost, rates); cerr == nil {

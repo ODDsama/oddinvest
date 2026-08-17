@@ -91,6 +91,33 @@ func (s *Server) handleAddLot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
+// handleLotCheck — POST /api/lots/check: чи вистачить у брокера грошей
+// на цей лот і скільки бракує.
+//
+// Тіло — той самий lotReq, що й у POST /api/lots, і розбирає його той
+// самий lotFromReq: перевіряти треба рівно те, що потім запишуть.
+// Вартість тут не введена, а виведена з кількості, ціни й комісії — саме
+// тому лоту потрібен власний /check, а не спільний «скільки бракує на
+// суму N».
+func (s *Server) handleLotCheck(w http.ResponseWriter, r *http.Request) {
+	var req lotReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	lot, err := s.lotFromReq(r, req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	d, err := lotDebit(lot)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	s.writeCashCheck(w, r, d)
+}
+
 // handleUpdateLot — правка лота БЕЗ видалення. Видалити й створити заново
 // не те саме: продажі посилаються на лот через lot_id, тож така «правка»
 // осиротила б історію продажів.

@@ -273,7 +273,11 @@ export class OddInvestApp extends HTMLElement {
         <div class="box">
           <p id="confirmPopText"></p>
           <div class="form-actions">
-            <button type="button" class="warn" data-confirm-yes>Видалити</button>
+            <!-- Підпис і клас цієї кнопки виставляє confirmDialog під
+                 кожне питання: діалог один, а питань уже два («видалити?»
+                 і «додати поповнення?»), і зашите слово перетворювало
+                 друге на пропозицію протилежного. -->
+            <button type="button" class="warn" data-confirm-yes></button>
             <button type="button" class="quiet" data-confirm-no>Скасувати</button>
           </div>
         </div>

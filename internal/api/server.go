@@ -42,6 +42,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/ladder", s.handleLadder)
 	mux.HandleFunc("GET /api/lots", s.handleListLots)
 	mux.HandleFunc("POST /api/lots", s.handleAddLot)
+	// /check нічого не пише — лише каже, чи вистачить грошей і скільки
+	// бракує. Форма питає ним ДО запису, щоб запропонувати поповнення.
+	mux.HandleFunc("POST /api/lots/check", s.handleLotCheck)
 	mux.HandleFunc("PUT /api/lots/{id}", s.handleUpdateLot)
 	mux.HandleFunc("DELETE /api/lots/{id}", s.handleDeleteLot)
 	mux.HandleFunc("POST /api/sales", s.handleAddSale)
@@ -85,9 +88,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/funds/{id}", s.handleDeleteFundOp)
 	mux.HandleFunc("GET /api/term-deposits", s.handleTermDeposits)
 	mux.HandleFunc("POST /api/term-deposits", s.handleAddTermDeposit)
+	mux.HandleFunc("POST /api/term-deposits/check", s.handleTermDepositCheck)
 	mux.HandleFunc("PUT /api/term-deposits/{id}", s.handleUpdateTermDeposit)
 	mux.HandleFunc("DELETE /api/term-deposits/{id}", s.handleDeleteTermDeposit)
 	mux.HandleFunc("POST /api/term-deposits/{id}/topups", s.handleAddDepositTopup)
+	mux.HandleFunc("POST /api/term-deposits/{id}/topups/check", s.handleDepositTopupCheck)
 	mux.HandleFunc("DELETE /api/term-deposits/{id}/topups/{topupId}", s.handleDeleteDepositTopup)
 	mux.HandleFunc("GET /api/plan", s.handlePlanTimeline)
 	mux.HandleFunc("GET /api/plan/flows", s.handleListPlanFlows)

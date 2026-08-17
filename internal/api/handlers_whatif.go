@@ -222,17 +222,17 @@ func pickBroker(doc *state.Doc, cur, want string) (string, bool) {
 }
 
 // shortfalls — скільки не вистачає в кожного брокера окремо.
+//
+// Саме віднімання живе в cash_shortfall.go і спільне з формами покупки:
+// кошик і форма відповідають на одне питання, тож рахувати його двічі
+// означало б завести розходження між екраном «що буде» і екраном «пишу».
 func shortfalls(doc *state.Doc, spend map[string]int64) []basketShort {
 	var out []basketShort
 	for key, want := range spend {
 		broker, cur := splitKey(key)
-		have := int64(0)
-		if byCur, ok := doc.Brokers[broker]; ok {
-			have = int64(byCur[cur]*100 + 0.5)
-		}
-		if want > have {
+		if short := shortfallMinor(doc, broker, cur, want); short > 0 {
 			out = append(out, basketShort{Broker: broker, Currency: cur,
-				Short: toMoneyJSON(money.New(want-have, cur))})
+				Short: toMoneyJSON(money.New(short, cur))})
 		}
 	}
 	sortShorts(out)

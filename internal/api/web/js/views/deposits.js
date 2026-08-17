@@ -1,7 +1,7 @@
 // Банківські строкові вклади: форма, поповнення, закриття, архів.
 
 import { esc, today, plural, money as fmtMoney } from "../format.js";
-import { onSubmit, onDelete } from "../forms.js";
+import { onSubmit, onSubmitFunded, onDelete } from "../forms.js";
 import { disclosure } from "../disclosure.js";
 
 
@@ -65,8 +65,13 @@ function depositBody(d, patch) {
 export function wireDeposits(ctx, main) {
   const byId = new Map((ctx._deposits || []).map((d) => [String(d.id), d]));
 
-  onSubmit(ctx, main.querySelector("#termDepForm"), (f) => ({
+  // Відкриття вкладу замикає гроші так само, як покупка паперу їх
+  // витрачає (state_builder.go:320), тож і питання про нестачу те саме.
+  onSubmitFunded(ctx, main.querySelector("#termDepForm"), (f) => ({
     path: "term-deposits",
+    check: "term-deposits/check",
+    date: f.open_date.value,
+    what: "відкриття вкладу",
     body: {
       bank: f.bank.value, currency: f.currency.value,
       principal: f.principal.value.trim(), rate_pct: f.rate_pct.value.trim(),
@@ -110,8 +115,11 @@ export function wireDeposits(ctx, main) {
 
   // Поповнення: сума в валюті вкладу, за замовчуванням = тіло відкриття.
   main.querySelectorAll("[data-topup-form]").forEach((f) =>
-    onSubmit(ctx, f, () => ({
+    onSubmitFunded(ctx, f, () => ({
       path: "term-deposits/" + f.dataset.topupForm + "/topups",
+      check: "term-deposits/" + f.dataset.topupForm + "/topups/check",
+      date: f.date.value,
+      what: "поповнення вкладу",
       body: { date: f.date.value, amount: f.amount.value.trim() },
       msg: "Поповнення додано",
     })));

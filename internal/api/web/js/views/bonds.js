@@ -2,7 +2,7 @@
 // ринку.
 
 import { esc, today, money as fmtMoney } from "../format.js";
-import { onSubmit, onDelete, apply } from "../forms.js";
+import { onSubmit, onSubmitFunded, onDelete, apply } from "../forms.js";
 
 
 export function bondBuyFormHTML(ctx, lots) {
@@ -159,8 +159,13 @@ export function wireBonds(ctx, main) {
     });
   }
 
-  onSubmit(ctx, buyForm, (f) => ({
+  // Купівля йде через onSubmitFunded: якщо на рахунку брокера не
+  // вистачає, форма спершу запропонує поповнити його рівно на нестачу.
+  onSubmitFunded(ctx, buyForm, (f) => ({
     path: "lots",
+    check: "lots/check",
+    date: f.buy_date.value,
+    what: "купівля ОВДП",
     body: {
       isin: f.isin.value.trim(), qty: parseInt(f.qty.value, 10),
       price_per_bond: f.price_per_bond.value.trim(), fee: f.fee.value.trim(),

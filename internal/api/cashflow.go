@@ -128,11 +128,9 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	}
 	// Купівлі паперів — ціна разом із комісією.
 	for _, l := range lots {
-		cost := domain.MulQty(l.PricePerBond, l.Qty)
-		if l.Fee != nil && !l.Fee.IsZero() {
-			if c2, aerr := cost.Add(l.Fee); aerr == nil {
-				cost = c2
-			}
+		cost, cerr := domain.LotCost(l)
+		if cerr != nil {
+			continue
 		}
 		add(l.BuyDate, flowPurchase, -uah(cost), l.ISIN)
 	}
