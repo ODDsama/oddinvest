@@ -24,6 +24,7 @@ export const CAT_COLORS = [
  *  порізно вони роз'їхались би при першій же правці токена. */
 export const EVENT_COLORS = {
   bond: "var(--oi-kind-bond)", deposit: "var(--oi-kind-deposit)", fund: "var(--oi-kind-fund)",
+  npf: "var(--oi-kind-npf)",
 };
 
 // Підписи — найтихіший рівень тексту: вони супроводжують число чи стовпчик,

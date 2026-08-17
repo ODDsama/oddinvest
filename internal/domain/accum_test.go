@@ -254,3 +254,80 @@ func TestDrawdownSellsDistributingBeforeAccumulating(t *testing.T) {
 			"накопичувальну продали першою й заплатили 50%% там, де можна було дочекатись", m)
 	}
 }
+
+// TestAccumContribGrowsTheBucket — планові внески доходять у накопичувальну
+// позицію й компаундяться.
+//
+// Друга половина руху внеску. Перша (мінус у ліквідному) працює сама собою,
+// бо внесок заведений витратою; нове саме те, що ці гроші не зникають.
+func TestAccumContribGrowsTheBucket(t *testing.T) {
+	// Дванадцять внесків по 1000, ставка 0 — щоб перевірялось саме
+	// надходження, а не компаунд.
+	contrib := make([]float64, 12)
+	for i := range contrib {
+		contrib[i] = 1000
+	}
+	a := Accum{Value0: 0, Cost0: 0, RatePct: 0, CloseM: 12, ContribByMonth: contrib}
+	if v := AccumCloseValue(a); v != 12000 {
+		t.Fatalf("дванадцять внесків по 1000 без ставки мали дати 12000, маємо %.2f", v)
+	}
+
+	// Та сама позиція під 12% річних мусить дати БІЛЬШЕ за суму внесків, але
+	// менше, ніж якби вся сума лежала з першого місяця.
+	a.RatePct = 12
+	v := AccumCloseValue(a)
+	if v <= 12000 {
+		t.Errorf("під 12%% дванадцять внесків мали дати більше за 12000, маємо %.2f", v)
+	}
+	if lump := AccumCloseValue(Accum{Value0: 12000, Cost0: 12000, RatePct: 12, CloseM: 12}); v >= lump {
+		t.Errorf("внески частинами не можуть дати більше за ту саму суму з першого місяця: "+
+			"%.2f проти %.2f", v, lump)
+	}
+}
+
+// TestAccumContribRaisesCostSoTaxHitsOnlyGain — внески збільшують
+// собівартість, тож податок при закритті не бере їх за дохід.
+//
+// Без цього НПФ, у який внесли мільйон, показував би податок на весь
+// мільйон — і число лишалось би правдоподібним.
+func TestAccumContribRaisesCostSoTaxHitsOnlyGain(t *testing.T) {
+	contrib := make([]float64, 12)
+	for i := range contrib {
+		contrib[i] = 1000
+	}
+	// Ставка нуль: доходу немає взагалі, отже й податку бути не може.
+	a := Accum{RatePct: 0, CloseM: 12, TaxPct: 13.8, ContribByMonth: contrib}
+	if v := AccumCloseValue(a); v != 12000 {
+		t.Errorf("без доходу податок не має братись: очікували 12000, маємо %.2f", v)
+	}
+}
+
+// TestAccumCloseValueMatchesSimulationWithContrib — подія на осі й
+// симуляція дають те саме число.
+//
+// AccumCloseValue викликається ПОЗА симуляцією (профіль надходжень малює
+// закриття подією), тож це два різні шляхи до однієї суми. Тест стереже,
+// що порядок «зростання → внесок» у них однаковий: переставивши його в
+// одному місці, я отримав би розбіжність, яку видно лише на графіку.
+func TestAccumCloseValueMatchesSimulationWithContrib(t *testing.T) {
+	contrib := make([]float64, 6)
+	for i := range contrib {
+		contrib[i] = 500
+	}
+	a := Accum{Value0: 3000, Cost0: 3000, RatePct: 18, CloseM: 6, TaxPct: 10,
+		ContribByMonth: contrib}
+	want := AccumCloseValue(a)
+
+	// Той самий рукав у симуляції: до закриття нічого не платить, на CloseM
+	// віддає все в готівку. Порогу немає, ставка рукава нуль — щоб released
+	// нічим не приросло після падіння в кеш.
+	s := Sleeve{Currency: "UAH", Rate0: 1, Accum: []Accum{a}}
+	st := s.newState()
+	got := 0.0
+	for m := 1; m <= 6; m++ {
+		got += st.grow(m)
+	}
+	if math.Abs(got-want) > 0.01 {
+		t.Errorf("подія на осі %.2f, симуляція %.2f — порядок дій розійшовся", want, got)
+	}
+}

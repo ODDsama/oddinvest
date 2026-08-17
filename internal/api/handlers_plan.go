@@ -54,7 +54,11 @@ type planFlowReq struct {
 	UntilDate string `json:"until_date,omitempty"`
 	GrowthPct string `json:"growth_pct,omitempty"` // порожньо = 0
 	InvestPct string `json:"invest_pct,omitempty"` // порожньо = 100
-	Note      string `json:"note,omitempty"`
+	// Dest — призначення: порожньо = ліквідний портфель, "npf:<id>" =
+	// внесок у пенсійний рахунок. Знак від цього не залежить: внесок
+	// лишається kind=expense.
+	Dest string `json:"dest,omitempty"`
+	Note string `json:"note,omitempty"`
 }
 
 func planFlowFromReq(req planFlowReq) (store.PlanFlow, error) {
@@ -124,7 +128,8 @@ func planFlowFromReq(req planFlowReq) (store.PlanFlow, error) {
 	}
 	return store.PlanFlow{
 		Name: name, Kind: req.Kind, Amount: amt, Currency: cur, Cadence: req.Cadence,
-		FromDate: from, UntilDate: until, GrowthBP: growth, InvestBP: invest, Note: req.Note,
+		FromDate: from, UntilDate: until, GrowthBP: growth, InvestBP: invest,
+		Dest: strings.TrimSpace(req.Dest), Note: req.Note,
 	}, nil
 }
 
@@ -138,6 +143,7 @@ type planFlowRow struct {
 	UntilDate string    `json:"until_date,omitempty"`
 	GrowthPct float64   `json:"growth_pct,omitempty"`
 	InvestPct float64   `json:"invest_pct"`
+	Dest      string    `json:"dest,omitempty"`
 	Note      string    `json:"note,omitempty"`
 	// ProvidesUAH — скільки цей рядок дає в середньому за найближчі 12
 	// місяців, ₴/міс; GrossUAH — те саме до «частки в портфель».
@@ -183,6 +189,7 @@ func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates, marks pl
 		Amount: toMoneyJSON(money.New(f.Amount, f.Currency)), Cadence: f.Cadence,
 		FromDate: string(f.FromDate), UntilDate: string(f.UntilDate),
 		GrowthPct: round2(float64(f.GrowthBP) / 100), InvestPct: round2(float64(f.InvestBP) / 100),
+		Dest:        f.Dest,
 		Note:        f.Note,
 		ProvidesUAH: round2(planFlowProvidesUAH(f, today, rates, planProvidesMonths, marks)),
 		GrossUAH:    round2(planFlowGrossUAH(f, today, rates, planProvidesMonths, marks)),

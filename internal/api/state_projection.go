@@ -187,6 +187,10 @@ type sleeveFactory struct {
 	// який тобі платять доларом, перекладати нема з чого (див.
 	// newSleeveFactory і Sleeve.ContribNativeByMonth).
 	planNative map[string][]float64
+	// npfContrib — план у пенсійні рахунки: ключ рахунку (npf:<id>) →
+	// помісячний вектор надходжень. Друга половина руху внеску; перша —
+	// звичайний мінус у plan вище. Див. newSleeveFactory.
+	npfContrib map[string][]float64
 	lock       map[string]map[int]float64
 	// shareBreaks — точки зламу валютних часток від дій set_shares,
 	// відсортовані за місяцем. Порожньо = частки з налаштувань незмінні
@@ -320,10 +324,37 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	// проходом зверху: інакше «скільки план дає» рахувалось би з відмітками
 	// в одному місці й без них у другому.
 	marks := newPlanMarks(in.PlanReceipts)
+	// npfContrib — ДРУГА половина руху внеску: скільки надходить у кожен
+	// пенсійний рахунок на кожен місяць.
+	//
+	// Перша половина працює сама собою й нічого тут не потребує: внесок
+	// заведений витратою, planFlowAmount дає його мінусом, і ліквідний бік
+	// худне так само, як від квартплати. Нове саме друге — ці гроші не
+	// зникають, а стають пенсійним капіталом.
+	//
+	// Модуль, а не той самий мінус: у ліквідному боці знак означає напрям
+	// руху, а тут — «скільки прийшло», і від'ємне надходження було б просто
+	// безглуздим.
+	npfContrib := map[string][]float64{}
 	for _, fl := range in.PlanFlows {
 		native := fl.Currency != "" && fl.Currency != money.UAH
 		if native && planNative[fl.Currency] == nil {
 			planNative[fl.Currency] = make([]float64, goalHorizonMonths)
+		}
+		if _, isNPF := domain.ParseNPFPlanDest(fl.Dest); isNPF {
+			if npfContrib[fl.Dest] == nil {
+				npfContrib[fl.Dest] = make([]float64, goalHorizonMonths)
+			}
+			for m := 1; m <= goalHorizonMonths; m++ {
+				// Той самий planFlowMonthlyUAH, що живить ліквідний бік, а не
+				// власна арифметика: періодичність, «до», індексація, частка в
+				// портфель і відмітки надходжень мусять діяти однаково для
+				// обох половин, інакше вони розійдуться саме там, де людина
+				// щось із них змінила.
+				if v := planFlowMonthlyUAH(fl, today, in.Rates, m, marks); v < 0 {
+					npfContrib[fl.Dest][m-1] += -v
+				}
+			}
 		}
 		for m := 1; m <= goalHorizonMonths; m++ {
 			// planTotal лишається гривневим і включає ВСЕ: на ньому стоїть
@@ -339,6 +370,7 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	}
 	f.planTotal = planTotal
 	f.planNative = planNative
+	f.npfContrib = npfContrib
 	f.plan = map[string][]float64{
 		money.UAH: make([]float64, goalHorizonMonths),
 		money.USD: make([]float64, goalHorizonMonths),
@@ -422,7 +454,18 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 		// його не можна.
 		accum, dist := in.AccumByCur[cur], in.DistByCur[cur]
 		if npf := in.NPFAccumByCur[cur]; len(npf) > 0 {
-			accum = append(append([]domain.Accum{}, accum...), npf...)
+			// Копія, а не той самий зріз: сюди дописуються планові внески, а
+			// projectionInput живе довше за один рукав — фабрика збирає його
+			// шість разів під різні сценарії, і мутація вхідних даних
+			// означала б, що другий прогін бачить внески, дописані першим.
+			withContrib := make([]domain.Accum, len(npf))
+			copy(withContrib, npf)
+			for i := range withContrib {
+				if v := f.npfContrib[withContrib[i].Key]; len(v) > 0 {
+					withContrib[i].ContribByMonth = v
+				}
+			}
+			accum = append(append([]domain.Accum{}, accum...), withContrib...)
 		}
 		contrib := contribTotal * share[cur]
 		// План (фаза 9): справжній вектор внеску й дії lock — незалежно

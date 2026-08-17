@@ -3,6 +3,7 @@ package domain
 import (
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -40,6 +41,35 @@ func IsNPFISIN(isin string) bool { return strings.HasPrefix(isin, NPFISINPrefix)
 // підписи). Ім'я, а не id: id — деталь сховища, а на екрані має стояти те,
 // що людина вводила.
 func NPFSyntheticISIN(name string) string { return NPFISINPrefix + name }
+
+// NPFPlanDest — ключ рахунку в plan_flows.dest. ID, а не імʼя, і це
+// НАВМИСНЕ розходження з NPFSyntheticISIN вище.
+//
+// Два ключі, бо два різні питання. Концентрація й підписи звертаються до
+// людини, і «npf:Династія» там єдине, що читається. План — це зв'язок між
+// двома рядками бази, і він мусить пережити перейменування рахунку: інакше
+// виправлення описки в назві тихо відчепило б внески, і проєкція
+// перестала б їх бачити, не сказавши ані слова.
+//
+// Спільний префікс лишається, тож IsNPFISIN ловить обидва. Це не
+// недогляд: обидва означають «це про пенсійний фонд», і місця, де важливо
+// саме котрий саме, розбирають ключ явно (ParseNPFPlanDest).
+func NPFPlanDest(id int64) string {
+	return NPFISINPrefix + strconv.FormatInt(id, 10)
+}
+
+// ParseNPFPlanDest — id рахунку з plan_flows.dest. ok=false для порожнього
+// призначення (ліквідний портфель) і для всього, що не є "npf:<число>".
+func ParseNPFPlanDest(dest string) (int64, bool) {
+	if !IsNPFISIN(dest) {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(strings.TrimPrefix(dest, NPFISINPrefix), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	return id, true
+}
 
 // npfScale — масштаб одиниць і ЧВОПА: обидва ×10⁶.
 const npfScale = 1_000_000

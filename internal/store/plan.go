@@ -31,7 +31,12 @@ type PlanFlow struct {
 	UntilDate domain.Date // "" = безстроково
 	GrowthBP  int64       // індексація, %/рік × 100
 	InvestBP  int64       // яка частка потоку йде в портфель, %×100
-	Note      string
+	// Dest — куди потік потрапляє: "" = ліквідний портфель, "npf:<id>" =
+	// пенсійний рахунок. Знак від цього НЕ залежить: внесок лишається
+	// витратою, бо з ліквідного боку він і є витратою; призначення каже
+	// лише, чи гроші зникли, чи стали іншим капіталом.
+	Dest string
+	Note string
 }
 
 // PlanAction — точкове рішення на дату, у термінах валютного рукава.
@@ -100,10 +105,10 @@ const (
 func journalPlanFlow(ctx context.Context, tx *sql.Tx, at time.Time, op string, f PlanFlow) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO plan_flow_revisions
 		(flow_id, changed_at, op, name, kind, amount, currency, cadence,
-		 from_date, until_date, growth_bp, invest_bp, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 from_date, until_date, growth_bp, invest_bp, dest, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		f.ID, at.UTC().Format(time.RFC3339), op, f.Name, f.Kind, f.Amount, f.Currency,
-		f.Cadence, string(f.FromDate), string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Note)
+		f.Cadence, string(f.FromDate), string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Note)
 	return err
 }
 
@@ -114,10 +119,10 @@ func (s *Store) AddPlanFlow(ctx context.Context, f PlanFlow) (int64, error) {
 	}
 	defer tx.Rollback() //nolint:errcheck // відкат після Commit — no-op
 	res, err := tx.ExecContext(ctx, `INSERT INTO plan_flows
-		(name, kind, amount, currency, cadence, from_date, until_date, growth_bp, invest_bp, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		(name, kind, amount, currency, cadence, from_date, until_date, growth_bp, invest_bp, dest, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, string(f.FromDate),
-		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Note)
+		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -141,9 +146,9 @@ func (s *Store) UpdatePlanFlow(ctx context.Context, f PlanFlow) error {
 	defer tx.Rollback() //nolint:errcheck
 	res, err := tx.ExecContext(ctx, `UPDATE plan_flows SET
 		name=?, kind=?, amount=?, currency=?, cadence=?, from_date=?, until_date=?,
-		growth_bp=?, invest_bp=?, note=? WHERE id=?`,
+		growth_bp=?, invest_bp=?, dest=?, note=? WHERE id=?`,
 		f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, string(f.FromDate),
-		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Note, f.ID)
+		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Note, f.ID)
 	if err != nil {
 		return err
 	}
@@ -171,9 +176,9 @@ func (s *Store) DeletePlanFlow(ctx context.Context, id int64) error {
 	var f PlanFlow
 	var from, until string
 	err = tx.QueryRowContext(ctx, `SELECT id, name, kind, amount, currency, cadence,
-		from_date, until_date, growth_bp, invest_bp, note FROM plan_flows WHERE id=?`, id).
+		from_date, until_date, growth_bp, invest_bp, dest, note FROM plan_flows WHERE id=?`, id).
 		Scan(&f.ID, &f.Name, &f.Kind, &f.Amount, &f.Currency, &f.Cadence,
-			&from, &until, &f.GrowthBP, &f.InvestBP, &f.Note)
+			&from, &until, &f.GrowthBP, &f.InvestBP, &f.Dest, &f.Note)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("плановий потік %w", ErrNotFound)
 	}
@@ -203,7 +208,7 @@ func (s *Store) DeletePlanFlow(ctx context.Context, id int64) error {
 // у тому порядку, у якому вони сталися.
 func (s *Store) ListPlanFlowRevisions(ctx context.Context, since time.Time) ([]PlanFlowRevision, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, flow_id, changed_at, op,
-		name, kind, amount, currency, cadence, from_date, until_date, growth_bp, invest_bp, note
+		name, kind, amount, currency, cadence, from_date, until_date, growth_bp, invest_bp, dest, note
 		FROM plan_flow_revisions WHERE changed_at >= ? ORDER BY changed_at, id`,
 		since.UTC().Format(time.RFC3339))
 	if err != nil {
@@ -216,7 +221,7 @@ func (s *Store) ListPlanFlowRevisions(ctx context.Context, since time.Time) ([]P
 		var at, from, until string
 		if err := rows.Scan(&r.ID, &r.FlowID, &at, &r.Op, &r.Flow.Name, &r.Flow.Kind,
 			&r.Flow.Amount, &r.Flow.Currency, &r.Flow.Cadence, &from, &until,
-			&r.Flow.GrowthBP, &r.Flow.InvestBP, &r.Flow.Note); err != nil {
+			&r.Flow.GrowthBP, &r.Flow.InvestBP, &r.Flow.Dest, &r.Flow.Note); err != nil {
 			return nil, err
 		}
 		// Час, який не розібрався, — нульовий, і реконструкція побачить
@@ -232,7 +237,7 @@ func (s *Store) ListPlanFlowRevisions(ctx context.Context, since time.Time) ([]P
 
 func (s *Store) ListPlanFlows(ctx context.Context) ([]PlanFlow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, kind, amount, currency, cadence,
-		from_date, until_date, growth_bp, invest_bp, note FROM plan_flows ORDER BY from_date, id`)
+		from_date, until_date, growth_bp, invest_bp, dest, note FROM plan_flows ORDER BY from_date, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +247,7 @@ func (s *Store) ListPlanFlows(ctx context.Context) ([]PlanFlow, error) {
 		var f PlanFlow
 		var from, until string
 		if err := rows.Scan(&f.ID, &f.Name, &f.Kind, &f.Amount, &f.Currency, &f.Cadence,
-			&from, &until, &f.GrowthBP, &f.InvestBP, &f.Note); err != nil {
+			&from, &until, &f.GrowthBP, &f.InvestBP, &f.Dest, &f.Note); err != nil {
 			return nil, err
 		}
 		f.FromDate, f.UntilDate = domain.Date(from), domain.Date(until)

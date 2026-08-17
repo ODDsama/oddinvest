@@ -94,8 +94,11 @@ type profilePoint struct {
 // тож на довгому горизонті одноразова подія розмазалась би на квартал і
 // виглядала втричі меншою, ніж вона є.
 type profileEvent struct {
-	Date      string  `json:"date"`
-	Kind      string  `json:"kind"` // bond | deposit | fund
+	Date string `json:"date"`
+	// npf — та сама природа події, що закриття фонду: гроші стають доступні
+	// рівно раз, і в розкладі цього моменту немає. Різниця лише в горизонті —
+	// двадцять пʼять років проти трьох.
+	Kind      string  `json:"kind"` // bond | deposit | fund | npf
 	Label     string  `json:"label"`
 	AmountUAH float64 `json:"amount_uah"`
 }
@@ -653,7 +656,9 @@ func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
 // domain.AccumCloseValue, і тест стереже, що та функція дає рівно те, що
 // випускає симуляція.
 func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
-	refs []store.Fund, today, to domain.Date, rates fx.Rates) []profileEvent {
+	refs []store.Fund, npfRows []state.NPFPositionRow, npfAccounts []domain.NPFAccount,
+	flows []store.PlanFlow, marks planMarks,
+	today, to domain.Date, rates fx.Rates) []profileEvent {
 	var out []profileEvent
 	for _, cf := range cashflow {
 		if cf.Type != domain.PayRedemption || cf.Date < today || cf.Date > to {
@@ -707,6 +712,75 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 			Date: ref.CloseDate, Kind: "fund", Label: r.Fund, AmountUAH: round2(v),
 		})
 	}
+
+	// Пенсійний рахунок — та сама природа події, що закриття фонду: гроші
+	// стають доступні рівно раз, і в розкладі цього моменту немає.
+	//
+	// Різниця одна, і вона на користь НПФ: сума на дату доступу залежить не
+	// лише від зростання, а й від того, скільки ще внесуть до неї, — тому
+	// внески з плану доводяться сюди тим самим вектором, що йде в проєкцію.
+	// Без нього подія показувала б суму, до якої припинили вносити сьогодні.
+	npfByName := map[string]domain.NPFAccount{}
+	for _, a := range npfAccounts {
+		npfByName[a.Name] = a
+	}
+	for _, r := range npfRows {
+		acc, ok := npfByName[r.Name]
+		if !ok || r.AccessDate == "" {
+			continue
+		}
+		access := domain.Date(r.AccessDate)
+		if access < today || access > to {
+			continue
+		}
+		closeM := monthOffsetRaw(today, access)
+		if closeM < 1 {
+			continue
+		}
+		// Внески з плану — тим самим ядром, що живить проєкцію
+		// (planFlowMonthlyUAH), а не власною арифметикою: періодичність,
+		// індексація й відмітки надходжень мусять діяти однаково, інакше
+		// подія на осі й крива капіталу розійшлися б саме там, де людина
+		// щось у плані змінила.
+		var contrib []float64
+		dest := domain.NPFPlanDest(acc.ID)
+		for _, fl := range flows {
+			if fl.Dest != dest {
+				continue
+			}
+			if contrib == nil {
+				contrib = make([]float64, closeM)
+			}
+			for m := 1; m <= closeM; m++ {
+				if v := planFlowMonthlyUAH(fl, today, rates, m, marks); v < 0 {
+					contrib[m-1] += -v
+				}
+			}
+		}
+		if r.ValueUAH <= 0 && contrib == nil {
+			continue
+		}
+		// Ставка НОМІНАЛЬНА власна, а не real_pct: та вже після податку й
+		// знецінення, а тут потрібне саме зростання, з якого податок ще
+		// доведеться взяти. Виміряне витісняє обіцянку — те саме правило, що
+		// в самому рядку позиції.
+		rate := r.NavReturnPct
+		if rate == 0 {
+			rate = r.ExpectedPct
+		}
+		v := domain.AccumCloseValue(domain.Accum{
+			Value0: r.ValueUAH, Cost0: r.CostUAH,
+			RatePct: rate, CloseM: closeM,
+			TaxPct:         float64(acc.IncomeTaxBP) / 100,
+			ContribByMonth: contrib,
+		})
+		if v <= 0 {
+			continue
+		}
+		out = append(out, profileEvent{
+			Date: r.AccessDate, Kind: "npf", Label: r.Name, AmountUAH: round2(v),
+		})
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
 	return out
 }
@@ -755,6 +829,7 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 	// чи фондів — звичайний стан, не привід валити стрічку.
 	termDeposits, _ := s.st.ListTermDeposits(ctx) //nolint:errcheck
 	funds, _ := s.st.ListFunds(ctx)               //nolint:errcheck
+	npfAccounts, _ := s.st.ListNPFAccounts(ctx)   //nolint:errcheck // те саме: НПФ може не бути
 
 	// Дохід портфеля для профілю — тим самим збирачем, що й «Виплати» зі
 	// зведенням. Свого не пишемо: у календаря колись був власний, і фонди
@@ -863,7 +938,8 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 
 	out.Profile = buildPlanProfile(flows, marks, today, to, rates, portfolioCF)
 	if out.Profile != nil {
-		out.Profile.Events = profileEvents(portfolioCF, doc.Funds, funds, today, to, rates)
+		out.Profile.Events = profileEvents(portfolioCF, doc.Funds, funds,
+			doc.NPF, npfAccounts, flows, marks, today, to, rates)
 	}
 	out.History = buildPlanHistory(flows, moves, reserveMoves, snaps, revs, receipts, today, rates)
 	out.FlowRevisions = flowRevisionRows(revs)

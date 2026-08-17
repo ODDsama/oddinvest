@@ -28,6 +28,7 @@ import {
   renderCalendar, calendarPlaceholderHTML,
 } from "./future.js";
 import { goalsHTML, sensitivityHTML } from "./forecast.js";
+import { npfDestOptions } from "../npf.js";
 
 const CADENCE_LABEL = { month: "щомісяця", quarter: "щокварталу", year: "щороку", once: "разово" };
 
@@ -171,7 +172,13 @@ function leversHTML(ctx) {
 // values — уже готові значення полів (flowFormValues), а не сирий рядок
 // API: там валюта лежить усередині amount, нульова індексація взагалі
 // відсутня, і кожен викликач мусив би пам'ятати це сам.
-function flowFields(values = null) {
+// Куди може йти потік. Порожнє призначення першим і завжди: типовий потік —
+// звичайні гроші, і пенсійний рахунок тут виняток, а не норма.
+function destOptions(accounts) {
+  return [["", "ліквідний портфель"], ...npfDestOptions(accounts)];
+}
+
+function flowFields(accounts, values = null) {
   const v = values || {};
   const val = (k, d = "") => `value="${esc(v[k] != null ? v[k] : d)}"`;
   const sel = (k, opts, d) => opts.map(([o, label]) =>
@@ -182,7 +189,7 @@ function flowFields(values = null) {
   // збереження мовчки лишило б їх незміненими, а другий читач вирішив би,
   // що форма їх з'їла.
   const nonDefault = values && (v.until_date || +v.growth_pct !== 0
-    || +v.invest_pct !== 100 || v.note);
+    || +v.invest_pct !== 100 || v.dest || v.note);
   return `
     <label>Назва<input name="name" placeholder="Зарплата" ${val("name")} required></label>
     <label>Тип<select name="kind">${sel("kind", [["income", "дохід"], ["expense", "витрата"]], "income")}</select></label>
@@ -199,8 +206,11 @@ function flowFields(values = null) {
         min="-99.99" max="100" ${val("growth_pct", "0")}></label>
       <label>Частка в портфель, %<input name="invest_pct" type="number" step="0.01"
         min="0" max="100" ${val("invest_pct", "100")}></label>
+      <label title="Витрата з призначенням у пенсійний — це не зʼїдені гроші, а переказ:
+        ліквідне худне, пенсійний капітал росте. Без призначення проєкція вважала б їх витраченими">
+        Призначення<select name="dest">${sel("dest", destOptions(accounts), "")}</select></label>
       <label>Нотатка<input name="note" ${val("note")}></label>`,
-    "до дати, індексація, частка, нотатка", !!nonDefault)}`;
+    "до дати, індексація, частка, призначення, нотатка", !!nonDefault)}`;
 }
 
 // Значення полів із рядка API. Тут зібрані всі чотири місця, де форма
@@ -221,6 +231,7 @@ function flowFormValues(f) {
     until_date: f.until_date || "",
     growth_pct: f.growth_pct != null ? f.growth_pct : 0,
     invest_pct: f.invest_pct != null ? f.invest_pct : 100,
+    dest: f.dest || "",
     note: f.note || "",
   };
 }
@@ -240,6 +251,7 @@ function flowBodyFromValues(v) {
     until_date: v.until_date || "",
     growth_pct: String(v.growth_pct ?? 0).trim() || "0",
     invest_pct: String(v.invest_pct ?? 100).trim() || "100",
+    dest: String(v.dest || "").trim(),
     note: String(v.note || "").trim(),
   };
 }
@@ -251,12 +263,13 @@ function flowBody(f) {
     currency: f.currency.value, cadence: f.cadence.value,
     from_date: f.from_date.value, until_date: f.until_date.value,
     growth_pct: f.growth_pct.value, invest_pct: f.invest_pct.value,
+    dest: f.dest ? f.dest.value : "",
     note: f.note.value,
   });
 }
 
-export function planFlowFormHTML() {
-  return `<form id="planFlowForm">${flowFields()}
+export function planFlowFormHTML(ctx) {
+  return `<form id="planFlowForm">${flowFields((ctx || {}).npfAccounts)}
     <div class="form-actions"><button type="submit">Додати</button></div>
   </form>`;
 }
@@ -358,7 +371,8 @@ export function planFlowsListHTML(flows, provides = 0) {
     // перед «2 січня», бо порівнювались би рядки, а не дні.
     .sort((a, b) => a.from_date < b.from_date ? -1 : a.from_date > b.from_date ? 1 : 0)
     .map((f) => `<tr>
-      <td>${esc(f.name)}${f.note ? ` <span class="muted fine-xs">${esc(f.note)}</span>` : ""}</td>
+      <td>${esc(f.name)}${f.note ? ` <span class="muted fine-xs">${esc(f.note)}</span>` : ""}${
+  f.dest ? `<div class="fine-xs"><span class="pill pill-npf">НПФ</span> переказ, а не витрата</div>` : ""}</td>
       <td><span class="pill ${f.kind === "income" ? "coupon" : "redemption"}">${
   f.kind === "income" ? "дохід" : "витрата"}</span></td>
       <td class="num">${fmtMoney(f.amount)}</td>
@@ -1299,7 +1313,7 @@ export async function renderPlan(ctx, main) {
           вгорі; підсумок під таблицею розкладає його на складники.</div>
         ${planFlowsListHTML(flows, (ctx.summary || {}).plan_provides_uah || 0)}
         ${revisionsHTML((timeline || {}).flow_revisions || [])}
-        ${planFlowFormHTML()}
+        ${planFlowFormHTML(ctx)}
       </div>
       <div class="card">
         <h2 class="card-head"><span>Дії ${infoBtn("planActions")}</span></h2>
@@ -1349,7 +1363,7 @@ function wirePlanFlows(ctx, main, flows) {
   main.querySelectorAll("[data-editflow]").forEach((b) => b.addEventListener("click", () => {
     const f = byId.get(b.dataset.editflow);
     if (!f) return;
-    openEdit(ctx, { title: `Правка потоку «${esc(f.name)}»`, fields: flowFields(flowFormValues(f)) },
+    openEdit(ctx, { title: `Правка потоку «${esc(f.name)}»`, fields: flowFields(ctx.npfAccounts, flowFormValues(f)) },
       (form2) => ({
         method: "PUT", path: "plan/flows/" + f.id, body: flowBody(form2), msg: "Потік змінено",
       }));
