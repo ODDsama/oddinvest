@@ -1,9 +1,10 @@
-// Єдина таблиця позицій: ОВДП, фонди, вклади й резерв в одному списку.
+// Єдина таблиця позицій: ОВДП, фонди, НПФ, вклади й резерв в одному
+// списку.
 //
 // Один рядок на інструмент, розкриття показує деталі саме його виду —
-// лоти в облігації, операції у фонді, поповнення у вкладі. Резерв стоїть
-// тут теж, хоч інструментом і не є: він частина капіталу, і питання «що я
-// маю» без нього неповне.
+// лоти в облігації, операції у фонді, внески й ЧВОПА в пенсійному,
+// поповнення у вкладі. Резерв стоїть тут теж, хоч інструментом і не є: він
+// частина капіталу, і питання «що я маю» без нього неповне.
 
 import {
   esc, curSym, today, dayMonth, pct, daysUntil,
@@ -14,6 +15,7 @@ import { infoBtn } from "../info.js";
 import { yieldPair, empty, kindPill } from "../components.js";
 import { routeFor } from "../routes.js";
 import { fundTable } from "../fund-ops.js";
+import { npfDetailHTML } from "../npf.js";
 import { isOpen, remember } from "../uistate.js";
 
 
@@ -211,6 +213,33 @@ function positionItems(ctx, positions, lots, sales, deposits) {
     };
   });
 
+  // НПФ. Стоїть серед інструментів, а не поруч із резервом: він
+  // компаундиться, він просто неліквідний.
+  const npf = ((ctx.summary || {}).npf || []).map((n) => {
+    const gain = n.gain_uah || 0;
+    const gainTone = gain >= 0 ? "t-ok" : "t-danger";
+    const due = n.contrib_due
+      ? `<div class="sub-xs t-warn">⚠ внеску за цей місяць ще немає</div>` : "";
+    return {
+      key: "npf:" + n.name, kind: "npf",
+      name: `<b>${esc(n.name)}</b>${due}<div class="sub-xs">${esc(n.administrator || "пенсійний фонд")}</div>`,
+      invested: fmtUAH(n.cost_uah || 0),
+      value: `${fmtUAH(n.value_uah || 0)}<div class="sub-xs ${gainTone}">${gain >= 0 ? "+" : ""}${fmtUAH(gain)}</div>`,
+      // Номінальна йде за ОСНОВОЮ, як у фонда: коли real_pct порахований з
+      // обіцянки, поруч мусить стояти обіцянка, а не виміряне зростання
+      // ЧВОПА, — інакше в рядку стояла б пара з різних джерел.
+      pct: n.real_pct, basis: n.yield_basis,
+      nominal: n.yield_basis === "обіцяно фондом" ? n.expected_pct : n.nav_return_pct,
+      // Ніколи «безстроково»: строк у НПФ є, він просто довший за все інше,
+      // і саме він — найважливіше, що варто знати про цей інструмент.
+      term: n.access_date
+        ? `${esc(n.access_date)}<div class="sub-xs">замкнено · ${daysUntil(n.access_date)} дн.</div>`
+        : `<span class="muted">дату доступу не задано</span>`,
+      actions: "", sortBy: n.value_uah || 0,
+      detail: npfDetailHTML(ctx, n),
+    };
+  });
+
   // Резерв — один рядок, не список: журнал рухів живе в «Грошах», а тут
   // питання «що я маю». Останнім навмисно: він нічого не заробляє, тож
   // серед інструментів йому не місце, але й ховати його не можна — він
@@ -236,7 +265,8 @@ function positionItems(ctx, positions, lots, sales, deposits) {
   }] : [];
 
   const bySize = (a, b) => b.sortBy - a.sortBy;
-  return [...bonds.sort(bySize), ...funds.sort(bySize), ...deps.sort(bySize), ...res];
+  return [...bonds.sort(bySize), ...funds.sort(bySize), ...npf.sort(bySize),
+    ...deps.sort(bySize), ...res];
 }
 
 export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
@@ -272,7 +302,7 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
 
   return `<div class="card"><h2 class="h-row">Позиції ${infoBtn("positions")}</h2>
     <div class="table-scroll"><table class="pos-table">
-      <caption class="sr-only">Позиції портфеля: ОВДП, фонди, вклади й резерв</caption>
+      <caption class="sr-only">Позиції портфеля: ОВДП, фонди, НПФ, вклади й резерв</caption>
       <thead><tr>
       <th class="col-kind" scope="col">Тип</th><th scope="col">Назва</th>
       <th class="num" scope="col" data-prio="3">Вкладено</th>

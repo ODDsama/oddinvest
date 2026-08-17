@@ -84,6 +84,41 @@ export function catalogsHTML(ctx) {
   const funds = (ctx.fundCatalog || []).length
     ? ctx.fundCatalog.map((f) => catalogRowHTML(f, fundFields(f))).join("")
     : `<div class="sub">Фондів ще немає — вони зʼявляться після першої купівлі сертифікатів.</div>`;
+  // НПФ, на відміну від фондів, СТВОРЮЄТЬСЯ тут: у фонда рахунок заводить
+  // перша операція з виписки, а пенсійний рахунок мусить існувати до
+  // першого внеску — інакше внеску нема куди записати.
+  const npfFields = (a) => [
+    { key: "administrator", value: a.administrator || "", w: 110, ph: "адміністратор",
+      title: "Хто веде рахунок. Контрагент, а не мій рахунок: із нього нічого не списати, "
+        + "тому в брокерах його немає. У концентрації за контрагентом він є" },
+    { key: "currency", value: a.currency, w: 70, title: "Валюта рахунку" },
+    { key: "nav", value: a.nav ? a.nav.toFixed(6) : "", w: 100, ph: "ЧВОПА",
+      title: "Остання відома чиста вартість одиниці пенсійних активів. Може бути свіжішою за "
+        + "останній внесок: її оновлюють руками з кабінету" },
+    { key: "nav_date", value: a.nav_date || "", w: 110, ph: "на дату",
+      title: "На яку дату ЧВОПА відома. Обовʼязкова разом зі значенням: модель порівнює дати, "
+        + "обираючи найсвіжіше джерело між довідником і внесками" },
+    { key: "expected_yield_pct", value: a.expected_yield_pct || "", w: 84, ph: "дохідн., %",
+      title: "Обіцяна дохідність. Показується, доки не набереться двох точок ЧВОПА для виміряної" },
+    { key: "yield_simple_years", value: a.yield_simple_years || "", w: 92, ph: "проста, р.", num: true,
+      title: "Лише якщо дохідність названа ПРОСТОЮ середньорічною: скільки років вона охоплює. "
+        + "Проста 15% за 3 роки — це 13.19% складних" },
+    { key: "access_date", value: a.access_date || "", w: 110, ph: "доступ з",
+      title: "Коли виплати стають законними — 50 років, тобто 10 до державної пенсії. "
+        + "Задає строк замка й місяць, коли гроші входять у проєкцію" },
+    { key: "income_tax_pct", value: a.income_tax_pct || "", w: 84, ph: "податок, %",
+      title: "Податок на виплату на пенсії. За п. 170.8.2 ПКУ 40% виплати на визначений строк "
+        + "звільнено, тобто оподатковується 60%: ПДФО 18% + ВЗ 5% дають ефективні 13.8%" },
+    { key: "credit_rate_pct", value: a.credit_rate_pct || "", w: 92, ph: "знижка, %",
+      title: "Ставка ПДФО-знижки на внески — 18%. Оцінка знижки нікуди не входить: "
+        + "її ще треба отримати декларацією до 31 грудня наступного року" },
+    { key: "contrib_day", value: a.contrib_day || "", w: 76, ph: "день", num: true,
+      title: "Число місяця, коли планую вносити. З нього вмикається нагадування «цього місяця "
+        + "внеску ще немає»; гасне саме, щойно внесок зʼявиться. Порожньо = не нагадувати" },
+  ];
+  const npf = (ctx.npfAccounts || []).length
+    ? ctx.npfAccounts.map((a) => catalogRowHTML(a, npfFields(a))).join("")
+    : `<div class="sub">Пенсійних рахунків ще немає.</div>`;
   return `<div class="card" id="brokerCard">
       <h2 class="h-row">Брокери ${infoBtn("setBrokers")}</h2>
       ${brokers}
@@ -95,6 +130,16 @@ export function catalogsHTML(ctx) {
     <div class="card" id="fundCatalogCard">
       <h2 class="h-row">Фонди ${infoBtn("setFunds")}</h2>
       ${funds}
+    </div>
+    <div class="card" id="npfCatalogCard">
+      <h2 class="h-row">Пенсійні фонди (НПФ) ${infoBtn("setNPF")}</h2>
+      ${npf}
+      <form id="npfAddForm" class="row-h mt">
+        <input name="name" class="w-xl" placeholder="назва фонду" autocomplete="off">
+        <div class="form-actions"><button type="submit">Додати</button></div>
+      </form>
+      <div class="sub-xs muted">Внески записуються в «Портфелі», у рядку рахунку. Тут — те, чого
+        з внесків не вивести: дата доступу, обидва податки й день нагадування.</div>
     </div>`;
 }
 
@@ -137,6 +182,16 @@ export function bindCatalog(ctx, card, path) {
 export function bindBrokers(ctx, main) {
   bindCatalog(ctx, main.querySelector("#brokerCard"), "brokers");
   bindCatalog(ctx, main.querySelector("#fundCatalogCard"), "fund-catalog");
+  bindCatalog(ctx, main.querySelector("#npfCatalogCard"), "npf-accounts");
+  onSubmit(ctx, main.querySelector("#npfAddForm"), (f) => {
+    const name = f.name.value.trim();
+    if (!name) return null;
+    if ((ctx.npfAccounts || []).some((a) => a.name.toLowerCase() === name.toLowerCase())) {
+      ctx.toast("Такий пенсійний фонд уже є", false);
+      return null;
+    }
+    return { path: "npf-accounts", body: { name }, msg: "Пенсійний фонд додано" };
+  });
   onSubmit(ctx, main.querySelector("#brokerAddForm"), (f) => {
     const name = f.broker.value.trim();
     if (!name) return null;
@@ -288,8 +343,24 @@ export async function renderSettings(ctx, main) {
         <label>Ціль ОВДП, %<input name="target_bonds_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_bonds_pct || "")}"></label>
         <label>Ціль фондів, %<input name="target_funds_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_funds_pct || "")}"></label>
         <label>Ціль вкладів, %<input name="target_deposits_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_deposits_pct || "")}"></label>
+        <label>Ціль НПФ, %<input name="target_npf_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_npf_pct || "")}"></label>
         <div class="form-actions"><button type="submit">Зберегти</button></div>
       </form>
+    </div>
+
+    <div class="card">
+      <h2 class="h-row">Податкова знижка на внески в НПФ ${infoBtn("setNPFCredit")}</h2>
+      <form id="npfCreditForm">
+        <label>Утриманий за рік ПДФО, ₴<input name="npf_credit_pdfo_year_uah" inputmode="decimal"
+          placeholder="порожньо = знижку не рахувати" value="${esc(s.npf_credit_pdfo_year_uah || "")}"></label>
+        <label>Ліміт внеску за місяць, ₴<input name="npf_credit_cap_month_uah" inputmode="decimal"
+          placeholder="4660 у 2026" value="${esc(s.npf_credit_cap_month_uah || "")}"></label>
+        <div class="form-actions"><button type="submit">Зберегти</button></div>
+      </form>
+      <div class="sub-xs muted">Перше поле — і перемикач, і стеля: держава повертає сплачене, а не
+        дарує. Порожньо = знижка не рахується. Працює лише проти ЗАРПЛАТИ: дохід ФОПа права на неї
+        не дає. Ліміт щороку інший — прожитковий мінімум працездатних на 1 січня × 1,4.
+        Оцінка нікуди не входить: ні в капітал, ні в календар, ні в проєкцію.</div>
     </div>
 
     <div class="card">
@@ -361,7 +432,10 @@ export async function renderSettings(ctx, main) {
   wireStrategy(ctx, main, s);
   onSubmit(ctx, main.querySelector("#rankForm"), settingsPut(["reinvest_rank"]));
   onSubmit(ctx, main.querySelector("#kindTargetsForm"), settingsPut([
-    "target_bonds_pct", "target_funds_pct", "target_deposits_pct",
+    "target_bonds_pct", "target_funds_pct", "target_deposits_pct", "target_npf_pct",
+  ]));
+  onSubmit(ctx, main.querySelector("#npfCreditForm"), settingsPut([
+    "npf_credit_pdfo_year_uah", "npf_credit_cap_month_uah",
   ]));
   onSubmit(ctx, main.querySelector("#limitsForm"), settingsPut([
     "limit_isin_pct", "limit_broker_pct", "limit_year_pct",

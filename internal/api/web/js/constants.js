@@ -42,4 +42,6 @@ export const PAYOUT_LABEL = { end: "у кінці строку", monthly: "що�
 
 /** Вид інструмента одним словом — для пігулки. Спільний, бо та сама
     пігулка стоїть і в таблиці позицій, і в порадах «Що купити». */
-export const KIND_LABEL = { bond: "ОВДП", fund: "Фонд", deposit: "Вклад", reserve: "Резерв" };
+export const KIND_LABEL = {
+  bond: "ОВДП", fund: "Фонд", deposit: "Вклад", reserve: "Резерв", npf: "НПФ",
+};

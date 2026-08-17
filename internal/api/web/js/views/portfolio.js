@@ -22,6 +22,7 @@
 
 import { infoBtn } from "../info.js";
 import { setFundOps, wireFundOps } from "../fund-ops.js";
+import { setNPF, wireNPF } from "../npf.js";
 import { disclosure, section, wireDisclosures } from "../disclosure.js";
 import { positionsTableHTML, wirePositions } from "./positions.js";
 import { yieldTilesHTML } from "./risk.js";
@@ -54,14 +55,20 @@ function entryCardHTML(ctx, lots) {
 // за замовчуванням, «Як росте» — ні, бо саме заради неї сюди заходять
 // частіше, ніж заради форми.
 export async function renderPortfolio(ctx, main) {
-  const [positions, lots, sales, ops, deposits] = await Promise.all([
+  const [positions, lots, sales, ops, deposits, npfAcc, npfOps, npfNav] = await Promise.all([
     ctx.api("GET", "positions"),
     ctx.api("GET", "lots"),
     ctx.api("GET", "sales"),
     ctx.soft("funds", []),
     ctx.soft("term-deposits", []),
+    // М'яко, як фонди й вклади: на старій БД НПФ немає, і валити через це
+    // весь розділ означало б показати порожній екран замість портфеля.
+    ctx.soft("npf-accounts", []),
+    ctx.soft("npf", []),
+    ctx.soft("npf-nav", []),
   ]);
   setFundOps(ops);
+  setNPF({ accounts: npfAcc, ops: npfOps, nav: npfNav });
   ctx._deposits = deposits; // wireDeposits реконструює вклад для закриття
 
   const chart = await chartBlockHTML(ctx);
@@ -81,6 +88,7 @@ export async function renderPortfolio(ctx, main) {
   wirePositions(ctx, main);
   wireBonds(ctx, main);
   wireFundOps(ctx, main);
+  wireNPF(ctx, main);
   wireDeposits(ctx, main);
   wireHistory(ctx, main);
   // Останнім: до цього моменту вся розмітка вже на місці, включно з тією,

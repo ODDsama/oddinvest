@@ -40,7 +40,8 @@ export function snapNonZero(s) {
   // «порожні до появи портфеля» — і крива «Як росте» показувала б
   // «недостатньо знімків», хоч історія за місяці є.
   return (s.invested_uah || 0) > 0 || (s.nominal_uah_eq || 0) > 0 || (s.account_uah || 0) > 0 ||
-    (s.funds_uah || 0) > 0 || (s.deposits_uah || 0) > 0 || (s.reserve_uah || 0) > 0;
+    (s.funds_uah || 0) > 0 || (s.deposits_uah || 0) > 0 || (s.reserve_uah || 0) > 0 ||
+    (s.npf_uah || 0) > 0;
 }
 
 // Собівартість дня зі ЗНІМКА: облігації + фонди + вклади + резерв.
@@ -63,10 +64,17 @@ export function snapNonZero(s) {
 // null, якщо фонди є, а їхньої собівартості в знімку ще не писали: без
 // неї сума занижена рівно на вартість фондів, і різниця з капіталом
 // прочиталась би як прибуток, якого не було.
+// НПФ — рівно той самий випадок, що фонди, і найдорожчий із усіх: внески
+// відрізняються від вартості, тож без npf_cost_uah у цій сумі прибуток на
+// кривій завищився б на ВЕСЬ пенсійний баланс. Охорона на рядок нижче
+// дзеркалить фондову: якщо пенсійні активи в знімку є, а їхньої
+// собівартості тоді не писали, чесніше не малювати прибуток зовсім, ніж
+// намалювати завищений.
 function snapCostUAH(s) {
   if ((s.funds_uah || 0) > 0 && !(s.funds_cost_uah > 0)) return null;
+  if ((s.npf_uah || 0) > 0 && !(s.npf_cost_uah > 0)) return null;
   return (s.invested_uah || 0) + (s.funds_cost_uah || 0) + (s.deposits_uah || 0) +
-    (s.reserve_uah || 0);
+    (s.reserve_uah || 0) + (s.npf_cost_uah || 0);
 }
 
 const RANGE_KEY = "oddinvest.planRange";
@@ -106,6 +114,9 @@ function capitalCardHTML(ctx, snaps) {
   const areas = [
     { name: "ОВДП (номінал)", color: "var(--oi-series-nominal)", area: true, values: snaps.map((s) => s.nominal_uah_eq || 0) },
     { name: "Фонди", color: "var(--oi-series-funds)", area: true, values: snaps.map((s) => s.funds_uah || 0) },
+    // НПФ — серед працюючих, а не поруч із резервом: він компаундиться, він
+    // просто неліквідний. Порядок стосу читається як «що працює → що ні».
+    { name: "НПФ", color: "var(--oi-series-npf)", area: true, values: snaps.map((s) => s.npf_uah || 0) },
     { name: "Вклади", color: "var(--oi-series-deposits)", area: true, values: snaps.map((s) => s.deposits_uah || 0) },
     { name: "Рахунок", color: "var(--oi-series-account)", area: true, values: snaps.map((s) => s.account_uah || 0) },
     // Резерв — верхньою смугою: він не працює, тож логічно лежить над
@@ -255,10 +266,12 @@ export function snapshotsTableHTML(ctx) {
   const hasDeps = rows.some((s) => (s.deposits_uah || 0) > 0);
   const hasAcc = rows.some((s) => (s.account_uah || 0) > 0);
   const hasRes = rows.some((s) => (s.reserve_uah || 0) > 0);
+  const hasNPF = rows.some((s) => (s.npf_uah || 0) > 0);
   const col = (on, head, cell) => on ? { head, cell } : null;
   const cols = [
     { head: `<th class="num">ОВДП</th>`, cell: (s) => fmtUAH(s.nominal_uah_eq) },
     col(hasFunds, `<th class="num">Фонди</th>`, (s) => fmtUAH(s.funds_uah || 0)),
+    col(hasNPF, `<th class="num">НПФ</th>`, (s) => fmtUAH(s.npf_uah || 0)),
     col(hasDeps, `<th class="num">Вклади</th>`, (s) => fmtUAH(s.deposits_uah || 0)),
     col(hasAcc, `<th class="num">Рахунок</th>`, (s) => fmtUAH(s.account_uah || 0)),
     col(hasRes, `<th class="num">Резерв</th>`, (s) => fmtUAH(s.reserve_uah || 0)),
@@ -269,9 +282,10 @@ export function snapshotsTableHTML(ctx) {
   // сховаєш — тож тут те саме доводиться сказати словами.
   const gap = (hasDeps && rows.some((s) => !(s.deposits_uah > 0)))
     || (hasFunds && rows.some((s) => !(s.funds_uah > 0)))
+    || (hasNPF && rows.some((s) => !(s.npf_uah > 0)))
     ? `<div class="sub mt-sm">Нулі на ранніх днях означають «тоді ще не записували
-       в історію», а не «тоді цього не було»: колонки фондів і вкладів з'явились у знімку пізніше
-       за самі інструменти.</div>` : "";
+       в історію», а не «тоді цього не було»: колонки фондів, вкладів і НПФ з'явились у знімку
+       пізніше за самі інструменти.</div>` : "";
   return `<div class="card">${disclosure("snaps", "Останні знімки", `
     <div class="table-scroll"><table>
       <thead><tr><th>Дата</th><th class="num">Вкладено</th>${cols.map((c) => c.head).join("")}</tr></thead>

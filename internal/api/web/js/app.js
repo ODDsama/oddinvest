@@ -158,6 +158,7 @@ export class OddInvestApp extends HTMLElement {
       summary: this._summary,
       brokers: this._brokers,
       fundCatalog: this._fundCatalog,
+      npfAccounts: this._npfAccounts,
       root: this.shadowRoot,
       toast: (msg, ok) => this._toast(msg, ok),
       goto: (what) => this._goto(what),
@@ -467,14 +468,19 @@ export class OddInvestApp extends HTMLElement {
   // тягнемо разом зі зведенням: випадайки брокерів малюються в кожному
   // розділі, тож на момент рендеру список має вже бути.
   async _loadSummaryData() {
-    const [s, brokers, funds] = await Promise.all([
+    const [s, brokers, funds, npf] = await Promise.all([
       this._api("GET", "summary"),
       this._store.soft("brokers", []),
       this._store.soft("fund-catalog", []),
+      // Довідник НПФ разом зі зведенням, як і решта: його читають і
+      // «Налаштування» (картка рахунків), і «Портфель» (деталі рядка), тож
+      // на момент рендеру список має вже бути.
+      this._store.soft("npf-accounts", []),
     ]);
     this._summary = s;
     this._brokers = brokers || [];
     this._fundCatalog = funds || [];
+    this._npfAccounts = npf || [];
     const avail = this.shadowRoot.getElementById("avail");
     avail.textContent = s.generated_at ? "стан на " + new Date(s.generated_at).toLocaleString("uk-UA") : "";
   }
