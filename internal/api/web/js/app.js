@@ -28,7 +28,7 @@ import { renderOverview } from "./views/overview.js";
 import { renderPortfolio } from "./views/portfolio.js";
 import { renderRisk } from "./views/risk-tab.js";
 import { renderMoney } from "./views/money.js";
-import { renderPlan } from "./views/plan.js";
+import { renderPlan } from "./views/plan-view.js";
 import { renderSettings } from "./views/settings.js";
 
 // Знак: три квадрати, складені сходами. Один квадрат — один папір, і
