@@ -161,7 +161,7 @@ export function nbuStaleHTML(ctx) {
 // на весь довідник, тож тут свідомо лише верхівка.
 // Дієслово дії. Іменник несе сама назва (suggestTitle), інакше виходило б
 // «докласти у вклад вклад ПУМБ».
-const KIND_ACTION = { bond: "купити", fund: "купити", deposit: "поповнити" };
+const KIND_ACTION = { bond: "купити", fund: "купити", deposit: "поповнити", npf: "внести" };
 
 // Заголовок рядка: ISIN / «сертифікат X» / «вклад Банк». Другий рядок —
 // уточнення природи: у паперу й вкладу є строк, у сертифіката немає.
@@ -175,6 +175,12 @@ function suggestTitle(r) {
     // номінальною в тому самому рядку.
     return { name: `вклад ${esc(r.label)}`, sub: `${curSym(r.currency)} · ставка ${pct(r.rate_pct)} · до ${monthYearGen(r.maturity)}` };
   }
+  if (r.kind === "npf") {
+    // Замок у підписі, а не в розкритті: це головне, що відрізняє цей
+    // рядок від решти списку, і побачити його треба ДО того, як порівняєш
+    // дохідність із сусідньою.
+    return { name: `НПФ ${esc(r.label)}`, sub: `${curSym(r.currency)} · замкнено до ${esc(r.locked_until || "?")}` };
+  }
   return { name: esc(r.label || r.isin), sub: `${curSym(r.currency)} · до ${monthYearGen(r.maturity)}` };
 }
 
@@ -185,6 +191,9 @@ function suggestName(r) {
   // Ставка лишається при вкладі: це умова договору, а не дохідність, і
   // саме вона відрізняє два вклади в одній валюті один від одного.
   if (r.kind === "deposit") return `${esc(r.label)} <span class="muted">${pct(r.rate_pct)}</span>`;
+  // Замок у самій назві: без нього рядок читається як звичайна
+  // альтернатива вкладу, а він нею не є ні на день.
+  if (r.locked) return `${esc(r.label)} <span class="t-warn">🔒 до ${esc(r.locked_until || "?")}</span>`;
   return esc(r.label || r.isin);
 }
 
@@ -215,7 +224,7 @@ export function reinvestHTML(ctx) {
   const item = (r) => {
     const key = `${r.kind || "bond"}|${r.currency}`;
     const open = isOpen(OPEN_SCOPE, key);
-    const kind = r.kind === "fund" ? "fund" : r.kind === "deposit" ? "deposit" : "bond";
+    const kind = ["fund", "deposit", "npf"].includes(r.kind) ? r.kind : "bond";
     const cost = r.cost_per_bond ? fmtCur(Number(r.cost_per_bond.amount), curSym(r.currency)) : "";
     const purseCur = Math.max(0, ...Object.values(s.brokers || {}).map((m) => m[r.currency] || 0));
     const need = Number((r.cost_per_bond || {}).amount || 0) - purseCur;

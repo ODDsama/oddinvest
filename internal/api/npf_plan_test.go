@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -284,5 +285,97 @@ func TestTaxCreditsAbsentForCustomRange(t *testing.T) {
 	}
 	if len(tax.Credits) != 0 {
 		t.Errorf("на довільному відрізку знижки бути не має, маємо %d", len(tax.Credits))
+	}
+}
+
+// TestNPFSuggestionAlwaysBelowLiquid — замкнена пропозиція стоїть нижче за
+// ліквідну в УСІХ режимах ранжування, навіть коли її дохідність вища.
+//
+// Це і є весь сенс стадії 5. Штрафувати RealPct коефіцієнтом неліквідності
+// було б вигаданим числом у головній колонці списку; замість цього замок
+// вирішує ПОРЯДОК — твердження про непорівнянність, а не про якість. Тест
+// прогонить усі чотири режими, бо саме «в усіх» тут і є вимогою: у режимі
+// «за дохідністю» спокуса пустити вищий рядок нагору найсильніша.
+func TestNPFSuggestionAlwaysBelowLiquid(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	navDate := time.Now().Format("2006-01-02")
+	access := time.Now().AddDate(25, 0, 0).Format("2006-01-02")
+
+	// Вклад із помірною ставкою — ліквідна альтернатива.
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"deposit_rate_uah_pct":"16","deposit_min_uah":"5000"}`); resp.StatusCode != 204 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+	// Пенсійний рахунок із ЗАВИЩЕНОЮ обіцянкою: 40% — щоб його реальна
+	// дохідність гарантовано перебила вклад. Якби порядок вирішувала
+	// дохідність, він став би першим.
+	acc := `{"name":"Династія","currency":"UAH","nav":"2.0","nav_date":"` + navDate + `",
+		"expected_yield_pct":"40","access_date":"` + access + `","income_tax_pct":"13.8",
+		"payout_years":10,"payout_freq":"month"}`
+	resp, b := do(t, "POST", srv.URL+"/api/npf-accounts", acc)
+	if resp.StatusCode != 201 {
+		t.Fatalf("рахунок: %d %s", resp.StatusCode, b)
+	}
+	var created struct{ ID int64 }
+	if err := json.Unmarshal([]byte(b), &created); err != nil {
+		t.Fatal(err)
+	}
+	op := `{"npf_id":` + strconv.FormatInt(created.ID, 10) + `,"date":"` + navDate + `",
+		"amount":"1000","units":"500"}`
+	if resp, b := do(t, "POST", srv.URL+"/api/npf", op); resp.StatusCode != 201 {
+		t.Fatalf("внесок: %d %s", resp.StatusCode, b)
+	}
+
+	type row struct {
+		Kind    string  `json:"kind"`
+		Locked  bool    `json:"locked"`
+		RealPct float64 `json:"real_pct"`
+		Basis   string  `json:"yield_basis"`
+	}
+	for _, rank := range []string{"plan", "rate", "short", "ladder"} {
+		if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+			`{"reinvest_rank":"`+rank+`"}`); resp.StatusCode != 204 {
+			t.Fatalf("режим %s: %d %s", rank, resp.StatusCode, b)
+		}
+		var rows []row
+		_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
+		if err := json.Unmarshal([]byte(body), &rows); err != nil {
+			t.Fatalf("режим %s: розбір: %v\n%s", rank, err, body)
+		}
+		var npfAt, lastLiquidAt = -1, -1
+		var npfReal, liquidReal float64
+		for i, r := range rows {
+			if r.Kind == "npf" {
+				npfAt, npfReal = i, r.RealPct
+				if !r.Locked {
+					t.Errorf("режим %s: рядок НПФ без прапорця locked", rank)
+				}
+				if !strings.Contains(r.Basis, "замкнено") {
+					t.Errorf("режим %s: основа не називає замок: %q", rank, r.Basis)
+				}
+				continue
+			}
+			lastLiquidAt = i
+			if r.RealPct > liquidReal {
+				liquidReal = r.RealPct
+			}
+		}
+		if npfAt < 0 {
+			t.Fatalf("режим %s: НПФ узагалі немає в переліку", rank)
+		}
+		if lastLiquidAt < 0 {
+			t.Fatalf("режим %s: ліквідних пропозицій немає, порівнювати нема з чим", rank)
+		}
+		if npfAt < lastLiquidAt {
+			t.Errorf("режим %s: НПФ на позиції %d, а ліквідне тягнеться до %d — "+
+				"замкнене обігнало ліквідне", rank, npfAt, lastLiquidAt)
+		}
+		// І сам сенс перевірки: він обігнав би, якби порядок вирішувала
+		// дохідність.
+		if npfReal <= liquidReal {
+			t.Errorf("режим %s: дохідність НПФ (%.2f) не вища за ліквідну (%.2f) — "+
+				"тест перестав перевіряти те, для чого написаний", rank, npfReal, liquidReal)
+		}
 	}
 }
