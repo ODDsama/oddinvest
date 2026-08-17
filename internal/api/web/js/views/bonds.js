@@ -96,11 +96,35 @@ export function wireBonds(ctx, main) {
   }));
   wireSales(ctx, main);
 
+  onSubmit(ctx, main.querySelector("#saleForm"), (f) => {
+    // Валюта продажу — з лота, а не з форми: продати можна лише те, що є.
+    const opt = f.lot_id.selectedOptions[0];
+    return {
+      path: "sales",
+      body: {
+        lot_id: parseInt(f.lot_id.value, 10), sale_date: f.sale_date.value,
+        qty: parseInt(f.qty.value, 10), clean_per_bond: f.clean_per_bond.value.trim(),
+        accrued: f.accrued.value.trim(), currency: opt ? opt.dataset.cur : "UAH",
+        note: f.note.value.trim(),
+      },
+      msg: "Продаж записано",
+    };
+  });
+
   // Селектори — від САМОЇ форми, а не від main. Поля звуться загально
   // («isin», «channel»), а розділ тепер зводить в одну сторінку три
   // інструменти: перший-ліпший майбутній інпут із такою назвою тихо
   // перехопив би автопідказку, і зламалось би не там, де змінили.
+  //
+  // Форми купівлі на сторінці може не бути ЗОВСІМ, і це нормальний стан, а
+  // не помилка: кнопки видалення лотів і рядки продажів живуть у деталях
+  // таблиці позицій, тобто на кожній сторінці «Активів», а сама форма —
+  // лише в «Записати». Доти цей рядок падав із «Cannot read properties of
+  // null», бо всі попередні поверхні мали форму й таблицю разом.
+  // Помічники onSubmit/onSubmitFunded порожній форми вже терплять
+  // (forms.js), а ось прямі звернення нижче — ні, тож вихід тут.
   const buyForm = main.querySelector("#lotForm");
+  if (!buyForm) return;
   const isinInput = buyForm.querySelector('input[name="isin"]');
   const sug = buyForm.querySelector("#bondSuggest");
   const hideSug = () => sug.classList.remove("show");
@@ -178,21 +202,6 @@ export function wireBonds(ctx, main) {
     },
     msg: "Лот додано",
   }));
-
-  onSubmit(ctx, main.querySelector("#saleForm"), (f) => {
-    // Валюта продажу — з лота, а не з форми: продати можна лише те, що є.
-    const opt = f.lot_id.selectedOptions[0];
-    return {
-      path: "sales",
-      body: {
-        lot_id: parseInt(f.lot_id.value, 10), sale_date: f.sale_date.value,
-        qty: parseInt(f.qty.value, 10), clean_per_bond: f.clean_per_bond.value.trim(),
-        accrued: f.accrued.value.trim(), currency: opt ? opt.dataset.cur : "UAH",
-        note: f.note.value.trim(),
-      },
-      msg: "Продаж записано",
-    };
-  });
 }
 
 

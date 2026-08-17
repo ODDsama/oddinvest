@@ -28,6 +28,7 @@ import { renderOverview } from "./views/overview.js";
 import { renderPortfolio } from "./views/portfolio.js";
 import { renderMoney } from "./views/money.js";
 import { renderSettings } from "./views/settings.js";
+import * as assets from "./views/assets-view.js";
 import * as plan from "./views/plan-view.js";
 import * as risk from "./views/risk-view.js";
 
@@ -46,6 +47,14 @@ const MARK = `<svg class="mark" viewBox="0 0 24 24" fill="currentColor" aria-hid
 // Сторінка на підрозділ: ключ — повний шлях «розділ/підрозділ».
 // Заповнюється в міру того, як розділи розбираються на сторінки.
 const VIEWS = {
+  "assets/positions": assets.positions,
+  "assets/bonds": assets.bonds,
+  "assets/funds": assets.funds,
+  "assets/npf": assets.npf,
+  "assets/deposits": assets.deposits,
+  "assets/reserve": assets.reserve,
+  "assets/growth": assets.growth,
+
   "plan/inflow": plan.inflow,
   "plan/goal": plan.goal,
   "plan/levers": plan.levers,
@@ -67,8 +76,10 @@ const VIEWS = {
 // неможливо ні перевірити, ні відкотити частинами.
 const LEGACY_VIEW = {
   now: renderOverview,
-  assets: renderPortfolio,
   money: renderMoney,
+  // «Записати» досі малює старий «Портфель» цілком — форми купівлі,
+  // продажу й вкладу живуть саме там. Наступний коміт забирає їх звідти
+  // разом із рештою форм, і тоді portfolio.js піде теж.
   entry: renderPortfolio,
   policy: renderSettings,
   settings: renderSettings,

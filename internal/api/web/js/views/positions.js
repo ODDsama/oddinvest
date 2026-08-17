@@ -128,7 +128,16 @@ function depositDetailHTML(d) {
 // Усі сутності зводяться до одного вигляду рядка. sortBy — вкладене
 // в НАТИВНІЙ валюті: сортуємо лише всередині групи одного інструмента,
 // тож валюти між собою тут не зустрічаються.
-function positionItems(ctx, positions, lots, sales, deposits) {
+//
+// kinds — необов'язковий фільтр за видом, і саме він дозволив «Активам»
+// стати сімома сторінками, не розпавшись назад на три таблиці з трьома
+// наборами колонок. Розріз іде ПО РЯДКАХ, а не по колонках: сторінка виду
+// показує ту саму таблицю, лише звужену, тож «вкладено», «вартість» і
+// «реальна дохідність» усюди означають те саме й порівнюються між
+// сторінками поглядом. Заперечення проти спільної таблиці колись було
+// справедливе саме до колонок — специфіка виду живе в рядку деталей, і
+// там вона й лишилась.
+function positionItems(ctx, positions, lots, sales, deposits, kinds = null) {
   const bonds = positions.map((p) => ({
     key: "bond:" + p.isin, kind: "bond",
     // Паперу немає в довіднику НБУ — номінал, строк і виплати приходять
@@ -265,17 +274,29 @@ function positionItems(ctx, positions, lots, sales, deposits) {
   }] : [];
 
   const bySize = (a, b) => b.sortBy - a.sortBy;
-  return [...bonds.sort(bySize), ...funds.sort(bySize), ...npf.sort(bySize),
+  // Фільтр стоїть НАПРИКІНЦІ, після склеювання, а не всередині кожної
+  // гілки: інакше порядок довелось би відтворювати в кожній сторінці
+  // окремо, а він тут змістовний — резерв останній навмисно, бо він
+  // єдиний нічого не заробляє.
+  const all = [...bonds.sort(bySize), ...funds.sort(bySize), ...npf.sort(bySize),
     ...deps.sort(bySize), ...res];
+  return kinds ? all.filter((it) => kinds.includes(it.kind)) : all;
 }
 
-export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
-  const items = positionItems(ctx, positions, lots, sales, deposits);
+/** Таблиця позицій. opts.kinds звужує її до одного виду, opts.title і
+ *  opts.empty дають сторінці виду назвати себе своїм ім'ям — «Позиція
+ *  з'явиться після першої покупки паперу» на сторінці вкладів було б
+ *  порадою не в те місце. */
+export function positionsTableHTML(ctx, positions, lots, sales, deposits, opts = {}) {
+  const { kinds = null, title = "Позиції", empty: emptyOpts = null } = opts;
+  const items = positionItems(ctx, positions, lots, sales, deposits, kinds);
   if (!items.length) {
-    return `<div class="card"><h2>Позиції</h2>${empty(
-      "Тут ще порожньо",
-      "Позиція з'явиться після першої покупки паперу або відкритого вкладу.",
-      { href: routeFor("buy"), label: "Записати покупку" })}</div>`;
+    const e = emptyOpts || {
+      text: "Позиція з'явиться після першої покупки паперу або відкритого вкладу.",
+      action: { href: routeFor("buy"), label: "Записати покупку" },
+    };
+    return `<div class="card"><h2>${esc(title)}</h2>${empty(
+      "Тут ще порожньо", e.text, e.action || undefined)}</div>`;
   }
   // data-label і data-prio — увесь механізм адаптивності цієї таблиці.
   // Ширина вирішує CSS, а розмітка лише каже, ЯК називається кожна
@@ -300,9 +321,9 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits) {
       <td colspan="${POS_COLS}">${it.detail}</td></tr>`;
   }).join("");
 
-  return `<div class="card"><h2 class="h-row">Позиції ${infoBtn("positions")}</h2>
+  return `<div class="card"><h2 class="h-row">${esc(title)} ${infoBtn("positions")}</h2>
     <div class="table-scroll"><table class="pos-table">
-      <caption class="sr-only">Позиції портфеля: ОВДП, фонди, НПФ, вклади й резерв</caption>
+      <caption class="sr-only">${esc(title)}: вкладено, вартість, реальна дохідність, строк</caption>
       <thead><tr>
       <th class="col-kind" scope="col">Тип</th><th scope="col">Назва</th>
       <th class="num" scope="col" data-prio="3">Вкладено</th>

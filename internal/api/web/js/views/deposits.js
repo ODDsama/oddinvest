@@ -62,8 +62,13 @@ function depositBody(d, patch) {
   };
 }
 
-export function wireDeposits(ctx, main) {
-  const byId = new Map((ctx._deposits || []).map((d) => [String(d.id), d]));
+// deposits приходить АРГУМЕНТОМ, а не через ctx. Доти список клали в
+// ctx._deposits — поле, приліплене до контексту збоку, — і працювало це
+// доти, доки вклади вантажив рівно один розділ. Тепер їх вантажать дві
+// сторінки («Вклади» в «Активах» і форма в «Записати»), і поле збоку
+// означало б, що котрась із них мусить пам'ятати чуже правило.
+export function wireDeposits(ctx, main, deposits = []) {
+  const byId = new Map((deposits || []).map((d) => [String(d.id), d]));
 
   // Відкриття вкладу замикає гроші так само, як покупка паперу їх
   // витрачає (state_builder.go:320), тож і питання про нестачу те саме.

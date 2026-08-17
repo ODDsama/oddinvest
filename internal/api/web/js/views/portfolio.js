@@ -69,7 +69,6 @@ export async function renderPortfolio(ctx, main) {
   ]);
   setFundOps(ops);
   setNPF({ accounts: npfAcc, ops: npfOps, nav: npfNav });
-  ctx._deposits = deposits; // wireDeposits реконструює вклад для закриття
 
   const chart = await chartBlockHTML(ctx);
   main.innerHTML = `
@@ -89,7 +88,7 @@ export async function renderPortfolio(ctx, main) {
   wireBonds(ctx, main);
   wireFundOps(ctx, main);
   wireNPF(ctx, main);
-  wireDeposits(ctx, main);
+  wireDeposits(ctx, main, deposits);
   wireHistory(ctx, main);
   // Останнім: до цього моменту вся розмітка вже на місці, включно з тією,
   // що всередині згорнутих секцій.
