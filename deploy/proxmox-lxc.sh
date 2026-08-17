@@ -23,9 +23,10 @@ BRIDGE="${BRIDGE:-vmbr0}"
 DISK_GB="${DISK_GB:-4}"
 MEMORY_MB="${MEMORY_MB:-512}"
 CORES="${CORES:-1}"
-# Тримати в парі з Dockerfile: обидва — середовища збірки. Мінімум мови
-# задає go.mod, тут лише конкретний тулчейн, яким збираємо.
-GO_VER="${GO_VER:-go1.23.6}"
+# Порожньо = взяти з go.mod (див. нижче, у скрипті провізії). Задавати
+# сюди щось варто лише тоді, коли треба саме конкретний тулчейн, — інакше
+# версія знову почне жити окремим життям від go.mod.
+GO_VER="${GO_VER:-}"
 # MQTT — leave MQTT_ADDR empty to deploy with MQTT disabled for now.
 MQTT_ADDR="${MQTT_ADDR:-}"
 MQTT_USER="${MQTT_USER:-}"
@@ -70,13 +71,27 @@ export DEBIAN_FRONTEND=noninteractive
 echo "-- installing build deps"
 apt-get update -q
 apt-get install -y -q --no-install-recommends ca-certificates curl git gcc libc6-dev
-echo "-- installing ${GO_VER}"
-curl -fsSL "https://go.dev/dl/${GO_VER}.linux-amd64.tar.gz" -o /tmp/go.tgz
-rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz
-echo "-- building oddinvestd"
+echo "-- fetching source"
 rm -rf /opt/oddinvest-src
 git clone --depth 1 https://github.com/ODDsama/oddinvest /opt/oddinvest-src
 cd /opt/oddinvest-src
+# Тулчейн береться з go.mod, а не з константи вище: доти версія жила в
+# ТРЬОХ місцях (go.mod, Dockerfile, тут), і саме тому розійшлась — go.mod
+# поїхав на 1.24, обидва середовища збірки лишились на 1.23, а
+# GOTOOLCHAIN=local забороняє довантажити потрібний. Виглядало це як
+# «go: go.mod requires go >= 1.24.0 (running go 1.23.6)» на кожному
+# оновленні, тобто розгортання не працювало взагалі.
+#
+# GO_VER лишається важелем на випадок, коли треба саме конкретний тулчейн.
+# Двома рядками, а не одним: GO_PIN підставляє ХОСТ (тому без екранування),
+# а решту обчислює вже контейнер (тому з екрануванням). Зліплені в один
+# вираз, вони мовчки втрачали б перевизначення з хоста.
+GO_PIN="${GO_VER}"
+GO_WANT="\${GO_PIN:-go\$(sed -n "s/^go //p" go.mod | head -1)}"
+echo "-- installing \${GO_WANT}"
+curl -fsSL "https://go.dev/dl/\${GO_WANT}.linux-amd64.tar.gz" -o /tmp/go.tgz
+rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz
+echo "-- building oddinvestd"
 export PATH="\$PATH:/usr/local/go/bin" GOTOOLCHAIN=local CGO_ENABLED=1
 go build -o /usr/local/bin/oddinvestd ./cmd/oddinvestd
 echo "-- service user + data dir"
