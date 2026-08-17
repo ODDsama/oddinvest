@@ -134,7 +134,11 @@ type BackupNPFAccount struct {
 	IncomeTaxBP      int64  `json:"income_tax_bp,omitempty"`
 	CreditRateBP     int64  `json:"credit_rate_bp,omitempty"`
 	ContribDay       int64  `json:"contrib_day,omitempty"`
-	Note             string `json:"note,omitempty"`
+	// Строк і періодичність виплати (0031). Не виводяться з журналу
+	// взагалі: це умови договору, а не наслідок внесків.
+	PayoutYears int64  `json:"payout_years,omitempty"`
+	PayoutFreq  string `json:"payout_freq,omitempty"`
+	Note        string `json:"note,omitempty"`
 }
 
 // BackupNPFOp — внесок. UnitsE6 обовʼязкові: без них не вивести ні
@@ -479,7 +483,8 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 			var r BackupNPFAccount
 			if err := scan(&r.ID, &r.Name, &r.Administrator, &r.Currency, &r.NavE6,
 				&r.NavDate, &r.ExpectedYieldBP, &r.YieldSimpleYears, &r.AccessDate,
-				&r.IncomeTaxBP, &r.CreditRateBP, &r.ContribDay, &r.Note); err != nil {
+				&r.IncomeTaxBP, &r.CreditRateBP, &r.ContribDay,
+				&r.PayoutYears, &r.PayoutFreq, &r.Note); err != nil {
 				return err
 			}
 			b.NPFAccounts = append(b.NPFAccounts, r)
@@ -882,11 +887,12 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	for _, a := range b.NPFAccounts {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO npf_accounts
 			(id,name,administrator,currency,nav_e6,nav_date,expected_yield_bp,
-			 yield_simple_years,access_date,income_tax_bp,credit_rate_bp,contrib_day,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			 yield_simple_years,access_date,income_tax_bp,credit_rate_bp,contrib_day,
+			 payout_years,payout_freq,note)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			a.ID, a.Name, a.Administrator, a.Currency, a.NavE6, a.NavDate,
 			a.ExpectedYieldBP, a.YieldSimpleYears, a.AccessDate, a.IncomeTaxBP,
-			a.CreditRateBP, a.ContribDay, a.Note); err != nil {
+			a.CreditRateBP, a.ContribDay, a.PayoutYears, a.PayoutFreq, a.Note); err != nil {
 			return fmt.Errorf("пенсійний рахунок %d: %w", a.ID, err)
 		}
 	}

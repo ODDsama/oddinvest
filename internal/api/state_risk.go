@@ -97,6 +97,15 @@ func buildRisk(in riskInput) riskPhase {
 		if domain.IsFundISIN(cf.ISIN) {
 			continue
 		}
+		// НПФ — із тієї ж причини, що фонд, і з однією власною. Пенсійні
+		// активи не переоцінюються ставками ОВДП, тож у ціновому ризику їм
+		// нема місця; а в ризику ПЕРЕВКЛАДЕННЯ їм нема місця гостріше, ніж
+		// фонду: виплата на пенсії настає за двадцять пʼять років, і
+		// зважений строк перевкладення з нею перестав би означати будь-що.
+		// До того ж перевкладати пенсію ніхто не збирається — її витрачають.
+		if domain.IsNPFISIN(cf.ISIN) {
+			continue
+		}
 		if !domain.IsDepositISIN(cf.ISIN) {
 			ptsByCur[c] = append(ptsByCur[c], domain.CashPoint{Years: yrs, Amount: amt})
 		}

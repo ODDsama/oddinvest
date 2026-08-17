@@ -722,7 +722,12 @@ func TestBackupRoundTripKeepsNPF(t *testing.T) {
 		Nav: 3_472_156, NavDate: "2026-06-30",
 		ExpectedYieldBP: 1500, YieldSimpleYears: 3,
 		AccessDate: "2051-04-01", IncomeTaxBP: 1380,
-		CreditRateBP: 1800, ContribDay: 5, Note: "ICU",
+		CreditRateBP: 1800, ContribDay: 5,
+		// Строк і періодичність НЕтипові навмисно: 10 років і «month» — це
+		// значення за замовчуванням, і на них тест не побачив би, що поле
+		// губиться, бо сховище підставило б їх заново.
+		PayoutYears: 15, PayoutFreq: "quarter",
+		Note: "ICU",
 	}
 	id, err := src.AddNPFAccount(ctx, want)
 	if err != nil {

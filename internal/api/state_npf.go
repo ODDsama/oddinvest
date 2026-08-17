@@ -98,6 +98,7 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		}
 		realPct := round2(realYield(net/100, cur, deval) * 100)
 
+		payoutM, _ := domain.NPFPayoutMonths(acc)
 		contribDue := domain.NPFContribDue(acc, src.npfOps, today)
 		if contribDue {
 			out.ContribDue = true
@@ -156,6 +157,11 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 				// це поле недосяжним — але лишати тут число означало б
 				// натякнути, що вихід можливий за якусь ціну.
 				Locked: true,
+				// Виплата потоком, а не разово: за законом строк мінімум
+				// десять років. Разова модель вивалювала весь капітал у
+				// готівку одного місяця й далі реінвестувала ринковою
+				// ставкою — тобто малювала гроші, яких не буде.
+				PayoutM: payoutM,
 			})
 		}
 	}

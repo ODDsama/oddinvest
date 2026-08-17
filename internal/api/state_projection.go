@@ -243,6 +243,15 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 		if domain.IsFundISIN(cf.ISIN) {
 			continue
 		}
+		// НПФ — і тут причина ІНША, ніж у фонда. Фонд виключений, бо його
+		// дивіденди платить власний кошик Dist; пенсійний потік виключений,
+		// бо його вже віддає Accum за власним графіком виплат (PayoutM). Не
+		// виключивши, ті самі гроші зайшли б у рукав двічі — і капітал у
+		// проєкції подвоївся б рівно на пенсійну частину, залишившись
+		// правдоподібним.
+		if domain.IsNPFISIN(cf.ISIN) {
+			continue
+		}
 		cur := cf.Amount.Currency().Code
 		mi := (cf.Date.Year()-today.Year())*12 + int(cf.Date.Month()) - int(today.Month())
 		if mi < 1 {

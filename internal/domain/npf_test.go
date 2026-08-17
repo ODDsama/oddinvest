@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // dynastia — рахунок-взірець. ЧВОПА й ставки взяті правдоподібними, але
 // жодне число тут не є твердженням про справжній фонд.
@@ -307,5 +310,106 @@ func TestLockedAccumStillGrowsAndCloses(t *testing.T) {
 	free.Locked = false
 	if AccumCloseValue(a) != AccumCloseValue(free) {
 		t.Error("замок не має впливати на суму, яку позиція віддає на закритті")
+	}
+}
+
+// TestNPFPayoutIsAStreamNotALump — виплата йде потоком, а не разово.
+//
+// Найважливіша правка стадії 4, і не косметична. За законом виплата на
+// визначений строк іде мінімум десять років; разова модель вивалювала весь
+// капітал у готівку одного місяця, далі реінвестувала його ринковою ставкою
+// — і проєкція малювала капітал, якого не буде.
+func TestNPFPayoutIsAStreamNotALump(t *testing.T) {
+	lump := Accum{Value0: 120000, Cost0: 120000, CloseM: 1, Locked: true}
+	stream := lump
+	stream.PayoutM = 120 // десять років щомісяця
+
+	// Разова: усе випадає першого ж місяця.
+	s1 := Sleeve{Currency: "UAH", Rate0: 1, Accum: []Accum{lump}}
+	st1 := s1.newState()
+	if got := st1.grow(1); got != 120000 {
+		t.Fatalf("разова виплата мала віддати 120000 одразу, маємо %.2f", got)
+	}
+
+	// Потоком: першого місяця лише одна частка, решта лишається в капіталі.
+	s2 := Sleeve{Currency: "UAH", Rate0: 1, Accum: []Accum{stream}}
+	st2 := s2.newState()
+	first := st2.grow(1)
+	if first != 1000 {
+		t.Errorf("перша з 120 виплат мала бути 1000, маємо %.2f", first)
+	}
+	// Залишок мусить лишитись у капіталі, а не зникнути: інакше він просів
+	// би на весь пенсійний баланс саме тоді, коли він найбільший.
+	if left := st2.accumTotal(); left < 118000 || left > 119001 {
+		t.Errorf("невиплачений залишок %.2f, очікували ≈119000", left)
+	}
+
+	// Сума всіх виплат мусить дорівнювати разовій — до копійки.
+	total := first
+	for m := 2; m <= 120; m++ {
+		total += st2.grow(m)
+	}
+	if math.Abs(total-120000) > 0.01 {
+		t.Errorf("Σ виплат %.2f замість 120000 — потік втратив або вигадав гроші", total)
+	}
+	// І після строку нічого більше не приходить.
+	if extra := st2.grow(121); extra != 0 {
+		t.Errorf("після строку виплати прийшло ще %.2f", extra)
+	}
+}
+
+// TestNPFPayoutScheduleMatchesTheTotal — Σ подій календаря точно дорівнює
+// сумі, яку віддає позиція.
+//
+// Календар і симуляція живляться тим самим числом (AccumCloseValue), і
+// розійтись їм не дає ділення із залишком в останню виплату: без нього
+// звірка падала б на копійки, і причину шукали б у податку.
+func TestNPFPayoutScheduleMatchesTheTotal(t *testing.T) {
+	a := dynastia()
+	a.AccessDate = Date("2051-04-01")
+	for _, tc := range []struct {
+		freq string
+		want int
+	}{{"month", 120}, {"quarter", 40}, {"year", 10}} {
+		a.PayoutYears, a.PayoutFreq = 10, tc.freq
+		const total int64 = 1_000_003 // навмисно не ділиться рівно
+		cf := NPFPayoutSchedule(a, total, Date("2099-01-01"))
+		if len(cf) != tc.want {
+			t.Errorf("%s: очікували %d виплат, маємо %d", tc.freq, tc.want, len(cf))
+			continue
+		}
+		var sum int64
+		for _, c := range cf {
+			sum += c.Amount.Amount()
+			if !IsNPFISIN(c.ISIN) {
+				t.Errorf("%s: виплата під ключем %q — охорони її не впізнають", tc.freq, c.ISIN)
+			}
+		}
+		if sum != total {
+			t.Errorf("%s: Σ виплат %d замість %d", tc.freq, sum, total)
+		}
+		if cf[0].Date != a.AccessDate {
+			t.Errorf("%s: перша виплата %s, а дата доступу %s", tc.freq, cf[0].Date, a.AccessDate)
+		}
+	}
+}
+
+// TestNPFPayoutScheduleRespectsHorizon — за обрієм виплат немає.
+//
+// Календар дивиться на рік, і виплата з 2051-го в нього потрапити не має:
+// інакше «найближчі виплати» показували б подію за двадцять пʼять років.
+func TestNPFPayoutScheduleRespectsHorizon(t *testing.T) {
+	a := dynastia()
+	a.AccessDate = Date("2051-04-01")
+	a.PayoutYears, a.PayoutFreq = 10, "month"
+	if cf := NPFPayoutSchedule(a, 1_000_000, Date("2027-01-01")); len(cf) != 0 {
+		t.Errorf("у річному вікні пенсійних виплат бути не має, маємо %d", len(cf))
+	}
+	// А ось разова виплата в межах вікна — одна подія.
+	a.PayoutYears = 0
+	a.AccessDate = Date("2026-10-01")
+	cf := NPFPayoutSchedule(a, 1_000_000, Date("2027-01-01"))
+	if len(cf) != 1 || cf[0].Type != PayRedemption {
+		t.Errorf("разова виплата мала дати одну подію-погашення, маємо %+v", cf)
 	}
 }

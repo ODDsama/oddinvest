@@ -110,6 +110,7 @@ func (s Sleeve) newState() projState {
 				value: a.Value0, cost: a.Cost0, rM: MonthlyRate(a.RatePct),
 				closeM: a.CloseM, taxPct: a.TaxPct, exitTaxPct: a.ExitTaxPct,
 				locked: a.Locked, contrib: a.ContribByMonth,
+				payoutM: a.PayoutM,
 			})
 		}
 	}

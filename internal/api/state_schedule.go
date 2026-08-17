@@ -111,6 +111,40 @@ func buildSchedule(src *sources, hold domain.Holdings, from, today domain.Date, 
 		cashflow = append(cashflow, domain.FundDividendFlows(fp, y, fundMonths, today)...)
 	}
 
+	// Пенсійні виплати — так само ОЦІНКОЮ, під ключем npf:<id>.
+	//
+	// Сума беруться з AccumCloseValue, тобто з того самого числа, яким
+	// живиться подія «пенсія доступна» в профілі й закриття позиції в
+	// симуляції. Власного означення «скільки буде на пенсії» тут не
+	// зʼявляється: такі пари в цьому застосунку розходяться завжди.
+	//
+	// Обрій той самий fundMonths, і назва параметра тут уже вужча за його
+	// роль — це горизонт ОЦІНОК узагалі. Календарю досить року, і виплата з
+	// 2051-го в нього просто не потрапить; профіль плану дивиться до
+	// дедлайну й побачить її.
+	npfPositions := domain.NPFPositions(src.npfAccounts, src.npfOps)
+	for _, acc := range src.npfAccounts {
+		p := npfPositions[acc.ID]
+		if p == nil || acc.AccessDate == "" {
+			continue
+		}
+		closeM := domain.NPFAccessMonths(acc, today)
+		if closeM < 1 {
+			continue
+		}
+		rate, _ := domain.NPFOwnRatePct(acc,
+			domain.NPFNavPoints(src.npfNav, src.npfOps, acc.ID), today)
+		total := domain.AccumCloseValue(domain.Accum{
+			Value0: float64(p.Value()) / 100, Cost0: float64(p.Cost) / 100,
+			RatePct: rate, CloseM: closeM, TaxPct: float64(acc.IncomeTaxBP) / 100,
+		})
+		if total <= 0 {
+			continue
+		}
+		cashflow = append(cashflow, domain.NPFPayoutSchedule(acc,
+			int64(total*100), today.AddMonths(fundMonths))...)
+	}
+
 	// next_payment бере перший потік, драбина йде по роках — обидва
 	// покладаються на порядок, який append порушив.
 	sort.Slice(cashflow, func(i, j int) bool { return cashflow[i].Date < cashflow[j].Date })

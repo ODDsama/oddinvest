@@ -24,7 +24,7 @@ import (
 func npfAccountCols() string {
 	return `id, name, administrator, currency, nav_e6, nav_date,
 		expected_yield_bp, yield_simple_years, access_date,
-		income_tax_bp, credit_rate_bp, contrib_day, note`
+		income_tax_bp, credit_rate_bp, contrib_day, payout_years, payout_freq, note`
 }
 
 func scanNPFAccount(rows *sql.Rows) (domain.NPFAccount, error) {
@@ -32,7 +32,8 @@ func scanNPFAccount(rows *sql.Rows) (domain.NPFAccount, error) {
 	var navDate, access string
 	if err := rows.Scan(&a.ID, &a.Name, &a.Administrator, &a.Currency,
 		&a.Nav, &navDate, &a.ExpectedYieldBP, &a.YieldSimpleYears, &access,
-		&a.IncomeTaxBP, &a.CreditRateBP, &a.ContribDay, &a.Note); err != nil {
+		&a.IncomeTaxBP, &a.CreditRateBP, &a.ContribDay,
+		&a.PayoutYears, &a.PayoutFreq, &a.Note); err != nil {
 		return a, err
 	}
 	a.NavDate, a.AccessDate = domain.Date(navDate), domain.Date(access)
@@ -88,6 +89,22 @@ func checkNPFAccount(a domain.NPFAccount) (domain.NPFAccount, error) {
 	if a.ContribDay < 0 || a.ContribDay > 31 {
 		return a, fmt.Errorf("день внеску має бути від 1 до 31")
 	}
+	// Стеля на строк виплати — 50 років: більше за це не строк, а
+	// описка, а нижня межа нуль означає «разово» (сума нижче межі
+	// одноразової виплати).
+	if a.PayoutYears < 0 || a.PayoutYears > 50 {
+		return a, fmt.Errorf("строк виплати має бути від 0 до 50 років")
+	}
+	a.PayoutFreq = strings.TrimSpace(a.PayoutFreq)
+	if a.PayoutFreq == "" {
+		a.PayoutFreq = "month"
+	}
+	switch a.PayoutFreq {
+	case "month", "quarter", "year":
+	default:
+		return a, fmt.Errorf("періодичність виплати має бути month, quarter або year, маємо %q",
+			a.PayoutFreq)
+	}
 	return a, nil
 }
 
@@ -117,11 +134,12 @@ func (s *Store) AddNPFAccount(ctx context.Context, a domain.NPFAccount) (int64, 
 	res, err := s.db.ExecContext(ctx, `INSERT INTO npf_accounts
 		(name, administrator, currency, nav_e6, nav_date, expected_yield_bp,
 		 yield_simple_years, access_date, income_tax_bp, credit_rate_bp,
-		 contrib_day, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 contrib_day, payout_years, payout_freq, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.Name, a.Administrator, a.Currency, a.Nav, string(a.NavDate),
 		a.ExpectedYieldBP, a.YieldSimpleYears, string(a.AccessDate),
-		a.IncomeTaxBP, a.CreditRateBP, a.ContribDay, a.Note)
+		a.IncomeTaxBP, a.CreditRateBP, a.ContribDay,
+		a.PayoutYears, a.PayoutFreq, a.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -139,11 +157,13 @@ func (s *Store) UpdateNPFAccount(ctx context.Context, a domain.NPFAccount) error
 	res, err := s.db.ExecContext(ctx, `UPDATE npf_accounts SET
 		name=?, administrator=?, currency=?, nav_e6=?, nav_date=?,
 		expected_yield_bp=?, yield_simple_years=?, access_date=?,
-		income_tax_bp=?, credit_rate_bp=?, contrib_day=?, note=?
+		income_tax_bp=?, credit_rate_bp=?, contrib_day=?,
+		payout_years=?, payout_freq=?, note=?
 		WHERE id=?`,
 		a.Name, a.Administrator, a.Currency, a.Nav, string(a.NavDate),
 		a.ExpectedYieldBP, a.YieldSimpleYears, string(a.AccessDate),
-		a.IncomeTaxBP, a.CreditRateBP, a.ContribDay, a.Note, a.ID)
+		a.IncomeTaxBP, a.CreditRateBP, a.ContribDay,
+		a.PayoutYears, a.PayoutFreq, a.Note, a.ID)
 	if err != nil {
 		return err
 	}

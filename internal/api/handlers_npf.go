@@ -38,7 +38,11 @@ type npfAccountReq struct {
 	IncomeTaxPct     string `json:"income_tax_pct"`
 	CreditRatePct    string `json:"credit_rate_pct"`
 	ContribDay       int64  `json:"contrib_day"`
-	Note             string `json:"note"`
+	// Строк і періодичність виплати після дати доступу. Нуль років =
+	// разово; порожня періодичність — місяць (див. store).
+	PayoutYears int64  `json:"payout_years"`
+	PayoutFreq  string `json:"payout_freq"`
+	Note        string `json:"note"`
 }
 
 // pctToBP — відсоток рядком у базисні пункти. Порожньо = нуль, тобто «не
@@ -83,7 +87,9 @@ func npfAccountFromReq(req npfAccountReq) (domain.NPFAccount, error) {
 		Nav: nav, NavDate: domain.Date(req.NavDate),
 		ExpectedYieldBP: exp, YieldSimpleYears: req.YieldSimpleYears,
 		AccessDate: domain.Date(req.AccessDate), IncomeTaxBP: tax,
-		CreditRateBP: credit, ContribDay: req.ContribDay, Note: req.Note,
+		CreditRateBP: credit, ContribDay: req.ContribDay,
+		PayoutYears: req.PayoutYears, PayoutFreq: req.PayoutFreq,
+		Note: req.Note,
 	}, nil
 }
 
@@ -106,6 +112,8 @@ func (s *Server) handleNPFAccounts(w http.ResponseWriter, r *http.Request) {
 		IncomeTaxPct     float64 `json:"income_tax_pct,omitempty"`
 		CreditRatePct    float64 `json:"credit_rate_pct,omitempty"`
 		ContribDay       int64   `json:"contrib_day,omitempty"`
+		PayoutYears      int64   `json:"payout_years,omitempty"`
+		PayoutFreq       string  `json:"payout_freq,omitempty"`
 		Note             string  `json:"note,omitempty"`
 	}
 	out := make([]row, 0, len(accounts))
@@ -119,7 +127,9 @@ func (s *Server) handleNPFAccounts(w http.ResponseWriter, r *http.Request) {
 			AccessDate:       string(a.AccessDate),
 			IncomeTaxPct:     float64(a.IncomeTaxBP) / 100,
 			CreditRatePct:    float64(a.CreditRateBP) / 100,
-			ContribDay:       a.ContribDay, Note: a.Note,
+			ContribDay:       a.ContribDay,
+			PayoutYears:      a.PayoutYears, PayoutFreq: a.PayoutFreq,
+			Note: a.Note,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
