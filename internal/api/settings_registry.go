@@ -94,6 +94,16 @@ var settingsRegistry = []settingDef{
 		Why: "цільова частка за видом інструмента"},
 	{Key: "target_funds_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.TargetFundsPct }},
 	{Key: "target_deposits_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.TargetDepositsPct }},
+	{Key: "target_npf_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.TargetNPFPct }},
+
+	// Податкова знижка на внески в НПФ — припущення, а не процедура.
+	// Порожній ПДФО за рік і є «вимкнено»: окремого прапорця немає навмисно,
+	// бо «увімкнено, але число не введене» — стан, з якого нічого не
+	// порахувати. Ліміт не константа: щороку інший (ПМ працездатних × 1.4).
+	{Key: "npf_credit_pdfo_year_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.NPFCreditPDFOYearUAH },
+		Why: "утриманий за рік ПДФО — стеля знижки; порожньо = знижку не рахувати"},
+	{Key: "npf_credit_cap_month_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.NPFCreditCapMonthUAH },
+		Why: "ліміт внеску за місяць у знижку; 4660 ₴ у 2026, щороку інший"},
 
 	{Key: "limit_isin_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.LimitISINPct },
 		Why: "стеля концентрації; дефолту немає навмисно — це була б порада"},

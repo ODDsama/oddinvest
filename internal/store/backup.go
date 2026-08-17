@@ -54,6 +54,21 @@ type Backup struct {
 	// тихо повернувся б до рівного плану — тобто числа лишились би
 	// правдоподібними й неправильними.
 	PlanReceipts []BackupPlanReceipt `json:"plan_receipts,omitempty"`
+	// НПФ (0028). Три поля, і кожне невідновне окремо.
+	//
+	// NPFAccounts — не «довідник, що відновиться з назв в операціях», як
+	// funds: у npf_ops назви немає взагалі, зв'язок лише за id. Та й
+	// відновлювати там нічого — ЧВОПА, дата доступу, ставка знижки й день
+	// внеску не виводяться ні з чого. Без цього поля restore залишив би
+	// капітал заниженим на весь пенсійний баланс.
+	//
+	// NPFNav — найдорожчі за працею дані в усій базі й єдині, яких не
+	// відновити з жодної виписки: опублікована фондом історія ЧВОПА за
+	// багато років, вклеєна руками. Втратити її означає втратити track
+	// record, на якому стоїть уся обіцяна дохідність.
+	NPFAccounts []BackupNPFAccount `json:"npf_accounts,omitempty"`
+	NPFOps      []BackupNPFOp      `json:"npf_ops,omitempty"`
+	NPFNav      []BackupNPFNav     `json:"npf_nav,omitempty"`
 	// Довідники. omitempty з тієї ж причини, що й усе вище: бекапи, зроблені
 	// до їхньої появи, читаються без цих полів так само, як раніше — фонди й
 	// брокери відновляться з назв в операціях, рівно як доти.
@@ -95,6 +110,52 @@ type BackupFund struct {
 	IncomeTaxBP      int64  `json:"income_tax_bp,omitempty"`
 	YieldSimpleYears int64  `json:"yield_simple_years,omitempty"`
 	ExitTaxBP        int64  `json:"exit_tax_bp,omitempty"`
+}
+
+// BackupNPFAccount — пенсійний рахунок. Ключ — ID, а не назва, попри
+// загальне правило бекапу: npf_ops і npf_nav посилаються на рахунок лише
+// за id, і назви в них немає, з якої зв'язок можна було б відтворити. Той
+// самий випадок, що term_deposits, і з тієї ж причини — це водночас
+// інструмент і батько журналу.
+type BackupNPFAccount struct {
+	ID            int64  `json:"id"`
+	Name          string `json:"name"`
+	Administrator string `json:"administrator,omitempty"`
+	Currency      string `json:"currency"`
+	// NavE6 / NavDate — остання відома ЧВОПА ×10⁶. Не виводиться з
+	// операцій, коли її оновлювали руками з кабінету.
+	NavE6   int64  `json:"nav_e6,omitempty"`
+	NavDate string `json:"nav_date,omitempty"`
+	// Решта — те, чого з журналу не вивести взагалі: обіцянка, дата
+	// доступу, обидва податки й день нагадування.
+	ExpectedYieldBP  int64  `json:"expected_yield_bp,omitempty"`
+	YieldSimpleYears int64  `json:"yield_simple_years,omitempty"`
+	AccessDate       string `json:"access_date,omitempty"`
+	IncomeTaxBP      int64  `json:"income_tax_bp,omitempty"`
+	CreditRateBP     int64  `json:"credit_rate_bp,omitempty"`
+	ContribDay       int64  `json:"contrib_day,omitempty"`
+	Note             string `json:"note,omitempty"`
+}
+
+// BackupNPFOp — внесок. UnitsE6 обовʼязкові: без них не вивести ні
+// залишку одиниць, ні ЧВОПА на дату внеску, тобто позиція перетворилась би
+// на суму без вартості.
+type BackupNPFOp struct {
+	ID      int64  `json:"id"`
+	NPFID   int64  `json:"npf_id"`
+	Date    string `json:"date"`
+	UnitsE6 int64  `json:"units_e6"`
+	Amount  int64  `json:"amount"`
+	Broker  string `json:"broker,omitempty"`
+	Note    string `json:"note,omitempty"`
+}
+
+// BackupNPFNav — одна точка ЧВОПА, заведена руками.
+type BackupNPFNav struct {
+	ID    int64  `json:"id"`
+	NPFID int64  `json:"npf_id"`
+	Date  string `json:"date"`
+	NavE6 int64  `json:"nav_e6"`
 }
 
 // BackupBroker — рядок довідника брокерів.
@@ -403,6 +464,44 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT `+npfAccountCols()+` FROM npf_accounts ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupNPFAccount
+			if err := scan(&r.ID, &r.Name, &r.Administrator, &r.Currency, &r.NavE6,
+				&r.NavDate, &r.ExpectedYieldBP, &r.YieldSimpleYears, &r.AccessDate,
+				&r.IncomeTaxBP, &r.CreditRateBP, &r.ContribDay, &r.Note); err != nil {
+				return err
+			}
+			b.NPFAccounts = append(b.NPFAccounts, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT o.id,o.npf_id,o.date,o.units_e6,o.amount,
+		COALESCE(b.name,''),o.note
+		FROM npf_ops o LEFT JOIN brokers b ON b.id=o.broker_id ORDER BY o.id`,
+		func(scan func(...any) error) error {
+			var r BackupNPFOp
+			if err := scan(&r.ID, &r.NPFID, &r.Date, &r.UnitsE6, &r.Amount,
+				&r.Broker, &r.Note); err != nil {
+				return err
+			}
+			b.NPFOps = append(b.NPFOps, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT id,npf_id,date,nav_e6 FROM npf_nav ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupNPFNav
+			if err := scan(&r.ID, &r.NPFID, &r.Date, &r.NavE6); err != nil {
+				return err
+			}
+			b.NPFNav = append(b.NPFNav, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT id,date,amount,currency,place,note FROM reserve_ops ORDER BY id`,
 		func(scan func(...any) error) error {
 			var r BackupReserveOp
@@ -570,8 +669,16 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// бекап тримає id, тож забути їх ТУТ означає не «дублікати після
 	// відновлення», а відмову на UNIQUE(id) у будь-кого, хто має бодай
 	// один рядок плану.
+	//
+	// npf_ops і npf_nav — перед npf_accounts (FK на нього), а всі три —
+	// перед brokers, і це не стиль. npf_ops.broker_id посилається на
+	// brokers, тож забути npf_ops тут означало б не «дублікати після
+	// відновлення», а повну ВІДМОВУ: DELETE FROM brokers упирався б у FK у
+	// будь-кого, хто має бодай один внесок. Рівно те, що вже сталося з
+	// вкладами, коли їх забули в цьому переліку.
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
-		"deposit_topups", "term_deposits", "reserve_ops", "plan_flows", "plan_flow_revisions",
+		"deposit_topups", "term_deposits", "reserve_ops", "npf_ops", "npf_nav",
+		"npf_accounts", "plan_flows", "plan_flow_revisions",
 		"plan_receipts", "plan_actions", "settings", "payment_status", "snapshots",
 		"funds", "brokers"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
@@ -758,6 +865,37 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			`INSERT INTO reserve_ops (id,date,amount,currency,place,note) VALUES (?,?,?,?,?,?)`,
 			r.ID, r.Date, r.Amount, r.Currency, r.Place, r.Note); err != nil {
 			return fmt.Errorf("рух резерву %d: %w", r.ID, err)
+		}
+	}
+	// Пенсійні рахунки — ПЕРЕД внесками й точками ЧВОПА: обидва мають на
+	// них FK.
+	for _, a := range b.NPFAccounts {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO npf_accounts
+			(id,name,administrator,currency,nav_e6,nav_date,expected_yield_bp,
+			 yield_simple_years,access_date,income_tax_bp,credit_rate_bp,contrib_day,note)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			a.ID, a.Name, a.Administrator, a.Currency, a.NavE6, a.NavDate,
+			a.ExpectedYieldBP, a.YieldSimpleYears, a.AccessDate, a.IncomeTaxBP,
+			a.CreditRateBP, a.ContribDay, a.Note); err != nil {
+			return fmt.Errorf("пенсійний рахунок %d: %w", a.ID, err)
+		}
+	}
+	for _, o := range b.NPFOps {
+		broker, err := brokerRef(o.Broker)
+		if err != nil {
+			return fmt.Errorf("внесок у НПФ %d: %w", o.ID, err)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO npf_ops
+			(id,npf_id,date,units_e6,amount,broker_id,note) VALUES (?,?,?,?,?,?,?)`,
+			o.ID, o.NPFID, o.Date, o.UnitsE6, o.Amount, broker, o.Note); err != nil {
+			return fmt.Errorf("внесок у НПФ %d: %w", o.ID, err)
+		}
+	}
+	for _, n := range b.NPFNav {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO npf_nav (id,npf_id,date,nav_e6) VALUES (?,?,?,?)`,
+			n.ID, n.NPFID, n.Date, n.NavE6); err != nil {
+			return fmt.Errorf("точка ЧВОПА %d: %w", n.ID, err)
 		}
 	}
 	// План FK не має — порядок серед решти вставок вільний.

@@ -46,6 +46,12 @@ type Snapshot struct {
 	FundsCostUAH int64 `json:"funds_cost_uah,omitempty"`
 	// ReserveUAH — резерв («матрац») у грн-екв. (0021).
 	ReserveUAH int64 `json:"reserve_uah,omitempty"`
+	// NPFUAH — пенсійні активи в грн-екв., NPFCostUAH — сума внесків
+	// (0029). Пара, а не одне число, і друге не косметичне: прибуток на
+	// кривій рахується як капітал мінус собівартість, тож без внесків у
+	// собівартості він завищився б рівно на весь пенсійний баланс.
+	NPFUAH     int64 `json:"npf_uah,omitempty"`
+	NPFCostUAH int64 `json:"npf_cost_uah,omitempty"`
 }
 
 // snapshotCol — одна колонка знімка. Ptr дає доступ до поля структури,
@@ -74,6 +80,8 @@ var snapshotCols = []snapshotCol{
 	{"deposits_uah", func(s *Snapshot) *int64 { return &s.DepositsUAH }},
 	{"funds_cost_uah", func(s *Snapshot) *int64 { return &s.FundsCostUAH }},
 	{"reserve_uah", func(s *Snapshot) *int64 { return &s.ReserveUAH }},
+	{"npf_uah", func(s *Snapshot) *int64 { return &s.NPFUAH }},
+	{"npf_cost_uah", func(s *Snapshot) *int64 { return &s.NPFCostUAH }},
 }
 
 // SnapshotColumns — імена числових колонок знімка, для споживачів поза

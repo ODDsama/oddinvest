@@ -75,6 +75,18 @@ type projectionInput struct {
 	// жодне з двох замкнене не вміє.
 	AccumByCur map[string][]domain.Accum
 	DistByCur  map[string][]domain.Dist
+	// NPFAccumByCur — пенсійні рахунки, теж накопичувальні, але ЗАМКНЕНІ.
+	//
+	// Окремим входом, а не влитим у AccumByCur ще в будівнику, навмисно:
+	// злиття робить фабрика, і саме тут видно, що НПФ приходить із
+	// Locked, а сертифікати ні. Влите в будівнику воно виглядало б як
+	// однорідний список, у якому замок — випадкова властивість елемента.
+	//
+	// Обовʼязковий разом із Capital.NPFUAH, а не «колись потім»: Contributed
+	// стартує з Capital.TotalUAH (де НПФ уже є), а WithReinvest — із бакетів
+	// рукавів, тож НПФ у капіталі без НПФ у рукавах дає відʼємний приріст
+	// між колонками на портфелі, де пенсійна частка велика.
+	NPFAccumByCur map[string][]domain.Accum
 
 	// Ставки: дохідність портфеля по валютах, запасна середня для валюти,
 	// якої ще немає, і поріг докупівлі.
@@ -404,7 +416,14 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 		// платив облігаційною ставкою замість власної — і лише рік, доки
 		// вистачало оцінки календаря. Обидва пішли у власні кошики.
 		nom := float64(in.NominalByCur[cur])/100 + in.DepositBodyByCur[cur]
+		// НПФ додається до того самого кошика: він накопичувальний за
+		// природою. Різницю несе сам елемент (Locked), а не окремий список —
+		// рости й закриватись на CloseM він мусить як усі, і лише продати
+		// його не можна.
 		accum, dist := in.AccumByCur[cur], in.DistByCur[cur]
+		if npf := in.NPFAccumByCur[cur]; len(npf) > 0 {
+			accum = append(append([]domain.Accum{}, accum...), npf...)
+		}
 		contrib := contribTotal * share[cur]
 		// План (фаза 9): справжній вектор внеску й дії lock — незалежно
 		// від contribTotal/ratePP цього виклику, вони приходять із f і

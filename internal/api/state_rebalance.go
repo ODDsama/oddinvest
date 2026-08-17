@@ -57,6 +57,7 @@ type rebalanceInput struct {
 	NominalByISIN     map[string]int64
 	Bonds             map[string]domain.Bond
 	FundRows          []state.FundPositionRow
+	NPFRows           []state.NPFPositionRow
 	BrokerExposureUAH map[string]float64
 	LadderUAH         []state.YearAmount
 }
@@ -148,6 +149,10 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		{"bonds", cap.BondsUAH, set.TargetBondsPct, in.MinBondUAH},
 		{"funds", cap.FundsUAH, set.TargetFundsPct, in.MinFundUAH},
 		{"deposits", cap.DepositsUAH, set.TargetDepositsPct, in.MinDepositUAH},
+		// НПФ із одиницею входу 0 — і це не «не дізнались», а «її немає»:
+		// внести в пенсійний можна будь-яку суму, порога входу він не має.
+		// Нуль тут вимикає перевірку здійсненності, як і в резерву.
+		{"npf", cap.NPFUAH, set.TargetNPFPct, 0},
 	}
 	for _, k := range kindTargets {
 		if k.target == nil || *k.target <= 0 || totalMajor <= 0 {
@@ -190,6 +195,17 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 			UnitKind:   "reserve", Feasible: true,
 		})
 	}
+	// НПФ без заданої цілі — так само довідковий рядок, з тієї ж причини, що
+	// й резерв: без нього частки видів не сходяться з «а решта де?», і
+	// пенсійна частка, яка може бути найбільшою в портфелі, просто зникала б
+	// із картини складу.
+	if cap.NPFUAH > 0 && totalMajor > 0 && (set.TargetNPFPct == nil || *set.TargetNPFPct <= 0) {
+		out.Rebalance = append(out.Rebalance, state.RebalanceRow{
+			Dimension: "kind", Key: "npf", Currency: money.UAH,
+			CurrentPct: round2(cap.NPFUAH / totalMajor * 100),
+			UnitKind:   "npf", Feasible: true,
+		})
+	}
 
 	// --- концентрація ---
 	//
@@ -229,6 +245,17 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 			}
 			addConc("isin", domain.FundISINPrefix+row.Fund, row.Fund,
 				row.MarketValue, totalMajor, *set.LimitISINPct)
+		}
+		// НПФ — тим самим виміром і з тієї ж причини. «Що буде, якщо ця КУА
+		// не заплатить» — те саме питання, що про емітента паперу, і на
+		// довгому горизонті воно навіть гостріше: вийти з фонду до пенсії не
+		// можна, тобто помилку концентрації тут не виправити продажем.
+		for _, row := range in.NPFRows {
+			if row.ValueUAH <= 0 {
+				continue
+			}
+			addConc("isin", domain.NPFSyntheticISIN(row.Name), row.Name,
+				row.ValueUAH, totalMajor, *set.LimitISINPct)
 		}
 	}
 	if set.LimitBrokerPct != nil && *set.LimitBrokerPct > 0 {

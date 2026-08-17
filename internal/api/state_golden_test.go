@@ -264,6 +264,10 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		"income_target_uah": "30000", "withdraw_monthly_uah": "20000",
 		"rate_spread_pp": "3", "deval_spread_pp": "4",
 		"target_bonds_pct": "45", "target_funds_pct": "20", "target_deposits_pct": "15",
+		"target_npf_pct": "10",
+		// Знижка: ПДФО за рік і є перемикачем, тож без нього credit_est_uah
+		// лишився б нулем, і гілка оцінки не перевірялась би зовсім.
+		"npf_credit_pdfo_year_uah": "40000", "npf_credit_cap_month_uah": "4660",
 		"limit_isin_pct": "20", "limit_broker_pct": "50", "limit_year_pct": "40",
 		"goal_pessimistic_uah": "200000", "goal_realistic_uah": "500000",
 		"goal_optimistic_uah": "1000000",
@@ -277,6 +281,44 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		if err := st.SetSetting(ctx, k, v); err != nil {
 			t.Fatal(err)
 		}
+	}
+
+	// НПФ: один рахунок із заповненим УСІМ — обіцянка, дата доступу, податок
+	// на виплату, ставка знижки й день внеску. Порожнє поле тут означає
+	// неперевірену гілку, і TestDocFieldsPopulated саме за це й валить.
+	//
+	// contrib_day = 5 при goldenNow 15 липня: внесок за липень навмисно НЕ
+	// заводиться, тож npf_contrib_due виходить true. Для bool це єдиний
+	// спосіб бути «ненульовим», а нагадування — те, заради чого НПФ узагалі
+	// зʼявляється в HA окремою сутністю.
+	npfID, err := st.AddNPFAccount(ctx, domain.NPFAccount{
+		Name: "Династія", Administrator: "ЦПО", Currency: money.UAH,
+		Nav: 3_472_156, NavDate: d(-15),
+		ExpectedYieldBP: 1500, YieldSimpleYears: 3,
+		AccessDate: d(9000), IncomeTaxBP: 1380,
+		CreditRateBP: 1800, ContribDay: 5, Note: "ICU",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Два внески за РІЗНОЮ ЧВОПА: один не дає ні кривої, ні різниці між
+	// вартістю й собівартістю, тобто gain_uah лишився б нулем.
+	for _, op := range []domain.NPFOp{
+		{NPFID: npfID, Date: d(-70), Units: 300_000_000, Amount: 100_000, Broker: "ПУМБ"},
+		{NPFID: npfID, Date: d(-40), Units: 288_005_492, Amount: 100_000, Broker: "ПУМБ"},
+	} {
+		if _, err := st.AddNPFOp(ctx, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Історія ЧВОПА понад рік: без двох точок і 180 днів між ними
+	// nav_return_pct не рахується, і yield_basis лишався б обіцянкою — тобто
+	// гілка витіснення факту не перевірялась би.
+	if _, err := st.AddNPFNavPoints(ctx, npfID, []domain.NPFNav{
+		{Date: d(-500), Nav: 2_800_000},
+		{Date: d(-15), Nav: 3_472_156},
+	}); err != nil {
+		t.Fatal(err)
 	}
 
 	// План (фаза 9): одне джерело доходу й одна дія — інакше

@@ -701,3 +701,161 @@ func TestBackupRoundTripKeepsPlanReceipts(t *testing.T) {
 		t.Errorf("нульова відмітка поїхала: %+v", got[1])
 	}
 }
+
+// НПФ: рахунок, внески й вклеєна руками історія ЧВОПА мусять переїхати
+// цілими.
+//
+// Найдорожча втрата з усіх, які тут можливі. Рахунок не відновлюється з
+// журналу навіть частково: у npf_ops немає ні назви фонду, ні ЧВОПА, ні
+// дати доступу — лише id, сума й одиниці. А npf_nav не відновлюється
+// нізвідки взагалі: це опублікована фондом історія за багато років,
+// вклеєна руками, і другого її джерела в застосунку немає.
+func TestBackupRoundTripKeepsNPF(t *testing.T) {
+	ctx := context.Background()
+	src := openTest(t)
+
+	// Усі поля заповнені навмисно, зокрема й ті, що разом не конче
+	// осмислені: тест питає не «чи буває такий фонд», а «чи донесе бекап
+	// кожне поле».
+	want := domain.NPFAccount{
+		Name: "Династія", Administrator: "ЦПО", Currency: money.UAH,
+		Nav: 3_472_156, NavDate: "2026-06-30",
+		ExpectedYieldBP: 1500, YieldSimpleYears: 3,
+		AccessDate: "2051-04-01", IncomeTaxBP: 1380,
+		CreditRateBP: 1800, ContribDay: 5, Note: "ICU",
+	}
+	id, err := src.AddNPFAccount(ctx, want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want.ID = id
+
+	// Нульове поле тест «зберегти» не може: нуль після відновлення і є те,
+	// що ми ловимо. Нова колонка рахунку валить перевірку доти, доки їй не
+	// припишуть помітного значення.
+	wv := reflect.ValueOf(want)
+	for i := 0; i < wv.NumField(); i++ {
+		if wv.Field(i).IsZero() {
+			t.Fatalf("поле %s лишилось нульовим — дай йому помітне значення, "+
+				"інакше тест не побачить, що бекап його губить", wv.Type().Field(i).Name)
+		}
+	}
+
+	if _, err := src.AddNPFOp(ctx, domain.NPFOp{
+		NPFID: id, Date: "2026-07-05", Units: 288_005_492, Amount: 100_000,
+		Broker: "ПУМБ", Note: "перший внесок",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Історія до першого внеску — саме те, чого не відновити нізвідки.
+	if _, err := src.AddNPFNavPoints(ctx, id, []domain.NPFNav{
+		{Date: "2020-01-01", Nav: 1_500_000},
+		{Date: "2023-01-01", Nav: 2_400_000},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	dump, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onDisk Backup
+	if err := json.Unmarshal(raw, &onDisk); err != nil {
+		t.Fatal(err)
+	}
+
+	// катастрофа: чиста база
+	dst := openTest(t)
+	if err := dst.ImportAll(ctx, &onDisk); err != nil {
+		t.Fatalf("імпорт: %v", err)
+	}
+	got, err := dst.ListNPFAccounts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("після відновлення %d рахунків замість 1", len(got))
+	}
+	gv := reflect.ValueOf(got[0])
+	for i := 0; i < wv.NumField(); i++ {
+		if !reflect.DeepEqual(gv.Field(i).Interface(), wv.Field(i).Interface()) {
+			t.Errorf("бекап загубив поле %s: %v замість %v",
+				wv.Type().Field(i).Name, gv.Field(i).Interface(), wv.Field(i).Interface())
+		}
+	}
+
+	ops, err := dst.ListNPFOps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ops) != 1 {
+		t.Fatalf("після відновлення %d внесків замість 1", len(ops))
+	}
+	// Одиниці — окремо й прицільно: без них позиція перетворюється на суму
+	// без вартості, а ЧВОПА на дату внеску не вивести.
+	if ops[0].Units != 288_005_492 || ops[0].Amount != 100_000 {
+		t.Errorf("внесок поїхав: %+v", ops[0])
+	}
+	if ops[0].NPFID != got[0].ID {
+		t.Errorf("внесок відчепився від рахунку: npf_id=%d, рахунок %d",
+			ops[0].NPFID, got[0].ID)
+	}
+	if ops[0].Broker != "ПУМБ" {
+		t.Errorf("рахунок списання загубився: %q", ops[0].Broker)
+	}
+
+	navs, err := dst.ListNPFNav(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(navs) != 2 {
+		t.Fatalf("після відновлення %d точок ЧВОПА замість 2: %+v", len(navs), navs)
+	}
+	if navs[0].Date != "2020-01-01" || navs[0].Nav != 1_500_000 {
+		t.Errorf("найраніша точка ЧВОПА поїхала: %+v", navs[0])
+	}
+	if navs[0].NPFID != got[0].ID {
+		t.Errorf("точка ЧВОПА відчепилась від рахунку: %+v", navs[0])
+	}
+}
+
+// Внесок робить npf_ops.broker_id посиланням на brokers, і саме через це
+// npf_ops мусить стояти в переліку очищення ImportAll. Забути його там —
+// це не «дублікати після відновлення», а повна відмова на FK.
+//
+// Рівно те, що вже сталося з вкладами; тест стоїть, щоб не сталося втретє.
+func TestImportSurvivesNPFReferencingBroker(t *testing.T) {
+	ctx := context.Background()
+	src := openTest(t)
+	id, err := src.AddNPFAccount(ctx, domain.NPFAccount{
+		Name: "Династія", Currency: money.UAH, Nav: 3_000_000, NavDate: "2026-01-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.AddNPFOp(ctx, domain.NPFOp{
+		NPFID: id, Date: "2026-07-05", Units: 1_000_000, Amount: 100_000, Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dump, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Відновлення В ТУ САМУ базу: тут і спрацював би FK, бо brokers уже
+	// заселені й на них уже посилається внесок.
+	if err := src.ImportAll(ctx, dump); err != nil {
+		t.Fatalf("повторний імпорт у ту саму базу впав: %v", err)
+	}
+	ops, err := src.ListNPFOps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ops) != 1 {
+		t.Errorf("після повторного імпорту %d внесків замість 1", len(ops))
+	}
+}

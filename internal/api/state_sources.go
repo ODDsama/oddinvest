@@ -46,6 +46,16 @@ type sources struct {
 	termDeposits []domain.Deposit
 	reserveOps   []store.ReserveOp
 
+	// НПФ (0028): рахунки, внески й вклеєні руками точки ЧВОПА.
+	//
+	// Точки лежать сирими, а не зведеними в криву: обʼєднати їх із ЧВОПА,
+	// виведеними з внесків, умію лише domain.NPFNavPoints, і робити це двічі
+	// (тут і в фазі) означало б дати двом місцям розійтись у тому, яке
+	// джерело важить більше.
+	npfAccounts []domain.NPFAccount
+	npfOps      []domain.NPFOp
+	npfNav      []domain.NPFNav
+
 	// План (фаза 9): джерела доходу й точкові дії. Сирі рядки — розгортання
 	// в помісячні вектори робить sleeveFactory (state_projection.go).
 	planFlows   []store.PlanFlow
@@ -134,6 +144,9 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	src.planFlows, _ = s.st.ListPlanFlows(ctx)           //nolint:errcheck // свідомо: порожній план — звичайний стан, не привід валити документ
 	src.planActions, _ = s.st.ListPlanActions(ctx)       //nolint:errcheck // те саме
 	src.planReceipts, _ = s.st.ListPlanReceipts(ctx)     //nolint:errcheck // те саме: невідмічений план — звичайний стан
+	src.npfAccounts, _ = s.st.ListNPFAccounts(ctx)       //nolint:errcheck // свідомо, як фонди й вклади: НПФ зʼявився пізніше за схему
+	src.npfOps, _ = s.st.ListNPFOps(ctx)                 //nolint:errcheck // те саме
+	src.npfNav, _ = s.st.ListNPFNav(ctx)                 //nolint:errcheck // те саме: історія ЧВОПА може бути порожня, і це звичайний стан
 
 	src.fundRefs = map[string]store.Fund{}
 	if refs, ferr := s.st.ListFunds(ctx); ferr == nil {

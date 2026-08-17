@@ -38,9 +38,16 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		// картку цілком: без них він віддає саму лише суму, і поля
 		// months/target_uah/gap_uah у фікстурі не зʼявились би.
 		exp, months := 30_000.0, 3.0
+		// Ціль НПФ і обидва числа знижки — щоб фікстура показувала їх
+		// заповненими: ПДФО за рік і є перемикачем знижки, тож без нього
+		// npf_credit_* у фікстурі не зʼявились би взагалі.
+		npfTgt, pdfo, capMonth := 10.0, 40_000.0, 4_660.0
 		return &SettingsDoc{
 			MonthlyTargetUAH: &tgt, USDTargetSharePct: &u,
 			MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months,
+			TargetNPFPct:         &npfTgt,
+			NPFCreditPDFOYearUAH: &pdfo,
+			NPFCreditCapMonthUAH: &capMonth,
 		}
 	}()
 	doc := &Doc{
@@ -68,7 +75,27 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		// мусять бути НЕНУЛЬОВИМИ: нуль у фікстурі не відрізнити від
 		// відсутнього поля, і тест «старий сервіс не надсилає» на тому боці
 		// перестав би щось означати.
-		ReserveUAH:          60_000,
+		ReserveUAH: 60_000,
+		// НПФ. npf_uah читає інтеграція (він іде в атрибути капіталу й у
+		// резервну суму capital()), npf_contrib_due — новий binary_sensor,
+		// тож обидва мусять бути тут і обидва ненульовими. Для bool це
+		// означає саме true: false у фікстурі не відрізнити від
+		// відсутнього поля.
+		NPFUAH:        45_000,
+		NPFCostUAH:    40_000,
+		NPFContribDue: true,
+		NPF: []NPFPositionRow{{
+			Name: "Династія", Currency: money.UAH,
+			Units: 12_960.55, Nav: 3.472156, NavDate: "2026-06-30",
+			CostUAH: 40_000, ValueUAH: 45_000, GainUAH: 5_000,
+			// Обидві дохідності заповнені разом навмисно: пара «обіцяли /
+			// фактично» і є головним, що показує картка, а yield_basis каже,
+			// котре з двох потрапило в real_pct.
+			NavReturnPct: 12.40, ExpectedPct: 15, RealPct: 4.85,
+			YieldBasis: "зростання ЧВОПА",
+			AccessDate: "2051-04-01", ContribDay: 5, ContribDue: true,
+			CreditEstUAH: 7_200, Administrator: "ЦПО",
+		}},
 		IncomeMonthlyNow:    1_240.50,
 		AccruedUAH:          812.33,
 		PortfolioYieldPct:   14.93,
@@ -79,6 +106,12 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		Liquidity: &Liquidity{
 			NowUAH: 1_500, In30UAH: 5_637.50, In90UAH: 9_775,
 			ReserveUAH: 60_000, LockedUAH: 120_000, UnlockDate: "2027-03-17",
+			// Замкнене в НПФ — частина LockedUAH, а не додаток до нього, і
+			// саме тому менша за нього: 120 000 замкнено всього, з них
+			// 45 000 у пенсійному, решта у вкладі. Рівність двох чисел
+			// приховала б підполе, а сума понад LockedUAH описувала б
+			// неможливий портфель.
+			LockedNPFUAH: 45_000,
 		},
 		Independence: &Independence{
 			TargetUAH: 30_000, IncomeNowUAH: 1_240.50, TargetFrom: "expenses",
@@ -135,9 +168,15 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		// якій резерв є, а в капіталі його немає, описувала б неможливий
 		// портфель. ReserveByCur порожній — матрац гривневий, валютної
 		// експозиції не додає.
+		// НПФ тут ОБОВʼЯЗКОВО той самий, що й doc.NPFUAH, і з тієї ж
+		// причини, що резерв: капітал за визначенням його містить
+		// (Capital.TotalUAH). NPFByCur гривневий, тобто валютної експозиції
+		// не додає — але сам по собі НПФ у чисельник часток входить, на
+		// відміну від сертифікатів.
 		Capital: Capital{
 			BondsUAH:   50_000 + 88_246.80,
 			ReserveUAH: 60_000,
+			NPFUAH:     45_000,
 			BondsByCur: map[string]float64{money.USD: 88_246.80},
 		},
 		MonthDeposited: monthDep,
@@ -189,11 +228,17 @@ func TestDerive(t *testing.T) {
 	if len(doc.Ladder) != 1 || doc.Ladder[0].UAH != 50000 || doc.Ladder[0].USD != 2000 {
 		t.Errorf("ladder: %+v", doc.Ladder)
 	}
-	// $2 000 × 44.1234 = 88 246.80 ₴ від капіталу 198 246.80 ₴ (номінал
-	// 138 246.80 + резерв 60 000) — тобто ~44.5%. Резерв стоїть у
-	// ЗНАМЕННИКУ, хоч сам гривневий: він частина капіталу, і саме тому
-	// поповнення матраца зменшує валютну частку, нічого не продаючи.
-	if doc.USDSharePct < 44 || doc.USDSharePct > 45 {
+	// $2 000 × 44.1234 = 88 246.80 ₴ від капіталу 243 246.80 ₴ (номінал
+	// 138 246.80 + резерв 60 000 + НПФ 45 000) — тобто ~36.3%. Резерв і НПФ
+	// стоять у ЗНАМЕННИКУ, хоч обидва гривневі: вони частина капіталу, і
+	// саме тому поповнення матраца чи внесок у пенсійний зменшують валютну
+	// частку, нічого не продаючи.
+	//
+	// Число тут переїхало з ~44.5% рівно тоді, коли НПФ увійшов у
+	// Capital.TotalUAH, і це не регресія, а те, заради чого він туди
+	// заводився: доти будь-яка частка, порахована при наявному пенсійному
+	// рахунку, була заниженою.
+	if doc.USDSharePct < 36 || doc.USDSharePct > 37 {
 		t.Errorf("usd_share_pct = %v", doc.USDSharePct)
 	}
 	if len(doc.Calendar) != 4 || doc.Calendar[3].Type != "redemption" {

@@ -304,6 +304,43 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		cash.add(op.Broker, op.Currency, delta)
 	}
 
+	// Внесок у НПФ рухає гаманець в ОДИН бік: гроші йдуть із рахунку й не
+	// повертаються ніколи — точніше, не раніше пенсійного віку, і тоді це
+	// буде інша сутність з іншим графіком.
+	//
+	// arrived() тут не потрібен, як і поповненням вкладу: внесок — це
+	// записаний факт із виписки, а не обіцяна виплата, яку ще треба
+	// дочекатись.
+	//
+	// Той самий дебет ОБОВʼЯЗКОВО дзеркалиться в cashflow.go: агрегатний
+	// гаманець тут і подієвий звіт там звіряються тестом
+	// TestCashflowStatementReconciles, і забути одну з двох половин означає
+	// розійтись на суму внесків — обидва числа при цьому лишаться
+	// правдоподібними.
+	npfCurByID := map[int64]string{}
+	for _, a := range src.npfAccounts {
+		if a.Currency == "" {
+			npfCurByID[a.ID] = money.UAH
+			continue
+		}
+		npfCurByID[a.ID] = a.Currency
+	}
+	for _, op := range src.npfOps {
+		if op.Date.After(today) {
+			continue
+		}
+		cur := npfCurByID[op.NPFID]
+		if cur == "" {
+			cur = money.UAH
+		}
+		cash.add(op.Broker, cur, -op.Amount)
+		// Внести в пенсійний — така сама покупка, як узяти папір: гроші пішли
+		// в діло, і чергу «доходу без діла» це з'їдає нарівні з рештою.
+		if u, cerr := fx.ToUAH(money.New(op.Amount, cur), rates); cerr == nil {
+			purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: op.Date, Amount: u.Amount()})
+		}
+	}
+
 	// Вклади рухають гаманець так само, як лоти й фонди: розміщення
 	// СПИСУЄ тіло з рахунку банку (гроші замкнені на строк), а відсотки й
 	// повернення тіла ЗАРАХОВУЮТЬ — але лише коли реально надійшли, через
@@ -503,6 +540,21 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	fnd := buildFunds(src, hold, rates, deval, today)
 	fundRows, fundsUAH := fnd.Rows, fnd.TotalUAH
 	fundsYield, fundsYieldReal := fnd.YieldPct, fnd.YieldRealPct
+
+	// Пенсійні рахунки (state_npf.go). Свідомо НЕ вливаються у фондові
+	// числа: fundsYield зважує рядки ринковою вартістю в одне число, і
+	// замкнена двадцятип'ятирічна обіцянка поруч із виміреними дивідендами
+	// REIT дала б «різні основи» в кращому разі, а в гіршому — портфельну
+	// «дохідність фондів», за якою нічого не зробиш.
+	npf := buildNPF(src, rates, deval, today)
+	// Адміністратор — контрагент нарівні з банком, і питання до нього те
+	// саме: «скільки я втрачу, якщо він завтра зникне». Це саме
+	// brokerExposureUAH (звіт про концентрацію), а НЕ довідник brokers: у
+	// таблиці рахунків його немає навмисно, бо з нього нічого не списати, і
+	// у випадайках лотів він був би фальшивим рахунком (див. 0028).
+	for _, r := range npf.Rows {
+		addExposure(r.Administrator, r.ValueUAH)
+	}
 	// Зведена по портфелю — окремо від фондової: це третє число, а не
 	// уточнення другого, і рахується воно нижче, коли вже відома
 	// облігаційна частина. Парою навмисно: номінальна без реальної на
@@ -641,6 +693,9 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// самі гроші. Без цього він рахував облігаційну частину й видавав її
 	// за портфельну. fundOps уже стягнуто раз на початку buildState.
 	xirr := map[string]float64{}
+	// Позиції НПФ зводяться РАЗ на всі три валюти: усередині циклу це була б
+	// повна редукція журналу тричі, і всі три дали б те саме.
+	npfPositionsForXIRR := domain.NPFPositions(src.npfAccounts, src.npfOps)
 	for _, cur := range []string{money.UAH, money.USD, money.EUR} {
 		flows, err := domain.PortfolioFlows(bonds, pays, lots, sales, cur, today)
 		if err != nil {
@@ -648,6 +703,21 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		}
 		flows = append(flows, domain.FundFlows(fundOps, cur, today)...)
 		flows = append(flows, domain.DepositFlows(termDeposits, cur, today)...)
+		// НПФ теж: внески — ті самі гроші, і XIRR міряє, скільки на них
+		// зароблено. Тут це «скільки заробили МОЇ гроші» з урахуванням дат
+		// внесків, тобто величина, відмінна від зростання ЧВОПА в рядку
+		// позиції; при нерівномірних внесках вони розходяться, і саме тому
+		// обидві показуються, а не зводяться в одну.
+		//
+		// Замок на це не впливає: XIRR питає, скільки принесли вкладені
+		// гроші, а не чи можна їх забрати.
+		for _, acc := range src.npfAccounts {
+			p := npfPositionsForXIRR[acc.ID]
+			if p == nil || p.Currency != cur {
+				continue
+			}
+			flows = append(flows, domain.NPFFlows(*p, src.npfOps, today)...)
+		}
 		sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })
 		if len(flows) < 2 {
 			continue
@@ -702,8 +772,9 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	capital := state.Capital{
 		BondsUAH: nominalMajor, AccountUAH: float64(accountUAHMinor) / 100,
 		FundsUAH: fundsUAH, DepositsUAH: depositsUAH, ReserveUAH: reserveUAH,
+		NPFUAH:     npf.TotalUAH,
 		BondsByCur: bnd.NominalByCurUAH, DepositsByCur: depositsUAHByCur,
-		ReserveByCur: reserveUAHByCur,
+		ReserveByCur: reserveUAHByCur, NPFByCur: npf.ExposureUAH,
 	}
 
 	blendedYield = blendYield(portfolioYield, fundsYield, nominalMajor, fundsUAH)
@@ -718,7 +789,12 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		CashByCur: bal, NominalByCur: nominalByCur,
 		DepositBodyByCur: depositBodyByCur,
 		AccumByCur:       fnd.Accum, DistByCur: fnd.Dist,
-		YieldByCur: portfolioYieldByCur, AvgRateByCur: src.avgRate,
+		// НПФ окремим входом, а не влитий у AccumByCur: рукав мусить
+		// отримати їх обидва, але злиття двох мап — робота фабрики, і
+		// зробивши її тут, я лишив би проєкцію без способу відрізнити
+		// замкнене від продаваного.
+		NPFAccumByCur: npf.Accum,
+		YieldByCur:    portfolioYieldByCur, AvgRateByCur: src.avgRate,
 		ReinvestMinByCur: reinvestMinByCur,
 		Rates:            rates, Deval: deval, ActualMonthly: actualMonthly,
 		IncomeMonthlyNow: incomeMonthlyNow, Today: today,
@@ -746,6 +822,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		MinBondUAH: minBondUAH, MinFundUAH: minFundPriceUAH,
 		MinDepositUAH: minDepositUAH,
 		NominalByISIN: nominalByISIN, Bonds: bonds, FundRows: fundRows,
+		NPFRows:           npf.Rows,
 		BrokerExposureUAH: brokerExposureUAH, LadderUAH: ladderUAH,
 	})
 	rebalance, concentration := rbl.Rebalance, rbl.Concentration
@@ -755,7 +832,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		Cashflow: cashflow, Holdings: hold, Pays: pays, TermDeposits: termDeposits,
 		Rates: rates, YieldPct: portfolioYield, YieldByCur: portfolioYieldByCur,
 		AccountMinor: accountUAHMinor, ReserveUAH: reserveUAH,
-		Now: now, Today: today,
+		NPFRows: npf.Rows,
+		Now:     now, Today: today,
 	})
 	rateRisk, liquidity, accruedUAH := rsk.RateRisk, rsk.Liquidity, rsk.AccruedUAH
 
@@ -779,6 +857,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
 		FundsUAH: round2(fundsUAH), Funds: fundRows,
 		DepositsUAH: round2(depositsUAH), ReserveUAH: round2(reserveUAH),
+		NPFUAH: round2(npf.TotalUAH), NPFCostUAH: round2(npf.CostUAH),
+		NPF: npf.Rows, NPFContribDue: npf.ContribDue,
 		IncomeMonthlyNow: incomeMonthlyNow, ReinvestMin: reinvestMinByCur,
 
 		Settings: settings, XIRRPct: xirr,

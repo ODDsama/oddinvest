@@ -100,6 +100,41 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 			add(op.Date, flowPurchase, uah(money.New(op.Amount-op.Tax, op.Currency)), "продаж "+op.Fund)
 		}
 	}
+	// Внески в НПФ — покупки, і лише вони: доходу звідси не приходить до
+	// пенсійного віку, тож зворотного рядка в цього інструмента немає.
+	//
+	// Це ДЗЕРКАЛО дебету гаманця в state_builder.go, і саме тому воно тут, а
+	// не «для повноти». Агрегатний гаманець і цей подієвий звіт звіряються
+	// TestCashflowStatementReconciles; половина без другої половини —
+	// розбіжність рівно на суму внесків, і обидва числа лишились би
+	// правдоподібними.
+	npfAccounts, err := s.st.ListNPFAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	npfCur := map[int64]string{}
+	npfName := map[int64]string{}
+	for _, a := range npfAccounts {
+		cur := a.Currency
+		if cur == "" {
+			cur = money.UAH
+		}
+		npfCur[a.ID], npfName[a.ID] = cur, a.Name
+	}
+	npfOps, err := s.st.ListNPFOps(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, op := range npfOps {
+		if op.Date.After(today) {
+			continue
+		}
+		cur := npfCur[op.NPFID]
+		if cur == "" {
+			cur = money.UAH
+		}
+		add(op.Date, flowPurchase, -uah(money.New(op.Amount, cur)), "внесок "+npfName[op.NPFID])
+	}
 	// Вклади: розміщення й поповнення — покупки, відсотки — дохід.
 	termDeposits, err := s.st.ListTermDeposits(ctx)
 	if err != nil {

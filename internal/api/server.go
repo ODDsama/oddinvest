@@ -86,6 +86,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/funds", s.handleAddFundOp)
 	mux.HandleFunc("PUT /api/funds/{id}", s.handleUpdateFundOp)
 	mux.HandleFunc("DELETE /api/funds/{id}", s.handleDeleteFundOp)
+	// НПФ: довідник рахунків, журнал внесків і історія ЧВОПА — три ресурси,
+	// бо три різні речі (властивості рахунку, факти з виписки, опублікована
+	// фондом таблиця). /nav окремо від PUT рахунку: переписати число з
+	// кабінету — найчастіша дія, і повне тіло для неї дало б формі
+	// перезаписати поля, яких вона не показує.
+	mux.HandleFunc("GET /api/npf-accounts", s.handleNPFAccounts)
+	mux.HandleFunc("POST /api/npf-accounts", s.handleAddNPFAccount)
+	mux.HandleFunc("PUT /api/npf-accounts/{id}", s.handleUpdateNPFAccount)
+	mux.HandleFunc("PUT /api/npf-accounts/{id}/nav", s.handleSetNPFNav)
+	mux.HandleFunc("DELETE /api/npf-accounts/{id}", s.handleDeleteNPFAccount)
+	mux.HandleFunc("GET /api/npf", s.handleNPFOps)
+	mux.HandleFunc("POST /api/npf", s.handleAddNPFOp)
+	mux.HandleFunc("POST /api/npf/check", s.handleNPFOpCheck)
+	mux.HandleFunc("PUT /api/npf/{id}", s.handleUpdateNPFOp)
+	mux.HandleFunc("DELETE /api/npf/{id}", s.handleDeleteNPFOp)
+	mux.HandleFunc("GET /api/npf-nav", s.handleNPFNav)
+	mux.HandleFunc("POST /api/npf-nav", s.handleAddNPFNav)
+	mux.HandleFunc("DELETE /api/npf-nav/{id}", s.handleDeleteNPFNav)
 	mux.HandleFunc("GET /api/term-deposits", s.handleTermDeposits)
 	mux.HandleFunc("POST /api/term-deposits", s.handleAddTermDeposit)
 	mux.HandleFunc("POST /api/term-deposits/check", s.handleTermDepositCheck)

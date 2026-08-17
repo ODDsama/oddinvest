@@ -44,6 +44,9 @@ type riskInput struct {
 	YieldByCur   map[string]float64
 	AccountMinor int64
 	ReserveUAH   float64
+	// NPFRows — пенсійні рахунки. Потрібні лише ліквідності: у ціновий ризик
+	// і ризик перевкладення НПФ не входить, бо не породжує потоку взагалі.
+	NPFRows []state.NPFPositionRow
 
 	Now   time.Time
 	Today domain.Date
@@ -181,13 +184,27 @@ func buildRisk(in riskInput) riskPhase {
 			unlockDate = dep.MaturityDate
 		}
 	}
+	// НПФ — теж замкнене, і саме тут його місце. Причина, через яку в
+	// locked_uah немає ОБЛІГАЦІЙ, до нього не діє: у паперу застосунок не
+	// моделює ринкової ціни, а вартість пенсійних активів відома точно.
+	//
+	// Окремою сумою поверх спільної: unlock_date бере НАЙБЛИЖЧУ дату, тобто
+	// вклад, і без розщеплення картка казала б «замкнено 1.4 млн,
+	// розблокується 2027-03», коли більшість недоступна до 2051-го. Дату
+	// доступу НПФ у unlock_date не підмішуємо навмисно — там питання «коли
+	// звільниться найближче», і 2051 рік на нього не відповідає.
+	var npfLockedUAH float64
+	for _, row := range in.NPFRows {
+		npfLockedUAH += row.ValueUAH
+	}
 	out.Liquidity = &state.Liquidity{
-		NowUAH:     round2(float64(in.AccountMinor) / 100),
-		In30UAH:    round2(float64(in30) / 100),
-		In90UAH:    round2(float64(in90) / 100),
-		ReserveUAH: round2(in.ReserveUAH),
-		LockedUAH:  round2(float64(lockedUAH) / 100),
-		UnlockDate: string(unlockDate),
+		NowUAH:       round2(float64(in.AccountMinor) / 100),
+		In30UAH:      round2(float64(in30) / 100),
+		In90UAH:      round2(float64(in90) / 100),
+		ReserveUAH:   round2(in.ReserveUAH),
+		LockedUAH:    round2(float64(lockedUAH)/100 + npfLockedUAH),
+		UnlockDate:   string(unlockDate),
+		LockedNPFUAH: round2(npfLockedUAH),
 	}
 	return out
 }

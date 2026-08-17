@@ -15,11 +15,27 @@ func ParseDecimalToMinor(s string, code string) (int64, error) {
 	if cur == nil {
 		return 0, fmt.Errorf("невідома валюта %q", code)
 	}
+	return ParseDecimalToScale(s, cur.Fraction)
+}
+
+// ParseDecimalToScale — те саме, але масштаб задається прямо, а не
+// виводиться з валюти.
+//
+// Потрібне там, де одиниця не грошова: ЧВОПА й одиниці пенсійних активів
+// живуть на ×10⁶, тобто на шести знаках проти двох у копійки (див.
+// domain/npf.go). Друга реалізація парсера тут була б третім місцем, де
+// вирішується, як заокруглювати десятковий дріб, — а політика заокруглення
+// в проєкті ОДНА, і саме тому обидві функції зводяться до
+// RatToInt64HalfEven.
+func ParseDecimalToScale(s string, decimals int) (int64, error) {
+	if decimals < 0 {
+		return 0, fmt.Errorf("масштаб не може бути відʼємним: %d", decimals)
+	}
 	r, ok := new(big.Rat).SetString(s)
 	if !ok {
 		return 0, fmt.Errorf("невалідне десяткове число %q", s)
 	}
-	pow := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(cur.Fraction)), nil))
+	pow := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil))
 	r.Mul(r, pow)
 	return RatToInt64HalfEven(r)
 }
