@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/Rhymond/go-money v1.0.14
 	github.com/eclipse/paho.mqtt.golang v1.5.1
-	github.com/mattn/go-sqlite3 v1.14.24
+	github.com/mattn/go-sqlite3 v1.14.49
 )
 
 require (
