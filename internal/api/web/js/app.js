@@ -25,8 +25,9 @@ import { fitCharts } from "./charts.js";
 import { parseRoute, ANCHORS } from "./routes.js";
 
 import { renderOverview } from "./views/overview.js";
-import { renderSettings } from "./views/settings.js";
 import * as assets from "./views/assets-view.js";
+import * as policy from "./views/policy-view.js";
+import * as settings from "./views/settings-view.js";
 import * as money from "./views/money-view.js";
 import * as entry from "./views/entry-view.js";
 import * as plan from "./views/plan-view.js";
@@ -77,6 +78,15 @@ const VIEWS = {
   "risk/structure": risk.structure,
   "risk/limits": risk.limits,
   "risk/compare": risk.compare,
+
+  "policy/strategy": policy.strategy,
+  "policy/mix": policy.mix,
+  "policy/instruments": policy.instruments,
+  "policy/reserve": policy.reserve,
+  "policy/assumptions": policy.assumptions,
+
+  "settings/refs": settings.refs,
+  "settings/backup": settings.backup,
 };
 
 // ТИМЧАСОВО, на час розбиття. Доки розділ не розібраний, усі його
@@ -90,8 +100,6 @@ const VIEWS = {
 // неможливо ні перевірити, ні відкотити частинами.
 const LEGACY_VIEW = {
   now: renderOverview,
-  policy: renderSettings,
-  settings: renderSettings,
 };
 
 // Розділ живе в хеші адреси, а не тільки в пам'яті компонента. Розбір
