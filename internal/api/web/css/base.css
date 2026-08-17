@@ -110,8 +110,9 @@ header {
   z-index: var(--oi-z-header);
 }
 /* На телефоні назва ховається, а знак лишається: логотип упізнають по
-   знаку, і 90px тексту поруч із ним коштують дорожче за кнопку. */
-header h1 {
+   знаку, і 90px тексту поруч із ним коштують дорожче за кнопку.
+   Не <h1>: єдиний перший заголовок тепер у <main> і називає сторінку. */
+.brand {
   font-size: var(--oi-fs-xl);
   margin: 0;
   font-weight: var(--oi-fw-medium);
@@ -122,13 +123,12 @@ header h1 {
 }
 header .sp { flex: 1; }
 header .mark { width: 22px; height: 22px; flex: 0 0 auto; color: var(--oi-header-mark); }
-/* Шестерня «Налаштувань» — заміна шостої кнопки в панелі знизу на
-   вузькому екрані. min-width/height, а не padding: тут це коло, і
-   квадратна ціль дотику мусить лишитись такою ж, як у решти кнопок
-   шапки, попри те, що вміст — один символ, а не слово. Видимість
-   перемикають одне з одним нижче: до 900px гвинтик, від 900px —
-   вкладка «Налаштування» в самій панелі. */
-.gear {
+/* Гамбургер. min-width/height, а не padding: вміст — один знак, а ціль
+   дотику мусить лишитись такою ж квадратною, як у решти кнопок шапки.
+   Від 900px зникає разом із шухлядою: кнопка «показати меню» до вже
+   видимого меню нічого не робить, а display:none виймає її ще й із
+   порядку табуляції — на відміну від visibility чи opacity. */
+.nav-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -138,67 +138,116 @@ header .mark { width: 22px; height: 22px; flex: 0 0 auto; color: var(--oi-header
   font-size: var(--oi-fs-lg);
   line-height: 1;
 }
-@media (min-width: 900px) { .gear { display: none; } }
 /* «Стан на …» у шапці. Не .muted: приглушений там читався б як
    попередження про несвіжість, а це просто час останнього перерахунку.
    Доти рядок мав клас .muted і тут-таки інлайном його скасовував —
    тобто клас брали заради розміру, а колір відмотували назад. */
 .hdr-stamp { color: var(--oi-header-text); opacity: .85; }
 
+/* --- розкладка: панель і колонка вмісту --- */
+
+/* На вузькому екрані панель виїжджає поверх вмісту, тож розкладки як
+   такої немає — є одна колонка. Сітка з'являється від 900px.
+   min-width на колонці обов'язковий: без нього таблиця на сім колонок
+   розпирає grid-трек зсередини, бо типове minmax(auto, …) не дозволяє
+   треку стати вужчим за min-content свого вмісту. */
+.layout { display: block; }
+.col { min-width: 0; }
+
+/* Панель. Знизу її більше немає, і разом із нею немає прибитого до
+   кількості вкладок repeat(5, …), який доводилось правити щоразу, коли
+   розділів ставало більше або менше. Тепер список вертикальний, тож
+   рахувати нема чого.
+   overscroll-behavior: без нього прокрутка, дійшовши до кінця списку,
+   продовжується сторінкою під шухлядою. */
 nav {
-  /* Знизу — під великий палець. Горизонтальна смуга з прокруткою ховала б
-     крайню вкладку за краєм екрана, ще й без натяку, що там щось є, тож
-     кількість колонок мусить збігатися з кількістю ВИДИМИХ вкладок. */
   position: fixed;
-  bottom: 0; left: 0; right: 0;
-  display: grid;
-  /* minmax(0, 1fr), а не 1fr: типове 1fr це minmax(AUTO, 1fr), тобто
-     колонка не має права стати вужчою за min-content свого вмісту —
-     і «Налаштування» одним словом розпирало панель до 605px на екрані
-     в 375. Нуль знімає цю підлогу, а переносити слово дозволяє
-     overflow-wrap нижче. */
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  top: 0; bottom: 0; left: 0;
+  width: min(84vw, var(--oi-sidebar-w));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--oi-surface);
-  border-top: var(--oi-rule) solid var(--oi-border);
-  padding: 0 0 env(safe-area-inset-bottom);   /* смуга жесту на iPhone */
-  z-index: var(--oi-z-header);
-  overflow: visible;
+  border-right: var(--oi-rule) solid var(--oi-border);
+  padding: var(--oi-gap) 0 calc(var(--oi-gap) + env(safe-area-inset-bottom));
+  z-index: var(--oi-z-modal);
+  transform: translateX(-100%);
 }
-/* Остання вкладка («Налаштування») не додає собі колонку сюди: display:none
-   виймає елемент із grid цілком, тож repeat(5, …) вище рахує рівно ті
-   вкладки, що видно, — «Налаштування» на вузькому екрані живуть у шапці
-   (.gear). Разом, а не окремим правилом .gear, щоб перемикання не могло
-   розійтися: одне показане завжди означає інше сховане.
-   ЩОРАЗУ, коли TABS міняється, це число мусить іти слідом: шість колонок
-   на п'ять вкладок лишили б порожню комірку скраю. */
-nav a[data-tab="settings"] { display: none; }
-@media (min-width: 900px) { nav a[data-tab="settings"] { display: flex; } }
-nav a {
+:host([data-nav-open]) nav { transform: none; }
+
+/* Перехід умикається лише ПІСЛЯ першого кадру зі стилями, і це не
+   прикраса, а виправлення справжньої поломки.
+
+   Стилі приїжджають фетчем: adoptStyles (js/styles.js) асинхронний, а
+   оболонка малюється, не чекаючи його. Тобто на першому кадрі в панелі
+   трансформації немає взагалі, а на другому вона стає translateX(-100%) —
+   і браузер чесно бачить у цьому ЗМІНУ, тобто запускає перехід на
+   завантаженні сторінки. Панель від'їжджала за край на очах у того, хто
+   її не чіпав.
+
+   Гірше: перехід, який чомусь не догрався, тримає своє проміжне значення
+   ПОВЕРХ усього — CSS-транзиція в каскаді стоїть вище навіть за інлайновий
+   style. У браузері, який пригальмовує анімації на невидимій вкладці, це
+   лишало шухляду розкритою поверх вмісту назавжди, і жоден наступний
+   стиль її звідти не діставав.
+
+   Атрибут ставить app.js через два кадри після adoptStyles. Від 900px
+   перехід не потрібен зовсім: там панель нікуди не їздить. */
+:host([data-ready]) nav { transition: transform var(--oi-dur) var(--oi-ease); }
+
+/* Підкладка. Нижче за панель, вище за тост: тост має право писати поверх
+   затемнення, панель — поверх обох. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--oi-overlay);
+  z-index: var(--oi-z-popover);
+}
+
+.nav-l { list-style: none; margin: 0; padding: 0; }
+
+/* Заголовок групи — посилання, а не підпис: воно веде на перший підрозділ
+   розділу, тобто адреса «#/assets» кудись приводить, і клавіатура має за
+   що зачепитись. Нефокусований рядок посеред списку посилань — дірка в
+   обході. */
+.nav-g {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  min-width: 0;
   min-height: var(--oi-touch);
-  padding: var(--oi-gap-sm) var(--oi-gap-xs);
-  cursor: pointer;
-  text-align: center;
+  padding: var(--oi-gap-xs) var(--oi-gap-lg);
+  color: var(--oi-text);
   text-decoration: none;
-  color: var(--oi-muted);
-  font-size: var(--oi-fs-xs);
-  line-height: var(--oi-lh-snug);
-  /* «Налаштування» не має пробілу, де ламатись, а скорочувати підпис
-     означало б покласти presentation у constants.js, де живе модель. */
-  overflow-wrap: anywhere;
-  border-top: 3px solid transparent;
-}
-/* Два селектори на один стан: джерелом правди стає aria-current, але
-   клас .active ще ставить app.js, і поки він там — вигляд не має
-   залежати від того, який із двох приїхав першим. */
-nav a[aria-current="page"] {
-  color: var(--oi-accent);
-  border-top-color: var(--oi-accent);
+  font-size: var(--oi-fs-md);
   font-weight: var(--oi-fw-medium);
+}
+.nav-g[aria-current="location"] { color: var(--oi-accent); }
+
+/* Пункт. Вкладений список малюється лише для активної групи (app.js), тож
+   відступ ліворуч тут єдиний спосіб сказати, що це другий ярус. */
+.nav-i {
+  display: flex;
+  align-items: center;
+  min-height: var(--oi-touch);
+  padding: var(--oi-gap-xs) var(--oi-gap-lg) var(--oi-gap-xs) var(--oi-gap-3xl);
+  color: var(--oi-muted);
+  text-decoration: none;
+  font-size: var(--oi-fs);
+  line-height: var(--oi-lh-snug);
+  border-left: var(--oi-rule-strong) solid transparent;
+}
+.nav-i:hover { color: var(--oi-text); }
+.nav-i[aria-current="page"] {
+  color: var(--oi-accent);
+  border-left-color: var(--oi-accent);
+  font-weight: var(--oi-fw-medium);
+}
+
+/* Розділювач усередині групи. Користувач рівно один — «Записати», де
+   шість ручних форм по сутностях відділені від двох пакетних входів,
+   які заводять кілька сутностей одразу. */
+.nav-sep {
+  margin-top: var(--oi-gap-sm);
+  padding-top: var(--oi-gap-sm);
+  border-top: var(--oi-rule) solid var(--oi-border);
 }
 
 /* Смуга стану застосунку — між навігацією і розділом. Ті самі поля, що
@@ -212,65 +261,77 @@ nav a[aria-current="page"] {
 }
 
 main {
-  /* Нижній відступ звільняє місце під панель навігації: без нього
-     останній рядок розділу назавжди лишався б під нею. */
-  padding: 0 var(--oi-gap)
-           calc(var(--oi-touch) + var(--oi-gap-xl) + env(safe-area-inset-bottom));
+  padding: 0 var(--oi-gap) var(--oi-gap-3xl);
   max-width: var(--oi-max-width);
   margin: 0 auto;
 }
-/* Головна область отримує фокус програмно при зміні розділу — щоб читач
+/* Головна область отримує фокус програмно при зміні сторінки — щоб читач
    екрана дізнався, що вміст замінився. Кільця на ній не треба: це не
    керований елемент, а місце, куди фокус переставили. */
 main:focus { outline: none; }
 
+/* Заголовок сторінки. Єдиний <h1> у документі, і малює його оболонка з
+   дерева навігації — тобто підпис у меню й заголовок під ним не можуть
+   розійтися. Доти цей рівень тримала .sect-t, і в неї був той самий <h2>,
+   що й у карток усередині, тобто ієрархії між групою й карткою не
+   існувало взагалі. */
+.page-t {
+  font-size: var(--oi-fs-xl);
+  font-weight: var(--oi-fw-medium);
+  line-height: var(--oi-lh-tight);
+  letter-spacing: var(--oi-ls-tight);
+  margin: var(--oi-gap-lg) 0 var(--oi-gap-xl);
+}
+
 @media (min-width: 640px) {
   header { padding: var(--oi-gap-sm) var(--oi-gap-lg); }
-  header h1 { position: static; width: auto; height: auto; clip-path: none; }
+  .brand { position: static; width: auto; height: auto; clip-path: none; }
   #alert { padding: var(--oi-gap) var(--oi-gap-lg) 0; }
   main { padding-left: var(--oi-gap-lg); padding-right: var(--oi-gap-lg); }
 }
 
 @media (min-width: 900px) {
-  header { flex-wrap: nowrap; padding: var(--oi-gap) var(--oi-gap-xl); }
+  /* Висота шапки стає ЧИСЛОМ — і саме тому панель нижче може бути
+     прикріпленою. Доти тут стояло пояснення, чому липкою її зробити не
+     можна: висота шапки зверталась вмістом, відраховувати верх було ні
+     від чого. Заперечення знято по суті, а не обійдено: на цій ширині
+     шапка вже не переносить рядок і містить один ряд контролів. */
+  header { flex-wrap: nowrap; padding: var(--oi-gap) var(--oi-gap-xl); height: var(--oi-header-h); }
 
-  /* Досить місця — панель повертається під шапку смугою, у звичайному
-     потоці. Липкою вона тут не стає навмисно: липка була б прив'язана
-     до висоти шапки, а та зверстана вмістом і числа не має. Другий
-     липкий рядок і без того з'їдав би висоту, якої на розділ із
-     шістнадцятьма блоками і так не вистачає. */
+  /* Шухляди тут немає: панель стоїть колонкою й видима завжди. */
+  .nav-toggle, .scrim { display: none; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: var(--oi-sidebar-w) minmax(0, 1fr);
+    /* Ширина панелі додається до межі вмісту, а не з'їдає її: інакше на
+       1280px розділ ставав би на 268px вужчим, ніж був до перебудови. */
+    max-width: calc(var(--oi-max-width-wide) + var(--oi-sidebar-w));
+    margin: 0 auto;
+  }
+
   nav {
-    position: static;
-    display: flex;
-    gap: var(--oi-gap-xs);
-    padding: 0 var(--oi-gap-lg);
-    border-top: none;
-    border-bottom: var(--oi-rule) solid var(--oi-border);
-  }
-  nav a {
-    flex-direction: row;
-    min-height: 0;
-    padding: var(--oi-gap) var(--oi-gap-lg);
-    font-size: var(--oi-fs-md);
-    white-space: nowrap;
-    border-top: none;
-    border-bottom: 3px solid transparent;
-  }
-  nav a.active,
-  nav a[aria-current="page"] {
-    border-top-color: transparent;
-    border-bottom-color: var(--oi-accent);
+    position: sticky;
+    inset: auto;
+    top: var(--oi-header-h);
+    height: calc(100dvh - var(--oi-header-h));
+    width: auto;
+    transform: none;
+    transition: none;
+    z-index: var(--oi-z-sticky);
+    padding-bottom: var(--oi-gap);
   }
 
   #alert { padding: var(--oi-gap) var(--oi-gap-xl) 0; }
-  main { padding: 0 var(--oi-gap-xl) var(--oi-gap-xl); }
+  main { padding: 0 var(--oi-gap-xl) var(--oi-gap-3xl); }
 }
 
 @media (min-width: 1200px) {
-  /* «Портфель» ширший за решту: там таблиця на сім колонок і крива на
-     рік. У тексту й форм оптимальна ширина своя й від розміру екрана
-     не залежить, тож решта розділів лишається на --oi-max-width. */
-  main[data-tab="portfolio"] { max-width: var(--oi-max-width-wide); }
+  /* Ширші за решту ті сторінки, у яких таблиця на сім колонок або крива
+     на рік. Які саме — сказано в js/nav.js полем wide: доти тут стояло
+     ім'я вкладки літералом, тобто політика ширини трималась на тому, що
+     розділ звуть «portfolio». */
+  main[data-wide] { max-width: var(--oi-max-width-wide); }
 }
 
 /* --- кнопки --- */
@@ -1290,9 +1351,10 @@ main { transition: opacity var(--oi-dur) var(--oi-ease); }
 
 .toast {
   position: fixed;
-  /* Над панеллю навігації, а не під нею: доти тост з'являвся рівно там,
-     де тепер стоять вкладки, і «Збережено» ховалось за ними. */
-  bottom: calc(var(--oi-touch) + var(--oi-gap-lg) + env(safe-area-inset-bottom));
+  /* Просто над нижнім краєм. Доти тут стояв відступ висотою з панель
+     навігації — «Збережено» інакше з'являлось рівно під вкладками й
+     ховалось за ними. Панелі знизу більше немає, тож і відступу теж. */
+  bottom: calc(var(--oi-gap-xl) + env(safe-area-inset-bottom));
   left: 50%;
   transform: translateX(-50%) translateY(80px);
   padding: var(--oi-gap) var(--oi-gap-xl);
@@ -1304,7 +1366,6 @@ main { transition: opacity var(--oi-dur) var(--oi-ease); }
   max-width: 80vw;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-@media (min-width: 900px) { .toast { bottom: var(--oi-gap-xl); } }
 .toast.ok { background: var(--oi-ok); }
 .toast.err { background: var(--oi-danger); }
 
