@@ -205,21 +205,43 @@ nav {
 
 .nav-l { list-style: none; margin: 0; padding: 0; }
 
-/* Заголовок групи — посилання, а не підпис: воно веде на перший підрозділ
-   розділу, тобто адреса «#/assets» кудись приводить, і клавіатура має за
-   що зачепитись. Нефокусований рядок посеред списку посилань — дірка в
-   обході. */
+/* Заголовок групи — КНОПКА, яка розкриває список, а не посилання, яке
+   веде. Причина зміни записана в app.js при _navHTML.
+
+   Скидання вигляду кнопки тут неминуче: <button> тягне власне тло, рамку,
+   шрифт і центрування тексту, а в списку меню він мусить читатись рядком,
+   а не кнопкою. Ширина на всі 100% — щоб натискалась уся смуга, а не самі
+   літери. */
 .nav-g {
   display: flex;
   align-items: center;
+  width: 100%;
   min-height: var(--oi-touch);
   padding: var(--oi-gap-xs) var(--oi-gap-lg);
+  background: none;
+  border: none;
+  border-radius: 0;
   color: var(--oi-text);
-  text-decoration: none;
+  font-family: inherit;
   font-size: var(--oi-fs-md);
   font-weight: var(--oi-fw-medium);
+  text-align: left;
+  cursor: pointer;
 }
 .nav-g[aria-current="location"] { color: var(--oi-accent); }
+/* Каретка — єдине, що відрізняє «розкриє» від «поведе». Без неї заголовок
+   виглядає посиланням, яке чомусь не переходить.
+   Псевдоелементом, а не символом у розмітці: це підказка про стан, і
+   читачеві екрана її дублювати не треба — про стан йому каже
+   aria-expanded на самій кнопці. */
+.nav-g::after {
+  content: "▸";
+  display: inline-block;
+  margin-left: auto;
+  color: var(--oi-text-faint);
+  transition: transform var(--oi-dur-fast) var(--oi-ease);
+}
+.nav-g[aria-expanded="true"]::after { transform: rotate(90deg); }
 
 /* Пункт. Вкладений список малюється лише для активної групи (app.js), тож
    відступ ліворуч тут єдиний спосіб сказати, що це другий ярус. */
