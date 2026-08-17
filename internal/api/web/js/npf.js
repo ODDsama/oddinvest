@@ -19,7 +19,7 @@
 //     читалась би як гроші, що вже враховані.
 
 import { esc, curSym, today, pct, uah2 as fmtUAH, money as fmtMoney } from "./format.js";
-import { onSubmit, onSubmitFunded, onDelete } from "./forms.js";
+import { apply, onSubmit, onSubmitFunded, onDelete } from "./forms.js";
 import { svgLine } from "./charts.js";
 
 // Довідник, журнал і точки ЧВОПА на час одного рендеру. Заповнює той, хто
@@ -139,13 +139,24 @@ function creditHTML(ctx, row) {
       не працює взагалі — і тоді нуль тут правильна відповідь, а не незаповнена форма.</div>`;
   }
   const cap = set.npf_credit_cap_month_uah || 0;
-  return `<div class="sub">Оцінка податкової знижки за рік: <b>${fmtUAH(row.credit_est_uah || 0)}</b></div>
+  const est = row.credit_est_uah || 0;
+  // Кнопка з'являється лише коли є що додавати: план із нульовим рядком
+  // «знижка» був би обіцянкою держави, якої вона не давала.
+  const toPlan = est > 0
+    ? `<div class="form-actions"><button class="sm" data-npfcredit="${esc(row.name)}"
+         data-amount="${est.toFixed(2)}">Додати знижку в план</button></div>
+       <div class="sub-xs muted">Створить річний рядок доходу в «Плані» — з нього знижка почне
+         впливати на проєкцію. Дата за замовчуванням — травень наступного року (подання весною,
+         гроші за ~60 днів); її можна поправити в самому плані.</div>`
+    : "";
+  return `<div class="sub">Оцінка податкової знижки за рік: <b>${fmtUAH(est)}</b></div>
     <div class="sub-xs muted">Внески за рік у межах ліміту ${cap ? fmtUAH(cap) + "/міс" : "(ліміт не задано)"}
       × ставка знижки, обмежено утриманим ПДФО ${fmtUAH(pdfo)}. Ліміт щороку інший — він виводиться
       з прожиткового мінімуму працездатних на 1 січня × 1,4.</div>
-    <div class="sub-xs t-warn">Не входить у жоден прогноз: ні в капітал, ні в календар, ні в
-      проєкцію, ні в податковий звіт. Щоб знижку отримати, треба подати декларацію до 31 грудня
-      наступного року.</div>`;
+    <div class="sub-xs t-warn">Сама по собі не входить ні в капітал, ні в календар, ні в проєкцію,
+      ні в загальні суми податкового звіту. Щоб знижку отримати, треба подати декларацію до
+      31 грудня наступного року.</div>
+    ${toPlan}`;
 }
 
 /** Журнал внесків рахунку. ЧВОПА в таблиці — ВИВЕДЕНА (сума ÷ одиниці), а
@@ -306,6 +317,32 @@ export function wireNPF(ctx, main) {
         path: "/api/npf-nav", body: { npf_id: id, points },
         msg: `Вклеєно точок: ${points.length}`,
       };
+    });
+  });
+
+  // Знижка в план — окремою ДІЄЮ людини, а не автоматично.
+  //
+  // Трьох речей застосунок знати не може: чи подано декларацію, чи вистачило
+  // утриманого ПДФО і який ліміт цього року. Тому оцінка сама нікуди не
+  // входить, а рядок плану створюється лише тоді, коли власник вирішив, що
+  // знижку він таки отримає, — і далі його видно, можна правити й видалити,
+  // як усе інше в плані.
+  main.querySelectorAll("[data-npfcredit]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const name = btn.dataset.npfcredit;
+      const amount = btn.dataset.amount;
+      // Травень наступного року: подання весною, а гроші приходять
+      // приблизно за 60 днів після подання.
+      const from = `${new Date().getFullYear() + 1}-05-01`;
+      await apply(ctx, {
+        path: "/api/plan/flows",
+        body: {
+          name: `Податкова знижка (${name})`, kind: "income", amount,
+          currency: "UAH", cadence: "year", from_date: from,
+          growth_pct: "0", invest_pct: "100",
+          note: "оцінка; потрібна декларація до 31 грудня",
+        },
+      }, "Знижку додано в план");
     });
   });
 

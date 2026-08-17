@@ -170,3 +170,119 @@ func TestNPFDestSurvivesBackup(t *testing.T) {
 		t.Errorf("призначення потоку загубилось у бекапі: %.2f замість %.2f", got, want)
 	}
 }
+
+// TestTaxCreditsStayOutOfTotals — знижка показується окремо й НЕ протікає в
+// загальні суми звіту.
+//
+// «Разом» відповідає на питання «скільки податку з мене взяли». Домішавши
+// туди повернення, застосунок відповідав би на нього заниженим числом — а
+// заразом зламав би арифметику рядка: у by_kind стоїть
+// net = gross − tax і rate = tax/gross, і від'ємний рядок робить безглуздими
+// всі чотири числа.
+func TestTaxCreditsStayOutOfTotals(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	year := time.Now().Year()
+	navDate := time.Now().Format("2006-01-02")
+
+	// Знижку вмикає САМЕ річний ПДФО: без нього оцінка нульова.
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"npf_credit_pdfo_year_uah":"40000","npf_credit_cap_month_uah":"4660"}`); resp.StatusCode != 204 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+	acc := `{"name":"Династія","currency":"UAH","nav":"2.0","nav_date":"` + navDate + `",
+		"credit_rate_pct":"18"}`
+	resp, b := do(t, "POST", srv.URL+"/api/npf-accounts", acc)
+	if resp.StatusCode != 201 {
+		t.Fatalf("рахунок: %d %s", resp.StatusCode, b)
+	}
+	var created struct{ ID int64 }
+	if err := json.Unmarshal([]byte(b), &created); err != nil {
+		t.Fatal(err)
+	}
+	op := `{"npf_id":` + strconv.FormatInt(created.ID, 10) + `,"date":"` + navDate + `",
+		"amount":"1000","units":"500"}`
+	if resp, b := do(t, "POST", srv.URL+"/api/npf", op); resp.StatusCode != 201 {
+		t.Fatalf("внесок: %d %s", resp.StatusCode, b)
+	}
+
+	var tax struct {
+		GrossUAH float64 `json:"gross_uah"`
+		TaxUAH   float64 `json:"tax_uah"`
+		ByKind   []struct {
+			Kind string `json:"kind"`
+		} `json:"by_kind"`
+		Credits []struct {
+			Kind   string  `json:"kind"`
+			NetUAH float64 `json:"net_uah"`
+			TaxUAH float64 `json:"tax_uah"`
+		} `json:"credits"`
+		Note string `json:"note"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/tax?year="+strconv.Itoa(year), "")
+	if err := json.Unmarshal([]byte(body), &tax); err != nil {
+		t.Fatalf("розбір /api/tax: %v\n%s", err, body)
+	}
+	if len(tax.Credits) != 1 {
+		t.Fatalf("очікували один рядок знижки, маємо %d: %s", len(tax.Credits), body)
+	}
+	// 1000 ₴ внеску × 18% = 180 ₴.
+	if got := tax.Credits[0].NetUAH; got != 180 {
+		t.Errorf("знижка %.2f, очікували 180", got)
+	}
+	if tax.Credits[0].TaxUAH >= 0 {
+		t.Errorf("у блоці повернень «податок» мусить бути відʼємним, маємо %.2f", tax.Credits[0].TaxUAH)
+	}
+	// Головне: у by_kind її немає, і в загальні суми вона не входить.
+	for _, l := range tax.ByKind {
+		if l.Kind == "npf_credit" {
+			t.Error("знижка потрапила в by_kind — там арифметика net = gross − tax")
+		}
+	}
+	if tax.TaxUAH < 0 {
+		t.Errorf("загальний податок став відʼємним (%.2f) — знижка протекла в «Разом»", tax.TaxUAH)
+	}
+	if tax.Note == "" {
+		t.Error("поруч зі знижкою мусить стояти застереження, що це оцінка")
+	}
+}
+
+// TestTaxCreditsAbsentForCustomRange — на довільному відрізку from/to знижки
+// немає.
+//
+// Ліміт у неї місячний, а стеля річна, тож на трьох тижнях вона не означала
+// б нічого. Показати там число означало б видати випадкову суму за оцінку.
+func TestTaxCreditsAbsentForCustomRange(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	navDate := time.Now().Format("2006-01-02")
+	if resp, _ := do(t, "PUT", srv.URL+"/api/settings",
+		`{"npf_credit_pdfo_year_uah":"40000"}`); resp.StatusCode != 204 {
+		t.Fatal("налаштування")
+	}
+	acc := `{"name":"Династія","currency":"UAH","nav":"2.0","nav_date":"` + navDate + `",
+		"credit_rate_pct":"18"}`
+	resp, b := do(t, "POST", srv.URL+"/api/npf-accounts", acc)
+	if resp.StatusCode != 201 {
+		t.Fatalf("рахунок: %d %s", resp.StatusCode, b)
+	}
+	var created struct{ ID int64 }
+	if err := json.Unmarshal([]byte(b), &created); err != nil {
+		t.Fatal(err)
+	}
+	op := `{"npf_id":` + strconv.FormatInt(created.ID, 10) + `,"date":"` + navDate + `",
+		"amount":"1000","units":"500"}`
+	if resp, _ := do(t, "POST", srv.URL+"/api/npf", op); resp.StatusCode != 201 {
+		t.Fatal("внесок")
+	}
+	var tax struct {
+		Credits []struct{} `json:"credits"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/tax?from=2026-01-01&to=2026-03-31", "")
+	if err := json.Unmarshal([]byte(body), &tax); err != nil {
+		t.Fatal(err)
+	}
+	if len(tax.Credits) != 0 {
+		t.Errorf("на довільному відрізку знижки бути не має, маємо %d", len(tax.Credits))
+	}
+}

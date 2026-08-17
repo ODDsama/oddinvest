@@ -366,10 +366,27 @@ function taxHTML(x) {
            <td class="num">${pct(x.rate_pct)}</td></tr>
        </tbody></table></div>`
     : empty("", "За цей рік оподаткованого доходу не було.");
+  // Знижка — ОКРЕМОЮ таблицею під основною, а не рядком у ній: там
+  // арифметика «нараховано − податок = чистими», і від'ємний рядок ламає
+  // всі три числа разом зі ставкою. І в «Разом» вона не входить навмисно:
+  // те число відповідає на «скільки з мене взяли».
+  const credits = (x.credits || []).length
+    ? `<h4 class="mt">Держава повертає</h4>
+       <div class="table-scroll"><table>
+       <thead><tr><th>Підстава</th><th class="num">Повернення</th></tr></thead>
+       <tbody>${x.credits.map((l) => `<tr>
+         <td>${esc(l.label)}</td>
+         <td class="num t-ok">+${fmtUAH(l.net_uah)}</td></tr>`).join("")}
+       </tbody></table></div>
+       <div class="sub-xs t-warn">Це ОЦІНКА, а не факт, і в «Разом» вище вона не входить.
+         Знижку треба отримати декларацією до 31 грудня наступного року; вона працює лише
+         проти зарплати й не переноситься на інші роки.</div>`
+    : "";
   return `<div class="card">${disclosure("tax", "Податок на дохід",
     `<div class="sub card-head">
        <span>${esc(x.from)} → ${esc(x.to)}</span><span>рік: ${picker}</span></div>
      ${body}
+     ${credits}
      <div class="sub card-head mt-sm">
        <span>Купон ОВДП звільнений від податку, дивіденд фонду й відсотки вкладу — ні.
          Ставки не зашиті: у фонду береться фактично утримане з виписки, у вкладу —

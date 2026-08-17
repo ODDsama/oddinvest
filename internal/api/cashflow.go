@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -462,6 +463,20 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		NetUAH   float64 `json:"net_uah"`
 		RatePct  float64 `json:"rate_pct"`
 		ByKind   []line  `json:"by_kind,omitempty"`
+		// Credits — те, що держава ПОВЕРТАЄ, а не забирає: податкова знижка
+		// на внески в НПФ.
+		//
+		// Окремий блок, а не рядок у ByKind, і це не оформлення. Арифметика
+		// того переліку — gross, tax, net = gross − tax, rate = tax/gross;
+		// відʼємний рядок ламає всі чотири числа, а rate_pct у нього стає
+		// безглуздим. Тому знижка стоїть поруч і в загальні суми вгорі НЕ
+		// входить: там питання «скільки податку з мене взяли», і змішувати з
+		// ним повернення означало б відповідати на нього заниженим числом.
+		//
+		// І головне: це ОЦІНКА, а не факт. Її ще треба отримати декларацією
+		// до 31 грудня наступного року, вона працює лише проти зарплати й не
+		// переноситься. Тому поруч стоїть Note.
+		Credits []line `json:"credits,omitempty"`
 		// Звідки взялись гривневі числа. Читач має право знати, що це не
 		// сьогоднішній курс, і наскільки в найгіршому разі відстала точка,
 		// з якої курс узято: помісячний бекфіл на подіях 2019 року дає
@@ -493,6 +508,36 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	out.GrossUAH, out.TaxUAH, out.NetUAH = minor(gross), minor(tax), minor(gross-tax)
 	if gross > 0 {
 		out.RatePct = round2(float64(tax) / float64(gross) * 100)
+	}
+
+	// Податкова знижка на внески в НПФ — лише для КАЛЕНДАРНОГО року: ліміт
+	// у неї місячний, а стеля річна, тож на довільному відрізку from/to
+	// вона не означала б нічого. Рік 0 (заданий парою дат) знижку не
+	// показує — і це чесніше за число, пораховане не за той період.
+	if year > 0 {
+		if npfAccounts, aerr := s.st.ListNPFAccounts(ctx); aerr == nil && len(npfAccounts) > 0 {
+			npfOps, oerr := s.st.ListNPFOps(ctx)
+			set := s.loadSettings(ctx)
+			if oerr == nil {
+				var credit int64
+				for _, acc := range npfAccounts {
+					credit += int64(npfCreditUAH(acc, npfOps, set, year) * 100)
+				}
+				if credit > 0 {
+					// GrossUAH — сума внесків у межах ліміту, TaxUAH — сама
+					// знижка з мінусом: у цьому блоці «податок» і означає
+					// рух державі, тож повернення від'ємне.
+					out.Credits = append(out.Credits, line{
+						Kind: "npf_credit", Label: "Податкова знижка на внески в НПФ",
+						TaxUAH: -minor(credit), NetUAH: minor(credit),
+					})
+					out.Note = strings.TrimSpace(out.Note + " Знижка на внески в НПФ — ОЦІНКА, " +
+						"а не факт: її треба отримати декларацією до 31 грудня наступного року, " +
+						"вона працює лише проти зарплати й не переноситься. У загальні суми " +
+						"звіту не входить.")
+				}
+			}
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
