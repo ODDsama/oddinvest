@@ -3812,55 +3812,194 @@ func TestStrategyPresetsUseKnownSettings(t *testing.T) {
 	for _, k := range settingsKeys {
 		known[k] = true
 	}
-	// values: { ... } кожного набору. Межа блоку — ДУЖКА, а не відступ.
-	//
-	// Доти блок закінчувався рядком рівно з чотирьох пробілів, тобто
-	// перевірка трималась на форматуванні: переніс `},` на два пробіли — і
-	// набір випадав із неї не помилкою, а ТИШЕЮ (зливався з наступним через
-	// `.*?`). Вкладених обʼєктів у values немає, тож «до першої закритої
-	// дужки» — точна межа.
-	blocks := regexp.MustCompile(`(?s)key:\s*"(\w+)".*?values:\s*\{([^}]*)\}`).
-		FindAllStringSubmatch(string(src), -1)
-	// Скільки наборів оголошено ВЗАГАЛІ. Набір без values не «пропускається»:
-	// він зливається з наступним і зникає разом із ним, а за самим переліком
-	// блоків цього не видно.
-	declared := len(regexp.MustCompile(`\bkey:\s*"`).FindAllString(string(src), -1))
-	if len(blocks) == 0 || len(blocks) != declared {
-		t.Fatalf("наборів оголошено %d, а з values знайдено %d — змінився формат?",
-			declared, len(blocks))
+	presets := strategyPresets(t, src)
+	for _, p := range presets {
+		inValues := map[string]bool{}
+		for _, k := range p.keys {
+			if !known[k] {
+				t.Errorf("набір %q пише в невідоме налаштування %q — PUT відповість 400", p.name, k)
+			}
+			inValues[k] = true
+		}
+		// Накладка МОЖЕ ЛИШЕ ПЕРЕПИСАТИ ключ, який уже є у values. Ключ,
+		// якого там немає, зробив би перелік записуваних налаштувань
+		// залежним від відповіді: під одну набір написав би ціль НПФ, під
+		// іншу промовчав про неї — і вона лишилась би від попереднього
+		// набору. Це та сама вада, від якої вирівняно самі переліки, лише
+		// зайшла з іншого боку.
+		for _, o := range p.overlays {
+			if len(o.keys) == 0 {
+				t.Errorf("набір %q: накладка %s порожня — прибери її замість того, щоб лишати німою",
+					p.name, o.name)
+			}
+			for _, k := range o.keys {
+				if !known[k] {
+					t.Errorf("набір %q: накладка %s пише в невідоме налаштування %q", p.name, o.name, k)
+				}
+				if !inValues[k] {
+					t.Errorf("набір %q: накладка %s задає %q, якого немає у values — "+
+						"перелік ключів у PUT став би залежним від відповіді", p.name, o.name, k)
+				}
+			}
+		}
 	}
-	field := regexp.MustCompile(`(\w+):\s*"`)
+
+	// Усі набори мусять чіпати ОДИН І ТОЙ САМИЙ перелік ключів. Це не
+	// охайність: порожнє значення в PUT означає «прибрати», і саме на
+	// цьому тримається те, що перехід між наборами не лишає позаду
+	// чужого числа. Набір, який мовчить про ціль НПФ, лишив би її від
+	// попереднього — і сума часток поїхала б без сліду в UI.
 	var first []string
 	var firstName string
-	for _, b := range blocks {
-		name := b[1]
-		var keys []string
-		for _, k := range field.FindAllStringSubmatch(b[2], -1) {
-			if !known[k[1]] {
-				t.Errorf("набір %q пише в невідоме налаштування %q — PUT відповість 400",
-					name, k[1])
-			}
-			keys = append(keys, k[1])
-		}
-		if len(keys) == 0 {
-			t.Errorf("набір %q не задає жодного налаштування", name)
-			continue
-		}
+	for _, p := range presets {
+		keys := append([]string(nil), p.keys...)
 		sort.Strings(keys)
-		// Усі набори мусять чіпати ОДИН І ТОЙ САМИЙ перелік ключів. Це не
-		// охайність: порожнє значення в PUT означає «прибрати», і саме на
-		// цьому тримається те, що перехід між наборами не лишає позаду
-		// чужого числа. Набір, який мовчить про ціль НПФ, лишив би її від
-		// попереднього — і сума часток поїхала б без сліду в UI.
 		if first == nil {
-			first, firstName = keys, name
+			first, firstName = keys, p.name
 			continue
 		}
 		if !slices.Equal(first, keys) {
 			t.Errorf("набір %q задає інший перелік налаштувань, ніж %q:\n%v\nпроти\n%v",
-				name, firstName, keys, first)
+				p.name, firstName, keys, first)
 		}
 	}
+}
+
+// TestStrategyLockOverlaysKeepAllocationWhole — піднята накладкою частка
+// мусить бути в когось ЗАБРАНА, а не дописана збоку.
+//
+// Нерозподілений залишок (100 − сума часток за видом) у кожного набору свій
+// і осмислений: під ним живуть резерв і вільні гроші, а ціль резерву від
+// відповіді про замок не залежить. Отже залишок мусить бути ОДНАКОВИЙ на
+// всіх трьох рівнях того самого набору.
+//
+// Помилка, яку це ловить, тиха: підняв НПФ, забув зняти з ОВДП — і набір
+// мовчки посунув межу з резервом, нічого про це не сказавши ні в підписі,
+// ні в таблиці різниці.
+func TestStrategyLockOverlaysKeepAllocationWhole(t *testing.T) {
+	src, err := webFS.ReadFile("web/js/views/strategy.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := []string{"target_bonds_pct", "target_funds_pct", "target_deposits_pct", "target_npf_pct"}
+	sum := func(vals map[string]string) float64 {
+		var out float64
+		for _, k := range kinds {
+			v := vals[k]
+			if v == "" {
+				continue
+			}
+			f, err := strconv.ParseFloat(v, 64)
+			if err != nil {
+				t.Fatalf("нечислова частка %s = %q", k, v)
+			}
+			out += f
+		}
+		return out
+	}
+	for _, p := range strategyPresets(t, src) {
+		base := sum(p.values)
+		for _, o := range p.overlays {
+			eff := map[string]string{}
+			for k, v := range p.values {
+				eff[k] = v
+			}
+			for k, v := range o.values {
+				eff[k] = v
+			}
+			if got := sum(eff); got != base {
+				t.Errorf("набір %q: на рівні %s сума часток %.0f проти %.0f у базі — "+
+					"піднята частка нізвідки взялась або нікуди не поділась, "+
+					"тобто набір мовчки посунув межу з резервом", p.name, o.name, got, base)
+			}
+		}
+	}
+}
+
+// presetLiteral — один набір, вичитаний із JS: його values і накладки під
+// відповідь про замок.
+type presetLiteral struct {
+	name     string
+	values   map[string]string
+	keys     []string
+	overlays []presetOverlay
+}
+
+type presetOverlay struct {
+	name   string
+	values map[string]string
+	keys   []string
+}
+
+// strategyPresets вичитує набори з тексту strategy.js.
+//
+// Ріже літерал на шматки ПО ОДНОМУ НАБОРУ й лише потім шукає всередині
+// шматка. Доти регекс гнав `.*?` через увесь файл, і набір без values
+// зливався з наступним — це вже було записано в коментарі попередньої
+// версії. З накладками та сама вада стає гострішою: набір БЕЗ накладки
+// (їх двоє навмисно) позичив би накладку наступного, і перевірка «накладка
+// не додає ключів» стала б тихою брехнею.
+//
+// Межа блоку — ДУЖКА, а не відступ: вкладених обʼєктів ні у values, ні в
+// накладках немає навмисно, тож «до першої закритої дужки» — точна межа.
+// Саме на цьому сторож і вижив після того, як колись тримався на
+// форматуванні.
+func strategyPresets(t *testing.T, src []byte) []presetLiteral {
+	t.Helper()
+	// Спершу відрізаємо САМ літерал PRESETS. Без цього останній набір тягне
+	// за собою решту файлу, і будь-яке майбутнє `values:` у функціях нижче
+	// припишеться йому — тобто сторож звітував би про набір, у якому цього
+	// немає.
+	lit := regexp.MustCompile(`(?s)const PRESETS = \[\n(.*?)\n\];`).FindSubmatch(src)
+	if lit == nil {
+		t.Fatal("літерал PRESETS не знайдено — змінився формат?")
+	}
+	body := string(lit[1])
+
+	at := regexp.MustCompile(`\bkey:\s*"(\w+)"`).FindAllStringSubmatchIndex(body, -1)
+	if len(at) == 0 {
+		t.Fatal("у strategy.js не знайдено жодного набору — змінився формат?")
+	}
+	valRe := regexp.MustCompile(`values:\s*\{([^}]*)\}`)
+	ovRe := regexp.MustCompile(`(lockSome|lockMost):\s*\{([^}]*)\}`)
+	field := regexp.MustCompile(`(\w+):\s*"([^"]*)"`)
+	pairs := func(s string) (map[string]string, []string) {
+		m := map[string]string{}
+		var order []string
+		for _, f := range field.FindAllStringSubmatch(s, -1) {
+			m[f[1]] = f[2]
+			order = append(order, f[1])
+		}
+		return m, order
+	}
+
+	out := make([]presetLiteral, 0, len(at))
+	for i, m := range at {
+		end := len(body)
+		if i+1 < len(at) {
+			end = at[i+1][0]
+		}
+		chunk := body[m[0]:end]
+		name := body[m[2]:m[3]]
+
+		vs := valRe.FindAllStringSubmatch(chunk, -1)
+		if len(vs) != 1 {
+			t.Errorf("набір %q має %d блоків values, очікували рівно один", name, len(vs))
+			continue
+		}
+		vals, keys := pairs(vs[0][1])
+		if len(keys) == 0 {
+			t.Errorf("набір %q не задає жодного налаштування", name)
+			continue
+		}
+		p := presetLiteral{name: name, values: vals, keys: keys}
+		for _, o := range ovRe.FindAllStringSubmatch(chunk, -1) {
+			ov, ok := pairs(o[2])
+			p.overlays = append(p.overlays, presetOverlay{name: o[1], values: ov, keys: ok})
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 // Проєкція: обидві колонки мусять стартувати з ОДНОГО капіталу.

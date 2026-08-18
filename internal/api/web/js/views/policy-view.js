@@ -43,12 +43,20 @@ function depositCard(s) {
   <form id="depositSettingsForm">
     <label>Мінімум вкладу USD<input name="deposit_min_usd" inputmode="decimal" placeholder="порожньо = 100" value="${esc(s.deposit_min_usd || "")}"></label>
     <label>Мінімум вкладу EUR<input name="deposit_min_eur" inputmode="decimal" placeholder="порожньо = 100" value="${esc(s.deposit_min_eur || "")}"></label>
-    <label>Мінімум вкладу UAH<input name="deposit_min_uah" inputmode="decimal" placeholder="порожньо = вимкнено" value="${esc(s.deposit_min_uah || "")}"></label>
+    <label>Мінімум вкладу UAH<input name="deposit_min_uah" inputmode="decimal" placeholder="порожньо = вимкнено, дефолту немає" value="${esc(s.deposit_min_uah || "")}"></label>
     <label>Ставка нового вкладу USD, %<input name="deposit_rate_usd_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_usd_pct || "")}"></label>
     <label>Ставка нового вкладу EUR, %<input name="deposit_rate_eur_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_eur_pct || "")}"></label>
     <label>Ставка нового вкладу UAH, %<input name="deposit_rate_uah_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_uah_pct || "")}"></label>
     <div class="form-actions"><button type="submit">Зберегти</button></div>
   </form>
+  <div class="sub-xs muted">Ставка й мінімум працюють лише В ПАРІ, і в одній валюті одразу: рядок
+    «Новий вклад» у «Що купити» зʼявляється, коли задані ОБИДВА. Ставка без мінімуму — число, від
+    якого нема чого відрахувати крок; мінімум без ставки — крок, який нема з чим порівняти.
+    Порожньої половини достатньо лише в USD/EUR: там дефолт мінімуму 100, тож вистачає самої
+    ставки. У гривні дефолту немає й не буде — мінімальна сума вкладу це умова конкретного банку,
+    а не властивість валюти, і підставити її за тебе означало б вигадати чужий тариф. Тому в UAH
+    порада мовчить, доки не задані обидва поля. Уже відкритий вклад це не зачіпає: поповнюваний
+    помічник запропонує поповнити й без цих полів — немає лише поради ВІДКРИТИ новий.</div>
 </div>
 `;
 }
@@ -211,7 +219,7 @@ function rateAssumptionsCard(s) {
 /** Стратегія і ціль: пресети, ціль із дедлайном, цільові валютні частки. */
 export async function strategy(ctx, main) {
   const s = await ctx.api("GET", "settings");
-  main.innerHTML = `${strategyCardHTML(s)}${goalCard(s)}`;
+  main.innerHTML = `${strategyCardHTML(ctx, s)}${goalCard(s)}`;
   wireStrategy(ctx, main, s);
   onSubmit(ctx, main.querySelector("#goalForm"), settingsPut([
     "goal_amount_uah", "goal_date", "usd_target_share_pct", "eur_target_share_pct",
