@@ -3180,6 +3180,81 @@ func TestReserveIsCapitalButNotBuyingPower(t *testing.T) {
 
 // Переміщення гаманець → матрац не створює й не знищує грошей, тож
 // «внесено за місяць» мусить лишитись тим самим. Записується воно двома
+// Механізм поповнення резерву напрямку не міняє. Резерв дістав стелю на
+// частку вільних грошей, і спокуса прочитати це як «резерв тепер бере
+// участь у реінвесті» велика — а це рівно те, чого не можна: аварійні
+// гроші не купівельна спроможність. Тому найсильніше формулювання:
+// відповідь помічника мусить лишитись ПОБАЙТОВО тією самою.
+//
+// Рідний брат TestReserveIsCapitalButNotBuyingPower вище: той стереже, що
+// резерв не заліз у brokers, цей — що не заліз у поради.
+func TestReserveFillDoesNotBecomeBuyingPower(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	today := string(domain.NewDate(time.Now()))
+
+	// Вільні гроші на рахунку — без них стеля рахується від нуля, і тест
+	// проходив би порожнечею.
+	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
+		`{"date":"`+today+`","amount":"200000.00","currency":"UAH","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("поповнення: %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_expenses_uah":"30000","reserve_target_months":"3"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+
+	_, before := do(t, "GET", srv.URL+"/api/reinvest", "")
+	var sumBefore struct {
+		AccountUAH float64                       `json:"account_uah"`
+		Brokers    map[string]map[string]float64 `json:"brokers"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sumBefore); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"reserve_fill_share_pct":"40"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("стеля: %d %s", resp.StatusCode, b)
+	}
+
+	_, after := do(t, "GET", srv.URL+"/api/reinvest", "")
+	if after != before {
+		t.Errorf("помічник реінвесту побачив резерв, хоч не мусив знати про нього нічого:\nбуло:\n%s\nстало:\n%s",
+			before, after)
+	}
+	var sumAfter struct {
+		AccountUAH float64                       `json:"account_uah"`
+		Brokers    map[string]map[string]float64 `json:"brokers"`
+		Reserve    *struct {
+			GapUAH       float64 `json:"gap_uah"`
+			FillNowUAH   float64 `json:"fill_now_uah"`
+			FillFromUAH  float64 `json:"fill_from_uah"`
+			FillSharePct float64 `json:"fill_share_pct"`
+		} `json:"reserve"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sumAfter); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	// Купівельна спроможність не зменшилась наперед: стеля — це порада
+	// відкласти, а не списання.
+	if sumAfter.AccountUAH != sumBefore.AccountUAH ||
+		!reflect.DeepEqual(sumAfter.Brokers, sumBefore.Brokers) {
+		t.Errorf("стеля з'їла гроші наперед: рахунок %.2f → %.2f, brokers %+v → %+v",
+			sumBefore.AccountUAH, sumAfter.AccountUAH, sumBefore.Brokers, sumAfter.Brokers)
+	}
+	// І при цьому механізм таки заговорив — інакше рівність вище нічого не
+	// доводила б.
+	if sumAfter.Reserve == nil || sumAfter.Reserve.FillNowUAH <= 0 {
+		t.Fatalf("механізм мовчить, хоч стеля задана й гроші на рахунку є: %+v", sumAfter.Reserve)
+	}
+	if r := sumAfter.Reserve; r.FillNowUAH > r.GapUAH || r.FillNowUAH > r.FillFromUAH*r.FillSharePct/100+0.01 {
+		t.Errorf("порада перевищує розрив або стелю: %+v", r)
+	}
+}
+
 // ногами (мінус у deposits, плюс у резерві), і рахувати лише першу
 // означало б показати відкладання як втрату капіталу — псуючи місячний
 // прогрес, фактичний темп внесків і бенчмарк.

@@ -106,6 +106,9 @@
     "target_uah": 150000,
     "gap_uah": 102350.64,
     "monthly_expenses_uah": 25000,
+    "fill_share_pct": 20,
+    "fill_from_uah": 502640.43,
+    "fill_now_uah": 100528.09,
     "places": {
       "готівка": 30000,
       "сейф": 17649.36
@@ -1301,6 +1304,7 @@
     "deposit_rate_uah_pct": 16,
     "monthly_expenses_uah": 25000,
     "reserve_target_months": 6,
+    "reserve_fill_share_pct": 20,
     "income_target_uah": 30000,
     "withdraw_monthly_uah": 20000,
     "rate_spread_pp": 3,

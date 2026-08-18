@@ -291,6 +291,105 @@ func TestDeriveNextPaymentSkipsPast(t *testing.T) {
 	}
 }
 
+// Поповнення резерву: скільки з вільних грошей відкласти зараз.
+//
+// sampleDoc задає витрати 30 000 ₴ і ціль 3 місяці, тобто 90 000 ₴, а
+// резерву в ньому 60 000 ₴ — розрив рівно 30 000 ₴. Вільних грошей у ньому
+// немає (Capital.AccountUAH не заданий), і саме тому фікстура контракту
+// цих полів не містить: механізм мовчить, доки його не ввімкнули. Тести
+// нижче додають обидва числа руками.
+func TestReserveFillIsCappedByShareAndGap(t *testing.T) {
+	for _, c := range []struct {
+		name              string
+		share, free       float64
+		wantNow, wantFrom float64
+	}{
+		// Стеля менша за розрив — віддаємо стелю, решта лишається на папери.
+		{"стеля обмежує", 25, 40_000, 10_000, 40_000},
+		// Розрив менший за стелю — віддаємо розрив: радити відкласти понад
+		// ціль означало б завести другу ціль поруч із заданою в місяцях.
+		{"розрив обмежує", 25, 200_000, 30_000, 200_000},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			doc, in := sampleDoc(t)
+			doc.Settings.ReserveFillSharePct = &c.share
+			in.Capital.AccountUAH = c.free
+			if err := Derive(doc, in); err != nil {
+				t.Fatal(err)
+			}
+			r := doc.Reserve
+			if r == nil {
+				t.Fatal("картки резерву немає")
+			}
+			if r.GapUAH != 30_000 {
+				t.Fatalf("розрив = %v, очікували 30000 — змінився sampleDoc", r.GapUAH)
+			}
+			if r.FillNowUAH != c.wantNow {
+				t.Errorf("відкласти зараз = %v, очікували %v", r.FillNowUAH, c.wantNow)
+			}
+			// Обидва «звідки» перевіряються разом із сумою навмисно: число без
+			// них нема чим перевірити, і саме тому їх у документі троє.
+			if r.FillFromUAH != c.wantFrom || r.FillSharePct != c.share {
+				t.Errorf("з чого пораховано: від %v за стелею %v%%, очікували від %v за %v%%",
+					r.FillFromUAH, r.FillSharePct, c.wantFrom, c.share)
+			}
+		})
+	}
+}
+
+// Вимкнений механізм мовчить — і мовчить ОДНАКОВО в усіх трьох випадках.
+// Той, хто про поповнення не просив, не побачить жодної зміни.
+func TestReserveFillSilentWhenOff(t *testing.T) {
+	zero := 0.0
+	share := 25.0
+	for _, c := range []struct {
+		name  string
+		share *float64
+		free  float64
+	}{
+		{"стеля не задана", nil, 200_000},
+		{"стеля нуль", &zero, 200_000},
+		{"рахунки порожні", &share, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			doc, in := sampleDoc(t)
+			doc.Settings.ReserveFillSharePct = c.share
+			in.Capital.AccountUAH = c.free
+			if err := Derive(doc, in); err != nil {
+				t.Fatal(err)
+			}
+			r := doc.Reserve
+			if r.FillNowUAH != 0 || r.FillFromUAH != 0 || r.FillSharePct != 0 {
+				t.Errorf("механізм заговорив, хоч його не вмикали: %v ₴ від %v за %v%%",
+					r.FillNowUAH, r.FillFromUAH, r.FillSharePct)
+			}
+			// Решта картки при цьому лишається на місці: вимкнена стеля — це
+			// не вимкнений резерв.
+			if r.GapUAH != 30_000 {
+				t.Errorf("розрив зник разом зі стелею: %v", r.GapUAH)
+			}
+		})
+	}
+}
+
+// Ціль зібрана — сказати нема чого. Перебір резерву не є браком, і це вже
+// так працює для GapUAH; тут перевіряється, що поповнення від нього не
+// відірвалось.
+func TestReserveFillZeroWhenTargetReached(t *testing.T) {
+	doc, in := sampleDoc(t)
+	share := 40.0
+	doc.Settings.ReserveFillSharePct = &share
+	in.Capital.AccountUAH = 200_000
+	doc.ReserveUAH, in.Capital.ReserveUAH = 120_000, 120_000 // ціль 90 000
+	if err := Derive(doc, in); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Reserve; r.GapUAH != 0 || r.FillNowUAH != 0 {
+		t.Errorf("резерву 120 000 при цілі 90 000, а застосунок радить докласти %v ₴ (розрив %v)",
+			r.FillNowUAH, r.GapUAH)
+	}
+}
+
 func TestDeriveEmptyPortfolio(t *testing.T) {
 	doc := &Doc{}
 	err := Derive(doc, DeriveInput{Now: time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)})

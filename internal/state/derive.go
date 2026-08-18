@@ -271,5 +271,27 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 			}
 		}
 	}
+	// Скільки з вільних грошей варто відкласти просто зараз.
+	//
+	// Стеля, а не черга: без неї «спершу добери резерв» зупиняло б покупки
+	// на місяці, а резерв не заробляє нічого. Зі стелею частина йде в
+	// матрац, решта — у папір, і рухаються обидва.
+	//
+	// Вільні гроші — саме готівка на рахунках (Capital.AccountUAH), а не
+	// капітал: продавати папір, щоб набити подушку, застосунок не радить,
+	// бо цін вторинного ринку не знає.
+	if r.GapUAH > 0 && doc.Settings != nil && doc.Settings.ReserveFillSharePct != nil {
+		share, free := *doc.Settings.ReserveFillSharePct, in.Capital.AccountUAH
+		if share > 0 && free > 0 {
+			fill := free * share / 100
+			// Розрив менший за стелю — беремо розрив. Радити відкласти
+			// БІЛЬШЕ за ціль означало б завести другу ціль поруч із тією,
+			// яку користувач задав у місяцях витрат.
+			if fill > r.GapUAH {
+				fill = r.GapUAH
+			}
+			r.FillSharePct, r.FillFromUAH, r.FillNowUAH = share, round2(free), round2(fill)
+		}
+	}
 	doc.Reserve = r
 }

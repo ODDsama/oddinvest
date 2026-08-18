@@ -118,8 +118,14 @@ function reserveSettingsCard(s) {
   <form id="reserveSettingsForm">
     <label>Місячні витрати, ₴<input name="monthly_expenses_uah" inputmode="decimal" placeholder="порожньо = не рахувати" value="${esc(s.monthly_expenses_uah || "")}"></label>
     <label>Ціль запасу, місяців<input name="reserve_target_months" inputmode="decimal" placeholder="напр. 6" value="${esc(s.reserve_target_months || "")}"></label>
+    <label>З вільних грошей у резерв, %<input name="reserve_fill_share_pct" inputmode="decimal"
+      placeholder="порожньо = не пропонувати" value="${esc(s.reserve_fill_share_pct || "")}"></label>
     <div class="form-actions"><button type="submit">Зберегти</button></div>
   </form>
+  <div class="sub-xs muted">Третє поле — це СТЕЛЯ, а не черга: доки запасу бракує, у «Що купити»
+    з'явиться рядок «спершу поповнити резерв» на вказану частку вільних грошей, а решта далі йде
+    в папери. Порожньо = застосунок про резерв не заговорить. Резерв від цього не стає
+    купівельною спроможністю: гроші йдуть у нього, а не з нього.</div>
 </div>
 `;
 }
@@ -239,14 +245,16 @@ export async function instruments(ctx, main) {
   ]));
 }
 
-/** Резерв: скільки я витрачаю за місяць і на скільки місяців хочу запас.
- *  Два числа, але власна сторінка: від них залежить і смужка резерву в
- *  «Активах», і «на скільки вистачить» у прогнозі. */
+/** Резерв: скільки я витрачаю за місяць, на скільки місяців хочу запас і
+ *  яку частку вільних грошей туди спрямовувати, доки його бракує. Три
+ *  числа, але власна сторінка: від них залежить і смужка резерву в
+ *  «Активах», і «на скільки вистачить» у прогнозі, і рядок «спершу
+ *  поповнити резерв» у «Що купити». */
 export async function reserve(ctx, main) {
   const s = await ctx.api("GET", "settings");
   main.innerHTML = reserveSettingsCard(s);
   onSubmit(ctx, main.querySelector("#reserveSettingsForm"), settingsPut([
-    "monthly_expenses_uah", "reserve_target_months",
+    "monthly_expenses_uah", "reserve_target_months", "reserve_fill_share_pct",
   ]));
 }
 

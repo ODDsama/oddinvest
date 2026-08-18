@@ -76,6 +76,13 @@ var settingsRegistry = []settingDef{
 		Why: "скільки коштує місяць життя; від нього достатність резерву"},
 	{Key: "reserve_target_months", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveTargetMonths },
 		Why: "на скільки місяців витрат хочеться запас"},
+	// Ціль резерву казала, СКІЛЬКИ треба, і не казала нічого про те, звідки
+	// воно візьметься: розрив до неї стояв у картці й ні на що не впливав.
+	// Цей ключ і є механізм під нею — стеля на частку вільних грошей, доки
+	// резерв не добраний. Порожньо = застосунок про резерв не заговорить,
+	// тобто той, хто про це не просив, не побачить жодної зміни.
+	{Key: "reserve_fill_share_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveFillSharePct },
+		Why: "яка частка вільних грошей іде в резерв, доки він не добраний; порожньо = не пропонувати"},
 	{Key: "income_target_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.IncomeTargetUAH },
 		Why: "який пасивний дохід вважати достатнім; порожньо = місячні витрати"},
 	{Key: "withdraw_monthly_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.WithdrawMonthlyUAH },
