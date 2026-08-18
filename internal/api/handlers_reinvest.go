@@ -162,18 +162,42 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target := map[string]float64{"USD": 0, "EUR": 0}
-	if doc.Settings != nil {
+	// Валютний вимір існує ЛИШЕ тоді, коли валютну ціль назвали.
+	//
+	// Доти target["UAH"] рахувався як 100 − USD − EUR беззастережно, і при
+	// жодній заданій цілі це давало 100: кожен гривневий рядок діставав
+	// def = usdShare + eurShare і причину «добирає UAH (60% → ціль 100%)».
+	// Тобто застосунок стверджував стовідсоткову гривневу ціль, якої ніхто
+	// не ставив, і ще й ранжував за нею. Ребаланс так не робив ніколи —
+	// buildRebalance просто не малює валютного рядка без цілі, — і помічник
+	// лишався єдиним місцем, де ціль бралася нізвідки.
+	//
+	// Порожні мапи — не недогляд, а сам механізм: читання відсутнього ключа
+	// дає нуль, тож def = 0 − 0 = 0 для КОЖНОЇ валюти, поріг 0.5 в.п. нижче
+	// не спрацьовує жодного разу, а planScore лишається самим видовим
+	// дефіцитом. Жодного прапорця нести далі не треба.
+	//
+	// Саме порожні, а не нільові: у нільову мапу не можна писати, і рядок
+	// target["UAH"] усередині умови панікував би.
+	target := map[string]float64{}
+	cur := map[string]float64{}
+	if doc.Settings != nil &&
+		(doc.Settings.USDTargetSharePct != nil || doc.Settings.EURTargetSharePct != nil) {
 		if doc.Settings.USDTargetSharePct != nil {
 			target["USD"] = *doc.Settings.USDTargetSharePct
 		}
 		if doc.Settings.EURTargetSharePct != nil {
 			target["EUR"] = *doc.Settings.EURTargetSharePct
 		}
+		// Названа лише одна з двох — це теж валютна політика, і вона мусить
+		// працювати: гривня добирає залишок від НАЗВАНИХ часток (USD 40 →
+		// UAH 60). Неназвана валюта лишається нулем, тобто рівно тим, чим
+		// була й раніше: target["EUR"] = 0 і відсутній ключ на читанні
+		// нерозрізненні.
+		target["UAH"] = 100 - target["USD"] - target["EUR"]
+		cur["USD"], cur["EUR"] = doc.USDSharePct, doc.EURSharePct
+		cur["UAH"] = 100 - doc.USDSharePct - doc.EURSharePct
 	}
-	target["UAH"] = 100 - target["USD"] - target["EUR"]
-	cur := map[string]float64{"USD": doc.USDSharePct, "EUR": doc.EURSharePct}
-	cur["UAH"] = 100 - doc.USDSharePct - doc.EURSharePct
 
 	// Виміри диверсифікації, зібрані в buildState, доводяться сюди — доти
 	// вони жили самі по собі, і помічник про них не знав нічого: цілі за

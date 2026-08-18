@@ -251,6 +251,90 @@ func TestReinvestSilentWithoutAuctionHistory(t *testing.T) {
 	}
 }
 
+// Без названої валютної цілі валютного виміру НЕ ІСНУЄ.
+//
+// Доти target["UAH"] рахувався як 100 − USD − EUR беззастережно, тобто при
+// жодній заданій цілі дорівнював 100, і кожен гривневий рядок ніс причину
+// «добирає UAH (…% → ціль 100%)». Це не косметична неправда: def входив у
+// planScore, тож застосунок ще й РАНЖУВАВ за ціллю, якої ніхто не ставив.
+// Ребаланс поруч валютного рядка без цілі не малює взагалі — цей тест
+// зводить помічника з ним.
+//
+// Долар у портфелі обовʼязковий: без нього cur["UAH"] дорівнює 100, стара
+// формула теж дала б нуль, і тест пройшов би на зламаному коді.
+func TestReinvestInventsNoCurrencyTargetWithoutPolicy(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	ctx := context.Background()
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
+		Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// $500 у матраці — справжня доларова експозиція (готівка брокера нею не
+	// є, див. Capital.ExposureUAH), тож usd_share_pct стає ненульовим.
+	if resp, b := do(t, "POST", srv.URL+"/api/reserve",
+		`{"date":"2026-07-20","amount":"500.00","currency":"USD","place":"готівка"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("резерв: %d %s", resp.StatusCode, b)
+	}
+	var sum struct {
+		USDSharePct float64 `json:"usd_share_pct"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if sum.USDSharePct <= 0 {
+		t.Fatalf("доларової частки немає (%.2f) — тест перевіряв би порожнечу", sum.USDSharePct)
+	}
+
+	// Валютних цілей НЕ ставимо. Ранжування лишаємо дефолтним ("plan"), бо
+	// саме воно й спиралось на вигадане число.
+	_, body = do(t, "GET", srv.URL+"/api/reinvest", "")
+	for _, word := range []string{"добирає UAH", "добирає USD", "добирає EUR", "→ ціль"} {
+		if strings.Contains(body, word) {
+			t.Errorf("валютної цілі ніхто не ставив, а помічник її називає (%q): %s", word, body)
+		}
+	}
+}
+
+// Названа ціль — навіть одна з двох — лишається чинною, і гривня добирає
+// залишок від НАЗВАНИХ часток, а не від вигаданих.
+func TestReinvestKeepsCurrencyTargetWhenOneIsSet(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if _, err := st.AddDeposit(context.Background(), store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
+		Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Долара мусить бути БІЛЬШЕ за ціль, інакше гривні до її власної цілі не
+	// бракує й клауза не спрацює взагалі: $10 000 × 44.1234 = 441 234 ₴ проти
+	// 500 000 ₴ гривневих, тобто доларова частка ≈47% при цілі 40%.
+	if resp, b := do(t, "POST", srv.URL+"/api/reserve",
+		`{"date":"2026-07-20","amount":"10000.00","currency":"USD","place":"готівка"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("резерв: %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"usd_target_share_pct":"40"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+	_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
+	// 100 − 40 = 60, а не 100: EUR не названий, тож у залишок не входить.
+	if !strings.Contains(body, "ціль 60%") {
+		t.Errorf("гривнева ціль мала вийти 60%% (100 − 40), маємо: %s", body)
+	}
+	if strings.Contains(body, "ціль 100%") {
+		t.Errorf("гривнева ціль лишилась вигаданою сотнею: %s", body)
+	}
+	// Про EUR не сказано нічого: неназвана валюта лишається нулем.
+	if strings.Contains(body, "добирає EUR") {
+		t.Errorf("EUR не називали, а помічник по ньому радить: %s", body)
+	}
+}
+
 // TestReinvestCarriesNoDeadFields — у рядку немає нічого, чого не читає
 // жоден екран.
 //
