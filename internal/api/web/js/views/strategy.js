@@ -62,6 +62,31 @@ const QUESTIONS = [
       ["many", "Кілька десятків не проблема"],
     ],
   },
+  // Два питання про ЗАМКИ. Обидва тієї самої природи, що й чотири вище:
+  // відповідь людина знає про себе сама, без жодних знань про ринок.
+  //
+  // Чого тут НЕМА і не буде. Питання про утриманий ПДФО напрошується (без
+  // нього податкова знижка на внески в НПФ не рахується), але це не
+  // обмеження, а число з довідки — йому місце у формі, і воно там уже є.
+  // Питання «чи вносите регулярно» напрошується так само й так само не є
+  // обмеженням: темп поповнень застосунок ВИМІРЮЄ сам, і питати про
+  // виміряне означало б дозволити відповіді розійтися з фактом.
+  {
+    id: "lock50",
+    q: "Чи готові замкнути частину грошей до 50 років?",
+    opts: [
+      ["no", "Ні — має лишатись доступ"],
+      ["some", "Невелику частину — так"],
+    ],
+  },
+  {
+    id: "exit",
+    q: "Фонд зі строком: досидите до кінця чи можете вийти раніше?",
+    opts: [
+      ["hold", "Досиджу — до тієї дати гроші не потрібні"],
+      ["early", "Можу вийти раніше"],
+    ],
+  },
 ];
 
 // Набори. `gives` — що набір оптимізує, `costs` — чим за це платить.
@@ -69,7 +94,16 @@ const QUESTIONS = [
 // читався б як порада, а безкоштовних наборів не буває.
 //
 // `fits` — за яких відповідей набір НЕ суперечить обмеженню. Відсутнє
-// питання = набору байдуже.
+// питання = набору байдуже. Питання згадується лише там, де якась відповідь
+// дає СПРАВЖНЮ суперечність: `fits` про суперечність, а не про перевагу, і
+// «ліквідний» із `lock50: ["no"]` вигадав би конфлікт тому, хто відповів
+// «так».
+//
+// Усі набори пишуть ОДИН І ТОЙ САМИЙ перелік із дванадцяти ключів, і це не
+// охайність. Порожнє значення в PUT /settings означає «ПРИБРАТИ», тож
+// набір, який мовчить про ціль НПФ, лишив би її від попереднього — і сума
+// часток поїхала б без жодного сліду в UI. Тест у server_test.go тримає цю
+// рівність переліків.
 const PRESETS = [
   {
     key: "flow",
@@ -80,8 +114,10 @@ const PRESETS = [
     values: {
       usd_target_share_pct: "10", eur_target_share_pct: "",
       target_bonds_pct: "75", target_funds_pct: "10", target_deposits_pct: "15",
+      target_npf_pct: "",
       limit_isin_pct: "25", limit_broker_pct: "60", limit_year_pct: "40",
-      reserve_target_months: "3",
+      reserve_target_months: "3", reserve_fill_share_pct: "",
+      reinvest_rank: "rate",
     },
   },
   {
@@ -93,8 +129,10 @@ const PRESETS = [
     values: {
       usd_target_share_pct: "40", eur_target_share_pct: "10",
       target_bonds_pct: "70", target_funds_pct: "15", target_deposits_pct: "15",
+      target_npf_pct: "",
       limit_isin_pct: "25", limit_broker_pct: "50", limit_year_pct: "40",
-      reserve_target_months: "6",
+      reserve_target_months: "6", reserve_fill_share_pct: "",
+      reinvest_rank: "plan",
     },
   },
   {
@@ -106,23 +144,102 @@ const PRESETS = [
     values: {
       usd_target_share_pct: "25", eur_target_share_pct: "",
       target_bonds_pct: "85", target_funds_pct: "5", target_deposits_pct: "10",
+      target_npf_pct: "",
       limit_isin_pct: "35", limit_broker_pct: "60", limit_year_pct: "30",
-      reserve_target_months: "3",
+      reserve_target_months: "3", reserve_fill_share_pct: "",
+      reinvest_rank: "ladder",
     },
   },
   {
     key: "liquid",
     name: "Ліквідний",
     gives: "доступ до грошей: великий резерв і короткі строки, нічого ламати не доведеться",
-    costs: "найнижча дохідність із чотирьох — помітна частина капіталу не працює взагалі",
+    costs: "найнижча дохідність із восьми — помітна частина капіталу не працює взагалі",
     fits: { when: ["any"], cushion: ["no"] },
     values: {
       usd_target_share_pct: "25", eur_target_share_pct: "",
       target_bonds_pct: "45", target_funds_pct: "20", target_deposits_pct: "15",
+      target_npf_pct: "",
       limit_isin_pct: "20", limit_broker_pct: "50", limit_year_pct: "50",
-      reserve_target_months: "12",
+      reserve_target_months: "12", reserve_fill_share_pct: "25",
+      reinvest_rank: "short",
     },
   },
+  {
+    key: "cushion",
+    name: "Спершу подушка",
+    gives: "запас на чорний день збирається сам: доки його бракує, частина вільних грошей іде туди, а не в папір",
+    costs: "поки подушка набирається, портфель росте повільніше — відкладене не заробляє нічого",
+    fits: { cushion: ["no"], when: ["any", "mid"] },
+    values: {
+      usd_target_share_pct: "20", eur_target_share_pct: "",
+      target_bonds_pct: "55", target_funds_pct: "10", target_deposits_pct: "15",
+      target_npf_pct: "",
+      limit_isin_pct: "25", limit_broker_pct: "50", limit_year_pct: "40",
+      reserve_target_months: "6", reserve_fill_share_pct: "40",
+      reinvest_rank: "plan",
+    },
+  },
+  {
+    key: "pension",
+    name: "Пенсійний якір",
+    gives: "найбільший дохід першого року з усіх наборів, і не з ринку: внесок у НПФ повертає 18% ПДФО",
+    costs: "гроші замкнені до 50 років, вийти не можна взагалі, а знижка працює лише проти офіційної зарплати",
+    fits: { when: ["long"], lock50: ["some"], effort: ["few"] },
+    values: {
+      usd_target_share_pct: "10", eur_target_share_pct: "",
+      target_bonds_pct: "45", target_funds_pct: "5", target_deposits_pct: "10",
+      target_npf_pct: "25",
+      limit_isin_pct: "30", limit_broker_pct: "60", limit_year_pct: "40",
+      reserve_target_months: "3", reserve_fill_share_pct: "",
+      reinvest_rank: "plan",
+    },
+  },
+  {
+    key: "term",
+    name: "Фонд зі строком",
+    gives: "обіцяна фондом дохідність вища за купон, а дата закриття й вікно купівлі відомі наперед",
+    costs: "вийти до закриття можна лише з податком 23% замість 14%, а колись його перестануть продавати зовсім",
+    fits: { exit: ["hold"], when: ["mid", "long"], effort: ["few"] },
+    values: {
+      usd_target_share_pct: "20", eur_target_share_pct: "",
+      target_bonds_pct: "40", target_funds_pct: "40", target_deposits_pct: "10",
+      target_npf_pct: "",
+      // Ліміт на один папір дорівнює цілі фондів навмисно: сертифікат
+      // рахується в концентрації окремим емітентом, і стеля 25 при цілі 40
+      // означала б набір, який порушує сам себе з першого дня.
+      limit_isin_pct: "40", limit_broker_pct: "60", limit_year_pct: "40",
+      reserve_target_months: "3", reserve_fill_share_pct: "",
+      reinvest_rank: "rate",
+    },
+  },
+  {
+    key: "bank",
+    name: "Тільки банк",
+    gives: "нічого не треба відкривати: вклади в банку, який уже є, без брокерського рахунку й довідника паперів",
+    costs: "відсотки оподатковуються (19.5%), ставки нижчі за купон ОВДП, і майже все лежить в одній установі",
+    fits: { effort: ["few"], when: ["any", "mid"] },
+    values: {
+      usd_target_share_pct: "20", eur_target_share_pct: "",
+      target_bonds_pct: "", target_funds_pct: "", target_deposits_pct: "75",
+      target_npf_pct: "",
+      // Паперів немає — вимір концентрації по ISIN нічого не міряє. А от
+      // ліміт на установу високий свідомо: набір і Є ставка на один банк,
+      // і ліміт мусить це визнавати, а не кричати щодня. Ціна названа в
+      // рядку «Платить», а не схована в число.
+      limit_isin_pct: "", limit_broker_pct: "80", limit_year_pct: "40",
+      reserve_target_months: "6", reserve_fill_share_pct: "30",
+      reinvest_rank: "rate",
+    },
+  },
+];
+
+// Режими ранжування «Що купити». Живуть ТУТ, бо споживачів стало двоє:
+// випадайка у формі «Інструменти реінвесту» й таблиця різниці нижче. Два
+// списки тих самих чотирьох пар розійшлись би тихо.
+export const RANKS = [
+  ["plan", "під план"], ["rate", "за дохідністю"],
+  ["short", "короткі"], ["ladder", "драбина"],
 ];
 
 // Людські назви полів — для показу різниці перед записом.
@@ -132,11 +249,24 @@ const FIELD_LABEL = {
   target_bonds_pct: "Ціль ОВДП, %",
   target_funds_pct: "Ціль фондів, %",
   target_deposits_pct: "Ціль вкладів, %",
+  target_npf_pct: "Ціль НПФ, %",
   limit_isin_pct: "Макс. в одному папері, %",
   limit_broker_pct: "Макс. в одній установі, %",
   limit_year_pct: "Макс. погашень в один рік, %",
   reserve_target_months: "Ціль резерву, місяців",
+  reserve_fill_share_pct: "З вільних у резерв, %",
+  reinvest_rank: "Порядок у «Що купити»",
 };
+
+// Значення так, як його читає людина. Єдиний ключ із КОДОМ — reinvest_rank:
+// «plan» у таблиці різниці читалося б як код, якого користувач ніде не
+// бачив. Решта — числа, які кажуть самі за себе.
+//
+// Саме порівняння diff лишається на СИРИХ значеннях: інакше збережений
+// «plan» не збігся б із набірним.
+const shown = (k, v) => (k === "reinvest_rank"
+  ? (RANKS.find(([code]) => code === v) || [, v])[1]
+  : v);
 
 // Відповіді живуть у localStorage, а не в налаштуваннях сервера: це не
 // політика портфеля, а чернетка підбору. Записати в бекенд означало б
@@ -209,10 +339,10 @@ export function strategyCardHTML(current) {
   return `<div class="card">
     <h2 class="h-row">Готові набори налаштувань ${infoBtn("strategy")}</h2>
     <div class="muted mb">Це не поради, а іменовані комбінації тих самих
-      цілей і лімітів, що у формах нижче — з підписом, що кожна дає і чим за це платить. Питання
-      нижче ні на що не впливають самі по собі: вони лише позначають, який набір не суперечить
-      обмеженням, які ви назвали. Застосувати можна будь-який, і будь-яке число потім змінити
-      руками.</div>
+      цілей, лімітів і правил, що у формах «Політики» — з підписом, що кожна дає і чим за це
+      платить. Питання нижче ні на що не впливають самі по собі: вони лише позначають, який набір
+      не суперечить обмеженням, які ви назвали. Застосувати можна будь-який, і будь-яке число
+      потім змінити руками.</div>
     ${quiz}
     ${cards}
   </div>`;
@@ -237,15 +367,19 @@ export function wireStrategy(ctx, main, current) {
       const box = main.querySelector(`[data-preview="${p.key}"]`);
       if (!p || !box) return;
       // Два кроки навмисно, як в імпорті виписки: спершу показати, що
-      // саме буде переписано, і лише потім писати. Набір чіпає девʼять
+      // саме буде переписано, і лише потім писати. Набір чіпає дванадцять
       // налаштувань одразу, і «застосував і не помітив, що затер валютну
       // ціль» — помилка, яка знаходиться не одразу.
+      //
+      // «Прибрати» в третьому стовпчику — не окраса: порожнє значення
+      // справді СТИРАЄ налаштування, і саме тому перехід між наборами не
+      // лишає позаду чужого числа.
       const diff = Object.entries(p.values).filter(([k, v]) => (current[k] || "") !== v);
       box.innerHTML = `<div class="table-scroll mt-sm"><table><thead><tr>
           <th>Налаштування</th><th class="num">Зараз</th><th class="num">Стане</th></tr></thead><tbody>
           ${diff.map(([k, v]) => `<tr><td>${esc(FIELD_LABEL[k] || k)}</td>
-            <td class="num muted">${current[k] ? esc(current[k]) : "не задано"}</td>
-            <td class="num"><b>${v ? esc(v) : "прибрати"}</b></td></tr>`).join("")}
+            <td class="num muted">${current[k] ? esc(shown(k, current[k])) : "не задано"}</td>
+            <td class="num"><b>${v ? esc(shown(k, v)) : "прибрати"}</b></td></tr>`).join("")}
         </tbody></table></div>
         <button class="sm mt-sm" data-apply="${p.key}">Застосувати «${esc(p.name)}»</button>`;
       box.querySelector("[data-apply]").addEventListener("click", async (e) => {

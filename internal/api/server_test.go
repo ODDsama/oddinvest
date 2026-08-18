@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -3178,8 +3180,6 @@ func TestReserveIsCapitalButNotBuyingPower(t *testing.T) {
 	}
 }
 
-// Переміщення гаманець → матрац не створює й не знищує грошей, тож
-// «внесено за місяць» мусить лишитись тим самим. Записується воно двома
 // Механізм поповнення резерву напрямку не міняє. Резерв дістав стелю на
 // частку вільних грошей, і спокуса прочитати це як «резерв тепер бере
 // участь у реінвесті» велика — а це рівно те, чого не можна: аварійні
@@ -3255,6 +3255,8 @@ func TestReserveFillDoesNotBecomeBuyingPower(t *testing.T) {
 	}
 }
 
+// Переміщення гаманець → матрац не створює й не знищує грошей, тож
+// «внесено за місяць» мусить лишитись тим самим. Записується воно двома
 // ногами (мінус у deposits, плюс у резерві), і рахувати лише першу
 // означало б показати відкладання як втрату капіталу — псуючи місячний
 // прогрес, фактичний темп внесків і бенчмарк.
@@ -3810,23 +3812,53 @@ func TestStrategyPresetsUseKnownSettings(t *testing.T) {
 	for _, k := range settingsKeys {
 		known[k] = true
 	}
-	// values: { ... } кожного набору — до закриття блоку.
-	blocks := regexp.MustCompile(`(?s)key:\s*"(\w+)".*?values:\s*\{(.*?)\n    \},`).
+	// values: { ... } кожного набору. Межа блоку — ДУЖКА, а не відступ.
+	//
+	// Доти блок закінчувався рядком рівно з чотирьох пробілів, тобто
+	// перевірка трималась на форматуванні: переніс `},` на два пробіли — і
+	// набір випадав із неї не помилкою, а ТИШЕЮ (зливався з наступним через
+	// `.*?`). Вкладених обʼєктів у values немає, тож «до першої закритої
+	// дужки» — точна межа.
+	blocks := regexp.MustCompile(`(?s)key:\s*"(\w+)".*?values:\s*\{([^}]*)\}`).
 		FindAllStringSubmatch(string(src), -1)
-	if len(blocks) == 0 {
-		t.Fatal("у strategy.js не знайдено жодного набору — змінився формат?")
+	// Скільки наборів оголошено ВЗАГАЛІ. Набір без values не «пропускається»:
+	// він зливається з наступним і зникає разом із ним, а за самим переліком
+	// блоків цього не видно.
+	declared := len(regexp.MustCompile(`\bkey:\s*"`).FindAllString(string(src), -1))
+	if len(blocks) == 0 || len(blocks) != declared {
+		t.Fatalf("наборів оголошено %d, а з values знайдено %d — змінився формат?",
+			declared, len(blocks))
 	}
 	field := regexp.MustCompile(`(\w+):\s*"`)
+	var first []string
+	var firstName string
 	for _, b := range blocks {
-		name, keys := b[1], field.FindAllStringSubmatch(b[2], -1)
-		if len(keys) == 0 {
-			t.Errorf("набір %q не задає жодного налаштування", name)
-		}
-		for _, k := range keys {
+		name := b[1]
+		var keys []string
+		for _, k := range field.FindAllStringSubmatch(b[2], -1) {
 			if !known[k[1]] {
 				t.Errorf("набір %q пише в невідоме налаштування %q — PUT відповість 400",
 					name, k[1])
 			}
+			keys = append(keys, k[1])
+		}
+		if len(keys) == 0 {
+			t.Errorf("набір %q не задає жодного налаштування", name)
+			continue
+		}
+		sort.Strings(keys)
+		// Усі набори мусять чіпати ОДИН І ТОЙ САМИЙ перелік ключів. Це не
+		// охайність: порожнє значення в PUT означає «прибрати», і саме на
+		// цьому тримається те, що перехід між наборами не лишає позаду
+		// чужого числа. Набір, який мовчить про ціль НПФ, лишив би її від
+		// попереднього — і сума часток поїхала б без сліду в UI.
+		if first == nil {
+			first, firstName = keys, name
+			continue
+		}
+		if !slices.Equal(first, keys) {
+			t.Errorf("набір %q задає інший перелік налаштувань, ніж %q:\n%v\nпроти\n%v",
+				name, firstName, keys, first)
 		}
 	}
 }

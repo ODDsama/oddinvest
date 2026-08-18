@@ -22,7 +22,7 @@ import { esc, pct } from "../format.js";
 import { tile } from "../components.js";
 import { onSubmit } from "../forms.js";
 import { infoBtn } from "../info.js";
-import { strategyCardHTML, wireStrategy } from "./strategy.js";
+import { strategyCardHTML, wireStrategy, RANKS } from "./strategy.js";
 
 // Обидві форми пишуть у той самий PUT /settings і відрізняються лише
 // списком полів. Збираємо payload із тих, що РЕАЛЬНО є у формі: PUT
@@ -58,7 +58,7 @@ function rankCard(s) {
   <h2 class="h-row">Порядок у «Що купити» ${infoBtn("setRank")}</h2>
   <form id="rankForm">
     <label>Критерій<select name="reinvest_rank">${
-      [["plan", "під план"], ["rate", "за дохідністю"], ["short", "короткі"], ["ladder", "драбина"]]
+      RANKS
         .map(([v, t]) => `<option value="${v}"${(s.reinvest_rank || "plan") === v ? " selected" : ""}>${t}</option>`)
         .join("")}</select></label>
     <div class="form-actions"><button type="submit">Зберегти</button></div>
