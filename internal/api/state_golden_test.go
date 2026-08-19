@@ -344,12 +344,18 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 
 // buildRichDoc піднімає сервер на багатій фікстурі й будує документ на
 // ФІКСОВАНИЙ момент.
+//
+// buildStateTasked, а не голий buildState: саме цей документ віддає
+// /api/summary і публікує MQTT, тож сітка мусить лежати під тим, що
+// справді їде споживачам, — разом із чергою задач. Голий buildState лишив
+// би tasks вічно порожніми, і TestDocFieldsPopulated довелось би вимикати
+// винятком, тобто перестати перевіряти цілу фазу.
 func buildRichDoc(t *testing.T) *state.Doc {
 	t.Helper()
 	srv, st := testServer(t)
 	richPortfolio(t, srv.URL, st)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	doc, err := New(st, nil, log).buildState(context.Background(), goldenNow)
+	doc, err := New(st, nil, log).buildStateTasked(context.Background(), goldenNow)
 	if err != nil {
 		t.Fatal(err)
 	}

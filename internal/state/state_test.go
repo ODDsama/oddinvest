@@ -102,7 +102,29 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		FundsYieldPct:       11.20,
 		BlendedYieldPct:     14.10,
 		BlendedYieldRealPct: 6.85,
-		NBURefreshedAt:      "2026-07-15T06:10:00Z",
+		// Три види з чотирьох: НПФ у фікстурі навмисно немає ключа —
+		// саме так документ і виглядає, коли виду в портфелі нема.
+		KindYieldRealPct: map[string]float64{
+			"bonds": 7.10, "funds": 5.62, "deposits": 5.50,
+		},
+		// Дві задачі з різних ярусів: споживач фікстури мусить побачити і
+		// те, що черга впорядкована (now перед watch), і те, що kind буває
+		// порожнім — задача про довідник НБУ не про інструмент.
+		Tasks: []Task{
+			{
+				ID: "reserve-fill", Sev: "now", Rank: 10, Kind: "reserve",
+				Title:     "Спершу поповнити резерв — 12 400,00 ₴",
+				Why:       "Стеля, яку ти сам поставив: до цілі ще 47 600,00 ₴, решта грошей лишається на папери.",
+				Action:    "fill-reserve",
+				AmountUAH: 12_400,
+			},
+			{
+				ID: "nbu", Sev: "watch", Rank: 20,
+				Title: "Довідник НБУ не оновлювався 5 днів",
+				Why:   "Ставки й графіки виплат можуть бути несвіжі.",
+			},
+		},
+		NBURefreshedAt: "2026-07-15T06:10:00Z",
 		Liquidity: &Liquidity{
 			NowUAH: 1_500, In30UAH: 5_637.50, In90UAH: 9_775,
 			ReserveUAH: 60_000, LockedUAH: 120_000, UnlockDate: "2027-03-17",

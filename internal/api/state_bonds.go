@@ -132,3 +132,31 @@ func blendYield(bondPct, fundPct, bondsUAH, fundsUAH float64) float64 {
 	}
 	return math.Round((bondPct*bondsUAH+fundPct*fundsUAH)/w*100) / 100
 }
+
+// kindYieldReal збирає реальні дохідності ЧОТИРЬОХ видів в одну мапу.
+//
+// Функція нічого не рахує — усі чотири числа вже зважені там, де живуть
+// їхні дані: ОВДП у buildBonds, фонди в buildFunds, вклади в циклі по
+// termDeposits, НПФ у buildNPF. Тут лише збірка, і саме тому вона така
+// коротка: інакше це було б п'яте місце, де відтворюється зважування.
+//
+// Нуль НЕ потрапляє в мапу. Вид, якого в портфелі немає (або в якого
+// немає ставки), мусить бути ВІДСУТНІМ ключем, а не нулем: нуль читається
+// як «заробляє нічого», і плитка воронки намалювала б «0.0%» там, де
+// чесна відповідь — прочерк. Мапа з `omitempty` дає це задарма.
+//
+// Резерву тут немає за побудовою — див. коментар до KindYieldRealPct.
+func kindYieldReal(bonds, funds, deposits, npf float64) map[string]float64 {
+	out := map[string]float64{}
+	for k, v := range map[string]float64{
+		"bonds": bonds, "funds": funds, "deposits": deposits, "npf": npf,
+	} {
+		if v != 0 {
+			out[k] = v
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}

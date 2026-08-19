@@ -559,6 +559,12 @@
   "funds_yield_real_pct": 5.62,
   "blended_yield_real_pct": 0.88,
   "funds_yield_basis": "різні основи",
+  "kind_yield_real_pct": {
+    "bonds": 0.68,
+    "deposits": 5.5,
+    "funds": 5.62,
+    "npf": 9.24
+  },
   "projection": [
     {
       "years": 1,
@@ -1198,6 +1204,63 @@
       "amount_uah": 120000,
       "share_pct": 33.3,
       "limit_pct": 40
+    }
+  ],
+  "tasks": [
+    {
+      "id": "reserve-fill",
+      "sev": "now",
+      "rank": 10,
+      "kind": "reserve",
+      "title": "Спершу поповнити резерв — 100 528,09 ₴",
+      "why": "Стеля, яку ти сам поставив: до цілі ще 102 350,64 ₴, решта грошей лишається на папери.",
+      "action": "fill-reserve",
+      "amount_uah": 100528.09
+    },
+    {
+      "id": "buy-best",
+      "sev": "now",
+      "rank": 20,
+      "kind": "fund",
+      "title": "Можеш купити Строковий фонд",
+      "why": "1 000,00 ₴ · mono ×492 · inzhur ×85.",
+      "when": "10,2% реальних",
+      "action": "how-to-fund"
+    },
+    {
+      "id": "npf-due:Династія",
+      "sev": "now",
+      "rank": 30,
+      "kind": "npf",
+      "title": "Внеску в Династія за цей місяць ще немає",
+      "why": "Звичайний день внеску — 5 числа.",
+      "action": "record-npf"
+    },
+    {
+      "id": "pay-confirm",
+      "sev": "now",
+      "rank": 40,
+      "title": "4 виплати без відмітки",
+      "why": "Дата минула, але надходження не підтверджене — доки його немає, помічник не бачить цих грошей.",
+      "when": "16 червня",
+      "action": "confirm-payment"
+    },
+    {
+      "id": "receipt",
+      "sev": "now",
+      "rank": 50,
+      "title": "Запиши, скільки зайшло: Зарплата",
+      "why": "Дата вже минула, а факт не відмічений — без нього план і факт розходяться мовчки.",
+      "when": "15 липня",
+      "action": "record-receipt"
+    },
+    {
+      "id": "conc",
+      "sev": "watch",
+      "rank": 10,
+      "title": "2 ліміти перевищено",
+      "why": "Найбільше — mono. Це спостереження, а не заборона: поради воно не ховає.",
+      "action": "review-limits"
     }
   ],
   "rate_risk": {

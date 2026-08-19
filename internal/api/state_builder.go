@@ -24,7 +24,7 @@ import (
 )
 
 func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
-	doc, err := s.buildState(r.Context(), time.Now())
+	doc, err := s.buildStateTasked(r.Context(), time.Now())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -46,9 +46,17 @@ const defaultGlideYears = 5.0
 // round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
-// buildState — спільна збірка документа стану для API і MQTT.
+// BuildStateDoc — спільна збірка документа стану для API і MQTT.
+//
+// Із чергою задач, як і GET /api/summary: обидва шляхи ведуть до людини —
+// один в браузер, другий у Home Assistant, — і показувати їй різні відповіді
+// на «що робити» було б гірше, ніж не показувати жодної.
+//
+// Решта викликів (whatif, план, cashflow, xirr) лишається на голому
+// buildState навмисно: черга їм ні до чого, а вона тягне за собою
+// SearchBonds на п'ять тисяч паперів.
 func (s *Server) BuildStateDoc(ctx context.Context, now time.Time) (*state.Doc, error) {
-	return s.buildState(ctx, now)
+	return s.buildStateTasked(ctx, now)
 }
 
 // hypothetical — покупки, яких ЩЕ НЕМАЄ. Порожня структура означає
@@ -129,6 +137,12 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Тіло вкладів у НАТИВНІЙ валюті — для рукавів проєкції: вони рахують
 	// у своїй валюті, а не в грн-еквіваленті.
 	depositBodyByCur := map[string]float64{}
+	// Зведена реальна ставка вкладів, зважена тілом. Рахується тут, у
+	// єдиному циклі по вкладах, а не окремим проходом: формула та сама, що
+	// в handlers_deposits.go і в реінвест-помічнику (domain.NetRate далі
+	// realYield), і третій прохід над тими самими вкладами був би третім
+	// місцем, де її треба тримати незміненою.
+	var depRealWeighted, depRealWeight float64
 	for _, dep := range termDeposits {
 		if !dep.Active(today) {
 			continue
@@ -148,6 +162,17 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// брокер це чи банк, не залежить.
 		depositExposureUAH[dep.Bank] += v
 		depositBodyByCur[dep.Currency] += float64(dep.BalanceAt(today)) / 100
+		// Вклад без ставки у зважування не входить узагалі: нуль там був би
+		// не «нульова дохідність», а «невідома», і тягнув би середню вниз.
+		if dep.RateBP > 0 {
+			net := domain.NetRate(dep.RateBP, dep.TaxBP)
+			depRealWeighted += realYield(net, dep.Currency, deval) * 100 * v
+			depRealWeight += v
+		}
+	}
+	depositsYieldReal := 0.0
+	if depRealWeight > 0 {
+		depositsYieldReal = round2(depRealWeighted / depRealWeight)
 	}
 
 	// Резерв («матрац») — журнал рухів, поточний залишок це Σ сум. Читаємо
@@ -867,6 +892,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		FundsYieldPct:      fundsYield, FundsYieldRealPct: fundsYieldReal,
 		FundsYieldBasis: fnd.Basis,
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
+		KindYieldRealPct: kindYieldReal(portfolioYieldReal, fundsYieldReal,
+			depositsYieldReal, npf.YieldRealPct),
 
 		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
 		PlanProvidesUAH: prj.PlanProvidesUAH,

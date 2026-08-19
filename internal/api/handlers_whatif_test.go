@@ -56,12 +56,21 @@ func TestWhatIfEmptyBasketMatchesSummary(t *testing.T) {
 	}
 	// generated_at рухається між двома запитами — прибираємо саме його,
 	// а не порівнюємо «приблизно»: решта мусить збігатись до символу.
+	//
+	// tasks прибираємо з іншої причини, і вона змістовна. Черга задач — це
+	// ПОРАДА про сьогоднішній світ, а не стан портфеля: /api/summary її
+	// несе, «до/після» кошика — ні, і саме так і має бути. У гіпотетичному
+	// «після» вона радила б купити те, що ти в ньому щойно купив, а рахувати
+	// її означало б ганяти SearchBonds на п'ять тисяч паперів на кожен
+	// перерахунок кошика. Тест же питає інше: чи не зрушив порожній кошик
+	// ЧИСЛА.
 	strip := func(s string) string {
 		var m map[string]any
 		if err := json.Unmarshal([]byte(s), &m); err != nil {
 			t.Fatal(err)
 		}
 		delete(m, "generated_at")
+		delete(m, "tasks")
 		b, err := json.Marshal(m)
 		if err != nil {
 			t.Fatal(err)

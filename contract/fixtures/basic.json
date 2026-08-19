@@ -140,6 +140,11 @@
   "funds_yield_pct": 11.2,
   "blended_yield_pct": 14.1,
   "blended_yield_real_pct": 6.85,
+  "kind_yield_real_pct": {
+    "bonds": 7.1,
+    "deposits": 5.5,
+    "funds": 5.62
+  },
   "independence": {
     "target_uah": 30000,
     "income_now_uah": 1240.5,
@@ -165,6 +170,25 @@
       "amount_uah": 138246.8,
       "share_pct": 100,
       "limit_pct": 100
+    }
+  ],
+  "tasks": [
+    {
+      "id": "reserve-fill",
+      "sev": "now",
+      "rank": 10,
+      "kind": "reserve",
+      "title": "Спершу поповнити резерв — 12 400,00 ₴",
+      "why": "Стеля, яку ти сам поставив: до цілі ще 47 600,00 ₴, решта грошей лишається на папери.",
+      "action": "fill-reserve",
+      "amount_uah": 12400
+    },
+    {
+      "id": "nbu",
+      "sev": "watch",
+      "rank": 20,
+      "title": "Довідник НБУ не оновлювався 5 днів",
+      "why": "Ставки й графіки виплат можуть бути несвіжі."
     }
   ],
   "liquidity": {

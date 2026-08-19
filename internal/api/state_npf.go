@@ -39,6 +39,15 @@ type npfPhase struct {
 	Accum map[string][]domain.Accum
 	// ContribDue — чи прострочено внесок цього місяця хоч десь.
 	ContribDue bool
+	// YieldRealPct — зведена реальна дохідність НПФ, зважена ВАРТІСТЮ
+	// рахунку. Рядки її вже несуть кожен свою (RealPct нижче); тут та сама
+	// величина одним числом на весь вид, щоб воронка НПФ могла показати
+	// плитку, не перескладаючи зважування в JS.
+	//
+	// Зважуємо вартістю, а не внесками: питання «скільки заробляє те, що в
+	// мене лежить», а лежить саме вартість. Внески — база прибутку, і на
+	// них рахується GainUAH, а не ставка.
+	YieldRealPct float64
 }
 
 // buildNPF зводить рахунки в рядки картки.
@@ -51,6 +60,8 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		ExposureUAH: map[string]float64{},
 		Accum:       map[string][]domain.Accum{},
 	}
+	// Накопичувачі зведеної ставки: сума «ставка × вартість» і сама вага.
+	var realWeighted, realWeight float64
 	positions := domain.NPFPositions(src.npfAccounts, src.npfOps)
 	// Порядок — за довідником, який уже відсортований за назвою. Обхід мапи
 	// позицій дав би документ, що змінюється між викликами без причини, а на
@@ -97,6 +108,11 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 			net = domain.NetOfTax(rate, float64(acc.IncomeTaxBP)/100, years)
 		}
 		realPct := round2(realYield(net/100, cur, deval) * 100)
+		// Вагою йде ВАРТІСТЬ рахунку, і зважуємо тут, усередині циклу, а не
+		// сумуємо готові рядки потім: знецінення торкається лише гривневих
+		// рахунків, тож поділ уже змішаного числа занизив би валютні.
+		realWeighted += realPct * valueUAH
+		realWeight += valueUAH
 
 		payoutM, _ := domain.NPFPayoutMonths(acc)
 		contribDue := domain.NPFContribDue(acc, src.npfOps, today)
@@ -164,6 +180,9 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 				PayoutM: payoutM,
 			})
 		}
+	}
+	if realWeight > 0 {
+		out.YieldRealPct = round2(realWeighted / realWeight)
 	}
 	return out
 }

@@ -442,6 +442,11 @@
       "type": "number",
       "description": "Зведена дохідність після знецінення (адитивне поле)"
     },
+    "kind_yield_real_pct": {
+      "type": "object",
+      "description": "Середня реальна дохідність по ВИДУ інструмента, зважена вкладеним: bonds | funds | deposits | npf. Вид, якого в портфелі немає, ключа не має — нуль означав би «заробляє нічого», а не «немає». Резерву тут немає за побудовою: він не заробляє (адитивне поле)",
+      "additionalProperties": { "type": "number" }
+    },
     "funds_yield_basis": {
       "type": "string",
       "description": "Звідки взялась дохідність фондів: «дивіденди + зміна ціни», «обіцяно фондом», «дивіденди після податку» або «різні основи», коли фонди міряні по-різному (адитивне поле)"
@@ -490,6 +495,25 @@
           "feasible": { "type": "boolean" },
           "unit_kind": { "type": "string", "description": "Тип одиниці входу: bond | deposit (адитивне поле)" }
         }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "description": "Черга «що робити»: усе, що чекає рішення, вже впорядковане (спершу sev, далі rank). Адрес тут немає навмисно — action це семантичне дієслово, а куди воно веде, вирішує споживач (адитивне поле)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "description": "стабільний ключ: тип задачі плюс сутність, якої вона стосується" },
+          "sev": { "type": "string", "enum": ["now", "soon", "watch"], "description": "коли це вимагає уваги: now — дія можлива сьогодні, soon — дата в межах місяця, watch — стан без дедлайну. Це ЧАС, а не важливість" },
+          "rank": { "type": "integer", "description": "порядок усередині sev; фіксований за типом задачі, а не похідний від сум" },
+          "kind": { "type": "string", "description": "вид інструмента: bond | fund | deposit | npf | reserve. Порожньо — задача не про інструмент" },
+          "title": { "type": "string", "description": "саме рішення, одним рядком" },
+          "why": { "type": "string", "description": "чому воно тут" },
+          "when": { "type": "string", "description": "дата, строк або головне число задачі" },
+          "action": { "type": "string", "enum": ["record-buy", "top-up-deposit", "fill-reserve", "record-npf", "confirm-payment", "record-receipt", "review-limits", "see-suggestions", "review-deposit", "how-to-fund"], "description": "семантичний ТОКЕН дії, а не підпис кнопки: маршрутизувати по перекладеній прозі означало б ламати посилання кожною редактурою. Порожньо, коли робити нічого не треба" },
+          "amount_uah": { "type": "number", "description": "сума, про яку йдеться, грн-екв.: проза для людини, число для автоматизації" }
+        },
+        "required": ["id", "sev", "rank", "title", "why"]
       }
     },
     "concentration": {

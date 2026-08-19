@@ -6,6 +6,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -147,19 +149,38 @@ const staleAfterDays = 365
 //
 // «Купонної ставки» в цьому переліку немає вже давно: сира ставка
 // непорівнянна між валютами, і порядок задає реальна дохідність.
+// handleReinvest — GET /api/reinvest. Уся робота в reinvestSuggestions:
+// те саме число потрібне ще й черзі задач, а дві збірки порад означали б,
+// що «Що робити» і «Що купити» радять різне — рівно та розбіжність, проти
+// якої в now-view.js уже стоїть окреме попередження.
 func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	now := time.Now()
-	today := domain.NewDate(now)
-	doc, err := s.buildState(ctx, now)
+	doc, err := s.buildState(r.Context(), now)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	bonds, err := s.st.SearchBonds(ctx, "", "", today, "", 5000) // усі майбутні папери
+	out, err := s.reinvestSuggestions(r.Context(), now, doc)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
+	}
+	// Ліміту немає свідомо: у таблиці є фільтри, сортування й пагінація,
+	// тож звужує користувач, а не бекенд мовчки.
+	writeJSON(w, http.StatusOK, out)
+}
+
+// reinvestSuggestions — ранжовані поради за готовим документом стану.
+//
+// Документ приймається АРГУМЕНТОМ, а не будується всередині: тут його вже
+// має той, хто кличе (обробник — свій, черга задач — свій), і другий
+// buildState був би найдорожчим шляхом бекенда, пройденим двічі поспіль.
+func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
+	doc *state.Doc) ([]suggestion, error) {
+	today := domain.NewDate(now)
+	bonds, err := s.st.SearchBonds(ctx, "", "", today, "", 5000) // усі майбутні папери
+	if err != nil {
+		return nil, err
 	}
 
 	// Валютний вимір існує ЛИШЕ тоді, коли валютну ціль назвали.
@@ -253,8 +274,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	}
 	allPays, err := s.st.PaymentsFor(ctx, isins)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return nil, err
 	}
 	paysByISIN := map[string][]domain.Payment{}
 	for _, p := range allPays {
@@ -501,8 +521,7 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	// відкриття: саме так працює поповнюваний вклад.
 	deps, derr := s.st.ListTermDeposits(ctx)
 	if derr != nil {
-		writeErr(w, http.StatusInternalServerError, derr)
-		return
+		return nil, derr
 	}
 	for _, d := range deps {
 		// Тільки поповнювані: радити докласти у вклад, який поповнень не
@@ -762,7 +781,5 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		}
 		return matKey(a) < matKey(b)
 	})
-	// Ліміту немає свідомо: у таблиці є фільтри, сортування й пагінація,
-	// тож звужує користувач, а не бекенд мовчки.
-	writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
