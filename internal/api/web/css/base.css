@@ -160,7 +160,15 @@ header .mark { width: 22px; height: 22px; flex: 0 0 auto; color: var(--oi-header
    рахувати нема чого.
    overscroll-behavior: без нього прокрутка, дійшовши до кінця списку,
    продовжується сторінкою під шухлядою. */
-nav {
+/* #nav, а не голий nav. Селектор писався, коли <nav> у застосунку був
+   рівно один, і тим самим ЗАКОДУВАВ цю кількість у себе. Відколи у воронки
+   з'явилась рейка кроків (теж навігація, теж <nav>), правила шухляди почали
+   ловити її: від 900px вона діставала height: calc(100dvh − шапка), тобто
+   640px замість тонкої смуги, і зіштовхувала весь вміст сторінки за екран.
+
+   Ім'я в селекторі — не педантизм: воно каже, ПРО ЯКУ навігацію правило,
+   і наступний <nav> у застосунку вже нічого не зламає. */
+#nav {
   position: fixed;
   top: 0; bottom: 0; left: 0;
   width: min(84vw, var(--oi-sidebar-w));
@@ -172,7 +180,7 @@ nav {
   z-index: var(--oi-z-modal);
   transform: translateX(-100%);
 }
-:host([data-nav-open]) nav { transform: none; }
+:host([data-nav-open]) #nav { transform: none; }
 
 /* Перехід умикається лише ПІСЛЯ першого кадру зі стилями, і це не
    прикраса, а виправлення справжньої поломки.
@@ -192,7 +200,7 @@ nav {
 
    Атрибут ставить app.js через два кадри після adoptStyles. Від 900px
    перехід не потрібен зовсім: там панель нікуди не їздить. */
-:host([data-ready]) nav { transition: transform var(--oi-dur) var(--oi-ease); }
+:host([data-ready]) #nav { transition: transform var(--oi-dur) var(--oi-ease); }
 
 /* Підкладка. Нижче за панель, вище за тост: тост має право писати поверх
    затемнення, панель — поверх обох. */
@@ -319,6 +327,12 @@ main:focus { outline: none; }
      від чого. Заперечення знято по суті, а не обійдено: на цій ширині
      шапка вже не переносить рядок і містить один ряд контролів. */
   header { flex-wrap: nowrap; padding: var(--oi-gap) var(--oi-gap-xl); height: var(--oi-header-h); }
+  /* Рейка кроків липне під шапку — і саме тут, а не в її власному правилі:
+     --oi-header-h є числом ЛИШЕ на цій ширині (див. пояснення вище). Нижче
+     900px рейка лишається на top: 0 і з'їжджає ПІД шапку, яка перекриває її
+     більшим z-index; це гірше, ніж прикріплено, але чесніше за відрахунок
+     від висоти, якої немає. */
+  .steps { top: var(--oi-header-h); }
 
   /* Шухляди тут немає: панель стоїть колонкою й видима завжди. */
   .nav-toggle, .scrim { display: none; }
@@ -337,7 +351,7 @@ main:focus { outline: none; }
     grid-template-columns: var(--oi-sidebar-w) minmax(0, 1fr);
   }
 
-  nav {
+  #nav {
     position: sticky;
     inset: auto;
     top: var(--oi-header-h);
@@ -1054,6 +1068,108 @@ td.num .sale-f { text-align: right; }
 .sg-y { white-space: nowrap; text-align: right; font-size: var(--oi-fs-md); }
 /* Заголовок групи: він відповідає на головне питання картки — чи можу я
    купити зараз, — тож стоїть окремим рядком, а не підписом до числа. */
+/* ---------- воронка інструмента ---------- */
+
+/* Рейка кроків. Липка, бо в неї одна робота: показувати, ДЕ ти в
+   послідовності, — а це має бути видно й тоді, коли крок довший за екран.
+
+   Прокручується по горизонталі, а не переноситься: шість кроків на телефоні
+   в один рядок не влазять, а два ряди перестають читатись як лінія. */
+.steps {
+  position: sticky;
+  top: 0;
+  z-index: var(--oi-z-sticky);
+  display: flex;
+  gap: var(--oi-gap);
+  overflow-x: auto;
+  padding: var(--oi-gap-sm) 0;
+  margin-bottom: var(--oi-flow);
+  background: var(--oi-bg);
+  border-bottom: var(--oi-rule) solid var(--oi-border);
+}
+.step-l {
+  white-space: nowrap;
+  text-decoration: none;
+  font-size: var(--oi-fs-sm);
+  color: var(--oi-muted);
+  padding-bottom: var(--oi-gap-xs);
+  border-bottom: var(--oi-rule-strong) solid transparent;
+}
+.step-l:hover { color: var(--oi-text); }
+.step-l[aria-current] { color: var(--oi-text); border-bottom-color: var(--oi-accent); }
+
+.step { display: block; margin-bottom: var(--oi-gap-3xl); }
+.step-t { font-size: var(--oi-fs-lg); color: var(--oi-muted); margin-bottom: var(--oi-gap); }
+
+/* ---------- черга задач ---------- */
+
+/* Задача — це РЯДОК, а не картка, і це головне рішення блоку.
+   Кожна з них колись була б власним банером; п'ять банерів підряд —
+   п'ять замкнених контурів, у яких не видно, що з чого важливіше.
+   Спільна картка навколо всіх і смуга стану зліва в кожної кажуть те
+   саме, але дають прочитати чергу одним рухом ока. */
+/* Перша назва групи стоїть одразу під заголовком сторінки, тож верхній
+   відступ їй ні до чого — інакше картка починається порожнечею. */
+.tasks .sg-h { margin-top: var(--oi-gap-lg); }
+.tasks .sg-h:first-child { margin-top: 0; }
+.task {
+  display: grid;
+  /* Смуга · текст · дія. На телефоні дія падає окремим рядком під текст —
+     інакше вона тисне заголовок задачі в колонку на два слова, рівно як
+     це колись робила кнопка банера. */
+  grid-template-columns: auto 1fr;
+  gap: var(--oi-gap-xs) var(--oi-gap);
+  align-items: start;
+  padding: var(--oi-gap) 0;
+  border-top: var(--oi-rule) solid var(--oi-border);
+}
+.task:first-of-type { border-top: 0; }
+/* Смуга, а не іконка. Іконка мусила б розрізняти вид задачі, а вид тут
+   несе текст; смузі досить розрізняти СТУПІНЬ — і саме її видно
+   периферійним зором, коли пробігаєш список згори вниз. */
+.task-sev {
+  width: var(--oi-rule-strong);
+  align-self: stretch;
+  border-radius: var(--oi-radius-pill);
+  background: var(--oi-border-strong);
+}
+.task[data-sev="now"] .task-sev { background: var(--oi-soft-ok-border); }
+.task[data-sev="soon"] .task-sev { background: var(--oi-soft-warn-border); }
+.task-t { min-width: 0; }
+/* Число праворуч від заголовка — дохідність, дата або строк. Дрібним і
+   приглушеним навмисно: воно уточнює задачу, а не змагається з нею. */
+.task-h {
+  margin-left: var(--oi-gap-sm);
+  font-size: var(--oi-fs-sm);
+  color: var(--oi-muted);
+  white-space: nowrap;
+}
+.task-w { font-size: var(--oi-fs-sm); color: var(--oi-muted); margin-top: var(--oi-gap-xs); }
+/* Дія — посилання, яке виглядає кнопкою. Саме <a>, а не <button>: воно
+   веде на адресу, тож браузер має дати «відкрити в новій вкладці» й
+   закладку задарма (та сама аргументація, що в меню). */
+.task-a {
+  grid-column: 2;
+  justify-self: start;
+  white-space: nowrap;
+  text-decoration: none;
+  font-size: var(--oi-fs-sm);
+  font-weight: var(--oi-fw-bold);
+  color: var(--oi-text);
+  background: var(--oi-surface-2);
+  border: var(--oi-rule) solid var(--oi-border);
+  border-radius: var(--oi-radius-sm);
+  padding: var(--oi-gap-xs) var(--oi-gap-sm);
+  min-height: var(--oi-touch);
+  display: inline-flex;
+  align-items: center;
+}
+.task-a:hover { border-color: var(--oi-border-strong); }
+@media (min-width: 640px) {
+  .task { grid-template-columns: auto 1fr auto; align-items: center; }
+  .task-a { grid-column: 3; min-height: 0; }
+}
+
 .sg-h { margin-top: var(--oi-gap); font-size: var(--oi-fs-sm); color: var(--oi-muted); }
 .sg-h:first-of-type { margin-top: 0; }
 .sg-d { padding: 0 0 var(--oi-gap-sm) 26px; }
@@ -1300,11 +1416,13 @@ td.num .sale-f { text-align: right; }
    блок її втратив, а скелет ні. Заливка й поля лишились банеру: він
    єдиний із трьох, у кого вони справді є. */
 .skel-card { margin-bottom: var(--oi-gap-2xl); }
-.skel-banner {
+/* Смуга рейки кроків у скелеті: висоту вона тримає тим самим, чим і
+   справжня рейка, тож заміна не рухає сторінку. */
+.skel-rail {
+  height: var(--oi-touch);
+  border-radius: var(--oi-radius-sm);
   background: var(--oi-surface);
-  border-left: var(--oi-rule-strong) solid var(--oi-border-strong);
-  padding: var(--oi-gap) var(--oi-card-pad);
-  margin-bottom: var(--oi-gap-lg);
+  margin-bottom: var(--oi-flow);
 }
 .skel-tiles {
   display: grid;

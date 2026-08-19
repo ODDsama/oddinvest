@@ -14,9 +14,12 @@ import { PAYOUT_LABEL } from "../constants.js";
 import { infoBtn } from "../info.js";
 import { yieldPair, empty, kindPill } from "../components.js";
 import { routeFor } from "../routes.js";
-import { fundTable } from "../fund-ops.js";
-import { npfDetailHTML } from "../npf.js";
+import { fundTable, setFundOps, wireFundOps } from "../fund-ops.js";
+import { npfDetailHTML, setNPF, wireNPF } from "../npf.js";
 import { isOpen, remember } from "../uistate.js";
+import { wireDisclosures } from "../disclosure.js";
+import { wireBonds } from "./bonds.js";
+import { wireDeposits } from "./deposits.js";
 
 
 const POS_COLS = 7;
@@ -286,9 +289,18 @@ function positionItems(ctx, positions, lots, sales, deposits, kinds = null) {
 /** Таблиця позицій. opts.kinds звужує її до одного виду, opts.title і
  *  opts.empty дають сторінці виду назвати себе своїм ім'ям — «Позиція
  *  з'явиться після першої покупки паперу» на сторінці вкладів було б
- *  порадою не в те місце. */
+ *  порадою не в те місце.
+ *
+ *  opts.rowDetail = false прибирає розкриття цілком — і рядок деталей, і
+ *  каретку. Потрібно рівно там, де ті самі форми вже стоять на сторінці
+ *  окремим блоком: у НПФ рядок деталей — це npfDetailHTML із формою внеску
+ *  й формою ЧВОПА, і поруч із такою ж формою нижче вийшло б два входи до
+ *  одного запису на одному екрані (обидва підв'яже wireNPF, бо він ходить
+ *  querySelectorAll). Не падіння, але саме та плутанина, від якої розділи
+ *  й розводили. За замовчуванням true: жодна наявна сторінка не міняється. */
 export function positionsTableHTML(ctx, positions, lots, sales, deposits, opts = {}) {
-  const { kinds = null, title = "Позиції", empty: emptyOpts = null } = opts;
+  const { kinds = null, title = "Позиції", empty: emptyOpts = null,
+    rowDetail = true } = opts;
   const items = positionItems(ctx, positions, lots, sales, deposits, kinds);
   if (!items.length) {
     const e = emptyOpts || {
@@ -307,18 +319,24 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits, opts =
   const rows = items.map((it) => {
     const open = isOpen(OPEN_SCOPE, it.key);
     const detailId = `pos-d-${it.key}`.replace(/[^\w-]/g, "-");
+    // Без розкриття каретки немає ВЗАГАЛІ, а не «є, але нічого не робить»:
+    // кнопка, яка нікуди не веде, — гірше за її відсутність.
+    const caret = rowDetail
+      ? `<button class="caret${open ? " open" : ""}" data-exp="${it.key}"
+            aria-expanded="${open}" aria-controls="${detailId}"
+            title="Показати, звідки взялася позиція">▸</button>`
+      : "";
     return `<tr>
-      <td class="col-kind" data-label="Тип"><button class="caret${open ? " open" : ""}"
-            data-exp="${it.key}" aria-expanded="${open}" aria-controls="${detailId}"
-            title="Показати, звідки взялася позиція">▸</button>${kindPill(it.kind)}</td>
+      <td class="col-kind" data-label="Тип">${caret}${kindPill(it.kind)}</td>
       <td data-label="Назва">${it.name}</td>
       <td class="num" data-label="Вкладено" data-prio="3">${it.invested}</td>
       <td class="num" data-label="Вартість" data-prio="2">${it.value}</td>
       ${realCell(it.pct, it.nominal, it.basis)}
       <td data-label="Строк" data-prio="2">${it.term}</td>
       <td class="row-actions nowrap">${it.actions}</td></tr>
-    <tr class="detail-row" id="${detailId}" data-detail="${it.key}"${open ? "" : " hidden"}>
-      <td colspan="${POS_COLS}">${it.detail}</td></tr>`;
+    ${rowDetail ? `<tr class="detail-row" id="${detailId}" data-detail="${it.key}"${
+  open ? "" : " hidden"}>
+      <td colspan="${POS_COLS}">${it.detail}</td></tr>` : ""}`;
   }).join("");
 
   return `<div class="card"><h2 class="h-row">${esc(title)} ${infoBtn("positions")}</h2>
@@ -337,7 +355,7 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits, opts =
       собою. Дрібне під ним — <b>номінальна</b>: скільки гривень додасться, те, що видно у виписці.
       Далі — звідки число взялося: у ОВДП і вкладу це <b>обіцянка</b>, ставка зафіксована до
       погашення; у фонду <b>факт</b> по прожитому, бо ні строку, ні ставки він не має.
-      Стрілка розкриває лоти, продажі й поповнення.</div>
+      ${rowDetail ? "Стрілка розкриває лоти, продажі й поповнення." : ""}</div>
   </div>`;
 }
 
@@ -362,3 +380,61 @@ export function wirePositions(ctx, main) {
 }
 
 
+
+// ---------- спільний вхід у дані таблиці ----------
+
+/** Один запит-набір на сторінку, скільки б сторінок його не потребувало.
+ *
+ *  Це не ліньки, а страховка під конкретний клас помилок. fund-ops.js і
+ *  npf.js тримають журнал у МОДУЛЬНІЙ змінній, яку мусить виставити той,
+ *  хто дані вантажив (setFundOps/setNPF); пропущений виклик не падає, а
+ *  ТИХО малює порожні деталі. Один вхід замість багатьох знімає цей клас
+ *  цілком.
+ *
+ *  Живе тут, а не в розділі, з якого приїхав: даних потребують уже двоє —
+ *  сторінки портфеля й воронки інструментів, — і поки функція була
+ *  приватною в одному розділі, другий мусив би або імпортувати чужий
+ *  розділ, або завести другу копію. Друга копія — рівно те місце, де
+ *  setNPF і забувають.
+ *
+ *  Платня — нуль: GET-и йдуть через кеш store.js, тож обхід усіх сторінок,
+ *  які його кличуть, коштує один набір запитів. */
+export async function loadPositionsData(ctx) {
+  const [positions, lots, sales, ops, deposits, npfAcc, npfOps, npfNav] = await Promise.all([
+    ctx.api("GET", "positions"),
+    ctx.api("GET", "lots"),
+    ctx.api("GET", "sales"),
+    ctx.soft("funds", []),
+    ctx.soft("term-deposits", []),
+    // М'яко, як фонди й вклади: на старій БД НПФ немає, і валити через це
+    // сторінку означало б показати порожній екран замість портфеля.
+    ctx.soft("npf-accounts", []),
+    ctx.soft("npf", []),
+    ctx.soft("npf-nav", []),
+  ]);
+  setFundOps(ops);
+  setNPF({ accounts: npfAcc, ops: npfOps, nav: npfNav });
+  return { positions, lots, sales, deposits };
+}
+
+/** Проводка рядків деталей — і всього, що з ними приїхало.
+ *
+ *  У розкриттях живуть форми продажу, поповнення й закриття вкладу, тож
+ *  підв'язувати треба на КОЖНІЙ сторінці, де таблиця взагалі є. Усі шість
+ *  функцій терплять відсутність своїх цілей — forms.js вартує кожен
+ *  querySelector, а querySelectorAll просто дає порожній список, — тож
+ *  зайвий виклик тут нічого не коштує.
+ *
+ *  Саме через цю терплячість один виклик покриває і таблицю, і форми
+ *  ЗАПИСУ, коли вони стоять на тій самій сторінці: wireBonds має ранній
+ *  вихід без #lotForm, а з формою підв'яже й автокомпліт ISIN, і перевірку
+ *  грошей; wireDeposits однаково бачить і #termDepForm, і поповнення в
+ *  рядках. */
+export function wirePositionRows(ctx, main, deposits) {
+  wirePositions(ctx, main);
+  wireBonds(ctx, main);
+  wireFundOps(ctx, main);
+  wireNPF(ctx, main);
+  wireDeposits(ctx, main, deposits);
+  wireDisclosures(main);
+}

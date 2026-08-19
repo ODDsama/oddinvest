@@ -19,84 +19,19 @@ import { isOpen, remember } from "../uistate.js";
 import { routeFor } from "../routes.js";
 import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
 import { basketHTML, wireBasket } from "./basket.js";
+import { tasksHTML } from "./tasks.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
 
 // Банер дії показуємо ЗАВЖДИ — він ніколи не порожній і завжди каже,
 // що робити: почати, купити або накопичувати далі.
-export function actionBannerHTML(ctx) {
-  const s = ctx.summary || {};
-  // Портфель — це БУДЬ-ЯКИЙ з чотирьох інструментів, не лише ОВДП: доти
-  // тут дивились тільки на nominal_uah_eq, тож портфель із самих
-  // сертифікатів фонду, вкладів і резерву (без жодного лоту) читався як
-  // порожній, і банер «Почни з першої покупки» стояв над плиткою з
-  // капіталом у сотні тисяч. account_uah свідомо НЕ тут — це вільна
-  // готівка на рахунку, а не позиція, і сама по собі «почав» не означає.
-  const hasPortfolio = (s.nominal_uah_eq || 0) > 0 || (s.funds_uah || 0) > 0 ||
-    (s.deposits_uah || 0) > 0 || (s.reserve_uah || 0) > 0;
-  const box = (cls, icon, title, sub, btn = "") =>
-    `<div class="banner ${cls}"><div class="b-ic">${icon}</div><div class="b-tx">
-       <div class="b-t">${title}</div>${sub ? `<div class="b-s">${sub}</div>` : ""}</div>${btn}</div>`;
-
-  if (!hasPortfolio) {
-    return box("neutral", "◦", "Почни з першої покупки",
-      "Додай папір — і застосунок почне вести драбину, календар і проєкції.",
-      `<button data-go="buy">Купити папір</button>`);
-  }
-
-  // Банер говорить тією самою стрічкою, що й «Що купити»: інакше вони
-  // радили б різне. Порівнюємо за РЕАЛЬНОЮ дохідністю, а не за ціною —
-  // сертифікат за 10 ₴ доступний завжди, але це не робить його найкращим.
-  const list = reinvest || [];
-  const bestAny = [...list].sort(byReal)[0];
-  const bestCan = [...list].filter((r) => r.can_buy).sort(byReal)[0];
-  const label = (r) => suggestTitle(r).name;
-
-  if (bestCan) {
-    const action = KIND_ACTION[bestCan.kind] || "купити";
-    const where = (bestCan.brokers || []).map((f) => `${esc(f.broker)} ×${f.qty}`).join(" · ");
-    const cost = bestCan.cost_per_bond
-      ? fmtCur(Number(bestCan.cost_per_bond.amount), curSym(bestCan.currency)) : "";
-    // Якщо є щось дохідніше, але ще не по кишені — кажемо про це прямо:
-    // «можеш зараз» не має ховати «краще зачекати».
-    // Слово «реальних» тут теж обов'язкове: доти воно стояло лише біля
-    // першого числа, і два відсотки в одному реченні виглядали як два
-    // різні виміри.
-    const better = bestAny && !bestAny.can_buy && (bestAny.real_pct || 0) > (bestCan.real_pct || 0)
-      ? ` Дохідніше — ${label(bestAny)} (${pct(bestAny.real_pct)} реальних), але ще не по кишені.`
-      : "";
-    return box("ok", "●",
-      `Можеш ${action} ${label(bestCan)} — ${pct(bestCan.real_pct)} реальних`,
-      `${cost}${where ? ` · ${where}` : ""}.${better}`,
-      `<button data-go="${bestCan.kind === "deposit" ? "topup" : "buy"}">${
-        bestCan.kind === "deposit" ? "Поповнити" : "Купити"}</button>`);
-  }
-
-  // Нічого не по кишені: кажемо, ЩО саме найкраще і скільки до нього.
-  const np = s.next_payment;
-  // «≈ N днів за твоїм темпом» мусить рахуватись від ТЕМПУ, а не від
-  // нестачі. month_target_uah — це скільки бракує ПОНАД план, тобто чим
-  // більший план, тим меншим виходило perDay і тим довшим — очікування.
-  // Беремо ФАКТ (як гроші справді надходять), а без історії — ТРЕБА.
-  const tri = contribTriad(ctx);
-  const perDay = (tri.actual ?? tri.need ?? s.month_target_uah ?? 0) / 30;
-  if (bestAny) {
-    const purseCur = Math.max(0, ...Object.values(s.brokers || {}).map((m) => m[bestAny.currency] || 0));
-    const need = Math.max(0, Number((bestAny.cost_per_bond || {}).amount || 0) - purseCur);
-    const days = perDay > 0 ? Math.ceil(need / perDay) : 0;
-    const eta = days > 0 ? ` ≈ <b>${days}</b> дн. за твоїм темпом` : "";
-    const sub = `${label(bestAny)} коштує ${fmtCur(Number((bestAny.cost_per_bond || {}).amount || 0), curSym(bestAny.currency))}, на рахунку ${fmtCur(purseCur, curSym(bestAny.currency))}.` +
-      (np ? ` Виплата ${dayMonth(np.date)} додасть ${Number(np.amount).toLocaleString("uk-UA", { minimumFractionDigits: 2 })} ${curSym(np.currency)}.` : "");
-    return box("wait", "○",
-      `Купувати ще рано — бракує ${fmtCur(need, curSym(bestAny.currency))}${eta}`, sub);
-  }
-
-  // Стрічка порожня (немає довідника чи виплат) — старий чесний мінімум.
-  const need = Math.max(0, (s.reinvest_min_uah || 0) - (s.account_uah || 0));
-  return box("wait", "○", `Купувати ще рано — бракує ${fmtUAH(need)}`,
-    `На рахунку ${fmtUAH(s.account_uah)}, найдешевший папір ${fmtUAH(s.reinvest_min_uah)}.`);
-}
+// Банера дії тут більше немає, і це не спрощення, а розширення. Він
+// відповідав на питання розділу ОДНІЄЮ порадою за раз і мав дві кнопки без
+// жодного слухача (data-go), тобто єдина CTA головної сторінки нічого не
+// робила. Його три гілки — «почни», «можеш купити», «ще збираєш» — стали
+// трьома задачами в views/tasks.js, де вони стоять поруч із рештою того,
+// що теж потребує рішення.
 
 // Виплати одного дня — це ОДИН прихід грошей, і питання до картки саме
 // таке: скільки впаде на рахунок і коли. Доти кожен потік малювався
@@ -141,25 +76,13 @@ export function paymentsPreviewHTML(ctx) {
         <span>${fmtCur(p.amount, p.currency)}</span></div>`).join("")
     : `<div class="sub">Виплат попереду немає.</div>`;
   return `<div class="card"><h2>Найближчі виплати</h2>${body}
-    <div class="sub">Суми за день складені. Повний календар — у «Майбутньому»</div></div>`;
-}
-
-export function nbuStaleHTML(ctx) {
-  const at = (ctx.summary || {}).nbu_refreshed_at;
-  if (!at) return "";
-  const days = Math.floor((Date.now() - new Date(at).getTime()) / 86400000);
-  if (days < 3) return "";
-  return `<div class="banner wait"><div class="b-tx">
-    <div class="b-s">Довідник НБУ не оновлювався <b>${days} дн.</b> —
-    ставки й графіки виплат можуть бути несвіжі. Натисни «↻ Оновити НБУ».</div></div></div>`;
+    <div class="sub">Суми за день складені. Повний календар — у «Плані»</div></div>`;
 }
 
 // Що купити: папери, відранжовані за РЕАЛЬНОЮ дохідністю в сьогоднішніх
 // гривнях. Показуємо кілька позицій ЗАВЖДИ — попередній варіант зникав
 // саме тоді, коли ти плануєш наступний крок, а ще був таблицею-звалищем
 // на весь довідник, тож тут свідомо лише верхівка.
-// Дієслово дії. Іменник несе сама назва (suggestTitle), інакше виходило б
-// «докласти у вклад вклад ПУМБ».
 // Порядок пропозицій на «Огляді»: ЗАМКНЕНЕ завжди нижче, далі за реальною
 // дохідністю.
 //
@@ -176,29 +99,6 @@ export function nbuStaleHTML(ctx) {
 // б, що банер радить одне, а список під ним інше.
 const byReal = (a, b) =>
   (a.locked ? 1 : 0) - (b.locked ? 1 : 0) || (b.real_pct || 0) - (a.real_pct || 0);
-
-const KIND_ACTION = { bond: "купити", fund: "купити", deposit: "поповнити", npf: "внести" };
-
-// Заголовок рядка: ISIN / «сертифікат X» / «вклад Банк». Другий рядок —
-// уточнення природи: у паперу й вкладу є строк, у сертифіката немає.
-function suggestTitle(r) {
-  if (r.kind === "fund") {
-    return { name: `сертифікат ${esc(r.label)}`, sub: `${curSym(r.currency)} · без строку` };
-  }
-  if (r.kind === "deposit") {
-    // «ставка» — бо це умова договору до податку, а не дохідність:
-    // без слова вона читалась як третє число поруч із реальною й
-    // номінальною в тому самому рядку.
-    return { name: `вклад ${esc(r.label)}`, sub: `${curSym(r.currency)} · ставка ${pct(r.rate_pct)} · до ${monthYearGen(r.maturity)}` };
-  }
-  if (r.kind === "npf") {
-    // Замок у підписі, а не в розкритті: це головне, що відрізняє цей
-    // рядок від решти списку, і побачити його треба ДО того, як порівняєш
-    // дохідність із сусідньою.
-    return { name: `НПФ ${esc(r.label)}`, sub: `${curSym(r.currency)} · замкнено до ${esc(r.locked_until || "?")}` };
-  }
-  return { name: esc(r.label || r.isin), sub: `${curSym(r.currency)} · до ${monthYearGen(r.maturity)}` };
-}
 
 // Назва рядка поради. Валюту несе сума поруч, строк переїхав у розкриття,
 // а вид інструмента каже пігулка — тож слова «вклад» і «сертифікат» у
@@ -250,7 +150,17 @@ export function reserveFillHTML(ctx) {
   </div></div>`;
 }
 
-export function reinvestHTML(ctx) {
+/** Ранжовані поради. opts.kinds звужує до одного виду, opts.title міняє
+ *  заголовок картки.
+ *
+ *  Звуження — для воронки інструмента, і саме звуження, а не окрема
+ *  реалізація: рядок там мусить виглядати й рахуватись так само, як у
+ *  спільному списку, інакше та сама пропозиція показувала б два різні
+ *  числа на двох сторінках. Порівняння ВИДІВ між собою при цьому нікуди не
+ *  дівається — воно живе в «Що купити» цілим, і воронка на нього
+ *  посилається, а не підміняє його своїм зрізом. */
+export function reinvestHTML(ctx, opts = {}) {
+  const { kinds = null, title = "Що купити" } = opts;
   // По одній найкращій пропозиції на ТИП × ВАЛЮТУ. Раніше ключем була
   // сама валюта — чотири майже однакові папери не давали вибору, і
   // порівняти гривню з доларом було сенсом блоку. Тепер інструментів три,
@@ -259,6 +169,7 @@ export function reinvestHTML(ctx) {
   // вкладом. Порівнювати треба і валюти, і природу інструмента.
   const byKey = new Map();
   for (const r of reinvest || []) {
+    if (kinds && !kinds.includes(r.kind || "bond")) continue;
     const k = `${r.kind || "bond"}|${r.currency}`;
     if (!byKey.has(k)) byKey.set(k, r);
   }
@@ -321,7 +232,7 @@ export function reinvestHTML(ctx) {
   const group = (title, list) => list.length
     ? `<div class="sg-h">${title}</div>${list.map(item).join("")}` : "";
   return `<div class="card"><h2 class="card-head">
-    <span>Що купити ${infoBtn("reinvest")}</span>
+    <span>${esc(title)} ${infoBtn("reinvest")}</span>
     ${purse ? `<span class="muted fine">${purse}</span>` : ""}</h2>
     ${group("Можеш купити зараз", ready)}
     ${group(ready.length ? "Ще збираєш" : "Купувати ще рано — ось наскільки близько", soon)}
@@ -432,23 +343,29 @@ function planTileSub(ctx, doc) {
 // Банер відповідає на «чи можна вже купувати», а список показує, що саме;
 // це одні й ті самі поради, лише з різною глибиною. Модульна змінна
 // лишається тією ж, що й була, тож обидві сторінки бачать однакове.
-async function loadReinvest(ctx) {
+export async function loadReinvest(ctx) {
   try { reinvest = await ctx.api("GET", "reinvest"); }
   catch (_) { reinvest = []; }
 }
 
 /** Що робити зараз — головна сторінка застосунку.
  *
- *  Банер іде ПЕРШИМ і сам: він і є відповідь на питання розділу. Доти над
- *  ним стояло попередження про застарілий довідник НБУ — тобто перше, що
- *  бачила людина, було господарство, а не рішення. Воно лишається внизу:
- *  знати про це треба, але не замість.
+ *  ЧЕРГА ЗАДАЧ ІДЕ ПЕРШОЮ І САМА. Вона і є відповідь на питання розділу;
+ *  усе інше на сторінці — контекст до неї.
  *
- *  Блока швидких дій тут більше немає. Три посилання на «Купівлю»,
- *  «Поповнення» й «Конвертацію» мали сенс, поки форми лежали по чужих
- *  вкладках під згорнутими секціями. Тепер у меню є «Записати» з вісьмома
- *  іменованими входами, і другий набір ярликів до трьох із них — це те,
- *  що застаріє першим.
+ *  Плитки лишились, але ПІСЛЯ черги, а не замість неї. Вони відповідають на
+ *  «як справи» — капітал, темп місяця, найближча виплата, план, — і це
+ *  чесне питання, просто інше. Доти вони стояли зверху, і сторінка з назвою
+ *  «Що робити» відкривалась оглядом.
+ *
+ *  Попередження про застарілий довідник НБУ зі сторінки зникло: воно стало
+ *  задачею в черзі. Лишити обидва означало б сказати те саме двічі на
+ *  одному екрані.
+ *
+ *  Запит тут рівно один, і він не про задачі: черга вже приїхала в
+ *  summary.tasks готовою (бекенд рахує її в state_tasks.go). /api/plan
+ *  лишається заради плитки «План» — найближча подія (замок, вікно купівлі
+ *  фонду) живе тільки там.
  */
 export async function todo(ctx, main) {
   const s = ctx.summary || {};
@@ -463,11 +380,9 @@ export async function todo(ctx, main) {
     // рядка сума виглядала б як «стільки в мене інвестовано».
     s.reserve_uah > 0 ? `з них ${fmtUAH(s.reserve_uah)} у резерві` : "",
   ].filter(Boolean).map((t) => `<div class="sub">${t}</div>`).join("");
-  // План — окремий запит: summary несе plan_provides_uah і forecast, але
-  // найближча подія (замок, вікно купівлі фонду) живе лише в /api/plan.
-  const [planDoc] = await Promise.all([ctx.soft("plan", null), loadReinvest(ctx)]);
+  const planDoc = await ctx.soft("plan", null);
   main.innerHTML = `
-    ${actionBannerHTML(ctx)}
+    ${tasksHTML(ctx)}
     <div class="tiles flush">
       ${tile("Капітал", fmtUAH(cap), capSub, { hero: true })}
       ${monthTile(ctx, s)}
@@ -478,8 +393,7 @@ export async function todo(ctx, main) {
     s.plan_provides_uah > 0 ? `${fmtUAH(s.plan_provides_uah)}/міс` : "—",
     planTileSub(ctx, planDoc))}
     </div>
-    ${paymentsPreviewHTML(ctx)}
-    ${nbuStaleHTML(ctx)}`;
+    ${paymentsPreviewHTML(ctx)}`;
 }
 
 /** Що купити — ранжований список порад.

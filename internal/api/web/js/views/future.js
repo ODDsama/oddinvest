@@ -12,6 +12,7 @@ import {
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { needsSetting, empty, legend } from "../components.js";
+import { routeFor } from "../routes.js";
 import { svgBars, svgLine, svgBandLine, fluid } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
 import { CONTRIB, contribTriad } from "../contrib.js";
@@ -176,6 +177,7 @@ const calQuery = (mode) => {
   d.setDate(d.getDate() - 1);
   return "from=1970-01-01&to=" + d.toISOString().slice(0, 10);
 };
+
 
 // append=true дописує календар до вже намальованого розділу, а не
 // затирає його: у «Майбутньому» він стоїть останнім блоком, після
@@ -346,7 +348,8 @@ export function drawdownHTML(ctx) {
       "Скільки знімати — застосунок сам не виводить: зняття з рахунку це і покупка "
       + "холодильника, і переказ у резерв, тож міряти від них «місяць життя» означало б "
       + "рахувати від випадкового числа. Задай «місячні витрати» або «скільки знімати» "
-      + "в «Налаштуваннях».");
+      + "в «Політиці → Резерв».",
+    routeFor("policy/reserve"));
   }
   const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
   const from = d.withdraw_from === "expenses"

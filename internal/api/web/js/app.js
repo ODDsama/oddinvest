@@ -25,13 +25,12 @@ import { fitCharts } from "./charts.js";
 import { parseRoute, ANCHORS } from "./routes.js";
 
 import * as now from "./views/now-view.js";
-import * as assets from "./views/assets-view.js";
+import * as instr from "./views/instrument-view.js";
+import * as portfolio from "./views/portfolio-view.js";
 import * as policy from "./views/policy-view.js";
 import * as settings from "./views/settings-view.js";
 import * as money from "./views/money-view.js";
-import * as entry from "./views/entry-view.js";
 import * as plan from "./views/plan-view.js";
-import * as risk from "./views/risk-view.js";
 
 // Знак: три квадрати, складені сходами. Один квадрат — один папір, і
 // саме так портфель і росте: по одному, коли назбиралось на наступний.
@@ -75,36 +74,29 @@ const VIEWS = {
   "now/buy": now.buy,
   "now/basket": now.basket,
 
-  "assets/positions": assets.positions,
-  "assets/bonds": assets.bonds,
-  "assets/funds": assets.funds,
-  "assets/npf": assets.npf,
-  "assets/deposits": assets.deposits,
-  "assets/reserve": assets.reserve,
-  "assets/growth": assets.growth,
+  "instr/bonds": instr.bonds,
+  "instr/funds": instr.funds,
+  "instr/npf": instr.npf,
+  "instr/deposits": instr.deposits,
+  "instr/reserve": instr.reserve,
+
+  "portfolio/positions": portfolio.positions,
+  "portfolio/growth": portfolio.growth,
+  "portfolio/structure": portfolio.structure,
+  "portfolio/limits": portfolio.limits,
+  "portfolio/compare": portfolio.compare,
 
   "money/balances": money.balances,
   "money/flows": money.flows,
   "money/tax": money.tax,
-
-  "entry/bond": entry.bond,
-  "entry/deposit": entry.deposit,
-  "entry/npf": entry.npf,
-  "entry/reserve": entry.reserve,
-  "entry/cash": entry.cash,
-  "entry/convert": entry.convert,
   // importStatement, а не import: останнє — зарезервоване слово.
-  "entry/import": entry.importStatement,
-  "entry/reconcile": entry.reconcile,
+  "money/import": money.importStatement,
+  "money/reconcile": money.reconcile,
 
   "plan/inflow": plan.inflow,
   "plan/goal": plan.goal,
   "plan/levers": plan.levers,
   "plan/payouts": plan.payouts,
-
-  "risk/structure": risk.structure,
-  "risk/limits": risk.limits,
-  "risk/compare": risk.compare,
 
   "policy/strategy": policy.strategy,
   "policy/mix": policy.mix,
@@ -196,6 +188,12 @@ export class OddInvestApp extends HTMLElement {
     const changed = r.section !== this._section || r.sub !== this._sub;
     this._section = r.section;
     this._sub = r.sub;
+    // Якір — теж частина адреси, і сторінка має право його знати ще ДО
+    // першого малювання: рейка кроків воронки мусить одразу підсвітити
+    // той крок, на який прийшли за посиланням. Далі, коли рейкою ходять
+    // усередині сторінки, підсвітку пересуває вона сама — перемальовування
+    // там не відбувається (changed === false).
+    this._anchor = r.anchor;
     // Шухляда закривається ПЕРШОЮ, до рендеру. Порядок тут не смаковий:
     // поки вона відкрита, <main> лежить під inert, а фокус на inert-елемент
     // не сідає взагалі — тобто закриття після рендеру мовчки з'їдало б
@@ -227,7 +225,17 @@ export class OddInvestApp extends HTMLElement {
     }
     const smooth = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
-    el.querySelector("input, select")?.focus();
+    // Курсор у поле — ЛИШЕ коли ціль і є формою: тоді якір вів саме до
+    // запису, і людина продовжує з першого поля.
+    //
+    // Коли ціль — блок сторінки (крок воронки), поле всередині нього все
+    // одно знайдеться, але це буде перше-ліпше: на кроці «Що в мене» —
+    // чекбокс «поповнюваний» у рядку вкладу десь посеред таблиці. Тому
+    // фокус іде на сам блок (звідси tabindex="-1" на .step), і читач
+    // екрана приземляється на його заголовок, а не в середину змісту.
+    const form = el.matches("form") ? el : el.closest("form");
+    if (form) form.querySelector("input, select")?.focus();
+    else el.focus({ preventScroll: true });
   }
 
   // ---------- контекст, який отримують розділи ----------
@@ -244,6 +252,7 @@ export class OddInvestApp extends HTMLElement {
       // «Записати» — це одна функція з двома режимами.
       section: this._section,
       sub: this._sub,
+      anchor: this._anchor || "",
       summary: this._summary,
       brokers: this._brokers,
       fundCatalog: this._fundCatalog,
@@ -444,7 +453,15 @@ export class OddInvestApp extends HTMLElement {
       try {
         await this._api("POST", "refresh");
         this._toast("Довідник НБУ оновлено");
-        this._loadTab({ warm: true });
+        // _loadPage, а не _loadTab: методу з таким іменем не існує від
+        // самого переходу на два яруси, і виклик кидав TypeError. Ловив
+        // його ось цей catch — тобто УСПІШНЕ оновлення закінчувалось
+        // тостом з помилкою, а сторінка лишалась зі старими числами.
+        //
+        // Теплим, як і ctx.reload(): вміст на екрані вже є, і міняються
+        // самі числа, а не форма сторінки — скелет тут стер би те, на що
+        // людина дивиться, заради даних, які приїдуть за мить.
+        await this._loadPage({ warm: true });
       }
       catch (err) { this._toast(String(err.message || err), false); }
       finally { e.target.disabled = false; }
@@ -605,10 +622,11 @@ export class OddInvestApp extends HTMLElement {
     // не те місце, де ти опинився.
     this._open = this._section;
     this.shadowRoot.getElementById("nav").innerHTML = this._navHTML();
-    // Разом: розділ і підрозділ. Сама «ОВДП» не каже, у якій із восьми
-    // груп вона лежить, а сторінок із однаковими підписами тепер дві
-    // пари («Резерв» в «Активах» і в «Політиці», «ОВДП» в «Активах» і в
-    // «Записати»).
+    // Разом: розділ і підрозділ. Сама назва сторінки не каже, у якій із
+    // семи груп вона лежить, а однакові підписи в дереві лишились: «Резерв»
+    // стоїть і в «Інструментах», і в «Політиці». Після розрізу по воронках
+    // ця пара єдина — ОВДП, фонди й вклади більше не дублюються, бо дані й
+    // форми в них тепер на одній сторінці.
     this._announce(page ? `${page.sectionLabel} — ${page.label}` : "");
     const main = this.shadowRoot.getElementById("main");
     // Ширина сторінки приходить із дерева навігації, а не з CSS. Доти це

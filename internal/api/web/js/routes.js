@@ -28,18 +28,56 @@ import { PATHS, FIRST, HOME } from "./nav.js";
 // потрапляє тільки те, чий ЗМІСТ поїхав в інше місце.
 const LEGACY = new Map([
   ["overview", "now/todo"],
-  ["portfolio", "assets/positions"],
-  ["portfolio/buy", "entry/bond"],
-  ["portfolio/topup", "entry/deposit"],
+
+  // Розріз по воронках: «Активи» й «Записати» розійшлись по інструментах,
+  // «Ризик» влився в «Портфель». Третій сегмент у значенні — це КРОК
+  // воронки, і механізм той самий, яким сюди потрапив plan/planflow.
+  ["assets", "portfolio/positions"],
+  ["assets/positions", "portfolio/positions"],
+  ["assets/growth", "portfolio/growth"],
+  ["assets/bonds", "instr/bonds"],
+  ["assets/funds", "instr/funds"],
+  ["assets/npf", "instr/npf"],
+  ["assets/deposits", "instr/deposits"],
+  ["assets/reserve", "instr/reserve"],
+
+  ["risk", "portfolio/structure"],
+  ["risk/structure", "portfolio/structure"],
+  ["risk/limits", "portfolio/limits"],
+  ["risk/compare", "portfolio/compare"],
+
+  ["entry", "instr/bonds/write"],
+  ["entry/bond", "instr/bonds/write"],
+  ["entry/deposit", "instr/deposits/write"],
+  ["entry/npf", "instr/npf/write"],
+  ["entry/reserve", "instr/reserve/write"],
+  ["entry/cash", "money/balances/cash"],
+  ["entry/convert", "money/balances/convert"],
+  ["entry/import", "money/import"],
+  ["entry/reconcile", "money/reconcile"],
+
+  // Закладки, зроблені ще до другого ярусу.
+  ["portfolio/buy", "instr/bonds/write"],
+  ["portfolio/topup", "instr/deposits/write"],
   // deposit тут — поповнення грошового РАХУНКУ, не вкладу: два різні
   // «поповнення» жили поруч у старій таблиці якорів і плутались.
-  ["money/deposit", "entry/cash"],
-  ["money/convert", "entry/convert"],
+  ["money/deposit", "money/balances/cash"],
+  ["money/convert", "money/balances/convert"],
   ["plan/planflow", "plan/inflow/planflow"],
   // «Майбутнє» злилося з «Планом» ще торік, і закладка на нього досі
   // може лежати в чиємусь браузері.
   ["future", "plan/goal"],
 ]);
+
+// ПАСТКА, ЯКУ ВАРТО ЗНАТИ. Голого "portfolio" тут БІЛЬШЕ НЕМАЄ, і це не
+// пропуск: resolveLegacy пробує цю таблицю РАНІШЕ за правило FIRST, тож
+// запис ["portfolio", "assets/positions"], який тут стояв, тепер вів би на
+// сторінку, якої не існує, — і падало б це аж у _loadPage, найтихішим
+// чином. Із таблиці він прибраний, і голий "#/portfolio" розкривається
+// правилом FIRST, як і належить назві живого розділу.
+//
+// Голі "assets", "risk" і "entry", навпаки, тут потрібні ЯВНО: цих
+// розділів більше немає, тож FIRST їх не знає й сам не розкриє.
 
 // Куди веде адреса, якої немає в дереві. Порядок кроків має значення:
 // «money/deposit» мусить піти в таблицю переїздів РАНІШЕ, ніж спрацює
@@ -85,23 +123,47 @@ export function parseRoute(hash) {
 // як зразок і тиражується.
 export const ANCHORS = {
   planflow: "#planFlowForm",
+  // «Баланси й валюта» несуть дві форми — рівно той випадок, заради якого
+  // якорі й є.
+  cash: "#cashForm",
+  convert: "#convForm",
+  // Кроки воронки. Шість імен на п'ять сторінок, і вони НАВМИСНО спільні:
+  // крок «Записати» на ОВДП і на Вкладах — той самий крок тієї самої
+  // послідовності, і адреса має це казати.
+  state: "#step-state",
+  mine: "#step-mine",
+  next: "#step-next",
+  act: "#step-act",
+  write: "#step-write",
+  terms: "#step-terms",
 };
 
 // Куди веде кожне іменоване посилання на форму. Імена лишились старі —
 // їх пишуть розділи (routeFor("buy")), і перейменування зачепило б п'ять
 // місць заради нуля користі.
 const FORM_ROUTE = {
-  buy: "entry/bond",
-  topup: "entry/deposit",
-  deposit: "entry/cash",
-  convert: "entry/convert",
+  buy: "instr/bonds/write",
+  topup: "instr/deposits/write",
+  deposit: "money/balances/cash",
+  convert: "money/balances/convert",
   planflow: "plan/inflow/planflow",
 };
 
-/** Адреса, за якою відкривається потрібна форма, сторінка або розділ. */
+/** Адреса, за якою відкривається потрібна форма, сторінка або розділ.
+ *
+ *  Третій сегмент (якір) мусить бути ОКРЕМИМ випадком: PATHS знає лише
+ *  сторінки, тож "розділ/сторінка/якір" не знаходився б у ньому й тихо
+ *  падав би в HOME. Тихо — найгірше, що тут може статись: посилання веде
+ *  не туди, куди написано, і ніде не видно, що воно зламане. Тому якір
+ *  перевіряється по ANCHORS: невідомий — це помилка в коді, і хай вона
+ *  поводиться так само, як невідомий шлях. */
 export function routeFor(what) {
   if (FORM_ROUTE[what]) return `#/${FORM_ROUTE[what]}`;
   if (PATHS.has(what)) return `#/${what}`;
+  const seg = String(what).split("/");
+  if (seg.length === 3 && PATHS.has(`${seg[0]}/${seg[1]}`) && ANCHORS[seg[2]]) {
+    return `#/${what}`;
+  }
   if (FIRST.has(what)) return `#/${what}/${FIRST.get(what)}`;
   return `#/${HOME}`;
 }

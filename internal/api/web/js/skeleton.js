@@ -25,11 +25,13 @@ const card = (rows) =>
 
 const chart = () => `<div class="skel-card">${line("38%")}<div class="skel-chart"></div></div>`;
 
+// Рейка кроків воронки: вузька смуга, яка теж тримає висоту.
+const rail = () => `<div class="skel-rail"></div>`;
+
 const table = (rows) =>
   `<div class="skel-card">${line("30%")}<div class="skel-rows">${
     Array.from({ length: rows }, () => `<div class="skel-row"></div>`).join("")}</div></div>`;
 
-const banner = () => `<div class="skel-banner">${line("45%")}${line("70%")}</div>`;
 
 // Що з чого складається. Ключі двох сортів: "розділ" і "розділ/підрозділ".
 //
@@ -41,18 +43,29 @@ const banner = () => `<div class="skel-banner">${line("45%")}${line("70%")}</div
 // відрізняється не на відтінок: крива замість таблиці, таблиця замість
 // карток.
 const SHAPES = {
-  now: () => banner() + tiles(4) + card(5),
-  assets: () => tiles(4) + table(8),
+  // Черга задач замість банера: одна картка на кілька рядків, і саме її
+  // форму треба тримати, поки триває запит.
+  now: () => card(6) + tiles(4) + card(5),
+  // Воронка: рейка кроків, плитки стану, таблиця позицій і форма запису.
+  // Перше малювання тут найдорожче в застосунку (вісім GET-ів позицій),
+  // тож скелет мусить відпрацювати чесно — інакше сторінка стрибне на
+  // цілий екран рівно тоді, коли її вже читають.
+  instr: () => rail() + tiles(4) + table(6) + card(4) + card(6),
+  // «Портфель» тримає п'ять сторінок ДВОХ форм: дві з таблицею, три з
+  // картками. За замовчуванням — форма більшості, а «Позиції» та «Як
+  // росте» названі поіменно нижче.
+  portfolio: () => tiles(2) + card(4) + card(4),
   money: () => tiles(5) + card(5),
-  risk: () => tiles(2) + card(4) + card(4),
   plan: () => card(2) + card(4) + table(4),
-  // «Записати» — це форма й нічого більше: ряд полів під заголовком.
-  entry: () => card(6),
   policy: () => card(4) + card(5),
   settings: () => card(3) + card(6),
 
-  "assets/growth": () => chart() + table(6),
+  "instr/reserve": () => rail() + tiles(3) + table(6) + card(6),
+  "portfolio/positions": () => tiles(4) + table(8),
+  "portfolio/growth": () => chart() + table(6),
   "money/flows": () => card(4) + table(8),
+  "money/import": () => card(6),
+  "money/reconcile": () => card(6),
   "plan/goal": () => chart() + chart() + card(3),
   "plan/payouts": () => table(8),
 };
