@@ -15,6 +15,7 @@ import {
 import { infoBtn } from "../info.js";
 import { empty, legend } from "../components.js";
 import { disclosure } from "../disclosure.js";
+import { opsGrid } from "../grid.js";
 import { CONTRIB, contribTriad } from "../contrib.js";
 import {
   fluid, svgInflowProfile, svgGrouped, wireChartTips, CAT_COLORS, EVENT_COLORS,
@@ -225,17 +226,18 @@ function returnsHTML(events) {
   const total = events.reduce((a, e) => a + (e.amount_uah || 0), 0);
   // Рік дописує сам dayMonth — і лише там, де він не цьогорічний. Дописати
   // його ще раз тут означало б «18 листопада 2026 2026».
-  const rows = events.map((e) => `<tr>
-    <td class="nowrap">${esc(dayMonth(e.date))}</td>
-    <td><i class="swatch" style="--oi-c:${EVENT_COLORS[e.kind] || "var(--oi-muted)"}"></i>${
-  esc(eventName(e))}</td>
-    <td class="num nowrap">${fmtUAH(e.amount_uah)}</td></tr>`).join("");
-  const body = `<div class="table-scroll"><table><thead><tr>
-    <th scope="col">Дата</th><th scope="col">Що</th><th scope="col" class="num">Сума</th>
-    </tr></thead><tbody>${rows}</tbody><tfoot><tr class="tot">
-    <td colspan="2">Разом</td><td class="num nowrap">${fmtUAH(total)}</td>
-    </tr></tfoot></table></div>
-    <div class="sub-xs">Це не дохід і не внесок: власне тіло виходить із паперу на рахунок,
+  const body = opsGrid({
+    cols: [
+      { key: "date", label: "Дата", cls: "nowrap", cell: (e) => esc(dayMonth(e.date)) },
+      { key: "what", label: "Що", cell: (e) => `<i class="swatch" style="--oi-c:${
+        EVENT_COLORS[e.kind] || "var(--oi-muted)"}"></i>${esc(eventName(e))}` },
+      { key: "amount", label: "Сума", num: true, cls: "nowrap",
+        cell: (e) => fmtUAH(e.amount_uah) },
+    ],
+    rows: events,
+    caption: "Що повертається: дата, подія, сума",
+    foot: [{ cell: "Разом", span: 2 }, { cell: fmtUAH(total), num: true }],
+  }) + `<div class="sub-xs">Це не дохід і не внесок: власне тіло виходить із паперу на рахунок,
       і питання воно ставить інше — що з ним робити далі.</div>`;
   return disclosure("planReturns", "Що повертається", body,
     `${events.length} ${plural(events.length, "подія", "події", "подій")} на ${fmtUAH(total)}`);

@@ -42,6 +42,7 @@
 
 import { esc, pct, plural, today, uah2 as fmtUAH } from "../format.js";
 import { infoBtn } from "../info.js";
+import { opsGrid } from "../grid.js";
 import { apply } from "../forms.js";
 import { routeFor } from "../routes.js";
 
@@ -941,13 +942,20 @@ export function wireStrategy(ctx, main, current) {
       // джерело — інакше перегляд збрехав би про запис.
       const eff = effectiveValues(p, answers);
       const diff = Object.entries(eff).filter(([k, v]) => (current[k] || "") !== v);
-      box.innerHTML = `<div class="table-scroll mt-sm"><table><thead><tr>
-          <th>Налаштування</th><th class="num">Зараз</th><th class="num">Стане</th></tr></thead><tbody>
-          ${diff.map(([k, v]) => `<tr><td>${esc(FIELD_LABEL[k] || k)}</td>
-            <td class="num muted">${current[k] ? esc(shown(k, current[k])) : "не задано"}</td>
-            <td class="num"><b>${v ? esc(shown(k, v)) : "прибрати"}</b></td></tr>`).join("")}
-        </tbody></table></div>
-        <button class="sm mt-sm" data-apply="${p.key}">Застосувати «${esc(p.name)}»</button>`;
+      box.innerHTML = opsGrid({
+        cols: [
+          { key: "setting", label: "Налаштування",
+            cell: ([k]) => esc(FIELD_LABEL[k] || k) },
+          { key: "now", label: "Зараз", num: true, cls: "muted",
+            cell: ([k]) => (current[k] ? esc(shown(k, current[k])) : "не задано") },
+          { key: "next", label: "Стане", num: true,
+            cell: ([k, v]) => `<b>${v ? esc(shown(k, v)) : "прибрати"}</b>` },
+        ],
+        rows: diff,
+        caption: `Що змінить набір «${esc(p.name)}»: налаштування, поточне значення, нове`,
+        cls: "mt-sm",
+      })
+        + `<button class="sm mt-sm" data-apply="${p.key}">Застосувати «${esc(p.name)}»</button>`;
       box.querySelector("[data-apply]").addEventListener("click", async (e) => {
         e.target.disabled = true;
         await apply(ctx, { method: "PUT", path: "settings", body: eff },

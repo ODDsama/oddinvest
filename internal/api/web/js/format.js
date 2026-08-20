@@ -5,12 +5,14 @@
 // у дрібницях: у панелі був `esc`, у вебі — ні, і саме тому веб не
 // екранував вивід. Копія була б непомітною, поки не почала б брехати.
 
+import { CURRENCY_SYM } from "./constants.js";
+
 /** Екранування для вставки в innerHTML. Обов'язкове для всього, що
  *  прийшло з бекенда: ISIN, назви брокерів і фондів, нотатки. */
 export const esc = (s) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-export const curSym = (c) => ({ UAH: "₴", USD: "$", EUR: "€" }[c] || c);
+export const curSym = (c) => CURRENCY_SYM[c] || c;
 
 export const today = () => new Date().toISOString().slice(0, 10);
 

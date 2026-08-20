@@ -16,6 +16,7 @@ import { routeFor } from "../routes.js";
 import { svgBars, svgLine, svgBandLine, fluid } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
 import { CONTRIB, contribTriad } from "../contrib.js";
+import { opsGrid } from "../grid.js";
 
 // Дохід по місяцях: коли саме надійдуть купони й погашення на рік наперед.
 export function income12mChartHTML(ctx) {
@@ -109,14 +110,24 @@ export function projectionHTML(ctx) {
       : `за портфелем ${pct(rate)} номінальних (YTM до погашення)`;
 
   const hasActual = (s.actual_monthly_uah || 0) > 0;
-  const rows = rowsData.length ? rowsData.map((r) =>
-    `<tr><td>${r.years} р.</td><td class="num">${fmtUAH(r.contributed)}</td>
-      <td class="num">${fmtUAH(r.with_reinvest)}</td>
-      ${hasActual ? `<td class="num">${fmtUAH(r.with_reinvest_actual || 0)}</td>` : ""}
-      <td class="num">${fmtUAH(r.with_reinvest - r.contributed)}</td></tr>`).join("")
-    : `<tr><td colspan="${hasActual ? 5 : 4}">${empty(
-        "", "Проєкція будується з капіталу й місячної цілі — щойно буде і те, і те, таблиця заповниться сама.",
-        { href: "#/settings", label: "Задати ціль" })}</td></tr>`;
+  // Колонка «За фактом» з'являється лише тоді, коли факт є: порожня
+  // колонка з прочерками читалась би як «факт нульовий».
+  const projTable = opsGrid({
+    cols: [
+      { key: "years", label: "Горизонт", cell: (r) => `${r.years} р.` },
+      { key: "contributed", label: "Внесено (без %)", num: true,
+        cell: (r) => fmtUAH(r.contributed) },
+      { key: "plan", label: "За планом", num: true, cell: (r) => fmtUAH(r.with_reinvest) },
+      hasActual ? { key: "actual", label: "За фактом", num: true,
+        cell: (r) => fmtUAH(r.with_reinvest_actual || 0) } : null,
+      { key: "gain", label: "Приріст", num: true,
+        cell: (r) => fmtUAH(r.with_reinvest - r.contributed) },
+    ].filter(Boolean),
+    rows: rowsData,
+    caption: "Проєкції капіталу: горизонт, внесено, за планом, приріст",
+  }) || empty("",
+    "Проєкція будується з капіталу й місячної цілі — щойно буде і те, і те, таблиця заповниться сама.",
+    { href: "#/settings", label: "Задати ціль" });
   // Усі три показники названо своїми іменами й в одному рядку. Доти тут
   // стояло «(план — C/міс)», де C — це month_target_uah, тобто НЕСТАЧА
   // понад план: слово «план» позначало число, яке планом не є.
@@ -141,10 +152,7 @@ export function projectionHTML(ctx) {
     ? `${fmtUAH(t.plan)}/міс з плану + ${fmtUAH(C)}/міс від тебе`
     : `${fmtUAH(C)}/міс`}, ставка = ${rateSrc}. Модель: справжні купони й погашення наявних паперів + внески, реінвест під ставку; готівка не працює до реінвесту. Тіло вкладів і сертифікати фондів входять у старт нарівні з номіналом ОВДП: вклад повертається за графіком, сертифікат лежить безстроково й платить дивідендами. Подорожчання сертифіката модель не малює — його ніхто не обіцяв. <b>Ставка номінальна, суми реальні</b>: знецінення застосовується всередині моделі, окремо до кожного валютного рукава, тож усі колонки — у гривні сьогоднішньої купівельної спроможності. «Внесено» через це теж знецінюється, і приріст показує, наскільки вкладати вигідніше, ніж просто відкладати. Це припущення, не гарантія.</div>
       ${paceNote}
-      <table><thead><tr><th>Горизонт</th><th class="num">Внесено (без %)</th>
-        <th class="num">За планом</th>${hasActual ? `<th class="num">За фактом</th>` : ""}
-        <th class="num">Приріст</th></tr></thead>
-        <tbody>${rows}</tbody></table>
+      ${projTable}
     </div>`;
   // Картка цілей сюди НЕ входить: розділ малює її сам, першим блоком.
   // Доки вона висіла хвостом проєкцій, «Майбутнє» показувало її двічі —
@@ -224,30 +232,35 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
       <div class="note">Виплату, датовану сьогодні чи наперед, можна
         позначити <b>отриманою</b> — тоді вона ляже на рахунок, не чекаючи опівночі. Окремої позначки
         «перевкладено» більше немає: чи пішли гроші в діло, застосунок бачить сам із твоїх покупок.</div>
-      ${rows.length ? `<table><thead><tr>
-        <th>Дата</th><th>ISIN</th><th>Тип</th><th class="num">Сума</th><th>Статус</th><th></th></tr></thead><tbody>
-        ${rows.map((c) => {
-          const past = c.date <= now;
-          const st = c.status || "";
-          // Старі бази можуть іще нести «reinvested» (міграція 0017
-          // зводить його до «received», але дамп зроблений до неї — ні),
-          // тож читаємо обидва як одне: гроші надійшли.
-          const pill = st ? `<span class="pill recv">отримано</span>` : `<span class="muted">—</span>`;
-          // Вклади мають синтетичний ISIN "deposit:<id>" — показуємо
-          // «вклад», а не внутрішній ключ.
-          const label = String(c.isin).startsWith("deposit:") ? "вклад" : c.isin;
-          return `<tr>
-            <td>${esc(c.date)}</td><td>${esc(label)}</td>
-            <td><span class="pill ${PAY_CLASS[c.type] || ""}">${PAY_TYPES[c.type] || c.type}</span></td>
-            <td class="num">${fmtMoney(c.amount)}</td><td>${pill}</td>
-            <td class="row-actions">${past ? (st
-              // Уже позначено — лишається одна дія: зняти позначку. Раз
-              // вона рухає гроші, помилковий клік має бути оборотним.
-              ? `<button class="sm quiet" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="none">Скасувати</button>`
-              : `<button class="sm" data-isin="${esc(c.isin)}" data-date="${esc(c.date)}" data-st="received">Отримано</button>`) : ""}</td>
-          </tr>`;
-        }).join("")}</tbody></table>` : `<div class="muted">${mode === "past"
-          ? "Виплат у минулому ще не було." : "Попереду виплат немає."}</div>`}
+      ${opsGrid({
+    cols: [
+      { key: "date", label: "Дата", cell: (c) => esc(c.date) },
+      // Вклади мають синтетичний ISIN "deposit:<id>" — показуємо «вклад»,
+      // а не внутрішній ключ.
+      { key: "isin", label: "ISIN",
+        cell: (c) => esc(String(c.isin).startsWith("deposit:") ? "вклад" : c.isin) },
+      { key: "type", label: "Тип", cell: (c) => `<span class="pill ${
+        PAY_CLASS[c.type] || ""}">${PAY_TYPES[c.type] || c.type}</span>` },
+      { key: "amount", label: "Сума", num: true, cell: (c) => fmtMoney(c.amount) },
+      // Старі бази можуть іще нести «reinvested» (міграція 0017 зводить
+      // його до «received», але дамп, зроблений до неї, — ні), тож читаємо
+      // обидва як одне: гроші надійшли.
+      { key: "status", label: "Статус", cell: (c) => (c.status
+        ? `<span class="pill recv">отримано</span>` : `<span class="muted">—</span>`) },
+      { key: "acts", label: "", cls: "row-actions nowrap", cell: (c) => {
+        if (c.date > now) return "";
+        // Уже позначено — лишається одна дія: зняти позначку. Раз вона
+        // рухає гроші, помилковий клік має бути оборотним.
+        const attrs = `data-isin="${esc(c.isin)}" data-date="${esc(c.date)}"`;
+        return c.status
+          ? `<button class="sm quiet" ${attrs} data-st="none">Скасувати</button>`
+          : `<button class="sm" ${attrs} data-st="received">Отримано</button>`;
+      } },
+    ],
+    rows,
+    caption: "Виплати: дата, папір, тип, сума, статус",
+    empty: mode === "past" ? "Виплат у минулому ще не було." : "Попереду виплат немає.",
+  })}
     </div>`;
   if (append) place(main, html);
   else main.innerHTML = html;

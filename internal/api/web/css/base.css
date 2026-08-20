@@ -676,6 +676,30 @@ tr.tot > td { font-weight: var(--oi-fw-medium); border-top: var(--oi-rule) solid
    Хай їде таблиця всередині своєї картки, а сторінка стоїть. */
 .table-scroll { overflow-x: auto; }
 
+/* --- грід операцій ---
+ *
+ * Двадцять сім таблиць застосунку малює тепер один будівник (js/grid.js), і
+ * майже все, що їм потрібно, уже дають загальні правила `table` вище:
+ * прокрутку всередині коробки на телефоні, вирівнювання чисел, тихий
+ * роздільник рядків. Тут лишається рівно те, чого там немає, — право
+ * колонки сказати «на вузькому екрані мене можна не показувати».
+ *
+ * Без цього восьмиколонковий журнал операцій на телефоні або їде
+ * горизонтально цілком, або тисне кожну колонку до нечитабельного. З ним
+ * кожен грід сам вирішує, які колонки другорядні: data-prio="3" — «є в
+ * рядку деталей, у самій таблиці не обов'язкове».
+ *
+ * Картки-на-рядок тут навмисно НЕМАЄ: вона є в .pos-table нижче, і вона
+ * рукотворна — сітка 3×3 під конкретні сім колонок портфеля. Загальний
+ * будівник не знає, яка колонка головна, тож картка з нього вийшла б
+ * стовпчиком підписів, тобто тією ж таблицею, лише вищою. */
+.grid-table > thead > tr > th[data-prio="3"],
+.grid-table > tbody > tr > td[data-prio="3"] { display: none; }
+@media (min-width: 900px) {
+  .grid-table > thead > tr > th[data-prio="3"],
+  .grid-table > tbody > tr > td[data-prio="3"] { display: table-cell; }
+}
+
 /* --- три яруси таблиці позицій ---
  *
  * Сенс єдиної таблиці — побачити портфель ОДНИМ поглядом (див. коментар
@@ -706,7 +730,15 @@ tr.tot > td { font-weight: var(--oi-fw-medium); border-top: var(--oi-rule) solid
   overflow: hidden;
   clip-path: inset(50%);
 }
-/* Кожна комірка дістає ВЛАСНУ область. Спільної області на три комірки
+/* Області шукаються по data-col — МАШИННОМУ імені колонки, а не по тексту
+   заголовка. Доти три з п'яти стояли на data-label="Назва" / "Вартість" /
+   "Строк", тобто мобільна розкладка трималась на українському підписі:
+   перейменувати колонку означало мовчки її розсипати, і жодна перевірка
+   цього не побачила б. Решта дві трималися на класах .col-kind/.col-yield —
+   ті самі класи, що задають ще й ширину, тобто один селектор відповідав за
+   дві незалежні речі. Тепер механізм один на всі п'ять.
+
+   Кожна комірка дістає ВЛАСНУ область. Спільної області на три комірки
    бути не може: діти grid-контейнера примусово блокуються (display:inline
    на них не діє), тож в одній області вони лягли б одна на одну. */
 .pos-table > tbody > tr:not(.detail-row) {
@@ -728,12 +760,12 @@ tr.tot > td { font-weight: var(--oi-fw-medium); border-top: var(--oi-rule) solid
    явно — і перемагають. */
 .pos-table > tbody > tr[hidden] { display: none; }
 .pos-table > tbody > tr:not(.detail-row) > td { border-bottom: none; padding: 0; }
-.pos-table > tbody > tr > td.col-kind { grid-area: kind; align-self: start; }
-.pos-table > tbody > tr > td[data-label="Назва"] { grid-area: name; }
-.pos-table > tbody > tr > td.col-yield { grid-area: yield; text-align: right; min-width: 0; }
-.pos-table > tbody > tr > td[data-label="Вартість"] { grid-area: value; }
-.pos-table > tbody > tr > td[data-label="Строк"] { grid-area: term; text-align: right; }
-.pos-table > tbody > tr > td.row-actions { grid-area: acts; }
+.pos-table > tbody > tr > td[data-col="kind"] { grid-area: kind; align-self: start; }
+.pos-table > tbody > tr > td[data-col="name"] { grid-area: name; }
+.pos-table > tbody > tr > td[data-col="yield"] { grid-area: yield; text-align: right; min-width: 0; }
+.pos-table > tbody > tr > td[data-col="value"] { grid-area: value; }
+.pos-table > tbody > tr > td[data-col="term"] { grid-area: term; text-align: right; }
+.pos-table > tbody > tr > td[data-col="acts"] { grid-area: acts; }
 /* Другий рядок картки — дрібним і з підписами: «214 900 ₴» саме по собі
    не каже, вкладено це чи коштує сьогодні. */
 .pos-table > tbody > tr > td[data-prio] {

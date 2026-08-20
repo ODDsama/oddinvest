@@ -1,55 +1,84 @@
 // Банківські строкові вклади: форма, поповнення, закриття, архів.
 
-import { esc, today, plural, money as fmtMoney } from "../format.js";
-import { onSubmit, onSubmitFunded, onDelete } from "../forms.js";
+import { esc, plural, money as fmtMoney } from "../format.js";
+import { onSubmit } from "../forms.js";
+import {
+  money as moneyField, pct as pctField, date as dateField,
+  note as noteField, check as checkField, selectOf, formHTML,
+} from "../fields.js";
+import { refSelect, refValue, wireRefs } from "../refs.js";
+import { wireCrud } from "../crud.js";
+import { opsGrid, actionsCol } from "../grid.js";
 import { disclosure } from "../disclosure.js";
+import { PAYOUT_LABEL } from "../constants.js";
 
 
-export function depositFormHTML(ctx) {
-  return `
-    <form id="termDepForm">
-      <label>Банк<select name="bank">${ctx.brokerOptions()}</select></label>
-      <label>Валюта<select name="currency"><option>UAH</option><option>USD</option><option>EUR</option></select></label>
-      <label>Тіло<input name="principal" inputmode="decimal" placeholder="100000.00" required></label>
-      <label>Ставка, %<input name="rate_pct" inputmode="decimal" placeholder="16.5" required></label>
-      <label>Відкрито<input name="open_date" type="date" value="${today()}" required></label>
-      <label>Погашення<input name="maturity_date" type="date" required></label>
-      <label>Виплата відсотків<select name="payout">
-        <option value="end">у кінці строку</option>
-        <option value="monthly">щомісяця</option>
-        <option value="quarterly">щокварталу</option>
-      </select></label>
-      <label class="row-h">
-        <input name="capitalized" type="checkbox" class="w-auto">Капіталізація</label>
-      <label class="row-h">
-        <input name="replenishable" type="checkbox" class="w-auto">Поповнюваний</label>
-      <label>Податок, %<input name="tax_pct" inputmode="decimal" placeholder="19.5 (за замовч.)"></label>
-      <label>Нотатка<input name="note"></label>
-      <div class="form-actions"><button type="submit">Додати</button></div>
-    </form>`;
-}
+// Виплата відсотків — скінченний список, і підписи до нього вже живуть у
+// constants.js: та сама мапа підписує вклад у єдиній таблиці позицій.
+// Доти цей список був вписаний у форму окремо, і два джерела одних і тих
+// самих трьох слів розійшлись би на першій же зміні формулювання.
+const PAYOUTS = Object.entries(PAYOUT_LABEL);
 
-// Розірвані вклади — вже не позиція, а історія: згорнуто.
-export function closedDepositsHTML(ctx, deposits) {
-  const closed = deposits.filter((d) => d.closed_date);
-  if (!closed.length) return "";
-  return `<div class="card">${disclosure("closeddep", "Закриті достроково", `
-    <div class="table-scroll"><table><thead><tr><th>Банк</th><th class="num">Тіло</th><th>Розірвано</th>
-      <th class="num">Отримано</th><th></th></tr></thead><tbody>
-      ${closed.map((d) => `<tr>
-        <td>${esc(d.bank || "—")}</td><td class="num">${fmtMoney(d.principal)}</td>
-        <td>${esc(d.closed_date)}</td><td class="num">${fmtMoney(d.closed_amount)}</td>
-        <td class="row-actions"><button class="sm warn" data-deldep="${d.id}">✕</button></td></tr>`).join("")}
-      </tbody></table></div>`,
-    `${closed.length} ${plural(closed.length, "вклад", "вклади", "вкладів")}`)}</div>`;
-}
+/** Поля вкладу — один список і для відкриття, і для правки.
+ *
+ *  Правки вкладу доти не було: PUT існував, але кликали його рівно двома
+ *  вузькими латками — перемикачем «поповнюваний» і закриттям. Одруківку в
+ *  ставці чи даті погашення виправити було нічим, а вклад — саме той
+ *  запис, де одруківка тиха: 16.5 замість 15.6 не виглядає помилкою ніде,
+ *  крім самої виписки банку. */
+export const depositFields = (ctx, row = null) => [
+  refSelect(ctx, { name: "bank", ref: "broker", label: "Банк", value: row ? row.bank : "" }),
+  refSelect(ctx, {
+    name: "currency", ref: "currency",
+    value: row ? row.principal.currency : "UAH",
+  }),
+  moneyField("principal", "Тіло", {
+    ph: "100000.00", required: true, value: row ? row.principal.amount : "",
+  }),
+  pctField("rate_pct", "Ставка, %", {
+    ph: "16.5", required: true, value: row ? row.rate_pct : "",
+  }),
+  dateField("open_date", "Відкрито", row ? { value: row.open_date } : {}),
+  dateField("maturity_date", "Погашення", {
+    required: true, value: row ? row.maturity_date : "",
+  }),
+  selectOf("payout", "Виплата відсотків", PAYOUTS, row ? row.payout : "end"),
+  checkField("capitalized", "Капіталізація", { checked: row ? !!row.capitalized : false }),
+  checkField("replenishable", "Поповнюваний", { checked: row ? !!row.replenishable : false }),
+  pctField("tax_pct", "Податок, %", {
+    ph: "19.5 (за замовч.)", value: row ? row.tax_pct : "",
+  }),
+  noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
+];
 
-// PUT шле вклад ЦІЛКОМ, тож кожна часткова зміна мусить перекласти всі інші
-// поля з уже завантаженого запису. Доти це робилось двічі — окремо при
-// перемиканні «поповнюваний» і окремо при закритті, — і забутий у другій
-// копії replenishable свого часу мовчки скидав прапорець. Тепер тіло
-// збирається в одному місці, а викликач вказує лише те, що змінює.
-function depositBody(d, patch) {
+/** Тіло вкладу. PUT шле вклад ЦІЛКОМ, тож поля закриття мусять їхати
+ *  разом із рештою — інакше правка ставки мовчки «відкрила» б назад
+ *  розірваний вклад.
+ *
+ *  closed — те, чого у формі немає: при відкритті його ще не існує, а при
+ *  правці воно лежить у самому записі. Доти цю перекладку робили двічі
+ *  (окремо перемикач «поповнюваний», окремо закриття), і забутий у другій
+ *  копії replenishable свого часу мовчки скидав прапорець. */
+export const depositBody = (f, closed = {}) => ({
+  bank: refValue(f, "bank"),
+  currency: refValue(f, "currency"),
+  principal: f.principal.value.trim(),
+  rate_pct: f.rate_pct.value.trim(),
+  open_date: f.open_date.value,
+  maturity_date: f.maturity_date.value,
+  payout: f.payout.value,
+  capitalized: f.capitalized.checked,
+  replenishable: f.replenishable.checked,
+  tax_pct: f.tax_pct.value.trim(),
+  note: f.note.value.trim(),
+  closed_date: closed.date || "",
+  closed_amount: closed.amount || "",
+});
+
+// Те саме тіло, зібране не з форми, а з уже завантаженого запису: ним
+// користуються вузькі латки, які міняють ОДНЕ поле, — перемикач у рядку й
+// форма розірвання.
+function bodyFromRow(d, patch) {
   return {
     bank: d.bank, currency: d.principal.currency,
     principal: d.principal.amount, rate_pct: String(d.rate_pct),
@@ -62,42 +91,102 @@ function depositBody(d, patch) {
   };
 }
 
-// deposits приходить АРГУМЕНТОМ, а не через ctx. Доти список клали в
-// ctx._deposits — поле, приліплене до контексту збоку, — і працювало це
-// доти, доки вклади вантажив рівно один розділ. Тепер їх вантажать дві
-// сторінки («Вклади» в «Активах» і форма в «Записати»), і поле збоку
-// означало б, що котрась із них мусить пам'ятати чуже правило.
+export function depositFormHTML(ctx) {
+  return formHTML({ id: "termDepForm", fields: depositFields(ctx), submit: "Додати" });
+}
+
+/** Поля поповнення. Валюти серед них немає навмисно: її задає вклад, і
+ *  питати означало б дозволити відповісти неправильно. */
+export const topupFields = (ctx, row = null, dep = null) => [
+  dateField("date", "Дата поповнення", row ? { value: row.date } : {}),
+  moneyField("amount", "Сума", {
+    required: true,
+    value: row ? row.amount.amount : (dep ? dep.principal.amount : ""),
+  }),
+];
+
+export const topupBody = (f) => ({
+  date: f.date.value,
+  amount: f.amount.value.trim(),
+});
+
+/** Форма поповнення одного вкладу. Атрибут із номером вкладу — на самій
+ *  формі: форм на сторінці стільки ж, скільки поповнюваних вкладів, і
+ *  розрізняти їх треба до того, як хоч одну буде підв'язано. */
+export function topupFormHTML(ctx, d) {
+  return formHTML({
+    fields: topupFields(ctx, null, d), submit: "Поповнити",
+    attrs: { "data-topup-form": d.id },
+  });
+}
+
+/** Поля дострокового розірвання. Банк перерахує відсотки сам за штрафною
+ *  ставкою — ми лише вводимо те, що реально прийшло на рахунок. */
+export const closeFields = (ctx, d) => [
+  dateField("closed_date", "Дата розірвання", { required: true }),
+  moneyField("closed_amount", "Отримано (тіло + відсотки)", {
+    ph: d.balance.amount, required: true,
+  }),
+];
+
+export function closeFormHTML(ctx, d) {
+  return formHTML({
+    fields: closeFields(ctx, d), submit: "Підтвердити розірвання",
+    attrs: { "data-close-form": d.id },
+  });
+}
+
+// Розірвані вклади — вже не позиція, а історія: згорнуто.
+export function closedDepositsHTML(ctx, deposits) {
+  const closed = deposits.filter((d) => d.closed_date);
+  if (!closed.length) return "";
+  return `<div class="card">${disclosure("closeddep", "Закриті достроково", opsGrid({
+    cols: [
+      { key: "bank", label: "Банк", cell: (d) => esc(d.bank || "—") },
+      { key: "principal", label: "Тіло", num: true, cell: (d) => fmtMoney(d.principal) },
+      { key: "closed_date", label: "Розірвано", cell: (d) => esc(d.closed_date) },
+      { key: "closed_amount", label: "Отримано", num: true, cell: (d) => fmtMoney(d.closed_amount) },
+      actionsCol("term-deposits", {
+        edit: false, label: (d) => "закритий вклад #" + d.id,
+      }),
+    ],
+    rows: closed,
+    caption: "Закриті достроково вклади: банк, тіло, дата розірвання, отримано",
+  }), `${closed.length} ${plural(closed.length, "вклад", "вклади", "вкладів")}`)}</div>`;
+}
+
+
 export function wireDeposits(ctx, main, deposits = []) {
   const byId = new Map((deposits || []).map((d) => [String(d.id), d]));
 
-  // Відкриття вкладу замикає гроші так само, як покупка паперу їх
-  // витрачає (state_builder.go:320), тож і питання про нестачу те саме.
-  onSubmitFunded(ctx, main.querySelector("#termDepForm"), (f) => ({
-    path: "term-deposits",
-    check: "term-deposits/check",
-    date: f.open_date.value,
-    what: "відкриття вкладу",
-    body: {
-      bank: f.bank.value, currency: f.currency.value,
-      principal: f.principal.value.trim(), rate_pct: f.rate_pct.value.trim(),
-      open_date: f.open_date.value, maturity_date: f.maturity_date.value,
-      payout: f.payout.value, capitalized: f.capitalized.checked,
-      replenishable: f.replenishable.checked,
-      tax_pct: f.tax_pct.value.trim(), note: f.note.value.trim(),
-    },
-    msg: "Вклад додано",
-  }));
+  wireCrud(ctx, main, {
+    resource: "term-deposits", form: "#termDepForm", title: "Вклад", rows: deposits,
+    fields: depositFields,
+    // Поля закриття беруться з САМОГО запису, бо у формі їх немає: при
+    // відкритті вкладу їх ще не існує, а при правці вони вже лежать у
+    // рядку. Без цього збереження ставки надіслало б порожні closed_* —
+    // тобто мовчки «відкрило» б назад розірваний вклад.
+    body: (f, row) => depositBody(f, row
+      ? { date: row.closed_date, amount: (row.closed_amount || {}).amount }
+      : {}),
+    // Відкриття вкладу замикає гроші так само, як покупка паперу їх
+    // витрачає, тож і питання про нестачу те саме.
+    funded: (f) => ({
+      check: "term-deposits/check", date: f.open_date.value, what: "відкриття вкладу",
+    }),
+    msg: { add: "Вклад додано", edit: "Вклад виправлено", del: "Вклад видалено" },
+  });
 
   // Перемикач «поповнюваний» просто на рядку: це властивість вкладу, яку
-  // дізнаєшся вже після відкриття, і заводити заради неї окрему форму
-  // редагування було б надміру.
+  // дізнаєшся вже після відкриття, і відкривати заради неї модалку було б
+  // надміру.
   main.querySelectorAll("[data-repl]").forEach((cb) =>
     cb.addEventListener("change", async () => {
       const d = byId.get(cb.dataset.repl);
       if (!d) return;
       try {
         await ctx.api("PUT", "term-deposits/" + d.id,
-          depositBody(d, { replenishable: cb.checked }));
+          bodyFromRow(d, { replenishable: cb.checked }));
         ctx.toast(cb.checked ? "Вклад поповнюваний" : "Вклад не поповнюваний");
         ctx.reload();
       } catch (err) {
@@ -108,50 +197,43 @@ export function wireDeposits(ctx, main, deposits = []) {
       }
     }));
 
-  onDelete(ctx, main, "[data-deldep]", (b) => ({
-    path: "term-deposits/" + b.dataset.deldep,
-    confirm: "Видалити вклад #" + b.dataset.deldep + "?",
-    msg: "Вклад видалено",
-  }));
-
-  // Окремих кнопок «Поповнити» й «Закрити» більше немає: обидві форми
-  // живуть у рядку-деталях, який відкриває та сама стрілка, що показує
-  // лоти в ОВДП. Один жест на всі інструменти замість трьох кнопок.
-
-  // Поповнення: сума в валюті вкладу, за замовчуванням = тіло відкриття.
-  main.querySelectorAll("[data-topup-form]").forEach((f) =>
-    onSubmitFunded(ctx, f, () => ({
-      path: "term-deposits/" + f.dataset.topupForm + "/topups",
-      check: "term-deposits/" + f.dataset.topupForm + "/topups/check",
-      date: f.date.value,
-      what: "поповнення вкладу",
-      body: { date: f.date.value, amount: f.amount.value.trim() },
-      msg: "Поповнення додано",
-    })));
-
-  onDelete(ctx, main, "[data-deltopup]", (b) => {
-    const [depID, topupID] = b.dataset.deltopup.split(":");
-    return {
-      path: "term-deposits/" + depID + "/topups/" + topupID,
-      msg: "Поповнення видалено",
-    };
+  // Поповнення — вкладений ресурс, тож ім'я в розмітці несе ще й номер
+  // вкладу: інакше проводка першого вкладу підв'язала б кнопки всіх.
+  (deposits || []).forEach((d) => {
+    wireCrud(ctx, main, {
+      resource: "topups:" + d.id, title: "Поповнення", rows: d.topups || [],
+      path: (id) => "term-deposits/" + d.id + "/topups/" + id,
+      createPath: "term-deposits/" + d.id + "/topups",
+      form: `[data-topup-form="${d.id}"]`,
+      fields: (c, row) => topupFields(c, row, d),
+      body: topupBody,
+      funded: (f) => ({
+        check: "term-deposits/" + d.id + "/topups/check",
+        date: f.date.value, what: "поповнення вкладу",
+      }),
+      msg: {
+        add: "Поповнення додано", edit: "Поповнення виправлено",
+        del: "Поповнення видалено",
+      },
+    });
   });
 
-  // Розірвання = PUT усього вкладу з проставленими closed_*: банк перерахує
-  // відсотки сам за штрафною ставкою, ми лише вводимо отриману суму.
+  // Розірвання = PUT усього вкладу з проставленими closed_*: банк
+  // перерахує відсотки сам за штрафною ставкою, ми лише вводимо отриману
+  // суму.
   main.querySelectorAll("[data-close-form]").forEach((f) =>
     onSubmit(ctx, f, () => {
       const d = byId.get(f.dataset.closeForm);
       if (!d) return null;
       return {
         method: "PUT", path: "term-deposits/" + d.id,
-        body: depositBody(d, {
+        body: bodyFromRow(d, {
           closed_date: f.closed_date.value,
           closed_amount: f.closed_amount.value.trim(),
         }),
         msg: "Вклад закрито",
       };
     }));
+
+  wireRefs(main);
 }
-
-

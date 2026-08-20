@@ -33,7 +33,8 @@
 import { esc, pct, uah2 as fmtUAH } from "../format.js";
 import { tile, empty } from "../components.js";
 import { routeFor } from "../routes.js";
-import { onSubmit, onDelete } from "../forms.js";
+import { wireCrud } from "../crud.js";
+import { wireRefs } from "../refs.js";
 import { wireDisclosures } from "../disclosure.js";
 import {
   positionsTableHTML, loadPositionsData, wirePositionRows,
@@ -42,7 +43,7 @@ import { bondBuyFormHTML, bondSaleFormHTML } from "./bonds.js";
 import { depositFormHTML, closedDepositsHTML } from "./deposits.js";
 import { npfDetailHTML } from "../npf.js";
 import {
-  reserveTilesHTML, reserveJournalHTML, reserveFormHTML,
+  reserveTilesHTML, reserveJournalHTML, reserveFormHTML, reserveFields, reserveBody,
 } from "./money-cards.js";
 import { reinvestHTML, reserveFillHTML, wireReinvest, loadReinvest } from "./now-view.js";
 import { kindTasksHTML } from "./tasks.js";
@@ -143,7 +144,7 @@ function nextForKindHTML(ctx, spec) {
  *  форми ця воронка не заводить. */
 function writeHTML(ctx, spec, d) {
   if (spec.kind === "bond") {
-    return `<div class="card"><h3>Нова покупка</h3>${bondBuyFormHTML(ctx, d.lots)}</div>
+    return `<div class="card"><h3>Нова покупка</h3>${bondBuyFormHTML(ctx)}</div>
       <div class="card"><h3>Продаж на вторинному ринку</h3>${bondSaleFormHTML(ctx, d.lots)}</div>`;
   }
   if (spec.kind === "deposit") {
@@ -204,7 +205,7 @@ function funnelPage(sub) {
       ${step("write", writeHTML(ctx, spec, d))}
       ${step("terms", termsHTML(spec.kind))}`;
 
-    wirePositionRows(ctx, main, d.deposits);
+    wirePositionRows(ctx, main, d);
     wireReinvest(ctx, main);
     // Кнопки «+» малює reinvestHTML, а слухач до них живе в basket.js. Доти
     // wireBasket кликала ЛИШЕ сторінка кошика — тобто рівно те місце, де
@@ -296,19 +297,17 @@ export async function reserve(ctx, main) {
     ${step("next", reserveFillHTML(ctx) || `<div class="card"><div class="sub">
       Поповнювати зараз нічого: або запас уже зібраний, або вільних грошей на рахунку немає.
       </div></div>`)}
-    ${step("write", reserveFormHTML())}
+    ${step("write", reserveFormHTML(ctx))}
     ${step("terms", termsHTML("reserve"))}`;
-  onSubmit(ctx, main.querySelector("#resForm"), (f) => ({
-    path: "reserve",
-    body: {
-      amount: f.amount.value.trim(), currency: f.currency.value,
-      place: f.place.value.trim(), date: f.date.value, note: f.note.value.trim(),
+  wireCrud(ctx, main, {
+    resource: "reserve", form: "#resForm", title: "Рух резерву", rows: ops,
+    fields: reserveFields, body: reserveBody,
+    msg: {
+      add: "Рух резерву записано", edit: "Рух резерву виправлено",
+      del: "Рух видалено",
     },
-    msg: "Рух резерву записано",
-  }));
-  onDelete(ctx, main, "[data-delres]", (b) => ({
-    path: "reserve/" + b.dataset.delres, msg: "Рух видалено",
-  }));
+  });
+  wireRefs(main);
   wireSteps(main);
   wireDisclosures(main);
 }

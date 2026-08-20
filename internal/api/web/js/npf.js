@@ -18,8 +18,14 @@
 //     мусить стояти власна арифметика й підпис про це — інакше вона
 //     читалась би як гроші, що вже враховані.
 
-import { esc, curSym, today, pct, uah2 as fmtUAH, money as fmtMoney } from "./format.js";
-import { apply, onSubmit, onSubmitFunded, onDelete } from "./forms.js";
+import { esc, curSym, pct, uah2 as fmtUAH, money as fmtMoney } from "./format.js";
+import { apply, onSubmit } from "./forms.js";
+import {
+  money as moneyField, date as dateField, note as noteField, textarea, formHTML,
+} from "./fields.js";
+import { refSelect, refValue, wireRefs } from "./refs.js";
+import { wireCrud } from "./crud.js";
+import { opsGrid, actionsCol } from "./grid.js";
 import { svgLine } from "./charts.js";
 
 // Довідник, журнал і точки ЧВОПА на час одного рендеру. Заповнює той, хто
@@ -163,18 +169,67 @@ function creditHTML(ctx, row) {
  *  не окреме поле: воно дало б їм розійтись. */
 function opsTableHTML(npfID, currency) {
   const rows = ops.filter((o) => o.npf_id === npfID)
-    .sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id);
-  if (!rows.length) return `<div class="muted">Внесків ще немає.</div>`;
-  return `<table><thead><tr><th>Дата</th><th class="num">Сума</th>
-      <th class="num">Одиниць</th><th class="num">ЧВОПА</th><th>З рахунку</th><th>Нотатка</th><th></th></tr></thead>
-    <tbody>${rows.map((o) => `<tr><td>${esc(o.date)}</td>
-      <td class="num">${fmtMoney(o.amount)}</td>
-      <td class="num">${(o.units || 0).toFixed(6)}</td>
-      <td class="num">${(o.nav || 0).toFixed(6)} ${curSym(currency)}</td>
-      <td>${esc(o.broker || "")}</td><td class="muted">${esc(o.note || "")}</td>
-      <td class="row-actions"><button class="sm warn" data-delnpfop="${o.id}">✕</button></td></tr>`).join("")}
-    </tbody></table>`;
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
+  return opsGrid({
+    cols: [
+      { key: "date", label: "Дата", cell: (o) => esc(o.date) },
+      { key: "amount", label: "Сума", num: true, cell: (o) => fmtMoney(o.amount) },
+      { key: "units", label: "Одиниць", num: true, cell: (o) => (o.units || 0).toFixed(6) },
+      { key: "nav", label: "ЧВОПА", num: true, prio: 3,
+        cell: (o) => (o.nav || 0).toFixed(6) + " " + curSym(currency) },
+      { key: "broker", label: "З рахунку", cell: (o) => esc(o.broker || "") },
+      { key: "note", label: "Нотатка", cls: "muted", prio: 3, cell: (o) => esc(o.note || "") },
+      actionsCol("npf:" + npfID, { label: (o) => "внесок від " + o.date }),
+    ],
+    rows,
+    caption: "Внески: дата, сума, одиниці, ЧВОПА, рахунок",
+    empty: "Внесків ще немає.",
+  });
 }
+
+/** Поля внеску — один список і для запису, і для правки.
+ *
+ *  «З рахунку» тут ГОЛОВНЕ виправлення. Доти це поле було текстовим
+ *  <input> з атрибутом list, який указував на <datalist> із брокерами, — а
+ *  того datalist у застосунку не існувало взагалі. Тобто підказка мовчала,
+ *  і поле поводилось як звичайний текстовий рядок. У формі купівлі ОВДП той
+ *  самий брокер вибирався з довідника; тут його вписували руками, і
+ *  «mono » з пробілом заводив другий рахунок, після чого зведення по
+ *  брокерах розходилось без жодного натяку, чому.
+ *
+ *  Правки внеску теж не було, хоча PUT /api/npf/{id} існував. */
+export const npfOpFields = (ctx, row = null) => [
+  dateField("date", "Дата", row ? { value: row.date } : {}),
+  moneyField("amount", "Сума", { required: true, value: row ? row.amount.amount : "" }),
+  moneyField("units", "Зараховано одиниць", {
+    required: true, value: row ? (row.units || 0).toFixed(6) : "",
+    title: "З виписки фонду. ЧВОПА виводиться сама: сума ÷ одиниці",
+  }),
+  refSelect(ctx, { name: "broker", ref: "broker", label: "З рахунку", value: row ? row.broker || "" : "" }),
+  noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
+];
+
+export const npfOpBody = (npfID) => (f) => ({
+  npf_id: npfID,
+  date: f.date.value,
+  amount: f.amount.value.trim(),
+  units: f.units.value.trim(),
+  broker: refValue(f, "broker"),
+  note: f.note.value.trim(),
+});
+
+/** Поля однієї точки ЧВОПА. Рахунок не поле: точка належить рахунку, у
+ *  чиєму рядку вона й стоїть, а перенести її на інший рахунок — це не
+ *  правка, а нова точка. */
+export const navFields = (ctx, row = null, placeholder = "") => [
+  dateField("date", "Дата", row ? { value: row.date } : {}),
+  moneyField("nav", "ЧВОПА", {
+    required: true, ph: placeholder,
+    value: row ? (row.nav || 0).toFixed(6) : "",
+  }),
+];
+
+export const navBody = (f) => ({ date: f.date.value, nav: f.nav.value.trim() });
 
 /** Деталі рядка НПФ. row — рядок документа (state.NPFPositionRow). */
 export function npfDetailHTML(ctx, row) {
@@ -195,22 +250,16 @@ export function npfDetailHTML(ctx, row) {
       немає.</div>
 
     <h4 class="mt">Оновити ЧВОПА з кабінету</h4>
-    <form data-npfnav-form="${acc.id}">
-      <label>Дата<input name="date" type="date" value="${today()}" required></label>
-      <label>ЧВОПА<input name="nav" inputmode="decimal" placeholder="${(row.nav || 0).toFixed(6)}" required></label>
-      <div class="form-actions"><button type="submit">Оновити</button></div>
-    </form>
+    ${formHTML({
+    fields: navFields(ctx, null, (row.nav || 0).toFixed(6)), submit: "Оновити",
+    attrs: { "data-npfnav-form": acc.id },
+  })}
 
     <h4 class="mt">Внести</h4>
-    <form data-npfop-form="${acc.id}">
-      <label>Дата<input name="date" type="date" value="${today()}" required></label>
-      <label>Сума<input name="amount" inputmode="decimal" required></label>
-      <label>Зараховано одиниць<input name="units" inputmode="decimal" required
-        title="З виписки фонду. ЧВОПА виводиться сама: сума ÷ одиниці"></label>
-      <label>З рахунку<input name="broker" list="brokers-list" placeholder="звідки пішли гроші"></label>
-      <label>Нотатка<input name="note"></label>
-      <div class="form-actions"><button type="submit">Записати внесок</button></div>
-    </form>
+    ${formHTML({
+    fields: npfOpFields(ctx), submit: "Записати внесок",
+    attrs: { "data-npfop-form": acc.id },
+  })}
 
     <h4 class="mt">Внески</h4>
     ${opsTableHTML(acc.id, row.currency)}
@@ -221,11 +270,12 @@ export function npfDetailHTML(ctx, row) {
     <div class="sub-xs muted">Опублікована фондом таблиця — по рядку на день:
       <code>2020-01-01 1.500000</code>. Дата й число, розділені пробілом, комою або табуляцією.
       Саме вона й робить видимим track record, на якому стоїть обіцянка.</div>
-    <form data-npfnavbulk-form="${acc.id}">
-      <label>Рядки<textarea name="points" rows="4" placeholder="2020-01-01 1.5
-2021-01-01 1.82"></textarea></label>
-      <div class="form-actions"><button type="submit">Вклеїти</button></div>
-    </form>
+    ${formHTML({
+    fields: [textarea("points", "Рядки", { ph: `2020-01-01 1.5
+2021-01-01 1.82` })],
+    submit: "Вклеїти",
+    attrs: { "data-npfnavbulk-form": acc.id },
+  })}
     ${navBulkListHTML(acc.id, row.currency)}`;
 }
 
@@ -235,11 +285,17 @@ function navBulkListHTML(npfID, currency) {
   const pts = navPoints.filter((p) => p.npf_id === npfID)
     .sort((a, b) => a.date < b.date ? 1 : -1);
   if (!pts.length) return "";
-  return `<table class="mt"><tbody>${pts.map((p) => `<tr>
-      <td class="muted">${esc(p.date)}</td>
-      <td class="num">${(p.nav || 0).toFixed(6)} ${curSym(currency)}</td>
-      <td class="row-actions"><button class="sm warn" data-delnpfnav="${p.id}">✕</button></td>
-    </tr>`).join("")}</tbody></table>`;
+  return opsGrid({
+    cols: [
+      { key: "date", label: "Дата", cls: "muted", cell: (p) => esc(p.date) },
+      { key: "nav", label: "ЧВОПА", num: true,
+        cell: (p) => (p.nav || 0).toFixed(6) + " " + curSym(currency) },
+      actionsCol("npf-nav", { label: (p) => "точку ЧВОПА за " + p.date }),
+    ],
+    rows: pts,
+    caption: "Вклеєні руками точки ЧВОПА: дата й значення",
+    cls: "mt",
+  });
 }
 
 /** parseNavLines — рядки «дата число» у точки.
@@ -281,33 +337,42 @@ export function parseNavLines(text) {
 // перевірок джоби `ui` його не бачить: синтаксис цілий, імпорти резолвляться,
 // імена визначені. Ловить це лише спроба записати.
 export function wireNPF(ctx, main) {
-  main.querySelectorAll("[data-npfop-form]").forEach((form) => {
-    const id = Number(form.dataset.npfopForm);
-    // Внесок може не вміститись у баланс рахунку, тож форма та сама, що в
-    // покупки паперу: спершу /check, і якщо бракує — пропозиція поповнити.
-    onSubmitFunded(ctx, form, (f) => {
-      const fd = new FormData(f);
-      const body = {
-        npf_id: id, date: fd.get("date"), amount: fd.get("amount"),
-        units: fd.get("units"), broker: fd.get("broker") || "", note: fd.get("note") || "",
-      };
-      return {
-        path: "npf", body, check: "npf/check",
-        msg: "Внесок записано", date: body.date, what: "внесок у НПФ",
-      };
+  // Внески — вкладені в рахунок лише на екрані, а не в API: шлях у них
+  // плоский (/api/npf/{id}). Але форм і таблиць на сторінці стільки ж,
+  // скільки рахунків, тож ім'я в розмітці несе номер рахунку — інакше
+  // проводка першого підв'язала б кнопки всіх.
+  accounts.forEach((acc) => {
+    wireCrud(ctx, main, {
+      resource: "npf:" + acc.id, path: (id) => "npf/" + id, createPath: "npf",
+      form: `[data-npfop-form="${acc.id}"]`,
+      title: "Внесок", rows: ops.filter((o) => o.npf_id === acc.id),
+      fields: npfOpFields, body: npfOpBody(acc.id),
+      // Внесок може не вміститись у баланс рахунку, тож форма та сама, що
+      // в покупки паперу: спершу /check, і якщо бракує — пропозиція
+      // поповнити рівно на нестачу.
+      funded: (f) => ({ check: "npf/check", date: f.date.value, what: "внесок у НПФ" }),
+      msg: { add: "Внесок записано", edit: "Внесок виправлено", del: "Внесок видалено" },
     });
   });
 
+  // Точки ЧВОПА, вклеєні руками. Ресурс один на всі рахунки: точка знає
+  // свій рахунок сама, а список під кожним рахунком уже відфільтрований.
+  wireCrud(ctx, main, {
+    resource: "npf-nav", title: "Точку ЧВОПА", rows: navPoints,
+    fields: (c, row) => navFields(c, row),
+    body: navBody,
+    msg: { edit: "ЧВОПА виправлено", del: "Точку видалено" },
+  });
+
+  // «Оновити ЧВОПА з кабінету» — не створення точки, а перезапис ОСТАННЬОЇ
+  // відомої вартості рахунку (PUT .../nav), тож і лишається окремою
+  // формою: це властивість рахунку, а не рядок історії.
   main.querySelectorAll("[data-npfnav-form]").forEach((form) => {
     const id = Number(form.dataset.npfnavForm);
-    onSubmit(ctx, form, (f) => {
-      const fd = new FormData(f);
-      return {
-        method: "PUT", path: `npf-accounts/${id}/nav`,
-        body: { nav: fd.get("nav"), date: fd.get("date") },
-        msg: "ЧВОПА оновлено",
-      };
-    });
+    onSubmit(ctx, form, (f) => ({
+      method: "PUT", path: `npf-accounts/${id}/nav`,
+      body: navBody(f), msg: "ЧВОПА оновлено",
+    }));
   });
 
   main.querySelectorAll("[data-npfnavbulk-form]").forEach((form) => {
@@ -331,6 +396,8 @@ export function wireNPF(ctx, main) {
       };
     });
   });
+
+  wireRefs(main);
 
   // Знижка в план — окремою ДІЄЮ людини, а не автоматично.
   //
@@ -358,10 +425,4 @@ export function wireNPF(ctx, main) {
     });
   });
 
-  onDelete(ctx, main, "[data-delnpfop]", (el) => ({
-    path: `npf/${el.dataset.delnpfop}`, msg: "Внесок видалено",
-  }));
-  onDelete(ctx, main, "[data-delnpfnav]", (el) => ({
-    path: `npf-nav/${el.dataset.delnpfnav}`, msg: "Точку ЧВОПА видалено",
-  }));
 }

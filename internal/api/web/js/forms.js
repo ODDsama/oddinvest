@@ -278,9 +278,17 @@ export function fillForm(form, values) {
  *  ловить dialog[open] загалом. Покладатись на нативний cancel не можна —
  *  усередині shadow root він не настає.
  *
+ *  wire(form) — проводка самих ПОЛІВ, а не форми: «інший…» біля
+ *  випадайки сутності, підказка ISIN. Без цього гачка модалка малювала б
+ *  ті самі поля, що й форма додавання, і мовчки лишала половину з них
+ *  мертвими: вибір «інший…» не відкривав би поля назви, бо слухач на
+ *  нього вішається після рендера, а рендер тут відбувається на кілька
+ *  екранів пізніше за проводку сторінки. Ловилось би це не помилкою, а
+ *  тим, що поле просто не з'являється.
+ *
  *  → Promise<boolean>: збережено чи ні. Помилка бекенда лишає діалог
  *  відкритим разом із уже введеним. */
-export function openEdit(ctx, { title, fields, submit = "Зберегти" }, build) {
+export function openEdit(ctx, { title, fields, submit = "Зберегти", wire = null }, build) {
   const root = ctx && ctx.root;
   const pop = root && root.getElementById && root.getElementById("editPop");
   if (!pop) {
@@ -296,6 +304,7 @@ export function openEdit(ctx, { title, fields, submit = "Зберегти" }, bu
       </div>
     </form>`;
   const form = box.querySelector("#editForm");
+  if (wire) wire(form);
   return new Promise((resolve) => {
     let done = false;
     const finish = (val) => {

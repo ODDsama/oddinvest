@@ -7,8 +7,13 @@
 // означення в браузері розійшлося б із трьома наявними в двигуні.
 
 import { esc, today, money as fmtMoney, uah0 as fmtUAH, pct, dayMonth, humanMonths } from "../format.js";
-import { empty } from "../components.js";
 import { onSubmit, onDelete, openEdit } from "../forms.js";
+import {
+  money as moneyField, num as numField, text as textField, date as dateField,
+  note as noteField, formHTML,
+} from "../fields.js";
+import { refSelect } from "../refs.js";
+import { opsGrid } from "../grid.js";
 
 // ---------- дії: список ----------
 
@@ -27,28 +32,29 @@ function planActionDetail(a) {
 }
 
 export function planActionsListHTML(actions) {
-  if (!actions.length) {
-    return empty("", "Дій ще немає — дві форми нижче: зміна валютних часток і замок під ставку.");
-  }
   const rows = actions.slice()
-    .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
-    .map((a) => `<tr>
-      <td>${esc(dayMonth(a.date))}</td>
-      <td><span class="pill ${a.type === "lock" ? "coupon" : "early"}">${
-  a.type === "lock" ? "замок" : "частки"}</span></td>
-      <td>${esc(a.name || "—")}</td>
-      <td>${planActionDetail(a)}</td>
-      <td class="row-actions">
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return opsGrid({
+    cols: [
+      { key: "date", label: "Дата", cell: (a) => esc(dayMonth(a.date)) },
+      { key: "type", label: "Тип", cell: (a) => `<span class="pill ${
+        a.type === "lock" ? "coupon" : "early"}">${a.type === "lock" ? "замок" : "частки"}</span>` },
+      { key: "name", label: "Назва", cell: (a) => esc(a.name || "—") },
+      { key: "detail", label: "Деталі", cell: (a) => planActionDetail(a) },
+      // Кнопки правки й видалення тут СВОЇ, а не з actionsCol: проводка
+      // дій живе в цьому файлі й слухає data-editaction / data-delaction,
+      // бо правка дії відкриває одну з ДВОХ різних форм залежно від типу
+      // (частки або замок), а wireCrud знає рівно один список полів.
+      { key: "acts", label: "", cls: "row-actions nowrap", cell: (a) => `
         <button class="sm" data-editaction="${a.id}"
           aria-label="Змінити дію від ${esc(a.date)}">✎</button>
         <button class="sm warn" data-delaction="${a.id}"
-          aria-label="Видалити дію від ${esc(a.date)}">✕</button>
-      </td>
-    </tr>`).join("");
-  return `<div class="table-scroll"><table><thead><tr>
-    <th scope="col">Дата</th><th scope="col">Тип</th><th scope="col">Назва</th>
-    <th scope="col">Деталі</th><th scope="col"><span class="sr-only">Дії</span></th>
-    </tr></thead><tbody>${rows}</tbody></table></div>`;
+          aria-label="Видалити дію від ${esc(a.date)}">✕</button>` },
+    ],
+    rows,
+    caption: "Заплановані дії: дата, тип, назва, деталі",
+    empty: "Дій ще немає — дві форми нижче: зміна валютних часток і замок під ставку.",
+  });
 }
 
 // ---------- дії: форми ----------
@@ -72,47 +78,52 @@ function shareHint(ctx, cur) {
 
 function sharesFields(ctx, values = null) {
   const v = values || {};
-  const val = (k, d = "") => `value="${esc(v[k] != null ? v[k] : d)}"`;
-  return `
-    <label>З дати<input name="date" type="date" ${val("date", today())} required></label>
-    <label>Частка USD, %<input name="usd_share_pct" type="number" step="0.01" min="0" max="100"
-      placeholder="залишити як є" ${val("usd_share_pct")}>${shareHint(ctx, "USD")}</label>
-    <label>Частка EUR, %<input name="eur_share_pct" type="number" step="0.01" min="0" max="100"
-      placeholder="залишити як є" ${val("eur_share_pct")}>${shareHint(ctx, "EUR")}</label>
-    <label>Нотатка<input name="note" ${val("note")}></label>`;
+  const val = (k, d = "") => (v[k] != null ? String(v[k]) : d);
+  const share = (cur, key) => numField(key, `Частка ${cur}, %`, {
+    step: "0.01", min: "0", max: "100", ph: "залишити як є",
+    value: val(key), after: shareHint(ctx, cur),
+  });
+  return [
+    dateField("date", "З дати", { required: true, value: val("date", today()) }),
+    share("USD", "usd_share_pct"),
+    share("EUR", "eur_share_pct"),
+    noteField("note", "Нотатка", { value: val("note") }),
+  ].join("");
 }
 
 export function planSetSharesFormHTML(ctx) {
-  return `<form id="planSetSharesForm">${sharesFields(ctx)}
-    <div class="form-actions"><button type="submit">Змінити частки</button></div>
-  </form>`;
+  return formHTML({
+    id: "planSetSharesForm", submit: "Змінити частки",
+    fields: [sharesFields(ctx)],
+  });
 }
 
 function lockFields(values = null) {
   const v = values || {};
-  const val = (k, d = "") => `value="${esc(v[k] != null ? v[k] : d)}"`;
-  const cur = v.currency || "UAH";
-  return `
-    <label>Назва<input name="name" placeholder="MilTech" ${val("name")} required></label>
-    <label>Дата<input name="date" type="date" ${val("date", today())} required></label>
-    <label>Сума<input name="amount" inputmode="decimal" placeholder="50000.00" ${val("amount")} required></label>
-    <label>Валюта<select name="currency">${["UAH", "USD", "EUR"].map((c) =>
-    `<option${c === cur ? " selected" : ""}>${c}</option>`).join("")}</select></label>
-    <label>Ставка, %<input name="rate_pct" type="number" step="0.01" min="0" max="100"
-      placeholder="20" ${val("rate_pct")} required></label>
-    <label>Строк, міс. (0 = безстроково)<input name="months" type="number" min="0"
-      placeholder="24" ${val("months")}></label>
-    <label>Нотатка<input name="note" ${val("note")}></label>`;
+  const val = (k, d = "") => (v[k] != null ? String(v[k]) : d);
+  return [
+    textField("name", "Назва", { ph: "MilTech", required: true, value: val("name") }),
+    dateField("date", "Дата", { required: true, value: val("date", today()) }),
+    moneyField("amount", "Сума", { ph: "50000.00", required: true, value: val("amount") }),
+    refSelect(null, { name: "currency", ref: "currency", value: val("currency", "UAH") }),
+    numField("rate_pct", "Ставка, %", {
+      step: "0.01", min: "0", max: "100", ph: "20", required: true, value: val("rate_pct"),
+    }),
+    numField("months", "Строк, міс. (0 = безстроково)", {
+      min: "0", ph: "24", value: val("months"),
+    }),
+    noteField("note", "Нотатка", { value: val("note") }),
+  ].join("");
 }
 
 // Підказку про капітал на дату несе лише форма ДОДАВАННЯ: у модалці
 // правки їй нема з чого рахуватись (стрічка туди не передається), а
 // порожній рядок під полями читався б як «даних немає».
 export function planLockFormHTML() {
-  return `<form id="planLockForm">${lockFields()}
-    <div class="sub-xs" data-lockhint></div>
-    <div class="form-actions"><button type="submit">Замкнути</button></div>
-  </form>`;
+  return formHTML({
+    id: "planLockForm", submit: "Замкнути", fields: [lockFields()],
+    extra: `<div class="sub-xs" data-lockhint></div>`,
+  });
 }
 
 // ---------- капітал на дату ----------

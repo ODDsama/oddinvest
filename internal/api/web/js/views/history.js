@@ -5,6 +5,7 @@ import { infoBtn } from "../info.js";
 import { empty } from "../components.js";
 import { seriesChart, wireChartTips, fluid, seriesLegend } from "../charts.js";
 import { disclosure } from "../disclosure.js";
+import { opsGrid } from "../grid.js";
 
 
 // Знімки для кривої «Як росте»: тягнуться раз, читаються графіком і
@@ -267,16 +268,20 @@ export function snapshotsTableHTML(ctx) {
   const hasAcc = rows.some((s) => (s.account_uah || 0) > 0);
   const hasRes = rows.some((s) => (s.reserve_uah || 0) > 0);
   const hasNPF = rows.some((s) => (s.npf_uah || 0) > 0);
-  const col = (on, head, cell) => on ? { head, cell } : null;
+  const col = (on, key, label, cell) => (on ? { key, label, num: true, cell } : null);
   const cols = [
-    { head: `<th class="num">ОВДП</th>`, cell: (s) => fmtUAH(s.nominal_uah_eq) },
-    col(hasFunds, `<th class="num">Фонди</th>`, (s) => fmtUAH(s.funds_uah || 0)),
-    col(hasNPF, `<th class="num">НПФ</th>`, (s) => fmtUAH(s.npf_uah || 0)),
-    col(hasDeps, `<th class="num">Вклади</th>`, (s) => fmtUAH(s.deposits_uah || 0)),
-    col(hasAcc, `<th class="num">Рахунок</th>`, (s) => fmtUAH(s.account_uah || 0)),
-    col(hasRes, `<th class="num">Резерв</th>`, (s) => fmtUAH(s.reserve_uah || 0)),
-    { head: `<th class="num">Частка USD</th>`, cell: (s) => `${(s.usd_share_pct || 0).toFixed(1)}%` },
-    { head: `<th class="num">Не перевкл.</th>`, cell: (s) => fmtUAH(s.uninvested_uah) },
+    { key: "date", label: "Дата", cell: (s) => esc(s.date) },
+    { key: "invested", label: "Вкладено", num: true, cell: (s) => fmtUAH(s.invested_uah) },
+    { key: "bonds", label: "ОВДП", num: true, cell: (s) => fmtUAH(s.nominal_uah_eq) },
+    col(hasFunds, "funds", "Фонди", (s) => fmtUAH(s.funds_uah || 0)),
+    col(hasNPF, "npf", "НПФ", (s) => fmtUAH(s.npf_uah || 0)),
+    col(hasDeps, "deposits", "Вклади", (s) => fmtUAH(s.deposits_uah || 0)),
+    col(hasAcc, "account", "Рахунок", (s) => fmtUAH(s.account_uah || 0)),
+    col(hasRes, "reserve", "Резерв", (s) => fmtUAH(s.reserve_uah || 0)),
+    { key: "usd", label: "Частка USD", num: true,
+      cell: (s) => `${(s.usd_share_pct || 0).toFixed(1)}%` },
+    { key: "uninvested", label: "Не перевкл.", num: true,
+      cell: (s) => fmtUAH(s.uninvested_uah) },
   ].filter(Boolean);
   // На кривій ведучі нулі просто не малюються, а в таблиці клітинку не
   // сховаєш — тож тут те саме доводиться сказати словами.
@@ -286,12 +291,11 @@ export function snapshotsTableHTML(ctx) {
     ? `<div class="sub mt-sm">Нулі на ранніх днях означають «тоді ще не записували
        в історію», а не «тоді цього не було»: колонки фондів, вкладів і НПФ з'явились у знімку
        пізніше за самі інструменти.</div>` : "";
-  return `<div class="card">${disclosure("snaps", "Останні знімки", `
-    <div class="table-scroll"><table>
-      <thead><tr><th>Дата</th><th class="num">Вкладено</th>${cols.map((c) => c.head).join("")}</tr></thead>
-      <tbody>${rows.map((s) => `<tr><td>${esc(s.date)}</td>
-        <td class="num">${fmtUAH(s.invested_uah)}</td>
-        ${cols.map((c) => `<td class="num">${c.cell(s)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>${gap}`,
+  return `<div class="card">${disclosure("snaps", "Останні знімки",
+    opsGrid({
+      cols, rows,
+      caption: "Останні знімки портфеля по днях: вкладено й вартість за видами",
+    }) + gap,
     `${shown} ${plural(shown, "день", "дні", "днів")}`)}</div>`;
 }
 

@@ -12,7 +12,9 @@
 // найпотрібніша.
 
 import { esc, today } from "../format.js";
-import { onSubmit, onDelete, apply } from "../forms.js";
+import { onSubmit, onDelete } from "../forms.js";
+import { text, formHTML } from "../fields.js";
+import { inlineEdit } from "../crud.js";
 import { infoBtn } from "../info.js";
 
 // Брокери й фонди — довідники з власними ендпойнтами. Раніше брокери
@@ -46,9 +48,14 @@ export function catalogRowHTML(item, fields = []) {
   // висоту, і доки поля фонда вміщались в один рядок, це було непомітно.
   // Дев'ять полів переносяться, і ✕ розтягувався червоною смугою на дві
   // лінії. Правити .pv-row не можна — на ній стоять усі списки позицій.
+  // Назва — таке саме поле, як інші, і несе те саме data-field. Доти вона
+  // була окремим випадком: проводка тягнула її querySelector'ом по класу й
+  // приклеювала до тіла запиту руками. Через це спільної проводки
+  // правки-на-місці не виходило — сусідній розділ (продажі ОВДП) мав свою
+  // копію того самого коду.
   return `<div class="pv-row" data-cat="${item.id}">
     <span class="row-h">
-      <input class="cat-name w-lg" value="${esc(item.name)}">${inputs}</span>
+      <input class="cat-f cat-name w-lg" data-field="name" value="${esc(item.name)}">${inputs}</span>
     <button class="sm warn self-start" data-catdel="${item.id}">✕</button></div>`;
 }
 
@@ -135,10 +142,10 @@ export function catalogsHTML(ctx) {
   return `<div class="card" id="brokerCard">
       <h2 class="h-row">Брокери ${infoBtn("setBrokers")}</h2>
       ${brokers}
-      <form id="brokerAddForm" class="row-h mt">
-        <input name="broker" class="w-xl" placeholder="назва брокера" autocomplete="off">
-        <div class="form-actions"><button type="submit">Додати</button></div>
-      </form>
+      ${formHTML({
+    id: "brokerAddForm", cls: "row-h mt", submit: "Додати",
+    fields: [text("broker", "", { ph: "назва брокера", cls: "w-xl" })],
+  })}
     </div>
     <div class="card" id="fundCatalogCard">
       <h2 class="h-row">Фонди ${infoBtn("setFunds")}</h2>
@@ -147,47 +154,37 @@ export function catalogsHTML(ctx) {
     <div class="card" id="npfCatalogCard">
       <h2 class="h-row">Пенсійні фонди (НПФ) ${infoBtn("setNPF")}</h2>
       ${npf}
-      <form id="npfAddForm" class="row-h mt">
-        <input name="name" class="w-xl" placeholder="назва фонду" autocomplete="off">
-        <div class="form-actions"><button type="submit">Додати</button></div>
-      </form>
+      ${formHTML({
+    id: "npfAddForm", cls: "row-h mt", submit: "Додати",
+    fields: [text("name", "", { ph: "назва фонду", cls: "w-xl" })],
+  })}
       <div class="sub-xs muted">Внески записуються в «Портфелі», у рядку рахунку. Тут — те, чого
         з внесків не вивести: дата доступу, обидва податки й день нагадування.</div>
     </div>`;
 }
 
-// Спільна прошивка для обох довідників: різняться лише ендпойнтом.
+// Спільна прошивка для довідників: різняться лише ендпойнтом.
+//
+// Правку-на-місці робить тепер спільний inlineEdit (crud.js). Доти той
+// самий прийом був написаний тут і ще раз у продажах ОВДП, майже слово в
+// слово: зібрати поля за data-field, звірити з попереднім станом, дописати
+// числам Number(), відправити PUT. Розходились копії в дрібниці — тут
+// слухали ще й Enter, там ні.
 export function bindCatalog(ctx, card, path) {
   if (!card) return;
+  inlineEdit(ctx, card, {
+    rows: "[data-cat]", fields: ".cat-f",
+    path: (row) => `${path}/${row.dataset.cat}`,
+    // Порожня назва не зберігається: у довіднику вона єдиний спосіб
+    // упізнати запис, і безіменний рядок неможливо ані знайти, ані
+    // виправити назад.
+    guard: (values) => !!String(values.name || "").trim(),
+  });
   card.querySelectorAll("[data-cat]").forEach((row) => {
-    const id = row.dataset.cat;
     const name = row.querySelector(".cat-name");
-    const fields = [...row.querySelectorAll(".cat-f")];
-    const key = () => [name.value.trim(), ...fields.map((f) => f.value.trim())].join("|");
-    row.dataset.was = key();
-    const commit = async () => {
-      if (!name.value.trim() || key() === row.dataset.was) return;
-      row.dataset.was = key();
-      const body = { name: name.value.trim() };
-      // Числові поля йдуть числом: порожнє = 0, тобто «не задано».
-      // Відсотки лишаються рядком — так порожнє поле відрізняється від нуля.
-      fields.forEach((f) => {
-        body[f.dataset.field] = f.dataset.num ? Number(f.value.trim()) || 0 : f.value.trim();
-      });
-      await apply(ctx, { method: "PUT", path: `${path}/${id}`, body }, "Збережено");
-    };
-    for (const el of [name, ...fields]) {
-      if (!el) continue;
-      el.addEventListener("blur", commit);
-      // change потрібен випадайці: вибір мишею фокуса не знімає, тож на
-      // самому blur вид фонду зберігався б аж після кліку кудись повз.
-      // Для текстових полів це зайвий виклик, але не зайва робота —
-      // commit виходить одразу, якщо з минулого разу нічого не змінилось.
-      el.addEventListener("change", commit);
-      el.addEventListener("keydown", (e) => { if (e.key === "Enter") el.blur(); });
-    }
     onDelete(ctx, row, "[data-catdel]", () => ({
-      path: `${path}/${id}`, confirm: `Видалити «${name.value}»?`,
+      path: `${path}/${row.dataset.cat}`,
+      confirm: `Видалити «${name.value}»?`,
     }));
   });
 }

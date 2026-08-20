@@ -6,6 +6,7 @@ import {
   fundsCost, marketCostUAH,
 } from "../format.js";
 import { infoBtn } from "../info.js";
+import { opsGrid } from "../grid.js";
 import { svgBars, svgGrouped, svgDonut, fluid } from "../charts.js";
 import { tile, yieldNote, needsSetting, empty, legend } from "../components.js";
 import { routeFor } from "../routes.js";
@@ -388,6 +389,11 @@ export function rateRiskCard(ctx) {
   const rr = ctx.summary && ctx.summary.rate_risk;
   if (!rr || (!rr.duration_years && !rr.reinvest_years)) return "";
 
+  // Знак і тон — поруч, бо обидва читають одне й те саме число: плюс
+  // зелений, мінус червоний. Доти вони жили всередині map'а рядків.
+  const sgn = (v) => (v > 0 ? "+" : "");
+  const tone = (x) => (x.change_pct >= 0 ? "t-ok" : "t-danger");
+
   const priceBlock = rr.duration_years ? `
     <h4>Чутливість ціни · лише ОВДП</h4>
     <div class="tiles flush">
@@ -395,15 +401,18 @@ export function rateRiskCard(ctx) {
       <div class="tile"><div class="lbl">Модифікована</div><div class="val">${rr.modified_dur}</div></div>
       <div class="tile"><div class="lbl">Приведена вартість</div><div class="val">${fmtUAH(rr.pv_uah)}</div></div>
     </div>
-    <div class="table-scroll"><table>
-      <thead><tr><th>Зміна ставок</th><th class="num">Вартість</th><th class="num">У грошах</th></tr></thead>
-      <tbody>${(rr.scenarios || []).map((x) => {
-        const tone = x.change_pct >= 0 ? "t-ok" : "t-danger";
-        const sgn = (v) => (v > 0 ? "+" : "");
-        return `<tr><td>${sgn(x.delta_pp)}${x.delta_pp} п.п.</td>
-          <td class="num ${tone}">${sgn(x.change_pct)}${x.change_pct}%</td>
-          <td class="num ${tone}">${sgn(x.change_uah)}${fmtUAH(x.change_uah)}</td></tr>`;
-      }).join("")}</tbody></table></div>
+    ${opsGrid({
+    cols: [
+      { key: "delta", label: "Зміна ставок",
+        cell: (x) => `${sgn(x.delta_pp)}${x.delta_pp} п.п.` },
+      { key: "change_pct", label: "Вартість", num: true,
+        cell: (x) => `<span class="${tone(x)}">${sgn(x.change_pct)}${x.change_pct}%</span>` },
+      { key: "change_uah", label: "У грошах", num: true,
+        cell: (x) => `<span class="${tone(x)}">${sgn(x.change_uah)}${fmtUAH(x.change_uah)}</span>` },
+    ],
+    rows: rr.scenarios || [],
+    caption: "Чутливість ціни ОВДП до зміни ставок: зсув, зміна вартості у відсотках і в грошах",
+  })}
     <div class="muted mt-sm fine">Модифікована дюрація показує, на скільки %
       змінюється ціна паперів при зміні ставок на 1 п.п. <b>Тримаєш до погашення — просадка лише
       паперова</b>: ризик реалізується при продажі на вторинці. Вклади сюди не входять — переоцінити
@@ -446,16 +455,21 @@ export function ladderTableHTML(ctx) {
     <div class="sub">Скільки капіталу повертається за роками — номінал ОВДП і тіло вкладів разом
       (окремо UAH / USD / EUR). Фонди не входять: сертифікат не гаситься.</div>
     ${ladderBarsHTML(ctx)}
-    ${lad.length ? `<table><thead><tr>
-      <th>Рік</th><th class="num">UAH</th><th></th><th class="num">USD</th><th></th><th class="num">EUR</th><th></th></tr></thead><tbody>
-      ${lad.map((r) => `<tr>
-        <td>${r.year}</td>
-        <td class="num">${r.uah ? fmtUAH(r.uah) : "—"}</td><td>${bar(r.uah, "var(--oi-accent)")}</td>
-        <td class="num">${fx(r.usd, "$")}</td><td>${bar(r.usd, "var(--oi-info)")}</td>
-        <td class="num">${fx(r.eur, "€")}</td><td>${bar(r.eur, "var(--oi-warn)")}</td></tr>`).join("")}</tbody></table>`
-      : empty("Драбини ще немає",
-          "Драбина показує, скільки повертається кожного року. Вона будується з погашень, тож з'явиться разом із першим папером.",
-          { href: routeFor("buy"), label: "Записати покупку" })}
+    ${opsGrid({
+    cols: [
+      { key: "year", label: "Рік", cell: (r) => String(r.year) },
+      { key: "uah", label: "UAH", num: true, cell: (r) => (r.uah ? fmtUAH(r.uah) : "—") },
+      { key: "uah_bar", label: "", cell: (r) => bar(r.uah, "var(--oi-accent)") },
+      { key: "usd", label: "USD", num: true, cell: (r) => fx(r.usd, "$") },
+      { key: "usd_bar", label: "", cell: (r) => bar(r.usd, "var(--oi-info)") },
+      { key: "eur", label: "EUR", num: true, cell: (r) => fx(r.eur, "€") },
+      { key: "eur_bar", label: "", cell: (r) => bar(r.eur, "var(--oi-warn)") },
+    ],
+    rows: lad,
+    caption: "Драбина погашень по роках: скільки повертається в кожній валюті",
+  }) || empty("Драбини ще немає",
+    "Драбина показує, скільки повертається кожного року. Вона будується з погашень, тож з'явиться разом із першим папером.",
+    { href: routeFor("buy"), label: "Записати покупку" })}
   </div>`;
 }
 

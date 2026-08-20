@@ -19,36 +19,106 @@
 // Тобто дві форми замість однієї не потребують жодної нової машинерії.
 
 import { esc, pct } from "../format.js";
+import { money as moneyField, pct as pctField, date as dateField, selectOf, formHTML } from "../fields.js";
 import { tile } from "../components.js";
 import { onSubmit } from "../forms.js";
 import { infoBtn } from "../info.js";
+import { opsGrid } from "../grid.js";
 import { strategyCardHTML, wireStrategy, RANKS } from "./strategy.js";
 
 // Обидві форми пишуть у той самий PUT /settings і відрізняються лише
 // списком полів. Збираємо payload із тих, що РЕАЛЬНО є у формі: PUT
 // частковий, тож відсутнє поле не шлеться порожнім і не затирає значення.
 // «channels» тут свідомо немає: брокерами керує окремий довідник.
-const settingsPut = (keys) => (f) => {
+const settingsPut = (spec) => (f) => {
   const body = {};
-  for (const k of keys) {
-    if (f.elements[k]) body[k] = f.elements[k].value.trim();
+  for (const { key } of spec) {
+    if (f.elements[key]) body[key] = f.elements[key].value.trim();
   }
   return { method: "PUT", path: "settings", body, msg: "Налаштування збережено" };
 };
 
+// ОДНА специфікація на форму: з неї малюються поля І з неї ж збирається
+// список ключів для часткового PUT.
+//
+// Доти ключі писались ДВІЧІ — у розмітці поля й у settingsPut([...]) на
+// сорок рядків нижче, — і розходились би найтихішим із можливих способів:
+// забутий у другому списку ключ просто не зберігався б. Форма подавалась,
+// тост казав «Налаштування збережено», поле мовчки лишалось як було.
+//
+// type: "money" — сума, "pct" — відсоток або кількість років, "date" —
+// дата, "select" — вибір із opts. Різниця між money й pct не косметична:
+// вона каже, що саме читати в полі, і дозволяє змінити поведінку всіх
+// відсоткових полів застосунку однією правкою.
+function settingsField({ key, label, ph = "", type = "money", opts = null }, s) {
+  const value = s[key] || "";
+  if (type === "date") return dateField(key, label, { value });
+  if (type === "select") return selectOf(key, label, opts, s[key] || opts[0][0]);
+  const make = type === "pct" ? pctField : moneyField;
+  return make(key, label, { ph, value });
+}
+
+function settingsForm(id, s, spec, submit = "Зберегти") {
+  return formHTML({ id, submit, fields: spec.map((f) => settingsField(f, s)) });
+}
+
+
+// Дев'ять форм «Політики» — це дев'ять таких списків і нічого більше.
+const SPEC = {
+  deposit: [
+    { key: "deposit_min_usd", label: "Мінімум вкладу USD", ph: "порожньо = 100" },
+    { key: "deposit_min_eur", label: "Мінімум вкладу EUR", ph: "порожньо = 100" },
+    { key: "deposit_min_uah", label: "Мінімум вкладу UAH", ph: "порожньо = вимкнено, дефолту немає" },
+    { key: "deposit_rate_usd_pct", label: "Ставка нового вкладу USD, %", type: "pct", ph: "порожньо = без поради" },
+    { key: "deposit_rate_eur_pct", label: "Ставка нового вкладу EUR, %", type: "pct", ph: "порожньо = без поради" },
+    { key: "deposit_rate_uah_pct", label: "Ставка нового вкладу UAH, %", type: "pct", ph: "порожньо = без поради" },
+  ],
+  rank: [
+    { key: "reinvest_rank", label: "Критерій", type: "select", opts: RANKS },
+  ],
+  kindTargets: [
+    { key: "target_bonds_pct", label: "Ціль ОВДП, %", type: "pct", ph: "порожньо = без цілі" },
+    { key: "target_funds_pct", label: "Ціль фондів, %", type: "pct", ph: "порожньо = без цілі" },
+    { key: "target_deposits_pct", label: "Ціль вкладів, %", type: "pct", ph: "порожньо = без цілі" },
+    { key: "target_npf_pct", label: "Ціль НПФ, %", type: "pct", ph: "порожньо = без цілі" },
+  ],
+  npfCredit: [
+    { key: "npf_credit_pdfo_year_uah", label: "Утриманий за рік ПДФО, ₴", ph: "порожньо = знижку не рахувати" },
+    { key: "npf_credit_cap_month_uah", label: "Ліміт внеску за місяць, ₴", ph: "4660 у 2026" },
+  ],
+  limits: [
+    { key: "limit_isin_pct", label: "Макс. в одному папері, %", type: "pct", ph: "порожньо = без ліміту" },
+    { key: "limit_broker_pct", label: "Макс. в одній установі, %", type: "pct", ph: "брокер або банк" },
+    { key: "limit_year_pct", label: "Макс. погашень в один рік, %", type: "pct", ph: "від усіх погашень" },
+  ],
+  reserve: [
+    { key: "monthly_expenses_uah", label: "Місячні витрати, ₴", ph: "порожньо = не рахувати" },
+    { key: "reserve_target_months", label: "Ціль запасу, місяців", type: "pct", ph: "напр. 6" },
+    { key: "reserve_fill_share_pct", label: "З вільних грошей у резерв, %", type: "pct", ph: "порожньо = не пропонувати" },
+  ],
+  forecast: [
+    { key: "income_target_uah", label: "Достатній дохід, ₴/міс", ph: "порожньо = місячні витрати" },
+    { key: "withdraw_monthly_uah", label: "Знімати щомісяця, ₴", ph: "порожньо = місячні витрати" },
+    { key: "rate_spread_pp", label: "Розкид ставки, п.п.", type: "pct", ph: "порожньо = 3" },
+    { key: "deval_spread_pp", label: "Розкид знецінення, п.п.", type: "pct", ph: "порожньо = 4" },
+  ],
+  goal: [
+    { key: "goal_amount_uah", label: "Ціль, ₴", ph: "скільки хочу накопичити" },
+    { key: "goal_date", label: "Дедлайн — коли", type: "date" },
+    { key: "usd_target_share_pct", label: "Цільова частка USD, %", type: "pct" },
+    { key: "eur_target_share_pct", label: "Цільова частка EUR, %", type: "pct" },
+  ],
+  rateAssumptions: [
+    { key: "uah_devaluation_pct", label: "Гривня слабшає, %/рік", type: "pct", ph: "порожньо = виміряне" },
+    { key: "terminal_rate_pct", label: "Довгострокова ставка ОВДП, %", type: "pct", ph: "порожньо = 11" },
+    { key: "rate_glide_years", label: "Ставка сповзає туди за, років", type: "pct", ph: "порожньо = 5" },
+  ],
+};
 
 function depositCard(s) {
   return `<div class="card">
   <h2 class="h-row">Вклади як інструмент реінвесту ${infoBtn("setDeposits")}</h2>
-  <form id="depositSettingsForm">
-    <label>Мінімум вкладу USD<input name="deposit_min_usd" inputmode="decimal" placeholder="порожньо = 100" value="${esc(s.deposit_min_usd || "")}"></label>
-    <label>Мінімум вкладу EUR<input name="deposit_min_eur" inputmode="decimal" placeholder="порожньо = 100" value="${esc(s.deposit_min_eur || "")}"></label>
-    <label>Мінімум вкладу UAH<input name="deposit_min_uah" inputmode="decimal" placeholder="порожньо = вимкнено, дефолту немає" value="${esc(s.deposit_min_uah || "")}"></label>
-    <label>Ставка нового вкладу USD, %<input name="deposit_rate_usd_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_usd_pct || "")}"></label>
-    <label>Ставка нового вкладу EUR, %<input name="deposit_rate_eur_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_eur_pct || "")}"></label>
-    <label>Ставка нового вкладу UAH, %<input name="deposit_rate_uah_pct" inputmode="decimal" placeholder="порожньо = без поради" value="${esc(s.deposit_rate_uah_pct || "")}"></label>
-    <div class="form-actions"><button type="submit">Зберегти</button></div>
-  </form>
+  ${settingsForm("depositSettingsForm", s, SPEC.deposit)}
   <div class="sub-xs muted">Ставка й мінімум працюють лише В ПАРІ, і в одній валюті одразу: рядок
     «Новий вклад» у «Що купити» зʼявляється, коли задані ОБИДВА. Ставка без мінімуму — число, від
     якого нема чого відрахувати крок; мінімум без ставки — крок, який нема з чим порівняти.
@@ -64,13 +134,7 @@ function depositCard(s) {
 function rankCard(s) {
   return `<div class="card">
   <h2 class="h-row">Порядок у «Що купити» ${infoBtn("setRank")}</h2>
-  <form id="rankForm">
-    <label>Критерій<select name="reinvest_rank">${
-      RANKS
-        .map(([v, t]) => `<option value="${v}"${(s.reinvest_rank || "plan") === v ? " selected" : ""}>${t}</option>`)
-        .join("")}</select></label>
-    <div class="form-actions"><button type="submit">Зберегти</button></div>
-  </form>
+  ${settingsForm("rankForm", s, SPEC.rank)}
 </div>
 `;
 }
@@ -78,13 +142,7 @@ function rankCard(s) {
 function kindTargetsCard(s) {
   return `<div class="card">
   <h2 class="h-row">Структура за видом інструмента ${infoBtn("setKinds")}</h2>
-  <form id="kindTargetsForm">
-    <label>Ціль ОВДП, %<input name="target_bonds_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_bonds_pct || "")}"></label>
-    <label>Ціль фондів, %<input name="target_funds_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_funds_pct || "")}"></label>
-    <label>Ціль вкладів, %<input name="target_deposits_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_deposits_pct || "")}"></label>
-    <label>Ціль НПФ, %<input name="target_npf_pct" inputmode="decimal" placeholder="порожньо = без цілі" value="${esc(s.target_npf_pct || "")}"></label>
-    <div class="form-actions"><button type="submit">Зберегти</button></div>
-  </form>
+  ${settingsForm("kindTargetsForm", s, SPEC.kindTargets)}
 </div>
 `;
 }
@@ -92,13 +150,7 @@ function kindTargetsCard(s) {
 function npfCreditCard(s) {
   return `<div class="card">
   <h2 class="h-row">Податкова знижка на внески в НПФ ${infoBtn("setNPFCredit")}</h2>
-  <form id="npfCreditForm">
-    <label>Утриманий за рік ПДФО, ₴<input name="npf_credit_pdfo_year_uah" inputmode="decimal"
-      placeholder="порожньо = знижку не рахувати" value="${esc(s.npf_credit_pdfo_year_uah || "")}"></label>
-    <label>Ліміт внеску за місяць, ₴<input name="npf_credit_cap_month_uah" inputmode="decimal"
-      placeholder="4660 у 2026" value="${esc(s.npf_credit_cap_month_uah || "")}"></label>
-    <div class="form-actions"><button type="submit">Зберегти</button></div>
-  </form>
+  ${settingsForm("npfCreditForm", s, SPEC.npfCredit)}
   <div class="sub-xs muted">Перше поле — і перемикач, і стеля: держава повертає сплачене, а не
     дарує. Порожньо = знижка не рахується. Працює лише проти ЗАРПЛАТИ: дохід ФОПа права на неї
     не дає. Ліміт щороку інший — прожитковий мінімум працездатних на 1 січня × 1,4.
@@ -110,12 +162,7 @@ function npfCreditCard(s) {
 function limitsCard(s) {
   return `<div class="card">
   <h2 class="h-row">Ліміти концентрації ${infoBtn("setLimits")}</h2>
-  <form id="limitsForm">
-    <label>Макс. в одному папері, %<input name="limit_isin_pct" inputmode="decimal" placeholder="порожньо = без ліміту" value="${esc(s.limit_isin_pct || "")}"></label>
-    <label>Макс. в одній установі, %<input name="limit_broker_pct" inputmode="decimal" placeholder="брокер або банк" value="${esc(s.limit_broker_pct || "")}"></label>
-    <label>Макс. погашень в один рік, %<input name="limit_year_pct" inputmode="decimal" placeholder="від усіх погашень" value="${esc(s.limit_year_pct || "")}"></label>
-    <div class="form-actions"><button type="submit">Зберегти</button></div>
-  </form>
+  ${settingsForm("limitsForm", s, SPEC.limits)}
 </div>
 `;
 }
@@ -123,13 +170,7 @@ function limitsCard(s) {
 function reserveSettingsCard(s) {
   return `<div class="card">
   <h2 class="h-row">Резерв на чорний день ${infoBtn("setReserve")}</h2>
-  <form id="reserveSettingsForm">
-    <label>Місячні витрати, ₴<input name="monthly_expenses_uah" inputmode="decimal" placeholder="порожньо = не рахувати" value="${esc(s.monthly_expenses_uah || "")}"></label>
-    <label>Ціль запасу, місяців<input name="reserve_target_months" inputmode="decimal" placeholder="напр. 6" value="${esc(s.reserve_target_months || "")}"></label>
-    <label>З вільних грошей у резерв, %<input name="reserve_fill_share_pct" inputmode="decimal"
-      placeholder="порожньо = не пропонувати" value="${esc(s.reserve_fill_share_pct || "")}"></label>
-    <div class="form-actions"><button type="submit">Зберегти</button></div>
-  </form>
+  ${settingsForm("reserveSettingsForm", s, SPEC.reserve)}
   <div class="sub-xs muted">Третє поле — це СТЕЛЯ, а не черга: доки запасу бракує, у «Що купити»
     з'явиться рядок «спершу поповнити резерв» на вказану частку вільних грошей, а решта далі йде
     в папери. Порожньо = застосунок про резерв не заговорить. Резерв від цього не стає
@@ -141,13 +182,7 @@ function reserveSettingsCard(s) {
 function forecastCard(s) {
   return `<div class="card">
   <h2 class="h-row">Припущення прогнозу ${infoBtn("setForecast")}</h2>
-  <form id="forecastAssumptionsForm">
-    <label>Достатній дохід, ₴/міс<input name="income_target_uah" inputmode="decimal" placeholder="порожньо = місячні витрати" value="${esc(s.income_target_uah || "")}"></label>
-    <label>Знімати щомісяця, ₴<input name="withdraw_monthly_uah" inputmode="decimal" placeholder="порожньо = місячні витрати" value="${esc(s.withdraw_monthly_uah || "")}"></label>
-    <label>Розкид ставки, п.п.<input name="rate_spread_pp" inputmode="decimal" placeholder="порожньо = 3" value="${esc(s.rate_spread_pp || "")}"></label>
-    <label>Розкид знецінення, п.п.<input name="deval_spread_pp" inputmode="decimal" placeholder="порожньо = 4" value="${esc(s.deval_spread_pp || "")}"></label>
-    <div class="form-actions"><button type="submit">Зберегти</button></div>
-  </form>
+  ${settingsForm("forecastAssumptionsForm", s, SPEC.forecast)}
 </div>
 `;
 }
@@ -163,9 +198,17 @@ function devalHTML(d) {
     measured: "виміряно з курсів НБУ",
     default: "припущення — даних ще замало",
   }[d.source] || d.source;
-  const rows = (d.windows || []).map((w) => `<tr>
-    <td>${esc(w.label)}</td><td class="num">${pct(w.pct)}</td>
-    <td class="muted sub-xs">${esc(w.from)} → ${esc(w.to)}</td></tr>`).join("");
+  const windows = d.windows || [];
+  const table = opsGrid({
+    cols: [
+      { key: "label", label: "Вікно", cell: (w) => esc(w.label) },
+      { key: "pct", label: "%/рік", num: true, cell: (w) => pct(w.pct) },
+      { key: "range", label: "Курс від → до", cls: "muted sub-xs",
+        cell: (w) => esc(w.from) + " → " + esc(w.to) },
+    ],
+    rows: windows,
+    caption: "Знецінення гривні по вікнах: період, відсоток на рік, курси",
+  });
   return `<div class="card">
     <h2>Знецінення гривні</h2>
     <div class="tiles flush mb">
@@ -174,9 +217,7 @@ function devalHTML(d) {
     <div class="muted fine mb">Це число ділить <b>кожну реальну
       дохідність</b> у застосунку й керує прогнозом. Порожнє поле «Гривня слабшає» вище означає
       «бери виміряне» — саме так його й повертають назад на автоматику.</div>
-    ${rows ? `<div class="table-scroll"><table><thead><tr>
-        <th>Вікно</th><th class="num">%/рік</th><th>Курс від → до</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>
+    ${windows.length ? `${table}
       <div class="sub mt-sm">Застосунок бере <b>десятирічне</b> вікно, і різниця між
         рядками пояснює чому: гривня падає стрибками, тож коротке вікно ловить або стрибок, або
         затишшя між ними. Довге усереднює і те, і те.</div>`
@@ -190,13 +231,7 @@ function devalHTML(d) {
 function goalCard(s) {
   return `<div class="card">
     <h2 class="h-row">Ціль і валюта ${infoBtn("planFlows")}</h2>
-    <form id="goalForm">
-      <label>Ціль, ₴<input name="goal_amount_uah" inputmode="decimal" placeholder="скільки хочу накопичити" value="${esc(s.goal_amount_uah || "")}"></label>
-      <label>Дедлайн — коли<input name="goal_date" type="date" value="${esc(s.goal_date || "")}"></label>
-      <label>Цільова частка USD, %<input name="usd_target_share_pct" inputmode="decimal" value="${esc(s.usd_target_share_pct || "")}"></label>
-      <label>Цільова частка EUR, %<input name="eur_target_share_pct" inputmode="decimal" value="${esc(s.eur_target_share_pct || "")}"></label>
-      <div class="form-actions"><button type="submit">Зберегти</button></div>
-    </form>
+    ${settingsForm("goalForm", s, SPEC.goal)}
   </div>`;
 }
 
@@ -207,12 +242,7 @@ function goalCard(s) {
 function rateAssumptionsCard(s) {
   return `<div class="card">
     <h2 class="h-row">Ставка й знецінення ${infoBtn("setForecast")}</h2>
-    <form id="rateAssumptionsForm">
-      <label>Гривня слабшає, %/рік<input name="uah_devaluation_pct" inputmode="decimal" placeholder="порожньо = виміряне" value="${esc(s.uah_devaluation_pct || "")}"></label>
-      <label>Довгострокова ставка ОВДП, %<input name="terminal_rate_pct" inputmode="decimal" placeholder="порожньо = 11" value="${esc(s.terminal_rate_pct || "")}"></label>
-      <label>Ставка сповзає туди за, років<input name="rate_glide_years" inputmode="decimal" placeholder="порожньо = 5" value="${esc(s.rate_glide_years || "")}"></label>
-      <div class="form-actions"><button type="submit">Зберегти</button></div>
-    </form>
+    ${settingsForm("rateAssumptionsForm", s, SPEC.rateAssumptions)}
   </div>`;
 }
 
@@ -221,21 +251,15 @@ export async function strategy(ctx, main) {
   const s = await ctx.api("GET", "settings");
   main.innerHTML = `${strategyCardHTML(ctx, s)}${goalCard(s)}`;
   wireStrategy(ctx, main, s);
-  onSubmit(ctx, main.querySelector("#goalForm"), settingsPut([
-    "goal_amount_uah", "goal_date", "usd_target_share_pct", "eur_target_share_pct",
-  ]));
+  onSubmit(ctx, main.querySelector("#goalForm"), settingsPut(SPEC.goal));
 }
 
 /** Частки й межі: скільки чого має бути і скільки чого забагато. */
 export async function mix(ctx, main) {
   const s = await ctx.api("GET", "settings");
   main.innerHTML = `${kindTargetsCard(s)}${limitsCard(s)}`;
-  onSubmit(ctx, main.querySelector("#kindTargetsForm"), settingsPut([
-    "target_bonds_pct", "target_funds_pct", "target_deposits_pct", "target_npf_pct",
-  ]));
-  onSubmit(ctx, main.querySelector("#limitsForm"), settingsPut([
-    "limit_isin_pct", "limit_broker_pct", "limit_year_pct",
-  ]));
+  onSubmit(ctx, main.querySelector("#kindTargetsForm"), settingsPut(SPEC.kindTargets));
+  onSubmit(ctx, main.querySelector("#limitsForm"), settingsPut(SPEC.limits));
 }
 
 /** Інструменти реінвесту: за яких умов помічник узагалі радить вклад,
@@ -243,14 +267,9 @@ export async function mix(ctx, main) {
 export async function instruments(ctx, main) {
   const s = await ctx.api("GET", "settings");
   main.innerHTML = `${depositCard(s)}${rankCard(s)}${npfCreditCard(s)}`;
-  onSubmit(ctx, main.querySelector("#depositSettingsForm"), settingsPut([
-    "deposit_min_usd", "deposit_min_eur", "deposit_min_uah",
-    "deposit_rate_usd_pct", "deposit_rate_eur_pct", "deposit_rate_uah_pct",
-  ]));
-  onSubmit(ctx, main.querySelector("#rankForm"), settingsPut(["reinvest_rank"]));
-  onSubmit(ctx, main.querySelector("#npfCreditForm"), settingsPut([
-    "npf_credit_pdfo_year_uah", "npf_credit_cap_month_uah",
-  ]));
+  onSubmit(ctx, main.querySelector("#depositSettingsForm"), settingsPut(SPEC.deposit));
+  onSubmit(ctx, main.querySelector("#rankForm"), settingsPut(SPEC.rank));
+  onSubmit(ctx, main.querySelector("#npfCreditForm"), settingsPut(SPEC.npfCredit));
 }
 
 /** Резерв: скільки я витрачаю за місяць, на скільки місяців хочу запас і
@@ -261,9 +280,7 @@ export async function instruments(ctx, main) {
 export async function reserve(ctx, main) {
   const s = await ctx.api("GET", "settings");
   main.innerHTML = reserveSettingsCard(s);
-  onSubmit(ctx, main.querySelector("#reserveSettingsForm"), settingsPut([
-    "monthly_expenses_uah", "reserve_target_months", "reserve_fill_share_pct",
-  ]));
+  onSubmit(ctx, main.querySelector("#reserveSettingsForm"), settingsPut(SPEC.reserve));
 }
 
 /** Припущення: те, що застосунок вважає ймовірним, а не заданим. */
@@ -273,10 +290,6 @@ export async function assumptions(ctx, main) {
     ctx.soft("devaluation", null),
   ]);
   main.innerHTML = `${rateAssumptionsCard(s)}${forecastCard(s)}${devalHTML(deval)}`;
-  onSubmit(ctx, main.querySelector("#rateAssumptionsForm"), settingsPut([
-    "uah_devaluation_pct", "terminal_rate_pct", "rate_glide_years",
-  ]));
-  onSubmit(ctx, main.querySelector("#forecastAssumptionsForm"), settingsPut([
-    "income_target_uah", "withdraw_monthly_uah", "rate_spread_pp", "deval_spread_pp",
-  ]));
+  onSubmit(ctx, main.querySelector("#rateAssumptionsForm"), settingsPut(SPEC.rateAssumptions));
+  onSubmit(ctx, main.querySelector("#forecastAssumptionsForm"), settingsPut(SPEC.forecast));
 }

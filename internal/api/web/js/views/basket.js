@@ -14,6 +14,7 @@
 
 import { esc, curSym, cur2 as fmtCur, uah2 as fmtUAH } from "../format.js";
 import { infoBtn } from "../info.js";
+import { opsGrid } from "../grid.js";
 
 const KEY = "oddinvest.basket";
 const asPct = (v) => `${v.toFixed(2)}%`;
@@ -94,16 +95,26 @@ function newBreaches(before, after) {
 }
 
 function linesHTML(basket) {
-  return `<table><thead><tr><th>Що</th><th class="num">К-сть</th>
-    <th class="num">За штуку</th><th class="num">Разом</th><th>Де</th><th></th></tr></thead><tbody>
-    ${(basket.lines || []).map((l) => `<tr>
-      <td>${esc(l.label)}</td><td class="num">${l.qty}</td>
-      <td class="num">${fmtCur(Number(l.unit.amount), curSym(l.currency))}</td>
-      <td class="num">${fmtCur(Number(l.total.amount), curSym(l.currency))}</td>
-      <td>${esc(l.broker)}${l.broker_assumed
-        ? `<span class="muted fine-xs"> · обрано за залишком</span>` : ""}</td>
-      <td class="row-actions"><button class="sm warn" data-bskdel="${esc(l.kind)}|${esc(l.label)}">✕</button></td>
-    </tr>`).join("")}</tbody></table>`;
+  return opsGrid({
+    cols: [
+      { key: "label", label: "Що", cell: (l) => esc(l.label) },
+      { key: "qty", label: "К-сть", num: true, cell: (l) => String(l.qty) },
+      { key: "unit", label: "За штуку", num: true,
+        cell: (l) => fmtCur(Number(l.unit.amount), curSym(l.currency)) },
+      { key: "total", label: "Разом", num: true,
+        cell: (l) => fmtCur(Number(l.total.amount), curSym(l.currency)) },
+      { key: "broker", label: "Де", cell: (l) => esc(l.broker) + (l.broker_assumed
+        ? `<span class="muted fine-xs"> · обрано за залишком</span>` : "") },
+      // Кошик живе в localStorage, а не в базі: рядок не має id на сервері,
+      // і видаляється він за парою «вид|назва». Тому кнопка тут своя, а не
+      // з actionsCol — той будує шлях до ресурсу, якого не існує.
+      { key: "acts", label: "", cls: "row-actions nowrap",
+        cell: (l) => `<button class="sm warn" data-bskdel="${esc(l.kind)}|${esc(l.label)}"
+          aria-label="Прибрати ${esc(l.label)} з кошика">✕</button>` },
+    ],
+    rows: basket.lines || [],
+    caption: "Кошик покупки: що, кількість, ціна, сума, брокер",
+  });
 }
 
 /** Картка кошика. Порожній кошик не малює НІЧОГО, і це рішення пережило

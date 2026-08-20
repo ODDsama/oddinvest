@@ -7,19 +7,21 @@
 // частина капіталу, і питання «що я маю» без нього неповне.
 
 import {
-  esc, curSym, today, dayMonth, pct, daysUntil,
+  esc, curSym, dayMonth, pct, daysUntil,
   uah2 as fmtUAH, money as fmtMoney,
 } from "../format.js";
 import { PAYOUT_LABEL } from "../constants.js";
 import { infoBtn } from "../info.js";
 import { yieldPair, empty, kindPill } from "../components.js";
+import { opsGrid, actionsCol, rowActions } from "../grid.js";
+import { check as checkField } from "../fields.js";
 import { routeFor } from "../routes.js";
 import { fundTable, setFundOps, wireFundOps } from "../fund-ops.js";
 import { npfDetailHTML, setNPF, wireNPF } from "../npf.js";
 import { isOpen, remember } from "../uistate.js";
 import { wireDisclosures } from "../disclosure.js";
 import { wireBonds } from "./bonds.js";
-import { wireDeposits } from "./deposits.js";
+import { wireDeposits, topupFormHTML, closeFormHTML } from "./deposits.js";
 
 
 const POS_COLS = 7;
@@ -38,8 +40,8 @@ const OPEN_SCOPE = "positions";
 // номінальна й основа: з чого число взялося — обіцянка (купон, ставка)
 // чи факт (дивіденди зі зміною ціни). Ховати цю різницю нечесно.
 function realCell(real, nominal, basis) {
-  if (!real) return `<td class="num muted col-yield" data-label="Дохідність">—</td>`;
-  return `<td class="num col-yield" data-label="Дохідність">${yieldPair(real, nominal, basis)}</td>`;
+  if (!real) return `<td class="num muted col-yield" data-col="yield" data-label="Дохідність">—</td>`;
+  return `<td class="num col-yield" data-col="yield" data-label="Дохідність">${yieldPair(real, nominal, basis)}</td>`;
 }
 
 function bondDetailHTML(p, lots, sales) {
@@ -47,36 +49,51 @@ function bondDetailHTML(p, lots, sales) {
   const mySales = sales.filter((s) => s.isin === p.isin);
   const next = p.next_pay_date
     ? `<div class="sub">Наступна виплата: ${esc(p.next_pay_date)} · ${fmtMoney(p.next_pay_amount)}</div>` : "";
-  const lotsTbl = myLots.length ? `<h4>Лоти</h4><table><thead><tr>
-      <th>ID</th><th class="num">К-сть</th><th class="num">Залишок</th><th class="num">Ціна</th>
-      <th class="num">Комісія</th><th>Куплено</th><th>Брокер</th><th></th></tr></thead><tbody>
-      ${myLots.map((l) => `<tr><td>${l.id}</td><td class="num">${l.qty}</td><td class="num">${l.remaining}</td>
-        <td class="num">${fmtMoney(l.price_per_bond)}</td><td class="num">${fmtMoney(l.fee)}</td>
-        <td>${esc(l.buy_date)}</td><td>${esc(l.channel || "")}</td>
-        <td class="row-actions"><button class="sm warn" data-del="${l.id}">✕</button></td></tr>`).join("")}
-      </tbody></table>` : "";
-  // Продажі редагуються на місці. Лот поруч — лише з кнопкою видалення,
-  // і різниця навмисна: помилку в лоті видно одразу (він з'явився не з
-  // тим ISIN), а в продажі — ні, бо на екрані стоїть уже ЗВЕДЕНИЙ
-  // результат, і розходження з випискою брокера в 6 гривень не каже,
-  // котре з чотирьох полів набрано не так.
+
+  // «Вкладено» й «Комісія» другорядні: на телефоні рядок деталей і так
+  // тісний, а обидва числа зводяться в позиції вище.
+  const lotsTbl = myLots.length ? `<h4>Лоти</h4>` + opsGrid({
+    cols: [
+      { key: "id", label: "ID", cell: (l) => String(l.id) },
+      { key: "qty", label: "К-сть", num: true, cell: (l) => String(l.qty) },
+      { key: "remaining", label: "Залишок", num: true, cell: (l) => String(l.remaining) },
+      { key: "price", label: "Ціна", num: true, cell: (l) => fmtMoney(l.price_per_bond) },
+      { key: "fee", label: "Комісія", num: true, prio: 3, cell: (l) => fmtMoney(l.fee) },
+      { key: "buy_date", label: "Куплено", cell: (l) => esc(l.buy_date) },
+      { key: "channel", label: "Брокер", prio: 3, cell: (l) => esc(l.channel || "") },
+      actionsCol("lots", { label: (l) => "лот #" + l.id + " " + l.isin }),
+    ],
+    rows: myLots,
+    caption: `Лоти ${esc(p.isin)}: кількість, залишок, ціна, комісія, дата, брокер`,
+  }) : "";
+
+  // Продажі правляться НА МІСЦІ — чому саме так, написано у bonds.js біля
+  // wireSales. Тому колонка дій тут лише з ✕: другий вхід у правку через
+  // модалку означав би два способи змінити одне число.
   //
-  // lot_id і валюта їдуть у data-атрибутах: PUT замінює продаж цілком,
-  // а в самому рядку їх не видно.
+  // lot_id і валюта їдуть у data-атрибутах рядка: PUT замінює продаж
+  // цілком, а в самому рядку їх не видно.
   const saleF = (field, attrs) =>
-    `<td class="num"><input class="sale-f" data-field="${field}" ${attrs}></td>`;
-  const salesTbl = mySales.length ? `<h4 class="mt">Продажі</h4><table><thead><tr>
-      <th>Дата</th><th class="num">К-сть</th><th class="num">Чиста</th>
-      <th class="num">НКД</th><th class="num">Результат</th><th></th></tr></thead><tbody>
-      ${mySales.map((s) => `<tr data-sale="${s.id}" data-lot="${s.lot_id}"
-        data-cur="${esc(s.clean_per_bond.currency)}">
-        <td><input class="sale-f" data-field="sale_date" type="date" value="${esc(s.sale_date)}"></td>
-        ${saleF("qty", `data-num="1" type="number" min="1" step="1" value="${s.qty}"`)}
-        ${saleF("clean_per_bond", `inputmode="decimal" value="${esc(s.clean_per_bond.amount)}"`)}
-        ${saleF("accrued", `inputmode="decimal" value="${esc(s.accrued.amount)}"`)}
-        <td class="num">${fmtMoney(s.realized_result)}</td>
-        <td class="row-actions"><button class="sm warn" data-delsale="${s.id}">✕</button></td></tr>`).join("")}
-      </tbody></table>` : "";
+    `<input class="sale-f" data-field="${field}" ${attrs}>`;
+  const salesTbl = mySales.length ? `<h4 class="mt">Продажі</h4>` + opsGrid({
+    cols: [
+      { key: "sale_date", label: "Дата",
+        cell: (v) => saleF("sale_date", `type="date" value="${esc(v.sale_date)}"`) },
+      { key: "qty", label: "К-сть", num: true,
+        cell: (v) => saleF("qty", `data-num="1" type="number" min="1" step="1" value="${v.qty}"`) },
+      { key: "clean", label: "Чиста", num: true,
+        cell: (v) => saleF("clean_per_bond", `inputmode="decimal" value="${esc(v.clean_per_bond.amount)}"`) },
+      { key: "accrued", label: "НКД", num: true,
+        cell: (v) => saleF("accrued", `inputmode="decimal" value="${esc(v.accrued.amount)}"`) },
+      { key: "result", label: "Результат", num: true, cell: (v) => fmtMoney(v.realized_result) },
+      actionsCol("sales", { edit: false, label: (v) => "продаж від " + v.sale_date }),
+    ],
+    rows: mySales,
+    caption: `Продажі ${esc(p.isin)}: дата, кількість, чиста ціна, НКД, результат`,
+    rowAttrs: (v) => ({
+      "data-sale": v.id, "data-lot": v.lot_id, "data-cur": v.clean_per_bond.currency,
+    }),
+  }) : "";
   return next + lotsTbl + salesTbl;
 }
 
@@ -99,33 +116,35 @@ function fundDetailHTML(ctx, f) {
   }
   return `<div class="sub">${bits.join(" · ")}</div>
     <h4 class="mt">Лоти</h4>
-    ${fundTable(ctx, "buy",
-      `<th class="num">ID</th><th>Фонд</th><th class="num">К-сть</th><th class="num">Ціна</th><th class="num">Сплачено</th>`,
-      (o, c) => `<td class="num">${o.qty}</td><td class="num">${c.price(o)}</td><td class="num">${c.money(o.amount)}</td>`,
-      "Купівель ще немає.", (o) => o.fund === f.fund)}`;
+    ${fundTable(ctx, "buy", [
+    { key: "qty", label: "К-сть", num: true, cell: (o) => String(o.qty) },
+    { key: "price", label: "Ціна", num: true, cell: (o, c) => c.price(o) },
+    { key: "amount", label: "Сплачено", num: true, cell: (o, c) => c.money(o.amount) },
+  ], "Купівель ще немає.", (o) => o.fund === f.fund)}`;
 }
 
 function depositDetailHTML(d) {
   const topups = d.topups || [];
   // Поповнення дозволяємо лише позначеному вкладу, а розірвання — будь-
   // якому: закрити достроково можна який завгодно.
-  const topupForm = d.replenishable ? `<h4>Поповнити</h4>
-    <form data-topup-form="${d.id}">
-      <label>Дата поповнення<input name="date" type="date" value="${today()}" required></label>
-      <label>Сума<input name="amount" inputmode="decimal" value="${d.principal.amount}" required></label>
-      <div class="form-actions"><button type="submit">Поповнити</button></div>
-    </form>` : "";
-  const topupsTbl = topups.length ? `<h4 class="mt">Поповнення</h4><table><tbody>
-    ${topups.map((t) => `<tr><td class="muted">${esc(t.date)}</td><td class="num">${fmtMoney(t.amount)}</td>
-      <td class="row-actions"><button class="sm warn" data-deltopup="${d.id}:${t.id}">✕</button></td></tr>`).join("")}
-    </tbody></table>` : "";
+  const topupForm = d.replenishable
+    ? `<h4>Поповнити</h4>` + topupFormHTML(null, d) : "";
+
+  // Ім'я ресурсу з номером вкладу: поповнення — вкладений ресурс, і на
+  // сторінці таких таблиць стільки ж, скільки вкладів.
+  const topupsTbl = topups.length ? `<h4 class="mt">Поповнення</h4>` + opsGrid({
+    cols: [
+      { key: "date", label: "Дата", cls: "muted", cell: (t) => esc(t.date) },
+      { key: "amount", label: "Сума", num: true, cell: (t) => fmtMoney(t.amount) },
+      actionsCol("topups:" + d.id, { label: (t) => "поповнення від " + t.date }),
+    ],
+    rows: topups,
+    caption: `Поповнення вкладу #${d.id}: дата, сума`,
+  }) : "";
+
   return `${topupForm}${topupsTbl}
     <h4 class="mt">Розірвати достроково</h4>
-    <form data-close-form="${d.id}">
-      <label>Дата розірвання<input name="closed_date" type="date" value="${today()}" required></label>
-      <label>Отримано (тіло + відсотки)<input name="closed_amount" inputmode="decimal" placeholder="${d.balance.amount}" required></label>
-      <div class="form-actions"><button type="submit">Підтвердити розірвання</button></div>
-    </form>`;
+    ${closeFormHTML(null, d)}`;
 }
 
 // Усі сутності зводяться до одного вигляду рядка. sortBy — вкладене
@@ -217,10 +236,11 @@ function positionItems(ctx, positions, lots, sales, deposits, kinds = null) {
       // дохідність, і слово поруч рятує від читання її як третього
       // числа в тому самому рядку.
       term: `${esc(d.maturity_date)}<div class="sub-xs">${daysUntil(d.maturity_date)} дн. · ставка ${pct(d.rate_pct)}</div>`,
-      actions: `<label class="sub-xs row-h inline"
-             title="Чи приймає цей вклад поповнення — від цього залежить, чи радить його помічник">
-          <input type="checkbox" class="w-auto" data-repl="${d.id}"${d.replenishable ? " checked" : ""}>попов.</label>
-        <button class="sm warn" data-deldep="${d.id}">✕</button>`,
+      actions: checkField("", "попов.", {
+        checked: !!d.replenishable, labelCls: "sub-xs row-h inline",
+        title: "Чи приймає цей вклад поповнення — від цього залежить, чи радить його помічник",
+        attrs: { "data-repl": d.id },
+      }) + rowActions("term-deposits", d.id, { label: `вклад ${d.bank || ""} #${d.id}` }),
       sortBy: Number(d.principal.amount), detail: depositDetailHTML(d),
     };
   });
@@ -327,13 +347,13 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits, opts =
             title="Показати, звідки взялася позиція">▸</button>`
       : "";
     return `<tr>
-      <td class="col-kind" data-label="Тип">${caret}${kindPill(it.kind)}</td>
-      <td data-label="Назва">${it.name}</td>
-      <td class="num" data-label="Вкладено" data-prio="3">${it.invested}</td>
-      <td class="num" data-label="Вартість" data-prio="2">${it.value}</td>
+      <td class="col-kind" data-col="kind" data-label="Тип">${caret}${kindPill(it.kind)}</td>
+      <td data-col="name" data-label="Назва">${it.name}</td>
+      <td class="num" data-col="invested" data-label="Вкладено" data-prio="3">${it.invested}</td>
+      <td class="num" data-col="value" data-label="Вартість" data-prio="2">${it.value}</td>
       ${realCell(it.pct, it.nominal, it.basis)}
-      <td data-label="Строк" data-prio="2">${it.term}</td>
-      <td class="row-actions nowrap">${it.actions}</td></tr>
+      <td data-col="term" data-label="Строк" data-prio="2">${it.term}</td>
+      <td class="row-actions nowrap" data-col="acts">${it.actions}</td></tr>
     ${rowDetail ? `<tr class="detail-row" id="${detailId}" data-detail="${it.key}"${
   open ? "" : " hidden"}>
       <td colspan="${POS_COLS}">${it.detail}</td></tr>` : ""}`;
@@ -430,9 +450,10 @@ export async function loadPositionsData(ctx) {
  *  вихід без #lotForm, а з формою підв'яже й автокомпліт ISIN, і перевірку
  *  грошей; wireDeposits однаково бачить і #termDepForm, і поповнення в
  *  рядках. */
-export function wirePositionRows(ctx, main, deposits) {
+export function wirePositionRows(ctx, main, data = {}) {
+  const { lots = [], sales = [], deposits = [] } = data;
   wirePositions(ctx, main);
-  wireBonds(ctx, main);
+  wireBonds(ctx, main, lots, sales);
   wireFundOps(ctx, main);
   wireNPF(ctx, main);
   wireDeposits(ctx, main, deposits);

@@ -12,11 +12,17 @@
 // мені половину себе» читається гірше, ніж три імені.
 
 import {
-  esc, curSym, today, dayMonth, plural, pct,
+  esc, curSym, dayMonth, plural, pct,
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty } from "../components.js";
+import { opsGrid, rowActions, actionsCol } from "../grid.js";
+import {
+  money as moneyField, text as textField, date as dateField,
+  note as noteField, formHTML,
+} from "../fields.js";
+import { refSelect, refValue } from "../refs.js";
 import { routeFor } from "../routes.js";
 import { disclosure } from "../disclosure.js";
 
@@ -48,26 +54,39 @@ export function movesHTML(deposits, conversions) {
     ...deposits.map((d) => ({ date: d.date, id: d.id, kind: "dep", amount: d.amount, note: d.note })),
     ...conversions.map((c) => ({ date: c.date, id: c.id, kind: "conv", from: c.from, to: c.to, note: c.note })),
   ].sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : y.id - x.id));
+
+  // Два ресурси в одному гріді, і саме тому колонка дій описана тут, а не
+  // взята готовою з actionsCol(): кнопка мусить назвати СВІЙ ресурс, бо
+  // рядок поповнення й рядок конвертації видаляються різними шляхами.
+  // Об'єднані вони не для краси — питання «що відбувалось з грошима» не
+  // розрізняє, чим саме рух був записаний.
+  const cols = [
+    { key: "date", label: "Дата", cell: (m) => esc(m.date) },
+    { key: "kind", label: "Тип", cell: (m) => (m.kind === "conv" ? "Конвертація"
+      : Number(m.amount.amount) >= 0 ? "Поповнення" : "Зняття") },
+    { key: "amount", label: "Сума", num: true, cell: (m) => (m.kind === "conv"
+      ? `${fmtMoney(m.from)} → ${fmtMoney(m.to)}` : fmtMoney(m.amount)) },
+    { key: "note", label: "Нотатка", cell: (m) => {
+      if (m.kind !== "conv") return esc(m.note || "");
+      // Курс не зберігається — він рахується із сум, тобто з того, що
+      // реально сталося в банку. Показуємо його поруч із нотаткою, бо саме
+      // за ним конвертацію впізнають, а не за нотаткою.
+      const rate = Number(m.from.amount) / Number(m.to.amount);
+      return esc(m.note || "") + (isFinite(rate) ? ` (${rate.toFixed(4)})` : "");
+    } },
+    { key: "acts", label: "", cls: "row-actions nowrap",
+      cell: (m) => rowActions(m.kind === "dep" ? "deposits" : "conversions", m.id, {
+        label: (m.kind === "conv" ? "конвертацію" : "рух") + " від " + m.date,
+      }) },
+  ];
+
   return `<div class="card">
     <h2>Історія рухів</h2>
-    ${moves.length ? `<table><thead><tr>
-      <th scope="col">Дата</th><th scope="col">Тип</th><th scope="col">Сума</th>
-      <th scope="col">Нотатка</th><th scope="col"><span class="sr-only">Дії</span></th></tr></thead><tbody>
-      ${moves.map((m) => {
-    if (m.kind === "dep") {
-      const label = Number(m.amount.amount) >= 0 ? "Поповнення" : "Зняття";
-      return `<tr><td>${esc(m.date)}</td><td>${label}</td><td class="num">${fmtMoney(m.amount)}</td>
-        <td>${esc(m.note || "")}</td>
-        <td class="row-actions"><button class="sm warn" data-deldep="${m.id}"
-          aria-label="Видалити рух від ${esc(m.date)}">✕</button></td></tr>`;
-    }
-    const rate = Number(m.from.amount) / Number(m.to.amount);
-    return `<tr><td>${esc(m.date)}</td><td>Конвертація</td>
-      <td class="num">${fmtMoney(m.from)} → ${fmtMoney(m.to)}</td>
-      <td>${esc(m.note || "")}${isFinite(rate) ? ` (${rate.toFixed(4)})` : ""}</td>
-      <td class="row-actions"><button class="sm warn" data-delconv="${m.id}"
-        aria-label="Видалити конвертацію від ${esc(m.date)}">✕</button></td></tr>`;
-  }).join("")}</tbody></table>` : empty(
+    ${opsGrid({
+    cols, rows: moves,
+    caption: "Історія рухів: дата, тип, сума, нотатка",
+    empty: "",
+  }) || empty(
     "Рухів ще немає",
     "Сюди лягають поповнення, зняття й конвертації. Купівлі паперів і купони рухають рахунок самі.",
     { href: routeFor("deposit"), label: "Додати рух" })}
@@ -136,35 +155,60 @@ export function reserveTilesHTML(ctx) {
 }
 
 /** Журнал рухів резерву. */
+/** Поля руху резерву — один список і для запису, і для правки.
+ *
+ *  Місце — вільний текст навмисно, і це єдине поле-не-посилання серед усіх
+ *  мігрованих форм. Резерв лежить не в установі, а «в готівці», «у сейфі»,
+ *  «на картці дружини»: заводити для цього довідник означало б вигадати
+ *  сутність, якої в житті немає, — так само вирішено й у самій схемі
+ *  (міграція 0020 лишає place рядком).
+ *
+ *  Правки резерву доти не було, хоча PUT /api/reserve/{id} існував. */
+export const reserveFields = (ctx, row = null) => [
+  moneyField("amount", "Сума (+ відклав / − узяв)", {
+    ph: "5000.00", required: true, value: row ? row.amount.amount : "",
+  }),
+  refSelect(ctx, { name: "currency", ref: "currency", value: row ? row.amount.currency : "UAH" }),
+  textField("place", "Місце", {
+    ph: "готівка / сейф / картка", value: row ? row.place || "" : "",
+  }),
+  dateField("date", "Дата", row ? { value: row.date } : {}),
+  noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
+];
+
+export const reserveBody = (f) => ({
+  amount: f.amount.value.trim(),
+  currency: refValue(f, "currency"),
+  place: f.place.value.trim(),
+  date: f.date.value,
+  note: f.note.value.trim(),
+});
+
 export function reserveJournalHTML(ops) {
-  const list = ops || [];
+  const list = (ops || []).slice()
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));
   return `<div class="card"><h2>Рухи резерву</h2>
-    ${list.length
-    ? `<div class="table-scroll"><table><thead><tr><th>Дата</th><th>Рух</th>
-        <th class="num">Сума</th><th>Місце</th><th></th></tr></thead><tbody>
-      ${list.slice().sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id))
-    .map((o) => `<tr><td>${esc(o.date)}</td>
-          <td>${Number(o.amount.amount) >= 0 ? "Відклав" : "Узяв"}</td>
-          <td class="num">${fmtMoney(o.amount)}</td>
-          <td>${esc(o.place || "")}${o.note ? ` <span class="muted">${esc(o.note)}</span>` : ""}</td>
-          <td class="row-actions"><button class="sm warn" data-delres="${o.id}">✕</button></td></tr>`).join("")}
-      </tbody></table></div>`
-    : empty("", "Рухів резерву ще немає — перший запис заведе матрац і покаже, на скільки місяців його вистачає.")}
+    ${opsGrid({
+    cols: [
+      { key: "date", label: "Дата", cell: (o) => esc(o.date) },
+      { key: "kind", label: "Рух",
+        cell: (o) => (Number(o.amount.amount) >= 0 ? "Відклав" : "Узяв") },
+      { key: "amount", label: "Сума", num: true, cell: (o) => fmtMoney(o.amount) },
+      { key: "place", label: "Місце", cell: (o) => esc(o.place || "")
+        + (o.note ? ` <span class="muted">${esc(o.note)}</span>` : "") },
+      actionsCol("reserve", { label: (o) => "рух резерву від " + o.date }),
+    ],
+    rows: list,
+    caption: "Рухи резерву: дата, напрям, сума, місце",
+    empty: "Рухів резерву ще немає — перший запис заведе матрац і покаже, на скільки місяців його вистачає.",
+  })}
   </div>`;
 }
 
 /** Форма руху резерву. */
-export function reserveFormHTML() {
+export function reserveFormHTML(ctx) {
   return `<div class="card"><h2 class="h-row">Рух резерву ${infoBtn("reserve")}</h2>
-    <form id="resForm" class="mb">
-      <label>Сума (+ відклав / − узяв)<input name="amount" inputmode="decimal" placeholder="5000.00" required></label>
-      <label>Валюта<select name="currency">${["UAH", "USD", "EUR"].map((c) =>
-    `<option${c === "UAH" ? " selected" : ""}>${c}</option>`).join("")}</select></label>
-      <label>Місце<input name="place" placeholder="готівка / сейф / картка"></label>
-      <label>Дата<input name="date" type="date" value="${today()}"></label>
-      <label>Нотатка<input name="note"></label>
-      <div class="form-actions"><button type="submit">Записати</button></div>
-    </form>
+    ${formHTML({ id: "resForm", fields: reserveFields(ctx), submit: "Записати", cls: "mb" })}
     <div class="note">Переклав із рахунку? Запиши ще й зняття в «Записати → Готівка» —
       інакше відкладене виглядатиме як втрата капіталу.</div>
   </div>`;
@@ -179,16 +223,15 @@ export function brokerBalancesHTML(ctx) {
   const names = Object.keys(brokers).sort((a, b) => a.localeCompare(b, "uk"));
   if (!names.length) return "";
   const rmin = s.reinvest_min || {};
-  const sym = { UAH: "₴", USD: "$", EUR: "€" };
   const rows = names.map((b) => {
     const cur = brokers[b] || {};
     const parts = Object.keys(cur).sort().map((c) => {
       const v = cur[c], min = rmin[c] || 0;
       const enough = min > 0 && v >= min;
       const hint = min > 0
-        ? (enough ? `вистачає на ${Math.floor(v / min)}` : `до паперу ще ${fmtCur(min - v, sym[c] || c)}`)
+        ? (enough ? `вистачає на ${Math.floor(v / min)}` : `до паперу ще ${fmtCur(min - v, curSym(c))}`)
         : "";
-      return `<div class="pv-row"><span>${esc(c)} · <b>${fmtCur(v, sym[c] || c)}</b></span>
+      return `<div class="pv-row"><span>${esc(c)} · <b>${fmtCur(v, curSym(c))}</b></span>
         <span class="${enough ? "t-ok" : "muted"}">${hint}</span></div>`;
     }).join("");
     return `<div class="mb-lg"><div class="mb-xs"><b>${esc(b)}</b></div>${parts}</div>`;
@@ -208,16 +251,22 @@ export function reconcileHTML(ctx) {
   if (!rows.length) return "";
   return `<div class="card"><h2 class="card-head">
     <span>Звірка рахунку ${infoBtn("reconcile")}</span></h2>
-    <table><thead><tr><th>Брокер</th><th class="num">За записами</th>
-      <th class="num">Фактично</th><th class="num">Розбіжність</th><th></th></tr></thead>
-    <tbody>${rows.map((r) => `<tr data-rec="${esc(r.b)}|${esc(r.c)}">
-      <td>${esc(r.b)} ${curSym(r.c)}</td>
-      <td class="num">${fmtCur(r.v, curSym(r.c))}</td>
-      <td class="num"><input class="recAct num-in" inputmode="decimal"
-        data-expected="${r.v}" placeholder="—"></td>
-      <td class="num recDiff muted">—</td>
-      <td class="num"><button class="recFix" disabled>виправити</button></td>
-    </tr>`).join("")}</tbody></table></div>`;
+    ${opsGrid({
+    cols: [
+      { key: "broker", label: "Брокер", cell: (r) => `${esc(r.b)} ${curSym(r.c)}` },
+      { key: "book", label: "За записами", num: true,
+        cell: (r) => fmtCur(r.v, curSym(r.c)) },
+      { key: "actual", label: "Фактично", num: true,
+        cell: (r) => `<input class="recAct num-in" inputmode="decimal"
+          data-expected="${r.v}" placeholder="—">` },
+      { key: "diff", label: "Розбіжність", num: true, cls: "recDiff muted", cell: () => "—" },
+      { key: "fix", label: "", num: true,
+        cell: () => `<button class="recFix" disabled>виправити</button>` },
+    ],
+    rows,
+    caption: "Звірка рахунку: брокер, сума за записами, фактична сума, розбіжність",
+    rowAttrs: (r) => ({ "data-rec": `${r.b}|${r.c}` }),
+  })}</div>`;
 }
 
 export function wireReconcile(ctx, main) {
@@ -369,29 +418,46 @@ export function wireImport(ctx, main) {
 // і дійсність, і це має бути видно.
 export function flowHTML(f) {
   if (!f) return "";
-  const row = (lbl, v, sign = "") => `<tr><td>${lbl}</td>
-    <td class="num">${sign}${fmtUAH(Math.abs(v || 0))}</td></tr>`;
+  // Рядки виписки — дані, а не розмітка: підпис, число і знак перед ним.
+  // Знак тут не арифметика, а НАПРЯМ: «− куплено» показує додатну суму зі
+  // словом «куплено», бо в виписці читають рух, а не сальдо.
+  const lines = [
+    { label: "Було на рахунках", uah: f.opening_uah, sign: "" },
+    { label: "+ надійшло доходу", uah: f.income_uah, sign: "+" },
+    { label: "+ внесено своїх", uah: f.contributed_uah, sign: "+" },
+    { label: "− куплено", uah: f.purchased_uah, sign: "−" },
+    f.conversions_uah
+      ? { label: "± конвертації", uah: f.conversions_uah, sign: f.conversions_uah > 0 ? "+" : "−" }
+      : null,
+  ].filter(Boolean);
   const detail = (f.rows || []).filter((r) => r.kind === "purchase" && r.uah < 0);
   return `<div class="card">
     <h2 class="h-row">Рух грошей ${infoBtn("cashflow")}</h2>
     <div class="note">${esc(f.from)} → ${esc(f.to)}</div>
-    <div class="table-scroll"><table><tbody>
-      ${row("Було на рахунках", f.opening_uah)}
-      ${row("+ надійшло доходу", f.income_uah, "+")}
-      ${row("+ внесено своїх", f.contributed_uah, "+")}
-      ${row("− куплено", f.purchased_uah, "−")}
-      ${f.conversions_uah ? row("± конвертації", f.conversions_uah,
-        f.conversions_uah > 0 ? "+" : "−") : ""}
-      <tr class="tot"><td>= лишилось</td>
-        <td class="num">${fmtUAH(f.closing_uah || 0)}</td></tr>
-    </tbody></table></div>
+    ${opsGrid({
+    head: false,
+    cols: [
+      { key: "label", label: "Стаття", cell: (r) => r.label },
+      { key: "uah", label: "Сума", num: true,
+        cell: (r) => r.sign + fmtUAH(Math.abs(r.uah || 0)) },
+    ],
+    rows: lines,
+    caption: `Рух грошей ${esc(f.from)} — ${esc(f.to)}: стаття й сума`,
+    foot: [{ cell: "= лишилось" }, { cell: fmtUAH(f.closing_uah || 0), num: true }],
+  })}
     ${detail.length ? `<details class="disclosure" data-fold="flowbuys">
       <summary>Куди пішли<span class="hint">${detail.length} ${
-        plural(detail.length, "операція", "операції", "операцій")}</span></summary>
-      <div class="disclosure-body"><div class="table-scroll"><table><tbody>
-        ${detail.map((r) => `<tr><td class="muted">${esc(r.date)}</td><td>${esc(r.label)}</td>
-          <td class="num">${fmtUAH(Math.abs(r.uah))}</td></tr>`).join("")}
-      </tbody></table></div></div>
+  plural(detail.length, "операція", "операції", "операцій")}</span></summary>
+      <div class="disclosure-body">${opsGrid({
+    head: false,
+    cols: [
+      { key: "date", label: "Дата", cls: "muted", cell: (r) => esc(r.date) },
+      { key: "label", label: "Що", cell: (r) => esc(r.label) },
+      { key: "uah", label: "Сума", num: true, cell: (r) => fmtUAH(Math.abs(r.uah)) },
+    ],
+    rows: detail,
+    caption: "Куди пішли гроші: дата, операція, сума",
+  })}</div>
     </details>` : ""}
   </div>`;
 }
@@ -425,35 +491,44 @@ export function taxHTML(x) {
     `<option value="${y}"${y === sel ? " selected" : ""}>${y}</option>`).join("")}</select>`;
   // Порожній рік — не привід ховати картку: «за 2023-й податків не було»
   // це відповідь, а зникла картка читається як поломка.
-  const body = (x.by_kind || []).length
-    ? `<div class="table-scroll"><table>
-       <thead><tr><th>Джерело</th><th class="num">Нараховано</th>
-         <th class="num">Податок</th><th class="num">Чистими</th><th class="num">Ставка</th></tr></thead>
-       <tbody>${(x.by_kind || []).map((l) => `<tr>
-         <td>${esc(l.label)}</td>
-         <td class="num">${fmtUAH(l.gross_uah)}</td>
-         <td class="num">${l.tax_uah ? "−" + fmtUAH(l.tax_uah) : "—"}</td>
-         <td class="num">${fmtUAH(l.net_uah)}</td>
-         <td class="num">${l.gross_uah ? pct(l.rate_pct) : "—"}</td></tr>`).join("")}
-         <tr class="tot"><td>Разом</td>
-           <td class="num">${fmtUAH(x.gross_uah)}</td>
-           <td class="num">−${fmtUAH(x.tax_uah)}</td>
-           <td class="num">${fmtUAH(x.net_uah)}</td>
-           <td class="num">${pct(x.rate_pct)}</td></tr>
-       </tbody></table></div>`
-    : empty("", "За цей рік оподаткованого доходу не було.");
+  const body = opsGrid({
+    cols: [
+      { key: "label", label: "Джерело", cell: (l) => esc(l.label) },
+      { key: "gross", label: "Нараховано", num: true, cell: (l) => fmtUAH(l.gross_uah) },
+      { key: "tax", label: "Податок", num: true,
+        cell: (l) => (l.tax_uah ? "−" + fmtUAH(l.tax_uah) : "—") },
+      { key: "net", label: "Чистими", num: true, cell: (l) => fmtUAH(l.net_uah) },
+      { key: "rate", label: "Ставка", num: true,
+        cell: (l) => (l.gross_uah ? pct(l.rate_pct) : "—") },
+    ],
+    rows: x.by_kind || [],
+    caption: `Податок на дохід за ${esc(String(sel))}: джерело, нараховано, податок, чистими, ставка`,
+    foot: [
+      { cell: "Разом" },
+      { cell: fmtUAH(x.gross_uah), num: true },
+      { cell: "−" + fmtUAH(x.tax_uah), num: true },
+      { cell: fmtUAH(x.net_uah), num: true },
+      { cell: pct(x.rate_pct), num: true },
+    ],
+    // Порожній рік — не привід ховати картку: «за 2023-й податків не було»
+    // це відповідь, а зникла картка читається як поломка.
+    empty: "За цей рік оподаткованого доходу не було.",
+  });
   // Знижка — ОКРЕМОЮ таблицею під основною, а не рядком у ній: там
   // арифметика «нараховано − податок = чистими», і від'ємний рядок ламає
   // всі три числа разом зі ставкою. І в «Разом» вона не входить навмисно:
   // те число відповідає на «скільки з мене взяли».
   const credits = (x.credits || []).length
     ? `<h4 class="mt">Держава повертає</h4>
-       <div class="table-scroll"><table>
-       <thead><tr><th>Підстава</th><th class="num">Повернення</th></tr></thead>
-       <tbody>${x.credits.map((l) => `<tr>
-         <td>${esc(l.label)}</td>
-         <td class="num t-ok">+${fmtUAH(l.net_uah)}</td></tr>`).join("")}
-       </tbody></table></div>
+       ${opsGrid({
+    cols: [
+      { key: "label", label: "Підстава", cell: (l) => esc(l.label) },
+      { key: "back", label: "Повернення", num: true, cls: "t-ok",
+        cell: (l) => "+" + fmtUAH(l.net_uah) },
+    ],
+    rows: x.credits,
+    caption: "Що держава повертає: підстава й сума",
+  })}
        <div class="sub-xs t-warn">Це ОЦІНКА, а не факт, і в «Разом» вище вона не входить.
          Знижку треба отримати декларацією до 31 грудня наступного року; вона працює лише
          проти зарплати й не переноситься на інші роки.</div>`

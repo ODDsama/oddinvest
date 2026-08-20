@@ -41,7 +41,7 @@ export async function positions(ctx, main) {
   main.innerHTML = `
     ${yieldTilesHTML(ctx)}
     ${positionsTableHTML(ctx, d.positions, d.lots, d.sales, d.deposits)}`;
-  wirePositionRows(ctx, main, d.deposits);
+  wirePositionRows(ctx, main, d);
 }
 
 /** Як росте: крива капіталу й таблиця знімків. Відповідає не «що я маю», а

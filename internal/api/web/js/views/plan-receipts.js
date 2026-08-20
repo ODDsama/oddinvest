@@ -16,6 +16,11 @@ import { infoBtn } from "../info.js";
 import { empty } from "../components.js";
 import { apply, onSubmit, onDelete, openEdit } from "../forms.js";
 import { disclosure } from "../disclosure.js";
+import {
+  money as moneyField, num as numField, text as textField, formHTML,
+} from "../fields.js";
+import { refSelect } from "../refs.js";
+import { opsGrid } from "../grid.js";
 
 // ---------- надходження місяця ----------
 //
@@ -102,70 +107,64 @@ const receiptNoteHTML = (r) =>
 
 // Рядок таблиці. Кнопки правки й зняття стоять лише там, де є що правити:
 // «скасувати відмітку» для невідміченого рядка означало б нічого.
-function expectedRowHTML(e) {
-  const r = e.receipt;
-  return `<tr>
-    <td>${esc(e.name)}${receiptNoteHTML(r)}</td>
-    <td class="num">${e.due_date ? esc(dayMonth(e.due_date)) : DASH}</td>
-    <td class="num">${esc(fmtMoney(e.amount))}</td>
-    <td>${receiptStateHTML(e)}</td>
-    <td class="row-actions">
-      <button type="button" class="sm" data-editrec="${e.flow_id}"
-        data-month="${esc(e.month)}" aria-label="Вписати суму для «${esc(e.name)}»">✎</button>
-      ${r ? `<button type="button" class="sm warn" data-delrec="${r.id}"
-        aria-label="Зняти відмітку з «${esc(e.name)}»">✕</button>` : ""}
-    </td>
-  </tr>`;
-}
-
-// Позапланове — тими самими рядками, але без плану: колонки «коли» й
-// «скільки мало» в нього просто немає, і прочерк каже про це чесніше, ніж
-// підставлений нуль.
-function otherRowHTML(r) {
-  return `<tr>
-    <td>${esc(r.name)} <span class="fine muted">позапланово</span>${receiptNoteHTML(r)}</td>
-    <td class="num">${DASH}</td>
-    <td class="num">${DASH}</td>
-    <td><span class="pill coupon">${esc(fmtMoney(r.amount))}</span></td>
-    <td class="row-actions">
-      <button type="button" class="sm" data-editother="${r.id}"
-        aria-label="Змінити «${esc(r.name)}»">✎</button>
-      <button type="button" class="sm warn" data-delrec="${r.id}"
-        aria-label="Видалити «${esc(r.name)}»">✕</button>
-    </td>
-  </tr>`;
+// Очікуване й позапланове — ОДНА таблиця з одним набором колонок.
+//
+// Доти це були дві функції рядка, які будували по п'ять <td> кожна, і
+// збігатись вони мусили на слово: розійшлися б — і колонки другої групи
+// поїхали б відносно шапки. Тепер розрізняє їх одне поле (planned), а
+// колонки описані раз.
+//
+// У позапланового немає ні дати, ні планової суми — і прочерк каже про це
+// чесніше, ніж підставлений нуль.
+function receiptCols() {
+  return [
+    { key: "name", label: "Джерело", cell: (r) => esc(r.name)
+      + (r.planned ? "" : ` <span class="fine muted">позапланово</span>`)
+      + receiptNoteHTML(r.planned ? r.receipt : r) },
+    { key: "due", label: "Коли", num: true,
+      cell: (r) => (r.planned && r.due_date ? esc(dayMonth(r.due_date)) : DASH) },
+    { key: "plan", label: "План", num: true,
+      cell: (r) => (r.planned ? esc(fmtMoney(r.amount)) : DASH) },
+    { key: "fact", label: "Факт", cell: (r) => (r.planned
+      ? receiptStateHTML(r)
+      : `<span class="pill coupon">${esc(fmtMoney(r.amount))}</span>`) },
+    { key: "acts", label: "", cls: "row-actions nowrap", cell: (r) => (r.planned
+      ? `<button type="button" class="sm" data-editrec="${r.flow_id}"
+           data-month="${esc(r.month)}" aria-label="Вписати суму для «${esc(r.name)}»">✎</button>`
+        + (r.receipt ? `<button type="button" class="sm warn" data-delrec="${r.receipt.id}"
+           aria-label="Зняти відмітку з «${esc(r.name)}»">✕</button>` : "")
+      : `<button type="button" class="sm" data-editother="${r.id}"
+           aria-label="Змінити «${esc(r.name)}»">✎</button>
+         <button type="button" class="sm warn" data-delrec="${r.id}"
+           aria-label="Видалити «${esc(r.name)}»">✕</button>`) },
+  ];
 }
 
 // Поля правки прив'язаної відмітки: сума й причина, більше нічого. Валюта
 // й джерело задані самим потоком, а місяць — рядком, у якому натиснули.
 function receiptFields(values = null) {
   const v = values || {};
-  const val = (k, d = "") => `value="${esc(v[k] != null ? v[k] : d)}"`;
-  return `
-    <label>Скільки надійшло<input name="amount" inputmode="decimal"
-      ${val("amount")} required></label>
-    <label>Причина<input name="note" placeholder="вийшов з відпустки, 2 дні"
-      ${val("note")}></label>
-    <div class="sub-xs">Нуль означає «не прийшло». Сума валова — та, що прийшла на руки;
+  const val = (k, d = "") => (v[k] != null ? String(v[k]) : d);
+  return moneyField("amount", "Скільки надійшло", { required: true, value: val("amount") })
+    + textField("note", "Причина", {
+      ph: "вийшов з відпустки, 2 дні", value: val("note"),
+    })
+    + `<div class="sub-xs">Нуль означає «не прийшло». Сума валова — та, що прийшла на руки;
       скільки з неї доходить до портфеля, визначає частка самого джерела.</div>`;
 }
 
-// Поля позапланового надходження. Частка тут своя, бо успадковувати її
-// нема від чого: у премії немає планового рядка з «часткою в портфель».
 function otherFields(values = null) {
   const v = values || {};
-  const val = (k, d = "") => `value="${esc(v[k] != null ? v[k] : d)}"`;
-  const sel = (k, opts, d) => opts.map(([o, label]) =>
-    `<option value="${o}"${(v[k] != null ? v[k] : d) === o ? " selected" : ""}>${label}</option>`)
-    .join("");
-  return `
-    <label>Що це<input name="name" placeholder="Премія" ${val("name")} required></label>
-    <label>Сума<input name="amount" inputmode="decimal" ${val("amount")} required></label>
-    <label>Валюта<select name="currency">${
-  sel("currency", [["UAH", "UAH"], ["USD", "USD"], ["EUR", "EUR"]], "UAH")}</select></label>
-    <label>Частка в портфель, %<input name="invest_pct" type="number" step="0.01"
-      min="0" max="100" ${val("invest_pct", "100")}></label>
-    <label>Причина<input name="note" ${val("note")}></label>`;
+  const val = (k, d = "") => (v[k] != null ? String(v[k]) : d);
+  return [
+    textField("name", "Що це", { ph: "Премія", required: true, value: val("name") }),
+    moneyField("amount", "Сума", { required: true, value: val("amount") }),
+    refSelect(null, { name: "currency", ref: "currency", value: val("currency", "UAH") }),
+    numField("invest_pct", "Частка в портфель, %", {
+      step: "0.01", min: "0", max: "100", value: val("invest_pct", "100"),
+    }),
+    textField("note", "Причина", { value: val("note") }),
+  ].join("");
 }
 
 const otherBody = (f, month) => ({
@@ -227,14 +226,14 @@ export function receiptsHTML(doc) {
     : "";
 
   return `<div class="card">${head}
-    <div class="table-scroll"><table><thead><tr>
-      <th scope="col">Джерело</th><th scope="col" class="num">Коли</th>
-      <th scope="col" class="num">План</th><th scope="col">Факт</th>
-      <th scope="col"><span class="sr-only">Дії</span></th>
-    </tr></thead><tbody>
-      ${rows.map(expectedRowHTML).join("")}
-      ${others.map(otherRowHTML).join("")}
-    </tbody></table></div>
+    ${opsGrid({
+    cols: receiptCols(),
+    rows: [
+      ...rows.map((e) => ({ ...e, planned: true })),
+      ...others.map((r) => ({ ...r, planned: false })),
+    ],
+    caption: "Надходження місяця: джерело, дата, планова сума, факт",
+  })}
     ${summary}${futureNote}
     ${future ? "" : otherFormHTML(key)}</div>`;
 }
@@ -242,10 +241,10 @@ export function receiptsHTML(doc) {
 // Форма позапланового — згорнута: це рідкісний випадок, і розгорнутою вона
 // відтягувала б увагу від чеклиста, заради якого картка й існує.
 function otherFormHTML(month) {
-  return disclosure("planOtherReceipt", "Інше надходження", `
-    <form id="otherReceiptForm" data-month="${esc(month)}">${otherFields()}
-      <div class="form-actions"><button type="submit">Відмітити</button></div>
-    </form>`, "премія, подарунок, продаж — те, чого в плані немає");
+  return disclosure("planOtherReceipt", "Інше надходження", formHTML({
+    id: "otherReceiptForm", submit: "Відмітити", fields: [otherFields()],
+    attrs: { "data-month": month },
+  }), "премія, подарунок, продаж — те, чого в плані немає");
 }
 
 export function wirePlanReceipts(ctx, main, doc) {
