@@ -559,7 +559,7 @@ func suggestName(r *suggestion) string {
 
 func moneyAmount(m moneyJSON) float64 {
 	var v float64
-	_, _ = fmt.Sscanf(m.Amount, "%f", &v)
+	_, _ = fmt.Sscanf(m.Amount, "%f", &v) //nolint:errcheck // нерозбірлива сума лишає нуль, і це та сама відповідь, що й порожня
 	return v
 }
 
