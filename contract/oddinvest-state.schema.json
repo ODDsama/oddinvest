@@ -493,7 +493,10 @@
           "convert_uah": { "type": "number" },
           "min_portfolio_uah": { "type": "number" },
           "feasible": { "type": "boolean" },
-          "unit_kind": { "type": "string", "description": "Тип одиниці входу: bond | deposit (адитивне поле)" }
+          "unit_kind": { "type": "string", "description": "Тип одиниці входу: bond | deposit (адитивне поле)" },
+          "target_uah": { "type": "number", "description": "Ціль у грошах, грн-екв. — те саме, що target_pct, лише не у відсотках капіталу (адитивне поле)" },
+          "current_uah": { "type": "number", "description": "Скільки стоїть зараз, грн-екв. (адитивне поле)" },
+          "fill_pct": { "type": "number", "description": "Наскільки ціль закрита: current_uah / target_uah × 100. Понад 100 — перебір, а не помилка. Порожньо в рядках без цілі (адитивне поле)" }
         }
       }
     },

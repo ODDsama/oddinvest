@@ -1007,7 +1007,10 @@
       "convert_uah": 0,
       "min_portfolio_uah": 176493.6,
       "feasible": true,
-      "unit_kind": "bond"
+      "unit_kind": "bond",
+      "target_uah": 230675.41,
+      "current_uah": 150019.56,
+      "fill_pct": 65.03
     },
     {
       "dimension": "currency",
@@ -1024,7 +1027,10 @@
       "convert_uah": 48000,
       "min_portfolio_uah": 480000,
       "feasible": true,
-      "unit_kind": "bond"
+      "unit_kind": "bond",
+      "target_uah": 92270.16,
+      "current_uah": 96000,
+      "fill_pct": 104.04
     },
     {
       "dimension": "kind",
@@ -1041,7 +1047,10 @@
       "convert_uah": 0,
       "min_portfolio_uah": 2222.22,
       "feasible": true,
-      "unit_kind": "bonds"
+      "unit_kind": "bonds",
+      "target_uah": 415215.73,
+      "current_uah": 240370.2,
+      "fill_pct": 57.89
     },
     {
       "dimension": "kind",
@@ -1058,7 +1067,10 @@
       "convert_uah": 0,
       "min_portfolio_uah": 50,
       "feasible": true,
-      "unit_kind": "funds"
+      "unit_kind": "funds",
+      "target_uah": 184540.33,
+      "current_uah": 10000,
+      "fill_pct": 5.42
     },
     {
       "dimension": "kind",
@@ -1075,7 +1087,10 @@
       "convert_uah": 0,
       "min_portfolio_uah": 29415.6,
       "feasible": true,
-      "unit_kind": "deposits"
+      "unit_kind": "deposits",
+      "target_uah": 138405.24,
+      "current_uah": 120000,
+      "fill_pct": 86.7
     },
     {
       "dimension": "kind",
@@ -1092,7 +1107,10 @@
       "convert_uah": 0,
       "min_portfolio_uah": 0,
       "feasible": true,
-      "unit_kind": "npf"
+      "unit_kind": "npf",
+      "target_uah": 92270.16,
+      "current_uah": 2041.64,
+      "fill_pct": 2.21
     },
     {
       "dimension": "kind",
@@ -1109,7 +1127,8 @@
       "convert_uah": 0,
       "min_portfolio_uah": 0,
       "feasible": true,
-      "unit_kind": "reserve"
+      "unit_kind": "reserve",
+      "current_uah": 47649.36
     }
   ],
   "concentration": [

@@ -3,13 +3,14 @@
 
 import {
   esc, curSym, dayMonth, pct, uah2 as fmtUAH, cur2 as fmtCur,
-  fundsCost, marketCostUAH, capitalUAH,
+  fundsCost, marketCostUAH,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { svgBars, svgGrouped, svgDonut, fluid } from "../charts.js";
 import { tile, yieldNote, needsSetting, empty, legend } from "../components.js";
 import { routeFor } from "../routes.js";
 import { disclosure } from "../disclosure.js";
+import { KIND_GROUP } from "../constants.js";
 
 
 // Кільце часток вкладеного капіталу по брокерах. Малюємо SVG-donut
@@ -183,10 +184,9 @@ export function rebalanceCard(ctx) {
 // 100% у фондах можуть мати однакові валютні частки й геть різну
 // поведінку — у першого ризик процентний і державний, у другого ринковий
 // і керуючої компанії.
-const KIND_TITLE = {
-  bonds: "ОВДП", funds: "Фонди", deposits: "Вклади", reserve: "Резерв",
-  npf: "НПФ",
-};
+// Назви видів живуть у constants.js: цю саму п'ятірку читає ще й
+// «Скільки чого за стратегією» (views/allocation.js), і два власні списки
+// розійшлись би тихо.
 
 export function kindMixCard(ctx) {
   const s = ctx.summary || {};
@@ -198,14 +198,19 @@ export function kindMixCard(ctx) {
       + "а не лише на валютну частку.",
     routeFor("policy/mix"));
   }
-  const cap = capitalUAH(s);
   // Нерозподілене — це те, під що цілі не ставили. Показуємо числом і
   // НЕ нормалізуємо: підмінити введені 40/20 на 67/33, не питаючи, було б
   // гірше за визнання, що сума не сходиться.
   const targetSum = rows.reduce((a, r) => a + (r.target_pct || 0), 0);
   const body = rows.map((r) => {
-    const title = KIND_TITLE[r.key] || r.key;
-    const nowUAH = cap * (r.current_pct || 0) / 100;
+    const title = KIND_GROUP[r.key] || r.key;
+    // Гривні беруться ГОТОВИМИ з рядка, а не множенням капіталу на частку.
+    // Доти тут стояло cap × current_pct / 100 — і частка приїжджає
+    // округленою до двох знаків, тож вклад на рівно 14 000 ₴ показувався
+    // як 14 001,20 ₴. Помітно це стало, коли ту саму суму почала називати
+    // ще й картка «Скільки чого за стратегією»: одна й та сама позиція
+    // стояла на двох сторінках двома різними числами.
+    const nowUAH = r.current_uah || 0;
     // Рядок без цілі — довідковий (резерв). Його ціль живе у власній
     // картці й міряється місяцями витрат, а не часткою капіталу: частка
     // рухалась би щоразу, коли росте портфель, навіть якби резерву ніхто

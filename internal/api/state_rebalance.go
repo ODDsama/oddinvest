@@ -62,6 +62,16 @@ type rebalanceInput struct {
 	LadderUAH         []state.YearAmount
 }
 
+// fillPct — наскільки ціль закрита, %. Нульова ціль дає нуль, а не
+// нескінченність: «цілі немає» і «ціль закрита на нуль відсотків» —
+// різні речі, і перша з них не має права стати числом узагалі.
+func fillPct(now, target float64) float64 {
+	if target <= 0 {
+		return 0
+	}
+	return now / target * 100
+}
+
 // rebalancePhase — рядки обох карток.
 type rebalancePhase struct {
 	Rebalance     []state.RebalanceRow
@@ -132,6 +142,9 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 			MinPortfolioUAH: round2(unitUAH / (*tp / 100)),
 			Feasible:        unitUAH > 0 && unitUAH <= targetUAH,
 			UnitKind:        unitKind,
+			TargetUAH:       round2(targetUAH),
+			CurrentUAH:      round2(curUAH),
+			FillPct:         round2(fillPct(curUAH, targetUAH)),
 		})
 	}
 
@@ -171,6 +184,12 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 			// Без заданої одиниці входу здійсненність не перевіряється:
 			// у резерв кладуть будь-яку суму, а не «мінімальний внесок».
 			Feasible: k.unit == 0 || k.unit <= targetUAH,
+			// Ті самі ціль і факт у грошах. Питання «скільки ще докласти»
+			// ставиться в гривнях, і рахувати їх зі згаданих поруч відсотків
+			// означало б відповідати на нього з похибкою округлення.
+			TargetUAH:  round2(targetUAH),
+			CurrentUAH: round2(k.nowUAH),
+			FillPct:    round2(fillPct(k.nowUAH, targetUAH)),
 		}
 		if k.unit > 0 {
 			row.MinPortfolioUAH = round2(k.unit / (*k.target / 100))
@@ -192,6 +211,11 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		out.Rebalance = append(out.Rebalance, state.RebalanceRow{
 			Dimension: "kind", Key: "reserve", Currency: money.UAH,
 			CurrentPct: round2(cap.ReserveUAH / totalMajor * 100),
+			// Гроші є, цілі за часткою немає — тож заповнене лише «зараз».
+			// Ціль резерву абсолютна (місяці витрат) і живе у своїй картці;
+			// TargetUAH тут лишається нулем навмисно, інакше рядок почав би
+			// обіцяти ціль, якої в цьому вимірі не існує.
+			CurrentUAH: round2(cap.ReserveUAH),
 			UnitKind:   "reserve", Feasible: true,
 		})
 	}
@@ -203,6 +227,7 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		out.Rebalance = append(out.Rebalance, state.RebalanceRow{
 			Dimension: "kind", Key: "npf", Currency: money.UAH,
 			CurrentPct: round2(cap.NPFUAH / totalMajor * 100),
+			CurrentUAH: round2(cap.NPFUAH),
 			UnitKind:   "npf", Feasible: true,
 		})
 	}

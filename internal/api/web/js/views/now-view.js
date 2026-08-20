@@ -20,6 +20,7 @@ import { routeFor } from "../routes.js";
 import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
 import { basketHTML, wireBasket } from "./basket.js";
 import { tasksHTML } from "./tasks.js";
+import { allocationCardHTML } from "./allocation.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
@@ -402,12 +403,18 @@ export async function todo(ctx, main) {
  *  карткою, яка без порад не малює нічого, а сторінка, на яку можна прийти
  *  за посиланням, мусить пояснити, чому вона порожня. Причин рівно дві —
  *  або довідник ще не завантажений, або жоден інструмент не проходить за
- *  умовами, — і обидві виправляються не тут. */
+ *  умовами, — і обидві виправляються не тут.
+ *
+ *  ПОРЯДОК БЛОКІВ несе зміст, а не верстку. Спершу КАРТА розподілу —
+ *  скільки чого має бути й наскільки кожна ціль закрита; вона відповідає на
+ *  «куди зараз ідуть гроші». Далі дія по резерву — єдина сума, яка в папір
+ *  не йде взагалі. І аж потім список — «що саме з цього взяти». Список без
+ *  карти відповідає на друге питання, не відповівши на перше. */
 export async function buy(ctx, main) {
   await loadReinvest(ctx);
   // Резерв — НАД списком і над порожнім станом: добрати запас варто й тоді,
   // коли купувати нема чого.
-  main.innerHTML = reserveFillHTML(ctx) + (reinvestHTML(ctx)
+  main.innerHTML = allocationCardHTML(ctx) + reserveFillHTML(ctx) + (reinvestHTML(ctx)
     || `<div class="card"><h2 class="h-row">Що купити ${infoBtn("reinvest")}</h2>${empty(
       "Порад поки немає",
       "Помічник радить із довідника НБУ, каталогу фондів і ставок вкладів. Якщо тут порожньо — "
