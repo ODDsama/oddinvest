@@ -300,6 +300,45 @@ func (s *Server) handleDepositTopupCheck(w http.ResponseWriter, r *http.Request)
 	s.writeCashCheck(w, r, cashDebit{Broker: dep.Bank, Currency: dep.Currency, Amount: t.Amount})
 }
 
+// handleUpdateDepositTopup — PUT /api/term-deposits/{id}/topups/{topupId}.
+//
+// Тіло те саме, що й у POST, і розбирає його той самий topupFromReq: банк і
+// валюту він бере з самого вкладу, тож правка не може перевести поповнення
+// в іншу валюту навіть помилково.
+//
+// Перевірки нестачі грошей тут немає навмисно, і це не пропуск. /check
+// відповідає на питання «чи вистачить, якщо зараз ЗНЯТИ стільки»; правка ж
+// заміняє вже зняту суму іншою, і чесна перевірка мусила б рахувати
+// різницю. Рахувати її на клієнті означало б завести другу копію
+// арифметики (handlers_whatif.go:9 про те, чим це двічі скінчилось), а на
+// сервері — новий вид перевірки заради випадку «виправив 1000 на 100000».
+// Замість вигаданої напівперевірки лишається чесний мінус на рахунку, який
+// видно в «Грошах» тим самим рядком, що й завжди.
+func (s *Server) handleUpdateDepositTopup(w http.ResponseWriter, r *http.Request) {
+	depID, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	tid, err := strconv.ParseInt(r.PathValue("topupId"), 10, 64)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	t, _, code, err := s.topupFromReq(r, depID)
+	if err != nil {
+		writeErr(w, code, err)
+		return
+	}
+	t.ID = tid
+	if err := s.st.UpdateDepositTopup(r.Context(), t); err != nil {
+		writeStoreErr(w, err, http.StatusBadRequest)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // handleDeleteDepositTopup — DELETE /api/term-deposits/{id}/topups/{topupId}.
 func (s *Server) handleDeleteDepositTopup(w http.ResponseWriter, r *http.Request) {
 	tid, err := strconv.ParseInt(r.PathValue("topupId"), 10, 64)
@@ -308,7 +347,7 @@ func (s *Server) handleDeleteDepositTopup(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.st.DeleteDepositTopup(r.Context(), tid); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()
@@ -353,7 +392,7 @@ func (s *Server) handleUpdateTermDeposit(w http.ResponseWriter, r *http.Request)
 	}
 	d.ID = id
 	if err := s.st.UpdateTermDeposit(r.Context(), d); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -367,7 +406,7 @@ func (s *Server) handleDeleteTermDeposit(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := s.st.DeleteTermDeposit(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()

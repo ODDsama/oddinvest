@@ -157,7 +157,7 @@ func (s *Server) handleUpdateLot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.UpdateLot(r.Context(), lot); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -171,7 +171,7 @@ func (s *Server) handleDeleteLot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.DeleteLot(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()

@@ -173,7 +173,7 @@ func (s *Server) handleUpdateNPFAccount(w http.ResponseWriter, r *http.Request) 
 	}
 	acc.ID = id
 	if err := s.st.UpdateNPFAccount(r.Context(), acc); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -187,7 +187,7 @@ func (s *Server) handleDeleteNPFAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.st.DeleteNPFAccount(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()
@@ -220,7 +220,7 @@ func (s *Server) handleSetNPFNav(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.SetNPFNav(r.Context(), id, nav, domain.Date(req.Date)); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -403,7 +403,7 @@ func (s *Server) handleUpdateNPFOp(w http.ResponseWriter, r *http.Request) {
 	}
 	op.ID = id
 	if err := s.st.UpdateNPFOp(r.Context(), op); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -417,7 +417,7 @@ func (s *Server) handleDeleteNPFOp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.DeleteNPFOp(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()
@@ -486,6 +486,41 @@ func (s *Server) handleAddNPFNav(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]int{"added": n})
 }
 
+// handleUpdateNPFNav — PUT /api/npf-nav/{id}: виправити ОДНУ точку.
+//
+// Поруч із пачковим POST, а не замість нього: заводять історію таблицею за
+// багато років, а виправляють одне число, і це два різні жести. Доти був
+// лише перший, тож одруківка в одній точці лікувалась видаленням і
+// повторним вклеюванням — на найдорожчих за працею даних у базі.
+func (s *Server) handleUpdateNPFNav(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	var req struct {
+		Date string `json:"date"`
+		Nav  string `json:"nav"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	nav, err := domain.ParseDecimalToScale(req.Nav, npfScaleDigits)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.st.UpdateNPFNavPoint(r.Context(), domain.NPFNav{
+		ID: id, Date: domain.Date(req.Date), Nav: nav,
+	}); err != nil {
+		writeStoreErr(w, err, http.StatusBadRequest)
+		return
+	}
+	s.publishAsync()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleDeleteNPFNav(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -493,7 +528,7 @@ func (s *Server) handleDeleteNPFNav(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.DeleteNPFNavPoint(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()

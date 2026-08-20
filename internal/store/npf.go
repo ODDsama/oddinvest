@@ -363,7 +363,45 @@ func (s *Store) AddNPFNavPoints(ctx context.Context, npfID int64, pts []domain.N
 	return len(pts), nil
 }
 
+// UpdateNPFNavPoint переписує одну точку ЧВОПА, зберігаючи id і рахунок.
+//
+// Крива ЧВОПА — найдорожчі за працею дані в базі (їх заводять руками з
+// звітів фонду, рік за роком), і доти єдиним способом виправити одну
+// одруківку було видалити точку й вписати заново. Одна зайва дія на
+// найдорожчих даних — саме там, де ціна помилки найвища.
+//
+// Дата входить в UNIQUE(npf_id, date), тож перенесення точки на зайняту
+// дату — не помилка вводу, а зіткнення з уже наявним записом, і воно має
+// називатись своїм ім'ям: ErrConflict дає 409, а не 400.
+func (s *Store) UpdateNPFNavPoint(ctx context.Context, n domain.NPFNav) error {
+	if n.Nav <= 0 {
+		return fmt.Errorf("ЧВОПА має бути додатною")
+	}
+	if _, err := checkFundDate("дата ЧВОПА", string(n.Date)); err != nil {
+		return err
+	}
+	var busy int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM npf_nav WHERE date=? AND id<>?
+			AND npf_id=(SELECT npf_id FROM npf_nav WHERE id=?)`,
+		string(n.Date), n.ID, n.ID).Scan(&busy); err != nil {
+		return err
+	}
+	if busy > 0 {
+		return fmt.Errorf("точка на %s уже є: %w", n.Date, ErrConflict)
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE npf_nav SET date=?, nav_e6=? WHERE id=?`, string(n.Date), n.Nav, n.ID)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "точка ЧВОПА")
+}
+
 func (s *Store) DeleteNPFNavPoint(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM npf_nav WHERE id=?`, id)
-	return err
+	res, err := s.db.ExecContext(ctx, `DELETE FROM npf_nav WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "точка ЧВОПА")
 }

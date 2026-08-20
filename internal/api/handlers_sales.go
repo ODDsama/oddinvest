@@ -90,7 +90,7 @@ func (s *Server) handleUpdateSale(w http.ResponseWriter, r *http.Request) {
 	}
 	sale.ID = id
 	if err := s.st.UpdateSale(r.Context(), sale); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -104,7 +104,7 @@ func (s *Server) handleDeleteSale(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.DeleteSale(r.Context(), id); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()

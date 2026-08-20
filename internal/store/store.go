@@ -1170,9 +1170,32 @@ func (s *Store) AddDepositTopup(ctx context.Context, t domain.DepositTopup) (int
 	return res.LastInsertId()
 }
 
+// UpdateDepositTopup переписує поповнення, зберігаючи id і вклад.
+//
+// Доти поповнення можна було лише додати й видалити, і помилку в сумі
+// виправляли видаленням із повторним набором. Для вкладу це не дрібниця:
+// поповнення входить у тіло, з якого рахуються відсотки (BalanceAt), тож
+// зайве видалення й повторний запис іншою датою мовчки міняли нараховане.
+//
+// Вклад НЕ переносимо: перекласти поповнення на інший вклад означало б
+// змінити його валюту, а сума вже записана в мінорних одиницях старої.
+// Це не правка, а нове поповнення, і робиться воно двома діями.
+func (s *Store) UpdateDepositTopup(ctx context.Context, t domain.DepositTopup) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE deposit_topups SET date=?, amount=? WHERE id=?`,
+		string(t.Date), t.Amount, t.ID)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "поповнення вкладу")
+}
+
 func (s *Store) DeleteDepositTopup(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM deposit_topups WHERE id=?`, id)
-	return err
+	res, err := s.db.ExecContext(ctx, `DELETE FROM deposit_topups WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "поповнення вкладу")
 }
 
 func boolInt(b bool) int64 {

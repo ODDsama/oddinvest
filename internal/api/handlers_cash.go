@@ -84,7 +84,7 @@ func (s *Server) handleUpdateDeposit(w http.ResponseWriter, r *http.Request) {
 	}
 	dep.ID = id
 	if err := s.st.UpdateDeposit(r.Context(), dep); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -98,7 +98,7 @@ func (s *Server) handleDeleteDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.DeleteDeposit(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()
@@ -202,7 +202,7 @@ func (s *Server) handleUpdateConversion(w http.ResponseWriter, r *http.Request) 
 	}
 	c.ID = id
 	if err := s.st.UpdateConversion(r.Context(), c); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -216,7 +216,7 @@ func (s *Server) handleDeleteConversion(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.st.DeleteConversion(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()

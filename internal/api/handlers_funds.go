@@ -139,7 +139,7 @@ func (s *Server) handleUpdateFundOp(w http.ResponseWriter, r *http.Request) {
 	}
 	op.ID = id
 	if err := s.st.UpdateFundOp(r.Context(), op); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -153,7 +153,7 @@ func (s *Server) handleDeleteFundOp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.DeleteFundOp(r.Context(), id); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
 	s.publishAsync()

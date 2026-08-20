@@ -51,7 +51,7 @@ func (s *Server) handleRenameBroker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.RenameBroker(r.Context(), id, req.Name); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -65,7 +65,7 @@ func (s *Server) handleDeleteBroker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.DeleteBroker(r.Context(), id); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -141,7 +141,7 @@ func (s *Server) handleUpdateFundCatalog(w http.ResponseWriter, r *http.Request)
 		IncomeTaxBP: taxBP, YieldSimpleYears: req.YieldSimpleYears,
 		ExitTaxBP: exitBP,
 	}); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
@@ -155,7 +155,7 @@ func (s *Server) handleDeleteFundCatalog(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err := s.st.DeleteFund(r.Context(), id); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
+		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
 	s.publishAsync()
