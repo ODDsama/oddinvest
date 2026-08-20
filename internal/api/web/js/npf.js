@@ -268,6 +268,18 @@ export function parseNavLines(text) {
   return { points: out, bad };
 }
 
+// ШЛЯХИ ТУТ БЕЗ ПРЕФІКСА, як і скрізь у застосунку.
+//
+// Це не стиль, а виправлення 404: httpTransport будує адресу як
+// `base + path` при base = "/api/", тож "/api/npf" давало "/api//api/npf" —
+// маршруту з таким шляхом немає, і форма падала ще на кроці /check, тобто до
+// будь-якого запису. Читання того самого модуля працювали, бо вони йдуть
+// через ctx.soft("npf-accounts") і префікса не мали ніколи; розбіжність жила
+// рівно в записах.
+//
+// Цей модуль був ЄДИНИМ у web/js із таким префіксом, і жодна з чотирьох
+// перевірок джоби `ui` його не бачить: синтаксис цілий, імпорти резолвляться,
+// імена визначені. Ловить це лише спроба записати.
 export function wireNPF(ctx, main) {
   main.querySelectorAll("[data-npfop-form]").forEach((form) => {
     const id = Number(form.dataset.npfopForm);
@@ -280,7 +292,7 @@ export function wireNPF(ctx, main) {
         units: fd.get("units"), broker: fd.get("broker") || "", note: fd.get("note") || "",
       };
       return {
-        path: "/api/npf", body, check: "/api/npf/check",
+        path: "npf", body, check: "npf/check",
         msg: "Внесок записано", date: body.date, what: "внесок у НПФ",
       };
     });
@@ -291,7 +303,7 @@ export function wireNPF(ctx, main) {
     onSubmit(ctx, form, (f) => {
       const fd = new FormData(f);
       return {
-        method: "PUT", path: `/api/npf-accounts/${id}/nav`,
+        method: "PUT", path: `npf-accounts/${id}/nav`,
         body: { nav: fd.get("nav"), date: fd.get("date") },
         msg: "ЧВОПА оновлено",
       };
@@ -314,7 +326,7 @@ export function wireNPF(ctx, main) {
         return null;
       }
       return {
-        path: "/api/npf-nav", body: { npf_id: id, points },
+        path: "npf-nav", body: { npf_id: id, points },
         msg: `Вклеєно точок: ${points.length}`,
       };
     });
@@ -335,7 +347,7 @@ export function wireNPF(ctx, main) {
       // приблизно за 60 днів після подання.
       const from = `${new Date().getFullYear() + 1}-05-01`;
       await apply(ctx, {
-        path: "/api/plan/flows",
+        path: "plan/flows",
         body: {
           name: `Податкова знижка (${name})`, kind: "income", amount,
           currency: "UAH", cadence: "year", from_date: from,
@@ -347,9 +359,9 @@ export function wireNPF(ctx, main) {
   });
 
   onDelete(ctx, main, "[data-delnpfop]", (el) => ({
-    path: `/api/npf/${el.dataset.delnpfop}`, msg: "Внесок видалено",
+    path: `npf/${el.dataset.delnpfop}`, msg: "Внесок видалено",
   }));
   onDelete(ctx, main, "[data-delnpfnav]", (el) => ({
-    path: `/api/npf-nav/${el.dataset.delnpfnav}`, msg: "Точку ЧВОПА видалено",
+    path: `npf-nav/${el.dataset.delnpfnav}`, msg: "Точку ЧВОПА видалено",
   }));
 }
