@@ -3193,11 +3193,20 @@ func TestReserveFillDoesNotBecomeBuyingPower(t *testing.T) {
 	seed(t, st)
 	today := string(domain.NewDate(time.Now()))
 
-	// Вільні гроші на рахунку — без них стеля рахується від нуля, і тест
-	// проходив би порожнечею.
+	// Вільні гроші на рахунку — щоб було чому «з'їстись», якби стеля
+	// помилково стала списанням.
 	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
 		`{"date":"`+today+`","amount":"200000.00","currency":"UAH","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("поповнення: %d %s", resp.StatusCode, b)
+	}
+	// Джерело доходу — БАЗА стелі. Готівка на рахунку нею більше не є:
+	// подушку наповнюють із нових грошей, а не з того, що випадково лежить
+	// у брокера цієї миті. Без потоку механізм мовчить, і тест проходив би
+	// порожнечею.
+	if resp, b := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"50000.00","cadence":"month","from_date":"`+
+			today+`","invest_pct":"100"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("потік плану: %d %s", resp.StatusCode, b)
 	}
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
 		`{"monthly_expenses_uah":"30000","reserve_target_months":"3"}`); resp.StatusCode != http.StatusNoContent {
@@ -3248,7 +3257,7 @@ func TestReserveFillDoesNotBecomeBuyingPower(t *testing.T) {
 	// І при цьому механізм таки заговорив — інакше рівність вище нічого не
 	// доводила б.
 	if sumAfter.Reserve == nil || sumAfter.Reserve.FillNowUAH <= 0 {
-		t.Fatalf("механізм мовчить, хоч стеля задана й гроші на рахунку є: %+v", sumAfter.Reserve)
+		t.Fatalf("механізм мовчить, хоч стеля задана й план місяця є: %+v", sumAfter.Reserve)
 	}
 	if r := sumAfter.Reserve; r.FillNowUAH > r.GapUAH || r.FillNowUAH > r.FillFromUAH*r.FillSharePct/100+0.01 {
 		t.Errorf("порада перевищує розрив або стелю: %+v", r)
@@ -3526,6 +3535,7 @@ func TestKindTargetsDoNotNormalise(t *testing.T) {
 	var doc struct {
 		CapitalUAH float64 `json:"capital_uah"`
 		NominalUAH float64 `json:"nominal_uah_eq"`
+		ReserveUAH float64 `json:"reserve_uah"`
 		Rebalance  []struct {
 			Dimension  string  `json:"dimension"`
 			Key        string  `json:"key"`
@@ -3556,22 +3566,83 @@ func TestKindTargetsDoNotNormalise(t *testing.T) {
 	if math.Abs(sumTargets-65) > 0.01 {
 		t.Errorf("сума цілей = %.2f, а вводили 65 — застосунок її нормалізував", sumTargets)
 	}
-	res := doc.Rebalance[byKey["reserve"]]
-	if res.TargetPct != 0 {
-		t.Errorf("резерв отримав виведену цільову частку %.2f%% — його ціль міряється місяцями",
-			res.TargetPct)
+	// Резерв у цьому вимірі рядком БІЛЬШЕ НЕ СТОЇТЬ. Він стояв там, поки
+	// цілі міряли частку всього капіталу — щоб частки видів сходились із
+	// «а решта де?». Відколи знаменником став капітал БЕЗ резерву, рядок
+	// був би єдиним у переліку з іншою базою, а два знаменники в одному
+	// списку — та сама помилка, від якої тут усе й переробляли. Частка
+	// резерву живе в reserve.share_pct, поруч із місяцями витрат.
+	if _, ok := byKey["reserve"]; ok {
+		t.Error("резерв повернувся рядком у вимір «kind» — там інший знаменник")
 	}
-	if res.CurrentPct <= 0 {
-		t.Errorf("резерв мав показати фактичну частку: %+v", res)
-	}
-	// Дефіцит ОВДП — від того самого капіталу, що й усе інше. Беремо
-	// nominal_uah_eq, а не current_pct: частка округлена до сотих, і на
-	// капіталі в сотні тисяч це вже дає розбіжність у гривнях.
+	// Дефіцит ОВДП — від капіталу БЕЗ резерву. Беремо nominal_uah_eq, а не
+	// current_pct: частка округлена до сотих, і на капіталі в сотні тисяч це
+	// вже дає розбіжність у гривнях.
 	b := doc.Rebalance[byKey["bonds"]]
-	wantDef := doc.CapitalUAH*0.40 - doc.NominalUAH
+	wantDef := (doc.CapitalUAH-doc.ReserveUAH)*0.40 - doc.NominalUAH
 	if math.Abs(b.DeficitUAH-wantDef) > 0.02 {
-		t.Errorf("дефіцит ОВДП %.2f, а від капіталу %.2f і номіналу %.2f виходить %.2f",
-			b.DeficitUAH, doc.CapitalUAH, doc.NominalUAH, wantDef)
+		t.Errorf("дефіцит ОВДП %.2f, а від капіталу без резерву %.2f і номіналу %.2f виходить %.2f",
+			b.DeficitUAH, doc.CapitalUAH-doc.ReserveUAH, doc.NominalUAH, wantDef)
+	}
+}
+
+// TestKindSharesSumToHundredWithoutCash — чотири види в сумі дають рівно
+// 100% бази, коли невкладеної готівки немає.
+//
+// Це і є властивість, заради якої знаменник змінили: доти сума часток за
+// видом не могла дійти до сотні в принципі, бо в знаменнику сиділа подушка.
+// Тепер вона там не сидить, і сума стає перевірною — а «нерозподілено» в
+// картці означає справжню діру в цілях, а не місце під матрац.
+func TestKindSharesSumToHundredWithoutCash(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st)
+	// Готівка вся піде в папір: поповнення рівно на вартість лота.
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 1000000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":10,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	// Резерв навмисно великий: якби він лишався в знаменнику, сума часток
+	// провалилась би саме через нього.
+	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
+		Date: domain.NewDate(time.Now()).AddDays(-5), Amount: 5000000, Currency: "UAH",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"target_bonds_pct":"100","monthly_expenses_uah":"20000","reserve_target_months":"6"}`); resp.StatusCode >= 300 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+
+	var doc struct {
+		AccountUAH float64 `json:"account_uah"`
+		Rebalance  []struct {
+			Dimension  string  `json:"dimension"`
+			Key        string  `json:"key"`
+			CurrentPct float64 `json:"current_pct"`
+		} `json:"rebalance"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if math.Abs(doc.AccountUAH) > 0.01 {
+		t.Fatalf("на рахунку лишилось %.2f — фікстура мала вкласти все", doc.AccountUAH)
+	}
+	sum := 0.0
+	for _, r := range doc.Rebalance {
+		if r.Dimension == "kind" {
+			sum += r.CurrentPct
+		}
+	}
+	if math.Abs(sum-100) > 0.02 {
+		t.Errorf("частки видів у сумі дають %.2f%%, а мусять 100 — у знаменнику щось зайве: %s",
+			sum, body)
 	}
 }
 
@@ -3865,17 +3936,19 @@ func TestStrategyPresetsUseKnownSettings(t *testing.T) {
 	}
 }
 
-// TestStrategyLockOverlaysKeepAllocationWhole — піднята накладкою частка
-// мусить бути в когось ЗАБРАНА, а не дописана збоку.
+// TestStrategyLockOverlaysKeepAllocationWhole — набір мусить розподіляти
+// РІВНО 100% на кожному рівні замка.
 //
-// Нерозподілений залишок (100 − сума часток за видом) у кожного набору свій
-// і осмислений: під ним живуть резерв і вільні гроші, а ціль резерву від
-// відповіді про замок не залежить. Отже залишок мусить бути ОДНАКОВИЙ на
-// всіх трьох рівнях того самого набору.
+// Доти вимога була слабша — «залишок однаковий на всіх трьох рівнях», — і
+// вона мала сенс, поки цілі за видом міряли частку ВСЬОГО капіталу: під
+// залишком жили резерв і вільні гроші. Відколи знаменником став капітал без
+// резерву (state_rebalance.go), місце під подушку тримати не треба: у неї
+// своя, абсолютна ціль. Залишок став тим, чим і виглядав, — дірою в цілях,
+// про яку картка мусить сказати вголос.
 //
-// Помилка, яку це ловить, тиха: підняв НПФ, забув зняти з ОВДП — і набір
-// мовчки посунув межу з резервом, нічого про це не сказавши ні в підписі,
-// ні в таблиці різниці.
+// Помилки, які це ловить, обидві тихі: підняв НПФ, забув зняти з ОВДП — і
+// набір роздав понад сотню; або переніс набір зі старої моделі як є — і він
+// лишив 20% нікому, не сказавши про це ні в підписі, ні в таблиці різниці.
 func TestStrategyLockOverlaysKeepAllocationWhole(t *testing.T) {
 	src, err := webFS.ReadFile("web/js/views/strategy.js")
 	if err != nil {
@@ -3898,7 +3971,10 @@ func TestStrategyLockOverlaysKeepAllocationWhole(t *testing.T) {
 		return out
 	}
 	for _, p := range strategyPresets(t, src) {
-		base := sum(p.values)
+		if got := sum(p.values); got != 100 {
+			t.Errorf("набір %q: сума часток %.0f, а мусить бути 100 — "+
+				"%.0f%% капіталу лишились би нікому", p.name, got, 100-got)
+		}
 		for _, o := range p.overlays {
 			eff := map[string]string{}
 			for k, v := range p.values {
@@ -3907,10 +3983,10 @@ func TestStrategyLockOverlaysKeepAllocationWhole(t *testing.T) {
 			for k, v := range o.values {
 				eff[k] = v
 			}
-			if got := sum(eff); got != base {
-				t.Errorf("набір %q: на рівні %s сума часток %.0f проти %.0f у базі — "+
-					"піднята частка нізвідки взялась або нікуди не поділась, "+
-					"тобто набір мовчки посунув межу з резервом", p.name, o.name, got, base)
+			if got := sum(eff); got != 100 {
+				t.Errorf("набір %q: на рівні %s сума часток %.0f замість 100 — "+
+					"піднята частка нізвідки взялась або нікуди не поділась",
+					p.name, o.name, got)
 			}
 		}
 	}

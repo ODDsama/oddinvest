@@ -92,14 +92,19 @@ function termsHTML(kind) {
 function kindTilesHTML(ctx, spec, items) {
   const s = ctx.summary || {};
   const sum = s[spec.sumKey] || 0;
+  // Резерву серед SPECS немає — його сторінку малює money-cards.js, і
+  // частку він бере з summary.reserve. Тут лишаються самі інвестиції, а
+  // отже й знаменник у всіх один: портфель без подушки.
   const share = (s.rebalance || [])
     .find((r) => r.dimension === "kind" && r.key === spec.group);
   const real = (s.kind_yield_real_pct || {})[spec.group];
   const n = items.length;
   return `<div class="tiles flush">
     ${tile(spec.title, fmtUAH(sum), "", { hero: true })}
-    ${tile("Частка капіталу", share ? pct(share.current_pct) : "—",
-    share && share.target_pct ? `<div class="sub">ціль ${pct(share.target_pct)}</div>` : "")}
+    ${tile("Частка портфеля", share ? pct(share.current_pct) : "—",
+    share && share.target_pct
+      ? `<div class="sub">ціль ${pct(share.target_pct)}</div>`
+      : `<div class="sub-xs">від портфеля без резерву</div>`)}
     ${tile("Позицій", n ? String(n) : "—")}
     ${tile("Реальна дохідність", real ? pct(real) : "—",
     real ? `<div class="sub">після податку й знецінення</div>` : "")}

@@ -55,6 +55,18 @@ type monthPhase struct {
 	ActualMonths     int
 	// Plan — що план доходу обіцяє САМЕ цього місяця. nil = плану немає.
 	Plan *state.MonthPlan
+	// Резерв цього місяця. ReserveMovedUAH — скільки вже покладено під
+	// матрац (нетто, грн-екв.); ReserveMonthUAH — місячна частка подушки
+	// (стеля від нових грошей, обрізана розривом); ReserveFillUAH — скільки
+	// з неї ще лишилось відкласти.
+	//
+	// Рахується ТУТ, а не в deriveReserve, попри те, що живе воно в картці
+	// резерву: споживачів двоє, і другий — buildRebalance (фаза 9), який
+	// ділить гроші місяця вже ПІСЛЯ подушки. Derive працює після нього, тож
+	// порахувати там означало б порахувати запізно.
+	ReserveMovedUAH float64
+	ReserveMonthUAH float64
+	ReserveFillUAH  float64
 }
 
 // buildMonth зводить рухи місяця, темп і план поточного місяця.
@@ -136,7 +148,15 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 			continue
 		}
 		addMove(op.Amount, op.Currency)
+		// Окремо від addMove: там питання «чи побільшало капіталу», а тут
+		// «скільки цього місяця вже пішло під матрац». Друге не залежить від
+		// того, звідки взялись гроші, — саме тому воно й рахується сумою
+		// операцій резерву, а не різницею балансів.
+		if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
+			out.ReserveMovedUAH += float64(u.Amount()) / 100
+		}
 	}
+	out.ReserveMovedUAH = round2(out.ReserveMovedUAH)
 
 	// --- фактичний темп поповнень ---
 	// Саме поповнень, а не покупок: покупка лише переносить гроші з рахунку
@@ -176,9 +196,55 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 		}
 	}
 
-	out.Plan = buildMonthPlan(src, rates, today, reserveUAH,
-		float64(out.DepositedUAH.Amount())/100)
+	out.Plan = buildMonthPlan(src, rates, today, float64(out.DepositedUAH.Amount())/100)
+	out.ReserveMonthUAH, out.ReserveFillUAH = reserveMonthShare(
+		src.settings, reserveUAH, out.Plan, out.ReserveMovedUAH)
 	return out, nil
+}
+
+// reserveMonthShare — скільки з грошей місяця належить подушці й скільки з
+// того ще лишилось відкласти.
+//
+// # ЧОМУ БАЗА — НОВІ ГРОШІ, А НЕ ГОТІВКА НА РАХУНКАХ
+//
+// Доти стеля рахувалась від Capital.AccountUAH, і на живих даних це давало
+// пораду «спершу поповнити резерв — 2,48 ₴» при розриві в 359 500 ₴: на
+// брокерському рахунку лежало 6,19 ₴. Готівка там — стан однієї миті, а не
+// потік: учора це була зарплата, сьогодні вона вже в папері, і подушка від
+// цього не залежить ніяк. Наповнюють її з НОВИХ грошей, тож стеля й
+// прикладається до них.
+//
+// # ЧОМУ ВІДНІМАЄТЬСЯ ВЖЕ ВІДКЛАДЕНЕ
+//
+// Без цього порада висіла б незмінною хоч би скільки ти відкладав: розрив
+// зменшується повільно, а стеля від плану стала. Тепер записав рух у резерв
+// — порада зменшилась рівно на цю суму, добрав місячну частку — зникла.
+//
+// Обрізаємо розривом ПЛЮС уже відкладеним, а не самим розривом: розрив уже
+// не бачить того, що ти цього місяця поклав, і без поправки місячна частка
+// сама себе з'їдала б — після переказу вона впала б на ту саму суму двічі.
+func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
+	mp *state.MonthPlan, moved float64) (monthUAH, fillUAH float64) {
+	if set == nil || set.ReserveFillSharePct == nil || mp == nil {
+		return 0, 0
+	}
+	share := *set.ReserveFillSharePct
+	if share <= 0 || mp.PlanUAH <= 0 {
+		return 0, 0
+	}
+	_, gap := state.ReserveTarget(set, reserveUAH)
+	room := gap + moved
+	if room <= 0 {
+		return 0, 0 // ціль зібрана — стеля мовчить, і правильно робить
+	}
+	monthUAH = mp.PlanUAH * share / 100
+	if monthUAH > room {
+		monthUAH = room
+	}
+	if fillUAH = monthUAH - moved; fillUAH < 0 {
+		fillUAH = 0
+	}
+	return round2(monthUAH), round2(fillUAH)
 }
 
 // buildMonthPlan — скільки план доходу заводить у портфель ЦЬОГО місяця.
@@ -205,7 +271,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 // підтягується до першого місяця. Для поточного це правильно: потік,
 // заведений завтра, у серпні ще не платив.
 func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
-	reserveUAH, depositedUAH float64) *state.MonthPlan {
+	depositedUAH float64) *state.MonthPlan {
 	if len(src.planFlows) == 0 && len(src.planReceipts) == 0 {
 		return nil // плану доходу немає — це не «план обіцяє нуль»
 	}
@@ -250,30 +316,14 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 
 	out.PlanUAH = out.IncomeUAH + out.ExtraUAH - out.ExpenseUAH
 
-	// Стеля резерву — та сама, що керує Reserve.FillNowUAH, але прикладена до
-	// НОВИХ грошей місяця, а не до готівки на рахунках. Обидва числа
-	// лишаються, бо відповідають на різні питання: те — «відклади з того, що
-	// вже лежить», це — «з місячних грошей у подушку піде стільки».
-	//
-	// Обрізання розривом обов'язкове з тієї ж причини, що й там: радити
-	// відкласти БІЛЬШЕ за ціль означало б завести другу ціль поруч із тією,
-	// яку задано в місяцях витрат.
-	if _, gap := state.ReserveTarget(src.settings, reserveUAH); gap > 0 &&
-		src.settings != nil && src.settings.ReserveFillSharePct != nil {
-		if share := *src.settings.ReserveFillSharePct; share > 0 && out.PlanUAH > 0 {
-			fill := out.PlanUAH * share / 100
-			if fill > gap {
-				fill = gap
-			}
-			out.ReserveUAH = round2(fill)
-		}
-	}
-
 	// Лишилось закинути — проти ВНЕСЕНОГО, а не проти купленого: план
 	// означає «скільки нових грошей принести», а купівля лише переносить їх
 	// з рахунку в папери (та сама межа, що названа в шапці цього файла).
 	if left := out.PlanUAH - depositedUAH; left > 0 {
 		out.LeftUAH = round2(left)
+	}
+	if out.PlanUAH > 0 {
+		out.CoveredPct = round2(depositedUAH / out.PlanUAH * 100)
 	}
 
 	out.IncomeUAH = round2(out.IncomeUAH)

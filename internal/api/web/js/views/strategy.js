@@ -149,9 +149,21 @@ const QUESTIONS = [
 // Куди дівається піднята частка НПФ: із `target_bonds_pct`. Не з вкладів
 // (це коротка ліквідна нога, і забирати звідти означало б тихо зробити
 // набір менш ліквідним, ніж каже його підпис) і не з фондів там, де фонд і
-// Є набором. Нерозподілений залишок (100 − сума часток) на всіх трьох
-// рівнях один і той самий: під ним живуть резерв і вільні гроші, а ціль
-// резерву від відповіді про замок не залежить. Тест звіряє й це.
+// Є набором.
+//
+// СУМА ЧАСТОК ЗА ВИДОМ — РІВНО 100 НА ВСІХ ТРЬОХ РІВНЯХ, і тест це стереже.
+//
+// Доти п'ять наборів із восьми давали 75–90%, і залишок був осмислений: цілі
+// міряли частку ВСЬОГО капіталу, а капітал містить подушку, тож під неї
+// доводилось лишати місце. Механізм мав ваду, яку видно лише на довгому
+// горизонті: щойно подушку зібрано, вона з'їдає простір під цілі, і набір
+// довелося б переписувати рівно тоді, коли він нарешті спрацював.
+//
+// Відколи цілі за видом міряються від капіталу БЕЗ резерву
+// (state_rebalance.go), місце під нього тримати не треба: у подушки своя
+// ціль, абсолютна, і вона ні з ким не конкурує. Тож набір розподіляє все, а
+// «нерозподілено» в картці означає тепер справжню діру в цілях, а не місце
+// під матрац.
 const PRESETS = [
   {
     key: "flow",
@@ -221,7 +233,7 @@ const PRESETS = [
     fits: { when: ["any"], cushion: ["no"] },
     values: {
       usd_target_share_pct: "25", eur_target_share_pct: "",
-      target_bonds_pct: "45", target_funds_pct: "20", target_deposits_pct: "15",
+      target_bonds_pct: "55", target_funds_pct: "25", target_deposits_pct: "20",
       target_npf_pct: "",
       limit_isin_pct: "20", limit_broker_pct: "50", limit_year_pct: "50",
       reserve_target_months: "12", reserve_fill_share_pct: "25",
@@ -248,7 +260,7 @@ const PRESETS = [
     expires: "reserveFull",
     values: {
       usd_target_share_pct: "20", eur_target_share_pct: "",
-      target_bonds_pct: "55", target_funds_pct: "10", target_deposits_pct: "15",
+      target_bonds_pct: "70", target_funds_pct: "10", target_deposits_pct: "20",
       target_npf_pct: "",
       limit_isin_pct: "25", limit_broker_pct: "50", limit_year_pct: "40",
       reserve_target_months: "6", reserve_fill_share_pct: "40",
@@ -257,8 +269,8 @@ const PRESETS = [
     // Ємність низька з механічної причини, а не з оцінки НПФ: поповнення
     // резерву вже забирає 40% вільних грошей, і великий НПФ поруч — це два
     // механізми, що тягнуть ті самі гроші в різні боки.
-    lockSome: { target_bonds_pct: "50", target_npf_pct: "5" },
-    lockMost: { target_bonds_pct: "45", target_npf_pct: "10" },
+    lockSome: { target_bonds_pct: "65", target_npf_pct: "5" },
+    lockMost: { target_bonds_pct: "60", target_npf_pct: "10" },
   },
   {
     key: "pension",
@@ -275,14 +287,14 @@ const PRESETS = [
     // окремо ловить випадок «числа стоять із НПФ, а питання без відповіді».
     values: {
       usd_target_share_pct: "10", eur_target_share_pct: "",
-      target_bonds_pct: "70", target_funds_pct: "5", target_deposits_pct: "10",
+      target_bonds_pct: "80", target_funds_pct: "5", target_deposits_pct: "15",
       target_npf_pct: "",
       limit_isin_pct: "30", limit_broker_pct: "60", limit_year_pct: "40",
       reserve_target_months: "3", reserve_fill_share_pct: "",
       reinvest_rank: "plan",
     },
-    lockSome: { target_bonds_pct: "50", target_npf_pct: "20" },
-    lockMost: { target_bonds_pct: "35", target_npf_pct: "35" },
+    lockSome: { target_bonds_pct: "60", target_npf_pct: "20" },
+    lockMost: { target_bonds_pct: "45", target_npf_pct: "35" },
   },
   {
     key: "term",
@@ -298,7 +310,7 @@ const PRESETS = [
     expires: "buyWindowClosed",
     values: {
       usd_target_share_pct: "20", eur_target_share_pct: "",
-      target_bonds_pct: "40", target_funds_pct: "40", target_deposits_pct: "10",
+      target_bonds_pct: "45", target_funds_pct: "45", target_deposits_pct: "10",
       target_npf_pct: "",
       // Ліміт на один папір дорівнює цілі фондів навмисно: сертифікат
       // рахується в концентрації окремим емітентом, і стеля 25 при цілі 40
@@ -310,8 +322,8 @@ const PRESETS = [
     // Ємність низька: у наборі вже є один строк — дата закриття фонду, — і
     // НПФ додає другий, набагато довший. Два строки поруч роблять із набору
     // те, чого його підпис не обіцяв.
-    lockSome: { target_bonds_pct: "35", target_npf_pct: "5" },
-    lockMost: { target_bonds_pct: "25", target_npf_pct: "15" },
+    lockSome: { target_bonds_pct: "40", target_npf_pct: "5" },
+    lockMost: { target_bonds_pct: "30", target_npf_pct: "15" },
   },
   {
     key: "bank",
@@ -321,7 +333,7 @@ const PRESETS = [
     fits: { effort: ["few"], when: ["any", "mid"] },
     values: {
       usd_target_share_pct: "20", eur_target_share_pct: "",
-      target_bonds_pct: "", target_funds_pct: "", target_deposits_pct: "75",
+      target_bonds_pct: "", target_funds_pct: "", target_deposits_pct: "100",
       target_npf_pct: "",
       // Ліміт на ОДИН ПАПІР тут не обмежує нічого з того, що набір купує:
       // цілі ОВДП і фондів нульові. Але порожнє значення не «нейтральне» —

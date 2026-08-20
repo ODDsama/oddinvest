@@ -138,12 +138,22 @@ export function reserveFillHTML(ctx) {
   // Що саме обмежило суму — стеля чи сам розрив. Мовчати про це не можна:
   // сума без причини читається як вимога, а не як стеля, яку людина сама
   // собі поставила.
-  const capped = r.fill_now_uah >= (r.gap_uah || 0);
+  const capped = r.fill_month_uah >= (r.gap_uah || 0);
+  // Уже відкладене цього місяця називаємо ЛИШЕ коли воно є: без нього сума
+  // тут дорівнює місячній частці, і рядок «з них уже покладено 0» був би
+  // шумом. А коли є — саме воно й пояснює, чому порада менша за частку.
+  const done = r.fill_moved_uah > 0
+    ? ` З місячної частки ${fmtUAH(r.fill_month_uah)} ти вже поклав ${
+      fmtUAH(r.fill_moved_uah)} — лишилось стільки.` : "";
   const why = capped
     ? `Це все, чого бракує до цілі — ${fmtUAH(r.target_uah)}, тобто ${r.target_months} ${
-      plural(r.target_months, "місяць", "місяці", "місяців")} витрат.`
-    : `${pct(r.fill_share_pct, 0)} від вільних ${fmtUAH(r.fill_from_uah)} — стеля, яку ти сам
-       поставив. До цілі ще ${fmtUAH(r.gap_uah)}, решта грошей лишається на папери.`;
+      plural(r.target_months, "місяць", "місяці", "місяців")} витрат.${done}`
+    // База — гроші МІСЯЦЯ, а не готівка на рахунках: подушку наповнюють із
+    // нових грошей, і на малому рахунку стеля від готівки давала поради на
+    // кшталт «відклади 2,48 ₴» при розриві в 359 500 ₴.
+    : `${pct(r.fill_share_pct, 0)} від того, що заводить план цього місяця
+       (${fmtUAH(r.fill_from_uah)}) — стеля, яку ти сам поставив. До цілі ще ${
+  fmtUAH(r.gap_uah)}, решта грошей лишається на папери.${done}`;
   return `<div class="banner wait"><div class="b-ic">○</div><div class="b-tx">
     <div class="b-t">Спершу поповнити резерв — ${fmtUAH(r.fill_now_uah)}</div>
     <div class="b-s">${why} Сума в гривневому еквіваленті: у чому саме відкладати — вирішуєш ти.
@@ -296,22 +306,39 @@ function monthTile(ctx, s) {
   const doneLabel = s.month_deposited_uah === undefined
     ? `вкладено ${fmtUAH(s.month_invested_uah)}` // старий бекенд рахував купівлі
     : `внесено ${fmtUAH(s.month_deposited_uah)}`;
-  // Планове число місяця — ОКРЕМИМ рядком, і підписане словом «план»
-  // навмисно. Відсоток плитки міряється проти ЦІЛІ накопичення, а це інший
-  // знаменник: план каже, скільки принесуть джерела доходу, ціль — скільки
-  // треба, щоб дійти куди хочеш. Злити їх в один прогрес означало б
-  // повторити ту саму підміну, від якої існує contrib.js.
   const mp = s.month_plan;
-  const planLine = mp && mp.plan_uah > 0
-    ? `<div class="sub">за планом місяця ${fmtUAH(mp.plan_uah)}${mp.left_uah > 0
-      ? ` · <span class="t-warn">ще закинути ${fmtUAH(mp.left_uah)}</span>`
-      : ` · <span class="t-ok">закинуто все</span>`}</div>` : "";
-  const extra = `${planLine}
-    ${s.month_withdrawn_uah > 0
+  const extra = `${s.month_withdrawn_uah > 0
     ? `<div class="sub-xs">нетто: поповнення ${
       fmtUAH((s.month_deposited_uah || 0) + s.month_withdrawn_uah)} − зняття ${fmtUAH(s.month_withdrawn_uah)}</div>` : ""}
     ${s.month_invested_uah > 0
     ? `<div class="sub">куплено паперів на ${fmtUAH(s.month_invested_uah)}</div>` : ""}`;
+
+  // ГОЛОВНЕ ЧИСЛО ПЛИТКИ — ПОКРИТТЯ ПЛАНУ МІСЯЦЯ, коли план є.
+  //
+  // Доти тут стояв відсоток від ЦІЛІ накопичення, і на живих даних це було
+  // 17%: ціль вимагає 93 931 ₴/міс, а джерела доходу дають утричі менше.
+  // Число правдиве й майже некорисне — воно міряє проти суми, якої людина не
+  // вносить і не планує вносити цього місяця. Питання, яке ставлять щомісяця,
+  // інше: «чи закинув я те, що збирався».
+  //
+  // Ціль нікуди не поділась — вона рядком під смугою. Два знаменники
+  // лишаються на екрані обидва й підписані кожен: план каже, скільки
+  // принесуть джерела доходу, ціль — скільки треба, щоб дійти куди хочеш.
+  // Злити їх в один прогрес означало б повторити ту саму підміну, від якої
+  // існує contrib.js.
+  if (mp && mp.plan_uah > 0) {
+    const cov = mp.covered_pct || 0;
+    const goalLine = t.hasGoal
+      ? `<div class="sub-xs">ціль вимагає ${fmtUAH(t.need)}/міс — це ${
+        Math.round(shareOfNeed(done, t.need) || 0)}%</div>`
+      : "";
+    return tile("Цей місяць", `${Math.round(cov)}%`,
+      `<div class="progress"><span style="--oi-fill:${Math.min(100, cov)}%"></span></div>
+       <div class="sub">${doneLabel} з ${fmtUAH(mp.plan_uah)} за планом місяця${mp.left_uah > 0
+    ? ` · <span class="t-warn">ще закинути ${fmtUAH(mp.left_uah)}</span>`
+    : ` · <span class="t-ok">закинуто все</span>`}</div>
+       ${goalLine}${extra}`);
+  }
 
   if (t.hasGoal) {
     const share = shareOfNeed(done, t.need) || 0;
@@ -328,11 +355,9 @@ function monthTile(ctx, s) {
        <div class="sub">${doneLabel} з ${fmtUAH(s.month_target_uah)}</div>
        ${extra}`);
   }
-  // Цілі немає — відсотка теж, але план місяця від цілі не залежить: він
-  // рахується з джерел доходу, і сказати «за планом ще закинути стільки»
-  // можна й тому, хто цілі не ставив.
+  // Ні цілі, ні плану доходу — міряти нема від чого взагалі.
   return tile("Цей місяць", "—",
-    `<div class="sub">задай ціль і дедлайн — план порахується сам</div>${planLine}`);
+    `<div class="sub">задай ціль і дедлайн — план порахується сам</div>`);
 }
 
 // Друга половина плитки: чи є план, чи вистачає його на ціль, і якщо ні

@@ -849,7 +849,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		NominalByISIN: nominalByISIN, Bonds: bonds, FundRows: fundRows,
 		NPFRows:           npf.Rows,
 		BrokerExposureUAH: brokerExposureUAH, LadderUAH: ladderUAH,
-		MonthPlan: mth.Plan,
+		MonthPlan: mth.Plan, ReserveMonthUAH: mth.ReserveMonthUAH,
 	})
 	rebalance, concentration := rbl.Rebalance, rbl.Concentration
 
@@ -915,6 +915,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		MonthDeposited: monthDep, MonthTarget: target,
 		ReserveByCur: reserveByCur, ReservePlaces: reservePlaces,
 		ReserveLastMove: reserveLastMove, TopN: 5,
+		ReserveFillMonthUAH: mth.ReserveMonthUAH, ReserveFillNowUAH: mth.ReserveFillUAH,
+		ReserveMovedUAH: mth.ReserveMovedUAH,
 	}); err != nil {
 		return nil, err
 	}

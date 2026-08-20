@@ -313,49 +313,61 @@ func TestDeriveNextPaymentSkipsPast(t *testing.T) {
 	}
 }
 
-// Поповнення резерву: скільки з вільних грошей відкласти зараз.
+// Поповнення резерву: скільки ще відкласти й від чого це пораховано.
+//
+// САМА АРИФМЕТИКА ТУТ БІЛЬШЕ НЕ ЖИВЕ. Стеля рахується в будівнику
+// (api.reserveMonthShare), бо ту саму місячну частку потребує ще й ребаланс,
+// а він працює до Derive; сюди числа лише приходять. Тому тест перевіряє те,
+// що лишилось за цією фазою: чи потрапляють вони в картку разом із базою — і
+// чи мовчить картка, коли ціль зібрана.
+//
+// База стелі змінилась разом із механізмом: доти це була готівка на
+// брокерських рахунках, і 40% від 6,19 ₴ давали пораду «спершу поповнити
+// резерв — 2,48 ₴» при розриві в 359 500 ₴. Тепер це гроші МІСЯЦЯ.
 //
 // sampleDoc задає витрати 30 000 ₴ і ціль 3 місяці, тобто 90 000 ₴, а
-// резерву в ньому 60 000 ₴ — розрив рівно 30 000 ₴. Вільних грошей у ньому
-// немає (Capital.AccountUAH не заданий), і саме тому фікстура контракту
-// цих полів не містить: механізм мовчить, доки його не ввімкнули. Тести
-// нижче додають обидва числа руками.
-func TestReserveFillIsCappedByShareAndGap(t *testing.T) {
-	for _, c := range []struct {
-		name              string
-		share, free       float64
-		wantNow, wantFrom float64
-	}{
-		// Стеля менша за розрив — віддаємо стелю, решта лишається на папери.
-		{"стеля обмежує", 25, 40_000, 10_000, 40_000},
-		// Розрив менший за стелю — віддаємо розрив: радити відкласти понад
-		// ціль означало б завести другу ціль поруч із заданою в місяцях.
-		{"розрив обмежує", 25, 200_000, 30_000, 200_000},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			doc, in := sampleDoc(t)
-			doc.Settings.ReserveFillSharePct = &c.share
-			in.Capital.AccountUAH = c.free
-			if err := Derive(doc, in); err != nil {
-				t.Fatal(err)
-			}
-			r := doc.Reserve
-			if r == nil {
-				t.Fatal("картки резерву немає")
-			}
-			if r.GapUAH != 30_000 {
-				t.Fatalf("розрив = %v, очікували 30000 — змінився sampleDoc", r.GapUAH)
-			}
-			if r.FillNowUAH != c.wantNow {
-				t.Errorf("відкласти зараз = %v, очікували %v", r.FillNowUAH, c.wantNow)
-			}
-			// Обидва «звідки» перевіряються разом із сумою навмисно: число без
-			// них нема чим перевірити, і саме тому їх у документі троє.
-			if r.FillFromUAH != c.wantFrom || r.FillSharePct != c.share {
-				t.Errorf("з чого пораховано: від %v за стелею %v%%, очікували від %v за %v%%",
-					r.FillFromUAH, r.FillSharePct, c.wantFrom, c.share)
-			}
-		})
+// резерву в ньому 60 000 ₴ — розрив рівно 30 000 ₴.
+func TestReserveFillCarriesMonthNumbers(t *testing.T) {
+	share := 25.0
+	doc, in := sampleDoc(t)
+	doc.Settings.ReserveFillSharePct = &share
+	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: 40_000}
+	in.ReserveFillMonthUAH, in.ReserveFillNowUAH, in.ReserveMovedUAH = 10_000, 6_000, 4_000
+	if err := Derive(doc, in); err != nil {
+		t.Fatal(err)
+	}
+	r := doc.Reserve
+	if r == nil {
+		t.Fatal("картки резерву немає")
+	}
+	if r.GapUAH != 30_000 {
+		t.Fatalf("розрив = %v, очікували 30000 — змінився sampleDoc", r.GapUAH)
+	}
+	if r.FillMonthUAH != 10_000 || r.FillNowUAH != 6_000 || r.FillMovedUAH != 4_000 {
+		t.Errorf("частка місяця %v, лишилось %v, уже відкладено %v — очікували 10000/6000/4000",
+			r.FillMonthUAH, r.FillNowUAH, r.FillMovedUAH)
+	}
+	// База й стеля перевіряються разом із сумою навмисно: число без «звідки»
+	// нема чим перевірити, і саме тому їх у документі кілька.
+	if r.FillFromUAH != 40_000 || r.FillSharePct != share {
+		t.Errorf("з чого пораховано: від %v за стелею %v%%, очікували від 40000 за 25%% — "+
+			"базою мусять бути гроші місяця, а не готівка на рахунках",
+			r.FillFromUAH, r.FillSharePct)
+	}
+
+	// Ціль зібрана — механізм мовчить цілком, хай би що прийшло з будівника:
+	// нулі в документі читались би як «працює і радить нуль».
+	doc, in = sampleDoc(t)
+	doc.Settings.ReserveFillSharePct = &share
+	doc.ReserveUAH = 90_000
+	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: 40_000}
+	in.ReserveFillMonthUAH, in.ReserveFillNowUAH = 10_000, 10_000
+	if err := Derive(doc, in); err != nil {
+		t.Fatal(err)
+	}
+	if r := doc.Reserve; r.FillNowUAH != 0 || r.FillMonthUAH != 0 || r.FillFromUAH != 0 {
+		t.Errorf("ціль зібрана, а картка радить відкласти %v з %v — механізм мусить мовчати",
+			r.FillNowUAH, r.FillFromUAH)
 	}
 }
 

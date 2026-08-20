@@ -67,6 +67,17 @@ type DeriveInput struct {
 	ReserveByCur    map[string]float64
 	ReservePlaces   map[string]float64
 	ReserveLastMove string
+	// Стеля поповнення резерву, порахована будівником (state_month.go):
+	// ReserveFillMonthUAH — частка МІСЯЦЯ, ReserveFillNowUAH — скільки з неї
+	// ще лишилось відкласти, ReserveMovedUAH — скільки вже покладено під
+	// матрац цього місяця.
+	//
+	// Рахується там, а не тут, попри те, що живе в цій картці: ту саму
+	// місячну частку потребує ще й ребаланс (він ділить гроші вже ПІСЛЯ
+	// подушки), а він працює до Derive. Два обчислення розійшлись би.
+	ReserveFillMonthUAH float64
+	ReserveFillNowUAH   float64
+	ReserveMovedUAH     float64
 	// TopN — скільки виплат показати в «найближчих» (0 = 5).
 	TopN int
 }
@@ -264,26 +275,30 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 		r.Months = doc.ReserveUAH / monthlyExp
 		r.TargetUAH, r.GapUAH = ReserveTarget(doc.Settings, doc.ReserveUAH)
 	}
-	// Скільки з вільних грошей варто відкласти просто зараз.
+	// Скільки з нових грошей варто відкласти просто зараз.
 	//
 	// Стеля, а не черга: без неї «спершу добери резерв» зупиняло б покупки
 	// на місяці, а резерв не заробляє нічого. Зі стелею частина йде в
 	// матрац, решта — у папір, і рухаються обидва.
 	//
-	// Вільні гроші — саме готівка на рахунках (Capital.AccountUAH), а не
-	// капітал: продавати папір, щоб набити подушку, застосунок не радить,
-	// бо цін вторинного ринку не знає.
+	// БАЗА — ГРОШІ МІСЯЦЯ, а не готівка на рахунках. Доти рахувалось від
+	// Capital.AccountUAH, і на живих даних це давало «спершу поповнити
+	// резерв — 2,48 ₴» при розриві в 359 500 ₴: на рахунку лежало 6,19 ₴.
+	// Готівка там — стан однієї миті, а не потік, і подушка від неї не
+	// залежить; наповнюють її з нових грошей.
+	//
+	// Самі числа приходять із будівника (state_month.go): ту саму місячну
+	// частку потребує ще й ребаланс, і рахувати її двічі означало б завести
+	// два джерела правди про одну стелю.
 	if r.GapUAH > 0 && doc.Settings != nil && doc.Settings.ReserveFillSharePct != nil {
-		share, free := *doc.Settings.ReserveFillSharePct, in.Capital.AccountUAH
-		if share > 0 && free > 0 {
-			fill := free * share / 100
-			// Розрив менший за стелю — беремо розрив. Радити відкласти
-			// БІЛЬШЕ за ціль означало б завести другу ціль поруч із тією,
-			// яку користувач задав у місяцях витрат.
-			if fill > r.GapUAH {
-				fill = r.GapUAH
+		if share := *doc.Settings.ReserveFillSharePct; share > 0 && in.ReserveFillMonthUAH > 0 {
+			r.FillSharePct = share
+			r.FillMonthUAH = round2(in.ReserveFillMonthUAH)
+			r.FillNowUAH = round2(in.ReserveFillNowUAH)
+			r.FillMovedUAH = round2(in.ReserveMovedUAH)
+			if doc.MonthPlan != nil {
+				r.FillFromUAH = doc.MonthPlan.PlanUAH
 			}
-			r.FillSharePct, r.FillFromUAH, r.FillNowUAH = share, round2(free), round2(fill)
 		}
 	}
 	doc.Reserve = r

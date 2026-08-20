@@ -109,10 +109,10 @@ func TestConcentrationOrderIsStableOnEqualShares(t *testing.T) {
 // два порожні. Той самий розклад, що на живих даних, лише круглими числами.
 func monthRows() []state.RebalanceRow {
 	return []state.RebalanceRow{
-		{Dimension: "kind", Key: "bonds", TargetPct: 50, CurrentUAH: 60_000},
+		{Dimension: "kind", Key: "bonds", TargetPct: 50, CurrentUAH: 55_000},
 		{Dimension: "kind", Key: "funds", TargetPct: 10, CurrentUAH: 40_000},
 		{Dimension: "kind", Key: "deposits", TargetPct: 15, CurrentUAH: 0},
-		{Dimension: "kind", Key: "reserve", CurrentUAH: 10_000}, // без цілі — не чіпаємо
+		{Dimension: "kind", Key: "npf", CurrentUAH: 10_000}, // без цілі — не чіпаємо
 	}
 }
 
@@ -134,7 +134,7 @@ func rowByKey(rows []state.RebalanceRow, key string) state.RebalanceRow {
 func TestSpreadMonthShareIgnoresSkew(t *testing.T) {
 	rows := monthRows()
 	// План 12 000, з них 2 000 у резерв → ділиться 10 000.
-	spreadMonth(rows, &state.MonthPlan{PlanUAH: 12_000, ReserveUAH: 2_000}, 110_000)
+	spreadMonth(rows, 10_000, 110_000)
 
 	for _, c := range []struct {
 		key  string
@@ -163,13 +163,14 @@ func TestSpreadMonthShareIgnoresSkew(t *testing.T) {
 // нічого виду, який уже понад ціль, і ділить пропорційно потребам, коли
 // грошей на всіх не вистачає.
 //
-// Цілі рахуються від капіталу ПІСЛЯ місяця (110 000 + 12 000 = 122 000):
-// bonds 61 000 при 60 000 → треба 1 000; funds 12 200 при 40 000 → нуль;
-// deposits 18 300 при нулі → треба 18 300. Разом 19 300 при доступних
+// База після місяця — 110 000 + 10 000 = 120 000, тобто РОЗДІЛЮВАНІ гроші, а
+// не весь план: те, що пішло в подушку, з цього знаменника виходить зовсім.
+// Звідси: bonds 60 000 при 55 000 → треба 5 000; funds 12 000 при 40 000 →
+// нуль; deposits 18 000 при нулі → треба 18 000. Разом 23 000 при доступних
 // 10 000, тобто пропорційно.
 func TestSpreadMonthBalanceSkipsOverweight(t *testing.T) {
 	rows := monthRows()
-	spreadMonth(rows, &state.MonthPlan{PlanUAH: 12_000, ReserveUAH: 2_000}, 110_000)
+	spreadMonth(rows, 10_000, 110_000)
 
 	if got := rowByKey(rows, "funds").MonthBalanceUAH; got != 0 {
 		t.Errorf("фонди на вирівнювання %v, очікували 0 — вони вчетверо понад ціль", got)
@@ -181,6 +182,34 @@ func TestSpreadMonthBalanceSkipsOverweight(t *testing.T) {
 	}
 	if sum := bonds + deps; sum < 9999.9 || sum > 10000.1 {
 		t.Errorf("роздано %v, а доступно було 10000", sum)
+	}
+}
+
+// TestSpreadMonthBalanceBaseExcludesReserve — майбутня база росте рівно на
+// РОЗДІЛЮВАНІ гроші, а не на весь план місяця.
+//
+// Саме на цьому механізм і ловився на живих даних: база бралась як «портфель
+// + весь план», тобто разом із подушкою, майбутня ціль виходила завищеною на
+// її розмір, і ОВДП у переборі діставали 2 766 ₴ замість 800. Числа тут
+// зафіксовані точно, бо перевіряється саме знаменник: 110 000 + 10 000, а не
+// 110 000 + 20 000.
+func TestSpreadMonthBalanceBaseExcludesReserve(t *testing.T) {
+	rows := monthRows()
+	spreadMonth(rows, 10_000, 110_000)
+
+	// Потреби від бази 120 000: bonds 5 000, deposits 18 000, разом 23 000
+	// при доступних 10 000 → коефіцієнт 10/23.
+	for _, c := range []struct {
+		key  string
+		want float64
+	}{
+		{"bonds", round2(5_000.0 / 23_000 * 10_000)},
+		{"deposits", round2(18_000.0 / 23_000 * 10_000)},
+	} {
+		if got := rowByKey(rows, c.key).MonthBalanceUAH; got != c.want {
+			t.Errorf("%s на вирівнювання %v, очікували %v — база після місяця мусить бути "+
+				"110 000 + 10 000, без грошей подушки", c.key, got, c.want)
+		}
 	}
 }
 
@@ -196,7 +225,7 @@ func TestSpreadMonthBalanceRestBySharePct(t *testing.T) {
 		{Dimension: "kind", Key: "funds", TargetPct: 10, CurrentUAH: 100},
 	}
 	// Капітал 1 100, план 100 000 — потреби мізерні проти доступного.
-	spreadMonth(rows, &state.MonthPlan{PlanUAH: 100_000}, 1_100)
+	spreadMonth(rows, 100_000, 1_100)
 
 	b, f := rowByKey(rows, "bonds"), rowByKey(rows, "funds")
 	// Потреби: bonds 50 550 − 1 000 = 49 550; funds 10 110 − 100 = 10 010.
@@ -215,14 +244,15 @@ func TestSpreadMonthBalanceRestBySharePct(t *testing.T) {
 // відповідь, ніж «плану доходу немає».
 func TestSpreadMonthSilentWithoutPlan(t *testing.T) {
 	for _, c := range []struct {
-		name string
-		mp   *state.MonthPlan
+		name  string
+		avail float64
 	}{
-		{"плану немає", nil},
-		{"усе забрав резерв", &state.MonthPlan{PlanUAH: 5_000, ReserveUAH: 5_000}},
+		{"плану немає", 0},
+		{"усе забрав резерв", 0},
+		{"мінус (стеля більша за план)", -500},
 	} {
 		rows := monthRows()
-		spreadMonth(rows, c.mp, 110_000)
+		spreadMonth(rows, c.avail, 110_000)
 		for _, r := range rows {
 			if r.MonthShareUAH != 0 || r.MonthBalanceUAH != 0 {
 				t.Errorf("%s: %s дістав місячні гроші (%v / %v)",

@@ -107,7 +107,7 @@ func TestMonthPlanNets(t *testing.T) {
 			Currency: money.UAH, InvestBP: 5000},
 	}, nil)
 
-	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0)
+	p := buildMonthPlan(src, fx.Rates{}, today, 0)
 	if p == nil {
 		t.Fatal("план місяця не порахувався")
 	}
@@ -145,7 +145,7 @@ func TestMonthPlanMarkNotArrived(t *testing.T) {
 	}
 	p := buildMonthPlan(monthPlanSrc(flows, []store.PlanReceipt{
 		{FlowID: 1, Month: "2026-07", Amount: 0, Currency: money.UAH, InvestBP: 10000},
-	}, nil), fx.Rates{}, today, 0, 0)
+	}, nil), fx.Rates{}, today, 0)
 	if p.IncomeUAH != 0 {
 		t.Errorf("надходження %v, очікували 0 — відмічено «не прийшло»", p.IncomeUAH)
 	}
@@ -166,7 +166,7 @@ func TestMonthPlanMarkReplacesAmount(t *testing.T) {
 	}
 	p := buildMonthPlan(monthPlanSrc(flows, []store.PlanReceipt{
 		{FlowID: 1, Month: "2026-07", Amount: 4_500_000, Currency: money.UAH, InvestBP: 10000},
-	}, nil), fx.Rates{}, today, 0, 0)
+	}, nil), fx.Rates{}, today, 0)
 	if p.IncomeUAH != 45000 || p.ReceivedUAH != 45000 {
 		t.Errorf("надходження %v, підтверджено %v — очікували 45000 в обох: факт заміщає план",
 			p.IncomeUAH, p.ReceivedUAH)
@@ -179,35 +179,76 @@ func TestMonthPlanMarkReplacesAmount(t *testing.T) {
 // Стеля резерву тут прикладена до НОВИХ грошей місяця, а не до готівки на
 // рахунках, і обрізається розривом до цілі: у резерв не кладуть більше,
 // ніж до неї бракує.
-func TestMonthPlanLeftAndReserve(t *testing.T) {
+func TestMonthPlanLeftAndCovered(t *testing.T) {
 	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 	today := domain.NewDate(now)
-	exp, months, share := 10000.0, 6.0, 40.0
-	set := &state.SettingsDoc{
-		MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months, ReserveFillSharePct: &share,
-	}
 	flows := []store.PlanFlow{
 		{ID: 1, Name: "Зарплата", Kind: "income", Amount: 3_000_000, Currency: money.UAH,
 			Cadence: "month", FromDate: domain.NewDate(now.AddDate(0, 0, -30)), InvestBP: 10000},
 	}
-	// Резерв 0 при цілі 60 000 — розрив величезний, тож стелю нічим не
-	// обрізати: 40% від 30 000.
-	p := buildMonthPlan(monthPlanSrc(flows, nil, set), fx.Rates{}, today, 0, 12000)
-	if p.ReserveUAH != 12000 {
-		t.Errorf("у резерв %v, очікували 12000 (40%% від 30 000)", p.ReserveUAH)
-	}
-	if p.LeftUAH != 18000 { // 30 000 − 12 000 уже внесених
+	src := monthPlanSrc(flows, nil, nil)
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 12000)
+	if p.LeftUAH != 18000 { // 30 000 плану − 12 000 уже внесених
 		t.Errorf("лишилось %v, очікували 18000", p.LeftUAH)
 	}
-	// Той самий план, але резерв уже майже зібраний: стелю обрізає розрив.
-	p = buildMonthPlan(monthPlanSrc(flows, nil, set), fx.Rates{}, today, 59_000, 0)
-	if p.ReserveUAH != 1000 {
-		t.Errorf("у резерв %v, очікували 1000 — більше за розрив не кладуть", p.ReserveUAH)
+	if p.CoveredPct != 40 {
+		t.Errorf("покрито %v%%, очікували 40", p.CoveredPct)
 	}
-	// Перевиконаний план: нуль, а не від'ємне число.
-	p = buildMonthPlan(monthPlanSrc(flows, nil, set), fx.Rates{}, today, 0, 40000)
+	// Перевиконаний план: «лишилось» нуль, а покриття — БЕЗ стелі в сотню.
+	// Обрізати 133% до 100% означало б сховати саме те, заради чого число й
+	// показують.
+	p = buildMonthPlan(src, fx.Rates{}, today, 40000)
 	if p.LeftUAH != 0 {
 		t.Errorf("лишилось %v, очікували 0 — план місяця перевиконано", p.LeftUAH)
+	}
+	if p.CoveredPct != 133.33 {
+		t.Errorf("покрито %v%%, очікували 133.33 без обрізання", p.CoveredPct)
+	}
+}
+
+// TestReserveMonthShare — стеля подушки береться з НОВИХ грошей і зменшується
+// на те, що вже покладено під матрац цього місяця.
+//
+// Обидві половини тут — виправлення того, що було. База: доти стеля
+// рахувалась від готівки на брокерському рахунку, і на живих даних 40% від
+// 6,19 ₴ давали пораду «спершу поповнити резерв — 2,48 ₴» при розриві в
+// 359 500 ₴. Віднімання: доти порада висіла незмінною, скільки б ти не
+// відкладав, бо розрив зменшується повільно, а стеля від плану стала.
+func TestReserveMonthShare(t *testing.T) {
+	exp, months, share := 10000.0, 6.0, 40.0
+	set := &state.SettingsDoc{
+		MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months, ReserveFillSharePct: &share,
+	}
+	plan := &state.MonthPlan{PlanUAH: 30000}
+
+	// Резерв порожній при цілі 60 000 — розрив великий, обрізати нічим.
+	month, fill := reserveMonthShare(set, 0, plan, 0)
+	if month != 12000 || fill != 12000 {
+		t.Errorf("частка %v, лишилось %v — очікували 12000 і 12000 (40%% від 30 000)", month, fill)
+	}
+	// Половину місячної частки вже відкладено — порада зменшилась рівно на неї.
+	month, fill = reserveMonthShare(set, 5000, plan, 5000)
+	if month != 12000 || fill != 7000 {
+		t.Errorf("частка %v, лишилось %v — очікували 12000 і 7000", month, fill)
+	}
+	// Місячну частку добрано з запасом — порада мовчить, а не йде в мінус.
+	if _, fill = reserveMonthShare(set, 15000, plan, 15000); fill != 0 {
+		t.Errorf("лишилось %v, очікували 0 — місячну частку вже перекрито", fill)
+	}
+	// Розрив менший за стелю — беремо розрив: класти більше за ціль означало
+	// б завести другу ціль поруч із заданою в місяцях витрат.
+	if month, _ = reserveMonthShare(set, 59_000, plan, 0); month != 1000 {
+		t.Errorf("частка %v, очікували 1000 — більше за розрив не кладуть", month)
+	}
+	// Ціль зібрано — стеля мовчить незалежно від плану.
+	if month, fill = reserveMonthShare(set, 60_000, plan, 0); month != 0 || fill != 0 {
+		t.Errorf("частка %v, лишилось %v — очікували нулі: ціль резерву зібрана", month, fill)
+	}
+	// Плану немає — рахувати нема від чого (готівка на рахунках сюди більше
+	// не входить узагалі).
+	if month, fill = reserveMonthShare(set, 0, nil, 0); month != 0 || fill != 0 {
+		t.Errorf("частка %v, лишилось %v — очікували нулі: плану доходу немає", month, fill)
 	}
 }
 
@@ -218,7 +259,7 @@ func TestMonthPlanLeftAndReserve(t *testing.T) {
 func TestMonthPlanAbsentWithoutFlows(t *testing.T) {
 	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 	if p := buildMonthPlan(monthPlanSrc(nil, nil, nil), fx.Rates{},
-		domain.NewDate(now), 0, 0); p != nil {
+		domain.NewDate(now), 0); p != nil {
 		t.Errorf("план місяця %+v, очікували nil — джерел доходу немає", p)
 	}
 }

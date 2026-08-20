@@ -237,6 +237,10 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 	for _, op := range []store.ReserveOp{
 		{Date: d(-50), Amount: 3000000, Currency: money.UAH, Place: "готівка"},
 		{Date: d(-45), Amount: 40000, Currency: money.USD, Place: "сейф"},
+		// Рух ПОТОЧНОГО місяця: без нього reserve.fill_moved_uah лишається
+		// нулем, і гілка «стеля зменшується на вже відкладене» не
+		// перевіряється взагалі — саме та, заради якої механізм і переробляли.
+		{Date: d(-4), Amount: 100000, Currency: money.UAH, Place: "готівка"},
 	} {
 		if _, err := st.AddReserveOp(ctx, op); err != nil {
 			t.Fatal(err)
