@@ -86,6 +86,22 @@
       "type": "number",
       "minimum": 0
     },
+    "month_plan": {
+      "type": "object",
+      "description": "Що план доходу обіцяє САМЕ цього місяця (адитивне поле). Не те саме, що plan_provides_uah: той усереднений за 12 місяців наперед і поточного місяця не бачить. Відсутній блок = плану доходу немає (нулі означали б «план обіцяє нуль»)",
+      "properties": {
+        "month": { "type": "string", "description": "YYYY-MM" },
+        "income_uah": { "type": "number", "description": "Надходження місяця в портфель: валова сума × частка в портфель, з підстановкою відміток" },
+        "expense_uah": { "type": "number", "description": "Планові витрати місяця, додатнім числом" },
+        "extra_uah": { "type": "number", "description": "Позапланові надходження місяця, у портфельних грошах" },
+        "plan_uah": { "type": "number", "description": "Нетто: income + extra − expense" },
+        "received_uah": { "type": "number", "description": "Скільки з income_uah уже підтверджено відмітками надходжень" },
+        "reserve_uah": { "type": "number", "description": "Скільки з місячних грошей іде в резерв: стеля reserve_fill_share_pct, обрізана розривом до цілі" },
+        "left_uah": { "type": "number", "description": "Скільки ще закинути: max(0, plan_uah − month_deposited_uah). Нуль змістовний — план місяця закритий" },
+        "sources": { "type": "integer", "description": "Скільки джерел доходу платять цього місяця" },
+        "marked": { "type": "integer", "description": "Скільки з них уже відмічено фактом" }
+      }
+    },
     "next_payment": {
       "type": [
         "object",
@@ -496,7 +512,9 @@
           "unit_kind": { "type": "string", "description": "Тип одиниці входу: bond | deposit (адитивне поле)" },
           "target_uah": { "type": "number", "description": "Ціль у грошах, грн-екв. — те саме, що target_pct, лише не у відсотках капіталу (адитивне поле)" },
           "current_uah": { "type": "number", "description": "Скільки стоїть зараз, грн-екв. (адитивне поле)" },
-          "fill_pct": { "type": "number", "description": "Наскільки ціль закрита: current_uah / target_uah × 100. Понад 100 — перебір, а не помилка. Порожньо в рядках без цілі (адитивне поле)" }
+          "fill_pct": { "type": "number", "description": "Наскільки ціль закрита: current_uah / target_uah × 100. Понад 100 — перебір, а не помилка. Порожньо в рядках без цілі (адитивне поле)" },
+          "month_share_uah": { "type": "number", "description": "Скільки з грошей цього місяця припадає на цей вид ЗА ЦІЛЬОВОЮ ЧАСТКОЮ. Лише для dimension=kind (адитивне поле)" },
+          "month_balance_uah": { "type": "number", "description": "Скільки з грошей цього місяця треба цьому виду, щоб ВИРІВНЯТИ портфель до цілей. Вид у перекосі дістає нуль. Лише для dimension=kind (адитивне поле)" }
         }
       }
     },

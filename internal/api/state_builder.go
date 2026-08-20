@@ -222,7 +222,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	}
 
 	// Рухи поточного місяця й фактичний темп (state_month.go).
-	mth, err := buildMonth(src, hold, rates, now, today)
+	mth, err := buildMonth(src, hold, rates, now, today, reserveUAH)
 	if err != nil {
 		return nil, err
 	}
@@ -849,6 +849,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		NominalByISIN: nominalByISIN, Bonds: bonds, FundRows: fundRows,
 		NPFRows:           npf.Rows,
 		BrokerExposureUAH: brokerExposureUAH, LadderUAH: ladderUAH,
+		MonthPlan: mth.Plan,
 	})
 	rebalance, concentration := rbl.Rebalance, rbl.Concentration
 
@@ -874,6 +875,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		MonthDepositedUAH: state.Major(monthDep),
 		MonthWithdrawnUAH: state.Major(monthOut),
 		MonthTargetUAH:    state.Major(target),
+		MonthPlan:         mth.Plan,
 		UninvestedUAH:     state.Major(unin),
 		AccountUAH:        state.Major(account),
 		ReinvestMinUAH:    state.Major(reinvestMin),

@@ -22,6 +22,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/state"
 
 	money "github.com/Rhymond/go-money"
 )
@@ -52,11 +53,13 @@ type monthPhase struct {
 	// довжині історії він порахований (щоб було видно, наскільки вірити).
 	ActualMonthlyUAH float64
 	ActualMonths     int
+	// Plan — що план доходу обіцяє САМЕ цього місяця. nil = плану немає.
+	Plan *state.MonthPlan
 }
 
-// buildMonth зводить рухи місяця й темп.
+// buildMonth зводить рухи місяця, темп і план поточного місяця.
 func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
-	now time.Time, today domain.Date) (monthPhase, error) {
+	now time.Time, today domain.Date, reserveUAH float64) (monthPhase, error) {
 	out := monthPhase{
 		InvestedUAH:  money.New(0, money.UAH),
 		DepositedUAH: money.New(0, money.UAH),
@@ -172,5 +175,111 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 			out.ActualMonthlyUAH = round2(float64(totalUAH) / 100 / months)
 		}
 	}
+
+	out.Plan = buildMonthPlan(src, rates, today, reserveUAH,
+		float64(out.DepositedUAH.Amount())/100)
 	return out, nil
+}
+
+// buildMonthPlan — скільки план доходу заводить у портфель ЦЬОГО місяця.
+//
+// # ЧОМУ ЦЕ НЕ PlanProvidesUAH
+//
+// Те число — СЕРЕДНЄ за дванадцять місяців НАПЕРЕД, і поточний місяць у нього
+// не входить узагалі: вектор проєкції починається з місяця 1. Тобто на
+// питання «скільки мені закинути в серпні» воно не відповідає ніяк — разова
+// премія у вересні його підіймає, а зарплата, яка прийшла сімнадцятого
+// серпня, на нього не впливає. Питання ставлять щомісяця, і відповіді в
+// документі не було.
+//
+// # ВЛАСНОЇ АРИФМЕТИКИ ТУТ НЕМАЄ
+//
+// Періодичність, дата «до», індексація, частка в портфель і підстановка
+// відмітки — усе це живе в planFlowAtMonth, тобто в тому самому ядрі, з якого
+// рахуються проєкція, профіль надходжень і колонка «дає ₴/міс». Друге
+// означення «скільки цей потік платить у серпні» розійшлося б із першим на
+// першій же правці періодичності, і помітили б це не одразу.
+//
+// Місяць 0 — саме поточний: monthKeyAt(today, 0) дає його ключ, а
+// planFlowAtMonth для m <= 0 іде в гілку минулого, де дата початку НЕ
+// підтягується до першого місяця. Для поточного це правильно: потік,
+// заведений завтра, у серпні ще не платив.
+func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
+	reserveUAH, depositedUAH float64) *state.MonthPlan {
+	if len(src.planFlows) == 0 && len(src.planReceipts) == 0 {
+		return nil // плану доходу немає — це не «план обіцяє нуль»
+	}
+	month := monthKeyAt(today, 0)
+	marks := newPlanMarks(src.planReceipts)
+	out := &state.MonthPlan{Month: month}
+
+	for _, f := range src.planFlows {
+		// Чи платить потік цього місяця, вирішує ЧИСТИЙ план (marks = nil), а
+		// не сума з відмітками. Різниця видна на відмітці «не прийшло»: вона
+		// робить суму нулем, і за нею рядок зник би зі списку джерел — тобто
+		// «зарплати цього місяця не було» перестало б відрізнятись від
+		// «зарплати тут ніколи й не планувалось».
+		if planFlowAtMonth(f, today, 0, nil) == 0 {
+			continue
+		}
+		amt := planFlowUAH(planFlowAtMonth(f, today, 0, marks), f.Currency, rates)
+		if f.Kind == "expense" {
+			// У потоках витрата від'ємна; у контракті вона додатна, бо поле
+			// зветься «витрати», і знак у ньому читався б як помилка.
+			out.ExpenseUAH += -amt
+			continue
+		}
+		out.IncomeUAH += amt
+		out.Sources++
+		if _, ok := marks.at(f.ID, today, 0); ok {
+			out.ReceivedUAH += amt
+			out.Marked++
+		}
+	}
+
+	// Позапланове — окремо, і не з примхи: у planMarks воно не входить
+	// навмисно (немає потоку, який можна замістити), тож без цього циклу
+	// премія просто зникла б із місяця, у якому вона прийшла.
+	for _, r := range src.planReceipts {
+		if r.FlowID != 0 || r.Month != month {
+			continue
+		}
+		gross := float64(r.Amount) / 100 * float64(r.InvestBP) / 10000
+		out.ExtraUAH += planFlowUAH(gross, r.Currency, rates)
+	}
+
+	out.PlanUAH = out.IncomeUAH + out.ExtraUAH - out.ExpenseUAH
+
+	// Стеля резерву — та сама, що керує Reserve.FillNowUAH, але прикладена до
+	// НОВИХ грошей місяця, а не до готівки на рахунках. Обидва числа
+	// лишаються, бо відповідають на різні питання: те — «відклади з того, що
+	// вже лежить», це — «з місячних грошей у подушку піде стільки».
+	//
+	// Обрізання розривом обов'язкове з тієї ж причини, що й там: радити
+	// відкласти БІЛЬШЕ за ціль означало б завести другу ціль поруч із тією,
+	// яку задано в місяцях витрат.
+	if _, gap := state.ReserveTarget(src.settings, reserveUAH); gap > 0 &&
+		src.settings != nil && src.settings.ReserveFillSharePct != nil {
+		if share := *src.settings.ReserveFillSharePct; share > 0 && out.PlanUAH > 0 {
+			fill := out.PlanUAH * share / 100
+			if fill > gap {
+				fill = gap
+			}
+			out.ReserveUAH = round2(fill)
+		}
+	}
+
+	// Лишилось закинути — проти ВНЕСЕНОГО, а не проти купленого: план
+	// означає «скільки нових грошей принести», а купівля лише переносить їх
+	// з рахунку в папери (та сама межа, що названа в шапці цього файла).
+	if left := out.PlanUAH - depositedUAH; left > 0 {
+		out.LeftUAH = round2(left)
+	}
+
+	out.IncomeUAH = round2(out.IncomeUAH)
+	out.ExpenseUAH = round2(out.ExpenseUAH)
+	out.ExtraUAH = round2(out.ExtraUAH)
+	out.PlanUAH = round2(out.PlanUAH)
+	out.ReceivedUAH = round2(out.ReceivedUAH)
+	return out
 }

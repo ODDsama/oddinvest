@@ -296,7 +296,18 @@ function monthTile(ctx, s) {
   const doneLabel = s.month_deposited_uah === undefined
     ? `вкладено ${fmtUAH(s.month_invested_uah)}` // старий бекенд рахував купівлі
     : `внесено ${fmtUAH(s.month_deposited_uah)}`;
-  const extra = `${s.month_withdrawn_uah > 0
+  // Планове число місяця — ОКРЕМИМ рядком, і підписане словом «план»
+  // навмисно. Відсоток плитки міряється проти ЦІЛІ накопичення, а це інший
+  // знаменник: план каже, скільки принесуть джерела доходу, ціль — скільки
+  // треба, щоб дійти куди хочеш. Злити їх в один прогрес означало б
+  // повторити ту саму підміну, від якої існує contrib.js.
+  const mp = s.month_plan;
+  const planLine = mp && mp.plan_uah > 0
+    ? `<div class="sub">за планом місяця ${fmtUAH(mp.plan_uah)}${mp.left_uah > 0
+      ? ` · <span class="t-warn">ще закинути ${fmtUAH(mp.left_uah)}</span>`
+      : ` · <span class="t-ok">закинуто все</span>`}</div>` : "";
+  const extra = `${planLine}
+    ${s.month_withdrawn_uah > 0
     ? `<div class="sub-xs">нетто: поповнення ${
       fmtUAH((s.month_deposited_uah || 0) + s.month_withdrawn_uah)} − зняття ${fmtUAH(s.month_withdrawn_uah)}</div>` : ""}
     ${s.month_invested_uah > 0
@@ -317,7 +328,11 @@ function monthTile(ctx, s) {
        <div class="sub">${doneLabel} з ${fmtUAH(s.month_target_uah)}</div>
        ${extra}`);
   }
-  return tile("Цей місяць", "—", `<div class="sub">задай ціль і дедлайн — план порахується сам</div>`);
+  // Цілі немає — відсотка теж, але план місяця від цілі не залежить: він
+  // рахується з джерел доходу, і сказати «за планом ще закинути стільки»
+  // можна й тому, хто цілі не ставив.
+  return tile("Цей місяць", "—",
+    `<div class="sub">задай ціль і дедлайн — план порахується сам</div>${planLine}`);
 }
 
 // Друга половина плитки: чи є план, чи вистачає його на ціль, і якщо ні

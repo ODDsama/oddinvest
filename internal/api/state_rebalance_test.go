@@ -102,3 +102,132 @@ func TestConcentrationOrderIsStableOnEqualShares(t *testing.T) {
 		}
 	}
 }
+
+// --- місячні гроші по видах ---
+
+// monthRows — три види з цілями 50/10/15 і різним станом: один у перекосі,
+// два порожні. Той самий розклад, що на живих даних, лише круглими числами.
+func monthRows() []state.RebalanceRow {
+	return []state.RebalanceRow{
+		{Dimension: "kind", Key: "bonds", TargetPct: 50, CurrentUAH: 60_000},
+		{Dimension: "kind", Key: "funds", TargetPct: 10, CurrentUAH: 40_000},
+		{Dimension: "kind", Key: "deposits", TargetPct: 15, CurrentUAH: 0},
+		{Dimension: "kind", Key: "reserve", CurrentUAH: 10_000}, // без цілі — не чіпаємо
+	}
+}
+
+func rowByKey(rows []state.RebalanceRow, key string) state.RebalanceRow {
+	for _, r := range rows {
+		if r.Key == key {
+			return r
+		}
+	}
+	return state.RebalanceRow{}
+}
+
+// TestSpreadMonthShareIgnoresSkew — колонка «за часткою» тримає пропорцію
+// й перекосу не помічає.
+//
+// Це не вада, а її призначення: фонди тут утричі понад ціль і все одно
+// дістають свої 10%. Саме тому поруч стоїть друга колонка — одна без
+// одної вони відповідали б на питання лише наполовину.
+func TestSpreadMonthShareIgnoresSkew(t *testing.T) {
+	rows := monthRows()
+	// План 12 000, з них 2 000 у резерв → ділиться 10 000.
+	spreadMonth(rows, &state.MonthPlan{PlanUAH: 12_000, ReserveUAH: 2_000}, 110_000)
+
+	for _, c := range []struct {
+		key  string
+		want float64
+	}{{"bonds", 5000}, {"funds", 1000}, {"deposits", 1500}} {
+		if got := rowByKey(rows, c.key).MonthShareUAH; got != c.want {
+			t.Errorf("%s за часткою %v, очікували %v", c.key, got, c.want)
+		}
+	}
+	// Нерозподілені 25% нікому не дістаються: сума колонки менша за
+	// доступне рівно на них.
+	var sum float64
+	for _, r := range rows {
+		sum += r.MonthShareUAH
+	}
+	if sum != 7500 {
+		t.Errorf("сума колонки %v, очікували 7500 — решта 25%% лишається користувачу", sum)
+	}
+	// Рядок без цілі місячних чисел не дістає взагалі.
+	if r := rowByKey(rows, "reserve"); r.MonthShareUAH != 0 || r.MonthBalanceUAH != 0 {
+		t.Errorf("рядок без цілі дістав місячні гроші: %+v", r)
+	}
+}
+
+// TestSpreadMonthBalanceSkipsOverweight — колонка «на вирівнювання» не дає
+// нічого виду, який уже понад ціль, і ділить пропорційно потребам, коли
+// грошей на всіх не вистачає.
+//
+// Цілі рахуються від капіталу ПІСЛЯ місяця (110 000 + 12 000 = 122 000):
+// bonds 61 000 при 60 000 → треба 1 000; funds 12 200 при 40 000 → нуль;
+// deposits 18 300 при нулі → треба 18 300. Разом 19 300 при доступних
+// 10 000, тобто пропорційно.
+func TestSpreadMonthBalanceSkipsOverweight(t *testing.T) {
+	rows := monthRows()
+	spreadMonth(rows, &state.MonthPlan{PlanUAH: 12_000, ReserveUAH: 2_000}, 110_000)
+
+	if got := rowByKey(rows, "funds").MonthBalanceUAH; got != 0 {
+		t.Errorf("фонди на вирівнювання %v, очікували 0 — вони вчетверо понад ціль", got)
+	}
+	bonds := rowByKey(rows, "bonds").MonthBalanceUAH
+	deps := rowByKey(rows, "deposits").MonthBalanceUAH
+	if bonds <= 0 || deps <= bonds {
+		t.Errorf("bonds %v, deposits %v — більший розрив мусить дістати більше", bonds, deps)
+	}
+	if sum := bonds + deps; sum < 9999.9 || sum > 10000.1 {
+		t.Errorf("роздано %v, а доступно було 10000", sum)
+	}
+}
+
+// TestSpreadMonthBalanceRestBySharePct — коли грошей більше, ніж потреб,
+// потреби закриваються повністю, а лишок ділиться за ЦІЛЬОВИМИ частками.
+//
+// Саме за частками від НАЗВАНИХ, а не нормалізованими до сотні: інакше
+// нерозподілені відсотки мовчки дісталися б тим видам, у яких ціль є, і
+// застосунок сам вирішив би долю грошей, які користувач лишив собі.
+func TestSpreadMonthBalanceRestBySharePct(t *testing.T) {
+	rows := []state.RebalanceRow{
+		{Dimension: "kind", Key: "bonds", TargetPct: 50, CurrentUAH: 1_000},
+		{Dimension: "kind", Key: "funds", TargetPct: 10, CurrentUAH: 100},
+	}
+	// Капітал 1 100, план 100 000 — потреби мізерні проти доступного.
+	spreadMonth(rows, &state.MonthPlan{PlanUAH: 100_000}, 1_100)
+
+	b, f := rowByKey(rows, "bonds"), rowByKey(rows, "funds")
+	// Потреби: bonds 50 550 − 1 000 = 49 550; funds 10 110 − 100 = 10 010.
+	// Разом 59 560, лишок 40 440 → за частками 50% і 10%.
+	if want := 49_550 + 40_440*0.5; b.MonthBalanceUAH != want {
+		t.Errorf("bonds на вирівнювання %v, очікували %v", b.MonthBalanceUAH, want)
+	}
+	if want := 10_010 + 40_440*0.1; f.MonthBalanceUAH != want {
+		t.Errorf("funds на вирівнювання %v, очікували %v", f.MonthBalanceUAH, want)
+	}
+}
+
+// TestSpreadMonthSilentWithoutPlan — без плану місяця чисел немає взагалі.
+//
+// Нулі тут читались би як «плану вистачає рівно на нуль», а це інша
+// відповідь, ніж «плану доходу немає».
+func TestSpreadMonthSilentWithoutPlan(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		mp   *state.MonthPlan
+	}{
+		{"плану немає", nil},
+		{"усе забрав резерв", &state.MonthPlan{PlanUAH: 5_000, ReserveUAH: 5_000}},
+	} {
+		rows := monthRows()
+		spreadMonth(rows, c.mp, 110_000)
+		for _, r := range rows {
+			if r.MonthShareUAH != 0 || r.MonthBalanceUAH != 0 {
+				t.Errorf("%s: %s дістав місячні гроші (%v / %v)",
+					c.name, r.Key, r.MonthShareUAH, r.MonthBalanceUAH)
+			}
+		}
+	}
+}

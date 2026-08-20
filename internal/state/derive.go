@@ -262,14 +262,7 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 	}
 	if monthlyExp > 0 {
 		r.Months = doc.ReserveUAH / monthlyExp
-		if targetMonths > 0 {
-			r.TargetUAH = monthlyExp * targetMonths
-			// Gap лише додатний: «перебір» резерву не є браком, і
-			// від'ємне число тут UI прочитав би як «докласти −5 000».
-			if gap := r.TargetUAH - doc.ReserveUAH; gap > 0 {
-				r.GapUAH = gap
-			}
-		}
+		r.TargetUAH, r.GapUAH = ReserveTarget(doc.Settings, doc.ReserveUAH)
 	}
 	// Скільки з вільних грошей варто відкласти просто зараз.
 	//
@@ -294,4 +287,30 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 		}
 	}
 	doc.Reserve = r
+}
+
+// ReserveTarget — ціль резерву в гривнях і розрив до неї.
+//
+// Винесене з deriveReserve, бо споживачів стало двоє: сама картка резерву й
+// план поточного місяця (state_month.go), який відраховує подушці її стелю
+// від НОВИХ грошей. Друга копія цих двох рядків розійшлася б із першою рівно
+// тоді, коли хтось поправить одну з них, — а помітити це було б нічим: обидва
+// числа виглядають правдоподібно поодинці.
+//
+// Gap лише додатний: «перебір» резерву не є браком, і від'ємне число тут UI
+// прочитав би як «докласти −5 000». Ціль без місячних витрат або без цілі в
+// місяцях не існує — обидва нулі означають «міряти нема чим».
+func ReserveTarget(s *SettingsDoc, reserveUAH float64) (target, gap float64) {
+	if s == nil || s.MonthlyExpensesUAH == nil || s.ReserveTargetMonths == nil {
+		return 0, 0
+	}
+	exp, months := *s.MonthlyExpensesUAH, *s.ReserveTargetMonths
+	if exp <= 0 || months <= 0 {
+		return 0, 0
+	}
+	target = exp * months
+	if d := target - reserveUAH; d > 0 {
+		gap = d
+	}
+	return target, gap
 }

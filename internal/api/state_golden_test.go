@@ -31,6 +31,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -331,10 +332,41 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 	// plan_provides_uah, ContribByMonth і Lock лишаються неперевіреними
 	// нулями на цій фікстурі, а TestDocFieldsPopulated про це мовчить,
 	// бо *план* технічно заповнений (лише не впливає на суму).
-	if resp, b := do(t, "POST", srv+"/api/plan/flows",
+	resp, b := do(t, "POST", srv+"/api/plan/flows",
 		`{"name":"Зарплата","kind":"income","amount":"40000.00","cadence":"month","from_date":"`+
-			string(d(-30))+`","invest_pct":"40"}`); resp.StatusCode != 201 {
+			string(d(-30))+`","invest_pct":"40"}`)
+	if resp.StatusCode != 201 {
 		t.Fatalf("потік плану: %d %s", resp.StatusCode, b)
+	}
+	var created struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(b), &created); err != nil || created.ID == 0 {
+		t.Fatalf("id потоку: %v %s", err, b)
+	}
+	// ВИТРАТНИЙ потік — інакше month_plan.expense_uah лишився б нулем, а
+	// нетто плану місяця дорівнювало б надходженням, тобто гілка «витрати
+	// зменшують те, що можна закинути» не перевірялась би взагалі.
+	if resp, b := do(t, "POST", srv+"/api/plan/flows",
+		`{"name":"Оренда","kind":"expense","amount":"9000.00","cadence":"month","from_date":"`+
+			string(d(-30))+`","invest_pct":"100"}`); resp.StatusCode != 201 {
+		t.Fatalf("витратний потік: %d %s", resp.StatusCode, b)
+	}
+	// Відмітка надходження за ПОТОЧНИЙ місяць — сумою, відмінною від
+	// планової: так перевіряється саме заміщення, а не збіг. Без неї
+	// month_plan.received_uah і marked лишились би нулями.
+	month := string(goldenNow.Format("2006-01"))
+	if resp, b := do(t, "POST", srv+"/api/plan/receipts",
+		`{"flow_id":`+strconv.FormatInt(created.ID, 10)+`,"month":"`+month+
+			`","amount":"41500.00","currency":"UAH","note":"премія за квартал"}`); resp.StatusCode != 201 {
+		t.Fatalf("відмітка надходження: %d %s", resp.StatusCode, b)
+	}
+	// Позапланове надходження — окрема гілка (у planMarks воно не входить),
+	// і без нього month_plan.extra_uah не заповнюється нічим.
+	if resp, b := do(t, "POST", srv+"/api/plan/receipts",
+		`{"flow_id":0,"month":"`+month+
+			`","name":"Продаж велосипеда","amount":"6000.00","currency":"UAH","invest_pct":"50"}`); resp.StatusCode != 201 {
+		t.Fatalf("позапланове надходження: %d %s", resp.StatusCode, b)
 	}
 	if resp, b := do(t, "POST", srv+"/api/plan/actions",
 		`{"date":"`+string(d(200))+`","type":"lock","amount":"50000.00","rate_pct":"20","months":24,"name":"MilTech"}`); resp.StatusCode != 201 {
@@ -477,7 +509,18 @@ func itoa(n int) string {
 // завжди визнання, що якусь гілку ми не перевіряємо; додавати його можна,
 // але з поясненням, і TestDocFieldsPopulated окремо стежить, щоб виняток,
 // який більше нічого не прикриває, не залишався лежати.
-var allowedZero = map[string]string{}
+var allowedZero = map[string]string{
+	// Нуль тут — не «фаза не заповнила», а ЗАКОНЧЕНИЙ СТАН: на цій фікстурі
+	// за поточний місяць внесено 65 000 ₴ нетто при плані в 10 600 ₴, тобто
+	// план місяця перевиконано, і закидати більше нема чого. Саме заради
+	// цієї гілки (max(0, …) замість від'ємного числа) фікстура й лишається
+	// такою: підняти план вище за внесене можна було б лише премією тисяч
+	// на двісті, і тоді не перевірялась би вона.
+	//
+	// Виняток зникне сам, щойно фікстура зміниться в інший бік: зустрічна
+	// перевірка нижче валить тест на винятку, який більше нічого не прикриває.
+	"month_plan.left_uah": "план місяця перевиконано — внесено більше, ніж обіцяв план",
+}
 
 // TestDocFieldsPopulated — кожне поле документа мусить бути ненульовим.
 //
