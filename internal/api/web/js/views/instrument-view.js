@@ -47,7 +47,7 @@ import {
 import { reinvestHTML, reserveFillHTML, wireReinvest, loadReinvest } from "./now-view.js";
 import { kindTasksHTML } from "./tasks.js";
 import { wireBasket } from "./basket.js";
-import { stepRailHTML, stepHTML, wireSteps } from "./steps.js";
+import { stepRailHTML, stepper, wireSteps } from "./steps.js";
 
 // Вид інструмента живе ТУТ, а не в nav.js: дерево навігації не має знати
 // домену. Ключ ліворуч — підрозділ адреси, праворуч — те, чим цей вид
@@ -180,6 +180,7 @@ function funnelPage(sub) {
     const [d] = await Promise.all([loadPositionsData(ctx), loadReinvest(ctx)]);
     const path = `instr/${sub}`;
     const keys = ["state", "mine", "next", "act", "write", "terms"];
+    const step = stepper(keys);
     const rowDetail = spec.kind !== "npf";
     const table = positionsTableHTML(ctx, d.positions, d.lots, d.sales, d.deposits, {
       kinds: [spec.kind], title: spec.title, rowDetail,
@@ -194,14 +195,14 @@ function funnelPage(sub) {
     main.innerHTML = `
       ${stepRailHTML(path, keys, ctx.anchor || "state")}
       ${kindTasksHTML(ctx, spec.kind)}
-      ${stepHTML("state", kindTilesHTML(ctx, spec, itemsOfKind(d, spec)))}
-      ${stepHTML("mine", table + (spec.kind === "deposit" ? closedDepositsHTML(ctx, d.deposits) : ""))}
-      ${stepHTML("next", nextForKindHTML(ctx, spec))}
-      ${stepHTML("act", act + `<div class="card"><div class="sub">Порівняти з іншими видами —
+      ${step("state", kindTilesHTML(ctx, spec, itemsOfKind(d, spec)))}
+      ${step("mine", table + (spec.kind === "deposit" ? closedDepositsHTML(ctx, d.deposits) : ""))}
+      ${step("next", nextForKindHTML(ctx, spec))}
+      ${step("act", act + `<div class="card"><div class="sub">Порівняти з іншими видами —
         <a class="lnk" href="${routeFor("now/buy")}">у «Що купити»</a>: там ОВДП, фонд, вклад і
         НПФ стоять поруч і міряні однією реальною дохідністю.</div></div>`)}
-      ${stepHTML("write", writeHTML(ctx, spec, d))}
-      ${stepHTML("terms", termsHTML(spec.kind))}`;
+      ${step("write", writeHTML(ctx, spec, d))}
+      ${step("terms", termsHTML(spec.kind))}`;
 
     wirePositionRows(ctx, main, d.deposits);
     wireReinvest(ctx, main);
@@ -283,19 +284,20 @@ export async function reserve(ctx, main) {
   const ops = await ctx.soft("reserve", []);
   const path = "instr/reserve";
   const keys = ["state", "mine", "next", "write", "terms"];
+  const step = stepper(keys);
   const tiles = reserveTilesHTML(ctx) || `<div class="card">${empty(
     "Резерву ще немає",
     "Резерв — те, що доступне миттєво й без втрат, коли гроші раптом знадобились.",
     { href: routeFor("instr/reserve/write"), label: "Записати рух" })}</div>`;
   main.innerHTML = `
     ${stepRailHTML(path, keys, ctx.anchor || "state")}
-    ${stepHTML("state", tiles)}
-    ${stepHTML("mine", reserveJournalHTML(ops))}
-    ${stepHTML("next", reserveFillHTML(ctx) || `<div class="card"><div class="sub">
+    ${step("state", tiles)}
+    ${step("mine", reserveJournalHTML(ops))}
+    ${step("next", reserveFillHTML(ctx) || `<div class="card"><div class="sub">
       Поповнювати зараз нічого: або запас уже зібраний, або вільних грошей на рахунку немає.
       </div></div>`)}
-    ${stepHTML("write", reserveFormHTML())}
-    ${stepHTML("terms", termsHTML("reserve"))}`;
+    ${step("write", reserveFormHTML())}
+    ${step("terms", termsHTML("reserve"))}`;
   onSubmit(ctx, main.querySelector("#resForm"), (f) => ({
     path: "reserve",
     body: {
