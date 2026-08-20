@@ -46,6 +46,7 @@ import {
 } from "./money-cards.js";
 import { reinvestHTML, reserveFillHTML, wireReinvest, loadReinvest } from "./now-view.js";
 import { kindTasksHTML } from "./tasks.js";
+import { wireBasket } from "./basket.js";
 import { stepRailHTML, stepHTML, wireSteps } from "./steps.js";
 
 // Вид інструмента живе ТУТ, а не в nav.js: дерево навігації не має знати
@@ -204,6 +205,11 @@ function funnelPage(sub) {
 
     wirePositionRows(ctx, main, d.deposits);
     wireReinvest(ctx, main);
+    // Кнопки «+» малює reinvestHTML, а слухач до них живе в basket.js. Доти
+    // wireBasket кликала ЛИШЕ сторінка кошика — тобто рівно те місце, де
+    // жодного data-bskadd немає, — і «+» у списку порад не робив нічого.
+    // Проводити треба там, де кнопки намальовані.
+    wireBasket(ctx, main);
     wireSteps(main);
   };
 }
