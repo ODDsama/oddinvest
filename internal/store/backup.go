@@ -42,6 +42,10 @@ type Backup struct {
 	// бекапи, зроблені до його появи, читаються без цих полів.
 	PlanFlows   []BackupPlanFlow   `json:"plan_flows,omitempty"`
 	PlanActions []BackupPlanAction `json:"plan_actions,omitempty"`
+	// PlanBuys (0033) — план купівель. Так само невідновний: намір «узяти
+	// цей папір у березні» не виводиться ні з операцій, ні з потоків, бо
+	// операції ще немає, а потік описує гроші, а не інструмент.
+	PlanBuys []BackupPlanBuy `json:"plan_buys,omitempty"`
 	// Журнал ревізій потоків (0026). Без нього відновлення тихо стирало б
 	// історію правок — а на ній стоїть увесь сенс картки «План проти
 	// факту»: план за минулий місяць читається з журналу, і без журналу він
@@ -268,6 +272,24 @@ type BackupPlanAction struct {
 	Months   int64  `json:"months"`
 	Name     string `json:"name"`
 	Note     string `json:"note"`
+}
+
+// BackupPlanBuy — планована купівля (0033). Дзеркалить store.PlanBuy
+// колонка в колонку: бекап цієї таблиці — дамп, а не зведення.
+type BackupPlanBuy struct {
+	ID        int64  `json:"id"`
+	Kind      string `json:"kind"`
+	Ref       string `json:"ref"`
+	Qty       int64  `json:"qty"`
+	Amount    int64  `json:"amount"`
+	UnitPrice int64  `json:"unit_price"`
+	Currency  string `json:"currency"`
+	Broker    string `json:"broker"`
+	BuyDate   string `json:"buy_date"`
+	RateBP    int64  `json:"rate_bp"`
+	Months    int64  `json:"months"`
+	IsReserve bool   `json:"is_reserve"`
+	Note      string `json:"note"`
 }
 
 // BackupDepositTopup — поповнення вкладу. Без нього відновлення втратило б
@@ -590,6 +612,20 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT id,kind,ref,qty,amount,unit_price,currency,broker,
+		buy_date,rate_bp,months,is_reserve,note FROM plan_buys ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupPlanBuy
+			if err := scan(&r.ID, &r.Kind, &r.Ref, &r.Qty, &r.Amount, &r.UnitPrice,
+				&r.Currency, &r.Broker, &r.BuyDate, &r.RateBP, &r.Months,
+				&r.IsReserve, &r.Note); err != nil {
+				return err
+			}
+			b.PlanBuys = append(b.PlanBuys, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	// Довідники — цілком, а не лише тими рядками, які згадані в операціях.
 	// Порядок за назвою, як у ListFunds/ListBrokers: дамп того самого стану
 	// має бути тим самим файлом.
@@ -703,7 +739,7 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
 		"deposit_topups", "term_deposits", "reserve_ops", "npf_ops", "npf_nav",
 		"npf_accounts", "plan_flows", "plan_flow_revisions",
-		"plan_receipts", "plan_actions", "settings", "payment_status", "snapshots",
+		"plan_receipts", "plan_actions", "plan_buys", "settings", "payment_status", "snapshots",
 		"funds", "brokers"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
@@ -963,6 +999,16 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			a.ID, a.Date, a.Type, a.USDBP, a.EURBP, a.Amount, a.Currency, a.RateBP,
 			a.Months, a.Name, a.Note); err != nil {
 			return fmt.Errorf("планова дія %d: %w", a.ID, err)
+		}
+	}
+	for _, p := range b.PlanBuys {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO plan_buys (id,kind,ref,qty,amount,unit_price,currency,broker,
+			 buy_date,rate_bp,months,is_reserve,note)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			p.ID, p.Kind, p.Ref, p.Qty, p.Amount, p.UnitPrice, p.Currency, p.Broker,
+			p.BuyDate, p.RateBP, p.Months, p.IsReserve, p.Note); err != nil {
+			return fmt.Errorf("планована купівля %d: %w", p.ID, err)
 		}
 	}
 	for k, v := range b.Settings {
