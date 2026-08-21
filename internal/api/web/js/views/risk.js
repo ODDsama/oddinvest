@@ -3,7 +3,7 @@
 
 import {
   esc, curSym, dayMonth, pct, uah2 as fmtUAH, cur2 as fmtCur,
-  fundsCost, marketCostUAH,
+  fundsCost, marketCostUAH, uahSharePct, uahTargetPct,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { opsGrid } from "../grid.js";
@@ -49,8 +49,11 @@ export function currencyChartHTML(ctx) {
   const s = ctx.summary || {}, st = s.settings || {};
   const usdT = Number(st.usd_target_share_pct || 0), eurT = Number(st.eur_target_share_pct || 0);
   if (!(usdT > 0 || eurT > 0)) return "";
+  // Гривня — залишок від валютних цілей, і виводить його format.js. Та сама
+  // формула знадобилась картці «Валюта за стратегією» на «Що купити», а
+  // третя копія віднімання розійшлася б із двома першими мовчки.
   const groups = [
-    { label: "UAH", a: 100 - (s.usd_share_pct || 0) - (s.eur_share_pct || 0), b: Math.max(0, 100 - usdT - eurT) },
+    { label: "UAH", a: uahSharePct(s), b: uahTargetPct(s) },
     { label: "USD", a: s.usd_share_pct || 0, b: usdT },
     { label: "EUR", a: s.eur_share_pct || 0, b: eurT },
   ];

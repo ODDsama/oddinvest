@@ -20,7 +20,7 @@ import { routeFor } from "../routes.js";
 import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
 import { basketHTML, wireBasket } from "./basket.js";
 import { tasksHTML } from "./tasks.js";
-import { allocationCardHTML } from "./allocation.js";
+import { allocationCardHTML, currencyCardHTML } from "./allocation.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
@@ -463,10 +463,21 @@ export async function todo(ctx, main) {
  *  ВИДІВ між собою — це зважене рішення власника, а не недогляд, і
  *  повертається воно одним доданком нижче.
  *
- *  Порожнього стану тут немає навмисно: allocationCardHTML сама каже, чого їй
+ *  ЩО СЮДИ ПОВЕРНУЛОСЬ. Валютний поверх: доти сторінка показувала лише мапу
+ *  за ВИДОМ, хоч помічник ранжує поради сумою двох розривів — валютного й
+ *  видового (planScore у handlers_reinvest.go). Половина міри, якою
+ *  впорядкований результат, на сторінці рішення була невидима: людина читала
+ *  «скільки чого за видом» і не бачила, що USD стоїть на 8% при цілі 20%.
+ *  Валюта йде ПЕРШОЮ — вона грубіша й вирішує, які папери взагалі досяжні.
+ *
+ *  Порад щодо конвертації в ній немає навмисно (рішення власника): «скільки
+ *  сконвертувати» вже сказане в «Портфель → Структура», і другий екземпляр
+ *  тієї самої поради іншими словами рано чи пізно розійшовся б із першим.
+ *
+ *  Порожнього стану тут немає навмисно: обидві картки кажуть, чого їм
  *  бракує (needsSetting), коли не задано жодної цілі. */
 export async function buy(ctx, main) {
-  main.innerHTML = allocationCardHTML(ctx);
+  main.innerHTML = currencyCardHTML(ctx) + allocationCardHTML(ctx);
 }
 
 /** Кошик покупки: що буде з портфелем, якщо взяти оце.
