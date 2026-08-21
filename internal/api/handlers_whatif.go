@@ -1,10 +1,10 @@
-// Кошик покупки: що станеться з портфелем, якщо це купити.
+// План купівель: що станеться з портфелем і з цілями, якщо це купити.
 //
 // Питання ставиться ДО оплати, і відповідь на нього — той самий документ
 // стану, тільки над портфелем, у якому покупки вже записані. Тому тут
-// немає жодної власної арифметики: ні часток, ні драбини, ні дюрації.
-// buildStateWith домішує гіпотетичні лоти в sources, і далі все рахує
-// той самий код, що й завжди (див. коментар до hypothetical).
+// немає жодної власної арифметики: ні часток, ні драбини, ні дюрації, ні
+// точки незалежності. buildStateWith домішує гіпотезу в sources, і далі
+// все рахує той самий код, що й завжди (див. коментар до hypothetical).
 //
 // Чому не на фронтенді. Порахувати «нові валютні частки» у JS — це
 // другий спосіб відповісти на питання, у якого вже є один. Обидва рази,
@@ -12,15 +12,31 @@
 // наслідком були різні числа на одному екрані; state.Capital і
 // handlers_reinvest.go тримають ці історії записаними.
 //
-// Чому не в базі. Збережений кошик — це другий спосіб задати покупки,
-// і питання «який із них справжній» не мало б відповіді. Той самий
-// аргумент, що й у наборів налаштувань (strategy.js).
-
+// ЧОМУ В БАЗІ — І ЧОМУ РАНІШЕ БУЛО НАВПАКИ.
+//
+// Тут стояв аргумент: «збережений кошик — це другий спосіб задати
+// покупки, і питання «який із них справжній» не мало б відповіді». Він
+// був правильний рівно доти, доки кошик означав чернетку на дві
+// хвилини: набрав, подивився, пішов купувати. Тоді localStorage справді
+// був чесніший за таблицю.
+//
+// Скасовано тим, що питання змінилось. Планована купівля має ДАТУ, і
+// рядок із майбутньою датою — це вже не чернетка, а частина плану поруч
+// із потоками доходу й діями: він рухає точку незалежності, криву
+// капіталу й ціль так само, як замок чи зарплата. Тримати половину плану
+// в базі, а половину в браузері одного пристрою — ось де зʼявляються два
+// джерела правди, а не тут.
+//
+// «Який із них справжній» відповіді тепер не потребує: спосіб задати
+// покупки один — таблиця plan_buys. Тіло запиту приймає ЧЕРНЕТКУ саме
+// для того, щоб її не довелось зберігати заради превʼю: чернетка нікуди
+// не пишеться й живе рівно один запит.
 package api
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"net/http"
 	"sort"
 	"time"
@@ -29,28 +45,50 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
-type whatIfItem struct {
-	Kind   string `json:"kind"`           // bond | fund
-	ISIN   string `json:"isin,omitempty"` // для bond
-	Fund   string `json:"fund,omitempty"` // для fund
-	Qty    int64  `json:"qty"`
-	Broker string `json:"broker,omitempty"`
-}
-
+// whatIfReq — три випадки одним тілом.
+//
+//	{}                              — наслідки збереженого плану;
+//	{"draft":[рядок]}               — превʼю чернетки під час введення;
+//	{"exclude":[7],"draft":[рядок']} — превʼю ПРАВКИ рядка 7.
+//
+// Один шлях, а не три ручки: «наслідки» — це завжди наслідки одного й
+// того самого набору рядків, і різниця лише в тому, як цей набір
+// складено. Три ендпойнти означали б три місця, де набір збирається
+// по-різному.
 type whatIfReq struct {
-	Items []whatIfItem `json:"items"`
+	// Saved — чи брати збережений план. Покажчик, бо за замовчуванням
+	// ТАК: порожнє тіло має відповідати на головне питання екрана, а не
+	// малювати порожній кошик. false потрібен рівно тестам і превʼю
+	// «лише цей рядок».
+	Saved   *bool        `json:"saved,omitempty"`
+	Exclude []int64      `json:"exclude,omitempty"`
+	Draft   []planBuyReq `json:"draft,omitempty"`
 }
 
-// basketLine — один рядок кошика, вже з ціною.
+// basketLine — один рядок плану, вже з ціною.
 type basketLine struct {
+	// ID — рядок у plan_buys; 0 означає чернетку, якої в базі ще немає.
+	// Саме за ним UI чіпляє «змінити», «виконано» й «прибрати».
+	ID       int64     `json:"id,omitempty"`
 	Kind     string    `json:"kind"`
 	Label    string    `json:"label"`
 	Qty      int64     `json:"qty"`
 	Unit     moneyJSON `json:"unit"`
 	Total    moneyJSON `json:"total"`
 	Currency string    `json:"currency"`
+	// BuyDate — коли планую; порожньо = «зараз». Future каже, чи ця дата
+	// СТРОГО попереду: минула дата — прострочений намір, і рахується він
+	// як «зараз» (state_plan_buys.go).
+	BuyDate string `json:"buy_date,omitempty"`
+	Future  bool   `json:"future,omitempty"`
+	// IsReserve — планований вклад є подушкою. У відповіді він потрібен не
+	// заради значка: саме за ним картка наслідків вирішує, чи взагалі
+	// малювати рядки подушки й драбини (рядок, який структурно не може
+	// зрушити, гірший за його відсутність).
+	IsReserve bool `json:"is_reserve,omitempty"`
 	// Broker — у кого купуємо. Assumed каже, що брокера обрав застосунок,
 	// а не людина: припущення, яке впливає на «вистачає / не вистачає»,
 	// має бути видно, а не лежати мовчки в обчисленні.
@@ -65,18 +103,25 @@ type basketShort struct {
 	Short    moneyJSON `json:"short"`
 }
 
+// basketDoc — план купівель у грошах.
+//
+// АСИМЕТРІЯ, про яку треба знати: Totals рахує ВСІ рядки («скільки я
+// збираюсь витратити»), а Shorts — лише сьогоднішні. Сьогоднішні залишки
+// відповідають лише на сьогоднішнє питання, і сказати «у mono бракує
+// 40 000» про покупку в березні означало б назвати нестачею те, що
+// станеться після п'яти зарплат.
 type basketDoc struct {
 	Lines  []basketLine  `json:"lines"`
 	Totals []moneyJSON   `json:"totals"` // разом по кожній валюті
 	Shorts []basketShort `json:"shorts,omitempty"`
 }
 
-type whatIfResp struct {
+type whatIfPayload struct {
 	After  *state.Doc `json:"after"`
 	Basket basketDoc  `json:"basket"`
 }
 
-// handleWhatIf — стан портфеля ПІСЛЯ гіпотетичних покупок.
+// handleWhatIf — стан портфеля ПІСЛЯ планованих покупок.
 //
 // «До» фронтенд уже тримає як ctx.summary, тож другий документ у
 // відповідь не кладемо: різниця двох чисел, які обидва народжені цим
@@ -96,97 +141,72 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	// Стан ДО — потрібен, щоб знати, у кого скільки грошей, і щоб
-	// обрати брокера, коли його не назвали.
+	rows, err := s.planBuyRows(ctx, req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	// Стан ДО — потрібен, щоб знати, у кого скільки грошей, за якою ціною
+	// йде сертифікат і кого обрати брокером, коли його не назвали.
 	before, err := s.buildState(ctx, now)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-
-	var what hypothetical
-	basket := basketDoc{Lines: []basketLine{}}
-	totals := map[string]int64{} // валюта → мінорні
-	spend := map[string]int64{}  // "брокер|валюта" → мінорні
-	for _, it := range req.Items {
-		if it.Qty <= 0 {
-			writeErr(w, http.StatusBadRequest,
-				fmt.Errorf("кількість має бути > 0, а не %d", it.Qty))
+	exp, err := s.expandPlanBuys(ctx, before, today, rows)
+	if err != nil {
+		var bad badRequestError
+		if errors.As(err, &bad) {
+			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		var unit *money.Money
-		var label string
-		switch it.Kind {
-		case "fund":
-			f := findFundRow(before, it.Fund)
-			if f == nil {
-				writeErr(w, http.StatusBadRequest, fmt.Errorf("фонд %q не знайдено", it.Fund))
-				return
-			}
-			unit, label = fundUnitCost(f.LastPrice, f.Currency), f.Fund
-		default: // bond
-			b, berr := s.st.GetBond(ctx, it.ISIN)
-			if berr != nil || b == nil {
-				writeErr(w, http.StatusBadRequest,
-					fmt.Errorf("паперу %q немає в довіднику", it.ISIN))
-				return
-			}
-			pays, perr := s.st.PaymentsFor(ctx, []string{it.ISIN})
-			if perr != nil {
-				writeErr(w, http.StatusInternalServerError, perr)
-				return
-			}
-			unit, label = bondUnitCost(*b, pays, today), it.ISIN
-		}
-		if unit.Amount() <= 0 {
-			writeErr(w, http.StatusBadRequest,
-				fmt.Errorf("%s: ціни немає, купувати нема за чим", label))
-			return
-		}
-		cur := unit.Currency().Code
-		broker, assumed := pickBroker(before, cur, it.Broker)
-		total := unit.Amount() * it.Qty
-		totals[cur] += total
-		spend[broker+"|"+cur] += total
-		basket.Lines = append(basket.Lines, basketLine{
-			Kind: orBond(it.Kind), Label: label, Qty: it.Qty,
-			Unit: toMoneyJSON(unit), Total: toMoneyJSON(money.New(total, cur)),
-			Currency: cur, Broker: broker, Assumed: assumed,
-		})
-		if it.Kind == "fund" {
-			what.fundOps = append(what.fundOps, domain.FundOp{
-				Date: today, Fund: label, Kind: domain.FundBuy, Qty: it.Qty,
-				Amount: total, Currency: cur, Broker: broker,
-			})
-		} else {
-			what.lots = append(what.lots, domain.Lot{
-				ISIN: label, Qty: it.Qty, PricePerBond: unit,
-				BuyDate: today, Channel: broker,
-			})
-		}
+		writeErr(w, http.StatusInternalServerError, err)
+		return
 	}
-
-	for cur, v := range totals {
-		basket.Totals = append(basket.Totals, toMoneyJSON(money.New(v, cur)))
-	}
-	sortMoneyJSON(basket.Totals)
 	// Чого бракує — рахуємо ДО збірки: у стані «після» гроші вже списані,
 	// і від'ємний залишок там означав би те саме, але без імені винуватця.
-	basket.Shorts = shortfalls(before, spend)
+	basket := exp.basket
+	basket.Shorts = shortfalls(before, exp.spend)
 
-	after, err := s.buildStateWith(ctx, now, what)
+	after, err := s.buildStateWith(ctx, now, exp.what)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, whatIfResp{After: after, Basket: basket})
+	writeJSON(w, http.StatusOK, whatIfPayload{After: after, Basket: basket})
 }
 
-func orBond(k string) string {
-	if k == "fund" {
-		return "fund"
+// planBuyRows — набір рядків, наслідки якого рахуємо: збережені (за
+// відрахуванням виключених) плюс чернетки з тіла запиту.
+//
+// Чернетка проходить ту саму planBuyFromReq, що й запис у базу. Друга
+// перевірка форми для превʼю означала б, що рядок може виглядати
+// правильним доти, доки його не збережеш.
+func (s *Server) planBuyRows(ctx context.Context, req whatIfReq) ([]store.PlanBuy, error) {
+	var rows []store.PlanBuy
+	if req.Saved == nil || *req.Saved {
+		saved, err := s.st.ListPlanBuys(ctx)
+		if err != nil {
+			return nil, err
+		}
+		skip := map[int64]bool{}
+		for _, id := range req.Exclude {
+			skip[id] = true
+		}
+		for _, b := range saved {
+			if !skip[b.ID] {
+				rows = append(rows, b)
+			}
+		}
 	}
-	return "bond"
+	for _, d := range req.Draft {
+		b, err := planBuyFromReq(d)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, b)
+	}
+	return rows, nil
 }
 
 // findFundRow — фонд у вже зібраному стані. Беремо звідти, а не з
@@ -224,7 +244,7 @@ func pickBroker(doc *state.Doc, cur, want string) (string, bool) {
 // shortfalls — скільки не вистачає в кожного брокера окремо.
 //
 // Саме віднімання живе в cash_shortfall.go і спільне з формами покупки:
-// кошик і форма відповідають на одне питання, тож рахувати його двічі
+// план і форма відповідають на одне питання, тож рахувати його двічі
 // означало б завести розходження між екраном «що буде» і екраном «пишу».
 func shortfalls(doc *state.Doc, spend map[string]int64) []basketShort {
 	var out []basketShort

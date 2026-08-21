@@ -14,11 +14,14 @@ import {
   uah2 as fmtUAH, cur2 as fmtCur,
 } from "../format.js";
 import { infoBtn } from "../info.js";
-import { tile, kindPill, empty } from "../components.js";
+import { tile, kindPill } from "../components.js";
 import { isOpen, remember } from "../uistate.js";
 import { routeFor } from "../routes.js";
 import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
-import { basketHTML, wireBasket } from "./basket.js";
+import { fetchWhatIf, impactHTML } from "./buy-plan.js";
+import {
+  planBuysHTML, planBuyFormHTML, wirePlanBuys, addToPlan, emptyPlanHTML,
+} from "./plan-buys.js";
 import { tasksHTML } from "./tasks.js";
 import { allocationCardHTML, currencyCardHTML } from "./allocation.js";
 
@@ -236,8 +239,7 @@ export function reinvestHTML(ctx, opts = {}) {
       <span class="sg-n"><b>${suggestName(r)}</b> <span class="muted">${cost}</span></span>
       <span class="sg-s muted">${status}</span>
       <b class="sg-y">${pct(r.real_pct)}</b>
-      ${kind === "deposit" ? "" : `<button class="sm quiet" data-bskadd="${esc(kind)}|${esc(
-        kind === "fund" ? r.label : r.isin)}" title="Додати в кошик і побачити наслідки">+</button>`}
+      ${addBtn(kind, r)}
     </div>
     <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : " hidden"}>${details}${auc}</div>`;
   };
@@ -255,7 +257,29 @@ export function reinvestHTML(ctx, opts = {}) {
     ${group("Можеш купити зараз", ready)}
     ${group(ready.length ? "Ще збираєш" : "Купувати ще рано — ось наскільки близько", soon)}
     <div class="sub">Відсоток — реальний: після податку й знецінення, тож валюти порівнянні.
-      Каретка показує, звідки він узявся.</div></div>`;
+      Каретка показує, звідки він узявся. Додане лежить у
+      <a href="${routeFor("now/buys")}">Плані купівель</a>.</div></div>`;
+}
+
+// Кнопка «+» — лише там, де порада несе ВСЕ, що потрібно рядкові плану.
+//
+// Папір і сертифікат несуть: ISIN або назву фонду й кількість 1. Вклад і
+// НПФ — ні, і це не недогляд поради, а її природа: у пораді про вклад
+// банк захований у підписі, а ставки й строку немає взагалі; порада про
+// НПФ не несе id рахунку (handlers_reinvest.go) і має «будь-яка сума».
+// Кнопка, яка записала б пів-рядка, гірша за мертву — а мертва тут уже
+// прожила своє: data-bskadd="npf|" мовчки нічого не робив, бо id був
+// порожній. Тому для цих двох — посилання у форму, де решту питають.
+function addBtn(kind, r) {
+  const ref = kind === "fund" ? r.label : r.isin;
+  if (kind === "bond" || kind === "fund") {
+    return ref
+      ? `<button class="sm quiet" data-planadd="${esc(kind)}|${esc(ref)}"
+          title="Додати в план купівель і побачити наслідки">+</button>`
+      : "";
+  }
+  return `<a class="lnk" href="${routeFor("now/buys")}"
+    title="Завести в плані купівель — там спитають ставку, строк і рахунок">+</a>`;
 }
 
 // Розкриті пропозиції живуть поза рендером: ctx.reload() стирає main
@@ -265,6 +289,13 @@ export function reinvestHTML(ctx, opts = {}) {
 const OPEN_SCOPE = "suggest";
 
 export function wireReinvest(ctx, main) {
+  // «+» пише В БАЗУ, а не в браузер: план купівель живе в plan_buys, і
+  // другого способу його поповнити немає (шапка handlers_whatif.go).
+  main.querySelectorAll("[data-planadd]").forEach((b) =>
+    b.addEventListener("click", () => {
+      const [kind, ref] = b.dataset.planadd.split("|");
+      addToPlan(ctx, { kind, ref, qty: 1 });
+    }));
   main.querySelectorAll("[data-sgexp]").forEach((b) =>
     b.addEventListener("click", () => {
       const key = b.dataset.sgexp;
@@ -480,17 +511,36 @@ export async function buy(ctx, main) {
   main.innerHTML = currencyCardHTML(ctx) + allocationCardHTML(ctx);
 }
 
-/** Кошик покупки: що буде з портфелем, якщо взяти оце.
+/** План купівель: що я збираюсь узяти — і що з цього вийде.
  *
- *  Порожній стан малюється ТУТ, а не в basketHTML: та лишається карткою,
- *  яка з порожнім кошиком не малює нічого (і правильно робить — на
- *  «Що робити» порожня рамка лише заважала б), а от сторінка, на яку можна
- *  прийти за посиланням, мусить сказати хоч щось. */
-export async function basket(ctx, main) {
-  main.innerHTML = await basketHTML(ctx)
-    || `<div class="card"><h2>Кошик покупки</h2>${empty(
-      "Кошик порожній",
-      "Додай сюди те, що збираєшся взяти, — і побачиш, що станеться з капіталом, частками й ризиком ДО того, як гроші підуть.",
-      { href: routeFor("now/buy"), label: "Подивитись, що купити" })}</div>`;
-  wireBasket(ctx, main);
+ *  Три частини одного питання: список того, що заплановано; форма, якою
+ *  його поповнюють; і картка наслідків, яка перемальовується прямо під
+ *  час набору (проводка — у plan-buys.js).
+ *
+ *  Два запити, а не один: сирі рядки потрібні формі правки, готові з
+ *  цінами — таблиці й картці наслідків. Злити їх в один означало б або
+ *  порахувати ціни двічі, або показати у формі не те, що в базі.
+ *
+ *  Порожній стан малюється ТУТ, а не в plan-buys.js: сторінка, на яку
+ *  можна прийти за посиланням і побачити білий екран, — зламана. */
+export async function buys(ctx, main) {
+  const [rows, res] = await Promise.all([
+    ctx.store.soft("plan/buys"),
+    fetchWhatIf(ctx).catch((err) => ({ error: err })),
+  ]);
+  if (res && res.error) {
+    main.innerHTML = `<div class="card"><h2>Що заплановано</h2>
+      <div class="muted">Не вдалось порахувати наслідки: ${esc(res.error.message || res.error)}</div>
+    </div>` + planBuyFormHTML(ctx);
+    wirePlanBuys(ctx, main, rows || []);
+    return;
+  }
+  const lines = ((res.basket || {}).lines || []);
+  main.innerHTML = (lines.length ? planBuysHTML(res) : emptyPlanHTML())
+    + `<div class="card"><h2>Внести покупку</h2>
+        <div class="note">Наслідки перерахуються, щойн наберені поля складуться
+          в покупку — зберігати для цього нічого не треба.</div>
+        ${planBuyFormHTML(ctx)}</div>`
+    + `<div data-impact>${impactHTML(ctx, res)}</div>`;
+  wirePlanBuys(ctx, main, rows || []);
 }

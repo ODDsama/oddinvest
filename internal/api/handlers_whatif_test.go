@@ -36,15 +36,15 @@ func whatIfServer(t *testing.T) string {
 	return srv.URL
 }
 
-// Порожній кошик мусить дати документ, НЕВІДРІЗНИМИЙ від /api/summary.
+// Порожній план мусить дати документ, НЕВІДРІЗНИМИЙ від /api/summary.
 //
 // Це головна гарантія всього прийому: якщо вони збігаються, то й
 // віднімання «після мінус до» на фронтенді законне — обидва числа
 // народжені одним кодом, а не двома різними уявленнями про частки.
-func TestWhatIfEmptyBasketMatchesSummary(t *testing.T) {
+func TestWhatIfEmptyPlanMatchesSummary(t *testing.T) {
 	url := whatIfServer(t)
 	_, summary := do(t, "GET", url+"/api/summary", "")
-	resp, body := do(t, "POST", url+"/api/whatif", `{"items":[]}`)
+	resp, body := do(t, "POST", url+"/api/whatif", `{"saved":false}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("%d %s", resp.StatusCode, body)
 	}
@@ -78,7 +78,7 @@ func TestWhatIfEmptyBasketMatchesSummary(t *testing.T) {
 		return string(b)
 	}
 	if a, b := strip(summary), strip(string(got.After)); a != b {
-		t.Errorf("порожній кошик змінив стан:\n/api/summary: %s\n/api/whatif:  %s", a, b)
+		t.Errorf("порожній план змінив стан:\n/api/summary: %s\n/api/whatif:  %s", a, b)
 	}
 }
 
@@ -97,7 +97,7 @@ func TestWhatIfMovesSharesAndCash(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp, body := do(t, "POST", url+"/api/whatif",
-		`{"items":[{"kind":"bond","isin":"UA4000227748","qty":3}]}`)
+		`{"draft":[{"kind":"bond","ref":"UA4000227748","qty":3}]}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("%d %s", resp.StatusCode, body)
 	}
@@ -153,7 +153,7 @@ func TestWhatIfMovesSharesAndCash(t *testing.T) {
 func TestWhatIfReportsShortfallWithoutBlocking(t *testing.T) {
 	url := whatIfServer(t)
 	resp, body := do(t, "POST", url+"/api/whatif",
-		`{"items":[{"kind":"bond","isin":"UA4000227748","qty":500}]}`)
+		`{"draft":[{"kind":"bond","ref":"UA4000227748","qty":500}]}`)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("нестача не мала блокувати: %d %s", resp.StatusCode, body)
 	}
@@ -202,7 +202,7 @@ func TestWhatIfReportsShortfallWithoutBlocking(t *testing.T) {
 func TestWhatIfRejectsUnknownBond(t *testing.T) {
 	url := whatIfServer(t)
 	resp, body := do(t, "POST", url+"/api/whatif",
-		`{"items":[{"kind":"bond","isin":"UA0000000000","qty":1}]}`)
+		`{"draft":[{"kind":"bond","ref":"UA0000000000","qty":1}]}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("хочемо 400, маємо %d %s", resp.StatusCode, body)
 	}

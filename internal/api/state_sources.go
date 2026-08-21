@@ -65,6 +65,10 @@ type sources struct {
 	// робить те саме ядро, що й розгортання, — щоб означення надходження
 	// лишалось одне.
 	planReceipts []store.PlanReceipt
+	// planBuys — план купівель (0033). Сирі рядки: розділення на «купую
+	// зараз» і «купую потім» робить state_plan_buys.go, бо для цього
+	// потрібне сьогодні, а sources його не знає (див. шапку файла).
+	planBuys []store.PlanBuy
 
 	// auctions — останнє розміщення Мінфіну по кожній парі (валюта,
 	// строк). Єдине, що приходить сюди із ЗОВНІШНЬОГО світу, а не з
@@ -144,6 +148,7 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	src.planFlows, _ = s.st.ListPlanFlows(ctx)           //nolint:errcheck // свідомо: порожній план — звичайний стан, не привід валити документ
 	src.planActions, _ = s.st.ListPlanActions(ctx)       //nolint:errcheck // те саме
 	src.planReceipts, _ = s.st.ListPlanReceipts(ctx)     //nolint:errcheck // те саме: невідмічений план — звичайний стан
+	src.planBuys, _ = s.st.ListPlanBuys(ctx)             //nolint:errcheck // те саме: порожній план купівель — звичайний стан
 	src.npfAccounts, _ = s.st.ListNPFAccounts(ctx)       //nolint:errcheck // свідомо, як фонди й вклади: НПФ зʼявився пізніше за схему
 	src.npfOps, _ = s.st.ListNPFOps(ctx)                 //nolint:errcheck // те саме
 	src.npfNav, _ = s.st.ListNPFNav(ctx)                 //nolint:errcheck // те саме: історія ЧВОПА може бути порожня, і це звичайний стан

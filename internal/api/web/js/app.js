@@ -72,7 +72,7 @@ const SUMMARY_FREE = new Set(["policy", "settings"]);
 const VIEWS = {
   "now/todo": now.todo,
   "now/buy": now.buy,
-  "now/basket": now.basket,
+  "now/buys": now.buys,
 
   "instr/bonds": instr.bonds,
   "instr/funds": instr.funds,

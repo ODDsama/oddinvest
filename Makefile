@@ -116,6 +116,7 @@ check:
 	@$(MAKE) --no-print-directory fx-boundary
 	@$(MAKE) --no-print-directory sources-boundary
 	@$(MAKE) --no-print-directory sleeve-state
+	@$(MAKE) --no-print-directory whatif-boundary
 
 # fx — ЄДИНА точка конвертації, і масштаб курсу ×10⁴ не має витікати за
 # її межі. Витікав: курс ділили на RateScale вручну в шести місцях, а в
@@ -152,3 +153,15 @@ sources-boundary:
 sleeve-state:
 	@! grep -nE 'projState\{|\.step\(' internal/domain/sleeves.go internal/domain/drawdown.go \
 		|| { echo 'симуляція рукава чіпає стан повз newState/stepSleeve (projection.go): накопичувальні позиції не виростуть'; exit 1; }
+
+# Гіпотеза (покупки, яких ще немає) домішується в стан РІВНО в одному
+# місці — buildStateWith, — і збирається рівно в одному — state_plan_buys.go.
+# Публічний BuildStateDoc її не приймає навмисно: той документ іде в MQTT
+# і щодня лягає в добовий знімок, тож щойн гіпотеза протече повз
+# buildStateWith, вигадка буде опублікована як стан. Домовленість, яку
+# ніхто не перевіряє, живе до наступного поспіху.
+.PHONY: whatif-boundary
+whatif-boundary:
+	@! grep -rn 'hypothetical' internal/api/*.go \
+		| grep -vE 'state_builder\.go|handlers_whatif\.go|state_plan_buys\.go|_test\.go' \
+		|| { echo 'гіпотеза протікає повз buildStateWith: у MQTT і знімок іде реальний стан'; exit 1; }

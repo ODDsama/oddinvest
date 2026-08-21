@@ -647,7 +647,6 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		depRate[money.UAH] = doc.Settings.DepositRateUAHPct
 	}
 	depMin := s.depositMinMinorByCur(ctx)
-	const depTaxBP = 1950 // дефолтна ставка податку на відсотки, як у deposit.go
 	for _, c := range []string{money.USD, money.EUR, money.UAH} {
 		rp := depRate[c]
 		minMinor, hasMin := depMin[c]
@@ -655,7 +654,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			continue
 		}
 		rateBP := int64(math.Round(*rp * 100)) // % → ×100, як RateBP
-		netRate := domain.NetRate(rateBP, depTaxBP)
+		netRate := domain.NetRate(rateBP, defaultDepositTaxBP)
 		real := realYield(netRate, c, devalPct)
 		costMajor := float64(minMinor) / 100
 		fits, best := fitsFor(c, costMajor)

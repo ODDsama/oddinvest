@@ -20,6 +20,7 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
+	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -72,14 +73,41 @@ func (s *Server) BuildStateDoc(ctx context.Context, now time.Time) (*state.Doc, 
 //
 // Другого способу порахувати частки в застосунку немає навмисно —
 // state.Capital документує, чим це закінчилось минулого разу.
+//
+// ДВА РІЗНІ ПОЛЯ ЗА ПРИРОДОЮ. Перші чотири — портфель, якого ще немає:
+// вони домішуються в src і роблять «після» правильним за побудовою.
+// Останні два — ПЛАН, якого ще немає: покупка, датована наступним
+// березнем, не має права рухати сьогоднішні частки й готівку, зате
+// мусить рухати точку незалежності й криву капіталу. Чому саме так —
+// у шапці state_plan_buys.go.
 type hypothetical struct {
-	lots    []domain.Lot
-	fundOps []domain.FundOp
+	lots     []domain.Lot
+	fundOps  []domain.FundOp
+	deposits []domain.Deposit
+	npfOps   []domain.NPFOp
+	actions  []store.PlanAction
+	flows    []store.PlanFlow
+	// bonds/pays — довідник для паперів, яких у портфелі ЩЕ НЕМАЄ.
+	//
+	// Без них прийом мовчки недорахував би: loadSources тягне довідник
+	// рівно для тих ISIN, що зустрічаються в реальних лотах, а гіпотеза
+	// дописується ПІСЛЯ. Лот без свого Bond не має ні номіналу, ні
+	// графіка виплат — тобто гроші з рахунку списувались, а капітал
+	// просідав рівно на їхню суму, ніби папір коштує нуль. Спіймано
+	// вживу: «капітал 500 000 → 498 928» на покупці за 1 071.
+	//
+	// Тести цього не бачили, бо всі вони купували папір, який у портфелі
+	// вже був.
+	bonds map[string]domain.Bond
+	pays  []domain.Payment
 }
 
 // empty — чи це звичайна збірка. Дешевша перевірка, ніж порівняння
 // структур, і читається на місці виклику.
-func (h hypothetical) empty() bool { return len(h.lots) == 0 && len(h.fundOps) == 0 }
+func (h hypothetical) empty() bool {
+	return len(h.lots) == 0 && len(h.fundOps) == 0 && len(h.deposits) == 0 &&
+		len(h.npfOps) == 0 && len(h.actions) == 0 && len(h.flows) == 0
+}
 
 // buildState — стан портфеля яким він є.
 func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, error) {
@@ -107,6 +135,35 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	if !what.empty() {
 		src.lots = append(append([]domain.Lot{}, src.lots...), what.lots...)
 		src.fundOps = append(append([]domain.FundOp{}, src.fundOps...), what.fundOps...)
+		src.termDeposits = append(append([]domain.Deposit{}, src.termDeposits...), what.deposits...)
+		src.npfOps = append(append([]domain.NPFOp{}, src.npfOps...), what.npfOps...)
+		// План — теж копією зрізу, і теж ДО того, як його прочитає
+		// buildProjection. Єдиний споживач у цій функції один (той самий
+		// виклик на чотириста рядків нижче), тож розійтись тут нема чому.
+		src.planActions = append(append([]store.PlanAction{}, src.planActions...), what.actions...)
+		src.planFlows = append(append([]store.PlanFlow{}, src.planFlows...), what.flows...)
+		// Довідник — лише для ISIN, яких у ньому ще немає: інакше графік
+		// виплат наявного паперу подвоївся б, а разом із ним купони,
+		// драбина й дюрація.
+		if len(what.bonds) > 0 {
+			merged := make(map[string]domain.Bond, len(src.bonds)+len(what.bonds))
+			for k, v := range src.bonds {
+				merged[k] = v
+			}
+			pays := append([]domain.Payment{}, src.pays...)
+			for isin, b := range what.bonds {
+				if _, have := src.bonds[isin]; have {
+					continue
+				}
+				merged[isin] = b
+				for _, p := range what.pays {
+					if p.ISIN == isin {
+						pays = append(pays, p)
+					}
+				}
+			}
+			src.bonds, src.pays = merged, pays
+		}
 	}
 	lots, sales, bonds, pays := src.lots, src.sales, src.bonds, src.pays
 	rates, deval := src.rates, src.deval
