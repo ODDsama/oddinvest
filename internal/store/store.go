@@ -1045,22 +1045,24 @@ func (s *Store) ListFundOps(ctx context.Context) ([]domain.FundOp, error) {
 func termDepositCols() string {
 	return `d.id, COALESCE(b.name,''), d.currency, d.principal, d.rate_bp,
 		d.open_date, d.maturity_date, d.payout, d.capitalized, d.tax_bp,
-		d.closed_date, d.closed_amount, d.note, d.replenishable`
+		d.closed_date, d.closed_amount, d.note, d.replenishable,
+		d.is_reserve, d.revocable`
 }
 
 func scanTermDeposit(rows *sql.Rows) (domain.Deposit, error) {
 	var d domain.Deposit
 	var open, mat, payout, closed string
-	var capInt, replInt int64
+	var capInt, replInt, resInt, revInt int64
 	if err := rows.Scan(&d.ID, &d.Bank, &d.Currency, &d.Principal, &d.RateBP,
 		&open, &mat, &payout, &capInt, &d.TaxBP, &closed, &d.ClosedAmount, &d.Note,
-		&replInt); err != nil {
+		&replInt, &resInt, &revInt); err != nil {
 		return d, err
 	}
 	d.OpenDate, d.MaturityDate = domain.Date(open), domain.Date(mat)
 	d.Payout, d.ClosedDate = domain.DepositPayout(payout), domain.Date(closed)
 	d.Capitalized = capInt != 0
 	d.Replenishable = replInt != 0
+	d.IsReserve, d.Revocable = resInt != 0, revInt != 0
 	return d, nil
 }
 
@@ -1071,11 +1073,12 @@ func (s *Store) AddTermDeposit(ctx context.Context, d domain.Deposit) (int64, er
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO term_deposits
 		(broker_id, currency, principal, rate_bp, open_date, maturity_date,
-		 payout, capitalized, tax_bp, closed_date, closed_amount, note, replenishable)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 payout, capitalized, tax_bp, closed_date, closed_amount, note, replenishable,
+		 is_reserve, revocable)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		broker, d.Currency, d.Principal, d.RateBP, string(d.OpenDate), string(d.MaturityDate),
 		string(d.Payout), boolInt(d.Capitalized), d.TaxBP, string(d.ClosedDate), d.ClosedAmount,
-		d.Note, boolInt(d.Replenishable))
+		d.Note, boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable))
 	if err != nil {
 		return 0, err
 	}
@@ -1090,10 +1093,10 @@ func (s *Store) UpdateTermDeposit(ctx context.Context, d domain.Deposit) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE term_deposits SET
 		broker_id=?, currency=?, principal=?, rate_bp=?, open_date=?, maturity_date=?,
 		payout=?, capitalized=?, tax_bp=?, closed_date=?, closed_amount=?, note=?,
-		replenishable=? WHERE id=?`,
+		replenishable=?, is_reserve=?, revocable=? WHERE id=?`,
 		broker, d.Currency, d.Principal, d.RateBP, string(d.OpenDate), string(d.MaturityDate),
 		string(d.Payout), boolInt(d.Capitalized), d.TaxBP, string(d.ClosedDate), d.ClosedAmount,
-		d.Note, boolInt(d.Replenishable), d.ID)
+		d.Note, boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable), d.ID)
 	if err != nil {
 		return err
 	}

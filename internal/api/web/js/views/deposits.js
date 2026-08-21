@@ -45,6 +45,15 @@ export const depositFields = (ctx, row = null) => [
   selectOf("payout", "Виплата відсотків", PAYOUTS, row ? row.payout : "end"),
   checkField("capitalized", "Капіталізація", { checked: row ? !!row.capitalized : false }),
   checkField("replenishable", "Поповнюваний", { checked: row ? !!row.replenishable : false }),
+  // Дві властивості ДОГОВОРУ, а не строку, і саме тому вони тут, а не
+  // виводяться з дат. «Резервний» переносить тіло з вкладів у подушку —
+  // тобто зі знаменника видів і зі списку «Що купити». «Відкличний» каже,
+  // що гроші можна забрати достроково: за ЦКУ строковий вклад фізособи
+  // безвідкличний, доки в договорі не написано інакше, тож типове
+  // значення — не поставлено.
+  checkField("is_reserve", "Це подушка (резерв)", { checked: row ? !!row.is_reserve : false }),
+  checkField("revocable", "Відкличний (можна забрати достроково)",
+    { checked: row ? !!row.revocable : false }),
   pctField("tax_pct", "Податок, %", {
     ph: "19.5 (за замовч.)", value: row ? row.tax_pct : "",
   }),
@@ -69,6 +78,8 @@ export const depositBody = (f, closed = {}) => ({
   payout: f.payout.value,
   capitalized: f.capitalized.checked,
   replenishable: f.replenishable.checked,
+  is_reserve: f.is_reserve.checked,
+  revocable: f.revocable.checked,
   tax_pct: f.tax_pct.value.trim(),
   note: f.note.value.trim(),
   closed_date: closed.date || "",
@@ -85,6 +96,7 @@ function bodyFromRow(d, patch) {
     open_date: d.open_date, maturity_date: d.maturity_date,
     payout: d.payout, capitalized: !!d.capitalized,
     replenishable: !!d.replenishable,
+    is_reserve: !!d.is_reserve, revocable: !!d.revocable,
     tax_pct: String(d.tax_pct), note: d.note || "",
     closed_date: d.closed_date || "", closed_amount: (d.closed_amount || {}).amount || "",
     ...patch,

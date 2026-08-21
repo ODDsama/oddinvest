@@ -83,6 +83,16 @@ var settingsRegistry = []settingDef{
 	// тобто той, хто про це не просив, не побачить жодної зміни.
 	{Key: "reserve_fill_share_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveFillSharePct },
 		Why: "яка частка вільних грошей іде в резерв, доки він не добраний; порожньо = не пропонувати"},
+
+	// Подушку можна тримати на строкових вкладах — але лише в темпі, у
+	// якому її витрачають. Ці два числа виводити не можна: перше залежить
+	// від того, якою аварією людина боїться, друге — від того, що пропонує
+	// її банк. Обидва вона знає про себе сама, як і решта питань набору.
+	{Key: "reserve_liquid_months", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveLiquidMonths },
+		Why: "скільки місяців витрат подушки має лишатись доступними СЬОГОДНІ, поза вкладом; " +
+			"аварія не витрачається помісячно, і драбина її не покриває"},
+	{Key: "reserve_max_term_months", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveMaxTermMonths },
+		Why: "найдовша сходинка драбини подушки, місяців; порожньо або 0 = подушку не замикати"},
 	{Key: "income_target_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.IncomeTargetUAH },
 		Why: "який пасивний дохід вважати достатнім; порожньо = місячні витрати"},
 	{Key: "withdraw_monthly_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.WithdrawMonthlyUAH },

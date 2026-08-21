@@ -3981,18 +3981,103 @@ func TestStrategyLockOverlaysKeepAllocationWhole(t *testing.T) {
 			t.Errorf("набір %q: сума часток %.0f, а мусить бути 100 — "+
 				"%.0f%% капіталу лишились би нікому", p.name, got, 100-got)
 		}
-		for _, o := range p.overlays {
-			eff := map[string]string{}
-			for k, v := range p.values {
-				eff[k] = v
-			}
-			for k, v := range o.values {
-				eff[k] = v
-			}
-			if got := sum(eff); got != 100 {
-				t.Errorf("набір %q: на рівні %s сума часток %.0f замість 100 — "+
+		for _, c := range overlayCombos(p) {
+			if got := sum(c.values); got != 100 {
+				t.Errorf("набір %q: на комбінації %s сума часток %.0f замість 100 — "+
 					"піднята частка нізвідки взялась або нікуди не поділась",
-					p.name, o.name, got)
+					p.name, c.name, got)
+			}
+		}
+	}
+}
+
+// overlayCombos — числа набору на КОЖНІЙ комбінації накладок, включно з
+// «жодної».
+//
+// Осей у наборі стало більше однієї, і перевіряти їх поодинці більше не
+// досить: сьогодні вони не перетинаються ключами (замок чіпає НПФ і ОВДП,
+// валюта — usd/eur), але саме «сьогодні» й робить таку перевірку пасткою.
+// Дві накладки, що зачеплять один ключ, дадуть суму, якої не показала б
+// жодна з них окремо.
+//
+// ВІСЬ ВИВОДИТЬСЯ З НАЗВИ, а не зі списку: накладки звуться `<вісь><Рівень>`
+// (`lockSome`, `spendFx`), тож вісь — це початковий рядок малих літер. Без
+// цього тут з'явився б третій перелік імен поруч із двома в strategy.js, і
+// нова вісь мовчки лишилась би неперебраною — рівно те, від чого щойно
+// врятував узагальнений ovRe.
+func overlayCombos(p presetLiteral) []presetOverlay {
+	byAxis := map[string][]presetOverlay{}
+	var order []string
+	for _, o := range p.overlays {
+		axis := o.name
+		for i, r := range o.name {
+			if r >= 'A' && r <= 'Z' {
+				axis = o.name[:i]
+				break
+			}
+		}
+		if _, seen := byAxis[axis]; !seen {
+			order = append(order, axis)
+		}
+		byAxis[axis] = append(byAxis[axis], o)
+	}
+	out := []presetOverlay{{name: "без накладок", values: p.values}}
+	for _, axis := range order {
+		var next []presetOverlay
+		for _, base := range out {
+			next = append(next, base)
+			for _, o := range byAxis[axis] {
+				eff := map[string]string{}
+				for k, v := range base.values {
+					eff[k] = v
+				}
+				// Те саме правило, що у valuesAt: накладка МОЖЕ ЛИШЕ
+				// переписати наявний ключ. Додавати новий їй заборонено, і
+				// перевіряє це сусідній тест — тут ми лише не робимо
+				// вигляду, ніби вона це вміє.
+				for k, v := range o.values {
+					if _, ok := eff[k]; ok {
+						eff[k] = v
+					}
+				}
+				next = append(next, presetOverlay{name: base.name + "+" + o.name, values: eff})
+			}
+		}
+		out = next
+	}
+	return out
+}
+
+// TestStrategyCurrencySharesFitInHundred — валютні цілі набору не можуть
+// просити більше, ніж є портфеля.
+//
+// Сторожа на це не було взагалі, і доти він був майже не потрібен: валютні
+// числа стояли по одному на набір і не рухались. Відколи відповідь про
+// валюту їх ПЕРЕПИСУЄ, помилка стала можливою й тихою — USD 55 плюс EUR 15
+// це ще норма, а USD 90 плюс EUR 15 дало б дві цілі, недосяжні обидві, і
+// сказав би про це лише порожній ребаланс у чужому портфелі.
+func TestStrategyCurrencySharesFitInHundred(t *testing.T) {
+	src, err := webFS.ReadFile("web/js/views/strategy.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	num := func(v string) float64 {
+		if v == "" {
+			return 0
+		}
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			t.Fatalf("нечислова валютна частка %q", v)
+		}
+		return f
+	}
+	for _, p := range strategyPresets(t, src) {
+		for _, c := range overlayCombos(p) {
+			usd := num(c.values["usd_target_share_pct"])
+			eur := num(c.values["eur_target_share_pct"])
+			if usd+eur > 100 {
+				t.Errorf("набір %q на комбінації %s просить USD %.0f + EUR %.0f = %.0f%% — "+
+					"більше за портфель, тож обидві цілі недосяжні", p.name, c.name, usd, eur, usd+eur)
 			}
 		}
 	}
@@ -4043,7 +4128,21 @@ func strategyPresets(t *testing.T, src []byte) []presetLiteral {
 		t.Fatal("у strategy.js не знайдено жодного набору — змінився формат?")
 	}
 	valRe := regexp.MustCompile(`values:\s*\{([^}]*)\}`)
-	ovRe := regexp.MustCompile(`(lockSome|lockMost):\s*\{([^}]*)\}`)
+	// НАКЛАДКОЮ вважається БУДЬ-ЯКЕ поле-обʼєкт, крім названих нижче, а не
+	// перелік імен.
+	//
+	// Доти тут стояло `(lockSome|lockMost)`, і ця точність була вадою: вісь
+	// накладок, додана пізніше, ставала невидимою для ОБОХ тестів одразу —
+	// і «накладка не додає чужих ключів», і «сума часток рівно 100» мовчки
+	// переставали її стерегти. Помилка тиха рівно в тому місці, де ціна
+	// найбільша: числа поїхали б у чужий портфель.
+	//
+	// Тому перелік тепер ВИКЛЮЧАЮЧИЙ: `fits` — єдине поле-обʼєкт, що не є
+	// накладкою (це умови збігу, не числа), а `values` розібране окремо
+	// вище. Нове поле-обʼєкт у наборі за замовчуванням потрапляє під
+	// сторожа, і мовчки пройти повз нього більше не можна.
+	ovRe := regexp.MustCompile(`(?:^|\n)\s{4}(\w+):\s*\{([^}]*)\}`)
+	notOverlay := map[string]bool{"values": true, "fits": true}
 	field := regexp.MustCompile(`(\w+):\s*"([^"]*)"`)
 	pairs := func(s string) (map[string]string, []string) {
 		m := map[string]string{}
@@ -4076,6 +4175,9 @@ func strategyPresets(t *testing.T, src []byte) []presetLiteral {
 		}
 		p := presetLiteral{name: name, values: vals, keys: keys}
 		for _, o := range ovRe.FindAllStringSubmatch(chunk, -1) {
+			if notOverlay[o[1]] {
+				continue
+			}
 			ov, ok := pairs(o[2])
 			p.overlays = append(p.overlays, presetOverlay{name: o[1], values: ov, keys: ok})
 		}

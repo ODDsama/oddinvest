@@ -215,13 +215,39 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 	id, err := st.AddTermDeposit(ctx, domain.Deposit{
 		Bank: "ПУМБ", Currency: money.UAH, Principal: 10000000, RateBP: 1600,
 		OpenDate: d(-90), MaturityDate: d(275), Payout: domain.PayoutMonthly,
-		TaxBP: 1950, Replenishable: true,
+		// Відкличний — щоб «зламне» в ліквідності було не нулем. Пара з
+		// безвідкличною сходинкою подушки нижче й перевіряє, що прапорець
+		// розводить ці гроші по різних рядках картки.
+		TaxBP: 1950, Replenishable: true, Revocable: true,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.AddDepositTopup(ctx, domain.DepositTopup{
 		DepositID: id, Date: d(-30), Amount: 2000000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Дві сходинки ПОДУШКИ, і навмисно різні за розривністю: сама пара й
+	// перевіряє, що прапорець щось означає. Відкличний тримає доступ
+	// (розмін), безвідкличний — ні, і на однакових сумах вони дають різні
+	// стани драбини.
+	//
+	// Строки коротші за ціль подушки (6 місяців), тож у профілі доступу є і
+	// покриті горизонти, і непокриті — інакше половина полів лишилась би
+	// нулями, і сторож повноти був би задоволений документом, який нічого
+	// не рахує.
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: money.UAH, Principal: 2000000, RateBP: 1500,
+		OpenDate: d(-30), MaturityDate: d(60), Payout: domain.PayoutEnd,
+		TaxBP: 1950, IsReserve: true, Revocable: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: money.UAH, Principal: 1500000, RateBP: 1550,
+		OpenDate: d(-15), MaturityDate: d(105), Payout: domain.PayoutEnd,
+		TaxBP: 1950, IsReserve: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -269,6 +295,14 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		// резерві лишає розрив, тож рахується саме гілка «стеля обмежує».
 		"monthly_expenses_uah": "25000", "reserve_target_months": "6",
 		"reserve_fill_share_pct": "20",
+		// Голова й стеля строку. Голова 2 з шести місяців лишає хвіст, який
+		// є чим набирати, а стеля 6 дозволяє сходинку на весь хвіст — тобто
+		// обидві гілки next_rung_months живі.
+		// Голова 1 з шести місяців: журналу подушки на неї вистачає, тож
+		// хвіст є чим набирати й next_rung_months живий. Стан «голова не
+		// добрана» перевіряється окремим тестом — у golden він лишив би
+		// половину драбини нулями.
+		"reserve_liquid_months": "1", "reserve_max_term_months": "6",
 		// Припущення прогнозу. Ціль доходу НЕ дорівнює витратам навмисно:
 		// інакше спад «порожньо = витрати» був би невідрізнимий від
 		// заданого значення, і зламаний спад пройшов би повз тест.

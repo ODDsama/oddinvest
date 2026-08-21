@@ -28,6 +28,8 @@ type termDepositReq struct {
 	Payout        string `json:"payout"`
 	Capitalized   bool   `json:"capitalized"`
 	Replenishable bool   `json:"replenishable"`
+	IsReserve     bool   `json:"is_reserve"`
+	Revocable     bool   `json:"revocable"`
 	TaxPct        string `json:"tax_pct"`
 	ClosedDate    string `json:"closed_date"`
 	ClosedAmount  string `json:"closed_amount"`
@@ -105,6 +107,8 @@ func termDepositFromReq(req termDepositReq) (domain.Deposit, error) {
 		RateBP: rate, OpenDate: open, MaturityDate: mat, Payout: payout,
 		Capitalized: req.Capitalized, TaxBP: tax, Note: req.Note,
 		Replenishable: req.Replenishable,
+		IsReserve:     req.IsReserve,
+		Revocable:     req.Revocable,
 	}
 	// Дострокове розірвання: обидва поля разом або жодного.
 	if strings.TrimSpace(req.ClosedDate) != "" {
@@ -145,6 +149,8 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		Payout        string      `json:"payout"`
 		Capitalized   bool        `json:"capitalized,omitempty"`
 		Replenishable bool        `json:"replenishable"`
+		IsReserve     bool        `json:"is_reserve"`
+		Revocable     bool        `json:"revocable"`
 		TaxPct        float64     `json:"tax_pct"`
 		ClosedDate    string      `json:"closed_date,omitempty"`
 		ClosedAmount  moneyJSON   `json:"closed_amount,omitempty"`
@@ -179,6 +185,8 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 			OpenDate:  string(d.OpenDate), MaturityDate: string(d.MaturityDate),
 			Payout: string(d.Payout), Capitalized: d.Capitalized,
 			Replenishable: d.Replenishable,
+			IsReserve:     d.IsReserve,
+			Revocable:     d.Revocable,
 			TaxPct:        float64(d.TaxBP) / 100,
 			ClosedDate:    string(d.ClosedDate),
 			ClosedAmount:  toMoneyJSON(money.New(d.ClosedAmount, d.Currency)),

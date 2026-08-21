@@ -141,6 +141,7 @@ function kindRows(s) {
     .map((r) => ({
       key: r.key, title: KIND_GROUP[r.key] || r.key,
       nowUAH: r.current_uah || 0, noTarget: true,
+      transitUAH: r.transit_uah || 0,
     }));
   return { withTarget, noTarget };
 }
@@ -249,9 +250,20 @@ function rowHTML(r, hasMonth) {
     return `<div class="mb"><div class="kv">
       <span><b>${esc(r.title)}</b> <span class="muted">цілі немає</span></span>
       <span class="muted">${fmtUAH(r.nowUAH)}</span></div>
-      <div class="sub">${r.key === "reserve"
-        ? "ціль резерву задається місяцями витрат — «Політика → Резерв»"
-        : "показано довідково: частка є, цілі під неї не ставили"}</div></div>`;
+      <div class="sub">${
+        r.key === "reserve"
+          ? "ціль резерву задається місяцями витрат — «Політика → Резерв»"
+          : r.key === "deposits"
+            // Питання цієї картки — «скільки ще докласти», і на вклад воно
+            // не ставиться взагалі: докладати туди нема куди, бо це не ціль,
+            // а черга. Скільки в ній стоїть виправдано — єдине, що тут варте
+            // гривні, і тому названо саме в гривнях.
+            ? (r.transitUAH > 0
+                ? `черга до валютного паперу тримає ${fmtUAH(r.transitUAH)}`
+                  + (r.nowUAH > r.transitUAH
+                      ? `; ${fmtUAH(r.nowUAH - r.transitUAH)} чекають понад неї` : "")
+                : "цілі немає навмисно: вклад — черга до валютного паперу, а не вид під частку")
+            : "показано довідково: частка є, цілі під неї не ставили"}</div></div>`;
   }
   if (!hasMonth) return `<div class="mb">${stateHTML(r)}</div>`;
   return `<div class="mb duo">

@@ -29,6 +29,7 @@
 package state
 
 import (
+	"math"
 	"time"
 
 	money "github.com/Rhymond/go-money"
@@ -78,6 +79,15 @@ type DeriveInput struct {
 	ReserveFillMonthUAH float64
 	ReserveFillNowUAH   float64
 	ReserveMovedUAH     float64
+	// ReserveLiquidUAH — частина подушки, доступна СЬОГОДНІ: журнал без
+	// резервних вкладів. Приходить окремим числом, бо doc.ReserveUAH це вже
+	// сума обох джерел, а різницю між «є» і «є в руках» з неї не відновити.
+	ReserveLiquidUAH float64
+	// ReserveDeposits — резервні вклади, зведені до того, що потрібно
+	// драбині. Приходять ГОТОВИМИ, а не як domain.Deposit: перевід у гривню
+	// й у місяці — робота будівника (там курси й «сьогодні»), а тут лишається
+	// сама арифметика покриття. Той самий поділ, що в ReservePlaces.
+	ReserveDeposits []ReserveDeposit
 	// TopN — скільки виплат показати в «найближчих» (0 = 5).
 	TopN int
 }
@@ -301,7 +311,143 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 			}
 		}
 	}
+	deriveReserveLadder(r, doc.Settings, in)
 	doc.Reserve = r
+}
+
+// ReserveDeposit — резервний вклад у вигляді, потрібному драбині.
+type ReserveDeposit struct {
+	// Months — за скільки місяців від сьогодні тіло звільниться само.
+	Months float64
+	// AmountUAH — тіло, грн-екв.
+	AmountUAH float64
+	// Revocable — договір дозволяє забрати достроково. Властивість
+	// ДОГОВОРУ, не строку: за ЦКУ строковий вклад фізособи безвідкличний,
+	// доки в договорі не написано інакше.
+	Revocable bool
+	// EarnsUAH — скільки цей вклад приносить за рік після податку.
+	EarnsUAH float64
+}
+
+// deriveReserveLadder — коли подушка стає доступною.
+//
+// # ЧОМУ ЦЕ НЕ ОДНЕ ЧИСЛО
+//
+// Питання «на скільки місяців вистачить» (Months вище) і «коли я до цього
+// дістануся» різні, і друге не виводиться з першого. Подушка на 600 000 ₴
+// при витратах 50 000 ₴ дає рівно 12 місяців у обох випадках — і коли вона
+// лежить готівкою, і коли вона в одному річному вкладі. У другому випадку
+// на третій місяць безробіття в руках не буде нічого.
+//
+// # ГОЛОВА Й ХВІСТ
+//
+// ГОЛОВА — тверда вимога, і єдина, що має право сказати «не сходиться».
+// Аварія не витрачається помісячно: машина ламається на всю суму одразу.
+// Скільки саме тримати миттєво доступним, знає лише людина, тож це
+// налаштування (reserve_liquid_months), а не виведене число.
+//
+// ХВІСТ — не вимога, а РОЗМІН, і саме тому горизонт несе три числа замість
+// прапорця. Строковий вклад в Україні безвідкличний за замовчуванням, але
+// договір може дозволяти дострокове повернення — і тоді замок це штраф:
+// тіло віддадуть, відсотки згорять. Порахувати той штраф застосунок не
+// може (ставку знає банк), тож він називає лише те, що знає: доки драбина
+// тягне сама, доки дотягує з розірванням, і скільки заробляє за це.
+//
+// Правило «сходинка на кожен місяць» тут навмисно НЕ діє. Воно змушувало б
+// дробити подушку тим дрібніше, чим вона глибша — дванадцять сходинок на
+// дванадцять місяців, — і оголошувало б порушенням цілком розумний стан:
+// голова готівкою плюс один річний відкличний вклад на решту.
+func deriveReserveLadder(r *Reserve, s *SettingsDoc, in DeriveInput) {
+	if r.MonthlyExpensesUAH <= 0 {
+		return // без витрат жодне з цих питань не має відповіді
+	}
+	liquidMonths, maxTerm := 0.0, 0.0
+	if s != nil {
+		if s.ReserveLiquidMonths != nil {
+			liquidMonths = *s.ReserveLiquidMonths
+		}
+		if s.ReserveMaxTermMonths != nil {
+			maxTerm = *s.ReserveMaxTermMonths
+		}
+	}
+	r.LiquidUAH = round2(in.ReserveLiquidUAH)
+	r.LiquidTargetUAH = round2(liquidMonths * r.MonthlyExpensesUAH)
+	for _, d := range in.ReserveDeposits {
+		r.LadderRungs++
+		r.LadderEarnsUAH += d.EarnsUAH
+	}
+	r.LadderEarnsUAH = round2(r.LadderEarnsUAH)
+	// Горизонти рахуємо лише до ЦІЛІ подушки: далі витрачати вже нічого, і
+	// рядок «на 13-й місяць бракує» описував би подушку, якої ніхто не
+	// обіцяв.
+	horizon := int(math.Ceil(r.TargetMonths))
+	if horizon <= 0 {
+		return
+	}
+	// Скільки сходинок треба НА РЕЖИМІ: хвіст (ціль мінус голова), але не
+	// більше стелі строку — сходинку, довшу за стелю, відкрити не можна, а
+	// коротших, ніж хвіст, вистачає.
+	if tail := r.TargetMonths - liquidMonths; tail > 0 && maxTerm > 0 {
+		r.LadderRungsTarget = int(math.Ceil(math.Min(tail, maxTerm)))
+	}
+	var firstGapH, lastUncovered float64
+	covers, reach := 0.0, 0.0
+	coversOpen, reachOpen := true, true
+	for h := 1; h <= horizon; h++ {
+		hf := float64(h)
+		avail, reachable := in.ReserveLiquidUAH, in.ReserveLiquidUAH
+		for _, d := range in.ReserveDeposits {
+			switch {
+			case d.Months <= hf:
+				avail += d.AmountUAH
+				reachable += d.AmountUAH
+			case d.Revocable:
+				// Ще не погашений, але договір дозволяє забрати: у
+				// «доступно» він не входить, у «дістати можна» — входить.
+				reachable += d.AmountUAH
+			}
+		}
+		spent := hf * r.MonthlyExpensesUAH
+		// «Доки тягне» — до ПЕРШОГО недобору, а не до останнього: покриття
+		// з дірою посередині це не покриття, і рахувати його далі означало
+		// б назвати драбину справною через місяць після того, як вона
+		// перестала бути такою.
+		if coversOpen && avail+0.005 >= spent {
+			covers = hf
+		} else {
+			coversOpen = false
+		}
+		if reachOpen && reachable+0.005 >= spent {
+			reach = hf
+		} else {
+			reachOpen = false
+		}
+		if reachable+0.005 < spent && firstGapH == 0 {
+			firstGapH, r.LadderGapUAH = hf, round2(spent-reachable)
+		}
+		if avail+0.005 < spent {
+			lastUncovered = hf
+		}
+		r.Ladder = append(r.Ladder, ReserveRung{
+			Months: hf, AvailableUAH: round2(avail),
+			ReachableUAH: round2(reachable), SpentUAH: round2(spent),
+		})
+	}
+	r.LadderCoversMonths, r.LadderReachMonths, r.LadderGapMonth = covers, reach, firstGapH
+	// НАСТУПНА СХОДИНКА — і порядок тут головне.
+	//
+	// Доки голова не добрана, вкладу не пропонуємо взагалі, хай би скільки
+	// було грошей: покласти правильну суму в неправильній формі гірше, ніж
+	// не покласти нічого — гроші стануть недосяжними рівно тоді, коли
+	// подушка вперше знадобиться.
+	//
+	// Далі беремо НАЙДАЛЬШИЙ непокритий місяць, а не найближчий: ближні
+	// тримає готівка голови, а гроші, які не знадобляться півроку, мусять
+	// півроку й заробляти. Стеля строку обрізає результат — і саме тому
+	// картка окремо каже, що робити, коли банк такого строку не пропонує.
+	if maxTerm > 0 && r.LiquidUAH+0.005 >= r.LiquidTargetUAH && lastUncovered > 0 {
+		r.NextRungMonths = math.Min(lastUncovered, maxTerm)
+	}
 }
 
 // ReserveTarget — ціль резерву в гривнях і розрив до неї.

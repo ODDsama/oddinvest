@@ -42,9 +42,15 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		// заповненими: ПДФО за рік і є перемикачем знижки, тож без нього
 		// npf_credit_* у фікстурі не зʼявились би взагалі.
 		npfTgt, pdfo, capMonth := 10.0, 40_000.0, 4_660.0
+		// Голова подушки й стеля строку — щоб драбина доступу зʼявилась у
+		// фікстурі заповненою. Без них deriveReserveLadder віддає профіль
+		// без вимоги до голови, і половина полів лишилась би нулями.
+		liquidM, maxTerm := 1.0, 6.0
 		return &SettingsDoc{
 			MonthlyTargetUAH: &tgt, USDTargetSharePct: &u,
 			MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months,
+			ReserveLiquidMonths:  &liquidM,
+			ReserveMaxTermMonths: &maxTerm,
 			TargetNPFPct:         &npfTgt,
 			NPFCreditPDFOYearUAH: &pdfo,
 			NPFCreditCapMonthUAH: &capMonth,
@@ -128,6 +134,11 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		Liquidity: &Liquidity{
 			NowUAH: 1_500, In30UAH: 5_637.50, In90UAH: 9_775,
 			ReserveUAH: 60_000, LockedUAH: 120_000, UnlockDate: "2027-03-17",
+			// Зламне — ОКРЕМО від замкненого, і навмисно не нуль: це різні
+			// твердження, а не відтінки одного, і фікстура мусить показати
+			// обидва. 40 000 у відкличному вкладі — тіло повернуть, відсотки
+			// згорять; 120 000 замкнено намертво.
+			BreakableUAH: 40_000,
 			// Замкнене в НПФ — частина LockedUAH, а не додаток до нього, і
 			// саме тому менша за нього: 120 000 замкнено всього, з них
 			// 45 000 у пенсійному, решта у вкладі. Рівність двох чисел
@@ -200,6 +211,17 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 			ReserveUAH: 60_000,
 			NPFUAH:     45_000,
 			BondsByCur: map[string]float64{money.USD: 88_246.80},
+		},
+		// Драбина доступу. ReserveLiquidUAH тут МЕНШИЙ за doc.ReserveUAH
+		// навмисно: різниця й є резервний вклад, і фікстура, у якій вони
+		// рівні, показувала б подушку без драбини — тобто саме той стан,
+		// який ці поля й додані розрізняти.
+		ReserveLiquidUAH: 35_000,
+		ReserveDeposits: []ReserveDeposit{
+			// Відкличний: у профілі він дає РОЗМІН, а не діру, і без нього
+			// reachable_uah у фікстурі дорівнював би available_uah скрізь —
+			// тобто друге число ніколи не перевірялось би.
+			{Months: 2, AmountUAH: 25_000, Revocable: true, EarnsUAH: 3_000},
 		},
 		MonthDeposited: monthDep,
 		MonthTarget:    monthTarget,

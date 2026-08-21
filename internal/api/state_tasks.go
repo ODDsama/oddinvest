@@ -33,6 +33,8 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
+
+	money "github.com/Rhymond/go-money"
 )
 
 // Ступені терміновості. Це ЧАС, а не важливість — див. state.Task.Sev.
@@ -200,6 +202,32 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 				uah(r.TargetUAH), int(r.TargetMonths),
 				plural(int(r.TargetMonths), "місяць", "місяці", "місяців"))
 		}
+		// У ЯКІЙ ФОРМІ — те, чого задачі бракувало. Стеля каже, СКІЛЬКИ
+		// відкласти; драбина доступу додає, у що саме, і порядок тут не
+		// косметичний: покласти правильну суму в неправильній формі гірше,
+		// ніж не покласти нічого, бо гроші стають недосяжними рівно тоді,
+		// коли подушка вперше знадобиться.
+		//
+		// Доки голова не добрана — тільки готівка, хай би скільки було
+		// грошей. Далі — сходинка на NextRungMonths місяців; те число вже
+		// враховує і стелю строку, і те, що набирати треба з ДАЛЬНЬОГО
+		// кінця (state/derive.go).
+		//
+		// Меню строків банку застосунок не знає й не вдає, що знає: 5- чи
+		// 7-місячних вкладів більшість не пропонує. Тому названо і потребу,
+		// і наслідок округлення.
+		switch {
+		case r.LiquidTargetUAH > 0 && r.LiquidUAH+0.005 < r.LiquidTargetUAH:
+			why += fmt.Sprintf(" Клади ГОТІВКОЮ: доступно миттєво %s із потрібних %s, "+
+				"і вклад на цьому кроці погіршить доступ, а не покращить.",
+				uah(r.LiquidUAH), uah(r.LiquidTargetUAH))
+		case r.NextRungMonths > 0:
+			why += fmt.Sprintf(" Голова добрана, тож це вже сходинка драбини: "+
+				"потрібно ≈%d %s. Якщо банк такого строку не дає, бери довший — "+
+				"тоді ближчий місяць лишиться на готівці, а драбина зсунеться.",
+				int(r.NextRungMonths),
+				plural(int(r.NextRungMonths), "місяць", "місяці", "місяців"))
+		}
 		add(state.Task{
 			ID: "reserve-fill", Sev: sevNow, Rank: 10, Kind: "reserve",
 			Title:     fmt.Sprintf("Спершу поповнити резерв — %s", uah(r.FillNowUAH)),
@@ -207,6 +235,40 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			Action:    actFillReserve,
 			AmountUAH: round2(r.FillNowUAH),
 		})
+	}
+
+	// ---------- сходинка, що гаситься ----------
+	//
+	// Драбина осідає САМА, якщо рунгу не перевкласти: через її строк
+	// покриття зникає, і помітити це можна лише тоді, коли гроші вже
+	// знадобились. Дату застосунок знає точно, тож вигадувати тут нічого.
+	//
+	// Окрема задача, а не рядок у поповненні: та про НОВІ гроші, ця — про
+	// гроші, які вже в подушці й от-от випадуть із неї. Злиття означало б,
+	// що задача зникає в місяць, коли поповнювати нема з чого.
+	// Вікно — місяць, як і в решти задач із датою: раніше про це нема чого
+	// думати, пізніше вже пізно домовлятися з банком.
+	if doc.Reserve != nil {
+		soon := today.AddMonths(1)
+		for _, dep := range src.termDeposits {
+			if !dep.IsReserve || !dep.Active(today) || dep.MaturityDate.After(soon) {
+				continue
+			}
+			// Сума — в НАТИВНІЙ валюті вкладу, а не в гривні: перевкладати
+			// доведеться рівно ці гроші, і гривневий еквівалент тут був би
+			// числом, якого в банку не назвуть.
+			amount := money.New(dep.BalanceAt(dep.MaturityDate), dep.Currency)
+			add(state.Task{
+				ID:  "reserve-rung-" + dep.SyntheticISIN(),
+				Sev: sevSoon, Rank: 11, Kind: "reserve",
+				Title: "Перевкласти сходинку подушки — " + amount.Display(),
+				Why: fmt.Sprintf("Гаситься %s. Без перевкладення драбина осяде: "+
+					"саме цей місяць подушки лишиться без покриття, а гроші "+
+					"лежатимуть під нуль.", dep.MaturityDate),
+				When:   string(dep.MaturityDate),
+				Action: actFillReserve,
+			})
+		}
 	}
 
 	// ---------- що купити ----------

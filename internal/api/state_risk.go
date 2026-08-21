@@ -178,7 +178,20 @@ func buildRisk(in riskInput) riskPhase {
 		}
 		in90 += u.Amount()
 	}
-	var lockedUAH int64
+	// ЗАМКНЕНЕ Й ЗЛАМНЕ — ДВІ РІЗНІ ВІДПОВІДІ, і доти вони стояли під одним
+	// підписом.
+	//
+	// Строковий вклад в Україні безвідкличний ЗА ЗАМОВЧУВАННЯМ: за ЦКУ
+	// забрати гроші достроково можна лише там, де це прямо в договорі. Тому
+	// все, що тут лежало, чесно звалось «замкнено» — але тільки доки
+	// застосунок не вмів записати зворотне. Тепер уміє (прапорець
+	// revocable), і зсипати обидва в одне число означало б казати «цього не
+	// дістати» про гроші, які дістати можна, заплативши відсотками.
+	//
+	// У NowUAH/In30/In90 зламне НЕ входить: це не вільні гроші, і додати їх
+	// туди означало б зробити подушку купівельною спроможністю — та сама
+	// помилка, від якої резерв тримають окремим полем (див. Liquidity).
+	var lockedUAH, breakableUAH int64
 	var unlockDate domain.Date
 	for _, dep := range in.TermDeposits {
 		// Вклад, що гаситься у вікні, вже порахований потоками вище —
@@ -187,8 +200,15 @@ func buildRisk(in riskInput) riskPhase {
 			continue
 		}
 		if u, cerr := fx.ToUAH(money.New(dep.BalanceAt(today), dep.Currency), rates); cerr == nil {
-			lockedUAH += u.Amount()
+			if dep.Revocable {
+				breakableUAH += u.Amount()
+			} else {
+				lockedUAH += u.Amount()
+			}
 		}
+		// Дата — з УСІХ строкових, і зламних теж: питання «коли звільниться
+		// найближче» про них стоїть так само, а розірвання це вибір, а не
+		// розклад.
 		if unlockDate == "" || dep.MaturityDate.Before(unlockDate) {
 			unlockDate = dep.MaturityDate
 		}
@@ -212,6 +232,7 @@ func buildRisk(in riskInput) riskPhase {
 		In90UAH:      round2(float64(in90) / 100),
 		ReserveUAH:   round2(in.ReserveUAH),
 		LockedUAH:    round2(float64(lockedUAH)/100 + npfLockedUAH),
+		BreakableUAH: round2(float64(breakableUAH) / 100),
 		UnlockDate:   string(unlockDate),
 		LockedNPFUAH: round2(npfLockedUAH),
 	}

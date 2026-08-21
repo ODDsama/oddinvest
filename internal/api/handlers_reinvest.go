@@ -105,6 +105,20 @@ type suggestion struct {
 	// папір можна купити в іншого, і мітка на рядку означала б, що
 	// проблема в папері.
 	overLimit bool
+	// overTransit — у вкладах цієї валюти вже стільки, скільки треба на
+	// наступний папір, тобто черга своє відстояла.
+	//
+	// Замінив собою kindDef для вкладів, і заміна не косметична. Доти
+	// вклад діставав ОБИДВА дефіцити — валютний і видовий — за одну й ту
+	// саму роботу: ціль за вкладами стояла поруч із валютною ціллю, хоч
+	// вклад і був способом ту валютну ціль закрити. Відколи власної цілі
+	// у вкладів немає (state_rebalance.go), kindDef["deposits"] нульовий
+	// сам собою, а потребу в новому вкладі називає транзит.
+	//
+	// Опускає, але не ховає — те саме правило, що в overLimit: вклад понад
+	// транзит не є помилкою (гроші можуть чекати на щось, чого застосунок
+	// не знає), він просто вже не про наступний папір.
+	overTransit bool
 	// Locked / LockedUntil — гроші, покладені сюди, не можна забрати до
 	// вказаної дати. Сьогодні це лише НПФ.
 	//
@@ -132,6 +146,33 @@ func withKindDef(base string, def float64, what string) string {
 		return base
 	}
 	return base + fmt.Sprintf("; добирає %s (%.0f в.п. до цілі)", what, def)
+}
+
+// withTransit дописує до причини вкладу, НАВІЩО він, а не яку частку
+// добирає. Різниця не в словах: доти тут стояв withKindDef, тобто вклад
+// пояснювався ціллю за вкладами — а ціль за вкладами й була тим, чого
+// насправді не існує. Тепер рядок каже те єдине, що вклад справді робить:
+// доносить валюту до наступного паперу.
+//
+// Три стани, і кожен вартий власного речення:
+//
+//	транзиту немає   — валютної цілі не названо, сказати нема чого;
+//	черга триває     — бракує стільки-то до наступного паперу;
+//	черга відстояла  — у вкладах уже стільки, скільки треба на папір.
+//
+// Останній випадок НЕ ховає рядок і не називає його помилкою: гроші можуть
+// чекати на щось, чого застосунок не знає. Він лише перестає вдавати, що
+// цей вклад про наступний папір, — і те саме твердження опускає рядок у
+// порядку (overTransit).
+func withTransit(base, cur string, transitNative, haveNative float64) string {
+	if transitNative <= 0 {
+		return base
+	}
+	if left := transitNative - haveNative; left > 0 {
+		return base + "; " + money.New(int64(math.Round(left*100)), cur).Display() +
+			" до наступного паперу"
+	}
+	return base + "; понад транзит — у вкладах уже стільки, скільки треба на папір"
 }
 
 // staleAfterDays — за скільки днів без розміщення папір вважається таким,
@@ -232,7 +273,16 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	overISIN := map[string]float64{} // папір → на скільки в.п. перевищено
 	overYear := map[int]float64{}    // рік погашень → те саме
 	limitISIN, limitYear := 0.0, 0.0 // самі ліміти, для формулювання
+	// transitNative — скільки грошей ЦІЄЇ валюти має чекати у вкладі, доки
+	// на наступний папір не зібрано, у самій валюті. Береться готовим із
+	// рядка ребалансу, як і все інше в цьому блоці: власна копія арифметики
+	// часток у цьому файлі вже одного разу розвела плитку з карткою, і саме
+	// тому тут не з'являється ні курс, ні друге ділення.
+	transitNative := map[string]float64{}
 	for _, r := range doc.Rebalance {
+		if r.Dimension == "currency" && r.TransitNative > 0 {
+			transitNative[r.Key] = r.TransitNative
+		}
 		if r.Dimension != "kind" || r.TargetPct <= 0 {
 			continue
 		}
@@ -523,10 +573,39 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	if derr != nil {
 		return nil, derr
 	}
+	// Скільки вже стоїть у вкладах КОЖНОЇ валюти, у самій валюті.
+	// Порівнюється з транзитом цієї ж валюти: доки менше — вклад іще про
+	// наступний папір, щойно більше — черга своє відстояла.
+	//
+	// Рахуємо тут, а не беремо з документа: там вклади опубліковані однією
+	// сумою в гривні (deposits_uah), а питання валютне.
+	//
+	// Резервні вклади сюди НЕ входять: вони не стоять у черзі до паперу, а
+	// лежать під аварію. Порахувати їх транзитом означало б вирішити, що
+	// черга вже відстояна, і замовкнути про справжню — саме тим коштом, що
+	// подушка й папір це різні гроші.
+	depByCur := map[string]float64{}
+	for _, d := range deps {
+		if d.Active(today) && !d.IsReserve {
+			depByCur[d.Currency] += float64(d.BalanceAt(today)) / 100
+		}
+	}
+	// Без названої валютної цілі транзиту немає, і опускати нема за чим:
+	// відсутність цілі це не «ціль нуль», а відмова від виміру.
+	overTransitFor := func(cur string) bool {
+		t, ok := transitNative[cur]
+		return ok && depByCur[cur] >= t
+	}
 	for _, d := range deps {
 		// Тільки поповнювані: радити докласти у вклад, який поповнень не
 		// приймає, — порада, яку неможливо виконати.
-		if !d.Replenishable || !d.Active(today) || d.Principal <= 0 {
+		//
+		// І тільки НЕ РЕЗЕРВНІ. Аргумент написаний у шапці
+		// handlers_reserve.go: злиття подушки з купівельною спроможністю
+		// змусило б помічника радити папір за аварійні гроші. Поповнюють
+		// подушку власним механізмом — стелею reserve_fill_share_pct, — і
+		// в якій саме формі, каже драбина доступу, а не цей перелік.
+		if !d.Replenishable || d.IsReserve || !d.Active(today) || d.Principal <= 0 {
 			continue
 		}
 		c := d.Currency
@@ -548,9 +627,10 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			RealPct:     round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
 			Brokers:     fits, Affordable: best, CanBuy: best > 0,
-			Reason:  withKindDef("поповнення на суму відкриття", kindDef["deposits"], "вклади"),
-			def:     target[c] - cur[c],
-			kindDef: kindDef["deposits"],
+			Reason:      withTransit("поповнення на суму відкриття", c, transitNative[c], depByCur[c]),
+			def:         target[c] - cur[c],
+			kindDef:     kindDef["deposits"],
+			overTransit: overTransitFor(c),
 		})
 	}
 
@@ -587,10 +667,11 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			RealPct:     round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
 			Brokers:     fits, Affordable: best, CanBuy: best > 0,
-			Reason: withKindDef("новий вклад, мінімум "+money.New(minMinor, c).Display(),
-				kindDef["deposits"], "вклади"),
-			def:     target[c] - cur[c],
-			kindDef: kindDef["deposits"],
+			Reason: withTransit("новий вклад, мінімум "+money.New(minMinor, c).Display(),
+				c, transitNative[c], depByCur[c]),
+			def:         target[c] - cur[c],
+			kindDef:     kindDef["deposits"],
+			overTransit: overTransitFor(c),
 		})
 	}
 	// --- пенсійний фонд ---
@@ -744,6 +825,14 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		// критерій вигоди, а те, чого користувач сам від себе хотів.
 		if a.overLimit != b.overLimit {
 			return b.overLimit
+		}
+		// Вклад, чия черга вже відстояна, — нижче, і теж в УСІХ режимах.
+		// Підстава та сама, що в ліміту, і так само не є судженням про
+		// інструмент: цей рядок просто більше не відповідає на питання, під
+		// яке його сюди поставили. Доти те саме робив kindDef — і робив
+		// навпаки, ПІДНІМАЮЧИ вклад за ціллю, якої не мало бути.
+		if a.overTransit != b.overTransit {
+			return b.overTransit
 		}
 		// Папір, якого рік не розміщували, — нижче за той, що розміщують
 		// зараз, і теж в УСІХ режимах. Підстава інша, ніж у ліміту, і

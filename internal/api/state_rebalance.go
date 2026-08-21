@@ -179,6 +179,28 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 	// Окремо перевіряємо здійсненність: найдешевший папір може бути
 	// більший за всю цільову суму — тоді ціль поки недосяжна без перекосу
 	// структури.
+	// ТРАНЗИТ — скільки з валютних цілей фізично не може бути облігацією.
+	//
+	// Валютний папір коштує $1000. Доки цільова сума у валюті не ділиться
+	// на нього націло, залишок чекає у вкладі — не тому, що вклад комусь
+	// подобається, а тому, що на папір іще не зібрано. Це і є та роль,
+	// заради якої вклад тут узагалі є (див. одиницю входу нижче), і вона
+	// НЕ є політикою: довжина цієї черги залежить від розміру портфеля, а
+	// не від того, чого людина хоче. Саме тому окремої цілі за вкладами
+	// набори більше не задають — число, яке при капіталі 100 000 ₴ мусить
+	// бути 40, а при 3 000 000 ₴ — 0.8, не можна записати константою.
+	//
+	// Гривня сюди не входить, і це не пропуск: квиток гривневої ОВДП
+	// ≈1000 ₴, тож залишок від ділення копійчаний, а гривневий вклад до
+	// того ж програє купону — відсотки оподатковані, купон ні. Черги
+	// в гривні просто немає.
+	//
+	// Накопичуємо в ГРОШАХ, а не у відсотках, і це принципово: у цьому
+	// файлі два знаменники (шапка попереджає саме про їх змішування).
+	// Валютні цілі міряються від усього капіталу, видові — від капіталу
+	// без резерву; сума ж грошей одна й та сама, і у відсоток вона
+	// переводиться рівно один раз — там, де стає вирізкою з цілі ОВДП.
+	transitUAH := 0.0
 	targets := map[string]*float64{money.USD: set.USDTargetSharePct, money.EUR: set.EURTargetSharePct}
 	for _, cur := range []string{money.USD, money.EUR} {
 		tp := targets[cur]
@@ -223,6 +245,14 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 				convertUAH = (unitNative - cashNative) * rateMajor
 			}
 		}
+		// Транзит цієї валюти: залишок цільової суми після цілих паперів.
+		// Без паперу в довіднику взагалі транзитом є ВСЯ ціль — купити
+		// нічого, і чекати доведеться всьому.
+		transitCur := targetUAH
+		if bondUAH > 0 {
+			transitCur = math.Mod(targetUAH, bondUAH)
+		}
+		transitUAH += transitCur
 		out.Rebalance = append(out.Rebalance, state.RebalanceRow{
 			Dimension: "currency", Key: cur,
 			Currency: cur, TargetPct: *tp, CurrentPct: round2(currentPct),
@@ -235,6 +265,8 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 			TargetUAH:       round2(targetUAH),
 			CurrentUAH:      round2(curUAH),
 			FillPct:         round2(fillPct(curUAH, targetUAH)),
+			TransitUAH:      round2(transitCur),
+			TransitNative:   round2(transitCur / rateMajor),
 		})
 	}
 
@@ -278,6 +310,24 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		// Нуль тут вимикає перевірку здійсненності, як і в резерву.
 		{"npf", cap.NPFUAH, set.TargetNPFPct, 0},
 	}
+	// ВИРІЗКА ТРАНЗИТУ З ЦІЛІ ОВДП.
+	//
+	// Транзитні гроші — це гроші НА ШЛЯХУ В ПАПІР, тож і місце їм у цілі
+	// ОВДП, а не поруч із нею. Друга ціль збоку зробила б суму часток
+	// більшою за сотню й поставила б у список два числа про одну частку
+	// капіталу; ця ж вирізка лишає суму недоторканою, а картка каже
+	// «ОВДП 90% — з них 6.4 в.п. поки у валютному вкладі».
+	//
+	// Обрізаємо ціллю ОВДП: на малому портфелі з великою валютною ціллю
+	// транзит переважить усю ціль, і вирізка більша за те, з чого ріжуть,
+	// означала б від'ємну досяжну частку паперів. Без заданої цілі ОВДП
+	// («Тільки банк») вирізки немає взагалі — там вклад не транзит, а
+	// призначення, і ціль за ним стоїть навмисно.
+	transitPct, transitCarveUAH := 0.0, 0.0
+	if kindMajor > 0 && transitUAH > 0 && set.TargetBondsPct != nil && *set.TargetBondsPct > 0 {
+		transitPct = math.Min(transitUAH/kindMajor*100, *set.TargetBondsPct)
+		transitCarveUAH = kindMajor * transitPct / 100
+	}
 	for _, k := range kindTargets {
 		if k.target == nil || *k.target <= 0 || kindMajor <= 0 {
 			continue
@@ -305,6 +355,17 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		if k.unit > 0 {
 			row.MinPortfolioUAH = round2(k.unit / (*k.target / 100))
 		}
+		// Транзит бачать двоє, і бачать по-різному. ОВДП — як частину
+		// власної цілі, якої поки не досягти папером (тому і в.п., і
+		// гривні). Вклади — лише як гроші: скільки з того, що лежить у
+		// банку, ця потреба виправдовує. Частки вкладам не даємо й тут,
+		// інакше вирізка знову стала б другою ціллю.
+		switch k.key {
+		case "bonds":
+			row.TransitPct, row.TransitUAH = round2(transitPct), round2(transitCarveUAH)
+		case "deposits":
+			row.TransitUAH = round2(transitCarveUAH)
+		}
 		out.Rebalance = append(out.Rebalance, row)
 	}
 	// Гроші місяця по видах — ОКРЕМИМ проходом, а не в циклі вище, і це
@@ -328,16 +389,32 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 	// де поруч стоять місяці витрат і ціль — тобто там, де її можна
 	// прочитати правильно.
 	//
-	// НПФ без заданої цілі лишається довідковим рядком: він ІНВЕСТИЦІЯ, у
-	// тому самому знаменнику, що й решта, і пенсійна частка, яка може бути
-	// найбільшою в портфелі, без нього просто зникала б із картини складу.
-	if cap.NPFUAH > 0 && kindMajor > 0 && (set.TargetNPFPct == nil || *set.TargetNPFPct <= 0) {
-		out.Rebalance = append(out.Rebalance, state.RebalanceRow{
-			Dimension: "kind", Key: "npf", Currency: money.UAH,
-			CurrentPct: round2(cap.NPFUAH / kindMajor * 100),
-			CurrentUAH: round2(cap.NPFUAH),
-			UnitKind:   "npf", Feasible: true,
-		})
+	// ВИД БЕЗ ЗАДАНОЇ ЦІЛІ лишається ДОВІДКОВИМ рядком: гроші в ньому
+	// стоять у тому самому знаменнику, що й решта, і без рядка вони
+	// зникали б із картини складу, лишаючи інші види «недобраними» без
+	// жодного пояснення, куди ж поділась решта.
+	//
+	// Доти виняток був іменний — лише НПФ, — і це коштувало рівно тоді,
+	// коли ціль за вкладами перестала бути ціллю: вклади щезли б із
+	// «Структури за видом» цілком, разом із транзитом, який їх і виправдує.
+	// Правило те саме для всіх, тож і перебір тепер спільний.
+	//
+	// Резерву тут немає й не буде: він поза цим знаменником, і його частка
+	// живе у власній картці разом із місяцями витрат.
+	for _, k := range kindTargets {
+		if k.nowUAH <= 0 || kindMajor <= 0 || (k.target != nil && *k.target > 0) {
+			continue
+		}
+		row := state.RebalanceRow{
+			Dimension: "kind", Key: k.key, Currency: money.UAH,
+			CurrentPct: round2(k.nowUAH / kindMajor * 100),
+			CurrentUAH: round2(k.nowUAH),
+			UnitKind:   k.key, Feasible: true,
+		}
+		if k.key == "deposits" {
+			row.TransitUAH = round2(transitCarveUAH)
+		}
+		out.Rebalance = append(out.Rebalance, row)
 	}
 
 	// --- концентрація ---

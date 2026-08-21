@@ -19,7 +19,37 @@
     "target_months": 3,
     "target_uah": 90000,
     "gap_uah": 30000,
-    "monthly_expenses_uah": 30000
+    "monthly_expenses_uah": 30000,
+    "liquid_uah": 35000,
+    "liquid_target_uah": 30000,
+    "ladder": [
+      {
+        "months": 1,
+        "available_uah": 35000,
+        "reachable_uah": 60000,
+        "spent_uah": 30000
+      },
+      {
+        "months": 2,
+        "available_uah": 60000,
+        "reachable_uah": 60000,
+        "spent_uah": 60000
+      },
+      {
+        "months": 3,
+        "available_uah": 60000,
+        "reachable_uah": 60000,
+        "spent_uah": 90000
+      }
+    ],
+    "ladder_covers_months": 2,
+    "ladder_reach_months": 2,
+    "ladder_gap_month": 3,
+    "ladder_gap_uah": 30000,
+    "ladder_rungs": 1,
+    "ladder_rungs_target": 2,
+    "next_rung_months": 3,
+    "ladder_earns_uah": 3000
   },
   "npf_uah": 45000,
   "npf_cost_uah": 40000,
@@ -197,6 +227,7 @@
     "in_90_uah": 9775,
     "reserve_uah": 60000,
     "locked_uah": 120000,
+    "breakable_uah": 40000,
     "unlock_date": "2027-03-17",
     "locked_npf_uah": 45000
   },
@@ -225,6 +256,8 @@
     "usd_target_share_pct": 50,
     "monthly_expenses_uah": 30000,
     "reserve_target_months": 3,
+    "reserve_liquid_months": 1,
+    "reserve_max_term_months": 6,
     "target_npf_pct": 10,
     "npf_credit_pdfo_year_uah": 40000,
     "npf_credit_cap_month_uah": 4660

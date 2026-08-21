@@ -151,6 +151,66 @@ export function reserveTilesHTML(ctx) {
     : `до цілі ще ${fmtUAH(r.gap_uah || 0)} · ціль ${fmtUAH(r.target_uah || 0)}`}</div>` : ""}
     ${places.length ? `<div class="note">Де лежить: ${places.map(([p, v]) =>
     `${esc(p)} — ${fmtUAH(v)}`).join(" · ")}</div>` : ""}
+    ${accessHTML(r)}
+  </div>`;
+}
+
+/** Доступ до подушки: коли я до цього дістануся.
+ *
+ *  ОКРЕМЕ ПИТАННЯ ВІД «НА СКІЛЬКИ ВИСТАЧИТЬ», і плитки вище на нього не
+ *  відповідають. Подушка на 600 000 ₴ при витратах 50 000 ₴ дає рівно
+ *  12 місяців і готівкою, і одним річним вкладом; у другому випадку на
+ *  третій місяць у руках не буде нічого.
+ *
+ *  ТРИ СТАНИ, І ЧЕРВОНИЙ ЛИШЕ ОДИН. Недобрана голова — справжня вада:
+ *  аварія не витрачається помісячно, і драбина її не покриває в принципі.
+ *  Хвіст, який сам себе не тягне, вадою НЕ є: якщо договір дозволяє
+ *  забрати достроково, це розмін — гроші будуть, ціна відсотки. Діра
+ *  лишається дірою тільки тоді, коли не дотягує навіть із розірванням. */
+function accessHTML(r) {
+  if (!r.ladder || !r.ladder.length) return "";
+  const target = r.target_months || 0;
+  const covers = r.ladder_covers_months || 0;
+  const reach = r.ladder_reach_months || 0;
+  const headShort = r.liquid_target_uah > 0 && (r.liquid_uah || 0) < r.liquid_target_uah;
+  // Розгортання проти діри — саме та пара станів, яку найлегше злити в
+  // один «не гаразд». Драбина, що ще набирається, показує рівно те саме
+  // неповне покриття, що й недосяжний хвіст, і без цієї гілки обидва
+  // читались би як помилка.
+  //
+  // При СПРАВЖНІЙ дірі цей рядок мовчить, і це не дрібниця: «неповне
+  // покриття тут очікуване» під червоним «грошей не буде ніяк» пом'якшувало
+  // б рівно те твердження, заради якого червоний і лишили одному стану.
+  // Спіймано живцем на екрані, а не тестом: обидві гілки поодинці правильні.
+  const building = !r.ladder_gap_month
+    && r.ladder_rungs_target > 0 && r.ladder_rungs < r.ladder_rungs_target;
+  const line = r.ladder_gap_month
+    ? `<span class="t-warn">⚠ на ${r.ladder_gap_month}-й місяць бракує
+       ${fmtUAH(r.ladder_gap_uah || 0)} навіть із розірванням</span>`
+    : reach > covers
+      ? `далі — розірвання вкладу: тіло повернуть, відсотки згорять.
+         Скільки саме коштує, знає банк`
+      : `<span class="t-ok">покриття повне ✅</span>`;
+  return `<div class="mt-sm">
+    <div class="kv"><span class="muted">Доступно сьогодні</span>
+      <b class="${headShort ? "t-warn" : ""}">${fmtUAH(r.liquid_uah || 0)}</b></div>
+    ${r.liquid_target_uah > 0 ? `<div class="sub">${headShort
+    ? `<span class="t-warn">⚠ голова не добрана: треба ${fmtUAH(r.liquid_target_uah)}</span>
+       — аварія не витрачається помісячно, і драбина її не покриває`
+    : `голова добрана (треба ${fmtUAH(r.liquid_target_uah)})`}</div>` : ""}
+    <div class="kv mt-xs"><span class="muted">Драбина тягне сама</span>
+      <b>${monthsNum(covers)} із ${target} міс.</b></div>
+    ${reach > covers ? `<div class="kv"><span class="muted">з розірванням</span>
+      <b>${monthsNum(reach)} із ${target} міс.</b></div>` : ""}
+    <div class="sub">${line}</div>
+    ${building ? `<div class="sub">драбина набирається: ${r.ladder_rungs} ${
+    plural(r.ladder_rungs, "сходинка", "сходинки", "сходинок")} з ${r.ladder_rungs_target}
+      — неповне покриття тут очікуване, а не помилка</div>` : ""}
+    ${r.next_rung_months ? `<div class="sub">наступна сходинка — на ${r.next_rung_months}
+      ${plural(r.next_rung_months, "місяць", "місяці", "місяців")}; якщо банк такого строку
+      не дає, бери довший</div>` : ""}
+    ${r.ladder_earns_uah ? `<div class="sub">сходинки приносять
+      ${fmtUAH(r.ladder_earns_uah)} за рік після податку — стільки коштує тримати це готівкою</div>` : ""}
   </div>`;
 }
 

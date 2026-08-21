@@ -83,3 +83,41 @@ func TestLiquidityWindowsAreCumulative(t *testing.T) {
 		t.Error("за 90 днів доступно менше, ніж за 30 — вікна перестали перекриватись")
 	}
 }
+
+// TestLiquiditySplitsLockedFromBreakable — розривність вкладу розводить
+// гроші по різних рядках картки ліквідності.
+//
+// Доти застосунок вважав безвідкличним КОЖЕН строковий вклад, і це було
+// чесно: розрізнити їх було нічим, а за ЦКУ саме це й замовчування. Тепер
+// прапорець є, і зсипати обидва в одне число означало б казати «цього не
+// дістати» про гроші, які дістати можна, заплативши відсотками.
+func TestLiquiditySplitsLockedFromBreakable(t *testing.T) {
+	today := domain.NewDate(time.Now())
+	far := today.AddMonths(9) // свідомо за межами вікна 90 днів
+	in := riskInput{
+		Now:   time.Now(),
+		Rates: fx.Rates{money.UAH: 100},
+		TermDeposits: []domain.Deposit{
+			{Bank: "a", Currency: money.UAH, Principal: 100_000_00, OpenDate: today,
+				MaturityDate: far, Payout: domain.PayoutEnd},
+			{Bank: "b", Currency: money.UAH, Principal: 300_000_00, OpenDate: today,
+				MaturityDate: far, Payout: domain.PayoutEnd, Revocable: true},
+		},
+	}
+	l := buildRisk(in).Liquidity
+	if l == nil {
+		t.Fatal("картки ліквідності немає")
+	}
+	if l.LockedUAH != 100_000 {
+		t.Errorf("замкнено %.2f ₴, очікували 100 000 — це безвідкличний вклад", l.LockedUAH)
+	}
+	if l.BreakableUAH != 300_000 {
+		t.Errorf("зламне %.2f ₴, очікували 300 000 — договір дозволяє забрати достроково",
+			l.BreakableUAH)
+	}
+	// Ні те, ні те не є вільними грошима: додати зламне в «зараз» означало
+	// б зробити подушку купівельною спроможністю.
+	if l.NowUAH != 0 {
+		t.Errorf("«зараз» %.2f ₴ — вклади не є готівкою, хай би якими розривними були", l.NowUAH)
+	}
+}

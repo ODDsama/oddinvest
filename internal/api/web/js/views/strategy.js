@@ -24,15 +24,27 @@
 // від неї лишилась половина.
 //
 // ЩО ЗМІНИЛОСЬ У ЦЬОМУ ПРАВИЛІ. Доти тут стояло «відповіді ні на що не
-// впливають самі по собі». Тепер одна впливає: від готовності замкнути
-// гроші до 50 років залежить ціль НПФ у наборах. Нове формулювання —
-// ВІДПОВІДІ НЕ РАДЯТЬ, АЛЕ НАБІР ПОВАЖАЄ НАЗВАНЕ ОБМЕЖЕННЯ.
+// впливають самі по собі». Тепер впливають ДВІ — про замок і про валюту, —
+// і чинне формулювання таке: ВІДПОВІДІ НЕ РАДЯТЬ, АЛЕ НАБІР ПОВАЖАЄ
+// НАЗВАНЕ ОБМЕЖЕННЯ.
 //
 // Різниця між цими двома не косметична. «Порадити» означало б підняти
 // частку, бо застосунок вважає інструмент вигідним. Тут навпаки: ціль НПФ
 // порожня в УСІХ восьми наборах, доки про замок не сказано, — бо замок до
 // 50 років це не незручність, а неможливість, і припускати її за людину
 // не можна. Названа готовність знімає заборону, а не додає пораду.
+//
+// Валютна відповідь входить у те саме правило з іншого боку, і сплутати їх
+// не можна. Замок питає про НЕМОЖЛИВІСТЬ, тож мовчання там означає «ні».
+// Валюта питає про те, В ЧОМУ ЛЮДИНА ЖИВЕ, — обмеження не менш справжнє,
+// але зворотне: тримати долар не заборонено нічим, назад не замкнено, і
+// базове число набору лишається чесним станом, а не припущенням про
+// людину. Тому мовчання тут не «ні», а «набір при своїй ціні».
+//
+// Чому цю відповідь узагалі підключили до чисел: вона питала рівно про те,
+// що набір і задає числом, а число стояло незмінним. Тепер ланцюг
+// замкнутий — відповідь про валюту задає валютну ціль, а з неї виводиться
+// частка вкладів (див. довгий абзац про чергу до $1000-го паперу нижче).
 //
 // І ще одне, чого тут немає й не буде: автоматичного запису. Набір не
 // перемикається сам, коли обставини змінились. Застосунок каже, що
@@ -59,6 +71,15 @@ const QUESTIONS = [
       ["long", "Не раніше ніж за 3 роки"],
     ],
   },
+  // Друге з двох питань, що ЗМІНЮЮТЬ ЧИСЛА (перше — про замок, нижче).
+  //
+  // Дивно було саме доти: питання про валюту стояло поруч із набором, який
+  // валютну ціль і задає, а число від відповіді не рухалось. Тепер
+  // рухається — і тягне за собою частку вкладів, бо вклад тут черга до
+  // валютного паперу, а не окремий вид (див. шапку файлу).
+  //
+  // Середня відповідь накладки не має навмисно: «переважно в гривні, але є
+  // валютні плани» — це і є та валютна ціна, яку набір ставить сам.
   {
     id: "spend",
     q: "У чому ви плануєте їх витрачати?",
@@ -93,8 +114,9 @@ const QUESTIONS = [
   // Питання «чи вносите регулярно» напрошується так само й так само не є
   // обмеженням: темп поповнень застосунок ВИМІРЮЄ сам, і питати про
   // виміряне означало б дозволити відповіді розійтися з фактом.
-  // Єдине питання, відповідь на яке ЗМІНЮЄ ЧИСЛА наборів, а не лише
-  // позначає збіг. Причина в тому, що НПФ — інструмент, вимкнений не
+  // Одне з ДВОХ питань, відповідь на які ЗМІНЮЄ ЧИСЛА наборів, а не лише
+  // позначає збіг (друге — про валюту, вище). Причина тут у тому, що НПФ —
+  // інструмент, вимкнений не
   // смаком, а замком: до 50 років звідти не забрати нічого. Тож ціль НПФ у
   // всіх восьми наборах порожня, доки готовність замкнути гроші не названа,
   // і зʼявляється рівно тоді, коли названа. Це не порада — це відмова
@@ -106,6 +128,30 @@ const QUESTIONS = [
       ["no", "Ні — має лишатись доступ"],
       ["some", "Невелику частину — так"],
       ["most", "Так, значну частину"],
+    ],
+  },
+  // Третє питання, що ЗМІНЮЄ ЧИСЛА. Природа та сама, що в решти: людина
+  // знає відповідь про себе, без жодних знань про ринок.
+  //
+  // ЧОМУ ВОНО ПРО ДОГОВІР, А НЕ ПРО ГОТОВНІСТЬ ПЛАТИТИ ШТРАФ. Строковий
+  // вклад в Україні безвідкличний за замовчуванням: за ЦКУ забрати гроші
+  // достроково можна лише там, де це прямо написано в договорі. Тому
+  // «згоден розірвати за потреби» — не відповідь: на безвідкличному вкладі
+  // згода не змінює нічого. Що саме стоїть у людини, знає прапорець на
+  // самому вкладі; тут питається лише, чи ЄСТЬ у неї такий договір.
+  //
+  // Числа накладок виводяться з reserve_target_months САМОГО набору, тож
+  // одна відповідь дає різні числа в різних наборах: у «Ліквідного» з
+  // ціллю 12 місяців драбина лишає голову 2 і хвіст 10, у наборів із
+  // ціллю 3 — голову 1 і хвіст 2. Це те, чого фіксоване число дати не
+  // могло б: подушка на 3 місяці й подушка на 12 будуються по-різному.
+  {
+    id: "reserve",
+    q: "Чи можна тримати подушку на строкових вкладах?",
+    opts: [
+      ["no", "Ні — вся має бути доступна миттєво"],
+      ["short", "Частково, короткими строками"],
+      ["ladder", "Так, якщо договір дозволяє забрати достроково"],
     ],
   },
   {
@@ -128,11 +174,32 @@ const QUESTIONS = [
 // «ліквідний» із `lock50: ["no"]` вигадав би конфлікт тому, хто відповів
 // «так».
 //
-// Усі набори пишуть ОДИН І ТОЙ САМИЙ перелік із дванадцяти ключів, і це не
+// Усі набори пишуть ОДИН І ТОЙ САМИЙ перелік із чотирнадцяти ключів, і це не
 // охайність. Порожнє значення в PUT /settings означає «ПРИБРАТИ», тож
 // набір, який мовчить про ціль НПФ, лишив би її від попереднього — і сума
 // часток поїхала б без жодного сліду в UI. Тест у server_test.go тримає цю
 // рівність переліків.
+//
+// НАКЛАДОК ТЕПЕР ДВІ ОСІ, і друга з'явилась разом із транзитом.
+//
+// `spendUah` / `spendFx` — накладки під відповідь «у чому ви плануєте їх
+// витрачати». Доти ця відповідь лише позначала збіг, і вийшло дивно: вона
+// питає рівно про те, що набір і задає числом (валютну ціль), а число
+// стояло незмінним, хай би що людина відповіла.
+//
+// Тепер ланцюг замкнувся: ВІДПОВІДЬ ПРО ВАЛЮТУ → ВАЛЮТНА ЦІЛЬ → ПОХІДНА
+// ЧАСТКА ВКЛАДІВ. Останню ланку рахує бекенд (див. довгий абзац нижче про
+// чергу до $1000-го паперу), тож вигаданого числа немає в жодній із трьох.
+//
+// `spendMixed` немає в жодному наборі навмисно: «переважно в гривні, але є
+// валютні плани» — це і є та валютна ціна, яку набір ставить сам, і
+// накладка, що переписує число тим самим числом, була б порожньою. Тест
+// такі й валить окремо: німа накладка читається як забута.
+//
+// Осі не перетинаються ключами (замок чіпає НПФ і ОВДП, валюта — usd/eur),
+// тож комбінуються без узгодження. Але сторож перебирає саме КОМБІНАЦІЇ, а
+// не осі окремо: щойно вони перетнуться, порядок стане значущим, і
+// дізнатись про це з тесту дешевше, ніж із чисел у чужому портфелі.
 //
 // `lockSome` і `lockMost` — накладки під відповідь про замок. `values` — це
 // числа набору, КОЛИ ГОТОВНІСТЬ ЗАМКНУТИ ГРОШІ НЕ НАЗВАНА, і саме тому ціль
@@ -147,10 +214,37 @@ const QUESTIONS = [
 // колись тримався на відступах. Вкладений обʼєкт повернув би його до
 // регекса з підрахунком дужок — тобто до перевірки, яка ламається ТИШЕЮ.
 //
-// Куди дівається піднята частка НПФ: із `target_bonds_pct`. Не з вкладів
-// (це коротка ліквідна нога, і забирати звідти означало б тихо зробити
-// набір менш ліквідним, ніж каже його підпис) і не з фондів там, де фонд і
-// Є набором.
+// Куди дівається піднята частка НПФ: із `target_bonds_pct`. Не з фондів
+// там, де фонд і Є набором, — і не з вкладів, бо брати звідти більше нема
+// чого: ЦІЛІ ЗА ВКЛАДАМИ В ЦИХ НАБОРАХ НЕМАЄ ЖОДНОЇ.
+//
+// Це найбільша зміна в цьому файлі, і аргумент, який тут стояв доти,
+// скасований власним прикладом. Доти писалось: не чіпати вклади, бо це
+// «коротка ліквідна нога», і зменшувати її означало б тихо зробити набір
+// менш ліквідним, ніж каже підпис. Обидві половини виявились хибними.
+//
+// Ліквідність міряє РЕЗЕРВ, і міряє її в місяцях витрат — мірою, яка
+// відповідає на питання, заради якого подушку й тримають. Частка капіталу
+// у вкладах на це питання не відповідає взагалі: 20% можуть бути і трьома
+// місяцями життя, і десятьма. Дві ноги під одну обіцянку — це не подвійний
+// захист, а два числа, які нічого одне про одного не знають.
+//
+// А головне — чим вклад тут насправді є. Валютний папір коштує $1000, і
+// зібрати цю тисячу можна лише вкладом; доки не зібрано, валюта чекає в
+// банку. Це ЧЕРГА, а не вид під частку, і довжина черги залежить від
+// розміру портфеля, а не від того, чого людина хоче: при капіталі
+// 100 000 ₴ і цілі USD 40% у вкладі мусить лежати вся валютна нога, при
+// 3 000 000 ₴ — майже нічого. Число, яке мусить бути то 40, то 0.8, не
+// можна записати константою в наборі, і сім наборів, що писали «15»,
+// помилялись на 25 в.п. з одного краю й на 14 в.п. з іншого.
+//
+// Тому частку вкладів рахує бекенд (state_rebalance.go, transit_pct), і
+// рахує її ВИРІЗКОЮ З ЦІЛІ ОВДП — бо транзитні гроші і є гроші на шляху в
+// папір. Друга ціль поруч зробила б суму часток більшою за сотню й
+// поставила б у список два числа про одну частку капіталу.
+//
+// Ціль вкладів лишається рівно в одному наборі — «Тільки банк». Там вклад
+// не черга, а призначення, і 100% сказані навмисно.
 //
 // СУМА ЧАСТОК ЗА ВИДОМ — РІВНО 100 НА ВСІХ ТРЬОХ РІВНЯХ, і тест це стереже.
 //
@@ -174,17 +268,23 @@ const PRESETS = [
     fits: { when: ["mid", "long"], spend: ["uah", "mixed"] },
     values: {
       usd_target_share_pct: "10", eur_target_share_pct: "",
-      target_bonds_pct: "75", target_funds_pct: "10", target_deposits_pct: "15",
+      target_bonds_pct: "90", target_funds_pct: "10", target_deposits_pct: "",
       target_npf_pct: "",
       limit_isin_pct: "25", limit_broker_pct: "60", limit_year_pct: "40",
       reserve_target_months: "3", reserve_fill_share_pct: "",
+      reserve_liquid_months: "", reserve_max_term_months: "",
       reinvest_rank: "rate",
     },
+    reserveNone: { reserve_liquid_months: "3", reserve_max_term_months: "0" },
+    reserveShort: { reserve_liquid_months: "2", reserve_max_term_months: "3" },
+    reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "3" },
+    spendUah: { usd_target_share_pct: "0", eur_target_share_pct: "" },
+    spendFx: { usd_target_share_pct: "25", eur_target_share_pct: "" },
     // Ємність низька: набір про ПОТОЧНИЙ дохід, а НПФ до 50 років не платить
     // нічого. Знижка з ПДФО того варта, але не коштом того, заради чого
     // набір і обирають.
-    lockSome: { target_bonds_pct: "70", target_npf_pct: "5" },
-    lockMost: { target_bonds_pct: "60", target_npf_pct: "15" },
+    lockSome: { target_bonds_pct: "85", target_npf_pct: "5" },
+    lockMost: { target_bonds_pct: "75", target_npf_pct: "15" },
   },
   {
     key: "fx",
@@ -194,17 +294,23 @@ const PRESETS = [
     fits: { spend: ["mixed", "fx"], when: ["mid", "long"] },
     values: {
       usd_target_share_pct: "40", eur_target_share_pct: "10",
-      target_bonds_pct: "70", target_funds_pct: "15", target_deposits_pct: "15",
+      target_bonds_pct: "85", target_funds_pct: "15", target_deposits_pct: "",
       target_npf_pct: "",
       limit_isin_pct: "25", limit_broker_pct: "50", limit_year_pct: "40",
       reserve_target_months: "6", reserve_fill_share_pct: "",
+      reserve_liquid_months: "", reserve_max_term_months: "",
       reinvest_rank: "plan",
     },
+    reserveNone: { reserve_liquid_months: "6", reserve_max_term_months: "0" },
+    reserveShort: { reserve_liquid_months: "3", reserve_max_term_months: "3" },
+    reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "6" },
+    spendUah: { usd_target_share_pct: "20", eur_target_share_pct: "" },
+    spendFx: { usd_target_share_pct: "55", eur_target_share_pct: "15" },
     // Ємність низька з іншої причини: НПФ гривневий, тобто прямо проти того,
     // що набір обіцяє. При цілі USD 40 + EUR 10 = 50% ОВДП у 60% ще вміщає
     // всю валютну частину — нижче вже тиснуло б на неї.
-    lockSome: { target_bonds_pct: "65", target_npf_pct: "5" },
-    lockMost: { target_bonds_pct: "60", target_npf_pct: "10" },
+    lockSome: { target_bonds_pct: "80", target_npf_pct: "5" },
+    lockMost: { target_bonds_pct: "75", target_npf_pct: "10" },
   },
   {
     key: "ladder",
@@ -214,17 +320,23 @@ const PRESETS = [
     fits: { when: ["long"], effort: ["few"] },
     values: {
       usd_target_share_pct: "25", eur_target_share_pct: "",
-      target_bonds_pct: "85", target_funds_pct: "5", target_deposits_pct: "10",
+      target_bonds_pct: "95", target_funds_pct: "5", target_deposits_pct: "",
       target_npf_pct: "",
       limit_isin_pct: "35", limit_broker_pct: "60", limit_year_pct: "30",
       reserve_target_months: "3", reserve_fill_share_pct: "",
+      reserve_liquid_months: "", reserve_max_term_months: "",
       reinvest_rank: "ladder",
     },
+    reserveNone: { reserve_liquid_months: "3", reserve_max_term_months: "0" },
+    reserveShort: { reserve_liquid_months: "2", reserve_max_term_months: "3" },
+    reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "3" },
+    spendUah: { usd_target_share_pct: "10", eur_target_share_pct: "" },
+    spendFx: { usd_target_share_pct: "40", eur_target_share_pct: "" },
     // Найвища ємність із восьми, і це не щедрість: драбина й НПФ роблять одне
     // й те саме — довго, рівномірно, без рішень. Обмін між ними характеру
     // набору не міняє, лише подовжує строк.
-    lockSome: { target_bonds_pct: "75", target_npf_pct: "10" },
-    lockMost: { target_bonds_pct: "60", target_npf_pct: "25" },
+    lockSome: { target_bonds_pct: "85", target_npf_pct: "10" },
+    lockMost: { target_bonds_pct: "70", target_npf_pct: "25" },
   },
   {
     key: "liquid",
@@ -234,12 +346,18 @@ const PRESETS = [
     fits: { when: ["any"], cushion: ["no"] },
     values: {
       usd_target_share_pct: "25", eur_target_share_pct: "",
-      target_bonds_pct: "55", target_funds_pct: "25", target_deposits_pct: "20",
+      target_bonds_pct: "75", target_funds_pct: "25", target_deposits_pct: "",
       target_npf_pct: "",
       limit_isin_pct: "20", limit_broker_pct: "50", limit_year_pct: "50",
       reserve_target_months: "12", reserve_fill_share_pct: "25",
+      reserve_liquid_months: "", reserve_max_term_months: "",
       reinvest_rank: "short",
     },
+    reserveNone: { reserve_liquid_months: "12", reserve_max_term_months: "0" },
+    reserveShort: { reserve_liquid_months: "6", reserve_max_term_months: "3" },
+    reserveLadder: { reserve_liquid_months: "2", reserve_max_term_months: "12" },
+    spendUah: { usd_target_share_pct: "10", eur_target_share_pct: "" },
+    spendFx: { usd_target_share_pct: "40", eur_target_share_pct: "" },
     // Накладок НЕМА, і це аргумент, а не пропуск. Підпис набору обіцяє
     // «нічого ламати не доведеться»; замок до 50 років ламає цю обіцянку
     // буквально, а не робить її трохи менш зручною. Той самий привід, з
@@ -261,17 +379,23 @@ const PRESETS = [
     expires: "reserveFull",
     values: {
       usd_target_share_pct: "20", eur_target_share_pct: "",
-      target_bonds_pct: "70", target_funds_pct: "10", target_deposits_pct: "20",
+      target_bonds_pct: "90", target_funds_pct: "10", target_deposits_pct: "",
       target_npf_pct: "",
       limit_isin_pct: "25", limit_broker_pct: "50", limit_year_pct: "40",
       reserve_target_months: "6", reserve_fill_share_pct: "40",
+      reserve_liquid_months: "", reserve_max_term_months: "",
       reinvest_rank: "plan",
     },
+    reserveNone: { reserve_liquid_months: "6", reserve_max_term_months: "0" },
+    reserveShort: { reserve_liquid_months: "3", reserve_max_term_months: "3" },
+    reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "6" },
+    spendUah: { usd_target_share_pct: "5", eur_target_share_pct: "" },
+    spendFx: { usd_target_share_pct: "35", eur_target_share_pct: "" },
     // Ємність низька з механічної причини, а не з оцінки НПФ: поповнення
     // резерву вже забирає 40% вільних грошей, і великий НПФ поруч — це два
     // механізми, що тягнуть ті самі гроші в різні боки.
-    lockSome: { target_bonds_pct: "65", target_npf_pct: "5" },
-    lockMost: { target_bonds_pct: "60", target_npf_pct: "10" },
+    lockSome: { target_bonds_pct: "85", target_npf_pct: "5" },
+    lockMost: { target_bonds_pct: "80", target_npf_pct: "10" },
   },
   {
     key: "pension",
@@ -288,14 +412,20 @@ const PRESETS = [
     // окремо ловить випадок «числа стоять із НПФ, а питання без відповіді».
     values: {
       usd_target_share_pct: "10", eur_target_share_pct: "",
-      target_bonds_pct: "80", target_funds_pct: "5", target_deposits_pct: "15",
+      target_bonds_pct: "95", target_funds_pct: "5", target_deposits_pct: "",
       target_npf_pct: "",
       limit_isin_pct: "30", limit_broker_pct: "60", limit_year_pct: "40",
       reserve_target_months: "3", reserve_fill_share_pct: "",
+      reserve_liquid_months: "", reserve_max_term_months: "",
       reinvest_rank: "plan",
     },
-    lockSome: { target_bonds_pct: "60", target_npf_pct: "20" },
-    lockMost: { target_bonds_pct: "45", target_npf_pct: "35" },
+    reserveNone: { reserve_liquid_months: "3", reserve_max_term_months: "0" },
+    reserveShort: { reserve_liquid_months: "2", reserve_max_term_months: "3" },
+    reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "3" },
+    spendUah: { usd_target_share_pct: "0", eur_target_share_pct: "" },
+    spendFx: { usd_target_share_pct: "25", eur_target_share_pct: "" },
+    lockSome: { target_bonds_pct: "75", target_npf_pct: "20" },
+    lockMost: { target_bonds_pct: "60", target_npf_pct: "35" },
   },
   {
     key: "term",
@@ -311,20 +441,26 @@ const PRESETS = [
     expires: "buyWindowClosed",
     values: {
       usd_target_share_pct: "20", eur_target_share_pct: "",
-      target_bonds_pct: "45", target_funds_pct: "45", target_deposits_pct: "10",
+      target_bonds_pct: "55", target_funds_pct: "45", target_deposits_pct: "",
       target_npf_pct: "",
       // Ліміт на один папір дорівнює цілі фондів навмисно: сертифікат
       // рахується в концентрації окремим емітентом, і стеля 25 при цілі 40
       // означала б набір, який порушує сам себе з першого дня.
       limit_isin_pct: "40", limit_broker_pct: "60", limit_year_pct: "40",
       reserve_target_months: "3", reserve_fill_share_pct: "",
+      reserve_liquid_months: "", reserve_max_term_months: "",
       reinvest_rank: "rate",
     },
+    reserveNone: { reserve_liquid_months: "3", reserve_max_term_months: "0" },
+    reserveShort: { reserve_liquid_months: "2", reserve_max_term_months: "3" },
+    reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "3" },
+    spendUah: { usd_target_share_pct: "5", eur_target_share_pct: "" },
+    spendFx: { usd_target_share_pct: "35", eur_target_share_pct: "" },
     // Ємність низька: у наборі вже є один строк — дата закриття фонду, — і
     // НПФ додає другий, набагато довший. Два строки поруч роблять із набору
     // те, чого його підпис не обіцяв.
-    lockSome: { target_bonds_pct: "40", target_npf_pct: "5" },
-    lockMost: { target_bonds_pct: "30", target_npf_pct: "15" },
+    lockSome: { target_bonds_pct: "50", target_npf_pct: "5" },
+    lockMost: { target_bonds_pct: "40", target_npf_pct: "15" },
   },
   {
     key: "bank",
@@ -358,8 +494,14 @@ const PRESETS = [
       // немає. Ціна названа в рядку «Платить», а не схована в число.
       limit_isin_pct: "25", limit_broker_pct: "80", limit_year_pct: "40",
       reserve_target_months: "6", reserve_fill_share_pct: "30",
+      reserve_liquid_months: "", reserve_max_term_months: "",
       reinvest_rank: "rate",
     },
+    reserveNone: { reserve_liquid_months: "6", reserve_max_term_months: "0" },
+    reserveShort: { reserve_liquid_months: "3", reserve_max_term_months: "3" },
+    reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "6" },
+    spendUah: { usd_target_share_pct: "0", eur_target_share_pct: "" },
+    spendFx: { usd_target_share_pct: "40", eur_target_share_pct: "" },
     // Накладок немає з тієї ж причини, що й у «Ліквідного»: набір обіцяє
     // «нічого не треба відкривати», а НПФ означає відкрити рахунок в
     // адміністратора. Це не менша зручність, це протилежне тому, що
@@ -377,21 +519,74 @@ const PRESETS = [
 // підпис під питанням їх розрізняє.
 const lockLevel = (a) => (a.lock50 === "some" || a.lock50 === "most" ? a.lock50 : "no");
 
-// Числа набору на конкретному рівні замка.
+// Рівень валютної відповіді. Природа ІНША, ніж у замка, і сплутати їх не
+// можна: там відсутність відповіді мусила означати «ні», бо припустити
+// двадцятип'ятирічний замок за людину не можна. Тут відсутність відповіді
+// означає «набір лишається при своїй валютній ціні» — тримати долар не
+// заборонено нічим і назад не замкнено, тож базове число набору є чесним
+// станом, а не припущенням про людину.
+const spendLevel = (a) => (["uah", "mixed", "fx"].includes(a.spend) ? a.spend : "");
+
+// Рівень відповіді про подушку. Природа — як у валютної: мовчання лишає
+// набір при своїх числах, а не означає «ні». Замикати подушку не
+// обов'язково, і не замкнена вона нічим не гірша — просто не заробляє.
+const reserveLevel = (a) => (["no", "short", "ladder"].includes(a.reserve) ? a.reserve : "");
+
+// Осі накладок. Перелік ЖИВИЙ і читається обома — і `valuesAt`, і сторожем
+// комбінацій у тесті: два списки тих самих імен розійшлись би тихо, а
+// розійшовшись, лишили б цілу вісь неперевіреною.
+//
+// Порядок застосування зафіксований і значення не має: ключі осей не
+// перетинаються (замок чіпає НПФ і ОВДП, валюта — usd/eur). Зафіксований
+// саме тому, що колись перетнутись можуть, і мовчазна залежність від
+// порядку в мапі — не той спосіб про це дізнатись.
+const AXES = [
+  ["lock", { some: "lockSome", most: "lockMost" }],
+  ["spend", { uah: "spendUah", mixed: "spendMixed", fx: "spendFx" }],
+  ["reserve", { no: "reserveNone", short: "reserveShort", ladder: "reserveLadder" }],
+];
+
+// Числа набору на конкретній комбінації відповідей.
 //
 // `k in out` — не охайність: накладка з чужим ключем має дати НЕ новий ключ
 // у PUT, а нічого. Ціна тихої помилки тут різна на два порядки — зайвий
 // ключ поїхав би в запит і затер сусіднє налаштування, пропущений лише
 // лишив би базове число. Гучною цю помилку робить тест, а не браузер.
-export function valuesAt(preset, level) {
-  const over = level === "some" ? preset.lockSome : level === "most" ? preset.lockMost : null;
-  if (!over) return preset.values;
-  const out = { ...preset.values };
-  for (const k of Object.keys(over)) if (k in out) out[k] = over[k];
+export function valuesAt(preset, levels) {
+  // Рядком приймаємо теж: доти аргументом був самий рівень замка, і
+  // мовчазна зміна сигнатури зробила б із «no» істинний об'єкт без жодного
+  // збігу — тобто набір, що не збігається сам із собою.
+  const at = typeof levels === "string" ? { lock: levels } : (levels || {});
+  let out = null;
+  for (const [axis, byLevel] of AXES) {
+    const field = byLevel[at[axis]];
+    const over = field && preset[field];
+    if (!over) continue;
+    if (!out) out = { ...preset.values };
+    for (const k of Object.keys(over)) if (k in out) out[k] = over[k];
+  }
+  return out || preset.values;
+}
+
+// Усі комбінації рівнів — для перебору «який набір стоїть». Порожній рівень
+// на осі означає «накладки немає», і він мусить бути в переліку: набір без
+// відповіді про валюту — теж законний стан чисел.
+export function allLevels() {
+  let out = [{}];
+  for (const [axis, byLevel] of AXES) {
+    const next = [];
+    for (const base of out) {
+      next.push(base);
+      for (const lv of Object.keys(byLevel)) next.push({ ...base, [axis]: lv });
+    }
+    out = next;
+  }
   return out;
 }
 
-const effectiveValues = (preset, answers) => valuesAt(preset, lockLevel(answers));
+const effectiveValues = (preset, answers) => valuesAt(preset, {
+  lock: lockLevel(answers), spend: spendLevel(answers), reserve: reserveLevel(answers),
+});
 
 export const RANKS = [
   ["plan", "під план"], ["rate", "за дохідністю"],
@@ -411,6 +606,8 @@ const FIELD_LABEL = {
   limit_year_pct: "Макс. погашень в один рік, %",
   reserve_target_months: "Ціль резерву, місяців",
   reserve_fill_share_pct: "З вільних у резерв, %",
+  reserve_liquid_months: "Доступно миттєво, місяців витрат",
+  reserve_max_term_months: "Найдовша сходинка драбини, місяців",
   reinvest_rank: "Порядок у «Що купити»",
 };
 
@@ -458,7 +655,7 @@ function matchOf(preset, answers) {
 // «ця картка порожня, бо бракує налаштування». Жодне не казало «ти задав X,
 // а Y порожнє, тож X ні на що не впливає».
 //
-// Саме тут ця тиша найдорожча. Набір ставить дванадцять чисел одним
+// Саме тут ця тиша найдорожча. Набір ставить чотирнадцять чисел одним
 // натиском, і три з них можуть бути мертві з першої секунди: ціль резерву
 // без місячних витрат не рахується в гривні, ціль вкладів без пари
 // «ставка + мінімум» не має чим наповнюватись, а обіцяні в підписі 18% ПДФО
@@ -527,14 +724,28 @@ function needsHTML(eff, s, current) {
       → Резерв</a>.`);
   }
 
-  if (val("target_deposits_pct") && !depositReady(current)) {
-    out.push(`<b>ставку й мінімум вкладу</b> хоч в одній валюті — вони працюють лише в парі. Ціль
-      вкладів у ${esc(val("target_deposits_pct"))}% запишеться, а «Що купити» не запропонує
-      відкрити вклад жодного разу: без ставки нема чого порівнювати, без мінімуму нема з чого
-      відрахувати крок. У гривні дефолту немає навмисно — мінімальна сума це умова банку, а не
-      властивість валюти. Діючий поповнюваний вклад помічник поповнить і без цих полів; немає лише
-      поради ВІДКРИТИ новий. Зникне, щойно обидва поля стануть у якійсь одній валюті —
-      <a class="lnk" href="${routeFor("policy/instruments")}">Політика → Інструменти реінвесту</a>.`);
+  // Умова тут ВАЛЮТНА, а не за ціллю вкладів, і зміна принципова.
+  //
+  // Доти попередження вмикала `target_deposits_pct` — тобто ціль, якої сім
+  // наборів із восьми більше не ставлять. Воно замовкло б рівно там, де
+  // стало потрібнішим: валютний папір коштує $1000, зібрати його можна
+  // лише вкладом, і без пари «ставка + мінімум» тієї поради не буде НІ
+  // РАЗУ. Ціль у валюті записалась би, а дороги до неї не було б.
+  //
+  // «Тільки банк» ловиться тією самою умовою через власну ціль вкладів:
+  // там вклад не черга, а призначення.
+  const wantsFX = val("usd_target_share_pct") || val("eur_target_share_pct");
+  if ((wantsFX || val("target_deposits_pct")) && !depositReady(current)) {
+    out.push(`<b>ставку й мінімум вкладу</b> хоч в одній валюті — вони працюють лише в парі.${
+  wantsFX ? ` Валютна ціль запишеться, але дороги до неї не буде: доларовий папір коштує $1000, і
+      доки на нього не зібрано, валюту тримає вклад — а поради ВІДКРИТИ його без цих двох полів
+      не буде жодного разу.` : ` Ціль вкладів у ${esc(val("target_deposits_pct"))}% запишеться, а
+      «Що купити» не запропонує відкрити вклад жодного разу.`} Без ставки нема чого порівнювати,
+      без мінімуму нема з чого відрахувати крок. У гривні дефолту немає навмисно — мінімальна сума
+      це умова банку, а не властивість валюти. Діючий поповнюваний вклад помічник поповнить і без
+      цих полів; немає лише поради ВІДКРИТИ новий. Зникне, щойно обидва поля стануть у якійсь
+      одній валюті — <a class="lnk" href="${routeFor("policy/instruments")}">Політика → Інструменти
+      реінвесту</a>.`);
   }
 
   // Тут попередження НЕ про ціль — вона працює: дефіцит буде видно в
@@ -729,21 +940,27 @@ const LOCK_WORD = { some: "невелику частину", most: "значну
 
 // Який набір стоїть ЗАРАЗ. ВИВОДИТЬСЯ порівнянням, а не читається зі
 // збереженого поля — з тієї ж причини, з якої в бекенді немає сутності
-// «стратегія»: поле було б другим джерелом правди про ті самі дванадцять
+// «стратегія»: поле було б другим джерелом правди про ті самі чотирнадцять
 // чисел, і воно ще й уміло б брехати — підправив число руками, а поле каже
 // «стоїть Драбина». Тут збіг зникає сам.
 //
-// Шукаємо по ВСІХ трьох рівнях замка, а не лише по названому: людина могла
-// застосувати набір, а потім зняти відповідь про замок, і сказати їй тоді
-// «жоден набір не збігся» було б формально правдою і повною дурницею.
+// Шукаємо по ВСІХ комбінаціях накладок, а не лише по названих відповідях:
+// людина могла застосувати набір, а потім зняти відповідь, і сказати їй
+// тоді «жоден набір не збігся» було б формально правдою і повною дурницею.
+//
+// Комбінацій тепер більше, ніж рівнів замка, бо осей стало дві, — і перебір
+// іде спільним allLevels(), а не власним списком: рукописна трійка "no",
+// "some", "most" пережила б появу валютної осі мовчки, знаходячи рівно
+// третину станів і називаючи решту «нічого не збіглось».
 function inEffect(current) {
   const out = [];
+  const combos = allLevels();
   for (const p of PRESETS) {
-    for (const level of ["no", "some", "most"]) {
-      const eff = valuesAt(p, level);
+    for (const levels of combos) {
+      const eff = valuesAt(p, levels);
       if (Object.entries(eff).every(([k, v]) => (current[k] || "") === v)) {
-        // Рівні одного набору різні за побудовою, тож перший збіг і є той.
-        out.push({ preset: p, level });
+        // Комбінації одного набору різні за побудовою, тож перший збіг і є той.
+        out.push({ preset: p, levels });
         break;
       }
     }
@@ -765,14 +982,20 @@ function stateBannerHTML(s, answers, current) {
       `Числа підправлені руками — це нормальний стан: набір і був стартовою точкою, а не режимом.
        Нижче видно, на скільки налаштувань відрізняється кожен із восьми.`);
   }
-  const named = matches.map(({ preset, level }) =>
-    `«${esc(preset.name)}»${level === "no" ? "" : ` на рівні «${LOCK_WORD[level]}»`}`).join(" і ");
+  // Називаємо лише вісь ЗАМКА, хоч осей у комбінації дві. Це не пропуск:
+  // рівень замка змінює склад набору (частка НПФ проти ОВДП), тобто його
+  // характер, а валютна відповідь змінює лише валютну ціль — число, яке
+  // видно окремим рядком у тій самій картці. Дописати сюди ще й її
+  // означало б зробити підпис довшим за твердження, яке він несе.
+  const named = matches.map(({ preset, levels }) =>
+    `«${esc(preset.name)}»${levels.lock && levels.lock !== "no"
+      ? ` на рівні «${LOCK_WORD[levels.lock]}»` : ""}`).join(" і ");
   const out = [];
 
   // Окрема гілка: числа стоять із НПФ, а про замок не відповідали. Це і є
   // «сказати словами замість тихого нуля» — інакше кнопка нижче показала б
   // різницю, ніби ціль НПФ треба прибрати, і причина була б невідома.
-  const silentLock = !answers.lock50 && matches.some((m) => m.level !== "no");
+  const silentLock = !answers.lock50 && matches.some((m) => m.levels.lock && m.levels.lock !== "no");
   if (silentLock) {
     out.push(banner("wait", "○", `Зараз стоїть ${named} — але питання про замок без відповіді`,
       `Числа, які стоять, — це саме цей набір із ціллю НПФ. Доки готовність замкнути частину
@@ -781,7 +1004,7 @@ function stateBannerHTML(s, answers, current) {
        Відповіси на питання — різниця зникне.`));
   } else {
     out.push(banner("ok", "✓", `Зараз стоїть ${named}`,
-      `Усі дванадцять налаштувань збігаються з цим набором. Це не збережений вибір: застосунок
+      `Усі чотирнадцять налаштувань збігаються з цим набором. Це не збережений вибір: застосунок
        щоразу звіряє числа з наборами й називає той, що збігся, — щойно ти підправиш будь-яке
        число руками, збіг зникне сам.`));
   }
@@ -795,7 +1018,7 @@ function stateBannerHTML(s, answers, current) {
     out.push(banner("wait", "◦", `«${esc(done.preset.name)}» своє відпрацював`,
       `Резерв зібрано: ${fmtUAH(r.uah)} при цілі ${fmtUAH(r.target_uah)}, розриву немає. Саме
        поповнення вже мовчить — стеля «з вільних у резерв» перестає щось радити тієї миті, коли
-       розрив стає нулем, і вимикати її окремо не треба. А от решта одинадцяти чисел лишились
+       розрив стає нулем, і вимикати її окремо не треба. А от решта тринадцяти чисел лишились
        такими, якими їх ставили ПІД ЗБІР. Це нічого не ламає — просто набір обирали під задачу,
        якої вже немає. Що з цим робити і чи робити взагалі — вирішуєш ти; нижче видно, на скільки
        налаштувань відрізняється кожен інший.`));
@@ -822,9 +1045,9 @@ function stateBannerHTML(s, answers, current) {
   const doneTerm = matches.find((m) => m.preset.expires === "buyWindowClosed");
   if (doneTerm && term.length && shut.length === term.length) {
     const named = term.map((f) => `«${esc(f.fund)}»`).join(" і ");
-    const fundsPct = esc(valuesAt(doneTerm.preset, doneTerm.level).target_funds_pct);
+    const fundsPct = esc(valuesAt(doneTerm.preset, doneTerm.levels).target_funds_pct);
     const tail = `Ціль фондів у ${fundsPct}% наповнювати вже нема чим: у наборі був рівно один спосіб.
-      Решта одинадцяти чисел лишились такими, якими їх ставили ПІД КУПІВЛЮ. Що з цим робити і чи
+      Решта тринадцяти чисел лишились такими, якими їх ставили ПІД КУПІВЛЮ. Що з цим робити і чи
       робити взагалі — вирішуєш ти; нижче видно, на скільки налаштувань відрізняється кожен інший.`;
     out.push(banner("wait", "◦", `«${esc(doneTerm.preset.name)}» своє відпрацював`,
       gone.length === term.length
@@ -929,7 +1152,7 @@ export function wireStrategy(ctx, main, current) {
       const box = main.querySelector(`[data-preview="${p.key}"]`);
       if (!p || !box) return;
       // Два кроки навмисно, як в імпорті виписки: спершу показати, що
-      // саме буде переписано, і лише потім писати. Набір чіпає дванадцять
+      // саме буде переписано, і лише потім писати. Набір чіпає чотирнадцять
       // налаштувань одразу, і «застосував і не помітив, що затер валютну
       // ціль» — помилка, яка знаходиться не одразу.
       //

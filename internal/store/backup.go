@@ -299,6 +299,13 @@ type BackupTermDeposit struct {
 	// Replenishable omitempty: старіші бекапи поля не мають, і відновлення
 	// прочитає їх як «не поповнюваний» — це типове значення колонки.
 	Replenishable bool `json:"replenishable,omitempty"`
+	// IsReserve / Revocable — omitempty з тієї ж причини й з тим самим
+	// наслідком: обидва типові значення нульові, тож старіший бекап
+	// відновиться в стан «вклад інвестиційний і безвідкличний». Для
+	// другого це не наближення, а законне замовчування — за ЦКУ строковий
+	// вклад фізособи безвідкличний, доки в договорі не написано інакше.
+	IsReserve bool `json:"is_reserve,omitempty"`
+	Revocable bool `json:"revocable,omitempty"`
 }
 
 // BackupFundOp — операція з сертифікатами фонду. Без неї бекап був
@@ -454,14 +461,16 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		FROM term_deposits d LEFT JOIN brokers b ON b.id=d.broker_id ORDER BY d.id`,
 		func(scan func(...any) error) error {
 			var r BackupTermDeposit
-			var capInt, replInt int64
+			var capInt, replInt, resInt, revInt int64
 			if err := scan(&r.ID, &r.Bank, &r.Currency, &r.Principal, &r.RateBP,
 				&r.OpenDate, &r.MaturityDate, &r.Payout, &capInt, &r.TaxBP,
-				&r.ClosedDate, &r.ClosedAmount, &r.Note, &replInt); err != nil {
+				&r.ClosedDate, &r.ClosedAmount, &r.Note, &replInt,
+				&resInt, &revInt); err != nil {
 				return err
 			}
 			r.Capitalized = capInt != 0
 			r.Replenishable = replInt != 0
+			r.IsReserve, r.Revocable = resInt != 0, revInt != 0
 			b.TermDeposits = append(b.TermDeposits, r)
 			return nil
 		}); err != nil {
@@ -859,11 +868,12 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO term_deposits (id,broker_id,currency,principal,rate_bp,open_date,
-			 maturity_date,payout,capitalized,tax_bp,closed_date,closed_amount,note,replenishable)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			 maturity_date,payout,capitalized,tax_bp,closed_date,closed_amount,note,replenishable,
+			 is_reserve,revocable)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			d.ID, broker, d.Currency, d.Principal, d.RateBP, d.OpenDate, d.MaturityDate,
 			d.Payout, boolInt(d.Capitalized), d.TaxBP, d.ClosedDate, d.ClosedAmount, d.Note,
-			boolInt(d.Replenishable)); err != nil {
+			boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable)); err != nil {
 			return fmt.Errorf("вклад %d: %w", d.ID, err)
 		}
 	}

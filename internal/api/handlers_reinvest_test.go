@@ -397,3 +397,165 @@ func TestReinvestCarriesNoDeadFields(t *testing.T) {
 		t.Fatalf("тест нічого не перевірив: облігацій %d, вкладів %d (%s)", bonds, deposits, body)
 	}
 }
+
+// TestDepositRankedByTransitNotKindTarget — вклад пояснюється чергою до
+// наступного паперу, а не власною ціллю.
+//
+// Доти вклад діставав ОБИДВА дефіцити — валютний і видовий — за одну й ту
+// саму роботу, і ціль за вкладами піднімала його тим вище, чим менше їх
+// було. Тепер той самий факт працює в протилежний бік: доки на папір не
+// зібрано, рядок каже, скільки бракує; щойно зібрано — опускається.
+//
+// Обидва стани на ОДНОМУ наборі даних, бо різниця між ними — рівно розмір
+// вкладу, і перевіряти їх окремими фікстурами означало б дозволити їм
+// розійтись.
+func TestDepositRankedByTransitNotKindTarget(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	ctx := context.Background()
+	// Капітал потрібен справжній: транзит — це залишок ЦІЛЬОВОЇ СУМИ після
+	// цілих паперів, і на порожньому портфелі він чесно нульовий.
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
+		Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Валютна ціль є, ціль за вкладами не задана — саме той стан, який
+	// тепер ставлять сім наборів із восьми.
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"usd_target_share_pct":"40","target_bonds_pct":"90",`+
+			`"deposit_rate_usd_pct":"3","deposit_min_usd":"100"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+
+	usdDeposit := func() (reason string, ok bool) {
+		_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
+		var got []struct {
+			Kind     string `json:"kind"`
+			Currency string `json:"currency"`
+			Reason   string `json:"reason"`
+		}
+		if err := json.Unmarshal([]byte(body), &got); err != nil {
+			t.Fatalf("розбір: %v (%s)", err, body)
+		}
+		for _, g := range got {
+			if g.Kind == "deposit" && g.Currency == money.USD {
+				return g.Reason, true
+			}
+		}
+		return "", false
+	}
+
+	// Черга триває: доларових вкладів немає, до паперу бракує всього.
+	reason, ok := usdDeposit()
+	if !ok {
+		t.Fatal("доларового вкладу немає в переліку — тест нічого не перевіряє")
+	}
+	if !strings.Contains(reason, "до наступного паперу") {
+		t.Errorf("причина %q не називає, скільки бракує до паперу", reason)
+	}
+	if strings.Contains(reason, "в.п. до цілі") {
+		t.Errorf("причина %q досі пояснює вклад ЦІЛЛЮ за вкладами, якої більше немає", reason)
+	}
+
+	// Тепер у доларових вкладах свідомо БІЛЬШЕ, ніж треба на наступний
+	// папір. Той самий рядок мусить перестати вдавати, що він про папір.
+	today := domain.NewDate(time.Now())
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "mono", Currency: money.USD, Principal: 500_000_00,
+		RateBP: 300, OpenDate: today, MaturityDate: today.AddMonths(12),
+		Payout: domain.PayoutEnd, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reason, ok = usdDeposit()
+	if !ok {
+		t.Fatal("доларовий вклад зник із переліку — понад транзит його треба ОПУСКАТИ, а не ховати")
+	}
+	if !strings.Contains(reason, "понад транзит") {
+		t.Errorf("причина %q не каже, що черга вже відстояна", reason)
+	}
+}
+
+// TestReserveDepositLeavesThePortfolio — вклад, позначений подушкою,
+// виходить із портфеля цілком і одразу з трьох місць.
+//
+// Три наслідки одного прапорця, і кожен окремо тихий. Він перестає бути
+// вкладом у складі портфеля (тобто виходить зі знаменника видів, де в
+// подушки своя абсолютна ціль), перестає бути кандидатом реінвесту
+// (аргумент у шапці handlers_reserve.go: помічник радив би папір за
+// аварійні гроші) і перестає рахуватись чергою до валютного паперу —
+// резервний долар у тій черзі не стоїть.
+func TestReserveDepositLeavesThePortfolio(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	ctx := context.Background()
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
+		Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"usd_target_share_pct":"40","target_bonds_pct":"90",`+
+			`"deposit_rate_usd_pct":"3","deposit_min_usd":"100"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+	today := domain.NewDate(time.Now())
+	// Поповнюваний — щоб «не пропонується» не пройшло випадково через те,
+	// що вклад і так не приймає поповнень.
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: money.USD, Principal: 500_000_00,
+		RateBP: 300, OpenDate: today, MaturityDate: today.AddMonths(6),
+		Payout: domain.PayoutEnd, TaxBP: 1950,
+		Replenishable: true, IsReserve: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	var doc struct {
+		DepositsUAH float64 `json:"deposits_uah"`
+		ReserveUAH  float64 `json:"reserve_uah"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("розбір: %v", err)
+	}
+	if doc.DepositsUAH != 0 {
+		t.Errorf("резервний вклад лишився у вкладах портфеля: %.2f ₴", doc.DepositsUAH)
+	}
+	if doc.ReserveUAH <= 0 {
+		t.Errorf("резервний вклад не дійшов до подушки: %.2f ₴", doc.ReserveUAH)
+	}
+
+	_, body = do(t, "GET", srv.URL+"/api/reinvest", "")
+	var got []struct {
+		Kind     string `json:"kind"`
+		Label    string `json:"label"`
+		Currency string `json:"currency"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("розбір: %v", err)
+	}
+	var newDeposit bool
+	for _, g := range got {
+		if g.Kind != "deposit" {
+			continue
+		}
+		if g.Label == "ПУМБ" {
+			t.Error("помічник пропонує поповнити ПОДУШКУ — це порада купувати за аварійні гроші")
+		}
+		if g.Currency == money.USD {
+			newDeposit = true
+			// Черга до паперу не відстояна: подушка в ній не рахується.
+			if !strings.Contains(g.Reason, "до наступного паперу") {
+				t.Errorf("причина %q — резервний вклад зарахувався транзитом", g.Reason)
+			}
+		}
+	}
+	if !newDeposit {
+		t.Fatal("рядка «Новий вклад» у USD немає — тест транзиту нічого не перевірив")
+	}
+}

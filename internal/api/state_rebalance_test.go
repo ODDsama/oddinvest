@@ -261,3 +261,137 @@ func TestSpreadMonthSilentWithoutPlan(t *testing.T) {
 		}
 	}
 }
+
+// TestTransitCarvesOutOfBondTarget — транзитна частка ПОХІДНА й міняється
+// разом із розміром портфеля.
+//
+// Це головна властивість усього механізму, і саме її неможливо було
+// записати константою в наборі: при тих самих цілях (USD 40%, ОВДП 90%)
+// вкладам треба то 40% капіталу, то майже нічого. Набір із «15» помилявся
+// на 25 в.п. з одного боку й на 14 в.п. з іншого.
+func TestTransitCarvesOutOfBondTarget(t *testing.T) {
+	// Курс і квиток кругленькі навмисно: 1 000 000 мінорних = $1000 при
+	// 42 ₴/$ це рівно 42 000 ₴, тож залишок від ділення можна перевірити
+	// в голові, а не звіряти з реалізацією.
+	build := func(capitalUAH float64) state.RebalanceRow {
+		out := buildRebalance(rebalanceInput{
+			Capital: state.Capital{AccountUAH: capitalUAH},
+			Settings: &state.SettingsDoc{
+				USDTargetSharePct: pct(40), TargetBondsPct: pct(90),
+			},
+			Rates:           fx.Rates{money.USD: 420000},
+			MinNominalByCur: map[string]int64{money.USD: 100_000},
+			DepositMinByCur: map[string]int64{money.USD: 10_000},
+		})
+		for _, r := range out.Rebalance {
+			if r.Dimension == "kind" && r.Key == "bonds" {
+				return r
+			}
+		}
+		t.Fatal("рядка ОВДП немає")
+		return state.RebalanceRow{}
+	}
+
+	// 100 000 ₴: ціль USD = 40 000 ₴, а квиток 42 000 ₴ — не доросли, тож
+	// транзитом є ВСЯ валютна нога.
+	if got := build(100_000).TransitPct; got != 40 {
+		t.Errorf("малий портфель: транзит %.2f в.п., очікували 40 — "+
+			"на $1000-й папір не зібрано, чекати мусить уся валютна ціль", got)
+	}
+	// 500 000 ₴: ціль USD = 200 000 ₴ = 4 квитки по 42 000 (168 000) плюс
+	// 32 000 ₴ решти. 32 000 / 500 000 = 6.4%.
+	if got := build(500_000).TransitPct; got != 6.4 {
+		t.Errorf("середній портфель: транзит %.2f в.п., очікували 6.4 — "+
+			"чекати мусить лише недобір на п'ятий папір", got)
+	}
+	// 3 000 000 ₴: ціль USD = 1 200 000 ₴ = 28 квитків (1 176 000) плюс
+	// 24 000 ₴. 24 000 / 3 000 000 = 0.8%.
+	if got := build(3_000_000).TransitPct; got != 0.8 {
+		t.Errorf("великий портфель: транзит %.2f в.п., очікували 0.8 — "+
+			"черга мусить майже зникнути", got)
+	}
+}
+
+// TestTransitClampedByBondTarget — вирізка не може бути більшою за те, з
+// чого ріжуть.
+//
+// Без обрізання ціль ОВДП 20% при транзиті 40% давала б від'ємну досяжну
+// частку паперів, і картка сказала б число, якого не буває.
+func TestTransitClampedByBondTarget(t *testing.T) {
+	out := buildRebalance(rebalanceInput{
+		Capital: state.Capital{AccountUAH: 100_000},
+		Settings: &state.SettingsDoc{
+			USDTargetSharePct: pct(40), TargetBondsPct: pct(20),
+		},
+		Rates:           fx.Rates{money.USD: 420000},
+		MinNominalByCur: map[string]int64{money.USD: 100_000},
+	})
+	for _, r := range out.Rebalance {
+		if r.Dimension == "kind" && r.Key == "bonds" && r.TransitPct != 20 {
+			t.Errorf("транзит %.2f в.п. при цілі ОВДП 20 — вирізка більша за ціль", r.TransitPct)
+		}
+	}
+}
+
+// TestNoTransitWithoutBondTarget — «Тільки банк» вирізки не має.
+//
+// Там вклад не транзит, а призначення: ціль за ним стоїть навмисно, і
+// вирізати з неї нічого — цілі ОВДП немає взагалі.
+func TestNoTransitWithoutBondTarget(t *testing.T) {
+	out := buildRebalance(rebalanceInput{
+		Capital: state.Capital{AccountUAH: 100_000, DepositsUAH: 50_000},
+		Settings: &state.SettingsDoc{
+			USDTargetSharePct: pct(40), TargetDepositsPct: pct(100),
+		},
+		Rates:           fx.Rates{money.USD: 420000},
+		MinNominalByCur: map[string]int64{money.USD: 100_000},
+	})
+	for _, r := range out.Rebalance {
+		if r.Dimension != "kind" {
+			continue
+		}
+		if r.TransitPct != 0 || r.TransitUAH != 0 {
+			t.Errorf("вид %q дістав транзит %.2f в.п. / %.2f ₴ без цілі ОВДП",
+				r.Key, r.TransitPct, r.TransitUAH)
+		}
+	}
+}
+
+// TestDepositsShowAsReferenceRowWithoutTarget — вклади без цілі не зникають
+// зі складу портфеля.
+//
+// Доти довідковий рядок був іменним винятком для НПФ, і щойно ціль за
+// вкладами перестала бути ціллю, вони випали б зі «Структури за видом»
+// цілком — разом із транзитом, який їх і виправдовує. Решта видів при
+// цьому просіла б під ціль без жодного пояснення, куди поділись гроші.
+func TestDepositsShowAsReferenceRowWithoutTarget(t *testing.T) {
+	out := buildRebalance(rebalanceInput{
+		Capital: state.Capital{AccountUAH: 60_000, DepositsUAH: 40_000},
+		Settings: &state.SettingsDoc{
+			USDTargetSharePct: pct(40), TargetBondsPct: pct(100),
+		},
+		Rates:           fx.Rates{money.USD: 420000},
+		MinNominalByCur: map[string]int64{money.USD: 100_000},
+	})
+	var dep *state.RebalanceRow
+	for i := range out.Rebalance {
+		if out.Rebalance[i].Dimension == "kind" && out.Rebalance[i].Key == "deposits" {
+			dep = &out.Rebalance[i]
+		}
+	}
+	if dep == nil {
+		t.Fatal("вклади зникли зі складу портфеля, хоч у них 40 000 ₴")
+	}
+	if dep.TargetPct != 0 {
+		t.Errorf("довідковий рядок дістав ціль %.2f — це була б друга ціль поруч із вирізкою", dep.TargetPct)
+	}
+	if dep.CurrentUAH != 40_000 {
+		t.Errorf("у рядку %.2f ₴, очікували 40 000", dep.CurrentUAH)
+	}
+	// Транзит на рядку вкладів — у ГРОШАХ: скільки з того, що лежить у
+	// банку, потреба виправдовує. 40% від 100 000 = 40 000 ₴ цілі USD, а
+	// квиток 42 000 ₴ — не доросли, тож транзитом є вся ціль.
+	if dep.TransitUAH != 40_000 {
+		t.Errorf("транзит на рядку вкладів %.2f ₴, очікували 40 000", dep.TransitUAH)
+	}
+}

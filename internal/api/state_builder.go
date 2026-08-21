@@ -143,6 +143,16 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// realYield), і третій прохід над тими самими вкладами був би третім
 	// місцем, де її треба тримати незміненою.
 	var depRealWeighted, depRealWeight float64
+	// Вклади, позначені ПОДУШКОЮ. Збираються тут, у тому самому єдиному
+	// циклі, бо другий прохід над вкладами означав би друге означення того,
+	// що таке «діючий вклад».
+	//
+	// reserveRungs — самі записи, а не суми: драбині доступу потрібні дати
+	// погашення й прапорець відкличності, тобто те, чого в гривні немає.
+	reserveDepositsUAH := 0.0
+	reserveDepositsByCur := map[string]float64{}
+	reserveDepositsUAHByCur := map[string]float64{}
+	var reserveRungs []domain.Deposit
 	for _, dep := range termDeposits {
 		if !dep.Active(today) {
 			continue
@@ -154,13 +164,36 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			continue
 		}
 		v := float64(u.Amount()) / 100
+		// РЕЗЕРВНИЙ ВКЛАД — не вклад у сенсі складу портфеля.
+		//
+		// Тіло йде в подушку, а не у вклади, і наслідки правильні всі три:
+		// він виходить зі знаменника видів (у резерву своя, абсолютна ціль
+		// у місяцях витрат, і конкурувати з часткою ОВДП їй нема чого), не
+		// рахується транзитом до наступного валютного паперу (резервний
+		// долар у тій черзі не стоїть) і не стає кандидатом реінвесту.
+		//
+		// Валютна ЕКСПОЗИЦІЯ від цього не зникає: подушка й далі в
+		// reserveUAHByCur, а $5 000 у банку — така сама валютна експозиція,
+		// як доларовий папір (див. state/capital.go).
+		//
+		// Концентрація по банку рахується НЕЗАЛЕЖНО від прапорця: питання
+		// «скільки я втрачу, якщо ця установа зникне» до подушки стоїть
+		// навіть гостріше, ніж до портфеля.
+		depositExposureUAH[dep.Bank] += v
+		if dep.IsReserve {
+			reserveDepositsUAH += v
+			reserveDepositsByCur[dep.Currency] += float64(dep.BalanceAt(today)) / 100
+			reserveDepositsUAHByCur[dep.Currency] += v
+			reserveRungs = append(reserveRungs, dep)
+			continue
+		}
 		depositsUAH += v
 		depositsUAHByCur[dep.Currency] += v
 		// Банк вкладу — такий самий контрагент, як брокер: гроші замкнені
 		// саме в ньому. Ліміт концентрації рахується по обох разом, бо
 		// питання «скільки я втрачу, якщо ця установа зникне» від того,
-		// брокер це чи банк, не залежить.
-		depositExposureUAH[dep.Bank] += v
+		// брокер це чи банк, не залежить. (Резервні вклади враховані вище,
+		// до розгалуження, — саме тому.)
 		depositBodyByCur[dep.Currency] += float64(dep.BalanceAt(today)) / 100
 		// Вклад без ставки у зважування не входить узагалі: нуль там був би
 		// не «нульова дохідність», а «невідома», і тягнув би середню вниз.
@@ -206,6 +239,34 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		if string(op.Date) > reserveLastMove {
 			reserveLastMove = string(op.Date)
 		}
+	}
+	// ГОТІВКА подушки — саме журнал, і саме ДО того, як до неї додадуться
+	// резервні вклади. Це те, що можна взяти сьогодні, не ламаючи нічого, і
+	// далі саме проти цього числа міряється ГОЛОВА подушки.
+	reserveLiquidUAH := reserveUAH
+	// Резервні вклади — друге джерело тієї самої подушки. Вони входять у її
+	// суму й у валютні частки, але НЕ в готівку вище: рунга, що гаситься
+	// через півроку, це подушка, якої сьогодні немає в руках.
+	//
+	// Місцем зберігання стає банк вкладу: питання «де це лежить» до нього
+	// ставиться так само, як до сейфа, і відповідь на нього є.
+	reserveUAH += reserveDepositsUAH
+	for c, v := range reserveDepositsUAHByCur {
+		reserveUAHByCur[c] += v
+	}
+	for c, v := range reserveDepositsByCur {
+		reserveByCur[c] += v
+	}
+	for _, dep := range reserveRungs {
+		place := dep.Bank
+		if place == "" {
+			place = "без місця"
+		}
+		u, cerr := fx.ToUAH(money.New(dep.BalanceAt(today), dep.Currency), rates)
+		if cerr != nil {
+			continue
+		}
+		reservePlaces[place] += float64(u.Amount()) / 100
 	}
 	// Місця й валюти, що вийшли в нуль (усе забрали), прибираємо: рядок
 	// «сейф — 0 ₴» описує не стан, а історію, і в картці лише заважає.
@@ -857,7 +918,12 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	rsk := buildRisk(riskInput{
 		Cashflow: cashflow, Holdings: hold, Pays: pays, TermDeposits: termDeposits,
 		Rates: rates, YieldPct: portfolioYield, YieldByCur: portfolioYieldByCur,
-		AccountMinor: accountUAHMinor, ReserveUAH: reserveUAH,
+		// ЛІКВІДНА частина подушки, а не вся: резервні вклади проходять цю
+		// фазу як звичайні строкові — у «замкнено» або «зламне» за
+		// прапорцем розривності. Передати сюди повну суму означало б
+		// порахувати їх двічі й назвати негайно доступним те, що лежить у
+		// банку до дати погашення.
+		AccountMinor: accountUAHMinor, ReserveUAH: reserveLiquidUAH,
 		NPFRows: npf.Rows,
 		Now:     now, Today: today,
 	})
@@ -917,6 +983,12 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		ReserveLastMove: reserveLastMove, TopN: 5,
 		ReserveFillMonthUAH: mth.ReserveMonthUAH, ReserveFillNowUAH: mth.ReserveFillUAH,
 		ReserveMovedUAH: mth.ReserveMovedUAH,
+		// Драбина доступу: готівка подушки окремо від резервних вкладів, і
+		// самі вклади, зведені до чотирьох чисел. Перевід у гривню, у місяці
+		// й у річний дохід робиться ТУТ — там, де є курси, «сьогодні» й
+		// domain.NetRate; у state лишається сама арифметика покриття.
+		ReserveLiquidUAH: reserveLiquidUAH,
+		ReserveDeposits:  reserveLadderInput(reserveRungs, today, rates),
 	}); err != nil {
 		return nil, err
 	}
