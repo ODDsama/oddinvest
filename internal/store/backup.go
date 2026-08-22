@@ -73,6 +73,12 @@ type Backup struct {
 	NPFAccounts []BackupNPFAccount `json:"npf_accounts,omitempty"`
 	NPFOps      []BackupNPFOp      `json:"npf_ops,omitempty"`
 	NPFNav      []BackupNPFNav     `json:"npf_nav,omitempty"`
+	// FundPrices (0034) — позначки ціни сертифіката, вклеєні руками. Так
+	// само невідновні: для накопичувального фонду виписка приносить ціну
+	// лише в мить купівлі, а купують такий папір раз. Без цього поля
+	// відновлення тихо повертало б ринкову вартість до собівартості, а
+	// дохідність — до нуля, і числа лишились би правдоподібними.
+	FundPrices []BackupFundPrice `json:"fund_prices,omitempty"`
 	// Довідники. omitempty з тієї ж причини, що й усе вище: бекапи, зроблені
 	// до їхньої появи, читаються без цих полів так само, як раніше — фонди й
 	// брокери відновляться з назв в операціях, рівно як доти.
@@ -164,6 +170,23 @@ type BackupNPFNav struct {
 	NPFID int64  `json:"npf_id"`
 	Date  string `json:"date"`
 	NavE6 int64  `json:"nav_e6"`
+}
+
+// BackupFundPrice — одна позначка ціни сертифіката.
+//
+// Ключ — НАЗВА фонду, а не fund_id, і це розбіжність із BackupNPFNav поруч.
+// Вона навмисна: у npf_ops назви немає взагалі, зв'язок лише за id, а тут
+// funds.name — UNIQUE і вже є ключем усього бекапу фондів (BackupFundOp
+// тримається так само). Саме через назви формат і пережив нормалізацію
+// 0010.
+//
+// ID не тримаємо з тієї ж причини: на позначку ніхто не посилається, а
+// UNIQUE(fund_id, date) і так робить рядок неповторним — тож формат не
+// залежить від id-шників бази-джерела.
+type BackupFundPrice struct {
+	Fund    string `json:"fund"`
+	Date    string `json:"date"`
+	PriceE4 int64  `json:"price_e4"`
 }
 
 // BackupBroker — рядок довідника брокерів.
@@ -548,6 +571,18 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT f.name,p.date,p.price_e4 FROM fund_prices p
+		JOIN funds f ON f.id = p.fund_id ORDER BY p.fund_id, p.date`,
+		func(scan func(...any) error) error {
+			var r BackupFundPrice
+			if err := scan(&r.Fund, &r.Date, &r.PriceE4); err != nil {
+				return err
+			}
+			b.FundPrices = append(b.FundPrices, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT id,date,amount,currency,place,note FROM reserve_ops ORDER BY id`,
 		func(scan func(...any) error) error {
 			var r BackupReserveOp
@@ -736,8 +771,13 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// відновлення», а повну ВІДМОВУ: DELETE FROM brokers упирався б у FK у
 	// будь-кого, хто має бодай один внесок. Рівно те, що вже сталося з
 	// вкладами, коли їх забули в цьому переліку.
+	//
+	// fund_prices (0034) — той самий випадок утретє, лише FK веде у funds:
+	// забути її тут означає не «дублікати після відновлення», а повну
+	// ВІДМОВУ, бо DELETE FROM funds упреться у FK у будь-кого, хто має
+	// бодай одну позначку ціни.
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
-		"deposit_topups", "term_deposits", "reserve_ops", "npf_ops", "npf_nav",
+		"fund_prices", "deposit_topups", "term_deposits", "reserve_ops", "npf_ops", "npf_nav",
 		"npf_accounts", "plan_flows", "plan_flow_revisions",
 		"plan_receipts", "plan_actions", "plan_buys", "settings", "payment_status", "snapshots",
 		"funds", "brokers"} {
@@ -958,6 +998,21 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			`INSERT INTO npf_nav (id,npf_id,date,nav_e6) VALUES (?,?,?,?)`,
 			n.ID, n.NPFID, n.Date, n.NavE6); err != nil {
 			return fmt.Errorf("точка ЧВОПА %d: %w", n.ID, err)
+		}
+	}
+	// Позначки ціни — після довідника фондів: fundRef уже заселений циклом
+	// по b.Funds вище, тож тут лишається пошук у мапі. Валюту йому не
+	// передаємо — фонд на цю мить уже існує, і другий аргумент лише
+	// перезаписав би її порожнім рядком.
+	for _, p := range b.FundPrices {
+		fid, err := fundRef(p.Fund, "")
+		if err != nil {
+			return fmt.Errorf("позначка ціни %q %s: %w", p.Fund, p.Date, err)
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO fund_prices (fund_id,date,price_e4) VALUES (?,?,?)`,
+			fid, p.Date, p.PriceE4); err != nil {
+			return fmt.Errorf("позначка ціни %q %s: %w", p.Fund, p.Date, err)
 		}
 	}
 	// План FK не має — порядок серед решти вставок вільний.

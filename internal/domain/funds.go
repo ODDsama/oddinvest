@@ -48,6 +48,24 @@ type FundOp struct {
 	PairID int64
 }
 
+// FundPrice — одна позначка ціни сертифіката: ціна на дату, не привʼязана
+// до моїх операцій.
+//
+// Fund — НАЗВА, як у FundOp: сховище тримається за fund_id, домен працює за
+// назвою, і межа між ними лишається там, де стояла. FundID поруч потрібен
+// не моделі, а екрану довідника, де рядок фільтрується саме за id, — а
+// тримати їх разом дешевше, ніж мапити назву назад.
+//
+// Price — ×10⁴ від гривні, той самий масштаб, що FundPosition.LastPrice:
+// 11.1120 ₴ = 111120.
+type FundPrice struct {
+	ID     int64
+	FundID int64
+	Fund   string
+	Date   Date
+	Price  int64
+}
+
 // FundPosition — стан одного фонду, зведений із журналу операцій.
 type FundPosition struct {
 	Fund     string

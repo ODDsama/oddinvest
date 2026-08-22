@@ -291,6 +291,20 @@ func (s *Store) DeleteFund(ctx context.Context, id int64) error {
 	if used > 0 {
 		return fmt.Errorf("у фонді %d операцій — спершу видали їх", used)
 	}
+	// Позначки ціни (0034) — так само перешкода, і відмова тут навмисна
+	// замість каскаду. У НПФ видаляти npf_nav разом із рахунком було б
+	// законно: рахунок і є єдиним сенсом тієї історії. Тут фонд можна
+	// прибрати з довідника й помилково — а разом із ним пішла б вклеєна
+	// руками історія цін, якої немає більше ніде. Без цієї перевірки
+	// видалення падало б сирою помилкою FK, тобто говорило б те саме, але
+	// незрозуміло.
+	var marked int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM fund_prices WHERE fund_id=?`, id).Scan(&marked); err != nil {
+		return err
+	}
+	if marked > 0 {
+		return fmt.Errorf("у фонді %d позначок ціни — спершу видали їх", marked)
+	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM funds WHERE id=?`, id)
 	if err != nil {
 		return err
