@@ -16,6 +16,8 @@ import { onSubmit, onDelete } from "../forms.js";
 import { text, formHTML } from "../fields.js";
 import { inlineEdit } from "../crud.js";
 import { infoBtn } from "../info.js";
+import { wireDisclosures } from "../disclosure.js";
+import { fundPricePanelHTML, wireFundPrices } from "../fund-prices.js";
 
 // Брокери й фонди — довідники з власними ендпойнтами. Раніше брокери
 // жили CSV-рядком у налаштуваннях, тож «перейменувати» означало лише
@@ -59,7 +61,11 @@ export function catalogRowHTML(item, fields = []) {
     <button class="sm warn self-start" data-catdel="${item.id}">✕</button></div>`;
 }
 
-export function catalogsHTML(ctx) {
+// marks / fundOps / fundRows — усе, що потрібно панелі позначок ціни під
+// рядком фонда. Параметрами, а не з кешу модуля: сторінка довідників —
+// єдиний споживач, і схована залежність від того, хто відрендерився першим,
+// тут нікому не потрібна (у npf.js вона є, але там у неї є причина).
+export function catalogsHTML(ctx, marks = [], fundOps = [], fundRows = []) {
   const brokers = (ctx.brokers || []).length
     ? ctx.brokers.map((b) => catalogRowHTML(b)).join("")
     : `<div class="sub">Ще немає брокерів. Додай mono, inzhur…</div>`;
@@ -92,8 +98,14 @@ export function catalogsHTML(ctx) {
       title: "Податок при ДОСТРОКОВОМУ виході — на різницю між купівлею й продажем "
         + "сертифікатів. Інша подія й інша ставка; його бачить картка «На скільки вистачить»" },
   ];
+  // Панель позначок ціни йде СУСІДОМ рядка, а не всередину нього: рядок
+  // довідника плоский і спільний для брокерів, фондів і НПФ, а inlineEdit
+  // збирає в PUT усі .cat-f усередині [data-cat] — форма позначки там
+  // додала б довіднику поля, яких він не знає.
   const funds = (ctx.fundCatalog || []).length
-    ? ctx.fundCatalog.map((f) => catalogRowHTML(f, fundFields(f))).join("")
+    ? ctx.fundCatalog.map((f) => catalogRowHTML(f, fundFields(f))
+      + fundPricePanelHTML(ctx, f, marks, fundOps,
+        fundRows.find((r) => r.fund === f.name))).join("")
     : `<div class="sub">Фондів ще немає — вони зʼявляться після першої купівлі сертифікатів.</div>`;
   // НПФ, на відміну від фондів, СТВОРЮЄТЬСЯ тут: у фонда рахунок заводить
   // перша операція з виписки, а пенсійний рахунок мусить існувати до
@@ -258,10 +270,24 @@ export function bindBackup(ctx, main) {
   });
 }
 
-/** Довідники: брокери, фонди й пенсійні рахунки. */
+/** Довідники: брокери, фонди й пенсійні рахунки.
+ *
+ *  Три м'які читання перед рендером: позначки ціни, журнал операцій фондів
+ *  (з нього беруться ціни купівель для кривої) і саме зведення (з нього —
+ *  обіцянка й виміряне зростання ціни для пари «обіцяли / фактично»).
+ *  Усі три можуть бути порожні на свіжій базі, і жодне не є приводом не
+ *  показати довідники: цю сторінку відкривають саме тоді, коли решта ще не
+ *  заведена. */
 export async function refs(ctx, main) {
-  main.innerHTML = catalogsHTML(ctx);
+  const [marks, fundOps, sum] = await Promise.all([
+    ctx.soft("fund-prices", []),
+    ctx.soft("funds", []),
+    ctx.soft("summary", {}),
+  ]);
+  main.innerHTML = catalogsHTML(ctx, marks, fundOps, (sum || {}).funds || []);
   bindBrokers(ctx, main);
+  wireFundPrices(ctx, main, marks);
+  wireDisclosures(main);
 }
 
 /** Резервна копія. Єдина сторінка застосунку, яка не читає нічого, крім

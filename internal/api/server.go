@@ -86,6 +86,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/funds", s.handleAddFundOp)
 	mux.HandleFunc("PUT /api/funds/{id}", s.handleUpdateFundOp)
 	mux.HandleFunc("DELETE /api/funds/{id}", s.handleDeleteFundOp)
+	// Позначки ціни сертифіката (0034). Окремий ресурс, а не поле довідника:
+	// це ІСТОРІЯ, а не остання відома величина, і колонка «остання ціна» в
+	// funds дала б їй розійтись із журналом (шапка 0009).
+	mux.HandleFunc("GET /api/fund-prices", s.handleFundPrices)
+	mux.HandleFunc("POST /api/fund-prices", s.handleAddFundPrices)
+	mux.HandleFunc("PUT /api/fund-prices/{id}", s.handleUpdateFundPrice)
+	mux.HandleFunc("DELETE /api/fund-prices/{id}", s.handleDeleteFundPrice)
 	// НПФ: довідник рахунків, журнал внесків і історія ЧВОПА — три ресурси,
 	// бо три різні речі (властивості рахунку, факти з виписки, опублікована
 	// фондом таблиця). /nav окремо від PUT рахунку: переписати число з

@@ -101,7 +101,14 @@ function fundDetailHTML(ctx, f) {
   const bits = [`Дивіденди ${fmtUAH(f.dividends_net)}`];
   if (f.dividends_tax > 0) bits.push(`податок ${fmtUAH(f.dividends_tax)}`);
   if (f.realized) bits.push(`продажі ${fmtUAH(f.realized)}`);
-  if (f.last_price_date) bits.push(`ціна від ${dayMonth(f.last_price_date)}`);
+  // Джерело ціни називається вголос: без нього дата мовчки міняє сенс —
+  // то день виписки, то день, коли ціну вписали руками. Для
+  // накопичувального фонду це найважливіший рядок картки: «ціна з виписки»
+  // на ньому означає, що дохід просто НЕ ВИМІРЯНИЙ, а не що його немає.
+  if (f.last_price_date) {
+    bits.push(`${f.price_marked ? "позначка ціни" : "ціна з виписки"} від ${dayMonth(f.last_price_date)}`);
+  }
+  if (f.price_return_pct) bits.push(`ціна росте на ${pct(f.price_return_pct)}`);
   if (f.next_payout) bits.push(`наступна виплата ${dayMonth(f.next_payout)}`);
   // Обіцянку показуємо лише тоді, коли вона й пішла в число: інакше поруч
   // із виміряною дохідністю вона читалась би як друга думка про те саме.

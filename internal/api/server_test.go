@@ -4481,3 +4481,110 @@ func TestSummaryRealizedWithoutXIRR(t *testing.T) {
 		t.Errorf("заробок = %.2f (%.2f%%), очікували додатний", r.Gain, r.GainPct)
 	}
 }
+
+// Повний цикл позначок ціни через HTTP — і головне: зведення реагує на
+// кожен крок. Позначка існує рівно заради того, щоб рухати ринкову
+// вартість і дохідність, тож тест питає не «чи записалось», а «чи
+// змінилось те, заради чого записувалось».
+func TestFundPricesCRUD(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	buyDate := domain.NewDate(time.Now()).AddDays(-200)
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: buyDate, Fund: "Inzhur MilTech", Kind: domain.FundBuy,
+		Qty: 5, Amount: 500000, Currency: "UAH", Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	funds, err := st.ListFunds(ctx)
+	if err != nil || len(funds) != 1 {
+		t.Fatalf("довідник: %v %+v", err, funds)
+	}
+	fundID := funds[0].ID
+
+	type fundRow struct {
+		LastPrice   float64 `json:"last_price"`
+		PriceMarked bool    `json:"price_marked"`
+		MarketValue float64 `json:"market_value"`
+		TotalPct    float64 `json:"total_pct"`
+		YieldBasis  string  `json:"yield_basis"`
+	}
+	summary := func() fundRow {
+		t.Helper()
+		var sum struct {
+			Funds []fundRow `json:"funds"`
+		}
+		_, body := do(t, "GET", srv.URL+"/api/summary", "")
+		if err := json.Unmarshal([]byte(body), &sum); err != nil {
+			t.Fatalf("summary: %v: %s", err, body)
+		}
+		if len(sum.Funds) != 1 {
+			t.Fatalf("очікували один фонд: %s", body)
+		}
+		return sum.Funds[0]
+	}
+
+	// Доти: ціна заморожена на купівлі, міряти нема по чому.
+	if before := summary(); before.MarketValue != 5000 || before.YieldBasis != "" {
+		t.Fatalf("до позначки вартість мала дорівнювати собівартості: %+v", before)
+	}
+
+	// Пачка: опублікована історія плюс сьогоднішня ціна.
+	today := domain.NewDate(time.Now())
+	body := `{"fund_id":` + strconv.FormatInt(fundID, 10) + `,"points":[
+		{"date":"` + string(buyDate.AddDays(-200)) + `","price":"850"},
+		{"date":"` + string(today) + `","price":"1120"}]}`
+	if resp, b := do(t, "POST", srv.URL+"/api/fund-prices", body); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("вклеювання: %d %s", resp.StatusCode, b)
+	}
+
+	after := summary()
+	if after.LastPrice != 1120 || !after.PriceMarked {
+		t.Errorf("ціна мала прийти з позначки: %+v", after)
+	}
+	if after.MarketValue != 5600 {
+		t.Errorf("вартість мала стати 5600, маємо %v", after.MarketValue)
+	}
+	if after.TotalPct <= 0 || after.YieldBasis != "дивіденди + зміна ціни" {
+		t.Errorf("вимір мав зʼявитись і витіснити обіцянку: %+v", after)
+	}
+
+	var list []struct {
+		ID     int64   `json:"id"`
+		FundID int64   `json:"fund_id"`
+		Date   string  `json:"date"`
+		Price  float64 `json:"price"`
+	}
+	_, lb := do(t, "GET", srv.URL+"/api/fund-prices", "")
+	if err := json.Unmarshal([]byte(lb), &list); err != nil {
+		t.Fatalf("список: %v: %s", err, lb)
+	}
+	if len(list) != 2 || list[0].FundID != fundID {
+		t.Fatalf("очікували дві точки свого фонду: %s", lb)
+	}
+
+	// Перенесення на зайняту дату — зіткнення з наявним записом, тобто 409.
+	if resp, b := do(t, "PUT", srv.URL+"/api/fund-prices/"+strconv.FormatInt(list[1].ID, 10),
+		`{"date":"`+list[0].Date+`","price":"900"}`); resp.StatusCode != http.StatusConflict {
+		t.Fatalf("очікували 409 на зайняту дату, маємо %d %s", resp.StatusCode, b)
+	}
+	// Виправлення самої ціни проходить і одразу видно у зведенні.
+	if resp, b := do(t, "PUT", srv.URL+"/api/fund-prices/"+strconv.FormatInt(list[1].ID, 10),
+		`{"date":"`+list[1].Date+`","price":"1200"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("правка: %d %s", resp.StatusCode, b)
+	}
+	if fixed := summary(); fixed.MarketValue != 6000 {
+		t.Errorf("після правки вартість мала стати 6000, маємо %v", fixed.MarketValue)
+	}
+
+	// Видалення повертає все на місце: ціна знову з виписки, міряти нема
+	// по чому. Це перевірка правила витіснення В ОБИДВА БОКИ.
+	if resp, b := do(t, "DELETE", srv.URL+"/api/fund-prices/"+strconv.FormatInt(list[1].ID, 10),
+		""); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("видалення: %d %s", resp.StatusCode, b)
+	}
+	back := summary()
+	if back.PriceMarked || back.MarketValue != 5000 {
+		t.Errorf("після видалення ціна мала повернутись до виписки: %+v", back)
+	}
+}

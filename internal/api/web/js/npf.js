@@ -27,6 +27,7 @@ import { refSelect, refValue, wireRefs } from "./refs.js";
 import { wireCrud } from "./crud.js";
 import { opsGrid, actionsCol } from "./grid.js";
 import { svgLine } from "./charts.js";
+import { parseDatedNumbers } from "./paste.js";
 
 // Довідник, журнал і точки ЧВОПА на час одного рендеру. Заповнює той, хто
 // першим прийшов; читають і «Портфель», і «Гроші».
@@ -298,31 +299,14 @@ function navBulkListHTML(npfID, currency) {
   });
 }
 
-/** parseNavLines — рядки «дата число» у точки.
- *
- *  Свідомо ліберальний до розділювача (пробіл, кома, табуляція) і до коми
- *  як десяткової: історію копіюють із сайту чи з таблиці, і вимагати
- *  єдиного формату означало б змусити людину чистити текст руками. А от
- *  дату не вгадуємо: РРРР-ММ-ДД або помилка, бо 01.02 — це або січень, або
- *  лютий, і вгадування тут тихо зіпсувало б криву. */
-export function parseNavLines(text) {
-  const out = [];
-  const bad = [];
-  (text || "").split(/\r?\n/).forEach((line, i) => {
-    const s = line.trim();
-    if (!s) return;
-    const m = s.split(/[\s,;\t]+/).filter(Boolean);
-    if (m.length < 2) { bad.push(i + 1); return; }
-    const date = m[0];
-    const nav = m[m.length - 1].replace(",", ".");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d+(\.\d+)?$/.test(nav)) {
-      bad.push(i + 1);
-      return;
-    }
-    out.push({ date, nav });
-  });
-  return { points: out, bad };
-}
+// parseNavLines ЗВІДСИ ПОЇХАЛА, і цей абзац стоїть замість неї, щоб її не
+// написали заново.
+//
+// Розбір «дата число» знадобився вдруге — для історії цін сертифікатів
+// (fund-prices.js), — тож він переїхав у paste.js як parseDatedNumbers.
+// Змінилось лише імʼя ключа: точка звідти приходить як {date, value}, і
+// кожен викликач сам називає своє число (тут — nav, там — price). Саме
+// через це виклик нижче мапить пари, а не передає їх далі як є.
 
 // ШЛЯХИ ТУТ БЕЗ ПРЕФІКСА, як і скрізь у застосунку.
 //
@@ -378,7 +362,7 @@ export function wireNPF(ctx, main) {
   main.querySelectorAll("[data-npfnavbulk-form]").forEach((form) => {
     const id = Number(form.dataset.npfnavbulkForm);
     onSubmit(ctx, form, (f) => {
-      const { points, bad } = parseNavLines(new FormData(f).get("points"));
+      const { points, bad } = parseDatedNumbers(new FormData(f).get("points"));
       // Жодного рядка не приймаємо, якщо є зіпсовані: половина вклеєної
       // історії гірша за жодну — на ній порахувалась би дохідність за
       // відрізок, якого ніхто не вибирав.
@@ -391,7 +375,8 @@ export function wireNPF(ctx, main) {
         return null;
       }
       return {
-        path: "npf-nav", body: { npf_id: id, points },
+        path: "npf-nav",
+        body: { npf_id: id, points: points.map((p) => ({ date: p.date, nav: p.value })) },
         msg: `Вклеєно точок: ${points.length}`,
       };
     });
