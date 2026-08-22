@@ -842,7 +842,7 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 	var portfolioCF []domain.CashflowItem
 	var moves, reserveMoves = []store.Deposit(nil), []store.ReserveOp(nil)
 	if src, serr := s.loadSources(ctx, today); serr == nil {
-		hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps, src.payoutDays(), today)
+		hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps, src.fundPrices, src.payoutDays(), today)
 		if sch, serr := buildSchedule(src, hold, today, today, profileFundMonths); serr == nil {
 			portfolioCF = sch.Cashflow
 		}

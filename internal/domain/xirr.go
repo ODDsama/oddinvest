@@ -159,7 +159,7 @@ func PortfolioFlows(bonds map[string]Bond, payments []Payment, lots []Lot,
 //
 // Дивіденд береться ПІСЛЯ податку: до тебе дійшло саме стільки. Податок із
 // продажу так само зменшує виручку.
-func FundFlows(ops []FundOp, currency string, asOf Date) []Flow {
+func FundFlows(ops []FundOp, marks []FundPrice, currency string, asOf Date) []Flow {
 	var flows []Flow
 	for _, op := range ops {
 		if op.Currency != currency || op.Date.After(asOf) {
@@ -179,9 +179,11 @@ func FundFlows(ops []FundOp, currency string, asOf Date) []Flow {
 	}
 	// Термінальна вартість — залишок за останньою ціною, тією самою, що
 	// показана в позиції: інше джерело дало б XIRR, який не сходиться з
-	// видимими числами.
+	// видимими числами. Саме тому позначки ціни (0034) приходять сюди
+	// параметром, а не накладаються десь на екрані: варіант «підняти ціну
+	// лише в картці» дав би вартість, яка виросла, і дохідність, яка ні.
 	var terminal int64
-	for _, p := range FundPositions(ops) {
+	for _, p := range FundPositions(ops, marks) {
 		if p.Currency == currency {
 			terminal += p.MarketValue()
 		}
@@ -197,7 +199,7 @@ func FundFlows(ops []FundOp, currency string, asOf Date) []Flow {
 // однієї валюти разом, бо відповідає на питання «скільки заробив
 // портфель»; тут питання інше — «скільки заробив цей фонд», і змішувати
 // його з сусідніми не можна.
-func FundFlowsOne(ops []FundOp, fund string, asOf Date) []Flow {
+func FundFlowsOne(ops []FundOp, marks []FundPrice, fund string, asOf Date) []Flow {
 	var flows []Flow
 	for _, op := range ops {
 		if op.Fund != fund || op.Date.After(asOf) {
@@ -216,7 +218,7 @@ func FundFlowsOne(ops []FundOp, fund string, asOf Date) []Flow {
 	// Термінальна вартість — залишок за останньою ціною, тією самою, що
 	// показана в позиції: інше джерело дало б дохідність, яка не
 	// сходиться з видимими числами.
-	if p := FundPositions(ops)[fund]; p != nil && p.MarketValue() > 0 {
+	if p := FundPositions(ops, marks)[fund]; p != nil && p.MarketValue() > 0 {
 		flows = append(flows, Flow{Date: asOf, Amount: p.MarketValue()})
 	}
 	sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })

@@ -38,7 +38,7 @@ func TestFundsPromiseYieldPairsWithItself(t *testing.T) {
 		"Inzhur": {Name: "Inzhur", Currency: money.UAH,
 			ExpectedYieldBP: 950, ExpectedYieldCur: money.USD},
 	}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
 
 	out := buildFunds(src, hold, fx.Rates{}, 7 /* знецінення, % */, today)
 	if len(out.Rows) != 1 || out.Rows[0].YieldBasis != "обіцяно фондом" {
@@ -79,7 +79,7 @@ func TestFundsSimplePromiseBecomesCompoundEverywhere(t *testing.T) {
 			ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
 			YieldSimpleYears: 3, Kind: store.FundAccumulating},
 	}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
 	out := buildFunds(src, hold, fx.Rates{}, 0 /* без знецінення */, today)
 
 	if len(out.Rows) != 1 {
@@ -122,7 +122,7 @@ func TestFundsAccumulatingLeavesLockedCapital(t *testing.T) {
 	ref := store.Fund{Name: "MilTech", Currency: money.UAH,
 		ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
 		CloseDate: "2029-07-26", IncomeTaxBP: 1400, ExitTaxBP: 2300}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
 
 	ref.Kind = store.FundAccumulating
 	acc := buildFunds(&sources{fundOps: ops,
@@ -200,7 +200,7 @@ func TestForeignPromiseConvertsForGrowthNotForPayouts(t *testing.T) {
 	}
 	ref := store.Fund{Name: "REIT", Currency: money.UAH,
 		ExpectedYieldBP: 950, ExpectedYieldCur: money.USD}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
 	const deval = 7.0
 
 	ref.Kind = store.FundDistributing
@@ -270,7 +270,7 @@ func TestFundsMixedBasesSayMixed(t *testing.T) {
 	src := &sources{fundOps: ops, fundRefs: map[string]store.Fund{
 		"Новий": {Name: "Новий", Currency: money.UAH, ExpectedYieldBP: 900},
 	}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
 
 	out := buildFunds(src, hold, fx.Rates{}, 7, today)
 	if out.Basis != "різні основи" {
@@ -305,7 +305,7 @@ func TestFundsYieldIsWeightedByMarketValue(t *testing.T) {
 			Amount: 4_000, Currency: money.UAH},
 	}
 	src := &sources{fundOps: ops, fundRefs: map[string]store.Fund{}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
 
 	out := buildFunds(src, hold, fx.Rates{}, 0, today)
 	if len(out.Rows) != 2 {
@@ -349,5 +349,116 @@ func TestFundsYieldIsWeightedByMarketValue(t *testing.T) {
 	if math.Abs(out.YieldPct-nom["Великий"]) >= math.Abs(mean-nom["Великий"]) {
 		t.Errorf("зведена дохідність %v не ближча до великого фонду (%v), ніж просте середнє (%v) — ваги не працюють",
 			out.YieldPct, nom["Великий"], mean)
+	}
+}
+
+// ГОЛОВНИЙ ТЕСТ ЦІЄЇ ЗМІНИ: накопичувальний фонд, куплений один раз і
+// пів року тому, показує ОБІЦЯНКУ, а не нуль.
+//
+// Доти тут стояла гілка «дивіденди + зміна ціни» з total_pct = 0 і
+// відʼємною реальною: FundTotalReturn повертав нуль, бо термінальна
+// вартість дорівнювала собівартості за побудовою, і цей нуль витісняв
+// обіцянку 25%. Тобто застосунок називав збитковим папір, ціни якого він
+// просто не знає.
+func TestFundPromiseSurvivesWithoutPriceEvidence(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	ops := []domain.FundOp{
+		{Date: "2026-01-10", Fund: "MilTech", Kind: domain.FundBuy,
+			Qty: 5, Amount: 500_000, Currency: money.UAH},
+	}
+	src := &sources{fundOps: ops, fundRefs: map[string]store.Fund{
+		"MilTech": {Name: "MilTech", Currency: money.UAH,
+			ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
+			YieldSimpleYears: 3, Kind: store.FundAccumulating},
+	}}
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	out := buildFunds(src, hold, fx.Rates{}, 0 /* без знецінення */, today)
+
+	row := out.Rows[0]
+	if row.YieldBasis != "обіцяно фондом" {
+		t.Fatalf("міряти нема по чому — основа мала лишитись обіцянкою, маємо %q", row.YieldBasis)
+	}
+	if row.TotalPct != 0 {
+		t.Errorf("повної дохідності тут бути не може, маємо %v", row.TotalPct)
+	}
+	if row.RealPct <= 0 {
+		t.Errorf("реальна мала прийти з обіцянки й бути додатною, маємо %v", row.RealPct)
+	}
+	if row.PriceMarked {
+		t.Error("позначок не було — price_marked мав лишитись хибним")
+	}
+}
+
+// Та сама позиція з позначкою ціни: вимір зʼявився й ВИТІСНИВ обіцянку, а
+// ринкова вартість піднялась над собівартістю.
+func TestFundMeasuredDisplacesPromiseAfterMark(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	ops := []domain.FundOp{
+		{Date: "2026-01-10", Fund: "MilTech", Kind: domain.FundBuy,
+			Qty: 5, Amount: 500_000, Currency: money.UAH},
+	}
+	// 1000.00 ₴ за сертифікат на купівлі → 1120.00 ₴ сьогодні.
+	marks := []domain.FundPrice{{Fund: "MilTech", Date: today, Price: 11_200_000}}
+	src := &sources{fundOps: ops, fundPrices: marks,
+		fundRefs: map[string]store.Fund{
+			"MilTech": {Name: "MilTech", Currency: money.UAH,
+				ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
+				YieldSimpleYears: 3, Kind: store.FundAccumulating},
+		}}
+	hold := domain.NewHoldings(nil, nil, nil, ops, marks, nil, today)
+	out := buildFunds(src, hold, fx.Rates{}, 0 /* без знецінення */, today)
+
+	row := out.Rows[0]
+	if row.YieldBasis != "дивіденди + зміна ціни" {
+		t.Fatalf("з позначкою вимір мав витіснити обіцянку, маємо %q", row.YieldBasis)
+	}
+	if row.TotalPct <= 0 {
+		t.Errorf("повна дохідність мала стати додатною, маємо %v", row.TotalPct)
+	}
+	if !row.PriceMarked {
+		t.Error("price_marked мав сказати, що ціна прийшла з позначки")
+	}
+	if row.MarketValue <= row.CostBasis {
+		t.Errorf("вартість %v мала піднятись над собівартістю %v",
+			row.MarketValue, row.CostBasis)
+	}
+	// Обіцянка при цьому НЕ зникає з рядка: без неї звірка припущення була
+	// б неможлива саме тоді, коли вона нарешті стала можливою.
+	if row.ExpectedPct <= 0 {
+		t.Error("обіцянка мала лишитись у рядку поруч із виміряним")
+	}
+}
+
+// Зростання самої ціни — окреме число, і воно НЕ чіпає основу рядка.
+// Витіснення в yield_basis робить лише повна дохідність; четверте значення
+// зробило б основу залежною від того, який вимір випадково дозрів першим.
+func TestFundPriceReturnStandsApartFromBasis(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	ops := []domain.FundOp{
+		{Date: "2026-07-01", Fund: "MilTech", Kind: domain.FundBuy,
+			Qty: 5, Amount: 500_000, Currency: money.UAH},
+	}
+	// Опублікована фондом історія до першої купівлі — рік розриву.
+	marks := []domain.FundPrice{
+		{Fund: "MilTech", Date: "2025-07-01", Price: 8_000_000},
+		{Fund: "MilTech", Date: "2026-07-01", Price: 10_000_000},
+	}
+	src := &sources{fundOps: ops, fundPrices: marks,
+		fundRefs: map[string]store.Fund{
+			"MilTech": {Name: "MilTech", Currency: money.UAH,
+				ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
+				YieldSimpleYears: 3, Kind: store.FundAccumulating},
+		}}
+	hold := domain.NewHoldings(nil, nil, nil, ops, marks, nil, today)
+	out := buildFunds(src, hold, fx.Rates{}, 0 /* без знецінення */, today)
+
+	row := out.Rows[0]
+	if math.Abs(row.PriceReturnPct-25) > 0.5 {
+		t.Errorf("+25%% за рік — очікували близько 25, маємо %v", row.PriceReturnPct)
+	}
+	// Гроші працюють два тижні: повної дохідності тут бути не може, і
+	// основа лишається обіцянкою — попри те, що зростання ціни вже виміряне.
+	if row.YieldBasis != "обіцяно фондом" {
+		t.Errorf("зростання ціни основу не міняє, маємо %q", row.YieldBasis)
 	}
 }

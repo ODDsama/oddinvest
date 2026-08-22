@@ -1247,11 +1247,27 @@ type FundPositionRow struct {
 	CostBasis     float64 `json:"cost_basis"`
 	LastPrice     float64 `json:"last_price"`
 	LastPriceDate string  `json:"last_price_date,omitempty"`
-	MarketValue   float64 `json:"market_value"`
-	DividendsNet  float64 `json:"dividends_net"`
-	DividendsTax  float64 `json:"dividends_tax"`
-	Realized      float64 `json:"realized,omitempty"`
-	YieldNetPct   float64 `json:"yield_net_pct,omitempty"`
+	// PriceMarked — LastPrice прийшла з РУЧНОЇ ПОЗНАЧКИ ціни (0034), а не з
+	// виписки. Без цього прапорця LastPriceDate мовчки міняє сенс: то дата
+	// операції, то дата, яку людина вписала сама. У документі, де
+	// YieldBasis існує саме щоб число називало своє джерело, така пара була
+	// б єдиним місцем, де воно його не називає.
+	PriceMarked bool `json:"price_marked,omitempty"`
+	// PriceReturnPct — зростання ЦІНИ сертифіката, % річних складних, за
+	// відомими точками (позначки разом із цінами операцій).
+	//
+	// Це НЕ TotalPct і не його замінник. TotalPct — «скільки заробили мої
+	// гроші» з урахуванням дат купівель; це — «як спрацював сам фонд»,
+	// time-weighted. При нерівномірних купівлях вони розходяться, і саме
+	// тому показуються обидва, а не зводяться в одне. У YieldBasis це число
+	// не входить навмисно: інакше основа рядка залежала б від того, який із
+	// двох вимірів випадково дозрів першим.
+	PriceReturnPct float64 `json:"price_return_pct,omitempty"`
+	MarketValue    float64 `json:"market_value"`
+	DividendsNet   float64 `json:"dividends_net"`
+	DividendsTax   float64 `json:"dividends_tax"`
+	Realized       float64 `json:"realized,omitempty"`
+	YieldNetPct    float64 `json:"yield_net_pct,omitempty"`
 	// TotalPct — ПОВНА дохідність позиції, % річних: дивіденди після
 	// податку разом зі зміною ціни (XIRR по операціях фонду з
 	// термінальною ринковою вартістю). YieldNetPct вище — лише дохідна

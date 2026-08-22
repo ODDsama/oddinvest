@@ -95,7 +95,7 @@ func TestPayoutDaySetsMonthlyRhythm(t *testing.T) {
 		{Date: "2026-06-04", Fund: "F", Kind: FundBuy, Qty: 1000, Amount: 1000000, Currency: "UAH"},
 		{Date: "2026-07-10", Fund: "F", Kind: FundDividend, Amount: 1899, Tax: 266, Currency: "UAH"},
 	}
-	p := FundPositions(ops)["F"]
+	p := FundPositions(ops, nil)["F"]
 	guessed, ok := DividendYieldNet(ops, p, "2026-07-28")
 	if !ok {
 		t.Fatal("без дня виплати дохідність мала порахуватись")

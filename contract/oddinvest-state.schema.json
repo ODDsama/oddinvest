@@ -649,6 +649,8 @@
           "cost_basis": { "type": "number" },
           "last_price": { "type": "number" },
           "last_price_date": { "type": "string" },
+          "price_marked": { "type": "boolean", "description": "last_price прийшла з ручної позначки ціни, а не з виписки — без цього прапорця last_price_date мовчки міняє сенс (адитивне поле)" },
+          "price_return_pct": { "type": "number", "description": "Зростання ЦІНИ сертифіката, % річних складних, time-weighted. Інше число, ніж total_pct: те про мої гроші й дати купівель, це про сам фонд (адитивне поле)" },
           "market_value": { "type": "number" },
           "dividends_net": { "type": "number" },
           "dividends_tax": { "type": "number" },

@@ -67,8 +67,12 @@ type FundHolding struct {
 //
 // payoutDays — день виплати з довідника фондів, назва → число місяця.
 // Мапа, а не []store.Fund: domain не знає про сховище й не має знати.
+//
+// fundMarks — позначки ціни сертифікатів (0034). Окремим параметром, а не
+// полем поруч із payoutDays: вони з різних таблиць і з різним часом життя,
+// а тип на два поля запросив би третє «про запас».
 func NewHoldings(lots []Lot, sales []Sale, bonds map[string]Bond,
-	fundOps []FundOp, payoutDays map[string]int64, asOf Date) Holdings {
+	fundOps []FundOp, fundMarks []FundPrice, payoutDays map[string]int64, asOf Date) Holdings {
 	// Продажі — ОДИН прохід замість одного на кожен лот. RemainingQtyNow
 	// сам по собі O(len(sales)), і чотири виклики на лот перетворювали
 	// звичайну вибірку на квадрат.
@@ -93,7 +97,7 @@ func NewHoldings(lots []Lot, sales []Sale, bonds map[string]Bond,
 		})
 	}
 
-	pos := FundPositions(fundOps)
+	pos := FundPositions(fundOps, fundMarks)
 	names := make([]string, 0, len(pos))
 	for name := range pos {
 		names = append(names, name)

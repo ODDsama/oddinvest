@@ -27,7 +27,7 @@ func reitOps() []FundOp {
 }
 
 func TestFundPositionsFromRealHistory(t *testing.T) {
-	p := FundPositions(reitOps())["Inzhur REIT"]
+	p := FundPositions(reitOps(), nil)["Inzhur REIT"]
 	if p == nil {
 		t.Fatal("позиція не зібралась")
 	}
@@ -60,7 +60,7 @@ func TestFundSellReducesCostProportionally(t *testing.T) {
 		{Date: "2026-01-01", Fund: "F", Kind: FundBuy, Qty: 100, Amount: 100000, Currency: "UAH"},
 		{Date: "2026-02-01", Fund: "F", Kind: FundSell, Qty: 40, Amount: 48000, Currency: "UAH"},
 	}
-	p := FundPositions(ops)["F"]
+	p := FundPositions(ops, nil)["F"]
 	if p.Qty != 60 {
 		t.Errorf("залишок 60, маємо %d", p.Qty)
 	}
@@ -82,7 +82,7 @@ func TestDividendYieldIsAfterTax(t *testing.T) {
 		{Date: "2026-04-01", Fund: "F", Kind: FundDividend, Amount: 50000, Tax: 7000, Currency: "UAH"},
 		{Date: "2026-07-01", Fund: "F", Kind: FundDividend, Amount: 50000, Tax: 7000, Currency: "UAH"},
 	}
-	p := FundPositions(ops)["F"]
+	p := FundPositions(ops, nil)["F"]
 	y, ok := DividendYieldNet(ops, p, "2026-07-22")
 	if !ok {
 		t.Fatal("дохідність не порахувалась")
@@ -97,7 +97,7 @@ func TestDividendYieldIsAfterTax(t *testing.T) {
 	// старі дивіденди поза вікном 365 днів не чіпають ні суму, ні ритм
 	old := append([]FundOp{{Date: "2024-01-01", Fund: "F", Kind: FundDividend,
 		Amount: 900000, Tax: 0, Currency: "UAH"}}, ops...)
-	if y2, _ := DividendYieldNet(old, FundPositions(old)["F"], "2026-07-22"); y2 != y {
+	if y2, _ := DividendYieldNet(old, FundPositions(old, nil)["F"], "2026-07-22"); y2 != y {
 		t.Errorf("дивіденд дворічної давнини потрапив у річну дохідність: %.2f vs %.2f", y2, y)
 	}
 }
@@ -116,7 +116,7 @@ func TestDividendYieldDoesNotPunishShortHistory(t *testing.T) {
 		{Date: "2026-06-04", Fund: "F", Kind: FundBuy, Qty: 305, Amount: 337787, Currency: "UAH"},
 		{Date: "2026-07-10", Fund: "F", Kind: FundDividend, Amount: 1899, Tax: 266, Currency: "UAH"},
 	}
-	p := FundPositions(ops)["F"]
+	p := FundPositions(ops, nil)["F"]
 	y, ok := DividendYieldNet(ops, p, "2026-07-22")
 	if !ok {
 		t.Fatal("дохідність не порахувалась")
@@ -137,7 +137,7 @@ func TestDividendYieldDoesNotPunishShortHistory(t *testing.T) {
 		full = append(full, FundOp{Date: Date(fmt.Sprintf("2026-%02d-10", m)), Fund: "F",
 			Kind: FundDividend, Amount: 1899, Tax: 266, Currency: "UAH"})
 	}
-	yFull, _ := DividendYieldNet(full, FundPositions(full)["F"], "2026-07-22")
+	yFull, _ := DividendYieldNet(full, FundPositions(full, nil)["F"], "2026-07-22")
 	if math.Abs(yFull-y) > 0.6 {
 		t.Errorf("рік історії дав %.2f%%, а один місяць %.2f%% — показник залежить від довжини історії", yFull, y)
 	}
@@ -156,7 +156,7 @@ func TestSellingMoreThanBoughtIsReported(t *testing.T) {
 		{Date: "2026-02-01", Fund: "F", Kind: FundSell, Qty: 1782, Amount: 1798680, Currency: "UAH"},
 		{Date: "2026-03-01", Fund: "F", Kind: FundBuy, Qty: 305, Amount: 337787, Currency: "UAH"},
 	}
-	p := FundPositions(ops)["F"]
+	p := FundPositions(ops, nil)["F"]
 	if p.Qty != 305 {
 		t.Errorf("залишок %d, хочемо 305", p.Qty)
 	}
@@ -172,7 +172,7 @@ func TestSellingMoreThanBoughtIsReported(t *testing.T) {
 		{Date: "2026-01-01", Fund: "F", Kind: FundBuy, Qty: 100, Amount: 100000, Currency: "UAH"},
 		{Date: "2026-02-01", Fund: "F", Kind: FundSell, Qty: 40, Amount: 44000, Currency: "UAH"},
 	}
-	if q := FundPositions(ok)["F"]; q.Short != 0 || q.Inconsistent() {
+	if q := FundPositions(ok, nil)["F"]; q.Short != 0 || q.Inconsistent() {
 		t.Errorf("повний журнал позначено як суперечливий: Short=%d", q.Short)
 	}
 }

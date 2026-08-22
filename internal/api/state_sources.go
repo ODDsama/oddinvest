@@ -41,8 +41,14 @@ type sources struct {
 	deval float64
 
 	// Решта інструментів: фонди (операції + довідник), вклади, резерв.
-	fundOps      []domain.FundOp
-	fundRefs     map[string]store.Fund
+	fundOps  []domain.FundOp
+	fundRefs map[string]store.Fund
+	// fundPrices — позначки ціни сертифіката (0034). Сирими, поруч із
+	// операціями: звести їх в «останню відому ціну» вміє лише
+	// domain.FundPositions, і робити це двічі (тут і у фазі) означало б
+	// дати двом місцям розійтись у тому, яке джерело важить більше. Те
+	// саме, що з npfNav.
+	fundPrices   []domain.FundPrice
 	termDeposits []domain.Deposit
 	reserveOps   []store.ReserveOp
 
@@ -140,6 +146,7 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	src.depositMin = s.depositMinMinorByCur(ctx)
 
 	src.fundOps, _ = s.st.ListFundOps(ctx)               //nolint:errcheck // свідомо: старій БД фондів могло не бути
+	src.fundPrices, _ = s.st.ListFundPrices(ctx)         //nolint:errcheck // те саме: таблиця зʼявилась пізніше за схему, і порожня історія цін — звичайний стан
 	src.termDeposits, _ = s.st.ListTermDeposits(ctx)     //nolint:errcheck // свідомо, як і фонди: вклади зʼявились пізніше за схему
 	src.deposits, _ = s.st.ListDeposits(ctx)             //nolint:errcheck // свідомо: порожній журнал поповнень — не привід валити стан
 	src.brokers, _ = s.st.ListBrokers(ctx)               //nolint:errcheck // свідомо: список для випадайок, не джерело істини

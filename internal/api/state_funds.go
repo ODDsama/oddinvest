@@ -178,12 +178,22 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			CostBasis:     toUAH(fp.CostBasis),
 			LastPrice:     math.Round(float64(fp.LastPrice)) / 10000,
 			LastPriceDate: string(fp.LastPriceDate),
+			PriceMarked:   fp.PriceMarked,
 			MarketValue:   round2(mvUAH),
 			DividendsNet:  toUAH(fp.DividendsGross - fp.DividendsTax),
 			DividendsTax:  toUAH(fp.DividendsTax),
 			Realized:      toUAH(fp.Realized),
 			YieldNetPct:   y,
 			Short:         fp.Short,
+		}
+		// Зростання самої ціни сертифіката — окремим полем, не в yield_basis.
+		// Це «як спрацював фонд» незалежно від дат моїх купівель, тобто інше
+		// питання, ніж повна дохідність нижче; воно й дозволяє звірити
+		// обіцянку, а не замінити її. Порожньо, доки точок менше двох або
+		// відрізок коротший за пів року.
+		if pr, ok := domain.FundPriceReturn(
+			domain.FundPricePoints(src.fundPrices, src.fundOps, fp.Fund), today); ok {
+			row.PriceReturnPct = pr
 		}
 		// Дохідність позиції — ПОВНА: дивіденди разом зі зміною ціни.
 		// Самі дивіденди поряд з облігацією нечесні, бо YTM ловить і
@@ -267,7 +277,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		// є першим до поправки, і виходило неможливе — реальна ВИЩА за
 		// номінальну.
 		var nominalPct float64
-		if tot, ok := domain.FundTotalReturn(src.fundOps, fp.Fund, today); ok {
+		if tot, ok := domain.FundTotalReturn(src.fundOps, src.fundPrices, fp.Fund, today); ok {
 			row.TotalPct = tot
 			row.RealPct = round2(realYield(tot/100, cur, deval) * 100)
 			row.YieldBasis = "дивіденди + зміна ціни"

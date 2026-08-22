@@ -133,7 +133,7 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps,
-		src.payoutDays(), today)
+		src.fundPrices, src.payoutDays(), today)
 	sch, err := buildSchedule(src, hold, from, today, scheduleFundMonths)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)

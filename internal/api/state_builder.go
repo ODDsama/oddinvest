@@ -178,7 +178,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Чим володіємо — зведене за ОДИН прохід (domain/holdings.go). Доти
 	// lots обходився тут сімома циклами, а залишок після продажів
 	// рахувався по чотири рази на лот, щоразу наново.
-	hold := domain.NewHoldings(lots, sales, bonds, fundOps, src.payoutDays(), today)
+	hold := domain.NewHoldings(lots, sales, bonds, fundOps, src.fundPrices, src.payoutDays(), today)
 
 	positions, err := domain.Positions(bonds, pays, lots, sales, today)
 	if err != nil {
@@ -765,10 +765,13 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	}
 
 	// Ціна ОДНОГО сертифіката — найдешевшого з тих, що вже в портфелі.
-	// Каталогу цін фондів у застосунку немає (ціна приходить із виписки
-	// разом з операцією), тож про фонд, якого ще не купували, сказати
-	// нічого не можна: 0 означає «невідомо», і ребаланс тоді просто не
-	// перевіряє здійсненність, а не вигадує поріг.
+	//
+	// Позначки ціни (0034) сюди приходять самі: LastPrice бере найсвіжіше з
+	// двох джерел, тож позначена ціна працює тут нарівні з ціною виписки.
+	// А от каталогу цін фондів, ЯКИХ У ПОРТФЕЛІ НЕМАЄ, як не було, так і
+	// немає — позначку заводять на свій фонд, а не на чужий. Тож про фонд,
+	// якого ще не купували, сказати нічого не можна: 0 означає «невідомо»,
+	// і ребаланс тоді просто не перевіряє здійсненність, а не вигадує поріг.
 	minFundPriceUAH := 0.0
 	for _, row := range fundRows {
 		if row.LastPrice <= 0 {
@@ -851,7 +854,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		if err != nil {
 			continue
 		}
-		flows = append(flows, domain.FundFlows(fundOps, cur, today)...)
+		flows = append(flows, domain.FundFlows(fundOps, src.fundPrices, cur, today)...)
 		flows = append(flows, domain.DepositFlows(termDeposits, cur, today)...)
 		// НПФ теж: внески — ті самі гроші, і XIRR міряє, скільки на них
 		// зароблено. Тут це «скільки заробили МОЇ гроші» з урахуванням дат
