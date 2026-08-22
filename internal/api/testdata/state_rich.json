@@ -677,15 +677,17 @@
     "USD": 0.85
   },
   "funds_yield_pct": 13.22,
-  "blended_yield_pct": 1.53,
+  "blended_yield_pct": 5.27,
   "portfolio_yield_real": {
     "EUR": 0.54,
     "UAH": -0.17,
     "USD": 0.85
   },
   "funds_yield_real_pct": 5.82,
-  "blended_yield_real_pct": 0.89,
+  "blended_yield_real_pct": 2.42,
   "funds_yield_basis": "різні основи",
+  "blended_yield_basis": "різні основи",
+  "blended_yield_base_uah": 372751.84,
   "kind_yield_real_pct": {
     "bonds": 0.68,
     "deposits": 5.5,

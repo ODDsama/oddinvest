@@ -205,7 +205,12 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// в handlers_deposits.go і в реінвест-помічнику (domain.NetRate далі
 	// realYield), і третій прохід над тими самими вкладами був би третім
 	// місцем, де її треба тримати незміненою.
-	var depRealWeighted, depRealWeight float64
+	// Номінальний двійник іде поруч і з того самого net: правило «реальна
+	// головна, номінальна дрібним поруч» діє для кожного доданка зведеної,
+	// інакше суміш нема з чого зібрати. Для вкладу номінальна — це ставка
+	// ПІСЛЯ податку: договірна ставка до податку стоїть окремо в рядку
+	// позиції й підписана словом «ставка» саме щоб їх не сплутати.
+	var depRealWeighted, depNomWeighted, depRealWeight float64
 	// Вклади, позначені ПОДУШКОЮ. Збираються тут, у тому самому єдиному
 	// циклі, бо другий прохід над вкладами означав би друге означення того,
 	// що таке «діючий вклад».
@@ -263,12 +268,14 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		if dep.RateBP > 0 {
 			net := domain.NetRate(dep.RateBP, dep.TaxBP)
 			depRealWeighted += realYield(net, dep.Currency, deval) * 100 * v
+			depNomWeighted += net * 100 * v
 			depRealWeight += v
 		}
 	}
-	depositsYieldReal := 0.0
+	depositsYieldReal, depositsYieldNominal := 0.0, 0.0
 	if depRealWeight > 0 {
 		depositsYieldReal = round2(depRealWeighted / depRealWeight)
+		depositsYieldNominal = round2(depNomWeighted / depRealWeight)
 	}
 
 	// Резерв («матрац») — журнал рухів, поточний залишок це Σ сум. Читаємо
@@ -708,7 +715,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// уточнення другого, і рахується воно нижче, коли вже відома
 	// облігаційна частина. Парою навмисно: номінальна без реальної на
 	// екрані читається як помилка.
-	var blendedYield, blendedYieldReal float64
+	var blendedYield, blendedYieldReal, blendedYieldBase float64
+	var blendedYieldBasis string
 
 	accounts := map[string]float64{}
 	accountUAHMinor := int64(0)
@@ -945,8 +953,29 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		ReserveByCur: reserveUAHByCur, NPFByCur: npf.ExposureUAH,
 	}
 
-	blendedYield = blendYield(portfolioYield, fundsYield, nominalMajor, fundsUAH)
-	blendedYieldReal = blendYield(portfolioYieldReal, fundsYieldReal, nominalMajor, fundsUAH)
+	// Зведена дохідність — по ЧОТИРЬОХ видах, а не по двох.
+	//
+	// Рахувати тут нічого не треба, і це головне: усі чотири ставки вже
+	// пораховані й уже зважені кожна там, де живуть її дані — ОВДП у
+	// buildBonds, фонди в buildFunds, вклади в циклі вище, НПФ у buildNPF.
+	// Доти вони сходились рівно в одному місці, kindYieldReal, тобто
+	// чотирма окремими числами без спільного знаменника; зведення бракувало,
+	// а не арифметики.
+	//
+	// Основи названі тут, а не в кожній фазі, бо це твердження про ЦЮ
+	// суміш: у ОВДП і вкладу ставка зафіксована наперед, у фонда й НПФ вона
+	// може бути виміряною. blendYield зводить їх сам і каже «різні основи»,
+	// коли доданки міряні по-різному.
+	blendedYield, blendedYieldReal, blendedYieldBase, blendedYieldBasis = blendYield([]yieldPart{
+		{Pct: portfolioYield, Real: portfolioYieldReal,
+			Weight: bnd.YieldWeightUAH, Basis: "до погашення"},
+		{Pct: fundsYield, Real: fundsYieldReal,
+			Weight: fnd.YieldWeight, Basis: fnd.Basis},
+		{Pct: depositsYieldNominal, Real: depositsYieldReal,
+			Weight: depRealWeight, Basis: "ставка вкладу після податку"},
+		{Pct: npf.YieldPct, Real: npf.YieldRealPct,
+			Weight: npf.YieldWeight, Basis: npf.Basis},
+	})
 
 	// Проєкція, місячний план і віяло прогнозів (state_projection.go).
 	// Вхід виписаний полем за полем навмисно: проєкція залежить від усіх
@@ -1042,6 +1071,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		FundsYieldPct:      fundsYield, FundsYieldRealPct: fundsYieldReal,
 		FundsYieldBasis: fnd.Basis,
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
+		BlendedYieldBasis: blendedYieldBasis, BlendedYieldBaseUAH: blendedYieldBase,
 		KindYieldRealPct: kindYieldReal(portfolioYieldReal, fundsYieldReal,
 			depositsYieldReal, npf.YieldRealPct),
 

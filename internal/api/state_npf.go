@@ -48,6 +48,22 @@ type npfPhase struct {
 	// мене лежить», а лежить саме вартість. Внески — база прибутку, і на
 	// них рахується GainUAH, а не ставка.
 	YieldRealPct float64
+	// YieldPct — НОМІНАЛЬНИЙ ДВІЙНИК тієї самої величини, з того самого
+	// зважування й того самого циклу.
+	//
+	// Парою навмисно, і аргумент дослівно той, що у фондів: тримати їх
+	// нарізно означає рано чи пізно зважити реальну з одного джерела поруч
+	// із номінальною з іншого — і отримати реальну, вищу за номінальну.
+	// Потрібен він відтоді, як НПФ увійшов у зведену дохідність: там
+	// правило «реальна головна, номінальна дрібним поруч» діє для КОЖНОГО
+	// доданка, інакше суміш нема з чого зібрати.
+	YieldPct float64
+	// YieldWeight — вартість рахунків, які в дохідність увійшли, грн-екв.
+	YieldWeight float64
+	// Basis — ЗВІДКИ ставка: «обіцяно фондом» чи виміряне зростання ЧВОПА.
+	// «різні основи», коли рахунки міряні по-різному, — та сама відповідь,
+	// що у фондів, і з тієї ж причини.
+	Basis string
 }
 
 // buildNPF зводить рахунки в рядки картки.
@@ -61,7 +77,8 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		Accum:       map[string][]domain.Accum{},
 	}
 	// Накопичувачі зведеної ставки: сума «ставка × вартість» і сама вага.
-	var realWeighted, realWeight float64
+	var realWeighted, nomWeighted, realWeight float64
+	basisMixed := false
 	positions := domain.NPFPositions(src.npfAccounts, src.npfOps)
 	// Порядок — за довідником, який уже відсортований за назвою. Обхід мапи
 	// позицій дав би документ, що змінюється між викликами без причини, а на
@@ -112,7 +129,18 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		// сумуємо готові рядки потім: знецінення торкається лише гривневих
 		// рахунків, тож поділ уже змішаного числа занизив би валютні.
 		realWeighted += realPct * valueUAH
+		// Номінальний двійник — це net, тобто ставка ПІСЛЯ податку на
+		// виплату, але ДО знецінення. Саме вона й є «скільки одиниць
+		// додасться»: податок держава візьме напевно, а знецінення —
+		// припущення з налаштувань.
+		nomWeighted += net * valueUAH
 		realWeight += valueUAH
+		switch {
+		case out.Basis == "":
+			out.Basis = basis
+		case basis != out.Basis:
+			basisMixed = true
+		}
 
 		payoutM, _ := domain.NPFPayoutMonths(acc)
 		contribDue := domain.NPFContribDue(acc, src.npfOps, today)
@@ -183,6 +211,11 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 	}
 	if realWeight > 0 {
 		out.YieldRealPct = round2(realWeighted / realWeight)
+		out.YieldPct = round2(nomWeighted / realWeight)
+		out.YieldWeight = realWeight
+		if basisMixed {
+			out.Basis = "різні основи"
+		}
 	}
 	return out
 }

@@ -4588,3 +4588,108 @@ func TestFundPricesCRUD(t *testing.T) {
 		t.Errorf("після видалення ціна мала повернутись до виписки: %+v", back)
 	}
 }
+
+// Зведена дохідність бачить вклад, а подушка лишається поза нею.
+//
+// Доти «Дохідність портфеля» рахувалась лише по ОВДП і фондах, і вклад на
+// 100 000 ₴ під 16% на неї не впливав ЗОВСІМ — при тому, що його реальна
+// ставка вже була порахована поруч і лежала в kind_yield_real_pct.
+func TestBlendedYieldCoversDepositsAndSkipsReserve(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	today := domain.NewDate(time.Now())
+
+	// Звичайний вклад — у число входить.
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: "UAH", Principal: 10_000_000, RateBP: 1600,
+		OpenDate: today.AddDays(-90), MaturityDate: today.AddDays(275),
+		Payout: domain.PayoutMonthly, TaxBP: 1950,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Вклад-подушка — не входить: у резерву своя, абсолютна ціль у місяцях
+	// витрат, і розмивати нею ставку портфеля нема чого.
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "Ощад", Currency: "UAH", Principal: 5_000_000, RateBP: 900,
+		OpenDate: today.AddDays(-30), MaturityDate: today.AddDays(335),
+		Payout: domain.PayoutEnd, TaxBP: 1950, IsReserve: true, Revocable: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"uah_devaluation_pct":"0"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("settings: %d %s", resp.StatusCode, b)
+	}
+
+	var sum struct {
+		BlendedPct     float64 `json:"blended_yield_pct"`
+		BlendedRealPct float64 `json:"blended_yield_real_pct"`
+		BlendedBase    float64 `json:"blended_yield_base_uah"`
+		BlendedBasis   string  `json:"blended_yield_basis"`
+		DepositsUAH    float64 `json:"deposits_uah"`
+		ReserveUAH     float64 `json:"reserve_uah"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+
+	// Єдиний вид у портфелі — вклади, тож зведена дорівнює їхній ставці
+	// після податку: 16% × (1 − 0.195) = 12.88%.
+	if math.Abs(sum.BlendedPct-12.88) > 0.01 {
+		t.Errorf("зведена мала дорівнювати ставці вкладу після податку 12.88, маємо %v", sum.BlendedPct)
+	}
+	// Знецінення вимкнене, тож реальна збігається з номінальною.
+	if math.Abs(sum.BlendedRealPct-sum.BlendedPct) > 0.01 {
+		t.Errorf("без знецінення реальна мала зрівнятись із номінальною: %v проти %v",
+			sum.BlendedRealPct, sum.BlendedPct)
+	}
+	// База — рівно тіло звичайного вкладу. Подушки в ній немає, і саме це
+	// робить твердження «зважено по інвестованому» перевірюваним.
+	if math.Abs(sum.BlendedBase-100000) > 0.01 {
+		t.Errorf("база мала дорівнювати тілу звичайного вкладу 100000, маємо %v", sum.BlendedBase)
+	}
+	if sum.ReserveUAH != 50000 {
+		t.Errorf("подушка мала лишитись 50000 і поза числом, маємо %v", sum.ReserveUAH)
+	}
+	if sum.BlendedBasis != "ставка вкладу після податку" {
+		t.Errorf("вид один — основа мала бути його власною, маємо %q", sum.BlendedBasis)
+	}
+}
+
+// Вклад БЕЗ заданої ставки не потрапляє ні в чисельник, ні в знаменник:
+// нуль там означав би не «нульова дохідність», а «невідома», і тягнув би
+// середню вниз. База це показує числом.
+func TestBlendedYieldSkipsRatelessDeposit(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	today := domain.NewDate(time.Now())
+
+	for _, d := range []domain.Deposit{
+		{Bank: "ПУМБ", Currency: "UAH", Principal: 10_000_000, RateBP: 1600,
+			OpenDate: today.AddDays(-90), MaturityDate: today.AddDays(275),
+			Payout: domain.PayoutMonthly, TaxBP: 1950},
+		{Bank: "Ощад", Currency: "UAH", Principal: 4_000_000, RateBP: 0,
+			OpenDate: today.AddDays(-90), MaturityDate: today.AddDays(275),
+			Payout: domain.PayoutEnd, TaxBP: 1950},
+	} {
+		if _, err := st.AddTermDeposit(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var sum struct {
+		BlendedBase float64 `json:"blended_yield_base_uah"`
+		DepositsUAH float64 `json:"deposits_uah"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if sum.DepositsUAH != 140000 {
+		t.Errorf("у капіталі мали бути обидва вклади, 140000, маємо %v", sum.DepositsUAH)
+	}
+	if math.Abs(sum.BlendedBase-100000) > 0.01 {
+		t.Errorf("у дохідність мав увійти лише вклад зі ставкою, 100000, маємо %v", sum.BlendedBase)
+	}
+}
