@@ -106,7 +106,15 @@ function fundDetailHTML(ctx, f) {
   // накопичувального фонду це найважливіший рядок картки: «ціна з виписки»
   // на ньому означає, що дохід просто НЕ ВИМІРЯНИЙ, а не що його немає.
   if (f.last_price_date) {
-    bits.push(`${f.price_marked ? "позначка ціни" : "ціна з виписки"} від ${dayMonth(f.last_price_date)}`);
+    // Застаріла ціна називається вголос і саме тут, поруч із датою: без
+    // цього рядок читається однаково і тоді, коли ціна вчорашня, і тоді,
+    // коли їй пів року, — а дохідність у другому випадку рахується за
+    // числом, якого вже немає. Поріг знає бекенд (price_stale), тут лише
+    // тон: друга копія порогу розійшлася б із завданням у списку.
+    const src = f.price_marked ? "позначка ціни" : "ціна з виписки";
+    bits.push(f.price_stale
+      ? `<span class="t-warn">${src} від ${dayMonth(f.last_price_date)} — застаріла</span>`
+      : `${src} від ${dayMonth(f.last_price_date)}`);
   }
   if (f.price_return_pct) bits.push(`ціна росте на ${pct(f.price_return_pct)}`);
   if (f.next_payout) bits.push(`наступна виплата ${dayMonth(f.next_payout)}`);

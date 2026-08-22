@@ -306,6 +306,32 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		})
 	}
 
+	// ---------- ціна сертифіката застаріла ----------
+	//
+	// Самогасне нагадування, як внесок у НПФ: зникає само, щойн зʼявиться
+	// свіжа позначка. Потрібне через те, що вартість позиції й ЇЇ ДОХІДНІСТЬ
+	// рахуються за останньою відомою ціною — а в накопичувального фонду
+	// вона рухається лише руками, бо операцій між купівлями немає взагалі.
+	//
+	// Рядок на фонд, а не один спільний: фонди застарівають нарізно, і
+	// «десь щось застаріло» не каже, куди йти. Порядок — за назвою, бо
+	// doc.Funds уже відсортовані в Holdings, і на це спирається
+	// TestBuildStateIsDeterministic.
+	for _, f := range doc.Funds {
+		if !f.PriceStale {
+			continue
+		}
+		days := daysBetween(domain.Date(f.LastPriceDate), today)
+		add(state.Task{
+			ID: "fund-price-stale:" + f.Fund, Sev: sevWatch, Rank: 25, Kind: "fund",
+			Title: fmt.Sprintf("%s: ціну не позначали %d %s", f.Fund, days,
+				plural(days, "день", "дні", "днів")),
+			Why: "Вартість позиції й її дохідність рахуються за цією ціною. " +
+				"Доки її не оновити, зростання фонду лишається невидимим.",
+			When: dayMonth(domain.Date(f.LastPriceDate)),
+		})
+	}
+
 	// ---------- виплати, які вже мали надійти ----------
 	if t, ok := unconfirmedTask(src, today); ok {
 		add(t)

@@ -45,6 +45,7 @@
       "cost_basis": 5000,
       "last_price": 10,
       "last_price_date": "2026-02-25",
+      "price_stale": true,
       "market_value": 5000,
       "dividends_net": 103.2,
       "dividends_tax": 16.8,
@@ -1404,6 +1405,15 @@
       "title": "2 ліміти перевищено",
       "why": "Найбільше — mono. Це спостереження, а не заборона: поради воно не ховає.",
       "action": "review-limits"
+    },
+    {
+      "id": "fund-price-stale:Inzhur REIT",
+      "sev": "watch",
+      "rank": 25,
+      "kind": "fund",
+      "title": "Inzhur REIT: ціну не позначали 140 днів",
+      "why": "Вартість позиції й її дохідність рахуються за цією ціною. Доки її не оновити, зростання фонду лишається невидимим.",
+      "when": "25 лютого"
     }
   ],
   "rate_risk": {

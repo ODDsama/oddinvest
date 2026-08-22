@@ -194,3 +194,64 @@ func TestFundFlowsOneTerminalFollowsMark(t *testing.T) {
 		t.Errorf("термінал мав іти за позначкою, маємо %d", flows[1].Amount)
 	}
 }
+
+// Свіжість ціни. Дірка, знайдена вживу: ReturnMeasurable дивиться, чи
+// розійшлась вартість із собівартістю, а розійшлась вона НАЗАВЖДИ після
+// першої ж позначки — тож піврічної давнини ціна проходить охорону так
+// само, як учорашня.
+func TestFundPositionPriceStale(t *testing.T) {
+	ops := []FundOp{
+		{Date: "2026-01-10", Fund: "F", Kind: FundBuy, Qty: 100, Amount: 100000, Currency: "UAH"},
+	}
+	fresh := FundPositions(ops, []FundPrice{{Fund: "F", Date: "2026-07-01", Price: 110000}})["F"]
+	if fresh.PriceStale("2026-07-10") {
+		t.Error("позначці девʼять днів — застарілою вона бути не може")
+	}
+	if !fresh.PriceStale("2026-09-10") {
+		t.Error("за два з половиною місяці позначка мала застаріти")
+	}
+	// Рівно на порозі ще не застаріла: поріг — «більше ніж», а не «від».
+	// 2026-07-01 + 45 днів = 2026-08-15.
+	if fresh.PriceStale("2026-08-15") {
+		t.Error("рівно на порозі ціна ще не застаріла")
+	}
+	if !fresh.PriceStale("2026-08-16") {
+		t.Error("на день за поріг — уже застаріла")
+	}
+}
+
+// Порожня позиція мовчить: у нуля сертифікатів ціна ні на що не впливає, і
+// нагадувати про неї означало б просити роботу задарма.
+func TestFundPositionPriceStaleSilentOnEmptyPosition(t *testing.T) {
+	ops := []FundOp{
+		{Date: "2026-01-10", Fund: "F", Kind: FundBuy, Qty: 100, Amount: 100000, Currency: "UAH"},
+		{Date: "2026-01-11", Fund: "F", Kind: FundSell, Qty: 100, Amount: 100000, Currency: "UAH"},
+	}
+	if FundPositions(ops, nil)["F"].PriceStale("2027-01-01") {
+		t.Error("порожня позиція про застарілу ціну не нагадує")
+	}
+}
+
+// Межа 30 днів — та, що здивувала вживу.
+//
+// МілТех мав позначку ціни, вартість розійшлась із собівартістю, тобто
+// ReturnMeasurable уже істинна — а на екрані стояла обіцянка. Тримав її
+// ІНШИЙ, давніший поріг: 0.7% за девʼять днів в ануалізації дали б 32%,
+// тобто арифметику ділення на малий строк. Тест закріплює саме межу, бо
+// перемикання на ній виглядає як поломка, якщо не знати, що воно за
+// правилом.
+func TestFundTotalReturnWaitsForThirtyDays(t *testing.T) {
+	const buy = Date("2026-01-10")
+	ops := []FundOp{
+		{Date: buy, Fund: "F", Kind: FundBuy, Qty: 100, Amount: 100000, Currency: "UAH"},
+	}
+	marks := []FundPrice{{Fund: "F", Date: "2026-01-11", Price: 100700}}
+	// 29 днів — гроші ще не попрацювали, число мовчить.
+	if _, ok := FundTotalReturn(ops, marks, "F", "2026-02-08"); ok {
+		t.Error("на 29-й день ануалізувати ще нема чого")
+	}
+	// 31 — уже говорить.
+	if _, ok := FundTotalReturn(ops, marks, "F", "2026-02-10"); !ok {
+		t.Error("на 31-й день число мало зʼявитись")
+	}
+}
