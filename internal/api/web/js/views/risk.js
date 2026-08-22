@@ -166,7 +166,35 @@ export function yieldTilesHTML(ctx) {
   // число вже живе в бекенді, і друга копія розійшлася б із першою.
   const gainOf = (c, r) =>
     `${fmtCur(r.gain, c)} · ${pct(r.gain_pct, 2)} від вкладеного`;
-  const xirrTiles = Object.keys(rz).length
+  // Зведене «заробило» — ПЕРЕД валютними плитками: це головне число, а
+  // валютні уточнюють його розрізом. Розгалуження те саме, що нижче: доки
+  // ставки немає, показуємо результат у гривнях, бо він не ануалізований і
+  // чесний з першого дня.
+  //
+  // Плитки немає зовсім, коли немає обʼєкта: це не «нуль», а «сказати
+  // нічого» — курсу на дату якогось руху не знайшлось, і вигадувати його
+  // дорожче, ніж промовчати.
+  const tot = s0.total_return;
+  const totalTile = !tot ? "" : (tot.xirr_pct != null
+    ? tile(`Заробило ${infoBtn("xirr")}`, pct(tot.xirr_pct, 2),
+        `<div class="sub">${fmtUAH(tot.gain_uah)} · ${pct(tot.gain_pct, 2)} від вкладеного</div>
+         <div class="sub-xs">усе разом, у гривні за курсом на дату кожного руху${
+  tot.fx_max_lag_days > 0 ? ` · найстаріший курс відстав на ${tot.fx_max_lag_days} дн.` : ""}</div>`)
+    : tile(`Заробило ${infoBtn("xirr")}`, fmtUAH(tot.gain_uah),
+        `<div class="sub">${pct(tot.gain_pct, 2)} від вкладеного, НЕ в річних</div>
+         <div class="sub-xs">річна ставка зʼявиться, коли гроші попрацюють
+           ${tot.min_days} днів у середньому — зараз ${tot.money_days}</div>`));
+  // Валютні плитки ховаються, коли валюта одна: тоді зведене число й
+  // валютне — ОДНЕ І ТЕ САМЕ, бо згортати нема чого. Спіймано вживу на
+  // гривневому портфелі, де «Заробило 98,39 ₴» і «Результат ₴ 98,39 ₴»
+  // стояли поруч двома плитками. Це рівно та хвороба, від якої в контракті
+  // зʼявився capital_uah: людина дивиться на екран і не знає, котре з двох
+  // чисел її.
+  //
+  // Коли зведеного немає (курсу на дату якогось руху не знайшлось),
+  // валютні лишаються: краще розріз, ніж порожньо.
+  const showPerCur = !tot || Object.keys(rz).length > 1;
+  const xirrTiles = !showPerCur ? "" : Object.keys(rz).length
     ? Object.entries(rz).map(([c, r]) => (xr[c] != null
         ? tile(`XIRR ${curSym(c)} ${infoBtn("xirr")}`, pct(xr[c], 2),
             `<div class="sub">${gainOf(c, r)}</div>
@@ -209,6 +237,7 @@ export function yieldTilesHTML(ctx) {
          ? `<div class="sub-xs muted">по ${fmtUAH(s0.blended_yield_base_uah)} з
              ${fmtUAH(s0.capital_uah)} капіталу · подушка й готівка не заробляють</div>`
          : ""}`) : ""}
+    ${totalTile}
     ${xirrTiles}
   </div>`;
 }

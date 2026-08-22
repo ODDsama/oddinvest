@@ -857,9 +857,19 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Позиції НПФ зводяться РАЗ на всі три валюти: усередині циклу це була б
 	// повна редукція журналу тричі, і всі три дали б те саме.
 	npfPositionsForXIRR := domain.NPFPositions(src.npfAccounts, src.npfOps)
-	for _, cur := range []string{money.UAH, money.USD, money.EUR} {
+	// Ті самі потоки, тільки збережені, — щоб зведене число будувалось із
+	// РІВНО того самого матеріалу, що й валютні плитки. Зібрати їх удруге
+	// окремим проходом означало б завести друге означення того, що таке
+	// «потоки портфеля», і воно розійшлося б із першим на першій правці.
+	flowsByCur := map[string][]domain.Flow{}
+	flowsBroken := false
+	for _, cur := range xirrCurrencies {
 		flows, err := domain.PortfolioFlows(bonds, pays, lots, sales, cur, today)
 		if err != nil {
+			// Для валютної плитки мовчазний пропуск нешкідливий: плитки
+			// просто немає, і це видно. Для зведеного числа — ні, воно
+			// вийшло б тихо неповним, тож зведене мовчить цілком.
+			flowsBroken = true
 			continue
 		}
 		flows = append(flows, domain.FundFlows(fundOps, src.fundPrices, cur, today)...)
@@ -880,6 +890,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			flows = append(flows, domain.NPFFlows(*p, src.npfOps, today)...)
 		}
 		sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })
+		// Зведене число забирає потоки ДО порогів. Одна єврова купівля не
+		// привід малювати єврову плитку, але це справжні гроші, і випасти
+		// зі «скільки я заробив» вони не мають.
+		flowsByCur[cur] = flows
 		if len(flows) < 2 {
 			continue
 		}
@@ -918,6 +932,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			xirr[cur] = math.Round(r*10000) / 100 // частка -> %, 2 знаки
 		}
 	}
+	totalReturn := s.totalReturn(ctx, flowsByCur, flowsBroken, today)
 
 	// Облігації: номінал і дохідність до погашення (state_bonds.go).
 	bnd := buildBonds(hold, pays, rates, deval)
@@ -1072,6 +1087,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		FundsYieldBasis: fnd.Basis,
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
 		BlendedYieldBasis: blendedYieldBasis, BlendedYieldBaseUAH: blendedYieldBase,
+		TotalReturn: totalReturn,
 		KindYieldPct: kindYieldReal(portfolioYield, fundsYield,
 			depositsYieldNominal, npf.YieldPct),
 		KindYieldRealPct: kindYieldReal(portfolioYieldReal, fundsYieldReal,

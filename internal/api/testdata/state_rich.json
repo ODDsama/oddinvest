@@ -671,6 +671,14 @@
       "min_days": 30
     }
   },
+  "total_return": {
+    "xirr_pct": 10.37,
+    "gain_uah": 13071.03,
+    "gain_pct": 2.92,
+    "money_days": 107.87,
+    "min_days": 30,
+    "fx_max_lag_days": 190
+  },
   "portfolio_yield_pct": 1.03,
   "portfolio_yield": {
     "EUR": 0.54,

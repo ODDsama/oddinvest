@@ -172,6 +172,7 @@ func TestSchemaMatchesNestedTypes(t *testing.T) {
 		typ reflect.Type
 	}{
 		{"next_payment", reflect.TypeOf(NextPayment{})},
+		{"total_return", reflect.TypeOf(TotalReturn{})},
 		{"reserve", reflect.TypeOf(Reserve{})},
 		{"month_plan", reflect.TypeOf(MonthPlan{})},
 		{"liquidity", reflect.TypeOf(Liquidity{})},

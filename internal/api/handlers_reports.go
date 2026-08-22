@@ -123,9 +123,15 @@ func (s *Server) handleXIRR(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Підпис переписаний: «без конвертації» перестало бути правдою, щойн
+	// поруч зʼявилось total — воно якраз конвертоване, за курсом на дату
+	// кожного руху. Стара фраза була б рівно тим тихим невідповідністю
+	// між назвою й змістом, від якої лікують решта цих коментарів.
 	writeJSON(w, http.StatusOK, map[string]any{
 		"xirr_pct": doc.XIRRPct,
-		"note":     "залишок оцінено за номіналом; по валютах окремо, без конвертації",
+		"total":    doc.TotalReturn,
+		"note": "залишок оцінено за номіналом; xirr_pct — по валютах у них самих, " +
+			"total — усе разом у гривні за курсом на дату кожного руху",
 	})
 }
 
