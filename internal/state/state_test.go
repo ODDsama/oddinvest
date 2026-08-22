@@ -63,6 +63,13 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		UninvestedUAH:     Major(money.New(0, money.UAH)),
 		Settings:          settings,
 		XIRRPct:           map[string]float64{"UAH": 16.51, "USD": 3.22},
+		// Гривня має і річну ставку, і результат за фактом; долар —
+		// лише факт, бо його гроші ще молодші за поріг. Саме ця пара і є
+		// суть контракту: realized є завжди, xirr — не завжди.
+		Realized: map[string]RealizedRow{
+			"UAH": {Gain: 1240.55, GainPct: 3.31, MoneyDays: 74.2, MinDays: 30},
+			"USD": {Gain: -12.40, GainPct: -0.62, MoneyDays: 18.5, MinDays: 30},
+		},
 		// Дві валюти, щоб у фікстурі було видно, що строки не змішуються
 		// в одну криву: 16% гривні й 3% долара — це різні шкали.
 		//
@@ -293,6 +300,13 @@ func TestDerive(t *testing.T) {
 	}
 	if doc.XIRRPct["UAH"] != 16.51 {
 		t.Errorf("xirr: %+v", doc.XIRRPct)
+	}
+	// Долар без XIRR, але з результатом: контракт обіцяє саме це.
+	if _, ok := doc.XIRRPct["EUR"]; ok {
+		t.Errorf("xirr: євро взялось нізвідки: %+v", doc.XIRRPct)
+	}
+	if r := doc.Realized["USD"]; r.MoneyDays != 18.5 || r.MinDays != 30 {
+		t.Errorf("realized[USD]: %+v", r)
 	}
 }
 

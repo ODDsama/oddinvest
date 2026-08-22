@@ -166,6 +166,20 @@
     "UAH": 16.51,
     "USD": 3.22
   },
+  "realized": {
+    "UAH": {
+      "gain": 1240.55,
+      "gain_pct": 3.31,
+      "money_days": 74.2,
+      "min_days": 30
+    },
+    "USD": {
+      "gain": -12.4,
+      "gain_pct": -0.62,
+      "money_days": 18.5,
+      "min_days": 30
+    }
+  },
   "portfolio_yield_pct": 14.93,
   "funds_yield_pct": 11.2,
   "blended_yield_pct": 14.1,

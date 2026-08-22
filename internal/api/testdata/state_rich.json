@@ -648,6 +648,26 @@
     "UAH": 8.86,
     "USD": 0.8
   },
+  "realized": {
+    "EUR": {
+      "gain": 0,
+      "gain_pct": 0,
+      "money_days": 110,
+      "min_days": 30
+    },
+    "UAH": {
+      "gain": 3287.23,
+      "gain_pct": 1.77,
+      "money_days": 77.3,
+      "min_days": 30
+    },
+    "USD": {
+      "gain": 12,
+      "gain_pct": 0.3,
+      "money_days": 140,
+      "min_days": 30
+    }
+  },
   "portfolio_yield_pct": 1.03,
   "portfolio_yield": {
     "EUR": 0.54,

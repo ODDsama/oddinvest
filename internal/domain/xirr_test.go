@@ -131,3 +131,30 @@ func TestPortfolioFlowsTerminalIncludesAccrued(t *testing.T) {
 		t.Errorf("термінал %d, чекали ≈108000 (номінал + піврічний НКД)", terminal)
 	}
 }
+
+func TestRealizedGain(t *testing.T) {
+	// −1000, купон +80, залишок оцінено в +1080: заробок +160 на 1000.
+	flows := []Flow{
+		{Date: "2025-01-01", Amount: -100000},
+		{Date: "2025-07-02", Amount: 8000},
+		{Date: "2026-01-01", Amount: 108000},
+	}
+	gain, invested := RealizedGain(flows)
+	if gain != 16000 || invested != 100000 {
+		t.Errorf("заробок/вкладено = %d/%d, хочемо 16000/100000", gain, invested)
+	}
+}
+
+// Докупівля збільшує ВКЛАДЕНЕ, а не зменшує заробок: інакше портфель,
+// у який щойно занесли грошей, виглядав би так, ніби він їх утратив.
+func TestRealizedGainCountsEveryOutflow(t *testing.T) {
+	flows := []Flow{
+		{Date: "2025-01-01", Amount: -100000},
+		{Date: "2025-06-01", Amount: -50000},
+		{Date: "2026-01-01", Amount: 145000},
+	}
+	gain, invested := RealizedGain(flows)
+	if gain != -5000 || invested != 150000 {
+		t.Errorf("заробок/вкладено = %d/%d, хочемо -5000/150000", gain, invested)
+	}
+}

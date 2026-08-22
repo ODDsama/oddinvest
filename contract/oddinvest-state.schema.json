@@ -451,6 +451,33 @@
         "type": "number"
       }
     },
+    "realized": {
+      "type": "object",
+      "description": "Результат за фактом по валютах, без ануалізації, і вік вкладених грошей. Є завжди, зокрема коли xirr прихований порогом (адитивне поле)",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "gain": {
+            "type": "number",
+            "description": "Заробок у валюті рядка: усе, що вийшло з вкладених грошей, мінус вони самі"
+          },
+          "gain_pct": {
+            "type": "number",
+            "description": "Той самий заробок у % від вкладеного (НЕ річних)"
+          },
+          "money_days": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Середньозважений сумами вік вкладених грошей, днів"
+          },
+          "min_days": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "З якого віку грошей публікується xirr"
+          }
+        }
+      }
+    },
     "portfolio_yield_pct": {
       "type": "number",
       "description": "Очікувана дохідність за придбаними паперами: купон за 12 міс ÷ номінал, зважено, грн-екв. (адитивне поле)"

@@ -1,6 +1,6 @@
 // Як росте: крива з добових знімків і таблиця-архів під нею.
 
-import { esc, curSym, plural, uah2 as fmtUAH } from "../format.js";
+import { esc, curSym, plural, pct, uah2 as fmtUAH, cur2 as fmtCur } from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty } from "../components.js";
 import { seriesChart, wireChartTips, fluid, seriesLegend } from "../charts.js";
@@ -229,11 +229,22 @@ export async function chartBlockHTML(ctx) {
   capTip = planTip = null;
   if (snaps.length < 2) return tooShortHTML("Капітал", "capital", snaps.length);
 
-  const x = (ctx.summary || {}).xirr || {};
-  const xp = Object.entries(x).filter(([, v]) => v != null).map(([c, v]) => `${curSym(c)} ${v.toFixed(2)}%`);
+  const sum = ctx.summary || {};
+  const x = sum.xirr || {}, rz = sum.realized || {};
+  const xp = Object.entries(x).filter(([, v]) => v != null).map(([c, v]) => `${curSym(c)} ${pct(v, 2)}`);
+  // Доки річної ставки немає, рядок каже, скільки зароблено НАСПРАВДІ, і
+  // скільки лишилось чекати. Доти тут стояло «коли набереться 30 днів
+  // історії» — неправда, яка коштувала довіри до всього показника: поріг
+  // міряє вік ГРОШЕЙ, тож портфель із тримісячною історією його не
+  // проходив, а свіжий внесок відкидав лічильник назад.
+  const gp = Object.entries(rz).map(([c, r]) => `${fmtCur(r.gain, c)} · ${pct(r.gain_pct, 2)}`);
+  const age = Object.entries(rz).map(([c, r]) => `${curSym(c)} ${r.money_days} з ${r.min_days}`);
   const xirrLine = xp.length
     ? `Фактична дохідність (XIRR): <b>${xp.join(" · ")}</b>`
-    : `Фактична дохідність (XIRR) зʼявиться, коли набереться 30 днів історії`;
+    : gp.length
+      ? `Результат за фактом: <b>${gp.join(" · ")}</b>. Річна ставка (XIRR) зʼявиться, коли
+         вкладені гроші попрацюють досить довго: ${age.join(" · ")} днів`
+      : `Фактична дохідність (XIRR) зʼявиться, коли буде що міряти`;
   return `${capitalCardHTML(ctx, snaps)}${planCardHTML(ctx, snaps)}
     <div class="card"><div class="sub">${xirrLine}</div></div>`;
 }

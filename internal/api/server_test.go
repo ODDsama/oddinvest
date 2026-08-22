@@ -4427,3 +4427,57 @@ func TestSettingsRegistryMatchesDoc(t *testing.T) {
 		}
 	}
 }
+
+// Молоді гроші: XIRR мовчить порогом, але результат за фактом є, і разом
+// із ним причина мовчання. Саме ця пара і робить порожню плитку
+// поясненою — доти на екрані був самий прочерк, і портфель із тримісячною
+// історією виглядав зламаним.
+func TestSummaryRealizedWithoutXIRR(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	// Куплено 10 днів тому — вік грошей утричі менший за поріг.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-10), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 100, Amount: 100000, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-1), Fund: "Inzhur", Kind: domain.FundBuy,
+		Qty: 1, Amount: 1100, Currency: "UAH", Broker: "ПУМБ",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var got struct {
+		XIRR     map[string]float64 `json:"xirr"`
+		Realized map[string]struct {
+			Gain      float64 `json:"gain"`
+			GainPct   float64 `json:"gain_pct"`
+			MoneyDays float64 `json:"money_days"`
+			MinDays   int     `json:"min_days"`
+		} `json:"realized"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("summary не парситься: %v", err)
+	}
+	if _, ok := got.XIRR["UAH"]; ok {
+		t.Errorf("XIRR на десятиденних грошах публікуватись не мав: %v", got.XIRR)
+	}
+	r, ok := got.Realized["UAH"]
+	if !ok {
+		t.Fatalf("результат за фактом мав бути навіть без XIRR: %s", body)
+	}
+	if r.MinDays != 30 {
+		t.Errorf("поріг має їхати в документі, маємо %d", r.MinDays)
+	}
+	if r.MoneyDays <= 0 || r.MoneyDays >= 30 {
+		t.Errorf("вік грошей = %.1f, очікували між 0 і порогом", r.MoneyDays)
+	}
+	// Сертифікат подорожчав із 10.00 до 11.00 — заробок мусить бути видний
+	// у гривнях і у відсотках від вкладеного, без жодної ануалізації.
+	if r.Gain <= 0 || r.GainPct <= 0 {
+		t.Errorf("заробок = %.2f (%.2f%%), очікували додатний", r.Gain, r.GainPct)
+	}
+}

@@ -44,6 +44,12 @@ const defaultTerminalRatePct = 11.0
 // сьогоднішньої до довгострокової.
 const defaultGlideYears = 5.0
 
+// xirrMinMoneyDays — з якого середньозваженого віку грошей публікується
+// XIRR. Доводи за сам поріг — біля місця, де він застосовується; тут він
+// іменем, бо їде в документ стану (RealizedRow.MinDays) і звідти в
+// пояснення на екрані. Літерал у двох місцях розійшовся б.
+const xirrMinMoneyDays = 30
+
 // round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
@@ -836,6 +842,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// самі гроші. Без цього він рахував облігаційну частину й видавав її
 	// за портфельну. fundOps уже стягнуто раз на початку buildState.
 	xirr := map[string]float64{}
+	realized := map[string]state.RealizedRow{}
 	// Позиції НПФ зводяться РАЗ на всі три валюти: усередині циклу це була б
 	// повна редукція журналу тричі, і всі три дали б те саме.
 	npfPositionsForXIRR := domain.NPFPositions(src.npfAccounts, src.npfOps)
@@ -865,6 +872,21 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		if len(flows) < 2 {
 			continue
 		}
+		// Результат «за фактом» рахується ДО порога і публікується завжди:
+		// він не ануалізований, тож на молодих грошах не бреше — а мовчанню
+		// XIRR під ним інакше нічим пояснитись.
+		days := domain.MoneyWeightedDays(flows, today)
+		gain, invested := domain.RealizedGain(flows)
+		row := state.RealizedRow{
+			Gain:      round2(float64(gain) / 100),
+			MoneyDays: math.Round(days*10) / 10,
+			MinDays:   xirrMinMoneyDays,
+		}
+		if invested > 0 {
+			row.GainPct = round2(float64(gain) / float64(invested) * 100)
+		}
+		realized[cur] = row
+
 		// Ануалізація на коротких горизонтах дає сміттєві сотні відсотків.
 		// Міряємо вік НЕ першого потоку, а самих ГРОШЕЙ: середній зважений
 		// строк, який вони вже працюють.
@@ -875,7 +897,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// пролежали три дні, і їхня ануалізована дохідність — шум, який
 		// тягнув усе число в −42%. Той самий поріг тепер боронить і
 		// дохідність окремого фонду, тож правило живе в domain.
-		if domain.MoneyWeightedDays(flows, today) < 30 {
+		if days < xirrMinMoneyDays {
 			continue
 		}
 		// навіть >30 днів нерівномірні потоки дають артефакти (сотні %);
@@ -1011,7 +1033,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		NPF: npf.Rows, NPFContribDue: npf.ContribDue,
 		IncomeMonthlyNow: incomeMonthlyNow, ReinvestMin: reinvestMinByCur,
 
-		Settings: settings, XIRRPct: xirr,
+		Settings: settings, XIRRPct: xirr, Realized: realized,
 		PortfolioYieldPct: portfolioYield, PortfolioYield: portfolioYieldByCur,
 		PortfolioYieldReal: portfolioYieldRealByCur,
 		FundsYieldPct:      fundsYield, FundsYieldRealPct: fundsYieldReal,

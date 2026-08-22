@@ -76,15 +76,35 @@ export function currencyChartHTML(ctx) {
 export function yieldTilesHTML(ctx) {
   const s0 = ctx.summary || {};
   const py = s0.portfolio_yield || {}, pyReal = s0.portfolio_yield_real || {};
-  const xr = s0.xirr || {};
+  const xr = s0.xirr || {}, rz = s0.realized || {};
   // XIRR — фактично реалізоване, номінальне за природою: це те, що
   // справді сталося з грошима, а не оцінка наперед. Реального двійника
   // в нього немає, тож слово ставимо явно.
-  const xirrTiles = Object.keys(xr).length
-    ? Object.entries(xr).map(([c, v]) => tile(`XIRR ${curSym(c)}`, pct(v, 2),
-        `<div class="sub-xs">номінальних, за фактом</div>`)).join("")
+  //
+  // Коли ставки ще немає, плитка НЕ порожніє: результат у гривнях чесний
+  // з першого дня, бо не ануалізований, а підпис називає, чого саме
+  // бракує річному числу й скільки лишилось. Слово «Результат», а не
+  // «Зароблено»: на молодому портфелі число законно відʼємне (папір
+  // куплений із премією, а купон ще не прийшов), і «зароблено −97 ₴» було
+  // б дрібною неправдою там, де все інше чесне. Доти тут стояв прочерк, підписаний
+  // «≥30 днів», і портфель із тримісячною історією читався як зламаний —
+  // поріг же міряє вік ГРОШЕЙ, і свіжий внесок відкидає його назад.
+  //
+  // Поріг береться з документа (min_days), а не вписаний тут: те саме
+  // число вже живе в бекенді, і друга копія розійшлася б із першою.
+  const gainOf = (c, r) =>
+    `${fmtCur(r.gain, c)} · ${pct(r.gain_pct, 2)} від вкладеного`;
+  const xirrTiles = Object.keys(rz).length
+    ? Object.entries(rz).map(([c, r]) => (xr[c] != null
+        ? tile(`XIRR ${curSym(c)} ${infoBtn("xirr")}`, pct(xr[c], 2),
+            `<div class="sub">${gainOf(c, r)}</div>
+             <div class="sub-xs">номінальних, за фактом</div>`)
+        : tile(`Результат ${curSym(c)} ${infoBtn("xirr")}`, fmtCur(r.gain, c),
+            `<div class="sub">${pct(r.gain_pct, 2)} від вкладеного, НЕ в річних</div>
+             <div class="sub-xs">річна ставка (XIRR) зʼявиться, коли гроші попрацюють
+               ${r.min_days} днів у середньому — зараз ${r.money_days}</div>`))).join("")
     : tile("XIRR", "—",
-        `<div class="sub">гроші мають попрацювати ≥30 днів у середньому</div>`);
+        `<div class="sub">потоків замало, щоб було що міряти</div>`);
   return `<div class="tiles flush">
     ${tile("Вкладено: ОВДП + фонди (грн-екв.)", fmtUAH(marketCostUAH(s0)),
       `${fundsCost(s0) > 0 ? `<div class="sub">з них ${fmtUAH(fundsCost(s0))} у фондах</div>` : ""}

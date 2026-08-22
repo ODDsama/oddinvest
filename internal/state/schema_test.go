@@ -65,6 +65,27 @@ func nested(t *testing.T, props map[string]any, key string) map[string]any {
 	return inner
 }
 
+// additional — властивості ЗНАЧЕННЯ мапи
+// (properties.<key>.additionalProperties.properties). Мапа по валютах —
+// такий самий рядок контракту, як елемент масиву, тільки під іншим
+// ключем схеми, і розійтися зі структурою може так само тихо.
+func additional(t *testing.T, props map[string]any, key string) map[string]any {
+	t.Helper()
+	obj, ok := props[key].(map[string]any)
+	if !ok {
+		t.Fatalf("у схемі немає мапи %q", key)
+	}
+	ap, ok := obj["additionalProperties"].(map[string]any)
+	if !ok {
+		t.Fatalf("у схемі немає %q.additionalProperties", key)
+	}
+	inner, ok := ap["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("у схемі немає %q.additionalProperties.properties", key)
+	}
+	return inner
+}
+
 // items — властивості ЕЛЕМЕНТА масиву (properties.<key>.items.properties).
 func items(t *testing.T, props map[string]any, key string) map[string]any {
 	t.Helper()
@@ -162,4 +183,7 @@ func TestSchemaMatchesNestedTypes(t *testing.T) {
 	} {
 		checkAgainst(t, c.key, c.typ, nested(t, props, c.key))
 	}
+	// Мапи: тип значення проти <ключ>.additionalProperties.properties.
+	checkAgainst(t, "realized[*]", reflect.TypeOf(RealizedRow{}),
+		additional(t, props, "realized"))
 }
