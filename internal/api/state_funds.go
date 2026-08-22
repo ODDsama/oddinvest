@@ -59,6 +59,14 @@ type fundsPhase struct {
 	// грн-екв. Вагою в зведеній по видах іде саме вона: фонд без жодної
 	// ставки у зважування не потрапляє, і в знаменнику йому теж не місце.
 	YieldWeight float64
+	// Split — скільки у фондовому числі зароблено, а скільки обіцяно.
+	// nil, коли всі фонди міряні однаково.
+	Split *state.YieldSplit
+	// Mix — той самий накопичувач, збережений цілим, щоб зведена по видах
+	// узяла фонди ДВОМА доданками (заробленою й обіцяною половинами), а не
+	// одним усередненим. Інакше портфельний розклад не міг би сказати, куди
+	// віднести фонди, які самі змішані.
+	Mix yieldMix
 	// Basis — ЗВІДКИ це число: та сама основа, що в рядку фонду
 	// («дивіденди + зміна ціни», «обіцяно фондом», «дивіденди після
 	// податку»), або «різні основи», коли рядки міряні по-різному.
@@ -78,6 +86,10 @@ type fundWeight struct {
 	NominalPct  float64
 	RealPct     float64
 	Basis       string
+	// Measured — це факт по прожитому, а не обіцянка фонду. Ставиться в
+	// тій самій гілці, що й Basis, і саме тому не виводиться з нього
+	// рядком: підпис писаний для людини й міняється разом із прозою.
+	Measured bool
 }
 
 // fundOwnRatePct — ВЛАСНА ставка фонду, складна річна: обіцянка, якщо
@@ -282,7 +294,9 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		// є першим до поправки, і виходило неможливе — реальна ВИЩА за
 		// номінальну.
 		var nominalPct float64
+		measured := false
 		if tot, ok := domain.FundTotalReturn(src.fundOps, src.fundPrices, fp.Fund, today); ok {
+			measured = true
 			row.TotalPct = tot
 			row.RealPct = round2(realYield(tot/100, cur, deval) * 100)
 			row.YieldBasis = "дивіденди + зміна ціни"
@@ -322,6 +336,9 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			// побудовою.
 			nominalPct = exp
 		} else if y > 0 {
+			// Виміряна дивідендна — теж ФАКТ: фонд ці гроші справді
+			// заплатив. Обіцянкою є лише гілка вище.
+			measured = true
 			row.RealPct = round2(realYield(y/100, cur, deval) * 100)
 			row.YieldBasis = "дивіденди після податку"
 			nominalPct = y
@@ -329,7 +346,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		out.Rows = append(out.Rows, row)
 		weights = append(weights, fundWeight{
 			MarketValue: row.MarketValue, NominalPct: nominalPct,
-			RealPct: row.RealPct, Basis: row.YieldBasis,
+			RealPct: row.RealPct, Basis: row.YieldBasis, Measured: measured,
 		})
 	}
 
@@ -339,34 +356,16 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 	//
 	// Дохідність фондів — зважена ринковою вартістю: більший фонд має
 	// важити більше, ніж дрібний із гучним відсотком.
-	var wSum, wReal, w float64
-	basis := ""
-	mixed := false
+	// Зважування й поділ на зароблене/обіцяне робить спільний yieldMix
+	// (state_bonds.go): правило «нуль не потрапляє у ваги» й правило «різні
+	// основи» однакові для фондів, НПФ і зведеної по видах, і три копії
+	// розійшлись би на першій правці.
+	var mix yieldMix
 	for _, k := range weights {
-		if k.MarketValue <= 0 {
-			continue
-		}
-		wSum += k.NominalPct * k.MarketValue
-		wReal += k.RealPct * k.MarketValue
-		w += k.MarketValue
-		switch {
-		case basis == "":
-			basis = k.Basis
-		case basis != k.Basis:
-			mixed = true
-		}
+		mix.add(k.NominalPct, k.RealPct, k.MarketValue, k.Measured, k.Basis)
 	}
-	if w > 0 {
-		out.YieldPct = math.Round(wSum/w*100) / 100
-		out.YieldRealPct = math.Round(wReal/w*100) / 100
-		out.YieldWeight = w
-		// Основа зведення має сенс, лише коли всі рядки міряні однаково.
-		// Інакше чесніше сказати, що вона змішана, ніж назвати основу
-		// найбільшого фонду й видати її за спільну.
-		out.Basis = basis
-		if mixed {
-			out.Basis = "різні основи"
-		}
-	}
+	out.YieldPct, out.YieldRealPct, out.YieldWeight, out.Basis = mix.result()
+	out.Split = mix.split()
+	out.Mix = mix
 	return out
 }

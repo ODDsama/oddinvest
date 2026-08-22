@@ -21,6 +21,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/state"
 
 	money "github.com/Rhymond/go-money"
 )
@@ -155,6 +156,115 @@ type yieldPart struct {
 	Real   float64 // вона ж після знецінення, %
 	Weight float64 // грн-екв., які ця ставка покриває
 	Basis  string  // звідки число: обіцянка чи вимір
+	// Measured — це ФАКТ по прожитому, а не ставка, зафіксована наперед.
+	//
+	// Прапорець, а не розбір Basis рядком, і це не педантизм. Basis писаний
+	// для людини й міняється при редагуванні прози; switch по його тексту
+	// мовчки перемкнув би вимір на обіцянку від однієї коми в підписі, і
+	// жоден тест цього б не спіймав. Ставиться там, де гілку й обрано, — у
+	// buildFunds їх три явні, у buildNPF measured уже повертає NPFNavReturn,
+	// а ОВДП і вклад обіцяні за визначенням.
+	Measured bool
+}
+
+// yieldMix — накопичувач зваженої дохідності з поділом на зароблене й
+// обіцяне.
+//
+// Одне означення на три місця: фонди (buildFunds), НПФ (buildNPF) і зведена
+// по видах (blendYield). Доти зважування було переписане в кожному, і
+// правило «нуль не потрапляє у ваги» доводилось тримати незміненим у трьох
+// копіях; поділ на половини зробив би їх шістьма.
+type yieldMix struct {
+	nom, real, weight    float64
+	mNom, mReal, mWeight float64 // зароблене
+	pNom, pReal, pWeight float64 // обіцяне
+	basis                string
+	mixed                bool
+}
+
+// add — один доданок. Нульова вага не входить нікуди: вид, у якого ставки
+// немає, мусить бути ВІДСУТНІМ, а не нулем — нуль читався б як «заробляє
+// нічого».
+func (m *yieldMix) add(nominal, real, weight float64, measured bool, basis string) {
+	if weight <= 0 {
+		return
+	}
+	m.nom += nominal * weight
+	m.real += real * weight
+	m.weight += weight
+	if measured {
+		m.mNom += nominal * weight
+		m.mReal += real * weight
+		m.mWeight += weight
+	} else {
+		m.pNom += nominal * weight
+		m.pReal += real * weight
+		m.pWeight += weight
+	}
+	switch {
+	case m.basis == "":
+		m.basis = basis
+	case basis != "" && basis != m.basis:
+		m.mixed = true
+	}
+}
+
+// result — зважені номінальна, реальна, база й основа.
+func (m *yieldMix) result() (nominal, real, base float64, basis string) {
+	if m.weight <= 0 {
+		return 0, 0, 0, ""
+	}
+	basis = m.basis
+	if m.mixed {
+		// Та сама відповідь, що у фондів: суміш обіцянки з виміром мусить
+		// називатись уголос. Назвати основу найбільшого доданка й видати її
+		// за спільну означало б збрехати саме там, де людина звіряється.
+		basis = "різні основи"
+	}
+	return round2(m.nom / m.weight), round2(m.real / m.weight), round2(m.weight), basis
+}
+
+// halves — той самий вид ДВОМА доданками для зведеної по видах: заробленою
+// половиною й обіцяною.
+//
+// Потрібне тому, що вид сам по собі буває змішаний: фонди дають і факт
+// (REIT платить дивіденди), і обіцянку (МілТех купили девʼять днів тому).
+// Віддати такий вид одним усередненим доданком означало б, що портфельний
+// розклад не зможе сказати, куди його віднести, — і половина числа
+// загубилась би саме там, де питання й ставлять.
+//
+// Порожня половина не віддається зовсім: нульова вага в add() однаково
+// відсіється, але пропустити її тут дешевше й зрозуміліше.
+func (m *yieldMix) halves(basis string) []yieldPart {
+	var out []yieldPart
+	if m.mWeight > 0 {
+		out = append(out, yieldPart{
+			Pct: m.mNom / m.mWeight, Real: m.mReal / m.mWeight,
+			Weight: m.mWeight, Basis: basis, Measured: true,
+		})
+	}
+	if m.pWeight > 0 {
+		out = append(out, yieldPart{
+			Pct: m.pNom / m.pWeight, Real: m.pReal / m.pWeight,
+			Weight: m.pWeight, Basis: basis,
+		})
+	}
+	return out
+}
+
+// split — розклад на дві половини, або nil, коли розкладати нема чого.
+//
+// Порожня половина означає, що все зароблене або все обіцяне; показувати
+// тоді розклад означало б повторити головне число й намалювати нуль там,
+// де насправді порожньо.
+func (m *yieldMix) split() *state.YieldSplit {
+	if m.mWeight <= 0 || m.pWeight <= 0 {
+		return nil
+	}
+	return &state.YieldSplit{
+		MeasuredRealPct: round2(m.mReal / m.mWeight), MeasuredUAH: round2(m.mWeight),
+		PromisedRealPct: round2(m.pReal / m.pWeight), PromisedUAH: round2(m.pWeight),
+	}
 }
 
 // blendYield — зведена дохідність ПО ВИДАХ інструмента.
@@ -192,38 +302,13 @@ type yieldPart struct {
 // інвестиції» числом про те, скільки з них не інвестовано. Скільки саме
 // грошей лишилось поза числом, видно з base: capital_uah мінус вона й є
 // та частина, що не заробляє.
-func blendYield(parts []yieldPart) (nominal, real, base float64, basis string) {
-	var wNom, wReal float64
-	mixed := false
+func blendYield(parts []yieldPart) (nominal, real, base float64, basis string, split *state.YieldSplit) {
+	var m yieldMix
 	for _, p := range parts {
-		if p.Weight <= 0 {
-			continue
-		}
-		wNom += p.Pct * p.Weight
-		wReal += p.Real * p.Weight
-		base += p.Weight
-		switch {
-		case basis == "":
-			basis = p.Basis
-		case p.Basis != "" && p.Basis != basis:
-			mixed = true
-		}
+		m.add(p.Pct, p.Real, p.Weight, p.Measured, p.Basis)
 	}
-	if base <= 0 {
-		return 0, 0, 0, ""
-	}
-	if mixed {
-		// Та сама відповідь, що у фондів: суміш обіцянки з виміром мусить
-		// називатись уголос. ОВДП, вклад і НПФ дають ОБІЦЯНКУ — ставка
-		// зафіксована договором чи графіком; фонд здебільшого дає ФАКТ по
-		// прожитому. Назвати основу найбільшого доданка й видати її за
-		// спільну означало б збрехати саме там, де людина звіряється.
-		basis = "різні основи"
-	}
-	return math.Round(wNom/base*100) / 100,
-		math.Round(wReal/base*100) / 100,
-		math.Round(base*100) / 100,
-		basis
+	nominal, real, base, basis = m.result()
+	return nominal, real, base, basis, m.split()
 }
 
 // kindYieldReal збирає реальні дохідності ЧОТИРЬОХ видів в одну мапу.

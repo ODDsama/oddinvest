@@ -717,6 +717,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// екрані читається як помилка.
 	var blendedYield, blendedYieldReal, blendedYieldBase float64
 	var blendedYieldBasis string
+	var blendedYieldSplit *state.YieldSplit
 
 	accounts := map[string]float64{}
 	accountUAHMinor := int64(0)
@@ -981,16 +982,22 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// суміш: у ОВДП і вкладу ставка зафіксована наперед, у фонда й НПФ вона
 	// може бути виміряною. blendYield зводить їх сам і каже «різні основи»,
 	// коли доданки міряні по-різному.
-	blendedYield, blendedYieldReal, blendedYieldBase, blendedYieldBasis = blendYield([]yieldPart{
+	// ОВДП і вклад ідуть ОДНИМ доданком кожен і завжди в обіцяну половину:
+	// YTM зафіксований до погашення, ставка вкладу — договірна. Фонди й НПФ
+	// ідуть ДВОМА, бо самі бувають змішані — REIT платить дивіденди
+	// (факт), а МілТех куплено девʼять днів тому (обіцянка), — і звести їх
+	// в один доданок означало б втратити рівно той поділ, заради якого все
+	// й робиться.
+	parts := []yieldPart{
 		{Pct: portfolioYield, Real: portfolioYieldReal,
 			Weight: bnd.YieldWeightUAH, Basis: "до погашення"},
-		{Pct: fundsYield, Real: fundsYieldReal,
-			Weight: fnd.YieldWeight, Basis: fnd.Basis},
 		{Pct: depositsYieldNominal, Real: depositsYieldReal,
 			Weight: depRealWeight, Basis: "ставка вкладу після податку"},
-		{Pct: npf.YieldPct, Real: npf.YieldRealPct,
-			Weight: npf.YieldWeight, Basis: npf.Basis},
-	})
+	}
+	parts = append(parts, fnd.Mix.halves(fnd.Basis)...)
+	parts = append(parts, npf.Mix.halves(npf.Basis)...)
+	blendedYield, blendedYieldReal, blendedYieldBase, blendedYieldBasis,
+		blendedYieldSplit = blendYield(parts)
 
 	// Проєкція, місячний план і віяло прогнозів (state_projection.go).
 	// Вхід виписаний полем за полем навмисно: проєкція залежить від усіх
@@ -1084,10 +1091,11 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		PortfolioYieldPct: portfolioYield, PortfolioYield: portfolioYieldByCur,
 		PortfolioYieldReal: portfolioYieldRealByCur,
 		FundsYieldPct:      fundsYield, FundsYieldRealPct: fundsYieldReal,
-		FundsYieldBasis: fnd.Basis,
+		FundsYieldBasis: fnd.Basis, FundsYieldSplit: fnd.Split,
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
 		BlendedYieldBasis: blendedYieldBasis, BlendedYieldBaseUAH: blendedYieldBase,
-		TotalReturn: totalReturn,
+		BlendedYieldSplit: blendedYieldSplit,
+		TotalReturn:       totalReturn,
 		KindYieldPct: kindYieldReal(portfolioYield, fundsYield,
 			depositsYieldNominal, npf.YieldPct),
 		KindYieldRealPct: kindYieldReal(portfolioYieldReal, fundsYieldReal,

@@ -695,8 +695,20 @@
   "funds_yield_real_pct": 5.82,
   "blended_yield_real_pct": 2.42,
   "funds_yield_basis": "різні основи",
+  "funds_yield_split": {
+    "measured_real_pct": -1.4,
+    "measured_uah": 5000,
+    "promised_real_pct": 12.63,
+    "promised_uah": 5300
+  },
   "blended_yield_basis": "різні основи",
   "blended_yield_base_uah": 372711.84,
+  "blended_yield_split": {
+    "measured_real_pct": 1.68,
+    "measured_uah": 7041.64,
+    "promised_real_pct": 2.43,
+    "promised_uah": 365670.2
+  },
   "kind_yield_real_pct": {
     "bonds": 0.68,
     "deposits": 5.5,

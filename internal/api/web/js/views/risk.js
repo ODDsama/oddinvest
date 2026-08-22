@@ -135,7 +135,31 @@ export function yieldMixCard(ctx) {
       рахується по ${fmtUAH(s.blended_yield_base_uah)} — це рядки з дохідністю.
       Решта капіталу або не заробляє за природою (подушка, готівка), або її ставка
       застосунку невідома (вклад без заданої ставки).</div>` : ""}
+    ${s.blended_yield_split ? `<div class="sub-xs muted">З них
+      <b>${fmtUAH(s.blended_yield_split.measured_uah)}</b> заробили
+      ${pct(s.blended_yield_split.measured_real_pct)} — це факт по прожитому;
+      решта <b>${fmtUAH(s.blended_yield_split.promised_uah)}</b> показує
+      ${pct(s.blended_yield_split.promised_real_pct)} ОБІЦЯНИХ: YTM облігацій
+      зафіксований до погашення, ставка вкладу договірна. Обіцянка не гірша за
+      факт — вона просто про інше.</div>` : ""}
   </div>`;
+}
+
+/** Рядок «зароблено X з N ₴ · обіцяно Y з M ₴».
+ *
+ *  Слова навмисно прості. Підпис «різні основи» поруч правильний і
+ *  незрозумілий саме тому, що написаний мовою моделі: власник питав «чому
+ *  тут так мало», дивлячись на 6.5%, і відповіді на екрані не було. Тепер
+ *  видно, що 1.7% з тих грошей зароблено, а 14.2% лише обіцяно.
+ *
+ *  Відсотки тут РЕАЛЬНІ — ті самі, що головне число плитки, а не
+ *  номінальні з рядка над ними. Порожньо, коли розкладати нема чого:
+ *  бекенд віддає split лише за наявності обох половин. */
+function splitNote(sp) {
+  if (!sp) return "";
+  return `<div class="sub-xs muted">зароблено ${pct(sp.measured_real_pct)} з
+    ${fmtUAH(sp.measured_uah)} · обіцяно ${pct(sp.promised_real_pct)} з
+    ${fmtUAH(sp.promised_uah)}</div>`;
 }
 
 // Плитки дохідностей. Головне число всюди РЕАЛЬНЕ — те саме, що в
@@ -220,7 +244,8 @@ export function yieldTilesHTML(ctx) {
       pct(pyReal[c] != null ? pyReal[c] : v),
       yieldNote(v, "до погашення, від сплаченої ціни"))).join("")}
     ${s0.funds_yield_pct > 0 ? tile("Фонди", pct(s0.funds_yield_real_pct),
-      yieldNote(s0.funds_yield_pct, s0.funds_yield_basis || "")) : ""}
+      `${yieldNote(s0.funds_yield_pct, s0.funds_yield_basis || "")}
+       ${splitNote(s0.funds_yield_split)}`) : ""}
     ${s0.blended_yield_pct > 0 ? tile(`Дохідність портфеля ${infoBtn("yields")}`,
       pct(s0.blended_yield_real_pct),
       // Підпис каже ДВІ речі, і обидві раніше були неправдою. Склад:

@@ -64,6 +64,10 @@ type npfPhase struct {
 	// «різні основи», коли рахунки міряні по-різному, — та сама відповідь,
 	// що у фондів, і з тієї ж причини.
 	Basis string
+	// Mix — накопичувач цілим, щоб зведена по видах узяла НПФ заробленою й
+	// обіцяною половинами окремо. Виміряне зростання ЧВОПА — факт, обіцянка
+	// з довідника — ні, і рахунки цілком можуть бути різні.
+	Mix yieldMix
 }
 
 // buildNPF зводить рахунки в рядки картки.
@@ -77,8 +81,7 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		Accum:       map[string][]domain.Accum{},
 	}
 	// Накопичувачі зведеної ставки: сума «ставка × вартість» і сама вага.
-	var realWeighted, nomWeighted, realWeight float64
-	basisMixed := false
+	var mix yieldMix
 	positions := domain.NPFPositions(src.npfAccounts, src.npfOps)
 	// Порядок — за довідником, який уже відсортований за назвою. Обхід мапи
 	// позицій дав би документ, що змінюється між викликами без причини, а на
@@ -128,19 +131,15 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		// Вагою йде ВАРТІСТЬ рахунку, і зважуємо тут, усередині циклу, а не
 		// сумуємо готові рядки потім: знецінення торкається лише гривневих
 		// рахунків, тож поділ уже змішаного числа занизив би валютні.
-		realWeighted += realPct * valueUAH
 		// Номінальний двійник — це net, тобто ставка ПІСЛЯ податку на
 		// виплату, але ДО знецінення. Саме вона й є «скільки одиниць
 		// додасться»: податок держава візьме напевно, а знецінення —
 		// припущення з налаштувань.
-		nomWeighted += net * valueUAH
-		realWeight += valueUAH
-		switch {
-		case out.Basis == "":
-			out.Basis = basis
-		case basis != out.Basis:
-			basisMixed = true
-		}
+		//
+		// measured приходить від NPFNavReturn — тобто «дві точки ЧВОПА за
+		// пів року є, зростання виміряне». Прапорець береться звідти, а не
+		// зі звіряння basis із рядком: підпис писаний для людини.
+		mix.add(net, realPct, valueUAH, measured, basis)
 
 		payoutM, _ := domain.NPFPayoutMonths(acc)
 		contribDue := domain.NPFContribDue(acc, src.npfOps, today)
@@ -209,14 +208,8 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 			})
 		}
 	}
-	if realWeight > 0 {
-		out.YieldRealPct = round2(realWeighted / realWeight)
-		out.YieldPct = round2(nomWeighted / realWeight)
-		out.YieldWeight = realWeight
-		if basisMixed {
-			out.Basis = "різні основи"
-		}
-	}
+	out.YieldPct, out.YieldRealPct, out.YieldWeight, out.Basis = mix.result()
+	out.Mix = mix
 	return out
 }
 
