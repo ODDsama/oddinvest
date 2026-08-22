@@ -495,6 +495,11 @@
       "type": "number",
       "description": "Зведена дохідність після знецінення (адитивне поле)"
     },
+    "kind_yield_pct": {
+      "type": "object",
+      "description": "Номінальні двійники kind_yield_real_pct: bonds | funds | deposits | npf (адитивне поле)",
+      "additionalProperties": { "type": "number" }
+    },
     "kind_yield_real_pct": {
       "type": "object",
       "description": "Середня реальна дохідність по ВИДУ інструмента, зважена вкладеним: bonds | funds | deposits | npf. Вид, якого в портфелі немає, ключа не має — нуль означав би «заробляє нічого», а не «немає». Резерву тут немає за побудовою: він не заробляє (адитивне поле)",

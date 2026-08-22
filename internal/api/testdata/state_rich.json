@@ -688,12 +688,18 @@
   "blended_yield_real_pct": 2.42,
   "funds_yield_basis": "різні основи",
   "blended_yield_basis": "різні основи",
-  "blended_yield_base_uah": 372751.84,
+  "blended_yield_base_uah": 372711.84,
   "kind_yield_real_pct": {
     "bonds": 0.68,
     "deposits": 5.5,
     "funds": 5.82,
     "npf": 9.24
+  },
+  "kind_yield_pct": {
+    "bonds": 1.03,
+    "deposits": 12.88,
+    "funds": 13.22,
+    "npf": 16.89
   },
   "projection": [
     {

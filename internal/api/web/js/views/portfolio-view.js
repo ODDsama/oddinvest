@@ -28,7 +28,7 @@ import {
   positionsTableHTML, loadPositionsData, wirePositionRows,
 } from "./positions.js";
 import {
-  yieldTilesHTML, shareTilesHTML, brokerDonutHTML, currencyChartHTML,
+  yieldTilesHTML, yieldMixCard, shareTilesHTML, brokerDonutHTML, currencyChartHTML,
   rebalanceCard, kindMixCard, concentrationCard, ladderTableHTML,
   liquidityCard, rateRiskCard, benchmarkCard, marketCurveCard,
 } from "./risk.js";
@@ -40,6 +40,7 @@ export async function positions(ctx, main) {
   const d = await loadPositionsData(ctx);
   main.innerHTML = `
     ${yieldTilesHTML(ctx)}
+    ${yieldMixCard(ctx)}
     ${positionsTableHTML(ctx, d.positions, d.lots, d.sales, d.deposits)}`;
   wirePositionRows(ctx, main, d);
 }

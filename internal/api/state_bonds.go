@@ -58,10 +58,23 @@ type bondsPhase struct {
 	YieldRealPct   float64
 	YieldByCur     map[string]float64
 	YieldRealByCur map[string]float64
-	// YieldWeightUAH — грн-екв. собівартості лотів, для яких YTM узагалі
-	// порахувався. Саме ця сума, а не номінал і не капітал, іде вагою в
-	// зведену дохідність: ставка зважена нею всередині, і брати назовні
-	// іншу означало б приписати частину грошей ставці, яка їх не описує.
+	// YieldWeightUAH — грн-екв. НОМІНАЛУ лотів, для яких YTM узагалі
+	// порахувався. Це вага облігаційної половини в зведеній дохідності.
+	//
+	// Номінал, а не собівартість, і це рішення далося не одразу.
+	// Собівартість здається правильнішою: сама ставка зважена саме нею
+	// (WeightedYTM: «вагою беремо саме СОБІВАРТІСТЬ»), і гроші, що
+	// працюють, — це сплачене, а не номінал. Але зважена собівартістю база
+	// НЕ ЗВОДИТЬСЯ З КАПІТАЛОМ: state.Capital міряє ОВДП номіналом, тож
+	// сума «база + подушка + готівка» розходилась із capital_uah на премію
+	// чи дисконт — на живих даних на 1 376 ₴, і взятись їм було нізвідки.
+	//
+	// А зводитись вона мусить, бо в цьому весь сенс числа: твердження
+	// «портфель заробляє стільки» перевіряється рівно тим, що видно, яка
+	// гривня всередині, а яка ні. Похибка ваги на премії коштує 0.06 в.п.;
+	// головне число, чиї частини не сходяться з капіталом, коштує довіри до
+	// всієї картки. Обмеження «лише лоти з порахованим YTM» лишається: це
+	// та сама межа, що у вкладу без ставки — невідома ставка не має ваги.
 	YieldWeightUAH float64
 }
 
@@ -76,7 +89,7 @@ func buildBonds(hold domain.Holdings, pays []domain.Payment,
 		YieldRealByCur:  map[string]float64{},
 	}
 	ytmLotsByCur := map[string][]domain.YTMLot{}
-	var ytmWeightUAH, ytmWeightedUAH, ytmWeightedRealUAH float64
+	var ytmWeightUAH, ytmWeightedUAH, ytmWeightedRealUAH, ytmNominalUAH float64
 	for _, l := range hold.Lots {
 		if !l.Held() {
 			continue
@@ -94,6 +107,9 @@ func buildBonds(hold domain.Holdings, pays []domain.Payment,
 		// Для зведеної цифри вагу переводимо в гривню, щоб валюти
 		// складались коректно, а самі ставки лишались нативними.
 		if y, ok := domain.WeightedYTM([]domain.YTMLot{lot}, pays); ok {
+			if n, err := fx.ToUAH(money.New(b.Nominal.Amount()*q, cur), rates); err == nil {
+				ytmNominalUAH += float64(n.Amount())
+			}
 			if w, err := fx.ToUAH(money.New(cost.Amount()*q, cur), rates); err == nil {
 				ytmWeightUAH += float64(w.Amount())
 				ytmWeightedUAH += float64(w.Amount()) * y
@@ -108,7 +124,7 @@ func buildBonds(hold domain.Holdings, pays []domain.Payment,
 	if ytmWeightUAH > 0 {
 		out.YieldPct = math.Round(ytmWeightedUAH/ytmWeightUAH*100) / 100
 		out.YieldRealPct = math.Round(ytmWeightedRealUAH/ytmWeightUAH*100) / 100
-		out.YieldWeightUAH = ytmWeightUAH / 100
+		out.YieldWeightUAH = ytmNominalUAH / 100
 	}
 	for cur, ls := range ytmLotsByCur {
 		if y, ok := domain.WeightedYTM(ls, pays); ok {
@@ -223,6 +239,10 @@ func blendYield(parts []yieldPart) (nominal, real, base float64, basis string) {
 // чесна відповідь — прочерк. Мапа з `omitempty` дає це задарма.
 //
 // Резерву тут немає за побудовою — див. коментар до KindYieldRealPct.
+//
+// Одна функція на обидві мапи — реальну й номінальну: правило «нуль не
+// потрапляє» однакове для них, і друга копія розійшлася б із першою рівно
+// тоді, коли хтось виправить одну.
 func kindYieldReal(bonds, funds, deposits, npf float64) map[string]float64 {
 	out := map[string]float64{}
 	for k, v := range map[string]float64{

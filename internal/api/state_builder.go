@@ -1072,6 +1072,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		FundsYieldBasis: fnd.Basis,
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
 		BlendedYieldBasis: blendedYieldBasis, BlendedYieldBaseUAH: blendedYieldBase,
+		KindYieldPct: kindYieldReal(portfolioYield, fundsYield,
+			depositsYieldNominal, npf.YieldPct),
 		KindYieldRealPct: kindYieldReal(portfolioYieldReal, fundsYieldReal,
 			depositsYieldReal, npf.YieldRealPct),
 

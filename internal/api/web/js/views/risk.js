@@ -8,7 +8,7 @@ import {
 import { infoBtn } from "../info.js";
 import { opsGrid } from "../grid.js";
 import { svgBars, svgGrouped, svgDonut, fluid } from "../charts.js";
-import { tile, yieldNote, needsSetting, empty, legend } from "../components.js";
+import { tile, yieldNote, yieldPair, needsSetting, empty, legend } from "../components.js";
 import { routeFor } from "../routes.js";
 import { disclosure } from "../disclosure.js";
 import { KIND_GROUP } from "../constants.js";
@@ -65,6 +65,78 @@ export function currencyChartHTML(ctx) {
     ])}</div>`;
 }
 
+
+
+/** Картка «з чого складається дохідність портфеля».
+ *
+ *  Навіщо вона є. Плитка над нею показує ОДНЕ число й каже, по скількох
+ *  грошах воно пораховане, — але не каже, чиї це гроші й чому решта поза
+ *  ним. Доти відповіді не було ніде: чотири дохідності по видах лежать у
+ *  kind_yield_real_pct від фази 9, а єдиний екран, що їх читав, показував
+ *  ПО ОДНІЙ на сторінку воронки. Щоб побачити чотири числа, треба було
+ *  обійти чотири сторінки, і поставити їх поруч не давав жоден.
+ *
+ *  Рядки покривають УВЕСЬ капітал, а не лише те, що заробляє. Саме в цьому
+ *  сенс: сума стовпця «грн-екв.» дорівнює capital_uah за побудовою
+ *  (state/capital.go), тож видно кожну гривню — і ту, що працює, і ту, що
+ *  ні. Твердження «зважено по інвестованому» з обіцянки підпису стає
+ *  рядком, який можна перевірити очима.
+ *
+ *  Резерв і готівка стоять із прочерком, а не з нулем. Нуль читався б як
+ *  «заробляє нічого», тобто як вимір; прочерк каже «дохідності немає за
+ *  природою» — та сама межа, що в kind_yield_real_pct, де резерву немає й
+ *  бути не може.
+ *
+ *  Нічого не рахується тут: усі числа приходять готовими зі стану. Друга
+ *  копія зважування в JS — рівно та помилка, проти якої існує
+ *  state/capital.go. */
+export function yieldMixCard(ctx) {
+  const s = ctx.summary || {};
+  const real = s.kind_yield_real_pct || {}, nom = s.kind_yield_pct || {};
+  const MONEY = {
+    bonds: s.nominal_uah_eq, funds: s.funds_uah,
+    deposits: s.deposits_uah, npf: s.npf_uah,
+  };
+  const rows = [];
+  for (const k of ["bonds", "funds", "deposits", "npf"]) {
+    const money = MONEY[k] || 0;
+    if (!money) continue;
+    rows.push({ id: k, name: KIND_GROUP[k], money, real: real[k], nominal: nom[k] });
+  }
+  // Те, що поза числом, — окремими рядками й останніми: спершу те, що
+  // працює, потім ціна спокою.
+  if (s.reserve_uah > 0) {
+    rows.push({ id: "reserve", name: KIND_GROUP.reserve, money: s.reserve_uah, idle: true });
+  }
+  if (s.account_uah > 0) {
+    rows.push({ id: "cash", name: "Готівка в брокерів", money: s.account_uah, idle: true });
+  }
+  if (!rows.length) return "";
+  const total = rows.reduce((a, r) => a + r.money, 0);
+  return `<div class="card">
+    <h2 class="h-row">З чого складається дохідність ${infoBtn("yields")}</h2>
+    <div class="note">Кожен рядок — гроші й те, що вони приносять. Сума стовпця
+      з грішми дорівнює капіталу, тож видно й ту частину, яка не заробляє.</div>
+    ${opsGrid({
+    cols: [
+      { key: "name", label: "Вид", cell: (r) => esc(r.name) },
+      { key: "money", label: "грн-екв.", num: true, cell: (r) => fmtUAH(r.money) },
+      { key: "share", label: "Частка", num: true, prio: 3,
+        cell: (r) => pct(total > 0 ? (r.money / total) * 100 : 0) },
+      { key: "yield", label: "Дохідність", num: true,
+        cell: (r) => (r.idle
+          ? `<span class="muted">—</span>`
+          : (r.real != null ? yieldPair(r.real, r.nominal) : `<span class="muted">—</span>`)) },
+    ],
+    rows,
+    caption: "Склад дохідності: вид, гроші, частка капіталу, дохідність",
+  })}
+    ${s.blended_yield_base_uah > 0 ? `<div class="sub-xs muted">Зведена дохідність
+      рахується по ${fmtUAH(s.blended_yield_base_uah)} — це рядки з дохідністю.
+      Решта капіталу або не заробляє за природою (подушка, готівка), або її ставка
+      застосунку невідома (вклад без заданої ставки).</div>` : ""}
+  </div>`;
+}
 
 // Плитки дохідностей. Головне число всюди РЕАЛЬНЕ — те саме, що в
 // таблиці позицій нижче; номінальне лишається під ним дрібним.
@@ -123,7 +195,20 @@ export function yieldTilesHTML(ctx) {
       yieldNote(s0.funds_yield_pct, s0.funds_yield_basis || "")) : ""}
     ${s0.blended_yield_pct > 0 ? tile(`Дохідність портфеля ${infoBtn("yields")}`,
       pct(s0.blended_yield_real_pct),
-      yieldNote(s0.blended_yield_pct, "ОВДП і фонди разом, зважено вкладеним")) : ""}
+      // Підпис каже ДВІ речі, і обидві раніше були неправдою. Склад:
+      // доти в число входили лише ОВДП і фонди, хоч зветься воно
+      // портфелем. І ваги: стояло «зважено вкладеним», а вкладеним не
+      // була жодна з двох ваг — ОВДП важили номіналом, фонди ринковою
+      // вартістю.
+      //
+      // Скільки саме грошей число покриває, каже рядок під ним: без
+      // нього «по інвестованому» лишається обіцянкою підпису, а з ним
+      // видно, що поза числом — подушка й готівка, а не забутий вид.
+      `${yieldNote(s0.blended_yield_pct, s0.blended_yield_basis || "")}
+       ${s0.blended_yield_base_uah > 0
+         ? `<div class="sub-xs muted">по ${fmtUAH(s0.blended_yield_base_uah)} з
+             ${fmtUAH(s0.capital_uah)} капіталу · подушка й готівка не заробляють</div>`
+         : ""}`) : ""}
     ${xirrTiles}
   </div>`;
 }
