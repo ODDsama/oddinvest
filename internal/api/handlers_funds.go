@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -112,11 +113,22 @@ func (s *Server) handleAddFundOp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// Рішенням вважаємо лише КУПІВЛЮ: продаж і дивіденд помічник не
+	// радить, тож питання «чи послухався» до них не ставиться. Виписка
+	// сюди не заходить — вона пише через сховище (handlers_import.go), і
+	// саме тому пачка операцій заднім числом не засмічує журнал.
+	now := time.Now()
+	var snap decisionSnapshot
+	if op.Kind == domain.FundBuy {
+		snap = s.takeDecisionSnapshot(r.Context(), now, store.BuyFund, op.Fund)
+	}
 	id, err := s.st.AddFundOp(r.Context(), op)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.saveDecision(r.Context(), snap, now, store.BuyFund, op.Fund,
+		money.New(op.Amount, op.Currency), id)
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }

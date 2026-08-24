@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -82,10 +84,17 @@ func (s *Server) handleAddLot(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// Знімок рейтингу — ДО запису: після нього частки вже зрушені, і
+	// папір, що стояв першим, опинився б п'ятим (шапка decisions.go).
+	now := time.Now()
+	snap := s.takeDecisionSnapshot(r.Context(), now, store.BuyBond, lot.ISIN)
 	id, err := s.st.AddLot(r.Context(), lot)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
+	}
+	if cost, cerr := domain.LotCost(lot); cerr == nil {
+		s.saveDecision(r.Context(), snap, now, store.BuyBond, lot.ISIN, cost, id)
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})

@@ -46,6 +46,12 @@ type Backup struct {
 	// цей папір у березні» не виводиться ні з операцій, ні з потоків, бо
 	// операції ще немає, а потік описує гроші, а не інструмент.
 	PlanBuys []BackupPlanBuy `json:"plan_buys,omitempty"`
+	// Decisions (0035) — журнал рішень: що радив помічник у день купівлі.
+	// Найневідновніше з усього тут: рейтинг перераховується щодня з
+	// поточного довідника, курсів і часток, тож учорашній не відтворити
+	// НІЯК — не «важко», а неможливо в принципі. Без цього поля restore
+	// стер би саме ту єдину копію, задля якої таблиця й існує.
+	Decisions []BackupDecision `json:"decisions,omitempty"`
 	// Журнал ревізій потоків (0026). Без нього відновлення тихо стирало б
 	// історію правок — а на ній стоїть увесь сенс картки «План проти
 	// факту»: план за минулий місяць читається з журналу, і без журналу він
@@ -82,11 +88,16 @@ type Backup struct {
 	// Довідники. omitempty з тієї ж причини, що й усе вище: бекапи, зроблені
 	// до їхньої появи, читаються без цих полів так само, як раніше — фонди й
 	// брокери відновляться з назв в операціях, рівно як доти.
-	Funds         []BackupFund      `json:"funds,omitempty"`
-	Brokers       []BackupBroker    `json:"brokers,omitempty"`
-	Settings      map[string]string `json:"settings"`
-	PaymentStatus []BackupPayStatus `json:"payment_status"`
-	Snapshots     []Snapshot        `json:"snapshots"`
+	// ImportProfiles (0036) — розкладка колонок чужої виписки. Так само
+	// невідновна: індекси колонок і словник операцій людина вивіряє по
+	// власному файлу руками, і з жодних операцій їх не вивести. Без цього
+	// поля restore тихо повертав би імпорт до однієї-єдиної виписки.
+	ImportProfiles []BackupImportProfile `json:"import_profiles,omitempty"`
+	Funds          []BackupFund          `json:"funds,omitempty"`
+	Brokers        []BackupBroker        `json:"brokers,omitempty"`
+	Settings       map[string]string     `json:"settings"`
+	PaymentStatus  []BackupPayStatus     `json:"payment_status"`
+	Snapshots      []Snapshot            `json:"snapshots"`
 }
 
 // BackupFund — рядок довідника фондів (refs.go: Fund).
@@ -313,6 +324,42 @@ type BackupPlanBuy struct {
 	Months    int64  `json:"months"`
 	IsReserve bool   `json:"is_reserve"`
 	Note      string `json:"note"`
+}
+
+// BackupImportProfile — профіль імпорту (0036). Дзеркалить
+// store.ImportProfile колонка в колонку.
+type BackupImportProfile struct {
+	Name   string `json:"name"`
+	Format string `json:"format"`
+	Header int    `json:"header"`
+	Date   int    `json:"col_date"`
+	Op     int    `json:"col_op"`
+	Ref    int    `json:"col_ref"`
+	Qty    int    `json:"col_qty"`
+	Debit  int    `json:"col_debit"`
+	Credit int    `json:"col_credit"`
+	Ops    string `json:"ops"`
+	Note   string `json:"note"`
+}
+
+// BackupDecision — рядок журналу рішень (0035). Дзеркалить
+// store.Decision колонка в колонку: бекап цієї таблиці — дамп, а не
+// зведення. «Дохідність за фактом» сюди не потрапляє й не мусить — вона
+// рахується на льоту з лота й виплат (handlers_decisions.go).
+type BackupDecision struct {
+	ID         int64   `json:"id"`
+	MadeOn     string  `json:"made_on"`
+	Kind       string  `json:"kind"`
+	Ref        string  `json:"ref"`
+	Currency   string  `json:"currency"`
+	Amount     int64   `json:"amount"`
+	RealPct    float64 `json:"real_pct"`
+	RankPos    int64   `json:"rank_pos"`
+	TopLabel   string  `json:"top_label"`
+	TopRealPct float64 `json:"top_real_pct"`
+	RankMode   string  `json:"rank_mode"`
+	OpID       int64   `json:"op_id"`
+	Note       string  `json:"note"`
 }
 
 // BackupDepositTopup — поповнення вкладу. Без нього відновлення втратило б
@@ -661,6 +708,34 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT id,made_on,kind,ref,currency,amount,real_pct,
+		rank_pos,top_label,top_real_pct,rank_mode,op_id,note FROM decisions ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupDecision
+			if err := scan(&r.ID, &r.MadeOn, &r.Kind, &r.Ref, &r.Currency, &r.Amount,
+				&r.RealPct, &r.RankPos, &r.TopLabel, &r.TopRealPct, &r.RankMode,
+				&r.OpID, &r.Note); err != nil {
+				return err
+			}
+			b.Decisions = append(b.Decisions, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT name,format,header,col_date,col_op,col_ref,
+		col_qty,col_debit,col_credit,ops,note FROM import_profiles
+		ORDER BY name COLLATE NOCASE`,
+		func(scan func(...any) error) error {
+			var r BackupImportProfile
+			if err := scan(&r.Name, &r.Format, &r.Header, &r.Date, &r.Op, &r.Ref,
+				&r.Qty, &r.Debit, &r.Credit, &r.Ops, &r.Note); err != nil {
+				return err
+			}
+			b.ImportProfiles = append(b.ImportProfiles, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	// Довідники — цілком, а не лише тими рядками, які згадані в операціях.
 	// Порядок за назвою, як у ListFunds/ListBrokers: дамп того самого стану
 	// має бути тим самим файлом.
@@ -779,7 +854,8 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
 		"fund_prices", "deposit_topups", "term_deposits", "reserve_ops", "npf_ops", "npf_nav",
 		"npf_accounts", "plan_flows", "plan_flow_revisions",
-		"plan_receipts", "plan_actions", "plan_buys", "settings", "payment_status", "snapshots",
+		"plan_receipts", "plan_actions", "plan_buys", "decisions", "import_profiles",
+		"settings", "payment_status", "snapshots",
 		"funds", "brokers"} {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
@@ -1064,6 +1140,26 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			p.ID, p.Kind, p.Ref, p.Qty, p.Amount, p.UnitPrice, p.Currency, p.Broker,
 			p.BuyDate, p.RateBP, p.Months, p.IsReserve, p.Note); err != nil {
 			return fmt.Errorf("планована купівля %d: %w", p.ID, err)
+		}
+	}
+	for _, d := range b.Decisions {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO decisions (id,made_on,kind,ref,currency,amount,real_pct,
+			 rank_pos,top_label,top_real_pct,rank_mode,op_id,note)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			d.ID, d.MadeOn, d.Kind, d.Ref, d.Currency, d.Amount, d.RealPct,
+			d.RankPos, d.TopLabel, d.TopRealPct, d.RankMode, d.OpID, d.Note); err != nil {
+			return fmt.Errorf("рішення %d: %w", d.ID, err)
+		}
+	}
+	for _, p := range b.ImportProfiles {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO import_profiles (name,format,header,col_date,col_op,col_ref,
+			 col_qty,col_debit,col_credit,ops,note)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			p.Name, p.Format, p.Header, p.Date, p.Op, p.Ref, p.Qty, p.Debit,
+			p.Credit, p.Ops, p.Note); err != nil {
+			return fmt.Errorf("профіль імпорту %q: %w", p.Name, err)
 		}
 	}
 	for k, v := range b.Settings {

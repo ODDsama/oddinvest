@@ -263,6 +263,40 @@
       "vs_portfolio_pp": -0.4
     }
   ],
+  "fx_window": [
+    {
+      "currency": "USD",
+      "years": 1,
+      "points": 12,
+      "percentile": 91.67,
+      "now_rate": 44.1234,
+      "median_rate": 43.2,
+      "min_rate": 41.8,
+      "max_rate": 44.5,
+      "vs_median_native": -42.19
+    },
+    {
+      "currency": "USD",
+      "years": 3,
+      "points": 36,
+      "percentile": 78.5,
+      "now_rate": 44.1234,
+      "median_rate": 40.15,
+      "min_rate": 36.57,
+      "max_rate": 44.5,
+      "vs_median_native": -178.4
+    },
+    {
+      "currency": "USD",
+      "years": 10,
+      "points": 120,
+      "percentile": 96.25,
+      "now_rate": 44.1234,
+      "median_rate": 27.9,
+      "min_rate": 24.6,
+      "max_rate": 44.5
+    }
+  ],
   "accrued_uah": 812.33,
   "nbu_refreshed_at": "2026-07-15T06:10:00Z",
   "settings": {

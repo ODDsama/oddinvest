@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -373,11 +374,17 @@ func (s *Server) handleAddTermDeposit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// Помічник називає вклад банком — тими самими словами, що й сам
+	// вклад. Знімок до запису, з тієї ж причини, що й у лоті.
+	now := time.Now()
+	snap := s.takeDecisionSnapshot(r.Context(), now, store.BuyDeposit, d.Bank)
 	id, err := s.st.AddTermDeposit(r.Context(), d)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	s.saveDecision(r.Context(), snap, now, store.BuyDeposit, d.Bank,
+		money.New(d.Principal, d.Currency), id)
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }

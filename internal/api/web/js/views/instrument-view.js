@@ -47,6 +47,7 @@ import {
 } from "./money-cards.js";
 import { reinvestHTML, reserveFillHTML, wireReinvest, loadReinvest } from "./now-view.js";
 import { kindTasksHTML } from "./tasks.js";
+import { switchHTML, loadSwitch, wireSwitch } from "./switch.js";
 import { stepRailHTML, stepper, wireSteps } from "./steps.js";
 
 // Вид інструмента живе ТУТ, а не в nav.js: дерево навігації не має знати
@@ -177,7 +178,12 @@ function writeHTML(ctx, spec, d) {
 function funnelPage(sub) {
   const spec = KINDS[sub];
   return async function render(ctx, main) {
-    const [d] = await Promise.all([loadPositionsData(ctx), loadReinvest(ctx)]);
+    // Пороги перекладання — лише ОВДП: у сертифіката немає ані чистої
+    // ціни, ані НКД, а вклад розривається за договором, не за ринком
+    // (аргумент цілком — у шапці domain/switch.go).
+    const loaders = [loadPositionsData(ctx), loadReinvest(ctx)];
+    if (spec.kind === "bond") loaders.push(loadSwitch(ctx));
+    const [d] = await Promise.all(loaders);
     const path = `instr/${sub}`;
     const keys = ["state", "mine", "next", "act", "write", "terms"];
     const step = stepper(keys);
@@ -198,7 +204,8 @@ function funnelPage(sub) {
       ${step("state", kindTilesHTML(ctx, spec, itemsOfKind(d, spec)))}
       ${step("mine", table + (spec.kind === "deposit" ? closedDepositsHTML(ctx, d.deposits) : ""))}
       ${step("next", nextForKindHTML(ctx, spec))}
-      ${step("act", act + `<div class="card"><div class="sub">Порівняти з іншими видами —
+      ${step("act", act + (spec.kind === "bond" ? switchHTML() : "")
+        + `<div class="card"><div class="sub">Порівняти з іншими видами —
         <a class="lnk" href="${routeFor("now/buy")}">у «Що купити»</a>: там ОВДП, фонд, вклад і
         НПФ стоять поруч і міряні однією реальною дохідністю.</div></div>`)}
       ${step("write", writeHTML(ctx, spec, d))}
@@ -206,6 +213,7 @@ function funnelPage(sub) {
 
     wirePositionRows(ctx, main, d);
     wireReinvest(ctx, main);
+    if (spec.kind === "bond") wireSwitch(ctx, main);
     // Кнопки «+» проводить сама wireReinvest вище: їх малює reinvestHTML,
     // тобто той самий модуль. Доти слухач жив у кошику й кликався окремим
     // рядком ЩЕ Й тут — а на сторінці кошика, де жодного «+» немає, він не

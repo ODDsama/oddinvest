@@ -20,7 +20,8 @@ import { empty } from "../components.js";
 import { opsGrid, rowActions, actionsCol } from "../grid.js";
 import {
   money as moneyField, text as textField, date as dateField,
-  note as noteField, formHTML,
+  note as noteField, num as numField, textarea as textareaField,
+  selectOf, formHTML,
 } from "../fields.js";
 import { refSelect, refValue } from "../refs.js";
 import { routeFor } from "../routes.js";
@@ -301,6 +302,67 @@ export function brokerBalancesHTML(ctx) {
     ${rows}</div>`;
 }
 
+// ---------- ВАЛЮТНЕ ВІКНО ----------
+
+/** Де стоїть сьогоднішній курс серед власної історії — три вікна на валюту.
+ *
+ *  Стоїть біля форми конвертації, і це єдине її призначення: питання
+ *  «конвертувати зараз чи почекати» ставлять саме тут, а десять років
+ *  курсів НБУ лежали в базі, не відповідаючи на нього жодного разу.
+ *
+ *  ПОРАДИ ТУТ НЕМАЄ Й НЕ БУДЕ. Ані підсвітки «дорого», ані порога, за яким
+ *  щось червоніє: гривня падає стрибками, і найвищий за десять років курс
+ *  був найвищим рівно до наступного тижня. Довгий аргумент — у шапці
+ *  internal/domain/fxwindow.go; тут він повторений коротко, бо саме на
+ *  екрані спокуса дописати колір найбільша.
+ *
+ *  Жодної арифметики (CLAUDE.md §5): перцентиль, медіану й різницю до неї
+ *  рахує buildFXWindow, картка їх лише малює. */
+export function fxWindowHTML(ctx) {
+  const rows = (ctx.summary || {}).fx_window || [];
+  if (!rows.length) return "";
+  const byCur = new Map();
+  for (const r of rows) {
+    if (!byCur.has(r.currency)) byCur.set(r.currency, []);
+    byCur.get(r.currency).push(r);
+  }
+  const blocks = [...byCur.entries()].map(([c, list]) => {
+    const sym = curSym(c);
+    return `<div class="mb-lg">
+      <div class="mb-xs"><b>${esc(c)}</b> · зараз ${fmtRate(list[0].now_rate)} ₴</div>
+      ${opsGrid({
+    cols: [
+      { key: "years", label: "Вікно",
+        cell: (r) => `${r.years} ${plural(r.years, "рік", "роки", "років")}` },
+      { key: "pct", label: "Перцентиль", num: true,
+        cell: (r) => pct(r.percentile, 0) },
+      { key: "median", label: "Медіана", num: true,
+        cell: (r) => fmtRate(r.median_rate) },
+      { key: "range", label: "Розмах", num: true,
+        cell: (r) => `${fmtRate(r.min_rate)} – ${fmtRate(r.max_rate)}` },
+      { key: "vs", label: "Дефіцит дає", num: true, cls: "muted",
+        cell: (r) => (r.vs_median_native
+          ? `${r.vs_median_native > 0 ? "+" : "−"}${fmtCur(Math.abs(r.vs_median_native), sym)}`
+          : "—") },
+      { key: "points", label: "Точок", num: true, cls: "muted", prio: 2,
+        cell: (r) => String(r.points) },
+    ],
+    rows: list,
+    caption: `Курс ${c}: вікно, перцентиль, медіана, розмах, різниця до медіани, точок історії`,
+  })}
+    </div>`;
+  }).join("");
+  return `<div class="card"><h2 class="card-head">
+    <span>Курс серед історії ${infoBtn("fxwindow")}</span></h2>
+    ${blocks}</div>`;
+}
+
+// Курс має чотири знаки за визначенням НБУ, і жоден із наявних
+// форматувальників його не показує: uah2/cur2 округлюють до копійки, а
+// різниця в третьому знаку — це вже сотні гривень на конвертації.
+const fmtRate = (v) => (Number(v) || 0).toLocaleString("uk",
+  { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+
 // Звірка: рахунок за записами проти того, що показує брокер.
 // Коригування — звичайне поповнення з поміткою, а не окрема сутність:
 // так розбіжність лишається видимою в історії, а не ховається.
@@ -374,12 +436,19 @@ export function wireReconcile(ctx, main) {
 // Імпорт виписки. Два кроки навмисно: спершу показати, що буде
 // зроблено, і лише потім писати. Ціна помилки тут — подвоєний баланс,
 // а він знаходиться не одразу.
-export function importHTML(ctx) {
+export function importHTML(ctx, profiles = []) {
+  // Вбудований розбір Inzhur стоїть у списку першим і не є профілем: його
+  // не можна ні виправити, ні видалити (аргумент — у internal/imports/
+  // profile.go). Показуємо його разом із рештою, бо для людини це просто
+  // «звідки виписка», а не два різні механізми.
+  const opts = [["inzhur", "Inzhur (.xlsx)"]]
+    .concat(profiles.map((p) => [p.name, `${p.name} (.${p.format})`]));
   return `<div class="card"><h2 class="card-head">
     <span>Імпорт виписки ${infoBtn("import")}</span></h2>
-    <div class="muted fine mb-sm">Файл Inzhur (.xlsx). Спершу перегляд — нічого не записується.</div>
+    <div class="muted fine mb-sm">Спершу перегляд — нічого не записується.</div>
+    <div class="row-h">${selectOf("profile", "Звідки виписка", opts, "inzhur")}</div>
     <div class="row-h">
-      <input type="file" id="impFile" accept=".xlsx">
+      <input type="file" id="impFile" accept=".xlsx,.csv">
       <button id="impPreview">Переглянути</button>
     </div>
     <div class="muted fine mt-sm row-h">
@@ -411,8 +480,12 @@ export function wireImport(ctx, main) {
     if (!file.files || !file.files[0]) { ctx.toast("Обери файл", false); return null; }
     const fd = new FormData();
     fd.append("file", file.files[0]);
-    const resp = await ctx.store.raw(
-      "import/inzhur" + (dry ? "?dry=1" : ""), { method: "POST", body: fd });
+    // Профіль їде параметром запиту, а не в тілі: тіло тут зайняте самим
+    // файлом (multipart), і домішувати туди конфіг означало б розбирати
+    // форму двічі — раз заради одного поля.
+    const profile = (main.querySelector('[name="profile"]') || {}).value || "inzhur";
+    const q = "?profile=" + encodeURIComponent(profile) + (dry ? "&dry=1" : "");
+    const resp = await ctx.store.raw("import" + q, { method: "POST", body: fd });
     if (!resp.ok) throw new Error(`${resp.status}: ${(await resp.text()).slice(0, 300)}`);
     // Справжній імпорт міняє геть усе — лоти, рухи, фонди, зведення.
     // Перегляд (dry) не міняє нічого, тож і кеш чіпати нема за що.
@@ -421,7 +494,7 @@ export function wireImport(ctx, main) {
   };
 
   const KIND = { fund_buy: "купівля", fund_sell: "продаж", dividend: "дивіденд",
-    deposit: "поповнення", withdrawal: "виведення" };
+    deposit: "поповнення", withdrawal: "виведення", bond_buy: "купівля ОВДП" };
   const render = (res, dry) => {
     const rows = (res.rows || []).map((r) => {
       const tag = r.conflict
@@ -464,6 +537,125 @@ export function wireImport(ctx, main) {
     try { const res = await send(true); if (res) render(res, true); }
     catch (err) { ctx.toast(String(err.message || err), false); }
     finally { e.target.disabled = false; }
+  });
+}
+
+/** Профілі імпорту: як читати виписку НЕ від Inzhur.
+ *
+ *  Стоїть під самим імпортом, а не в «Довідниках»: профіль заводять рівно
+ *  тоді, коли вперше приносять чужу виписку й бачать, що вона не заходить.
+ *  У довідниках його шукали б лише ті, хто вже знає, що він існує.
+ *
+ *  Розбір Inzhur сюди не потрапляє й не може: у нього кількість
+ *  сертифікатів сидить усередині тексту операції, а податок прилипає до
+ *  своєї події — це не зіставлення колонок (аргумент цілком лежить у
+ *  internal/imports/profile.go).
+ *
+ *  КРУД тут не через wireCrud, і це названий виняток. Кит будує форму
+ *  навколо ресурсу з id і трійкою POST/PUT/DELETE, а профіль
+ *  ідентифікується НАЗВОЮ, і створення з правкою в нього — один PUT
+ *  (аргумент — у handlers_import_profiles.go). Підганяти під кит зайвий
+ *  POST заради форми означало б завести ендпойнт, потрібний лише формі.
+ *  Поля при цьому — китові, тож ui-kit-boundary лишається чинним. */
+export function importProfilesHTML(ctx, profiles = []) {
+  const rows = profiles.length
+    ? opsGrid({
+      cols: [
+        { key: "name", label: "Назва", cell: (p) => esc(p.name) },
+        { key: "format", label: "Формат", cell: (p) => esc(p.format) },
+        { key: "cols", label: "Колонки", cls: "muted", prio: 2,
+          cell: (p) => `дата ${p.col_date} · оп. ${p.col_op}`
+            + (p.col_ref >= 0 ? ` · папір ${p.col_ref}` : "")
+            + (p.col_qty >= 0 ? ` · к-сть ${p.col_qty}` : "") },
+        { key: "act", label: "", num: true,
+          cell: (p) => `<button class="profEdit" data-name="${esc(p.name)}">змінити</button>
+            <button class="profDel" data-name="${esc(p.name)}">видалити</button>` },
+      ],
+      rows: profiles,
+      caption: "Профілі імпорту: назва, формат, колонки, дії",
+    })
+    : `<div class="sub">Профілів ще немає — виписки читаються лише від Inzhur.</div>`;
+  return `<div class="card"><h2 class="card-head">
+    <span>Профілі імпорту ${infoBtn("importprofile")}</span></h2>
+    ${rows}
+    <div class="rule-top tight mt">
+      ${formHTML({ id: "profForm", fields: profileFields(), submit: "Зберегти профіль" })}
+    </div></div>`;
+}
+
+// Номери колонок 0-based, як їх бачить розбирач. Показувати людині
+// 1-based і віднімати одиницю на межі — це другий спосіб назвати ту саму
+// колонку, і одного разу хтось відніме двічі.
+function profileFields(p = null) {
+  const v = p || {};
+  const col = (name, label, dflt) =>
+    numField(name, label, { value: v[name] === undefined ? dflt : v[name] });
+  return [
+    textField("name", "Назва (вона ж брокер)", { value: v.name || "", required: true }),
+    selectOf("format", "Формат файлу", [["xlsx", "xlsx"], ["csv", "csv"]], v.format || "xlsx"),
+    numField("header", "Рядків шапки", { value: v.header === undefined ? 1 : v.header }),
+    col("col_date", "Колонка дати", 0),
+    col("col_op", "Колонка операції", 1),
+    col("col_ref", "Колонка паперу / фонду (-1 = немає)", -1),
+    col("col_qty", "Колонка кількості (-1 = немає)", -1),
+    col("col_debit", "Колонка «надійшло» (-1 = немає)", -1),
+    col("col_credit", "Колонка «списано» (-1 = немає)", -1),
+    textareaField("ops", "Операції — рядки «фраза = вид»", {
+      value: v.ops || "",
+      ph: "Поповнення = deposit\nКупівля облігацій = bond_buy\nДивіденди = dividend",
+      rows: 6,
+    }),
+    noteField(),
+  ];
+}
+
+export function wireImportProfiles(ctx, main) {
+  const form = main.querySelector("#profForm");
+  if (!form) return;
+  const save = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const name = String(fd.get("name") || "").trim();
+    if (!name) { ctx.toast("Профіль без назви", false); return; }
+    const num = (k) => Number(fd.get(k));
+    try {
+      await ctx.api("PUT", "import/profiles/" + encodeURIComponent(name), {
+        format: String(fd.get("format") || "xlsx"),
+        header: num("header"),
+        col_date: num("col_date"), col_op: num("col_op"), col_ref: num("col_ref"),
+        col_qty: num("col_qty"), col_debit: num("col_debit"), col_credit: num("col_credit"),
+        ops: String(fd.get("ops") || ""), note: String(fd.get("note") || ""),
+      });
+      ctx.toast("Профіль збережено");
+      await ctx.reload();
+    } catch (err) { ctx.toast(String(err.message || err), false); }
+  };
+  form.addEventListener("submit", save);
+
+  // «Змінити» заповнює ту саму форму, а не відкриває другу: профіль —
+  // велика форма на одинадцять полів, і другий її екземпляр у попапі
+  // означав би два місця, де її поля мусять збігатися.
+  main.querySelectorAll(".profEdit").forEach((b) => {
+    b.addEventListener("click", async () => {
+      try {
+        const list = await ctx.api("GET", "import/profiles");
+        const p = (list || []).find((x) => x.name === b.dataset.name);
+        if (!p) { ctx.toast("Профіль не знайдено", false); return; }
+        form.innerHTML = profileFields(p).join("")
+          + `<div class="form-actions"><button type="submit">Зберегти профіль</button></div>`;
+        form.scrollIntoView({ block: "nearest" });
+      } catch (err) { ctx.toast(String(err.message || err), false); }
+    });
+  });
+  main.querySelectorAll(".profDel").forEach((b) => {
+    b.addEventListener("click", async () => {
+      if (!window.confirm(`Видалити профіль «${b.dataset.name}»?`)) return;
+      try {
+        await ctx.api("DELETE", "import/profiles/" + encodeURIComponent(b.dataset.name));
+        ctx.toast("Профіль видалено");
+        await ctx.reload();
+      } catch (err) { ctx.toast(String(err.message || err), false); }
+    });
   });
 }
 

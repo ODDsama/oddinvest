@@ -145,6 +145,8 @@ const ALLOW_UNSTYLED = new Map([
   ["recDiff", "гачок звірки: querySelector у money.js"],
   ["recFix", "гачок звірки: querySelector у money.js"],
   ["cat-name", "гачок довідника: querySelector у settings.js"],
+  ["profEdit", "гачок профілю імпорту: querySelectorAll у money-cards.js"],
+  ["profDel", "гачок профілю імпорту: querySelectorAll у money-cards.js"],
 ]);
 
 const classUse = new Map();

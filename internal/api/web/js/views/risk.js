@@ -2,13 +2,13 @@
 // ліквідність, процентний ризик, бенчмарк і драбина.
 
 import {
-  esc, curSym, dayMonth, pct, uah2 as fmtUAH, cur2 as fmtCur,
+  esc, curSym, dayMonth, pct, pp, uah2 as fmtUAH, cur2 as fmtCur,
   fundsCost, marketCostUAH, uahSharePct, uahTargetPct,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { opsGrid } from "../grid.js";
 import { svgBars, svgGrouped, svgDonut, fluid } from "../charts.js";
-import { tile, yieldNote, yieldPair, needsSetting, empty, legend } from "../components.js";
+import { tile, yieldNote, yieldPair, needsSetting, empty, legend, kindPill } from "../components.js";
 import { routeFor } from "../routes.js";
 import { disclosure } from "../disclosure.js";
 import { KIND_GROUP } from "../constants.js";
@@ -530,6 +530,90 @@ export function benchmarkCard(ctx, b) {
       порівнюють. Купони, дивіденди й відсотки в нього не входять: вони й є те, що ти отримав
       натомість.${b.note ? ` <b>${esc(b.note)}.</b>` : ""}</div>`,
     `${won ? "+" : ""}${pct(b.diff_pct)}`)}</div>`;
+}
+
+/** Ретроспектива помічника: чи слухаюсь і чи справдилось.
+ *
+ *  Стоїть у «Порівнянні» поруч із «а якби просто долари» не випадково: там
+ *  уже живе питання «а якби інакше», і це його продовження. Тільки
+ *  бенчмарк порівнює з нічогонеробленням, а це — з тим, що радив сам
+ *  застосунок.
+ *
+ *  ЗВЕДЕННЯ МОВЧИТЬ, ДОКИ РІШЕНЬ МАЛО, і поріг приходить із бекенда
+ *  (min_rows), а не вписаний тут: різниця в кілька десятих п.п. на трьох
+ *  рішеннях — шум, за яким міняють режим рейтингу. Друга копія порога в
+ *  браузері розійшлася б із першою мовчки.
+ *
+ *  Жодної арифметики (CLAUDE.md §5): і втрачені п.п., і середні по
+ *  режимах приходять готовими з /api/decisions. */
+export function decisionsCard(ctx, d) {
+  const rows = (d && d.rows) || [];
+  if (!rows.length) return "";
+  const sum = d.summary;
+  const hint = sum ? `${sum.followed}/${sum.count}` : "";
+  return `<div class="card">${disclosure("decisions", "Чи працює те, що радить помічник", `
+    ${sum ? decisionsSummaryHTML(sum) : `<div class="note">Зведення з'явиться,
+      коли рішень набереться ${d.min_rows}: на кількох рядках різниця в
+      десяті відсоткового пункта — це шум, а не висновок.</div>`}
+    ${opsGrid({
+    cols: [
+      { key: "date", label: "Коли", cell: (r) => esc(r.made_on) },
+      { key: "what", label: "Що взяв",
+        cell: (r) => `${kindPill(r.kind)} ${esc(r.ref)}` },
+      { key: "amount", label: "Сума", num: true, prio: 2,
+        cell: (r) => (r.amount && r.amount.amount
+          ? fmtCur(Number(r.amount.amount), curSym(r.amount.currency)) : "—") },
+      { key: "promised", label: "Обіцяли", num: true,
+        cell: (r) => pct(r.promised_pct) },
+      { key: "actual", label: "За фактом", num: true,
+        cell: (r) => (r.basis === "за фактом виплат"
+          ? pct(r.actual_pct)
+          : `<span class="muted">${esc(r.basis || "—")}</span>`) },
+      { key: "drift", label: "Розхід", num: true, prio: 2,
+        cell: (r) => (r.basis === "за фактом виплат"
+          ? `<span class="${r.drift_pp >= 0 ? "t-ok" : "t-danger"}">${pp(r.drift_pp)}</span>`
+          : "—") },
+      { key: "rank", label: "Рядок", num: true, prio: 3,
+        cell: (r) => (r.rank_pos ? String(r.rank_pos) : "—") },
+      { key: "vstop", label: "Замість", prio: 3,
+        cell: (r) => (r.top_label
+          ? `<span class="muted">${esc(r.top_label)} · ${pp(r.vs_top_pp)}</span>`
+          : "—") },
+    ],
+    rows,
+    caption: "Журнал рішень: дата, що взяв, сума, обіцяна дохідність, за фактом, розходження, рядок рейтингу, чим знехтував",
+  })}
+    <div class="muted fine">«За фактом» рахується лише для облігацій: рішення про папір
+      стає одним лотом, чиї потоки відокремлені від решти портфеля. Операція фонду не
+      відокремлюється (позиція — сальдо журналу), а вклад і НПФ факту не потребують —
+      там обіцянка і є фактом за побудовою. Ставка зʼявляється не одразу: доки гроші не
+      пролежали достатньо, річна дохідність нічого не означає.
+      <br>«Замість» показує, що стояло верхнім рядком і наскільки твій вибір дохідніший
+      за нього. Відʼємне число — не помилка: у режимі «план» рейтинг зважує дохідність
+      разом із дефіцитом до цілі, тож верхнім цілком законно стоїть менш дохідний рядок,
+      який зрушує портфель до політики.</div>`, hint)}</div>`;
+}
+
+// Зведення трьома реченнями, а не плитками: тут кожне число має сенс лише
+// разом зі своїм знаменником («9 з 12»), а плитка показує чисельник
+// великим і знаменник дрібним — тобто наголошує рівно не те.
+function decisionsSummaryHTML(s) {
+  const modes = (s.by_mode || []).filter((m) => m.mode).map((m) =>
+    `<div class="pv-row"><span class="muted">режим «${esc(m.mode)}»</span>
+      <span>${m.followed}/${m.count} за верхнім рядком${m.measured
+  ? ` · розхід ${pp(m.drift_pp_avg)}` : ""}</span></div>`).join("");
+  return `<div class="mb-lg">
+    <div class="pv-row"><span class="muted">Узяв верхній рядок</span>
+      <span><b>${s.followed}</b> із ${s.count}</span></div>
+    ${s.vs_top_pp_avg
+    ? `<div class="pv-row"><span class="muted">Коли брав не верхній — різниця дохідності</span>
+        <span>${pp(s.vs_top_pp_avg)}</span></div>` : ""}
+    ${s.measured
+    ? `<div class="pv-row"><span class="muted">Обіцянка проти факту (${s.measured})</span>
+        <span class="${s.drift_pp_avg >= 0 ? "t-ok" : "t-danger"}">${pp(s.drift_pp_avg)}</span></div>`
+    : ""}
+    ${modes}
+  </div>`;
 }
 
 // Коли гроші стають доступні. Питання не про дохідність, а про те, що

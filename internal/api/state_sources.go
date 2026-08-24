@@ -23,6 +23,8 @@ import (
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+
+	money "github.com/Rhymond/go-money"
 )
 
 // sources — сирі факти зі сховища, прочитані РІВНО ПО РАЗУ на документ.
@@ -80,6 +82,12 @@ type sources struct {
 	// строк). Єдине, що приходить сюди із ЗОВНІШНЬОГО світу, а не з
 	// портфеля користувача.
 	auctions []store.AuctionPoint
+
+	// fxHistory — історія курсів НБУ по валютах, не старіша за найдовше
+	// вікно. Так само зовнішній орієнтир, як і auctions поруч, і так само
+	// читається РІВНО ПО РАЗУ на документ: перцентиль потрібен і картці
+	// біля конвертації, і атрибутам сенсора в HA.
+	fxHistory map[string][]store.RatePoint
 
 	// Рух грошей: поповнення/зняття, їхній розріз по брокер-валюті,
 	// нетто конверсій і статуси виплат.
@@ -152,13 +160,14 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	src.brokers, _ = s.st.ListBrokers(ctx)               //nolint:errcheck // свідомо: список для випадайок, не джерело істини
 	src.nbuAt, _ = s.st.GetSetting(ctx, nbuRefreshedKey) //nolint:errcheck // свідомо: порожньо = довідник ще не оновлювався
 	src.auctions, _ = s.st.AuctionLatestByBucket(ctx)    //nolint:errcheck // свідомо: на свіжій БД аукціонів ще немає, і портфель має малюватись
-	src.planFlows, _ = s.st.ListPlanFlows(ctx)           //nolint:errcheck // свідомо: порожній план — звичайний стан, не привід валити документ
-	src.planActions, _ = s.st.ListPlanActions(ctx)       //nolint:errcheck // те саме
-	src.planReceipts, _ = s.st.ListPlanReceipts(ctx)     //nolint:errcheck // те саме: невідмічений план — звичайний стан
-	src.planBuys, _ = s.st.ListPlanBuys(ctx)             //nolint:errcheck // те саме: порожній план купівель — звичайний стан
-	src.npfAccounts, _ = s.st.ListNPFAccounts(ctx)       //nolint:errcheck // свідомо, як фонди й вклади: НПФ зʼявився пізніше за схему
-	src.npfOps, _ = s.st.ListNPFOps(ctx)                 //nolint:errcheck // те саме
-	src.npfNav, _ = s.st.ListNPFNav(ctx)                 //nolint:errcheck // те саме: історія ЧВОПА може бути порожня, і це звичайний стан
+	src.fxHistory = s.fxHistorySince(ctx, today)
+	src.planFlows, _ = s.st.ListPlanFlows(ctx)       //nolint:errcheck // свідомо: порожній план — звичайний стан, не привід валити документ
+	src.planActions, _ = s.st.ListPlanActions(ctx)   //nolint:errcheck // те саме
+	src.planReceipts, _ = s.st.ListPlanReceipts(ctx) //nolint:errcheck // те саме: невідмічений план — звичайний стан
+	src.planBuys, _ = s.st.ListPlanBuys(ctx)         //nolint:errcheck // те саме: порожній план купівель — звичайний стан
+	src.npfAccounts, _ = s.st.ListNPFAccounts(ctx)   //nolint:errcheck // свідомо, як фонди й вклади: НПФ зʼявився пізніше за схему
+	src.npfOps, _ = s.st.ListNPFOps(ctx)             //nolint:errcheck // те саме
+	src.npfNav, _ = s.st.ListNPFNav(ctx)             //nolint:errcheck // те саме: історія ЧВОПА може бути порожня, і це звичайний стан
 
 	src.fundRefs = map[string]store.Fund{}
 	if refs, ferr := s.st.ListFunds(ctx); ferr == nil {
@@ -167,6 +176,43 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		}
 	}
 	return src, nil
+}
+
+// fxHistoryCurrencies — валюти, для яких тримаємо історію курсів.
+//
+// Той самий порядок і той самий набір, що у валютному вимірі ребалансу
+// (state_rebalance.go): гривня власного курсу не має, а третьої валюти в
+// застосунку немає ніде — ані в довіднику, ані в джобі, що курси тягне
+// (jobs.RefreshAll).
+var fxHistoryCurrencies = []string{money.USD, money.EUR}
+
+// fxHistorySince — історія курсів за найдовше з вікон.
+//
+// Помилку ковтаємо, як і в auctions поруч: на свіжій БД історії ще немає
+// (беклог іде окремою горутиною при старті), і валити через це весь
+// документ означало б показати порожній екран замість портфеля, який
+// чудово рахується без перцентиля.
+//
+// Скільки саме років брати, вирішує НЕ цей файл: список вікон живе в
+// state_fxwindow.go, і два місця з незалежними числами розійшлись би на
+// першій же правці — вікно «10 років» мовчки читало б п'ять.
+func (s *Server) fxHistorySince(ctx context.Context, today domain.Date) map[string][]store.RatePoint {
+	longest := 0
+	for _, y := range fxWindowYears {
+		if y > longest {
+			longest = y
+		}
+	}
+	from := today.AddMonths(-12 * longest)
+	out := make(map[string][]store.RatePoint, len(fxHistoryCurrencies))
+	for _, cur := range fxHistoryCurrencies {
+		pts, err := s.st.RatesSince(ctx, cur, from)
+		if err != nil || len(pts) == 0 {
+			continue
+		}
+		out[cur] = pts
+	}
+	return out
 }
 
 // payoutDays — день виплати кожного фонду в тому вигляді, якого чекає

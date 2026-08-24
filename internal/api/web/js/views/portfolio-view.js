@@ -30,7 +30,7 @@ import {
 import {
   yieldTilesHTML, yieldMixCard, shareTilesHTML, brokerDonutHTML, currencyChartHTML,
   rebalanceCard, kindMixCard, concentrationCard, ladderTableHTML,
-  liquidityCard, rateRiskCard, benchmarkCard, marketCurveCard,
+  liquidityCard, rateRiskCard, benchmarkCard, decisionsCard, marketCurveCard,
 } from "./risk.js";
 import { chartBlockHTML, snapshotsTableHTML, wireHistory } from "./history.js";
 
@@ -82,12 +82,17 @@ export async function limits(ctx, main) {
  *  Обидві картки тягнуть власні дані, і обидві — м'яко: маршрут може бути
  *  новішим за бекенд, а сторінка з однією карткою краща за порожню. */
 export async function compare(ctx, main) {
-  const [bench, curve] = await Promise.all([
+  const [bench, curve, dec] = await Promise.all([
     ctx.soft("benchmark", null),
     ctx.soft("auctions/curve", []),
+    // Журнал рішень — третє «а якби інакше»: бенчмарк порівнює з
+    // нічогонеробленням, аукціони — з ринком, а це — з тим, що радив
+    // сам застосунок.
+    ctx.soft("decisions", null),
   ]);
   main.innerHTML = `
     ${benchmarkCard(ctx, bench)}
+    ${decisionsCard(ctx, dec)}
     ${marketCurveCard(ctx, curve)}`;
   wireDisclosures(main);
 }

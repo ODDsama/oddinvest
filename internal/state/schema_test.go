@@ -159,6 +159,7 @@ func TestSchemaMatchesNestedTypes(t *testing.T) {
 		{"rebalance", reflect.TypeOf(RebalanceRow{})},
 		{"concentration", reflect.TypeOf(ConcentrationRow{})},
 		{"market_yield", reflect.TypeOf(MarketYieldRow{})},
+		{"fx_window", reflect.TypeOf(FXWindowRow{})},
 		{"funds", reflect.TypeOf(FundPositionRow{})},
 		{"ladder_uah", reflect.TypeOf(YearAmount{})},
 		{"income_12m", reflect.TypeOf(MonthAmount{})},

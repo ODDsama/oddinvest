@@ -11,6 +11,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 // npfScaleDigits — знаків після коми в одиницях і ЧВОПА. Шість, як у
@@ -346,11 +348,22 @@ func (s *Server) handleAddNPFOp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// Помічник називає пенсійний рахунок його іменем, а операція знає
+	// лише id, тож ім'я доводиться взяти з довідника. Порожнє означає, що
+	// рахунок зник між двома запитами — тоді рішення просто не пишеться.
+	now := time.Now()
+	var snap decisionSnapshot
+	name := s.npfAccountName(r.Context(), req.NPFID)
+	if name != "" {
+		snap = s.takeDecisionSnapshot(r.Context(), now, store.BuyNPF, name)
+	}
 	id, err := s.st.AddNPFOp(r.Context(), op)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	s.saveDecision(r.Context(), snap, now, store.BuyNPF, name,
+		money.New(op.Amount, cur), id)
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
@@ -533,4 +546,22 @@ func (s *Server) handleDeleteNPFNav(w http.ResponseWriter, r *http.Request) {
 	}
 	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// npfAccountName — ім'я рахунку, яким його називає помічник.
+//
+// Окремим читанням, а не полем операції: NPFOp тримає id, і дублювати
+// ім'я в неї означало б завести другу відповідь на питання «як цей
+// рахунок зветься» — ту саму, що вже є в довіднику.
+func (s *Server) npfAccountName(ctx context.Context, id int64) string {
+	accs, err := s.st.ListNPFAccounts(ctx)
+	if err != nil {
+		return ""
+	}
+	for _, a := range accs {
+		if a.ID == id {
+			return a.Name
+		}
+	}
+	return ""
 }

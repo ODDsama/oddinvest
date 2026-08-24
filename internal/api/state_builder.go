@@ -1066,6 +1066,11 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// яка дивиться назовні, а не зводить портфель.
 	mkt := buildMarket(src.auctions, portfolioYieldByCur)
 
+	// Де стоїть сьогоднішній курс серед історії (state_fxwindow.go).
+	// Після ребалансу, а не поруч із ринком: валютний дефіцит рахує саме
+	// ребаланс, і другого його обчислення тут бути не має.
+	fxw := buildFXWindow(src.fxHistory, rates, currencyDeficitUAH(rebalance), today)
+
 	// Документ заповнюється НАПРЯМУ, а не через проміжний літерал на
 	// пʼятдесят полів: тридцять із них були дзеркалом Doc, тобто пакет
 	// state здебільшого переписував із однієї структури в іншу.
@@ -1108,6 +1113,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		Rebalance: rebalance, Concentration: concentration,
 		RateRisk: rateRisk, Liquidity: liquidity,
 		MarketYield: mkt.yield,
+		FXWindow:    fxw.rows,
 		AccruedUAH:  round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,
 	}

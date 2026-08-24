@@ -672,12 +672,12 @@
     }
   },
   "total_return": {
-    "xirr_pct": 10.37,
-    "gain_uah": 13071.03,
-    "gain_pct": 2.92,
-    "money_days": 107.87,
+    "xirr_pct": 7.03,
+    "gain_uah": 9060.2,
+    "gain_pct": 2,
+    "money_days": 107.94,
     "min_days": 30,
-    "fx_max_lag_days": 190
+    "fx_max_lag_days": 20
   },
   "portfolio_yield_pct": 1.03,
   "portfolio_yield": {
@@ -1519,6 +1519,71 @@
       "date": "2025-06-10",
       "isin": "UA4000000001",
       "vs_portfolio_pp": 10.98
+    }
+  ],
+  "fx_window": [
+    {
+      "currency": "USD",
+      "years": 1,
+      "points": 14,
+      "percentile": 96.43,
+      "now_rate": 44.1234,
+      "median_rate": 42.9496,
+      "min_rate": 42.1111,
+      "max_rate": 44.1234,
+      "vs_median_native": -50.16
+    },
+    {
+      "currency": "USD",
+      "years": 3,
+      "points": 40,
+      "percentile": 98.75,
+      "now_rate": 44.1234,
+      "median_rate": 41.1049,
+      "min_rate": 38,
+      "max_rate": 44.1234,
+      "vs_median_native": -134.78
+    },
+    {
+      "currency": "USD",
+      "years": 10,
+      "points": 124,
+      "percentile": 99.6,
+      "now_rate": 44.1234,
+      "median_rate": 34.2294,
+      "min_rate": 24,
+      "max_rate": 44.1234,
+      "vs_median_native": -530.5
+    },
+    {
+      "currency": "EUR",
+      "years": 1,
+      "points": 14,
+      "percentile": 96.43,
+      "now_rate": 48,
+      "median_rate": 46.4445,
+      "min_rate": 45.3334,
+      "max_rate": 48
+    },
+    {
+      "currency": "EUR",
+      "years": 3,
+      "points": 39,
+      "percentile": 98.72,
+      "now_rate": 48,
+      "median_rate": 44,
+      "min_rate": 40,
+      "max_rate": 48
+    },
+    {
+      "currency": "EUR",
+      "years": 10,
+      "points": 39,
+      "percentile": 98.72,
+      "now_rate": 48,
+      "median_rate": 44,
+      "min_rate": 40,
+      "max_rate": 48
     }
   ],
   "accrued_uah": 209.04,

@@ -831,6 +831,39 @@ func (s *Store) RateOnOrBefore(ctx context.Context, code string, on domain.Date)
 	return p.RateE4, err
 }
 
+// RatesSince — усі точки історії від дати й донині, за зростанням дати.
+//
+// Єдиний метод, що віддає історію КУРСІВ ЦІЛКОМ, а не крайніми точками:
+// знеціненню (deval.go) вистачало найдавнішої й найсвіжішої, а питання
+// «де стоїть сьогоднішній курс серед решти» без усього ряду не має
+// відповіді (domain.FXPlace).
+//
+// Обсяг тут малий і лишиться малим: беклог заповнив історію ПОМІСЯЧНО за
+// десять років (~120 рядків на валюту), а щоденна джоба додає по одному
+// на день. Агрегувати це в SQL було б швидше й неправильно: тоді медіана
+// й перцентиль рахувались би там, де їх ніхто не бачить і не тестує, —
+// а вся інша арифметика застосунку живе в domain.
+func (s *Store) RatesSince(ctx context.Context, code string, from domain.Date) ([]RatePoint, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT date, rate_e4 FROM fx_rates WHERE code=? AND date>=? ORDER BY date`,
+		code, string(from))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RatePoint
+	for rows.Next() {
+		var p RatePoint
+		var d string
+		if err := rows.Scan(&d, &p.RateE4); err != nil {
+			return nil, err
+		}
+		p.Date = domain.Date(d)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // RateMonthCount — скільки РІЗНИХ місяців є в історії. Саме місяців, а не
 // рядків: щоденні записи за два тижні — це один-два місяці історії, і
 // вирішувати по кількості рядків, чи потрібен backfill, було б хибно.

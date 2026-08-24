@@ -1,4 +1,9 @@
-// Імпорт виписки Inzhur: попередній перегляд і застосування.
+// Імпорт виписки: попередній перегляд і застосування.
+//
+// Два розбирачі, один шлях. Виписка Inzhur має власний розбирач (він не
+// зводиться до зіставлення колонок — аргумент у internal/imports/
+// profile.go), решта читається за ПРОФІЛЕМ, який людина задає раз.
+// Усе, що йде після розбору, спільне й формату не знає взагалі.
 
 package api
 
@@ -38,7 +43,50 @@ func abs64(v int64) int64 {
 	return v
 }
 
-// handleImportInzhur приймає xlsx-виписку.
+// handleImportInzhur — POST /api/import/inzhur, історичний шлях.
+//
+// Лишається псевдонімом на один реліз, як робить таблиця LEGACY у
+// web/js/routes.js: адреса, названа форматом, пережила появу профілів, і
+// різко зламати її означало б зламати чиюсь закладку заради чистоти імені.
+func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
+	s.importStatement(w, r, nil)
+}
+
+// handleImport — POST /api/import?profile=<назва>.
+//
+// Порожній profile (і «inzhur») означає вбудований розбір виписки Inzhur:
+// він не профіль і профілем стати не може — аргумент у шапці міграції
+// 0036 і в internal/imports/profile.go.
+func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.URL.Query().Get("profile"))
+	if name == "" || strings.EqualFold(name, inzhurProfile) {
+		s.importStatement(w, r, nil)
+		return
+	}
+	prof, err := s.st.GetImportProfile(r.Context(), name)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if prof == nil {
+		writeErr(w, http.StatusNotFound, fmt.Errorf("профілю %q немає", name))
+		return
+	}
+	s.importStatement(w, r, prof)
+}
+
+// inzhurProfile — назва вбудованого розбору. Іменем, а не літералом у
+// трьох місцях: воно їде і в маршрут, і в UI-список профілів, і в
+// значення брокера за замовчуванням.
+const inzhurProfile = "inzhur"
+
+// importStatement — спільний шлях імпорту: розбір за профілем (або
+// вбудованим розбором Inzhur) і все, що йде далі.
+//
+// А далі йде те, що формату не знає взагалі: перегляд, дедуплікація,
+// водяний знак, виявлення конфліктів із ручними рухами. Саме тому поява
+// другого формату не зачепила жодного з цих механізмів — вони від початку
+// працювали з рядками, а не з файлом.
 //
 // Два режими одним ендпойнтом: ?dry=1 лише показує, що буде зроблено, без
 // запису. Стан між викликами не зберігаємо — файл лежить у користувача,
@@ -47,11 +95,17 @@ func abs64(v int64) int64 {
 //
 // Дедуплікація обов'язкова: щомісячна виписка містить і старі рядки, тож
 // без неї другий імпорт подвоїв би позицію.
-func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
+func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *store.ImportProfile) {
 	dry := r.URL.Query().Get("dry") == "1"
 	broker := strings.TrimSpace(r.URL.Query().Get("broker"))
 	if broker == "" {
-		broker = "inzhur"
+		// Брокер за замовчуванням — назва профілю: у людини з двома
+		// брокерами саме вона й відрізняє рахунки, а «inzhur» для чужої
+		// виписки поклав би гроші не туди.
+		broker = inzhurProfile
+		if prof != nil {
+			broker = prof.Name
+		}
 	}
 	file, _, err := r.FormFile("file")
 	if err != nil {
@@ -64,12 +118,7 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	sheet, err := imports.ReadXLSX(bytes.NewReader(buf), int64(len(buf)))
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	res, err := imports.ParseInzhur(sheet)
+	res, err := parseStatement(buf, prof)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -259,4 +308,39 @@ func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// parseStatement — файл на рядки операцій.
+//
+// Читач вибирає ПРОФІЛЬ, а не розширення надісланого файлу: та сама
+// виписка часто доступна в обох виглядах, а розширення в multipart
+// приходить від браузера й буває будь-яким. Вбудований розбір Inzhur
+// читає лише xlsx — інших виписок у цьому форматі не буває.
+func parseStatement(buf []byte, prof *store.ImportProfile) (imports.Result, error) {
+	if prof == nil {
+		sheet, err := imports.ReadXLSX(bytes.NewReader(buf), int64(len(buf)))
+		if err != nil {
+			return imports.Result{}, err
+		}
+		return imports.ParseInzhur(sheet)
+	}
+	var sheet [][]string
+	var err error
+	if strings.EqualFold(prof.Format, "csv") {
+		sheet, err = imports.ReadCSV(bytes.NewReader(buf))
+	} else {
+		sheet, err = imports.ReadXLSX(bytes.NewReader(buf), int64(len(buf)))
+	}
+	if err != nil {
+		return imports.Result{}, err
+	}
+	kinds, err := imports.ParseOps(prof.Ops)
+	if err != nil {
+		return imports.Result{}, fmt.Errorf("профіль %q: %w", prof.Name, err)
+	}
+	return imports.Parse(sheet, imports.Profile{
+		Name: prof.Name, Header: prof.Header,
+		Date: prof.Date, Op: prof.Op, Ref: prof.Ref, Qty: prof.Qty,
+		Debit: prof.Debit, Credit: prof.Credit, Kinds: kinds,
+	})
 }

@@ -83,6 +83,25 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 			{Currency: "USD", Bucket: "2y", Pct: 3.15, Date: "2026-05-05",
 				ISIN: "UA4000239032", VsPortfolioPP: -0.4},
 		},
+		// Валютне вікно. Три рядки на одну валюту, бо саме так їх бачить
+		// споживач, і саме на трьох видно те, заради чого вікон три:
+		// перцентиль за рік і за десять різний, і різниця змістовна.
+		//
+		// VsMedianNative тут теж проставлено руками (як VsPortfolioPP
+		// вище): різницю рахує buildFXWindow в internal/api. Знак
+		// відʼємний — «сьогодні дорожче за звичне», тобто той випадок,
+		// заради якого поле й існує; у рядку без валютної цілі його немає
+		// зовсім, і третій рядок показує саме це.
+		FXWindow: []FXWindowRow{
+			{Currency: "USD", Years: 1, Points: 12, Percentile: 91.67,
+				NowRate: 44.1234, MedianRate: 43.2, MinRate: 41.8, MaxRate: 44.5,
+				VsMedianNative: -42.19},
+			{Currency: "USD", Years: 3, Points: 36, Percentile: 78.5,
+				NowRate: 44.1234, MedianRate: 40.15, MinRate: 36.57, MaxRate: 44.5,
+				VsMedianNative: -178.4},
+			{Currency: "USD", Years: 10, Points: 120, Percentile: 96.25,
+				NowRate: 44.1234, MedianRate: 27.9, MinRate: 24.6, MaxRate: 44.5},
+		},
 		// Нижче — поля, які читає інтеграція. Числа тут не мусять бути
 		// звʼязними з портфелем вище (Derive їх не рахує й не звіряє), але
 		// мусять бути НЕНУЛЬОВИМИ: нуль у фікстурі не відрізнити від

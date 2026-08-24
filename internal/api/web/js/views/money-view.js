@@ -26,8 +26,9 @@ import { money as moneyField, date as dateField, note as noteField, formHTML } f
 import { refSelect, refValue, wireRefs } from "../refs.js";
 import { wireCrud } from "../crud.js";
 import {
-  walletHTML, brokerBalancesHTML, movesHTML, flowHTML, taxHTML, taxYear,
-  importHTML, wireImport, reconcileHTML, wireReconcile,
+  walletHTML, brokerBalancesHTML, fxWindowHTML, movesHTML, flowHTML, taxHTML, taxYear,
+  importHTML, wireImport, importProfilesHTML, wireImportProfiles,
+  reconcileHTML, wireReconcile,
 } from "./money-cards.js";
 
 /** Поля руху рахунку — ОДИН список і для форми додавання, і для модалки
@@ -92,6 +93,7 @@ export async function balances(ctx, main) {
     ${walletHTML(ctx)}
     ${brokerBalancesHTML(ctx)}
     ${cashFormHTML(ctx)}
+    ${fxWindowHTML(ctx)}
     ${convertFormHTML(ctx)}`;
   wireCash(ctx, main);
 }
@@ -197,12 +199,20 @@ export async function tax(ctx, main) {
  *  знаходиться не одразу. Продажі й дивіденди фондів показані тут-таки: це
  *  єдине місце, де вони взагалі заводяться. */
 export async function importStatement(ctx, main) {
-  const ops = await ctx.soft("funds", []);
+  // Профілі тягнемо мʼяко: маршрут може бути новішим за бекенд, а сторінка
+  // з самим лише Inzhur краща за порожню — той самий прийом, що в
+  // «Порівнянні».
+  const [ops, profiles] = await Promise.all([
+    ctx.soft("funds", []),
+    ctx.soft("import/profiles", []),
+  ]);
   setFundOps(ops);
   main.innerHTML = `
-    ${importHTML(ctx)}
+    ${importHTML(ctx, profiles)}
+    ${importProfilesHTML(ctx, profiles)}
     ${fundStatementHTML(ctx)}`;
   wireImport(ctx, main);
+  wireImportProfiles(ctx, main);
   wireFundOps(ctx, main);
   wireDisclosures(main);
 }

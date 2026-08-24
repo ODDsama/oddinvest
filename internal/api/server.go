@@ -139,13 +139,26 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/plan/actions/{id}", s.handleUpdatePlanAction)
 	mux.HandleFunc("DELETE /api/plan/actions/{id}", s.handleDeletePlanAction)
 	mux.HandleFunc("GET /api/reinvest", s.handleReinvest)
+	// Перекладання — поруч із помічником навмисно: два боки одного
+	// питання про реінвест, і альтернативу вони беруть з одного рейтингу.
+	// Ретроспектива помічника — теж поруч: журнал рішень існує рівно
+	// заради питання «чи працює те, що радить /api/reinvest».
+	mux.HandleFunc("GET /api/decisions", s.handleDecisions)
+	mux.HandleFunc("GET /api/switch", s.handleSwitch)
+	mux.HandleFunc("POST /api/switch", s.handleSwitchVerdict)
 	mux.HandleFunc("GET /api/auctions/curve", s.handleAuctionsCurve)
 	mux.HandleFunc("POST /api/whatif", s.handleWhatIf)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("GET /api/backup", s.handleBackupExport)
 	mux.HandleFunc("POST /api/restore", s.handleBackupImport)
+	// Імпорт виписки. /api/import — за профілем; /api/import/inzhur —
+	// історичний псевдонім на один реліз (див. handlers_import.go).
+	mux.HandleFunc("POST /api/import", s.handleImport)
 	mux.HandleFunc("POST /api/import/inzhur", s.handleImportInzhur)
+	mux.HandleFunc("GET /api/import/profiles", s.handleListImportProfiles)
+	mux.HandleFunc("PUT /api/import/profiles/{name}", s.handleSaveImportProfile)
+	mux.HandleFunc("DELETE /api/import/profiles/{name}", s.handleDeleteImportProfile)
 
 	sub, _ := fs.Sub(webFS, "web") //nolint:errcheck // шлях у go:embed — константа, помилка неможлива
 	mux.Handle("GET /", noCache(http.FileServerFS(sub)))
