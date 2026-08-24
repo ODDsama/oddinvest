@@ -122,15 +122,7 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
 
 	rows := make([]decisionRow, 0, len(list))
 	for _, d := range list {
-		row := decisionRow{
-			ID: d.ID, MadeOn: string(d.MadeOn), Kind: d.Kind, Ref: d.Ref,
-			Amount:   toMoneyJSON(money.New(d.Amount, orUAH(d.Currency))),
-			RankMode: d.RankMode, PromisedPct: d.RealPct, RankPos: d.RankPos,
-		}
-		if d.RankPos > 1 && d.TopLabel != "" {
-			row.TopLabel = d.TopLabel
-			row.VsTopPP = round2(d.RealPct - d.TopRealPct)
-		}
+		row := decisionBase(d)
 		if actual, basis, ok := decisionActual(d, lotByID, sales, bonds, pays, today, deval); ok {
 			row.ActualPct, row.Basis = actual, basis
 			row.DriftPP = round2(actual - d.RealPct)
@@ -150,6 +142,27 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
 		out.Summary = &sum
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// decisionBase — та половина рядка, яку видно з самого журналу, без
+// портфеля: що обрано, яким рядком воно стояло і на скільки п.п.
+// розійшлось із верхнім.
+//
+// Винесено окремо заради підсумку періоду (handlers_period.go): там
+// потрібні саме ці поля й НЕ потрібен факт (він про долю паперу, а не про
+// місяць). Без спільної функції вираз VsTopPP — а разом із ним і умова,
+// коли він узагалі має сенс, — жив би у двох місцях.
+func decisionBase(d store.Decision) decisionRow {
+	row := decisionRow{
+		ID: d.ID, MadeOn: string(d.MadeOn), Kind: d.Kind, Ref: d.Ref,
+		Amount:   toMoneyJSON(money.New(d.Amount, orUAH(d.Currency))),
+		RankMode: d.RankMode, PromisedPct: d.RealPct, RankPos: d.RankPos,
+	}
+	if d.RankPos > 1 && d.TopLabel != "" {
+		row.TopLabel = d.TopLabel
+		row.VsTopPP = round2(d.RealPct - d.TopRealPct)
+	}
+	return row
 }
 
 // decisionActual — що рішення дало за фактом.

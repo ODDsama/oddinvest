@@ -582,10 +582,59 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 		Rows        []row   `json:"rows,omitempty"`
 	}{From: string(from), To: string(to)}
 
-	var opening, income, contrib, purchase, conv int64
+	sum := summarizeCash(events, from, to)
+	for _, e := range sum.Rows {
+		out.Rows = append(out.Rows, row{
+			Date: string(e.Date), Label: e.Label,
+			UAH: round2(float64(e.UAH) / 100), Kind: e.Kind,
+		})
+	}
+	out.OpeningUAH = sum.major(sum.OpeningUAH)
+	out.IncomeUAH = sum.major(sum.IncomeUAH)
+	out.ContribUAH = sum.major(sum.ContribUAH)
+	// Покупки віддаємо ДОДАТНИМИ: у звіті вони віднімаються, і мінус на
+	// мінусі читався б як помилка.
+	out.PurchaseUAH = sum.major(-sum.PurchaseUAH)
+	out.ConvUAH = sum.major(sum.ConvUAH)
+	out.ClosingUAH = sum.major(sum.ClosingUAH())
+	writeJSON(w, http.StatusOK, out)
+}
+
+// cashSummary — рух грошей за проміжок, у мінорних гривнях.
+//
+// Винесено з handleCashflowStatement заради «Підсумку місяця»
+// (handlers_period.go): дві сторінки питають про той самий місяць, і два
+// обчислення тих самих п'яти сум розійшлись би при першій же правці —
+// мовчки, бо обидва числа лишились би правдоподібними. Той самий довід, що
+// вже записаний у шапці цього файла про cashEvents проти state_cash.go,
+// тільки цього разу застосований ДО того, як копія з'явилась.
+//
+// Знаки сирі, як у самих подіях: покупка від'ємна. Перевертає її той, хто
+// показує, і рівно там, де пояснює, навіщо.
+type cashSummary struct {
+	OpeningUAH  int64
+	IncomeUAH   int64
+	ContribUAH  int64
+	PurchaseUAH int64
+	ConvUAH     int64
+	Rows        []flowEvent
+}
+
+// ClosingUAH — залишок на кінець проміжку. Не поле, а вираз: збережене
+// поле можна забути оновити після правки доданка, а вираз — ні.
+func (c cashSummary) ClosingUAH() int64 {
+	return c.OpeningUAH + c.IncomeUAH + c.ContribUAH + c.PurchaseUAH + c.ConvUAH
+}
+
+// major — мінорні в гривні, для JSON. Метод, а не вільна функція, щоб
+// обидва споживачі округляли однаково.
+func (cashSummary) major(v int64) float64 { return round2(float64(v) / 100) }
+
+func summarizeCash(events []flowEvent, from, to domain.Date) cashSummary {
+	var out cashSummary
 	for _, e := range events {
 		if e.Date.Before(from) {
-			opening += e.UAH
+			out.OpeningUAH += e.UAH
 			continue
 		}
 		if e.Date.After(to) {
@@ -593,27 +642,15 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 		}
 		switch e.Kind {
 		case flowIncome:
-			income += e.UAH
+			out.IncomeUAH += e.UAH
 		case flowContribution:
-			contrib += e.UAH
+			out.ContribUAH += e.UAH
 		case flowPurchase:
-			purchase += e.UAH
+			out.PurchaseUAH += e.UAH
 		case flowConversion:
-			conv += e.UAH
+			out.ConvUAH += e.UAH
 		}
-		out.Rows = append(out.Rows, row{
-			Date: string(e.Date), Label: e.Label,
-			UAH: round2(float64(e.UAH) / 100), Kind: e.Kind,
-		})
+		out.Rows = append(out.Rows, e)
 	}
-	minor := func(v int64) float64 { return round2(float64(v) / 100) }
-	out.OpeningUAH = minor(opening)
-	out.IncomeUAH = minor(income)
-	out.ContribUAH = minor(contrib)
-	// Покупки віддаємо ДОДАТНИМИ: у звіті вони віднімаються, і мінус на
-	// мінусі читався б як помилка.
-	out.PurchaseUAH = minor(-purchase)
-	out.ConvUAH = minor(conv)
-	out.ClosingUAH = minor(opening + income + contrib + purchase + conv)
-	writeJSON(w, http.StatusOK, out)
+	return out
 }

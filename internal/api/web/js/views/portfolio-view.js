@@ -34,6 +34,11 @@ import {
 } from "./risk.js";
 import { chartBlockHTML, snapshotsTableHTML, wireHistory } from "./history.js";
 
+// Підсумок місяця живе окремим модулем і реекспортується сюди: сторінка
+// належить «Портфелю», а її вміст не має спільного з рештою цього файла
+// нічого, крім розділу.
+export { period } from "./period.js";
+
 /** Усе разом: та сама таблиця, що й була, з плитками дохідностей над нею.
  *  Єдина сторінка, де види стоять поруч і порівнюються. */
 export async function positions(ctx, main) {
