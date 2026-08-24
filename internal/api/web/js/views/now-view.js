@@ -219,6 +219,28 @@ export function reinvestHTML(ctx, opts = {}) {
       ? `<span class="t-ok">вистачає${r.affordable > 1 ? ` ×${r.affordable}` : ""}</span>`
       : need > 0 ? `бракує ${fmtCur(need, curSym(r.currency))}` : "";
     const fits = (r.brokers || []).map((f) => `${esc(f.broker)} ×${f.qty}`).join(" · ");
+    // «Коли вистачить» стоїть У РЯДКУ, а не під кареткою: це і є відповідь,
+    // по яку сюди дивляться, коли грошей ще нема. Під кареткою лежить те,
+    // ЗВІДКИ взялася дохідність, а це — що з цим рядком робити далі.
+    //
+    // Усі числа готові: дату, брокера, дні й ціну очікування рахує
+    // ready_on.go. Тут лише формат — жодного віднімання дат у браузері.
+    const via = (r.ready_via || []).map((e) =>
+      `${esc(e.label)} ${fmtCur(Number(e.amount.amount), curSym(e.amount.currency))}`).join(" + ");
+    const waiting = r.wait_cost
+      ? ` Це очікування коштує ${fmtCur(Number(r.wait_cost.amount), curSym(r.wait_cost.currency))
+      } — стільки за ці дні дав би ${esc(r.wait_alt)}.` : "";
+    // Дні названі поруч із датою навмисно: «17 березня» саме по собі не
+    // каже, це за тиждень чи за півроку.
+    // «З надходжень портфеля» — не багатослівʼя, а межа. Черга задач
+    // поруч відповідає на те саме «коли» ІНШОЮ мірою («за твоїм темпом» —
+    // із місячної цілі внесків), і два числа без назви своєї основи
+    // читались би як розбіжність.
+    const ready = r.ready_on
+      ? `<div class="sg-r sub-xs">З надходжень портфеля набереться ${dayMonth(r.ready_on)} — за ${
+        r.ready_days} ${plural(r.ready_days, "день", "дні", "днів")}, ${esc(r.ready_broker)}${
+        via ? ` (${via})` : ""}.${waiting}</div>`
+      : r.ready_note ? `<div class="sg-r sub-xs">${esc(r.ready_note)}.</div>` : "";
     // Останнє розміщення — окремим рядком, а не в загальній стрічці: це
     // єдине тут число із ЗОВНІШНЬОГО світу, скільки платить ринок за той
     // самий папір. Прозою бекенд його не дублює — у причині лишається
@@ -241,6 +263,7 @@ export function reinvestHTML(ctx, opts = {}) {
       <b class="sg-y">${pct(r.real_pct)}</b>
       ${addBtn(kind, r)}
     </div>
+    ${ready}
     <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : " hidden"}>${details}${auc}</div>`;
   };
 

@@ -136,6 +136,24 @@ type suggestion struct {
 	// stale й overLimit.
 	Locked      bool   `json:"locked,omitempty"`
 	LockedUntil string `json:"locked_until,omitempty"`
+	// ReadyOn / ReadyBroker / ReadyDays / ReadyVia / ReadyNote — коли на цей
+	// рядок набереться, на чиєму рахунку і з чого саме. Заповнює
+	// annotateReady (ready_on.go) і лише в /api/reinvest: черга задач тієї ж
+	// збірки порад цих полів не показує, а другий прохід по джерелах
+	// подорожчав би кожен /api/summary.
+	//
+	// Порожні там, де відповіді немає: рядок, на який стає вже сьогодні,
+	// дати не має за визначенням.
+	ReadyOn     string       `json:"ready_on,omitempty"`
+	ReadyBroker string       `json:"ready_broker,omitempty"`
+	ReadyDays   int          `json:"ready_days,omitempty"`
+	ReadyVia    []readyEvent `json:"ready_via,omitempty"`
+	ReadyNote   string       `json:"ready_note,omitempty"`
+	// WaitCost / WaitAlt — скільки коштують ці дні очікування й чим міряно.
+	// Вказівник, а не значення: нуль і «не було чим міряти» — різні
+	// відповіді, і друга не має права виглядати як «безкоштовно».
+	WaitCost *moneyJSON `json:"wait_cost,omitempty"`
+	WaitAlt  string     `json:"wait_alt,omitempty"`
 }
 
 // withKindDef дописує до причини дефіцит за видом інструмента. Поріг
@@ -203,6 +221,12 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.reinvestSuggestions(r.Context(), now, doc)
 	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	// Дата доступності — лише тут, і лише для екрана: чому не всередині
+	// reinvestSuggestions, сказано в шапці ready_on.go.
+	if err := s.annotateReady(r.Context(), domain.NewDate(now), doc, out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
