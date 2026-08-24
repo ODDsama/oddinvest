@@ -14,6 +14,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -173,18 +174,81 @@ func (s *Server) loadSettings(ctx context.Context) *state.SettingsDoc {
 	doc := &state.SettingsDoc{}
 	for _, d := range settingsRegistry {
 		raw, _ := s.st.GetSetting(ctx, d.Key) //nolint:errcheck // порожньо = не задано; помилка веде туди ж
-		raw = strings.TrimSpace(raw)
-		if raw == "" {
-			continue
-		}
-		switch {
-		case d.Num != nil:
-			if f, err := strconv.ParseFloat(raw, 64); err == nil {
-				*d.Num(doc) = &f
-			}
-		case d.Str != nil:
-			*d.Str(doc) = raw
-		}
+		applySetting(doc, d, raw)
 	}
 	return doc
+}
+
+// applySetting кладе СИРЕ значення ключа в документ.
+//
+// Винесене з циклу вище не заради охайності, а тому, що споживачів стало
+// двоє: прочитане зі сховища й НАКЛАДКА (overrideSettings нижче). Другий
+// розбір тих самих рядків означав би, що превʼю політики вміє прочитати
+// число інакше, ніж його прочитає застосунок після запису, — і різницю
+// між ними ніхто б не побачив, бо обидва відповіді виглядають правдиво.
+//
+// Порожнє значення ПРИБИРАЄ налаштування — те саме, що в PUT /api/settings,
+// і саме тому тут явний nil, а не "пропустити". У свіжому документі різниці
+// немає, у накладці поверх прочитаного вона вся: набір, який мовчить про
+// ціль НПФ, мусить її стерти, а не лишити від попереднього.
+//
+// Сміття лишає значення незайманим: сюди воно доходить лише повз
+// validateSettings, тобто ніколи, — а падати на розборі того, що вже
+// лежить у базі, довелось би на кожній сторінці.
+func applySetting(doc *state.SettingsDoc, d settingDef, raw string) {
+	raw = strings.TrimSpace(raw)
+	switch {
+	case d.Num != nil:
+		if raw == "" {
+			*d.Num(doc) = nil
+			return
+		}
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			*d.Num(doc) = &f
+		}
+	case d.Str != nil:
+		*d.Str(doc) = raw
+	}
+}
+
+// overrideSettings — політика, якої ще немає, поверх прочитаної.
+//
+// Перебирається РЕЄСТР, а не мапа: порядок тоді сталий, а ключ, якого в
+// реєстрі немає, не має шансу дійти сюди мовчки (його вже відхилив
+// validateSettings).
+func overrideSettings(doc *state.SettingsDoc, over map[string]string) {
+	for _, d := range settingsRegistry {
+		if raw, ok := over[d.Key]; ok {
+			applySetting(doc, d, raw)
+		}
+	}
+}
+
+// validateSettings — чи можна такі значення взагалі приймати.
+//
+// Спільна для запису (PUT /api/settings) і для превʼю політики. Доти
+// перевірка жила всередині циклу запису, і превʼю мусило б завести другу —
+// тобто рівно той випадок, від якого застережено в шапці цього файлу:
+// ключ, описаний у двох місцях, розходиться тихо.
+//
+// Порожнє значення дозволене й означає «прибрати»: саме так знецінення
+// повертається з ручного на виміряне.
+func validateSettings(req map[string]string) error {
+	for k, v := range req {
+		d, ok := settingsByKey[k]
+		if !ok {
+			return fmt.Errorf("невідомий ключ %q", k)
+		}
+		if v == "" || !d.numeric() {
+			continue
+		}
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err != nil {
+			return fmt.Errorf("%s: %q не число", k, v)
+		}
+		if f < 0 {
+			return fmt.Errorf("%s: від'ємне значення %v", k, f)
+		}
+	}
+	return nil
 }

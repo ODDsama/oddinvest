@@ -160,8 +160,15 @@ sleeve-state:
 # і щодня лягає в добовий знімок, тож щойн гіпотеза протече повз
 # buildStateWith, вигадка буде опублікована як стан. Домовленість, яку
 # ніхто не перевіряє, живе до наступного поспіху.
+#
+# ТРЕТІЙ споживач гіпотези — handlers_policy_preview.go, і він названий
+# тут поіменно, бо питає інше: не «що станеться, якщо це купити», а «що
+# названі цілі означають для портфеля, який уже є». Гіпотезою в нього
+# лишається сама політика, домішується вона тим самим buildStateWith, і
+# публічний BuildStateDoc її так само не приймає — правило не послаблене,
+# просто в нього з'явився ще один законний виклик.
 .PHONY: whatif-boundary
 whatif-boundary:
 	@! grep -rn 'hypothetical' internal/api/*.go \
-		| grep -vE 'state_builder\.go|handlers_whatif\.go|state_plan_buys\.go|_test\.go' \
+		| grep -vE 'state_builder\.go|handlers_whatif\.go|state_plan_buys\.go|handlers_policy_preview\.go|_test\.go' \
 		|| { echo 'гіпотеза протікає повз buildStateWith: у MQTT і знімок іде реальний стан'; exit 1; }

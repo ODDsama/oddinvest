@@ -148,6 +148,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/switch", s.handleSwitchVerdict)
 	mux.HandleFunc("GET /api/auctions/curve", s.handleAuctionsCurve)
 	mux.HandleFunc("POST /api/whatif", s.handleWhatIf)
+	mux.HandleFunc("POST /api/policy/preview", s.handlePolicyPreview)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("GET /api/backup", s.handleBackupExport)

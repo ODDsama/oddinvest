@@ -5,7 +5,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math"
 	"net/http"
 	"strconv"
@@ -71,25 +70,18 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// Перевірка ВСЬОГО тіла до першого запису, а не всередині циклу.
+	// Доти невідомий ключ у середині мапи лишав записаними ті, що встигли
+	// пройти, — половину набору, якої ніхто не просив; а що мапа
+	// перебирається в довільному порядку, половина щоразу була інша.
+	//
+	// Сама перевірка живе в settings_registry.go, бо споживачів у неї
+	// тепер двоє: цей запис і превʼю політики.
+	if err := validateSettings(req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	for k, v := range req {
-		d, ok := settingsByKey[k]
-		if !ok {
-			writeErr(w, http.StatusBadRequest, fmt.Errorf("невідомий ключ %q", k))
-			return
-		}
-		// Порожнє значення дозволене й означає «прибрати»: саме так
-		// знецінення повертається з ручного на виміряне.
-		if v != "" && d.numeric() {
-			f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-			if err != nil {
-				writeErr(w, http.StatusBadRequest, fmt.Errorf("%s: %q не число", k, v))
-				return
-			}
-			if f < 0 {
-				writeErr(w, http.StatusBadRequest, fmt.Errorf("%s: від'ємне значення %v", k, f))
-				return
-			}
-		}
 		if err := s.st.SetSetting(r.Context(), k, v); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
