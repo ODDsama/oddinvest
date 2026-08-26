@@ -140,6 +140,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/plan/actions/{id}", s.handleUpdatePlanAction)
 	mux.HandleFunc("DELETE /api/plan/actions/{id}", s.handleDeletePlanAction)
 	mux.HandleFunc("GET /api/reinvest", s.handleReinvest)
+	// Розкладка суми — теж поруч, і з тієї самої причини: вона бере рейтинг
+	// помічника як є. Свій порядок тут означав би, що «Що купити» і «куди
+	// закинути те, що прийшло» радять різне.
+	mux.HandleFunc("POST /api/allocate", s.handleAllocate)
 	// Перекладання — поруч із помічником навмисно: два боки одного
 	// питання про реінвест, і альтернативу вони беруть з одного рейтингу.
 	// Ретроспектива помічника — теж поруч: журнал рішень існує рівно

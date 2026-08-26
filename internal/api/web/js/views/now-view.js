@@ -23,7 +23,7 @@ import {
   planBuysHTML, planBuyFormHTML, wirePlanBuys, addToPlan, emptyPlanHTML,
 } from "./plan-buys.js";
 import { tasksHTML } from "./tasks.js";
-import { allocationCardHTML, currencyCardHTML } from "./allocation.js";
+import { allocationCardHTML, currencyCardHTML, wireAllocation } from "./allocation.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
@@ -532,6 +532,7 @@ export async function todo(ctx, main) {
  *  бракує (needsSetting), коли не задано жодної цілі. */
 export async function buy(ctx, main) {
   main.innerHTML = currencyCardHTML(ctx) + allocationCardHTML(ctx);
+  wireAllocation(ctx, main);
 }
 
 /** План купівель: що я збираюсь узяти — і що з цього вийде.

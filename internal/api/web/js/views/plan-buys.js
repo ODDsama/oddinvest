@@ -22,7 +22,7 @@ import { esc, curSym, today, cur2 as fmtCur } from "../format.js";
 import {
   money as moneyField, num as numField, date as dateField,
   pct as pctField, check as checkField, note as noteField,
-  selectOf, formHTML,
+  selectOf, formHTML, whenKind, wireKind,
 } from "../fields.js";
 import { refSelect, refSuggest, refValue, wireRefs, wireSuggest } from "../refs.js";
 import { opsGrid, rowActions } from "../grid.js";
@@ -53,55 +53,50 @@ export function addToPlan(ctx, { kind, ref, qty = 1 }) {
 
 // --- форма ---
 
-// Групи полів за видом. data-forkind несе список видів, для яких група
-// потрібна; перемикач лише ставить/знімає hidden.
-const group = (kinds, inner) =>
-  `<div data-forkind="${esc(kinds.join(" "))}">${inner}</div>`;
-
 function planBuyFields(ctx, row = null) {
   const r = row || {};
   return [
     selectOf("kind", "Що купуєш", KINDS, r.kind || "bond"),
-    group(["bond"], refSuggest({
+    whenKind(["bond"], refSuggest({
       name: "isin", ref: "bond", label: "Папір (ISIN)",
       value: r.kind === "bond" ? r.ref || "" : "",
     })),
-    group(["fund"], refSelect(ctx, {
+    whenKind(["fund"], refSelect(ctx, {
       name: "fund", ref: "fund", value: r.kind === "fund" ? r.ref || "" : "",
     })),
-    group(["deposit"], refSelect(ctx, {
+    whenKind(["deposit"], refSelect(ctx, {
       name: "bank", ref: "broker", label: "Банк",
       value: r.kind === "deposit" ? r.ref || "" : "",
     })),
-    group(["npf"], refSelect(ctx, {
+    whenKind(["npf"], refSelect(ctx, {
       name: "npf_id", ref: "npf", value: r.kind === "npf" ? r.ref || "" : "",
     })),
-    group(["bond", "fund"], numField("qty", "Кількість", {
+    whenKind(["bond", "fund"], numField("qty", "Кількість", {
       min: 1, value: r.qty || 1,
     })),
     // Ціна вручну — лише сертифікату, і лише тому, що каталогу цін фондів
     // у застосунку немає: про фонд, якого ще немає в портфелі, сказати
     // нічого не можна. Ціна ОВДП — номінал плюс НКД із довідника.
-    group(["fund"], moneyField("unit_price", "Ціна за штуку", {
+    whenKind(["fund"], moneyField("unit_price", "Ціна за штуку", {
       ph: "порожньо — узяти з позиції", value: r.unit_price || "",
     })),
-    group(["deposit", "npf"], moneyField("amount", "Сума", {
+    whenKind(["deposit", "npf"], moneyField("amount", "Сума", {
       ph: "100000.00", value: r.amount || "",
     })),
-    group(["deposit"], pctField("rate_pct", "Ставка, %", {
+    whenKind(["deposit"], pctField("rate_pct", "Ставка, %", {
       ph: "порожньо — узяти з налаштувань", value: r.rate_pct || "",
     })),
-    group(["deposit"], numField("months", "Строк, місяців", {
+    whenKind(["deposit"], numField("months", "Строк, місяців", {
       min: 1, value: r.months || 12,
     })),
-    group(["deposit"], checkField("is_reserve", "Це подушка (резерв)", {
+    whenKind(["deposit"], checkField("is_reserve", "Це подушка (резерв)", {
       checked: !!r.is_reserve,
     })),
-    group(["bond", "fund", "deposit"], refSelect(ctx, {
+    whenKind(["bond", "fund", "deposit"], refSelect(ctx, {
       name: "currency", ref: "currency", blank: "авто (з довідника)",
       value: r.currency || "",
     })),
-    group(["bond", "fund", "npf"], refSelect(ctx, {
+    whenKind(["bond", "fund", "npf"], refSelect(ctx, {
       name: "broker", ref: "broker", label: "З рахунку",
       value: r.broker || "",
     })),
@@ -156,15 +151,6 @@ function planBuyBody(f) {
       out.broker = refValue(f, "broker");
   }
   return out;
-}
-
-/** Показати рівно ті групи полів, які потрібні обраному виду. */
-function syncKind(form) {
-  if (!form || !form.kind) return;
-  const kind = form.kind.value;
-  form.querySelectorAll("[data-forkind]").forEach((g) => {
-    g.hidden = !g.dataset.forkind.split(" ").includes(kind);
-  });
 }
 
 export function planBuyFormHTML(ctx) {
@@ -302,13 +288,7 @@ export function wirePlanBuys(ctx, main, rows) {
   // перевірилась би на реальних даних і лишилась мертвою гілкою назавжди.
   // Прибрати цей рядок можна після наступного релізу (додано 2026-08-21).
   try { localStorage.removeItem("oddinvest.basket"); } catch (_) { /* приватний режим */ }
-  const form = main.querySelector("#planBuyForm");
-  if (form) {
-    syncKind(form);
-    form.addEventListener("change", (e) => {
-      if (e.target && e.target.name === "kind") syncKind(form);
-    });
-  }
+  wireKind(main.querySelector("#planBuyForm"));
   wireCrud(ctx, main, {
     resource: "plan/buys", form: "#planBuyForm", title: "Планована купівля",
     rows, fields: planBuyFields, body: planBuyBody,
@@ -319,12 +299,7 @@ export function wirePlanBuys(ctx, main, rows) {
   // про власний перемикач цієї форми він не знає — і не має знати.
   main.querySelectorAll('[data-res="plan/buys"][data-edit]').forEach((btn) => {
     btn.addEventListener("click", () => {
-      const f = ctx.root && ctx.root.querySelector("#editForm");
-      if (!f) return;
-      syncKind(f);
-      f.addEventListener("change", (e) => {
-        if (e.target && e.target.name === "kind") syncKind(f);
-      });
+      wireKind(ctx.root && ctx.root.querySelector("#editForm"));
     });
   });
   wireDone(ctx, main, rows);

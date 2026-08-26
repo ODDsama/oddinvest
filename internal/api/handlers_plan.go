@@ -126,10 +126,26 @@ func planFlowFromReq(req planFlowReq) (store.PlanFlow, error) {
 	if name == "" {
 		return out, errors.New("назва потоку не може бути порожньою")
 	}
+	dest := strings.TrimSpace(req.Dest)
+	// ПРИЗНАЧЕННЯ МАЄ ЛИШЕ ВИТРАТА, і відхиляється воно тут, а не ховається
+	// самою формою.
+	//
+	// Проєкція розгортає внесок рівно з відʼємної місячної суми
+	// (state_projection.go: `if v := planFlowMonthlyUAH(...); v < 0`), тож
+	// на доході призначення не робить НІЧОГО. Мовчазний нуль там гірший за
+	// помилку: поле лишалось видимим, список малював під рядком пігулку
+	// «переказ, а не витрата», і застосунок стверджував рух, якого не було
+	// в жодному числі. Прийняти й тихо стерти теж не годиться — людина
+	// вибрала рахунок і мала б право думати, що вибір записався.
+	if req.Kind == "income" && dest != "" {
+		return out, errors.New(
+			"призначення має лише витрата: внесок у пенсійний — це рух ІЗ ліквідного боку, " +
+				"і на доході проєкція його не бачить")
+	}
 	return store.PlanFlow{
 		Name: name, Kind: req.Kind, Amount: amt, Currency: cur, Cadence: req.Cadence,
 		FromDate: from, UntilDate: until, GrowthBP: growth, InvestBP: invest,
-		Dest: strings.TrimSpace(req.Dest), Note: req.Note,
+		Dest: dest, Note: req.Note,
 	}, nil
 }
 
@@ -176,6 +192,36 @@ type planFlowRow struct {
 	// моделі). Саме тут разова виплата показує повну суму — того місяця
 	// вона справді приходить.
 	NextMonthUAH float64 `json:"next_month_uah"`
+	// Expired — цей потік більше не заплатить ЖОДНОГО разу.
+	//
+	// Рахує бекенд, а не браузер, і це та сама межа, що в MaturityDate
+	// сусіднього рядка плану купівель: «чи платить іще цей потік» уже
+	// означено періодичністю, датою «до» й разовістю (planFlowAmount), і
+	// друге означення в JS розійшлося б із першим на першій же правці
+	// періодичності — тихо, бо обидва повертали б правдоподібне.
+	//
+	// Нулів у гривневих колонках для цього не досить: потік, який
+	// ПОЧНЕТЬСЯ через два роки, теж дає нулі у вікні, і він не завершений,
+	// а ще не почався.
+	Expired bool `json:"expired,omitempty"`
+}
+
+// planFlowExpired — потік вичерпаний: попереду в нього виплат немає.
+//
+// Дві причини, і обидві вже названі в ядрі:
+//
+//	дата «до» позаду — planFlowAmount відкидає все, де m > end, а для
+//	                   закритого потоку end уже нульовий чи відʼємний;
+//	разова позаду     — у неї немає «наступного разу», де можна було б
+//	                   надолужити (гілка "once" у planFlowNative).
+//
+// Перебором вікна це рахувати не можна: дванадцять нулів попереду однаково
+// дає й потік, який почнеться на третій рік, — а він не завершений.
+func planFlowExpired(f store.PlanFlow, today domain.Date) bool {
+	if f.UntilDate != "" && monthOffsetRaw(today, f.UntilDate) < 1 {
+		return true
+	}
+	return f.Cadence == "once" && monthOffsetRaw(today, f.FromDate) < 1
 }
 
 // toPlanFlowRow. marks обов'язковий саме тут, і забути його було б тихо:
@@ -191,6 +237,7 @@ func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates, marks pl
 		GrowthPct: round2(float64(f.GrowthBP) / 100), InvestPct: round2(float64(f.InvestBP) / 100),
 		Dest:        f.Dest,
 		Note:        f.Note,
+		Expired:     planFlowExpired(f, today),
 		ProvidesUAH: round2(planFlowProvidesUAH(f, today, rates, planProvidesMonths, marks)),
 		GrossUAH:    round2(planFlowGrossUAH(f, today, rates, planProvidesMonths, marks)),
 

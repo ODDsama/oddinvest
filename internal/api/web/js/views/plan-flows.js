@@ -15,7 +15,7 @@ import { onSubmit, onDelete, openEdit, fillForm } from "../forms.js";
 import { disclosure } from "../disclosure.js";
 import {
   money as moneyField, num as numField, text as textField, date as dateField,
-  note as noteField, selectOf, formHTML,
+  note as noteField, selectOf, formHTML, whenKind, wireKind,
 } from "../fields.js";
 import { refSelect } from "../refs.js";
 import { opsGrid } from "../grid.js";
@@ -68,10 +68,15 @@ function flowFields(accounts, values = null) {
       numField("invest_pct", "Частка в портфель, %", {
         step: "0.01", min: "0", max: "100", value: val("invest_pct", "100"),
       }),
-      selectOf("dest", "Призначення", destOptions(accounts), val("dest"), {
+      // ЛИШЕ У ВИТРАТИ, і це не косметика форми. Проєкція читає dest
+      // рівно для відʼємних місячних сум (state_projection.go), тож на
+      // доході воно не робить нічого — а поле, яке нічого не робить,
+      // читається як робоче: рядок «Бонус 250 $» діставав пігулку «переказ,
+      // а не витрата», хоч жодного переказу в жодному числі не було.
+      whenKind(["expense"], selectOf("dest", "Призначення", destOptions(accounts), val("dest"), {
         title: "Витрата з призначенням у пенсійний — це не зʼїдені гроші, а переказ: "
           + "ліквідне худне, пенсійний капітал росте. Без призначення проєкція вважала б їх витраченими",
-      }),
+      })),
       noteField("note", "Нотатка", { value: val("note") }),
     ].join(""), "до дати, індексація, частка, призначення, нотатка", !!nonDefault),
   ].join("");
@@ -127,7 +132,11 @@ function flowBody(f) {
     currency: f.currency.value, cadence: f.cadence.value,
     from_date: f.from_date.value, until_date: f.until_date.value,
     growth_pct: f.growth_pct.value, invest_pct: f.invest_pct.value,
-    dest: f.dest ? f.dest.value : "",
+    // Прихована група ПОЛЕ НЕ ПРИБИРАЄ — hidden ховає, а не видаляє, — тож
+    // без перевірки виду форма надіслала б призначення, набране до
+    // перемикання типу. Бекенд відхилив би це чотирьохсоткою, і людина
+    // побачила б помилку про поле, якого вона на екрані не бачить.
+    dest: f.kind.value === "expense" && f.dest ? f.dest.value : "",
     note: f.note.value,
   });
 }
@@ -223,6 +232,17 @@ function nextMonthLabel() {
 // сума: це єдине число, яке говорить про премію правду.
 const fullCell = (f) => (isOnce(f) ? (f.amount_uah || 0) : (f.monthly_gross_uah || 0));
 
+// ЗАВЕРШЕНІ ПОТОКИ — ОКРЕМИМ, ЗГОРНУТИМ БЛОКОМ.
+//
+// Видалити їх не можна: за рядком тримається журнал ревізій, а за журналом
+// — картка «План проти факту», тобто зникла б не одна назва, а половина
+// історії. Але й у робочому списку їм не місце: закрита зарплата стоїть із
+// нулями в обох гривневих колонках і читається як помилка розрахунку рівно
+// доти, доки не звіриш дату «до».
+//
+// Хто саме завершений, каже БЕКЕНД (planFlowRow.expired). Перевірити це в
+// браузері двома датами було б на рядок коротше й завело б друге означення
+// «чи платить іще цей потік» — те, від чого застережений весь модуль.
 export function planFlowsListHTML(flows, provides = 0) {
   if (!flows.length) {
     return `${empty("", "Джерел доходу й витрат ще немає — перше додасть форма нижче.")}
@@ -233,6 +253,8 @@ export function planFlowsListHTML(flows, provides = 0) {
     // Сортуємо за СИРОЮ ISO-датою, а не за підписом: «10 березня» стало б
     // перед «2 січня», бо порівнювались би рядки, а не дні.
     .sort((a, b) => (a.from_date < b.from_date ? -1 : a.from_date > b.from_date ? 1 : 0));
+  const live = rows.filter((f) => !f.expired);
+  const done = rows.filter((f) => f.expired);
   // Порядок колонок — це арифметика зліва направо: 89 412 ₴ × 10.0% = 8 941 ₴.
   // Доти «повного» числа не було видно ніде, тож перевірити рядок очима було
   // нічим — а підсумок «Доходи» під таблицею складався саме з нього й через
@@ -241,48 +263,61 @@ export function planFlowsListHTML(flows, provides = 0) {
   // Дві гривневі колонки замість однієї — бо питань справді два, і разова
   // виплата відповідає на них по-різному: щомісяця вона не дає нічого,
   // а в свій місяць приносить усю суму.
-  return opsGrid({
-    cols: [
-      { key: "name", label: "Назва", cell: (f) => esc(f.name)
-        + (f.note ? ` <span class="muted fine-xs">${esc(f.note)}</span>` : "")
-        + (f.dest ? `<div class="fine-xs"><span class="pill pill-npf">НПФ</span> переказ, а не витрата</div>` : "") },
-      { key: "kind", label: "Тип", cell: (f) => `<span class="pill ${
-        f.kind === "income" ? "coupon" : "redemption"}">${
-        f.kind === "income" ? "дохід" : "витрата"}</span>` },
-      { key: "amount", label: "Сума", num: true, cell: (f) => fmtMoney(f.amount) },
-      { key: "full", label: "повне ₴/міс", num: true,
-        cell: (f) => `<span class="${fullCell(f) < 0 ? "t-warn" : ""}"
-          title="сума за сьогоднішнім курсом, до «частки в портфель»">${fmtUAH(fullCell(f))}</span>`
-          + (isOnce(f) ? `<div class="fine-xs muted">разова</div>` : "") },
-      { key: "invest", label: "У портфель", num: true, cell: (f) => pct(f.invest_pct) },
-      { key: "monthly", label: "щомісяця", num: true,
-        cell: (f) => `<span class="${(f.monthly_uah || 0) < 0 ? "t-warn" : ""}"${isOnce(f)
-          ? ` title="разова виплата ${esc(dayMonth(f.from_date))} не дає нічого щомісяця — її внесок у план стоїть рядком «Разові» під таблицею"`
-          : ` title="стала ставка: сума × частка ÷ період. Не залежить ні від дати початку, ні від вікна усереднення"`
-        }>${isOnce(f) ? DASH : fmtUAH(f.monthly_uah || 0)}</span>` },
-      { key: "next", label: nextMonthLabel(), num: true,
-        cell: (f) => `<span class="${(f.next_month_uah || 0) < 0 ? "t-warn" : ""}"
-          title="скільки заходить у найближчому місяці плану">${fmtUAH(f.next_month_uah || 0)}</span>` },
-      { key: "cadence", label: "Період",
-        cell: (f) => CADENCE_LABEL[f.cadence] || esc(f.cadence) },
-      { key: "from", label: "З", cell: (f) => esc(dayMonth(f.from_date)) },
-      { key: "until", label: "До",
-        cell: (f) => (f.until_date ? esc(dayMonth(f.until_date)) : "безстроково") },
-      // Кнопки свої, а не з actionsCol: у потоку ЧОТИРИ дії, і дві з них
-      // (⇗ зміна з дати, ⧉ копія) не є ні правкою, ні видаленням.
-      { key: "acts", label: "", cls: "row-actions nowrap", cell: (f) => `
-        <button class="sm" data-editflow="${f.id}" aria-label="Змінити потік ${esc(f.name)}">✎</button>
-        <button class="sm" data-changeflow="${f.id}"
-          aria-label="Змінити потік ${esc(f.name)} з дати: підвищення або завершення">⇗</button>
-        <button class="sm quiet" data-copyflow="${f.id}"
-          aria-label="Скопіювати потік ${esc(f.name)} у форму">⧉</button>
-        <button class="sm warn" data-delflow="${f.id}"
-          aria-label="Видалити потік ${esc(f.name)}">✕</button>` },
-    ],
-    rows,
+  const cols = [
+    { key: "name", label: "Назва", cell: (f) => esc(f.name)
+      + (f.note ? ` <span class="muted fine-xs">${esc(f.note)}</span>` : "")
+      + (f.kind === "expense" && f.dest
+        ? `<div class="fine-xs"><span class="pill pill-npf">НПФ</span> переказ, а не витрата</div>` : "") },
+    { key: "kind", label: "Тип", cell: (f) => `<span class="pill ${
+      f.kind === "income" ? "coupon" : "redemption"}">${
+      f.kind === "income" ? "дохід" : "витрата"}</span>` },
+    { key: "amount", label: "Сума", num: true, cell: (f) => fmtMoney(f.amount) },
+    { key: "full", label: "повне ₴/міс", num: true,
+      cell: (f) => `<span class="${fullCell(f) < 0 ? "t-warn" : ""}"
+        title="сума за сьогоднішнім курсом, до «частки в портфель»">${fmtUAH(fullCell(f))}</span>`
+        + (isOnce(f) ? `<div class="fine-xs muted">разова</div>` : "") },
+    { key: "invest", label: "У портфель", num: true, cell: (f) => pct(f.invest_pct) },
+    { key: "monthly", label: "щомісяця", num: true,
+      cell: (f) => `<span class="${(f.monthly_uah || 0) < 0 ? "t-warn" : ""}"${isOnce(f)
+        ? ` title="разова виплата ${esc(dayMonth(f.from_date))} не дає нічого щомісяця — її внесок у план стоїть рядком «Разові» під таблицею"`
+        : ` title="стала ставка: сума × частка ÷ період. Не залежить ні від дати початку, ні від вікна усереднення"`
+      }>${isOnce(f) ? DASH : fmtUAH(f.monthly_uah || 0)}</span>` },
+    { key: "next", label: nextMonthLabel(), num: true,
+      cell: (f) => `<span class="${(f.next_month_uah || 0) < 0 ? "t-warn" : ""}"
+        title="скільки заходить у найближчому місяці плану">${fmtUAH(f.next_month_uah || 0)}</span>` },
+    { key: "cadence", label: "Період",
+      cell: (f) => CADENCE_LABEL[f.cadence] || esc(f.cadence) },
+    { key: "from", label: "З", cell: (f) => esc(dayMonth(f.from_date)) },
+    { key: "until", label: "До",
+      cell: (f) => (f.until_date ? esc(dayMonth(f.until_date)) : "безстроково") },
+    // Кнопки свої, а не з actionsCol: у потоку ЧОТИРИ дії, і дві з них
+    // (⇗ зміна з дати, ⧉ копія) не є ні правкою, ні видаленням.
+    { key: "acts", label: "", cls: "row-actions nowrap", cell: (f) => `
+      <button class="sm" data-editflow="${f.id}" aria-label="Змінити потік ${esc(f.name)}">✎</button>
+      <button class="sm" data-changeflow="${f.id}"
+        aria-label="Змінити потік ${esc(f.name)} з дати: підвищення або завершення">⇗</button>
+      <button class="sm quiet" data-copyflow="${f.id}"
+        aria-label="Скопіювати потік ${esc(f.name)} у форму">⧉</button>
+      <button class="sm warn" data-delflow="${f.id}"
+        aria-label="Видалити потік ${esc(f.name)}">✕</button>` },
+  ];
+  const grid = (list, foot) => opsGrid({
+    cols,
+    rows: list,
     caption: "Потоки плану: назва, тип, сума, внесок у місяць, період і строк",
-    foot: flowsFootHTML(flows, provides),
+    foot,
   });
+  // Підсумок рахується по ВСІХ рядках, а не по видимих. Числа завершених у
+  // ньому й так нульові, тож жодного разу не зрушить — зате знаменник у
+  // підвалі лишається один, а два різні знаменники на одному екрані в цьому
+  // застосунку вже коштували розбіжності між карткою й плиткою.
+  const head = live.length
+    ? grid(live, flowsFootHTML(flows, provides))
+    : empty("", "Усі джерела вже завершені — діючих не лишилось.");
+  if (!done.length) return head;
+  return head + disclosure("planFlowsDone",
+    `Завершені — ${done.length}`, grid(done),
+    "більше не платять: дата «до» позаду або разова виплата вже пройшла");
 }
 
 // Підсумок, який показує подвійне віднімання ЧИСЛОМ, а не прозою.
@@ -422,6 +457,7 @@ export function revisionsHTML(revs) {
 export function wirePlanFlows(ctx, main, flows) {
   const byId = new Map(flows.map((f) => [String(f.id), f]));
   const form = main.querySelector("#planFlowForm");
+  wireKind(form);
 
   onSubmit(ctx, form, (f) => ({ path: "plan/flows", body: flowBody(f), msg: "Потік додано" }));
 
@@ -434,7 +470,11 @@ export function wirePlanFlows(ctx, main, flows) {
   main.querySelectorAll("[data-editflow]").forEach((b) => b.addEventListener("click", () => {
     const f = byId.get(b.dataset.editflow);
     if (!f) return;
-    openEdit(ctx, { title: `Правка потоку «${esc(f.name)}»`, fields: flowFields(ctx.npfAccounts, flowFormValues(f)) },
+    openEdit(ctx, {
+      title: `Правка потоку «${esc(f.name)}»`,
+      fields: flowFields(ctx.npfAccounts, flowFormValues(f)),
+      wire: wireKind,
+    },
       (form2) => ({
         method: "PUT", path: "plan/flows/" + f.id, body: flowBody(form2), msg: "Потік змінено",
       }));

@@ -60,6 +60,7 @@ import { infoBtn } from "../info.js";
 import { needsSetting } from "../components.js";
 import { KIND_GROUP, CURRENCIES } from "../constants.js";
 import { routeFor } from "../routes.js";
+import { openAllocate } from "./allocate.js";
 
 // Сталий порядок при однаковому дефіциті. Без нього два види з однаковим
 // розривом ставали б у порядку, у якому їх поклав бекенд, — а це порядок
@@ -310,6 +311,21 @@ function monthHeadHTML(s) {
       plural(mp.sources, "джерела", "джерел", "джерел")}${mp.received_uah > 0
       ? ` · підтверджено фактом ${fmtUAH(mp.received_uah)}` : ""} — решта поки обіцянка.</div>`
     : "";
+  // РОЗКЛАДКА ЗВІДСИ БЕРЕ «лишилось закинути», а не суму відмітки, і про це
+  // сказано вголос. Питання тут інше, ніж у чеклисті надходжень: там «ось
+  // ці гроші прийшли», а тут «ось стільки план ще обіцяє». Два майже
+  // однакові числа без підпису читались би як одне, і людина розклала б
+  // ту саму зарплату двічі.
+  //
+  // Кнопка стоїть лише при живому залишку: над закритим планом вона
+  // пропонувала б розкласти нуль.
+  const split = mp.left_uah > 0
+    ? `<div class="sub-xs"><button type="button" class="sm" data-allocmonth="${
+      mp.left_uah.toFixed(2)}">Розкласти ${fmtUAH(mp.left_uah)}</button> ${infoBtn("allocate")}
+       — те, що план ще обіцяє цього місяця, з цілими квитками. Коли гроші вже
+       прийшли, звичніший шлях — кнопка «⤵» на самому рядку в <a class="lnk"
+       href="${routeFor("plan/inflow")}">Надходженнях</a>.</div>`
+    : "";
   const rm = (s.reserve && s.reserve.fill_month_uah) || 0;
   const res = rm > 0
     ? `<div class="sub-xs">З них <b>${fmtUAH(rm)}</b> іде в резерв: подушка забирає своє
@@ -317,7 +333,7 @@ function monthHeadHTML(s) {
        з нових грошей — від того, що випадково лежить на брокерському рахунку цієї
        миті, подушка більше не залежить.</div>`
     : "";
-  return `<div class="sub">${parts.join(" · ")}.</div>${marks}${res}`;
+  return `<div class="sub">${parts.join(" · ")}.</div>${marks}${res}${split}`;
 }
 
 /** Картка «Скільки чого за стратегією» для сторінки «Що купити». */
@@ -480,6 +496,22 @@ function uahRefHTML(s) {
 }
 
 /** Картка «Валюта за стратегією» для сторінки «Що купити». */
+/** Проводка сторінки «Що купити»: кнопка розкладки залишку місяця.
+ *
+ *  Своя функція, а не рядок у самій сторінці: розмітку кнопки малює
+ *  monthHeadHTML, і слухач, дописаний деінде, мовчки перестав би працювати
+ *  того дня, коли кнопку звідти приберуть. */
+export function wireAllocation(ctx, main) {
+  main.querySelectorAll("[data-allocmonth]").forEach((b) =>
+    b.addEventListener("click", () => {
+      openAllocate(ctx, {
+        amount: b.dataset.allocmonth,
+        currency: "UAH",
+        title: "залишок місяця",
+      });
+    }));
+}
+
 export function currencyCardHTML(ctx) {
   const s = ctx.summary || {};
   const raw = (s.rebalance || []).filter((r) => r.dimension === "currency");

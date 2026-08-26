@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 // Потоки й дії плану — CRUD за зразком продажів/поповнень: додати, дістати
@@ -619,6 +622,78 @@ func TestPlanFlowMonthlyIgnoresClosedFlows(t *testing.T) {
 		// розповідає, просто вже не про майбутнє.
 		if r.AmountUAH == 0 {
 			t.Errorf("%s: сума за курсом не мала обнулятись", r.Name)
+		}
+	}
+}
+
+// Призначення має лише витрата.
+//
+// Доти форма показувала селект обом видам, а проєкція читала його рівно для
+// відʼємних місячних сум — тобто на доході поле не робило нічого, зате
+// список малював під рядком пігулку «переказ, а не витрата». Застосунок
+// стверджував рух, якого не було в жодному його числі.
+//
+// Тихе стирання тут не годиться так само, як мовчазний нуль: людина вибрала
+// рахунок і мала б право думати, що вибір записався.
+func TestPlanFlowDestOnlyForExpense(t *testing.T) {
+	srv, _ := testServer(t)
+
+	if resp, body := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Бонус","kind":"income","amount":"250.00","currency":"USD","cadence":"once",`+
+			`"from_date":"2026-09-01","dest":"npf:1"}`); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("призначення на доході мало дати 400, маємо %d %s", resp.StatusCode, body)
+	}
+	// Та сама перевірка на правці: PUT тут повна заміна рядка, і пройти повз
+	// неї було б рівно тим самим станом, лише через інші двері.
+	if resp, body := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Внесок","kind":"expense","amount":"1000.00","cadence":"month",`+
+			`"from_date":"2026-09-01","dest":"npf:1"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("призначення на витраті мало пройти: %d %s", resp.StatusCode, body)
+	}
+	if resp, body := do(t, "PUT", srv.URL+"/api/plan/flows/1",
+		`{"name":"Внесок","kind":"income","amount":"1000.00","cadence":"month",`+
+			`"from_date":"2026-09-01","dest":"npf:1"}`); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("правка на дохід із призначенням мала дати 400, маємо %d %s", resp.StatusCode, body)
+	}
+	// Дохід БЕЗ призначення — звичайний рядок, і жодного dest у ньому.
+	if resp, body := do(t, "PUT", srv.URL+"/api/plan/flows/1",
+		`{"name":"Внесок","kind":"income","amount":"1000.00","cadence":"month",`+
+			`"from_date":"2026-09-01"}`); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("дохід без призначення мав пройти: %d %s", resp.StatusCode, body)
+	}
+	if _, body := do(t, "GET", srv.URL+"/api/plan/flows", ""); strings.Contains(body, `"dest"`) {
+		t.Errorf("dest лишився на доході: %s", body)
+	}
+}
+
+// Вичерпаний потік позначається бекендом, а не вгадується двома датами в
+// браузері. Дванадцять нулів попереду однаково дає й потік, який почнеться
+// на третій рік, — і він не завершений, а ще не почався.
+func TestPlanFlowExpired(t *testing.T) {
+	today := domain.Date("2026-08-24")
+	cases := []struct {
+		name string
+		flow store.PlanFlow
+		want bool
+	}{
+		{"дата «до» позаду", store.PlanFlow{
+			Cadence: "month", FromDate: "2025-01-17", UntilDate: "2026-08-17"}, true},
+		{"дата «до» цього місяця — уперед платежів уже немає", store.PlanFlow{
+			Cadence: "month", FromDate: "2025-01-17", UntilDate: "2026-08-31"}, true},
+		{"дата «до» наступного місяця", store.PlanFlow{
+			Cadence: "month", FromDate: "2025-01-17", UntilDate: "2026-09-30"}, false},
+		{"разова, чий місяць минув", store.PlanFlow{
+			Cadence: "once", FromDate: "2026-08-10"}, true},
+		{"разова попереду", store.PlanFlow{
+			Cadence: "once", FromDate: "2026-09-01", UntilDate: "2026-09-30"}, false},
+		{"безстроковий щомісячний", store.PlanFlow{
+			Cadence: "month", FromDate: "2026-01-15"}, false},
+		{"почнеться аж за два роки — не завершений, а ще не почався", store.PlanFlow{
+			Cadence: "month", FromDate: "2028-09-01"}, false},
+	}
+	for _, c := range cases {
+		if got := planFlowExpired(c.flow, today); got != c.want {
+			t.Errorf("%s: expired=%v, чекали %v", c.name, got, c.want)
 		}
 	}
 }

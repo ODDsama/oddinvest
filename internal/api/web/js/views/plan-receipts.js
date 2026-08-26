@@ -21,6 +21,7 @@ import {
 } from "../fields.js";
 import { refSelect } from "../refs.js";
 import { opsGrid } from "../grid.js";
+import { openAllocate } from "./allocate.js";
 
 // ---------- надходження місяця ----------
 //
@@ -105,6 +106,24 @@ function receiptStateHTML(e) {
 const receiptNoteHTML = (r) =>
   (r && r.note ? `<div class="fine-xs muted">${esc(r.note)}</div>` : "");
 
+// Кнопка «розкласти» — лише там, де гроші СПРАВДІ прийшли.
+//
+// Не на кожному рядку й не автоматично після ✓: у 95% випадків відмічають
+// підряд усе, що прийшло, і модалка, яка вискакує на кожен тик, зробила б із
+// чеклиста смугу перешкод. Тому відмічання лишається одним рухом, а розкладка
+// стоїть поруч і чекає, доки по неї прийдуть.
+//
+// Нуль («не прийшло») кнопки не дістає: розкладати нема чого, а кнопка над
+// нулем читалась би як пропозиція купити на нічого.
+function allocBtn(name, m) {
+  const amt = (m || {}).amount;
+  if (!amt || amtOf(m) <= 0) return "";
+  return `<button type="button" class="sm" data-alloc="${esc(amt)}"
+    data-alloccur="${esc(m.currency || "UAH")}" data-allocwho="${esc(name)}"
+    title="Розкласти цю суму: резерв, папери, кошик"
+    aria-label="Розкласти «${esc(name)}»">⤵</button>`;
+}
+
 // Рядок таблиці. Кнопки правки й зняття стоять лише там, де є що правити:
 // «скасувати відмітку» для невідміченого рядка означало б нічого.
 // Очікуване й позапланове — ОДНА таблиця з одним набором колонок.
@@ -129,11 +148,13 @@ function receiptCols() {
       ? receiptStateHTML(r)
       : `<span class="pill coupon">${esc(fmtMoney(r.amount))}</span>`) },
     { key: "acts", label: "", cls: "row-actions nowrap", cell: (r) => (r.planned
-      ? `<button type="button" class="sm" data-editrec="${r.flow_id}"
+      ? (r.receipt ? allocBtn(r.name, r.receipt.amount) : "")
+        + `<button type="button" class="sm" data-editrec="${r.flow_id}"
            data-month="${esc(r.month)}" aria-label="Вписати суму для «${esc(r.name)}»">✎</button>`
         + (r.receipt ? `<button type="button" class="sm warn" data-delrec="${r.receipt.id}"
            aria-label="Зняти відмітку з «${esc(r.name)}»">✕</button>` : "")
-      : `<button type="button" class="sm" data-editother="${r.id}"
+      : allocBtn(r.name, r.amount)
+        + `<button type="button" class="sm" data-editother="${r.id}"
            aria-label="Змінити «${esc(r.name)}»">✎</button>
          <button type="button" class="sm warn" data-delrec="${r.id}"
            aria-label="Видалити «${esc(r.name)}»">✕</button>`) },
@@ -276,6 +297,17 @@ export function wirePlanReceipts(ctx, main, doc) {
       path: "plan/receipts",
       body: { flow_id: +b.dataset.skip, month: b.dataset.month, amount: "0" },
     }, "Відмічено: не прийшло");
+  }));
+
+  // Розкладка НЕ через apply(): вона нічого не пише сама, а те, що напише
+  // модалка, вже проходить через applyAll із власним тостом і
+  // перемальовуванням.
+  main.querySelectorAll("[data-alloc]").forEach((b) => b.addEventListener("click", () => {
+    openAllocate(ctx, {
+      amount: b.dataset.alloc,
+      currency: b.dataset.alloccur,
+      title: b.dataset.allocwho,
+    });
   }));
 
   onDelete(ctx, main, "[data-delrec]", (b) => ({

@@ -131,6 +131,39 @@ export function note(name = "note", label = "Нотатка", opts = {}) {
   return text(name, label, opts);
 }
 
+/** Група полів, потрібна лише деяким видам. kinds — значення селекта
+ *  `kind`, при яких група видима.
+ *
+ *  Видимість тримає АТРИБУТ hidden, а не стиль: це стан елемента, і в
+ *  атрибуті його видно і в інспекторі, і читачеві екрана, а заразом поле
+ *  випадає з табуляції. Перемикає його syncKind — сама група не знає ні
+ *  про форму, ні про поточний вид. */
+export function whenKind(kinds, inner) {
+  return `<div data-forkind="${esc(kinds.join(" "))}">${inner}</div>`;
+}
+
+/** Показати рівно ті групи whenKind, які потрібні обраному виду. */
+export function syncKind(form) {
+  if (!form || !form.kind) return;
+  const kind = form.kind.value;
+  form.querySelectorAll("[data-forkind]").forEach((g) => {
+    g.hidden = !g.dataset.forkind.split(" ").includes(kind);
+  });
+}
+
+/** Проводка перемикача: початкова синхронізація плюс реакція на зміну.
+ *
+ *  Кличеться і для форми додавання, і для модалки правки: wireCrud проводить
+ *  поля через wire(), але про власний перемикач конкретної форми він не знає
+ *  й не має знати. */
+export function wireKind(form) {
+  if (!form) return;
+  syncKind(form);
+  form.addEventListener("change", (e) => {
+    if (e.target && e.target.name === "kind") syncKind(form);
+  });
+}
+
 /** Форма цілком. fields — масив рядків розмітки (порожні пропускаються, щоб
  *  умовне поле писалось виразом, а не склейкою рядків).
  *
