@@ -394,10 +394,10 @@ type routePot struct {
 // якому зійшлись зобовʼязання й оцінка, каже про це прямо. Обрати одну з
 // двох означало б сховати саме те, заради чого колонка й існує.
 func mergeBasis(pot, ev string) string {
-	switch {
-	case pot == "":
+	switch pot {
+	case "":
 		return ev
-	case pot == ev:
+	case ev:
 		return pot
 	default:
 		return basisMixed
