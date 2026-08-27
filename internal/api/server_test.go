@@ -4056,6 +4056,11 @@ func overlayCombos(p presetLiteral) []presetOverlay {
 // валюту їх ПЕРЕПИСУЄ, помилка стала можливою й тихою — USD 55 плюс EUR 15
 // це ще норма, а USD 90 плюс EUR 15 дало б дві цілі, недосяжні обидві, і
 // сказав би про це лише порожній ребаланс у чужому портфелі.
+//
+// РОЗКЛАДКА МІЖ ДОЛАРОМ І ЄВРО ЦЬОГО СТОРОЖА НЕ ОБХОДИТЬ, хоч і не видна
+// звідси: вона ділить суму `usd + eur`, не змінюючи її, тож комбінація, що
+// вписалась у сотню тут, вписується й після неї. Ця умова не припущення —
+// її стереже сусідній TestStrategyFXSplitKeepsTotal.
 func TestStrategyCurrencySharesFitInHundred(t *testing.T) {
 	src, err := webFS.ReadFile("web/js/views/strategy.js")
 	if err != nil {
@@ -4079,6 +4084,48 @@ func TestStrategyCurrencySharesFitInHundred(t *testing.T) {
 				t.Errorf("набір %q на комбінації %s просить USD %.0f + EUR %.0f = %.0f%% — "+
 					"більше за портфель, тож обидві цілі недосяжні", p.name, c.name, usd, eur, usd+eur)
 			}
+		}
+	}
+}
+
+// TestStrategyFXSplitKeepsTotal — розкладка валютної частки не змінює її
+// величини.
+//
+// Це єдине, що тут можна перевірити з Go, і водночас рівно те, на чому
+// тримається сторож вище. Сама розкладка — функція в JS (`splitFX`), і
+// прочитати її звідси нема чим; але вона ділить суму `usd + eur` у
+// пропорції з FX_SPLIT, тож доки КОЖНА пара дає рівно 100, сума на виході
+// дорівнює сумі на вході.
+//
+// Пара, що дала б 90 чи 110, зіпсувала б це тихо: числа лишились би
+// правдоподібними, а валютна частка поїхала б від самої відповіді про те, у
+// чому її тримати, — тобто від відповіді, яка про величину не питає взагалі.
+func TestStrategyFXSplitKeepsTotal(t *testing.T) {
+	src, err := webFS.ReadFile("web/js/views/strategy.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lit := regexp.MustCompile(`const FX_SPLIT = \{([^}]*)\};`).FindSubmatch(src)
+	if lit == nil {
+		t.Fatal("літерал FX_SPLIT не знайдено — змінився формат?")
+	}
+	pair := regexp.MustCompile(`(\w+):\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]`)
+	found := pair.FindAllStringSubmatch(string(lit[1]), -1)
+	if len(found) == 0 {
+		t.Fatal("у FX_SPLIT не знайдено жодної пари — змінився формат?")
+	}
+	num := func(name, s string) int {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			t.Fatalf("нечислова частка в розкладці %q: %v", name, err)
+		}
+		return n
+	}
+	for _, m := range found {
+		usd, eur := num(m[1], m[2]), num(m[1], m[3])
+		if usd+eur != 100 {
+			t.Errorf("розкладка %q дає %d+%d = %d замість 100 — валютна частка "+
+				"зміниться від відповіді, яка про її величину не питає", m[1], usd, eur, usd+eur)
 		}
 	}
 }
