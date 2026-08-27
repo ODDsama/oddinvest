@@ -40,6 +40,7 @@ import {
   planFlowsListHTML, planFlowFormHTML, revisionsHTML, wirePlanFlows,
 } from "./plan-flows.js";
 import { receiptsHTML, wirePlanReceipts } from "./plan-receipts.js";
+import { renderRoute } from "./route.js";
 import {
   planActionsListHTML, planSetSharesFormHTML, planLockFormHTML, wirePlanActions,
 } from "./plan-actions.js";
@@ -103,6 +104,21 @@ export async function goal(ctx, main) {
     ${projectionHTML(ctx)}
     ${drawdownHTML(ctx)}`;
   wireDisclosures(main);
+}
+
+/** Маршрут грошей: куди піде кожне майбутнє надходження.
+ *
+ *  Стоїть між «Що заходить» і «Ціль і прогноз» навмисно: перше каже, які
+ *  гроші будуть, останнє — куди вони виводять разом, а маршрут відповідає
+ *  на те саме питання для кожного надходження окремо й із датою.
+ *
+ *  Малює себе сам (renderRoute), бо доїжджає окремим запитом помітно
+ *  пізніше за вердикт: /api/route коштує стільки ж, скільки «Що купити» з
+ *  датами доступності. */
+export async function route(ctx, main) {
+  const timeline = await ctx.soft("plan", null);
+  main.innerHTML = planVerdictHTML(ctx, timeline);
+  await renderRoute(ctx, main);
 }
 
 /** Що зрушить ціль: чутливість до припущень. */

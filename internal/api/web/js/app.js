@@ -95,6 +95,7 @@ const VIEWS = {
   "money/reconcile": money.reconcile,
 
   "plan/inflow": plan.inflow,
+  "plan/route": plan.route,
   "plan/goal": plan.goal,
   "plan/levers": plan.levers,
   "plan/payouts": plan.payouts,
