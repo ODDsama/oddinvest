@@ -505,3 +505,122 @@ func TestRouteEndpointSeesScheduledCoupon(t *testing.T) {
 		t.Errorf("маршрут без названих меж горизонту: %s", body)
 	}
 }
+
+// --- основа надходження ---
+
+// Основа їде з подією й називається словом, а не порожнім рядком.
+func TestRouteLegNamesItsBasis(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
+	div := routeFlow("2026-09-10", 500, "Inzhur REIT")
+	div.Kind, div.Basis = "funds", basisEstimate
+
+	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		routeInc("inzhur", money.UAH, div), routePlans(0), allocRates, nil, routeToday)
+
+	if len(got.Legs) != 1 {
+		t.Fatalf("ніг %d, чекали 1", len(got.Legs))
+	}
+	if got.Legs[0].Basis != basisEstimate {
+		t.Errorf("основа %q, чекали %q — оцінка мусить лишатись видимою",
+			got.Legs[0].Basis, basisEstimate)
+	}
+}
+
+// Зобовʼязання називається СЛОВОМ, а не порожнечею.
+//
+// futureIncome лишає Basis порожнім, і це правильно всередині: інших основ
+// вона не знає. Але порожня комірка в колонці «основа» читається як
+// «невідомо», а не як «портфель це винен», тож назовні воно мусить бути
+// названим.
+func TestRouteOwedBasisIsNamed(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
+	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		routeInc("mono", money.UAH, routeFlow("2026-09-10", 500, "UA0001")),
+		routePlans(0), allocRates, nil, routeToday)
+
+	if got.Legs[0].Basis != basisOwed {
+		t.Errorf("основа %q, чекали %q", got.Legs[0].Basis, basisOwed)
+	}
+}
+
+// Горщик, у якому зійшлись зобовʼязання й оцінка, каже про це прямо.
+//
+// ЦЕ І Є ТЕ, ЩО ДОЗВОЛЯЄ МАРШРУТУ ПОКАЗУВАТИ ОЦІНКИ там, де дата «коли
+// вистачить» їх не показує: припущення не зникає в спільному числі, воно
+// лишається підписаним. Купон 600 ₴ і дивіденд 600 ₴ на одному рахунку
+// складаються в квиток за 1 000 ₴ — і ця нога basisMixed, а не basisOwed.
+func TestRouteMixedPotSaysSo(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
+	div := routeFlow("2026-10-10", 600, "Inzhur REIT")
+	div.Kind, div.Basis = "funds", basisEstimate
+
+	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		routeInc("inzhur", money.UAH,
+			routeFlow("2026-09-10", 600, "UA0001"), div),
+		routePlans(0), allocRates, nil, routeToday)
+
+	if len(got.Legs) != 2 {
+		t.Fatalf("ніг %d, чекали 2", len(got.Legs))
+	}
+	if got.Legs[0].Basis != basisOwed {
+		t.Errorf("перша нога: основа %q, чекали %q", got.Legs[0].Basis, basisOwed)
+	}
+	if got.Legs[1].Basis != basisMixed {
+		t.Errorf("друга нога: основа %q, чекали %q — у горщику зійшлись купон і оцінка",
+			got.Legs[1].Basis, basisMixed)
+	}
+	if len(got.Legs[1].Lines) != 1 {
+		t.Fatalf("600 + 600 мали скластись у папір за 1000: %+v", got.Legs[1].Lines)
+	}
+}
+
+// Спорожнілий горщик не переносить чужу основу на наступні гроші.
+func TestRoutePotBasisResetsWhenEmpty(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
+	div := routeFlow("2026-09-10", 1000, "Inzhur REIT")
+	div.Kind, div.Basis = "funds", basisEstimate
+
+	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		routeInc("inzhur", money.UAH, div,
+			routeFlow("2026-10-10", 1000, "UA0001")),
+		routePlans(0), allocRates, nil, routeToday)
+
+	if got.Legs[0].Basis != basisEstimate {
+		t.Fatalf("перша нога: основа %q, чекали %q", got.Legs[0].Basis, basisEstimate)
+	}
+	if got.Legs[0].RestUAH != 0 {
+		t.Fatalf("перша нога мала витратити все: залишок %.2f", got.Legs[0].RestUAH)
+	}
+	if got.Legs[1].Basis != basisOwed {
+		t.Errorf("друга нога: основа %q, чекали %q — оцінка вже пішла в діло",
+			got.Legs[1].Basis, basisOwed)
+	}
+}
+
+// Брокер оціненого дивіденду — мажоритарний, а нічия дає «—».
+//
+// Точної відповіді немає в принципі: операція фонду несе брокера, виплата
+// ні. Ділити оцінку пропорційно означало б розбити її на суми, менші за
+// будь-який квиток, тобто зробити маршрут гіршим заради видимості точності.
+func TestFundBrokerIsMajorityAndTieIsNobody(t *testing.T) {
+	ops := []domain.FundOp{
+		{Fund: "REIT", Kind: domain.FundBuy, Broker: "inzhur", Amount: 300_00},
+		{Fund: "REIT", Kind: domain.FundBuy, Broker: "mono", Amount: 100_00},
+		// Продаж не рахується: питання «де його купували», а не «скільки лишилось».
+		{Fund: "REIT", Kind: domain.FundSell, Broker: "mono", Amount: 900_00},
+	}
+	if got := fundBroker(ops, "REIT"); got != "inzhur" {
+		t.Errorf("брокер %q, чекали inzhur — там куплено більше", got)
+	}
+	tie := []domain.FundOp{
+		{Fund: "REIT", Kind: domain.FundBuy, Broker: "inzhur", Amount: 200_00},
+		{Fund: "REIT", Kind: domain.FundBuy, Broker: "mono", Amount: 200_00},
+	}
+	if got := fundBroker(tie, "REIT"); got != noBrokerLabel {
+		t.Errorf("нічия дала %q, чекали %q — вгадувати навмання не можна",
+			got, noBrokerLabel)
+	}
+	if got := fundBroker(nil, "REIT"); got != noBrokerLabel {
+		t.Errorf("без операцій %q, чекали %q", got, noBrokerLabel)
+	}
+}

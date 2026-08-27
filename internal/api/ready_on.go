@@ -91,6 +91,29 @@ type readyFlow struct {
 	// повертається, у термінах ребалансу ("bonds" | "deposits").
 	Principal int64
 	Kind      string
+	// Basis — на чому це надходження стоїть. Порожньо = ЗОБОВʼЯЗАННЯ, і
+	// саме таким futureIncome лишає кожен свій рядок: інших основ вона не
+	// знає й знати не мусить. Непорожнє ставить лише routeIncome нижче.
+	Basis string
+}
+
+// Основи надходження. Порожній рядок у readyFlow.Basis означає basisOwed —
+// назовні воно завжди назване словом, бо колонка «основа» з порожньою
+// коміркою читалась би як «невідомо», а не як «портфель це винен».
+const (
+	basisOwed     = "owed"     // портфель винен сам собі: купон, погашення, відсотки
+	basisEstimate = "estimate" // оцінка: дивіденд фонду, порахований зі ставки
+	basisPlan     = "plan"     // намір: дохід із plan_flows
+	basisMixed    = "mixed"    // у горщику зійшлись різні
+)
+
+// flowBasis — основа надходження словом. Порожнє поле означає
+// зобовʼязання, і назовні воно мусить бути названим (див. коментар вище).
+func flowBasis(f readyFlow) string {
+	if f.Basis == "" {
+		return basisOwed
+	}
+	return f.Basis
 }
 
 // readyEvent — те саме назовні: з чого саме склалася сума.
@@ -184,6 +207,126 @@ func (s *Server) futureIncome(src *sources, today domain.Date) (incomeAhead, err
 		out[k] = coalesceSameDay(flows)
 	}
 	return out, nil
+}
+
+// routeIncome — те саме, що futureIncome, плюс половина, якої та свідомо
+// не бачить: оцінені дивіденди фондів.
+//
+// # ЧОМУ ТУТ ЇМ МІСЦЕ, А В ДАТІ «КОЛИ ВИСТАЧИТЬ» — НІ
+//
+// Відмова в шапці цього файла стосується ОДНОГО ЧИСЛА. Дата — саме одне
+// число, і оцінка, підмішана в нього, стає невидимою: «набереться 16
+// вересня» не має де сказати, що воно набереться, лише якщо фонд заплатить
+// стільки, скільки платив торік.
+//
+// Маршрут — таблиця названих рядків, і в кожного рядка своя основа, яку
+// видно (Basis). Зобовʼязання й оцінка не зводяться в ньому в одне число
+// ніде: горщик, у якому вони зійшлись, чесно каже basisMixed. Це той самий
+// стандарт, за яким оцінка вже живе в календарі виплат — «стоїть
+// підписаною й читається як оцінка».
+//
+// futureIncome при цьому не змінюється НІЯК, і на це є регресійний тест:
+// саме її незмінність і тримає ту відмову.
+//
+// # ЧОГО НЕМАЄ Й ТУТ
+//
+// Виплат НПФ: гроші звідти не приходять до пенсійного віку, а обрій
+// маршруту — рік. Планового доходу з plan_flows: у нього немає брокера, і
+// він нетиться з витратами (внесок у пенсійний, наприклад, живе там
+// ВИТРАТОЮ з dest="npf:<id>"), тож завести його сюди без другого означення
+// «скільки план дає чистими» поки що не виходить. Обидві межі — не
+// сором'язливість, а відсутність чесної відповіді.
+func (s *Server) routeIncome(src *sources, today domain.Date, months int) (incomeAhead, error) {
+	out, err := s.futureIncome(src, today)
+	if err != nil {
+		return nil, err
+	}
+	if len(src.fundOps) == 0 {
+		return out, nil
+	}
+	// Зведення позицій те саме, що будує документ: друге означення «скільки
+	// сертифікатів у мене зараз» розійшлося б із першим на першій же
+	// позначці ціни.
+	hold := domain.NewHoldings(src.lots, src.sales, src.bonds,
+		src.fundOps, src.fundPrices, src.payoutDays(), today)
+
+	for i := range hold.Funds {
+		fp := &hold.Funds[i].FundPosition
+		// Накопичувальний не платить нічого: увесь його дохід сидить у ціні
+		// сертифіката. Та сама перевірка, що в buildSchedule, і з тієї самої
+		// причини — проставлений комусь payout_day інакше вигадав би
+		// щомісячні дивіденди фонду, який їх не платить.
+		if src.fundRefs[fp.Fund].Kind == store.FundAccumulating {
+			continue
+		}
+		measured, _ := domain.DividendYieldNet(src.fundOps, fp, today)
+		y := fundOwnRatePct(src.fundRefs[fp.Fund], measured)
+		broker := fundBroker(src.fundOps, fp.Fund)
+		for _, cf := range domain.FundDividendFlows(fp, y, months, today) {
+			k := store.BrokerCur{Broker: broker, Currency: cf.Amount.Currency().Code}
+			out[k] = append(out[k], readyFlow{
+				Date: cf.Date, Amount: cf.Amount.Amount(),
+				Label: fp.Fund, Kind: "funds", Basis: basisEstimate,
+			})
+		}
+	}
+	// Пересортувати треба ті пари, куди дивіденди справді лягли: futureIncome
+	// віддає кожен зріз відсортованим, а append це порушив. Зведення одного
+	// дня повторно безпечне — воно ідемпотентне за побудовою.
+	for k := range out {
+		flows := out[k]
+		sort.Slice(flows, func(i, j int) bool {
+			if flows[i].Date != flows[j].Date {
+				return flows[i].Date < flows[j].Date
+			}
+			return flows[i].Label < flows[j].Label
+		})
+		out[k] = coalesceSameDay(flows)
+	}
+	return out, nil
+}
+
+// fundBroker — рахунок, на який фонд платить.
+//
+// Мажоритарний: брокер, у якого цього фонду куплено найбільше. Точної
+// відповіді тут немає в принципі — операція фонду несе брокера, а виплата
+// ні, — і ділити оцінений дивіденд пропорційно між двома рахунками означало
+// б розбити його на суми, менші за будь-який квиток, тобто зробити маршрут
+// гіршим заради видимості точності. Нічия й порожнеча дають «—», той самий
+// рахунок без привʼязки, що й у гаманці.
+func fundBroker(ops []domain.FundOp, fund string) string {
+	byBroker := map[string]int64{}
+	for _, op := range ops {
+		if op.Kind != domain.FundBuy || op.Fund != fund {
+			continue
+		}
+		b := op.Broker
+		if b == "" {
+			b = noBrokerLabel
+		}
+		byBroker[b] += op.Amount
+	}
+	best, bestAmt, tie := noBrokerLabel, int64(0), false
+	// Обхід за відсортованими ключами: мапа в Go обходиться в довільному
+	// порядку, і два запуски на тих самих даних інакше давали б різних
+	// брокерів, а разом із ними — різні горщики.
+	names := make([]string, 0, len(byBroker))
+	for b := range byBroker {
+		names = append(names, b)
+	}
+	sort.Strings(names)
+	for _, b := range names {
+		switch v := byBroker[b]; {
+		case v > bestAmt:
+			best, bestAmt, tie = b, v, false
+		case v == bestAmt && bestAmt > 0:
+			tie = true
+		}
+	}
+	if tie {
+		return noBrokerLabel
+	}
+	return best
 }
 
 // coalesceSameDay зводить виплати одного паперу одного дня в одну подію.

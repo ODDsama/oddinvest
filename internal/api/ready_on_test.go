@@ -428,3 +428,91 @@ func seedTodayPayer(t *testing.T, st *store.Store, today domain.Date) {
 		t.Fatal(err)
 	}
 }
+
+// routeIncome бачить те саме, що futureIncome, ПЛЮС оцінені дивіденди
+// фонду — і кожне зі своєю основою.
+//
+// Головний бік цього тесту — саме РІВНІСТЬ зобовʼязань. Відмова в README
+// («планових надходжень і оцінок у даті „коли вистачить" немає») тримається
+// на тому, що futureIncome лишається такою, як була; варто routeIncome
+// почати правити її зріз — і дата поїде разом із нею.
+func TestRouteIncomeAddsEstimatesAndLeavesObligationsAlone(t *testing.T) {
+	_, st := testServer(t)
+	ctx := context.Background()
+	today := domain.NewDate(time.Now())
+	seedFuturePayer(t, st, today)
+
+	if _, err := st.AddLot(ctx, domain.Lot{
+		ISIN: futureISIN, Qty: 3, PricePerBond: money.New(995_00, money.UAH),
+		BuyDate: today, Channel: "mono"}); err != nil {
+		t.Fatal(err)
+	}
+	// Фонд, який платить: куплений в inzhur, з відомим днем виплати й
+	// обіцяною ставкою — без них оцінка не рахується взагалі.
+	for _, op := range []domain.FundOp{
+		{Date: today.AddDays(-140), Fund: "Inzhur REIT", Kind: domain.FundBuy,
+			Qty: 500, Amount: 500_000, Currency: money.UAH, Broker: "inzhur"},
+	} {
+		if _, err := st.AddFundOp(ctx, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+	funds, err := st.ListFunds(ctx)
+	if err != nil || len(funds) != 1 {
+		t.Fatalf("довідник фондів: %v %+v", err, funds)
+	}
+	f := funds[0]
+	f.ExpectedYieldBP, f.PayoutDay = 1200, 10
+	if err := st.RenameFund(ctx, f.ID, f); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := New(st, nil, testLogger())
+	src, err := srv.loadSources(ctx, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := srv.futureIncome(src, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := srv.routeIncome(src, today, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Зобовʼязання лишились байт у байт тими самими.
+	mono := store.BrokerCur{Broker: "mono", Currency: money.UAH}
+	if len(full[mono]) != len(base[mono]) {
+		t.Fatalf("зріз зобовʼязань змінився: було %d, стало %d",
+			len(base[mono]), len(full[mono]))
+	}
+	for i := range base[mono] {
+		if full[mono][i] != base[mono][i] {
+			t.Errorf("надходження %d змінилось: %+v проти %+v",
+				i, full[mono][i], base[mono][i])
+		}
+	}
+
+	// А оцінки зʼявились — на рахунку, де фонд куплено, і підписані.
+	inzhur := store.BrokerCur{Broker: "inzhur", Currency: money.UAH}
+	if len(base[inzhur]) != 0 {
+		t.Fatalf("futureIncome не мала бачити фонду взагалі: %+v", base[inzhur])
+	}
+	divs := full[inzhur]
+	if len(divs) == 0 {
+		t.Fatal("оцінені дивіденди не дійшли до маршруту")
+	}
+	for _, d := range divs {
+		if d.Basis != basisEstimate {
+			t.Errorf("дивіденд %s без підпису оцінки: basis=%q", d.Date, d.Basis)
+		}
+		if d.Kind != "funds" {
+			t.Errorf("дивіденд %s: вид %q, чекали funds", d.Date, d.Kind)
+		}
+		if d.Principal != 0 {
+			t.Errorf("дивіденд %s несе тіло %d — виплата фонду це чистий дохід",
+				d.Date, d.Principal)
+		}
+	}
+}

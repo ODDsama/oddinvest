@@ -14,7 +14,7 @@
 // Це головна вимога до файла, і вона та сама, що й у розкладки. Вирізку
 // подушки, бюджети видів і порядок рахує allocatePlan — незмінена, тим
 // самим викликом. Стелю місяця рахує reserveMonthShare від buildMonthPlan
-// свого місяця. Надходження збирає futureIncome. Тут лишається рівно
+// свого місяця. Надходження збирає routeIncome. Тут лишається рівно
 // прохід: узяти подію, віддати її розкладці, запам'ятати наслідок.
 //
 // Доказ механічний: TestRouteFirstLegEqualsAllocate вимагає, щоб перша
@@ -152,6 +152,15 @@ type routeLeg struct {
 	// місяця, і без підпису нога на 10 000 ₴ погашення читалась би як
 	// заробіток.
 	PrincipalUAH float64 `json:"principal_uah,omitempty"`
+	// Basis — на чому стоять ГРОШІ ЦІЄЇ НОГИ, разом із перенесеними.
+	//
+	// Не косметика й не дублювання основи події: горщик може зібратись із
+	// купона (портфель це винен) і дивіденду фонду (оцінка зі ставки), і
+	// тоді нога чесно каже basisMixed. Саме ця колонка й дозволяє маршруту
+	// показувати оцінки там, де дата «коли вистачить» їх не показує:
+	// припущення тут лишається видимим, бо в жодне спільне число воно не
+	// зводиться (аргумент — у шапці routeIncome).
+	Basis string `json:"basis"`
 
 	allocPlan
 }
@@ -354,6 +363,25 @@ func flattenIncome(inc incomeAhead, horizon domain.Date) []routeEvent {
 type routePot struct {
 	minor   int64 // нативні мінорні, що лишились чекати
 	pending []readyEvent
+	// basis — основа грошей, які в горщику лежать. Порожньо, доки горщик
+	// порожній; далі зливається з основою кожної події, що в нього впала.
+	basis string
+}
+
+// mergeBasis — основа горщика після того, як у нього впала подія.
+//
+// Різні основи не «перемагають» одна одну й не усереднюються: горщик, у
+// якому зійшлись зобовʼязання й оцінка, каже про це прямо. Обрати одну з
+// двох означало б сховати саме те, заради чого колонка й існує.
+func mergeBasis(pot, ev string) string {
+	switch {
+	case pot == "":
+		return ev
+	case pot == ev:
+		return pot
+	default:
+		return basisMixed
+	}
 }
 
 // buildRoute — увесь прохід.
@@ -396,6 +424,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		}
 		carryIn := pot.minor
 		pot.minor += ev.Amount
+		pot.basis = mergeBasis(pot.basis, flowBasis(ev.readyFlow))
 		pot.pending = append(pot.pending, readyEvent{
 			Date: string(ev.Date), Label: ev.Label,
 			Amount: toMoneyJSON(money.New(ev.Amount, cur)),
@@ -415,6 +444,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			CarryInUAH:   round2(carryInUAH),
 			InflowUAH:    round2(amountUAH),
 			PrincipalUAH: round2(principalUAH),
+			Basis:        pot.basis,
 		}
 		// Витрачене — це те, чого в залишку вже немає. Рахуємо саме так, а
 		// не сумою рядків: розкладка сама знає, що з суми пішло в діло, і
@@ -429,6 +459,11 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			pot.pending = nil
 		}
 		pot.minor = int64(math.Round(plan.RestUAH / rate * 100))
+		if pot.minor <= 0 {
+			// Горщик спорожнів — основа наступних грошей буде їхня власна, а
+			// не успадкована від тих, що вже пішли в діло.
+			pot.basis = ""
+		}
 		out.Legs = append(out.Legs, leg)
 	}
 	return out

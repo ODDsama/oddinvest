@@ -55,7 +55,10 @@ func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	inc, err := s.futureIncome(src, today)
+	// routeIncome, а не futureIncome: маршрут бачить іще й оцінені дивіденди
+	// фондів, кожен зі своєю названою основою. Чому це можна тут і не можна
+	// в даті «коли вистачить» — у шапці routeIncome.
+	inc, err := s.routeIncome(src, today, routeHorizonMonths)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
