@@ -202,19 +202,70 @@ export function svgGrouped(groups, {
 }
 
 /** Лінійний графік із кількома серіями по спільних x-мітках.
- *  series: [{color, values}] */
-export function svgLine(xlabels, series, { W = W0, H = H0 } = {}) {
-  const Pl = 8, Pr = 8, Pt = 14, Pb = 28;
+ *  series: [{color, values}], xlabels — підпис КОЖНОЇ точки (проріджує
+ *  функція сама, див. нижче).
+ *
+ *  zero — чи мусить вісь Y починатися з нуля. Типово НІ, і це головна
+ *  зміна: доти шкала завжди росла від нуля, тож крива ціни сертифіката
+ *  (~1000 ₴) лягала пласкою рискою під стелею — уся річна зміна не
+ *  дотягувала й до відсотка висоти полотна. Проєкція капіталу передає
+ *  zero: true, бо вона справді росте з нуля.
+ *
+ *  fmt — форматувальник підписів осі. Типове compact розписує суми
+ *  («247к»), але ціну сертифіката воно звело б до «1,0к» на всіх поділках
+ *  одразу; викликач, що показує не суму, передає своє.
+ *
+ *  Точки розставлені за ІНДЕКСОМ, а не за датою: пропуск у три місяці
+ *  малюється тією ж шириною, що й день. Так було завжди, і тут це
+ *  свідомо не чіпається — рівномірна шкала часу зачепила б і підписи, і
+ *  смуги влучання, тобто це окреме рішення, а не подробиця цього. */
+export function svgLine(xlabels, series, {
+  W = W0, H = H0, zero = false, fmt = compact, label = "",
+} = {}) {
+  const scale = niceScale(series.flatMap((s) => s.values), { zero });
+  // Pl був 8 — рівно стільки, скільки треба обведенню лінії. Тепер ліворуч
+  // стоять числа осі, і місце під них рахується з них самих: 56 різало
+  // «1000.0000», а під ЧВОПА з шістьма знаками не вистачило б і 66.
+  const Pl = axisWidth(scale.ticks, fmt), Pr = 12, Pt = 14, Pb = 28;
   const iw = W - Pl - Pr, ih = H - Pt - Pb, n = Math.max(1, xlabels.length);
-  const max = Math.max(1, ...series.flatMap((s) => s.values));
   const X = (i) => Pl + (n <= 1 ? iw / 2 : (iw * i) / (n - 1));
-  const Y = (v) => Pt + ih - (v / max) * ih;
+  const Y = (v) => Pt + ih - ((v - scale.lo) / (scale.hi - scale.lo)) * ih;
   const lines = series.map((s) =>
     `<polyline points="${s.values.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}"`
     + ` fill="none" stroke="${s.color}" stroke-width="1.5" stroke-linejoin="round"/>`).join("");
-  const xl = xlabels.map((l, i) =>
-    `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(l)}</text>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${lines}${xl}</svg>`;
+
+  // Крок підписів за шириною полотна — те саме правило, що в seriesChart:
+  // на вузькому екрані дванадцять дат злипаються в сіру смугу, а п'ять
+  // читаються. Доти проріджували самі викликачі, кожен своєю копією того
+  // самого рядка; тут це знає той, хто єдиний знає ширину.
+  const step = Math.max(1, Math.floor(n / (W < 560 ? 3 : 5)));
+  const shown = new Set();
+  for (let i = 0; i < n; i += step) shown.add(i);
+  shown.add(n - 1);
+  const xl = [...shown].sort((a, b) => a - b).map((i) => (xlabels[i]
+    ? `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="${xAnchor(X(i), Pl, W - Pr)}"`
+      + ` font-size="${FS}" fill="${AXIS}">${esc(xlabels[i])}</text>`
+    : "")).join("");
+
+  // Смуги влучання на всю висоту, по одній на точку — як у seriesChart.
+  // Розмітку підказки будує вже той, хто знає дані (wireChartTips), а
+  // tabindex/role/aria-label дають до неї дійти з клавіатури: без них
+  // крива читалась лише мишею.
+  let hits = "";
+  if (n > 1) {
+    const bw = iw / (n - 1);
+    for (let i = 0; i < n; i++) {
+      const hx = Math.max(Pl, X(i) - bw / 2);
+      hits += `<rect class="chart-hit" data-i="${i}" tabindex="0" role="button"`
+        + ` aria-label="${esc(xlabels[i] || "")}" x="${hx.toFixed(1)}" y="${Pt}"`
+        + ` width="${Math.min(bw, W - Pr - hx).toFixed(1)}" height="${ih}" fill="transparent"/>`;
+    }
+  }
+
+  const name = label || "Крива";
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"`
+    + ` aria-label="${esc(name)}"><title>${esc(name)}</title>`
+    + `${axisY(scale, Pl, W - Pr, Y, fmt)}${xl}${lines}${hits}</svg>`;
 }
 
 /** Крива прогнозу: коридор між двома серіями, лінії всередині нього і
@@ -230,16 +281,18 @@ export function svgLine(xlabels, series, { W = W0, H = H0 } = {}) {
  *  бути порожньо). lines: [{color, values, dash}]. goal — число або 0.
  *  xlabels — підписи, порожній рядок = мітки немає. */
 export function svgBandLine(xlabels, bands, lines, goal, { W = W0, H = H0 } = {}) {
-  const Pl = 8, Pr = 8, Pt = 14, Pb = 28;
-  const iw = W - Pl - Pr, ih = H - Pt - Pb;
   const n = Math.max(1, xlabels.length);
   // Ціль входить у масштаб: інакше лінія цілі вилітала б за полотно, і
   // «не дотягуємо» виглядало б як «дотягуємо».
   const all = lines.flatMap((s) => s.values).concat(bands.hi || [], [goal || 0]);
-  const max = Math.max(1, ...all);
+  const scale = niceScale(all, { zero: true });
+  // Місце під числа осі — з них самих, як у svgLine.
+  const Pl = axisWidth(scale.ticks, compact), Pr = 12, Pt = 14, Pb = 28;
+  const iw = W - Pl - Pr, ih = H - Pt - Pb;
   const X = (i) => Pl + (n <= 1 ? iw / 2 : (iw * i) / (n - 1));
-  const Y = (v) => Pt + ih - (v / max) * ih;
-  let out = "";
+  const Y = (v) => Pt + ih - ((v - scale.lo) / (scale.hi - scale.lo)) * ih;
+  let out = axisY(scale, Pl, W - Pr, Y, compact);
+
   if ((bands.lo || []).length && (bands.hi || []).length) {
     const up = bands.hi.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`);
     const down = bands.lo.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).reverse();
@@ -255,7 +308,7 @@ export function svgBandLine(xlabels, bands, lines, goal, { W = W0, H = H0 } = {}
     + ` fill="none" stroke="${s.color}" stroke-width="1.5" stroke-linejoin="round"`
     + `${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`).join("");
   out += xlabels.map((l, i) => l
-    ? `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(l)}</text>`
+    ? `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="${xAnchor(X(i), Pl, W - Pr)}" font-size="${FS}" fill="${AXIS}">${esc(l)}</text>`
     : "").join("");
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
 }
@@ -513,17 +566,116 @@ export function wireChartTips(wrap, buildHTML) {
   });
 }
 
-/** «Приємна» верхня межа осі: 1 / 2 / 2.5 / 5 × 10^k.
+/** «Приємне» число з ряду 1 / 2 / 2.5 / 5 × 10^k, не менше за v.
  *
  *  Доти було просто max × 1.1, поділене на чотири, — і підписи виходили
  *  на кшталт «247к». Такі числа нічого не якорять: щоб прикинути висоту
- *  точки, доводиться рахувати в голові. */
-function niceMax(v) {
+ *  точки, доводиться рахувати в голові.
+ *
+ *  Служить одразу двом: верхньою межею осі, що росте від нуля, і кроком
+ *  поділки на осі, що від нуля не росте. Арифметика та сама, тож другої
+ *  копії їй не заводимо — це та сама функція під двома питаннями. */
+function niceStep(v) {
   if (!(v > 0)) return 1;
   const pow = Math.pow(10, Math.floor(Math.log10(v)));
   const norm = v / pow;
   const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
   return step * pow;
+}
+
+/** Межі осі Y разом із поділками: {lo, hi, ticks}.
+ *
+ *  zero: true — вісь росте від нуля, як було завжди. Так читаються СУМИ:
+ *  стовпчик росте з підлоги, і «наскільки він високий» має сенс лише
+ *  відносно нуля.
+ *
+ *  zero: false — вісь накриває ДАНІ. Без цього крива ціни не читалась
+ *  зовсім: сертифікат ходить біля 1000 ₴, і вся зміна за два тижні — це
+ *  0.9 % висоти полотна, тобто пласка лінія, притиснута до стелі. Питання
+ *  до ціни завжди «як вона рухалась», а не «чи далеко вона від нуля».
+ *
+ *  Ціна цього рішення чесно велика: вісь, що не починається з нуля,
+ *  розтягує рух 0.9 % на все полотно, і крива виглядає крутішою, ніж є.
+ *  Саме тому axisY нижче не опційна — з підписами поділок шкала себе
+ *  називає, без них вона бреше. Друге страхування — підпис зі зміною у
+ *  відсотках поруч із полотном (див. dateCurve).
+ *
+ *  Межі й крок повертаються разом, бо рахуються з одного числа: якби
+ *  викликач добирав поділки сам, вони розʼїхались би з межами на першому
+ *  ж заокругленні. */
+function niceScale(values, { zero = false } = {}) {
+  const nums = values.filter((v) => v != null && isFinite(v));
+  let lo = nums.length ? Math.min(...nums) : 0;
+  let hi = nums.length ? Math.max(...nums) : 1;
+  if (zero) {
+    // Рівно те, що робила niceMax: нуль унизу, «приємний» максимум угорі,
+    // чотири однакові проміжки між ними.
+    hi = niceStep(Math.max(hi, 0));
+    const s = hi / 4;
+    return { lo: 0, hi, ticks: [0, s, s * 2, s * 3, hi] };
+  }
+  // Рівна серія — не привід ділити на нуль: розсуваємо межі на відсоток
+  // від самого значення, і лінія лягає рівно посередині полотна.
+  if (hi <= lo) {
+    const pad = Math.abs(hi) * 0.01 || 1;
+    lo -= pad;
+    hi += pad;
+  }
+  const step = niceStep((hi - lo) / 4);
+  lo = Math.floor(lo / step) * step;
+  hi = Math.ceil(hi / step) * step;
+  const ticks = [];
+  for (let i = 0, k = Math.round((hi - lo) / step); i <= k; i++) {
+    // Множення, а не накопичення: lo + step + step + … набирає похибку, і
+    // поділка «1002.4999999999998» приїхала б у підпис рівно такою.
+    ticks.push(lo + step * i);
+  }
+  return { lo, hi, ticks };
+}
+
+/** Прив'язка підпису осі X. Крайні мітки центрувати не можна: підпис на
+ *  краю полотна наполовину лежить за viewBox, а <svg> типово ріже все, що
+ *  виходить за межі. Видно було на кривій ціни, де перша дата читалась як
+ *  «-08-13», а остання — як «2026-0».
+ *
+ *  Логіка жила в svgInflowProfile, де на цю межу натрапили першою. */
+function xAnchor(x, x0, x1, pad = 18) {
+  return x < x0 + pad ? "start" : x > x1 - pad ? "end" : "middle";
+}
+
+/** Ширина числової колонки ліворуч — з найдовшого підпису поділки.
+ *
+ *  Константою це бути не може. 56 вистачало на «250к» і різало
+ *  «1000.0000» рівно на 12 пікселів (знайдено вживу, на кривій ціни), а
+ *  ЧВОПА друкує ще й шість знаків після коми. Запас під найдовший
+ *  можливий підпис зʼїдав би полотно там, де підписи короткі.
+ *
+ *  Виміряти текст усередині рядка SVG нема чим — розмітка будується до
+ *  того, як її побачить браузер, — тож ширина цифри береться оцінкою:
+ *  в Inter на 11px вона ~0.56em. Кілька зайвих пікселів дешевші за
+ *  обрізаний підпис, тож оцінка навмисно з запасом. */
+function axisWidth(ticks, fmt) {
+  const chars = Math.max(...ticks.map((v) => String(fmt(v)).length));
+  return Math.round(chars * FS * 0.56) + 14;
+}
+
+/** Сітка й підписи осі Y — спільна розмітка для всіх кривих.
+ *
+ *  Стояла лише в seriesChart. svgLine і svgBandLine осі Y не мали взагалі,
+ *  тобто малювали лінію в порожній рамці без жодного числа — і саме тому
+ *  графік ціни читався як «нічого не показує»: показувати не було чим. */
+function axisY(scale, x0, x1, Y, fmt) {
+  let grid = "", labels = "";
+  scale.ticks.forEach((v, i) => {
+    const gy = Y(v);
+    // Нижня лінія — межа полотна, тож --oi-border; проміжні над нею —
+    // рядок від рядка, тобто --oi-rule-hair, найтихіший рівень.
+    grid += `<line x1="${x0}" y1="${gy.toFixed(1)}" x2="${x1}" y2="${gy.toFixed(1)}"`
+      + ` stroke="${i === 0 ? "var(--oi-border)" : GRID}" stroke-width="1"/>`;
+    labels += `<text x="${x0 - 8}" y="${(gy + 4).toFixed(1)}" text-anchor="end"`
+      + ` font-size="${FS}" fill="${AXIS}">${esc(fmt(v))}</text>`;
+  });
+  return grid + labels;
 }
 
 /** Великий графік історії портфеля.
@@ -554,23 +706,17 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
   });
   const stackTop = tops.length ? tops[tops.length - 1] : [];
 
-  let ymax = 0;
-  stackTop.forEach((v) => { if (v > ymax) ymax = v; });
-  lines.forEach((s) => s.values.forEach((v) => { if (v > ymax) ymax = v; }));
-  ymax = niceMax(ymax);
+  // Масштаб і вісь — спільні (niceScale/axisY). Раніше та сама розмітка
+  // стояла тут одна на весь застосунок, і решта кривих лишалась без осі
+  // взагалі; тепер це один механізм, а zero: true каже, що капітал
+  // справді росте від нуля.
+  const scale = niceScale(
+    stackTop.concat(...lines.map((s) => s.values)), { zero: true });
 
   const x = (i) => P.l + (n <= 1 ? iw / 2 : (iw * i) / (n - 1));
-  const y = (v) => P.t + ih - (ih * v) / ymax;
+  const y = (v) => P.t + ih - (ih * (v - scale.lo)) / (scale.hi - scale.lo);
 
-  let grid = "", ylabels = "";
-  for (let r = 0; r <= 4; r++) {
-    const gv = (ymax * r) / 4, gy = y(gv);
-    // Базова лінія (r=0, нуль осі) — межа полотна, тож лишається на
-    // --oi-border; чотири проміжні лінії над нею — рядок від рядка, тобто
-    // --oi-rule-hair, найтихіший рівень.
-    grid += `<line x1="${P.l}" y1="${gy.toFixed(1)}" x2="${width - P.r}" y2="${gy.toFixed(1)}" stroke="${r === 0 ? "var(--oi-border)" : GRID}" stroke-width="1"/>`;
-    ylabels += `<text x="${P.l - 8}" y="${(gy + 4).toFixed(1)}" text-anchor="end" font-size="11" fill="${AXIS}">${compact(gv)}</text>`;
-  }
+  const yaxis = axisY(scale, P.l, width - P.r, y, compact);
 
   // Останню дату підписуємо завжди: без неї з графіка не прочитати, станом
   // на коли він узагалі намальований.
@@ -582,7 +728,7 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
   for (let i = 0; i < n; i += step) marks.add(i);
   if (n) marks.add(n - 1);
   [...marks].sort((a, b) => a - b).forEach((i) => {
-    xlabels += `<text x="${x(i).toFixed(1)}" y="${height - 14}" text-anchor="middle" font-size="11" fill="${AXIS}">${esc(dates[i].slice(5))}</text>`;
+    xlabels += `<text x="${x(i).toFixed(1)}" y="${height - 14}" text-anchor="${xAnchor(x(i), P.l, width - P.r)}" font-size="11" fill="${AXIS}">${esc(dates[i].slice(5))}</text>`;
   });
 
   // Смуги: верх — накопичена сума до цього шару включно, низ — без нього.
@@ -638,6 +784,50 @@ export function seriesChart(dates, series, { width = 760, height = 300, minWidth
     + ` aria-label="${esc(label || "Історія портфеля")}"`
     + ` style="--oi-chart-w:${minWidth}px">`
     + `<title>${esc(label || "Історія портфеля")}</title>`
-    + `${grid}${ylabels}${xlabels}${bands}${paths}${hits}</svg>`;
+    + `${yaxis}${xlabels}${bands}${paths}${hits}</svg>`;
   return { svg, legend };
+}
+
+/** Крива за датами: полотно, підказки й підпис під ним — одним викликом.
+ *
+ *  Ціна сертифіката фонду й ЧВОПА пенсійного рахунку — той самий обʼєкт:
+ *  список пар «дата → число», який треба показати кривою й підписати
+ *  діапазоном. Обидва викликачі писали це нарізно й однаково — те саме
+ *  проріджування підписів, те саме «менше двох точок», той самий рядок
+ *  діапазону. Другий випадок і є привід винести спільне.
+ *
+ *  points: [[isoДата, число], …] у порядку зростання дати.
+ *  fmt(v) — як показувати число: у ціни чотири знаки, у ЧВОПА шість.
+ *  empty — що написати, коли кривої ще немає.
+ *  caption — готовий рядок під діапазоном (зміна у відсотках приходить
+ *  порахованою з БЕКЕНДА; тут її не рахують — CLAUDE.md §5).
+ *
+ *  fluid(), а не голий svgLine. Доти обидва викликачі віддавали SVG
+ *  напряму, бо «панель живе у згорнутому <details>, а fitCharts міряє
+ *  згорнуте як нуль». Це давно неправда: fitCharts переносить запис у
+ *  mounted ДО виходу по нульовій ширині (саме заради цього випадку), а
+ *  app.js вішає toggle на кожен <details> і домальовує при розкритті.
+ *  Ціна старого обходу була висока: viewBox лишався 640 при фактичній
+ *  ширині картки, тобто полотно розтягувалось у півтора раза РАЗОМ із
+ *  текстом — підписи приїжджали ~17px, а рамка виростала до ~255px. */
+export function dateCurve(points, {
+  color, fmt, unit = "", label, empty, caption = "",
+}) {
+  if (points.length < 2) return `<div class="sub muted">${empty}</div>`;
+  const series = [{ name: label, color, values: points.map((p) => p[1]) }];
+  // Рік на осі не потрібен і не влазить: він стоїть у рядку діапазону
+  // нижче, а на самій осі важать день і місяць.
+  const labels = points.map((p) => p[0].slice(5));
+  const val = (v) => `${fmt(v)}${unit ? " " + unit : ""}`;
+  const first = points[0], last = points[points.length - 1];
+  const frame = fluid(
+    (w, h) => svgLine(labels, series, { W: w, H: h, fmt, label }),
+    {
+      onMount: (box) => wireChartTips(box.closest(".chart-wrap"), (i) => points[i]
+        && `<b>${esc(points[i][0])}</b><div class="r"><span><i style="--oi-c:${color}"></i>${
+          esc(label)}</span><span>${esc(val(points[i][1]))}</span></div>`),
+    });
+  return `<div class="chart-wrap">${frame}<div class="chart-tip"></div></div>
+    <div class="sub-xs muted">${esc(first[0])} → ${esc(last[0])} · ${esc(fmt(first[1]))} → ${
+      esc(val(last[1]))} · точок: ${points.length}${caption}</div>`;
 }

@@ -255,3 +255,54 @@ func TestFundTotalReturnWaitsForThirtyDays(t *testing.T) {
 		t.Error("на 31-й день число мало зʼявитись")
 	}
 }
+
+// Короткий відрізок: FundPriceReturn мовчить, бо ануалізувати два тижні
+// означало б намалювати сотні відсотків із дрібниці, а FundPriceChange
+// говорить, бо нічого не екстраполює. Випадок не вигаданий — рівно так
+// виглядає щойно заведений накопичувальний фонд, і саме він показав, що
+// крива без підпису читається як стрімке зростання.
+func TestFundPriceChangeSpeaksWhereReturnStaysSilent(t *testing.T) {
+	marks := []FundPrice{
+		{Fund: "F", Date: "2026-08-13", Price: 100000},
+		{Fund: "F", Date: "2026-08-27", Price: 100885},
+	}
+	if _, ok := FundPriceReturn(marks, "2026-08-27"); ok {
+		t.Error("два тижні — не привід рахувати відсотки річних")
+	}
+	pct, days, ok := FundPriceChange(marks, "2026-08-27")
+	if !ok {
+		t.Fatal("проста зміна мала порахуватись уже з двох точок")
+	}
+	if days != 14 {
+		t.Errorf("13 → 27 серпня це 14 днів, маємо %d", days)
+	}
+	if pct < 0.88 || pct > 0.89 {
+		t.Errorf("1000 → 1008.85 це ~0.88%%, маємо %.2f", pct)
+	}
+}
+
+// Одна точка — не відрізок. «0% за 0 днів» означало б вигадати вимір там,
+// де його немає, а підпис під кривою на це спирається.
+func TestFundPriceChangeNeedsTwoPoints(t *testing.T) {
+	marks := []FundPrice{{Fund: "F", Date: "2026-08-13", Price: 100000}}
+	if _, _, ok := FundPriceChange(marks, "2026-08-27"); ok {
+		t.Error("з однієї точки зміни не буває")
+	}
+}
+
+// Точки пізніше за asOf у вимір не входять — інакше «зміна на сьогодні»
+// підписувала б криву майбутнім, якого на ній не намальовано.
+func TestFundPriceChangeIgnoresFuture(t *testing.T) {
+	marks := []FundPrice{
+		{Fund: "F", Date: "2026-08-13", Price: 100000},
+		{Fund: "F", Date: "2026-08-27", Price: 100885},
+		{Fund: "F", Date: "2026-09-30", Price: 200000},
+	}
+	pct, days, ok := FundPriceChange(marks, "2026-08-27")
+	if !ok {
+		t.Fatal("дві відомі точки мали дати вимір")
+	}
+	if days != 14 || pct > 1 {
+		t.Errorf("подвоєння з вересня не мало потрапити у вимір: %.2f%% за %d дн.", pct, days)
+	}
+}

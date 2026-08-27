@@ -76,7 +76,7 @@ export function capitalChartHTML(ctx) {
     ${fluid((w, h) => svgLine(proj.map((p) => p.years + "р"), [
       { color: "var(--oi-series-neutral)", values: proj.map((p) => p.contributed) },
       { color: "var(--oi-series-invested)", values: proj.map((p) => p.with_reinvest) },
-    ], { W: w, H: h }))}
+    ], { W: w, H: h, zero: true, label: "Крива капіталу" }))}
     ${legend([
       { color: "var(--oi-series-neutral)", label: "внесено" },
       { color: "var(--oi-series-invested)", label: "з реінвестом" },

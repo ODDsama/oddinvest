@@ -20,13 +20,13 @@
 // їздять параметрами. Схована залежність від порядку вкладок нікому не
 // потрібна вдруге.
 
-import { esc, curSym } from "./format.js";
+import { esc, curSym, plural } from "./format.js";
 import { onSubmit } from "./forms.js";
 import { money as moneyField, date as dateField, textarea, formHTML } from "./fields.js";
 import { wireCrud } from "./crud.js";
 import { opsGrid, actionsCol } from "./grid.js";
 import { disclosure } from "./disclosure.js";
-import { svgLine } from "./charts.js";
+import { dateCurve } from "./charts.js";
 import { parseDatedNumbers } from "./paste.js";
 
 /** Ціна однієї операції, у гривнях за сертифікат. Ділення тут — не
@@ -61,30 +61,42 @@ function priceSeries(fundName, marks, ops) {
 /** Крива ціни. Менше двох точок — не крива, і малювати з однієї означало б
  *  показати горизонтальну лінію там, де даних немає.
  *
- *  svgLine, а не fluid(): панель живе у згорнутому <details>, а fitCharts
- *  міряє ширину вже вставленого елемента — у згорнутого вона нульова.
- *  svgLine віддає viewBox і масштабується сам, тож розкриття від нього
- *  нічого не потребує. */
-function priceChartHTML(fundName, currency, marks, ops) {
-  const pts = priceSeries(fundName, marks, ops);
-  if (pts.length < 2) {
-    return `<div class="sub muted">Крива зʼявиться з двох точок. Кожна купівля приносить
-      одну з собою; опубліковану фондом історію можна вклеїти нижче.</div>`;
-  }
-  const series = [{
-    name: "Ціна", color: "var(--oi-series-funds)", values: pts.map((p) => p[1]),
-  }];
-  // Підписи проріджуємо: опублікована історія — це десятки точок, і svgLine
-  // малює мітку під кожною, тобто вони злились би в суцільну смугу.
-  const step = Math.max(1, Math.ceil(pts.length / 6));
-  const labels = pts.map((p, i) =>
-    (i === 0 || i === pts.length - 1 || i % step === 0) ? p[0] : "");
-  const first = pts[0], last = pts[pts.length - 1];
-  // Діапазон текстом, а не лише на осі: svgLine центрує підписи, тож крайні
-  // наполовину виходять за полотно й читаються обрізаними.
-  const range = `<div class="sub-xs muted">${esc(first[0])} → ${esc(last[0])} ·
-    ${first[1].toFixed(4)} → ${last[1].toFixed(4)} ${curSym(currency)} · точок: ${pts.length}</div>`;
-  return `${svgLine(labels, series, { H: 160 })}${range}`;
+ *  Полотно, проріджування підписів і рядок діапазону тепер робить dateCurve:
+ *  усе це слово в слово повторювалось у navChartHTML для ЧВОПА. Разом із
+ *  ним пішли два обходи, які тут довго стояли поясненими:
+ *
+ *  — голий svgLine замість fluid() «бо панель у згорнутому <details>».
+ *    fitCharts уже вміє згорнуте (запис лягає в mounted до виходу по
+ *    нульовій ширині), а app.js домальовує на toggle. Обхід коштував
+ *    розтягнутого в півтора раза полотна разом із підписами;
+ *  — діапазон текстом «бо svgLine центрує підписи, тож крайні виходять за
+ *    полотно». Крайні підписи більше не центруються (xAnchor), а рядок
+ *    діапазону лишився — але вже як підпис, а не як латка: він називає рік,
+ *    якого на осі свідомо немає. */
+function priceChartHTML(fundName, currency, marks, ops, row) {
+  // Зміну за період кривої приносить БЕКЕНД окремим полем. Порахувати її
+  // тут ((last/first − 1) × 100) означало б завести другу копію арифметики
+  // дохідності в браузері — рівно те, від чого застерігає CLAUDE.md §5.
+  //
+  // І це НЕ price_return_pct із рядка нижче: те число — відсотки річних
+  // складних, воно навмисно порожнє на відрізку коротшому за пів року
+  // (ануалізувати два тижні означає намалювати сотні відсотків). Це —
+  // проста зміна за відомий відрізок, чесна на будь-якій довжині, і саме
+  // вона підписує вісь, що не починається з нуля.
+  const caption = row && row.price_change_days
+    ? ` · <b class="${row.price_change_pct >= 0 ? "t-ok" : "t-danger"}">${
+      row.price_change_pct >= 0 ? "+" : ""}${row.price_change_pct.toFixed(2)}%</b> за ${
+      row.price_change_days} ${plural(row.price_change_days, "день", "дні", "днів")}`
+    : "";
+  return dateCurve(priceSeries(fundName, marks, ops), {
+    color: "var(--oi-series-funds)",
+    fmt: (v) => v.toFixed(4),
+    unit: curSym(currency),
+    label: "Ціна сертифіката",
+    empty: `Крива зʼявиться з двох точок. Кожна купівля приносить
+      одну з собою; опубліковану фондом історію можна вклеїти нижче.`,
+    caption,
+  });
 }
 
 /** Заведені руками позначки — окремим списком, бо лише їх і можна виправити
@@ -163,7 +175,7 @@ export function fundPricePanelHTML(ctx, fund, marks, ops, row) {
     ? `${mine.length} позначок · остання ${last.date}`
     : "позначок немає";
   const body = `
-    ${priceChartHTML(fund.name, fund.currency, mine, ops)}
+    ${priceChartHTML(fund.name, fund.currency, mine, ops, row)}
     ${promiseVsFactHTML(row)}
     <div class="sub-xs muted">Ціна сертифіката рухається сама, а виписка приносить її лише в
       мить купівлі. Для накопичувального фонду, який нічого не платить, позначка — єдиний спосіб

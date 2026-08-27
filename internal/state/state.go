@@ -1342,11 +1342,26 @@ type FundPositionRow struct {
 	// не входить навмисно: інакше основа рядка залежала б від того, який із
 	// двох вимірів випадково дозрів першим.
 	PriceReturnPct float64 `json:"price_return_pct,omitempty"`
-	MarketValue    float64 `json:"market_value"`
-	DividendsNet   float64 `json:"dividends_net"`
-	DividendsTax   float64 `json:"dividends_tax"`
-	Realized       float64 `json:"realized,omitempty"`
-	YieldNetPct    float64 `json:"yield_net_pct,omitempty"`
+	// PriceChangePct / PriceChangeDays — ПРОСТА зміна ціни за весь відрізок
+	// відомої кривої і його довжина в днях.
+	//
+	// Пара до PriceReturnPct, а не її дублікат. Те число — % річних
+	// складних, і воно порожнє, доки відрізок коротший за пів року; це —
+	// зміна за відомий відрізок, чесна на будь-якій довжині. Обидва потрібні
+	// саме тому, що крива малюється вже з двох точок: вісь у неї не
+	// починається з нуля, тож рух на відсоток займає все полотно, і підпис
+	// «+0.88% за 14 днів» — єдине, що не дає прочитати його як ракету.
+	//
+	// Days окремим полем, а не датами: UI підписує ним криву, а не рахує з
+	// нього щось своє, і перекладати різницю дат на клієнта означало б
+	// завести там другу копію календарної арифметики.
+	PriceChangePct  float64 `json:"price_change_pct,omitempty"`
+	PriceChangeDays int     `json:"price_change_days,omitempty"`
+	MarketValue     float64 `json:"market_value"`
+	DividendsNet    float64 `json:"dividends_net"`
+	DividendsTax    float64 `json:"dividends_tax"`
+	Realized        float64 `json:"realized,omitempty"`
+	YieldNetPct     float64 `json:"yield_net_pct,omitempty"`
 	// TotalPct — ПОВНА дохідність позиції, % річних: дивіденди після
 	// податку разом зі зміною ціни (XIRR по операціях фонду з
 	// термінальною ринковою вартістю). YieldNetPct вище — лише дохідна

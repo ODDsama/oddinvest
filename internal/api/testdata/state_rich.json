@@ -79,6 +79,8 @@
       "last_price_date": "2026-07-15",
       "price_marked": true,
       "price_return_pct": 22.32,
+      "price_change_pct": 24.71,
+      "price_change_days": 400,
       "market_value": 5300,
       "dividends_net": 0,
       "dividends_tax": 0,

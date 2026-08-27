@@ -208,9 +208,21 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		// питання, ніж повна дохідність нижче; воно й дозволяє звірити
 		// обіцянку, а не замінити її. Порожньо, доки точок менше двох або
 		// відрізок коротший за пів року.
-		if pr, ok := domain.FundPriceReturn(
-			domain.FundPricePoints(src.fundPrices, src.fundOps, fp.Fund), today); ok {
+		//
+		// Список точок піднято в змінну: його читають два виміри підряд, і
+		// друге злиття тих самих позначок з тими самими операціями було б
+		// рівно тією ж роботою вдруге.
+		pricePts := domain.FundPricePoints(src.fundPrices, src.fundOps, fp.Fund)
+		if pr, ok := domain.FundPriceReturn(pricePts, today); ok {
 			row.PriceReturnPct = pr
+		}
+		// А це — проста зміна за весь відрізок кривої, без ануалізації.
+		// Потрібна саме тоді, коли попереднє мовчить: крива в UI малюється
+		// вже з двох точок, і без підпису «за скільки днів» її вісь, що не
+		// починається з нуля, читалася б як стрімке зростання.
+		if pc, days, ok := domain.FundPriceChange(pricePts, today); ok {
+			row.PriceChangePct = pc
+			row.PriceChangeDays = days
 		}
 		// Дохідність позиції — ПОВНА: дивіденди разом зі зміною ціни.
 		// Самі дивіденди поряд з облігацією нечесні, бо YTM ловить і
