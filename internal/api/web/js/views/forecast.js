@@ -12,7 +12,7 @@
 
 import { esc, curSym, humanMonths, monthYear, monthYearGen, pct, uah2 as fmtUAH } from "../format.js";
 import { infoBtn } from "../info.js";
-import { empty } from "../components.js";
+import { empty, progressBar } from "../components.js";
 import { contribTriad, shareOfNeed } from "../contrib.js";
 
 // Віяло розкидає ПОТРІБНИЙ ВНЕСОК, а не суму на дедлайн: щойно внесок
@@ -122,8 +122,7 @@ export function goalsHTML(ctx) {
         <span><b>${pay(value)}/міс</b>${share != null
     ? ` <span class="t-info">— ${share.toFixed(0)}% від потрібного</span>` : ""}</span>
       </div>
-      ${share != null
-    ? `<div class="progress mt-sm"><span style="--oi-fill:${share}%;--oi-c:${color}"></span></div>` : ""}
+      ${share != null ? progressBar(share, { color, cls: "mt-sm" }) : ""}
       ${extra}
     </div>`;
   };

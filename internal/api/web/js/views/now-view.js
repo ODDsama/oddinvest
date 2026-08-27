@@ -14,7 +14,7 @@ import {
   uah2 as fmtUAH, cur2 as fmtCur,
 } from "../format.js";
 import { infoBtn } from "../info.js";
-import { tile, kindPill } from "../components.js";
+import { tile, kindPill, progressBar } from "../components.js";
 import { isOpen, remember } from "../uistate.js";
 import { routeFor } from "../routes.js";
 import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
@@ -387,24 +387,45 @@ function monthTile(ctx, s) {
   // принесуть джерела доходу, ціль — скільки треба, щоб дійти куди хочеш.
   // Злити їх в один прогрес означало б повторити ту саму підміну, від якої
   // існує contrib.js.
+  // Смуга в цілі своя, і вона тонка. Доти обидва знаменники стояли на
+  // екрані, але міряти оком можна було лише один: план мав смугу, ціль —
+  // сухий рядок тексту. Тепер їх видно поруч, і кожна лишається у своїй
+  // шкалі — злити їх в один трек означало б ту саму підміну знаменника,
+  // від якої існує contrib.js.
+  //
+  // Смуга цілі йде ПІСЛЯ свого рядка, а не перед ним, як смуга плану:
+  // відсоток уже стоїть усередині тексту («— це 59%»), тож смуга під ним
+  // читається як ілюстрація саме до нього. Верх плитки при цьому не
+  // рухається — головне число там і далі про план.
+  //
+  // Колір — --oi-series-neutral, той самий сіро-нейтральний, яким лінія
+  // цілі малюється на графіках. Акцентний брати не можна: дві сині смуги
+  // одна під одною злились би; --oi-series-plan теж ні — це колір ПЛАНУ.
+  const goalBar = (share) =>
+    progressBar(share, { color: "var(--oi-series-neutral)", cls: "slim" });
+
   if (mp && mp.plan_uah > 0) {
     const cov = mp.covered_pct || 0;
+    const goalShare = shareOfNeed(done, t.need) || 0;
     const goalLine = t.hasGoal
       ? `<div class="sub-xs">ціль вимагає ${fmtUAH(t.need)}/міс — це ${
-        Math.round(shareOfNeed(done, t.need) || 0)}%</div>`
+        Math.round(goalShare)}%</div>
+         ${goalBar(goalShare)}`
       : "";
     return tile("Цей місяць", `${Math.round(cov)}%`,
-      `<div class="progress"><span style="--oi-fill:${Math.min(100, cov)}%"></span></div>
+      `${progressBar(cov)}
        <div class="sub">${doneLabel} з ${fmtUAH(mp.plan_uah)} за планом місяця${mp.left_uah > 0
     ? ` · <span class="t-warn">ще закинути ${fmtUAH(mp.left_uah)}</span>`
     : ` · <span class="t-ok">закинуто все</span>`}</div>
        ${goalLine}${extra}`);
   }
 
+  // Далі знаменник рівно один, тож і смуга одна — другої тут не з чого
+  // будувати.
   if (t.hasGoal) {
     const share = shareOfNeed(done, t.need) || 0;
     return tile("Цей місяць", `${Math.round(share)}%`,
-      `<div class="progress"><span style="--oi-fill:${share}%"></span></div>
+      `${progressBar(share)}
        <div class="sub">${doneLabel} з ${fmtUAH(t.need)}${
   t.hasPlan ? ` · ${CONTRIB.plan.label.toLowerCase()} дає ${fmtUAH(t.plan)}` : ""}</div>
        ${extra}`);
@@ -412,7 +433,7 @@ function monthTile(ctx, s) {
   // Без цілі «треба» не існує — лишається стара пара з бекенда.
   if (s.month_target_uah > 0) {
     return tile("Цей місяць", `${s.month_progress_pct || 0}%`,
-      `<div class="progress"><span style="--oi-fill:${Math.min(100, s.month_progress_pct || 0)}%"></span></div>
+      `${progressBar(s.month_progress_pct || 0)}
        <div class="sub">${doneLabel} з ${fmtUAH(s.month_target_uah)}</div>
        ${extra}`);
   }

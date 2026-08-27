@@ -1316,8 +1316,21 @@ td.num .sale-f { text-align: right; }
 }
 .muted { color: var(--oi-muted); }
 
-.progress { height: var(--oi-gap-sm); border-radius: var(--oi-radius-sm); background: var(--oi-border); overflow: hidden; margin-top: var(--oi-gap-xs); }
-.progress > span { display: block; height: 100%; width: var(--oi-fill, 0%); background: var(--oi-c, var(--oi-accent)); }
+.progress { display: flex; height: var(--oi-gap-sm); border-radius: var(--oi-radius-sm); background: var(--oi-border); overflow: hidden; margin-top: var(--oi-gap-xs); }
+.progress > span { display: block; flex: 0 0 auto; height: 100%; width: var(--oi-fill, 0%); background: var(--oi-c, var(--oi-accent)); }
+
+/* Понад 100% трек не росте — росте те, що він означає: він стає шкалою
+   «скільки зайшло», а межа кольору каже, де закінчувалась норма. Довід і
+   арифметика поділу — при progressBar() у components.js; сюди належить
+   тільки те, що надлишок має власний колір, і чому саме цей. Зелений, а
+   не попереджувальний: закинути більше, ніж планував, — не помилка.
+   Через flex сегменти стають поруч, а не стовпчиком; для єдиного
+   сегмента це нічого не міняє. */
+.progress > span.over { background: var(--oi-ok); }
+
+/* Друга смуга в тій самій плитці. Вона другорядна за побудовою — інший
+   знаменник, ніж у головного числа, — і не має важити стільки ж на око. */
+.progress.slim { height: var(--oi-gap-xs); }
 
 /* --- пояснення «як це читати» --- */
 
