@@ -71,6 +71,13 @@ type decisionRow struct {
 	ActualPct float64 `json:"actual_pct,omitempty"`
 	DriftPP   float64 `json:"drift_pp,omitempty"`
 	Basis     string  `json:"basis,omitempty"`
+	// ForgonePct — реальна дохідність найкращого доступного в ту хвилину.
+	// ЛИШЕ в рядків подушки, і окремим полем від VsTopPP навмисно: там
+	// різниця двох дохідностей, а тут дохідність, якої в обраного немає
+	// зовсім. Звести їх в одне число означало б порівняти «взяв менш
+	// дохідний папір» із «не купив нічого» — а це різні за природою
+	// рішення, і зводити їх у середнє не можна.
+	ForgonePct float64 `json:"forgone_pct,omitempty"`
 }
 
 // decisionsSummary — зведення, яке й є відповіддю розділу.
@@ -90,6 +97,28 @@ type decisionsSummary struct {
 	// ByMode — те саме в розрізі режимів рейтингу. Заради цього розрізу
 	// журнал і заведено: інакше вибір режиму лишається здогадкою.
 	ByMode []decisionsModeRow `json:"by_mode,omitempty"`
+	// ПОДУШКА РАХУЄТЬСЯ ОКРЕМО ВІД ПОКУПОК, і це головне рішення зведення.
+	//
+	// Рух у матрац — теж рішення, ухвалене проти того самого рейтингу, і
+	// доти журнал його не бачив узагалі: знімок шукав куплене В рейтингу, а
+	// подушка в ньому не стоїть. На живому портфелі це робило журнал сліпим
+	// саме до найчастішого рішення — маршрут веде в подушку всі надходження
+	// року.
+	//
+	// Але злити їх в один відсоток не можна. «Слідую помічнику» означає
+	// «взяв те, що стояло верхнім»; подушка верхнім не стоїть НІКОЛИ й
+	// стояти не може, тож кожен її рух тягнув би Followed донизу й
+	// перетворив би метрику дисципліни на метрику «як часто я поповнюю
+	// резерв». Тому Count вище — це покупки, а подушка має свою пару чисел.
+	ReserveCount int `json:"reserve_count,omitempty"`
+	// ReserveForgonePctAvg — середня дохідність найкращого доступного в ті
+	// хвилини. НЕ «втрачене»: резерв тримають не заради дохідності, а щоб
+	// не продавати папір у поганий місяць. Число стоїть поруч і мовчить.
+	//
+	// Середнє просте, а не зважене сумами: ваги вимагали б курсів, яких у
+	// цій чистій функції немає, а тягнути їх сюди заради одного рядка
+	// означало б завести в зведення власну конвертацію.
+	ReserveForgonePctAvg float64 `json:"reserve_forgone_pct_avg,omitempty"`
 }
 
 type decisionsModeRow struct {
@@ -158,6 +187,13 @@ func decisionBase(d store.Decision) decisionRow {
 		Amount:   toMoneyJSON(money.New(d.Amount, orUAH(d.Currency))),
 		RankMode: d.RankMode, PromisedPct: d.RealPct, RankPos: d.RankPos,
 	}
+	if d.Kind == decisionKindReserve {
+		// У подушки немає ні місця в рейтингу, ні власної обіцянки — лише
+		// те, від чого ці гроші відмовились. PromisedPct лишається нулем, і
+		// це точне твердження: журнал матраца не приносить нічого.
+		row.TopLabel, row.ForgonePct = d.TopLabel, round2(d.TopRealPct)
+		return row
+	}
 	if d.RankPos > 1 && d.TopLabel != "" {
 		row.TopLabel = d.TopLabel
 		row.VsTopPP = round2(d.RealPct - d.TopRealPct)
@@ -221,13 +257,23 @@ func decisionActual(d store.Decision, lotByID map[int64]domain.Lot,
 // саме той різновид арифметики, який у двох місцях дає два різні числа,
 // бо підмножини визначають по-різному.
 func summarizeDecisions(rows []decisionRow) decisionsSummary {
-	sum := decisionsSummary{Count: len(rows)}
+	var sum decisionsSummary
 	byMode := map[string]*decisionsModeRow{}
 	var order []string
 	var vsTop, vsTopN float64
 	var drift, driftN float64
+	var forgone float64
 
 	for _, r := range rows {
+		// Подушка — своя пара чисел, і в жодну з решти вона не входить:
+		// аргумент при ReserveCount. Режими її теж не стосуються — рух у
+		// матрац не залежить від того, чим упорядкований рейтинг.
+		if r.Kind == decisionKindReserve {
+			sum.ReserveCount++
+			forgone += r.ForgonePct
+			continue
+		}
+		sum.Count++
 		m := byMode[r.RankMode]
 		if m == nil {
 			m = &decisionsModeRow{Mode: r.RankMode}
@@ -255,6 +301,9 @@ func summarizeDecisions(rows []decisionRow) decisionsSummary {
 	}
 	if driftN > 0 {
 		sum.DriftPPAvg = round2(drift / driftN)
+	}
+	if sum.ReserveCount > 0 {
+		sum.ReserveForgonePctAvg = round2(forgone / float64(sum.ReserveCount))
 	}
 	// Порядок режимів — той, у якому вони вперше трапились у журналі,
 	// тобто хронологічний. Мапа дала б новий порядок на кожен запит.

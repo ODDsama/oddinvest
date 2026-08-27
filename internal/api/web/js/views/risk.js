@@ -612,6 +612,13 @@ function decisionsSummaryHTML(s) {
     ? `<div class="pv-row"><span class="muted">Обіцянка проти факту (${s.measured})</span>
         <span class="${s.drift_pp_avg >= 0 ? "t-ok" : "t-danger"}">${pp(s.drift_pp_avg)}</span></div>`
     : ""}
+    ${s.reserve_count
+    ? `<div class="pv-row"><span class="muted">Рухів у подушку (${s.reserve_count}) — доступне тоді давало</span>
+        <span>${pp(s.reserve_forgone_pct_avg)}</span></div>
+      <div class="sub-xs">Це НЕ втрачене. Подушку тримають, щоб не продавати папір у
+        поганий місяць, і в рядки вище вона не входить: верхнім рядком рейтингу вона
+        не стоїть ніколи, тож у частці «взяв верхній» кожен її рух читався б як
+        порушення дисципліни.</div>` : ""}
     ${modes}
   </div>`;
 }

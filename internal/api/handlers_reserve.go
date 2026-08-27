@@ -64,10 +64,28 @@ func (s *Server) handleAddReserveOp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// Знімок рейтингу — ДО запису, тим самим порядком, що й у покупок
+	// (див. шапку decisions.go): після нього подушка вже підросла, стеля
+	// місяця впала, і «від чого ці гроші відмовились» стало б відповіддю
+	// про портфель, у якому вони вже відмовились.
+	//
+	// ЛИШЕ НА ПОПОВНЕННІ. Зняття з подушки — рішення протилежного знаку,
+	// і альтернатива в ньому не при чому: гроші звідти беруть тоді, коли
+	// сталось те, заради чого подушку й тримали. Записати таке рядком
+	// «відмовився від 9.4%» означало б назвати аварію вибором.
+	now := time.Now()
+	var snap decisionSnapshot
+	if op.Amount > 0 {
+		snap = s.takeReserveSnapshot(r.Context(), now)
+	}
 	id, err := s.st.AddReserveOp(r.Context(), op)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
+	}
+	if op.Amount > 0 {
+		s.saveDecision(r.Context(), snap, now, decisionKindReserve, op.Place,
+			money.New(op.Amount, op.Currency), id)
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})

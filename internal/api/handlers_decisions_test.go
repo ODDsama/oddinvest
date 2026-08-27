@@ -202,3 +202,87 @@ func TestDecisionsSurviveBackupRestore(t *testing.T) {
 			before[0], after[0])
 	}
 }
+
+// --- подушка ---
+
+// Рух у подушку теж стає рядком журналу, і несе те, від чого гроші
+// відмовились.
+//
+// Доти журнал був сліпий саме до цього рішення: знімок шукав куплене В
+// рейтингу, а подушка в ньому не стоїть — вирізка на неї береться ДО
+// ранжування. На живому портфелі це найчастіше рішення взагалі.
+func TestDecisionRecordedOnReserveFill(t *testing.T) {
+	srv, st := testServer(t)
+	switchSeed(t, st)
+	if resp, body := do(t, "POST", srv.URL+"/api/reserve",
+		`{"date":"2026-07-01","amount":"12000.00","currency":"UAH","place":"готівка"}`,
+	); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("рух у резерв: %d %s", resp.StatusCode, body)
+	}
+	out := decisions(t, srv.URL)
+	if len(out.Rows) != 1 {
+		t.Fatalf("очікували одне рішення, маємо %d", len(out.Rows))
+	}
+	r := out.Rows[0]
+	if r.Kind != decisionKindReserve || r.Ref != "готівка" {
+		t.Errorf("рішення не про подушку: %+v", r)
+	}
+	if r.Amount.Amount != "12000.00" {
+		t.Errorf("сума %s, очікували 12000.00", r.Amount.Amount)
+	}
+	// Обіцянки в подушки немає, і нуль тут — точне твердження, а не
+	// «помічник обіцяв 0%». Місця в рейтингу теж немає.
+	if r.PromisedPct != 0 || r.RankPos != 0 {
+		t.Errorf("подушці приписано обіцянку чи місце в рейтингу: %+v", r)
+	}
+	if r.TopLabel == "" {
+		t.Error("не записано, від чого ці гроші відмовились — без цього рядок мовчить")
+	}
+}
+
+// Зняття з подушки рядка НЕ дає: гроші звідти беруть тоді, коли сталось
+// те, заради чого її й тримали, і назвати аварію вибором не можна.
+func TestDecisionNotRecordedOnReserveWithdrawal(t *testing.T) {
+	srv, st := testServer(t)
+	switchSeed(t, st)
+	if resp, body := do(t, "POST", srv.URL+"/api/reserve",
+		`{"date":"2026-07-01","amount":"-5000.00","currency":"UAH","place":"готівка"}`,
+	); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("зняття з резерву: %d %s", resp.StatusCode, body)
+	}
+	if out := decisions(t, srv.URL); len(out.Rows) != 0 {
+		t.Errorf("зняття дало рядок журналу: %+v", out.Rows)
+	}
+}
+
+// Подушка не входить у знаменник дисципліни.
+//
+// «Слідую помічнику» означає «взяв те, що стояло верхнім»; подушка верхнім
+// не стоїть НІКОЛИ. Потрапивши в Count, кожен її рух тягнув би Followed
+// донизу й перетворив би метрику дисципліни на метрику «як часто я
+// поповнюю резерв».
+func TestDecisionsSummaryKeepsReserveApart(t *testing.T) {
+	got := summarizeDecisions([]decisionRow{
+		{Kind: "bond", RankMode: "plan", RankPos: 1},
+		{Kind: "bond", RankMode: "plan", RankPos: 1},
+		{Kind: decisionKindReserve, TopLabel: "UA0001", ForgonePct: 9.4},
+		{Kind: decisionKindReserve, TopLabel: "UA0001", ForgonePct: 8.6},
+	})
+	if got.Count != 2 || got.Followed != 2 {
+		t.Errorf("покупок %d, за верхнім %d — чекали 2/2: подушка сюди не входить",
+			got.Count, got.Followed)
+	}
+	if got.ReserveCount != 2 {
+		t.Errorf("рухів у подушку %d, чекали 2", got.ReserveCount)
+	}
+	if got.ReserveForgonePctAvg != 9 {
+		t.Errorf("доступне давало %.2f, чекали 9 ((9.4+8.6)/2)", got.ReserveForgonePctAvg)
+	}
+	// Режими подушки не стосуються: рух у матрац не залежить від того, чим
+	// упорядкований рейтинг.
+	for _, m := range got.ByMode {
+		if m.Count != 2 {
+			t.Errorf("режим %q дістав %d рішень, чекали 2", m.Mode, m.Count)
+		}
+	}
+}

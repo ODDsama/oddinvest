@@ -84,11 +84,21 @@ type periodPlan struct {
 
 // periodDecisions — що куплено в цьому місяці й за чиєю порадою.
 type periodDecisions struct {
-	Count      int           `json:"count"`
-	Followed   int           `json:"followed"`
-	VsTopPPAvg float64       `json:"vs_top_pp_avg,omitempty"`
-	Rows       []decisionRow `json:"rows,omitempty"`
-	Note       string        `json:"note,omitempty"`
+	// Count і Followed — про ПОКУПКИ. Рухи в подушку сюди не входять і
+	// мають свою пару: аргумент той самий, що в decisionsSummary, і
+	// зводити їх в одне число не можна там і тут однаково.
+	Count      int     `json:"count"`
+	Followed   int     `json:"followed"`
+	VsTopPPAvg float64 `json:"vs_top_pp_avg,omitempty"`
+	// ReserveCount / ReserveForgonePctAvg — рухи в матрац за той самий
+	// місяць і дохідність доступного в ті хвилини. Не «втрачене».
+	ReserveCount         int     `json:"reserve_count,omitempty"`
+	ReserveForgonePctAvg float64 `json:"reserve_forgone_pct_avg,omitempty"`
+	// Rows — усі рядки місяця, подушку ВКЛЮЧНО: у таблиці вид підписаний,
+	// і сховати з неї половину рішень заради чистого знаменника означало б
+	// відповісти на «що я вирішив у серпні» неповно.
+	Rows []decisionRow `json:"rows,omitempty"`
+	Note string        `json:"note,omitempty"`
 }
 
 type periodResp struct {
@@ -289,13 +299,19 @@ func periodPlanOf(snaps []store.Snapshot, from, to domain.Date, contribMinor int
 // висновок.
 func periodDecisionsOf(list []store.Decision, from, to domain.Date) periodDecisions {
 	out := periodDecisions{}
-	var sum float64
+	var sum, forgone float64
 	var withTop int
 	for _, d := range list {
 		if d.MadeOn.Before(from) || d.MadeOn.After(to) {
 			continue
 		}
 		row := decisionBase(d)
+		out.Rows = append(out.Rows, row)
+		if d.Kind == decisionKindReserve {
+			out.ReserveCount++
+			forgone += row.ForgonePct
+			continue
+		}
 		out.Count++
 		if row.RankPos == 1 {
 			out.Followed++
@@ -304,10 +320,12 @@ func periodDecisionsOf(list []store.Decision, from, to domain.Date) periodDecisi
 			sum += row.VsTopPP
 			withTop++
 		}
-		out.Rows = append(out.Rows, row)
 	}
 	if withTop > 0 {
 		out.VsTopPPAvg = round2(sum / float64(withTop))
+	}
+	if out.ReserveCount > 0 {
+		out.ReserveForgonePctAvg = round2(forgone / float64(out.ReserveCount))
 	}
 	if out.Count == 0 {
 		out.Note = "цього місяця нічого не куплено"
