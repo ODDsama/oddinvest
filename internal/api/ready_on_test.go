@@ -100,6 +100,58 @@ func TestReadyForSilentWhenIncomeNeverCovers(t *testing.T) {
 	}
 }
 
+// Повернення тіла їде поруч із сумою, окремим числом.
+//
+// «Коли вистачить» цієї різниці не бачить і не має бачити: на рахунку
+// купон і погашення однакові гроші. Її бачить маршрут (route.go), де
+// купон — новий капітал, а погашення лише міняє форму власного тіла. Тест
+// стоїть тут, бо заповнюється поле саме тут, і мовчазна втрата Principal
+// у майбутньому редагуванні futureIncome інакше вилізла б аж у проході.
+//
+// Фікстура зумисне та, де в день погашення платять ОБОЄ: після зведення
+// одного дня рядок мусить нести повну суму й тіло всередині неї.
+func TestFutureIncomeCarriesPrincipal(t *testing.T) {
+	_, st := testServer(t)
+	ctx := context.Background()
+	today := domain.NewDate(time.Now())
+	seedFuturePayer(t, st, today)
+
+	if _, err := st.AddLot(ctx, domain.Lot{
+		ISIN: futureISIN, Qty: 3, PricePerBond: money.New(995_00, money.UAH),
+		BuyDate: today, Channel: "inzhur"}); err != nil {
+		t.Fatal(err)
+	}
+	srv := New(st, nil, testLogger())
+	src, err := srv.loadSources(ctx, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inc, err := srv.futureIncome(src, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	flows := inc[store.BrokerCur{Broker: "inzhur", Currency: money.UAH}]
+	if len(flows) != 2 {
+		t.Fatalf("надходжень %d, чекали два (купон і день погашення): %+v", len(flows), flows)
+	}
+	coupon, maturity := flows[0], flows[1]
+	if coupon.Principal != 0 {
+		t.Errorf("купон несе тіло %d — купон це чистий дохід", coupon.Principal)
+	}
+	if coupon.Kind != "bonds" {
+		t.Errorf("вид купона %q, чекали bonds", coupon.Kind)
+	}
+	// День погашення: 3 × (82,75 купона + 1 000,00 тіла).
+	if maturity.Amount != 3*(82_75+1000_00) {
+		t.Errorf("сума дня погашення %d, чекали %d", maturity.Amount, 3*(82_75+1000_00))
+	}
+	if maturity.Principal != 3*1000_00 {
+		t.Errorf("тіло %d, чекали %d — купон того ж дня тілом не є",
+			maturity.Principal, 3*1000_00)
+	}
+}
+
 // Валюта не змішується: доларові надходження не наближають гривневий
 // папір, скільки б їх не було.
 func TestReadyForKeepsCurrenciesApart(t *testing.T) {

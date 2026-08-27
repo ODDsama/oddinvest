@@ -34,6 +34,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -155,25 +156,40 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	// Id рахунку НПФ береться зі СХОВИЩА, а не з поради: doc.NPF несе назву
-	// (саме її й видно на екрані), а план тримається за id, щоб виправлення
-	// описки в назві не відчепило внески — розходження між двома ключами
-	// пояснене при domain.NPFPlanDest.
-	npfID := map[string]int64{}
-	if accs, aerr := s.st.ListNPFAccounts(r.Context()); aerr == nil {
-		for _, a := range accs {
-			if _, dup := npfID[a.Name]; dup {
-				// Дві однакові назви — і сказати, у котрий саме рахунок
-				// вносити, нема з чого. Нуль вимикає рядок, замість того щоб
-				// вгадати навмання.
-				npfID[a.Name] = 0
-				continue
-			}
-			npfID[a.Name] = a.ID
-		}
-	}
 	writeJSON(w, http.StatusOK, allocatePlan(doc, sug, rates,
-		toMoneyJSON(money.New(minor, cur)), float64(uahM.Amount())/100, cur, npfID))
+		toMoneyJSON(money.New(minor, cur)), float64(uahM.Amount())/100, cur,
+		s.npfIDByName(r.Context())))
+}
+
+// npfIDByName — id рахунків НПФ за назвою.
+//
+// Id береться зі СХОВИЩА, а не з поради: doc.NPF несе назву (саме її й
+// видно на екрані), а план тримається за id, щоб виправлення описки в
+// назві не відчепило внески — розходження між двома ключами пояснене при
+// domain.NPFPlanDest.
+//
+// Окремою функцією, бо читачів двоє: розкладка суми, що вже прийшла, і
+// маршрут грошей, які ще прийдуть (route.go). Друга копія цього циклу
+// означала б, що дві відповіді на «у котрий пенсійний вносити» можуть
+// розійтись — а розійтись вони можуть рівно в тому випадку, заради якого
+// нуль нижче й стоїть.
+func (s *Server) npfIDByName(ctx context.Context) map[string]int64 {
+	out := map[string]int64{}
+	accs, err := s.st.ListNPFAccounts(ctx)
+	if err != nil {
+		return out
+	}
+	for _, a := range accs {
+		if _, dup := out[a.Name]; dup {
+			// Дві однакові назви — і сказати, у котрий саме рахунок вносити,
+			// нема з чого. Нуль вимикає рядок, замість того щоб вгадати
+			// навмання.
+			out[a.Name] = 0
+			continue
+		}
+		out[a.Name] = a.ID
+	}
+	return out
 }
 
 // allocKind — вид інструмента поради в термінах ребалансу. Мапа, а не

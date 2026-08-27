@@ -107,7 +107,7 @@ func TestMonthPlanNets(t *testing.T) {
 			Currency: money.UAH, InvestBP: 5000},
 	}, nil)
 
-	p := buildMonthPlan(src, fx.Rates{}, today, 0)
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0)
 	if p == nil {
 		t.Fatal("план місяця не порахувався")
 	}
@@ -145,7 +145,7 @@ func TestMonthPlanMarkNotArrived(t *testing.T) {
 	}
 	p := buildMonthPlan(monthPlanSrc(flows, []store.PlanReceipt{
 		{FlowID: 1, Month: "2026-07", Amount: 0, Currency: money.UAH, InvestBP: 10000},
-	}, nil), fx.Rates{}, today, 0)
+	}, nil), fx.Rates{}, today, 0, 0)
 	if p.IncomeUAH != 0 {
 		t.Errorf("надходження %v, очікували 0 — відмічено «не прийшло»", p.IncomeUAH)
 	}
@@ -166,7 +166,7 @@ func TestMonthPlanMarkReplacesAmount(t *testing.T) {
 	}
 	p := buildMonthPlan(monthPlanSrc(flows, []store.PlanReceipt{
 		{FlowID: 1, Month: "2026-07", Amount: 4_500_000, Currency: money.UAH, InvestBP: 10000},
-	}, nil), fx.Rates{}, today, 0)
+	}, nil), fx.Rates{}, today, 0, 0)
 	if p.IncomeUAH != 45000 || p.ReceivedUAH != 45000 {
 		t.Errorf("надходження %v, підтверджено %v — очікували 45000 в обох: факт заміщає план",
 			p.IncomeUAH, p.ReceivedUAH)
@@ -188,7 +188,7 @@ func TestMonthPlanLeftAndCovered(t *testing.T) {
 	}
 	src := monthPlanSrc(flows, nil, nil)
 
-	p := buildMonthPlan(src, fx.Rates{}, today, 12000)
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 12000)
 	if p.LeftUAH != 18000 { // 30 000 плану − 12 000 уже внесених
 		t.Errorf("лишилось %v, очікували 18000", p.LeftUAH)
 	}
@@ -198,7 +198,7 @@ func TestMonthPlanLeftAndCovered(t *testing.T) {
 	// Перевиконаний план: «лишилось» нуль, а покриття — БЕЗ стелі в сотню.
 	// Обрізати 133% до 100% означало б сховати саме те, заради чого число й
 	// показують.
-	p = buildMonthPlan(src, fx.Rates{}, today, 40000)
+	p = buildMonthPlan(src, fx.Rates{}, today, 0, 40000)
 	if p.LeftUAH != 0 {
 		t.Errorf("лишилось %v, очікували 0 — план місяця перевиконано", p.LeftUAH)
 	}
@@ -259,7 +259,7 @@ func TestReserveMonthShare(t *testing.T) {
 func TestMonthPlanAbsentWithoutFlows(t *testing.T) {
 	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 	if p := buildMonthPlan(monthPlanSrc(nil, nil, nil), fx.Rates{},
-		domain.NewDate(now), 0); p != nil {
+		domain.NewDate(now), 0, 0); p != nil {
 		t.Errorf("план місяця %+v, очікували nil — джерел доходу немає", p)
 	}
 }

@@ -196,7 +196,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 		}
 	}
 
-	out.Plan = buildMonthPlan(src, rates, today, float64(out.DepositedUAH.Amount())/100)
+	out.Plan = buildMonthPlan(src, rates, today, 0, float64(out.DepositedUAH.Amount())/100)
 	out.ReserveMonthUAH, out.ReserveFillUAH = reserveMonthShare(
 		src.settings, reserveUAH, out.Plan, out.ReserveMovedUAH)
 	return out, nil
@@ -266,16 +266,24 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 // означення «скільки цей потік платить у серпні» розійшлося б із першим на
 // першій же правці періодичності, і помітили б це не одразу.
 //
-// Місяць 0 — саме поточний: monthKeyAt(today, 0) дає його ключ, а
+// # ЗСУВ МІСЯЦЯ
+//
+// m — на скільки місяців уперед від сьогодні. Нуль — поточний місяць, і
+// саме його бере buildMonth: monthKeyAt(today, 0) дає його ключ, а
 // planFlowAtMonth для m <= 0 іде в гілку минулого, де дата початку НЕ
 // підтягується до першого місяця. Для поточного це правильно: потік,
 // заведений завтра, у серпні ще не платив.
+//
+// Другий читач — маршрут (route.go): щомісячна стеля подушки міряється від
+// плану СВОГО місяця, і без зсуву прохід уперед мусив би завести друге
+// означення «скільки план дає в березні». Параметр узагальнено рівно тому,
+// що читачів справді два, а не про запас.
 func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
-	depositedUAH float64) *state.MonthPlan {
+	m int, depositedUAH float64) *state.MonthPlan {
 	if len(src.planFlows) == 0 && len(src.planReceipts) == 0 {
 		return nil // плану доходу немає — це не «план обіцяє нуль»
 	}
-	month := monthKeyAt(today, 0)
+	month := monthKeyAt(today, m)
 	marks := newPlanMarks(src.planReceipts)
 	out := &state.MonthPlan{Month: month}
 
@@ -285,10 +293,10 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		// робить суму нулем, і за нею рядок зник би зі списку джерел — тобто
 		// «зарплати цього місяця не було» перестало б відрізнятись від
 		// «зарплати тут ніколи й не планувалось».
-		if planFlowAtMonth(f, today, 0, nil) == 0 {
+		if planFlowAtMonth(f, today, m, nil) == 0 {
 			continue
 		}
-		amt := planFlowUAH(planFlowAtMonth(f, today, 0, marks), f.Currency, rates)
+		amt := planFlowUAH(planFlowAtMonth(f, today, m, marks), f.Currency, rates)
 		if f.Kind == "expense" {
 			// У потоках витрата від'ємна; у контракті вона додатна, бо поле
 			// зветься «витрати», і знак у ньому читався б як помилка.
@@ -297,7 +305,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		}
 		out.IncomeUAH += amt
 		out.Sources++
-		if _, ok := marks.at(f.ID, today, 0); ok {
+		if _, ok := marks.at(f.ID, today, m); ok {
 			out.ReceivedUAH += amt
 			out.Marked++
 		}

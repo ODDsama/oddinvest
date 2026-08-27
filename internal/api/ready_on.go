@@ -70,10 +70,27 @@ import (
 const noBrokerLabel = "—"
 
 // readyFlow — одне майбутнє надходження на конкретний рахунок.
+//
+// PRINCIPAL І KIND — ДЛЯ МАРШРУТУ, І ЛИШЕ ДЛЯ НЬОГО. «Коли вистачить» питає
+// СКІЛЬКИ грошей буде на рахунку, і на це питання купон і погашення
+// відповідають однаково: гроші є гроші. Маршрут (route.go) веде прохід
+// уперед по капіталу, а там різниця принципова — купон це НОВІ гроші, а
+// погашення лише перекладає власне тіло з паперу в готівку. Без цієї пари
+// прохід рахував би повернення номіналу приростом капіталу й через це
+// занижував би розрив до цілі саме того виду, який щойно погасився.
+//
+// Обидва поля тут, а не в окремій структурі поруч, бо джерело в них одне й
+// те саме — розклад, — і другий збирач розкладу розійшовся б із першим.
+// readyFor і annotateReady їх не читають: дата від цього не змінюється.
 type readyFlow struct {
 	Date   domain.Date
 	Amount int64 // мінорні, у валюті рахунку
 	Label  string
+	// Principal — скільки з Amount є поверненням ВЛАСНОГО тіла (погашення
+	// ОВДП, тіло вкладу). Решта — дохід. Kind — вид, з якого це тіло
+	// повертається, у термінах ребалансу ("bonds" | "deposits").
+	Principal int64
+	Kind      string
 }
 
 // readyEvent — те саме назовні: з чого саме склалася сума.
@@ -126,9 +143,12 @@ func (s *Server) futureIncome(src *sources, today domain.Date) (incomeAhead, err
 			if arrived(cf.ISIN, cf.Date) {
 				continue
 			}
-			add(channel, cf.Amount.Currency().Code, readyFlow{
-				Date: cf.Date, Amount: cf.Amount.Amount(), Label: cf.ISIN,
-			})
+			f := readyFlow{Date: cf.Date, Amount: cf.Amount.Amount(),
+				Label: cf.ISIN, Kind: "bonds"}
+			if cf.Type == domain.PayRedemption {
+				f.Principal = cf.Amount.Amount()
+			}
+			add(channel, cf.Amount.Currency().Code, f)
 		}
 	}
 
@@ -144,9 +164,12 @@ func (s *Server) futureIncome(src *sources, today domain.Date) (incomeAhead, err
 			if arrived(cf.ISIN, cf.Date) {
 				continue
 			}
-			add(dep.Bank, cf.Amount.Currency().Code, readyFlow{
-				Date: cf.Date, Amount: cf.Amount.Amount(), Label: label,
-			})
+			f := readyFlow{Date: cf.Date, Amount: cf.Amount.Amount(),
+				Label: label, Kind: "deposits"}
+			if cf.Type == domain.PayRedemption {
+				f.Principal = cf.Amount.Amount()
+			}
+			add(dep.Bank, cf.Amount.Currency().Code, f)
 		}
 	}
 
@@ -178,6 +201,11 @@ func coalesceSameDay(flows []readyFlow) []readyFlow {
 	for _, f := range flows {
 		if n := len(out); n > 0 && out[n-1].Date == f.Date && out[n-1].Label == f.Label {
 			out[n-1].Amount += f.Amount
+			// Тіло складається разом із сумою: зведений рядок і далі каже,
+			// скільки в ньому доходу, а скільки повернення власного. Купон і
+			// погашення одного паперу одного дня — саме той випадок, заради
+			// якого це зведення й існує.
+			out[n-1].Principal += f.Principal
 			continue
 		}
 		out = append(out, f)
