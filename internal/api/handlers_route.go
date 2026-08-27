@@ -74,6 +74,10 @@ func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
 		plans[monthKeyAt(today, m)] = buildMonthPlan(src, src.rates, today, m, 0)
 	}
 
-	writeJSON(w, http.StatusOK, buildRoute(doc, sug, inc, plans, src.rates,
-		s.npfIDByName(r.Context()), today))
+	out := buildRoute(doc, sug, inc, plans, src.rates,
+		s.npfIDByName(r.Context()), today)
+	// План купівель — окремим проходом поверх готових ніг: аргумент при
+	// annotatePlanned. Рядки вже лежать у джерелах, другого читання немає.
+	annotatePlanned(out.Legs, src.planBuys, today)
+	writeJSON(w, http.StatusOK, out)
 }

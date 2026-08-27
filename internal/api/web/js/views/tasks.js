@@ -43,6 +43,11 @@ const ACTIONS = {
   "fill-reserve": { to: "entry/reserve", label: "Записати рух" },
   "record-npf": { to: "entry/npf", label: "Записати внесок" },
   "confirm-payment": { to: "plan/payouts", label: "Відмітити" },
+  // Веде НЕ в календар, хоч дія в обох — «позначити отриманим». Календар
+  // відповідає на «чи прийшло», маршрут — на «куди це піде», а питання
+  // цієї задачі саме друге: гроші приходять сьогодні, і рішення про них
+  // ухвалюється зараз, а не при звірці.
+  "confirm-route": { to: "plan/route", label: "Розкласти" },
   "record-receipt": { to: "planflow", label: "Відмітити надходження" },
   "review-limits": { to: "risk/limits", label: "Подивитись ліміти" },
   "see-suggestions": { to: "now/buy", label: "Що купити" },

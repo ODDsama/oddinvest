@@ -98,17 +98,43 @@ function summaryHTML(res) {
 // Тіло рядка плану купівель. Поля, яких цей вид не має, не надсилаються
 // зовсім — бекенд відхиляє зайве (planBuyFromReq), і мовчки підкладати нулі
 // означало б обходити його перевірку. Та сама межа, що в planBuyBody.
-function buyBody(l) {
+//
+// Експортується, бо читачів двоє: ця модалка й «Закріпити» на сторінці
+// маршруту (route.js). Однойменного planBuyBody з plan-buys.js тут не
+// досить — той бере ФОРМУ, а це рядок розкладки, і поля в них різні.
+export function buyBody(l) {
   if (l.kind === "npf") return { kind: "npf", ref: l.ref, amount: l.amount.amount };
   return { kind: l.kind, ref: l.ref, qty: l.qty };
+}
+
+// Рядок про те, що маршрут ВІВ ЦІ ГРОШІ кудись — і чи збіглось.
+//
+// Маршрут будується наперед, розкладка рахується щойно; між ними могла
+// минути доба, змінитись стеля місяця або зʼявитись новий папір у
+// довіднику. Показати обидва числа й назвати різницю — усе, що тут
+// доречно. Кольору й слова-вироку немає навмисно: те саме правило, за яким
+// підсумок місяця показує «було → стало» БЕЗ оцінок. Розбіжність — факт, а
+// не помилка, і чия вона, вирішує людина.
+function routedHTML(leg) {
+  if (!leg) return "";
+  const parts = [];
+  if (leg.reserve && leg.reserve.amount_uah > 0) {
+    parts.push(`резерв ${fmtUAH(leg.reserve.amount_uah)}`);
+  }
+  for (const l of leg.lines || []) parts.push(`${l.label} ${fmtUAH(l.total_uah)}`);
+  if (leg.rest_uah > 0) parts.push(`чекає ${fmtUAH(leg.rest_uah)}`);
+  return `<div class="sub">Маршрут вів: ${parts.join(" · ") || "нікуди — на цілий крок не набиралось"}.
+    Нижче — розкладка, порахована щойно.</div>`;
 }
 
 /** Модалка розкладки. amount/currency — сума, яку розкладаємо (валова сума
  *  відмітки); title — чиї це гроші, щоб у діалозі було видно, звідки він
  *  узявся.
  *
+ *  routed — нога маршруту, якщо модалку відкрито з неї.
+ *
  *  → Promise<boolean>: чи щось записалось. */
-export async function openAllocate(ctx, { amount, currency = "UAH", title = "" }) {
+export async function openAllocate(ctx, { amount, currency = "UAH", title = "", routed = null }) {
   let res;
   try {
     const resp = await ctx.store.raw("allocate", {
@@ -125,7 +151,8 @@ export async function openAllocate(ctx, { amount, currency = "UAH", title = "" }
 
   const addable = (res.lines || []).filter((l) => l.addable);
   const nothing = !addable.length && !(res.reserve && res.reserve.amount_uah > 0);
-  const fields = reserveHTML(res)
+  const fields = routedHTML(routed)
+    + reserveHTML(res)
     + linesHTML(res)
     + summaryHTML(res)
     + (res.note ? `<div class="note">${esc(res.note)}</div>` : "")

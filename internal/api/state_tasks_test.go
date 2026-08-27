@@ -1,8 +1,12 @@
 package api
 
 import (
+	"strings"
 	"testing"
 
+	money "github.com/Rhymond/go-money"
+
+	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
@@ -115,5 +119,50 @@ func TestUAHFormat(t *testing.T) {
 	}
 	if got, want := cur(1234.5, "USD"), "1"+nb+"234,50"+nb+"$"; got != want {
 		t.Errorf("cur(USD) = %q, треба %q", got, want)
+	}
+}
+
+// Задача про гроші, що надходять СЬОГОДНІ, — і межа між нею та боргом
+// відміток.
+//
+// unconfirmedTask свідомо пропускає сьогоднішній день, тож без цієї задачі
+// день самої виплати лишався б єдиним, про який черга мовчить. Дзеркальна
+// половина тесту не менш важлива: позначена виплата задачі не дає, бо гроші
+// вже на рахунку й помічник їх бачить.
+func TestArrivedTodayTask(t *testing.T) {
+	today := domain.Date("2026-08-28")
+	src := &sources{
+		lots: []domain.Lot{{ISIN: "UA0001", Qty: 10,
+			PricePerBond: money.New(995_00, money.UAH),
+			BuyDate:      domain.Date("2026-01-01"), Channel: "mono"}},
+		pays: []domain.Payment{
+			{ISIN: "UA0001", PayDate: today, Type: domain.PayCoupon,
+				PerBond: money.New(82_75, money.UAH)},
+			// Завтрашня в задачу не входить: грошей ще немає.
+			{ISIN: "UA0001", PayDate: domain.Date("2026-08-29"), Type: domain.PayCoupon,
+				PerBond: money.New(82_75, money.UAH)},
+		},
+	}
+
+	got, ok := arrivedTodayTask(src, today)
+	if !ok {
+		t.Fatal("виплата, датована сьогодні, мала дати задачу")
+	}
+	if got.Action != actConfirmRoute {
+		t.Errorf("дія %q, чекали %q", got.Action, actConfirmRoute)
+	}
+	if got.Rank != 45 || got.Sev != sevNow {
+		t.Errorf("ранг %d / %q — чекали 45 / %q: після боргу відміток, але сьогодні",
+			got.Rank, got.Sev, sevNow)
+	}
+	// 10 × 82,75 = 827,50 ₴ — і рівно ця сума, без завтрашньої.
+	if !strings.Contains(got.Title, "827") {
+		t.Errorf("заголовок %q не називає сьогоднішньої суми", got.Title)
+	}
+
+	// Позначена — задачі немає.
+	src.statuses = map[string]string{"UA0001|" + string(today): domain.StatusReceived}
+	if _, ok := arrivedTodayTask(src, today); ok {
+		t.Error("позначена виплата не мала лишати задачі — гроші вже на рахунку")
 	}
 }

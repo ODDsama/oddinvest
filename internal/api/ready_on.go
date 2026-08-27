@@ -95,6 +95,14 @@ type readyFlow struct {
 	// саме таким futureIncome лишає кожен свій рядок: інших основ вона не
 	// знає й знати не мусить. Непорожнє ставить лише routeIncome нижче.
 	Basis string
+	// Ref — ключ, яким цю виплату позначають отриманою: ISIN паперу або
+	// синтетичний "deposit:<id>" вкладу. ОКРЕМО від Label, бо в вкладу вони
+	// різні — на екрані «вклад ПУМБ», у payment_status «deposit:7», — а
+	// кнопка «Прийшло» мусить надіслати саме другий.
+	//
+	// Порожньо в оцінок: дивіденд фонду позначати нема чого, його справжній
+	// запис — операція фонду, а не рядок статусу.
+	Ref string
 }
 
 // Основи надходження. Порожній рядок у readyFlow.Basis означає basisOwed —
@@ -167,7 +175,7 @@ func (s *Server) futureIncome(src *sources, today domain.Date) (incomeAhead, err
 				continue
 			}
 			f := readyFlow{Date: cf.Date, Amount: cf.Amount.Amount(),
-				Label: cf.ISIN, Kind: "bonds"}
+				Label: cf.ISIN, Kind: "bonds", Ref: cf.ISIN}
 			if cf.Type == domain.PayRedemption {
 				f.Principal = cf.Amount.Amount()
 			}
@@ -188,7 +196,7 @@ func (s *Server) futureIncome(src *sources, today domain.Date) (incomeAhead, err
 				continue
 			}
 			f := readyFlow{Date: cf.Date, Amount: cf.Amount.Amount(),
-				Label: label, Kind: "deposits"}
+				Label: label, Kind: "deposits", Ref: cf.ISIN}
 			if cf.Type == domain.PayRedemption {
 				f.Principal = cf.Amount.Amount()
 			}

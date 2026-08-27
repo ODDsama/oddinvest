@@ -15,9 +15,15 @@
 // реальна дохідність, кнопка в план. Ця — на «куди пішли гроші цієї
 // події»: назва й сума, стовпчиком усередині комірки. Повна таблиця
 // всередині комірки таблиці нечитабельна, а урізати linesHTML до двох
-// колонок означало б зробити з неї щось третє. Коли в маршруті з'явиться
-// підтвердження (гроші прийшли — розкласти), кроки покаже саме linesHTML,
-// бо там питання вже те саме.
+// колонок означало б зробити з неї щось третє. Там, де питання таки те
+// саме — у модалці «Прийшло», — кроки показує саме linesHTML: кнопка
+// відкриває звичайну розкладку, а не свою копію.
+//
+// КНОПКА «ПРИЙШЛО» Є РІВНО ОДИН ДЕНЬ. Учорашню виплату domain.Arrived уже
+// вважає отриманою й показує в балансі; завтрашніх грошей на рахунку ще
+// немає. День самої виплати — єдиний, коли обидва твердження хибні, і саме
+// тоді ухвалюється рішення. Оцінка кнопки не має взагалі: дивіденд фонду
+// позначати нема чого, його справжній запис приходить випискою.
 //
 // ЧОМУ ЦЕ ОКРЕМА СТОРІНКА, А НЕ КОЛОНКА В «КАЛЕНДАРІ ВИПЛАТ». Зернистість
 // рядка різна: у календарі рядок — одна виплата, тут — один ГОРЩИК, що
@@ -38,6 +44,7 @@ import { opsGrid } from "../grid.js";
 import { kindPill, empty } from "../components.js";
 import { infoBtn } from "../info.js";
 import { routeFor } from "../routes.js";
+import { openAllocate, buyBody } from "./allocate.js";
 
 // Основа надходження — підписом, і ТІЛЬКИ коли вона не «портфель це винен».
 //
@@ -106,6 +113,29 @@ function legsHTML(doc) {
             + `<div class="fine-xs muted">чекає наступного надходження</div>`
           : `<span class="muted">—</span>`),
       },
+      {
+        key: "act", label: "", cls: "row-actions nowrap",
+        // Кнопка є РІВНО в ноги, датованої сьогодні, і рівно доки виплата не
+        // позначена. Це не сором'язливість, а межа domain.Arrived: учорашню
+        // виплату застосунок уже вважає отриманою й показує в балансі, а
+        // завтрашніх грошей на рахунку ще немає — розкладати нічого. Один
+        // день, коли обидва твердження хибні, і є моментом рішення.
+        //
+        // Оцінка кнопки не має: дивіденд фонду позначати нема чого, його
+        // справжній запис приходить випискою (тому ref порожній).
+        cell: (leg) => {
+          if (leg.date === doc.from && leg.ref) {
+            return `<button class="sm" data-arrived="${esc(String(leg.id))}">Прийшло</button>`;
+          }
+          if ((leg.planned || []).length) {
+            return `<span class="muted fine-xs">у плані:
+              ${esc(leg.planned.join(", "))}</span>`;
+          }
+          return leg.pinnable
+            ? `<button class="sm quiet" data-pin="${esc(String(leg.id))}">Закріпити</button>`
+            : "";
+        },
+      },
     ],
     rows: (doc.legs || []).map((leg, i) => ({ ...leg, id: i })),
     caption: "Маршрут грошей: коли надійде, скільки, куди піде і що лишиться",
@@ -152,4 +182,67 @@ export async function renderRoute(ctx, main) {
       доки не набереться на цілий квиток — рахунки при цьому роздільні.</div>
     ${body}</div>`;
   main.insertAdjacentHTML("beforeend", card);
+
+  // «Прийшло» — дві дії одним рухом, і порядок між ними значущий.
+  //
+  // Спершу відмітка: доки її немає, domain.Arrived не кладе ці гроші на
+  // рахунок, а розкладка рахується від документа, який їх не бачить. Потім
+  // модалка — уже на свіжому стані, з рядком про те, куди вів маршрут.
+  //
+  // Розкладка тут НЕ береться готовою з ноги, хоч вона в нозі й лежить:
+  // маршрут будувався до відмітки, і між двома числами могла минути доба.
+  // Нога передається як `routed` — щоб було видно, куди вело, — а рішення
+  // ухвалюється за щойно порахованим. Показати старе замість нового
+  // означало б запропонувати записати вчорашню відповідь.
+  main.querySelectorAll("[data-arrived]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const leg = (doc.legs || [])[Number(b.dataset.arrived)];
+      if (!leg) return;
+      b.disabled = true;
+      try {
+        await ctx.api("POST", "payments/status",
+          { isin: leg.ref, pay_date: leg.date, status: "received" });
+      } catch (err) {
+        b.disabled = false;
+        ctx.toast(String(err.message || err), false);
+        return;
+      }
+      await openAllocate(ctx, {
+        amount: leg.amount.amount, currency: leg.amount.currency,
+        title: leg.label, routed: leg,
+      });
+      ctx.reload();
+    }));
+
+  // «Закріпити» — кладе кроки ноги в план купівель із ЇЇ датою.
+  //
+  // Тіло рядка збирає buyBody з розкладки, а не цей файл: поля, яких вид
+  // не має, бекенд відхиляє, і мовчки підкладати нулі означало б обходити
+  // перевірку. Відмова (без ставки замок у прогнозі лише заморозив би
+  // гроші) показується дослівно — ковтати 400 тут найгірше, бо рядок
+  // просто не зʼявиться, а сторінка вдаватиме, що все записалось.
+  main.querySelectorAll("[data-pin]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const leg = (doc.legs || [])[Number(b.dataset.pin)];
+      if (!leg) return;
+      b.disabled = true;
+      const requests = (leg.lines || []).filter((l) => l.addable).map((l) => ({
+        path: "plan/buys",
+        body: {
+          ...buyBody(l),
+          buy_date: leg.date,
+          broker: leg.broker === "—" ? "" : leg.broker,
+          note: `маршрут: ${leg.label} · ${leg.date}`,
+        },
+      }));
+      if (!requests.length) return;
+      try {
+        for (const rq of requests) await ctx.api("POST", rq.path, rq.body);
+        ctx.toast("Закріплено в плані купівель");
+        ctx.reload();
+      } catch (err) {
+        b.disabled = false;
+        ctx.toast(String(err.message || err), false);
+      }
+    }));
 }

@@ -624,3 +624,92 @@ func TestFundBrokerIsMajorityAndTieIsNobody(t *testing.T) {
 		t.Errorf("без операцій %q, чекали %q", got, noBrokerLabel)
 	}
 }
+
+// --- закріплення ---
+
+// Закріпити можна лише те, про що сьогоднішня ціна ще щось каже.
+//
+// Сторінка сама пише, що ціна кроку тут сьогоднішня; закріпити конкретний
+// ISIN на липень наступного року означало б зафіксувати рівно те число, про
+// яке ми щойно сказали «ми його не знаємо». Вікно те саме taskSoonDays, що
+// й у черги задач.
+func TestAnnotatePlannedPinWindow(t *testing.T) {
+	line := allocLine{Kind: "bond", Ref: "UA0001", Addable: true}
+	legs := []routeLeg{
+		{Date: "2026-09-10", Broker: "mono", Currency: money.UAH,
+			allocPlan: allocPlan{Lines: []allocLine{line}}},
+		{Date: "2027-06-10", Broker: "mono", Currency: money.UAH,
+			allocPlan: allocPlan{Lines: []allocLine{line}}},
+	}
+	annotatePlanned(legs, nil, routeToday)
+
+	if !legs[0].Pinnable {
+		t.Error("нога за два тижні мусить закріплюватись")
+	}
+	if legs[1].Pinnable {
+		t.Error("нога через рік не мусить: її ціна сьогодні невідома")
+	}
+}
+
+// Нога без жодного рядка, що кладеться в план, кнопки не дістає.
+//
+// У вкладу такого рядка немає взагалі (allocLine.Addable), і кнопка, яка
+// нічого не записує, гірша за її відсутність.
+func TestAnnotatePlannedNeedsAddableLine(t *testing.T) {
+	legs := []routeLeg{
+		{Date: "2026-09-10", Broker: "ПУМБ", Currency: money.UAH,
+			allocPlan: allocPlan{Lines: []allocLine{{Kind: "deposit", Addable: false}}}},
+		{Date: "2026-09-11", Broker: "mono", Currency: money.UAH,
+			allocPlan: allocPlan{}},
+	}
+	annotatePlanned(legs, nil, routeToday)
+	for i, leg := range legs {
+		if leg.Pinnable {
+			t.Errorf("нога %d закріплюється, хоч класти в план нічого: %+v", i, leg.Lines)
+		}
+	}
+}
+
+// Уже закріплене видно — і кнопка зникає.
+//
+// ЗБІГ ЗА ТРЬОМА ПОЛЯМИ, а не самою датою: 28 жовтня в живому портфелі три
+// різні ноги в двох брокерів, і позначка на всіх трьох через один
+// закріплений рядок читалась би як «усе вирішено».
+func TestAnnotatePlannedMatchesDateBrokerCurrency(t *testing.T) {
+	line := allocLine{Kind: "bond", Ref: "UA0001", Addable: true}
+	legs := []routeLeg{
+		{Date: "2026-09-10", Broker: "mono", Currency: money.UAH,
+			allocPlan: allocPlan{Lines: []allocLine{line}}},
+		{Date: "2026-09-10", Broker: "inzhur", Currency: money.UAH,
+			allocPlan: allocPlan{Lines: []allocLine{line}}},
+	}
+	annotatePlanned(legs, []store.PlanBuy{
+		{Kind: "bond", Ref: "UA0001", BuyDate: "2026-09-10",
+			Broker: "mono", Currency: money.UAH},
+		// Валюта в рядку не названа — «вивести із сутності». Такий рядок
+		// мусить збігтись: інакше власне закріплення, зроблене кнопкою
+		// «Закріпити», сторінка не побачила б ніколи (спіймано вживу).
+		{Kind: "npf", Ref: "1", BuyDate: "2026-09-10", Broker: "mono"},
+		// «Купую зараз» дати не має й до жодної ноги не належить.
+		{Kind: "bond", Ref: "UA0002", Broker: "mono", Currency: money.UAH},
+		// Чужа валюта на тій самій даті й рахунку — не про цю ногу.
+		{Kind: "bond", Ref: "UA0003", BuyDate: "2026-09-10",
+			Broker: "mono", Currency: money.USD},
+	}, routeToday)
+
+	if len(legs[0].Planned) != 2 ||
+		legs[0].Planned[0] != "UA0001" || legs[0].Planned[1] != "1" {
+		t.Errorf("нога mono: у плані %v, чекали [UA0001 1] — рядок без валюти "+
+			"теж належить цій нозі, а доларовий ні", legs[0].Planned)
+	}
+	if legs[0].Pinnable {
+		t.Error("закріплена нога не мусить пропонувати закріпитись удруге")
+	}
+	if len(legs[1].Planned) != 0 {
+		t.Errorf("нога inzhur дістала чужий рядок плану: %v — збіг мусить бути "+
+			"за датою, рахунком І валютою", legs[1].Planned)
+	}
+	if !legs[1].Pinnable {
+		t.Error("незакріплена нога того ж дня мусить лишатись закріплюваною")
+	}
+}

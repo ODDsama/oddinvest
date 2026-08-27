@@ -65,6 +65,7 @@ const (
 	actSeeSuggest    = "see-suggestions"
 	actReviewDeposit = "review-deposit"
 	actHowToFund     = "how-to-fund"
+	actConfirmRoute  = "confirm-route"
 )
 
 // taskSoonDays — вікно «скоро». Одне число на всі дати навмисно: вклад, що
@@ -337,6 +338,12 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		add(t)
 	}
 
+	// ---------- гроші, що надходять сьогодні ----------
+	// Після боргу відміток навмисно: аргумент при arrivedTodayTask.
+	if t, ok := arrivedTodayTask(src, today); ok {
+		add(t)
+	}
+
 	// ---------- надходження плану ----------
 	if t, ok := receiptTask(src, today); ok {
 		add(t)
@@ -458,6 +465,77 @@ func savingTask(doc *state.Doc, best *suggestion) state.Task {
 		Action:    actSeeSuggest,
 		AmountUAH: round2(need),
 	}
+}
+
+// arrivedTodayTask — гроші, які надходять САМЕ СЬОГОДНІ.
+//
+// # ЧОМУ ЦЕ ОКРЕМА ЗАДАЧА, А НЕ ЧАСТИНА pay-confirm
+//
+// Та свідомо пропускає сьогоднішній день (`it.Date >= today` — continue), і
+// правильно робить: у неї питання про МИНУЛЕ, про борг відміток, що
+// назбирався. Тут питання інше й свіже — «гроші приходять зараз, і для них
+// уже є маршрут». Злити їх в одну задачу означало б поставити під одну
+// кнопку «звірся з випискою за три місяці» і «розклади те, що прийшло
+// вранці».
+//
+// Порядок між ними теж не випадковий: борг відміток (ранг 40) іде першим,
+// бо тих грошей помічник не бачить уже давно, а сьогоднішні (45) нікуди не
+// дінуться до вечора.
+//
+// # ЧОМУ ЗАДАЧА НЕ НАЗИВАЄ ПРИЗНАЧЕННЯ
+//
+// Назвати, куди саме підуть ці гроші, могла б лише збірка маршруту — а вона
+// коштує другого loadSources і повного рейтингу на КОЖЕН /api/summary, тобто
+// й на кожну публікацію в MQTT. Задача натомість каже суму й веде на
+// сторінку, де призначення вже пораховане. Один клік дешевший за постійний
+// прохід по пʼяти тисячах паперів.
+//
+// Оцінені дивіденди фондів сюди не входять із тієї самої причини, що й у
+// сусідню задачу: позначати оцінку нема чого, її справжній запис — операція
+// фонду з виписки.
+func arrivedTodayTask(src *sources, today domain.Date) (state.Task, bool) {
+	cf, err := domain.FuturePayments(src.pays, src.lots, src.sales, today)
+	if err != nil {
+		return state.Task{}, false
+	}
+	cf = append(cf, domain.DepositCashflows(src.termDeposits, today)...)
+	n := 0
+	sum := map[string]int64{}
+	for _, it := range cf {
+		if it.Date != today {
+			continue
+		}
+		// Уже позначене — гроші вже на рахунку, і помічник їх бачить.
+		if src.statuses[it.ISIN+"|"+string(it.Date)] != "" {
+			continue
+		}
+		n++
+		sum[it.Amount.Currency().Code] += it.Amount.Amount()
+	}
+	if n == 0 {
+		return state.Task{}, false
+	}
+	// Суми по валютах НЕ зводяться в гривню: для цього потрібні курси, яких
+	// у цій функції немає, а тягнути їх сюди заради заголовка означало б
+	// завести в чергу задач власну конвертацію. Валюти перелічуються, як їх
+	// і отримають — окремими сумами на окремі рахунки.
+	codes := make([]string, 0, len(sum))
+	for c := range sum {
+		codes = append(codes, c)
+	}
+	sort.Strings(codes)
+	parts := make([]string, 0, len(codes))
+	for _, c := range codes {
+		parts = append(parts, money.New(sum[c], c).Display())
+	}
+	return state.Task{
+		ID: "route-arrived", Sev: sevNow, Rank: 45,
+		Title: fmt.Sprintf("Сьогодні надходить %s", strings.Join(parts, " + ")),
+		Why: "Маршрут уже знає, куди ці гроші ведуть за твоєю політикою. " +
+			"Позначиш отриманими — і розкладка відкриється на цю саму суму.",
+		When:   dayMonth(today),
+		Action: actConfirmRoute,
+	}, true
 }
 
 // unconfirmedTask — виплати, дата яких минула, а відмітки немає.
