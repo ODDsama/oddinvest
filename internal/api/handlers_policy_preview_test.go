@@ -10,7 +10,7 @@ import (
 )
 
 // policyDraft — набір, який ставить «Гривневий потік» на рівні без замка.
-// Саме чотирнадцять ключів, як їх шле «Політика»: превʼю, що бачило б інший
+// Саме пʼятнадцять ключів, як їх шле «Політика»: превʼю, що бачило б інший
 // перелік, ніж запис, перевіряло б не те, що відбудеться.
 const policyDraft = `{"settings":{
 	"usd_target_share_pct":"10","eur_target_share_pct":"",
@@ -19,6 +19,7 @@ const policyDraft = `{"settings":{
 	"limit_isin_pct":"25","limit_broker_pct":"60","limit_year_pct":"40",
 	"reserve_target_months":"3","reserve_fill_share_pct":"",
 	"reserve_liquid_months":"","reserve_max_term_months":"",
+	"reserve_fill_from":"any",
 	"reinvest_rank":"rate"}}`
 
 // policySettingsBody — те саме, але тілом PUT /api/settings.
@@ -29,6 +30,7 @@ const policySettingsBody = `{
 	"limit_isin_pct":"25","limit_broker_pct":"60","limit_year_pct":"40",
 	"reserve_target_months":"3","reserve_fill_share_pct":"",
 	"reserve_liquid_months":"","reserve_max_term_months":"",
+	"reserve_fill_from":"any",
 	"reinvest_rank":"rate"}`
 
 type policySections struct {

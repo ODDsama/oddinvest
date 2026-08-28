@@ -28,6 +28,19 @@
 // само — коли FillNowUAH більший за суму, вирізка дорівнює всій сумі,
 // рядків покупок немає, і хвіст добере наступна відмітка.
 //
+// ...АЛЕ НЕ З БУДЬ-ЯКИХ ГРОШЕЙ, і це єдиний виняток із попереднього
+// абзацу. Стеля подушки міряється від ПЛАНОВОГО доходу місяця
+// (reserveMonthShare від MonthPlan.PlanUAH), а різалась вона з чого
+// завгодно — тобто застосунок казав «подушку наповнює план» і забирав
+// купон. Налаштування reserve_fill_from називає, з яких грошей вирізка
+// має право брати, і сюди воно доходить одним числом — eligibleUAH.
+//
+// Числом, а не словом «джерело», навмисно: зведений рядок «купон 817 ₴ +
+// погашення 10 000 ₴ того самого дня» — ОДНА подія з двома природами
+// (readyFlow.Principal їх уже розділяє), і одне слово на неї означало б
+// або віддати подушці купон, або відібрати в неї тіло. Обидва варіанти
+// неправда, і жоден не можна пояснити рядком на екрані.
+//
 // ЧОГО ТУТ НЕМАЄ — обмеження залишком на рахунках. Гроші щойно прийшли, на
 // брокері їх ще може не бути, і зрізати розкладку сьогоднішньою готівкою
 // означало б відповісти на питання, якого не ставили.
@@ -54,6 +67,71 @@ import (
 type allocateReq struct {
 	Amount   string `json:"amount"`             // десятковий, як усюди в цьому API
 	Currency string `json:"currency,omitempty"` // порожньо = UAH
+	// Source — чиї це гроші: plan (планове надходження) чи portfolio
+	// (виплата з портфеля). Порожньо = plan, і це не байдужість: усі три
+	// місця, звідки розкладку відкривають, знають джерело напевно, а
+	// найчастіша ручна сума — зарплата.
+	//
+	// Principal — скільки з Amount є поверненням ВЛАСНОГО тіла, у ТІЙ САМІЙ
+	// валюті й тим самим десятковим записом. Порожньо = нуль. Гривневого
+	// числа тут бути не може: сума буває в доларах, і змішати їх означало б
+	// віддати подушці рівно курс.
+	Source    string `json:"source,omitempty"`
+	Principal string `json:"principal,omitempty"`
+}
+
+// Джерело грошей у розкладці. Двох слів досить: природу ПОРТФЕЛЬНИХ грошей
+// несе окреме число (скільки з них — повернення тіла), і третє слово
+// дублювало б його з ризиком розійтись.
+const (
+	allocFromPlan      = "plan"
+	allocFromPortfolio = "portfolio"
+)
+
+// reserveFillFrom — рівень політики словом, із дефолтом.
+//
+// Порожньо й будь-що невідоме читаються як "any", тобто як поведінка до
+// появи ключа: налаштування, яке мовчки вимикає подушку, було б найгіршим
+// виглядом помилки. Від друкарської описки стереже перелік у реєстрі, але
+// в базі можуть лежати й дані, старші за цей ключ.
+func reserveFillFrom(set *state.SettingsDoc) string {
+	if set == nil {
+		return "any"
+	}
+	switch v := strings.TrimSpace(set.ReserveFillFrom); v {
+	case "redeem", "plan":
+		return v
+	default:
+		return "any"
+	}
+}
+
+// reserveEligibleUAH — скільки з цих грошей політика дозволяє віддати подушці.
+//
+// ОДНЕ ОЗНАЧЕННЯ НА ДВОХ ЧИТАЧІВ: ручну розкладку (POST /api/allocate) і
+// прохід маршруту. Друга копія означала б, що сторінка маршруту веде купон
+// у папери, а розкладка того ж дня ріже з нього подушку — рівно та
+// розбіжність, проти якої стоїть TestRouteFirstLegEqualsAllocate.
+func reserveEligibleUAH(set *state.SettingsDoc, src string,
+	amountUAH, principalUAH float64) float64 {
+
+	switch reserveFillFrom(set) {
+	case "plan":
+		if src == allocFromPlan {
+			return amountUAH
+		}
+		return 0
+	case "redeem":
+		if src == allocFromPlan {
+			return amountUAH
+		}
+		// Повернення тіла — не заробіток портфеля, а власні гроші, що вийшли
+		// з паперу. Обрізаємо сумою: тіло приходить із події, сума — з
+		// горщика, і в маршруті друге буває меншим за перше.
+		return math.Min(amountUAH, math.Max(0, principalUAH))
+	default:
+		return amountUAH
+	}
 }
 
 // allocLine — один крок розкладки.
@@ -103,12 +181,20 @@ type allocReserve struct {
 	Why       string  `json:"why"`
 }
 
+// allocPlan.ReserveSkipWhy — чому подушка НЕ взяла те, що мала б узяти за
+// стелею. Причина тут рівно одна — політика reserve_fill_from, — і сказати
+// її обовʼязково: зниклий рядок вирізки без пояснення читається як
+// поломка, а не як «ці гроші за твоїм рішенням ідуть у папери». Те саме
+// правило, за яким мовчазного залишку не буває (RestWhy).
+
 type allocPlan struct {
 	Amount    moneyJSON     `json:"amount"`
 	AmountUAH float64       `json:"amount_uah"`
 	Reserve   *allocReserve `json:"reserve,omitempty"`
-	AvailUAH  float64       `json:"avail_uah"`
-	Lines     []allocLine   `json:"lines"`
+	// ReserveSkipWhy — аргумент вище, при allocReserve.
+	ReserveSkipWhy string      `json:"reserve_skip_why,omitempty"`
+	AvailUAH       float64     `json:"avail_uah"`
+	Lines          []allocLine `json:"lines"`
 	// RestUAH — те, що не склалося в цілі квитки. RestWhy називає причину
 	// словами: сума без пояснення читається як загублена.
 	RestUAH float64 `json:"rest_uah,omitempty"`
@@ -135,6 +221,21 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, badRequestf("сума розкладки має бути > 0"))
 		return
 	}
+	src := allocFromPlan
+	if strings.TrimSpace(req.Source) == allocFromPortfolio {
+		src = allocFromPortfolio
+	}
+	var principalMinor int64
+	if s := strings.TrimSpace(req.Principal); s != "" {
+		if principalMinor, err = domain.ParseDecimalToMinor(s, cur); err != nil {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("тіло: %w", err))
+			return
+		}
+		if principalMinor < 0 {
+			writeErr(w, http.StatusBadRequest, badRequestf("тіло не буває відʼємним"))
+			return
+		}
+	}
 	now := time.Now()
 	doc, err := s.buildState(r.Context(), now)
 	if err != nil {
@@ -156,8 +257,18 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	amountUAH := float64(uahM.Amount()) / 100
+	principalUAH := 0.0
+	if principalMinor > 0 {
+		// Тим самим переведенням, що й сума: другий курс на тому самому
+		// рядку дав би подушці й паперам різні гривні.
+		if pm, cerr := fx.ToUAH(money.New(principalMinor, cur), rates); cerr == nil {
+			principalUAH = float64(pm.Amount()) / 100
+		}
+	}
 	writeJSON(w, http.StatusOK, allocatePlan(doc, sug, rates,
-		toMoneyJSON(money.New(minor, cur)), float64(uahM.Amount())/100, cur,
+		toMoneyJSON(money.New(minor, cur)), amountUAH,
+		reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH), cur,
 		s.npfIDByName(r.Context())))
 }
 
@@ -203,24 +314,31 @@ var allocKind = map[string]string{
 // allocatePlan — уся розкладка. Чиста функція над готовим документом: саме
 // тому її можна перевірити тестом, не піднімаючи сервера.
 func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
-	amount moneyJSON, amountUAH float64, cur string, npfID map[string]int64) allocPlan {
+	amount moneyJSON, amountUAH, eligibleUAH float64,
+	cur string, npfID map[string]int64) allocPlan {
 
 	out := allocPlan{Amount: amount, AmountUAH: round2(amountUAH), Lines: []allocLine{}}
 
 	// --- подушка першою ---
 	avail := amountUAH
 	if doc.Reserve != nil && doc.Reserve.FillNowUAH > 0 {
-		cut := math.Min(amountUAH, doc.Reserve.FillNowUAH)
-		why := fmt.Sprintf("місячна частка подушки — %s з %s",
-			uah(cut), uah(doc.Reserve.FillMonthUAH))
-		switch {
-		case cut < doc.Reserve.FillNowUAH:
-			why += "; більше з цієї суми не вийде — решту добере наступне надходження"
-		case doc.Reserve.GapUAH > 0:
-			why += fmt.Sprintf("; до цілі ще %s", uah(doc.Reserve.GapUAH))
+		want := math.Min(amountUAH, doc.Reserve.FillNowUAH)
+		cut := math.Min(want, math.Max(0, eligibleUAH))
+		if blocked := want - cut; blocked > 0.005 {
+			out.ReserveSkipWhy = reserveSkipWhy(doc.Settings, blocked, cut)
 		}
-		out.Reserve = &allocReserve{AmountUAH: round2(cut), Why: why}
-		avail = amountUAH - cut
+		if cut > 0.005 {
+			why := fmt.Sprintf("місячна частка подушки — %s з %s",
+				uah(cut), uah(doc.Reserve.FillMonthUAH))
+			switch {
+			case cut < doc.Reserve.FillNowUAH:
+				why += "; більше з цієї суми не вийде — решту добере наступне надходження"
+			case doc.Reserve.GapUAH > 0:
+				why += fmt.Sprintf("; до цілі ще %s", uah(doc.Reserve.GapUAH))
+			}
+			out.Reserve = &allocReserve{AmountUAH: round2(cut), Why: why}
+			avail = amountUAH - cut
+		}
 	}
 	out.AvailUAH = round2(avail)
 	if avail <= 0 {
@@ -320,6 +438,24 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		out.Note = "на цілий крок жодного виду не вистачило — гроші чекають на наступне надходження"
 	}
 	return out
+}
+
+// reserveSkipWhy — чому подушка не взяла своєї частки (або взяла менше).
+//
+// Називає САМЕ ТУ політику, яку поставив користувач, а не загальне «не
+// можна»: рядок, що не веде до налаштування, змушує шукати причину в
+// чужих числах. Аргумент, чому це поле взагалі є, — при allocReserve.
+func reserveSkipWhy(set *state.SettingsDoc, blocked, cut float64) string {
+	rule := "її наповнює лише плановий дохід"
+	if reserveFillFrom(set) == "redeem" {
+		rule = "її наповнюють плановий дохід і повернення тіла, а це дохід портфеля"
+	}
+	if cut > 0.005 {
+		return fmt.Sprintf("подушка взяла лише %s: решта — %s — за твоєю політикою в неї не йде, %s",
+			uah(cut), uah(blocked), rule)
+	}
+	return fmt.Sprintf("подушка тут своє не бере (%s за стелею): за твоєю політикою %s",
+		uah(blocked), rule)
 }
 
 // allocStepUAH — ціна одного кроку поради в гривні-еквіваленті. Нуль

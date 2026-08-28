@@ -55,6 +55,7 @@ package api
 
 import (
 	"context"
+	"math"
 	"sort"
 
 	money "github.com/Rhymond/go-money"
@@ -205,16 +206,25 @@ func (s *Server) futureIncome(src *sources, today domain.Date) (incomeAhead, err
 	}
 
 	for k := range out {
-		flows := out[k]
-		sort.Slice(flows, func(i, j int) bool {
-			if flows[i].Date != flows[j].Date {
-				return flows[i].Date < flows[j].Date
-			}
-			return flows[i].Label < flows[j].Label
-		})
-		out[k] = coalesceSameDay(flows)
+		sortFlows(out[k])
+		out[k] = coalesceSameDay(out[k])
 	}
 	return out, nil
+}
+
+// sortFlows — сталий порядок усередині зрізу: дата, потім підпис.
+//
+// Повним ключем, а не самою датою: sort.Slice нестабільний, і дві виплати
+// одного дня ставали б у порядку, у якому їх поклав збирач. Спільна
+// функція, бо зрізи сортуються в трьох місцях, і четверта копія цього
+// порівняння розійшлася б із рештою тихо.
+func sortFlows(flows []readyFlow) {
+	sort.Slice(flows, func(i, j int) bool {
+		if flows[i].Date != flows[j].Date {
+			return flows[i].Date < flows[j].Date
+		}
+		return flows[i].Label < flows[j].Label
+	})
 }
 
 // routeIncome — те саме, що futureIncome, плюс половина, якої та свідомо
@@ -239,11 +249,16 @@ func (s *Server) futureIncome(src *sources, today domain.Date) (incomeAhead, err
 // # ЧОГО НЕМАЄ Й ТУТ
 //
 // Виплат НПФ: гроші звідти не приходять до пенсійного віку, а обрій
-// маршруту — рік. Планового доходу з plan_flows: у нього немає брокера, і
-// він нетиться з витратами (внесок у пенсійний, наприклад, живе там
-// ВИТРАТОЮ з dest="npf:<id>"), тож завести його сюди без другого означення
-// «скільки план дає чистими» поки що не виходить. Обидві межі — не
-// сором'язливість, а відсутність чесної відповіді.
+// маршруту — рік. Ця межа лишається.
+//
+// А от планового доходу тут більше НЕ бракує, і відмова, що стояла на
+// цьому місці, знялась не поступкою, а знахідкою. Вона казала: план
+// нетиться з витратами, тож завести його сюди без другого означення
+// «скільки план дає чистими» не виходить. Друге означення й не знадобилось
+// — перше вже було: MonthPlan.PlanUAH (state_month.go) і є тим числом,
+// дохід плюс позапланове мінус витрати, з уже застосованою часткою в
+// портфель. Від нього ж рахується стеля подушки, тож маршрут і стеля
+// говорять про одні й ті самі гроші. Збирає ті події planAhead нижче.
 func (s *Server) routeIncome(src *sources, today domain.Date, months int) (incomeAhead, error) {
 	out, err := s.futureIncome(src, today)
 	if err != nil {
@@ -282,16 +297,108 @@ func (s *Server) routeIncome(src *sources, today domain.Date, months int) (incom
 	// віддає кожен зріз відсортованим, а append це порушив. Зведення одного
 	// дня повторно безпечне — воно ідемпотентне за побудовою.
 	for k := range out {
-		flows := out[k]
-		sort.Slice(flows, func(i, j int) bool {
-			if flows[i].Date != flows[j].Date {
-				return flows[i].Date < flows[j].Date
-			}
-			return flows[i].Label < flows[j].Label
-		})
-		out[k] = coalesceSameDay(flows)
+		sortFlows(out[k])
+		out[k] = coalesceSameDay(out[k])
 	}
 	return out, nil
+}
+
+// planAhead — плановий дохід як події маршруту.
+//
+// # ЧОМУ ОДНА НОГА НА МІСЯЦЬ, А НЕ ПО ОДНІЙ НА ПОТІК
+//
+// Бо чесного числа «скільки цей потік дає на свою дату» не існує. План —
+// нетто: комуналка, внесок у пенсійний і зарплата зводяться в одне
+// PlanUAH, і рознести витрати місяця по датах доходу можна лише вигаданим
+// правилом (порівну? пропорційно? з першої зарплати?). Будь-яке з них
+// виглядало б виведеним і насправді було б вибором автора коду.
+//
+// PlanUAH при цьому не наближення: це те саме число, від якого
+// reserveMonthShare рахує стелю подушки й від якого ребаланс ділить гроші
+// місяця між видами. Третій читач того самого числа розійтись із ними не
+// може за побудовою.
+//
+// # ДАТА — ДЕНЬ НАЙПІЗНІШОГО ДОХОДУ МІСЯЦЯ
+//
+// Раніше за нього місячна сума ще неповна, а ставити її першим числом
+// означало б обіцяти гроші, яких того дня немає. День береться з дати
+// початку потоку тим самим receiptDueDate, що малює чеклист надходжень
+// («зарплата 17-го приходить 17-го»), тож два екрани називають один день.
+//
+// # БРОКЕРА НЕМАЄ, І ЦЕ НЕ ПРОГАЛИНА
+//
+// Планових грошей на брокерському рахунку ще немає — вони на картці. Тому
+// «—», той самий рахунок без привʼязки, що й у гаманці. Наслідок треба
+// назвати вголос: зарплата НЕ доскладеться до купона в mono, щоб разом
+// набрати на цілий квиток. Це чесніше за протилежне — сказати, що гроші
+// вже лежать там, де їх нема.
+//
+// Ref порожній: планове надходження відмічають у чеклисті плану
+// (plan/receipts), а не статусом виплати, і кнопка «Прийшло» на такій нозі
+// вела б не туди. Kind і Principal нульові: жоден вид не худне.
+func planAhead(src *sources, plans map[string]*state.MonthPlan,
+	today domain.Date, months int) []readyFlow {
+
+	if len(src.planFlows) == 0 {
+		return nil
+	}
+	var out []readyFlow
+	for m := 0; m <= months; m++ {
+		key := monthKeyAt(today, m)
+		mp := plans[key]
+		if mp == nil {
+			continue
+		}
+		// Поточний місяць віддає лише НЕДОНЕСЕНЕ. Частину плану могли вже
+		// закинути, і показати її ще раз означало б повести ті самі гроші
+		// двічі — спершу в підсумку місяця, потім у маршруті.
+		amount := mp.PlanUAH
+		if m == 0 {
+			amount = mp.LeftUAH
+		}
+		if amount <= 0 {
+			continue
+		}
+		day := lastIncomeDay(src.planFlows, today, m)
+		if day == 0 {
+			continue
+		}
+		date := domain.Date(receiptDueDate(key, day))
+		if date == "" || date < today {
+			// День уже минув: гроші або прийшли (і лежать у балансі), або не
+			// прийшли — і ні того, ні того маршрут вести не має.
+			continue
+		}
+		out = append(out, readyFlow{
+			Date: date, Amount: int64(math.Round(amount * 100)),
+			Label: "план місяця", Basis: basisPlan,
+		})
+	}
+	return out
+}
+
+// lastIncomeDay — день найпізнішого ДОХОДНОГО потоку цього місяця.
+//
+// Валовим фокусом (InvestBP = 10000), як і чеклист: питання тут «чи платить
+// цього місяця», а не «скільки з нього доходить до портфеля», і потік із
+// нульовою часткою в портфель дату однаково задає. Витрати не рахуються —
+// їхні дні до «коли гроші зібрались» стосунку не мають.
+func lastIncomeDay(flows []store.PlanFlow, today domain.Date, m int) int {
+	day := 0
+	for _, f := range flows {
+		if f.Kind != "income" {
+			continue
+		}
+		gross := f
+		gross.InvestBP = 10000
+		if planFlowAtMonth(gross, today, m, nil) == 0 {
+			continue
+		}
+		if d := f.FromDate.Day(); d > day {
+			day = d
+		}
+	}
+	return day
 }
 
 // fundBroker — рахунок, на який фонд платить.

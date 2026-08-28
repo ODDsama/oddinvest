@@ -28,8 +28,11 @@ import (
 	"net/http"
 	"time"
 
+	money "github.com/Rhymond/go-money"
+
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
@@ -64,14 +67,32 @@ func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// План доходу по місяцях горизонту — заради стелі подушки, і лише
-	// заради неї. depositedUAH нульовий у КОЖНОМУ місяці, поточний
-	// включно: те число потрібне для «лишилось закинути», якого маршрут не
-	// показує, а стеля рахується від PlanUAH і на нього не дивиться.
-	// Поточний місяць маршрут однаково бере з документа (див. newRouteCarry).
+	// План доходу по місяцях горизонту. Двом читачам: стелі подушки (вона
+	// рахується від PlanUAH) і планових ніг маршруту.
+	//
+	// depositedUAH нульовий у МАЙБУТНІХ місяцях — у місяць, який ще не
+	// настав, ніхто нічого не закидав. Поточний береться з документа готовим:
+	// там уже стоїть справжнє «лишилось закинути», і перерахувати його тут
+	// нулем означало б повести в маршрут гроші, які вже принесли. Для стелі
+	// підміна безпечна за побудовою: поточний місяць enterMonth пропускає
+	// мовчки (див. newRouteCarry), і плану того місяця вона не читає.
 	plans := make(map[string]*state.MonthPlan, routeHorizonMonths+1)
 	for m := 0; m <= routeHorizonMonths; m++ {
 		plans[monthKeyAt(today, m)] = buildMonthPlan(src, src.rates, today, m, 0)
+	}
+	if doc.MonthPlan != nil {
+		plans[monthKeyAt(today, 0)] = doc.MonthPlan
+	}
+
+	// Плановий дохід — окремим збирачем і ОКРЕМИМ ДОДАВАННЯМ, а не всередині
+	// routeIncome: тій потрібні plans, яких у неї немає й бути не має (вона
+	// про розклад портфеля), а futureIncome чіпати не можна взагалі — її
+	// незмінність тримає регресійний тест, і саме на ній стоїть відмова
+	// показувати намір у даті «коли вистачить».
+	if flows := planAhead(src, plans, today, routeHorizonMonths); len(flows) > 0 {
+		k := store.BrokerCur{Broker: noBrokerLabel, Currency: money.UAH}
+		inc[k] = append(inc[k], flows...)
+		sortFlows(inc[k])
 	}
 
 	out := buildRoute(doc, sug, inc, plans, src.rates,

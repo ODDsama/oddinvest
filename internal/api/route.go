@@ -156,6 +156,11 @@ type routeLeg struct {
 	// місяця, і без підпису нога на 10 000 ₴ погашення читалась би як
 	// заробіток.
 	PrincipalUAH float64 `json:"principal_uah,omitempty"`
+	// Principal — те саме тіло в НАТИВНІЙ валюті. Окремо від PrincipalUAH,
+	// і не заради симетрії: кнопка «Прийшло» шле в POST /api/allocate суму
+	// та тіло в одній валюті, і гривневе число на нозі в доларах віддало б
+	// подушці рівно курс. Показує його ніхто — воно для запиту.
+	Principal *moneyJSON `json:"principal,omitempty"`
 	// Basis — на чому стоять ГРОШІ ЦІЄЇ НОГИ, разом із перенесеними.
 	//
 	// Не косметика й не дублювання основи події: горщик може зібратись із
@@ -386,6 +391,20 @@ type routePot struct {
 	// basis — основа грошей, які в горщику лежать. Порожньо, доки горщик
 	// порожній; далі зливається з основою кожної події, що в нього впала.
 	basis string
+	// eligible — скільки з minor подушка має право взяти за політикою
+	// reserve_fill_from. Нуль при "any" не буває: там дозволено все, і
+	// число просто дорівнює горщику.
+	//
+	// ПОКУПКИ ЇДЯТЬ СПЕРШУ НЕДОЗВОЛЕНЕ, і це правило, а не округлення.
+	// Стеля подушки щомісяця скидається, тож планові гроші, яких вона цього
+	// місяця вже не змогла взяти, лишаються її здобиччю наступного; віддати
+	// їх паперам першими означало б, що подушка втратила свою чергу через
+	// те, що в тому ж горщику випадково опинився купон.
+	//
+	// Змішані горщики при цьому рідкість за побудовою: планова подія йде
+	// без брокера ("—"), а виплати портфеля — на рахунок свого. Зійтись
+	// вони можуть лише там, де в лота немає каналу.
+	eligible int64
 }
 
 // mergeBasis — основа горщика після того, як у нього впала подія.
@@ -419,7 +438,8 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 	events := flattenIncome(inc, horizon)
 	if len(events) == 0 {
 		out.Note = "до горизонту портфель нічого не винен сам собі — " +
-			"ні купонів, ні погашень, ні відсотків вкладів"
+			"ні купонів, ні погашень, ні відсотків вкладів, — " +
+			"а план доходу порожній або вже виконаний"
 		return out
 	}
 
@@ -442,8 +462,21 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			pot = &routePot{}
 			pots[ev.bc] = pot
 		}
+		// Джерело події — те саме слово, що його шле кнопка «Прийшло», і те
+		// саме означення дозволеного, що в POST /api/allocate. Друга копія
+		// вирішувала б за подушку інакше, ніж модалка того самого дня.
+		src := allocFromPortfolio
+		if flowBasis(ev.readyFlow) == basisPlan {
+			src = allocFromPlan
+		}
+		evEligible := reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH)
+
 		carryIn := pot.minor
 		pot.minor += ev.Amount
+		pot.eligible += int64(math.Round(evEligible / rate * 100))
+		if pot.eligible > pot.minor {
+			pot.eligible = pot.minor
+		}
 		pot.basis = mergeBasis(pot.basis, flowBasis(ev.readyFlow))
 		pot.pending = append(pot.pending, readyEvent{
 			Date: string(ev.Date), Label: ev.Label,
@@ -453,8 +486,15 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		carryInUAH := float64(carryIn) / 100 * rate
 		potUAH := float64(pot.minor) / 100 * rate
 		plan := allocatePlan(carry.doc(carryInUAH), sug, rates,
-			toMoneyJSON(money.New(pot.minor, cur)), potUAH, cur, npfID)
+			toMoneyJSON(money.New(pot.minor, cur)), potUAH,
+			float64(pot.eligible)/100*rate, cur, npfID)
 		carry.apply(plan)
+		if plan.Reserve != nil && plan.Reserve.AmountUAH > 0 {
+			pot.eligible -= int64(math.Round(plan.Reserve.AmountUAH / rate * 100))
+			if pot.eligible < 0 {
+				pot.eligible = 0
+			}
+		}
 		// Дохід стає капіталом аж тепер — аргумент при earn.
 		carry.earn(amountUAH - principalUAH)
 
@@ -465,6 +505,10 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			InflowUAH:    round2(amountUAH),
 			PrincipalUAH: round2(principalUAH),
 			Basis:        pot.basis,
+		}
+		if ev.Principal > 0 {
+			p := toMoneyJSON(money.New(ev.Principal, cur))
+			leg.Principal = &p
 		}
 		// Витрачене — це те, чого в залишку вже немає. Рахуємо саме так, а
 		// не сумою рядків: розкладка сама знає, що з суми пішло в діло, і
@@ -483,6 +527,9 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			// Горщик спорожнів — основа наступних грошей буде їхня власна, а
 			// не успадкована від тих, що вже пішли в діло.
 			pot.basis = ""
+		}
+		if pot.eligible > pot.minor {
+			pot.eligible = pot.minor
 		}
 		out.Legs = append(out.Legs, leg)
 	}

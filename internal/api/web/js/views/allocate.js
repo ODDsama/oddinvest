@@ -17,11 +17,26 @@
 // fields.js. Тому вибір рівно один і бінарний: класти це в план чи ні.
 
 import { esc, uah0 as fmtUAH, cur2 as fmtCur, curSym, pct } from "../format.js";
-import { check as checkField } from "../fields.js";
+import { check as checkField, selectOf } from "../fields.js";
 import { openEdit } from "../forms.js";
 import { opsGrid } from "../grid.js";
 import { kindPill } from "../components.js";
 import { routeFor } from "../routes.js";
+
+// Чиї це гроші. Від відповіді залежить, чи візьме з них своє подушка —
+// налаштування «Подушку наповнювати» («Політика → Резерв») може лишити їй
+// лише плановий дохід.
+//
+// ПОЛЕ ВИДИМЕ, ХОЧ ЖОДНЕ З ТРЬОХ МІСЦЬ, ЗВІДКИ РОЗКЛАДКУ ВІДКРИВАЮТЬ, НЕ
+// ПИТАЄ ПРО НЬОГО ЛЮДИНУ: залишок місяця й відмітка надходження — це план,
+// кнопка «Прийшло» на маршруті — портфель. Але саме тому, що джерело тепер
+// щось вирішує, воно мусить бути видним і виправним: підставлене значення,
+// про яке не можна дізнатись, — це рівно та тиша, від якої рядок вирізки
+// зникав би без причини.
+const SOURCES = [
+  ["plan", "планове надходження"],
+  ["portfolio", "виплата з портфеля"],
+];
 
 // Куди веде рядок, який у кошик не кладеться. Вклад — єдиний такий вид:
 // порада про нього це ПОПОВНЕННЯ наявного, а рядок плану купівель описує
@@ -83,6 +98,14 @@ function reserveHTML(res) {
   </div>`;
 }
 
+// Чому подушка НЕ взяла своєї частки. Причину називає бекенд — тут лише
+// місце для неї, і воно поруч із тим рядком, якого через цю причину немає.
+function reserveSkipHTML(res) {
+  return res.reserve_skip_why
+    ? `<div class="sub-xs t-warn mb-sm">${esc(res.reserve_skip_why)}</div>`
+    : "";
+}
+
 function summaryHTML(res) {
   const parts = [];
   if (res.reserve && res.reserve.amount_uah > 0) {
@@ -133,14 +156,25 @@ function routedHTML(leg) {
  *
  *  routed — нога маршруту, якщо модалку відкрито з неї.
  *
+ *  source — чиї це гроші (див. SOURCES); principal — скільки з суми є
+ *  поверненням власного тіла, у ТІЙ САМІЙ валюті. Обидва потрібні бекенду,
+ *  щоб вирішити, чи має подушка право на ці гроші.
+ *
  *  → Promise<boolean>: чи щось записалось. */
-export async function openAllocate(ctx, { amount, currency = "UAH", title = "", routed = null }) {
+export async function openAllocate(ctx, opts) {
+  const {
+    amount, currency = "UAH", title = "", routed = null,
+    source = "plan", principal = 0,
+  } = opts;
   let res;
   try {
     const resp = await ctx.store.raw("allocate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: String(amount), currency }),
+      body: JSON.stringify({
+        amount: String(amount), currency, source,
+        principal: principal ? String(principal) : "",
+      }),
     });
     if (!resp.ok) throw new Error(`${resp.status}: ${(await resp.text()).slice(0, 200)}`);
     res = await resp.json();
@@ -152,7 +186,9 @@ export async function openAllocate(ctx, { amount, currency = "UAH", title = "", 
   const addable = (res.lines || []).filter((l) => l.addable);
   const nothing = !addable.length && !(res.reserve && res.reserve.amount_uah > 0);
   const fields = routedHTML(routed)
+    + selectOf("source", "Чиї це гроші", SOURCES, source)
     + reserveHTML(res)
+    + reserveSkipHTML(res)
     + linesHTML(res)
     + summaryHTML(res)
     + (res.note ? `<div class="note">${esc(res.note)}</div>` : "")
@@ -161,9 +197,31 @@ export async function openAllocate(ctx, { amount, currency = "UAH", title = "", 
        твій, із налаштування «Порядок у ‹Що купити›». Ціна кроку тут «номінал + НКД»,
        у брокера може бути інша.</div>`;
 
-  return openEdit(ctx, {
+  // Зміна джерела ПЕРЕПИТУЄ розкладку, а не править її в браузері: з іншим
+  // джерелом інші і вирізка подушки, і бюджети видів, і залишок, а рахує їх
+  // бекенд — той самий, що будує маршрут. Порахувати різницю тут означало б
+  // завести другу арифметику рівно там, де шапка файлу її забороняє.
+  let again = "";
+  const wire = (form) => {
+    const sel = form.elements.source;
+    const cancel = form.querySelector("[data-editcancel]");
+    if (!sel || !cancel) return;
+    sel.addEventListener("change", () => {
+      if (sel.value === source) return;
+      again = sel.value;
+      // Через «Скасувати», а НЕ через dialog.close(). Кнопка кличе
+      // завершення openEdit напряму й одразу; close() лише просить подію
+      // close, а вона доходить не в кожному рушії — у панелі перегляду не
+      // доходить узагалі, і модалка лишалась зачиненою назавжди, не
+      // перепитавши нічого. Шлях, який працює всюди, вартий одного рядка.
+      cancel.click();
+    });
+  };
+
+  const done = await openEdit(ctx, {
     title: title ? `Розкласти: ${title}` : "Розкласти надходження",
     fields,
+    wire,
     // Кнопка називає, що саме станеться. «Зберегти» тут не годиться: рухів
     // може бути два види, і зробити їх вона може обидва.
     submit: nothing ? "Закрити" : "Записати",
@@ -187,4 +245,10 @@ export async function openAllocate(ctx, { amount, currency = "UAH", title = "", 
     if (!requests.length) return null;
     return { requests, msg: "Записано: резерв і план купівель" };
   });
+
+  // Джерело змінили — та сама модалка, порахована заново. Тіло при цьому
+  // їде далі незмінним: скільки з суми є поверненням власного, від того,
+  // чиїми ці гроші назвати, не залежить.
+  if (again) return openAllocate(ctx, { ...opts, source: again });
+  return done;
 }

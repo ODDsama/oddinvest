@@ -88,7 +88,7 @@ func TestRouteFirstLegEqualsAllocate(t *testing.T) {
 		t.Fatalf("ніг %d, чекали 1: %+v", len(got.Legs), got)
 	}
 	want := allocatePlan(doc, sug, allocRates,
-		toMoneyJSON(money.New(500000, money.UAH)), 5000, money.UAH, nil)
+		toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, money.UAH, nil)
 
 	gotJSON, _ := json.Marshal(got.Legs[0].allocPlan)
 	wantJSON, _ := json.Marshal(want)

@@ -307,6 +307,8 @@ export function wirePlanReceipts(ctx, main, doc) {
       amount: b.dataset.alloc,
       currency: b.dataset.alloccur,
       title: b.dataset.allocwho,
+      // Відмітка планового надходження — джерело тут і є темою картки.
+      source: "plan",
     });
   }));
 

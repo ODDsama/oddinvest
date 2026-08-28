@@ -232,6 +232,29 @@ const QUESTIONS = [
       ["ladder", "Так, якщо договір дозволяє забрати достроково"],
     ],
   },
+  // Четверте питання, що ЗМІНЮЄ ЧИСЛА. Природа та сама: людина знає про
+  // себе відповідь без жодних знань про ринок.
+  //
+  // ЧОМУ ЦЕ ПИТАННЯ ВЗАГАЛІ ЗʼЯВИЛОСЬ. Стеля подушки й доти міряла себе
+  // ПЛАНОВИМ доходом місяця, а ріже вона з тих грошей, які дійшли до
+  // розкладки, — тобто застосунок казав «подушку наповнює план» і забирав
+  // купон. Питання не додає нового правила, воно робить видимим вибір,
+  // який доти був зроблений за людину мовчки.
+  //
+  // СЕРЕДНЯ ВІДПОВІДЬ НЕ ЗАЙВА, і саме вона робить це трьома рівнями, а не
+  // прапорцем: погашення ОВДП — не заробіток, а власне тіло, що вийшло з
+  // паперу. Одні вважають ці гроші такими самими новими, як зарплата,
+  // інші — частиною портфеля, яка мусить у ньому лишитись. Обидві відповіді
+  // законні, і вгадувати між ними не можна.
+  {
+    id: "fill",
+    q: "Звідки поповнювати подушку?",
+    opts: [
+      ["any", "З будь-яких грошей"],
+      ["redeem", "З планових і погашень — купони в папери"],
+      ["plan", "Лише з планових надходжень"],
+    ],
+  },
   {
     id: "exit",
     q: "Фонд зі строком: досидите до кінця чи можете вийти раніше?",
@@ -252,7 +275,7 @@ const QUESTIONS = [
 // «ліквідний» із `lock50: ["no"]` вигадав би конфлікт тому, хто відповів
 // «так».
 //
-// Усі набори пишуть ОДИН І ТОЙ САМИЙ перелік із чотирнадцяти ключів, і це не
+// Усі набори пишуть ОДИН І ТОЙ САМИЙ перелік із пʼятнадцяти ключів, і це не
 // охайність. Порожнє значення в PUT /settings означає «ПРИБРАТИ», тож
 // набір, який мовчить про ціль НПФ, лишив би її від попереднього — і сума
 // часток поїхала б без жодного сліду в UI. Тест у server_test.go тримає цю
@@ -351,11 +374,14 @@ const PRESETS = [
       limit_isin_pct: "25", limit_broker_pct: "60", limit_year_pct: "40",
       reserve_target_months: "3", reserve_fill_share_pct: "",
       reserve_liquid_months: "", reserve_max_term_months: "",
+      reserve_fill_from: "any",
       reinvest_rank: "rate",
     },
     reserveNone: { reserve_liquid_months: "3", reserve_max_term_months: "0" },
     reserveShort: { reserve_liquid_months: "2", reserve_max_term_months: "3" },
     reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "3" },
+    fillRedeem: { reserve_fill_from: "redeem" },
+    fillPlan: { reserve_fill_from: "plan" },
     spendUah: { usd_target_share_pct: "0", eur_target_share_pct: "" },
     spendFx: { usd_target_share_pct: "25", eur_target_share_pct: "" },
     // Ємність низька: набір про ПОТОЧНИЙ дохід, а НПФ до 50 років не платить
@@ -377,11 +403,14 @@ const PRESETS = [
       limit_isin_pct: "25", limit_broker_pct: "50", limit_year_pct: "40",
       reserve_target_months: "6", reserve_fill_share_pct: "",
       reserve_liquid_months: "", reserve_max_term_months: "",
+      reserve_fill_from: "any",
       reinvest_rank: "plan",
     },
     reserveNone: { reserve_liquid_months: "6", reserve_max_term_months: "0" },
     reserveShort: { reserve_liquid_months: "3", reserve_max_term_months: "3" },
     reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "6" },
+    fillRedeem: { reserve_fill_from: "redeem" },
+    fillPlan: { reserve_fill_from: "plan" },
     spendUah: { usd_target_share_pct: "20", eur_target_share_pct: "" },
     spendFx: { usd_target_share_pct: "55", eur_target_share_pct: "15" },
     // Ємність низька з іншої причини: НПФ гривневий, тобто прямо проти того,
@@ -403,11 +432,14 @@ const PRESETS = [
       limit_isin_pct: "35", limit_broker_pct: "60", limit_year_pct: "30",
       reserve_target_months: "3", reserve_fill_share_pct: "",
       reserve_liquid_months: "", reserve_max_term_months: "",
+      reserve_fill_from: "any",
       reinvest_rank: "ladder",
     },
     reserveNone: { reserve_liquid_months: "3", reserve_max_term_months: "0" },
     reserveShort: { reserve_liquid_months: "2", reserve_max_term_months: "3" },
     reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "3" },
+    fillRedeem: { reserve_fill_from: "redeem" },
+    fillPlan: { reserve_fill_from: "plan" },
     spendUah: { usd_target_share_pct: "10", eur_target_share_pct: "" },
     spendFx: { usd_target_share_pct: "40", eur_target_share_pct: "" },
     // Найвища ємність із восьми, і це не щедрість: драбина й НПФ роблять одне
@@ -429,11 +461,14 @@ const PRESETS = [
       limit_isin_pct: "20", limit_broker_pct: "50", limit_year_pct: "50",
       reserve_target_months: "12", reserve_fill_share_pct: "25",
       reserve_liquid_months: "", reserve_max_term_months: "",
+      reserve_fill_from: "any",
       reinvest_rank: "short",
     },
     reserveNone: { reserve_liquid_months: "12", reserve_max_term_months: "0" },
     reserveShort: { reserve_liquid_months: "6", reserve_max_term_months: "3" },
     reserveLadder: { reserve_liquid_months: "2", reserve_max_term_months: "12" },
+    fillRedeem: { reserve_fill_from: "redeem" },
+    fillPlan: { reserve_fill_from: "plan" },
     spendUah: { usd_target_share_pct: "10", eur_target_share_pct: "" },
     spendFx: { usd_target_share_pct: "40", eur_target_share_pct: "" },
     // Накладок НЕМА, і це аргумент, а не пропуск. Підпис набору обіцяє
@@ -462,11 +497,14 @@ const PRESETS = [
       limit_isin_pct: "25", limit_broker_pct: "50", limit_year_pct: "40",
       reserve_target_months: "6", reserve_fill_share_pct: "40",
       reserve_liquid_months: "", reserve_max_term_months: "",
+      reserve_fill_from: "any",
       reinvest_rank: "plan",
     },
     reserveNone: { reserve_liquid_months: "6", reserve_max_term_months: "0" },
     reserveShort: { reserve_liquid_months: "3", reserve_max_term_months: "3" },
     reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "6" },
+    fillRedeem: { reserve_fill_from: "redeem" },
+    fillPlan: { reserve_fill_from: "plan" },
     spendUah: { usd_target_share_pct: "5", eur_target_share_pct: "" },
     spendFx: { usd_target_share_pct: "35", eur_target_share_pct: "" },
     // Ємність низька з механічної причини, а не з оцінки НПФ: поповнення
@@ -495,11 +533,14 @@ const PRESETS = [
       limit_isin_pct: "30", limit_broker_pct: "60", limit_year_pct: "40",
       reserve_target_months: "3", reserve_fill_share_pct: "",
       reserve_liquid_months: "", reserve_max_term_months: "",
+      reserve_fill_from: "any",
       reinvest_rank: "plan",
     },
     reserveNone: { reserve_liquid_months: "3", reserve_max_term_months: "0" },
     reserveShort: { reserve_liquid_months: "2", reserve_max_term_months: "3" },
     reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "3" },
+    fillRedeem: { reserve_fill_from: "redeem" },
+    fillPlan: { reserve_fill_from: "plan" },
     spendUah: { usd_target_share_pct: "0", eur_target_share_pct: "" },
     spendFx: { usd_target_share_pct: "25", eur_target_share_pct: "" },
     lockSome: { target_bonds_pct: "75", target_npf_pct: "20" },
@@ -527,11 +568,14 @@ const PRESETS = [
       limit_isin_pct: "40", limit_broker_pct: "60", limit_year_pct: "40",
       reserve_target_months: "3", reserve_fill_share_pct: "",
       reserve_liquid_months: "", reserve_max_term_months: "",
+      reserve_fill_from: "any",
       reinvest_rank: "rate",
     },
     reserveNone: { reserve_liquid_months: "3", reserve_max_term_months: "0" },
     reserveShort: { reserve_liquid_months: "2", reserve_max_term_months: "3" },
     reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "3" },
+    fillRedeem: { reserve_fill_from: "redeem" },
+    fillPlan: { reserve_fill_from: "plan" },
     spendUah: { usd_target_share_pct: "5", eur_target_share_pct: "" },
     spendFx: { usd_target_share_pct: "35", eur_target_share_pct: "" },
     // Ємність низька: у наборі вже є один строк — дата закриття фонду, — і
@@ -573,11 +617,14 @@ const PRESETS = [
       limit_isin_pct: "25", limit_broker_pct: "80", limit_year_pct: "40",
       reserve_target_months: "6", reserve_fill_share_pct: "30",
       reserve_liquid_months: "", reserve_max_term_months: "",
+      reserve_fill_from: "any",
       reinvest_rank: "rate",
     },
     reserveNone: { reserve_liquid_months: "6", reserve_max_term_months: "0" },
     reserveShort: { reserve_liquid_months: "3", reserve_max_term_months: "3" },
     reserveLadder: { reserve_liquid_months: "1", reserve_max_term_months: "6" },
+    fillRedeem: { reserve_fill_from: "redeem" },
+    fillPlan: { reserve_fill_from: "plan" },
     spendUah: { usd_target_share_pct: "0", eur_target_share_pct: "" },
     spendFx: { usd_target_share_pct: "40", eur_target_share_pct: "" },
     // Накладок немає з тієї ж причини, що й у «Ліквідного»: набір обіцяє
@@ -606,6 +653,16 @@ const spendLevel = (a) => (["uah", "mixed", "fx"].includes(a.spend) ? a.spend : 
 // набір при своїх числах, а не означає «ні». Замикати подушку не
 // обов'язково, і не замкнена вона нічим не гірша — просто не заробляє.
 const reserveLevel = (a) => (["no", "short", "ladder"].includes(a.reserve) ? a.reserve : "");
+
+// Рівень відповіді «звідки поповнювати подушку». Природа — як у валютної й
+// резервної: мовчання лишає набір при своїх числах, а не означає «ні».
+// Базове число всіх восьми наборів — "any", тобто поведінка до появи
+// питання, і мовчазна відповідь чесно її й лишає.
+//
+// Рівня "any" в осі немає навмисно: він і Є базовим значенням, а накладка,
+// що переписує число тим самим числом, була б німою — такі сторож валить
+// окремо.
+const fillLevel = (a) => (["redeem", "plan"].includes(a.fill) ? a.fill : "");
 
 // Розкладка валютної частини між доларом і євро. Пари дають РІВНО 100, і
 // це не оформлення, а інваріант: із нього випливає, що розкладка не міняє
@@ -645,6 +702,7 @@ const AXES = [
   ["lock", { some: "lockSome", most: "lockMost" }],
   ["spend", { uah: "spendUah", mixed: "spendMixed", fx: "spendFx" }],
   ["reserve", { no: "reserveNone", short: "reserveShort", ladder: "reserveLadder" }],
+  ["fill", { redeem: "fillRedeem", plan: "fillPlan" }],
 ];
 
 // Осі-ПЕРЕТВОРЕННЯ, і вони свідомо НЕ в AXES.
@@ -777,7 +835,7 @@ export function allLevels() {
 
 const effectiveValues = (preset, answers) => valuesAt(preset, {
   lock: lockLevel(answers), spend: spendLevel(answers), reserve: reserveLevel(answers),
-  fx: fxLevel(answers), div: divLevel(answers),
+  fill: fillLevel(answers), fx: fxLevel(answers), div: divLevel(answers),
 });
 
 // Режими ранжування «Що купити». Живуть ТУТ, бо споживачів стало двоє:
@@ -786,6 +844,14 @@ const effectiveValues = (preset, answers) => valuesAt(preset, {
 export const RANKS = [
   ["plan", "під план"], ["rate", "за дохідністю"],
   ["short", "короткі"], ["ladder", "драбина"],
+];
+
+// Звідки наповнювати подушку. Тут із тієї самої причини, що й RANKS:
+// споживачів двоє — випадайка у формі «Резерв» і таблиця різниці нижче.
+export const RESERVE_FROM = [
+  ["any", "з будь-яких грошей"],
+  ["redeem", "з планових і погашень"],
+  ["plan", "лише з планових"],
 ];
 
 // Людські назви полів — для показу різниці перед записом.
@@ -801,19 +867,27 @@ const FIELD_LABEL = {
   limit_year_pct: "Макс. погашень в один рік, %",
   reserve_target_months: "Ціль резерву, місяців",
   reserve_fill_share_pct: "З вільних у резерв, %",
+  reserve_fill_from: "Подушку наповнювати",
   reserve_liquid_months: "Доступно миттєво, місяців витрат",
   reserve_max_term_months: "Найдовша сходинка драбини, місяців",
   reinvest_rank: "Порядок у «Що купити»",
 };
 
-// Значення так, як його читає людина. Єдиний ключ із КОДОМ — reinvest_rank:
-// «plan» у таблиці різниці читалося б як код, якого користувач ніде не
-// бачив. Решта — числа, які кажуть самі за себе.
+// Ключі, значення яких є КОДОМ, а не числом: «plan» у таблиці різниці
+// читалося б як код, якого користувач ніде не бачив. Решта — числа, які
+// кажуть самі за себе.
+//
+// Мапою, а не порівнянням з одним іменем: другий такий ключ зʼявився
+// (звідки наповнювати подушку), і `k === "reinvest_rank"` мовчки лишив би
+// його сирим.
+const CODED = { reinvest_rank: RANKS, reserve_fill_from: RESERVE_FROM };
+
+// Значення так, як його читає людина.
 //
 // Саме порівняння diff лишається на СИРИХ значеннях: інакше збережений
 // «plan» не збігся б із набірним.
-const shown = (k, v) => (k === "reinvest_rank"
-  ? (RANKS.find(([code]) => code === v) || [, v])[1]
+const shown = (k, v) => (CODED[k]
+  ? (CODED[k].find(([code]) => code === v) || [, v])[1]
   : v);
 
 // Відповіді живуть у localStorage, а не в налаштуваннях сервера: це не
@@ -950,7 +1024,7 @@ function measuredOf(preset, eff, s) {
 // «ця картка порожня, бо бракує налаштування». Жодне не казало «ти задав X,
 // а Y порожнє, тож X ні на що не впливає».
 //
-// Саме тут ця тиша найдорожча. Набір ставить чотирнадцять чисел одним
+// Саме тут ця тиша найдорожча. Набір ставить пʼятнадцять чисел одним
 // натиском, і три з них можуть бути мертві з першої секунди: ціль резерву
 // без місячних витрат не рахується в гривні, ціль вкладів без пари
 // «ставка + мінімум» не має чим наповнюватись, а обіцяні в підписі 18% ПДФО
@@ -1286,7 +1360,7 @@ const LOCK_WORD = { some: "невелику частину", most: "значну
 
 // Який набір стоїть ЗАРАЗ. ВИВОДИТЬСЯ порівнянням, а не читається зі
 // збереженого поля — з тієї ж причини, з якої в бекенді немає сутності
-// «стратегія»: поле було б другим джерелом правди про ті самі чотирнадцять
+// «стратегія»: поле було б другим джерелом правди про ті самі пʼятнадцять
 // чисел, і воно ще й уміло б брехати — підправив число руками, а поле каже
 // «стоїть Драбина». Тут збіг зникає сам.
 //
@@ -1350,7 +1424,7 @@ function stateBannerHTML(s, answers, current) {
        Відповіси на питання — різниця зникне.`));
   } else {
     out.push(banner("ok", "✓", `Зараз стоїть ${named}`,
-      `Усі чотирнадцять налаштувань збігаються з цим набором. Це не збережений вибір: застосунок
+      `Усі пʼятнадцять налаштувань збігаються з цим набором. Це не збережений вибір: застосунок
        щоразу звіряє числа з наборами й називає той, що збігся, — щойно ти підправиш будь-яке
        число руками, збіг зникне сам.`));
   }
@@ -1364,7 +1438,7 @@ function stateBannerHTML(s, answers, current) {
     out.push(banner("wait", "◦", `«${esc(done.preset.name)}» своє відпрацював`,
       `Резерв зібрано: ${fmtUAH(r.uah)} при цілі ${fmtUAH(r.target_uah)}, розриву немає. Саме
        поповнення вже мовчить — стеля «з вільних у резерв» перестає щось радити тієї миті, коли
-       розрив стає нулем, і вимикати її окремо не треба. А от решта тринадцяти чисел лишились
+       розрив стає нулем, і вимикати її окремо не треба. А от решта чотирнадцяти чисел лишились
        такими, якими їх ставили ПІД ЗБІР. Це нічого не ламає — просто набір обирали під задачу,
        якої вже немає. Що з цим робити і чи робити взагалі — вирішуєш ти; нижче видно, на скільки
        налаштувань відрізняється кожен інший.`));
@@ -1390,7 +1464,7 @@ function stateBannerHTML(s, answers, current) {
     const named = term.map((f) => `«${esc(f.fund)}»`).join(" і ");
     const fundsPct = esc(valuesAt(doneTerm.preset, doneTerm.levels).target_funds_pct);
     const tail = `Ціль фондів у ${fundsPct}% наповнювати вже нема чим: у наборі був рівно один спосіб.
-      Решта тринадцяти чисел лишились такими, якими їх ставили ПІД КУПІВЛЮ. Що з цим робити і чи
+      Решта чотирнадцяти чисел лишились такими, якими їх ставили ПІД КУПІВЛЮ. Що з цим робити і чи
       робити взагалі — вирішуєш ти; нижче видно, на скільки налаштувань відрізняється кожен інший.`;
     out.push(banner("wait", "◦", `«${esc(doneTerm.preset.name)}» своє відпрацював`,
       gone.length === term.length
@@ -1604,7 +1678,7 @@ export function wireStrategy(ctx, main, current) {
       const box = main.querySelector(`[data-preview="${p.key}"]`);
       if (!p || !box) return;
       // Два кроки навмисно, як в імпорті виписки: спершу показати, що
-      // саме буде переписано, і лише потім писати. Набір чіпає чотирнадцять
+      // саме буде переписано, і лише потім писати. Набір чіпає пʼятнадцять
       // налаштувань одразу, і «застосував і не помітив, що затер валютну
       // ціль» — помилка, яка знаходиться не одразу.
       //
@@ -1620,7 +1694,7 @@ export function wireStrategy(ctx, main, current) {
       const warn = measuredOf(p, eff, (ctx.summary || {}));
       // ДВІ таблиці, і питання в них різні. Перша — що зміниться в
       // НАЛАШТУВАННЯХ; вона й була тут завжди. Друга — що ці налаштування
-      // означають у ГРОШАХ, і саме її бракувало: чотирнадцять чисел
+      // означають у ГРОШАХ, і саме її бракувало: пʼятнадцять чисел
       // записувались, жодного разу не глянувши на портфель, а дізнатись
       // ціну можна було лише після запису.
       //

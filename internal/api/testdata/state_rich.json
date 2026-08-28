@@ -1615,6 +1615,7 @@
     "monthly_expenses_uah": 25000,
     "reserve_target_months": 6,
     "reserve_fill_share_pct": 20,
+    "reserve_fill_from": "plan",
     "reserve_liquid_months": 1,
     "reserve_max_term_months": 6,
     "income_target_uah": 30000,

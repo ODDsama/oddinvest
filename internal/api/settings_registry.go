@@ -15,6 +15,7 @@ package api
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -35,6 +36,16 @@ type settingDef struct {
 	// Why — навіщо ключ існує. Не для UI: це підказка тому, хто
 	// наступного разу питатиме «а це ще потрібно?».
 	Why string
+	// Enum — допустимі значення СТРОКОВОГО ключа. Порожньо = приймається
+	// будь-який рядок, і саме так живуть goal_date (дата, не перелік) та
+	// reinvest_rank (невідомий режим там просто не збігається з жодною
+	// гілкою рейтингу — гірше не стає).
+	//
+	// Там, де від значення залежить, ЧИ ВІДБУДЕТЬСЯ дія, цього замало:
+	// друкарська помилка в reserve_fill_from мовчки вимкнула б подушку, і
+	// шукати причину довелось би в чужих числах. Тому перелік, і перевірка
+	// в тому самому validateSettings, який ділять запис і превʼю.
+	Enum []string
 }
 
 // numeric — чи мусить значення бути невід'ємним числом. Виводиться з
@@ -84,6 +95,12 @@ var settingsRegistry = []settingDef{
 	// тобто той, хто про це не просив, не побачить жодної зміни.
 	{Key: "reserve_fill_share_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveFillSharePct },
 		Why: "яка частка вільних грошей іде в резерв, доки він не добраний; порожньо = не пропонувати"},
+	// А цей — з ЯКИХ саме грошей та стеля ріже. Стеля вже міряється від
+	// планового доходу місяця, тож без цього ключа застосунок казав одне
+	// («подушку наповнює план») і робив інше (різ із купонів).
+	{Key: "reserve_fill_from", Str: func(s *state.SettingsDoc) *string { return &s.ReserveFillFrom },
+		Enum: []string{"any", "redeem", "plan"},
+		Why:  "з яких грошей наповнювати подушку: з усіх, з планових і погашень, чи лише з планових"},
 
 	// Подушку можна тримати на строкових вкладах — але лише в темпі, у
 	// якому її витрачають. Ці два числа виводити не можна: перше залежить
@@ -239,7 +256,14 @@ func validateSettings(req map[string]string) error {
 		if !ok {
 			return fmt.Errorf("невідомий ключ %q", k)
 		}
-		if v == "" || !d.numeric() {
+		if v == "" {
+			continue
+		}
+		if !d.numeric() {
+			// Перелік є не в кожного строкового ключа — аргумент при Enum.
+			if len(d.Enum) > 0 && !slices.Contains(d.Enum, strings.TrimSpace(v)) {
+				return fmt.Errorf("%s: %q — не одне з %s", k, v, strings.Join(d.Enum, ", "))
+			}
 			continue
 		}
 		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
