@@ -261,6 +261,8 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
     caption: "Виплати: дата, папір, тип, сума, статус",
     empty: mode === "past" ? "Виплат у минулому ще не було." : "Попереду виплат немає.",
   })}
+      <div class="sub-xs">Куди піде кожне надходження —
+        <a class="lnk" href="${routeFor("plan/route")}">Маршрут грошей</a>.</div>
     </div>`;
   if (append) place(main, html);
   else main.innerHTML = html;
