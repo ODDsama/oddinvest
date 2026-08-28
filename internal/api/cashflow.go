@@ -17,6 +17,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/state"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -237,40 +238,56 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 // Бенчмарк НЕ приносить відсотків: це поведінка «нічого не робити», з
 // якою й порівнюють. Він може виявитись кращим за портфель — у цьому
 // сенс вимірювання, а не привід його ховати.
+// benchResult — відповідь бенчмарка. Окремим типом, а не анонімною
+// структурою в обробнику, відколи його питає ще й прогрес: віха
+// «обіграв просто долари» — це рівно DiffUAH > 0, і рахувати її вдруге
+// означало б завести другий бенчмарк.
+type benchResult struct {
+	PortfolioUAH float64 `json:"portfolio_uah"`
+	BenchmarkUAH float64 `json:"benchmark_uah"`
+	DiffUAH      float64 `json:"diff_uah"`
+	DiffPct      float64 `json:"diff_pct"`
+	USDBought    float64 `json:"usd_bought"`
+	RateNow      float64 `json:"rate_now"`
+	Note         string  `json:"note,omitempty"`
+}
+
 func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	rates, err := s.rates(ctx)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	nowUSD, _ := fx.RateMajor(money.USD, rates)
-	out := struct {
-		PortfolioUAH float64 `json:"portfolio_uah"`
-		BenchmarkUAH float64 `json:"benchmark_uah"`
-		DiffUAH      float64 `json:"diff_uah"`
-		DiffPct      float64 `json:"diff_pct"`
-		USDBought    float64 `json:"usd_bought"`
-		RateNow      float64 `json:"rate_now"`
-		Note         string  `json:"note,omitempty"`
-	}{RateNow: round2(nowUSD)}
-
 	doc, err := s.buildState(ctx, time.Now())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	out, err := s.benchmark(ctx, doc)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// benchmark — сам рахунок, над УЖЕ ЗІБРАНИМ документом.
+//
+// Документ приходить аргументом, а не будується тут: обробник його вже
+// має, і прогрес теж — а buildState найдорожчий шлях у бекенді, щоб
+// проходити його двічі за один запит.
+func (s *Server) benchmark(ctx context.Context, doc *state.Doc) (benchResult, error) {
+	rates, err := s.rates(ctx)
+	if err != nil {
+		return benchResult{}, err
+	}
+	nowUSD, _ := fx.RateMajor(money.USD, rates)
+	out := benchResult{RateNow: round2(nowUSD)}
 	out.PortfolioUAH = round2(doc.NominalUAHEq + doc.AccountUAH + doc.FundsUAH + doc.DepositsUAH)
 
 	if nowUSD <= 0 {
 		out.Note = "немає курсу — порівнювати нема з чим"
-		writeJSON(w, http.StatusOK, out)
-		return
+		return out, nil
 	}
 	cash, err := s.st.ListDeposits(ctx)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return benchResult{}, err
 	}
 	var usdCents int64 // долари ×100
 	var missing int
@@ -321,7 +338,7 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 		out.Note = fmt.Sprintf("%d %s без курсу на свою дату — не враховано",
 			missing, plural(missing, "рух", "рухи", "рухів"))
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
 
 // handleTax — GET /api/tax?year= (або ?from=&to=)

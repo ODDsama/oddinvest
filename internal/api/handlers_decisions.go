@@ -31,6 +31,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -130,17 +131,21 @@ type decisionsModeRow struct {
 }
 
 // handleDecisions — GET /api/decisions.
-func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+// decisionRows — журнал, розкладений у рядки відповіді.
+//
+// Окремо від обробника, відколи дисципліну питає ще й прогрес: доріжка
+// «Дисципліна» на «Огляді» мусить дорівнювати журналу рішень ЗНАК У
+// ЗНАК, і єдиний спосіб це гарантувати — рахувати обидва з одних рядків
+// однією функцією. Другою реалізацією вони розійшлись би так само тихо,
+// як у прототипі, де доріжка казала 75% при 2 з 4 у журналі.
+func (s *Server) decisionRows(ctx context.Context) ([]decisionRow, error) {
 	list, err := s.st.ListDecisions(ctx)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return nil, err
 	}
 	lots, sales, bonds, pays, err := s.portfolio(ctx)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return nil, err
 	}
 	lotByID := make(map[int64]domain.Lot, len(lots))
 	for _, l := range lots {
@@ -159,6 +164,15 @@ func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
 			row.Basis = basis
 		}
 		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
+	rows, err := s.decisionRows(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
 	}
 
 	out := struct {
