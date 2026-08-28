@@ -361,7 +361,11 @@ function nearestPlanEvent(doc, todayIso) {
 // Ціна: month_progress_pct рахує бекенд саме проти month_target_uah, тож
 // відсоток тут рахуємо самі. Обидва поля лишаються в документі байт у
 // байт — їх жорстко читає інтеграція Home Assistant.
-function monthTile(ctx, s) {
+/** Плитка місяця. Експортована заради «Огляду»: там стоїть та сама
+ *  плитка з тим самим числом, і друга її копія розійшлася б із цією при
+ *  першій же правці знаменника — рівно та підміна, від якої існує
+ *  contrib.js. */
+export function monthTile(ctx, s) {
   const t = contribTriad(ctx);
   const done = s.month_deposited_uah === undefined ? s.month_invested_uah : s.month_deposited_uah;
   const doneLabel = s.month_deposited_uah === undefined

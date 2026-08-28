@@ -18,6 +18,7 @@
 // Резерв тут не живе: він частина капіталу, а не рух рахунку, і питання
 // «на скільки місяців вистачить» стоїть у своїй воронці.
 
+import { esc } from "../format.js";
 import { empty } from "../components.js";
 import { routeFor } from "../routes.js";
 import { wireDisclosures } from "../disclosure.js";
@@ -228,4 +229,53 @@ export async function reconcile(ctx, main) {
       "Рядок з'явиться, коли на рахунку брокера будуть гроші.",
       { href: routeFor("deposit"), label: "Додати рух" })}</div>`;
   wireReconcile(ctx, main);
+}
+
+/** Панель одного рахунку: що по ньому рухалось і чи сходиться залишок.
+ *
+ *  Рахунок відповідає рівно на ці два питання, і решта панелей «Усіх
+ *  рахунків» тут відсутня НЕ через недороблення. Податок рахується за
+ *  рік по всьому портфелю; виписка заводить сутності трьох видів одразу
+ *  й до одного рахунку не зводиться; валютне вікно порівнює курси МІЖ
+ *  рахунками, тобто без «усіх» не існує. Повторити їх у кожному рядку
+ *  означало б чотири однакові сторінки замість однієї.
+ *
+ *  Фільтр по брокеру — рівно той самий рядок даних, що й у зведеній
+ *  панелі, лише звужений: рухи фільтруються по полю broker, звірка —
+ *  параметром reconcileHTML. Жодного окремого запиту й жодного окремого
+ *  підрахунку, бо число рахунку в списку ліворуч і число тут мусять бути
+ *  одним числом. */
+export async function accountPane(ctx, main) {
+  const who = ctx.key;
+  if (ctx.pane === "reconcile") {
+    main.innerHTML = reconcileHTML(ctx, who)
+      || `<div class="card"><h2>Звірка рахунку</h2>${empty(
+        "Звіряти ще нема з чим",
+        `На рахунку «${esc(who)}» грошей немає — звіряти нічого.`,
+        { href: routeFor("deposit"), label: "Додати рух" })}</div>`;
+    wireReconcile(ctx, main);
+    return;
+  }
+
+  const [deposits, conversions] = await Promise.all([
+    ctx.soft("deposits", []),
+    ctx.soft("conversions", []),
+  ]);
+  const mine = (rows) => rows.filter((r) => (r.broker || "") === who);
+  main.innerHTML = movesHTML(mine(deposits), mine(conversions));
+  // Правка бере ПОВНІ списки, а не звужені: wireCrud шукає рядок за id,
+  // і в звуженому списку id чужого рахунку не знайшовся б — а модалка
+  // правки відкривається з того самого гріда, куди рядок міг потрапити
+  // до перейменування брокера.
+  wireCrud(ctx, main, {
+    resource: "deposits", title: "Рух", rows: deposits,
+    fields: cashFields, body: cashBody,
+    msg: { edit: "Рух виправлено", del: "Рух видалено" },
+  });
+  wireCrud(ctx, main, {
+    resource: "conversions", title: "Конвертація", rows: conversions,
+    fields: convFields, body: convBody,
+    msg: { edit: "Конвертацію виправлено", del: "Конвертацію видалено" },
+  });
+  wireDisclosures(main);
 }

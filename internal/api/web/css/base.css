@@ -57,6 +57,22 @@ body, :host {
    дерева доступності теж, тобто рівно те, чого тут не треба. */
 .sr-only {
   position: absolute;
+  /* left:0 не косметика, а виправлення справжньої поломки, і коштувала
+     вона горизонтальної прокрутки ВСІЄЇ сторінки.
+
+     Без нього абсолютний блок стоїть на своїй СТАТИЧНІЙ позиції. Для
+     підпису таблиці позицій це означає «десь на 724-му пікселі
+     всередині .table-scroll» — а .table-scroll не позиціонований, тобто
+     не є контейнером для абсолютних нащадків і НЕ обрізає їх своїм
+     overflow. Підпис через це виїжджав за правий край вікна й розсовував
+     <html>, хоч <body> лишався рівно по ширині екрана: сторінка їздила
+     вбік на порожнечу, у якій нічого не намальовано.
+
+     Ловилось погано саме тому, що елемент невидимий: шукаєш очима те,
+     чого не видно. Тепер він притиснутий до лівого краю свого
+     контейнера, і статична позиція більше нічого не означає.
+     Читачеві екрана байдуже: він іде порядком DOM, а не координатами. */
+  left: 0;
   width: 1px; height: 1px;
   margin: -1px; padding: 0;
   overflow: hidden;
@@ -84,7 +100,7 @@ body, :host {
 }
 .skip:focus { top: var(--oi-gap-sm); }
 
-/* --- шапка й навігація ---
+/* --- шапка, вкладки, майстер-деталь ---
  *
  * Далі файл написаний ВІД ТЕЛЕФОНА: базові правила описують вузький
  * екран, а min-width-запити додають десктоп. Доти було навпаки, і на
@@ -99,98 +115,185 @@ body, :host {
 
 header {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: var(--oi-gap-sm) var(--oi-gap);
-  padding: var(--oi-gap-sm) var(--oi-gap);
+  gap: var(--oi-gap);
+  padding: 0 var(--oi-gap);
+  height: var(--oi-header-h);
   background: var(--oi-header-bg);
   color: var(--oi-header-text);
+  border-bottom: var(--oi-rule) solid var(--oi-border);
   position: sticky;
   top: 0;
   z-index: var(--oi-z-header);
+  /* Прокрутка, а не перенесення. Шість вкладок, штамп, капітал і ⚙ на
+     телефон не влазять, а шапка у два ряди перестає читатись як шапка:
+     вона тримає висоту, від якої відраховується прикріплений
+     майстер-список. Що стискається першим — сказано при .hdr-stamp.
+     Смуга тонка: на 56 пікселях висоти системна забирає шосту частину
+     шапки й читається як другий ярус інтерфейсу. Ховати її зовсім не
+     можна — вона єдина каже, що там ще щось є. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
 }
-/* На телефоні назва ховається, а знак лишається: логотип упізнають по
-   знаку, і 90px тексту поруч із ним коштують дорожче за кнопку.
-   Не <h1>: єдиний перший заголовок тепер у <main> і називає сторінку. */
-.brand {
-  font-size: var(--oi-fs-xl);
-  margin: 0;
+
+/* Знак ODD. Посилання на головну, а не картинка: доти це був <svg> без
+   href, тобто найочевидніший жест застосунку — «поверни мене на початок»
+   — не працював зовсім.
+   currentColor у самому знаку (app.js) і колір на посиланні тут: коли ти
+   вже на головній, знак світиться акцентом, інакше мовчить кольором
+   тексту. Власного токена йому не треба — і мертвий токен валив би
+   css-tokens-check. */
+.mark-l {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--oi-header-text);
+  text-decoration: none;
+}
+.mark-l[aria-current] { color: var(--oi-accent); }
+.mark-l .mark { width: 17px; height: 17px; display: block; }
+
+/* Вкладки. Посилання, а не кнопки: браузер задарма дає фокус, Enter,
+   «відкрити в новій вкладці» й закладку. Той самий довід, що був у
+   старого меню розділів. */
+.tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--oi-gap-xs);
+  flex: 0 0 auto;
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--oi-gap-sm);
+  padding: var(--oi-gap-xs) 13px;
+  border-radius: 7px;
+  font-size: var(--oi-fs);
   font-weight: var(--oi-fw-medium);
-  position: absolute;
-  width: 1px; height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
+  color: var(--oi-muted);
+  text-decoration: none;
+  white-space: nowrap;
 }
-header .sp { flex: 1; }
-header .mark { width: 22px; height: 22px; flex: 0 0 auto; color: var(--oi-header-mark); }
-/* Гамбургер. min-width/height, а не padding: вміст — один знак, а ціль
-   дотику мусить лишитись такою ж квадратною, як у решти кнопок шапки.
-   Від 900px зникає разом із шухлядою: кнопка «показати меню» до вже
-   видимого меню нічого не робить, а display:none виймає її ще й із
-   порядку табуляції — на відміну від visibility чи opacity. */
-.nav-toggle {
+.tab:hover { color: var(--oi-text); }
+/* Активна вкладка заливається акцентом — це єдине місце в шапці, де
+   акцент узагалі з'являється, і воно ж єдине, де він щось означає:
+   «ти тут». */
+.tab[aria-current] { background: var(--oi-accent); color: var(--oi-on-accent); }
+/* Лічильник поруч із підписом. Моноширинний, бо це число. */
+.tab-n {
+  font-family: var(--oi-font-mono);
+  font-size: var(--oi-fs-xs);
+  opacity: .75;
+}
+
+header .sp { flex: 1 1 auto; min-width: var(--oi-gap); }
+
+/* «Стан на …». Стискається ПЕРШИМ: із трьох правих написів це єдиний,
+   без якого можна прожити — капітал відповідає на питання, з яким
+   застосунок відкривають, а штамп лише каже, наскільки свіжа відповідь. */
+.hdr-stamp {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--oi-fs-xs);
+  color: var(--oi-text-faint);
+}
+
+/* Капітал у шапці. Не стискається взагалі: обрізане число гірше за його
+   відсутність — «1 284 70…» читається як менша сума, а не як обрізана. */
+.hdr-cap {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-family: var(--oi-font-mono);
+  font-size: var(--oi-fs-sm);
+}
+.hdr-delta {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-family: var(--oi-font-mono);
+  font-size: var(--oi-fs-xs);
+  color: var(--oi-muted);
+}
+.hdr-delta.up { color: var(--oi-ok); }
+.hdr-delta.down { color: var(--oi-danger); }
+
+/* Квадратні кнопки шапки: ⚙ і ↻. */
+.hdr-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: var(--oi-touch);
-  min-height: var(--oi-touch);
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: var(--oi-radius-sm);
+  border: var(--oi-rule) solid var(--oi-border);
+  background: none;
+  color: var(--oi-header-text);
+  font-size: var(--oi-fs);
+  line-height: 1;
+  text-decoration: none;
+}
+.hdr-btn:hover { border-color: var(--oi-accent); }
+.hdr-btn[aria-current] { border-color: var(--oi-accent); color: var(--oi-accent); }
+
+/* Гамбургер лише на вузькому екрані: від 900px майстер-список стоїть
+   прикріпленою колонкою, і кнопка «показати список» до видимого списку —
+   це кнопка, яка нічого не робить. display:none, а не visibility чи
+   opacity, — щоб вона вийшла й із порядку табуляції теж. */
+.master-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 30px;
+  height: 30px;
   padding: 0;
   font-size: var(--oi-fs-lg);
   line-height: 1;
 }
-/* «Стан на …» у шапці. Не .muted: приглушений там читався б як
-   попередження про несвіжість, а це просто час останнього перерахунку.
-   Доти рядок мав клас .muted і тут-таки інлайном його скасовував —
-   тобто клас брали заради розміру, а колір відмотували назад. */
-.hdr-stamp { color: var(--oi-header-text); opacity: .85; }
 
-/* --- розкладка: панель і колонка вмісту --- */
+/* --- розкладка: майстер-список і колонка інспектора --- */
 
-/* На вузькому екрані панель виїжджає поверх вмісту, тож розкладки як
+/* На вузькому екрані список виїжджає поверх вмісту, тож розкладки як
    такої немає — є одна колонка. Сітка з'являється від 900px.
    min-width на колонці обов'язковий: без нього таблиця на сім колонок
    розпирає grid-трек зсередини, бо типове minmax(auto, …) не дозволяє
    треку стати вужчим за min-content свого вмісту. */
 .layout { display: block; }
-.col { min-width: 0; }
+.col { min-width: 0; display: flex; flex-direction: column; }
 
-/* Панель. Знизу її більше немає, і разом із нею немає прибитого до
-   кількості вкладок repeat(5, …), який доводилось правити щоразу, коли
-   розділів ставало більше або менше. Тепер список вертикальний, тож
-   рахувати нема чого.
+/* Майстер-список.
    overscroll-behavior: без нього прокрутка, дійшовши до кінця списку,
-   продовжується сторінкою під шухлядою. */
-/* #nav, а не голий nav. Селектор писався, коли <nav> у застосунку був
-   рівно один, і тим самим ЗАКОДУВАВ цю кількість у себе. Відколи у воронки
-   з'явилась рейка кроків (теж навігація, теж <nav>), правила шухляди почали
-   ловити її: від 900px вона діставала height: calc(100dvh − шапка), тобто
-   640px замість тонкої смуги, і зіштовхувала весь вміст сторінки за екран.
-
-   Ім'я в селекторі — не педантизм: воно каже, ПРО ЯКУ навігацію правило,
-   і наступний <nav> у застосунку вже нічого не зламає. */
-#nav {
+   продовжується сторінкою під шухлядою.
+   Ім'я в селекторі, а не голий <aside>: правило, яке ловить «будь-який
+   бічний блок», рано чи пізно спіймає чужий — саме так колишні правила
+   шухляди спіймали рейку кроків, коли та теж стала <nav>. */
+#master {
   position: fixed;
   top: 0; bottom: 0; left: 0;
-  width: min(84vw, var(--oi-sidebar-w));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  background: var(--oi-surface);
-  border-right: var(--oi-rule) solid var(--oi-border);
-  padding: var(--oi-gap) 0 calc(var(--oi-gap) + env(safe-area-inset-bottom));
   z-index: var(--oi-z-modal);
+  display: flex;
+  flex-direction: column;
+  width: min(88vw, var(--oi-master-w));
+  background: var(--oi-master-bg);
+  border-right: var(--oi-rule) solid var(--oi-border);
   transform: translateX(-100%);
 }
-:host([data-nav-open]) #nav { transform: none; }
+:host([data-master-open]) #master { transform: none; }
 
 /* Перехід умикається лише ПІСЛЯ першого кадру зі стилями, і це не
    прикраса, а виправлення справжньої поломки.
 
    Стилі приїжджають фетчем: adoptStyles (js/styles.js) асинхронний, а
-   оболонка малюється, не чекаючи його. Тобто на першому кадрі в панелі
+   оболонка малюється, не чекаючи його. Тобто на першому кадрі
    трансформації немає взагалі, а на другому вона стає translateX(-100%) —
    і браузер чесно бачить у цьому ЗМІНУ, тобто запускає перехід на
-   завантаженні сторінки. Панель від'їжджала за край на очах у того, хто
-   її не чіпав.
+   завантаженні сторінки. Список від'їжджав за край на очах у того, хто
+   його не чіпав.
 
    Гірше: перехід, який чомусь не догрався, тримає своє проміжне значення
    ПОВЕРХ усього — CSS-транзиція в каскаді стоїть вище навіть за інлайновий
@@ -199,11 +302,11 @@ header .mark { width: 22px; height: 22px; flex: 0 0 auto; color: var(--oi-header
    стиль її звідти не діставав.
 
    Атрибут ставить app.js через два кадри після adoptStyles. Від 900px
-   перехід не потрібен зовсім: там панель нікуди не їздить. */
-:host([data-ready]) #nav { transition: transform var(--oi-dur) var(--oi-ease); }
+   перехід не потрібен зовсім: там список нікуди не їздить. */
+:host([data-ready]) #master { transition: transform var(--oi-dur) var(--oi-ease); }
 
-/* Підкладка. Нижче за панель, вище за тост: тост має право писати поверх
-   затемнення, панель — поверх обох. */
+/* Підкладка. Нижче за список, вище за тост: тост має право писати поверх
+   затемнення, список — поверх обох. */
 .scrim {
   position: fixed;
   inset: 0;
@@ -211,147 +314,262 @@ header .mark { width: 22px; height: 22px; flex: 0 0 auto; color: var(--oi-header
   z-index: var(--oi-z-popover);
 }
 
-.nav-l { list-style: none; margin: 0; padding: 0; }
-
-/* Заголовок групи — КНОПКА, яка розкриває список, а не посилання, яке
-   веде. Причина зміни записана в app.js при _navHTML.
-
-   Скидання вигляду кнопки тут неминуче: <button> тягне власне тло, рамку,
-   шрифт і центрування тексту, а в списку меню він мусить читатись рядком,
-   а не кнопкою. Ширина на всі 100% — щоб натискалась уся смуга, а не самі
-   літери. */
-.nav-g {
+/* Шапка списку: фільтр, кнопка дії, лічильник. */
+.master-h {
   display: flex;
   align-items: center;
-  width: 100%;
-  min-height: var(--oi-touch);
-  padding: var(--oi-gap-xs) var(--oi-gap-lg);
-  background: none;
-  border: none;
-  border-radius: 0;
+  gap: var(--oi-gap-sm);
+  padding: var(--oi-gap-lg) var(--oi-gap-lg) 11px;
+  flex: 0 0 auto;
+}
+.master-f {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--oi-gap-xs) var(--oi-gap-sm);
+  background: var(--oi-surface-2);
+  border: var(--oi-rule) solid var(--oi-border);
+  border-radius: var(--oi-radius-sm);
   color: var(--oi-text);
   font-family: inherit;
-  font-size: var(--oi-fs-md);
-  font-weight: var(--oi-fw-medium);
-  text-align: left;
-  cursor: pointer;
+  font-size: var(--oi-fs-sm);
 }
-.nav-g[aria-current="location"] { color: var(--oi-accent); }
-/* Каретка — єдине, що відрізняє «розкриє» від «поведе». Без неї заголовок
-   виглядає посиланням, яке чомусь не переходить.
-   Псевдоелементом, а не символом у розмітці: це підказка про стан, і
-   читачеві екрана її дублювати не треба — про стан йому каже
-   aria-expanded на самій кнопці. */
-.nav-g::after {
-  content: "▸";
-  display: inline-block;
-  margin-left: auto;
-  color: var(--oi-text-faint);
-  transition: transform var(--oi-dur-fast) var(--oi-ease);
-}
-.nav-g[aria-expanded="true"]::after { transform: rotate(90deg); }
-
-/* Пункт. Вкладений список малюється лише для активної групи (app.js), тож
-   відступ ліворуч тут єдиний спосіб сказати, що це другий ярус. */
-.nav-i {
-  display: flex;
-  align-items: center;
-  min-height: var(--oi-touch);
-  padding: var(--oi-gap-xs) var(--oi-gap-lg) var(--oi-gap-xs) var(--oi-gap-3xl);
-  color: var(--oi-muted);
+.master-f::placeholder { color: var(--oi-text-faint); }
+.master-a {
+  flex: 0 0 auto;
+  padding: var(--oi-gap-xs) 10px;
+  font-size: var(--oi-fs-sm);
+  border-radius: var(--oi-radius-sm);
+  background: var(--oi-accent);
+  color: var(--oi-on-accent);
   text-decoration: none;
-  font-size: var(--oi-fs);
-  line-height: var(--oi-lh-snug);
+  white-space: nowrap;
+}
+
+/* Чипи-зрізи. Живуть лише в «Портфелі», і саме вони заміняють колишні
+   сторінки виду: вибір паперу і є вибором виду, а зріз по виду лишається
+   тут. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--oi-gap-xs);
+  padding: 0 var(--oi-gap-lg) 11px;
+  flex: 0 0 auto;
+}
+.chip {
+  padding: 3px 10px;
+  border-radius: var(--oi-radius-pill);
+  border: var(--oi-rule) solid var(--oi-border);
+  background: none;
+  color: var(--oi-muted);
+  font-family: inherit;
+  font-size: var(--oi-fs-xs);
+  white-space: nowrap;
+}
+.chip[aria-pressed="true"] {
+  background: var(--oi-accent);
+  border-color: var(--oi-accent);
+  color: var(--oi-on-accent);
+}
+
+.m-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Рядок. Три смуги: колір виду, назва з підписом, число з приміткою.
+   Смуга кольору — 3px, а не пігулка з підписом: у списку на шість рядків
+   вид упізнається кольором швидше, ніж читається словом, а місце в
+   376px коштує. */
+.m-row {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: center;
+  padding: 13px var(--oi-gap-lg);
+  border-top: var(--oi-rule) solid var(--oi-rule-hair);
   border-left: var(--oi-rule-strong) solid transparent;
+  text-decoration: none;
+  color: inherit;
 }
-.nav-i:hover { color: var(--oi-text); }
-.nav-i[aria-current="page"] {
-  color: var(--oi-accent);
+.m-row:hover { background: var(--oi-surface); }
+.m-row[aria-current] {
+  background: var(--oi-master-on);
   border-left-color: var(--oi-accent);
-  font-weight: var(--oi-fw-medium);
+}
+.m-bar { width: 3px; height: 32px; border-radius: 2px; background: var(--oi-c, var(--oi-muted)); }
+.m-t, .m-v { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.m-v { text-align: right; }
+.m-n {
+  font-size: var(--oi-fs);
+  font-weight: var(--oi-fw-bold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.m-s {
+  font-size: var(--oi-fs-xs);
+  color: var(--oi-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.m-val {
+  font-family: var(--oi-font-mono);
+  font-size: var(--oi-fs-sm);
+  white-space: nowrap;
+}
+.m-meta {
+  font-family: var(--oi-font-mono);
+  font-size: var(--oi-fs-xs);
+  color: var(--oi-c, var(--oi-muted));
+  white-space: nowrap;
 }
 
-/* Розділювач усередині групи. Користувач рівно один — «Записати», де
-   шість ручних форм по сутностях відділені від двох пакетних входів,
-   які заводять кілька сутностей одразу. */
-.nav-sep {
-  margin-top: var(--oi-gap-sm);
-  padding-top: var(--oi-gap-sm);
+/* Порожній список — не те саме, що порожній фільтр, і сказати треба
+   різне. Обидва тексти пише оболонка; тут лише місце під них. */
+.m-none {
+  padding: var(--oi-gap-lg);
+  color: var(--oi-muted);
+  font-size: var(--oi-fs-sm);
+  border-top: var(--oi-rule) solid var(--oi-rule-hair);
+}
+
+.master-foot {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--oi-gap-sm);
+  padding: var(--oi-gap) var(--oi-gap-lg);
   border-top: var(--oi-rule) solid var(--oi-border);
+  font-size: var(--oi-fs-xs);
+  color: var(--oi-muted);
+}
+.master-foot b {
+  font-family: var(--oi-font-mono);
+  font-weight: var(--oi-fw-medium);
+  color: var(--oi-text);
 }
 
-/* Смуга стану застосунку — між навігацією і розділом. Ті самі поля, що
-   в main, бо читається як його перший блок; але це НЕ main, і саме в
-   цьому суть: розділи перемальовують main цілком, і всередині нього
-   смуга не пережила б жодного рендеру. */
-#alert {
-  padding: var(--oi-gap) var(--oi-gap) 0;
-  max-width: var(--oi-max-width);
-  margin: 0 auto;
-}
+/* Смуга стану застосунку — над інспектором. Ті самі поля, що в main, бо
+   читається як його перший блок; але це НЕ main, і саме в цьому суть:
+   панелі перемальовують тіло інспектора цілком, і всередині нього смуга
+   не пережила б жодного рендеру. */
+#alert { padding: var(--oi-gap) var(--oi-gap) 0; }
 
 main {
+  min-width: 0;
   padding: 0 var(--oi-gap) var(--oi-gap-3xl);
-  max-width: var(--oi-max-width);
-  margin: 0 auto;
 }
-/* Головна область отримує фокус програмно при зміні сторінки — щоб читач
+/* Головна область отримує фокус програмно при зміні панелі — щоб читач
    екрана дізнався, що вміст замінився. Кільця на ній не треба: це не
    керований елемент, а місце, куди фокус переставили. */
 main:focus { outline: none; }
 
-/* Заголовок сторінки. Єдиний <h1> у документі, і малює його оболонка з
-   дерева навігації — тобто підпис у меню й заголовок під ним не можуть
-   розійтися. Доти цей рівень тримала .sect-t, і в неї був той самий <h2>,
-   що й у карток усередині, тобто ієрархії між групою й карткою не
-   існувало взагалі. */
-.page-t {
-  font-size: var(--oi-fs-xl);
-  font-weight: var(--oi-fw-medium);
+/* Шапка інспектора: чия це сутність і що з нею можна зробити. */
+.insp-h {
+  display: flex;
+  align-items: center;
+  gap: var(--oi-gap);
+  flex-wrap: wrap;
+  padding: var(--oi-gap-lg) 0 var(--oi-gap);
+}
+/* Пігулка виду. Тут вид названий СЛОВОМ, на відміну від списку, де він
+   смуга кольору: у списку рядків шість і колір швидший, в інспекторі
+   сутність одна й місце є. */
+.insp-k {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: var(--oi-radius-pill);
+  border: var(--oi-rule) solid var(--oi-c, var(--oi-border));
+  color: var(--oi-c, var(--oi-muted));
+  font-size: var(--oi-fs-xs);
+  white-space: nowrap;
+}
+.insp-t {
+  margin: 0;
+  font-size: 23px;
+  font-weight: var(--oi-fw-bold);
   line-height: var(--oi-lh-tight);
-  letter-spacing: var(--oi-ls-tight);
-  margin: var(--oi-gap-lg) 0 var(--oi-gap-xl);
+  letter-spacing: -0.02em;
+  min-width: 0;
+}
+.insp-s { color: var(--oi-muted); font-size: var(--oi-fs-sm); min-width: 0; }
+.insp-h .sp { flex: 1 1 auto; }
+.insp-a {
+  display: flex;
+  gap: var(--oi-gap-sm);
+  flex: 0 0 auto;
 }
 
+/* Рейка панелей. Заміняє рейку кроків воронки й успадковує її довід:
+   показувати, ДЕ ти в сутності, — а це має бути видно й тоді, коли
+   панель довша за екран.
+
+   Прокручується по горизонталі, а не переноситься: сім панелей
+   «Портфеля цілком» у вузьке вікно в один рядок не влазять, а два ряди
+   перестають читатись як лінія. */
+.panes {
+  display: flex;
+  gap: var(--oi-gap-lg);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: var(--oi-gap-sm);
+  margin-bottom: var(--oi-flow);
+  border-bottom: var(--oi-rule) solid var(--oi-border);
+}
+.pane-l {
+  white-space: nowrap;
+  text-decoration: none;
+  font-size: var(--oi-fs);
+  color: var(--oi-muted);
+  padding-bottom: var(--oi-gap-sm);
+  border-bottom: var(--oi-rule-strong) solid transparent;
+}
+.pane-l:hover { color: var(--oi-text); }
+.pane-l[aria-current] {
+  color: var(--oi-text);
+  font-weight: var(--oi-fw-bold);
+  border-bottom-color: var(--oi-accent);
+}
+/* Рядок, у якого панель одна, рейки не має — лишається сама лінійка.
+   Рейка з одного елемента показувала б вибір там, де вибору немає. */
+.panes.solo { gap: 0; padding-bottom: 0; }
+
 @media (min-width: 640px) {
-  header { padding: var(--oi-gap-sm) var(--oi-gap-lg); }
-  .brand { position: static; width: auto; height: auto; clip-path: none; }
+  header { padding: 0 var(--oi-gap-lg); }
   #alert { padding: var(--oi-gap) var(--oi-gap-lg) 0; }
   main { padding-left: var(--oi-gap-lg); padding-right: var(--oi-gap-lg); }
 }
 
+/* «Огляд» — єдина сторінка без майстер-списку: у неї немає сутності,
+   яку можна вибрати. Гамбургер на ній теж зникає, і не лише з очей: без
+   списку він кнопка, яка відкриває порожнечу. */
+:host([data-solo]) .master-toggle { display: none; }
+
 @media (min-width: 900px) {
-  /* Висота шапки стає ЧИСЛОМ — і саме тому панель нижче може бути
-     прикріпленою. Доти тут стояло пояснення, чому липкою її зробити не
-     можна: висота шапки зверталась вмістом, відраховувати верх було ні
-     від чого. Заперечення знято по суті, а не обійдено: на цій ширині
-     шапка вже не переносить рядок і містить один ряд контролів. */
-  header { flex-wrap: nowrap; padding: var(--oi-gap) var(--oi-gap-xl); height: var(--oi-header-h); }
-  /* Рейка кроків липне під шапку — і саме тут, а не в її власному правилі:
-     --oi-header-h є числом ЛИШЕ на цій ширині (див. пояснення вище). Нижче
-     900px рейка лишається на top: 0 і з'їжджає ПІД шапку, яка перекриває її
-     більшим z-index; це гірше, ніж прикріплено, але чесніше за відрахунок
-     від висоти, якої немає. */
-  .steps { top: var(--oi-header-h); }
+  header { padding: 0 var(--oi-gap-xl); }
 
-  /* Шухляди тут немає: панель стоїть колонкою й видима завжди. */
-  .nav-toggle, .scrim { display: none; }
+  /* Шухляди тут немає: список стоїть колонкою й видимий завжди. */
+  .master-toggle, .scrim { display: none; }
 
-  /* Панель прибита до ЛІВОГО КРАЮ вікна, а не центрована разом із вмістом.
-     Доти сітка мала max-width на всю розкладку й margin:0 auto — і на
-     екрані, ширшому за неї, панель від'їжджала від краю разом із текстом,
-     повисаючи посеред порожнечі. Виглядало це як помилка верстки, і було
-     нею: панель — це край застосунку, а не колонка тексту.
+  /* Колонка одна, і саме одна — не «376 порожніх пікселів ліворуч».
+     Порожня колонка тієї ж ширини читалась би як список, який не
+     завантажився. */
+  :host([data-solo]) .layout { grid-template-columns: minmax(0, 1fr); }
 
-     Ширину обмежує САМ ВМІСТ (main нижче), і саме тому обмеження звідси
-     прибрано: інакше межа стояла б у двох місцях одночасно, а зайти в
-     суперечність двом числам — питання часу. */
+  /* Майстер-список прибитий до ЛІВОГО КРАЮ вікна, а не центрований разом
+     із вмістом: це край застосунку, а не колонка тексту. */
   .layout {
     display: grid;
-    grid-template-columns: var(--oi-sidebar-w) minmax(0, 1fr);
+    grid-template-columns: var(--oi-master-w) minmax(0, 1fr);
   }
 
-  #nav {
+  #master {
     position: sticky;
     inset: auto;
     top: var(--oi-header-h);
@@ -360,19 +578,23 @@ main:focus { outline: none; }
     transform: none;
     transition: none;
     z-index: var(--oi-z-sticky);
-    padding-bottom: var(--oi-gap);
   }
 
   #alert { padding: var(--oi-gap) var(--oi-gap-xl) 0; }
-  main { padding: 0 var(--oi-gap-xl) var(--oi-gap-3xl); }
-}
+  main { padding: 0 30px var(--oi-gap-3xl); }
+  .insp-h { padding-top: 22px; }
 
-@media (min-width: 1200px) {
-  /* Ширші за решту ті сторінки, у яких таблиця на сім колонок або крива
-     на рік. Які саме — сказано в js/nav.js полем wide: доти тут стояло
-     ім'я вкладки літералом, тобто політика ширини трималась на тому, що
-     розділ звуть «portfolio». */
-  main[data-wide] { max-width: var(--oi-max-width-wide); }
+  /* Рейка панелей липне під шапку — і саме тут, а не в її власному
+     правилі: --oi-header-h є числом ЛИШЕ на цій ширині. Нижче 900px
+     рейка лишається в потоці й з'їжджає ПІД шапку, яка перекриває її
+     більшим z-index; це гірше, ніж прикріплено, але чесніше за
+     відрахунок від висоти, якої немає. */
+  .panes {
+    position: sticky;
+    top: var(--oi-header-h);
+    z-index: var(--oi-z-sticky);
+    background: var(--oi-bg);
+  }
 }
 
 /* --- кнопки --- */
@@ -431,14 +653,17 @@ button.link { background: none; border: none; color: var(--oi-danger); padding: 
      купкою. auto-fit згортає порожні треки, і ряд заповнюється.
      150px, а не 180: коробки більше немає, тож ширину тримає саме
      число, а не поля навколо нього. */
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   /* По вертикалі проміжок більший за горизонтальний. Без рамок ряд
      інакше склеюється з наступним блоком, і єдине, що їх розводить, —
      це повітря. */
   gap: var(--oi-gap-xl) var(--oi-gap-lg);
-  max-width: var(--oi-max-width);
-  margin: var(--oi-gap-xl) auto;
-  padding: var(--oi-gap-lg) var(--oi-gap) 0;
+  /* Ширину більше не обмежує: колонка інспектора вже є межею, а друге
+     обмеження поверх неї лишало б порожнечу праворуч на широкому вікні.
+     200px замість 150 — за макетом редизайну: 19-піксельні числа при
+     150px ламались на три рядки. */
+  margin: var(--oi-gap-xl) 0;
+  padding: var(--oi-gap-lg) 0 0;
   border-top: var(--oi-rule) solid var(--oi-border);
 }
 /* Підпис тихішає — але РОЗМІРОМ, а не кольором. Доки була заливка,
@@ -466,6 +691,10 @@ button.link { background: none; border: none; color: var(--oi-danger); padding: 
    собі 22px/600 інлайном, тобто заводила ДРУГИЙ розмір головного числа
    на два пікселі більший за системний. */
 .val {
+  /* Моноширинна на головних числах — половина того, заради чого
+     заводився --oi-font-mono. Друга половина — числові комірки таблиць
+     нижче. */
+  font-family: var(--oi-font-mono);
   font-size: var(--oi-fs-xl);
   font-weight: var(--oi-fw-medium);
   line-height: var(--oi-lh-tight);
@@ -530,18 +759,18 @@ button.link { background: none; border: none; color: var(--oi-danger); padding: 
   gap: var(--oi-gap-sm);
 }
 
-/* Плитка-герой: головне число екрана. Кегль тепер плаває з шириною вікна
-   (--oi-fs-display), а разом із ним мусять їхати міжрядковий і трекінг:
-   1.25 й -0.01em підбирались під фіксовані 28px, і на 52px перший давав
-   зайвий рядок повітря, а другий переставав бути помітним узагалі. */
+/* Плитка-герой: головне число екрана. 52px (--oi-fs-hero), а разом із
+   кеглем мусять їхати міжрядковий і трекінг: 1.25 й -0.01em підбирались
+   під фіксовані 28px, і на 52px перший давав зайвий рядок повітря, а
+   другий переставав бути помітним узагалі. */
 /* grid-column, а не flex: .tiles — сітка, і flex тут не робив би нічого.
    На всю ширину ряду — і на телефоні теж. Твердження «там вона й так на
-   всю ширину» було просто неправдою: auto-fit при minmax(150px) складає
-   на 390px рівно дві колонки, тобто героєві діставалось 173px, і
+   всю ширину» було просто неправдою: auto-fit складає на вузькому вікні
+   рівно дві колонки, тобто героєві діставалась половина, і
    «739 622,84 ₴» ламалось так, що ₴ їхала на власний рядок. Помітно це
    стало лише тоді, коли кегль виріс, але сітка була такою й доти. */
 .tile.hero .val {
-  font-size: var(--oi-fs-display);
+  font-size: var(--oi-fs-hero);
   line-height: var(--oi-lh-display);
   letter-spacing: var(--oi-ls-display);
 }
@@ -1100,39 +1329,6 @@ td.num .sale-f { text-align: right; }
 .sg-y { white-space: nowrap; text-align: right; font-size: var(--oi-fs-md); }
 /* Заголовок групи: він відповідає на головне питання картки — чи можу я
    купити зараз, — тож стоїть окремим рядком, а не підписом до числа. */
-/* ---------- воронка інструмента ---------- */
-
-/* Рейка кроків. Липка, бо в неї одна робота: показувати, ДЕ ти в
-   послідовності, — а це має бути видно й тоді, коли крок довший за екран.
-
-   Прокручується по горизонталі, а не переноситься: шість кроків на телефоні
-   в один рядок не влазять, а два ряди перестають читатись як лінія. */
-.steps {
-  position: sticky;
-  top: 0;
-  z-index: var(--oi-z-sticky);
-  display: flex;
-  gap: var(--oi-gap);
-  overflow-x: auto;
-  padding: var(--oi-gap-sm) 0;
-  margin-bottom: var(--oi-flow);
-  background: var(--oi-bg);
-  border-bottom: var(--oi-rule) solid var(--oi-border);
-}
-.step-l {
-  white-space: nowrap;
-  text-decoration: none;
-  font-size: var(--oi-fs-sm);
-  color: var(--oi-muted);
-  padding-bottom: var(--oi-gap-xs);
-  border-bottom: var(--oi-rule-strong) solid transparent;
-}
-.step-l:hover { color: var(--oi-text); }
-.step-l[aria-current] { color: var(--oi-text); border-bottom-color: var(--oi-accent); }
-
-.step { display: block; margin-bottom: var(--oi-gap-3xl); }
-.step-t { font-size: var(--oi-fs-lg); color: var(--oi-muted); margin-bottom: var(--oi-gap); }
-
 /* ---------- черга задач ---------- */
 
 /* Задача — це РЯДОК, а не картка, і це головне рішення блоку.
@@ -1332,6 +1528,105 @@ td.num .sale-f { text-align: right; }
    знаменник, ніж у головного числа, — і не має важити стільки ж на око. */
 .progress.slim { height: var(--oi-gap-xs); }
 
+/* ---------- прогрес ---------- */
+
+/* Рівень і доріжки поруч: число ліворуч відповідає «скільки пройдено»,
+   доріжки праворуч — «чим саме воно набралось». Одне без одного читається
+   або як окуляри без джерела, або як три смуги без підсумку. */
+.lvl-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--oi-gap-xl);
+  align-items: center;
+  padding: var(--oi-gap-lg) 0;
+  border-top: var(--oi-rule) solid var(--oi-rule-hair);
+}
+.lvl { text-align: center; flex: 0 0 auto; }
+.lvl-n {
+  font-family: var(--oi-font-mono);
+  font-size: var(--oi-fs-level);
+  font-weight: var(--oi-fw-medium);
+  line-height: var(--oi-lh-display);
+  letter-spacing: var(--oi-ls-display);
+  color: var(--oi-accent);
+}
+.lvl-l {
+  font-size: var(--oi-fs-xs);
+  color: var(--oi-muted);
+  max-width: 12ch;
+  margin: var(--oi-gap-xs) auto 0;
+  line-height: var(--oi-lh-snug);
+}
+
+.tracks { display: grid; gap: var(--oi-gap); min-width: 0; }
+/* min-width не косметика: доріжка лежить у grid-треку, а типове
+   minmax(auto, …) не дає треку стати вужчим за min-content свого
+   вмісту — довга примітка розсовувала б блок замість переноситись. */
+.track { min-width: 0; }
+.track-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--oi-gap-sm);
+}
+.track-n { font-size: var(--oi-fs); font-weight: var(--oi-fw-medium); }
+.track-v { font-family: var(--oi-font-mono); font-size: var(--oi-fs-sm); }
+
+/* Сітка віх. auto-fit, а не фіксовані колонки: чотирнадцять карток при
+   трьох колонках лишають у хвості одну самотню, а при auto-fit ряд
+   заповнюється тим, що влізло. */
+.badges {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--oi-gap-sm);
+  margin-top: var(--oi-gap);
+}
+/* Замкнена віха приглушена, але НЕ схована й не закреслена: вона карта
+   того, що попереду, а не докір. Тому в неї лишається власне число
+   («3,0 з 5,0 місяців витрат») — видно не «ти не зміг», а чим це
+   міряється. */
+.badge {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--oi-gap-sm);
+  align-items: start;
+  padding: var(--oi-gap) var(--oi-gap-lg) var(--oi-gap) var(--oi-gap);
+  border: var(--oi-rule) solid var(--oi-border);
+  border-radius: var(--oi-radius);
+}
+.badge.on { border-color: var(--oi-soft-ok-border); background: var(--oi-soft-ok-bg); }
+.badge-i { color: var(--oi-text-faint); line-height: var(--oi-lh-snug); }
+.badge.on .badge-i { color: var(--oi-soft-ok-fg); }
+.badge-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.badge-n { font-size: var(--oi-fs); font-weight: var(--oi-fw-medium); }
+.badge-s { font-size: var(--oi-fs-xs); color: var(--oi-muted); line-height: var(--oi-lh-snug); }
+.badge-p {
+  font-family: var(--oi-font-mono);
+  font-size: var(--oi-fs-xs);
+  color: var(--oi-text-faint);
+  white-space: nowrap;
+}
+
+/* Поле колекції. Клітинка квадратна й без підпису: підписи стоять по
+   краях, а сама сітка мусить читатись формою — де діра, видно з одного
+   погляду, і саме це поле й показує. */
+.matrix { display: grid; gap: var(--oi-gap-xs); margin-top: var(--oi-gap); max-width: 320px; }
+.mx-row {
+  display: grid;
+  grid-template-columns: 4.5rem repeat(3, 1fr);
+  gap: var(--oi-gap-xs);
+  align-items: center;
+}
+.mx-head { color: var(--oi-muted); font-size: var(--oi-fs-xs); }
+.mx-c { text-align: center; }
+.mx-y { font-family: var(--oi-font-mono); font-size: var(--oi-fs-xs); color: var(--oi-muted); }
+.mx-cell {
+  height: 26px;
+  border-radius: var(--oi-radius-sm);
+  border: var(--oi-rule) solid var(--oi-border);
+}
+.mx-cell.on { background: var(--oi-kind-fund); border-color: var(--oi-kind-fund); }
+
 /* --- пояснення «як це читати» --- */
 
 /* Кружечок «i». Лишається дрібним на око — поруч із заголовком картки
@@ -1464,7 +1759,7 @@ td.num .sale-f { text-align: right; }
    блок її втратив, а скелет ні. Заливка й поля лишились банеру: він
    єдиний із трьох, у кого вони справді є. */
 .skel-card { margin-bottom: var(--oi-gap-2xl); }
-/* Смуга рейки кроків у скелеті: висоту вона тримає тим самим, чим і
+/* Смуга рейки панелей у скелеті: висоту вона тримає тим самим, чим і
    справжня рейка, тож заміна не рухає сторінку. */
 .skel-rail {
   height: var(--oi-touch);
@@ -1474,7 +1769,7 @@ td.num .sale-f { text-align: right; }
 }
 .skel-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--oi-gap-xl) var(--oi-gap-lg);
   padding-top: var(--oi-gap-lg);
   border-top: var(--oi-rule) solid var(--oi-border);

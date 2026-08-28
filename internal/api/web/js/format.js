@@ -98,9 +98,19 @@ export const uah2 = (v) =>
 export const cur2 = (v, c) =>
   (Number(v) || 0).toLocaleString("uk", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + curSym(c);
 
-/** Об'єкт {amount, currency} з бекенда. */
+/** Об'єкт {amount, currency} з бекенда.
+ *
+ *  Символом, а не кодом. Доти тут стояло `${m.currency}`, тобто «40 000,00
+ *  UAH», — і поруч, у тій самій колонці, uah2() писав «446 220 ₴». Один
+ *  стовпчик, два записи однієї валюти: числа в ньому читають зверху вниз,
+ *  і на кожному переході око спотикається об зміну нотації.
+ *
+ *  Це той самий довід, що записаний нижче при pct: доти кожен розділ
+ *  форматував сам, і те саме поле показувалось по-різному залежно від
+ *  того, де на нього дивишся. Різниця лише в тому, що там розходились
+ *  знаки після коми, а тут — сама валюта. */
 export const money = (m) =>
-  m ? `${Number(m.amount).toLocaleString("uk", { minimumFractionDigits: 2 })} ${esc(m.currency)}` : "—";
+  m ? `${Number(m.amount).toLocaleString("uk", { minimumFractionDigits: 2 })} ${curSym(m.currency)}` : "—";
 
 /** Відсоток одним способом на весь застосунок.
  *

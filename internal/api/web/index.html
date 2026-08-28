@@ -14,9 +14,15 @@
 
      crossorigin обов'язковий навіть на своєму походженні — шрифти завжди
      тягнуться в CORS-режимі, і без атрибута preload качає файл вдруге,
-     тобто робить рівно протилежне до задуманого. -->
-<link rel="preload" href="./fonts/inter-var.v1.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="./fonts/source-serif-4-var.v1.woff2" as="font" type="font/woff2" crossorigin>
+     тобто робить рівно протилежне до задуманого.
+
+     Передвантажуються ДВІ з трьох, і третя пропущена навмисно. Onest несе
+     всі підписи, Geist Mono — усі числа: обидві потрібні на першому ж
+     кадрі. Source Serif 4 малює саму лише прозу в модалці «як це читати»,
+     тобто 48 КіБ, які на більшості відкриттів не знадобляться взагалі, —
+     і preload на неї означав би платити за них щоразу. -->
+<link rel="preload" href="./fonts/onest-var.v1.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="./fonts/geist-mono-var.v1.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="./css/fonts.css">
 <!--
   Хост застосунку. Уся розмітка й логіка — у <odd-invest-app> (js/app.js);
@@ -35,7 +41,7 @@
      Це єдиний літеральний колір у застосунку, і причина в порядку
      подій: токенів на цей момент ще немає — CSS вантажиться пізніше,
      з js/styles.js. Значення мусить збігатися з --oi-bg. */
-  html, body { margin: 0; min-height: 100%; background: #0e1116; }
+  html, body { margin: 0; min-height: 100%; background: #12100f; }
 </style>
 </head>
 <body>

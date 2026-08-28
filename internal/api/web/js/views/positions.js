@@ -174,7 +174,7 @@ function depositDetailHTML(d) {
 // сторінками поглядом. Заперечення проти спільної таблиці колись було
 // справедливе саме до колонок — специфіка виду живе в рядку деталей, і
 // там вона й лишилась.
-function positionItems(ctx, positions, lots, sales, deposits, kinds = null) {
+function positionItems(ctx, positions, lots, sales, deposits, kinds = null, only = "") {
   const bonds = positions.map((p) => ({
     key: "bond:" + p.isin, kind: "bond",
     // Паперу немає в довіднику НБУ — номінал, строк і виплати приходять
@@ -240,7 +240,7 @@ function positionItems(ctx, positions, lots, sales, deposits, kinds = null) {
   const deps = deposits.filter((d) => !d.closed_date).map((d) => {
     const topups = (d.topups || []).length;
     return {
-      key: "dep:" + d.id, kind: "deposit",
+      key: "deposit:" + d.id, kind: "deposit",
       name: `<b>${esc(d.bank || "—")}</b><div class="sub-xs">${PAYOUT_LABEL[d.payout] || d.payout}${d.capitalized ? " · кап." : ""}</div>`,
       invested: `${fmtMoney(d.principal)}${topups ? `<div class="sub-xs">+${topups} поповн.</div>` : ""}`,
       value: fmtMoney(d.balance),
@@ -318,13 +318,25 @@ function positionItems(ctx, positions, lots, sales, deposits, kinds = null) {
   // єдиний нічого не заробляє.
   const all = [...bonds.sort(bySize), ...funds.sort(bySize), ...npf.sort(bySize),
     ...deps.sort(bySize), ...res];
+  if (only) return all.filter((it) => it.key === only);
   return kinds ? all.filter((it) => kinds.includes(it.kind)) : all;
 }
 
-/** Таблиця позицій. opts.kinds звужує її до одного виду, opts.title і
- *  opts.empty дають сторінці виду назвати себе своїм ім'ям — «Позиція
- *  з'явиться після першої покупки паперу» на сторінці вкладів було б
- *  порадою не в те місце.
+/** Таблиця позицій.
+ *
+ *  opts.only звужує її до ОДНОГО рядка — тієї позиції, що зараз відкрита
+ *  в інспекторі. Ключ рядка й id рядка майстер-списку — те саме («bond:»
+ *  плюс ISIN), і це не збіг: обидва називають ту саму сутність, і два
+ *  різні імені для неї розійшлися б при першому ж перейменуванні.
+ *
+ *  Та сама таблиця, а не окрема «картка позиції», навмисно: колонки
+ *  означають те саме, розкриття показує ті самі лоти, а форми в ньому
+ *  підв'язує та сама wirePositionRows. Друга розмітка на ті самі дані
+ *  розійшлася б із першою — рівно те, від чого рятує кит.
+ *
+ *  opts.kinds звужує до одного виду, opts.title і opts.empty дають
+ *  назвати порожнечу своїм ім'ям — «Позиція з'явиться після першої
+ *  покупки паперу» на вкладах було б порадою не в те місце.
  *
  *  opts.rowDetail = false прибирає розкриття цілком — і рядок деталей, і
  *  каретку. Потрібно рівно там, де ті самі форми вже стоять на сторінці
@@ -335,8 +347,8 @@ function positionItems(ctx, positions, lots, sales, deposits, kinds = null) {
  *  й розводили. За замовчуванням true: жодна наявна сторінка не міняється. */
 export function positionsTableHTML(ctx, positions, lots, sales, deposits, opts = {}) {
   const { kinds = null, title = "Позиції", empty: emptyOpts = null,
-    rowDetail = true } = opts;
-  const items = positionItems(ctx, positions, lots, sales, deposits, kinds);
+    rowDetail = true, only = "" } = opts;
+  const items = positionItems(ctx, positions, lots, sales, deposits, kinds, only);
   if (!items.length) {
     const e = emptyOpts || {
       text: "Позиція з'явиться після першої покупки паперу або відкритого вкладу.",

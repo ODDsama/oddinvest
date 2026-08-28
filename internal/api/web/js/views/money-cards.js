@@ -366,10 +366,16 @@ const fmtRate = (v) => (Number(v) || 0).toLocaleString("uk",
 // Звірка: рахунок за записами проти того, що показує брокер.
 // Коригування — звичайне поповнення з поміткою, а не окрема сутність:
 // так розбіжність лишається видимою в історії, а не ховається.
-export function reconcileHTML(ctx) {
+/** Звірка. only — звузити до одного брокера; порожнє означає всі.
+ *
+ *  Параметр, а не друга функція: таблиця, підпис, проводка й механізм
+ *  коригування в них однакові до знака, і друга копія розійшлася б із
+ *  першою при найпершій правці колонок. */
+export function reconcileHTML(ctx, only = "") {
   const brokers = (ctx.summary || {}).brokers || {};
-  const rows = Object.entries(brokers).flatMap(([b, byCur]) =>
-    Object.entries(byCur).map(([c, v]) => ({ b, c, v })));
+  const rows = Object.entries(brokers)
+    .filter(([b]) => !only || b === only)
+    .flatMap(([b, byCur]) => Object.entries(byCur).map(([c, v]) => ({ b, c, v })));
   if (!rows.length) return "";
   return `<div class="card"><h2 class="card-head">
     <span>Звірка рахунку ${infoBtn("reconcile")}</span></h2>

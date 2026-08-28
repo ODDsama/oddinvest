@@ -6,24 +6,34 @@
 // Історія тут варта одного абзацу, бо вона пояснює форму. Спершу було дві
 // НЕЗАЛЕЖНІ реалізації того самого UI на ~3500 рядків разом — веб-UI й
 // бічна панель Home Assistant, — і правило «дзеркалити кожну зміну в
-// обох» брало податок з кожної фічі. Вони встигли розійтись: у панелі
-// були статуси виплат і таблиці виписки, у вебі — звірка рахунку й
-// донат брокерів, і жодна сторона не мала всього. Тоді їх звели в один
-// компонент із двома властивостями (transport + theme). Тепер панелі
-// немає зовсім, і властивість лишилась одна — але шов під transport
-// цінний і без другої поверхні: він тримає компонент незалежним від
-// того, звідки беруться дані.
+// обох» брало податок з кожної фічі. Тоді їх звели в один компонент із
+// двома властивостями (transport + theme). Тепер панелі немає зовсім, і
+// властивість лишилась одна — але шов під transport цінний і без другої
+// поверхні: він тримає компонент незалежним від того, звідки беруться
+// дані.
+//
+// РОЗКЛАДКА — МАЙСТЕР-ДЕТАЛЬ. Три яруси: вкладка (шапка) → рядок
+// (лівий список) → панель (рейка над вмістом). Адреса несе всі три, тож
+// закладку можна поставити не на сторінку, а на конкретну позицію в
+// конкретному розрізі. Дерево живе в nav.js, розбір адреси — в routes.js,
+// рядки списку — в master.js; тут лишається саме РОЗКЛАДАННЯ.
 
-import { esc } from "./format.js";
-import { NAV, PATHS } from "./nav.js";
+import { esc, uah0, capitalUAH } from "./format.js";
+import { TABS, PATHS, HOME, panesFor, kindOf } from "./nav.js";
 import { bindInfo } from "./info.js";
 import { bindDialogBackdrop } from "./forms.js";
 import { adoptStyles } from "./styles.js";
 import { createStore } from "./store.js";
 import { skeleton } from "./skeleton.js";
 import { fitCharts } from "./charts.js";
-import { parseRoute, ANCHORS } from "./routes.js";
+import { parseRoute, ANCHORS, markerKind, seg } from "./routes.js";
+import {
+  portfolioRows, moneyRows, staticRows, chipsOf, rowHTML, footValue,
+  kindOfItem, KIND_ONE, KIND_COLOR, overLimit,
+} from "./master.js";
+import { loadPositionsData } from "./views/positions.js";
 
+import { overview } from "./views/overview.js";
 import * as now from "./views/now-view.js";
 import * as instr from "./views/instrument-view.js";
 import * as portfolio from "./views/portfolio-view.js";
@@ -36,7 +46,7 @@ import * as plan from "./views/plan-view.js";
 // саме так портфель і росте: по одному, коли назбиралось на наступний.
 // Три, а не чотири — це найменша кількість, яка вже показує напрямок.
 //
-// currentColor навмисно: знак бере колір від тексту, серед якого стоїть,
+// currentColor навмисно: знак бере колір від посилання, у якому стоїть,
 // і не має власної константи, яку довелось би правити разом із палітрою.
 const MARK = `<svg class="mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
   <rect x="2.5" y="14" width="7.5" height="7.5" rx="2"/>
@@ -44,9 +54,11 @@ const MARK = `<svg class="mark" viewBox="0 0 24 24" fill="currentColor" aria-hid
   <rect x="14" y="2.5" width="7.5" height="7.5" rx="2"/>
 </svg>`;
 
-// Розділи, які малюються НАВІТЬ коли /api/summary не віддається.
+const TAB_BY_KEY = new Map(TABS.map((t) => [t.key, t]));
+
+// Вкладки, які малюються НАВІТЬ коли /api/summary не віддається.
 //
-// Це не поблажка, а факт про них: жодна сторінка в цих двох не ЗАЛЕЖИТЬ
+// Це не поблажка, а факт про них: жодна панель у цих двох не ЗАЛЕЖИТЬ
 // від зведення. «Політика» живе на GET /api/settings, «Налаштування» — на
 // довідниках (м'які читання) і на власних кнопках. А /api/summary —
 // найскладніший шлях у бекенді, і його поломка нічого не каже про решту
@@ -55,73 +67,81 @@ const MARK = `<svg class="mark" viewBox="0 0 24 24" fill="currentColor" aria-hid
 // Одне уточнення, відколи «Стратегія і ціль» ставить виміряні числа поруч
 // із питаннями: вона зведення ЧИТАЄ, але через `(ctx.summary || {})`. Без
 // нього зі сторінки зникають рівно рядки фактів, а питання, набори,
-// таблиця різниці й запис лишаються. Доти тут стояло «жодна сторінка не
-// читає зведення» — тепер це було б неправдою, а межа насправді проходить
-// не там: не «не читає», а «не порожніє без нього».
+// таблиця різниці й запис лишаються. Межа проходить не «не читає», а
+// «не порожніє без нього».
 //
 // Практичний бік: саме тут живе відновлення з резервної копії, тобто
 // сторінка, потрібна рівно тоді, коли все інше зламалось.
 const SUMMARY_FREE = new Set(["policy", "settings"]);
 
-// Сторінка на підрозділ: ключ — повний шлях «розділ/підрозділ».
+// Панель на СТАТИЧНИЙ рядок: ключ — повна трійка «вкладка/рядок/панель».
 //
 // Таблиця пласка, а не дерево, навмисно: маршрут приходить рядком, і
 // шукати по ньому одним звертанням дешевше й читабельніше, ніж спускатись
-// двома рівнями. Порядок груп — той самий, що в nav.js; розійтись вони не
-// можуть, бо шлях, якого тут немає, впаде на очах при першому ж переході.
+// трьома рівнями. Порядок вкладок — той самий, що в nav.js; розійтись
+// вони не можуть, бо шлях, якого тут немає, впаде на очах при першому ж
+// переході.
 const VIEWS = {
-  "now/todo": now.todo,
-  "now/buy": now.buy,
-  "now/buys": now.buys,
+  "overview/main/main": overview,
 
-  "instr/bonds": instr.bonds,
-  "instr/funds": instr.funds,
-  "instr/npf": instr.npf,
-  "instr/deposits": instr.deposits,
-  "instr/reserve": instr.reserve,
+  "work/todo/main": now.todo,
+  "work/buy/main": now.buy,
+  "work/buys/main": now.buys,
 
-  "portfolio/positions": portfolio.positions,
-  "portfolio/growth": portfolio.growth,
-  "portfolio/period": portfolio.period,
-  "portfolio/structure": portfolio.structure,
-  "portfolio/limits": portfolio.limits,
-  "portfolio/compare": portfolio.compare,
+  "portfolio/all/positions": portfolio.positions,
+  "portfolio/all/growth": portfolio.growth,
+  "portfolio/all/period": portfolio.period,
+  "portfolio/all/structure": portfolio.structure,
+  "portfolio/all/limits": portfolio.limits,
+  "portfolio/all/compare": portfolio.compare,
+  "portfolio/all/record": portfolio.record,
 
-  "money/balances": money.balances,
-  "money/flows": money.flows,
-  "money/tax": money.tax,
+  "money/all/balances": money.balances,
+  "money/all/flows": money.flows,
+  "money/all/tax": money.tax,
   // importStatement, а не import: останнє — зарезервоване слово.
-  "money/import": money.importStatement,
-  "money/reconcile": money.reconcile,
+  "money/all/import": money.importStatement,
+  "money/all/reconcile": money.reconcile,
 
-  "plan/inflow": plan.inflow,
-  "plan/route": plan.route,
-  "plan/goal": plan.goal,
-  "plan/levers": plan.levers,
-  "plan/payouts": plan.payouts,
+  "plan/inflow/main": plan.inflow,
+  "plan/route/main": plan.route,
+  "plan/goal/main": plan.goal,
+  "plan/levers/main": plan.levers,
+  "plan/payouts/main": plan.payouts,
 
-  "policy/strategy": policy.strategy,
-  "policy/mix": policy.mix,
-  "policy/instruments": policy.instruments,
-  "policy/reserve": policy.reserve,
-  "policy/assumptions": policy.assumptions,
+  "policy/strategy/main": policy.strategy,
+  "policy/mix/main": policy.mix,
+  "policy/instruments/main": policy.instruments,
+  "policy/reserve/main": policy.reserve,
+  "policy/assumptions/main": policy.assumptions,
 
-  "settings/refs": settings.refs,
-  "settings/backup": settings.backup,
+  "settings/refs/main": settings.refs,
+  "settings/backup/main": settings.backup,
 };
 
-
-// Розділ живе в хеші адреси, а не тільки в пам'яті компонента. Розбір
-// маршруту й адреси форм — у js/routes.js: їх будують самі розділи, і
-// тримати їх тут означало б замкнути граф імпортів у кільце.
+// Панель на рядок ІЗ ДАНИХ: ключ — «вкладка/вид/панель». Рядків тут
+// скільки завгодно, а видів п'ять, тож таблиця лишається кінцевою.
+const KIND_VIEWS = {
+  "portfolio/position": instr.positionPane,
+  "portfolio/reserve": instr.reservePane,
+  "money/account": money.accountPane,
+};
 
 export class OddInvestApp extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: "open" });
-    this._section = "now";
-    this._sub = "todo";
+    const [tab, item, pane] = HOME.split("/");
+    this._tab = tab;
+    this._item = item;
+    this._pane = pane;
     this._started = false;
+    // Порожній рядок означає «зріз не вибрано». Живе в пам'яті, а не в
+    // адресі, навмисно: чип — це погляд на список, а не місце в
+    // застосунку, і закладка на «Портфель, показані лише вклади» обіцяла
+    // б стан, якого після покупки паперу вже не буде.
+    this._chip = "";
+    this._filter = "";
   }
 
   /** Транспорт до бекенда. Ставиться ззовні; поки його немає —
@@ -132,7 +152,7 @@ export class OddInvestApp extends HTMLElement {
   }
 
   // Поломка, проковтнута soft(). У консоль іде кожна — саме там її
-  // шукатимуть; тостом показуємо ЛИШЕ ПЕРШУ за завантаження вкладки:
+  // шукатимуть; тостом показуємо ЛИШЕ ПЕРШУ за завантаження панелі:
   // коли бекенд ліг цілком, кожен м'який маршрут дасть свою помилку, і
   // чотири тости підряд кажуть менше, ніж один.
   _reportSoft(path, err) {
@@ -159,12 +179,12 @@ export class OddInvestApp extends HTMLElement {
     this._onResize = () => {
       // Стан шухляди перераховується ТУТ ТЕЖ, а не лише в слухачі
       // matchMedia. Це не дублювання заради надійності взагалі, а
-      // страховка під конкретну ціну помилки: поки шухляда відкрита,
+      // страховка під конкретну ціну помилки: поки список відкритий,
       // шапка й <main> лежать під inert, і якщо перетин 900px пройде повз
       // застосунок, він лишиться нерухомим ЦІЛКОМ — не «трохи криво», а
       // без жодної клікабельної точки. Перерахунок ідемпотентний:
-      // _setNav сам зводить стан до нуля на широкому екрані.
-      this._setNav(this.hasAttribute("data-nav-open"));
+      // _setMaster сам зводить стан до нуля на широкому екрані.
+      this._setMaster(this.hasAttribute("data-master-open"));
       clearTimeout(this._resizeTimer);
       this._resizeTimer = setTimeout(
         () => fitCharts(this.shadowRoot.getElementById("pbody")), 150);
@@ -182,38 +202,40 @@ export class OddInvestApp extends HTMLElement {
   async _route() {
     const r = parseRoute(window.location.hash);
     // Адресу міняємо, але рендер НЕ відкладаємо до наступного hashchange:
-    // подія прийде й застане this._section уже тим самим, тобто зробить
-    // нічого. Якби ми тут виходили, перше завантаження з порожнім хешем
-    // залежало б від того, чи браузер вважає replace() зміною фрагмента, —
-    // а це рівно та залежність, через яку екран лишається білим.
-    if (r.redirect) window.location.replace(`#/${r.redirect}`);
-    const changed = r.section !== this._section || r.sub !== this._sub;
-    this._section = r.section;
-    this._sub = r.sub;
-    // Якір — теж частина адреси, і сторінка має право його знати ще ДО
-    // першого малювання: рейка кроків воронки мусить одразу підсвітити
-    // той крок, на який прийшли за посиланням. Далі, коли рейкою ходять
-    // усередині сторінки, підсвітку пересуває вона сама — перемальовування
-    // там не відбувається (changed === false).
+    // подія прийде й застане стан уже тим самим, тобто зробить нічого.
+    // Якби ми тут виходили, перше завантаження з порожнім хешем залежало
+    // б від того, чи браузер вважає replace() зміною фрагмента, — а це
+    // рівно та залежність, через яку екран лишається білим.
+    //
+    // Маркер «@first:<вид>» замінити зараз не можна: який саме папір
+    // перший, стане відомо аж після завантаження позицій. Адресу для
+    // нього перепише _loadPage.
+    if (r.redirect && !markerKind(r.item)) window.location.replace(`#/${r.redirect}`);
+    const changed = r.tab !== this._tab || r.item !== this._item || r.pane !== this._pane;
+    this._tab = r.tab;
+    this._item = r.item;
+    this._pane = r.pane;
+    // Якір — теж частина адреси, і панель має право його знати ще ДО
+    // першого малювання: посилання на форму мусить одразу довести саме до
+    // неї.
     this._anchor = r.anchor;
     // Шухляда закривається ПЕРШОЮ, до рендеру. Порядок тут не смаковий:
     // поки вона відкрита, <main> лежить під inert, а фокус на inert-елемент
     // не сідає взагалі — тобто закриття після рендеру мовчки з'їдало б
     // переведення фокуса нижче, і читач екрана лишався б на посиланні.
-    this._setNav(false);
+    this._setMaster(false);
     if (changed || !this._painted) {
       await this._loadPage();
       this._painted = true;
-      // Фокус їде в сторінку: без цього читач екрана лишається на
-      // посиланні меню й не дізнається, що вміст замінився цілком.
+      // Фокус їде в панель: без цього читач екрана лишається на
+      // посиланні списку й не дізнається, що вміст замінився цілком.
       if (changed) this.shadowRoot.getElementById("main").focus({ preventScroll: true });
     }
     if (r.anchor) this._reveal(r.anchor);
   }
 
-  // Те, що робив хвіст _goto: розкрити ланцюг згорнутих секцій, довести
-  // до форми й поставити курсор у перше поле. Тепер це наслідок
-  // маршруту, а не окремий шлях виконання.
+  // Розкрити ланцюг згорнутих секцій, довести до форми й поставити курсор
+  // у перше поле. Наслідок маршруту, а не окремий шлях виконання.
   _reveal(anchor) {
     const sel = ANCHORS[anchor];
     const el = sel && this.shadowRoot.querySelector(sel);
@@ -229,43 +251,43 @@ export class OddInvestApp extends HTMLElement {
     el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
     // Курсор у поле — ЛИШЕ коли ціль і є формою: тоді якір вів саме до
     // запису, і людина продовжує з першого поля.
-    //
-    // Коли ціль — блок сторінки (крок воронки), поле всередині нього все
-    // одно знайдеться, але це буде перше-ліпше: на кроці «Що в мене» —
-    // чекбокс «поповнюваний» у рядку вкладу десь посеред таблиці. Тому
-    // фокус іде на сам блок (звідси tabindex="-1" на .step), і читач
-    // екрана приземляється на його заголовок, а не в середину змісту.
     const form = el.matches("form") ? el : el.closest("form");
     if (form) form.querySelector("input, select")?.focus();
     else el.focus({ preventScroll: true });
   }
 
-  // ---------- контекст, який отримують розділи ----------
+  // ---------- контекст, який отримують панелі ----------
 
   get _ctx() {
     return {
       store: this._store,
       api: (method, path, body) => this._api(method, path, body),
-      // Читання, яке не валить розділ: маршрут може бути новішим за
+      // Читання, яке не валить панель: маршрут може бути новішим за
       // бекенд, а картка без бенчмарку краща за порожню вкладку.
       soft: (path, fallback = []) => this._store.soft(path, fallback),
-      // Де ми зараз. Потрібне тим карткам, які живуть на двох сторінках і
-      // показують різне: журнал резерву в «Активах» і форма резерву в
-      // «Записати» — це одна функція з двома режимами.
-      section: this._section,
-      sub: this._sub,
+      // Де ми зараз. `section`/`sub` тут більше немає: їх не читала
+      // ЖОДНА в'юшка вже до цього переїзду — порожній шов, який
+      // читається як натяк, що ним варто користуватись.
+      tab: this._tab,
+      item: this._item,
+      pane: this._pane,
+      // Вид сутності й та її частина id, яка є ключем у даних: для
+      // "bond:UA4000227656" це "bond" і "UA4000227656". Розбирати рядок
+      // у кожній панелі означало б п'ять копій одного розбору.
+      kind: kindOfItem(this._item),
+      key: String(this._item).slice(String(this._item).indexOf(":") + 1),
       anchor: this._anchor || "",
       summary: this._summary,
       brokers: this._brokers,
       fundCatalog: this._fundCatalog,
       npfAccounts: this._npfAccounts,
+      // Дані позицій, уже завантажені оболонкою для майстер-списку.
+      // Панель бере їх звідси, а не тягне вдруге: store дедуплікує GET-и,
+      // але зайвий обхід восьми маршрутів усе одно коштує кадр.
+      positions: this._posData,
       root: this.shadowRoot,
       toast: (msg, ok) => this._toast(msg, ok),
-      // goto тут більше немає. Він лишався швом для розділів, які кличуть
-      // перехід кодом, — але жодного такого розділу не існує відколи
-      // швидкі дії «Огляду» стали звичайними <a href>. Порожній шов
-      // читається як натяк, що ним варто користуватись.
-      // Теплий перерендер: сторінка вже на екрані, змінилось одне число.
+      // Теплий перерендер: панель уже на екрані, змінилось одне число.
       reload: () => this._loadPage({ warm: true }),
       brokerList: (lots) => this._brokerList(lots),
       brokerOptions: (sel) => this._brokerOptions(sel),
@@ -327,45 +349,50 @@ export class OddInvestApp extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <!-- Кнопка, а не посилання з href="#main": усередині shadow root
            фрагмент документа не знаходить нічого, а хеш у адресному
-           рядку ще й посварився б із маршрутом розділу. Читач екрана
-           оголосить це кнопкою — жест той самий. -->
+           рядку ще й посварився б із маршрутом. Читач екрана оголосить
+           це кнопкою — жест той самий. -->
       <button class="skip" id="skip">До вмісту</button>
       <header>
-        <!-- Гамбургер лише на вузькому екрані: від 900px панель стоїть
-             прикріпленою колонкою, і кнопка «показати меню» до видимого
-             меню — це кнопка, яка нічого не робить. display:none, а не
-             visibility чи opacity, — щоб вона вийшла й із порядку
-             табуляції теж. -->
-        <button class="ghost nav-toggle" id="navToggle" aria-expanded="false"
-          aria-controls="nav" aria-label="Розділи">☰</button>
-        ${MARK}
-        <!-- Не <h1>: єдиний перший заголовок сторінки тепер у <main> і
-             називає підрозділ, у якому ти стоїш. Два <h1> на сторінці
-             зробили б дерево заголовків пласким рівно там, де воно
-             нарешті стало дворівневим. -->
-        <p class="brand">ODD Invest</p>
+        <!-- Гамбургер лише на вузькому екрані: від 900px майстер-список
+             стоїть прикріпленою колонкою, і кнопка «показати список» до
+             видимого списку — це кнопка, яка нічого не робить. -->
+        <button class="hdr-btn master-toggle" id="masterToggle" aria-expanded="false"
+          aria-controls="master" aria-label="Список">☰</button>
+        <!-- Знак веде на головну. Доти він був картинкою без href, тобто
+             найочевидніший жест застосунку — «поверни мене на початок» —
+             не працював зовсім. -->
+        <a class="mark-l" id="markLink" href="#/${HOME}" aria-label="ODD Invest — на початок">${MARK}</a>
+        <nav class="tabs" id="tabs" aria-label="Розділи застосунку"></nav>
         <span class="sp"></span>
         <span id="avail" class="hdr-stamp"></span>
-        <button class="ghost" id="refresh">↻ Оновити НБУ</button>
+        <!-- Капітал і дельта в шапці: єдине число, яке має бути видно з
+             будь-якої панелі. Дельти поки немає — потрібен рух за 30 днів
+             зі знімків, і вигадувати його не будемо (КРОК 4). -->
+        <span id="cap" class="hdr-cap"></span>
+        <!-- ↻ стоїть тут ТИМЧАСОВО. Оновлення довідника НБУ належить
+             «Налаштуванням → Довідники», де живе сам довідник, і туди
+             воно переїде разом із тією вкладкою. Прибрати кнопку зараз
+             означало б лишити застосунок без єдиного способу оновити
+             курси; лишити її без цього абзацу — забути перенести. -->
+        <button class="hdr-btn" id="refresh" title="Оновити довідник НБУ"
+          aria-label="Оновити довідник НБУ">↻</button>
+        <a class="hdr-btn" id="gear" href="#/settings/refs/main"
+          title="Налаштування" aria-label="Налаштування">⚙</a>
       </header>
       <div class="layout">
-        <!-- href, а не голий <a>: доти вкладки не мали ні адреси, ні
-             tabindex, тобто головна навігація застосунку була недосяжна
-             з клавіатури ЗОВСІМ. Тепер це звичайні посилання, і браузер
-             сам дає і фокус, і Enter, і «відкрити в новій вкладці». -->
-        <nav id="nav" aria-label="Розділи застосунку"></nav>
+        <aside id="master" aria-label="Список"></aside>
         <div class="col">
           <!-- role="alert", бо сюди пише рівно одна річ: «бекенд не віддає
                зведення». Це той єдиний випадок у застосунку, який має право
                перебити читача екрана посеред речення. Живе ПОЗА <main>:
-               сторінки перемальовують main цілком і стерли б смугу першим
+               панелі перемальовують main цілком і стерли б смугу першим
                же рендером. -->
           <div id="alert" role="alert" hidden></div>
           <main id="main" tabindex="-1"></main>
         </div>
       </div>
       <!-- Підкладка під шухлядою. Окремим елементом, а не ::backdrop, бо
-           шухляда навмисно не <dialog> — причина при _setNav. -->
+           шухляда навмисно не <dialog> — причина при _setMaster. -->
       <div class="scrim" id="scrim" hidden></div>
       <div id="live" class="sr-only" role="status" aria-live="polite"></div>
       <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -375,72 +402,71 @@ export class OddInvestApp extends HTMLElement {
            автоматизований браузер (той самий клас середовищ, де вже
            довелось патчити Escape для #infoPop — shadow root), він
            мовчки повертає false, і кнопка «видалити» лише виглядає
-           зламаною — запит просто ніколи не йде. Свій <dialog> від
-           цього не залежить: показує й закриває його сам застосунок. -->
+           зламаною — запит просто ніколи не йде. -->
       <dialog class="infopop" id="confirmPop" aria-labelledby="confirmPopText">
         <div class="box">
           <p id="confirmPopText"></p>
           <div class="form-actions">
-            <!-- Підпис і клас цієї кнопки виставляє confirmDialog під
-                 кожне питання: діалог один, а питань уже два («видалити?»
-                 і «додати поповнення?»), і зашите слово перетворювало
-                 друге на пропозицію протилежного. -->
             <button type="button" class="warn" data-confirm-yes></button>
             <button type="button" class="quiet" data-confirm-no>Скасувати</button>
           </div>
         </div>
       </dialog>
       <!-- Правка рядка (forms.js:openEdit). Тіло малює той, хто відкриває.
-           Стоїть ТУТ, а не в розділі, з конкретної причини: після
+           Стоїть ТУТ, а не в панелі, з конкретної причини: після
            успішного запису apply() кличе ctx.reload(), а той переписує
            main.innerHTML цілком — діалог усередині main знищився б у мить,
-           коли він ще відкритий і тримає top layer.
-           Escape приходить сюди задарма: спільний обробник (info.js:bindInfo)
-           ловить dialog[open] загалом, а не якийсь один попап. -->
+           коли він ще відкритий і тримає top layer. -->
       <dialog class="infopop editpop" id="editPop" aria-labelledby="editPopTitle">
         <div class="box"></div>
       </dialog>
     `;
-    // Обробника кліку на ПОСИЛАННЯХ меню тут немає: посилання веде в
-    // хеш, hashchange будить _route(), і той малює сторінку. Один шлях
-    // виконання замість двох, і «назад» працює задарма.
+    // Обробників кліку на ПОСИЛАННЯХ вкладок і рядків тут немає:
+    // посилання веде в хеш, hashchange будить _route(), і той малює
+    // панель. Один шлях виконання замість двох, і «назад» працює задарма.
     //
-    // А от заголовок групи — кнопка, і їй обробник потрібен. Делегований на
-    // сам <nav>, бо меню перемальовується на кожному переході: слухач на
-    // кожній кнопці довелось би вішати заново після кожного рендеру.
-    this.shadowRoot.getElementById("nav").addEventListener("click", (e) => {
-      const btn = e.target.closest(".nav-g");
-      if (!btn) return;
-      this._openGroup(btn.dataset.group, btn.getAttribute("aria-expanded") !== "true");
+    // А от чипи й фільтр — не адреса (довід у конструкторі), і їм обробник
+    // потрібен. Делеговані на сам список, бо він перемальовується на
+    // кожному переході.
+    const master = this.shadowRoot.getElementById("master");
+    master.addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      this._chip = chip.dataset.chip === this._chip ? "" : chip.dataset.chip;
+      this._paintMaster();
     });
-    //
+    master.addEventListener("input", (e) => {
+      if (!e.target.classList.contains("master-f")) return;
+      this._filter = e.target.value;
+      this._paintMaster({ keepFocus: true });
+    });
+
     // Ширина — не подія розкладки, а подія стану: перетнувши 900px із
     // відкритою шухлядою, ми лишили б inert на шапці й <main>, тобто
-    // застосунок на десктопі став би нерухомим цілком. Слухач тримається
-    // на компоненті, тож disconnectedCallback його й прибирає.
+    // застосунок на десктопі став би нерухомим цілком.
     this._wide = window.matchMedia("(min-width: 900px)");
-    this._onWide = () => this._setNav(false);
+    this._onWide = () => this._setMaster(false);
     this._wide.addEventListener("change", this._onWide);
-    this.shadowRoot.getElementById("navToggle")?.addEventListener("click", () => {
-      this._setNav(!this.hasAttribute("data-nav-open"));
+    this.shadowRoot.getElementById("masterToggle")?.addEventListener("click", () => {
+      this._setMaster(!this.hasAttribute("data-master-open"));
     });
     // Закриття БЕЗ переходу — підкладкою або Escape — вертає фокус на
     // гамбургер: інакше він лишився б на посиланні, якого вже не видно.
     // У випадку переходу цього робити не можна, і саме тому повернення
-    // живе тут, а не всередині _setNav: там воно перебивало б фокус,
-    // який _route щойно поставив на сторінку.
-    const closeNav = () => {
-      this._setNav(false);
-      this.shadowRoot.getElementById("navToggle")?.focus();
+    // живе тут, а не всередині _setMaster: там воно перебивало б фокус,
+    // який _route щойно поставив на панель.
+    const closeMaster = () => {
+      this._setMaster(false);
+      this.shadowRoot.getElementById("masterToggle")?.focus();
     };
-    this.shadowRoot.getElementById("scrim")?.addEventListener("click", closeNav);
+    this.shadowRoot.getElementById("scrim")?.addEventListener("click", closeMaster);
     // Escape закриває шухляду — але лише коли зверху немає діалогу.
     // info.js:bindInfo слухає ту саму клавішу на тому самому корені й
     // закриває dialog[open]; без цієї сторожі одне натискання закривало б
     // і попап «як це читати», і шухляду під ним.
     this.shadowRoot.addEventListener("keydown", (e) => {
       if (e.key !== "Escape" || this.shadowRoot.querySelector("dialog[open]")) return;
-      if (this.hasAttribute("data-nav-open")) closeNav();
+      if (this.hasAttribute("data-master-open")) closeMaster();
     });
     this.shadowRoot.getElementById("skip")?.addEventListener("click", () => {
       const main = this.shadowRoot.getElementById("main");
@@ -455,13 +481,8 @@ export class OddInvestApp extends HTMLElement {
       try {
         await this._api("POST", "refresh");
         this._toast("Довідник НБУ оновлено");
-        // _loadPage, а не _loadTab: методу з таким іменем не існує від
-        // самого переходу на два яруси, і виклик кидав TypeError. Ловив
-        // його ось цей catch — тобто УСПІШНЕ оновлення закінчувалось
-        // тостом з помилкою, а сторінка лишалась зі старими числами.
-        //
         // Теплим, як і ctx.reload(): вміст на екрані вже є, і міняються
-        // самі числа, а не форма сторінки — скелет тут стер би те, на що
+        // самі числа, а не форма панелі — скелет тут стер би те, на що
         // людина дивиться, заради даних, які приїдуть за мить.
         await this._loadPage({ warm: true });
       }
@@ -470,66 +491,121 @@ export class OddInvestApp extends HTMLElement {
     });
   }
 
-  // ---------- навігація ----------
+  // ---------- шапка ----------
 
-  // Меню двома ярусами. Розкрита одна група — вісім заголовків плюс
-  // тридцять п'ять пунктів це сорок три рядки, тобто вище за ноутбучний
-  // екран, і половина меню жила б за краєм.
-  //
-  // Заголовок групи — КНОПКА, яка розкриває, а не посилання, яке веде.
-  // Спершу він був посиланням на перший підрозділ: так адреса «#/assets»
-  // кудись вела, а стан розкриття лишався похідним від маршруту й не міг
-  // розійтися з нею. Розсинхронізації справді немає, але ціна виявилась
-  // не та: щоб просто ЗАЗИРНУТИ, що лежить в «Активах», доводилось туди
-  // піти — тобто перше натискання завжди міняло сторінку, навіть коли
-  // питання було «а що там усередині».
-  //
-  // Адреса «#/assets» від цього нікуди не поділась: routes.js розкриває
-  // голий розділ у перший підрозділ, просто тепер її не пропонує меню.
-  //
-  // aria-expanded замість aria-current на заголовку — стан розкриття;
-  // aria-current="location" лишається окремо й каже, у якій групі лежить
-  // сторінка, ДЕ Б НЕ БУЛА розкрита. Це різні речі, і саме тому їх двоє:
-  // можна дивитись у «Записати», стоячи в «Грошах», і бачити обидва факти.
-  //
-  // Списки малюються для ВСІХ груп і ховаються атрибутом hidden, а не
-  // викидаються з розмітки: aria-controls мусить указувати на елемент,
-  // який існує, а прихований hidden'ом вузол чесно зникає й із дерева
-  // доступності.
-  _navHTML() {
-    const here = `${this._section}/${this._sub}`;
-    return `<ul class="nav-l">${NAV.map((g) => {
-      const open = g.key === this._open;
-      const listId = `nav-g-${g.key}`;
-      const head = `<button class="nav-g" type="button" data-group="${g.key}"
-        aria-expanded="${open}" aria-controls="${listId}"${
-  g.key === this._section ? ` aria-current="location"` : ""}>${g.label}</button>`;
-      const items = g.items.map((it) => {
-        const path = `${g.key}/${it.key}`;
-        // Розділювач висить на <li>, а не на посиланні: у посилання вже є
-        // ліва смуга активного стану, і друга лінія на тому самому
-        // елементі малювалась би кутом.
-        return `<li${it.gap ? ` class="nav-sep"` : ""}><a class="nav-i" href="#/${path}"${
-          path === here ? ` aria-current="page"` : ""}>${it.label}</a></li>`;
+  _paintHeader() {
+    const s = this._summary || {};
+    // ⚙ окремо від вкладок: службовий кут застосунку не стоїть в одному
+    // ряду з питаннями про гроші.
+    this.shadowRoot.getElementById("tabs").innerHTML = TABS
+      .filter((t) => !t.gear && !t.mark)
+      .map((t) => {
+        const first = t.dynamic ? "all" : t.items[0].id;
+        const href = `#/${t.key}/${first}/${panesFor(t.key, first)[0].key}`;
+        const n = this._tabBadge(t.key);
+        return `<a class="tab" href="${href}"${
+          t.key === this._tab ? ` aria-current="page"` : ""}>${esc(t.label)}${
+          n ? `<span class="tab-n">${esc(n)}</span>` : ""}</a>`;
       }).join("");
-      return `<li>${head}<ul class="nav-l" id="${listId}"${open ? "" : " hidden"}>${items}</ul></li>`;
-    }).join("")}</ul>`;
+
+    const gear = this.shadowRoot.getElementById("gear");
+    if (this._tab === "settings") gear.setAttribute("aria-current", "page");
+    else gear.removeAttribute("aria-current");
+
+    const mark = this.shadowRoot.getElementById("markLink");
+    const [homeTab, homeItem, homePane] = HOME.split("/");
+    const atHome = this._tab === homeTab && this._item === homeItem
+      && this._pane === homePane;
+    if (atHome) mark.setAttribute("aria-current", "page");
+    else mark.removeAttribute("aria-current");
+
+    const cap = this.shadowRoot.getElementById("cap");
+    cap.textContent = this._summary ? uah0(capitalUAH(s)) : "";
   }
 
-  // Розкрити групу (або згорнути ту саму). Гармошка: розкрита завжди одна.
-  //
-  // Правиться DOM на місці, а не перемальовується меню цілком, і це не
-  // оптимізація: innerHTML замінив би кнопку, на якій щойно був фокус, і
-  // клавіатура опинилась би на початку документа після кожного розкриття.
-  _openGroup(key, open) {
-    const nav = this.shadowRoot.getElementById("nav");
-    this._open = open ? key : "";
-    nav.querySelectorAll(".nav-g").forEach((b) => {
-      const on = b.dataset.group === this._open;
-      b.setAttribute("aria-expanded", String(on));
-      const list = nav.querySelector(`#nav-g-${b.dataset.group}`);
-      if (list) list.hidden = !on;
-    });
+  // Лічильник на вкладці. Лише те, що ВИМІРЯНЕ: скільки задач чекає
+  // рішення й скільки вимірів вийшло за ліміт. На «Портфелі» лічильника
+  // немає навмисно — кількість позицій ні про що не попереджає, а
+  // цифра поруч із підписом читається як «тут щось не так».
+  _tabBadge(key) {
+    const s = this._summary || {};
+    if (key === "work") {
+      const n = (s.tasks || []).filter((t) => t.sev === "now").length;
+      return n ? String(n) : "";
+    }
+    if (key === "policy") {
+      const n = overLimit(s).length;
+      return n ? String(n) : "";
+    }
+    return "";
+  }
+
+  // ---------- майстер-список ----------
+
+  /** Рядки цієї вкладки. Одне місце, звідки їх беруть і список, і
+   *  розкриття маркера «@first», і перевірка «а чи існує такий рядок». */
+  _rows() {
+    const tab = TAB_BY_KEY.get(this._tab);
+    if (!tab) return [];
+    if (tab.dynamic === "positions") return portfolioRows(this._ctx, this._posData || {});
+    if (tab.dynamic === "accounts") return moneyRows(this._ctx);
+    return staticRows(tab, this._ctx);
+  }
+
+  _paintMaster({ keepFocus = false } = {}) {
+    const tab = TAB_BY_KEY.get(this._tab);
+    const host = this.shadowRoot.getElementById("master");
+    // «Огляд» списку не має ЗОВСІМ — не порожній список, а жодного.
+    // Порожня колонка на 376 пікселів поруч зі сторінкою, яка про
+    // портфель цілком, читалась би як список, що не завантажився.
+    this.toggleAttribute("data-solo", tab ? tab.master === false : false);
+    if (!tab || tab.master === false) { host.innerHTML = ""; return; }
+    const all = this._allRows || [];
+    const q = this._filter.trim().toLowerCase();
+    const shown = all.filter((r) =>
+      (!this._chip || r.kind === this._chip || r.kind === "all")
+      && (!q || `${r.name} ${r.sub}`.toLowerCase().includes(q)));
+
+    const chips = tab.chips
+      ? `<div class="chips">${chipsOf(all).map((c) =>
+        `<button type="button" class="chip" data-chip="${esc(c.key)}"
+          aria-pressed="${c.key === this._chip}">${esc(c.label)}</button>`).join("")}</div>`
+      : "";
+    const a = tab.action;
+    const action = a
+      ? `<a class="master-a" href="#/${tab.key}/${a.item}/${a.pane}${
+        a.anchor ? `/${a.anchor}` : ""}">${esc(a.label)}</a>` : "";
+
+    // Два різні порожні стани, бо сказати треба різне: у списку немає
+    // нічого — це факт про портфель; фільтр нічого не знайшов — це факт
+    // про набраний рядок, і виправляється він інакше.
+    const body = shown.length
+      ? `<ul class="m-list">${shown.map((r) =>
+        rowHTML(tab.key, r, this._item)).join("")}</ul>`
+      : `<div class="m-none">${q || this._chip
+        ? "Нічого не знайшлось. Спробуй інакший запит або зніми зріз."
+        : "Тут поки порожньо."}</div>`;
+
+    host.innerHTML = `
+      <div class="master-h">
+        <input class="master-f" type="search" placeholder="${esc(tab.search)}"
+          aria-label="${esc(tab.search)}" value="${esc(this._filter)}">
+        ${action}
+      </div>
+      ${chips}
+      ${body}
+      <div class="master-foot">
+        <span>${esc(tab.footLabel)}</span>
+        <b>${esc(footValue(tab.key, this._ctx, all))}</b>
+      </div>`;
+
+    // Курсор назад у поле фільтра: перемальовування списку інакше
+    // викидало б із нього після кожного набраного символа.
+    if (keepFocus) {
+      const f = host.querySelector(".master-f");
+      f?.focus();
+      f?.setSelectionRange(f.value.length, f.value.length);
+    }
   }
 
   // Шухляда — атрибут на хості, а не <dialog>. Три причини, і всі три з
@@ -543,31 +619,30 @@ export class OddInvestApp extends HTMLElement {
   // браузерах, де нативна модальність уже одного разу збрехала —
   // window.confirm() мовчки повертав false, і через це в forms.js живе
   // власний #confirmPop, а в info.js — рукописний Escape для dialog[open]
-  // всередині shadow root. Четвертий <dialog> успадкував би ту саму
-  // латку.
+  // всередині shadow root. Четвертий <dialog> успадкував би ту саму латку.
   //
-  // Третя: посилання шухляди міняють хеш, тобто закривати її довелось би
+  // Третя: посилання списку міняють хеш, тобто закривати його довелось би
   // явно все одно.
   //
   // inert замість пастки фокуса: браузер сам не пускає Tab у приховане,
   // і циклити список посилань руками не треба. Вартовий this._wide тут
   // обов'язковий — на широкому екрані шухляди немає, і глушити під нею
   // половину застосунку не можна.
-  _setNav(open) {
+  _setMaster(open) {
     const on = !!open && !this._wide.matches;
-    this.toggleAttribute("data-nav-open", on);
-    this.shadowRoot.getElementById("navToggle")?.setAttribute("aria-expanded", String(on));
+    this.toggleAttribute("data-master-open", on);
+    this.shadowRoot.getElementById("masterToggle")?.setAttribute("aria-expanded", String(on));
     const scrim = this.shadowRoot.getElementById("scrim");
     if (scrim) scrim.hidden = !on;
     for (const el of [this.shadowRoot.querySelector("header"), this.shadowRoot.getElementById("main")]) {
       if (el) el.inert = on;
     }
     if (!on) return;
-    this.shadowRoot.querySelector("nav a")?.focus();
+    this.shadowRoot.querySelector("#master .master-f")?.focus();
   }
 
-  // Смуга стану під навігацією. Це факт про застосунок цілком, а не про
-  // якусь картку, і живе він ПОЗА <main> навмисно: розділи перемальовують
+  // Смуга стану під шапкою. Це факт про застосунок цілком, а не про
+  // якусь картку, і живе він ПОЗА <main> навмисно: панелі перемальовують
   // main цілком і стерли б її першим же рендером.
   _alert(html) {
     const el = this.shadowRoot.getElementById("alert");
@@ -575,7 +650,7 @@ export class OddInvestApp extends HTMLElement {
     el.hidden = !html;
   }
 
-  // Смуга оголошень. Розділ змінюється БЕЗ переходу сторінки, тож читач
+  // Смуга оголошень. Панель змінюється БЕЗ переходу сторінки, тож читач
   // екрана про це не дізнається ніяк — крім як звідси.
   _announce(msg) {
     const el = this.shadowRoot.getElementById("live");
@@ -613,68 +688,58 @@ export class OddInvestApp extends HTMLElement {
     try { el.setSelectionRange(k.start, k.end); } catch (_) { /* не текстове поле */ }
   }
 
+  /** Розкрити «@first:<вид>» і виправити рядок, якого більше немає.
+   *
+   *  Обидві поправки живуть тут, а не в parseRoute, з однієї причини:
+   *  щоб їх зробити, треба знати РЯДКИ, а рядки приходять із даних.
+   *  Маршрутизатор про дані нічого не знає й знати не повинен. */
+  _resolveItem(rows) {
+    const kind = markerKind(this._item);
+    if (kind) {
+      const hit = rows.find((r) => r.kind === kind);
+      // Виду без жодної позиції не існує як рядка — тоді ведемо в
+      // зведення. Стара сторінка виду в цьому місці показувала порожній
+      // стан; «Портфель цілком» каже те саме чесніше.
+      this._item = hit ? hit.id : "all";
+      return true;
+    }
+    if (rows.length && !rows.some((r) => r.id === this._item)) {
+      // Закладка на папір, який продали, або на рахунок, який
+      // перейменували. Мовчки підмінити його зведенням не можна: людина
+      // прийшла за конкретною позицією і мусить дізнатись, що її немає.
+      this._toast(`«${this._item}» більше немає в списку`, false);
+      this._item = "all";
+      return true;
+    }
+    return false;
+  }
+
   /** @param {{warm?: boolean}} opts warm — перемальовування після запису:
    *  старий вміст лишається на екрані, скрол і фокус зберігаються. */
   async _loadPage({ warm = false } = {}) {
-    const path = `${this._section}/${this._sub}`;
-    const page = PATHS.get(path);
-    // Перехід розкриває групу сторінки, у яку прийшли, — навіть якщо перед
-    // тим руками розкрили сусідню, щоб подивитись. Орієнтир важливіший за
-    // збереження чужого розкриття: інакше після переходу меню показувало б
-    // не те місце, де ти опинився.
-    this._open = this._section;
-    this.shadowRoot.getElementById("nav").innerHTML = this._navHTML();
-    // Разом: розділ і підрозділ. Сама назва сторінки не каже, у якій із
-    // семи груп вона лежить, а однакові підписи в дереві лишились: «Резерв»
-    // стоїть і в «Інструментах», і в «Політиці». Після розрізу по воронках
-    // ця пара єдина — ОВДП, фонди й вклади більше не дублюються, бо дані й
-    // форми в них тепер на одній сторінці.
-    this._announce(page ? `${page.sectionLabel} — ${page.label}` : "");
     const main = this.shadowRoot.getElementById("main");
-    // Ширина сторінки приходить із дерева навігації, а не з CSS. Доти це
-    // саме правило жило літералом main[data-tab="portfolio"], тобто
-    // політика ширини трималась на магічному імені вкладки; тепер вона
-    // стоїть поруч зі сторінкою, якої стосується (js/nav.js).
-    main.dataset.path = path;
-    main.toggleAttribute("data-wide", !!(page && page.wide));
     this._alert("");
     this._softShown = false;
 
     // Два різні очікування, і плутати їх не можна.
     //
-    // ХОЛОДНЕ (зміна розділу) — показуємо скелет форми розділу: вмісту
-    // ще немає, і чекати доведеться помітно.
+    // ХОЛОДНЕ (зміна панелі) — показуємо скелет: вмісту ще немає, і
+    // чекати доведеться помітно.
     //
     // ТЕПЛЕ (ctx.reload() після запису) — не витираємо НІЧОГО. Доти
     // кожне збереження стирало main і писало «Завантаження…», тобто
     // після додавання лота екран блимав порожнечею, скрол злітав угору,
-    // а курсор із форми зникав. Дані вже на екрані правильні майже
-    // цілком; міняється одне число.
+    // а курсор із форми зникав.
     const scrollY = window.scrollY;
     const focusKey = warm ? this._focusKey() : null;
     if (warm) main.dataset.busy = "1";
-    else {
-      // Заголовок сторінки малює ОБОЛОНКА і бере його з nav.js — тож
-      // підпис у меню й заголовок під ним не можуть розійтися.
-      //
-      // В'юшка отримує #pbody, а не сам <main>. Усередині вона й далі
-      // робить innerHTML цілком — переписувати тридцять в'юшок заради
-      // цього не треба, — але без обгортки кожен її рендер зносив би
-      // заголовок разом із вмістом. Найпомітніше це в календарі виплат:
-      // він приїжджає окремим запитом уже після того, як сторінка
-      // намальована, і затирає те, у що його поклали.
-      main.innerHTML = `<h1 class="page-t">${esc(page ? page.label : "")}</h1>`
-        + `<div id="pbody">${skeleton(this._section, this._sub)}</div>`;
-    }
-    const body = main.querySelector("#pbody");
+    else main.innerHTML = `<div id="pbody">${skeleton(this._tab, this._pane)}</div>`;
     main.setAttribute("aria-busy", "true");
 
-    // Зведення вантажиться ОКРЕМО від сторінки й ОКРЕМО від довідників.
+    // Зведення вантажиться ОКРЕМО від панелі й ОКРЕМО від довідників.
     // Доти все стояло в одному try, і будь-яка його помилка ставала
     // помилкою всіх сторінок одразу — включно з бекапом, тобто відновлення
-    // було недосяжне рівно тоді, коли воно й потрібне. Довідники ж
-    // віддаються й тоді, коли зведення не порахувалось: вони прості
-    // читання таблиць.
+    // було недосяжне рівно тоді, коли воно й потрібне.
     await this._loadRefs();
     let broken = null;
     try {
@@ -686,31 +751,56 @@ export class OddInvestApp extends HTMLElement {
       this._summary = {};
     }
 
+    // Дані рядків — лише для вкладки, якій вони справді потрібні. Обхід
+    // восьми маршрутів позицій коштує помітно, і платити за нього на
+    // «Політиці» нема за що.
+    const tab = TAB_BY_KEY.get(this._tab);
+    if (tab && tab.dynamic === "positions" && !broken) {
+      this._posData = await loadPositionsData(this._ctx).catch(() => ({}));
+    }
+
+    this._allRows = this._rows();
+    // Розкриття маркера й підміна зниклого рядка міняють АДРЕСУ, тож
+    // адресний рядок треба привести у відповідність — інакше «назад»
+    // повернуло б на адресу, якої не існує.
+    if (this._resolveItem(this._allRows)) {
+      const panes = panesFor(this._tab, this._item) || [];
+      if (!panes.some((p) => p.key === this._pane)) this._pane = panes[0].key;
+      window.location.replace(`#/${this._tab}/${seg(this._item)}/${this._pane}`);
+    }
+
+    this._paintHeader();
+    this._paintMaster();
+    const page = PATHS.get(`${this._tab}/${this._item}/${this._pane}`);
+    const rowOf = this._allRows.find((r) => r.id === this._item);
+    this._announce(`${tab ? tab.label : ""} — ${rowOf ? rowOf.name : ""}`);
+
     if (broken) {
       this._alert(`<div class="banner danger"><div class="b-ic" aria-hidden="true">⚠</div><div class="b-tx">
         <div class="b-t">Бекенд не віддає зведення</div>
-        <div class="b-s">${esc(broken.message || broken)}${SUMMARY_FREE.has(this._section) ? ""
+        <div class="b-s">${esc(broken.message || broken)}${SUMMARY_FREE.has(this._tab) ? ""
           : " · «Політика» й «Налаштування» зведення не читають — відновлення з копії доступне там"}</div>
       </div></div>`);
-      // Сторінки, що читають зведення, без нього показали б не «даних
+      // Панелі, що читають зведення, без нього показали б не «даних
       // немає», а нулі — і нуль тут невідрізнимий від справжнього нуля.
-      //
-      // Заголовок сторінки при цьому лишається: він приходить із дерева
-      // навігації, а не з даних, і сказати «ти в „Позиціях“, але їх нема
-      // звідки взяти» чесніше, ніж показати порожнечу без підпису.
-      if (!SUMMARY_FREE.has(this._section)) {
-        body.innerHTML = "";
+      if (!SUMMARY_FREE.has(this._tab)) {
+        main.innerHTML = this._inspectorHTML(rowOf, "");
         this._settle(main);
         return;
       }
     }
 
+    if (!warm) main.innerHTML = this._inspectorHTML(rowOf, `<div id="pbody"></div>`);
+    const body = main.querySelector("#pbody");
+
     try {
-      // Відкоту на «якийсь інший рендерер» тут немає навмисно: маршрут
-      // приходить із nav.js уже звіреним (parseRoute не пропускає шлях,
-      // якого немає в PATHS), тож відсутність сторінки в цій таблиці —
-      // помилка програміста, і хай вона буде видна одразу.
-      await VIEWS[path](this._ctx, body);
+      // Відкоту на «якийсь інший рендерер» тут немає навмисно: адреса
+      // приходить уже звіреною (parseRoute не пропускає панель, якої
+      // немає в дереві), тож відсутність панелі в цих таблицях — помилка
+      // програміста, і хай вона буде видна одразу.
+      const view = VIEWS[`${this._tab}/${this._item}/${this._pane}`]
+        || KIND_VIEWS[kindOf(this._tab, this._item)];
+      await view(this._ctx, body);
     } catch (err) {
       body.innerHTML = `<div class="card">Помилка: ${esc(err.message || err)}</div>`;
     }
@@ -734,6 +824,40 @@ export class OddInvestApp extends HTMLElement {
         this._restoreFocus(focusKey);
       });
     }
+    // page лишається для читача: він каже, що трійка статична. Панелі з
+    // даних його не мають, і саме тому заголовок береться з рядка.
+    void page;
+  }
+
+  /** Шапка інспектора плюс рейка панелей. Заголовок береться з РЯДКА, а
+   *  не з дерева: рядок «Портфеля» приходить із даних, і дерево його
+   *  назви не знає. */
+  _inspectorHTML(row, body) {
+    // «Огляд» малює себе сам: у нього немає ні сутності, ні панелей, а
+    // заголовок «Огляд» над сторінкою, яка й так одна, був би підписом
+    // до самого себе.
+    if ((TAB_BY_KEY.get(this._tab) || {}).master === false) return body;
+    const panes = panesFor(this._tab, this._item) || [];
+    const kind = kindOfItem(this._item);
+    // Ім'я токена береться з мапи, а не збирається підстановкою: довід
+    // при KIND_COLOR у master.js — зібране ім'я не звіряється перевіркою
+    // токенів, тобто описка у виді дала б пігулку без кольору мовчки.
+    const pill = KIND_ONE[kind]
+      ? `<span class="insp-k" style="--oi-c:${KIND_COLOR[kind]}">${esc(KIND_ONE[kind])}</span>`
+      : "";
+    // Рейка з одного елемента показувала б вибір там, де вибору немає, —
+    // лишається сама лінійка.
+    const solo = panes.length < 2;
+    const rail = `<nav class="panes${solo ? " solo" : ""}" aria-label="Панелі">${
+      solo ? "" : panes.map((p) =>
+        `<a class="pane-l" href="#/${this._tab}/${seg(this._item)}/${p.key}"${
+          p.key === this._pane ? ` aria-current="true"` : ""}>${esc(p.label)}</a>`).join("")
+    }</nav>`;
+    return `<div class="insp-h">
+      ${pill}
+      <h1 class="insp-t">${esc(row ? row.name : "")}</h1>
+      ${row && row.sub ? `<span class="insp-s">${esc(row.sub)}</span>` : ""}
+    </div>${rail}${body}`;
   }
 
   _settle(main) {
@@ -742,16 +866,13 @@ export class OddInvestApp extends HTMLElement {
   }
 
   // Довідники: брокери, фонди, пенсійні рахунки. Випадайки з них
-  // малюються майже на кожній сторінці, тож на момент рендеру списки мають
+  // малюються майже на кожній панелі, тож на момент рендеру списки мають
   // уже бути.
   //
   // ОКРЕМО від зведення, і це не косметика. Доти всі чотири читання стояли
   // в одному Promise.all — а він відхиляється ПЕРШИМ відхиленням, тобто
   // падіння /api/summary забирало з собою й довідники, які самі по собі
-  // віддавались чудово. «Налаштування» через це малювались лише тому, що
-  // catalogsHTML терпить порожні списки: вони не «виживали», а показували
-  // порожньо. Тепер м'які читання осідають самі по собі й від зведення не
-  // залежать.
+  // віддавались чудово.
   async _loadRefs() {
     const [brokers, funds, npf] = await Promise.all([
       this._store.soft("brokers", []),
@@ -763,8 +884,8 @@ export class OddInvestApp extends HTMLElement {
     this._npfAccounts = npf || [];
   }
 
-  // Саме зведення (без рендеру: плитки живуть у сторінках). Кидає — і
-  // має кидати: /api/summary найскладніший шлях у бекенді, і сторінка, що
+  // Саме зведення (без рендеру: плитки живуть у панелях). Кидає — і
+  // має кидати: /api/summary найскладніший шлях у бекенді, і панель, що
   // читає з нього числа, без нього показала б не «даних немає», а нулі.
   async _loadSummaryData() {
     this._summary = await this._api("GET", "summary");

@@ -23,7 +23,14 @@
 // відповідає рівно на «з чим порівняти», і в таблиці позицій була б блоком
 // не про її питання.
 
+import { empty } from "../components.js";
+import { routeFor } from "../routes.js";
+import { wireCrud } from "../crud.js";
+import { wireRefs } from "../refs.js";
 import { wireDisclosures } from "../disclosure.js";
+import { bondBuyFormHTML } from "./bonds.js";
+import { depositFormHTML, closedDepositsHTML } from "./deposits.js";
+import { reserveFormHTML, reserveFields, reserveBody } from "./money-cards.js";
 import {
   positionsTableHTML, loadPositionsData, wirePositionRows,
 } from "./positions.js";
@@ -40,14 +47,27 @@ import { chartBlockHTML, snapshotsTableHTML, wireHistory } from "./history.js";
 export { period } from "./period.js";
 
 /** Усе разом: та сама таблиця, що й була, з плитками дохідностей над нею.
- *  Єдина сторінка, де види стоять поруч і порівнюються. */
+ *  Єдина панель, де види стоять поруч і порівнюються.
+ *
+ *  ЖУРНАЛ ЗАКРИТИХ ВКЛАДІВ СТОЇТЬ САМЕ ТУТ, і це переїзд, а не новина.
+ *  Доти він жив на сторінці виду «Вклади», під таблицею живих. Сторінки
+ *  виду більше немає, а рядка в майстер-списку закритий вклад не має за
+ *  визначенням — він уже не позиція. Лишити його там, де він був,
+ *  означало б викинути його зовсім; покласти в рядок якогось живого
+ *  вкладу — приписати одному вкладу історію іншого.
+ *
+ *  «Позиції» — те місце, куди приходять із питанням «а де той вклад,
+ *  що я розірвав»: тут стоїть усе, що в портфелі є, і згорнутою секцією
+ *  внизу — те, чого вже немає. */
 export async function positions(ctx, main) {
-  const d = await loadPositionsData(ctx);
+  const d = ctx.positions || await loadPositionsData(ctx);
   main.innerHTML = `
     ${yieldTilesHTML(ctx)}
     ${yieldMixCard(ctx)}
-    ${positionsTableHTML(ctx, d.positions, d.lots, d.sales, d.deposits)}`;
+    ${positionsTableHTML(ctx, d.positions, d.lots, d.sales, d.deposits)}
+    ${closedDepositsHTML(ctx, d.deposits || [])}`;
   wirePositionRows(ctx, main, d);
+  wireDisclosures(main);
 }
 
 /** Як росте: крива капіталу й таблиця знімків. Відповідає не «що я маю», а
@@ -99,5 +119,53 @@ export async function compare(ctx, main) {
     ${benchmarkCard(ctx, bench)}
     ${decisionsCard(ctx, dec)}
     ${marketCurveCard(ctx, curve)}`;
+  wireDisclosures(main);
+}
+
+/** «Записати нове» — вхід для позиції, якої в списку ще НЕМАЄ.
+ *
+ *  Без цієї панелі майстер-список замикав би застосунок на вже купленому:
+ *  щоб записати перший папір нового виду, довелось би спершу мати рядок
+ *  цього виду. Класична курка з яйцем, і саме вона й з'явилась би, якби
+ *  всі форми жили тільки в позиціях.
+ *
+ *  ЖОДНОЇ НОВОЇ ФОРМИ ТУТ НЕ ЗАВОДИТЬСЯ. Це ті самі bondBuyFormHTML,
+ *  depositFormHTML і reserveFormHTML, які записують ті самі сутності з
+ *  панелей позицій; різниця лише в тому, що сюди приходять, коли позиції
+ *  ще немає. Друга форма на ту саму сутність розійшлася б із першою при
+ *  найпершій правці полів.
+ *
+ *  Фондів і НПФ тут немає, і кожен — зі своєї причини. Сертифікати не
+ *  вносять руками взагалі: журнал веде виписка, і два джерела правди
+ *  розійшлися б тихо. Пенсійний внесок мусить цілитись у конкретний
+ *  рахунок, тобто його форма належить рядку цього рахунку, а не
+ *  зведенню. */
+export async function record(ctx, main) {
+  const d = ctx.positions || await loadPositionsData(ctx);
+  const hasNPF = ((ctx.summary || {}).npf || []).length > 0;
+  main.innerHTML = `
+    <div class="card"><h2>Купівля ОВДП</h2>${bondBuyFormHTML(ctx)}</div>
+    <div class="card"><h2>Відкрити вклад</h2>${depositFormHTML(ctx)}
+      <div class="sub">Поповнення й дострокове закриття — у рядку самого вкладу.</div></div>
+    <div class="card"><h2>Рух резерву</h2>${reserveFormHTML(ctx)}</div>
+    <div class="card">${empty("Фонд і НПФ записуються не тут",
+    "Сертифікати заводить виписка — руками їх не вносять, бо два джерела правди "
+    + "розійшлися б тихо. Пенсійний внесок мусить цілитись у конкретний рахунок, "
+    + "тобто його форма належить рядку цього рахунку.",
+    { href: routeFor("money/import"), label: "Завантажити виписку" })}
+      <div class="sub">${hasNPF
+    ? `Внесок у НПФ — <a class="lnk" href="${routeFor("entry/npf")}">у рядку рахунку</a>.`
+    : `Пенсійного рахунку ще немає — <a class="lnk" href="${routeFor("settings/refs")}">заведи його в довідниках</a>.`}</div></div>`;
+
+  // Ті самі проводки, що й у панелях позицій: форми ті самі, тож і
+  // слухачі ті самі. Усі вони терплять відсутність своєї цілі, тож
+  // зайвий виклик нічого не коштує.
+  wirePositionRows(ctx, main, d);
+  wireCrud(ctx, main, {
+    resource: "reserve", form: "#resForm", title: "Рух резерву",
+    fields: reserveFields, body: reserveBody,
+    msg: { add: "Рух резерву записано", edit: "Рух резерву виправлено", del: "Рух видалено" },
+  });
+  wireRefs(main);
   wireDisclosures(main);
 }

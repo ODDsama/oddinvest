@@ -1,37 +1,44 @@
-// Розділ «Інструменти» — воронка на кожен вид: одна сторінка, шість кроків
-// у тому порядку, у якому з інструментом і працюють.
+// Панелі позиції: шість кроків у тому порядку, у якому з інструментом і
+// працюють — стан, що маю, що далі, що зробити, записати, умови.
 //
 // ЩО ТУТ ЗМІНИЛОСЬ І ЧОМУ
 //
-// Доти дані жили в «Активах», форми — в «Записати», умови — в «Політиці».
-// Щоб попрацювати з ОВДП, треба було стрибати між трьома розділами, і
-// питання «як я працюю з ОВДП» не мало жодного місця, де воно тримається
-// одним поглядом.
+// Спершу дані жили в «Активах», форми — в «Записати», умови — в
+// «Політиці»: щоб попрацювати з ОВДП, доводилось стрибати між трьома
+// розділами. Тоді це звели у ВОРОНКУ ВИДУ — одну сторінку «ОВДП» із
+// шести кроків.
 //
-// Розділ «Записати» цим розпускається, і його власна аргументація
-// (nav.js, стара шапка) варта того, щоб відповісти на неї прямо. Він
-// існував тому, що форми були розсіяні по ПОВЕРХНЯХ: купівля стояла в
-// «Портфелі», бо там журнал лотів, — тобто посеред ЧУЖОГО питання. Воронка
-// групує по СУТНОСТІ; вісь групування змінилась із дієслова («записати»)
-// на іменник («ОВДП»), а правило «один підрозділ — одна сутність» лишилось
-// чинним. Ціна відома й прийнята: дієслівного входу більше немає, і той,
-// хто думає «мені треба щось записати», мусить спершу згадати, ЩО саме.
+// Тепер воронка належить не виду, а САМІЙ ПОЗИЦІЇ, і це другий крок тієї
+// самої думки. Вид був найдрібнішою сутністю, яку вміло дерево, але
+// працюють не з «ОВДП» — працюють з папером, що гаситься в березні.
+// Рядок майстер-списку і є цим папером; вибір паперу автоматично є
+// вибором виду, а зріз по виду дають чипи над списком.
+//
+// ЩО ЛИШИЛОСЬ ВИДОВИМ, І ЦЕ НАВМИСНО
+//
+// Панель «Що зробити» показує зріз СВОГО ВИДУ, а не самої позиції, і так
+// і підписана. Помічник ранжує ОВДП, фонд, вклад і НПФ однією реальною
+// дохідністю — це головне, що він уміє, — і питання «що взяти» не має
+// сенсу для одного паперу окремо: відповідь на нього завжди «а порівняно
+// з чим». Повне порівняння лишилось у «Роботі → Що купити».
+//
+// Панель «Записати» теж видова: форма купівлі ОВДП однакова для всіх
+// паперів, і стояти їй у позиції правильно — саме звідси докуповують той
+// самий папір. Вхід для паперу, якого ще НЕМАЄ в списку, — окрема панель
+// «Записати нове» у зведеному рядку.
 //
 // ЩО СЮДИ НЕ ПЕРЕЇХАЛО
 //
 // «Виписка» й «Звірка» лишились пакетними входами в «Грошах»: виписка
 // Inzhur розкладається на сертифікати, лот ОВДП і рух грошей — три гілки в
-// handleImportInzhur, — тож у воронку «Фонди» вона влізла б лише збрехавши
+// handleImportInzhur, — тож у панель «Фонду» вона влізла б лише збрехавши
 // на дві третини.
-//
-// Порівняння ІНСТРУМЕНТІВ МІЖ СОБОЮ теж лишилось на місці — в «Що купити».
-// Крок «Що зробити» показує зріз свого виду й посилається туди: помічник
-// ранжує ОВДП, фонд, вклад і НПФ однією реальною дохідністю, і це головне,
-// що він уміє. Розрізати його по воронках означало б зламати рівно те,
-// заради чого він існує.
 
-import { esc, pct, uah2 as fmtUAH } from "../format.js";
+import {
+  esc, pct, money as fmtMoney, uah2 as fmtUAH, dayMonth, curSym,
+} from "../format.js";
 import { tile, empty } from "../components.js";
+import { PAYOUT_LABEL } from "../constants.js";
 import { routeFor } from "../routes.js";
 import { wireCrud } from "../crud.js";
 import { wireRefs } from "../refs.js";
@@ -40,7 +47,7 @@ import {
   positionsTableHTML, loadPositionsData, wirePositionRows,
 } from "./positions.js";
 import { bondBuyFormHTML, bondSaleFormHTML } from "./bonds.js";
-import { depositFormHTML, closedDepositsHTML } from "./deposits.js";
+import { depositFormHTML } from "./deposits.js";
 import { npfDetailHTML } from "../npf.js";
 import {
   reserveTilesHTML, reserveJournalHTML, reserveFormHTML, reserveFields, reserveBody,
@@ -48,7 +55,7 @@ import {
 import { reinvestHTML, reserveFillHTML, wireReinvest, loadReinvest } from "./now-view.js";
 import { kindTasksHTML } from "./tasks.js";
 import { switchHTML, loadSwitch, wireSwitch } from "./switch.js";
-import { stepRailHTML, stepper, wireSteps } from "./steps.js";
+import { kindOfItem } from "../master.js";
 
 // Вид інструмента живе ТУТ, а не в nav.js: дерево навігації не має знати
 // домену. Ключ ліворуч — підрозділ адреси, праворуч — те, чим цей вид
@@ -59,85 +66,189 @@ import { stepRailHTML, stepper, wireSteps } from "./steps.js";
 // ("bonds"), бо там це ІМʼЯ ГРУПИ, а не одного паперу. Мапа тримає обидва,
 // щоб жодна сторінка не вгадувала.
 const KINDS = {
-  bonds: { kind: "bond", group: "bonds", title: "ОВДП", sumKey: "nominal_uah_eq" },
-  funds: { kind: "fund", group: "funds", title: "Фонди", sumKey: "funds_uah" },
+  bond: { kind: "bond", group: "bonds", title: "ОВДП", sumKey: "nominal_uah_eq" },
+  fund: { kind: "fund", group: "funds", title: "Фонди", sumKey: "funds_uah" },
   npf: { kind: "npf", group: "npf", title: "НПФ", sumKey: "npf_uah" },
-  deposits: { kind: "deposit", group: "deposits", title: "Вклади", sumKey: "deposits_uah" },
+  deposit: { kind: "deposit", group: "deposits", title: "Вклади", sumKey: "deposits_uah" },
 };
 
-// Куди веде крок «Умови» — сторінки політики, які цим видом керують.
+// Куди веде панель «Умови» — сторінки політики, які цим видом керують.
+//
+// Форма запису та сама, що в ACTIONS (views/tasks.js): { to, label }.
+// Доти тут була пара в масиві, і це був другий спосіб записати ту саму
+// думку — «адреса плюс підпис посилання». Ціна другого способу не
+// стилістична: web-routes-check.mjs шукає адреси саме за полем `to`, і
+// таблиця в іншій формі лишалась би невидимою для перевірки, тобто описка
+// в ній не ловилась би нічим.
 const TERMS = {
-  bond: [["policy/mix", "Цільова частка й ліміти"], ["policy/assumptions", "Припущення про ставки"]],
-  fund: [["policy/mix", "Цільова частка й ліміти"], ["settings/refs", "Каталог фондів"]],
-  npf: [["policy/instruments", "Умови реінвесту"], ["settings/refs", "Пенсійні рахунки"]],
-  deposit: [["policy/instruments", "Мінімум і ставка вкладу"], ["policy/mix", "Цільова частка"]],
-  reserve: [["policy/reserve", "Витрати, запас і стеля поповнення"]],
+  bond: [
+    { to: "policy/mix", label: "Цільова частка й ліміти" },
+    { to: "policy/assumptions", label: "Припущення про ставки" },
+  ],
+  fund: [
+    { to: "policy/mix", label: "Цільова частка й ліміти" },
+    { to: "settings/refs", label: "Каталог фондів" },
+  ],
+  npf: [
+    { to: "policy/instruments", label: "Умови реінвесту" },
+    { to: "settings/refs", label: "Пенсійні рахунки" },
+  ],
+  deposit: [
+    { to: "policy/instruments", label: "Мінімум і ставка вкладу" },
+    { to: "policy/mix", label: "Цільова частка" },
+  ],
+  reserve: [
+    { to: "policy/reserve", label: "Витрати, запас і стеля поповнення" },
+  ],
 };
 
 function termsHTML(kind) {
-  const links = (TERMS[kind] || []).map(([to, label]) =>
+  const links = (TERMS[kind] || []).map(({ to, label }) =>
     `<a class="lnk" href="${routeFor(to)}">${esc(label)}</a>`).join(" · ");
   return `<div class="card"><div class="sub">Чим керується те, що радить помічник:
     ${links}</div></div>`;
 }
 
-/** Крок 1 — стан виду чотирма плитками.
+/** Сирий рядок цієї позиції — той самий об'єкт, з якого малюється
+ *  таблиця й рахувався майстер-список.
  *
- *  Жодного числа тут не рахується: сума, частка й дохідність приходять
- *  готовими зі стану. Порахувати середню дохідність по виду «на місці»
- *  було б на кілька рядків коротше й завело б п'яту копію дохідностей у
- *  JS — рівно ту помилку, проти якої існує state/capital.go. Саме тому в
- *  документі з'явилось kind_yield_real_pct.
- *
- *  Відсутній ключ дохідності означає «нема чого міряти», а не нуль: вид,
- *  якого в портфелі немає, показує прочерк, а не «0,0%». */
-function kindTilesHTML(ctx, spec, items) {
+ *  Шукається за ключем адреси, а не за індексом: індекс міняється від
+ *  кожної покупки, а «bond:UA4000231625» лишається собою, доки папір
+ *  існує. Порожнеча тут законна: закладку могли поставити на папір, який
+ *  уже погашений, — і панель мусить сказати це словами, а не показати
+ *  нулі. */
+function sourceOf(ctx, d, kind, key) {
   const s = ctx.summary || {};
-  const sum = s[spec.sumKey] || 0;
-  // Резерву серед SPECS немає — його сторінку малює money-cards.js, і
-  // частку він бере з summary.reserve. Тут лишаються самі інвестиції, а
-  // отже й знаменник у всіх один: портфель без подушки.
-  const share = (s.rebalance || [])
-    .find((r) => r.dimension === "kind" && r.key === spec.group);
-  const real = (s.kind_yield_real_pct || {})[spec.group];
-  const n = items.length;
+  if (kind === "bond") return (d.positions || []).find((p) => p.isin === key);
+  if (kind === "fund") return (s.funds || []).find((f) => f.fund === key);
+  if (kind === "npf") return (s.npf || []).find((n) => n.name === key);
+  if (kind === "deposit") return (d.deposits || []).find((t) => String(t.id) === key);
+  return null;
+}
+
+/** Панель «Стан» ОДНІЄЇ позиції: чотири числа, усі готові.
+ *
+ *  Жодне з них тут не рахується — ні вартість, ні дохідність, ні строк.
+ *  Кожне приходить із того самого документа, з якого його бере таблиця
+ *  нижче й рядок майстер-списку ліворуч; порахувати їх «на місці» було б
+ *  третьою копією тих самих величин на одному екрані.
+ *
+ *  Порожнє число дає прочерк, а не нуль. Найгостріше це на папері, якого
+ *  немає в довіднику НБУ: номінал і строк у нього справді невідомі, і
+ *  нуль там читався б як «нічого не повернеться».
+ *
+ *  ЧЕТВЕРТА ПЛИТКА В КОЖНОГО ВИДУ СВОЯ, і це не непослідовність: в ОВДП
+ *  головне питання «коли повернеться тіло», у фонді — «скільки їх і
+ *  почім», у НПФ — «коли можна забрати», у вкладі — «коли платять».
+ *  Однакова плитка на всіх чотирьох означала б показати найважливіше
+ *  лише одному з них. */
+function positionTilesHTML(ctx, kind, row) {
+  if (!row) {
+    return `<div class="card">${empty("Цієї позиції більше немає",
+      "Папір погашено, фонд закрито або запис видалено. Список ліворуч показує те, "
+      + "що є зараз.")}</div>`;
+  }
+  const yieldTile = (real, basis) => tile("Реальна дохідність",
+    real ? pct(real) : "—",
+    real ? `<div class="sub">після податку й знецінення${
+      basis ? ` · ${esc(basis)}` : ""}</div>` : "");
+
+  if (kind === "bond") {
+    return `<div class="tiles flush">
+      ${tile("Номінал", row.unknown ? "—" : fmtMoney(row.nominal), "", { hero: true })}
+      ${tile("Вкладено", fmtMoney(row.invested),
+    `<div class="sub-xs">${row.qty} шт.</div>`)}
+      ${yieldTile(row.real_pct, row.yield_basis)}
+      ${tile("Погашення", row.unknown ? "—" : esc(row.maturity),
+    row.unknown
+      ? `<div class="sub-xs t-warn">немає в довіднику НБУ</div>`
+      : `<div class="sub">через ${row.days_to_maturity} дн.</div>`)}
+    </div>`;
+  }
+  if (kind === "fund") {
+    return `<div class="tiles flush">
+      ${tile("Вартість", fmtUAH(row.market_value), "", { hero: true })}
+      ${tile("Собівартість", fmtUAH(row.cost_basis))}
+      ${yieldTile(row.real_pct, row.yield_basis)}
+      ${tile("Сертифікатів", String(row.qty),
+    `<div class="sub-xs">по ${(row.last_price || 0).toFixed(4)} ${curSym(row.currency)}${
+      row.last_price_date ? ` від ${dayMonth(row.last_price_date)}` : ""}</div>`)}
+    </div>`;
+  }
+  if (kind === "npf") {
+    return `<div class="tiles flush">
+      ${tile("Вартість", fmtUAH(row.value_uah), "", { hero: true })}
+      ${tile("Внесено", fmtUAH(row.cost_uah))}
+      ${yieldTile(row.real_pct, row.yield_basis)}
+      ${tile("Доступ", row.access_date ? esc(row.access_date) : "—",
+    row.access_date ? "" : `<div class="sub-xs">дата не задана в довіднику</div>`)}
+    </div>`;
+  }
   return `<div class="tiles flush">
-    ${tile(spec.title, fmtUAH(sum), "", { hero: true })}
-    ${tile("Частка портфеля", share ? pct(share.current_pct) : "—",
-    share && share.target_pct
-      ? `<div class="sub">ціль ${pct(share.target_pct)}</div>`
-      : `<div class="sub-xs">від портфеля без резерву</div>`)}
-    ${tile("Позицій", n ? String(n) : "—")}
-    ${tile("Реальна дохідність", real ? pct(real) : "—",
-    real ? `<div class="sub">після податку й знецінення</div>` : "")}
+    ${tile("Залишок", fmtMoney(row.balance || row.principal), "", { hero: true })}
+    ${tile("Ставка", pct(row.rate_pct),
+    `<div class="sub-xs">податок ${pct(row.tax_pct)}</div>`)}
+    ${tile("Виплата", esc(PAYOUT_LABEL[row.payout] || row.payout || "—"))}
+    ${tile("Погашення", esc(row.maturity_date || "—"))}
   </div>`;
 }
 
-/** Крок 3 — що з цим видом станеться найближчим часом.
+/** Панель «Що далі» ОДНІЄЇ позиції: найближча подія саме її.
  *
- *  Календар і драбина беруться зі стану й звужуються до цього виду. Сигнали,
- *  що вимагають РІШЕННЯ (внесок прострочено, вклад гаситься, вікно фонду
- *  закривається), тут не повторюються: вони вже стоять нагорі сторінки
- *  задачею, і другий раз тим самим текстом — це не наголос, а шум. */
-function nextForKindHTML(ctx, spec) {
-  const s = ctx.summary || {};
-  const rows = (s.ladder || []).filter((r) => r.year);
-  const ladder = spec.kind === "bond" && rows.length
-    ? `<div class="card"><h3>Коли повертається тіло</h3>${rows.slice(0, 6).map((r) =>
-      `<div class="pv-row"><span class="muted">${r.year}</span>
-        <span>${fmtUAH(r.uah || 0)}</span></div>`).join("")}
-      <div class="sub">Драбина цілком — у «Портфелі → Ліміти».</div></div>`
-    : "";
-  const np = s.next_payment;
-  const pay = np
-    ? `<div class="card"><h3>Найближча виплата</h3>
-        <div class="pv-row"><span class="muted">${esc(np.date)}</span>
-          <span>${Number(np.amount).toLocaleString("uk-UA", { minimumFractionDigits: 2 })}</span></div>
-        <div class="sub">Повний календар — у «Плані».</div></div>`
-    : "";
-  return (ladder + pay) || `<div class="card">${empty("Попереду поки нічого",
-    "Тут з'являться найближчі виплати й строки, щойно вони будуть.")}</div>`;
+ *  Сигнали, що вимагають РІШЕННЯ (внесок прострочено, вклад гаситься),
+ *  тут не повторюються: вони вже стоять смугою задач на панелі «Стан», і
+ *  другий раз тим самим текстом — це не наголос, а шум. */
+function nextForPositionHTML(ctx, kind, row) {
+  if (!row) return "";
+  const line = (when, what) =>
+    `<div class="pv-row"><span class="muted">${esc(when)}</span><span>${what}</span></div>`;
+
+  if (kind === "bond" && row.next_pay_date) {
+    return `<div class="card"><h2>Найближча виплата</h2>
+      ${line(row.next_pay_date, fmtMoney(row.next_pay_amount))}
+      <div class="sub">Тіло повертається ${esc(row.maturity)}. Повний календар —
+        у «Плані».</div></div>`;
+  }
+  if (kind === "deposit" && row.maturity_date) {
+    return `<div class="card"><h2>Коли закінчується</h2>
+      ${line(row.maturity_date, esc(PAYOUT_LABEL[row.payout] || ""))}
+      <div class="sub">Поповнення й дострокове закриття — у розкритті рядка
+        на панелі «Що маю».</div></div>`;
+  }
+  if (kind === "fund" && row.next_payout) {
+    return `<div class="card"><h2>Найближча виплата</h2>
+      ${line(row.next_payout, "дивіденд")}</div>`;
+  }
+  if (kind === "npf" && row.access_date) {
+    return `<div class="card"><h2>Коли можна забрати</h2>
+      ${line(row.access_date, "")}
+      <div class="sub">До цієї дати гроші не виводяться — це умова рахунку,
+        а не порада.</div></div>`;
+  }
+  return `<div class="card">${empty("Попереду поки нічого",
+    "Тут з'являться найближчі виплати й строки цієї позиції, щойно вони будуть.")}</div>`;
 }
+
+// ЧОГО ТУТ БІЛЬШЕ НЕМАЄ, І ЧОМУ
+//
+// kindTilesHTML, nextForKindHTML і itemsOfKind малювали стан ВИДУ:
+// сума по всіх ОВДП, частка виду в портфелі, кількість позицій, драбина
+// виду. Вони пішли разом зі сторінкою виду, а не разом із їхніми
+// доводами — доводи чинні й переїхали в positionTilesHTML вище:
+//
+//   — жодне число не рахується тут; сума, частка й дохідність приходять
+//     готовими зі стану. Саме заради цього в документі свого часу
+//     з'явився kind_yield_real_pct: порахувати середню по виду «на
+//     місці» було б на кілька рядків коротше й завело б п'яту копію
+//     дохідностей у JS (state/capital.go);
+//   — відсутнє число означає «нема чого міряти», а не нуль. Вид, якого в
+//     портфелі немає, показував прочерк — тепер прочерк показує позиція,
+//     у якої немає дохідності.
+//
+// Зведення по видах не зникло як питання: на нього відповідає
+// «Портфель цілком → Структура», де види стоять поруч і порівнюються.
+// Показувати його ще й у кожній позиції означало б відповідати на
+// питання про вид у місці, яке питає про папір.
 
 /** Крок 5 — форми запису. Усі до одної — наявні функції, викликані з того
  *  самого контексту, з якого їх кликав розділ «Записати». Жодної нової
@@ -173,53 +284,72 @@ function writeHTML(ctx, spec, d) {
     { href: routeFor("money/import"), label: "Завантажити виписку" })}</div>`;
 }
 
-/** Сторінка одного інструмента. Чотири види відрізняються рівно тим, що
- *  лежить у KINDS, — решта спільна. */
-function funnelPage(sub) {
-  const spec = KINDS[sub];
-  return async function render(ctx, main) {
-    // Пороги перекладання — лише ОВДП: у сертифіката немає ані чистої
-    // ціни, ані НКД, а вклад розривається за договором, не за ринком
-    // (аргумент цілком — у шапці domain/switch.go).
-    const loaders = [loadPositionsData(ctx), loadReinvest(ctx)];
-    if (spec.kind === "bond") loaders.push(loadSwitch(ctx));
-    const [d] = await Promise.all(loaders);
-    const path = `instr/${sub}`;
-    const keys = ["state", "mine", "next", "act", "write", "terms"];
-    const step = stepper(keys);
-    const rowDetail = spec.kind !== "npf";
-    const table = positionsTableHTML(ctx, d.positions, d.lots, d.sales, d.deposits, {
-      kinds: [spec.kind], title: spec.title, rowDetail,
-      empty: EMPTY[spec.kind],
+/** Панель позиції. Вид береться з id рядка (master.js), тож чотири види
+ *  відрізняються рівно тим, що лежить у KINDS, — решта спільна.
+ *
+ *  Дані позицій приходять із оболонки (ctx.positions): вона вже
+ *  завантажила їх, щоб намалювати майстер-список, і другий обхід тих
+ *  самих восьми маршрутів коштував би кадр на кожному перемиканні
+ *  панелі. */
+export async function positionPane(ctx, main) {
+  const spec = KINDS[kindOfItem(ctx.item)];
+  if (!spec) {
+    main.innerHTML = `<div class="card">${empty("Невідомий вид позиції",
+      "Адреса називає вид, якого застосунок не знає.")}</div>`;
+    return;
+  }
+  // Пороги перекладання — лише ОВДП: у сертифіката немає ані чистої
+  // ціни, ані НКД, а вклад розривається за договором, не за ринком
+  // (аргумент цілком — у шапці domain/switch.go).
+  const loaders = [ctx.positions ? Promise.resolve(ctx.positions) : loadPositionsData(ctx),
+    loadReinvest(ctx)];
+  if (spec.kind === "bond") loaders.push(loadSwitch(ctx));
+  const [d] = await Promise.all(loaders);
+
+  main.innerHTML = panePaneHTML(ctx, spec, d);
+
+  wirePositionRows(ctx, main, d);
+  wireReinvest(ctx, main);
+  if (spec.kind === "bond") wireSwitch(ctx, main);
+  // Кнопки «+» проводить сама wireReinvest вище: їх малює reinvestHTML,
+  // тобто той самий модуль. Один малює, той самий і проводить.
+}
+
+function panePaneHTML(ctx, spec, d) {
+  const rowDetail = spec.kind !== "npf";
+  const row = sourceOf(ctx, d, spec.kind, ctx.key);
+  switch (ctx.pane) {
+  case "state":
+    // Смуга задач стоїть саме на першій панелі: те, що чекає рішення,
+    // мусить трапитись на очі до того, як почнеш читати числа. Вона
+    // видова — задачі приходять із бекенда по виду, а не по позиції, — і
+    // це чесніше, ніж мовчати про сусідній папір того ж виду.
+    return kindTasksHTML(ctx, spec.kind)
+      + positionTilesHTML(ctx, spec.kind, row);
+  case "have":
+    // Одна позиція, а не весь вид: рядок ліворуч уже сказав, про кого
+    // мова. Розкриття показує лоти, продажі, поповнення — те, з чого ця
+    // позиція складається.
+    return positionsTableHTML(ctx, d.positions, d.lots, d.sales, d.deposits, {
+      only: ctx.item, title: spec.title, rowDetail, empty: EMPTY[spec.kind],
     });
-    const act = reinvestHTML(ctx, { kinds: [spec.kind], title: "Що взяти з цього виду" })
+  case "next":
+    return nextForPositionHTML(ctx, spec.kind, row);
+  case "do":
+    return (reinvestHTML(ctx, { kinds: [spec.kind], title: "Що взяти з цього виду" })
       || `<div class="card">${empty("Порад по цьому виду немає",
         "Помічник радить лише те, що проходить за твоїми умовами. Порівняти види між "
         + "собою можна там, де вони стоять поруч.",
-        { href: routeFor("now/buy"), label: "Що купити" })}</div>`;
-
-    main.innerHTML = `
-      ${stepRailHTML(path, keys, ctx.anchor || "state")}
-      ${kindTasksHTML(ctx, spec.kind)}
-      ${step("state", kindTilesHTML(ctx, spec, itemsOfKind(d, spec)))}
-      ${step("mine", table + (spec.kind === "deposit" ? closedDepositsHTML(ctx, d.deposits) : ""))}
-      ${step("next", nextForKindHTML(ctx, spec))}
-      ${step("act", act + (spec.kind === "bond" ? switchHTML() : "")
-        + `<div class="card"><div class="sub">Порівняти з іншими видами —
-        <a class="lnk" href="${routeFor("now/buy")}">у «Що купити»</a>: там ОВДП, фонд, вклад і
-        НПФ стоять поруч і міряні однією реальною дохідністю.</div></div>`)}
-      ${step("write", writeHTML(ctx, spec, d))}
-      ${step("terms", termsHTML(spec.kind))}`;
-
-    wirePositionRows(ctx, main, d);
-    wireReinvest(ctx, main);
-    if (spec.kind === "bond") wireSwitch(ctx, main);
-    // Кнопки «+» проводить сама wireReinvest вище: їх малює reinvestHTML,
-    // тобто той самий модуль. Доти слухач жив у кошику й кликався окремим
-    // рядком ЩЕ Й тут — а на сторінці кошика, де жодного «+» немає, він не
-    // робив нічого. Один малює, той самий і проводить.
-    wireSteps(main);
-  };
+        { href: routeFor("work/buy/main"), label: "Що купити" })}</div>`)
+      + (spec.kind === "bond" ? switchHTML() : "")
+      + `<div class="card"><div class="sub">Порівняти з іншими видами —
+        <a class="lnk" href="${routeFor("work/buy/main")}">у «Що купити»</a>: там ОВДП, фонд,
+        вклад і НПФ стоять поруч і міряні однією реальною дохідністю.</div></div>`;
+  case "record":
+    return writeHTML(ctx, spec, d);
+  default:
+    return termsHTML(spec.kind);
+  }
 }
 
 // Порожні стани сторінок виду: кожна мусить пояснити свою порожнечу своїм
@@ -244,67 +374,48 @@ const EMPTY = {
   },
 };
 
-// Скільки позицій цього виду. Рахуємо з тих самих даних, з яких будується
-// таблиця, — інакше плитка «Позицій» і таблиця під нею могли б розійтись.
-function itemsOfKind(d, spec) {
-  if (spec.kind === "bond") return d.positions || [];
-  if (spec.kind === "deposit") return (d.deposits || []).filter((x) => !x.closed_date);
-  return [];
-}
+// itemsOfKind рахувала позиції виду для плитки «Позицій» — з тих самих
+// даних, з яких будувалась таблиця, щоб число над таблицею й сама
+// таблиця не розійшлись. Плитки виду більше немає (довід вище), а
+// «скільки їх» тепер каже чип над майстер-списком — і рахує його
+// chipsOf(master.js) з тих самих рядків, які показує список. Правило
+// збереглось, місце змінилось.
 
-export const bonds = funnelPage("bonds");
-export const funds = funnelPage("funds");
-export const npf = funnelPage("npf");
-export const deposits = funnelPage("deposits");
+// Експортів «на вид» — bonds/funds/npf/deposits — тут більше немає. Вони
+// були сторінками, а сторінка виду перестала існувати: вид тепер зріз
+// списку, а не адреса. Хто прийшов за ними зі старої закладки, потрапляє
+// на перший рядок цього виду — таблиця переїздів у routes.js.
 
-/** Резерв — п'ять кроків, а не шість, і це не непослідовність.
+/** Резерв — п'ять панелей, а не шість, і це не непослідовність.
  *
- *  Кроку «Що зробити» в нього немає ЗА ПРИРОДОЮ: /api/reinvest виду
- *  «резерв» не віддає взагалі, бо реальної дохідності в резерву не існує —
- *  це гроші, і в сьогоднішніх гривнях вони дають мінус знецінення.
- *  Поставити його в один стовпчик із паперами можна було б лише вигадавши
- *  число, а вигадане число в головній колонці гірше за чесну відсутність
- *  (те саме сказано біля Locked у handlers_reinvest.go).
+ *  Панелі «Що зробити» в нього немає ЗА ПРИРОДОЮ: /api/reinvest виду
+ *  «резерв» не віддає взагалі, бо реальної дохідності в резерву не
+ *  існує — це гроші, і в сьогоднішніх гривнях вони дають мінус
+ *  знецінення. Поставити його в один стовпчик із паперами можна було б
+ *  лише вигадавши число, а вигадане число в головній колонці гірше за
+ *  чесну відсутність (те саме сказано біля Locked у
+ *  handlers_reinvest.go).
  *
- *  Замість нього крок «Що далі» несе єдину пораду, яка тут доречна:
+ *  Замість неї панель «Що далі» несе єдину пораду, яка тут доречна:
  *  скільки з вільних грошей варто відкласти перш ніж купувати.
  *
- *  І ЦЯ СТОРІНКА — ЄДИНА З П'ЯТИ БЕЗ СМУГИ ЗАДАЧ УГОРІ. У решти воронок
- *  смуга й крок дії відповідають на різне: смуга каже, що чекає рішення, а
- *  крок показує, що з цього виду варто взяти. Тут це одне й те саме речення.
- *  Задача виду «резерв» у черзі рівно одна — reserve-fill (state_tasks.go), —
- *  і крок «Що далі» вже несе її: той самий заголовок, та сама сума, лише
- *  повніша проза (частка від плану місяця й скільки ти вже поклав цього
- *  місяця). Смуга дописувала другий такий рядок за півекрана від першого.
- *
- *  Прибрана саме СМУГА, а не банер, і вибір не довільний: банер каже більше,
- *  а крок «Що далі» без нього лишився б або з підписом «поповнювати зараз
- *  нічого», який просто неправдивий, поки задача вимагає 5 770 ₴, або другим
- *  показом тієї ж задачі — тобто тим самим дублем, лише переставленим.
+ *  І В РЕЗЕРВУ НЕМАЄ СМУГИ ЗАДАЧ, на відміну від решти позицій. У них
+ *  смуга й панель дії відповідають на різне: смуга каже, що чекає
+ *  рішення, а панель показує, що з цього виду варто взяти. Тут це одне й
+ *  те саме речення. Задача виду «резерв» у черзі рівно одна —
+ *  reserve-fill (state_tasks.go), — і панель «Що далі» вже несе її: той
+ *  самий заголовок, та сама сума, лише повніша проза. Смуга дописувала б
+ *  другий такий рядок за півекрана від першого.
  *
  *  Ціна названа вголос: проза резерву й далі існує у ДВОХ мовах — тут і в
- *  state_tasks.go, — і вони вже розійшлись; Home Assistant читає задачі, тобто
- *  бачить коротший варіант. Звести їх в одну можна лише перенісши текст у Go,
- *  і це окрема робота. А щойно з'явиться ДРУГА задача виду «резерв», рішення
- *  прибрати смугу треба переглянути: тоді вона перестане бути дублем. */
-export async function reserve(ctx, main) {
+ *  state_tasks.go, — і вони вже розійшлись; Home Assistant читає задачі,
+ *  тобто бачить коротший варіант. Звести їх в одну можна лише перенісши
+ *  текст у Go, і це окрема робота. А щойно з'явиться ДРУГА задача виду
+ *  «резерв», рішення прибрати смугу треба переглянути: тоді вона
+ *  перестане бути дублем. */
+export async function reservePane(ctx, main) {
   const ops = await ctx.soft("reserve", []);
-  const path = "instr/reserve";
-  const keys = ["state", "mine", "next", "write", "terms"];
-  const step = stepper(keys);
-  const tiles = reserveTilesHTML(ctx) || `<div class="card">${empty(
-    "Резерву ще немає",
-    "Резерв — те, що доступне миттєво й без втрат, коли гроші раптом знадобились.",
-    { href: routeFor("instr/reserve/write"), label: "Записати рух" })}</div>`;
-  main.innerHTML = `
-    ${stepRailHTML(path, keys, ctx.anchor || "state")}
-    ${step("state", tiles)}
-    ${step("mine", reserveJournalHTML(ops))}
-    ${step("next", reserveFillHTML(ctx) || `<div class="card"><div class="sub">
-      Поповнювати зараз нічого: або запас уже зібраний, або вільних грошей на рахунку немає.
-      </div></div>`)}
-    ${step("write", reserveFormHTML(ctx))}
-    ${step("terms", termsHTML("reserve"))}`;
+  main.innerHTML = reservePaneHTML(ctx, ops);
   wireCrud(ctx, main, {
     resource: "reserve", form: "#resForm", title: "Рух резерву", rows: ops,
     fields: reserveFields, body: reserveBody,
@@ -314,6 +425,25 @@ export async function reserve(ctx, main) {
     },
   });
   wireRefs(main);
-  wireSteps(main);
   wireDisclosures(main);
+}
+
+function reservePaneHTML(ctx, ops) {
+  switch (ctx.pane) {
+  case "state":
+    return reserveTilesHTML(ctx) || `<div class="card">${empty(
+      "Резерву ще немає",
+      "Резерв — те, що доступне миттєво й без втрат, коли гроші раптом знадобились.",
+      { href: routeFor("portfolio/reserve/record"), label: "Записати рух" })}</div>`;
+  case "have":
+    return reserveJournalHTML(ops);
+  case "next":
+    return reserveFillHTML(ctx) || `<div class="card"><div class="sub">
+      Поповнювати зараз нічого: або запас уже зібраний, або вільних грошей на рахунку немає.
+      </div></div>`;
+  case "record":
+    return reserveFormHTML(ctx);
+  default:
+    return termsHTML("reserve");
+  }
 }

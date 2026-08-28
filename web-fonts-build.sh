@@ -7,10 +7,43 @@
 # є джерелом істини. Скрипт відповідає лише на питання «звідки воно
 # взялося і як повторити», яке інакше не має де бути записаним.
 #
-# Чому підмножина, а не файл як є: цілий Inter важить 856 КіБ, цілий
-# Source Serif 4 — 1181 КіБ, і обидва їдуть у бінарник через //go:embed.
-# Застосунок говорить українською й латиницею; решта — з десяток тисяч
-# гліфів, які ніхто ніколи не побачить.
+# Гарнітур ТРИ, і кожна несе свій сорт тексту:
+#
+#   Onest          — інтерфейс: підписи, заголовки, проза панелей;
+#   Geist Mono     — ЧИСЛА: суми, відсотки, дати, значення в таблицях.
+#                    Окрема моноширинна замість табличних цифр гротеску —
+#                    рішення редизайну «Верстак»: у застосунку, де кожен
+#                    екран є стовпчиком, число має читатись як число, а не
+#                    як слово, набране цифрами;
+#   Source Serif 4 — проза «як це читати» в модалці #infoPop, і більше
+#                    ніде. Споживач у неї лишився ОДИН, і це названо в
+#                    tokens.css при --oi-font-display: щойно #infoPop
+#                    зникне, серіф іде з бінарника слідом.
+#
+# ЧОМУ НЕ FIGTREE Й НЕ JETBRAINS MONO, ЯК КАЗАВ ХЕНДОФ РЕДИЗАЙНУ
+#
+# Бо ними цей застосунок набрати не можна, і це факт про самі гарнітури,
+# а не про підмножину:
+#
+#   Figtree        — немає ані кирилиці, ані ₴. Застосунок говорить
+#                    українською, тобто фолбек малював би КОЖНУ літеру
+#                    інтерфейсу, і від зміни гарнітури лишилась би сама
+#                    назва в токені;
+#   JetBrains Mono — кирилиця є, ₴ немає. А ₴ стоїть у кінці кожної суми,
+#                    тобто чужий гліф опинявся б рівно посеред колонки
+#                    чисел — там, де його найкраще видно.
+#
+# Перевірено по cmap ВИХІДНИХ ttf, і саме так це й треба перевіряти —
+# аргумент записаний нижче, при UNICODES. Onest узятий тому, що кирилицю
+# в ньому малювали першою, а не додавали, і він найближчий до Figtree за
+# тим, заради чого її й брали: геометрична основа й відкриті форми.
+# Geist Mono — найближчий до JetBrains Mono з тих моноширинних, які ₴
+# таки мають.
+#
+# Чому підмножина, а не файли як є: цілі вони важать 143 + 268 + 1181 КіБ
+# і всі троє їдуть у бінарник через //go:embed. Застосунок говорить
+# українською й латиницею; решта — з десяток тисяч гліфів, яких ніхто
+# ніколи не побачить.
 #
 # Ліцензія — SIL OFL 1.1 в обох. Вона вимагає, щоб копія тексту їхала
 # разом зі шрифтом, тож OFL-*.txt теж лягають у web/fonts і теж
@@ -78,13 +111,17 @@ UNICODES='U+0000-00FF,U+02BC,U+0400-045F,U+0490-0491,U+2000-206F,U+20AC,U+20B4,U
 # tnum — те, заради чого все це й затівалось: справжні табличні цифри.
 FEATURES='kern,liga,clig,calt,rlig,ccmp,locl,mark,mkmk,tnum'
 
+# --fail обов'язковий. Без нього curl на 404 кладе В ФАЙЛ сторінку
+# помилки й виходить нулем — тобто в репозиторій лягає «404: Not Found»
+# під іменем OFL-*.txt, а OFL вимагає саме текст ліцензії. Помітили б це
+# рівно тоді, коли хтось відкриє файл.
 fetch() {
   echo "  ← $2"
-  curl -sSL --max-time 120 -o "$1" "$2"
+  curl -sSL --fail --max-time 120 -o "$1" "$2"
 }
 
 build() {
-  local name="$1" url="$2" out="$3" opsz="$4"
+  local name="$1" url="$2" out="$3" opsz="${4:-}"
   fetch "$TMP/$name.ttf" "$url"
 
   # Спершу звузити ОСІ, і лише потім різати гліфи — порядок важливий, бо
@@ -99,8 +136,15 @@ build() {
   # wght лишається віссю, але лише в тій смузі, яку застосунок уживає:
   # --oi-fw 400, --oi-fw-medium 500, --oi-fw-bold 600. Хвости до 200 і 900
   # не має чим викликати жодне правило в base.css.
+  # Четвертий аргумент — не «opsz за замовчуванням», а «чи є ця вісь
+  # узагалі». Figtree і JetBrains Mono мають саму лише wght
+  # (Figtree[wght].ttf, JetBrainsMono[wght].ttf), а instancer на
+  # неіснуючій осі не попереджає, а падає — тобто пін «про всяк
+  # випадок» коштував би збіркою, яка не запускається.
+  local axes=('wght=400:600')
+  [ -n "$opsz" ] && axes=("opsz=$opsz" "${axes[@]}")
   "$PY" -m fontTools.varLib.instancer -q \
-    "$TMP/$name.ttf" "opsz=$opsz" 'wght=400:600' \
+    "$TMP/$name.ttf" "${axes[@]}" \
     -o "$TMP/$name-inst.ttf"
 
   # --no-hinting: інструкції TrueType важать помітно, а малює їх лише
@@ -119,14 +163,21 @@ build() {
 
 mkdir -p "$OUT"
 
-echo 'Inter — текст, числа, таблиці:'
-build inter \
-  'https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz,wght%5D.ttf' \
-  "inter-var.$VER.woff2" 16
-fetch "$OUT/OFL-Inter.txt" \
-  'https://raw.githubusercontent.com/google/fonts/main/ofl/inter/OFL.txt'
+echo 'Onest — інтерфейс:'
+build onest \
+  'https://raw.githubusercontent.com/google/fonts/main/ofl/onest/Onest%5Bwght%5D.ttf' \
+  "onest-var.$VER.woff2"
+fetch "$OUT/OFL-Onest.txt" \
+  'https://raw.githubusercontent.com/google/fonts/main/ofl/onest/OFL.txt'
 
-echo 'Source Serif 4 — проза «як це читати», дисплей:'
+echo 'Geist Mono — числа:'
+build geist-mono \
+  'https://raw.githubusercontent.com/google/fonts/main/ofl/geistmono/GeistMono%5Bwght%5D.ttf' \
+  "geist-mono-var.$VER.woff2"
+fetch "$OUT/OFL-GeistMono.txt" \
+  'https://raw.githubusercontent.com/google/fonts/main/ofl/geistmono/OFL.txt'
+
+echo 'Source Serif 4 — проза «як це читати» в #infoPop:'
 build source-serif-4 \
   'https://raw.githubusercontent.com/google/fonts/main/ofl/sourceserif4/SourceSerif4%5Bopsz,wght%5D.ttf' \
   "source-serif-4-var.$VER.woff2" 14

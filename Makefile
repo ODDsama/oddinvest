@@ -55,7 +55,8 @@ build:
 
 # Дзеркало джоби `ui` з ci.yml, крок у крок. Порядок від дешевого до
 # дорогого: синтаксис кожного модуля, потім чи резолвиться кожен імпорт,
-# потім чи визначене кожне вжите імʼя, потім шар токенів CSS.
+# потім чи визначене кожне вжите імʼя, потім шар токенів CSS, потім
+# адреси.
 #
 # eslint тут CI-only: ставиться через npx і в застосунок не потрапляє —
 # правило «жодних залежностей у web/» не порушене.
@@ -66,6 +67,7 @@ ui:
 	@node web-imports-check.mjs >/dev/null || { node web-imports-check.mjs | grep FAIL; exit 1; }
 	npx --yes eslint@9 internal/api/web/js
 	node css-tokens-check.mjs
+	node web-routes-check.mjs
 	@$(MAKE) --no-print-directory ui-kit-boundary
 
 # Розмітку полів, форм і таблиць пише КИТ, а не розділ.
