@@ -123,14 +123,29 @@ func (s *Store) RenameBroker(ctx context.Context, id int64, name string) error {
 
 // DeleteBroker прибирає брокера, лише якщо на нього ніхто не посилається:
 // мовчки знеособити півсотні лотів — не те, чого чекають від кнопки «✕».
+//
+// ТАБЛИЦЬ ШІСТЬ, і перелік мусить збігатися з тим, які насправді
+// посилаються на brokers(id). Довго не збігався: перевірка написана,
+// коли їх було чотири, а term_deposits (0013) і npf_ops (0028) додали
+// broker_id пізніше й сюди не вписали. Наслідок був не «зайве
+// видалення», а гірший різновид — брокер, ужитий лише у вкладі або
+// внеску НПФ, проходив перевірку й падав уже на рівні бази сирим
+// «FOREIGN KEY constraint failed» замість зрозумілого рядка нижче.
+// Рівно ту саму пастку описує DeleteFund, і там її свого часу закрили.
+//
+// Тримається це тепер тестом, а не увагою: TestDeleteBrokerCoversAllRefs
+// звіряє перелік із sqlite_master, тож сьома таблиця з broker_id завалить
+// збірку, а не тихо проскочить.
 func (s *Store) DeleteBroker(ctx context.Context, id int64) error {
 	var used int
 	if err := s.db.QueryRowContext(ctx, `SELECT
-		(SELECT COUNT(*) FROM lots        WHERE broker_id=?) +
-		(SELECT COUNT(*) FROM deposits    WHERE broker_id=?) +
-		(SELECT COUNT(*) FROM conversions WHERE broker_id=?) +
-		(SELECT COUNT(*) FROM fund_ops    WHERE broker_id=?)`,
-		id, id, id, id).Scan(&used); err != nil {
+		(SELECT COUNT(*) FROM lots          WHERE broker_id=?) +
+		(SELECT COUNT(*) FROM deposits      WHERE broker_id=?) +
+		(SELECT COUNT(*) FROM conversions   WHERE broker_id=?) +
+		(SELECT COUNT(*) FROM fund_ops      WHERE broker_id=?) +
+		(SELECT COUNT(*) FROM term_deposits WHERE broker_id=?) +
+		(SELECT COUNT(*) FROM npf_ops       WHERE broker_id=?)`,
+		id, id, id, id, id, id).Scan(&used); err != nil {
 		return err
 	}
 	if used > 0 {

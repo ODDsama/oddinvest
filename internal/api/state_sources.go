@@ -118,10 +118,21 @@ type sources struct {
 // змінює — buildState в обох випадках повертає помилку й не будує
 // документа, — але сказати про це варто, бо текст помилки може бути інший.
 //
-// Поділ на «жорсткі» й «ковтані» збережено рівно такий, як був. Фонди,
-// вклади, поповнення й довідники зʼявились у схемі пізніше за решту, і на
-// старій БД їх могло не бути; валити через це весь стан означало б
-// показати порожній екран замість портфеля, який чудово рахується без них.
+// ЧОМУ ТУТ БІЛЬШЕ НЕМАЄ «М'ЯКИХ» ЧИТАНЬ. Сімнадцять читань нижче раніше
+// ковтали помилку з доводом «на старій БД цієї таблиці могло не бути:
+// фонди, вклади, НПФ і цілі зʼявились у схемі пізніше за решту». Довід
+// був справедливий рівно доти, доки міграції були необовʼязкові. Тепер
+// migrate() виконується БЕЗУМОВНО в store.Open, а його помилка валить
+// Open, і main виходить з кодом 1 — тобто на будь-якій відкритій базі всі
+// ці таблиці існують, і випадку, заради якого ковталось, не буває.
+//
+// Ковталось натомість інше: справжня відмова читання. Вона віддавала
+// порожній зріз, порожній зріз ставав нулем у документі — а цей документ
+// іде в MQTT і ЩОДНЯ ЛЯГАЄ В ДОБОВИЙ ЗНІМОК. Тобто збій сховища
+// матеріалізувався як «того дня фондів (НПФ, цілей) не було», назавжди й
+// у правдоподібному вигляді: на кривій за півроку таку діру вже не
+// відрізнити від правди. Порожня таблиця й зламане читання мусять
+// говорити різне, і саме тому тепер друге — помилка.
 func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, error) {
 	src := &sources{}
 	var err error
@@ -135,11 +146,12 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	if src.reserveOps, err = s.st.ListReserveOps(ctx); err != nil {
 		return nil, err
 	}
-	// Цілі накопичення — мʼяко, як фонди й вклади: таблиці зʼявились
-	// пізніше за схему (0039), і порожній список — звичайний стан, а не
-	// привід валити весь документ.
-	src.goals, _ = s.st.ListGoals(ctx)     //nolint:errcheck // свідомо: цілі зʼявились пізніше за схему
-	src.goalOps, _ = s.st.ListGoalOps(ctx) //nolint:errcheck // те саме
+	if src.goals, err = s.st.ListGoals(ctx); err != nil {
+		return nil, err
+	}
+	if src.goalOps, err = s.st.ListGoalOps(ctx); err != nil {
+		return nil, err
+	}
 	if src.statuses, err = s.st.PaymentStatuses(ctx); err != nil {
 		return nil, err
 	}
@@ -155,6 +167,64 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	if src.avgRate, err = s.st.AvgRateByCurrency(ctx, today); err != nil {
 		return nil, err
 	}
+	if src.fundOps, err = s.st.ListFundOps(ctx); err != nil {
+		return nil, err
+	}
+	if src.fundPrices, err = s.st.ListFundPrices(ctx); err != nil {
+		return nil, err
+	}
+	if src.termDeposits, err = s.st.ListTermDeposits(ctx); err != nil {
+		return nil, err
+	}
+	if src.deposits, err = s.st.ListDeposits(ctx); err != nil {
+		return nil, err
+	}
+	if src.brokers, err = s.st.ListBrokers(ctx); err != nil {
+		return nil, err
+	}
+	if src.auctions, err = s.st.AuctionLatestByBucket(ctx); err != nil {
+		return nil, err
+	}
+	if src.planFlows, err = s.st.ListPlanFlows(ctx); err != nil {
+		return nil, err
+	}
+	if src.planActions, err = s.st.ListPlanActions(ctx); err != nil {
+		return nil, err
+	}
+	if src.planReceipts, err = s.st.ListPlanReceipts(ctx); err != nil {
+		return nil, err
+	}
+	if src.planBuys, err = s.st.ListPlanBuys(ctx); err != nil {
+		return nil, err
+	}
+	if src.npfAccounts, err = s.st.ListNPFAccounts(ctx); err != nil {
+		return nil, err
+	}
+	if src.npfOps, err = s.st.ListNPFOps(ctx); err != nil {
+		return nil, err
+	}
+	if src.npfNav, err = s.st.ListNPFNav(ctx); err != nil {
+		return nil, err
+	}
+	if src.fxHistory, err = s.fxHistorySince(ctx, today); err != nil {
+		return nil, err
+	}
+
+	// nbu_refreshed_at: GetSetting уже перекладає «ключа немає» в порожній
+	// рядок, тож сюди доходить лише справжня відмова, а порожнє значення
+	// тут законне — довідник ще не оновлювався.
+	if src.nbuAt, err = s.st.GetSetting(ctx, nbuRefreshedKey); err != nil {
+		return nil, err
+	}
+
+	refs, err := s.st.ListFunds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	src.fundRefs = make(map[string]store.Fund, len(refs))
+	for _, f := range refs {
+		src.fundRefs[f.Name] = f
+	}
 
 	src.deval = s.devaluation(ctx)
 	src.settings = s.loadSettings(ctx)
@@ -163,29 +233,6 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	// MonthlyExpensesUAH уже гривневим — довід при resolveExpensesUAH.
 	resolveExpensesUAH(src.settings, src.rates)
 	src.depositMin = s.depositMinMinorByCur(ctx)
-
-	src.fundOps, _ = s.st.ListFundOps(ctx)               //nolint:errcheck // свідомо: старій БД фондів могло не бути
-	src.fundPrices, _ = s.st.ListFundPrices(ctx)         //nolint:errcheck // те саме: таблиця зʼявилась пізніше за схему, і порожня історія цін — звичайний стан
-	src.termDeposits, _ = s.st.ListTermDeposits(ctx)     //nolint:errcheck // свідомо, як і фонди: вклади зʼявились пізніше за схему
-	src.deposits, _ = s.st.ListDeposits(ctx)             //nolint:errcheck // свідомо: порожній журнал поповнень — не привід валити стан
-	src.brokers, _ = s.st.ListBrokers(ctx)               //nolint:errcheck // свідомо: список для випадайок, не джерело істини
-	src.nbuAt, _ = s.st.GetSetting(ctx, nbuRefreshedKey) //nolint:errcheck // свідомо: порожньо = довідник ще не оновлювався
-	src.auctions, _ = s.st.AuctionLatestByBucket(ctx)    //nolint:errcheck // свідомо: на свіжій БД аукціонів ще немає, і портфель має малюватись
-	src.fxHistory = s.fxHistorySince(ctx, today)
-	src.planFlows, _ = s.st.ListPlanFlows(ctx)       //nolint:errcheck // свідомо: порожній план — звичайний стан, не привід валити документ
-	src.planActions, _ = s.st.ListPlanActions(ctx)   //nolint:errcheck // те саме
-	src.planReceipts, _ = s.st.ListPlanReceipts(ctx) //nolint:errcheck // те саме: невідмічений план — звичайний стан
-	src.planBuys, _ = s.st.ListPlanBuys(ctx)         //nolint:errcheck // те саме: порожній план купівель — звичайний стан
-	src.npfAccounts, _ = s.st.ListNPFAccounts(ctx)   //nolint:errcheck // свідомо, як фонди й вклади: НПФ зʼявився пізніше за схему
-	src.npfOps, _ = s.st.ListNPFOps(ctx)             //nolint:errcheck // те саме
-	src.npfNav, _ = s.st.ListNPFNav(ctx)             //nolint:errcheck // те саме: історія ЧВОПА може бути порожня, і це звичайний стан
-
-	src.fundRefs = map[string]store.Fund{}
-	if refs, ferr := s.st.ListFunds(ctx); ferr == nil {
-		for _, f := range refs {
-			src.fundRefs[f.Name] = f
-		}
-	}
 	return src, nil
 }
 
@@ -199,15 +246,16 @@ var fxHistoryCurrencies = []string{money.USD, money.EUR}
 
 // fxHistorySince — історія курсів за найдовше з вікон.
 //
-// Помилку ковтаємо, як і в auctions поруч: на свіжій БД історії ще немає
-// (беклог іде окремою горутиною при старті), і валити через це весь
-// документ означало б показати порожній екран замість портфеля, який
-// чудово рахується без перцентиля.
+// Помилку читання ТЕПЕР повертаємо (довід — у шапці loadSources): вона
+// означає зламане сховище, а не «історії ще немає». Порожню історію
+// свідомо лишаємо законною — беклог іде окремою горутиною при старті, і
+// на свіжій базі точок справді нема; такий код просто не кладе валюту в
+// мапу, і споживач читає це як «перцентиля не буде», а не як помилку.
 //
 // Скільки саме років брати, вирішує НЕ цей файл: список вікон живе в
 // state_fxwindow.go, і два місця з незалежними числами розійшлись би на
 // першій же правці — вікно «10 років» мовчки читало б п'ять.
-func (s *Server) fxHistorySince(ctx context.Context, today domain.Date) map[string][]store.RatePoint {
+func (s *Server) fxHistorySince(ctx context.Context, today domain.Date) (map[string][]store.RatePoint, error) {
 	longest := 0
 	for _, y := range fxWindowYears {
 		if y > longest {
@@ -218,12 +266,15 @@ func (s *Server) fxHistorySince(ctx context.Context, today domain.Date) map[stri
 	out := make(map[string][]store.RatePoint, len(fxHistoryCurrencies))
 	for _, cur := range fxHistoryCurrencies {
 		pts, err := s.st.RatesSince(ctx, cur, from)
-		if err != nil || len(pts) == 0 {
+		if err != nil {
+			return nil, err
+		}
+		if len(pts) == 0 {
 			continue
 		}
 		out[cur] = pts
 	}
-	return out
+	return out, nil
 }
 
 // payoutDays — день виплати кожного фонду в тому вигляді, якого чекає
