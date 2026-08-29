@@ -215,6 +215,14 @@ type routeCarry struct {
 	fillNow    float64
 	month      string
 	kindUAH    map[string]float64
+	// goals — КОПІЯ рядків документа: прохід уперед мутує їхні розриви й
+	// місячні частки, а джерело лишається недоторканим (той самий довід, що
+	// при doc() нижче).
+	//
+	// goalsUAH росте на кожну вирізку, як і reserveUAH: гроші, відкладені в
+	// ціль на кроці N, уже в ній лежать на кроці N+1.
+	goals    []state.Goal
+	goalsUAH float64
 }
 
 func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
@@ -235,6 +243,11 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 	if r := doc.Reserve; r != nil {
 		c.gapUAH, c.fillMonth, c.fillNow = r.GapUAH, r.FillMonthUAH, r.FillNowUAH
 	}
+	// Цілі беруться з документа ЯК Є — разом із уже покладеним цього
+	// місяця, з тієї ж причини, що й подушка: перерахувати їх тут означало
+	// б втратити moved і розійтися з карткою на першому ж рядку.
+	c.goals = append([]state.Goal(nil), doc.Goals...)
+	c.goalsUAH = doc.GoalsUAH
 	for _, row := range doc.Rebalance {
 		if row.Dimension == "kind" {
 			c.kindUAH[row.Key] = row.CurrentUAH
@@ -266,6 +279,12 @@ func (c *routeCarry) doc(carryInUAH float64) *state.Doc {
 		r.GapUAH, r.FillMonthUAH, r.FillNowUAH = c.gapUAH, c.fillMonth, c.fillNow
 		d.Reserve = &r
 	}
+	d.GoalsUAH = c.goalsUAH
+	if len(c.goals) > 0 {
+		g := make([]state.Goal, len(c.goals))
+		copy(g, c.goals)
+		d.Goals = g
+	}
 	rows := make([]state.RebalanceRow, len(c.base.Rebalance))
 	copy(rows, c.base.Rebalance)
 	for i := range rows {
@@ -291,6 +310,24 @@ func (c *routeCarry) enterMonth(month string, mp *state.MonthPlan) {
 	c.month = month
 	// moved = 0: у місяці, який ще не настав, у подушку ще нічого не клали.
 	c.fillMonth, c.fillNow = reserveMonthShare(c.set, c.reserveUAH, mp, 0)
+
+	// Цілі — тим самим правилом і тією самою функцією, що й у документі.
+	// Стеля цілей це теж частка ОДНОГО МІСЯЦЯ, і без цього скидання прохід
+	// уперед роздав би річну норму за перші два купони.
+	//
+	// Потрібний темп (RequiredUAH) при цьому лишається таким, яким його
+	// порахували на СЬОГОДНІ, і це свідоме спрощення: перераховувати його
+	// щомісяця означало б вести за собою ще й «скільки місяців лишилось»,
+	// а сходиться воно й так — GoalsFill обрізає потребу розривом, який на
+	// кожному кроці меншає.
+	if len(c.goals) > 0 && mp != nil {
+		for i := range c.goals {
+			c.goals[i].MovedUAH = 0
+			c.goals[i].FillMonthUAH, c.goals[i].FillNowUAH = 0, 0
+			c.goals[i].ShortMonthUAH = 0
+		}
+		state.GoalsFill(c.set, c.goals, mp.PlanUAH)
+	}
 }
 
 // redeem — тіло вийшло з інструмента, ДО розкладки.
@@ -325,6 +362,20 @@ func (c *routeCarry) apply(p allocPlan) {
 		c.reserveUAH += v
 		c.gapUAH = math.Max(0, c.gapUAH-v)
 		c.fillNow = math.Max(0, c.fillNow-v)
+	}
+	for _, gc := range p.Goals {
+		if gc.AmountUAH <= 0 {
+			continue
+		}
+		c.goalsUAH += gc.AmountUAH
+		for i := range c.goals {
+			if c.goals[i].ID != gc.ID {
+				continue
+			}
+			c.goals[i].GapUAH = math.Max(0, c.goals[i].GapUAH-gc.AmountUAH)
+			c.goals[i].FillNowUAH = math.Max(0, c.goals[i].FillNowUAH-gc.AmountUAH)
+			break
+		}
 	}
 	for _, l := range p.Lines {
 		if k, ok := allocKind[l.Kind]; ok {
@@ -405,6 +456,12 @@ type routePot struct {
 	// без брокера ("—"), а виплати портфеля — на рахунок свого. Зійтись
 	// вони можуть лише там, де в лота немає каналу.
 	eligible int64
+	// goalsEligible — те саме для цілей накопичення, ОКРЕМИМ числом.
+	//
+	// Окремим, бо goals_fill_from — свій ключ: подушку можна наповнювати
+	// лише зарплатою, а цілі — усім, що прийде. Спільне число віддало б
+	// обом найсуворішу з двох політик.
+	goalsEligible int64
 }
 
 // mergeBasis — основа горщика після того, як у нього впала подія.
@@ -470,12 +527,17 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			src = allocFromPlan
 		}
 		evEligible := reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH)
+		evGoalsEligible := goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH)
 
 		carryIn := pot.minor
 		pot.minor += ev.Amount
 		pot.eligible += int64(math.Round(evEligible / rate * 100))
 		if pot.eligible > pot.minor {
 			pot.eligible = pot.minor
+		}
+		pot.goalsEligible += int64(math.Round(evGoalsEligible / rate * 100))
+		if pot.goalsEligible > pot.minor {
+			pot.goalsEligible = pot.minor
 		}
 		pot.basis = mergeBasis(pot.basis, flowBasis(ev.readyFlow))
 		pot.pending = append(pot.pending, readyEvent{
@@ -487,10 +549,28 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		potUAH := float64(pot.minor) / 100 * rate
 		plan := allocatePlan(carry.doc(carryInUAH), sug, rates,
 			toMoneyJSON(money.New(pot.minor, cur)), potUAH,
-			float64(pot.eligible)/100*rate, cur, npfID)
+			float64(pot.eligible)/100*rate,
+			float64(pot.goalsEligible)/100*rate, cur, npfID)
 		carry.apply(plan)
 		if plan.Reserve != nil && plan.Reserve.AmountUAH > 0 {
 			pot.eligible -= int64(math.Round(plan.Reserve.AmountUAH / rate * 100))
+			if pot.eligible < 0 {
+				pot.eligible = 0
+			}
+			// Подушка їсть і з дозволеного цілям: гроші не можна віддати
+			// двічі, а політики в них незалежні, тож зменшити треба обидва
+			// лічильники.
+			pot.goalsEligible -= int64(math.Round(plan.Reserve.AmountUAH / rate * 100))
+			if pot.goalsEligible < 0 {
+				pot.goalsEligible = 0
+			}
+		}
+		if plan.GoalsUAH > 0 {
+			pot.goalsEligible -= int64(math.Round(plan.GoalsUAH / rate * 100))
+			if pot.goalsEligible < 0 {
+				pot.goalsEligible = 0
+			}
+			pot.eligible -= int64(math.Round(plan.GoalsUAH / rate * 100))
 			if pot.eligible < 0 {
 				pot.eligible = 0
 			}

@@ -41,6 +41,7 @@ import * as policy from "./views/policy-view.js";
 import * as settings from "./views/settings-view.js";
 import * as money from "./views/money-view.js";
 import * as plan from "./views/plan-view.js";
+import * as goals from "./views/goals.js";
 
 // Знак: три квадрати, складені сходами. Один квадрат — один папір, і
 // саме так портфель і росте: по одному, коли назбиралось на наступний.
@@ -113,6 +114,7 @@ const VIEWS = {
   "policy/mix/main": policy.mix,
   "policy/instruments/main": policy.instruments,
   "policy/reserve/main": policy.reserve,
+  "policy/goals/main": policy.goals,
   "policy/assumptions/main": policy.assumptions,
 
   "settings/refs/main": settings.refs,
@@ -124,6 +126,7 @@ const VIEWS = {
 const KIND_VIEWS = {
   "portfolio/position": instr.positionPane,
   "portfolio/reserve": instr.reservePane,
+  "portfolio/goal": goals.goalPane,
   "money/account": money.accountPane,
 };
 

@@ -120,6 +120,17 @@ type decisionsSummary struct {
 	// цій чистій функції немає, а тягнути їх сюди заради одного рядка
 	// означало б завести в зведення власну конвертацію.
 	ReserveForgonePctAvg float64 `json:"reserve_forgone_pct_avg,omitempty"`
+	// Цілі накопичення — ТРЕТЯ пара чисел, а не додаток до подушки.
+	//
+	// Довід проти злиття той самий, що вивів подушку з Count, лише на ярус
+	// нижче: обидві — гроші повз рейтинг, але доля в них різна. Подушку
+	// тримають, щоб НЕ витратити; ціль — щоб витратити у названу дату.
+	// Спільне число сказало б «не в портфель пішло стільки» й не сказало б,
+	// скільки з того піде назад у життя, а скільки лишиться лежати.
+	GoalCount int `json:"goal_count,omitempty"`
+	// GoalForgonePctAvg — те саме, що ReserveForgonePctAvg, і так само НЕ
+	// «втрачене»: на авто збирають, щоб його купити, а не щоб заробити.
+	GoalForgonePctAvg float64 `json:"goal_forgone_pct_avg,omitempty"`
 }
 
 type decisionsModeRow struct {
@@ -201,10 +212,11 @@ func decisionBase(d store.Decision) decisionRow {
 		Amount:   toMoneyJSON(money.New(d.Amount, orUAH(d.Currency))),
 		RankMode: d.RankMode, PromisedPct: d.RealPct, RankPos: d.RankPos,
 	}
-	if d.Kind == decisionKindReserve {
-		// У подушки немає ні місця в рейтингу, ні власної обіцянки — лише
-		// те, від чого ці гроші відмовились. PromisedPct лишається нулем, і
-		// це точне твердження: журнал матраца не приносить нічого.
+	if d.Kind == decisionKindReserve || d.Kind == decisionKindGoal {
+		// Ні в подушки, ні в цілі немає ні місця в рейтингу, ні власної
+		// обіцянки — лише те, від чого ці гроші відмовились. PromisedPct
+		// лишається нулем, і це точне твердження: ні матрац, ні шухляда під
+		// авто не приносять нічого.
 		row.TopLabel, row.ForgonePct = d.TopLabel, round2(d.TopRealPct)
 		return row
 	}
@@ -276,15 +288,20 @@ func summarizeDecisions(rows []decisionRow) decisionsSummary {
 	var order []string
 	var vsTop, vsTopN float64
 	var drift, driftN float64
-	var forgone float64
+	var forgone, goalForgone float64
 
 	for _, r := range rows {
-		// Подушка — своя пара чисел, і в жодну з решти вона не входить:
-		// аргумент при ReserveCount. Режими її теж не стосуються — рух у
-		// матрац не залежить від того, чим упорядкований рейтинг.
+		// Подушка й цілі — свої пари чисел, і в жодну з решти вони не
+		// входять: аргумент при ReserveCount. Режими їх теж не стосуються —
+		// рух повз рейтинг не залежить від того, чим той упорядкований.
 		if r.Kind == decisionKindReserve {
 			sum.ReserveCount++
 			forgone += r.ForgonePct
+			continue
+		}
+		if r.Kind == decisionKindGoal {
+			sum.GoalCount++
+			goalForgone += r.ForgonePct
 			continue
 		}
 		sum.Count++
@@ -318,6 +335,9 @@ func summarizeDecisions(rows []decisionRow) decisionsSummary {
 	}
 	if sum.ReserveCount > 0 {
 		sum.ReserveForgonePctAvg = round2(forgone / float64(sum.ReserveCount))
+	}
+	if sum.GoalCount > 0 {
+		sum.GoalForgonePctAvg = round2(goalForgone / float64(sum.GoalCount))
 	}
 	// Порядок режимів — той, у якому вони вперше трапились у журналі,
 	// тобто хронологічний. Мапа дала б новий порядок на кожен запит.

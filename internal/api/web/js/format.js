@@ -151,7 +151,8 @@ export const capitalUAH = (s) => {
   if ((s || {}).capital_uah != null) return s.capital_uah;
   return ((s || {}).nominal_uah_eq || 0) + ((s || {}).account_uah || 0) +
     ((s || {}).funds_uah || 0) + ((s || {}).deposits_uah || 0) +
-    ((s || {}).reserve_uah || 0) + ((s || {}).npf_uah || 0);
+    ((s || {}).reserve_uah || 0) + ((s || {}).goals_uah || 0) +
+    ((s || {}).npf_uah || 0);
 };
 
 /** Собівартість сертифікатів — «вкладено» тієї ж природи, що й вартість

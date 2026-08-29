@@ -52,6 +52,12 @@ type Snapshot struct {
 	// собівартості він завищився б рівно на весь пенсійний баланс.
 	NPFUAH     int64 `json:"npf_uah,omitempty"`
 	NPFCostUAH int64 `json:"npf_cost_uah,omitempty"`
+	// GoalsUAH — цілі накопичення в грн-екв. (0040). Окремо від
+	// ReserveUAH, бо це різні гроші з різною долею: подушку тримають, щоб
+	// не витратити, ціль — щоб витратити у названу дату. Злиті в одне
+	// число, вони зробили б рядок «було → стало» непоясненним рівно в
+	// місяць, коли людина закрила ціль і купила річ.
+	GoalsUAH int64 `json:"goals_uah,omitempty"`
 }
 
 // snapshotCol — одна колонка знімка. Ptr дає доступ до поля структури,
@@ -82,6 +88,7 @@ var snapshotCols = []snapshotCol{
 	{"reserve_uah", func(s *Snapshot) *int64 { return &s.ReserveUAH }},
 	{"npf_uah", func(s *Snapshot) *int64 { return &s.NPFUAH }},
 	{"npf_cost_uah", func(s *Snapshot) *int64 { return &s.NPFCostUAH }},
+	{"goals_uah", func(s *Snapshot) *int64 { return &s.GoalsUAH }},
 }
 
 // SnapshotColumns — імена числових колонок знімка, для споживачів поза

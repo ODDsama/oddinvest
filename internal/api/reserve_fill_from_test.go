@@ -193,6 +193,7 @@ func TestRouteFirstLegEqualsAllocateWithSource(t *testing.T) {
 	want := allocatePlan(doc, sug, allocRates,
 		toMoneyJSON(money.New(500000, money.UAH)), 5000,
 		reserveEligibleUAH(doc.Settings, allocFromPortfolio, 5000, 3000),
+		goalsEligibleUAH(doc.Settings, allocFromPortfolio, 5000, 3000),
 		money.UAH, nil)
 
 	if got.Legs[0].Reserve == nil || want.Reserve == nil {

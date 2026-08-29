@@ -127,6 +127,23 @@ var settingsRegistry = []settingDef{
 			"аварія не витрачається помісячно, і драбина її не покриває"},
 	{Key: "reserve_max_term_months", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveMaxTermMonths },
 		Why: "найдовша сходинка драбини подушки, місяців; порожньо або 0 = подушку не замикати"},
+	// Цілі накопичення. Стеля ОДНА на всі цілі разом, а не частка в рядку
+	// кожної, і це рішення, а не спрощення.
+	//
+	// Частка в рядку — це число, яке треба тримати в синхроні з дедлайном
+	// РУКАМИ, і воно розійдеться з ним на першій же правці дати. Потрібний
+	// темп застосунок виводить сам (розрив ÷ місяців до дати), а стеля
+	// відповідає на інше питання — скільки місяць узагалі витримає.
+	//
+	// Коли сума потрібних темпів не влазить у стелю, це й Є сигнал
+	// відставання, і сказати його треба словами, а не мовчки порізати.
+	{Key: "goals_fill_share_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.GoalsFillSharePct },
+		Why: "яка частка планового доходу місяця йде в цілі накопичення РАЗОМ, після подушки; " +
+			"порожньо = не пропонувати"},
+	{Key: "goals_fill_from", Str: func(s *state.SettingsDoc) *string { return &s.GoalsFillFrom },
+		Enum: []string{"any", "redeem", "plan"},
+		Why:  "з яких грошей наповнювати цілі: з усіх, з планових і погашень, чи лише з планових"},
+
 	{Key: "income_target_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.IncomeTargetUAH },
 		Why: "який пасивний дохід вважати достатнім; порожньо = місячні витрати"},
 	{Key: "withdraw_monthly_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.WithdrawMonthlyUAH },

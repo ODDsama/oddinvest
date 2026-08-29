@@ -53,6 +53,8 @@ type sources struct {
 	fundPrices   []domain.FundPrice
 	termDeposits []domain.Deposit
 	reserveOps   []store.ReserveOp
+	goals        []store.Goal
+	goalOps      []store.GoalOp
 
 	// НПФ (0028): рахунки, внески й вклеєні руками точки ЧВОПА.
 	//
@@ -133,6 +135,11 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	if src.reserveOps, err = s.st.ListReserveOps(ctx); err != nil {
 		return nil, err
 	}
+	// Цілі накопичення — мʼяко, як фонди й вклади: таблиці зʼявились
+	// пізніше за схему (0039), і порожній список — звичайний стан, а не
+	// привід валити весь документ.
+	src.goals, _ = s.st.ListGoals(ctx)     //nolint:errcheck // свідомо: цілі зʼявились пізніше за схему
+	src.goalOps, _ = s.st.ListGoalOps(ctx) //nolint:errcheck // те саме
 	if src.statuses, err = s.st.PaymentStatuses(ctx); err != nil {
 		return nil, err
 	}

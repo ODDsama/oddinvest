@@ -73,6 +73,12 @@ function destHTML(leg) {
     rows.push(`<div class="fine">${kindPill("reserve")}
       <b>${fmtUAH(leg.reserve.amount_uah)}</b></div>`);
   }
+  // Цілі — ДРУГИМИ, одразу за подушкою й перед паперами: так само, як у
+  // самому обчисленні. Інший порядок тут суперечив би розкладці.
+  for (const g of leg.goals || []) {
+    rows.push(`<div class="fine">${kindPill("goal")} ${esc(g.name)}
+      — <b>${fmtUAH(g.amount_uah)}</b></div>`);
+  }
   for (const l of leg.lines || []) {
     rows.push(`<div class="fine">${kindPill(l.kind)} ${esc(l.label)}
       — <b>${fmtUAH(l.total_uah)}</b></div>`);
@@ -83,6 +89,9 @@ function destHTML(leg) {
   // гроші пішли, потім куди не пішли й чому.
   if (leg.reserve_skip_why) {
     rows.push(`<div class="fine-xs t-warn">${esc(leg.reserve_skip_why)}</div>`);
+  }
+  if (leg.goals_skip_why) {
+    rows.push(`<div class="fine-xs t-warn">${esc(leg.goals_skip_why)}</div>`);
   }
   if (!rows.length) {
     // Порожня комірка читалась би як «загубилось». Причина в маршруті

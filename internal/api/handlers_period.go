@@ -94,9 +94,14 @@ type periodDecisions struct {
 	// місяць і дохідність доступного в ті хвилини. Не «втрачене».
 	ReserveCount         int     `json:"reserve_count,omitempty"`
 	ReserveForgonePctAvg float64 `json:"reserve_forgone_pct_avg,omitempty"`
-	// Rows — усі рядки місяця, подушку ВКЛЮЧНО: у таблиці вид підписаний,
-	// і сховати з неї половину рішень заради чистого знаменника означало б
-	// відповісти на «що я вирішив у серпні» неповно.
+	// GoalCount / GoalForgonePctAvg — те саме для цілей накопичення, і теж
+	// окремою парою: подушку тримають, щоб НЕ витратити, ціль — щоб
+	// витратити, і місяць мусить уміти сказати це нарізно.
+	GoalCount         int     `json:"goal_count,omitempty"`
+	GoalForgonePctAvg float64 `json:"goal_forgone_pct_avg,omitempty"`
+	// Rows — усі рядки місяця, подушку й цілі ВКЛЮЧНО: у таблиці вид
+	// підписаний, і сховати з неї половину рішень заради чистого знаменника
+	// означало б відповісти на «що я вирішив у серпні» неповно.
 	Rows []decisionRow `json:"rows,omitempty"`
 	Note string        `json:"note,omitempty"`
 }
@@ -204,7 +209,7 @@ func monthBounds(month string) (domain.Date, domain.Date, error) {
 // існує для старішого бекенда. Міняєш склад капіталу — дивись і туди.
 func snapshotCapitalUAH(sn store.Snapshot) int64 {
 	return sn.NominalUAHEq + sn.AccountUAH + sn.FundsUAH +
-		sn.DepositsUAH + sn.ReserveUAH + sn.NPFUAH
+		sn.DepositsUAH + sn.ReserveUAH + sn.GoalsUAH + sn.NPFUAH
 }
 
 // periodStructureOf — знімки на межах періоду й різниця між ними.
@@ -246,6 +251,7 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date) (*periodStructu
 			row("deposits", "Вклади", before.DepositsUAH, after.DepositsUAH),
 			row("npf", "НПФ", before.NPFUAH, after.NPFUAH),
 			row("reserve", "Резерв", before.ReserveUAH, after.ReserveUAH),
+			row("goals", "Цілі накопичення", before.GoalsUAH, after.GoalsUAH),
 			row("account", "На рахунках", before.AccountUAH, after.AccountUAH),
 		},
 	}
@@ -299,7 +305,7 @@ func periodPlanOf(snaps []store.Snapshot, from, to domain.Date, contribMinor int
 // висновок.
 func periodDecisionsOf(list []store.Decision, from, to domain.Date) periodDecisions {
 	out := periodDecisions{}
-	var sum, forgone float64
+	var sum, forgone, goalForgone float64
 	var withTop int
 	for _, d := range list {
 		if d.MadeOn.Before(from) || d.MadeOn.After(to) {
@@ -310,6 +316,11 @@ func periodDecisionsOf(list []store.Decision, from, to domain.Date) periodDecisi
 		if d.Kind == decisionKindReserve {
 			out.ReserveCount++
 			forgone += row.ForgonePct
+			continue
+		}
+		if d.Kind == decisionKindGoal {
+			out.GoalCount++
+			goalForgone += row.ForgonePct
 			continue
 		}
 		out.Count++
@@ -326,6 +337,9 @@ func periodDecisionsOf(list []store.Decision, from, to domain.Date) periodDecisi
 	}
 	if out.ReserveCount > 0 {
 		out.ReserveForgonePctAvg = round2(forgone / float64(out.ReserveCount))
+	}
+	if out.GoalCount > 0 {
+		out.GoalForgonePctAvg = round2(goalForgone / float64(out.GoalCount))
 	}
 	if out.Count == 0 {
 		out.Note = "цього місяця нічого не куплено"

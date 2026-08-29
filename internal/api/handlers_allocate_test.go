@@ -45,7 +45,7 @@ var allocRates = fx.Rates{money.USD: 440000}
 func TestAllocateWholeTicketsOnly(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400, 3400, money.UAH, nil)
+		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400, 3400, 3400, money.UAH, nil)
 
 	if len(got.Lines) != 1 {
 		t.Fatalf("рядків %d, чекали 1: %+v", len(got.Lines), got)
@@ -73,7 +73,7 @@ func TestAllocateReserveEatsEverything(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
 		&state.Reserve{FillNowUAH: 9000, FillMonthUAH: 9000, GapUAH: 50000})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, money.UAH, nil)
+		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, 5000, money.UAH, nil)
 
 	if got.Reserve == nil || got.Reserve.AmountUAH != 5000 {
 		t.Fatalf("вирізка резерву %+v, чекали всі 5000", got.Reserve)
@@ -92,7 +92,7 @@ func TestAllocateReserveThenBuys(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
 		&state.Reserve{FillNowUAH: 2000, FillMonthUAH: 2000, GapUAH: 40000})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, money.UAH, nil)
+		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, 5000, money.UAH, nil)
 
 	if got.Reserve == nil || got.Reserve.AmountUAH != 2000 {
 		t.Fatalf("вирізка резерву %+v, чекали 2000", got.Reserve)
@@ -120,7 +120,7 @@ func TestAllocateSkipsOvershotKind(t *testing.T) {
 		},
 	}
 	got := allocatePlan(doc, sug, allocRates,
-		toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, money.UAH, nil)
+		toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, 5000, money.UAH, nil)
 
 	for _, l := range got.Lines {
 		if l.Kind == "fund" {
@@ -138,7 +138,7 @@ func TestAllocateMarksConversion(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	// Гривневий папір за 1000 ₴ на доларову суму: 500 $ це 22 000 ₴.
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(50000, money.USD)), 22000, 22000, money.USD, nil)
+		allocRates, toMoneyJSON(money.New(50000, money.USD)), 22000, 22000, 22000, money.USD, nil)
 
 	if len(got.Lines) != 1 {
 		t.Fatalf("рядків %d, чекали 1: %+v", len(got.Lines), got)
@@ -167,7 +167,7 @@ func TestAllocateNPFTakesWholeBudgetAndDepositDoesNot(t *testing.T) {
 			CostPerBond: toMoneyJSON(money.New(100000, money.UAH)), RealPct: 5},
 	}
 	got := allocatePlan(doc, sug, allocRates,
-		toMoneyJSON(money.New(400000, money.UAH)), 4000, 4000, money.UAH,
+		toMoneyJSON(money.New(400000, money.UAH)), 4000, 4000, 4000, money.UAH,
 		map[string]int64{"Династія": 7})
 
 	var npf, dep *allocLine
@@ -206,7 +206,7 @@ func TestAllocateNPFWithoutIDSkipped(t *testing.T) {
 	got := allocatePlan(doc, []suggestion{
 		{Kind: "npf", Label: "Династія", Currency: money.UAH,
 			CostPerBond: toMoneyJSON(money.New(0, money.UAH))},
-	}, allocRates, toMoneyJSON(money.New(400000, money.UAH)), 4000, 4000, money.UAH, nil)
+	}, allocRates, toMoneyJSON(money.New(400000, money.UAH)), 4000, 4000, 4000, money.UAH, nil)
 
 	if len(got.Lines) != 0 {
 		t.Fatalf("без id рахунку рядка бути не може: %+v", got.Lines)
@@ -221,7 +221,7 @@ func TestAllocateNPFWithoutIDSkipped(t *testing.T) {
 func TestAllocateWithoutKindTargets(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 0, 50000)}, nil)
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, money.UAH, nil)
+		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, 5000, money.UAH, nil)
 
 	if len(got.Lines) != 0 {
 		t.Fatalf("цілей немає — рядків бути не може: %+v", got.Lines)
@@ -243,7 +243,7 @@ func TestAllocateIgnoresMonthSplitFromDoc(t *testing.T) {
 	row.MonthBalanceUAH = 30000 // поділ плану місяця, що вже лежить у документі
 	doc := allocDoc([]state.RebalanceRow{row}, nil)
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(50000, money.UAH)), 500, 500, money.UAH, nil)
+		allocRates, toMoneyJSON(money.New(50000, money.UAH)), 500, 500, 500, money.UAH, nil)
 
 	for _, l := range got.Lines {
 		if l.TotalUAH > 500 {

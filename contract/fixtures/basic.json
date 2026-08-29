@@ -3,8 +3,8 @@
   "generated_at": "2026-07-15T10:00:00Z",
   "invested_uah": 137305.57,
   "nominal_uah_eq": 138246.8,
-  "capital_uah": 243246.8,
-  "usd_share_pct": 36.2787095246474,
+  "capital_uah": 273246.8,
+  "usd_share_pct": 32.29563896082223,
   "eur_share_pct": 0,
   "uninvested_uah": 0,
   "account_uah": 0,
@@ -14,7 +14,7 @@
   "reserve_uah": 60000,
   "reserve": {
     "uah": 60000,
-    "share_pct": 24.666305990459072,
+    "share_pct": 21.95817114784144,
     "months": 2,
     "target_months": 3,
     "target_uah": 90000,
@@ -51,6 +51,37 @@
     "next_rung_months": 3,
     "ladder_earns_uah": 3000
   },
+  "goals_uah": 30000,
+  "goals": [
+    {
+      "id": 1,
+      "name": "Авто",
+      "currency": "USD",
+      "target_native": 20000,
+      "collected_native": 679.93,
+      "gap_native": 19320.07,
+      "target_uah": 882468,
+      "collected_uah": 30000,
+      "gap_uah": 852468,
+      "done_pct": 3.4,
+      "by_currency": {
+        "UAH": 30000
+      },
+      "places": {
+        "готівка": 30000
+      },
+      "last_move": "2026-07-10",
+      "fx_mixed": true,
+      "due_date": "2027-05-01",
+      "months_left": 9.53,
+      "required_native": 2027.94,
+      "required_uah": 89479.74,
+      "actual_native": 113.32,
+      "actual_uah": 5000,
+      "eta_date": "2040-10-15",
+      "behind": true
+    }
+  ],
   "npf_uah": 45000,
   "npf_cost_uah": 40000,
   "npf": [
@@ -240,6 +271,7 @@
     "in_30_uah": 5637.5,
     "in_90_uah": 9775,
     "reserve_uah": 60000,
+    "goals_uah": 30000,
     "locked_uah": 120000,
     "breakable_uah": 40000,
     "unlock_date": "2027-03-17",

@@ -295,7 +295,10 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 	// Валютні цілі вище знаменника НЕ міняють: $5 000 у матраці — справжня
 	// валютна експозиція (див. state/capital.go), і виключати їх звідти було
 	// б неправдою про валютний ризик.
-	kindMajor := totalMajor - cap.ReserveUAH
+	// Цілі накопичення — з того самого доводу, що резерв, і тим самим
+	// відніманням: гроші під авто в капіталі є, але видом інструмента вони
+	// не стануть ніколи.
+	kindMajor := totalMajor - cap.ReserveUAH - cap.GoalsUAH
 	kindTargets := []struct {
 		key    string
 		nowUAH float64

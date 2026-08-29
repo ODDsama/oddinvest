@@ -25,11 +25,15 @@ import { panesFor } from "./nav.js";
  *  чип називає ГРУПУ, пігулка — одну сутність. */
 export const KIND_ONE = {
   bond: "ОВДП", fund: "Фонд", npf: "НПФ", deposit: "Вклад", reserve: "Резерв",
+  goal: "Ціль",
 };
 const KIND_MANY = {
   bond: "ОВДП", fund: "Фонди", npf: "НПФ", deposit: "Вклади", reserve: "Резерв",
+  goal: "Цілі",
 };
-const KIND_ORDER = ["bond", "fund", "npf", "deposit", "reserve"];
+// Цілі ОСТАННІМИ, після резерву: список іде від того, що працює, до того,
+// що чекає свого дня. Подушка чекає аварії, ціль — названої дати.
+const KIND_ORDER = ["bond", "fund", "npf", "deposit", "reserve", "goal"];
 
 /** Число з відмінюваним словом: nOf(3, …) → «3 рахунки».
  *
@@ -56,6 +60,7 @@ export const KIND_COLOR = {
   npf: "var(--oi-kind-npf)",
   deposit: "var(--oi-kind-deposit)",
   reserve: "var(--oi-kind-reserve)",
+  goal: "var(--oi-kind-goal)",
   all: "var(--oi-accent)",
 };
 
@@ -144,6 +149,24 @@ export function portfolioRows(ctx, d) {
       // Дохідності в резерву немає ЗА ПРИРОДОЮ — не «поки що немає».
       // Довід цілком лежить у nav.js при PANE_SETS.
       "—", "reserve",
+    ));
+  }
+
+  // Цілі накопичення — по рядку на ціль. Закриті теж: журнал під ними і є
+  // історія того, як на них збирали, а ціна, яку за це заплатили,
+  // лишається частиною картини. Помітка «куплено» відрізняє їх від живих.
+  for (const g of s.goals || []) {
+    const done = !!g.done_date;
+    out.push(row(
+      `goal:${g.id}`, g.name,
+      [KIND_ONE.goal, done ? "куплено" : g.due_date && `до ${g.due_date}`]
+        .filter(Boolean).join(" · "),
+      uah0(g.collected_uah || 0),
+      // Праворуч — ПРОГРЕС, а не дохідність: дохідності в цілі немає за
+      // природою (довід у nav.js), а «скільки вже зібрано» і є те число,
+      // заради якого на неї дивляться.
+      done ? "—" : `${(g.done_pct || 0).toFixed(0)}%`, "goal",
+      done ? "" : g.behind ? "warn" : "",
     ));
   }
   return out;

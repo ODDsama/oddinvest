@@ -380,6 +380,11 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	}
 
 	// Рухи поточного місяця й фактичний темп (state_month.go).
+	// Цілі накопичення — до buildMonth: та рахує «внесено нетто», і рухи
+	// цілей входять у нього нарівні з рухами резерву (довід — у міграції
+	// 0039 про дві ноги переказу).
+	goals := buildGoals(src.goals, src.goalOps, rates, today, now)
+
 	mth, err := buildMonth(src, hold, rates, now, today, reserveUAH)
 	if err != nil {
 		return nil, err
@@ -991,9 +996,11 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	capital := state.Capital{
 		BondsUAH: nominalMajor, AccountUAH: float64(accountUAHMinor) / 100,
 		FundsUAH: fundsUAH, DepositsUAH: depositsUAH, ReserveUAH: reserveUAH,
+		GoalsUAH:   goals.UAH,
 		NPFUAH:     npf.TotalUAH,
 		BondsByCur: bnd.NominalByCurUAH, DepositsByCur: depositsUAHByCur,
-		ReserveByCur: reserveUAHByCur, NPFByCur: npf.ExposureUAH,
+		ReserveByCur: reserveUAHByCur, GoalsByCur: goals.ByCur,
+		NPFByCur: npf.ExposureUAH,
 	}
 
 	// Зведена дохідність — по ЧОТИРЬОХ видах, а не по двох.
@@ -1084,8 +1091,9 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// порахувати їх двічі й назвати негайно доступним те, що лежить у
 		// банку до дати погашення.
 		AccountMinor: accountUAHMinor, ReserveUAH: reserveLiquidUAH,
-		NPFRows: npf.Rows,
-		Now:     now, Today: today,
+		GoalsUAH: goals.UAH,
+		NPFRows:  npf.Rows,
+		Now:      now, Today: today,
 	})
 	rateRisk, liquidity, accruedUAH := rsk.RateRisk, rsk.Liquidity, rsk.AccruedUAH
 
@@ -1115,7 +1123,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
 		FundsUAH: round2(fundsUAH), Funds: fundRows,
 		DepositsUAH: round2(depositsUAH), ReserveUAH: round2(reserveUAH),
-		NPFUAH: round2(npf.TotalUAH), NPFCostUAH: round2(npf.CostUAH),
+		GoalsUAH: round2(goals.UAH),
+		NPFUAH:   round2(npf.TotalUAH), NPFCostUAH: round2(npf.CostUAH),
 		NPF: npf.Rows, NPFContribDue: npf.ContribDue,
 		IncomeMonthlyNow: incomeMonthlyNow, ReinvestMin: reinvestMinByCur,
 
@@ -1160,6 +1169,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// domain.NetRate; у state лишається сама арифметика покриття.
 		ReserveLiquidUAH: reserveLiquidUAH,
 		ReserveDeposits:  reserveLadderInput(reserveRungs, today, rates),
+		// Цілі — так само ГОТОВИМИ: суми в обох одиницях і поміряний темп.
+		// Курс, «сьогодні» й вікно темпу знає будівник (state_goals.go), а в
+		// state лишається «скільки лишилось і чи встигаю».
+		Goals: goals.Input,
 	}); err != nil {
 		return nil, err
 	}

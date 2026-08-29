@@ -76,7 +76,7 @@ func (s *Server) handleAddReserveOp(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	var snap decisionSnapshot
 	if op.Amount > 0 {
-		snap = s.takeReserveSnapshot(r.Context(), now)
+		snap = s.takeOutsideSnapshot(r.Context(), now)
 	}
 	id, err := s.st.AddReserveOp(r.Context(), op)
 	if err != nil {

@@ -44,6 +44,7 @@ type riskInput struct {
 	YieldByCur   map[string]float64
 	AccountMinor int64
 	ReserveUAH   float64
+	GoalsUAH     float64
 	// NPFRows — пенсійні рахунки. Потрібні лише ліквідності: у ціновий ризик
 	// і ризик перевкладення НПФ не входить, бо не породжує потоку взагалі.
 	NPFRows []state.NPFPositionRow
@@ -231,6 +232,7 @@ func buildRisk(in riskInput) riskPhase {
 		In30UAH:      round2(float64(in30) / 100),
 		In90UAH:      round2(float64(in90) / 100),
 		ReserveUAH:   round2(in.ReserveUAH),
+		GoalsUAH:     round2(in.GoalsUAH),
 		LockedUAH:    round2(float64(lockedUAH)/100 + npfLockedUAH),
 		BreakableUAH: round2(float64(breakableUAH) / 100),
 		UnlockDate:   string(unlockDate),

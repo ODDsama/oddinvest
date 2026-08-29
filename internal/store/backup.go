@@ -38,6 +38,13 @@ type Backup struct {
 	// ReserveOps omitempty з тієї ж причини: бекапи до появи резерву його
 	// не мають, і restore просто не створить жодного руху.
 	ReserveOps []BackupReserveOp `json:"reserve_ops,omitempty"`
+	// Цілі накопичення (0039) — ДВА поля, бо сутностей дві: сама ціль і
+	// журнал під нею. Невідновні так само, як резерв, і навіть трохи
+	// гірше: рух резерву хоч видно за просілим капіталом, а «збираю на
+	// авто $20 000 до березня» не виводиться нізвідки взагалі — ні з
+	// операцій, ні з плану.
+	Goals   []BackupGoal   `json:"goals,omitempty"`
+	GoalOps []BackupGoalOp `json:"goal_ops,omitempty"`
 	// План (фаза 9) — так само невідновний журнал, і так само omitempty:
 	// бекапи, зроблені до його появи, читаються без цих полів.
 	PlanFlows   []BackupPlanFlow   `json:"plan_flows,omitempty"`
@@ -214,6 +221,32 @@ type BackupBroker struct {
 // би капітал заниженим рівно на суму матраца.
 type BackupReserveOp struct {
 	ID       int64  `json:"id"`
+	Date     string `json:"date"`
+	Amount   int64  `json:"amount"`
+	Currency string `json:"currency"`
+	Place    string `json:"place"`
+	Note     string `json:"note"`
+}
+
+// BackupGoal — ціль накопичення. Разом із BackupGoalOp нижче це та сама
+// пара «запис + журнал», що в пенсійного рахунку з внесками, і порядок
+// вставки тут так само значущий: goal_ops має FK на goals.
+type BackupGoal struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	TargetAmount int64  `json:"target_amount"`
+	Currency     string `json:"currency"`
+	DueDate      string `json:"due_date"`
+	Priority     int64  `json:"priority"`
+	Place        string `json:"place"`
+	Note         string `json:"note"`
+	DoneDate     string `json:"done_date"`
+}
+
+// BackupGoalOp — один рух під ціллю.
+type BackupGoalOp struct {
+	ID       int64  `json:"id"`
+	GoalID   int64  `json:"goal_id"`
 	Date     string `json:"date"`
 	Amount   int64  `json:"amount"`
 	Currency string `json:"currency"`
@@ -641,6 +674,32 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT id,name,target_amount,currency,due_date,priority,
+		place,note,done_date FROM goals ORDER BY id`,
+		func(scan func(...any) error) error {
+			var g BackupGoal
+			if err := scan(&g.ID, &g.Name, &g.TargetAmount, &g.Currency, &g.DueDate,
+				&g.Priority, &g.Place, &g.Note, &g.DoneDate); err != nil {
+				return err
+			}
+			b.Goals = append(b.Goals, g)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT id,goal_id,date,amount,currency,place,note
+		FROM goal_ops ORDER BY id`,
+		func(scan func(...any) error) error {
+			var o BackupGoalOp
+			if err := scan(&o.ID, &o.GoalID, &o.Date, &o.Amount, &o.Currency,
+				&o.Place, &o.Note); err != nil {
+				return err
+			}
+			b.GoalOps = append(b.GoalOps, o)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT id,name,kind,amount,currency,cadence,from_date,until_date,
 		growth_bp,invest_bp,dest,note FROM plan_flows ORDER BY id`,
 		func(scan func(...any) error) error {
@@ -851,8 +910,14 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// забути її тут означає не «дублікати після відновлення», а повну
 	// ВІДМОВУ, бо DELETE FROM funds упреться у FK у будь-кого, хто має
 	// бодай одну позначку ціни.
+	//
+	// goal_ops — перед goals (FK на них), і обидві в переліку з тієї самої
+	// причини, що reserve_ops: бекап тримає id, тож пропуск тут означає не
+	// «дублікати після відновлення», а відмову на UNIQUE(id) у будь-кого,
+	// хто має бодай одну ціль.
 	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
-		"fund_prices", "deposit_topups", "term_deposits", "reserve_ops", "npf_ops", "npf_nav",
+		"fund_prices", "deposit_topups", "term_deposits", "reserve_ops",
+		"goal_ops", "goals", "npf_ops", "npf_nav",
 		"npf_accounts", "plan_flows", "plan_flow_revisions",
 		"plan_receipts", "plan_actions", "plan_buys", "decisions", "import_profiles",
 		"settings", "payment_status", "snapshots",
@@ -1042,6 +1107,24 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			`INSERT INTO reserve_ops (id,date,amount,currency,place,note) VALUES (?,?,?,?,?,?)`,
 			r.ID, r.Date, r.Amount, r.Currency, r.Place, r.Note); err != nil {
 			return fmt.Errorf("рух резерву %d: %w", r.ID, err)
+		}
+	}
+	// Цілі — ПЕРЕД рухами: goal_ops має на них FK. Той самий порядок, що в
+	// пенсійного рахунку з внесками нижче.
+	for _, g := range b.Goals {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO goals
+			(id,name,target_amount,currency,due_date,priority,place,note,done_date)
+			VALUES (?,?,?,?,?,?,?,?,?)`,
+			g.ID, g.Name, g.TargetAmount, g.Currency, g.DueDate, g.Priority,
+			g.Place, g.Note, g.DoneDate); err != nil {
+			return fmt.Errorf("ціль %d: %w", g.ID, err)
+		}
+	}
+	for _, o := range b.GoalOps {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO goal_ops
+			(id,goal_id,date,amount,currency,place,note) VALUES (?,?,?,?,?,?,?)`,
+			o.ID, o.GoalID, o.Date, o.Amount, o.Currency, o.Place, o.Note); err != nil {
+			return fmt.Errorf("рух цілі %d: %w", o.ID, err)
 		}
 	}
 	// Пенсійні рахунки — ПЕРЕД внесками й точками ЧВОПА: обидва мають на

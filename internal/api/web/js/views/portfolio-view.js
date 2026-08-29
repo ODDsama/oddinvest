@@ -31,6 +31,7 @@ import { wireDisclosures } from "../disclosure.js";
 import { bondBuyFormHTML } from "./bonds.js";
 import { depositFormHTML, closedDepositsHTML } from "./deposits.js";
 import { reserveFormHTML, reserveFields, reserveBody } from "./money-cards.js";
+import { goalCreateFormHTML, goalFields, goalBody } from "./goals.js";
 import {
   positionsTableHTML, loadPositionsData, wirePositionRows,
 } from "./positions.js";
@@ -148,6 +149,7 @@ export async function record(ctx, main) {
     <div class="card"><h2>Відкрити вклад</h2>${depositFormHTML(ctx)}
       <div class="sub">Поповнення й дострокове закриття — у рядку самого вкладу.</div></div>
     <div class="card"><h2>Рух резерву</h2>${reserveFormHTML(ctx)}</div>
+    ${goalCreateFormHTML(ctx)}
     <div class="card">${empty("Фонд і НПФ записуються не тут",
     "Сертифікати заводить виписка — руками їх не вносять, бо два джерела правди "
     + "розійшлися б тихо. Пенсійний внесок мусить цілитись у конкретний рахунок, "
@@ -165,6 +167,15 @@ export async function record(ctx, main) {
     resource: "reserve", form: "#resForm", title: "Рух резерву",
     fields: reserveFields, body: reserveBody,
     msg: { add: "Рух резерву записано", edit: "Рух резерву виправлено", del: "Рух видалено" },
+  });
+  // Ціль ЗАВОДИТЬСЯ порожньою — на відміну від решти форм цієї сторінки,
+  // які записують операцію. Це не непослідовність: ціль і є наміром, а не
+  // фактом, і поставити її наперед — головне, чого від неї хочуть. Рухи під
+  // нею записують уже в її власному рядку.
+  wireCrud(ctx, main, {
+    resource: "goals", form: "#goalForm2", title: "Ціль",
+    fields: goalFields, body: goalBody,
+    msg: { add: "Ціль заведено", edit: "Ціль виправлено", del: "Ціль видалено" },
   });
   wireRefs(main);
   wireDisclosures(main);

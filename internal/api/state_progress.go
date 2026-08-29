@@ -561,7 +561,7 @@ func capitalNow(doc *state.Doc) float64 {
 		return doc.CapitalUAH
 	}
 	return doc.NominalUAHEq + doc.AccountUAH + doc.FundsUAH +
-		doc.DepositsUAH + doc.ReserveUAH + doc.NPFUAH
+		doc.DepositsUAH + doc.ReserveUAH + doc.GoalsUAH + doc.NPFUAH
 }
 
 // firstSnapshotAtLeast — перший день, коли капітал у знімках дійшов
@@ -574,7 +574,7 @@ func firstSnapshotAtLeast(snaps []store.Snapshot, uah float64) string {
 		// Знімок тримає МІНОРНІ одиниці (копійки) — те саме ділення на
 		// сто, що робить handleSnapshots для всіх колонок одразу.
 		total := sn.NominalUAHEq + sn.AccountUAH + sn.FundsUAH +
-			sn.DepositsUAH + sn.ReserveUAH + sn.NPFUAH
+			sn.DepositsUAH + sn.ReserveUAH + sn.GoalsUAH + sn.NPFUAH
 		if float64(total)/100 >= uah {
 			return string(sn.Date)
 		}

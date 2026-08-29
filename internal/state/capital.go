@@ -42,6 +42,13 @@ type Capital struct {
 	DepositsUAH float64
 	// ReserveUAH — резерв («матрац»), грн-екв.
 	ReserveUAH float64
+	// GoalsUAH — цілі накопичення, грн-екв.
+	//
+	// У капіталі з того самого доводу, що й резерв: капітал — це «скільки в
+	// мене є», а не «скільки я можу вкласти». На друге відповідає купівельна
+	// спроможність, і там цілі віднімаються нарівні з подушкою (аргумент —
+	// у міграції 0039).
+	GoalsUAH float64
 	// NPFUAH — пенсійні активи, грн-екв.
 	//
 	// У капіталі, попри те, що витратити їх не можна до 50 років: капітал —
@@ -62,22 +69,28 @@ type Capital struct {
 	// тієї ж причини, що й доти (їхня валютна природа складніша за код
 	// валюти операції), а замок на експозицію не впливає: гроші, які не
 	// можна забрати, все одно знецінюються разом із гривнею.
+	//
+	// Цілі накопичення — так само справжня експозиція, і рахуються вони за
+	// валютою САМИХ ГРОШЕЙ, а не за валютою цілі. Це різні речі: «збираю на
+	// авто $20 000, лежить у гривні» дає гривневу експозицію, а курс при
+	// цьому працює ПРОТИ цілі — саме те, що Goal.FXMixed і називає.
 	BondsByCur    map[string]float64
 	DepositsByCur map[string]float64
 	ReserveByCur  map[string]float64
+	GoalsByCur    map[string]float64
 	NPFByCur      map[string]float64
 }
 
 // TotalUAH — увесь капітал, грн-екв.
 func (c Capital) TotalUAH() float64 {
 	return c.BondsUAH + c.AccountUAH + c.FundsUAH + c.DepositsUAH +
-		c.ReserveUAH + c.NPFUAH
+		c.ReserveUAH + c.GoalsUAH + c.NPFUAH
 }
 
 // ExposureUAH — скільки капіталу стоїть у цій валюті, грн-екв.
 func (c Capital) ExposureUAH(cur string) float64 {
 	return c.BondsByCur[cur] + c.DepositsByCur[cur] + c.ReserveByCur[cur] +
-		c.NPFByCur[cur]
+		c.GoalsByCur[cur] + c.NPFByCur[cur]
 }
 
 // SharePct — частка валюти в капіталі, %.

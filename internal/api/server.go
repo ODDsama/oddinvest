@@ -59,6 +59,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/reserve", s.handleAddReserveOp)
 	mux.HandleFunc("PUT /api/reserve/{id}", s.handleUpdateReserveOp)
 	mux.HandleFunc("DELETE /api/reserve/{id}", s.handleDeleteReserveOp)
+
+	// Цілі накопичення — ДВА ресурси, бо сутностей дві: сама ціль і рухи
+	// під нею. Довід, чому їх не можна звести в один, — у шапці
+	// handlers_goals.go.
+	mux.HandleFunc("GET /api/goals", s.handleListGoals)
+	mux.HandleFunc("POST /api/goals", s.handleAddGoal)
+	mux.HandleFunc("PUT /api/goals/{id}", s.handleUpdateGoal)
+	mux.HandleFunc("DELETE /api/goals/{id}", s.handleDeleteGoal)
+	mux.HandleFunc("GET /api/goal-ops", s.handleListGoalOps)
+	mux.HandleFunc("POST /api/goal-ops", s.handleAddGoalOp)
+	mux.HandleFunc("PUT /api/goal-ops/{id}", s.handleUpdateGoalOp)
+	mux.HandleFunc("DELETE /api/goal-ops/{id}", s.handleDeleteGoalOp)
 	mux.HandleFunc("GET /api/conversions", s.handleListConversions)
 	mux.HandleFunc("POST /api/conversions", s.handleAddConversion)
 	mux.HandleFunc("PUT /api/conversions/{id}", s.handleUpdateConversion)

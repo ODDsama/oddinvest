@@ -98,7 +98,28 @@ func reserveFillFrom(set *state.SettingsDoc) string {
 	if set == nil {
 		return "any"
 	}
-	switch v := strings.TrimSpace(set.ReserveFillFrom); v {
+	return fillFromLevel(set.ReserveFillFrom)
+}
+
+// goalsFillFrom — те саме для цілей накопичення. Окремий ключ, а не
+// спільний із подушкою: питання однакове за формою й різне за суттю.
+// Подушку багато хто свідомо наповнює лише зарплатою, а цілі — усім, що
+// прийде, бо на авто збирають і з премії, і з купона.
+func goalsFillFrom(set *state.SettingsDoc) string {
+	if set == nil {
+		return "any"
+	}
+	return fillFromLevel(set.GoalsFillFrom)
+}
+
+// fillFromLevel — рівень політики словом, із дефолтом.
+//
+// Порожньо й будь-що невідоме читаються як "any", тобто як поведінка до
+// появи ключа: налаштування, яке мовчки вимикає механізм, було б найгіршим
+// виглядом помилки. Від друкарської описки стереже перелік у реєстрі, але
+// в базі можуть лежати й дані, старші за ключ.
+func fillFromLevel(raw string) string {
+	switch v := strings.TrimSpace(raw); v {
 	case "redeem", "plan":
 		return v
 	default:
@@ -115,13 +136,26 @@ func reserveFillFrom(set *state.SettingsDoc) string {
 func reserveEligibleUAH(set *state.SettingsDoc, src string,
 	amountUAH, principalUAH float64) float64 {
 
-	switch reserveFillFrom(set) {
+	return eligibleUAH(reserveFillFrom(set), src, amountUAH, principalUAH)
+}
+
+// goalsEligibleUAH — те саме для цілей, і навмисно ТІЄЮ САМОЮ функцією:
+// правило «що таке планові гроші» одне на застосунок, і друга його копія
+// дала б подушці й цілям різні відповіді про той самий купон.
+func goalsEligibleUAH(set *state.SettingsDoc, src string,
+	amountUAH, principalUAH float64) float64 {
+
+	return eligibleUAH(goalsFillFrom(set), src, amountUAH, principalUAH)
+}
+
+func eligibleUAH(level, src string, amountUAH, principalUAH float64) float64 {
+	switch level {
 	case "plan":
 		if src == allocFromPlan {
 			return amountUAH
 		}
 		return 0
-	case "redeem":
+	case "redeem": //nolint:goconst // рівні політики названі в реєстрі, тут вони читаються
 		if src == allocFromPlan {
 			return amountUAH
 		}
@@ -187,10 +221,30 @@ type allocReserve struct {
 // поломка, а не як «ці гроші за твоїм рішенням ідуть у папери». Те саме
 // правило, за яким мовчазного залишку не буває (RestWhy).
 
+// allocGoalCut — вирізка однієї цілі накопичення.
+//
+// Масив, а не одне число, і не рядок у Lines. Цілей буває кілька, у кожної
+// своя назва й своя причина («до березня бракує 24 000 ₴/міс»), а
+// показувати їх однією сумою означало б сказати «на цілі — 8 000» і не
+// сказати, на які саме. У Lines же їм не місце з того самого доводу, що й
+// подушці: немає ні ціни кроку, ні дохідності, ні рядка в плані купівель.
+type allocGoalCut struct {
+	ID        int64   `json:"id"`
+	Name      string  `json:"name"`
+	AmountUAH float64 `json:"amount_uah"`
+	Why       string  `json:"why"`
+}
+
 type allocPlan struct {
 	Amount    moneyJSON     `json:"amount"`
 	AmountUAH float64       `json:"amount_uah"`
 	Reserve   *allocReserve `json:"reserve,omitempty"`
+	// Goals — вирізки цілей, у порядку наповнення. GoalsSkipWhy — чому цілі
+	// не взяли свого: те саме правило, що в ReserveSkipWhy, і той самий
+	// довід — зникла вирізка без пояснення читається як поломка.
+	Goals        []allocGoalCut `json:"goals,omitempty"`
+	GoalsUAH     float64        `json:"goals_uah,omitempty"`
+	GoalsSkipWhy string         `json:"goals_skip_why,omitempty"`
 	// ReserveSkipWhy — аргумент вище, при allocReserve.
 	ReserveSkipWhy string      `json:"reserve_skip_why,omitempty"`
 	AvailUAH       float64     `json:"avail_uah"`
@@ -268,7 +322,8 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, allocatePlan(doc, sug, rates,
 		toMoneyJSON(money.New(minor, cur)), amountUAH,
-		reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH), cur,
+		reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH),
+		goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH), cur,
 		s.npfIDByName(r.Context())))
 }
 
@@ -314,7 +369,7 @@ var allocKind = map[string]string{
 // allocatePlan — уся розкладка. Чиста функція над готовим документом: саме
 // тому її можна перевірити тестом, не піднімаючи сервера.
 func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
-	amount moneyJSON, amountUAH, eligibleUAH float64,
+	amount moneyJSON, amountUAH, reserveElig, goalsElig float64,
 	cur string, npfID map[string]int64) allocPlan {
 
 	out := allocPlan{Amount: amount, AmountUAH: round2(amountUAH), Lines: []allocLine{}}
@@ -323,7 +378,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	avail := amountUAH
 	if doc.Reserve != nil && doc.Reserve.FillNowUAH > 0 {
 		want := math.Min(amountUAH, doc.Reserve.FillNowUAH)
-		cut := math.Min(want, math.Max(0, eligibleUAH))
+		cut := math.Min(want, math.Max(0, reserveElig))
 		if blocked := want - cut; blocked > 0.005 {
 			out.ReserveSkipWhy = reserveSkipWhy(doc.Settings, blocked, cut)
 		}
@@ -340,9 +395,59 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			avail = amountUAH - cut
 		}
 	}
+	// --- цілі накопичення, ДРУГИМИ ---
+	//
+	// Після подушки й лише з того, що після неї лишилось. Порядок не
+	// стилістичний: аварія не має дати й може статись завтра, а річ, на яку
+	// збирають, дату має — на те вона й ціль. Пустити цілі поперед подушки
+	// означало б платити за передбачуване з грошей, відкладених на
+	// непередбачуване.
+	//
+	// Ліміт свій: goals_fill_from ріже незалежно від reserve_fill_from, і
+	// обрізається він ще й тим, що подушка вже забрала (гроші не можна
+	// віддати двічі).
+	if avail > 0 {
+		elig := math.Min(avail, math.Max(0, goalsElig))
+		blocked := 0.0
+		for i := range doc.Goals {
+			g := &doc.Goals[i]
+			if g.FillNowUAH <= 0 {
+				continue
+			}
+			want := math.Min(avail, g.FillNowUAH)
+			cut := math.Min(want, elig)
+			if b := want - cut; b > 0.005 {
+				blocked += b
+			}
+			if cut <= 0.005 {
+				continue
+			}
+			why := fmt.Sprintf("місячна частка цілі — %s з %s", uah(cut), uah(g.FillMonthUAH))
+			switch {
+			case cut < g.FillNowUAH:
+				why += "; більше з цієї суми не вийде — решту добере наступне надходження"
+			case g.GapUAH > 0:
+				why += fmt.Sprintf("; до цілі ще %s", uah(g.GapUAH))
+			}
+			if g.ShortMonthUAH > 0 {
+				why += fmt.Sprintf(". Щоб устигнути до %s, треба ще %s на місяць — стеля стільки не дає",
+					g.DueDate, uah(g.ShortMonthUAH))
+			}
+			out.Goals = append(out.Goals, allocGoalCut{
+				ID: g.ID, Name: g.Name, AmountUAH: round2(cut), Why: why,
+			})
+			out.GoalsUAH = round2(out.GoalsUAH + cut)
+			avail -= cut
+			elig -= cut
+		}
+		if blocked > 0.005 {
+			out.GoalsSkipWhy = goalsSkipWhy(doc.Settings, blocked, out.GoalsUAH)
+		}
+	}
+
 	out.AvailUAH = round2(avail)
 	if avail <= 0 {
-		out.Note = "усе пішло в подушку: доки розрив не закритий, вона забирає своє першою"
+		out.Note = allocAllTakenNote(out)
 		return out
 	}
 
@@ -358,7 +463,12 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	for i := range rows {
 		rows[i].MonthShareUAH, rows[i].MonthBalanceUAH = 0, 0
 	}
-	spreadMonth(rows, avail, doc.CapitalUAH-doc.ReserveUAH)
+	// База поділу — капітал БЕЗ подушки й БЕЗ цілей накопичення. Обидві
+	// суми в капіталі є (гроші існують), але жодну з них не збираються
+	// вкладати: перша чекає на аварію, друга — на річ у названу дату.
+	// Лишити їх у базі означало б ділити гроші місяця на знаменник, у
+	// якому частина ніколи не стане папером.
+	spreadMonth(rows, avail, doc.CapitalUAH-doc.ReserveUAH-doc.GoalsUAH)
 
 	type kindBudget struct {
 		key string
@@ -438,6 +548,39 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		out.Note = "на цілий крок жодного виду не вистачило — гроші чекають на наступне надходження"
 	}
 	return out
+}
+
+// allocAllTakenNote — чому рядків покупок немає взагалі: усе забрали
+// подушка й цілі. Називає ОБОХ винуватців поіменно, а не «щось забрало»:
+// «усе пішло в подушку» при живих цілях було б неправдою рівно наполовину.
+func allocAllTakenNote(p allocPlan) string {
+	switch {
+	case p.Reserve != nil && p.GoalsUAH > 0:
+		return "усе розібрали подушка й цілі накопичення: доки їхні розриви живі, " +
+			"вони забирають своє першими"
+	case p.GoalsUAH > 0:
+		return "усе пішло в цілі накопичення: доки розрив не закритий, " +
+			"вони забирають своє перед паперами"
+	default:
+		return "усе пішло в подушку: доки розрив не закритий, вона забирає своє першою"
+	}
+}
+
+// goalsSkipWhy — чому цілі не взяли своєї частки (або взяли менше).
+//
+// Дзеркалить reserveSkipWhy і з того самого доводу: рядок, що не веде до
+// налаштування, змушує шукати причину в чужих числах.
+func goalsSkipWhy(set *state.SettingsDoc, blocked, cut float64) string {
+	rule := "їх наповнює лише плановий дохід"
+	if goalsFillFrom(set) == "redeem" {
+		rule = "їх наповнюють плановий дохід і повернення тіла, а це дохід портфеля"
+	}
+	if cut > 0.005 {
+		return fmt.Sprintf("цілі взяли лише %s: решта — %s — за твоєю політикою в них не йде, %s",
+			uah(cut), uah(blocked), rule)
+	}
+	return fmt.Sprintf("цілі тут свого не беруть (%s за стелею): за твоєю політикою %s",
+		uah(blocked), rule)
 }
 
 // reserveSkipWhy — чому подушка не взяла своєї частки (або взяла менше).

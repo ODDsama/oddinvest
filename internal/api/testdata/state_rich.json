@@ -3,9 +3,9 @@
   "generated_at": "2026-07-15T10:00:00Z",
   "invested_uah": 240410.2,
   "nominal_uah_eq": 240370.2,
-  "capital_uah": 924001.63,
-  "usd_share_pct": 16.23585447571126,
-  "eur_share_pct": 10.389592061650367,
+  "capital_uah": 1125001.63,
+  "usd_share_pct": 13.335052678990342,
+  "eur_share_pct": 8.533320969499396,
   "uninvested_uah": 993,
   "account_uah": 467640.43,
   "reinvest_min_uah": 1000,
@@ -105,7 +105,7 @@
       "UAH": 66000,
       "USD": 400
     },
-    "share_pct": 9.052945068938893,
+    "share_pct": 7.435487893470875,
     "months": 3.3459744000000002,
     "target_months": 6,
     "target_uah": 150000,
@@ -171,6 +171,53 @@
     "next_rung_months": 6,
     "ladder_earns_uah": 4286.62
   },
+  "goals_uah": 201000,
+  "goals": [
+    {
+      "id": 1,
+      "name": "Авто",
+      "currency": "USD",
+      "target_native": 20000,
+      "collected_native": 4555.41,
+      "gap_native": 15444.59,
+      "target_uah": 882468,
+      "collected_uah": 201000,
+      "gap_uah": 681468,
+      "done_pct": 22.78,
+      "by_currency": {
+        "UAH": 201000
+      },
+      "places": {
+        "готівка": 201000
+      },
+      "last_move": "2026-07-12",
+      "fx_mixed": true,
+      "due_date": "2027-05-11",
+      "months_left": 9.86,
+      "required_native": 1567.11,
+      "required_uah": 69146.29,
+      "actual_native": 921.74,
+      "actual_uah": 40670.3,
+      "moved_uah": 1000,
+      "fill_month_uah": 2120,
+      "fill_now_uah": 1120,
+      "short_month_uah": 67026.29,
+      "eta_date": "2027-12-15",
+      "behind": true
+    },
+    {
+      "id": 2,
+      "name": "Ремонт",
+      "currency": "UAH",
+      "target_native": 150000,
+      "collected_native": 0,
+      "target_uah": 150000,
+      "collected_uah": 0,
+      "done_pct": 0,
+      "last_move": "2026-06-05",
+      "done_date": "2026-06-05"
+    }
+  ],
   "npf_uah": 2041.64,
   "npf_cost_uah": 2000,
   "npf": [
@@ -315,10 +362,10 @@
   ],
   "income_monthly_now": 1647.08,
   "month_invested_uah": 5022.5,
-  "month_deposited_uah": 66000,
+  "month_deposited_uah": 67000,
   "month_withdrawn_uah": 15000,
   "month_target_uah": 79331.21,
-  "month_progress_pct": 83,
+  "month_progress_pct": 84,
   "month_incoming_uah": 1270.36,
   "month_plan": {
     "month": "2026-07",
@@ -328,7 +375,7 @@
     "plan_uah": 10600,
     "received_uah": 16600,
     "left_uah": 0,
-    "covered_pct": 622.64,
+    "covered_pct": 632.08,
     "sources": 1,
     "marked": 1
   },
@@ -1155,9 +1202,9 @@
       "key": "USD",
       "currency": "USD",
       "target_pct": 25,
-      "current_pct": 16.24,
-      "deficit_uah": 80980.85,
-      "deficit_native": 1835.33,
+      "current_pct": 13.34,
+      "deficit_uah": 131230.85,
+      "deficit_native": 2974.18,
       "cash_native": 1012,
       "bond_cost_native": 1000,
       "bond_cost_uah": 44123.4,
@@ -1166,20 +1213,20 @@
       "min_portfolio_uah": 176493.6,
       "feasible": true,
       "unit_kind": "bond",
-      "target_uah": 231000.41,
+      "target_uah": 281250.41,
       "current_uah": 150019.56,
-      "fill_pct": 64.94,
-      "transit_uah": 10383.41,
-      "transit_native": 235.33
+      "fill_pct": 53.34,
+      "transit_uah": 16510.01,
+      "transit_native": 374.18
     },
     {
       "dimension": "currency",
       "key": "EUR",
       "currency": "EUR",
       "target_pct": 10,
-      "current_pct": 10.39,
-      "deficit_uah": 0,
-      "deficit_native": 0,
+      "current_pct": 8.53,
+      "deficit_uah": 16500.16,
+      "deficit_native": 343.75,
       "cash_native": 0,
       "bond_cost_native": 1000,
       "bond_cost_uah": 48000,
@@ -1188,11 +1235,11 @@
       "min_portfolio_uah": 480000,
       "feasible": true,
       "unit_kind": "bond",
-      "target_uah": 92400.16,
+      "target_uah": 112500.16,
       "current_uah": 96000,
-      "fill_pct": 103.9,
-      "transit_uah": 44400.16,
-      "transit_native": 925
+      "fill_pct": 85.33,
+      "transit_uah": 16500.16,
+      "transit_native": 343.75
     },
     {
       "dimension": "kind",
@@ -1215,8 +1262,8 @@
       "fill_pct": 63.56,
       "month_share_uah": 3816,
       "month_balance_uah": 3069.25,
-      "transit_pct": 6.52,
-      "transit_uah": 54783.57
+      "transit_pct": 3.93,
+      "transit_uah": 33010.17
     },
     {
       "dimension": "kind",
@@ -1261,7 +1308,7 @@
       "fill_pct": 95.2,
       "month_share_uah": 1272,
       "month_balance_uah": 158.76,
-      "transit_uah": 54783.57
+      "transit_uah": 33010.17
     },
     {
       "dimension": "kind",
@@ -1291,36 +1338,36 @@
       "dimension": "broker",
       "key": "mono",
       "amount_uah": 676356.58,
-      "share_pct": 73.2,
+      "share_pct": 60.12,
       "limit_pct": 50,
-      "over_uah": 214355.76
+      "over_uah": 113855.77
     },
     {
       "dimension": "broker",
       "key": "inzhur",
       "amount_uah": 196794.45,
-      "share_pct": 21.3,
+      "share_pct": 17.49,
       "limit_pct": 50
     },
     {
       "dimension": "broker",
       "key": "ЦПО",
       "amount_uah": 2041.64,
-      "share_pct": 0.22,
+      "share_pct": 0.18,
       "limit_pct": 50
     },
     {
       "dimension": "broker",
       "key": "ПУМБ",
       "amount_uah": 159.6,
-      "share_pct": 0.02,
+      "share_pct": 0.01,
       "limit_pct": 50
     },
     {
       "dimension": "isin",
       "key": "UA4000230114",
       "amount_uah": 132370.2,
-      "share_pct": 14.33,
+      "share_pct": 11.77,
       "limit_pct": 20,
       "label": "валютні"
     },
@@ -1328,7 +1375,7 @@
       "dimension": "isin",
       "key": "UA4000239065",
       "amount_uah": 96000,
-      "share_pct": 10.39,
+      "share_pct": 8.53,
       "limit_pct": 20,
       "label": "єврові"
     },
@@ -1336,7 +1383,7 @@
       "dimension": "isin",
       "key": "UA4000227748",
       "amount_uah": 12000,
-      "share_pct": 1.3,
+      "share_pct": 1.07,
       "limit_pct": 20,
       "label": "гривневі військові"
     },
@@ -1344,7 +1391,7 @@
       "dimension": "isin",
       "key": "fund:Строковий фонд",
       "amount_uah": 5300,
-      "share_pct": 0.57,
+      "share_pct": 0.47,
       "limit_pct": 20,
       "label": "Строковий фонд"
     },
@@ -1352,7 +1399,7 @@
       "dimension": "isin",
       "key": "fund:Inzhur REIT",
       "amount_uah": 5000,
-      "share_pct": 0.54,
+      "share_pct": 0.44,
       "limit_pct": 20,
       "label": "Inzhur REIT"
     },
@@ -1360,7 +1407,7 @@
       "dimension": "isin",
       "key": "npf:Династія",
       "amount_uah": 2041.64,
-      "share_pct": 0.22,
+      "share_pct": 0.18,
       "limit_pct": 20,
       "label": "Династія"
     },
@@ -1396,6 +1443,16 @@
       "title": "Спершу поповнити резерв — 1 120,00 ₴",
       "why": "Стеля, яку ти сам поставив: до цілі ще 66 350,64 ₴, решта грошей лишається на папери. Голова добрана, тож це вже сходинка драбини: потрібно ≈6 місяців. Якщо банк такого строку не дає, бери довший — тоді ближчий місяць лишиться на готівці, а драбина зсунеться.",
       "action": "fill-reserve",
+      "amount_uah": 1120
+    },
+    {
+      "id": "goal-fill-1",
+      "sev": "now",
+      "rank": 12,
+      "kind": "goal",
+      "title": "Відкласти на «Авто» — 1 120,00 ₴",
+      "why": "До 2027-05-11 лишилось 681 468,00 ₴, тобто ≈69 146,29 ₴ на місяць. Береться це зі стелі, яку ти сам поставив: решта грошей лишається на папери. Сама ця сума МЕНША за потрібний темп на 67 026,29 ₴: стільки застосунок відрізати не може за твоєю ж стелею. Підніми частку або зсунь дату.",
+      "action": "fill-goal",
       "amount_uah": 1120
     },
     {
@@ -1484,6 +1541,7 @@
     "in_30_uah": 468950.37,
     "in_90_uah": 492250.41,
     "reserve_uah": 48649.36,
+    "goals_uah": 201000,
     "locked_uah": 17041.64,
     "breakable_uah": 120000,
     "unlock_date": "2026-10-28",
@@ -1533,7 +1591,7 @@
       "median_rate": 42.9496,
       "min_rate": 42.1111,
       "max_rate": 44.1234,
-      "vs_median_native": -50.16
+      "vs_median_native": -81.28
     },
     {
       "currency": "USD",
@@ -1544,7 +1602,7 @@
       "median_rate": 41.1049,
       "min_rate": 38,
       "max_rate": 44.1234,
-      "vs_median_native": -134.78
+      "vs_median_native": -218.41
     },
     {
       "currency": "USD",
@@ -1555,7 +1613,7 @@
       "median_rate": 34.2294,
       "min_rate": 24,
       "max_rate": 44.1234,
-      "vs_median_native": -530.5
+      "vs_median_native": -859.69
     },
     {
       "currency": "EUR",
@@ -1565,7 +1623,8 @@
       "now_rate": 48,
       "median_rate": 46.4445,
       "min_rate": 45.3334,
-      "max_rate": 48
+      "max_rate": 48,
+      "vs_median_native": -11.51
     },
     {
       "currency": "EUR",
@@ -1575,7 +1634,8 @@
       "now_rate": 48,
       "median_rate": 44,
       "min_rate": 40,
-      "max_rate": 48
+      "max_rate": 48,
+      "vs_median_native": -31.25
     },
     {
       "currency": "EUR",
@@ -1585,7 +1645,8 @@
       "now_rate": 48,
       "median_rate": 44,
       "min_rate": 40,
-      "max_rate": 48
+      "max_rate": 48,
+      "vs_median_native": -31.25
     }
   ],
   "accrued_uah": 209.04,
@@ -1620,6 +1681,8 @@
     "reserve_fill_from": "plan",
     "reserve_liquid_months": 1,
     "reserve_max_term_months": 6,
+    "goals_fill_share_pct": 20,
+    "goals_fill_from": "any",
     "income_target_uah": 30000,
     "withdraw_monthly_uah": 20000,
     "rate_spread_pp": 3,

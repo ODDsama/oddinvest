@@ -158,6 +158,26 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	}
 	out.ReserveMovedUAH = round2(out.ReserveMovedUAH)
 
+	// Рухи ЦІЛЕЙ — у той самий нетто, і з того самого доводу, що резерв.
+	// Переміщення гаманець → ціль записується двома ногами (мінус у
+	// deposits, плюс у goal_ops); порізно перша нога виглядала б як втрата
+	// капіталу, а разом вони дають нуль, як і має бути.
+	//
+	// Це найлегше проґавити місце в усій сутності: без цього циклу
+	// відкладання на авто псувало б місячний прогрес, фактичний темп і
+	// бенчмарк — усе одразу й тихо.
+	//
+	// «Скільки цього місяця пішло в цілі» тут НЕ рахується: воно вже
+	// пораховане в buildGoals разом із рештою проходу по журналу, і другий
+	// лічильник розійшовся б із першим (той самий випадок, що з
+	// ReserveMovedUAH вище, лише вирішений на користь одного проходу).
+	for _, op := range src.goalOps {
+		if op.Date.Year() != now.Year() || int(op.Date.Month()) != int(now.Month()) {
+			continue
+		}
+		addMove(op.Amount, op.Currency)
+	}
+
 	// --- фактичний темп поповнень ---
 	// Саме поповнень, а не покупок: покупка лише переносить гроші з рахунку
 	// в папери й нового капіталу не додає (а купони враховані окремо).
@@ -187,10 +207,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 			}
 		}
 		if totalUAH > 0 {
-			months := float64(domain.DaysBetween(first, today))/30.44 + 1
-			if months < 1 {
-				months = 1
-			}
+			months := paceMonths(first, today)
 			out.ActualMonths = int(months + 0.5)
 			out.ActualMonthlyUAH = round2(float64(totalUAH) / 100 / months)
 		}
@@ -200,6 +217,28 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	out.ReserveMonthUAH, out.ReserveFillUAH = reserveMonthShare(
 		src.settings, reserveUAH, out.Plan, out.ReserveMovedUAH)
 	return out, nil
+}
+
+// paceMonths — знаменник фактичного темпу: скільки МІСЯЦІВ фінансує
+// проміжок «перший рух у вікні … сьогодні».
+//
+// +1 місяць, і це не косметика. Внески фінансують ПЕРІОДИ, а не проміжки
+// між собою: три щомісячні внески покривають три місяці, тоді як від
+// першого до сьогодні минуло лише два. Ділення на голий проміжок завищувало
+// темп у півтора раза (15 000 за 60 днів давали 7 610 ₴/міс замість 5 000).
+// Та сама поправка знімає вибух на старті: один рух сьогодні дає знаменник
+// 1, а не 0.1, тож окремий поріг не потрібен.
+//
+// Спільна на двох читачів — темп поповнень портфеля вище й темп кожної
+// цілі накопичення (state_goals.go). Друге означення «як я відкладаю зараз»
+// розійшлося б із першим, і сторінка цілі почала б хвалити або лаяти за
+// дисципліну інакше, ніж сторінка портфеля.
+func paceMonths(first, today domain.Date) float64 {
+	m := float64(domain.DaysBetween(first, today))/30.44 + 1
+	if m < 1 {
+		return 1
+	}
+	return m
 }
 
 // reserveMonthShare — скільки з грошей місяця належить подушці й скільки з
