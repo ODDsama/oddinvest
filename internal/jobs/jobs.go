@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -40,9 +43,25 @@ func New(st *store.Store, nc *nbu.Client, pub *mqtt.Publisher,
 		backupPath: backupPath, pause: 250 * time.Millisecond}
 }
 
+// backupKeep — скільки денних поколінь бекапу тримаємо.
+//
+// Одного файла було мало, і не через диск. Доти дамп щодня перезаписував
+// сам себе, тож тихий регрес в ExportAll (забута таблиця — а її перелік
+// тут ведеться руками) знищував ЄДИНУ добру копію рівно за одну добу, і
+// помітно ставало це вже при відновленні, коли рятувати нема чим.
+// Тридцять поколінь коштують десятки мегабайт і дають місяць на те, щоб
+// помітити.
+const backupKeep = 30
+
 // dumpBackup — щоденний JSON-дамп користувацьких даних поряд із БД.
-// Пишемо атомарно (temp + rename), щоб бекап Proxmox не спіймав半-файл.
+// Пишемо атомарно (temp + rename), щоб бекап Proxmox не спіймав пів-файла.
 // Помилка не фатальна: це страховка, а не основний шлях.
+//
+// Файлів два на кожен виклик: датований (oddinvest-backup-2026-08-29.json)
+// — власне покоління, і незмінне ім'я oddinvest-backup.json поруч, бо на
+// нього вже посилаються README й звичка. Друге — копія, а не симлінк:
+// бекап Proxmox і scp мали б із симлінком різну поведінку, і з'ясовувати
+// яку саме — не те, чим варто займатись у день відновлення.
 func (r *Runner) dumpBackup(ctx context.Context) {
 	if r.backupPath == "" {
 		return
@@ -58,20 +77,86 @@ func (r *Runner) dumpBackup(ctx context.Context) {
 		r.log.Warn("бекап: серіалізація", "err", err)
 		return
 	}
-	tmp := r.backupPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		r.log.Warn("бекап: запис", "err", err)
+	dated := r.backupGenPath(time.Now().In(r.loc))
+	if err := writeAtomic(dated, data); err != nil {
+		r.log.Warn("бекап: запис покоління", "path", dated, "err", err)
 		return
 	}
-	if err := os.Rename(tmp, r.backupPath); err != nil {
-		r.log.Warn("бекап: rename", "err", err)
+	if err := writeAtomic(r.backupPath, data); err != nil {
+		r.log.Warn("бекап: запис", "path", r.backupPath, "err", err)
 		return
 	}
-	r.log.Info("бекап збережено", "path", r.backupPath,
+	r.log.Info("бекап збережено", "path", dated,
 		"лотів", len(b.Lots), "поповнень", len(b.Deposits))
+	r.pruneBackups()
 }
 
-// RefreshAll — довідник НБУ + курс USD + знімок + публікація.
+// backupGenPath — шлях покоління за дату: <ім'я>-YYYY-MM-DD<розширення>.
+func (r *Runner) backupGenPath(at time.Time) string {
+	ext := filepath.Ext(r.backupPath)
+	return strings.TrimSuffix(r.backupPath, ext) + "-" + at.Format("2006-01-02") + ext
+}
+
+// writeAtomic — temp + rename у тому самому каталозі. Rename атомарний
+// лише в межах однієї файлової системи, тому temp кладемо поруч із ціллю,
+// а не в os.TempDir.
+func writeAtomic(path string, data []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp) //nolint:errcheck // прибирання за невдалим rename; звітує про це сам rename
+		return err
+	}
+	return nil
+}
+
+// pruneBackups прибирає покоління, старші за backupKeep штук.
+//
+// Сортуємо за ІМЕНЕМ, а не за часом зміни: ім'я містить дату в форматі,
+// де лексичний порядок збігається з хронологічним, і воно не змінюється
+// від того, що файл хтось скопіював чи торкнувся.
+func (r *Runner) pruneBackups() {
+	ext := filepath.Ext(r.backupPath)
+	prefix := filepath.Base(strings.TrimSuffix(r.backupPath, ext)) + "-"
+	entries, err := os.ReadDir(filepath.Dir(r.backupPath))
+	if err != nil {
+		r.log.Warn("бекап: не прочитав каталог", "err", err)
+		return
+	}
+	var gens []string
+	for _, e := range entries {
+		n := e.Name()
+		if !e.IsDir() && strings.HasPrefix(n, prefix) && strings.HasSuffix(n, ext) {
+			gens = append(gens, n)
+		}
+	}
+	if len(gens) <= backupKeep {
+		return
+	}
+	sort.Strings(gens)
+	for _, n := range gens[:len(gens)-backupKeep] {
+		if err := os.Remove(filepath.Join(filepath.Dir(r.backupPath), n)); err != nil {
+			r.log.Warn("бекап: не прибрав старе покоління", "file", n, "err", err)
+		}
+	}
+}
+
+// RefreshAll — оновити ПОХІДНІ дані: довідник НБУ, курси, аукціони.
+//
+// Знімка й бекапу тут БІЛЬШЕ НЕМАЄ, і це не перестановка заради охайності.
+// Доти обидва стояли в хвості цієї ж функції, за трьома `return err`
+// поспіль: варто було НБУ віддати 500 — і того дня не з'являлось ні
+// знімка на кривій, ні дампа користувацьких даних, а сказано про це було
+// лише рядком у журналі. Тобто наявність єдиної копії невідновного
+// журналу залежала від чужого HTTP-сервера, який до цих даних не має
+// стосунку взагалі.
+//
+// Межа тепер проходить по відновлюваності: довідник, курси й аукціони
+// НБУ віддасть ще раз завтра, а лоти, вклади й план — ніхто. Перше може
+// впасти й почекати, друге мусить статись у будь-якому разі; хто це
+// зводить докупи — RunDaily.
 func (r *Runner) RefreshAll(ctx context.Context) error {
 	secs, err := r.nbu.Securities(ctx)
 	if err != nil {
@@ -113,12 +198,24 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 	if err := r.RefreshAuctions(ctx); err != nil {
 		r.log.Warn("аукціони недоступні", "err", err)
 	}
+	return nil
+}
 
+// PersistDaily — те, що мусить статись у будь-якому разі: знімок портфеля,
+// бекап користувацьких даних і гігієна сховища.
+//
+// Помилки не повертаються навмисно. Це не «нам байдуже», а протилежне:
+// жоден із трьох кроків не має права скасувати два інші. Доти вони жили
+// ланцюжком у RefreshAll, де перший же `return` забирав із собою решту —
+// саме так недоступний НБУ забирав бекап (див. шапку RefreshAll).
+func (r *Runner) PersistDaily(ctx context.Context) {
 	if err := r.Snapshot(ctx); err != nil {
 		r.log.Warn("знімок не збережено", "err", err)
 	}
 	r.dumpBackup(ctx)
-	return r.PublishState(ctx)
+	if err := r.st.Maintain(ctx); err != nil {
+		r.log.Error("обслуговування сховища", "err", err)
+	}
 }
 
 // auctionWatermark — до якого дня аукціони вже переглянуто. Робочий стан
@@ -390,8 +487,40 @@ func (r *Runner) BackfillIfThin(ctx context.Context, code string, years, minMont
 	}
 }
 
-// RunDaily — цикл: щодня о 06:10 Києва RefreshAll.
+// dailyRun — один добовий прогін: похідні дані, потім те, що мусить
+// статись у будь-якому разі, потім публікація.
+//
+// RefreshAll тут НЕ обриває послідовність: його помилка означає лише
+// «НБУ мовчить», а знімок і бекап рахуються з того, що вже в базі, і
+// чужа недоступність не привід їх пропустити.
+func (r *Runner) dailyRun(ctx context.Context) {
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if err := r.RefreshAll(cctx); err != nil {
+		r.log.Error("добове оновлення довідника", "err", err)
+	}
+	r.PersistDaily(cctx)
+	if err := r.PublishState(cctx); err != nil {
+		r.log.Error("добова публікація", "err", err)
+	}
+}
+
+// RunDaily — цикл: щодня о 06:10 Києва добовий прогін.
+//
+// НАЗДОГАНЯННЯ ПРИ СТАРТІ. Доти цикл просто чекав найближчої 06:10 і при
+// старті не робив нічого — тож рестарт о 06:11 (а оновлення через
+// deploy/proxmox-update.sh відбувається саме серед дня) коштував дню
+// знімка й бекапу разом. Помітно це не одразу: діра в кривій за один
+// день читається як «того дня нічого не змінилось».
+//
+// Коштує наздоганяння нічого, бо крок ідемпотентний: snapshots.date —
+// PRIMARY KEY, а SaveSnapshot робить upsert, тож повторний прогін того
+// самого дня перезаписує рядок тими самими числами.
 func (r *Runner) RunDaily(ctx context.Context) {
+	if r.needsCatchUp(ctx) {
+		r.log.Info("знімка за сьогодні немає — наздоганяю")
+		r.dailyRun(ctx)
+	}
 	for {
 		now := time.Now().In(r.loc)
 		next := time.Date(now.Year(), now.Month(), now.Day(), 6, 10, 0, 0, r.loc)
@@ -403,11 +532,23 @@ func (r *Runner) RunDaily(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(time.Until(next)):
-			cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-			if err := r.RefreshAll(cctx); err != nil {
-				r.log.Error("добове оновлення", "err", err)
-			}
-			cancel()
+			r.dailyRun(ctx)
 		}
 	}
+}
+
+// needsCatchUp — чи бракує знімка за сьогодні.
+//
+// Помилка читання веде до «не наздоганяємо»: зайвий прогін дешевий, але
+// не настільки, щоб робити його наосліп при зламаному сховищі — там
+// однаково все впаде наступним кроком, і сказати про це має він, а не ця
+// перевірка.
+func (r *Runner) needsCatchUp(ctx context.Context) bool {
+	today := domain.NewDate(time.Now().In(r.loc))
+	snaps, err := r.st.ListSnapshots(ctx, today, today)
+	if err != nil {
+		r.log.Warn("не перевірив знімок за сьогодні", "err", err)
+		return false
+	}
+	return len(snaps) == 0
 }

@@ -26,14 +26,55 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1) // один writer; для цього навантаження — найпростіша коректність
-	if err := migrate(db); err != nil {
+	if err := migrate(db, path); err != nil {
 		db.Close()
 		return nil, err
 	}
 	return &Store{db: db}, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+// Close. PRAGMA optimize перед закриттям — рекомендований SQLite спосіб
+// тримати статистику планувальника свіжою: він сам вирішує, чи є що
+// рахувати, і на незмінній базі не робить нічого. Помилку ковтаємо
+// свідомо: не оновлена статистика — це повільніший запит, а не втрачені
+// дані, і завалити через неї закриття було б гіршим обміном.
+func (s *Store) Close() error {
+	if _, err := s.db.Exec(`PRAGMA optimize`); err != nil {
+		_ = err // не привід не закрити базу
+	}
+	return s.db.Close()
+}
+
+// Maintain — добова гігієна сховища: перевірка цілісності й підрізання WAL.
+//
+// Доти в застосунку не виконувалось НІ integrity_check, НІ wal_checkpoint,
+// ні optimize — жодного разу за 41 міграцію. Для єдиного файла, який
+// тримає всі невідновні дані, це означало, що пошкодження виявиться не
+// перевіркою, а першим запитом, який об нього спіткнеться, — тобто в
+// довільний момент і з довільного екрана.
+//
+// integrity_check ходить по всіх сторінках, тож на великій базі його
+// ставлять рідше; тут база — одиниці мегабайт, і добовий прогін коштує
+// мілісекунди. Порядок саме такий: спершу переконатись, що є що
+// підрізати, потім підрізати.
+//
+// wal_checkpoint(TRUNCATE) обнуляє -wal після переносу сторінок у базу.
+// Без нього файл журналу росте до найбільшої транзакції за час життя
+// процесу (а це ReplaceDirectory) і таким лишається — і саме він, а не
+// база, потрапляє в бекап Proxmox напівпорожнім.
+func (s *Store) Maintain(ctx context.Context) error {
+	var res string
+	if err := s.db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&res); err != nil {
+		return fmt.Errorf("integrity_check: %w", err)
+	}
+	if res != "ok" {
+		return fmt.Errorf("цілісність БД порушена: %s", res)
+	}
+	if _, err := s.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return fmt.Errorf("wal_checkpoint: %w", err)
+	}
+	return nil
+}
 
 // --- лоти ---
 

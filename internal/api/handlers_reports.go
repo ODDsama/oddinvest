@@ -71,6 +71,11 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err)
 		return
 	}
+	// Публікація окремим кроком, відколи RefreshAll оновлює лише похідні
+	// дані (див. його шапку в jobs). Доти вона їхала в його ж хвості, і
+	// разом із нею — знімок із бекапом; знімок кнопці «Оновити НБУ» не
+	// потрібен, а свіжий стан у HA після оновлення довідника — так.
+	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 

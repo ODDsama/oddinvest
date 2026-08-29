@@ -878,6 +878,27 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 // ImportAll ЗАМІНЮЄ всі користувацькі дані вмістом бекапу. Атомарно: або
 // вся база замінюється, або нічого (при помилці транзакція відкочується).
 // Довідник НБУ/графіки/курси не чіпаються — вони похідні.
+// importAllTables — що саме ImportAll витирає перед відновленням, у
+// порядку «діти → батьки».
+//
+// Винесене з тіла функції не заради охайності: перелік ведеться руками, а
+// пропущена в ньому таблиця означає не «дублікати після відновлення», а
+// ВІДМОВУ відновлення (див. доводи нижче). Тепер його читає
+// TestBackupCoversEveryUserTable і звіряє зі схемою — таблиця, забута тут,
+// валить збірку, а не день відновлення.
+//
+// Порядок значущий і в межах переліку: довідники (funds, brokers) — в
+// самому кінці, бо на них посилається майже все.
+var importAllTables = []string{
+	"sales", "lots", "deposits", "conversions", "fund_ops",
+	"fund_prices", "deposit_topups", "term_deposits", "reserve_ops",
+	"goal_ops", "goals", "npf_ops", "npf_nav",
+	"npf_accounts", "plan_flows", "plan_flow_revisions",
+	"plan_receipts", "plan_actions", "plan_buys", "decisions", "import_profiles",
+	"settings", "payment_status", "snapshots",
+	"funds", "brokers",
+}
+
 func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	if b == nil || b.Schema != BackupSchema {
 		return fmt.Errorf("несумісний бекап (schema=%d, очікуємо %d)", b.Schema, BackupSchema)
@@ -925,13 +946,7 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// причини, що reserve_ops: бекап тримає id, тож пропуск тут означає не
 	// «дублікати після відновлення», а відмову на UNIQUE(id) у будь-кого,
 	// хто має бодай одну ціль.
-	for _, t := range []string{"sales", "lots", "deposits", "conversions", "fund_ops",
-		"fund_prices", "deposit_topups", "term_deposits", "reserve_ops",
-		"goal_ops", "goals", "npf_ops", "npf_nav",
-		"npf_accounts", "plan_flows", "plan_flow_revisions",
-		"plan_receipts", "plan_actions", "plan_buys", "decisions", "import_profiles",
-		"settings", "payment_status", "snapshots",
-		"funds", "brokers"} {
+	for _, t := range importAllTables {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
 		}
