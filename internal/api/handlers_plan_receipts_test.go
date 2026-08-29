@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -233,4 +234,62 @@ func planProvides(t *testing.T, base string) float64 {
 		t.Fatalf("розбір зведення: %v", err)
 	}
 	return sum.PlanProvidesUAH
+}
+
+// Прив'язана відмітка бере дозвіл ІЗ ПОТОКУ, а свого не має.
+//
+// Та сама межа, що вже проведена для частки в портфель, і потрібна вона з
+// тієї ж причини: інакше в одного надходження стало б два дозволи —
+// власний і джерела, — і котрий із них правда, не сказав би жоден екран.
+// Перевіряється НАСКРІЗЬ, бо підстановка живе в receiptRows, а не в
+// сховищі: у колонці лежить порожньо, і взяти дозвіл звідти означало б
+// показати «можна всюди» там, де заборона є.
+func TestBoundReceiptTakesUsesFromFlow(t *testing.T) {
+	srv, _ := testServer(t)
+
+	if resp, body := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Оренда","kind":"income","amount":"10000.00","cadence":"month",`+
+			`"from_date":"2020-01-05","uses":["invest"]}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("потік: %d %s", resp.StatusCode, body)
+	}
+	// Відмітка НЕ несе uses узагалі — саме так її шле чеклист.
+	if resp, body := do(t, "POST", srv.URL+"/api/plan/receipts",
+		fmt.Sprintf(`{"flow_id":1,"month":%q,"amount":"10000.00"}`, monthPlus(0)),
+	); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("відмітка: %d %s", resp.StatusCode, body)
+	}
+
+	_, body := do(t, "GET", srv.URL+"/api/plan", "")
+	var doc struct {
+		Receipts []struct {
+			FlowID int64    `json:"flow_id"`
+			Uses   []string `json:"uses"`
+		} `json:"receipts"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("%v: %s", err, body)
+	}
+	if len(doc.Receipts) != 1 {
+		t.Fatalf("відміток %d, чекали 1: %s", len(doc.Receipts), body)
+	}
+	if got := doc.Receipts[0].Uses; len(got) != 1 || got[0] != "invest" {
+		t.Errorf("дозвіл відмітки %v, чекали [invest] — успадкований від потоку", got)
+	}
+}
+
+// У «іншого» дозвіл ВЛАСНИЙ: потоку за ним немає, успадкувати нема від
+// кого. Дзеркало попереднього тесту — разом вони й описують межу.
+func TestOtherReceiptKeepsOwnUses(t *testing.T) {
+	srv, _ := testServer(t)
+
+	if resp, body := do(t, "POST", srv.URL+"/api/plan/receipts",
+		fmt.Sprintf(`{"flow_id":0,"month":%q,"name":"Премія","amount":"5000.00","uses":["goals"]}`,
+			monthPlus(0))); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("позапланове: %d %s", resp.StatusCode, body)
+	}
+
+	_, body := do(t, "GET", srv.URL+"/api/plan/receipts", "")
+	if !strings.Contains(body, `"uses":["goals"]`) {
+		t.Errorf("власний дозвіл позапланового не зберігся: %s", body)
+	}
 }

@@ -313,7 +313,11 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 			r.FillNowUAH = round2(in.ReserveFillNowUAH)
 			r.FillMovedUAH = round2(in.ReserveMovedUAH)
 			if doc.MonthPlan != nil {
-				r.FillFromUAH = doc.MonthPlan.PlanUAH
+				// Саме ДОЗВОЛЕНА частина плану, а не весь план: від неї
+				// рахується стеля (reserveMonthShare), і показати тут інше
+				// число означало б поставити на картку знаменник, з якого
+				// чисельник не виводиться.
+				r.FillFromUAH = doc.MonthPlan.PlanReserveUAH
 			}
 		}
 	}
@@ -427,7 +431,10 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 	// ріже саме їх. Плану доходу немає — GoalsFill мовчить, і це правильно:
 	// частку рахувати нема від чого.
 	if doc.MonthPlan != nil {
-		GoalsFill(doc.Settings, out, doc.MonthPlan.PlanUAH)
+		// Дозволена цілям частина плану, а не весь план (0041): дохід,
+		// позначений «лише на інвестиції», цілі наповнювати не має права,
+		// і власна стеля в них саме тому й окрема від подушчиної.
+		GoalsFill(doc.Settings, out, doc.MonthPlan.PlanGoalsUAH)
 	}
 	doc.Goals = out
 }

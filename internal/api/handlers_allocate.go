@@ -62,6 +62,7 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 type allocateReq struct {
@@ -78,7 +79,25 @@ type allocateReq struct {
 	// віддати подушці рівно курс.
 	Source    string `json:"source,omitempty"`
 	Principal string `json:"principal,omitempty"`
+	// SourceRef — ЯКЕ САМЕ надходження розкладаємо: "flow:<id>" або
+	// "receipt:<id>". Синтетичний ключ із префіксом, як domain.NPFPlanDest,
+	// і з тієї ж причини: джерел із часом буде більше одного виду, а
+	// префікс лишає під них місце, не плодячи по полю на вид.
+	//
+	// Потрібен рівно заради дозволу (plan_flows.uses, 0041): «чиї це
+	// гроші» відповідає на питання політики, а «які саме» — на питання
+	// джерела, і зводити їх в одне слово не можна. Порожньо = обмежень
+	// немає, тобто поведінка до появи поля: ручну суму, набрану руками,
+	// ніхто нічим не позначав.
+	SourceRef string `json:"source_ref,omitempty"`
 }
+
+// Префікси SourceRef. Рядком, а не двома полями id: два поля вимагали б
+// правила «що робити, коли задані обидва», а відповіді на нього немає.
+const (
+	allocRefFlow    = "flow:"
+	allocRefReceipt = "receipt:"
+)
 
 // Джерело грошей у розкладці. Двох слів досить: природу ПОРТФЕЛЬНИХ грошей
 // несе окреме число (скільки з них — повернення тіла), і третє слово
@@ -133,19 +152,32 @@ func fillFromLevel(raw string) string {
 // прохід маршруту. Друга копія означала б, що сторінка маршруту веде купон
 // у папери, а розкладка того ж дня ріже з нього подушку — рівно та
 // розбіжність, проти якої стоїть TestRouteFirstLegEqualsAllocate.
+//
+// sourceCapUAH — стеля САМОГО ДЖЕРЕЛА: скільки з цих грошей дозволяє
+// подушці той, хто їх приніс (plan_flows.uses, 0041). Дві межі, а не
+// одна, бо питання різні: політика каже «з яких грошей узагалі», джерело
+// — «з ЦИХ конкретно». Мінімум із двох, бо жодна з них не має права
+// розширити іншу.
+//
+// ЧИСЛОМ, а не словом «дозволено», і з того самого доводу, що при
+// Principal: нога маршруту буває зведеною (місяць плану — це десяток
+// потоків із різними дозволами), і одне слово на неї було б неправдою
+// для половини суми.
 func reserveEligibleUAH(set *state.SettingsDoc, src string,
-	amountUAH, principalUAH float64) float64 {
+	amountUAH, principalUAH, sourceCapUAH float64) float64 {
 
-	return eligibleUAH(reserveFillFrom(set), src, amountUAH, principalUAH)
+	return math.Min(eligibleUAH(reserveFillFrom(set), src, amountUAH, principalUAH),
+		math.Max(0, sourceCapUAH))
 }
 
 // goalsEligibleUAH — те саме для цілей, і навмисно ТІЄЮ САМОЮ функцією:
 // правило «що таке планові гроші» одне на застосунок, і друга його копія
 // дала б подушці й цілям різні відповіді про той самий купон.
 func goalsEligibleUAH(set *state.SettingsDoc, src string,
-	amountUAH, principalUAH float64) float64 {
+	amountUAH, principalUAH, sourceCapUAH float64) float64 {
 
-	return eligibleUAH(goalsFillFrom(set), src, amountUAH, principalUAH)
+	return math.Min(eligibleUAH(goalsFillFrom(set), src, amountUAH, principalUAH),
+		math.Max(0, sourceCapUAH))
 }
 
 func eligibleUAH(level, src string, amountUAH, principalUAH float64) float64 {
@@ -166,6 +198,28 @@ func eligibleUAH(level, src string, amountUAH, principalUAH float64) float64 {
 	default:
 		return amountUAH
 	}
+}
+
+// allocAllow — що дозволяє САМЕ ДЖЕРЕЛО цих грошей.
+//
+// ReserveUAH/GoalsUAH приходять уже готовими: політика (reserve_fill_from,
+// goals_fill_from) і дозвіл джерела в них зведені мінімумом ще в
+// reserveEligibleUAH/goalsEligibleUAH. Uses ж потрібен окремо й сирим — по
+// ньому вирішується доля ВИДІВ інструментів, у яких грошового ліміту
+// немає взагалі: «сюди можна» або «сюди ні».
+//
+// НУЛЬОВЕ ЗНАЧЕННЯ СТРУКТУРИ ОЗНАЧАЄ «БЕЗ ОБМЕЖЕНЬ ЗА ВИДАМИ» — так само,
+// як порожній uses у сховищі. Це не випадковість, а страховка: булеани
+// «дозволено» дали б протилежний дефолт, і структура, зібрана не до
+// кінця, мовчки заборонила б усе.
+type allocAllow struct {
+	ReserveUAH float64
+	GoalsUAH   float64
+	// Uses — канонічний дозвіл джерела ("" = будь-куди), читається через
+	// domain.PlanUseAllowed. Рядком, а не парою булеанів: словник кошиків
+	// живе в домені, і друга його копія тут розійшлася б із першою рівно
+	// тоді, коли додасться п'ятий кошик.
+	Uses string
 }
 
 // allocLine — один крок розкладки.
@@ -320,11 +374,95 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 			principalUAH = float64(pm.Amount()) / 100
 		}
 	}
+	uses, err := s.usesForRef(r.Context(), req.SourceRef)
+	if err != nil {
+		writeStoreErr(w, err, http.StatusBadRequest)
+		return
+	}
+	// Стеля джерела — усе або нічого, і саме тому вона тут не число з
+	// журналу, а сума розкладки: розкладають ОДНЕ надходження, і дозвіл у
+	// нього один. Дробові стелі бувають лише в маршруту, де нога зводить
+	// цілий місяць (route.go).
 	writeJSON(w, http.StatusOK, allocatePlan(doc, sug, rates,
 		toMoneyJSON(money.New(minor, cur)), amountUAH,
-		reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH),
-		goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH), cur,
-		s.npfIDByName(r.Context())))
+		allocAllow{
+			ReserveUAH: reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
+				sourceCapUAH(uses, domain.UsePlanReserve, amountUAH)),
+			GoalsUAH: goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
+				sourceCapUAH(uses, domain.UsePlanGoals, amountUAH)),
+			Uses: uses,
+		}, cur, s.npfIDByName(r.Context())))
+}
+
+// sourceCapUAH — стеля джерела для одного кошика: уся сума або нуль.
+//
+// Проміжних значень тут не буває за побудовою: дозвіл — це «можна» або
+// «ні», а СКІЛЬКИ саме взяти, вирішує стеля наповнення. Число ж замість
+// булеана тому, що далі його чекає мінімум із політикою, і два різні типи
+// на одному рядку довелось би зводити руками (аргумент при
+// reserveEligibleUAH).
+func sourceCapUAH(uses, bucket string, amountUAH float64) float64 {
+	if domain.PlanUseAllowed(uses, bucket) {
+		return amountUAH
+	}
+	return 0
+}
+
+// usesForRef — дозвіл того надходження, яке розкладають.
+//
+// Читає СХОВИЩЕ, а не тіло запиту, і це не педантизм: дозвіл вирішує, чи
+// піде вирізка в подушку, тож взяти його зі сторінки означало б дати
+// застарілій вкладці право обійти щойно поставлену заборону.
+//
+// Невідоме посилання — помилка, а не «обмежень немає». Мовчазний дефолт
+// тут був би найгіршим виглядом збою: розкладка виглядала б звичайною й
+// різала б подушку з грошей, яким це заборонено.
+func (s *Server) usesForRef(ctx context.Context, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return "", nil
+	}
+	switch {
+	case strings.HasPrefix(ref, allocRefFlow):
+		id, err := strconv.ParseInt(strings.TrimPrefix(ref, allocRefFlow), 10, 64)
+		if err != nil || id <= 0 {
+			return "", badRequestf("джерело розкладки: %q не схоже на %s<id>", ref, allocRefFlow)
+		}
+		flows, err := s.st.ListPlanFlows(ctx)
+		if err != nil {
+			return "", err
+		}
+		for _, f := range flows {
+			if f.ID == id {
+				return f.Uses, nil
+			}
+		}
+		return "", fmt.Errorf("джерело доходу %d %w", id, store.ErrNotFound)
+	case strings.HasPrefix(ref, allocRefReceipt):
+		id, err := strconv.ParseInt(strings.TrimPrefix(ref, allocRefReceipt), 10, 64)
+		if err != nil || id <= 0 {
+			return "", badRequestf("джерело розкладки: %q не схоже на %s<id>", ref, allocRefReceipt)
+		}
+		receipts, err := s.st.ListPlanReceipts(ctx)
+		if err != nil {
+			return "", err
+		}
+		for _, rc := range receipts {
+			if rc.ID != id {
+				continue
+			}
+			// Прив'язана відмітка своєї колонки не читає — дозвіл їй задає
+			// потік. Та сама підстановка, що в receiptRows, і без неї
+			// «інше» й «зарплата» відповідали б на дозвіл по-різному.
+			if rc.FlowID == 0 {
+				return rc.Uses, nil
+			}
+			return s.usesForRef(ctx, allocRefFlow+strconv.FormatInt(rc.FlowID, 10))
+		}
+		return "", fmt.Errorf("відмітка надходження %d %w", id, store.ErrNotFound)
+	}
+	return "", badRequestf("джерело розкладки: %q — буває %s<id> або %s<id>",
+		ref, allocRefFlow, allocRefReceipt)
 }
 
 // npfIDByName — id рахунків НПФ за назвою.
@@ -369,7 +507,7 @@ var allocKind = map[string]string{
 // allocatePlan — уся розкладка. Чиста функція над готовим документом: саме
 // тому її можна перевірити тестом, не піднімаючи сервера.
 func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
-	amount moneyJSON, amountUAH, reserveElig, goalsElig float64,
+	amount moneyJSON, amountUAH float64, allow allocAllow,
 	cur string, npfID map[string]int64) allocPlan {
 
 	out := allocPlan{Amount: amount, AmountUAH: round2(amountUAH), Lines: []allocLine{}}
@@ -378,9 +516,10 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	avail := amountUAH
 	if doc.Reserve != nil && doc.Reserve.FillNowUAH > 0 {
 		want := math.Min(amountUAH, doc.Reserve.FillNowUAH)
-		cut := math.Min(want, math.Max(0, reserveElig))
+		cut := math.Min(want, math.Max(0, allow.ReserveUAH))
 		if blocked := want - cut; blocked > 0.005 {
-			out.ReserveSkipWhy = reserveSkipWhy(doc.Settings, blocked, cut)
+			out.ReserveSkipWhy = reserveSkipWhy(doc.Settings, blocked, cut,
+				!domain.PlanUseAllowed(allow.Uses, domain.UsePlanReserve))
 		}
 		if cut > 0.005 {
 			why := fmt.Sprintf("місячна частка подушки — %s з %s",
@@ -407,7 +546,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	// обрізається він ще й тим, що подушка вже забрала (гроші не можна
 	// віддати двічі).
 	if avail > 0 {
-		elig := math.Min(avail, math.Max(0, goalsElig))
+		elig := math.Min(avail, math.Max(0, allow.GoalsUAH))
 		blocked := 0.0
 		for i := range doc.Goals {
 			g := &doc.Goals[i]
@@ -441,7 +580,8 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			elig -= cut
 		}
 		if blocked > 0.005 {
-			out.GoalsSkipWhy = goalsSkipWhy(doc.Settings, blocked, out.GoalsUAH)
+			out.GoalsSkipWhy = goalsSkipWhy(doc.Settings, blocked, out.GoalsUAH,
+				!domain.PlanUseAllowed(allow.Uses, domain.UsePlanGoals))
 		}
 	}
 
@@ -463,6 +603,24 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	for i := range rows {
 		rows[i].MonthShareUAH, rows[i].MonthBalanceUAH = 0, 0
 	}
+	// ЗАБОРОНЕНИЙ ВИД ГАСИТЬСЯ ЦІЛЛЮ, А НЕ ВИКИДАЄТЬСЯ ПІСЛЯ ПОДІЛУ.
+	//
+	// Різниця не стилістична. Викинути рядок після spreadMonth означало б
+	// лишити його частку безіменним RestUAH — тобто застосунок сказав би
+	// «на цілий крок не набралось» там, де правда інша: «цим грошам туди
+	// не можна». З обнуленою ціллю частка перетікає в дозволені види, і
+	// сума розкладки далі дорівнює тому, що прийшло.
+	//
+	// Гроші при цьому НЕ перекидаються між видами всередині поділу — це
+	// зламало б вирівнювання, заради якого поділ і робиться. Вид просто
+	// перестає існувати для цієї суми, як перестає для того, кому ціль за
+	// ним не задана взагалі.
+	for i := range rows {
+		if rows[i].Dimension != "kind" || !allocKindForbidden(allow.Uses, rows[i].Key) {
+			continue
+		}
+		rows[i].TargetPct = 0
+	}
 	// База поділу — капітал БЕЗ подушки й БЕЗ цілей накопичення. Обидві
 	// суми в капіталі є (гроші існують), але жодну з них не збираються
 	// вкладати: перша чекає на аварію, друга — на річ у названу дату.
@@ -483,8 +641,16 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	}
 	if len(budgets) == 0 {
 		out.RestUAH = round2(avail)
+		// ДВІ РІЗНІ ПРИЧИНИ, і зводити їх в одну фразу не можна: «цілей не
+		// задано» кличе в налаштування, а «сюди не можна» — у сам потік.
+		// Перша ще й читалась би як поломка там, де все зроблено за
+		// вказівкою людини.
 		out.Note = "цілей за видом інструмента не задано, або всі вони вже перебрані — " +
 			"розкладати нема за яким правилом"
+		if allocSavingsOnly(allow.Uses) {
+			out.Note = "цим грошам дозволено лише подушку й цілі, а вони своє вже взяли — " +
+				"решта чекає на наступний місяць"
+		}
 		return out
 	}
 	// Найбільший розрив першим, ключ другим критерієм: два однакові бюджети
@@ -550,6 +716,27 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	return out
 }
 
+// allocKindForbidden — чи закритий цей вид ребалансу дозволом джерела.
+//
+// Мапа кошиків на види одна на всю функцію: «інвестиції» — це папери,
+// фонди й вклади разом, бо саме так їх бачить людина, яка ставить галочку.
+// Пенсійний стоїть окремо не з примхи: вийти з нього до пенсії не можна,
+// і рішення «цю премію в НПФ не клади» відрізняється від «цю премію не
+// вкладай» настільки ж, наскільки відрізняються самі інструменти.
+func allocKindForbidden(uses, kindKey string) bool {
+	bucket := domain.UsePlanInvest
+	if kindKey == "npf" {
+		bucket = domain.UsePlanNPF
+	}
+	return !domain.PlanUseAllowed(uses, bucket)
+}
+
+// allocSavingsOnly — джерело не пускає гроші в жоден інструмент.
+func allocSavingsOnly(uses string) bool {
+	return !domain.PlanUseAllowed(uses, domain.UsePlanInvest) &&
+		!domain.PlanUseAllowed(uses, domain.UsePlanNPF)
+}
+
 // allocAllTakenNote — чому рядків покупок немає взагалі: усе забрали
 // подушка й цілі. Називає ОБОХ винуватців поіменно, а не «щось забрало»:
 // «усе пішло в подушку» при живих цілях було б неправдою рівно наполовину.
@@ -570,7 +757,10 @@ func allocAllTakenNote(p allocPlan) string {
 //
 // Дзеркалить reserveSkipWhy і з того самого доводу: рядок, що не веде до
 // налаштування, змушує шукати причину в чужих числах.
-func goalsSkipWhy(set *state.SettingsDoc, blocked, cut float64) string {
+func goalsSkipWhy(set *state.SettingsDoc, blocked, cut float64, bySource bool) string {
+	if bySource {
+		return allocBySourceWhy("цілі", "взяли", "не беруть", blocked, cut)
+	}
 	rule := "їх наповнює лише плановий дохід"
 	if goalsFillFrom(set) == "redeem" {
 		rule = "їх наповнюють плановий дохід і повернення тіла, а це дохід портфеля"
@@ -588,7 +778,10 @@ func goalsSkipWhy(set *state.SettingsDoc, blocked, cut float64) string {
 // Називає САМЕ ТУ політику, яку поставив користувач, а не загальне «не
 // можна»: рядок, що не веде до налаштування, змушує шукати причину в
 // чужих числах. Аргумент, чому це поле взагалі є, — при allocReserve.
-func reserveSkipWhy(set *state.SettingsDoc, blocked, cut float64) string {
+func reserveSkipWhy(set *state.SettingsDoc, blocked, cut float64, bySource bool) string {
+	if bySource {
+		return allocBySourceWhy("подушка", "взяла", "не бере", blocked, cut)
+	}
 	rule := "її наповнює лише плановий дохід"
 	if reserveFillFrom(set) == "redeem" {
 		rule = "її наповнюють плановий дохід і повернення тіла, а це дохід портфеля"
@@ -599,6 +792,25 @@ func reserveSkipWhy(set *state.SettingsDoc, blocked, cut float64) string {
 	}
 	return fmt.Sprintf("подушка тут своє не бере (%s за стелею): за твоєю політикою %s",
 		uah(blocked), rule)
+}
+
+// allocBySourceWhy — вирізки немає через ДОЗВІЛ САМОГО НАДХОДЖЕННЯ, а не
+// через політику.
+//
+// Окремий текст обов'язковий. Рядок «її наповнює лише плановий дохід» під
+// відміткою планового доходу читається як поломка застосунку: політика ж
+// саме цей випадок і дозволяє. Причина тут інша й вона за два кліки —
+// галочка в самому потоці, — тож вести треба туди, а не в «Політику».
+// Дієслова параметрами, а не однією формою на двох: подушка одна, цілей
+// багато, і «цілі накопичення тут свого НЕ БЕРЕ» — рядок, який людина
+// прочитає як недбалість, а далі так само поставиться й до числа поруч.
+func allocBySourceWhy(who, took, takes string, blocked, cut float64) string {
+	if cut > 0.005 {
+		return fmt.Sprintf("%s %s лише %s: решта — %s — сюди не йде, "+
+			"бо саме це надходження позначене інакше", who, took, uah(cut), uah(blocked))
+	}
+	return fmt.Sprintf("%s тут нічого %s (%s за стелею): це надходження "+
+		"позначене як таке, що сюди не йде", who, takes, uah(blocked))
 }
 
 // allocStepUAH — ціна одного кроку поради в гривні-еквіваленті. Нуль

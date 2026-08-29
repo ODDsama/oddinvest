@@ -274,6 +274,10 @@ type BackupPlanFlow struct {
 	// невідрізнимий від квартплати, і відновлення тихо перетворило б
 	// пенсійний капітал у зʼїдені гроші.
 	Dest string `json:"dest,omitempty"`
+	// Uses — на що ці гроші можуть піти: "" = будь-куди (0041). Втратити
+	// його означало б повернути з бекапу план, у якому подушка знову має
+	// право на кожен дохід, — тобто мовчки скасувати заборону.
+	Uses string `json:"uses,omitempty"`
 	Note string `json:"note"`
 }
 
@@ -301,6 +305,10 @@ type BackupPlanFlowRevision struct {
 	// теперішньої таблиці, тобто переведення внеску на інший рахунок
 	// переписувало б усю історію заднім числом.
 	Dest string `json:"dest,omitempty"`
+	// Uses — те саме, що в потоці, і в журналі воно теж обовʼязкове: від
+	// дозволу залежить стеля місяця, тож без нього реконструкція минулого
+	// брала б сьогоднішню заборону (аргумент при 0041).
+	Uses string `json:"uses,omitempty"`
 	Note string `json:"note"`
 }
 
@@ -318,6 +326,7 @@ type BackupPlanReceipt struct {
 	Amount   int64  `json:"amount"`
 	Currency string `json:"currency"`
 	InvestBP int64  `json:"invest_bp"`
+	Uses     string `json:"uses,omitempty"`
 	Note     string `json:"note"`
 }
 
@@ -701,11 +710,12 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		return nil, err
 	}
 	if err := s.scan(ctx, `SELECT id,name,kind,amount,currency,cadence,from_date,until_date,
-		growth_bp,invest_bp,dest,note FROM plan_flows ORDER BY id`,
+		growth_bp,invest_bp,dest,uses,note FROM plan_flows ORDER BY id`,
 		func(scan func(...any) error) error {
 			var r BackupPlanFlow
 			if err := scan(&r.ID, &r.Name, &r.Kind, &r.Amount, &r.Currency, &r.Cadence,
-				&r.FromDate, &r.UntilDate, &r.GrowthBP, &r.InvestBP, &r.Dest, &r.Note); err != nil {
+				&r.FromDate, &r.UntilDate, &r.GrowthBP, &r.InvestBP, &r.Dest,
+				&r.Uses, &r.Note); err != nil {
 				return err
 			}
 			b.PlanFlows = append(b.PlanFlows, r)
@@ -714,12 +724,12 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		return nil, err
 	}
 	if err := s.scan(ctx, `SELECT id,flow_id,changed_at,op,name,kind,amount,currency,cadence,
-		from_date,until_date,growth_bp,invest_bp,dest,note FROM plan_flow_revisions ORDER BY id`,
+		from_date,until_date,growth_bp,invest_bp,dest,uses,note FROM plan_flow_revisions ORDER BY id`,
 		func(scan func(...any) error) error {
 			var r BackupPlanFlowRevision
 			if err := scan(&r.ID, &r.FlowID, &r.ChangedAt, &r.Op, &r.Name, &r.Kind,
 				&r.Amount, &r.Currency, &r.Cadence, &r.FromDate, &r.UntilDate,
-				&r.GrowthBP, &r.InvestBP, &r.Dest, &r.Note); err != nil {
+				&r.GrowthBP, &r.InvestBP, &r.Dest, &r.Uses, &r.Note); err != nil {
 				return err
 			}
 			b.PlanFlowRevisions = append(b.PlanFlowRevisions, r)
@@ -727,12 +737,12 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT id,flow_id,month,name,amount,currency,invest_bp,note
+	if err := s.scan(ctx, `SELECT id,flow_id,month,name,amount,currency,invest_bp,uses,note
 		FROM plan_receipts ORDER BY id`,
 		func(scan func(...any) error) error {
 			var r BackupPlanReceipt
 			if err := scan(&r.ID, &r.FlowID, &r.Month, &r.Name, &r.Amount,
-				&r.Currency, &r.InvestBP, &r.Note); err != nil {
+				&r.Currency, &r.InvestBP, &r.Uses, &r.Note); err != nil {
 				return err
 			}
 			b.PlanReceipts = append(b.PlanReceipts, r)
@@ -1178,9 +1188,9 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	for _, f := range b.PlanFlows {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO plan_flows (id,name,kind,amount,currency,cadence,from_date,until_date,
-			 growth_bp,invest_bp,dest,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+			 growth_bp,invest_bp,dest,uses,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			f.ID, f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, f.FromDate, f.UntilDate,
-			f.GrowthBP, f.InvestBP, f.Dest, f.Note); err != nil {
+			f.GrowthBP, f.InvestBP, f.Dest, f.Uses, f.Note); err != nil {
 			return fmt.Errorf("плановий потік %d: %w", f.ID, err)
 		}
 	}
@@ -1189,10 +1199,11 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	for _, r := range b.PlanFlowRevisions {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO plan_flow_revisions (id,flow_id,changed_at,op,name,kind,amount,currency,
-			 cadence,from_date,until_date,growth_bp,invest_bp,dest,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			 cadence,from_date,until_date,growth_bp,invest_bp,dest,uses,note)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			r.ID, r.FlowID, r.ChangedAt, r.Op, r.Name, r.Kind, r.Amount, r.Currency,
-			r.Cadence, r.FromDate, r.UntilDate, r.GrowthBP, r.InvestBP, r.Dest, r.Note); err != nil {
+			r.Cadence, r.FromDate, r.UntilDate, r.GrowthBP, r.InvestBP, r.Dest,
+			r.Uses, r.Note); err != nil {
 			return fmt.Errorf("ревізія потоку %d: %w", r.ID, err)
 		}
 	}
@@ -1200,9 +1211,10 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// немає, але порядок читається як «спершу план, потім що з нього вийшло».
 	for _, r := range b.PlanReceipts {
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO plan_receipts (id,flow_id,month,name,amount,currency,invest_bp,note)
-			 VALUES (?,?,?,?,?,?,?,?)`,
-			r.ID, r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Note); err != nil {
+			`INSERT INTO plan_receipts (id,flow_id,month,name,amount,currency,invest_bp,uses,note)
+			 VALUES (?,?,?,?,?,?,?,?,?)`,
+			r.ID, r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP,
+			r.Uses, r.Note); err != nil {
 			return fmt.Errorf("відмітка надходження %d: %w", r.ID, err)
 		}
 	}

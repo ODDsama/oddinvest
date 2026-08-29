@@ -276,3 +276,86 @@ func TestPlanFlowRevisionsAtomicWithMutation(t *testing.T) {
 		t.Fatalf("невдалі мутації не мали лишити ревізій, маємо %+v", revs)
 	}
 }
+
+// Дозвіл переживає round-trip і в потоці, і у відмітці, і — головне — у
+// ЖУРНАЛІ РЕВІЗІЙ.
+//
+// Остання третина тут найважливіша. Журнал реконструює план на будь-яку
+// дату в минулому, і колонка, якої в ньому немає, відновлюється з
+// поточної таблиці — тобто заборона, поставлена сьогодні, заднім числом
+// стала б такою, ніби діяла завжди. Той самий довід, що при 0030 для
+// призначення, лише тут він гостріший: від дозволу залежить база стелі
+// подушки, а не косметична пігулка.
+func TestPlanFlowUsesRoundTripAndJournal(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+
+	id, err := s.AddPlanFlow(ctx, PlanFlow{
+		Name: "Оренда", Kind: "income", Amount: 1000000, Currency: "UAH",
+		Cadence: "month", FromDate: "2026-01-01", InvestBP: 10000, Uses: "invest",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flows, err := s.ListPlanFlows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flows) != 1 || flows[0].Uses != "invest" {
+		t.Fatalf("дозвіл не повернувся: %+v", flows)
+	}
+
+	flows[0].Uses = "reserve,invest"
+	if err := s.UpdatePlanFlow(ctx, flows[0]); err != nil {
+		t.Fatal(err)
+	}
+	if flows, _ = s.ListPlanFlows(ctx); flows[0].Uses != "reserve,invest" {
+		t.Fatalf("правка дозволу не застосувалась: %+v", flows[0])
+	}
+
+	revs, err := s.ListPlanFlowRevisions(ctx, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revs) != 2 {
+		t.Fatalf("ревізій %d, чекали 2 (create + update): %+v", len(revs), revs)
+	}
+	// Саме РІЗНІ значення в двох ревізіях: однакові означали б, що журнал
+	// бере дозвіл із сьогоднішньої таблиці, і минуле знову переписуване.
+	if revs[0].Flow.Uses != "invest" {
+		t.Errorf("ревізія create несе дозвіл %q, чекали invest", revs[0].Flow.Uses)
+	}
+	if revs[1].Flow.Uses != "reserve,invest" {
+		t.Errorf("ревізія update несе дозвіл %q, чекали reserve,invest", revs[1].Flow.Uses)
+	}
+
+	// Видалення теж мусить лишити знімок: інакше «що саме заборонялось»
+	// зникло б разом із рядком.
+	if err := s.DeletePlanFlow(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	revs, _ = s.ListPlanFlowRevisions(ctx, time.Time{})
+	if last := revs[len(revs)-1]; last.Op != "delete" || last.Flow.Uses != "reserve,invest" {
+		t.Errorf("ревізія delete: op=%q дозвіл=%q", last.Op, last.Flow.Uses)
+	}
+}
+
+// У «іншого» дозвіл власний, і сховище має його берегти: потоку за ним
+// немає, тож успадкувати нема від кого.
+func TestPlanReceiptUsesRoundTrip(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	if _, err := s.AddPlanReceipt(ctx, PlanReceipt{
+		FlowID: 0, Month: "2026-05", Name: "Премія", Amount: 500000,
+		Currency: "UAH", InvestBP: 10000, Uses: "goals",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := s.ListPlanReceipts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs) != 1 || rs[0].Uses != "goals" {
+		t.Fatalf("дозвіл відмітки не повернувся: %+v", rs)
+	}
+}

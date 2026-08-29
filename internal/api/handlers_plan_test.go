@@ -697,3 +697,89 @@ func TestPlanFlowExpired(t *testing.T) {
 		}
 	}
 }
+
+// --- дозвіл (0041) ---
+
+// Дозвіл ходить туди й назад, і назад він приходить ПЕРЕЛІКОМ.
+//
+// Порожній рядок сховища назовні розгортається в усі кошики: браузеру не
+// має бути потрібно знати, що «нічого не написано» означає «можна всюди»,
+// — інакше та сама умова жила б у двох місцях і розійшлася б на новому
+// кошику.
+func TestPlanFlowUsesRoundTrip(t *testing.T) {
+	srv, _ := testServer(t)
+
+	if resp, body := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Оренда","kind":"income","amount":"10000.00","cadence":"month",`+
+			`"from_date":"2026-09-01","uses":["invest"]}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("потік із дозволом: %d %s", resp.StatusCode, body)
+	}
+	// Другий — без дозволу взагалі: саме він показує розгортання.
+	if resp, body := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"40000.00","cadence":"month",`+
+			`"from_date":"2026-09-01"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("потік без дозволу: %d %s", resp.StatusCode, body)
+	}
+
+	_, body := do(t, "GET", srv.URL+"/api/plan/flows", "")
+	var rows []planFlowRow
+	if err := json.Unmarshal([]byte(body), &rows); err != nil {
+		t.Fatalf("%v: %s", err, body)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("рядків %d, чекали 2", len(rows))
+	}
+	byName := map[string][]string{}
+	for _, r := range rows {
+		byName[r.Name] = r.Uses
+	}
+	if got := byName["Оренда"]; len(got) != 1 || got[0] != "invest" {
+		t.Errorf("дозвіл оренди %v, чекали [invest]", got)
+	}
+	if got := byName["Зарплата"]; len(got) != 4 {
+		t.Errorf("дозвіл зарплати %v, чекали всі чотири кошики", got)
+	}
+
+	// Невідомий кошик — 400, а не мовчазна втрата: набір, який тихо
+	// загубив би значення, заборонив би те, чого ніхто не забороняв.
+	if resp, _ := do(t, "PUT", srv.URL+"/api/plan/flows/1",
+		`{"name":"Оренда","kind":"income","amount":"10000.00","cadence":"month",`+
+			`"from_date":"2026-09-01","uses":["papers"]}`); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("невідомий кошик мав дати 400, маємо %d", resp.StatusCode)
+	}
+}
+
+// Дозвіл має лише ДОХІД — дзеркало правила про призначення на доході.
+//
+// Відхиляється, а не ховається формою й не стирається мовчки: витрачені
+// гроші нікуди не йдуть, а людина, яка зняла галочку, має право думати,
+// що заборона записалась.
+func TestPlanFlowUsesOnlyForIncome(t *testing.T) {
+	srv, _ := testServer(t)
+
+	resp, body := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Комуналка","kind":"expense","amount":"3000.00","cadence":"month",`+
+			`"from_date":"2026-09-01","uses":["invest"]}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("дозвіл на витраті мав дати 400, маємо %d %s", resp.StatusCode, body)
+	}
+	if !strings.Contains(body, "дозвіл має лише дохід") {
+		t.Errorf("помилка %q не пояснює правила", body)
+	}
+
+	// Повний перелік на витраті — НЕ помилка: він означає «без обмежень»,
+	// тобто те саме, що й порожній. Відхиляти його означало б валити
+	// форму, яка просто надіслала всі галочки.
+	if resp, body := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Комуналка","kind":"expense","amount":"3000.00","cadence":"month",`+
+			`"from_date":"2026-09-01","uses":["reserve","goals","invest","npf"]}`); resp.StatusCode != http.StatusCreated {
+		t.Errorf("повний перелік на витраті мав пройти: %d %s", resp.StatusCode, body)
+	}
+
+	// У витрати дозволу немає й у відповіді: «витраті можна всюди» —
+	// відповідь на питання, якого не ставлять.
+	_, body = do(t, "GET", srv.URL+"/api/plan/flows", "")
+	if strings.Contains(body, `"uses"`) {
+		t.Errorf("витрата несе дозвіл у відповіді: %s", body)
+	}
+}

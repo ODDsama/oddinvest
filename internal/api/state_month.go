@@ -18,6 +18,7 @@
 package api
 
 import (
+	"math"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -268,7 +269,13 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 		return 0, 0
 	}
 	share := *set.ReserveFillSharePct
-	if share <= 0 || mp.PlanUAH <= 0 {
+	// БАЗА — ДОЗВОЛЕНА ЧАСТИНА ПЛАНУ, а не весь план (0041). Доти стеля
+	// міряла частку від усіх грошей місяця, а різати їх могла лише з
+	// дозволених — тобто застосунок обіцяв подушці більше, ніж план їй
+	// узагалі дозволяє, і різниця осідала в reserve_skip_why кожної
+	// розкладки. Той самий довід, що привів сюди reserve_fill_from, лише
+	// на рівні джерела замість рівня політики.
+	if share <= 0 || mp.PlanReserveUAH <= 0 {
 		return 0, 0
 	}
 	_, gap := state.ReserveTarget(set, reserveUAH)
@@ -276,7 +283,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	if room <= 0 {
 		return 0, 0 // ціль зібрана — стеля мовчить, і правильно робить
 	}
-	monthUAH = mp.PlanUAH * share / 100
+	monthUAH = mp.PlanReserveUAH * share / 100
 	if monthUAH > room {
 		monthUAH = room
 	}
@@ -317,6 +324,25 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 // плану СВОГО місяця, і без зсуву прохід уперед мусив би завести друге
 // означення «скільки план дає в березні». Параметр узагальнено рівно тому,
 // що читачів справді два, а не про запас.
+//
+// # ДОЗВОЛИ: ТРИ ЧИСЛА ЗАМІСТЬ ОДНОГО
+//
+// PlanUAH каже, скільки план дає ВСЬОГО. Але подушка й цілі мають право не
+// на всі ці гроші: потік уміє сказати про себе «цей дохід — лише на
+// інвестиції» (plan_flows.uses, 0041). Тому поруч рахуються PlanReserveUAH
+// і PlanGoalsUAH — ті самі гроші, звужені дозволом, — і саме від них
+// міряються стелі наповнення.
+//
+// ВИТРАТИ ВІДНІМАЮТЬСЯ ПОВНІСТЮ З КОЖНОГО, а не пропорційно. Рознести
+// комуналку між дозволеними й недозволеними доходами можна лише вигаданим
+// правилом (порівну? пропорційно? з першої зарплати?) — рівно та відмова,
+// що вже стоїть у шапці planAhead. Повне віднімання не вимагає вибирати:
+// воно каже «витрати з'їдають спершу ті гроші, які подушці й так
+// дозволені», консервативне в потрібний бік і за побудовою ніколи не дає
+// більше за PlanUAH.
+//
+// Коли жоден потік нічого не забороняє, обидва числа дорівнюють PlanUAH —
+// тобто для плану, набраного до 0041, не змінюється нічого.
 func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	m int, depositedUAH float64) *state.MonthPlan {
 	if len(src.planFlows) == 0 && len(src.planReceipts) == 0 {
@@ -326,6 +352,10 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	marks := newPlanMarks(src.planReceipts)
 	out := &state.MonthPlan{Month: month}
 
+	// Дозволені суми накопичуються ОКРЕМИМИ лічильниками в тому самому
+	// циклі: другий прохід по тих самих потоках був би другим означенням
+	// «скільки цей потік платить у серпні».
+	incReserve, incGoals := 0.0, 0.0
 	for _, f := range src.planFlows {
 		// Чи платить потік цього місяця, вирішує ЧИСТИЙ план (marks = nil), а
 		// не сума з відмітками. Різниця видна на відмітці «не прийшло»: вона
@@ -343,6 +373,12 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 			continue
 		}
 		out.IncomeUAH += amt
+		if domain.PlanUseAllowed(f.Uses, domain.UsePlanReserve) {
+			incReserve += amt
+		}
+		if domain.PlanUseAllowed(f.Uses, domain.UsePlanGoals) {
+			incGoals += amt
+		}
 		out.Sources++
 		if _, ok := marks.at(f.ID, today, m); ok {
 			out.ReceivedUAH += amt
@@ -358,10 +394,21 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 			continue
 		}
 		gross := float64(r.Amount) / 100 * float64(r.InvestBP) / 10000
-		out.ExtraUAH += planFlowUAH(gross, r.Currency, rates)
+		v := planFlowUAH(gross, r.Currency, rates)
+		out.ExtraUAH += v
+		// Позапланове читає ВЛАСНИЙ дозвіл, і лише воно: потоку за ним
+		// немає, тож успадкувати нема від кого (та сама межа, що з InvestBP).
+		if domain.PlanUseAllowed(r.Uses, domain.UsePlanReserve) {
+			incReserve += v
+		}
+		if domain.PlanUseAllowed(r.Uses, domain.UsePlanGoals) {
+			incGoals += v
+		}
 	}
 
 	out.PlanUAH = out.IncomeUAH + out.ExtraUAH - out.ExpenseUAH
+	out.PlanReserveUAH = math.Max(0, incReserve-out.ExpenseUAH)
+	out.PlanGoalsUAH = math.Max(0, incGoals-out.ExpenseUAH)
 
 	// Лишилось закинути — проти ВНЕСЕНОГО, а не проти купленого: план
 	// означає «скільки нових грошей принести», а купівля лише переносить їх
@@ -377,6 +424,8 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	out.ExpenseUAH = round2(out.ExpenseUAH)
 	out.ExtraUAH = round2(out.ExtraUAH)
 	out.PlanUAH = round2(out.PlanUAH)
+	out.PlanReserveUAH = round2(out.PlanReserveUAH)
+	out.PlanGoalsUAH = round2(out.PlanGoalsUAH)
 	out.ReceivedUAH = round2(out.ReceivedUAH)
 	return out
 }

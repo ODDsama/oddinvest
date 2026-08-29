@@ -51,7 +51,10 @@ func routePlans(planUAH float64) map[string]*state.MonthPlan {
 	out := map[string]*state.MonthPlan{}
 	for m := 0; m <= routeHorizonMonths; m++ {
 		key := monthKeyAt(routeToday, m)
-		out[key] = &state.MonthPlan{Month: key, PlanUAH: planUAH}
+		// Без обмежень за дозволом: підмножини дорівнюють плану, тобто
+		// поведінка, яку ці тести й описують.
+		out[key] = &state.MonthPlan{Month: key, PlanUAH: planUAH,
+			PlanReserveUAH: planUAH, PlanGoalsUAH: planUAH}
 	}
 	return out
 }
@@ -88,7 +91,8 @@ func TestRouteFirstLegEqualsAllocate(t *testing.T) {
 		t.Fatalf("ніг %d, чекали 1: %+v", len(got.Legs), got)
 	}
 	want := allocatePlan(doc, sug, allocRates,
-		toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, 5000, money.UAH, nil)
+		toMoneyJSON(money.New(500000, money.UAH)), 5000,
+		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
 	gotJSON, _ := json.Marshal(got.Legs[0].allocPlan)
 	wantJSON, _ := json.Marshal(want)

@@ -15,8 +15,9 @@ import { onSubmit, onDelete, openEdit, fillForm } from "../forms.js";
 import { disclosure } from "../disclosure.js";
 import {
   money as moneyField, num as numField, text as textField, date as dateField,
-  note as noteField, selectOf, formHTML, whenKind, wireKind,
+  note as noteField, check as checkField, selectOf, formHTML, whenKind, wireKind,
 } from "../fields.js";
+import { PLAN_USES } from "../constants.js";
 import { refSelect } from "../refs.js";
 import { opsGrid } from "../grid.js";
 import { npfDestOptions } from "../npf.js";
@@ -39,6 +40,58 @@ function destOptions(accounts) {
   return [["", "ліквідний портфель"], ...npfDestOptions(accounts)];
 }
 
+// usesFields, usesPillsHTML і usesText експортуються: та сама розмітка
+// дозволу потрібна формі позапланового надходження й чеклисту
+// (plan-receipts.js). Другий набір галочок розійшовся б із цим на першому
+// ж новому кошику — рівно так, як розійшлися б два списки полів потоку,
+// проти чого написана шапка цього файла.
+
+// Дозвіл ГАЛОЧКАМИ, а не випадайкою. Кошиків чотири, тобто законних
+// поєднань п'ятнадцять, і перелічити їх у селекті означало б список, у
+// якому шукають своє замість того, щоб його скласти. Галочка ж відповідає
+// рівно на те питання, яке ставлять: «сюди можна?».
+//
+// УСІ ПОЗНАЧЕНІ ЗА ЗАМОВЧУВАННЯМ, бо типовий дохід не заборонений нікуди,
+// а порожній набір бекенд читає як «без обмежень» — тобто те саме. Зняти
+// всі чотири не заборонено окремою перевіркою свідомо: це той самий
+// «дозволено всюди», і помилки в ньому немає.
+export function usesFields(uses) {
+  const on = new Set(uses && uses.length ? uses : PLAN_USES.map(([k]) => k));
+  return `<div class="row-h" title="Куди цим грошам МОЖНА. Скільки саме туди піде,
+    і далі вирішують стелі наповнення у «Політиці» — це дозвіл, а не поділ">
+    <span class="sub-xs">Може йти в</span>
+    ${PLAN_USES.map(([key, label]) =>
+    checkField("use_" + key, label, { checked: on.has(key) })).join("")}</div>`;
+}
+
+// Дозвіл у вигляді, який розуміє fillForm: по булеану на галочку.
+//
+// Потрібен «копії», і без нього вона мовчки губила б заборону: fillForm
+// ходить по ІМЕНАХ полів, а масив uses імені в формі не має — ключ просто
+// пропускався б, лишаючи всі чотири галочки позначеними.
+export function usesCheckValues(uses) {
+  const on = new Set(usesNarrowed(uses) ? uses : PLAN_USES.map(([k]) => k));
+  return Object.fromEntries(PLAN_USES.map(([k]) => ["use_" + k, on.has(k)]));
+}
+
+// Дозвіл звужений — тобто його варто показати. Бекенд віддає ПОВНИЙ
+// перелік, коли обмежень немає, тож ознака одна: чи всі кошики на місці.
+export function usesNarrowed(uses) {
+  return Array.isArray(uses) && uses.length > 0 && uses.length < PLAN_USES.length;
+}
+
+// Пігулки дозволу — лише коли він звужений. Повний перелік під кожним
+// рядком був би чотирма пігулками, які нічого не повідомляють: вони
+// стояли б у всіх однаково.
+export function usesPillsHTML(f) {
+  if (f.kind !== "income" || !usesNarrowed(f.uses)) return "";
+  const on = new Set(f.uses);
+  const pills = PLAN_USES.filter(([k]) => on.has(k))
+    .map(([, label, cls]) => `<span class="pill ${cls}">${label}</span>`).join(" ");
+  return `<div class="fine-xs" title="решті кошиків ці гроші не дістаються">${
+    pills} <span class="muted">— тільки сюди</span></div>`;
+}
+
 function flowFields(accounts, values = null) {
   const v = values || {};
   const val = (k, d = "") => (v[k] != null ? String(v[k]) : d);
@@ -48,7 +101,7 @@ function flowFields(accounts, values = null) {
   // збереження мовчки лишило б їх незміненими, а другий читач вирішив би,
   // що форма їх з'їла.
   const nonDefault = values && (v.until_date || +v.growth_pct !== 0
-    || +v.invest_pct !== 100 || v.dest || v.note);
+    || +v.invest_pct !== 100 || v.dest || v.note || usesNarrowed(v.uses));
   return [
     textField("name", "Назва", { ph: "Зарплата", required: true, value: val("name") }),
     selectOf("kind", "Тип", [["income", "дохід"], ["expense", "витрата"]], val("kind", "income")),
@@ -73,12 +126,17 @@ function flowFields(accounts, values = null) {
       // доході воно не робить нічого — а поле, яке нічого не робить,
       // читається як робоче: рядок «Бонус 250 $» діставав пігулку «переказ,
       // а не витрата», хоч жодного переказу в жодному числі не було.
+      // ЛИШЕ В ДОХОДУ, і це дзеркало сусіднього поля, а не симетрія
+      // заради симетрії: «на що ці гроші можуть піти» — питання про
+      // гроші, які ПРИХОДЯТЬ. Витрата нікуди не йде, вона зникає, і
+      // бекенд таке поєднання відхиляє (planFlowFromReq).
+      whenKind(["income"], usesFields(v.uses)),
       whenKind(["expense"], selectOf("dest", "Призначення", destOptions(accounts), val("dest"), {
         title: "Витрата з призначенням у пенсійний — це не зʼїдені гроші, а переказ: "
           + "ліквідне худне, пенсійний капітал росте. Без призначення проєкція вважала б їх витраченими",
       })),
       noteField("note", "Нотатка", { value: val("note") }),
-    ].join(""), "до дати, індексація, частка, призначення, нотатка", !!nonDefault),
+    ].join(""), "до дати, індексація, частка, дозвіл, призначення, нотатка", !!nonDefault),
   ].join("");
 }
 
@@ -101,6 +159,10 @@ function flowFormValues(f) {
     growth_pct: f.growth_pct != null ? f.growth_pct : 0,
     invest_pct: f.invest_pct != null ? f.invest_pct : 100,
     dest: f.dest || "",
+    // Перелік як є: порожній масив і повний однаково означають «без
+    // обмежень», і зводити їх тут не можна — форма мусить показати
+    // галочки, а не вгадувати.
+    uses: Array.isArray(f.uses) ? f.uses : [],
     note: f.note || "",
   };
 }
@@ -121,6 +183,7 @@ function flowBodyFromValues(v) {
     growth_pct: String(v.growth_pct ?? 0).trim() || "0",
     invest_pct: String(v.invest_pct ?? 100).trim() || "100",
     dest: String(v.dest || "").trim(),
+    uses: Array.isArray(v.uses) ? v.uses : [],
     note: String(v.note || "").trim(),
   };
 }
@@ -137,6 +200,13 @@ function flowBody(f) {
     // перемикання типу. Бекенд відхилив би це чотирьохсоткою, і людина
     // побачила б помилку про поле, якого вона на екрані не бачить.
     dest: f.kind.value === "expense" && f.dest ? f.dest.value : "",
+    // Дозвіл — теж лише в доходу, і з тієї самої причини, що dest вище:
+    // прихована група поле НЕ прибирає, тож без перевірки виду форма
+    // надіслала б галочки, зняті до перемикання типу, а бекенд відповів би
+    // помилкою про поле, якого на екрані не видно.
+    uses: f.kind.value === "income"
+      ? PLAN_USES.map(([k]) => k).filter((k) => f["use_" + k] && f["use_" + k].checked)
+      : [],
     note: f.note.value,
   });
 }
@@ -267,7 +337,8 @@ export function planFlowsListHTML(flows, provides = 0) {
     { key: "name", label: "Назва", cell: (f) => esc(f.name)
       + (f.note ? ` <span class="muted fine-xs">${esc(f.note)}</span>` : "")
       + (f.kind === "expense" && f.dest
-        ? `<div class="fine-xs"><span class="pill pill-npf">НПФ</span> переказ, а не витрата</div>` : "") },
+        ? `<div class="fine-xs"><span class="pill pill-npf">НПФ</span> переказ, а не витрата</div>` : "")
+      + usesPillsHTML(f) },
     { key: "kind", label: "Тип", cell: (f) => `<span class="pill ${
       f.kind === "income" ? "coupon" : "redemption"}">${
       f.kind === "income" ? "дохід" : "витрата"}</span>` },
@@ -414,15 +485,35 @@ const REV_FIELDS = [
   ["from_date", "з", (r) => dayMonth(r.from_date)],
   ["until_date", "до", (r) => (r.until_date ? dayMonth(r.until_date) : "безстроково")],
   ["invest_pct", "у портфель", (r) => pct(r.invest_pct)],
+  // Дозвіл — саме тут, а не серед косметики: від нього залежить база
+  // обох стель наповнення, тобто «нічого не змінилось» у цьому рядку
+  // означало б сховати правку, яка рухає гроші.
+  ["uses", "може йти", (r) => usesText(r.uses)],
   ["growth_pct", "індексація", (r) => pct(r.growth_pct)],
 ];
 
 // Що змінилось порівняно з попередньою ревізією ТОГО САМОГО потоку.
 // Валюта порівнюється разом із сумою: «1 700 → 2 000» без неї брехало б,
 // якби змінилась саме валюта.
+// Дозвіл рядком — і для порівняння ревізій, і для підпису. Порожній
+// перелік у старій ревізії читається як «будь-куди»: до 0041 обмежень не
+// було ні в кого.
+export function usesText(uses) {
+  if (!usesNarrowed(uses)) return "будь-куди";
+  const on = new Set(uses);
+  return PLAN_USES.filter(([k]) => on.has(k)).map(([, label]) => label).join(", ");
+}
+
 function revDiff(cur, prev) {
   if (!prev) return "";
   return REV_FIELDS.map(([key, label, show]) => {
+    // Масив дозволу порівнюється ТЕКСТОМ: два різні масиви з тим самим
+    // вмістом ніколи не рівні за ===, і рядок «може йти: резерв →
+    // резерв» вилазив би на кожній правці суми.
+    if (key === "uses") {
+      const a2 = usesText(cur.uses), b2 = usesText(prev.uses);
+      return a2 === b2 ? "" : `${label}: ${esc(b2)} → <b>${esc(a2)}</b>`;
+    }
     const a = key === "amount" ? `${cur[key]}|${cur.currency}` : cur[key];
     const b = key === "amount" ? `${prev[key]}|${prev.currency}` : prev[key];
     return a === b ? "" : `${label}: ${esc(show(prev))} → <b>${esc(show(cur))}</b>`;
@@ -515,8 +606,9 @@ export function wirePlanFlows(ctx, main, flows) {
     const f = byId.get(b.dataset.copyflow);
     if (!f || !form) return;
     const v = flowFormValues(f);
-    fillForm(form, { ...v, from_date: today() });
-    if (v.until_date || +v.growth_pct !== 0 || +v.invest_pct !== 100 || v.note) {
+    fillForm(form, { ...v, ...usesCheckValues(v.uses), from_date: today() });
+    if (v.until_date || +v.growth_pct !== 0 || +v.invest_pct !== 100 || v.note
+      || usesNarrowed(v.uses)) {
       const more = form.querySelector("details[data-fold]");
       if (more) more.open = true;
     }

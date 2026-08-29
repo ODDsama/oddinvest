@@ -22,6 +22,11 @@ import {
 import { refSelect } from "../refs.js";
 import { opsGrid } from "../grid.js";
 import { openAllocate } from "./allocate.js";
+// Розмітку дозволу малює модуль потоків: галочки в двох формах мусять
+// бути тими самими, інакше на новому кошику вони розійдуться (той самий
+// довід, з якого plan-cards.js бере amtOf саме звідси).
+import { usesFields, usesPillsHTML } from "./plan-flows.js";
+import { PLAN_USES } from "../constants.js";
 
 // ---------- надходження місяця ----------
 //
@@ -115,12 +120,19 @@ const receiptNoteHTML = (r) =>
 //
 // Нуль («не прийшло») кнопки не дістає: розкладати нема чого, а кнопка над
 // нулем читалась би як пропозиція купити на нічого.
-function allocBtn(name, m) {
+//
+// data-allocref каже бекенду, ЯКЕ САМЕ це надходження. Без нього розкладка
+// не знала б дозволу («ця оренда — тільки на інвестиції») і різала б із
+// неї подушку нарівні з рештою. Посилання, а не сам дозвіл: узяти його зі
+// сторінки означало б дати застарілій вкладці право обійти щойно
+// поставлену заборону.
+function allocBtn(name, m, ref) {
   const amt = (m || {}).amount;
   if (!amt || amtOf(m) <= 0) return "";
   return `<button type="button" class="sm" data-alloc="${esc(amt)}"
     data-alloccur="${esc(m.currency || "UAH")}" data-allocwho="${esc(name)}"
-    title="Розкласти цю суму: резерв, папери, кошик"
+    data-allocref="${esc(ref || "")}"
+    title="Розкласти цю суму: резерв, цілі, папери, кошик"
     aria-label="Розкласти «${esc(name)}»">⤵</button>`;
 }
 
@@ -139,7 +151,12 @@ function receiptCols() {
   return [
     { key: "name", label: "Джерело", cell: (r) => esc(r.name)
       + (r.planned ? "" : ` <span class="fine muted">позапланово</span>`)
-      + receiptNoteHTML(r.planned ? r.receipt : r) },
+      + receiptNoteHTML(r.planned ? r.receipt : r)
+      // Пігулки дозволу — тими самими, що в таблиці потоків: рядок, який
+      // не піде в подушку, мусить казати це там, де його відмічають, а не
+      // лише в сусідньому розділі. kind підставляємо, бо чеклист і так
+      // показує САМІ надходження.
+      + usesPillsHTML({ kind: "income", uses: r.uses }) },
     { key: "due", label: "Коли", num: true,
       cell: (r) => (r.planned && r.due_date ? esc(dayMonth(r.due_date)) : DASH) },
     { key: "plan", label: "План", num: true,
@@ -148,12 +165,12 @@ function receiptCols() {
       ? receiptStateHTML(r)
       : `<span class="pill coupon">${esc(fmtMoney(r.amount))}</span>`) },
     { key: "acts", label: "", cls: "row-actions nowrap", cell: (r) => (r.planned
-      ? (r.receipt ? allocBtn(r.name, r.receipt.amount) : "")
+      ? (r.receipt ? allocBtn(r.name, r.receipt.amount, "flow:" + r.flow_id) : "")
         + `<button type="button" class="sm" data-editrec="${r.flow_id}"
            data-month="${esc(r.month)}" aria-label="Вписати суму для «${esc(r.name)}»">✎</button>`
         + (r.receipt ? `<button type="button" class="sm warn" data-delrec="${r.receipt.id}"
            aria-label="Зняти відмітку з «${esc(r.name)}»">✕</button>` : "")
-      : allocBtn(r.name, r.amount)
+      : allocBtn(r.name, r.amount, "receipt:" + r.id)
         + `<button type="button" class="sm" data-editother="${r.id}"
            aria-label="Змінити «${esc(r.name)}»">✎</button>
          <button type="button" class="sm warn" data-delrec="${r.id}"
@@ -171,7 +188,8 @@ function receiptFields(values = null) {
       ph: "вийшов з відпустки, 2 дні", value: val("note"),
     })
     + `<div class="sub-xs">Нуль означає «не прийшло». Сума валова — та, що прийшла на руки;
-      скільки з неї доходить до портфеля, визначає частка самого джерела.</div>`;
+      скільки з неї доходить до портфеля, визначає частка самого джерела — і туди ж
+      записаний дозвіл, куди цим грошам можна.</div>`;
 }
 
 function otherFields(values = null) {
@@ -184,6 +202,10 @@ function otherFields(values = null) {
     numField("invest_pct", "Частка в портфель, %", {
       step: "0.01", min: "0", max: "100", value: val("invest_pct", "100"),
     }),
+    // Дозвіл у позапланового ВЛАСНИЙ, і рівно з тієї причини, з якої в
+    // нього є власна частка: потоку за ним немає, успадкувати нема від
+    // кого. Премія, яку відкладають лише на авто, описується саме тут.
+    usesFields(v.uses),
     textField("note", "Причина", { value: val("note") }),
   ].join("");
 }
@@ -191,6 +213,7 @@ function otherFields(values = null) {
 const otherBody = (f, month) => ({
   flow_id: 0, month, name: f.name.value.trim(), amount: f.amount.value.trim(),
   currency: f.currency.value, invest_pct: f.invest_pct.value.trim() || "100",
+  uses: PLAN_USES.map(([k]) => k).filter((k) => f["use_" + k] && f["use_" + k].checked),
   note: f.note.value.trim(),
 });
 
@@ -309,6 +332,7 @@ export function wirePlanReceipts(ctx, main, doc) {
       title: b.dataset.allocwho,
       // Відмітка планового надходження — джерело тут і є темою картки.
       source: "plan",
+      sourceRef: b.dataset.allocref,
     });
   }));
 
@@ -355,6 +379,7 @@ export function wirePlanReceipts(ctx, main, doc) {
         name: r.name, amount: (r.amount || {}).amount || "",
         currency: (r.amount || {}).currency || "UAH",
         invest_pct: r.invest_pct != null ? r.invest_pct : 100,
+        uses: Array.isArray(r.uses) ? r.uses : [],
         note: r.note || "",
       }),
     }, (f) => ({

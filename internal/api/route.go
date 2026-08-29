@@ -326,7 +326,11 @@ func (c *routeCarry) enterMonth(month string, mp *state.MonthPlan) {
 			c.goals[i].FillMonthUAH, c.goals[i].FillNowUAH = 0, 0
 			c.goals[i].ShortMonthUAH = 0
 		}
-		state.GoalsFill(c.set, c.goals, mp.PlanUAH)
+		// Дозволеною частиною, тією самою, що в документі: інакше прохід
+		// уперед рахував би стелю цілей від усього плану, а картка — від
+		// звуженого, і дві сторінки називали б різні числа про той самий
+		// місяць.
+		state.GoalsFill(c.set, c.goals, mp.PlanGoalsUAH)
 	}
 }
 
@@ -526,8 +530,23 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		if flowBasis(ev.readyFlow) == basisPlan {
 			src = allocFromPlan
 		}
-		evEligible := reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH)
-		evGoalsEligible := goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH)
+		// ДОЗВІЛ ДЖЕРЕЛА СЮДИ НЕ ПЕРЕДАЄТЬСЯ, і це не пропуск.
+		//
+		// Він тут уже застосований — раніше й один раз. Стеля місяця
+		// рахується від ДОЗВОЛЕНОЇ частини плану
+		// (reserveMonthShare від month_plan.plan_reserve_uah, GoalsFill від
+		// plan_goals_uah), а enterMonth поновлює її на кожен місяць проходу.
+		// Вирізка ноги більшою за стелю не буває за побудовою, тож другий
+		// зріз тим самим числом не міг би нічого відрізати — він лише
+		// виглядав би працюючим.
+		//
+		// Різниця з ручною розкладкою (POST /api/allocate) змістовна, і саме
+		// в ній причина, чому source_ref є там і немає тут: там розкладають
+		// ОДНЕ надходження, і місячна стеля не знає, котре саме ти тримаєш у
+		// руках — 10 000 ₴ дозволених місяцю могли прийти із зарплати, а
+		// розкладаєш ти оренду. Нога ж маршруту і є місяць цілком.
+		evEligible := reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH, amountUAH)
+		evGoalsEligible := goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH, amountUAH)
 
 		carryIn := pot.minor
 		pot.minor += ev.Amount
@@ -547,10 +566,18 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 
 		carryInUAH := float64(carryIn) / 100 * rate
 		potUAH := float64(pot.minor) / 100 * rate
+		// Uses порожній навмисно: дозвіл ПО ВИДАХ інструментів у ноги
+		// місяця так само зведений, як і грошові стелі, — заборонити НПФ
+		// «наполовину» не можна, а вирішити за людину, чи вважати місяць
+		// забороненим, коли одна зарплата з трьох так позначена, застосунок
+		// права не має. Ця межа названа й на екрані розкладки: там дозвіл
+		// приходить від конкретного надходження (source_ref).
 		plan := allocatePlan(carry.doc(carryInUAH), sug, rates,
 			toMoneyJSON(money.New(pot.minor, cur)), potUAH,
-			float64(pot.eligible)/100*rate,
-			float64(pot.goalsEligible)/100*rate, cur, npfID)
+			allocAllow{
+				ReserveUAH: float64(pot.eligible) / 100 * rate,
+				GoalsUAH:   float64(pot.goalsEligible) / 100 * rate,
+			}, cur, npfID)
 		carry.apply(plan)
 		if plan.Reserve != nil && plan.Reserve.AmountUAH > 0 {
 			pot.eligible -= int64(math.Round(plan.Reserve.AmountUAH / rate * 100))

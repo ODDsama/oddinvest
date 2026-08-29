@@ -169,6 +169,10 @@ type planRev struct {
 	UntilDate string  `json:"until_date,omitempty"`
 	InvestPct float64 `json:"invest_pct"`
 	GrowthPct float64 `json:"growth_pct,omitempty"`
+	// Uses — дозвіл на момент ревізії. Без нього історія правок мовчала б
+	// про зміну, яка рухає стелю подушки: «нічого не змінилось» там, де
+	// змінилось те, з чого вона рахується.
+	Uses []string `json:"uses,omitempty"`
 }
 
 // receiptRow — відмітка надходження для UI.
@@ -185,7 +189,11 @@ type receiptRow struct {
 	Amount    moneyJSON `json:"amount"`
 	InvestPct float64   `json:"invest_pct"`
 	GivesUAH  float64   `json:"gives_uah"`
-	Note      string    `json:"note,omitempty"`
+	// Uses — дозвіл, ЧИННИЙ для цієї відмітки: у прив'язаної він приходить
+	// із потоку, у позапланової — власний. Тією самою підстановкою, що й
+	// InvestPct поруч, і з того самого доводу.
+	Uses []string `json:"uses,omitempty"`
+	Note string   `json:"note,omitempty"`
 }
 
 // expectedReceipt — очікувана виплата одного потоку в одному місяці: рядок
@@ -206,6 +214,7 @@ type expectedReceipt struct {
 	DueDate string      `json:"due_date"`
 	Amount  moneyJSON   `json:"amount"`
 	PlanUAH float64     `json:"plan_uah"`
+	Uses    []string    `json:"uses,omitempty"`
 	Receipt *receiptRow `json:"receipt,omitempty"`
 }
 
@@ -378,6 +387,7 @@ func flowRevisionRows(revs []store.PlanFlowRevision) []flowRevisionRow {
 				UntilDate: string(r.Flow.UntilDate),
 				InvestPct: float64(r.Flow.InvestBP) / 100,
 				GrowthPct: float64(r.Flow.GrowthBP) / 100,
+				Uses:      domain.PlanUsesList(r.Flow.Uses),
 			},
 		})
 	}
@@ -559,22 +569,30 @@ func receiptDueDate(month string, day int) string {
 // важлива, рахує свою частку сама й із planAsOf — див. buildPlanHistory.
 func receiptRows(rs []store.PlanReceipt, flows []store.PlanFlow, rates fx.Rates) []receiptRow {
 	share := map[int64]int64{}
+	uses := map[int64]string{}
 	for _, f := range flows {
 		share[f.ID] = f.InvestBP
+		uses[f.ID] = f.Uses
 	}
 	out := make([]receiptRow, 0, len(rs))
 	for _, r := range rs {
 		bp := r.InvestBP
+		use := r.Uses
 		if r.FlowID != 0 {
 			if s, ok := share[r.FlowID]; ok {
 				bp = s
 			}
+			// Дозвіл — теж із потоку, тією самою підстановкою: прив'язана
+			// відмітка своєї колонки не читає (0041), і взяти її звідти
+			// означало б показати порожнечу як «можна всюди».
+			use = uses[r.FlowID]
 		}
 		out = append(out, receiptRow{
 			ID: r.ID, FlowID: r.FlowID, Month: r.Month, Name: r.Name,
 			Amount:    toMoneyJSON(money.New(r.Amount, r.Currency)),
 			InvestPct: round2(float64(bp) / 100),
 			GivesUAH:  round2(planFlowUAH(float64(r.Amount)/100*float64(bp)/10000, r.Currency, rates)),
+			Uses:      domain.PlanUsesList(use),
 			Note:      r.Note,
 		})
 	}
@@ -637,6 +655,7 @@ func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
 				DueDate: receiptDueDate(key, f.FromDate.Day()),
 				Amount:  toMoneyJSON(money.New(int64(math.Round(amt*100)), f.Currency)),
 				PlanUAH: round2(planFlowUAH(amt*float64(f.InvestBP)/10000, f.Currency, rates)),
+				Uses:    domain.PlanUsesList(f.Uses),
 			}
 			if r, ok := byKey[markKey{flow: f.ID, month: key}]; ok {
 				row := receiptRows([]store.PlanReceipt{r}, flows, rates)[0]

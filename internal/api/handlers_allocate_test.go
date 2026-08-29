@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 
 	money "github.com/Rhymond/go-money"
@@ -45,7 +46,8 @@ var allocRates = fx.Rates{money.USD: 440000}
 func TestAllocateWholeTicketsOnly(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400, 3400, 3400, money.UAH, nil)
+		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400,
+		allocAllow{ReserveUAH: 3400, GoalsUAH: 3400}, money.UAH, nil)
 
 	if len(got.Lines) != 1 {
 		t.Fatalf("рядків %d, чекали 1: %+v", len(got.Lines), got)
@@ -73,7 +75,8 @@ func TestAllocateReserveEatsEverything(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
 		&state.Reserve{FillNowUAH: 9000, FillMonthUAH: 9000, GapUAH: 50000})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, 5000, money.UAH, nil)
+		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
+		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
 	if got.Reserve == nil || got.Reserve.AmountUAH != 5000 {
 		t.Fatalf("вирізка резерву %+v, чекали всі 5000", got.Reserve)
@@ -92,7 +95,8 @@ func TestAllocateReserveThenBuys(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
 		&state.Reserve{FillNowUAH: 2000, FillMonthUAH: 2000, GapUAH: 40000})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, 5000, money.UAH, nil)
+		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
+		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
 	if got.Reserve == nil || got.Reserve.AmountUAH != 2000 {
 		t.Fatalf("вирізка резерву %+v, чекали 2000", got.Reserve)
@@ -120,7 +124,8 @@ func TestAllocateSkipsOvershotKind(t *testing.T) {
 		},
 	}
 	got := allocatePlan(doc, sug, allocRates,
-		toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, 5000, money.UAH, nil)
+		toMoneyJSON(money.New(500000, money.UAH)), 5000,
+		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
 	for _, l := range got.Lines {
 		if l.Kind == "fund" {
@@ -138,7 +143,8 @@ func TestAllocateMarksConversion(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	// Гривневий папір за 1000 ₴ на доларову суму: 500 $ це 22 000 ₴.
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(50000, money.USD)), 22000, 22000, 22000, money.USD, nil)
+		allocRates, toMoneyJSON(money.New(50000, money.USD)), 22000,
+		allocAllow{ReserveUAH: 22000, GoalsUAH: 22000}, money.USD, nil)
 
 	if len(got.Lines) != 1 {
 		t.Fatalf("рядків %d, чекали 1: %+v", len(got.Lines), got)
@@ -167,7 +173,8 @@ func TestAllocateNPFTakesWholeBudgetAndDepositDoesNot(t *testing.T) {
 			CostPerBond: toMoneyJSON(money.New(100000, money.UAH)), RealPct: 5},
 	}
 	got := allocatePlan(doc, sug, allocRates,
-		toMoneyJSON(money.New(400000, money.UAH)), 4000, 4000, 4000, money.UAH,
+		toMoneyJSON(money.New(400000, money.UAH)), 4000,
+		allocAllow{ReserveUAH: 4000, GoalsUAH: 4000}, money.UAH,
 		map[string]int64{"Династія": 7})
 
 	var npf, dep *allocLine
@@ -206,7 +213,8 @@ func TestAllocateNPFWithoutIDSkipped(t *testing.T) {
 	got := allocatePlan(doc, []suggestion{
 		{Kind: "npf", Label: "Династія", Currency: money.UAH,
 			CostPerBond: toMoneyJSON(money.New(0, money.UAH))},
-	}, allocRates, toMoneyJSON(money.New(400000, money.UAH)), 4000, 4000, 4000, money.UAH, nil)
+	}, allocRates, toMoneyJSON(money.New(400000, money.UAH)), 4000,
+		allocAllow{ReserveUAH: 4000, GoalsUAH: 4000}, money.UAH, nil)
 
 	if len(got.Lines) != 0 {
 		t.Fatalf("без id рахунку рядка бути не може: %+v", got.Lines)
@@ -221,7 +229,8 @@ func TestAllocateNPFWithoutIDSkipped(t *testing.T) {
 func TestAllocateWithoutKindTargets(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 0, 50000)}, nil)
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000, 5000, 5000, money.UAH, nil)
+		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
+		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
 	if len(got.Lines) != 0 {
 		t.Fatalf("цілей немає — рядків бути не може: %+v", got.Lines)
@@ -243,7 +252,8 @@ func TestAllocateIgnoresMonthSplitFromDoc(t *testing.T) {
 	row.MonthBalanceUAH = 30000 // поділ плану місяця, що вже лежить у документі
 	doc := allocDoc([]state.RebalanceRow{row}, nil)
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(50000, money.UAH)), 500, 500, 500, money.UAH, nil)
+		allocRates, toMoneyJSON(money.New(50000, money.UAH)), 500,
+		allocAllow{ReserveUAH: 500, GoalsUAH: 500}, money.UAH, nil)
 
 	for _, l := range got.Lines {
 		if l.TotalUAH > 500 {
@@ -253,4 +263,116 @@ func TestAllocateIgnoresMonthSplitFromDoc(t *testing.T) {
 	if got.RestUAH != 500 {
 		t.Errorf("залишок %.2f, чекали 500: на квиток 1000 ₴ не вистачає", got.RestUAH)
 	}
+}
+
+// --- дозвіл самого надходження (0041) ---
+//
+// Політика (reserve_fill_from) каже, З ЯКИХ ГРОШЕЙ узагалі можна
+// наповнювати подушку; дозвіл каже, чи можна з ЦИХ конкретних. Друга межа
+// поверх першої, і жодна з них не має права розширити іншу.
+
+// Заборонене джерело не дає вирізки — і причина називає САМЕ ЙОГО.
+//
+// Текст перевіряється не з педантизму: рядок «її наповнює лише плановий
+// дохід» під відміткою планового доходу читається як поломка застосунку.
+func TestAllocateSourceForbidsReserve(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
+		&state.Reserve{FillNowUAH: 2000, FillMonthUAH: 2000, GapUAH: 50000})
+
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
+		// Стеля подушки нульова, бо джерело їй заборонене; цілям — ні.
+		allocAllow{ReserveUAH: 0, GoalsUAH: 5000, Uses: "goals,invest"},
+		money.UAH, nil)
+
+	if got.Reserve != nil {
+		t.Errorf("вирізка подушки %+v — джерело їй заборонене", got.Reserve)
+	}
+	if got.ReserveSkipWhy == "" {
+		t.Fatal("вирізки немає й причини немає — це читається як поломка")
+	}
+	if !strings.Contains(got.ReserveSkipWhy, "надходження") {
+		t.Errorf("причина %q не називає джерело — вона веде в «Політику», де все правильно",
+			got.ReserveSkipWhy)
+	}
+	// Гроші не зникли: усе, що подушка не взяла, пішло в папери.
+	if got.AvailUAH != 5000 {
+		t.Errorf("доступно %v, очікували всі 5000", got.AvailUAH)
+	}
+}
+
+// Заборонений ВИД гаситься ціллю, а не викидається після поділу: його
+// частка перетікає в дозволені види, і сума розкладки лишається сумою
+// надходження. Інакше застосунок казав би «не набралось на крок» там, де
+// правда інша — «цим грошам туди не можна».
+func TestAllocateForbiddenNPFRedistributes(t *testing.T) {
+	rows := []state.RebalanceRow{kindRow("bonds", 50, 0), kindRow("npf", 50, 0)}
+	sug := []suggestion{
+		bondSug("UA0001", 1000, money.UAH),
+		{Kind: "npf", Label: "Династія", Currency: money.UAH,
+			CostPerBond: toMoneyJSON(money.New(0, money.UAH))},
+	}
+	npf := map[string]int64{"Династія": 7}
+
+	free := allocatePlan(allocDoc(rows, nil), sug, allocRates,
+		toMoneyJSON(money.New(400000, money.UAH)), 4000,
+		allocAllow{ReserveUAH: 4000, GoalsUAH: 4000}, money.UAH, npf)
+	if !hasKind(free.Lines, "npf") {
+		t.Fatal("без заборони рядка НПФ немає — тест перевіряв би не те")
+	}
+
+	got := allocatePlan(allocDoc(rows, nil), sug, allocRates,
+		toMoneyJSON(money.New(400000, money.UAH)), 4000,
+		allocAllow{ReserveUAH: 4000, GoalsUAH: 4000, Uses: "reserve,goals,invest"},
+		money.UAH, npf)
+	if hasKind(got.Lines, "npf") {
+		t.Error("рядок НПФ лишився, хоч джерело його забороняє")
+	}
+	// Ті самі 4 000 ₴, лише всі в дозволений вид: заборона не має
+	// перетворювати гроші на безіменний залишок.
+	if spent := linesTotal(got.Lines); spent != 4000 {
+		t.Errorf("у папери пішло %v, очікували всі 4000 — частка НПФ мусить перетекти", spent)
+	}
+	if got.RestUAH != 0 {
+		t.Errorf("залишок %v, очікували 0", got.RestUAH)
+	}
+}
+
+// Джерело, якому не можна в жоден інструмент, після подушки й цілей
+// лишається залишком — але залишком НАЗВАНИМ. Мовчазна сума тут читалась
+// би як загублена, а типова причина («цілей за видом не задано») повела б
+// у налаштування, де все правильно.
+func TestAllocateSavingsOnlyNamesItsReason(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
+		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000, Uses: "reserve,goals"},
+		money.UAH, nil)
+
+	if len(got.Lines) != 0 {
+		t.Errorf("рядки покупок є, хоч інструменти заборонені: %+v", got.Lines)
+	}
+	if got.RestUAH != 5000 {
+		t.Errorf("залишок %v, очікували 5000", got.RestUAH)
+	}
+	if !strings.Contains(got.Note, "дозволено") {
+		t.Errorf("причина %q не про дозвіл — вона веде не туди", got.Note)
+	}
+}
+
+func hasKind(lines []allocLine, kind string) bool {
+	for _, l := range lines {
+		if l.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func linesTotal(lines []allocLine) float64 {
+	var sum float64
+	for _, l := range lines {
+		sum += l.TotalUAH
+	}
+	return sum
 }

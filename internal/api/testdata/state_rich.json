@@ -373,6 +373,8 @@
     "expense_uah": 9000,
     "extra_uah": 3000,
     "plan_uah": 10600,
+    "plan_reserve_uah": 10600,
+    "plan_goals_uah": 10600,
     "received_uah": 16600,
     "left_uah": 0,
     "covered_pct": 632.08,

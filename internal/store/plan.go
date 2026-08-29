@@ -36,6 +36,15 @@ type PlanFlow struct {
 	// витратою, бо з ліквідного боку він і є витратою; призначення каже
 	// лише, чи гроші зникли, чи стали іншим капіталом.
 	Dest string
+	// Uses — на що ці гроші МОЖУТЬ піти: "" = будь-куди, інакше перелік
+	// кошиків через кому (domain.ParsePlanUses). Дозвіл, а не поділ:
+	// розмір вирізки лишається за стелями наповнення, і другий відсоток
+	// тут був би другим означенням того самого числа.
+	//
+	// Має сенс лише в доходу — витрачені гроші нікуди не «можуть піти», і
+	// API таке поєднання відхиляє (та сама межа, що в Dest, лише
+	// дзеркальна).
+	Uses string
 	Note string
 }
 
@@ -90,7 +99,9 @@ type PlanReceipt struct {
 	Amount   int64
 	Currency string
 	InvestBP int64
-	Note     string
+	// Uses читається за тим самим правилом, що й InvestBP: лише в «іншого».
+	Uses string
+	Note string
 }
 
 const (
@@ -105,10 +116,11 @@ const (
 func journalPlanFlow(ctx context.Context, tx *sql.Tx, at time.Time, op string, f PlanFlow) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO plan_flow_revisions
 		(flow_id, changed_at, op, name, kind, amount, currency, cadence,
-		 from_date, until_date, growth_bp, invest_bp, dest, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 from_date, until_date, growth_bp, invest_bp, dest, uses, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		f.ID, at.UTC().Format(time.RFC3339), op, f.Name, f.Kind, f.Amount, f.Currency,
-		f.Cadence, string(f.FromDate), string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Note)
+		f.Cadence, string(f.FromDate), string(f.UntilDate), f.GrowthBP, f.InvestBP,
+		f.Dest, f.Uses, f.Note)
 	return err
 }
 
@@ -119,10 +131,11 @@ func (s *Store) AddPlanFlow(ctx context.Context, f PlanFlow) (int64, error) {
 	}
 	defer tx.Rollback() //nolint:errcheck // відкат після Commit — no-op
 	res, err := tx.ExecContext(ctx, `INSERT INTO plan_flows
-		(name, kind, amount, currency, cadence, from_date, until_date, growth_bp, invest_bp, dest, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		(name, kind, amount, currency, cadence, from_date, until_date,
+		 growth_bp, invest_bp, dest, uses, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
 		f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, string(f.FromDate),
-		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Note)
+		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Uses, f.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -146,9 +159,9 @@ func (s *Store) UpdatePlanFlow(ctx context.Context, f PlanFlow) error {
 	defer tx.Rollback() //nolint:errcheck
 	res, err := tx.ExecContext(ctx, `UPDATE plan_flows SET
 		name=?, kind=?, amount=?, currency=?, cadence=?, from_date=?, until_date=?,
-		growth_bp=?, invest_bp=?, dest=?, note=? WHERE id=?`,
+		growth_bp=?, invest_bp=?, dest=?, uses=?, note=? WHERE id=?`,
 		f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, string(f.FromDate),
-		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Note, f.ID)
+		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Uses, f.Note, f.ID)
 	if err != nil {
 		return err
 	}
@@ -176,9 +189,10 @@ func (s *Store) DeletePlanFlow(ctx context.Context, id int64) error {
 	var f PlanFlow
 	var from, until string
 	err = tx.QueryRowContext(ctx, `SELECT id, name, kind, amount, currency, cadence,
-		from_date, until_date, growth_bp, invest_bp, dest, note FROM plan_flows WHERE id=?`, id).
+		from_date, until_date, growth_bp, invest_bp, dest, uses, note
+		FROM plan_flows WHERE id=?`, id).
 		Scan(&f.ID, &f.Name, &f.Kind, &f.Amount, &f.Currency, &f.Cadence,
-			&from, &until, &f.GrowthBP, &f.InvestBP, &f.Dest, &f.Note)
+			&from, &until, &f.GrowthBP, &f.InvestBP, &f.Dest, &f.Uses, &f.Note)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("плановий потік %w", ErrNotFound)
 	}
@@ -208,7 +222,8 @@ func (s *Store) DeletePlanFlow(ctx context.Context, id int64) error {
 // у тому порядку, у якому вони сталися.
 func (s *Store) ListPlanFlowRevisions(ctx context.Context, since time.Time) ([]PlanFlowRevision, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, flow_id, changed_at, op,
-		name, kind, amount, currency, cadence, from_date, until_date, growth_bp, invest_bp, dest, note
+		name, kind, amount, currency, cadence, from_date, until_date,
+		growth_bp, invest_bp, dest, uses, note
 		FROM plan_flow_revisions WHERE changed_at >= ? ORDER BY changed_at, id`,
 		since.UTC().Format(time.RFC3339))
 	if err != nil {
@@ -221,7 +236,8 @@ func (s *Store) ListPlanFlowRevisions(ctx context.Context, since time.Time) ([]P
 		var at, from, until string
 		if err := rows.Scan(&r.ID, &r.FlowID, &at, &r.Op, &r.Flow.Name, &r.Flow.Kind,
 			&r.Flow.Amount, &r.Flow.Currency, &r.Flow.Cadence, &from, &until,
-			&r.Flow.GrowthBP, &r.Flow.InvestBP, &r.Flow.Dest, &r.Flow.Note); err != nil {
+			&r.Flow.GrowthBP, &r.Flow.InvestBP, &r.Flow.Dest, &r.Flow.Uses,
+			&r.Flow.Note); err != nil {
 			return nil, err
 		}
 		// Час, який не розібрався, — нульовий, і реконструкція побачить
@@ -237,7 +253,8 @@ func (s *Store) ListPlanFlowRevisions(ctx context.Context, since time.Time) ([]P
 
 func (s *Store) ListPlanFlows(ctx context.Context) ([]PlanFlow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, kind, amount, currency, cadence,
-		from_date, until_date, growth_bp, invest_bp, dest, note FROM plan_flows ORDER BY from_date, id`)
+		from_date, until_date, growth_bp, invest_bp, dest, uses, note
+		FROM plan_flows ORDER BY from_date, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +264,7 @@ func (s *Store) ListPlanFlows(ctx context.Context) ([]PlanFlow, error) {
 		var f PlanFlow
 		var from, until string
 		if err := rows.Scan(&f.ID, &f.Name, &f.Kind, &f.Amount, &f.Currency, &f.Cadence,
-			&from, &until, &f.GrowthBP, &f.InvestBP, &f.Dest, &f.Note); err != nil {
+			&from, &until, &f.GrowthBP, &f.InvestBP, &f.Dest, &f.Uses, &f.Note); err != nil {
 			return nil, err
 		}
 		f.FromDate, f.UntilDate = domain.Date(from), domain.Date(until)
@@ -307,9 +324,9 @@ func planReceiptConflict(err error) error {
 
 func (s *Store) AddPlanReceipt(ctx context.Context, r PlanReceipt) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO plan_receipts
-		(flow_id, month, name, amount, currency, invest_bp, note)
-		VALUES (?,?,?,?,?,?,?)`,
-		r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Note)
+		(flow_id, month, name, amount, currency, invest_bp, uses, note)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Uses, r.Note)
 	if err != nil {
 		return 0, planReceiptConflict(err)
 	}
@@ -321,8 +338,9 @@ func (s *Store) AddPlanReceipt(ctx context.Context, r PlanReceipt) (int64, error
 // «видалити й завести», і другий шлях загубив би id, на який дивиться UI.
 func (s *Store) UpdatePlanReceipt(ctx context.Context, r PlanReceipt) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE plan_receipts SET
-		flow_id=?, month=?, name=?, amount=?, currency=?, invest_bp=?, note=? WHERE id=?`,
-		r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Note, r.ID)
+		flow_id=?, month=?, name=?, amount=?, currency=?, invest_bp=?, uses=?, note=?
+		WHERE id=?`,
+		r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Uses, r.Note, r.ID)
 	if err != nil {
 		return planReceiptConflict(err)
 	}
@@ -342,7 +360,7 @@ func (s *Store) DeletePlanReceipt(ctx context.Context, id int64) error {
 // кілька, і сталий порядок робить документ відтворюваним.
 func (s *Store) ListPlanReceipts(ctx context.Context) ([]PlanReceipt, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, flow_id, month, name, amount,
-		currency, invest_bp, note FROM plan_receipts ORDER BY month, id`)
+		currency, invest_bp, uses, note FROM plan_receipts ORDER BY month, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +369,7 @@ func (s *Store) ListPlanReceipts(ctx context.Context) ([]PlanReceipt, error) {
 	for rows.Next() {
 		var r PlanReceipt
 		if err := rows.Scan(&r.ID, &r.FlowID, &r.Month, &r.Name, &r.Amount,
-			&r.Currency, &r.InvestBP, &r.Note); err != nil {
+			&r.Currency, &r.InvestBP, &r.Uses, &r.Note); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

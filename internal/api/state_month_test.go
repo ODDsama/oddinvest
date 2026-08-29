@@ -220,7 +220,7 @@ func TestReserveMonthShare(t *testing.T) {
 	set := &state.SettingsDoc{
 		MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months, ReserveFillSharePct: &share,
 	}
-	plan := &state.MonthPlan{PlanUAH: 30000}
+	plan := &state.MonthPlan{PlanUAH: 30000, PlanReserveUAH: 30000, PlanGoalsUAH: 30000}
 
 	// Резерв порожній при цілі 60 000 — розрив великий, обрізати нічим.
 	month, fill := reserveMonthShare(set, 0, plan, 0)
@@ -261,5 +261,137 @@ func TestMonthPlanAbsentWithoutFlows(t *testing.T) {
 	if p := buildMonthPlan(monthPlanSrc(nil, nil, nil), fx.Rates{},
 		domain.NewDate(now), 0, 0); p != nil {
 		t.Errorf("план місяця %+v, очікували nil — джерел доходу немає", p)
+	}
+}
+
+// --- дозвіл потоку (0041) ---
+//
+// Три числа плану місяця: PlanUAH каже, скільки план дає всього,
+// PlanReserveUAH і PlanGoalsUAH — скільки з того дозволено подушці й
+// цілям. Від других двох міряються стелі наповнення, тож помилка тут не
+// косметична: вона або обіцяє подушці гроші, на які та не має права, або
+// мовчки вимикає її зовсім.
+
+// ГОЛОВНИЙ РЯДОК УСІЄЇ ФІЧІ: без обмежень усі три числа рівні. Саме він
+// тримає зворотну сумісність — план, набраний до появи дозволу, мусить
+// поводитись рівно так, як поводився.
+func TestMonthPlanBucketsEqualPlanWithoutLimits(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	src := monthPlanSrc([]store.PlanFlow{
+		{ID: 1, Name: "Зарплата", Kind: "income", Amount: 4_000_000, Currency: money.UAH,
+			Cadence: "month", FromDate: domain.NewDate(now.AddDate(0, 0, -30)), InvestBP: 10000},
+		{ID: 2, Name: "Комуналка", Kind: "expense", Amount: 900_000, Currency: money.UAH,
+			Cadence: "month", FromDate: domain.NewDate(now.AddDate(0, 0, -30)), InvestBP: 10000},
+	}, []store.PlanReceipt{
+		{FlowID: 0, Month: "2026-07", Name: "Премія", Amount: 600_000,
+			Currency: money.UAH, InvestBP: 10000},
+	}, nil)
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0)
+	if p.PlanReserveUAH != p.PlanUAH || p.PlanGoalsUAH != p.PlanUAH {
+		t.Errorf("без обмежень: план %v, подушці %v, цілям %v — мусять збігатися",
+			p.PlanUAH, p.PlanReserveUAH, p.PlanGoalsUAH)
+	}
+}
+
+// Дозволи НЕЗАЛЕЖНІ, і саме тому чисел два, а не одне: дохід буває таким,
+// що на авто його класти можна, а в подушку — ні, і спільне число мусило б
+// вибрати одну з двох неправд.
+func TestMonthPlanBucketsAreIndependent(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	from := domain.NewDate(now.AddDate(0, 0, -30))
+	src := monthPlanSrc([]store.PlanFlow{
+		{ID: 1, Name: "Зарплата", Kind: "income", Amount: 3_000_000, Currency: money.UAH,
+			Cadence: "month", FromDate: from, InvestBP: 10000},
+		// Оренда — тільки на інвестиції: ні подушці, ні цілям.
+		{ID: 2, Name: "Оренда", Kind: "income", Amount: 1_000_000, Currency: money.UAH,
+			Cadence: "month", FromDate: from, InvestBP: 10000, Uses: "invest"},
+		// Дивіденд — цілям можна, подушці ні.
+		{ID: 3, Name: "Дивіденд", Kind: "income", Amount: 500_000, Currency: money.UAH,
+			Cadence: "month", FromDate: from, InvestBP: 10000, Uses: "goals,invest"},
+	}, nil, nil)
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0)
+	if p.PlanUAH != 45000 {
+		t.Fatalf("план %v, очікували 45000", p.PlanUAH)
+	}
+	if p.PlanReserveUAH != 30000 { // лише зарплата
+		t.Errorf("подушці %v, очікували 30000 — оренда й дивіденд їй заборонені",
+			p.PlanReserveUAH)
+	}
+	if p.PlanGoalsUAH != 35000 { // зарплата + дивіденд
+		t.Errorf("цілям %v, очікували 35000 — заборонена лише оренда", p.PlanGoalsUAH)
+	}
+}
+
+// ВИТРАТИ З'ЇДАЮТЬ СПЕРШУ ДОЗВОЛЕНЕ, і це закріплюється тестом, бо вибір
+// свідомий: рознести комуналку між дозволеними й недозволеними доходами
+// пропорційно можна лише вигаданим правилом. Повне віднімання
+// консервативне в потрібний бік, і нижче нуля не опускається.
+func TestMonthPlanExpensesEatAllowedFirst(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	from := domain.NewDate(now.AddDate(0, 0, -30))
+	src := monthPlanSrc([]store.PlanFlow{
+		{ID: 1, Name: "Зарплата", Kind: "income", Amount: 1_000_000, Currency: money.UAH,
+			Cadence: "month", FromDate: from, InvestBP: 10000},
+		{ID: 2, Name: "Оренда", Kind: "income", Amount: 4_000_000, Currency: money.UAH,
+			Cadence: "month", FromDate: from, InvestBP: 10000, Uses: "invest"},
+		{ID: 3, Name: "Комуналка", Kind: "expense", Amount: 1_500_000, Currency: money.UAH,
+			Cadence: "month", FromDate: from, InvestBP: 10000},
+	}, nil, nil)
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0)
+	if p.PlanUAH != 35000 { // 10 000 + 40 000 − 15 000
+		t.Fatalf("план %v, очікували 35000", p.PlanUAH)
+	}
+	// Дозволених 10 000, витрат 15 000 — не нижче нуля, а не «мінус 5 000».
+	if p.PlanReserveUAH != 0 {
+		t.Errorf("подушці %v, очікували 0: витрати більші за дозволений дохід",
+			p.PlanReserveUAH)
+	}
+}
+
+// Позапланове читає ВЛАСНИЙ дозвіл — потоку за ним немає, успадкувати нема
+// від кого. Та сама межа, що вже проведена для частки в портфель.
+func TestMonthPlanOtherReceiptUsesOwnPermission(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	src := monthPlanSrc([]store.PlanFlow{
+		{ID: 1, Name: "Зарплата", Kind: "income", Amount: 1_000_000, Currency: money.UAH,
+			Cadence: "month", FromDate: domain.NewDate(now.AddDate(0, 0, -30)), InvestBP: 10000},
+	}, []store.PlanReceipt{
+		// Премія відкладається лише на авто: у подушку не йде.
+		{FlowID: 0, Month: "2026-07", Name: "Премія", Amount: 500_000,
+			Currency: money.UAH, InvestBP: 10000, Uses: "goals"},
+	}, nil)
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0)
+	if p.PlanUAH != 15000 {
+		t.Fatalf("план %v, очікували 15000", p.PlanUAH)
+	}
+	if p.PlanReserveUAH != 10000 {
+		t.Errorf("подушці %v, очікували 10000 — премія їй заборонена", p.PlanReserveUAH)
+	}
+	if p.PlanGoalsUAH != 15000 {
+		t.Errorf("цілям %v, очікували 15000 — премія саме для них", p.PlanGoalsUAH)
+	}
+}
+
+// Стеля подушки міряється від ДОЗВОЛЕНОЇ бази. Без цього застосунок
+// обіцяв би вирізку, якої розкладка не зробить: різниця осідала б у
+// reserve_skip_why кожного надходження.
+func TestReserveMonthShareUsesAllowedBase(t *testing.T) {
+	exp, months, share := 10000.0, 6.0, 40.0
+	set := &state.SettingsDoc{
+		MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months, ReserveFillSharePct: &share,
+	}
+	plan := &state.MonthPlan{PlanUAH: 30000, PlanReserveUAH: 12000, PlanGoalsUAH: 30000}
+	month, fill := reserveMonthShare(set, 0, plan, 0)
+	if month != 4800 || fill != 4800 { // 40% від 12 000, а не від 30 000
+		t.Errorf("частка %v, лишилось %v — очікували 4800 (40%% від дозволених 12 000)",
+			month, fill)
 	}
 }

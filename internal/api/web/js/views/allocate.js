@@ -160,11 +160,22 @@ function routedHTML(leg) {
  *  поверненням власного тіла, у ТІЙ САМІЙ валюті. Обидва потрібні бекенду,
  *  щоб вирішити, чи має подушка право на ці гроші.
  *
+ *  sourceRef — ЯКЕ САМЕ це надходження ("flow:<id>" або "receipt:<id>").
+ *  Третє питання поруч із двома попередніми, і воно окреме: source каже
+ *  про рівень політики («планові гроші чи портфельні»), а sourceRef — про
+ *  дозвіл самого джерела («цю оренду в подушку не клади»). Порожньо =
+ *  обмежень немає, тобто ручна сума, набрана руками.
+ *
+ *  Полем воно тут НЕ стає, на відміну від «чиї це гроші»: посилання не
+ *  вибирають — його ставить рядок, з якого модалку відкрили, і випадайка
+ *  «яке надходження» посеред розкладки цього надходження питала б про вже
+ *  відоме.
+ *
  *  → Promise<boolean>: чи щось записалось. */
 export async function openAllocate(ctx, opts) {
   const {
     amount, currency = "UAH", title = "", routed = null,
-    source = "plan", principal = 0,
+    source = "plan", principal = 0, sourceRef = "",
   } = opts;
   let res;
   try {
@@ -174,6 +185,7 @@ export async function openAllocate(ctx, opts) {
       body: JSON.stringify({
         amount: String(amount), currency, source,
         principal: principal ? String(principal) : "",
+        source_ref: sourceRef || "",
       }),
     });
     if (!resp.ok) throw new Error(`${resp.status}: ${(await resp.text()).slice(0, 200)}`);

@@ -36,7 +36,10 @@ type planReceiptReq struct {
 	Amount    string `json:"amount"`
 	Currency  string `json:"currency,omitempty"`
 	InvestPct string `json:"invest_pct,omitempty"` // лише для «іншого»; порожньо = 100
-	Note      string `json:"note,omitempty"`
+	// Uses — теж ЛИШЕ для «іншого», і з тієї самої причини, що InvestPct:
+	// у прив'язаної відмітки за спиною стоїть потік, який уже все сказав.
+	Uses []string `json:"uses,omitempty"`
+	Note string   `json:"note,omitempty"`
 }
 
 // planReceiptFromReq — уся валідація відмітки, спільна для POST і PUT.
@@ -56,6 +59,7 @@ func planReceiptFromReq(req planReceiptReq, flows []store.PlanFlow, today domain
 	cur := strings.TrimSpace(req.Currency)
 	name := strings.TrimSpace(req.Name)
 	invest := int64(10000)
+	uses := ""
 
 	if req.FlowID != 0 {
 		var flow *store.PlanFlow
@@ -86,6 +90,9 @@ func planReceiptFromReq(req planReceiptReq, flows []store.PlanFlow, today domain
 		// колонці, для прив'язаної відмітки не читає ніхто. Пишемо 100%, щоб
 		// у базі не осідало число, яке виглядає значущим і не є ним.
 		invest = 10000
+		// Дозвіл — так само з потоку. Порожній рядок тут не «можна всюди», а
+		// «питай у джерела»: читачі йдуть по flow_id, і колонка мовчить.
+		uses = ""
 	} else {
 		if name == "" {
 			return out, errors.New("позаплановому надходженню потрібна назва")
@@ -108,6 +115,10 @@ func planReceiptFromReq(req planReceiptReq, flows []store.PlanFlow, today domain
 		if invest < 0 || invest > 10000 {
 			return out, errors.New("частка в портфель має бути від 0 до 100%")
 		}
+		var uerr error
+		if uses, uerr = domain.ParsePlanUses(req.Uses); uerr != nil {
+			return out, fmt.Errorf("дозвіл: %w", uerr)
+		}
 	}
 
 	if strings.TrimSpace(req.Amount) == "" {
@@ -124,7 +135,8 @@ func planReceiptFromReq(req planReceiptReq, flows []store.PlanFlow, today domain
 	}
 	return store.PlanReceipt{
 		FlowID: req.FlowID, Month: month, Name: name, Amount: amt,
-		Currency: cur, InvestBP: invest, Note: strings.TrimSpace(req.Note),
+		Currency: cur, InvestBP: invest, Uses: uses,
+		Note: strings.TrimSpace(req.Note),
 	}, nil
 }
 

@@ -420,7 +420,8 @@ func TestReserveFillCarriesMonthNumbers(t *testing.T) {
 	share := 25.0
 	doc, in := sampleDoc(t)
 	doc.Settings.ReserveFillSharePct = &share
-	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: 40_000}
+	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: 40_000,
+		PlanReserveUAH: 40_000, PlanGoalsUAH: 40_000}
 	in.ReserveFillMonthUAH, in.ReserveFillNowUAH, in.ReserveMovedUAH = 10_000, 6_000, 4_000
 	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
@@ -449,7 +450,8 @@ func TestReserveFillCarriesMonthNumbers(t *testing.T) {
 	doc, in = sampleDoc(t)
 	doc.Settings.ReserveFillSharePct = &share
 	doc.ReserveUAH = 90_000
-	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: 40_000}
+	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: 40_000,
+		PlanReserveUAH: 40_000, PlanGoalsUAH: 40_000}
 	in.ReserveFillMonthUAH, in.ReserveFillNowUAH = 10_000, 10_000
 	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
@@ -541,5 +543,34 @@ func TestFixtureUpToDate(t *testing.T) {
 	}
 	if string(got)+"\n" != string(want) {
 		t.Errorf("фікстура застаріла — перегенеруй з -update\nмаємо:\n%s", got)
+	}
+}
+
+// Стеля цілей міряється від ДОЗВОЛЕНОЇ їм частини плану (0041).
+//
+// Читачів у цього правила двоє — документ і прохід маршруту вперед, — і
+// обидва беруть те саме число з MonthPlan. Тест тримає перший; другий
+// перевіряється в api.TestRoutePlanLegCappedByAllowedPlan.
+//
+// Незалежність від подушки перевіряється прямо в тому ж рядку: PlanUAH
+// лишається великим, а звужується лише те число, яке належить цілям.
+// Спільне число на два кошики мусило б вибрати одну з двох неправд.
+func TestGoalsFillUsesAllowedBase(t *testing.T) {
+	share := 50.0
+	doc, in := sampleDoc(t)
+	doc.Settings.GoalsFillSharePct = &share
+	// План дає 40 000, але цілям із них дозволено лише 10 000: решта —
+	// дохід, позначений «не в накопичення».
+	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: 40_000,
+		PlanReserveUAH: 40_000, PlanGoalsUAH: 10_000}
+	if err := Derive(doc, in); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Goals) != 1 {
+		t.Fatalf("цілей %d, чекали 1", len(doc.Goals))
+	}
+	// 50% від дозволених 10 000, а не від усього плану (там було б 20 000).
+	if got := doc.Goals[0].FillNowUAH; got != 5_000 {
+		t.Errorf("цілі належить %v, чекали 5000 — 50%% від ДОЗВОЛЕНИХ 10 000", got)
 	}
 }

@@ -56,7 +56,10 @@ func TestReserveEligibleUAH(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := reserveEligibleUAH(c.set, c.src, c.amount, c.principal)
+			// Стеля джерела дорівнює сумі — тобто «джерело не забороняє
+			// нічого»: таблиця перевіряє рівень ПОЛІТИКИ, а дозвіл
+			// надходження має власні рядки нижче.
+			got := reserveEligibleUAH(c.set, c.src, c.amount, c.principal, c.amount)
 			if got != c.want {
 				t.Errorf("дозволено %.2f, чекали %.2f", got, c.want)
 			}
@@ -192,9 +195,10 @@ func TestRouteFirstLegEqualsAllocateWithSource(t *testing.T) {
 	}
 	want := allocatePlan(doc, sug, allocRates,
 		toMoneyJSON(money.New(500000, money.UAH)), 5000,
-		reserveEligibleUAH(doc.Settings, allocFromPortfolio, 5000, 3000),
-		goalsEligibleUAH(doc.Settings, allocFromPortfolio, 5000, 3000),
-		money.UAH, nil)
+		allocAllow{
+			ReserveUAH: reserveEligibleUAH(doc.Settings, allocFromPortfolio, 5000, 3000, 5000),
+			GoalsUAH:   goalsEligibleUAH(doc.Settings, allocFromPortfolio, 5000, 3000, 5000),
+		}, money.UAH, nil)
 
 	if got.Legs[0].Reserve == nil || want.Reserve == nil {
 		t.Fatalf("подушка мовчить в одному з двох: маршрут %+v, розкладка %+v",
@@ -276,7 +280,10 @@ func TestPlanAheadCurrentMonthUsesLeft(t *testing.T) {
 	src := &sources{planFlows: []store.PlanFlow{planFlow(1, "зарплата", "2026-01-29", 40000)}}
 	plans := routePlans(30000)
 	key := monthKeyAt(routeToday, 0)
-	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 30000, LeftUAH: 4000}
+	// Дозволені суми дорівнюють плану: цей тест про політику, а не про
+	// дозвіл джерела (для нього — TestPlanLegCappedByAllowedPlan).
+	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 30000,
+		PlanReserveUAH: 30000, PlanGoalsUAH: 30000, LeftUAH: 4000}
 
 	flows := planAhead(src, plans, routeToday, 0)
 	if len(flows) != 1 {
@@ -399,5 +406,86 @@ func TestAllocateEndpointTakesSourceAndPrincipal(t *testing.T) {
 	if resp, _ := do(t, "POST", srv.URL+"/api/allocate",
 		`{"amount":"5000.00","principal":"-1"}`); resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("відʼємне тіло прийнято зі статусом %d", resp.StatusCode)
+	}
+}
+
+// --- дозвіл джерела в маршруті (0041) ---
+
+// Нога «план місяця» ріже подушці не більше за ДОЗВОЛЕНУ частину плану.
+//
+// Нога зводить цілий місяць — десяток потоків із різними дозволами, — тож
+// стеля джерела приходить сюди числом (month_plan.plan_reserve_uah), а не
+// словом «можна». Без цього маршрут обіцяв би подушці гроші, яких сам
+// план їй не дає, і сторінка маршруту розійшлася б із карткою резерву.
+func TestRoutePlanLegCappedByAllowedPlan(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
+		&state.Reserve{FillNowUAH: 5000, FillMonthUAH: 5000, GapUAH: 90000})
+	// Стеля 100%: питання тесту — скільки дозволяє ПЛАН, а не скільки
+	// відрізає частка. Розрив великий, тож обрізати вирізку нічим, крім
+	// самого дозволу.
+	doc.Settings = routeSettings(20000, 6, 100)
+	doc.ReserveUAH = 30000
+
+	plan := routeFlow("2026-09-17", 6000, "план місяця")
+	plan.Basis = basisPlan
+	inc := incomeAhead{store.BrokerCur{Broker: noBrokerLabel, Currency: money.UAH}: {plan}}
+
+	plans := routePlans(6000)
+	key := monthKeyAt(routeToday, 1)
+	// Із 6 000 ₴ місяця подушці дозволено лише 1 500: решта — дохід,
+	// позначений «не в подушку».
+	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 6000,
+		PlanReserveUAH: 1500, PlanGoalsUAH: 6000}
+
+	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		inc, plans, allocRates, nil, routeToday)
+
+	if len(got.Legs) != 1 {
+		t.Fatalf("ніг %d, чекали 1: %+v", len(got.Legs), got.Legs)
+	}
+	res := got.Legs[0].Reserve
+	if res == nil {
+		t.Fatal("вирізки подушки немає зовсім — 1 500 ₴ їй дозволені")
+	}
+	if res.AmountUAH != 1500 {
+		t.Errorf("подушка взяла %v, чекали 1500 — стелю ріже дозволена частина плану",
+			res.AmountUAH)
+	}
+}
+
+// СТЕЛЯ МІСЯЦЯ ЗВʼЯЗУЄ ВСІХ, і купон теж. Наслідок незвичний, тому
+// закріплений тестом: місяць, увесь дохід якого позначений «не в
+// подушку», не дає їй нічого — навіть із купона, якому політика
+// (reserve_fill_from: any) не забороняє нічого.
+//
+// І це правильно: стеля відповідає на питання «скільки подушці належить
+// ЦЬОГО МІСЯЦЯ», а належить їй частка від дозволених грошей місяця. Нуль
+// дозволених — нуль частки, і звідки прийшли гроші, цього не змінює.
+// Політика й дозвіл ріжуть різні речі: перша — джерело вирізки, другий —
+// її розмір.
+func TestRouteMonthCeilingBindsCouponToo(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
+		&state.Reserve{FillNowUAH: 5000, FillMonthUAH: 5000, GapUAH: 90000})
+	doc.Settings = routeSettings(20000, 6, 100)
+	doc.ReserveUAH = 30000
+
+	inc := routeInc("mono", money.UAH, routeFlow("2026-09-10", 6000, "UA0001"))
+	plans := routePlans(6000)
+	key := monthKeyAt(routeToday, 1)
+	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 6000,
+		PlanReserveUAH: 0, PlanGoalsUAH: 6000}
+
+	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		inc, plans, allocRates, nil, routeToday)
+
+	if len(got.Legs) != 1 {
+		t.Fatalf("ніг %d, чекали 1", len(got.Legs))
+	}
+	if res := got.Legs[0].Reserve; res != nil {
+		t.Errorf("вирізка %+v — цього місяця подушці не належить нічого", res)
+	}
+	// Гроші при цьому не зникли: усі пішли в папери.
+	if got.Legs[0].AvailUAH != 6000 {
+		t.Errorf("доступно %v, чекали всі 6000", got.Legs[0].AvailUAH)
 	}
 }

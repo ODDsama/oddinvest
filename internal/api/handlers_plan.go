@@ -58,7 +58,11 @@ type planFlowReq struct {
 	// внесок у пенсійний рахунок. Знак від цього не залежить: внесок
 	// лишається kind=expense.
 	Dest string `json:"dest,omitempty"`
-	Note string `json:"note,omitempty"`
+	// Uses — на що ці гроші МОЖУТЬ піти: перелік кошиків
+	// (reserve/goals/invest/npf). Порожньо або всі чотири = без обмежень,
+	// тобто поведінка до появи поля.
+	Uses []string `json:"uses,omitempty"`
+	Note string   `json:"note,omitempty"`
 }
 
 func planFlowFromReq(req planFlowReq) (store.PlanFlow, error) {
@@ -142,10 +146,25 @@ func planFlowFromReq(req planFlowReq) (store.PlanFlow, error) {
 			"призначення має лише витрата: внесок у пенсійний — це рух ІЗ ліквідного боку, " +
 				"і на доході проєкція його не бачить")
 	}
+	uses, err := domain.ParsePlanUses(req.Uses)
+	if err != nil {
+		return out, fmt.Errorf("дозвіл: %w", err)
+	}
+	// ДЗЕРКАЛЬНО ДО ПРИЗНАЧЕННЯ: дозвіл має лише ДОХІД.
+	//
+	// «На що ці гроші можуть піти» — питання про гроші, які приходять.
+	// Витрата нікуди не «йде»: вона зникає, і жоден кошик її не бачить.
+	// Мовчки стерти було б не краще, ніж мовчки прийняти: людина зняла б
+	// галочку й мала б право думати, що заборона записалась.
+	if req.Kind == "expense" && uses != "" {
+		return out, errors.New(
+			"дозвіл має лише дохід: витрачені гроші нікуди не йдуть, " +
+				"і жоден кошик їх не бачить")
+	}
 	return store.PlanFlow{
 		Name: name, Kind: req.Kind, Amount: amt, Currency: cur, Cadence: req.Cadence,
 		FromDate: from, UntilDate: until, GrowthBP: growth, InvestBP: invest,
-		Dest: dest, Note: req.Note,
+		Dest: dest, Uses: uses, Note: req.Note,
 	}, nil
 }
 
@@ -160,7 +179,12 @@ type planFlowRow struct {
 	GrowthPct float64   `json:"growth_pct,omitempty"`
 	InvestPct float64   `json:"invest_pct"`
 	Dest      string    `json:"dest,omitempty"`
-	Note      string    `json:"note,omitempty"`
+	// Uses — дозвіл ПЕРЕЛІКОМ, завжди повний: назовні «без обмежень» має
+	// виглядати як «можна всюди», інакше браузеру довелось би знати про
+	// порожній рядок те саме, що знає сховище. Для витрати — nil: там
+	// питання не ставиться.
+	Uses []string `json:"uses,omitempty"`
+	Note string   `json:"note,omitempty"`
 	// ProvidesUAH — скільки цей рядок дає в середньому за найближчі 12
 	// місяців, ₴/міс; GrossUAH — те саме до «частки в портфель».
 	//
@@ -206,6 +230,16 @@ type planFlowRow struct {
 	Expired bool `json:"expired,omitempty"`
 }
 
+// planUsesRow — дозвіл для рядка API. У витрати його немає взагалі, і
+// nil тут чесніший за повний перелік: «витраті можна всюди» — відповідь
+// на питання, якого не ставлять (planFlowFromReq його ж і відхиляє).
+func planUsesRow(f store.PlanFlow) []string {
+	if f.Kind != "income" {
+		return nil
+	}
+	return domain.PlanUsesList(f.Uses)
+}
+
 // planFlowExpired — потік вичерпаний: попереду в нього виплат немає.
 //
 // Дві причини, і обидві вже названі в ядрі:
@@ -236,6 +270,7 @@ func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates, marks pl
 		FromDate: string(f.FromDate), UntilDate: string(f.UntilDate),
 		GrowthPct: round2(float64(f.GrowthBP) / 100), InvestPct: round2(float64(f.InvestBP) / 100),
 		Dest:        f.Dest,
+		Uses:        planUsesRow(f),
 		Note:        f.Note,
 		Expired:     planFlowExpired(f, today),
 		ProvidesUAH: round2(planFlowProvidesUAH(f, today, rates, planProvidesMonths, marks)),
