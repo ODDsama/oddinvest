@@ -524,13 +524,30 @@ export function revisionsHTML(revs) {
   if (!revs.length) return "";
   // Журнал приходить найновішими згори, а «попередня ревізія» — це та, що
   // йде в списку ПІСЛЯ поточної для того самого потоку.
+  //
+  // Саме «для того самого потоку», а не просто наступний рядок: журнал
+  // спільний на весь план, і ревізії різних потоків у ньому перемішані за
+  // часом. Доки сусіда брали наосліп, правка «Зарплати» показувала різницю
+  // проти «Оренди» — сума й дата початку «мінялись» самі собою, бо це були
+  // числа чужого рядка. Тому шукаємо по flow_id: бекенд віддає його в
+  // кожному рядку рівно для цього (handlers_plan_timeline.go,
+  // flowRevisionRow), і по назві шукати не можна — після «⇗» два рядки
+  // називаються однаково.
+  const prevSame = (i) => {
+    for (let j = i + 1; j < revs.length; j++) {
+      if (revs[j].flow_id === revs[i].flow_id) return revs[j];
+    }
+    // Першої ревізії потоку нема з чим порівнювати: revDiff поверне "", і
+    // рядок падає на підпис операції («додано») — саме те, що треба.
+    return null;
+  };
   const body = opsGrid({
     cols: [
       { key: "at", label: "Коли", cls: "nowrap",
         cell: (r) => esc(dayMonth(r.at.slice(0, 10))) },
       { key: "name", label: "Потік", cell: (r) => esc(r.name) },
       { key: "what", label: "Що змінилось", cell: (r, i) => {
-        const prev = revs[i + 1];
+        const prev = prevSame(i);
         const what = r.op === "update" ? revDiff(r.flow, prev && prev.flow) : "";
         return what || `<span class="muted">${REV_OP[r.op] || esc(r.op)}</span>`;
       } },
