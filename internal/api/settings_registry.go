@@ -13,7 +13,6 @@
 package api
 
 import (
-	"context"
 	"fmt"
 	"slices"
 	"strconv"
@@ -215,16 +214,21 @@ var settingsByKey = func() map[string]settingDef {
 // Доти двадцять ключів читались циклом, ще шість — окремими блоками
 // поруч, і два (uah_devaluation_pct, import_since) мали ТРЕТЄ читання в
 // інших файлах. Тепер прохід один; хто потребує сирого значення поза
-// документом, бере його через GetSetting так само, але вже знає, що
-// список ключів не в нього.
+// документом, бере його з тієї самої мапи, але вже знає, що список
+// ключів не в нього.
 //
-// Помилка читання й порожнє значення ведуть в одне місце — до дефолту,
-// тож розрізняти їх нема сенсу.
-func (s *Server) loadSettings(ctx context.Context) *state.SettingsDoc {
+// МАПА, А НЕ КОНТЕКСТ, і це не стиль. Доти кожен ключ реєстру читався
+// власним SELECT — сорок один запит на кожну збірку документа, тобто на
+// кожній із шести десятків мутацій і на кожному читанні, до таблиці, яка
+// цілком менша за один рядок лоту. Тепер її читають ОДИН раз (AllSettings)
+// там, де вже читають усе інше, — у loadSources.
+//
+// Відсутній ключ дає порожній рядок — рівно те, що робив GetSetting, тож
+// «не задано» веде до дефолту так само, як і раніше.
+func loadSettings(raw map[string]string) *state.SettingsDoc {
 	doc := &state.SettingsDoc{}
 	for _, d := range settingsRegistry {
-		raw, _ := s.st.GetSetting(ctx, d.Key) //nolint:errcheck // порожньо = не задано; помилка веде туди ж
-		applySetting(doc, d, raw)
+		applySetting(doc, d, raw[d.Key])
 	}
 	return doc
 }

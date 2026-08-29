@@ -534,7 +534,12 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	if year > 0 {
 		if npfAccounts, aerr := s.st.ListNPFAccounts(ctx); aerr == nil && len(npfAccounts) > 0 {
 			npfOps, oerr := s.st.ListNPFOps(ctx)
-			set := s.loadSettings(ctx)
+			// Помилку читання налаштувань ковтаємо тут так само, як уже
+			// ковтається oerr поруч: знижка — додаткова плитка звіту, і
+			// без неї звіт лишається правильним. Мапа nil читається як
+			// «нічого не задано», тобто веде до дефолтів.
+			raw, _ := s.st.AllSettings(ctx) //nolint:errcheck // без налаштувань знижки просто не буде — рядок звіту, а не сам звіт
+			set := loadSettings(raw)
 			if oerr == nil {
 				var credit int64
 				for _, acc := range npfAccounts {

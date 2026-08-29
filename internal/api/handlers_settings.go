@@ -3,7 +3,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -25,7 +24,7 @@ import (
 // «відкрити новий вклад». USD/EUR за замовчуванням 100.00 (=10000 мінорних):
 // порожній ключ = дефолт, явний 0 (чи сміття) = вимкнено (валюти в мапі
 // немає). UAH — лише якщо задано явно.
-func (s *Server) depositMinMinorByCur(ctx context.Context) map[string]int64 {
+func depositMinMinorByCur(raw map[string]string) map[string]int64 {
 	out := map[string]int64{}
 	for _, sp := range []struct {
 		cur, key string
@@ -35,14 +34,14 @@ func (s *Server) depositMinMinorByCur(ctx context.Context) map[string]int64 {
 		{money.EUR, "deposit_min_eur", 10000},
 		{money.UAH, "deposit_min_uah", 0},
 	} {
-		raw, _ := s.st.GetSetting(ctx, sp.key) //nolint:errcheck // порожньо = не задано, далі йде дефолт валюти
-		if raw == "" {
+		v := raw[sp.key]
+		if v == "" {
 			if sp.def > 0 {
 				out[sp.cur] = sp.def
 			}
 			continue
 		}
-		f, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
 		if err != nil || f <= 0 {
 			continue // явний 0 або сміття = вимкнено
 		}
@@ -52,14 +51,18 @@ func (s *Server) depositMinMinorByCur(ctx context.Context) map[string]int64 {
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
-	out := map[string]string{}
+	raw, err := s.st.AllSettings(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	// Віддаємо РІВНО ключі реєстру, а не все, що лежить у таблиці: поруч
+	// із ними живе робочий стан джоби (nbu_refreshed_at,
+	// ovdp_auctions_polled_through), і в наборі налаштувань йому не місце —
+	// PUT його все одно не прийме.
+	out := make(map[string]string, len(settingsKeys))
 	for _, k := range settingsKeys {
-		v, err := s.st.GetSetting(r.Context(), k)
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
-		out[k] = v
+		out[k] = raw[k]
 	}
 	writeJSON(w, http.StatusOK, out)
 }

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/store"
@@ -27,6 +28,11 @@ type Server struct {
 	st  *store.Store
 	ref Refresher
 	log *slog.Logger
+
+	// Стан публікатора стану — див. publishAsync.
+	pubMu      sync.Mutex
+	pubRunning bool
+	pubPending bool
 }
 
 func New(st *store.Store, ref Refresher, log *slog.Logger) *Server {
@@ -251,15 +257,56 @@ func logMiddleware(log *slog.Logger, next http.Handler) http.Handler {
 
 // --- helpers ---
 
+// publishAsync републікує стан у MQTT після мутації — не більш як один
+// раз одночасно й не частіше, ніж встигає зібратись документ.
+//
+// Доти кожен із шести десятків викликів просто запускав власну горутину,
+// і це давало дві біди на одному місці.
+//
+// ПОРЯДОК. Дві швидкі правки поспіль запускали дві збірки, кожна з яких
+// читає базу двома десятками запитів через ЄДИНЕ зʼєднання
+// (SetMaxOpenConns(1)). Хто з них дійде до publish першим — не визначено,
+// тож у retained-топік могла лягти СТАРІША картина, і HA показував би її
+// аж до наступної мутації. Помилка, яку неможливо відтворити навмисно й
+// нічим не видно в журналі.
+//
+// ЗЛИТТЯ. Поки збірка йде, наступні виклики не додають нової черги:
+// вистачить одного повтору після завершення, бо документ будується з
+// поточного стану бази, а не з того, який був у мить виклику. Десять
+// правок підряд коштують дві публікації, а не десять.
+//
+// Свого воркера з власним життєвим циклом навмисно немає: горутина живе
+// рівно доти, доки є що публікувати, тож ні зупиняти, ні чекати на неї
+// нікому не треба — а Server створюється в тестах десятками.
 func (s *Server) publishAsync() {
 	if s.ref == nil {
 		return
 	}
-	go func() {
+	s.pubMu.Lock()
+	defer s.pubMu.Unlock()
+	if s.pubRunning {
+		s.pubPending = true
+		return
+	}
+	s.pubRunning = true
+	go s.publishLoop()
+}
+
+func (s *Server) publishLoop() {
+	for {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := s.ref.PublishState(ctx); err != nil {
+		err := s.ref.PublishState(ctx)
+		cancel()
+		if err != nil {
 			s.log.Error("публікація стану", "err", err)
 		}
-	}()
+		s.pubMu.Lock()
+		if !s.pubPending {
+			s.pubRunning = false
+			s.pubMu.Unlock()
+			return
+		}
+		s.pubPending = false
+		s.pubMu.Unlock()
+	}
 }

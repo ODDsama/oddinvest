@@ -210,12 +210,16 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		return nil, err
 	}
 
-	// nbu_refreshed_at: GetSetting уже перекладає «ключа немає» в порожній
-	// рядок, тож сюди доходить лише справжня відмова, а порожнє значення
-	// тут законне — довідник ще не оновлювався.
-	if src.nbuAt, err = s.st.GetSetting(ctx, nbuRefreshedKey); err != nil {
+	// Налаштування — ОДНІЄЮ вибіркою на весь документ, а не запитом на
+	// ключ (їх сорок один). Звідси ж беруть своє мінімуми вкладів і час
+	// оновлення довідника: три різні читання тієї самої таблиці в одній
+	// збірці — це три способи отримати три різні відповіді.
+	rawSettings, err := s.st.AllSettings(ctx)
+	if err != nil {
 		return nil, err
 	}
+	// Порожньо тут законне: довідник ще не оновлювався.
+	src.nbuAt = rawSettings[nbuRefreshedKey]
 
 	refs, err := s.st.ListFunds(ctx)
 	if err != nil {
@@ -227,12 +231,12 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	}
 
 	src.deval = s.devaluation(ctx)
-	src.settings = s.loadSettings(ctx)
+	src.settings = loadSettings(rawSettings)
 	// Витрати — у гривню одразу тут, бо саме тут уперше зустрічаються
 	// налаштування й курс. Кожен, хто читає src.settings далі, дістає
 	// MonthlyExpensesUAH уже гривневим — довід при resolveExpensesUAH.
 	resolveExpensesUAH(src.settings, src.rates)
-	src.depositMin = s.depositMinMinorByCur(ctx)
+	src.depositMin = depositMinMinorByCur(rawSettings)
 	return src, nil
 }
 

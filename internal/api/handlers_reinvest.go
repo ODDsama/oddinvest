@@ -670,7 +670,11 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		depRate[money.EUR] = doc.Settings.DepositRateEURPct
 		depRate[money.UAH] = doc.Settings.DepositRateUAHPct
 	}
-	depMin := s.depositMinMinorByCur(ctx)
+	rawSettings, err := s.st.AllSettings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	depMin := depositMinMinorByCur(rawSettings)
 	for _, c := range []string{money.USD, money.EUR, money.UAH} {
 		rp := depRate[c]
 		minMinor, hasMin := depMin[c]

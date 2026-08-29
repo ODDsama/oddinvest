@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	money "github.com/Rhymond/go-money"
@@ -725,49 +726,85 @@ func (s *Store) SearchBonds(ctx context.Context, q, currency string, matFrom, ma
 }
 
 // BondsFor — довідник по ISIN портфеля у вигляді map для домену.
-func (s *Store) BondsFor(ctx context.Context, isins []string) (map[string]domain.Bond, error) {
-	out := map[string]domain.Bond{}
-	for _, isin := range isins {
-		b, err := s.GetBond(ctx, isin)
-		if err != nil {
-			return nil, err
-		}
-		if b != nil {
-			out[isin] = *b
-		}
-	}
-	return out, nil
+// inPlaceholders — "?,?,…" під довжину зрізу.
+//
+// Рядок будується з КІЛЬКОСТІ, а не зі значень: самі ISIN далі йдуть
+// аргументами, тож конкатенація тут не має стосунку до вводу.
+func inPlaceholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
 }
 
-func (s *Store) PaymentsFor(ctx context.Context, isins []string) ([]domain.Payment, error) {
-	var out []domain.Payment
-	for _, isin := range isins {
-		rows, err := s.db.QueryContext(ctx, `SELECT p.isin, p.pay_date, p.pay_type, p.per_bond, b.currency
-			FROM payments p JOIN bonds b ON b.isin = p.isin WHERE p.isin=? ORDER BY p.pay_date`, isin)
+// anySlice — []string у []any для передачі в запит.
+func anySlice(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, v := range ss {
+		out[i] = v
+	}
+	return out
+}
+
+// BondsFor — довідник для названих паперів, ОДНИМ запитом.
+//
+// Доти тут стояв цикл із GetBond усередині, а поруч PaymentsFor робив те
+// саме: портфель із N паперів коштував 2N звернень до бази, і платив їх
+// не звіт, а КОЖНА збірка документа стану — тобто кожна мутація й кожне
+// читання. Кодова база цей патерн знає й уникає його поіменно у двох
+// інших місцях (ListTermDeposits нижче, LastAuctionByISIN в auctions.go);
+// сюди просто не дійшли руки.
+func (s *Store) BondsFor(ctx context.Context, isins []string) (map[string]domain.Bond, error) {
+	out := map[string]domain.Bond{}
+	if len(isins) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT isin, nominal, currency, rate_bp,
+		maturity, descr FROM bonds WHERE isin IN (`+inPlaceholders(len(isins))+`)`,
+		anySlice(isins)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		b, err := scanBond(rows)
 		if err != nil {
 			return nil, err
 		}
-		for rows.Next() {
-			var p domain.Payment
-			var pd, cur string
-			var typ int
-			var minor int64
-			if err := rows.Scan(&p.ISIN, &pd, &typ, &minor, &cur); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			p.PayDate = domain.Date(pd)
-			p.Type = domain.PayType(typ)
-			p.PerBond = money.New(minor, cur)
-			out = append(out, p)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
+		out[b.ISIN] = b
+	}
+	return out, rows.Err()
+}
+
+// PaymentsFor — графік виплат для названих паперів, теж одним запитом.
+//
+// Порядок лишається (isin, pay_date): раніше він виходив сам собою з
+// того, що запит був окремий на кожен ISIN, тепер його треба назвати.
+// Споживачі на нього спираються — календар будується злиттям.
+func (s *Store) PaymentsFor(ctx context.Context, isins []string) ([]domain.Payment, error) {
+	if len(isins) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT p.isin, p.pay_date, p.pay_type, p.per_bond, b.currency
+		FROM payments p JOIN bonds b ON b.isin = p.isin
+		WHERE p.isin IN (`+inPlaceholders(len(isins))+`)
+		ORDER BY p.isin, p.pay_date`, anySlice(isins)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Payment
+	for rows.Next() {
+		var p domain.Payment
+		var pd, cur string
+		var typ int
+		var minor int64
+		if err := rows.Scan(&p.ISIN, &pd, &typ, &minor, &cur); err != nil {
 			return nil, err
 		}
-		rows.Close()
+		p.PayDate = domain.Date(pd)
+		p.Type = domain.PayType(typ)
+		p.PerBond = money.New(minor, cur)
+		out = append(out, p)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // --- налаштування, курси, знімки, статуси ---
@@ -785,6 +822,33 @@ func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
 		return "", nil
 	}
 	return v, err
+}
+
+// AllSettings — увесь довідник налаштувань однією вибіркою.
+//
+// Доти кожен ключ читався власним запитом, і це не було дрібницею через
+// кількість: у реєстрі сорок один ключ, а loadSettings виконується на
+// КОЖНІЙ збірці документа стану — тобто на кожній із шести десятків
+// мутацій (publishAsync) і на кожному читанні. Сорок один запит там, де
+// таблиця цілком менша за один рядок лоту.
+//
+// Мапа, а не зріз: споживач питає за ключем, і відсутній ключ мусить
+// давати порожній рядок — рівно те, що робив GetSetting.
+func (s *Store) AllSettings(ctx context.Context) (map[string]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM settings`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) SaveRate(ctx context.Context, code string, rateE4 int64, date domain.Date) error {
