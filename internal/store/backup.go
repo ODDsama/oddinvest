@@ -763,8 +763,13 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT id,kind,ref,qty,amount,unit_price,currency,broker,
-		buy_date,rate_bp,months,is_reserve,note FROM plan_buys ORDER BY id`,
+	// Назва брокера, а не broker_id (0043): бекап тримається НАЗВ усюди, і
+	// саме тому формат пережив нормалізацію 0010 — тепер так само переживе
+	// й цю. LEFT JOIN, бо «не привʼязано» — законний стан (обрати за
+	// залишком), і в дампі воно лишається порожнім рядком, як було.
+	if err := s.scan(ctx, `SELECT b.id,b.kind,b.ref,b.qty,b.amount,b.unit_price,
+		b.currency,COALESCE(br.name,''),b.buy_date,b.rate_bp,b.months,b.is_reserve,b.note
+		FROM plan_buys b LEFT JOIN brokers br ON br.id = b.broker_id ORDER BY b.id`,
 		func(scan func(...any) error) error {
 			var r BackupPlanBuy
 			if err := scan(&r.ID, &r.Kind, &r.Ref, &r.Qty, &r.Amount, &r.UnitPrice,
@@ -1243,11 +1248,15 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 	}
 	for _, p := range b.PlanBuys {
+		broker, err := brokerRef(p.Broker)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO plan_buys (id,kind,ref,qty,amount,unit_price,currency,broker,
+			`INSERT INTO plan_buys (id,kind,ref,qty,amount,unit_price,currency,broker_id,
 			 buy_date,rate_bp,months,is_reserve,note)
 			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			p.ID, p.Kind, p.Ref, p.Qty, p.Amount, p.UnitPrice, p.Currency, p.Broker,
+			p.ID, p.Kind, p.Ref, p.Qty, p.Amount, p.UnitPrice, p.Currency, broker,
 			p.BuyDate, p.RateBP, p.Months, p.IsReserve, p.Note); err != nil {
 			return fmt.Errorf("планована купівля %d: %w", p.ID, err)
 		}
@@ -1278,9 +1287,19 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 	}
 	for _, p := range b.PaymentStatus {
+		// Зводимо статус до єдиного, який домен ще пише. Дамп, зроблений до
+		// 0017, несе 'reinvested', і відколи 0044 закрила його в CHECK,
+		// сира вставка валила б ВСЕ відновлення на одному старому рядку.
+		// Те саме перетворення, що робила 0017, лише на вході: у бекапі
+		// статус — сирий рядок, і нормалізувати його нема кому, крім цього
+		// місця.
+		status := p.Status
+		if status != domain.StatusReceived {
+			status = domain.StatusReceived
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO payment_status (isin,pay_date,status,marked_at) VALUES (?,?,?,?)`,
-			p.ISIN, p.PayDate, p.Status, p.MarkedAt); err != nil {
+			p.ISIN, p.PayDate, status, p.MarkedAt); err != nil {
 			return fmt.Errorf("статус виплати %s/%s: %w", p.ISIN, p.PayDate, err)
 		}
 	}

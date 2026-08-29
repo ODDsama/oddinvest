@@ -169,12 +169,18 @@ func TestSettingsRatesSnapshotsStatuses(t *testing.T) {
 // Міграція 0015 виводить прапорець із ДОКАЗУ: вклад, який уже
 // поповнювали, поповнюваний за визначенням — інакше після оновлення
 // користувач мусив би вручну відновлювати те, що видно з даних.
-// Міграція 0017 зводить «перевкладено» до «отримано». Обидва однаково
-// означали «гроші надійшли» — різниця була лише в дисциплінарній
-// позначці, яку прибрано. Виплата не має ані зникнути, ані втратити
-// позначку: інакше після оновлення вона перестала б бути зарахованою на
-// рахунок, і баланс просів би рівно на неї.
-func TestReinvestedStatusFoldedIntoReceived(t *testing.T) {
+// Міграція 0017 звела «перевкладено» до «отримано», а 0044 закрила
+// значення й у самій схемі. Обидва однаково означали «гроші надійшли» —
+// різниця була лише в дисциплінарній позначці, яку прибрано. Виплата не
+// має ані зникнути, ані втратити позначку: інакше після оновлення вона
+// перестала б бути зарахованою на рахунок, і баланс просів би рівно на неї.
+//
+// ТЕСТ ЗМІНИВСЯ РАЗОМ ІЗ 0044, і це варто сказати. Доти він відтворював
+// стан «до 0017», вписуючи 'reinvested' повз SetPaymentStatus прямо в
+// таблицю. Тепер так не можна — і саме це й перевіряємо: CHECK більше не
+// пускає старе значення взагалі, тож єдиний шлях, яким воно могло
+// повернутись (відновлення старого дампа), закриває ImportAll.
+func TestReinvestedStatusRejectedBySchema(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -182,18 +188,44 @@ func TestReinvestedStatusFoldedIntoReceived(t *testing.T) {
 	}
 	defer s.Close()
 
-	// Стан «до міграції»: пишемо старий статус повз SetPaymentStatus,
-	// який його вже не приймає.
+	// Схема більше не приймає старий статус НАВІТЬ повз домен.
 	if _, err := s.db.ExecContext(ctx, `INSERT INTO payment_status(isin, pay_date, status, marked_at)
-		VALUES('UA4000227748','2026-07-20','reinvested','2026-07-20T10:00:00Z'),
-		      ('UA4000227748','2026-09-16','received','2026-09-16T10:00:00Z')`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.ExecContext(ctx,
-		`UPDATE payment_status SET status = 'received' WHERE status = 'reinvested'`); err != nil {
-		t.Fatal(err)
+		VALUES('UA4000227748','2026-07-20','reinvested','2026-07-20T10:00:00Z')`); err == nil {
+		t.Error("схема пустила 'reinvested' — CHECK з 0044 не діє")
 	}
 
+	if err := s.SetPaymentStatus(ctx, "UA4000227748", "2026-07-20", "reinvested"); err == nil {
+		t.Error("«перевкладено» мало бути відхилено")
+	}
+	if err := s.SetPaymentStatus(ctx, "UA4000227748", "2026-09-16", "received"); err != nil {
+		t.Errorf("«отримано» мало пройти: %v", err)
+	}
+}
+
+// TestOldBackupWithReinvestedRestores — дамп, зроблений ДО 0017,
+// відновлюється, а не падає на CHECK.
+//
+// Ціна помилки тут максимальна з можливих: ImportAll — одна транзакція, і
+// один старий рядок статусу відкотив би ВСЕ відновлення, тобто людина з
+// дампом дворічної давнини не змогла б повернути нічого взагалі.
+func TestOldBackupWithReinvestedRestores(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	b := &Backup{
+		Schema: BackupSchema,
+		PaymentStatus: []BackupPayStatus{
+			{ISIN: "UA4000227748", PayDate: "2026-07-20", Status: "reinvested", MarkedAt: "2026-07-20T10:00:00Z"},
+			{ISIN: "UA4000227748", PayDate: "2026-09-16", Status: "received", MarkedAt: "2026-09-16T10:00:00Z"},
+		},
+	}
+	if err := s.ImportAll(ctx, b); err != nil {
+		t.Fatalf("старий дамп не відновився: %v", err)
+	}
 	got, err := s.PaymentStatuses(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -205,14 +237,6 @@ func TestReinvestedStatusFoldedIntoReceived(t *testing.T) {
 		if st != "received" {
 			t.Errorf("%s: статус %q, очікували received", key, st)
 		}
-	}
-
-	// І новий статус більше не приймається — щоб він не з'явився знову.
-	if err := s.SetPaymentStatus(ctx, "UA4000227748", "2026-07-20", "reinvested"); err == nil {
-		t.Error("«перевкладено» мало бути відхилено")
-	}
-	if err := s.SetPaymentStatus(ctx, "UA4000227748", "2026-07-20", "received"); err != nil {
-		t.Errorf("«отримано» мало пройти: %v", err)
 	}
 }
 

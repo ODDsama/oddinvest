@@ -122,6 +122,9 @@ func seedBrokerRef(t *testing.T, db *sql.DB, table string, brokerID int64) {
 	case "npf_ops":
 		q = `INSERT INTO npf_ops(npf_id, date, units_e6, amount, broker_id)
 		     VALUES((SELECT id FROM npf_accounts LIMIT 1), '2026-01-01', 1000000, 100000, ?)`
+	case "plan_buys":
+		q = `INSERT INTO plan_buys(kind, ref, qty, broker_id)
+		     VALUES('bond', 'UA4000000001', 1, ?)`
 	default:
 		t.Fatalf("нова таблиця з FK на brokers: %s — допиши їй посів тут "+
 			"і рядок у DeleteBroker", table)

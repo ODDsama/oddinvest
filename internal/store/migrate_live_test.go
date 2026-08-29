@@ -141,3 +141,93 @@ func TestMigrationOnLiveBackup(t *testing.T) {
 		t.Error("лоти є, а довідник брокерів порожній")
 	}
 }
+
+// TestLiveBackupRoundTrip — справжній бекап відновлюється в НОВУ схему й
+// вивантажується назад без утрат.
+//
+// Тест поруч (вище) перевіряє одну міграцію на старих даних. Цей — інше
+// питання й ширше: чи переживе РЕАЛЬНИЙ портфель повний цикл
+// «відновити → вивантажити» на схемі з усіма міграціями. Саме цим циклом
+// людина користується, коли переносить базу або рятує її після
+// пошкодження, і саме в ньому втрата виглядає найправдоподібніше:
+// повертається щось, числа схожі, а рядка бракує.
+//
+// Ловить, зокрема, обидві правки 0043/0044 у бекапі: plan_buys тепер
+// зберігає broker_id, а не назву (у дамп і з дампа йде назва), а статус
+// виплати зводиться до 'received' на вході.
+//
+//	ODDINVEST_LIVE_BACKUP=/шлях/backup.json go test ./internal/store -run Live -v
+func TestLiveBackupRoundTrip(t *testing.T) {
+	path := os.Getenv("ODDINVEST_LIVE_BACKUP")
+	if path == "" {
+		t.Skip("ODDINVEST_LIVE_BACKUP не задано — перевірка на живих даних пропущена")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before Backup
+	if err := json.Unmarshal(raw, &before); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(filepath.Join(t.TempDir(), "live.db"))
+	if err != nil {
+		t.Fatalf("міграції не пройшли на новій базі: %v", err)
+	}
+	defer s.Close()
+
+	ctx := context.Background()
+	if err := s.ImportAll(ctx, &before); err != nil {
+		t.Fatalf("справжній бекап не відновлюється: %v", err)
+	}
+	after, err := s.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// exported_at ставить гендлер, а не ExportAll — рівняємо решту.
+	after.ExportedAt = before.ExportedAt
+	if !reflect.DeepEqual(&before, after) {
+		reportBackupDiff(t, &before, after)
+	}
+
+	// Цілісність після відновлення — окремо від рівності: FK міг лишитись
+	// висіти, а порівняння структур цього не бачить.
+	var orphan int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM pragma_foreign_key_check`).Scan(&orphan); err != nil {
+		t.Fatal(err)
+	}
+	if orphan != 0 {
+		t.Errorf("після відновлення осиротілих рядків: %d", orphan)
+	}
+	var integrity string
+	if err := s.db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&integrity); err != nil {
+		t.Fatal(err)
+	}
+	if integrity != "ok" {
+		t.Errorf("integrity_check: %s", integrity)
+	}
+}
+
+// reportBackupDiff називає ПОЛЕ, яке розійшлось, а не вивалює дві
+// структури: у бекапі два десятки зрізів, і «not deep equal» на них не
+// каже нічого. Значень не друкуємо — це справжній портфель.
+func reportBackupDiff(t *testing.T, before, after *Backup) {
+	t.Helper()
+	bv, av := reflect.ValueOf(before).Elem(), reflect.ValueOf(after).Elem()
+	for i := 0; i < bv.NumField(); i++ {
+		f := bv.Type().Field(i)
+		b, a := bv.Field(i), av.Field(i)
+		if reflect.DeepEqual(b.Interface(), a.Interface()) {
+			continue
+		}
+		switch b.Kind() {
+		case reflect.Slice, reflect.Map:
+			t.Errorf("%s: було %d, стало %d", f.Name, b.Len(), a.Len())
+		default:
+			t.Errorf("%s: розійшлось", f.Name)
+		}
+	}
+}

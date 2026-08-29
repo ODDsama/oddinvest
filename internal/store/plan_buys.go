@@ -41,7 +41,12 @@ type PlanBuy struct {
 	// Лише для фонда: каталогу цін фондів у застосунку немає.
 	UnitPrice int64
 	Currency  string // "" = вивести із сутності
-	Broker    string // "" = обрати за залишком
+	// Broker — НАЗВА рахунку; "" = обрати за залишком. У базі з 0043 лежить
+	// broker_id, а не назва: перейменування брокера мусить підхоплюватись
+	// планом задарма, як воно підхоплюється лотами з часів 0010. Назовні
+	// (API, бекап, форми) назва лишилась назвою — саме на назвах тримається
+	// формат бекапу, і саме тому він пережив обидві нормалізації.
+	Broker string
 	// BuyDate — "" означає «купую зараз». Саме тут проходить межа між
 	// двома різними відповідями (див. state_plan_buys.go).
 	BuyDate   domain.Date
@@ -51,14 +56,19 @@ type PlanBuy struct {
 	Note      string
 }
 
-const planBuyCols = `id, kind, ref, qty, amount, unit_price, currency, broker,
-	buy_date, rate_bp, months, is_reserve, note`
+// planBuyCols читає назву брокера через LEFT JOIN: NULL (не привʼязано)
+// перетворюється на "" — те саме значення, що й до 0043, тож споживачі
+// нижче по потоку про зміну не знають.
+const planBuyCols = `b.id, b.kind, b.ref, b.qty, b.amount, b.unit_price, b.currency,
+	COALESCE(br.name, ''), b.buy_date, b.rate_bp, b.months, b.is_reserve, b.note`
 
 // ListPlanBuys — усі рядки плану, за датою й id. Порожня дата («зараз»)
 // сортується першою сама собою: порожній рядок менший за будь-яку ISO-дату.
 func (s *Store) ListPlanBuys(ctx context.Context) ([]PlanBuy, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+planBuyCols+` FROM plan_buys ORDER BY buy_date, id`)
+		`SELECT `+planBuyCols+` FROM plan_buys b
+		 LEFT JOIN brokers br ON br.id = b.broker_id
+		 ORDER BY b.buy_date, b.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -79,11 +89,15 @@ func (s *Store) ListPlanBuys(ctx context.Context) ([]PlanBuy, error) {
 }
 
 func (s *Store) AddPlanBuy(ctx context.Context, b PlanBuy) (int64, error) {
+	broker, err := s.brokerRef(ctx, b.Broker)
+	if err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO plan_buys
-		(kind, ref, qty, amount, unit_price, currency, broker, buy_date,
+		(kind, ref, qty, amount, unit_price, currency, broker_id, buy_date,
 		 rate_bp, months, is_reserve, note)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		b.Kind, b.Ref, b.Qty, b.Amount, b.UnitPrice, b.Currency, b.Broker,
+		b.Kind, b.Ref, b.Qty, b.Amount, b.UnitPrice, b.Currency, broker,
 		string(b.BuyDate), b.RateBP, b.Months, b.IsReserve, b.Note)
 	if err != nil {
 		return 0, err
@@ -95,10 +109,14 @@ func (s *Store) AddPlanBuy(ctx context.Context, b PlanBuy) (int64, error) {
 // передумати й замість паперу взяти вклад — це правка того самого наміру,
 // а «видалити й завести» загубило б id, на який дивиться відкрита форма.
 func (s *Store) UpdatePlanBuy(ctx context.Context, b PlanBuy) error {
+	broker, err := s.brokerRef(ctx, b.Broker)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE plan_buys SET
-		kind=?, ref=?, qty=?, amount=?, unit_price=?, currency=?, broker=?,
+		kind=?, ref=?, qty=?, amount=?, unit_price=?, currency=?, broker_id=?,
 		buy_date=?, rate_bp=?, months=?, is_reserve=?, note=? WHERE id=?`,
-		b.Kind, b.Ref, b.Qty, b.Amount, b.UnitPrice, b.Currency, b.Broker,
+		b.Kind, b.Ref, b.Qty, b.Amount, b.UnitPrice, b.Currency, broker,
 		string(b.BuyDate), b.RateBP, b.Months, b.IsReserve, b.Note, b.ID)
 	if err != nil {
 		return err
