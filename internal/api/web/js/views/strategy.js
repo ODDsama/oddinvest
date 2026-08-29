@@ -1090,7 +1090,13 @@ function needsHTML(eff, s, current) {
   const out = [];
 
   const months = val("reserve_target_months");
-  if ((months || val("reserve_fill_share_pct")) && !isSet(current, "monthly_expenses_uah")) {
+  // Двома ключами, бо витрат теж два джерела: пара «сума + валюта» і
+  // спадковий гривневий ключ бази, якої нова форма ще не торкалась
+  // (міграція 0038). GET /api/settings віддає СИРІ значення, тож
+  // виведеного monthly_expenses_uah тут немає — є лише те, що записане.
+  const noExpenses = !isSet(current, "monthly_expenses")
+    && !isSet(current, "monthly_expenses_uah");
+  if ((months || val("reserve_fill_share_pct")) && noExpenses) {
     const fill = val("reserve_fill_share_pct");
     out.push(`<b>місячні витрати</b>. Ціль резерву${months ? ` в ${esc(months)} ${
       plural(Number(months), "місяць", "місяці", "місяців")} витрат` : ""} запишеться, але лишиться

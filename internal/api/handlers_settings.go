@@ -81,6 +81,22 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// Запис у витрати ГАСИТЬ спадковий ключ, і це єдиний особливий випадок
+	// у цьому циклі.
+	//
+	// Без нього форма бреше найтихішим чином. Міграція 0038 скопіювала
+	// monthly_expenses_uah у нову пару, тож після неї обидва ключі несуть
+	// одне число; порожній monthly_expenses читається як «не рахувати», а
+	// resolveExpensesUAH у цьому разі лишає гривневе поле спадковому
+	// ключу — тобто очищене поле мовчки поверталося б до старого значення,
+	// і скасувати ціль резерву стало б неможливо через UI взагалі.
+	//
+	// Гасимо на БУДЬ-ЯКОМУ записі суми, а не лише на порожньому: пара
+	// «сума + валюта» і є тепер джерелом істини, а спадковий ключ існує
+	// рівно для бази, якої нова форма ще не торкалась.
+	if _, ok := req["monthly_expenses"]; ok {
+		req["monthly_expenses_uah"] = ""
+	}
 	for k, v := range req {
 		if err := s.st.SetSetting(r.Context(), k, v); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)

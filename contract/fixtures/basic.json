@@ -302,6 +302,8 @@
   "settings": {
     "monthly_target_uah": 5000,
     "usd_target_share_pct": 50,
+    "monthly_expenses": 30000,
+    "monthly_expenses_currency": "UAH",
     "monthly_expenses_uah": 30000,
     "reserve_target_months": 3,
     "reserve_liquid_months": 1,

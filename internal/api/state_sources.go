@@ -151,6 +151,10 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 
 	src.deval = s.devaluation(ctx)
 	src.settings = s.loadSettings(ctx)
+	// Витрати — у гривню одразу тут, бо саме тут уперше зустрічаються
+	// налаштування й курс. Кожен, хто читає src.settings далі, дістає
+	// MonthlyExpensesUAH уже гривневим — довід при resolveExpensesUAH.
+	resolveExpensesUAH(src.settings, src.rates)
 	src.depositMin = s.depositMinMinorByCur(ctx)
 
 	src.fundOps, _ = s.st.ListFundOps(ctx)               //nolint:errcheck // свідомо: старій БД фондів могло не бути

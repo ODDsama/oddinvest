@@ -48,6 +48,13 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		liquidM, maxTerm := 1.0, 6.0
 		return &SettingsDoc{
 			MonthlyTargetUAH: &tgt, USDTargetSharePct: &u,
+			// Витрати ТРЬОМА полями, бо їх у документі три: введена сума,
+			// її валюта і виведене гривневе число. Тут вони збігаються —
+			// пакет state курсів не має й перекласти нічого не може
+			// (переклад робить resolveExpensesUAH у будівнику), — але
+			// фікстура мусить показати кожне поле заповненим: саме проти
+			// неї тестується інтеграція.
+			MonthlyExpenses: &exp, MonthlyExpensesCurrency: "UAH",
 			MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months,
 			ReserveLiquidMonths:  &liquidM,
 			ReserveMaxTermMonths: &maxTerm,

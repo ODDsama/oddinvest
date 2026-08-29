@@ -191,6 +191,11 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// кожен запит, спільного з іншими викликами в ньому немає.
 		if len(what.settings) > 0 {
 			overrideSettings(src.settings, what.settings)
+			// Другий переклад витрат, і він обовʼязковий: накладка могла
+			// назвати іншу суму або іншу валюту, а loadSources переклав ще
+			// стару. Без цього рядка превʼю політики показувало б ціль
+			// резерву від витрат, яких у наборі вже немає.
+			resolveExpensesUAH(src.settings, src.rates)
 		}
 	}
 	lots, sales, bonds, pays := src.lots, src.sales, src.bonds, src.pays

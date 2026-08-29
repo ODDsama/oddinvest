@@ -84,8 +84,24 @@ var settingsRegistry = []settingDef{
 	{Key: "deposit_rate_eur_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.DepositRateEURPct }},
 	{Key: "deposit_rate_uah_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.DepositRateUAHPct }},
 
-	{Key: "monthly_expenses_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.MonthlyExpensesUAH },
+	// Витрати ДВОМА ключами, а не одним. Сума й валюта нарізно тому, що
+	// перевіряються вони по-різному: сума — невід'ємне число, валюта —
+	// перелік. Перелік тут обов'язковий, і не для охайності: описка в коді
+	// валюти мовчки помножила б ціль резерву на курс (fx.ToUAH на
+	// невідомому коді віддає помилку, а гілка помилки веде в дефолт), і
+	// шукати причину довелось би в чужих числах — рівно той випадок, що
+	// названий при Enum вище про reserve_fill_from.
+	{Key: "monthly_expenses", Num: func(s *state.SettingsDoc) **float64 { return &s.MonthlyExpenses },
 		Why: "скільки коштує місяць життя; від нього достатність резерву"},
+	{Key: "monthly_expenses_currency", Str: func(s *state.SettingsDoc) *string { return &s.MonthlyExpensesCurrency },
+		Enum: []string{"UAH", "USD", "EUR"},
+		Why:  "у якій валюті мисляться витрати; порожньо = гривня"},
+	// Спадок: до 0038 витрати були гривневі за побудовою, і ключ казав це
+	// назвою. Читається лише як запасне джерело MonthlyExpensesUAH — форми
+	// для нього немає навмисно, нового сюди не пишуть. Той самий прийом,
+	// що з goal_*_uah нижче.
+	{Key: "monthly_expenses_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.MonthlyExpensesUAH },
+		Why: "спадок 0038; лише читається, доки не задані витрати з валютою"},
 	{Key: "reserve_target_months", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveTargetMonths },
 		Why: "на скільки місяців витрат хочеться запас"},
 	// Ціль резерву казала, СКІЛЬКИ треба, і не казала нічого про те, звідки

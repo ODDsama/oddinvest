@@ -479,8 +479,27 @@ type SettingsDoc struct {
 	// зняття — це і покупка холодильника, і переказ у резерв, і взагалі
 	// будь-що, тож видавати їх за «місячні витрати» означало б рахувати
 	// достатність резерву від випадкового числа.
-	MonthlyExpensesUAH  *float64 `json:"monthly_expenses_uah,omitempty"`
-	ReserveTargetMonths *float64 `json:"reserve_target_months,omitempty"`
+	//
+	// ТРИ ПОЛЯ НА ОДНЕ ЧИСЛО, І ЦЕ НЕ НАДЛИШОК. MonthlyExpenses +
+	// MonthlyExpensesCurrency — те, що ВВІВ користувач: витрати мисляться
+	// тією валютою, у якій живуть, і «1 500 доларів на місяць» — це сама
+	// одиниця рахунку, а не оцінка в чужих грошах. MonthlyExpensesUAH —
+	// те саме число в гривні, і воно ВИВЕДЕНЕ: переводить його будівник
+	// (resolveExpensesUAH), бо курсів у цьому пакеті немає й бути не має —
+	// той самий поділ, що описаний у шапці state_reserve_ladder.go.
+	//
+	// Поле в гривні лишилось окремим, а не замінилось парою, рівно тому,
+	// що його читають вісім місць — від цілі резерву до просадки, — і всі
+	// вісім вважають число гривнями. Зробити його валютним означало б
+	// провести курс через увесь пакет, який про курси нічого не знає.
+	//
+	// Порожній MonthlyExpenses лишає гривневе поле тим, що прочитав
+	// спадковий ключ monthly_expenses_uah: саме так база, старша за
+	// міграцію 0038, працює без жодної правки.
+	MonthlyExpenses         *float64 `json:"monthly_expenses,omitempty"`
+	MonthlyExpensesCurrency string   `json:"monthly_expenses_currency,omitempty"`
+	MonthlyExpensesUAH      *float64 `json:"monthly_expenses_uah,omitempty"`
+	ReserveTargetMonths     *float64 `json:"reserve_target_months,omitempty"`
 	// ReserveFillSharePct — яка частка ВІЛЬНИХ грошей (готівки на рахунках)
 	// іде в резерв, доки він не добраний до цілі, %.
 	//

@@ -1612,6 +1612,8 @@
     "deposit_rate_usd_pct": 1.7,
     "deposit_rate_eur_pct": 0.7,
     "deposit_rate_uah_pct": 16,
+    "monthly_expenses": 25000,
+    "monthly_expenses_currency": "UAH",
     "monthly_expenses_uah": 25000,
     "reserve_target_months": 6,
     "reserve_fill_share_pct": 20,

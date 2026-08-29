@@ -112,6 +112,7 @@ export function reserveTilesHTML(ctx) {
   if (!r || !r.uah) return "";
   const months = r.months || 0;
   const target = r.target_months || 0;
+  const set = (ctx.summary || {}).settings || {};
   const fill = target > 0 ? Math.min(100, (months / target) * 100) : 0;
   const enough = target > 0 && months >= target;
   const places = r.places ? Object.entries(r.places).sort((a, b) => b[1] - a[1]) : [];
@@ -145,6 +146,7 @@ export function reserveTilesHTML(ctx) {
       число стоїть і чекає на друге. Задай витрати в
       <a class="lnk" href="${routeFor("policy/reserve")}">Політиці → Резерв</a> — і смужка
       з розривом стануть на місце самі.</div>` : ""}
+    ${expensesFXHTML(set, r)}
     ${target > 0 && months ? `<div class="progress mb-sm">
       <span style="--oi-fill:${fill}%;--oi-c:${enough ? "var(--oi-ok)" : "var(--oi-info)"}"></span></div>
       <div class="note">${enough
@@ -154,6 +156,27 @@ export function reserveTilesHTML(ctx) {
     `${esc(p)} — ${fmtUAH(v)}`).join(" · ")}</div>` : ""}
     ${accessHTML(r)}
   </div>`;
+}
+
+/** Ціль подушки, коли витрати мисляться не в гривні.
+ *
+ *  Мовчить на гривневих витратах, і це не економія рядка: там обидва
+ *  числа збігаються до копійки, і показати їх поруч означало б написати
+ *  «6 × 25 000 ₴ = 150 000 ₴ ≈ 150 000 ₴».
+ *
+ *  А от у доларах сказати треба обовʼязково, бо інакше гривнева ціль
+ *  виглядає числом, яке хтось вписав, — і незрозуміло, чому вона їде сама.
+ *  Їде вона за курсом, і саме це тут і названо. */
+function expensesFXHTML(set, r) {
+  const cur = set.monthly_expenses_currency || "";
+  const native = set.monthly_expenses || 0;
+  const months = r.target_months || 0;
+  if (!cur || cur === "UAH" || !native || !months) return "";
+  const sym = curSym(cur);
+  return `<div class="note">Витрати задані у ${esc(cur)}: ${fmtCur(native, sym)} на місяць.
+    Ціль подушки — ${months} × ${fmtCur(native, sym)} = <b>${fmtCur(native * months, sym)}</b>,
+    тобто ${fmtUAH(r.target_uah || 0)} за сьогоднішнім курсом. Гривнева ціль їде за курсом сама:
+    девальвація піднімає її, і подушка, яка вчора була зібрана, сьогодні може мати розрив.</div>`;
 }
 
 /** Доступ до подушки: коли я до цього дістануся.
