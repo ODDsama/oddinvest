@@ -1262,8 +1262,8 @@
       "target_uah": 378158.52,
       "current_uah": 240370.2,
       "fill_pct": 63.56,
-      "month_share_uah": 3816,
-      "month_balance_uah": 3069.25,
+      "month_share_uah": 2862,
+      "month_balance_uah": 2297.63,
       "transit_pct": 3.93,
       "transit_uah": 33010.17
     },
@@ -1286,8 +1286,8 @@
       "target_uah": 168070.45,
       "current_uah": 10300,
       "fill_pct": 6.13,
-      "month_share_uah": 1696,
-      "month_balance_uah": 3456.41
+      "month_share_uah": 1272,
+      "month_balance_uah": 2598.08
     },
     {
       "dimension": "kind",
@@ -1308,8 +1308,8 @@
       "target_uah": 126052.84,
       "current_uah": 120000,
       "fill_pct": 95.2,
-      "month_share_uah": 1272,
-      "month_balance_uah": 158.76,
+      "month_share_uah": 954,
+      "month_balance_uah": 114.46,
       "transit_uah": 33010.17
     },
     {
@@ -1331,8 +1331,8 @@
       "target_uah": 84035.23,
       "current_uah": 2041.64,
       "fill_pct": 2.43,
-      "month_share_uah": 848,
-      "month_balance_uah": 1795.58
+      "month_share_uah": 636,
+      "month_balance_uah": 1349.82
     }
   ],
   "concentration": [

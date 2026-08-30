@@ -70,14 +70,6 @@ type rebalanceInput struct {
 	NPFRows           []state.NPFPositionRow
 	BrokerExposureUAH map[string]float64
 	LadderUAH         []state.YearAmount
-
-	// MonthPlan — гроші поточного місяця (state_month.go). nil = плану
-	// доходу немає, і тоді місячних чисел у рядках теж немає: розкладати
-	// нема чого, а нулі читались би як «плану вистачає рівно на нуль».
-	// ReserveMonthUAH — скільки з них належить подушці; ділиться те, що
-	// лишилось після неї.
-	MonthPlan       *state.MonthPlan
-	ReserveMonthUAH float64
 }
 
 // fillPct — наскільки ціль закрита, %. Нульова ціль дає нуль, а не
@@ -109,9 +101,11 @@ func fillPct(now, target float64) float64 {
 // вирішити за людину, що важливіше. Коли грошей більше — закриваємо все, а
 // лишок ділимо за частками, тобто тим самим правилом, що й перша колонка.
 //
-// База обох — avail, тобто гроші ПІСЛЯ резерву: подушка забирає своє першим,
-// і ділити суму, з якої вона ще не відрахована, означало б порадити ті самі
-// гроші двічі.
+// База обох — avail, тобто гроші ПІСЛЯ подушки Й ПІСЛЯ цілей накопичення:
+// обидві забирають своє раніше за види, і ділити суму, з якої вони ще не
+// відраховані, означало б порадити ті самі гроші двічі. Порядок той самий,
+// що в розкладці надходження (handlers_allocate.go) і на маршруті:
+// подушка → цілі → види. Саму базу складає той, хто викликає.
 func spreadMonth(rows []state.RebalanceRow, avail, kindMajor float64) {
 	if avail <= 0 || kindMajor <= 0 {
 		return
@@ -163,9 +157,15 @@ func spreadMonth(rows []state.RebalanceRow, avail, kindMajor float64) {
 }
 
 // rebalancePhase — рядки обох карток.
+//
+// KindMajorUAH віддається назовні тому, що поділ грошей місяця по видах
+// робиться вже НЕ тут (див. довід при spreadMonth нижче й у місці виклику
+// в state_builder.go), а знаменник «капітал без подушки й цілей» рахується
+// саме тут і другого разу мати не має.
 type rebalancePhase struct {
 	Rebalance     []state.RebalanceRow
 	Concentration []state.ConcentrationRow
+	KindMajorUAH  float64
 }
 
 // buildRebalance рахує ребаланс за валютою й видом, а також концентрацію.
@@ -371,12 +371,14 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		}
 		out.Rebalance = append(out.Rebalance, row)
 	}
-	// Гроші місяця по видах — ОКРЕМИМ проходом, а не в циклі вище, і це
-	// вимушено: «на вирівнювання» ділиться МІЖ видами, тобто не рахується,
-	// доки не відомі потреби всіх. Дописуємо в уже складені рядки.
-	if in.MonthPlan != nil {
-		spreadMonth(out.Rebalance, in.MonthPlan.PlanUAH-in.ReserveMonthUAH, kindMajor)
-	}
+	// Гроші місяця по видах рахуються ПІСЛЯ цієї фази — у state_builder.go,
+	// одразу за state.Derive. Тут для них ще немає половини бази: стелю
+	// цілей накопичення виставляє GoalsFill усередині Derive, а порахувати
+	// її на місці означало б завести ДРУГЕ означення тієї самої стелі —
+	// рівно та пастка, проти якої написана шапка GoalsFill.
+	//
+	// Знаменник же лишається тутешнім і йде назовні числом.
+	out.KindMajorUAH = kindMajor
 
 	// РЯДКА РЕЗЕРВУ В ЦЬОМУ ВИМІРІ БІЛЬШЕ НЕМАЄ, і це наслідок нового
 	// знаменника, а не втрата.

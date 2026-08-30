@@ -1077,7 +1077,6 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		NominalByISIN: nominalByISIN, Bonds: bonds, FundRows: fundRows,
 		NPFRows:           npf.Rows,
 		BrokerExposureUAH: brokerExposureUAH, LadderUAH: ladderUAH,
-		MonthPlan: mth.Plan, ReserveMonthUAH: mth.ReserveMonthUAH,
 	})
 	rebalance, concentration := rbl.Rebalance, rbl.Concentration
 
@@ -1176,5 +1175,47 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	}); err != nil {
 		return nil, err
 	}
+
+	// Гроші місяця по видах — ОСТАННІМ кроком, і не з примхи.
+	//
+	// «На вирівнювання» ділиться МІЖ видами, тобто не рахується, доки не
+	// відомі потреби всіх, — тому це окремий прохід, а не цикл усередині
+	// ребалансу. А стоїть він саме ПІСЛЯ Derive, бо стелю цілей
+	// накопичення виставляє GoalsFill усередині Derive: до нього
+	// FillMonthUAH порожній, а порахувати стелю в самому ребалансі
+	// означало б завести ДРУГЕ її означення — рівно та пастка, проти якої
+	// написана шапка GoalsFill.
+	//
+	// doc.Rebalance — той самий зріз, що й rebalance: правка на місці
+	// доходить у документ, другої копії тут немає.
+	//
+	// БАЗА — ГРОШІ ПІСЛЯ ПОДУШКИ Й ПІСЛЯ ЦІЛЕЙ, тим самим порядком, яким
+	// їх ріже розкладка надходження (handlers_allocate.go) і маршрут:
+	// подушка → цілі → види. Доти цілі з бази не віднімались, і карта
+	// «Скільки чого за стратегією» обіцяла на вирізку цілей більше, ніж
+	// показувала модалка розкладки, яку сама ж і відкриває.
+	if mth.Plan != nil {
+		avail := mth.Plan.PlanUAH - mth.ReserveMonthUAH - goalsMonthUAH(doc.Goals)
+		spreadMonth(doc.Rebalance, avail, rbl.KindMajorUAH)
+	}
 	return doc, nil
+}
+
+// goalsMonthUAH — скільки з грошей місяця належить цілям накопичення разом.
+//
+// Стеля, а не потреба: FillMonthUAH означає «скільки цей місяць РЕАЛЬНО дає
+// цілі, разом із уже покладеним», і в подушки ReserveMonthUAH означає рівно
+// те саме. Складати тут потрібний темп (RequiredUAH) означало б відняти від
+// грошей місяця більше, ніж застосунок насправді відріже.
+//
+// Закриті цілі не рахуються: GoalsFill їм стелі й не дає.
+func goalsMonthUAH(goals []state.Goal) float64 {
+	var sum float64
+	for _, g := range goals {
+		if g.DoneDate != "" {
+			continue
+		}
+		sum += g.FillMonthUAH
+	}
+	return sum
 }
