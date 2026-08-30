@@ -100,18 +100,47 @@ function reserveHTML(res) {
 
 // Чому подушка НЕ взяла своєї частки. Причину називає бекенд — тут лише
 // місце для неї, і воно поруч із тим рядком, якого через цю причину немає.
-//
-// ЦІЛЕЙ НАКОПИЧЕННЯ В ЦІЙ МОДАЛЦІ НЕМАЄ ВЗАГАЛІ, і це не наслідок порога, а
-// давніша прогалина: розкладка повертає goals і goals_skip_why (allocPlan),
-// а тут не малюється ні перше, ні друге, тож підсумок нижче не сходиться
-// рівно на вирізку цілей. Дописувати сюди саму лише причину не можна —
-// «цілі тут свого не беруть» на екрані, де вони НІКОЛИ нічого не беруть,
-// пояснює порожнечу порожнечею. Правильна правка — рядок цілей із
-// галочкою, як у резерву, разом із записом руху; доки її немає, повну
-// картину показує сторінка маршруту (route.js, destHTML).
 function reserveSkipHTML(res) {
   return res.reserve_skip_why
     ? `<div class="sub-xs t-warn mb-sm">${esc(res.reserve_skip_why)}</div>`
+    : "";
+}
+
+// Цілі накопичення — ДРУГИМИ, одразу за подушкою, і теж прапорцями.
+//
+// Порядок не оформлення: у самій розкладці цілі ріжуть після подушки й лише
+// з того, що після неї лишилось (handlers_allocate.go), і той самий порядок
+// стоїть на сторінці маршруту. Третій порядок на третьому екрані читався б
+// як третє правило.
+//
+// ПРАПОРЕЦЬ НА КОЖНУ ОКРЕМО, а не один на всі: цілі незалежні одна від
+// одної — «в авто цього місяця так, у ремонт ні» це звичайне рішення, — і
+// спільна галочка змусила б вибирати між усіма й жодною.
+//
+// Довід, чому взагалі прапорець, той самий, що в подушки: goal.fill_now_uah
+// спадає тільки після ЗАПИСУ руху, тож без нього дві відмітки за місяць
+// запропонували б відкласти ту саму суму двічі.
+//
+// Доти цього рядка тут не було зовсім, і ціна була не косметична: підсумок
+// нижче складався без вирізки цілей, тобто числа на екрані не сходились
+// рівно на неї.
+function goalsHTML(res) {
+  const cuts = (res.goals || []).filter((g) => g.amount_uah > 0);
+  if (!cuts.length) return "";
+  return cuts.map((g) => `<div class="mb-sm">
+    ${checkField(`goal_${g.id}`, `У ціль «${g.name}» — ${fmtUAH(g.amount_uah)}`,
+    { checked: true })}
+    <div class="sub-xs">${esc(g.why)}. Знявши галочку, ти лишиш ці гроші на папери —
+      але тоді наступна відмітка місяця запропонує ту саму суму ще раз.</div>
+  </div>`).join("");
+}
+
+// Чому цілі НЕ взяли своєї частки — те саме місце й той самий довід, що в
+// подушки. Причин у цього поля три (політика, дозвіл надходження, поріг
+// призначення), і жодну з них тут не переказують: усі три формулює бекенд.
+function goalsSkipHTML(res) {
+  return res.goals_skip_why
+    ? `<div class="sub-xs t-warn mb-sm">${esc(res.goals_skip_why)}</div>`
     : "";
 }
 
@@ -120,6 +149,10 @@ function summaryHTML(res) {
   if (res.reserve && res.reserve.amount_uah > 0) {
     parts.push(`в резерв ${fmtUAH(res.reserve.amount_uah)}`);
   }
+  // Цілі одним числом, а не по одній: підсумок відповідає на питання
+  // «куди пішли гроші», і поіменний перелік у ньому повторив би рядки
+  // вище. Скільки саме взяла кожна — видно там, де стоїть її галочка.
+  if (res.goals_uah > 0) parts.push(`у цілі ${fmtUAH(res.goals_uah)}`);
   const spent = (res.lines || []).reduce((a, l) => a + (l.total_uah || 0), 0);
   if (spent > 0) parts.push(`в інструменти ${fmtUAH(spent)}`);
   if (res.rest_uah > 0) parts.push(`лишається ${fmtUAH(res.rest_uah)}`);
@@ -153,6 +186,7 @@ function routedHTML(leg) {
   if (leg.reserve && leg.reserve.amount_uah > 0) {
     parts.push(`резерв ${fmtUAH(leg.reserve.amount_uah)}`);
   }
+  for (const g of leg.goals || []) parts.push(`${g.name} ${fmtUAH(g.amount_uah)}`);
   for (const l of leg.lines || []) parts.push(`${l.label} ${fmtUAH(l.total_uah)}`);
   if (leg.rest_uah > 0) parts.push(`чекає ${fmtUAH(leg.rest_uah)}`);
   return `<div class="sub">Маршрут вів: ${parts.join(" · ") || "нікуди — на цілий крок не набиралось"}.
@@ -205,11 +239,15 @@ export async function openAllocate(ctx, opts) {
   }
 
   const addable = (res.lines || []).filter((l) => l.addable);
-  const nothing = !addable.length && !(res.reserve && res.reserve.amount_uah > 0);
+  const goalCuts = (res.goals || []).filter((g) => g.amount_uah > 0);
+  const nothing = !addable.length && !goalCuts.length
+    && !(res.reserve && res.reserve.amount_uah > 0);
   const fields = routedHTML(routed)
     + selectOf("source", "Чиї це гроші", SOURCES, source)
     + reserveHTML(res)
     + reserveSkipHTML(res)
+    + goalsHTML(res)
+    + goalsSkipHTML(res)
     + linesHTML(res)
     + summaryHTML(res)
     + (res.note ? `<div class="note">${esc(res.note)}</div>` : "")
@@ -262,9 +300,25 @@ export async function openAllocate(ctx, opts) {
         },
       });
     }
+    // Цілі — ДРУГИМИ, тим самим порядком, що й у розкладці: applyAll
+    // спиняється на першій помилці, і з половинчастих результатів чесніші
+    // ті, де записане видно поіменно й знімається однією кнопкою.
+    goalCuts.forEach((g) => {
+      const box = f.elements[`goal_${g.id}`];
+      if (!box || !box.checked) return;
+      requests.push({
+        path: "goal-ops",
+        body: {
+          goal_id: String(g.id),
+          amount: g.amount_uah.toFixed(2),
+          currency: "UAH",
+          note: "розкладка надходження" + (title ? ": " + title : ""),
+        },
+      });
+    });
     addable.forEach((l) => requests.push({ path: "plan/buys", body: buyBody(l) }));
     if (!requests.length) return null;
-    return { requests, msg: "Записано: резерв і план купівель" };
+    return { requests, msg: "Записано: резерв, цілі й план купівель" };
   });
 
   // Джерело змінили — та сама модалка, порахована заново. Тіло при цьому
