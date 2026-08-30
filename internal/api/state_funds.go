@@ -279,8 +279,8 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		cost := float64(fp.CostBasis) / 100
 		rate := fundOwnRatePct(ref, y)
 		exitTax := float64(ref.ExitTaxBP) / 100
-		switch {
-		case ref.Kind == store.FundAccumulating:
+		switch ref.Kind {
+		case store.FundAccumulating:
 			out.Accum[fcur] = append(out.Accum[fcur], domain.Accum{
 				Value0:  value,
 				Cost0:   cost,
@@ -291,7 +291,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 				// вийти раніше це різні події з різними податками.
 				ExitTaxPct: exitTax,
 			})
-		case ref.Kind == store.FundReinvesting:
+		case store.FundReinvesting:
 			// Фонд, що докуповує сам, у симуляції РОСТЕ, а не платить, — тож
 			// йому місце в кошику Accum, хоч він і розподільний за природою.
 			// Dist означає «капітал, що не росте й платить власною ставкою»
