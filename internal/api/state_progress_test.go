@@ -54,8 +54,9 @@ func TestProgressReconciles(t *testing.T) {
 	}
 
 	var pr struct {
-		Level      int `json:"level"`
-		LevelOf    int `json:"level_of"`
+		Level      int    `json:"level"`
+		LevelOf    int    `json:"level_of"`
+		NextKey    string `json:"next_key"`
 		Discipline struct {
 			TopRow int  `json:"top_row"`
 			Total  int  `json:"total"`
@@ -79,6 +80,7 @@ func TestProgressReconciles(t *testing.T) {
 		Milestones []struct {
 			Key         string `json:"key"`
 			Earned      bool   `json:"earned"`
+			Left        string `json:"left"`
 			ProgressPct int    `json:"progress_pct"`
 		} `json:"milestones"`
 	}
@@ -269,6 +271,159 @@ func TestProgressReconciles(t *testing.T) {
 		}
 		if m.Earned && m.ProgressPct != -1 && m.ProgressPct != 100 {
 			t.Errorf("віха %s зібрана, а прогрес %d%%", m.Key, m.ProgressPct)
+		}
+	}
+
+	// --- 8. «Лишилось» є рівно там, де є відстань ---------------------
+	//
+	// Правило двобічне навмисно. Порожнє «лишилось» у вимірної незібраної
+	// віхи — це мовчання там, де відповідь відома; непорожнє в зібраної
+	// чи невимірної — вигадана відстань. Обидва боки ловляться однією
+	// перевіркою, бо межа тут одна.
+	for _, m := range pr.Milestones {
+		measurable := !m.Earned && m.ProgressPct >= 0
+		if measurable && m.Left == "" {
+			t.Errorf("віха %s незібрана й вимірна (%d%%), а «лишилось» порожнє",
+				m.Key, m.ProgressPct)
+		}
+		if !measurable && m.Left != "" {
+			t.Errorf("віха %s (earned=%v, %d%%) каже «%s» — відстані в неї немає",
+				m.Key, m.Earned, m.ProgressPct, m.Left)
+		}
+	}
+
+	// --- 9. Найближча віха — справді найближча ------------------------
+	//
+	// Не «якась незібрана»: якщо поруч стоїть незібрана вимірна з більшим
+	// відсотком, то названо не ту, і герой «Шляху» веде людину не туди.
+	if pr.NextKey == "" {
+		for _, m := range pr.Milestones {
+			if !m.Earned && m.ProgressPct >= 0 {
+				t.Errorf("найближчої не названо, хоч %s стоїть на %d%%",
+					m.Key, m.ProgressPct)
+			}
+		}
+	} else {
+		next, ok := byKey[pr.NextKey]
+		if !ok {
+			t.Fatalf("найближчою названо %s, а такої віхи в наборі немає", pr.NextKey)
+		}
+		if next.earned || next.pct < 0 {
+			t.Errorf("найближчою названо %s: earned=%v, прогрес %d%%",
+				pr.NextKey, next.earned, next.pct)
+		}
+		for _, m := range pr.Milestones {
+			if !m.Earned && m.ProgressPct > next.pct {
+				t.Errorf("найближчою названо %s (%d%%), а %s стоїть на %d%%",
+					pr.NextKey, next.pct, m.Key, m.ProgressPct)
+			}
+		}
+	}
+}
+
+// TestProgressPicksNearestMeasurable — правило вибору найближчої віхи
+// поодинці: фільтр, максимум і розв'язання рівності.
+//
+// Окремо від TestProgressReconciles, бо на живому портфелі рівність
+// відсотків може й не трапитись, а саме вона колись почне стрибати між
+// двома віхами при кожному перезавантаженні.
+func TestProgressPicksNearestMeasurable(t *testing.T) {
+	got := pickNext([]milestone{
+		// Зібрана й на ста відсотках — не кандидат узагалі.
+		{Key: "done", Earned: true, ProgressPct: 100},
+		// Невимірна: відстані немає, хоч віха й незібрана.
+		{Key: "blind", ProgressPct: progressNoProgress},
+		{Key: "far", ProgressPct: 10},
+		// Двоє на однакових 75% — виграє оголошена раніше.
+		{Key: "near", ProgressPct: 75},
+		{Key: "near2", ProgressPct: 75},
+	})
+	if got != "near" {
+		t.Errorf("найближчою мала бути «near», маємо «%s»", got)
+	}
+
+	if got := pickNext([]milestone{
+		{Key: "done", Earned: true, ProgressPct: 100},
+		{Key: "blind", ProgressPct: progressNoProgress},
+	}); got != "" {
+		t.Errorf("міряти нічим — найближчої немає, а названо «%s»", got)
+	}
+}
+
+// TestProgressStreakMarksMatchStreak — смужка місяців і число серії
+// мусять бути одним і тим самим, порахованим двічі.
+//
+// Це той самий клас захисту, що й TestProgressReconciles: два подання
+// одного числа розійшлись би тихо — смужка лишилась би правдоподібною.
+func TestProgressStreakMarksMatchStreak(t *testing.T) {
+	snaps := []store.Snapshot{
+		{Date: "2026-01-31", MonthTargetUAH: 1_000_000},
+		// Лютого немає взагалі — знімків за нього не робилось.
+		{Date: "2026-03-31", MonthTargetUAH: 1_000_000},
+		{Date: "2026-04-30", MonthTargetUAH: 1_000_000},
+		{Date: "2026-05-31", MonthTargetUAH: 1_000_000},
+	}
+	ev := []flowEvent{
+		{Date: "2026-01-15", Kind: flowContribution, UAH: 1_200_000},
+		{Date: "2026-02-15", Kind: flowContribution, UAH: 1_200_000},
+		{Date: "2026-04-15", Kind: flowContribution, UAH: 1_200_000},
+		{Date: "2026-05-15", Kind: flowContribution, UAH: 1_200_000},
+	}
+	got := buildStreak(snaps, ev, "2026-06-10")
+
+	// Ряд суцільний: лютий у ньому Є, просто невідомий. Без нього
+	// січень і березень стали б сусідами, і серія на смужці вийшла б
+	// довшою за ту, яку рахує сам buildStreak.
+	wantMonths := []string{"2026-01", "2026-02", "2026-03", "2026-04", "2026-05"}
+	if len(got.Marks) != len(wantMonths) {
+		t.Fatalf("у смужці %d місяців, а мало бути %d: %+v",
+			len(got.Marks), len(wantMonths), got.Marks)
+	}
+	for i, w := range wantMonths {
+		if got.Marks[i].Month != w {
+			t.Fatalf("клітинка %d за %s, а мала бути за %s",
+				i, got.Marks[i].Month, w)
+		}
+	}
+	if got.Marks[1].Known {
+		t.Error("лютий без знімка позначено як відомий")
+	}
+	if got.Marks[1].ContribUAH != 12000 {
+		t.Errorf("внесок лютого %v: він відомий із руху грошей навіть без знімка",
+			got.Marks[1].ContribUAH)
+	}
+	if !got.Marks[2].Known || got.Marks[2].Hit {
+		t.Errorf("березень: ціль була, внеску не було — known=%v hit=%v",
+			got.Marks[2].Known, got.Marks[2].Hit)
+	}
+	if got.Marks[0].TargetUAH != 10000 || got.Marks[0].ContribUAH != 12000 {
+		t.Errorf("січень: %v із %v — мало бути 12000 із 10000",
+			got.Marks[0].ContribUAH, got.Marks[0].TargetUAH)
+	}
+
+	// Серія, перерахована зі смужки, дорівнює заявленій.
+	streak, best := 0, 0
+	for _, mk := range got.Marks {
+		if mk.Known && mk.Hit {
+			streak++
+			if streak > best {
+				best = streak
+			}
+			continue
+		}
+		streak = 0
+	}
+	if streak != got.Months {
+		t.Errorf("зі смужки серія %d, а заявлено %d", streak, got.Months)
+	}
+	if best != got.Best {
+		t.Errorf("зі смужки найдовша серія %d, а заявлено %d", best, got.Best)
+	}
+
+	// Поточний місяць у смужку не входить: він ще не закінчився.
+	for _, mk := range got.Marks {
+		if mk.Month == "2026-06" {
+			t.Error("поточний місяць потрапив у смужку")
 		}
 	}
 }

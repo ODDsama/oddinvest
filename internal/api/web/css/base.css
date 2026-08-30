@@ -1544,20 +1544,15 @@ td.num .sale-f { text-align: right; }
    знаменник, ніж у головного числа, — і не має важити стільки ж на око. */
 .progress.slim { height: var(--oi-gap-xs); }
 
-/* ---------- прогрес ---------- */
+/* ---------- шлях ---------- */
 
-/* Рівень і доріжки поруч: число ліворуч відповідає «скільки пройдено»,
-   доріжки праворуч — «чим саме воно набралось». Одне без одного читається
-   або як окуляри без джерела, або як три смуги без підсумку. */
-.lvl-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--oi-gap-xl);
-  align-items: center;
-  padding: var(--oi-gap-lg) 0;
-  border-top: var(--oi-rule) solid var(--oi-rule-hair);
-}
-.lvl { text-align: center; flex: 0 0 auto; }
+/* Доти тут стояв .lvl-row — сітка «рівень ліворуч, три доріжки
+   праворуч». Вона мала сенс, доки прогрес був одним блоком на «Огляді»:
+   число казало «скільки пройдено», доріжки поруч — «чим воно
+   набралось». На «Шляху» це різні сторінки («Віхи» й «Звичка»), тобто
+   пари, заради якої сітка існувала, більше немає, і лишати її означало
+   б тримати розкладку для складу, якого не буває. */
+.lvl { text-align: center; margin-bottom: var(--oi-gap-lg); }
 .lvl-n {
   font-family: var(--oi-font-mono);
   font-size: var(--oi-fs-level);
@@ -1622,6 +1617,90 @@ td.num .sale-f { text-align: right; }
   color: var(--oi-text-faint);
   white-space: nowrap;
 }
+
+/* Найближча віха. «Лишилось» — головне число блока, назва над ним
+   дрібніша: питання, з яким сюди заходять, звучить «скільки ще», а не
+   «як це зветься». */
+.mile-hero { padding-top: var(--oi-gap-sm); }
+.mile-t { font-size: var(--oi-fs-lg); font-weight: var(--oi-fw-medium); }
+.mile-l {
+  font-family: var(--oi-font-mono);
+  font-size: var(--oi-fs-xl);
+  color: var(--oi-accent);
+  margin-top: var(--oi-gap-xs);
+}
+.mile-a { display: inline-block; margin-top: var(--oi-gap); }
+
+/* Той самий факт одним рядком на «Огляді»: назва ліворуч, «лишилось»
+   праворуч моноширинним — так само, як стоять пари в доріжках. */
+.nx-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--oi-gap-sm);
+}
+.nx-t { font-size: var(--oi-fs); font-weight: var(--oi-fw-medium); }
+.nx-l { font-family: var(--oi-font-mono); font-size: var(--oi-fs-sm); color: var(--oi-accent); }
+
+/* Стрічка датованих віх. Дата моноширинна й окремою колонкою: рядки
+   читають згори вниз саме по ній, і в пропорційному шрифті вона гуляла
+   б по ширині від «2026-07-16» до «2026-11-01». */
+.tl { display: grid; gap: var(--oi-gap-sm); }
+.tl-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--oi-gap);
+  align-items: baseline;
+  padding-top: var(--oi-gap-sm);
+  border-top: var(--oi-rule) solid var(--oi-rule-hair);
+}
+.tl-row:first-child { border-top: 0; padding-top: 0; }
+.tl-d { font-family: var(--oi-font-mono); font-size: var(--oi-fs-xs); color: var(--oi-muted); }
+.tl-n { font-size: var(--oi-fs); font-weight: var(--oi-fw-medium); min-width: 0; }
+
+/* Смужка місяців.
+   ТРИ СТАНИ РОЗРІЗНЯЄ ФОРМА, А НЕ ЯСКРАВІСТЬ. «Повз» — порожня клітинка
+   зі суцільною рамкою, «невідомо» — з пунктирною. Приглушений відтінок
+   зеленого читався б як слабший зрив, тобто як докір за місяць, у якому
+   застосунок просто не дивився; довід повністю — у шапці
+   internal/api/state_progress.go.
+   Клітинки переносяться рядками (wrap): смужка росте на місяць щомісяця,
+   і горизонтальний скрол сторінки заради неї був би платою за те, що
+   стається саме собою. */
+.strip { display: flex; flex-wrap: wrap; gap: var(--oi-gap-xs); }
+.strip-c {
+  display: inline-block;
+  width: 18px;
+  height: 26px;
+  border-radius: var(--oi-radius-sm);
+  border: var(--oi-rule) solid var(--oi-border);
+}
+/* «Повз» власного класу не має: гола .strip-c і є пропущений місяць.
+   Клас, який нічого не малює, читався б як забуте правило. */
+.strip-c.hit { background: var(--oi-ok); border-color: var(--oi-ok); }
+.strip-c.unk { border-style: dashed; }
+/* Підписи країв: смужка може бути на два роки, і підписати кожну
+   клітинку означало б сірий рядок замість дат. Що саме в клітинці,
+   каже title. */
+.strip-x {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--oi-gap-xs);
+  font-size: var(--oi-fs-xs);
+  color: var(--oi-muted);
+}
+/* Легенда зроблена тими самими клітинками, що й смужка: другий опис
+   того самого розійшовся б із першим при першій же правці. */
+.strip-lg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--oi-gap-sm) var(--oi-gap-lg);
+  margin-top: var(--oi-gap-lg);
+  font-size: var(--oi-fs-xs);
+  color: var(--oi-muted);
+}
+.strip-lg > span { display: flex; align-items: center; gap: var(--oi-gap-xs); }
+.strip-lg .strip-c { width: 12px; height: 12px; }
 
 /* Поле колекції. Клітинка квадратна й без підпису: підписи стоять по
    краях, а сама сітка мусить читатись формою — де діра, видно з одного

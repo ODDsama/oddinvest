@@ -62,6 +62,12 @@ type progressDoc struct {
 	Level   int `json:"level"`
 	LevelOf int `json:"level_of"`
 
+	// NextKey — ключ найближчої віхи, а не її копія. Сама віха вже їде
+	// в Milestones, і другий її екземпляр у відповіді розійшовся б із
+	// першим при першій же правці. Порожньо означає «попереду немає
+	// нічого, до чого відома відстань» — див. pickNext.
+	NextKey string `json:"next_key,omitempty"`
+
 	Streak     streakDoc     `json:"streak"`
 	Discipline disciplineDoc `json:"discipline"`
 	Collection collectionDoc `json:"collection"`
@@ -85,6 +91,31 @@ type streakDoc struct {
 	KnownFrom      string `json:"known_from,omitempty"`
 	UnknownBefore  bool   `json:"unknown_before,omitempty"`
 	MonthsMeasured int    `json:"months_measured"`
+
+	// Marks — та сама серія, розкладена помісячно.
+	//
+	// Числа тут не нові: want і got усередині buildStreak рахувались і
+	// доти, просто згорталися в одне число й викидались. Смужка — це
+	// вони самі, і саме тому вона не може розійтись із Months.
+	Marks []streakMark `json:"marks,omitempty"`
+}
+
+// streakMark — один місяць смужки.
+//
+// Known і Hit — РІЗНІ ПИТАННЯ, і саме тому їх двоє. Known:false означає
+// «знімка з ціллю за той місяць немає, судити нічим», а Hit:false —
+// «ціль була, внеску не вистачило». Один прапорець змусив би малювати
+// власну сліпоту як зрив плану — рівно те, проти чого стоїть уся шапка
+// цього файлу.
+type streakMark struct {
+	Month string `json:"month"`
+	Known bool   `json:"known"`
+	Hit   bool   `json:"hit"`
+
+	// TargetUAH є лише у відомого місяця, ContribUAH — завжди: внесок
+	// береться з подій руху грошей і від знімків не залежить зовсім.
+	TargetUAH  float64 `json:"target_uah,omitempty"`
+	ContribUAH float64 `json:"contrib_uah,omitempty"`
 }
 
 // disciplineDoc — частка покупок, узятих із верхнього рядка помічника.
@@ -144,6 +175,19 @@ type milestone struct {
 	Earned   bool   `json:"earned"`
 	EarnedOn string `json:"earned_on,omitempty"`
 
+	// Left — СКІЛЬКИ ЛИШИЛОСЬ, готовою прозою і в одиницях самої віхи:
+	// «лишилось 24 636 ₴», «лишилось 4 місяці поспіль». Відсоток каже,
+	// наскільки далеко зайшов, і не каже, що зробити; гривні кажуть.
+	//
+	// Порожньо в зібраної віхи й у тієї, чий ProgressPct дорівнює
+	// progressNoProgress: коли міряти нічим, то й відстані немає, і
+	// написати сюди щось означало б вигадати її. Правило одне на всі
+	// віхи, винятків немає.
+	//
+	// Проза тут, а не в UI, з тієї ж причини, що й Note: споживачів у неї
+	// вже двоє — герой «Шляху» й рядок «Огляду».
+	Left string `json:"left,omitempty"`
+
 	// ProgressPct — скільки пройдено, коли це можна виміряти. -1 означає
 	// «виміряти нічим», і UI показує прочерк, а не нуль: у незібраної
 	// віхи нуль і невідомість читаються однаково, а означають різне.
@@ -184,6 +228,7 @@ func buildProgress(
 			out.Level++
 		}
 	}
+	out.NextKey = pickNext(out.Milestones)
 	return out
 }
 
@@ -239,6 +284,29 @@ func buildStreak(snaps []store.Snapshot, ev []flowEvent, today domain.Date) stre
 	// зарахувати його означало б святкувати наперед, а не зарахувати —
 	// обірвати серію першого ж числа.
 	nowMonth := monthOf(today)
+
+	// Смужка: СУЦІЛЬНИЙ ряд від першого відомого місяця до попереднього.
+	//
+	// Суцільний, а не «лише виміряні»: діра в знімках дає клітинку
+	// known:false, і саме вона показує розрив ЗНАННЯ. Стиснувши ряд до
+	// відомих місяців, ми поставили б поруч два місяці, між якими
+	// насправді лежить третій, — і серія на смужці читалась би довшою за
+	// ту, яку рахує цикл нижче.
+	//
+	// ВІКНА НЕМАЄ. Смужка віддається цілком, скільки її є: коротка й
+	// обрізана виглядають однаково, а означають різне.
+	//
+	// Поточного місяця в ній немає з того самого доводу, що й у серії, —
+	// він ще не закінчився.
+	for m := months[0]; m != "" && m < nowMonth; m = nextMonth(m) {
+		mk := streakMark{Month: m, Known: want[m] > 0, ContribUAH: float64(got[m]) / 100}
+		if mk.Known {
+			mk.TargetUAH = float64(want[m]) / 100
+			mk.Hit = got[m] >= want[m]
+		}
+		out.Marks = append(out.Marks, mk)
+	}
+
 	streak, best := 0, 0
 	prev := ""
 	for _, m := range months {
@@ -279,6 +347,22 @@ func isNextMonth(a, b string) bool {
 		return false
 	}
 	return ay*12+am+1 == by*12+bm
+}
+
+// nextMonth — місяць після «m» («2026-12» → «2027-01»). Своя, а не
+// isNextMonth: та відповідає на питання, а ця рухає лічильник.
+//
+// Порожньо, коли рядок не є місяцем: смужка тоді просто закінчується, а
+// не крутиться вічно.
+func nextMonth(m string) string {
+	var y, mo int
+	if _, err := fmt.Sscanf(m, "%d-%d", &y, &mo); err != nil {
+		return ""
+	}
+	if mo >= 12 {
+		return fmt.Sprintf("%04d-01", y+1)
+	}
+	return fmt.Sprintf("%04d-%02d", y, mo+1)
 }
 
 // ---------------------------------------------------------------------
@@ -350,6 +434,7 @@ func buildMilestones(
 	add(milestone{
 		Key: "first_bond", Title: "Перший папір",
 		Note:        noteOr(first != "", "куплено "+first, "ще не куплено жодного"),
+		Left:        noteOr(first != "", "", "лишилось купити перший"),
 		Earned:      first != "",
 		EarnedOn:    first,
 		ProgressPct: pctOf(first != ""),
@@ -369,6 +454,7 @@ func buildMilestones(
 			Note: noteOr(earned,
 				noteOr(when != "", "пройдено "+when, "пройдено до першого знімка"),
 				fmt.Sprintf("%s із %s", uah(cap0), uah(t.uah))),
+			Left:   noteOr(earned, "", "лишилось "+uah(t.uah-cap0)),
 			Earned: earned, EarnedOn: when,
 			ProgressPct: ratioPct(cap0, t.uah),
 		})
@@ -395,7 +481,9 @@ func buildMilestones(
 	kinds := kindsHeld(doc)
 	add(milestone{
 		Key: "four_kinds", Title: "Чотири види в портфелі",
-		Note:        fmt.Sprintf("%d із 4: %s", len(kinds), strings.Join(kinds, ", ")),
+		Note: fmt.Sprintf("%d із 4: %s", len(kinds), strings.Join(kinds, ", ")),
+		Left: noteOr(len(kinds) >= 4, "", fmt.Sprintf("лишилось %d %s", 4-len(kinds),
+			plural(4-len(kinds), "вид", "види", "видів"))),
 		Earned:      len(kinds) >= 4,
 		ProgressPct: ratioPct(float64(len(kinds)), 4),
 	})
@@ -416,6 +504,9 @@ func buildMilestones(
 		m.ProgressPct = ratioPct(r.Months, r.TargetMonths)
 		m.Note = fmt.Sprintf("%s з %s місяців витрат",
 			num1(r.Months), num1(r.TargetMonths))
+		if !m.Earned {
+			m.Left = "лишилось " + num1(r.TargetMonths-r.Months) + " місяця витрат"
+		}
 		return m
 	}())
 
@@ -431,6 +522,10 @@ func buildMilestones(
 		m.ProgressPct = ratioPct(float64(r.LadderRungs), float64(r.LadderRungsTarget))
 		m.Note = fmt.Sprintf("%d %s з %d", r.LadderRungs,
 			plural(r.LadderRungs, "сходинка", "сходинки", "сходинок"), r.LadderRungsTarget)
+		if n := r.LadderRungsTarget - r.LadderRungs; n > 0 {
+			m.Left = fmt.Sprintf("лишилось %d %s", n,
+				plural(n, "сходинка", "сходинки", "сходинок"))
+		}
 		return m
 	}())
 
@@ -456,6 +551,10 @@ func buildMilestones(
 		m.ProgressPct = ratioPct(float64(at), float64(total))
 		m.Note = fmt.Sprintf("%d %s із %d на цілі", at,
 			plural(at, "вимір", "виміри", "вимірів"), total)
+		if n := total - at; n > 0 {
+			m.Left = fmt.Sprintf("лишилось звести %d %s", n,
+				plural(n, "вимір", "виміри", "вимірів"))
+		}
 		return m
 	}())
 
@@ -479,6 +578,10 @@ func buildMilestones(
 		m.Earned = at == total
 		m.ProgressPct = ratioPct(float64(at), float64(total))
 		m.Note = fmt.Sprintf("%d з %d валютних вимірів на цілі", at, total)
+		if n := total - at; n > 0 {
+			m.Left = fmt.Sprintf("лишилось звести %d %s", n,
+				plural(n, "валютний вимір", "валютні виміри", "валютних вимірів"))
+		}
 		return m
 	}())
 
@@ -501,6 +604,7 @@ func buildMilestones(
 			m.Note = "усі частки в межах"
 		} else {
 			m.Note = fmt.Sprintf("зараз перевищено %d", over)
+			m.Left = fmt.Sprintf("перевищено %d — звести до межі", over)
 		}
 		return m
 	}())
@@ -522,10 +626,42 @@ func buildMilestones(
 		m.ProgressPct = ratioPct(doc.IncomeMonthlyNow, need)
 		m.Note = fmt.Sprintf("%s на місяць із %s — це чверть витрат",
 			uah(doc.IncomeMonthlyNow), uah(need))
+		if !m.Earned {
+			m.Left = "лишилось " + uah(need-doc.IncomeMonthlyNow) + " доходу на місяць"
+		}
 		return m
 	}())
 
 	return out
+}
+
+// pickNext — найближча ВИМІРНА незібрана віха.
+//
+// «Вимірна» — це і є фільтр «реальна». У віхи з progressNoProgress
+// відстані немає взагалі («порівнювати ще нема з чим», «ціль резерву не
+// задана»), і назвати таку найближчою означало б пообіцяти, що до неї
+// недалеко, не знаючи цього.
+//
+// Рівність відсотків розв'язується ПОРЯДКОМ ОГОЛОШЕННЯ. Порядок у
+// buildMilestones тематичний і сталий, тож вибір відтворюваний: дві віхи
+// на однаковому відсотку не міняються місцями від перезавантаження.
+//
+// ЦІНА НАЗВАНА. Двійкова віха («Жодного перевищеного ліміту») має лише 0
+// або 100, тож спливе сюди тільки тоді, коли решта незібраних стоїть на
+// нулі. Це не хиба ранжування: перевищений ліміт уже стоїть у черзі
+// рішень окремим рядком, і показати його ще й тут як «майже зібрано»
+// було б гірше, ніж не показати зовсім.
+func pickNext(ms []milestone) string {
+	key, best := "", progressNoProgress
+	for _, m := range ms {
+		if m.Earned || m.ProgressPct < 0 {
+			continue
+		}
+		if m.ProgressPct > best {
+			key, best = m.Key, m.ProgressPct
+		}
+	}
+	return key
 }
 
 // streakMilestone — віха «N місяців поспіль». Береться з НАЙКРАЩОЇ серії,
@@ -539,9 +675,16 @@ func streakMilestone(key, title string, need int, st streakDoc) milestone {
 		Note: fmt.Sprintf("найдовша серія — %d %s з %d потрібних",
 			st.Best, plural(st.Best, "місяць", "місяці", "місяців"), need),
 	}
+	if n := need - st.Best; n > 0 {
+		m.Left = fmt.Sprintf("лишилось %d %s поспіль", n,
+			plural(n, "місяць", "місяці", "місяців"))
+	}
 	if st.MonthsMeasured == 0 {
 		m.ProgressPct = progressNoProgress
 		m.Note = "місяців, які можна судити, ще немає"
+		// Міряти нічим — отже, й відстані немає: те саме правило, що
+		// записане при milestone.Left.
+		m.Left = ""
 	}
 	return m
 }

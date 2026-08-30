@@ -4,20 +4,29 @@
 // вибрати, — вона про портфель ЦІЛКОМ.
 //
 // ПОРЯДОК БЛОКІВ ВЕДЕ ПИТАННЯМ, А НЕ РОЗМІРОМ ЧИСЕЛ. Спершу скільки в
-// мене, далі що потребує рішення, і аж тоді контекст: прогрес, місяць,
-// що заходить, де розриви. Черга стоїть ВИЩЕ за плитки місяця навмисно:
-// сторінка зветься «Огляд», але заходять на неї з питанням «що робити».
+// мене, далі що потребує рішення, і аж тоді контекст: найближча віха,
+// місяць, що заходить, де розриви. Черга стоїть ВИЩЕ за плитки місяця
+// навмисно: сторінка зветься «Огляд», але заходять на неї з питанням
+// «що робити».
 //
 // ЖОДНОГО ВЛАСНОГО ЧИСЛА. Кожен блок або бере готове зі зведення, або
 // кличе ту саму функцію, що малює це число на своїй вкладці: плитка
 // місяця — monthTile з «Роботи», валютні розриви — rebalanceCard із
-// «Портфеля». Друга копія будь-якого з них розійшлася б із першою тихо.
+// «Портфеля», найближча віха — nextLineHTML із «Шляху». Друга копія
+// будь-якого з них розійшлася б із першою тихо.
+//
+// ПРОГРЕСУ ТУТ БІЛЬШЕ НЕМАЄ, і від нього лишився один рядок. Сітка з
+// чотирнадцяти віх стояла тут суцільним блоком і була картою без
+// напрямку: жодна віха не названа найближчою, жодне число не каже,
+// скільки лишилось. Вона переїхала на власну вкладку «Шлях» цілком —
+// разом із доріжками, полем колекції та стрічкою датованих віх.
 
 import { esc, uah0, pct, capitalUAH, outsideUAH, uah2 as fmtUAH, curSym } from "../format.js";
-import { tile, empty, progressBar } from "../components.js";
+import { tile, empty } from "../components.js";
 import { routeFor } from "../routes.js";
 import { tasksOf, tasksHTML } from "./tasks.js";
 import { monthTile } from "./now-view.js";
+import { nextLineHTML } from "./path.js";
 import { rebalanceCard } from "./risk.js";
 
 /** Головне число й три поруч.
@@ -70,147 +79,6 @@ function queuesHTML(ctx) {
     list.length ? tasksHTML(ctx, list) : `<div class="sub">${esc(none)}</div>`}</div>`;
   return block("Потребує рішення зараз", now, "Зараз нічого не чекає рішення.")
     + block("Скоро · 30 днів", soon, "У найближчі тридцять днів строків немає.");
-}
-
-// ---------------------------------------------------------------------
-// Прогрес
-// ---------------------------------------------------------------------
-
-/** Блок прогресу.
- *
- *  МЕЖА, ЯКА РОБИТЬ ЦЕ ПРИЙНЯТНИМ: кожне число тут виміряне, жодне не
- *  нараховане. Прибери гру — числа лишаться ті самі, просто читатимуться
- *  гірше. Повний довід і те, чого тут навмисно немає (очок за
- *  активність, докору за розрив серії, порівняння з чужими портфелями),
- *  записано в internal/api/state_progress.go: рахує все бекенд, і
- *  фронтенд не знає навіть, як складається рівень.
- *
- *  Порожній p означає, що маршрут не відповів. Блок тоді не малюється
- *  зовсім: половина прогресу гірша за його відсутність. */
-function progressHTML(p) {
-  if (!p || !p.milestones || !p.milestones.length) return "";
-  const earned = p.milestones.filter((m) => m.earned);
-  // Банер бере ОСТАННЮ ДАТОВАНУ віху. Недатовані в нього не потрапляють
-  // ніколи, і це названо в state_progress.go при milestone.EarnedOn: у
-  // частини віх дати немає ніде, і вигадувати її заради святкування —
-  // рівно те, чого цей блок не робить.
-  // Дата в банері не повторюється: вона вже всередині note («куплено
-  // 2026-01-15»), і другий раз поруч читався б як дві різні дати.
-  const dated = earned.filter((m) => m.earned_on)
-    .sort((a, b) => (a.earned_on < b.earned_on ? 1 : -1));
-  const last = dated[0];
-
-  return `<div class="card">
-    <h2 class="card-head"><span>Прогрес</span>
-      <span class="sub-xs">${p.level} із ${p.level_of}</span></h2>
-    ${last ? `<div class="banner ok"><div class="b-ic" aria-hidden="true">✓</div>
-      <div class="b-tx"><div class="b-t">${esc(last.title)}</div>
-      <div class="b-s">${esc(last.note)}</div></div></div>` : ""}
-    <div class="lvl-row">
-      <div class="lvl">
-        <div class="lvl-n">${p.level}</div>
-        <div class="lvl-l">віх зібрано з ${p.level_of}</div>
-      </div>
-      <div class="tracks">${tracksHTML(p)}</div>
-    </div>
-    ${badgesHTML(p.milestones)}
-    ${matrixHTML(p.collection)}
-  </div>`;
-}
-
-/** Три доріжки. Кожна показує СВОЄ джерело, і в кожної є стан «міряти
- *  нічим» — окремий від нуля. */
-function tracksHTML(p) {
-  const d = p.discipline || {};
-  const st = p.streak || {};
-  const c = p.collection || {};
-  const track = (name, value, note, fill, color) => `<div class="track">
-    <div class="track-h"><span class="track-n">${esc(name)}</span>
-      <span class="track-v">${esc(value)}</span></div>
-    ${fill === null ? "" : progressBar(fill, { color })}
-    <div class="sub-xs">${esc(note)}</div>
-  </div>`;
-
-  // Дисципліна: доки журнал закороткий, відсотка немає взагалі. Один
-  // вдалий вибір з одного — це 100%, і показувати таке означає обіцяти
-  // точність, якої немає; поріг той самий, що й у самому журналі.
-  const disc = d.enough && d.total > 0
-    ? track("Дисципліна", `${d.top_row} з ${d.total}`,
-      "покупок узято з верхнього рядка помічника",
-      d.top_row / d.total * 100, "var(--oi-ok)")
-    : track("Дисципліна", "—",
-      "журнал рішень ще закороткий, щоб із нього щось читати", null);
-
-  // Постійність. Розрив показаний фактом рівно один раз і не оцінений
-  // нічим — довід у state_progress.go.
-  const streakNote = [
-    st.best ? `найдовша — ${st.best}` : "",
-    st.broken_on ? `серія почалась заново з ${st.broken_on}` : "",
-    st.unknown_before || !st.months_measured
-      ? "раніше судити нічим — знімків за ті місяці немає" : "",
-  ].filter(Boolean).join(" · ");
-  const cons = st.months_measured
-    ? track("Постійність", `${st.months} ${plural(st.months)}`,
-      streakNote || "місяців поспіль за планом", null)
-    : track("Постійність", "—", streakNote, null);
-
-  const coll = c.of
-    ? track("Колекція", `${c.filled} / ${c.of}`,
-      "клітинок поля «роки погашень × валюти»",
-      c.filled / c.of * 100, "var(--oi-kind-fund)")
-    : track("Колекція", "—", "драбини погашень ще немає", null);
-
-  return disc + cons + coll;
-}
-
-// Місяць українською. Своя, бо format.js:plural просить три форми, а тут
-// потрібна рівно одна пара слів і жодного числа перед ними.
-function plural(n) {
-  const t = Math.abs(n) % 100;
-  if (t >= 11 && t <= 14) return "місяців";
-  const o = t % 10;
-  if (o === 1) return "місяць";
-  if (o >= 2 && o <= 4) return "місяці";
-  return "місяців";
-}
-
-/** Сітка віх: зібрані й замкнені разом.
- *
- *  Замкнені показані НЕ як докір, а як карта: у кожної стоїть її власне
- *  число («3,0 з 5,0 місяців витрат»), тобто видно не «ти не зміг», а
- *  «стільки лишилось і чим це міряється». */
-function badgesHTML(list) {
-  return `<h3 class="mt-lg">Віхи</h3>
-    <div class="badges">${list.map((m) => `
-      <div class="badge${m.earned ? " on" : ""}">
-        <span class="badge-i" aria-hidden="true">${m.earned ? "✓" : "○"}</span>
-        <span class="badge-t">
-          <span class="badge-n">${esc(m.title)}</span>
-          <span class="badge-s">${esc(m.note)}</span>
-        </span>
-        ${!m.earned && m.progress_pct >= 0
-    ? `<span class="badge-p">${m.progress_pct}%</span>` : ""}
-      </div>`).join("")}</div>`;
-}
-
-/** Поле колекції: роки погашень × валюти.
- *
- *  Підпис під полем — з бекенда, а не звідси: він пояснює, чому
- *  заповнене поле НЕ є ціллю саме по собі, і це та сама проза, яку мусив
- *  би побачити другий споживач, якби він з'явився. */
-function matrixHTML(c) {
-  if (!c || !c.rows || !c.rows.length) return "";
-  return `<h3 class="mt-lg">Поле колекції</h3>
-    <div class="matrix" role="presentation">
-      <div class="mx-row mx-head"><span></span>${c.currencies
-    .map((x) => `<span class="mx-c">${esc(x)}</span>`).join("")}</div>
-      ${c.rows.map((r) => `<div class="mx-row">
-        <span class="mx-y">${r.year}</span>
-        ${r.cells.map((on, i) => `<span class="mx-cell${on ? " on" : ""}"
-          title="${r.year} · ${esc(c.currencies[i])}"></span>`).join("")}
-      </div>`).join("")}
-    </div>
-    <div class="sub">${esc(c.note)}</div>`;
 }
 
 // ---------------------------------------------------------------------
@@ -282,7 +150,7 @@ export async function overview(ctx, main) {
   main.innerHTML = `
     ${heroHTML(ctx)}
     ${queuesHTML(ctx)}
-    ${progressHTML(progress)}
+    ${nextLineHTML(progress)}
     <div class="card"><h2>Цей місяць</h2>
       <div class="tiles flush">${monthTile(ctx, s)}</div></div>
     ${routePreviewHTML(route && (route.rows || route))}

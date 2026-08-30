@@ -334,6 +334,14 @@ export function footValue(tabKey, ctx, rows) {
   if (tabKey === "plan") {
     return s.plan_provides_uah ? `${uah0(s.plan_provides_uah)}/міс` : "—";
   }
+  if (tabKey === "path") {
+    // Рівень, а не кількість рядків. Без цієї гілки підвал упав би в
+    // rows.length і сказав під написом «Зібрано» число «4» — рівно та
+    // мовчазна неправда, проти якої написаний абзац про over_limit
+    // нижче. Прочерк, коли прогрес не приїхав: половини тут не буває.
+    const p = ctx.progress;
+    return p ? `${p.level} із ${p.level_of}` : "—";
+  }
   if (tabKey === "policy") {
     // Доти тут стояло rebalance[].over_limit — поля, якого в документі
     // стану НЕМАЄ. Фільтр мовчки давав порожній список, і підвал завжди

@@ -58,6 +58,7 @@ const SHAPES = {
   portfolio: () => tiles(4) + card(4),
   money: () => tiles(5) + card(5),
   plan: () => card(2) + card(4) + table(4),
+  path: () => card(3) + card(6),
   policy: () => card(4) + card(5),
   settings: () => card(3) + card(6),
 
