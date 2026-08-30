@@ -376,3 +376,141 @@ func linesTotal(lines []allocLine) float64 {
 	}
 	return sum
 }
+
+// --- поріг призначення ---
+
+// npfSug — порада «внести в пенсійний». Ціни кроку в неї немає й бути не
+// може: фонд приймає будь-яку суму, а поріг у ній — від людини (allocMinCutUAH).
+func npfSug(name string) suggestion {
+	return suggestion{
+		Kind: "npf", Label: name, Currency: money.UAH,
+		CostPerBond: toMoneyJSON(money.New(0, money.UAH)),
+	}
+}
+
+var npfOne = map[string]int64{"Династія": 1}
+
+// Внесок нижче порога рядком не стає, а гроші лишаються в залишку.
+//
+// Доки порога не було, застосунок радив віднести в пенсійний двадцять шість
+// копійок — і в шістнадцяти ногах маршруту з сорока семи це була його ЄДИНА
+// порада.
+func TestAllocateNPFBelowFloorSkipped(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("npf", 100, 0)}, nil)
+	got := allocatePlan(doc, []suggestion{npfSug("Династія")},
+		allocRates, toMoneyJSON(money.New(400, money.UAH)), 4,
+		allocAllow{ReserveUAH: 4, GoalsUAH: 4}, money.UAH, npfOne)
+
+	if len(got.Lines) != 0 {
+		t.Fatalf("рядок нижче порога: %+v", got.Lines)
+	}
+	if got.RestUAH != 4 {
+		t.Errorf("залишок %.2f, чекали всі 4 — гроші не гинуть", got.RestUAH)
+	}
+	// Причина мусить назвати поріг і рахунок: «інструментів із відомою ціною
+	// немає» тут було б неправдою про наявний пенсійний.
+	if !strings.Contains(got.RestWhy, "Династія") ||
+		!strings.Contains(got.RestWhy, uah(allocMinCutUAH)) {
+		t.Errorf("причина залишку не називає порога й рахунку: %q", got.RestWhy)
+	}
+}
+
+// Рівно поріг проходить: межа включна, інакше «менше за 10» і «10» читались
+// би однаково.
+func TestAllocateNPFAtFloorTaken(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("npf", 100, 0)}, nil)
+	got := allocatePlan(doc, []suggestion{npfSug("Династія")},
+		allocRates, toMoneyJSON(money.New(1000, money.UAH)), allocMinCutUAH,
+		allocAllow{ReserveUAH: allocMinCutUAH, GoalsUAH: allocMinCutUAH},
+		money.UAH, npfOne)
+
+	if len(got.Lines) != 1 {
+		t.Fatalf("рядків %d, чекали 1 — рівно поріг проходить: %+v", len(got.Lines), got)
+	}
+	if got.Lines[0].TotalUAH != allocMinCutUAH {
+		t.Errorf("сума рядка %.2f, чекали %d", got.Lines[0].TotalUAH, allocMinCutUAH)
+	}
+}
+
+// Вирізка подушки нижче порога не робиться, а гроші лишаються доступними
+// паперам цієї ж ноги.
+func TestAllocateReserveBelowFloorSkippedButMoneyStays(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
+		&state.Reserve{FillNowUAH: 3, FillMonthUAH: 3, GapUAH: 50000})
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400,
+		allocAllow{ReserveUAH: 3400, GoalsUAH: 3400}, money.UAH, nil)
+
+	if got.Reserve != nil {
+		t.Fatalf("вирізка нижче порога: %+v", got.Reserve)
+	}
+	if got.AvailUAH != 3400 {
+		t.Errorf("доступно %.2f, чекали всі 3400 — пропущена вирізка нікуди не поділась",
+			got.AvailUAH)
+	}
+	// Причина саме порогова: політика й дозвіл тут ні при чому, і послати
+	// людину в «Політику» означало б збрехати про місце поломки.
+	if got.ReserveSkipWhy == "" {
+		t.Fatal("зникла вирізка без причини читається як поломка")
+	}
+	if strings.Contains(got.ReserveSkipWhy, "політикою") ||
+		strings.Contains(got.ReserveSkipWhy, "позначене") {
+		t.Errorf("причина вказує не туди: %q", got.ReserveSkipWhy)
+	}
+}
+
+// Виняток із порога: вирізка, якої досить, щоб розрив ЗНИК, робиться попри
+// поріг. Інакше остання пʼятірка гривень до цілі не закрилась би ніколи.
+func TestAllocateReserveBelowFloorClosesGap(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
+		&state.Reserve{FillNowUAH: 4, FillMonthUAH: 4, GapUAH: 4})
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400,
+		allocAllow{ReserveUAH: 3400, GoalsUAH: 3400}, money.UAH, nil)
+
+	if got.Reserve == nil || got.Reserve.AmountUAH != 4 {
+		t.Fatalf("розрив не закрився: %+v", got.Reserve)
+	}
+}
+
+// Те саме дзеркально для цілі накопичення.
+func TestAllocateGoalBelowFloorClosesGap(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
+	doc.Goals = []state.Goal{
+		{ID: 1, Name: "майже зібрана", FillNowUAH: 4, FillMonthUAH: 4, GapUAH: 4},
+		{ID: 2, Name: "далека", FillNowUAH: 6, FillMonthUAH: 6, GapUAH: 50000},
+	}
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400,
+		allocAllow{ReserveUAH: 3400, GoalsUAH: 3400}, money.UAH, nil)
+
+	if len(got.Goals) != 1 || got.Goals[0].ID != 1 {
+		t.Fatalf("цілі взяли не те: %+v", got.Goals)
+	}
+	if got.GoalsSkipWhy == "" {
+		t.Error("друга ціль мовчки не взяла своїх шести гривень")
+	}
+}
+
+// Політика вріже частину, а решта не дотягує до порога — обидві причини
+// мусять бути названі. Одна замість двох повела б у настройку, яка не
+// пояснює всього.
+func TestAllocateFloorReasonsDoNotCollide(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
+		&state.Reserve{FillNowUAH: 3000, FillMonthUAH: 3000, GapUAH: 50000})
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400,
+		// Дозволено лише пʼять гривень: решту ріже політика, а й ці пʼять
+		// не дотягують до порога.
+		allocAllow{ReserveUAH: 5, GoalsUAH: 3400}, money.UAH, nil)
+
+	if got.Reserve != nil {
+		t.Fatalf("вирізка нижче порога: %+v", got.Reserve)
+	}
+	if !strings.Contains(got.ReserveSkipWhy, "політикою") {
+		t.Errorf("причина мовчить про політику: %q", got.ReserveSkipWhy)
+	}
+	if !strings.Contains(got.ReserveSkipWhy, uah(allocMinCutUAH)) {
+		t.Errorf("причина мовчить про поріг: %q", got.ReserveSkipWhy)
+	}
+}

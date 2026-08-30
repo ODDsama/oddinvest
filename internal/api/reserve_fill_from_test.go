@@ -3,12 +3,14 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -240,12 +242,15 @@ func planFlow(id int64, name, from string, amountMajor float64) store.PlanFlow {
 	}
 }
 
-// Планова нога є, датована днем НАЙПІЗНІШОГО доходу місяця й підписана
-// планом.
+// Планових ніг стільки, скільки потоків платить, і кожна датована СВОЇМ
+// днем.
 //
-// День саме найпізніший: раніше за нього місячна сума ще неповна, і
-// поставити її першим числом означало б обіцяти гроші, яких того дня немає.
-func TestPlanAheadLegIsDatedAndNamed(t *testing.T) {
+// Раніше тут стояла одна нога на місяць, датована днем найпізнішого доходу.
+// Ціна була видна на живих даних: чотири надходження ставали одним рядком,
+// три з них на екрані не існували, а четверте показувалось учетверо більшим
+// за себе. Тепер ділиться те саме PlanUAH, у частках чистого внеску кожного
+// потоку, — і сума ніг місяця лишається тим самим числом.
+func TestPlanAheadSplitsMonthAcrossFlows(t *testing.T) {
 	src := &sources{planFlows: []store.PlanFlow{
 		planFlow(1, "аванс", "2026-01-05", 15000),
 		planFlow(2, "зарплата", "2026-01-17", 25000),
@@ -253,15 +258,27 @@ func TestPlanAheadLegIsDatedAndNamed(t *testing.T) {
 	flows := planAhead(src, routePlans(30000), routeToday, 2)
 
 	// Місяць 0 (серпень) не рахується: обидва дні вже минули, а LeftUAH у
-	// routePlans нульовий.
-	if len(flows) != 2 {
-		t.Fatalf("ніг %d, чекали 2 (вересень і жовтень): %+v", len(flows), flows)
+	// routePlans нульовий. Далі два місяці по дві ноги.
+	if len(flows) != 4 {
+		t.Fatalf("ніг %d, чекали 4 (два місяці по два потоки): %+v", len(flows), flows)
 	}
-	if flows[0].Date != domain.Date("2026-09-17") {
-		t.Errorf("дата %q, чекали 2026-09-17 — день найпізнішого доходу місяця", flows[0].Date)
+	want := []struct {
+		date   string
+		label  string
+		amount int64
+	}{
+		// 30 000 ₴ місяця в частках 15 000 : 25 000.
+		{"2026-09-05", "аванс", 1125000},
+		{"2026-09-17", "зарплата", 1875000},
+		{"2026-10-05", "аванс", 1125000},
+		{"2026-10-17", "зарплата", 1875000},
 	}
-	if flows[0].Amount != 3000000 {
-		t.Errorf("сума %d, чекали 3000000 — PlanUAH місяця", flows[0].Amount)
+	for i, w := range want {
+		if got := flows[i]; string(got.Date) != w.date || got.Label != w.label ||
+			got.Amount != w.amount {
+			t.Errorf("нога %d: %s %q %d, чекали %s %q %d",
+				i, got.Date, got.Label, got.Amount, w.date, w.label, w.amount)
+		}
 	}
 	if flows[0].Basis != basisPlan {
 		t.Errorf("основа %q, чекали %q", flows[0].Basis, basisPlan)
@@ -269,6 +286,213 @@ func TestPlanAheadLegIsDatedAndNamed(t *testing.T) {
 	if flows[0].Ref != "" || flows[0].Kind != "" || flows[0].Principal != 0 {
 		t.Errorf("планова нога несе зайве: ref=%q kind=%q principal=%d",
 			flows[0].Ref, flows[0].Kind, flows[0].Principal)
+	}
+}
+
+// Сума ніг місяця дорівнює його плану ДО КОПІЙКИ — і це не косметика.
+//
+// Від того самого PlanUAH рахується стеля подушки й ділиться місяць між
+// видами. Розійшовшись тут на копійку, маршрут почав би обіцяти інші гроші,
+// ніж ті, з яких порахована стеля, і побачити це можна було б лише на
+// незручних сумах — тобто пізно.
+func TestPlanAheadSumEqualsMonthPlan(t *testing.T) {
+	src := &sources{planFlows: []store.PlanFlow{
+		planFlow(1, "перша", "2026-01-03", 3333.33),
+		planFlow(2, "друга", "2026-01-11", 3333.33),
+		planFlow(3, "третя", "2026-01-19", 3333.34),
+	}}
+	const planUAH = 10000.01
+	flows := planAhead(src, routePlans(planUAH), routeToday, 12)
+	if len(flows) == 0 {
+		t.Fatal("ніг немає")
+	}
+	byMonth := map[string]int64{}
+	for _, f := range flows {
+		byMonth[string(f.Date)[:7]] += f.Amount
+	}
+	if len(byMonth) != 12 {
+		t.Fatalf("місяців %d, чекали 12", len(byMonth))
+	}
+	for month, sum := range byMonth {
+		if sum != 1000001 {
+			t.Errorf("%s: сума ніг %d, чекали 1000001 — план місяця", month, sum)
+		}
+	}
+}
+
+// Поділ зберігає підсумок за будь-яких ваг, і робить це однаково від запуску
+// до запуску.
+func TestSplitByWeightsConservesTotal(t *testing.T) {
+	cases := []struct {
+		name  string
+		total int64
+		w     []float64
+	}{
+		{"один", 1000001, []float64{1}},
+		{"порівну", 1000001, []float64{1, 1}},
+		{"чотири", 999997, []float64{1, 1, 1, 1}},
+		{"сім різних", 123457, []float64{3, 1, 4, 1, 5, 9, 2}},
+		{"з нульовими", 100000, []float64{0, 5, 0, 5}},
+		{"домінантна", 100003, []float64{999999, 1}},
+		{"усі нульові", 100000, []float64{0, 0}},
+		{"нульовий підсумок", 0, []float64{1, 2}},
+	}
+	for _, c := range cases {
+		first := splitByWeights(c.total, c.w)
+		var sum int64
+		for i, v := range first {
+			if v < 0 {
+				t.Errorf("%s: відʼємна частка %d", c.name, v)
+			}
+			if c.w[i] <= 0 && v != 0 {
+				t.Errorf("%s: нульова вага взяла %d", c.name, v)
+			}
+			sum += v
+		}
+		want := c.total
+		if c.name == "усі нульові" {
+			// Ділити нема між ким — беззмістовний поділ віддає нулі, а не
+			// вигадує собі отримувача.
+			want = 0
+		}
+		if sum != want {
+			t.Errorf("%s: сума часток %d, чекали %d (%v)", c.name, sum, want, first)
+		}
+		for range 8 {
+			if got := splitByWeights(c.total, c.w); !slices.Equal(got, first) {
+				t.Fatalf("%s: два запуски дали різне: %v проти %v", c.name, got, first)
+			}
+		}
+	}
+}
+
+// Потік із нульовою часткою в портфель ноги не дістає.
+//
+// Саме цей випадок і вирішує, що вага чиста, а не валова: валова віддала б
+// цьому потокові шматок PlanUAH, у який він не додав нічого.
+func TestPlanAheadZeroShareFlowTakesNothing(t *testing.T) {
+	zero := planFlow(2, "бонус", "2026-01-20", 50000)
+	zero.InvestBP = 0
+	src := &sources{planFlows: []store.PlanFlow{
+		planFlow(1, "зарплата", "2026-01-10", 30000),
+		zero,
+	}}
+	flows := planAhead(src, routePlans(30000), routeToday, 1)
+	if len(flows) != 1 {
+		t.Fatalf("ніг %d, чекали 1: %+v", len(flows), flows)
+	}
+	if flows[0].Label != "зарплата" || flows[0].Amount != 3000000 {
+		t.Errorf("нога %q на %d, чекали зарплату на весь план місяця",
+			flows[0].Label, flows[0].Amount)
+	}
+}
+
+// Поточний місяць пропускає те, що вже минуло й уже відмічене, а весь
+// залишок віддає тим дням, які ще попереду.
+func TestPlanAheadCurrentMonthSkipsPastAndMarked(t *testing.T) {
+	today := domain.Date("2026-08-16")
+	src := &sources{planFlows: []store.PlanFlow{
+		planFlow(1, "аванс А", "2026-01-01", 10000),
+		planFlow(2, "аванс Б", "2026-01-07", 10000),
+		planFlow(3, "зарплата А", "2026-01-15", 10000),
+		planFlow(4, "зарплата Б", "2026-01-21", 10000),
+	}}
+	key := monthKeyAt(today, 0)
+	plans := map[string]*state.MonthPlan{key: {
+		Month: key, PlanUAH: 40000, PlanReserveUAH: 40000,
+		PlanGoalsUAH: 40000, LeftUAH: 12345.67,
+	}}
+
+	flows := planAhead(src, plans, today, 0)
+	if len(flows) != 1 {
+		t.Fatalf("ніг %d, чекали 1 (лишився тільки 21-й день): %+v", len(flows), flows)
+	}
+	if flows[0].Label != "зарплата Б" || string(flows[0].Date) != "2026-08-21" {
+		t.Errorf("нога %q на %s, чекали «зарплата Б» на 2026-08-21",
+			flows[0].Label, flows[0].Date)
+	}
+	if flows[0].Amount != 1234567 {
+		t.Errorf("сума %d, чекали 1234567 — весь залишок місяця", flows[0].Amount)
+	}
+}
+
+// Валютний потік важить своїм гривневим еквівалентом — тим самим, яким він
+// увійшов у план місяця.
+func TestPlanAheadForeignFlowUsesRates(t *testing.T) {
+	usd := planFlow(2, "валютна", "2026-01-20", 1000)
+	usd.Currency = money.USD
+	src := &sources{
+		planFlows: []store.PlanFlow{planFlow(1, "гривнева", "2026-01-10", 10000), usd},
+		rates:     fx.Rates{money.USD: 400000}, // 40,0000 ₴/$
+	}
+	flows := planAhead(src, routePlans(50000), routeToday, 1)
+	if len(flows) != 2 {
+		t.Fatalf("ніг %d, чекали 2: %+v", len(flows), flows)
+	}
+	// 10 000 ₴ проти 40 000 ₴ — частки 1:4 від 50 000 ₴.
+	if flows[0].Amount != 1000000 || flows[1].Amount != 4000000 {
+		t.Errorf("частки %d і %d, чекали 1000000 і 4000000",
+			flows[0].Amount, flows[1].Amount)
+	}
+}
+
+// Нога несе ДОЗВІЛ СВОГО ПОТОКУ, і розкладка його читає.
+//
+// Це той самий аргумент, що заступив у route.go відмову «дозвіл джерела сюди
+// не передається»: відколи нога дорівнює потокові, ділити дозвіл нема чого.
+func TestRoutePlanLegCarriesItsOwnUses(t *testing.T) {
+	onlyInvest := planFlow(1, "лише в папери", "2026-01-05", 20000)
+	onlyInvest.Uses = "invest"
+	src := &sources{planFlows: []store.PlanFlow{
+		onlyInvest,
+		planFlow(2, "будь-куди", "2026-01-17", 20000),
+	}}
+	flows := planAhead(src, routePlans(40000), routeToday, 1)
+	if len(flows) != 2 {
+		t.Fatalf("ніг %d, чекали 2: %+v", len(flows), flows)
+	}
+	if flows[0].Uses != "invest" || flows[1].Uses != "" {
+		t.Fatalf("дозволи %q і %q, чекали invest і порожній", flows[0].Uses, flows[1].Uses)
+	}
+
+	doc := routeReserveDoc("any")
+	inc := incomeAhead{store.BrokerCur{Broker: noBrokerLabel, Currency: money.UAH}: flows}
+	got := buildRoute(doc, nil, inc, routePlans(40000), allocRates, nil, routeToday)
+	if len(got.Legs) != 2 {
+		t.Fatalf("ніг маршруту %d, чекали 2", len(got.Legs))
+	}
+	if got.Legs[0].Reserve != nil {
+		t.Errorf("подушка взяла з ноги, якій це заборонено: %+v", got.Legs[0].Reserve)
+	}
+	if !strings.Contains(got.Legs[0].ReserveSkipWhy, "надходження") {
+		t.Errorf("причина не вказує на саме надходження: %q", got.Legs[0].ReserveSkipWhy)
+	}
+	if got.Legs[1].Reserve == nil || got.Legs[1].Reserve.AmountUAH <= 0 {
+		t.Errorf("подушка мовчить на нозі, якій це дозволено: %+v", got.Legs[1].Reserve)
+	}
+}
+
+// Два потоки з однаковою назвою й одним днем не міняються місцями між
+// запусками: сортування стабільне, а зводити їх не можна — дозволи різні.
+func TestPlanAheadLegsAreDeterministic(t *testing.T) {
+	a := planFlow(1, "зарплата", "2026-01-10", 10000)
+	a.Uses = "invest"
+	b := planFlow(2, "зарплата", "2026-01-10", 30000)
+	src := &sources{planFlows: []store.PlanFlow{a, b}}
+
+	first := planAhead(src, routePlans(40000), routeToday, 3)
+	if len(first) == 0 {
+		t.Fatal("ніг немає")
+	}
+	for range 8 {
+		got := planAhead(src, routePlans(40000), routeToday, 3)
+		if !slices.Equal(got, first) {
+			t.Fatalf("два запуски дали різне:\n%+v\n%+v", got, first)
+		}
+	}
+	if first[0].Uses != "invest" {
+		t.Errorf("перша нога має дозвіл %q, чекали invest — порядок поплив",
+			first[0].Uses)
 	}
 }
 

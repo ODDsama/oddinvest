@@ -102,6 +102,41 @@ func TestRouteFirstLegEqualsAllocate(t *testing.T) {
 	}
 }
 
+// Той самий інваріант на осі ПОРОГА: нога, у якій поріг спрацював, і далі
+// дорівнює розкладці на ту саму суму.
+//
+// Окремим тестом, а не рядком у попередньому: поріг — це нове місце, де
+// відповідь може розійтись, і фікстура тут навмисне така, що його зачіпає
+// (внесок у пенсійний на чотири гривні), тоді як головна фікстура від нього
+// далеко.
+func TestAllocateFloorKeepsFirstLegEqualToAllocate(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("npf", 100, 0)}, nil)
+	doc.Settings = routeSettings(10000, 6, 40)
+	sug := []suggestion{npfSug("Династія")}
+
+	got := buildRoute(doc, sug,
+		routeInc("mono", money.UAH, routeFlow("2026-08-28", 4, "UA0001")),
+		routePlans(30000), allocRates, npfOne, routeToday)
+
+	if len(got.Legs) != 1 {
+		t.Fatalf("ніг %d, чекали 1: %+v", len(got.Legs), got)
+	}
+	if len(got.Legs[0].Lines) != 0 {
+		t.Fatalf("поріг не спрацював — фікстура його більше не зачіпає: %+v",
+			got.Legs[0].Lines)
+	}
+	want := allocatePlan(doc, sug, allocRates,
+		toMoneyJSON(money.New(400, money.UAH)), 4,
+		allocAllow{ReserveUAH: 4, GoalsUAH: 4}, money.UAH, npfOne)
+
+	gotJSON, _ := json.Marshal(got.Legs[0].allocPlan)
+	wantJSON, _ := json.Marshal(want)
+	if string(gotJSON) != string(wantJSON) {
+		t.Errorf("нога з порогом розійшлася з розкладкою\nмаршрут:  %s\nрозкладка: %s",
+			gotJSON, wantJSON)
+	}
+}
+
 // --- стеля подушки ---
 
 // Стеля подушки ЩОМІСЯЦЯ СКИДАЄТЬСЯ, і це найлегша помилка в усьому файлі.
