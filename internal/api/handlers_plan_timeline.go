@@ -426,8 +426,9 @@ func monthEnd(key string) time.Time {
 // про місяць). Тут, у минулому, план читається БЕЗ них: інакше обидва ряди
 // збігалися б за побудовою, і порівнювати не було б чого.
 func buildPlanHistory(flows []store.PlanFlow, deposits []store.Deposit,
-	reserveOps []store.ReserveOp, snaps []store.Snapshot, revs []store.PlanFlowRevision,
-	receipts []store.PlanReceipt, today domain.Date, rates fx.Rates) []planHistoryPoint {
+	reserveOps []store.ReserveOp, goalOps []store.GoalOp, snaps []store.Snapshot,
+	revs []store.PlanFlowRevision, receipts []store.PlanReceipt,
+	today domain.Date, rates fx.Rates) []planHistoryPoint {
 	if len(flows) == 0 && len(deposits) == 0 && len(receipts) == 0 {
 		return nil
 	}
@@ -455,6 +456,14 @@ func buildPlanHistory(flows []store.PlanFlow, deposits []store.Deposit,
 		addMove(d.Date, d.Amount, d.Currency)
 	}
 	for _, op := range reserveOps {
+		addMove(op.Date, op.Amount, op.Currency)
+	}
+	// Рухи цілей накопичення — нарівні з подушкою й з тим самим доводом, що
+	// в «внесено нетто» (state_month.go): переказ гаманець → ціль це не
+	// втрата капіталу, а зміна його форми. Без них місяць, у якому 20 000
+	// пішли на авто, читався б як недовиконаний план — тобто застосунок
+	// лаяв би за дисципліну рівно там, де вона була.
+	for _, op := range goalOps {
 		addMove(op.Date, op.Amount, op.Currency)
 	}
 
@@ -860,6 +869,7 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 	// Помилка збирача профіль не валить: стрічка малюється й без доходу.
 	var portfolioCF []domain.CashflowItem
 	var moves, reserveMoves = []store.Deposit(nil), []store.ReserveOp(nil)
+	var goalMoves []store.GoalOp
 	if src, serr := s.loadSources(ctx, today); serr == nil {
 		hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps, src.fundPrices, src.payoutDays(), today)
 		if sch, serr := buildSchedule(src, hold, today, today, profileFundMonths); serr == nil {
@@ -867,7 +877,7 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 		}
 		// Рух грошей для «Плану проти факту». Читається звідси, а не окремим
 		// запитом: loadSources уже сходив по нього для решти документа.
-		moves, reserveMoves = src.deposits, src.reserveOps
+		moves, reserveMoves, goalMoves = src.deposits, src.reserveOps, src.goalOps
 	}
 	// Знімки потрібні лише заради колонки «бракувало». Помилку ковтаємо
 	// свідомо: без них картка малює два ряди замість трьох, а не зникає.
@@ -960,7 +970,8 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 		out.Profile.Events = profileEvents(portfolioCF, doc.Funds, funds,
 			doc.NPF, npfAccounts, flows, marks, today, to, rates)
 	}
-	out.History = buildPlanHistory(flows, moves, reserveMoves, snaps, revs, receipts, today, rates)
+	out.History = buildPlanHistory(flows, moves, reserveMoves, goalMoves,
+		snaps, revs, receipts, today, rates)
 	out.FlowRevisions = flowRevisionRows(revs)
 	out.Expected = buildExpectedReceipts(flows, receipts, revs, today, rates)
 	out.Receipts = receiptRows(receipts, flows, rates)

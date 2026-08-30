@@ -108,6 +108,12 @@ export function yieldMixCard(ctx) {
   if (s.reserve_uah > 0) {
     rows.push({ id: "reserve", name: KIND_GROUP.reserve, money: s.reserve_uah, idle: true });
   }
+  // Цілі накопичення — тієї ж природи, що й подушка: гроші в капіталі є,
+  // дохідності в них немає. Без цього рядка обіцянка картки («сума стовпця
+  // з грішми дорівнює капіталу») не сходилась рівно на цілі.
+  if (s.goals_uah > 0) {
+    rows.push({ id: "goals", name: KIND_GROUP.goals, money: s.goals_uah, idle: true });
+  }
   if (s.account_uah > 0) {
     rows.push({ id: "cash", name: "Готівка в брокерів", money: s.account_uah, idle: true });
   }

@@ -42,7 +42,7 @@ export function snapNonZero(s) {
   // «недостатньо знімків», хоч історія за місяці є.
   return (s.invested_uah || 0) > 0 || (s.nominal_uah_eq || 0) > 0 || (s.account_uah || 0) > 0 ||
     (s.funds_uah || 0) > 0 || (s.deposits_uah || 0) > 0 || (s.reserve_uah || 0) > 0 ||
-    (s.npf_uah || 0) > 0;
+    (s.goals_uah || 0) > 0 || (s.npf_uah || 0) > 0;
 }
 
 // Собівартість дня зі ЗНІМКА: облігації + фонди + вклади + резерв.
@@ -75,7 +75,7 @@ function snapCostUAH(s) {
   if ((s.funds_uah || 0) > 0 && !(s.funds_cost_uah > 0)) return null;
   if ((s.npf_uah || 0) > 0 && !(s.npf_cost_uah > 0)) return null;
   return (s.invested_uah || 0) + (s.funds_cost_uah || 0) + (s.deposits_uah || 0) +
-    (s.reserve_uah || 0) + (s.npf_cost_uah || 0);
+    (s.reserve_uah || 0) + (s.goals_uah || 0) + (s.npf_cost_uah || 0);
 }
 
 const RANGE_KEY = "oddinvest.planRange";
@@ -123,6 +123,11 @@ function capitalCardHTML(ctx, snaps) {
     // Резерв — верхньою смугою: він не працює, тож логічно лежить над
     // тим, що працює, і його внесок у стос видно окремо.
     { name: "Резерв", color: "var(--oi-series-reserve)", area: true, values: snaps.map((s) => s.reserve_uah || 0) },
+    // Цілі накопичення — поруч із резервом і з того самого доводу: вони теж
+    // не працюють. Окремою смугою, а не разом із ним: подушку тримають, ЩОБ
+    // не витратити, а ціль — щоб витратити у названу дату, і спільна смуга
+    // сховала б, скільки з відкладеного піде назад у життя.
+    { name: "Цілі", color: "var(--oi-series-goals)", area: true, values: snaps.map((s) => s.goals_uah || 0) },
   ].filter((s) => s.values.some((v) => v > 0));
 
   const cost = snaps.map(snapCostUAH);
@@ -278,6 +283,7 @@ export function snapshotsTableHTML(ctx) {
   const hasDeps = rows.some((s) => (s.deposits_uah || 0) > 0);
   const hasAcc = rows.some((s) => (s.account_uah || 0) > 0);
   const hasRes = rows.some((s) => (s.reserve_uah || 0) > 0);
+  const hasGoals = rows.some((s) => (s.goals_uah || 0) > 0);
   const hasNPF = rows.some((s) => (s.npf_uah || 0) > 0);
   const col = (on, key, label, cell) => (on ? { key, label, num: true, cell } : null);
   const cols = [
@@ -289,6 +295,7 @@ export function snapshotsTableHTML(ctx) {
     col(hasDeps, "deposits", "Вклади", (s) => fmtUAH(s.deposits_uah || 0)),
     col(hasAcc, "account", "Рахунок", (s) => fmtUAH(s.account_uah || 0)),
     col(hasRes, "reserve", "Резерв", (s) => fmtUAH(s.reserve_uah || 0)),
+    col(hasGoals, "goals", "Цілі", (s) => fmtUAH(s.goals_uah || 0)),
     { key: "usd", label: "Частка USD", num: true,
       cell: (s) => `${(s.usd_share_pct || 0).toFixed(1)}%` },
     { key: "uninvested", label: "Не перевкл.", num: true,

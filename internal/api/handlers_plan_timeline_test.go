@@ -44,7 +44,7 @@ func TestBuildPlanHistory(t *testing.T) {
 		{Date: "2026-07-31", MonthTargetUAH: 900_000},
 	}
 
-	got := buildPlanHistory(flows, deposits, reserve, snaps, nil, nil, today, rates)
+	got := buildPlanHistory(flows, deposits, reserve, nil, snaps, nil, nil, today, rates)
 	if len(got) != planHistoryMonths {
 		t.Fatalf("мало бути %d місяців, маємо %d", planHistoryMonths, len(got))
 	}
@@ -74,6 +74,40 @@ func TestBuildPlanHistory(t *testing.T) {
 	}
 }
 
+// Рух у ціль накопичення — це ФАКТ місяця, а не провалений план.
+//
+// Довід дослівно той самий, що в «внесено нетто» (state_month.go): переказ
+// гаманець → ціль не зменшує капітал, він міняє його форму. Без цього
+// місяць, у якому гроші пішли на авто, читався б як недовиконаний план —
+// тобто застосунок лаяв би за дисципліну рівно там, де вона була.
+func TestBuildPlanHistoryCountsGoalOps(t *testing.T) {
+	today := domain.Date("2026-08-15")
+	flows := []store.PlanFlow{{
+		Name: "зарплата", Kind: "income", Amount: 4_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2025-01-17", InvestBP: 10000,
+	}}
+	goalOps := []store.GoalOp{
+		{Date: "2026-07-05", Amount: 2_000_000, Currency: "UAH"},
+		// Зняття — теж рух, і зі своїм знаком: річ куплено, гроші пішли з
+		// цілі назад у життя, і факт місяця на цю суму меншає.
+		{Date: "2026-07-20", Amount: -500_000, Currency: "UAH"},
+		// Поза вікном — нікуди не потрапляє.
+		{Date: "2024-01-10", Amount: 9_900_000, Currency: "UAH"},
+	}
+
+	got := buildPlanHistory(flows, nil, nil, goalOps, nil, nil, nil, today, fx.Rates{})
+	byMonth := map[string]planHistoryPoint{}
+	for _, p := range got {
+		byMonth[p.Month] = p
+	}
+	if p := byMonth["2026-07"]; p.ActualUAH != 15000 {
+		t.Errorf("липень: факт %v, а це 20 000 − 5 000 = 15 000", p.ActualUAH)
+	}
+	if p := byMonth["2026-06"]; p.ActualUAH != 0 {
+		t.Errorf("червень рухів не мав: %v", p.ActualUAH)
+	}
+}
+
 // Ряд «надійшло» — четверте число історії, і воно НЕ заміщає план.
 //
 // Це головна асиметрія фази: у майбутньому відмітка стає планом (там вона
@@ -96,7 +130,7 @@ func TestBuildPlanHistoryReceived(t *testing.T) {
 			Currency: "UAH", InvestBP: 2000},
 	}
 
-	got := buildPlanHistory(flows, nil, nil, nil, nil, receipts, today, fx.Rates{})
+	got := buildPlanHistory(flows, nil, nil, nil, nil, nil, receipts, today, fx.Rates{})
 	byMonth := map[string]planHistoryPoint{}
 	for _, p := range got {
 		byMonth[p.Month] = p
@@ -133,7 +167,7 @@ func TestBuildPlanHistoryTrimsEmptyHead(t *testing.T) {
 		Cadence: "month", FromDate: "2026-05-01", InvestBP: 10000,
 	}}
 
-	got := buildPlanHistory(flows, nil, nil, nil, nil, nil, today, fx.Rates{})
+	got := buildPlanHistory(flows, nil, nil, nil, nil, nil, nil, today, fx.Rates{})
 	if len(got) != 3 {
 		t.Fatalf("мали лишитись травень-липень, маємо %d місяців: %+v", len(got), got)
 	}
@@ -146,10 +180,10 @@ func TestBuildPlanHistoryTrimsEmptyHead(t *testing.T) {
 		Name: "зарплата", Kind: "income", Amount: 1_000_000, Currency: "UAH",
 		Cadence: "month", FromDate: "2026-07-01", InvestBP: 10000,
 	}}
-	if got := buildPlanHistory(short, nil, nil, nil, nil, nil, today, fx.Rates{}); got != nil {
+	if got := buildPlanHistory(short, nil, nil, nil, nil, nil, nil, today, fx.Rates{}); got != nil {
 		t.Errorf("на одному місяці історії картки не мало бути, маємо %+v", got)
 	}
-	if got := buildPlanHistory(nil, nil, nil, nil, nil, nil, today, fx.Rates{}); got != nil {
+	if got := buildPlanHistory(nil, nil, nil, nil, nil, nil, nil, today, fx.Rates{}); got != nil {
 		t.Errorf("без плану й поповнень мав бути nil, маємо %+v", got)
 	}
 }
@@ -243,7 +277,7 @@ func TestBuildPlanHistoryReadsJournalNotTodaysTable(t *testing.T) {
 			Op: "update", Flow: flows[0]},
 	}
 
-	got := buildPlanHistory(flows, nil, nil, nil, revs, nil, today, fx.Rates{})
+	got := buildPlanHistory(flows, nil, nil, nil, nil, revs, nil, today, fx.Rates{})
 	byMonth := map[string]planHistoryPoint{}
 	for _, p := range got {
 		byMonth[p.Month] = p
