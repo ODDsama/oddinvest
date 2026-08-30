@@ -462,3 +462,48 @@ func TestFundPriceReturnStandsApartFromBasis(t *testing.T) {
 		t.Errorf("зростання ціни основу не міняє, маємо %q", row.YieldBasis)
 	}
 }
+
+// Фонд, який докуповує сертифікати сам, у симуляції РОСТЕ, а не платить.
+//
+// І росте він ВЛАСНОЮ ставкою, без валютної поправки, хоч і лежить у
+// кошику Accum поруч із накопичувальним. Поправка описує зростання ЦІНИ;
+// обіцянка цього фонду описує виплати, які просто негайно вертаються в
+// папір, — перевести 9.5% USD у 17.2% UAH тут означало б пообіцяти
+// подорожчання, якого фонд не обіцяв.
+func TestReinvestingFundGrowsInsteadOfPaying(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	ops := []domain.FundOp{
+		{Date: "2026-06-20", Fund: "REIT", Kind: domain.FundBuy,
+			Qty: 100, Amount: 100_000, Currency: money.UAH},
+	}
+	ref := store.Fund{Name: "REIT", Currency: money.UAH, PayoutDay: 10,
+		ExpectedYieldBP: 950, ExpectedYieldCur: money.USD,
+		Kind: store.FundReinvesting}
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+
+	got := buildFunds(&sources{fundOps: ops,
+		fundRefs: map[string]store.Fund{"REIT": ref}}, hold, fx.Rates{}, 7.0, today)
+
+	if len(got.Dist[money.UAH]) != 0 {
+		t.Errorf("у кошику виплат йому не місце: %+v", got.Dist[money.UAH])
+	}
+	if len(got.Accum[money.UAH]) != 1 {
+		t.Fatalf("мав бути рівно один накопичувальний запис, маємо %d",
+			len(got.Accum[money.UAH]))
+	}
+	a := got.Accum[money.UAH][0]
+	if math.Abs(a.RatePct-9.5) > 0.01 {
+		t.Errorf("ставка %v, очікували 9.5 — обіцянку як дану, без валютної поправки", a.RatePct)
+	}
+	// Безстроковий: фейкової дати закриття тут не зʼявляється, і нуль у
+	// CloseM уже означає «росте до кінця горизонту».
+	if a.CloseM != 0 {
+		t.Errorf("CloseM %d — безстроковий фонд не закривається", a.CloseM)
+	}
+	if a.TaxPct != 0 {
+		t.Errorf("TaxPct %v — податку при закритті не буде, бо закриття не буде", a.TaxPct)
+	}
+	if a.Locked {
+		t.Error("сертифікати продаються — замикати позицію нема причини")
+	}
+}

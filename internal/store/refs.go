@@ -179,7 +179,9 @@ type Fund struct {
 	ExpectedYieldBP  int64  `json:"expected_yield_bp"`
 	ExpectedYieldCur string `json:"expected_yield_currency"`
 	PayoutDay        int64  `json:"payout_day"`
-	// Kind — FundDistributing ('') або FundAccumulating ('accum').
+	// Kind — що стається з доходом фонду: FundDistributing (''),
+	// FundReinvesting ('drip') або FundAccumulating ('accum'). Довід за
+	// кожне значення — біля самих констант нижче.
 	Kind string `json:"kind"`
 	// CloseDate — коли фонд закривається й повертає гроші; BuyUntil —
 	// остання дата, коли його ще можна купити. Порожньо = безстроковий,
@@ -200,9 +202,33 @@ type Fund struct {
 
 // Вид фонду. Розподільний лишається порожнім рядком навмисно: усі наявні
 // записи такі, і міграція не мусить їх переписувати.
+//
+// FundReinvesting — фонд, який платить, але виплата не доходить до
+// рахунку: він утримує її й одразу докуповує на неї СВОЇ Ж сертифікати
+// цілими штуками, а на рахунок падає лише те, чого не стало на ще один
+// папір. Inzhur REIT на живих даних: 779 сертифікатів по 11,12 ₴, рента
+// 68,60 ₴ на місяць — це 6 паперів на 66,75 ₴ і 1,85 ₴ грошима.
+//
+// ТРЕТЄ ЗНАЧЕННЯ, А НЕ ОКРЕМА КОЛОНКА reinvest, і довід не в економії
+// поля. Пара «вид + прапорець» зробила б представимою комбінацію
+// accum+реінвест, яка не означає нічого: накопичувальний і так не платить,
+// реінвестувати в ньому нічого. Кожне місце, що читає фонд, мусило б її
+// відсіювати — а тут її просто немає (CLAUDE.md §3). Заразом рядок
+// довідника лишається з ОДНІЄЮ випадайкою: галочки він не вміє взагалі
+// (inlineEdit збирає значення через f.value.trim(), у чекбокса це завжди
+// "on"), тож друга колонка все одно була б другою випадайкою.
+//
+// Міграції під це немає навмисно: kind уже TEXT NOT NULL DEFAULT ”, і
+// нове значення схеми не міняє. Файл-міграція з самим коментарем змусив би
+// migrate.go зняти VACUUM INTO копію всієї бази заради нічого.
+//
+// Позначки «реінвестовано» на ОКРЕМІЙ виплаті тут немає й не буде:
+// payment_status='reinvested' уже жив і був знятий міграціями 0017 і 0044
+// з доводом «гроші незлічувані». Це властивість ФОНДУ, а не платежу.
 const (
 	FundDistributing = ""
 	FundAccumulating = "accum"
+	FundReinvesting  = "drip"
 )
 
 // checkFundDate — порожньо або YYYY-MM-DD, інакше помилка з назвою поля.
@@ -219,6 +245,32 @@ func checkFundDate(what, v string) (string, error) {
 		return "", fmt.Errorf("%s: очікується РРРР-ММ-ДД, маємо %q", what, v)
 	}
 	return v, nil
+}
+
+// checkFundKind — вид фонду разом із днем виплати, бо вони звʼязані.
+//
+// Спільна на правку довідника й на відновлення бекапу з того самого
+// доводу, що й checkFundDate поруч: дамп із чужого файла інакше поклав би
+// в kind що завгодно, а зламалось би це вже в моделі, за три фази звідси.
+// Доти відновлення взагалі не перевіряло виду — лише обрізало пробіли.
+//
+// Реінвест без дня виплати відхиляється, і це не причіпка. FundDividendFlows
+// виходить на PayoutDay <= 0, тобто такий фонд мовчки не породив би жодного
+// потоку: налаштування виглядало б увімкненим, не роблячи нічого. У
+// накопичувального нуль там означає «дня немає», і це правда, тож вимога
+// стосується саме реінвесту.
+func checkFundKind(kind string, payoutDay int64) (string, error) {
+	kind = strings.TrimSpace(kind)
+	switch kind {
+	case FundDistributing, FundAccumulating:
+	case FundReinvesting:
+		if payoutDay <= 0 {
+			return "", fmt.Errorf("фонд, який докуповує сертифікати, мусить мати день виплати: без нього застосунок не знає, коли він це робить")
+		}
+	default:
+		return "", fmt.Errorf("вид фонду має бути порожнім (розподільний), %q або %q", FundAccumulating, FundReinvesting)
+	}
+	return kind, nil
 }
 
 func (s *Store) ListFunds(ctx context.Context) ([]Fund, error) {
@@ -263,9 +315,9 @@ func (s *Store) RenameFund(ctx context.Context, id int64, f Fund) error {
 	if f.ExpectedYieldBP < 0 {
 		return fmt.Errorf("обіцяна дохідність не може бути відʼємною")
 	}
-	kind := strings.TrimSpace(f.Kind)
-	if kind != FundDistributing && kind != FundAccumulating {
-		return fmt.Errorf("вид фонду має бути порожнім (розподільний) або %q", FundAccumulating)
+	kind, err := checkFundKind(f.Kind, f.PayoutDay)
+	if err != nil {
+		return err
 	}
 	closeDate, err := checkFundDate("дата закриття", f.CloseDate)
 	if err != nil {

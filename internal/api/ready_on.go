@@ -55,6 +55,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sort"
 
@@ -104,6 +105,26 @@ type readyFlow struct {
 	// Порожньо в оцінок: дивіденд фонду позначати нема чого, його справжній
 	// запис — операція фонду, а не рядок статусу.
 	Ref string
+	// Why — чому в нозі стоїть менше, ніж фонд нарахував. Порожньо в усіх
+	// інших надходжень: там сума і є сумою.
+	//
+	// Готовою прозою з бекенда, а не парою чисел на складання в браузері, —
+	// з того самого доводу, що RestWhy й ReserveSkipWhy: сума, яка
+	// «зменшилась сама», читається як поломка, а рахувати її вдруге в JS
+	// заборонено (CLAUDE.md §5).
+	Why string
+}
+
+// reinvestFlowWhy — підпис до ноги фонду, який докуповує сертифікати сам.
+// Порожньо, коли нічого не докупив: тоді сума й так уся.
+func reinvestFlowWhy(s domain.FundReinvestSplit, cur string) string {
+	if s.Units <= 0 || s.Spent <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("фонд утримав виплату %s і докупив %d %s на %s — на рахунок іде лише решта",
+		money.New(s.Gross, cur).Display(), s.Units,
+		plural(int(s.Units), "сертифікат", "сертифікати", "сертифікатів"),
+		money.New(s.Spent, cur).Display())
 }
 
 // Основи надходження. Порожній рядок у readyFlow.Basis означає basisOwed —
@@ -283,13 +304,30 @@ func (s *Server) routeIncome(src *sources, today domain.Date, months int) (incom
 			continue
 		}
 		measured, _ := domain.DividendYieldNet(src.fundOps, fp, today)
-		y := fundOwnRatePct(src.fundRefs[fp.Fund], measured)
+		ref := src.fundRefs[fp.Fund]
+		y := fundOwnRatePct(ref, measured)
 		broker := fundBroker(src.fundOps, fp.Fund)
-		for _, cf := range domain.FundDividendFlows(fp, y, months, today) {
-			k := store.BrokerCur{Broker: broker, Currency: cf.Amount.Currency().Code}
+		// ТУТ — ЛИШЕ ГОТІВКОВА ЧАСТИНА, на відміну від календаря, який
+		// показує всю нараховану ренту (довід — у buildSchedule). Маршрут
+		// відповідає на питання «що впаде на рахунок і куди воно піде», а
+		// сертифікатами, які фонд докупив сам, у НПФ не внесеш.
+		//
+		// Ціна помилки була не косметична: на живих даних застосунок
+		// показував 68,60 ₴ там, де приходить близько 1,85 ₴, і щомісяця
+		// радив віднести в пенсійний гроші, яких не існуватиме.
+		for _, f := range domain.FundDividendFlows(fp, y, months, today,
+			ref.Kind == store.FundReinvesting) {
+			if f.Amount.Amount() <= 0 {
+				// Місяць, у якому решти не лишилось (рента поділилась на
+				// сертифікати без остачі). Нога на 0 ₴ подією не є, а горщик
+				// і стелю подушки прокрутила б.
+				continue
+			}
+			k := store.BrokerCur{Broker: broker, Currency: f.Amount.Currency().Code}
 			out[k] = append(out[k], readyFlow{
-				Date: cf.Date, Amount: cf.Amount.Amount(),
+				Date: f.Date, Amount: f.Amount.Amount(),
 				Label: fp.Fund, Kind: "funds", Basis: basisEstimate,
+				Why: reinvestFlowWhy(f.Split, fp.Currency),
 			})
 		}
 	}

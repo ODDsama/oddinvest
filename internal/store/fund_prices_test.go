@@ -242,3 +242,32 @@ func TestImportOverExistingFundPrices(t *testing.T) {
 		t.Errorf("відновлення ЗАМІЩУЄ, тож старих позначок мало не лишитись: %+v", got)
 	}
 }
+
+// Вид фонду перевіряється в СХОВИЩІ, а не лише в обробнику, бо писати в
+// довідник уміє ще й відновлення бекапу.
+func TestFundKindValidated(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	id := seedFund(t, s, "Inzhur REIT")
+	base := Fund{Name: "Inzhur REIT", Currency: money.UAH, PayoutDay: 10}
+
+	ok := base
+	ok.Kind = FundReinvesting
+	if err := s.RenameFund(ctx, id, ok); err != nil {
+		t.Fatalf("фонд, що докуповує сертифікати, мав прийнятись: %v", err)
+	}
+
+	// Без дня виплати такий фонд мовчки не породив би жодного потоку —
+	// налаштування виглядало б увімкненим, не роблячи нічого.
+	noDay := base
+	noDay.Kind, noDay.PayoutDay = FundReinvesting, 0
+	if err := s.RenameFund(ctx, id, noDay); err == nil {
+		t.Error("реінвест без дня виплати мав бути відхилений")
+	}
+
+	junk := base
+	junk.Kind = "щось"
+	if err := s.RenameFund(ctx, id, junk); err == nil {
+		t.Error("сміттєвий вид мав бути відхилений")
+	}
+}

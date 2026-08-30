@@ -516,3 +516,83 @@ func TestRouteIncomeAddsEstimatesAndLeavesObligationsAlone(t *testing.T) {
 		}
 	}
 }
+
+// Фонд, який докуповує сертифікати сам, віддає маршрутові ЛИШЕ решту.
+//
+// Це та помилка, заради якої зʼявився FundReinvesting: на живих даних
+// маршрут показував 68,60 ₴ вільних грошей там, де на рахунок приходить
+// близько 1,85 ₴, і щомісяця радив віднести різницю в пенсійний.
+func TestRouteIncomeReinvestingFundSendsOnlyTheLeftover(t *testing.T) {
+	_, st := testServer(t)
+	ctx := context.Background()
+	today := domain.NewDate(time.Now())
+
+	// 779 сертифікатів по 11.1242 ₴ — позиція користувача. Ціна приходить
+	// із купівлі, тож окремої позначки не треба.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: today.AddDays(-140), Fund: "Inzhur REIT", Kind: domain.FundBuy,
+		Qty: 779, Amount: 866_575, Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	funds, err := st.ListFunds(ctx)
+	if err != nil || len(funds) != 1 {
+		t.Fatalf("довідник фондів: %v %+v", err, funds)
+	}
+	f := funds[0]
+	f.ExpectedYieldBP, f.PayoutDay = 950, 10
+
+	srv := New(st, nil, testLogger())
+	inzhur := store.BrokerCur{Broker: "inzhur", Currency: money.UAH}
+
+	// Спершу як звичайний розподільний — уся рента готівкою.
+	if err := st.RenameFund(ctx, f.ID, f); err != nil {
+		t.Fatal(err)
+	}
+	src, err := srv.loadSources(ctx, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := srv.routeIncome(src, today, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plain[inzhur]) == 0 {
+		t.Fatal("розподільний фонд мав дати оцінки")
+	}
+	gross := plain[inzhur][0].Amount
+
+	// А тепер із реінвестом.
+	f.Kind = store.FundReinvesting
+	if err := st.RenameFund(ctx, f.ID, f); err != nil {
+		t.Fatal(err)
+	}
+	src, err = srv.loadSources(ctx, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drip, err := srv.routeIncome(src, today, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(drip[inzhur]) == 0 {
+		t.Fatal("решта мала лишитись — вона менша за ціну сертифіката, але не нульова")
+	}
+	got := drip[inzhur][0]
+	if got.Amount >= gross {
+		t.Fatalf("готівка мала впасти: було %d, стало %d", gross, got.Amount)
+	}
+	// Решта за побудовою менша за ціну одного сертифіката (11.1242 ₴).
+	if got.Amount <= 0 || got.Amount >= 1113 {
+		t.Errorf("решта %d мала бути в межах ціни одного сертифіката", got.Amount)
+	}
+	if got.Why == "" {
+		t.Error("нога мусить пояснити, чому число менше за нараховане")
+	}
+	if got.Basis != basisEstimate {
+		t.Errorf("основа лишається оцінкою, маємо %q", got.Basis)
+	}
+	if got.Ref != "" {
+		t.Errorf("оцінку позначати нема чого, а Ref = %q", got.Ref)
+	}
+}

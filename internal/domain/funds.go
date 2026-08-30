@@ -497,32 +497,113 @@ func IsFundISIN(isin string) bool { return strings.HasPrefix(isin, FundISINPrefi
 // місяця. yieldPct береться з обіцянки фонду, якщо вона задана, бо
 // виміряна дивідендна ділить ОСТАННЮ виплату на СЬОГОДНІШНЮ вартість — і
 // на позиції, яку активно докуповують, суттєво занижена.
-func FundDividendFlows(p *FundPosition, yieldPct float64, months int, from Date) []CashflowItem {
+func FundDividendFlows(p *FundPosition, yieldPct float64, months int, from Date, reinvest bool) []FundPayout {
 	if p == nil || p.PayoutDay <= 0 || yieldPct <= 0 || months <= 0 {
 		return nil
 	}
-	mv := p.MarketValue()
-	if mv <= 0 {
-		return nil
-	}
-	per := int64(math.Round(float64(mv) * yieldPct / 100 / 12))
-	if per <= 0 {
+	if p.MarketValue() <= 0 {
 		return nil
 	}
 	isin := FundISINPrefix + p.Fund
-	out := make([]CashflowItem, 0, months)
+	out := make([]FundPayout, 0, months)
+	qty := p.Qty
 	d := from
 	for i := 0; i < months; i++ {
+		// Вартість перераховується щомісяця від ПОТОЧНОЇ кількості: у
+		// фонда, який докуповує сам, вона росте без жодного мого рішення,
+		// і дванадцятий місяць, порахований від сьогоднішньої кількості,
+		// спирався б на число, про яке ми вже знаємо, що воно застаріле.
+		// Позиція користувача росте на ~9% за рік. Для решти фондів qty не
+		// міняється, і цикл поводиться рівно як доти.
+		//
+		// Ціна лишається СЬОГОДНІШНЬОЮ. Форвардної ціни сертифіката
+		// застосунок не вигадує ніде (див. шапку route.go), і тут не почне:
+		// компаундиться кількість, яку ми справді можемо порахувати, а не
+		// ціна, якої ми не знаємо.
+		mv := qty * p.LastPrice / 100
+		per := int64(math.Round(float64(mv) * yieldPct / 100 / 12))
+		if per <= 0 {
+			break
+		}
 		next, ok := NextPayoutDate(int(p.PayoutDay), d)
 		if !ok {
 			break
 		}
-		out = append(out, CashflowItem{Date: next, ISIN: isin,
-			Type: PayCoupon, Amount: money.New(per, p.Currency)})
+		split := FundReinvestSplit{Gross: per, Cash: per}
+		if reinvest {
+			split = SplitFundDividend(per, p.LastPrice)
+			qty += split.Units
+		}
+		out = append(out, FundPayout{
+			CashflowItem: CashflowItem{Date: next, ISIN: isin,
+				Type: PayCoupon, Amount: money.New(split.Cash, p.Currency)},
+			Split: split,
+		})
 		// Наступний місяць: від дня ПІСЛЯ знайденої дати, інакше та сама
 		// повернеться знов.
 		d = next.AddDays(1)
 	}
+	return out
+}
+
+// FundPayout — одна ОЦІНЕНА виплата фонду.
+//
+// Amount у вкладеному CashflowItem — те, що ляже НА РАХУНОК, а не вся
+// нарахована сума. Різниця не косметична: у фонда, який докуповує
+// сертифікати сам, вона відрізняється на порядок, і саме через неї
+// маршрут вів у НПФ гроші, яких ніколи не буде. Уся нарахована лишається
+// поруч у Split — календарю вона потрібна, бо дохід нікуди не дівається.
+type FundPayout struct {
+	CashflowItem
+	Split FundReinvestSplit
+}
+
+// FundReinvestSplit — як ділиться одна виплата фонду, що докуповує сам.
+// Усі суми мінорні, у валюті фонду. У звичайного фонда Units і Spent
+// нульові, а Cash дорівнює Gross.
+type FundReinvestSplit struct {
+	Gross int64
+	Units int64
+	Spent int64
+	Cash  int64
+}
+
+// SplitFundDividend ділить виплату gross за ціною сертифіката priceE4
+// (×10⁴ гривні — той самий масштаб, що FundPosition.LastPrice).
+//
+// ЧОМУ ОКРЕМА ЕКСПОРТОВАНА ФУНКЦІЯ, А НЕ ТРИ РЯДКИ В ЦИКЛІ ВИЩЕ. Ці числа
+// бачить не лише календар: маршрут пише ними прозу («докупив 6
+// сертифікатів на 66,75 ₴»). Порахувати їх удруге в api/ означало б другу
+// копію арифметики — рівно те, від чого стереже CLAUDE.md §5.
+//
+// МАСШТАБИ. gross у копійках, priceE4 — сота частина копійки. Тому
+// gross*100/priceE4 дає саме штуки, а units*priceE4/100 — знову копійки.
+//
+// ОКРУГЛЕННЯ В РІЗНІ БОКИ, І ЦЕ НАВМИСНО. Штуки — ВНИЗ: фонд не купує
+// 6.2 сертифіката. Витрачене — ДО НАЙБЛИЖЧОЇ КОПІЙКИ: ціна має чотири
+// знаки, а платять копійками, і обрізання вниз лишало б щомісяця до
+// копійки зайвої «готівки», тобто фонд поволі створював би гроші.
+//
+// Cash не буває відʼємним за побудовою: units*priceE4 <= gross*100, а
+// заокруглення числа, яке не перевищує цілого gross, того gross не
+// перевищить.
+func SplitFundDividend(gross, priceE4 int64) FundReinvestSplit {
+	out := FundReinvestSplit{Gross: gross, Cash: gross}
+	if gross <= 0 || priceE4 <= 0 {
+		// Ціни не знаємо — ділити нічим, уся виплата лишається готівкою.
+		// Живий виклик сюди не доходить (нульова ціна дає нульову
+		// MarketValue, і потік не народжується взагалі), але функція
+		// експортована й ділити на нуль мовчки не має права.
+		return out
+	}
+	out.Units = gross * 100 / priceE4
+	if out.Units <= 0 {
+		// Виплати не стало на цілий сертифікат — уся вона приходить
+		// грошима. Це не виняток, а звичайний місяць дрібної позиції.
+		return out
+	}
+	out.Spent = (out.Units*priceE4 + 50) / 100
+	out.Cash = gross - out.Spent
 	return out
 }
 

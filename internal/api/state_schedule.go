@@ -107,8 +107,25 @@ func buildSchedule(src *sources, hold domain.Holdings, from, today domain.Date, 
 		// простою обіцянкою бралось число, яке модель компаундить
 		// інакше, ніж мав на увазі фонд.
 		measured, _ := domain.DividendYieldNet(src.fundOps, fp, today)
-		y := fundOwnRatePct(src.fundRefs[fp.Fund], measured)
-		cashflow = append(cashflow, domain.FundDividendFlows(fp, y, fundMonths, today)...)
+		ref := src.fundRefs[fp.Fund]
+		y := fundOwnRatePct(ref, measured)
+		// У КАЛЕНДАРІ СТОЇТЬ УСЯ НАРАХОВАНА РЕНТА, а в маршруті (ready_on.go)
+		// — лише готівкова її частина. Це не дві відповіді на одне питання, а
+		// одна відповідь на два різні: тут «скільки портфель ЗАРОБЛЯЄ», там
+		// «що впаде на рахунок і що з цим робити». Арифметика спільна —
+		// SplitFundDividend, — і розходяться лише два поля одного розколу.
+		//
+		// Чому саме брутто: звідси живиться IncomeMonthlyNow, а з нього віха
+		// «Дохід покриває чверть життя», яка міряє заробіток проти витрат.
+		// Якби реінвестована рента з неї випадала, прогрес просідав би від
+		// самого перемикача в довіднику — хоча фонд заробляє те саме, а
+		// реінвест можна вимкнути будь-якого місяця.
+		for _, f := range domain.FundDividendFlows(fp, y, fundMonths, today,
+			ref.Kind == store.FundReinvesting) {
+			item := f.CashflowItem
+			item.Amount = money.New(f.Split.Gross, fp.Currency)
+			cashflow = append(cashflow, item)
+		}
 	}
 
 	// Пенсійні виплати — так само ОЦІНКОЮ, під ключем npf:<id>.

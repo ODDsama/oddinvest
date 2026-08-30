@@ -1030,12 +1030,16 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return fmt.Errorf("фонд %q: %w", f.Name, err)
 		}
+		kind, err := checkFundKind(f.Kind, f.PayoutDay)
+		if err != nil {
+			return fmt.Errorf("фонд %q: %w", f.Name, err)
+		}
 		if _, err := tx.ExecContext(ctx, `UPDATE funds SET expected_yield_bp=?,
 			expected_yield_currency=?, payout_day=?, kind=?, close_date=?,
 			buy_until=?, income_tax_bp=?, yield_simple_years=?, exit_tax_bp=?
 			WHERE id=?`,
 			f.ExpectedYieldBP, strings.TrimSpace(f.ExpectedYieldCur), f.PayoutDay,
-			strings.TrimSpace(f.Kind), closeDate, buyUntil, f.IncomeTaxBP,
+			kind, closeDate, buyUntil, f.IncomeTaxBP,
 			f.YieldSimpleYears, f.ExitTaxBP, id); err != nil {
 			return fmt.Errorf("фонд %q: %w", f.Name, err)
 		}

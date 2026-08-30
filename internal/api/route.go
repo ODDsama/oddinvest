@@ -156,6 +156,14 @@ type routeLeg struct {
 	// місяця, і без підпису нога на 10 000 ₴ погашення читалась би як
 	// заробіток.
 	PrincipalUAH float64 `json:"principal_uah,omitempty"`
+	// InflowWhy — чому InflowUAH менший за те, що інструмент нарахував.
+	// Сьогодні єдиний випадок — фонд, який утримує виплату й докуповує на
+	// неї свої ж сертифікати: на рахунок падає лише решта.
+	//
+	// Поруч із PrincipalUAH і за тим самим доводом, який написаний вище:
+	// без підпису число, менше за очікуване, читається як помилка
+	// застосунку. Прозою з бекенда — арифметику в браузері не рахуємо.
+	InflowWhy string `json:"inflow_why,omitempty"`
 	// Principal — те саме тіло в НАТИВНІЙ валюті. Окремо від PrincipalUAH,
 	// і не заради симетрії: кнопка «Прийшло» шле в POST /api/allocate суму
 	// та тіло в одній валюті, і гривневе число на нозі в доларах віддало б
@@ -611,6 +619,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			CarryInUAH:   round2(carryInUAH),
 			InflowUAH:    round2(amountUAH),
 			PrincipalUAH: round2(principalUAH),
+			InflowWhy:    ev.Why,
 			Basis:        pot.basis,
 		}
 		if ev.Principal > 0 {

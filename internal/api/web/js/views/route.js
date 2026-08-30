@@ -121,6 +121,10 @@ function legsHTML(doc) {
             ? `<div class="fine-xs t-warn">${esc(BASIS[leg.basis])}</div>` : "")
           + (leg.principal_uah > 0
             ? `<div class="fine-xs muted">з них тіло ${fmtUAH(leg.principal_uah)}</div>` : "")
+          // Чому число менше за нараховане. Приходить готовим рядком: різниця
+          // між рентою й решткою рахується на бекенді, як і все інше тут.
+          + (leg.inflow_why
+            ? `<div class="fine-xs muted">${esc(leg.inflow_why)}</div>` : "")
           + (leg.carry_in_uah > 0
             ? `<div class="fine-xs muted">+ ${fmtUAH(leg.carry_in_uah)} з попереднього</div>`
             : ""),

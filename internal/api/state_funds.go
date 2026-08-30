@@ -279,7 +279,8 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		cost := float64(fp.CostBasis) / 100
 		rate := fundOwnRatePct(ref, y)
 		exitTax := float64(ref.ExitTaxBP) / 100
-		if ref.Kind == store.FundAccumulating {
+		switch {
+		case ref.Kind == store.FundAccumulating:
 			out.Accum[fcur] = append(out.Accum[fcur], domain.Accum{
 				Value0:  value,
 				Cost0:   cost,
@@ -290,7 +291,29 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 				// вийти раніше це різні події з різними податками.
 				ExitTaxPct: exitTax,
 			})
-		} else {
+		case ref.Kind == store.FundReinvesting:
+			// Фонд, що докуповує сам, у симуляції РОСТЕ, а не платить, — тож
+			// йому місце в кошику Accum, хоч він і розподільний за природою.
+			// Dist означає «капітал, що не росте й платить власною ставкою»
+			// (dist.go), тобто рівно навпаки.
+			//
+			// CloseM НУЛЬОВИЙ, і фейкової дати закриття тут не зʼявляється:
+			// нуль у Accum уже означає «не закривається, росте до кінця
+			// горизонту» (accum.go), а grow() заходить у гілку закриття лише
+			// при closeM > 0. TaxPct теж не потрібен — податку при закритті
+			// не буде, бо закриття не буде; вихід із позиції рахується
+			// ExitTaxPct, як і в розподільного.
+			//
+			// inFundCurrency НЕ ЗАСТОСОВУЄТЬСЯ, і це найлегша помилка в
+			// усій гілці, бо сусідня accum-гілка його застосовує. Поправка
+			// існує для обіцянки, яка описує ЗРОСТАННЯ ціни; обіцянка цього
+			// фонду описує ВИПЛАТИ — вони просто негайно вертаються в папір.
+			// Перевести 9.5% USD у 17.2% UAH тут означало б пообіцяти
+			// подорожчання, якого фонд не обіцяв.
+			out.Accum[fcur] = append(out.Accum[fcur], domain.Accum{
+				Value0: value, Cost0: cost, RatePct: rate, ExitTaxPct: exitTax,
+			})
+		default:
 			out.Dist[fcur] = append(out.Dist[fcur], domain.Dist{
 				Value: value, Cost: cost, RatePct: rate, ExitTaxPct: exitTax,
 			})
