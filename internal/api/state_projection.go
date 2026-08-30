@@ -113,6 +113,21 @@ type projectionInput struct {
 	// й стає числом у проєкції. Порожній список нічого не міняє — рівно так
 	// само, як порожній PlanFlows.
 	PlanReceipts []store.PlanReceipt
+	// ReserveGapUAH / GoalsGapUAH — скільки подушці й цілям накопичення ще
+	// бракує до їхніх цілей, грн-екв.
+	//
+	// Прогноз без них обіцяв у портфелі гроші, які туди не дійдуть:
+	// стартовий капітал він подушку й цілі віднімав (p0 нижче), а місячні
+	// внески брав із плану ЦІЛКОМ. Тобто щомісяця клав у папери й ту
+	// частку, яку сам же застосунок відріже в матрац і на авто.
+	//
+	// Розриви, а не самі суми: стеля наповнення мусить ЗАМОВКНУТИ, коли
+	// розрив закрився, — інакше прогноз різав би подушці її частку всі
+	// шістдесят років горизонту. Обидва приходять готовими з будівника
+	// (state.ReserveTarget і state.GoalsGapUAH), бо Derive працює ПІЗНІШЕ
+	// за проєкцію, а другого означення розриву бути не має.
+	ReserveGapUAH float64
+	GoalsGapUAH   float64
 	// ActualMonthly — фактичний темп поповнень, ₴/міс (0 = історії замало).
 	ActualMonthly float64
 	// IncomeMonthlyNow — скільки портфель приносить УЖЕ, ₴/міс. Готове
@@ -216,6 +231,85 @@ func (f sleeveFactory) shareAt(m int) map[string]float64 {
 		cur = b.share
 	}
 	return cur
+}
+
+// spendOutside віднімає від місячних внесків те, що піде ПОЗА портфель:
+// у подушку й у цілі накопичення.
+//
+// # ЧОМУ ЦЕ ВЗАГАЛІ ТУТ
+//
+// Стартовий капітал прогноз обидва віднімає давно (p0 нижче): у купівельну
+// спроможність ні матрац, ні гроші на авто не входять. А внески брались із
+// плану ЦІЛКОМ — тобто крива щомісяця клала в папери й ту частку, яку
+// застосунок сам же відріже на іншому екрані. Дві половини одного числа
+// жили за різними правилами.
+//
+// # ПРОХІД УПЕРЕД, А НЕ СТАЛА ЧАСТКА
+//
+// Обидві стелі ЗАМОВКАЮТЬ, коли розрив закрився: подушка на шість місяців
+// витрат збереться й перестане брати, зібрана ціль теж. Стала вирізка
+// різала б їм частку всі шістдесят років горизонту — тобто збрехала б
+// сильніше, ніж те, що було доти. Модель та сама, що в маршруту
+// (routeCarry), лише без брокерів і горщиків: горизонт тут довгий, а
+// питання грубше.
+//
+// Розриви міряються СЬОГОДНІШНІМ курсом — так само, як їх міряє deriveGoals.
+// Інший вимір завів би другу правду про той самий розрив.
+//
+// # ЩО ЛИШАЄТЬСЯ НЕДОТОРКАНИМ
+//
+// planTotal. На ньому стоїть PlanProvidesUAH, а на тому — тотожність із
+// ProvidesUAH кожного рядка «Що заходить» (handlers_plan.go). «Скільки план
+// дає» — питання про план, а не про те, скільки з нього дійде до паперів,
+// і зводити їх до одного числа означало б утратити обидва.
+//
+// Вирізка ділиться між гривневими й валютними потоками ПРОПОРЦІЙНО їхній
+// частці в місяці — те саме зважування, що splitByWeights у ready_on.go.
+// Вибрати, що подушка наповнюється «спершу з гривні», можна лише вигаданим
+// правилом, якого користувач не задавав.
+func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
+	planNative map[string][]float64, incReserve, incGoals, expense []float64) {
+	resGap, goalGap := in.ReserveGapUAH, in.GoalsGapUAH
+	resShare, goalShare := 0.0, 0.0
+	if in.Settings != nil {
+		if v := in.Settings.ReserveFillSharePct; v != nil {
+			resShare = *v
+		}
+		if v := in.Settings.GoalsFillSharePct; v != nil {
+			goalShare = *v
+		}
+	}
+	if (resGap <= 0 || resShare <= 0) && (goalGap <= 0 || goalShare <= 0) {
+		return // жодної живої стелі — прогноз лишається таким, як був
+	}
+	for m := range planTotal {
+		cut := 0.0
+		if resGap > 0 && resShare > 0 {
+			// База — дозволена подушці частина місяця за відрахуванням
+			// витрат, тобто рівно PlanReserveUAH цього місяця.
+			base := math.Max(0, incReserve[m]-expense[m])
+			c := math.Min(base*resShare/100, resGap)
+			resGap -= c
+			cut += c
+		}
+		if goalGap > 0 && goalShare > 0 {
+			base := math.Max(0, incGoals[m]-expense[m])
+			c := math.Min(base*goalShare/100, goalGap)
+			goalGap -= c
+			cut += c
+		}
+		if cut <= 0 || planTotal[m] <= 0 {
+			continue
+		}
+		if cut > planTotal[m] {
+			cut = planTotal[m]
+		}
+		k := 1 - cut/planTotal[m]
+		planUAHOnly[m] *= k
+		for _, vec := range planNative {
+			vec[m] *= k
+		}
+	}
 }
 
 func newSleeveFactory(in projectionInput) sleeveFactory {
@@ -345,6 +439,19 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	// руху, а тут — «скільки прийшло», і від'ємне надходження було б просто
 	// безглуздим.
 	npfContrib := map[string][]float64{}
+	// Дозволені подушці й цілям частини плану — ОКРЕМИМИ лічильниками в
+	// тому самому циклі, тим самим ядром planFlowMonthlyUAH і тим самим
+	// правилом дозволу (domain.PlanUseAllowed), що в buildMonthPlan. Другий
+	// прохід був би другим означенням «скільки цей потік платить у серпні»,
+	// і розійшлись би вони саме там, де людина щось правила.
+	//
+	// Витрати віднімаються ПОВНІСТЮ з обох, а не пропорційно: рознести
+	// комуналку між дозволеними й недозволеними доходами можна лише
+	// вигаданим правилом. Довід дослівно той самий, що в шапці
+	// buildMonthPlan.
+	incReserve := make([]float64, goalHorizonMonths)
+	incGoals := make([]float64, goalHorizonMonths)
+	expense := make([]float64, goalHorizonMonths)
 	for _, fl := range in.PlanFlows {
 		native := fl.Currency != "" && fl.Currency != money.UAH
 		if native && planNative[fl.Currency] == nil {
@@ -369,14 +476,26 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 			// planTotal лишається гривневим і включає ВСЕ: на ньому стоїть
 			// PlanProvidesUAH («скільки план дає зараз»), якому валюта
 			// байдужа, і воно свідомо міряне сьогоднішнім курсом.
-			planTotal[m-1] += planFlowMonthlyUAH(fl, today, in.Rates, m, marks)
+			v := planFlowMonthlyUAH(fl, today, in.Rates, m, marks)
+			planTotal[m-1] += v
+			if fl.Kind == "expense" {
+				expense[m-1] += -v
+			} else {
+				if domain.PlanUseAllowed(fl.Uses, domain.UsePlanReserve) {
+					incReserve[m-1] += v
+				}
+				if domain.PlanUseAllowed(fl.Uses, domain.UsePlanGoals) {
+					incGoals[m-1] += v
+				}
+			}
 			if native {
 				planNative[fl.Currency][m-1] += planFlowNative(fl, today, m, marks)
 			} else {
-				planUAHOnly[m-1] += planFlowMonthlyUAH(fl, today, in.Rates, m, marks)
+				planUAHOnly[m-1] += v
 			}
 		}
 	}
+	spendOutside(in, planTotal, planUAHOnly, planNative, incReserve, incGoals, expense)
 	f.planTotal = planTotal
 	f.planNative = planNative
 	f.npfContrib = npfContrib

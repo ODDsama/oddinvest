@@ -13,7 +13,7 @@
 // місяця — monthTile з «Роботи», валютні розриви — rebalanceCard із
 // «Портфеля». Друга копія будь-якого з них розійшлася б із першою тихо.
 
-import { esc, uah0, pct, capitalUAH, uah2 as fmtUAH, curSym } from "../format.js";
+import { esc, uah0, pct, capitalUAH, outsideUAH, uah2 as fmtUAH, curSym } from "../format.js";
 import { tile, empty, progressBar } from "../components.js";
 import { routeFor } from "../routes.js";
 import { tasksOf, tasksHTML } from "./tasks.js";
@@ -35,7 +35,11 @@ function heroHTML(ctx) {
   const xirr = (s.xirr || {}).UAH;
   const sub = [
     usd > 0 ? `≈ ${(cap / usd).toLocaleString("uk", { maximumFractionDigits: 0 })} $` : "",
-    s.reserve_uah > 0 ? `з них ${uah0(s.reserve_uah)} у резерві, який не працює` : "",
+    // Резерв і цілі — обидва, одним рядком: питання в них одне («скільки
+    // з капіталу не працює»), і два рядки поспіль про це читались би як
+    // дубль. Назвати лише подушку означало б сховати другу половину.
+    outsideUAH(s) > 0
+      ? `з них ${uah0(outsideUAH(s))} у резерві й цілях, які не працюють` : "",
   ].filter(Boolean).map((t) => `<div class="sub">${esc(t)}</div>`).join("");
 
   return `<div class="tiles flush">

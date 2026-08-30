@@ -1033,6 +1033,9 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	blendedYield, blendedYieldReal, blendedYieldBase, blendedYieldBasis,
 		blendedYieldSplit = blendYield(parts)
 
+	// Розрив подушки — тим самим ReserveTarget, яким його рахує deriveReserve.
+	_, reserveGapUAH := state.ReserveTarget(settings, reserveUAH)
+
 	// Проєкція, місячний план і віяло прогнозів (state_projection.go).
 	// Вхід виписаний полем за полем навмисно: проєкція залежить від усіх
 	// інструментів одразу, і серед сотні локальних змінних цього не було
@@ -1053,6 +1056,12 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		IncomeMonthlyNow: incomeMonthlyNow, Today: today,
 		PlanFlows: src.planFlows, PlanActions: src.planActions,
 		PlanReceipts: src.planReceipts,
+		// Розриви подушки й цілей — щоб прогноз віднімав від місячних
+		// внесків те, що піде поза портфель, і переставав це робити, коли
+		// збирати вже нічого. Обидва рахуються ТИМИ САМИМИ функціями, що
+		// й у деривації: другого означення розриву в застосунку немає.
+		ReserveGapUAH: reserveGapUAH,
+		GoalsGapUAH:   state.GoalsGapUAH(goals.Input),
 	})
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну (див. state_projection.go).

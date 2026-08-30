@@ -10,7 +10,7 @@
 // склад і історія — у «Портфель», потоки й прогнози — у «Майбутнє».
 
 import {
-  esc, curSym, monthYearGen, dayMonth, pct, plural, capitalUAH, today,
+  esc, curSym, monthYearGen, dayMonth, pct, plural, capitalUAH, outsideUAH, today,
   uah2 as fmtUAH, cur2 as fmtCur,
 } from "../format.js";
 import { infoBtn } from "../info.js";
@@ -503,9 +503,10 @@ export async function todo(ctx, main) {
   const capSub = [
     usdRate > 0 ? `≈ ${fmtCur(cap / usdRate, "$")}` : "",
     accrued > 0 ? `+ ${fmtUAH(accrued)} НКД зароблено` : "",
-    // Резерв названий окремо: він у капіталі, але не працює, і без цього
-    // рядка сума виглядала б як «стільки в мене інвестовано».
-    s.reserve_uah > 0 ? `з них ${fmtUAH(s.reserve_uah)} у резерві` : "",
+    // Резерв і цілі накопичення названі окремо: вони в капіталі, але не
+    // працюють, і без цього рядка сума виглядала б як «стільки в мене
+    // інвестовано». Разом, а не двома рядками: питання одне.
+    outsideUAH(s) > 0 ? `з них ${fmtUAH(outsideUAH(s))} у резерві й цілях` : "",
   ].filter(Boolean).map((t) => `<div class="sub">${t}</div>`).join("");
   const planDoc = await ctx.soft("plan", null);
   main.innerHTML = `
