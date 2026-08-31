@@ -139,6 +139,20 @@ type payoffExitJSON struct {
 	// а застосунок називає ціну числом.
 	WithInvestSpendCap moneyJSON `json:"with_invest_spend_cap"`
 	WithInvestETADate  string    `json:"with_invest_eta_date,omitempty"`
+	// OnCard — залишок: скільки з валового доходу лишається на картці.
+	// Саме він гасить борг, і саме його не було видно ніде.
+	OnCard moneyJSON `json:"on_card"`
+	// Schedule — прохід балансу вперед. Порожній, коли борг не меншає.
+	Schedule []payoffExitStepJSON `json:"schedule,omitempty"`
+}
+
+// payoffExitStepJSON — один місяць проходу до нуля.
+type payoffExitStepJSON struct {
+	Month  string    `json:"month"`
+	Gross  moneyJSON `json:"gross"`
+	Invest moneyJSON `json:"invest"`
+	Spend  moneyJSON `json:"spend"`
+	Left   moneyJSON `json:"left"`
 }
 
 type payoffResp struct {
@@ -414,6 +428,13 @@ func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
 		BurnWhy:       e.BurnWhy, BurnFrom: e.BurnFrom, BurnTo: e.BurnTo,
 		WithInvestSpendCap: uah(e.WithInvestSpendCapUAH),
 		WithInvestETADate:  e.WithInvestETADate,
+		OnCard:             uah(e.GrossUAH - e.InvestUAH),
+	}
+	for _, st := range e.Schedule {
+		out.Schedule = append(out.Schedule, payoffExitStepJSON{
+			Month: st.Month, Gross: uah(st.GrossUAH), Invest: uah(st.InvestUAH),
+			Spend: uah(st.SpendUAH), Left: uah(st.LeftUAH),
+		})
 	}
 	if e.SpendMeasuredUAH > 0 {
 		m := uah(e.SpendMeasuredUAH)

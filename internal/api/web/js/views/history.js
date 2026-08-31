@@ -131,8 +131,20 @@ function capitalCardHTML(ctx, snaps) {
   ].filter((s) => s.values.some((v) => v > 0));
 
   const cost = snaps.map(snapCostUAH);
-  const series = areas.concat(cost.some((v) => v != null)
-    ? [{ name: "Собівартість", color: "var(--oi-series-neutral)", values: cost, dash: true }] : []);
+  // Чистий капітал — ЛІНІЯ поверх стосу, а не смуга в ньому: борг має
+  // протилежний знак, і смугою його намалювати не можна взагалі. Лінія
+  // йде НИЖЧЕ верхньої межі стосу рівно на те, що винен, і саме ця
+  // відстань — головне, що тут видно.
+  //
+  // Мовчить, доки боргів не було: нуль у старих рядках означає «тоді не
+  // рахували», а не «тоді не було», і намальований від нуля він читався б
+  // як обвал капіталу в день, коли просто зʼявилась колонка.
+  const net = snaps.map((s) => (s.net_worth_uah > 0 ? s.net_worth_uah : null));
+  const series = areas
+    .concat(cost.some((v) => v != null)
+      ? [{ name: "Собівартість", color: "var(--oi-series-neutral)", values: cost, dash: true }] : [])
+    .concat(net.some((v) => v != null)
+      ? [{ name: "Чистий капітал", color: "var(--oi-series-networth)", values: net }] : []);
 
   capTip = { dates, series, total: snaps.map((_, i) => areas.reduce((sum, a) => sum + a.values[i], 0)), cost };
   const frame = fluid(

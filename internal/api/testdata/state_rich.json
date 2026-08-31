@@ -220,6 +220,7 @@
       "done_date": "2026-06-05"
     }
   ],
+  "net_worth_uah": 1084668.29,
   "debt": {
     "total_uah": 28333.34,
     "top_rate_pct": 59.92,
@@ -245,7 +246,16 @@
       "burn_from": "2026-06-05",
       "burn_to": "2026-07-10",
       "with_invest_spend_cap_uah": 38956.88,
-      "with_invest_eta_date": "2026-07-29"
+      "with_invest_eta_date": "2026-07-29",
+      "schedule": [
+        {
+          "month": "2026-07",
+          "gross_uah": 47500,
+          "invest_uah": 19600,
+          "spend_uah": 1739.43,
+          "left_uah": 0
+        }
+      ]
     },
     "cards_watched": 1
   },
@@ -403,6 +413,7 @@
     "income_uah": 16600,
     "expense_uah": 9000,
     "gross_uah": 47500,
+    "on_card_uah": 27900,
     "extra_uah": 3000,
     "plan_uah": 6519.67,
     "plan_reserve_uah": 6519.67,

@@ -160,19 +160,46 @@ function exitHTML(g) {
     ${Number(e.short_per_month.amount) > 0 ? `<div class="kv">
       <span class="muted">Щоб устигнути, врізати витрати на</span>
       <b class="t-warn">${fmtMoney(e.short_per_month)}/міс</b></div>` : ""}
-    <div class="kv"><span class="muted">Приходить усього</span>
+    <div class="kv"><span class="muted">Приходить усього, у середньому</span>
       <b>${fmtMoney(e.gross)}/міс</b></div>
     <div class="kv"><span class="muted">З них виводиться в інструменти</span>
       <b>${fmtMoney(e.invest)}/міс</b></div>
+    <div class="kv"><span class="muted">Лишається на картці — це «все інше»</span>
+      <b>${fmtMoney(e.on_card)}/міс</b></div>
+    <div class="sub">Три числа вище — СЕРЕДНІ за місяці до цілі, бо стеля витрат
+      міряється саме цим періодом. Місяці при цьому різні: одна зарплата
+      закінчується, інша починається, — і таблиця нижче показує кожен окремо.</div>
     <div class="kv"><span class="muted">Витрати, з якими рахували (${esc(e.spend_basis)})</span>
       <b>${fmtMoney(e.spend_used)}/міс</b></div>
     ${spendGapHTML(e)}
+    ${exitWalkHTML(e)}
     <div class="sub">Якщо докинути на картку й інвестиційну частку —
       витрачати можна <b>${fmtMoney(e.with_invest_spend_cap)}/міс</b>${e.with_invest_eta_date
     ? `, а за нинішніми витратами вихід зсунеться на ${esc(e.with_invest_eta_date)}` : ""}.
       Ціна цього — купівель за цей час не буде. Вирішувати щомісяця, застосунок лише
       ставить обидва числа поруч.</div>
   </div>`;
+}
+
+/** Прохід балансу картки вперед.
+ *
+ *  Місяці НЕ однакові, і саме тому це таблиця, а не одне число: у власника
+ *  одна зарплата скінчилась у серпні, а дві починаються у вересні, тож
+ *  перший крок помітно менший за решту. Середнє цього не показує. */
+function exitWalkHTML(e) {
+  if (!(e.schedule || []).length) return "";
+  return disclosure("card-exit-walk", "Помісячно до нуля", opsGrid({
+    cols: [
+      { key: "m", label: "Місяць", cell: (r) => esc(monthYear(r.month + "-01")) },
+      { key: "gross", label: "Приходить", num: true, cell: (r) => fmtMoney(r.gross) },
+      { key: "invest", label: "У портфель", num: true, cell: (r) => fmtMoney(r.invest) },
+      { key: "spend", label: "Витрати", num: true, cell: (r) => fmtMoney(r.spend) },
+      { key: "left", label: "Лишиться боргу", num: true, cell: (r) => fmtMoney(r.left) },
+    ],
+    rows: e.schedule,
+    caption: "Баланс картки місяць за місяцем до нуля",
+    empty: "",
+  }));
 }
 
 /** Заявлені витрати проти виміряних. Мовчазне «взяли заявлені» перетворило

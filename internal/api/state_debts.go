@@ -231,11 +231,17 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		months = 24
 	}
 	var gross, invest float64
+	// perMonth — той самий обхід, але помісячно: із нього виходить і
+	// середнє, і прохід балансу вперед. Другого циклу не заводимо, бо
+	// «скільки прийде в жовтні» мусить лишитись одним означенням.
+	perMonth := make([]debtMonthRow, 0, months)
 	for m := 0; m < months; m++ {
 		mp := buildMonthPlan(src, rates, today, m, 0)
 		if mp == nil {
+			perMonth = append(perMonth, debtMonthRow{})
 			continue
 		}
+		perMonth = append(perMonth, debtMonthRow{mp.GrossUAH, mp.IncomeUAH + mp.ExtraUAH})
 		gross += mp.GrossUAH
 		invest += mp.IncomeUAH + mp.ExtraUAH
 	}
@@ -282,6 +288,54 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 	if burn.Known {
 		out.SpendMeasuredUAH = round2(float64(burn.PerMonth) / 100)
 		out.BurnFrom, out.BurnTo = string(burn.From), string(burn.To)
+	}
+	out.Schedule = debtExitWalk(perMonth, float64(st.Debt)/100, spend, today)
+	return out
+}
+
+// debtMonthRow — валовий дохід місяця й та його частина, що йде в
+// портфель. Іменований тип, а не анонімна структура: він перетинає межу
+// функції, і анонімний довелось би повторити в сигнатурі слово в слово.
+type debtMonthRow struct{ gross, invest float64 }
+
+// debtExitWalk — баланс картки місяць за місяцем до нуля.
+//
+// Кожен місяць гасить борг на «валовий мінус портфель мінус витрати», і
+// саме тому місяці НЕ однакові: у власника одна зарплата скінчилась у
+// серпні, а дві починаються у вересні, тож перший крок помітно менший за
+// решту. Середнє цього не показує, а таблиця показує.
+//
+// МОВЧИТЬ, КОЛИ БОРГ НЕ МЕНШАЄ. Двадцять чотири рядки з однаковим
+// залишком — не таблиця, а спосіб не сказати «за цим темпом виходу не
+// буде»; це вже сказано порожньою датою виходу поруч.
+func debtExitWalk(perMonth []debtMonthRow,
+	debtUAH, spendUAH float64, today domain.Date) []state.DebtExitStep {
+
+	if debtUAH <= 0 || len(perMonth) == 0 {
+		return nil
+	}
+	left := debtUAH
+	out := make([]state.DebtExitStep, 0, len(perMonth))
+	for m, row := range perMonth {
+		pay := row.gross - row.invest - spendUAH
+		if pay <= 0 && m == 0 {
+			return nil // борг не меншає з першого ж місяця
+		}
+		if pay < 0 {
+			pay = 0
+		}
+		left -= pay
+		if left < 0 {
+			left = 0
+		}
+		out = append(out, state.DebtExitStep{
+			Month:    monthKeyAt(today, m),
+			GrossUAH: round2(row.gross), InvestUAH: round2(row.invest),
+			SpendUAH: round2(spendUAH), LeftUAH: round2(left),
+		})
+		if left == 0 {
+			break
+		}
 	}
 	return out
 }
@@ -338,4 +392,37 @@ func debtFillSharePct(set *state.SettingsDoc) float64 {
 		return 0
 	}
 	return *set.DebtFillSharePct
+}
+
+// debtOwedUAH — скільки винен УСЬОГО, грн-екв.: і те, на що нараховують, і
+// пільговий борг картки.
+//
+// Ширше за DebtPlan.TotalUAH навмисно, і це не розбіжність. Черга
+// погашення питає «що коштує грошей», тож пільговий оборот у неї не йде;
+// чистий капітал питає «скільки в мене насправді», і для нього байдуже,
+// під яку ставку ти винен.
+func debtOwedUAH(src *sources, rates fx.Rates, today domain.Date) float64 {
+	total := 0.0
+	for _, d := range src.debts {
+		if d.Closed() {
+			continue
+		}
+		owed := int64(0)
+		if d.IsCard() {
+			owed = domain.CardState(d, src.debtMarks, src.debtOps, nil, today).Debt
+		} else {
+			for _, p := range domain.InstallmentSchedule(d) {
+				if !p.Date.Before(today) {
+					owed += p.Principal
+				}
+			}
+		}
+		if owed <= 0 {
+			continue
+		}
+		if u, err := fx.ToUAH(money.New(owed, d.Currency), rates); err == nil {
+			total += float64(u.Amount()) / 100
+		}
+	}
+	return round2(total)
 }

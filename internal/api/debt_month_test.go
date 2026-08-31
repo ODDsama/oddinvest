@@ -194,6 +194,54 @@ func TestExitModeCapsReserveEvenWithoutRate(t *testing.T) {
 	}
 }
 
+// ГОЛОВНИЙ ТЕСТ ФАЗИ: потік із часткою в портфель 0% дає ПОВНИЙ валовий
+// дохід і нічого не дає портфелю.
+//
+// Доти охорона «чи платить цього місяця» множила суму на цю частку, тож
+// нульова частка читалась як «не платить», і потік зникав цілком — разом
+// із валовим доходом. На бойових даних це оголосило дохід власника
+// 48 970 ₴/міс замість 191 500 і зробило стелю витрат відʼємною.
+func TestMonthPlanGrossCountsZeroInvestFlows(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, out := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата на життя","kind":"income","amount":"100000","currency":"UAH",
+		  "cadence":"month","from_date":"2020-01-01","invest_pct":"0"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік: %d %s", resp.StatusCode, out)
+	}
+	got := monthPlanOf(t, srv.URL)
+	if got.GrossUAH < 99_999 {
+		t.Fatalf("валовий %.2f — потік із нульовою часткою зник", got.GrossUAH)
+	}
+	if got.IncomeUAH != 0 {
+		t.Errorf("у портфель %.2f, чекали нуль: частка ж нульова", got.IncomeUAH)
+	}
+	// І він рахується джерелом доходу: він таки платить.
+	if got.Sources != 1 {
+		t.Errorf("джерел %d, чекали 1", got.Sources)
+	}
+	// Залишок — усе, що не пішло в портфель.
+	if diff := got.OnCardUAH - got.GrossUAH; diff > 0.01 || diff < -0.01 {
+		t.Errorf("залишок %.2f при валовому %.2f", got.OnCardUAH, got.GrossUAH)
+	}
+}
+
+// Тотожність залишку: валовий = у портфель + на картку.
+func TestMonthPlanOnCardIsGrossMinusIncome(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, out := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"100000","currency":"UAH",
+		  "cadence":"month","from_date":"2020-01-01","invest_pct":"20"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік: %d %s", resp.StatusCode, out)
+	}
+	got := monthPlanOf(t, srv.URL)
+	if diff := got.GrossUAH - got.IncomeUAH - got.ExtraUAH - got.OnCardUAH; diff > 0.01 || diff < -0.01 {
+		t.Errorf("валовий %.2f ≠ портфель %.2f + позапланове %.2f + залишок %.2f",
+			got.GrossUAH, got.IncomeUAH, got.ExtraUAH, got.OnCardUAH)
+	}
+}
+
 // Стеля подушки на час боргу вмикається лише від боргу, що коштує РЕАЛЬНИХ
 // грошей. Безвідсоткова розстрочка «частинами» її не вмикає — і це
 // виходить само собою з порогу «реальна ставка вище нуля».
@@ -240,4 +288,48 @@ func monthPlanOf(t *testing.T, url string) state.MonthPlan {
 		t.Fatal("у зведенні немає плану місяця")
 	}
 	return *doc.MonthPlan
+}
+
+// Прохід балансу картки доходить до нуля, і сума погашеного дорівнює
+// боргу.
+func TestDebtExitScheduleReachesZero(t *testing.T) {
+	rows := []debtMonthRow{
+		{gross: 100_000, invest: 20_000},
+		{gross: 100_000, invest: 20_000},
+		{gross: 100_000, invest: 20_000},
+	}
+	got := debtExitWalk(rows, 120_000, 40_000, "2026-09-01")
+	if len(got) != 3 {
+		t.Fatalf("кроків %d, чекали 3: 120 000 ÷ (100 000 − 20 000 − 40 000)", len(got))
+	}
+	if got[len(got)-1].LeftUAH != 0 {
+		t.Errorf("останній крок лишає %.2f боргу", got[len(got)-1].LeftUAH)
+	}
+	// Місяці НЕ однакові за побудовою — кожен несе свої числа, а не
+	// середнє: інакше стрибок темпу не пояснити.
+	if got[0].GrossUAH != 100_000 || got[0].InvestUAH != 20_000 || got[0].SpendUAH != 40_000 {
+		t.Errorf("рядок не називає своїх чисел: %+v", got[0])
+	}
+	// Крок за кроком борг меншає рівно на профіцит.
+	if got[0].LeftUAH != 80_000 || got[1].LeftUAH != 40_000 {
+		t.Errorf("хід проходу: %.2f → %.2f", got[0].LeftUAH, got[1].LeftUAH)
+	}
+}
+
+// Коли витрати зʼїдають усе, що приходить, таблиці НЕМАЄ: двадцять чотири
+// однакові рядки — не відповідь, а спосіб не сказати «виходу не буде».
+func TestDebtExitScheduleStopsWhenDebtGrows(t *testing.T) {
+	rows := []debtMonthRow{
+		{gross: 100_000, invest: 20_000},
+		{gross: 100_000, invest: 20_000},
+	}
+	if got := debtExitWalk(rows, 120_000, 80_000, "2026-09-01"); got != nil {
+		t.Errorf("прохід намалював %d рядків при нульовому профіциті", len(got))
+	}
+	// Перший місяць може бути слабким (одна зарплата скінчилась, друга ще
+	// не почалась) — але якщо далі темп є, таблиця будується.
+	rows[0] = debtMonthRow{gross: 100_000, invest: 20_000}
+	if got := debtExitWalk(rows, 120_000, 79_000, "2026-09-01"); len(got) == 0 {
+		t.Error("живий профіцит не дав жодного кроку")
+	}
 }

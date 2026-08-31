@@ -359,12 +359,31 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	// «скільки цей потік платить у серпні».
 	incReserve, incGoals, incDebt := 0.0, 0.0, 0.0
 	for _, f := range src.planFlows {
+		// Валова копія — з часткою в портфель 100%. Той самий фокус, що в
+		// planFlowGrossUAH, і потрібен він тут ДВІЧІ: для самого валового
+		// числа й для охорони нижче.
+		gross := f
+		gross.InvestBP = 10000
+
 		// Чи платить потік цього місяця, вирішує ЧИСТИЙ план (marks = nil), а
 		// не сума з відмітками. Різниця видна на відмітці «не прийшло»: вона
 		// робить суму нулем, і за нею рядок зник би зі списку джерел — тобто
 		// «зарплати цього місяця не було» перестало б відрізнятись від
 		// «зарплати тут ніколи й не планувалось».
-		if planFlowAtMonth(f, today, m, nil) == 0 {
+		//
+		// І рахується вона на ВАЛОВІЙ копії, а не на самому потоці. Питання
+		// тут КАЛЕНДАРНЕ — «чи є виплата в цьому місяці», — а сума потоку
+		// множиться на частку в портфель, тож нульова частка давала нуль і
+		// читалась як «не платить». Потік зникав цілком: не лише з
+		// income_uah (де його справді немає), а й із валового доходу та зі
+		// списку джерел.
+		//
+		// Спіймано на бойових даних. Власник свідомо виставив 0% двом
+		// найбільшим потокам («поки виходжу з ліміту, у портфель не йде
+		// нічого»), і застосунок оголосив його дохід 48 970 ₴/міс замість
+		// 191 500, а стелю витрат — відʼємною. Нульова частка означає
+		// «нічого не інвестую», а не «нічого не отримую».
+		if planFlowAtMonth(gross, today, m, nil) == 0 {
 			continue
 		}
 		amt := planFlowUAH(planFlowAtMonth(f, today, m, marks), f.Currency, rates)
@@ -375,11 +394,6 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 			continue
 		}
 		out.IncomeUAH += amt
-		// Валове — тим самим фокусом, що в planFlowGrossUAH: копія потоку
-		// зі стовідсотковою часткою. Другого обходу потоків не заводимо —
-		// «чи платить цього місяця» мусить лишитись одним означенням.
-		gross := f
-		gross.InvestBP = 10000
 		out.GrossUAH += planFlowUAH(planFlowAtMonth(gross, today, m, marks), f.Currency, rates)
 		if domain.PlanUseAllowed(f.Uses, domain.UsePlanReserve) {
 			incReserve += amt
@@ -441,6 +455,14 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		out.CoveredPct = round2(depositedUAH / out.PlanUAH * 100)
 	}
 
+	// Залишок — валовий мінус те, що дійшло до портфеля. Це і є «все інше»:
+	// гроші, які нікуди не розподіляються, бо вони просто лишаються там,
+	// куди прийшли, — на картці, і витрачаються з неї.
+	//
+	// Окремим числом, а не відніманням у голові: питання «скільки лишається
+	// на життя» ставлять щомісяця, і два доданки поруч без різниці між ними
+	// змушують рахувати очима.
+	out.OnCardUAH = round2(math.Max(0, out.GrossUAH-out.IncomeUAH-out.ExtraUAH))
 	out.IncomeUAH = round2(out.IncomeUAH)
 	out.GrossUAH = round2(out.GrossUAH)
 	out.ExpenseUAH = round2(out.ExpenseUAH)

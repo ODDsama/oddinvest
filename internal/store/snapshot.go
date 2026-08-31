@@ -58,6 +58,13 @@ type Snapshot struct {
 	// число, вони зробили б рядок «було → стало» непоясненним рівно в
 	// місяць, коли людина закрила ціль і купила річ.
 	GoalsUAH int64 `json:"goals_uah,omitempty"`
+	// NetWorthUAH — чистий капітал: капітал МІНУС борги (0048). Окремою
+	// колонкою, а не правкою capital_uah: на капіталі стоять частки,
+	// драбина, ліміти й XIRR, і відʼємний доданок зламав би суму 100.
+	//
+	// Нуль у старих рядках означає «тоді не рахували», а не «боргів не
+	// було»: лінія на кривій мусить обриватись там, де починаються нулі.
+	NetWorthUAH int64 `json:"net_worth_uah,omitempty"`
 }
 
 // snapshotCol — одна колонка знімка. Ptr дає доступ до поля структури,
@@ -89,6 +96,7 @@ var snapshotCols = []snapshotCol{
 	{"npf_uah", func(s *Snapshot) *int64 { return &s.NPFUAH }},
 	{"npf_cost_uah", func(s *Snapshot) *int64 { return &s.NPFCostUAH }},
 	{"goals_uah", func(s *Snapshot) *int64 { return &s.GoalsUAH }},
+	{"net_worth_uah", func(s *Snapshot) *int64 { return &s.NetWorthUAH }},
 }
 
 // SnapshotColumns — імена числових колонок знімка, для споживачів поза

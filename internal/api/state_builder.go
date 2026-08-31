@@ -1132,6 +1132,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		MonthWithdrawnUAH: state.Major(monthOut),
 		MonthTargetUAH:    state.Major(target),
 		MonthPlan:         mth.Plan,
+		// Чистий капітал — капітал мінус УСЕ, що винен, включно з пільговим
+		// боргом картки: питання «скільки в мене насправді» не про ставки
+		// (довід — при полі та в міграції 0048).
+		NetWorthUAH: round2(capital.TotalUAH() - debtOwedUAH(src, rates, today)),
 		// Борг — після плану місяця навмисно: стеля дострокового міряється
 		// від дозволеної частини ПЛАНУ, а обовʼязкові платежі той план уже
 		// зменшили (state_month.go).
