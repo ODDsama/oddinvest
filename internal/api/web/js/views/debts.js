@@ -87,6 +87,10 @@ function graceHTML(g) {
   }
   const free = Number(g.free.amount);
   const short = free < 0;
+  // Проза залежить від того, чи є на картці СВОЇ гроші. Один текст на
+  // обидва стани був би неправдою для одного з них: «плюс уже обіцяний
+  // виписці» нічого не означає, коли плюса немає взагалі.
+  const inPlus = Number((g.free_own || g.free).amount) > 0 || free > 0;
   return `<div class="card">
     <h2 class="h-row">${esc(g.name)} ${infoBtn("card")}</h2>
     <div class="note">Пільговий оборот — це побут, а не борг: доки виписку закривають
@@ -95,9 +99,13 @@ function graceHTML(g) {
     <div class="tiles flush">
       <div class="tile hero"><div class="lbl">Вільно</div>
         <div class="val ${short ? "t-danger" : "t-ok"}">${fmtMoney(g.free)}</div>
-        <div class="sub">${short
-    ? "плюс на картці вже обіцяний виписці — витратиш ці гроші, і почнуть нараховувати"
-    : "стільки можна витратити, не потрапивши на відсотки"}</div></div>
+        <div class="sub">${!short
+    ? "стільки своїх грошей на картці лишається вільними"
+    : inPlus
+      ? `плюс на картці вже обіцяний виписці — стільки ще треба принести до ${
+        esc(g.due_date || "розрахункової дати")}`
+      : `стільки треба принести до ${esc(g.due_date || "розрахункової дати")},
+         інакше з цієї дати почнуть нараховувати`}</div></div>
       <div class="tile"><div class="lbl">До сплати ${g.due_date ? "до " + esc(g.due_date) : ""}</div>
         <div class="val">${fmtMoney(g.full_due)}</div>
         <div class="sub">внести стільки — і відсотків не буде взагалі</div></div>

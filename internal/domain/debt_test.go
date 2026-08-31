@@ -297,3 +297,48 @@ func TestCardScheduleShowsDebtThatOutgrowsMinimum(t *testing.T) {
 		t.Errorf("на нульовому боргу графік із %d рядків", len(got))
 	}
 }
+
+// Відʼємний баланс НЕ подвоює суму до сплати.
+//
+// Спіймано на бойових даних, не тестом: борг 182 317, виписка 180 260 —
+// і «вільно» виходило −362 577, бо той самий борг стояв у формулі двічі.
+// Банк так не рахує: платіж гасить виписку й піднімає баланс однією дією,
+// тож додатний баланс і жива виписка разом не існують.
+func TestCardFreeDoesNotDoubleCountNegativeBalance(t *testing.T) {
+	card := Debt{
+		ID: 1, Kind: DebtCard, Currency: "UAH", StatementDay: 30,
+		LimitAmount: 182_317_45, APRBp: 4788, MinPaymentBp: 300,
+	}
+	// Ліміт вибраний до дна, уся сума до сплати — пільгова.
+	marks := []DebtMark{{
+		DebtID: 1, Date: "2026-09-01",
+		Balance: -182_317_45, StatementDue: 180_259_85,
+	}}
+	st := CardState(card, marks, nil, nil, "2026-09-10")
+
+	if st.Free != -180_259_85 {
+		t.Errorf("вільно %d, чекали −180 259,85 — рівно стільки треба принести", st.Free)
+	}
+	if st.Debt != 182_317_45 {
+		t.Errorf("борг %d", st.Debt)
+	}
+	// Використано весь ліміт — і це видно.
+	if st.UsedPct < 99.9 {
+		t.Errorf("використано %.2f%% ліміту", st.UsedPct)
+	}
+	// Пільговий оборот у чергу погашення не входить: нараховувати ще нема
+	// на що.
+	if st.NonGrace != 0 {
+		t.Errorf("поза пільговим %d, чекали нуль", st.NonGrace)
+	}
+
+	// А коли зарплата покрила виписку, вільним стає рівно її залишок.
+	ops := []DebtOp{{DebtID: 1, Date: "2026-09-05", Kind: DebtOpPayment, Amount: 185_000_00}}
+	st = CardState(card, marks, ops, nil, "2026-09-10")
+	if st.StatementDue != 0 {
+		t.Errorf("після платежу до сплати лишилось %d", st.StatementDue)
+	}
+	if want := int64(185_000_00 - 182_317_45); st.Free != want {
+		t.Errorf("вільно %d, чекали %d", st.Free, want)
+	}
+}
