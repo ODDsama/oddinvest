@@ -105,6 +105,7 @@ const VIEWS = {
   "money/all/import": money.importStatement,
   "money/all/reconcile": money.reconcile,
 
+  "plan/debts/main": plan.debts,
   "plan/inflow/main": plan.inflow,
   "plan/route/main": plan.route,
   "plan/goal/main": plan.goal,

@@ -67,6 +67,11 @@ const (
 	actHowToFund     = "how-to-fund"
 	actConfirmRoute  = "confirm-route"
 	actFillGoal      = "fill-goal"
+	// actPayCard веде до форми звірки картки: у неї два числа з додатка
+	// банку, і саме вони роблять пороги правдою. actPayDebt — до журналу
+	// боргу.
+	actPayCard = "pay-card"
+	actPayDebt = "pay-debt"
 )
 
 // taskSoonDays — вікно «скоро». Одне число на всі дати навмисно: вклад, що
@@ -188,6 +193,19 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			Why:    "Додай папір — і застосунок почне вести драбину, календар і проєкції.",
 			Action: actRecordBuy,
 		}}
+	}
+
+	// ---------- картка: платіж до розрахункової дати ----------
+	//
+	// РАНГ 1, вище за все, і це єдина задача застосунку, чия ціна лежить
+	// ПОЗА грошима. Пропущений платіж коштує штрафу, підвищеної ставки на
+	// весь борг і запису в кредитній історії, який не виправляється
+	// доплатою. Решта черги — про вигоду, ця — про шкоду.
+	//
+	// Два пороги в одному рядку, бо помилки дві й вони різні за ціною
+	// (довід — у шапці domain/debt.go).
+	for _, c := range cardTasks(src, today) {
+		add(c)
 	}
 
 	// ---------- резерв ----------
@@ -452,7 +470,11 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 // узагалі. Спіймано живцем на порожній базі.
 func hasPortfolio(doc *state.Doc) bool {
 	return doc.NominalUAHEq > 0 || doc.FundsUAH > 0 ||
-		doc.DepositsUAH > 0 || doc.ReserveUAH > 0 || doc.GoalsUAH > 0
+		doc.DepositsUAH > 0 || doc.ReserveUAH > 0 || doc.GoalsUAH > 0 ||
+		// Борг — теж «портфель є»: людина, у якої лише картка й
+		// розстрочка, приходить сюди саме по чергу погашення, а порада
+		// «почни з першої покупки» була б знущанням.
+		doc.Debt != nil
 }
 
 func buyTask(best, bestAny *suggestion) state.Task {
@@ -788,3 +810,133 @@ func mustShift(d domain.Date, days int) string {
 	}
 	return t.AddDate(0, 0, days).Format("2006-01-02")
 }
+
+// cardTasks — задачі про пільговий цикл карток.
+//
+// ТРИ РІЗНІ ПИТАННЯ, а не одне з відтінками:
+//
+//	платіж    — до дати треба внести стільки-то, інакше почнуть нараховувати;
+//	перевитрата — картка «в плюсі», але плюс уже обіцяний виписці;
+//	звірка    — числа застаріли, і всі попередні відповіді стоять на них.
+//
+// Злиття будь-яких двох зробило б задачу, що зникає в момент, коли саме
+// вона й потрібна: перевитрата найгостріша тоді, коли до дати ще далеко.
+func cardTasks(src *sources, today domain.Date) []state.Task {
+	var out []state.Task
+	for _, d := range src.debts {
+		if !d.IsCard() || d.Closed() {
+			continue
+		}
+		st := domain.CardState(d, src.debtMarks, src.debtOps, src.debts, today)
+		cur := d.Currency
+
+		if !st.Known {
+			out = append(out, state.Task{
+				ID: "card-mark-" + d.Name, Sev: sevNow, Rank: 1, Kind: "debt",
+				Title: "Звірити картку «" + d.Name + "» з додатком банку",
+				Why: "Поки звірки немає, застосунок не знає ні балансу, ні суми до сплати — " +
+					"тобто не може сказати ні скільки внести, ні скільки ще можна витратити.",
+				Action: actPayCard,
+			})
+			continue
+		}
+
+		if st.StatementDue > 0 && st.DaysToDue <= taskSoonDays {
+			why := fmt.Sprintf(
+				"До %s внести %s — і відсотків не буде взагалі. Мінімум %s: менше — "+
+					"штраф і підвищена ставка на весь борг.",
+				st.DueDate, debtMoney(st.StatementDue, cur),
+				debtMoney(st.MinDue, cur))
+			if st.NonGrace > 0 {
+				// Готівка не має пільгового ніколи, і мовчати про це не
+				// можна: людина внесе «суму до сплати» й буде впевнена, що
+				// нарахувань немає.
+				why += fmt.Sprintf(" %s із цього — готівка або переказ: на них "+
+					"пільговий не діє, відсоток уже йде.",
+					debtMoney(st.NonGrace, cur))
+			}
+			sev := sevSoon
+			if st.DaysToDue <= 7 {
+				sev = sevNow
+			}
+			out = append(out, state.Task{
+				ID:  "card-due-" + d.Name,
+				Sev: sev, Rank: 1, Kind: "debt",
+				Title: fmt.Sprintf("Внести на «%s» — %s до %s",
+					d.Name, debtMoney(st.StatementDue, cur), st.DueDate),
+				Why:    why,
+				When:   string(st.DueDate),
+				Action: actPayCard,
+				// Гривня — і лише вона: поле зветься AmountUAH, і покласти
+				// туди долари означало б збрехати сенсору в Home Assistant,
+				// який складає ці суми. Валютна картка лишається без числа,
+				// а сума названа в самому заголовку.
+				AmountUAH: cardAmountUAH(st.StatementDue, cur),
+			})
+		}
+
+		// Перевитрата — те, про що власник і просив: «виводжу в плюс і
+		// потім знову просаджую». Рядок зʼявляється рівно тоді, коли плюса
+		// вже не вистачає на те, що з нього мусить піти.
+		if st.Free < 0 {
+			why := fmt.Sprintf("На картці %s, але %s із цього вже обіцяно виписці",
+				debtMoney(st.Balance, cur),
+				debtMoney(st.StatementDue, cur))
+			if st.InstallmentDue > 0 {
+				why += fmt.Sprintf(" і ще %s спишуть частинами розстрочок до %s",
+					debtMoney(st.InstallmentDue, cur), st.DueDate)
+			}
+			why += ". Витратиш ці гроші — безкоштовний оборот стане боргом під ставку."
+			out = append(out, state.Task{
+				ID: "card-overspend-" + d.Name, Sev: sevNow, Rank: 2, Kind: "debt",
+				Title: fmt.Sprintf("«%s»: бракує %s до безпечного нуля",
+					d.Name, debtMoney(-st.Free, cur)),
+				Why:       why,
+				Action:    actPayCard,
+				AmountUAH: cardAmountUAH(-st.Free, cur),
+			})
+		}
+
+		// Застаріла звірка лікується ПОКАЗОМ, а не блокуванням — той самий
+		// підхід, що з ціною фонду (price_stale). Числа лишаються на
+		// екрані, але вік названий.
+		if st.MarkAgeDays > cardMarkStaleDays {
+			out = append(out, state.Task{
+				ID: "card-mark-stale-" + d.Name, Sev: sevWatch, Rank: 20, Kind: "debt",
+				Title: fmt.Sprintf("Звірити «%s»: числам %d днів", d.Name, st.MarkAgeDays),
+				Why: "Баланс кредитки рухається щодня. Пороги, «вільно» і черга погашення " +
+					"стоять на цій звірці, тож місячної давнини число — це вже спогад.",
+				Action: actPayCard,
+			})
+		}
+	}
+	return out
+}
+
+// cardAmountUAH — сума задачі числом, і лише в гривні (довід при
+// виклику).
+func cardAmountUAH(minor int64, cur string) float64 {
+	if cur != money.UAH {
+		return 0
+	}
+	return round2(float64(minor) / 100)
+}
+
+// debtMoney — сума боргу для прози задачі.
+//
+// Гривня йде через uah(), решта — через Display(): у гривні застосунок
+// скрізь пише «18 400,00 ₴», і одне місце з «18,400.00 UAH» читалось би як
+// чужий екран. Валютний борг рідкість, і для нього рідний формат money
+// чесніший за підроблений під гривню.
+func debtMoney(minor int64, cur string) string {
+	if cur == money.UAH {
+		return uah(float64(minor) / 100)
+	}
+	return money.New(minor, cur).Display()
+}
+
+// cardMarkStaleDays — з якого віку звірка перестає бути виміром.
+//
+// Два тижні, а не місяць: пільговий цикл місячний, і звірка, старша за
+// півцикла, не встигає попередити про той самий цикл, про який говорить.
+const cardMarkStaleDays = 14

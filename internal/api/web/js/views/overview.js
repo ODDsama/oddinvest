@@ -28,6 +28,7 @@ import { tasksOf, tasksHTML } from "./tasks.js";
 import { monthTile } from "./now-view.js";
 import { nextLineHTML } from "./path.js";
 import { rebalanceCard } from "./risk.js";
+import { debtOverviewHTML } from "./debts.js";
 
 /** Головне число й три поруч.
  *
@@ -151,6 +152,7 @@ export async function overview(ctx, main) {
     ${heroHTML(ctx)}
     ${queuesHTML(ctx)}
     ${nextLineHTML(progress)}
+    ${debtOverviewHTML(s)}
     <div class="card"><h2>Цей місяць</h2>
       <div class="tiles flush">${monthTile(ctx, s)}</div></div>
     ${routePreviewHTML(route && (route.rows || route))}

@@ -79,6 +79,23 @@ const REFS = {
       { "data-cur": (d.principal || {}).currency || "" },
     ]),
   },
+  // Два види посилань на борг, а не один із фільтром: питання різні.
+  // Рух пишуть під БУДЬ-ЯКИЙ борг, а звірка й прив'язка розстрочки
+  // існують лише для КАРТКИ — у розстрочки немає ні балансу, ні виписки,
+  // і показати її в тому списку означало б дозволити запис, який нічого
+  // не означає.
+  debt: {
+    label: "Борг", blank: "— борг —", allowNew: false,
+    list: (ctx, items) => (items || []).map((d) => [
+      String(d.id), d.name, { "data-cur": d.currency || "" },
+    ]),
+  },
+  "debt-card": {
+    label: "Картка", blank: "— картка —", allowNew: false,
+    list: (ctx, items) => (items || [])
+      .filter((d) => d.kind === "card")
+      .map((d) => [String(d.id), d.name, { "data-cur": d.currency || "" }]),
+  },
   flow: {
     label: "Джерело", blank: "— джерело —", allowNew: false,
     list: (ctx, items) => (items || []).map((f) => [

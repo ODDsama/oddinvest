@@ -13,6 +13,7 @@
 package api
 
 import (
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -92,11 +93,14 @@ type payoffGraceJSON struct {
 }
 
 type payoffResp struct {
-	Strategy string           `json:"strategy"`
-	Extra    moneyJSON        `json:"extra"`
-	Debts    []payoffDebtJSON `json:"debts"`
-	Total    moneyJSON        `json:"total"`
-	Plan     payoffPlanJSON   `json:"plan"`
+	Strategy string    `json:"strategy"`
+	Extra    moneyJSON `json:"extra"`
+	// ExtraFrom — звідки взялося це число. Сума без походження читається
+	// як вимога застосунку, а не як те, що людина сама собі поставила.
+	ExtraFrom string           `json:"extra_from,omitempty"`
+	Debts     []payoffDebtJSON `json:"debts"`
+	Total     moneyJSON        `json:"total"`
+	Plan      payoffPlanJSON   `json:"plan"`
 	// Compare — усі три стратегії поруч, у місяцях і в гривнях.
 	Compare     []payoffPlanJSON        `json:"compare"`
 	Schedule    []payoffMonthJSON       `json:"schedule,omitempty"`
@@ -151,7 +155,27 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	extra := int64(0)
+	// Скільки є ПОНАД обовʼязкове. Без параметра береться не нуль, а
+	// власна стеля застосунку (doc.debt.fill_now_uah) — те саме число, яке
+	// розкладка вирізає на борг із кожного надходження.
+	//
+	// Нуль замовчуванням був би гіршим за відсутність відповіді: на
+	// мінімалках картковий борг не гаситься НІКОЛИ, тож усі три стратегії
+	// казали б «ніколи», і сторінка мовчала б рівно про те, по що на неї
+	// приходять. Друге означення «скільки в мене є» при цьому не заводиться
+	// — воно береться з документа.
+	extra, extraFrom := int64(0), "стеля дострокового погашення"
+	investPct := 0.0
+	if doc, derr := s.buildState(ctx, now); derr == nil && doc != nil {
+		if doc.Debt != nil && doc.Debt.FillNowUAH > 0 {
+			extra = int64(math.Round(doc.Debt.FillNowUAH * 100))
+		}
+		if doc.MonthPlan != nil && extra == 0 && doc.MonthPlan.LeftUAH > 0 {
+			extra, extraFrom = int64(math.Round(doc.MonthPlan.LeftUAH*100)),
+				"те, що лишилось закинути цього місяця"
+		}
+		investPct = doc.BlendedYieldRealPct
+	}
 	if raw := strings.TrimSpace(r.URL.Query().Get("extra")); raw != "" {
 		if extra, err = domain.ParseDecimalToMinor(raw, money.UAH); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
@@ -160,23 +184,22 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		if extra < 0 {
 			extra = 0
 		}
+		extraFrom = "твоє число"
 	}
 
 	deval := s.devaluation(ctx)
 	list := buildPayoffDebts(debts, marks, ops, rates, today)
 
 	out := payoffResp{
-		Strategy:       strategy,
-		Extra:          toMoneyJSON(money.New(extra, money.UAH)),
-		DevaluationPct: deval,
-		Debts:          make([]payoffDebtJSON, 0, len(list)),
+		Strategy:         strategy,
+		Extra:            toMoneyJSON(money.New(extra, money.UAH)),
+		ExtraFrom:        extraFrom,
+		DevaluationPct:   deval,
+		InvestInsteadPct: investPct,
+		Debts:            make([]payoffDebtJSON, 0, len(list)),
 		Note: "У черзі лише те, на що нараховують: розстрочки й непільгова частина картки. " +
 			"Оборот у межах пільгового періоду сюди не входить — його ціна показана окремо.",
 	}
-	if doc, derr := s.buildState(ctx, now); derr == nil && doc != nil {
-		out.InvestInsteadPct = doc.BlendedYieldRealPct
-	}
-
 	run := runPayoff(list, strategy, extra)
 	var total int64
 	// Порядок рядків — це ЧЕРГА ПОГАШЕННЯ обраної стратегії, а не порядок
@@ -216,7 +239,10 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 	// Чутливість — рівно про те, що людина може зробити завтра: додати
 	// тисячу чи пʼять. Абсолютних чисел тут немає навмисно, лише різниця
 	// проти нинішнього темпу.
-	if len(list) > 0 && strategy != payoffMinimum {
+	// Чутливість мовчить, коли база не гаситься взагалі: «на 591 місяць
+	// швидше» — це різниця з пʼятдесятирічною стелею проходу, тобто число
+	// про стелю, а не про гроші.
+	if len(list) > 0 && strategy != payoffMinimum && !run.Unfunded {
 		for _, step := range []int64{1_000_00, 5_000_00} {
 			alt := runPayoff(list, strategy, extra+step)
 			out.Sensitivity = append(out.Sensitivity, payoffSensitivityJSON{

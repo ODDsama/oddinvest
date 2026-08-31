@@ -197,7 +197,11 @@ const MOVED = {
   work: "work/todo/main",
   portfolio: "portfolio/all/positions",
   money: "money/all/balances",
-  plan: "plan/goal/main",
+  // «План» голим хешем веде тепер у «Борги»: доки борг живий, він
+  // з'їдає гроші місяця раніше за все інше, і план поверх грошей, яких
+  // уже немає, читається неправильно. Стара закладка на саму ціль
+  // (plan/goal) лишається чинною й нікуди не переїжджала.
+  plan: "plan/debts/main",
   policy: "policy/strategy/main",
   settings: "settings/refs/main",
 
