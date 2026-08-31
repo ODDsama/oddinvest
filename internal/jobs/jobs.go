@@ -357,7 +357,11 @@ func (r *Runner) BackfillAuctionsIfThin(ctx context.Context, weeks, minDays int)
 // Snapshot зберігає добовий знімок агрегатів для майбутнього графіка
 // «факт vs модель».
 func (r *Runner) Snapshot(ctx context.Context) error {
-	doc, err := r.build(ctx, time.Now())
+	// Зона тут та сама, що в даті рядка нижче, і це не косметика: доти
+	// документ будувався за UTC, а датувався знімок за Києвом — з півночі
+	// до 03:00 рядок за сьогодні містив учорашній стан, а першого числа ще
+	// й чужий місяць (розбір — у setKyivLocal, cmd/oddinvestd/main.go).
+	doc, err := r.build(ctx, time.Now().In(r.loc))
 	if err != nil {
 		return err
 	}
@@ -403,7 +407,7 @@ func (r *Runner) PublishState(ctx context.Context) error {
 	if r.pub == nil {
 		return nil
 	}
-	doc, err := r.build(ctx, time.Now())
+	doc, err := r.build(ctx, time.Now().In(r.loc))
 	if err != nil {
 		return err
 	}

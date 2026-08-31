@@ -191,3 +191,27 @@ func TestBackfillAuctionsIfThinSkipsWhenFilled(t *testing.T) {
 		t.Errorf("бекфіл сходив у НБУ %d разів, хоч історії досить", got)
 	}
 }
+
+// Документ знімка будується за ТОЙ САМИЙ день, яким рядок датується.
+//
+// Доти Snapshot і PublishState звали build із голим time.Now(), тобто за
+// зоною сервера, а дату рядка брали за Києвом. На бойовому LXC, який живе в
+// UTC, з півночі до 03:00 це давало рядок «за сьогодні» з учорашнім станом —
+// а першого числа ще й з чужим місяцем.
+func TestSnapshotBuildsStateForTheDayItDates(t *testing.T) {
+	r, _ := testRunner(t, "")
+	var got time.Time
+	r.build = func(_ context.Context, now time.Time) (*state.Doc, error) {
+		got = now
+		return &state.Doc{}, nil
+	}
+	if err := r.Snapshot(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got.Location() != r.loc {
+		t.Errorf("стан будувався в зоні %v, а джоба живе в %v", got.Location(), r.loc)
+	}
+	if day, want := string(domain.NewDate(got)), runnerToday(r); day != want {
+		t.Errorf("рядок за %s містить стан за %s", want, day)
+	}
+}

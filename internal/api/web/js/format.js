@@ -14,7 +14,21 @@ export const esc = (s) =>
 
 export const curSym = (c) => CURRENCY_SYM[c] || c;
 
-export const today = () => new Date().toISOString().slice(0, 10);
+/** Сьогоднішня дата ISO — у ЛОКАЛЬНІЙ зоні, а не через toISOString.
+ *
+ *  Той дає UTC, тобто з півночі до 03:00 за Києвом — учорашнє число. А
+ *  ставиться воно типовим значенням у КОЖНЕ поле дати (fields.js), тож
+ *  поповнення, введене о пів на першу ночі першого вересня, лягло б у
+ *  серпень — і не в тому місяці порахувались би і план, і темп, і серія.
+ *
+ *  Поруч monthKeyOffset (views/plan-receipts.js) рахує місяць локально й
+ *  обіцяє, що браузер і сервер не називатимуть різні місяці одним іменем.
+ *  Ця функція те саме обіцяння порушувала. */
+export const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
+    String(d.getDate()).padStart(2, "0")}`;
+};
 
 // --- дати ---
 
