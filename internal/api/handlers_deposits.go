@@ -95,9 +95,9 @@ func termDepositFromReq(req termDepositReq) (domain.Deposit, error) {
 	default:
 		return out, fmt.Errorf("payout має бути end, monthly або quarterly, маємо %q", req.Payout)
 	}
-	// Податок за замовчуванням 19.5% (ПДФО 18% + військовий збір 1.5%);
+	// Податок за замовчуванням 23% (ПДФО 18% + військовий збір 5%);
 	// порожнє поле = це значення, а не «без податку».
-	tax := int64(1950)
+	tax := int64(2300)
 	if strings.TrimSpace(req.TaxPct) != "" {
 		if tax, err = parsePercentBP(req.TaxPct); err != nil {
 			return out, fmt.Errorf("податок: %w", err)

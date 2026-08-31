@@ -65,7 +65,7 @@ function planBuyFields(ctx, row = null) {
       name: "fund", ref: "fund", value: r.kind === "fund" ? r.ref || "" : "",
     })),
     whenKind(["deposit"], refSelect(ctx, {
-      name: "bank", ref: "broker", label: "Банк",
+      name: "bank", ref: "broker", label: "Установа",
       value: r.kind === "deposit" ? r.ref || "" : "",
     })),
     whenKind(["npf"], refSelect(ctx, {

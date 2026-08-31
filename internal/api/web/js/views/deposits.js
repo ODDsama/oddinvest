@@ -1,4 +1,7 @@
-// Банківські строкові вклади: форма, поповнення, закриття, архів.
+// Строкові вклади: форма, поповнення, закриття, архів.
+//
+// «Установа», а не «Банк»: сюди ж лягає роздрібна корпоративна облігація
+// (NovaPay), і емітент у неї не банк. Довід — у шапці domain/deposit.go.
 
 import { esc, plural, money as fmtMoney } from "../format.js";
 import { onSubmit } from "../forms.js";
@@ -27,7 +30,7 @@ const PAYOUTS = Object.entries(PAYOUT_LABEL);
  *  запис, де одруківка тиха: 16.5 замість 15.6 не виглядає помилкою ніде,
  *  крім самої виписки банку. */
 export const depositFields = (ctx, row = null) => [
-  refSelect(ctx, { name: "bank", ref: "broker", label: "Банк", value: row ? row.bank : "" }),
+  refSelect(ctx, { name: "bank", ref: "broker", label: "Установа", value: row ? row.bank : "" }),
   refSelect(ctx, {
     name: "currency", ref: "currency",
     value: row ? row.principal.currency : "UAH",
@@ -55,7 +58,7 @@ export const depositFields = (ctx, row = null) => [
   checkField("revocable", "Відкличний (можна забрати достроково)",
     { checked: row ? !!row.revocable : false }),
   pctField("tax_pct", "Податок, %", {
-    ph: "19.5 (за замовч.)", value: row ? row.tax_pct : "",
+    ph: "23 (за замовч.)", value: row ? row.tax_pct : "",
   }),
   noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
 ];
@@ -154,7 +157,7 @@ export function closedDepositsHTML(ctx, deposits) {
   if (!closed.length) return "";
   return `<div class="card">${disclosure("closeddep", "Закриті достроково", opsGrid({
     cols: [
-      { key: "bank", label: "Банк", cell: (d) => esc(d.bank || "—") },
+      { key: "bank", label: "Установа", cell: (d) => esc(d.bank || "—") },
       { key: "principal", label: "Тіло", num: true, cell: (d) => fmtMoney(d.principal) },
       { key: "closed_date", label: "Розірвано", cell: (d) => esc(d.closed_date) },
       { key: "closed_amount", label: "Отримано", num: true, cell: (d) => fmtMoney(d.closed_amount) },
