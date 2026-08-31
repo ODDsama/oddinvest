@@ -298,7 +298,7 @@ func TestDebtExitScheduleReachesZero(t *testing.T) {
 		{gross: 100_000, invest: 20_000},
 		{gross: 100_000, invest: 20_000},
 	}
-	got := debtExitWalk(rows, 120_000, 40_000, "2026-09-01")
+	got := debtExitWalk(rows, 120_000, 40_000, "2026-09-01", 0)
 	if len(got) != 3 {
 		t.Fatalf("кроків %d, чекали 3: 120 000 ÷ (100 000 − 20 000 − 40 000)", len(got))
 	}
@@ -323,13 +323,73 @@ func TestDebtExitScheduleStopsWhenDebtGrows(t *testing.T) {
 		{gross: 100_000, invest: 20_000},
 		{gross: 100_000, invest: 20_000},
 	}
-	if got := debtExitWalk(rows, 120_000, 80_000, "2026-09-01"); got != nil {
+	if got := debtExitWalk(rows, 120_000, 80_000, "2026-09-01", 0); got != nil {
 		t.Errorf("прохід намалював %d рядків при нульовому профіциті", len(got))
 	}
 	// Перший місяць може бути слабким (одна зарплата скінчилась, друга ще
 	// не почалась) — але якщо далі темп є, таблиця будується.
 	rows[0] = debtMonthRow{gross: 100_000, invest: 20_000}
-	if got := debtExitWalk(rows, 120_000, 79_000, "2026-09-01"); len(got) == 0 {
+	if got := debtExitWalk(rows, 120_000, 79_000, "2026-09-01", 0); len(got) == 0 {
 		t.Error("живий профіцит не дав жодного кроку")
+	}
+}
+
+// Прожитий місяць у прохід НЕ входить.
+//
+// Спіймано власником на екрані 31 серпня: борг у звірці — це вже результат
+// серпня (дохід прийшов, витрати сталися), а прохід ставив серпень першим
+// кроком і обіцяв погашення, яке або вже відбулось, або вже ні. Той самий
+// місяць рахувався двічі.
+func TestDebtExitWalkSkipsMonthAlreadyLived(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, out := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_expenses":"10000","monthly_expenses_currency":"UAH"}`); resp.StatusCode != 204 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, out)
+	}
+	if resp, out := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"60000","currency":"UAH",
+		  "cadence":"month","from_date":"2020-01-05","invest_pct":"0"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік: %d %s", resp.StatusCode, out)
+	}
+
+	today := time.Now()
+	exit := today.AddDate(0, 3, 0).Format("2006-01-02")
+	card := addDebt(t, srv.URL, `{"name":"Картка","kind":"card","currency":"UAH",
+		"statement_day":"30","apr_pct":"47.88","min_payment_pct":"3",
+		"exit_by":"`+exit+`"}`)
+	// Звірка СЬОГОДНІШНЯ: усе, що мало прийти цього місяця, уже в балансі.
+	if resp, out := do(t, "POST", srv.URL+"/api/debt-marks",
+		`{"debt_id":"`+did(card)+`","balance":"-90000","statement_due":"90000"}`); resp.StatusCode != 201 {
+		t.Fatalf("звірка: %d %s", resp.StatusCode, out)
+	}
+
+	resp, out := do(t, "GET", srv.URL+"/api/summary", "")
+	if resp.StatusCode != 200 {
+		t.Fatal(out)
+	}
+	var doc struct {
+		Debt *state.DebtPlan `json:"debt"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Debt == nil || doc.Debt.Exit == nil {
+		t.Fatalf("блоку виходу немає: %s", out)
+	}
+	sch := doc.Debt.Exit.Schedule
+	if len(sch) == 0 {
+		t.Fatal("прохід порожній")
+	}
+	// Перший крок — НАСТУПНИЙ місяць, а не поточний.
+	if now := today.Format("2006-01"); sch[0].Month == now {
+		t.Errorf("прохід починається з поточного місяця %s, який уже прожитий", now)
+	}
+	// Наступний місяць рахуємо від ПЕРШОГО числа: today.AddDate(0,1,0) на
+	// 31 серпня дає 1 жовтня (у вересні 30 днів), і тест ловив би не ту
+	// ваду, а власне переповнення.
+	first := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
+	if want := first.AddDate(0, 1, 0).Format("2006-01"); sch[0].Month != want {
+		t.Errorf("перший крок %s, чекали %s", sch[0].Month, want)
 	}
 }

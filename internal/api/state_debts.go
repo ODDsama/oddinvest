@@ -221,11 +221,34 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		return nil // виходити нема звідки — і це найкращий зі станів
 	}
 
-	// Скільки повних місяців попереду; щонайменше один, інакше середнє
-	// нема з чого брати. Стеля 24 — далі усереднення однаково не про темп.
-	months := domain.MonthsBetween(today, card.ExitBy) + 1
+	// ЯКИЙ МІСЯЦЬ ПЕРШИЙ — і це не дрібниця, а вада, яку власник побачив
+	// на екрані 31 серпня.
+	//
+	// Борг у звірці — це вже РЕЗУЛЬТАТ прожитих місяців: дохід прийшов,
+	// витрати сталися, залишок осів у балансі. Прохід, який починається з
+	// того самого місяця, рахує його вдруге — і обіцяє погашення, яке вже
+	// або відбулось, або не відбулось.
+	//
+	// Тому перший крок — місяць ПІСЛЯ того, у якому зроблено звірку.
+	// Правило свідомо консервативне: при звірці всередині місяця решта
+	// його доходу в прохід не потрапить, тобто число вийде обережнішим, а
+	// не оптимістичнішим. Ліки — нова звірка наприкінці місяця.
+	//
+	// Для СТАРОЇ звірки (місяць уже минув) прохід починається з поточного:
+	// ті гроші справді ще не виміряні, і пропустити їх означало б
+	// викинути реальні місяці. Що звірка застаріла, сказано окремо.
+	startM := 0
+	if last := lastMarkDate(card, marks, today); last != "" {
+		if n := domain.MonthsBetween(today, last) + 1; n > startM {
+			startM = n
+		}
+	}
+	endM := domain.MonthsBetween(today, card.ExitBy)
+	months := endM - startM + 1
 	if months < 1 {
-		months = 1
+		// До дати не лишилось жодного НЕПРОЖИТОГО місяця. Це не помилка, а
+		// відповідь: питати «скільки витрачати щомісяця» вже пізно.
+		return nil
 	}
 	if months > 24 {
 		months = 24
@@ -235,7 +258,7 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 	// середнє, і прохід балансу вперед. Другого циклу не заводимо, бо
 	// «скільки прийде в жовтні» мусить лишитись одним означенням.
 	perMonth := make([]debtMonthRow, 0, months)
-	for m := 0; m < months; m++ {
+	for m := startM; m < startM+months; m++ {
 		mp := buildMonthPlan(src, rates, today, m, 0)
 		if mp == nil {
 			perMonth = append(perMonth, debtMonthRow{})
@@ -264,6 +287,10 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		InvestUAH: int64(math.Round(invest * 100)),
 		SpendUAH:  int64(math.Round(spend * 100)),
 		ExitBy:    card.ExitBy, Today: today,
+		// Місяців рівно стільки, скільки НЕПРОЖИТИХ лишилось до дати, а не
+		// стільки, скільки днів ділиться на 30,44: інакше «треба звільняти
+		// щомісяця» рахувалось би з місяців, які вже минули.
+		Months: float64(months),
 	})
 	if !plan.Known {
 		return nil
@@ -289,7 +316,7 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		out.SpendMeasuredUAH = round2(float64(burn.PerMonth) / 100)
 		out.BurnFrom, out.BurnTo = string(burn.From), string(burn.To)
 	}
-	out.Schedule = debtExitWalk(perMonth, float64(st.Debt)/100, spend, today)
+	out.Schedule = debtExitWalk(perMonth, float64(st.Debt)/100, spend, today, startM)
 	return out
 }
 
@@ -309,7 +336,7 @@ type debtMonthRow struct{ gross, invest float64 }
 // залишком — не таблиця, а спосіб не сказати «за цим темпом виходу не
 // буде»; це вже сказано порожньою датою виходу поруч.
 func debtExitWalk(perMonth []debtMonthRow,
-	debtUAH, spendUAH float64, today domain.Date) []state.DebtExitStep {
+	debtUAH, spendUAH float64, today domain.Date, startM int) []state.DebtExitStep {
 
 	if debtUAH <= 0 || len(perMonth) == 0 {
 		return nil
@@ -329,7 +356,7 @@ func debtExitWalk(perMonth []debtMonthRow,
 			left = 0
 		}
 		out = append(out, state.DebtExitStep{
-			Month:    monthKeyAt(today, m),
+			Month:    monthKeyAt(today, startM+m),
 			GrossUAH: round2(row.gross), InvestUAH: round2(row.invest),
 			SpendUAH: round2(spendUAH), LeftUAH: round2(left),
 		})
@@ -425,4 +452,20 @@ func debtOwedUAH(src *sources, rates fx.Rates, today domain.Date) float64 {
 		}
 	}
 	return round2(total)
+}
+
+// lastMarkDate — дата останньої звірки картки на або до сьогодні.
+// Порожньо, коли звірок немає: тоді прохід починається з поточного місяця,
+// бо в балансі й так нічого не виміряно.
+func lastMarkDate(card domain.Debt, marks []domain.DebtMark, today domain.Date) domain.Date {
+	var out domain.Date
+	for _, m := range marks {
+		if m.DebtID != card.ID || m.Date.After(today) {
+			continue
+		}
+		if out == "" || m.Date.After(out) {
+			out = m.Date
+		}
+	}
+	return out
 }

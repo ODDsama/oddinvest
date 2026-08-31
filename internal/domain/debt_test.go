@@ -352,7 +352,8 @@ func TestCardExitSpendCap(t *testing.T) {
 		InvestUAH: 41_500_00,  // те, що явно виводиться в інструменти
 		SpendUAH:  66_826_00,  // заявлені 1 500 $
 		Today:     "2026-09-01",
-		ExitBy:    "2026-10-31", // ≈2 місяці
+		ExitBy:    "2026-10-31",
+		Months:    2, // вересень і жовтень: серпень уже прожитий
 	}
 	got := CardExit(in)
 	if !got.Known || !got.Feasible {
@@ -378,7 +379,7 @@ func TestCardExitSpendCap(t *testing.T) {
 
 	// За один місяць не виходить навіть при нульових витратах — і це
 	// окреме твердження, а не «мало».
-	in.ExitBy = "2026-09-30"
+	in.ExitBy, in.Months = "2026-09-30", 1
 	if got := CardExit(in); got.Feasible || got.SpendCap > 0 {
 		t.Errorf("за місяць оголошено можливим: стеля %d", got.SpendCap)
 	}
@@ -390,7 +391,7 @@ func TestCardExitETAWhenSpendingExceedsIncome(t *testing.T) {
 	in := CardExitInput{
 		DebtUAH: 182_317_45, GrossUAH: 222_800_00, InvestUAH: 41_500_00,
 		SpendUAH: 181_300_00, // рівно те, що лишається на картці
-		Today:    "2026-09-01", ExitBy: "2026-12-31",
+		Today:    "2026-09-01", ExitBy: "2026-12-31", Months: 4,
 	}
 	got := CardExit(in)
 	if got.ETADate != "" {
