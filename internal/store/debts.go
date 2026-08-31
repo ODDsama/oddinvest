@@ -34,19 +34,19 @@ func nullableID(id int64) any {
 const debtCols = `id, name, kind, currency, card_id, limit_amount, statement_day,
 	apr_bp, apr_overdue_bp, min_payment_bp, min_payment_floor, late_fee, exit_by,
 	principal, payments_total, first_payment_date, fee_month_bp, fee_free_months,
-	opened_date, closed_date, place, note`
+	fee_on_prepay, opened_date, closed_date, place, note`
 
 func (s *Store) AddDebt(ctx context.Context, d domain.Debt) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO debts
 		(name, kind, currency, card_id, limit_amount, statement_day,
 		 apr_bp, apr_overdue_bp, min_payment_bp, min_payment_floor, late_fee, exit_by,
 		 principal, payments_total, first_payment_date, fee_month_bp, fee_free_months,
-		 opened_date, closed_date, place, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 fee_on_prepay, opened_date, closed_date, place, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		d.Name, d.Kind, d.Currency, nullableID(d.CardID), d.LimitAmount, d.StatementDay,
 		d.APRBp, d.APROverdueBp, d.MinPaymentBp, d.MinPaymentFloor, d.LateFee, string(d.ExitBy),
 		d.Principal, d.PaymentsTotal, string(d.FirstPaymentDate), d.FeeMonthBp, d.FeeFreeMonths,
-		string(d.OpenedDate), string(d.ClosedDate), d.Place, d.Note)
+		d.FeeOnPrepay, string(d.OpenedDate), string(d.ClosedDate), d.Place, d.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -59,11 +59,11 @@ func (s *Store) UpdateDebt(ctx context.Context, d domain.Debt) error {
 		name=?, kind=?, currency=?, card_id=?, limit_amount=?, statement_day=?,
 		apr_bp=?, apr_overdue_bp=?, min_payment_bp=?, min_payment_floor=?, late_fee=?, exit_by=?,
 		principal=?, payments_total=?, first_payment_date=?, fee_month_bp=?, fee_free_months=?,
-		opened_date=?, closed_date=?, place=?, note=? WHERE id=?`,
+		fee_on_prepay=?, opened_date=?, closed_date=?, place=?, note=? WHERE id=?`,
 		d.Name, d.Kind, d.Currency, nullableID(d.CardID), d.LimitAmount, d.StatementDay,
 		d.APRBp, d.APROverdueBp, d.MinPaymentBp, d.MinPaymentFloor, d.LateFee, string(d.ExitBy),
 		d.Principal, d.PaymentsTotal, string(d.FirstPaymentDate), d.FeeMonthBp, d.FeeFreeMonths,
-		string(d.OpenedDate), string(d.ClosedDate), d.Place, d.Note, d.ID)
+		d.FeeOnPrepay, string(d.OpenedDate), string(d.ClosedDate), d.Place, d.Note, d.ID)
 	if err != nil {
 		return err
 	}
@@ -125,7 +125,7 @@ func (s *Store) ListDebts(ctx context.Context) ([]domain.Debt, error) {
 			&d.LimitAmount, &d.StatementDay, &d.APRBp, &d.APROverdueBp,
 			&d.MinPaymentBp, &d.MinPaymentFloor, &d.LateFee, &exitBy,
 			&d.Principal, &d.PaymentsTotal, &first, &d.FeeMonthBp, &d.FeeFreeMonths,
-			&opened, &closed, &d.Place, &d.Note); err != nil {
+			&d.FeeOnPrepay, &opened, &closed, &d.Place, &d.Note); err != nil {
 			return nil, err
 		}
 		d.CardID, d.ExitBy = card.Int64, domain.Date(exitBy)

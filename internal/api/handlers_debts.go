@@ -47,6 +47,7 @@ type debtReq struct {
 	FirstPaymentDate string `json:"first_payment_date"`
 	FeeMonthPct      string `json:"fee_month_pct"`
 	FeeFreeMonths    string `json:"fee_free_months"`
+	FeeOnPrepay      string `json:"fee_on_prepay"`
 
 	OpenedDate string `json:"opened_date"`
 	ClosedDate string `json:"closed_date"`
@@ -137,6 +138,17 @@ func debtFromReq(req debtReq) (domain.Debt, error) {
 			return domain.Debt{}, err
 		}
 	}
+	// Що договір робить із комісією при достроковому. Порожнє законне й
+	// означає «не з'ясовано» — третій стан, а не замовчування (0049).
+	switch d.FeeOnPrepay = strings.TrimSpace(req.FeeOnPrepay); d.FeeOnPrepay {
+	case "", domain.DebtFeeCancel, domain.DebtFeeKeep:
+	default:
+		return domain.Debt{}, fmt.Errorf(
+			"невідоме %q для комісії при достроковому: буває %q (комісії майбутніх "+
+				"місяців зникають), %q (банк бере за всі місяці) або порожньо",
+			d.FeeOnPrepay, domain.DebtFeeCancel, domain.DebtFeeKeep)
+	}
+
 	// Порожні дати законні в усіх трьох полях: борг без дати відкриття —
 	// звичайний випадок («картка є давно»), непогашений не має дати
 	// погашення, а в картки немає й дати першого платежу.
@@ -375,6 +387,7 @@ func (s *Server) handleListDebts(w http.ResponseWriter, r *http.Request) {
 		FirstPaymentDate string    `json:"first_payment_date,omitempty"`
 		FeeMonthPct      float64   `json:"fee_month_pct,omitempty"`
 		FeeFreeMonths    int64     `json:"fee_free_months,omitempty"`
+		FeeOnPrepay      string    `json:"fee_on_prepay,omitempty"`
 
 		OpenedDate string `json:"opened_date,omitempty"`
 		ClosedDate string `json:"closed_date,omitempty"`
@@ -400,6 +413,7 @@ func (s *Server) handleListDebts(w http.ResponseWriter, r *http.Request) {
 			FirstPaymentDate: string(d.FirstPaymentDate),
 			FeeMonthPct:      float64(d.FeeMonthBp) / 100,
 			FeeFreeMonths:    d.FeeFreeMonths,
+			FeeOnPrepay:      d.FeeOnPrepay,
 
 			OpenedDate: string(d.OpenedDate),
 			ClosedDate: string(d.ClosedDate),

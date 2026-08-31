@@ -224,6 +224,12 @@ type routeCarry struct {
 	// debtCaps — чи діє стеля подушки на час боргу. Прапорцем із документа,
 	// а не перерахунком: правило одне на застосунок (state_debts.go).
 	debtCaps bool
+	// debtCover — рубіж покриття боргу подушкою, теж із документа. Через
+	// прохід він їде НЕЗМІННИМ, як і debtLeft: маршрут не амортизує борг
+	// за графіком, він відповідає на інше питання — куди йдуть нові гроші.
+	// Число, що тануло б лише від дострокових платежів, брехало б сильніше
+	// за незмінне.
+	debtCover float64
 	// Борг у проході вперед: скільки лишилось під ставкою й скільки з
 	// місячної стелі дострокового ще не віддано. Без цих двох чисел
 	// маршрут гнав би гроші в борг усі дванадцять місяців поспіль — рівно
@@ -251,6 +257,7 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 		// зважується вдруге: друге означення розійшлося б із першим на
 		// першому ж місяці проходу.
 		debtCaps:   doc.Reserve != nil && doc.Reserve.DebtCapped,
+		debtCover:  reserveDebtCover(doc.Reserve),
 		capitalUAH: doc.CapitalUAH,
 		reserveUAH: doc.ReserveUAH,
 		// Поточний місяць береться з документа як є — разом із уже
@@ -342,7 +349,8 @@ func (c *routeCarry) enterMonth(month string, mp *state.MonthPlan) {
 	}
 	c.month = month
 	// moved = 0: у місяці, який ще не настав, у подушку ще нічого не клали.
-	c.fillMonth, c.fillNow = reserveMonthShare(c.set, c.reserveUAH, mp, 0, c.debtCaps)
+	c.fillMonth, c.fillNow = reserveMonthShare(c.set, c.reserveUAH, mp, 0,
+		c.debtCaps, c.debtCover)
 
 	// Стеля дострокового погашення — теж частка ОДНОГО МІСЯЦЯ, і без цього
 	// скидання прохід уперед віддав би річну норму за перші два купони.
@@ -782,4 +790,15 @@ func annotatePlanned(legs []routeLeg, buys []store.PlanBuy, today domain.Date) {
 		}
 		leg.Pinnable = addable && len(leg.Planned) == 0 && leg.Date <= soon
 	}
+}
+
+// reserveDebtCover — рубіж покриття боргу з картки резерву, або нуль, коли
+// картки немає. Окремою функцією, а не виразом у літералі: nil-картка тут
+// звичайний стан (боргів і подушки може не бути зовсім), і перевірка,
+// вписана в поле структури, читалась би як випадковість.
+func reserveDebtCover(r *state.Reserve) float64 {
+	if r == nil {
+		return 0
+	}
+	return r.DebtCoverUAH
 }

@@ -1037,7 +1037,11 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Стеля подушки на час боргу: те саме рішення, що в reserveMonthShare,
 	// і саме тому воно одне на застосунок (state_debts.go).
 	debtCaps := debtCapsReserve(src.debts, src.debtMarks, src.debtOps, src.deval, today)
-	_, reserveGapUAH := state.ReserveTarget(settings, reserveUAH, debtCaps)
+	// Рубіж покриття боргу — підлога тієї самої цілі. Рахується тут разом зі
+	// стелею, бо обидва числа читає і картка подушки, і розкладка, і другий
+	// їхній екземпляр розійшовся б із першим (той самий довід, що при debtCaps).
+	debtCover := debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today)
+	_, reserveGapUAH := state.ReserveTarget(settings, reserveUAH, debtCaps, debtCover)
 
 	// Проєкція, місячний план і віяло прогнозів (state_projection.go).
 	// Вхід виписаний полем за полем навмисно: проєкція залежить від усіх
@@ -1182,8 +1186,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Похідні — те, що виводиться з уже покладеного (state/derive.go).
 	// Capital зібраний вище один раз; state його лише читає.
 	if err := state.Derive(doc, state.DeriveInput{
-		DebtCapsReserve: debtCaps,
-		Now:             now, Positions: positions, Rates: rates, Capital: capital,
+		DebtCapsReserve: debtCaps, DebtCoverUAH: debtCover,
+		Now: now, Positions: positions, Rates: rates, Capital: capital,
 		Cashflow: cashflow, Ladder: ladder,
 		MonthDeposited: monthDep, MonthTarget: target,
 		ReserveByCur: reserveByCur, ReservePlaces: reservePlaces,

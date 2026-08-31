@@ -223,31 +223,31 @@ func TestReserveMonthShare(t *testing.T) {
 	plan := &state.MonthPlan{PlanUAH: 30000, PlanReserveUAH: 30000, PlanGoalsUAH: 30000}
 
 	// Резерв порожній при цілі 60 000 — розрив великий, обрізати нічим.
-	month, fill := reserveMonthShare(set, 0, plan, 0, false)
+	month, fill := reserveMonthShare(set, 0, plan, 0, false, 0)
 	if month != 12000 || fill != 12000 {
 		t.Errorf("частка %v, лишилось %v — очікували 12000 і 12000 (40%% від 30 000)", month, fill)
 	}
 	// Половину місячної частки вже відкладено — порада зменшилась рівно на неї.
-	month, fill = reserveMonthShare(set, 5000, plan, 5000, false)
+	month, fill = reserveMonthShare(set, 5000, plan, 5000, false, 0)
 	if month != 12000 || fill != 7000 {
 		t.Errorf("частка %v, лишилось %v — очікували 12000 і 7000", month, fill)
 	}
 	// Місячну частку добрано з запасом — порада мовчить, а не йде в мінус.
-	if _, fill = reserveMonthShare(set, 15000, plan, 15000, false); fill != 0 {
+	if _, fill = reserveMonthShare(set, 15000, plan, 15000, false, 0); fill != 0 {
 		t.Errorf("лишилось %v, очікували 0 — місячну частку вже перекрито", fill)
 	}
 	// Розрив менший за стелю — беремо розрив: класти більше за ціль означало
 	// б завести другу ціль поруч із заданою в місяцях витрат.
-	if month, _ = reserveMonthShare(set, 59_000, plan, 0, false); month != 1000 {
+	if month, _ = reserveMonthShare(set, 59_000, plan, 0, false, 0); month != 1000 {
 		t.Errorf("частка %v, очікували 1000 — більше за розрив не кладуть", month)
 	}
 	// Ціль зібрано — стеля мовчить незалежно від плану.
-	if month, fill = reserveMonthShare(set, 60_000, plan, 0, false); month != 0 || fill != 0 {
+	if month, fill = reserveMonthShare(set, 60_000, plan, 0, false, 0); month != 0 || fill != 0 {
 		t.Errorf("частка %v, лишилось %v — очікували нулі: ціль резерву зібрана", month, fill)
 	}
 	// Плану немає — рахувати нема від чого (готівка на рахунках сюди більше
 	// не входить узагалі).
-	if month, fill = reserveMonthShare(set, 0, nil, 0, false); month != 0 || fill != 0 {
+	if month, fill = reserveMonthShare(set, 0, nil, 0, false, 0); month != 0 || fill != 0 {
 		t.Errorf("частка %v, лишилось %v — очікували нулі: плану доходу немає", month, fill)
 	}
 }
@@ -389,7 +389,7 @@ func TestReserveMonthShareUsesAllowedBase(t *testing.T) {
 		MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months, ReserveFillSharePct: &share,
 	}
 	plan := &state.MonthPlan{PlanUAH: 30000, PlanReserveUAH: 12000, PlanGoalsUAH: 30000}
-	month, fill := reserveMonthShare(set, 0, plan, 0, false)
+	month, fill := reserveMonthShare(set, 0, plan, 0, false, 0)
 	if month != 4800 || fill != 4800 { // 40% від 12 000, а не від 30 000
 		t.Errorf("частка %v, лишилось %v — очікували 4800 (40%% від дозволених 12 000)",
 			month, fill)

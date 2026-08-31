@@ -36,6 +36,12 @@ type payoffDebtJSON struct {
 	// було покласти поруч із реальною дохідністю портфеля.
 	RealPct float64   `json:"real_pct"`
 	Left    moneyJSON `json:"left"`
+	// PrepayHelps — чи доходять до цього боргу гроші ПОНАД обовʼязкове;
+	// PrepayBasis — чому. Друге поле не прикраса до першого: «банк бере
+	// комісії за всі місяці» вимагає лишити борг у спокої, а «не з'ясовано»
+	// — сходити в банк, і одне «ні» на обидва сховало б другу дію.
+	PrepayHelps bool   `json:"prepay_helps"`
+	PrepayBasis string `json:"prepay_basis,omitempty"`
 	// CloseDate — коли цей борг закриється за обраною стратегією.
 	CloseDate string `json:"close_date,omitempty"`
 }
@@ -190,6 +196,11 @@ type payoffResp struct {
 	// Grace — пільговий цикл карток. Не входить у чергу погашення (довід у
 	// payoff.go), але саме тут його ціна стає видимою.
 	Grace []payoffGraceJSON `json:"grace,omitempty"`
+	// PrepayNone — дострокові гроші нема куди подіти: у жодному боргу вони
+	// нічого не скасовують. Окремим прапорцем, бо на екрані це не «нуль
+	// економії», а причина, з якої три стратегії збігаються за побудовою;
+	// без нього сторінка показала б три однакові рядки мовчки.
+	PrepayNone bool `json:"prepay_none,omitempty"`
 	// InvestInsteadPct — реальна дохідність портфеля, щоб покласти її
 	// поруч зі ставками боргів. Без вироку: рядки порівнює людина, а
 	// застосунок лише ставить числа в одну колонку.
@@ -287,6 +298,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 			"Оборот у межах пільгового періоду сюди не входить — його ціна показана окремо.",
 	}
 	run := runPayoff(list, strategy, extra)
+	out.PrepayNone = len(list) > 0
 	var total int64
 	// Порядок рядків — це ЧЕРГА ПОГАШЕННЯ обраної стратегії, а не порядок
 	// зі сховища. Список, у якому перший рядок не той, що гаситься першим,
@@ -296,9 +308,14 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		total += d.Left
 		row := payoffDebtJSON{
 			ID: d.ID, Name: d.Name, Kind: d.Kind,
-			Rate:  round2(d.Rate),
-			Basis: d.RateBasis,
-			Left:  toMoneyJSON(money.New(d.Left, money.UAH)),
+			Rate:        round2(d.Rate),
+			Basis:       d.RateBasis,
+			Left:        toMoneyJSON(money.New(d.Left, money.UAH)),
+			PrepayHelps: d.prepayable,
+			PrepayBasis: d.prepayBasis,
+		}
+		if d.prepayable {
+			out.PrepayNone = false
 		}
 		if d.RateBasis != domain.DebtRateNone {
 			// realYield приймає ЧАСТКУ, а ставка боргу — у відсотках.
@@ -328,7 +345,11 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 	// Чутливість мовчить, коли база не гаситься взагалі: «на 591 місяць
 	// швидше» — це різниця з пʼятдесятирічною стелею проходу, тобто число
 	// про стелю, а не про гроші.
-	if len(list) > 0 && strategy != payoffMinimum && !run.Unfunded {
+	//
+	// І мовчить, коли дострокові гроші нема куди подіти: усі різниці там
+	// нульові за побудовою, а рядок «що дасть іще тисяча» з нулями читався
+	// б як поломка розрахунку замість відповіді «нічого, і ось чому».
+	if len(list) > 0 && strategy != payoffMinimum && !run.Unfunded && !out.PrepayNone {
 		for _, step := range []int64{1_000_00, 5_000_00} {
 			alt := runPayoff(list, strategy, extra+step)
 			out.Sensitivity = append(out.Sensitivity, payoffSensitivityJSON{

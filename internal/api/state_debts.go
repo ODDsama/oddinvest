@@ -51,6 +51,18 @@ func debtCapsReserve(debts []domain.Debt, marks []domain.DebtMark,
 		if d.Closed() {
 			continue
 		}
+		// БОРГ, ЯКИЙ НЕ МОЖНА ПОГАСИТИ ДОСТРОКОВО, СТЕЛІ НЕ ВМИКАЄ.
+		//
+		// Уся стеля стоїть на думці «гроші зараз корисніші в борзі, ніж під
+		// матрацом». Там, де банк бере комісії за весь строк однаково, ця
+		// думка хибна: у борг їх подіти нікуди, і обрізана подушка означала
+		// б менше грошей на руках при тому самому борзі — найгірше з обох
+		// світів. Такий борг діє в протилежний бік, підлогою цілі
+		// (ReserveTarget), і два правила не сперечаються саме тому, що
+		// говорять про різні борги.
+		if !domain.DebtPrepayCancels(d) {
+			continue
+		}
 		// РЕЖИМ ВИХОДУ ВМИКАЄ СТЕЛЮ САМ, не питаючи про ставку.
 		//
 		// Інакше найбільший борг власника її не вмикав би взагалі: борг у
@@ -82,6 +94,50 @@ func debtCapsReserve(debts []domain.Debt, marks []domain.DebtMark,
 		}
 	}
 	return false
+}
+
+// debtCoverUAH — скільки боргу подушка мусить перекривати, грн-екв.
+//
+// # ЧОМУ САМЕ МАЙБУТНІ ПЛАТЕЖІ, А НЕ «ЗАЛИШОК ТІЛА»
+//
+// Питання, на яке відповідає це число, одне: чи є чим закрити кредити,
+// якщо дохід зникне. Візьмуть із власника не тіло, а ПЛАТЕЖІ — тіло разом
+// із комісіями, — і саме на розстрочці, комісії якої не скасовуються,
+// різниця між цими двома числами і є вся ціна помилки.
+//
+// # ЩО СЮДИ НЕ ВХОДИТЬ
+//
+// Оборот у межах пільгового періоду. Межа 0045 лишається на місці: він
+// уже описаний витратами, а подушка й так рахується в місяцях витрат, тож
+// друге його врахування наклало б побут на побут.
+func debtCoverUAH(debts []domain.Debt, marks []domain.DebtMark,
+	ops []domain.DebtOp, rates fx.Rates, today domain.Date) float64 {
+
+	minor := int64(0)
+	for _, d := range debts {
+		if d.Closed() {
+			continue
+		}
+		add := func(v int64) {
+			if v <= 0 {
+				return
+			}
+			if u, err := fx.ToUAH(money.New(v, d.Currency), rates); err == nil {
+				minor += u.Amount()
+			}
+		}
+		if d.IsCard() {
+			add(payoffCardDebt(d, marks, ops, today))
+			continue
+		}
+		for _, p := range domain.InstallmentSchedule(d) {
+			if p.Date.Before(today) {
+				continue
+			}
+			add(p.Amount)
+		}
+	}
+	return round2(float64(minor) / 100)
 }
 
 // buildDebtPlan зводить борги в те, що змінює чужі числа.

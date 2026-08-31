@@ -10,6 +10,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
@@ -272,8 +273,11 @@ func TestDebtCapsReserveIgnoresFreeInstallment(t *testing.T) {
 		t.Error("безкоштовна розстрочка ввімкнула стелю подушки")
 	}
 
+	// Комісія Є і договір її при достроковому СКАСОВУЄ — лише такий борг
+	// вмикає стелю: у ньому дострокові гроші справді щось скасовують.
 	paid := free
 	paid.FeeMonthBp = 199
+	paid.FeeOnPrepay = domain.DebtFeeCancel
 	if !debtCapsReserve([]domain.Debt{paid}, nil, nil, 7, today) {
 		t.Error("розстрочка під ~50%% не ввімкнула стелю подушки")
 	}
@@ -515,4 +519,54 @@ func exitOf(t *testing.T, base string) *state.DebtExit {
 		t.Fatalf("блоку виходу немає: %s", out)
 	}
 	return doc.Debt.Exit
+}
+
+// Рубіж покриття рахує МАЙБУТНІ ПЛАТЕЖІ, а не залишок тіла: візьмуть із
+// власника тіло разом із комісіями, і на розстрочці, комісії якої не
+// скасовуються, різниця між цими двома числами і є вся ціна помилки.
+func TestDebtCoverCountsFuturePaymentsWithFees(t *testing.T) {
+	today := domain.Date("2026-09-10")
+	// 30 000 на 9 платежів, комісія 1,99% від початкової суми = 597 ₴/міс.
+	// Перший платіж 30.09 — попереду всі девʼять.
+	inst := domain.Debt{
+		ID: 1, Kind: domain.DebtInstallment, Currency: money.UAH,
+		Principal: 30_000_00, PaymentsTotal: 9, FirstPaymentDate: "2026-09-30",
+		FeeMonthBp: 199, FeeOnPrepay: domain.DebtFeeKeep,
+	}
+	got := debtCoverUAH([]domain.Debt{inst}, nil, nil, fx.Rates{}, today)
+	const want = 30_000 + 9*597 // тіло плюс девʼять комісій
+	if got != want {
+		t.Errorf("покриття %.2f, чекали %d — тіло разом із комісіями", got, want)
+	}
+
+	// Закритий борг не покривають: закривати нема чого.
+	closed := inst
+	closed.ClosedDate = "2026-09-01"
+	if v := debtCoverUAH([]domain.Debt{closed}, nil, nil, fx.Rates{}, today); v != 0 {
+		t.Errorf("погашений борг просить покриття %.2f", v)
+	}
+}
+
+// Борг, який не можна погасити достроково, стелі подушки НЕ вмикає.
+//
+// Стеля стоїть на думці «гроші зараз корисніші в борзі»; там, де їх у борг
+// подіти нікуди, обрізана подушка дала б менше грошей на руках при тому
+// самому борзі.
+func TestDebtCapsReserveIgnoresStickyFee(t *testing.T) {
+	today := domain.Date("2026-09-10")
+	sticky := domain.Debt{
+		ID: 1, Kind: domain.DebtInstallment, Currency: money.UAH,
+		Principal: 30_000_00, PaymentsTotal: 9, FirstPaymentDate: "2026-09-30",
+		FeeMonthBp: 199, FeeOnPrepay: domain.DebtFeeKeep,
+	}
+	if debtCapsReserve([]domain.Debt{sticky}, nil, nil, 7, today) {
+		t.Error("борг, який не можна погасити раніше, обрізав подушку")
+	}
+	// Незвірений договір поводиться так само: припускати скасування комісій
+	// означало б обрізати подушку на підставі здогадки.
+	unknown := sticky
+	unknown.FeeOnPrepay = ""
+	if debtCapsReserve([]domain.Debt{unknown}, nil, nil, 7, today) {
+		t.Error("незвірений договір обрізав подушку")
+	}
 }

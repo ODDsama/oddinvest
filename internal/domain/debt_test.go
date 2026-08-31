@@ -498,3 +498,48 @@ func TestCardBringByDueExcludesInstallments(t *testing.T) {
 		t.Errorf("з плюсом на картці принести %d, чекали 3 212,00", st.BringByDue)
 	}
 }
+
+// Правило дострокового: чотири «ні» різного ґатунку й два «так».
+//
+// Головне тут — що ПОРОЖНЄ поле поводиться як «банк бере за всі місяці».
+// Це рішення, а не замовчування: обіцяти економію, якої ніхто не
+// перевіряв, гірше, ніж не обіцяти нічого (міграція 0049).
+func TestDebtPrepayBasis(t *testing.T) {
+	inst := Debt{Kind: DebtInstallment, Currency: "UAH",
+		Principal: 30_000_00, PaymentsTotal: 9, FirstPaymentDate: "2026-09-30",
+		FeeMonthBp: 199}
+
+	for _, c := range []struct {
+		what   string
+		debt   Debt
+		basis  string
+		cancel bool
+	}{
+		{"картка", Debt{Kind: DebtCard, APRBp: 4788}, DebtPrepayCard, true},
+		{"договір скасовує комісії", with(inst, DebtFeeCancel), DebtPrepayCancel, true},
+		{"банк бере за всі місяці", with(inst, DebtFeeKeep), DebtPrepayKeep, false},
+		{"договір не звірений", inst, DebtPrepayUnknown, false},
+		{"комісії немає", Debt{Kind: DebtInstallment, Principal: 30_000_00,
+			PaymentsTotal: 9, FirstPaymentDate: "2026-09-30",
+			FeeOnPrepay: DebtFeeCancel}, DebtPrepayFree, false},
+	} {
+		if got := DebtPrepayBasis(c.debt); got != c.basis {
+			t.Errorf("%s: основа %q, чекали %q", c.what, got, c.basis)
+		}
+		if got := DebtPrepayCancels(c.debt); got != c.cancel {
+			t.Errorf("%s: скасовує=%v, чекали %v", c.what, got, c.cancel)
+		}
+	}
+
+	// Погашений борг не скасовує нічого: гасити нема чого.
+	closed := with(inst, DebtFeeCancel)
+	closed.ClosedDate = "2026-09-01"
+	if DebtPrepayCancels(closed) {
+		t.Error("погашений борг далі приймає дострокові гроші")
+	}
+}
+
+func with(d Debt, onPrepay string) Debt {
+	d.FeeOnPrepay = onPrepay
+	return d
+}

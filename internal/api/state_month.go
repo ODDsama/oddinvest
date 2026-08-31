@@ -218,7 +218,8 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	out.Plan = buildMonthPlan(src, rates, today, 0, float64(out.DepositedUAH.Amount())/100)
 	out.ReserveMonthUAH, out.ReserveFillUAH = reserveMonthShare(
 		src.settings, reserveUAH, out.Plan, out.ReserveMovedUAH,
-		debtCapsReserve(src.debts, src.debtMarks, src.debtOps, src.deval, today))
+		debtCapsReserve(src.debts, src.debtMarks, src.debtOps, src.deval, today),
+		debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today))
 	return out, nil
 }
 
@@ -266,7 +267,8 @@ func paceMonths(first, today domain.Date) float64 {
 // не бачить того, що ти цього місяця поклав, і без поправки місячна частка
 // сама себе з'їдала б — після переказу вона впала б на ту саму суму двічі.
 func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
-	mp *state.MonthPlan, moved float64, debtCaps bool) (monthUAH, fillUAH float64) {
+	mp *state.MonthPlan, moved float64, debtCaps bool,
+	coverUAH float64) (monthUAH, fillUAH float64) {
 	if set == nil || set.ReserveFillSharePct == nil || mp == nil {
 		return 0, 0
 	}
@@ -280,7 +282,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	if share <= 0 || mp.PlanReserveUAH <= 0 {
 		return 0, 0
 	}
-	_, gap := state.ReserveTarget(set, reserveUAH, debtCaps)
+	_, gap := state.ReserveTarget(set, reserveUAH, debtCaps, coverUAH)
 	room := gap + moved
 	if room <= 0 {
 		return 0, 0 // ціль зібрана — стеля мовчить, і правильно робить

@@ -80,6 +80,10 @@ type DeriveInput struct {
 	ReserveFillMonthUAH float64
 	ReserveFillNowUAH   float64
 	ReserveMovedUAH     float64
+	// DebtCoverUAH — скільки боргу подушка мусить перекривати: майбутні
+	// обовʼязкові платежі за розстрочками плюс непільгова частина карток.
+	// Рахує будівник (state_debts.go), бо там курси й «сьогодні».
+	DebtCoverUAH float64
 	// ReserveLiquidUAH — частина подушки, доступна СЬОГОДНІ: журнал без
 	// резервних вкладів. Приходить окремим числом, бо doc.ReserveUAH це вже
 	// сума обох джерел, а різницю між «є» і «є в руках» з неї не відновити.
@@ -297,11 +301,22 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 	}
 	if monthlyExp > 0 {
 		r.Months = doc.ReserveUAH / monthlyExp
-		r.TargetUAH, r.GapUAH = ReserveTarget(doc.Settings, doc.ReserveUAH, in.DebtCapsReserve)
+		r.TargetUAH, r.GapUAH = ReserveTarget(doc.Settings, doc.ReserveUAH,
+			in.DebtCapsReserve, in.DebtCoverUAH)
 		// Обрізання називається вголос і разом із тим, що було б без нього:
 		// ціль, яка мовчки просіла вдвічі, читається як помилка.
-		if full, _ := ReserveTarget(doc.Settings, doc.ReserveUAH, false); full > r.TargetUAH {
+		if full, _ := ReserveTarget(doc.Settings, doc.ReserveUAH,
+			false, in.DebtCoverUAH); full > r.TargetUAH {
 			r.DebtCapped, r.FullTargetUAH = true, round2(full)
+		}
+	}
+	// Рубіж покриття боргу — ближчий за ціль у місяцях витрат і не
+	// виводиться з неї. Показується завжди, коли борг є, у тому числі коли
+	// подушка його вже перекрила: «перекрито» — відповідь, а не мовчання.
+	if in.DebtCoverUAH > 0 {
+		r.DebtCoverUAH = round2(in.DebtCoverUAH)
+		if d := in.DebtCoverUAH - doc.ReserveUAH; d > 0 {
+			r.DebtCoverGapUAH = round2(d)
 		}
 	}
 	// Скільки з нових грошей варто відкласти просто зараз.
@@ -790,7 +805,8 @@ func deriveReserveLadder(r *Reserve, s *SettingsDoc, in DeriveInput) {
 // Gap лише додатний: «перебір» резерву не є браком, і від'ємне число тут UI
 // прочитав би як «докласти −5 000». Ціль без місячних витрат або без цілі в
 // місяцях не існує — обидва нулі означають «міряти нема чим».
-func ReserveTarget(s *SettingsDoc, reserveUAH float64, debtCaps bool) (target, gap float64) {
+func ReserveTarget(s *SettingsDoc, reserveUAH float64, debtCaps bool,
+	coverUAH float64) (target, gap float64) {
 	if s == nil || s.MonthlyExpensesUAH == nil || s.ReserveTargetMonths == nil {
 		return 0, 0
 	}
@@ -808,6 +824,21 @@ func ReserveTarget(s *SettingsDoc, reserveUAH float64, debtCaps bool) (target, g
 		return 0, 0
 	}
 	target = exp * months
+	// ПІДЛОГА: борг, який не можна погасити достроково.
+	//
+	// Стеля вище обрізає ціль, бо гроші корисніші в борзі. Там, де борг не
+	// можна погасити раніше, це міркування перевертається: єдиний захист
+	// від нього — мати чим його закрити, коли дохід зникне. Підлога стоїть
+	// ПІСЛЯ стелі саме тому: вони описують різні борги й не можуть
+	// сперечатися за одну ціль (довід — при debtCapsReserve).
+	//
+	// Порожня ціль підлогою не піднімається: коли подушки не задано зовсім,
+	// вигадати її за людину означало б завести ціль, якої вона не ставила.
+	// Сам рубіж покриття від цього не зникає — він показується окремими
+	// полями картки.
+	if coverUAH > target {
+		target = coverUAH
+	}
 	if d := target - reserveUAH; d > 0 {
 		gap = d
 	}
