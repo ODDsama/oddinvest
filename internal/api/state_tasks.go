@@ -849,10 +849,19 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 
 		if st.StatementDue > 0 && st.DaysToDue <= taskSoonDays {
 			why := fmt.Sprintf(
-				"До %s внести %s — і відсотків не буде взагалі. Мінімум %s: менше — "+
+				"До %s принести %s — і відсотків не буде взагалі. Мінімум %s: менше — "+
 					"штраф і підвищена ставка на весь борг.",
-				st.DueDate, debtMoney(st.StatementDue, cur),
+				st.DueDate, debtMoney(st.BringByDue, cur),
 				debtMoney(st.MinDue, cur))
+			if st.InstallmentDue > 0 {
+				// Частини розстрочок до цієї суми НЕ додаються: вони підуть
+				// із картки до тієї ж дати, але лягають у НАСТУПНУ виписку.
+				// Склавши їх разом, задача вимагала б грошей на місяць
+				// раніше (спіймано вживу — див. CardStatus.BringByDue).
+				why += fmt.Sprintf(" Ще %s спишеться частинами розстрочок до тієї ж дати, "+
+					"але вони йдуть у наступну виписку — до цієї їх вносити не треба.",
+					debtMoney(st.InstallmentDue, cur))
+			}
 			if st.NonGrace > 0 {
 				// Готівка не має пільгового ніколи, і мовчати про це не
 				// можна: людина внесе «суму до сплати» й буде впевнена, що
@@ -869,7 +878,7 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 				ID:  "card-due-" + d.Name,
 				Sev: sev, Rank: 1, Kind: "debt",
 				Title: fmt.Sprintf("Внести на «%s» — %s до %s",
-					d.Name, debtMoney(st.StatementDue, cur), st.DueDate),
+					d.Name, debtMoney(st.BringByDue, cur), st.DueDate),
 				Why:    why,
 				When:   string(st.DueDate),
 				Action: actPayCard,
@@ -877,7 +886,7 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 				// туди долари означало б збрехати сенсору в Home Assistant,
 				// який складає ці суми. Валютна картка лишається без числа,
 				// а сума названа в самому заголовку.
-				AmountUAH: cardAmountUAH(st.StatementDue, cur),
+				AmountUAH: cardAmountUAH(st.BringByDue, cur),
 			})
 		}
 

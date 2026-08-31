@@ -456,3 +456,45 @@ func TestCardBurnSilentWithoutSecondMark(t *testing.T) {
 		t.Errorf("баланс зріс без надходжень: known=%v why=%q", got.Known, got.Why)
 	}
 }
+
+// «Принести до дати» — це сума ВИПИСКИ за вирахуванням своїх грошей, і
+// частини розстрочок до неї НЕ додаються.
+//
+// Спіймано вживу на другій картці власника: «вільно −13 818,70» стояло з
+// підписом «стільки треба принести до 30.09», хоча до 30.09 треба було
+// 5 212 — решта була частинами розстрочок, які підуть у НАСТУПНУ виписку,
+// зі строком через місяць. Два різні дедлайни склались в одне число під
+// підписом найближчого з них.
+func TestCardBringByDueExcludesInstallments(t *testing.T) {
+	card := Debt{
+		ID: 1, Kind: DebtCard, Currency: "UAH", StatementDay: 30,
+		APRBp: 4788, MinPaymentBp: 300,
+	}
+	inst := Debt{
+		ID: 2, Kind: DebtInstallment, Currency: "UAH", CardID: 1,
+		Principal: 54_998_00, PaymentsTotal: 10, FirstPaymentDate: "2026-07-01",
+	}
+	marks := []DebtMark{{DebtID: 1, Date: "2026-08-31",
+		Balance: -5_212_00, StatementDue: 5_212_00}}
+
+	st := CardState(card, marks, nil, []Debt{inst}, "2026-08-31")
+
+	if st.BringByDue != 5_212_00 {
+		t.Errorf("принести до дати %d, чекали 5 212,00 — рівно виписку", st.BringByDue)
+	}
+	if st.InstallmentDue <= 0 {
+		t.Fatal("частина розстрочки не порахована")
+	}
+	// «Вільно» лишається ширшим — воно про інше питання, і саме тому це
+	// ДВА числа, а не одне.
+	if st.Free >= -st.BringByDue {
+		t.Errorf("вільно %d не врахувало частин розстрочок", st.Free)
+	}
+
+	// А коли на картці є СВОЇ гроші, принести треба менше рівно на них.
+	own := []DebtMark{{DebtID: 1, Date: "2026-08-31",
+		Balance: 2_000_00, StatementDue: 5_212_00}}
+	if st := CardState(card, own, nil, nil, "2026-08-31"); st.BringByDue != 3_212_00 {
+		t.Errorf("з плюсом на картці принести %d, чекали 3 212,00", st.BringByDue)
+	}
+}

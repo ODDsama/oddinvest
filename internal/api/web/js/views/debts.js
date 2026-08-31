@@ -87,38 +87,38 @@ function graceHTML(g) {
   }
   const free = Number(g.free.amount);
   const short = free < 0;
-  // Проза залежить від того, чи є на картці СВОЇ гроші. Один текст на
-  // обидва стани був би неправдою для одного з них: «плюс уже обіцяний
-  // виписці» нічого не означає, коли плюса немає взагалі.
-  const inPlus = Number((g.free_own || g.free).amount) > 0 || free > 0;
   return `<div class="card">
     <h2 class="h-row">${esc(g.name)} ${infoBtn("card")}</h2>
     <div class="note">Пільговий оборот — це побут, а не борг: доки виписку закривають
-      вчасно, він не коштує нічого й у чергу погашення не входить. Ціна помилки —
-      нижче, двома числами.</div>
+      вчасно, він не коштує нічого й у чергу погашення не входить. Помилитись можна
+      двома різними способами, і коштують вони по-різному — обидва названі нижче.</div>
     <div class="tiles flush">
-      <div class="tile hero"><div class="lbl">Вільно</div>
+      <div class="tile hero"><div class="lbl">Принести до ${esc(g.due_date || "дати")}</div>
+        <div class="val ${Number(g.bring_by_due.amount) > 0 ? "t-warn" : "t-ok"}">${
+  fmtMoney(g.bring_by_due)}</div>
+        <div class="sub">${Number(g.bring_by_due.amount) > 0
+    ? "стільки — і відсотків не буде взагалі"
+    : "виписка вже покрита тим, що на картці"}</div></div>
+      <div class="tile"><div class="lbl">Вільно</div>
         <div class="val ${short ? "t-danger" : "t-ok"}">${fmtMoney(g.free)}</div>
         <div class="sub">${!short
-    ? "стільки своїх грошей на картці лишається вільними"
-    : inPlus
-      ? `плюс на картці вже обіцяний виписці — стільки ще треба принести до ${
-        esc(g.due_date || "розрахункової дати")}`
-      : `стільки треба принести до ${esc(g.due_date || "розрахункової дати")},
-         інакше з цієї дати почнуть нараховувати`}</div></div>
-      <div class="tile"><div class="lbl">До сплати ${g.due_date ? "до " + esc(g.due_date) : ""}</div>
-        <div class="val">${fmtMoney(g.full_due)}</div>
-        <div class="sub">внести стільки — і відсотків не буде взагалі</div></div>
+    ? "стільки своїх грошей лишається після виписки й найближчих частин розстрочок"
+    : "стільки бракує, щоб покрити й виписку, і частини розстрочок — але в них РІЗНІ строки, див. нижче"}</div></div>
       <div class="tile"><div class="lbl">Мінімум</div>
         <div class="val">${fmtMoney(g.min_due)}</div>
         <div class="sub">менше — штраф і підвищена ставка на весь борг</div></div>
     </div>
     ${g.days_to_due ? `<div class="kv"><span class="muted">До розрахункової дати</span>
       <b>${g.days_to_due} ${plural(g.days_to_due, "день", "дні", "днів")}</b></div>` : ""}
+    ${installmentsHTML(g)}
     <div class="kv"><span class="muted">Не закрити виписку — коштуватиме за місяць</span>
       <b>${fmtMoney(g.miss_full_cost)}</b></div>
-    <div class="kv"><span class="muted">Пропустити мінімалку — коштуватиме</span>
-      <b class="t-danger">${fmtMoney(g.miss_min_cost)}</b></div>
+    ${Number(g.miss_min_cost.amount) > 0
+    ? `<div class="kv"><span class="muted">Пропустити мінімалку — коштуватиме</span>
+       <b class="t-danger">${fmtMoney(g.miss_min_cost)}</b></div>`
+    : `<div class="sub">Скільки коштуватиме ПРОПУСТИТИ мінімалку, застосунок не рахує:
+       у картки не задані підвищена ставка й штраф. Це не те саме, що не закрити
+       виписку, — прострочення дорожче, і в договорі воно назване окремо.</div>`}
     <div class="sub">Звірка від ${esc(g.mark_date || "—")}${g.mark_age_days > 14
     ? ` <span class="t-warn">— числам уже ${g.mark_age_days} ${plural(g.mark_age_days,
       "день", "дні", "днів")}, а баланс кредитки рухається щодня</span>`
@@ -220,6 +220,24 @@ function spendGapHTML(e) {
       ? `<span class="t-warn">Витрачається на ${fmtUAH(diff)} більше, ніж заявлено —
          і саме ця різниця тримає ліміт на дні.</span>`
       : `Витрачається менше, ніж заявлено; стеля рахується з виміряного.`}</div>`;
+}
+
+/** Частини розстрочок, що спишуться до тієї ж дати.
+ *
+ *  ОКРЕМИМ РЯДКОМ, А НЕ ВСЕРЕДИНІ «принести до дати», і це головна правка
+ *  фази. Вони справді підуть із картки до розрахункової дати, але
+ *  потраплять у НАСТУПНУ виписку, зі своїм строком; склавши їх із сумою
+ *  цієї, застосунок вимагав би грошей на місяць раніше. Спіймано вживу:
+ *  «вільно −13 818,70» стояло з підписом «принести до 30.09», хоча до
+ *  30.09 треба було 5 212. */
+function installmentsHTML(g) {
+  const v = Number((g.installment_due || {}).amount || 0);
+  if (!v) return "";
+  return `<div class="kv"><span class="muted">Спишеться частинами розстрочок до тієї ж дати</span>
+      <b>${fmtMoney(g.installment_due)}</b></div>
+    <div class="sub">Ці гроші підуть із картки до ${esc(g.due_date || "розрахункової дати")},
+      але лягають у НАСТУПНУ виписку — зі строком через місяць. До найближчої дати їх
+      вносити не треба; відсотки з неї нарахують лише на невнесену суму виписки.</div>`;
 }
 
 // ---------- ЧЕРГА ПОГАШЕННЯ ----------

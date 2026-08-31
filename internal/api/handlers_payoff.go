@@ -81,8 +81,17 @@ type payoffGraceJSON struct {
 	DaysToDue int       `json:"days_to_due,omitempty"`
 	FullDue   moneyJSON `json:"full_due"`
 	MinDue    moneyJSON `json:"min_due"`
-	// Free — скільки ще можна витратити, не потрапивши на відсотки.
+	// BringByDue — скільки треба ПРИНЕСТИ до дати: виписка за вирахуванням
+	// своїх грошей на картці. Окремо від Free, бо Free рахує ще й частини
+	// розстрочок, у яких СВІЙ строк (довід — при CardStatus.BringByDue).
+	BringByDue moneyJSON `json:"bring_by_due"`
+	// Free — скільки СВОЇХ грошей лишається після виписки й найближчих
+	// частин розстрочок.
 	Free moneyJSON `json:"free"`
+	// InstallmentDue — ті самі частини окремим числом. Окремим, бо в них
+	// СВІЙ строк: вони спишуться до розрахункової дати, але потраплять у
+	// наступну виписку (довід — при CardStatus.BringByDue).
+	InstallmentDue moneyJSON `json:"installment_due,omitempty"`
 	// MissFullCost / MissMinCost — ціна кожної з двох помилок за місяць.
 	MissFullCost moneyJSON `json:"miss_full_cost"`
 	MissMinCost  moneyJSON `json:"miss_min_cost"`
@@ -329,12 +338,14 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		row := payoffGraceJSON{
 			DebtID: d.ID, Name: d.Name,
 			DueDate: string(st.DueDate), DaysToDue: st.DaysToDue,
-			FullDue:      toMoneyJSON(money.New(st.StatementDue, d.Currency)),
-			MinDue:       toMoneyJSON(money.New(st.MinDue, d.Currency)),
-			Free:         toMoneyJSON(money.New(st.Free, d.Currency)),
-			MissFullCost: toMoneyJSON(money.New(missFull, d.Currency)),
-			MissMinCost:  toMoneyJSON(money.New(missMin, d.Currency)),
-			MarkDate:     string(st.MarkDate), MarkAgeDays: st.MarkAgeDays,
+			FullDue:        toMoneyJSON(money.New(st.StatementDue, d.Currency)),
+			MinDue:         toMoneyJSON(money.New(st.MinDue, d.Currency)),
+			BringByDue:     toMoneyJSON(money.New(st.BringByDue, d.Currency)),
+			Free:           toMoneyJSON(money.New(st.Free, d.Currency)),
+			InstallmentDue: toMoneyJSON(money.New(st.InstallmentDue, d.Currency)),
+			MissFullCost:   toMoneyJSON(money.New(missFull, d.Currency)),
+			MissMinCost:    toMoneyJSON(money.New(missMin, d.Currency)),
+			MarkDate:       string(st.MarkDate), MarkAgeDays: st.MarkAgeDays,
 			Known: st.Known,
 		}
 		// Числа режиму виходу приходять ГОТОВИМИ з документа: середній

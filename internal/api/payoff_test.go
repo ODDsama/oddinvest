@@ -130,6 +130,14 @@ func TestPayoffGraceCostSplitsTwoMistakes(t *testing.T) {
 	if missFull <= 0 || missMin <= 0 {
 		t.Fatalf("ціни помилок: %d / %d", missFull, missMin)
 	}
+	// Без підвищеної ставки й штрафу друге число НЕ вигадується. Доти
+	// підставлялась звичайна ставка, і два різні за ціною ризики виходили
+	// однаковими — на екрані власника обидва показали 207,96 ₴.
+	bare := card
+	bare.APROverdueBp, bare.LateFee = 0, 0
+	if full, min := payoffGraceCost(bare, st); full <= 0 || min != 0 {
+		t.Errorf("без підвищеної ставки: %d / %d, чекали друге число нулем", full, min)
+	}
 	// Пропустити мінімалку дорожче: підвищена ставка йде на ВЕСЬ борг, та
 	// ще й штраф зверху.
 	if missMin <= missFull {
