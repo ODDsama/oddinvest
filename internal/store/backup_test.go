@@ -864,3 +864,102 @@ func TestImportSurvivesNPFReferencingBroker(t *testing.T) {
 		t.Errorf("після повторного імпорту %d внесків замість 1", len(ops))
 	}
 }
+
+// Борги: картка, привʼязана до неї розстрочка, рухи та звірки мусять
+// переїхати цілими — і пережити ПОВТОРНЕ відновлення.
+//
+// Повторне тут не зайва обережність, а перевірка єдиного місця, де в базі
+// зʼявився FK таблиці на саму себе. DELETE FROM debts видаляє рядки в
+// порядку rowid, тобто картку раніше за її розстрочку, і без окремого
+// UPDATE card_id=NULL перед очищенням відновлення падало б у будь-кого,
+// хто має бодай одну карткову розстрочку. Рівно те, що вже сталося з
+// вкладами й НПФ, коли їх забули в переліку.
+func TestBackupRoundTripKeepsDebts(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+
+	card, err := src.AddDebt(ctx, Debt{
+		Name: "ПУМБ ВсеМожу", Kind: DebtCard, Currency: "UAH",
+		LimitAmount: 200_000_00, StatementDay: 30, APRBp: 4788,
+		APROverdueBp: 6200, MinPaymentBp: 300, LateFee: 100_00,
+		OpenedDate: "2024-05-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.AddDebt(ctx, Debt{
+		Name: "Холодильник", Kind: DebtInstallment, Currency: "UAH",
+		CardID: card, Principal: 30_000_00, PaymentsTotal: 9,
+		FirstPaymentDate: "2026-09-30", FeeMonthBp: 199,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.AddDebtOp(ctx, DebtOp{
+		DebtID: card, Date: "2026-08-05", Kind: DebtOpPayment, Amount: 40_000_00,
+		Note: "зарплата",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.AddDebtMark(ctx, DebtMark{
+		DebtID: card, Date: "2026-08-30", Balance: -3_000_00,
+		StatementDue: 18_400_00, NonGrace: 5_000_00,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.Debts) != 2 || len(b.DebtOps) != 1 || len(b.DebtMarks) != 1 {
+		t.Fatalf("експорт узяв %d боргів, %d рухів, %d звірок",
+			len(b.Debts), len(b.DebtOps), len(b.DebtMarks))
+	}
+
+	dst, err := Open(filepath.Join(t.TempDir(), "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportAll(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	// І ВДРУГЕ — саме тут ловиться FK на саму себе.
+	if err := dst.ImportAll(ctx, b); err != nil {
+		t.Fatalf("повторне відновлення боргів: %v", err)
+	}
+
+	got, err := dst.ListDebts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("після відновлення %d боргів замість 2: %+v", len(got), got)
+	}
+	if got[0].APROverdueBp != 6200 || got[0].StatementDay != 30 ||
+		got[0].LateFee != 100_00 {
+		t.Errorf("умови картки поїхали: %+v", got[0])
+	}
+	if got[1].CardID != got[0].ID || got[1].FeeMonthBp != 199 {
+		t.Errorf("привʼязка розстрочки до картки не пережила відновлення: %+v", got[1])
+	}
+	marks, err := dst.ListDebtMarks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(marks) != 1 || marks[0].Balance != -3_000_00 ||
+		marks[0].StatementDue != 18_400_00 || marks[0].NonGrace != 5_000_00 {
+		t.Errorf("звірка поїхала: %+v", marks)
+	}
+	ops, err := dst.ListDebtOps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ops) != 1 || ops[0].Kind != DebtOpPayment || ops[0].Amount != 40_000_00 {
+		t.Errorf("рух боргу поїхав: %+v", ops)
+	}
+}

@@ -77,6 +77,21 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/goal-ops", s.handleAddGoalOp)
 	mux.HandleFunc("PUT /api/goal-ops/{id}", s.handleUpdateGoalOp)
 	mux.HandleFunc("DELETE /api/goal-ops/{id}", s.handleDeleteGoalOp)
+
+	// handlers_debts.go. Три набори, бо сутностей три: борг, рух під ним і
+	// звірка з банком (довід — у шапці файла).
+	mux.HandleFunc("GET /api/debts", s.handleListDebts)
+	mux.HandleFunc("POST /api/debts", s.handleAddDebt)
+	mux.HandleFunc("PUT /api/debts/{id}", s.handleUpdateDebt)
+	mux.HandleFunc("DELETE /api/debts/{id}", s.handleDeleteDebt)
+	mux.HandleFunc("GET /api/debt-ops", s.handleListDebtOps)
+	mux.HandleFunc("POST /api/debt-ops", s.handleAddDebtOp)
+	mux.HandleFunc("PUT /api/debt-ops/{id}", s.handleUpdateDebtOp)
+	mux.HandleFunc("DELETE /api/debt-ops/{id}", s.handleDeleteDebtOp)
+	mux.HandleFunc("GET /api/debt-marks", s.handleListDebtMarks)
+	mux.HandleFunc("POST /api/debt-marks", s.handleAddDebtMark)
+	mux.HandleFunc("PUT /api/debt-marks/{id}", s.handleUpdateDebtMark)
+	mux.HandleFunc("DELETE /api/debt-marks/{id}", s.handleDeleteDebtMark)
 	mux.HandleFunc("GET /api/conversions", s.handleListConversions)
 	mux.HandleFunc("POST /api/conversions", s.handleAddConversion)
 	mux.HandleFunc("PUT /api/conversions/{id}", s.handleUpdateConversion)

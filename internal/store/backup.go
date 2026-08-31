@@ -45,6 +45,16 @@ type Backup struct {
 	// операцій, ні з плану.
 	Goals   []BackupGoal   `json:"goals,omitempty"`
 	GoalOps []BackupGoalOp `json:"goal_ops,omitempty"`
+	// Борги (0045) — ТРИ поля, бо сутностей три: сам борг, журнал рухів і
+	// звірки з банком. Невідновні навіть суворіше за цілі: умови картки
+	// (розрахункова дата, ставка після пільгового, підвищена за
+	// прострочення, мінімалка) не виводяться нізвідки взагалі — вони
+	// живуть у договорі, а не в числах застосунку. А без звірок баланс
+	// картки не відновлюється навіть приблизно: журнал веде лише великі
+	// рухи, і саме звірка є тим, від чого він відлічується.
+	Debts     []BackupDebt     `json:"debts,omitempty"`
+	DebtOps   []BackupDebtOp   `json:"debt_ops,omitempty"`
+	DebtMarks []BackupDebtMark `json:"debt_marks,omitempty"`
 	// План (фаза 9) — так само невідновний журнал, і так само omitempty:
 	// бекапи, зроблені до його появи, читаються без цих полів.
 	PlanFlows   []BackupPlanFlow   `json:"plan_flows,omitempty"`
@@ -252,6 +262,58 @@ type BackupGoalOp struct {
 	Currency string `json:"currency"`
 	Place    string `json:"place"`
 	Note     string `json:"note"`
+}
+
+// BackupDebt — картка або розстрочка. Поля рівно ті, що в таблиці:
+// звужувати їх до «потрібних» не можна, бо мертві для одного виду колонки
+// живі для другого, і бекап мусить пережити обидва.
+type BackupDebt struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Currency string `json:"currency"`
+	// CardID нулем = самостійний борг (у базі NULL), як і в store.Debt.
+	CardID           int64  `json:"card_id,omitempty"`
+	LimitAmount      int64  `json:"limit_amount,omitempty"`
+	StatementDay     int64  `json:"statement_day,omitempty"`
+	APRBp            int64  `json:"apr_bp,omitempty"`
+	APROverdueBp     int64  `json:"apr_overdue_bp,omitempty"`
+	MinPaymentBp     int64  `json:"min_payment_bp,omitempty"`
+	MinPaymentFloor  int64  `json:"min_payment_floor,omitempty"`
+	LateFee          int64  `json:"late_fee,omitempty"`
+	Principal        int64  `json:"principal,omitempty"`
+	PaymentsTotal    int64  `json:"payments_total,omitempty"`
+	FirstPaymentDate string `json:"first_payment_date,omitempty"`
+	FeeMonthBp       int64  `json:"fee_month_bp,omitempty"`
+	FeeFreeMonths    int64  `json:"fee_free_months,omitempty"`
+	OpenedDate       string `json:"opened_date,omitempty"`
+	ClosedDate       string `json:"closed_date,omitempty"`
+	Place            string `json:"place,omitempty"`
+	Note             string `json:"note,omitempty"`
+}
+
+// BackupDebtOp — один рух під боргом.
+type BackupDebtOp struct {
+	ID     int64  `json:"id"`
+	DebtID int64  `json:"debt_id"`
+	Date   string `json:"date"`
+	Kind   string `json:"kind"`
+	Amount int64  `json:"amount"`
+	Note   string `json:"note,omitempty"`
+}
+
+// BackupDebtMark — одна звірка з додатком банку.
+type BackupDebtMark struct {
+	ID     int64  `json:"id"`
+	DebtID int64  `json:"debt_id"`
+	Date   string `json:"date"`
+	// Balance без omitempty: нуль тут осмислена відповідь («на картці
+	// рівно нуль»), і сховати його означало б показати відсутність поля
+	// там, де є виміряне число.
+	Balance      int64  `json:"balance"`
+	StatementDue int64  `json:"statement_due,omitempty"`
+	NonGrace     int64  `json:"non_grace,omitempty"`
+	Note         string `json:"note,omitempty"`
 }
 
 // BackupPlanFlow — джерело доходу чи витрат із розділу «План». Невідновне
@@ -709,6 +771,51 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT id,name,kind,currency,COALESCE(card_id,0),
+		limit_amount,statement_day,apr_bp,apr_overdue_bp,min_payment_bp,
+		min_payment_floor,late_fee,principal,payments_total,first_payment_date,
+		fee_month_bp,fee_free_months,opened_date,closed_date,place,note
+		FROM debts ORDER BY id`,
+		func(scan func(...any) error) error {
+			var d BackupDebt
+			if err := scan(&d.ID, &d.Name, &d.Kind, &d.Currency, &d.CardID,
+				&d.LimitAmount, &d.StatementDay, &d.APRBp, &d.APROverdueBp,
+				&d.MinPaymentBp, &d.MinPaymentFloor, &d.LateFee,
+				&d.Principal, &d.PaymentsTotal, &d.FirstPaymentDate,
+				&d.FeeMonthBp, &d.FeeFreeMonths,
+				&d.OpenedDate, &d.ClosedDate, &d.Place, &d.Note); err != nil {
+				return err
+			}
+			b.Debts = append(b.Debts, d)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT id,debt_id,date,kind,amount,note
+		FROM debt_ops ORDER BY id`,
+		func(scan func(...any) error) error {
+			var o BackupDebtOp
+			if err := scan(&o.ID, &o.DebtID, &o.Date, &o.Kind, &o.Amount, &o.Note); err != nil {
+				return err
+			}
+			b.DebtOps = append(b.DebtOps, o)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT id,debt_id,date,balance,statement_due,non_grace,note
+		FROM debt_marks ORDER BY id`,
+		func(scan func(...any) error) error {
+			var m BackupDebtMark
+			if err := scan(&m.ID, &m.DebtID, &m.Date, &m.Balance,
+				&m.StatementDue, &m.NonGrace, &m.Note); err != nil {
+				return err
+			}
+			b.DebtMarks = append(b.DebtMarks, m)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT id,name,kind,amount,currency,cadence,from_date,until_date,
 		growth_bp,invest_bp,dest,uses,note FROM plan_flows ORDER BY id`,
 		func(scan func(...any) error) error {
@@ -897,7 +1004,8 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 var importAllTables = []string{
 	"sales", "lots", "deposits", "conversions", "fund_ops",
 	"fund_prices", "deposit_topups", "term_deposits", "reserve_ops",
-	"goal_ops", "goals", "npf_ops", "npf_nav",
+	"goal_ops", "goals", "debt_ops", "debt_marks", "debts",
+	"npf_ops", "npf_nav",
 	"npf_accounts", "plan_flows", "plan_flow_revisions",
 	"plan_receipts", "plan_actions", "plan_buys", "decisions", "import_profiles",
 	"settings", "payment_status", "snapshots",
@@ -951,6 +1059,14 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// причини, що reserve_ops: бекап тримає id, тож пропуск тут означає не
 	// «дублікати після відновлення», а відмову на UNIQUE(id) у будь-кого,
 	// хто має бодай одну ціль.
+	// Розстрочки треба відчепити від карток ДО переліку, і це не стиль.
+	// debts має FK на саму себе (card_id → debts.id), а DELETE FROM без
+	// WHERE видаляє рядки в порядку rowid — тобто картку РАНІШЕ за її
+	// розстрочку — і впирається у власний FK. Один UPDATE дешевший, ніж
+	// заводити в переліку поняття «частина таблиці».
+	if _, err := tx.ExecContext(ctx, `UPDATE debts SET card_id=NULL`); err != nil {
+		return fmt.Errorf("відчеплення розстрочок: %w", err)
+	}
 	for _, t := range importAllTables {
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
@@ -1159,6 +1275,48 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			(id,goal_id,date,amount,currency,place,note) VALUES (?,?,?,?,?,?,?)`,
 			o.ID, o.GoalID, o.Date, o.Amount, o.Currency, o.Place, o.Note); err != nil {
 			return fmt.Errorf("рух цілі %d: %w", o.ID, err)
+		}
+	}
+	// Борги вставляються У ДВА ПРОХОДИ: спершу всі з порожнім card_id,
+	// потім привʼязка. Порядок у бекапі покладатись не можна — картка
+	// завжди має менший id, ніж її розстрочка, лише доки файл не
+	// правили руками, — а FK на саму себе карає за це відмовою всього
+	// відновлення. Два проходи не залежать від порядку взагалі.
+	for _, d := range b.Debts {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO debts
+			(id,name,kind,currency,card_id,limit_amount,statement_day,apr_bp,
+			 apr_overdue_bp,min_payment_bp,min_payment_floor,late_fee,principal,
+			 payments_total,first_payment_date,fee_month_bp,fee_free_months,
+			 opened_date,closed_date,place,note)
+			VALUES (?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			d.ID, d.Name, d.Kind, d.Currency, d.LimitAmount, d.StatementDay,
+			d.APRBp, d.APROverdueBp, d.MinPaymentBp, d.MinPaymentFloor, d.LateFee,
+			d.Principal, d.PaymentsTotal, d.FirstPaymentDate, d.FeeMonthBp,
+			d.FeeFreeMonths, d.OpenedDate, d.ClosedDate, d.Place, d.Note); err != nil {
+			return fmt.Errorf("борг %d: %w", d.ID, err)
+		}
+	}
+	for _, d := range b.Debts {
+		if d.CardID == 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE debts SET card_id=? WHERE id=?`, d.CardID, d.ID); err != nil {
+			return fmt.Errorf("привʼязка боргу %d до картки %d: %w", d.ID, d.CardID, err)
+		}
+	}
+	for _, o := range b.DebtOps {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO debt_ops
+			(id,debt_id,date,kind,amount,note) VALUES (?,?,?,?,?,?)`,
+			o.ID, o.DebtID, o.Date, o.Kind, o.Amount, o.Note); err != nil {
+			return fmt.Errorf("рух боргу %d: %w", o.ID, err)
+		}
+	}
+	for _, m := range b.DebtMarks {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO debt_marks
+			(id,debt_id,date,balance,statement_due,non_grace,note) VALUES (?,?,?,?,?,?,?)`,
+			m.ID, m.DebtID, m.Date, m.Balance, m.StatementDue, m.NonGrace, m.Note); err != nil {
+			return fmt.Errorf("звірка боргу %d: %w", m.ID, err)
 		}
 	}
 	// Пенсійні рахунки — ПЕРЕД внесками й точками ЧВОПА: обидва мають на
