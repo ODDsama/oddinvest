@@ -128,6 +128,19 @@ type projectionInput struct {
 	// за проєкцію, а другого означення розриву бути не має.
 	ReserveGapUAH float64
 	GoalsGapUAH   float64
+	// DebtLeftUAH — скільки боргу під ставкою; DebtDueUAH — обовʼязкові
+	// платежі МІСЯЦЯ.
+	//
+	// Два числа, бо це дві різні речі. Обовʼязкове йде щомісяця, доки борг
+	// живий, і вибору в ньому немає; дострокове ріже стеля, і воно
+	// закінчується разом із самим боргом. Одне число на обидва зробило б
+	// платежі вічними або стелю обовʼязковою.
+	DebtLeftUAH float64
+	DebtDueUAH  float64
+	// DebtFillSharePct дублює налаштування навмисно: Settings тут є, але
+	// прохід уперед мусить уміти вимкнути стелю, не чіпаючи налаштувань
+	// (превʼю політики).
+	DebtFillSharePct float64
 	// ActualMonthly — фактичний темп поповнень, ₴/міс (0 = історії замало).
 	ActualMonthly float64
 	// IncomeMonthlyNow — скільки портфель приносить УЖЕ, ₴/міс. Готове
@@ -270,6 +283,7 @@ func (f sleeveFactory) shareAt(m int) map[string]float64 {
 func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 	planNative map[string][]float64, incReserve, incGoals, expense []float64) {
 	resGap, goalGap := in.ReserveGapUAH, in.GoalsGapUAH
+	debtLeft, debtShare := in.DebtLeftUAH, in.DebtFillSharePct
 	resShare, goalShare := 0.0, 0.0
 	if in.Settings != nil {
 		if v := in.Settings.ReserveFillSharePct; v != nil {
@@ -279,11 +293,27 @@ func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 			goalShare = *v
 		}
 	}
-	if (resGap <= 0 || resShare <= 0) && (goalGap <= 0 || goalShare <= 0) {
+	if (resGap <= 0 || resShare <= 0) && (goalGap <= 0 || goalShare <= 0) &&
+		debtLeft <= 0 {
 		return // жодної живої стелі — прогноз лишається таким, як був
 	}
 	for m := range planTotal {
 		cut := 0.0
+		// Борг ПЕРШИМ, і двома доданками. Обовʼязкове йде, доки борг живий,
+		// незалежно від стелі й від дозволів: це не вибір. Дострокове —
+		// звичайна стеля, як у подушки. Обидва замовкають разом із боргом,
+		// і саме тому прохід уперед, а не стала вирізка: інакше платежі за
+		// дев'ятимісячною розстрочкою тривали б усі шістдесят років
+		// горизонту.
+		if debtLeft > 0 {
+			c := math.Min(in.DebtDueUAH, debtLeft)
+			if debtShare > 0 {
+				base := math.Max(0, incReserve[m]-expense[m])
+				c += math.Min(base*debtShare/100, debtLeft-c)
+			}
+			debtLeft -= c
+			cut += c
+		}
 		if resGap > 0 && resShare > 0 {
 			// База — дозволена подушці частина місяця за відрахуванням
 			// витрат, тобто рівно PlanReserveUAH цього місяця.

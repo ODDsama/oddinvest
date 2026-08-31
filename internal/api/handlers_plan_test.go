@@ -736,8 +736,8 @@ func TestPlanFlowUsesRoundTrip(t *testing.T) {
 	if got := byName["Оренда"]; len(got) != 1 || got[0] != "invest" {
 		t.Errorf("дозвіл оренди %v, чекали [invest]", got)
 	}
-	if got := byName["Зарплата"]; len(got) != 4 {
-		t.Errorf("дозвіл зарплати %v, чекали всі чотири кошики", got)
+	if got := byName["Зарплата"]; len(got) != 5 {
+		t.Errorf("дозвіл зарплати %v, чекали всі пʼять кошиків", got)
 	}
 
 	// Невідомий кошик — 400, а не мовчазна втрата: набір, який тихо
@@ -772,7 +772,7 @@ func TestPlanFlowUsesOnlyForIncome(t *testing.T) {
 	// форму, яка просто надіслала всі галочки.
 	if resp, body := do(t, "POST", srv.URL+"/api/plan/flows",
 		`{"name":"Комуналка","kind":"expense","amount":"3000.00","cadence":"month",`+
-			`"from_date":"2026-09-01","uses":["reserve","goals","invest","npf"]}`); resp.StatusCode != http.StatusCreated {
+			`"from_date":"2026-09-01","uses":["reserve","debt","goals","invest","npf"]}`); resp.StatusCode != http.StatusCreated {
 		t.Errorf("повний перелік на витраті мав пройти: %d %s", resp.StatusCode, body)
 	}
 

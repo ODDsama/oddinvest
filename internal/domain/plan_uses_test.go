@@ -20,8 +20,14 @@ func TestParsePlanUsesCanonical(t *testing.T) {
 		// значення навмисно: явний повний перелік застарів би на першому ж
 		// новому кошику, мовчки заборонивши його.
 		{"нічого = без обмежень", nil, ""},
-		{"усі чотири = без обмежень",
-			[]string{"reserve", "goals", "invest", "npf"}, ""},
+		{"усі пʼять = без обмежень",
+			[]string{"reserve", "debt", "goals", "invest", "npf"}, ""},
+		// А ось повний перелік ДО появи боргу вже не є повним, і це рівно
+		// та пастка, про яку застерігає шапка. Виправляє її не код, а
+		// міграція 0046: рядки, записані як «скрізь», повертаються до
+		// порожнього.
+		{"колишні чотири вже звужують",
+			[]string{"reserve", "goals", "invest", "npf"}, "reserve,goals,invest,npf"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -52,13 +58,13 @@ func TestParsePlanUsesRejectsUnknown(t *testing.T) {
 // стоїть уся зворотна сумісність: жоден рядок, заведений раніше, не мусить
 // раптом виявитись забороненим.
 func TestPlanUsesEmptyAllowsEverything(t *testing.T) {
-	for _, b := range []string{UsePlanReserve, UsePlanGoals, UsePlanInvest, UsePlanNPF} {
+	for _, b := range []string{UsePlanReserve, UsePlanDebt, UsePlanGoals, UsePlanInvest, UsePlanNPF} {
 		if !PlanUseAllowed("", b) {
 			t.Errorf("порожній дозвіл заборонив %q", b)
 		}
 	}
-	if got := PlanUsesList(""); len(got) != 4 {
-		t.Errorf("перелік із порожнього — %v, чекали всі чотири кошики", got)
+	if got := PlanUsesList(""); len(got) != 5 {
+		t.Errorf("перелік із порожнього — %v, чекали всі пʼять кошиків", got)
 	}
 	if PlanUsesNarrowed("") {
 		t.Error("порожній дозвіл вважається звуженим")
@@ -73,7 +79,7 @@ func TestPlanUsesNarrowedAllowsOnlyNamed(t *testing.T) {
 	if !PlanUseAllowed(uses, UsePlanInvest) {
 		t.Error("названий кошик заборонено")
 	}
-	for _, b := range []string{UsePlanReserve, UsePlanGoals, UsePlanNPF} {
+	for _, b := range []string{UsePlanReserve, UsePlanDebt, UsePlanGoals, UsePlanNPF} {
 		if PlanUseAllowed(uses, b) {
 			t.Errorf("неназваний кошик %q дозволено", b)
 		}

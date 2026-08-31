@@ -378,6 +378,58 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		}
 	}
 
+	// Борг (0045). Картка з пільговим циклом і розстрочка ВСЕРЕДИНІ неї:
+	// саме ця пара робить живими всі гілки фази — обовʼязковий платіж
+	// місяця, стелю подушки на час боргу й непільгову частину, яка одна
+	// потрапляє в чергу погашення.
+	//
+	// Комісія 1,99% на місяць — справжня ставка ПУМБ, і на ній ефективна
+	// виходить ≈50% річних, тобто вища за знецінення. Безкоштовна
+	// розстрочка стелі подушки не вмикала б, і гілка лишилась би
+	// неперевіреною.
+	card, err := st.AddDebt(ctx, domain.Debt{
+		Name: "ПУМБ ВсеМожу", Kind: domain.DebtCard, Currency: money.UAH,
+		LimitAmount: 20000000, StatementDay: 30, APRBp: 4788, APROverdueBp: 6200,
+		MinPaymentBp: 300, MinPaymentFloor: 10000, LateFee: 10000,
+		OpenedDate: d(-800),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fridge, err := st.AddDebt(ctx, domain.Debt{
+		Name: "Холодильник частинами", Kind: domain.DebtInstallment, Currency: money.UAH,
+		CardID: card, Principal: 3000000, PaymentsTotal: 9,
+		FirstPaymentDate: d(-60), FeeMonthBp: 199, OpenedDate: d(-90),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Звірка: на картці ПЛЮС, і при цьому виписка більша за нього — та сама
+	// пастка, заради якої «вільно» й рахується. Готівка з ліміту окремим
+	// числом: вона під відсотком з першого дня й одна йде в чергу.
+	if _, err := st.AddDebtMark(ctx, domain.DebtMark{
+		DebtID: card, Date: d(-5), Balance: 1200000,
+		StatementDue: 1840000, NonGrace: 500000, Note: "звірка з додатком",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDebtOp(ctx, domain.DebtOp{
+		DebtID: card, Date: d(-2), Kind: domain.DebtOpPayment, Amount: 300000,
+		Note: "частина зарплати",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Платіж за розстрочкою БІЛЬШИЙ за обовʼязковий: різниця і є
+	// достроковим погашенням, і без цього рядка debt.paid_extra_uah
+	// лишився б нулем — тобто гілка «стеля вже частково вибрана» не
+	// перевірялась би зовсім.
+	if _, err := st.AddDebtOp(ctx, domain.DebtOp{
+		DebtID: fridge, Date: d(-2), Kind: domain.DebtOpPayment, Amount: 600000,
+		Note: "закинув понад графік",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	// Позначена як отримана майбутня виплата — гілка arrived поза датою.
 	if err := st.SetPaymentStatus(ctx, uahBond.ISIN, d(150), "received"); err != nil {
 		t.Fatal(err)
@@ -409,6 +461,20 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		"monthly_expenses": "25000", "monthly_expenses_currency": "UAH",
 		"reserve_target_months":  "6",
 		"reserve_fill_share_pct": "20",
+		// Стеля подушки на час боргу — 5 місяців проти шести звичайних.
+		// Менша за ціль, щоб гілка reserve.debt_capped була живою, але
+		// БІЛЬША за наявну подушку: інакше розрив закрився б цілком, і
+		// разом із ним у нулі пішли б усі fill_* — тобто обрізання
+		// перевірялось би ціною шести інших полів.
+		"reserve_debt_months": "5",
+		// Дострокове погашення й доля цілей на час боргу — обидва ключі
+		// явні, бо дефолти в документі не видно (omitempty), і зламане
+		// збереження пройшло б повз сторожа ненульових полів.
+		// Стеля дострокового навмисно БІЛЬША за вже сплачене понад графік:
+		// інакше fill_now_uah вийшов би нулем, і гілка «скільки з місячної
+		// частки ще лишилось» не перевірялась би.
+		"debt_fill_share_pct": "40", "debt_fill_from": "plan",
+		"goals_while_debt": "keep",
 		// Стеля цілей — навмисно МАЛА проти потрібного темпу «Авто»
 		// (≈64 000 ₴/міс проти ≈2 100 ₴ стелі). Саме так у фікстурі
 		// зʼявляється short_month_uah: «щоб устигнути, бракує стільки-то на

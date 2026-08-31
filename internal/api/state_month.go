@@ -217,7 +217,8 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 
 	out.Plan = buildMonthPlan(src, rates, today, 0, float64(out.DepositedUAH.Amount())/100)
 	out.ReserveMonthUAH, out.ReserveFillUAH = reserveMonthShare(
-		src.settings, reserveUAH, out.Plan, out.ReserveMovedUAH)
+		src.settings, reserveUAH, out.Plan, out.ReserveMovedUAH,
+		debtCapsReserve(src.debts, src.debtMarks, src.debtOps, src.deval, today))
 	return out, nil
 }
 
@@ -265,7 +266,7 @@ func paceMonths(first, today domain.Date) float64 {
 // не бачить того, що ти цього місяця поклав, і без поправки місячна частка
 // сама себе з'їдала б — після переказу вона впала б на ту саму суму двічі.
 func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
-	mp *state.MonthPlan, moved float64) (monthUAH, fillUAH float64) {
+	mp *state.MonthPlan, moved float64, debtCaps bool) (monthUAH, fillUAH float64) {
 	if set == nil || set.ReserveFillSharePct == nil || mp == nil {
 		return 0, 0
 	}
@@ -279,7 +280,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	if share <= 0 || mp.PlanReserveUAH <= 0 {
 		return 0, 0
 	}
-	_, gap := state.ReserveTarget(set, reserveUAH)
+	_, gap := state.ReserveTarget(set, reserveUAH, debtCaps)
 	room := gap + moved
 	if room <= 0 {
 		return 0, 0 // ціль зібрана — стеля мовчить, і правильно робить
@@ -356,7 +357,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	// Дозволені суми накопичуються ОКРЕМИМИ лічильниками в тому самому
 	// циклі: другий прохід по тих самих потоках був би другим означенням
 	// «скільки цей потік платить у серпні».
-	incReserve, incGoals := 0.0, 0.0
+	incReserve, incGoals, incDebt := 0.0, 0.0, 0.0
 	for _, f := range src.planFlows {
 		// Чи платить потік цього місяця, вирішує ЧИСТИЙ план (marks = nil), а
 		// не сума з відмітками. Різниця видна на відмітці «не прийшло»: вона
@@ -379,6 +380,9 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		}
 		if domain.PlanUseAllowed(f.Uses, domain.UsePlanGoals) {
 			incGoals += amt
+		}
+		if domain.PlanUseAllowed(f.Uses, domain.UsePlanDebt) {
+			incDebt += amt
 		}
 		out.Sources++
 		if _, ok := marks.at(f.ID, today, m); ok {
@@ -405,11 +409,20 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		if domain.PlanUseAllowed(r.Uses, domain.UsePlanGoals) {
 			incGoals += v
 		}
+		if domain.PlanUseAllowed(r.Uses, domain.UsePlanDebt) {
+			incDebt += v
+		}
 	}
 
-	out.PlanUAH = out.IncomeUAH + out.ExtraUAH - out.ExpenseUAH
-	out.PlanReserveUAH = math.Max(0, incReserve-out.ExpenseUAH)
-	out.PlanGoalsUAH = math.Max(0, incGoals-out.ExpenseUAH)
+	// Обовʼязкові платежі за боргами — така сама неминучість, як витрати,
+	// тож віднімаються звідусіль і повністю (довід — при PlanReserveUAH).
+	out.DebtDueUAH = debtDueForMonth(src, rates, today, m)
+	spent := out.ExpenseUAH + out.DebtDueUAH
+
+	out.PlanUAH = out.IncomeUAH + out.ExtraUAH - spent
+	out.PlanReserveUAH = math.Max(0, incReserve-spent)
+	out.PlanGoalsUAH = math.Max(0, incGoals-spent)
+	out.PlanDebtUAH = math.Max(0, incDebt-spent)
 
 	// Лишилось закинути — проти ВНЕСЕНОГО, а не проти купленого: план
 	// означає «скільки нових грошей принести», а купівля лише переносить їх
@@ -427,6 +440,59 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	out.PlanUAH = round2(out.PlanUAH)
 	out.PlanReserveUAH = round2(out.PlanReserveUAH)
 	out.PlanGoalsUAH = round2(out.PlanGoalsUAH)
+	out.PlanDebtUAH = round2(out.PlanDebtUAH)
+	out.DebtDueUAH = round2(out.DebtDueUAH)
 	out.ReceivedUAH = round2(out.ReceivedUAH)
 	return out
+}
+
+// debtDueForMonth — обовʼязкові платежі за боргами в місяці зі зсувом m.
+//
+// ЩО САМЕ ВВАЖАЄТЬСЯ ОБОВʼЯЗКОВИМ: частини розстрочок (тіло + комісія) і
+// мінімалка на НЕПІЛЬГОВУ частину картки — готівку й перекази, на які
+// відсоток нараховують з першого дня. Пільговий оборот сюди не входить, і
+// це головна межа фази: довід — у полі MonthPlan.DebtDueUAH і в шапці
+// міграції 0045.
+//
+// Розстрочка ВСЕРЕДИНІ картки входить нарівні з самостійною. Її частина
+// справді списується з картки, але це не побут: це повернення тіла з
+// комісією, тобто ті самі гроші, яких не буде на інвестиції. Виняток для
+// неї означав би, що найбільший борг власника не видно ніде.
+func debtDueForMonth(src *sources, rates fx.Rates, today domain.Date, m int) float64 {
+	if len(src.debts) == 0 {
+		return 0
+	}
+	first := monthStart(today, m)
+	last := monthStart(today, m+1).AddDays(-1)
+
+	total := 0.0
+	for _, d := range src.debts {
+		if d.Closed() {
+			continue
+		}
+		balance := int64(0)
+		if d.IsCard() {
+			st := domain.CardState(d, src.debtMarks, src.debtOps, nil, today)
+			balance = st.NonGrace
+			if st.Debt > 0 && balance > st.Debt {
+				balance = st.Debt
+			}
+			if balance <= 0 {
+				continue
+			}
+		}
+		for _, p := range domain.DebtSchedule(d, balance, first, last) {
+			if u, err := fx.ToUAH(money.New(p.Amount, d.Currency), rates); err == nil {
+				total += float64(u.Amount()) / 100
+			}
+		}
+	}
+	return total
+}
+
+// monthStart — перше число місяця зі зсувом m від сьогодні. Окремо від
+// monthKeyAt, бо тому потрібен ключ "YYYY-MM", а тут — сама дата.
+func monthStart(today domain.Date, m int) domain.Date {
+	t := today.Time()
+	return domain.NewDate(time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, m, 0))
 }

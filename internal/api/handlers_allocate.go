@@ -170,6 +170,26 @@ func reserveEligibleUAH(set *state.SettingsDoc, src string,
 		math.Max(0, sourceCapUAH))
 }
 
+// debtEligibleUAH — те саме для дострокового погашення. Свій ключ, бо
+// питання однакове за формою й різне за суттю: борг під пʼятдесят
+// відсотків багато хто гасить із будь-яких грошей, включно з купоном, а
+// подушку — лише зарплатою.
+func debtEligibleUAH(set *state.SettingsDoc, src string,
+	amountUAH, principalUAH, sourceCapUAH float64) float64 {
+
+	return math.Min(eligibleUAH(debtFillFrom(set), src, amountUAH, principalUAH),
+		math.Max(0, sourceCapUAH))
+}
+
+// debtFillFrom — рівень політики словом, із дефолтом (довід — при
+// fillFromLevel).
+func debtFillFrom(set *state.SettingsDoc) string {
+	if set == nil {
+		return "any"
+	}
+	return fillFromLevel(set.DebtFillFrom)
+}
+
 // goalsEligibleUAH — те саме для цілей, і навмисно ТІЄЮ САМОЮ функцією:
 // правило «що таке планові гроші» одне на застосунок, і друга його копія
 // дала б подушці й цілям різні відповіді про той самий купон.
@@ -214,7 +234,11 @@ func eligibleUAH(level, src string, amountUAH, principalUAH float64) float64 {
 // кінця, мовчки заборонила б усе.
 type allocAllow struct {
 	ReserveUAH float64
-	GoalsUAH   float64
+	// DebtUAH — скільки з цих грошей політика й джерело дозволяють віддати
+	// на ДОСТРОКОВЕ погашення. Обовʼязкових платежів це не стосується: їх
+	// уже відняв план місяця, і вибору в них немає.
+	DebtUAH  float64
+	GoalsUAH float64
 	// Uses — канонічний дозвіл джерела ("" = будь-куди), читається через
 	// domain.PlanUseAllowed. Рядком, а не парою булеанів: словник кошиків
 	// живе в домені, і друга його копія тут розійшлася б із першою рівно
@@ -289,6 +313,15 @@ type allocGoalCut struct {
 	Why       string  `json:"why"`
 }
 
+// allocDebtCut — вирізка на дострокове погашення. Одна на всі борги, а не
+// по одній на борг: черга погашення вирішує, у який саме борг ці гроші
+// підуть, і показувати вибір там, де його робить правило, означало б
+// запитати те, на що вже є відповідь (/api/payoff).
+type allocDebtCut struct {
+	AmountUAH float64 `json:"amount_uah"`
+	Why       string  `json:"why"`
+}
+
 type allocPlan struct {
 	Amount    moneyJSON     `json:"amount"`
 	AmountUAH float64       `json:"amount_uah"`
@@ -296,6 +329,12 @@ type allocPlan struct {
 	// Goals — вирізки цілей, у порядку наповнення. GoalsSkipWhy — чому цілі
 	// не взяли свого: те саме правило, що в ReserveSkipWhy, і той самий
 	// довід — зникла вирізка без пояснення читається як поломка.
+	// Debt — дострокове погашення. Окремим полем, а не рядком у Lines, і з
+	// того самого доводу, що подушка: у боргу немає ні ціни кроку, ні
+	// дохідності, ні рядка в плані купівель.
+	Debt         *allocDebtCut  `json:"debt,omitempty"`
+	DebtUAH      float64        `json:"debt_uah,omitempty"`
+	DebtSkipWhy  string         `json:"debt_skip_why,omitempty"`
 	Goals        []allocGoalCut `json:"goals,omitempty"`
 	GoalsUAH     float64        `json:"goals_uah,omitempty"`
 	GoalsSkipWhy string         `json:"goals_skip_why,omitempty"`
@@ -389,6 +428,8 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		allocAllow{
 			ReserveUAH: reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
 				sourceCapUAH(uses, domain.UsePlanReserve, amountUAH)),
+			DebtUAH: debtEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
+				sourceCapUAH(uses, domain.UsePlanDebt, amountUAH)),
 			GoalsUAH: goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
 				sourceCapUAH(uses, domain.UsePlanGoals, amountUAH)),
 			Uses: uses,
@@ -579,7 +620,50 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			avail = amountUAH - cut
 		}
 	}
-	// --- цілі накопичення, ДРУГИМИ ---
+	// --- борг, ДРУГИМ ---
+	//
+	// Після подушки й перед цілями. Порядок не стилістичний: борг під
+	// пʼятдесят відсотків росте сам, а ціль накопичення не росте зовсім,
+	// тож класти на авто, маючи живу розстрочку, означає купувати його за
+	// піввідсотка на місяць дорожче. Перед подушкою борг не стає з іншого
+	// доводу — аварія без подушки повертає той самий борг, лише під ще
+	// гіршу ставку.
+	//
+	// Тут ЛИШЕ ДОСТРОКОВЕ. Обовʼязкові платежі в розкладку не входять
+	// узагалі: вони вже відняті від грошей місяця (MonthPlan.DebtDueUAH), і
+	// пропонувати вибір там, де вибору немає, означало б назвати
+	// зобовʼязання порадою.
+	if avail > 0 && doc.Debt != nil && doc.Debt.FillNowUAH > 0 {
+		want := math.Min(avail, doc.Debt.FillNowUAH)
+		cut := math.Min(want, math.Max(0, allow.DebtUAH))
+		if blocked := want - cut; blocked > 0.005 {
+			out.DebtSkipWhy = fmt.Sprintf(
+				"%s не пішли в борг: політика «з яких грошей гасити» цього джерела не дозволяє",
+				uah(blocked))
+		}
+		// Поріг той самий, що в подушки й цілей, і виняток «закриває борг»
+		// той самий: інакше остання пʼятірка гривень не закрилась би ніколи.
+		if closes := cut >= doc.Debt.TotalUAH-0.005; cut > 0.005 && cut < allocMinCutUAH && !closes {
+			why := allocBelowFloorWhy("борг", "не бере", "добере", cut)
+			if out.DebtSkipWhy != "" {
+				why = out.DebtSkipWhy + ". " + why
+			}
+			out.DebtSkipWhy, cut = why, 0
+		}
+		if cut > 0.005 {
+			why := fmt.Sprintf("місячна частка на борг — %s з %s",
+				uah(cut), uah(doc.Debt.FillMonthUAH))
+			if doc.Debt.TopRatePct > 0 {
+				why += fmt.Sprintf("; найдорожчий — %s під %.1f%%",
+					doc.Debt.TopName, doc.Debt.TopRatePct)
+			}
+			out.Debt = &allocDebtCut{AmountUAH: round2(cut), Why: why}
+			out.DebtUAH = round2(cut)
+			avail -= cut
+		}
+	}
+
+	// --- цілі накопичення, ТРЕТІМИ ---
 	//
 	// Після подушки й лише з того, що після неї лишилось. Порядок не
 	// стилістичний: аварія не має дати й може статись завтра, а річ, на яку

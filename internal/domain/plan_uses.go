@@ -32,18 +32,25 @@ import (
 // змінився лише порядок галочок у формі.
 const (
 	UsePlanReserve = "reserve"
-	UsePlanGoals   = "goals"
-	UsePlanInvest  = "invest"
-	UsePlanNPF     = "npf"
+	// UsePlanDebt — дострокове погашення боргу. Стоїть ПІСЛЯ подушки й
+	// ПЕРЕД цілями: збирати на авто під нуль відсотків, маючи розстрочку
+	// під пʼятдесят, — та сама втрата, що вже названа для подушки, лише
+	// більша. Обовʼязкові платежі сюди не входять узагалі: вони не вибір, а
+	// зобовʼязання, і відповідає за них MonthPlan.DebtDueUAH.
+	UsePlanDebt   = "debt"
+	UsePlanGoals  = "goals"
+	UsePlanInvest = "invest"
+	UsePlanNPF    = "npf"
 )
 
 // planUseOrder — той самий порядок, у вигляді, придатному для обходу.
-var planUseOrder = []string{UsePlanReserve, UsePlanGoals, UsePlanInvest, UsePlanNPF}
+var planUseOrder = []string{UsePlanReserve, UsePlanDebt, UsePlanGoals, UsePlanInvest, UsePlanNPF}
 
 // PlanUseLabel — кошик українською. Тут, а не в браузері: підпис ходить у
 // помилку валідації, а другий словник на дві мови розійшовся б із першим.
 var PlanUseLabel = map[string]string{
 	UsePlanReserve: "резерв",
+	UsePlanDebt:    "погашення боргу",
 	UsePlanGoals:   "цілі накопичення",
 	UsePlanInvest:  "інвестиції",
 	UsePlanNPF:     "пенсійний",

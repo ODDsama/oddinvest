@@ -56,6 +56,16 @@ type sources struct {
 	goals        []store.Goal
 	goalOps      []store.GoalOp
 
+	// Борги (0045): картки, розстрочки, журнал рухів і звірки з банком.
+	//
+	// Звірки лежать сирими, а не зведеними в стан картки: звести їх із
+	// рухами вміє лише domain.CardState, і робити це двічі (тут і у фазі)
+	// означало б дати двом місцям розійтись у тому, що вважати сьогоднішнім
+	// балансом. Те саме, що з npfNav і fundPrices.
+	debts     []domain.Debt
+	debtOps   []domain.DebtOp
+	debtMarks []domain.DebtMark
+
 	// НПФ (0028): рахунки, внески й вклеєні руками точки ЧВОПА.
 	//
 	// Точки лежать сирими, а не зведеними в криву: обʼєднати їх із ЧВОПА,
@@ -150,6 +160,15 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		return nil, err
 	}
 	if src.goalOps, err = s.st.ListGoalOps(ctx); err != nil {
+		return nil, err
+	}
+	if src.debts, err = s.st.ListDebts(ctx); err != nil {
+		return nil, err
+	}
+	if src.debtOps, err = s.st.ListDebtOps(ctx); err != nil {
+		return nil, err
+	}
+	if src.debtMarks, err = s.st.ListDebtMarks(ctx); err != nil {
 		return nil, err
 	}
 	if src.statuses, err = s.st.PaymentStatuses(ctx); err != nil {

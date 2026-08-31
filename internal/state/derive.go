@@ -93,6 +93,13 @@ type DeriveInput struct {
 	// курси й «сьогодні» знає будівник (state_goals.go), а тут лишається
 	// сама арифметика «скільки лишилось і чи встигаю».
 	Goals []GoalInput
+	// DebtCapsReserve — чи живий зараз борг, ДОРОЖЧИЙ за портфель. Від
+	// нього залежить, чи діє стеля reserve_debt_months.
+	//
+	// Прапорцем, а не переліком боргів: тут потрібне саме рішення «так чи
+	// ні», а ухвалює його будівник — лише він знає і ставки боргів, і
+	// реальну дохідність портфеля, з якою їх порівнюють.
+	DebtCapsReserve bool
 	// TopN — скільки виплат показати в «найближчих» (0 = 5).
 	TopN int
 }
@@ -289,7 +296,12 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 	}
 	if monthlyExp > 0 {
 		r.Months = doc.ReserveUAH / monthlyExp
-		r.TargetUAH, r.GapUAH = ReserveTarget(doc.Settings, doc.ReserveUAH)
+		r.TargetUAH, r.GapUAH = ReserveTarget(doc.Settings, doc.ReserveUAH, in.DebtCapsReserve)
+		// Обрізання називається вголос і разом із тим, що було б без нього:
+		// ціль, яка мовчки просіла вдвічі, читається як помилка.
+		if full, _ := ReserveTarget(doc.Settings, doc.ReserveUAH, false); full > r.TargetUAH {
+			r.DebtCapped, r.FullTargetUAH = true, round2(full)
+		}
 	}
 	// Скільки з нових грошей варто відкласти просто зараз.
 	//
@@ -768,11 +780,20 @@ func deriveReserveLadder(r *Reserve, s *SettingsDoc, in DeriveInput) {
 // Gap лише додатний: «перебір» резерву не є браком, і від'ємне число тут UI
 // прочитав би як «докласти −5 000». Ціль без місячних витрат або без цілі в
 // місяцях не існує — обидва нулі означають «міряти нема чим».
-func ReserveTarget(s *SettingsDoc, reserveUAH float64) (target, gap float64) {
+func ReserveTarget(s *SettingsDoc, reserveUAH float64, debtCaps bool) (target, gap float64) {
 	if s == nil || s.MonthlyExpensesUAH == nil || s.ReserveTargetMonths == nil {
 		return 0, 0
 	}
 	exp, months := *s.MonthlyExpensesUAH, *s.ReserveTargetMonths
+	// Стеля на час боргу. Обрізає лише ВНИЗ і лише доки борг живий:
+	// порожній ключ, нуль і більше за саму ціль не роблять нічого, тобто
+	// поведінка до появи ключа зберігається за побудовою. Довід, чому це
+	// стеля, а не вимикач, — при самому полі.
+	if debtCaps && s.ReserveDebtMonths != nil {
+		if cap := *s.ReserveDebtMonths; cap > 0 && cap < months {
+			months = cap
+		}
+	}
 	if exp <= 0 || months <= 0 {
 		return 0, 0
 	}

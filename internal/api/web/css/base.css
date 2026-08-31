@@ -908,6 +908,7 @@ tr.tot > td { font-weight: var(--oi-fw-medium); border-top: var(--oi-rule) solid
 .pill-reserve { color: var(--oi-kind-reserve); }
 .pill-goal { color: var(--oi-kind-goal); }
 .pill-npf { color: var(--oi-kind-npf); }
+.pill-debt { color: var(--oi-kind-debt); }
 
 /* Каретка й пігулка — один зоровий об'єкт: інакше у вузькій колонці
    пігулка зривається на другий рядок і рядок росте вдвічі. */

@@ -1,0 +1,186 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	money "github.com/Rhymond/go-money"
+
+	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
+)
+
+// Борг ріжеться ПІСЛЯ подушки й ПЕРЕД цілями. Порядок не стилістичний:
+// ціль накопичення не росте, а борг росте сам, тож класти на авто, маючи
+// живу розстрочку, означає купувати його дорожче рівно на ставку боргу.
+func TestAllocateCutsDebtBeforeGoals(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, &state.Reserve{
+		GapUAH: 5000, FillMonthUAH: 1000, FillNowUAH: 1000,
+	})
+	doc.Debt = &state.DebtPlan{
+		TotalUAH: 30000, TopRatePct: 49.8, TopName: "Холодильник",
+		FillMonthUAH: 2000, FillNowUAH: 2000,
+	}
+	doc.Goals = []state.Goal{{
+		ID: 1, Name: "Авто", GapUAH: 50000,
+		FillMonthUAH: 3000, FillNowUAH: 3000,
+	}}
+
+	// 5 000 ₴: подушці 1 000, боргу 2 000, цілі — те, що лишилось.
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
+		allocAllow{ReserveUAH: 5000, DebtUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
+
+	if got.Reserve == nil || got.Reserve.AmountUAH != 1000 {
+		t.Fatalf("подушка: %+v", got.Reserve)
+	}
+	if got.Debt == nil || got.Debt.AmountUAH != 2000 {
+		t.Fatalf("борг: %+v", got.Debt)
+	}
+	if got.DebtUAH != 2000 {
+		t.Errorf("сума боргу в підсумку %.2f, чекали 2000", got.DebtUAH)
+	}
+	// Цілі беруть із ЗАЛИШКУ, а не зі всієї суми: гроші не можна віддати
+	// двічі.
+	if len(got.Goals) != 1 || got.Goals[0].AmountUAH != 2000 {
+		t.Fatalf("цілі: %+v", got.Goals)
+	}
+	if got.AvailUAH != 0 {
+		t.Errorf("на папери лишилось %.2f, чекали 0", got.AvailUAH)
+	}
+	// Найдорожчий борг названий у причині: одне число «разом» не каже, з
+	// чого починати.
+	if !strings.Contains(got.Debt.Why, "Холодильник") {
+		t.Errorf("причина не називає боргу: %q", got.Debt.Why)
+	}
+}
+
+// Політика «з яких грошей гасити» ріже незалежно від подушки й цілей — і
+// мовчазної відмови не буває.
+func TestAllocateDebtRespectsOwnPolicy(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
+	doc.Debt = &state.DebtPlan{
+		TotalUAH: 30000, TopRatePct: 49.8, TopName: "Холодильник",
+		FillMonthUAH: 2000, FillNowUAH: 2000,
+	}
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
+		allocAllow{ReserveUAH: 5000, DebtUAH: 0, GoalsUAH: 5000}, money.UAH, nil)
+
+	if got.Debt != nil {
+		t.Fatalf("борг узяв заборонені гроші: %+v", got.Debt)
+	}
+	if got.DebtSkipWhy == "" {
+		t.Error("вирізка зникла без пояснення — читається як поломка")
+	}
+}
+
+// Обовʼязкові платежі зменшують гроші місяця, а пільговий оборот картки —
+// НІ. Це головна межа фази: побут уже описаний витратами й часткою потоку
+// в портфель, і друге його віднімання відняло б те саме двічі.
+func TestMonthPlanSubtractsDebtDueButNotGraceTurnover(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, out := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_expenses":"0","monthly_expenses_currency":"UAH"}`); resp.StatusCode != 204 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, out)
+	}
+	if resp, out := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"50000","currency":"UAH",
+		  "cadence":"month","from_date":"2020-01-01"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік: %d %s", resp.StatusCode, out)
+	}
+
+	base := monthPlanOf(t, srv.URL)
+	if base.PlanUAH <= 0 {
+		t.Fatalf("план місяця порожній: %+v", base)
+	}
+
+	// Картка з ЖИВИМ пільговим оборотом: борг є, але він увесь у
+	// пільговому. Гроші місяця це чіпати не мусить.
+	card := addDebt(t, srv.URL, `{"name":"ПУМБ","kind":"card","currency":"UAH",
+		"statement_day":"30","apr_pct":"47.88","min_payment_pct":"3"}`)
+	if resp, out := do(t, "POST", srv.URL+"/api/debt-marks",
+		`{"debt_id":"`+did(card)+`","balance":"-18400","statement_due":"18400"}`); resp.StatusCode != 201 {
+		t.Fatalf("звірка: %d %s", resp.StatusCode, out)
+	}
+	if got := monthPlanOf(t, srv.URL); got.PlanUAH != base.PlanUAH || got.DebtDueUAH != 0 {
+		t.Errorf("пільговий оборот зрушив гроші місяця: план %.2f (був %.2f), борг %.2f",
+			got.PlanUAH, base.PlanUAH, got.DebtDueUAH)
+	}
+
+	// А розстрочка — мусить. Її платіж це повернення тіла з комісією, а не
+	// побут.
+	if _, err := st.AddDebt(context.Background(), domain.Debt{
+		Name: "Холодильник", Kind: domain.DebtInstallment, Currency: money.UAH,
+		CardID: card, Principal: 30_000_00, PaymentsTotal: 9,
+		FirstPaymentDate: domain.NewDate(time.Now()), FeeMonthBp: 199,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got := monthPlanOf(t, srv.URL)
+	if got.DebtDueUAH <= 0 {
+		t.Fatalf("обовʼязковий платіж не зʼявився: %+v", got)
+	}
+	if want := base.PlanUAH - got.DebtDueUAH; got.PlanUAH != want {
+		t.Errorf("план місяця %.2f, чекали %.2f (менше рівно на обовʼязковий платіж)",
+			got.PlanUAH, want)
+	}
+	// Дозволена частина зменшується тим самим числом: інакше стеля подушки
+	// міряла б від грошей, яких немає.
+	if got.PlanReserveUAH != got.PlanUAH {
+		t.Errorf("дозволена частина %.2f не збіглася з планом %.2f",
+			got.PlanReserveUAH, got.PlanUAH)
+	}
+}
+
+// Стеля подушки на час боргу вмикається лише від боргу, що коштує РЕАЛЬНИХ
+// грошей. Безвідсоткова розстрочка «частинами» її не вмикає — і це
+// виходить само собою з порогу «реальна ставка вище нуля».
+func TestDebtCapsReserveIgnoresFreeInstallment(t *testing.T) {
+	today := domain.Date("2026-09-10")
+	free := domain.Debt{
+		ID: 1, Kind: domain.DebtInstallment, Currency: money.UAH,
+		Principal: 30_000_00, PaymentsTotal: 9, FirstPaymentDate: "2026-09-30",
+	}
+	if debtCapsReserve([]domain.Debt{free}, nil, nil, 7, today) {
+		t.Error("безкоштовна розстрочка ввімкнула стелю подушки")
+	}
+
+	paid := free
+	paid.FeeMonthBp = 199
+	if !debtCapsReserve([]domain.Debt{paid}, nil, nil, 7, today) {
+		t.Error("розстрочка під ~50%% не ввімкнула стелю подушки")
+	}
+
+	// Закритий борг не вмикає нічого: стеля самогасна за побудовою.
+	closed := paid
+	closed.ClosedDate = "2026-09-01"
+	if debtCapsReserve([]domain.Debt{closed}, nil, nil, 7, today) {
+		t.Error("погашений борг далі тримає стелю подушки")
+	}
+}
+
+// monthPlanOf — план місяця зі зведення. Через HTTP, а не через buildState:
+// саме те, що бачить екран, і саме там ловиться поле, яке перестало
+// доїжджати до контракту.
+func monthPlanOf(t *testing.T, url string) state.MonthPlan {
+	t.Helper()
+	resp, out := do(t, "GET", url+"/api/summary", "")
+	if resp.StatusCode != 200 {
+		t.Fatalf("GET /api/summary: %d %s", resp.StatusCode, out)
+	}
+	var doc struct {
+		MonthPlan *state.MonthPlan `json:"month_plan"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.MonthPlan == nil {
+		t.Fatal("у зведенні немає плану місяця")
+	}
+	return *doc.MonthPlan
+}

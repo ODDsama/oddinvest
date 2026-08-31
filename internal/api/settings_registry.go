@@ -143,6 +143,22 @@ var settingsRegistry = []settingDef{
 		Enum: []string{"any", "redeem", "plan"},
 		Why:  "з яких грошей наповнювати цілі: з усіх, з планових і погашень, чи лише з планових"},
 
+	// Борг (0045). Стеля дострокового погашення — рівно такої ж природи, що
+	// й дві попередні; обовʼязкові платежі стелі не мають і в реєстрі не
+	// зʼявляються, бо вони не політика, а зобовʼязання.
+	{Key: "debt_fill_share_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.DebtFillSharePct },
+		Why: "яка частка планового доходу місяця йде на ДОСТРОКОВЕ погашення боргу, після подушки; " +
+			"порожньо = не пропонувати"},
+	{Key: "debt_fill_from", Str: func(s *state.SettingsDoc) *string { return &s.DebtFillFrom },
+		Enum: []string{"any", "redeem", "plan"},
+		Why:  "з яких грошей гасити борг достроково: з усіх, з планових і погашень, чи лише з планових"},
+	{Key: "reserve_debt_months", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveDebtMonths },
+		Why: "до скількох місяців витрат обрізати ціль подушки, доки живий борг дорожчий за портфель; " +
+			"порожньо = не обрізати"},
+	{Key: "goals_while_debt", Str: func(s *state.SettingsDoc) *string { return &s.GoalsWhileDebt },
+		Enum: []string{"keep", "pause"},
+		Why:  "чи наповнювати цілі накопичення, доки є дорогий борг"},
+
 	{Key: "income_target_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.IncomeTargetUAH },
 		Why: "який пасивний дохід вважати достатнім; порожньо = місячні витрати"},
 	{Key: "withdraw_monthly_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.WithdrawMonthlyUAH },

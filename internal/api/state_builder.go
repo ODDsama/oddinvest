@@ -1034,7 +1034,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		blendedYieldSplit = blendYield(parts)
 
 	// Розрив подушки — тим самим ReserveTarget, яким його рахує deriveReserve.
-	_, reserveGapUAH := state.ReserveTarget(settings, reserveUAH)
+	// Стеля подушки на час боргу: те саме рішення, що в reserveMonthShare,
+	// і саме тому воно одне на застосунок (state_debts.go).
+	debtCaps := debtCapsReserve(src.debts, src.debtMarks, src.debtOps, src.deval, today)
+	_, reserveGapUAH := state.ReserveTarget(settings, reserveUAH, debtCaps)
 
 	// Проєкція, місячний план і віяло прогнозів (state_projection.go).
 	// Вхід виписаний полем за полем навмисно: проєкція залежить від усіх
@@ -1062,6 +1065,12 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// й у деривації: другого означення розриву в застосунку немає.
 		ReserveGapUAH: reserveGapUAH,
 		GoalsGapUAH:   state.GoalsGapUAH(goals.Input),
+		// Борг у прогнозі. Без цього крива обіцяла б гроші, які застосунок
+		// сам же віддає банку на сусідньому екрані — дослівно вада фази 20,
+		// лише про борг замість цілей.
+		DebtLeftUAH:      debtLeftUAH(src, rates, today),
+		DebtDueUAH:       debtDueForMonth(src, rates, today, 0),
+		DebtFillSharePct: debtFillSharePct(settings),
 	})
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну (див. state_projection.go).
@@ -1123,9 +1132,14 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		MonthWithdrawnUAH: state.Major(monthOut),
 		MonthTargetUAH:    state.Major(target),
 		MonthPlan:         mth.Plan,
-		UninvestedUAH:     state.Major(unin),
-		AccountUAH:        state.Major(account),
-		ReinvestMinUAH:    state.Major(reinvestMin),
+		// Борг — після плану місяця навмисно: стеля дострокового міряється
+		// від дозволеної частини ПЛАНУ, а обовʼязкові платежі той план уже
+		// зменшили (state_month.go).
+		Debt: buildDebtPlan(src.debts, src.debtMarks, src.debtOps,
+			settings, mth.Plan, rates, now, today),
+		UninvestedUAH:  state.Major(unin),
+		AccountUAH:     state.Major(account),
+		ReinvestMinUAH: state.Major(reinvestMin),
 
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
 		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
@@ -1164,7 +1178,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Похідні — те, що виводиться з уже покладеного (state/derive.go).
 	// Capital зібраний вище один раз; state його лише читає.
 	if err := state.Derive(doc, state.DeriveInput{
-		Now: now, Positions: positions, Rates: rates, Capital: capital,
+		DebtCapsReserve: debtCaps,
+		Now:             now, Positions: positions, Rates: rates, Capital: capital,
 		Cashflow: cashflow, Ladder: ladder,
 		MonthDeposited: monthDep, MonthTarget: target,
 		ReserveByCur: reserveByCur, ReservePlaces: reservePlaces,

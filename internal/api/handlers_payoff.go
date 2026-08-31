@@ -192,7 +192,8 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 			Left:  toMoneyJSON(money.New(d.Left, money.UAH)),
 		}
 		if d.RateBasis != domain.DebtRateNone {
-			row.RealPct = round2(realYield(d.Rate, money.UAH, deval))
+			// realYield приймає ЧАСТКУ, а ставка боргу — у відсотках.
+			row.RealPct = round2(realYield(d.Rate/100, money.UAH, deval) * 100)
 		}
 		if m, ok := run.CloseAt[d.ID]; ok {
 			row.CloseDate = monthKeyAt(today, m)

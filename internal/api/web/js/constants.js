@@ -39,6 +39,7 @@ export const KIND_LABEL = {
  *  позапланового надходження. */
 export const PLAN_USES = [
   ["reserve", "резерв", "pill-reserve"],
+  ["debt", "борг", "pill-debt"],
   ["goals", "цілі", "pill-goal"],
   ["invest", "інвестиції", ""],
   ["npf", "пенсійний", "pill-npf"],
