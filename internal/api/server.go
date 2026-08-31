@@ -92,6 +92,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/debt-marks", s.handleAddDebtMark)
 	mux.HandleFunc("PUT /api/debt-marks/{id}", s.handleUpdateDebtMark)
 	mux.HandleFunc("DELETE /api/debt-marks/{id}", s.handleDeleteDebtMark)
+	// handlers_payoff.go — проєкція, а не стан (довід у шапці файла).
+	mux.HandleFunc("GET /api/payoff", s.handlePayoff)
 	mux.HandleFunc("GET /api/conversions", s.handleListConversions)
 	mux.HandleFunc("POST /api/conversions", s.handleAddConversion)
 	mux.HandleFunc("PUT /api/conversions/{id}", s.handleUpdateConversion)

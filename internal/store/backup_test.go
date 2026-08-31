@@ -882,8 +882,8 @@ func TestBackupRoundTripKeepsDebts(t *testing.T) {
 	}
 	defer src.Close()
 
-	card, err := src.AddDebt(ctx, Debt{
-		Name: "ПУМБ ВсеМожу", Kind: DebtCard, Currency: "UAH",
+	card, err := src.AddDebt(ctx, domain.Debt{
+		Name: "ПУМБ ВсеМожу", Kind: domain.DebtCard, Currency: "UAH",
 		LimitAmount: 200_000_00, StatementDay: 30, APRBp: 4788,
 		APROverdueBp: 6200, MinPaymentBp: 300, LateFee: 100_00,
 		OpenedDate: "2024-05-01",
@@ -891,20 +891,20 @@ func TestBackupRoundTripKeepsDebts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := src.AddDebt(ctx, Debt{
-		Name: "Холодильник", Kind: DebtInstallment, Currency: "UAH",
+	if _, err := src.AddDebt(ctx, domain.Debt{
+		Name: "Холодильник", Kind: domain.DebtInstallment, Currency: "UAH",
 		CardID: card, Principal: 30_000_00, PaymentsTotal: 9,
 		FirstPaymentDate: "2026-09-30", FeeMonthBp: 199,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := src.AddDebtOp(ctx, DebtOp{
-		DebtID: card, Date: "2026-08-05", Kind: DebtOpPayment, Amount: 40_000_00,
+	if _, err := src.AddDebtOp(ctx, domain.DebtOp{
+		DebtID: card, Date: "2026-08-05", Kind: domain.DebtOpPayment, Amount: 40_000_00,
 		Note: "зарплата",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := src.AddDebtMark(ctx, DebtMark{
+	if _, err := src.AddDebtMark(ctx, domain.DebtMark{
 		DebtID: card, Date: "2026-08-30", Balance: -3_000_00,
 		StatementDue: 18_400_00, NonGrace: 5_000_00,
 	}); err != nil {
@@ -959,7 +959,7 @@ func TestBackupRoundTripKeepsDebts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ops) != 1 || ops[0].Kind != DebtOpPayment || ops[0].Amount != 40_000_00 {
+	if len(ops) != 1 || ops[0].Kind != domain.DebtOpPayment || ops[0].Amount != 40_000_00 {
 		t.Errorf("рух боргу поїхав: %+v", ops)
 	}
 }

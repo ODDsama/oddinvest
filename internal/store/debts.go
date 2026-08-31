@@ -15,90 +15,11 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 )
 
-// Види боргу. Рядками, бо їдуть у JSON і в CHECK міграції.
-const (
-	DebtCard        = "card"
-	DebtInstallment = "installment"
-)
-
-// Види руху. payment зменшує борг, draw і cash — збільшують; різниця між
-// останніми двома в тому, що на cash пільговий період не поширюється
-// НІКОЛИ (довід у 0045).
-const (
-	DebtOpPayment = "payment"
-	DebtOpDraw    = "draw"
-	DebtOpCash    = "cash"
-)
-
-// Debt — кредитна картка або розстрочка.
-//
-// Одна структура на два види: половина полів у кожному випадку мертва, і
-// це названо в міграції поіменно. Дві структури означали б два списки,
-// дві черги погашення й два рейтинги — а питання одне.
-type Debt struct {
-	ID       int64
-	Name     string
-	Kind     string
-	Currency string
-	// CardID — розстрочка всередині картки; 0 = самостійний борг (у базі
-	// NULL). Нулем, а не вказівником: id автоінкрементні й починаються з
-	// одиниці, тож нуль не може означати нічого іншого, а вказівник
-	// вимагав би розіменування в кожного читача.
-	CardID int64
-
-	// --- картка ---
-	LimitAmount     int64
-	StatementDay    int64
-	APRBp           int64
-	APROverdueBp    int64
-	MinPaymentBp    int64
-	MinPaymentFloor int64
-	LateFee         int64
-
-	// --- розстрочка ---
-	Principal        int64
-	PaymentsTotal    int64
-	FirstPaymentDate domain.Date
-	FeeMonthBp       int64
-	FeeFreeMonths    int64
-
-	OpenedDate domain.Date
-	ClosedDate domain.Date
-	Place      string
-	Note       string
-}
-
-// Closed — борг погашено. Методом, а не порівнянням у кожного читача: їх
-// буде щонайменше троє (черга, список, рейтинг), і три однакові рядки з
-// порожнім літералом розійшлись би на першій правці.
-func (d Debt) Closed() bool { return d.ClosedDate != "" }
-
-// IsCard — картка з пільговим циклом, а не розстрочка.
-func (d Debt) IsCard() bool { return d.Kind == DebtCard }
-
-// DebtOp — один рух під боргом. Amount завжди додатний, напрям задає Kind
-// (правило 0025: одна колонка не відповідає на два питання).
-type DebtOp struct {
-	ID     int64
-	DebtID int64
-	Date   domain.Date
-	Kind   string
-	Amount int64
-	Note   string
-}
-
-// DebtMark — звірка з додатком банку: три числа одного моменту.
-type DebtMark struct {
-	ID     int64
-	DebtID int64
-	Date   domain.Date
-	// Balance знакозмінний: плюс — власні гроші на картці, мінус —
-	// використаний ліміт.
-	Balance      int64
-	StatementDue int64
-	NonGrace     int64
-	Note         string
-}
+// Типи Debt, DebtOp і DebtMark живуть у domain (debt.go), а не тут — так
+// само, як Deposit і NPFAccount. Причина не в симетрії: пільговий цикл,
+// графік розстрочки й чесна ставка рахуються з тих самих полів, і друга
+// копія структури означала б перекладання двадцяти полів на кожному
+// виклику.
 
 // nullableID перетворює 0 на SQL NULL. Потрібне лише для card_id: FK на
 // нуль не існує, а NOT NULL DEFAULT 0 зробив би посилання на неіснуючий
@@ -115,7 +36,7 @@ const debtCols = `id, name, kind, currency, card_id, limit_amount, statement_day
 	principal, payments_total, first_payment_date, fee_month_bp, fee_free_months,
 	opened_date, closed_date, place, note`
 
-func (s *Store) AddDebt(ctx context.Context, d Debt) (int64, error) {
+func (s *Store) AddDebt(ctx context.Context, d domain.Debt) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO debts
 		(name, kind, currency, card_id, limit_amount, statement_day,
 		 apr_bp, apr_overdue_bp, min_payment_bp, min_payment_floor, late_fee,
@@ -133,7 +54,7 @@ func (s *Store) AddDebt(ctx context.Context, d Debt) (int64, error) {
 }
 
 // UpdateDebt переписує борг, зберігаючи id.
-func (s *Store) UpdateDebt(ctx context.Context, d Debt) error {
+func (s *Store) UpdateDebt(ctx context.Context, d domain.Debt) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE debts SET
 		name=?, kind=?, currency=?, card_id=?, limit_amount=?, statement_day=?,
 		apr_bp=?, apr_overdue_bp=?, min_payment_bp=?, min_payment_floor=?, late_fee=?,
@@ -188,16 +109,16 @@ func (s *Store) DeleteDebt(ctx context.Context, id int64) error {
 // кожного, — рівно з того доводу, що в ListGoals. Черга ПОГАШЕННЯ це не
 // він: вона впорядкована ставкою й живе в domain/debt.go, бо залежить від
 // стратегії, яку обрала людина.
-func (s *Store) ListDebts(ctx context.Context) ([]Debt, error) {
+func (s *Store) ListDebts(ctx context.Context) ([]domain.Debt, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+debtCols+`
 		FROM debts ORDER BY COALESCE(card_id, id), card_id IS NOT NULL, id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Debt
+	var out []domain.Debt
 	for rows.Next() {
-		var d Debt
+		var d domain.Debt
 		var card sql.NullInt64
 		var first, opened, closed string
 		if err := rows.Scan(&d.ID, &d.Name, &d.Kind, &d.Currency, &card,
@@ -215,7 +136,7 @@ func (s *Store) ListDebts(ctx context.Context) ([]Debt, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) AddDebtOp(ctx context.Context, op DebtOp) (int64, error) {
+func (s *Store) AddDebtOp(ctx context.Context, op domain.DebtOp) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO debt_ops
 		(debt_id, date, kind, amount, note) VALUES (?,?,?,?,?)`,
 		op.DebtID, string(op.Date), op.Kind, op.Amount, op.Note)
@@ -228,7 +149,7 @@ func (s *Store) AddDebtOp(ctx context.Context, op DebtOp) (int64, error) {
 // UpdateDebtOp переписує рух, зберігаючи id. debt_id теж переписується:
 // рух, записаний не в той борг, — звичайна одруківка (те саме правило, що
 // в UpdateGoalOp).
-func (s *Store) UpdateDebtOp(ctx context.Context, op DebtOp) error {
+func (s *Store) UpdateDebtOp(ctx context.Context, op domain.DebtOp) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE debt_ops SET
 		debt_id=?, date=?, kind=?, amount=?, note=? WHERE id=?`,
 		op.DebtID, string(op.Date), op.Kind, op.Amount, op.Note, op.ID)
@@ -245,16 +166,16 @@ func (s *Store) DeleteDebtOp(ctx context.Context, id int64) error {
 
 // ListDebtOps — усі рухи всіх боргів, хронологічно. Без фільтра за боргом
 // навмисно: будівник стану читає джерела рівно по разу (state_sources.go).
-func (s *Store) ListDebtOps(ctx context.Context) ([]DebtOp, error) {
+func (s *Store) ListDebtOps(ctx context.Context) ([]domain.DebtOp, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, debt_id, date, kind, amount, note
 		FROM debt_ops ORDER BY date, id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []DebtOp
+	var out []domain.DebtOp
 	for rows.Next() {
-		var op DebtOp
+		var op domain.DebtOp
 		var dt string
 		if err := rows.Scan(&op.ID, &op.DebtID, &dt, &op.Kind, &op.Amount, &op.Note); err != nil {
 			return nil, err
@@ -269,7 +190,7 @@ func (s *Store) ListDebtOps(ctx context.Context) ([]DebtOp, error) {
 //
 // Дзеркало AddFundPricePoints і з того самого доводу: дві звірки на одну
 // дату — це виправлення одруківки, а не дві правди про той самий день.
-func (s *Store) AddDebtMark(ctx context.Context, m DebtMark) (int64, error) {
+func (s *Store) AddDebtMark(ctx context.Context, m domain.DebtMark) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO debt_marks
 		(debt_id, date, balance, statement_due, non_grace, note) VALUES (?,?,?,?,?,?)
 		ON CONFLICT(debt_id, date) DO UPDATE SET
@@ -288,7 +209,7 @@ func (s *Store) AddDebtMark(ctx context.Context, m DebtMark) (int64, error) {
 // рахунку, і перенести її на інший борг означало б не виправити помилку, а
 // приписати чужому рахунку чужий баланс. Помилилися боргом — видаліть і
 // зніміть заново, це два числа.
-func (s *Store) UpdateDebtMark(ctx context.Context, m DebtMark) error {
+func (s *Store) UpdateDebtMark(ctx context.Context, m domain.DebtMark) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE debt_marks SET
 		date=?, balance=?, statement_due=?, non_grace=?, note=? WHERE id=?`,
 		string(m.Date), m.Balance, m.StatementDue, m.NonGrace, m.Note, m.ID)
@@ -304,16 +225,16 @@ func (s *Store) DeleteDebtMark(ctx context.Context, id int64) error {
 }
 
 // ListDebtMarks — усі звірки всіх боргів, хронологічно.
-func (s *Store) ListDebtMarks(ctx context.Context) ([]DebtMark, error) {
+func (s *Store) ListDebtMarks(ctx context.Context) ([]domain.DebtMark, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, debt_id, date, balance,
 		statement_due, non_grace, note FROM debt_marks ORDER BY date, id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []DebtMark
+	var out []domain.DebtMark
 	for rows.Next() {
-		var m DebtMark
+		var m domain.DebtMark
 		var dt string
 		if err := rows.Scan(&m.ID, &m.DebtID, &dt, &m.Balance,
 			&m.StatementDue, &m.NonGrace, &m.Note); err != nil {

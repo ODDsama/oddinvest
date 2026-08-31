@@ -4,14 +4,16 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/ODDsama/oddinvest/internal/domain"
 )
 
 func TestDebtsCRUD(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 
-	card, err := s.AddDebt(ctx, Debt{
-		Name: "ПУМБ ВсеМожу", Kind: DebtCard, Currency: "UAH",
+	card, err := s.AddDebt(ctx, domain.Debt{
+		Name: "ПУМБ ВсеМожу", Kind: domain.DebtCard, Currency: "UAH",
 		LimitAmount: 200_000_00, StatementDay: 30,
 		APRBp: 4788, APROverdueBp: 6200,
 		MinPaymentBp: 300, MinPaymentFloor: 100_00, LateFee: 100_00,
@@ -21,8 +23,8 @@ func TestDebtsCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Розстрочка ВСЕРЕДИНІ картки: її частина падає у виписку.
-	inCard, err := s.AddDebt(ctx, Debt{
-		Name: "Холодильник частинами", Kind: DebtInstallment, Currency: "UAH",
+	inCard, err := s.AddDebt(ctx, domain.Debt{
+		Name: "Холодильник частинами", Kind: domain.DebtInstallment, Currency: "UAH",
 		CardID: card, Principal: 30_000_00, PaymentsTotal: 9,
 		FirstPaymentDate: "2026-09-30", FeeMonthBp: 199,
 	})
@@ -30,8 +32,8 @@ func TestDebtsCRUD(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Самостійна розстрочка — інший банк, свій графік.
-	if _, err := s.AddDebt(ctx, Debt{
-		Name: "Товарна", Kind: DebtInstallment, Currency: "UAH",
+	if _, err := s.AddDebt(ctx, domain.Debt{
+		Name: "Товарна", Kind: domain.DebtInstallment, Currency: "UAH",
 		Principal: 12_000_00, PaymentsTotal: 12,
 		FirstPaymentDate: "2026-10-05", FeeMonthBp: 300, FeeFreeMonths: 3,
 	}); err != nil {
@@ -96,14 +98,14 @@ func TestDebtOpsCRUD(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 
-	card, err := s.AddDebt(ctx, Debt{Name: "Картка", Kind: DebtCard, Currency: "UAH"})
+	card, err := s.AddDebt(ctx, domain.Debt{Name: "Картка", Kind: domain.DebtCard, Currency: "UAH"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, op := range []DebtOp{
-		{DebtID: card, Date: "2026-08-05", Kind: DebtOpPayment, Amount: 40_000_00, Note: "зарплата"},
-		{DebtID: card, Date: "2026-08-07", Kind: DebtOpDraw, Amount: 3_500_00},
-		{DebtID: card, Date: "2026-08-09", Kind: DebtOpCash, Amount: 5_000_00},
+	for _, op := range []domain.DebtOp{
+		{DebtID: card, Date: "2026-08-05", Kind: domain.DebtOpPayment, Amount: 40_000_00, Note: "зарплата"},
+		{DebtID: card, Date: "2026-08-07", Kind: domain.DebtOpDraw, Amount: 3_500_00},
+		{DebtID: card, Date: "2026-08-09", Kind: domain.DebtOpCash, Amount: 5_000_00},
 	} {
 		if _, err := s.AddDebtOp(ctx, op); err != nil {
 			t.Fatal(err)
@@ -114,7 +116,7 @@ func TestDebtOpsCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ops) != 3 || ops[0].Kind != DebtOpPayment || ops[2].Kind != DebtOpCash {
+	if len(ops) != 3 || ops[0].Kind != domain.DebtOpPayment || ops[2].Kind != domain.DebtOpCash {
 		t.Fatalf("рухи боргу: %+v", ops)
 	}
 	// Сума завжди додатна, напрям несе вид — інакше одна колонка
@@ -156,17 +158,17 @@ func TestDebtMarkSameDayOverwrites(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 
-	card, err := s.AddDebt(ctx, Debt{Name: "Картка", Kind: DebtCard, Currency: "UAH"})
+	card, err := s.AddDebt(ctx, domain.Debt{Name: "Картка", Kind: domain.DebtCard, Currency: "UAH"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddDebtMark(ctx, DebtMark{
+	if _, err := s.AddDebtMark(ctx, domain.DebtMark{
 		DebtID: card, Date: "2026-08-30",
 		Balance: 12_000_00, StatementDue: 18_400_00, NonGrace: 5_000_00,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddDebtMark(ctx, DebtMark{
+	if _, err := s.AddDebtMark(ctx, domain.DebtMark{
 		DebtID: card, Date: "2026-08-30",
 		Balance: -3_000_00, StatementDue: 18_400_00, NonGrace: 5_000_00,
 		Note: "перечитав у додатку",

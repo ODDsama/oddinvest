@@ -25,7 +25,6 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
-	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 type debtReq struct {
@@ -68,19 +67,19 @@ func debtIntField(s, what string) (int64, error) {
 	return n, nil
 }
 
-func debtFromReq(req debtReq) (store.Debt, error) {
+func debtFromReq(req debtReq) (domain.Debt, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return store.Debt{}, errors.New("борг без назви: за нею його й шукатимуть")
+		return domain.Debt{}, errors.New("борг без назви: за нею його й шукатимуть")
 	}
 	kind := strings.TrimSpace(req.Kind)
-	if kind != store.DebtCard && kind != store.DebtInstallment {
-		return store.Debt{}, fmt.Errorf(
+	if kind != domain.DebtCard && kind != domain.DebtInstallment {
+		return domain.Debt{}, fmt.Errorf(
 			"невідомий вид боргу %q: буває %q (картка з пільговим циклом) або %q",
-			kind, store.DebtCard, store.DebtInstallment)
+			kind, domain.DebtCard, domain.DebtInstallment)
 	}
 	cur := orUAH(strings.TrimSpace(req.Currency))
-	d := store.Debt{
+	d := domain.Debt{
 		Name: name, Kind: kind, Currency: cur,
 		Place: strings.TrimSpace(req.Place), Note: req.Note,
 	}
@@ -97,10 +96,10 @@ func debtFromReq(req debtReq) (store.Debt, error) {
 		{req.FeeMonthPct, &d.FeeMonthBp, "комісія"},
 	} {
 		if *f.dst, err = pctToBP(f.raw); err != nil {
-			return store.Debt{}, fmt.Errorf("%s: %w", f.lbl, err)
+			return domain.Debt{}, fmt.Errorf("%s: %w", f.lbl, err)
 		}
 		if *f.dst < 0 {
-			return store.Debt{}, fmt.Errorf("%s не буває відʼємною", f.lbl)
+			return domain.Debt{}, fmt.Errorf("%s не буває відʼємною", f.lbl)
 		}
 	}
 	for _, f := range []struct {
@@ -117,10 +116,10 @@ func debtFromReq(req debtReq) (store.Debt, error) {
 			continue
 		}
 		if *f.dst, err = domain.ParseDecimalToMinor(f.raw, cur); err != nil {
-			return store.Debt{}, fmt.Errorf("%s: %w", f.lbl, err)
+			return domain.Debt{}, fmt.Errorf("%s: %w", f.lbl, err)
 		}
 		if *f.dst < 0 {
-			return store.Debt{}, fmt.Errorf("%s не буває відʼємним", f.lbl)
+			return domain.Debt{}, fmt.Errorf("%s не буває відʼємним", f.lbl)
 		}
 	}
 	for _, f := range []struct {
@@ -134,7 +133,7 @@ func debtFromReq(req debtReq) (store.Debt, error) {
 		{req.CardID, &d.CardID, "картка"},
 	} {
 		if *f.dst, err = debtIntField(f.raw, f.lbl); err != nil {
-			return store.Debt{}, err
+			return domain.Debt{}, err
 		}
 	}
 	// Порожні дати законні в усіх трьох полях: борг без дати відкриття —
@@ -150,13 +149,13 @@ func debtFromReq(req debtReq) (store.Debt, error) {
 	} {
 		if v := strings.TrimSpace(f.raw); v != "" {
 			if *f.dst, err = domain.ParseDate(v); err != nil {
-				return store.Debt{}, err
+				return domain.Debt{}, err
 			}
 		}
 	}
 
 	if err := checkDebtShape(d); err != nil {
-		return store.Debt{}, err
+		return domain.Debt{}, err
 	}
 	return d, nil
 }
@@ -167,7 +166,7 @@ func debtFromReq(req debtReq) (store.Debt, error) {
 // Перевірка тут, а не в CHECK міграції, бо вона про ЗВʼЯЗОК полів, а не
 // про кожне окремо: SQLite вміє й такі CHECK, але помилка звідти прийшла б
 // текстом рушія, а не реченням, яке можна показати людині.
-func checkDebtShape(d store.Debt) error {
+func checkDebtShape(d domain.Debt) error {
 	if d.IsCard() {
 		if d.CardID != 0 {
 			return errors.New("картка не може лежати всередині картки")
@@ -201,7 +200,7 @@ func checkDebtShape(d store.Debt) error {
 // розстрочки падає у виписку картки й бере участь у пільговому порозі:
 // розстрочка всередині розстрочки не має де падати, а долар усередині
 // гривневої виписки зробив би поріг сумою двох різних одиниць.
-func (s *Server) checkDebtParent(r *http.Request, d store.Debt) error {
+func (s *Server) checkDebtParent(r *http.Request, d domain.Debt) error {
 	if d.CardID == 0 {
 		return nil
 	}
@@ -374,36 +373,36 @@ type debtOpReq struct {
 	Note   string `json:"note"`
 }
 
-func debtOpFromReq(req debtOpReq, cur string) (store.DebtOp, error) {
+func debtOpFromReq(req debtOpReq, cur string) (domain.DebtOp, error) {
 	id, err := strconv.ParseInt(strings.TrimSpace(req.DebtID), 10, 64)
 	if err != nil || id <= 0 {
-		return store.DebtOp{}, errors.New("рух без боргу: вкажи, до якого він іде")
+		return domain.DebtOp{}, errors.New("рух без боргу: вкажи, до якого він іде")
 	}
 	kind := strings.TrimSpace(req.Kind)
 	switch kind {
-	case store.DebtOpPayment, store.DebtOpDraw, store.DebtOpCash:
+	case domain.DebtOpPayment, domain.DebtOpDraw, domain.DebtOpCash:
 	default:
-		return store.DebtOp{}, fmt.Errorf(
+		return domain.DebtOp{}, fmt.Errorf(
 			"невідомий вид руху %q: буває %q (унесено), %q (покупка) або %q (готівка чи переказ)",
-			kind, store.DebtOpPayment, store.DebtOpDraw, store.DebtOpCash)
+			kind, domain.DebtOpPayment, domain.DebtOpDraw, domain.DebtOpCash)
 	}
 	d := domain.NewDate(time.Now())
 	if req.Date != "" {
 		if d, err = domain.ParseDate(req.Date); err != nil {
-			return store.DebtOp{}, err
+			return domain.DebtOp{}, err
 		}
 	}
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
-		return store.DebtOp{}, err
+		return domain.DebtOp{}, err
 	}
 	// Тільки додатна: напрям несе вид, а не знак (правило 0025). Відʼємна
 	// сума при вигляді payment означала б «унесення навпаки», тобто те
 	// саме, що draw, — і два записи означали б одне.
 	if minor <= 0 {
-		return store.DebtOp{}, errors.New("сума руху має бути більшою за нуль: напрям задає вид руху, а не знак")
+		return domain.DebtOp{}, errors.New("сума руху має бути більшою за нуль: напрям задає вид руху, а не знак")
 	}
-	return store.DebtOp{DebtID: id, Date: d, Kind: kind, Amount: minor,
+	return domain.DebtOp{DebtID: id, Date: d, Kind: kind, Amount: minor,
 		Note: strings.TrimSpace(req.Note)}, nil
 }
 
@@ -555,20 +554,20 @@ type debtMarkReq struct {
 	Note         string `json:"note"`
 }
 
-func debtMarkFromReq(req debtMarkReq, cur string) (store.DebtMark, error) {
+func debtMarkFromReq(req debtMarkReq, cur string) (domain.DebtMark, error) {
 	id, err := debtChildID(req.DebtID)
 	if err != nil {
-		return store.DebtMark{}, err
+		return domain.DebtMark{}, err
 	}
 	d := domain.NewDate(time.Now())
 	if req.Date != "" {
 		if d, err = domain.ParseDate(req.Date); err != nil {
-			return store.DebtMark{}, err
+			return domain.DebtMark{}, err
 		}
 	}
-	m := store.DebtMark{DebtID: id, Date: d, Note: strings.TrimSpace(req.Note)}
+	m := domain.DebtMark{DebtID: id, Date: d, Note: strings.TrimSpace(req.Note)}
 	if m.Balance, err = domain.ParseDecimalToMinor(req.Balance, cur); err != nil {
-		return store.DebtMark{}, fmt.Errorf("баланс: %w", err)
+		return domain.DebtMark{}, fmt.Errorf("баланс: %w", err)
 	}
 	for _, f := range []struct {
 		raw string
@@ -582,17 +581,17 @@ func debtMarkFromReq(req debtMarkReq, cur string) (store.DebtMark, error) {
 			continue
 		}
 		if *f.dst, err = domain.ParseDecimalToMinor(f.raw, cur); err != nil {
-			return store.DebtMark{}, fmt.Errorf("%s: %w", f.lbl, err)
+			return domain.DebtMark{}, fmt.Errorf("%s: %w", f.lbl, err)
 		}
 		// Обидва — розміри БОРГУ, а не балансу, тож знак у них один.
 		// Відʼємна «сума до сплати» означала б, що банк винен тобі, і
 		// перетворила б поріг на премію.
 		if *f.dst < 0 {
-			return store.DebtMark{}, fmt.Errorf("%s не буває відʼємною", f.lbl)
+			return domain.DebtMark{}, fmt.Errorf("%s не буває відʼємною", f.lbl)
 		}
 	}
 	if m.NonGrace > m.StatementDue && m.StatementDue > 0 {
-		return store.DebtMark{}, errors.New(
+		return domain.DebtMark{}, errors.New(
 			"поза пільговим більше, ніж уся сума до сплати — перевір, що з чого списував")
 	}
 	return m, nil
