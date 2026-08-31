@@ -1167,8 +1167,14 @@ type DebtPlan struct {
 // поточного місяця. Друге вже було й дало 128 911 ₴ замість 222 800: у
 // серпні одна зарплата скінчилась, а три ще не почались.
 type DebtExit struct {
-	// Card — чия це ціль. Назвою, а не id: блок читає людина.
-	Card   string  `json:"card"`
+	// Cards — чиї це цілі. СПИСОК, а не одна назва: карток із датою виходу
+	// буває кілька, і гроші в них спільні. Доти бралась одна, з найближчою
+	// датою, — і на бойових даних менша картка (борг 5 212) витіснила
+	// більшу (182 317) з екрана зовсім.
+	Cards []string `json:"cards"`
+	// ExitBy — НАЙПІЗНІША з дат, тобто коли закриється все. Тиск при цьому
+	// задає не вона, а сума потреб: у ближчої картки менше місяців, і її
+	// доданок більший.
 	ExitBy string  `json:"exit_by"`
 	Months float64 `json:"months"`
 	// SpendCapUAH — ГОЛОВНЕ ЧИСЛО: скільки можна витрачати на місяць.
@@ -1188,6 +1194,11 @@ type DebtExit struct {
 	// стеля виглядає взятою зі стелі.
 	GrossUAH  float64 `json:"gross_uah"`
 	InvestUAH float64 `json:"invest_uah"`
+	// InstallmentsUAH — щомісячні платежі розстрочок, привʼязаних до
+	// карток. Окремим числом, бо це найбільший регулярний відтік із
+	// картки після самих витрат, і сховати його всередині стелі означало б
+	// лишити людину гадати, куди подівся залишок.
+	InstallmentsUAH float64 `json:"installments_uah,omitempty"`
 	// SpendUsedUAH — витрати, з якими рахували; SpendBasis — «виміряно» чи
 	// «заявлено»; обидва числа поруч, а BurnWhy каже, чому виміру немає.
 	SpendUsedUAH     float64 `json:"spend_used_uah"`
@@ -1220,8 +1231,11 @@ type DebtExitStep struct {
 	// видно лише «лишиться», не пояснює, чому темп стрибнув.
 	GrossUAH  float64 `json:"gross_uah"`
 	InvestUAH float64 `json:"invest_uah"`
-	SpendUAH  float64 `json:"spend_uah"`
-	LeftUAH   float64 `json:"left_uah"`
+	// InstallmentsUAH — платежі карткових розстрочок цього місяця. Окремою
+	// колонкою, бо це не витрати й не інвестиції, а третій відтік.
+	InstallmentsUAH float64 `json:"installments_uah,omitempty"`
+	SpendUAH        float64 `json:"spend_uah"`
+	LeftUAH         float64 `json:"left_uah"`
 }
 
 // ReserveRung — один горизонт драбини подушки: що буде доступно через

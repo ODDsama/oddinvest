@@ -139,13 +139,19 @@ function exitHTML(g) {
   const e = g.exit;
   if (!e) return "";
   return `<div class="card">
-    <h2 class="h-row">Вихід із ліміту до ${esc(e.exit_by)} ${infoBtn("cardExit")}</h2>
+    <h2 class="h-row">Вихід із ${esc(cardsWord(e))} до ${esc(e.exit_by)} ${infoBtn("cardExit")}</h2>
+    ${(e.cards || []).length > 1 ? `<div class="sub">План СПІЛЬНИЙ на ${esc(
+    (e.cards || []).join(" і "))}: гроші в них одні, і два окремі плани кожен
+      вважав би весь залишок своїм. Дата — найпізніша з названих, тобто коли
+      закриється все; тисне при цьому сума потреб, бо в ближчої картки менше
+      місяців.</div>` : ""}
     <div class="tiles flush">
       <div class="tile hero"><div class="lbl">Можна витрачати</div>
         <div class="val ${e.feasible ? "t-ok" : "t-danger"}">${e.feasible
     ? fmtMoney(e.spend_cap) : "не встигнути"}</div>
         <div class="sub">${e.feasible
-    ? `на місяць — і до ${esc(e.exit_by)} картка вийде в нуль`
+    ? `на місяць — і до ${esc(e.exit_by)} ${(e.cards || []).length > 1
+      ? "картки вийдуть у нуль" : "картка вийде в нуль"}`
     : `навіть при нульових витратах: за ${e.months.toFixed(1)} міс треба звільняти
        ${fmtMoney(e.need_per_month)}, а на картці лишається менше`}</div></div>
       <div class="tile"><div class="lbl">Треба звільняти</div>
@@ -164,9 +170,16 @@ function exitHTML(g) {
       <b>${fmtMoney(e.gross)}/міс</b></div>
     <div class="kv"><span class="muted">З них виводиться в інструменти</span>
       <b>${fmtMoney(e.invest)}/міс</b></div>
+    ${e.installments && Number(e.installments.amount) > 0 ? `<div class="kv">
+      <span class="muted">Спишуть розстрочки, привʼязані до карток</span>
+      <b>${fmtMoney(e.installments)}/міс</b></div>
+    <div class="sub">Це не тіло до погашення: «вийти з ліміту» означає звести в
+      нуль самі картки, а розстрочки йдуть за своїм графіком. Але списуються
+      вони з картки, тож витратити ці гроші вже не можна — і зі стелі вище
+      вони відняті.</div>` : ""}
     <div class="kv"><span class="muted">Лишається на картці — це «все інше»</span>
       <b>${fmtMoney(e.on_card)}/міс</b></div>
-    <div class="sub">Три числа вище — СЕРЕДНІ за місяці, які ще попереду. Місяць,
+    <div class="sub">Числа вище — СЕРЕДНІ за місяці, які ще попереду. Місяць,
       що вже прожитий на дату звірки, у розрахунок не входить: його дохід прийшов,
       витрати сталися, і результат уже сидить у самому боргу. Місяці при цьому різні —
       одна зарплата закінчується, інша починається, — і таблиця нижче показує кожен
@@ -183,6 +196,11 @@ function exitHTML(g) {
   </div>`;
 }
 
+/** Слово «картка» в потрібному числі: план буває спільним на кілька. */
+function cardsWord(e) {
+  return (e.cards || []).length > 1 ? "лімітів" : "ліміту";
+}
+
 /** Прохід балансу картки вперед.
  *
  *  Місяці НЕ однакові, і саме тому це таблиця, а не одне число: у власника
@@ -190,11 +208,16 @@ function exitHTML(g) {
  *  перший крок помітно менший за решту. Середнє цього не показує. */
 function exitWalkHTML(e) {
   if (!(e.schedule || []).length) return "";
+  // Колонка розстрочок зʼявляється, лише коли вони є: колонка нулів
+  // читається як «щось не порахували».
+  const hasInst = e.schedule.some((r) => Number(r.installments.amount) > 0);
   return disclosure("card-exit-walk", "Помісячно до нуля", opsGrid({
     cols: [
       { key: "m", label: "Місяць", cell: (r) => esc(monthYear(r.month + "-01")) },
       { key: "gross", label: "Приходить", num: true, cell: (r) => fmtMoney(r.gross) },
       { key: "invest", label: "У портфель", num: true, cell: (r) => fmtMoney(r.invest) },
+      ...(hasInst ? [{ key: "inst", label: "Розстрочки", num: true,
+        cell: (r) => fmtMoney(r.installments) }] : []),
       { key: "spend", label: "Витрати", num: true, cell: (r) => fmtMoney(r.spend) },
       { key: "left", label: "Лишиться боргу", num: true, cell: (r) => fmtMoney(r.left) },
     ],

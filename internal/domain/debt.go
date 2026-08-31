@@ -683,7 +683,17 @@ type CardExitInput struct {
 	InvestUAH int64
 	// SpendUAH — скільки витрачається за місяць насправді (або заявлено).
 	SpendUAH int64
-	ExitBy   Date
+	// InstallmentUAH — щомісячні платежі розстрочок, ПРИВʼЯЗАНИХ до
+	// карток. Вони списуються з тієї самої картки, тож воюють із боргом за
+	// ті самі гроші, що й витрати, — але це не витрати, і зливати їх в
+	// одне число означало б сховати найбільший регулярний відтік.
+	InstallmentUAH int64
+	// NeedPerMonthUAH — скільки треба звільняти щомісяця, коли це рахує
+	// ВИКЛИКАЧ. Потрібне, коли карток кілька: у кожної своя дата, і одне
+	// ділення боргу на спільні місяці було б неправдою для обох. Нуль =
+	// рахувати самому як DebtUAH / Months.
+	NeedPerMonthUAH int64
+	ExitBy          Date
 	// Today потрібен лише щоб назвати дату виходу за нинішнім темпом.
 	Today Date
 	// Months — скільки місяців ЩЕ ПОПЕРЕДУ, тобто таких, чиї гроші ще не
@@ -745,10 +755,14 @@ func CardExit(in CardExitInput) CardExitPlan {
 	out.Months = in.Months
 
 	// На картці лишається дохід за вирахуванням того, що явно виводять в
-	// інструменти: саме ці гроші й воюють із витратами.
-	onCard := in.GrossUAH - in.InvestUAH
+	// інструменти й що заберуть розстрочки: саме ці гроші й воюють із
+	// витратами.
+	onCard := in.GrossUAH - in.InvestUAH - in.InstallmentUAH
 
-	out.NeedPerMonth = int64(math.Ceil(float64(in.DebtUAH) / out.Months))
+	out.NeedPerMonth = in.NeedPerMonthUAH
+	if out.NeedPerMonth <= 0 {
+		out.NeedPerMonth = int64(math.Ceil(float64(in.DebtUAH) / out.Months))
+	}
 	out.SpendCap = onCard - out.NeedPerMonth
 	out.Feasible = out.SpendCap > 0
 	if s := in.SpendUAH - out.SpendCap; s > 0 {
@@ -756,8 +770,9 @@ func CardExit(in CardExitInput) CardExitPlan {
 	}
 	out.ETADate, out.ETAMonth = cardExitETA(in.DebtUAH, onCard-in.SpendUAH, in.Today)
 
-	out.WithInvestSpendCap = in.GrossUAH - out.NeedPerMonth
-	out.WithInvestETADate, _ = cardExitETA(in.DebtUAH, in.GrossUAH-in.SpendUAH, in.Today)
+	out.WithInvestSpendCap = in.GrossUAH - in.InstallmentUAH - out.NeedPerMonth
+	out.WithInvestETADate, _ = cardExitETA(in.DebtUAH,
+		in.GrossUAH-in.InstallmentUAH-in.SpendUAH, in.Today)
 	return out
 }
 

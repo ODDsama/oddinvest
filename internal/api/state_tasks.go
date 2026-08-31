@@ -915,11 +915,15 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 		// Вихід із ліміту: зʼявляється лише тоді, коли темп НЕ ВСТИГАЄ до
 		// названої дати. Коли встигає — задачі немає, і це правильно:
 		// черга рішень не місце для «усе гаразд».
-		if exit != nil && exit.Card == d.Name && exit.ShortPerMonthUAH > 0 {
+		// План виходу СПІЛЬНИЙ на всі картки, тож задача ставиться один
+		// раз — при першій із них. Інакше та сама вимога зʼявилась би в
+		// черзі стільки разів, скільки карток, і читалась як кілька різних.
+		if exit != nil && len(exit.Cards) > 0 && exit.Cards[0] == d.Name &&
+			exit.ShortPerMonthUAH > 0 {
 			why := fmt.Sprintf(
-				"Щоб вийти в нуль до %s, треба звільняти %s на місяць — тобто витрачати "+
-					"не більше %s. Зараз виходить на %s більше.",
-				exit.ExitBy, uah(exit.NeedPerMonthUAH),
+				"Щоб вивести в нуль %s до %s, треба звільняти %s на місяць — тобто "+
+					"витрачати не більше %s. Зараз виходить на %s більше.",
+				strings.Join(exit.Cards, " і "), exit.ExitBy, uah(exit.NeedPerMonthUAH),
 				uah(exit.SpendCapUAH), uah(exit.ShortPerMonthUAH))
 			if exit.ETADate != "" {
 				why += " За нинішнім темпом вихід буде " + exit.ETADate + "."
@@ -928,7 +932,7 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 			}
 			out = append(out, state.Task{
 				ID: "card-exit-" + d.Name, Sev: sevNow, Rank: 2, Kind: "debt",
-				Title: fmt.Sprintf("«%s»: не встигаєш вийти до %s", d.Name, exit.ExitBy),
+				Title: fmt.Sprintf("Не встигаєш вийти з лімітів до %s", exit.ExitBy),
 				Why:   why, When: exit.ExitBy, Action: actPayCard,
 				AmountUAH: exit.ShortPerMonthUAH,
 			})

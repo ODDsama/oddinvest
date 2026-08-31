@@ -108,8 +108,14 @@ type payoffGraceJSON struct {
 
 // payoffExitJSON — вихід із кредитного ліміту: скільки можна витрачати.
 type payoffExitJSON struct {
-	ExitBy string  `json:"exit_by"`
-	Months float64 `json:"months"`
+	// Cards — усі картки, що входять у цей план. Гроші в них спільні, тож
+	// план один; назви потрібні, щоб було видно, про які саме борги мова.
+	Cards  []string `json:"cards"`
+	ExitBy string   `json:"exit_by"`
+	Months float64  `json:"months"`
+	// Installments — щомісячні платежі карткових розстрочок. Третій відтік
+	// із картки поруч із витратами й портфелем, і саме тому окремо.
+	Installments moneyJSON `json:"installments"`
 	// SpendCap — головне число: скільки можна витрачати на місяць, щоб
 	// устигнути. NeedPerMonth — скільки треба звільняти.
 	SpendCap     moneyJSON `json:"spend_cap"`
@@ -148,7 +154,10 @@ type payoffExitJSON struct {
 	// а застосунок називає ціну числом.
 	WithInvestSpendCap moneyJSON `json:"with_invest_spend_cap"`
 	WithInvestETADate  string    `json:"with_invest_eta_date,omitempty"`
-	// OnCard — залишок: скільки з валового доходу лишається на картці.
+	// OnCard — залишок: скільки з валового доходу лишається на картці ПІСЛЯ
+	// портфельної частки й платежів карткових розстрочок. Саме ці гроші й
+	// воюють із витратами; без віднімання розстрочок рядок обіцяв би на
+	// їхню суму більше, ніж є (на бойових даних — на 8 606,70 ₴/міс).
 	// Саме він гасить борг, і саме його не було видно ніде.
 	OnCard moneyJSON `json:"on_card"`
 	// Schedule — прохід балансу вперед. Порожній, коли борг не меншає.
@@ -157,11 +166,12 @@ type payoffExitJSON struct {
 
 // payoffExitStepJSON — один місяць проходу до нуля.
 type payoffExitStepJSON struct {
-	Month  string    `json:"month"`
-	Gross  moneyJSON `json:"gross"`
-	Invest moneyJSON `json:"invest"`
-	Spend  moneyJSON `json:"spend"`
-	Left   moneyJSON `json:"left"`
+	Month        string    `json:"month"`
+	Gross        moneyJSON `json:"gross"`
+	Invest       moneyJSON `json:"invest"`
+	Installments moneyJSON `json:"installments"`
+	Spend        moneyJSON `json:"spend"`
+	Left         moneyJSON `json:"left"`
 }
 
 type payoffResp struct {
@@ -416,21 +426,24 @@ func payoffSchedule(run payoffRun, total int64, today domain.Date) []payoffMonth
 	return out
 }
 
-// exitJSONOf — блок виходу для НАЗВАНОЇ картки.
+// exitJSONOf — спільний блок виходу, показаний при НАЗВАНІЙ картці.
 //
-// Документ несе один такий блок (за найближчою датою), тож звірка за
-// назвою — це не пошук, а перевірка: чи саме про цю картку йдеться.
-// Без неї друга картка мовчки показувала б чужі числа.
+// Блок один на всі картки з ціллю (гроші в них спільні), тож звірка за
+// назвою відповідає на інше питання: чи бере ця картка участь у плані.
+// Показуємо його лише при ПЕРШІЙ зі своїх карток, інакше той самий план
+// намалювався б двічі й читався як два різні.
 func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
-	if e == nil || e.Card != card {
+	if e == nil || len(e.Cards) == 0 || e.Cards[0] != card {
 		return nil
 	}
 	uah := func(v float64) moneyJSON {
 		return toMoneyJSON(money.New(int64(math.Round(v*100)), money.UAH))
 	}
 	out := &payoffExitJSON{
+		Cards:  e.Cards,
 		ExitBy: e.ExitBy, Months: e.Months,
-		SpendCap: uah(e.SpendCapUAH), NeedPerMonth: uah(e.NeedPerMonthUAH),
+		Installments: uah(e.InstallmentsUAH),
+		SpendCap:     uah(e.SpendCapUAH), NeedPerMonth: uah(e.NeedPerMonthUAH),
 		Feasible: e.Feasible, ShortPerMonth: uah(e.ShortPerMonthUAH),
 		ETADate: e.ETADate,
 		Gross:   uah(e.GrossUAH), Invest: uah(e.InvestUAH),
@@ -439,12 +452,13 @@ func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
 		BurnWhy:       e.BurnWhy, BurnFrom: e.BurnFrom, BurnTo: e.BurnTo,
 		WithInvestSpendCap: uah(e.WithInvestSpendCapUAH),
 		WithInvestETADate:  e.WithInvestETADate,
-		OnCard:             uah(e.GrossUAH - e.InvestUAH),
+		OnCard:             uah(e.GrossUAH - e.InvestUAH - e.InstallmentsUAH),
 	}
 	for _, st := range e.Schedule {
 		out.Schedule = append(out.Schedule, payoffExitStepJSON{
 			Month: st.Month, Gross: uah(st.GrossUAH), Invest: uah(st.InvestUAH),
-			Spend: uah(st.SpendUAH), Left: uah(st.LeftUAH),
+			Installments: uah(st.InstallmentsUAH),
+			Spend:        uah(st.SpendUAH), Left: uah(st.LeftUAH),
 		})
 	}
 	if e.SpendMeasuredUAH > 0 {

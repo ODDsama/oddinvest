@@ -81,7 +81,7 @@ func TestAllocateDebtRespectsOwnPolicy(t *testing.T) {
 // Обовʼязкові платежі зменшують гроші місяця, а пільговий оборот картки —
 // НІ. Це головна межа фази: побут уже описаний витратами й часткою потоку
 // в портфель, і друге його віднімання відняло б те саме двічі.
-func TestMonthPlanSubtractsDebtDueButNotGraceTurnover(t *testing.T) {
+func TestCardInstallmentsLeaveMonthPlanAlone(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 	if resp, out := do(t, "PUT", srv.URL+"/api/settings",
@@ -112,11 +112,28 @@ func TestMonthPlanSubtractsDebtDueButNotGraceTurnover(t *testing.T) {
 			got.PlanUAH, base.PlanUAH, got.DebtDueUAH)
 	}
 
-	// А розстрочка — мусить. Її платіж це повернення тіла з комісією, а не
-	// побут.
+	// Розстрочка, ПРИВʼЯЗАНА до картки, теж не чіпає портфельних грошей:
+	// вона списується з картки, тобто живе в побутовому контурі. Доти її
+	// платежі віднімались від плану — на бойових даних 8 606,70 ₴/міс
+	// уронили місяць із 26 902 до 18 296, хоча з тих грошей ніхто цих
+	// розстрочок не платить.
 	if _, err := st.AddDebt(context.Background(), domain.Debt{
 		Name: "Холодильник", Kind: domain.DebtInstallment, Currency: money.UAH,
 		CardID: card, Principal: 30_000_00, PaymentsTotal: 9,
+		FirstPaymentDate: domain.NewDate(time.Now()), FeeMonthBp: 199,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := monthPlanOf(t, srv.URL); got.PlanUAH != base.PlanUAH || got.DebtDueUAH != 0 {
+		t.Errorf("карткова розстрочка зрушила гроші місяця: план %.2f (був %.2f), борг %.2f",
+			got.PlanUAH, base.PlanUAH, got.DebtDueUAH)
+	}
+
+	// А САМОСТІЙНА — мусить: її платять з інших грошей, тобто саме з тих,
+	// що доходять до портфеля.
+	if _, err := st.AddDebt(context.Background(), domain.Debt{
+		Name: "Товарна в іншому банку", Kind: domain.DebtInstallment, Currency: money.UAH,
+		Principal: 9_000_00, PaymentsTotal: 9,
 		FirstPaymentDate: domain.NewDate(time.Now()), FeeMonthBp: 199,
 	}); err != nil {
 		t.Fatal(err)
@@ -392,4 +409,110 @@ func TestDebtExitWalkSkipsMonthAlreadyLived(t *testing.T) {
 	if want := first.AddDate(0, 1, 0).Format("2006-01"); sch[0].Month != want {
 		t.Errorf("перший крок %s, чекали %s", sch[0].Month, want)
 	}
+}
+
+// План виходу СПІЛЬНИЙ на всі картки з живою датою — і найбільший борг з
+// нього не зникає через чужу, ближчу дату.
+//
+// Спіймано власником на бойових даних: друга картка (борг 5 212 ₴, вихід
+// 30.10) перебила першу (182 317 ₴, вихід 31.10), і застосунок оголосив
+// стелю витрат 216 805 ₴/міс — тобто планував вихід із боргу, меншого за
+// саму цю стелю, а про справжній борг мовчав.
+func TestDebtExitCoversAllCardsWithTarget(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, out := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_expenses":"10000","monthly_expenses_currency":"UAH"}`); resp.StatusCode != 204 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, out)
+	}
+	if resp, out := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"200000","currency":"UAH",
+		  "cadence":"month","from_date":"2020-01-05","invest_pct":"0"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік: %d %s", resp.StatusCode, out)
+	}
+
+	today := time.Now()
+	// БЛИЖЧА дата — у меншої картки. Саме ця пара й ламала розрахунок.
+	small := addDebt(t, srv.URL, `{"name":"mono Чорна","kind":"card","currency":"UAH",
+		"statement_day":"30","apr_pct":"40","min_payment_pct":"3",
+		"exit_by":"`+today.AddDate(0, 2, 0).Format("2006-01-02")+`"}`)
+	big := addDebt(t, srv.URL, `{"name":"ПУМБ","kind":"card","currency":"UAH",
+		"statement_day":"30","apr_pct":"47.88","min_payment_pct":"3",
+		"exit_by":"`+today.AddDate(0, 3, 0).Format("2006-01-02")+`"}`)
+	for _, m := range []string{
+		`{"debt_id":"` + did(small) + `","balance":"-6000","statement_due":"6000"}`,
+		`{"debt_id":"` + did(big) + `","balance":"-180000","statement_due":"180000"}`,
+	} {
+		if resp, out := do(t, "POST", srv.URL+"/api/debt-marks", m); resp.StatusCode != 201 {
+			t.Fatalf("звірка: %d %s", resp.StatusCode, out)
+		}
+	}
+
+	exit := exitOf(t, srv.URL)
+	if len(exit.Cards) != 2 {
+		t.Fatalf("у плані %d карток, чекали дві: %+v", len(exit.Cards), exit.Cards)
+	}
+	if !strings.Contains(strings.Join(exit.Cards, " "), "ПУМБ") {
+		t.Errorf("найбільший борг випав із плану: %+v", exit.Cards)
+	}
+	// Потреба — СУМА по картках, кожна за власною датою. У малої картки
+	// всього 6 000 боргу, тож будь-яке число більше за нього доводить, що
+	// велику порахували; беремо із запасом.
+	if exit.NeedPerMonthUAH < 20_000 {
+		t.Errorf("треба звільняти %.2f — це потреба самої лише малої картки",
+			exit.NeedPerMonthUAH)
+	}
+}
+
+// Карткові розстрочки віднімаються від того, що лишається на картці:
+// стеля витрат менша рівно на їхні щомісячні платежі.
+//
+// Вони не тіло до погашення (за рішенням власника «вийти з ліміту» — це
+// звести в нуль КАРТКИ), але з картки списуються, тож на витрати їх
+// витратити вже не можна.
+func TestDebtExitSubtractsCardInstallments(t *testing.T) {
+	in := domain.CardExitInput{
+		DebtUAH: 180_000_00, GrossUAH: 200_000_00, InvestUAH: 0,
+		SpendUAH: 40_000_00, ExitBy: "2026-12-31",
+		Today: domain.Date("2026-09-30"), Months: 3,
+	}
+	base := domain.CardExit(in)
+	in.InstallmentUAH = 8_606_70
+	with := domain.CardExit(in)
+
+	if !base.Known || !with.Known {
+		t.Fatalf("розрахунку немає: %+v / %+v", base, with)
+	}
+	if diff := base.SpendCap - with.SpendCap; diff != 8_606_70 {
+		t.Errorf("стеля впала на %d, чекали рівно платіж розстрочок 860670", diff)
+	}
+	// І рядок «якщо й портфельні гроші підуть на картку» рахує з того
+	// самого залишку — інакше два числа поруч суперечили б одне одному.
+	if diff := base.WithInvestSpendCap - with.WithInvestSpendCap; diff != 8_606_70 {
+		t.Errorf("другий рядок впав на %d, чекали 860670", diff)
+	}
+	// Дата виходу за нинішніми витратами теж відсувається: грошей на
+	// погашення лишається менше.
+	if with.ETADate <= base.ETADate {
+		t.Errorf("дата виходу %s не пізніша за %s", with.ETADate, base.ETADate)
+	}
+}
+
+// exitOf — блок виходу з документа стану.
+func exitOf(t *testing.T, base string) *state.DebtExit {
+	t.Helper()
+	resp, out := do(t, "GET", base+"/api/summary", "")
+	if resp.StatusCode != 200 {
+		t.Fatal(out)
+	}
+	var doc struct {
+		Debt *state.DebtPlan `json:"debt"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Debt == nil || doc.Debt.Exit == nil {
+		t.Fatalf("блоку виходу немає: %s", out)
+	}
+	return doc.Debt.Exit
 }
