@@ -281,6 +281,7 @@ type BackupDebt struct {
 	MinPaymentBp     int64  `json:"min_payment_bp,omitempty"`
 	MinPaymentFloor  int64  `json:"min_payment_floor,omitempty"`
 	LateFee          int64  `json:"late_fee,omitempty"`
+	ExitBy           string `json:"exit_by,omitempty"`
 	Principal        int64  `json:"principal,omitempty"`
 	PaymentsTotal    int64  `json:"payments_total,omitempty"`
 	FirstPaymentDate string `json:"first_payment_date,omitempty"`
@@ -773,14 +774,14 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 	}
 	if err := s.scan(ctx, `SELECT id,name,kind,currency,COALESCE(card_id,0),
 		limit_amount,statement_day,apr_bp,apr_overdue_bp,min_payment_bp,
-		min_payment_floor,late_fee,principal,payments_total,first_payment_date,
+		min_payment_floor,late_fee,exit_by,principal,payments_total,first_payment_date,
 		fee_month_bp,fee_free_months,opened_date,closed_date,place,note
 		FROM debts ORDER BY id`,
 		func(scan func(...any) error) error {
 			var d BackupDebt
 			if err := scan(&d.ID, &d.Name, &d.Kind, &d.Currency, &d.CardID,
 				&d.LimitAmount, &d.StatementDay, &d.APRBp, &d.APROverdueBp,
-				&d.MinPaymentBp, &d.MinPaymentFloor, &d.LateFee,
+				&d.MinPaymentBp, &d.MinPaymentFloor, &d.LateFee, &d.ExitBy,
 				&d.Principal, &d.PaymentsTotal, &d.FirstPaymentDate,
 				&d.FeeMonthBp, &d.FeeFreeMonths,
 				&d.OpenedDate, &d.ClosedDate, &d.Place, &d.Note); err != nil {
@@ -1285,12 +1286,12 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	for _, d := range b.Debts {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO debts
 			(id,name,kind,currency,card_id,limit_amount,statement_day,apr_bp,
-			 apr_overdue_bp,min_payment_bp,min_payment_floor,late_fee,principal,
+			 apr_overdue_bp,min_payment_bp,min_payment_floor,late_fee,exit_by,principal,
 			 payments_total,first_payment_date,fee_month_bp,fee_free_months,
 			 opened_date,closed_date,place,note)
-			VALUES (?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			VALUES (?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			d.ID, d.Name, d.Kind, d.Currency, d.LimitAmount, d.StatementDay,
-			d.APRBp, d.APROverdueBp, d.MinPaymentBp, d.MinPaymentFloor, d.LateFee,
+			d.APRBp, d.APROverdueBp, d.MinPaymentBp, d.MinPaymentFloor, d.LateFee, d.ExitBy,
 			d.Principal, d.PaymentsTotal, d.FirstPaymentDate, d.FeeMonthBp,
 			d.FeeFreeMonths, d.OpenedDate, d.ClosedDate, d.Place, d.Note); err != nil {
 			return fmt.Errorf("борг %d: %w", d.ID, err)

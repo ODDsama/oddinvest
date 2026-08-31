@@ -40,6 +40,7 @@ package domain
 
 import (
 	"math"
+	"sort"
 	"time"
 )
 
@@ -97,6 +98,9 @@ type Debt struct {
 	MinPaymentBp    int64
 	MinPaymentFloor int64
 	LateFee         int64
+	// ExitBy — дата, до якої баланс має вийти в нуль. Порожньо = режиму
+	// виходу немає (довід — у міграції 0047).
+	ExitBy Date
 
 	// --- розстрочка ---
 	Principal     int64
@@ -565,4 +569,175 @@ func CardState(card Debt, marks []DebtMark, ops []DebtOp,
 	}
 	st.Free = own - st.StatementDue - st.InstallmentDue
 	return st
+}
+
+// CardBurn — скільки СПРАВДІ витрачено з картки за проміжок між двома
+// звірками.
+//
+// # ЧОМУ ЦЕ ВИМІРЮЄТЬСЯ, А НЕ БЕРЕТЬСЯ З НАЛАШТУВАНЬ
+//
+// Заявлені місячні витрати — намір, і на живих даних вони розійшлися з
+// реальністю так, що ліміт стояв вибраним до дна при витратах, яких мало б
+// вистачати з запасом. Питання «скільки я можу витрачати» безглузде, якщо
+// відповідь звіряється з тим самим числом, яке її й породило.
+//
+// # ТОТОЖНІСТЬ, НА ЯКІЙ УСЕ СТОЇТЬ
+//
+//	баланс_тепер − баланс_тоді = внесено − витрачено
+//
+// звідки витрачено = внесено − приріст балансу. Записані покупки й зняття
+// в цій формулі СКОРОЧУЮТЬСЯ: вони вже сидять у виміряному балансі, і
+// додавати їх окремо означало б порахувати їх двічі. Тому вести журнал
+// покупок не треба — досить записувати надходження.
+type CardBurn struct {
+	// Known — вимір відбувся. Хибне значення завжди супроводжується Why:
+	// мовчазний нуль тут читався б як «ти нічого не витрачаєш».
+	Known bool
+	Why   string
+	From  Date
+	To    Date
+	Days  int
+	// SpentUAH — за весь проміжок; PerMonth — те саме, приведене до 30,44
+	// дня, бо порівнюють його з місячними числами.
+	Spent    int64
+	PerMonth int64
+}
+
+// CardBurnFrom міряє спалення за двома останніми звірками картки.
+func CardBurnFrom(card Debt, marks []DebtMark, ops []DebtOp, today Date) CardBurn {
+	if !card.IsCard() {
+		return CardBurn{}
+	}
+	var mine []DebtMark
+	for _, m := range marks {
+		if m.DebtID == card.ID && !m.Date.After(today) {
+			mine = append(mine, m)
+		}
+	}
+	if len(mine) < 2 {
+		return CardBurn{Why: "потрібні дві звірки: витрати міряються тим, " +
+			"як змінився баланс між ними"}
+	}
+	sort.Slice(mine, func(i, j int) bool { return mine[i].Date < mine[j].Date })
+	prev, now := mine[len(mine)-2], mine[len(mine)-1]
+	days := DaysBetween(prev.Date, now.Date)
+	if days <= 0 {
+		return CardBurn{Why: "дві останні звірки в один день — міряти нема чого"}
+	}
+
+	var paid int64
+	for _, op := range ops {
+		if op.DebtID != card.ID || op.Kind != DebtOpPayment {
+			continue
+		}
+		// Проміжок ПІВВІДКРИТИЙ: рух того самого дня, що й попередня
+		// звірка, уже в ній (та сама межа, що в CardState).
+		if !op.Date.After(prev.Date) || op.Date.After(now.Date) {
+			continue
+		}
+		paid += op.Amount
+	}
+
+	spent := paid - (now.Balance - prev.Balance)
+	if spent < 0 {
+		// Баланс зріс дужче, ніж пояснюють записані надходження: гроші
+		// прийшли й не записані. Відʼємні витрати — не «заробіток», а
+		// прогалина в журналі, і назвати її треба прямо.
+		return CardBurn{Why: "баланс зріс більше, ніж записано надходжень — " +
+			"запиши зарплату рухом «унесено», інакше витрати не виміряти"}
+	}
+	return CardBurn{
+		Known: true, From: prev.Date, To: now.Date, Days: days,
+		Spent:    spent,
+		PerMonth: int64(math.Round(float64(spent) / float64(days) * 30.44)),
+	}
+}
+
+// CardExitInput — усе, що потрібно, щоб відповісти «скільки можна
+// витрачати». Гроші — у ГРИВНІ, мінорними: переведення валют робить той,
+// хто знає курси (той самий поділ, що в state.GoalInput).
+type CardExitInput struct {
+	// DebtUAH — скільки треба вивести в нуль.
+	DebtUAH int64
+	// GrossUAH — увесь дохід місяця; InvestUAH — та його частина, яку
+	// зараз виводять в інструменти. На картці лишається різниця.
+	GrossUAH  int64
+	InvestUAH int64
+	// SpendUAH — скільки витрачається за місяць насправді (або заявлено).
+	SpendUAH int64
+	ExitBy   Date
+	Today    Date
+}
+
+// CardExitPlan — відповідь.
+type CardExitPlan struct {
+	Known  bool
+	ExitBy Date
+	Months float64
+	// NeedPerMonth — скільки треба звільняти щомісяця, щоб устигнути.
+	NeedPerMonth int64
+	// SpendCap — ГОЛОВНЕ ЧИСЛО: скільки можна витрачати на місяць.
+	SpendCap int64
+	// Feasible — стеля додатна. Хибне означає «не встигнути навіть при
+	// нульових витратах», і це окреме твердження, а не «мало».
+	Feasible bool
+	// ShortPerMonth — наскільки нинішні витрати перевищують стелю. Нуль,
+	// коли вкладаєшся.
+	ShortPerMonth int64
+	// ETADate — коли вийдеш за НИНІШНІМИ витратами. Порожньо, коли борг не
+	// меншає: дати немає, і вигадувати шістсот місяців ні до чого.
+	ETADate  Date
+	ETAMonth float64
+	// WithInvest* — те саме, якщо на картку піде й інвестиційна частка.
+	// Другий рядок існує, щоб ціна вибору була числом, а не відчуттям.
+	WithInvestSpendCap int64
+	WithInvestETADate  Date
+}
+
+// CardExit рахує вихід із кредитного ліміту.
+//
+// # ЧОМУ ЦЕ НЕ ПРОХІД УПЕРЕД, ЯК У ЧЕРЗІ ПОГАШЕННЯ
+//
+// У ліміту немає графіка. Борг меншає рівно на різницю «прийшло мінус
+// витрачено», однакову з місяця в місяць, тож відповідь — ділення, а не
+// симуляція. Проходом це виглядало б солідніше й давало б ті самі числа
+// довшим шляхом.
+func CardExit(in CardExitInput) CardExitPlan {
+	out := CardExitPlan{ExitBy: in.ExitBy}
+	if in.ExitBy == "" || in.DebtUAH <= 0 || !in.Today.Valid() {
+		return out
+	}
+	days := DaysBetween(in.Today, in.ExitBy)
+	if days <= 0 {
+		return out // дата вже минула: питання «чи встигну» більше немає
+	}
+	out.Known = true
+	out.Months = float64(days) / 30.44
+
+	// На картці лишається дохід за вирахуванням того, що явно виводять в
+	// інструменти: саме ці гроші й воюють із витратами.
+	onCard := in.GrossUAH - in.InvestUAH
+
+	out.NeedPerMonth = int64(math.Ceil(float64(in.DebtUAH) / out.Months))
+	out.SpendCap = onCard - out.NeedPerMonth
+	out.Feasible = out.SpendCap > 0
+	if s := in.SpendUAH - out.SpendCap; s > 0 {
+		out.ShortPerMonth = s
+	}
+	out.ETADate, out.ETAMonth = cardExitETA(in.DebtUAH, onCard-in.SpendUAH, in.Today)
+
+	out.WithInvestSpendCap = in.GrossUAH - out.NeedPerMonth
+	out.WithInvestETADate, _ = cardExitETA(in.DebtUAH, in.GrossUAH-in.SpendUAH, in.Today)
+	return out
+}
+
+// cardExitETA — коли борг вийде в нуль за місячним профіцитом. Порожня
+// дата на невідʼємному профіциті: борг не меншає, і «через шістсот
+// місяців» було б числом про стелю розрахунку, а не про гроші.
+func cardExitETA(debtUAH, surplus int64, today Date) (Date, float64) {
+	if surplus <= 0 || debtUAH <= 0 {
+		return "", 0
+	}
+	months := float64(debtUAH) / float64(surplus)
+	return today.AddDays(int(math.Ceil(months * 30.44))), months
 }

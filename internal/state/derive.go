@@ -30,6 +30,7 @@ package state
 
 import (
 	"math"
+	"strings"
 	"time"
 
 	money "github.com/Rhymond/go-money"
@@ -446,7 +447,7 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 		// Дозволена цілям частина плану, а не весь план (0041): дохід,
 		// позначений «лише на інвестиції», цілі наповнювати не має права,
 		// і власна стеля в них саме тому й окрема від подушчиної.
-		GoalsFill(doc.Settings, out, doc.MonthPlan.PlanGoalsUAH)
+		GoalsFill(doc.Settings, out, doc.MonthPlan.PlanGoalsUAH, in.DebtCapsReserve)
 	}
 	doc.Goals = out
 }
@@ -502,8 +503,17 @@ func GoalsGapUAH(goals []GoalInput) float64 {
 // (route.go), якому стеля потрібна ЗАНОВО на кожен місяць. Друге
 // означення розійшлося б із першим — рівно та пастка, що вже коштувала
 // червоного тесту подушці.
-func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64) {
+func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure bool) {
 	if set == nil || set.GoalsFillSharePct == nil || planUAH <= 0 {
+		return
+	}
+	// ПАУЗА ЦІЛЕЙ НА ЧАС БОРГУ. Ключ заведено разом зі стелею подушки, і
+	// доти його не читав ніхто — мертвий шов, який CLAUDE.md §3 забороняє.
+	//
+	// Замовчування «keep»: мовчазна зупинка накопичення була б найгіршим
+	// виглядом помилки. Але коли людина обрала «pause», вона обрала саме
+	// це — і доки борг дорожчий за нуль, гроші йдуть туди, а не на авто.
+	if debtPressure && strings.TrimSpace(set.GoalsWhileDebt) == "pause" {
 		return
 	}
 	share := *set.GoalsFillSharePct

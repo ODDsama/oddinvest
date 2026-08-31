@@ -886,7 +886,7 @@ func TestBackupRoundTripKeepsDebts(t *testing.T) {
 		Name: "ПУМБ ВсеМожу", Kind: domain.DebtCard, Currency: "UAH",
 		LimitAmount: 200_000_00, StatementDay: 30, APRBp: 4788,
 		APROverdueBp: 6200, MinPaymentBp: 300, LateFee: 100_00,
-		OpenedDate: "2024-05-01",
+		OpenedDate: "2024-05-01", ExitBy: "2026-11-30",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -943,6 +943,11 @@ func TestBackupRoundTripKeepsDebts(t *testing.T) {
 	if got[0].APROverdueBp != 6200 || got[0].StatementDay != 30 ||
 		got[0].LateFee != 100_00 {
 		t.Errorf("умови картки поїхали: %+v", got[0])
+	}
+	// Ціль виходу — теж умова, і теж невідновна: дату, до якої людина
+	// вирішила вийти з ліміту, не вивести ні з чого.
+	if got[0].ExitBy != "2026-11-30" {
+		t.Errorf("ціль виходу не пережила відновлення: %q", got[0].ExitBy)
 	}
 	if got[1].CardID != got[0].ID || got[1].FeeMonthBp != 199 {
 		t.Errorf("привʼязка розстрочки до картки не пережила відновлення: %+v", got[1])

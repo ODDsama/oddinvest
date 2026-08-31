@@ -1135,7 +1135,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// Борг — після плану місяця навмисно: стеля дострокового міряється
 		// від дозволеної частини ПЛАНУ, а обовʼязкові платежі той план уже
 		// зменшили (state_month.go).
-		Debt: buildDebtPlan(src.debts, src.debtMarks, src.debtOps,
+		Debt: buildDebtPlan(src, src.debts, src.debtMarks, src.debtOps,
 			settings, mth.Plan, rates, now, today),
 		UninvestedUAH:  state.Major(unin),
 		AccountUAH:     state.Major(account),

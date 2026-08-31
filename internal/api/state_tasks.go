@@ -204,7 +204,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 	//
 	// Два пороги в одному рядку, бо помилки дві й вони різні за ціною
 	// (довід — у шапці domain/debt.go).
-	for _, c := range cardTasks(src, today) {
+	for _, c := range cardTasks(src, doc, today) {
 		add(c)
 	}
 
@@ -821,8 +821,14 @@ func mustShift(d domain.Date, days int) string {
 //
 // Злиття будь-яких двох зробило б задачу, що зникає в момент, коли саме
 // вона й потрібна: перевитрата найгостріша тоді, коли до дати ще далеко.
-func cardTasks(src *sources, today domain.Date) []state.Task {
+func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 	var out []state.Task
+	// Числа режиму виходу приходять ГОТОВИМИ з документа: середній дохід
+	// місяців до цілі вміє порахувати лише будівник (шапка state.DebtExit).
+	var exit *state.DebtExit
+	if doc.Debt != nil {
+		exit = doc.Debt.Exit
+	}
 	for _, d := range src.debts {
 		if !d.IsCard() || d.Closed() {
 			continue
@@ -894,6 +900,28 @@ func cardTasks(src *sources, today domain.Date) []state.Task {
 				Why:       why,
 				Action:    actPayCard,
 				AmountUAH: cardAmountUAH(-st.Free, cur),
+			})
+		}
+
+		// Вихід із ліміту: зʼявляється лише тоді, коли темп НЕ ВСТИГАЄ до
+		// названої дати. Коли встигає — задачі немає, і це правильно:
+		// черга рішень не місце для «усе гаразд».
+		if exit != nil && exit.Card == d.Name && exit.ShortPerMonthUAH > 0 {
+			why := fmt.Sprintf(
+				"Щоб вийти в нуль до %s, треба звільняти %s на місяць — тобто витрачати "+
+					"не більше %s. Зараз виходить на %s більше.",
+				exit.ExitBy, uah(exit.NeedPerMonthUAH),
+				uah(exit.SpendCapUAH), uah(exit.ShortPerMonthUAH))
+			if exit.ETADate != "" {
+				why += " За нинішнім темпом вихід буде " + exit.ETADate + "."
+			} else {
+				why += " За нинішнім темпом виходу не буде взагалі: витрати зʼїдають усе, що приходить."
+			}
+			out = append(out, state.Task{
+				ID: "card-exit-" + d.Name, Sev: sevNow, Rank: 2, Kind: "debt",
+				Title: fmt.Sprintf("«%s»: не встигаєш вийти до %s", d.Name, exit.ExitBy),
+				Why:   why, When: exit.ExitBy, Action: actPayCard,
+				AmountUAH: exit.ShortPerMonthUAH,
 			})
 		}
 

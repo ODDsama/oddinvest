@@ -137,6 +137,63 @@ func TestMonthPlanSubtractsDebtDueButNotGraceTurnover(t *testing.T) {
 	}
 }
 
+// Валовий дохід і те, що доходить до портфеля, — РІЗНІ числа, і на
+// реальних потоках вони різняться в рази.
+//
+// Без валового «скільки я можу витрачати» рахувати нема з чого: гроші, які
+// не пішли в інструменти, не зникають — вони лягають на картку.
+func TestMonthPlanGrossDiffersFromIncome(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	// Частка в портфель 10% — рівно як у живих потоках власника.
+	if resp, out := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"100000","currency":"UAH",
+		  "cadence":"month","from_date":"2020-01-01","invest_pct":"10"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік: %d %s", resp.StatusCode, out)
+	}
+	got := monthPlanOf(t, srv.URL)
+	if got.GrossUAH <= 0 {
+		t.Fatalf("валового немає: %+v", got)
+	}
+	if got.IncomeUAH >= got.GrossUAH {
+		t.Errorf("у портфель %.2f не менше за валове %.2f", got.IncomeUAH, got.GrossUAH)
+	}
+	// Десята частина — саме та пропорція, яку задано потоку.
+	if diff := got.GrossUAH/10 - got.IncomeUAH; diff > 0.01 || diff < -0.01 {
+		t.Errorf("валове %.2f, у портфель %.2f — чекали десятину", got.GrossUAH, got.IncomeUAH)
+	}
+}
+
+// Режим виходу вмикає стелю подушки САМ, не питаючи про ставку.
+//
+// Інакше найбільший борг власника її не вмикав би взагалі: у пільговому
+// періоді він коштує нуль, реальна ставка відʼємна, і за загальним порогом
+// він проходить як безкоштовний. Але названа дата виходу означає «гроші
+// потрібні зараз».
+func TestExitModeCapsReserveEvenWithoutRate(t *testing.T) {
+	today := domain.Date("2026-09-10")
+	card := domain.Debt{
+		ID: 1, Kind: domain.DebtCard, Currency: money.UAH,
+		StatementDay: 30, APRBp: 4788,
+	}
+	// Борг є, але весь пільговий: нараховувати ще нема на що.
+	marks := []domain.DebtMark{{DebtID: 1, Date: "2026-09-01",
+		Balance: -180_000_00, StatementDue: 180_000_00}}
+
+	if debtCapsReserve([]domain.Debt{card}, marks, nil, 7, today) {
+		t.Error("пільговий борг сам собою ввімкнув стелю подушки")
+	}
+	card.ExitBy = "2026-11-30"
+	if !debtCapsReserve([]domain.Debt{card}, marks, nil, 7, today) {
+		t.Error("названа дата виходу не ввімкнула стелю подушки")
+	}
+	// Дата в минулому режимом не є.
+	card.ExitBy = "2026-01-01"
+	if debtCapsReserve([]domain.Debt{card}, marks, nil, 7, today) {
+		t.Error("минула дата виходу далі тримає стелю")
+	}
+}
+
 // Стеля подушки на час боргу вмикається лише від боргу, що коштує РЕАЛЬНИХ
 // грошей. Безвідсоткова розстрочка «частинами» її не вмикає — і це
 // виходить само собою з порогу «реальна ставка вище нуля».

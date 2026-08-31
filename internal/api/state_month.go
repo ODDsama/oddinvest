@@ -375,6 +375,12 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 			continue
 		}
 		out.IncomeUAH += amt
+		// Валове — тим самим фокусом, що в planFlowGrossUAH: копія потоку
+		// зі стовідсотковою часткою. Другого обходу потоків не заводимо —
+		// «чи платить цього місяця» мусить лишитись одним означенням.
+		gross := f
+		gross.InvestBP = 10000
+		out.GrossUAH += planFlowUAH(planFlowAtMonth(gross, today, m, marks), f.Currency, rates)
 		if domain.PlanUseAllowed(f.Uses, domain.UsePlanReserve) {
 			incReserve += amt
 		}
@@ -398,9 +404,10 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		if r.FlowID != 0 || r.Month != month {
 			continue
 		}
-		gross := float64(r.Amount) / 100 * float64(r.InvestBP) / 10000
-		v := planFlowUAH(gross, r.Currency, rates)
+		share := float64(r.Amount) / 100 * float64(r.InvestBP) / 10000
+		v := planFlowUAH(share, r.Currency, rates)
 		out.ExtraUAH += v
+		out.GrossUAH += planFlowUAH(float64(r.Amount)/100, r.Currency, rates)
 		// Позапланове читає ВЛАСНИЙ дозвіл, і лише воно: потоку за ним
 		// немає, тож успадкувати нема від кого (та сама межа, що з InvestBP).
 		if domain.PlanUseAllowed(r.Uses, domain.UsePlanReserve) {
@@ -435,6 +442,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	}
 
 	out.IncomeUAH = round2(out.IncomeUAH)
+	out.GrossUAH = round2(out.GrossUAH)
 	out.ExpenseUAH = round2(out.ExpenseUAH)
 	out.ExtraUAH = round2(out.ExtraUAH)
 	out.PlanUAH = round2(out.PlanUAH)

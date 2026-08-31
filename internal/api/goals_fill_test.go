@@ -37,7 +37,7 @@ func TestGoalsFillGivesEachItsOwnRate(t *testing.T) {
 		goalRow(2, "Ремонт", 60_000, 3_000, 0, "2027-06-01"),
 	}
 	// План 100 000 × 20% = 20 000 стелі; потрібно 8 000 разом.
-	state.GoalsFill(fillShare(20), goals, 100_000)
+	state.GoalsFill(fillShare(20), goals, 100_000, false)
 
 	if math.Abs(goals[0].FillNowUAH-5_000) > 0.01 || math.Abs(goals[1].FillNowUAH-3_000) > 0.01 {
 		t.Errorf("частки поїхали: %.2f і %.2f, чекали 5 000 і 3 000",
@@ -61,7 +61,7 @@ func TestGoalsFillQueuesByPriorityAndNamesTheShortfall(t *testing.T) {
 		goalRow(2, "Ремонт", 60_000, 3_000, 0, "2027-06-01"),
 	}
 	// План 30 000 × 20% = 6 000 стелі на потрібні 8 000.
-	state.GoalsFill(fillShare(20), goals, 30_000)
+	state.GoalsFill(fillShare(20), goals, 30_000, false)
 
 	if math.Abs(goals[0].FillNowUAH-5_000) > 0.01 {
 		t.Errorf("перша ціль дістала %.2f замість своїх 5 000 — стеля поділилась порівну",
@@ -86,7 +86,7 @@ func TestGoalsFillQueuesByPriorityAndNamesTheShortfall(t *testing.T) {
 // лишилось» меншає рівно на покладене.
 func TestGoalsFillSubtractsWhatIsAlreadyMoved(t *testing.T) {
 	goals := []state.Goal{goalRow(1, "Авто", 100_000, 5_000, 2_000, "2027-06-01")}
-	state.GoalsFill(fillShare(20), goals, 100_000)
+	state.GoalsFill(fillShare(20), goals, 100_000, false)
 
 	if math.Abs(goals[0].FillMonthUAH-5_000) > 0.01 {
 		t.Errorf("стеля місяця = %.2f, чекали 5 000 (2 000 покладено + 3 000 лишилось)",
@@ -104,7 +104,7 @@ func TestGoalsFillSubtractsWhatIsAlreadyMoved(t *testing.T) {
 // тобто механізм для неї просто не працює.
 func TestGoalWithoutDueDateTakesWholeGap(t *testing.T) {
 	goals := []state.Goal{goalRow(1, "Будинок", 40_000, 0, 0, "")}
-	state.GoalsFill(fillShare(50), goals, 200_000) // стеля 100 000 > розриву
+	state.GoalsFill(fillShare(50), goals, 200_000, false) // стеля 100 000 > розриву
 
 	if math.Abs(goals[0].FillNowUAH-40_000) > 0.01 {
 		t.Errorf("ціль без дати дістала %.2f замість усього розриву 40 000", goals[0].FillNowUAH)
@@ -126,7 +126,7 @@ func TestGoalsFillIgnoresDoneAndClosedGoals(t *testing.T) {
 		goalRow(2, "Зібрана", 0, 0, 0, "2027-06-01"),
 		goalRow(3, "Авто", 100_000, 5_000, 0, "2027-06-01"),
 	}
-	state.GoalsFill(fillShare(20), goals, 30_000)
+	state.GoalsFill(fillShare(20), goals, 30_000, false)
 
 	if goals[0].FillNowUAH != 0 || goals[1].FillNowUAH != 0 {
 		t.Errorf("закрита або зібрана ціль узяла своє: %.2f і %.2f",
@@ -145,9 +145,9 @@ func TestGoalsFillIgnoresDoneAndClosedGoals(t *testing.T) {
 // читались би як «механізм працює й радить нуль».
 func TestGoalsFillSilentWithoutSetting(t *testing.T) {
 	goals := []state.Goal{goalRow(1, "Авто", 100_000, 5_000, 0, "2027-06-01")}
-	state.GoalsFill(nil, goals, 100_000)
-	state.GoalsFill(&state.SettingsDoc{}, goals, 100_000)
-	state.GoalsFill(fillShare(20), goals, 0) // плану доходу немає
+	state.GoalsFill(nil, goals, 100_000, false)
+	state.GoalsFill(&state.SettingsDoc{}, goals, 100_000, false)
+	state.GoalsFill(fillShare(20), goals, 0, false) // плану доходу немає
 
 	if goals[0].FillMonthUAH != 0 || goals[0].FillNowUAH != 0 {
 		t.Errorf("механізм заговорив без стелі або без плану: %+v", goals[0])
@@ -348,5 +348,34 @@ func TestAllocateUnknownSourceRefFails(t *testing.T) {
 	if resp, _ := do(t, "POST", srv.URL+"/api/allocate",
 		`{"amount":"1000","source_ref":"хтозна"}`); resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("сміття в посиланні мало дати 400, маємо %d", resp.StatusCode)
+	}
+}
+
+// Пауза цілей на час боргу: ключ goals_while_debt, який до цієї фази не
+// читав НІХТО.
+//
+// Замовчування «keep» — мовчазна зупинка накопичення була б найгіршим
+// виглядом помилки; «pause» вибирають свідомо.
+func TestGoalsPausedWhileExiting(t *testing.T) {
+	set := fillShare(20)
+
+	goals := []state.Goal{goalRow(1, "Авто", 500_000, 0, 0, "")}
+	state.GoalsFill(set, goals, 100_000, true)
+	if goals[0].FillNowUAH <= 0 {
+		t.Fatalf("без ключа борг зупинив цілі: %+v", goals[0])
+	}
+
+	set.GoalsWhileDebt = "pause"
+	goals = []state.Goal{goalRow(1, "Авто", 500_000, 0, 0, "")}
+	state.GoalsFill(set, goals, 100_000, true)
+	if goals[0].FillMonthUAH != 0 || goals[0].FillNowUAH != 0 {
+		t.Errorf("пауза не спрацювала: %+v", goals[0])
+	}
+
+	// Боргу немає — пауза не діє, хай би що стояло в ключі.
+	goals = []state.Goal{goalRow(1, "Авто", 500_000, 0, 0, "")}
+	state.GoalsFill(set, goals, 100_000, false)
+	if goals[0].FillNowUAH <= 0 {
+		t.Errorf("пауза діє без боргу: %+v", goals[0])
 	}
 }

@@ -40,6 +40,7 @@ type debtReq struct {
 	MinPaymentPct   string `json:"min_payment_pct"`
 	MinPaymentFloor string `json:"min_payment_floor"`
 	LateFee         string `json:"late_fee"`
+	ExitBy          string `json:"exit_by"`
 	// --- розстрочка ---
 	Principal        string `json:"principal"`
 	PaymentsTotal    string `json:"payments_total"`
@@ -144,6 +145,7 @@ func debtFromReq(req debtReq) (domain.Debt, error) {
 		dst *domain.Date
 	}{
 		{req.FirstPaymentDate, &d.FirstPaymentDate},
+		{req.ExitBy, &d.ExitBy},
 		{req.OpenedDate, &d.OpenedDate},
 		{req.ClosedDate, &d.ClosedDate},
 	} {
@@ -205,7 +207,18 @@ func checkDebtShape(d domain.Debt, today domain.Date) error {
 				"без неї немає ні мінімального платежу, ні ціни помилки, ні місця в черзі погашення " +
 				"(у договорі ПУМБ це «річна ставка», зазвичай 47,88% або 35,88%)")
 		}
+		// Ціль виходу в минулому не питання, а спогад: «чи встигну» до
+		// дати, яка минула, не ставлять. Порожньо лишається законним — це
+		// й означає «режиму виходу немає».
+		if d.ExitBy != "" && !d.ExitBy.After(today) {
+			return errors.New("«вийти в нуль до» — це майбутня дата: " +
+				"до вчорашньої встигати вже нема куди")
+		}
 		return nil
+	}
+	if d.ExitBy != "" {
+		return errors.New("вихід із ліміту буває лише в картки: " +
+			"у розстрочки є свій графік, і «вийти» з неї означає доплатити решту тіла")
 	}
 	if d.PaymentsTotal <= 0 {
 		return errors.New("у розстрочки має бути кількість платежів")
@@ -355,6 +368,7 @@ func (s *Server) handleListDebts(w http.ResponseWriter, r *http.Request) {
 		MinPaymentPct   float64   `json:"min_payment_pct,omitempty"`
 		MinPaymentFloor moneyJSON `json:"min_payment_floor,omitempty"`
 		LateFee         moneyJSON `json:"late_fee,omitempty"`
+		ExitBy          string    `json:"exit_by,omitempty"`
 
 		Principal        moneyJSON `json:"principal,omitempty"`
 		PaymentsTotal    int64     `json:"payments_total,omitempty"`
@@ -379,6 +393,7 @@ func (s *Server) handleListDebts(w http.ResponseWriter, r *http.Request) {
 			MinPaymentPct:   float64(d.MinPaymentBp) / 100,
 			MinPaymentFloor: toMoneyJSON(money.New(d.MinPaymentFloor, d.Currency)),
 			LateFee:         toMoneyJSON(money.New(d.LateFee, d.Currency)),
+			ExitBy:          string(d.ExitBy),
 
 			Principal:        toMoneyJSON(money.New(d.Principal, d.Currency)),
 			PaymentsTotal:    d.PaymentsTotal,

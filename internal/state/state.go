@@ -1130,10 +1130,66 @@ type DebtPlan struct {
 	FillMonthUAH float64 `json:"fill_month_uah,omitempty"`
 	FillNowUAH   float64 `json:"fill_now_uah,omitempty"`
 	PaidExtraUAH float64 `json:"paid_extra_uah,omitempty"`
+	// Exit — режим виходу з кредитного ліміту, якщо на картці названа дата.
+	//
+	// ОДИН НА ДОКУМЕНТ, за найближчою датою, і картка названа в самому
+	// блоці. Другої картки з власною ціллю в житті власника немає, а поле
+	// «про запас» під неї було б порожнім швом (CLAUDE.md §3): щойн вона
+	// зʼявиться, це стане списком, і зміна буде свідомою.
+	Exit *DebtExit `json:"exit,omitempty"`
 	// CardsWatched — скільки карток під наглядом. Пільговий цикл у
 	// документі не рахується, але сказати, що він узагалі є, треба: інакше
 	// нульовий TotalUAH при живій картці читається як «боргів немає».
 	CardsWatched int `json:"cards_watched,omitempty"`
+}
+
+// DebtExit — вихід із кредитного ліміту: скільки можна витрачати на
+// місяць, щоб до названої дати картка вийшла в нуль.
+//
+// # ЧОМУ ЦЕ ЖИВЕ В ДОКУМЕНТІ, А НЕ В /api/payoff
+//
+// Числа стоять на СЕРЕДНЬОМУ доході місяців до цілі, а середнє вміє
+// порахувати лише будівник — у нього є джерела й розгортання потоків по
+// місяцях. Порахувати його в обробнику означало б або другий обхід
+// потоків, або відповідь на питання «скільки приходить» із ОДНОГО
+// поточного місяця. Друге вже було й дало 128 911 ₴ замість 222 800: у
+// серпні одна зарплата скінчилась, а три ще не почались.
+type DebtExit struct {
+	// Card — чия це ціль. Назвою, а не id: блок читає людина.
+	Card   string  `json:"card"`
+	ExitBy string  `json:"exit_by"`
+	Months float64 `json:"months"`
+	// SpendCapUAH — ГОЛОВНЕ ЧИСЛО: скільки можна витрачати на місяць.
+	// NeedPerMonthUAH — скільки треба звільняти, щоб устигнути.
+	SpendCapUAH     float64 `json:"spend_cap_uah"`
+	NeedPerMonthUAH float64 `json:"need_per_month_uah"`
+	// Feasible — стеля додатна. Хибне означає «не встигнути навіть при
+	// нульових витратах»: окреме твердження, а не «мало».
+	Feasible bool `json:"feasible"`
+	// ShortPerMonthUAH — наскільки нинішні витрати перевищують стелю.
+	ShortPerMonthUAH float64 `json:"short_per_month_uah,omitempty"`
+	// ETADate — коли вийде за НИНІШНІМИ витратами; порожньо, коли борг не
+	// меншає (шістсот місяців — число про стелю розрахунку, а не про гроші).
+	ETADate string `json:"eta_date,omitempty"`
+	// GrossUAH / InvestUAH — СЕРЕДНІ за місяцями до цілі: увесь дохід і та
+	// його частина, яку виводять в інструменти. Показуються, бо без них
+	// стеля виглядає взятою зі стелі.
+	GrossUAH  float64 `json:"gross_uah"`
+	InvestUAH float64 `json:"invest_uah"`
+	// SpendUsedUAH — витрати, з якими рахували; SpendBasis — «виміряно» чи
+	// «заявлено»; обидва числа поруч, а BurnWhy каже, чому виміру немає.
+	SpendUsedUAH     float64 `json:"spend_used_uah"`
+	SpendBasis       string  `json:"spend_basis"`
+	SpendDeclaredUAH float64 `json:"spend_declared_uah,omitempty"`
+	SpendMeasuredUAH float64 `json:"spend_measured_uah,omitempty"`
+	BurnWhy          string  `json:"burn_why,omitempty"`
+	BurnFrom         string  `json:"burn_from,omitempty"`
+	BurnTo           string  `json:"burn_to,omitempty"`
+	// WithInvest* — те саме, якщо на картку піде й інвестиційна частка.
+	// Другий рядок, а не перемикач: рішення власника — вирішувати
+	// щомісяця, а застосунок називає ціну числом.
+	WithInvestSpendCapUAH float64 `json:"with_invest_spend_cap_uah"`
+	WithInvestETADate     string  `json:"with_invest_eta_date,omitempty"`
 }
 
 // ReserveRung — один горизонт драбини подушки: що буде доступно через
@@ -1199,6 +1255,18 @@ type MonthPlan struct {
 	// ДОДАТНІМ числом (у потоках вони від'ємні; знак у контракті плутав би).
 	IncomeUAH  float64 `json:"income_uah"`
 	ExpenseUAH float64 `json:"expense_uah,omitempty"`
+	// GrossUAH — ВАЛОВИЙ дохід місяця: ті самі потоки, але БЕЗ частки в
+	// портфель.
+	//
+	// IncomeUAH відповідає на «скільки з доходу дійде до паперів», і на
+	// живих даних це десята частина заробітку. А питання «скільки я можу
+	// витрачати цього місяця» ставиться до ВСЬОГО, що приходить: гроші,
+	// які не пішли в інструменти, не зникають — вони лягають на картку й
+	// витрачаються. Без цього числа вихід із кредитного ліміту рахувати
+	// нема з чого.
+	//
+	// Витрати сюди не входять: це саме дохід, а не нетто.
+	GrossUAH float64 `json:"gross_uah,omitempty"`
 	// ExtraUAH — позапланові надходження місяця, теж у портфельних грошах.
 	// Окремо від IncomeUAH, бо вони не мають планового рядка: обіцянки не
 	// було, і складати їх із виконанням обіцянки означало б сховати різницю

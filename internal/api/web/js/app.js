@@ -121,6 +121,7 @@ const VIEWS = {
   "policy/mix/main": policy.mix,
   "policy/instruments/main": policy.instruments,
   "policy/reserve/main": policy.reserve,
+  "policy/debt/main": policy.debt,
   "policy/goals/main": policy.goals,
   "policy/assumptions/main": policy.assumptions,
 

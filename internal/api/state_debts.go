@@ -51,6 +51,16 @@ func debtCapsReserve(debts []domain.Debt, marks []domain.DebtMark,
 		if d.Closed() {
 			continue
 		}
+		// РЕЖИМ ВИХОДУ ВМИКАЄ СТЕЛЮ САМ, не питаючи про ставку.
+		//
+		// Інакше найбільший борг власника її не вмикав би взагалі: борг у
+		// пільговому періоді коштує нуль, реальна ставка відʼємна, і за
+		// порогом нижче він проходить як безкоштовний. Але людина, яка
+		// назвала дату виходу, сказала цим, що гроші потрібні ЗАРАЗ, — а не
+		// тоді, коли банк почне нараховувати.
+		if d.IsCard() && d.ExitBy != "" && d.ExitBy.After(today) {
+			return true
+		}
 		balance := int64(0)
 		if d.IsCard() {
 			st := domain.CardState(d, marks, ops, nil, today)
@@ -86,8 +96,8 @@ func debtCapsReserve(debts []domain.Debt, marks []domain.DebtMark,
 // нерозрізнимо змішані повернення виписки (побут) і погашення непільгової
 // частини (борг); розділити їх можна було б лише вигаданим правилом, а
 // вигадане правило в головному числі гірше за чесно вужчу основу.
-func buildDebtPlan(debts []domain.Debt, marks []domain.DebtMark, ops []domain.DebtOp,
-	set *state.SettingsDoc, mp *state.MonthPlan, rates fx.Rates,
+func buildDebtPlan(src *sources, debts []domain.Debt, marks []domain.DebtMark,
+	ops []domain.DebtOp, set *state.SettingsDoc, mp *state.MonthPlan, rates fx.Rates,
 	now time.Time, today domain.Date) *state.DebtPlan {
 
 	if len(debts) == 0 {
@@ -171,8 +181,107 @@ func buildDebtPlan(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 			out.FillNowUAH = round2(math.Max(0, month-out.PaidExtraUAH))
 		}
 	}
-	if out.TotalUAH == 0 && out.CardsWatched == 0 {
+	out.Exit = buildDebtExit(debts, marks, ops, set, src, rates, today)
+	if out.TotalUAH == 0 && out.CardsWatched == 0 && out.Exit == nil {
 		return nil
+	}
+	return out
+}
+
+// buildDebtExit — вихід із ліміту за найближчою названою датою.
+//
+// # СЕРЕДНІЙ ДОХІД, А НЕ ДОХІД ПОТОЧНОГО МІСЯЦЯ
+//
+// Спіймано на бойових даних: у серпні одна зарплата власника скінчилась, а
+// три ще не почались, і «скільки приходить» вийшло 128 911 ₴ замість
+// 222 800. Стеля витрат, порахована з такого місяця, була б удвічі
+// суворішою за правду — і людина повірила б їй, бо число виглядає
+// точним.
+//
+// Тому дохід усереднюється по місяцях ДО ЦІЛІ: саме той період, про який
+// і питають. Місяці розгортає той самий buildMonthPlan, тож другого
+// означення «скільки цей потік платить у листопаді» не зʼявляється.
+func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.DebtOp,
+	set *state.SettingsDoc, src *sources, rates fx.Rates, today domain.Date) *state.DebtExit {
+
+	var card domain.Debt
+	for _, d := range debts {
+		if !d.IsCard() || d.Closed() || d.ExitBy == "" || !d.ExitBy.After(today) {
+			continue
+		}
+		if card.ID == 0 || d.ExitBy.Before(card.ExitBy) {
+			card = d
+		}
+	}
+	if card.ID == 0 {
+		return nil
+	}
+	st := domain.CardState(card, marks, ops, debts, today)
+	if st.Debt <= 0 {
+		return nil // виходити нема звідки — і це найкращий зі станів
+	}
+
+	// Скільки повних місяців попереду; щонайменше один, інакше середнє
+	// нема з чого брати. Стеля 24 — далі усереднення однаково не про темп.
+	months := domain.MonthsBetween(today, card.ExitBy) + 1
+	if months < 1 {
+		months = 1
+	}
+	if months > 24 {
+		months = 24
+	}
+	var gross, invest float64
+	for m := 0; m < months; m++ {
+		mp := buildMonthPlan(src, rates, today, m, 0)
+		if mp == nil {
+			continue
+		}
+		gross += mp.GrossUAH
+		invest += mp.IncomeUAH + mp.ExtraUAH
+	}
+	gross /= float64(months)
+	invest /= float64(months)
+
+	declared := 0.0
+	if set != nil && set.MonthlyExpensesUAH != nil {
+		declared = *set.MonthlyExpensesUAH
+	}
+	burn := domain.CardBurnFrom(card, marks, ops, today)
+	spend, basis := declared, "заявлено"
+	if burn.Known {
+		spend, basis = float64(burn.PerMonth)/100, "виміряно"
+	}
+
+	plan := domain.CardExit(domain.CardExitInput{
+		DebtUAH:   st.Debt,
+		GrossUAH:  int64(math.Round(gross * 100)),
+		InvestUAH: int64(math.Round(invest * 100)),
+		SpendUAH:  int64(math.Round(spend * 100)),
+		ExitBy:    card.ExitBy, Today: today,
+	})
+	if !plan.Known {
+		return nil
+	}
+	out := &state.DebtExit{
+		Card: card.Name, ExitBy: string(plan.ExitBy), Months: round2(plan.Months),
+		SpendCapUAH:      round2(float64(plan.SpendCap) / 100),
+		NeedPerMonthUAH:  round2(float64(plan.NeedPerMonth) / 100),
+		Feasible:         plan.Feasible,
+		ShortPerMonthUAH: round2(float64(plan.ShortPerMonth) / 100),
+		ETADate:          string(plan.ETADate),
+		GrossUAH:         round2(gross),
+		InvestUAH:        round2(invest),
+		SpendUsedUAH:     round2(spend),
+		SpendBasis:       basis,
+		SpendDeclaredUAH: round2(declared),
+		BurnWhy:          burn.Why,
+
+		WithInvestSpendCapUAH: round2(float64(plan.WithInvestSpendCap) / 100),
+		WithInvestETADate:     string(plan.WithInvestETADate),
+	}
+	if burn.Known {
+		out.SpendMeasuredUAH = round2(float64(burn.PerMonth) / 100)
+		out.BurnFrom, out.BurnTo = string(burn.From), string(burn.To)
 	}
 	return out
 }

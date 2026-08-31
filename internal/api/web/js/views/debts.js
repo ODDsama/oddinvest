@@ -126,6 +126,73 @@ function graceHTML(g) {
   </div>`;
 }
 
+/** Вихід із кредитного ліміту: скільки можна витрачати на місяць.
+ *
+ *  ГОЛОВНЕ ЧИСЛО — стеля витрат, а не борг і не дата. Питання, з яким сюди
+ *  приходять, звучить так: «скільки я можу піти в мінус на місяць, щоб за
+ *  два місяці вибратись». Борг і дата — це вхід, стеля — відповідь.
+ *
+ *  РОЗБІЖНІСТЬ ЗАЯВЛЕНИХ І ВИМІРЯНИХ ВИТРАТ НАЗИВАЄТЬСЯ ВГОЛОС (рішення
+ *  власника). Заявлені — намір, виміряні — те, що сталося; сховати
+ *  різницю означало б рахувати стелю від наміру й називати це фактом. */
+function exitHTML(g) {
+  const e = g.exit;
+  if (!e) return "";
+  return `<div class="card">
+    <h2 class="h-row">Вихід із ліміту до ${esc(e.exit_by)} ${infoBtn("cardExit")}</h2>
+    <div class="tiles flush">
+      <div class="tile hero"><div class="lbl">Можна витрачати</div>
+        <div class="val ${e.feasible ? "t-ok" : "t-danger"}">${e.feasible
+    ? fmtMoney(e.spend_cap) : "не встигнути"}</div>
+        <div class="sub">${e.feasible
+    ? `на місяць — і до ${esc(e.exit_by)} картка вийде в нуль`
+    : `навіть при нульових витратах: за ${e.months.toFixed(1)} міс треба звільняти
+       ${fmtMoney(e.need_per_month)}, а на картці лишається менше`}</div></div>
+      <div class="tile"><div class="lbl">Треба звільняти</div>
+        <div class="val">${fmtMoney(e.need_per_month)}</div>
+        <div class="sub">на місяць, щоб устигнути</div></div>
+      <div class="tile"><div class="lbl">За твоїм темпом</div>
+        <div class="val">${e.eta_date ? esc(e.eta_date) : "—"}</div>
+        <div class="sub">${e.eta_date
+    ? "якщо витрачати стільки ж, скільки зараз"
+    : "борг не меншає: витрати зʼїдають усе, що приходить"}</div></div>
+    </div>
+    ${Number(e.short_per_month.amount) > 0 ? `<div class="kv">
+      <span class="muted">Щоб устигнути, врізати витрати на</span>
+      <b class="t-warn">${fmtMoney(e.short_per_month)}/міс</b></div>` : ""}
+    <div class="kv"><span class="muted">Приходить усього</span>
+      <b>${fmtMoney(e.gross)}/міс</b></div>
+    <div class="kv"><span class="muted">З них виводиться в інструменти</span>
+      <b>${fmtMoney(e.invest)}/міс</b></div>
+    <div class="kv"><span class="muted">Витрати, з якими рахували (${esc(e.spend_basis)})</span>
+      <b>${fmtMoney(e.spend_used)}/міс</b></div>
+    ${spendGapHTML(e)}
+    <div class="sub">Якщо докинути на картку й інвестиційну частку —
+      витрачати можна <b>${fmtMoney(e.with_invest_spend_cap)}/міс</b>${e.with_invest_eta_date
+    ? `, а за нинішніми витратами вихід зсунеться на ${esc(e.with_invest_eta_date)}` : ""}.
+      Ціна цього — купівель за цей час не буде. Вирішувати щомісяця, застосунок лише
+      ставить обидва числа поруч.</div>
+  </div>`;
+}
+
+/** Заявлені витрати проти виміряних. Мовчазне «взяли заявлені» перетворило
+ *  б намір на факт — а на живих даних вони розходяться в рази. */
+function spendGapHTML(e) {
+  if (!e.spend_measured) {
+    return `<div class="sub">Виміряти витрати ще не вийшло: ${esc(e.burn_why || "")}
+      Доти стеля стоїть на заявлених ${fmtMoney(e.spend_declared)}/міс — це намір,
+      а не факт.</div>`;
+  }
+  const diff = Number(e.spend_measured.amount) - Number(e.spend_declared.amount);
+  return `<div class="sub">Заявлено ${fmtMoney(e.spend_declared)}/міс, виміряно
+    ${fmtMoney(e.spend_measured)}/міс за ${esc(e.burn_from)} — ${esc(e.burn_to)}.
+    ${Math.abs(diff) < 1 ? "Сходиться."
+    : diff > 0
+      ? `<span class="t-warn">Витрачається на ${fmtUAH(diff)} більше, ніж заявлено —
+         і саме ця різниця тримає ліміт на дні.</span>`
+      : `Витрачається менше, ніж заявлено; стеля рахується з виміряного.`}</div>`;
+}
+
 // ---------- ЧЕРГА ПОГАШЕННЯ ----------
 
 /** Борги, упорядковані чергою погашення обраної стратегії.
@@ -283,6 +350,10 @@ const debtFields = (ctx, row = null) => [
   whenKind(["card"], moneyField("late_fee", "Штраф за прострочення", {
     ph: "100.00", value: row && row.late_fee ? row.late_fee.amount : "",
   })),
+  // Ціль виходу — ДАТА, а не кількість місяців: «за два місяці» щомісяця
+  // означає іншу дату, і відставання не зʼявилось би ніколи.
+  whenKind(["card"], dateField("exit_by", "Вийти в нуль до (порожньо = без цілі)",
+    row ? { value: row.exit_by || "" } : {})),
 
   whenKind(["installment"], refSelect(ctx, {
     name: "card_id", ref: "debt-card", label: "Списується з картки",
@@ -333,6 +404,7 @@ const debtBody = (f) => {
     min_payment_pct: card ? f.min_payment_pct.value.trim() : "",
     min_payment_floor: card ? f.min_payment_floor.value.trim() : "",
     late_fee: card ? f.late_fee.value.trim() : "",
+    exit_by: card ? f.exit_by.value : "",
     card_id: card ? "" : refValue(f, "card_id"),
     principal: card ? "" : f.principal.value.trim(),
     payments_total: card ? "" : f.payments_total.value.trim(),
@@ -461,7 +533,7 @@ export async function debts(ctx, main) {
   ctx.debtList = list || [];
   const cards = (list || []).filter((d) => d.kind === "card" && !d.closed_date);
   main.innerHTML = `
-    ${(plan && plan.grace || []).map(graceHTML).join("")}
+    ${(plan && plan.grace || []).map((g) => graceHTML(g) + exitHTML(g)).join("")}
     ${cards.length ? "" : `<div class="card"><h2 class="h-row">Борги ${infoBtn("debts")}</h2>
       <div class="note">Заведи картку або розстрочку внизу — і застосунок почне рахувати
         чесну ставку, чергу погашення й дату, коли це скінчиться.</div></div>`}

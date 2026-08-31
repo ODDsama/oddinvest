@@ -342,3 +342,116 @@ func TestCardFreeDoesNotDoubleCountNegativeBalance(t *testing.T) {
 		t.Errorf("вільно %d, чекали %d", st.Free, want)
 	}
 }
+
+// ГОЛОВНЕ ЧИСЛО ФАЗИ: скільки можна витрачати на місяць, щоб вийти з
+// ліміту до названої дати. Числа справжні — з бойової бази власника.
+func TestCardExitSpendCap(t *testing.T) {
+	in := CardExitInput{
+		DebtUAH:   182_317_45, // ліміт вибраний до дна
+		GrossUAH:  222_800_00, // 2 300 $ + 2 500 $ + 9 000 ₴
+		InvestUAH: 41_500_00,  // те, що явно виводиться в інструменти
+		SpendUAH:  66_826_00,  // заявлені 1 500 $
+		Today:     "2026-09-01",
+		ExitBy:    "2026-10-31", // ≈2 місяці
+	}
+	got := CardExit(in)
+	if !got.Known || !got.Feasible {
+		t.Fatalf("вихід оголошено неможливим: %+v", got)
+	}
+	// На картці лишається 181 300; треба звільняти ≈91 159 → витрачати
+	// можна ≈90 100. Допуск на округлення місяців.
+	if got.SpendCap < 88_000_00 || got.SpendCap > 93_000_00 {
+		t.Errorf("стеля витрат %d, чекали ≈90 100 ₴", got.SpendCap)
+	}
+	if got.NeedPerMonth < 89_000_00 || got.NeedPerMonth > 94_000_00 {
+		t.Errorf("треба звільняти %d, чекали ≈91 159 ₴", got.NeedPerMonth)
+	}
+	// Заявлені витрати в стелю вкладаються — відставання немає.
+	if got.ShortPerMonth != 0 {
+		t.Errorf("бракує %d, хоча витрати нижчі за стелю", got.ShortPerMonth)
+	}
+	// Докинути інвестиційну частку — стеля росте рівно на неї.
+	if want := got.SpendCap + in.InvestUAH; got.WithInvestSpendCap != want {
+		t.Errorf("зі скинутою інвестчасткою стеля %d, чекали %d",
+			got.WithInvestSpendCap, want)
+	}
+
+	// За один місяць не виходить навіть при нульових витратах — і це
+	// окреме твердження, а не «мало».
+	in.ExitBy = "2026-09-30"
+	if got := CardExit(in); got.Feasible || got.SpendCap > 0 {
+		t.Errorf("за місяць оголошено можливим: стеля %d", got.SpendCap)
+	}
+}
+
+// Коли витрати зʼїдають увесь дохід, дати виходу НЕМАЄ — і це чесніше за
+// «через шістсот місяців».
+func TestCardExitETAWhenSpendingExceedsIncome(t *testing.T) {
+	in := CardExitInput{
+		DebtUAH: 182_317_45, GrossUAH: 222_800_00, InvestUAH: 41_500_00,
+		SpendUAH: 181_300_00, // рівно те, що лишається на картці
+		Today:    "2026-09-01", ExitBy: "2026-12-31",
+	}
+	got := CardExit(in)
+	if got.ETADate != "" {
+		t.Errorf("дата виходу %s при нульовому профіциті", got.ETADate)
+	}
+	// Але стеля існує й каже, наскільки треба врізатись.
+	if got.ShortPerMonth <= 0 {
+		t.Error("не сказано, наскільки витрати перевищують стелю")
+	}
+	// А з інвестиційною часткою профіцит зʼявляється — і дата теж.
+	if got.WithInvestETADate == "" {
+		t.Error("з докинутою інвестчасткою дати виходу теж немає")
+	}
+}
+
+// Витрати міряються ЗМІНОЮ БАЛАНСУ між звірками, а записані покупки в цій
+// формулі скорочуються: вони вже сидять у виміряному балансі.
+func TestCardBurnFromTwoMarks(t *testing.T) {
+	card := Debt{ID: 1, Kind: DebtCard, Currency: "UAH", StatementDay: 30, APRBp: 4788}
+	marks := []DebtMark{
+		{DebtID: 1, Date: "2026-08-01", Balance: -100_000_00},
+		{DebtID: 1, Date: "2026-08-31", Balance: -150_000_00},
+	}
+	ops := []DebtOp{
+		{DebtID: 1, Date: "2026-08-05", Kind: DebtOpPayment, Amount: 180_000_00},
+		// Покупка записана — і НЕ мусить змінити результат: вона вже в
+		// балансі другої звірки.
+		{DebtID: 1, Date: "2026-08-10", Kind: DebtOpDraw, Amount: 30_000_00},
+		// Рух того самого дня, що й перша звірка, уже в ній.
+		{DebtID: 1, Date: "2026-08-01", Kind: DebtOpPayment, Amount: 9_999_00},
+	}
+	got := CardBurnFrom(card, marks, ops, "2026-09-01")
+	if !got.Known {
+		t.Fatalf("вимір не відбувся: %q", got.Why)
+	}
+	// 180 000 внесено, баланс просів на 50 000 → витрачено 230 000.
+	if got.Spent != 230_000_00 {
+		t.Errorf("витрачено %d, чекали 230 000,00", got.Spent)
+	}
+	if got.Days != 30 || got.PerMonth < 229_000_00 || got.PerMonth > 234_000_00 {
+		t.Errorf("за місяць %d за %d днів", got.PerMonth, got.Days)
+	}
+}
+
+// Мовчить, коли міряти нема чим, і КАЖЕ, чого бракує.
+func TestCardBurnSilentWithoutSecondMark(t *testing.T) {
+	card := Debt{ID: 1, Kind: DebtCard, Currency: "UAH", StatementDay: 30}
+	one := []DebtMark{{DebtID: 1, Date: "2026-08-31", Balance: -100_000_00}}
+	got := CardBurnFrom(card, one, nil, "2026-09-01")
+	if got.Known || got.Why == "" {
+		t.Errorf("на одній звірці: known=%v why=%q", got.Known, got.Why)
+	}
+
+	// Баланс зріс, а надходжень не записано — це прогалина в журналі, а не
+	// відʼємні витрати.
+	marks := []DebtMark{
+		{DebtID: 1, Date: "2026-08-01", Balance: -100_000_00},
+		{DebtID: 1, Date: "2026-08-31", Balance: -10_000_00},
+	}
+	got = CardBurnFrom(card, marks, nil, "2026-09-01")
+	if got.Known || got.Why == "" {
+		t.Errorf("баланс зріс без надходжень: known=%v why=%q", got.Known, got.Why)
+	}
+}

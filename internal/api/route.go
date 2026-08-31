@@ -375,7 +375,9 @@ func (c *routeCarry) enterMonth(month string, mp *state.MonthPlan) {
 		// уперед рахував би стелю цілей від усього плану, а картка — від
 		// звуженого, і дві сторінки називали б різні числа про той самий
 		// місяць.
-		state.GoalsFill(c.set, c.goals, mp.PlanGoalsUAH)
+		// Прапорець боргу — той самий, що тримає стелю подушки: пауза цілей
+		// у проході вперед мусить діяти так само, як у документі.
+		state.GoalsFill(c.set, c.goals, mp.PlanGoalsUAH, c.debtCaps)
 	}
 }
 

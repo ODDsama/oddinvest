@@ -21,6 +21,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 )
 
 type payoffDebtJSON struct {
@@ -85,11 +86,59 @@ type payoffGraceJSON struct {
 	// MissFullCost / MissMinCost — ціна кожної з двох помилок за місяць.
 	MissFullCost moneyJSON `json:"miss_full_cost"`
 	MissMinCost  moneyJSON `json:"miss_min_cost"`
+	// Exit — режим виходу з ліміту, якщо на картці названа дата. Тут, а не
+	// окремим блоком відповіді: питання те саме («що з цією карткою»), і
+	// два списки з однаковими рядками довелося б звіряти очима.
+	Exit *payoffExitJSON `json:"exit,omitempty"`
 	// MarkDate / MarkAgeDays — на чому це все стоїть. Вік звірки
 	// показується завжди: місячної давнини баланс кредитки — це спогад.
 	MarkDate    string `json:"mark_date,omitempty"`
 	MarkAgeDays int    `json:"mark_age_days,omitempty"`
 	Known       bool   `json:"known"`
+}
+
+// payoffExitJSON — вихід із кредитного ліміту: скільки можна витрачати.
+type payoffExitJSON struct {
+	ExitBy string  `json:"exit_by"`
+	Months float64 `json:"months"`
+	// SpendCap — головне число: скільки можна витрачати на місяць, щоб
+	// устигнути. NeedPerMonth — скільки треба звільняти.
+	SpendCap     moneyJSON `json:"spend_cap"`
+	NeedPerMonth moneyJSON `json:"need_per_month"`
+	// Feasible — стеля додатна. Хибне означає «не встигнути навіть при
+	// нульових витратах»: окреме твердження, а не «мало».
+	Feasible bool `json:"feasible"`
+	// ShortPerMonth — наскільки нинішні витрати перевищують стелю.
+	ShortPerMonth moneyJSON `json:"short_per_month,omitempty"`
+	// ETADate — коли вийдеш за НИНІШНІМИ витратами; порожньо, коли борг не
+	// меншає.
+	ETADate string `json:"eta_date,omitempty"`
+	// GrossUAH / InvestUAH — з чого це пораховано: увесь дохід місяця й та
+	// його частина, яку зараз виводять в інструменти. Показуються, бо без
+	// них стеля виглядає взятою зі стелі.
+	Gross  moneyJSON `json:"gross"`
+	Invest moneyJSON `json:"invest"`
+	// SpendUsed — витрати, з якими рахували; SpendBasis — «виміряно» чи
+	// «заявлено»; SpendDeclared / SpendMeasured — обидва числа поруч, а
+	// BurnWhy каже, чому виміру немає (рішення власника: розбіжність
+	// вголос).
+	SpendUsed     moneyJSON `json:"spend_used"`
+	SpendBasis    string    `json:"spend_basis"`
+	SpendDeclared moneyJSON `json:"spend_declared,omitempty"`
+	// ВКАЗІВНИКОМ, а не значенням, і це не стиль: omitempty на структурі
+	// НЕ ДІЄ (та сама пастка, що вже названа при allocLine.Amount).
+	// Значенням поле їхало б у браузер як {"amount":"","currency":""} і
+	// читалось як «виміряно 0,00 ₴» — тобто застосунок стверджував би
+	// нульові витрати там, де виміру не було зовсім. Спіймано вживу.
+	SpendMeasured *moneyJSON `json:"spend_measured,omitempty"`
+	BurnWhy       string     `json:"burn_why,omitempty"`
+	BurnFrom      string     `json:"burn_from,omitempty"`
+	BurnTo        string     `json:"burn_to,omitempty"`
+	// WithInvest* — те саме, якщо на картку піде й інвестиційна частка.
+	// Другий рядок, а не перемикач: рішення власника — вирішувати щомісяця,
+	// а застосунок називає ціну числом.
+	WithInvestSpendCap moneyJSON `json:"with_invest_spend_cap"`
+	WithInvestETADate  string    `json:"with_invest_eta_date,omitempty"`
 }
 
 type payoffResp struct {
@@ -166,7 +215,11 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 	// — воно береться з документа.
 	extra, extraFrom := int64(0), "стеля дострокового погашення"
 	investPct := 0.0
+	var exitDoc *state.DebtExit
 	if doc, derr := s.buildState(ctx, now); derr == nil && doc != nil {
+		if doc.Debt != nil {
+			exitDoc = doc.Debt.Exit
+		}
 		if doc.Debt != nil && doc.Debt.FillNowUAH > 0 {
 			extra = int64(math.Round(doc.Debt.FillNowUAH * 100))
 		}
@@ -259,7 +312,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		}
 		st := domain.CardState(d, marks, ops, debts, today)
 		missFull, missMin := payoffGraceCost(d, st)
-		out.Grace = append(out.Grace, payoffGraceJSON{
+		row := payoffGraceJSON{
 			DebtID: d.ID, Name: d.Name,
 			DueDate: string(st.DueDate), DaysToDue: st.DaysToDue,
 			FullDue:      toMoneyJSON(money.New(st.StatementDue, d.Currency)),
@@ -269,7 +322,13 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 			MissMinCost:  toMoneyJSON(money.New(missMin, d.Currency)),
 			MarkDate:     string(st.MarkDate), MarkAgeDays: st.MarkAgeDays,
 			Known: st.Known,
-		})
+		}
+		// Числа режиму виходу приходять ГОТОВИМИ з документа: середній
+		// дохід місяців до цілі вміє порахувати лише будівник (шапка
+		// state.DebtExit), і другий його екземпляр тут розійшовся б із
+		// першим на першому ж перехідному місяці.
+		row.Exit = exitJSONOf(exitDoc, d.Name)
+		out.Grace = append(out.Grace, row)
 	}
 
 	writeJSON(w, http.StatusOK, out)
@@ -328,6 +387,37 @@ func payoffSchedule(run payoffRun, total int64, today domain.Date) []payoffMonth
 			Cost:  toMoneyJSON(money.New(a.cost, money.UAH)),
 			Left:  toMoneyJSON(money.New(left, money.UAH)),
 		})
+	}
+	return out
+}
+
+// exitJSONOf — блок виходу для НАЗВАНОЇ картки.
+//
+// Документ несе один такий блок (за найближчою датою), тож звірка за
+// назвою — це не пошук, а перевірка: чи саме про цю картку йдеться.
+// Без неї друга картка мовчки показувала б чужі числа.
+func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
+	if e == nil || e.Card != card {
+		return nil
+	}
+	uah := func(v float64) moneyJSON {
+		return toMoneyJSON(money.New(int64(math.Round(v*100)), money.UAH))
+	}
+	out := &payoffExitJSON{
+		ExitBy: e.ExitBy, Months: e.Months,
+		SpendCap: uah(e.SpendCapUAH), NeedPerMonth: uah(e.NeedPerMonthUAH),
+		Feasible: e.Feasible, ShortPerMonth: uah(e.ShortPerMonthUAH),
+		ETADate: e.ETADate,
+		Gross:   uah(e.GrossUAH), Invest: uah(e.InvestUAH),
+		SpendUsed: uah(e.SpendUsedUAH), SpendBasis: e.SpendBasis,
+		SpendDeclared: uah(e.SpendDeclaredUAH),
+		BurnWhy:       e.BurnWhy, BurnFrom: e.BurnFrom, BurnTo: e.BurnTo,
+		WithInvestSpendCap: uah(e.WithInvestSpendCapUAH),
+		WithInvestETADate:  e.WithInvestETADate,
+	}
+	if e.SpendMeasuredUAH > 0 {
+		m := uah(e.SpendMeasuredUAH)
+		out.SpendMeasured = &m
 	}
 	return out
 }
