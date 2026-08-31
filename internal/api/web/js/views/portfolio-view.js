@@ -38,8 +38,9 @@ import {
 import {
   yieldTilesHTML, yieldMixCard, shareTilesHTML, brokerDonutHTML, currencyChartHTML,
   rebalanceCard, kindMixCard, concentrationCard, ladderTableHTML,
-  liquidityCard, rateRiskCard, benchmarkCard, decisionsCard, marketCurveCard,
+  liquidityCard, rateRiskCard, decisionsCard, marketCurveCard,
 } from "./risk.js";
+import { rivalsCard, wireRivals, rivalsPath } from "./rivals.js";
 import { chartBlockHTML, snapshotsTableHTML, wireHistory } from "./history.js";
 
 // Підсумок місяця живе окремим модулем і реекспортується сюди: сторінка
@@ -103,23 +104,25 @@ export async function limits(ctx, main) {
   wireDisclosures(main);
 }
 
-/** З чим порівняти: долари під матрацом і аукціони Мінфіну.
+/** З чим порівняти: механічні альтернативи, власні поради й ринок.
  *
- *  Обидві картки тягнуть власні дані, і обидві — м'яко: маршрут може бути
- *  новішим за бекенд, а сторінка з однією карткою краща за порожню. */
+ *  Три різні «а якби інакше», і саме тому вони стоять разом. «Ціна моїх
+ *  рішень» порівнює з тим, хто не вирішував нічого; журнал рішень — із
+ *  тим, що радив сам застосунок; крива аукціонів — із ринком сьогодні.
+ *
+ *  Усі три тягнуть власні дані, і всі — м'яко: маршрут може бути новішим
+ *  за бекенд, а сторінка з двома картками краща за порожню. */
 export async function compare(ctx, main) {
-  const [bench, curve, dec] = await Promise.all([
-    ctx.soft("benchmark", null),
+  const [riv, curve, dec] = await Promise.all([
+    ctx.soft(rivalsPath(), null),
     ctx.soft("auctions/curve", []),
-    // Журнал рішень — третє «а якби інакше»: бенчмарк порівнює з
-    // нічогонеробленням, аукціони — з ринком, а це — з тим, що радив
-    // сам застосунок.
     ctx.soft("decisions", null),
   ]);
   main.innerHTML = `
-    ${benchmarkCard(ctx, bench)}
+    ${rivalsCard(ctx, riv)}
     ${decisionsCard(ctx, dec)}
     ${marketCurveCard(ctx, curve)}`;
+  wireRivals(ctx, main);
   wireDisclosures(main);
 }
 

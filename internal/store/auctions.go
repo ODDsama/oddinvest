@@ -190,3 +190,35 @@ func (s *Store) AuctionByBucketAsOf(ctx context.Context, on domain.Date) ([]Auct
 	})
 	return pts, nil
 }
+
+// AuctionLevels — уся історія рівнів розміщення для однієї пари
+// (валюта, строк), від найдавнішого до найсвіжішого.
+//
+// Окремий запит, а не цикл із AuctionByBucketAsOf по кожному дню: рік
+// історії — це ~365 звернень до бази на одне відкриття «Порівняння», і
+// саме такий N+1 щойно прибирали з довідника брокерів. Ряд малий (Мінфін
+// розміщує раз-два на тиждень), тож він читається цілком і далі
+// розвʼязується в памʼяті через domain.Quotes.AsOf.
+//
+// Без GROUP BY і без MAX(): тут потрібна не остання точка, а всі, і
+// агрегатний трюк із сусідніх запитів дав би рівно одну.
+func (s *Store) AuctionLevels(ctx context.Context, currency, bucket string) ([]AuctionPoint, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT auction_date, income_bp FROM ovdp_auctions
+		 WHERE currency=? AND bucket=? ORDER BY auction_date`, currency, bucket)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []AuctionPoint{}
+	for rows.Next() {
+		p := AuctionPoint{Currency: currency, Bucket: bucket}
+		var d string
+		if err := rows.Scan(&d, &p.IncomeBP); err != nil {
+			return nil, err
+		}
+		p.Date = domain.Date(d)
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}

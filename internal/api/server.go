@@ -90,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/period", s.handlePeriod)
 	mux.HandleFunc("GET /api/tax", s.handleTax)
 	mux.HandleFunc("GET /api/benchmark", s.handleBenchmark)
+	mux.HandleFunc("GET /api/rivals", s.handleRivals)
 	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
 	mux.HandleFunc("POST /api/payments/status", s.handlePaymentStatus)
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)

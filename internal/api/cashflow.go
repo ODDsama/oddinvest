@@ -8,8 +8,6 @@ package api
 
 import (
 	"context"
-	"fmt"
-	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -272,72 +270,44 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 // Документ приходить аргументом, а не будується тут: обробник його вже
 // має, і прогрес теж — а buildState найдорожчий шлях у бекенді, щоб
 // проходити його двічі за один запит.
+//
+// ТІЛА В НЬОГО БІЛЬШЕ НЕМАЄ, і це головне, що тут варто знати. Долар як
+// альтернатива рахується рівно один раз — у rivals.go, разом із трьома
+// іншими суперниками, — а ця функція лишається рівно тим, чим була для
+// своїх двох читачів: відповіддю «портфель проти доларів» у їхній формі.
+// Другий рахунок того самого числа розійшовся б із першим мовчки, і
+// помітно це стало б на віхі «Обіграв просто долари», яка каже те саме
+// іншими словами.
 func (s *Server) benchmark(ctx context.Context, doc *state.Doc) (benchResult, error) {
 	rates, err := s.rates(ctx)
 	if err != nil {
 		return benchResult{}, err
 	}
-	nowUSD, _ := fx.RateMajor(money.USD, rates)
+	nowUSD, _ := fx.RateMajor(money.USD, rates) //nolint:errcheck // немає курсу — нижче про це й сказано
 	out := benchResult{RateNow: round2(nowUSD)}
-	out.PortfolioUAH = round2(doc.NominalUAHEq + doc.AccountUAH + doc.FundsUAH + doc.DepositsUAH)
 
+	rv, err := s.rivals(ctx, doc, levelPortfolio)
+	if err != nil {
+		return benchResult{}, err
+	}
+	out.PortfolioUAH = rv.ActualUAH
+	out.Note = rv.Note
 	if nowUSD <= 0 {
 		out.Note = "немає курсу — порівнювати нема з чим"
 		return out, nil
 	}
-	cash, err := s.st.ListDeposits(ctx)
-	if err != nil {
-		return benchResult{}, err
+	row := rv.row(domain.RivalUSDCash)
+	if row.Why != "" {
+		out.Note = row.Why
+		return out, nil
 	}
-	var usdCents int64 // долари ×100
-	var missing int
-	for _, d := range cash {
-		if d.Currency == money.USD {
-			// Уже долари — купувати нічого не треба.
-			usdCents += d.Amount
-			continue
-		}
-		rate, rerr := s.st.RateOnOrBefore(ctx, d.Currency, d.Date)
-		if d.Currency == money.UAH {
-			rate, rerr = s.st.RateOnOrBefore(ctx, money.USD, d.Date)
-			if rerr != nil || rate <= 0 {
-				missing++
-				continue
-			}
-			// Гривня ділиться на курс; знак зберігається, тож зняття
-			// зменшує «куплені» долари так само, як і в житті.
-			//
-			// Через fx.FromUAH, а не цілочисельним діленням на місці:
-			// `d.Amount * RateScale / rate` відкидає дробову частину до
-			// нуля, тобто систематично применшує бенчмарк на кожному
-			// поповненні. FromUAH рахує тим самим big.Rat із банківським
-			// заокругленням, що й уся решта конвертацій.
-			u, cerr := fx.FromUAH(money.New(d.Amount, money.UAH), money.USD, fx.Rates{money.USD: rate})
-			if cerr != nil {
-				missing++
-				continue
-			}
-			usdCents += u.Amount()
-			continue
-		}
-		// Інша валюта: спершу в гривню за курсом того дня, потім у долар.
-		usdRate, uerr := s.st.RateOnOrBefore(ctx, money.USD, d.Date)
-		if rerr != nil || uerr != nil || rate <= 0 || usdRate <= 0 {
-			missing++
-			continue
-		}
-		usdCents += d.Amount * rate / usdRate
-	}
-	out.USDBought = round2(float64(usdCents) / 100)
-	out.BenchmarkUAH = round2(float64(usdCents) / 100 * nowUSD)
-	out.DiffUAH = round2(out.PortfolioUAH - out.BenchmarkUAH)
-	if out.BenchmarkUAH != 0 {
-		out.DiffPct = round2(out.DiffUAH / math.Abs(out.BenchmarkUAH) * 100)
-	}
-	if missing > 0 {
-		out.Note = fmt.Sprintf("%d %s без курсу на свою дату — не враховано",
-			missing, plural(missing, "рух", "рухи", "рухів"))
-	}
+	out.BenchmarkUAH = row.TerminalUAH
+	out.DiffUAH = row.DiffUAH
+	out.DiffPct = row.DiffPct
+	// USDBought виводиться з терміналу, а не рахується вдруге: термінал і
+	// є «куплені долари, оцінені сьогоднішнім курсом», тож ділення на той
+	// самий курс повертає рівно ті самі долари.
+	out.USDBought = round2(out.BenchmarkUAH / nowUSD)
 	return out, nil
 }
 

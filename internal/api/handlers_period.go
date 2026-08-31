@@ -208,8 +208,10 @@ func monthBounds(month string) (domain.Date, domain.Date, error) {
 // ЄДИНИЙ її двійник — запасна гілка capitalUAH у web/js/format.js, яка
 // існує для старішого бекенда. Міняєш склад капіталу — дивись і туди.
 func snapshotCapitalUAH(sn store.Snapshot) int64 {
-	return sn.NominalUAHEq + sn.AccountUAH + sn.FundsUAH +
-		sn.DepositsUAH + sn.ReserveUAH + sn.GoalsUAH + sn.NPFUAH
+	// Через snapshotPortfolioUAH, а не сімома доданками: різниця між
+	// двома рівнями «Ціни моїх рішень» — це рівно три останні доданки,
+	// і записана вона тут одним рядком, щоб не бути домовленістю.
+	return snapshotPortfolioUAH(sn) + sn.ReserveUAH + sn.GoalsUAH + sn.NPFUAH
 }
 
 // periodStructureOf — знімки на межах періоду й різниця між ними.
