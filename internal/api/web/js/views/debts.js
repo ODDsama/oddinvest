@@ -120,14 +120,33 @@ function graceHTML(g) {
 
 // ---------- ЧЕРГА ПОГАШЕННЯ ----------
 
-/** Борги, упорядковані чергою погашення обраної стратегії. */
-function queueHTML(p) {
+/** Борги, упорядковані чергою погашення обраної стратегії.
+ *
+ *  Порожня черга мусить сказати ЧОМУ вона порожня, і причин три: боргів
+ *  немає взагалі, вони позначені погашеними, або в картки немає ставки.
+ *  Мовчазна порожнеча читається як «застосунок не взяв дані» — саме так
+ *  вона й прочиталась на живих даних, коли дата в полі «Погашено»
+ *  прибрала борг з усіх чисел одразу. */
+function queueHTML(p, list) {
   if (!p || !(p.debts || []).length) {
+    const closed = (list || []).filter((d) => d.closed_date);
+    const noRate = (list || []).filter((d) => d.kind === "card" && !d.closed_date && !d.apr_pct);
+    let why = "У черзі стоїть лише те, на що нараховують: розстрочки й готівка з ліміту. "
+      + "Пільговий оборот картки сюди не входить — він нічого не коштує, доки його "
+      + "закривають вчасно.";
+    if (closed.length) {
+      why = `Позначено погашеними: ${closed.map((d) => esc(d.name) + " (" + esc(d.closed_date) + ")")
+        .join(", ")}. Закритий борг не рахується НІДЕ — ні в черзі, ні в обовʼязкових `
+        + "платежах місяця. Якщо борг ще живий, прибери дату в полі «Погашено»: вона про те, "
+        + "коли борг ЗАКРИТО, а не про те, коли платити.";
+    } else if (noRate.length) {
+      why = `Без ставки: ${noRate.map((d) => esc(d.name)).join(", ")}. `
+        + "Постав річну ставку після пільгового періоду — без неї немає ні мінімального "
+        + "платежу, ні ціни помилки, ні місця в черзі.";
+    }
     return `<div class="card"><h2 class="h-row">Черга погашення ${infoBtn("payoff")}</h2>
-      ${empty("Боргів під ставкою немає",
-    "У черзі стоїть лише те, на що нараховують: розстрочки й готівка з ліміту. "
-    + "Пільговий оборот картки сюди не входить — він нічого не коштує, доки його "
-    + "закривають вчасно.")}</div>`;
+      ${empty(closed.length || noRate.length
+    ? "Черга порожня, і це не тому, що боргів немає" : "Боргів під ставкою немає", why)}</div>`;
   }
   return `<div class="card"><h2 class="h-row">Черга погашення ${infoBtn("payoff")}</h2>
     <div class="note">${esc(p.note || "")}</div>
@@ -277,32 +296,46 @@ const debtFields = (ctx, row = null) => [
   })),
 
   dateField("opened_date", "Відкрито", row ? { value: row.opened_date || "" } : {}),
-  dateField("closed_date", "Погашено (закрити борг)",
+  // Підпис довгий навмисно. Коротке «Погашено (закрити борг)» власник
+  // прочитав як «коли треба погасити» — і не міг прочитати інакше: іншого
+  // поля з датою на картці немає, бо дату платежу застосунок виводить із
+  // розрахункового числа. Борг миттєво зник з усіх чисел.
+  dateField("closed_date", "Погашено — коли борг ЗАКРИТО (не дата платежу)",
     row ? { value: row.closed_date || "" } : {}),
   noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
 ];
 
-const debtBody = (f) => ({
-  name: f.name.value.trim(),
-  kind: f.kind.value,
-  currency: refValue(f, "currency"),
-  limit: f.limit.value.trim(),
-  statement_day: f.statement_day.value.trim(),
-  apr_pct: f.apr_pct.value.trim(),
-  apr_overdue_pct: f.apr_overdue_pct.value.trim(),
-  min_payment_pct: f.min_payment_pct.value.trim(),
-  min_payment_floor: f.min_payment_floor.value.trim(),
-  late_fee: f.late_fee.value.trim(),
-  card_id: refValue(f, "card_id"),
-  principal: f.principal.value.trim(),
-  payments_total: f.payments_total.value.trim(),
-  first_payment_date: f.first_payment_date.value,
-  fee_month_pct: f.fee_month_pct.value.trim(),
-  fee_free_months: f.fee_free_months.value.trim(),
-  opened_date: f.opened_date.value,
-  closed_date: f.closed_date.value,
-  note: f.note.value.trim(),
-});
+/** Тіло запиту — ЛИШЕ поля обраного виду.
+ *
+ *  whenKind ховає чужі поля, але форма надсилає їх однаково, і на живих
+ *  даних картка поїхала на бекенд із датою першого платежу розстрочки.
+ *  Шкоди від мертвої колонки немає, але вона перестає бути мертвою, щойно
+ *  вид перемкнуть: запис успадкував би числа, яких ніхто не вводив для
+ *  цього виду. */
+const debtBody = (f) => {
+  const card = f.kind.value === "card";
+  return {
+    name: f.name.value.trim(),
+    kind: f.kind.value,
+    currency: refValue(f, "currency"),
+    limit: card ? f.limit.value.trim() : "",
+    statement_day: card ? f.statement_day.value.trim() : "",
+    apr_pct: card ? f.apr_pct.value.trim() : "",
+    apr_overdue_pct: card ? f.apr_overdue_pct.value.trim() : "",
+    min_payment_pct: card ? f.min_payment_pct.value.trim() : "",
+    min_payment_floor: card ? f.min_payment_floor.value.trim() : "",
+    late_fee: card ? f.late_fee.value.trim() : "",
+    card_id: card ? "" : refValue(f, "card_id"),
+    principal: card ? "" : f.principal.value.trim(),
+    payments_total: card ? "" : f.payments_total.value.trim(),
+    first_payment_date: card ? "" : f.first_payment_date.value,
+    fee_month_pct: card ? "" : f.fee_month_pct.value.trim(),
+    fee_free_months: card ? "" : f.fee_free_months.value.trim(),
+    opened_date: f.opened_date.value,
+    closed_date: f.closed_date.value,
+    note: f.note.value.trim(),
+  };
+};
 
 /** Поля звірки. ТРИ ЧИСЛА В ОДНІЙ ФОРМІ — так само, як вони стоять на
  *  одному екрані додатка банку: розведені по трьох формах, вони
@@ -424,7 +457,7 @@ export async function debts(ctx, main) {
     ${cards.length ? "" : `<div class="card"><h2 class="h-row">Борги ${infoBtn("debts")}</h2>
       <div class="note">Заведи картку або розстрочку внизу — і застосунок почне рахувати
         чесну ставку, чергу погашення й дату, коли це скінчиться.</div></div>`}
-    ${queueHTML(plan)}
+    ${queueHTML(plan, list)}
     ${askHTML(plan)}
     ${strategiesHTML(plan)}
     ${scheduleHTML(plan)}
@@ -506,7 +539,9 @@ function termsOf(d) {
   if (d.kind === "card") {
     return [
       d.statement_day ? `розрахунок ${d.statement_day} числа` : "",
-      d.apr_pct ? `${d.apr_pct}% річних` : "",
+      // Відсутню ставку називаємо вголос: без неї рядок виглядає повним, а
+      // застосунок за ним не рахує нічого.
+      d.apr_pct ? `${d.apr_pct}% річних` : "⚠ ставки немає",
       d.min_payment_pct ? `мінімалка ${d.min_payment_pct}%` : "",
     ].filter(Boolean).join(" · ");
   }
