@@ -285,7 +285,8 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 	// два різні початки дали б два різні середні на ті самі гроші.
 	var targets []domain.Debt
 	var names []string
-	var debtTotal int64
+	var debtTotal, limitLeft int64
+	limitKnown := false
 	startM, endM := 0, 0
 	for _, d := range debts {
 		if !d.IsCard() || d.Closed() || d.ExitBy == "" || !d.ExitBy.After(today) {
@@ -298,6 +299,16 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		targets = append(targets, d)
 		names = append(names, d.Name)
 		debtTotal += st.Debt
+		// Скільки ще дозволяють самі ліміти: запас із доходу може бути
+		// більшим, ніж банк узагалі дасть узяти. Картка, вибрана понад
+		// ліміт, дає нуль, а не відʼємне — у сусідньої картки її мінус
+		// нічого не забирає.
+		if d.LimitAmount > 0 {
+			limitKnown = true
+			if room := d.LimitAmount - st.Debt; room > 0 {
+				limitLeft += room
+			}
+		}
 		if m := domain.MonthsBetween(today, d.ExitBy); m > endM {
 			endM = m
 		}
@@ -411,6 +422,14 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 
 		WithInvestSpendCapUAH: round2(float64(plan.WithInvestSpendCap) / 100),
 		WithInvestETADate:     string(plan.WithInvestETADate),
+
+		HeadroomUAH:           round2(float64(plan.Headroom) / 100),
+		MaxDebtUAH:            round2(float64(plan.MaxDebt) / 100),
+		WithInvestHeadroomUAH: round2(float64(plan.WithInvestHeadroom) / 100),
+	}
+	if limitKnown {
+		v := round2(float64(limitLeft) / 100)
+		out.LimitLeftUAH = &v
 	}
 	if burn.Known {
 		out.SpendMeasuredUAH = round2(float64(burn.PerMonth) / 100)

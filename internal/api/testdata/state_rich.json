@@ -251,6 +251,10 @@
       "burn_to": "2026-07-10",
       "with_invest_spend_cap_uah": 35941.8,
       "with_invest_eta_date": "2026-07-30",
+      "headroom_uah": 182023.7,
+      "max_debt_uah": 199023.7,
+      "with_invest_headroom_uah": 342023.7,
+      "limit_left_uah": 183000,
       "schedule": [
         {
           "month": "2026-08",

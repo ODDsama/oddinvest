@@ -812,6 +812,29 @@ type CardExitPlan struct {
 	// Другий рядок існує, щоб ціна вибору була числом, а не відчуттям.
 	WithInvestSpendCap int64
 	WithInvestETADate  Date
+	// Headroom — ОБЕРНЕНЕ питання: на скільки ще можна залізти в ліміт при
+	// нинішніх витратах і все одно вийти в нуль до дати. Це та сама стеля,
+	// помножена на місяці: щомісяця між стелею й витратами лишається
+	// різниця, і за всі місяці до дати вона і є запасом.
+	//
+	// ЗІ ЗНАКОМ, а не обрізане нулем: відʼємне значення — той самий перебір,
+	// що й ShortPerMonth, лише не за місяць, а разом за всі місяці. Два
+	// числа за побудовою не суперечать одне одному — інакше екран казав би
+	// «врізати витрати» і «можна ще залізти» водночас.
+	//
+	// Запас лягає на картку з НАЙПІЗНІШОЮ датою: у неї стільки ж місяців,
+	// скільки в усього плану, і докласти X до неї підіймає сумарну потребу
+	// рівно на X/Months. Докласти той самий X на ближчу картку означало б
+	// гасити його швидше, і запас був би меншим. При одній картці різниці
+	// немає.
+	Headroom int64
+	// MaxDebt — гранична глибина боргу: нинішній борг плюс запас, тобто
+	// найбільший борг, з якого при цих витратах ще виходять до дати. Не
+	// менше нуля: відʼємна «гранична глибина» не означала б нічого.
+	MaxDebt int64
+	// WithInvestHeadroom — той самий запас, якщо на картку піде й
+	// інвестиційна частка: другий рядок, як і решта WithInvest*.
+	WithInvestHeadroom int64
 }
 
 // CardExit рахує вихід із кредитного ліміту.
@@ -855,6 +878,16 @@ func CardExit(in CardExitInput) CardExitPlan {
 	out.WithInvestSpendCap = in.GrossUAH - in.InstallmentUAH - out.NeedPerMonth
 	out.WithInvestETADate, _ = cardExitETA(in.DebtUAH,
 		in.GrossUAH-in.InstallmentUAH-in.SpendUAH, in.Today)
+
+	// Запас — через СТЕЛЮ, а не через «лишається мінус витрати»: потреба
+	// рахується по картках за їхніми датами, і ближча тисне сильніше. Саме
+	// тому запас узгоджений із ShortPerMonth, а не з ETADate.
+	out.Headroom = int64(math.Round(out.Months * float64(out.SpendCap-in.SpendUAH)))
+	if out.MaxDebt = in.DebtUAH + out.Headroom; out.MaxDebt < 0 {
+		out.MaxDebt = 0
+	}
+	out.WithInvestHeadroom = int64(math.Round(
+		out.Months * float64(out.WithInvestSpendCap-in.SpendUAH)))
 	return out
 }
 

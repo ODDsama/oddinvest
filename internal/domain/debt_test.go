@@ -376,12 +376,48 @@ func TestCardExitSpendCap(t *testing.T) {
 		t.Errorf("зі скинутою інвестчасткою стеля %d, чекали %d",
 			got.WithInvestSpendCap, want)
 	}
+	// ОБЕРНЕНЕ ПИТАННЯ: на скільки ще можна залізти. Стеля мінус витрати,
+	// помножене на місяці; гранична глибина — борг плюс запас.
+	if want := int64(math.Round(in.Months * float64(got.SpendCap-in.SpendUAH))); got.Headroom != want {
+		t.Errorf("запас %d, чекали %d", got.Headroom, want)
+	}
+	if got.Headroom <= 0 {
+		t.Errorf("запас %d, хоча витрати нижчі за стелю", got.Headroom)
+	}
+	if want := in.DebtUAH + got.Headroom; got.MaxDebt != want {
+		t.Errorf("гранична глибина %d, чекали %d", got.MaxDebt, want)
+	}
+	if want := got.Headroom + int64(math.Round(in.Months*float64(in.InvestUAH))); got.WithInvestHeadroom != want {
+		t.Errorf("запас з інвестчасткою %d, чекали %d", got.WithInvestHeadroom, want)
+	}
 
 	// За один місяць не виходить навіть при нульових витратах — і це
 	// окреме твердження, а не «мало».
 	in.ExitBy, in.Months = "2026-09-30", 1
 	if got := CardExit(in); got.Feasible || got.SpendCap > 0 {
 		t.Errorf("за місяць оголошено можливим: стеля %d", got.SpendCap)
+	}
+}
+
+// Гранична глибина — досяжна: борг рівно в MaxDebt при тих самих витратах
+// ще вкладається в стелю, і запасу при ньому вже немає.
+func TestCardExitMaxDebtIsReachable(t *testing.T) {
+	in := CardExitInput{
+		DebtUAH: 182_317_45, GrossUAH: 222_800_00, InvestUAH: 41_500_00,
+		SpendUAH: 66_826_00, Today: "2026-09-01", ExitBy: "2026-10-31", Months: 2,
+	}
+	first := CardExit(in)
+	if first.MaxDebt <= in.DebtUAH {
+		t.Fatalf("гранична глибина %d не більша за борг %d", first.MaxDebt, in.DebtUAH)
+	}
+	in.DebtUAH = first.MaxDebt
+	got := CardExit(in)
+	if !got.Feasible || got.ShortPerMonth != 0 {
+		t.Errorf("на граничній глибині вихід оголошено недосяжним: %+v", got)
+	}
+	// Потреба округлюється вгору до копійки на місяць — звідси допуск.
+	if got.Headroom > 0 || got.Headroom < -int64(in.Months) {
+		t.Errorf("на граничній глибині запас %d, чекали ≈0", got.Headroom)
 	}
 }
 
@@ -400,6 +436,15 @@ func TestCardExitETAWhenSpendingExceedsIncome(t *testing.T) {
 	// Але стеля існує й каже, наскільки треба врізатись.
 	if got.ShortPerMonth <= 0 {
 		t.Error("не сказано, наскільки витрати перевищують стелю")
+	}
+	// Запас при цьому ВІДʼЄМНИЙ і дорівнює тому самому перебору за всі
+	// місяці разом: два числа не мають права суперечити одне одному.
+	if want := -int64(math.Round(in.Months * float64(got.ShortPerMonth))); got.Headroom != want {
+		t.Errorf("запас %d, чекали %d (перебір за %v міс)", got.Headroom, want, in.Months)
+	}
+	if got.MaxDebt >= in.DebtUAH {
+		t.Errorf("гранична глибина %d не менша за борг %d при перевищених витратах",
+			got.MaxDebt, in.DebtUAH)
 	}
 	// А з інвестиційною часткою профіцит зʼявляється — і дата теж.
 	if got.WithInvestETADate == "" {

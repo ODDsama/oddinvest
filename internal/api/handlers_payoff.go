@@ -166,6 +166,18 @@ type payoffExitJSON struct {
 	// їхню суму більше, ніж є (на бойових даних — на 8 606,70 ₴/міс).
 	// Саме він гасить борг, і саме його не було видно ніде.
 	OnCard moneyJSON `json:"on_card"`
+	// Headroom — обернене питання: на скільки ще можна залізти в ліміт при
+	// цих витратах і все одно вийти до дати. Зі знаком: відʼємне — той
+	// самий перебір, що й ShortPerMonth, разом за всі місяці. MaxDebt —
+	// гранична глибина боргу (борг плюс запас). WithInvestHeadroom — те
+	// саме з докинутою інвестиційною часткою.
+	Headroom           moneyJSON `json:"headroom"`
+	MaxDebt            moneyJSON `json:"max_debt"`
+	WithInvestHeadroom moneyJSON `json:"with_invest_headroom"`
+	// LimitLeft — скільки ще дозволяють самі ліміти карток. Вказівник з
+	// тієї самої причини, що й SpendMeasured: «ліміт не заданий» мусить
+	// доїхати до браузера як відсутність, а не як «0,00 ₴».
+	LimitLeft *moneyJSON `json:"limit_left,omitempty"`
 	// Schedule — прохід балансу вперед. Порожній, коли борг не меншає.
 	Schedule []payoffExitStepJSON `json:"schedule,omitempty"`
 }
@@ -474,6 +486,13 @@ func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
 		WithInvestSpendCap: uah(e.WithInvestSpendCapUAH),
 		WithInvestETADate:  e.WithInvestETADate,
 		OnCard:             uah(e.GrossUAH - e.InvestUAH - e.InstallmentsUAH),
+		Headroom:           uah(e.HeadroomUAH),
+		MaxDebt:            uah(e.MaxDebtUAH),
+		WithInvestHeadroom: uah(e.WithInvestHeadroomUAH),
+	}
+	if e.LimitLeftUAH != nil {
+		l := uah(*e.LimitLeftUAH)
+		out.LimitLeft = &l
 	}
 	for _, st := range e.Schedule {
 		out.Schedule = append(out.Schedule, payoffExitStepJSON{

@@ -1225,6 +1225,20 @@ type DebtExit struct {
 	// щомісяця, а застосунок називає ціну числом.
 	WithInvestSpendCapUAH float64 `json:"with_invest_spend_cap_uah"`
 	WithInvestETADate     string  `json:"with_invest_eta_date,omitempty"`
+	// HeadroomUAH — ОБЕРНЕНЕ питання: на скільки ще можна залізти в ліміт
+	// при нинішніх витратах і все одно вийти до дати. Стеля мінус витрати,
+	// помножене на місяці. ЗІ ЗНАКОМ і без omitempty: відʼємне — той самий
+	// перебір, що й short_per_month_uah, лише разом за всі місяці, а нуль —
+	// «рівно на межі», не «не порахували». MaxDebtUAH — гранична глибина,
+	// борг плюс запас, не менше нуля.
+	HeadroomUAH           float64 `json:"headroom_uah"`
+	MaxDebtUAH            float64 `json:"max_debt_uah"`
+	WithInvestHeadroomUAH float64 `json:"with_invest_headroom_uah"`
+	// LimitLeftUAH — скільки ще дозволяють САМІ ліміти карток (сума
+	// «ліміт мінус борг» по картках плану). Вказівник, а не число: «ліміт
+	// не заданий» і «ліміт вибраний до нуля» — різні відповіді, і нуль тут
+	// має право означати лише другу.
+	LimitLeftUAH *float64 `json:"limit_left_uah,omitempty"`
 	// Schedule — прохід балансу картки вперед, помісячно. Порожній, коли
 	// борг не меншає: двадцять чотири однакові рядки — не таблиця, а
 	// спосіб не сказати «за цим темпом виходу не буде».

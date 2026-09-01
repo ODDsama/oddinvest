@@ -175,6 +175,7 @@ function exitHTML(g) {
         <div class="sub">${e.eta_date
     ? "якщо витрачати стільки ж, скільки зараз"
     : "борг не меншає: витрати зʼїдають усе, що приходить"}</div></div>
+      ${headroomTile(e)}
     </div>
     ${Number(e.short_per_month.amount) > 0 ? `<div class="kv">
       <span class="muted">Щоб устигнути, врізати витрати на</span>
@@ -203,10 +204,33 @@ function exitHTML(g) {
     ${exitWalkHTML(e)}
     <div class="sub">Якщо докинути на картку й інвестиційну частку —
       витрачати можна <b>${fmtMoney(e.with_invest_spend_cap)}/міс</b>${e.with_invest_eta_date
-    ? `, а за нинішніми витратами вихід зсунеться на ${esc(e.with_invest_eta_date)}` : ""}.
+    ? `, а за нинішніми витратами вихід зсунеться на ${esc(e.with_invest_eta_date)}` : ""}${
+    Number(e.with_invest_headroom.amount) > 0
+      ? `, а залізти можна було б ще на <b>${fmtMoney(e.with_invest_headroom)}</b>` : ""}.
       Ціна цього — купівель за цей час не буде. Вирішувати щомісяця, застосунок лише
       ставить обидва числа поруч.</div>
   </div>`;
+}
+
+/** Обернене питання до стелі: НА СКІЛЬКИ ще можна залізти в ліміт, щоб усе
+ *  одно вийти до дати. Бекенд рахує стелю мінус витрати за всі місяці разом
+ *  (правило «арифметика в одному місці»); тут лише два стани — запас є або
+ *  перебір, — і межа самого ліміту банку, коли вона задана і тісніша. */
+function headroomTile(e) {
+  const room = Number(e.headroom.amount);
+  const limitLeft = e.limit_left ? Number(e.limit_left.amount) : null;
+  if (room < 0) {
+    return `<div class="tile"><div class="lbl">Перебір боргу</div>
+        <div class="val t-warn">${fmtUAH(-room)}</div>
+        <div class="sub">гранична глибина при цих витратах — ${fmtMoney(e.max_debt)};
+          далі — або врізати витрати, або зсувати дату</div></div>`;
+  }
+  const tight = limitLeft != null && limitLeft < room;
+  return `<div class="tile"><div class="lbl">Ще можна залізти</div>
+        <div class="val t-ok">${fmtMoney(e.headroom)}</div>
+        <div class="sub">до граничного боргу ${fmtMoney(e.max_debt)} — глибше при
+          витратах ${fmtMoney(e.spend_used)}/міс до ${esc(e.exit_by)} уже не вийти${tight
+    ? `; самі ліміти карток при цьому дозволяють лише ${fmtUAH(limitLeft)}` : ""}</div></div>`;
 }
 
 /** Слово «картка» в потрібному числі: план буває спільним на кілька. */

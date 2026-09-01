@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -412,6 +413,77 @@ func TestDebtExitWalkSkipsMonthAlreadyLived(t *testing.T) {
 	first := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
 	if want := first.AddDate(0, 1, 0).Format("2006-01"); sch[0].Month != want {
 		t.Errorf("перший крок %s, чекали %s", sch[0].Month, want)
+	}
+}
+
+// Обернене питання до стелі: на скільки ще можна залізти в ліміт. Запас —
+// стеля мінус витрати за всі місяці разом, гранична глибина — борг плюс
+// запас, а межа самого ліміту банку показується лише тоді, коли ліміт
+// заданий: «не заданий» і «вибраний до нуля» — різні відповіді.
+func TestDebtExitHeadroomMatchesCap(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, out := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_expenses":"10000","monthly_expenses_currency":"UAH"}`); resp.StatusCode != 204 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, out)
+	}
+	if resp, out := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"60000","currency":"UAH",
+		  "cadence":"month","from_date":"2020-01-05","invest_pct":"0"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік: %d %s", resp.StatusCode, out)
+	}
+	exit := time.Now().AddDate(0, 3, 0).Format("2006-01-02")
+	card := addDebt(t, srv.URL, `{"name":"Картка","kind":"card","currency":"UAH",
+		"limit":"150000","statement_day":"30","apr_pct":"47.88","min_payment_pct":"3",
+		"exit_by":"`+exit+`"}`)
+	if resp, out := do(t, "POST", srv.URL+"/api/debt-marks",
+		`{"debt_id":"`+did(card)+`","balance":"-90000","statement_due":"90000"}`); resp.StatusCode != 201 {
+		t.Fatalf("звірка: %d %s", resp.StatusCode, out)
+	}
+
+	e := exitOf(t, srv.URL)
+	if e == nil {
+		t.Fatal("блоку виходу немає")
+	}
+	if e.Months < 1 || e.SpendCapUAH <= e.SpendUsedUAH {
+		t.Fatalf("фікстура не дає запасу: %+v", e)
+	}
+	want := e.Months * (e.SpendCapUAH - e.SpendUsedUAH)
+	if math.Abs(e.HeadroomUAH-want) > 0.05 {
+		t.Errorf("запас %.2f, чекали %.2f (%.0f міс × (%.2f − %.2f))",
+			e.HeadroomUAH, want, e.Months, e.SpendCapUAH, e.SpendUsedUAH)
+	}
+	if want := 90_000 + e.HeadroomUAH; math.Abs(e.MaxDebtUAH-want) > 0.05 {
+		t.Errorf("гранична глибина %.2f, чекали %.2f", e.MaxDebtUAH, want)
+	}
+	if e.LimitLeftUAH == nil {
+		t.Fatal("ліміт заданий, а «скільки ще дозволяє ліміт» не порахували")
+	}
+	if *e.LimitLeftUAH != 60_000 {
+		t.Errorf("ліміт дозволяє %.2f, чекали 60 000", *e.LimitLeftUAH)
+	}
+	if math.Abs(e.WithInvestHeadroomUAH-e.HeadroomUAH) > 0.05 {
+		t.Errorf("при нульовій інвестчастці запаси мусять збігатись: %.2f і %.2f",
+			e.WithInvestHeadroomUAH, e.HeadroomUAH)
+	}
+
+	// Картка без ліміту — межі ліміту немає, а не «нуль».
+	srv2, st2 := testServer(t)
+	seed(t, st2)
+	if resp, out := do(t, "POST", srv2.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"60000","currency":"UAH",
+		  "cadence":"month","from_date":"2020-01-05","invest_pct":"0"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік: %d %s", resp.StatusCode, out)
+	}
+	card2 := addDebt(t, srv2.URL, `{"name":"Картка","kind":"card","currency":"UAH",
+		"statement_day":"30","apr_pct":"47.88","min_payment_pct":"3",
+		"exit_by":"`+exit+`"}`)
+	if resp, out := do(t, "POST", srv2.URL+"/api/debt-marks",
+		`{"debt_id":"`+did(card2)+`","balance":"-90000","statement_due":"90000"}`); resp.StatusCode != 201 {
+		t.Fatalf("звірка: %d %s", resp.StatusCode, out)
+	}
+	if e := exitOf(t, srv2.URL); e == nil || e.LimitLeftUAH != nil {
+		t.Errorf("без ліміту «скільки ще дозволяє ліміт» мусить бути відсутнім: %+v", e)
 	}
 }
 
