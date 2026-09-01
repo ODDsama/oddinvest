@@ -78,7 +78,7 @@ func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
 	// мовчки (див. newRouteCarry), і плану того місяця вона не читає.
 	plans := make(map[string]*state.MonthPlan, routeHorizonMonths+1)
 	for m := 0; m <= routeHorizonMonths; m++ {
-		plans[monthKeyAt(today, m)] = buildMonthPlan(src, src.rates, today, m, 0)
+		plans[monthKeyAt(today, m)] = buildMonthPlan(src, src.rates, today, m, 0, "")
 	}
 	if doc.MonthPlan != nil {
 		plans[monthKeyAt(today, 0)] = doc.MonthPlan

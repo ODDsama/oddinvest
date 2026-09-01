@@ -892,6 +892,7 @@
                 "type": "object",
                 "properties": {
                   "month": { "type": "string" },
+                  "from": { "type": "string", "description": "З якої дати місяць рахується — день після звірки картки. Відсутнє для повних місяців. У такому рядку дохід — лише потоки з платіжним днем після звірки, витрати — пропорційно дням, що лишились" },
                   "gross_uah": { "type": "number", "description": "Скільки приходить цього місяця ВСЬОГО" },
                   "invest_uah": { "type": "number", "description": "Що з того йде в портфель" },
                   "installments_uah": { "type": "number", "description": "Платежі карткових розстрочок цього місяця" },

@@ -190,6 +190,9 @@ type payoffExitStepJSON struct {
 	Installments moneyJSON `json:"installments"`
 	Spend        moneyJSON `json:"spend"`
 	Left         moneyJSON `json:"left"`
+	// From — з якої дати місяць рахується (день після звірки); порожньо для
+	// повних місяців.
+	From string `json:"from,omitempty"`
 }
 
 type payoffResp struct {
@@ -496,7 +499,7 @@ func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
 	}
 	for _, st := range e.Schedule {
 		out.Schedule = append(out.Schedule, payoffExitStepJSON{
-			Month: st.Month, Gross: uah(st.GrossUAH), Invest: uah(st.InvestUAH),
+			Month: st.Month, From: st.From, Gross: uah(st.GrossUAH), Invest: uah(st.InvestUAH),
 			Installments: uah(st.InstallmentsUAH),
 			Spend:        uah(st.SpendUAH), Left: uah(st.LeftUAH),
 		})

@@ -1262,6 +1262,11 @@ type DebtExitStep struct {
 	InstallmentsUAH float64 `json:"installments_uah,omitempty"`
 	SpendUAH        float64 `json:"spend_uah"`
 	LeftUAH         float64 `json:"left_uah"`
+	// From — дата, з якої місяць входить у прохід: день після звірки картки.
+	// Порожньо для повних місяців. У такому рядку дохід — лише потоки з
+	// платіжним днем після звірки, а витрати — пропорційно дням, що
+	// лишились: за прожиті дні вони вже сидять у самому боргу.
+	From string `json:"from,omitempty"`
 }
 
 // ReserveRung — один горизонт драбини подушки: що буде доступно через

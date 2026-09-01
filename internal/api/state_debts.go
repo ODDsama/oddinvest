@@ -275,11 +275,21 @@ func buildDebtPlan(src *sources, debts []domain.Debt, marks []domain.DebtMark,
 func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.DebtOp,
 	set *state.SettingsDoc, src *sources, rates fx.Rates, today domain.Date) *state.DebtExit {
 
-	// ПЕРШИЙ НЕПРОЖИТИЙ МІСЯЦЬ — за найсвіжішою звіркою серед цілей.
+	// ВІКНО ПОЧИНАЄТЬСЯ ЗІ ЗВІРКИ — за найсвіжішою серед цілей.
 	//
-	// Борг у звірці — це вже РЕЗУЛЬТАТ прожитих місяців: дохід прийшов,
-	// витрати сталися, залишок осів у балансі. Прохід, що починається з
-	// того самого місяця, рахує його вдруге (спіймано власником 31 серпня).
+	// Борг у звірці — це вже РЕЗУЛЬТАТ того, що сталось до неї: дохід із
+	// платіжним днем на її дату або раніше прийшов, витрати сталися, залишок
+	// осів у балансі. Рахувати ці гроші ще раз означало б обіцяти їх двічі
+	// (спіймано власником 31 серпня).
+	//
+	// Але прожитим є не МІСЯЦЬ звірки, а те, що заплачено НА ЇЇ ДАТУ.
+	// Спіймано власником 1 вересня: звірка того ж дня викидала весь вересень,
+	// хоч аванс 7-го й дві зарплати 15-го та 21-го були ще попереду — вікно
+	// звужувалось до одного жовтня, а «за твоїм темпом» поруч рахувало
+	// вересень і казало 21 вересня. Тому місяць звірки входить ЧАСТКОВО:
+	// потоками після звірки, розстрочками після неї й витратами пропорційно
+	// дням, що лишились. Коли після звірки в її місяці не платить ніщо, він
+	// прожитий цілком, як і доти.
 	//
 	// Одне вікно на всі картки, а не своє в кожної: дохід у них спільний, і
 	// два різні початки дали б два різні середні на ті самі гроші.
@@ -287,7 +297,8 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 	var names []string
 	var debtTotal, limitLeft int64
 	limitKnown := false
-	startM, endM := 0, 0
+	var markDate domain.Date
+	endM := 0
 	for _, d := range debts {
 		if !d.IsCard() || d.Closed() || d.ExitBy == "" || !d.ExitBy.After(today) {
 			continue
@@ -312,56 +323,78 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		if m := domain.MonthsBetween(today, d.ExitBy); m > endM {
 			endM = m
 		}
-		if last := lastMarkDate(d, marks, today); last != "" {
-			if n := domain.MonthsBetween(today, last) + 1; n > startM {
-				startM = n
-			}
+		if last := lastMarkDate(d, marks, today); last.After(markDate) {
+			markDate = last
 		}
 	}
 	if len(targets) == 0 || debtTotal <= 0 {
 		return nil
 	}
 
-	months := endM - startM + 1
-	if months < 1 {
-		// До найпізнішої дати не лишилось жодного НЕПРОЖИТОГО місяця. Це не
+	// Перший рядок і його вага. Без звірки — з поточного місяця цілком: у
+	// балансі й так нічого не виміряно. Зі звіркою — її місяць, якщо в
+	// ньому ще щось платиться після неї, з часткою за днями після звірки;
+	// інакше наступний.
+	startM, share := 0, 1.0
+	var from domain.Date
+	if markDate != "" {
+		markM := domain.MonthsBetween(today, markDate)
+		startM = markM + 1
+		if mp := buildMonthPlan(src, rates, today, markM, 0, markDate); mp != nil && mp.GrossUAH > 0 {
+			days := monthStart(today, markM+1).AddDays(-1).Day()
+			startM = markM
+			share = float64(days-markDate.Day()) / float64(days)
+			from = markDate.AddDays(1)
+		}
+	}
+	if endM < startM {
+		// До найпізнішої дати не лишилось нічого непрожитого. Це не
 		// помилка, а відповідь: питати «скільки витрачати щомісяця» пізно.
 		return nil
 	}
-	if months > 24 {
-		months = 24
+	rows := endM - startM + 1
+	if rows > 24 {
+		rows = 24
 	}
+	// Місяців — ДРОБОВЕ число: частковий рядок важить своєю часткою, і саме
+	// тому «на місяць» лишається місячним темпом, а не середнім по рядках,
+	// один із яких коротший.
+	months := float64(rows-1) + share
 
 	// Потреба — по кожній картці за ЇЇ датою, і сумою.
 	var needTotal int64
 	for _, d := range targets {
 		st := domain.CardState(d, marks, ops, debts, today)
-		own := domain.MonthsBetween(today, d.ExitBy) - startM + 1
-		if own < 1 {
-			own = 1 // дата вже в цьому вікні: усе треба звільнити одразу
+		own := float64(domain.MonthsBetween(today, d.ExitBy)-startM) + share
+		if own < share {
+			own = share // дата вже в цьому вікні: усе треба звільнити одразу
 		}
-		needTotal += int64(math.Ceil(float64(st.Debt) / float64(own)))
+		needTotal += int64(math.Ceil(float64(st.Debt) / own))
 	}
 
 	var gross, invest, inst float64
 	// perMonth — той самий обхід, але помісячно: із нього виходить і
 	// середнє, і прохід балансу вперед. Другого циклу не заводимо, бо
 	// «скільки прийде в жовтні» мусить лишитись одним означенням.
-	perMonth := make([]debtMonthRow, 0, months)
-	for m := startM; m < startM+months; m++ {
-		row := debtMonthRow{}
-		if mp := buildMonthPlan(src, rates, today, m, 0); mp != nil {
+	perMonth := make([]debtMonthRow, 0, rows)
+	for m := startM; m < startM+rows; m++ {
+		row := debtMonthRow{share: 1}
+		var after domain.Date
+		if m == startM && from != "" {
+			row.share, row.from, after = share, from, markDate
+		}
+		if mp := buildMonthPlan(src, rates, today, m, 0, after); mp != nil {
 			row.gross, row.invest = mp.GrossUAH, mp.IncomeUAH+mp.ExtraUAH
 		}
-		row.inst = cardInstallmentsInMonth(src, rates, today, m)
+		row.inst = cardInstallmentsInMonth(src, rates, today, m, row.from)
 		perMonth = append(perMonth, row)
 		gross += row.gross
 		invest += row.invest
 		inst += row.inst
 	}
-	gross /= float64(months)
-	invest /= float64(months)
-	inst /= float64(months)
+	gross /= months
+	invest /= months
+	inst /= months
 
 	declared := 0.0
 	if set != nil && set.MonthlyExpensesUAH != nil {
@@ -396,10 +429,10 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		InstallmentUAH: int64(math.Round(inst * 100)),
 		SpendUAH:       int64(math.Round(spend * 100)),
 		ExitBy:         exitBy, Today: today,
-		// Місяців рівно стільки, скільки НЕПРОЖИТИХ лишилось, а не скільки
-		// днів ділиться на 30,44: інакше «треба звільняти щомісяця»
-		// рахувалось би з місяців, які вже минули.
-		Months:          float64(months),
+		// Місяців рівно стільки, скільки НЕПРОЖИТИХ лишилось (місяць звірки
+		// — своєю часткою), а не скільки днів ділиться на 30,44: інакше
+		// «треба звільняти щомісяця» рахувалось би з того, що вже минуло.
+		Months:          months,
 		NeedPerMonthUAH: needTotal,
 	})
 	if !plan.Known {
@@ -440,13 +473,19 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 }
 
 // cardInstallmentsInMonth — платежі розстрочок, ПРИВʼЯЗАНИХ до карток, у
-// місяці зі зсувом m.
+// місяці зі зсувом m; при непорожньому from — лише з цієї дати (день після
+// звірки: те, що списалось до неї, уже в її балансі).
 //
 // Вони списуються з картки, тож воюють за ті самі гроші, що й витрати. У
 // портфельний план місяця вони при цьому НЕ входять — довід у шапці
 // debtDueForMonth.
-func cardInstallmentsInMonth(src *sources, rates fx.Rates, today domain.Date, m int) float64 {
+func cardInstallmentsInMonth(src *sources, rates fx.Rates, today domain.Date,
+	m int, from domain.Date) float64 {
+
 	first := monthStart(today, m)
+	if from.After(first) {
+		first = from
+	}
 	last := monthStart(today, m+1).AddDays(-1)
 	total := 0.0
 	for _, d := range src.debts {
@@ -463,11 +502,17 @@ func cardInstallmentsInMonth(src *sources, rates fx.Rates, today domain.Date, m 
 }
 
 // debtMonthRow — валовий дохід місяця, та його частина, що йде в портфель,
-// і платежі карткових розстрочок.
+// і платежі карткових розстрочок. share — яка частка місяця попереду (1 для
+// повного; для місяця звірки — дні після неї до довжини місяця), from —
+// дата, з якої він рахується (порожньо для повного). Витрати в проході
+// беруться пропорційно share: за прожиті дні вони вже в боргу.
 //
 // Іменований тип, а не анонімна структура: він перетинає межу функції, і
 // анонімний довелось би повторити в сигнатурі слово в слово.
-type debtMonthRow struct{ gross, invest, inst float64 }
+type debtMonthRow struct {
+	gross, invest, inst, share float64
+	from                       domain.Date
+}
 
 // debtExitWalk — баланс картки місяць за місяцем до нуля.
 //
@@ -485,25 +530,29 @@ func debtExitWalk(perMonth []debtMonthRow,
 	if debtUAH <= 0 || len(perMonth) == 0 {
 		return nil
 	}
+	pays := make([]float64, len(perMonth))
+	total := 0.0
+	for m, row := range perMonth {
+		if pay := row.gross - row.invest - row.inst - spendUAH*row.share; pay > 0 {
+			pays[m] = pay
+			total += pay
+		}
+	}
+	if total <= 0 {
+		return nil // борг не меншає в жодному місяці
+	}
 	left := debtUAH
 	out := make([]state.DebtExitStep, 0, len(perMonth))
 	for m, row := range perMonth {
-		pay := row.gross - row.invest - row.inst - spendUAH
-		if pay <= 0 && m == 0 {
-			return nil // борг не меншає з першого ж місяця
-		}
-		if pay < 0 {
-			pay = 0
-		}
-		left -= pay
+		left -= pays[m]
 		if left < 0 {
 			left = 0
 		}
 		out = append(out, state.DebtExitStep{
-			Month:    monthKeyAt(today, startM+m),
+			Month: monthKeyAt(today, startM+m), From: string(row.from),
 			GrossUAH: round2(row.gross), InvestUAH: round2(row.invest),
 			InstallmentsUAH: round2(row.inst),
-			SpendUAH:        round2(spendUAH), LeftUAH: round2(left),
+			SpendUAH:        round2(spendUAH * row.share), LeftUAH: round2(left),
 		})
 		if left == 0 {
 			break

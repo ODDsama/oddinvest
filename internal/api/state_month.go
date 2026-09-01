@@ -215,7 +215,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 		}
 	}
 
-	out.Plan = buildMonthPlan(src, rates, today, 0, float64(out.DepositedUAH.Amount())/100)
+	out.Plan = buildMonthPlan(src, rates, today, 0, float64(out.DepositedUAH.Amount())/100, "")
 	out.ReserveMonthUAH, out.ReserveFillUAH = reserveMonthShare(
 		src.settings, reserveUAH, out.Plan, out.ReserveMovedUAH,
 		debtCapsReserve(src.debts, src.debtMarks, src.debtOps, src.deval, today),
@@ -347,8 +347,15 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 //
 // Коли жоден потік нічого не забороняє, обидва числа дорівнюють PlanUAH —
 // тобто для плану, набраного до 0041, не змінюється нічого.
+//
+// after — НЕПОРОЖНЄ лише для місяця звірки картки: тоді входять самі потоки,
+// чий платіжний день СТРОГО ПІЗНІШИЙ за цю дату. Дохід, що прийшов на дату
+// звірки або раніше, уже сидить у її балансі, і рахувати його ще раз
+// означало б обіцяти ті самі гроші двічі. Фільтр живе тут, а не другим
+// циклом у виході з ліміту, бо «чи платить потік цього місяця» мусить мати
+// одне означення.
 func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
-	m int, depositedUAH float64) *state.MonthPlan {
+	m int, depositedUAH float64, after domain.Date) *state.MonthPlan {
 	if len(src.planFlows) == 0 && len(src.planReceipts) == 0 {
 		return nil // плану доходу немає — це не «план обіцяє нуль»
 	}
@@ -388,6 +395,12 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		if planFlowAtMonth(gross, today, m, nil) == 0 {
 			continue
 		}
+		// Платіжний день — день from_date (єдине означення, receiptDueDate).
+		// Спіймано власником 1 вересня: звірка того ж дня робила прожитим
+		// увесь вересень, хоч три зарплати місяця ще були попереду.
+		if after != "" && !domain.Date(receiptDueDate(month, f.FromDate.Day())).After(after) {
+			continue
+		}
 		amt := planFlowUAH(planFlowAtMonth(f, today, m, marks), f.Currency, rates)
 		if f.Kind == "expense" {
 			// У потоках витрата від'ємна; у контракті вона додатна, бо поле
@@ -418,6 +431,12 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	// премія просто зникла б із місяця, у якому вона прийшла.
 	for _, r := range src.planReceipts {
 		if r.FlowID != 0 || r.Month != month {
+			continue
+		}
+		// Після звірки позапланове не рахується: записане надходження — це
+		// гроші, які ВЖЕ прийшли, тобто вони в балансі звірки, а дати, за
+		// якою можна було б відрізнити «до» від «після», у нього немає.
+		if after != "" {
 			continue
 		}
 		share := float64(r.Amount) / 100 * float64(r.InvestBP) / 10000
