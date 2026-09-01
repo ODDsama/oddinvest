@@ -193,12 +193,12 @@ function exitHTML(g) {
       вони відняті.</div>` : ""}
     <div class="kv"><span class="muted">Лишається на картці — це «все інше»</span>
       <b>${fmtMoney(e.on_card)}/міс</b></div>
-    <div class="sub">Числа вище — СЕРЕДНІ за час, який ще попереду. Місяць звірки
-      входить лише тим, що приходить ПІСЛЯ неї: дохід із платіжним днем до звірки вже
-      сидить у її балансі, а витрати за цей місяць беруться пропорційно дням, що
-      лишились. «На місяць» — середнє за все вікно, де такий місяць важить своєю
-      часткою (${e.months.toFixed(2)} міс). Місяці при цьому різні — одна зарплата
-      закінчується, інша починається, — і таблиця нижче показує кожен окремо.</div>
+    <div class="sub">Числа вище — СЕРЕДНІ за ${Math.round(e.months)} ${esc(plural(Math.round(e.months),
+    "місяць", "місяці", "місяців"))} вікна, і місяць звірки входить ЦІЛИМ: відлік іде від
+      боргу на його початок, а не від мінуса, який показала звірка. Те, що до неї вже
+      прийшло й списалось, додано назад, витрати за прожиті дні — ${esc(e.spend_basis)}.
+      Місяці при цьому різні — одна зарплата закінчується, інша починається, — і таблиця
+      нижче показує кожен окремо.</div>
     <div class="kv"><span class="muted">Витрати, з якими рахували (${esc(e.spend_basis)})</span>
       <b>${fmtMoney(e.spend_used)}/міс</b></div>
     ${spendGapHTML(e)}
@@ -249,12 +249,20 @@ function exitWalkHTML(e) {
   // Колонка розстрочок зʼявляється, лише коли вони є: колонка нулів
   // читається як «щось не порахували».
   const hasInst = e.schedule.some((r) => Number(r.installments.amount) > 0);
-  return disclosure("card-exit-walk", "Помісячно до нуля", opsGrid({
+  // Відлік — від боргу на початок першого місяця, а не від звірки. Коли
+  // місяць звірки в таблиці, борг на його початок ВІДНОВЛЕНО, і з чого —
+  // сказано тут же: інакше «лишиться» у першому рядку не звести з мінусом,
+  // який людина бачить у додатку банку сьогодні.
+  const anchor = `<div class="sub">Відлік — ${esc(monthYear(e.start_month + "-01"))} з першого
+    числа: борг тоді ${fmtMoney(e.start_debt)}${e.mark_date
+    ? `. Це відновлено зі звірки ${esc(e.mark_date)}, яка показує ${fmtMoney(e.debt_now)}:
+      до неї вже прийшло ${fmtMoney(e.paid_before_mark)}${Number(e.installments_before_mark.amount) > 0
+      ? `, списалось розстрочок ${fmtMoney(e.installments_before_mark)}` : ""}, а витрати
+      за прожиті дні (${esc(e.spend_basis)}) — ${fmtMoney(e.spend_before_mark)}`
+    : ""}.</div>`;
+  return disclosure("card-exit-walk", "Помісячно до нуля", anchor + opsGrid({
     cols: [
-      // Місяць звірки входить із дати після неї — і рядок про це каже, бо
-      // його витрати менші за решту не через помилку, а через дні.
-      { key: "m", label: "Місяць", cell: (r) => esc(monthYear(r.month + "-01"))
-        + (r.from ? ` · з ${Number(r.from.slice(8, 10))}-го` : "") },
+      { key: "m", label: "Місяць", cell: (r) => esc(monthYear(r.month + "-01")) },
       { key: "gross", label: "Приходить", num: true, cell: (r) => fmtMoney(r.gross) },
       { key: "invest", label: "У портфель", num: true, cell: (r) => fmtMoney(r.invest) },
       ...(hasInst ? [{ key: "inst", label: "Розстрочки", num: true,

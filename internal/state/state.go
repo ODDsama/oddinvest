@@ -1239,6 +1239,22 @@ type DebtExit struct {
 	// не заданий» і «ліміт вибраний до нуля» — різні відповіді, і нуль тут
 	// має право означати лише другу.
 	LimitLeftUAH *float64 `json:"limit_left_uah,omitempty"`
+	// StartDebtUAH — борг на ПОЧАТОК вікна (першого його місяця), від якого
+	// йде відлік потреби, стелі, дати й таблиці. DebtNowUAH — борг зараз.
+	// Вони різняться, коли вікно починається з місяця звірки: аванс уже
+	// прийшов і зменшив мінус, а місяць рахується цілим. Борг на початок
+	// ВІДНОВЛЕНО зі звірки, і три поля нижче кажуть, з чого: що прийшло на
+	// картку до неї (PaidBeforeMarkUAH), що списалось розстрочками
+	// (InstallmentsBeforeMarkUAH), що витрачено за прожиті дні
+	// (SpendBeforeMarkUAH, заявлені або виміряні — як усюди тут). Порожні,
+	// коли вікно починається з наступного місяця: відновлювати нема чого.
+	StartDebtUAH              float64 `json:"start_debt_uah"`
+	DebtNowUAH                float64 `json:"debt_now_uah"`
+	StartMonth                string  `json:"start_month"`
+	MarkDate                  string  `json:"mark_date,omitempty"`
+	PaidBeforeMarkUAH         float64 `json:"paid_before_mark_uah,omitempty"`
+	InstallmentsBeforeMarkUAH float64 `json:"installments_before_mark_uah,omitempty"`
+	SpendBeforeMarkUAH        float64 `json:"spend_before_mark_uah,omitempty"`
 	// Schedule — прохід балансу картки вперед, помісячно. Порожній, коли
 	// борг не меншає: двадцять чотири однакові рядки — не таблиця, а
 	// спосіб не сказати «за цим темпом виходу не буде».
@@ -1262,11 +1278,6 @@ type DebtExitStep struct {
 	InstallmentsUAH float64 `json:"installments_uah,omitempty"`
 	SpendUAH        float64 `json:"spend_uah"`
 	LeftUAH         float64 `json:"left_uah"`
-	// From — дата, з якої місяць входить у прохід: день після звірки картки.
-	// Порожньо для повних місяців. У такому рядку дохід — лише потоки з
-	// платіжним днем після звірки, а витрати — пропорційно дням, що
-	// лишились: за прожиті дні вони вже сидять у самому боргу.
-	From string `json:"from,omitempty"`
 }
 
 // ReserveRung — один горизонт драбини подушки: що буде доступно через

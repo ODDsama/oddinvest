@@ -399,6 +399,48 @@ func TestCardExitSpendCap(t *testing.T) {
 	}
 }
 
+// Відлік — від боргу на ПОЧАТОК вікна, а гранична глибина — від боргу
+// ЗАРАЗ; дата виходу стоїть на лінійці таблиці (від початку вікна), а не
+// від сьогодні.
+func TestCardExitStartDebtVsNow(t *testing.T) {
+	in := CardExitInput{
+		DebtUAH:    183_440_00, // на початок вересня
+		DebtNowUAH: 88_758_00,  // після авансу 1-го
+		GrossUAH:   222_720_00, InvestUAH: 9_000_00, InstallmentUAH: 11_700_00,
+		SpendUAH: 66_787_35,
+		From:     "2026-09-01", Today: "2026-09-02", ExitBy: "2026-10-31", Months: 2,
+	}
+	got := CardExit(in)
+	if !got.Known || !got.Feasible {
+		t.Fatalf("вихід оголошено неможливим: %+v", got)
+	}
+	// Потреба — від боргу на початок: 183 440 / 2.
+	if want := int64(math.Ceil(183_440_00.0 / 2)); got.NeedPerMonth != want {
+		t.Errorf("треба звільняти %d, чекали %d", got.NeedPerMonth, want)
+	}
+	if want := got.Headroom + in.DebtNowUAH; got.MaxDebt != want {
+		t.Errorf("гранична глибина %d, чекали борг зараз + запас = %d", got.MaxDebt, want)
+	}
+	// 183 440 / 135 232 ≈ 1,36 міс від 1 вересня — жовтень, не 21 вересня.
+	if got.ETADate < "2026-10-01" || got.ETADate > "2026-10-31" {
+		t.Errorf("дата виходу %s, чекали в жовтні", got.ETADate)
+	}
+
+	// На початок вікна боргу не було (був у плюсі), у мінус зайшов після:
+	// блок живий, потреба нуль, стеля — усе, що лишається на картці.
+	in.DebtUAH = -5_000_00
+	got = CardExit(in)
+	if !got.Known || got.NeedPerMonth != 0 {
+		t.Fatalf("при плюсі на початок: %+v", got)
+	}
+	if want := in.GrossUAH - in.InvestUAH - in.InstallmentUAH; got.SpendCap != want {
+		t.Errorf("стеля %d, чекали весь залишок на картці %d", got.SpendCap, want)
+	}
+	if got.ETADate == "" || got.ETADate < in.Today {
+		t.Errorf("дата виходу %q, чекали не раніше за сьогодні", got.ETADate)
+	}
+}
+
 // Гранична глибина — досяжна: борг рівно в MaxDebt при тих самих витратах
 // ще вкладається в стелю, і запасу при ньому вже немає.
 func TestCardExitMaxDebtIsReachable(t *testing.T) {

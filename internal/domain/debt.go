@@ -757,8 +757,26 @@ func CardBurnFrom(card Debt, marks []DebtMark, ops []DebtOp, today Date) CardBur
 // витрачати». Гроші — у ГРИВНІ, мінорними: переведення валют робить той,
 // хто знає курси (той самий поділ, що в state.GoalInput).
 type CardExitInput struct {
-	// DebtUAH — скільки треба вивести в нуль.
-	DebtUAH int64
+	// DebtUAH — борг на ПОЧАТОК вікна (першого його місяця): саме від нього
+	// йде відлік потреби, стелі й дати. Може бути нулем або відʼємним, коли
+	// на початок місяця людина була в плюсі, а в мінус зайшла вже після.
+	// DebtNowUAH — борг ЗАРАЗ; нуль означає «той самий, що на початок» (вікно
+	// починається з наступного місяця, і між ними нічого не сталось).
+	//
+	// Два числа, а не одне, бо власник дивиться на екран усередині місяця:
+	// аванс уже прийшов, звірка вже показує менший мінус, — а питання «скільки
+	// можна витрачати на місяць» ставиться до ЦІЛОГО місяця. Відлік від
+	// теперішнього мінуса робив місяць звірки хвостом із половиною доходу
+	// (спіймано власником 1 вересня: «воно пляше від теперішнього мінуса, а
+	// не від мінуса на початок періоду»).
+	DebtUAH    int64
+	DebtNowUAH int64
+	// From — початок вікна (перше число його першого місяця). Дата виходу за
+	// темпом рахується ВІД НЬОГО: таблиця гасить борг початку вікна повними
+	// місяцями, і дата має стояти на тій самій лінійці. Від сьогодні вона
+	// ділила б теперішній мінус на середній профіцит і казала б «21 вересня»
+	// поруч із таблицею, де вересень лишає 48 тисяч. Порожньо = Today.
+	From Date
 	// GrossUAH — увесь дохід місяця; InvestUAH — та його частина, яку
 	// зараз виводять в інструменти. На картці лишається різниця.
 	GrossUAH  int64
@@ -847,8 +865,20 @@ type CardExitPlan struct {
 // довшим шляхом.
 func CardExit(in CardExitInput) CardExitPlan {
 	out := CardExitPlan{ExitBy: in.ExitBy}
-	if in.ExitBy == "" || in.DebtUAH <= 0 || !in.Today.Valid() {
+	now := in.DebtNowUAH
+	if now == 0 {
+		now = in.DebtUAH
+	}
+	if in.ExitBy == "" || now <= 0 || !in.Today.Valid() {
 		return out
+	}
+	start := in.DebtUAH
+	if start < 0 {
+		start = 0 // на початок вікна був у плюсі: звільняти нема чого
+	}
+	from := in.From
+	if from == "" || from.After(in.Today) {
+		from = in.Today
 	}
 	if in.Months <= 0 {
 		// Місяців попереду не лишилось: або дата минула, або весь її
@@ -866,24 +896,38 @@ func CardExit(in CardExitInput) CardExitPlan {
 
 	out.NeedPerMonth = in.NeedPerMonthUAH
 	if out.NeedPerMonth <= 0 {
-		out.NeedPerMonth = int64(math.Ceil(float64(in.DebtUAH) / out.Months))
+		out.NeedPerMonth = int64(math.Ceil(float64(start) / out.Months))
 	}
 	out.SpendCap = onCard - out.NeedPerMonth
 	out.Feasible = out.SpendCap > 0
 	if s := in.SpendUAH - out.SpendCap; s > 0 {
 		out.ShortPerMonth = s
 	}
-	out.ETADate, out.ETAMonth = cardExitETA(in.DebtUAH, onCard-in.SpendUAH, in.Today)
+	// Дата — від початку вікна лінійно, не раніше за сьогодні. Коли на
+	// початок вікна боргу не було, лінійка починається сьогодні з
+	// теперішнього мінуса: іншої точки просто немає.
+	eta := func(surplus int64) (Date, float64) {
+		d, m := cardExitETA(start, surplus, from)
+		if start <= 0 {
+			d, m = cardExitETA(now, surplus, in.Today)
+		}
+		if d != "" && d.Before(in.Today) {
+			d = in.Today
+		}
+		return d, m
+	}
+	out.ETADate, out.ETAMonth = eta(onCard - in.SpendUAH)
 
 	out.WithInvestSpendCap = in.GrossUAH - in.InstallmentUAH - out.NeedPerMonth
-	out.WithInvestETADate, _ = cardExitETA(in.DebtUAH,
-		in.GrossUAH-in.InstallmentUAH-in.SpendUAH, in.Today)
+	out.WithInvestETADate, _ = eta(in.GrossUAH - in.InstallmentUAH - in.SpendUAH)
 
 	// Запас — через СТЕЛЮ, а не через «лишається мінус витрати»: потреба
 	// рахується по картках за їхніми датами, і ближча тисне сильніше. Саме
-	// тому запас узгоджений із ShortPerMonth, а не з ETADate.
+	// тому запас узгоджений із ShortPerMonth, а не з ETADate. Гранична
+	// глибина — від боргу ЗАРАЗ: «на скільки ще можна залізти» питають
+	// сьогодні, а не першого числа.
 	out.Headroom = int64(math.Round(out.Months * float64(out.SpendCap-in.SpendUAH)))
-	if out.MaxDebt = in.DebtUAH + out.Headroom; out.MaxDebt < 0 {
+	if out.MaxDebt = now + out.Headroom; out.MaxDebt < 0 {
 		out.MaxDebt = 0
 	}
 	out.WithInvestHeadroom = int64(math.Round(

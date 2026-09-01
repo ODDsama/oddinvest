@@ -316,9 +316,9 @@ func monthPlanOf(t *testing.T, url string) state.MonthPlan {
 // боргу.
 func TestDebtExitScheduleReachesZero(t *testing.T) {
 	rows := []debtMonthRow{
-		{gross: 100_000, invest: 20_000, share: 1},
-		{gross: 100_000, invest: 20_000, share: 1},
-		{gross: 100_000, invest: 20_000, share: 1},
+		{gross: 100_000, invest: 20_000},
+		{gross: 100_000, invest: 20_000},
+		{gross: 100_000, invest: 20_000},
 	}
 	got := debtExitWalk(rows, 120_000, 40_000, "2026-09-01", 0)
 	if len(got) != 3 {
@@ -342,42 +342,22 @@ func TestDebtExitScheduleReachesZero(t *testing.T) {
 // однакові рядки — не відповідь, а спосіб не сказати «виходу не буде».
 func TestDebtExitScheduleStopsWhenDebtGrows(t *testing.T) {
 	rows := []debtMonthRow{
-		{gross: 100_000, invest: 20_000, share: 1},
-		{gross: 100_000, invest: 20_000, share: 1},
+		{gross: 100_000, invest: 20_000},
+		{gross: 100_000, invest: 20_000},
 	}
 	if got := debtExitWalk(rows, 120_000, 80_000, "2026-09-01", 0); got != nil {
 		t.Errorf("прохід намалював %d рядків при нульовому профіциті", len(got))
 	}
 	// Перший місяць може бути слабким (одна зарплата скінчилась, друга ще
-	// не почалась, або це хвіст місяця звірки) — але якщо далі темп є,
-	// таблиця будується, і слабкий місяць у ній стоїть із нульовим кроком.
-	rows[0] = debtMonthRow{gross: 30_000, invest: 20_000, share: 1}
+	// не почалась) — але якщо далі темп є, таблиця будується, і слабкий
+	// місяць у ній стоїть із нульовим кроком.
+	rows[0] = debtMonthRow{gross: 30_000, invest: 20_000}
 	got := debtExitWalk(rows, 120_000, 79_000, "2026-09-01", 0)
 	if len(got) != 2 {
 		t.Fatalf("живий профіцит у другому місяці дав %d кроків, чекали 2", len(got))
 	}
 	if got[0].LeftUAH != 120_000 || got[1].LeftUAH != 119_000 {
 		t.Errorf("хід проходу: %.2f → %.2f, чекали 120 000 → 119 000", got[0].LeftUAH, got[1].LeftUAH)
-	}
-}
-
-// Місяць звірки входить ЧАСТКОВО: витрати в ньому — пропорційно дням, що
-// лишились, і рядок каже, з якої дати він рахується.
-func TestDebtExitWalkProratesPartialMonth(t *testing.T) {
-	rows := []debtMonthRow{
-		{gross: 60_000, share: 0.5, from: "2026-09-16"},
-		{gross: 60_000, share: 1},
-	}
-	// Пів місяця гасить 60 000 − 20 000 = 40 000, повний — 20 000.
-	got := debtExitWalk(rows, 60_000, 40_000, "2026-09-01", 0)
-	if len(got) != 2 {
-		t.Fatalf("кроків %d, чекали 2", len(got))
-	}
-	if got[0].From != "2026-09-16" || got[0].SpendUAH != 20_000 || got[0].LeftUAH != 20_000 {
-		t.Errorf("частковий місяць: %+v, чекали з 16-го, витрати 20 000, лишок 20 000", got[0])
-	}
-	if got[1].From != "" || got[1].SpendUAH != 40_000 || got[1].LeftUAH != 0 {
-		t.Errorf("повний місяць: %+v", got[1])
 	}
 }
 
@@ -429,24 +409,34 @@ func TestDebtExitWalkSkipsMonthAlreadyLived(t *testing.T) {
 	if want := first.AddDate(0, 1, 0).Format("2006-01"); sch[0].Month != want {
 		t.Errorf("перший крок %s, чекали %s", sch[0].Month, want)
 	}
-	if sch[0].From != "" || sch[0].SpendUAH != 10_000 {
+	if sch[0].SpendUAH != 10_000 {
 		t.Errorf("повний місяць має бути цілим: %+v", sch[0])
 	}
 	if e.Months != 3 {
 		t.Errorf("місяців %.2f, чекали рівно 3: наступний, ще два, і дата на 1-ше", e.Months)
 	}
+	// Відновлювати борг на початок нема чого: вікно починається з
+	// наступного місяця, і на його початок борг — той, що зараз.
+	if e.MarkDate != "" || e.StartDebtUAH != 90_000 || e.DebtNowUAH != 90_000 {
+		t.Errorf("борг на початок %.2f (звірка %q), чекали 90 000 без відновлення",
+			e.StartDebtUAH, e.MarkDate)
+	}
 }
 
-// Місяць звірки НЕ прожитий, поки в ньому ще платить хоч один потік.
+// Місяць звірки НЕ прожитий, поки в ньому ще платить хоч один потік, — і
+// входить він ЦІЛИМ, від боргу на його початок.
 //
 // Спіймано власником 1 вересня: звірка того ж дня викидала весь вересень,
 // хоч аванс 7-го й зарплати 15-го та 21-го були попереду. Вікно звужувалось
 // до одного жовтня, «ще можна залізти» рахувалось із одного місяця, а «за
-// твоїм темпом» поруч рахувало вересень і казало 21 вересня.
+// твоїм темпом» поруч рахувало вересень і казало 21 вересня. Перша правка
+// зробила місяць хвостом «з 2-го» — і власник спіймав уже її: «воно пляше
+// від теперішнього мінуса, а не від мінуса на початок періоду».
 //
 // Потік платить в останній день місяця (день 31 обрізається до довжини
-// місяця), звірка — 1-го числа: після неї в цьому місяці ще є дохід.
-func TestDebtExitCountsIncomeAfterMark(t *testing.T) {
+// місяця), звірка — 1-го числа: до неї не прийшло нічого, після — уся
+// зарплата.
+func TestDebtExitStartsFromMonthStart(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 	if resp, out := do(t, "PUT", srv.URL+"/api/settings",
@@ -477,33 +467,79 @@ func TestDebtExitCountsIncomeAfterMark(t *testing.T) {
 	if len(sch) == 0 {
 		t.Fatal("прохід порожній")
 	}
-	// Перший крок — ПОТОЧНИЙ місяць, з дня після звірки, з усією зарплатою
-	// й витратами за дні, що лишились.
+	// Перший крок — ПОТОЧНИЙ місяць, цілий: уся зарплата, усі витрати.
 	if want := today.Format("2006-01"); sch[0].Month != want {
 		t.Fatalf("перший крок %s, чекали поточний %s", sch[0].Month, want)
 	}
-	if want := first.AddDate(0, 0, 1).Format("2006-01-02"); sch[0].From != want {
-		t.Errorf("рядок рахується з %q, чекали %s", sch[0].From, want)
+	if sch[0].GrossUAH != 60_000 || sch[0].SpendUAH != 10_000 {
+		t.Errorf("місяць звірки має бути цілим: %+v", sch[0])
 	}
-	if sch[0].GrossUAH != 60_000 {
-		t.Errorf("дохід місяця звірки %.2f, чекали всю зарплату 60 000 — вона платиться після звірки", sch[0].GrossUAH)
+	if e.Months != 4 {
+		t.Errorf("місяців %.2f, чекали 4: цей і три наступні", e.Months)
 	}
-	share := float64(days-1) / float64(days)
-	if want := round2(10_000 * share); math.Abs(sch[0].SpendUAH-want) > 0.01 {
-		t.Errorf("витрати місяця звірки %.2f, чекали %.2f (%d з %d днів)", sch[0].SpendUAH, want, days-1, days)
+	// Борг на початок відновлено зі звірки 1-го: доходу до неї не було,
+	// витрати — за один прожитий день.
+	if e.MarkDate != first.Format("2006-01-02") || e.PaidBeforeMarkUAH != 0 {
+		t.Errorf("звірка %q, прийшло до неї %.2f — чекали %s і 0", e.MarkDate, e.PaidBeforeMarkUAH, first.Format("2006-01-02"))
 	}
-	if want := share + 3; math.Abs(e.Months-want) > 0.01 {
-		t.Errorf("місяців %.2f, чекали %.2f: хвіст цього і три наступні", e.Months, want)
+	if want := round2(90_000 - 10_000/float64(days)); math.Abs(e.StartDebtUAH-want) > 0.01 {
+		t.Errorf("борг на початок %.2f, чекали %.2f (90 000 мінус день витрат)", e.StartDebtUAH, want)
 	}
-	// Тотожність запасу тримається й на дробових місяцях: запас — це сума
-	// профіцитів проходу мінус борг. Допуск — на округлення months до
-	// сотих у документі (пів сотої місяця від місячного запасу).
-	room := e.SpendCapUAH - e.SpendUsedUAH
-	if want := e.Months * room; math.Abs(e.HeadroomUAH-want) > 0.005*room+0.05 {
+	if e.DebtNowUAH != 90_000 {
+		t.Errorf("борг зараз %.2f, чекали 90 000", e.DebtNowUAH)
+	}
+	// Тотожність запасу: місяці × (стеля − витрати) = Σ профіцитів − борг
+	// на початок; гранична глибина — від боргу ЗАРАЗ.
+	if want := e.Months * (e.SpendCapUAH - e.SpendUsedUAH); math.Abs(e.HeadroomUAH-want) > 0.05 {
 		t.Errorf("запас %.2f, чекали %.2f", e.HeadroomUAH, want)
+	}
+	if want := e.DebtNowUAH + e.HeadroomUAH; math.Abs(e.MaxDebtUAH-want) > 0.05 {
+		t.Errorf("гранична глибина %.2f, чекали %.2f", e.MaxDebtUAH, want)
 	}
 	if sch[len(sch)-1].LeftUAH != 0 {
 		t.Errorf("прохід не доходить до нуля: %+v", sch)
+	}
+}
+
+// Те, що прийшло ДО звірки, повертається в борг на початок: аванс 1-го
+// вже зменшив мінус, який показує звірка того ж дня, а місяць рахується
+// цілим — разом із цим авансом.
+func TestDebtExitRebuildsStartDebtFromPaidBefore(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, out := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_expenses":"10000","monthly_expenses_currency":"UAH"}`); resp.StatusCode != 204 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, out)
+	}
+	for _, day := range []string{"01", "31"} {
+		if resp, out := do(t, "POST", srv.URL+"/api/plan/flows",
+			`{"name":"Зарплата `+day+`","kind":"income","amount":"60000","currency":"UAH",
+			  "cadence":"month","from_date":"2020-01-`+day+`","invest_pct":"0"}`); resp.StatusCode != 201 {
+			t.Fatalf("потік: %d %s", resp.StatusCode, out)
+		}
+	}
+	today := time.Now()
+	first := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
+	days := first.AddDate(0, 1, 0).AddDate(0, 0, -1).Day()
+	exit := first.AddDate(0, 3, 0).Format("2006-01-02")
+	card := addDebt(t, srv.URL, `{"name":"Картка","kind":"card","currency":"UAH",
+		"statement_day":"30","apr_pct":"47.88","min_payment_pct":"3",
+		"exit_by":"`+exit+`"}`)
+	if resp, out := do(t, "POST", srv.URL+"/api/debt-marks",
+		`{"debt_id":"`+did(card)+`","date":"`+first.Format("2006-01-02")+`",
+		  "balance":"-90000","statement_due":"90000"}`); resp.StatusCode != 201 {
+		t.Fatalf("звірка: %d %s", resp.StatusCode, out)
+	}
+
+	e := exitOf(t, srv.URL)
+	if e.PaidBeforeMarkUAH != 60_000 {
+		t.Errorf("прийшло до звірки %.2f, чекали зарплату 1-го — 60 000", e.PaidBeforeMarkUAH)
+	}
+	if want := round2(90_000 + 60_000 - 10_000/float64(days)); math.Abs(e.StartDebtUAH-want) > 0.01 {
+		t.Errorf("борг на початок %.2f, чекали %.2f", e.StartDebtUAH, want)
+	}
+	if len(e.Schedule) == 0 || e.Schedule[0].GrossUAH != 120_000 {
+		t.Errorf("місяць звірки має нести обидві зарплати: %+v", e.Schedule)
 	}
 }
 
@@ -539,12 +575,9 @@ func TestDebtExitHeadroomMatchesCap(t *testing.T) {
 	if e.Months < 1 || e.SpendCapUAH <= e.SpendUsedUAH {
 		t.Fatalf("фікстура не дає запасу: %+v", e)
 	}
-	// Місяців буває дробове число (звірка сьогодні, зарплата 5-го ще
-	// попереду), і в документі воно округлене до сотих — звідси допуск.
-	room := e.SpendCapUAH - e.SpendUsedUAH
-	want := e.Months * room
-	if math.Abs(e.HeadroomUAH-want) > 0.005*room+0.05 {
-		t.Errorf("запас %.2f, чекали %.2f (%.2f міс × (%.2f − %.2f))",
+	want := e.Months * (e.SpendCapUAH - e.SpendUsedUAH)
+	if math.Abs(e.HeadroomUAH-want) > 0.05 {
+		t.Errorf("запас %.2f, чекали %.2f (%.0f міс × (%.2f − %.2f))",
 			e.HeadroomUAH, want, e.Months, e.SpendCapUAH, e.SpendUsedUAH)
 	}
 	if want := 90_000 + e.HeadroomUAH; math.Abs(e.MaxDebtUAH-want) > 0.05 {

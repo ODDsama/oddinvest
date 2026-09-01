@@ -178,6 +178,17 @@ type payoffExitJSON struct {
 	// тієї самої причини, що й SpendMeasured: «ліміт не заданий» мусить
 	// доїхати до браузера як відсутність, а не як «0,00 ₴».
 	LimitLeft *moneyJSON `json:"limit_left,omitempty"`
+	// StartDebt — борг на початок вікна, від якого йде відлік; DebtNow —
+	// зараз. Коли вікно починається з місяця звірки (MarkDate непорожнє),
+	// три *BeforeMark кажуть, із чого борг на початок відновлено. Вказівники
+	// з тієї самої причини, що й SpendMeasured.
+	StartDebt              moneyJSON  `json:"start_debt"`
+	DebtNow                moneyJSON  `json:"debt_now"`
+	StartMonth             string     `json:"start_month"`
+	MarkDate               string     `json:"mark_date,omitempty"`
+	PaidBeforeMark         *moneyJSON `json:"paid_before_mark,omitempty"`
+	InstallmentsBeforeMark *moneyJSON `json:"installments_before_mark,omitempty"`
+	SpendBeforeMark        *moneyJSON `json:"spend_before_mark,omitempty"`
 	// Schedule — прохід балансу вперед. Порожній, коли борг не меншає.
 	Schedule []payoffExitStepJSON `json:"schedule,omitempty"`
 }
@@ -190,9 +201,6 @@ type payoffExitStepJSON struct {
 	Installments moneyJSON `json:"installments"`
 	Spend        moneyJSON `json:"spend"`
 	Left         moneyJSON `json:"left"`
-	// From — з якої дати місяць рахується (день після звірки); порожньо для
-	// повних місяців.
-	From string `json:"from,omitempty"`
 }
 
 type payoffResp struct {
@@ -492,14 +500,20 @@ func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
 		Headroom:           uah(e.HeadroomUAH),
 		MaxDebt:            uah(e.MaxDebtUAH),
 		WithInvestHeadroom: uah(e.WithInvestHeadroomUAH),
+		StartDebt:          uah(e.StartDebtUAH), DebtNow: uah(e.DebtNowUAH),
+		StartMonth: e.StartMonth, MarkDate: e.MarkDate,
 	}
 	if e.LimitLeftUAH != nil {
 		l := uah(*e.LimitLeftUAH)
 		out.LimitLeft = &l
 	}
+	if e.MarkDate != "" {
+		p, i, s := uah(e.PaidBeforeMarkUAH), uah(e.InstallmentsBeforeMarkUAH), uah(e.SpendBeforeMarkUAH)
+		out.PaidBeforeMark, out.InstallmentsBeforeMark, out.SpendBeforeMark = &p, &i, &s
+	}
 	for _, st := range e.Schedule {
 		out.Schedule = append(out.Schedule, payoffExitStepJSON{
-			Month: st.Month, From: st.From, Gross: uah(st.GrossUAH), Invest: uah(st.InvestUAH),
+			Month: st.Month, Gross: uah(st.GrossUAH), Invest: uah(st.InvestUAH),
 			Installments: uah(st.InstallmentsUAH),
 			Spend:        uah(st.SpendUAH), Left: uah(st.LeftUAH),
 		})
