@@ -21,6 +21,7 @@
 import { esc, uah0, signedUAH, capitalUAH } from "./format.js";
 import { TABS, PATHS, HOME, panesFor, kindOf } from "./nav.js";
 import { bindInfo } from "./info.js";
+import { openPalette } from "./palette.js";
 import { bindDialogBackdrop } from "./forms.js";
 import { adoptStyles } from "./styles.js";
 import { createStore } from "./store.js";
@@ -393,6 +394,10 @@ export class OddInvestApp extends HTMLElement {
              воно переїде разом із тією вкладкою. Прибрати кнопку зараз
              означало б лишити застосунок без єдиного способу оновити
              курси; лишити її без цього абзацу — забути перенести. -->
+        <!-- Палітра (palette.js): Ctrl+K або ця кнопка — на телефоні
+             клавіш немає. -->
+        <button class="hdr-btn" id="palette" title="Пошук по застосунку (Ctrl+K)"
+          aria-label="Пошук по застосунку">⌕</button>
         <button class="hdr-btn" id="refresh" title="Оновити довідник НБУ"
           aria-label="Оновити довідник НБУ">↻</button>
         <a class="hdr-btn" id="gear" href="#/settings/refs/main"
@@ -416,6 +421,10 @@ export class OddInvestApp extends HTMLElement {
       <div id="live" class="sr-only" role="status" aria-live="polite"></div>
       <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true"></div>
       <dialog class="infopop" id="infoPop" aria-labelledby="infoPopTitle"><div class="box"></div></dialog>
+      <!-- Палітра. У shell, як і решта діалогів, і з тієї ж причини:
+           панелі переписують main цілком. Escape й клік по тлу дістає
+           задарма від bindInfo/bindDialogBackdrop. -->
+      <dialog class="infopop palpop" id="palettePop" aria-label="Пошук по застосунку"><div class="box"></div></dialog>
       <!-- Підтвердження видалення. Нативний window.confirm() тут НЕ
            годиться: у застосунках, вбудованих у чужу сторінку чи
            автоматизований браузер (той самий клас середовищ, де вже
@@ -495,6 +504,21 @@ export class OddInvestApp extends HTMLElement {
     // попапи «як це читати» — делеговано на весь shadow root
     bindInfo(this.shadowRoot);
     bindDialogBackdrop(this.shadowRoot);
+    // Палітра: кнопка в шапці й Ctrl/Cmd+K на вікні. На вікні, а не на
+    // shadowRoot: фокус може стояти поза застосунком (адресний рядок,
+    // порожнє тіло сторінки), а комбінація мусить працювати звідусіль.
+    const openPal = () => {
+      const pop = this.shadowRoot.getElementById("palettePop");
+      if (pop.open) return;
+      openPalette(this._ctx, pop, () => this._posData);
+    };
+    this.shadowRoot.getElementById("palette")?.addEventListener("click", openPal);
+    window.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        openPal();
+      }
+    });
     this.shadowRoot.getElementById("refresh")?.addEventListener("click", async (e) => {
       e.target.disabled = true;
       try {

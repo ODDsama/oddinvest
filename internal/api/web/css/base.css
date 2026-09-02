@@ -1809,6 +1809,36 @@ td.num .sale-f { text-align: right; }
    один стовпчик, і вони разом домовляються на 327px замість 560. Виміряно:
    поки тут стояв самий max-width, форма на десктопі йшла стовпчиком. */
 .editpop { width: min(560px, calc(100vw - 2 * var(--oi-gap))); }
+
+/* Палітра (palette.js). Ширина як у правки рядка; список — посилання,
+   а не кнопки: Enter, «відкрити в новій вкладці» й закладка задарма,
+   як і у вкладок шапки. Активний рядок підсвічується акцентом і йде за
+   стрілками. */
+.palpop { width: min(560px, calc(100vw - 2 * var(--oi-gap))); }
+.palpop .box { padding: var(--oi-gap); }
+.pal-in {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: var(--oi-fs-lg);
+  padding: var(--oi-gap-sm) var(--oi-gap);
+  margin-bottom: var(--oi-gap-sm);
+}
+.pal-list { display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; }
+.pal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--oi-gap);
+  padding: var(--oi-gap-sm) var(--oi-gap);
+  border-radius: var(--oi-radius-sm);
+  color: var(--oi-text);
+  text-decoration: none;
+}
+.pal-row:hover { background: var(--oi-surface-2); }
+.pal-row.on { background: var(--oi-accent); color: var(--oi-on-accent); }
+.pal-row.on .pal-s { color: inherit; opacity: .8; }
+.pal-l { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-s { flex: 0 0 auto; font-size: var(--oi-fs-xs); color: var(--oi-muted); }
+.pal-h, .pal-none { padding: var(--oi-gap-sm) var(--oi-gap); font-size: var(--oi-fs-xs); color: var(--oi-muted); }
 .editpop h4 { margin: 0 0 var(--oi-gap); }
 /* Єдине місце застосунку, де тексту більше, ніж чисел, — і єдине, де
    доречний серіф. Він тут не прикраса: у суцільній прозі зарубки ведуть
