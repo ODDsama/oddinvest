@@ -387,8 +387,10 @@ func TestPlanAheadZeroShareFlowTakesNothing(t *testing.T) {
 	}
 }
 
-// Поточний місяць пропускає те, що вже минуло й уже відмічене, а весь
-// залишок віддає тим дням, які ще попереду.
+// Поточний місяць пропускає те, що вже минуло й уже відмічене, а нога, що
+// лишилась, несе СВОЮ частку — не залишок місяця. Чотири рівні виплати,
+// три вже позаду: четверта показує свої 10 000, а не 12 345,67 недонесених
+// і не 40 000 плану. Більше за себе саму нога не буває.
 func TestPlanAheadCurrentMonthSkipsPastAndMarked(t *testing.T) {
 	today := domain.Date("2026-08-16")
 	src := &sources{planFlows: []store.PlanFlow{
@@ -411,8 +413,8 @@ func TestPlanAheadCurrentMonthSkipsPastAndMarked(t *testing.T) {
 		t.Errorf("нога %q на %s, чекали «зарплата Б» на 2026-08-21",
 			flows[0].Label, flows[0].Date)
 	}
-	if flows[0].Amount != 1234567 {
-		t.Errorf("сума %d, чекали 1234567 — весь залишок місяця", flows[0].Amount)
+	if flows[0].Amount != 1000000 {
+		t.Errorf("сума %d, чекали 1000000 — своя частка, а не залишок місяця", flows[0].Amount)
 	}
 }
 
@@ -496,11 +498,15 @@ func TestPlanAheadLegsAreDeterministic(t *testing.T) {
 	}
 }
 
-// Поточний місяць віддає ЛИШЕ НЕДОНЕСЕНЕ.
+// Поточний місяць несе СВОЮ частку плану, а «лишилось закинути» (LeftUAH)
+// ноги не зменшує.
 //
-// Інакше маршрут повів би вдруге гроші, які вже принесли: перший раз їх
-// порахував підсумок місяця, другий — сам маршрут.
-func TestPlanAheadCurrentMonthUsesLeft(t *testing.T) {
+// Тут стояло протилежне твердження — «віддає лише недонесене», — і воно
+// брехало про виписку: 2 201 ₴, закинуті 1-го числа з інших грошей, урізали
+// аванс на 4 500 ₴ до 3 400 ₴. Переказ банку від чужого поповнення меншим
+// не стає; меншим стає лише те, що план іще просить, — а це число живе на
+// картці плану, не в нозі (довід — у шапці planAhead).
+func TestPlanAheadCurrentMonthCarriesOwnShare(t *testing.T) {
 	src := &sources{planFlows: []store.PlanFlow{planFlow(1, "зарплата", "2026-01-29", 40000)}}
 	plans := routePlans(30000)
 	key := monthKeyAt(routeToday, 0)
@@ -513,8 +519,51 @@ func TestPlanAheadCurrentMonthUsesLeft(t *testing.T) {
 	if len(flows) != 1 {
 		t.Fatalf("ніг %d, чекали 1: %+v", len(flows), flows)
 	}
-	if flows[0].Amount != 400000 {
-		t.Errorf("сума %d, чекали 400000 — лишилось закинути, а не весь план", flows[0].Amount)
+	if flows[0].Amount != 3000000 {
+		t.Errorf("сума %d, чекали 3000000 — своя частка плану, LeftUAH ноги не ріже",
+			flows[0].Amount)
+	}
+}
+
+// Живий випадок: два рівні потоки ФБК по 4 500 ₴, план 9 000 ₴, 2 201 ₴
+// уже закинуто з інших грошей. Обидві ноги — по 4 500 ₴, а не по 3 399,50.
+func TestPlanAheadCurrentMonthIgnoresDeposits(t *testing.T) {
+	src := &sources{planFlows: []store.PlanFlow{
+		planFlow(1, "аванс", "2026-01-28", 4500),
+		planFlow(2, "зарплата", "2026-01-30", 4500),
+	}}
+	plans := routePlans(9000)
+	key := monthKeyAt(routeToday, 0)
+	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 9000,
+		PlanReserveUAH: 9000, PlanGoalsUAH: 9000, LeftUAH: 6799}
+
+	flows := planAhead(src, plans, routeToday, 0)
+	if len(flows) != 2 {
+		t.Fatalf("ніг %d, чекали 2: %+v", len(flows), flows)
+	}
+	for _, f := range flows {
+		if f.Amount != 450000 {
+			t.Errorf("нога %q несе %d, чекали 450000 — чуже поповнення її не ріже",
+				f.Label, f.Amount)
+		}
+	}
+}
+
+// Позапланове в ноги не розмазується: воно вже прийшло відміткою «інше» і
+// дати не має. План 12 000 із 2 000 позапланових → єдиний потік несе 10 000.
+func TestPlanAheadExtraIsNotSpread(t *testing.T) {
+	src := &sources{planFlows: []store.PlanFlow{planFlow(1, "зарплата", "2026-01-29", 10000)}}
+	plans := routePlans(12000)
+	key := monthKeyAt(routeToday, 0)
+	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 12000, ExtraUAH: 2000,
+		PlanReserveUAH: 12000, PlanGoalsUAH: 12000}
+
+	flows := planAhead(src, plans, routeToday, 0)
+	if len(flows) != 1 {
+		t.Fatalf("ніг %d, чекали 1: %+v", len(flows), flows)
+	}
+	if flows[0].Amount != 1000000 {
+		t.Errorf("сума %d, чекали 1000000 — без позапланового", flows[0].Amount)
 	}
 }
 
@@ -635,10 +684,9 @@ func TestAllocateEndpointTakesSourceAndPrincipal(t *testing.T) {
 
 // --- дозвіл джерела в маршруті (0041) ---
 
-// Нога «план місяця» ріже подушці не більше за ДОЗВОЛЕНУ частину плану.
+// Планова нога ріже подушці не більше за ДОЗВОЛЕНУ частину плану.
 //
-// Нога зводить цілий місяць — десяток потоків із різними дозволами, — тож
-// стеля джерела приходить сюди числом (month_plan.plan_reserve_uah), а не
+// Стеля джерела приходить сюди числом (month_plan.plan_reserve_uah), а не
 // словом «можна». Без цього маршрут обіцяв би подушці гроші, яких сам
 // план їй не дає, і сторінка маршруту розійшлася б із карткою резерву.
 func TestRoutePlanLegCappedByAllowedPlan(t *testing.T) {
