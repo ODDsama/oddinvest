@@ -23,7 +23,7 @@ BRIDGE="${BRIDGE:-vmbr0}"
 DISK_GB="${DISK_GB:-4}"
 MEMORY_MB="${MEMORY_MB:-512}"
 CORES="${CORES:-1}"
-# Порожньо = взяти з go.mod (див. нижче, у скрипті провізії). Задавати
+# Порожньо = взяти з go.mod (це вирішує deploy/lxc-deploy.sh). Задавати
 # сюди щось варто лише тоді, коли треба саме конкретний тулчейн, — інакше
 # версія знову почне жити окремим життям від go.mod.
 GO_VER="${GO_VER:-}"
@@ -72,31 +72,21 @@ echo "-- installing build deps"
 apt-get update -q
 apt-get install -y -q --no-install-recommends ca-certificates curl git gcc libc6-dev
 echo "-- fetching source"
-rm -rf /opt/oddinvest-src
+# Розкладка та сама, що її робить proxmox-git-setup.sh для наявного
+# контейнера: bare-репозиторій /srv/git/oddinvest.git (ціль для
+# `git push prod main` з робочої станції) + робоче дерево /opt/oddinvest-src
+# без власного .git + post-receive хук. Свіжий контейнер без хука знову
+# оновлювався б лише one-liner-ом з хоста — саме від цього й відходимо.
+#
 # Протокол v0 і HTTP/1.1 — обхід обмеження GitHub на анонімні git-запити з
 # деяких адрес (401 на POST git-upload-pack); довід — у proxmox-update.sh.
-git -c protocol.version=0 -c http.version=HTTP/1.1 clone --depth 1 \
-  https://github.com/ODDsama/oddinvest /opt/oddinvest-src
-cd /opt/oddinvest-src
-# Тулчейн береться з go.mod, а не з константи вище: доти версія жила в
-# ТРЬОХ місцях (go.mod, Dockerfile, тут), і саме тому розійшлась — go.mod
-# поїхав на 1.24, обидва середовища збірки лишились на 1.23, а
-# GOTOOLCHAIN=local забороняє довантажити потрібний. Виглядало це як
-# «go: go.mod requires go >= 1.24.0 (running go 1.23.6)» на кожному
-# оновленні, тобто розгортання не працювало взагалі.
-#
-# GO_VER лишається важелем на випадок, коли треба саме конкретний тулчейн.
-# Двома рядками, а не одним: GO_PIN підставляє ХОСТ (тому без екранування),
-# а решту обчислює вже контейнер (тому з екрануванням). Зліплені в один
-# вираз, вони мовчки втрачали б перевизначення з хоста.
-GO_PIN="${GO_VER}"
-GO_WANT="\${GO_PIN:-go\$(sed -n "s/^go //p" go.mod | head -1)}"
-echo "-- installing \${GO_WANT}"
-curl -fsSL "https://go.dev/dl/\${GO_WANT}.linux-amd64.tar.gz" -o /tmp/go.tgz
-rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tgz
-echo "-- building oddinvestd"
-export PATH="\$PATH:/usr/local/go/bin" GOTOOLCHAIN=local CGO_ENABLED=1
-go build -o /usr/local/bin/oddinvestd ./cmd/oddinvestd
+rm -rf /srv/git/oddinvest.git /opt/oddinvest-src
+mkdir -p /srv/git /opt/oddinvest-src
+git -c protocol.version=0 -c http.version=HTTP/1.1 clone --bare \
+  https://github.com/ODDsama/oddinvest /srv/git/oddinvest.git
+git -C /srv/git/oddinvest.git symbolic-ref HEAD refs/heads/main
+git --git-dir=/srv/git/oddinvest.git --work-tree=/opt/oddinvest-src read-tree -u --reset main
+install -m 755 /opt/oddinvest-src/deploy/lxc-post-receive /srv/git/oddinvest.git/hooks/post-receive
 echo "-- service user + data dir"
 id oddinvestd >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin oddinvestd
 install -d -o oddinvestd -g oddinvestd /var/lib/oddinvestd
@@ -136,9 +126,13 @@ PrivateTmp=true
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
-systemctl enable --now oddinvestd
-sleep 2
-systemctl --no-pager --full status oddinvestd | head -n 12 || true
+systemctl enable oddinvestd
+echo "-- toolchain + build + start (deploy/lxc-deploy.sh)"
+# Тулчейн, збірку, старт і перевірку робить той самий скрипт, що й хук
+# після git push, і proxmox-update.sh: одна логіка на три входи. GO_VER
+# підставляє ХОСТ (тому без екранування) — порожній рядок означає «взяти
+# з go.mod», і саме так lxc-deploy.sh його й трактує.
+GO_VER="${GO_VER}" bash /opt/oddinvest-src/deploy/lxc-deploy.sh main
 PROV
 
 echo "==> provisioning inside container (build takes ~1-2 min)"
@@ -155,4 +149,6 @@ echo "  MQTT          : ${MQTT_ADDR:-<disabled>}"
 echo "  Edit config   : pct exec $CTID -- nano /etc/oddinvestd.env"
 echo "                  pct exec $CTID -- systemctl restart oddinvestd"
 echo "  Logs          : pct exec $CTID -- journalctl -u oddinvestd -f"
+echo "  Deploy        : git remote add prod root@$IP:/srv/git/oddinvest.git"
+echo "                  git push prod main   (ключ: PUBKEY=... proxmox-git-setup.sh)"
 echo "======================================================================"

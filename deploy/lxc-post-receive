@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#
+# post-receive хук bare-репозиторію /srv/git/oddinvest.git у контейнері.
+# Ставлять його proxmox-git-setup.sh (наявний контейнер) і proxmox-lxc.sh
+# (свіжа провізія) — копією в hooks/post-receive.
+#
+# Робота: для refs/heads/main викласти отриманий коміт у /opt/oddinvest-src
+# і віддати ревізію deploy/lxc-deploy.sh З ЦЬОГО Ж коміту. Checkout тому
+# тут, а не лише в скрипті: інакше деплой ішов би скриптом попередньої
+# ревізії, і правка самого lxc-deploy.sh подіяла б лише з другого пушу.
+# Інші гілки не деплояться: бойовий = main, і тільки він.
+#
+# Усе, що хук друкує, git повертає пушерові рядками «remote:», тобто
+# збірку, health і відкат видно прямо у виводі git push.
+set -euo pipefail
+
+BARE=/srv/git/oddinvest.git
+SRC=/opt/oddinvest-src
+# Git виставляє хукові GIT_DIR=. — для чужого робочого дерева шляхи мають
+# бути явними.
+unset GIT_DIR GIT_WORK_TREE
+
+deploy_rev=""
+while read -r _old new ref; do
+  case "$ref" in
+    refs/heads/main) deploy_rev="$new" ;;
+    *) echo "post-receive: $ref прийнято, але не деплою — на бойовий іде лише main" ;;
+  esac
+done
+
+[ -n "$deploy_rev" ] || exit 0
+if [ "$deploy_rev" = "0000000000000000000000000000000000000000" ]; then
+  echo "post-receive: main видалено — нічого не роблю"
+  exit 0
+fi
+
+mkdir -p "$SRC"
+git --git-dir="$BARE" --work-tree="$SRC" read-tree -u --reset "$deploy_rev"
+exec bash "$SRC/deploy/lxc-deploy.sh" "$deploy_rev"

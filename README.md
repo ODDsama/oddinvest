@@ -193,16 +193,58 @@ CGO-free збірка можлива через `modernc.org/sqlite`, але ц�
 
 ## Деплой (LXC + systemd)
 
+Бойовий бекенд живе в Proxmox LXC (Debian 12, systemd-сервіс `oddinvestd`,
+env у `/etc/oddinvestd.env`, база в `/var/lib/oddinvestd`). Три входи, одна
+логіка — усі вони зводяться до `deploy/lxc-deploy.sh` у контейнері
+(checkout → Go під `go.mod` → збірка в тимчасовий файл → підміна бінарника
+→ restart → 200 на `/` → відкат на `oddinvestd.prev`, якщо ні).
+
+**Перша установка** — на Proxmox-хості (root):
+
 ```sh
-# у контейнері
-install -o root -g root -m 755 oddinvestd /usr/local/bin/
-useradd -r oddinvestd
-install -m 644 deploy/systemd/oddinvestd.service /etc/systemd/system/
-systemctl enable --now oddinvestd
+MQTT_ADDR=tcp://192.168.88.107:1883 MQTT_USER=… MQTT_PASS=… \
+bash <(curl -fsSL https://raw.githubusercontent.com/ODDsama/oddinvest/main/deploy/proxmox-lxc.sh)
 ```
 
-MQTT-креденшели розкоментувати в unit-файлі. `StateDirectory=oddinvestd`
-створить `/var/lib/oddinvestd` автоматично.
+Створює контейнер, bare-репозиторій `/srv/git/oddinvest.git` з
+post-receive хуком, робоче дерево `/opt/oddinvest-src`, сервіс. Наявний
+контейнер на старій розкладці переводиться один раз тим самим кроком, що
+й додає SSH-ключ робочої станції для root:
+
+```sh
+CT=106 PUBKEY="$(cat ~/.ssh/id_ed25519.pub)" \
+bash <(curl -fsSL https://raw.githubusercontent.com/ODDsama/oddinvest/main/deploy/proxmox-git-setup.sh)
+```
+
+**Звичайний деплой** — з робочої станції, після пушу в `origin` (щоб CI
+встиг сказати своє; гейта на це немає, порядок тримається руками):
+
+```sh
+git remote add prod root@192.168.88.73:/srv/git/oddinvest.git   # один раз
+git push prod main
+```
+
+Хук деплоїть лише `main`; збірку, health і відкат видно в рядках `remote:`
+прямо у виводі push. Що стоїть на бойовому — останній рядок хука
+(`== на бойовому: <sha> <тема коміту>`), окремого `/api/version` немає.
+
+**Запасний шлях** без робочої станції — на Proxmox-хості:
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/ODDsama/oddinvest/main/deploy/proxmox-update.sh)
+```
+
+Тягне `main` з GitHub у bare-репозиторій (протоколом v0 — GitHub відсікає
+анонімні запити v2 з деяких домашніх адрес) і кличе той самий
+`lxc-deploy.sh`.
+
+**Відкат** — це відкат бінарника, не схеми: down-міграцій немає, і якщо
+нова версія вже мігрувала базу, попередня може не піднятись. Перед
+міграцією сховище саме робить знімок `<db>.pre-<version>` поруч із базою
+(тримає три останні).
+
+`deploy/systemd/oddinvestd.service` — довідковий unit для ручної
+установки поза Proxmox; скрипт провізії пише свій, з `EnvironmentFile=`.
 
 ## Контракт з інтеграцією HA
 
