@@ -18,7 +18,7 @@
 // конкретному розрізі. Дерево живе в nav.js, розбір адреси — в routes.js,
 // рядки списку — в master.js; тут лишається саме РОЗКЛАДАННЯ.
 
-import { esc, uah0, capitalUAH } from "./format.js";
+import { esc, uah0, signedUAH, capitalUAH } from "./format.js";
 import { TABS, PATHS, HOME, panesFor, kindOf } from "./nav.js";
 import { bindInfo } from "./info.js";
 import { bindDialogBackdrop } from "./forms.js";
@@ -382,9 +382,11 @@ export class OddInvestApp extends HTMLElement {
         <span class="sp"></span>
         <span id="avail" class="hdr-stamp"></span>
         <!-- Капітал і дельта в шапці: єдине число, яке має бути видно з
-             будь-якої панелі. Дельти поки немає — потрібен рух за 30 днів
-             зі знімків, і вигадувати його не будемо (КРОК 4). -->
+             будь-якої панелі. Дельту віддає зведення (capital_delta_30) —
+             рух за 30 днів проти добового знімка; тут вона лише
+             малюється, і порожня, доки знімка місячної давнини немає. -->
         <span id="cap" class="hdr-cap"></span>
+        <span id="delta" class="hdr-delta"></span>
         <!-- ↻ стоїть тут ТИМЧАСОВО. Оновлення довідника НБУ належить
              «Налаштуванням → Довідники», де живе сам довідник, і туди
              воно переїде разом із тією вкладкою. Прибрати кнопку зараз
@@ -537,6 +539,16 @@ export class OddInvestApp extends HTMLElement {
 
     const cap = this.shadowRoot.getElementById("cap");
     cap.textContent = this._summary ? uah0(capitalUAH(s)) : "";
+    // Дельта — зі знаком і з внесеним у підказці: «+12 000» без другого
+    // числа читається як заробіток, коли 11 000 із них — власний внесок.
+    const delta = this.shadowRoot.getElementById("delta");
+    const d = this._summary && s.capital_delta_30;
+    delta.textContent = d ? `${signedUAH(d.delta_uah)} за 30 дн.` : "";
+    delta.title = d
+      ? `з ${d.from_date}: капітал ${uah0(d.from_uah)}, внесено ${signedUAH(d.contributed_uah)}`
+      : "";
+    delta.classList.toggle("up", !!d && d.delta_uah > 0);
+    delta.classList.toggle("down", !!d && d.delta_uah < 0);
   }
 
   // Лічильник на вкладці. Лише те, що ВИМІРЯНЕ: скільки задач чекає
