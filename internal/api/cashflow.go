@@ -449,7 +449,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		NetUAH   float64 `json:"net_uah"`
 		RatePct  float64 `json:"rate_pct"`
 	}
-	var bondGross, fundGross, fundTax, depGross, depTax int64
+	var bondGross, bondAccrued, fundGross, fundTax, depGross, depTax int64
 
 	// ОВДП: купони. Погашення — повернення власного тіла, не дохід.
 	pastCF, err := domain.FuturePayments(pays, lots, sales, "1970-01-01")
@@ -463,6 +463,31 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		}
 		bondGross += uah(cf.Amount, cf.Date)
 	}
+	// НКД, сплачений при купівлі, — не дохід, а повернення власних грошей.
+	// Купуючи папір усередині купонного періоду, платиш продавцю накопичений
+	// купон у брудній ціні; купон, що приходить за кілька днів, повертає його
+	// назад. Живий приклад, на якому це побачили: 9 паперів UA4000239081,
+	// куплених 15 і 18 серпня 2026, дали купон 739,80 грн 26 серпня — а НКД у
+	// їхній ціні був 705,95. Заробили 33,85, картка показувала всі 739,80, і
+	// разом із нею брехала ставка внизу: 1,1% замість 9,3%.
+	//
+	// Знак ставиться ТУТ, один раз: bondAccrued тримає те, що покаже рядок.
+	//
+	// Фільтри inWindow і arrived — буква в букву ті самі, що в циклі вище.
+	// Саме це тримає пару разом: відрахування не може зʼявитись без купона,
+	// який воно гасить (інакше рядок ОВДП пішов би в мінус). Немає лише
+	// перевірки на PayRedemption — елементи купонодатовані за побудовою.
+	accrued, err := domain.AccruedPaid(pays, lots, sales)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	for _, it := range accrued {
+		if !inWindow(it.Date) || !arrived(it.ISIN, it.Date) {
+			continue
+		}
+		bondAccrued -= uah(it.Amount, it.Date)
+	}
 	// Фонди: беремо ФАКТИЧНО утримане, а не ставку. Ставка змінювалась і
 	// ще змінюватиметься, а у виписці стоїть те, що забрали насправді.
 	fundOps, err := s.st.ListFundOps(ctx)
@@ -470,6 +495,18 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Довідник — щоб знати день виплати й вид фонду: без них не відрізнити
+	// пропущений місяць від фонду, який просто не платить (tax_coverage.go).
+	fundRefs, err := s.st.ListFunds(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	// Тільки дивіденди. Податок, утриманий із ПРОДАЖУ сертифікатів (у
+	// fund_ops він лежить у тому ж полі Tax), сюди свідомо не входить: його
+	// база — прибуток від продажу, а не сама виручка, і показати його як
+	// рядок означає спершу порахувати той прибуток. Відкладено; місце
+	// названо тут, бо шукатимуть саме тут.
 	for _, op := range fundOps {
 		if op.Kind != domain.FundDividend || !inWindow(op.Date) {
 			continue
@@ -507,6 +544,9 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	mk := func(kind, label string, gross, tax int64) line {
 		l := line{Kind: kind, Label: label,
 			GrossUAH: minor(gross), TaxUAH: minor(tax), NetUAH: minor(gross - tax)}
+		// Ставку рахуємо лише на додатному брутто. Нуль тут не тільки рятує
+		// від ділення на нуль: рядок відрахування (НКД) відʼємний, і ставка на
+		// поверненні власних грошей — не мале число, а помилка категорії.
 		if gross > 0 {
 			l.RatePct = round2(float64(tax) / float64(gross) * 100)
 		}
@@ -545,18 +585,34 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		FXBasis     string `json:"fx_basis"`
 		FXMaxLagDay int    `json:"fx_max_lag_days,omitempty"`
 		Note        string `json:"note,omitempty"`
+		// FundGaps — місяці, у яких фонд мав заплатити (позиція була, день
+		// виплати минув), а запису в журналі немає. Це НЕ дохід, який ми
+		// оцінили: це зізнання, що виписку заведено не повністю. Купони
+		// приходять із довідника НБУ самі, дивіденди — лише з виписки, тож
+		// мовчати про пропуск означало б видавати два місяці за рік.
+		FundGaps []fundGap `json:"fund_gaps,omitempty"`
 	}{
 		Year: year, From: string(from), To: string(to),
 		FXBasis:     "курс НБУ на дату події або найближчий попередній",
 		FXMaxLagDay: asOf.maxLag,
-		Note:        asOf.note(),
 	}
+	coverNote, gaps := fundCoverage(fundOps, fundRefs, from, to, today)
+	out.Note = joinNotes(asOf.note(), coverNote)
+	out.FundGaps = gaps
 	for _, l := range []line{
 		// Нуль тут — не «податку немає в наших даних», а законодавче
 		// звільнення: доходи з ОВДП не оподатковуються ні ПДФО, ні
 		// військовим збором. Константа, а не літерал, щоб зміна закону
 		// була одним правленням, а не полюванням по файлу.
 		mk("bond", "Купони ОВДП", bondGross, bondTaxUAH),
+		// Нуль податку тут — НЕ те саме звільнення, що рядком вище: повернення
+		// власних грошей не має бази оподаткування взагалі. Тому літерал, а не
+		// bondTaxUAH: змішати два різні нулі під одним іменем означало б, що
+		// зміна закону про ОВДП мовчки поїде і сюди.
+		//
+		// Ключ bond_accrued — поверхня API, а не оформлення: фронт по ньому
+		// робить відступ, показуючи, що рядок належить купонам НАД ним.
+		mk("bond_accrued", "− НКД, сплачений при купівлі", bondAccrued, 0),
 		mk("fund", "Дивіденди фондів", fundGross, fundTax),
 		mk("deposit", "Відсотки вкладів", depGross, depTax),
 	} {
@@ -564,7 +620,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 			out.ByKind = append(out.ByKind, l)
 		}
 	}
-	gross, tax := bondGross+fundGross+depGross, fundTax+depTax
+	gross, tax := bondGross+bondAccrued+fundGross+depGross, fundTax+depTax
 	out.GrossUAH, out.TaxUAH, out.NetUAH = minor(gross), minor(tax), minor(gross-tax)
 	if gross > 0 {
 		out.RatePct = round2(float64(tax) / float64(gross) * 100)

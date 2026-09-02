@@ -110,14 +110,21 @@ export const signedUAH = (v) => {
   return (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toLocaleString("uk") + " ₴";
 };
 
+/** Мінус ОДНИМ знаком на весь застосунок: U+2212, як у signedUAH вище.
+ *  toLocaleString дає для від'ємних звичайний дефіс, і доки від'ємних сум
+ *  у таблицях не було, різниці не бачив ніхто. Щойно в податковій картці
+ *  зʼявився рядок «− НКД», в одному рядку стали поруч «-852,45 ₴» і
+ *  «−10,65 ₴» — два різні знаки для одного значення. */
+const dec2 = (v) => (Number(v) || 0)
+  .toLocaleString("uk", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  .replace(/^-/, "−");
+
 /** Гривні з копійками: дивіденд 16.33 ₴ і податок 2.66 ₴ — числа, де
  *  округлення до гривні з'їдає п'яту частину значення. */
-export const uah2 = (v) =>
-  (Number(v) || 0).toLocaleString("uk", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ₴";
+export const uah2 = (v) => dec2(v) + " ₴";
 
 /** Довільна валюта з копійками. */
-export const cur2 = (v, c) =>
-  (Number(v) || 0).toLocaleString("uk", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " " + curSym(c);
+export const cur2 = (v, c) => dec2(v) + " " + curSym(c);
 
 /** Об'єкт {amount, currency} з бекенда.
  *

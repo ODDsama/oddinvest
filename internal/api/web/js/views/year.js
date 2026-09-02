@@ -18,6 +18,7 @@ import { infoBtn } from "../info.js";
 import { tile, empty } from "../components.js";
 import { opsGrid } from "../grid.js";
 import { structureHTML, decisionsHTML } from "./period.js";
+import { taxRowAttrs } from "./money-cards.js";
 
 const YEAR_KEY = "oi.year";
 
@@ -131,6 +132,9 @@ function taxHTML(tax) {
       { key: "net", label: "Чистими", num: true, prio: 3, cell: (r) => fmtUAH(r.net_uah) },
     ],
     rows,
+    // Умова відступу — спільна з карткою «Податки»: рядок НКД належить
+    // купонам над ним, і дві сторінки не мають розповідати про це різне.
+    rowAttrs: taxRowAttrs,
     caption: "Податок за рік по видах доходу: брутто, податок, чистими",
   })}
     <div class="sub-xs">${esc(tax.fx_basis || "")}${tax.note ? ` · ${esc(tax.note)}` : ""}</div>

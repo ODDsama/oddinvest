@@ -939,6 +939,12 @@ tr:last-child td { border-bottom: none; }
    інший рівень числа, а не черговий рядок. */
 tr.tot > td { font-weight: var(--oi-fw-medium); border-top: var(--oi-rule) solid var(--oi-border); }
 
+/* Підрядок: віднімання, що НАЛЕЖИТЬ рядкові над ним, а не сусідить із ним.
+   Відступ лише зсуває — сенс несе сам підпис («− НКД, сплачений при
+   купівлі»), бо для того, хто слухає таблицю голосом, відступу не існує. */
+tr.sub-row > td { color: var(--oi-muted); }
+tr.sub-row > td:first-child { padding-left: calc(var(--oi-cell-pad-x) + var(--oi-gap-lg)); }
+
 /* --- єдина таблиця позицій --- */
 
 /* Пігулка виду інструмента. Колір несе значення (ОВДП / фонд / вклад),

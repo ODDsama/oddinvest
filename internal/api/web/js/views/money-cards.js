@@ -843,6 +843,24 @@ export function taxYear() {
   return now;
 }
 
+// taxRowAttrs — рядок НКД належить купонам НАД ним, а не сусідить із
+// ними. Ключ bond_accrued приходить із бекенда саме для цього, тож умова
+// одна на обидві сторінки, де картку малюють (year.js бере її звідси).
+export const taxRowAttrs = (l) => ({ class: l.kind === "bond_accrued" ? "sub-row" : "" });
+
+// gapsHTML — місяці, за які виплата фонду мала бути, а запису немає.
+//
+// Це НЕ оцінка доходу й не рядок таблиці: сума наверху лишається тим, що
+// справді заведено. Це зізнання картки в межах власного знання — купони
+// приходять із довідника НБУ самі, а дивіденди лише з виписки, тож
+// мовчання тут читалось би як «доходу не було».
+function gapsHTML(gaps) {
+  if (!(gaps || []).length) return "";
+  return `<div class="sub-xs t-warn">Дивіденд мав бути, запису немає: ${
+    gaps.map((g) => `${esc(g.fund)} — ${g.months.map(esc).join(", ")}`).join("; ")
+  }. Заведіть виписку за ці місяці, інакше картка занижує дохід.</div>`;
+}
+
 export function taxHTML(x) {
   if (!x) return "";
   const now = new Date().getFullYear();
@@ -859,10 +877,15 @@ export function taxHTML(x) {
       { key: "tax", label: "Податок", num: true,
         cell: (l) => (l.tax_uah ? "−" + fmtUAH(l.tax_uah) : "—") },
       { key: "net", label: "Чистими", num: true, cell: (l) => fmtUAH(l.net_uah) },
+      // Ставку показуємо лише на ДОДАТНОМУ нарахованому. Рядок НКД
+      // відʼємний, тобто істинний, і без цієї умови в колонці стояло б
+      // «0,0%» — ставка на поверненні власних грошей, тобто не мале
+      // число, а помилка категорії.
       { key: "rate", label: "Ставка", num: true,
-        cell: (l) => (l.gross_uah ? pct(l.rate_pct) : "—") },
+        cell: (l) => (l.gross_uah > 0 ? pct(l.rate_pct) : "—") },
     ],
     rows: x.by_kind || [],
+    rowAttrs: taxRowAttrs,
     caption: `Податок на дохід за ${esc(String(sel))}: джерело, нараховано, податок, чистими, ставка`,
     foot: [
       { cell: "Разом" },
@@ -902,8 +925,11 @@ export function taxHTML(x) {
      <div class="sub card-head mt-sm">
        <span>Купон ОВДП звільнений від податку, дивіденд фонду й відсотки вкладу — ні.
          Ставки не зашиті: у фонду береться фактично утримане з виписки, у вкладу —
-         ставка самого вкладу.</span>
+         ставка самого вкладу. З нарахованого віднято НКД, сплачений при купівлі:
+         у брудній ціні вже сидів купон попереднього власника, і його повернення —
+         не дохід. Віднімається на дату того купона, який його повернув.</span>
        <button class="sm" data-tax-csv="${sel}">Завантажити CSV</button></div>
+     ${gapsHTML(x.fund_gaps)}
      ${x.fx_basis ? `<div class="sub-xs">Валютні суми: ${esc(x.fx_basis)}${
         x.fx_max_lag_days > 1 ? `; найбільше відставання ${x.fx_max_lag_days} ${
           plural(x.fx_max_lag_days, "день", "дні", "днів")}` : ""}.${

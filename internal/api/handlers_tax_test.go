@@ -23,10 +23,13 @@ type taxJSON struct {
 	To       string  `json:"to"`
 	GrossUAH float64 `json:"gross_uah"`
 	TaxUAH   float64 `json:"tax_uah"`
+	RatePct  float64 `json:"rate_pct"`
+	Note     string  `json:"note"`
 	ByKind   []struct {
 		Kind     string  `json:"kind"`
 		GrossUAH float64 `json:"gross_uah"`
 		TaxUAH   float64 `json:"tax_uah"`
+		RatePct  float64 `json:"rate_pct"`
 	} `json:"by_kind"`
 }
 
@@ -334,7 +337,9 @@ func TestCSVTaxMatchesTaxEndpoint(t *testing.T) {
 		t.Fatalf("csv дав %d", resp.StatusCode)
 	}
 
-	// Сума колонки «податок_грн».
+	// Сума колонки «податок_грн». Рядки «нкд», додані поруч із купонами,
+	// сюди нічого не приносять: податку на поверненні власних грошей немає.
+	// Їх стереже сусідній TestCSVBondGrossMatchesTaxCard, по «сума_грн».
 	var total float64
 	// Знімаємо BOM, який обробник пише заради українського Excel. Саме
 	// екранованою послідовністю: сам символ у тілі go-файлу компілятор
@@ -391,6 +396,355 @@ func TestTaxBondCouponsAreExempt(t *testing.T) {
 	for _, l := range got.ByKind {
 		if l.Kind == "bond" && l.TaxUAH != 0 {
 			t.Errorf("з купонів ОВДП утримано %v — вони звільнені", l.TaxUAH)
+		}
+	}
+}
+
+// seedAccruedBond — папір, куплений УСЕРЕДИНІ купонного періоду, тобто
+// нормальний випадок, а не рідкісний: на вторинному ринку інакше майже не
+// буває, і саме на ньому картка брехала.
+//
+// Відтворює живий UA4000239081. У графіку НБУ лише МАЙБУТНІ виплати, тож
+// попереднього купона там немає — період відновлюється з кроку сітки
+// (couponStart), і початок виходить на coupon−182. Купон 82.20; лот на
+// 171-й день періоду дає НКД 77.23, на 174-й — 78.59.
+//
+// Дати відносні: купон має бути в МИНУЛОМУ, інакше domain.Arrived чесно
+// відсіє і його, і відрахування (це перевіряє окремий тест нижче).
+func seedAccruedBond(t *testing.T, st *store.Store, isin string, coupon domain.Date) {
+	t.Helper()
+	next := coupon.AddDays(182)
+	maturity := coupon.AddDays(182 * 4)
+	secs := []nbu.Security{{
+		Bond: domain.Bond{ISIN: isin, Nominal: money.New(100000, money.UAH),
+			RateBP: 1644, Maturity: maturity, Descr: "середньострокові"},
+		Payments: []domain.Payment{
+			{ISIN: isin, PayDate: coupon, Type: domain.PayCoupon, PerBond: money.New(8220, money.UAH)},
+			{ISIN: isin, PayDate: next, Type: domain.PayCoupon, PerBond: money.New(8220, money.UAH)},
+			{ISIN: isin, PayDate: maturity, Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+		},
+	}}
+	if err := st.ReplaceDirectory(context.Background(), secs, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []struct {
+		qty  int64
+		back int
+	}{{1, 11}, {8, 8}} {
+		if _, err := st.AddLot(context.Background(), domain.Lot{
+			ISIN: isin, Qty: l.qty, PricePerBond: money.New(108600, money.UAH),
+			Fee: money.New(0, money.UAH), BuyDate: coupon.AddDays(-l.back), Channel: "privat24",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func kinds(got taxJSON) map[string]float64 {
+	m := map[string]float64{}
+	for _, l := range got.ByKind {
+		m[l.Kind] = l.GrossUAH
+	}
+	return m
+}
+
+// Наскрізна регресія: НКД, сплачений при купівлі, не дохід.
+//
+// Живий випадок, з якого все почалось: 9 паперів UA4000239081, куплених за
+// 11 і 8 днів до купона, дали 739,80 грн — а 705,95 з них були поверненням
+// накопиченого купона, сплаченого в брудній ціні. Картка показувала всі
+// 739,80 як «нараховано».
+func TestTaxNetsAccruedPaidOnPurchase(t *testing.T) {
+	srv, st := testServer(t)
+	coupon := domain.NewDate(time.Now()).AddDays(-8)
+	seedAccruedBond(t, st, "UA4000239081", coupon)
+
+	got := getTax(t, srv.URL, "from="+string(coupon.AddDays(-30))+"&to="+string(coupon))
+	by := kinds(got)
+	if by["bond"] != 739.80 {
+		t.Errorf("купон = %.2f, хочемо 739.80", by["bond"])
+	}
+	if by["bond_accrued"] != -705.95 {
+		t.Errorf("НКД = %.2f, хочемо -705.95", by["bond_accrued"])
+	}
+	if got.GrossUAH != 33.85 {
+		t.Errorf("нараховано = %.2f, хочемо 33.85", got.GrossUAH)
+	}
+	for _, l := range got.ByKind {
+		if l.Kind == "bond_accrued" {
+			// Нуль податку — бо бази немає взагалі, а не бо ставка нульова.
+			// Ставка на поверненні власних грошей безглузда за визначенням.
+			if l.TaxUAH != 0 || l.RatePct != 0 {
+				t.Errorf("рядок НКД: податок %.2f, ставка %.2f — обидва мали бути нулем", l.TaxUAH, l.RatePct)
+			}
+		}
+	}
+}
+
+// Ставка внизу картки рахується з нетто-доходу. Саме вона й брехала
+// найгучніше: на бойових даних 1,1% замість 9,3% — податок виглядав
+// увосьмеро легшим, ніж він є.
+func TestTaxRateUsesNettedTotal(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+	coupon := domain.NewDate(time.Now()).AddDays(-8)
+	seedAccruedBond(t, st, "UA4000239081", coupon)
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: coupon.AddDays(-2), Fund: "Inzhur REIT", Kind: domain.FundDividend,
+		Amount: 7605, Tax: 1065, Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := getTax(t, srv.URL, "from="+string(coupon.AddDays(-30))+"&to="+string(coupon))
+	if got.GrossUAH != 109.90 {
+		t.Errorf("нараховано = %.2f, хочемо 109.90 (33.85 купона + 76.05 дивіденда)", got.GrossUAH)
+	}
+	if got.TaxUAH != 10.65 {
+		t.Errorf("податок = %.2f, хочемо 10.65", got.TaxUAH)
+	}
+	// Без віднімання НКД знаменником було б 815,85, і та сама десятка
+	// податку виглядала б як 1,3%. Тут вона 9,69% — тобто справжня.
+	if got.RatePct != 9.69 {
+		t.Errorf("ставка = %.2f, хочемо 9.69", got.RatePct)
+	}
+}
+
+// Відрахування належить даті КУПОНА, а не купівлі: вікно, що містить
+// купівлю й не містить купона, мусить лишитись порожнім з обох боків.
+// Річна межа — окремий випадок цього ж правила (домен: TestAccruedPaidAttributesToCouponDate).
+func TestTaxAccruedLandsOnCouponNotPurchase(t *testing.T) {
+	srv, st := testServer(t)
+	coupon := domain.NewDate(time.Now()).AddDays(-8)
+	seedAccruedBond(t, st, "UA4000239081", coupon)
+
+	before := kinds(getTax(t, srv.URL, "from="+string(coupon.AddDays(-30))+"&to="+string(coupon.AddDays(-1))))
+	if _, ok := before["bond_accrued"]; ok {
+		t.Errorf("НКД потрапив у вікно без купона: %+v", before)
+	}
+	if _, ok := before["bond"]; ok {
+		t.Errorf("купон потрапив у вікно, що його не містить: %+v", before)
+	}
+	after := kinds(getTax(t, srv.URL, "from="+string(coupon)+"&to="+string(coupon)))
+	if after["bond"] == 0 || after["bond_accrued"] == 0 {
+		t.Errorf("у вікні з купоном мали бути обидва рядки: %+v", after)
+	}
+}
+
+// Непозначений майбутній купон не зараховується — і відрахування разом із
+// ним. Це та сама пара: якби НКД лишився сам, рядок ОВДП пішов би в мінус
+// і картка показала б збиток там, де просто ще нічого не сталось.
+func TestTaxAccruedRequiresArrivedCoupon(t *testing.T) {
+	srv, st := testServer(t)
+	coupon := domain.NewDate(time.Now()).AddDays(30)
+	seedAccruedBond(t, st, "UA4000239081", coupon)
+
+	by := kinds(getTax(t, srv.URL, "from="+string(coupon.AddDays(-60))+"&to="+string(coupon.AddDays(60))))
+	if _, ok := by["bond"]; ok {
+		t.Errorf("майбутній купон зарахували: %+v", by)
+	}
+	if _, ok := by["bond_accrued"]; ok {
+		t.Errorf("НКД без свого купона: %+v", by)
+	}
+}
+
+// Інваріант із domain.AccruedPaid, перевірений на межі API: НКД не може
+// перевищити купон, який його повертає, тож пара рядків у мінус не йде.
+func TestTaxBondLineNeverGoesNegative(t *testing.T) {
+	srv, st := testServer(t)
+	coupon := domain.NewDate(time.Now()).AddDays(-8)
+	seedAccruedBond(t, st, "UA4000239081", coupon)
+
+	by := kinds(getTax(t, srv.URL, "from="+string(coupon.AddDays(-30))+"&to="+string(coupon)))
+	if by["bond"]+by["bond_accrued"] < 0 {
+		t.Errorf("купони мінус НКД = %.2f, а мінусом бути не може", by["bond"]+by["bond_accrued"])
+	}
+}
+
+// csvColumn — сума колонки по рядках заданих типів, із фільтром по
+// коментарю. Дрібний хелпер, але без нього перевірка звірки перетворюється
+// на двадцять рядків розбору CSV усередині тесту.
+func csvColumn(t *testing.T, body, column string, types map[string]bool, skipNote string) float64 {
+	t.Helper()
+	lines := strings.Split(strings.TrimPrefix(body, "\ufeff"), "\n")
+	head := strings.Split(strings.TrimSpace(lines[0]), ";")
+	col, noteCol := -1, -1
+	for i, h := range head {
+		switch h {
+		case column:
+			col = i
+		case "коментар":
+			noteCol = i
+		}
+	}
+	if col < 0 {
+		t.Fatalf("колонки %q немає: %v", column, head)
+	}
+	var total float64
+	for _, ln := range lines[1:] {
+		f := strings.Split(strings.TrimSpace(ln), ";")
+		if len(f) <= col || !types[f[0]] {
+			continue
+		}
+		if skipNote != "" && noteCol >= 0 && len(f) > noteCol && strings.Contains(f[noteCol], skipNote) {
+			continue
+		}
+		var v float64
+		if _, err := fmt.Sscanf(f[col], "%f", &v); err != nil {
+			t.Fatalf("не розібрали %q у рядку %q", f[col], ln)
+		}
+		total += v
+	}
+	return total
+}
+
+// Купонна частина файлу мусить сходитись із карткою по НАРАХОВАНОМУ, а не
+// лише по податку. Файл — реєстр подій, тож повний купон у ньому
+// лишається, а НКД стоїть окремим рядком; сума пари і є те число, яке
+// картка показує рядками «Купони ОВДП» та «− НКД».
+//
+// Сусідній TestCSVTaxMatchesTaxEndpoint цього не ловить: він підсумовує
+// колонку «податок_грн», а в обох цих рядків вона нульова.
+func TestCSVBondGrossMatchesTaxCard(t *testing.T) {
+	srv, st := testServer(t)
+	coupon := domain.NewDate(time.Now()).AddDays(-8)
+	seedAccruedBond(t, st, "UA4000239081", coupon)
+
+	q := "from=" + string(coupon.AddDays(-30)) + "&to=" + string(coupon)
+	card := kinds(getTax(t, srv.URL, q))
+	resp, csvBody := do(t, "GET", srv.URL+"/api/export/csv?"+q, "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("csv дав %d: %s", resp.StatusCode, csvBody)
+	}
+
+	got := csvColumn(t, csvBody, "сума_грн",
+		map[string]bool{"купон": true, "нкд": true}, "не позначено отриманим")
+	want := card["bond"] + card["bond_accrued"]
+	if diff := got - want; diff > 0.01 || diff < -0.01 {
+		t.Errorf("CSV дає %.2f, картка %.2f:\n%s", got, want, csvBody)
+	}
+	if want <= 0 {
+		t.Fatalf("фікстура мала дати додатний купонний дохід, маємо %.2f", want)
+	}
+}
+
+// setFundRef доводить щойно створений операцією фонд до потрібного вигляду:
+// сам по собі він заводиться порожнім, а покриттю потрібні день виплати й
+// вид. Через RenameFund, бо іншого шляху правити довідник у сховищі немає.
+func setFundRef(t *testing.T, st *store.Store, name string, payoutDay int64, kind string) {
+	t.Helper()
+	ctx := context.Background()
+	funds, err := st.ListFunds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range funds {
+		if f.Name != name {
+			continue
+		}
+		f.PayoutDay = payoutDay
+		f.Kind = kind
+		if err := st.RenameFund(ctx, f.ID, f); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Fatalf("фонду %q немає в довіднику", name)
+}
+
+// Картка мусить називати межу власного знання.
+//
+// Купони приходять із довідника НБУ самі, дивіденди — лише з виписки. Тому
+// картка може бачити рік рівно двома місяцями й показати їх як рік. На
+// бойовій базі так і було: журнал фондів починався з 04.06.2026, за 2026-й
+// стояло 76,05 грн, а 2023-2025 були порожні — не «даних немає», а просто
+// порожні.
+func TestTaxNoteDeclaresFundCoverage(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+	today := domain.NewDate(time.Now())
+	earliest := today.AddDays(-60)
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: earliest, Fund: "Inzhur REIT", Kind: domain.FundBuy,
+		Qty: 100, Amount: 100_000, Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Вікно ПОЧИНАЄТЬСЯ раніше за журнал: часткове покриття.
+	partial := getTax(t, srv.URL, "from="+string(today.AddDays(-400))+"&to="+string(today))
+	if !strings.Contains(partial.Note, "по фондах дані з") {
+		t.Errorf("картка змовчала про межу даних: %q", partial.Note)
+	}
+	if !strings.Contains(partial.Note, human(earliest)) {
+		t.Errorf("у примітці немає дати початку журналу %s: %q", human(earliest), partial.Note)
+	}
+
+	// Вікно ЦІЛКОМ раніше за журнал: інше твердження, не те саме.
+	before := getTax(t, srv.URL, "from="+string(today.AddDays(-400))+"&to="+string(today.AddDays(-300)))
+	if !strings.Contains(before.Note, "записів немає") {
+		t.Errorf("порожня картка мала пояснити свою порожнечу: %q", before.Note)
+	}
+
+	// Вікно ВСЕРЕДИНІ журналу: скаржитись нема на що.
+	inside := getTax(t, srv.URL, "from="+string(today.AddDays(-30))+"&to="+string(today))
+	if strings.Contains(inside.Note, "по фондах") {
+		t.Errorf("примітка на порожньому місці: %q", inside.Note)
+	}
+}
+
+// Дірка всередині покриття: позиція є, день виплати минув, а запису немає.
+// Користувач каже «мені платять щомісяця» — і картка мусить уміти сказати,
+// за який саме місяць вона виплати не бачила.
+func TestTaxReportsMissingDividendMonths(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+	today := domain.NewDate(time.Now())
+	from := today.AddDays(-100)
+
+	add := func(fund string, kind domain.FundOpKind, d domain.Date, amount, tax int64) {
+		t.Helper()
+		if _, err := st.AddFundOp(ctx, domain.FundOp{
+			Date: d, Fund: fund, Kind: kind, Qty: 100, Amount: amount, Tax: tax,
+			Currency: money.UAH, Broker: "inzhur",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	add("Inzhur REIT", domain.FundBuy, from, 100_000, 0)
+	add("Inzhur MilTech", domain.FundBuy, from, 500_000, 0)
+	setFundRef(t, st, "Inzhur REIT", 10, store.FundDistributing)
+	// День виплати накопичувальному теж проставлений НАВМИСНО: він мусить
+	// випасти зі списку через ВИД фонду, а не через порожнє поле.
+	setFundRef(t, st, "Inzhur MilTech", 10, store.FundAccumulating)
+
+	// Один місяць виписки заведено — саме він і не має потрапити в дірки.
+	paidMonth := string(today.AddDays(-40))[:7]
+	add("Inzhur REIT", domain.FundDividend, domain.Date(paidMonth+"-10"), 7_605, 1_065)
+
+	var got struct {
+		FundGaps []struct {
+			Fund   string   `json:"fund"`
+			Months []string `json:"months"`
+		} `json:"fund_gaps"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/tax?from="+string(from)+"&to="+string(today), "")
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("розбір: %v (%s)", err, body)
+	}
+	if len(got.FundGaps) != 1 {
+		t.Fatalf("очікували дірки рівно по одному фонду, маємо %+v", got.FundGaps)
+	}
+	g := got.FundGaps[0]
+	if g.Fund != "Inzhur REIT" {
+		t.Errorf("фонд = %q, а накопичувальний сюди не мав потрапити", g.Fund)
+	}
+	if len(g.Months) == 0 {
+		t.Fatal("за сто днів щомісячних виплат мала бути хоч одна дірка")
+	}
+	for _, m := range g.Months {
+		if m == paidMonth {
+			t.Errorf("місяць %s заведено, а він у дірках: %v", paidMonth, g.Months)
 		}
 	}
 }

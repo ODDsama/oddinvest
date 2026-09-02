@@ -295,6 +295,32 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		}
 		row(typeNames[cf.Type], cf.Date, cf.ISIN, "", "", cf.Amount, 0, note)
 	}
+	// НКД, сплачений при купівлі: рядок купона вище лишається повним (гроші
+	// справді надійшли, і в декларацію йде саме та сума), а це — та його
+	// частина, що була поверненням власних грошей. Без цих рядків файл
+	// перестав би сходитись із карткою по «нараховано», тобто інваріант
+	// вгорі цього обробника став би хибним для брутто.
+	//
+	// Дата — КУПОНА, не купівлі: інакше грудневий НКД ліг би в інший рік,
+	// ніж дохід, який він гасить. arrived тут позначається, а не фільтрує —
+	// рівно як у купона вище, щоб пара лишалась у файлі разом.
+	accrued, aerr := domain.AccruedPaid(pays, lots, sales)
+	if aerr != nil {
+		writeErr(w, http.StatusInternalServerError, aerr)
+		return
+	}
+	for _, it := range accrued {
+		if !inWindow(it.Date) || it.Date.After(today) {
+			continue
+		}
+		note := "сплачено при купівлі, повернувся цим купоном"
+		if !arrived(it.ISIN, it.Date) {
+			note += "; не позначено отриманим"
+		}
+		// Мінус — не помилка знаку, а НАПРЯМОК: рядок віднімає від купона.
+		row("нкд", it.Date, it.ISIN, "", "",
+			money.New(-it.Amount.Amount(), it.Amount.Currency().Code), 0, note)
+	}
 
 	lotByID := map[int64]domain.Lot{}
 	for _, l := range lots {
