@@ -540,6 +540,57 @@ main:focus { outline: none; }
    Рейка з одного елемента показувала б вибір там, де вибору немає. */
 .panes.solo { gap: 0; padding-bottom: 0; }
 
+/* ТЕЛЕФОН (<640): вкладки переїжджають у нижню панель.
+   Аудит на 375px показав, що шапка в один ряд прокручується на 585px, і
+   капітал, дельта, пошук і ⚙ стоять за правим краєм — тобто головне
+   число застосунку на телефоні не видно без прокрутки шапки. Вкладки —
+   найширше в ряду й водночас те, до чого тягнуться великим пальцем, тож
+   їхнє місце внизу. Той самий <nav id="tabs">, лише position: fixed:
+   розмітка одна, зміни лише в сітці (довід у плані фази 28, D3).
+   Штамп «стан на …» ховається — з правої трійки він єдиний, без якого
+   можна прожити (довід при .hdr-stamp). main дістає відступ під панель,
+   щоб останній рядок сторінки не ховався за нею. */
+@media (max-width: 639px) {
+  .tabs {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--oi-header-h);
+    padding: 0 var(--oi-gap-xs);
+    gap: 0;
+    justify-content: space-around;
+    background: var(--oi-header-bg);
+    border-top: var(--oi-rule) solid var(--oi-border);
+    z-index: var(--oi-z-header);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tab {
+    flex: 1 1 0;
+    justify-content: center;
+    padding: var(--oi-gap-xs) var(--oi-gap-sm);
+    font-size: var(--oi-fs-xs);
+  }
+  .hdr-stamp { display: none; }
+  /* Без вкладок шапка на 375px усе ще ширша за екран на 35px: капітал
+     62, дельта 125, три кнопки по 30 і сім проміжків. Іде дельта (вона
+     стоїть під капіталом у герої «Огляду» — рядком, а не числом) і ↻
+     (тимчасова кнопка, довід при ній у app.js). Капітал і ⚙ лишаються
+     видимими без прокрутки — заради цього все й робилось. */
+  .hdr-delta, #refresh { display: none; }
+  main { padding-bottom: calc(var(--oi-gap-3xl) + var(--oi-header-h)); }
+  /* Поле вибору файлу («Резервна копія») має власну внутрішню ширину, а
+     всередині inline-block підпису max-width:100% ні на що не спирається —
+     виїзд на 40px. Підпис стає блоком, поле — на всю його ширину. */
+  label.inline-block { display: block; max-width: 100%; }
+  label.inline-block input { width: 100%; }
+  /* Шапка картки з перемикачем періоду (шість місяців «Підсумку») на
+     телефоні переноситься, а не виїжджає за край. */
+  .card-head { flex-wrap: wrap; }
+  .seg { flex-wrap: wrap; gap: var(--oi-gap-sm); }
+}
+
 @media (min-width: 640px) {
   header { padding: 0 var(--oi-gap-lg); }
   #alert { padding: var(--oi-gap) var(--oi-gap-lg) 0; }
