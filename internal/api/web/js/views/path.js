@@ -124,9 +124,18 @@ function heroHTML(m) {
     <div class="sub">${esc(m.note)}</div>
     ${m.progress_pct >= 0
     ? progressBar(m.progress_pct, { color: "var(--oi-accent)" }) : ""}
+    ${etaHTML(m)}
     ${move ? `<a class="lnk mile-a" href="${routeFor(move.to)}">${
   esc(move.label)}</a>` : ""}
   </div>`;
+}
+
+/** «≈ коли · чий це темп». Основа стоїть поруч із датою завжди — два
+ *  різні «коли» в застосунку не зводяться в одне число (state_progress.go,
+ *  milestone.EtaBasis), і дата без основи читалась би як обіцянка. */
+function etaHTML(m) {
+  if (!m.eta_on) return "";
+  return `<div class="sub-xs">≈ ${esc(m.eta_on)} · ${esc(m.eta_basis)}</div>`;
 }
 
 /** Що вже сталось: датовані віхи, найновіші згори.
@@ -194,6 +203,7 @@ export function nextLineHTML(p) {
     ${m.progress_pct >= 0
     ? progressBar(m.progress_pct, { color: "var(--oi-accent)" }) : ""}
     <div class="sub-xs">${esc(m.note)}</div>
+    ${etaHTML(m)}
     ${lifeLineHTML(p)}
   </div>`;
 }
@@ -243,7 +253,8 @@ function badgesHTML(list) {
       <span class="badge-i" aria-hidden="true">${m.earned ? "✓" : "○"}</span>
       <span class="badge-t">
         <span class="badge-n">${esc(m.title)}</span>
-        <span class="badge-s">${esc(m.left || m.note)}</span>
+        <span class="badge-s">${esc(m.left || m.note)}${
+  m.eta_on ? ` · ≈ ${esc(m.eta_on)} ${esc(m.eta_basis)}` : ""}</span>
       </span>
       ${!m.earned && m.progress_pct >= 0
     ? `<span class="badge-p">${m.progress_pct}%</span>` : ""}

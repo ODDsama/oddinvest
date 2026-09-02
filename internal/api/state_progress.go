@@ -265,9 +265,50 @@ type milestone struct {
 	// «виміряти нічим», і UI показує прочерк, а не нуль: у незібраної
 	// віхи нуль і невідомість читаються однаково, а означають різне.
 	ProgressPct int `json:"progress_pct"`
+
+	// EtaOn — коли віха буде зібрана «за твоїм темпом»; EtaBasis каже,
+	// ЧИЙ це темп, і без нього дати не буває. Два різні «коли» в
+	// застосунку вже є (ціль внесків проти надходжень портфеля — шапка
+	// ready_on.go), і зводити їх в одне число не можна: тому основа стоїть
+	// поруч із датою, а не в довідці. Лише в незібраної віхи, і лише там,
+	// де темп існує: у часток, лімітів і колекції його немає — дата не
+	// вигадується.
+	EtaOn    string `json:"eta_on,omitempty"`
+	EtaBasis string `json:"eta_basis,omitempty"`
 }
 
 const progressNoProgress = -1
+
+// Основи темпу — ті самі слова, що в задачах і на «Зараз».
+const (
+	etaByTarget  = "за ціллю внесків"
+	etaByIncome  = "з надходжень портфеля"
+	etaByStreak  = "якщо не зривати"
+	etaByReserve = "за стелею подушки"
+	etaByExit    = "за планом виходу з ліміту"
+)
+
+// etaHorizonDays — далі за це дата не називається: «через 80 років» —
+// число про стелю розрахунку, а не про гроші (той самий поріг, що в
+// точці незалежності).
+const etaHorizonDays = 60 * 365
+
+// etaAfterDays — дата через days днів; порожньо, коли темпу немає або
+// горизонт задалекий.
+func etaAfterDays(today domain.Date, days float64) string {
+	if days <= 0 || math.IsInf(days, 0) || math.IsNaN(days) || days > etaHorizonDays {
+		return ""
+	}
+	return string(today.AddDays(int(math.Ceil(days))))
+}
+
+// etaAtPace — скільки днів до суми need зі швидкістю perDay на день.
+func etaAtPace(today domain.Date, need, perDay float64) string {
+	if perDay <= 0 {
+		return ""
+	}
+	return etaAfterDays(today, need/perDay)
+}
 
 // milestoneCount — скільки віх у наборі. Число зашите ТУТ, а не
 // виводиться з len(): набір сталий, і зміна його довжини мусить бути
@@ -523,7 +564,7 @@ func buildMilestones(
 	for _, t := range capitalThresholds {
 		when := firstSnapshotAtLeast(snaps, t.uah)
 		earned := cap0 >= t.uah
-		add(milestone{
+		m := milestone{
 			Key: t.key, Title: t.title,
 			Note: noteOr(earned,
 				noteOr(when != "", "пройдено "+when, "пройдено до першого знімка"),
@@ -531,7 +572,14 @@ func buildMilestones(
 			Left:   noteOr(earned, "", "лишилось "+uah(t.uah-cap0)),
 			Earned: earned, EarnedOn: when,
 			ProgressPct: ratioPct(cap0, t.uah),
-		})
+		}
+		// Темп — ціль внесків на день, як у savingTask: найчесніше з
+		// того, що є в документі.
+		if !earned {
+			m.EtaOn = etaAtPace(today, t.uah-cap0, doc.MonthTargetUAH/30)
+			m.EtaBasis = noteOr(m.EtaOn != "", etaByTarget, "")
+		}
+		add(m)
 	}
 
 	// --- 5. Обіграв «просто долари» ---
@@ -563,8 +611,8 @@ func buildMilestones(
 	})
 
 	// --- 7-8. Серія ---
-	add(streakMilestone("half_year_streak", "Пів року поспіль за планом", 6, streak))
-	add(streakMilestone("year_no_gaps", "Рік без пропусків", 12, streak))
+	add(streakMilestone("half_year_streak", "Пів року поспіль за планом", 6, streak, today))
+	add(streakMilestone("year_no_gaps", "Рік без пропусків", 12, streak, today))
 
 	// --- 9. Резерв зібрано ---
 	add(func() milestone {
@@ -580,6 +628,9 @@ func buildMilestones(
 			num1(r.Months), num1(r.TargetMonths))
 		if !m.Earned {
 			m.Left = "лишилось " + num1(r.TargetMonths-r.Months) + " місяця витрат"
+			// Темп — стеля подушки на місяць, яку задав сам користувач.
+			m.EtaOn = etaAtPace(today, r.GapUAH, r.FillMonthUAH/30)
+			m.EtaBasis = noteOr(m.EtaOn != "", etaByReserve, "")
 		}
 		return m
 	}())
@@ -708,7 +759,7 @@ func buildMilestones(
 	// Лічильник, що росте (lifeDoc), із двома порогами: місяць і рік.
 	// Дата — з подій руху грошей, а не зі знімків: купон датований сам.
 	for _, t := range lifeThresholds {
-		add(lifeMilestone(t.key, t.title, t.days, ev, life))
+		add(lifeMilestone(t.key, t.title, t.days, ev, life, doc.IncomeMonthlyNow, today))
 	}
 
 	// --- 17-21. Борг (state_progress_debt.go) ---
@@ -728,7 +779,9 @@ var lifeThresholds = []struct {
 	{"life_year", "Портфель оплатив рік життя", 365},
 }
 
-func lifeMilestone(key, title string, need float64, ev []flowEvent, life *lifeDoc) milestone {
+func lifeMilestone(key, title string, need float64, ev []flowEvent, life *lifeDoc,
+	incomeMonthly float64, today domain.Date) milestone {
+
 	m := milestone{Key: key, Title: title, ProgressPct: progressNoProgress,
 		Note: "місячні витрати не задані — міряти нема від чого"}
 	if life == nil {
@@ -741,6 +794,10 @@ func lifeMilestone(key, title string, need float64, ev []flowEvent, life *lifeDo
 		daysWord(life.Days), daysWord(need), uah(life.IncomeUAH), uah(life.PerDayUAH))
 	if !m.Earned {
 		m.Left = "лишилось " + daysWord(need-life.Days)
+		// Темп — щомісячний дохід портфеля вже зараз (IncomeMonthlyNow):
+		// це «з надходжень портфеля», інша основа, ніж у порогів капіталу.
+		m.EtaOn = etaAtPace(today, (need-life.Days)*life.PerDayUAH, incomeMonthly/30)
+		m.EtaBasis = noteOr(m.EtaOn != "", etaByIncome, "")
 	}
 	return m
 }
@@ -784,7 +841,7 @@ func pickNext(ms []milestone) string {
 // а не з поточної: одного разу досягнуте не відбирається назад. Це не
 // поблажка — віха фіксує, що таке вже було, а поточний стан показує сама
 // доріжка поруч.
-func streakMilestone(key, title string, need int, st streakDoc) milestone {
+func streakMilestone(key, title string, need int, st streakDoc, today domain.Date) milestone {
 	m := milestone{Key: key, Title: title,
 		Earned:      st.Best >= need,
 		ProgressPct: ratioPct(float64(st.Best), float64(need)),
@@ -794,6 +851,14 @@ func streakMilestone(key, title string, need int, st streakDoc) milestone {
 	if n := need - st.Best; n > 0 {
 		m.Left = fmt.Sprintf("лишилось %d %s поспіль", n,
 			plural(n, "місяць", "місяці", "місяців"))
+		// Дата — від ПОТОЧНОЇ серії, не від найкращої: щоб дійти до need,
+		// треба need − Months місяців без зриву, і останній із них
+		// закінчується в кінці місяця. Умова названа основою.
+		if st.MonthsMeasured > 0 {
+			left := need - st.Months
+			m.EtaOn = string(monthStart(today, left+1).AddDays(-1))
+			m.EtaBasis = etaByStreak
+		}
 	}
 	if st.MonthsMeasured == 0 {
 		m.ProgressPct = progressNoProgress

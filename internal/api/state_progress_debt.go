@@ -60,6 +60,11 @@ func debtMilestones(doc *state.Doc, src *sources, snaps []store.Snapshot, today 
 		m.ProgressPct = ratioPct(cap0, owed)
 		m.Note = fmt.Sprintf("капітал %s проти боргу %s", uah(cap0), uah(owed))
 		m.Left = "лишилось " + uah(-nw) + " боргу понад капітал"
+		// Дата — з плану виходу з ліміту, коли він є: там уже пораховано
+		// середній дохід місяців до цілі, і другого темпу не треба.
+		if doc.Debt != nil && doc.Debt.Exit != nil && doc.Debt.Exit.ETADate != "" {
+			m.EtaOn, m.EtaBasis = doc.Debt.Exit.ETADate, etaByExit
+		}
 		return m
 	}())
 
@@ -155,6 +160,8 @@ func debtMilestones(doc *state.Doc, src *sources, snaps []store.Snapshot, today 
 			uah(r.DebtCoverUAH), uah(r.DebtCoverUAH-r.DebtCoverGapUAH))
 		if !m.Earned {
 			m.Left = "лишилось " + uah(r.DebtCoverGapUAH) + " до покриття"
+			m.EtaOn = etaAtPace(today, r.DebtCoverGapUAH, r.FillMonthUAH/30)
+			m.EtaBasis = noteOr(m.EtaOn != "", etaByReserve, "")
 		}
 		return m
 	}())

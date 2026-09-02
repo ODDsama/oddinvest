@@ -606,3 +606,42 @@ func TestProgressCardZeroDatedByCurrentRun(t *testing.T) {
 		t.Errorf("остання звірка в мінусі — дати немає, а є %q", got)
 	}
 }
+
+// TestProgressEtaNamesItsBasis — дата «за твоїм темпом» ніколи не стоїть
+// без основи, і її немає у зібраних віх і там, де темпу не існує.
+// Порогам капіталу темп дає ціль внесків: 30 000 ₴/міс — це 1 000 на
+// день, і 100 000 з нуля — це 100 днів.
+func TestProgressEtaNamesItsBasis(t *testing.T) {
+	doc := &state.Doc{MonthTargetUAH: 30_000}
+	ms := buildMilestones(doc, &sources{}, nil, nil, streakDoc{}, nil, nil, "2026-07-15")
+	byKey := map[string]milestone{}
+	for _, m := range ms {
+		byKey[m.Key] = m
+		if (m.EtaOn == "") != (m.EtaBasis == "") {
+			t.Errorf("%s: дата й основа мають іти разом: %q / %q", m.Key, m.EtaOn, m.EtaBasis)
+		}
+		if m.Earned && m.EtaOn != "" {
+			t.Errorf("%s: зібраній вісі дата не належить", m.Key)
+		}
+	}
+	if got := byKey["first_100k"]; got.EtaOn != "2026-10-23" || got.EtaBasis != etaByTarget {
+		t.Errorf("first_100k: %q / %q, чекали 2026-10-23 за ціллю внесків", got.EtaOn, got.EtaBasis)
+	}
+	// Частки й ліміти темпу не мають — дати немає.
+	for _, k := range []string{"shares_aligned", "no_limit_breach", "four_kinds"} {
+		if byKey[k].EtaOn != "" {
+			t.Errorf("%s: темпу немає, а дата %q", k, byKey[k].EtaOn)
+		}
+	}
+	// Без цілі внесків темпу немає й у порогів.
+	ms = buildMilestones(&state.Doc{}, &sources{}, nil, nil, streakDoc{}, nil, nil, "2026-07-15")
+	for _, m := range ms {
+		if m.Key == "first_100k" && m.EtaOn != "" {
+			t.Errorf("без цілі внесків дата мала мовчати, а є %q", m.EtaOn)
+		}
+	}
+	// Горизонт: 80 років — не дата.
+	if got := etaAfterDays("2026-07-15", 80*365); got != "" {
+		t.Errorf("задалекий горизонт мав мовчати, а є %q", got)
+	}
+}
