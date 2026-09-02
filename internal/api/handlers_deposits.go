@@ -384,7 +384,7 @@ func (s *Server) handleAddTermDeposit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.saveDecision(r.Context(), snap, now, store.BuyDeposit, d.Bank,
-		money.New(d.Principal, d.Currency), id)
+		money.New(d.Principal, d.Currency), id, d.Note)
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }

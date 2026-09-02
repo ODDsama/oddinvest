@@ -79,6 +79,9 @@ type decisionRow struct {
 	// дохідний папір» із «не купив нічого» — а це різні за природою
 	// рішення, і зводити їх у середнє не можна.
 	ForgonePct float64 `json:"forgone_pct,omitempty"`
+	// Note — нотатка операції в момент рішення («чому купив»), переписана
+	// в журнал тоді ж: операцію правлять і видаляють, журнал памʼятає.
+	Note string `json:"note,omitempty"`
 }
 
 // decisionsSummary — зведення, яке й є відповіддю розділу.
@@ -211,6 +214,7 @@ func decisionBase(d store.Decision) decisionRow {
 		ID: d.ID, MadeOn: string(d.MadeOn), Kind: d.Kind, Ref: d.Ref,
 		Amount:   toMoneyJSON(money.New(d.Amount, orUAH(d.Currency))),
 		RankMode: d.RankMode, PromisedPct: d.RealPct, RankPos: d.RankPos,
+		Note: d.Note,
 	}
 	if d.Kind == decisionKindReserve || d.Kind == decisionKindGoal {
 		// Ні в подушки, ні в цілі немає ні місця в рейтингу, ні власної

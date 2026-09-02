@@ -363,7 +363,7 @@ func (s *Server) handleAddNPFOp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.saveDecision(r.Context(), snap, now, store.BuyNPF, name,
-		money.New(op.Amount, cur), id)
+		money.New(op.Amount, cur), id, op.Note)
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }

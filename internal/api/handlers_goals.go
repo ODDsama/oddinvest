@@ -256,7 +256,7 @@ func (s *Server) handleAddGoalOp(w http.ResponseWriter, r *http.Request) {
 		// потім — рядок журналу лишиться з тією, що була в ту хвилину, і це
 		// правильно: він і є знімок моменту.
 		s.saveDecision(r.Context(), snap, now, decisionKindGoal, s.goalName(r.Context(), op.GoalID),
-			money.New(op.Amount, op.Currency), id)
+			money.New(op.Amount, op.Currency), id, op.Note)
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})

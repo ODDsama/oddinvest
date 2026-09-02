@@ -61,6 +61,9 @@ function bondDetailHTML(p, lots, sales) {
       { key: "fee", label: "Комісія", num: true, prio: 3, cell: (l) => fmtMoney(l.fee) },
       { key: "buy_date", label: "Куплено", cell: (l) => esc(l.buy_date) },
       { key: "channel", label: "Брокер", prio: 3, cell: (l) => esc(l.channel || "") },
+      // Нотатка «чому купив» — вона в лота була завжди (форма пише її
+      // з першого дня), але тут не показувалась ніде.
+      { key: "note", label: "Нотатка", cls: "muted", prio: 3, cell: (l) => esc(l.note || "") },
       actionsCol("lots", { label: (l) => "лот #" + l.id + " " + l.isin }),
     ],
     rows: myLots,

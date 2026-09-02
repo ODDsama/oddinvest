@@ -85,7 +85,7 @@ func (s *Server) handleAddReserveOp(w http.ResponseWriter, r *http.Request) {
 	}
 	if op.Amount > 0 {
 		s.saveDecision(r.Context(), snap, now, decisionKindReserve, op.Place,
-			money.New(op.Amount, op.Currency), id)
+			money.New(op.Amount, op.Currency), id, op.Note)
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})

@@ -98,8 +98,13 @@ func (s *Server) takeDecisionSnapshot(ctx context.Context, now time.Time,
 //
 // Помилка лише логується: див. шапку файла про те, чому примітка не
 // може завалити факт.
+//
+// note — нотатка САМОЇ операції («чому купив»), переписана в журнал у
+// момент рішення. Через рік «Ціна рішень» покаже не лише що ти зробив,
+// а й що тоді думав; тягти її з операції за op_id не можна — операцію
+// правлять і видаляють, а журнал мусить памʼятати той день.
 func (s *Server) saveDecision(ctx context.Context, snap decisionSnapshot,
-	now time.Time, kind, ref string, amount *money.Money, opID int64) {
+	now time.Time, kind, ref string, amount *money.Money, opID int64, note string) {
 	if !snap.ok {
 		return
 	}
@@ -107,7 +112,7 @@ func (s *Server) saveDecision(ctx context.Context, snap decisionSnapshot,
 		MadeOn: domain.NewDate(now), Kind: kind, Ref: ref,
 		RealPct: snap.realPct, RankPos: snap.rankPos,
 		TopLabel: snap.topLabel, TopRealPct: snap.topRealPct,
-		RankMode: snap.rankMode, OpID: opID,
+		RankMode: snap.rankMode, OpID: opID, Note: note,
 	}
 	if amount != nil {
 		d.Amount, d.Currency = amount.Amount(), amount.Currency().Code

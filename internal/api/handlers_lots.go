@@ -94,7 +94,7 @@ func (s *Server) handleAddLot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if cost, cerr := domain.LotCost(lot); cerr == nil {
-		s.saveDecision(r.Context(), snap, now, store.BuyBond, lot.ISIN, cost, id)
+		s.saveDecision(r.Context(), snap, now, store.BuyBond, lot.ISIN, cost, id, lot.Note)
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})

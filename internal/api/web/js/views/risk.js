@@ -551,6 +551,10 @@ export function decisionsCard(ctx, d) {
       { key: "date", label: "Коли", cell: (r) => esc(r.made_on) },
       { key: "what", label: "Що взяв",
         cell: (r) => `${kindPill(r.kind)} ${esc(r.ref)}` },
+      // «Чому» — нотатка операції, переписана в журнал у момент рішення.
+      // Через рік це єдине, що каже, ЩО ти тоді думав, а не лише що зробив.
+      { key: "note", label: "Чому", prio: 3,
+        cell: (r) => (r.note ? `<span class="muted">${esc(r.note)}</span>` : "—") },
       { key: "amount", label: "Сума", num: true, prio: 2,
         cell: (r) => (r.amount && r.amount.amount
           ? fmtCur(Number(r.amount.amount), curSym(r.amount.currency)) : "—") },

@@ -128,7 +128,7 @@ func (s *Server) handleAddFundOp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.saveDecision(r.Context(), snap, now, store.BuyFund, op.Fund,
-		money.New(op.Amount, op.Currency), id)
+		money.New(op.Amount, op.Currency), id, op.Note)
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
