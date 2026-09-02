@@ -214,11 +214,15 @@ function routedHTML(leg) {
  *  «яке надходження» посеред розкладки цього надходження питала б про вже
  *  відоме.
  *
+ *  pick — ISIN, який людина обрала для цієї ноги на сторінці маршруту
+ *  (route.js). Теж не поле, і з того самого доводу: вибір зроблено там, де
+ *  видно всю ногу, а тут він лише мусить дати ту саму відповідь.
+ *
  *  → Promise<boolean>: чи щось записалось. */
 export async function openAllocate(ctx, opts) {
   const {
     amount, currency = "UAH", title = "", routed = null,
-    source = "plan", principal = 0, sourceRef = "",
+    source = "plan", principal = 0, sourceRef = "", pick = "",
   } = opts;
   let res;
   try {
@@ -229,6 +233,7 @@ export async function openAllocate(ctx, opts) {
         amount: String(amount), currency, source,
         principal: principal ? String(principal) : "",
         source_ref: sourceRef || "",
+        pick_isin: pick || "",
       }),
     });
     if (!resp.ok) throw new Error(`${resp.status}: ${(await resp.text()).slice(0, 200)}`);

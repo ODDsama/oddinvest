@@ -44,7 +44,43 @@ import { opsGrid } from "../grid.js";
 import { kindPill, empty } from "../components.js";
 import { infoBtn } from "../info.js";
 import { routeFor } from "../routes.js";
+import { refSuggest, wireSuggest } from "../refs.js";
+import { openEdit } from "../forms.js";
 import { openAllocate, buyBody } from "./allocate.js";
+
+// Папери, які людина обрала сама, по ногах: ключ — дата|рахунок|валюта
+// (той самий routeKey, за яким бекенд упізнає ногу), значення — ISIN.
+//
+// У ПАМʼЯТІ СТОРІНКИ, а не в базі, і це не тимчасове рішення. Маршрут —
+// вигляд, а не стан (шапка annotatePlanned на бекенді): вибір живе, доки
+// людина дивиться й вирішує, і щойно ногу закріплено, його тримає план
+// купівель — рядком із тим самим ISIN. Третє місце для «майбутнього паперу»
+// розійшлося б із планом при першій же правці плану. Модуль переживає
+// ctx.reload() так само, як список reinvest у now-view.js; перезавантаження
+// вкладки його стирає — і це правильно: незакріплений вибір, який пережив
+// би день, читався б як рішення, якого ніхто не записував.
+const picks = new Map();
+
+function legKey(leg) {
+  return `${leg.date}|${leg.broker}|${leg.currency}`;
+}
+
+// Шлях запиту з вибором. Кожна нога — свій параметр pick: бекенд читає їх
+// усі й перераховує ноги В ПРОХОДІ, бо інший папір — інший залишок, і він
+// їде далі в наступні ноги того самого рахунку.
+function routePath() {
+  if (!picks.size) return "route";
+  const q = [...picks].map(([k, isin]) =>
+    "pick=" + encodeURIComponent(k + "|" + isin));
+  return "route?" + q.join("&");
+}
+
+// Чи є в нозі рядок ОВДП, який можна замінити. Вибір є РІВНО там, де є
+// «Закріпити»: на нозі через пів року він був би вибором сьогоднішньої ціни
+// на липень — саме те, від чого відмовляється pinnable.
+function pickable(leg) {
+  return leg.pinnable && (leg.lines || []).some((l) => l.kind === "bond");
+}
 
 // Основа надходження — підписом, і ТІЛЬКИ коли вона не «портфель це винен».
 //
@@ -80,8 +116,11 @@ function destHTML(leg) {
       — <b>${fmtUAH(g.amount_uah)}</b></div>`);
   }
   for (const l of leg.lines || []) {
+    // Обраний папір підписаний: без позначки вибір і порада виглядали б
+    // однаково, і людина не знала б, що тут є що скидати.
     rows.push(`<div class="fine">${kindPill(l.kind)} ${esc(l.label)}
-      — <b>${fmtUAH(l.total_uah)}</b></div>`);
+      — <b>${fmtUAH(l.total_uah)}</b>${l.picked
+  ? ` <span class="fine-xs muted">твій вибір</span>` : ""}</div>`);
   }
   // Скільки СПРАВЖНІХ призначень набралось — рахується тут, до причин: далі
   // rows росте й від них теж, а питання «чи взяв хтось хоч щось» стосується
@@ -174,9 +213,14 @@ function legsHTML(doc) {
             return `<span class="muted fine-xs">у плані:
               ${esc(leg.planned.join(", "))}</span>`;
           }
-          return leg.pinnable
+          // «Інший папір» стоїть поруч із «Закріпити» й лише разом із ним:
+          // вибір має сенс рівно там, де його можна записати (див. pickable).
+          return (leg.pinnable
             ? `<button class="sm quiet" data-pin="${esc(String(leg.id))}">Закріпити</button>`
-            : "";
+            : "")
+            + (pickable(leg)
+              ? ` <button class="sm quiet" data-pick="${esc(String(leg.id))}">Інший папір</button>`
+              : "");
         },
       },
     ],
@@ -189,8 +233,18 @@ function legsHTML(doc) {
 export async function renderRoute(ctx, main) {
   let doc;
   try {
-    doc = await ctx.api("GET", "route");
+    doc = await ctx.api("GET", routePath());
   } catch (err) {
+    // Вибір, який бекенд відкинув (папір погашений або без графіка), не
+    // має права погасити всю таблицю: відмова показується дослівно, вибір
+    // скидається, і маршрут малюється без нього. Скидаються всі, а не
+    // винний: відповідь не каже, котрий саме, а вгадувати тут гірше, ніж
+    // попросити обрати ще раз.
+    if (picks.size) {
+      picks.clear();
+      ctx.toast(String(err.message || err), false);
+      return renderRoute(ctx, main);
+    }
     // Своя помилка лишається своєю: вище вже намальований вердикт плану, і
     // стерти його заради однієї таблиці означало б погасити сторінку цілком.
     // Той самий прийом, що в renderCalendar.
@@ -198,6 +252,12 @@ export async function renderRoute(ctx, main) {
       <div class="muted">Маршрут не завантажився: ${esc(err.message || err)}</div></div>`);
     return;
   }
+  // Вибір на ногу, якої більше немає або яка вже в плані, — застарілий:
+  // перша зникла з розкладу, другу тримає plan_buys. Обидва зникають
+  // мовчки, інакше параметр їхав би в кожному запиті, не міняючи нічого.
+  const live = new Set((doc.legs || [])
+    .filter((leg) => !(leg.planned || []).length).map(legKey));
+  for (const k of [...picks.keys()]) if (!live.has(k)) picks.delete(k);
 
   const body = (doc.legs || []).length
     ? legsHTML(doc) + `
@@ -215,6 +275,9 @@ export async function renderRoute(ctx, main) {
         яке виглядає виведеним і насправді вигадане, гірше за його відсутність.
         Це твердження про сьогоднішні розриви твоєї політики, прикладене вперед —
         не прогноз цін.</div>
+      <div class="sub-xs">Папір ОВДП у нозі можна обрати самому («Інший папір»): частка виду
+        піде в нього й <b>тільки</b> в нього, а якщо на цілий квиток не вистачить — гроші
+        чекатимуть, як і завжди. Вибір живе до закріплення: далі його тримає план купівель.</div>
       <div class="sub-xs">Виплати по датах, без призначень —
         <a class="lnk" href="${routeFor("plan/payouts")}">Календар виплат</a>.</div>`
     : empty("Маршрут порожній", doc.note
@@ -263,7 +326,43 @@ export async function renderRoute(ctx, main) {
         // у нативній валюті, бо в гривні воно віддало б подушці курс.
         source: "portfolio",
         principal: leg.principal ? leg.principal.amount : 0,
+        // Вибір їде в розкладку разом із ногою: інакше на одному екрані
+        // «Маршрут вів: UA…2» стояло б поруч із розкладкою на UA…1.
+        pick: picks.get(legKey(leg)) || "",
       });
+      ctx.reload();
+    }));
+
+  // «Інший папір» — обрати ISIN для цієї ноги й перерахувати її.
+  //
+  // Модалка НІЧОГО НЕ ПИШЕ: build захоплює введене й повертає null, тобто
+  // тихо закриває діалог — той самий прийом, що `again` у openAllocate.
+  // openEdit розрахований на запис, а тут запису немає й бути не може —
+  // вибір іде параметром у наступний GET, і рахує ногу бекенд.
+  //
+  // Порожнє поле — скинути вибір: окремої кнопки «повернути пораду» не
+  // треба, коли те саме поле показує поточний вибір і приймає порожнечу.
+  main.querySelectorAll("[data-pick]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const leg = (doc.legs || [])[Number(b.dataset.pick)];
+      if (!leg) return;
+      const key = legKey(leg);
+      let chosen = null;
+      await openEdit(ctx, {
+        title: `Папір для: ${esc(leg.label)} · ${esc(dayMonth(leg.date))}`,
+        fields: refSuggest({ name: "isin", ref: "bond", value: picks.get(key) || "" })
+          + `<div class="sub-xs">Частка ОВДП цієї ноги піде в обраний папір і тільки в
+            нього; якщо на цілий квиток не вистачить — гроші чекатимуть. Порожнє поле —
+            повернути папір із рейтингу.</div>`,
+        wire: (f) => wireSuggest(ctx, f),
+        submit: "Перерахувати",
+      }, (f) => {
+        chosen = f.elements.isin.value.trim().toUpperCase();
+        return null;
+      });
+      if (chosen === null) return;
+      if (chosen) picks.set(key, chosen);
+      else picks.delete(key);
       ctx.reload();
     }));
 
@@ -291,6 +390,9 @@ export async function renderRoute(ctx, main) {
       if (!requests.length) return;
       try {
         for (const rq of requests) await ctx.api("POST", rq.path, rq.body);
+        // Далі вибір тримає план купівель — рядок із тим самим ISIN уже
+        // записаний (buyBody бере l.ref), і другий екземпляр тут зайвий.
+        picks.delete(legKey(leg));
         ctx.toast("Закріплено в плані купівель");
         ctx.reload();
       } catch (err) {

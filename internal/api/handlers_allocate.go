@@ -90,6 +90,11 @@ type allocateReq struct {
 	// немає, тобто поведінка до появи поля: ручну суму, набрану руками,
 	// ніхто нічим не позначав.
 	SourceRef string `json:"source_ref,omitempty"`
+	// PickISIN — папір, який людина обрала САМА замість вершини рейтингу.
+	// Той самий вибір, що їде в GET /api/route параметром pick: нога
+	// маршруту й розкладка того самого дня мусять відповідати однаково, і
+	// вибір — частина питання, а не відповіді. Порожньо = рейтинг.
+	PickISIN string `json:"pick_isin,omitempty"`
 }
 
 // Префікси SourceRef. Рядком, а не двома полями id: два поля вимагали б
@@ -244,6 +249,18 @@ type allocAllow struct {
 	// живе в домені, і друга його копія тут розійшлася б із першою рівно
 	// тоді, коли додасться п'ятий кошик.
 	Uses string
+	// PickISIN — папір, який людина обрала сама для ЦЬОГО надходження.
+	//
+	// Це не дозвіл, а вибір, і стоїть він тут поруч із дозволами тому, що
+	// відповідає на те саме питання «що можна робити з цими грошима» — лише
+	// ствердно, а не заборонно. Бюджет виду ОВДП іде в цей папір І ТІЛЬКИ В
+	// НЬОГО: коли квиток дорожчий за бюджет, рядка ОВДП не буде зовсім, а
+	// гроші чекатимуть. Мовчки підставити вершину рейтингу замість вибору
+	// не можна — це рівно те, від чого людина втекла, обираючи.
+	//
+	// Порожньо = рейтинг, тож нульове значення структури й далі означає
+	// «без обмежень», як обіцяно вище.
+	PickISIN string
 }
 
 // allocLine — один крок розкладки.
@@ -282,6 +299,10 @@ type allocLine struct {
 	// тому позначка й число.
 	Convert       bool    `json:"convert,omitempty"`
 	ConvertNative float64 `json:"convert_native,omitempty"`
+	// Picked — папір у цьому рядку обрала людина, а не рейтинг
+	// (allocAllow.PickISIN). Сторінка підписує такий рядок «твій вибір» і
+	// пропонує його скинути; без позначки вибір і порада виглядали б однаково.
+	Picked bool `json:"picked,omitempty"`
 }
 
 // allocReserve — вирізка подушки. Окремим полем, а не рядком у Lines: у
@@ -418,6 +439,11 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
+	pick, err := pickSuggestion(sug, req.PickISIN)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	// Стеля джерела — усе або нічого, і саме тому вона тут не число з
 	// журналу, а сума розкладки: розкладають ОДНЕ надходження, і дозвіл у
 	// нього один. Дробові стелі бувають лише в маршруту, і вже не тому, що
@@ -432,8 +458,35 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 				sourceCapUAH(uses, domain.UsePlanDebt, amountUAH)),
 			GoalsUAH: goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
 				sourceCapUAH(uses, domain.UsePlanGoals, amountUAH)),
-			Uses: uses,
+			Uses:     uses,
+			PickISIN: pick,
 		}, cur, s.npfIDByName(r.Context())))
+}
+
+// pickSuggestion — чи є обраний папір серед порад, і сам ISIN очищеним.
+//
+// Перевіряти обовʼязково, і саме тут, а не в allocatePlan: та — чиста
+// функція без помилки в сигнатурі, і невідомий ISIN у ній мовчки дав би
+// ногу без жодного рядка ОВДП із причиною «інструментів немає» — неправдою
+// про довідник. Порад же бракує рівно двом паперам: погашеному й тому, в
+// якого немає графіка виплат (domain.YTM без майбутніх виплат відмовляє), і
+// обидва людина обрати може лише помилково.
+//
+// Один читач на два ендпойнти (розкладка й маршрут) — привід виносити, а не
+// копіювати: різні тексти відмови на одному й тому самому ISIN читались би
+// як різні причини.
+func pickSuggestion(sug []suggestion, isin string) (string, error) {
+	isin = strings.ToUpper(strings.TrimSpace(isin))
+	if isin == "" {
+		return "", nil
+	}
+	for i := range sug {
+		if sug[i].Kind == "bond" && sug[i].ISIN == isin {
+			return isin, nil
+		}
+	}
+	return "", badRequestf("паперу %s немає серед порад — він або погашений, або без графіка виплат",
+		isin)
 }
 
 // sourceCapUAH — стеля джерела для одного кошика: уся сума або нуль.
@@ -822,7 +875,23 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			if allocKind[sg.Kind] != b.key {
 				continue
 			}
+			// Обраний папір ЗАМІСТЬ рейтингу, а не поперед нього: доки вибір
+			// названий, решта ОВДП для цієї суми не існує. Довід — при
+			// allocAllow.PickISIN.
+			if b.key == "bonds" && allow.PickISIN != "" && sg.ISIN != allow.PickISIN {
+				continue
+			}
 			line, spent, ok := allocOne(sg, left, rates, cur, npfID)
+			if allow.PickISIN != "" && sg.ISIN == allow.PickISIN {
+				line.Picked = true
+				// Причина рейтингу лишається за вибором: саме вона несе
+				// застереження про ліміт концентрації чи вторинний ринок, і
+				// обраний папір їх заслуговує не менше за порадженого.
+				line.Why = "твій вибір"
+				if sg.Reason != "" {
+					line.Why += "; " + sg.Reason
+				}
+			}
 			if !ok {
 				// Крок дорожчий за те, що лишилось. Запам'ятовуємо найдешевший
 				// НЕДОСЯЖНИЙ крок: саме він і пояснює залишок.
@@ -837,6 +906,15 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			// тож другого рядка того самого виду в цій нозі не буває.
 			if sg.Kind == "npf" {
 				break
+			}
+			// Наступний крок — іще один такий самий папір, і він теж пояснює
+			// залишок. Доки причину називали лише дальші рядки рейтингу, нога
+			// з єдиним (чи обраним) папером і хвостом у 815 ₴ казала
+			// «довідник порожній або без цін» — неправду про довідник, з якого
+			// щойно купили. Мінімум із дальшими лишається за наявним порівнянням.
+			if c := allocStepUAH(sg, rates, npfID); c > 0 && left > 0.005 &&
+				(cheapest == 0 || c < cheapest) {
+				cheapest, cheapestWhat = c, sg.Label
 			}
 		}
 		rest += left

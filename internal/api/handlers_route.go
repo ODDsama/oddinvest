@@ -26,6 +26,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	money "github.com/Rhymond/go-money"
@@ -95,10 +96,63 @@ func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
 		sortFlows(inc[k])
 	}
 
+	picks, err := routePicks(r.URL.Query()["pick"], sug)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+
 	out := buildRoute(doc, sug, inc, plans, src.rates,
-		s.npfIDByName(r.Context()), today)
+		s.npfIDByName(r.Context()), picks, today)
 	// План купівель — окремим проходом поверх готових ніг: аргумент при
 	// annotatePlanned. Рядки вже лежать у джерелах, другого читання немає.
 	annotatePlanned(out.Legs, src.planBuys, today)
 	writeJSON(w, http.StatusOK, out)
+}
+
+// routePickSep — роздільник у значенні ?pick=. Вертикальна риска, бо її
+// немає ні в даті, ні в ISIN, ні в коді валюти, а в назві брокера вона
+// була б дивиною, якої досі ніхто не завів.
+const routePickSep = "|"
+
+// routePicks — вибір паперів по ногах із параметрів запиту.
+//
+// ПАРАМЕТРОМ ЗАПИТУ, А НЕ ТАБЛИЦЕЮ, і це не спрощення. Маршрут — вигляд, а
+// не стан (шапка annotatePlanned): вибір живе, доки людина дивиться на
+// сторінку, і щойно ногу закріплено, його тримає plan_buys — рядком із тим
+// самим ISIN. Третє місце, де лежав би «майбутній папір», розійшлося б із
+// планом купівель при першій же правці того плану.
+//
+// Формат одного значення — <дата>|<брокер>|<валюта>|<ISIN>, чотири частини
+// routeKey плюс сам вибір; кілька ніг — кілька параметрів pick. Брокер без
+// рахунку йде тим самим «—», яким його показує нога (noBrokerLabel).
+//
+// ISIN перевіряється проти порад тим самим pickSuggestion, що й у
+// POST /api/allocate: перша нога маршруту дорівнює розкладці, і відмова
+// на невідомий папір мусить бути тією самою в обох. Ключ ноги натомість не
+// перевіряється (див. buildRoute): нога могла зникнути з розкладу, і це
+// не привід валити всю сторінку.
+func routePicks(raw []string, sug []suggestion) (map[routeKey]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	picks := make(map[routeKey]string, len(raw))
+	for _, v := range raw {
+		parts := strings.SplitN(v, routePickSep, 4)
+		if len(parts) != 4 {
+			return nil, badRequestf("pick: чекали <дата>|<брокер>|<валюта>|<ISIN>, отримали %q", v)
+		}
+		isin, err := pickSuggestion(sug, parts[3])
+		if err != nil {
+			return nil, err
+		}
+		if isin == "" {
+			return nil, badRequestf("pick: порожній ISIN у %q", v)
+		}
+		picks[routeKey{
+			Date: strings.TrimSpace(parts[0]), Broker: strings.TrimSpace(parts[1]),
+			Currency: orUAH(strings.TrimSpace(parts[2])),
+		}] = isin
+	}
+	return picks, nil
 }

@@ -514,3 +514,76 @@ func TestAllocateFloorReasonsDoNotCollide(t *testing.T) {
 		t.Errorf("причина мовчить про поріг: %q", got.ReserveSkipWhy)
 	}
 }
+
+// --- обраний папір ---
+
+// Обраний папір бере бюджет виду ЗАМІСТЬ вершини рейтингу, а не після неї.
+// UA0001 стоїть у рейтингу першим, але людина обрала UA0002 — і рядок ОВДП
+// рівно один, він її.
+func TestAllocatePickTakesBondsBudget(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
+	sug := []suggestion{
+		bondSug("UA0001", 1000, money.UAH),
+		bondSug("UA0002", 1500, money.UAH),
+	}
+	got := allocatePlan(doc, sug, allocRates,
+		toMoneyJSON(money.New(340000, money.UAH)), 3400,
+		allocAllow{ReserveUAH: 3400, GoalsUAH: 3400, PickISIN: "UA0002"}, money.UAH, nil)
+
+	if len(got.Lines) != 1 {
+		t.Fatalf("рядків %d, чекали 1: %+v", len(got.Lines), got.Lines)
+	}
+	l := got.Lines[0]
+	if l.Ref != "UA0002" || !l.Picked {
+		t.Errorf("рядок %+v — чекали обраний UA0002 із позначкою picked", l)
+	}
+	if l.Qty != 2 || l.TotalUAH != 3000 {
+		t.Errorf("кількість %d на %.2f, чекали 2 × 1500 (3400 ÷ 1500 вниз)", l.Qty, l.TotalUAH)
+	}
+	if !strings.HasPrefix(l.Why, "твій вибір") {
+		t.Errorf("причина %q мусить починатись із «твій вибір» — інакше вибір і порада однакові", l.Why)
+	}
+	if got.RestUAH != 400 {
+		t.Errorf("залишок %.2f, чекали 400", got.RestUAH)
+	}
+}
+
+// Обраний папір, що не вміщується, НЕ підмінюється вершиною рейтингу:
+// рядка ОВДП немає, гроші чекають, а причина називає саме обраний папір.
+//
+// Мовчазна підміна була б найгіршим виглядом помилки: людина обрала папір
+// саме тому, що не хотіла порадженого, і побачила б у плані рівно його.
+func TestAllocatePickTooExpensiveWaits(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
+	sug := []suggestion{
+		bondSug("UA0001", 1000, money.UAH),
+		bondSug("UA0002", 5000, money.UAH),
+	}
+	got := allocatePlan(doc, sug, allocRates,
+		toMoneyJSON(money.New(340000, money.UAH)), 3400,
+		allocAllow{ReserveUAH: 3400, GoalsUAH: 3400, PickISIN: "UA0002"}, money.UAH, nil)
+
+	if len(got.Lines) != 0 {
+		t.Fatalf("рядки %+v — обраний папір не вміщується, а щось куплено", got.Lines)
+	}
+	if got.RestUAH != 3400 {
+		t.Errorf("залишок %.2f, чекали всі 3400", got.RestUAH)
+	}
+	if !strings.Contains(got.RestWhy, "UA0002") {
+		t.Errorf("причина залишку %q мусить називати обраний папір", got.RestWhy)
+	}
+}
+
+// Невідомий ISIN — відмова, а не тиха нога без паперів.
+func TestPickSuggestionRejectsUnknown(t *testing.T) {
+	sug := []suggestion{bondSug("UA0001", 1000, money.UAH)}
+	if got, err := pickSuggestion(sug, " ua0001 "); err != nil || got != "UA0001" {
+		t.Errorf("очищений відомий ISIN: %q, %v — чекали UA0001 без помилки", got, err)
+	}
+	if got, err := pickSuggestion(sug, ""); err != nil || got != "" {
+		t.Errorf("порожній вибір: %q, %v — чекали порожньо без помилки", got, err)
+	}
+	if _, err := pickSuggestion(sug, "UA0009"); err == nil {
+		t.Error("невідомий ISIN мусить давати помилку — інакше нога мовчки лишиться без паперів")
+	}
+}
