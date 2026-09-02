@@ -1723,6 +1723,32 @@ td.num .sale-f { text-align: right; }
 }
 .mx-cell.on { background: var(--oi-kind-fund); border-color: var(--oi-kind-fund); }
 
+/* Хітмап днів року: 7 рядків × 53 тижні, тиждень — колонка, як у
+   календарях комітів. Насиченість — чотири рівні одного кольору через
+   color-mix, а не чотири токени: рівень — це кількість, а не інша
+   якість, і чотири окремі кольори читались би як чотири види події.
+   Порожній день — гола рамка; клітинка-заповнювач до першого дня року
+   невидима, але місце тримає, щоб понеділок лишався понеділком. */
+.heat {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 12px);
+  gap: var(--oi-gap-xs);
+  overflow-x: auto;
+  padding-bottom: var(--oi-gap-xs);
+}
+.heat-c {
+  width: 12px;
+  height: 12px;
+  border-radius: var(--oi-radius-sm);
+  border: var(--oi-rule) solid var(--oi-border);
+}
+.heat-c.pad { visibility: hidden; }
+.heat-c[data-lvl="1"] { background: color-mix(in srgb, var(--oi-ok) 25%, transparent); }
+.heat-c[data-lvl="2"] { background: color-mix(in srgb, var(--oi-ok) 50%, transparent); }
+.heat-c[data-lvl="3"] { background: color-mix(in srgb, var(--oi-ok) 75%, transparent); }
+.heat-c[data-lvl="4"] { background: var(--oi-ok); border-color: var(--oi-ok); }
+
 /* --- пояснення «як це читати» --- */
 
 /* Кружечок «i». Лишається дрібним на око — поруч із заголовком картки

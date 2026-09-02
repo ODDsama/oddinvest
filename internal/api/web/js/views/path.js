@@ -27,6 +27,7 @@
 import { esc, monthShort, plural, uah0, signedUAH } from "../format.js";
 import { empty, progressBar } from "../components.js";
 import { routeFor } from "../routes.js";
+import { heatmapHTML } from "./year.js";
 
 /** Де рухається кожна віха.
  *
@@ -421,13 +422,20 @@ function vsStripHTML(vs) {
     </div>`;
 }
 
-/** «Звичка»: постійність, дисципліна й результат проти долара. */
-export function habit(ctx, main) {
+/** «Звичка»: постійність, дисципліна, результат проти долара й дні з
+ *  рухом грошей за поточний рік (хітмап — із «Року в цифрах», той самий
+ *  рендер над тією самою відповіддю). */
+export async function habit(ctx, main) {
   const p = ctx.progress;
   if (!ready(p)) {
     main.innerHTML = noProgress();
     return;
   }
+  const y = await ctx.soft("year", null);
+  const heat = y && y.days ? `<div class="card">
+      <h2 class="card-head"><span>Дні з рухом грошей</span>
+        <a class="lnk" href="${routeFor("portfolio/all/year")}">рік у цифрах</a></h2>
+      ${heatmapHTML(y)}</div>` : "";
   const st = p.streak || {};
   const strip = st.marks && st.marks.length ? stripHTML(st) : empty(
     "Судити ще нічого",
@@ -454,7 +462,7 @@ export function habit(ctx, main) {
 
   main.innerHTML = `<div class="card"><h2>Чотири доріжки</h2>
       <div class="tracks">${tracksHTML(p)}</div></div>
-    <div class="card"><h2>Місяць за місяцем</h2>${strip}</div>${vsCard}`;
+    <div class="card"><h2>Місяць за місяцем</h2>${strip}</div>${vsCard}${heat}`;
 }
 
 // ---------------------------------------------------------------------

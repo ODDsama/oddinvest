@@ -84,7 +84,7 @@ function tilesHTML(p) {
  *
  *  Дати в підписі — СПРАВЖНІ дати знімків, а не межі місяця: демон міг
  *  лежати, і читач мусить бачити, між якими днями насправді міряно. */
-function structureHTML(p) {
+export function structureHTML(p) {
   if (!p.structure) {
     return `<div class="card"><h2>Було → стало</h2>
       ${empty("", esc(p.structure_note || "порівнювати немає з чим"))}</div>`;
@@ -109,11 +109,13 @@ function structureHTML(p) {
   })}</div>`;
 }
 
-/** Рішення місяця: що куплено й чи це були верхні рядки помічника. */
-function decisionsHTML(p) {
+/** Рішення періоду: що куплено й чи це були верхні рядки помічника.
+ *  Заголовок приходить ззовні: «Рік у цифрах» малює ту саму картку за
+ *  рік, і другий примірник цієї розмітки розійшовся б із першим. */
+export function decisionsHTML(p, title = "Рішення місяця") {
   const d = p.decisions || {};
   if (!d.count) {
-    return `<div class="card"><h2>Рішення місяця</h2>
+    return `<div class="card"><h2>${esc(title)}</h2>
       ${empty("", esc(d.note || "цього місяця нічого не куплено"))}</div>`;
   }
   // Речення про верхні рядки — переказ, а не оцінка: скільки разів обране
@@ -140,7 +142,7 @@ function decisionsHTML(p) {
       ? ` І ${d.goal_count} ${plural(d.goal_count, "рух", "рухи", "рухів")}
         у цілі накопичення — доступне тоді давало ${pp(d.goal_forgone_pct_avg, 2)}.` : "");
   return `<div class="card">
-    <h2>Рішення місяця</h2>
+    <h2>${esc(title)}</h2>
     <div class="note">${note}</div>
     ${opsGrid({
     cols: [

@@ -93,6 +93,7 @@ const VIEWS = {
   "portfolio/all/positions": portfolio.positions,
   "portfolio/all/growth": portfolio.growth,
   "portfolio/all/period": portfolio.period,
+  "portfolio/all/year": portfolio.year,
   "portfolio/all/structure": portfolio.structure,
   "portfolio/all/limits": portfolio.limits,
   "portfolio/all/compare": portfolio.compare,

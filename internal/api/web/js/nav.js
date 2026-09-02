@@ -88,6 +88,7 @@ const PANE_SETS = {
     { key: "positions", label: "Позиції" },
     { key: "growth", label: "Як росте" },
     { key: "period", label: "Підсумок місяця" },
+    { key: "year", label: "Рік у цифрах" },
     { key: "structure", label: "Структура" },
     { key: "limits", label: "Ліміти" },
     { key: "compare", label: "Порівняння" },
