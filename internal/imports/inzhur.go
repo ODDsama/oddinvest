@@ -35,6 +35,12 @@ type Row struct {
 	Amount int64
 	Tax    int64
 	Note   string
+	// Balance/HasBalance/MCC — лише у виписки картки (card_*): залишок
+	// після операції зі знаком файлу й код категорії. HasBalance окремо,
+	// бо нуль — законний залишок.
+	Balance    int64
+	HasBalance bool
+	MCC        string
 }
 
 // Skipped — рядок, який не імпортуємо, і чому. Пропуски показуємо, а не

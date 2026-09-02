@@ -36,8 +36,12 @@ type importProfileJSON struct {
 	Qty    int    `json:"col_qty"`
 	Debit  int    `json:"col_debit"`
 	Credit int    `json:"col_credit"`
-	Ops    string `json:"ops"`
-	Note   string `json:"note"`
+	// Виписка картки (0051): колонки залишку й MCC, картка-адресат.
+	Balance int    `json:"col_balance"`
+	MCC     int    `json:"col_mcc"`
+	DebtID  int64  `json:"debt_id"`
+	Ops     string `json:"ops"`
+	Note    string `json:"note"`
 }
 
 func (s *Server) handleListImportProfiles(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +55,8 @@ func (s *Server) handleListImportProfiles(w http.ResponseWriter, r *http.Request
 		out = append(out, importProfileJSON{
 			Name: p.Name, Format: p.Format, Header: p.Header,
 			Date: p.Date, Op: p.Op, Ref: p.Ref, Qty: p.Qty,
-			Debit: p.Debit, Credit: p.Credit, Ops: p.Ops, Note: p.Note,
+			Debit: p.Debit, Credit: p.Credit, Balance: p.Balance, MCC: p.MCC,
+			DebtID: p.DebtID, Ops: p.Ops, Note: p.Note,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -80,6 +85,7 @@ func (s *Server) handleSaveImportProfile(w http.ResponseWriter, r *http.Request)
 		Name: name, Format: strings.ToLower(strings.TrimSpace(req.Format)),
 		Header: req.Header, Date: req.Date, Op: req.Op, Ref: req.Ref,
 		Qty: req.Qty, Debit: req.Debit, Credit: req.Credit,
+		Balance: req.Balance, MCC: req.MCC, DebtID: req.DebtID,
 		Ops: req.Ops, Note: req.Note,
 	}
 	if p.Format != "csv" {
@@ -122,8 +128,17 @@ func validateImportProfile(p store.ImportProfile) error {
 	if p.Debit < 0 && p.Credit < 0 {
 		return fmt.Errorf("потрібна щонайменше одна колонка суми — дебет або кредит")
 	}
-	if _, err := imports.ParseOps(p.Ops); err != nil {
+	kinds, err := imports.ParseOps(p.Ops)
+	if err != nil {
 		return err
+	}
+	// Картковий вид без картки-адресата — профіль, який ніколи не
+	// спрацює: імпорт не знає, чиї це платежі. Ловимо тут, а не через
+	// місяць при завантаженні файлу.
+	for _, k := range kinds {
+		if imports.IsCardKind(k) && p.DebtID <= 0 {
+			return fmt.Errorf("вид %q — виписка картки: вкажи картку, до якої привʼязаний профіль", k)
+		}
 	}
 	return nil
 }

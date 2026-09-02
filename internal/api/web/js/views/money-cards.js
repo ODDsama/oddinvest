@@ -12,7 +12,7 @@
 // мені половину себе» читається гірше, ніж три імені.
 
 import {
-  esc, curSym, dayMonth, plural, pct,
+  esc, curSym, dayMonth, monthYear, plural, pct,
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
@@ -532,6 +532,15 @@ export function wireImport(ctx, main) {
     });
   }
 
+  // Звірка картки: сума виписки й (за потреби) залишок — з полів превʼю,
+  // параметрами запиту, як і профіль. Порожньо — звірка не пишеться, і
+  // бекенд каже про це в card.mark_note.
+  const markQuery = () => {
+    const due = (out.querySelector('[name="mark_due"]') || {}).value || "";
+    const bal = (out.querySelector('[name="mark_balance"]') || {}).value || "";
+    return (due ? "&mark_due=" + encodeURIComponent(due) : "")
+      + (bal ? "&mark_balance=" + encodeURIComponent(bal) : "");
+  };
   const send = async (dry) => {
     if (!file.files || !file.files[0]) { ctx.toast("Обери файл", false); return null; }
     const fd = new FormData();
@@ -540,7 +549,7 @@ export function wireImport(ctx, main) {
     // файлом (multipart), і домішувати туди конфіг означало б розбирати
     // форму двічі — раз заради одного поля.
     const profile = (main.querySelector('[name="profile"]') || {}).value || "inzhur";
-    const q = "?profile=" + encodeURIComponent(profile) + (dry ? "&dry=1" : "");
+    const q = "?profile=" + encodeURIComponent(profile) + (dry ? "&dry=1" : "") + markQuery();
     const resp = await ctx.store.raw("import" + q, { method: "POST", body: fd });
     if (!resp.ok) throw new Error(`${resp.status}: ${(await resp.text()).slice(0, 300)}`);
     // Справжній імпорт міняє геть усе — лоти, рухи, фонди, зведення.
@@ -550,7 +559,32 @@ export function wireImport(ctx, main) {
   };
 
   const KIND = { fund_buy: "купівля", fund_sell: "продаж", dividend: "дивіденд",
-    deposit: "поповнення", withdrawal: "виведення", bond_buy: "купівля ОВДП" };
+    deposit: "поповнення", withdrawal: "виведення", bond_buy: "купівля ОВДП",
+    card_in: "надійшло на картку", card_cash: "готівка з картки", card_out: "покупка" };
+  // Виписка картки: витрати по місяцях, залишок і поля звірки. Покупки
+  // не пишуться (довід у handlers_import_card.go), тож у рядку вони
+  // «у витрати», а не «вже є».
+  const cardHTML = (c, dry) => {
+    if (!c) return "";
+    const months = (c.spend || []).map((m) => `<div class="kv">
+      <span>${esc(monthYear(m.month + "-01"))}</span>
+      <span>витрати <b>${fmtUAH(m.out_uah)}</b>${m.in_uah ? ` · надійшло ${fmtUAH(m.in_uah)}` : ""}${
+        m.cash_uah ? ` · готівка ${fmtUAH(m.cash_uah)}` : ""}</span></div>`).join("");
+    const balNum = c.balance_minor != null ? (c.balance_minor / 100).toFixed(2) : "";
+    return `<div class="rule-top tight mt">
+      <div class="mb-xs"><b>«${esc(c.name)}»</b> — виписка картки</div>
+      ${months}
+      ${c.balance_date ? `<div class="sub">Залишок після останньої операції (${esc(c.balance_date)}): ${
+        esc(c.balance_raw)} — знак як у файлі; для кредитки мінус означає використаний ліміт</div>` : ""}
+      ${dry ? `<div class="row-h mt-sm">
+          ${moneyField("mark_balance", "Залишок для звірки", { value: balNum })}
+          ${moneyField("mark_due", "Сума виписки (з додатку банку)", { value: "" })}
+        </div>
+        <div class="sub-xs">Звірка пишеться лише з сумою виписки: без неї «внести до розрахункової дати» не мало б від чого рахуватись. Готівка після попередньої звірки${
+          c.prev_mark_date ? ` (${esc(c.prev_mark_date)})` : ""}: ${fmtUAH(c.cash_since_prev_mark)} — піде в non_grace.</div>`
+    : `<div class="sub-xs">${c.mark_written ? "Звірку записано." : esc(c.mark_note || "")}</div>`}
+    </div>`;
+  };
   const render = (res, dry) => {
     const rows = (res.rows || []).map((r) => {
       const tag = r.conflict
@@ -561,7 +595,7 @@ export function wireImport(ctx, main) {
           <span>${dayMonth(r.date)} · ${KIND[r.kind] || r.kind}${
             r.fund ? ` <span class="muted">${esc(r.fund)}</span>` : ""}${
             r.qty ? ` <span class="muted">${r.qty} серт.</span>` : ""}</span>
-          <span><b>${esc(r.amount)}</b>${r.tax && r.tax !== "0.00" ? ` <span class="muted fine-xs">податок ${esc(r.tax)}</span>` : ""} ${r.exists && !r.conflict ? `<span class="muted fine-xs">вже є</span>` : ""}</span>
+          <span><b>${esc(r.amount)}</b>${r.tax && r.tax !== "0.00" ? ` <span class="muted fine-xs">податок ${esc(r.tax)}</span>` : ""} ${r.exists && !r.conflict ? `<span class="muted fine-xs">${r.kind === "card_out" ? "у витрати" : "вже є"}</span>` : ""}</span>
         </div>${r.conflict ? tag : ""}</div>`;
     }).join("");
     const skipped = (res.skipped || []).map((s) =>
@@ -574,9 +608,11 @@ export function wireImport(ctx, main) {
       ${res.before ? `<div class="muted fine mb-sm">${res.before} рядків старші за ${
         dayMonth(res.since)} — не розглядались</div>` : ""}
       ${rows}
+      ${cardHTML(res.card, dry)}
       ${skipped ? `<div class="rule-top tight">
         <div class="muted fine mb-xs">пропущено:</div>${skipped}</div>` : ""}
-      ${dry && res.new > 0 ? `<button id="impGo" class="mt">Імпортувати ${res.new}</button>` : ""}
+      ${dry && (res.new > 0 || res.card) ? `<button id="impGo" class="mt">Імпортувати${res.new > 0 ? ` ${res.new}` : ""}${
+        res.card ? " і записати звірку" : ""}</button>` : ""}
       ${!dry ? `<div class="mt-sm t-ok">Записано ${res.imported}</div>` : ""}`;
     const go = out.querySelector("#impGo");
     if (go) {
@@ -613,7 +649,7 @@ export function wireImport(ctx, main) {
  *  (аргумент — у handlers_import_profiles.go). Підганяти під кит зайвий
  *  POST заради форми означало б завести ендпойнт, потрібний лише формі.
  *  Поля при цьому — китові, тож ui-kit-boundary лишається чинним. */
-export function importProfilesHTML(ctx, profiles = []) {
+export function importProfilesHTML(ctx, profiles = [], debts = []) {
   const rows = profiles.length
     ? opsGrid({
       cols: [
@@ -635,14 +671,20 @@ export function importProfilesHTML(ctx, profiles = []) {
     <span>Профілі імпорту ${infoBtn("importprofile")}</span></h2>
     ${rows}
     <div class="rule-top tight mt">
-      ${formHTML({ id: "profForm", fields: profileFields(), submit: "Зберегти профіль" })}
+      ${formHTML({ id: "profForm", fields: profileFields(ctx, null, debts), submit: "Зберегти профіль" })}
     </div></div>`;
 }
 
 // Номери колонок 0-based, як їх бачить розбирач. Показувати людині
 // 1-based і віднімати одиницю на межі — це другий спосіб назвати ту саму
 // колонку, і одного разу хтось відніме двічі.
-function profileFields(p = null) {
+//
+// Три поля виписки КАРТКИ (залишок, MCC, картка) стоять у тій самій
+// формі, а не в окремому «картковому» профілі: розкладка колонок та
+// сама, різниться лише те, куди лягають рядки, — і це вирішує картка
+// (довід у міграції 0051). Суми виписки серед колонок немає: CSV банку
+// її не несе, вона вводиться в превʼю.
+function profileFields(ctx, p = null, debts = []) {
   const v = p || {};
   const col = (name, label, dflt) =>
     numField(name, label, { value: v[name] === undefined ? dflt : v[name] });
@@ -656,16 +698,21 @@ function profileFields(p = null) {
     col("col_qty", "Колонка кількості (-1 = немає)", -1),
     col("col_debit", "Колонка «надійшло» (-1 = немає)", -1),
     col("col_credit", "Колонка «списано» (-1 = немає)", -1),
+    col("col_balance", "Колонка залишку після операції (виписка картки; -1 = немає)", -1),
+    col("col_mcc", "Колонка MCC (виписка картки; -1 = немає)", -1),
+    refSelect(ctx, { name: "debt_id", ref: "debt-card", items: debts,
+      label: "Картка (лише для виписки картки)", value: v.debt_id ? String(v.debt_id) : "" }),
     textareaField("ops", "Операції — рядки «фраза = вид»", {
       value: v.ops || "",
-      ph: "Поповнення = deposit\nКупівля облігацій = bond_buy\nДивіденди = dividend",
+      ph: "Поповнення = deposit\nКупівля облігацій = bond_buy\nДивіденди = dividend\n"
+        + "# виписка картки:\nЗарплата = card_in\nЗняття готівки = card_cash\nПокупка = card_out",
       rows: 6,
     }),
     noteField(),
   ];
 }
 
-export function wireImportProfiles(ctx, main) {
+export function wireImportProfiles(ctx, main, debts = []) {
   const form = main.querySelector("#profForm");
   if (!form) return;
   const save = async (e) => {
@@ -680,6 +727,8 @@ export function wireImportProfiles(ctx, main) {
         header: num("header"),
         col_date: num("col_date"), col_op: num("col_op"), col_ref: num("col_ref"),
         col_qty: num("col_qty"), col_debit: num("col_debit"), col_credit: num("col_credit"),
+        col_balance: num("col_balance"), col_mcc: num("col_mcc"),
+        debt_id: Number(fd.get("debt_id") || 0),
         ops: String(fd.get("ops") || ""), note: String(fd.get("note") || ""),
       });
       ctx.toast("Профіль збережено");
@@ -697,7 +746,7 @@ export function wireImportProfiles(ctx, main) {
         const list = await ctx.api("GET", "import/profiles");
         const p = (list || []).find((x) => x.name === b.dataset.name);
         if (!p) { ctx.toast("Профіль не знайдено", false); return; }
-        form.innerHTML = profileFields(p).join("")
+        form.innerHTML = profileFields(ctx, p, debts).join("")
           + `<div class="form-actions"><button type="submit">Зберегти профіль</button></div>`;
         form.scrollIntoView({ block: "nearest" });
       } catch (err) { ctx.toast(String(err.message || err), false); }

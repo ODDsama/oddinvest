@@ -444,8 +444,13 @@ type BackupImportProfile struct {
 	Qty    int    `json:"col_qty"`
 	Debit  int    `json:"col_debit"`
 	Credit int    `json:"col_credit"`
-	Ops    string `json:"ops"`
-	Note   string `json:"note"`
+	// Колонки виписки картки (0051). omitempty з нулем не годиться: -1
+	// «колонки немає» і 0 «перша колонка» — різні відповіді.
+	Balance int    `json:"col_balance"`
+	MCC     int    `json:"col_mcc"`
+	DebtID  int64  `json:"debt_id"`
+	Ops     string `json:"ops"`
+	Note    string `json:"note"`
 }
 
 // BackupDecision — рядок журналу рішень (0035). Дзеркалить
@@ -906,12 +911,12 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		return nil, err
 	}
 	if err := s.scan(ctx, `SELECT name,format,header,col_date,col_op,col_ref,
-		col_qty,col_debit,col_credit,ops,note FROM import_profiles
+		col_qty,col_debit,col_credit,col_balance,col_mcc,debt_id,ops,note FROM import_profiles
 		ORDER BY name COLLATE NOCASE`,
 		func(scan func(...any) error) error {
 			var r BackupImportProfile
 			if err := scan(&r.Name, &r.Format, &r.Header, &r.Date, &r.Op, &r.Ref,
-				&r.Qty, &r.Debit, &r.Credit, &r.Ops, &r.Note); err != nil {
+				&r.Qty, &r.Debit, &r.Credit, &r.Balance, &r.MCC, &r.DebtID, &r.Ops, &r.Note); err != nil {
 				return err
 			}
 			b.ImportProfiles = append(b.ImportProfiles, r)
@@ -1439,10 +1444,10 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	for _, p := range b.ImportProfiles {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO import_profiles (name,format,header,col_date,col_op,col_ref,
-			 col_qty,col_debit,col_credit,ops,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			 col_qty,col_debit,col_credit,col_balance,col_mcc,debt_id,ops,note)
+			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			p.Name, p.Format, p.Header, p.Date, p.Op, p.Ref, p.Qty, p.Debit,
-			p.Credit, p.Ops, p.Note); err != nil {
+			p.Credit, p.Balance, p.MCC, p.DebtID, p.Ops, p.Note); err != nil {
 			return fmt.Errorf("профіль імпорту %q: %w", p.Name, err)
 		}
 	}

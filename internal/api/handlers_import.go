@@ -168,7 +168,21 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		// і перегляд перетворився б на портянку.
 		Since  string `json:"since,omitempty"`
 		Before int    `json:"before,omitempty"`
+		// Card — лише для карткового профілю (handlers_import_card.go).
+		Card *importCard `json:"card,omitempty"`
 	}{Rows: []outRow{}, Skipped: res.Skipped, Since: since}
+
+	// Виписка картки йде своїм шляхом: у неї інші журнали (debt_ops,
+	// debt_marks), інше означення дубля й звірка, яку пише не файл, а
+	// людина. Тут лишається лише спільне — водяний знак і перегляд.
+	var card *cardImport
+	if prof != nil && prof.DebtID > 0 {
+		var cerr error
+		if card, cerr = s.newCardImport(ctx, prof.DebtID, r.URL.Query()); cerr != nil {
+			writeErr(w, http.StatusBadRequest, cerr)
+			return
+		}
+	}
 
 	for _, row := range res.Rows {
 		if since != "" && string(row.Date) < since {
@@ -177,6 +191,28 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		}
 		cur := money.UAH
 		var exists bool
+		if imports.IsCardKind(row.Kind) {
+			if card == nil {
+				out.Skipped = append(out.Skipped, imports.Skipped{Date: string(row.Date), Op: row.Note,
+					Reason: "профіль не привʼязаний до картки"})
+				continue
+			}
+			var cerr error
+			if exists, cerr = card.take(ctx, row, dry); cerr != nil {
+				writeErr(w, http.StatusInternalServerError, cerr)
+				return
+			}
+			if !exists {
+				out.New++
+				if !dry {
+					out.Imported++
+				}
+			}
+			out.Rows = append(out.Rows, outRow{Date: string(row.Date), Kind: row.Kind,
+				Fund: row.MCC, Amount: money.New(row.Amount, cur).Display(),
+				Tax: money.New(0, cur).Display(), Exists: exists})
+			continue
+		}
 		switch row.Kind {
 		case "fund_buy", "fund_sell", "dividend":
 			kind := domain.FundBuy
@@ -296,6 +332,16 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 	// нового не було» — теж відповідь, і наступного разу перебирати ті
 	// самі рядки ні до чого. Але не при перегляді: dry нічого не змінює,
 	// інакше кнопка «Переглянути» тихо з'їдала б період.
+	if card != nil {
+		var cerr error
+		if out.Card, cerr = card.finish(ctx, dry); cerr != nil {
+			writeErr(w, http.StatusInternalServerError, cerr)
+			return
+		}
+		if out.Card.MarkWritten {
+			out.Imported++
+		}
+	}
 	if !dry {
 		today := string(domain.NewDate(time.Now()))
 		if serr := s.st.SetSetting(ctx, "import_since", today); serr != nil {
@@ -341,6 +387,7 @@ func parseStatement(buf []byte, prof *store.ImportProfile) (imports.Result, erro
 	return imports.Parse(sheet, imports.Profile{
 		Name: prof.Name, Header: prof.Header,
 		Date: prof.Date, Op: prof.Op, Ref: prof.Ref, Qty: prof.Qty,
-		Debit: prof.Debit, Credit: prof.Credit, Kinds: kinds,
+		Debit: prof.Debit, Credit: prof.Credit,
+		Balance: prof.Balance, MCC: prof.MCC, Kinds: kinds,
 	})
 }

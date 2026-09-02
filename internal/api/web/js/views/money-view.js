@@ -203,17 +203,20 @@ export async function importStatement(ctx, main) {
   // Профілі тягнемо мʼяко: маршрут може бути новішим за бекенд, а сторінка
   // з самим лише Inzhur краща за порожню — той самий прийом, що в
   // «Порівнянні».
-  const [ops, profiles] = await Promise.all([
+  // Борги — заради поля «картка» у профілі виписки картки; так само
+  // мʼяко, як профілі.
+  const [ops, profiles, debts] = await Promise.all([
     ctx.soft("funds", []),
     ctx.soft("import/profiles", []),
+    ctx.soft("debts", []),
   ]);
   setFundOps(ops);
   main.innerHTML = `
     ${importHTML(ctx, profiles)}
-    ${importProfilesHTML(ctx, profiles)}
+    ${importProfilesHTML(ctx, profiles, debts)}
     ${fundStatementHTML(ctx)}`;
   wireImport(ctx, main);
-  wireImportProfiles(ctx, main);
+  wireImportProfiles(ctx, main, debts);
   wireFundOps(ctx, main);
   wireDisclosures(main);
 }

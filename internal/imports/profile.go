@@ -56,14 +56,34 @@ type Profile struct {
 	Qty    int
 	Debit  int
 	Credit int
-	Kinds  map[string]string
+	// Balance/MCC — колонки виписки КАРТКИ: залишок після операції (зі
+	// знаком, як у файлі) і код категорії. -1 у брокерської виписки.
+	Balance int
+	MCC     int
+	Kinds   map[string]string
 }
 
 // Види операцій, які профіль уміє називати. Той самий словник, що в
 // Row.Kind: третій набір слів довелось би перекладати на кожному кроці.
+//
+// Три карткові види (card_*) описують ВИПИСКУ КАРТКИ, а не брокера:
+// card_in — надходження на картку (зарплата, переказ) → платіж по
+// картці; card_cash — зняття готівки чи переказ із картки → готівка з
+// ліміту, під відсотком з першого дня; card_out — покупка: у журнал не
+// пишеться (покупки вже сидять у балансі звірки), лише сумується як
+// витрати.
 var profileKinds = map[string]bool{
 	"fund_buy": true, "fund_sell": true, "dividend": true,
 	"deposit": true, "withdrawal": true, "bond_buy": true,
+	"card_in": true, "card_cash": true, "card_out": true,
+}
+
+// KindsList — перелік видів для повідомлень і довідки, у сталому порядку.
+const KindsList = "fund_buy, fund_sell, dividend, deposit, withdrawal, bond_buy, card_in, card_cash, card_out"
+
+// IsCardKind — чи вид належить виписці картки.
+func IsCardKind(kind string) bool {
+	return kind == "card_in" || kind == "card_cash" || kind == "card_out"
 }
 
 // ParseOps розбирає словник операцій із того вигляду, у якому його пише
@@ -85,7 +105,7 @@ func ParseOps(text string) (map[string]string, error) {
 			return nil, fmt.Errorf("рядок %d: очікували «фраза = вид», маємо %q", i+1, line)
 		}
 		if !profileKinds[kind] {
-			return nil, fmt.Errorf("рядок %d: невідомий вид %q — буває fund_buy, fund_sell, dividend, deposit, withdrawal, bond_buy", i+1, kind)
+			return nil, fmt.Errorf("рядок %d: невідомий вид %q — буває %s", i+1, kind, KindsList)
 		}
 		out[strings.ToLower(phrase)] = kind
 	}
@@ -174,6 +194,12 @@ func Parse(rows [][]string, p Profile) (Result, error) {
 		case "deposit", "withdrawal":
 			// Рух грошей паперу не має — і не мусить: колонка ref у такому
 			// рядку зазвичай порожня або тримає призначення платежу.
+		case "card_in", "card_cash", "card_out":
+			// Виписка картки: залишок після операції ЗІ ЗНАКОМ, як у файлі
+			// (що означає знак — вирішує людина в превʼю, не розбирач), і
+			// MCC текстом. Обидва необовʼязкові.
+			row.Balance, row.HasBalance = money(cell(p.Balance)), p.Balance >= 0 && cell(p.Balance) != ""
+			row.MCC = cell(p.MCC)
 		case "bond_buy":
 			isin := isinRe.FindString(cell(p.Ref))
 			if isin == "" {

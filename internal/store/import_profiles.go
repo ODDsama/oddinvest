@@ -24,6 +24,12 @@ type ImportProfile struct {
 	Qty    int
 	Debit  int
 	Credit int
+	// Balance/MCC — колонки виписки КАРТКИ (0051): залишок після операції
+	// та код категорії. DebtID — до якої картки привʼязаний профіль; 0 =
+	// не картковий. Довід — у шапці міграції.
+	Balance int
+	MCC     int
+	DebtID  int64
 	// Ops — словник рядками «фраза = kind». Зберігається як є: людина
 	// пише його, дивлячись у власну виписку, і бачити його мусить теж як
 	// є (див. міграцію).
@@ -32,7 +38,7 @@ type ImportProfile struct {
 }
 
 const importProfileCols = `name, format, header, col_date, col_op, col_ref,
-	col_qty, col_debit, col_credit, ops, note`
+	col_qty, col_debit, col_credit, col_balance, col_mcc, debt_id, ops, note`
 
 func (s *Store) ListImportProfiles(ctx context.Context) ([]ImportProfile, error) {
 	rows, err := s.db.QueryContext(ctx,
@@ -45,7 +51,7 @@ func (s *Store) ListImportProfiles(ctx context.Context) ([]ImportProfile, error)
 	for rows.Next() {
 		var p ImportProfile
 		if err := rows.Scan(&p.Name, &p.Format, &p.Header, &p.Date, &p.Op, &p.Ref,
-			&p.Qty, &p.Debit, &p.Credit, &p.Ops, &p.Note); err != nil {
+			&p.Qty, &p.Debit, &p.Credit, &p.Balance, &p.MCC, &p.DebtID, &p.Ops, &p.Note); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -81,14 +87,16 @@ func (s *Store) SaveImportProfile(ctx context.Context, p ImportProfile) error {
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO import_profiles
 		(name, format, header, col_date, col_op, col_ref, col_qty, col_debit,
-		 col_credit, ops, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?)
+		 col_credit, col_balance, col_mcc, debt_id, ops, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(name) DO UPDATE SET format=excluded.format, header=excluded.header,
 			col_date=excluded.col_date, col_op=excluded.col_op, col_ref=excluded.col_ref,
 			col_qty=excluded.col_qty, col_debit=excluded.col_debit,
-			col_credit=excluded.col_credit, ops=excluded.ops, note=excluded.note`,
+			col_credit=excluded.col_credit, col_balance=excluded.col_balance,
+			col_mcc=excluded.col_mcc, debt_id=excluded.debt_id,
+			ops=excluded.ops, note=excluded.note`,
 		strings.TrimSpace(p.Name), p.Format, p.Header, p.Date, p.Op, p.Ref,
-		p.Qty, p.Debit, p.Credit, p.Ops, p.Note)
+		p.Qty, p.Debit, p.Credit, p.Balance, p.MCC, p.DebtID, p.Ops, p.Note)
 	return err
 }
 
