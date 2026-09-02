@@ -174,3 +174,47 @@ func TestParseRefusesProfileWithoutRequiredColumns(t *testing.T) {
 		t.Error("профіль без словника операцій мав дати помилку")
 	}
 }
+
+// Виписка картки: опис — назва крамниці, і словник її не перелічить.
+// Вид виводиться зі знаку суми й MCC; словник лишається старшим.
+func TestProfileCardKindsBySignAndMCC(t *testing.T) {
+	kinds, err := ParseOps("Переказ на картку = card_cash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := [][]string{
+		{"Дата", "Опис", "MCC", "Сума", "Залишок"},
+		// Дата з часом у форматі банку — час відкидається.
+		{"01.08.2026 10:00:00", "Зарплата ТОВ Ромашка", "", "25000.00", "-5000.00"},
+		{"2026-08-03", "АТБ-Маркет", "5411", "-1200.00", "-6200.00"},
+		{"2026-08-05", "ATM PrivatBank", "6011", "-2000.00", "-8200.00"},
+		{"2026-08-06", "Переказ на картку 5375****", "4829", "-500.00", "-8700.00"},
+	}
+	res, err := Parse(rows, Profile{Name: "card", Header: 1, Date: 0, Op: 1, MCC: 2,
+		Debit: 3, Balance: 4, Card: true, Ref: -1, Qty: -1, Credit: -1, Kinds: kinds})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Skipped) != 0 {
+		t.Fatalf("нічого не мало пропаститись: %+v", res.Skipped)
+	}
+	want := []string{"card_in", "card_out", "card_cash", "card_cash"}
+	for i, r := range res.Rows {
+		if r.Kind != want[i] {
+			t.Errorf("рядок %d: %s, чекали %s", i, r.Kind, want[i])
+		}
+		if !r.HasBalance {
+			t.Errorf("рядок %d: залишок мав бути прочитаний", i)
+		}
+	}
+	if res.Rows[3].Balance != -870000 || res.Rows[3].MCC != "4829" {
+		t.Errorf("залишок/MCC останнього рядка %+v", res.Rows[3])
+	}
+	// Без колонки залишку профіль не картковий — невідомий опис
+	// пропускається, як і доти.
+	res, _ = Parse(rows, Profile{Name: "b", Header: 1, Date: 0, Op: 1, MCC: -1,
+		Debit: 3, Balance: -1, Ref: -1, Qty: -1, Credit: -1, Kinds: kinds})
+	if len(res.Skipped) != 3 {
+		t.Errorf("брокерський профіль мав пропустити три невідомі рядки, пропустив %d", len(res.Skipped))
+	}
+}

@@ -60,7 +60,11 @@ type Profile struct {
 	// знаком, як у файлі) і код категорії. -1 у брокерської виписки.
 	Balance int
 	MCC     int
-	Kinds   map[string]string
+	// Card — це виписка картки (профіль привʼязаний до картки). Явна
+	// ознака, а не «є колонка залишку»: нульове значення індексу — теж
+	// колонка, і профіль-літерал без залишку читався б як картковий.
+	Card  bool
+	Kinds map[string]string
 }
 
 // Види операцій, які профіль уміє називати. Той самий словник, що в
@@ -84,6 +88,31 @@ const KindsList = "fund_buy, fund_sell, dividend, deposit, withdrawal, bond_buy,
 // IsCardKind — чи вид належить виписці картки.
 func IsCardKind(kind string) bool {
 	return kind == "card_in" || kind == "card_cash" || kind == "card_out"
+}
+
+// IsCard — профіль читає виписку картки.
+func (p Profile) IsCard() bool { return p.Card }
+
+// cashMCC — коди категорій, за якими рух із картки є готівкою або
+// переказом, тобто під відсотком з першого дня. 6010 — видача готівки в
+// касі, 6011 — банкомат.
+var cashMCC = map[string]bool{"6010": true, "6011": true}
+
+// cardKindBySign — вид рядка виписки картки зі знаку суми й MCC.
+func cardKindBySign(debit, credit int64, mcc string) string {
+	signed := debit
+	if signed == 0 {
+		signed = credit
+	}
+	switch {
+	case signed > 0:
+		return "card_in"
+	case signed < 0 && cashMCC[strings.TrimSpace(mcc)]:
+		return "card_cash"
+	case signed < 0:
+		return "card_out"
+	}
+	return ""
 }
 
 // ParseOps розбирає словник операцій із того вигляду, у якому його пише
@@ -168,11 +197,20 @@ func Parse(rows [][]string, p Profile) (Result, error) {
 		cell, date := it.cell, it.date
 		op := cell(p.Op)
 		kind := p.match(op)
+		debit, credit := money(cell(p.Debit)), money(cell(p.Credit))
+		if kind == "" && p.IsCard() {
+			// ВИПИСКА КАРТКИ: опис операції — назва крамниці, і словник
+			// фраз їх не перелічить. Вид виводиться зі ЗНАКУ й MCC:
+			// плюс — надходження на картку; 6010/6011 — готівка (під
+			// відсотком з першого дня); решта мінусів — покупка. Словник
+			// лишається старшим: «Переказ на картку = card_cash» назве
+			// переказ готівкою там, де за MCC він був би покупкою.
+			kind = cardKindBySign(debit, credit, cell(p.MCC))
+		}
 		if kind == "" {
 			res.Skipped = append(res.Skipped, Skipped{string(date), op, "невідомий тип операції"})
 			continue
 		}
-		debit, credit := money(cell(p.Debit)), money(cell(p.Credit))
 		// Сума — та з двох колонок, у якій щось є. Напрямок задає ВИД
 		// операції, а не знак: брокери пишуть списання то в кредит, то
 		// зі знаком мінус, і довіритись знаку означало б отримати

@@ -388,6 +388,6 @@ func parseStatement(buf []byte, prof *store.ImportProfile) (imports.Result, erro
 		Name: prof.Name, Header: prof.Header,
 		Date: prof.Date, Op: prof.Op, Ref: prof.Ref, Qty: prof.Qty,
 		Debit: prof.Debit, Credit: prof.Credit,
-		Balance: prof.Balance, MCC: prof.MCC, Kinds: kinds,
+		Balance: prof.Balance, MCC: prof.MCC, Card: prof.DebtID > 0, Kinds: kinds,
 	})
 }

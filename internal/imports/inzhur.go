@@ -201,11 +201,18 @@ func ParseInzhur(rows [][]string) (Result, error) {
 // excelDate перетворює серійний номер Excel на дату. Епоха — 1899-12-30
 // (а не 1900-01-01): Excel вважає 1900 високосним, і зсув це враховує.
 func excelDate(s string) (domain.Date, error) {
-	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	s = strings.TrimSpace(s)
+	f, err := strconv.ParseFloat(s, 64)
 	if err != nil || f < 1 {
-		// трапляється й звичайна дата
-		if d, derr := domain.ParseDate(strings.TrimSpace(s)); derr == nil {
+		// Трапляється й звичайна дата — ISO або «ДД.ММ.РРРР», з часом
+		// після пробілу чи без (виписка банку пише «01.09.2026 10:00:00»).
+		// Час відкидається: у журналах застосунку його немає.
+		day, _, _ := strings.Cut(s, " ")
+		if d, derr := domain.ParseDate(day); derr == nil {
 			return d, nil
+		}
+		if t, terr := time.Parse("02.01.2006", day); terr == nil {
+			return domain.NewDate(t), nil
 		}
 		return "", fmt.Errorf("не дата: %q", s)
 	}

@@ -444,11 +444,13 @@ type BackupImportProfile struct {
 	Qty    int    `json:"col_qty"`
 	Debit  int    `json:"col_debit"`
 	Credit int    `json:"col_credit"`
-	// Колонки виписки картки (0051). omitempty з нулем не годиться: -1
-	// «колонки немає» і 0 «перша колонка» — різні відповіді.
-	Balance int    `json:"col_balance"`
-	MCC     int    `json:"col_mcc"`
-	DebtID  int64  `json:"debt_id"`
+	// Колонки виписки картки (0051). ВКАЗІВНИКИ, і це не педантизм: у
+	// бекапі старішої схеми полів немає, і нуль замість них означав би
+	// «перша колонка» — залишок читався б із колонки дати. nil при
+	// відновленні стає -1 («колонки немає»), як у міграції.
+	Balance *int   `json:"col_balance,omitempty"`
+	MCC     *int   `json:"col_mcc,omitempty"`
+	DebtID  int64  `json:"debt_id,omitempty"`
 	Ops     string `json:"ops"`
 	Note    string `json:"note"`
 }
@@ -915,10 +917,12 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		ORDER BY name COLLATE NOCASE`,
 		func(scan func(...any) error) error {
 			var r BackupImportProfile
+			var bal, mcc int
 			if err := scan(&r.Name, &r.Format, &r.Header, &r.Date, &r.Op, &r.Ref,
-				&r.Qty, &r.Debit, &r.Credit, &r.Balance, &r.MCC, &r.DebtID, &r.Ops, &r.Note); err != nil {
+				&r.Qty, &r.Debit, &r.Credit, &bal, &mcc, &r.DebtID, &r.Ops, &r.Note); err != nil {
 				return err
 			}
+			r.Balance, r.MCC = &bal, &mcc
 			b.ImportProfiles = append(b.ImportProfiles, r)
 			return nil
 		}); err != nil {
@@ -1442,12 +1446,19 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 	}
 	for _, p := range b.ImportProfiles {
+		bal, mcc := -1, -1
+		if p.Balance != nil {
+			bal = *p.Balance
+		}
+		if p.MCC != nil {
+			mcc = *p.MCC
+		}
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO import_profiles (name,format,header,col_date,col_op,col_ref,
 			 col_qty,col_debit,col_credit,col_balance,col_mcc,debt_id,ops,note)
 			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			p.Name, p.Format, p.Header, p.Date, p.Op, p.Ref, p.Qty, p.Debit,
-			p.Credit, p.Balance, p.MCC, p.DebtID, p.Ops, p.Note); err != nil {
+			p.Credit, bal, mcc, p.DebtID, p.Ops, p.Note); err != nil {
 			return fmt.Errorf("профіль імпорту %q: %w", p.Name, err)
 		}
 	}
