@@ -458,6 +458,21 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		t.Fatal(err)
 	}
 
+	// Добовий знімок місячної давнини — заради capital_delta_30. Один, і
+	// на 35-й день, а не на 30-й: дельта бере ОСТАННІЙ знімок на ≥30 днів
+	// тому, і фікстура мусить показати саме цю гілку (пропущений день),
+	// а не збіг дат. Числа менші за сьогоднішній капітал, щоб дельта
+	// була додатною й ненульовою в кожному полі.
+	if err := st.SaveSnapshot(ctx, store.Snapshot{
+		Date: d(-35), InvestedUAH: 9_000_000, NominalUAHEq: 9_500_000,
+		USDShareBP: 3000, UninvestedUAH: 100_000, MonthTargetUAH: 1_000_000,
+		AccountUAH: 300_000, FundsUAH: 1_000_000, DepositsUAH: 2_000_000,
+		FundsCostUAH: 950_000, ReserveUAH: 5_000_000, NPFUAH: 500_000,
+		NPFCostUAH: 480_000, GoalsUAH: 1_000_000, NetWorthUAH: -2_000_000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	// УСІ налаштування. uah_devaluation_pct обовʼязково явним: інакше
 	// знецінення міряється з історії курсів ВІД time.Now(), і golden
 	// поповз би сам собою від зміни дати.

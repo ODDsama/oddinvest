@@ -199,6 +199,33 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 			{Dimension: "year", Key: "2027", AmountUAH: 138_246.80,
 				SharePct: 100, LimitPct: 100},
 		},
+		// Дельта за 30 днів: знімок місячної давнини є, капітал виріс на
+		// 5 000, з яких 4 500 — власний внесок місяця (monthDep нижче).
+		// Обидва числа поруч навмисно: саме їх пара й є контрактом.
+		CapitalDelta30: &CapitalDelta{
+			FromDate: "2026-06-15", FromUAH: 268_246.80,
+			DeltaUAH: 5_000, DeltaPct: 1.86, ContribUAH: 4_500,
+		},
+		// Борг: одна картка зі звіркою. Доти фікстура боргу не мала
+		// взагалі, тобто інтеграція HA не бачила блоку debt у жодному
+		// тесті. Числа узгоджені між собою: борг 17 000 при ліміті
+		// 200 000 — 8,5 %; принести до дати 15 400, мінімум 510; вільно
+		// відʼємне рівно на суму виписки — картка в мінусі. Чистий капітал
+		// — капітал мінус увесь борг картки, включно з пільговим: 273 246.80
+		// − 17 000 (у DeriveInput нижче капітал саме такий).
+		NetWorthUAH: 256_246.80,
+		Debt: &DebtPlan{
+			TotalUAH: 5_000, TopRatePct: 60, TopName: "ПУМБ ВсеМожу",
+			DueThisMonthUAH: 510, FillMonthUAH: 2_000, FillNowUAH: 2_000,
+			CardsWatched: 1,
+			Cards: []DebtCard{{
+				Name: "ПУМБ ВсеМожу", Known: true,
+				MarkDate: "2026-07-10", MarkAgeDays: 5,
+				DueDate: "2026-07-30", DaysToDue: 15,
+				BringByDueUAH: 15_400, MinDueUAH: 510, FreeUAH: -15_400,
+				DebtUAH: 17_000, UsedPct: 8.5, ExitBy: "2027-05-11",
+			}},
+		},
 	}
 	in := DeriveInput{
 		Now: time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC),

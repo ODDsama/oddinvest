@@ -715,10 +715,9 @@ func firstSnapshotAtLeast(snaps []store.Snapshot, uah float64) string {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Date < sorted[j].Date })
 	for _, sn := range sorted {
 		// Знімок тримає МІНОРНІ одиниці (копійки) — те саме ділення на
-		// сто, що робить handleSnapshots для всіх колонок одразу.
-		total := sn.NominalUAHEq + sn.AccountUAH + sn.FundsUAH +
-			sn.DepositsUAH + sn.ReserveUAH + sn.GoalsUAH + sn.NPFUAH
-		if float64(total)/100 >= uah {
+		// сто, що робить handleSnapshots для всіх колонок одразу. Склад
+		// суми — одне означення на всіх читачів знімка (state_delta.go).
+		if float64(snapshotCapitalUAH(sn))/100 >= uah {
 			return string(sn.Date)
 		}
 	}

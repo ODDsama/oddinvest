@@ -101,6 +101,12 @@ type sources struct {
 	// біля конвертації, і атрибутам сенсора в HA.
 	fxHistory map[string][]store.RatePoint
 
+	// capitalAgo — добовий знімок місячної давнини (останній на ≥30 днів
+	// тому), з яким порівнюється капітал у CapitalDelta30. Один рядок, а
+	// не вся історія: документ збирається й на кожен POST /api/whatif, і
+	// обхід знімків там платити нема за що. nil — знімка ще немає.
+	capitalAgo *store.Snapshot
+
 	// Рух грошей: поповнення/зняття, їхній розріз по брокер-валюті,
 	// нетто конверсій і статуси виплат.
 	deposits []store.Deposit
@@ -226,6 +232,9 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		return nil, err
 	}
 	if src.fxHistory, err = s.fxHistorySince(ctx, today); err != nil {
+		return nil, err
+	}
+	if src.capitalAgo, err = s.snapshotAgo(ctx, today); err != nil {
 		return nil, err
 	}
 

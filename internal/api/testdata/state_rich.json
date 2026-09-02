@@ -4,6 +4,13 @@
   "invested_uah": 240410.2,
   "nominal_uah_eq": 240370.2,
   "capital_uah": 1125001.63,
+  "capital_delta_30": {
+    "from_date": "2026-06-10",
+    "from_uah": 193000,
+    "delta_uah": 932001.63,
+    "delta_pct": 482.9,
+    "contributed_uah": 47000
+  },
   "usd_share_pct": 13.335052678990342,
   "eur_share_pct": 8.533320969499396,
   "uninvested_uah": 993,
@@ -272,7 +279,23 @@
         }
       ]
     },
-    "cards_watched": 1
+    "cards_watched": 1,
+    "cards": [
+      {
+        "name": "ПУМБ ВсеМожу",
+        "known": true,
+        "mark_date": "2026-07-10",
+        "mark_age_days": 5,
+        "due_date": "2026-07-30",
+        "days_to_due": 15,
+        "bring_by_due_uah": 15400,
+        "min_due_uah": 462,
+        "free_uah": -19330.33,
+        "debt_uah": 17000,
+        "used_pct": 8.5,
+        "exit_by": "2027-05-11"
+      }
+    ]
   },
   "npf_uah": 2041.64,
   "npf_cost_uah": 2000,

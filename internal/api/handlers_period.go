@@ -199,21 +199,6 @@ func monthBounds(month string) (domain.Date, domain.Date, error) {
 	return from, from.AddMonths(1).AddDays(-1), nil
 }
 
-// snapshotCapitalUAH — капітал зі знімка.
-//
-// У знімка немає колонки capital_uah: він старший за state.Capital, а
-// дописувати її заднім числом означало б лишити нулі в усіх минулих
-// рядках, тобто зробити колонку брехливою рівно там, де на неї дивляться.
-// Сума збирається з тих самих доданків, що й у документі стану, і
-// ЄДИНИЙ її двійник — запасна гілка capitalUAH у web/js/format.js, яка
-// існує для старішого бекенда. Міняєш склад капіталу — дивись і туди.
-func snapshotCapitalUAH(sn store.Snapshot) int64 {
-	// Через snapshotPortfolioUAH, а не сімома доданками: різниця між
-	// двома рівнями «Ціни моїх рішень» — це рівно три останні доданки,
-	// і записана вона тут одним рядком, щоб не бути домовленістю.
-	return snapshotPortfolioUAH(sn) + sn.ReserveUAH + sn.GoalsUAH + sn.NPFUAH
-}
-
 // periodStructureOf — знімки на межах періоду й різниця між ними.
 //
 // Відкритий знімок — останній ДО початку періоду: саме він описує стан, з

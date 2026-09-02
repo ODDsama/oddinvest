@@ -1140,6 +1140,9 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// боргом картки: питання «скільки в мене насправді» не про ставки
 		// (довід — при полі та в міграції 0048).
 		NetWorthUAH: round2(capital.TotalUAH() - debtOwedUAH(src, rates, today)),
+		// Дельта за 30 днів — проти знімка з sources; nil, доки знімка
+		// місячної давнини немає (state_delta.go).
+		CapitalDelta30: buildCapitalDelta(src, capital.TotalUAH(), rates),
 		// Борг — після плану місяця навмисно: стеля дострокового міряється
 		// від дозволеної частини ПЛАНУ, а обовʼязкові платежі той план уже
 		// зменшили (state_month.go).

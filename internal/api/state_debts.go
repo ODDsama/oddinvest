@@ -1,14 +1,26 @@
-// Борг у документі стану: одне рішення, від якого залежать чужі числа.
+// Борг у документі стану: одне рішення, від якого залежать чужі числа,
+// і стан кожної картки на сьогодні.
 //
-// ЧОМУ САМИХ БОРГІВ У ДОКУМЕНТІ НЕМАЄ. Перелік боргів, стан картки й план
-// погашення — REST (/api/debts, /api/payoff), і це не економія на
-// контракті. Документ стану їде в MQTT і в щоденний знімок, тобто описує
-// те, ЩО Є; стан картки живе годинами (баланс рухається щодня, звірка
-// старіє), а план погашення взагалі проєкція й залежить від питання. Той
-// самий поділ, що вже проведено для /api/progress і /api/decisions.
+// ЩО В ДОКУМЕНТІ, А ЩО REST. Перелік боргів і план погашення — REST
+// (/api/debts, /api/payoff): план погашення — проєкція й залежить від
+// питання, той самий поділ, що для /api/progress і /api/decisions. Стан
+// картки (DebtPlan.Cards) — у ДОКУМЕНТІ, і це перевертає рішення фази 21
+// («стан картки живе годинами й старіє між звірками»). Довід тодішній
+// був про те, щоб не робити документ ДЖЕРЕЛОМ балансу. Довід теперішній:
 //
-// У документ входить рівно те, що змінює ЧУЖІ числа: обовʼязкові платежі
-// місяця (MonthPlan.DebtDueUAH) і ця ознака.
+//   - розрахункова дата й днів до неї — умова договору (statement_day),
+//     а не вимір, і вона однаково точна за будь-якої давнини звірки;
+//   - «скільки принести до дати» вже стояло в документі ПРОЗОЮ — задача
+//     card-due-* несе його в заголовку й у Why. Числа лише повторюють те,
+//     що документ уже казав словами, і документ републікується на кожну
+//     мутацію, тож свіжішими вони не стануть, але й старішими теж;
+//   - читач тепер є: Home Assistant не має іншого джерела, крім MQTT, а
+//     сповіщення «до розрахункової дати три дні, принести 15 400» — одне з
+//     найцінніших у застосунку, і без цих полів воно неможливе.
+//
+// Вік звірки їде поруч (MarkAgeDays) — лікуємо ПОКАЗОМ, як price_stale:
+// сенсор, що показує тиждень тому звірене число, каже й те, що йому
+// тиждень.
 package api
 
 import (
@@ -238,10 +250,65 @@ func buildDebtPlan(src *sources, debts []domain.Debt, marks []domain.DebtMark,
 		}
 	}
 	out.Exit = buildDebtExit(debts, marks, ops, set, src, rates, today)
+	out.Cards = buildDebtCards(debts, marks, ops, rates, today)
 	if out.TotalUAH == 0 && out.CardsWatched == 0 && out.Exit == nil {
 		return nil
 	}
 	return out
+}
+
+// buildDebtCards — стан кожної відкритої картки на сьогодні (довід — у
+// шапці файла). Порядок — як у довіднику, щоб сенсор не стрибав.
+//
+// Гривня курсом СЬОГОДНІ через fx.ToUAH, як і TotalUAH поруч, а не через
+// cardAmountUAH із задач: там нуль для валютної картки виправданий тим,
+// що сума вже названа в заголовку, тут заголовка немає. Валютна картка в
+// житті власника поки одна — гривнева, тож і різниці немає.
+func buildDebtCards(debts []domain.Debt, marks []domain.DebtMark, ops []domain.DebtOp,
+	rates fx.Rates, today domain.Date) []state.DebtCard {
+
+	var out []state.DebtCard
+	for _, d := range debts {
+		if !d.IsCard() || d.Closed() {
+			continue
+		}
+		// Розстрочки передаються всі — CardState сам відбере привʼязані
+		// до цієї картки; без них FreeUAH не бачив би найближчих частин.
+		st := domain.CardState(d, marks, ops, debts, today)
+		out = append(out, state.DebtCard{
+			Name:          d.Name,
+			Known:         st.Known,
+			MarkDate:      string(st.MarkDate),
+			MarkAgeDays:   st.MarkAgeDays,
+			DueDate:       string(st.DueDate),
+			DaysToDue:     st.DaysToDue,
+			BringByDueUAH: minorUAH(st.BringByDue, d.Currency, rates),
+			MinDueUAH:     minorUAH(st.MinDue, d.Currency, rates),
+			FreeUAH:       minorUAH(st.Free, d.Currency, rates),
+			DebtUAH:       minorUAH(st.Debt, d.Currency, rates),
+			UsedPct:       round2(st.UsedPct),
+			ExitBy:        string(d.ExitBy),
+		})
+	}
+	return out
+}
+
+// minorUAH — мінорні одиниці валюти в гривні сьогоднішнім курсом, зі
+// знаком. Нуль, коли курсу немає: fx.ToUAH відмовляє, і ставити тут
+// щось інше означало б вигадати число.
+func minorUAH(minor int64, cur string, rates fx.Rates) float64 {
+	if minor == 0 {
+		return 0
+	}
+	sign := int64(1)
+	if minor < 0 {
+		sign, minor = -1, -minor
+	}
+	u, err := fx.ToUAH(money.New(minor, cur), rates)
+	if err != nil {
+		return 0
+	}
+	return round2(float64(sign*u.Amount()) / 100)
 }
 
 // buildDebtExit — вихід із кредитних лімітів: спільний план на ВСІ картки
