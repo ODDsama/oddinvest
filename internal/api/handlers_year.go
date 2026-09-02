@@ -164,7 +164,7 @@ func buildYear(year int, from, to, today domain.Date, events []flowEvent,
 	out.IdleUAH = sum.major(domain.IdleIncome(income, buys))
 	out.Days = heatDays(byDay)
 
-	out.Structure, out.StructureNote = periodStructureOf(snaps, from)
+	out.Structure, out.StructureNote = periodStructureOf(snaps, from, "рік", "року")
 	out.Decisions = periodDecisionsOf(list, from, to)
 	if out.Decisions.Count == 0 {
 		out.Decisions.Note = "цього року нічого не куплено"

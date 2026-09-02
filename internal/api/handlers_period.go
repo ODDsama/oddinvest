@@ -175,7 +175,7 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	out.Structure, out.StructureNote = periodStructureOf(snaps, from)
+	out.Structure, out.StructureNote = periodStructureOf(snaps, from, "місяць", "місяця")
 	out.Plan, out.PlanNote = periodPlanOf(snaps, from, to, sum.ContribUAH)
 
 	list, err := s.st.ListDecisions(ctx)
@@ -205,7 +205,7 @@ func monthBounds(month string) (domain.Date, domain.Date, error) {
 // якого місяць почався. Закритий — останній у межах періоду. Коли ні
 // того, ні того немає, розділ мовчить із названою причиною: порожня
 // таблиця «було → стало» з нулями стверджувала б, що капітал був нульовим.
-func periodStructureOf(snaps []store.Snapshot, from domain.Date) (*periodStructure, string) {
+func periodStructureOf(snaps []store.Snapshot, from domain.Date, acc, gen string) (*periodStructure, string) {
 	var before, after *store.Snapshot
 	for i := range snaps {
 		sn := snaps[i]
@@ -216,10 +216,10 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date) (*periodStructu
 		after = &snaps[i]
 	}
 	if after == nil {
-		return nil, "знімків за цей місяць немає — застосунок тоді ще не працював"
+		return nil, "знімків за цей " + acc + " немає — застосунок тоді ще не працював"
 	}
 	if before == nil {
-		return nil, "немає знімка до початку місяця, тож порівнювати немає з чим"
+		return nil, "немає знімка до початку " + gen + ", тож порівнювати немає з чим"
 	}
 	row := func(key, label string, b, a int64) periodRow {
 		return periodRow{Key: key, Label: label,
