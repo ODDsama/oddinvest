@@ -73,7 +73,10 @@ apt-get update -q
 apt-get install -y -q --no-install-recommends ca-certificates curl git gcc libc6-dev
 echo "-- fetching source"
 rm -rf /opt/oddinvest-src
-git clone --depth 1 https://github.com/ODDsama/oddinvest /opt/oddinvest-src
+# Протокол v0 і HTTP/1.1 — обхід обмеження GitHub на анонімні git-запити з
+# деяких адрес (401 на POST git-upload-pack); довід — у proxmox-update.sh.
+git -c protocol.version=0 -c http.version=HTTP/1.1 clone --depth 1 \
+  https://github.com/ODDsama/oddinvest /opt/oddinvest-src
 cd /opt/oddinvest-src
 # Тулчейн береться з go.mod, а не з константи вище: доти версія жила в
 # ТРЬОХ місцях (go.mod, Dockerfile, тут), і саме тому розійшлась — go.mod

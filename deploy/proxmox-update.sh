@@ -18,7 +18,14 @@ echo "==> оновлюю oddinvestd у LXC $CT"
 pct exec "$CT" -- bash -lc '
   set -e
   cd /opt/oddinvest-src
-  git pull --ff-only
+  # Старий протокол git і HTTP/1.1 — не смак, а обхід. GitHub відсікає
+  # АНОНІМНІ git-запити з адрес, які він обмежив (домашня IP за CGNAT —
+  # саме така): GET info/refs проходить, а POST git-upload-pack за
+  # протоколом v2 дістає 401 і git просить логін, якого в контейнера немає
+  # й бути не має. За протоколом v0 той самий pull з тієї самої адреси
+  # проходить (перевірено 2026-09-02). Токен у контейнері був би другим
+  # секретом, за яким треба стежити, заради читання публічного репозиторію.
+  git -c protocol.version=0 -c http.version=HTTP/1.1 pull --ff-only
   export PATH=$PATH:/usr/local/go/bin GOTOOLCHAIN=local CGO_ENABLED=1
 
   # Тулчейн підтягується під go.mod. Без цього оновлення ламалось намертво
