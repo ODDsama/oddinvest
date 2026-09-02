@@ -59,7 +59,9 @@ func TestYearMoneyAgreesWithCashflowAndDays(t *testing.T) {
 			t.Errorf("%s: рівень %d поза 1..4", d.Date, d.Lvl)
 		}
 	}
-	if round2(contrib) != m.ContribUAH || round2(income) != m.IncomeUAH ||
+	// Дні несуть свої гроші РАЗОМ із подушкою (own_uah), а не лише
+	// гаманець (contributed_uah).
+	if round2(contrib) != m.OwnUAH || round2(income) != m.IncomeUAH ||
 		round2(purchase) != m.PurchaseUAH {
 		t.Errorf("дні (%v/%v/%v) не сходяться зі статтями %+v", contrib, income, purchase, m)
 	}

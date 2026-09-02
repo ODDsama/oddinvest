@@ -802,6 +802,10 @@ export function flowHTML(f) {
     caption: `Рух грошей ${esc(f.from)} — ${esc(f.to)}: стаття й сума`,
     foot: [{ cell: "= лишилось" }, { cell: fmtUAH(f.closing_uah || 0), num: true }],
   })}
+    ${f.outside_uah ? `<div class="sub mt-sm">Поза рахунками брокерів: ${
+    f.outside_uah > 0 ? "+" : "−"}${fmtUAH(Math.abs(f.outside_uah))} у подушку й цілі. У залишок не
+      входить — матрац на рахунку не лежить; у «внесено своїх» підсумку й серії входить,
+      разом ${fmtUAH(f.own_uah || 0)}.</div>` : ""}
     ${detail.length ? `<details class="disclosure" data-fold="flowbuys">
       <summary>Куди пішли<span class="hint">${detail.length} ${
   plural(detail.length, "операція", "операції", "операцій")}</span></summary>

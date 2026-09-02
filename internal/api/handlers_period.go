@@ -45,6 +45,11 @@ type periodMoney struct {
 	PurchaseUAH float64 `json:"purchased_uah"`
 	ConvUAH     float64 `json:"conversions_uah"`
 	ClosingUAH  float64 `json:"closing_uah"`
+	// OutsideUAH — у подушку й цілі (поза залишком гаманця); OwnUAH —
+	// «внесено своїх» разом, те саме означення, що в плитки «Цей місяць».
+	// contributed_uah лишається ЛИШЕ гаманцем — це рядок виписки.
+	OutsideUAH float64 `json:"outside_uah"`
+	OwnUAH     float64 `json:"own_uah"`
 }
 
 // periodRow — один вимір «було → стало».
@@ -157,6 +162,8 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 		PurchaseUAH: sum.major(-sum.PurchaseUAH),
 		ConvUAH:     sum.major(sum.ConvUAH),
 		ClosingUAH:  sum.major(sum.ClosingUAH()),
+		OutsideUAH:  sum.major(sum.OutsideUAH),
+		OwnUAH:      sum.major(sum.OwnUAH()),
 	}}
 
 	var income, buys []domain.CashEvent
@@ -176,7 +183,9 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.Structure, out.StructureNote = periodStructureOf(snaps, from, "місяць", "місяця")
-	out.Plan, out.PlanNote = periodPlanOf(snaps, from, to, sum.ContribUAH)
+	// Проти цілі — свої гроші РАЗОМ із подушкою й цілями: саме так рахує
+	// плитка «Цей місяць», і ціль місяця сама включає стелю подушки.
+	out.Plan, out.PlanNote = periodPlanOf(snaps, from, to, sum.OwnUAH())
 
 	list, err := s.st.ListDecisions(ctx)
 	if err != nil {

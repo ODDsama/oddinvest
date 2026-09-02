@@ -74,9 +74,14 @@ function tilesHTML(p) {
     ? tile("Капітал на кінець", fmtUAH(cap.after), `<div class="sub">${signed(cap.delta)} за місяць</div>`)
     : tile("Капітал на кінець", "—", "<div class=\"sub\">знімків за цей місяць немає</div>")}
     ${tile("Надійшло доходу", fmtUAH(p.money.income_uah), idle)}
-    ${tile("Внесено своїх", fmtUAH(p.money.contributed_uah),
-    p.plan ? `<div class="sub">${pct(p.plan.done_pct, 0)} від цілі ${fmtUAH(p.plan.target_uah)}</div>`
-      : `<div class="sub">${esc(p.plan_note || "")}</div>`)}
+    ${tile("Внесено своїх", fmtUAH(p.money.own_uah != null ? p.money.own_uah : p.money.contributed_uah),
+    (p.plan ? `<div class="sub">${pct(p.plan.done_pct, 0)} від цілі ${fmtUAH(p.plan.target_uah)}</div>`
+      : `<div class="sub">${esc(p.plan_note || "")}</div>`)
+    // Подушка й цілі — тим самим рядком, що на «Огляді»: без нього місяць,
+    // у якому гроші пішли в матрац повз гаманець, читався б як зрив.
+    + (p.money.outside_uah
+      ? `<div class="sub">з них ${signed(p.money.outside_uah)} у подушку й цілі, ${
+        fmtUAH(p.money.contributed_uah)} на рахунки</div>` : ""))}
   </div>`;
 }
 

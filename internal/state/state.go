@@ -992,6 +992,11 @@ type Reserve struct {
 	FillMonthUAH float64 `json:"fill_month_uah,omitempty"`
 	FillNowUAH   float64 `json:"fill_now_uah,omitempty"`
 	FillMovedUAH float64 `json:"fill_moved_uah,omitempty"`
+	// MovedMonthUAH — рух подушки за цей місяць нетто, ЗАВЖДИ (fill_moved
+	// лише при заданій стелі). Читає плитка «Цей місяць»: «внесено» там —
+	// гаманець разом із подушкою, і без цього рядка зняття з матраца
+	// читалось би як загадковий мінус (адитивне поле).
+	MovedMonthUAH float64 `json:"moved_month_uah,omitempty"`
 	// Places — де лежить, грн-екв. по місцях зберігання. Резерв тим і
 	// цінний, що доступний миттєво, а це залежить від місця.
 	Places map[string]float64 `json:"places,omitempty"`

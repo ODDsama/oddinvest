@@ -127,6 +127,8 @@ func buildYear(year int, from, to, today domain.Date, events []flowEvent,
 			PurchaseUAH: sum.major(-sum.PurchaseUAH),
 			ConvUAH:     sum.major(sum.ConvUAH),
 			ClosingUAH:  sum.major(sum.ClosingUAH()),
+			OutsideUAH:  sum.major(sum.OutsideUAH),
+			OwnUAH:      sum.major(sum.OwnUAH()),
 		},
 		Months: []yearMonth{},
 		Days:   []yearDay{},
@@ -155,7 +157,9 @@ func buildYear(year int, from, to, today domain.Date, events []flowEvent,
 		case flowPurchase:
 			buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
 			d.PurchaseUAH += float64(e.UAH) / 100
-		case flowContribution:
+		case flowContribution, flowOutside:
+			// Свої гроші — гаманець і подушка разом, як у плитці «Цей
+			// місяць»: день, коли відклав у подушку, — день із рухом.
 			d.ContribUAH += float64(e.UAH) / 100
 		}
 	}

@@ -372,9 +372,17 @@ export function monthTile(ctx, s) {
     ? `вкладено ${fmtUAH(s.month_invested_uah)}` // старий бекенд рахував купівлі
     : `внесено ${fmtUAH(s.month_deposited_uah)}`;
   const mp = s.month_plan;
+  // Подушка й цілі названі окремо: «внесено» тут — гаманець РАЗОМ із
+  // ними (state_month.go), і зняття з матраца на подарунок інакше читалось
+  // би як загадковий мінус. Той самий рядок стоїть у підсумку місяця.
+  const resMoved = (s.reserve || {}).moved_month_uah || 0;
+  const goalMoved = (s.goals || []).reduce((a, g) => a + (g.moved_uah || 0), 0);
+  const outside = resMoved + goalMoved;
   const extra = `${s.month_withdrawn_uah > 0
     ? `<div class="sub-xs">нетто: поповнення ${
       fmtUAH((s.month_deposited_uah || 0) + s.month_withdrawn_uah)} − зняття ${fmtUAH(s.month_withdrawn_uah)}</div>` : ""}
+    ${outside
+    ? `<div class="sub-xs">з них ${outside > 0 ? "+" : "−"}${fmtUAH(Math.abs(outside))} у подушку й цілі — вони теж капітал</div>` : ""}
     ${s.month_invested_uah > 0
     ? `<div class="sub">куплено паперів на ${fmtUAH(s.month_invested_uah)}</div>` : ""}`;
 

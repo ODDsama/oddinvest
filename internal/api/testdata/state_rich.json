@@ -126,6 +126,7 @@
     "fill_month_uah": 2090,
     "fill_now_uah": 1090,
     "fill_moved_uah": 1000,
+    "moved_month_uah": 1000,
     "places": {
       "ПУМБ": 35000,
       "готівка": 31000,

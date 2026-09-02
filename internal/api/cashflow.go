@@ -41,6 +41,12 @@ const (
 	flowContribution = "contribution"
 	flowPurchase     = "purchase"
 	flowConversion   = "conversion"
+	// flowOutside — рух ПОЗА рахунками брокерів: у подушку чи ціль
+	// накопичення й назад. Свої гроші, як і flowContribution, але залишку
+	// гаманця вони не змінюють: у виписці стоять окремим рядком поза
+	// тотожністю, у «внесено своїх» підсумку й серії — разом із гаманцем.
+	// Довід — при summarizeCash.
+	flowOutside = "outside"
 )
 
 // cashEvents — усе, що коли-небудь рухало гроші на рахунках, окремими
@@ -216,18 +222,52 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		}
 		add(d.Date, flowContribution, uah(money.New(d.Amount, d.Currency)), label)
 	}
-	// Резерву тут НЕМАЄ — і це не забутий інструмент, а межа цього звіту.
-	// Він відповідає на «що робилось із грошима НА РАХУНКАХ», і його
-	// підсумок мусить дорівнювати account_uah (TestCashflowStatementReconciles).
-	// Матрац на рахунку брокера не лежить, тож подія «відклав 5 000» його
-	// не змінює — а додана сюди, зламала б рівність.
+	// Подушка й цілі — ОКРЕМИМ видом (flowOutside), і це виправлення, а
+	// не доповнення. Доти їх тут не було зовсім: звіт відповідає на «що
+	// робилось із грошима НА РАХУНКАХ», і його підсумок мусить дорівнювати
+	// account_uah (TestCashflowStatementReconciles) — матрац на рахунку
+	// брокера не лежить. Але той самий рядок подій живить підсумок місяця,
+	// рік і серію внесків, і там «внесено своїх» без подушки розходилось
+	// із плиткою «Цей місяць» на «Огляді» (state_month.go рахує гаманець +
+	// подушку + цілі). Спіймано власником на серпні: 19 239 ₴ і 25 % цілі
+	// в підсумку проти ~56 400 ₴ і ~72 % насправді — $800 і 1 500 ₴
+	// пішли в подушку повз гаманець, і місяць у серії стояв «повз».
 	//
-	// Переміщення гаманець → резерв у звіті все одно видно: його перша
-	// нога записана як зняття в `deposits` і вже пройшла вище звичайним
-	// внеском зі знаком мінус. Через це `contributed_uah` цього звіту й
-	// `month_deposited_uah` зі зведення — РІЗНІ величини: перша про
-	// рахунок, друга про капітал, і на місяці з відкладанням вони мають
-	// розійтись рівно на відкладену суму.
+	// Тому рухи подушки й цілей ідуть окремим видом: у залишок гаманця
+	// (ClosingUAH) вони НЕ входять, у «внесено своїх» підсумку, року й
+	// серії — входять. Переміщення гаманець → подушка при цьому дає нуль
+	// сам: зняття в deposits (−) і поповнення подушки (+) — той самий
+	// довід, що в state_month.go.
+	res, err := s.st.ListReserveOps(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, op := range res {
+		label := "у подушку"
+		if op.Amount < 0 {
+			label = "з подушки"
+		}
+		add(op.Date, flowOutside, uah(money.New(op.Amount, op.Currency)), label)
+	}
+	goalOps, err := s.st.ListGoalOps(ctx)
+	if err != nil {
+		return nil, err
+	}
+	goals, err := s.st.ListGoals(ctx)
+	if err != nil {
+		return nil, err
+	}
+	goalName := map[int64]string{}
+	for _, g := range goals {
+		goalName[g.ID] = g.Name
+	}
+	for _, op := range goalOps {
+		label := "у ціль " + goalName[op.GoalID]
+		if op.Amount < 0 {
+			label = "з цілі " + goalName[op.GoalID]
+		}
+		add(op.Date, flowOutside, uah(money.New(op.Amount, op.Currency)), label)
+	}
 	//
 	// Конвертації. У гривневому еквіваленті вони не нульові: обмін
 	// зроблено за курсом СВОГО дня, а перераховуємо ми за сьогоднішнім,
@@ -606,7 +646,11 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 		PurchaseUAH float64 `json:"purchased_uah"`
 		ConvUAH     float64 `json:"conversions_uah"`
 		ClosingUAH  float64 `json:"closing_uah"`
-		Rows        []row   `json:"rows,omitempty"`
+		// OutsideUAH — у подушку й цілі, поза тотожністю залишку; OwnUAH
+		// — «внесено своїх» разом із гаманцем (адитивно).
+		OutsideUAH float64 `json:"outside_uah"`
+		OwnUAH     float64 `json:"own_uah"`
+		Rows       []row   `json:"rows,omitempty"`
 	}{From: string(from), To: string(to)}
 
 	sum := summarizeCash(events, from, to)
@@ -624,6 +668,8 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 	out.PurchaseUAH = sum.major(-sum.PurchaseUAH)
 	out.ConvUAH = sum.major(sum.ConvUAH)
 	out.ClosingUAH = sum.major(sum.ClosingUAH())
+	out.OutsideUAH = sum.major(sum.OutsideUAH)
+	out.OwnUAH = sum.major(sum.OwnUAH())
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -644,7 +690,11 @@ type cashSummary struct {
 	ContribUAH  int64
 	PurchaseUAH int64
 	ConvUAH     int64
-	Rows        []flowEvent
+	// OutsideUAH — у подушку й цілі, нетто. ПОЗА тотожністю залишку:
+	// OpeningUAH теж лише гаманець, тож ці рухи в нього не входять ні на
+	// початок, ні на кінець. «Внесено своїх» разом — OwnUAH.
+	OutsideUAH int64
+	Rows       []flowEvent
 }
 
 // ClosingUAH — залишок на кінець проміжку. Не поле, а вираз: збережене
@@ -652,6 +702,10 @@ type cashSummary struct {
 func (c cashSummary) ClosingUAH() int64 {
 	return c.OpeningUAH + c.IncomeUAH + c.ContribUAH + c.PurchaseUAH + c.ConvUAH
 }
+
+// OwnUAH — свої гроші за проміжок: гаманець плюс подушка й цілі. Те саме
+// означення, що в плитки «Цей місяць» (state_month.go).
+func (c cashSummary) OwnUAH() int64 { return c.ContribUAH + c.OutsideUAH }
 
 // major — мінорні в гривні, для JSON. Метод, а не вільна функція, щоб
 // обидва споживачі округляли однаково.
@@ -661,7 +715,11 @@ func summarizeCash(events []flowEvent, from, to domain.Date) cashSummary {
 	var out cashSummary
 	for _, e := range events {
 		if e.Date.Before(from) {
-			out.OpeningUAH += e.UAH
+			// Залишок на початок — лише гаманець: подушка на рахунках не
+			// лежить.
+			if e.Kind != flowOutside {
+				out.OpeningUAH += e.UAH
+			}
 			continue
 		}
 		if e.Date.After(to) {
@@ -676,6 +734,8 @@ func summarizeCash(events []flowEvent, from, to domain.Date) cashSummary {
 			out.PurchaseUAH += e.UAH
 		case flowConversion:
 			out.ConvUAH += e.UAH
+		case flowOutside:
+			out.OutsideUAH += e.UAH
 		}
 		out.Rows = append(out.Rows, e)
 	}

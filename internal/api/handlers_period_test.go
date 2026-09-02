@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	money "github.com/Rhymond/go-money"
 
@@ -240,5 +241,50 @@ func saveSnap(t *testing.T, st *store.Store, date string, nominalMinor, usdBP in
 		Date: domain.Date(date), NominalUAHEq: nominalMinor, USDShareBP: usdBP,
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// ГОЛОВНИЙ ТЕСТ ВИПРАВЛЕННЯ: «внесено своїх» у підсумку місяця дорівнює
+// плитці «Цей місяць» на «Огляді» (month_deposited_uah) — гаманець разом
+// із подушкою. Доти підсумок брав лише гаманець, і місяць, у якому гроші
+// пішли в матрац повз рахунок брокера, стояв «повз» у серії.
+func TestPeriodOwnMatchesMonthTile(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	seed(t, st)
+	today := domain.NewDate(time.Now())
+	first := domain.Date(string(today)[:8] + "01")
+	if _, err := st.AddDeposit(ctx, store.Deposit{Date: first, Amount: 10_000_00,
+		Currency: money.UAH, Broker: "mono"}); err != nil {
+		t.Fatal(err)
+	}
+	// У подушку повз гаманець — і назад частину.
+	for _, a := range []int64{5_000_00, -1_500_00} {
+		if _, err := st.AddReserveOp(ctx, store.ReserveOp{Date: first, Amount: a,
+			Currency: money.UAH, Place: "готівка"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := periodOf(t, srv.URL, string(today)[:7])
+	if got.Money.ContribUAH != 10_000 || got.Money.OutsideUAH != 3_500 || got.Money.OwnUAH != 13_500 {
+		t.Errorf("гаманець %v / подушка %v / разом %v, чекали 10 000 / 3 500 / 13 500",
+			got.Money.ContribUAH, got.Money.OutsideUAH, got.Money.OwnUAH)
+	}
+	// Залишок гаманця подушки не бачить.
+	if got.Money.ClosingUAH != 10_000 {
+		t.Errorf("залишок гаманця %v, чекали 10 000", got.Money.ClosingUAH)
+	}
+	resp, body := do(t, "GET", srv.URL+"/api/summary", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/api/summary: %d %s", resp.StatusCode, body)
+	}
+	var sum struct {
+		Deposited float64 `json:"month_deposited_uah"`
+	}
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatal(err)
+	}
+	if sum.Deposited != got.Money.OwnUAH {
+		t.Errorf("плитка «Цей місяць» %v ≠ підсумок %v", sum.Deposited, got.Money.OwnUAH)
 	}
 }

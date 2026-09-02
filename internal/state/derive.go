@@ -334,6 +334,11 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 	// Самі числа приходять із будівника (state_month.go): ту саму місячну
 	// частку потребує ще й ребаланс, і рахувати її двічі означало б завести
 	// два джерела правди про одну стелю.
+	// Рух подушки за місяць — ЗАВЖДИ, а не лише при заданій стелі: плитка
+	// «Цей місяць» і підсумок називають його поруч із «внесено», бо
+	// внесено — гаманець разом із подушкою, і зняття з матраца інакше
+	// читалось би як загадковий мінус (спіймано власником на подарунку).
+	r.MovedMonthUAH = round2(in.ReserveMovedUAH)
 	if r.GapUAH > 0 && doc.Settings != nil && doc.Settings.ReserveFillSharePct != nil {
 		if share := *doc.Settings.ReserveFillSharePct; share > 0 && in.ReserveFillMonthUAH > 0 {
 			r.FillSharePct = share

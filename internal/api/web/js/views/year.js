@@ -49,9 +49,11 @@ function tilesHTML(y) {
     y.principal_uah > 0
       ? `<div class="sub">і ${fmtUAH(y.principal_uah)} повернуто тіла</div>`
       : `<div class="sub">купони, дивіденди, відсотки</div>`)}
-    ${tile("Внесено своїх", fmtUAH(y.money.contributed_uah),
-    y.idle_uah > 0
-      ? `<div class="sub">${fmtUAH(y.idle_uah)} доходу не пішло в діло</div>` : "")}
+    ${tile("Внесено своїх", fmtUAH(y.money.own_uah != null ? y.money.own_uah : y.money.contributed_uah),
+    (y.money.outside_uah
+      ? `<div class="sub">з них ${signed(y.money.outside_uah)} у подушку й цілі</div>` : "")
+    + (y.idle_uah > 0
+      ? `<div class="sub">${fmtUAH(y.idle_uah)} доходу не пішло в діло</div>` : ""))}
     ${best
     ? tile("Найкращий місяць", esc(monthYear(best.month + "-01")),
       `<div class="sub">внесено ${fmtUAH(best.contributed_uah)}</div>`)
