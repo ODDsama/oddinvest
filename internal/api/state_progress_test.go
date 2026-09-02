@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -545,5 +546,63 @@ func TestProgressLifeSkipsPrincipal(t *testing.T) {
 	}
 	if buildLife(ev, 0) != nil {
 		t.Error("без витрат Life мав мовчати")
+	}
+}
+
+// TestProgressDebtMilestonesSilentWithoutDebt — на портфелі без боргу всі
+// пʼять віх боргу невимірні, а не незібрані: «15 із 21» у людини, яка
+// ніколи не була винна, читалось би як докір за те, чого не було.
+func TestProgressDebtMilestonesSilentWithoutDebt(t *testing.T) {
+	ms := debtMilestones(&state.Doc{}, &sources{}, nil, "2026-07-15")
+	if len(ms) != 5 {
+		t.Fatalf("віх боргу %d, чекали 5", len(ms))
+	}
+	for _, m := range ms {
+		if m.Earned || m.ProgressPct != progressNoProgress || m.Left != "" {
+			t.Errorf("%s без боргу мала мовчати: %+v", m.Key, m)
+		}
+	}
+}
+
+// TestProgressNetWorthDateSkipsUnknownZeros — нуль у старому знімку
+// означає «тоді не рахували» (міграція 0048), а не «чистий капітал був
+// нулем»: дата виходу з мінуса береться з першого ДОДАТНОГО після
+// відʼємного, і нулі між ними не є ні тим, ні іншим.
+func TestProgressNetWorthDateSkipsUnknownZeros(t *testing.T) {
+	snaps := []store.Snapshot{
+		{Date: "2026-03-01", NetWorthUAH: 0},
+		{Date: "2026-04-01", NetWorthUAH: -10_000_00},
+		{Date: "2026-05-01", NetWorthUAH: 0},
+		{Date: "2026-06-01", NetWorthUAH: 5_000_00},
+		{Date: "2026-07-01", NetWorthUAH: 6_000_00},
+	}
+	if got := netWorthPositiveOn(snaps); got != "2026-06-01" {
+		t.Errorf("вихід із мінуса %q, чекали 2026-06-01", got)
+	}
+	// Мінусу не було — нема з чого виходити, дати немає.
+	if got := netWorthPositiveOn(snaps[3:]); got != "" {
+		t.Errorf("без мінуса в історії дата мала бути порожньою, а є %q", got)
+	}
+}
+
+// TestProgressCardZeroDatedByCurrentRun — нуль на картці датований
+// звіркою, що ПОЧАЛА нинішній невідʼємний відрізок, а не першою
+// невідʼємною в історії: картка, що вийшла в плюс і знову провалилась,
+// інакше отримала б дату з минулого життя.
+func TestProgressCardZeroDatedByCurrentRun(t *testing.T) {
+	card := domain.Debt{ID: 7, Kind: domain.DebtCard}
+	marks := []domain.DebtMark{
+		{DebtID: 7, Date: "2026-01-10", Balance: 100},
+		{DebtID: 7, Date: "2026-02-10", Balance: -5_000},
+		{DebtID: 7, Date: "2026-03-10", Balance: 200},
+		{DebtID: 7, Date: "2026-04-10", Balance: 300},
+		{DebtID: 8, Date: "2026-05-10", Balance: -1}, // чужа картка
+	}
+	if got := zeroRunStart(card, marks, "2026-07-15"); got != "2026-03-10" {
+		t.Errorf("початок нинішнього плюса %q, чекали 2026-03-10", got)
+	}
+	marks = append(marks, domain.DebtMark{DebtID: 7, Date: "2026-05-01", Balance: -1})
+	if got := zeroRunStart(card, marks, "2026-07-15"); got != "" {
+		t.Errorf("остання звірка в мінусі — дати немає, а є %q", got)
 	}
 }

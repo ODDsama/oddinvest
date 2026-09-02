@@ -273,7 +273,7 @@ const progressNoProgress = -1
 // виводиться з len(): набір сталий, і зміна його довжини мусить бути
 // свідомою — рівень людини («6 із 14») інакше мовчки поїхав би від
 // додавання чи прибирання однієї віхи.
-const milestoneCount = 16
+const milestoneCount = 21
 
 // buildProgress — сам прогрес. Чиста функція над готовими даними:
 // жодного запиту, тож її поведінку читають згори вниз.
@@ -710,6 +710,9 @@ func buildMilestones(
 	for _, t := range lifeThresholds {
 		add(lifeMilestone(t.key, t.title, t.days, ev, life))
 	}
+
+	// --- 17-21. Борг (state_progress_debt.go) ---
+	out = append(out, debtMilestones(doc, src, snaps, today)...)
 
 	return out
 }

@@ -55,6 +55,11 @@ const MOVES = {
   no_limit_breach: { to: "portfolio/all/limits", label: "Ліміти" },
   life_month: { to: "work/buy/main", label: "Що купити" },
   life_year: { to: "work/buy/main", label: "Що купити" },
+  net_worth_positive: { to: "plan/debts/main", label: "Борги" },
+  card_zero: { to: "plan/debts/main", label: "Борги" },
+  exit_by_met: { to: "plan/debts/main", label: "Борги" },
+  debt_covered: { to: "policy/reserve/main", label: "Налаштувати резерв" },
+  installments_done: { to: "plan/debts/main", label: "Борги" },
 };
 
 /** «Портфель оплатив N днів життя» — один рядок, той самий на «Огляді»
