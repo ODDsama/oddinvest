@@ -511,3 +511,39 @@ func TestProgressCountsOnlyContributions(t *testing.T) {
 		t.Errorf("внесено 1 000 ₴ з 10 000 — місяць не виконано, а серія %d", got.Months)
 	}
 }
+
+// TestProgressLifeSkipsPrincipal — оплачені дні рахуються лише із
+// ЗАРОБЛЕНОГО: погашення номіналу — flowIncome для виписки, але для
+// прогресу воно Principal, і рахувати його означало б оплатити роки, яких
+// портфель не заробляв. Внески й покупки не входять узагалі.
+func TestProgressLifeSkipsPrincipal(t *testing.T) {
+	ev := []flowEvent{
+		{Date: "2026-03-01", Kind: flowContribution, UAH: 10_000_000},
+		{Date: "2026-04-01", Kind: flowIncome, UAH: 500_000},                     // купон 5 000
+		{Date: "2026-05-01", Kind: flowIncome, UAH: 20_000_000, Principal: true}, // погашення
+		{Date: "2026-06-01", Kind: flowIncome, UAH: 700_000},                     // відсотки 7 000
+		{Date: "2026-06-02", Kind: flowPurchase, UAH: -300_000},
+	}
+	// 30 000 ₴/міс → 1 000 ₴ на день; зароблено 12 000 → 12 днів.
+	life := buildLife(ev, 30_000)
+	if life == nil {
+		t.Fatal("витрати задані — Life мав бути")
+	}
+	if life.IncomeUAH != 12_000 || life.PerDayUAH != 1_000 || life.Days != 12 {
+		t.Errorf("Life = %+v, чекали 12 000 ₴ / 1 000 на день / 12 днів", *life)
+	}
+	if life.Since != "2026-04-01" {
+		t.Errorf("Since = %q, чекали дату першого купона", life.Since)
+	}
+	// Поріг у 10 днів пройдено 1 червня (5 000 + 7 000 ≥ 10 000); погашення
+	// в травні його НЕ пройшло, хоч і принесло 200 000.
+	if got := lifeCrossedOn(ev, 1_000, 10); got != "2026-06-01" {
+		t.Errorf("поріг 10 днів пройдено %q, чекали 2026-06-01", got)
+	}
+	if got := lifeCrossedOn(ev, 1_000, 30); got != "" {
+		t.Errorf("поріг 30 днів не пройдено, а дата %q", got)
+	}
+	if buildLife(ev, 0) != nil {
+		t.Error("без витрат Life мав мовчати")
+	}
+}

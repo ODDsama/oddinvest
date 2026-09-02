@@ -26,6 +26,14 @@ type flowEvent struct {
 	Kind  string // income | contribution | purchase | conversion
 	UAH   int64
 	Label string
+	// Principal — цей «дохід» є поверненням ТІЛА: погашення ОВДП або
+	// тіло вкладу на дату закриття. Для виписки це той самий рух на
+	// рахунок, що й купон (і саме тому Kind лишається flowIncome —
+	// summarizeCash мусить сходитись із account_uah), але заробітком воно
+	// не є: гроші повернулись, а не прибули. Читає прогрес («портфель
+	// оплатив N днів життя») — без цієї ознаки повернений номінал
+	// рахувався б доходом і оплачував би роки.
+	Principal bool
 }
 
 const (
@@ -66,9 +74,20 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	}
 
 	var out []flowEvent
-	add := func(d domain.Date, kind string, amt int64, label string) {
-		if amt != 0 {
-			out = append(out, flowEvent{Date: d, Kind: kind, UAH: amt, Label: label})
+	// add віддає щойно доданий рух (nil, коли сума нуль і руху немає) —
+	// щоб позначку Principal ставив той, хто знає тип виплати, а не
+	// окрема гілка з тим самим кодом.
+	add := func(d domain.Date, kind string, amt int64, label string) *flowEvent {
+		if amt == 0 {
+			return nil
+		}
+		out = append(out, flowEvent{Date: d, Kind: kind, UAH: amt, Label: label})
+		return &out[len(out)-1]
+	}
+	// income — виплата з розкладу: купон або погашення; друге — тіло.
+	income := func(cf domain.CashflowItem, label string) {
+		if e := add(cf.Date, flowIncome, uah(cf.Amount), label); e != nil {
+			e.Principal = cf.Type == domain.PayRedemption
 		}
 	}
 
@@ -79,7 +98,7 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	}
 	for _, cf := range pastCF {
 		if arrived(cf.ISIN, cf.Date) {
-			add(cf.Date, flowIncome, uah(cf.Amount), cf.ISIN)
+			income(cf, cf.ISIN)
 		}
 	}
 	// Дохід і покупки по фондах.
@@ -157,7 +176,13 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		}
 		for _, cf := range domain.DepositSchedule(dep, "1970-01-01") {
 			if arrived(cf.ISIN, cf.Date) {
-				add(cf.Date, flowIncome, uah(cf.Amount), "відсотки "+dep.Bank)
+				// Останній рядок розкладу — повернення тіла: підпис і
+				// ознака Principal у нього свої.
+				if cf.Type == domain.PayRedemption {
+					income(cf, "тіло вкладу "+dep.Bank)
+				} else {
+					income(cf, "відсотки "+dep.Bank)
+				}
 			}
 		}
 	}
@@ -561,6 +586,8 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 		Label string  `json:"label"`
 		UAH   float64 `json:"uah"`
 		Kind  string  `json:"kind"`
+		// Principal — дохід, який є поверненням тіла (адитивно).
+		Principal bool `json:"principal,omitempty"`
 	}
 	out := struct {
 		From        string  `json:"from"`
@@ -578,7 +605,7 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 	for _, e := range sum.Rows {
 		out.Rows = append(out.Rows, row{
 			Date: string(e.Date), Label: e.Label,
-			UAH: round2(float64(e.UAH) / 100), Kind: e.Kind,
+			UAH: round2(float64(e.UAH) / 100), Kind: e.Kind, Principal: e.Principal,
 		})
 	}
 	out.OpeningUAH = sum.major(sum.OpeningUAH)

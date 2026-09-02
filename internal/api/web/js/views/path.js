@@ -53,7 +53,29 @@ const MOVES = {
   shares_aligned: { to: "portfolio/all/structure", label: "Структура" },
   currency_aligned: { to: "portfolio/all/structure", label: "Структура" },
   no_limit_breach: { to: "portfolio/all/limits", label: "Ліміти" },
+  life_month: { to: "work/buy/main", label: "Що купити" },
+  life_year: { to: "work/buy/main", label: "Що купити" },
 };
+
+/** «Портфель оплатив N днів життя» — один рядок, той самий на «Огляді»
+ *  й у «Звичці». Лічильник, що росте, а не поріг: саме тому він стоїть
+ *  окремо від віх і не має відсотка. */
+function lifeLineHTML(p) {
+  const l = p && p.life;
+  if (!l) return "";
+  const n = Math.floor(l.days);
+  return `<div class="sub">Портфель уже оплатив <b>${n} ${dayWord(n)}</b> твого життя — ${
+    uah0(l.income_uah)} заробленого при ${uah0(l.per_day_uah)} на день</div>`;
+}
+
+function dayWord(n) {
+  const t = Math.abs(n) % 100;
+  if (t >= 11 && t <= 14) return "днів";
+  const o = t % 10;
+  if (o === 1) return "день";
+  if (o >= 2 && o <= 4) return "дні";
+  return "днів";
+}
 
 /** Чи є що показувати взагалі. Порожньо означає, що маршрут не
  *  відповів або портфель ще порожній. */
@@ -167,6 +189,7 @@ export function nextLineHTML(p) {
     ${m.progress_pct >= 0
     ? progressBar(m.progress_pct, { color: "var(--oi-accent)" }) : ""}
     <div class="sub-xs">${esc(m.note)}</div>
+    ${lifeLineHTML(p)}
   </div>`;
 }
 
@@ -304,7 +327,17 @@ function tracksHTML(p) {
       c.filled / c.of * 100, "var(--oi-kind-fund)")
     : track("Колекція", "—", "драбини погашень ще немає", null);
 
-  return disc + cons + coll;
+  // Оплачені дні: лічильник без смуги — стелі в нього немає, росте він
+  // завжди. Знаменник названий: без нього «12 днів» не перевірити.
+  const l = p.life;
+  const life = l
+    ? track("Оплачені дні", `${Math.floor(l.days)} ${dayWord(Math.floor(l.days))}`,
+      `${uah0(l.income_uah)} заробленого (купони, дивіденди, відсотки) при ${
+        uah0(l.per_day_uah)} на день${l.since ? ` · з ${l.since}` : ""}`, null)
+    : track("Оплачені дні", "—",
+      "місячні витрати не задані — ділити нема на що", null);
+
+  return disc + cons + coll + life;
 }
 
 // Місяць українською. Своя, бо format.js:plural просить три форми, а тут

@@ -71,7 +71,80 @@ type progressDoc struct {
 	Streak     streakDoc     `json:"streak"`
 	Discipline disciplineDoc `json:"discipline"`
 	Collection collectionDoc `json:"collection"`
-	Milestones []milestone   `json:"milestones"`
+	// Life — «портфель оплатив N днів твого життя». nil без місячних
+	// витрат: ділити нема на що, і нуль читався б як «нічого не оплатив».
+	Life       *lifeDoc    `json:"life,omitempty"`
+	Milestones []milestone `json:"milestones"`
+}
+
+// lifeDoc — скільки днів життя вже оплатив портфель.
+//
+// ЧИСЕЛЬНИК — лише ЗАРОБЛЕНЕ: купони, дивіденди після податку, відсотки
+// вкладів. Погашення ОВДП і тіло вкладу — flowIncome для виписки, але
+// Principal для нас: повернений номінал оплачував би роки, яких портфель
+// не заробив. ЗНАМЕННИК — місячні витрати з налаштувань, поділені на
+// тридцять. Обидва числа поруч, бо саме з них і складено дні.
+//
+// Це лічильник, що росте, а не поріг — на відміну від «Дохід покриває
+// чверть життя», яка дивиться вперед на щомісячний дохід. Вони не
+// суперечать: перша каже, що вже сталось, друга — що обіцяно.
+type lifeDoc struct {
+	IncomeUAH float64 `json:"income_uah"`
+	PerDayUAH float64 `json:"per_day_uah"`
+	Days      float64 `json:"days"`
+	// Since — дата першого заробленого руху; порожньо, доки його немає.
+	Since string `json:"since,omitempty"`
+}
+
+// buildLife — оплачені дні з подій руху грошей. nil без витрат.
+func buildLife(ev []flowEvent, expenses float64) *lifeDoc {
+	if expenses <= 0 {
+		return nil
+	}
+	out := &lifeDoc{PerDayUAH: round2(expenses / 30)}
+	var earned int64
+	for _, e := range ev {
+		if e.Kind != flowIncome || e.Principal || e.UAH <= 0 {
+			continue
+		}
+		if out.Since == "" || string(e.Date) < out.Since {
+			out.Since = string(e.Date)
+		}
+		earned += e.UAH
+	}
+	out.IncomeUAH = round2(float64(earned) / 100)
+	out.Days = round2(out.IncomeUAH / out.PerDayUAH)
+	return out
+}
+
+// lifeCrossedOn — день, коли зароблений дохід уперше сягнув суми, що
+// оплачує need днів. Дата не зі знімків, а з самих подій: вони датовані,
+// тож віха отримує день навіть до першого знімка. Порожньо — ще не сягнув.
+func lifeCrossedOn(ev []flowEvent, perDay float64, need float64) string {
+	if perDay <= 0 {
+		return ""
+	}
+	sorted := append([]flowEvent(nil), ev...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Date < sorted[j].Date })
+	target := int64(math.Round(perDay * need * 100))
+	var earned int64
+	for _, e := range sorted {
+		if e.Kind != flowIncome || e.Principal || e.UAH <= 0 {
+			continue
+		}
+		if earned += e.UAH; earned >= target {
+			return string(e.Date)
+		}
+	}
+	return ""
+}
+
+// expensesOf — місячні витрати з документа; нуль, коли не задані.
+func expensesOf(doc *state.Doc) float64 {
+	if doc.Settings != nil && doc.Settings.MonthlyExpensesUAH != nil {
+		return *doc.Settings.MonthlyExpensesUAH
+	}
+	return 0
 }
 
 // streakDoc — місяці поспіль, у яких місячний план внесків виконано.
@@ -200,7 +273,7 @@ const progressNoProgress = -1
 // виводиться з len(): набір сталий, і зміна його довжини мусить бути
 // свідомою — рівень людини («6 із 14») інакше мовчки поїхав би від
 // додавання чи прибирання однієї віхи.
-const milestoneCount = 14
+const milestoneCount = 16
 
 // buildProgress — сам прогрес. Чиста функція над готовими даними:
 // жодного запиту, тож її поведінку читають згори вниз.
@@ -222,7 +295,8 @@ func buildProgress(
 	if dec != nil {
 		out.Discipline = disciplineDoc{TopRow: dec.Followed, Total: dec.Count, Enough: true}
 	}
-	out.Milestones = buildMilestones(doc, src, snaps, out.Streak, bench, today)
+	out.Life = buildLife(ev, expensesOf(doc))
+	out.Milestones = buildMilestones(doc, src, snaps, ev, out.Streak, bench, out.Life, today)
 	for _, m := range out.Milestones {
 		if m.Earned {
 			out.Level++
@@ -418,8 +492,8 @@ var capitalThresholds = []struct {
 }
 
 func buildMilestones(
-	doc *state.Doc, src *sources, snaps []store.Snapshot,
-	streak streakDoc, bench *benchResult, today domain.Date,
+	doc *state.Doc, src *sources, snaps []store.Snapshot, ev []flowEvent,
+	streak streakDoc, bench *benchResult, life *lifeDoc, today domain.Date,
 ) []milestone {
 	out := make([]milestone, 0, milestoneCount)
 	add := func(m milestone) { out = append(out, m) }
@@ -614,10 +688,7 @@ func buildMilestones(
 		m := milestone{Key: "income_quarter", Title: "Дохід покриває чверть життя",
 			ProgressPct: progressNoProgress,
 			Note:        "місячні витрати не задані — міряти нема від чого"}
-		var expenses float64
-		if doc.Settings != nil && doc.Settings.MonthlyExpensesUAH != nil {
-			expenses = *doc.Settings.MonthlyExpensesUAH
-		}
+		expenses := expensesOf(doc)
 		if expenses <= 0 {
 			return m
 		}
@@ -632,7 +703,49 @@ func buildMilestones(
 		return m
 	}())
 
+	// --- 15-16. Оплачені дні життя ---
+	//
+	// Лічильник, що росте (lifeDoc), із двома порогами: місяць і рік.
+	// Дата — з подій руху грошей, а не зі знімків: купон датований сам.
+	for _, t := range lifeThresholds {
+		add(lifeMilestone(t.key, t.title, t.days, ev, life))
+	}
+
 	return out
+}
+
+// lifeThresholds — пороги оплачених днів. Два, а не тиждень і квартал
+// теж: віха мусить лишатись подією (той самий довід, що в
+// capitalThresholds).
+var lifeThresholds = []struct {
+	key, title string
+	days       float64
+}{
+	{"life_month", "Портфель оплатив місяць життя", 30},
+	{"life_year", "Портфель оплатив рік життя", 365},
+}
+
+func lifeMilestone(key, title string, need float64, ev []flowEvent, life *lifeDoc) milestone {
+	m := milestone{Key: key, Title: title, ProgressPct: progressNoProgress,
+		Note: "місячні витрати не задані — міряти нема від чого"}
+	if life == nil {
+		return m
+	}
+	m.Earned = life.Days >= need
+	m.EarnedOn = lifeCrossedOn(ev, life.PerDayUAH, need)
+	m.ProgressPct = ratioPct(life.Days, need)
+	m.Note = fmt.Sprintf("оплачено %s із %s — %s заробленого при %s на день",
+		daysWord(life.Days), daysWord(need), uah(life.IncomeUAH), uah(life.PerDayUAH))
+	if !m.Earned {
+		m.Left = "лишилось " + daysWord(need-life.Days)
+	}
+	return m
+}
+
+// daysWord — «12 днів», без дробу: день життя дробом не оплачують.
+func daysWord(d float64) string {
+	n := int(math.Floor(d + 1e-9))
+	return fmt.Sprintf("%d %s", n, plural(n, "день", "дні", "днів"))
 }
 
 // pickNext — найближча ВИМІРНА незібрана віха.
