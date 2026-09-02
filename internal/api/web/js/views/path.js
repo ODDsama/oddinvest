@@ -24,7 +24,7 @@
 // майстер-списку; чотири в'юшки з власним ctx.soft дали б два читання
 // одного маршруту на кожному переході всередині «Шляху».
 
-import { esc, monthShort, plural, uah0 } from "../format.js";
+import { esc, monthShort, plural, uah0, signedUAH } from "../format.js";
 import { empty, progressBar } from "../components.js";
 import { routeFor } from "../routes.js";
 
@@ -401,7 +401,27 @@ function stripHTML(st) {
     </div>`;
 }
 
-/** «Звичка»: постійність і дисципліна. */
+/** Смужка «попереду долара»: ті самі клітинки, що в серії внесків, і
+ *  ДВА стани, а не три — ряд суперників починається з першого знімка, і
+ *  місяців «невідомо» у ньому немає за побудовою (vsDoc у бекенді).
+ *  Питання в цієї смужки інше: та — про дисципліну, ця — про результат. */
+function vsStripHTML(vs) {
+  const marks = vs.marks;
+  const title = (m) => `${m.month} · ${signedUAH(m.diff_uah)} проти «просто доларів»`;
+  return `<div class="strip" role="presentation">${marks.map((m) =>
+    `<span class="strip-c${m.ahead ? " hit" : ""}" title="${esc(title(m))}"></span>`)
+    .join("")}</div>
+    <div class="strip-x">
+      <span>${esc(monthShort(marks[0].month))}</span>
+      <span>${esc(monthShort(marks[marks.length - 1].month))}</span>
+    </div>
+    <div class="strip-lg">
+      <span><span class="strip-c hit"></span>попереду</span>
+      <span><span class="strip-c"></span>позаду</span>
+    </div>`;
+}
+
+/** «Звичка»: постійність, дисципліна й результат проти долара. */
 export function habit(ctx, main) {
   const p = ctx.progress;
   if (!ready(p)) {
@@ -415,9 +435,26 @@ export function habit(ctx, main) {
     + "ціль минулого місяця відома лише зі знімка, зробленого тоді. Знімок "
     + "кладеться щодня автоматично — смужка почнеться з першого з них.");
 
-  main.innerHTML = `<div class="card"><h2>Три доріжки</h2>
+  const vs = p.vs_usd;
+  const vsNote = [
+    vs && vs.best ? `найдовше — ${vs.best}` : "",
+    vs && vs.since ? `попереду з ${vs.since}` : "",
+    // Застереження те саме, що в «Ціні рішень»: знімок кладеться зранку,
+    // тож внесок того самого дня видно з добовою затримкою.
+    "останній день кожного місяця з ряду «Ціни рішень»; знімок ранковий, тож день внеску може відстати на добу",
+  ].filter(Boolean).join(" · ");
+  const vsCard = vs && vs.marks && vs.marks.length
+    ? `<div class="card">
+        <h2 class="card-head"><span>Проти долара</span>
+          <span class="sub-xs">${vs.months} ${monthWord(vs.months)} поспіль попереду</span></h2>
+        ${vsStripHTML(vs)}
+        <div class="sub-xs">${esc(vsNote)}</div>
+      </div>`
+    : "";
+
+  main.innerHTML = `<div class="card"><h2>Чотири доріжки</h2>
       <div class="tracks">${tracksHTML(p)}</div></div>
-    <div class="card"><h2>Місяць за місяцем</h2>${strip}</div>`;
+    <div class="card"><h2>Місяць за місяцем</h2>${strip}</div>${vsCard}`;
 }
 
 // ---------------------------------------------------------------------

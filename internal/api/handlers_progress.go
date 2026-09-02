@@ -60,13 +60,20 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		dec = &sum
 	}
 
-	// Бенчмарк — над УЖЕ зібраним документом, а не власним buildState.
+	// Суперники — над УЖЕ зібраним документом, а не власним buildState, і
+	// ОДНИМ прогоном на два читачі: бенчмарк («обіграв долари») і серію
+	// «попереду долара» по місяцях — обидва з того самого добового ряду.
 	var bench *benchResult
-	if b, berr := s.benchmark(ctx, doc); berr != nil {
-		s.log.Warn("бенчмарк для прогресу не зібрався", "err", berr)
+	var vs *vsDoc
+	if rv, rerr := s.rivals(ctx, doc, levelPortfolio); rerr != nil {
+		s.log.Warn("суперники для прогресу не зібрались", "err", rerr)
+	} else if rates, ferr := s.rates(ctx); ferr != nil {
+		s.log.Warn("курси для прогресу не зібрались", "err", ferr)
 	} else {
+		b := benchFromRivals(rv, rates)
 		bench = &b
+		vs = buildVsUSD(rv.Days, rv.row(domain.RivalUSDCash).PointsDiff, today)
 	}
 
-	writeJSON(w, http.StatusOK, buildProgress(doc, src, snaps, ev, dec, bench, today))
+	writeJSON(w, http.StatusOK, buildProgress(doc, src, snaps, ev, dec, bench, vs, today))
 }

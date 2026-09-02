@@ -613,7 +613,7 @@ func TestProgressCardZeroDatedByCurrentRun(t *testing.T) {
 // день, і 100 000 з нуля — це 100 днів.
 func TestProgressEtaNamesItsBasis(t *testing.T) {
 	doc := &state.Doc{MonthTargetUAH: 30_000}
-	ms := buildMilestones(doc, &sources{}, nil, nil, streakDoc{}, nil, nil, "2026-07-15")
+	ms := buildMilestones(doc, &sources{}, nil, nil, streakDoc{}, nil, nil, nil, "2026-07-15")
 	byKey := map[string]milestone{}
 	for _, m := range ms {
 		byKey[m.Key] = m
@@ -634,7 +634,7 @@ func TestProgressEtaNamesItsBasis(t *testing.T) {
 		}
 	}
 	// Без цілі внесків темпу немає й у порогів.
-	ms = buildMilestones(&state.Doc{}, &sources{}, nil, nil, streakDoc{}, nil, nil, "2026-07-15")
+	ms = buildMilestones(&state.Doc{}, &sources{}, nil, nil, streakDoc{}, nil, nil, nil, "2026-07-15")
 	for _, m := range ms {
 		if m.Key == "first_100k" && m.EtaOn != "" {
 			t.Errorf("без цілі внесків дата мала мовчати, а є %q", m.EtaOn)
@@ -643,5 +643,44 @@ func TestProgressEtaNamesItsBasis(t *testing.T) {
 	// Горизонт: 80 років — не дата.
 	if got := etaAfterDays("2026-07-15", 80*365); got != "" {
 		t.Errorf("задалекий горизонт мав мовчати, а є %q", got)
+	}
+}
+
+// TestProgressVsUSDStreak — серія «попереду долара» читається з добового
+// ряду вибіркою на останній день місяця, а дата віхи — перший день
+// нинішнього відрізка, не перший день місяця.
+func TestProgressVsUSDStreak(t *testing.T) {
+	grid := domain.DaysGrid("2026-05-30", "2026-07-15")
+	days := make([]string, len(grid))
+	diff := make([]float64, len(grid))
+	for i, d := range grid {
+		days[i] = string(d)
+		switch {
+		case d < "2026-06-03":
+			diff[i] = -100 // травень і перші дні червня позаду
+		default:
+			diff[i] = 50 + float64(i) // далі попереду
+		}
+	}
+	vs := buildVsUSD(days, diff, "2026-07-15")
+	if vs == nil {
+		t.Fatal("ряд є — серія мала бути")
+	}
+	if len(vs.Marks) != 3 || vs.Marks[0].Month != "2026-05" || vs.Marks[0].Ahead ||
+		!vs.Marks[1].Ahead || !vs.Marks[2].Ahead {
+		t.Errorf("позначки %+v, чекали травень позаду, червень і липень попереду", vs.Marks)
+	}
+	if vs.Months != 2 || vs.Best != 2 {
+		t.Errorf("серія %d / найдовша %d, чекали 2 / 2", vs.Months, vs.Best)
+	}
+	if vs.Since != "2026-06-03" {
+		t.Errorf("початок відрізка %q, чекали 2026-06-03", vs.Since)
+	}
+	// Дні після today не читаються: поточний місяць — сьогоднішнім днем.
+	if got := buildVsUSD(days, diff, "2026-06-01"); got.Months != 0 || got.Since != "" {
+		t.Errorf("на 1 червня ще позаду: %+v", got)
+	}
+	if buildVsUSD(nil, nil, "2026-07-15") != nil || buildVsUSD(days, diff[:1], "2026-07-15") != nil {
+		t.Error("без ряду або з рядом іншої довжини серія мала мовчати")
 	}
 }

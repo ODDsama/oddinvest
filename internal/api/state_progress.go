@@ -73,8 +73,83 @@ type progressDoc struct {
 	Collection collectionDoc `json:"collection"`
 	// Life — «портфель оплатив N днів твого життя». nil без місячних
 	// витрат: ділити нема на що, і нуль читався б як «нічого не оплатив».
-	Life       *lifeDoc    `json:"life,omitempty"`
+	Life *lifeDoc `json:"life,omitempty"`
+	// VsUSD — серія «попереду долара» по місяцях. nil, доки добового ряду
+	// суперників немає (перший знімок ще не зроблено або курсу бракує).
+	VsUSD      *vsDoc      `json:"vs_usd,omitempty"`
 	Milestones []milestone `json:"milestones"`
+}
+
+// vsDoc — місяці поспіль, у яких портфель попереду «просто доларів».
+//
+// Друга серія поруч із серією внесків, і питання в неї інше: та — про
+// дисципліну, ця — про результат. Береться з добового ряду «Ціни моїх
+// рішень» (rivals, points_diff долара) ВИБІРКОЮ на останній день кожного
+// місяця; поточний місяць — сьогоднішнім днем. Це не другий рахунок:
+// рядок той самий, лише прочитаний по місяцях.
+//
+// Місяців до першого знімка тут немає — не «невідомо», а ряду ще не
+// було; смужка починається там, де застосунок почав дивитись.
+type vsDoc struct {
+	Months int `json:"months"`
+	Best   int `json:"best"`
+	// Since — перший ДЕНЬ нинішнього відрізка «попереду» з добового ряду;
+	// саме він і датує віху «Обіграв просто долари». Порожньо, коли
+	// зараз позаду.
+	Since string   `json:"since,omitempty"`
+	Marks []vsMark `json:"marks"`
+}
+
+type vsMark struct {
+	Month   string  `json:"month"`
+	Ahead   bool    `json:"ahead"`
+	DiffUAH float64 `json:"diff_uah"`
+}
+
+// buildVsUSD — серія з добового ряду. days і diff — з rivalsResp, однієї
+// довжини, за датою; nil, коли ряду немає.
+func buildVsUSD(days []string, diff []float64, today domain.Date) *vsDoc {
+	if len(days) == 0 || len(diff) != len(days) {
+		return nil
+	}
+	out := &vsDoc{}
+	// Останній день кожного місяця (ряд за датою, тож останній індекс
+	// місяця й є його останнім днем; для поточного — сьогодні).
+	for i, d := range days {
+		if d > string(today) {
+			break
+		}
+		m := d[:7]
+		if n := len(out.Marks); n > 0 && out.Marks[n-1].Month == m {
+			out.Marks[n-1] = vsMark{Month: m, Ahead: diff[i] > 0, DiffUAH: round2(diff[i])}
+			continue
+		}
+		out.Marks = append(out.Marks, vsMark{Month: m, Ahead: diff[i] > 0, DiffUAH: round2(diff[i])})
+	}
+	run := 0
+	for _, mk := range out.Marks {
+		if mk.Ahead {
+			run++
+			if run > out.Best {
+				out.Best = run
+			}
+		} else {
+			run = 0
+		}
+	}
+	out.Months = run
+	// Перший день нинішнього відрізка «попереду» — назад по днях, доки
+	// різниця додатна.
+	for i := len(days) - 1; i >= 0; i-- {
+		if days[i] > string(today) {
+			continue
+		}
+		if diff[i] <= 0 {
+			break
+		}
+		out.Since = days[i]
+	}
+	return out
 }
 
 // lifeDoc — скільки днів життя вже оплатив портфель.
@@ -325,6 +400,7 @@ func buildProgress(
 	ev []flowEvent,
 	dec *decisionsSummary,
 	bench *benchResult,
+	vs *vsDoc,
 	today domain.Date,
 ) progressDoc {
 	out := progressDoc{
@@ -337,7 +413,8 @@ func buildProgress(
 		out.Discipline = disciplineDoc{TopRow: dec.Followed, Total: dec.Count, Enough: true}
 	}
 	out.Life = buildLife(ev, expensesOf(doc))
-	out.Milestones = buildMilestones(doc, src, snaps, ev, out.Streak, bench, out.Life, today)
+	out.VsUSD = vs
+	out.Milestones = buildMilestones(doc, src, snaps, ev, out.Streak, bench, out.Life, vs, today)
 	for _, m := range out.Milestones {
 		if m.Earned {
 			out.Level++
@@ -534,7 +611,7 @@ var capitalThresholds = []struct {
 
 func buildMilestones(
 	doc *state.Doc, src *sources, snaps []store.Snapshot, ev []flowEvent,
-	streak streakDoc, bench *benchResult, life *lifeDoc, today domain.Date,
+	streak streakDoc, bench *benchResult, life *lifeDoc, vs *vsDoc, today domain.Date,
 ) []milestone {
 	out := make([]milestone, 0, milestoneCount)
 	add := func(m milestone) { out = append(out, m) }
@@ -584,8 +661,9 @@ func buildMilestones(
 
 	// --- 5. Обіграв «просто долари» ---
 	//
-	// Дати немає ніде: бенчмарк — порівняння НА СЬОГОДНІ, і день, коли
-	// портфель уперше обійшов долари, застосунок не записував ніколи.
+	// Відстані немає: бенчмарк — порівняння НА СЬОГОДНІ, і «на скільки
+	// відсотків обігнав» не є шляхом до віхи. Дата — з добового ряду
+	// суперників (нижче).
 	add(func() milestone {
 		m := milestone{Key: "beat_dollars", Title: "Обіграв «просто долари»",
 			ProgressPct: progressNoProgress}
@@ -594,6 +672,13 @@ func buildMilestones(
 			return m
 		}
 		m.Earned = bench.DiffUAH > 0
+		// Дата — перший день НИНІШНЬОГО відрізка «попереду» з добового
+		// ряду суперників (vsDoc.Since). Доти дати не було ніде: бенчмарк
+		// був порівнянням на сьогодні, а день, коли портфель обійшов
+		// долари, застосунок не записував.
+		if m.Earned && vs != nil {
+			m.EarnedOn = vs.Since
+		}
 		m.Note = fmt.Sprintf("%s проти %s, якби просто тримав долари",
 			uah(bench.PortfolioUAH), uah(bench.BenchmarkUAH))
 		return m

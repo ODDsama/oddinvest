@@ -308,23 +308,31 @@ func (s *Server) benchmark(ctx context.Context, doc *state.Doc) (benchResult, er
 	if err != nil {
 		return benchResult{}, err
 	}
-	nowUSD, _ := fx.RateMajor(money.USD, rates) //nolint:errcheck // немає курсу — нижче про це й сказано
-	out := benchResult{RateNow: round2(nowUSD)}
-
 	rv, err := s.rivals(ctx, doc, levelPortfolio)
 	if err != nil {
 		return benchResult{}, err
 	}
+	return benchFromRivals(rv, rates), nil
+}
+
+// benchFromRivals — «портфель проти доларів» із уже порахованих
+// суперників. Окремо від benchmark, бо прогрес рахує суперників САМ
+// (йому потрібен і добовий ряд для серії «попереду долара»), і другий
+// прогін rivals заради того самого числа коштував би ще один обхід
+// добової сітки.
+func benchFromRivals(rv rivalsResp, rates fx.Rates) benchResult {
+	nowUSD, _ := fx.RateMajor(money.USD, rates) //nolint:errcheck // немає курсу — нижче про це й сказано
+	out := benchResult{RateNow: round2(nowUSD)}
 	out.PortfolioUAH = rv.ActualUAH
 	out.Note = rv.Note
 	if nowUSD <= 0 {
 		out.Note = "немає курсу — порівнювати нема з чим"
-		return out, nil
+		return out
 	}
 	row := rv.row(domain.RivalUSDCash)
 	if row.Why != "" {
 		out.Note = row.Why
-		return out, nil
+		return out
 	}
 	out.BenchmarkUAH = row.TerminalUAH
 	out.DiffUAH = row.DiffUAH
@@ -333,7 +341,7 @@ func (s *Server) benchmark(ctx context.Context, doc *state.Doc) (benchResult, er
 	// є «куплені долари, оцінені сьогоднішнім курсом», тож ділення на той
 	// самий курс повертає рівно ті самі долари.
 	out.USDBought = round2(out.BenchmarkUAH / nowUSD)
-	return out, nil
+	return out
 }
 
 // handleTax — GET /api/tax?year= (або ?from=&to=)
