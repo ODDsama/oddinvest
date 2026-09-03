@@ -94,7 +94,7 @@ func TestParseInzhur(t *testing.T) {
 	for _, s := range res.Skipped {
 		reasons[s.Reason] = true
 	}
-	for _, want := range []string{"конвертація без кількості сертифікатів — внеси вручну"} {
+	for _, want := range []string{"конвертація без другої ноги — вона поза цим файлом"} {
 		if !reasons[want] {
 			t.Errorf("очікували пропуск з причиною %q, маємо %+v", want, res.Skipped)
 		}
@@ -151,5 +151,118 @@ func TestMoneyParsing(t *testing.T) {
 		if got := money(c.in); got != c.want {
 			t.Errorf("money(%q) = %d, очікували %d", c.in, got, c.want)
 		}
+	}
+}
+
+// Конвертація — одна подія двома рядками, і розбір мусить бачити її саме
+// так. Рядки взято з виписки: Житній віддав 9193.05 (Дебет), REIT забрав
+// ту саму суму (Кредит), і згори лягла доплата 6.95.
+func conversionStatement() [][]string {
+	return [][]string{
+		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
+		{"45903.000023148146", "Доплата", "Inzhur REIT", "", "6.95"},
+		{"45903.00001157408", "Конвертація", "Inzhur REIT", "", "9193.05"},
+		{"45903", "Конвертація", "Inzhur Житній", "9193.05", ""},
+	}
+}
+
+func TestInzhurPairsConversion(t *testing.T) {
+	res, err := ParseInzhur(conversionStatement())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Skipped) != 0 {
+		t.Fatalf("нічого не мало пропаснути: %+v", res.Skipped)
+	}
+	if len(res.Rows) != 2 {
+		t.Fatalf("конвертація — рівно дві ноги, маємо %d: %+v", len(res.Rows), res.Rows)
+	}
+	sell, buy := find(t, res, "fund_sell"), find(t, res, "fund_buy")
+	if sell.Fund != "Inzhur Житній" || buy.Fund != "Inzhur REIT" {
+		t.Errorf("напрямок переплутано: продано %q, куплено %q", sell.Fund, buy.Fund)
+	}
+	if sell.Pair == 0 || sell.Pair != buy.Pair {
+		t.Errorf("ноги не зв'язані: продаж %d, купівля %d", sell.Pair, buy.Pair)
+	}
+	// Кількості тут БУТИ НЕ МОЖЕ: виписка її не несе. Проставляє обробник.
+	if sell.Qty != 0 || buy.Qty != 0 {
+		t.Errorf("кількість вигадано з нічого: продаж %d, купівля %d", sell.Qty, buy.Qty)
+	}
+}
+
+// Доплата доливається в суму КУПІВЛІ. Без неї 9193.05 замість 9200.00 дасть
+// 919 сертифікатів замість 920, і далі розійдеться вся позиція.
+func TestInzhurFoldsSurchargeIntoConversion(t *testing.T) {
+	res, err := ParseInzhur(conversionStatement())
+	if err != nil {
+		t.Fatal(err)
+	}
+	buy := find(t, res, "fund_buy")
+	if buy.Amount != 920000 {
+		t.Errorf("сума купівлі = %d, хочемо 920000 (9193.05 + 6.95)", buy.Amount)
+	}
+	sell := find(t, res, "fund_sell")
+	if sell.Amount != 919305 {
+		t.Errorf("доплата не мала чіпати ногу продажу: %d", sell.Amount)
+	}
+}
+
+// Доплата без своєї конвертації — не привід тихо її ковтнути.
+func TestInzhurLoneSurchargeSkipped(t *testing.T) {
+	res, err := ParseInzhur([][]string{
+		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
+		{"45903.000023148146", "Доплата", "Inzhur REIT", "", "6.95"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Rows) != 0 {
+		t.Errorf("доплата сама по собі не операція: %+v", res.Rows)
+	}
+	if len(res.Skipped) != 1 {
+		t.Fatalf("пропуск мав бути названий: %+v", res.Skipped)
+	}
+}
+
+// Дві конвертації в один файл, різні суми й дати — кожна знаходить СВОЮ
+// половину, а не сусідню.
+func TestInzhurPairsTwoConversionsIndependently(t *testing.T) {
+	res, err := ParseInzhur([][]string{
+		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
+		{"45904.000023148146", "Доплата", "Inzhur REIT", "", "2.44"},
+		{"45904.00001157408", "Конвертація", "Inzhur REIT", "", "8177.56"},
+		{"45904", "Конвертація", "Inzhur Ocean", "8177.56", ""},
+		{"45903.000023148146", "Доплата", "Inzhur REIT", "", "6.95"},
+		{"45903.00001157408", "Конвертація", "Inzhur REIT", "", "9193.05"},
+		{"45903", "Конвертація", "Inzhur Житній", "9193.05", ""},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Skipped) != 0 {
+		t.Fatalf("нічого не мало пропаснути: %+v", res.Skipped)
+	}
+	if len(res.Rows) != 4 {
+		t.Fatalf("дві конвертації — чотири ноги, маємо %d", len(res.Rows))
+	}
+	pairs := map[int][]Row{}
+	for _, r := range res.Rows {
+		if r.Pair == 0 {
+			t.Fatalf("нога без пари: %+v", r)
+		}
+		pairs[r.Pair] = append(pairs[r.Pair], r)
+	}
+	if len(pairs) != 2 {
+		t.Fatalf("пар мало бути дві, маємо %d", len(pairs))
+	}
+	// Доплата кожної пари мала лягти на СВОЮ купівлю: 9200.00 і 8180.00.
+	sums := map[int64]bool{}
+	for _, r := range res.Rows {
+		if r.Kind == "fund_buy" {
+			sums[r.Amount] = true
+		}
+	}
+	if !sums[920000] || !sums[818000] {
+		t.Errorf("доплати розійшлись не по своїх конвертаціях: %+v", res.Rows)
 	}
 }

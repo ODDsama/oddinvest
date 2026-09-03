@@ -1346,6 +1346,38 @@ func boolInt(b bool) int64 {
 	return 0
 }
 
+// FundOpPairExists — чи вже є така НОГА КОНВЕРТАЦІЇ. Те саме питання, що
+// й у FundOpExists, але без кількості в ключі — і це не послаблення, а
+// точніше означення тотожності.
+//
+// Суму виписка СТВЕРДЖУЄ про обидві ноги; кількість ми з неї ВИВОДИМО —
+// джерелу з позиції фонду, призначенню з ціни сертифіката. Після першого
+// імпорту позиція джерела вже нульова, тож ключ із кількістю при
+// повторному прогоні не збігся б і в базу ліг би другий, порожній продаж.
+// Власник імпортує виписку кілька разів на місяць, і вона щоразу несе всю
+// історію, — тобто це не рідкісний випадок, а звичайний.
+func (s *Store) FundOpPairExists(ctx context.Context, op domain.FundOp) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM fund_ops o
+		JOIN funds f ON f.id = o.fund_id
+		WHERE o.date=? AND f.name=? AND o.kind=? AND o.amount=?`,
+		string(op.Date), op.Fund, string(op.Kind), op.Amount).Scan(&n)
+	return n > 0, err
+}
+
+// LinkFundOps — зв'язує дві операції в одну конвертацію: кожна показує на
+// іншу. Двома запитами, бо id другої відомий лише після її вставки — так
+// само це робить відновлення з бекапу (backup.go).
+func (s *Store) LinkFundOps(ctx context.Context, a, b int64) error {
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE fund_ops SET pair_id=? WHERE id=?`, b, a); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE fund_ops SET pair_id=? WHERE id=?`, a, b)
+	return err
+}
+
 // FundOpExists — чи вже є така операція. Потрібно імпорту виписки: файл
 // щомісяця містить і старі рядки, тож без перевірки повторний імпорт
 // подвоїв би позицію.

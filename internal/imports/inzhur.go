@@ -34,7 +34,15 @@ type Row struct {
 	// Amount — завжди додатнє, у мінорних одиницях; напрямок задає Kind.
 	Amount int64
 	Tax    int64
-	Note   string
+	// Pair — номер пари В МЕЖАХ ЦЬОГО ФАЙЛУ: продаж в одному фонді й
+	// купівля в іншому, що є однією КОНВЕРТАЦІЄЮ, а не двома рішеннями.
+	// 0 — пари немає.
+	//
+	// Кількість сертифікатів у таких рядках нульова: виписка її не несе
+	// ні для джерела, ні для призначення. Проставляє її обробник імпорту —
+	// джерелу з позиції фонду, призначенню з позначки ціни.
+	Pair int
+	Note string
 	// Balance/HasBalance/MCC — лише у виписки картки (card_*): залишок
 	// після операції зі знаком файлу й код категорії. HasBalance окремо,
 	// бо нуль — законний залишок.
@@ -76,6 +84,17 @@ func ParseInzhur(rows [][]string) (Result, error) {
 		date domain.Date
 	}
 	var lastTaxable []pending // дивіденди й продажі, до яких може прийти податок
+
+	// Нога конвертації, яка ще не зустріла свою половину.
+	type convLeg struct {
+		fund   string
+		date   domain.Date
+		amount int64
+		sell   bool // сума в Дебеті: гроші НАДІЙШЛИ, тобто фонд продано
+		op     string
+	}
+	var pendingConv []convLeg
+	pairSeq := 0
 
 	// Виписка йде від новішого до старішого, а нам потрібен зворотний
 	// порядок — і не для краси: податок стоїть окремим рядком ПІСЛЯ своєї
@@ -186,14 +205,86 @@ func ParseInzhur(rows [][]string) (Result, error) {
 				skip("продаж облігації вноситься вручну — потрібен лот, з якого продано")
 			}
 
-		case strings.HasPrefix(op, "Конвертація"), strings.HasPrefix(op, "Доплата"):
-			// У рядку конвертації немає кількості сертифікатів, тож
-			// відновити позицію з нього неможливо — лише сума.
-			skip("конвертація без кількості сертифікатів — внеси вручну")
+		case strings.HasPrefix(op, "Конвертація"):
+			// Конвертація — ОДНА подія двома рядками: гроші, що надійшли з
+			// фонду-джерела (Дебет), і ті самі гроші, віддані за фонд
+			// призначення (Кредит). Поодинці нога неінтерпретовна — з неї
+			// вийшов би вихід із фонду, якого не було, — тож рядки
+			// народжуються лише парою.
+			//
+			// Пара шукається за протилежним напрямком, тією ж сумою й
+			// добою різниці: у виписці обидві ноги стоять на одному
+			// серійному номері з різницею в секунди. Сума тут і є
+			// ідентифікатором — саме її виписка СТВЕРДЖУЄ про обидві ноги.
+			sell := debit > 0
+			amt := credit
+			if sell {
+				amt = debit
+			}
+			if amt <= 0 {
+				skip("конвертація без суми")
+				continue
+			}
+			matched := -1
+			for i, l := range pendingConv {
+				if l.sell == sell || l.amount != amt {
+					continue
+				}
+				if d := domain.DaysBetween(l.date, date); d < 0 || d > 1 {
+					continue
+				}
+				matched = i
+				break
+			}
+			if matched < 0 {
+				pendingConv = append(pendingConv, convLeg{fund, date, amt, sell, op})
+				continue
+			}
+			other := pendingConv[matched]
+			pendingConv = append(pendingConv[:matched], pendingConv[matched+1:]...)
+			pairSeq++
+			src, dst := other, convLeg{fund, date, amt, sell, op}
+			if sell {
+				src, dst = dst, other
+			}
+			res.Rows = append(res.Rows,
+				Row{Date: src.date, Kind: "fund_sell", Fund: src.fund, Amount: src.amount, Pair: pairSeq},
+				Row{Date: dst.date, Kind: "fund_buy", Fund: dst.fund, Amount: dst.amount, Pair: pairSeq})
+
+		case strings.HasPrefix(op, "Доплата"):
+			// Доплата — те, що довелось докласти згори при конвертації:
+			// сума джерела рідко ділиться на ціну сертифіката призначення
+			// без залишку. Доливається в СУМУ купівлі тим же прийомом, що
+			// й податок доливається в Tax вище.
+			//
+			// Дрібниця, яку не можна загубити: 9193,05 замість 9200,00 дає
+			// 919 сертифікатів замість 920, і далі розходиться вся позиція.
+			attached := false
+			for i := len(res.Rows) - 1; i >= 0; i-- {
+				r := res.Rows[i]
+				if r.Pair == 0 || r.Kind != "fund_buy" || r.Fund != fund {
+					continue
+				}
+				if d := domain.DaysBetween(r.Date, date); d < 0 || d > 1 {
+					continue
+				}
+				res.Rows[i].Amount += credit
+				attached = true
+				break
+			}
+			if !attached {
+				skip("доплата без своєї конвертації")
+			}
 
 		default:
 			skip("невідомий тип операції")
 		}
+	}
+	// Нога, що так і не знайшла пари: половина події. Мовчки зробити з неї
+	// продаж чи купівлю означало б вигадати рух, якого у виписці немає.
+	for _, l := range pendingConv {
+		res.Skipped = append(res.Skipped, Skipped{string(l.date), l.op,
+			"конвертація без другої ноги — вона поза цим файлом"})
 	}
 	return res, nil
 }

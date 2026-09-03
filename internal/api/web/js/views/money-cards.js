@@ -605,8 +605,11 @@ export function wireImport(ctx, main) {
     out.innerHTML = `
       <div class="mb-sm">Знайдено ${(res.rows || []).length} операцій · <b>${res.new}</b> нових${
         conflicts ? ` · <span class="t-danger">${conflicts} з конфліктом</span>` : ""}</div>
-      ${res.before ? `<div class="muted fine mb-sm">${res.before} рядків старші за ${
-        dayMonth(res.since)} — не розглядались</div>` : ""}
+      ${res.before ? `<div class="sub-xs t-warn mb-sm">${res.before} ${
+        plural(res.before, "рядок", "рядки", "рядків")}${
+        res.before_from ? ` за ${dayMonth(res.before_from)} → ${dayMonth(res.before_to)}` : ""
+      } не розглядались: водяний знак стоїть на ${dayMonth(res.since)}.
+        Посунь дату нижче, якщо потрібна давніша історія.</div>` : ""}
       ${rows}
       ${cardHTML(res.card, dry)}
       ${skipped ? `<div class="rule-top tight">
@@ -927,7 +930,9 @@ export function taxHTML(x) {
          Ставки не зашиті: у фонду береться фактично утримане з виписки, у вкладу —
          ставка самого вкладу. З нарахованого віднято НКД, сплачений при купівлі:
          у брудній ціні вже сидів купон попереднього власника, і його повернення —
-         не дохід. Віднімається на дату того купона, який його повернув.</span>
+         не дохід. Віднімається на дату того купона, який його повернув.
+         База продажу сертифікатів — прибуток за FIFO, а не виручка; конвертація
+         між фондами продажем не вважається.</span>
        <button class="sm" data-tax-csv="${sel}">Завантажити CSV</button></div>
      ${gapsHTML(x.fund_gaps)}
      ${x.fx_basis ? `<div class="sub-xs">Валютні суми: ${esc(x.fx_basis)}${

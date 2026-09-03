@@ -113,16 +113,35 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		return nil, err
 	}
 	for _, op := range fundOps {
+		// Парна операція — КОНВЕРТАЦІЯ між фондами, і підпис це каже. Суми
+		// лишаються як є: обидві ноги йдуть покупкою з протилежними
+		// знаками й гасять одна одну, а різниця, що лишається (доплата),
+		// — це рівно те, що брокер справді зняв з рахунку. Підмінити тут
+		// щось означало б розійтись зі звіркою гаманця; а от підпис
+		// «продаж Inzhur Житній» на переказі казав би про вихід із фонду,
+		// якого не було.
+		what := op.Fund
+		if op.PairID != 0 {
+			what = "конвертація " + op.Fund
+		}
 		switch op.Kind {
 		case domain.FundBuy:
-			add(op.Date, flowPurchase, -uah(money.New(op.Amount, op.Currency)), "сертифікати "+op.Fund)
+			label := "сертифікати " + what
+			if op.PairID != 0 {
+				label = what
+			}
+			add(op.Date, flowPurchase, -uah(money.New(op.Amount, op.Currency)), label)
 		case domain.FundDividend:
 			add(op.Date, flowIncome, uah(money.New(op.Amount-op.Tax, op.Currency)), "дивіденд "+op.Fund)
 		case domain.FundSell:
 			// Продаж повертає гроші на рахунок, але це не дохід і не
 			// внесок — це вихід із позиції. Окремої категорії він не
 			// заслуговує, тож іде від'ємною покупкою.
-			add(op.Date, flowPurchase, uah(money.New(op.Amount-op.Tax, op.Currency)), "продаж "+op.Fund)
+			label := "продаж " + op.Fund
+			if op.PairID != 0 {
+				label = what
+			}
+			add(op.Date, flowPurchase, uah(money.New(op.Amount-op.Tax, op.Currency)), label)
 		}
 	}
 	// Внески в НПФ — покупки, і лише вони: доходу звідси не приходить до
@@ -449,7 +468,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		NetUAH   float64 `json:"net_uah"`
 		RatePct  float64 `json:"rate_pct"`
 	}
-	var bondGross, bondAccrued, fundGross, fundTax, depGross, depTax int64
+	var bondGross, bondAccrued, fundGross, fundTax, saleGross, saleTax, depGross, depTax int64
 
 	// ОВДП: купони. Погашення — повернення власного тіла, не дохід.
 	pastCF, err := domain.FuturePayments(pays, lots, sales, "1970-01-01")
@@ -502,17 +521,39 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	// Тільки дивіденди. Податок, утриманий із ПРОДАЖУ сертифікатів (у
-	// fund_ops він лежить у тому ж полі Tax), сюди свідомо не входить: його
-	// база — прибуток від продажу, а не сама виручка, і показати його як
-	// рядок означає спершу порахувати той прибуток. Відкладено; місце
-	// названо тут, бо шукатимуть саме тут.
+	// Дивіденди. Продаж сертифікатів рахується окремо нижче: у нього інша
+	// база — не виручка, а прибуток.
 	for _, op := range fundOps {
 		if op.Kind != domain.FundDividend || !inWindow(op.Date) {
 			continue
 		}
 		fundGross += uah(money.New(op.Amount, op.Currency), op.Date)
 		fundTax += uah(money.New(op.Tax, op.Currency), op.Date)
+	}
+	// Продаж сертифікатів. База — ПРИБУТОК, а не виручка: 17 986,80 грн у
+	// графі «Нараховано» сказали б, що ви заробили сімнадцять тисяч, тоді
+	// як заробили сто шістдесят дві.
+	//
+	// Собівартість проданого рахує domain.FundSales за FIFO — тією ж
+	// конвенцією, що й брокер, і саме тому утримане сходиться з базою:
+	// 37,35 грн = 23% від 162,40 у 2025-му, 1,78 = 23% від 7,73 у 2026-му.
+	// Довід, чому тут FIFO, а в позиції середньозважена, написаний при
+	// самій FundSales.
+	//
+	// Конвертації сюди не потрапляють: вихід із інструмента не відбувся, і
+	// податку з них не тримали.
+	for _, sale := range domain.FundSales(fundOps) {
+		if !inWindow(sale.Date) {
+			continue
+		}
+		// Збиток доходом не є й дивідендного не зменшує, тож у базу йде
+		// лише додатний прибуток. Податок — завжди фактичний: якщо його
+		// колись утримають зі збиткової угоди, краще побачити дивну
+		// ставку, ніж загублену гривню.
+		if sale.Gain > 0 {
+			saleGross += uah(money.New(sale.Gain, sale.Currency), sale.Date)
+		}
+		saleTax += uah(money.New(sale.Tax, sale.Currency), sale.Date)
 	}
 	// Вклади: брутто й податок із того самого проходу, що й самі
 	// відсотки — графік показує нетто, і ділити його назад означало б
@@ -614,13 +655,14 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		// робить відступ, показуючи, що рядок належить купонам НАД ним.
 		mk("bond_accrued", "− НКД, сплачений при купівлі", bondAccrued, 0),
 		mk("fund", "Дивіденди фондів", fundGross, fundTax),
+		mk("fund_sale", "Прибуток із продажу сертифікатів", saleGross, saleTax),
 		mk("deposit", "Відсотки вкладів", depGross, depTax),
 	} {
 		if l.GrossUAH != 0 {
 			out.ByKind = append(out.ByKind, l)
 		}
 	}
-	gross, tax := bondGross+bondAccrued+fundGross+depGross, fundTax+depTax
+	gross, tax := bondGross+bondAccrued+fundGross+saleGross+depGross, fundTax+saleTax+depTax
 	out.GrossUAH, out.TaxUAH, out.NetUAH = minor(gross), minor(tax), minor(gross-tax)
 	if gross > 0 {
 		out.RatePct = round2(float64(tax) / float64(gross) * 100)

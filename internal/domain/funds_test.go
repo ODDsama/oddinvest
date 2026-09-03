@@ -206,3 +206,93 @@ func TestNetOfTaxTakesTaxWhenItIsActuallyTaken(t *testing.T) {
 		t.Errorf("без податку ставка мала лишитись 20.51, маємо %v", got)
 	}
 }
+
+// Бойова регресія: FIFO відтворює УТРИМАНЕ, середньозважена — ні.
+//
+// Обидва продажі взято з виписки Inzhur разом із податком, який брокер
+// справді зняв. Це і є перевірка конвенції: ставка мусить вийти 23%, а
+// не 189%, і не тому, що ми її десь зашили.
+func TestFundSalesFIFOMatchesWithheldTax(t *testing.T) {
+	got := FundSales(reitOps())
+	if len(got) != 2 {
+		t.Fatalf("очікували два продажі, маємо %d: %+v", len(got), got)
+	}
+
+	full := got[0] // 05.11.2025, повна ліквідація
+	if full.Gain != 16240 {
+		t.Errorf("прибуток ліквідації = %d, хочемо 16240", full.Gain)
+	}
+	part := got[1] // 20.07.2026, частковий продаж — саме тут конвенції розходяться
+	if part.Gain != 773 {
+		t.Errorf("прибуток часткового продажу = %d, хочемо 773 (середньозважена дала б 94)", part.Gain)
+	}
+
+	for _, sale := range got {
+		if sale.Gain <= 0 {
+			t.Fatalf("%s: прибуток мав бути додатним, маємо %d", sale.Date, sale.Gain)
+		}
+		rate := float64(sale.Tax) / float64(sale.Gain) * 100
+		if math.Abs(rate-23) > 0.1 {
+			t.Errorf("%s: ставка %.2f%% при прибутку %d і податку %d — мала вийти 23%%",
+				sale.Date, rate, sale.Gain, sale.Tax)
+		}
+	}
+}
+
+// Конвертація між фондами — не продаж: виходу з інструмента немає, і
+// податку з неї Inzhur не тримає. Партії при цьому списуються, бо
+// сертифікати справді пішли, — і це видно на наступному, СПРАВЖНЬОМУ
+// продажі, який бере собівартість уже наступної партії.
+func TestFundSalesIgnoresPairedOps(t *testing.T) {
+	ops := []FundOp{
+		{Date: "2025-01-10", Fund: "Ocean", Kind: FundBuy, Qty: 100, Amount: 100000, Currency: "UAH"},
+		{Date: "2025-02-10", Fund: "Ocean", Kind: FundBuy, Qty: 100, Amount: 120000, Currency: "UAH"},
+		{Date: "2025-03-10", Fund: "Ocean", Kind: FundSell, Qty: 100, Amount: 110000, PairID: 7, Currency: "UAH"},
+		{Date: "2025-04-10", Fund: "Ocean", Kind: FundSell, Qty: 100, Amount: 130000, Tax: 2300, Currency: "UAH"},
+	}
+	got := FundSales(ops)
+	if len(got) != 1 {
+		t.Fatalf("парний продаж не мав стати податковою подією: %+v", got)
+	}
+	// Перша партія пішла в конвертацію, тож справжній продаж рахується від
+	// ДРУГОЇ: 130000 - 120000. Якби конвертація не списала партію, вийшло б
+	// 30000 і податок виглядав би вдвічі легшим.
+	if got[0].Gain != 10000 {
+		t.Errorf("прибуток = %d, хочемо 10000", got[0].Gain)
+	}
+}
+
+// Та сама пара очима позиції: сертифікати перейшли, результату немає.
+// Без цього вересень 2025-го отримав би 258,95 грн прибутку, якого не було.
+func TestFundPositionsPairedSellHasNoRealized(t *testing.T) {
+	ops := []FundOp{
+		{Date: "2025-01-10", Fund: "Житній", Kind: FundBuy, Qty: 9, Amount: 905992, Currency: "UAH"},
+		{Date: "2025-09-03", Fund: "Житній", Kind: FundSell, Qty: 9, Amount: 919305, PairID: 42, Currency: "UAH"},
+	}
+	p := FundPositions(ops, nil)["Житній"]
+	if p == nil {
+		t.Fatal("позиції немає")
+	}
+	if p.Qty != 0 {
+		t.Errorf("сертифікатів лишилось %d, а конвертація забирає весь фонд", p.Qty)
+	}
+	if p.Realized != 0 {
+		t.Errorf("результат = %d, а переказ між фондами результату не дає", p.Realized)
+	}
+	if p.Short != 0 {
+		t.Errorf("розбіжність %d там, де журнал повний", p.Short)
+	}
+}
+
+// Дзеркало до попереднього: без пари той самий продаж результат дає.
+// Тест стоїть поруч, щоб було видно, що нуль вище — рішення, а не поломка.
+func TestFundPositionsUnpairedSellStillRealizes(t *testing.T) {
+	ops := []FundOp{
+		{Date: "2025-01-10", Fund: "Житній", Kind: FundBuy, Qty: 9, Amount: 905992, Currency: "UAH"},
+		{Date: "2025-09-03", Fund: "Житній", Kind: FundSell, Qty: 9, Amount: 919305, Currency: "UAH"},
+	}
+	p := FundPositions(ops, nil)["Житній"]
+	if p.Realized != 13313 {
+		t.Errorf("результат = %d, хочемо 13313", p.Realized)
+	}
+}

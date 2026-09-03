@@ -748,3 +748,140 @@ func TestTaxReportsMissingDividendMonths(t *testing.T) {
 		}
 	}
 }
+
+// seedFundSale — купівлі й один ЧАСТКОВИЙ продаж: саме там, де конвенція
+// собівартості вирішує все. 100 сертифікатів по 10.00, продано 50 за
+// 600.00, утримано 23.00 — тобто рівно 23% від прибутку в 100.00.
+func seedFundSale(t *testing.T, st *store.Store, day domain.Date) {
+	t.Helper()
+	ctx := context.Background()
+	for _, op := range []domain.FundOp{
+		{Date: day.AddDays(-30), Fund: "Inzhur REIT", Kind: domain.FundBuy,
+			Qty: 100, Amount: 100_000, Currency: money.UAH, Broker: "inzhur"},
+		{Date: day, Fund: "Inzhur REIT", Kind: domain.FundSell,
+			Qty: 50, Amount: 60_000, Tax: 2_300, Currency: money.UAH, Broker: "inzhur"},
+	} {
+		if _, err := st.AddFundOp(ctx, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// Податок із продажу сертифікатів більше не невидимий.
+//
+// Доти картка бачила лише дивіденди, і 37,35 грн, утримані з продажу
+// 05.11.2025, не потрапляли нікуди. База — ПРИБУТОК, і саме тому ставка
+// виходить статутними 23%, а не часткою від виручки.
+func TestTaxCountsFundSaleGain(t *testing.T) {
+	srv, st := testServer(t)
+	day := domain.NewDate(time.Now()).AddDays(-10)
+	seedFundSale(t, st, day)
+
+	got := getTax(t, srv.URL, "from="+string(day.AddDays(-60))+"&to="+string(day))
+	var line struct {
+		gross, tax, rate float64
+		found            bool
+	}
+	for _, l := range got.ByKind {
+		if l.Kind == "fund_sale" {
+			line.gross, line.tax, line.rate, line.found = l.GrossUAH, l.TaxUAH, l.RatePct, true
+		}
+	}
+	if !line.found {
+		t.Fatalf("рядка продажу немає: %+v", got.ByKind)
+	}
+	if line.gross != 100 {
+		t.Errorf("база = %.2f, хочемо 100.00 (прибуток, не виручка 600.00)", line.gross)
+	}
+	if line.tax != 23 {
+		t.Errorf("податок = %.2f, хочемо 23.00", line.tax)
+	}
+	if line.rate != 23 {
+		t.Errorf("ставка = %.2f%%, хочемо 23", line.rate)
+	}
+}
+
+// Виручка в «Нараховано» сказала б, що ви заробили шістсот гривень.
+func TestTaxFundSaleUsesGainNotProceeds(t *testing.T) {
+	srv, st := testServer(t)
+	day := domain.NewDate(time.Now()).AddDays(-10)
+	seedFundSale(t, st, day)
+
+	got := getTax(t, srv.URL, "from="+string(day.AddDays(-60))+"&to="+string(day))
+	if got.GrossUAH != 100 {
+		t.Errorf("нараховано = %.2f, хочемо 100.00", got.GrossUAH)
+	}
+}
+
+// Конвертація між фондами не є продажем: вихід із інструмента не
+// відбувся, і податку з неї не тримали. Без цього вересень 2025-го дав би
+// 258,95 грн вигаданого доходу.
+func TestTaxIgnoresConvertedFundLegs(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+	day := domain.NewDate(time.Now()).AddDays(-10)
+
+	buy, err := st.AddFundOp(ctx, domain.FundOp{Date: day.AddDays(-30), Fund: "Inzhur Житній",
+		Kind: domain.FundBuy, Qty: 9, Amount: 905_992, Currency: money.UAH, Broker: "inzhur"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = buy
+	out, err := st.AddFundOp(ctx, domain.FundOp{Date: day, Fund: "Inzhur Житній",
+		Kind: domain.FundSell, Qty: 9, Amount: 919_305, Currency: money.UAH, Broker: "inzhur"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	in, err := st.AddFundOp(ctx, domain.FundOp{Date: day, Fund: "Inzhur REIT",
+		Kind: domain.FundBuy, Qty: 920, Amount: 920_000, Currency: money.UAH, Broker: "inzhur"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.LinkFundOps(ctx, out, in); err != nil {
+		t.Fatal(err)
+	}
+
+	got := getTax(t, srv.URL, "from="+string(day.AddDays(-60))+"&to="+string(day))
+	for _, l := range got.ByKind {
+		if l.Kind == "fund_sale" {
+			t.Errorf("конвертація стала продажем: %+v", l)
+		}
+	}
+	if got.GrossUAH != 0 {
+		t.Errorf("нараховано = %.2f, а переказ доходу не дає", got.GrossUAH)
+	}
+}
+
+// Дірка означає ПРОПУЩЕНУ виплату, а не місяць входу у фонд.
+//
+// Фонд платить за реєстром, складеним раніше за день виплати, тож той,
+// хто зайшов усередині місяця, законно не отримує нічого. Перевірено на
+// виписці: сертифікати куплені 4 червня 2026-го, червневої виплати немає,
+// перша прийшла 10 липня — і перша версія цієї перевірки той червень
+// позначила діркою.
+//
+// Тест кличе fundCoverage напряму: дати тут фіксовані, і крізь HTTP вони
+// залежали б від того, яке сьогодні число.
+func TestFundCoverageGapNeedsFullCycle(t *testing.T) {
+	ops := []domain.FundOp{
+		{Date: "2026-06-04", Fund: "Inzhur REIT", Kind: domain.FundBuy,
+			Qty: 11, Amount: 12_078, Currency: money.UAH},
+	}
+	refs := []store.Fund{{Name: "Inzhur REIT", Currency: money.UAH, PayoutDay: 10}}
+
+	_, gaps := fundCoverage(ops, refs, "2026-01-01", "2026-12-31", "2026-09-03")
+	months := map[string]bool{}
+	for _, g := range gaps {
+		for _, m := range g.Months {
+			months[m] = true
+		}
+	}
+	if months["2026-06"] {
+		t.Errorf("місяць входу не є діркою: %+v", gaps)
+	}
+	// А ось липень і далі — вже повний цикл: на 10 червня сертифікати вже
+	// були, тож 10 липня виплата мала бути.
+	if !months["2026-07"] {
+		t.Errorf("липень мав бути діркою — виплати немає, а фонд протримали цикл: %+v", gaps)
+	}
+}

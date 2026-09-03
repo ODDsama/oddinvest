@@ -21,6 +21,60 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
+// pairLegQty — скільки сертифікатів у нозі конвертації. У виписці цього
+// числа немає ні для джерела, ні для призначення, тож обидва виводяться.
+//
+// ДЖЕРЕЛО: конвертація забирає фонд ЦІЛКОМ, тож кількість — позиція на ту
+// дату. Питати її в людини було б зайвим: журнал її вже знає.
+//
+// ПРИЗНАЧЕННЯ: сума ділена на ціну сертифіката з позначки на дату або
+// найближчу попередню. Позначка ціни — це рівно та величина, якої бракує,
+// і в неї вже є своя сутність, свій екран і своє сховище; окреме поле в
+// перегляді імпорту довелось би тягнути через multipart, вигадувати ключ
+// рядка, стабільний між сухим і справжнім прогоном, і жило б воно тільки
+// там. Позначка ж лишається корисною далі — вона малює криву фонду.
+//
+// Порожня причина означає успіх; непорожня — текст для пропуску, і він
+// мусить казати, ЩО зробити, а не лише що не вийшло.
+func pairLegQty(op domain.FundOp, ops []domain.FundOp, marks []domain.FundPrice) (int64, string) {
+	if op.Kind == domain.FundSell {
+		upTo := make([]domain.FundOp, 0, len(ops))
+		for _, o := range ops {
+			if !o.Date.After(op.Date) {
+				upTo = append(upTo, o)
+			}
+		}
+		p := domain.FundPositions(upTo, nil)[op.Fund]
+		if p == nil || p.Qty <= 0 {
+			return 0, fmt.Sprintf("конвертація %s: у журналі немає сертифікатів на %s — заведи історію фонду",
+				op.Fund, op.Date)
+		}
+		return p.Qty, ""
+	}
+	var price int64
+	var on domain.Date
+	for _, m := range marks {
+		if m.Fund != op.Fund || m.Price <= 0 || m.Date.After(op.Date) {
+			continue
+		}
+		if on == "" || m.Date.After(on) {
+			price, on = m.Price, m.Date
+		}
+	}
+	if price <= 0 {
+		return 0, fmt.Sprintf("конвертація %s: додай позначку ціни сертифіката на %s, і рядок зайде",
+			op.Fund, op.Date)
+	}
+	// Ціна — у 1/10000 гривні, сума — в копійках (див. FundPosition.LastPrice).
+	// Заокруглюємо до найближчого: конвертують ціле число сертифікатів, а
+	// зрізання давало б на 1738 паперах розбіжність у цілий сертифікат.
+	qty := (op.Amount*100 + price/2) / price
+	if qty <= 0 {
+		return 0, fmt.Sprintf("конвертація %s: ціна %d на %s дає нуль сертифікатів", op.Fund, price, on)
+	}
+	return qty, ""
+}
+
 type outRow struct {
 	Date   string `json:"date"`
 	Kind   string `json:"kind"`
@@ -148,6 +202,80 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 	for _, d := range deps {
 		depSeen[fmt.Sprintf("%s|%d|%s|%s", d.Date, d.Amount, d.Currency, d.Broker)] = true
 	}
+	// Операції фондів і позначки цін. Перші — щоб знати позицію фонду на
+	// дату конвертації, другі — щоб перевести її суму в сертифікати.
+	fundOps, err := s.st.ListFundOps(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	marks, err := s.st.ListFundPrices(ctx)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	// Тотожність операції фонду — МНОЖИНОЮ, засіяною з бази й поповнюваною
+	// в циклі, як це вже зроблено для лотів і поповнень вище.
+	//
+	// Доти на кожен рядок ішов запит у базу, і два СПРАВДІ РІЗНІ рядки
+	// одного файлу з однаковими датою, фондом, видом, кількістю й сумою
+	// (автоінвест двічі за день на ту саму суму) давали один запис: перша
+	// операція заходила, друга бачила її ж і вважала дублем СЕБЕ. У
+	// перегляді обидві рахувались новими, у справжньому імпорті зникала
+	// одна — і наступного разу вона зникала знову.
+	fundKey := func(op domain.FundOp) string {
+		return fmt.Sprintf("%s|%s|%s|%d|%d", op.Date, op.Fund, op.Kind, op.Qty, op.Amount)
+	}
+	// Ключ ноги конвертації — без кількості; довід у store.FundOpPairExists.
+	pairKey := func(op domain.FundOp) string {
+		return fmt.Sprintf("%s|%s|%s|%d", op.Date, op.Fund, op.Kind, op.Amount)
+	}
+	fundSeen, pairSeen := map[string]bool{}, map[string]bool{}
+	for _, op := range fundOps {
+		fundSeen[fundKey(op)] = true
+		pairSeen[pairKey(op)] = true
+	}
+	// applied — журнал, яким він СТАНЕ: база плюс усе, що цей файл додає.
+	// Потрібен позиції фонду на дату конвертації, і в сухому прогоні теж,
+	// інакше перегляд показував би не ті кількості, що справжній імпорт.
+	applied := append([]domain.FundOp(nil), fundOps...)
+	// Перша нога кожної пари: id, до якого прив'яжеться друга.
+	pairFirst := map[int]int64{}
+	// Кількості пари рахуються РАЗОМ і одразу цілком, на першій же нозі.
+	//
+	// Наполовину заведена конвертація гірша за незаведену: у базі лишився
+	// б вихід із фонду без входу в інший, тобто рівно та вигадка, якої
+	// уникає парність. Тому якщо не виходить хоч одна нога — не заходить
+	// жодна, і причина називається один раз, а не двічі.
+	pairQty := map[int]map[domain.FundOpKind]int64{}
+	pairSkip := map[int]string{}
+	pairTold := map[int]bool{}
+	planPair := func(pair int) {
+		if _, done := pairQty[pair]; done {
+			return
+		}
+		if _, bad := pairSkip[pair]; bad {
+			return
+		}
+		qty := map[domain.FundOpKind]int64{}
+		for _, r := range res.Rows {
+			if r.Pair != pair {
+				continue
+			}
+			kind := domain.FundBuy
+			if r.Kind == "fund_sell" {
+				kind = domain.FundSell
+			}
+			q, why := pairLegQty(domain.FundOp{Date: r.Date, Fund: r.Fund,
+				Kind: kind, Amount: r.Amount}, applied, marks)
+			if why != "" {
+				pairSkip[pair] = why
+				return
+			}
+			qty[kind] = q
+		}
+		pairQty[pair] = qty
+	}
 
 	// Водяний знак: усе, що старше за нього, не розглядаємо взагалі.
 	// Виписка щомісяця приносить повну історію, і покладатись лише на
@@ -168,6 +296,13 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		// і перегляд перетворився б на портянку.
 		Since  string `json:"since,omitempty"`
 		Before int    `json:"before,omitempty"`
+		// BeforeFrom/BeforeTo — за який період відсіяне. Самої кількості
+		// мало: «117 рядків не розглядались» читається як службова дрібниця
+		// й пропускається очима. Саме так два з половиною роки дивідендів
+		// не потрапляли в базу при кожному імпорті — екран не брехав,
+		// але й не казав, ЩО саме він мовчки викинув.
+		BeforeFrom string `json:"before_from,omitempty"`
+		BeforeTo   string `json:"before_to,omitempty"`
 		// Card — лише для карткового профілю (handlers_import_card.go).
 		Card *importCard `json:"card,omitempty"`
 	}{Rows: []outRow{}, Skipped: res.Skipped, Since: since}
@@ -187,6 +322,12 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 	for _, row := range res.Rows {
 		if since != "" && string(row.Date) < since {
 			out.Before++
+			if d := string(row.Date); out.BeforeFrom == "" || d < out.BeforeFrom {
+				out.BeforeFrom = d
+			}
+			if d := string(row.Date); d > out.BeforeTo {
+				out.BeforeTo = d
+			}
 			continue
 		}
 		cur := money.UAH
@@ -223,15 +364,52 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 			}
 			op := domain.FundOp{Date: row.Date, Fund: row.Fund, Kind: kind, Qty: row.Qty,
 				Amount: row.Amount, Tax: row.Tax, Currency: cur, Broker: broker, Note: "виписка"}
-			var eerr error
-			if exists, eerr = s.st.FundOpExists(ctx, op); eerr != nil {
-				writeErr(w, http.StatusInternalServerError, eerr)
-				return
+			key := fundKey(op)
+			if row.Pair != 0 {
+				// Нога конвертації. Перевірка тотожності стоїть ДО
+				// обчислення кількості: рахувати позицію, вже зіпсовану
+				// власним попереднім імпортом, означало б отримати іншу
+				// кількість, інший ключ і другий запис тієї самої події.
+				key = pairKey(op)
+				exists = pairSeen[key]
+				if !exists {
+					planPair(row.Pair)
+					if why, bad := pairSkip[row.Pair]; bad {
+						if !pairTold[row.Pair] {
+							pairTold[row.Pair] = true
+							out.Skipped = append(out.Skipped, imports.Skipped{
+								Date: string(row.Date), Op: row.Fund, Reason: why})
+						}
+						continue
+					}
+					op.Qty = pairQty[row.Pair][kind]
+					row.Qty = op.Qty
+				}
+			} else {
+				exists = fundSeen[key]
 			}
-			if !exists && !dry {
-				if _, aerr := s.st.AddFundOp(ctx, op); aerr != nil {
-					writeErr(w, http.StatusInternalServerError, aerr)
-					return
+			if !exists {
+				fundSeen[key] = true
+				pairSeen[pairKey(op)] = true
+				applied = append(applied, op)
+				if !dry {
+					id, aerr := s.st.AddFundOp(ctx, op)
+					if aerr != nil {
+						writeErr(w, http.StatusInternalServerError, aerr)
+						return
+					}
+					// Друга нога пари зв'язується з першою: кожна показує на
+					// іншу, і далі читачі знають, що це переказ, а не угода.
+					if row.Pair != 0 {
+						if first, ok := pairFirst[row.Pair]; ok {
+							if lerr := s.st.LinkFundOps(ctx, first, id); lerr != nil {
+								writeErr(w, http.StatusInternalServerError, lerr)
+								return
+							}
+						} else {
+							pairFirst[row.Pair] = id
+						}
+					}
 				}
 			}
 		case "bond_buy":

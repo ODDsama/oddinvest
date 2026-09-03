@@ -124,6 +124,140 @@ type FundPosition struct {
 // Inconsistent — чи має позиція дірку в журналі.
 func (p FundPosition) Inconsistent() bool { return p.Short > 0 }
 
+// stepPosition — ОДИН крок автомата позиції: як операція змінює залишок,
+// собівартість, ціну й підсумки.
+//
+// Винесено з тіла FundPositions не заради краси: рівно ці правила
+// потрібні й податковій базі продажу (FundSales нижче), а другий їх
+// примірник розійшовся б із першим при першій же правці — і два екрани
+// сказали б різне про ту саму угоду (CLAUDE.md §1).
+func stepPosition(p *FundPosition, op FundOp) {
+	switch op.Kind {
+	case FundBuy:
+		p.Qty += op.Qty
+		p.CostBasis += op.Amount
+		if op.Qty > 0 {
+			p.LastPrice = op.Amount * 100 / op.Qty
+			p.LastPriceDate = op.Date
+		}
+	case FundSell:
+		if op.Qty > 0 {
+			p.LastPrice = op.Amount * 100 / op.Qty
+			p.LastPriceDate = op.Date
+		}
+		sold := int64(0)
+		if p.Qty > 0 {
+			// Собівартість проданої частки — пропорційно до залишку.
+			sold = p.CostBasis * op.Qty / p.Qty
+		}
+		p.CostBasis -= sold
+		p.Qty -= op.Qty
+		if p.Qty < 0 {
+			// Мінус далі не тягнемо — інакше він поповз би в ринкову
+			// вартість і зробив би капітал від'ємним, — але й не
+			// ховаємо: скільки саме не сходиться, лишається в Short.
+			p.Short += -p.Qty
+			p.Qty = 0
+		}
+		if p.CostBasis < 0 {
+			p.CostBasis = 0
+		}
+		// Парна операція — КОНВЕРТАЦІЯ між фондами, а не угода: сертифікати
+		// справді перейшли, тож кількість і собівартість рухаються, — але
+		// результату тут немає, бо немає й виходу з інструмента. Міграція
+		// 0010, якою заведено pair_id, називає цю ж ваду своїм приводом:
+		// без зв'язку пара «продаж + купівля» нараховувала неіснуючий
+		// результат продажу. На бойових даних це 258,95 грн вигаданого
+		// прибутку за вересень 2025-го (Житній 133,13 + Ocean 125,82).
+		if op.PairID == 0 {
+			p.Realized += op.Amount - sold - op.Tax
+		}
+	case FundDividend:
+		p.DividendsGross += op.Amount
+		p.DividendsTax += op.Tax
+	}
+}
+
+// FundSale — один продаж сертифікатів як ПОДАТКОВА подія: база й те, що з
+// неї фактично утримали.
+type FundSale struct {
+	Date     Date
+	Fund     string
+	Currency string
+	// Gain — виручка мінус собівартість проданої частки, ДО податку.
+	// Може бути від'ємним: продаж у збиток доходу не дає.
+	Gain int64
+	// Tax — фактично утримане з виписки, а не ставка × база. Ставка
+	// мінялась і мінятиметься; у виписці стоїть те, що забрали.
+	Tax int64
+}
+
+// FundSales — податкова база кожного продажу сертифікатів, за FIFO.
+//
+// ЧОМУ FIFO, коли позиція поруч веде середньозважену. Це різні питання, і
+// відповіді на них законно різні: CostBasis каже «скільки вкладено в
+// залишок», а тут потрібно «скільки з цієї угоди дохід». Брокер рахує
+// друге за партіями, і виписка це доводить до копійки:
+//
+//	продаж 20.07.2026, 72 сертифікати за 798,30 грн —
+//	  середньозважена дає прибуток 0,94 грн при утриманих 1,78 грн,
+//	  тобто ставку 189%, чого не буває;
+//	  FIFO дає 11 × 10,98 + 61 × 10,98 = 790,57 грн собівартості,
+//	  прибуток 7,73 грн і рівно 23% податку.
+//
+//	продаж 05.11.2025, 1782 сертифікати за 17 986,80 грн —
+//	  собівартість 17 824,40, прибуток 162,40, утримано 37,35 = 23%.
+//
+// На повній ліквідації обидві конвенції збігаються; розходяться вони на
+// ЧАСТКОВОМУ продажу — тобто саме там, де ставка на екрані й ставала б
+// безглуздою.
+//
+// Парний продаж (PairID != 0) сюди не потрапляє: конвертація між фондами
+// не є виходом з інструмента, і Inzhur податку з неї не тримає. Партії
+// при цьому все одно списуються — сертифікати ж пішли.
+//
+// Операції мають бути відсортовані за датою, як і для FundPositions.
+func FundSales(ops []FundOp) []FundSale {
+	// Черга партій на фонд: скільки сертифікатів і за скільки куплено.
+	type parcel struct{ qty, cost int64 }
+	queue := map[string][]parcel{}
+
+	var out []FundSale
+	for _, op := range ops {
+		switch op.Kind {
+		case FundBuy:
+			if op.Qty > 0 {
+				queue[op.Fund] = append(queue[op.Fund], parcel{op.Qty, op.Amount})
+			}
+		case FundSell:
+			left, cost := op.Qty, int64(0)
+			q := queue[op.Fund]
+			for left > 0 && len(q) > 0 {
+				if q[0].qty <= left {
+					cost += q[0].cost
+					left -= q[0].qty
+					q = q[1:]
+					continue
+				}
+				// Партію розрізано: собівартість ділиться пропорційно, а
+				// решта лишається в черзі для наступного продажу.
+				part := q[0].cost * left / q[0].qty
+				cost += part
+				q[0].cost -= part
+				q[0].qty -= left
+				left = 0
+			}
+			queue[op.Fund] = q
+			if op.PairID != 0 {
+				continue
+			}
+			out = append(out, FundSale{Date: op.Date, Fund: op.Fund,
+				Currency: op.Currency, Gain: op.Amount - cost, Tax: op.Tax})
+		}
+	}
+	return out
+}
+
 // MarketValue — вартість залишку за останньою відомою ціною, у мінорних
 // одиницях (ділення на 100 знімає зайвий розряд точності LastPrice).
 func (p FundPosition) MarketValue() int64 { return p.Qty * p.LastPrice / 100 }
@@ -132,8 +266,10 @@ func (p FundPosition) MarketValue() int64 { return p.Qty * p.LastPrice / 100 }
 // відсортовані за датою: собівартість рахується послідовно, і продаж до
 // купівлі дав би від'ємний залишок.
 //
-// Собівартість — середньозважена, а не FIFO: у безстрокового інструмента
-// без податкової потреби розрізняти партії FIFO лише додав би складності.
+// Собівартість — середньозважена, а не FIFO: тут питання «скільки
+// вкладено в ЗАЛИШОК», і партії на нього не впливають. Податкова база
+// продажу — інше питання й інша конвенція, вона в FundSales; довід, чому
+// вони законно різні, написаний там.
 // marks — позначки ціни, вклеєні руками (може бути nil).
 func FundPositions(ops []FundOp, marks []FundPrice) map[string]*FundPosition {
 	out := map[string]*FundPosition{}
@@ -143,41 +279,7 @@ func FundPositions(ops []FundOp, marks []FundPrice) map[string]*FundPosition {
 			p = &FundPosition{Fund: op.Fund, Currency: op.Currency}
 			out[op.Fund] = p
 		}
-		switch op.Kind {
-		case FundBuy:
-			p.Qty += op.Qty
-			p.CostBasis += op.Amount
-			if op.Qty > 0 {
-				p.LastPrice = op.Amount * 100 / op.Qty
-				p.LastPriceDate = op.Date
-			}
-		case FundSell:
-			if op.Qty > 0 {
-				p.LastPrice = op.Amount * 100 / op.Qty
-				p.LastPriceDate = op.Date
-			}
-			sold := int64(0)
-			if p.Qty > 0 {
-				// Собівартість проданої частки — пропорційно до залишку.
-				sold = p.CostBasis * op.Qty / p.Qty
-			}
-			p.CostBasis -= sold
-			p.Qty -= op.Qty
-			if p.Qty < 0 {
-				// Мінус далі не тягнемо — інакше він поповз би в ринкову
-				// вартість і зробив би капітал від'ємним, — але й не
-				// ховаємо: скільки саме не сходиться, лишається в Short.
-				p.Short += -p.Qty
-				p.Qty = 0
-			}
-			if p.CostBasis < 0 {
-				p.CostBasis = 0
-			}
-			p.Realized += op.Amount - sold - op.Tax
-		case FundDividend:
-			p.DividendsGross += op.Amount
-			p.DividendsTax += op.Tax
-		}
+		stepPosition(p, op)
 	}
 	// Позначки ціни — ДРУГЕ джерело тієї самої величини, і найсвіжіше з
 	// двох виграє. Не «завжди позначка»: журнал приносить ціну задарма й на
