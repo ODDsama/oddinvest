@@ -4,9 +4,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -111,7 +113,7 @@ func main() {
 	// Тунель назовні (internal/tunnel). Створюється тут, а не в api:
 	// йому потрібні шлях бази (HOME для конектора) і адреса
 	// прослуховування, тобто те, що знає лише main.
-	tun := tunnel.NewManager(st, log, "",
+	tun := tunnel.NewManager(st, log, "", cfg.ACMEURL,
 		tunnel.OriginFromAddr(cfg.HTTPAddr), tunnel.HomeFor(cfg.DBPath))
 	srv.SetTunnel(tun)
 
@@ -162,7 +164,12 @@ func main() {
 		}
 	}()
 
-	httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Handler()}
+	// ОДИН обробник на обидва слухачі: Handler() щоразу будує новий mux зі
+	// ста двадцятьма маршрутами й окремою вбудованою статикою, і два
+	// екземпляри означали б дві копії того самого без жодної потреби.
+	h := srv.Handler()
+
+	httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: h}
 	go func() {
 		log.Info("http слухає", "addr", cfg.HTTPAddr)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -170,6 +177,34 @@ func main() {
 			stop()
 		}
 	}()
+
+	// HTTPS — щоб та сама адреса працювала ВДОМА, повз Cloudflare
+	// (internal/tunnel/cert.go). Сертифікат береться з менеджера на кожне
+	// рукостискання, тож видача працює без перезапуску демона.
+	//
+	// Невдача цього слухача НЕ валить сервіс: без права на 443 або із
+	// зайнятим портом застосунок лишається застосунком, лише без
+	// локального домену. Через це тут ListenAndServeTLS не годиться — його
+	// помилку не відрізнити від зупинки, — а stop() свідомо не кличемо.
+	var tlsSrv *http.Server
+	if cfg.HTTPSAddr != "" {
+		tlsSrv = &http.Server{
+			Addr: cfg.HTTPSAddr, Handler: h,
+			TLSConfig: &tls.Config{GetCertificate: tun.Certificate, MinVersion: tls.VersionTLS12},
+		}
+		if ln, err := net.Listen("tcp", cfg.HTTPSAddr); err != nil {
+			log.Warn("https не слухає — локальний доступ по домену не працюватиме",
+				"addr", cfg.HTTPSAddr, "err", err)
+			tlsSrv = nil
+		} else {
+			go func() {
+				log.Info("https слухає", "addr", cfg.HTTPSAddr)
+				if err := tlsSrv.ServeTLS(ln, "", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					log.Error("https", "err", err)
+				}
+			}()
+		}
+	}
 
 	<-ctx.Done()
 	log.Info("зупинка…")
@@ -182,5 +217,10 @@ func main() {
 	defer cancel()
 	if err := httpSrv.Shutdown(shCtx); err != nil {
 		log.Error("зупинка HTTP", "err", err)
+	}
+	if tlsSrv != nil {
+		if err := tlsSrv.Shutdown(shCtx); err != nil {
+			log.Error("зупинка HTTPS", "err", err)
+		}
 	}
 }

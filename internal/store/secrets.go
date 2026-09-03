@@ -23,6 +23,20 @@ const (
 	SecretCFHostname    = "cf_hostname"
 	SecretCFDNSRecordID = "cf_dns_record_id"
 	SecretCFLastError   = "cf_last_error"
+
+	// Сертифікат Let's Encrypt на те саме імʼя — щоб домен працював і
+	// вдома, повз тунель (internal/tunnel/cert.go). Ланцюг і строк
+	// таємницею не є, але лежать поруч із ключем, який є, і разом із ним
+	// прибираються при відключенні тунелю.
+	//
+	// SecretACMEAccountKey — виняток: це наша реєстрація в Let's Encrypt,
+	// а не таємниця про домен, і вона переживає відключення. Реєструватись
+	// заново щоразу означало б витрачати ліміти CA ні за що.
+	SecretACMEAccountKey = "acme_account_key"
+	SecretCertPEM        = "cert_pem"
+	SecretCertKeyPEM     = "cert_key_pem"
+	SecretCertExpires    = "cert_expires"
+	SecretCertError      = "cert_error"
 )
 
 // GetSecret — значення або порожньо, коли ключа немає (як GetSetting).

@@ -248,6 +248,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/remote", s.handleRemoteStatus)
 	mux.HandleFunc("POST /api/remote/connect", s.handleRemoteConnect)
+	mux.HandleFunc("POST /api/remote/cert", s.handleRemoteCert)
 	mux.HandleFunc("POST /api/remote/disconnect", s.handleRemoteDisconnect)
 
 	sub, _ := fs.Sub(webFS, "web") //nolint:errcheck // шлях у go:embed — константа, помилка неможлива

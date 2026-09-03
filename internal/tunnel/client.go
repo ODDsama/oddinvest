@@ -245,6 +245,33 @@ func (c *Client) UpsertCNAME(ctx context.Context, zoneID, name, target string) (
 	return out.ID, err
 }
 
+// UpsertTXT — запис для перевірки Let's Encrypt (_acme-challenge.<імʼя>).
+//
+// Окремо від UpsertCNAME, а не спільним тілом із параметром типу: у CNAME
+// стоїть proxied:true, і для TXT Cloudflare таке тіло ВІДХИЛЯЄ — проксіювати
+// текстовий запис нічого. Спільною лишається сама механіка upsert і довід
+// при ній.
+//
+// TTL хвилинний, а не типовий: між записом і перевіркою ми чекаємо
+// поширення (cert.go), і чим менший TTL, тим менше чекати.
+func (c *Client) UpsertTXT(ctx context.Context, zoneID, name, value string) (string, error) {
+	var found []dnsRow
+	list := fmt.Sprintf("/zones/%s/dns_records?type=TXT&name=%s",
+		url.PathEscape(zoneID), url.QueryEscape(name))
+	if err := c.do(ctx, http.MethodGet, list, nil, &found); err != nil {
+		return "", err
+	}
+	body := map[string]any{"type": "TXT", "name": name, "content": value, "ttl": 60}
+	var out dnsRow
+	if len(found) > 0 {
+		path := fmt.Sprintf("/zones/%s/dns_records/%s", url.PathEscape(zoneID), url.PathEscape(found[0].ID))
+		err := c.do(ctx, http.MethodPatch, path, body, &out)
+		return found[0].ID, err
+	}
+	err := c.do(ctx, http.MethodPost, "/zones/"+url.PathEscape(zoneID)+"/dns_records", body, &out)
+	return out.ID, err
+}
+
 func (c *Client) DeleteRecord(ctx context.Context, zoneID, recordID string) error {
 	path := fmt.Sprintf("/zones/%s/dns_records/%s", url.PathEscape(zoneID), url.PathEscape(recordID))
 	return c.do(ctx, http.MethodDelete, path, nil, nil)

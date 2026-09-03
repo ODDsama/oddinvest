@@ -21,6 +21,12 @@ Environment=ODDINVEST_MQTT_PREFIX=oddinvest
 # базі й задаються з самого застосунку (README → «Доступ ззовні»).
 
 StateDirectory=oddinvestd
+# Право слухати 443 без root: сервіс віддає там ту саму адресу, що й
+# тунель, лише напряму в локальній мережі (internal/tunnel/cert.go).
+# NoNewPrivileges цьому не заважає — ambient-права видає systemd при exec,
+# а NNP забороняє інше: setuid і права з файлів.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true

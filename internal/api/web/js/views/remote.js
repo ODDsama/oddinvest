@@ -117,6 +117,49 @@ function tunnelCard(st) {
   </div>`;
 }
 
+/** Той самий домен удома, повз Cloudflare.
+ *
+ *  Дві половини, і лише одна з них у застосунку: сертифікат він бере сам,
+ *  а перезапис DNS — рядок, який людина додає у своєму AdGuard чи Pi-hole.
+ *  Тому картка не просто показує стан, а й друкує ГОТОВИЙ рядок із уже
+ *  відомою адресою цієї машини: шукати її деінде не треба.
+ *
+ *  Порядок кроків названий вголос і він значущий: спершу сертифікат, потім
+ *  DNS. Навпаки — і браузер зустріне помилку TLS, яка виглядає як поломка
+ *  застосунку, хоч це лише незакінчене налаштування. */
+function localCard(st) {
+  if (!st.configured) return "";
+  const c = st.cert || {};
+  const ips = st.lan_ips || [];
+  const state = c.issuing
+    ? `<span class="muted">видається…</span>`
+    : c.have
+      ? `<span class="t-ok">діє до ${esc(c.expires)}</span>`
+      : `<span class="muted">ще немає</span>`;
+  return `<div class="card">
+    <h2 class="h-row">Той самий домен удома ${infoBtn("setRemote")}</h2>
+    <div class="note">Зараз запит із сусідньої кімнати їде через Cloudflare і назад.
+      Якщо домашній DNS скерувати це саме імʼя просто на цю машину, він лишиться
+      в межах будинку: швидше, і працює навіть коли інтернету немає.</div>
+    <div class="pv-row"><span>Сертифікат на ${esc(st.hostname)}</span>${state}</div>
+    ${c.error ? `<div class="sub-xs t-warn">${esc(c.error)}</div>` : ""}
+    <div class="row-h mt-sm">
+      <button type="button" id="btnCert">${c.have ? "Перевипустити" : "Отримати сертифікат"}</button>
+    </div>
+    ${c.have && ips.length ? `<div class="sub-xs mt-sm">Другий крок, руками: додай у
+      домашньому DNS перезапис<br>
+      <code class="secret">${esc(st.hostname)} → ${esc(ips[0])}</code>
+      У AdGuard Home це Filters → DNS rewrites, у Pi-hole — Local DNS → DNS Records.
+      ${ips.length > 1 ? `Інші адреси цієї машини: ${esc(ips.slice(1).join(", "))}.` : ""}</div>`
+    : `<div class="sub-xs muted mt-sm">Спершу сертифікат, потім DNS: якщо навпаки,
+      браузер зустріне помилку TLS і це виглядатиме як поломка.</div>`}
+    <div class="sub-xs muted mt-sm">Удома Cloudflare Access питати нічого не буде — запит
+      до нього просто не доходить, і замком лишається пароль застосунку. Телефон із
+      увімкненим «приватним DNS» перезапису не побачить і піде через тунель, як раніше.
+      Вхід по <code>http://адреса:8080</code> лишається запасним.</div>
+  </div>`;
+}
+
 /** Доступ ззовні. Сторінка не читає зведення взагалі — як і «Резервна
  *  копія», вона мусить працювати тоді, коли решта не працює. */
 export async function remote(ctx, main) {
@@ -124,7 +167,8 @@ export async function remote(ctx, main) {
     ctx.soft("auth", {}),
     ctx.soft("remote", {}),
   ]);
-  main.innerHTML = passwordCard() + tokenCard(auth || {}) + tunnelCard(st || {});
+  main.innerHTML = passwordCard() + tokenCard(auth || {}) + tunnelCard(st || {})
+    + localCard(st || {});
 
   onSubmit(ctx, main.querySelector("#pwForm"), (f) => ({
     method: "PUT", path: "auth/password",
@@ -168,6 +212,28 @@ export async function remote(ctx, main) {
     body: { api_token: f.api_token.value.trim(), hostname: f.hostname.value.trim() },
     msg: "Тунель створюється — за пів хвилини онови сторінку",
   }));
+
+  // Видача йде в Let's Encrypt і рахується проти його лімітів, тож
+  // перевипуск питає підтвердження. Не apply(): відповідь буває довгою
+  // (очікування поширення DNS), і кнопку треба вимкнути на цей час.
+  main.querySelector("#btnCert")?.addEventListener("click", async (e) => {
+    if ((st.cert || {}).have
+      && !await confirmDialog(ctx, "Перевипустити сертифікат? Кожна видача рахується проти лімітів Let's Encrypt.",
+        { yes: "Перевипустити", danger: false })) {
+      return;
+    }
+    e.target.disabled = true;
+    e.target.textContent = "Видається…";
+    try {
+      await ctx.api("POST", "remote/cert");
+      ctx.toast("Сертифікат отримано");
+      ctx.reload();
+    } catch (err) {
+      ctx.toast(String(err.message || err), false);
+      e.target.disabled = false;
+      e.target.textContent = "Спробувати ще раз";
+    }
+  });
 
   main.querySelector("#btnDisconnect")?.addEventListener("click", async () => {
     if (!await confirmDialog(ctx,

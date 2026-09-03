@@ -61,6 +61,27 @@ func (s *Server) handleRemoteConnect(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// POST /api/remote/cert — перевипустити сертифікат для локального доступу.
+//
+// Окремою ручкою, хоч видача й запускається сама після «Підключити»: коли
+// вона не вдалась (ліміт, права токена, зона), людині потрібен спосіб
+// спробувати ще раз, не перепідключаючи тунель.
+//
+// Чекаємо на відповідь, а не відповідаємо одразу: видача триває секунди,
+// зрідка хвилини, і сторінці є що показати — або строк, або дослівну
+// причину.
+func (s *Server) handleRemoteCert(w http.ResponseWriter, r *http.Request) {
+	if s.tun == nil {
+		writeErr(w, http.StatusNotImplemented, errors.New("тунель у цій збірці недоступний"))
+		return
+	}
+	if err := s.tun.EnsureCert(r.Context(), true); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleRemoteDisconnect(w http.ResponseWriter, r *http.Request) {
 	if s.tun == nil {
 		writeErr(w, http.StatusNotImplemented, errors.New("тунель у цій збірці недоступний"))

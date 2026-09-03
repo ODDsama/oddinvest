@@ -2,9 +2,17 @@ package tunnel
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"log/slog"
+	"math/big"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -36,6 +44,7 @@ type fakeCF struct {
 	nextID   int
 	failWith string // якщо не порожньо — будь-який запит дає цю помилку
 	seen     []string
+	bodies   []map[string]any // тіла записів DNS, щоб перевірити їхню форму
 }
 
 func newFakeCF(t *testing.T) *fakeCF {
@@ -120,10 +129,18 @@ func (f *fakeCF) route(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(p, "/dns_records") && r.Method == http.MethodPost:
 		var in map[string]any
 		json.NewDecoder(r.Body).Decode(&in) //nolint:errcheck // тестовий сервер
-		f.records["rec-1"] = in["name"].(string)
-		f.ok(w, map[string]any{"id": "rec-1"})
+		id := "rec-1"
+		if in["type"] == "TXT" {
+			id = "txt-1"
+		}
+		f.records[id] = in["name"].(string)
+		f.bodies = append(f.bodies, in)
+		f.ok(w, map[string]any{"id": id})
 
 	case strings.Contains(p, "/dns_records/") && r.Method == http.MethodPatch:
+		var in map[string]any
+		json.NewDecoder(r.Body).Decode(&in) //nolint:errcheck // тестовий сервер
+		f.bodies = append(f.bodies, in)
 		f.ok(w, map[string]any{"id": strings.TrimPrefix(p[strings.LastIndex(p, "/"):], "/")})
 
 	case strings.Contains(p, "/dns_records/") && r.Method == http.MethodDelete:
@@ -167,7 +184,9 @@ func testManager(t *testing.T, base string) (*Manager, *store.Store) {
 	}
 	t.Cleanup(func() { st.Close() })
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	m := NewManager(st, log, base, "http://127.0.0.1:8080", dir)
+	// Каталог ACME вказує в той самий фейк: інакше тест, який чіпає
+	// сертифікат, пішов би в справжній Let's Encrypt.
+	m := NewManager(st, log, base, base+"/acme/directory", "http://127.0.0.1:8080", dir)
 	m.wait0 = time.Millisecond // тест перевіряє перезапуск, а не годинник
 	// Конектор підмінений: справжній cloudflared тягнув би за собою мережу
 	// й наявність бінарника, а перевіряємо ми нагляд, а не його.
@@ -401,6 +420,203 @@ func TestStartResumesFromStore(t *testing.T) {
 	m.mu.Unlock()
 	if !running {
 		t.Fatal("Start мусить підняти конектор за збереженим токеном")
+	}
+}
+
+// --- сертифікат для локального доступу (cert.go) ---
+
+// TXT для перевірки Let's Encrypt: створюється, оновлюється на місці, і
+// НЕ несе proxied — Cloudflare відхиляє проксіювання текстового запису.
+func TestUpsertTXT(t *testing.T) {
+	f := newFakeCF(t)
+	c := New(f.srv.URL, "tok")
+	ctx := context.Background()
+
+	id, err := c.UpsertTXT(ctx, "zone-1", "_acme-challenge.oddinvest.example.com", "value-1")
+	if err != nil || id != "txt-1" {
+		t.Fatalf("створення: id=%q err=%v", id, err)
+	}
+	f.mu.Lock()
+	body := f.bodies[len(f.bodies)-1]
+	f.mu.Unlock()
+	if body["type"] != "TXT" || body["content"] != "value-1" {
+		t.Fatalf("тіло запису: %+v", body)
+	}
+	if _, ok := body["proxied"]; ok {
+		t.Error("TXT не можна проксіювати — Cloudflare відхилить такий запис")
+	}
+
+	// Другий виклик на те саме імʼя править наявний, а не плодить другий.
+	id2, err := c.UpsertTXT(ctx, "zone-1", "_acme-challenge.oddinvest.example.com", "value-2")
+	if err != nil || id2 != "txt-1" {
+		t.Fatalf("оновлення: id=%q err=%v", id2, err)
+	}
+	posts := 0
+	for _, call := range f.calls() {
+		if call == "POST /zones/zone-1/dns_records" {
+			posts++
+		}
+	}
+	if posts != 1 {
+		t.Fatalf("записів створено %d, чекали 1", posts)
+	}
+}
+
+// certPEMs — самопідписана пара на задану дату закінчення. Свій, а не
+// фікстура у файлі: строк тут і є те, що перевіряється.
+func certPEMs(t *testing.T, host string, notAfter time.Time) (string, string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: host},
+		DNSNames:     []string{host},
+		NotBefore:    notAfter.Add(-90 * 24 * time.Hour),
+		NotAfter:     notAfter,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})),
+		string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: raw}))
+}
+
+// Збережений сертифікат піднімається в памʼять і віддається рукостисканню;
+// без нього — помилка, і саме тому слухач може стояти ще до видачі.
+func TestCertificateRoundTrip(t *testing.T) {
+	f := newFakeCF(t)
+	m, st := testManager(t, f.srv.URL)
+	ctx := context.Background()
+
+	if _, err := m.Certificate(nil); err == nil {
+		t.Fatal("без сертифіката рукостискання мусить падати, а не віддавати порожнечу")
+	}
+
+	exp := time.Now().Add(80 * 24 * time.Hour).Truncate(time.Second)
+	certPEM, keyPEM := certPEMs(t, "oddinvest.example.com", exp)
+	for k, v := range map[string]string{
+		store.SecretCertPEM: certPEM, store.SecretCertKeyPEM: keyPEM,
+	} {
+		if err := st.SetSecret(ctx, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.loadCert(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err := m.Certificate(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Leaf == nil || got.Leaf.Subject.CommonName != "oddinvest.example.com" {
+		t.Fatalf("листок: %+v", got.Leaf)
+	}
+	if !got.Leaf.NotAfter.Equal(exp) {
+		t.Fatalf("строк %v, чекали %v", got.Leaf.NotAfter, exp)
+	}
+	// Строк видно на сторінці.
+	sec, _ := st.AllSecrets(ctx)
+	if cs := m.certStatus(sec); !cs.Have || cs.Expires != exp.Format("2006-01-02") {
+		t.Fatalf("стан сертифіката: %+v", cs)
+	}
+}
+
+// Поновлення починається за тридцять днів до кінця, не пізніше: якщо воно
+// зламається, лишається місяць помітити це, а не ніч.
+func TestNeedsRenewal(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		name string
+		exp  time.Time
+		want bool
+	}{
+		{"немає зовсім", time.Time{}, true},
+		{"лишилось 40 днів", now.Add(40 * 24 * time.Hour), false},
+		{"лишилось 31 день", now.Add(31 * 24 * time.Hour), false},
+		{"лишилось 29 днів", now.Add(29 * 24 * time.Hour), true},
+		{"уже протух", now.Add(-time.Hour), true},
+	} {
+		if got := needsRenewal(c.exp, now); got != c.want {
+			t.Errorf("%s: %v, чекали %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Відключення тунелю забирає й сертифікат: він виданий на те саме імʼя й
+// тими самими правами, і пережити їх не має. Акаунтний ключ ACME при цьому
+// лишається — це наша реєстрація, а не таємниця про домен.
+func TestDisconnectDropsCertKeepsACMEAccount(t *testing.T) {
+	f := newFakeCF(t)
+	m, st := testManager(t, f.srv.URL)
+	ctx := context.Background()
+	if err := m.Connect(ctx, "cf-token", "oddinvest.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	certPEM, keyPEM := certPEMs(t, "oddinvest.example.com", time.Now().Add(80*24*time.Hour))
+	for k, v := range map[string]string{
+		store.SecretCertPEM:        certPEM,
+		store.SecretCertKeyPEM:     keyPEM,
+		store.SecretCertExpires:    time.Now().Format(time.RFC3339),
+		store.SecretACMEAccountKey: "acme-key",
+	} {
+		if err := st.SetSecret(ctx, k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.loadCert(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Disconnect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	sec, _ := st.AllSecrets(ctx)
+	for _, k := range []string{store.SecretCertPEM, store.SecretCertKeyPEM, store.SecretCertExpires} {
+		if sec[k] != "" {
+			t.Errorf("%s лишився після відключення", k)
+		}
+	}
+	if sec[store.SecretACMEAccountKey] != "acme-key" {
+		t.Error("акаунтний ключ ACME мусить пережити відключення")
+	}
+	if _, err := m.Certificate(nil); err == nil {
+		t.Error("після відключення сертифікат мусить зникнути й з памʼяті")
+	}
+}
+
+// Адреси для рядка «пропиши в домашньому DNS»: лише приватні IPv4, без
+// петлі й без повторів. Машина без мережі — порожньо, і це не помилка.
+//
+// Перевіряти саме ПЕРШУ адресу тут нічим (на машині збірки маршрут інший,
+// ніж на бойовій), тож перевіряється те, що можна: придатність кожної й
+// відсутність дублікатів — а дублікат був би рівно тоді, коли адреса
+// маршруту потрапила б у список двічі.
+func TestLANIPs(t *testing.T) {
+	seen := map[string]bool{}
+	for _, ip := range lanIPs() {
+		parsed := net.ParseIP(ip)
+		if parsed == nil || parsed.To4() == nil {
+			t.Errorf("%q — не IPv4", ip)
+		}
+		if parsed.IsLoopback() || !parsed.IsPrivate() {
+			t.Errorf("%q не годиться для домашнього DNS", ip)
+		}
+		if seen[ip] {
+			t.Errorf("%q у списку двічі", ip)
+		}
+		seen[ip] = true
+	}
+	if p := primaryIP(); p != "" {
+		if got := lanIPs(); len(got) == 0 || got[0] != p {
+			t.Errorf("першою мусить іти адреса маршруту %q, маємо %v", p, got)
+		}
 	}
 }
 

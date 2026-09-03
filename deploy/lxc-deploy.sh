@@ -92,6 +92,18 @@ if ! command -v cloudflared >/dev/null 2>&1; then
   ) || echo "!! cloudflared не поставився — доступ ззовні буде недоступний"
 fi
 
+# ---------- право на 443 ----------
+# Контейнери, поставлені до появи локального домену, мають юніт без
+# ambient-прав, а скрипт провізії заново не ганяють. Дописуємо один раз;
+# без цього другий слухач мовчки не піднімається, і сторінка каже про це
+# лише в журналі.
+UNIT_FILE=/etc/systemd/system/oddinvestd.service
+if [ -f "$UNIT_FILE" ] && ! grep -q CAP_NET_BIND_SERVICE "$UNIT_FILE"; then
+  echo "-- дозволяю слухати 443"
+  sed -i 's/^StateDirectory=oddinvestd$/StateDirectory=oddinvestd\nAmbientCapabilities=CAP_NET_BIND_SERVICE\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE/' "$UNIT_FILE"
+  systemctl daemon-reload
+fi
+
 # ---------- збірка ----------
 # У ТИМЧАСОВИЙ файл, а не одразу в $BIN: раніше збірка писала прямо в
 # /usr/local/bin/oddinvestd, і невдала збірка лишала там обрізаний файл,

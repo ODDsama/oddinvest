@@ -59,6 +59,11 @@ type Manager struct {
 	// причини, що pause в jobs.Runner: інакше тест нагляду чекав би
 	// справжні пʼять секунд на кожне падіння.
 	wait0 time.Duration
+	// acme — каталог ACME; порожньо = бойовий Let's Encrypt. Той самий шов,
+	// що base для Cloudflare: тест підставляє свій.
+	acme string
+	// certEvery — як часто дивитись на строк сертифіката (cert.go).
+	certEvery time.Duration
 
 	mu       sync.Mutex
 	cancel   context.CancelFunc
@@ -67,10 +72,21 @@ type Manager struct {
 	lastErr  string
 	status   string
 	statusAt time.Time
+	cert     certState
+	issuing  bool
 }
 
-func NewManager(st *store.Store, log *slog.Logger, base, origin, home string) *Manager {
-	m := &Manager{st: st, log: log, base: base, origin: origin, home: home, wait0: backoffMin}
+// acmeURL — куди ходити по сертифікат.
+func (m *Manager) acmeURL() string {
+	if m.acme == "" {
+		return acmeDirectory
+	}
+	return m.acme
+}
+
+func NewManager(st *store.Store, log *slog.Logger, base, acmeURL, origin, home string) *Manager {
+	m := &Manager{st: st, log: log, base: base, acme: acmeURL, origin: origin, home: home,
+		wait0: backoffMin, certEvery: certCheckEvery}
 	m.run = m.runCloudflared
 	return m
 }
@@ -122,10 +138,18 @@ func (w logWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Start піднімає конектор, якщо тунель уже налаштований. Кличеться на
-// старті демона: перезапуск сервісу не має вимагати повторного
-// «Підключити».
+// Start піднімає конектор, якщо тунель уже налаштований, і бере на облік
+// сертифікат. Кличеться на старті демона: перезапуск сервісу не має
+// вимагати повторного «Підключити».
 func (m *Manager) Start(ctx context.Context) {
+	// Сертифікат — ПЕРШИМ і синхронно: слухач 443 стартує одразу за цим
+	// викликом, і читання одного рядка з бази дешевше за перше
+	// рукостискання, яке інакше впало б без причини.
+	if err := m.loadCert(ctx); err != nil {
+		m.log.Warn("сертифікат не піднявся", "err", err)
+	}
+	go m.renewLoop(ctx)
+
 	tok, err := m.st.GetSecret(ctx, store.SecretCFTunnelToken)
 	if err != nil || tok == "" {
 		return
@@ -271,6 +295,18 @@ func (m *Manager) Connect(ctx context.Context, apiToken, hostname string) error 
 	m.note("")
 	m.stop()
 	m.supervise(context.WithoutCancel(ctx), tok)
+
+	// Сертифікат для локального доступу — АСИНХРОННО й без права звалити
+	// підключення: тунель це доступ ЗЗОВНІ, і він мусить піднятись навіть
+	// тоді, коли Let's Encrypt сьогодні лежить або ліміт вичерпано.
+	// Причина невдачі осідає в cert_error і видно її на сторінці.
+	go func() {
+		c, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+		defer cancel()
+		if err := m.EnsureCert(c, false); err != nil {
+			m.log.Warn("сертифікат після підключення", "err", err)
+		}
+	}()
 	return nil
 }
 
@@ -299,15 +335,24 @@ func (m *Manager) Disconnect(ctx context.Context) error {
 			}
 		}
 	}
+	// Сертифікат іде разом із тунелем: він виданий на те саме імʼя й тими
+	// самими правами, і пережити їх не має. Акаунтний ключ ACME
+	// лишається — це наша реєстрація в Let's Encrypt, а не таємниця про
+	// домен (довід при константі в secrets.go).
 	for _, k := range []string{
 		store.SecretCFAPIToken, store.SecretCFAccountID, store.SecretCFZoneID,
 		store.SecretCFTunnelID, store.SecretCFTunnelToken, store.SecretCFHostname,
 		store.SecretCFDNSRecordID, store.SecretCFLastError,
+		store.SecretCertPEM, store.SecretCertKeyPEM, store.SecretCertExpires,
+		store.SecretCertError,
 	} {
 		if err := m.st.DeleteSecret(ctx, k); err != nil {
 			return err
 		}
 	}
+	m.mu.Lock()
+	m.cert = certState{}
+	m.mu.Unlock()
 	m.note("")
 	return m.st.SetSetting(ctx, "public_url", "")
 }
@@ -322,6 +367,10 @@ type Status struct {
 	TunnelStatus     string `json:"tunnel_status,omitempty"`
 	PublicOK         bool   `json:"public_ok,omitempty"`
 	LastError        string `json:"last_error,omitempty"`
+	// Локальний доступ: сертифікат на те саме імʼя й адреси цієї машини в
+	// мережі — рівно те, що треба прописати в домашньому DNS (cert.go).
+	Cert   CertStatus `json:"cert"`
+	LANIPs []string   `json:"lan_ips,omitempty"`
 }
 
 // Status збирає стан. Помилка запиту до Cloudflare — не помилка сторінки:
@@ -341,6 +390,8 @@ func (m *Manager) Status(ctx context.Context) (Status, error) {
 	}
 	fresh := time.Since(m.statusAt) < statusTTL
 	m.mu.Unlock()
+	out.Cert = m.certStatus(sec)
+	out.LANIPs = lanIPs()
 
 	host := sec[store.SecretCFHostname]
 	if host == "" {
