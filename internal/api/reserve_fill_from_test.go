@@ -112,7 +112,7 @@ func routeReserveDoc(fillFrom string) *state.Doc {
 func routeOnce(doc *state.Doc, flows ...readyFlow) routeDoc {
 	return buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		routeInc("mono", money.UAH, flows...),
-		routePlans(30000), allocRates, nil, nil, routeToday)
+		routePlans(30000), nil, allocRates, nil, nil, routeToday)
 }
 
 // Купон при «лише з планових» подушки не годує — і каже, ЧОМУ.
@@ -191,7 +191,7 @@ func TestRouteFirstLegEqualsAllocateWithSource(t *testing.T) {
 	ev.Principal = 300000 // 3 000 ₴ тіла
 
 	got := buildRoute(doc, sug, routeInc("mono", money.UAH, ev),
-		routePlans(30000), allocRates, nil, nil, routeToday)
+		routePlans(30000), nil, allocRates, nil, nil, routeToday)
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1", len(got.Legs))
 	}
@@ -459,7 +459,7 @@ func TestRoutePlanLegCarriesItsOwnUses(t *testing.T) {
 
 	doc := routeReserveDoc("any")
 	inc := incomeAhead{store.BrokerCur{Broker: noBrokerLabel, Currency: money.UAH}: flows}
-	got := buildRoute(doc, nil, inc, routePlans(40000), allocRates, nil, nil, routeToday)
+	got := buildRoute(doc, nil, inc, routePlans(40000), nil, allocRates, nil, nil, routeToday)
 	if len(got.Legs) != 2 {
 		t.Fatalf("ніг маршруту %d, чекали 2", len(got.Legs))
 	}
@@ -589,7 +589,7 @@ func TestRoutePlanLegHasItsOwnPot(t *testing.T) {
 	inc[store.BrokerCur{Broker: noBrokerLabel, Currency: money.UAH}] = []readyFlow{plan}
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		inc, routePlans(0), allocRates, nil, nil, routeToday)
+		inc, routePlans(0), nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 2 {
 		t.Fatalf("ніг %d, чекали 2", len(got.Legs))
@@ -710,7 +710,7 @@ func TestRoutePlanLegCappedByAllowedPlan(t *testing.T) {
 		PlanReserveUAH: 1500, PlanGoalsUAH: 6000}
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		inc, plans, allocRates, nil, nil, routeToday)
+		inc, plans, nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1: %+v", len(got.Legs), got.Legs)
@@ -748,7 +748,7 @@ func TestRouteMonthCeilingBindsCouponToo(t *testing.T) {
 		PlanReserveUAH: 0, PlanGoalsUAH: 6000}
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		inc, plans, allocRates, nil, nil, routeToday)
+		inc, plans, nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1", len(got.Legs))

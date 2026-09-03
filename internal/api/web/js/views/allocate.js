@@ -106,7 +106,28 @@ function reserveSkipHTML(res) {
     : "";
 }
 
-// Цілі накопичення — ДРУГИМИ, одразу за подушкою, і теж прапорцями.
+// Борг — між подушкою й цілями, рядком без прапорця.
+//
+// Без прапорця не з лінощів: вирізка несе суму й причину, але не борг, у
+// який її класти (allocDebtCut), а платіж у борг записують зі звіркою на
+// сторінці боргу, де відомо, з якої картки й на яку розстрочку. Тут лише
+// сказати, що розкладка ці гроші відклала — доти рядок мовчав узагалі, і
+// підсумок «в інструменти» виходив меншим за суму без пояснення.
+function debtHTML(res) {
+  const d = res.debt;
+  if (!d || !(d.amount_uah > 0)) return "";
+  return `<div class="mb-sm">${kindPill("debt")} <b>${fmtUAH(d.amount_uah)}</b>
+    <div class="sub-xs">${esc(d.why)}. Платіж запиши на сторінці боргу — сюди він не пишеться.</div>
+  </div>`;
+}
+
+function debtSkipHTML(res) {
+  return res.debt_skip_why
+    ? `<div class="sub-xs t-warn mb-sm">${esc(res.debt_skip_why)}</div>`
+    : "";
+}
+
+// Цілі накопичення — ТРЕТІМИ, за подушкою й боргом, і теж прапорцями.
 //
 // Порядок не оформлення: у самій розкладці цілі ріжуть після подушки й лише
 // з того, що після неї лишилось (handlers_allocate.go), і той самий порядок
@@ -152,6 +173,7 @@ function summaryHTML(res) {
   // Цілі одним числом, а не по одній: підсумок відповідає на питання
   // «куди пішли гроші», і поіменний перелік у ньому повторив би рядки
   // вище. Скільки саме взяла кожна — видно там, де стоїть її галочка.
+  if (res.debt_uah > 0) parts.push(`у борг ${fmtUAH(res.debt_uah)}`);
   if (res.goals_uah > 0) parts.push(`у цілі ${fmtUAH(res.goals_uah)}`);
   const spent = (res.lines || []).reduce((a, l) => a + (l.total_uah || 0), 0);
   if (spent > 0) parts.push(`в інструменти ${fmtUAH(spent)}`);
@@ -186,6 +208,7 @@ function routedHTML(leg) {
   if (leg.reserve && leg.reserve.amount_uah > 0) {
     parts.push(`резерв ${fmtUAH(leg.reserve.amount_uah)}`);
   }
+  if (leg.debt && leg.debt.amount_uah > 0) parts.push(`борг ${fmtUAH(leg.debt.amount_uah)}`);
   for (const g of leg.goals || []) parts.push(`${g.name} ${fmtUAH(g.amount_uah)}`);
   for (const l of leg.lines || []) parts.push(`${l.label} ${fmtUAH(l.total_uah)}`);
   if (leg.rest_uah > 0) parts.push(`чекає ${fmtUAH(leg.rest_uah)}`);
@@ -251,6 +274,8 @@ export async function openAllocate(ctx, opts) {
     + selectOf("source", "Чиї це гроші", SOURCES, source)
     + reserveHTML(res)
     + reserveSkipHTML(res)
+    + debtHTML(res)
+    + debtSkipHTML(res)
     + goalsHTML(res)
     + goalsSkipHTML(res)
     + linesHTML(res)

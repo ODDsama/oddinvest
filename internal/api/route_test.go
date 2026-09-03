@@ -85,7 +85,7 @@ func TestRouteFirstLegEqualsAllocate(t *testing.T) {
 
 	got := buildRoute(doc, sug,
 		routeInc("mono", money.UAH, routeFlow("2026-08-28", 5000, "UA0001")),
-		routePlans(30000), allocRates, nil, nil, routeToday)
+		routePlans(30000), nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1: %+v", len(got.Legs), got)
@@ -116,7 +116,7 @@ func TestAllocateFloorKeepsFirstLegEqualToAllocate(t *testing.T) {
 
 	got := buildRoute(doc, sug,
 		routeInc("mono", money.UAH, routeFlow("2026-08-28", 4, "UA0001")),
-		routePlans(30000), allocRates, npfOne, nil, routeToday)
+		routePlans(30000), nil, allocRates, npfOne, nil, routeToday)
 
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1: %+v", len(got.Legs), got)
@@ -161,7 +161,7 @@ func TestRouteReserveCeilingResetsEachMonth(t *testing.T) {
 			routeFlow("2026-09-10", 20000, "UA0001"),
 			routeFlow("2026-10-10", 20000, "UA0001"),
 			routeFlow("2026-11-10", 20000, "UA0001")),
-		routePlans(30000), allocRates, nil, nil, routeToday)
+		routePlans(30000), nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 3 {
 		t.Fatalf("ніг %d, чекали 3", len(got.Legs))
@@ -196,7 +196,7 @@ func TestRouteReserveCeilingSharedWithinMonth(t *testing.T) {
 		routeInc("mono", money.UAH,
 			routeFlow("2026-09-10", 8000, "UA0001"),
 			routeFlow("2026-09-20", 8000, "UA0001")),
-		routePlans(30000), allocRates, nil, nil, routeToday)
+		routePlans(30000), nil, allocRates, nil, nil, routeToday)
 
 	total := 0.0
 	for _, leg := range got.Legs {
@@ -220,7 +220,7 @@ func TestRouteReserveStopsAtGap(t *testing.T) {
 		routeInc("mono", money.UAH,
 			routeFlow("2026-09-10", 20000, "UA0001"),
 			routeFlow("2026-10-10", 20000, "UA0001")),
-		routePlans(30000), allocRates, nil, nil, routeToday)
+		routePlans(30000), nil, allocRates, nil, nil, routeToday)
 
 	total := 0.0
 	for _, leg := range got.Legs {
@@ -246,7 +246,7 @@ func TestRoutePoolsUntilWholeTicket(t *testing.T) {
 			routeFlow("2026-09-10", 340, "UA0001"),
 			routeFlow("2026-10-10", 1200, "UA0002"),
 			routeFlow("2026-11-10", 900, "UA0003")),
-		routePlans(0), allocRates, nil, nil, routeToday)
+		routePlans(0), nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 3 {
 		t.Fatalf("ніг %d, чекали 3", len(got.Legs))
@@ -294,7 +294,7 @@ func TestRouteSeparatePools(t *testing.T) {
 			routeFlow("2026-09-11", 600, "UA0002")},
 	}
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		inc, routePlans(0), allocRates, nil, nil, routeToday)
+		inc, routePlans(0), nil, allocRates, nil, nil, routeToday)
 
 	for i, leg := range got.Legs {
 		if len(leg.Lines) != 0 {
@@ -333,7 +333,7 @@ func TestRouteKindDeficitShrinks(t *testing.T) {
 		routeInc("mono", money.UAH,
 			routeFlow("2026-09-10", 40000, "UA0001"),
 			routeFlow("2026-10-10", 40000, "UA0002")),
-		routePlans(0), allocRates, nil, nil, routeToday)
+		routePlans(0), nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 2 {
 		t.Fatalf("ніг %d, чекали 2", len(got.Legs))
@@ -409,7 +409,7 @@ func TestRouteDoesNotMutateDoc(t *testing.T) {
 		routeInc("mono", money.UAH,
 			routeFlow("2026-09-10", 20000, "UA0001"),
 			routeFlow("2026-10-10", 20000, "UA0002")),
-		routePlans(30000), allocRates, nil, nil, routeToday)
+		routePlans(30000), nil, allocRates, nil, nil, routeToday)
 
 	after, _ := json.Marshal(doc)
 	if string(before) != string(after) {
@@ -426,7 +426,7 @@ func TestRouteHorizonIsTwelveMonths(t *testing.T) {
 		routeInc("mono", money.UAH,
 			routeFlow("2027-08-20", 5000, "UA0001"),  // у межах
 			routeFlow("2027-09-10", 5000, "UA0002")), // за межею
-		routePlans(0), allocRates, nil, nil, routeToday)
+		routePlans(0), nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1 — за горизонтом маршрут мовчить: %+v", len(got.Legs), got)
@@ -440,7 +440,7 @@ func TestRouteHorizonIsTwelveMonths(t *testing.T) {
 func TestRouteEmptyHasReason(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	got := buildRoute(doc, nil, incomeAhead{}, routePlans(0),
-		allocRates, nil, nil, routeToday)
+		nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 0 {
 		t.Fatalf("ніг %d, чекали 0", len(got.Legs))
@@ -471,7 +471,7 @@ func TestRouteDeterministic(t *testing.T) {
 		doc.ReserveUAH = 20000
 		b, _ := json.Marshal(buildRoute(doc,
 			[]suggestion{bondSug("UA0001", 1000, money.UAH)},
-			inc, routePlans(30000), allocRates, nil, nil, routeToday))
+			inc, routePlans(30000), nil, allocRates, nil, nil, routeToday))
 		return string(b)
 	}
 	first := run()
@@ -554,7 +554,7 @@ func TestRouteLegNamesItsBasis(t *testing.T) {
 	div.Kind, div.Basis = "funds", basisEstimate
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		routeInc("inzhur", money.UAH, div), routePlans(0), allocRates, nil, nil, routeToday)
+		routeInc("inzhur", money.UAH, div), routePlans(0), nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1", len(got.Legs))
@@ -575,7 +575,7 @@ func TestRouteOwedBasisIsNamed(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		routeInc("mono", money.UAH, routeFlow("2026-09-10", 500, "UA0001")),
-		routePlans(0), allocRates, nil, nil, routeToday)
+		routePlans(0), nil, allocRates, nil, nil, routeToday)
 
 	if got.Legs[0].Basis != basisOwed {
 		t.Errorf("основа %q, чекали %q", got.Legs[0].Basis, basisOwed)
@@ -596,7 +596,7 @@ func TestRouteMixedPotSaysSo(t *testing.T) {
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		routeInc("inzhur", money.UAH,
 			routeFlow("2026-09-10", 600, "UA0001"), div),
-		routePlans(0), allocRates, nil, nil, routeToday)
+		routePlans(0), nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 2 {
 		t.Fatalf("ніг %d, чекали 2", len(got.Legs))
@@ -622,7 +622,7 @@ func TestRoutePotBasisResetsWhenEmpty(t *testing.T) {
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		routeInc("inzhur", money.UAH, div,
 			routeFlow("2026-10-10", 1000, "UA0001")),
-		routePlans(0), allocRates, nil, nil, routeToday)
+		routePlans(0), nil, allocRates, nil, nil, routeToday)
 
 	if got.Legs[0].Basis != basisEstimate {
 		t.Fatalf("перша нога: основа %q, чекали %q", got.Legs[0].Basis, basisEstimate)
@@ -799,7 +799,7 @@ func TestRoutePickIsPerLeg(t *testing.T) {
 		routeInc("mono", money.UAH,
 			routeFlow("2026-09-10", 5000, "UA0001"),
 			routeFlow("2026-09-20", 5000, "UA0001")),
-		routePlans(0), allocRates, nil, picks, routeToday)
+		routePlans(0), nil, allocRates, nil, picks, routeToday)
 
 	if len(got.Legs) != 2 {
 		t.Fatalf("ніг %d, чекали 2", len(got.Legs))
@@ -837,7 +837,7 @@ func TestRouteFirstLegEqualsAllocateWithPick(t *testing.T) {
 	}
 	got := buildRoute(doc, sug,
 		routeInc("mono", money.UAH, routeFlow("2026-08-28", 5000, "UA0001")),
-		routePlans(30000), allocRates, nil, picks, routeToday)
+		routePlans(30000), nil, allocRates, nil, picks, routeToday)
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1", len(got.Legs))
 	}

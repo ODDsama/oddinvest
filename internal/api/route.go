@@ -71,6 +71,34 @@
 // зараховував би повернення номіналу приростом і занижував би розрив саме
 // того виду, з якого гроші щойно вийшли. Розділяє їх readyFlow.Principal.
 //
+// # БОРГ — ДВА КОНТУРИ, І МАРШРУТ ВЕДЕ ЛИШЕ ОДИН
+//
+// Обовʼязкові платежі (розстрочки з інших грошей, мінімалка непільгової
+// частини картки) відняті від планових ніг ЩЕ ДО ТОГО, як ті стали ногами:
+// buildMonthPlan віднімає DebtDueUAH від грошей місяця разом із витратами,
+// і planAhead ділить уже залишок. Карткові розстрочки платяться з картки —
+// картковий контур, у портфельні гроші вони не входять узагалі (довід у
+// шапці debtDueForMonth). Тож нога «заплатити розстрочку» тут була б
+// подвійним відніманням, і її немає: маршрут веде гроші, у яких є вибір, а
+// обовʼязкове вибором не є (handlers_allocate.go, блок боргу).
+//
+// Що маршрут ВЕДЕ — дострокове: вирізка «Борг» на нозі за стелею
+// debt_fill_share_pct, як подушка й цілі. І саме тут борг мусить ТАНУТИ за
+// графіком, а не лише від дострокових платежів: розстрочка на три місяці
+// закривається сама, і стеля дострокового, яка й далі дивилась би на
+// сьогоднішній залишок, гнала б гроші в борг, якого в четвертому місяці вже
+// немає. enterMonth списує з debtLeft тіло за графіком кожного пройденого
+// місяця (routeDebtMonth.PrincipalUAH) і поновлює рубіж покриття подушкою
+// (CoverUAH) — обидва числа приходять готовими з state_debts.go, тут лише
+// віднімання. Похибка одна й названа: дострокове, віддане в проході, скорочує
+// графік, якого прохід не перебудовує, тож debtLeft може дійти нуля раніше
+// за реальність — це помилка в бік «менше в борг», протилежна до тієї, яку
+// виправлено.
+//
+// Таблиця months під ногами — те саме, місяцями: скільки обовʼязкового
+// (і скільки з нього карткового), скільки маршрут віддав достроково, скільки
+// лишилось під ставкою на кінець місяця, і де платежів стає менше.
+//
 // # ЩО ЛИШАЄТЬСЯ СЬОГОДНІШНІМ
 //
 // Порядок і ціна. Рейтинг рахується ОДИН раз, від сьогоднішнього
@@ -221,6 +249,41 @@ type routeDoc struct {
 	// читається як поломка, а причина тут одна: портфель нічого не
 	// винен собі до горизонту.
 	Note string `json:"note,omitempty"`
+	// Months — борг місяцями горизонту (шапка файла, «Борг»). Порожньо без
+	// боргу: таблиця з нулів казала б менше, ніж її відсутність.
+	Months []routeMonthRow `json:"months,omitempty"`
+}
+
+// routeDebtMonth — борг одного місяця горизонту, готовими числами з
+// state_debts.go (debtAhead). Маршрут їх лише віднімає.
+type routeDebtMonth struct {
+	// DueUAH — обовʼязкові платежі місяця з портфельних грошей: те саме
+	// MonthPlan.DebtDueUAH, уже відняте від планових ніг.
+	DueUAH float64
+	// CardInstUAH — карткові розстрочки місяця: картковий контур, у ноги не
+	// входять, але людина платить і їх.
+	CardInstUAH float64
+	// PrincipalUAH — тіло боргу під ставкою, яке піде за графіком цього
+	// місяця; на нього тане debtLeft у проході.
+	PrincipalUAH float64
+	// CoverUAH — рубіж покриття боргу подушкою станом на початок місяця
+	// (майбутні платежі з цієї дати).
+	CoverUAH float64
+}
+
+// routeMonthRow — рядок таблиці «Борг на горизонті».
+type routeMonthRow struct {
+	Month       string  `json:"month"`
+	DebtDueUAH  float64 `json:"debt_due_uah"`
+	CardInstUAH float64 `json:"card_inst_uah,omitempty"`
+	// PrepayUAH — Σ вирізок «Борг» на ногах цього місяця.
+	PrepayUAH float64 `json:"prepay_uah,omitempty"`
+	// DebtLeftUAH — борг під ставкою на кінець місяця за проходом.
+	DebtLeftUAH float64 `json:"debt_left_uah"`
+	PlanUAH     float64 `json:"plan_uah"`
+	// DropUAH — на скільки обовʼязкових платежів (разом із картковими) стало
+	// менше проти попереднього місяця: тут щось закрилось.
+	DropUAH float64 `json:"drop_uah,omitempty"`
 }
 
 // routeCarry — те, що подія N мусить знати про події 1..N−1.
@@ -238,21 +301,27 @@ type routeCarry struct {
 	// debtCaps — чи діє стеля подушки на час боргу. Прапорцем із документа,
 	// а не перерахунком: правило одне на застосунок (state_debts.go).
 	debtCaps bool
-	// debtCover — рубіж покриття боргу подушкою, теж із документа. Через
-	// прохід він їде НЕЗМІННИМ, як і debtLeft: маршрут не амортизує борг
-	// за графіком, він відповідає на інше питання — куди йдуть нові гроші.
-	// Число, що тануло б лише від дострокових платежів, брехало б сильніше
-	// за незмінне.
+	// debtCover — рубіж покриття боргу подушкою: на старті з документа, далі
+	// на кожен місяць горизонту з routeDebtMonth.CoverUAH (майбутні платежі
+	// з першого числа того місяця). Доти він їхав незмінним із доводом «число,
+	// що тануло б лише від дострокових, брехало б сильніше» — довід був
+	// правильний, доки не було графіка; тепер тане й за ним.
 	debtCover float64
 	// Борг у проході вперед: скільки лишилось під ставкою й скільки з
 	// місячної стелі дострокового ще не віддано. Без цих двох чисел
 	// маршрут гнав би гроші в борг усі дванадцять місяців поспіль — рівно
-	// та вада, яку вже виправляли подушці й цілям.
+	// та вада, яку вже виправляли подушці й цілям. debtLeft тане і від
+	// вирізок ніг (apply), і від тіла за графіком (enterMonth).
 	debtLeft    float64
 	debtFillNow float64
 	debtFillMon float64
-	month       string
-	kindUAH     map[string]float64
+	// debtLeftAt — борг під ставкою на кінець кожного пройденого місяця
+	// (зсув від сьогодні → сума), для таблиці months.
+	debtLeftAt map[int]float64
+	today      domain.Date
+	month      string
+	monthIdx   int
+	kindUAH    map[string]float64
 	// goals — КОПІЯ рядків документа: прохід уперед мутує їхні розриви й
 	// місячні частки, а джерело лишається недоторканим (той самий довід, що
 	// при doc() нижче).
@@ -277,7 +346,9 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 		// Поточний місяць береться з документа як є — разом із уже
 		// відкладеним цього місяця. Перерахувати його тут означало б
 		// втратити moved і розійтися з карткою резерву на першому ж рядку.
-		month: monthKeyAt(today, 0),
+		today:      today,
+		month:      monthKeyAt(today, 0),
+		debtLeftAt: map[int]float64{},
 		// Мапа заповнюється лише рядками виміру "kind": решта рядків
 		// ребалансу (валюта, брокер, ISIN) розкладці не потрібна, і
 		// тримати для них числа означало б обіцяти, що маршрут просуває
@@ -297,6 +368,7 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 		// місяця. Той самий довід, що в подушки й цілей.
 		c.debtLeft, c.debtFillNow, c.debtFillMon = dp.TotalUAH, dp.FillNowUAH, dp.FillMonthUAH
 	}
+	c.debtLeftAt[0] = c.debtLeft
 	for _, row := range doc.Rebalance {
 		if row.Dimension == "kind" {
 			c.kindUAH[row.Key] = row.CurrentUAH
@@ -353,15 +425,30 @@ func (c *routeCarry) doc(carryInUAH float64) *state.Doc {
 	return &d
 }
 
-// enterMonth переставляє стелю подушки на новий місяць.
+// enterMonth переставляє стелю подушки на новий місяць (зсув m від сьогодні).
 //
 // Мовчить, доки місяць той самий, — і саме тому поточний місяць лишається
 // таким, яким його порахував документ.
-func (c *routeCarry) enterMonth(month string, mp *state.MonthPlan) {
-	if month == c.month {
+//
+// Місяці БЕЗ надходжень не пропускаються: розстрочка списується й у місяць,
+// коли купонів не було, тож борг тане по кожному пройденому місяцю, а не
+// лише по тих, де є нога. Стеля подушки й цілей при цьому переставляється
+// лише на цільовий місяць — вона й так щомісяця нова.
+func (c *routeCarry) enterMonth(m int, plans map[string]*state.MonthPlan,
+	debt map[string]routeDebtMonth) {
+	if m <= c.monthIdx {
 		return
 	}
-	c.month = month
+	for c.monthIdx < m {
+		c.monthIdx++
+		c.month = monthKeyAt(c.today, c.monthIdx)
+		if d, ok := debt[c.month]; ok {
+			c.debtLeft = math.Max(0, c.debtLeft-d.PrincipalUAH)
+			c.debtCover = d.CoverUAH
+		}
+		c.debtLeftAt[c.monthIdx] = round2(c.debtLeft)
+	}
+	mp := plans[c.month]
 	// moved = 0: у місяці, який ще не настав, у подушку ще нічого не клали.
 	c.fillMonth, c.fillNow = reserveMonthShare(c.set, c.reserveUAH, mp, 0,
 		c.debtCaps, c.debtCover)
@@ -440,6 +527,7 @@ func (c *routeCarry) apply(p allocPlan) {
 		v := p.Debt.AmountUAH
 		c.debtLeft = math.Max(0, c.debtLeft-v)
 		c.debtFillNow = math.Max(0, c.debtFillNow-v)
+		c.debtLeftAt[c.monthIdx] = round2(c.debtLeft)
 	}
 	for _, gc := range p.Goals {
 		if gc.AmountUAH <= 0 {
@@ -593,26 +681,27 @@ func mergeBasis(pot, ev string) string {
 // яких у маршруті немає, мовчки пропускаються: ISIN уже перевірив обробник,
 // а вибір на ногу, що зникла з розкладу, — не помилка, а застаріла вкладка.
 func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
-	plans map[string]*state.MonthPlan, rates fx.Rates,
+	plans map[string]*state.MonthPlan, debt map[string]routeDebtMonth, rates fx.Rates,
 	npfID map[string]int64, picks map[routeKey]string, today domain.Date) routeDoc {
 
 	horizon := today.AddMonths(routeHorizonMonths)
 	out := routeDoc{From: string(today), To: string(horizon), Legs: []routeLeg{}}
+	carry := newRouteCarry(doc, today)
 
 	events := flattenIncome(inc, horizon)
 	if len(events) == 0 {
 		out.Note = "до горизонту портфель нічого не винен сам собі — " +
 			"ні купонів, ні погашень, ні відсотків вкладів, — " +
 			"а план доходу порожній або вже виконаний"
+		// Борг місяцями є й без ніг: платежі йдуть незалежно від купонів.
+		out.Months = carry.debtMonths(plans, debt, nil)
 		return out
 	}
 
-	carry := newRouteCarry(doc, today)
 	pots := map[store.BrokerCur]*routePot{}
 
 	for _, ev := range events {
-		carry.enterMonth(monthKeyAt(today, monthOffsetRaw(today, ev.Date)),
-			plans[monthKeyAt(today, monthOffsetRaw(today, ev.Date))])
+		carry.enterMonth(monthOffsetRaw(today, ev.Date), plans, debt)
 
 		cur := ev.bc.Currency
 		rate := allocRate(cur, rates)
@@ -756,6 +845,51 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			pot.eligible = pot.minor
 		}
 		out.Legs = append(out.Legs, leg)
+	}
+	out.Months = carry.debtMonths(plans, debt, out.Legs)
+	return out
+}
+
+// debtMonths — таблиця «Борг на горизонті». nil без боргу в документі.
+//
+// Прохід доводиться до горизонту (enterMonth до останнього місяця), щоб борг
+// танув і після останньої ноги: графік розстрочки не чекає на купон.
+// Дострокове береться з готових ніг, а не рахується вдруге.
+func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
+	debt map[string]routeDebtMonth, legs []routeLeg) []routeMonthRow {
+	if c.base.Debt == nil {
+		return nil
+	}
+	c.enterMonth(routeHorizonMonths, plans, debt)
+	prepay := map[string]float64{}
+	for _, l := range legs {
+		if l.Debt != nil && l.Debt.AmountUAH > 0 {
+			prepay[monthKeyAt(c.today, monthOffsetRaw(c.today, domain.Date(l.Date)))] += l.Debt.AmountUAH
+		}
+	}
+	out := make([]routeMonthRow, 0, routeHorizonMonths+1)
+	prevDue := -1.0
+	for m := 0; m <= routeHorizonMonths; m++ {
+		key := monthKeyAt(c.today, m)
+		d := debt[key]
+		row := routeMonthRow{
+			Month:       key,
+			DebtDueUAH:  round2(d.DueUAH),
+			CardInstUAH: round2(d.CardInstUAH),
+			PrepayUAH:   round2(prepay[key]),
+			DebtLeftUAH: c.debtLeftAt[m],
+		}
+		if mp := plans[key]; mp != nil {
+			row.PlanUAH = round2(mp.PlanUAH)
+		}
+		// Падіння обовʼязкового проти попереднього місяця — тут щось
+		// закрилось. Поточний місяць порівнювати нема з чим.
+		due := d.DueUAH + d.CardInstUAH
+		if prevDue >= 0 && prevDue-due > 0.005 {
+			row.DropUAH = round2(prevDue - due)
+		}
+		prevDue = due
+		out = append(out, row)
 	}
 	return out
 }

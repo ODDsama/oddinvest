@@ -37,7 +37,7 @@ func TestRouteGoalCeilingResetsEachMonth(t *testing.T) {
 			routeFlow("2026-09-10", 20000, "UA0001"),
 			routeFlow("2026-10-10", 20000, "UA0001"),
 			routeFlow("2026-11-10", 20000, "UA0001")),
-		routePlans(30000), allocRates, nil, nil, routeToday)
+		routePlans(30000), nil, allocRates, nil, nil, routeToday)
 
 	if len(got.Legs) != 3 {
 		t.Fatalf("ніг %d, чекали 3", len(got.Legs))
@@ -66,7 +66,7 @@ func TestRouteGoalCeilingSharedWithinMonth(t *testing.T) {
 		routeInc("mono", money.UAH,
 			routeFlow("2026-09-10", 8000, "UA0001"),
 			routeFlow("2026-09-20", 8000, "UA0001")),
-		routePlans(30000), allocRates, nil, nil, routeToday)
+		routePlans(30000), nil, allocRates, nil, nil, routeToday)
 
 	total := 0.0
 	for _, leg := range got.Legs {
@@ -89,7 +89,7 @@ func TestRouteGoalStopsAtGap(t *testing.T) {
 			routeFlow("2026-09-10", 20000, "UA0001"),
 			routeFlow("2026-10-10", 20000, "UA0001"),
 			routeFlow("2026-11-10", 20000, "UA0001")),
-		routePlans(30000), allocRates, nil, nil, routeToday)
+		routePlans(30000), nil, allocRates, nil, nil, routeToday)
 
 	total := 0.0
 	for _, leg := range got.Legs {

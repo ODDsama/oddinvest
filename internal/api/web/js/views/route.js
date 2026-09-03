@@ -39,7 +39,7 @@
 // таблиця з датами 2027 року інакше читалась би як прогноз цін, яким вона
 // не є й бути не може.
 
-import { esc, uah0 as fmtUAH, dayMonth } from "../format.js";
+import { esc, uah0 as fmtUAH, dayMonth, monthShort } from "../format.js";
 import { opsGrid } from "../grid.js";
 import { kindPill, empty } from "../components.js";
 import { infoBtn } from "../info.js";
@@ -109,7 +109,16 @@ function destHTML(leg) {
     rows.push(`<div class="fine">${kindPill("reserve")}
       <b>${fmtUAH(leg.reserve.amount_uah)}</b></div>`);
   }
-  // Цілі — ДРУГИМИ, одразу за подушкою й перед паперами: так само, як у
+  // Борг — ДРУГИМ, між подушкою й цілями: рівно там, де він стоїть у
+  // розкладці. Довго цього рядка не було взагалі, хоч вирізка рахувалась і
+  // приїжджала в нозі: гроші йшли в борг, а колонка показувала подушку,
+  // цілі, папери й «Лишиться» менше за суму — без пояснення.
+  if (leg.debt && leg.debt.amount_uah > 0) {
+    rows.push(`<div class="fine">${kindPill("debt")}
+      <b>${fmtUAH(leg.debt.amount_uah)}</b>${leg.debt.why
+  ? `<div class="fine-xs muted">${esc(leg.debt.why)}</div>` : ""}</div>`);
+  }
+  // Цілі — ТРЕТІМИ, за подушкою й боргом, перед паперами: так само, як у
   // самому обчисленні. Інший порядок тут суперечив би розкладці.
   for (const g of leg.goals || []) {
     rows.push(`<div class="fine">${kindPill("goal")} ${esc(g.name)}
@@ -132,6 +141,9 @@ function destHTML(leg) {
   // гроші пішли, потім куди не пішли й чому.
   if (leg.reserve_skip_why) {
     rows.push(`<div class="fine-xs t-warn">${esc(leg.reserve_skip_why)}</div>`);
+  }
+  if (leg.debt_skip_why) {
+    rows.push(`<div class="fine-xs t-warn">${esc(leg.debt_skip_why)}</div>`);
   }
   if (leg.goals_skip_why) {
     rows.push(`<div class="fine-xs t-warn">${esc(leg.goals_skip_why)}</div>`);
@@ -229,6 +241,55 @@ function legsHTML(doc) {
   });
 }
 
+/** Борг на горизонті — місяцями. Не ноги: обовʼязкові платежі вибором не є
+ *  і від планових ніг уже відняті (довід — у шапці route.go, «Борг»). Тут
+ *  видно інше: скільки щомісяця йде в борг повз портфель, скільки маршрут
+ *  віддає достроково, коли борг під ставкою закінчується і де платежів
+ *  стає менше — тобто з якого місяця план місяця зростає сам. */
+function monthsHTML(doc) {
+  const rows = doc.months || [];
+  if (!rows.length) return "";
+  const any = rows.some((r) => r.debt_due_uah > 0 || r.card_inst_uah > 0
+    || r.prepay_uah > 0 || r.debt_left_uah > 0);
+  if (!any) return "";
+  const grid = opsGrid({
+    cols: [
+      {
+        key: "month", label: "Місяць",
+        cell: (r) => esc(monthShort(r.month + "-01"))
+          + (r.drop_uah > 0
+            ? `<div class="fine-xs t-ok">платежів менше на ${fmtUAH(r.drop_uah)}</div>` : ""),
+      },
+      {
+        key: "due", label: "Обовʼязкове", num: true,
+        cell: (r) => (r.debt_due_uah + (r.card_inst_uah || 0) > 0
+          ? fmtUAH(r.debt_due_uah + (r.card_inst_uah || 0))
+            + (r.card_inst_uah > 0
+              ? `<div class="fine-xs muted">з картки ${fmtUAH(r.card_inst_uah)}</div>` : "")
+          : `<span class="muted">—</span>`),
+      },
+      {
+        key: "prepay", label: "Достроково за маршрутом", num: true, prio: 2,
+        cell: (r) => (r.prepay_uah > 0 ? fmtUAH(r.prepay_uah) : `<span class="muted">—</span>`),
+      },
+      {
+        key: "left", label: "Під ставкою на кінець", num: true,
+        cell: (r) => (r.debt_left_uah > 0 ? fmtUAH(r.debt_left_uah)
+          : `<span class="t-ok">0</span>`),
+      },
+      { key: "plan", label: "План місяця", num: true, prio: 3, cell: (r) => fmtUAH(r.plan_uah) },
+    ],
+    rows,
+    caption: "Борг на горизонті: обовʼязкове, дострокове за маршрутом, залишок під ставкою, план місяця",
+  });
+  return `<div class="card"><h2 class="h-row">Борг на горизонті ${infoBtn("route")}</h2>
+    <div class="note">Обовʼязкові платежі в ногах не стоять: вони відняті від планових
+      грошей ще до того, як ті стали ногами, а карткові розстрочки платяться з картки.
+      Тут видно, скільки йде повз портфель щомісяця, скільки маршрут віддає достроково
+      і коли борг під ставкою закінчується — з того місяця план місяця росте сам.</div>
+    ${grid}</div>`;
+}
+
 /** Маршрут грошей: кожне майбутнє надходження й те, куди воно веде. */
 export async function renderRoute(ctx, main) {
   let doc;
@@ -294,7 +355,7 @@ export async function renderRoute(ctx, main) {
       стеля подушки, з яких грошей вона ріже, цільові частки за видом, твій порядок у
       «Що купити». Дрібні надходження чекають одне одного, доки не набереться на цілий
       квиток — рахунки при цьому роздільні.</div>
-    ${body}</div>`;
+    ${body}</div>${monthsHTML(doc)}`;
   main.insertAdjacentHTML("beforeend", card);
 
   // «Прийшло» — дві дії одним рухом, і порядок між ними значущий.

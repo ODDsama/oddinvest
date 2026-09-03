@@ -100,7 +100,11 @@ func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	out := buildRoute(doc, sug, inc, plans, src.rates,
+	// Борг місяцями горизонту — тим самим графіком, що й план місяця й
+	// картка боргу (state_debts.go); маршрут його лише віднімає.
+	debt := debtAhead(src, src.rates, today, routeHorizonMonths)
+
+	out := buildRoute(doc, sug, inc, plans, debt, src.rates,
 		s.npfIDByName(r.Context()), picks, today)
 	// План купівель — окремим проходом поверх готових ніг: аргумент при
 	// annotatePlanned. Рядки вже лежать у джерелах, другого читання немає.

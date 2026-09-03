@@ -620,6 +620,44 @@ func cardInstallmentsInMonth(src *sources, rates fx.Rates, today domain.Date,
 	return round2(total)
 }
 
+// debtAhead — борг по місяцях горизонту для «Маршруту грошей» (route.go,
+// «Борг»). Ключ — місяць "YYYY-MM", m = 0..months.
+//
+// Чотири числа, і всі з тих самих функцій, що годують план місяця й картку
+// боргу: обовʼязкове — debtDueForMonth (уже відняте від планових ніг),
+// карткові розстрочки — cardInstallmentsInMonth (картковий контур), тіло за
+// графіком — те, на що тане TotalUAH (усі відкриті розстрочки, як у
+// buildDebtPlan; картка тане лише від платежів, тож тут її немає), рубіж
+// покриття — debtCoverUAH станом на перше число місяця.
+func debtAhead(src *sources, rates fx.Rates, today domain.Date, months int) map[string]routeDebtMonth {
+	out := make(map[string]routeDebtMonth, months+1)
+	if len(src.debts) == 0 {
+		return out
+	}
+	for m := 0; m <= months; m++ {
+		first := monthStart(today, m)
+		last := monthStart(today, m+1).AddDays(-1)
+		principal := 0.0
+		for _, d := range src.debts {
+			if d.Closed() || d.IsCard() {
+				continue
+			}
+			for _, p := range domain.DebtSchedule(d, 0, first, last) {
+				if u, err := fx.ToUAH(money.New(p.Principal, d.Currency), rates); err == nil {
+					principal += float64(u.Amount()) / 100
+				}
+			}
+		}
+		out[monthKeyAt(today, m)] = routeDebtMonth{
+			DueUAH:       debtDueForMonth(src, rates, today, m),
+			CardInstUAH:  cardInstallmentsInMonth(src, rates, today, m, ""),
+			PrincipalUAH: round2(principal),
+			CoverUAH:     debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, first),
+		}
+	}
+	return out
+}
+
 // debtMonthRow — валовий дохід місяця, та його частина, що йде в портфель,
 // і платежі карткових розстрочок.
 //
