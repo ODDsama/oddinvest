@@ -23,6 +23,7 @@ import { TABS, PATHS, HOME, panesFor, kindOf } from "./nav.js";
 import { bindInfo } from "./info.js";
 import { openPalette } from "./palette.js";
 import { bindDialogBackdrop } from "./forms.js";
+import { field, formHTML } from "./fields.js";
 import { adoptStyles } from "./styles.js";
 import { createStore } from "./store.js";
 import { skeleton } from "./skeleton.js";
@@ -171,6 +172,9 @@ export class OddInvestApp extends HTMLElement {
   _reportSoft(path, err) {
     const msg = (err && err.message) || String(err);
     console.warn(`[oddinvest] ${path}: ${msg}`);
+    // 401 — не поломка маршруту, а відсутність сесії; про неї вже каже
+    // діалог входу, і тост поруч із ним лише дублював би питання.
+    if (err && err.status === 401) return;
     if (!this._started || this._softShown) return;
     this._softShown = true;
     this._toast(`${path} не завантажився: ${msg}`, false);
@@ -402,6 +406,9 @@ export class OddInvestApp extends HTMLElement {
           aria-label="Оновити довідник НБУ">↻</button>
         <a class="hdr-btn" id="gear" href="#/settings/refs/main"
           title="Налаштування" aria-label="Налаштування">⚙</a>
+        <!-- Вихід зʼявляється лише коли бекенд має замок (GET /api/auth):
+             без замка кнопка обіцяла б дію, якої немає. -->
+        <button class="hdr-btn" id="logout" title="Вийти" aria-label="Вийти" hidden>⎋</button>
       </header>
       <div class="layout">
         <aside id="master" aria-label="Список"></aside>
@@ -447,6 +454,21 @@ export class OddInvestApp extends HTMLElement {
            коли він ще відкритий і тримає top layer. -->
       <dialog class="infopop editpop" id="editPop" aria-labelledby="editPopTitle">
         <div class="box"></div>
+      </dialog>
+      <!-- Вхід. Бекенд відповів 401 (transport.js кидає подію oi:unauth) —
+           отже, на /api/* стоїть пароль, а сесії немає. Статика при цьому
+           відкрита навмисно (internal/api/auth.go), тож застосунок
+           вантажиться, а замок стоїть на даних. Після входу сторінка
+           перезавантажується: усе, що впало з 401, піде заново. -->
+      <dialog class="infopop editpop" id="loginPop" aria-labelledby="loginPopTitle">
+        <div class="box">
+          <h4 id="loginPopTitle">Вхід</h4>
+          <p class="note">Цей сервіс закритий паролем. Сесія живе 30 днів на цьому пристрої.</p>
+          ${formHTML({
+            id: "loginForm", submit: "Увійти",
+            fields: [field("password", "Пароль", { type: "password", required: true, autocomplete: "current-password" })],
+          })}
+        </div>
       </dialog>
     `;
     // Обробників кліку на ПОСИЛАННЯХ вкладок і рядків тут немає:
@@ -519,6 +541,7 @@ export class OddInvestApp extends HTMLElement {
         openPal();
       }
     });
+    this._wireLogin();
     this.shadowRoot.getElementById("refresh")?.addEventListener("click", async (e) => {
       e.target.disabled = true;
       try {
@@ -532,6 +555,63 @@ export class OddInvestApp extends HTMLElement {
       catch (err) { this._toast(String(err.message || err), false); }
       finally { e.target.disabled = false; }
     });
+  }
+
+  // ---------- вхід ----------
+
+  // Діалог входу й кнопка виходу. Замок живе на бекенді (auth.go); тут
+  // лише дві речі: показати поле, коли прийшов 401, і показати «Вийти»,
+  // коли замок узагалі є.
+  _wireLogin() {
+    const pop = this.shadowRoot.getElementById("loginPop");
+    const form = this.shadowRoot.getElementById("loginForm");
+    const logout = this.shadowRoot.getElementById("logout");
+
+    window.addEventListener("oi:unauth", () => {
+      // Один 401 тягне за собою десяток інших (кожен маршрут сторінки), а
+      // діалог один: showModal() на відкритому <dialog> кидає.
+      if (pop.open) return;
+      pop.showModal();
+      form.querySelector("input")?.focus();
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = form.querySelector("button[type=submit]");
+      btn.disabled = true;
+      try {
+        await this._store.raw("login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: form.password.value }),
+        }).then(async (resp) => {
+          if (resp.ok) return;
+          const txt = await resp.text().catch(() => "");
+          let msg = txt;
+          try { msg = JSON.parse(txt).error || txt; } catch (_) { /* не JSON */ }
+          throw new Error(msg || `${resp.status}`);
+        });
+        // Перезавантаження, а не теплий рендер: усе, що впало з 401 до
+        // входу, — довідники, зведення, позиції — має піти заново, і
+        // одна сторінка робить це надійніше за перелік маршрутів.
+        window.location.reload();
+      } catch (err) {
+        this._toast(String(err.message || err), false);
+        btn.disabled = false;
+        form.password.select();
+      }
+    });
+
+    logout?.addEventListener("click", async () => {
+      try { await this._store.raw("logout", { method: "POST" }); }
+      finally { window.location.reload(); }
+    });
+
+    // «Вийти» — лише коли є звідки. Питання відкрите (auth.go), тож іде
+    // й до входу; відповідь не кешується store — raw повз кеш.
+    this._store.raw("auth").then((r) => (r.ok ? r.json() : null)).then((a) => {
+      if (a && a.enabled) logout.hidden = false;
+    }).catch(() => { /* без відповіді кнопка лишається схованою */ });
   }
 
   // ---------- шапка ----------
@@ -838,7 +918,9 @@ export class OddInvestApp extends HTMLElement {
     const rowOf = this._allRows.find((r) => r.id === this._item);
     this._announce(`${tab ? tab.label : ""} — ${rowOf ? rowOf.name : ""}`);
 
-    if (broken) {
+    // 401 — не «бекенд не віддає зведення», а «сесії немає»: про це вже
+    // питає діалог входу, і червона смуга під ним лякала б даремно.
+    if (broken && broken.status !== 401) {
       this._alert(`<div class="banner danger"><div class="b-ic" aria-hidden="true">⚠</div><div class="b-tx">
         <div class="b-t">Бекенд не віддає зведення</div>
         <div class="b-s">${esc(broken.message || broken)}${SUMMARY_FREE.has(this._tab) ? ""

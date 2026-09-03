@@ -88,6 +88,7 @@ func main() {
 	backupPath := filepath.Join(filepath.Dir(cfg.DBPath), "oddinvest-backup.json")
 	runner := jobs.New(st, nc, pub, srv.BuildStateDoc, log, backupPath)
 	srv = api.New(st, runner, log)
+	srv.SetAuth(api.Auth{Password: cfg.AuthPassword, Token: cfg.AuthToken})
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

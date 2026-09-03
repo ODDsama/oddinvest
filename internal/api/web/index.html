@@ -9,6 +9,15 @@
 <meta name="color-scheme" content="dark">
 <title>ODD Invest</title>
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+<!-- «Додати на екран». Маніфест і растрові іконки — усе, що потрібно
+     Chrome/Safari для окремого вікна без адресного рядка; service worker
+     свідомо не робимо (README: «Чого тут свідомо немає»). Колір смуги
+     системи — той самий #12100f, що й тло нижче. -->
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#12100f">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <!-- Шрифти. Єдиний CSS, який підключається сторінкою, а не js/styles.js:
      @font-face належить документу й усередині shadow root не реєструється.
 

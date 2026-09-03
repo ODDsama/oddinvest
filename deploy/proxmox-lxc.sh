@@ -98,6 +98,10 @@ ODDINVEST_MQTT_ADDR=${MQTT_ADDR}
 ODDINVEST_MQTT_USER=${MQTT_USER}
 ODDINVEST_MQTT_PASS=${MQTT_PASS}
 ODDINVEST_MQTT_PREFIX=${MQTT_PREFIX}
+# Замок на REST. Обидва порожні = вимкнено. Обовʼязкові ДО того, як сервіс
+# стане досяжним ззовні (README → «Доступ ззовні»).
+ODDINVEST_AUTH_PASSWORD=${AUTH_PASSWORD:-}
+ODDINVEST_AUTH_TOKEN=${AUTH_TOKEN:-}
 ENV
 chmod 640 /etc/oddinvestd.env
 echo "-- systemd unit"

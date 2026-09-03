@@ -42,10 +42,13 @@ function attrs(map) {
 export function field(name, label, {
   type = "", value = "", ph = "", required = false, inputmode = "",
   min = "", max = "", step = "", cls = "", title = "", labelCls = "", after = "",
+  autocomplete = "",
 } = {}) {
+  // autocomplete — лише там, де менеджер паролів має що підставити
+  // (вхід); решті полів застосунку підказки браузера ні до чого.
   const input = `<input${attrs({
     name, type, value, placeholder: ph, required, inputmode,
-    min, max, step, class: cls, title,
+    min, max, step, class: cls, title, autocomplete,
   })}>`;
   // after — розмітка ВСЕРЕДИНІ <label>, одразу під полем: жива підказка
   // («зараз 31% · ціль 35%» під часткою валюти). Саме всередині, а не

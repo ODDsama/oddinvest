@@ -12,6 +12,11 @@ type Config struct {
 	MQTTPass   string // ODDINVEST_MQTT_PASS
 	MQTTPrefix string // ODDINVEST_MQTT_PREFIX, типово oddinvest
 	NBUBase    string // ODDINVEST_NBU_BASE, для тестів/проксі
+	// Авторизація REST. Обидва порожні = вимкнено (як MQTTAddr): сервіс
+	// у довіреній мережі працює як досі. Задане хоч одне — увесь /api/*
+	// закритий; довід і механізм — у internal/api/auth.go.
+	AuthPassword string // ODDINVEST_AUTH_PASSWORD, пароль людини (вхід у браузері)
+	AuthToken    string // ODDINVEST_AUTH_TOKEN, токен машин (Home Assistant), Bearer
 }
 
 func env(key, def string) string {
@@ -23,12 +28,14 @@ func env(key, def string) string {
 
 func Load() Config {
 	return Config{
-		HTTPAddr:   env("ODDINVEST_HTTP_ADDR", ":8080"),
-		DBPath:     env("ODDINVEST_DB_PATH", "/var/lib/oddinvestd/oddinvest.db"),
-		MQTTAddr:   env("ODDINVEST_MQTT_ADDR", ""),
-		MQTTUser:   env("ODDINVEST_MQTT_USER", ""),
-		MQTTPass:   env("ODDINVEST_MQTT_PASS", ""),
-		MQTTPrefix: env("ODDINVEST_MQTT_PREFIX", "oddinvest"),
-		NBUBase:    env("ODDINVEST_NBU_BASE", ""),
+		HTTPAddr:     env("ODDINVEST_HTTP_ADDR", ":8080"),
+		DBPath:       env("ODDINVEST_DB_PATH", "/var/lib/oddinvestd/oddinvest.db"),
+		MQTTAddr:     env("ODDINVEST_MQTT_ADDR", ""),
+		MQTTUser:     env("ODDINVEST_MQTT_USER", ""),
+		MQTTPass:     env("ODDINVEST_MQTT_PASS", ""),
+		MQTTPrefix:   env("ODDINVEST_MQTT_PREFIX", "oddinvest"),
+		NBUBase:      env("ODDINVEST_NBU_BASE", ""),
+		AuthPassword: env("ODDINVEST_AUTH_PASSWORD", ""),
+		AuthToken:    env("ODDINVEST_AUTH_TOKEN", ""),
 	}
 }

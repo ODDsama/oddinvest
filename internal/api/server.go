@@ -33,10 +33,24 @@ type Server struct {
 	pubMu      sync.Mutex
 	pubRunning bool
 	pubPending bool
+
+	// Замок на /api/* і лічильник невдалих входів — auth.go.
+	auth      Auth
+	authFails *authState
 }
 
 func New(st *store.Store, ref Refresher, log *slog.Logger) *Server {
-	return &Server{st: st, ref: ref, log: log}
+	return &Server{st: st, ref: ref, log: log, authFails: newAuthState()}
+}
+
+// SetAuth вмикає авторизацію. Окремим методом, а не параметром New: New
+// кличуть півтора десятка тестів, і жодному з них замок не потрібен —
+// нульове значення Auth означає «як досі».
+func (s *Server) SetAuth(a Auth) {
+	s.auth = a
+	if !a.Enabled() {
+		s.log.Warn("авторизація вимкнена: /api/* відкритий усім, хто бачить порт (README: «Чого тут свідомо немає» → «Авторизації»)")
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -210,9 +224,18 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/import/profiles/{name}", s.handleSaveImportProfile)
 	mux.HandleFunc("DELETE /api/import/profiles/{name}", s.handleDeleteImportProfile)
 
+	// Вхід/вихід і питання «чи треба входити» — єдині маршрути /api/*,
+	// які requireAuth пропускає (auth.go).
+	mux.HandleFunc("GET /api/auth", s.handleAuthStatus)
+	mux.HandleFunc("POST /api/login", s.handleLogin)
+	mux.HandleFunc("POST /api/logout", s.handleLogout)
+
 	sub, _ := fs.Sub(webFS, "web") //nolint:errcheck // шлях у go:embed — константа, помилка неможлива
 	mux.Handle("GET /", noCache(http.FileServerFS(sub)))
-	return logMiddleware(s.log, noStoreAPI(mux))
+	// Замок стоїть ПІД журналом і ПІД заголовком кешу: відмова 401 мусить
+	// потрапити в журнал і не мусить осісти в кеші браузера — а noStoreAPI
+	// ставить заголовок ДО виклику наступного, тож він має бути зовні.
+	return logMiddleware(s.log, noStoreAPI(s.requireAuth(mux)))
 }
 
 // noStoreAPI забороняє кешувати ВІДПОВІДІ API взагалі.
@@ -255,9 +278,12 @@ func noStoreAPI(next http.Handler) http.Handler {
 // можна модулі: вміст файла шрифту незмінний за побудовою, бо нова
 // версія — це нове імʼя (inter-var.v1.woff2 → …v2…, див.
 // web-fonts-build.sh). Модулі такої властивості не мають.
+//
+// Іконки для «додати на екран» — той самий виняток, що й шрифти, з тієї
+// самої причини: новий знак означав би новий файл, а не новий уміст.
 func noCache(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/fonts/") {
+		if strings.HasPrefix(r.URL.Path, "/fonts/") || strings.HasPrefix(r.URL.Path, "/icons/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		} else {
 			w.Header().Set("Cache-Control", "no-cache")
@@ -266,11 +292,35 @@ func noCache(next http.Handler) http.Handler {
 	})
 }
 
+// statusWriter запамʼятовує код відповіді для журналу. Доти рядок «http»
+// не мав статусу взагалі — і 401 від замка виглядав би в журналі так само,
+// як 200, тобто підбір пароля не було б чим помітити.
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (w *statusWriter) WriteHeader(code int) {
+	w.code = code
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.code == 0 {
+		w.code = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
 func logMiddleware(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Info("http", "method", r.Method, "path", r.URL.Path, "dur", time.Since(start))
+		sw := &statusWriter{ResponseWriter: w}
+		next.ServeHTTP(sw, r)
+		if sw.code == 0 {
+			sw.code = http.StatusOK
+		}
+		log.Info("http", "method", r.Method, "path", r.URL.Path, "status", sw.code, "dur", time.Since(start))
 	})
 }
 

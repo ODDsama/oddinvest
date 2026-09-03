@@ -17,6 +17,10 @@ Environment=ODDINVEST_DB_PATH=/var/lib/oddinvestd/oddinvest.db
 # Environment=ODDINVEST_MQTT_USER=oddinvest
 # Environment=ODDINVEST_MQTT_PASS=***
 Environment=ODDINVEST_MQTT_PREFIX=oddinvest
+# Замок на /api/*: пароль для входу в браузері, токен для Home Assistant.
+# Обовʼязкові, щойно сервіс видно ззовні (README → «Доступ ззовні»).
+# Environment=ODDINVEST_AUTH_PASSWORD=***
+# Environment=ODDINVEST_AUTH_TOKEN=***
 
 StateDirectory=oddinvestd
 NoNewPrivileges=true

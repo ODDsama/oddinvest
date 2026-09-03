@@ -10,9 +10,21 @@
 //
 // Шляхи скрізь БЕЗ префікса: "summary", "lots/7", "calendar?from=…".
 
+/** 401 — не помилка запиту, а стан застосунку: сесії немає. Про це
+ *  кажемо оболонці подією, а не поверненням: raw() віддає відповідь як є
+ *  (шість викликачів самі дивляться resp.ok), і без події кожен із них
+ *  мусив би знати про вхід. Оболонка (app.js) відкриває діалог входу;
+ *  сам запит при цьому все одно падає — повторити його після входу
+ *  дешевше перезавантаженням, ніж чергою відкладених промісів. */
+function noteUnauthorized(resp) {
+  if (resp.status === 401) window.dispatchEvent(new Event("oi:unauth"));
+  return resp;
+}
+
 /** Спільний розбір відповіді: помилку піднімаємо з текстом тіла, бо
  *  голий 400 не каже, що саме бекенд не прийняв. */
 async function unwrap(resp) {
+  noteUnauthorized(resp);
   if (!resp.ok) {
     const txt = await resp.text().catch(() => "");
     // Бекенд віддає {"error": "..."} — витягуємо саме його, якщо є.
@@ -50,7 +62,7 @@ function make(doFetch) {
     del: (path) => send("DELETE", path),
     /** Сирий запит — для того, що не є JSON в обидва боки: вивантаження
      *  бекапу (blob) і завантаження виписки (FormData). */
-    raw: (path, opts) => doFetch(path, opts || {}),
+    raw: (path, opts) => doFetch(path, opts || {}).then(noteUnauthorized),
   };
 }
 

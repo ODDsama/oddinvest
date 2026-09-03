@@ -235,7 +235,8 @@ export function bindBrokers(ctx, main) {
 }
 
 export function bindBackup(ctx, main) {
-  // Експорт: тягнемо через проксі (з HA-авторизацією) і зберігаємо як файл.
+  // Експорт: raw, бо відповідь — файл, а не JSON; cookie сесії браузер
+  // додає сам (той самий origin).
   main.querySelector("#btnExport")?.addEventListener("click", async () => {
     try {
       const resp = await ctx.store.raw("backup");
