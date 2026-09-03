@@ -544,6 +544,10 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		"goal_pessimistic_uah": "200000", "goal_realistic_uah": "500000",
 		"goal_optimistic_uah": "1000000",
 		"import_since":        string(d(-5)),
+		// Публічна адреса: у житті її пише сам тунель при підключенні
+		// (internal/tunnel), але в документі це звичайне налаштування —
+		// і саме звідти його читає інтеграція HA.
+		"public_url": "https://oddinvest.example.com",
 		// Пишеться фоновою задачею оновлення НБУ, якої в тесті немає.
 		// Фіксований момент, а не goldenNow: у документ воно потрапляє
 		// рядком як є, і будь-яка похідна від часу дата зробила б golden

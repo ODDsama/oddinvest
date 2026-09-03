@@ -42,6 +42,7 @@ import * as instr from "./views/instrument-view.js";
 import * as portfolio from "./views/portfolio-view.js";
 import * as policy from "./views/policy-view.js";
 import * as settings from "./views/settings-view.js";
+import * as remote from "./views/remote.js";
 import * as money from "./views/money-view.js";
 import * as plan from "./views/plan-view.js";
 import * as goals from "./views/goals.js";
@@ -130,6 +131,7 @@ const VIEWS = {
 
   "settings/refs/main": settings.refs,
   "settings/backup/main": settings.backup,
+  "settings/remote/main": remote.remote,
 };
 
 // Панель на рядок ІЗ ДАНИХ: ключ — «вкладка/вид/панель». Рядків тут
@@ -470,6 +472,30 @@ export class OddInvestApp extends HTMLElement {
           })}
         </div>
       </dialog>
+      <!-- Перший запуск: пароля ще немає, тобто /api/* відкритий усім, хто
+           бачить порт. Це не «режим без замка», а незакінчене встановлення,
+           і саме тому діалог ЛИПКИЙ (data-sticky): Escape і клік по тлу його
+           не закривають. Закрити його — означало б лишити двері навстіж і
+           не побачити цього більше ніколи. -->
+      <dialog class="infopop editpop" id="setupPop" data-sticky aria-labelledby="setupPopTitle">
+        <div class="box">
+          <h4 id="setupPopTitle">Задай пароль</h4>
+          <p class="note">Поки пароля немає, застосунок відкритий кожному, хто бачить його
+            адресу в мережі. Пароль зберігається хешем у базі; забув — скидається командою
+            <code>oddinvestd -reset-auth</code> у контейнері.</p>
+          ${formHTML({
+            id: "setupForm", submit: "Закрити застосунок паролем",
+            fields: [
+              field("password", "Пароль (від 8 символів)",
+                { type: "password", required: true, autocomplete: "new-password" }),
+              field("confirm", "Ще раз",
+                { type: "password", required: true, autocomplete: "new-password" }),
+            ],
+          })}
+          <p class="note">Далі — «Налаштування → Доступ ззовні»: там видається токен для
+            Home Assistant і вмикається доступ із телефона.</p>
+        </div>
+      </dialog>
     `;
     // Обробників кліку на ПОСИЛАННЯХ вкладок і рядків тут немає:
     // посилання веде в хеш, hashchange будить _route(), і той малює
@@ -565,52 +591,76 @@ export class OddInvestApp extends HTMLElement {
   _wireLogin() {
     const pop = this.shadowRoot.getElementById("loginPop");
     const form = this.shadowRoot.getElementById("loginForm");
+    const setupPop = this.shadowRoot.getElementById("setupPop");
+    const setupForm = this.shadowRoot.getElementById("setupForm");
     const logout = this.shadowRoot.getElementById("logout");
+
+    // Липкий діалог не закривається сам: cancel — це і Escape, і кнопка
+    // «назад» деяких рушіїв. Клік по тлу й Escape від наших обробників
+    // (info.js, forms.js) його теж не чіпають — вони питають data-sticky.
+    setupPop.addEventListener("cancel", (e) => e.preventDefault());
 
     window.addEventListener("oi:unauth", () => {
       // Один 401 тягне за собою десяток інших (кожен маршрут сторінки), а
       // діалог один: showModal() на відкритому <dialog> кидає.
-      if (pop.open) return;
+      if (pop.open || setupPop.open) return;
       pop.showModal();
       form.querySelector("input")?.focus();
     });
 
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const btn = form.querySelector("button[type=submit]");
-      btn.disabled = true;
-      try {
-        await this._store.raw("login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password: form.password.value }),
-        }).then(async (resp) => {
-          if (resp.ok) return;
-          const txt = await resp.text().catch(() => "");
-          let msg = txt;
-          try { msg = JSON.parse(txt).error || txt; } catch (_) { /* не JSON */ }
-          throw new Error(msg || `${resp.status}`);
-        });
-        // Перезавантаження, а не теплий рендер: усе, що впало з 401 до
-        // входу, — довідники, зведення, позиції — має піти заново, і
-        // одна сторінка робить це надійніше за перелік маршрутів.
-        window.location.reload();
-      } catch (err) {
-        this._toast(String(err.message || err), false);
-        btn.disabled = false;
-        form.password.select();
-      }
-    });
+    // Спільна проводка на обидві форми: різняться лише шлях, тіло й те, що
+    // робити далі. Третьої копії розбору помилки заводити нема потреби —
+    // raw() віддає відповідь як є, а текст помилки бекенд шле в {"error"}.
+    const post = (f, path, body) => {
+      f.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const btn = f.querySelector("button[type=submit]");
+        btn.disabled = true;
+        try {
+          const resp = await this._store.raw(path, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body(f)),
+          });
+          if (!resp.ok) {
+            const txt = await resp.text().catch(() => "");
+            let msg = txt;
+            try { msg = JSON.parse(txt).error || txt; } catch (_) { /* не JSON */ }
+            throw new Error(msg || `${resp.status}`);
+          }
+          // Перезавантаження, а не теплий рендер: усе, що впало з 401 до
+          // входу, — довідники, зведення, позиції — має піти заново, і
+          // одна сторінка робить це надійніше за перелік маршрутів.
+          window.location.reload();
+        } catch (err) {
+          this._toast(String(err.message || err), false);
+          btn.disabled = false;
+          f.querySelector("input")?.select();
+        }
+      });
+    };
+    post(form, "login", (f) => ({ password: f.password.value }));
+    post(setupForm, "auth/setup", (f) => ({
+      password: f.password.value, confirm: f.confirm.value,
+    }));
 
     logout?.addEventListener("click", async () => {
       try { await this._store.raw("logout", { method: "POST" }); }
       finally { window.location.reload(); }
     });
 
-    // «Вийти» — лише коли є звідки. Питання відкрите (auth.go), тож іде
-    // й до входу; відповідь не кешується store — raw повз кеш.
+    // Одне питання на два стани. «Вийти» — лише коли є звідки; форма
+    // першого пароля — щойно бекенд каже, що його ще немає, і не чекаючи
+    // 401: без пароля жоден запит 401 і не дасть, тобто інакше цей стан
+    // не показався б ніколи. Питання відкрите (auth.go), тож іде й до
+    // входу; відповідь не кешується store — raw повз кеш.
     this._store.raw("auth").then((r) => (r.ok ? r.json() : null)).then((a) => {
-      if (a && a.enabled) logout.hidden = false;
+      if (!a) return;
+      if (a.enabled) logout.hidden = false;
+      if (a.setup && !setupPop.open) {
+        setupPop.showModal();
+        setupForm.querySelector("input")?.focus();
+      }
     }).catch(() => { /* без відповіді кнопка лишається схованою */ });
   }
 

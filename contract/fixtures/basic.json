@@ -406,6 +406,7 @@
     "reserve_target_months": 3,
     "reserve_liquid_months": 1,
     "reserve_max_term_months": 6,
+    "public_url": "https://oddinvest.example.com",
     "target_npf_pct": 10,
     "npf_credit_pdfo_year_uah": 40000,
     "npf_credit_cap_month_uah": 4660

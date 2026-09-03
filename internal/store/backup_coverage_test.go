@@ -29,6 +29,11 @@ var derivedTables = map[string]bool{
 	"sqlite_sequence":   true, // службова таблиця AUTOINCREMENT
 	"sqlite_stat1":      true, // статистика PRAGMA optimize
 	"sqlite_stat4":      true,
+	// secrets — не похідна, а СВІДОМО не в бекапі: хеш пароля, ключ
+	// сесій, токен HA й реквізити тунелю. Це не дані портфеля, і
+	// відновлення копії з іншої машини не має ані підмінити пароль, ані
+	// вибити свій. Довід цілком — у міграції 0053.
+	"secrets": true,
 }
 
 // TestBackupCoversEveryUserTable — кожна таблиця схеми або в бекапі, або

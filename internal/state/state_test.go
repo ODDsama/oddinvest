@@ -61,6 +61,9 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 			TargetNPFPct:         &npfTgt,
 			NPFCreditPDFOYearUAH: &pdfo,
 			NPFCreditCapMonthUAH: &capMonth,
+			// Публічна адреса: інтеграція читає її з документа, тож у
+			// фікстурі вона мусить бути заповнена (шапка функції).
+			PublicURL: "https://oddinvest.example.com",
 		}
 	}()
 	doc := &Doc{

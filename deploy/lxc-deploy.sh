@@ -72,6 +72,26 @@ if [ -z "$ok" ]; then
 fi
 echo "-- $(go version)"
 
+# ---------- конектор тунелю ----------
+# Ідемпотентно й тихо: у контейнерах, поставлених до появи «Доступу
+# ззовні», cloudflared немає, а скрипт провізії заново не ганяють. Тунель
+# без нього створиться, але зʼєднання не буде — і сторінка про це скаже.
+# Невдача тут НЕ валить деплой (|| true): відсутній конектор — це втрачений
+# доступ ззовні, а не втрачений застосунок.
+if ! command -v cloudflared >/dev/null 2>&1; then
+  echo "-- ставлю cloudflared"
+  (
+    set -e
+    install -m 0755 -d /usr/share/keyrings
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+      -o /usr/share/keyrings/cloudflare-main.gpg
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bookworm main" \
+      >/etc/apt/sources.list.d/cloudflared.list
+    DEBIAN_FRONTEND=noninteractive apt-get update -q
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends cloudflared
+  ) || echo "!! cloudflared не поставився — доступ ззовні буде недоступний"
+fi
+
 # ---------- збірка ----------
 # У ТИМЧАСОВИЙ файл, а не одразу в $BIN: раніше збірка писала прямо в
 # /usr/local/bin/oddinvestd, і невдала збірка лишала там обрізаний файл,

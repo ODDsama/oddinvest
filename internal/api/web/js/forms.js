@@ -238,7 +238,10 @@ export function confirmDialog(ctx, message, { yes: label = "Видалити", d
 export function bindDialogBackdrop(root) {
   root.addEventListener("click", (e) => {
     const pop = root.querySelector("dialog[open]");
-    if (!pop || e.target !== pop) return;
+    // data-sticky — діалог, який закривати не можна: форма першого пароля
+    // (app.js). Доки пароля немає, API відкритий усій мережі, і закриття
+    // діалогу означало б «побачив і забув».
+    if (!pop || pop.hasAttribute("data-sticky") || e.target !== pop) return;
     const r = pop.getBoundingClientRect();
     const out = e.clientX < r.left || e.clientX > r.right
       || e.clientY < r.top || e.clientY > r.bottom;

@@ -71,6 +71,17 @@ export DEBIAN_FRONTEND=noninteractive
 echo "-- installing build deps"
 apt-get update -q
 apt-get install -y -q --no-install-recommends ca-certificates curl git gcc libc6-dev
+# cloudflared — конектор тунелю. Ставиться ПАКЕТОМ, а не тягнеться демоном:
+# демон його лише запускає дочірнім процесом (internal/tunnel), коли тунель
+# підключають зі сторінки «Доступ ззовні». Ланцюг постачання лишається за
+# apt, а не за нашим кодом.
+install -m 0755 -d /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+  -o /usr/share/keyrings/cloudflare-main.gpg
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared bookworm main" \
+  >/etc/apt/sources.list.d/cloudflared.list
+apt-get update -q
+apt-get install -y -q --no-install-recommends cloudflared
 echo "-- fetching source"
 # Розкладка та сама, що її робить proxmox-git-setup.sh для наявного
 # контейнера: bare-репозиторій /srv/git/oddinvest.git (ціль для
@@ -98,10 +109,6 @@ ODDINVEST_MQTT_ADDR=${MQTT_ADDR}
 ODDINVEST_MQTT_USER=${MQTT_USER}
 ODDINVEST_MQTT_PASS=${MQTT_PASS}
 ODDINVEST_MQTT_PREFIX=${MQTT_PREFIX}
-# Замок на REST. Обидва порожні = вимкнено. Обовʼязкові ДО того, як сервіс
-# стане досяжним ззовні (README → «Доступ ззовні»).
-ODDINVEST_AUTH_PASSWORD=${AUTH_PASSWORD:-}
-ODDINVEST_AUTH_TOKEN=${AUTH_TOKEN:-}
 ENV
 chmod 640 /etc/oddinvestd.env
 echo "-- systemd unit"

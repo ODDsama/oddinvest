@@ -1861,6 +1861,7 @@
     "debt_fill_from": "plan",
     "reserve_debt_months": 5,
     "goals_while_debt": "keep",
+    "public_url": "https://oddinvest.example.com",
     "income_target_uah": 30000,
     "withdraw_monthly_uah": 20000,
     "rate_spread_pp": 3,

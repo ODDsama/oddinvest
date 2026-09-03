@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"github.com/ODDsama/oddinvest/internal/mqtt"
 	"github.com/ODDsama/oddinvest/internal/nbu"
 	"github.com/ODDsama/oddinvest/internal/store"
+	"github.com/ODDsama/oddinvest/internal/tunnel"
 )
 
 // setKyivLocal робить календар процесу київським, а не серверним.
@@ -57,6 +59,13 @@ func setKyivLocal() {
 
 func main() {
 	setKyivLocal() // до всього іншого: далі кожен time.Now() уже київський
+	// Прапорець рівно один, і він не про роботу сервісу, а про доступ до
+	// нього: забутий пароль інакше не скинеш — секрети лежать у базі
+	// хешами (internal/api/auth.go). Тунель при цьому не чіпається:
+	// забутий пароль не привід рвати звʼязок, який працює.
+	resetAuth := flag.Bool("reset-auth", false,
+		"стерти пароль, сесії й токен HA — наступний вхід задасть пароль заново")
+	flag.Parse()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	cfg := config.Load()
 
@@ -66,6 +75,17 @@ func main() {
 		os.Exit(1)
 	}
 	defer st.Close() //nolint:errcheck // закриття БД на виході; реагувати вже нічим
+
+	// ПІСЛЯ store.Open (там міграції), ДО сервера: скидання — це окрема
+	// команда, а не режим роботи.
+	if *resetAuth {
+		if err := st.ResetAuth(context.Background()); err != nil {
+			log.Error("скидання пароля", "err", err)
+			os.Exit(1)
+		}
+		log.Info("пароль, сесії й токен HA стерто — відкрий застосунок і задай пароль заново")
+		return
+	}
 
 	var pub *mqtt.Publisher
 	if cfg.MQTTAddr != "" {
@@ -88,12 +108,20 @@ func main() {
 	backupPath := filepath.Join(filepath.Dir(cfg.DBPath), "oddinvest-backup.json")
 	runner := jobs.New(st, nc, pub, srv.BuildStateDoc, log, backupPath)
 	srv = api.New(st, runner, log)
-	srv.SetAuth(api.Auth{Password: cfg.AuthPassword, Token: cfg.AuthToken})
+	// Тунель назовні (internal/tunnel). Створюється тут, а не в api:
+	// йому потрібні шлях бази (HOME для конектора) і адреса
+	// прослуховування, тобто те, що знає лише main.
+	tun := tunnel.NewManager(st, log, "",
+		tunnel.OriginFromAddr(cfg.HTTPAddr), tunnel.HomeFor(cfg.DBPath))
+	srv.SetTunnel(tun)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	go runner.RunDaily(ctx)
+	// Конектор тунелю, якщо він налаштований: перезапуск сервісу не має
+	// вимагати повторного «Підключити» на сторінці.
+	tun.Start(ctx)
 	// Історія курсу за десять років — з неї вимірюється знецінення
 	// гривні, а без неї застосунок відкочується на припущену шістку.
 	// У фоні й лише коли історії справді мало: це ~120 запитів до НБУ
@@ -145,6 +173,11 @@ func main() {
 
 	<-ctx.Done()
 	log.Info("зупинка…")
+	// Конектор — дочірній процес, і на нього ЧЕКАЮТЬ: інакше systemd уб'є
+	// його разом із демоном, а Cloudflare ще хвилину вважатиме тунель
+	// живим і слатиме в нікуди. Перед HTTP: спершу зачиняємо двері
+	// назовні, потім свій порт.
+	tun.Close()
 	shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpSrv.Shutdown(shCtx); err != nil {

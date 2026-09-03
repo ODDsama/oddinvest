@@ -2152,6 +2152,21 @@ main { transition: opacity var(--oi-dur) var(--oi-ease); }
 .self-start { align-self: flex-start; }
 .inline-block { display: inline-block; }
 .wrap { flex-wrap: wrap; }
+/* Секрет, показаний РАЗ (токен для Home Assistant, «Доступ ззовні»):
+   моноширинний, у рамці, і рветься посеред рядка — 64 шістнадцяткові
+   символи інакше виїхали б за екран телефона, а виділити мишею те, чого
+   не видно, не можна. */
+.secret {
+  display: block;
+  margin-top: var(--oi-gap-xs);
+  padding: var(--oi-gap-sm);
+  border: var(--oi-rule) solid var(--oi-border);
+  border-radius: var(--oi-radius-sm);
+  background: var(--oi-surface-2);
+  font-family: var(--oi-font-mono);
+  font-size: var(--oi-fs-sm);
+  overflow-wrap: anywhere;
+}
 
 /* SVG розтягується на всю ширину рамки, а висоту бере з viewBox. Це
    стояло інлайном на кожному з чотирьох різновидів графіка — тобто

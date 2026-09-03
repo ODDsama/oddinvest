@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/store"
+	"github.com/ODDsama/oddinvest/internal/tunnel"
 )
 
 //go:embed web
@@ -35,22 +36,33 @@ type Server struct {
 	pubPending bool
 
 	// Замок на /api/* і лічильник невдалих входів — auth.go.
-	auth      Auth
+	auth      authCache
 	authFails *authState
+	// tun — доступ ззовні (internal/tunnel). nil у тестах і в збірках без
+	// демона: сторінка тоді каже «не налаштовано», а дії відповідають 501.
+	tun *tunnel.Manager
 }
 
+// SetTunnel підʼєднує менеджер тунелю. Окремим сеттером, як і Refresher, і
+// з тієї самої причини: менеджеру потрібне сховище, яке відкриває main,
+// а серверу — сам менеджер, тож кільце розривається присвоєнням.
+func (s *Server) SetTunnel(t *tunnel.Manager) { s.tun = t }
+
+// New — сервер із секретами, прочитаними зі сховища.
+//
+// Помилка читання не фатальна й не мовчазна: кеш лишається порожнім, тобто
+// замка немає, і застосунок покаже форму «задай пароль». Валити старт
+// сервера через це не можна — сторінка відновлення з копії саме тоді й
+// потрібна, коли зі сховищем щось не так.
 func New(st *store.Store, ref Refresher, log *slog.Logger) *Server {
-	return &Server{st: st, ref: ref, log: log, authFails: newAuthState()}
-}
-
-// SetAuth вмикає авторизацію. Окремим методом, а не параметром New: New
-// кличуть півтора десятка тестів, і жодному з них замок не потрібен —
-// нульове значення Auth означає «як досі».
-func (s *Server) SetAuth(a Auth) {
-	s.auth = a
-	if !a.Enabled() {
-		s.log.Warn("авторизація вимкнена: /api/* відкритий усім, хто бачить порт (README: «Чого тут свідомо немає» → «Авторизації»)")
+	s := &Server{st: st, ref: ref, log: log, authFails: newAuthState()}
+	if err := s.reloadAuth(context.Background()); err != nil {
+		log.Error("секрети не прочитались — сервіс лишається відкритим", "err", err)
 	}
+	if !s.authEnabled() {
+		log.Warn("пароль не заданий: /api/* відкритий усім, хто бачить порт — задай його першим входом у застосунок")
+	}
+	return s
 }
 
 func (s *Server) Handler() http.Handler {
@@ -224,11 +236,19 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/import/profiles/{name}", s.handleSaveImportProfile)
 	mux.HandleFunc("DELETE /api/import/profiles/{name}", s.handleDeleteImportProfile)
 
-	// Вхід/вихід і питання «чи треба входити» — єдині маршрути /api/*,
-	// які requireAuth пропускає (auth.go).
+	// Вхід/вихід, питання «чи треба входити» і перший пароль — єдині
+	// маршрути /api/*, які requireAuth пропускає (auth.go). Решта замка —
+	// зміна пароля й токен машин — під замком, як і все інше.
 	mux.HandleFunc("GET /api/auth", s.handleAuthStatus)
+	mux.HandleFunc("POST /api/auth/setup", s.handleAuthSetup)
+	mux.HandleFunc("PUT /api/auth/password", s.handleAuthPassword)
+	mux.HandleFunc("POST /api/auth/token", s.handleAuthToken)
+	mux.HandleFunc("DELETE /api/auth/token", s.handleAuthTokenRevoke)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/remote", s.handleRemoteStatus)
+	mux.HandleFunc("POST /api/remote/connect", s.handleRemoteConnect)
+	mux.HandleFunc("POST /api/remote/disconnect", s.handleRemoteDisconnect)
 
 	sub, _ := fs.Sub(webFS, "web") //nolint:errcheck // шлях у go:embed — константа, помилка неможлива
 	mux.Handle("GET /", noCache(http.FileServerFS(sub)))
