@@ -158,3 +158,129 @@ func TestRealizedGainCountsEveryOutflow(t *testing.T) {
 		t.Errorf("заробок/вкладено = %d/%d, хочемо -5000/150000", gain, invested)
 	}
 }
+
+// convOps — портфель із конвертацією, зведений до суті з бойових даних:
+// Житній набрали за 9 059,92, у вересні 2025-го він перетворився на REIT
+// за 9 193,05, і згори довелось докласти 6,95. Ноги показують одна на
+// одну через PairID — так їх і кладе імпорт виписки.
+func convOps() []FundOp {
+	return []FundOp{
+		{ID: 1, Date: "2024-10-02", Fund: "Житній", Kind: FundBuy,
+			Qty: 9, Amount: 905992, Currency: "UAH"},
+		{ID: 2, Date: "2025-09-03", Fund: "Житній", Kind: FundSell,
+			Qty: 9, Amount: 919305, Currency: "UAH", PairID: 3},
+		{ID: 3, Date: "2025-09-03", Fund: "REIT", Kind: FundBuy,
+			Qty: 920, Amount: 920000, Currency: "UAH", PairID: 2},
+	}
+}
+
+// Конвертація — один потік на різницю, а не два на повні суми.
+func TestFundFlowsPairIsNetOnly(t *testing.T) {
+	flows := FundFlows(convOps(), nil, "UAH", "2026-09-03")
+	var onConv []Flow
+	for _, f := range flows {
+		if f.Date == "2025-09-03" {
+			onConv = append(onConv, f)
+		}
+	}
+	if len(onConv) != 1 {
+		t.Fatalf("на дату конвертації мав бути один потік, маємо %d: %+v", len(onConv), onConv)
+	}
+	if onConv[0].Amount != -695 {
+		t.Errorf("потік = %d, хочемо -695 (сама лише доплата)", onConv[0].Amount)
+	}
+}
+
+// Головне: переказ між фондами не є вкладеними грішми.
+//
+// Доти нога купівлі проходила в RealizedGain як свіжий капітал, і на
+// бойових даних знаменник роздувався на 17 380 грн — відсоток прибутку
+// виходив занижений у півтора раза.
+func TestFundFlowsPairDoesNotInflateInvested(t *testing.T) {
+	ops := convOps()
+	_, invested := RealizedGain(FundFlows(ops, nil, "UAH", "2026-09-03"))
+	// Справді вкладено: 9 059,92 купівлі Житнього плюс 6,95 доплати.
+	if invested != 906687 {
+		t.Errorf("вкладено %d, хочемо 906687 (905992 + 695)", invested)
+	}
+	if invested >= 905992+920000 {
+		t.Errorf("нога конвертації порахувалась вкладенням: %d", invested)
+	}
+}
+
+// А ставка й прибуток мусять лишитись тими самими: у самому XIRR ноги
+// гасились і доти, бо стоять на одну дату. Тест порівнює зведений список
+// із тим, який був ДО зміни — дві повні ноги замість різниці, — і стереже,
+// щоб зведення не зсунуло нічого, що вже було правильним.
+func TestFundFlowsPairKeepsXIRRAndGain(t *testing.T) {
+	marks := []FundPrice{{Fund: "REIT", Date: "2026-09-03", Price: 111114}}
+	netted := FundFlows(convOps(), marks, "UAH", "2026-09-03")
+
+	// Той самий список, але з парою в дві ноги, як його будував старий код.
+	var legs []Flow
+	for _, f := range netted {
+		if f.Date == "2025-09-03" && f.Amount == -695 {
+			legs = append(legs,
+				Flow{Date: "2025-09-03", Amount: 919305},
+				Flow{Date: "2025-09-03", Amount: -920000})
+			continue
+		}
+		legs = append(legs, f)
+	}
+	if len(legs) != len(netted)+1 {
+		t.Fatalf("не знайшов зведеного потоку пари: %+v", netted)
+	}
+
+	gainNet, investedNet := RealizedGain(netted)
+	gainLegs, investedLegs := RealizedGain(legs)
+	if gainNet != gainLegs {
+		t.Errorf("прибуток зсунувся: %d проти %d", gainNet, gainLegs)
+	}
+	// А ось ЦЕ і є вада, заради якої все. Надлишок дорівнює сумі ноги
+	// ПРОДАЖУ: доти в invested заходила ціла нога купівлі (920 000), тепер
+	// заходить сама доплата (695), і різниця між ними — 919 305, тобто
+	// рівно те, що продаж приніс і що ніхто заново не вкладав.
+	if investedLegs-investedNet != 919305 {
+		t.Errorf("вкладене змінилось на %d, хочемо 919305", investedLegs-investedNet)
+	}
+
+	rateNet, err := XIRR(netted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rateLegs, err := XIRR(legs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(rateNet-rateLegs) > 1e-9 {
+		t.Errorf("ставка зсунулась: %.9f проти %.9f", rateNet, rateLegs)
+	}
+}
+
+// Середній вік грошей не молодшає від переказу: ті самі гроші не можна
+// вкласти двічі.
+func TestMoneyWeightedDaysIgnoresConversion(t *testing.T) {
+	got := MoneyWeightedDays(FundFlows(convOps(), nil, "UAH", "2026-09-03"), "2026-09-03")
+	// Майже все вкладене — купівля 2024-10-02, тобто 701 день.
+	if got < 690 {
+		t.Errorf("середній вік %.1f дня — конвертація порахувалась новими грішми", got)
+	}
+}
+
+// Дзеркало: у власній дохідності фонду-джерела конвертація ЛИШАЄТЬСЯ
+// виходом, інакше в Житнього була б сама купівля й жодного повернення.
+func TestFundFlowsOneSeesConversionAsExit(t *testing.T) {
+	flows := FundFlowsOne(convOps(), nil, "Житній", "2026-09-03")
+	var in int64
+	for _, f := range flows {
+		if f.Amount > 0 {
+			in += f.Amount
+		}
+	}
+	if in != 919305 {
+		t.Errorf("надходження фонду = %d, хочемо 919305", in)
+	}
+	if _, err := XIRR(flows); err != nil {
+		t.Errorf("дохідність фонду не порахувалась: %v", err)
+	}
+}

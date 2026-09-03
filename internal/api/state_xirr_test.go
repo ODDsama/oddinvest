@@ -8,7 +8,10 @@ import (
 	"testing"
 	"time"
 
+	money "github.com/Rhymond/go-money"
+
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 // totalOf — зведений результат зі зведення, розібраний у щось перевірюване.
@@ -207,5 +210,70 @@ func TestXIRREndpointCarriesTotal(t *testing.T) {
 	}
 	if _, has := got["total"]; !has {
 		t.Errorf("ручка мала нести зведене число: %s", body)
+	}
+}
+
+// Зняття грошей із брокерського рахунку не рухає дохідність — і це
+// правильно.
+//
+// Питання власника після заливки історії: «xirr правильно рахується
+// навіть з виведеним капіталом з інжуру?» У листопаді 2025-го він продав
+// усі сертифікати REIT і того ж дня зняв виручку — 17 949,45 грн.
+//
+// XIRR будується ПО ІНСТРУМЕНТАХ: поповнення й зняття рахунку в потоки не
+// входять узагалі, а продаж, який ті гроші приніс, уже дав свій плюс.
+// Якби зняття теж було потоком, воно погасило б продаж, і фонд виглядав
+// би так, ніби не повернув нічого.
+//
+// Досі це не пінило ніщо: у тестах десятки AddDeposit, і жоден не стоїть
+// поруч із перевіркою XIRR. Тобто властивість трималась на тому, що
+// нікому не спало на думку додати рухи рахунку в потоки.
+func TestXIRRIgnoresBrokerWithdrawal(t *testing.T) {
+	ctx := context.Background()
+	today := domain.NewDate(time.Now())
+
+	seed := func(t *testing.T, st *store.Store) {
+		t.Helper()
+		for _, op := range []domain.FundOp{
+			{Date: today.AddDays(-400), Fund: "Inzhur REIT", Kind: domain.FundBuy,
+				Qty: 1000, Amount: 1_000_000, Currency: money.UAH, Broker: "inzhur"},
+			{Date: today.AddDays(-30), Fund: "Inzhur REIT", Kind: domain.FundSell,
+				Qty: 1000, Amount: 1_100_000, Tax: 23_000, Currency: money.UAH, Broker: "inzhur"},
+		} {
+			if _, err := st.AddFundOp(ctx, op); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	srvA, stA := testServer(t)
+	seed(t, stA)
+	quiet, xirrA, okA := summaryTotal(t, srvA.URL)
+
+	srvB, stB := testServer(t)
+	seed(t, stB)
+	// Та сама історія, але виручку знято з рахунку наступного дня.
+	if _, err := stB.AddDeposit(ctx, store.Deposit{
+		Date: today.AddDays(-29), Amount: -1_077_000,
+		Currency: money.UAH, Broker: "inzhur", Note: "виведення",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	withdrawn, xirrB, okB := summaryTotal(t, srvB.URL)
+
+	if !okA || !okB {
+		t.Fatalf("зведене число мало бути в обох випадках: %v / %v", okA, okB)
+	}
+	if xirrA["UAH"] != xirrB["UAH"] {
+		t.Errorf("зняття зсунуло гривневий XIRR: %v проти %v", xirrA["UAH"], xirrB["UAH"])
+	}
+	if quiet.GainUAH != withdrawn.GainUAH {
+		t.Errorf("зняття зсунуло прибуток: %v проти %v", quiet.GainUAH, withdrawn.GainUAH)
+	}
+	if (quiet.XIRRPct == nil) != (withdrawn.XIRRPct == nil) {
+		t.Fatalf("одна зі ставок зникла: %+v / %+v", quiet.XIRRPct, withdrawn.XIRRPct)
+	}
+	if quiet.XIRRPct != nil && *quiet.XIRRPct != *withdrawn.XIRRPct {
+		t.Errorf("зняття зсунуло зведену ставку: %v проти %v", *quiet.XIRRPct, *withdrawn.XIRRPct)
 	}
 }

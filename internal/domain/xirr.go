@@ -174,8 +174,57 @@ func PortfolioFlows(bonds map[string]Bond, payments []Payment, lots []Lot,
 // продажу так само зменшує виручку.
 func FundFlows(ops []FundOp, marks []FundPrice, currency string, asOf Date) []Flow {
 	var flows []Flow
+
+	// Пара конвертації — ОДНА подія, і потоком вона мусить бути тим, чим є:
+	// різницею, яка справді зачепила гаманець. Купівля в новому фонді
+	// оплачена продажем старого, і назовні пішла сама лише доплата.
+	//
+	// Двома ногами це рахувалось майже правильно: у самому XIRR вони
+	// гасяться точно — однакова дата дає однаковий дисконт, тож внесок у
+	// NPV нульовий за будь-якої ставки. Але RealizedGain і MoneyWeightedDays
+	// дивляться ЛИШЕ на відʼємні потоки, і нога купівлі проходила в них як
+	// свіжо вкладені гроші, яких ніхто не вкладав. Надлишок дорівнює сумі
+	// ноги ПРОДАЖУ — тому, що конвертація принесла й що ніхто заново не
+	// вкладав: на бойових даних 9 193,05 + 8 177,56 = 17 370,61 грн
+	// вигаданого «вкладено» проти 32 082,42 справжніх, тобто занижений
+	// відсоток прибутку й помолоділий середній вік грошей.
+	//
+	// Те саме правило вже читають stepPosition і FundSales (funds.go):
+	// парна операція — переказ, а не угода.
+	//
+	// Ключ пари — менший із двох id, бо кожна нога показує на іншу. Нога,
+	// чия половина поза вікном asOf або в іншій валюті, лишається в мапі
+	// сама — і виходить рівно тим потоком, яким була б без цього зведення.
+	type conv struct {
+		date Date
+		net  int64
+	}
+	pairs := map[int64]*conv{}
+	var pairOrder []int64
+
 	for _, op := range ops {
 		if op.Currency != currency || op.Date.After(asOf) {
+			continue
+		}
+		if op.PairID != 0 && (op.Kind == FundBuy || op.Kind == FundSell) {
+			key := op.ID
+			if op.PairID < key {
+				key = op.PairID
+			}
+			c := pairs[key]
+			if c == nil {
+				c = &conv{}
+				pairs[key] = c
+				pairOrder = append(pairOrder, key)
+			}
+			if op.Date.After(c.date) {
+				c.date = op.Date
+			}
+			if op.Kind == FundBuy {
+				c.net -= op.Amount
+			} else {
+				c.net += op.Amount - op.Tax
+			}
 			continue
 		}
 		switch op.Kind {
@@ -185,6 +234,14 @@ func FundFlows(ops []FundOp, marks []FundPrice, currency string, asOf Date) []Fl
 			flows = append(flows, Flow{Date: op.Date, Amount: op.Amount - op.Tax})
 		case FundDividend:
 			flows = append(flows, Flow{Date: op.Date, Amount: op.Amount - op.Tax})
+		}
+	}
+	// Порядок обходу мапи випадковий, а сума float64 від порядку залежить —
+	// той самий довід, що й у state_xirr.go про валюти.
+	sort.Slice(pairOrder, func(i, j int) bool { return pairOrder[i] < pairOrder[j] })
+	for _, k := range pairOrder {
+		if c := pairs[k]; c.net != 0 {
+			flows = append(flows, Flow{Date: c.date, Amount: c.net})
 		}
 	}
 	if len(flows) == 0 {
@@ -212,6 +269,18 @@ func FundFlows(ops []FundOp, marks []FundPrice, currency string, asOf Date) []Fl
 // однієї валюти разом, бо відповідає на питання «скільки заробив
 // портфель»; тут питання інше — «скільки заробив цей фонд», і змішувати
 // його з сусідніми не можна.
+//
+// КОНВЕРТАЦІЮ тут, на відміну від FundFlows, НЕ зводимо, і це навмисно.
+// Для портфеля переказ між фондами — не подія; для самого фонду-джерела
+// це справжній вихід: Житній віддав усе, що мав, і його дохідність мусить
+// це бачити. Без вхідного потоку в нього лишилась би сама купівля, XIRR
+// не мав би кореня, і фонд, який чесно відпрацював рік, показав би
+// порожньо.
+//
+// Отже три різні відповіді на три різні питання, і всі три законні:
+// FundFlows зводить пару в доплату, FundFlowsOne бачить у ній вихід, а
+// FundPosition.Realized (funds.go) мовчить, бо результату не було. Пишу
+// це тут, щоб наступний автор не «полагодив» котрусь із них до решти.
 func FundFlowsOne(ops []FundOp, marks []FundPrice, fund string, asOf Date) []Flow {
 	var flows []Flow
 	for _, op := range ops {
