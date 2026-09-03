@@ -807,6 +807,59 @@
       },
       "additionalProperties": false
     },
+    "idle": {
+      "type": "object",
+      "description": "Простій: вільні гроші брокера, на які квиток (reinvest_min) уже є, і з якого дня вони лежать. Відсутнє, коли жодна пара брокер × валюта не дотягує до квитка. Вік — за правилом FIFO з uninvested_uah, застосованим до всіх рухів гаманця. Ціни тут немає навмисно — вона в idle_cost (адитивне поле)",
+      "properties": {
+        "investable_uah": { "type": "number", "description": "Σ по парах цілих квитків, грн-екв." },
+        "since": { "type": "string", "description": "Дата найстарішого надходження, яке досі лежить" },
+        "days": { "type": "integer", "description": "Днів від since" },
+        "age_days": { "type": "number", "description": "Зважений за сумою вік, днів" },
+        "by_pair": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "broker": { "type": "string" },
+              "currency": { "type": "string" },
+              "investable": { "type": "number", "description": "Цілі квитки, нативно" },
+              "investable_uah": { "type": "number" },
+              "since": { "type": "string" },
+              "days": { "type": "integer" },
+              "age_days": { "type": "number" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "idle_cost": {
+      "type": "object",
+      "description": "Що коштує простій за СЬОГОДНІШНЬОЮ порадою: реальна ставка найкращої доступної поради тієї ж валюти в того ж брокера. Порада, а не стан: є лише в /api/summary і MQTT, у гіпотетичному «після» кошика відсутнє. Відсутнє також без простою або без поради для цих грошей (адитивне поле)",
+      "properties": {
+        "cost_month_uah": { "type": "number", "description": "Скільки простій коштує на місяць" },
+        "cost_so_far_uah": { "type": "number", "description": "Скільки вже недоотримано від дат надходжень, ACT/365" },
+        "rate_pct": { "type": "number", "description": "Реальна ставка поради, зважена по парах" },
+        "rate_label": { "type": "string", "description": "Порада, звідки ставка (для найбільшої пари)" },
+        "by_pair": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "broker": { "type": "string" },
+              "currency": { "type": "string" },
+              "cost_month_uah": { "type": "number" },
+              "cost_so_far_uah": { "type": "number" },
+              "rate_pct": { "type": "number" },
+              "rate_label": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "npf_uah": {
       "type": "number",
       "description": "Пенсійні активи (НПФ), грн-екв. за останньою відомою ЧВОПА. Входить у капітал і валютні частки, але НЕ в купівельну спроможність: до 50 років звідси не приходить нічого (адитивне поле)"

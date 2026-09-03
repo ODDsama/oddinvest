@@ -206,6 +206,24 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 			FromDate: "2026-06-15", FromUAH: 268_246.80,
 			DeltaUAH: 5_000, DeltaPct: 1.86, ContribUAH: 4_500,
 		},
+		// Простій і його ціна — обидва блоки, бо інтеграція читає обидва:
+		// сенсор бере ціну з idle_cost, атрибути «скільки й відколи» — з
+		// idle. Числа узгоджені: 12 000 ₴ при 9,84 % реальних = 98,40 ₴/міс;
+		// за 20,5 дня зваженого віку — 66,32 ₴.
+		Idle: &IdleCash{
+			InvestableUAH: 12_000, Since: "2026-06-20", Days: 25, AgeDays: 20.5,
+			ByPair: []IdlePair{{
+				Broker: "mono", Currency: money.UAH, Investable: 12_000,
+				InvestableUAH: 12_000, Since: "2026-06-20", Days: 25, AgeDays: 20.5,
+			}},
+		},
+		IdleCost: &IdleCost{
+			CostMonthUAH: 98.40, CostSoFarUAH: 66.32, RatePct: 9.84, RateLabel: "UA4000227748",
+			ByPair: []IdleCostPair{{
+				Broker: "mono", Currency: money.UAH,
+				CostMonthUAH: 98.40, CostSoFarUAH: 66.32, RatePct: 9.84, RateLabel: "UA4000227748",
+			}},
+		},
 		// Борг: одна картка зі звіркою. Доти фікстура боргу не мала
 		// взагалі, тобто інтеграція HA не бачила блоку debt у жодному
 		// тесті. Числа узгоджені між собою: борг 17 000 при ліміті

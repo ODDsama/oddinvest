@@ -174,6 +174,9 @@ func (s *Server) buildStateTasked(ctx context.Context, now time.Time) (*state.Do
 		return doc, nil
 	}
 	doc.Tasks = buildTasks(doc, sug, src, domain.NewDate(now))
+	// Ціна простою — тут, а не в buildState, з тієї ж причини, що й
+	// задачі: вона береться з порад (state_idle.go).
+	doc.IdleCost = buildIdleCost(doc.Idle, sug)
 	return doc, nil
 }
 
@@ -350,7 +353,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		}
 	}
 	if bestCan != nil {
-		add(buyTask(bestCan, bestAny))
+		add(buyTask(bestCan, bestAny, doc.Idle))
 	}
 
 	// ---------- пенсійний внесок ----------
@@ -477,7 +480,7 @@ func hasPortfolio(doc *state.Doc) bool {
 		doc.Debt != nil
 }
 
-func buyTask(best, bestAny *suggestion) state.Task {
+func buyTask(best, bestAny *suggestion, idle *state.IdleCash) state.Task {
 	action, verb := actRecordBuy, "купити"
 	switch best.Kind {
 	case "deposit":
@@ -502,6 +505,14 @@ func buyTask(best, bestAny *suggestion) state.Task {
 	// зараз» не має ховати «краще зачекати».
 	if bestAny != nil && !bestAny.CanBuy && bestAny.RealPct > best.RealPct {
 		why += fmt.Sprintf(" Дохідніше — %s, але ще не по кишені.", suggestName(bestAny))
+	}
+	// Ціна зволікання — коли гроші вже лежать понад квиток. Задача й так
+	// каже «купи»; тепер каже, скільки коштує день без покупки. Береться з
+	// документа, а не рахується тут: означення одне (state_idle.go), і на
+	// цей момент воно ще без ціни (її припише annotateIdleCost), тож
+	// показуємо вік — він уже відомий.
+	if idle != nil && idle.InvestableUAH > 0 && idle.Since != "" {
+		why += fmt.Sprintf(" %s лежать з %s.", uah(idle.InvestableUAH), dayMonth(domain.Date(idle.Since)))
 	}
 	return state.Task{
 		ID: "buy-best", Sev: sevNow, Rank: 20, Kind: best.Kind,

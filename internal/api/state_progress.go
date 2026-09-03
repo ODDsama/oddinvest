@@ -389,7 +389,7 @@ func etaAtPace(today domain.Date, need, perDay float64) string {
 // виводиться з len(): набір сталий, і зміна його довжини мусить бути
 // свідомою — рівень людини («6 із 14») інакше мовчки поїхав би від
 // додавання чи прибирання однієї віхи.
-const milestoneCount = 21
+const milestoneCount = 22
 
 // buildProgress — сам прогрес. Чиста функція над готовими даними:
 // жодного запиту, тож її поведінку читають згори вниз.
@@ -851,6 +851,39 @@ func buildMilestones(
 
 	// --- 17-21. Борг (state_progress_debt.go) ---
 	out = append(out, debtMilestones(doc, src, snaps, today)...)
+
+	// --- 22. Місяць без простою ---
+	//
+	// Серія добових знімків, у яких простою (state_idle.go) не було, тобто
+	// жодна пара брокер × валюта не лежала понад квиток. Знімки, старші за
+	// колонку, простою не знають і серію обривають: «не рахували» ≠ «не
+	// було». Сьогоднішній простій обриває серію сьогодні, не чекаючи
+	// ранкового знімка.
+	add(func() milestone {
+		idleNow := doc.Idle != nil && doc.Idle.InvestableUAH > 0
+		run, when := idleStreak(snaps, idleNow)
+		m := milestone{Key: "idle_free_month", Title: "Місяць без простою",
+			Earned: when != "", EarnedOn: when,
+			ProgressPct: ratioPct(float64(run), idleFreeDays),
+		}
+		switch {
+		case m.Earned:
+			m.Note = "пройдено " + when
+			if idleNow {
+				m.Note += fmt.Sprintf(" · зараз лежить %s понад квиток", uah(doc.Idle.InvestableUAH))
+			}
+		case idleNow:
+			m.Note = fmt.Sprintf("зараз лежить %s понад квиток з %s — серія почнеться з покупки",
+				uah(doc.Idle.InvestableUAH), doc.Idle.Since)
+			m.Left = fmt.Sprintf("лишилось %d днів поспіль", idleFreeDays)
+		default:
+			m.Note = fmt.Sprintf("%s поспіль без грошей понад квиток", daysWord(float64(run)))
+			m.Left = "лишилось " + daysWord(float64(idleFreeDays-run))
+			m.EtaOn = etaAfterDays(today, float64(idleFreeDays-run))
+			m.EtaBasis = noteOr(m.EtaOn != "", etaByStreak, "")
+		}
+		return m
+	}())
 
 	return out
 }

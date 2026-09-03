@@ -444,23 +444,28 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			}
 			if q := domain.HolderQty(l, sales, p.PayDate); q > 0 {
 				amt := domain.MulQty(p.PerBond, q)
-				cash.add(l.Channel, amt.Currency().Code, amt.Amount())
+				cash.add(l.Channel, amt.Currency().Code, p.PayDate, amt.Amount())
 			}
 		}
 	}
 
-	for k, amt := range src.depByBC {
-		cash.add(k.Broker, k.Currency, amt)
+	// Поповнення/зняття й конвертації — подіями з датами, як і решта рухів:
+	// баланс — та сама сума, що давали підсумки по парах, але тепер гаманець
+	// знає ще й вік грошей. Обмін не переносить гроші між рахунками, тож
+	// обидві його ноги лягають на один брокер.
+	for _, d := range src.deposits {
+		cash.add(d.Broker, d.Currency, d.Date, d.Amount)
 	}
-	for k, net := range src.convBC {
-		cash.add(k.Broker, k.Currency, net)
+	for _, c := range src.conversions {
+		cash.add(c.Broker, c.FromCurrency, c.Date, -c.FromAmount)
+		cash.add(c.Broker, c.ToCurrency, c.Date, c.ToAmount)
 	}
 	for _, l := range hold.Lots {
 		cost, cerr := domain.LotCost(l.Lot)
 		if cerr != nil {
 			return nil, cerr
 		}
-		cash.add(l.Channel, cost.Currency().Code, -cost.Amount())
+		cash.add(l.Channel, cost.Currency().Code, l.BuyDate, -cost.Amount())
 		if u, cerr := fx.ToUAH(cost, rates); cerr == nil {
 			purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: l.BuyDate, Amount: u.Amount()})
 		}
@@ -489,7 +494,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 				}
 			}
 		}
-		cash.add(op.Broker, op.Currency, delta)
+		cash.add(op.Broker, op.Currency, op.Date, delta)
 	}
 
 	// Внесок у НПФ рухає гаманець в ОДИН бік: гроші йдуть із рахунку й не
@@ -521,7 +526,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		if cur == "" {
 			cur = money.UAH
 		}
-		cash.add(op.Broker, cur, -op.Amount)
+		cash.add(op.Broker, cur, op.Date, -op.Amount)
 		// Внести в пенсійний — така сама покупка, як узяти папір: гроші пішли
 		// в діло, і чергу «доходу без діла» це з'їдає нарівні з рештою.
 		if u, cerr := fx.ToUAH(money.New(op.Amount, cur), rates); cerr == nil {
@@ -540,7 +545,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	for _, dep := range termDeposits {
 		// розміщення: −тіло на дату відкриття (якщо вона вже настала)
 		if !dep.OpenDate.After(today) {
-			cash.add(dep.Bank, dep.Currency, -dep.Principal)
+			cash.add(dep.Bank, dep.Currency, dep.OpenDate, -dep.Principal)
 			// Відкрити вклад — така сама покупка, як узяти папір: гроші
 			// пішли в діло.
 			if u, cerr := fx.ToUAH(money.New(dep.Principal, dep.Currency), rates); cerr == nil {
@@ -551,7 +556,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// це записаний факт, тож arrived() не потрібен
 		for _, t := range dep.Topups {
 			if !t.Date.After(today) {
-				cash.add(dep.Bank, dep.Currency, -t.Amount)
+				cash.add(dep.Bank, dep.Currency, t.Date, -t.Amount)
 				if u, cerr := fx.ToUAH(money.New(t.Amount, dep.Currency), rates); cerr == nil {
 					purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: t.Date, Amount: u.Amount()})
 				}
@@ -559,7 +564,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		}
 		if dep.ClosedDate != "" {
 			if !dep.ClosedDate.After(today) {
-				cash.add(dep.Bank, dep.Currency, dep.ClosedAmount)
+				cash.add(dep.Bank, dep.Currency, dep.ClosedDate, dep.ClosedAmount)
 			}
 			// У «не перевкладено» розірвання НЕ входить: це дискреційний
 			// вихід, як продаж лота на вторинці, а не запланована виплата.
@@ -574,7 +579,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			if !arrived(cf.ISIN, cf.Date) {
 				continue
 			}
-			cash.add(dep.Bank, cf.Amount.Currency().Code, cf.Amount.Amount())
+			cash.add(dep.Bank, cf.Amount.Currency().Code, cf.Date, cf.Amount.Amount())
 			// Відсотки вкладу — такий самий дохід, як купон, і в чергу
 			// простою стають нарівні з ним.
 			if u, cerr := fx.ToUAH(cf.Amount, rates); cerr == nil {
@@ -804,6 +809,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			reinvestMin = uahAmt
 		}
 	}
+	// Простій — та частина гаманця, на яку квиток уже є (state_idle.go).
+	// Ціну йому припише buildStateTasked: вона потребує порад, а ті
+	// рахуються за готовим документом.
+	idleCash := buildIdle(cash, minByCur, rates, today)
 
 	// Ціна ОДНОГО сертифіката — найдешевшого з тих, що вже в портфелі.
 	//
@@ -1151,6 +1160,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		UninvestedUAH:  state.Major(unin),
 		AccountUAH:     state.Major(account),
 		ReinvestMinUAH: state.Major(reinvestMin),
+		Idle:           idleCash,
 
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
 		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,

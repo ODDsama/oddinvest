@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -354,6 +355,16 @@ func (r *Runner) BackfillAuctionsIfThin(ctx context.Context, weeks, minDays int)
 	}
 }
 
+// idleMinor — простій у копійках для колонки idle_uah; 0 без простою.
+// Відʼємне значення в колонці означає «тоді не рахували» (міграція 0052),
+// і джоба його ніколи не пише.
+func idleMinor(doc *state.Doc) int64 {
+	if doc.Idle == nil {
+		return 0
+	}
+	return int64(math.Round(doc.Idle.InvestableUAH * 100))
+}
+
 // Snapshot зберігає добовий знімок агрегатів для майбутнього графіка
 // «факт vs модель».
 func (r *Runner) Snapshot(ctx context.Context) error {
@@ -390,6 +401,10 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 		// коли людина просто відклала на авто, і пояснити його не було б чим
 		// (аргумент — у міграції 0040).
 		GoalsUAH: int64(doc.GoalsUAH * 100),
+		// Простій — готовим із документа: означення одне (state_idle.go), і
+		// нуль тут означає «простою не було», а не «не рахували» (міграція
+		// 0052 тримає для другого −1).
+		IdleUAH: idleMinor(doc),
 		// НПФ — обидва числа, і друге не для симетрії: собівартість тут
 		// РЕАЛЬНА (внески) і відрізняється від вартості, тож без неї крива
 		// малювала б прибуток, завищений на весь пенсійний баланс. Резерву

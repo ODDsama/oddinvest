@@ -107,12 +107,13 @@ type sources struct {
 	// обхід знімків там платити нема за що. nil — знімка ще немає.
 	capitalAgo *store.Snapshot
 
-	// Рух грошей: поповнення/зняття, їхній розріз по брокер-валюті,
-	// нетто конверсій і статуси виплат.
-	deposits []store.Deposit
-	depByBC  map[store.BrokerCur]int64
-	convBC   map[store.BrokerCur]int64
-	statuses map[string]string
+	// Рух грошей: поповнення/зняття, конвертації і статуси виплат. Обидва
+	// списки З ДАТАМИ, а не підсумками по парах: гаманець (state_cash.go)
+	// веде журнал подій, і з нього виводиться не лише баланс, а й з якого
+	// дня гроші лежать.
+	deposits    []store.Deposit
+	conversions []store.Conversion
+	statuses    map[string]string
 
 	// Пороги й курси-запаснки: найдешевший папір у валюті, мінімум вкладу,
 	// середній курс купівлі валюти.
@@ -180,10 +181,7 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	if src.statuses, err = s.st.PaymentStatuses(ctx); err != nil {
 		return nil, err
 	}
-	if src.depByBC, err = s.st.DepositsByBrokerCurrency(ctx); err != nil {
-		return nil, err
-	}
-	if src.convBC, err = s.st.ConversionsNetByBroker(ctx); err != nil {
+	if src.conversions, err = s.st.ListConversions(ctx); err != nil {
 		return nil, err
 	}
 	if src.minNominal, err = s.st.MinNominalByCurrency(ctx); err != nil {

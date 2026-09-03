@@ -68,6 +68,8 @@ func stripVolatile(t *testing.T, s string) string {
 	}
 	delete(m, "generated_at")
 	delete(m, "tasks")
+	// idle_cost — порада, як і tasks (довід у handlers_whatif_test.go).
+	delete(m, "idle_cost")
 	b, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)

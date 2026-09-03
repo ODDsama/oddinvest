@@ -65,6 +65,13 @@ type Snapshot struct {
 	// Нуль у старих рядках означає «тоді не рахували», а не «боргів не
 	// було»: лінія на кривій мусить обриватись там, де починаються нулі.
 	NetWorthUAH int64 `json:"net_worth_uah,omitempty"`
+	// IdleUAH — простій того дня: цілі квитки вільних грошей, грн-екв.
+	// (0052). ЄДИНА колонка, де «не рахували» — це −1, а не 0: нуль тут має
+	// власний зміст («простою не було»), і саме на ньому стоїть віха
+	// «Місяць без простою». Без omitempty, щоб −1 переживав бекап; бекап,
+	// старший за колонку, поля не має й читається нулем — це відома й
+	// прийнята похибка (довід у міграції).
+	IdleUAH int64 `json:"idle_uah"`
 }
 
 // snapshotCol — одна колонка знімка. Ptr дає доступ до поля структури,
@@ -97,6 +104,7 @@ var snapshotCols = []snapshotCol{
 	{"npf_cost_uah", func(s *Snapshot) *int64 { return &s.NPFCostUAH }},
 	{"goals_uah", func(s *Snapshot) *int64 { return &s.GoalsUAH }},
 	{"net_worth_uah", func(s *Snapshot) *int64 { return &s.NetWorthUAH }},
+	{"idle_uah", func(s *Snapshot) *int64 { return &s.IdleUAH }},
 }
 
 // SnapshotColumns — імена числових колонок знімка, для споживачів поза

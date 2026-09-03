@@ -22,7 +22,7 @@
 // разом із доріжками, полем колекції та стрічкою датованих віх.
 
 import {
-  esc, uah0, signedUAH, pct, capitalUAH, outsideUAH, uah2 as fmtUAH, curSym,
+  esc, uah0, signedUAH, pct, capitalUAH, outsideUAH, uah2 as fmtUAH, curSym, dayMonth,
 } from "../format.js";
 import { tile, empty } from "../components.js";
 import { routeFor } from "../routes.js";
@@ -65,10 +65,29 @@ function heroHTML(ctx) {
     ${tile("XIRR", xirr ? pct(xirr) : "—",
     xirr ? `<div class="sub-xs">з урахуванням дат внесків</div>`
       : `<div class="sub-xs">гроші ще замолоді, щоб міряти</div>`)}
-    ${tile("Вільні гроші", uah0(s.account_uah || 0),
-    s.reinvest_min_uah > 0
-      ? `<div class="sub-xs">поріг покупки ${uah0(s.reinvest_min_uah)}</div>` : "")}
+    ${tile("Вільні гроші", uah0(s.account_uah || 0), idleSubHTML(s))}
   </div>`;
+}
+
+/** Підпис під «Вільними грішми»: простій, якщо він є, інакше поріг покупки.
+ *
+ *  Простій приходить готовим (idle зі зведення): скільки вже можна вкласти,
+ *  з якого дня лежить і що це коштує на місяць за сьогоднішньою порадою.
+ *  Ціна є не завжди — без поради для цих грошей у цього брокера її нема з
+ *  чого взяти, і тоді рядок каже лише скільки й відколи. */
+function idleSubHTML(s) {
+  const idle = s.idle;
+  if (idle && idle.investable_uah > 0) {
+    const since = idle.since ? ` · лежать з ${esc(dayMonth(idle.since))}` : "";
+    // Ціна — окремим полем (idle_cost): це порада про сьогоднішній
+    // ринок, а не факт про гаманець, і без поради її просто немає.
+    const c = s.idle_cost;
+    const cost = c && c.cost_month_uah > 0
+      ? ` · ≈ ${esc(signedUAH(-c.cost_month_uah))}/міс за сьогоднішньою порадою` : "";
+    return `<div class="sub-xs">можна вкласти ${esc(uah0(idle.investable_uah))}${since}${cost}</div>`;
+  }
+  return s.reinvest_min_uah > 0
+    ? `<div class="sub-xs">поріг покупки ${uah0(s.reinvest_min_uah)}</div>` : "";
 }
 
 /** Черга рішень, розрізана на «зараз» і «скоро».

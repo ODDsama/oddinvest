@@ -459,28 +459,6 @@ type BrokerCur struct {
 	Currency string
 }
 
-// DepositsByBrokerCurrency — сума поповнень/знять по (брокер, валюта).
-func (s *Store) DepositsByBrokerCurrency(ctx context.Context) (map[BrokerCur]int64, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT COALESCE(b.name,''), d.currency, SUM(d.amount)
-		 FROM deposits d LEFT JOIN brokers b ON b.id = d.broker_id
-		 GROUP BY b.name, d.currency`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[BrokerCur]int64{}
-	for rows.Next() {
-		var k BrokerCur
-		var sum int64
-		if err := rows.Scan(&k.Broker, &k.Currency, &sum); err != nil {
-			return nil, err
-		}
-		out[k] = sum
-	}
-	return out, rows.Err()
-}
-
 // Conversion — обмін: віддав FromAmount[FromCurrency] → отримав ToAmount[ToCurrency].
 type Conversion struct {
 	ID           int64
@@ -549,21 +527,6 @@ func (s *Store) ListConversions(ctx context.Context) ([]Conversion, error) {
 		out = append(out, c)
 	}
 	return out, rows.Err()
-}
-
-// ConversionsNetByBroker — чистий рух по (брокер, валюта): обмін не
-// переносить гроші між рахунками, тож обидві ноги лягають на один брокер.
-func (s *Store) ConversionsNetByBroker(ctx context.Context) (map[BrokerCur]int64, error) {
-	convs, err := s.ListConversions(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := map[BrokerCur]int64{}
-	for _, c := range convs {
-		out[BrokerCur{c.Broker, c.FromCurrency}] -= c.FromAmount
-		out[BrokerCur{c.Broker, c.ToCurrency}] += c.ToAmount
-	}
-	return out, nil
 }
 
 // MinNominalByCurrency — найменший номінал у довіднику по кожній валюті

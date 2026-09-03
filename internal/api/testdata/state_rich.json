@@ -11,6 +11,73 @@
     "delta_pct": 482.9,
     "contributed_uah": 47000
   },
+  "idle": {
+    "investable_uah": 621123.4,
+    "since": "2025-12-27",
+    "days": 200,
+    "age_days": 153.4,
+    "by_pair": [
+      {
+        "broker": "inzhur",
+        "currency": "UAH",
+        "investable": 85000,
+        "investable_uah": 85000,
+        "since": "2026-04-06",
+        "days": 100,
+        "age_days": 100
+      },
+      {
+        "broker": "mono",
+        "currency": "UAH",
+        "investable": 492000,
+        "investable_uah": 492000,
+        "since": "2025-12-27",
+        "days": 200,
+        "age_days": 168.31
+      },
+      {
+        "broker": "mono",
+        "currency": "USD",
+        "investable": 1000,
+        "investable_uah": 44123.4,
+        "since": "2026-04-16",
+        "days": 90,
+        "age_days": 90
+      }
+    ]
+  },
+  "idle_cost": {
+    "cost_month_uah": 4967.1,
+    "cost_so_far_uah": 25733.92,
+    "rate_pct": 9.6,
+    "rate_label": "Строковий фонд",
+    "by_pair": [
+      {
+        "broker": "inzhur",
+        "currency": "UAH",
+        "cost_month_uah": 724.63,
+        "cost_so_far_uah": 2382.33,
+        "rate_pct": 10.23,
+        "rate_label": "Строковий фонд"
+      },
+      {
+        "broker": "mono",
+        "currency": "UAH",
+        "cost_month_uah": 4194.3,
+        "cost_so_far_uah": 23209.07,
+        "rate_pct": 10.23,
+        "rate_label": "Строковий фонд"
+      },
+      {
+        "broker": "mono",
+        "currency": "USD",
+        "cost_month_uah": 48.17,
+        "cost_so_far_uah": 142.52,
+        "rate_pct": 1.31,
+        "rate_label": "Новий вклад"
+      }
+    ]
+  },
   "usd_share_pct": 13.335052678990342,
   "eur_share_pct": 8.533320969499396,
   "uninvested_uah": 993,
@@ -1557,7 +1624,7 @@
       "rank": 20,
       "kind": "fund",
       "title": "Можеш купити Строковий фонд",
-      "why": "1 060,00 ₴ · mono ×464 · inzhur ×80.",
+      "why": "1 060,00 ₴ · mono ×464 · inzhur ×80. 621 123,40 ₴ лежать з 27 грудня.",
       "when": "10,2% реальних",
       "action": "how-to-fund"
     },

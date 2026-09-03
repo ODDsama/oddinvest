@@ -186,9 +186,15 @@ func TestSchemaMatchesNestedTypes(t *testing.T) {
 		{"forecast", reflect.TypeOf(Forecast{})},
 		{"capital_delta_30", reflect.TypeOf(CapitalDelta{})},
 		{"debt", reflect.TypeOf(DebtPlan{})},
+		{"idle", reflect.TypeOf(IdleCash{})},
+		{"idle_cost", reflect.TypeOf(IdleCost{})},
 	} {
 		checkAgainst(t, c.key, c.typ, nested(t, props, c.key))
 	}
+	checkAgainst(t, "idle.by_pair.items", reflect.TypeOf(IdlePair{}),
+		items(t, nested(t, props, "idle"), "by_pair"))
+	checkAgainst(t, "idle_cost.by_pair.items", reflect.TypeOf(IdleCostPair{}),
+		items(t, nested(t, props, "idle_cost"), "by_pair"))
 	// Другий рівень під debt: доти цих трьох типів сторож не бачив зовсім,
 	// і поля DebtExit могли розходитись зі схемою, нічим не падаючи.
 	debt := nested(t, props, "debt")

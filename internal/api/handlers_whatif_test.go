@@ -71,6 +71,10 @@ func TestWhatIfEmptyPlanMatchesSummary(t *testing.T) {
 		}
 		delete(m, "generated_at")
 		delete(m, "tasks")
+		// idle_cost — тієї самої природи, що й tasks: ціна простою береться
+		// з тих самих порад і є твердженням про сьогоднішній ринок, а не про
+		// портфель. Сам простій (idle) лишається в порівнянні.
+		delete(m, "idle_cost")
 		b, err := json.Marshal(m)
 		if err != nil {
 			t.Fatal(err)

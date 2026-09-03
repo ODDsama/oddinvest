@@ -59,6 +59,37 @@ func TestIdleIncomeMultiplePurchases(t *testing.T) {
 	}
 }
 
+// RemainingInflows віддає не суму, а САМІ надходження з датами — саме
+// з них виводиться вік грошей на рахунку. Часткове списання лишає хвіст
+// того самого надходження з його початковою датою.
+func TestRemainingInflowsKeepsDatesAndPartialTail(t *testing.T) {
+	got := RemainingInflows([]CashEvent{
+		ev("2026-05-01", 10_000), ev("2026-06-01", 30_000), ev("2026-07-01", -15_000),
+	})
+	want := []CashEvent{ev("2026-06-01", 25_000)}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("лишки %v, чекали %v", got, want)
+	}
+}
+
+// Списання раніше за надходження його не чіпає — грошей ще не було.
+func TestRemainingInflowsIgnoresEarlierOutflow(t *testing.T) {
+	got := RemainingInflows([]CashEvent{ev("2026-07-20", 8_275), ev("2026-07-01", -458_200)})
+	if len(got) != 1 || got[0] != ev("2026-07-20", 8_275) {
+		t.Fatalf("надходження після списання мало лишитись цілим: %v", got)
+	}
+}
+
+// Порядок подій на вході не має значення: відповідь та сама.
+func TestRemainingInflowsOrderIndependent(t *testing.T) {
+	a := []CashEvent{ev("2026-01-01", 1_000), ev("2026-02-01", 2_000), ev("2026-02-15", -2_500)}
+	b := []CashEvent{a[2], a[1], a[0]}
+	ga, gb := RemainingInflows(a), RemainingInflows(b)
+	if len(ga) != 1 || len(gb) != 1 || ga[0] != gb[0] || ga[0] != ev("2026-02-01", 500) {
+		t.Fatalf("різний результат від порядку: %v проти %v", ga, gb)
+	}
+}
+
 // Без покупок нічого не витрачається; без доходу — нема чому лишатись.
 func TestIdleIncomeEdges(t *testing.T) {
 	if got := IdleIncome([]CashEvent{ev("2026-01-01", 700)}, nil); got != 700 {

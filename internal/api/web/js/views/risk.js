@@ -2,7 +2,7 @@
 // ліквідність, процентний ризик, бенчмарк і драбина.
 
 import {
-  esc, curSym, dayMonth, pct, pp, uah2 as fmtUAH, cur2 as fmtCur,
+  esc, curSym, dayMonth, pct, pp, signedUAH, uah2 as fmtUAH, cur2 as fmtCur,
   fundsCost, marketCostUAH, uahSharePct, uahTargetPct,
 } from "../format.js";
 import { infoBtn } from "../info.js";
@@ -115,7 +115,15 @@ export function yieldMixCard(ctx) {
     rows.push({ id: "goals", name: KIND_GROUP.goals, money: s.goals_uah, idle: true });
   }
   if (s.account_uah > 0) {
-    rows.push({ id: "cash", name: "Готівка в брокерів", money: s.account_uah, idle: true });
+    // Готівка не має дохідності, але має ЦІНУ: простій (idle зі зведення)
+    // каже, скільки на місяць коштує та її частина, яка вже понад квиток.
+    // Це не ставка, тож у колонку ставки воно йде підписом, а не числом.
+    const idle = s.idle || {}, cost = s.idle_cost || {};
+    rows.push({
+      id: "cash", name: "Готівка в брокерів", money: s.account_uah, idle: true,
+      cost: cost.cost_month_uah > 0
+        ? `простій ${fmtUAH(idle.investable_uah)} коштує ≈ ${signedUAH(-cost.cost_month_uah)}/міс` : "",
+    });
   }
   if (!rows.length) return "";
   const total = rows.reduce((a, r) => a + r.money, 0);
@@ -131,7 +139,7 @@ export function yieldMixCard(ctx) {
         cell: (r) => pct(total > 0 ? (r.money / total) * 100 : 0) },
       { key: "yield", label: "Дохідність", num: true,
         cell: (r) => (r.idle
-          ? `<span class="muted">—</span>`
+          ? (r.cost ? `<span class="muted sub-xs">${esc(r.cost)}</span>` : `<span class="muted">—</span>`)
           : (r.real != null ? yieldPair(r.real, r.nominal) : `<span class="muted">—</span>`)) },
     ],
     rows,

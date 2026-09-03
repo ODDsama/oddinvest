@@ -12,7 +12,7 @@
 // мені половину себе» читається гірше, ніж три імені.
 
 import {
-  esc, curSym, dayMonth, monthYear, plural, pct,
+  esc, curSym, dayMonth, monthYear, plural, pct, signedUAH,
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
@@ -334,6 +334,12 @@ export function brokerBalancesHTML(ctx) {
   const names = Object.keys(brokers).sort((a, b) => a.localeCompare(b, "uk"));
   if (!names.length) return "";
   const rmin = s.reinvest_min || {};
+  // Простій по парах — готовим зі зведення (idle.by_pair): з якого дня
+  // гроші лежать понад квиток і що це коштує на місяць. Рахувати тут вік
+  // нема з чого, та й не треба: одне означення живе в бекенді.
+  const pairKey = (p) => `${p.broker}|${p.currency}`;
+  const idleBy = new Map(((s.idle || {}).by_pair || []).map((p) => [pairKey(p), p]));
+  const costBy = new Map(((s.idle_cost || {}).by_pair || []).map((p) => [pairKey(p), p]));
   const rows = names.map((b) => {
     const cur = brokers[b] || {};
     const parts = Object.keys(cur).sort().map((c) => {
@@ -342,13 +348,20 @@ export function brokerBalancesHTML(ctx) {
       const hint = min > 0
         ? (enough ? `вистачає на ${Math.floor(v / min)}` : `до паперу ще ${fmtCur(min - v, curSym(c))}`)
         : "";
+      const p = idleBy.get(`${b}|${c}`);
+      const pc = costBy.get(`${b}|${c}`);
+      const idle = p && p.since
+        ? `<div class="sub-xs muted">лежать з ${esc(dayMonth(p.since))}${
+          pc && pc.cost_month_uah > 0 ? ` · ≈ ${esc(signedUAH(-pc.cost_month_uah))}/міс за сьогоднішньою порадою` : ""}</div>`
+        : "";
       return `<div class="pv-row"><span>${esc(c)} · <b>${fmtCur(v, curSym(c))}</b></span>
-        <span class="${enough ? "t-ok" : "muted"}">${hint}</span></div>`;
+        <span class="${enough ? "t-ok" : "muted"}">${hint}</span></div>${idle}`;
     }).join("");
     return `<div class="mb-lg"><div class="mb-xs"><b>${esc(b)}</b></div>${parts}</div>`;
   }).join("");
-  return `<div class="card"><h2>Рахунки по брокерах</h2>
-    <div class="note">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.</div>
+  return `<div class="card"><h2 class="h-row">Рахунки по брокерах ${infoBtn("idle")}</h2>
+    <div class="note">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.
+      Де сума вже понад квиток — це простій: видно, відколи лежить і що коштує.</div>
     ${rows}</div>`;
 }
 
