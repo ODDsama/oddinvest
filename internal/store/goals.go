@@ -62,9 +62,9 @@ type GoalOp struct {
 
 func (s *Store) AddGoal(ctx context.Context, g Goal) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO goals
-		(name, target_amount, currency, due_date, priority, place, note, done_date)
-		VALUES (?,?,?,?,?,?,?,?)`,
-		g.Name, g.TargetAmount, g.Currency, string(g.DueDate), g.Priority,
+		(portfolio_id, name, target_amount, currency, due_date, priority, place, note, done_date)
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		s.pid, g.Name, g.TargetAmount, g.Currency, string(g.DueDate), g.Priority,
 		g.Place, g.Note, string(g.DoneDate))
 	if err != nil {
 		return 0, err
@@ -76,9 +76,9 @@ func (s *Store) AddGoal(ctx context.Context, g Goal) (int64, error) {
 func (s *Store) UpdateGoal(ctx context.Context, g Goal) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE goals SET
 		name=?, target_amount=?, currency=?, due_date=?, priority=?,
-		place=?, note=?, done_date=? WHERE id=?`,
+		place=?, note=?, done_date=? WHERE id=? AND portfolio_id=?`,
 		g.Name, g.TargetAmount, g.Currency, string(g.DueDate), g.Priority,
-		g.Place, g.Note, string(g.DoneDate), g.ID)
+		g.Place, g.Note, string(g.DoneDate), g.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -97,13 +97,13 @@ func (s *Store) UpdateGoal(ctx context.Context, g Goal) error {
 func (s *Store) DeleteGoal(ctx context.Context, id int64) error {
 	var used int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM goal_ops WHERE goal_id=?`, id).Scan(&used); err != nil {
+		`SELECT COUNT(*) FROM goal_ops WHERE goal_id=? AND portfolio_id=?`, id, s.pid).Scan(&used); err != nil {
 		return err
 	}
 	if used > 0 {
 		return fmt.Errorf("під ціллю %d рухів — спершу видали їх або познач ціль досягнутою", used)
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM goals WHERE id=?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM goals WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err
 	}
@@ -124,7 +124,7 @@ func (s *Store) DeleteGoal(ctx context.Context, id int64) error {
 func (s *Store) ListGoals(ctx context.Context) ([]Goal, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, target_amount, currency,
 		due_date, priority, place, note, done_date
-		FROM goals ORDER BY priority, due_date = '', due_date, id`)
+		FROM goals WHERE portfolio_id=? ORDER BY priority, due_date = '', due_date, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -144,9 +144,13 @@ func (s *Store) ListGoals(ctx context.Context) ([]Goal, error) {
 }
 
 func (s *Store) AddGoalOp(ctx context.Context, op GoalOp) (int64, error) {
+	// Чужа ціль має читатися як ErrNotFound, а не тихо прийматись.
+	if err := s.ownsRow(ctx, "goals", op.GoalID); err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO goal_ops
-		(goal_id, date, amount, currency, place, note) VALUES (?,?,?,?,?,?)`,
-		op.GoalID, string(op.Date), op.Amount, op.Currency, op.Place, op.Note)
+		(portfolio_id, goal_id, date, amount, currency, place, note) VALUES (?,?,?,?,?,?,?)`,
+		s.pid, op.GoalID, string(op.Date), op.Amount, op.Currency, op.Place, op.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -159,9 +163,13 @@ func (s *Store) AddGoalOp(ctx context.Context, op GoalOp) (int64, error) {
 // одруківка, і виправляти її видаленням означало б втратити дату й місце
 // (те саме правило, що в шапці CLAUDE.md про повний КРУД).
 func (s *Store) UpdateGoalOp(ctx context.Context, op GoalOp) error {
+	// Чужа ціль має читатися як ErrNotFound, а не тихо прийматись.
+	if err := s.ownsRow(ctx, "goals", op.GoalID); err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE goal_ops SET
-		goal_id=?, date=?, amount=?, currency=?, place=?, note=? WHERE id=?`,
-		op.GoalID, string(op.Date), op.Amount, op.Currency, op.Place, op.Note, op.ID)
+		goal_id=?, date=?, amount=?, currency=?, place=?, note=? WHERE id=? AND portfolio_id=?`,
+		op.GoalID, string(op.Date), op.Amount, op.Currency, op.Place, op.Note, op.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -169,7 +177,7 @@ func (s *Store) UpdateGoalOp(ctx context.Context, op GoalOp) error {
 }
 
 func (s *Store) DeleteGoalOp(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM goal_ops WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM goal_ops WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
@@ -181,7 +189,7 @@ func (s *Store) DeleteGoalOp(ctx context.Context, id int64) error {
 // робота того, кому потрібен зріз.
 func (s *Store) ListGoalOps(ctx context.Context) ([]GoalOp, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, goal_id, date, amount, currency, place, note
-		FROM goal_ops ORDER BY date, id`)
+		FROM goal_ops WHERE portfolio_id=? ORDER BY date, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}

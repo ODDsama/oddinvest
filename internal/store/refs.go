@@ -28,10 +28,10 @@ func (s *Store) brokerRef(ctx context.Context, name string) (any, error) {
 		return nil, nil
 	}
 	var id int64
-	err := s.db.QueryRowContext(ctx, `SELECT id FROM brokers WHERE name=?`, name).Scan(&id)
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM brokers WHERE portfolio_id=? AND name=?`, s.pid, name).Scan(&id)
 	switch {
 	case err == sql.ErrNoRows:
-		res, err := s.db.ExecContext(ctx, `INSERT INTO brokers(name) VALUES(?)`, name)
+		res, err := s.db.ExecContext(ctx, `INSERT INTO brokers(portfolio_id, name) VALUES(?,?)`, s.pid, name)
 		if err != nil {
 			return nil, err
 		}
@@ -79,7 +79,7 @@ type Broker struct {
 // ListBrokers — довідник плюс ті, що вже зустрічались в операціях.
 // Раніше цей список був CSV-рядком у settings('channels').
 func (s *Store) ListBrokers(ctx context.Context) ([]Broker, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name FROM brokers ORDER BY name COLLATE NOCASE`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name FROM brokers WHERE portfolio_id=? ORDER BY name COLLATE NOCASE`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func (s *Store) RenameBroker(ctx context.Context, id int64, name string) error {
 	if name == "" {
 		return fmt.Errorf("вкажіть назву брокера")
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE brokers SET name=? WHERE id=?`, name, id)
+	res, err := s.db.ExecContext(ctx, `UPDATE brokers SET name=? WHERE id=? AND portfolio_id=?`, name, id, s.pid)
 	if err != nil {
 		return err
 	}
@@ -141,20 +141,20 @@ func (s *Store) RenameBroker(ctx context.Context, id int64, name string) error {
 func (s *Store) DeleteBroker(ctx context.Context, id int64) error {
 	var used int
 	if err := s.db.QueryRowContext(ctx, `SELECT
-		(SELECT COUNT(*) FROM lots          WHERE broker_id=?) +
-		(SELECT COUNT(*) FROM deposits      WHERE broker_id=?) +
-		(SELECT COUNT(*) FROM conversions   WHERE broker_id=?) +
-		(SELECT COUNT(*) FROM fund_ops      WHERE broker_id=?) +
-		(SELECT COUNT(*) FROM term_deposits WHERE broker_id=?) +
-		(SELECT COUNT(*) FROM npf_ops       WHERE broker_id=?) +
-		(SELECT COUNT(*) FROM plan_buys     WHERE broker_id=?)`,
-		id, id, id, id, id, id, id).Scan(&used); err != nil {
+		(SELECT COUNT(*) FROM lots          WHERE broker_id=? AND portfolio_id=?) +
+		(SELECT COUNT(*) FROM deposits      WHERE broker_id=? AND portfolio_id=?) +
+		(SELECT COUNT(*) FROM conversions   WHERE broker_id=? AND portfolio_id=?) +
+		(SELECT COUNT(*) FROM fund_ops      WHERE broker_id=? AND portfolio_id=?) +
+		(SELECT COUNT(*) FROM term_deposits WHERE broker_id=? AND portfolio_id=?) +
+		(SELECT COUNT(*) FROM npf_ops       WHERE broker_id=? AND portfolio_id=?) +
+		(SELECT COUNT(*) FROM plan_buys     WHERE broker_id=? AND portfolio_id=?)`,
+		id, s.pid, id, s.pid, id, s.pid, id, s.pid, id, s.pid, id, s.pid, id, s.pid).Scan(&used); err != nil {
 		return err
 	}
 	if used > 0 {
 		return fmt.Errorf("брокера використано в %d записах — спершу перенеси їх", used)
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM brokers WHERE id=?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM brokers WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err
 	}

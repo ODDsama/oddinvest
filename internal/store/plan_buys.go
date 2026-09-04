@@ -68,7 +68,8 @@ func (s *Store) ListPlanBuys(ctx context.Context) ([]PlanBuy, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+planBuyCols+` FROM plan_buys b
 		 LEFT JOIN brokers br ON br.id = b.broker_id
-		 ORDER BY b.buy_date, b.id`)
+		 WHERE b.portfolio_id=?
+		 ORDER BY b.buy_date, b.id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -94,10 +95,10 @@ func (s *Store) AddPlanBuy(ctx context.Context, b PlanBuy) (int64, error) {
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO plan_buys
-		(kind, ref, qty, amount, unit_price, currency, broker_id, buy_date,
+		(portfolio_id, kind, ref, qty, amount, unit_price, currency, broker_id, buy_date,
 		 rate_bp, months, is_reserve, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		b.Kind, b.Ref, b.Qty, b.Amount, b.UnitPrice, b.Currency, broker,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		s.pid, b.Kind, b.Ref, b.Qty, b.Amount, b.UnitPrice, b.Currency, broker,
 		string(b.BuyDate), b.RateBP, b.Months, b.IsReserve, b.Note)
 	if err != nil {
 		return 0, err
@@ -115,9 +116,9 @@ func (s *Store) UpdatePlanBuy(ctx context.Context, b PlanBuy) error {
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE plan_buys SET
 		kind=?, ref=?, qty=?, amount=?, unit_price=?, currency=?, broker_id=?,
-		buy_date=?, rate_bp=?, months=?, is_reserve=?, note=? WHERE id=?`,
+		buy_date=?, rate_bp=?, months=?, is_reserve=?, note=? WHERE id=? AND portfolio_id=?`,
 		b.Kind, b.Ref, b.Qty, b.Amount, b.UnitPrice, b.Currency, broker,
-		string(b.BuyDate), b.RateBP, b.Months, b.IsReserve, b.Note, b.ID)
+		string(b.BuyDate), b.RateBP, b.Months, b.IsReserve, b.Note, b.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -125,7 +126,7 @@ func (s *Store) UpdatePlanBuy(ctx context.Context, b PlanBuy) error {
 }
 
 func (s *Store) DeletePlanBuy(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM plan_buys WHERE id=?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM plan_buys WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err
 	}

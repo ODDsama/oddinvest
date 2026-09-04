@@ -113,12 +113,12 @@ const (
 // journalPlanFlow — один рядок журналу в ТІЙ САМІЙ транзакції, що й сама
 // мутація. Порізно вони рано чи пізно розійшлися б, і розійшлися б тихо:
 // потік змінився, а історія показувала б стару суму як чинну.
-func journalPlanFlow(ctx context.Context, tx *sql.Tx, at time.Time, op string, f PlanFlow) error {
+func journalPlanFlow(ctx context.Context, tx *sql.Tx, pid int64, at time.Time, op string, f PlanFlow) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO plan_flow_revisions
-		(flow_id, changed_at, op, name, kind, amount, currency, cadence,
+		(portfolio_id, flow_id, changed_at, op, name, kind, amount, currency, cadence,
 		 from_date, until_date, growth_bp, invest_bp, dest, uses, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		f.ID, at.UTC().Format(time.RFC3339), op, f.Name, f.Kind, f.Amount, f.Currency,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		pid, f.ID, at.UTC().Format(time.RFC3339), op, f.Name, f.Kind, f.Amount, f.Currency,
 		f.Cadence, string(f.FromDate), string(f.UntilDate), f.GrowthBP, f.InvestBP,
 		f.Dest, f.Uses, f.Note)
 	return err
@@ -131,10 +131,10 @@ func (s *Store) AddPlanFlow(ctx context.Context, f PlanFlow) (int64, error) {
 	}
 	defer tx.Rollback() //nolint:errcheck // відкат після Commit — no-op
 	res, err := tx.ExecContext(ctx, `INSERT INTO plan_flows
-		(name, kind, amount, currency, cadence, from_date, until_date,
+		(portfolio_id, name, kind, amount, currency, cadence, from_date, until_date,
 		 growth_bp, invest_bp, dest, uses, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, string(f.FromDate),
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		s.pid, f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, string(f.FromDate),
 		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Uses, f.Note)
 	if err != nil {
 		return 0, err
@@ -144,7 +144,7 @@ func (s *Store) AddPlanFlow(ctx context.Context, f PlanFlow) (int64, error) {
 		return 0, err
 	}
 	f.ID = id
-	if err := journalPlanFlow(ctx, tx, time.Now(), planRevCreate, f); err != nil {
+	if err := journalPlanFlow(ctx, tx, s.pid, time.Now(), planRevCreate, f); err != nil {
 		return 0, err
 	}
 	return id, tx.Commit()
@@ -159,16 +159,16 @@ func (s *Store) UpdatePlanFlow(ctx context.Context, f PlanFlow) error {
 	defer tx.Rollback() //nolint:errcheck
 	res, err := tx.ExecContext(ctx, `UPDATE plan_flows SET
 		name=?, kind=?, amount=?, currency=?, cadence=?, from_date=?, until_date=?,
-		growth_bp=?, invest_bp=?, dest=?, uses=?, note=? WHERE id=?`,
+		growth_bp=?, invest_bp=?, dest=?, uses=?, note=? WHERE id=? AND portfolio_id=?`,
 		f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, string(f.FromDate),
-		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Uses, f.Note, f.ID)
+		string(f.UntilDate), f.GrowthBP, f.InvestBP, f.Dest, f.Uses, f.Note, f.ID, s.pid)
 	if err != nil {
 		return err
 	}
 	if err := affectedOne(res, "плановий потік"); err != nil {
 		return err
 	}
-	if err := journalPlanFlow(ctx, tx, time.Now(), planRevUpdate, f); err != nil {
+	if err := journalPlanFlow(ctx, tx, s.pid, time.Now(), planRevUpdate, f); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -190,7 +190,7 @@ func (s *Store) DeletePlanFlow(ctx context.Context, id int64) error {
 	var from, until string
 	err = tx.QueryRowContext(ctx, `SELECT id, name, kind, amount, currency, cadence,
 		from_date, until_date, growth_bp, invest_bp, dest, uses, note
-		FROM plan_flows WHERE id=?`, id).
+		FROM plan_flows WHERE id=? AND portfolio_id=?`, id, s.pid).
 		Scan(&f.ID, &f.Name, &f.Kind, &f.Amount, &f.Currency, &f.Cadence,
 			&from, &until, &f.GrowthBP, &f.InvestBP, &f.Dest, &f.Uses, &f.Note)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -201,14 +201,14 @@ func (s *Store) DeletePlanFlow(ctx context.Context, id int64) error {
 	}
 	f.FromDate, f.UntilDate = domain.Date(from), domain.Date(until)
 
-	res, err := tx.ExecContext(ctx, `DELETE FROM plan_flows WHERE id=?`, id)
+	res, err := tx.ExecContext(ctx, `DELETE FROM plan_flows WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err
 	}
 	if err := affectedOne(res, "плановий потік"); err != nil {
 		return err
 	}
-	if err := journalPlanFlow(ctx, tx, time.Now(), planRevDelete, f); err != nil {
+	if err := journalPlanFlow(ctx, tx, s.pid, time.Now(), planRevDelete, f); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -224,8 +224,8 @@ func (s *Store) ListPlanFlowRevisions(ctx context.Context, since time.Time) ([]P
 	rows, err := s.db.QueryContext(ctx, `SELECT id, flow_id, changed_at, op,
 		name, kind, amount, currency, cadence, from_date, until_date,
 		growth_bp, invest_bp, dest, uses, note
-		FROM plan_flow_revisions WHERE changed_at >= ? ORDER BY changed_at, id`,
-		since.UTC().Format(time.RFC3339))
+		FROM plan_flow_revisions WHERE portfolio_id=? AND changed_at >= ? ORDER BY changed_at, id`,
+		s.pid, since.UTC().Format(time.RFC3339))
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func (s *Store) ListPlanFlowRevisions(ctx context.Context, since time.Time) ([]P
 func (s *Store) ListPlanFlows(ctx context.Context) ([]PlanFlow, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, kind, amount, currency, cadence,
 		from_date, until_date, growth_bp, invest_bp, dest, uses, note
-		FROM plan_flows ORDER BY from_date, id`)
+		FROM plan_flows WHERE portfolio_id=? ORDER BY from_date, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -275,9 +275,9 @@ func (s *Store) ListPlanFlows(ctx context.Context) ([]PlanFlow, error) {
 
 func (s *Store) AddPlanAction(ctx context.Context, a PlanAction) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO plan_actions
-		(date, type, usd_bp, eur_bp, amount, currency, rate_bp, months, name, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		string(a.Date), a.Type, a.USDBP, a.EURBP, a.Amount, a.Currency, a.RateBP, a.Months, a.Name, a.Note)
+		(portfolio_id, date, type, usd_bp, eur_bp, amount, currency, rate_bp, months, name, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		s.pid, string(a.Date), a.Type, a.USDBP, a.EURBP, a.Amount, a.Currency, a.RateBP, a.Months, a.Name, a.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -288,8 +288,8 @@ func (s *Store) AddPlanAction(ctx context.Context, a PlanAction) (int64, error) 
 func (s *Store) UpdatePlanAction(ctx context.Context, a PlanAction) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE plan_actions SET
 		date=?, type=?, usd_bp=?, eur_bp=?, amount=?, currency=?, rate_bp=?, months=?, name=?, note=?
-		WHERE id=?`,
-		string(a.Date), a.Type, a.USDBP, a.EURBP, a.Amount, a.Currency, a.RateBP, a.Months, a.Name, a.Note, a.ID)
+		WHERE id=? AND portfolio_id=?`,
+		string(a.Date), a.Type, a.USDBP, a.EURBP, a.Amount, a.Currency, a.RateBP, a.Months, a.Name, a.Note, a.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -297,7 +297,7 @@ func (s *Store) UpdatePlanAction(ctx context.Context, a PlanAction) error {
 }
 
 func (s *Store) DeletePlanAction(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM plan_actions WHERE id=?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM plan_actions WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err
 	}
@@ -322,11 +322,15 @@ func planReceiptConflict(err error) error {
 	return err
 }
 
+// Приналежність flow_id тут НЕ перевіряється, на відміну від goal_ops і
+// debt_ops: ключа на plan_flows немає навмисно (0027), відмітка мусить
+// пережити свій потік, і «потоку не знайдено» — законний стан, а не чужий
+// портфель. Витоку це не дає: рядок все одно лягає в свій portfolio_id.
 func (s *Store) AddPlanReceipt(ctx context.Context, r PlanReceipt) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO plan_receipts
-		(flow_id, month, name, amount, currency, invest_bp, uses, note)
-		VALUES (?,?,?,?,?,?,?,?)`,
-		r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Uses, r.Note)
+		(portfolio_id, flow_id, month, name, amount, currency, invest_bp, uses, note)
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		s.pid, r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Uses, r.Note)
 	if err != nil {
 		return 0, planReceiptConflict(err)
 	}
@@ -339,8 +343,8 @@ func (s *Store) AddPlanReceipt(ctx context.Context, r PlanReceipt) (int64, error
 func (s *Store) UpdatePlanReceipt(ctx context.Context, r PlanReceipt) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE plan_receipts SET
 		flow_id=?, month=?, name=?, amount=?, currency=?, invest_bp=?, uses=?, note=?
-		WHERE id=?`,
-		r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Uses, r.Note, r.ID)
+		WHERE id=? AND portfolio_id=?`,
+		r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Uses, r.Note, r.ID, s.pid)
 	if err != nil {
 		return planReceiptConflict(err)
 	}
@@ -348,7 +352,7 @@ func (s *Store) UpdatePlanReceipt(ctx context.Context, r PlanReceipt) error {
 }
 
 func (s *Store) DeletePlanReceipt(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM plan_receipts WHERE id=?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM plan_receipts WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err
 	}
@@ -360,7 +364,7 @@ func (s *Store) DeletePlanReceipt(ctx context.Context, id int64) error {
 // кілька, і сталий порядок робить документ відтворюваним.
 func (s *Store) ListPlanReceipts(ctx context.Context) ([]PlanReceipt, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, flow_id, month, name, amount,
-		currency, invest_bp, uses, note FROM plan_receipts ORDER BY month, id`)
+		currency, invest_bp, uses, note FROM plan_receipts WHERE portfolio_id=? ORDER BY month, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +383,7 @@ func (s *Store) ListPlanReceipts(ctx context.Context) ([]PlanReceipt, error) {
 
 func (s *Store) ListPlanActions(ctx context.Context) ([]PlanAction, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, date, type, usd_bp, eur_bp, amount,
-		currency, rate_bp, months, name, note FROM plan_actions ORDER BY date, id`)
+		currency, rate_bp, months, name, note FROM plan_actions WHERE portfolio_id=? ORDER BY date, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}

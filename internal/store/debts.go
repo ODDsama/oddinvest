@@ -37,13 +37,19 @@ const debtCols = `id, name, kind, currency, card_id, limit_amount, statement_day
 	fee_on_prepay, opened_date, closed_date, place, note`
 
 func (s *Store) AddDebt(ctx context.Context, d domain.Debt) (int64, error) {
+	// Чужа картка має читатися як ErrNotFound, а не тихо прийматись.
+	if d.CardID > 0 {
+		if err := s.ownsRow(ctx, "debts", d.CardID); err != nil {
+			return 0, err
+		}
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO debts
-		(name, kind, currency, card_id, limit_amount, statement_day,
+		(portfolio_id, name, kind, currency, card_id, limit_amount, statement_day,
 		 apr_bp, apr_overdue_bp, min_payment_bp, min_payment_floor, late_fee, exit_by,
 		 principal, payments_total, first_payment_date, fee_month_bp, fee_free_months,
 		 fee_on_prepay, opened_date, closed_date, place, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		d.Name, d.Kind, d.Currency, nullableID(d.CardID), d.LimitAmount, d.StatementDay,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		s.pid, d.Name, d.Kind, d.Currency, nullableID(d.CardID), d.LimitAmount, d.StatementDay,
 		d.APRBp, d.APROverdueBp, d.MinPaymentBp, d.MinPaymentFloor, d.LateFee, string(d.ExitBy),
 		d.Principal, d.PaymentsTotal, string(d.FirstPaymentDate), d.FeeMonthBp, d.FeeFreeMonths,
 		d.FeeOnPrepay, string(d.OpenedDate), string(d.ClosedDate), d.Place, d.Note)
@@ -55,15 +61,21 @@ func (s *Store) AddDebt(ctx context.Context, d domain.Debt) (int64, error) {
 
 // UpdateDebt переписує борг, зберігаючи id.
 func (s *Store) UpdateDebt(ctx context.Context, d domain.Debt) error {
+	// Чужа картка має читатися як ErrNotFound, а не тихо прийматись.
+	if d.CardID > 0 {
+		if err := s.ownsRow(ctx, "debts", d.CardID); err != nil {
+			return err
+		}
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE debts SET
 		name=?, kind=?, currency=?, card_id=?, limit_amount=?, statement_day=?,
 		apr_bp=?, apr_overdue_bp=?, min_payment_bp=?, min_payment_floor=?, late_fee=?, exit_by=?,
 		principal=?, payments_total=?, first_payment_date=?, fee_month_bp=?, fee_free_months=?,
-		fee_on_prepay=?, opened_date=?, closed_date=?, place=?, note=? WHERE id=?`,
+		fee_on_prepay=?, opened_date=?, closed_date=?, place=?, note=? WHERE id=? AND portfolio_id=?`,
 		d.Name, d.Kind, d.Currency, nullableID(d.CardID), d.LimitAmount, d.StatementDay,
 		d.APRBp, d.APROverdueBp, d.MinPaymentBp, d.MinPaymentFloor, d.LateFee, string(d.ExitBy),
 		d.Principal, d.PaymentsTotal, string(d.FirstPaymentDate), d.FeeMonthBp, d.FeeFreeMonths,
-		d.FeeOnPrepay, string(d.OpenedDate), string(d.ClosedDate), d.Place, d.Note, d.ID)
+		d.FeeOnPrepay, string(d.OpenedDate), string(d.ClosedDate), d.Place, d.Note, d.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -83,19 +95,19 @@ func (s *Store) UpdateDebt(ctx context.Context, d domain.Debt) error {
 // закрити борг — не те саме, що стерти, ніби його не було.
 func (s *Store) DeleteDebt(ctx context.Context, id int64) error {
 	for _, c := range []struct{ q, what string }{
-		{`SELECT COUNT(*) FROM debt_ops WHERE debt_id=?`, "рухів"},
-		{`SELECT COUNT(*) FROM debt_marks WHERE debt_id=?`, "звірок"},
-		{`SELECT COUNT(*) FROM debts WHERE card_id=?`, "прив'язаних розстрочок"},
+		{`SELECT COUNT(*) FROM debt_ops WHERE debt_id=? AND portfolio_id=?`, "рухів"},
+		{`SELECT COUNT(*) FROM debt_marks WHERE debt_id=? AND portfolio_id=?`, "звірок"},
+		{`SELECT COUNT(*) FROM debts WHERE card_id=? AND portfolio_id=?`, "прив'язаних розстрочок"},
 	} {
 		var used int
-		if err := s.db.QueryRowContext(ctx, c.q, id).Scan(&used); err != nil {
+		if err := s.db.QueryRowContext(ctx, c.q, id, s.pid).Scan(&used); err != nil {
 			return err
 		}
 		if used > 0 {
 			return fmt.Errorf("під боргом %d %s — спершу видали їх або познач борг погашеним", used, c.what)
 		}
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM debts WHERE id=?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM debts WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err
 	}
@@ -111,7 +123,7 @@ func (s *Store) DeleteDebt(ctx context.Context, id int64) error {
 // стратегії, яку обрала людина.
 func (s *Store) ListDebts(ctx context.Context) ([]domain.Debt, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+debtCols+`
-		FROM debts ORDER BY COALESCE(card_id, id), card_id IS NOT NULL, id`)
+		FROM debts WHERE portfolio_id=? ORDER BY COALESCE(card_id, id), card_id IS NOT NULL, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -137,9 +149,13 @@ func (s *Store) ListDebts(ctx context.Context) ([]domain.Debt, error) {
 }
 
 func (s *Store) AddDebtOp(ctx context.Context, op domain.DebtOp) (int64, error) {
+	// Чужий борг має читатися як ErrNotFound, а не тихо прийматись.
+	if err := s.ownsRow(ctx, "debts", op.DebtID); err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO debt_ops
-		(debt_id, date, kind, amount, note) VALUES (?,?,?,?,?)`,
-		op.DebtID, string(op.Date), op.Kind, op.Amount, op.Note)
+		(portfolio_id, debt_id, date, kind, amount, note) VALUES (?,?,?,?,?,?)`,
+		s.pid, op.DebtID, string(op.Date), op.Kind, op.Amount, op.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -150,9 +166,13 @@ func (s *Store) AddDebtOp(ctx context.Context, op domain.DebtOp) (int64, error) 
 // рух, записаний не в той борг, — звичайна одруківка (те саме правило, що
 // в UpdateGoalOp).
 func (s *Store) UpdateDebtOp(ctx context.Context, op domain.DebtOp) error {
+	// Чужий борг має читатися як ErrNotFound, а не тихо прийматись.
+	if err := s.ownsRow(ctx, "debts", op.DebtID); err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE debt_ops SET
-		debt_id=?, date=?, kind=?, amount=?, note=? WHERE id=?`,
-		op.DebtID, string(op.Date), op.Kind, op.Amount, op.Note, op.ID)
+		debt_id=?, date=?, kind=?, amount=?, note=? WHERE id=? AND portfolio_id=?`,
+		op.DebtID, string(op.Date), op.Kind, op.Amount, op.Note, op.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -160,7 +180,7 @@ func (s *Store) UpdateDebtOp(ctx context.Context, op domain.DebtOp) error {
 }
 
 func (s *Store) DeleteDebtOp(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM debt_ops WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM debt_ops WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
@@ -168,7 +188,7 @@ func (s *Store) DeleteDebtOp(ctx context.Context, id int64) error {
 // навмисно: будівник стану читає джерела рівно по разу (state_sources.go).
 func (s *Store) ListDebtOps(ctx context.Context) ([]domain.DebtOp, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, debt_id, date, kind, amount, note
-		FROM debt_ops ORDER BY date, id`)
+		FROM debt_ops WHERE portfolio_id=? ORDER BY date, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -191,12 +211,16 @@ func (s *Store) ListDebtOps(ctx context.Context) ([]domain.DebtOp, error) {
 // Дзеркало AddFundPricePoints і з того самого доводу: дві звірки на одну
 // дату — це виправлення одруківки, а не дві правди про той самий день.
 func (s *Store) AddDebtMark(ctx context.Context, m domain.DebtMark) (int64, error) {
+	// Чужий борг має читатися як ErrNotFound, а не тихо прийматись.
+	if err := s.ownsRow(ctx, "debts", m.DebtID); err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO debt_marks
-		(debt_id, date, balance, statement_due, non_grace, note) VALUES (?,?,?,?,?,?)
+		(portfolio_id, debt_id, date, balance, statement_due, non_grace, note) VALUES (?,?,?,?,?,?,?)
 		ON CONFLICT(debt_id, date) DO UPDATE SET
 			balance=excluded.balance, statement_due=excluded.statement_due,
 			non_grace=excluded.non_grace, note=excluded.note`,
-		m.DebtID, string(m.Date), m.Balance, m.StatementDue, m.NonGrace, m.Note)
+		s.pid, m.DebtID, string(m.Date), m.Balance, m.StatementDue, m.NonGrace, m.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -211,8 +235,8 @@ func (s *Store) AddDebtMark(ctx context.Context, m domain.DebtMark) (int64, erro
 // зніміть заново, це два числа.
 func (s *Store) UpdateDebtMark(ctx context.Context, m domain.DebtMark) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE debt_marks SET
-		date=?, balance=?, statement_due=?, non_grace=?, note=? WHERE id=?`,
-		string(m.Date), m.Balance, m.StatementDue, m.NonGrace, m.Note, m.ID)
+		date=?, balance=?, statement_due=?, non_grace=?, note=? WHERE id=? AND portfolio_id=?`,
+		string(m.Date), m.Balance, m.StatementDue, m.NonGrace, m.Note, m.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -220,14 +244,14 @@ func (s *Store) UpdateDebtMark(ctx context.Context, m domain.DebtMark) error {
 }
 
 func (s *Store) DeleteDebtMark(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM debt_marks WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM debt_marks WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
 // ListDebtMarks — усі звірки всіх боргів, хронологічно.
 func (s *Store) ListDebtMarks(ctx context.Context) ([]domain.DebtMark, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, debt_id, date, balance,
-		statement_due, non_grace, note FROM debt_marks ORDER BY date, id`)
+		statement_due, non_grace, note FROM debt_marks WHERE portfolio_id=? ORDER BY date, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}

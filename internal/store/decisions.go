@@ -49,7 +49,7 @@ const decisionCols = `id, made_on, kind, ref, currency, amount, real_pct,
 // ListDecisions — журнал у хронологічному порядку.
 func (s *Store) ListDecisions(ctx context.Context) ([]Decision, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+decisionCols+` FROM decisions ORDER BY made_on, id`)
+		`SELECT `+decisionCols+` FROM decisions WHERE portfolio_id=? ORDER BY made_on, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -71,10 +71,10 @@ func (s *Store) ListDecisions(ctx context.Context) ([]Decision, error) {
 
 func (s *Store) AddDecision(ctx context.Context, d Decision) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `INSERT INTO decisions
-		(made_on, kind, ref, currency, amount, real_pct,
+		(portfolio_id, made_on, kind, ref, currency, amount, real_pct,
 		 rank_pos, top_label, top_real_pct, rank_mode, op_id, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		string(d.MadeOn), d.Kind, d.Ref, d.Currency, d.Amount, d.RealPct,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		s.pid, string(d.MadeOn), d.Kind, d.Ref, d.Currency, d.Amount, d.RealPct,
 		d.RankPos, d.TopLabel, d.TopRealPct, d.RankMode, d.OpID, d.Note)
 	if err != nil {
 		return 0, err

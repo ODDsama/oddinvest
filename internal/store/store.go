@@ -64,6 +64,35 @@ func (s *Store) For(pid int64) *Store {
 // Portfolio — портфель, у якому працює це сховище.
 func (s *Store) Portfolio() int64 { return s.pid }
 
+// rowQuerier — те спільне в *sql.DB і *sql.Tx, чого потребує ownsRowIn.
+type rowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// ownsRow — чи належить рядок таблиці ЦЬОМУ портфелю; ErrNotFound, якщо ні.
+//
+// Потрібна дітям: продаж посилається на лот, поповнення вкладу — на вклад,
+// рух цілі — на ціль. Колонка portfolio_id у дитини сама по собі не
+// заважає записати в портфель Б продаж лота з портфеля А — id лота
+// приходить від клієнта, і без цієї перевірки звуження було б лише
+// косметикою. Кличеться перед КОЖНИМ записом дитини, де батько не
+// читається інакше (у saleFits лот уже читається — там досить умови).
+func (s *Store) ownsRow(ctx context.Context, table string, id int64) error {
+	return s.ownsRowIn(ctx, s.db, table, id)
+}
+
+func (s *Store) ownsRowIn(ctx context.Context, q rowQuerier, table string, id int64) error {
+	var n int
+	if err := q.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM `+table+` WHERE id=? AND portfolio_id=?`, id, s.pid).Scan(&n); err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("%s %d %w", table, id, ErrNotFound)
+	}
+	return nil
+}
+
 // Close. PRAGMA optimize перед закриттям — рекомендований SQLite спосіб
 // тримати статистику планувальника свіжою: він сам вирішує, чи є що
 // рахувати, і на незмінній базі не робить нічого. Помилку ковтаємо
@@ -149,9 +178,9 @@ func (s *Store) AddLot(ctx context.Context, l domain.Lot) (int64, error) {
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO lots
-		(isin, qty, price_per_bond, currency, buy_date, broker_id, note, fee)
-		VALUES (?,?,?,?,?,?,?,?)`,
-		l.ISIN, l.Qty, l.PricePerBond.Amount(), l.PricePerBond.Currency().Code,
+		(portfolio_id, isin, qty, price_per_bond, currency, buy_date, broker_id, note, fee)
+		VALUES (?,?,?,?,?,?,?,?,?)`,
+		s.pid, l.ISIN, l.Qty, l.PricePerBond.Amount(), l.PricePerBond.Currency().Code,
 		string(l.BuyDate), broker, l.Note, fee)
 	if err != nil {
 		return 0, err
@@ -176,9 +205,9 @@ func (s *Store) UpdateLot(ctx context.Context, l domain.Lot) error {
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE lots SET
 		isin=?, qty=?, price_per_bond=?, currency=?, buy_date=?, broker_id=?, note=?, fee=?
-		WHERE id=?`,
+		WHERE id=? AND portfolio_id=?`,
 		l.ISIN, l.Qty, l.PricePerBond.Amount(), l.PricePerBond.Currency().Code,
-		string(l.BuyDate), broker, l.Note, fee, l.ID)
+		string(l.BuyDate), broker, l.Note, fee, l.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -186,7 +215,7 @@ func (s *Store) UpdateLot(ctx context.Context, l domain.Lot) error {
 }
 
 func (s *Store) DeleteLot(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM lots WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM lots WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
@@ -194,7 +223,8 @@ func (s *Store) ListLots(ctx context.Context) ([]domain.Lot, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT l.id, l.isin, l.qty, l.price_per_bond,
 		l.currency, l.buy_date, COALESCE(b.name,''), l.note, l.fee
 		FROM lots l LEFT JOIN brokers b ON b.id = l.broker_id
-		ORDER BY l.buy_date, l.id`)
+		WHERE l.portfolio_id=?
+		ORDER BY l.buy_date, l.id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -232,8 +262,10 @@ func (s *Store) saleFits(ctx context.Context, sl domain.Sale, exclude int64) (st
 	}
 	var lotQty int64
 	var lotCur string
-	err := s.db.QueryRowContext(ctx, `SELECT qty, currency FROM lots WHERE id=?`, sl.LotID).
-		Scan(&lotQty, &lotCur)
+	// Чужий лот читається як «не існує»: інакше продаж у портфелі Б міг би
+	// займати кількість лота з портфеля А.
+	err := s.db.QueryRowContext(ctx, `SELECT qty, currency FROM lots WHERE id=? AND portfolio_id=?`,
+		sl.LotID, s.pid).Scan(&lotQty, &lotCur)
 	if err == sql.ErrNoRows {
 		return "", fmt.Errorf("лот %d не існує", sl.LotID)
 	}
@@ -246,7 +278,8 @@ func (s *Store) saleFits(ctx context.Context, sl domain.Sale, exclude int64) (st
 	}
 	var sold sql.NullInt64
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT SUM(qty) FROM sales WHERE lot_id=? AND id<>?`, sl.LotID, exclude).Scan(&sold); err != nil {
+		`SELECT SUM(qty) FROM sales WHERE lot_id=? AND id<>? AND portfolio_id=?`,
+		sl.LotID, exclude, s.pid).Scan(&sold); err != nil {
 		return "", err
 	}
 	if sold.Int64+sl.Qty > lotQty {
@@ -265,9 +298,9 @@ func (s *Store) AddSale(ctx context.Context, sl domain.Sale) (int64, error) {
 		accrued = sl.Accrued.Amount()
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO sales
-		(lot_id, sale_date, qty, clean_per_bond, accrued, currency, note)
-		VALUES (?,?,?,?,?,?,?)`,
-		sl.LotID, string(sl.SaleDate), sl.Qty, sl.CleanPerBond.Amount(), accrued, lotCur, sl.Note)
+		(portfolio_id, lot_id, sale_date, qty, clean_per_bond, accrued, currency, note)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		s.pid, sl.LotID, string(sl.SaleDate), sl.Qty, sl.CleanPerBond.Amount(), accrued, lotCur, sl.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -288,9 +321,9 @@ func (s *Store) UpdateSale(ctx context.Context, sl domain.Sale) error {
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE sales SET
 		lot_id=?, sale_date=?, qty=?, clean_per_bond=?, accrued=?, currency=?, note=?
-		WHERE id=?`,
+		WHERE id=? AND portfolio_id=?`,
 		sl.LotID, string(sl.SaleDate), sl.Qty, sl.CleanPerBond.Amount(), accrued, lotCur,
-		sl.Note, sl.ID)
+		sl.Note, sl.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -302,7 +335,7 @@ func (s *Store) UpdateSale(ctx context.Context, sl domain.Sale) error {
 // залишок хіба що більшим. Стан, у який це переводить портфель, досяжний
 // і без цього продажу — а отже, завжди дійсний.
 func (s *Store) DeleteSale(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM sales WHERE id=?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM sales WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err
 	}
@@ -311,7 +344,8 @@ func (s *Store) DeleteSale(ctx context.Context, id int64) error {
 
 func (s *Store) ListSales(ctx context.Context) ([]domain.Sale, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, lot_id, sale_date, qty,
-		clean_per_bond, accrued, currency, note FROM sales ORDER BY sale_date, id`)
+		clean_per_bond, accrued, currency, note FROM sales
+		WHERE portfolio_id=? ORDER BY sale_date, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -349,8 +383,8 @@ func (s *Store) AddDeposit(ctx context.Context, d Deposit) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	res, err := s.db.ExecContext(ctx, `INSERT INTO deposits (date, amount, currency, broker_id, note)
-		VALUES (?,?,?,?,?)`, string(d.Date), d.Amount, d.Currency, broker, d.Note)
+	res, err := s.db.ExecContext(ctx, `INSERT INTO deposits (portfolio_id, date, amount, currency, broker_id, note)
+		VALUES (?,?,?,?,?,?)`, s.pid, string(d.Date), d.Amount, d.Currency, broker, d.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -364,8 +398,8 @@ func (s *Store) UpdateDeposit(ctx context.Context, d Deposit) error {
 		return err
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE deposits SET
-		date=?, amount=?, currency=?, broker_id=?, note=? WHERE id=?`,
-		string(d.Date), d.Amount, d.Currency, broker, d.Note, d.ID)
+		date=?, amount=?, currency=?, broker_id=?, note=? WHERE id=? AND portfolio_id=?`,
+		string(d.Date), d.Amount, d.Currency, broker, d.Note, d.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -373,7 +407,7 @@ func (s *Store) UpdateDeposit(ctx context.Context, d Deposit) error {
 }
 
 func (s *Store) DeleteDeposit(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM deposits WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM deposits WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
@@ -381,7 +415,8 @@ func (s *Store) ListDeposits(ctx context.Context) ([]Deposit, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.date, d.amount, d.currency,
 		COALESCE(b.name,''), d.note
 		FROM deposits d LEFT JOIN brokers b ON b.id = d.broker_id
-		ORDER BY d.date, d.id`)
+		WHERE d.portfolio_id=?
+		ORDER BY d.date, d.id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -418,8 +453,8 @@ type ReserveOp struct {
 }
 
 func (s *Store) AddReserveOp(ctx context.Context, r ReserveOp) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO reserve_ops (date, amount, currency, place, note)
-		VALUES (?,?,?,?,?)`, string(r.Date), r.Amount, r.Currency, r.Place, r.Note)
+	res, err := s.db.ExecContext(ctx, `INSERT INTO reserve_ops (portfolio_id, date, amount, currency, place, note)
+		VALUES (?,?,?,?,?,?)`, s.pid, string(r.Date), r.Amount, r.Currency, r.Place, r.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -429,8 +464,8 @@ func (s *Store) AddReserveOp(ctx context.Context, r ReserveOp) (int64, error) {
 // UpdateReserveOp переписує рух, зберігаючи id.
 func (s *Store) UpdateReserveOp(ctx context.Context, r ReserveOp) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE reserve_ops SET
-		date=?, amount=?, currency=?, place=?, note=? WHERE id=?`,
-		string(r.Date), r.Amount, r.Currency, r.Place, r.Note, r.ID)
+		date=?, amount=?, currency=?, place=?, note=? WHERE id=? AND portfolio_id=?`,
+		string(r.Date), r.Amount, r.Currency, r.Place, r.Note, r.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -438,13 +473,13 @@ func (s *Store) UpdateReserveOp(ctx context.Context, r ReserveOp) error {
 }
 
 func (s *Store) DeleteReserveOp(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM reserve_ops WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM reserve_ops WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
 func (s *Store) ListReserveOps(ctx context.Context) ([]ReserveOp, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, currency, place, note
-		FROM reserve_ops ORDER BY date, id`)
+		FROM reserve_ops WHERE portfolio_id=? ORDER BY date, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +500,7 @@ func (s *Store) ListReserveOps(ctx context.Context) ([]ReserveOp, error) {
 // ReserveByCurrency — залишок резерву по валютах (мінорні, нативно).
 func (s *Store) ReserveByCurrency(ctx context.Context) (map[string]int64, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT currency, SUM(amount) FROM reserve_ops GROUP BY currency`)
+		`SELECT currency, SUM(amount) FROM reserve_ops WHERE portfolio_id=? GROUP BY currency`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -507,8 +542,8 @@ func (s *Store) AddConversion(ctx context.Context, c Conversion) (int64, error) 
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO conversions
-		(date, from_currency, from_amount, to_currency, to_amount, broker_id, note) VALUES (?,?,?,?,?,?,?)`,
-		string(c.Date), c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, broker, c.Note)
+		(portfolio_id, date, from_currency, from_amount, to_currency, to_amount, broker_id, note) VALUES (?,?,?,?,?,?,?,?)`,
+		s.pid, string(c.Date), c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, broker, c.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -523,9 +558,9 @@ func (s *Store) UpdateConversion(ctx context.Context, c Conversion) error {
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE conversions SET
 		date=?, from_currency=?, from_amount=?, to_currency=?, to_amount=?, broker_id=?, note=?
-		WHERE id=?`,
+		WHERE id=? AND portfolio_id=?`,
 		string(c.Date), c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount,
-		broker, c.Note, c.ID)
+		broker, c.Note, c.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -533,7 +568,7 @@ func (s *Store) UpdateConversion(ctx context.Context, c Conversion) error {
 }
 
 func (s *Store) DeleteConversion(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM conversions WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM conversions WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
@@ -541,7 +576,8 @@ func (s *Store) ListConversions(ctx context.Context) ([]Conversion, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT c.id, c.date, c.from_currency, c.from_amount,
 		c.to_currency, c.to_amount, COALESCE(b.name,''), c.note
 		FROM conversions c LEFT JOIN brokers b ON b.id = c.broker_id
-		ORDER BY c.date, c.id`)
+		WHERE c.portfolio_id=?
+		ORDER BY c.date, c.id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -1122,9 +1158,9 @@ func (s *Store) AddFundOp(ctx context.Context, op domain.FundOp) (int64, error) 
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO fund_ops
-		(date, fund_id, kind, qty, amount, tax, broker_id, pair_id, note)
-		VALUES (?,?,?,?,?,?,?,?,?)`,
-		string(op.Date), fund, string(op.Kind), op.Qty, op.Amount, op.Tax,
+		(portfolio_id, date, fund_id, kind, qty, amount, tax, broker_id, pair_id, note)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		s.pid, string(op.Date), fund, string(op.Kind), op.Qty, op.Amount, op.Tax,
 		broker, nullID(op.PairID), op.Note)
 	if err != nil {
 		return 0, err
@@ -1139,9 +1175,9 @@ func (s *Store) UpdateFundOp(ctx context.Context, op domain.FundOp) error {
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE fund_ops SET
 		date=?, fund_id=?, kind=?, qty=?, amount=?, tax=?, broker_id=?, pair_id=?, note=?
-		WHERE id=?`,
+		WHERE id=? AND portfolio_id=?`,
 		string(op.Date), fund, string(op.Kind), op.Qty, op.Amount, op.Tax,
-		broker, nullID(op.PairID), op.Note, op.ID)
+		broker, nullID(op.PairID), op.Note, op.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -1158,7 +1194,7 @@ func nullID(id int64) any {
 }
 
 func (s *Store) DeleteFundOp(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM fund_ops WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM fund_ops WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
@@ -1170,7 +1206,8 @@ func (s *Store) ListFundOps(ctx context.Context) ([]domain.FundOp, error) {
 		FROM fund_ops o
 		JOIN funds f ON f.id = o.fund_id
 		LEFT JOIN brokers b ON b.id = o.broker_id
-		ORDER BY o.date, o.id`)
+		WHERE o.portfolio_id=?
+		ORDER BY o.date, o.id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -1226,11 +1263,11 @@ func (s *Store) AddTermDeposit(ctx context.Context, d domain.Deposit) (int64, er
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO term_deposits
-		(broker_id, currency, principal, rate_bp, open_date, maturity_date,
+		(portfolio_id, broker_id, currency, principal, rate_bp, open_date, maturity_date,
 		 payout, capitalized, tax_bp, closed_date, closed_amount, note, replenishable,
 		 is_reserve, revocable)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		broker, d.Currency, d.Principal, d.RateBP, string(d.OpenDate), string(d.MaturityDate),
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		s.pid, broker, d.Currency, d.Principal, d.RateBP, string(d.OpenDate), string(d.MaturityDate),
 		string(d.Payout), boolInt(d.Capitalized), d.TaxBP, string(d.ClosedDate), d.ClosedAmount,
 		d.Note, boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable))
 	if err != nil {
@@ -1247,10 +1284,10 @@ func (s *Store) UpdateTermDeposit(ctx context.Context, d domain.Deposit) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE term_deposits SET
 		broker_id=?, currency=?, principal=?, rate_bp=?, open_date=?, maturity_date=?,
 		payout=?, capitalized=?, tax_bp=?, closed_date=?, closed_amount=?, note=?,
-		replenishable=?, is_reserve=?, revocable=? WHERE id=?`,
+		replenishable=?, is_reserve=?, revocable=? WHERE id=? AND portfolio_id=?`,
 		broker, d.Currency, d.Principal, d.RateBP, string(d.OpenDate), string(d.MaturityDate),
 		string(d.Payout), boolInt(d.Capitalized), d.TaxBP, string(d.ClosedDate), d.ClosedAmount,
-		d.Note, boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable), d.ID)
+		d.Note, boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable), d.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -1259,17 +1296,19 @@ func (s *Store) UpdateTermDeposit(ctx context.Context, d domain.Deposit) error {
 
 func (s *Store) DeleteTermDeposit(ctx context.Context, id int64) error {
 	// Спершу поповнення: FK на term_deposits, а каскаду в схемі немає.
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM deposit_topups WHERE deposit_id=?`, id); err != nil {
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM deposit_topups WHERE deposit_id=? AND portfolio_id=?`, id, s.pid); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM term_deposits WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM term_deposits WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
 func (s *Store) ListTermDeposits(ctx context.Context) ([]domain.Deposit, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+termDepositCols()+`
 		FROM term_deposits d LEFT JOIN brokers b ON b.id = d.broker_id
-		ORDER BY d.maturity_date, d.id`)
+		WHERE d.portfolio_id=?
+		ORDER BY d.maturity_date, d.id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -1299,7 +1338,7 @@ func (s *Store) ListTermDeposits(ctx context.Context) ([]domain.Deposit, error) 
 
 func (s *Store) listAllDepositTopups(ctx context.Context) (map[int64][]domain.DepositTopup, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, deposit_id, date, amount FROM deposit_topups ORDER BY date, id`)
+		`SELECT id, deposit_id, date, amount FROM deposit_topups WHERE portfolio_id=? ORDER BY date, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -1318,9 +1357,13 @@ func (s *Store) listAllDepositTopups(ctx context.Context) (map[int64][]domain.De
 }
 
 func (s *Store) AddDepositTopup(ctx context.Context, t domain.DepositTopup) (int64, error) {
+	// Чужий вклад — не наш рядок, а не «не знайдено»: id приходить від клієнта.
+	if err := s.ownsRow(ctx, "term_deposits", t.DepositID); err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx,
-		`INSERT INTO deposit_topups (deposit_id, date, amount) VALUES (?,?,?)`,
-		t.DepositID, string(t.Date), t.Amount)
+		`INSERT INTO deposit_topups (portfolio_id, deposit_id, date, amount) VALUES (?,?,?,?)`,
+		s.pid, t.DepositID, string(t.Date), t.Amount)
 	if err != nil {
 		return 0, err
 	}
@@ -1339,8 +1382,8 @@ func (s *Store) AddDepositTopup(ctx context.Context, t domain.DepositTopup) (int
 // Це не правка, а нове поповнення, і робиться воно двома діями.
 func (s *Store) UpdateDepositTopup(ctx context.Context, t domain.DepositTopup) error {
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE deposit_topups SET date=?, amount=? WHERE id=?`,
-		string(t.Date), t.Amount, t.ID)
+		`UPDATE deposit_topups SET date=?, amount=? WHERE id=? AND portfolio_id=?`,
+		string(t.Date), t.Amount, t.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -1348,7 +1391,7 @@ func (s *Store) UpdateDepositTopup(ctx context.Context, t domain.DepositTopup) e
 }
 
 func (s *Store) DeleteDepositTopup(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM deposit_topups WHERE id=?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM deposit_topups WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err
 	}
@@ -1376,8 +1419,8 @@ func (s *Store) FundOpPairExists(ctx context.Context, op domain.FundOp) (bool, e
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM fund_ops o
 		JOIN funds f ON f.id = o.fund_id
-		WHERE o.date=? AND f.name=? AND o.kind=? AND o.amount=?`,
-		string(op.Date), op.Fund, string(op.Kind), op.Amount).Scan(&n)
+		WHERE o.date=? AND f.name=? AND o.kind=? AND o.amount=? AND o.portfolio_id=?`,
+		string(op.Date), op.Fund, string(op.Kind), op.Amount, s.pid).Scan(&n)
 	return n > 0, err
 }
 
@@ -1385,13 +1428,21 @@ func (s *Store) FundOpPairExists(ctx context.Context, op domain.FundOp) (bool, e
 // іншу. Двома запитами, бо id другої відомий лише після її вставки — так
 // само це робить відновлення з бекапу (backup.go).
 func (s *Store) LinkFundOps(ctx context.Context, a, b int64) error {
-	if _, err := s.db.ExecContext(ctx,
-		`UPDATE fund_ops SET pair_id=? WHERE id=?`, b, a); err != nil {
+	// Обидва id — від клієнта; чужа нога дає ErrNotFound, а не тихий нуль рядків.
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE fund_ops SET pair_id=? WHERE id=? AND portfolio_id=?`, b, a, s.pid)
+	if err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE fund_ops SET pair_id=? WHERE id=?`, a, b)
-	return err
+	if err := affectedOne(res, "операцію фонду"); err != nil {
+		return err
+	}
+	res, err = s.db.ExecContext(ctx,
+		`UPDATE fund_ops SET pair_id=? WHERE id=? AND portfolio_id=?`, a, b, s.pid)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "операцію фонду")
 }
 
 // FundOpExists — чи вже є така операція. Потрібно імпорту виписки: файл
@@ -1401,7 +1452,7 @@ func (s *Store) FundOpExists(ctx context.Context, op domain.FundOp) (bool, error
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM fund_ops o
 		JOIN funds f ON f.id = o.fund_id
-		WHERE o.date=? AND f.name=? AND o.kind=? AND o.qty=? AND o.amount=?`,
-		string(op.Date), op.Fund, string(op.Kind), op.Qty, op.Amount).Scan(&n)
+		WHERE o.date=? AND f.name=? AND o.kind=? AND o.qty=? AND o.amount=? AND o.portfolio_id=?`,
+		string(op.Date), op.Fund, string(op.Kind), op.Qty, op.Amount, s.pid).Scan(&n)
 	return n > 0, err
 }

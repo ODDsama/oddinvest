@@ -110,7 +110,7 @@ func checkNPFAccount(a domain.NPFAccount) (domain.NPFAccount, error) {
 
 func (s *Store) ListNPFAccounts(ctx context.Context) ([]domain.NPFAccount, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+npfAccountCols()+`
-		FROM npf_accounts ORDER BY name COLLATE NOCASE`)
+		FROM npf_accounts WHERE portfolio_id=? ORDER BY name COLLATE NOCASE`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -132,11 +132,11 @@ func (s *Store) AddNPFAccount(ctx context.Context, a domain.NPFAccount) (int64, 
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO npf_accounts
-		(name, administrator, currency, nav_e6, nav_date, expected_yield_bp,
+		(portfolio_id, name, administrator, currency, nav_e6, nav_date, expected_yield_bp,
 		 yield_simple_years, access_date, income_tax_bp, credit_rate_bp,
 		 contrib_day, payout_years, payout_freq, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		a.Name, a.Administrator, a.Currency, a.Nav, string(a.NavDate),
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		s.pid, a.Name, a.Administrator, a.Currency, a.Nav, string(a.NavDate),
 		a.ExpectedYieldBP, a.YieldSimpleYears, string(a.AccessDate),
 		a.IncomeTaxBP, a.CreditRateBP, a.ContribDay,
 		a.PayoutYears, a.PayoutFreq, a.Note)
@@ -159,11 +159,11 @@ func (s *Store) UpdateNPFAccount(ctx context.Context, a domain.NPFAccount) error
 		expected_yield_bp=?, yield_simple_years=?, access_date=?,
 		income_tax_bp=?, credit_rate_bp=?, contrib_day=?,
 		payout_years=?, payout_freq=?, note=?
-		WHERE id=?`,
+		WHERE id=? AND portfolio_id=?`,
 		a.Name, a.Administrator, a.Currency, a.Nav, string(a.NavDate),
 		a.ExpectedYieldBP, a.YieldSimpleYears, string(a.AccessDate),
 		a.IncomeTaxBP, a.CreditRateBP, a.ContribDay,
-		a.PayoutYears, a.PayoutFreq, a.Note, a.ID)
+		a.PayoutYears, a.PayoutFreq, a.Note, a.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -188,7 +188,7 @@ func (s *Store) SetNPFNav(ctx context.Context, id, navE6 int64, on domain.Date) 
 		return fmt.Errorf("вкажіть дату ЧВОПА")
 	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE npf_accounts SET nav_e6=?, nav_date=? WHERE id=?`, navE6, date, id)
+		`UPDATE npf_accounts SET nav_e6=?, nav_date=? WHERE id=? AND portfolio_id=?`, navE6, date, id, s.pid)
 	if err != nil {
 		return err
 	}
@@ -198,13 +198,13 @@ func (s *Store) SetNPFNav(ctx context.Context, id, navE6 int64, on domain.Date) 
 // DeleteNPFAccount — разом із журналом і точками: FK на npf_accounts є, а
 // каскаду в схемі немає, тож порядок тут не косметичний.
 func (s *Store) DeleteNPFAccount(ctx context.Context, id int64) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM npf_ops WHERE npf_id=?`, id); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM npf_ops WHERE npf_id=? AND portfolio_id=?`, id, s.pid); err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM npf_nav WHERE npf_id=?`, id); err != nil {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM npf_nav WHERE npf_id=? AND portfolio_id=?`, id, s.pid); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM npf_accounts WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM npf_accounts WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
@@ -238,7 +238,8 @@ func (s *Store) ListNPFOps(ctx context.Context) ([]domain.NPFOp, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT o.id, o.npf_id, o.date,
 		o.units_e6, o.amount, COALESCE(b.name,''), o.note
 		FROM npf_ops o LEFT JOIN brokers b ON b.id = o.broker_id
-		ORDER BY o.date, o.id`)
+		WHERE o.portfolio_id=?
+		ORDER BY o.date, o.id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -262,13 +263,18 @@ func (s *Store) AddNPFOp(ctx context.Context, o domain.NPFOp) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Рахунок чужого портфеля мусить читатись як ErrNotFound, а не тихо
+	// прийняти внесок: FK на npf_accounts портфеля не знає.
+	if err := s.ownsRow(ctx, "npf_accounts", o.NPFID); err != nil {
+		return 0, err
+	}
 	broker, err := s.brokerRef(ctx, o.Broker)
 	if err != nil {
 		return 0, err
 	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO npf_ops
-		(npf_id, date, units_e6, amount, broker_id, note) VALUES (?,?,?,?,?,?)`,
-		o.NPFID, string(o.Date), o.Units, o.Amount, broker, o.Note)
+		(portfolio_id, npf_id, date, units_e6, amount, broker_id, note) VALUES (?,?,?,?,?,?,?)`,
+		s.pid, o.NPFID, string(o.Date), o.Units, o.Amount, broker, o.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -280,13 +286,18 @@ func (s *Store) UpdateNPFOp(ctx context.Context, o domain.NPFOp) error {
 	if err != nil {
 		return err
 	}
+	// Той самий довід, що в AddNPFOp: чужий рахунок — ErrNotFound, а не
+	// мовчазний успіх.
+	if err := s.ownsRow(ctx, "npf_accounts", o.NPFID); err != nil {
+		return err
+	}
 	broker, err := s.brokerRef(ctx, o.Broker)
 	if err != nil {
 		return err
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE npf_ops SET
-		npf_id=?, date=?, units_e6=?, amount=?, broker_id=?, note=? WHERE id=?`,
-		o.NPFID, string(o.Date), o.Units, o.Amount, broker, o.Note, o.ID)
+		npf_id=?, date=?, units_e6=?, amount=?, broker_id=?, note=? WHERE id=? AND portfolio_id=?`,
+		o.NPFID, string(o.Date), o.Units, o.Amount, broker, o.Note, o.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -294,7 +305,7 @@ func (s *Store) UpdateNPFOp(ctx context.Context, o domain.NPFOp) error {
 }
 
 func (s *Store) DeleteNPFOp(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM npf_ops WHERE id=?`, id)
+	_, err := s.db.ExecContext(ctx, `DELETE FROM npf_ops WHERE id=? AND portfolio_id=?`, id, s.pid)
 	return err
 }
 
@@ -302,7 +313,7 @@ func (s *Store) DeleteNPFOp(ctx context.Context, id int64) error {
 
 func (s *Store) ListNPFNav(ctx context.Context) ([]domain.NPFNav, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, npf_id, date, nav_e6 FROM npf_nav ORDER BY npf_id, date`)
+		`SELECT id, npf_id, date, nav_e6 FROM npf_nav WHERE portfolio_id=? ORDER BY npf_id, date`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -350,10 +361,15 @@ func (s *Store) AddNPFNavPoints(ctx context.Context, npfID int64, pts []domain.N
 		return 0, err
 	}
 	defer tx.Rollback() //nolint:errcheck // Commit нижче; тут відкат уже некерований.
+	// Рахунок чужого портфеля мусить читатись як ErrNotFound, а не тихо
+	// прийняти пачку: FK на npf_accounts портфеля не знає.
+	if err := s.ownsRowIn(ctx, tx, "npf_accounts", npfID); err != nil {
+		return 0, err
+	}
 	for _, p := range pts {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO npf_nav (npf_id, date, nav_e6)
-			VALUES (?,?,?) ON CONFLICT(npf_id, date) DO UPDATE SET nav_e6=excluded.nav_e6`,
-			npfID, string(p.Date), p.Nav); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO npf_nav (portfolio_id, npf_id, date, nav_e6)
+			VALUES (?,?,?,?) ON CONFLICT(npf_id, date) DO UPDATE SET nav_e6=excluded.nav_e6`,
+			s.pid, npfID, string(p.Date), p.Nav); err != nil {
 			return 0, err
 		}
 	}
@@ -382,16 +398,16 @@ func (s *Store) UpdateNPFNavPoint(ctx context.Context, n domain.NPFNav) error {
 	}
 	var busy int
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM npf_nav WHERE date=? AND id<>?
-			AND npf_id=(SELECT npf_id FROM npf_nav WHERE id=?)`,
-		string(n.Date), n.ID, n.ID).Scan(&busy); err != nil {
+		`SELECT COUNT(*) FROM npf_nav WHERE date=? AND id<>? AND portfolio_id=?
+			AND npf_id=(SELECT npf_id FROM npf_nav WHERE id=? AND portfolio_id=?)`,
+		string(n.Date), n.ID, s.pid, n.ID, s.pid).Scan(&busy); err != nil {
 		return err
 	}
 	if busy > 0 {
 		return fmt.Errorf("точка на %s уже є: %w", n.Date, ErrConflict)
 	}
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE npf_nav SET date=?, nav_e6=? WHERE id=?`, string(n.Date), n.Nav, n.ID)
+		`UPDATE npf_nav SET date=?, nav_e6=? WHERE id=? AND portfolio_id=?`, string(n.Date), n.Nav, n.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -399,7 +415,7 @@ func (s *Store) UpdateNPFNavPoint(ctx context.Context, n domain.NPFNav) error {
 }
 
 func (s *Store) DeleteNPFNavPoint(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM npf_nav WHERE id=?`, id)
+	res, err := s.db.ExecContext(ctx, `DELETE FROM npf_nav WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err
 	}
