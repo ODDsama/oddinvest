@@ -224,6 +224,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/auctions/curve", s.handleAuctionsCurve)
 	mux.HandleFunc("POST /api/whatif", s.handleWhatIf)
 	mux.HandleFunc("POST /api/policy/preview", s.handlePolicyPreview)
+	// Третє превʼю поверх того самого buildStateWith, і питання в нього
+	// третє: не «якщо це купити» й не «що означають цілі», а «що зробив
+	// би з цим портфелем рух курсу, який уже був». GET, бо тіла від
+	// людини немає — вхід виводиться з власної історії (довід у шапці).
+	mux.HandleFunc("GET /api/fx-shock", s.handleFXShock)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("GET /api/backup", s.handleBackupExport)

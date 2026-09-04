@@ -99,6 +99,7 @@ const VIEWS = {
   "portfolio/all/year": portfolio.year,
   "portfolio/all/structure": portfolio.structure,
   "portfolio/all/limits": portfolio.limits,
+  "portfolio/all/shock": portfolio.shock,
   "portfolio/all/compare": portfolio.compare,
   "portfolio/all/record": portfolio.record,
 

@@ -44,6 +44,7 @@
 import { esc, uah2 as fmtUAH } from "../format.js";
 import { infoBtn } from "../info.js";
 import { KIND_GROUP } from "../constants.js";
+import { delta, dateDelta, targetTail } from "./impact.js";
 
 const asPct = (v) => `${v.toFixed(2)}%`;
 const asMonths = (v) => `${v.toFixed(1)} міс.`;
@@ -66,28 +67,10 @@ export async function fetchWhatIf(ctx, body = {}, signal = null) {
   return resp.json();
 }
 
-// Рядок «зараз → стане». Показуємо ОБИДВА числа, а не саму різницю:
-// «+2.4 в.п.» не каже, чи ти при цьому перескочив ціль.
-//
-// fmt приходить іззовні, бо гроші, відсотки й місяці форматуються
-// по-різному, а гривня без розділювачів тисяч у застосунку не пишеться.
-function delta(label, now, will, fmt, tail = "") {
-  const moved = Math.abs((will || 0) - (now || 0)) > 0.005;
-  const arrow = moved ? `<b>${fmt(will || 0)}</b>` : `<span class="muted">без змін</span>`;
-  return `<div class="pv-row"><span>${esc(label)}</span>
-    <span><span class="muted">${fmt(now || 0)} →</span> ${arrow}${tail}</span></div>`;
-}
-
-const targetTail = (t) => (t == null ? "" : ` <span class="muted fine-xs">· ціль ${t}%</span>`);
-
-// Дати порівнюються як рядки: обидві ISO, і Date тут дав би лише привід
-// думати про часовий пояс.
-function dateDelta(label, now, will) {
-  const a = now || "—", b = will || "—";
-  const arrow = a === b ? `<span class="muted">без змін</span>` : `<b>${esc(b)}</b>`;
-  return `<div class="pv-row"><span>${esc(label)}</span>
-    <span><span class="muted">${esc(a)} →</span> ${arrow}</span></div>`;
-}
+// Рядки «зараз → стане» переїхали у views/impact.js: та сама ідіома
+// знадобилась валютному шоку, і другий випадок — привід винести спільне,
+// а не скопіювати (CLAUDE.md §3). Показуємо ОБИДВА числа, а не саму
+// різницю: «+2.4 в.п.» не каже, чи ти при цьому перескочив ціль.
 
 // Частка виду — лише для видів, які в наборі Є. Показати всі п'ять
 // означало б намалювати другу «Структуру за видом» усередині картки

@@ -42,6 +42,7 @@ import {
 } from "./risk.js";
 import { rivalsCard, wireRivals, rivalsPath } from "./rivals.js";
 import { chartBlockHTML, snapshotsTableHTML, wireHistory } from "./history.js";
+import { fxShockCard, wireFXShock, shockPath } from "./fx-shock.js";
 
 // Підсумок місяця живе окремим модулем і реекспортується сюди: сторінка
 // належить «Портфелю», а її вміст не має спільного з рештою цього файла
@@ -103,6 +104,23 @@ export async function limits(ctx, main) {
     ${liquidityCard(ctx)}
     ${rateRiskCard(ctx)}`;
   wireDisclosures(main);
+}
+
+/** Валютний шок: рух курсу, який УЖЕ був, на сьогоднішньому портфелі.
+ *
+ *  СТОЇТЬ ТУТ, А НЕ У «ВАЖЕЛЯХ», і різниця не в темі, а в природі
+ *  твердження. Важелі крутять ПРИПУЩЕННЯ по одному («а якщо вносити
+ *  вдвічі більше»), і про майбутнє; шок нічого не припускає — він бере
+ *  виміряний відрізок історії й питає, що той зробив би з портфелем,
+ *  який є ЗАРАЗ. Предмет тут — сьогоднішній портфель цілком, тобто той
+ *  самий рядок, що в «Структури» й «Лімітів».
+ *
+ *  М'яко (ctx.soft): маршрут може бути новішим за бекенд, а сторінка з
+ *  названою причиною краща за порожню. */
+export async function shock(ctx, main) {
+  const d = await ctx.soft(shockPath(), null);
+  main.innerHTML = fxShockCard(ctx, d);
+  wireFXShock(ctx, main);
 }
 
 /** З чим порівняти: механічні альтернативи, власні поради й ринок.

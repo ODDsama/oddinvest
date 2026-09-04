@@ -169,8 +169,15 @@ sleeve-state:
 # лишається сама політика, домішується вона тим самим buildStateWith, і
 # публічний BuildStateDoc її так само не приймає — правило не послаблене,
 # просто в нього з'явився ще один законний виклик.
+#
+# ЧЕТВЕРТИЙ — handlers_fx_shock.go, і питання в нього знову своє: не про
+# портфель і не про політику, а про САМ СВІТ — «що зробив би з цим
+# портфелем рух курсу, який уже був». Гіпотезою в нього курси, узяті з
+# власної історії fx_rates, тобто виміряні, а не названі людиною.
+# BuildStateDoc її так само не приймає: у MQTT і знімок іде той курс, що
+# сьогодні насправді.
 .PHONY: whatif-boundary
 whatif-boundary:
 	@! grep -rn 'hypothetical' internal/api/*.go \
-		| grep -vE 'state_builder\.go|handlers_whatif\.go|state_plan_buys\.go|handlers_policy_preview\.go|_test\.go' \
+		| grep -vE 'state_builder\.go|handlers_whatif\.go|state_plan_buys\.go|handlers_policy_preview\.go|handlers_fx_shock\.go|_test\.go' \
 		|| { echo 'гіпотеза протікає повз buildStateWith: у MQTT і знімок іде реальний стан'; exit 1; }
