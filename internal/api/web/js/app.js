@@ -111,6 +111,7 @@ const VIEWS = {
   "money/all/reconcile": money.reconcile,
 
   "plan/debts/main": plan.debts,
+  "plan/spend/main": plan.spend,
   "plan/inflow/main": plan.inflow,
   "plan/route/main": plan.route,
   "plan/goal/main": plan.goal,

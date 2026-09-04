@@ -136,6 +136,23 @@ type hypothetical struct {
 	// темп, уже написаний у шапці devaluation.go — 2022→2023 дають +34%,
 	// і вікно для того й десятирічне, щоб такий епізод його не перекидав.
 	rates fx.Rates
+	// cash / debts / debtOps — ВИТРАТА, якої ще не було, і борг, який вона
+	// створює.
+	//
+	// ПʼЯТА ПРИРОДА, і стоїть вона рівно на межі двох контурів, які доти
+	// не розмовляли: портфельний умів сказати, що станеться, якщо КУПИТИ
+	// ПАПІР, а борговий жив окремо й про портфель не знав. Питання «що ця
+	// витрата коштує» не належить жодному з них поодинці.
+	//
+	// cash — зняття з рахунку відʼємною сумою: саме так гаманець і описує
+	// його (0006), тож окремого виду заводити не треба.
+	//
+	// ID гіпотетичних боргів — ВІДʼЄМНІ. Справжні йдуть AUTOINCREMENT, тож
+	// відʼємне не зіткнеться ні з посиланням CardID, ні з DebtOp.DebtID,
+	// ні з ключем у мапі розстрочок — і це властивість, а не домовленість.
+	cash    []store.Deposit
+	debts   []domain.Debt
+	debtOps []domain.DebtOp
 }
 
 // empty — чи це звичайна збірка. Дешевша перевірка, ніж порівняння
@@ -148,7 +165,8 @@ type hypothetical struct {
 func (h hypothetical) empty() bool {
 	return len(h.lots) == 0 && len(h.fundOps) == 0 && len(h.deposits) == 0 &&
 		len(h.npfOps) == 0 && len(h.actions) == 0 && len(h.flows) == 0 &&
-		len(h.settings) == 0 && len(h.rates) == 0
+		len(h.settings) == 0 && len(h.rates) == 0 &&
+		len(h.cash) == 0 && len(h.debts) == 0 && len(h.debtOps) == 0
 }
 
 // buildState — стан портфеля яким він є.
@@ -206,6 +224,13 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			}
 			src.bonds, src.pays = merged, pays
 		}
+		// Витрата й борг, якого ще немає, — теж копіями зрізів. Далі вони
+		// безкоштовно доходять туди, куди й справжні: готівка — у гаманець
+		// і капітал, борг — у покриття подушкою, місячний план і прохід
+		// виходу з ліміту. Жодна фаза нижче не знає, що їх іще не було.
+		src.deposits = append(append([]store.Deposit{}, src.deposits...), what.cash...)
+		src.debts = append(append([]domain.Debt{}, src.debts...), what.debts...)
+		src.debtOps = append(append([]domain.DebtOp{}, src.debtOps...), what.debtOps...)
 		// Курси — накладкою поверх прочитаних, і ДО політики нижче:
 		// витрати можуть бути названі у валюті, і переклад їх у гривню
 		// мусить статись уже за новим курсом.

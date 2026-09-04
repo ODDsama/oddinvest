@@ -42,6 +42,7 @@ import {
 import { receiptsHTML, wirePlanReceipts } from "./plan-receipts.js";
 import { renderRoute } from "./route.js";
 export { debts } from "./debts.js";
+export { spend } from "./spend.js";
 import {
   planActionsListHTML, planSetSharesFormHTML, planLockFormHTML, wirePlanActions,
 } from "./plan-actions.js";
