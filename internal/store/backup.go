@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -23,6 +24,22 @@ import (
 // на який націлений запит, не чіпаючи сусідні. Довідник фондів і позначки
 // ціни спільні для всіх портфелів, але входять у кожен дамп — щоб файл був
 // самодостатнім і відновлювався на порожній базі без другого файла.
+//
+// Спільний каталог фондів restore витирає ЛИШЕ там, де після очищення
+// цього портфеля фондом не користується ніхто (pruneOrphanFundsIn): фонд,
+// у якому сидить сусід, витерти не можна — FK, — і його позначки ціни
+// лишаються. На одному портфелі це рівно старий контракт «відновлення
+// заміщує». Фонд із файла зводиться за назвою: якого немає — створюється,
+// наявний — переписується атрибутами з файла, тобто restore сателіта
+// переписує ГЛОБАЛЬНІ параметри спільного фонду; його позначки лягають
+// upsert-ом поверх наявних.
+//
+// І про id. Усі таблиці ділять одну послідовність AUTOINCREMENT, а бекап
+// тримає id (продажі посилаються на лоти саме за ними). Відновлений в
+// інший портфель, дамп упирався б у UNIQUE(id) на першому ж рядку, чий id
+// уже зайнятий сусідом. Тому id зберігається, коли вільний (порожня база,
+// той самий портфель — усе як доти), і замінюється новим, коли зайнятий,
+// а діти перечіплюються за мапою (idMaps).
 
 const BackupSchema = 1
 
@@ -1052,10 +1069,80 @@ var importAllTables = []string{
 
 // importGlobalTables — ті з importAllTables, що НЕ мають portfolio_id
 // (0054): каталог фондів і позначки ціни спільні для всіх портфелів, тож
-// ImportAll витирає їх цілком, а решту — лише в межах свого портфеля.
+// ImportAll витирає їх не за портфелем, а за вжитком (pruneOrphanFundsIn).
 // Окремий набір, а не правка importAllTables: той перелік звіряється зі
 // схемою тестом, і саме ним ведеться порядок «діти → батьки».
 var importGlobalTables = map[string]bool{"funds": true, "fund_prices": true}
+
+// pruneOrphanFundsIn — витерти фонди (з позначками), якими не користується
+// жоден портфель. Кличеться ПІСЛЯ очищення власних операцій, тож фонди
+// цього портфеля йдуть у смітник, а сусідові лишаються — і саме тому запит
+// дивиться на fund_ops УСІХ портфелів, а не свого (виняток у сторожі
+// scope_guard_test.go).
+func (s *Store) pruneOrphanFundsIn(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM fund_prices WHERE fund_id IN
+		(SELECT f.id FROM funds f WHERE NOT EXISTS (SELECT 1 FROM fund_ops o WHERE o.fund_id=f.id))`); err != nil {
+		return fmt.Errorf("очищення позначок ціни: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM funds
+		WHERE NOT EXISTS (SELECT 1 FROM fund_ops o WHERE o.fund_id=funds.id)`); err != nil {
+		return fmt.Errorf("очищення каталогу фондів: %w", err)
+	}
+	return nil
+}
+
+// decisionOpTable — у якій таблиці живе decisions.op_id за kind (0035:
+// «яка саме таблиця, каже kind»). Ті самі слова, що в plan_buys і в
+// журналі рішень (api/decisions.go: reserve, goal).
+var decisionOpTable = map[string]string{
+	BuyBond: "lots", BuyFund: "fund_ops", BuyDeposit: "term_deposits", BuyNPF: "npf_ops",
+	"goal": "goal_ops", "reserve": "reserve_ops",
+}
+
+// idMaps — старий id → новий, по таблицях, для рядків, чий id із бекапу
+// був зайнятий іншим портфелем (шапка файла).
+type idMaps map[string]map[int64]int64
+
+// of — новий id за старим; сам старий, якщо заміни не було (0 лишається 0).
+func (m idMaps) of(table string, old int64) int64 {
+	if n, ok := m[table][old]; ok {
+		return n
+	}
+	return old
+}
+
+// insert — вставити рядок з його id з бекапу, якщо той вільний, інакше з
+// новим, і запамʼятати заміну. tmpl має два %s: місце для «id,» у переліку
+// колонок і для «?,» у VALUES. Назва таблиці стоїть у самому tmpl, а не
+// підставляється, — щоб сторож звуження (scope_guard_test.go) бачив і
+// таблицю, і portfolio_id в одному літералі.
+//
+// Перевірка «зайнятий?» — на мить вставки, а не наперед: ExportAll іде за
+// id, а новий id завжди більший за все наявне, тож пізніший рядок із файла
+// не може зайняти те, що вже роздано.
+func (m idMaps) insert(ctx context.Context, tx *sql.Tx, table string, id int64, tmpl string, args ...any) error {
+	var taken int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE id=?`, id).Scan(&taken); err != nil {
+		return err
+	}
+	if taken == 0 {
+		_, err := tx.ExecContext(ctx, fmt.Sprintf(tmpl, "id,", "?,"), append([]any{id}, args...)...)
+		return err
+	}
+	res, err := tx.ExecContext(ctx, fmt.Sprintf(tmpl, "", ""), args...)
+	if err != nil {
+		return err
+	}
+	newID, err := res.LastInsertId()
+	if err != nil {
+		return err
+	}
+	if m[table] == nil {
+		m[table] = map[int64]int64{}
+	}
+	m[table][id] = newID
+	return nil
+}
 
 func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	if b == nil || b.Schema != BackupSchema {
@@ -1114,15 +1201,16 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	}
 	for _, t := range importAllTables {
 		if importGlobalTables[t] {
-			if _, err := tx.ExecContext(ctx, "DELETE FROM "+t); err != nil {
-				return fmt.Errorf("очищення %s: %w", t, err)
-			}
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, "DELETE FROM "+t+" WHERE portfolio_id=?", s.pid); err != nil {
 			return fmt.Errorf("очищення %s: %w", t, err)
 		}
 	}
+	if err := s.pruneOrphanFundsIn(ctx, tx); err != nil {
+		return err
+	}
+	ids := idMaps{}
 
 	brokers := map[string]any{}
 	brokerRef := func(name string) (any, error) {
@@ -1153,6 +1241,18 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if id, ok := funds[name]; ok {
 			return id, nil
 		}
+		// Спершу пошук: каталог спільний і НЕ витирається перед restore,
+		// тож фонд із файла може вже бути — заведений сусіднім портфелем
+		// або цим самим до відновлення.
+		var id int64
+		err := tx.QueryRowContext(ctx, `SELECT id FROM funds WHERE name=?`, name).Scan(&id)
+		if err == nil {
+			funds[name] = id
+			return id, nil
+		}
+		if err != sql.ErrNoRows {
+			return 0, err
+		}
 		if strings.TrimSpace(currency) == "" {
 			currency = "UAH"
 		}
@@ -1160,8 +1260,7 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return 0, err
 		}
-		id, err := res.LastInsertId()
-		if err != nil {
+		if id, err = res.LastInsertId(); err != nil {
 			return 0, err
 		}
 		funds[name] = id
@@ -1217,16 +1316,16 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return fmt.Errorf("лот %d: %w", l.ID, err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO lots (portfolio_id,id,isin,qty,price_per_bond,currency,buy_date,broker_id,fee,note) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, l.ID, l.ISIN, l.Qty, l.Price, l.Currency, l.BuyDate, broker, l.Fee, l.Note); err != nil {
+		if err := ids.insert(ctx, tx, "lots", l.ID,
+			`INSERT INTO lots (%sportfolio_id,isin,qty,price_per_bond,currency,buy_date,broker_id,fee,note) VALUES (%s?,?,?,?,?,?,?,?,?)`,
+			s.pid, l.ISIN, l.Qty, l.Price, l.Currency, l.BuyDate, broker, l.Fee, l.Note); err != nil {
 			return fmt.Errorf("лот %d: %w", l.ID, err)
 		}
 	}
 	for _, sl := range b.Sales {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO sales (portfolio_id,id,lot_id,sale_date,qty,clean_per_bond,accrued,currency,note) VALUES (?,?,?,?,?,?,?,?,?)`,
-			s.pid, sl.ID, sl.LotID, sl.SaleDate, sl.Qty, sl.Clean, sl.Accrued, sl.Currency, sl.Note); err != nil {
+		if err := ids.insert(ctx, tx, "sales", sl.ID,
+			`INSERT INTO sales (%sportfolio_id,lot_id,sale_date,qty,clean_per_bond,accrued,currency,note) VALUES (%s?,?,?,?,?,?,?,?)`,
+			s.pid, ids.of("lots", sl.LotID), sl.SaleDate, sl.Qty, sl.Clean, sl.Accrued, sl.Currency, sl.Note); err != nil {
 			return fmt.Errorf("продаж %d: %w", sl.ID, err)
 		}
 	}
@@ -1235,9 +1334,9 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return fmt.Errorf("поповнення %d: %w", d.ID, err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO deposits (portfolio_id,id,date,amount,currency,broker_id,note) VALUES (?,?,?,?,?,?,?)`,
-			s.pid, d.ID, d.Date, d.Amount, d.Currency, broker, d.Note); err != nil {
+		if err := ids.insert(ctx, tx, "deposits", d.ID,
+			`INSERT INTO deposits (%sportfolio_id,date,amount,currency,broker_id,note) VALUES (%s?,?,?,?,?,?)`,
+			s.pid, d.Date, d.Amount, d.Currency, broker, d.Note); err != nil {
 			return fmt.Errorf("поповнення %d: %w", d.ID, err)
 		}
 	}
@@ -1246,9 +1345,9 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return fmt.Errorf("конвертація %d: %w", c.ID, err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO conversions (portfolio_id,id,date,from_currency,from_amount,to_currency,to_amount,broker_id,note) VALUES (?,?,?,?,?,?,?,?,?)`,
-			s.pid, c.ID, c.Date, c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, broker, c.Note); err != nil {
+		if err := ids.insert(ctx, tx, "conversions", c.ID,
+			`INSERT INTO conversions (%sportfolio_id,date,from_currency,from_amount,to_currency,to_amount,broker_id,note) VALUES (%s?,?,?,?,?,?,?,?)`,
+			s.pid, c.Date, c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, broker, c.Note); err != nil {
 			return fmt.Errorf("конвертація %d: %w", c.ID, err)
 		}
 	}
@@ -1264,9 +1363,9 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return fmt.Errorf("операція фонду %d: %w", op.ID, err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO fund_ops (portfolio_id,id,date,fund_id,kind,qty,amount,tax,broker_id,note) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, op.ID, op.Date, fund, op.Kind, op.Qty, op.Amount, op.Tax, broker, op.Note); err != nil {
+		if err := ids.insert(ctx, tx, "fund_ops", op.ID,
+			`INSERT INTO fund_ops (%sportfolio_id,date,fund_id,kind,qty,amount,tax,broker_id,note) VALUES (%s?,?,?,?,?,?,?,?,?)`,
+			s.pid, op.Date, fund, op.Kind, op.Qty, op.Amount, op.Tax, broker, op.Note); err != nil {
 			return fmt.Errorf("операція фонду %d: %w", op.ID, err)
 		}
 	}
@@ -1275,7 +1374,7 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE fund_ops SET pair_id=? WHERE id=? AND portfolio_id=?`,
-			op.PairID, op.ID, s.pid); err != nil {
+			ids.of("fund_ops", op.PairID), ids.of("fund_ops", op.ID), s.pid); err != nil {
 			return fmt.Errorf("конвертація фонду %d: %w", op.ID, err)
 		}
 	}
@@ -1284,12 +1383,12 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return fmt.Errorf("вклад %d: %w", d.ID, err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO term_deposits (portfolio_id,id,broker_id,currency,principal,rate_bp,open_date,
+		if err := ids.insert(ctx, tx, "term_deposits", d.ID,
+			`INSERT INTO term_deposits (%sportfolio_id,broker_id,currency,principal,rate_bp,open_date,
 			 maturity_date,payout,capitalized,tax_bp,closed_date,closed_amount,note,replenishable,
 			 is_reserve,revocable)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, d.ID, broker, d.Currency, d.Principal, d.RateBP, d.OpenDate, d.MaturityDate,
+			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			s.pid, broker, d.Currency, d.Principal, d.RateBP, d.OpenDate, d.MaturityDate,
 			d.Payout, boolInt(d.Capitalized), d.TaxBP, d.ClosedDate, d.ClosedAmount, d.Note,
 			boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable)); err != nil {
 			return fmt.Errorf("вклад %d: %w", d.ID, err)
@@ -1297,34 +1396,34 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	}
 	// Поповнення — після вкладів: FK на term_deposits.
 	for _, t := range b.DepositTopups {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO deposit_topups (portfolio_id,id,deposit_id,date,amount) VALUES (?,?,?,?,?)`,
-			s.pid, t.ID, t.DepositID, t.Date, t.Amount); err != nil {
+		if err := ids.insert(ctx, tx, "deposit_topups", t.ID,
+			`INSERT INTO deposit_topups (%sportfolio_id,deposit_id,date,amount) VALUES (%s?,?,?,?)`,
+			s.pid, ids.of("term_deposits", t.DepositID), t.Date, t.Amount); err != nil {
 			return fmt.Errorf("поповнення вкладу %d: %w", t.ID, err)
 		}
 	}
 	for _, r := range b.ReserveOps {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO reserve_ops (portfolio_id,id,date,amount,currency,place,note) VALUES (?,?,?,?,?,?,?)`,
-			s.pid, r.ID, r.Date, r.Amount, r.Currency, r.Place, r.Note); err != nil {
+		if err := ids.insert(ctx, tx, "reserve_ops", r.ID,
+			`INSERT INTO reserve_ops (%sportfolio_id,date,amount,currency,place,note) VALUES (%s?,?,?,?,?,?)`,
+			s.pid, r.Date, r.Amount, r.Currency, r.Place, r.Note); err != nil {
 			return fmt.Errorf("рух резерву %d: %w", r.ID, err)
 		}
 	}
 	// Цілі — ПЕРЕД рухами: goal_ops має на них FK. Той самий порядок, що в
 	// пенсійного рахунку з внесками нижче.
 	for _, g := range b.Goals {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO goals
-			(portfolio_id,id,name,target_amount,currency,due_date,priority,place,note,done_date)
-			VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, g.ID, g.Name, g.TargetAmount, g.Currency, g.DueDate, g.Priority,
+		if err := ids.insert(ctx, tx, "goals", g.ID, `INSERT INTO goals
+			(%sportfolio_id,name,target_amount,currency,due_date,priority,place,note,done_date)
+			VALUES (%s?,?,?,?,?,?,?,?,?)`,
+			s.pid, g.Name, g.TargetAmount, g.Currency, g.DueDate, g.Priority,
 			g.Place, g.Note, g.DoneDate); err != nil {
 			return fmt.Errorf("ціль %d: %w", g.ID, err)
 		}
 	}
 	for _, o := range b.GoalOps {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO goal_ops
-			(portfolio_id,id,goal_id,date,amount,currency,place,note) VALUES (?,?,?,?,?,?,?,?)`,
-			s.pid, o.ID, o.GoalID, o.Date, o.Amount, o.Currency, o.Place, o.Note); err != nil {
+		if err := ids.insert(ctx, tx, "goal_ops", o.ID, `INSERT INTO goal_ops
+			(%sportfolio_id,goal_id,date,amount,currency,place,note) VALUES (%s?,?,?,?,?,?,?)`,
+			s.pid, ids.of("goals", o.GoalID), o.Date, o.Amount, o.Currency, o.Place, o.Note); err != nil {
 			return fmt.Errorf("рух цілі %d: %w", o.ID, err)
 		}
 	}
@@ -1334,13 +1433,13 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// правили руками, — а FK на саму себе карає за це відмовою всього
 	// відновлення. Два проходи не залежать від порядку взагалі.
 	for _, d := range b.Debts {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO debts
-			(portfolio_id,id,name,kind,currency,card_id,limit_amount,statement_day,apr_bp,
+		if err := ids.insert(ctx, tx, "debts", d.ID, `INSERT INTO debts
+			(%sportfolio_id,name,kind,currency,card_id,limit_amount,statement_day,apr_bp,
 			 apr_overdue_bp,min_payment_bp,min_payment_floor,late_fee,exit_by,principal,
 			 payments_total,first_payment_date,fee_month_bp,fee_free_months,fee_on_prepay,
 			 opened_date,closed_date,place,note)
-			VALUES (?,?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, d.ID, d.Name, d.Kind, d.Currency, d.LimitAmount, d.StatementDay,
+			VALUES (%s?,?,?,?,NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			s.pid, d.Name, d.Kind, d.Currency, d.LimitAmount, d.StatementDay,
 			d.APRBp, d.APROverdueBp, d.MinPaymentBp, d.MinPaymentFloor, d.LateFee, d.ExitBy,
 			d.Principal, d.PaymentsTotal, d.FirstPaymentDate, d.FeeMonthBp,
 			d.FeeFreeMonths, d.FeeOnPrepay,
@@ -1353,33 +1452,34 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE debts SET card_id=? WHERE id=? AND portfolio_id=?`, d.CardID, d.ID, s.pid); err != nil {
+			`UPDATE debts SET card_id=? WHERE id=? AND portfolio_id=?`,
+			ids.of("debts", d.CardID), ids.of("debts", d.ID), s.pid); err != nil {
 			return fmt.Errorf("привʼязка боргу %d до картки %d: %w", d.ID, d.CardID, err)
 		}
 	}
 	for _, o := range b.DebtOps {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO debt_ops
-			(portfolio_id,id,debt_id,date,kind,amount,note) VALUES (?,?,?,?,?,?,?)`,
-			s.pid, o.ID, o.DebtID, o.Date, o.Kind, o.Amount, o.Note); err != nil {
+		if err := ids.insert(ctx, tx, "debt_ops", o.ID, `INSERT INTO debt_ops
+			(%sportfolio_id,debt_id,date,kind,amount,note) VALUES (%s?,?,?,?,?,?)`,
+			s.pid, ids.of("debts", o.DebtID), o.Date, o.Kind, o.Amount, o.Note); err != nil {
 			return fmt.Errorf("рух боргу %d: %w", o.ID, err)
 		}
 	}
 	for _, m := range b.DebtMarks {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO debt_marks
-			(portfolio_id,id,debt_id,date,balance,statement_due,non_grace,note) VALUES (?,?,?,?,?,?,?,?)`,
-			s.pid, m.ID, m.DebtID, m.Date, m.Balance, m.StatementDue, m.NonGrace, m.Note); err != nil {
+		if err := ids.insert(ctx, tx, "debt_marks", m.ID, `INSERT INTO debt_marks
+			(%sportfolio_id,debt_id,date,balance,statement_due,non_grace,note) VALUES (%s?,?,?,?,?,?,?)`,
+			s.pid, ids.of("debts", m.DebtID), m.Date, m.Balance, m.StatementDue, m.NonGrace, m.Note); err != nil {
 			return fmt.Errorf("звірка боргу %d: %w", m.ID, err)
 		}
 	}
 	// Пенсійні рахунки — ПЕРЕД внесками й точками ЧВОПА: обидва мають на
 	// них FK.
 	for _, a := range b.NPFAccounts {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO npf_accounts
-			(portfolio_id,id,name,administrator,currency,nav_e6,nav_date,expected_yield_bp,
+		if err := ids.insert(ctx, tx, "npf_accounts", a.ID, `INSERT INTO npf_accounts
+			(%sportfolio_id,name,administrator,currency,nav_e6,nav_date,expected_yield_bp,
 			 yield_simple_years,access_date,income_tax_bp,credit_rate_bp,contrib_day,
 			 payout_years,payout_freq,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, a.ID, a.Name, a.Administrator, a.Currency, a.NavE6, a.NavDate,
+			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			s.pid, a.Name, a.Administrator, a.Currency, a.NavE6, a.NavDate,
 			a.ExpectedYieldBP, a.YieldSimpleYears, a.AccessDate, a.IncomeTaxBP,
 			a.CreditRateBP, a.ContribDay, a.PayoutYears, a.PayoutFreq, a.Note); err != nil {
 			return fmt.Errorf("пенсійний рахунок %d: %w", a.ID, err)
@@ -1390,16 +1490,16 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return fmt.Errorf("внесок у НПФ %d: %w", o.ID, err)
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO npf_ops
-			(portfolio_id,id,npf_id,date,units_e6,amount,broker_id,note) VALUES (?,?,?,?,?,?,?,?)`,
-			s.pid, o.ID, o.NPFID, o.Date, o.UnitsE6, o.Amount, broker, o.Note); err != nil {
+		if err := ids.insert(ctx, tx, "npf_ops", o.ID, `INSERT INTO npf_ops
+			(%sportfolio_id,npf_id,date,units_e6,amount,broker_id,note) VALUES (%s?,?,?,?,?,?,?)`,
+			s.pid, ids.of("npf_accounts", o.NPFID), o.Date, o.UnitsE6, o.Amount, broker, o.Note); err != nil {
 			return fmt.Errorf("внесок у НПФ %d: %w", o.ID, err)
 		}
 	}
 	for _, n := range b.NPFNav {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO npf_nav (portfolio_id,id,npf_id,date,nav_e6) VALUES (?,?,?,?,?)`,
-			s.pid, n.ID, n.NPFID, n.Date, n.NavE6); err != nil {
+		if err := ids.insert(ctx, tx, "npf_nav", n.ID,
+			`INSERT INTO npf_nav (%sportfolio_id,npf_id,date,nav_e6) VALUES (%s?,?,?,?)`,
+			s.pid, ids.of("npf_accounts", n.NPFID), n.Date, n.NavE6); err != nil {
 			return fmt.Errorf("точка ЧВОПА %d: %w", n.ID, err)
 		}
 	}
@@ -1412,18 +1512,21 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return fmt.Errorf("позначка ціни %q %s: %w", p.Fund, p.Date, err)
 		}
+		// Upsert: позначки не витираються перед restore (довідник спільний),
+		// тож та сама дата з файла переписує наявну, а не падає на UNIQUE.
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO fund_prices (fund_id,date,price_e4) VALUES (?,?,?)`,
+			`INSERT INTO fund_prices (fund_id,date,price_e4) VALUES (?,?,?)
+			 ON CONFLICT(fund_id,date) DO UPDATE SET price_e4=excluded.price_e4`,
 			fid, p.Date, p.PriceE4); err != nil {
 			return fmt.Errorf("позначка ціни %q %s: %w", p.Fund, p.Date, err)
 		}
 	}
 	// План FK не має — порядок серед решти вставок вільний.
 	for _, f := range b.PlanFlows {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO plan_flows (portfolio_id,id,name,kind,amount,currency,cadence,from_date,until_date,
-			 growth_bp,invest_bp,dest,uses,note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, f.ID, f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, f.FromDate, f.UntilDate,
+		if err := ids.insert(ctx, tx, "plan_flows", f.ID,
+			`INSERT INTO plan_flows (%sportfolio_id,name,kind,amount,currency,cadence,from_date,until_date,
+			 growth_bp,invest_bp,dest,uses,note) VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			s.pid, f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, f.FromDate, f.UntilDate,
 			f.GrowthBP, f.InvestBP, f.Dest, f.Uses, f.Note); err != nil {
 			return fmt.Errorf("плановий потік %d: %w", f.ID, err)
 		}
@@ -1431,11 +1534,11 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// Ревізії — після потоків, хоч FK між ними й немає: порядок читається
 	// як «спершу що є, потім як воно таким стало».
 	for _, r := range b.PlanFlowRevisions {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO plan_flow_revisions (portfolio_id,id,flow_id,changed_at,op,name,kind,amount,currency,
+		if err := ids.insert(ctx, tx, "plan_flow_revisions", r.ID,
+			`INSERT INTO plan_flow_revisions (%sportfolio_id,flow_id,changed_at,op,name,kind,amount,currency,
 			 cadence,from_date,until_date,growth_bp,invest_bp,dest,uses,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, r.ID, r.FlowID, r.ChangedAt, r.Op, r.Name, r.Kind, r.Amount, r.Currency,
+			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			s.pid, ids.of("plan_flows", r.FlowID), r.ChangedAt, r.Op, r.Name, r.Kind, r.Amount, r.Currency,
 			r.Cadence, r.FromDate, r.UntilDate, r.GrowthBP, r.InvestBP, r.Dest,
 			r.Uses, r.Note); err != nil {
 			return fmt.Errorf("ревізія потоку %d: %w", r.ID, err)
@@ -1444,19 +1547,19 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// Відмітки — після потоків із тієї ж причини, що й ревізії: FK між ними
 	// немає, але порядок читається як «спершу план, потім що з нього вийшло».
 	for _, r := range b.PlanReceipts {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO plan_receipts (portfolio_id,id,flow_id,month,name,amount,currency,invest_bp,uses,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, r.ID, r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP,
+		if err := ids.insert(ctx, tx, "plan_receipts", r.ID,
+			`INSERT INTO plan_receipts (%sportfolio_id,flow_id,month,name,amount,currency,invest_bp,uses,note)
+			 VALUES (%s?,?,?,?,?,?,?,?,?)`,
+			s.pid, ids.of("plan_flows", r.FlowID), r.Month, r.Name, r.Amount, r.Currency, r.InvestBP,
 			r.Uses, r.Note); err != nil {
 			return fmt.Errorf("відмітка надходження %d: %w", r.ID, err)
 		}
 	}
 	for _, a := range b.PlanActions {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO plan_actions (portfolio_id,id,date,type,usd_bp,eur_bp,amount,currency,rate_bp,months,name,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, a.ID, a.Date, a.Type, a.USDBP, a.EURBP, a.Amount, a.Currency, a.RateBP,
+		if err := ids.insert(ctx, tx, "plan_actions", a.ID,
+			`INSERT INTO plan_actions (%sportfolio_id,date,type,usd_bp,eur_bp,amount,currency,rate_bp,months,name,note)
+			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?)`,
+			s.pid, a.Date, a.Type, a.USDBP, a.EURBP, a.Amount, a.Currency, a.RateBP,
 			a.Months, a.Name, a.Note); err != nil {
 			return fmt.Errorf("планова дія %d: %w", a.ID, err)
 		}
@@ -1466,22 +1569,26 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO plan_buys (portfolio_id,id,kind,ref,qty,amount,unit_price,currency,broker_id,
+		if err := ids.insert(ctx, tx, "plan_buys", p.ID,
+			`INSERT INTO plan_buys (%sportfolio_id,kind,ref,qty,amount,unit_price,currency,broker_id,
 			 buy_date,rate_bp,months,is_reserve,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, p.ID, p.Kind, p.Ref, p.Qty, p.Amount, p.UnitPrice, p.Currency, broker,
+			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			s.pid, p.Kind, p.Ref, p.Qty, p.Amount, p.UnitPrice, p.Currency, broker,
 			p.BuyDate, p.RateBP, p.Months, p.IsReserve, p.Note); err != nil {
 			return fmt.Errorf("планована купівля %d: %w", p.ID, err)
 		}
 	}
 	for _, d := range b.Decisions {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO decisions (portfolio_id,id,made_on,kind,ref,currency,amount,real_pct,
+		// op_id — «на що рішення перетворилось», і таблицю каже kind
+		// (0035). Перечіплюється за тією самою мапою, що й діти: інакше
+		// після перемапи журнал показував би чужий лот.
+		if err := ids.insert(ctx, tx, "decisions", d.ID,
+			`INSERT INTO decisions (%sportfolio_id,made_on,kind,ref,currency,amount,real_pct,
 			 rank_pos,top_label,top_real_pct,rank_mode,op_id,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, d.ID, d.MadeOn, d.Kind, d.Ref, d.Currency, d.Amount, d.RealPct,
-			d.RankPos, d.TopLabel, d.TopRealPct, d.RankMode, d.OpID, d.Note); err != nil {
+			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			s.pid, d.MadeOn, d.Kind, d.Ref, d.Currency, d.Amount, d.RealPct,
+			d.RankPos, d.TopLabel, d.TopRealPct, d.RankMode,
+			ids.of(decisionOpTable[d.Kind], d.OpID), d.Note); err != nil {
 			return fmt.Errorf("рішення %d: %w", d.ID, err)
 		}
 	}
@@ -1498,7 +1605,7 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			 col_qty,col_debit,col_credit,col_balance,col_mcc,debt_id,ops,note)
 			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			s.pid, p.Name, p.Format, p.Header, p.Date, p.Op, p.Ref, p.Qty, p.Debit,
-			p.Credit, bal, mcc, p.DebtID, p.Ops, p.Note); err != nil {
+			p.Credit, bal, mcc, ids.of("debts", p.DebtID), p.Ops, p.Note); err != nil {
 			return fmt.Errorf("профіль імпорту %q: %w", p.Name, err)
 		}
 	}
