@@ -56,10 +56,11 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	// Віддаємо РІВНО ключі реєстру, а не все, що лежить у таблиці: поруч
-	// із ними живе робочий стан джоби (nbu_refreshed_at,
-	// ovdp_auctions_polled_through), і в наборі налаштувань йому не місце —
-	// PUT його все одно не прийме.
+	// Віддаємо РІВНО ключі реєстру, а не все, що лежить у таблиці: старі
+	// бекапи можуть повернути ключі, яких у реєстрі вже немає, і в наборі
+	// налаштувань їм не місце — PUT їх усе одно не прийме. (Робочий стан
+	// джоб — nbu_refreshed_at, ovdp_auctions_polled_through — з 0054 живе
+	// в app_state і сюди не потрапляє взагалі.)
 	out := make(map[string]string, len(settingsKeys))
 	for _, k := range settingsKeys {
 		out[k] = raw[k]

@@ -42,7 +42,8 @@ const importProfileCols = `name, format, header, col_date, col_op, col_ref,
 
 func (s *Store) ListImportProfiles(ctx context.Context) ([]ImportProfile, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT `+importProfileCols+` FROM import_profiles ORDER BY name COLLATE NOCASE`)
+		`SELECT `+importProfileCols+` FROM import_profiles WHERE portfolio_id=?
+		 ORDER BY name COLLATE NOCASE`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -86,21 +87,22 @@ func (s *Store) SaveImportProfile(ctx context.Context, p ImportProfile) error {
 		return fmt.Errorf("профіль без назви")
 	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO import_profiles
-		(name, format, header, col_date, col_op, col_ref, col_qty, col_debit,
+		(portfolio_id, name, format, header, col_date, col_op, col_ref, col_qty, col_debit,
 		 col_credit, col_balance, col_mcc, debt_id, ops, note)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(name) DO UPDATE SET format=excluded.format, header=excluded.header,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+		ON CONFLICT(portfolio_id, name) DO UPDATE SET format=excluded.format, header=excluded.header,
 			col_date=excluded.col_date, col_op=excluded.col_op, col_ref=excluded.col_ref,
 			col_qty=excluded.col_qty, col_debit=excluded.col_debit,
 			col_credit=excluded.col_credit, col_balance=excluded.col_balance,
 			col_mcc=excluded.col_mcc, debt_id=excluded.debt_id,
 			ops=excluded.ops, note=excluded.note`,
-		strings.TrimSpace(p.Name), p.Format, p.Header, p.Date, p.Op, p.Ref,
+		s.pid, strings.TrimSpace(p.Name), p.Format, p.Header, p.Date, p.Op, p.Ref,
 		p.Qty, p.Debit, p.Credit, p.Balance, p.MCC, p.DebtID, p.Ops, p.Note)
 	return err
 }
 
 func (s *Store) DeleteImportProfile(ctx context.Context, name string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM import_profiles WHERE name=?`, name)
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM import_profiles WHERE portfolio_id=? AND name=?`, s.pid, name)
 	return err
 }

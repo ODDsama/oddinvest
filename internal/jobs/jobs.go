@@ -168,7 +168,7 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 	}
 	// Позначаємо час успішного оновлення: інакше несвіжість довідника
 	// лишається тихою (порожній довідник ми свого часу помітили випадково).
-	if err := r.st.SetSetting(ctx, "nbu_refreshed_at", time.Now().UTC().Format(time.RFC3339)); err != nil {
+	if err := r.st.SetAppState(ctx, "nbu_refreshed_at", time.Now().UTC().Format(time.RFC3339)); err != nil {
 		r.log.Warn("не зберіг час оновлення довідника", "err", err)
 	}
 	r.log.Info("довідник НБУ оновлено", "паперів", len(secs))
@@ -250,7 +250,7 @@ func (r *Runner) RefreshAuctions(ctx context.Context) error {
 	if err := r.st.SaveAuctions(ctx, latest); err != nil {
 		return err
 	}
-	through, err := r.st.GetSetting(ctx, auctionWatermark)
+	through, err := r.st.GetAppState(ctx, auctionWatermark)
 	if err != nil {
 		return err
 	}
@@ -265,7 +265,7 @@ func (r *Runner) RefreshAuctions(ctx context.Context) error {
 	// місце для сотні запитів.
 	from, perr := time.Parse("2006-01-02", through)
 	if through == "" || perr != nil || (newest != "" && string(newest) <= through) {
-		return r.st.SetSetting(ctx, auctionWatermark, string(today))
+		return r.st.SetAppState(ctx, auctionWatermark, string(today))
 	}
 	end := time.Now().In(r.loc)
 	if d := end.AddDate(0, 0, -auctionCatchupCap); d.After(from) {
@@ -295,7 +295,7 @@ func (r *Runner) RefreshAuctions(ctx context.Context) error {
 		time.Sleep(r.pause)
 	}
 	r.log.Info("аукціони догнано", "рядків", got, "від", through, "до", string(today))
-	return r.st.SetSetting(ctx, auctionWatermark, string(today))
+	return r.st.SetAppState(ctx, auctionWatermark, string(today))
 }
 
 // BackfillAuctions — разово підтягує історію аукціонів за weeks тижнів.
@@ -334,7 +334,7 @@ func (r *Runner) BackfillAuctions(ctx context.Context, weeks int) error {
 		time.Sleep(r.pause)
 	}
 	r.log.Info("історію аукціонів підтягнуто", "рядків", got, "днів_пропущено", failed)
-	return r.st.SetSetting(ctx, auctionWatermark, string(domain.NewDate(end)))
+	return r.st.SetAppState(ctx, auctionWatermark, string(domain.NewDate(end)))
 }
 
 // BackfillAuctionsIfThin — бекфіл лише тоді, коли історії справді мало.

@@ -106,7 +106,7 @@ func TestRefreshAuctionsSteadyStateIsOneRequest(t *testing.T) {
 	}
 	// Знак стоїть на сьогодні, тож завтрашній прогін догонятиме один день,
 	// а не всю історію.
-	through, err := st.GetSetting(ctx, auctionWatermark)
+	through, err := st.GetAppState(ctx, auctionWatermark)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestRefreshAuctionsCatchupIsCapped(t *testing.T) {
 
 	// Знак річної давнини — сервіс стояв рік.
 	old := domain.NewDate(today.AddDate(0, 0, -400))
-	if err := st.SetSetting(ctx, auctionWatermark, string(old)); err != nil {
+	if err := st.SetAppState(ctx, auctionWatermark, string(old)); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.RefreshAuctions(ctx); err != nil {
@@ -142,7 +142,7 @@ func TestRefreshAuctionsCatchupIsCapped(t *testing.T) {
 	}
 	// Після догону знак пересунуто на сьогодні, інакше наступний прогін
 	// довбав би ті самі дати щодоби.
-	through, err := st.GetSetting(ctx, auctionWatermark)
+	through, err := st.GetAppState(ctx, auctionWatermark)
 	if err != nil {
 		t.Fatal(err)
 	}

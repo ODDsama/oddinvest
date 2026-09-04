@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -89,12 +90,29 @@ func pendingMigrations(db *sql.DB, names []string) ([]string, error) {
 	return out, nil
 }
 
+// fkOffMarker — перший рядок міграції, якій потрібні ВИМКНЕНІ зовнішні
+// ключі: перебудова таблиці, на яку посилаються інші (0054 перебудовує
+// brokers і npf_accounts). PRAGMA foreign_keys усередині транзакції не
+// діє, тож звичайний шлях нижче їй не годиться — а без маркера DROP TABLE
+// батька виконав би неявний DELETE і впав би на першому ж дитячому рядку
+// (шапка 0010 пояснює, чому вона сама так не робила).
+//
+// Маркер, а не окремий раннер: файл сам каже, чого потребує, і той, хто
+// читає міграцію, бачить це в її першому рядку, а не в чужому переліку.
+const fkOffMarker = "-- foreign_keys: off"
+
 // applyMigration виконує один файл і відмічає його — усе в одній
 // транзакції, на що 0010 прямо покладається.
+//
+// Це ЄДИНИЙ вхід для міграцій — і в migrate(), і в тестових помічниках:
+// файл із маркером у сирому db.Exec упав би так само, як і в бою.
 func applyMigration(db *sql.DB, name string) error {
 	body, err := migrationsFS.ReadFile("migrations/" + name)
 	if err != nil {
 		return err
+	}
+	if strings.HasPrefix(string(body), fkOffMarker) {
+		return applyWithoutFK(db, name, string(body))
 	}
 	tx, err := db.Begin()
 	if err != nil {
@@ -110,6 +128,75 @@ func applyMigration(db *sql.DB, name string) error {
 		return fmt.Errorf("міграція %s: %w", name, err)
 	}
 	if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES(?)`, name); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// applyWithoutFK — рецепт SQLite для перебудови таблиці з дітьми: ключі
+// вимкнути ПОЗА транзакцією, перебудувати, перевірити foreign_key_check,
+// закомітити, ключі ввімкнути назад.
+//
+// На ОДНОМУ зʼєднанні (db.Conn), і це не дрібниця: PRAGMA foreign_keys —
+// властивість зʼєднання, а не бази, і виконаний на одному, а прочитаний
+// на іншому, він нічого не змінив би. При SetMaxOpenConns(1) зʼєднання
+// одне на процес — і саме тому в кінці прагма перечитується: лишити її
+// вимкненою означало б вимкнути ключі всьому застосункові до рестарту,
+// без жодної помилки.
+//
+// foreign_key_check ДО COMMIT — це те, що заміняє перевірку, яку ми
+// вимкнули: перебудова, що загубила батька для чийогось рядка, відкочується
+// цілком, а не лишається в базі сиротою.
+func applyWithoutFK(db *sql.DB, name, body string) (err error) {
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close() //nolint:errcheck // зʼєднання повертається в пул; помилку тут немає чим лікувати
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+		return fmt.Errorf("міграція %s: foreign_keys=OFF: %w", name, err)
+	}
+	defer func() {
+		if _, e := conn.ExecContext(ctx, `PRAGMA foreign_keys=ON`); e != nil && err == nil {
+			err = fmt.Errorf("міграція %s: foreign_keys=ON: %w", name, e)
+			return
+		}
+		var on int
+		if e := conn.QueryRowContext(ctx, `PRAGMA foreign_keys`).Scan(&on); (e != nil || on != 1) && err == nil {
+			err = fmt.Errorf("міграція %s: зовнішні ключі не ввімкнулись назад (%v, %d)", name, e, on)
+		}
+	}()
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op після Commit
+	if _, err := tx.ExecContext(ctx, body); err != nil {
+		return fmt.Errorf("міграція %s: %w", name, err)
+	}
+	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return fmt.Errorf("міграція %s: foreign_key_check: %w", name, err)
+	}
+	var broken []string
+	for rows.Next() {
+		var table, parent string
+		var rowid, fkid any
+		if err := rows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			rows.Close()
+			return err
+		}
+		broken = append(broken, fmt.Sprintf("%s(rowid %v) → %s", table, rowid, parent))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(broken) > 0 {
+		return fmt.Errorf("міграція %s: після перебудови порушені ключі: %s", name, strings.Join(broken, "; "))
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES(?)`, name); err != nil {
 		return err
 	}
 	return tx.Commit()

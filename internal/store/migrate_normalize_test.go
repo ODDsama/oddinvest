@@ -40,14 +40,10 @@ func applyUpTo(t *testing.T, db *sql.DB, stopBefore string) {
 		if stopBefore != "" && name >= stopBefore {
 			break
 		}
-		body, err := migrationsFS.ReadFile("migrations/" + name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(string(body)); err != nil {
-			t.Fatalf("міграція %s: %v", name, err)
-		}
-		if _, err := db.Exec(`INSERT INTO schema_migrations(version) VALUES(?)`, name); err != nil {
+		// Через той самий applyMigration, що й у бою: файл із маркером
+		// foreign_keys: off (0054) у сирому db.Exec упав би на DROP TABLE
+		// батька, і тест перевіряв би не те, що робить раннер.
+		if err := applyMigration(db, name); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -18,7 +18,25 @@ import (
 	"github.com/ODDsama/oddinvest/internal/nbu"
 )
 
-type Store struct{ db *sql.DB }
+// Store — доступ до бази, ЗВУЖЕНИЙ до одного портфеля.
+//
+// pid — портфель, у якому живе кожен запит цього екземпляра (0054): списки
+// читають лише його рядки, вставки пишуть його id, а правка чи видалення за
+// чужим id дають ErrNotFound, а не тихий успіх. Open віддає портфель 1 —
+// той, у який міграція перевела все, що було до появи портфелів, — тож для
+// коду, який портфелів не знає, нічого не змінилось. Другий портфель — це
+// For(pid) на тому самому зʼєднанні.
+//
+// Спільні таблиці (довідник НБУ, курси, аукціони, каталог фондів, секрети)
+// pid не читають: вони не про «що я маю», а про «що воно таке».
+type Store struct {
+	db  *sql.DB
+	pid int64
+}
+
+// MainPortfolio — id портфеля, в який 0054 перевела наявні дані. Він же
+// портфель за замовчуванням для всього, що не назвало іншого.
+const MainPortfolio int64 = 1
 
 func Open(path string) (*Store, error) {
 	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=on", path)
@@ -31,8 +49,20 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, pid: MainPortfolio}, nil
 }
+
+// For — те саме сховище, звужене до іншого портфеля. Копія, а не новий
+// Open: зʼєднання одне на процес (SetMaxOpenConns(1)), і друге зробило б
+// із «одного writer-а» двох.
+func (s *Store) For(pid int64) *Store {
+	c := *s
+	c.pid = pid
+	return &c
+}
+
+// Portfolio — портфель, у якому працює це сховище.
+func (s *Store) Portfolio() int64 { return s.pid }
 
 // Close. PRAGMA optimize перед закриттям — рекомендований SQLite спосіб
 // тримати статистику планувальника свіжою: він сам вирішує, чи є що
@@ -773,14 +803,35 @@ func (s *Store) PaymentsFor(ctx context.Context, isins []string) ([]domain.Payme
 // --- налаштування, курси, знімки, статуси ---
 
 func (s *Store) SetSetting(ctx context.Context, key, value string) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO settings(key, value) VALUES(?,?)
-		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO settings(portfolio_id, key, value) VALUES(?,?,?)
+		ON CONFLICT(portfolio_id, key) DO UPDATE SET value=excluded.value`, s.pid, key, value)
 	return err
 }
 
 func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
 	var v string
-	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE key=?`, key).Scan(&v)
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE portfolio_id=? AND key=?`,
+		s.pid, key).Scan(&v)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return v, err
+}
+
+// SetAppState / GetAppState — робочий стан застосунку, спільний для всіх
+// портфелів (0054): час оновлення довідника НБУ, знак аукціонів. Окремо від
+// settings не з педантизму: ті рядки належать портфелю, а довідник НБУ —
+// ні, і покласти час його оновлення в «налаштування портфеля 1» означало
+// б, що другий портфель довідник має, а часу не має.
+func (s *Store) SetAppState(ctx context.Context, key, value string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO app_state(key, value) VALUES(?,?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	return err
+}
+
+func (s *Store) GetAppState(ctx context.Context, key string) (string, error) {
+	var v string
+	err := s.db.QueryRowContext(ctx, `SELECT value FROM app_state WHERE key=?`, key).Scan(&v)
 	if err == sql.ErrNoRows {
 		return "", nil
 	}
@@ -798,7 +849,7 @@ func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
 // Мапа, а не зріз: споживач питає за ключем, і відсутній ключ мусить
 // давати порожній рядок — рівно те, що робив GetSetting.
 func (s *Store) AllSettings(ctx context.Context) (map[string]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM settings`)
+	rows, err := s.db.QueryContext(ctx, `SELECT key, value FROM settings WHERE portfolio_id=?`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -962,10 +1013,10 @@ func (s *Store) LatestRate(ctx context.Context, code string) (int64, error) {
 // самого дня не оновлюється ніколи.
 func (s *Store) SaveSnapshot(ctx context.Context, sn Snapshot) error {
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO snapshots (`+snapshotColumnList()+`)
-		 VALUES(`+snapshotPlaceholders()+`)
-		 ON CONFLICT(date) DO UPDATE SET `+snapshotUpsertSet(),
-		snapshotArgs(&sn)...)
+		`INSERT INTO snapshots (portfolio_id, `+snapshotColumnList()+`)
+		 VALUES(?, `+snapshotPlaceholders()+`)
+		 ON CONFLICT(portfolio_id, date) DO UPDATE SET `+snapshotUpsertSet(),
+		append([]any{s.pid}, snapshotArgs(&sn)...)...)
 	return err
 }
 
@@ -976,10 +1027,10 @@ func (s *Store) SetPaymentStatus(ctx context.Context, isin string, payDate domai
 	if status != "received" {
 		return fmt.Errorf("невалідний статус %q", status)
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO payment_status(isin, pay_date, status, marked_at)
-		VALUES(?,?,?,?) ON CONFLICT(isin, pay_date) DO UPDATE SET
+	_, err := s.db.ExecContext(ctx, `INSERT INTO payment_status(portfolio_id, isin, pay_date, status, marked_at)
+		VALUES(?,?,?,?,?) ON CONFLICT(portfolio_id, isin, pay_date) DO UPDATE SET
 		status=excluded.status, marked_at=excluded.marked_at`,
-		isin, string(payDate), status, time.Now().UTC().Format(time.RFC3339))
+		s.pid, isin, string(payDate), status, time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 
@@ -990,12 +1041,14 @@ func (s *Store) SetPaymentStatus(ctx context.Context, isin string, payDate domai
 // нього, — а не додавати ще одне значення, яке довелось би тлумачити.
 func (s *Store) ClearPaymentStatus(ctx context.Context, isin string, payDate domain.Date) error {
 	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM payment_status WHERE isin=? AND pay_date=?`, isin, string(payDate))
+		`DELETE FROM payment_status WHERE portfolio_id=? AND isin=? AND pay_date=?`,
+		s.pid, isin, string(payDate))
 	return err
 }
 
 func (s *Store) PaymentStatuses(ctx context.Context) (map[string]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT isin, pay_date, status FROM payment_status`)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT isin, pay_date, status FROM payment_status WHERE portfolio_id=?`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -1014,8 +1067,8 @@ func (s *Store) PaymentStatuses(ctx context.Context) (map[string]string, error) 
 // Snapshot живе в snapshot.go — разом із реєстром своїх колонок.
 
 func (s *Store) ListSnapshots(ctx context.Context, from, to domain.Date) ([]Snapshot, error) {
-	sqlq := `SELECT ` + snapshotColumnList() + ` FROM snapshots WHERE 1=1`
-	args := []any{}
+	sqlq := `SELECT ` + snapshotColumnList() + ` FROM snapshots WHERE portfolio_id=?`
+	args := []any{s.pid}
 	if from != "" {
 		sqlq += ` AND date >= ?`
 		args = append(args, string(from))
