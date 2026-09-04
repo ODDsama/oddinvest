@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -21,9 +22,14 @@ import (
 )
 
 type Runner struct {
-	st         *store.Store
-	nbu        *nbu.Client
-	pub        *mqtt.Publisher // nil = MQTT вимкнено
+	st  *store.Store
+	nbu *nbu.Client
+	// pub — публікатор MQTT, nil = вимкнено. Під мʼютексом, бо в сателіта
+	// він зʼявляється ПІЗНІШЕ за Runner: mqtt.New блокує до 15 с, і
+	// тримати стільки POST /api/portfolios не можна — публікатор
+	// підʼєднується з горутини (SetPublisher), доки прогони вже йдуть.
+	pubMu      sync.Mutex
+	pub        *mqtt.Publisher
 	build      func(ctx context.Context, now time.Time) (*state.Doc, error)
 	log        *slog.Logger
 	loc        *time.Location
@@ -425,8 +431,22 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 	})
 }
 
+// SetPublisher — підʼєднати (або замінити) публікатор MQTT уже в роботі.
+func (r *Runner) SetPublisher(pub *mqtt.Publisher) {
+	r.pubMu.Lock()
+	defer r.pubMu.Unlock()
+	r.pub = pub
+}
+
+func (r *Runner) publisher() *mqtt.Publisher {
+	r.pubMu.Lock()
+	defer r.pubMu.Unlock()
+	return r.pub
+}
+
 func (r *Runner) PublishState(ctx context.Context) error {
-	if r.pub == nil {
+	pub := r.publisher()
+	if pub == nil {
 		return nil
 	}
 	doc, err := r.build(ctx, time.Now().In(r.loc))
@@ -437,7 +457,7 @@ func (r *Runner) PublishState(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return r.pub.PublishState(b)
+	return pub.PublishState(b)
 }
 
 // BackfillRates — разово підтягує історію курсу з НБУ, по одній точці на

@@ -107,9 +107,9 @@ func main() {
 	srv := api.New(st, nil, log)
 	// щоденний JSON-дамп поряд із БД — потрапляє в бекап Proxmox і
 	// переживає навіть пошкодження SQLite-файла
-	backupPath := filepath.Join(filepath.Dir(cfg.DBPath), "oddinvest-backup.json")
-	runner := jobs.New(st, nc, pub, srv.BuildStateDoc, log, backupPath)
-	srv = api.New(st, runner, log)
+	dataDir := filepath.Dir(cfg.DBPath)
+	runner := jobs.New(st, nc, pub, srv.BuildStateDoc, log, filepath.Join(dataDir, "oddinvest-backup.json"))
+	srv.SetRefresher(runner)
 	// Тунель назовні (internal/tunnel). Створюється тут, а не в api:
 	// йому потрібні шлях бази (HOME для конектора) і адреса
 	// прослуховування, тобто те, що знає лише main.
@@ -121,6 +121,39 @@ func main() {
 	defer stop()
 
 	fleet := jobs.NewFleet(runner)
+	// Інші портфелі (0054): кожному — свій Runner у флоті (знімок, дамп у
+	// portfolios/<slug>/, публікація) і свій публікатор із префіксом
+	// <prefix>/<slug>. Довідник НБУ оновлює лише головний — на те й
+	// jobs.Satellite. Публікатор підʼєднується з горутини: mqtt.New чекає
+	// на брокер до 15 с, а POST /api/portfolios стільки тримати не можна.
+	spawn := func(p store.Portfolio, sat *api.Server) (api.Refresher, func()) {
+		own := jobs.New(st.For(p.ID), nc, nil, sat.BuildStateDoc, log,
+			filepath.Join(dataDir, "portfolios", p.Slug, "oddinvest-backup.json"))
+		fleet.Add(p.Slug, own)
+		if cfg.MQTTAddr != "" {
+			go func() {
+				sp, err := mqtt.New(cfg.MQTTAddr, cfg.MQTTUser, cfg.MQTTPass,
+					cfg.MQTTPrefix+"/"+p.Slug, "oddinvestd-"+p.Slug)
+				if err != nil {
+					log.Error("mqtt сателіта", "slug", p.Slug, "err", err)
+					return
+				}
+				own.SetPublisher(sp)
+				if err := own.PublishState(ctx); err != nil {
+					log.Warn("стартова публікація сателіта", "slug", p.Slug, "err", err)
+				}
+			}()
+		}
+		return jobs.Satellite{Main: runner, Own: own}, func() {
+			fleet.Remove(p.Slug)
+			own.SetPublisher(nil)
+		}
+	}
+	hub := api.NewHub(st, srv, log, spawn)
+	if err := hub.Start(ctx); err != nil {
+		log.Error("портфелі не піднялись", "err", err)
+		os.Exit(1)
+	}
 	go fleet.RunDaily(ctx)
 	// Конектор тунелю, якщо він налаштований: перезапуск сервісу не має
 	// вимагати повторного «Підключити» на сторінці.
@@ -168,7 +201,7 @@ func main() {
 	// ОДИН обробник на обидва слухачі: Handler() щоразу будує новий mux зі
 	// ста двадцятьма маршрутами й окремою вбудованою статикою, і два
 	// екземпляри означали б дві копії того самого без жодної потреби.
-	h := srv.Handler()
+	h := hub.Handler()
 
 	httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: h}
 	go func() {

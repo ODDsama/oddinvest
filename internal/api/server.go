@@ -48,6 +48,20 @@ type Server struct {
 // а серверу — сам менеджер, тож кільце розривається присвоєнням.
 func (s *Server) SetTunnel(t *tunnel.Manager) { s.tun = t }
 
+// SetRefresher підʼєднує фонову частину. Сеттер, а не аргумент New: runner
+// будується з BuildStateDoc цього ж сервера, тож кільце api ↔ jobs
+// розривається присвоєнням — доти main створював сервер двічі.
+func (s *Server) SetRefresher(ref Refresher) { s.ref = ref }
+
+// NewSatellite — сервер ІНШОГО портфеля (0054): те саме сховище, звужене
+// до його portfolio_id, ті самі маршрути, але без замка й без тунелю.
+// Замок один на всіх і стоїть у Hub перед диспетчером; тут його немає
+// навмисно, інакше секрети читались би раз на портфель, а зміна пароля
+// на головному розлогінювала б лише його.
+func NewSatellite(st *store.Store, log *slog.Logger) *Server {
+	return &Server{st: st, log: log}
+}
+
 // New — сервер із секретами, прочитаними зі сховища.
 //
 // Помилка читання не фатальна й не мовчазна: кеш лишається порожнім, тобто
@@ -65,7 +79,19 @@ func New(st *store.Store, ref Refresher, log *slog.Logger) *Server {
 	return s
 }
 
+// Handler — маршрути ОДНОГО портфеля під замком і журналом. Так живуть
+// тести й збірка без хаба; у бою ту саму композицію робить Hub.Handler,
+// лише замок там один на всі портфелі.
 func (s *Server) Handler() http.Handler {
+	// Замок стоїть ПІД журналом і ПІД заголовком кешу: відмова 401 мусить
+	// потрапити в журнал і не мусить осісти в кеші браузера — а noStoreAPI
+	// ставить заголовок ДО виклику наступного, тож він має бути зовні.
+	return logMiddleware(s.log, noStoreAPI(s.requireAuth(s.routes())))
+}
+
+// routes — голий mux сервера: усі /api/* цього портфеля й статика. Без
+// замка й журналу — їх додає той, хто складає обробник (Handler або Hub).
+func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/summary", s.handleSummary)
@@ -262,10 +288,7 @@ func (s *Server) Handler() http.Handler {
 
 	sub, _ := fs.Sub(webFS, "web") //nolint:errcheck // шлях у go:embed — константа, помилка неможлива
 	mux.Handle("GET /", noCache(http.FileServerFS(sub)))
-	// Замок стоїть ПІД журналом і ПІД заголовком кешу: відмова 401 мусить
-	// потрапити в журнал і не мусить осісти в кеші браузера — а noStoreAPI
-	// ставить заголовок ДО виклику наступного, тож він має бути зовні.
-	return logMiddleware(s.log, noStoreAPI(s.requireAuth(mux)))
+	return mux
 }
 
 // noStoreAPI забороняє кешувати ВІДПОВІДІ API взагалі.

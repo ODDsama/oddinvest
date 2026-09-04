@@ -19,6 +19,10 @@ import (
 // Методи цього файла — ЄДИНІ, що не звужуються до s.pid: вони про перелік
 // портфелів, а не про вміст одного з них.
 
+// MainSlug — slug головного портфеля (seed 0054). Заголовок X-Portfolio з
+// ним або порожній означають те саме.
+const MainSlug = "main"
+
 type Portfolio struct {
 	ID        int64  `json:"id"`
 	Slug      string `json:"slug"`
