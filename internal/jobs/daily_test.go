@@ -62,7 +62,7 @@ func TestBackupSurvivesDeadNBU(t *testing.T) {
 		t.Fatal("НБУ мав відмовити")
 	}
 
-	r.dailyRun(context.Background())
+	NewFleet(r).dailyRun(context.Background())
 
 	if _, err := os.Stat(backup); err != nil {
 		t.Fatalf("бекапу немає попри те, що дані на місці: %v", err)
@@ -78,7 +78,7 @@ func TestSnapshotSurvivesDeadNBU(t *testing.T) {
 	r, st := dailyRunner(t, deadNBU(t), "")
 	ctx := context.Background()
 
-	r.dailyRun(ctx)
+	NewFleet(r).dailyRun(ctx)
 
 	today := domain.NewDate(time.Now().In(r.loc))
 	snaps, err := st.ListSnapshots(ctx, today, today)

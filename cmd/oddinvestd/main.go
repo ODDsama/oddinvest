@@ -120,7 +120,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	go runner.RunDaily(ctx)
+	fleet := jobs.NewFleet(runner)
+	go fleet.RunDaily(ctx)
 	// Конектор тунелю, якщо він налаштований: перезапуск сервісу не має
 	// вимагати повторного «Підключити» на сторінці.
 	tun.Start(ctx)

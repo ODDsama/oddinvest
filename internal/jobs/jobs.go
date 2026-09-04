@@ -67,6 +67,13 @@ func (r *Runner) dumpBackup(ctx context.Context) {
 	if r.backupPath == "" {
 		return
 	}
+	// Каталог сателіта (portfolios/<slug>/) зʼявляється разом із першим
+	// дампом: створювати його при створенні портфеля означало б, що
+	// файлова система знає про портфель раніше за його перший знімок.
+	if err := os.MkdirAll(filepath.Dir(r.backupPath), 0o755); err != nil {
+		r.log.Warn("бекап: каталог не створився", "dir", filepath.Dir(r.backupPath), "err", err)
+		return
+	}
 	b, err := r.st.ExportAll(ctx)
 	if err != nil {
 		r.log.Warn("бекап: експорт не вдався", "err", err)
@@ -202,21 +209,21 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 	return nil
 }
 
-// PersistDaily — те, що мусить статись у будь-якому разі: знімок портфеля,
-// бекап користувацьких даних і гігієна сховища.
+// persistDaily — те, що мусить статись у будь-якому разі: знімок портфеля
+// й бекап його користувацьких даних.
 //
 // Помилки не повертаються навмисно. Це не «нам байдуже», а протилежне:
-// жоден із трьох кроків не має права скасувати два інші. Доти вони жили
-// ланцюжком у RefreshAll, де перший же `return` забирав із собою решту —
-// саме так недоступний НБУ забирав бекап (див. шапку RefreshAll).
-func (r *Runner) PersistDaily(ctx context.Context) {
+// жоден із кроків не має права скасувати інший. Доти вони жили ланцюжком у
+// RefreshAll, де перший же `return` забирав із собою решту — саме так
+// недоступний НБУ забирав бекап (див. шапку RefreshAll).
+//
+// Гігієна сховища (Maintain) тут БІЛЬШЕ НЕ живе: вона на всю базу, а
+// прогін цей — на портфель (Fleet.dailyRun робить її один раз).
+func (r *Runner) persistDaily(ctx context.Context) {
 	if err := r.Snapshot(ctx); err != nil {
 		r.log.Warn("знімок не збережено", "err", err)
 	}
 	r.dumpBackup(ctx)
-	if err := r.st.Maintain(ctx); err != nil {
-		r.log.Error("обслуговування сховища", "err", err)
-	}
 }
 
 // auctionWatermark — до якого дня аукціони вже переглянуто. Робочий стан
@@ -510,68 +517,6 @@ func (r *Runner) BackfillIfThin(ctx context.Context, code string, years, minMont
 	}
 }
 
-// dailyRun — один добовий прогін: похідні дані, потім те, що мусить
-// статись у будь-якому разі, потім публікація.
-//
-// RefreshAll тут НЕ обриває послідовність: його помилка означає лише
-// «НБУ мовчить», а знімок і бекап рахуються з того, що вже в базі, і
-// чужа недоступність не привід їх пропустити.
-func (r *Runner) dailyRun(ctx context.Context) {
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	if err := r.RefreshAll(cctx); err != nil {
-		r.log.Error("добове оновлення довідника", "err", err)
-	}
-	r.PersistDaily(cctx)
-	if err := r.PublishState(cctx); err != nil {
-		r.log.Error("добова публікація", "err", err)
-	}
-}
-
-// RunDaily — цикл: щодня о 06:10 Києва добовий прогін.
-//
-// НАЗДОГАНЯННЯ ПРИ СТАРТІ. Доти цикл просто чекав найближчої 06:10 і при
-// старті не робив нічого — тож рестарт о 06:11 (а оновлення через
-// deploy/proxmox-update.sh відбувається саме серед дня) коштував дню
-// знімка й бекапу разом. Помітно це не одразу: діра в кривій за один
-// день читається як «того дня нічого не змінилось».
-//
-// Коштує наздоганяння нічого, бо крок ідемпотентний: snapshots.date —
-// PRIMARY KEY, а SaveSnapshot робить upsert, тож повторний прогін того
-// самого дня перезаписує рядок тими самими числами.
-func (r *Runner) RunDaily(ctx context.Context) {
-	if r.needsCatchUp(ctx) {
-		r.log.Info("знімка за сьогодні немає — наздоганяю")
-		r.dailyRun(ctx)
-	}
-	for {
-		now := time.Now().In(r.loc)
-		next := time.Date(now.Year(), now.Month(), now.Day(), 6, 10, 0, 0, r.loc)
-		if !next.After(now) {
-			next = next.Add(24 * time.Hour)
-		}
-		r.log.Info("наступне оновлення", "at", next.Format(time.RFC3339))
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(time.Until(next)):
-			r.dailyRun(ctx)
-		}
-	}
-}
-
-// needsCatchUp — чи бракує знімка за сьогодні.
-//
-// Помилка читання веде до «не наздоганяємо»: зайвий прогін дешевий, але
-// не настільки, щоб робити його наосліп при зламаному сховищі — там
-// однаково все впаде наступним кроком, і сказати про це має він, а не ця
-// перевірка.
-func (r *Runner) needsCatchUp(ctx context.Context) bool {
-	today := domain.NewDate(time.Now().In(r.loc))
-	snaps, err := r.st.ListSnapshots(ctx, today, today)
-	if err != nil {
-		r.log.Warn("не перевірив знімок за сьогодні", "err", err)
-		return false
-	}
-	return len(snaps) == 0
-}
+// Добового циклу тут БІЛЬШЕ НЕМАЄ — він у Fleet (fleet.go): відколи
+// портфелів кілька, прогін належить не одному Runner-у, а всім разом, і
+// довідник у ньому оновлюється один раз на всіх.
