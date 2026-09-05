@@ -126,3 +126,44 @@ func TestCPIProjectGoalTargetGrows(t *testing.T) {
 		t.Fatal("нуль виріс")
 	}
 }
+
+func TestCPIPlaceRefusesShortWindow(t *testing.T) {
+	if _, ok := CPIPlace([]int64{500, 600, 700}, 550, 1); ok {
+		t.Fatal("вікно з трьох точок мусить мовчати")
+	}
+}
+
+// TestCPIPlaceCountsTiesAsHalf — те саме правило, що у FXPlace, і воно
+// тут навіть важливіше: опублікована інфляція має один знак після коми,
+// тож однакові значення в ряду звичайна річ.
+func TestCPIPlaceTiesGiveHalf(t *testing.T) {
+	same := make([]int64, 12)
+	for i := range same {
+		same[i] = 800
+	}
+	w, ok := CPIPlace(same, 800, 1)
+	if !ok {
+		t.Fatal("вікно на дванадцяти точках мусить бути")
+	}
+	if w.Percentile != 50 {
+		t.Fatalf("перцентиль на однаковому ряду = %v, хочемо 50", w.Percentile)
+	}
+	if w.MedianBP != 800 || w.MinBP != 800 || w.MaxBP != 800 {
+		t.Fatalf("межі ряду поїхали: %+v", w)
+	}
+}
+
+// TestCPIPlaceKeepsDeflation — від'ємний місяць лишається в ряду.
+func TestCPIPlaceKeepsDeflation(t *testing.T) {
+	vals := []int64{-50, 0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 2660}
+	w, ok := CPIPlace(vals, 500, 3)
+	if !ok {
+		t.Fatal("вікно мусить бути")
+	}
+	if w.MinBP != -50 {
+		t.Fatalf("дефляційний місяць випав із ряду: min=%d", w.MinBP)
+	}
+	if w.Points != 12 {
+		t.Fatalf("точок %d", w.Points)
+	}
+}

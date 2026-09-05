@@ -155,6 +155,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/accrued/{isin}", s.handleAccrued)
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("GET /api/devaluation", s.handleDevaluation)
+	mux.HandleFunc("GET /api/inflation", s.handleInflation)
 	mux.HandleFunc("GET /api/cashflow", s.handleCashflowStatement)
 	mux.HandleFunc("GET /api/period", s.handlePeriod)
 	mux.HandleFunc("GET /api/year", s.handleYear)

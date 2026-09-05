@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 )
@@ -32,11 +31,16 @@ const (
 
 // measuredInflation — річний темп зростання цін із ряду НБУ.
 //
-// Повертає ще й межі вікна: картка мусить сказати, ЯКИМ відрізком
-// міряно, — інакше «8.1%/рік» неможливо ні перевірити, ні зрозуміти.
+// Вікно відлічується від ОСТАННЬОЇ ТОЧКИ РЯДУ назад, а не від сьогодні:
+// ІСЦ виходить із затримкою 8-10 днів, і «десять років від сьогодні» дало
+// б відрізок, коротший за свою назву. Той самий якір, що в /api/inflation,
+// і саме тому чинне число дорівнює рядкові «за 10 років» у картці — два
+// різні якорі давали б два різні числа на одному екрані.
+//
+// Повертає ще й межі вікна: картка мусить сказати, ЯКИМ відрізком міряно,
+// інакше «10.6%/рік» неможливо ні перевірити, ні зрозуміти.
 func (s *Server) measuredInflation(ctx context.Context) (pct float64, from, to string, ok bool) {
-	start := monthOf(domain.NewDate(time.Now().AddDate(-inflWindowYears, 0, 0)))
-	pts, err := s.st.CPISince(ctx, start)
+	pts, err := s.st.CPISince(ctx, "")
 	if err != nil || len(pts) < 2 {
 		return 0, "", "", false
 	}
@@ -45,17 +49,24 @@ func (s *Server) measuredInflation(ctx context.Context) (pct float64, from, to s
 		dom = append(dom, domain.CPIPoint{Period: p.Period, MoMBP: p.MoMBP, YoYBP: p.YoYBP})
 	}
 	levels := domain.CPIChain(dom)
-	first, last := levels[0].Period, levels[len(levels)-1].Period
-	a, errA := domain.ParseDate(first + "-01")
-	b, errB := domain.ParseDate(last + "-01")
-	if errA != nil || errB != nil || domain.DaysBetween(a, b) < inflMinDays {
+	last := levels[len(levels)-1].Period
+	lastDate, err := domain.ParseDate(last + "-01")
+	if err != nil {
 		return 0, "", "", false
 	}
-	v, ok := domain.CPIAnnualPct(levels, first, last)
+	start := firstAtOrAfter(levels, string(lastDate.AddMonths(-12 * inflWindowYears))[:7])
+	if start == "" {
+		return 0, "", "", false
+	}
+	a, errA := domain.ParseDate(start + "-01")
+	if errA != nil || domain.DaysBetween(a, lastDate) < inflMinDays {
+		return 0, "", "", false
+	}
+	v, ok := domain.CPIAnnualPct(levels, start, last)
 	if !ok {
 		return 0, "", "", false
 	}
-	return round2(v), first, last, true
+	return round2(v), start, last, true
 }
 
 // inflation — інфляція, з якою рахує застосунок: виміряна або ніякої.

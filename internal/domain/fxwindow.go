@@ -78,25 +78,42 @@ func FXPlace(rates []int64, nowE4 int64, years int) (FXWindow, bool) {
 	if len(sorted) < minFXPoints {
 		return FXWindow{}, false
 	}
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-
-	var below, equal int
-	for _, r := range sorted {
-		switch {
-		case r < nowE4:
-			below++
-		case r == nowE4:
-			equal++
-		}
-	}
-	pct := (float64(below) + float64(equal)/2) / float64(len(sorted)) * 100
-
+	pct, med, lo, hi := placeAmong(sorted, nowE4)
 	return FXWindow{
 		Years:      years,
 		Points:     len(sorted),
 		Percentile: pct,
-		MedianE4:   sorted[(len(sorted)-1)/2],
-		MinE4:      sorted[0],
-		MaxE4:      sorted[len(sorted)-1],
+		MedianE4:   med,
+		MinE4:      lo,
+		MaxE4:      hi,
 	}, true
+}
+
+// placeAmong — спільне ядро розміщення числа серед ряду.
+//
+// Винесене, щойно з'явився ДРУГИЙ ряд, який ставлять те саме питання:
+// курс серед курсів (FXPlace) і річна інфляція серед річних інфляцій
+// (CPIPlace). Правила тут не косметичні, і копія неминуче розійшлася б
+// саме на них: рівні точки рахуються ПОЛОВИНОЮ (інакше повторюване
+// значення стрибає між 0 і 100 від одного заокруглення), а медіана —
+// СПРАВЖНЯ точка ряду (нижня), а не середнє двох сусідніх, бо стоїть
+// вона поруч із фактичними мінімумом і максимумом.
+//
+// values мусить бути непорожнім; сортує функція сама.
+func placeAmong(values []int64, now int64) (pct float64, median, lo, hi int64) {
+	sorted := make([]int64, len(values))
+	copy(sorted, values)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+
+	var below, equal int
+	for _, v := range sorted {
+		switch {
+		case v < now:
+			below++
+		case v == now:
+			equal++
+		}
+	}
+	pct = (float64(below) + float64(equal)/2) / float64(len(sorted)) * 100
+	return pct, sorted[(len(sorted)-1)/2], sorted[0], sorted[len(sorted)-1]
 }

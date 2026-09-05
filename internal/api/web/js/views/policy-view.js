@@ -303,6 +303,59 @@ function forecastCard(s) {
 // Знецінення — не просто ще одне поле: це дільник під КОЖНИМ реальним
 // числом застосунку. Доти екран про це мовчав, а сама шістка бралась
 // нізвідки, і перевірити її не було де.
+// Інфляція — ДРУГА лінійка реальності, і картка навмисно стоїть поруч із
+// знеціненням: два числа, які відповідають на різні питання про ті самі
+// гроші, мусять бути на одному екрані.
+//
+// Налаштування в неї немає жодного, на відміну від знецінення. Там
+// ручний ярус є, бо очікування людини з даних не виводиться; ІСЦ —
+// опублікований факт, і четверте число тут не змогло б ані розійтися з
+// ним корисно, ані сказати щось нове.
+function inflHTML(d) {
+  if (!d) return "";
+  const windows = d.windows || [];
+  const place = d.place || [];
+  const table = opsGrid({
+    cols: [
+      { key: "label", label: "Вікно", cell: (w) => esc(w.label) },
+      { key: "pct", label: "%/рік", num: true, cell: (w) => pct(w.pct) },
+      { key: "range", label: "Місяці", cls: "muted sub-xs",
+        cell: (w) => esc(w.from) + " → " + esc(w.to) },
+    ],
+    rows: windows,
+    caption: "Інфляція по вікнах: період, відсоток на рік, місяці",
+  });
+  const placeTable = place.length ? opsGrid({
+    cols: [
+      { key: "years", label: "Серед", cell: (w) => `${w.years} р. (${w.points} міс.)` },
+      { key: "pctile", label: "Перцентиль", num: true, cell: (w) => pct(w.percentile, 0) },
+      { key: "median", label: "Медіана", num: true, cell: (w) => pct(w.median_pct) },
+      { key: "range", label: "Від → до", cls: "muted sub-xs",
+        cell: (w) => `${pct(w.min_pct)} → ${pct(w.max_pct)}` },
+    ],
+    rows: place,
+    caption: "Місце нинішньої річної інфляції серед історії: вікно, перцентиль, медіана, межі",
+  }) : "";
+  return `<div class="card">
+    <h2 class="h-row">Інфляція ${infoBtn("setInflation")}</h2>
+    <div class="tiles flush mb">
+      ${tile("Чинне значення", pct(d.effective_pct),
+    `<div class="sub">${esc(d.source === "measured" ? "виміряно з ІСЦ НБУ" : "ряду ще замало")}</div>`)}
+      ${d.now_pct ? tile("Зараз, рік до року", pct(d.now_pct),
+    `<div class="sub">за ${esc(d.now_month || "")}</div>`) : ""}
+    </div>
+    <div class="muted fine mb">Це число НЕ ділить реальну дохідність — нею й далі
+      керує знецінення. Інфляція стоїть <b>другою лінійкою</b>: у розкладі кожної ставки
+      під «реальною проти долара» є «реальна проти цін». Складати їх не можна.</div>
+    ${windows.length ? table : `<div class="muted">${esc(d.note || "ряду цін ще немає")}</div>`}
+    ${placeTable ? `<h3 class="mt">Де стоїть нинішня</h3>${placeTable}
+      <div class="sub mt-sm">Це <b>вимірювання минулого</b>, а не сигнал: ані порога,
+        ані поради тут немає навмисно. Інфляція має ту саму властивість, що й гривня, —
+        рекордна вона рівно до наступного разу: 2022-й дав 26.6% після 10.0%, 2023-й —
+        5.1% після 26.6%.</div>` : ""}
+  </div>`;
+}
+
 function devalHTML(d) {
   if (!d) return "";
   const src = {
@@ -408,11 +461,12 @@ export async function goals(ctx, main) {
 
 /** Припущення: те, що застосунок вважає ймовірним, а не заданим. */
 export async function assumptions(ctx, main) {
-  const [s, deval] = await Promise.all([
+  const [s, deval, infl] = await Promise.all([
     ctx.api("GET", "settings"),
     ctx.soft("devaluation", null),
+    ctx.soft("inflation", null),
   ]);
-  main.innerHTML = `${rateAssumptionsCard(s)}${forecastCard(s)}${devalHTML(deval)}`;
+  main.innerHTML = `${rateAssumptionsCard(s)}${forecastCard(s)}${devalHTML(deval)}${inflHTML(infl)}`;
   onSubmit(ctx, main.querySelector("#rateAssumptionsForm"), settingsPut(SPEC.rateAssumptions));
   onSubmit(ctx, main.querySelector("#forecastAssumptionsForm"), settingsPut(SPEC.forecast));
 }
