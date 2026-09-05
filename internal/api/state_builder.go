@@ -1275,6 +1275,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		ReserveLastMove: reserveLastMove, TopN: 5,
 		ReserveFillMonthUAH: mth.ReserveMonthUAH, ReserveFillNowUAH: mth.ReserveFillUAH,
 		ReserveMovedUAH: mth.ReserveMovedUAH,
+		// Інфляція — щоб ціль, задана в сьогоднішніх грошах, знала, у що
+		// вона обійдеться в рік дедлайну. Нуль = ряду ще немає, і тоді
+		// майбутні числа просто не малюються.
+		InflationPct: src.cpi,
 		// Драбина доступу: готівка подушки окремо від резервних вкладів, і
 		// самі вклади, зведені до чотирьох чисел. Перевід у гривню, у місяці
 		// й у річний дохід робиться ТУТ — там, де є курси, «сьогодні» й

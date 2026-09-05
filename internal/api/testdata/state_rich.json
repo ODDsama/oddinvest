@@ -294,6 +294,28 @@
       "done_pct": 0,
       "last_move": "2026-06-05",
       "done_date": "2026-06-05"
+    },
+    {
+      "id": 3,
+      "name": "Школа",
+      "currency": "UAH",
+      "target_native": 600000,
+      "collected_native": 0,
+      "gap_native": 600000,
+      "target_uah": 600000,
+      "collected_uah": 0,
+      "gap_uah": 600000,
+      "done_pct": 0,
+      "due_date": "2036-07-12",
+      "months_left": 119.91,
+      "required_native": 5003.84,
+      "required_uah": 5003.84,
+      "short_month_uah": 5003.84,
+      "behind": true,
+      "target_future_native": 3105875.81,
+      "gap_future_native": 3105875.81,
+      "required_future_native": 25901.72,
+      "inflation_pct": 17.87
     }
   ],
   "net_worth_uah": 1084668.29,

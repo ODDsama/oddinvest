@@ -41,6 +41,9 @@ type sources struct {
 	// розійтися між собою в межах однієї відповіді.
 	rates fx.Rates
 	deval float64
+	// cpi — виміряна інфляція, %/рік; нуль означає «ряду ще замало», і
+	// тоді все, що на ній стоїть, мовчить, а не показує нулі.
+	cpi float64
 
 	// Решта інструментів: фонди (операції + довідник), вклади, резерв.
 	fundOps  []domain.FundOp
@@ -261,6 +264,7 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	}
 
 	src.deval = s.devaluation(ctx)
+	src.cpi, _ = s.inflation(ctx)
 	src.settings = loadSettings(rawSettings)
 	// Витрати — у гривню одразу тут, бо саме тут уперше зустрічаються
 	// налаштування й курс. Кожен, хто читає src.settings далі, дістає

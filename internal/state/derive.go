@@ -105,6 +105,14 @@ type DeriveInput struct {
 	// ні», а ухвалює його будівник — лише він знає і ставки боргів, і
 	// реальну дохідність портфеля, з якою їх порівнюють.
 	DebtCapsReserve bool
+	// InflationPct — виміряна інфляція, %/рік. НУЛЬ ОЗНАЧАЄ «немає»: усе,
+	// що на ній стоїть, тоді мовчить, а не показує нулі. Другого прапорця
+	// не заводимо — нульова інфляція за десять років в Україні не була
+	// жодного разу, а справжня відсутність ряду буває щоразу на свіжій базі.
+	//
+	// Тут вона потрібна рівно для одного: цілі задають у СЬОГОДНІШНІХ
+	// грошах, а купувати за них будуть у рік дедлайну.
+	InflationPct float64
 	// TopN — скільки виплат показати в «найближчих» (0 = 5).
 	TopN int
 }
@@ -457,6 +465,7 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 			row.GapNative, row.GapUAH, row.DonePct = 0, 0, 0
 		} else {
 			deriveGoalPace(&row, today)
+			deriveGoalFuture(&row, in.InflationPct)
 		}
 		out = append(out, row)
 	}
@@ -649,6 +658,40 @@ func deriveGoalPace(row *Goal, today domain.Date) {
 	// теж відставання, і це не причіпка: ціль із датою, у яку нічого не
 	// кладуть, не збереться ніколи.
 	row.Behind = row.ActualUAH+0.005 < row.RequiredUAH
+}
+
+// deriveGoalFuture — скільки ця сама ціль коштуватиме в рік дедлайну.
+//
+// Ціль задають у сьогоднішніх грошах — так її й тримають у голові («сто
+// тисяч на ремонт»), — а купувати за неї будуть у рік дедлайну. Доти
+// застосунок про цю різницю мовчав, і мовчав найдорожче саме на
+// найдовших цілях: за десять років при 10.7%/рік те саме коштує втричі.
+//
+// МОВЧИТЬ У ЧОТИРЬОХ ВИПАДКАХ, і кожен законний, а не «бракує даних»:
+// немає ряду ІСЦ (свіжа база), немає дедлайну (нікуди не поспішає), дата
+// вже минула (MonthsLeft нульовий), ціль не гривнева — останнє тому, що
+// для валютної потрібен індекс цін країни валюти, якого тут немає.
+//
+// Старих чисел НЕ ЧІПАЄ: на GapNative і RequiredUAH стоять черга задач,
+// стеля наповнення й прогноз, і перевести їх у майбутні гроші означало б
+// переписати те, що людина щомісяця відкладає.
+func deriveGoalFuture(row *Goal, inflationPct float64) {
+	if inflationPct <= 0 || row.MonthsLeft <= 0 || row.Currency != money.UAH {
+		return
+	}
+	months := int(math.Round(row.MonthsLeft))
+	if months <= 0 {
+		return
+	}
+	row.InflationPct = inflationPct
+	row.TargetFutureNative = round2(domain.CPIProject(row.TargetNative, inflationPct, months))
+	// Зібране НЕ індексується: воно вже лежить, і його купівельна
+	// спроможність — питання про те, ДЕ воно лежить, а не про ціль. Тому
+	// майбутній розрив = майбутня ціна мінус те, що є сьогодні.
+	if gap := row.TargetFutureNative - row.CollectedNative; gap > 0 {
+		row.GapFutureNative = round2(gap)
+		row.RequiredFutureNative = round2(gap / row.MonthsLeft)
+	}
 }
 
 // goalETA — дата, коли ціль закриється за нинішнім темпом.

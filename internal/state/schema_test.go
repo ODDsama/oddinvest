@@ -161,6 +161,10 @@ func TestSchemaMatchesNestedTypes(t *testing.T) {
 		{"market_yield", reflect.TypeOf(MarketYieldRow{})},
 		{"fx_window", reflect.TypeOf(FXWindowRow{})},
 		{"funds", reflect.TypeOf(FundPositionRow{})},
+		// goals довго не було в цьому переліку, і саме через це Goal і
+		// схема могли розходитись мовчки — рівно та біда, від якої
+		// сторож і заводився.
+		{"goals", reflect.TypeOf(Goal{})},
 		{"ladder_uah", reflect.TypeOf(YearAmount{})},
 		{"income_12m", reflect.TypeOf(MonthAmount{})},
 		{"coupons_12m", reflect.TypeOf(MonthAmount{})},

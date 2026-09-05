@@ -25,7 +25,7 @@
 // без пояснення це читається як помилка застосунку, а насправді це те, що
 // з доларовою ціллю й гривневими заощадженнями відбувається насправді.
 
-import { esc, curSym, plural, uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney } from "../format.js";
+import { esc, curSym, plural, pct, uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney } from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty } from "../components.js";
 import { opsGrid, actionsCol } from "../grid.js";
@@ -78,6 +78,7 @@ export function goalTilesHTML(g) {
     ${done ? "" : `<div class="progress mb-sm">
       <span style="--oi-fill:${fill}%;--oi-c:${g.behind ? "var(--oi-warn)" : "var(--oi-info)"}"></span></div>`}
     ${done ? "" : paceHTML(g, sym)}
+    ${done ? "" : futureHTML(g, sym)}
     ${fxHTML(g, sym)}
     ${placesHTML(g)}
   </div>`;
@@ -115,6 +116,37 @@ function paceHTML(g, sym) {
       відріже сам, коли прийдуть гроші. Якщо покладаєшся на нього, підніми частку в
       <a class="lnk" href="${routeFor("policy/goals/main")}">Політиці → Цілі накопичення</a>
       або зсунь дату.</div>` : ""}`;
+}
+
+/** Скільки та сама ціль коштуватиме в рік дедлайну.
+ *
+ *  Ціль задають у СЬОГОДНІШНІХ грошах — так її й тримають у голові
+ *  («сто тисяч на ремонт»), — а купувати за неї будуть тоді. Доти
+ *  застосунок про цю різницю мовчав, і мовчав найдорожче саме на
+ *  найдовших цілях.
+ *
+ *  Числа стоять ПОРУЧ, а не замість: на «треба відкладати» вище стоять
+ *  черга задач, стеля наповнення й прогноз, і переписати їх у майбутні
+ *  гроші означало б переписати те, що людина щомісяця відкладає.
+ *
+ *  Мовчить, коли бекенд не дав чисел: валютна ціль (індексу цін країни
+ *  валюти в застосунку немає), немає дедлайну, немає ряду ІСЦ. */
+function futureHTML(g, sym) {
+  if (!g.target_future_native) return "";
+  const year = (g.due_date || "").slice(0, 4);
+  return `<hr class="sep">
+  <div>
+    <div class="kv"><span class="muted">Те саме в грошах ${esc(year)} року</span>
+      <b>${fmtCur(g.target_future_native, sym)}</b></div>
+    ${g.required_future_native ? `<div class="kv"><span class="muted">Щоб дійти до НЕЇ,
+      відкладати</span><b>${fmtCur(g.required_future_native, sym)}/міс</b></div>` : ""}
+    <div class="sub">Ціль задана в сьогоднішніх грошах, а купувати за неї будеш
+      ${esc(year)}-го. Пораховано за виміряною інфляцією
+      <b>${pct(g.inflation_pct)}</b>/рік — тим самим числом, що в
+      <a class="lnk" href="${routeFor("policy/assumptions/main")}">Політиці → Припущення</a>.
+      Числа вище цього не враховують навмисно: на них стоїть стеля наповнення й черга задач,
+      і рухати їх означало б рухати те, що ти щомісяця й відкладаєш.</div>
+  </div>`;
 }
 
 /** Курс працює проти цілі — сказати прямо.
