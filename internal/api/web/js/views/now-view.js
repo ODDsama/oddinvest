@@ -281,9 +281,20 @@ export function reinvestHTML(ctx, opts = {}) {
   const soon = rows.filter((r) => !r.can_buy);
   const group = (title, list) => list.length
     ? `<div class="sg-h">${title}</div>${list.map(item).join("")}` : "";
+  // Перемикач лінійки — той самий `.seg`, що й вікна валютного шоку.
+  // Типово реальна: тільки вона розсуджує гривню з доларом. Номінальна
+  // відповідає на інше питання — «де більше гривень», — і людина має
+  // право поставити список саме так.
+  const seg = `<span class="seg">
+    <button data-sgorder="real" aria-pressed="${order === "real"}"
+      title="Порядок за реальною дохідністю — після податку й знецінення">реальна</button>
+    <button data-sgorder="nominal" aria-pressed="${order === "nominal"}"
+      title="Порядок за номінальною — валюти при цьому незіставні">номінальна</button>
+  </span>`;
   return `<div class="card"><h2 class="card-head">
     <span>${esc(title)} ${infoBtn("reinvest")}</span>
-    ${purse ? `<span class="muted fine">${purse}</span>` : ""}</h2>
+    ${purse ? `<span class="muted fine">${purse}</span>` : ""}
+    ${seg}</h2>
     ${group("Можеш купити зараз", ready)}
     ${group(ready.length ? "Ще збираєш" : "Купувати ще рано — ось наскільки близько", soon)}
     <div class="sub">Головне число — <b>номінальне</b>: те, що в договорі чи в довіднику.
@@ -327,6 +338,14 @@ export function wireReinvest(ctx, main) {
     b.addEventListener("click", () => {
       const [kind, ref] = b.dataset.planadd.split("|");
       addToPlan(ctx, { kind, ref, qty: 1 });
+    }));
+  main.querySelectorAll("[data-sgorder]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      if (b.dataset.sgorder === order) return;
+      order = b.dataset.sgorder;
+      // Перезапит, а не пересортування на місці: порядок вирішує бекенд.
+      await loadReinvest(ctx);
+      ctx.reload();
     }));
   main.querySelectorAll("[data-sgexp]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -487,9 +506,19 @@ function planTileSub(ctx, doc) {
 // Банер відповідає на «чи можна вже купувати», а список показує, що саме;
 // це одні й ті самі поради, лише з різною глибиною. Модульна змінна
 // лишається тією ж, що й була, тож обидві сторінки бачать однакове.
+/** Лінійка порядку: за реальною (типово) чи за номінальною.
+ *
+ *  Живе тут, а не в uistate: це не «що я розкрив», а параметр ЗАПИТУ —
+ *  сортує бекенд, бо в порівнювача пʼять тайбрейкерів (замок, ліміт,
+ *  транзит, застарілий папір, план), і копія цього ланцюжка в браузері
+ *  розійшлася б із серверною мовчки. Той самий довід, що в
+ *  handlers_whatif.go про друге означення арифметики. */
+let order = "real";
+
 export async function loadReinvest(ctx) {
-  try { reinvest = await ctx.api("GET", "reinvest"); }
-  catch (_) { reinvest = []; }
+  try {
+    reinvest = await ctx.api("GET", order === "nominal" ? "reinvest?order=nominal" : "reinvest");
+  } catch (_) { reinvest = []; }
 }
 
 /** Що робити зараз — головна сторінка застосунку.

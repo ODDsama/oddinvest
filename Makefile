@@ -120,6 +120,7 @@ check:
 	@$(MAKE) --no-print-directory sleeve-state
 	@$(MAKE) --no-print-directory whatif-boundary
 	@$(MAKE) --no-print-directory portfolio-boundary
+	@$(MAKE) --no-print-directory order-boundary
 
 # fx — ЄДИНА точка конвертації, і масштаб курсу ×10⁴ не має витікати за
 # її межі. Витікав: курс ділили на RateScale вручну в шести місцях, а в
@@ -187,6 +188,23 @@ whatif-boundary:
 	@! grep -rn 'hypothetical' internal/api/*.go \
 		| grep -vE 'state_builder\.go|handlers_whatif\.go|state_plan_buys\.go|handlers_policy_preview\.go|handlers_fx_shock\.go|handlers_spend\.go|_test\.go' \
 		|| { echo 'гіпотеза протікає повз buildStateWith: у MQTT і знімок іде реальний стан'; exit 1; }
+
+# Лінійка порядку порад (номінальна замість реальної) — ЛИШЕ на екрані.
+#
+# reinvestSuggestions віддає поради впорядкованими за реальною
+# дохідністю, і саме цей порядок читають черга задач, журнал рішень
+# (vs_top_pp, rank_pos), прогноз і гейт «борг дорожчий за портфель». Їм
+# потрібне ОДНЕ число, і перемикач на екрані не має права переписувати
+# те, чим застосунок міряє власні рішення: інакше «я слухаюсь себе»
+# міряло б себе іншою лінійкою залежно від того, як хтось поставив
+# сортування в браузері.
+#
+# Тому параметр order читає рівно один обробник, і тримає це grep.
+.PHONY: order-boundary
+order-boundary:
+	@! grep -rn '"order"' internal/api/*.go \
+		| grep -vE 'handlers_reinvest\.go|_test\.go' \
+		|| { echo 'лінійка порядку протікає за екран: журнал рішень і черга задач мусять лишатись на реальній'; exit 1; }
 
 # Портфель запиту (0054) вирішує ОДИН диспетчер — hub.go. Обробник, що
 # читає X-Portfolio сам, обійшов би замок і диспетчер разом: сервер
