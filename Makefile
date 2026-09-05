@@ -119,6 +119,7 @@ check:
 	@$(MAKE) --no-print-directory sources-boundary
 	@$(MAKE) --no-print-directory sleeve-state
 	@$(MAKE) --no-print-directory whatif-boundary
+	@$(MAKE) --no-print-directory portfolio-boundary
 
 # fx — ЄДИНА точка конвертації, і масштаб курсу ×10⁴ не має витікати за
 # її межі. Витікав: курс ділили на RateScale вручну в шести місцях, а в
@@ -186,3 +187,14 @@ whatif-boundary:
 	@! grep -rn 'hypothetical' internal/api/*.go \
 		| grep -vE 'state_builder\.go|handlers_whatif\.go|state_plan_buys\.go|handlers_policy_preview\.go|handlers_fx_shock\.go|handlers_spend\.go|_test\.go' \
 		|| { echo 'гіпотеза протікає повз buildStateWith: у MQTT і знімок іде реальний стан'; exit 1; }
+
+# Портфель запиту (0054) вирішує ОДИН диспетчер — hub.go. Обробник, що
+# читає X-Portfolio сам, обійшов би замок і диспетчер разом: сервер
+# портфеля не знає, що бувають інші, і знати не повинен — його сховище
+# вже звужене. Сам SQL стереже scope_guard_test.go: там літерали
+# багаторядкові, і grep їх не бачить.
+.PHONY: portfolio-boundary
+portfolio-boundary:
+	@! grep -rn 'X-Portfolio' internal/api/*.go \
+		| grep -vE 'hub\.go|_test\.go' \
+		|| { echo 'портфель запиту читає хтось, крім hub.go'; exit 1; }
