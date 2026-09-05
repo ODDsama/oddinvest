@@ -212,6 +212,11 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 	if err := r.RefreshAuctions(ctx); err != nil {
 		r.log.Warn("аукціони недоступні", "err", err)
 	}
+	// ІСЦ — теж не фатальний і з тієї ж причини. Виходить він раз на
+	// місяць, тож більшість прогонів тут не робить жодного запиту.
+	if err := r.RefreshCPI(ctx); err != nil {
+		r.log.Warn("ІСЦ недоступний", "err", err)
+	}
 	return nil
 }
 
