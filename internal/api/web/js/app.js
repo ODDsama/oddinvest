@@ -21,6 +21,7 @@
 import { esc, uah0, signedUAH, capitalUAH } from "./format.js";
 import { TABS, PATHS, HOME, panesFor, kindOf } from "./nav.js";
 import { bindInfo } from "./info.js";
+import { bindYield } from "./yield.js";
 import { openPalette } from "./palette.js";
 import { bindDialogBackdrop } from "./forms.js";
 import { field, formHTML } from "./fields.js";
@@ -582,6 +583,9 @@ export class OddInvestApp extends HTMLElement {
     });
     // попапи «як це читати» — делеговано на весь shadow root
     bindInfo(this.shadowRoot);
+    // Той самий корінь і той самий діалог: розклад ставки — це така сама
+    // довідка, лише зібрана з чисел рядка, а не з тексту (yield.js).
+    bindYield(this.shadowRoot);
     bindDialogBackdrop(this.shadowRoot);
     // Палітра: кнопка в шапці й Ctrl/Cmd+K на вікні. На вікні, а не на
     // shadowRoot: фокус може стояти поза застосунком (адресний рядок,

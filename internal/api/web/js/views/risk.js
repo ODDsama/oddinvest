@@ -255,13 +255,13 @@ export function yieldTilesHTML(ctx) {
     ${tile("Накопичений купон", fmtUAH(s0.accrued_uah || 0),
       `<div class="sub">зароблено, ще не виплачено</div>`)}
     ${Object.entries(py).map(([c, v]) => tile(`ОВДП ${curSym(c)}`,
-      pct(pyReal[c] != null ? pyReal[c] : v),
-      yieldNote(v, "до погашення, від сплаченої ціни"))).join("")}
-    ${s0.funds_yield_pct > 0 ? tile("Фонди", pct(s0.funds_yield_real_pct),
-      `${yieldNote(s0.funds_yield_pct, s0.funds_yield_basis || "")}
+      pct(v),
+      yieldNote(pyReal[c], "до погашення, від сплаченої ціни"))).join("")}
+    ${s0.funds_yield_pct > 0 ? tile("Фонди", pct(s0.funds_yield_pct),
+      `${yieldNote(s0.funds_yield_real_pct, s0.funds_yield_basis || "")}
        ${splitNote(s0.funds_yield_split)}`) : ""}
     ${s0.blended_yield_pct > 0 ? tile(`Дохідність портфеля ${infoBtn("yields")}`,
-      pct(s0.blended_yield_real_pct),
+      pct(s0.blended_yield_pct),
       // Підпис каже ДВІ речі, і обидві раніше були неправдою. Склад:
       // доти в число входили лише ОВДП і фонди, хоч зветься воно
       // портфелем. І ваги: стояло «зважено вкладеним», а вкладеним не
@@ -271,7 +271,7 @@ export function yieldTilesHTML(ctx) {
       // Скільки саме грошей число покриває, каже рядок під ним: без
       // нього «по інвестованому» лишається обіцянкою підпису, а з ним
       // видно, що поза числом — подушка й готівка, а не забутий вид.
-      `${yieldNote(s0.blended_yield_pct, s0.blended_yield_basis || "")}
+      `${yieldNote(s0.blended_yield_real_pct, s0.blended_yield_basis || "")}
        ${s0.blended_yield_base_uah > 0
          ? `<div class="sub-xs muted">по ${fmtUAH(s0.blended_yield_base_uah)} з
              ${fmtUAH(s0.capital_uah)} капіталу · подушка й готівка не заробляють</div>`

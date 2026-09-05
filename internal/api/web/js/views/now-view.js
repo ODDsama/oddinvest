@@ -14,6 +14,7 @@ import {
   uah2 as fmtUAH, cur2 as fmtCur,
 } from "../format.js";
 import { infoBtn } from "../info.js";
+import { yieldCell } from "../yield.js";
 import { tile, kindPill, progressBar } from "../components.js";
 import { isOpen, remember } from "../uistate.js";
 import { routeFor } from "../routes.js";
@@ -248,8 +249,10 @@ export function reinvestHTML(ctx, opts = {}) {
     const auc = r.last_auction
       ? `<div>на аукціоні ${esc(dayMonth(r.last_auction))} давали ${pct(r.last_auction_pct)}</div>`
       : "";
+    // Номінальної тут БІЛЬШЕ НЕМА: вона переїхала в головне число рядка
+    // (yield.js), і повторювати її в стрічці означало б сказати те саме
+    // двічі. Основа лишилась — вона відповідає на інше питання.
     const details = [
-      `${pct(r.nominal_pct != null ? r.nominal_pct : r.ytm_pct)} номінальних`,
       r.kind === "bond" ? "до погашення" : r.yield_basis,
       r.maturity ? `до ${monthYearGen(r.maturity)}` : "",
       fits, r.reason,
@@ -260,7 +263,8 @@ export function reinvestHTML(ctx, opts = {}) {
       ${kindPill(kind)}
       <span class="sg-n"><b>${suggestName(r)}</b> <span class="muted">${cost}</span></span>
       <span class="sg-s muted">${status}</span>
-      <b class="sg-y">${pct(r.real_pct)}</b>
+      <span class="sg-y">${yieldCell(r.rate_parts, {
+        real: r.real_pct, nominal: r.nominal_pct != null ? r.nominal_pct : r.ytm_pct })}</span>
       ${addBtn(kind, r)}
     </div>
     ${ready}

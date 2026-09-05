@@ -142,15 +142,27 @@ function sourceOf(ctx, d, kind, key) {
  *  почім», у НПФ — «коли можна забрати», у вкладі — «коли платять».
  *  Однакова плитка на всіх чотирьох означала б показати найважливіше
  *  лише одному з них. */
+// Номінальний двійник реальної йде за ОСНОВОЮ: коли real_pct
+// порахований з обіцянки, поруч мусить стояти обіцянка, а не виміряне
+// число. Те саме правило й той самий довід — у таблиці позицій
+// (views/positions.js), і живуть вони окремо навмисно: там рядок
+// таблиці, тут плитка, і спільною тут є сама ця пара, а не розмітка.
+const nominalByBasis = (row, measured) =>
+  row.yield_basis === "обіцяно фондом" ? row.expected_pct : measured;
+
 function positionTilesHTML(ctx, kind, row) {
   if (!row) {
     return `<div class="card">${empty("Цієї позиції більше немає",
       "Папір погашено, фонд закрито або запис видалено. Список ліворуч показує те, "
       + "що є зараз.")}</div>`;
   }
-  const yieldTile = (real, basis) => tile("Реальна дохідність",
-    real ? pct(real) : "—",
-    real ? `<div class="sub">після податку й знецінення${
+  // Номінальна головним числом, реальна під нею — те саме правило, що
+  // в таблиці позицій і в порадах; довід при yieldPair у components.js.
+  // Тут воно живе окремим замиканням, бо плитка — не рядок таблиці:
+  // у неї свій підпис і своя ширина.
+  const yieldTile = (nominal, real, basis) => tile("Дохідність",
+    nominal != null ? pct(nominal) : (real ? pct(real) : "—"),
+    real ? `<div class="sub">${pct(real)} реальних — після податку й знецінення${
       basis ? ` · ${esc(basis)}` : ""}</div>` : "");
 
   if (kind === "bond") {
@@ -158,7 +170,7 @@ function positionTilesHTML(ctx, kind, row) {
       ${tile("Номінал", row.unknown ? "—" : fmtMoney(row.nominal), "", { hero: true })}
       ${tile("Вкладено", fmtMoney(row.invested),
     `<div class="sub-xs">${row.qty} шт.</div>`)}
-      ${yieldTile(row.real_pct, row.yield_basis)}
+      ${yieldTile(row.ytm_pct, row.real_pct, row.yield_basis)}
       ${tile("Погашення", row.unknown ? "—" : esc(row.maturity),
     row.unknown
       ? `<div class="sub-xs t-warn">немає в довіднику НБУ</div>`
@@ -169,7 +181,7 @@ function positionTilesHTML(ctx, kind, row) {
     return `<div class="tiles flush">
       ${tile("Вартість", fmtUAH(row.market_value), "", { hero: true })}
       ${tile("Собівартість", fmtUAH(row.cost_basis))}
-      ${yieldTile(row.real_pct, row.yield_basis)}
+      ${yieldTile(nominalByBasis(row, row.total_pct), row.real_pct, row.yield_basis)}
       ${tile("Сертифікатів", String(row.qty),
     `<div class="sub-xs">по ${(row.last_price || 0).toFixed(4)} ${curSym(row.currency)}${
       row.last_price_date ? ` від ${dayMonth(row.last_price_date)}` : ""}</div>`)}
@@ -179,7 +191,7 @@ function positionTilesHTML(ctx, kind, row) {
     return `<div class="tiles flush">
       ${tile("Вартість", fmtUAH(row.value_uah), "", { hero: true })}
       ${tile("Внесено", fmtUAH(row.cost_uah))}
-      ${yieldTile(row.real_pct, row.yield_basis)}
+      ${yieldTile(nominalByBasis(row, row.nav_return_pct), row.real_pct, row.yield_basis)}
       ${tile("Доступ", row.access_date ? esc(row.access_date) : "—",
     row.access_date ? "" : `<div class="sub-xs">дата не задана в довіднику</div>`)}
     </div>`;

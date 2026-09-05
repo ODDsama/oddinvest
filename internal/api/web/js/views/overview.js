@@ -58,10 +58,11 @@ function heroHTML(ctx) {
 
   return `<div class="tiles flush">
     ${tile("Капітал", fmtUAH(cap), sub, { hero: true })}
-    ${tile("Реальна дохідність",
-    s.blended_yield_real_pct ? pct(s.blended_yield_real_pct) : "—",
-    s.blended_yield_real_pct
-      ? `<div class="sub-xs">після податку й знецінення</div>` : "")}
+    ${tile("Дохідність портфеля",
+    s.blended_yield_pct ? pct(s.blended_yield_pct) : "—",
+    s.blended_yield_pct
+      ? `<div class="sub-xs">${pct(s.blended_yield_real_pct)} реальних —
+         після податку й знецінення</div>` : "")}
     ${tile("XIRR", xirr ? pct(xirr) : "—",
     xirr ? `<div class="sub-xs">з урахуванням дат внесків</div>`
       : `<div class="sub-xs">гроші ще замолоді, щоб міряти</div>`)}

@@ -24,6 +24,7 @@
 import { esc, uah2 as fmtUAH, money as fmtMoney, pct, plural, monthYear } from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty } from "../components.js";
+import { yieldCell } from "../yield.js";
 import { opsGrid, actionsCol } from "../grid.js";
 import {
   money as moneyField, text as textField, date as dateField, note as noteField,
@@ -349,8 +350,14 @@ function queueHTML(p, list) {
       { key: "name", label: "Борг", cell: (d) => esc(d.name) },
       { key: "kind", label: "Вид", cell: (d) => KIND_LABEL[d.kind] || d.kind },
       { key: "left", label: "Лишилось", num: true, cell: (d) => fmtMoney(d.left) },
+      // Ставка тут і є головним числом — борг ніколи й не показувався
+      // реальною, — але розклад той самий, що на дохідності: по кліку
+      // видно, скільки з неї зʼїдає знецінення й скільки інфляція
+      // (yield.js). Податку в боргу немає: погашення нічого не заробляє.
       { key: "rate", label: "Ставка", num: true,
-        cell: (d) => `<b class="t-danger">${pct(d.rate_pct)}</b>` },
+        cell: (d) => (d.rate_parts
+          ? `<b class="t-danger">${yieldCell(d.rate_parts, { bare: true })}</b>`
+          : `<b class="t-danger">${pct(d.rate_pct)}</b>`) },
       { key: "real", label: "Реальна", num: true, cell: (d) => pct(d.real_pct) },
       { key: "basis", label: "Звідки", cell: (d) => esc(BASIS_TEXT[d.rate_basis] || "") },
       // Достроково — не довідка, а межа: саме вона вирішує, чи доходять до

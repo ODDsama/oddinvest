@@ -36,12 +36,21 @@ const POS_COLS = 7;
 // перезавантаження сторінки.
 const OPEN_SCOPE = "positions";
 
-// Реальна дохідність — колонка, заради якої таблиця й спільна. Під нею
-// номінальна й основа: з чого число взялося — обіцянка (купон, ставка)
-// чи факт (дивіденди зі зміною ціни). Ховати цю різницю нечесно.
-function realCell(real, nominal, basis) {
-  if (!real) return `<td class="num muted col-yield" data-col="yield" data-label="Дохідність">—</td>`;
-  return `<td class="num col-yield" data-col="yield" data-label="Дохідність">${yieldPair(real, nominal, basis)}</td>`;
+// Дохідність — колонка, заради якої таблиця й спільна. Головним числом
+// іде номінальна (те, що в договорі), під нею реальна й основа: з чого
+// число взялося — обіцянка (купон, ставка) чи факт (дивіденди зі зміною
+// ціни). Ховати цю різницю нечесно. Довід про порядок чисел — при
+// yieldPair у components.js.
+//
+// parts — розклад ставки з бекенда, є він поки не в усіх рядків: ОВДП і
+// вклади його мають, фонди й НПФ рахуються в документі стану. Немає —
+// клітинка лишається просто числом, без вигаданих складників.
+function realCell(real, nominal, basis, parts = null) {
+  if (!real && nominal == null) {
+    return `<td class="num muted col-yield" data-col="yield" data-label="Дохідність">—</td>`;
+  }
+  return `<td class="num col-yield" data-col="yield" data-label="Дохідність">${
+    yieldPair(real, nominal, basis, parts)}</td>`;
 }
 
 function bondDetailHTML(p, lots, sales) {
@@ -190,7 +199,7 @@ function positionItems(ctx, positions, lots, sales, deposits, kinds = null, only
       <div class="sub-xs">${p.qty} шт.</div>`,
     invested: fmtMoney(p.invested),
     value: p.unknown ? `<span class="muted">невідомо</span>` : fmtMoney(p.nominal),
-    pct: p.real_pct, nominal: p.ytm_pct, basis: p.yield_basis,
+    pct: p.real_pct, nominal: p.ytm_pct, basis: p.yield_basis, rateParts: p.rate_parts,
     term: p.unknown
       ? `<span class="muted">невідомо</span>`
       : `${esc(p.maturity)}<div class="sub-xs">${p.days_to_maturity} дн.</div>`,
@@ -249,7 +258,7 @@ function positionItems(ctx, positions, lots, sales, deposits, kinds = null, only
       value: fmtMoney(d.balance),
       // Номінальна вкладу — ПІСЛЯ податку (net_pct), а не договірна
       // ставка поруч: між нею й реальною було б дві поправки одразу.
-      pct: d.real_pct, nominal: d.net_pct, basis: d.yield_basis,
+      pct: d.real_pct, nominal: d.net_pct, basis: d.yield_basis, rateParts: d.rate_parts,
       // «Ставка» тут — договірна, до податку: це умова вкладу, а не
       // дохідність, і слово поруч рятує від читання її як третього
       // числа в тому самому рядку.
@@ -381,7 +390,7 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits, opts =
       <td data-col="name" data-label="Назва">${it.name}</td>
       <td class="num" data-col="invested" data-label="Вкладено" data-prio="3">${it.invested}</td>
       <td class="num" data-col="value" data-label="Вартість" data-prio="2">${it.value}</td>
-      ${realCell(it.pct, it.nominal, it.basis)}
+      ${realCell(it.pct, it.nominal, it.basis, it.rateParts)}
       <td data-col="term" data-label="Строк" data-prio="2">${it.term}</td>
       <td class="row-actions nowrap" data-col="acts">${it.actions}</td></tr>
     ${rowDetail ? `<tr class="detail-row" id="${detailId}" data-detail="${it.key}"${
