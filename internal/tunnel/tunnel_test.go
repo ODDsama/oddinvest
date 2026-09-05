@@ -557,9 +557,17 @@ func TestDisconnectDropsCertKeepsACMEAccount(t *testing.T) {
 	f := newFakeCF(t)
 	m, st := testManager(t, f.srv.URL)
 	ctx := context.Background()
-	if err := m.Connect(ctx, "cf-token", "oddinvest.example.com"); err != nil {
-		t.Fatal(err)
-	}
+
+	// ПОРЯДОК ТУТ ЗНАЧУЩИЙ, і це не охайність. Connect пускає видачу
+	// сертифіката АСИНХРОННО (manager.go), а видача при потребі генерує
+	// новий акаунтний ключ ACME і кладе його в сховище. Доки секрети
+	// заводились ПІСЛЯ Connect, ці два записи гонились: сходило воно лише
+	// тому, що горутина не встигала, і будь-яке вповільнення старту бази
+	// (зайва міграція) робило тест червоним.
+	//
+	// Свіжий сертифікат у памʼяті знімає гонку в корені: EnsureCert
+	// бачить, що строк ще не добігає, і виходить, не викликавши ACME
+	// взагалі. Перевірка від цього не слабшає — вона про Disconnect.
 	certPEM, keyPEM := certPEMs(t, "oddinvest.example.com", time.Now().Add(80*24*time.Hour))
 	for k, v := range map[string]string{
 		store.SecretCertPEM:        certPEM,
@@ -572,6 +580,9 @@ func TestDisconnectDropsCertKeepsACMEAccount(t *testing.T) {
 		}
 	}
 	if err := m.loadCert(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Connect(ctx, "cf-token", "oddinvest.example.com"); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.Disconnect(ctx); err != nil {

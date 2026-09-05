@@ -24,6 +24,7 @@ var derivedTables = map[string]bool{
 	"bonds":             true, // довідник ЦП НБУ
 	"payments":          true, // графіки виплат звідти ж
 	"fx_rates":          true, // курси НБУ, добираються бекфілом
+	"cpi_points":        true, // ІСЦ НБУ, добирається бекфілом
 	"ovdp_auctions":     true, // аукціони Мінфіну
 	"schema_migrations": true, // журнал раннера, не дані
 	"sqlite_sequence":   true, // службова таблиця AUTOINCREMENT
