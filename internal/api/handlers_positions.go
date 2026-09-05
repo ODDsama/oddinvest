@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 )
 
 func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
@@ -42,6 +43,10 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		YTMPct     float64 `json:"ytm_pct,omitempty"`
 		RealPct    float64 `json:"real_pct,omitempty"`
 		YieldBasis string  `json:"yield_basis,omitempty"`
+		// Rate — розклад тієї самої ставки (rate_breakdown.go). Податку в
+		// ОВДП немає взагалі, тож валова й чиста тут збігаються, і саме це
+		// розклад і каже: у вкладі поруч між ними 23 в.п.
+		RateParts *state.RateBreakdown `json:"rate_parts,omitempty"`
 		// Unknown — паперу немає в кеші довідника НБУ. Кількість і вкладені
 		// гроші відомі з самого лота, а номінал, дата погашення й виплати —
 		// ні, тож вони приходять нулями.
@@ -55,6 +60,7 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 	// Дохідність рахуємо по ISIN: позиція — це всі непродані лоти одного
 	// паперу, і взята вона зважено по вкладеному, як і зведена цифра.
 	deval := s.devaluation(ctx)
+	rc := s.newRateContext(ctx, deval)
 	ytmByISIN := map[string][]domain.YTMLot{}
 	for _, l := range lots {
 		b, ok := bonds[l.ISIN]
@@ -81,6 +87,7 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 			row.YTMPct = round2(y)
 			row.RealPct = round2(realYield(y/100, p.Currency, deval) * 100)
 			row.YieldBasis = "до погашення"
+			row.RateParts = rc.breakdown(y/100, y/100, p.Currency, "до погашення")
 		}
 		out = append(out, row)
 	}

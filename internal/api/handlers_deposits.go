@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
@@ -168,8 +169,13 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		NetPct     float64 `json:"net_pct,omitempty"`
 		RealPct    float64 `json:"real_pct,omitempty"`
 		YieldBasis string  `json:"yield_basis,omitempty"`
+		// Rate — усі три числа разом із податком і обома лінійками
+		// реальності (rate_breakdown.go). Саме на вкладі розклад видно
+		// найкраще: між договірною ставкою й чистою тут 23 в.п.
+		RateParts *state.RateBreakdown `json:"rate_parts,omitempty"`
 	}
 	deval := s.devaluation(r.Context())
+	rc := s.newRateContext(r.Context(), deval)
 	today := domain.NewDate(time.Now())
 	out := make([]row, 0, len(deps))
 	for _, d := range deps {
@@ -201,6 +207,7 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 			dr.NetPct = round2(net * 100)
 			dr.RealPct = round2(realYield(net, d.Currency, deval) * 100)
 			dr.YieldBasis = "ставка вкладу"
+			dr.RateParts = rc.breakdown(float64(d.RateBP)/10000, net, d.Currency, "ставка вкладу")
 		}
 		out = append(out, dr)
 	}

@@ -66,13 +66,18 @@ type suggestion struct {
 	// YTMPct поруч є лише в облігацій, тож без цього поля фонд і
 	// вклад показувались у списку самою реальною, а папір — двома
 	// числами, і порівняти їх по-номінальному було ні з чим.
-	NominalPct float64     `json:"nominal_pct,omitempty"`
-	RealPct    float64     `json:"real_pct"`
-	YieldBasis string      `json:"yield_basis"`
-	Brokers    []brokerFit `json:"brokers,omitempty"`
-	Affordable int64       `json:"affordable"`
-	CanBuy     bool        `json:"can_buy"`
-	Reason     string      `json:"reason"`
+	NominalPct float64 `json:"nominal_pct,omitempty"`
+	RealPct    float64 `json:"real_pct"`
+	YieldBasis string  `json:"yield_basis"`
+	// Rate — той самий рядок, розкладений на складники: валова ставка,
+	// податок, знецінення, інфляція. NominalPct і RealPct лишаються на
+	// місці — на них стоїть сортування й журнал рішень, — а це поле
+	// пояснює, звідки вони взялись (rate_breakdown.go).
+	RateParts  *state.RateBreakdown `json:"rate_parts,omitempty"`
+	Brokers    []brokerFit          `json:"brokers,omitempty"`
+	Affordable int64                `json:"affordable"`
+	CanBuy     bool                 `json:"can_buy"`
+	Reason     string               `json:"reason"`
 	// LastAuction / LastAuctionPct — коли цей самий папір востаннє
 	// розміщували на аукціоні Мінфіну й під скільки. Порожньо означає, що
 	// за все відоме нам вікно його не розміщували жодного разу, тобто
@@ -342,6 +347,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	// Знецінення гривні: те саме припущення, що й у прогнозі, інакше
 	// помічник радив би одне, а прогноз малював інше.
 	devalPct := s.devaluation(ctx)
+	rc := s.newRateContext(ctx, devalPct)
 	isins := make([]string, 0, len(bonds))
 	for _, b := range bonds {
 		isins = append(isins, b.ISIN)
@@ -484,6 +490,9 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			YTMPct:      round2(ytm * 100), NominalPct: round2(ytm * 100),
 			RealPct:    round2(real * 100),
 			YieldBasis: "до погашення",
+			// Валова й чиста збігаються: дохід з ОВДП звільнений і від
+			// ПДФО, і від військового збору.
+			RateParts:  rc.breakdown(ytm, ytm, c, "до погашення"),
 			Brokers:    fits,
 			Affordable: best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
 			LastAuction: lastAucDate, LastAuctionPct: round2(lastAucPct),
@@ -546,6 +555,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 				}
 			}
 		}
+		gross := nominal // до податку — для розкладу ставки
 		if f.IncomeTaxPct > 0 {
 			nominal = round2(domain.NetOfTax(nominal, f.IncomeTaxPct, years))
 			basis += ", після податку"
@@ -581,6 +591,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			NominalPct:  round2(nominal),
 			RealPct:     round2(realYield(nominal/100, yc, devalPct) * 100),
 			YieldBasis:  basis,
+			RateParts:   rc.breakdown(gross/100, nominal/100, yc, basis),
 			Brokers:     fits, Affordable: best, CanBuy: best > 0,
 			Reason:    strings.Join(parts, "; "),
 			def:       target[c] - cur[c],
@@ -650,7 +661,9 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			NominalPct:  round2(netRate * 100),
 			RealPct:     round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
-			Brokers:     fits, Affordable: best, CanBuy: best > 0,
+			RateParts: rc.breakdown(float64(d.RateBP)/10000, netRate, c,
+				"ставка вкладу після податку"),
+			Brokers: fits, Affordable: best, CanBuy: best > 0,
 			Reason:      withTransit("поповнення на суму відкриття", c, transitNative[c], depByCur[c]),
 			def:         target[c] - cur[c],
 			kindDef:     kindDef["deposits"],
@@ -693,7 +706,9 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			NominalPct:  round2(netRate * 100),
 			RealPct:     round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
-			Brokers:     fits, Affordable: best, CanBuy: best > 0,
+			RateParts: rc.breakdown(float64(rateBP)/10000, netRate, c,
+				"ставка вкладу після податку"),
+			Brokers: fits, Affordable: best, CanBuy: best > 0,
 			Reason: withTransit("новий вклад, мінімум "+money.New(minMinor, c).Display(),
 				c, transitNative[c], depByCur[c]),
 			def:         target[c] - cur[c],
@@ -765,6 +780,8 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			NominalPct:  nominal,
 			RealPct:     real,
 			YieldBasis:  n.YieldBasis + "; замкнено до " + n.AccessDate,
+			RateParts: rc.breakdown(nominal/100, nominal/100, ccy,
+				n.YieldBasis+"; замкнено до "+n.AccessDate),
 			// Affordable = 1, бо «скільки штук» до пенсійного не стосується:
 			// нуль читався б як «жодної», а справжня відповідь — «будь-яка
 			// сума». CanBuy — чи є хоч десь гроші цієї валюти.
@@ -806,6 +823,10 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			CostPerBond: toMoneyJSON(money.New(0, money.UAH)),
 			NominalPct:  d.TopRatePct,
 			RealPct:     real,
+			// Податку тут немає й бути не може: погашення боргу нічого не
+			// заробляє, воно перестає витрачати.
+			RateParts: rc.breakdown(d.TopRatePct/100, d.TopRatePct/100, money.UAH,
+				"гарантовано: без податку й без ризику ціни"),
 			// Основу названо повністю: це не оцінка й не обіцянка ринку, а
 			// ставка з договору, і саме тому вона порівнянна з рештою.
 			YieldBasis: "гарантовано: без податку й без ризику ціни",

@@ -34,8 +34,13 @@ type payoffDebtJSON struct {
 	Basis string  `json:"rate_basis"`
 	// RealPct — та сама ставка за вирахуванням знецінення, щоб її можна
 	// було покласти поруч із реальною дохідністю портфеля.
-	RealPct float64   `json:"real_pct"`
-	Left    moneyJSON `json:"left"`
+	RealPct float64 `json:"real_pct"`
+	// RateParts — розклад тієї самої ставки (rate_breakdown.go). Ключ
+	// спільний із рештою екранів саме тому, що розклад малює один
+	// компонент; імʼя поля тут інше, бо Rate вище вже зайняте самою
+	// ставкою.
+	RateParts *state.RateBreakdown `json:"rate_parts,omitempty"`
+	Left      moneyJSON            `json:"left"`
 	// PrepayHelps — чи доходять до цього боргу гроші ПОНАД обовʼязкове;
 	// PrepayBasis — чому. Друге поле не прикраса до першого: «банк бере
 	// комісії за всі місяці» вимагає лишити борг у спокої, а «не з'ясовано»
@@ -308,6 +313,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deval := s.devaluation(ctx)
+	rc := s.newRateContext(ctx, deval)
 	list := buildPayoffDebts(debts, marks, ops, rates, today)
 
 	out := payoffResp{
@@ -343,6 +349,9 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		if d.RateBasis != domain.DebtRateNone {
 			// realYield приймає ЧАСТКУ, а ставка боргу — у відсотках.
 			row.RealPct = round2(realYield(d.Rate/100, money.UAH, deval) * 100)
+			// Погашення боргу нічого не заробляє — воно перестає
+			// витрачати, — тож податку тут немає й валова дорівнює чистій.
+			row.RateParts = rc.breakdown(d.Rate/100, d.Rate/100, money.UAH, d.RateBasis)
 		}
 		if m, ok := run.CloseAt[d.ID]; ok {
 			row.CloseDate = monthKeyAt(today, m)
