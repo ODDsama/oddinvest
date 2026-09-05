@@ -28,6 +28,9 @@ export default [
         console: "readonly",
         localStorage: "readonly",
         fetch: "readonly",
+        // Заголовок портфеля (transport.js) і ?p= у адресі (portfolio.js).
+        Headers: "readonly",
+        URLSearchParams: "readonly",
         setTimeout: "readonly",
         clearTimeout: "readonly",
         confirm: "readonly",

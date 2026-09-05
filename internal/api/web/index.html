@@ -57,10 +57,13 @@
 <odd-invest-app></odd-invest-app>
 <script type="module">
   import { httpTransport } from "./js/transport.js";
+  import { current as currentPortfolio, boot as bootPortfolio } from "./js/portfolio.js";
   import "./js/app.js";
 
+  // ?p=<slug> у адресі — до першого запиту, інакше він піде в головний.
+  bootPortfolio();
   const app = document.querySelector("odd-invest-app");
-  app.transport = httpTransport();
+  app.transport = httpTransport("/api/", currentPortfolio);
 </script>
 </body>
 </html>

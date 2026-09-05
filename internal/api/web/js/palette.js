@@ -77,6 +77,12 @@ async function entries(ctx, posData) {
   for (const [key, label] of FORMS) {
     out.push({ label, sub: "форма", href: routeFor(key) });
   }
+  // Інші портфелі — дією, а не адресою: перемикання не веде нікуди, воно
+  // міняє, ЧИЇ дані показує та сама сторінка (portfolio.js).
+  for (const p of ctx.portfolios || []) {
+    if (p.slug === ctx.portfolio) continue;
+    out.push({ label: `Портфель: ${p.name}`, sub: "перемкнути", run: () => ctx.setPortfolio(p.slug) });
+  }
   return out;
 }
 
@@ -96,7 +102,7 @@ function score(entry, words) {
 
 function listHTML(items, active) {
   if (!items.length) return `<div class="pal-none">Нічого не знайдено</div>`;
-  return items.map((e, i) => `<a class="pal-row${i === active ? " on" : ""}" href="${e.href}"
+  return items.map((e, i) => `<a class="pal-row${i === active ? " on" : ""}" href="${e.href || "#"}"
       data-i="${i}"><span class="pal-l">${esc(e.label)}</span>${
   e.sub ? `<span class="pal-s">${esc(e.sub)}</span>` : ""}</a>`).join("");
 }
@@ -122,8 +128,12 @@ export async function openPalette(ctx, pop, getPosData) {
   let active = 0;
 
   const go = (e) => {
-    remember({ label: e.label, sub: e.sub, href: e.href });
     pop.close();
+    // Дія без адреси (перемикання портфеля) у «Нещодавно» не потрапляє:
+    // той список тримає лише href, і портфель, якого вже немає, лишався
+    // б там мертвим рядком.
+    if (e.run) { e.run(); return; }
+    remember({ label: e.label, sub: e.sub, href: e.href });
     window.location.hash = e.href;
   };
   const paint = () => {

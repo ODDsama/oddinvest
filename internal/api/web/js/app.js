@@ -26,6 +26,7 @@ import { bindDialogBackdrop } from "./forms.js";
 import { field, formHTML } from "./fields.js";
 import { adoptStyles } from "./styles.js";
 import { createStore } from "./store.js";
+import { current as currentPortfolio, set as setPortfolio } from "./portfolio.js";
 import { skeleton } from "./skeleton.js";
 import { fitCharts } from "./charts.js";
 import { parseRoute, ANCHORS, markerKind, seg } from "./routes.js";
@@ -43,6 +44,7 @@ import * as portfolio from "./views/portfolio-view.js";
 import * as policy from "./views/policy-view.js";
 import * as settings from "./views/settings-view.js";
 import * as remote from "./views/remote.js";
+import * as portfolios from "./views/portfolios.js";
 import * as money from "./views/money-view.js";
 import * as plan from "./views/plan-view.js";
 import * as goals from "./views/goals.js";
@@ -134,6 +136,7 @@ const VIEWS = {
   "settings/refs/main": settings.refs,
   "settings/backup/main": settings.backup,
   "settings/remote/main": remote.remote,
+  "settings/portfolios/main": portfolios.portfolios,
 };
 
 // Панель на рядок ІЗ ДАНИХ: ключ — «вкладка/вид/панель». Рядків тут
@@ -165,8 +168,26 @@ export class OddInvestApp extends HTMLElement {
   /** Транспорт до бекенда. Ставиться ззовні; поки його немає —
    *  малювати нема з чого, тож старт відкладається до цього моменту. */
   set transport(t) {
-    this._store = createStore(t, (path, err) => this._reportSoft(path, err));
+    this._transport = t;
+    this._store = this._newStore();
     this._start();
+  }
+
+  _newStore() {
+    return createStore(this._transport, (path, err) => this._reportSoft(path, err));
+  }
+
+  /** Перемкнути портфель (portfolio.js) і перемалювати все з нуля.
+   *
+   *  Store — НОВИЙ, а не invalidate(): запит, що вже летить зі старим
+   *  slug-ом, дописав би кеш після скидання, і перша сторінка нового
+   *  портфеля показала б чужий рядок. У новому store чужої відповіді
+   *  просто нема куди лягти. */
+  _setPortfolio(slug) {
+    setPortfolio(slug);
+    this._store = this._newStore();
+    this._posData = null;
+    this._loadPage();
   }
 
   // Поломка, проковтнута soft(). У консоль іде кожна — саме там її
@@ -302,6 +323,11 @@ export class OddInvestApp extends HTMLElement {
       brokers: this._brokers,
       fundCatalog: this._fundCatalog,
       npfAccounts: this._npfAccounts,
+      // Портфелі (0054): перелік, відкритий зараз і перемикання. Панелі
+      // не читають localStorage самі — це справа оболонки.
+      portfolios: this._portfolios || [],
+      portfolio: currentPortfolio() || "main",
+      setPortfolio: (slug) => this._setPortfolio(slug),
       // Дані позицій, уже завантажені оболонкою для майстер-списку.
       // Панель бере їх звідси, а не тягне вдруге: store дедуплікує GET-и,
       // але зайвий обхід восьми маршрутів усе одно коштує кадр.
@@ -390,6 +416,9 @@ export class OddInvestApp extends HTMLElement {
         <a class="mark-l" id="markLink" href="#/${HOME}" aria-label="ODD Invest — на початок">${MARK}</a>
         <nav class="tabs" id="tabs" aria-label="Розділи застосунку"></nav>
         <span class="sp"></span>
+        <!-- Перемикач портфеля (0054). Схований, доки портфель один:
+             контрол з одним варіантом нічого не перемикає. -->
+        <select id="pf" class="hdr-sel" hidden aria-label="Портфель"></select>
         <span id="avail" class="hdr-stamp"></span>
         <!-- Капітал і дельта в шапці: єдине число, яке має бути видно з
              будь-якої панелі. Дельту віддає зведення (capital_delta_30) —
@@ -563,6 +592,9 @@ export class OddInvestApp extends HTMLElement {
       openPalette(this._ctx, pop, () => this._posData);
     };
     this.shadowRoot.getElementById("palette")?.addEventListener("click", openPal);
+    this.shadowRoot.getElementById("pf")?.addEventListener("change", (e) => {
+      this._setPortfolio(e.target.value);
+    });
     window.addEventListener("keydown", (e) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -706,6 +738,15 @@ export class OddInvestApp extends HTMLElement {
       : "";
     delta.classList.toggle("up", !!d && d.delta_uah > 0);
     delta.classList.toggle("down", !!d && d.delta_uah < 0);
+
+    // Перемикач портфеля: перемальовується на кожен перехід, як і решта
+    // шапки, бо перелік міг змінитись на «Налаштуваннях → Портфелі».
+    const pf = this.shadowRoot.getElementById("pf");
+    const list = this._portfolios || [];
+    const cur = currentPortfolio() || "main";
+    pf.innerHTML = list.map((p) =>
+      `<option value="${esc(p.slug)}"${p.slug === cur ? " selected" : ""}>${esc(p.name)}</option>`).join("");
+    pf.hidden = list.length < 2;
   }
 
   // Лічильник на вкладці. Лише те, що ВИМІРЯНЕ: скільки задач чекає
@@ -1071,6 +1112,17 @@ export class OddInvestApp extends HTMLElement {
   // падіння /api/summary забирало з собою й довідники, які самі по собі
   // віддавались чудово.
   async _loadRefs() {
+    // Перелік портфелів — ПЕРШИМ і окремо: він каже, чи є ще той, чий
+    // slug лежить у localStorage. Стертий (або чужого браузера) портфель
+    // інакше дав би 404 на кожен запит, і банер сказав би «бекенд не
+    // віддає зведення» там, де правда — «такого портфеля немає».
+    this._portfolios = (await this._store.soft("portfolios", [])) || [];
+    const cur = currentPortfolio();
+    if (cur && this._portfolios.length && !this._portfolios.some((p) => p.slug === cur)) {
+      setPortfolio("");
+      this._store = this._newStore();
+      this._toast(`Портфеля «${cur}» більше немає — відкрито головний`, false);
+    }
     const [brokers, funds, npf] = await Promise.all([
       this._store.soft("brokers", []),
       this._store.soft("fund-catalog", []),

@@ -240,6 +240,25 @@ header .sp { flex: 1 1 auto; min-width: var(--oi-gap); }
 .hdr-btn:hover { border-color: var(--oi-accent); }
 .hdr-btn[aria-current] { border-color: var(--oi-accent); color: var(--oi-accent); }
 
+/* Перемикач портфеля. Тієї самої висоти й рамки, що й кнопки поруч, і
+   БЕЗ фону поля вводу: у шапці він читається як ще один контрол, а не як
+   форма. Схований, доки портфель один (app.js:_paintHeader) — контрол з
+   одним варіантом нічого не перемикає. */
+.hdr-sel {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 160px;
+  height: 30px;
+  padding: 0 var(--oi-gap-xs);
+  border-radius: var(--oi-radius-sm);
+  border: var(--oi-rule) solid var(--oi-border);
+  background: none;
+  color: var(--oi-header-text);
+  font-size: var(--oi-fs-xs);
+  text-overflow: ellipsis;
+}
+.hdr-sel:hover { border-color: var(--oi-accent); }
+
 /* Гамбургер лише на вузькому екрані: від 900px майстер-список стоїть
    прикріпленою колонкою, і кнопка «показати список» до видимого списку —
    це кнопка, яка нічого не робить. display:none, а не visibility чи
@@ -579,6 +598,9 @@ main:focus { outline: none; }
      (тимчасова кнопка, довід при ній у app.js). Капітал і ⚙ лишаються
      видимими без прокрутки — заради цього все й робилось. */
   .hdr-delta, #refresh { display: none; }
+  /* Перемикач портфеля лишається, але вужчим: чий портфель відкрито —
+     єдине, що на телефоні важливіше за дельту. */
+  .hdr-sel { max-width: 84px; }
   main { padding-bottom: calc(var(--oi-gap-3xl) + var(--oi-header-h)); }
   /* Поле вибору файлу («Резервна копія») має власну внутрішню ширину, а
      всередині inline-block підпису max-width:100% ні на що не спирається —

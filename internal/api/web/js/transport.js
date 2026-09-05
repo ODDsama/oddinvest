@@ -66,6 +66,18 @@ function make(doFetch) {
   };
 }
 
-/** Той самий origin, що й сторінка. */
-export const httpTransport = (base = "/api/") =>
-  make((path, opts) => fetch(base + path, opts));
+/** Той самий origin, що й сторінка.
+ *
+ *  portfolio() — slug поточного портфеля (portfolio.js), читається на
+ *  КОЖЕН запит і йде заголовком X-Portfolio; порожній означає головний, і
+ *  заголовок тоді не ставиться зовсім — бекенд без нього поводиться як
+ *  доти. Саме тут, а не в store: raw() (бекап, виписка) іде повз store, а
+ *  портфель мусить бути один на всі шляхи. */
+export const httpTransport = (base = "/api/", portfolio = () => "") =>
+  make((path, opts) => {
+    const slug = portfolio();
+    if (!slug) return fetch(base + path, opts);
+    const headers = new Headers(opts.headers || {});
+    headers.set("X-Portfolio", slug);
+    return fetch(base + path, { ...opts, headers });
+  });
