@@ -1,0 +1,12 @@
+[
+  {"dt":"20250101","txt":"Індекс споживчих цін ","txten":"Consumer price indices ","id_api":"prices_price_cpi_","leveli":"1","parent":null,"freq":"M","mcrd081":"01","ku":null,"mcrk110":"NULL","tzep":"PCPM_","value":2.4},
+  {"dt":"20250101","txt":"Індекс споживчих цін ","txten":"Consumer price indices ","id_api":"prices_price_cpi_","leveli":"1","parent":null,"freq":"M","mcrd081":"Total","ku":"26","mcrk110":"NULL","tzep":"PCPM_","value":1.6},
+  {"dt":"20250101","txt":"Індекс споживчих цін ","txten":"Consumer price indices ","id_api":"prices_price_cpi_","leveli":"1","parent":null,"freq":"M","mcrd081":"Total","ku":"1","mcrk110":"NULL","tzep":"PCCM_","value":11.8},
+  {"dt":"20250101","txt":"Індекс цін виробників промислової продукції ","txten":"Producer price indices ","id_api":"prices_price_ppi_","leveli":"1","parent":null,"freq":"M","mcrd081":"Total","ku":null,"mcrk110":"NULL","tzep":"PCPM_","value":3.1},
+  {"dt":"20250101","txt":"Базовий індекс споживчих цін","txten":"Core inflation","id_api":"prices_price_ci_","leveli":"1","parent":null,"freq":"M","mcrd081":"Total","ku":null,"mcrk110":"NULL","tzep":"PCPM_","value":1.1},
+  {"dt":"20250101","txt":"Базовий індекс споживчих цін","txten":"Core inflation","id_api":"prices_price_ci_","leveli":"1","parent":null,"freq":"M","mcrd081":"Total","ku":null,"mcrk110":"NULL","tzep":"PCCM_","value":10.7},
+  {"dt":"20250101","txt":"Індекс споживчих цін ","txten":"Consumer price indices ","id_api":"prices_price_cpi_","leveli":"1","parent":null,"freq":"M","mcrd081":"Total","ku":null,"mcrk110":"NULL","tzep":"PCPM_","value":1.4},
+  {"dt":"20250101","txt":"Індекс споживчих цін ","txten":"Consumer price indices ","id_api":"prices_price_cpi_","leveli":"1","parent":null,"freq":"M","mcrd081":"Total","ku":null,"mcrk110":"NULL","tzep":"PCCM_","value":12.0},
+  {"dt":"20250101","txt":"Індекс споживчих цін ","txten":"Consumer price indices ","id_api":"prices_price_cpi_","leveli":"1","parent":null,"freq":"M","mcrd081":"Total","ku":null,"mcrk110":"NULL","tzep":"DTPY_","value":12.0},
+  {"dt":"20250101","txt":"Індекс споживчих цін ","txten":"Consumer price indices ","id_api":"prices_price_cpi_","leveli":"1","parent":null,"freq":"M","mcrd081":"Total","ku":null,"mcrk110":"NULL","tzep":"PCCP_","value":6.5}
+]
