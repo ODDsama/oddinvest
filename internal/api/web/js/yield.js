@@ -57,11 +57,11 @@ export function rateHTML(p) {
   if (p.tax_pct) out.push(row("Податок", `−${pp(p.tax_pct, 2)}`));
   out.push(row("<b>Номінальна</b>", `<b>${pct(p.net_pct, 2)}</b>`));
   out.push(`<hr class="sep">`);
-  out.push(row("Знецінення гривні", `−${pp(p.devaluation_pct, 1)}`));
+  out.push(row("Знецінення гривні", `−${pp(p.devaluation_pct, 2)}`));
   out.push(row("<b>Реальна проти долара</b>", `<b>${pct(p.real_fx_pct, 2)}</b>`));
   if (p.inflation_pct != null) {
     out.push(`<hr class="sep">`);
-    out.push(row("Інфляція (ІСЦ НБУ)", `−${pp(p.inflation_pct, 1)}`));
+    out.push(row("Інфляція (ІСЦ НБУ)", `−${pp(p.inflation_pct, 2)}`));
     out.push(row("<b>Реальна проти цін</b>", `<b>${pct(p.real_cpi_pct, 2)}</b>`));
   }
   const notes = [];
