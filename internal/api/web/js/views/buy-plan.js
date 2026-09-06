@@ -14,6 +14,12 @@
 // резервний вклад; частка виду — тільки для видів, які в наборі є. Рядок,
 // який завжди каже «без змін», привчає не читати картку.
 //
+// Найдовше правило порушувала сама верхівка: капітал, обидві валютні
+// частки й дюрація малювались БЕЗУМОВНО. На наборі, у якому всі рядки —
+// на наступні місяці, жоден із них не міг зрушити за побудовою, і картка
+// чесно казала «без змін» чотири рази поспіль. Саме так вона й виглядала
+// зламаною: людина набирає план, а нагорі нічого не відбувається.
+//
 // ЧОГО ТУТ СВІДОМО НЕМАЄ — і чому, бо інакше наступний автор допише це
 // заново:
 //
@@ -40,6 +46,16 @@
 //
 //   Зведена дохідність. Рухається, але «13.9% замість 14.1%» не дає дії
 //   й підштовхує оптимізувати число замість цілей за частками.
+//
+//   independence.capital_uah («Капітал на той момент»). Стояв тут і був
+//   прибраний: це не друге число, а перше, показане вдруге.
+//   buildIndependence бере ContribPlan = out.ContribM
+//   (state_independence.go), а ContribM — це і є month_target_uah
+//   (state_projection.go). Тобто «капітал у точці незалежності» рухався
+//   рівно тому, що зрушив місячний внесок, і на копійчаній покупці
+//   давав картинку «+0.24 ₴ тут, +12.14 ₴ там», яка виглядала як два
+//   незалежні підтвердження одного висновку. Сама ДАТА незалежності
+//   лишається: вона відповідає на інше питання.
 
 import { esc, uah2 as fmtUAH } from "../format.js";
 import { infoBtn } from "../info.js";
@@ -143,10 +159,13 @@ export function impactHTML(ctx, res) {
   const durNow = (before.rate_risk || {}).duration_years || 0;
   const durWill = (after.rate_risk || {}).duration_years || 0;
   const indNow = before.independence, indWill = after.independence;
-  return `<div class="card"><h2>Що зміниться ${infoBtn("basket")}</h2>
-    <div class="note">Одні й ті самі числа, поміряні однією лінійкою: ліворуч —
-      портфель як він є, праворуч — він же з усіма рядками плану.</div>
-    <div class="sub mb-sm">Портфель</div>
+  // Чи є в наборі хоч один рядок «зараз». Від цього залежить уся верхня
+  // половина картки: рядки з наступного місяця живуть у прогнозі, а не в
+  // портфелі, тож капітал, частки й дюрацію вони не можуть зрушити ЗА
+  // ПОБУДОВОЮ. Намальовані попри це, вони казали б «без змін» завжди —
+  // рівно той випадок, який правило складу вгорі й забороняє.
+  const anyNow = lines.some((l) => !l.future);
+  const portfolio = anyNow ? `<div class="sub mb-sm">Портфель</div>
     ${delta("Капітал", before.capital_uah, after.capital_uah, fmtUAH)}
     ${delta("Частка USD", before.usd_share_pct, after.usd_share_pct, asPct,
     targetTail(st.usd_target_share_pct))}
@@ -155,11 +174,21 @@ export function impactHTML(ctx, res) {
     ${kindRows(before, after, lines)}
     ${durNow > 0 || durWill > 0
     ? delta("Дюрація", durNow, durWill, (v) => `${v.toFixed(2)} р.`) : ""}
-    ${reserveRows(before, after, lines)}
+    ${reserveRows(before, after, lines)}`
+  // Мовчання тут читалось би як поломка: картка втратила б верхню
+  // половину без пояснення. Один рядок замість шести — і видно, що
+  // числа не зникли, а просто ще не настали.
+    : `<div class="sub-xs mb-sm">Усі рядки плану — на наступні місяці:
+      сьогоднішнього портфеля вони не рухають, рухається лише прогноз.</div>`;
+  return `<div class="card"><h2>Що зміниться ${infoBtn("basket")}</h2>
+    <div class="note">Одні й ті самі числа, поміряні однією лінійкою: ліворуч —
+      портфель як він є, праворуч — він же з рядками плану. Портфельні числа
+      відбивають рядки «зараз»; цілі — усі, разом із майбутніми.</div>
+    ${portfolio}
     ${indNow || before.month_target_uah ? `<div class="rule-top">
       <div class="sub mb-sm">Цілі</div>
-      ${indNow && indWill ? dateDelta("Незалежність настане", indNow.plan_date, indWill.plan_date)
-    + delta("Капітал на той момент", indNow.capital_uah, indWill.capital_uah, fmtUAH) : ""}
+      ${indNow && indWill
+    ? dateDelta("Незалежність настане", indNow.plan_date, indWill.plan_date) : ""}
       ${before.month_target_uah
     ? delta("Треба вносити щомісяця", before.month_target_uah,
       after.month_target_uah, fmtUAH) : ""}

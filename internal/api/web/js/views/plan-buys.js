@@ -250,7 +250,16 @@ export function planBuysHTML(res) {
 // відкидає відповідь, що приїхала не остання: самого abort мало, бо
 // перерваний запит може завершитись уже після того, як його змінник
 // відповів.
-function wirePreview(ctx, main, excludeID) {
+//
+// ПРЕВʼЮ ПРАВКИ СВІДОМО НЕМАЄ, і це записано тут, бо бекенд його вміє.
+// whatIfReq.Exclude приймає id, який треба прибрати перед підстановкою
+// чернетки, і на це є тест (TestWhatIfExcludeReproducesEdit) — але
+// кликати його нема звідки: правка йде в модалці openEdit, а блока
+// [data-impact] у ній немає. Доти сюди передавався нуль, тобто гілка
+// `exclude` не могла спрацювати ніколи — порожній шов, який читається як
+// зразок (CLAUDE.md §3). Щоб превʼю правки зʼявилось, треба спершу дати
+// модалці свій блок наслідків, а не дописувати параметр назад.
+function wirePreview(ctx, main) {
   const form = main.querySelector("#planBuyForm");
   const box = main.querySelector("[data-impact]");
   if (!form || !box) return;
@@ -269,9 +278,7 @@ function wirePreview(ctx, main, excludeID) {
     // Недонабрана чернетка — не помилка й не привід мовчати: показуємо
     // вплив уже ЗБЕРЕЖЕНОГО плану, тобто те, що людина бачила до того, як
     // почала друкувати.
-    const body = ready(draft)
-      ? { draft: [draft], ...(excludeID ? { exclude: [excludeID] } : {}) }
-      : {};
+    const body = ready(draft) ? { draft: [draft] } : {};
     try {
       const res = await fetchWhatIf(ctx, body, ctl.signal);
       if (mine !== seq) return;
@@ -315,7 +322,7 @@ export function wirePlanBuys(ctx, main, rows) {
     });
   });
   wireDone(ctx, main, rows);
-  wirePreview(ctx, main, 0);
+  wirePreview(ctx, main);
 }
 
 // «Виконано»: план стає справжньою операцією.
