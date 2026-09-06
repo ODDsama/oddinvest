@@ -251,8 +251,11 @@ function monthsHTML(doc) {
   const rows = doc.months || [];
   if (!rows.length) return "";
   const any = rows.some((r) => r.debt_due_uah > 0 || r.card_inst_uah > 0
-    || r.prepay_uah > 0 || r.debt_left_uah > 0);
+    || r.prepay_uah > 0 || r.debt_left_uah > 0 || r.planned_uah > 0);
   if (!any) return "";
+  // Колонка планових зʼявляється, лише коли вони є: разова подія стоїть в
+  // одному місяці, тож у порожньому портфелі це були б тринадцять нулів.
+  const hasPlanned = rows.some((r) => r.planned_uah > 0);
   const grid = opsGrid({
     cols: [
       {
@@ -269,6 +272,13 @@ function monthsHTML(doc) {
               ? `<div class="fine-xs muted">з картки ${fmtUAH(r.card_inst_uah)}</div>` : "")
           : `<span class="muted">—</span>`),
       },
+      ...(hasPlanned ? [{
+        key: "planned", label: "Планові витрати", num: true, prio: 2,
+        cell: (r) => (r.planned_uah > 0
+          ? `<span title="разова витрата з картки: у ноги не входить, бо гроші не
+              портфельні, але цього місяця по картці вдарить">${fmtUAH(r.planned_uah)}</span>`
+          : `<span class="muted">—</span>`),
+      }] : []),
       {
         key: "prepay", label: "Достроково за маршрутом", num: true, prio: 2,
         cell: (r) => (r.prepay_uah > 0 ? fmtUAH(r.prepay_uah) : `<span class="muted">—</span>`),
@@ -287,7 +297,11 @@ function monthsHTML(doc) {
     <div class="note">Обовʼязкові платежі в ногах не стоять: вони відняті від планових
       грошей ще до того, як ті стали ногами, а карткові розстрочки платяться з картки.
       Тут видно, скільки йде повз портфель щомісяця, скільки маршрут віддає достроково
-      і коли борг під ставкою закінчується — з того місяця план місяця росте сам.</div>
+      і коли борг під ставкою закінчується — з того місяця план місяця росте сам.${
+  hasPlanned ? ` Планові разові витрати з картки стоять поруч із тієї ж причини: у ноги
+      вони не входять, але місяць, у якому вони випадають, легшим не є. Позначки
+      «платежів менше» вони не дають — разова витрата нічого не закриває, вона просто
+      минає.` : ""}</div>
     ${grid}</div>`;
 }
 

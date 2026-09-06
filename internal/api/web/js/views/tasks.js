@@ -55,6 +55,11 @@ const ACTIONS = {
   // ухвалюється зараз, а не при звірці.
   "confirm-route": { to: "plan/route", label: "Розкласти" },
   "record-receipt": { to: "planflow", label: "Відмітити надходження" },
+  // Підпис не «Сплатити»: рішення тут подвійне — сплатив або переніс, — і
+  // кнопка, що обіцяє лише перше, змусила б брехати того, хто вибрав друге.
+  // Обидва робляться на самій сторінці: ₴ ставить сьогоднішню дату, ✎
+  // зсуває дату платежу.
+  "pay-planned": { to: "plan/expenses", label: "Розібратись із витратою" },
   "review-limits": { to: "risk/limits", label: "Подивитись ліміти" },
   "see-suggestions": { to: "now/buy", label: "Що купити" },
   "review-deposit": { to: "assets/deposits", label: "Подивитись вклад" },

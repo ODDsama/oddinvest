@@ -96,6 +96,7 @@ const LEGACY = new Map([
 
   // --- «План», «Політика», «Налаштування»: рядок сам собі сторінка ---
   ["plan/inflow", "plan/inflow/main"],
+  ["plan/expenses", "plan/expenses/main"],
   ["plan/route", "plan/route/main"],
   ["plan/goal", "plan/goal/main"],
   ["plan/levers", "plan/levers/main"],

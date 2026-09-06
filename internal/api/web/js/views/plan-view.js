@@ -42,6 +42,10 @@ import {
 import { receiptsHTML, wirePlanReceipts } from "./plan-receipts.js";
 import { renderRoute } from "./route.js";
 export { debts } from "./debts.js";
+// Планові витрати малюють себе самі: сторінка з єдиної картки, якій не
+// потрібен ні вердикт плану, ні стрічка. Реекспорт, а не обгортка, —
+// обгортка була б функцією, що лише передає два аргументи далі.
+export { planExpenses } from "./plan-expenses.js";
 import {
   planActionsListHTML, planSetSharesFormHTML, planLockFormHTML, wirePlanActions,
 } from "./plan-actions.js";

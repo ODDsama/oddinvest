@@ -365,8 +365,22 @@ function monthHeadHTML(s) {
   }
   const done = s.month_deposited_uah || 0;
   const parts = [`План на ${monthYear(mp.month + "-01")} — <b>${fmtUAH(mp.plan_uah)}</b>`];
-  if (mp.expense_uah > 0) {
-    parts.push(`надходження ${fmtUAH(mp.income_uah)} − витрати ${fmtUAH(mp.expense_uah)}`);
+  // Віднімання ОДНИМ ланцюгом, від надходжень: інакше друга ланка читалась
+  // би як віднімання від першого ж числа («10 000 − 6 000»), хоч насправді
+  // 10 000 — це вже результат.
+  //
+  // Дві ланки, а не одна: витратний потік — фон життя, планова витрата —
+  // вирішена разова подія, і злиті в одне число вони не дали б перевірити
+  // жодне з них. Названо лише ПОРТФЕЛЬНІ планові витрати: карткові плану
+  // не стосуються, і тут вони були б відніманням, якого не сталось.
+  const cuts = [];
+  if (mp.expense_uah > 0) cuts.push(`витрати ${fmtUAH(mp.expense_uah)}`);
+  if (mp.planned_uah > 0) {
+    cuts.push(`<a class="lnk" href="${routeFor("plan/expenses")}">планові витрати</a> ${
+      fmtUAH(mp.planned_uah)}`);
+  }
+  if (cuts.length) {
+    parts.push(`надходження ${fmtUAH(mp.income_uah)} − ${cuts.join(" − ")}`);
   }
   if (mp.extra_uah > 0) parts.push(`з них позапланово ${fmtUAH(mp.extra_uah)}`);
   // Обовʼязковий платіж названо ЛИШЕ коли він таки дійшов до портфельних

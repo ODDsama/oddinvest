@@ -192,6 +192,14 @@ function exitHTML(g) {
       нуль самі картки, а розстрочки йдуть за своїм графіком. Але списуються
       вони з картки, тож витратити ці гроші вже не можна — і зі стелі вище
       вони відняті.</div>` : ""}
+    ${e.planned && Number(e.planned.amount) > 0 ? `<div class="kv">
+      <span class="muted">Планові разові витрати з картки</span>
+      <b>${fmtMoney(e.planned)}/міс</b></div>
+    <div class="sub">Це СЕРЕДНЄ за вікном, а не платіж: котел на 30 000 ₴ у вікні на
+      десять місяців дає 3 000 ₴/міс, хоча стоїть він в одному листопаді. Тобто стеля
+      вище рівномірно занижена в решті місяців і завищена в тому, де витрата
+      справді буде, — таблиця нижче показує, у якому саме. Заводяться вони в
+      <a class="lnk" href="${routeFor("plan/expenses")}">Плані → Планові витрати</a>.</div>` : ""}
     <div class="kv"><span class="muted">Лишається на картці — це «все інше»</span>
       <b>${fmtMoney(e.on_card)}/міс</b></div>
     <div class="sub">Числа вище — СЕРЕДНІ за ${Math.round(e.months)} ${esc(plural(Math.round(e.months),
@@ -250,6 +258,10 @@ function exitWalkHTML(e) {
   // Колонка розстрочок зʼявляється, лише коли вони є: колонка нулів
   // читається як «щось не порахували».
   const hasInst = e.schedule.some((r) => Number(r.installments.amount) > 0);
+  // Те саме правило для планових витрат: разова подія стоїть в одному
+  // місяці, тож у решті колонка була б нулями, а колонка нулів читається
+  // як «щось не порахували».
+  const hasPlanned = e.schedule.some((r) => r.planned && Number(r.planned.amount) > 0);
   // Відлік — від боргу на початок першого місяця, а не від звірки. Коли
   // місяць звірки в таблиці, борг на його початок ВІДНОВЛЕНО, і з чого —
   // сказано тут же: інакше «лишиться» у першому рядку не звести з мінусом,
@@ -268,6 +280,9 @@ function exitWalkHTML(e) {
       { key: "invest", label: "У портфель", num: true, cell: (r) => fmtMoney(r.invest) },
       ...(hasInst ? [{ key: "inst", label: "Розстрочки", num: true,
         cell: (r) => fmtMoney(r.installments) }] : []),
+      ...(hasPlanned ? [{ key: "planned", label: "Планові", num: true,
+        cell: (r) => (r.planned && Number(r.planned.amount) > 0
+          ? fmtMoney(r.planned) : "—") }] : []),
       { key: "spend", label: "Витрати", num: true, cell: (r) => fmtMoney(r.spend) },
       { key: "left", label: "Лишиться боргу", num: true, cell: (r) => fmtMoney(r.left) },
     ],
