@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strings"
 	"testing"
@@ -92,6 +93,102 @@ func seedCatalogFund(t *testing.T, st *store.Store, name, kind string,
 		return
 	}
 	t.Fatalf("фонд %q не зʼявився в довіднику", name)
+}
+
+// seedHeldFund — фонд, який СПРАВДІ лежить у портфелі: qty > 0 і відома
+// ціна.
+//
+// ДЗЕРКАЛО seedCatalogFund, і вся різниця в ньому: той навмисно продає
+// куплене назад, бо міряє фонд, якого ще немає. Тут потрібне протилежне —
+// саме наявний залишок і був множником фантомного капіталу.
+//
+// ЦІНА З ЧОТИРМА ЗНАКАМИ — НЕСУЧА, а не просто «схожа на справжню».
+// 1 973 500 коп на 1738 сертифікатів дає 11,3550 ₴, і саме ці чотири
+// знаки не влазять у копійку, якою ходить planBuyFundPrice. На круглій
+// ціні копійчаний канал занулився б, і тест на нього пройшов би й на
+// несправному коді.
+const (
+	heldFundQty    int64 = 1738
+	heldFundAmount int64 = 1_973_500 // 11,3550 ₴ за сертифікат
+)
+
+func seedHeldFund(t *testing.T, st *store.Store, name string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now().AddDate(0, 0, -20)), Fund: name,
+		Kind: domain.FundBuy, Qty: heldFundQty, Amount: heldFundAmount,
+		Currency: money.UAH, Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	funds, err := st.ListFunds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range funds {
+		if f.Name != name {
+			continue
+		}
+		f.Currency = money.UAH
+		if err := st.RenameFund(ctx, f.ID, f); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Fatalf("фонд %q не зʼявився в довіднику", name)
+}
+
+// fundRow / fundsView — те, що треба знати про позицію фонду, щоб міряти
+// дельти. Іменованим типом, а не анонімною структурою: він повертається
+// з fund() і читається в кожному тесті нижче.
+type fundRow struct {
+	Fund          string  `json:"fund"`
+	Qty           int64   `json:"qty"`
+	LastPrice     float64 `json:"last_price"`
+	LastPriceDate string  `json:"last_price_date"`
+	PriceMarked   bool    `json:"price_marked"`
+	PriceStale    bool    `json:"price_stale"`
+	MarketValue   float64 `json:"market_value"`
+}
+
+type fundsView struct {
+	CapitalUAH float64   `json:"capital_uah"`
+	Funds      []fundRow `json:"funds"`
+	Rebalance  []struct {
+		Dimension  string  `json:"dimension"`
+		Key        string  `json:"key"`
+		CurrentUAH float64 `json:"current_uah"`
+	} `json:"rebalance"`
+}
+
+func fundsOf(t *testing.T, raw string) fundsView {
+	t.Helper()
+	var v fundsView
+	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func (v fundsView) fund(t *testing.T, name string) fundRow {
+	t.Helper()
+	for _, f := range v.Funds {
+		if f.Fund == name {
+			return f
+		}
+	}
+	t.Fatalf("позиції %q немає в документі", name)
+	return fundRow{}
+}
+
+func (v fundsView) kindUAH(key string) float64 {
+	for _, r := range v.Rebalance {
+		if r.Dimension == "kind" && r.Key == key {
+			return r.CurrentUAH
+		}
+	}
+	return 0
 }
 
 // planFundBody — рядок плану на купівлю сертифіката через N місяців.
@@ -413,6 +510,158 @@ func TestWhatIfPlannedFundBuyIsRepeatable(t *testing.T) {
 	}
 	if a, b := stripDoc(t, []byte(afterOf(t, first))), stripDoc(t, []byte(afterOf(t, second))); a != b {
 		t.Error("два однакові запити дали різні документи — планована позиція мутує вхід фабрики")
+	}
+}
+
+// ГОЛОВНИЙ ТЕСТ ЦЬОГО ВИПРАВЛЕННЯ — і дзеркало до
+// TestWhatIfFirstBuyOfUnheldBondCountsAtNominal, якого для фондів не було
+// зовсім.
+//
+// Купівля вище ринку коштує рівно ПЕРЕПЛАТУ: q × (ціна_плану −
+// ціна_позиції). Доти вона коштувала ще й Qty₀ × ту саму різницю, тобто
+// переоцінювала весь наявний пакет: на живих даних покупка на 46 ₴
+// додавала 352 ₴ капіталу.
+//
+// Перевірок дві навмисно. Рівність ловить величину, а окрема верхня межа
+// ловить ПОРЯДОК: без неї «капітал зрушив» проходило б і на несправному
+// коді, бо він теж дає ненуль — просто в сто разів більший.
+func TestWhatIfBuyOfHeldFundMovesCapitalByOverpaymentOnly(t *testing.T) {
+	url, st := planServer(t)
+	seedHeldFund(t, st, "Inzhur REIT")
+
+	_, summary := do(t, "GET", url+"/api/summary", "")
+	before := fundsOf(t, summary)
+	pos := before.fund(t, "Inzhur REIT")
+	if pos.Qty != heldFundQty {
+		t.Fatalf("позиція не зібралась: %d сертифікатів", pos.Qty)
+	}
+
+	const qty, price = 4, 11.56
+	code, body := whatIf(t, url, `{"draft":[{"kind":"fund","ref":"Inzhur REIT",`+
+		`"qty":4,"unit_price":"11.56","currency":"UAH","broker":"mono"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	after := fundsOf(t, afterOf(t, body))
+
+	want := -qty * (price - pos.LastPrice)
+	got := after.CapitalUAH - before.CapitalUAH
+	if math.Abs(got-want) > 0.02 {
+		t.Errorf("капітал мав зрушити на переплату %.2f, зрушив на %.2f", want, got)
+	}
+	// Порядок: переплата обмежена ПОКУПКОЮ, а не пакетом. Фантомний
+	// доданок на 1738 сертифікатах дав би тут сотні гривень.
+	if math.Abs(got) > 5 {
+		t.Errorf("капітал зрушив на %.2f — це порядок «переоцінили весь пакет», "+
+			"а не «переплатили за 4 сертифікати»", got)
+	}
+}
+
+// Той самий випадок БЕЗ ручної ціни. Тут канал інший: planBuyFundPrice
+// віддає ціну копійками, а позиція тримає чотири знаки, тож розбіжність
+// виникає з самого округлення. Вона теж мусить бути обмежена покупкою.
+func TestWhatIfBuyOfHeldFundAtPositionPriceBarelyMovesCapital(t *testing.T) {
+	url, st := planServer(t)
+	seedHeldFund(t, st, "Inzhur REIT")
+
+	_, summary := do(t, "GET", url+"/api/summary", "")
+	before := fundsOf(t, summary)
+
+	const qty = 4
+	code, body := whatIf(t, url, `{"draft":[{"kind":"fund","ref":"Inzhur REIT",`+
+		`"qty":4,"currency":"UAH","broker":"mono"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	after := fundsOf(t, afterOf(t, body))
+	if got := math.Abs(after.CapitalUAH - before.CapitalUAH); got > qty*0.01 {
+		t.Errorf("копійчане округлення коштувало %.2f — це більше за %d × 0,01, "+
+			"тобто похибка знову міряється пакетом, а не покупкою", got, qty)
+	}
+}
+
+// Симптом, який видно людині: частка виду. Вона мусить зрушити на
+// ПОКУПКУ, а не на переоцінений пакет.
+func TestWhatIfBuyOfHeldFundMovesKindShareByPurchaseSize(t *testing.T) {
+	url, st := planServer(t)
+	seedHeldFund(t, st, "Inzhur REIT")
+
+	_, summary := do(t, "GET", url+"/api/summary", "")
+	before := fundsOf(t, summary)
+	pos := before.fund(t, "Inzhur REIT")
+
+	const qty = 4
+	code, body := whatIf(t, url, `{"draft":[{"kind":"fund","ref":"Inzhur REIT",`+
+		`"qty":4,"currency":"UAH","broker":"mono"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	after := fundsOf(t, afterOf(t, body))
+
+	want := qty * pos.LastPrice
+	got := after.kindUAH("funds") - before.kindUAH("funds")
+	if math.Abs(got-want) > 0.05 {
+		t.Errorf("фонди мали вирости на %.2f (чотири сертифікати), виросли на %.2f", want, got)
+	}
+}
+
+// ПРЕВʼЮ НЕ Є НОВОЮ ЦІНОЮ. Синтетична операція датована сьогодні, тобто
+// свіжіша за будь-яку виписку й за будь-яку ручну позначку, — і без
+// сторожа вона мовчки «освіжала» позицію: ціна, дата, PriceMarked і
+// PriceStale усі змінювались, а повернути правильні було нічим.
+//
+// Тест дивиться саме на показ, і це навмисно: капітал може зійтись, поки
+// дата вже поїхала (див. ризик 1 у плані фази).
+func TestWhatIfPreviewLeavesFundPriceAndMarks(t *testing.T) {
+	url, st := planServer(t)
+	seedHeldFund(t, st, "Inzhur REIT")
+
+	_, summary := do(t, "GET", url+"/api/summary", "")
+	was := fundsOf(t, summary).fund(t, "Inzhur REIT")
+
+	code, body := whatIf(t, url, `{"draft":[{"kind":"fund","ref":"Inzhur REIT",`+
+		`"qty":4,"unit_price":"11.56","currency":"UAH","broker":"mono"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	now := fundsOf(t, afterOf(t, body)).fund(t, "Inzhur REIT")
+
+	if now.LastPrice != was.LastPrice || now.LastPriceDate != was.LastPriceDate {
+		t.Errorf("превʼю переписало ціну позиції: %.4f від %s замість %.4f від %s",
+			now.LastPrice, now.LastPriceDate, was.LastPrice, was.LastPriceDate)
+	}
+	if now.PriceMarked != was.PriceMarked || now.PriceStale != was.PriceStale {
+		t.Errorf("превʼю перекинуло прапорці ціни: marked %v→%v, stale %v→%v",
+			was.PriceMarked, now.PriceMarked, was.PriceStale, now.PriceStale)
+	}
+	// А сертифікати — додались: сторож спиняє ціну, не покупку.
+	if now.Qty != was.Qty+4 {
+		t.Errorf("сертифікати не додались: %d замість %d", now.Qty, was.Qty+4)
+	}
+}
+
+// Другий бік сторожа на всьому HTTP-шляху: фонд, якого в портфелі ЩЕ
+// НЕМАЄ, ціну отримати мусить. Наївне «ніколи не ставити ціну» лишило б
+// LastPrice нулем, і капітал просів би на всю покупку.
+func TestWhatIfFirstBuyOfUnheldFundCountsAtItsPrice(t *testing.T) {
+	url, st := planServer(t)
+	seedCatalogFund(t, st, "Новий", store.FundDistributing, 3000, "")
+
+	_, summary := do(t, "GET", url+"/api/summary", "")
+	before := fundsOf(t, summary)
+
+	code, body := whatIf(t, url, `{"draft":[{"kind":"fund","ref":"Новий",`+
+		`"qty":10,"unit_price":"100","currency":"UAH","broker":"mono"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	after := fundsOf(t, afterOf(t, body))
+
+	if got := math.Abs(after.CapitalUAH - before.CapitalUAH); got > 0.05 {
+		t.Errorf("перша покупка фонду мала лишити капітал на місці, зрушила на %.2f", got)
+	}
+	if got := after.kindUAH("funds") - before.kindUAH("funds"); math.Abs(got-1000) > 0.05 {
+		t.Errorf("фонди мали вирости на всю покупку (1000), виросли на %.2f", got)
 	}
 }
 

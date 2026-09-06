@@ -296,3 +296,67 @@ func TestFundPositionsUnpairedSellStillRealizes(t *testing.T) {
 		t.Errorf("результат = %d, хочемо 13313", p.Realized)
 	}
 }
+
+// KeepPrice — гіпотетична купівля НЕ переоцінює те, що вже лежить.
+//
+// Доти stepPosition ставив ціну на кожній купівлі, а MarketValue множить
+// її на ВЕСЬ залишок, тож рядок плану на кілька сертифікатів переоцінював
+// цілий пакет. Кількість і собівартість при цьому рухатись мусять: гроші
+// справді сплачено.
+func TestKeepPriceBuyLeavesPriceOfHeldPosition(t *testing.T) {
+	ops := []FundOp{
+		{Date: "2026-08-01", Fund: "F", Kind: FundBuy, Qty: 100, Amount: 100000, Currency: "UAH"},
+		{Date: "2026-09-06", Fund: "F", Kind: FundBuy, Qty: 4, Amount: 4624,
+			Currency: "UAH", KeepPrice: true},
+	}
+	p := FundPositions(ops, nil)["F"]
+	if p.LastPrice != 100000 || p.LastPriceDate != "2026-08-01" {
+		t.Errorf("гіпотеза переоцінила пакет: %d від %s (мало лишитись 100000 від 2026-08-01)",
+			p.LastPrice, p.LastPriceDate)
+	}
+	if p.Qty != 104 {
+		t.Errorf("сертифікати мали додатись: %d замість 104", p.Qty)
+	}
+	if p.CostBasis != 104624 {
+		t.Errorf("собівартість мала вирости на сплачене: %d замість 104624", p.CostBasis)
+	}
+	// І головне число: 104 сертифікати по 10.00, а не по 11.56.
+	if p.MarketValue() != 104000 {
+		t.Errorf("вартість мала бути 104000, маємо %d", p.MarketValue())
+	}
+}
+
+// А фонд, якого в портфелі ЩЕ НЕМАЄ, ціну отримати мусить — інакше
+// LastPrice лишиться нулем, MarketValue дасть нуль, і капітал просяде на
+// всю покупку. Це той бік, який забороняє наївне «ніколи не ставити».
+func TestKeepPriceBuyOfUnheldFundStillSetsPrice(t *testing.T) {
+	ops := []FundOp{
+		{Date: "2026-09-06", Fund: "F", Kind: FundBuy, Qty: 4, Amount: 4624,
+			Currency: "UAH", KeepPrice: true},
+	}
+	p := FundPositions(ops, nil)["F"]
+	if p.LastPrice != 115600 || p.LastPriceDate != "2026-09-06" {
+		t.Errorf("першій покупці ціна потрібна: %d від %s", p.LastPrice, p.LastPriceDate)
+	}
+	if p.MarketValue() != 4624 {
+		t.Errorf("вартість мала дорівнювати сплаченому (4624), маємо %d", p.MarketValue())
+	}
+}
+
+// Позиція може ІСНУВАТИ ще до першої купівлі — з самих дивідендів. Ціни
+// в неї немає, тож покупка мусить її принести, інакше MarketValue дасть
+// нуль на вже сплачені сертифікати.
+//
+// Тут же видно, чому сторож питає про ЗАЛИШОК, а не про ціну: залишку
+// немає, ціни немає, і покупка мусить принести обидва.
+func TestKeepPriceBuyIntoDividendOnlyPositionSetsPrice(t *testing.T) {
+	ops := []FundOp{
+		{Date: "2026-08-01", Fund: "F", Kind: FundDividend, Amount: 500, Currency: "UAH"},
+		{Date: "2026-09-06", Fund: "F", Kind: FundBuy, Qty: 4, Amount: 4624,
+			Currency: "UAH", KeepPrice: true},
+	}
+	p := FundPositions(ops, nil)["F"]
+	if p.LastPrice != 115600 {
+		t.Errorf("ціни не було — покупка мала її принести, маємо %d", p.LastPrice)
+	}
+}

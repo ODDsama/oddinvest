@@ -200,6 +200,7 @@ order-boundary:
 	@! grep -rn '"order"' internal/api/*.go \
 		| grep -vE 'handlers_reinvest\.go|_test\.go' \
 		|| { echo 'лінійка порядку протікає за екран: журнал рішень і черга задач мусять лишатись на реальній'; exit 1; }
+	@! grep -rn 'KeepPrice' internal/store internal/api --include="*.go" 		| grep -vE 'state_plan_buys\.go|_test\.go' 		|| { echo 'KeepPrice поза гіпотезою: синтетична ціна не має права доїхати до сховища'; exit 1; }
 
 # Портфель запиту (0054) вирішує ОДИН диспетчер — hub.go. Обробник, що
 # читає X-Portfolio сам, обійшов би замок і диспетчер разом: сервер

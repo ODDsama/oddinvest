@@ -306,3 +306,27 @@ func TestFundPriceChangeIgnoresFuture(t *testing.T) {
 		t.Errorf("подвоєння з вересня не мало потрапити у вимір: %.2f%% за %d дн.", pct, days)
 	}
 }
+
+// Гіпотетична купівля не сміє затінити РУЧНУ ПОЗНАЧКУ ціни.
+//
+// Синтетична операція датована сьогодні, тобто свіжіша за будь-яку
+// позначку, і без KeepPrice вона вигравала б у неї за правилом «виграє
+// найсвіжіше». Наслідок був не лише в ціні: PriceMarked ставав хибним, а
+// PriceStale — теж, тобто превʼю мовчки «освіжало» позицію, і повернути
+// правильну ціну було нічим.
+func TestKeepPriceBuyDoesNotOutrankPriceMark(t *testing.T) {
+	ops := []FundOp{
+		{Date: "2026-07-01", Fund: "F", Kind: FundBuy, Qty: 100, Amount: 100000, Currency: "UAH"},
+		{Date: "2026-09-06", Fund: "F", Kind: FundBuy, Qty: 4, Amount: 4624,
+			Currency: "UAH", KeepPrice: true},
+	}
+	marks := []FundPrice{{Fund: "F", Date: "2026-09-01", Price: 110000}}
+	p := FundPositions(ops, marks)["F"]
+	if p.LastPrice != 110000 || p.LastPriceDate != "2026-09-01" {
+		t.Errorf("позначка мала лишитись джерелом ціни: %d від %s",
+			p.LastPrice, p.LastPriceDate)
+	}
+	if !p.PriceMarked {
+		t.Error("PriceMarked мав лишитись істинним — превʼю не є новою ціною")
+	}
+}

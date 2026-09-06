@@ -255,9 +255,14 @@ func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 				}
 			} else {
 				emit = func(broker string) {
+					// KeepPrice: гіпотеза не переоцінює пакет, який уже
+					// лежить. Повний довід — над самим полем у
+					// domain.FundOp; тут досить знати, що без нього
+					// покупка на 46 ₴ додавала 352 ₴ капіталу.
 					out.what.fundOps = append(out.what.fundOps, domain.FundOp{
 						Date: when, Fund: row.Ref, Kind: domain.FundBuy, Qty: row.Qty,
 						Amount: total, Currency: cur, Broker: broker,
+						KeepPrice: true,
 					})
 				}
 			}
@@ -524,6 +529,12 @@ func settingsDepositRateBP(doc *state.Doc, cur string) int64 {
 // відома з позиції. Каталог цін фондів у застосунку відсутній навмисно
 // (ціна приходить із виписки разом з операцією), тому про фонд, якого ще
 // немає в портфелі, без ручної ціни сказати нічого не можна.
+//
+// Ця ціна веде ВИТРАЧЕНУ ГОТІВКУ й колонку «За штуку» — і саме тому вона
+// лишається копійчаною, попри те, що LastPrice тримає чотири знаки.
+// Округлення тут більше не коштує нічого зайвого: відколи гіпотетична
+// операція йде з KeepPrice, його похибка обмежена розміром покупки, а не
+// розміром пакета (domain.FundOp.KeepPrice).
 func planBuyFundPrice(row store.PlanBuy, doc *state.Doc) float64 {
 	if row.UnitPrice > 0 {
 		return float64(row.UnitPrice) / 100
