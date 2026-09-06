@@ -371,6 +371,14 @@ function monthHeadHTML(s) {
     parts.push(`надходження ${fmtUAH(mp.income_uah)} − витрати ${fmtUAH(mp.expense_uah)}`);
   }
   if (mp.extra_uah > 0) parts.push(`з них позапланово ${fmtUAH(mp.extra_uah)}`);
+  // Обовʼязковий платіж названо ЛИШЕ коли він таки дійшов до портфельних
+  // грошей. У звичайному місяці його гасить непортфельний дохід, і
+  // debt_from_plan_uah нульове — рядок про нуль пояснював би те, чого не
+  // сталось (довід — у buildMonthPlan).
+  if (mp.debt_from_plan_uah > 0) {
+    parts.push(`− ${fmtUAH(mp.debt_from_plan_uah)} на обовʼязкові платежі:
+      непортфельних грошей на них не вистачило`);
+  }
   parts.push(`внесено ${fmtUAH(done)}`);
   parts.push(mp.left_uah > 0
     ? `<b class="t-warn">лишилось закинути ${fmtUAH(mp.left_uah)}</b>`

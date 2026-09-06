@@ -131,8 +131,16 @@ func TestCardInstallmentsLeaveMonthPlanAlone(t *testing.T) {
 			got.PlanUAH, base.PlanUAH, got.DebtDueUAH)
 	}
 
-	// А САМОСТІЙНА — мусить: її платять з інших грошей, тобто саме з тих,
-	// що доходять до портфеля.
+	// А САМОСТІЙНА — мусить, І САМЕ НА ЦІЙ ФІКСТУРІ.
+	//
+	// Потік тут без invest_pct, тобто на 100 %: до портфеля доходить усе,
+	// непортфельних грошей немає взагалі (OnCardUAH == 0), і гасити
+	// обовʼязковий платіж більше нема з чого. Це МЕЖОВИЙ випадок правила
+	// «спершу платять непортфельні» — той, у якому воно нічого не міняє.
+	//
+	// Абзац тут, щоб наступний читач не визнав цей тест суперечністю до
+	// TestMandatoryDebtPaidFromNonPortfolioMoney: там частка 10 %, тут
+	// 100 %, і обидва пришпилюють ту саму формулу з різних боків.
 	if _, err := st.AddDebt(context.Background(), domain.Debt{
 		Name: "Товарна в іншому банку", Kind: domain.DebtInstallment, Currency: money.UAH,
 		Principal: 9_000_00, PaymentsTotal: 9,
@@ -153,6 +161,103 @@ func TestCardInstallmentsLeaveMonthPlanAlone(t *testing.T) {
 	if got.PlanReserveUAH != got.PlanUAH {
 		t.Errorf("дозволена частина %.2f не збіглася з планом %.2f",
 			got.PlanReserveUAH, got.PlanUAH)
+	}
+}
+
+// ОБОВʼЯЗКОВИЙ ПЛАТІЖ НЕ ЗМЕНШУЄ ПЛАНУ, ПОКИ Є НЕПОРТФЕЛЬНІ ГРОШІ.
+//
+// Довід простий: частка в портфель 10 % означає, що решта 90 % доходу до
+// портфеля не доходить і йде на життя й на борг. Відняти розстрочку ще й
+// від тих 10 % означає заплатити її двічі — раз неявно часткою, раз явно.
+//
+// Саме це застосунок і робив на бойових даних: план місяця казав
+// 6 592,20 ₴ там, де в портфель планувалось завести 9 000 ₴.
+func TestMandatoryDebtPaidFromNonPortfolioMoney(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, out := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_expenses":"0","monthly_expenses_currency":"UAH"}`); resp.StatusCode != 204 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, out)
+	}
+	// 100 000 ₴ під 10 %: у портфель 10 000, на картці 90 000.
+	if resp, out := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"100000","currency":"UAH",
+		  "cadence":"month","from_date":"2020-01-01","invest_pct":"10"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік: %d %s", resp.StatusCode, out)
+	}
+	if _, err := st.AddDebt(context.Background(), domain.Debt{
+		Name: "Товарна в іншому банку", Kind: domain.DebtInstallment, Currency: money.UAH,
+		Principal: 9_000_00, PaymentsTotal: 9,
+		FirstPaymentDate: domain.NewDate(time.Now()), FeeMonthBp: 199,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := monthPlanOf(t, srv.URL)
+	if got.DebtDueUAH <= 0 {
+		t.Fatalf("обовʼязковий платіж не зʼявився: %+v", got)
+	}
+	if got.OnCardUAH <= got.DebtDueUAH {
+		t.Fatalf("тест нічого не перевіряє: на картці %.2f при платежі %.2f",
+			got.OnCardUAH, got.DebtDueUAH)
+	}
+	if got.DebtFromPlanUAH != 0 {
+		t.Errorf("на портфельні гроші лягло %.2f, хоч на картці %.2f — вистачало з запасом",
+			got.DebtFromPlanUAH, got.OnCardUAH)
+	}
+	if got.PlanUAH != got.IncomeUAH {
+		t.Errorf("план місяця %.2f, чекали %.2f — рівно те, що доходить до портфеля",
+			got.PlanUAH, got.IncomeUAH)
+	}
+	if got.PlanReserveUAH != got.PlanUAH {
+		t.Errorf("дозволена частина %.2f розійшлася з планом %.2f",
+			got.PlanReserveUAH, got.PlanUAH)
+	}
+}
+
+// А коли непортфельних грошей БРАКУЄ — план бере на себе рівно
+// переповнення, не більше. Це другий бік тієї самої формули, і без нього
+// перший можна було б задовольнити, просто перестав віднімати борг.
+func TestMandatoryDebtOverflowsIntoMonthPlan(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if resp, out := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_expenses":"0","monthly_expenses_currency":"UAH"}`); resp.StatusCode != 204 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, out)
+	}
+	// 10 000 ₴ під 90 %: у портфель 9 000, на картці лише 1 000.
+	if resp, out := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"10000","currency":"UAH",
+		  "cadence":"month","from_date":"2020-01-01","invest_pct":"90"}`); resp.StatusCode != 201 {
+		t.Fatalf("потік: %d %s", resp.StatusCode, out)
+	}
+	// Платіж ~1 179 ₴ (тіло 1 000 + комісія 1,99 % від 9 000) — більший за
+	// тисячу, що лишається на картці.
+	if _, err := st.AddDebt(context.Background(), domain.Debt{
+		Name: "Товарна в іншому банку", Kind: domain.DebtInstallment, Currency: money.UAH,
+		Principal: 9_000_00, PaymentsTotal: 9,
+		FirstPaymentDate: domain.NewDate(time.Now()), FeeMonthBp: 199,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := monthPlanOf(t, srv.URL)
+	if got.DebtDueUAH <= got.OnCardUAH {
+		t.Fatalf("тест нічого не перевіряє: платіж %.2f, на картці %.2f — переповнення немає",
+			got.DebtDueUAH, got.OnCardUAH)
+	}
+	if want := got.DebtDueUAH - got.OnCardUAH; math.Abs(got.DebtFromPlanUAH-want) > 0.005 {
+		t.Errorf("на портфельні гроші лягло %.2f, чекали %.2f (платіж мінус картка)",
+			got.DebtFromPlanUAH, want)
+	}
+	if want := got.IncomeUAH - got.DebtFromPlanUAH; math.Abs(got.PlanUAH-want) > 0.005 {
+		t.Errorf("план місяця %.2f, чекали %.2f", got.PlanUAH, want)
+	}
+	// І головне: стара формула віднімала ВЕСЬ платіж, тобто була строго
+	// гіршою. Без цієї перевірки тест задовольнило б і повернення до неї.
+	if old := got.IncomeUAH - got.DebtDueUAH; got.PlanUAH <= old {
+		t.Errorf("план %.2f не кращий за старий %.2f — картка не поглинула нічого",
+			got.PlanUAH, old)
 	}
 }
 
