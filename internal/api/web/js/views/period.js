@@ -19,7 +19,7 @@
 // тих самих статей рано чи пізно розійшлася б підписами, і читач вирішив
 // би, що розійшлись числа.
 
-import { esc, uah2 as fmtUAH, pct, pp, monthYear, plural } from "../format.js";
+import { esc, uah2 as fmtUAH, pct, pp, monthYear, plural , signedUAH2 as signed } from "../format.js";
 import { infoBtn } from "../info.js";
 import { tile, empty, kindPill } from "../components.js";
 import { opsGrid } from "../grid.js";
@@ -49,7 +49,6 @@ function recentMonths(n) {
 
 /** Гроші зі знаком. Рівний нуль — прочерк: «+0,00 ₴» стверджує зміну,
  *  якої не було, а рядок стоїть у таблиці саме через інші свої колонки. */
-const signed = (v) => (!v ? "—" : (v > 0 ? "+" : "−") + fmtUAH(Math.abs(v)));
 
 // Шапка називає САМ ПЕРІОД, а не сторінку: підпис «Підсумок місяця» вже
 // стоїть над нею від оболонки, і другий такий заголовок читався б як два

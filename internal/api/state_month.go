@@ -50,6 +50,15 @@ type monthPhase struct {
 	// WithdrawnUAH — самі зняття, додатнім числом.
 	DepositedUAH *money.Money
 	WithdrawnUAH *money.Money
+	// OutsideUAH — з ВНЕСЕНОГО те, що пішло повз рахунки брокерів: нетто
+	// рухів резерву й цілей. ContributedUAH — решта, тобто самі рахунки.
+	//
+	// Deposited = Contributed + Outside ЗА ПОБУДОВОЮ: друге виводиться
+	// відніманням, а не другим проходом по src.deposits. Другий прохід був
+	// би другим означенням «скільки зайшло на рахунки», і розійшлися б
+	// вони на мультивалютному округленні.
+	OutsideUAH     *money.Money
+	ContributedUAH *money.Money
 	// ActualMonthlyUAH — темп нових грошей, ₴/міс; ActualMonths — на якій
 	// довжині історії він порахований (щоб було видно, наскільки вірити).
 	ActualMonthlyUAH float64
@@ -76,6 +85,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	now time.Time, today domain.Date, reserveUAH float64) (monthPhase, error) {
 	out := monthPhase{
 		InvestedUAH:  money.New(0, money.UAH),
+		OutsideUAH:   money.New(0, money.UAH),
 		DepositedUAH: money.New(0, money.UAH),
 		WithdrawnUAH: money.New(0, money.UAH),
 	}
@@ -156,6 +166,9 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 		// операцій резерву, а не різницею балансів.
 		if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
 			out.ReserveMovedUAH += float64(u.Amount()) / 100
+			if sum, aerr := out.OutsideUAH.Add(u); aerr == nil {
+				out.OutsideUAH = sum
+			}
 		}
 	}
 	out.ReserveMovedUAH = round2(out.ReserveMovedUAH)
@@ -178,6 +191,18 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 			continue
 		}
 		addMove(op.Amount, op.Currency)
+		if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
+			if sum, aerr := out.OutsideUAH.Add(u); aerr == nil {
+				out.OutsideUAH = sum
+			}
+		}
+	}
+	// Решта внесеного — рахунки брокерів. Відніманням, не проходом:
+	// див. довід при OutsideUAH.
+	if rest, serr := out.DepositedUAH.Subtract(out.OutsideUAH); serr == nil {
+		out.ContributedUAH = rest
+	} else {
+		out.ContributedUAH = money.New(0, money.UAH)
 	}
 
 	// --- фактичний темп поповнень ---

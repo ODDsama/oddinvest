@@ -11,8 +11,7 @@
 
 import {
   esc, curSym, monthYearGen, dayMonth, pct, plural, capitalUAH, outsideUAH, today,
-  uah2 as fmtUAH, cur2 as fmtCur,
-} from "../format.js";
+  uah2 as fmtUAH, cur2 as fmtCur, signedUAH2 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { yieldCell } from "../yield.js";
 import { tile, kindPill, progressBar } from "../components.js";
@@ -400,17 +399,24 @@ export function monthTile(ctx, s) {
     ? `вкладено ${fmtUAH(s.month_invested_uah)}` // старий бекенд рахував купівлі
     : `внесено ${fmtUAH(s.month_deposited_uah)}`;
   const mp = s.month_plan;
-  // Подушка й цілі названі окремо: «внесено» тут — гаманець РАЗОМ із
-  // ними (state_month.go), і зняття з матраца на подарунок інакше читалось
-  // би як загадковий мінус. Той самий рядок стоїть у підсумку місяця.
-  const resMoved = (s.reserve || {}).moved_month_uah || 0;
-  const goalMoved = (s.goals || []).reduce((a, g) => a + (g.moved_uah || 0), 0);
-  const outside = resMoved + goalMoved;
-  const extra = `${s.month_withdrawn_uah > 0
-    ? `<div class="sub-xs">нетто: поповнення ${
-      fmtUAH((s.month_deposited_uah || 0) + s.month_withdrawn_uah)} − зняття ${fmtUAH(s.month_withdrawn_uah)}</div>` : ""}
-    ${outside
-    ? `<div class="sub-xs">з них ${outside > 0 ? "+" : "−"}${fmtUAH(Math.abs(outside))} у подушку й цілі — вони теж капітал</div>` : ""}
+  // РОЗКЛАД ВНЕСЕНОГО, а не пара валових чисел. «Внесено» тут — рахунки
+  // РАЗОМ із подушкою й цілями (state_month.go), і без розкладу зняття з
+  // матраца читалось би як загадковий мінус.
+  //
+  // Доти тут стояли два рядки, і обидва брехали. Перший — «нетто:
+  // поповнення X − зняття Y» — рахував переказ гаманець↔матрац і як
+  // поповнення, і як зняття: на живих даних «зняття 4 941» на дві третини
+  // не було зняттям (довід повністю — при MonthWithdrawnUAH). Другий
+  // писав «з них −3 283,16 ₴ У подушку й цілі», тобто відʼємну частину
+  // додатного цілого, ще й із прийменником проти знаку.
+  //
+  // Тепер один рядок в ідіомі «Періоду», щоб два екрани читались
+  // однаково, і обидва числа приходять з бекенда: рахувати їх у браузері
+  // означало б друге означення того, що там уже є (CLAUDE.md §5).
+  const outside = s.month_outside_uah || 0;
+  const extra = `${outside
+    ? `<div class="sub-xs">з них ${signedUAH2(outside)} у подушку й цілі, ${
+      fmtUAH(s.month_contributed_uah || 0)} на рахунки</div>` : ""}
     ${s.month_invested_uah > 0
     ? `<div class="sub">куплено паперів на ${fmtUAH(s.month_invested_uah)}</div>` : ""}`;
 

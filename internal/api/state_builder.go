@@ -1258,11 +1258,13 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// пʼятдесят полів: тридцять із них були дзеркалом Doc, тобто пакет
 	// state здебільшого переписував із однієї структури в іншу.
 	doc := &state.Doc{
-		MonthInvestedUAH:  state.Major(monthInv),
-		MonthDepositedUAH: state.Major(monthDep),
-		MonthWithdrawnUAH: state.Major(monthOut),
-		MonthTargetUAH:    state.Major(target),
-		MonthPlan:         mth.Plan,
+		MonthInvestedUAH:    state.Major(monthInv),
+		MonthDepositedUAH:   state.Major(monthDep),
+		MonthWithdrawnUAH:   state.Major(monthOut),
+		MonthOutsideUAH:     state.Major(mth.OutsideUAH),
+		MonthContributedUAH: state.Major(mth.ContributedUAH),
+		MonthTargetUAH:      state.Major(target),
+		MonthPlan:           mth.Plan,
 		// Чистий капітал — капітал мінус УСЕ, що винен, включно з пільговим
 		// боргом картки: питання «скільки в мене насправді» не про ставки
 		// (довід — при полі та в міграції 0048).

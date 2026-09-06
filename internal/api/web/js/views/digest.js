@@ -14,7 +14,7 @@
 // сторінки показують ті самі знімки, і друга розмітка тих самих статей
 // рано чи пізно розійшлася б підписами.
 
-import { esc, uah2 as fmtUAH, pct, plural } from "../format.js";
+import { esc, uah2 as fmtUAH, pct, plural , signedUAH2 as signed } from "../format.js";
 import { infoBtn } from "../info.js";
 import { tile, empty } from "../components.js";
 import { opsGrid } from "../grid.js";
@@ -47,7 +47,6 @@ function spanDays(d) {
   return Math.max(1, Math.round((b - a) / 86400000));
 }
 
-const signed = (v) => (!v ? "—" : (v > 0 ? "+" : "−") + fmtUAH(Math.abs(v)));
 
 function headHTML(days) {
   const btn = (w) => `<button data-digwin="${w.v}" aria-pressed="${days === w.v}">${w.t}</button>`;

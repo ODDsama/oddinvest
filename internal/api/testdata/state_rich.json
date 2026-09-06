@@ -533,6 +533,8 @@
   "month_invested_uah": 5022.5,
   "month_deposited_uah": 67000,
   "month_withdrawn_uah": 15000,
+  "month_outside_uah": 2000,
+  "month_contributed_uah": 65000,
   "month_target_uah": 82617.93,
   "month_progress_pct": 81,
   "month_incoming_uah": 1270.36,

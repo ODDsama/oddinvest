@@ -216,10 +216,32 @@ type Doc struct {
 	// зняття. MonthWithdrawnUAH — самі зняття, додатнім числом, щоб UI міг
 	// показати розклад, коли нетто не збігається з сумою поповнень.
 	MonthDepositedUAH float64 `json:"month_deposited_uah"`
+	// MonthWithdrawnUAH рахує й ДРУГУ НОГУ внутрішніх переміщень: переказ
+	// гаманець → матрац записується мінусом у deposits і плюсом у
+	// reserve_ops, тож він входить і сюди, і в поповнення. Нетто від цього
+	// правильне, обидва валові — завищені рівно на суму переказу.
+	//
+	// САМЕ ТОМУ пари «поповнення X − зняття Y» на екрані більше немає: на
+	// живих даних вона казала «поповнення 6 859 − зняття 4 941», де дві
+	// третини зняття не були зняттям. Замість неї стоїть чесний розклад
+	// внесеного — MonthContributedUAH і MonthOutsideUAH нижче.
+	//
+	// Поле лишається в контракті: його читає інтеграція HA. Але показувати
+	// його валовим числом поруч із поповненнями не можна.
 	MonthWithdrawnUAH float64 `json:"month_withdrawn_uah,omitempty"`
-	MonthTargetUAH    float64 `json:"month_target_uah"`
-	MonthProgressPct  int     `json:"month_progress_pct"`
-	MonthIncomingUAH  float64 `json:"month_incoming_uah"` // купони+погашення в поточному місяці
+	// MonthOutsideUAH / MonthContributedUAH — з ЧОГО складається внесене:
+	// рухи резерву й цілей нетто, і решта, тобто рахунки брокерів.
+	//
+	// Внесене включає подушку й цілі (вони теж капітал), і без розкладу
+	// зняття з матраца читалось як загадковий мінус. Доти розклад рахував
+	// браузер із reserve.moved_month_uah і goals[].moved_uah — тобто друге
+	// означення того, що бекенд уже рахує як outside_uah для «Періоду» й
+	// «Року» (cashflow.go), тільки з іншим порядком округлення.
+	MonthOutsideUAH     float64 `json:"month_outside_uah,omitempty"`
+	MonthContributedUAH float64 `json:"month_contributed_uah,omitempty"`
+	MonthTargetUAH      float64 `json:"month_target_uah"`
+	MonthProgressPct    int     `json:"month_progress_pct"`
+	MonthIncomingUAH    float64 `json:"month_incoming_uah"` // купони+погашення в поточному місяці
 
 	// MonthPlan — що план доходу обіцяє САМЕ ЦЬОГО місяця (адитивне поле).
 	//

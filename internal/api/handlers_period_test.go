@@ -279,12 +279,25 @@ func TestPeriodOwnMatchesMonthTile(t *testing.T) {
 		t.Fatalf("/api/summary: %d %s", resp.StatusCode, body)
 	}
 	var sum struct {
-		Deposited float64 `json:"month_deposited_uah"`
+		Deposited   float64 `json:"month_deposited_uah"`
+		Outside     float64 `json:"month_outside_uah"`
+		Contributed float64 `json:"month_contributed_uah"`
 	}
 	if err := json.Unmarshal([]byte(body), &sum); err != nil {
 		t.Fatal(err)
 	}
 	if sum.Deposited != got.Money.OwnUAH {
 		t.Errorf("плитка «Цей місяць» %v ≠ підсумок %v", sum.Deposited, got.Money.OwnUAH)
+	}
+	// І РОЗКЛАД теж мусить збігтись, доданок у доданок. Це вже не одне
+	// число, а два незалежні обчислення того самого: buildMonth ходить
+	// журналами місяця, summarizeCash — рухами періоду. Плитка тепер малює
+	// перший розклад, «Період» — другий, і розійтись їм нема на чому лише
+	// доти, доки цей тест стоїть.
+	if sum.Outside != got.Money.OutsideUAH {
+		t.Errorf("повз рахунки: плитка %v ≠ підсумок %v", sum.Outside, got.Money.OutsideUAH)
+	}
+	if sum.Contributed != got.Money.ContribUAH {
+		t.Errorf("на рахунки: плитка %v ≠ підсумок %v", sum.Contributed, got.Money.ContribUAH)
 	}
 }
