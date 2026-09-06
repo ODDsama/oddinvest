@@ -633,7 +633,7 @@ export async function buys(ctx, main) {
   }
   const lines = ((res.basket || {}).lines || []);
   main.innerHTML = (lines.length ? planBuysHTML(res) : emptyPlanHTML())
-    + `<div class="card"><h2>Внести покупку</h2>
+    + `<div class="card"><h2>Внести покупку ${infoBtn("basket")}</h2>
         <div class="note">Наслідки перерахуються, щойн наберені поля складуться
           в покупку — зберігати для цього нічого не треба.</div>
         ${planBuyFormHTML(ctx)}</div>`
