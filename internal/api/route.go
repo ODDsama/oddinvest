@@ -753,6 +753,33 @@ func (p *routePot) spend(uah, rate float64) {
 	}
 }
 
+// clamp тримає інваріант горщика: ЖОДЕН лічильник дозволу не буває більший
+// за сам горщик. Дозволити подушці більше грошей, ніж у ньому лежить, не
+// можна навіть на мить — це число їде в allocAllow як стеля.
+//
+// ЧОМУ ЦЕ ОКРЕМИЙ МЕТОД, А НЕ ТРИ if НА МІСЦІ. Доти на вході стояли три
+// однакові обрізання, а на виході з ноги — ОДНЕ, лише для подушки. Два
+// інші лічильники переживали ногу завищеними, і ціна була не теоретична:
+// застаріле goalsEligible доживало до наступної події, де бралось як
+// min(застаріле, горщик + нове), — тобто НОВІ гроші, потоку яких цілі
+// заборонені, ставали для цілей дозволеними рівно на розмір застарілого
+// хвоста. Те саме з боргом.
+//
+// spend від цього не рятує, хоч і чіпає всі три: він кличеться лише на
+// вирізки, а покупка паперу жене pot.minor до залишку розкладки, нікого не
+// зменшуючи. Тобто нога, яка все витратила на папери, лишала обидва
+// лічильники такими, якими вони були до неї.
+//
+// Один метод на двох читачів — вхід і вихід — і саме тому четвертий
+// лічильник, коли він зʼявиться, не можна буде додати повз обрізання.
+func (p *routePot) clamp() {
+	for _, c := range []*int64{&p.eligible, &p.debtEligible, &p.goalsEligible} {
+		if *c > p.minor {
+			*c = p.minor
+		}
+	}
+}
+
 // mergeBasis — основа горщика після того, як у нього впала подія.
 //
 // Різні основи не «перемагають» одна одну й не усереднюються: горщик, у
@@ -864,17 +891,9 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		carryIn := pot.minor
 		pot.minor += ev.Amount
 		pot.eligible += int64(math.Round(evEligible / rate * 100))
-		if pot.eligible > pot.minor {
-			pot.eligible = pot.minor
-		}
 		pot.debtEligible += int64(math.Round(evDebtEligible / rate * 100))
-		if pot.debtEligible > pot.minor {
-			pot.debtEligible = pot.minor
-		}
 		pot.goalsEligible += int64(math.Round(evGoalsEligible / rate * 100))
-		if pot.goalsEligible > pot.minor {
-			pot.goalsEligible = pot.minor
-		}
+		pot.clamp()
 		pot.basis = mergeBasis(pot.basis, flowBasis(ev.readyFlow))
 		pot.pending = append(pot.pending, readyEvent{
 			Date: string(ev.Date), Label: ev.Label,
@@ -942,9 +961,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			// не успадкована від тих, що вже пішли в діло.
 			pot.basis = ""
 		}
-		if pot.eligible > pot.minor {
-			pot.eligible = pot.minor
-		}
+		pot.clamp()
 		out.Legs = append(out.Legs, leg)
 	}
 	out.Months = carry.debtMonths(plans, debt, out.Legs)
