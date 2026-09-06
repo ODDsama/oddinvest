@@ -290,8 +290,6 @@ type routeMonthRow struct {
 	CardInstUAH float64 `json:"card_inst_uah,omitempty"`
 	// PlannedUAH — планові разові витрати з картки цього місяця (0056).
 	PlannedUAH float64 `json:"planned_uah,omitempty"`
-	// PrepayUAH — Σ вирізок «Борг» на ногах цього місяця.
-	PrepayUAH float64 `json:"prepay_uah,omitempty"`
 	// DebtLeftUAH — борг під ставкою на кінець місяця за проходом.
 	DebtLeftUAH float64 `json:"debt_left_uah"`
 	PlanUAH     float64 `json:"plan_uah"`
@@ -336,9 +334,10 @@ type routeCarry struct {
 	// маршрут гнав би гроші в борг усі дванадцять місяців поспіль — рівно
 	// та вада, яку вже виправляли подушці й цілям. debtLeft тане і від
 	// вирізок ніг (apply), і від тіла за графіком (enterMonth).
-	debtLeft    float64
-	debtFillNow float64
-	debtFillMon float64
+	debtLeft float64
+	// Стелі дострокового тут більше немає: маршрут не веде гроші в борг.
+	// debtLeft лишається — він потрібен таблиці «Борг на горизонті», де
+	// борг тане за ГРАФІКОМ обовʼязкових платежів.
 	// Борг перед подушкою (0057) у проході вперед. ОДНА ЗВЕДЕНА СУМА під
 	// середньозваженою ставкою, а не кожна позика окремо, і це свідоме
 	// наближення: маршрут — проєкція, а не журнал, і моделювати тут FIFO
@@ -415,7 +414,7 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 	if dp := doc.Debt; dp != nil {
 		// Борг — так само ЯК Є: разом із уже сплаченим достроково цього
 		// місяця. Той самий довід, що в подушки й цілей.
-		c.debtLeft, c.debtFillNow, c.debtFillMon = dp.TotalUAH, dp.FillNowUAH, dp.FillMonthUAH
+		c.debtLeft = dp.TotalUAH
 	}
 	c.debtLeftAt[0] = c.debtLeft
 	for _, row := range doc.Rebalance {
@@ -452,7 +451,10 @@ func (c *routeCarry) doc(carryInUAH float64) *state.Doc {
 	}
 	if c.base.Debt != nil {
 		dp := *c.base.Debt
-		dp.TotalUAH, dp.FillNowUAH, dp.FillMonthUAH = c.debtLeft, c.debtFillNow, c.debtFillMon
+		// Лише залишок боргу: стелю дострокового розкладка більше не читає,
+		// і просунуте число без читача наступний автор «полагодить» під
+		// щось інше (те саме правило, що при CurrentPct вище).
+		dp.TotalUAH = c.debtLeft
 		d.Debt = &dp
 	}
 	d.GoalsUAH = c.goalsUAH
@@ -553,17 +555,10 @@ func (c *routeCarry) enterMonth(m int, plans map[string]*state.MonthPlan,
 	c.fillMonth, c.fillNow, c.fillFrom = reserveMonthShare(c.set, c.reserveUAH, mp, 0,
 		c.debtCaps, c.debtCover, c.loanInterest)
 
-	// Стеля дострокового погашення — теж частка ОДНОГО МІСЯЦЯ, і без цього
-	// скидання прохід уперед віддав би річну норму за перші два купони.
-	// Формула та сама, що в buildDebtPlan: частка від ДОЗВОЛЕНОЇ частини
-	// плану, обрізана самим боргом.
-	c.debtFillMon, c.debtFillNow = 0, 0
-	if c.set != nil && c.set.DebtFillSharePct != nil && mp != nil && c.debtLeft > 0 {
-		if share := *c.set.DebtFillSharePct; share > 0 && mp.PlanDebtUAH > 0 {
-			c.debtFillMon = round2(math.Min(mp.PlanDebtUAH*share/100, c.debtLeft))
-			c.debtFillNow = c.debtFillMon
-		}
-	}
+	// ТУТ СКИДАЛАСЬ СТЕЛЯ ДОСТРОКОВОГО ПОГАШЕННЯ — щомісяця, щоб прохід не
+	// віддав річну норму за перші два купони. Пішла разом із самою
+	// вирізкою: маршрут більше не веде гроші в борг (довід — у
+	// handlers_allocate.go). Борг у проході й далі тане за ГРАФІКОМ, вище.
 
 	// Цілі — тим самим правилом і тією самою функцією, що й у документі.
 	// Стеля цілей це теж частка ОДНОГО МІСЯЦЯ, і без цього скидання прохід
@@ -635,12 +630,6 @@ func (c *routeCarry) apply(p allocPlan) {
 			c.gapUAH = math.Max(0, c.gapUAH-c.loanInterest)
 			c.loanInterest = 0
 		}
-	}
-	if p.Debt != nil && p.Debt.AmountUAH > 0 {
-		v := p.Debt.AmountUAH
-		c.debtLeft = math.Max(0, c.debtLeft-v)
-		c.debtFillNow = math.Max(0, c.debtFillNow-v)
-		c.debtLeftAt[c.monthIdx] = round2(c.debtLeft)
 	}
 	for _, gc := range p.Goals {
 		if gc.AmountUAH <= 0 {
@@ -746,10 +735,9 @@ type routePot struct {
 	// лише зарплатою, а цілі — усім, що прийде. Спільне число віддало б
 	// обом найсуворішу з двох політик.
 	goalsEligible int64
-	// debtEligible — те саме для дострокового погашення боргу. Третє число,
-	// а не спільне з попередніми: дозволи незалежні, і зарплата, яку можна
-	// класти в подушку, не обовʼязково дозволена на борг.
-	debtEligible int64
+	// ТУТ БУВ debtEligible — дозвіл дострокового погашення. Пішов разом із
+	// самою вирізкою: маршрут більше не веде гроші в борг (довід — у
+	// handlers_allocate.go, де вирізка стояла).
 }
 
 // spend знімає віддані гроші з усіх лічильників дозволу горщика.
@@ -758,7 +746,7 @@ func (p *routePot) spend(uah, rate float64) {
 		return
 	}
 	minor := int64(math.Round(uah / rate * 100))
-	for _, c := range []*int64{&p.eligible, &p.debtEligible, &p.goalsEligible} {
+	for _, c := range []*int64{&p.eligible, &p.goalsEligible} {
 		if *c -= minor; *c < 0 {
 			*c = 0
 		}
@@ -785,7 +773,7 @@ func (p *routePot) spend(uah, rate float64) {
 // Один метод на двох читачів — вхід і вихід — і саме тому четвертий
 // лічильник, коли він зʼявиться, не можна буде додати повз обрізання.
 func (p *routePot) clamp() {
-	for _, c := range []*int64{&p.eligible, &p.debtEligible, &p.goalsEligible} {
+	for _, c := range []*int64{&p.eligible, &p.goalsEligible} {
 		if *c > p.minor {
 			*c = p.minor
 		}
@@ -895,15 +883,12 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		// source_ref, тут він приїхав із подією.
 		evEligible := reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
 			sourceCapUAH(ev.Uses, domain.UsePlanReserve, amountUAH))
-		evDebtEligible := debtEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
-			sourceCapUAH(ev.Uses, domain.UsePlanDebt, amountUAH))
 		evGoalsEligible := goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
 			sourceCapUAH(ev.Uses, domain.UsePlanGoals, amountUAH))
 
 		carryIn := pot.minor
 		pot.minor += ev.Amount
 		pot.eligible += int64(math.Round(evEligible / rate * 100))
-		pot.debtEligible += int64(math.Round(evDebtEligible / rate * 100))
 		pot.goalsEligible += int64(math.Round(evGoalsEligible / rate * 100))
 		pot.clamp()
 		pot.basis = mergeBasis(pot.basis, flowBasis(ev.readyFlow))
@@ -922,7 +907,6 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			toMoneyJSON(money.New(pot.minor, cur)), potUAH,
 			allocAllow{
 				ReserveUAH: float64(pot.eligible) / 100 * rate,
-				DebtUAH:    float64(pot.debtEligible) / 100 * rate,
 				GoalsUAH:   float64(pot.goalsEligible) / 100 * rate,
 				Uses:       ev.Uses,
 				PickISIN:   picks[routeKey{string(ev.Date), ev.bc.Broker, cur}],
@@ -934,9 +918,6 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		// прохід.
 		if plan.Reserve != nil {
 			pot.spend(plan.Reserve.AmountUAH, rate)
-		}
-		if plan.Debt != nil {
-			pot.spend(plan.Debt.AmountUAH, rate)
 		}
 		pot.spend(plan.GoalsUAH, rate)
 		// Дохід стає капіталом аж тепер — аргумент при earn.
@@ -991,12 +972,6 @@ func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
 		return nil
 	}
 	c.enterMonth(routeHorizonMonths, plans, debt)
-	prepay := map[string]float64{}
-	for _, l := range legs {
-		if l.Debt != nil && l.Debt.AmountUAH > 0 {
-			prepay[monthKeyAt(c.today, monthOffsetRaw(c.today, domain.Date(l.Date)))] += l.Debt.AmountUAH
-		}
-	}
 	out := make([]routeMonthRow, 0, routeHorizonMonths+1)
 	prevDue := -1.0
 	for m := 0; m <= routeHorizonMonths; m++ {
@@ -1007,7 +982,6 @@ func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
 			DebtDueUAH:  round2(d.DueUAH),
 			CardInstUAH: round2(d.CardInstUAH),
 			PlannedUAH:  round2(d.PlannedUAH),
-			PrepayUAH:   round2(prepay[key]),
 			DebtLeftUAH: c.debtLeftAt[m],
 		}
 		if mp := plans[key]; mp != nil {

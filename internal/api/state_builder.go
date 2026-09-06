@@ -1203,9 +1203,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// Борг у прогнозі. Без цього крива обіцяла б гроші, які застосунок
 		// сам же віддає банку на сусідньому екрані — дослівно вада фази 20,
 		// лише про борг замість цілей.
-		DebtLeftUAH:      debtLeftUAH(src, rates, today),
-		DebtDueUAH:       debtDueForMonth(src, rates, today, 0),
-		DebtFillSharePct: debtFillSharePct(settings),
+		DebtLeftUAH: debtLeftUAH(src, rates, today),
+		DebtDueUAH:  debtDueForMonth(src, rates, today, 0),
 	})
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну (див. state_projection.go).

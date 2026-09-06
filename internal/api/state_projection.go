@@ -142,10 +142,8 @@ type projectionInput struct {
 	// платежі вічними або стелю обовʼязковою.
 	DebtLeftUAH float64
 	DebtDueUAH  float64
-	// DebtFillSharePct дублює налаштування навмисно: Settings тут є, але
-	// прохід уперед мусить уміти вимкнути стелю, не чіпаючи налаштувань
-	// (превʼю політики).
-	DebtFillSharePct float64
+	// Поля DebtFillSharePct тут більше немає: прохід уперед не ріже
+	// дострокового погашення взагалі, тож вимикати нема чого.
 	// ActualMonthly — фактичний темп поповнень, ₴/міс (0 = історії замало).
 	ActualMonthly float64
 	// IncomeMonthlyNow — скільки портфель приносить УЖЕ, ₴/міс. Готове
@@ -294,7 +292,7 @@ func (f sleeveFactory) shareAt(m int) map[string]float64 {
 func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 	planNative map[string][]float64, incReserve, incGoals, expense []float64) {
 	resGap, goalGap := in.ReserveGapUAH, in.GoalsGapUAH
-	debtLeft, debtShare := in.DebtLeftUAH, in.DebtFillSharePct
+	debtLeft := in.DebtLeftUAH
 	resShare, goalShare := 0.0, 0.0
 	if in.Settings != nil {
 		if v := in.Settings.ReserveFillSharePct; v != nil {
@@ -310,18 +308,20 @@ func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 	}
 	for m := range planTotal {
 		cut := 0.0
-		// Борг ПЕРШИМ, і двома доданками. Обовʼязкове йде, доки борг живий,
-		// незалежно від стелі й від дозволів: це не вибір. Дострокове —
-		// звичайна стеля, як у подушки. Обидва замовкають разом із боргом,
-		// і саме тому прохід уперед, а не стала вирізка: інакше платежі за
-		// дев'ятимісячною розстрочкою тривали б усі шістдесят років
-		// горизонту.
+		// Борг ПЕРШИМ, і тепер ОДНИМ доданком. Обовʼязкове йде, доки борг
+		// живий, незалежно від стелі й від дозволів: це не вибір. Воно
+		// замовкає разом із боргом, і саме тому прохід уперед, а не стала
+		// вирізка: інакше платежі за девʼятимісячною розстрочкою тривали б
+		// усі шістдесят років горизонту.
+		//
+		// ДРУГОГО ДОДАНКА — ДОСТРОКОВОГО — ТУТ БІЛЬШЕ НЕМАЄ. Він різав
+		// частку від грошей, дозволених ПОДУШЦІ (третя база в застосунку,
+		// відмінна і від PlanDebtUAH у документі, і від стелі маршруту), і
+		// зменшував тим самим портфельні гроші на шістдесят років уперед.
+		// Дострокове погашення більше не забирає портфельних грошей ніде —
+		// довід у handlers_allocate.go, у місці, де стояла вирізка.
 		if debtLeft > 0 {
 			c := math.Min(in.DebtDueUAH, debtLeft)
-			if debtShare > 0 {
-				base := math.Max(0, incReserve[m]-expense[m])
-				c += math.Min(base*debtShare/100, debtLeft-c)
-			}
 			debtLeft -= c
 			cut += c
 		}

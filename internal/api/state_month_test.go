@@ -533,7 +533,6 @@ func TestMonthPlanPlannedCutsAllThreeAllowances(t *testing.T) {
 	}{
 		{"подушці", p.PlanReserveUAH},
 		{"цілям", p.PlanGoalsUAH},
-		{"боргу", p.PlanDebtUAH},
 	} {
 		if c.got != 10000 {
 			t.Errorf("дозволено %s %v, очікували 10000 — витрата ріже кожен кошик повністю", c.name, c.got)

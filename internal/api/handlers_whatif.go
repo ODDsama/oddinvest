@@ -297,7 +297,7 @@ func (s *Server) addTopup(ctx context.Context, now time.Time,
 	// дозвіл у неї один, тут сум багато.
 	plan := allocatePlan(after, sug, rates,
 		toMoneyJSON(money.New(int64(math.Round(avail*100)), money.UAH)), avail,
-		allocAllow{ReserveUAH: avail, DebtUAH: avail, GoalsUAH: avail, PickISIN: pick},
+		allocAllow{ReserveUAH: avail, GoalsUAH: avail, PickISIN: pick},
 		money.UAH, s.npfIDByName(ctx))
 	out.Topup = &plan
 	return nil

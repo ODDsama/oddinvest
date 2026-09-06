@@ -156,18 +156,33 @@ func TestAllocateTopUpKeepsFloor(t *testing.T) {
 	}
 }
 
-// БОРГ ЗАЛИШКУ НЕ ДІСТАЄ, і це рішення власника, а не наслідок фікстури.
-// Симетрія з рештою приймачів здається очевидною — стеля дострокового теж
-// про темп, — тож саме сюди потягнеться наступний автор.
+// БОРГ ЗАЛИШКУ НЕ ДІСТАЄ, і після фази 45 це вже не про чергу приймачів, а
+// про весь контур: дострокове погашення не забирає портфельних грошей
+// ніде. Симетрія з подушкою й цілями здається очевидною — «борг під
+// пʼятдесят відсотків дорожчий за будь-який вид», — тож саме сюди
+// потягнеться наступний автор.
+//
+// Перевіряється це тепер сумою: усе, що не пішло в подушку й цілі, або
+// куплене, або лишилось у залишку. Третього призначення немає, і поля під
+// нього в allocPlan теж немає.
 func TestAllocateTopUpLeavesDebtAlone(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)}, nil)
-	doc.Debt = &state.DebtPlan{TotalUAH: 90000, FillNowUAH: 0, FillMonthUAH: 0}
+	// Борг живий, дорогий і зі стелею — усе, що колись вмикало вирізку.
+	doc.Debt = &state.DebtPlan{
+		TotalUAH: 90000, TopRatePct: 49.8, TopName: "Холодильник",
+		FillMonthUAH: 2000, FillNowUAH: 2000,
+	}
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
-		allocAllow{ReserveUAH: 1340, DebtUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
+		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
 
-	if got.Debt != nil {
-		t.Errorf("прохід віддав залишок у борг: %+v", got.Debt)
+	spent := 0.0
+	for _, l := range got.Lines {
+		spent += l.TotalUAH
+	}
+	if d := spent + got.RestUAH - 1340; d > 0.01 || d < -0.01 {
+		t.Errorf("куплено %.2f + залишок %.2f ≠ 1340: частина грошей пішла кудись ще",
+			spent, got.RestUAH)
 	}
 	if got.RestUAH <= 0 {
 		t.Error("залишок мав лишитись: інших приймачів у фікстурі немає")

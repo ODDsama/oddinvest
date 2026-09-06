@@ -10,21 +10,18 @@ import (
 
 // --- борг у проході вперед (route.go, «Борг») ---
 
-// routeDebtDoc — документ із боргом під ставкою 3 000 ₴ і місячною стелею
-// дострокового 1 000 ₴ (100 % від дозволеної частини плану в 1 000 ₴).
+// routeDebtDoc — документ із боргом під ставкою 3 000 ₴.
+//
+// СТЕЛІ ДОСТРОКОВОГО ТУТ БІЛЬШЕ НЕМАЄ: маршрут не веде гроші в борг
+// (фаза 45). Борг у проході тане ЛИШЕ за графіком обовʼязкових платежів —
+// саме це решта тестів файла й перевіряє.
 func routeDebtDoc() (*state.Doc, map[string]*state.MonthPlan) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	doc.Settings = routeSettings(10000, 6, 40)
-	doc.Settings.DebtFillSharePct = fptr(100)
 	doc.Debt = &state.DebtPlan{
-		TotalUAH: 3000, FillNowUAH: 1000, FillMonthUAH: 1000,
-		TopName: "Розстрочка", TopRatePct: 40,
+		TotalUAH: 3000, TopName: "Розстрочка", TopRatePct: 40,
 	}
-	plans := routePlans(30000)
-	for _, mp := range plans {
-		mp.PlanDebtUAH = 1000
-	}
-	return doc, plans
+	return doc, routePlans(30000)
 }
 
 // routeDebtAhead — тіло за графіком по 1 000 ₴ у названих місяцях (зсув
@@ -45,54 +42,41 @@ func routeDebtFlows() incomeAhead {
 		routeFlow("2026-12-10", 5000, "UA0001"))
 }
 
-func debtCuts(legs []routeLeg) []float64 {
-	out := make([]float64, len(legs))
-	for i, l := range legs {
-		if l.Debt != nil {
-			out[i] = l.Debt.AmountUAH
-		}
-	}
-	return out
-}
+// debtCuts тут БІЛЬШЕ НЕМАЄ: вирізок «Борг» на ногах не буває, бо маршрут
+// не веде гроші в дострокове погашення (фаза 45). Усе, що лишилось про
+// борг у проході, — його танення за ГРАФІКОМ обовʼязкових платежів, і
+// перевіряється воно колонкою debt_left_uah таблиці місяців.
 
-// Борг тане за графіком: розстрочка на три місяці закривається сама, і
-// вирізок «Борг» після цього немає — хай би скільки лишалось стелі.
-//
-// Без графіка (debt == nil) прохід тане лише від дострокових платежів:
-// 3 000 ₴ по 1 000 ₴ на місяць — три ноги з вирізкою. Це стара поведінка, і
-// вона лишається чинною там, де графіка немає; контраст і є суттю тесту.
+// Борг тане за графіком, і ТІЛЬКИ за ним: розстрочка на три місяці
+// закривається сама. Без графіка (debt == nil) він не тане взагалі —
+// контраст і є суттю тесту.
 func TestRouteDebtLeftFollowsSchedule(t *testing.T) {
 	sug := []suggestion{bondSug("UA0001", 1000, money.UAH)}
 
+	// БЕЗ ГРАФІКА БОРГ НЕ ТАНЕ ВЗАГАЛІ. Доти він танув від вирізок
+	// дострокового на кожній нозі; тепер маршрут у борг не веде, тож
+	// єдине, що його зменшує, — графік обовʼязкових платежів.
 	doc, plans := routeDebtDoc()
 	old := buildRoute(doc, sug, routeDebtFlows(), plans, nil, allocRates, nil, nil, routeToday)
-	if got := debtCuts(old.Legs); len(got) != 4 || got[0] != 1000 || got[1] != 1000 || got[2] != 1000 || got[3] != 0 {
-		t.Fatalf("без графіка вирізки боргу %v, чекали [1000 1000 1000 0]", got)
+	for i, r := range old.Months {
+		if r.DebtLeftUAH != 3000 {
+			t.Fatalf("місяць %d: борг %.2f, чекали 3000 — без графіка танути нема від чого",
+				i, r.DebtLeftUAH)
+		}
 	}
 
 	// Тіло йде за графіком у вересні, жовтні й листопаді (зсуви 1..3 від
-	// 27 серпня): у вересень прохід входить із 2 000, ріже 1 000 → 1 000; у
-	// жовтень входить із 0 — вирізки немає.
+	// 27 серпня): 3 000 → 2 000 → 1 000 → 0.
 	doc, plans = routeDebtDoc()
 	got := buildRoute(doc, sug, routeDebtFlows(), plans, routeDebtAhead(1000, 1, 2, 3),
 		allocRates, nil, nil, routeToday)
-	if cuts := debtCuts(got.Legs); len(cuts) != 4 || cuts[0] != 1000 || cuts[1] != 0 || cuts[2] != 0 || cuts[3] != 0 {
-		t.Fatalf("з графіком вирізки боргу %v, чекали [1000 0 0 0]", cuts)
-	}
-	// Таблиця місяців: борг на кінець вересня 1 000, далі 0; дострокове у
-	// вересні — 1 000.
 	if len(got.Months) != routeHorizonMonths+1 {
 		t.Fatalf("рядків months %d, чекали %d", len(got.Months), routeHorizonMonths+1)
 	}
-	if r := got.Months[1]; r.DebtLeftUAH != 1000 || r.PrepayUAH != 1000 {
-		t.Errorf("вересень: лишається %.2f (чекали 1000), достроково %.2f (чекали 1000)",
-			r.DebtLeftUAH, r.PrepayUAH)
-	}
-	if r := got.Months[2]; r.DebtLeftUAH != 0 || r.PrepayUAH != 0 {
-		t.Errorf("жовтень: лишається %.2f, достроково %.2f — чекали нулі", r.DebtLeftUAH, r.PrepayUAH)
-	}
-	if got.Months[0].DebtLeftUAH != 3000 {
-		t.Errorf("поточний місяць береться з документа: %.2f, чекали 3000", got.Months[0].DebtLeftUAH)
+	for m, want := range map[int]float64{0: 3000, 1: 2000, 2: 1000, 3: 0, 4: 0} {
+		if r := got.Months[m]; r.DebtLeftUAH != want {
+			t.Errorf("місяць %d: лишається %.2f, чекали %.2f", m, r.DebtLeftUAH, want)
+		}
 	}
 }
 
@@ -106,12 +90,21 @@ func TestRouteDebtMeltsInMonthsWithoutLegs(t *testing.T) {
 		routeFlow("2026-09-10", 5000, "UA0001"),
 		routeFlow("2026-12-10", 5000, "UA0001")),
 		plans, routeDebtAhead(1000, 2, 3), allocRates, nil, nil, routeToday)
-	if cuts := debtCuts(got.Legs); len(cuts) != 2 || cuts[0] != 1000 || cuts[1] != 0 {
-		t.Fatalf("вирізки %v, чекали [1000 0]", cuts)
+	// Тіло списується у ЖОВТНІ й ЛИСТОПАДІ, хоч ноги там немає: графік не
+	// чекає на купон. До грудня борг уже нульовий.
+	if got.Months[1].DebtLeftUAH != 3000 {
+		t.Errorf("вересень: %.2f, чекали 3000 — графік починається з жовтня",
+			got.Months[1].DebtLeftUAH)
 	}
+	if got.Months[2].DebtLeftUAH != 2000 {
+		t.Errorf("жовтень: %.2f, чекали 2000", got.Months[2].DebtLeftUAH)
+	}
+	// Графік має рівно два платежі по 1 000 ₴, тож 3 000 − 2 000 = 1 000
+	// лишаються під ставкою до кінця горизонту. Доти цей хвіст доїдали
+	// вирізки дострокового на ногах — тепер їх немає, і борг чесно стоїть.
 	for m := 3; m <= routeHorizonMonths; m++ {
-		if got.Months[m].DebtLeftUAH != 0 {
-			t.Errorf("місяць +%d: лишається %.2f, чекали 0", m, got.Months[m].DebtLeftUAH)
+		if got.Months[m].DebtLeftUAH != 1000 {
+			t.Errorf("місяць +%d: лишається %.2f, чекали 1000", m, got.Months[m].DebtLeftUAH)
 		}
 	}
 }

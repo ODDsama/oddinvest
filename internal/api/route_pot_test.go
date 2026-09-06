@@ -18,11 +18,11 @@ func TestRoutePotClampHoldsForAllThree(t *testing.T) {
 	// Стан після ноги, яка все витратила на папери: горщик спорожнів, а
 	// дозволи лишились такими, якими були до неї. spend сюди не зазирав —
 	// він кличеться лише на вирізки.
-	p := &routePot{minor: 0, eligible: 1000, debtEligible: 800, goalsEligible: 1200}
+	p := &routePot{minor: 0, eligible: 1000, goalsEligible: 1200}
 	p.clamp()
-	if p.eligible != 0 || p.debtEligible != 0 || p.goalsEligible != 0 {
-		t.Errorf("порожній горщик лишив дозволи живими: подушка %d, борг %d, цілі %d",
-			p.eligible, p.debtEligible, p.goalsEligible)
+	if p.eligible != 0 || p.goalsEligible != 0 {
+		t.Errorf("порожній горщик лишив дозволи живими: подушка %d, цілі %d",
+			p.eligible, p.goalsEligible)
 	}
 }
 
@@ -30,13 +30,10 @@ func TestRoutePotClampHoldsForAllThree(t *testing.T) {
 // «полагодити» ваду, обнуливши все підряд, — і заборона стала б тотальною
 // замість точної.
 func TestRoutePotClampLeavesFittingCountersAlone(t *testing.T) {
-	p := &routePot{minor: 5000, eligible: 5000, debtEligible: 300, goalsEligible: 0}
+	p := &routePot{minor: 5000, eligible: 5000, goalsEligible: 0}
 	p.clamp()
 	if p.eligible != 5000 {
 		t.Errorf("подушка %d, чекали 5000: рівність горщику — не перевищення", p.eligible)
-	}
-	if p.debtEligible != 300 {
-		t.Errorf("борг %d, чекали 300", p.debtEligible)
 	}
 	if p.goalsEligible != 0 {
 		t.Errorf("цілі %d, чекали 0: нуль означає «сюди не можна», і його не піднімають",

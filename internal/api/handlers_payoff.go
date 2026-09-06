@@ -307,10 +307,18 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		if doc.Debt != nil && doc.Debt.FillNowUAH > 0 {
 			extra = int64(math.Round(doc.Debt.FillNowUAH * 100))
 		}
-		if doc.MonthPlan != nil && extra == 0 && doc.MonthPlan.LeftUAH > 0 {
-			extra, extraFrom = int64(math.Round(doc.MonthPlan.LeftUAH*100)),
-				"те, що лишилось закинути цього місяця"
-		}
+		// ЗАПАСНОГО ЗНАЧЕННЯ З ГРОШЕЙ МІСЯЦЯ ТУТ БІЛЬШЕ НЕМАЄ.
+		//
+		// Стояло MonthPlan.LeftUAH — «те, що лишилось закинути цього
+		// місяця», — і це ПОРТФЕЛЬНІ гроші. Відколи стеля дострокового
+		// міряється від карткових, підставляти сюди портфельні означало б
+		// змішати два контури в одному числі: сторінка казала б «за такого
+		// темпу борг закриється тоді-то», маючи на увазі гроші, які на борг
+		// не підуть.
+		//
+		// Коли стеля мовчить (share не заданий або на картці нічого не
+		// лишається), extra чесно дорівнює нулю, і сторінка каже про це
+		// прямо — разом із полем «своє число».
 		investPct = doc.BlendedYieldRealPct
 	}
 	if raw := strings.TrimSpace(r.URL.Query().Get("extra")); raw != "" {

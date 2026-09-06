@@ -413,7 +413,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	// Дозволені суми накопичуються ОКРЕМИМИ лічильниками в тому самому
 	// циклі: другий прохід по тих самих потоках був би другим означенням
 	// «скільки цей потік платить у серпні».
-	incReserve, incGoals, incDebt := 0.0, 0.0, 0.0
+	incReserve, incGoals := 0.0, 0.0
 	for _, f := range src.planFlows {
 		// Валова копія — з часткою в портфель 100%. Той самий фокус, що в
 		// planFlowGrossUAH, і потрібен він тут ДВІЧІ: для самого валового
@@ -463,9 +463,6 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		if domain.PlanUseAllowed(f.Uses, domain.UsePlanGoals) {
 			incGoals += amt
 		}
-		if domain.PlanUseAllowed(f.Uses, domain.UsePlanDebt) {
-			incDebt += amt
-		}
 		out.Sources++
 		if _, ok := marks.at(f.ID, today, m); ok {
 			out.ReceivedUAH += amt
@@ -497,9 +494,6 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		}
 		if domain.PlanUseAllowed(r.Uses, domain.UsePlanGoals) {
 			incGoals += v
-		}
-		if domain.PlanUseAllowed(r.Uses, domain.UsePlanDebt) {
-			incDebt += v
 		}
 	}
 
@@ -565,7 +559,6 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	out.PlanUAH = out.IncomeUAH + out.ExtraUAH - spent
 	out.PlanReserveUAH = math.Max(0, incReserve-spent)
 	out.PlanGoalsUAH = math.Max(0, incGoals-spent)
-	out.PlanDebtUAH = math.Max(0, incDebt-spent)
 
 	// Лишилось закинути — проти ВНЕСЕНОГО, а не проти купленого: план
 	// означає «скільки нових грошей принести», а купівля лише переносить їх
@@ -593,7 +586,6 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	out.PlanUAH = round2(out.PlanUAH)
 	out.PlanReserveUAH = round2(out.PlanReserveUAH)
 	out.PlanGoalsUAH = round2(out.PlanGoalsUAH)
-	out.PlanDebtUAH = round2(out.PlanDebtUAH)
 	out.DebtDueUAH = round2(out.DebtDueUAH)
 	out.DebtFromPlanUAH = round2(out.DebtFromPlanUAH)
 	out.ReceivedUAH = round2(out.ReceivedUAH)

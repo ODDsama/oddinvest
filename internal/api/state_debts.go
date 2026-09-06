@@ -240,11 +240,29 @@ func buildDebtPlan(src *sources, debts []domain.Debt, marks []domain.DebtMark,
 	}
 	out.PaidExtraUAH = round2(math.Max(0, out.PaidExtraUAH-instDue))
 
-	// Стеля дострокового — від ДОЗВОЛЕНОЇ частини плану, як у подушки й
-	// цілей, і обрізана самим боргом: платити більше, ніж винен, ніде.
+	// СТЕЛЯ ДОСТРОКОВОГО — ВІД КАРТКОВИХ ГРОШЕЙ, А НЕ ВІД ПОРТФЕЛЬНИХ.
+	//
+	// Доти база була mp.PlanDebtUAH — дозволена боргу частина ПЛАНУ, тобто
+	// грошей, які йдуть у портфель. Разом із вирізкою в розкладці це
+	// означало, що людина ставить частки ОВДП і фондів, а борг мовчки
+	// з'їдає базу, від якої ці частки міряються. Власник: «борг має
+	// відніматись від планового доходу, але не впливати на ті відсотки які
+	// я вже зазначив шо буду класти в портфель».
+	//
+	// Тепер база — те, що лишається НА КАРТЦІ після обовʼязкового платежу.
+	// Саме з цих грошей гасять достроково, і саме з них уже гаситься
+	// обовʼязкове (MonthPlan.DebtFromPlanUAH забирає лише переповнення).
+	// Побут звідси не віднімається — з тієї ж причини, що й у самого
+	// OnCardUAH: це валовий залишок, а не профіцит картки, і питання «чи
+	// вистачає карткових грошей» має власний екран (buildDebtExit).
+	//
+	// ЧИСЛО ЛИШИЛОСЬ ПОРАДОЮ, А НЕ ВИРІЗКОЮ. Розкладка й маршрут більше не
+	// ведуть гроші в борг зовсім; це стеля на сторінці боргу й запасне
+	// значення для /api/payoff. Вибір робить людина.
 	if set != nil && set.DebtFillSharePct != nil && mp != nil && out.TotalUAH > 0 {
-		if share := *set.DebtFillSharePct; share > 0 && mp.PlanDebtUAH > 0 {
-			month := math.Min(mp.PlanDebtUAH*share/100, out.TotalUAH)
+		base := math.Max(0, mp.OnCardUAH-mp.DebtDueUAH)
+		if share := *set.DebtFillSharePct; share > 0 && base > 0 {
+			month := math.Min(base*share/100, out.TotalUAH)
 			out.FillMonthUAH = round2(month)
 			out.FillNowUAH = round2(math.Max(0, month-out.PaidExtraUAH))
 		}
@@ -778,13 +796,11 @@ func debtLeftUAH(src *sources, rates fx.Rates, today domain.Date) float64 {
 	return round2(total)
 }
 
-// debtFillSharePct — стеля дострокового відсотком; нуль, коли не задано.
-func debtFillSharePct(set *state.SettingsDoc) float64 {
-	if set == nil || set.DebtFillSharePct == nil {
-		return 0
-	}
-	return *set.DebtFillSharePct
-}
+// debtFillSharePct ТУТ БІЛЬШЕ НЕМАЄ. Він віддавав стелю дострокового в
+// проєкцію, а та ріже з портфельних грошей на шістдесят років уперед —
+// саме те, що фаза 45 і прибрала. Стелю читає рівно одне місце
+// (buildDebtPlan вище), і зайвий перехідник між налаштуванням і ним був
+// би шаром із одним користувачем.
 
 // debtOwedUAH — скільки винен УСЬОГО, грн-екв.: і те, на що нараховують, і
 // пільговий борг картки.

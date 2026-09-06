@@ -343,7 +343,7 @@ func TestDerive(t *testing.T) {
 	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Schema != 1 {
+	if doc.Schema != 2 {
 		t.Errorf("schema = %d", doc.Schema)
 	}
 	// invested: 49500 грн + $1990×44.1234 = 49500 + 87805.57 (банківське) = 137305.57

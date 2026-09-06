@@ -15,68 +15,48 @@ import (
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
-// Борг ріжеться ПІСЛЯ подушки й ПЕРЕД цілями. Порядок не стилістичний:
-// ціль накопичення не росте, а борг росте сам, тож класти на авто, маючи
-// живу розстрочку, означає купувати його дорожче рівно на ставку боргу.
-func TestAllocateCutsDebtBeforeGoals(t *testing.T) {
+// НАДГРОБОК: ДОСТРОКОВЕ ПОГАШЕННЯ НЕ ЗАБИРАЄ ПОРТФЕЛЬНИХ ГРОШЕЙ.
+//
+// Тут стояли два тести — TestAllocateCutsDebtBeforeGoals (борг ріжеться
+// після подушки й перед цілями) і TestAllocateDebtRespectsOwnPolicy
+// (політика «з яких грошей гасити»). Обидва описували вирізку, якої більше
+// немає: вона брала частку від PlanDebtUAH, тобто від грошей, призначених
+// у портфель, і зменшувала базу, від якої міряються цільові частки видів.
+//
+// Замість них — один тест на протилежне твердження, і саме він тут
+// найпотрібніший: симетрія з подушкою й цілями здається очевидною («борг
+// під пʼятдесят відсотків дорожчий за будь-який вид»), тож наступний автор
+// потягнеться повернути вирізку саме сюди.
+func TestAllocateLeavesDebtOutOfPortfolioMoney(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, &state.Reserve{
-		GapUAH: 5000, FillMonthUAH: 1000, FillNowUAH: 1000,
+		GapUAH: 5000, FillMonthUAH: 1000, FillNowUAH: 1000, FillFromUAH: 5000,
 	})
+	// Борг живий, дорогий і зі стелею — тобто все, що колись вмикало вирізку.
 	doc.Debt = &state.DebtPlan{
 		TotalUAH: 30000, TopRatePct: 49.8, TopName: "Холодильник",
 		FillMonthUAH: 2000, FillNowUAH: 2000,
 	}
-	doc.Goals = []state.Goal{{
-		ID: 1, Name: "Авто", GapUAH: 50000,
-		FillMonthUAH: 3000, FillNowUAH: 3000,
-	}}
 
-	// 5 000 ₴: подушці 1 000, боргу 2 000, цілі — те, що лишилось.
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
-		allocAllow{ReserveUAH: 5000, DebtUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
+		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
+	// Подушка своє бере — вона з портфельних грошей і далі ріже.
 	if got.Reserve == nil || got.Reserve.AmountUAH != 1000 {
 		t.Fatalf("подушка: %+v", got.Reserve)
 	}
-	if got.Debt == nil || got.Debt.AmountUAH != 2000 {
-		t.Fatalf("борг: %+v", got.Debt)
+	// А на папери йде ВСЯ решта: 5 000 − 1 000 = 4 000, чотири квитки по
+	// 1 000. Була б вирізка боргу — лишилось би два.
+	if got.AvailUAH != 4000 {
+		t.Errorf("на папери %.2f, чекали 4000: борг більше не ріже портфельних грошей",
+			got.AvailUAH)
 	}
-	if got.DebtUAH != 2000 {
-		t.Errorf("сума боргу в підсумку %.2f, чекали 2000", got.DebtUAH)
+	spent := 0.0
+	for _, l := range got.Lines {
+		spent += l.TotalUAH
 	}
-	// Цілі беруть із ЗАЛИШКУ, а не зі всієї суми: гроші не можна віддати
-	// двічі.
-	if len(got.Goals) != 1 || got.Goals[0].AmountUAH != 2000 {
-		t.Fatalf("цілі: %+v", got.Goals)
-	}
-	if got.AvailUAH != 0 {
-		t.Errorf("на папери лишилось %.2f, чекали 0", got.AvailUAH)
-	}
-	// Найдорожчий борг названий у причині: одне число «разом» не каже, з
-	// чого починати.
-	if !strings.Contains(got.Debt.Why, "Холодильник") {
-		t.Errorf("причина не називає боргу: %q", got.Debt.Why)
-	}
-}
-
-// Політика «з яких грошей гасити» ріже незалежно від подушки й цілей — і
-// мовчазної відмови не буває.
-func TestAllocateDebtRespectsOwnPolicy(t *testing.T) {
-	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
-	doc.Debt = &state.DebtPlan{
-		TotalUAH: 30000, TopRatePct: 49.8, TopName: "Холодильник",
-		FillMonthUAH: 2000, FillNowUAH: 2000,
-	}
-	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
-		allocAllow{ReserveUAH: 5000, DebtUAH: 0, GoalsUAH: 5000}, money.UAH, nil)
-
-	if got.Debt != nil {
-		t.Fatalf("борг узяв заборонені гроші: %+v", got.Debt)
-	}
-	if got.DebtSkipWhy == "" {
-		t.Error("вирізка зникла без пояснення — читається як поломка")
+	if spent != 4000 {
+		t.Errorf("куплено на %.2f, чекали 4000", spent)
 	}
 }
 
