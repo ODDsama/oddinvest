@@ -450,11 +450,16 @@ type ReserveOp struct {
 	Currency string
 	Place    string
 	Note     string
+	// LoanID — яку позику гасить це ПОПОВНЕННЯ (0057). Нуль = не гасить
+	// нічого; на відʼємному русі не використовується (звʼязок у той бік
+	// дає reserve_loans.op_id). Нуль замість *int64 навмисно: id
+	// 0 не існує, тож зайвий рівень непрямості нічого не розрізняє.
+	LoanID int64
 }
 
 func (s *Store) AddReserveOp(ctx context.Context, r ReserveOp) (int64, error) {
-	res, err := s.db.ExecContext(ctx, `INSERT INTO reserve_ops (portfolio_id, date, amount, currency, place, note)
-		VALUES (?,?,?,?,?,?)`, s.pid, string(r.Date), r.Amount, r.Currency, r.Place, r.Note)
+	res, err := s.db.ExecContext(ctx, `INSERT INTO reserve_ops (portfolio_id, date, amount, currency, place, note, loan_id)
+		VALUES (?,?,?,?,?,?,?)`, s.pid, string(r.Date), r.Amount, r.Currency, r.Place, r.Note, nullID(r.LoanID))
 	if err != nil {
 		return 0, err
 	}
@@ -464,8 +469,8 @@ func (s *Store) AddReserveOp(ctx context.Context, r ReserveOp) (int64, error) {
 // UpdateReserveOp переписує рух, зберігаючи id.
 func (s *Store) UpdateReserveOp(ctx context.Context, r ReserveOp) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE reserve_ops SET
-		date=?, amount=?, currency=?, place=?, note=? WHERE id=? AND portfolio_id=?`,
-		string(r.Date), r.Amount, r.Currency, r.Place, r.Note, r.ID, s.pid)
+		date=?, amount=?, currency=?, place=?, note=?, loan_id=? WHERE id=? AND portfolio_id=?`,
+		string(r.Date), r.Amount, r.Currency, r.Place, r.Note, nullID(r.LoanID), r.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -478,7 +483,7 @@ func (s *Store) DeleteReserveOp(ctx context.Context, id int64) error {
 }
 
 func (s *Store) ListReserveOps(ctx context.Context) ([]ReserveOp, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, currency, place, note
+	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, currency, place, note, loan_id
 		FROM reserve_ops WHERE portfolio_id=? ORDER BY date, id`, s.pid)
 	if err != nil {
 		return nil, err
@@ -488,10 +493,12 @@ func (s *Store) ListReserveOps(ctx context.Context) ([]ReserveOp, error) {
 	for rows.Next() {
 		var r ReserveOp
 		var dt string
-		if err := rows.Scan(&r.ID, &dt, &r.Amount, &r.Currency, &r.Place, &r.Note); err != nil {
+		var loan sql.NullInt64
+		if err := rows.Scan(&r.ID, &dt, &r.Amount, &r.Currency, &r.Place, &r.Note, &loan); err != nil {
 			return nil, err
 		}
 		r.Date = domain.Date(dt)
+		r.LoanID = loan.Int64
 		out = append(out, r)
 	}
 	return out, rows.Err()

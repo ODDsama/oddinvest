@@ -64,6 +64,11 @@ type Backup struct {
 	// ReserveOps omitempty з тієї ж причини: бекапи до появи резерву його
 	// не мають, і restore просто не створить жодного руху.
 	ReserveOps []BackupReserveOp `json:"reserve_ops,omitempty"`
+	// Позики в самого себе (0057). ОКРЕМИМ полем, а не колонками рухів,
+	// із того самого доводу, що й таблиця: у позики є ставка й дедлайн,
+	// яких у руху немає. Невідновні так само, як самі рухи: ставка, під
+	// яку ти позичив у себе торік, не виводиться нізвідки.
+	ReserveLoans []BackupReserveLoan `json:"reserve_loans,omitempty"`
 	// Цілі накопичення (0039) — ДВА поля, бо сутностей дві: сама ціль і
 	// журнал під нею. Невідновні так само, як резерв, і навіть трохи
 	// гірше: рух резерву хоч видно за просілим капіталом, а «збираю на
@@ -269,6 +274,20 @@ type BackupReserveOp struct {
 	Currency string `json:"currency"`
 	Place    string `json:"place"`
 	Note     string `json:"note"`
+	// Яку позику гасить це поповнення. Відновлюється ДРУГИМ проходом:
+	// FK тут двобічний (reserve_loans.op_id → reserve_ops.id), і жоден
+	// порядок вставки не задовольняє обидва боки одразу.
+	LoanID int64 `json:"loan_id,omitempty"`
+}
+
+// BackupReserveLoan — позика в самого себе. Тіла й дати тут немає: вони є
+// у русі OpID, і друга копія розійшлася б із ним (довід — шапка 0057).
+type BackupReserveLoan struct {
+	ID      int64  `json:"id"`
+	OpID    int64  `json:"op_id"`
+	RateBP  int64  `json:"rate_bp"`
+	DueDate string `json:"due_date"`
+	Note    string `json:"note"`
 }
 
 // BackupGoal — ціль накопичення. Разом із BackupGoalOp нижче це та сама
@@ -805,14 +824,26 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT id,date,amount,currency,place,note FROM reserve_ops
+	if err := s.scan(ctx, `SELECT id,date,amount,currency,place,note,COALESCE(loan_id,0) FROM reserve_ops
 		WHERE portfolio_id=? ORDER BY id`,
 		func(scan func(...any) error) error {
 			var r BackupReserveOp
-			if err := scan(&r.ID, &r.Date, &r.Amount, &r.Currency, &r.Place, &r.Note); err != nil {
+			if err := scan(&r.ID, &r.Date, &r.Amount, &r.Currency, &r.Place, &r.Note, &r.LoanID); err != nil {
 				return err
 			}
 			b.ReserveOps = append(b.ReserveOps, r)
+			return nil
+		}, s.pid); err != nil {
+		return nil, err
+	}
+	if err := s.scan(ctx, `SELECT id,op_id,rate_bp,due_date,note FROM reserve_loans
+		WHERE portfolio_id=? ORDER BY id`,
+		func(scan func(...any) error) error {
+			var l BackupReserveLoan
+			if err := scan(&l.ID, &l.OpID, &l.RateBP, &l.DueDate, &l.Note); err != nil {
+				return err
+			}
+			b.ReserveLoans = append(b.ReserveLoans, l)
 			return nil
 		}, s.pid); err != nil {
 		return nil, err
@@ -1094,7 +1125,7 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 // самому кінці, бо на них посилається майже все.
 var importAllTables = []string{
 	"sales", "lots", "deposits", "conversions", "fund_ops",
-	"fund_prices", "deposit_topups", "term_deposits", "reserve_ops",
+	"fund_prices", "deposit_topups", "term_deposits", "reserve_loans", "reserve_ops",
 	"goal_ops", "goals", "debt_ops", "debt_marks", "debts",
 	"npf_ops", "npf_nav",
 	"npf_accounts", "plan_flows", "plan_flow_revisions",
@@ -1235,6 +1266,13 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// заводити в переліку поняття «частина таблиці».
 	if _, err := tx.ExecContext(ctx, `UPDATE debts SET card_id=NULL WHERE portfolio_id=?`, s.pid); err != nil {
 		return fmt.Errorf("відчеплення розстрочок: %w", err)
+	}
+	// Рівно той самий випадок, тільки FK не на себе, а по колу:
+	// reserve_ops.loan_id → reserve_loans.id → reserve_ops.id (0057).
+	// Жоден порядок видалення його не розвʼязує, тож звʼязок рветься
+	// одним UPDATE, а далі обидві таблиці чистяться переліком.
+	if _, err := tx.ExecContext(ctx, `UPDATE reserve_ops SET loan_id=NULL WHERE portfolio_id=?`, s.pid); err != nil {
+		return fmt.Errorf("відчеплення повернень у резерв: %w", err)
 	}
 	for _, t := range importAllTables {
 		if importGlobalTables[t] {
@@ -1439,11 +1477,31 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			return fmt.Errorf("поповнення вкладу %d: %w", t.ID, err)
 		}
 	}
+	// Рухи резерву — БЕЗ loan_id: позики ще не вставлені, а вони, своєю
+	// чергою, посилаються на самі рухи. Двобічний FK не задовольняє
+	// жоден порядок, тож звʼязок дописується третім проходом нижче.
 	for _, r := range b.ReserveOps {
 		if err := ids.insert(ctx, tx, "reserve_ops", r.ID,
 			`INSERT INTO reserve_ops (%sportfolio_id,date,amount,currency,place,note) VALUES (%s?,?,?,?,?,?)`,
 			s.pid, r.Date, r.Amount, r.Currency, r.Place, r.Note); err != nil {
 			return fmt.Errorf("рух резерву %d: %w", r.ID, err)
+		}
+	}
+	for _, l := range b.ReserveLoans {
+		if err := ids.insert(ctx, tx, "reserve_loans", l.ID,
+			`INSERT INTO reserve_loans (%sportfolio_id,op_id,rate_bp,due_date,note) VALUES (%s?,?,?,?,?)`,
+			s.pid, ids.of("reserve_ops", l.OpID), l.RateBP, l.DueDate, l.Note); err != nil {
+			return fmt.Errorf("позика з резерву %d: %w", l.ID, err)
+		}
+	}
+	for _, r := range b.ReserveOps {
+		if r.LoanID == 0 {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE reserve_ops SET loan_id=? WHERE id=? AND portfolio_id=?`,
+			ids.of("reserve_loans", r.LoanID), ids.of("reserve_ops", r.ID), s.pid); err != nil {
+			return fmt.Errorf("повернення в резерв %d: %w", r.ID, err)
 		}
 	}
 	// Цілі — ПЕРЕД рухами: goal_ops має на них FK. Той самий порядок, що в
