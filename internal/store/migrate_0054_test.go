@@ -17,6 +17,14 @@ var scopedTables = []string{
 	"brokers",
 }
 
+// scopedTablesLater — таблиці, що народились ІЗ portfolio_id уже після
+// 0054. Другим переліком, а не рядками у верхньому: той описує, що саме
+// перебудувала 0054, і дописана в нього нова таблиця зламала б тест
+// самої міграції — на її момент такої таблиці ще немає.
+var scopedTablesLater = []string{
+	"plan_expenses", // 0056
+}
+
 // Міграція 0054 перевіряється НА СТАРИХ ДАНИХ, як 0010: найдорожче в ній —
 // перебудова батьків із дітьми при вимкнених ключах, і саме це на порожній
 // базі не перевіряється нічим. Тут засівається база до 0054 із брокером,
@@ -172,7 +180,7 @@ func TestPortfoliosMigration(t *testing.T) {
 func TestScopedTablesMatchSchema(t *testing.T) {
 	s := openTest(t)
 	want := map[string]bool{}
-	for _, tbl := range scopedTables {
+	for _, tbl := range append(append([]string{}, scopedTables...), scopedTablesLater...) {
 		want[tbl] = true
 	}
 	for _, tbl := range tableNames(t, s.db) {

@@ -968,3 +968,62 @@ func TestBackupRoundTripKeepsDebts(t *testing.T) {
 		t.Errorf("рух боргу поїхав: %+v", ops)
 	}
 }
+
+// Планова витрата невідновна нізвідки, тож бекап мусить нести її повністю
+// — разом із контуром і відміткою «сплачено». Втратити тут легко саме їх:
+// вставка перелічує колонки руками, і зайва кома розсунула б значення на
+// одну позицію мовчки.
+//
+// ПОРОЖНЯ paid_date перевіряється нарівні з непорожньою: вона означає «ще
+// винна», і якби відновлення підставило на її місце сьогоднішню дату,
+// витрата тихо зникла б з усіх розрахунків.
+func TestBackupRoundTripPlanExpenses(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	want := []domain.PlanExpense{
+		{Name: "Страховка", Amount: 12_000_00, Currency: "UAH", DueDate: "2026-10-14",
+			PaidFrom: domain.PaidFromPlan, Place: "ПУМБ", Note: "щорічна"},
+		{Name: "Котел", Amount: 30_000_00, Currency: "UAH", DueDate: "2026-11-15",
+			PaidFrom: domain.PaidFromCard, PaidDate: "2026-11-14"},
+	}
+	for _, e := range want {
+		if _, err := src.AddPlanExpense(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b.PlanExpenses) != len(want) {
+		t.Fatalf("експорт узяв %d витрат замість %d", len(b.PlanExpenses), len(want))
+	}
+
+	dst, err := Open(filepath.Join(t.TempDir(), "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportAll(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dst.ListPlanExpenses(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("після відновлення %d витрат замість %d", len(got), len(want))
+	}
+	for i, e := range want {
+		if got[i].Name != e.Name || got[i].Amount != e.Amount ||
+			got[i].Currency != e.Currency || got[i].DueDate != e.DueDate ||
+			got[i].PaidFrom != e.PaidFrom || got[i].PaidDate != e.PaidDate ||
+			got[i].Place != e.Place || got[i].Note != e.Note {
+			t.Errorf("витрата %d поїхала: %+v vs %+v", i, got[i], e)
+		}
+	}
+}

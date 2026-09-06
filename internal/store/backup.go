@@ -89,6 +89,13 @@ type Backup struct {
 	// цей папір у березні» не виводиться ні з операцій, ні з потоків, бо
 	// операції ще немає, а потік описує гроші, а не інструмент.
 	PlanBuys []BackupPlanBuy `json:"plan_buys,omitempty"`
+	// PlanExpenses (0056) — вирішені разові витрати. Невідновне так само,
+	// як план купівель, і з тієї самої причини: рішення «замінити котел у
+	// листопаді за 30 000» не виводиться ні з операцій, ні з потоків — руху
+	// ще не було, а потік описує ритм, а не подію. Разом із ним зникла б і
+	// відмітка «сплачено», тобто єдине, що відрізняє винну витрату від
+	// закритої.
+	PlanExpenses []BackupPlanExpense `json:"plan_expenses,omitempty"`
 	// Decisions (0035) — журнал рішень: що радив помічник у день купівлі.
 	// Найневідновніше з усього тут: рейтинг перераховується щодня з
 	// поточного довідника, курсів і часток, тож учорашній не відтворити
@@ -456,6 +463,22 @@ type BackupPlanBuy struct {
 	Months    int64  `json:"months"`
 	IsReserve bool   `json:"is_reserve"`
 	Note      string `json:"note"`
+}
+
+// BackupPlanExpense — планова витрата (0056). Дзеркалить
+// domain.PlanExpense колонка в колонку: бекап цієї таблиці — дамп, а не
+// зведення. Дати рядками, як усюди тут: порожня paid_date означає «ще
+// винна» і мусить пережити відновлення саме порожньою.
+type BackupPlanExpense struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Amount   int64  `json:"amount"`
+	Currency string `json:"currency"`
+	DueDate  string `json:"due_date"`
+	PaidFrom string `json:"paid_from"`
+	PaidDate string `json:"paid_date"`
+	Place    string `json:"place"`
+	Note     string `json:"note"`
 }
 
 // BackupImportProfile — профіль імпорту (0036). Дзеркалить
@@ -940,6 +963,19 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}, s.pid); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT id,name,amount,currency,due_date,paid_from,
+		paid_date,place,note FROM plan_expenses WHERE portfolio_id=? ORDER BY id`,
+		func(scan func(...any) error) error {
+			var r BackupPlanExpense
+			if err := scan(&r.ID, &r.Name, &r.Amount, &r.Currency, &r.DueDate,
+				&r.PaidFrom, &r.PaidDate, &r.Place, &r.Note); err != nil {
+				return err
+			}
+			b.PlanExpenses = append(b.PlanExpenses, r)
+			return nil
+		}, s.pid); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT id,made_on,kind,ref,currency,amount,real_pct,
 		rank_pos,top_label,top_real_pct,rank_mode,op_id,note FROM decisions
 		WHERE portfolio_id=? ORDER BY id`,
@@ -1062,7 +1098,8 @@ var importAllTables = []string{
 	"goal_ops", "goals", "debt_ops", "debt_marks", "debts",
 	"npf_ops", "npf_nav",
 	"npf_accounts", "plan_flows", "plan_flow_revisions",
-	"plan_receipts", "plan_actions", "plan_buys", "decisions", "import_profiles",
+	"plan_receipts", "plan_actions", "plan_buys", "plan_expenses",
+	"decisions", "import_profiles",
 	"settings", "payment_status", "snapshots",
 	"funds", "brokers",
 }
@@ -1576,6 +1613,21 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			s.pid, p.Kind, p.Ref, p.Qty, p.Amount, p.UnitPrice, p.Currency, broker,
 			p.BuyDate, p.RateBP, p.Months, p.IsReserve, p.Note); err != nil {
 			return fmt.Errorf("планована купівля %d: %w", p.ID, err)
+		}
+	}
+	for _, e := range b.PlanExpenses {
+		// Батьків у планової витрати немає — ні брокера, ні фонду, ні
+		// боргу, — тож і перечіплювати нічого: місце в порядку вставки
+		// вільне. Через ids.insert усе одно, бо перемапа id тримається
+		// одним шляхом для всіх таблиць, і виняток тут довелося б
+		// пояснювати кожному наступному читачеві.
+		if err := ids.insert(ctx, tx, "plan_expenses", e.ID,
+			`INSERT INTO plan_expenses (%sportfolio_id,name,amount,currency,due_date,
+			 paid_from,paid_date,place,note)
+			 VALUES (%s?,?,?,?,?,?,?,?,?)`,
+			s.pid, e.Name, e.Amount, e.Currency, e.DueDate, e.PaidFrom,
+			e.PaidDate, e.Place, e.Note); err != nil {
+			return fmt.Errorf("планова витрата %d: %w", e.ID, err)
 		}
 	}
 	for _, d := range b.Decisions {
