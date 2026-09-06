@@ -48,6 +48,7 @@ import { fxShockCard, wireFXShock, shockPath } from "./fx-shock.js";
 // належить «Портфелю», а її вміст не має спільного з рештою цього файла
 // нічого, крім розділу.
 export { period } from "./period.js";
+export { digest } from "./digest.js";
 export { year } from "./year.js";
 
 /** Усе разом: та сама таблиця, що й була, з плитками дохідностей над нею.

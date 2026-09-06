@@ -159,6 +159,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/cashflow", s.handleCashflowStatement)
 	mux.HandleFunc("GET /api/period", s.handlePeriod)
 	mux.HandleFunc("GET /api/year", s.handleYear)
+	mux.HandleFunc("GET /api/digest", s.handleDigest)
 	mux.HandleFunc("GET /api/tax", s.handleTax)
 	mux.HandleFunc("GET /api/benchmark", s.handleBenchmark)
 	mux.HandleFunc("GET /api/rivals", s.handleRivals)
