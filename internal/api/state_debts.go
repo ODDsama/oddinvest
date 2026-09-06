@@ -639,12 +639,13 @@ func cardInstallmentsInMonth(src *sources, rates fx.Rates, today domain.Date,
 // debtAhead — борг по місяцях горизонту для «Маршруту грошей» (route.go,
 // «Борг»). Ключ — місяць "YYYY-MM", m = 0..months.
 //
-// Чотири числа, і всі з тих самих функцій, що годують план місяця й картку
+// Пʼять чисел, і всі з тих самих функцій, що годують план місяця й картку
 // боргу: обовʼязкове — debtDueForMonth (уже відняте від планових ніг),
 // карткові розстрочки — cardInstallmentsInMonth (картковий контур), тіло за
 // графіком — те, на що тане TotalUAH (усі відкриті розстрочки, як у
 // buildDebtPlan; картка тане лише від платежів, тож тут її немає), рубіж
-// покриття — debtCoverUAH станом на перше число місяця.
+// покриття — debtCoverUAH станом на перше число місяця, планові разові
+// витрати — plannedInMonth того самого карткового контуру.
 func debtAhead(src *sources, rates fx.Rates, today domain.Date, months int) map[string]routeDebtMonth {
 	out := make(map[string]routeDebtMonth, months+1)
 	if len(src.debts) == 0 {
@@ -669,6 +670,7 @@ func debtAhead(src *sources, rates fx.Rates, today domain.Date, months int) map[
 			CardInstUAH:  cardInstallmentsInMonth(src, rates, today, m, ""),
 			PrincipalUAH: round2(principal),
 			CoverUAH:     debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, first),
+			PlannedUAH:   plannedInMonth(src, rates, today, m, "", domain.PaidFromCard),
 		}
 	}
 	return out

@@ -276,6 +276,11 @@ type routeDebtMonth struct {
 	// CoverUAH — рубіж покриття боргу подушкою станом на початок місяця
 	// (майбутні платежі з цієї дати).
 	CoverUAH float64
+	// PlannedUAH — планові разові витрати місяця з КАРТКОВОГО контуру
+	// (0056). Тим самим сусідством, що CardInstUAH: у ноги вони не входять
+	// (гроші не портфельні), але людина платить і їх, і місяць, у якому
+	// поруч стоїть котел, легшим не є.
+	PlannedUAH float64
 }
 
 // routeMonthRow — рядок таблиці «Борг на горизонті».
@@ -283,6 +288,8 @@ type routeMonthRow struct {
 	Month       string  `json:"month"`
 	DebtDueUAH  float64 `json:"debt_due_uah"`
 	CardInstUAH float64 `json:"card_inst_uah,omitempty"`
+	// PlannedUAH — планові разові витрати з картки цього місяця (0056).
+	PlannedUAH float64 `json:"planned_uah,omitempty"`
 	// PrepayUAH — Σ вирізок «Борг» на ногах цього місяця.
 	PrepayUAH float64 `json:"prepay_uah,omitempty"`
 	// DebtLeftUAH — борг під ставкою на кінець місяця за проходом.
@@ -883,6 +890,7 @@ func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
 			Month:       key,
 			DebtDueUAH:  round2(d.DueUAH),
 			CardInstUAH: round2(d.CardInstUAH),
+			PlannedUAH:  round2(d.PlannedUAH),
 			PrepayUAH:   round2(prepay[key]),
 			DebtLeftUAH: c.debtLeftAt[m],
 		}
@@ -891,6 +899,14 @@ func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
 		}
 		// Падіння обовʼязкового проти попереднього місяця — тут щось
 		// закрилось. Поточний місяць порівнювати нема з чим.
+		//
+		// ПЛАНОВІ ВИТРАТИ В ЦЮ СУМУ НЕ ВХОДЯТЬ, і це найтонше місце фази
+		// 0056. DropUAH означає «тут щось закрилось» — розстрочка
+		// доплачена, картка звільнилась, — тобто твердження про те, що
+		// платити стало менше НАЗАВЖДИ. Разова витрата зникає з наступного
+		// місяця просто тому, що вона разова: місяць після котла показав би
+		// «стало легше на 30 000», хоча не закрилось нічого. І дзеркально —
+		// місяць котла показував би нуль там, де попередній щось закрив.
 		due := d.DueUAH + d.CardInstUAH
 		if prevDue >= 0 && prevDue-due > 0.005 {
 			row.DropUAH = round2(prevDue - due)

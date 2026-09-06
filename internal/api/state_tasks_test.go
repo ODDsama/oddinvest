@@ -166,3 +166,81 @@ func TestArrivedTodayTask(t *testing.T) {
 		t.Error("позначена виплата не мала лишати задачі — гроші вже на рахунку")
 	}
 }
+
+// Прострочена планова витрата — це ДІЯ, і місце їй у черзі рішень. Окремим
+// числом на екрані місяця вона не кричить навмисно: план і так просів.
+func TestOverduePlannedExpenseRaisesTask(t *testing.T) {
+	today := domain.Date("2026-09-06")
+	src := &sources{planExpenses: []domain.PlanExpense{
+		{Name: "Страховка", Amount: 12_000_00, Currency: money.UAH,
+			DueDate: "2026-08-14", PaidFrom: domain.PaidFromPlan},
+		{Name: "Гуми", Amount: 8_000_00, Currency: money.UAH,
+			DueDate: "2026-09-01", PaidFrom: domain.PaidFromCard},
+		// Сплачена не кричить, хай яка стара.
+		{Name: "Котел", Amount: 30_000_00, Currency: money.UAH,
+			DueDate: "2026-05-01", PaidDate: "2026-05-02", PaidFrom: domain.PaidFromCard},
+		// Майбутня теж: її час іще не настав.
+		{Name: "ТО", Amount: 5_000_00, Currency: money.UAH,
+			DueDate: "2026-12-01", PaidFrom: domain.PaidFromCard},
+	}}
+
+	got, ok := overduePlannedTask(src, today)
+	if !ok {
+		t.Fatal("двох прострочених витрат мало вистачити на задачу")
+	}
+	// ОДНА задача на всі: три рядки — це один похід у список, а не три
+	// різні рішення.
+	for _, want := range []string{"Страховка", "Гуми"} {
+		if !strings.Contains(got.Title, want) {
+			t.Errorf("у заголовку немає «%s»: %q", want, got.Title)
+		}
+	}
+	for _, no := range []string{"Котел", "ТО"} {
+		if strings.Contains(got.Title, no) {
+			t.Errorf("у заголовку є «%s», хоч вона не прострочена: %q", no, got.Title)
+		}
+	}
+	if got.AmountUAH != 20000 {
+		t.Errorf("сума %v, чекали 20000 — обидва контури разом: це похід у список, "+
+			"а не арифметика кошиків", got.AmountUAH)
+	}
+	// Дата — НАЙРАННІША з прострочених: саме вона каже, наскільки відстав.
+	if got.When != dayMonth("2026-08-14") {
+		t.Errorf("дата %q, чекали найранішу з прострочених", got.When)
+	}
+	if got.Sev != sevNow {
+		t.Errorf("терміновість %q, чекали now — гроші мали піти вже", got.Sev)
+	}
+
+	// САМОГАСНА: позначка «сплачено» прибирає задачу без жодного іншого
+	// стану.
+	for i := range src.planExpenses {
+		src.planExpenses[i].PaidDate = "2026-09-05"
+	}
+	if _, ok := overduePlannedTask(src, today); ok {
+		t.Error("після позначок «сплачено» задача лишилась")
+	}
+}
+
+// Валютна витрата дає рядок БЕЗ суми: складати долари з гривнями тут нема
+// чим — курсів у черзі немає.
+func TestOverduePlannedTaskSkipsSumOnMixedCurrency(t *testing.T) {
+	today := domain.Date("2026-09-06")
+	src := &sources{planExpenses: []domain.PlanExpense{
+		{Name: "Страховка", Amount: 12_000_00, Currency: money.UAH,
+			DueDate: "2026-08-14", PaidFrom: domain.PaidFromPlan},
+		{Name: "Хостинг", Amount: 120_00, Currency: money.USD,
+			DueDate: "2026-08-20", PaidFrom: domain.PaidFromCard},
+	}}
+	got, ok := overduePlannedTask(src, today)
+	if !ok {
+		t.Fatal("задачі немає")
+	}
+	if got.AmountUAH != 0 || strings.Contains(got.Title, "₴") {
+		t.Errorf("задача назвала гривневу суму на змішаних валютах: %q / %v",
+			got.Title, got.AmountUAH)
+	}
+	if !strings.Contains(got.Title, "Хостинг") {
+		t.Errorf("валютна витрата випала із заголовка: %q", got.Title)
+	}
+}

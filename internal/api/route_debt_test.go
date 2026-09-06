@@ -147,3 +147,90 @@ func TestRouteMonthsNameTheDrop(t *testing.T) {
 		t.Errorf("без боргу в документі таблиця мусить мовчати, маємо %d рядків", len(out.Months))
 	}
 }
+
+// --- планові витрати на горизонті (0056) ---
+
+// Планова витрата з картки стоїть у таблиці «Борг на горизонті» окремою
+// колонкою — у своєму місяці, а не розмазана. Ноги маршруту вона не чіпає:
+// це не портфельні гроші.
+func TestRouteMonthsShowCardPlanned(t *testing.T) {
+	sug := []suggestion{bondSug("UA0001", 1000, money.UAH)}
+	doc, plans := routeDebtDoc()
+	debt := map[string]routeDebtMonth{}
+	for m := 0; m <= routeHorizonMonths; m++ {
+		row := routeDebtMonth{DueUAH: 2000}
+		if m == 2 {
+			row.PlannedUAH = 30000 // котел
+		}
+		debt[monthKeyAt(routeToday, m)] = row
+	}
+	got := buildRoute(doc, sug, routeDebtFlows(), plans, debt, allocRates, nil, nil, routeToday)
+	for m, r := range got.Months {
+		want := 0.0
+		if m == 2 {
+			want = 30000
+		}
+		if r.PlannedUAH != want {
+			t.Errorf("місяць +%d: планові %.2f, чекали %.2f", m, r.PlannedUAH, want)
+		}
+	}
+}
+
+// СТОРОЖ. Місяць ПІСЛЯ разової витрати не має показувати «тут щось
+// закрилось»: drop означає, що платити стало менше НАЗАВЖДИ (розстрочка
+// доплачена, картка звільнилась), а котел зник просто тому, що він разовий.
+// І дзеркально — місяць самого котла не має гасити drop, який справді
+// стався поруч.
+func TestRouteDropIgnoresPlanned(t *testing.T) {
+	sug := []suggestion{bondSug("UA0001", 1000, money.UAH)}
+	doc, plans := routeDebtDoc()
+	debt := map[string]routeDebtMonth{}
+	for m := 0; m <= routeHorizonMonths; m++ {
+		row := routeDebtMonth{}
+		if m <= 3 {
+			row.DueUAH = 2000 // закривається після четвертого місяця
+		}
+		if m == 1 {
+			row.PlannedUAH = 30000
+		}
+		debt[monthKeyAt(routeToday, m)] = row
+	}
+	got := buildRoute(doc, sug, routeDebtFlows(), plans, debt, allocRates, nil, nil, routeToday)
+	for m, r := range got.Months {
+		want := 0.0
+		if m == 4 {
+			want = 2000 // саме тут обовʼязкове справді скінчилось
+		}
+		if r.DropUAH != want {
+			t.Errorf("місяць +%d: drop %.2f, чекали %.2f — разова витрата "+
+				"нічого не закриває, тож у drop не входить", m, r.DropUAH, want)
+		}
+	}
+}
+
+// Портфельна планова витрата худне ноги сама, без окремої ноги: вони
+// діляться з PlanUAH, а той уже за вирахуванням витрати. Ногу «мінус
+// котел» заводити не можна — нога маршруту це горщик грошей, що ПРИЙДУТЬ.
+func TestRouteLegsShrinkOnPlanPlanned(t *testing.T) {
+	sug := []suggestion{bondSug("UA0001", 1000, money.UAH)}
+	doc, plans := routeDebtDoc()
+	base := buildRoute(doc, sug, routeDebtFlows(), plans, nil, allocRates, nil, nil, routeToday)
+
+	doc2, plans2 := routeDebtDoc()
+	// Те саме, що зробив би buildMonthPlan із витратою 10 000 у вересні.
+	sep := monthKeyAt(routeToday, 1)
+	plans2[sep].PlannedUAH = 10000
+	plans2[sep].PlanUAH -= 10000
+	with := buildRoute(doc2, sug, routeDebtFlows(), plans2, nil, allocRates, nil, nil, routeToday)
+
+	if len(base.Months) == 0 || len(with.Months) == 0 {
+		t.Skip("таблиці місяців без боргу немає — перевіряємо самі ноги")
+	}
+	if with.Months[1].PlanUAH >= base.Months[1].PlanUAH {
+		t.Errorf("вересень: план %.2f не менший за %.2f — витрата не дійшла до маршруту",
+			with.Months[1].PlanUAH, base.Months[1].PlanUAH)
+	}
+	if diff := base.Months[1].PlanUAH - with.Months[1].PlanUAH; diff != 10000 {
+		t.Errorf("план схуд на %.2f, чекали рівно 10000", diff)
+	}
+}

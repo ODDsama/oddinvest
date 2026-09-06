@@ -67,6 +67,10 @@ const (
 	actHowToFund     = "how-to-fund"
 	actConfirmRoute  = "confirm-route"
 	actFillGoal      = "fill-goal"
+	// actPayPlanned веде до списку планових витрат: рішення там подвійне —
+	// «сплатив» або «переніс», — і кнопка, що робить лише перше, змусила б
+	// брехати того, хто вибрав друге.
+	actPayPlanned = "pay-planned"
 	// actPayCard веде до форми звірки картки: у неї два числа з додатка
 	// банку, і саме вони роблять пороги правдою. actPayDebt — до журналу
 	// боргу.
@@ -415,6 +419,13 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		add(t)
 	}
 
+	// ---------- прострочена планова витрата ----------
+	// Поруч із надходженням плану навмисно: обидві задачі про те саме —
+	// дата минула, а факту немає.
+	if t, ok := overduePlannedTask(src, today); ok {
+		add(t)
+	}
+
 	// ---------- вклад гаситься ----------
 	if t, ok := maturingDepositTask(src, today); ok {
 		add(t)
@@ -697,6 +708,63 @@ func receiptTask(src *sources, today domain.Date) (state.Task, bool) {
 		When:   dayMonth(due),
 		Action: actRecordReceipt,
 	}, true
+}
+
+// overduePlannedTask — планові витрати, чия дата минула, а гроші не пішли.
+//
+// ЄДИНЕ МІСЦЕ, ДЕ ПРОСТРОЧЕНА КРИЧИТЬ. Окремого числа на екрані місяця в
+// неї немає навмисно: план і так просів, а друге число поруч відповідало б
+// на питання, на яке вже відповідає задача. Черга ж для того й існує — щоб
+// те, що вимагає рішення, не доводилось шукати.
+//
+// ОДНІЄЮ ЗАДАЧЕЮ НА ВСІ, як у надходжень: три прострочені витрати — це не
+// три різні рішення, а один похід у список. Окремі рядки витіснили б із
+// черги все інше рівно тоді, коли людина й так відстала.
+//
+// СУМА ГРИВНЕВА Й ЛИШЕ ГРИВНЕВА — тут немає курсів, а складати долари з
+// гривнями не можна. Валютна витрата дає рядок без суми: назва й дата
+// кажуть достатньо, щоб піти й подивитись.
+//
+// САМОГАСНА: щойно зʼявиться paid_date, Overdue стане хибним, і задача
+// зникне сама — жодного стану поза самим рядком тримати не треба.
+func overduePlannedTask(src *sources, today domain.Date) (state.Task, bool) {
+	var names []string
+	var total float64
+	allUAH := true
+	due := domain.Date("")
+	for _, e := range src.planExpenses {
+		if !e.Overdue(today) {
+			continue
+		}
+		names = append(names, e.Name)
+		if e.Currency == money.UAH {
+			total += float64(e.Amount) / 100
+		} else {
+			allUAH = false
+		}
+		if due == "" || e.DueDate < due {
+			due = e.DueDate
+		}
+	}
+	if len(names) == 0 {
+		return state.Task{}, false
+	}
+	title := "Сплати або перенеси: " + strings.Join(names, ", ")
+	t := state.Task{
+		ID: "planned-overdue", Sev: sevNow, Rank: 51,
+		Title: title,
+		Why: "Дата минула, а гроші не пішли. Застосунок і далі рахує ці " +
+			"витрати на ПОТОЧНИЙ місяць — вони ж нікуди не поділись, — тож " +
+			"поки дата не зсунута й не поставлена позначка «сплачено», план " +
+			"і стеля витрат занижені саме на цю суму.",
+		When:   dayMonth(due),
+		Action: actPayPlanned,
+	}
+	if allUAH {
+		t.Title = title + " — " + uah(total)
+		t.AmountUAH = round2(total)
+	}
+	return t, true
 }
 
 func maturingDepositTask(src *sources, today domain.Date) (state.Task, bool) {
