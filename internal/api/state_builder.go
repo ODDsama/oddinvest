@@ -91,8 +91,25 @@ type hypothetical struct {
 	fundOps  []domain.FundOp
 	deposits []domain.Deposit
 	npfOps   []domain.NPFOp
-	actions  []store.PlanAction
-	flows    []store.PlanFlow
+	// topUps — ГРОШІ, ЯКИМИ ОПЛАЧЕНІ ПОКУПКИ ГІПОТЕЗИ.
+	//
+	// Доти гіпотеза додавала саму витрату й нічого більше: касовий журнал
+	// чесно списував вартість лота, сертифіката чи внеску, а поповнення,
+	// з якого це платиться, у неї не клали. Наслідок було видно на екрані —
+	// «6 445 ₴ у кошику, а капітал іде в мінус»: гроші зникали з рахунку,
+	// не додавши нічого, крім самого паперу.
+	//
+	// Правило застосунку при цьому не змінилось і не мало: план купівель
+	// міряється ПЛАНОВИМИ грошима, а не сьогоднішнім залишком (шапка
+	// basketDoc). Бракувало саме другої половини цієї обіцянки — покласти
+	// в гіпотезу ще й те, що надійде.
+	//
+	// store.Deposit, а не domain.Deposit: перше — поповнення рахунку, друге
+	// — банківський вклад. Сусідні поля названі майже однаково, і сплутати
+	// їх означало б замість грошей на рахунку відкрити вклад.
+	topUps  []store.Deposit
+	actions []store.PlanAction
+	flows   []store.PlanFlow
 	// bonds/pays — довідник для паперів, яких у портфелі ЩЕ НЕМАЄ.
 	//
 	// Без них прийом мовчки недорахував би: loadSources тягне довідник
@@ -245,6 +262,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		src.fundOps = append(append([]domain.FundOp{}, src.fundOps...), what.fundOps...)
 		src.termDeposits = append(append([]domain.Deposit{}, src.termDeposits...), what.deposits...)
 		src.npfOps = append(append([]domain.NPFOp{}, src.npfOps...), what.npfOps...)
+		src.deposits = append(append([]store.Deposit{}, src.deposits...), what.topUps...)
 		// План — теж копією зрізу, і теж ДО того, як його прочитає
 		// buildProjection. Єдиний споживач у цій функції один (той самий
 		// виклик на чотириста рядків нижче), тож розійтись тут нема чому.

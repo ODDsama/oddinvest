@@ -133,10 +133,13 @@ func TestWhatIfMovesSharesAndCash(t *testing.T) {
 	if d := after.NominalUAH - before.NominalUAH; d != 3000 {
 		t.Errorf("номінал зріс на %.2f, хочемо 3000", d)
 	}
-	// Гроші пішли з рахунку того брокера, у якого їх було найбільше.
-	if after.Brokers["mono"]["UAH"] >= before.Brokers["mono"]["UAH"] {
-		t.Errorf("готівка mono не зменшилась: було %.2f, стало %.2f",
-			before.Brokers["mono"]["UAH"], after.Brokers["mono"]["UAH"])
+	// ГОТІВКА НЕ ЗМІНИЛАСЬ: гіпотеза приносить гроші, якими папери
+	// оплачені, і приносить їх ТОМУ САМОМУ брокерові, з якого списує.
+	// Доти рахунок просідав, і картка показувала портфель, у якому гроші
+	// зникли (спіймано власником: «6к у кошику, а капітал іде в мінус»).
+	if d := after.Brokers["mono"]["UAH"] - before.Brokers["mono"]["UAH"]; d != 0 {
+		t.Errorf("готівка mono змінилась на %.2f, хочемо 0: було %.2f, стало %.2f",
+			d, before.Brokers["mono"]["UAH"], after.Brokers["mono"]["UAH"])
 	}
 	if len(got.Basket.Lines) != 1 {
 		t.Fatalf("рядків кошика %d", len(got.Basket.Lines))

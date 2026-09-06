@@ -206,6 +206,11 @@ export function impactHTML(ctx, res) {
   const anyNow = lines.some((l) => !l.future);
   const portfolio = anyNow ? `<div class="sub mb-sm">Портфель</div>
     ${delta("Капітал", before.capital_uah, after.capital_uah, fmtUAH)}
+    <div class="fine-xs muted">Гіпотеза приносить і гроші, якими план оплачений,
+      тож капітал РОСТЕ — але менше, ніж коштує план. Папір входить у капітал за
+      номіналом, а платиш ти номінал плюс НКД: сплачений купон тут не видно, він
+      повернеться першою ж виплатою. Сертифікат входить за ринковою ціною, і
+      різниця з ціною покупки теж лишається тут.</div>
     ${delta("Частка USD", before.usd_share_pct, after.usd_share_pct, asPct,
     targetTail(st.usd_target_share_pct))}
     ${delta("Частка EUR", before.eur_share_pct, after.eur_share_pct, asPct,

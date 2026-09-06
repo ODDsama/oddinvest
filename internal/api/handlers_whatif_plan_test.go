@@ -544,16 +544,22 @@ func TestWhatIfBuyOfHeldFundMovesCapitalByOverpaymentOnly(t *testing.T) {
 	}
 	after := fundsOf(t, afterOf(t, body))
 
-	want := -qty * (price - pos.LastPrice)
+	// КАПІТАЛ РОСТЕ НА ВАРТІСТЬ КУПЛЕНОГО, а не падає на переплату:
+	// гіпотеза приносить і гроші, якими покупка оплачена
+	// (hypothetical.topUps). Заплачено qty × price, у капітал увійшло
+	// qty × ринкова ціна — різниця й є переплата.
+	want := qty * pos.LastPrice
 	got := after.CapitalUAH - before.CapitalUAH
 	if math.Abs(got-want) > 0.02 {
-		t.Errorf("капітал мав зрушити на переплату %.2f, зрушив на %.2f", want, got)
+		t.Errorf("капітал мав зрости на вартість купленого %.2f, зрушив на %.2f", want, got)
 	}
-	// Порядок: переплата обмежена ПОКУПКОЮ, а не пакетом. Фантомний
-	// доданок на 1738 сертифікатах дав би тут сотні гривень.
-	if math.Abs(got) > 5 {
-		t.Errorf("капітал зрушив на %.2f — це порядок «переоцінили весь пакет», "+
-			"а не «переплатили за 4 сертифікати»", got)
+	// ПЕРЕПЛАТА ОБМЕЖЕНА ПОКУПКОЮ, а не пакетом, і саме заради цього тест
+	// живе. Фантомний доданок на 1738 сертифікатах дав би тут сотні гривень
+	// різниці; чотири сертифікати дають копійки.
+	over := qty*price - got
+	if math.Abs(over) > 5 {
+		t.Errorf("переплата %.2f — це порядок «переоцінили весь пакет», "+
+			"а не «переплатили за 4 сертифікати»", over)
 	}
 }
 
@@ -574,7 +580,12 @@ func TestWhatIfBuyOfHeldFundAtPositionPriceBarelyMovesCapital(t *testing.T) {
 		t.Fatalf("%d %s", code, body)
 	}
 	after := fundsOf(t, afterOf(t, body))
-	if got := math.Abs(after.CapitalUAH - before.CapitalUAH); got > qty*0.01 {
+	// Купівля за ЦІНОЮ ПОЗИЦІЇ: заплачене й отримане збігаються, тож
+	// капітал росте рівно на суму покупки, а копійчане округлення
+	// (ціна копійками проти чотирьох знаків позиції) лишається обмеженим
+	// самою покупкою.
+	paid := qty * before.fund(t, "Inzhur REIT").LastPrice
+	if got := math.Abs(after.CapitalUAH - before.CapitalUAH - paid); got > qty*0.01 {
 		t.Errorf("копійчане округлення коштувало %.2f — це більше за %d × 0,01, "+
 			"тобто похибка знову міряється пакетом, а не покупкою", got, qty)
 	}
@@ -657,8 +668,11 @@ func TestWhatIfFirstBuyOfUnheldFundCountsAtItsPrice(t *testing.T) {
 	}
 	after := fundsOf(t, afterOf(t, body))
 
-	if got := math.Abs(after.CapitalUAH - before.CapitalUAH); got > 0.05 {
-		t.Errorf("перша покупка фонду мала лишити капітал на місці, зрушила на %.2f", got)
+	// Капітал росте рівно на вартість купленого: 10 × 100. Наївне «ніколи
+	// не ставити ціну» лишило б LastPrice нулем — і капітал не зрушив би
+	// зовсім, хоч гроші за сертифікати заплачені.
+	if got := after.CapitalUAH - before.CapitalUAH; math.Abs(got-1000) > 0.05 {
+		t.Errorf("перша покупка фонду мала підняти капітал на 1000, зрушила на %.2f", got)
 	}
 	if got := after.kindUAH("funds") - before.kindUAH("funds"); math.Abs(got-1000) > 0.05 {
 		t.Errorf("фонди мали вирости на всю покупку (1000), виросли на %.2f", got)
@@ -847,8 +861,12 @@ func TestWhatIfDepositMovesCapitalAndBank(t *testing.T) {
 	if d := after.DepositsUAH - before.DepositsUAH; d != 300000 {
 		t.Errorf("вклади зросли на %.2f, хочемо 300000", d)
 	}
-	if d := after.Brokers["mono"]["UAH"] - before.Brokers["mono"]["UAH"]; d != -300000 {
-		t.Errorf("гривня в mono змінилась на %.2f, хочемо -300000", d)
+	// ГРОШІ НА РАХУНКУ НЕ ЗМІНЮЮТЬСЯ, і це головне, що змінила фаза 46:
+	// гіпотеза приносить те, чим вклад оплачений. Доти рахунок просідав на
+	// 300 000, тобто картка показувала портфель, у якому гроші зникли, а
+	// вклад узявся нізвідки.
+	if d := after.Brokers["mono"]["UAH"] - before.Brokers["mono"]["UAH"]; d != 0 {
+		t.Errorf("гривня в mono змінилась на %.2f, хочемо 0: гіпотеза приносить гроші вкладу", d)
 	}
 }
 
@@ -902,8 +920,10 @@ func TestWhatIfNPFContributionMovesAccount(t *testing.T) {
 	if d := after.NPFUAH - before.NPFUAH; d < 3999 || d > 4001 {
 		t.Errorf("пенсійний виріс на %.2f, хочемо ≈4000", d)
 	}
-	if d := after.Brokers["mono"]["UAH"] - before.Brokers["mono"]["UAH"]; d != -4000 {
-		t.Errorf("гривня в mono змінилась на %.2f, хочемо -4000", d)
+	// Рахунок не просідає: внесок оплачений грішми, які гіпотеза принесла
+	// разом із ним (довід — при hypothetical.topUps).
+	if d := after.Brokers["mono"]["UAH"] - before.Brokers["mono"]["UAH"]; d != 0 {
+		t.Errorf("гривня в mono змінилась на %.2f, хочемо 0: гіпотеза приносить гроші внеску", d)
 	}
 }
 
@@ -984,17 +1004,26 @@ func TestWhatIfFirstBuyOfUnheldBondCountsAtNominal(t *testing.T) {
 	if d := got.After.NominalUAH - before.NominalUAH; d != 2000 {
 		t.Errorf("номінал зріс на %.2f, хочемо 2000 — довідник паперу не доїхав разом із лотом", d)
 	}
-	// Капітал змінюється рівно на «номінал мінус заплачене», тобто на
-	// мінус НКД: за нього платять, а капіталом він не стає. Головне тут —
-	// що просідання НЕ дорівнює всій ціні покупки.
+	// КАПІТАЛ РОСТЕ РІВНО НА НОМІНАЛ, а не на заплачене, і різниця між ними
+	// — це сплачений НКД.
+	//
+	// Гіпотеза приносить гроші, якими папір оплачений (topUps), тож із
+	// рахунку нічого не зникає; але в капітал папір входить за номіналом
+	// (Capital.BondsUAH = nominalMajor), а платять за нього номінал плюс
+	// накопичений купон. Той купон повернеться першою ж виплатою, і саме
+	// тому просідання тут НЕМАЄ — є менший приріст.
 	spent, err := domain.ParseDecimalToMinor(got.Basket.Totals[0].Amount, money.UAH)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := before.CapitalUAH + 2000 - float64(spent)/100
+	want := before.CapitalUAH + 2000
 	if diff := got.After.CapitalUAH - want; diff > 0.01 || diff < -0.01 {
-		t.Errorf("капітал %.2f, хочемо %.2f (було %.2f + номінал 2000 − заплачено %.2f)",
-			got.After.CapitalUAH, want, before.CapitalUAH, float64(spent)/100)
+		t.Errorf("капітал %.2f, хочемо %.2f (було %.2f + номінал 2000)",
+			got.After.CapitalUAH, want, before.CapitalUAH)
+	}
+	if accrued := float64(spent)/100 - 2000; accrued <= 0 {
+		t.Errorf("заплачено %.2f при номіналі 2000 — фікстура без НКД нічого не стереже",
+			float64(spent)/100)
 	}
 }
 

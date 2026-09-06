@@ -190,7 +190,11 @@ function kindRows(s) {
     return ord(a) - ord(b);
   });
   const noTarget = rows
-    .filter((r) => !(r.target_pct > 0) && (r.current_uah || 0) > 0)
+    // Готівка проходить і ВІДʼЄМНОЮ: доти тут стояв другий щит
+    // `current_uah > 0`, і навіть коли бекенд почав віддавати мінус,
+    // картка його викидала. Решта видів відʼємними не бувають, тож
+    // фільтр лишається лише проти нульових рядків.
+    .filter((r) => !(r.target_pct > 0) && Math.abs(r.current_uah || 0) > 0.005)
     .map((r) => ({
       key: r.key, title: KIND_GROUP[r.key] || r.key,
       nowUAH: r.current_uah || 0, noTarget: true,

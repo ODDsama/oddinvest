@@ -45,6 +45,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -247,26 +248,28 @@ func (s *Server) addTopup(ctx context.Context, now time.Time,
 	if err != nil {
 		return err
 	}
-	// ТЕ САМЕ ВІДНІМАННЯ, ЗАРАДИ ЯКОГО ВСЕ Й ЗАТІЯНО.
+	// ВІДНІМАННЯ ТУТ БІЛЬШЕ НЕМАЄ, І ЦЕ ГОЛОВНЕ, ЩО ТРЕБА ЗНАТИ ПРО ЦЮ
+	// ФУНКЦІЮ.
 	//
-	// LeftUAH міряється від грошей, ВНЕСЕНИХ у портфель (state_month.go), а
-	// не від покупок: план купівель у ньому не врахований і врахуватись не
-	// може — це намір, а не рух грошей. Тому його доводиться відняти тут,
-	// і без цього віднімання картка радила б докупити рівно те, що вже
-	// заплановане, — подвійний рахунок на кожен рядок плану.
+	// Стояло `avail = LeftUAH − Σ(рядки кошика)`: LeftUAH міряв гроші,
+	// ВНЕСЕНІ в портфель, а план купівель у ньому не був урахований —
+	// намір, а не рух грошей, — тож без явного віднімання картка радила б
+	// докупити рівно те, що вже заплановане.
 	//
-	// МАЙБУТНІ РЯДКИ НЕ ВІДНІМАЮТЬСЯ: вони живуть у наступному місяці й
-	// цих грошей не витрачають. Та сама межа, що ділить портфельні числа
-	// картки наслідків від цільових (basketLine.Future).
-	planUAH := 0.0
-	for _, l := range basket.Lines {
-		if l.Future {
-			continue
-		}
-		planUAH += moneyAmount(l.Total) * allocRate(l.Currency, rates)
-	}
-	avail := after.MonthPlan.LeftUAH - planUAH
-	out.TopupPlanUAH = round2(after.MonthPlan.LeftUAH)
+	// Відколи гіпотеза приносить гроші, якими план оплачений
+	// (hypothetical.topUps), синтетичне поповнення потрапляє в
+	// MonthDepositedUAH, і LeftUAH зменшується САМ. Лишити віднімання
+	// означало б відняти план ДВІЧІ — і картка мовчала б там, де гроші ще
+	// є.
+	//
+	// Майбутні рядки й тут не рахуються: вони грошей не приносять, тож і
+	// LeftUAH не чіпають (state_plan_buys.go, гілка при topUps).
+	//
+	// Через це `basket` лишається в підписі, хоч більше не читається: воно
+	// й далі описує ті самі гроші, і наступний автор, шукаючи «де ж тут
+	// віднімання», мусить знайти цей абзац, а не порожній параметр.
+	avail := after.MonthPlan.LeftUAH
+	out.TopupPlanUAH = round2(planCostUAH(basket, rates) + avail)
 	out.TopupLeftUAH = round2(math.Max(0, avail))
 	// Поріг той самий, що в розкладки: сума, з якої не вийде жодного руху,
 	// не варта картки. Нуль і від'ємне значення сюди ж — план купівель
@@ -301,6 +304,26 @@ func (s *Server) addTopup(ctx context.Context, now time.Time,
 		money.UAH, s.npfIDByName(ctx))
 	out.Topup = &plan
 	return nil
+}
+
+// planCostUAH — скільки коштують рядки «зараз», грн-екв.
+//
+// Потрібне ЛИШЕ шапці картки: вона показує три числа — скільки місяць
+// обіцяв, скільки з того вже розписано планом, скільки лишилось, — і без
+// середнього результат віднімання стояв би без самого віднімання.
+//
+// Саме віднімання при цьому робить уже не картка: гіпотеза приносить гроші
+// плану, тож LeftUAH зменшується сам (довід — при avail вище). Тут лише
+// відновлюється те, що місяць обіцяв ДО плану: залишок плюс його вартість.
+func planCostUAH(basket basketDoc, rates fx.Rates) float64 {
+	out := 0.0
+	for _, l := range basket.Lines {
+		if l.Future {
+			continue
+		}
+		out += moneyAmount(l.Total) * allocRate(l.Currency, rates)
+	}
+	return out
 }
 
 // planBuyRows — набір рядків, наслідки якого рахуємо: збережені (за
