@@ -463,7 +463,7 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		spend, basis = float64(burn.PerMonth)/100, "виміряно"
 	}
 
-	var gross, invest, inst float64
+	var gross, invest, inst, planned float64
 	// perMonth — той самий обхід, але помісячно: із нього виходить і
 	// середнє, і прохід балансу вперед. Другого циклу не заводимо, бо
 	// «скільки прийде в жовтні» мусить лишитись одним означенням.
@@ -474,14 +474,21 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 			row.gross, row.invest = mp.GrossUAH, mp.IncomeUAH+mp.ExtraUAH
 		}
 		row.inst = cardInstallmentsInMonth(src, rates, today, m, "")
+		// Планові витрати КАРТКОВОГО контуру — тим самим збирачем, що й у
+		// плані місяця, лише з іншим paid_from. Другого означення «чи тисне
+		// котел у листопаді» не зʼявляється: те саме правило, що вже
+		// тримає розстрочки.
+		row.planned = plannedInMonth(src, rates, today, m, "", domain.PaidFromCard)
 		perMonth = append(perMonth, row)
 		gross += row.gross
 		invest += row.invest
 		inst += row.inst
+		planned += row.planned
 	}
 	gross /= float64(months)
 	invest /= float64(months)
 	inst /= float64(months)
+	planned /= float64(months)
 
 	// Борг на ПОЧАТОК вікна. Коли вікно починається з місяця звірки — його
 	// відновлюють: що прийшло до звірки, додати назад; що списалось і
@@ -496,6 +503,13 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 			after.gross, after.invest = mp.GrossUAH, mp.IncomeUAH+mp.ExtraUAH
 		}
 		after.inst = cardInstallmentsInMonth(src, rates, today, startM, markMonth.AddDays(1))
+		// ПЛАНОВИХ ВИТРАТ ДО ЗВІРКИ ТУТ НЕМАЄ, і це рішення, а не пропуск —
+		// інакше наступний автор допише plannedBefore «для симетрії» з
+		// instBefore. Витрата, СПЛАЧЕНА до звірки, уже сидить у виміряному
+		// мінусі, і рядка з такою датою в розрахунку немає взагалі: сплачена
+		// не тисне ніде. А несплачена — прострочена, тобто в балансі її
+		// НЕМАЄ за визначенням; додати її назад означало б стверджувати, що
+		// гроші пішли.
 		days := monthStart(today, startM+1).AddDays(-1).Day()
 		paidBefore = round2((full.gross - full.invest) - (after.gross - after.invest))
 		instBefore = round2(full.inst - after.inst)
@@ -537,6 +551,7 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		GrossUAH:       int64(math.Round(gross * 100)),
 		InvestUAH:      int64(math.Round(invest * 100)),
 		InstallmentUAH: int64(math.Round(inst * 100)),
+		PlannedUAH:     int64(math.Round(planned * 100)),
 		SpendUAH:       int64(math.Round(spend * 100)),
 		ExitBy:         exitBy, Today: today,
 		// Місяців рівно стільки, скільки у вікні, а не скільки днів ділиться
@@ -558,6 +573,7 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		GrossUAH:         round2(gross),
 		InvestUAH:        round2(invest),
 		InstallmentsUAH:  round2(inst),
+		PlannedUAH:       round2(planned),
 		SpendUsedUAH:     round2(spend),
 		SpendBasis:       basis,
 		SpendDeclaredUAH: round2(declared),
@@ -659,11 +675,11 @@ func debtAhead(src *sources, rates fx.Rates, today domain.Date, months int) map[
 }
 
 // debtMonthRow — валовий дохід місяця, та його частина, що йде в портфель,
-// і платежі карткових розстрочок.
+// платежі карткових розстрочок і планові разові витрати з картки.
 //
 // Іменований тип, а не анонімна структура: він перетинає межу функції, і
 // анонімний довелось би повторити в сигнатурі слово в слово.
-type debtMonthRow struct{ gross, invest, inst float64 }
+type debtMonthRow struct{ gross, invest, inst, planned float64 }
 
 // debtExitWalk — баланс картки місяць за місяцем до нуля, від боргу на
 // ПОЧАТОК першого місяця (debtUAH).
@@ -686,7 +702,7 @@ func debtExitWalk(perMonth []debtMonthRow,
 	pays := make([]float64, len(perMonth))
 	total := 0.0
 	for m, row := range perMonth {
-		if pay := row.gross - row.invest - row.inst - spendUAH; pay > 0 {
+		if pay := row.gross - row.invest - row.inst - row.planned - spendUAH; pay > 0 {
 			pays[m] = pay
 			total += pay
 		}
@@ -704,8 +720,8 @@ func debtExitWalk(perMonth []debtMonthRow,
 		out = append(out, state.DebtExitStep{
 			Month:    monthKeyAt(today, startM+m),
 			GrossUAH: round2(row.gross), InvestUAH: round2(row.invest),
-			InstallmentsUAH: round2(row.inst),
-			SpendUAH:        round2(spendUAH), LeftUAH: round2(left),
+			InstallmentsUAH: round2(row.inst), PlannedUAH: round2(row.planned),
+			SpendUAH: round2(spendUAH), LeftUAH: round2(left),
 		})
 		if left == 0 {
 			break

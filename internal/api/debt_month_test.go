@@ -874,3 +874,84 @@ func TestDebtCapsReserveIgnoresStickyFee(t *testing.T) {
 		t.Error("незвірений договір обрізав подушку")
 	}
 }
+
+// --- планові витрати в стелі витрат (0056) ---
+
+// Планова витрата з КАРТКИ віднімається від того, що лишається на картці:
+// стеля витрат менша рівно на неї. Той самий механізм, що з розстрочками,
+// і саме тому вона окремим доданком, а не всередині SpendUAH: витрата —
+// подія, а SpendUAH — ритм.
+func TestDebtExitSpendCapDropsOnCardPlanned(t *testing.T) {
+	in := domain.CardExitInput{
+		DebtUAH: 180_000_00, GrossUAH: 200_000_00, InvestUAH: 0,
+		SpendUAH: 40_000_00, ExitBy: "2026-12-31",
+		Today: domain.Date("2026-09-30"), Months: 3,
+	}
+	base := domain.CardExit(in)
+	in.PlannedUAH = 30_000_00 // котел, розмазаний по трьох місяцях вікна
+	with := domain.CardExit(in)
+
+	if !base.Known || !with.Known {
+		t.Fatalf("розрахунку немає: %+v / %+v", base, with)
+	}
+	if diff := base.SpendCap - with.SpendCap; diff != 30_000_00 {
+		t.Errorf("стеля впала на %d, чекали рівно планову витрату 3000000", diff)
+	}
+	// Другий рядок міряється з того самого залишку — інакше два числа
+	// поруч суперечили б одне одному.
+	if diff := base.WithInvestSpendCap - with.WithInvestSpendCap; diff != 30_000_00 {
+		t.Errorf("другий рядок впав на %d, чекали 3000000", diff)
+	}
+	if with.ETADate <= base.ETADate {
+		t.Errorf("дата виходу %s не пізніша за %s", with.ETADate, base.ETADate)
+	}
+}
+
+// СТОРОЖ ПРОТИ ПОДВІЙНОГО РАХУНКУ, дзеркальний до
+// TestMonthPlanCardPlannedDoesNotTouchPlan. Витрата з ПОРТФЕЛЬНИХ грошей
+// уже відбилась у плані місяця; зайшовши ще й у стелю витрат, вона
+// забрала б удвічі більше, ніж коштує — рівно те, що вже коштувало
+// 8 606,70 ₴/міс карткових розстрочок.
+func TestDebtExitPlanPlannedDoesNotTouchCap(t *testing.T) {
+	today := domain.Date("2026-09-10")
+	src := &sources{
+		planExpenses: []domain.PlanExpense{
+			{Name: "Ремонт", Amount: 5_000_00, Currency: money.UAH,
+				DueDate: "2026-10-15", PaidFrom: domain.PaidFromPlan},
+			{Name: "Котел", Amount: 3_000_00, Currency: money.UAH,
+				DueDate: "2026-10-20", PaidFrom: domain.PaidFromCard},
+		},
+	}
+	if got := plannedInMonth(src, fx.Rates{}, today, 1, "", domain.PaidFromCard); got != 3000 {
+		t.Errorf("картковий контур узяв %v, чекали самі 3000 — портфельна витрата "+
+			"вже відбилась у плані місяця", got)
+	}
+	if got := plannedInMonth(src, fx.Rates{}, today, 1, "", domain.PaidFromPlan); got != 5000 {
+		t.Errorf("портфельний контур узяв %v, чекали 5000", got)
+	}
+}
+
+// У розкладі витрата стоїть у СВОЄМУ місяці, а не розмазана по вікну —
+// заради цього розклад і потрібен поруч із середнім числом.
+func TestDebtExitWalkShowsPlannedInItsMonth(t *testing.T) {
+	rows := []debtMonthRow{
+		{gross: 100_000, invest: 0},
+		{gross: 100_000, invest: 0, planned: 30_000},
+		{gross: 100_000, invest: 0},
+	}
+	got := debtExitWalk(rows, 200_000, 40_000, domain.Date("2026-09-10"), 0)
+	if len(got) != 3 {
+		t.Fatalf("у розкладі %d місяців, чекали 3: %+v", len(got), got)
+	}
+	if got[0].PlannedUAH != 0 || got[2].PlannedUAH != 0 {
+		t.Errorf("витрата розмазалась на сусідні місяці: %+v", got)
+	}
+	if got[1].PlannedUAH != 30_000 {
+		t.Errorf("у своєму місяці витрата %v, чекали 30000", got[1].PlannedUAH)
+	}
+	// І борг у тому місяці меншає повільніше рівно на неї: 60 000 проти
+	// 30 000 гасіння.
+	if drop := got[0].LeftUAH - got[1].LeftUAH; drop != 30_000 {
+		t.Errorf("у місяці витрати борг упав на %v, чекали 30000 замість звичних 60000", drop)
+	}
+}

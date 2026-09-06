@@ -127,6 +127,11 @@ type payoffExitJSON struct {
 	// Installments — щомісячні платежі карткових розстрочок. Третій відтік
 	// із картки поруч із витратами й портфелем, і саме тому окремо.
 	Installments moneyJSON `json:"installments"`
+	// Planned — планові разові витрати з картки, у середньому за місяцями
+	// вікна. Четвертий відтік, і окремо від Installments з тієї ж причини,
+	// з якої ті окремо від витрат: розстрочка — графік банку, планова
+	// витрата — рішення власника, яке можна зсунути або скасувати.
+	Planned moneyJSON `json:"planned,omitempty"`
 	// SpendCap — головне число: скільки можна витрачати на місяць, щоб
 	// устигнути. NeedPerMonth — скільки треба звільняти.
 	SpendCap     moneyJSON `json:"spend_cap"`
@@ -166,10 +171,16 @@ type payoffExitJSON struct {
 	WithInvestSpendCap moneyJSON `json:"with_invest_spend_cap"`
 	WithInvestETADate  string    `json:"with_invest_eta_date,omitempty"`
 	// OnCard — залишок: скільки з валового доходу лишається на картці ПІСЛЯ
-	// портфельної частки й платежів карткових розстрочок. Саме ці гроші й
-	// воюють із витратами; без віднімання розстрочок рядок обіцяв би на
-	// їхню суму більше, ніж є (на бойових даних — на 8 606,70 ₴/міс).
-	// Саме він гасить борг, і саме його не було видно ніде.
+	// портфельної частки, платежів карткових розстрочок і планових разових
+	// витрат. Саме ці гроші й воюють із побутовими витратами; без
+	// віднімання розстрочок рядок обіцяв би на їхню суму більше, ніж є (на
+	// бойових даних — на 8 606,70 ₴/міс). Саме він гасить борг, і саме
+	// його не було видно ніде.
+	//
+	// ЧИСЛО РАХУЄТЬСЯ ТУТ, а не приходить готовим, і тому мусить
+	// повторювати onCard із domain.CardExit доданок у доданок: розійшовшись
+	// із ним, воно не завалить нічого — просто ланцюг на екрані перестане
+	// сходитися зі стелею під ним.
 	OnCard moneyJSON `json:"on_card"`
 	// Headroom — обернене питання: на скільки ще можна залізти в ліміт при
 	// цих витратах і все одно вийти до дати. Зі знаком: відʼємне — той
@@ -204,6 +215,7 @@ type payoffExitStepJSON struct {
 	Gross        moneyJSON `json:"gross"`
 	Invest       moneyJSON `json:"invest"`
 	Installments moneyJSON `json:"installments"`
+	Planned      moneyJSON `json:"planned,omitempty"`
 	Spend        moneyJSON `json:"spend"`
 	Left         moneyJSON `json:"left"`
 }
@@ -495,8 +507,8 @@ func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
 	out := &payoffExitJSON{
 		Cards:  e.Cards,
 		ExitBy: e.ExitBy, Months: e.Months,
-		Installments: uah(e.InstallmentsUAH),
-		SpendCap:     uah(e.SpendCapUAH), NeedPerMonth: uah(e.NeedPerMonthUAH),
+		Installments: uah(e.InstallmentsUAH), Planned: uah(e.PlannedUAH),
+		SpendCap: uah(e.SpendCapUAH), NeedPerMonth: uah(e.NeedPerMonthUAH),
 		Feasible: e.Feasible, ShortPerMonth: uah(e.ShortPerMonthUAH),
 		ETADate: e.ETADate,
 		Gross:   uah(e.GrossUAH), Invest: uah(e.InvestUAH),
@@ -505,7 +517,7 @@ func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
 		BurnWhy:       e.BurnWhy, BurnFrom: e.BurnFrom, BurnTo: e.BurnTo,
 		WithInvestSpendCap: uah(e.WithInvestSpendCapUAH),
 		WithInvestETADate:  e.WithInvestETADate,
-		OnCard:             uah(e.GrossUAH - e.InvestUAH - e.InstallmentsUAH),
+		OnCard:             uah(e.GrossUAH - e.InvestUAH - e.InstallmentsUAH - e.PlannedUAH),
 		Headroom:           uah(e.HeadroomUAH),
 		MaxDebt:            uah(e.MaxDebtUAH),
 		WithInvestHeadroom: uah(e.WithInvestHeadroomUAH),
@@ -523,8 +535,8 @@ func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
 	for _, st := range e.Schedule {
 		out.Schedule = append(out.Schedule, payoffExitStepJSON{
 			Month: st.Month, Gross: uah(st.GrossUAH), Invest: uah(st.InvestUAH),
-			Installments: uah(st.InstallmentsUAH),
-			Spend:        uah(st.SpendUAH), Left: uah(st.LeftUAH),
+			Installments: uah(st.InstallmentsUAH), Planned: uah(st.PlannedUAH),
+			Spend: uah(st.SpendUAH), Left: uah(st.LeftUAH),
 		})
 	}
 	if e.SpendMeasuredUAH > 0 {

@@ -788,6 +788,25 @@ type CardExitInput struct {
 	// ті самі гроші, що й витрати, — але це не витрати, і зливати їх в
 	// одне число означало б сховати найбільший регулярний відтік.
 	InstallmentUAH int64
+	// PlannedUAH — ПЛАНОВІ РАЗОВІ ВИТРАТИ (0056), що платяться З КАРТКИ, у
+	// СЕРЕДНЬОМУ за місяцями вікна. Рахує їх викликач, як і решту середніх.
+	//
+	// ОКРЕМО ВІД SpendUAH, і довід дослівно той самий, що при
+	// InstallmentUAH. SpendUAH — це РИТМ: заявлене місячне число або
+	// виміряне спалення між двома звірками, однакове з місяця в місяць.
+	// Планова витрата — ПОДІЯ: котел у листопаді й гуми в березні. Влити її
+	// в ритм означало б сказати, що котел купують щомісяця, і зробити
+	// невидимим найбільший разовий відтік.
+	//
+	// ОКРЕМО ВІД InstallmentUAH — бо це не графік банку, а рішення
+	// власника: його можна скасувати або зсунути, а графік розстрочки ні.
+	//
+	// ЦІНА УСЕРЕДНЕННЯ, яку треба назвати вголос: котел 30 000 ₴ на вікні в
+	// десять місяців дає −3 000 ₴/міс, тобто стеля рівномірно занижена в
+	// девʼяти місяцях і завищена в тому, де котел стоїть насправді. Це та
+	// сама ціна, яку вікно вже платить за GrossUAH та InstallmentUAH, і
+	// рятує від неї те саме — помісячна таблиця поруч.
+	PlannedUAH int64
 	// NeedPerMonthUAH — скільки треба звільняти щомісяця, коли це рахує
 	// ВИКЛИКАЧ. Потрібне, коли карток кілька: у кожної своя дата, і одне
 	// ділення боргу на спільні місяці було б неправдою для обох. Нуль =
@@ -890,9 +909,9 @@ func CardExit(in CardExitInput) CardExitPlan {
 	out.Months = in.Months
 
 	// На картці лишається дохід за вирахуванням того, що явно виводять в
-	// інструменти й що заберуть розстрочки: саме ці гроші й воюють із
-	// витратами.
-	onCard := in.GrossUAH - in.InvestUAH - in.InstallmentUAH
+	// інструменти, що заберуть розстрочки й що вже вирішено витратити
+	// разово: саме ці гроші й воюють із побутовими витратами.
+	onCard := in.GrossUAH - in.InvestUAH - in.InstallmentUAH - in.PlannedUAH
 
 	out.NeedPerMonth = in.NeedPerMonthUAH
 	if out.NeedPerMonth <= 0 {
@@ -918,8 +937,8 @@ func CardExit(in CardExitInput) CardExitPlan {
 	}
 	out.ETADate, out.ETAMonth = eta(onCard - in.SpendUAH)
 
-	out.WithInvestSpendCap = in.GrossUAH - in.InstallmentUAH - out.NeedPerMonth
-	out.WithInvestETADate, _ = eta(in.GrossUAH - in.InstallmentUAH - in.SpendUAH)
+	out.WithInvestSpendCap = in.GrossUAH - in.InstallmentUAH - in.PlannedUAH - out.NeedPerMonth
+	out.WithInvestETADate, _ = eta(in.GrossUAH - in.InstallmentUAH - in.PlannedUAH - in.SpendUAH)
 
 	// Запас — через СТЕЛЮ, а не через «лишається мінус витрати»: потреба
 	// рахується по картках за їхніми датами, і ближча тисне сильніше. Саме
