@@ -1508,6 +1508,24 @@
       "fill_pct": 2.43,
       "month_share_uah": 636,
       "month_balance_uah": 1349.82
+    },
+    {
+      "dimension": "kind",
+      "key": "cash",
+      "currency": "UAH",
+      "target_pct": 0,
+      "current_pct": 55.65,
+      "deficit_uah": 0,
+      "deficit_native": 0,
+      "cash_native": 0,
+      "bond_cost_native": 0,
+      "bond_cost_uah": 0,
+      "can_buy": 0,
+      "convert_uah": 0,
+      "min_portfolio_uah": 0,
+      "feasible": true,
+      "unit_kind": "cash",
+      "current_uah": 467640.43
     }
   ],
   "concentration": [
