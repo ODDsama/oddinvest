@@ -153,6 +153,10 @@ const MOVED = {
   "plan/goal": "plan/goal/main",
   "plan/levers": "plan/levers/main",
   "plan/payouts": "plan/payouts/main",
+  // Панель, яку прибрали, а не перейменували: питання «що коштує ця
+  // витрата» відповіді в застосунку більше не має (довід — у nav.js).
+  // Закладка веде в перший рядок «Плану».
+  "plan/spend": "plan/debts/main",
   "policy/strategy": "policy/strategy/main",
   "policy/mix": "policy/mix/main",
   "policy/instruments": "policy/instruments/main",

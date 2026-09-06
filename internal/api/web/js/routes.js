@@ -100,6 +100,11 @@ const LEGACY = new Map([
   ["plan/goal", "plan/goal/main"],
   ["plan/levers", "plan/levers/main"],
   ["plan/payouts", "plan/payouts/main"],
+  // «Ціна покупки» була рядком «Плану» й пішла разом із питанням, на яке
+  // відповідала (довід — у nav.js). Запис потрібен ЯВНО: без нього
+  // закладка впала б у правило голої вкладки — тобто в ті самі «Борги»,
+  // але випадково й без обіцянки.
+  ["plan/spend", "plan/debts/main"],
   ["policy/strategy", "policy/strategy/main"],
   ["policy/mix", "policy/mix/main"],
   ["policy/instruments", "policy/instruments/main"],

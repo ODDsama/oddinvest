@@ -257,10 +257,6 @@ func (s *Server) routes() *http.ServeMux {
 	// би з цим портфелем рух курсу, який уже був». GET, бо тіла від
 	// людини немає — вхід виводиться з власної історії (довід у шапці).
 	mux.HandleFunc("GET /api/fx-shock", s.handleFXShock)
-	// Четверте превʼю, і воно стоїть на межі двох контурів: питає не «що
-	// буде, якщо це купити», а «що коштує те, що я просто витрачу».
-	// Довід, чому окремим маршрутом, — у шапці handlers_spend.go.
-	mux.HandleFunc("POST /api/spend", s.handleSpend)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("GET /api/backup", s.handleBackupExport)
