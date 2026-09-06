@@ -1,6 +1,7 @@
 package api
 
 import (
+	"math"
 	"testing"
 
 	money "github.com/Rhymond/go-money"
@@ -8,6 +9,7 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 // forecastInput — мінімальний вхід проєкції: капітал, ціль і дедлайн.
@@ -32,6 +34,49 @@ func goalSettings(goal, date string) *state.SettingsDoc {
 	g := 500_000.0
 	_ = goal
 	return &state.SettingsDoc{GoalAmountUAH: &g, GoalDate: date}
+}
+
+// БАЗОВА ЛІНІЯ НЕ СМІЄ ДРУКУВАТИ ГРОШІ.
+//
+// «Треба вносити з нуля» (required_total_monthly) рахується на рукавах
+// buildPlanFree — тобто на портфелі, з якого прибрано план надходжень. У
+// внеску в пенсійний дві половини: дебет живе в plan/planNative
+// (ліквідний бік худне), кредит — у npfContrib (пенсійний капітал росте).
+// Доти занулялась лише перша, і базова лінія зараховувала рахунку
+// внески, яких ніхто не платив.
+//
+// Тест ставить питання так, щоб відповідь не залежала від жодного числа
+// всередині: портфель БЕЗ плану взагалі й портфель, у якого план забрали,
+// — це те саме питання, тож і відповідь мусить бути та сама.
+func TestPlanFreeBaselineDoesNotCreateMoney(t *testing.T) {
+	set := goalSettings("", "2030-07-15")
+
+	bare := forecastInput(t, set)
+	withPlan := forecastInput(t, set)
+	// Внесок у пенсійний: витрата з ліквідного боку, адресована рахунку.
+	withPlan.PlanFlows = []store.PlanFlow{{
+		ID: 1, Name: "внесок у НПФ", Kind: "expense", Cadence: "month",
+		Amount: 500_000, Currency: money.UAH, FromDate: domain.Date("2026-07-01"),
+		InvestBP: 10000, Dest: domain.NPFPlanDest(1),
+	}}
+	// Сам рахунок — накопичувальна позиція, яка починає з нуля й живе
+	// рівно з цих внесків (state_npf.go так її й будує).
+	withPlan.NPFAccumByCur = map[string][]domain.Accum{
+		money.UAH: {{Key: domain.NPFPlanDest(1), RatePct: 12, Locked: true}},
+	}
+
+	bareRows, planRows := marketRows(t, bare), marketRows(t, withPlan)
+	for i := range bareRows {
+		a, b := bareRows[i].RequiredTotalMonthly, planRows[i].RequiredTotalMonthly
+		if a == 0 {
+			t.Fatalf("%s: тест нічого не перевірив — «треба з нуля» дорівнює нулю", bareRows[i].Key)
+		}
+		if math.Abs(a-b) > 0.01 {
+			t.Errorf("%s: базова лінія побачила план — %.2f без плану проти %.2f із планом "+
+				"(різниця %.2f: кредит у пенсійний лишився, а дебет занулили)",
+				bareRows[i].Key, a, b, b-a)
+		}
+	}
 }
 
 // TestForecastSpreadComesFromSettings — ширина віяла сценаріїв береться з
