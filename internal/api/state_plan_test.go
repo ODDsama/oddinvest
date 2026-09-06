@@ -407,6 +407,84 @@ func TestPlanFlowProvidesOnceWindow(t *testing.T) {
 	}
 }
 
+// РАЗОВА ПОДІЯ ЦЬОГО МІСЯЦЯ. Регресія на баг, через який рядок плану
+// купівель зникав безслідно.
+//
+// monthOffsetRaw міряє МІСЯЦІ й дня не бачить, тож для дати «пізніше цього
+// ж місяця» він дає нуль. Доти гілка "once" читала цей нуль як минуле
+// (raw < 1) і мовчки повертала 0. Для внеску в пенсійний, запланованого
+// на 28-ме, це означало рядок, якого не було ніде: у портфель він не
+// входив (майбутній за датою), у прогноз не доїжджав, у нестачу не
+// рахувався. Гроші просто зникали.
+func TestPlanFlowOnceThisMonthReachesFirstMonth(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	f := store.PlanFlow{
+		Name: "план: НПФ", Kind: "expense", Amount: 100_000, Currency: "UAH",
+		Cadence: "once", FromDate: "2026-07-28", InvestBP: 10000,
+	}
+	if got := planFlowNative(f, today, 1, nil); got != -1000 {
+		t.Errorf("разова цього місяця мала лягти на місяць 1 сумою -1000, маємо %.2f", got)
+	}
+	// І рівно один раз: разова подія не має розтікатись по горизонту.
+	for m := 2; m <= 4; m++ {
+		if got := planFlowNative(f, today, m, nil); got != 0 {
+			t.Errorf("місяць %d: разова мала змовкнути, маємо %.2f", m, got)
+		}
+	}
+}
+
+// Симетрична межа: подія МИНУЛОГО місяця так і лишається німою. Це те
+// єдине, чим разова відрізняється від регулярної, — надолужувати їй нема
+// коли, і послаблення порога не сміло цього зачепити.
+func TestPlanFlowOnceLastMonthStaysSilent(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	f := store.PlanFlow{
+		Name: "торішня премія", Kind: "income", Amount: 100_000, Currency: "UAH",
+		Cadence: "once", FromDate: "2026-06-28", InvestBP: 10000,
+	}
+	for m := 1; m <= 4; m++ {
+		if got := planFlowNative(f, today, m, nil); got != 0 {
+			t.Errorf("місяць %d: разова минулого місяця мала мовчати, маємо %.2f", m, got)
+		}
+	}
+}
+
+// Межа з другого боку — і вона НЕ там, де здається. Місяць 1 симуляції —
+// це вже наступний календарний місяць (профіль підписує точки як
+// today.AddMonths(m) від m=1), тож «пізніше цього місяця» й «перше число
+// наступного» лягають на ОДИН і той самий крок. Це не недогляд, а
+// роздільність сітки: поточний місяць уже наполовину прожитий, і першим
+// кроком, у який ще можна щось покласти, є наступний.
+//
+// Тест стоїть тут, щоб послаблення порога не зсунуло всю вісь на крок
+// раніше: подія через два місяці мусить лишитись на місяці 2.
+func TestPlanFlowOnceNextMonthSharesFirstStep(t *testing.T) {
+	today := domain.Date("2026-07-15")
+	f := store.PlanFlow{
+		Name: "премія", Kind: "income", Amount: 100_000, Currency: "UAH",
+		Cadence: "once", FromDate: "2026-08-01", InvestBP: 10000,
+	}
+	if got := planFlowNative(f, today, 1, nil); got != 1000 {
+		t.Errorf("разова наступного місяця мала лягти на місяць 1, маємо %.2f", got)
+	}
+	// Той самий крок, що й у події цього місяця — саме тому «28-ме» більше
+	// не має де загубитись між портфелем і прогнозом.
+	thisMonth := f
+	thisMonth.FromDate = "2026-07-28"
+	if got := planFlowNative(thisMonth, today, 1, nil); got != 1000 {
+		t.Errorf("разова цього місяця мала лягти на той самий місяць 1, маємо %.2f", got)
+	}
+	// А ось вісь не зсунулась: через два місяці — це місяць 2.
+	far := f
+	far.FromDate = "2026-09-10"
+	if got := planFlowNative(far, today, 1, nil); got != 0 {
+		t.Errorf("подія через два місяці на місяці 1 мала мовчати, маємо %.2f", got)
+	}
+	if got := planFlowNative(far, today, 2, nil); got != 1000 {
+		t.Errorf("подія через два місяці мала лягти на місяць 2, маємо %.2f", got)
+	}
+}
+
 // marketRows — три ринкові сценарії прогнозу (без рядка «За фактом»).
 func marketRows(t *testing.T, in projectionInput) []state.ForecastRow {
 	t.Helper()

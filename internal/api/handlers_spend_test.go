@@ -293,6 +293,62 @@ func TestSpendFutureCashDoesNotMoveToday(t *testing.T) {
 	}
 }
 
+// Витрата ЗАВТРАШНІМ днем мусить доїхати до прогнозу.
+//
+// Регресія на баг, який жив у planFlowNative: разова подія лягає в план
+// потоком, а гілка "once" читала «цього місяця» (monthOffsetRaw == 0) як
+// минуле й повертала нуль. Витрата, запланована на 28-ме, зникала цілком —
+// у гаманець не йшла за задумом, а в прогноз не доїжджала за помилкою.
+//
+// Тест іде саме через /api/spend, а не через план купівель: spendFromCash —
+// другий і незалежний клієнт тієї самої гілки, і поріг дати в ньому
+// лишається строгим. Точну межу місяця пришпилюють тести з фіксованими
+// датами в state_plan_test.go (TestPlanFlowOnce*); тут перевіряється, що
+// дріт від обробника до прогнозу цілий.
+func TestSpendThisMonthReachesForecast(t *testing.T) {
+	_, st, srv, _ := spendServer(t)
+	// Ціль і дедлайн сіються тут, а не в spendServer: місячний план без
+	// них не рахується взагалі, а решті тестів витрат він не потрібен.
+	// Ціль навмисно недосяжна — при досяжній бісекція впирається в стелю.
+	for k, v := range map[string]string{
+		"goal_amount_uah": "100000000",
+		"goal_date":       time.Now().AddDate(10, 0, 0).Format("2006-01-02"),
+	} {
+		if err := st.SetSetting(context.Background(), k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var before struct {
+		MonthTargetUAH float64 `json:"month_target_uah"`
+	}
+	_, raw := do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(raw), &before); err != nil {
+		t.Fatal(err)
+	}
+	if before.MonthTargetUAH == 0 {
+		t.Fatal("місячного плану немає — ціль і дедлайн не задані?")
+	}
+	when := time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	code, got, body := postSpend(t, srv.URL,
+		fmt.Sprintf(`{"amount":"30000","pay":"cash","broker":"mono","date":%q}`, when))
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	var after struct {
+		MonthTargetUAH float64 `json:"month_target_uah"`
+	}
+	if err := json.Unmarshal(got.After, &after); err != nil {
+		t.Fatal(err)
+	}
+	// Витрата забирає гроші, тож вносити доводиться БІЛЬШЕ. Напрямок тут
+	// перевіряється навмисно: сама лише нерівність пропустила б помилку
+	// знаку.
+	if after.MonthTargetUAH <= before.MonthTargetUAH {
+		t.Errorf("майбутня витрата не подорожчала місячний план: %.2f → %.2f",
+			before.MonthTargetUAH, after.MonthTargetUAH)
+	}
+}
+
 // Минула дата — це операція, а не питання.
 func TestSpendRejectsPastDate(t *testing.T) {
 	_, _, srv, _ := spendServer(t)

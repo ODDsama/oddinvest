@@ -254,8 +254,24 @@ func (s *Server) spendFromCash(p *spendPlan, req spendReq, future bool) error {
 		p.what.flows = []store.PlanFlow{{
 			// ID від'ємний: справжні йдуть AUTOINCREMENT, тож збігу бути
 			// не може, а нуль читався б як «потік без запису».
+			// UntilDate НЕ ставиться, і це не недогляд. Разовий потік
+			// платить рівно на місяці start (planFlowAmount: "once" →
+			// m != start повертає нуль), тож дата «до» для нього не
+			// означає нічого — зате вміє нашкодити: monthOffsetRaw
+			// порівнює лише рік і місяць, тож для витрати ЦЬОГО місяця
+			// вона давала endM == 0, і `m > endM` гасило потік на
+			// першому ж місяці вікна. Витрата, запланована на 28-ме,
+			// зникала: у гаманець вона не йде за задумом, а в прогноз
+			// не доїжджала за помилкою.
+			// InvestBP: 10000 обовʼязкове. planFlowAmount множить суму на
+			// InvestBP/10000 останнім скаляром, тож нуль тут означав би
+			// потік на нуль гривень — і майбутня витрата не рухала б
+			// прогноз ЗА БУДЬ-ЯКОЇ дати, прямо всупереч абзацу вище. Та
+			// сама повна частка стоїть у плановому внеску в пенсійний
+			// (state_plan_buys.go) з того самого доводу: витрата йде з
+			// портфеля цілком.
 			ID: -1, Name: spendName(req), Kind: "expense", Cadence: "once",
-			Amount: p.amount, Currency: p.cur, FromDate: p.date, UntilDate: p.date,
+			Amount: p.amount, Currency: p.cur, FromDate: p.date, InvestBP: 10000,
 		}}
 		return nil
 	}
