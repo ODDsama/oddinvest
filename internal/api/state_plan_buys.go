@@ -91,18 +91,6 @@ func (s *synthID) next() int64 { s.n--; return s.n }
 type planBuyExpansion struct {
 	what   hypothetical
 	basket basketDoc
-	// spend — "брокер|валюта" → мінорні, ЛИШЕ по рядках «зараз», тобто
-	// цього місяця й раніше.
-	//
-	// Майбутніх тут немає навмисно: сьогоднішній залишок нічого не каже
-	// про покупку в березні, і назвати нестачею те, що станеться після
-	// п'яти зарплат, означало б лякати даремно. Горизонт при цьому — саме
-	// МІСЯЦЬ, а не день: рядок цього місяця вже пішов у портфель, і
-	// state_builder за нього списав готівку брокера. Не порахувати його
-	// тут означало б показати наслідок (залишок упав, ба навіть у мінус)
-	// без рядка, який називає причину, — і написати «грошей вистачає»
-	// поруч із від'ємним балансом.
-	spend map[string]int64
 }
 
 // expandPlanBuys — увесь план купівель у гіпотезу й рядки кошика.
@@ -112,10 +100,7 @@ type planBuyExpansion struct {
 func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 	today domain.Date, rows []store.PlanBuy) (planBuyExpansion, error) {
 
-	out := planBuyExpansion{
-		basket: basketDoc{Lines: []basketLine{}},
-		spend:  map[string]int64{},
-	}
+	out := planBuyExpansion{basket: basketDoc{Lines: []basketLine{}}}
 	totals := map[string]int64{}
 	var ids synthID
 
@@ -378,9 +363,6 @@ func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 		line.Broker, line.Assumed = broker, assumed
 		out.basket.Lines = append(out.basket.Lines, line)
 		totals[cur] += total
-		if !future {
-			out.spend[broker+"|"+cur] += total
-		}
 	}
 
 	for cur, v := range totals {

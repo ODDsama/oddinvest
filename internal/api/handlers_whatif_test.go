@@ -151,54 +151,41 @@ func TestWhatIfMovesSharesAndCash(t *testing.T) {
 	}
 }
 
-// Нестача НЕ блокує: те саме правило, що й у лімітів концентрації —
-// застосунок показує наслідки, а рішення за людиною. Гроші могли ще не
-// прийти, і побачити картину наперед так само корисно.
-func TestWhatIfReportsShortfallWithoutBlocking(t *testing.T) {
+// Перевитрата НІЧОГО НЕ БЛОКУЄ: план приймає кошик, більший за будь-який
+// залишок, і віддає 200 з повним підсумком.
+//
+// Доти цей тест звався …ReportsShortfallWithoutBlocking і перевіряв ще й
+// точну нестачу по брокеру. Нестача з картки плану пішла (довід — над
+// basketDoc), тож лишилась половина, яка від неї не залежала й лишається
+// правдою: expandPlanBuys не має відрощувати замок на залишок.
+func TestWhatIfOverspendDoesNotBlock(t *testing.T) {
 	url := whatIfServer(t)
 	resp, body := do(t, "POST", url+"/api/whatif",
 		`{"draft":[{"kind":"bond","ref":"UA4000227748","qty":500}]}`)
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("нестача не мала блокувати: %d %s", resp.StatusCode, body)
+		t.Fatalf("перевитрата не мала блокувати: %d %s", resp.StatusCode, body)
 	}
 	var got struct {
 		Basket struct {
 			Totals []struct {
 				Amount string `json:"amount"`
 			} `json:"totals"`
-			Shorts []struct {
-				Broker string `json:"broker"`
-				Short  struct {
-					Amount string `json:"amount"`
-				} `json:"short"`
-			} `json:"shorts"`
 		} `json:"basket"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Basket.Shorts) != 1 || got.Basket.Shorts[0].Broker != "mono" {
-		t.Fatalf("нестача не названа: %s", body)
-	}
-	// Точна арифметика, а не «не нуль»: кошик і форма покупки рахують
-	// нестачу одним shortfallMinor, і саме тут видно, що кошик справді
-	// віднімає БАЛАНС, а не щось на нього схоже.
-	//
-	// Сама вартість 500 паперів залежить від НКД на сьогодні, тож у числі
-	// її не фіксуємо — беремо з тієї ж відповіді. Баланс же відомий точно:
-	// 100 000 ₴ поповнення мінус лот 5×995 у whatIfServer.
 	if len(got.Basket.Totals) != 1 {
 		t.Fatalf("чекали один підсумок валюти: %s", body)
 	}
-	const haveMinor = 95_025_00
+	// Підсумок рахує ВСІ рядки — «скільки я збираюсь витратити», — і від
+	// залишку він не залежить узагалі.
 	total, err := domain.ParseDecimalToMinor(got.Basket.Totals[0].Amount, money.UAH)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := toMoneyJSON(money.New(total-haveMinor, money.UAH)).Amount
-	if got.Basket.Shorts[0].Short.Amount != want {
-		t.Errorf("нестача %s, чекали %s (кошик %s мінус баланс 95025.00)",
-			got.Basket.Shorts[0].Short.Amount, want, got.Basket.Totals[0].Amount)
+	if total <= 0 {
+		t.Errorf("підсумок кошика мав бути додатним, маємо %s", got.Basket.Totals[0].Amount)
 	}
 }
 

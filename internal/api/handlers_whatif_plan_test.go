@@ -767,33 +767,22 @@ func TestWhatIfNextMonthRowDoesNotMoveToday(t *testing.T) {
 	}
 }
 
-// НАСЛІДОК, ПРИЙНЯТИЙ СВІДОМО, і тест стоїть тут саме тому, щоб його не
-// відкотили мовчки. Рядок цього місяця вже в портфелі, і готівку брокера
-// за нього вже списано, — отже він мусить рахуватись і в нестачі.
-// Виключити його означало б показати наслідок (залишок упав) без рядка,
-// який називає причину.
-func TestWhatIfThisMonthRowCountsInShortfall(t *testing.T) {
-	url, _ := planServer(t)
-	code, body := whatIf(t, url, `{"draft":[{"kind":"deposit","ref":"privat",`+
-		`"amount":"90000000","currency":"UAH","months":12,"rate_pct":"16","buy_date":"`+
-		lastDayThisMonth()+`"}]}`)
-	if code != http.StatusOK {
-		t.Fatalf("%d %s", code, body)
-	}
-	var got struct {
-		Basket struct {
-			Shorts []struct {
-				Broker string `json:"broker"`
-			} `json:"shorts"`
-		} `json:"basket"`
-	}
-	if err := json.Unmarshal([]byte(body), &got); err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Basket.Shorts) == 0 {
-		t.Error("нестачі немає — рядок цього місяця не порахували, хоч гроші за нього вже списані")
-	}
-}
+// НАДГРОБОК: тут стояв TestWhatIfThisMonthRowCountsInShortfall.
+//
+// Він пришпилював рішення «рядок цього місяця мусить рахуватись у
+// нестачі», ухвалене на попередній фазі, — і те рішення скасовано
+// власником. План купівель міряється ПЛАНОВИМИ грошима, а не
+// сьогоднішнім залишком, тож нестачі на цій картці більше немає зовсім
+// (довід над basketDoc у handlers_whatif.go).
+//
+// Друга половина його аргументу лишається правдою й лишається під
+// тестом: рядок цього місяця СПРАВДІ входить у портфель і справді
+// списує готівку брокера. Це тримають TestWhatIfThisMonthRowMovesToday
+// і TestWhatIfNextMonthRowDoesNotMoveToday.
+//
+// Абзац тут, а не мовчазне видалення, саме тому, що тест був новий: без
+// нього наступний автор побачив би в історії «додали, потім прибрали» і
+// вирішив би, що це недогляд.
 
 // Вклад цього місяця без ставки лишається ЧЕСНОЮ ВІДМОВОЮ.
 //
@@ -816,10 +805,12 @@ func TestWhatIfRejectsUnresolvableRateThisMonth(t *testing.T) {
 	}
 }
 
-// Нестача — питання про СЬОГОДНІШНІЙ залишок, і майбутній рядок його не
-// ставить. Підсумок при цьому його містить: «скільки я збираюсь
-// витратити» рахує все.
-func TestWhatIfFutureRowHasNoShortfall(t *testing.T) {
+// Майбутній рядок у ПОРТФЕЛЬ не входить, а в ПІДСУМОК входить: «скільки
+// я збираюсь витратити» рахує все, незалежно від дати.
+//
+// Тест звався …HasNoShortfall і перевіряв ще й порожню нестачу; та
+// частина пішла разом із самою нестачею, решта — та сама.
+func TestWhatIfFutureRowStaysOutOfPortfolioButInTotals(t *testing.T) {
 	url, _ := planServer(t)
 	when := time.Now().AddDate(2, 0, 0).Format("2006-01-02")
 	code, body := whatIf(t, url, `{"draft":[{"kind":"deposit","ref":"privat",`+
@@ -832,9 +823,6 @@ func TestWhatIfFutureRowHasNoShortfall(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
-	}
-	if len(got.Basket.Shorts) != 0 {
-		t.Errorf("майбутній рядок оголошено нестачею: %+v", got.Basket.Shorts)
 	}
 	if len(got.Basket.Totals) != 1 || got.Basket.Totals[0].Amount != "90000000.00" {
 		t.Errorf("підсумок не містить майбутнього рядка: %+v", got.Basket.Totals)

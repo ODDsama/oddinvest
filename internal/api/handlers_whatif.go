@@ -41,8 +41,6 @@ import (
 	"sort"
 	"time"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
@@ -105,28 +103,27 @@ type basketLine struct {
 	Assumed bool   `json:"broker_assumed,omitempty"`
 }
 
-// basketShort — чого і скільки бракує в конкретного брокера.
-type basketShort struct {
-	Broker   string    `json:"broker"`
-	Currency string    `json:"currency"`
-	Short    moneyJSON `json:"short"`
-}
-
 // basketDoc — план купівель у грошах.
 //
-// АСИМЕТРІЯ, про яку треба знати: Totals рахує ВСІ рядки («скільки я
-// збираюсь витратити»), а Shorts — лише рядки «зараз», тобто цього
-// місяця й раніше. Сказати «у mono бракує 40 000» про покупку в березні
-// означало б назвати нестачею те, що станеться після п'яти зарплат.
+// НЕСТАЧІ ТУТ БІЛЬШЕ НЕМАЄ, і абзац лишається, щоб її не завели заново.
+// Доти поруч із Totals стояли Shorts: скільки бракує кожному брокеру,
+// пораховане проти СЬОГОДНІШНЬОГО залишку. Питання виявилось не тим.
+// План купівель міряється ПЛАНОВИМИ грошима — тим, що надійде, — а не
+// тим, що лежить на рахунку зараз: якщо на рахунку бракує, він
+// поповниться з планових надходжень раніше, ніж покупка станеться. Тобто
+// «у mono бракує 1 000» було тривогою про стан, який не настане.
 //
-// Межа саме місячна, а не денна, і йде вона за тією ж лінією, що й
-// портфель: рядок цього місяця вже в ньому, і готівку брокера за нього
-// вже списано. Виключити його з Shorts означало б показати наслідок без
-// причини.
+// Половина цього доводу вже стояла в коді — і стосувалась лише далеких
+// рядків («назвати нестачею те, що станеться після п'яти зарплат»). Вона
+// просто не була поширена на найближчі.
+//
+// Сама арифметика жива й недоторкана: shortfallMinor у cash_shortfall.go
+// обслуговує форми запису (лот, вклад, поповнення, НПФ) і дату «коли
+// вистачить» у ready_on.go. Там питання інше — «я записую платіж ЗАРАЗ»,
+// — і сьогоднішній залишок відповідає на нього правильно.
 type basketDoc struct {
-	Lines  []basketLine  `json:"lines"`
-	Totals []moneyJSON   `json:"totals"` // разом по кожній валюті
-	Shorts []basketShort `json:"shorts,omitempty"`
+	Lines  []basketLine `json:"lines"`
+	Totals []moneyJSON  `json:"totals"` // разом по кожній валюті
 }
 
 type whatIfPayload struct {
@@ -140,10 +137,9 @@ type whatIfPayload struct {
 // відповідь не кладемо: різниця двох чисел, які обидва народжені цим
 // кодом, — законне віднімання, а не власний перерахунок.
 //
-// Нестача грошей нічого не блокує. Це те саме правило, що й у лімітів
-// концентрації: застосунок показує наслідки, а рішення за людиною —
-// гроші могли ще не прийти, і побачити картину наперед так само
-// корисно.
+// Ніщо тут нічого не блокує: перевищений ліміт концентрації показується
+// й лишає рішення людині. Правило живе, а от друга його ілюстрація —
+// нестача грошей — пішла разом із самою нестачею (див. basketDoc).
 func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	now := time.Now()
@@ -176,10 +172,7 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	// Чого бракує — рахуємо ДО збірки: у стані «після» гроші вже списані,
-	// і від'ємний залишок там означав би те саме, але без імені винуватця.
 	basket := exp.basket
-	basket.Shorts = shortfalls(before, exp.spend)
 
 	after, err := s.buildStateWith(ctx, now, exp.what)
 	if err != nil {
@@ -254,45 +247,9 @@ func pickBroker(doc *state.Doc, cur, want string) (string, bool) {
 	return best, true
 }
 
-// shortfalls — скільки не вистачає в кожного брокера окремо.
-//
-// Саме віднімання живе в cash_shortfall.go і спільне з формами покупки:
-// план і форма відповідають на одне питання, тож рахувати його двічі
-// означало б завести розходження між екраном «що буде» і екраном «пишу».
-func shortfalls(doc *state.Doc, spend map[string]int64) []basketShort {
-	var out []basketShort
-	for key, want := range spend {
-		broker, cur := splitKey(key)
-		if short := shortfallMinor(doc, broker, cur, want); short > 0 {
-			out = append(out, basketShort{Broker: broker, Currency: cur,
-				Short: toMoneyJSON(money.New(short, cur))})
-		}
-	}
-	sortShorts(out)
-	return out
-}
-
-func splitKey(k string) (string, string) {
-	for i := len(k) - 1; i >= 0; i-- {
-		if k[i] == '|' {
-			return k[:i], k[i+1:]
-		}
-	}
-	return k, ""
-}
-
 // Порядок у відповіді детермінований навмисно: інакше два однакові
 // запити давали б різний JSON (мапи в Go обходяться випадково), і будь-яке
 // порівняння відповідей — очима чи тестом — перетворилось би на гадання.
 func sortMoneyJSON(m []moneyJSON) {
 	sort.Slice(m, func(i, j int) bool { return m[i].Currency < m[j].Currency })
-}
-
-func sortShorts(s []basketShort) {
-	sort.Slice(s, func(i, j int) bool {
-		if s[i].Broker != s[j].Broker {
-			return s[i].Broker < s[j].Broker
-		}
-		return s[i].Currency < s[j].Currency
-	})
 }
