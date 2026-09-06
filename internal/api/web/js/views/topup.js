@@ -30,8 +30,15 @@ import { opsGrid } from "../grid.js";
 import { kindPill } from "../components.js";
 import { infoBtn } from "../info.js";
 import { routeFor } from "../routes.js";
-import { apply } from "../forms.js";
+import { apply, openEdit } from "../forms.js";
+import { refSuggest, wireSuggest } from "../refs.js";
 import { buyBody } from "./allocate.js";
+
+// Обраний папір ОВДП. Модульна змінна, а не uistate.js і не localStorage —
+// той самий вибір і той самий довід, що в picks на «Маршруті»: це питання,
+// а не стан. Він живе, доки не перезавантажили вкладку; щойно рядок ліг у
+// план купівель, вибір тримає сам план.
+let pick = "";
 
 // Куди веде рядок, який у план не кладеться. Вклад — єдиний такий вид:
 // порада про нього це ПОПОВНЕННЯ наявного, а рядок плану купівель описує
@@ -127,9 +134,15 @@ function linesHTML(t) {
       { key: "real", label: "Реальних", num: true, cell: (l) => pct(l.real_pct) },
       {
         key: "add", label: "",
+        // «Інший папір» стоїть лише в рядка ОВДП і лише поруч із «+»: у
+        // сертифіката, вкладу й внеску вибирати нема з чого — там вид сам
+        // і є відповіддю.
         cell: (l) => (l.addable
           ? `<button type="button" class="sm" data-topupadd="${l.id}"
               title="Додати цей рядок у план купівель">+</button>`
+            + (l.kind === "bond"
+              ? ` <button type="button" class="sm quiet" data-topuppick="1"
+                  >Інший папір</button>` : "")
           : `<a class="lnk fine-xs" href="${routeFor(WHERE[l.kind] || "now/buys")}"
               >зробити вручну</a>`),
       },
@@ -202,6 +215,46 @@ export function wireTopup(ctx, main, res) {
     }));
   main.querySelectorAll("[data-topupall]").forEach((b) =>
     b.addEventListener("click", () => addAll(ctx, lines.filter((l) => l.addable))));
+  // «Інший папір» — той самий прийом, що на «Маршруті»: openEdit тут
+  // ДІАЛОГ ЗАХОПЛЕННЯ, а не запису. build повертає null, тобто модалка
+  // тихо закривається, а вибір їде параметром у наступний запит — рахує
+  // його бекенд, і другої арифметики тут не заводиться.
+  //
+  // Порожнє поле скидає вибір: окремої кнопки «повернути пораду» не треба,
+  // коли те саме поле показує поточний вибір і приймає порожнечу.
+  main.querySelectorAll("[data-topuppick]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      let chosen = null;
+      await openEdit(ctx, {
+        title: "Папір для добору залишку",
+        fields: refSuggest({ name: "isin", ref: "bond", value: pick })
+          + `<div class="sub-xs">Частка ОВДП із залишку піде в обраний папір і тільки
+            в нього; якщо на цілий квиток не вистачить — рядка не буде зовсім, а гроші
+            чекатимуть. Порожнє поле — повернути папір із рейтингу.</div>`,
+        wire: (f) => wireSuggest(ctx, f),
+        submit: "Перерахувати",
+      }, (f) => {
+        chosen = f.elements.isin.value.trim().toUpperCase();
+        return null;
+      });
+      if (chosen === null) return;
+      pick = chosen;
+      ctx.reload();
+    }));
+}
+
+/** Обраний папір для запиту наслідків. Читає той, хто складає тіло
+ *  (now-view.js і превʼю в plan-buys.js): вибір належить картці, а тіло
+ *  запиту — сторінці, і зшивати їх у самому fetchWhatIf означало б, що
+ *  кожен інший його читач мовчки потягне за собою чужий вибір. */
+export function topupPick() {
+  return pick;
+}
+
+/** Скинути вибір — коли бекенд його не прийняв. Причину показує той, хто
+ *  ловив помилку: вона приходить дослівно й веде до самого паперу. */
+export function clearTopupPick() {
+  pick = "";
 }
 
 // Один рядок — через apply(), тобто з тостом, скиданням кеша й

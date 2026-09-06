@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -206,6 +207,35 @@ func TestTopupAbsentWhenPlanEatsTheMonth(t *testing.T) {
 	}
 	if got.LeftUAH != 0 {
 		t.Errorf("решта мусить бути нулем, а не від'ємною: %.2f", got.LeftUAH)
+	}
+}
+
+// Невідомий папір у доборі — це помилка ЗАПИТУ, а не збій, і текст її той
+// самий, що в розкладці. Дві різні відмови на один ISIN читались би як дві
+// різні причини, тож перевіряється саме він.
+func TestTopupPickRejectsUnknownISIN(t *testing.T) {
+	url, st := planServer(t)
+	seedMonthPlan(t, st)
+	code, body := whatIf(t, url, `{"pick_isin":"UA0000000000"}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("код %d, чекали 400: %s", code, body)
+	}
+	if !strings.Contains(body, "немає серед порад") {
+		t.Errorf("причина не веде до паперу: %s", body)
+	}
+}
+
+// Порожній вибір — це «повернути рейтинг», а не помилка: саме порожнім
+// полем його й скидають.
+func TestTopupEmptyPickIsRating(t *testing.T) {
+	url, st := planServer(t)
+	seedMonthPlan(t, st)
+	code, body := whatIf(t, url, `{"pick_isin":""}`)
+	if code != http.StatusOK {
+		t.Fatalf("код %d, чекали 200: %s", code, body)
+	}
+	if got := topupOf(t, body); got.Topup == nil {
+		t.Error("порожній вибір не мусить прибирати добір")
 	}
 }
 

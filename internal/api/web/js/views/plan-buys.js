@@ -31,7 +31,7 @@ import { apply, openEdit } from "../forms.js";
 import { kindPill } from "../components.js";
 import { routeFor } from "../routes.js";
 import { fetchWhatIf, impactHTML } from "./buy-plan.js";
-import { topupHTML, wireTopup } from "./topup.js";
+import { topupHTML, wireTopup, topupPick } from "./topup.js";
 import { lotFields, lotBody } from "./bonds.js";
 import { depositFields, depositBody } from "./deposits.js";
 import { fundOpFields, fundOpBody } from "../fund-ops.js";
@@ -308,7 +308,11 @@ function wirePreview(ctx, main) {
     // Недонабрана чернетка — не помилка й не привід мовчати: показуємо
     // вплив уже ЗБЕРЕЖЕНОГО плану, тобто те, що людина бачила до того, як
     // почала друкувати.
+    // Вибраний папір їде й у превʼю: інакше набір у формі скидав би добір
+    // назад на рейтинг, і рядок під формою суперечив би тому, що людина
+    // щойно обрала.
     const body = ready(draft) ? { draft: [draft] } : {};
+    if (topupPick()) body.pick_isin = topupPick();
     try {
       const res = await fetchWhatIf(ctx, body, ctl.signal);
       if (mine !== seq) return;

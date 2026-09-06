@@ -67,6 +67,14 @@ type whatIfReq struct {
 	Saved   *bool        `json:"saved,omitempty"`
 	Exclude []int64      `json:"exclude,omitempty"`
 	Draft   []planBuyReq `json:"draft,omitempty"`
+	// PickISIN — папір, який людина обрала САМА для добору залишку замість
+	// вершини рейтингу. Те саме питання й та сама відповідь, що параметр
+	// pick у GET /api/route: вибір — частина питання, а не відповіді.
+	//
+	// Набору рядків плану він не стосується взагалі: план каже, що вже
+	// вирішено, а вибір — куди вести те, що ще не розписано. Тому поле й
+	// стоїть поруч із трьома попередніми, а не всередині draft.
+	PickISIN string `json:"pick_isin,omitempty"`
 }
 
 // basketLine — один рядок плану, вже з ціною.
@@ -201,7 +209,16 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := whatIfPayload{After: after, Basket: basket}
-	if err := s.addTopup(ctx, now, after, basket, &out); err != nil {
+	if err := s.addTopup(ctx, now, after, basket, req.PickISIN, &out); err != nil {
+		// Невідомий папір — помилка ЗАПИТУ, а не збій: людина назвала ISIN,
+		// якого немає серед порад. П'ятисотка тут читалась би як поломка
+		// застосунку, і сторінка не змогла б показати причину дослівно —
+		// а причина в тому й полягає, щоб її прочитали.
+		var bad badRequestError
+		if errors.As(err, &bad) {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -221,7 +238,7 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 // allocatePlan, та сама чиста функція, що обслуговує розкладку надходження
 // й ногу маршруту.
 func (s *Server) addTopup(ctx context.Context, now time.Time,
-	after *state.Doc, basket basketDoc, out *whatIfPayload) error {
+	after *state.Doc, basket basketDoc, pickISIN string, out *whatIfPayload) error {
 
 	if after.MonthPlan == nil || after.MonthPlan.LeftUAH <= 0 {
 		return nil
@@ -264,6 +281,14 @@ func (s *Server) addTopup(ctx context.Context, now time.Time,
 	if err != nil {
 		return err
 	}
+	// Вибір перевіряється ТІЄЮ САМОЮ pickSuggestion, що й у розкладці, і
+	// над порадами від after: невідомий ISIN мусить дати одну й ту саму
+	// відмову з обох екранів, інакше два різні тексти на один папір
+	// читались би як дві різні причини.
+	pick, err := pickSuggestion(sug, pickISIN)
+	if err != nil {
+		return err
+	}
 	// БЕЗ ОБМЕЖЕНЬ ЗА ДЖЕРЕЛОМ, і це не недогляд. Розкладають не одне
 	// надходження, а зведений залишок місяця — десяток потоків із різними
 	// дозволами (plan_flows.uses), — і одне слово «чиї це гроші» на нього
@@ -272,7 +297,7 @@ func (s *Server) addTopup(ctx context.Context, now time.Time,
 	// дозвіл у неї один, тут сум багато.
 	plan := allocatePlan(after, sug, rates,
 		toMoneyJSON(money.New(int64(math.Round(avail*100)), money.UAH)), avail,
-		allocAllow{ReserveUAH: avail, DebtUAH: avail, GoalsUAH: avail},
+		allocAllow{ReserveUAH: avail, DebtUAH: avail, GoalsUAH: avail, PickISIN: pick},
 		money.UAH, s.npfIDByName(ctx))
 	out.Topup = &plan
 	return nil

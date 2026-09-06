@@ -24,7 +24,7 @@ import {
 } from "./plan-buys.js";
 import { tasksHTML } from "./tasks.js";
 import { allocationCardHTML, currencyCardHTML } from "./allocation.js";
-import { topupHTML, wireTopup } from "./topup.js";
+import { topupHTML, wireTopup, topupPick, clearTopupPick } from "./topup.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
@@ -638,9 +638,15 @@ export async function buy(ctx, main) {
 export async function buys(ctx, main) {
   const [rows, res] = await Promise.all([
     ctx.store.soft("plan/buys"),
-    fetchWhatIf(ctx).catch((err) => ({ error: err })),
+    fetchWhatIf(ctx, topupPick() ? { pick_isin: topupPick() } : {})
+      .catch((err) => ({ error: err })),
   ]);
   if (res && res.error) {
+    // Вибраний папір міг і не існувати серед порад — тоді бекенд відмовив
+    // саме через нього, і лишити вибір означало б замкнути сторінку на
+    // помилці назавжди. Скидаємо ЛИШЕ коли вибір був: інакше ця гілка
+    // приховала б справжню причину під фразою про папір.
+    if (topupPick()) clearTopupPick();
     main.innerHTML = `<div class="card"><h2>Що заплановано</h2>
       <div class="muted">Не вдалось порахувати наслідки: ${esc(res.error.message || res.error)}</div>
     </div>` + planBuyFormHTML(ctx);
