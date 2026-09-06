@@ -67,6 +67,20 @@ func (s *Server) handleInflation(w http.ResponseWriter, r *http.Request) {
 	last := dom[len(dom)-1]
 	out.NowPct, out.NowMonth = float64(last.YoYBP)/100, last.Period
 
+	// ДІРКА В РЯДУ ЗУПИНЯЄ ВСЕ, а не лише чинне число. Пропущений місяць
+	// просто не множиться, тож і вікна, і перцентиль вийшли б
+	// правдоподібними та хибними: на бойовому 32 дірки дали 7.92%/рік
+	// замість 10.72%. Нинішній річний темп лишається — він опублікований
+	// НБУ й від ланцюжка не залежить.
+	if gaps := domain.CPIGaps(dom); len(gaps) > 0 {
+		out.Source = "holes"
+		out.Note = fmt.Sprintf(
+			"у ряду бракує %d %s (перший — %s): ланцюжок на ньому занижував би інфляцію, "+
+				"тож числа мовчать, поки джоба не долатає дірки",
+			len(gaps), plural(len(gaps), "місяць", "місяці", "місяців"), gaps[0])
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
 	if pct, from, to, ok := s.measuredInflation(ctx); ok {
 		out.EffectivePct = pct
 		out.Note = fmt.Sprintf("міряно ланцюжком місячних змін НБУ, %s — %s", from, to)

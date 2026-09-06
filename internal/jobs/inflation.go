@@ -20,6 +20,25 @@ const cpiWatermark = "cpi_polled_through"
 // п'ятихвилинним контекстом, а сервіс міг стояти вимкненим півроку.
 const cpiCatchupCap = 24
 
+// cpiGapCap — скільки дірок латати за один добовий прогін. Латання — це
+// запити до чужого сервісу під тим самим пʼятихвилинним контекстом, тож
+// ряд у 30 дірок закриється за тиждень, а не однією довгою серією.
+const cpiGapCap = 12
+
+// cpiPauseFactor — у скільки разів пауза між запитами ІСЦ довша за
+// звичайну.
+//
+// НБУ ЦЕЙ ЕНДПОЙНТ ТРОТЛИТЬ, і виявилось це лише на бойовому: з 133
+// запитів по 250 мс пройшло 88, решта дістала HTTP 503 суцільними
+// блоками. Кожна відповідь тут ~190 КБ (780 рядків: 25 регіонів × 12
+// розділів COICOP), тобто ендпойнт важкий, і темп курсів для нього
+// завеликий. Перевірено з бойового: на 2 с проходить.
+//
+// Множник, а не власна константа, щоб тести (pause = 0) лишались миттєвими.
+const cpiPauseFactor = 8
+
+func (r *Runner) cpiPause() time.Duration { return r.pause * cpiPauseFactor }
+
 // RefreshCPI — місяці ІСЦ, яких ще немає.
 //
 // Усталений режим — нуль або один запит на добу: ІСЦ виходить раз на
@@ -38,7 +57,7 @@ func (r *Runner) RefreshCPI(ctx context.Context) error {
 	}
 	got := 0
 	for m := from; m <= last && got < cpiCatchupCap; m = nextMonth(m) {
-		p, err := r.nbu.Inflation(ctx, m)
+		p, err := r.fetchCPI(ctx, m)
 		if errors.Is(err, nbu.ErrCPINotPublished) {
 			break
 		}
@@ -52,11 +71,76 @@ func (r *Runner) RefreshCPI(ctx context.Context) error {
 			return err
 		}
 		got++
-		time.Sleep(r.pause)
+		time.Sleep(r.cpiPause())
 	}
 	if got > 0 {
 		r.log.Info("ІСЦ оновлено", "місяців", got, "до", last)
 	}
+	// Латання дірок — ПІСЛЯ догону й у тому самому прогоні. Без нього ряд
+	// із провалами лишався б таким назавжди: водяний знак стоїть на
+	// останньому місяці, а до старих ніхто вже не повернеться. Ціна дірки
+	// не абстрактна — на бойовому 32 пропущені місяці занизили інфляцію
+	// на 2.8 в.п., і мовчки.
+	return r.fillCPIGaps(ctx)
+}
+
+// fetchCPI — запит із ОДНІЄЮ повторною спробою.
+//
+// 503 від НБУ тут не виняткова подія, а робочий режим тротлінгу: перший
+// запит проходить, наступні три — ні. Одна повторна спроба з подвійною
+// паузою перетворює це з дірки в ряду на затримку в секунду.
+// ErrCPINotPublished не повторюється: він означає відповідь, а не збій.
+func (r *Runner) fetchCPI(ctx context.Context, month string) (nbu.CPIPoint, error) {
+	p, err := r.nbu.Inflation(ctx, month)
+	if err == nil || errors.Is(err, nbu.ErrCPINotPublished) {
+		return p, err
+	}
+	r.log.Debug("ІСЦ: повтор після невдачі", "month", month, "err", err)
+	select {
+	case <-ctx.Done():
+		return nbu.CPIPoint{}, ctx.Err()
+	case <-time.After(2 * r.cpiPause()):
+	}
+	return r.nbu.Inflation(ctx, month)
+}
+
+// fillCPIGaps — місяці, яких у ряду бракує між крайніми точками.
+//
+// Окремо від бекфілу, бо це інша ситуація: бекфіл наповнює порожнє, а це
+// латає вже наявне. Стеля на прогін є, і саме тому дірки закриваються за
+// кілька діб, а не однією довгою серією запитів під пʼятихвилинним
+// контекстом.
+func (r *Runner) fillCPIGaps(ctx context.Context) error {
+	pts, err := r.st.CPISince(ctx, "")
+	if err != nil {
+		return err
+	}
+	dom := make([]domain.CPIPoint, 0, len(pts))
+	for _, p := range pts {
+		dom = append(dom, domain.CPIPoint{Period: p.Period, MoMBP: p.MoMBP, YoYBP: p.YoYBP})
+	}
+	gaps := domain.CPIGaps(dom)
+	if len(gaps) == 0 {
+		return nil
+	}
+	var got int
+	for i, m := range gaps {
+		if i >= cpiGapCap {
+			break
+		}
+		p, err := r.fetchCPI(ctx, m)
+		if err != nil {
+			r.log.Debug("ІСЦ: дірка не залаталась", "month", m, "err", err)
+			time.Sleep(r.cpiPause())
+			continue
+		}
+		if err := r.st.SaveCPI(ctx, store.CPIPoint{Period: p.Period, MoMBP: p.MoMBP, YoYBP: p.YoYBP}); err != nil {
+			return err
+		}
+		got++
+		time.Sleep(r.cpiPause())
+	}
+	r.log.Info("ІСЦ: дірки", "було", len(gaps), "залатано", got)
 	return nil
 }
 
@@ -105,18 +189,18 @@ func (r *Runner) BackfillCPI(ctx context.Context, years int) error {
 			return ctx.Err()
 		default:
 		}
-		p, err := r.nbu.Inflation(ctx, m)
+		p, err := r.fetchCPI(ctx, m)
 		if err != nil {
 			missing++
 			r.log.Debug("backfill ІСЦ: місяць пропущено", "month", m, "err", err)
-			time.Sleep(r.pause)
+			time.Sleep(r.cpiPause())
 			continue
 		}
 		if err := r.st.SaveCPI(ctx, store.CPIPoint{Period: p.Period, MoMBP: p.MoMBP, YoYBP: p.YoYBP}); err != nil {
 			return err
 		}
 		got++
-		time.Sleep(r.pause)
+		time.Sleep(r.cpiPause())
 	}
 	r.log.Info("історію ІСЦ підтягнуто", "точок", got, "пропущено", missing)
 	return nil

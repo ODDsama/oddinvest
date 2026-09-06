@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,9 +88,22 @@ func TestInflationEndpointShape(t *testing.T) {
 // так, як його наповнює бекфіл.
 func seedCPI(t *testing.T, st *store.Store, n int) {
 	t.Helper()
+	seedCPIHoled(t, st, n, -1)
+}
+
+// seedCPIHoled — те саме, але з ПРОПУЩЕНИМ місяцем під номером skip
+// (від найсвіжішого). Повертає назву пропущеного; -1 = без дірки.
+func seedCPIHoled(t *testing.T, st *store.Store, n, skip int) string {
+	t.Helper()
 	ctx := t.Context()
 	m := prevMonthStr(monthOf(domain.NewDate(time.Now())))
+	hole := ""
 	for i := 0; i < n; i++ {
+		if i == skip {
+			hole = m
+			m = prevMonthStr(m)
+			continue
+		}
 		// Проста, але НЕ рівна сітка: рівний ряд дав би перцентиль 50 на
 		// будь-якому вікні, тобто перевірку, яка не може не зійтись.
 		mom := int64(50 + (i%7)*20)
@@ -99,6 +113,7 @@ func seedCPI(t *testing.T, st *store.Store, n int) {
 		}
 		m = prevMonthStr(m)
 	}
+	return hole
 }
 
 // prevMonthStr — попередній місяць 'YYYY-MM'. Свій, а не з jobs: пакети
@@ -109,4 +124,43 @@ func prevMonthStr(m string) string {
 		return m
 	}
 	return string(d.AddMonths(-1))[:7]
+}
+
+// TestInflationSilentOnHoledSeries — ГОЛОВНА перевірка після бойового
+// провалу: ряд із діркою дає ПРАВДОПОДІБНЕ, але хибне число, бо
+// пропущений місяць просто не множиться. На бойовому 32 дірки занизили
+// інфляцію з 10.72 до 7.92%/рік — і жодна наявна перевірка цього не
+// помітила, бо звірка з річним темпом дивиться на останню точку, а
+// останній рік був цілий.
+func TestInflationSilentOnHoledSeries(t *testing.T) {
+	srv, st := testServer(t)
+	// Ряд із діркою посередині — рівно те, що робить серія 503 від НБУ.
+	hole := seedCPIHoled(t, st, 132, 60)
+
+	out := getInflationResp(t, srv.URL)
+	if out.Source != "holes" {
+		t.Fatalf("ряд із діркою дав джерело %q — число мусить замовкнути", out.Source)
+	}
+	if out.EffectivePct != 0 {
+		t.Fatalf("зіпсоване число все одно опубліковано: %v", out.EffectivePct)
+	}
+	if out.Note == "" || !strings.Contains(out.Note, hole) {
+		t.Fatalf("примітка не називає першої дірки (%s): %q", hole, out.Note)
+	}
+	if len(out.Windows) != 0 {
+		t.Fatalf("вікна порахувались на дірявому ряду: %+v", out.Windows)
+	}
+}
+
+func getInflationResp(t *testing.T, base string) inflResp {
+	t.Helper()
+	resp, body := do(t, "GET", base+"/api/inflation", "")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET дав %d: %s", resp.StatusCode, body)
+	}
+	var out inflResp
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out
 }

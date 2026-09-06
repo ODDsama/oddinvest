@@ -167,3 +167,31 @@ func TestCPIPlaceKeepsDeflation(t *testing.T) {
 		t.Fatalf("точок %d", w.Points)
 	}
 }
+
+// TestCPIGapsFindsMissingMonths — дірка в ряду тиха за побудовою, і
+// ловить її саме перелічення місяців, а не звірка з річним темпом: та
+// дивиться на ОДНУ точку, і при цілому останньому році мовчить.
+func TestCPIGapsFindsMissingMonths(t *testing.T) {
+	full := ryad2024()
+	if g := CPIGaps(full); len(g) != 0 {
+		t.Fatalf("суцільний ряд дав дірки: %v", g)
+	}
+
+	holed := make([]CPIPoint, 0, len(full))
+	for _, p := range full {
+		if p.Period == "2024-03" || p.Period == "2024-04" {
+			continue
+		}
+		holed = append(holed, p)
+	}
+	gaps := CPIGaps(holed)
+	if len(gaps) != 2 || gaps[0] != "2024-03" || gaps[1] != "2024-04" {
+		t.Fatalf("дірки не названі: %v", gaps)
+	}
+	// І головне: звірка з опублікованим р/р на ОСТАННІЙ точці тут
+	// спрацювала б, а на бойовому дірки лежали в старих роках — саме
+	// тому потрібні обидві перевірки, а не одна.
+	if len(CPIGaps(full[:1])) != 0 {
+		t.Fatal("ряд з однієї точки не має дірок за визначенням")
+	}
+}

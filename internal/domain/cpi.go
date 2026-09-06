@@ -125,6 +125,47 @@ func CPIYoYDrift(points []CPIPoint, levels []CPILevel, period string) (float64, 
 	return chained - float64(published)/100, true
 }
 
+// CPIGaps — місяці, яких у ряду БРАКУЄ між першою й останньою точками.
+//
+// Дірка в ряду тиха за побудовою: CPIChain просто не множить пропущений
+// місяць, тож рівень виходить НИЖЧИМ, а число — правдоподібним. На
+// бойовому це коштувало 2.8 в.п. (7.92%/рік замість 10.72%): бекфіл
+// упіймав від НБУ серію 503, чесно порахував пропуски — і далі ніхто не
+// спитав, чи ряд суцільний.
+//
+// CPIYoYDrift для цього НЕ ГОДИТЬСЯ, і виявилось це лише на живих даних:
+// вона звіряє ОДНУ точку, а дірки лежали в 2016-2020 — останній рік був
+// цілий, і дрейф показував +0.04 в.п. при зіпсованому ряді. Тобто звірка
+// ловить помилку МАСШТАБУ й зсув ряду, а неповноту — ні; для неповноти
+// потрібне саме перелічення місяців.
+func CPIGaps(points []CPIPoint) []string {
+	if len(points) < 2 {
+		return nil
+	}
+	have := make(map[string]bool, len(points))
+	for _, p := range points {
+		have[p.Period] = true
+	}
+	var out []string
+	last := points[len(points)-1].Period
+	for m := points[0].Period; m != "" && m <= last; m = shiftPeriod(m, 1) {
+		if !have[m] {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// shiftPeriod — 'YYYY-MM' плюс n місяців. Порожньо на неваліднім місяці:
+// викликач тоді просто зупиняє прохід, а не ходить по колу.
+func shiftPeriod(m string, n int) string {
+	d, err := ParseDate(m + "-01")
+	if err != nil {
+		return ""
+	}
+	return string(d.AddMonths(n))[:7]
+}
+
 // CPIProject — скільки коштуватиме те саме через N місяців за річним
 // темпом annualPct.
 //

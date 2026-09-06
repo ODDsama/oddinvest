@@ -48,6 +48,15 @@ func (s *Server) measuredInflation(ctx context.Context) (pct float64, from, to s
 	for _, p := range pts {
 		dom = append(dom, domain.CPIPoint{Period: p.Period, MoMBP: p.MoMBP, YoYBP: p.YoYBP})
 	}
+	// ДІРКА В РЯДУ РОБИТЬ ЧИСЛО ХИБНИМ МОВЧКИ, тож замість неї — мовчання.
+	// Пропущений місяць просто не множиться, рівень виходить нижчим, а
+	// результат лишається правдоподібним: на бойовому 32 дірки дали
+	// 7.92%/рік замість 10.72%. Показати таке число гірше, ніж не
+	// показати жодного, — це рівно той клас помилки, від якого README
+	// застерігає в десятку інших місць.
+	if gaps := domain.CPIGaps(dom); len(gaps) > 0 {
+		return 0, "", "", false
+	}
 	levels := domain.CPIChain(dom)
 	last := levels[len(levels)-1].Period
 	lastDate, err := domain.ParseDate(last + "-01")

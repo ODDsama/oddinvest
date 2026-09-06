@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -165,5 +166,94 @@ func TestBackfillCPISkipsWhenThick(t *testing.T) {
 	r.BackfillCPIIfThin(ctx, 10, 1) // маємо 1, треба 1 — тягнути нема чого
 	if len(asked) != 0 {
 		t.Fatalf("бекфіл побіг при достатній історії: %v", asked)
+	}
+}
+
+// TestRefreshCPIFillsGaps — ряд із діркою латається добовим прогоном.
+//
+// Без цього ряд із провалами лишався б таким назавжди: водяний знак
+// стоїть на останньому місяці, і до старих ніхто не повертається. Ціна не
+// абстрактна — на бойовому 32 пропущені місяці занизили інфляцію на
+// 2.8 в.п., і мовчки.
+func TestRefreshCPIFillsGaps(t *testing.T) {
+	r, st := dailyRunner(t, "", "")
+	ctx := context.Background()
+
+	// Ряд із діркою посередині: три місяці є, одного бракує.
+	months := []string{monthsAgo(r.loc, 4), monthsAgo(r.loc, 3), monthsAgo(r.loc, 2), monthsAgo(r.loc, 1)}
+	published := map[string]float64{}
+	for i, m := range months {
+		published[strings.ReplaceAll(nextMonth(m), "-", "")] = float64(i) + 1
+		if i == 1 {
+			continue // цей місяць у базу не кладемо — це й буде дірка
+		}
+		if err := st.SaveCPI(ctx, store.CPIPoint{Period: m, MoMBP: 100, YoYBP: 900}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r.nbu = nbu.New(cpiNBU(t, published, nil))
+	if err := st.SetAppState(ctx, cpiWatermark, months[len(months)-1]); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := r.RefreshCPI(ctx); err != nil {
+		t.Fatal(err)
+	}
+	n, err := st.CPIMonthCount(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != len(months) {
+		t.Fatalf("після латання місяців %d, хочемо %d", n, len(months))
+	}
+}
+
+// TestFetchCPIRetriesOnce — НБУ тротлить цей ендпойнт (перевірено на
+// бойовому: 88 запитів зі 133 пройшли, решта дістала 503 суцільними
+// блоками). Одна повторна спроба перетворює це з дірки в ряду на затримку.
+func TestFetchCPIRetriesOnce(t *testing.T) {
+	r, _ := dailyRunner(t, "", "")
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		hits++
+		if hits == 1 {
+			http.Error(w, "throttled", http.StatusServiceUnavailable)
+			return
+		}
+		w.Write([]byte(`[
+		  {"id_api":"prices_price_cpi_","mcrd081":"Total","ku":null,"tzep":"PCPM_","value":1.4},
+		  {"id_api":"prices_price_cpi_","mcrd081":"Total","ku":null,"tzep":"PCCM_","value":12.0}
+		]`))
+	}))
+	defer srv.Close()
+	r.nbu = nbu.New(srv.URL)
+
+	p, err := r.fetchCPI(context.Background(), "2024-12")
+	if err != nil {
+		t.Fatalf("повторна спроба не врятувала: %v", err)
+	}
+	if p.MoMBP != 140 || hits != 2 {
+		t.Fatalf("м/м=%d, запитів %d", p.MoMBP, hits)
+	}
+}
+
+// TestFetchCPIDoesNotRetryUnpublished — порожній місяць це ВІДПОВІДЬ, а
+// не збій: повторювати його означало б подвоїти запити щоразу, коли
+// новий місяць іще не вийшов.
+func TestFetchCPIDoesNotRetryUnpublished(t *testing.T) {
+	r, _ := dailyRunner(t, "", "")
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		hits++
+		w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+	r.nbu = nbu.New(srv.URL)
+
+	if _, err := r.fetchCPI(context.Background(), "2026-08"); !errors.Is(err, nbu.ErrCPINotPublished) {
+		t.Fatalf("хотіли ErrCPINotPublished, маємо %v", err)
+	}
+	if hits != 1 {
+		t.Fatalf("неопублікований місяць запитано %d разів", hits)
 	}
 }
