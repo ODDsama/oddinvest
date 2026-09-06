@@ -32,9 +32,10 @@ import { skeleton } from "./skeleton.js";
 import { fitCharts } from "./charts.js";
 import { parseRoute, ANCHORS, markerKind, seg } from "./routes.js";
 import {
-  portfolioRows, moneyRows, staticRows, chipsOf, rowHTML, footValue,
+  portfolioRows, moneyRows, staticRows, chipsOf, rowHTML, orderRowHTML, footValue,
   kindOfItem, KIND_ONE, KIND_COLOR, overLimit,
 } from "./master.js";
+import { applyOrder, moveInOrder } from "./navorder.js";
 import { loadPositionsData } from "./views/positions.js";
 
 import { overview } from "./views/overview.js";
@@ -164,6 +165,11 @@ export class OddInvestApp extends HTMLElement {
     // б стан, якого після покупки паперу вже не буде.
     this._chip = "";
     this._filter = "";
+    // Режим перестановки рядків. Теж у памʼяті й теж не в адресі, і з тієї
+    // ж причини, що чип: це дія над списком, а не місце в застосунку.
+    // Сам ПОРЯДОК, на відміну від режиму, живе на бекенді (navorder.js).
+    this._ordering = false;
+    this._navOrder = {};
   }
 
   /** Транспорт до бекенда. Ставиться ззовні; поки його немає —
@@ -267,6 +273,14 @@ export class OddInvestApp extends HTMLElement {
     // не сідає взагалі — тобто закриття після рендеру мовчки з'їдало б
     // переведення фокуса нижче, і читач екрана лишався б на посиланні.
     this._setMaster(false);
+    // Перехід закінчує перестановку. Рядки в режимі порядку не посилання,
+    // тож піти з нього можна лише вкладкою, палітрою чи «назад» — і
+    // жоден із цих жестів не означає «продовжуй переставляти вже інший
+    // список». Незаписане дописується тут само.
+    if (this._ordering) {
+      this._ordering = false;
+      this._saveOrder(true);
+    }
     if (changed || !this._painted) {
       await this._loadPage();
       this._painted = true;
@@ -327,6 +341,9 @@ export class OddInvestApp extends HTMLElement {
       // Портфелі (0054): перелік, відкритий зараз і перемикання. Панелі
       // не читають localStorage самі — це справа оболонки.
       portfolios: this._portfolios || [],
+      // Порядок рядків, поставлений власником: його читає staticRows —
+      // і для списку, і для палітри Ctrl+K.
+      navOrder: this._navOrder || {},
       portfolio: currentPortfolio() || "main",
       setPortfolio: (slug) => this._setPortfolio(slug),
       // Дані позицій, уже завантажені оболонкою для майстер-списку.
@@ -538,6 +555,13 @@ export class OddInvestApp extends HTMLElement {
     // кожному переході.
     const master = this.shadowRoot.getElementById("master");
     master.addEventListener("click", (e) => {
+      // Порядок рядків: вхід у режим, вихід, скидання й самі стрілки.
+      // Тут само, що й чипи, і з тієї ж причини — список перемальовується
+      // на кожному переході, тож слухач мусить сидіти на ньому самому.
+      const ord = e.target.closest("[data-ord]");
+      if (ord) { this._orderAction(ord.dataset.ord); return; }
+      const mv = e.target.closest("[data-mv]");
+      if (mv) { this._moveRow(mv.dataset.id, mv.dataset.mv === "up" ? -1 : 1); return; }
       const chip = e.target.closest(".chip");
       if (!chip) return;
       this._chip = chip.dataset.chip === this._chip ? "" : chip.dataset.chip;
@@ -711,7 +735,17 @@ export class OddInvestApp extends HTMLElement {
     this.shadowRoot.getElementById("tabs").innerHTML = TABS
       .filter((t) => !t.gear && !t.mark)
       .map((t) => {
-        const first = t.dynamic ? "all" : t.items[0].id;
+        // Клік по вкладці веде в перший рядок У ПОРЯДКУ ВЛАСНИКА, а не в
+        // перший рядок дерева. Це живий контрол, намальований із тих
+        // самих рядків, що й список, і вести його кудись інше, ніж у
+        // видимий перший рядок, означало б зробити перестановку
+        // наполовину.
+        //
+        // Голий «#/plan» і старі закладки при цьому НЕ рухаються (FIRST у
+        // nav.js, таблиця в web-routes-check.mjs): то ремонт напівнабраної
+        // адреси, а не вибір людини, і він мусить означати те саме на
+        // кожній машині.
+        const first = t.dynamic ? "all" : applyOrder(t.items, this._navOrder[t.key])[0].id;
         const href = `#/${t.key}/${first}/${panesFor(t.key, first)[0].key}`;
         const n = this._tabBadge(t.key);
         return `<a class="tab" href="${href}"${
@@ -782,7 +816,7 @@ export class OddInvestApp extends HTMLElement {
     return staticRows(tab, this._ctx);
   }
 
-  _paintMaster({ keepFocus = false } = {}) {
+  _paintMaster({ keepFocus = false, focusMv = null } = {}) {
     const tab = TAB_BY_KEY.get(this._tab);
     const host = this.shadowRoot.getElementById("master");
     // «Огляд» списку не має ЗОВСІМ — не порожній список, а жодного.
@@ -791,6 +825,34 @@ export class OddInvestApp extends HTMLElement {
     this.toggleAttribute("data-solo", tab ? tab.master === false : false);
     if (!tab || tab.master === false) { host.innerHTML = ""; return; }
     const all = this._allRows || [];
+
+    // Режим перестановки: інша шапка, інші рядки й ЖОДНОГО фільтра.
+    // Фільтр тут не забутий, а знятий (_orderAction): «вище» у
+    // відфільтрованому списку переставляло б рядок повз той, якого не
+    // видно, — тобто робило б не те, що показує екран.
+    if (this._ordering) {
+      host.innerHTML = `
+        <div class="master-h">
+          <span class="master-t">Порядок</span>
+          <button type="button" class="master-a" data-ord="done">Готово</button>
+          <button type="button" class="master-o" data-ord="reset">Скинути</button>
+        </div>
+        <ul class="m-list">${all.map((r, i) => orderRowHTML(r, i, all.length)).join("")}</ul>
+        <div class="master-foot"><span>Стрілками — вище й нижче</span></div>`;
+      // Фокус назад на ту саму стрілку того самого рядка: без цього
+      // другого натискання поспіль зробити не можна — після
+      // перемальовування фокус лежить на корені, і рядок доводиться
+      // ловити заново. Коли рядок доїхав до краю і кнопка згасла, фокус
+      // переходить на сусідню — не на порожнє місце.
+      if (focusMv) {
+        const want = focusMv.dir < 0 ? "up" : "down";
+        const btns = [...host.querySelectorAll(`[data-id="${focusMv.id}"]`)];
+        (btns.find((b) => b.dataset.mv === want && !b.disabled)
+          || btns.find((b) => !b.disabled))?.focus();
+      }
+      return;
+    }
+
     const q = this._filter.trim().toLowerCase();
     const shown = all.filter((r) =>
       (!this._chip || r.kind === this._chip || r.kind === "all")
@@ -801,6 +863,13 @@ export class OddInvestApp extends HTMLElement {
         `<button type="button" class="chip" data-chip="${esc(c.key)}"
           aria-pressed="${c.key === this._chip}">${esc(c.label)}</button>`).join("")}</div>`
       : "";
+    // ⇅ — лише там, де рядки СТАЛІ. У «Портфелі» й «Грошах» рядок — це
+    // папір або рахунок, вони приходять і зникають, і ручний порядок над
+    // ними означав би вподобання про річ, якої завтра може не бути; там
+    // порядок видів сталий навмисно (довід — у master.js).
+    const order = tab.items
+      ? `<button type="button" class="master-o" data-ord="on"
+          title="Змінити порядок рядків" aria-label="Змінити порядок рядків">⇅</button>` : "";
     const a = tab.action;
     const action = a
       ? `<a class="master-a" href="#/${tab.key}/${a.item}/${a.pane}${
@@ -820,6 +889,7 @@ export class OddInvestApp extends HTMLElement {
       <div class="master-h">
         <input class="master-f" type="search" placeholder="${esc(tab.search)}"
           aria-label="${esc(tab.search)}" value="${esc(this._filter)}">
+        ${order}
         ${action}
       </div>
       ${chips}
@@ -836,6 +906,85 @@ export class OddInvestApp extends HTMLElement {
       f?.focus();
       f?.setSelectionRange(f.value.length, f.value.length);
     }
+  }
+
+  // ---------- порядок рядків ----------
+
+  /** Вхід у режим, вихід і скидання. */
+  _orderAction(kind) {
+    const tab = TAB_BY_KEY.get(this._tab);
+    if (!tab) return;
+    if (kind === "on") {
+      // Фільтр і зріз знімаються ВХОДОМ, а не ховаються: інакше вийти з
+      // режиму означало б повернутись до набраного рядка, про який людина
+      // вже забула. Довід, чому переставляти у відфільтрованому списку не
+      // можна, — у _paintMaster.
+      this._filter = "";
+      this._chip = "";
+      this._ordering = true;
+    } else if (kind === "done") {
+      this._ordering = false;
+      // Запис не чекає на «Готово» (він летить із кожним ходом), але й не
+      // лишається висіти: піти зі сторінки можна й не натиснувши сюди.
+      this._saveOrder(true);
+    } else if (kind === "reset") {
+      const next = { ...this._navOrder };
+      delete next[tab.key];
+      this._navOrder = next;
+      this._allRows = this._rows();
+      // Шапку теж: посилання вкладки веде в перший рядок у порядку
+      // власника, а перший рядок щойно змінився. Без цього вкладка вела б
+      // у старий перший рядок до наступного переходу — тобто рівно доти,
+      // доки людина не перевірить, чи спрацювало.
+      this._paintHeader();
+      this._saveOrder();
+      this._announce(`${tab.label}: природний порядок`);
+    }
+    this._paintMaster();
+  }
+
+  /** Пересунути рядок на крок. */
+  _moveRow(id, dir) {
+    const tab = TAB_BY_KEY.get(this._tab);
+    if (!tab) return;
+    // Порядок береться з РЯДКІВ, а не з того, що лежить у _navOrder: у
+    // збереженому може не бути рядка, який зʼявився в цій версії, і
+    // переставляти довелось би в неповному списку. Рядки ж — це те саме,
+    // що на екрані.
+    const ids = (this._allRows || []).map((r) => r.id);
+    const next = moveInOrder(ids, id, dir);
+    if (next === ids) return; // край списку
+    this._navOrder = { ...this._navOrder, [tab.key]: next };
+    this._allRows = this._rows();
+    this._paintHeader();
+    this._paintMaster({ focusMv: { id, dir } });
+    const row = this._allRows.find((r) => r.id === id);
+    // Читачу екрана місце називається словами: без цього стрілка робить
+    // щось невидиме, і порахувати, куди доїхав рядок, нема як.
+    this._announce(`${row ? row.name : id} — ${next.indexOf(id) + 1} з ${next.length}`);
+    this._saveOrder();
+  }
+
+  /** Запис порядку на бекенд із затримкою.
+   *
+   *  Із затримкою, бо ходів підряд буває п'ять, а порядок цікавий лише
+   *  останній. Не на «Готово», бо піти з вкладки можна й без нього — і
+   *  тоді перестановка загубилась би мовчки.
+   *
+   *  Іде через this._api, тобто скидає кеш store цілком (store.js). Тут
+   *  це зайва робота: жодна відповідь бекенда від порядку рядків не
+   *  міняється. Але виняток із правила «запис завжди скидає кеш» коштував
+   *  би дорожче за один перезапит зведення на перестановку, яку роблять
+   *  раз на місяць. */
+  _saveOrder(now = false) {
+    clearTimeout(this._orderTimer);
+    const send = () => this._api("PUT", "nav-order", this._navOrder).catch((err) => {
+      // Порядок на екрані лишається: він уже застосований, і відкотити
+      // його на очах означало б покарати за поломку мережі.
+      this._toast(`Порядок не зберігся: ${err.message || err}`, false);
+    });
+    if (now) send();
+    else this._orderTimer = setTimeout(send, 500);
   }
 
   // Шухляда — атрибут на хості, а не <dialog>. Три причини, і всі три з
@@ -1127,14 +1276,19 @@ export class OddInvestApp extends HTMLElement {
       this._store = this._newStore();
       this._toast(`Портфеля «${cur}» більше немає — відкрито головний`, false);
     }
-    const [brokers, funds, npf] = await Promise.all([
+    const [brokers, funds, npf, order] = await Promise.all([
       this._store.soft("brokers", []),
       this._store.soft("fund-catalog", []),
       this._store.soft("npf-accounts", []),
+      // Порядок рядків — теж мʼяке читання, і саме тут: список малюється
+      // раніше за будь-яку панель, а маршрут може бути новішим за бекенд.
+      // Список у природному порядку кращий за порожню вкладку.
+      this._store.soft("nav-order", {}),
     ]);
     this._brokers = brokers || [];
     this._fundCatalog = funds || [];
     this._npfAccounts = npf || [];
+    this._navOrder = order || {};
   }
 
   // Саме зведення (без рендеру: плитки живуть у панелях). Кидає — і

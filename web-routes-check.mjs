@@ -36,6 +36,7 @@ import { readdirSync, statSync, readFileSync } from "node:fs";
 import { parseRoute, routeFor, routeKnown, markerKind } from
   "./internal/api/web/js/routes.js";
 import { PATHS, TABS, HOME, panesFor } from "./internal/api/web/js/nav.js";
+import { applyOrder } from "./internal/api/web/js/navorder.js";
 
 const ROOT = "internal/api/web/js";
 
@@ -255,6 +256,34 @@ for (const [tab, item, pane] of ROUND) {
   const r = parseRoute(`#/${tab}/${enc}/${pane}`);
   if (r.tab !== tab || r.item !== item || r.pane !== pane) {
     bad.push(`кодування  ${tab}/${item}/${pane} → ${r.tab}/${r.item}/${r.pane}`);
+  }
+}
+
+// ---------------------------------------------------------------------
+// 4. Ручний порядок рядків
+// ---------------------------------------------------------------------
+//
+// Порядок, поставлений власником, живе на бекенді окремо від дерева
+// (navorder.js), і зійтись вони можуть будь-як: збережене старше за
+// застосунок, у ньому є прибраний рядок, немає нового. Жоден із цих
+// випадків не має права з'їсти рядок списку — а помітно це було б аж
+// тоді, коли з «Плану» мовчки зникне «Ціль і прогноз».
+//
+// Перевіряється на справжній вкладці, а не на вигаданих даних: так
+// твердження лишається правдою і після того, як рядки перейменують.
+const ordTab = TABS.find((t) => t.key === "plan");
+const ordIDs = (ordTab.items || []).map((it) => it.id);
+const ordCases = [
+  ["без порядку", null, ordIDs],
+  ["зворотний", [...ordIDs].reverse(), [...ordIDs].reverse()],
+  ["зниклий рядок", ["нема-такого", ...ordIDs], ordIDs],
+  ["новий рядок у кінець", ordIDs.slice(1), [...ordIDs.slice(1), ordIDs[0]]],
+  ["порожній", [], ordIDs],
+];
+for (const [name, ids, want] of ordCases) {
+  const got = applyOrder(ordTab.items, ids).map((it) => it.id);
+  if (got.join(",") !== want.join(",")) {
+    bad.push(`порядок  ${name} → ${got.join(",")}  — мало бути ${want.join(",")}`);
   }
 }
 

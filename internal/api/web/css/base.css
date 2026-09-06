@@ -364,6 +364,55 @@ header .sp { flex: 1 1 auto; min-width: var(--oi-gap); }
   white-space: nowrap;
 }
 
+/* Порядок рядків: кнопка ⇅ у шапці, підпис режиму, стрілки в рядку.
+   Розмітку пише app.js/master.js — тут лише місце під неї.
+
+   Ціль дотику 44px у стрілок не з таблиці рекомендацій, а з того самого
+   доводу, що й решта кнопок телефона: у режимі порядку по них б'ють
+   підряд по кілька разів, і промах коштує ходу не туди. */
+.master-o {
+  flex: 0 0 auto;
+  min-width: 32px;
+  padding: var(--oi-gap-xs) var(--oi-gap-sm);
+  border: var(--oi-rule) solid var(--oi-border);
+  border-radius: var(--oi-radius-sm);
+  background: var(--oi-surface-2);
+  color: var(--oi-muted);
+  font-family: inherit;
+  font-size: var(--oi-fs-sm);
+  white-space: nowrap;
+}
+.master-o:hover { color: var(--oi-text); }
+.master-t {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--oi-fs-sm);
+  font-weight: var(--oi-fw-bold);
+  color: var(--oi-muted);
+}
+.m-ord {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: center;
+  padding: var(--oi-gap-xs) var(--oi-gap-lg);
+  border-top: var(--oi-rule) solid var(--oi-rule-hair);
+  border-left: var(--oi-rule-strong) solid transparent;
+}
+.m-mvs { display: flex; gap: var(--oi-gap-xs); }
+.m-mv {
+  width: 44px;
+  height: 44px;
+  border: var(--oi-rule) solid var(--oi-border);
+  border-radius: var(--oi-radius-sm);
+  background: var(--oi-surface-2);
+  color: var(--oi-text);
+  font-family: inherit;
+  font-size: var(--oi-fs);
+}
+.m-mv:hover:not(:disabled) { background: var(--oi-master-on); }
+.m-mv:disabled { color: var(--oi-text-faint); }
+
 /* Чипи-зрізи. Живуть лише в «Портфелі», і саме вони заміняють колишні
    сторінки виду: вибір паперу і є вибором виду, а зріз по виду лишається
    тут. */

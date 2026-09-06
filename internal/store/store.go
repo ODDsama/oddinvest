@@ -854,11 +854,17 @@ func (s *Store) GetSetting(ctx context.Context, key string) (string, error) {
 	return v, err
 }
 
-// SetAppState / GetAppState — робочий стан застосунку, спільний для всіх
+// SetAppState / GetAppState — стан застосунку, спільний для всіх
 // портфелів (0054): час оновлення довідника НБУ, знак аукціонів. Окремо від
 // settings не з педантизму: ті рядки належать портфелю, а довідник НБУ —
 // ні, і покласти час його оновлення в «налаштування портфеля 1» означало
 // б, що другий портфель довідник має, а часу не має.
+//
+// Тут же живе розкладка UI — порядок рядків майстер-списку (nav_order,
+// див. api/handlers_navorder.go). Той самий довід, лише з іншого боку:
+// список, перекладений під себе, не має перетасовуватись від перемикання
+// портфеля. Тобто ця таблиця — не «стан джоб», а все, що належить
+// ІНСТАЛЯЦІЇ, а не портфелю.
 func (s *Store) SetAppState(ctx context.Context, key, value string) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO app_state(key, value) VALUES(?,?)
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)

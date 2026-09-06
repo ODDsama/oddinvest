@@ -19,6 +19,7 @@
 import { esc, cur2, uah0, pct, plural, capitalUAH } from "./format.js";
 import { seg } from "./routes.js";
 import { panesFor } from "./nav.js";
+import { applyOrder } from "./navorder.js";
 
 /** Підпис виду в пігулці інспектора й у чипах. Множина й однина
  *  розходяться не випадково — так само, як у KINDS старої воронки:
@@ -259,7 +260,12 @@ export function staticRows(tab, ctx) {
         : null;
     },
   };
-  return (tab.items || []).map((it) => {
+  // Порядок — той, який поставив собі власник (navorder.js); без
+  // збереженого порядку це рівно tab.items. Одне місце на весь застосунок:
+  // цю ж функцію кличе палітра Ctrl+K, тож перекладений список і палітра
+  // не можуть розійтись.
+  const order = (ctx && ctx.navOrder && ctx.navOrder[tab.key]) || null;
+  return applyOrder(tab.items || [], order).map((it) => {
     const [value, meta, tone] = (num[it.id] && num[it.id]()) || ["", "", ""];
     return row(it.id, it.name, it.sub, value, meta, "", tone);
   });
@@ -314,6 +320,36 @@ export function rowHTML(tabKey, r, current) {
       ${r.meta ? `<span class="m-meta" style="--oi-c:${tone}">${esc(r.meta)}</span>` : ""}
     </span>
   </a></li>`;
+}
+
+/** Рядок у режимі перестановки: те саме, але не посилання, і з двома
+ *  стрілками.
+ *
+ *  НЕ ПОСИЛАННЯ навмисно. Доки список переставляють, кожен рядок — це
+ *  річ, яку рухають, а не місце, куди йдуть; посилання під пальцем поруч
+ *  зі стрілкою означало б, що промах відкриває сторінку й губить режим.
+ *
+ *  Стрілки, а не перетягування: цим самим жестом переставляють і мишею,
+ *  і пальцем, і з клавіатури (Tab плюс Enter працюють задарма, бо це
+ *  справжні кнопки). Перетягування коштувало б pointer events,
+ *  автоскролу — і все одно вимагало б стрілок як запасного шляху.
+ *
+ *  Числа немає: у режимі порядку питання не «скільки», а «де стоїть», і
+ *  колонка чисел лише відтісняла б стрілки. */
+export function orderRowHTML(r, i, n) {
+  const mv = (dir, sign, label, off) =>
+    `<button type="button" class="m-mv" data-mv="${dir}" data-id="${esc(r.id)}"
+      aria-label="${label}: ${esc(r.name)}"${off ? " disabled" : ""}>${sign}</button>`;
+  return `<li class="m-ord">
+    <span class="m-t">
+      <span class="m-n">${esc(r.name)}</span>
+      <span class="m-s">${esc(r.sub)}</span>
+    </span>
+    <span class="m-mvs">
+      ${mv("up", "↑", "Вище", i === 0)}
+      ${mv("down", "↓", "Нижче", i === n - 1)}
+    </span>
+  </li>`;
 }
 
 /** Підсумок у підвалі списку. Береться зі зведення, а не складається з

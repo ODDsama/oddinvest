@@ -164,6 +164,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/benchmark", s.handleBenchmark)
 	mux.HandleFunc("GET /api/rivals", s.handleRivals)
 	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
+	// Порядок рядків лівого списку — вподобання власника, поруч із
+	// налаштуваннями й окремо від них (довід — у шапці handlers_navorder.go).
+	mux.HandleFunc("GET /api/nav-order", s.handleGetNavOrder)
+	mux.HandleFunc("PUT /api/nav-order", s.handlePutNavOrder)
 	mux.HandleFunc("POST /api/payments/status", s.handlePaymentStatus)
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)
 	mux.HandleFunc("GET /api/xirr", s.handleXIRR)
