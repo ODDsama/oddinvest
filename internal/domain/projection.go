@@ -138,20 +138,38 @@ func (s Sleeve) newState() projState {
 // крокує тими самими правилами, але без внесків.
 //
 // Lock (планова дія «замкнути суму на строк») переносить гроші з
-// ліквідного в locked ДО звичайного кроку: до місяця m готівку вже могло
-// змести в invested порогом (step нижче), тож замок бере спершу звідти,
-// потім із cash. Якщо не вистачає жодного — cash іде в мінус: застосунок
-// показує наслідок гіпотези, а не блокує її, як і кошик покупки
-// (handlers_whatif.go).
+// ліквідного в locked ДО звичайного кроку. Spend (планована купівля
+// накопичувального фонду) знімає їх так само, але в locked не кладе —
+// його друга половина чекає в Accum.ContribByMonth і додасться в grow()
+// нижче, у тому ж місяці.
+//
+// Обидва списують ДО кроку з того самого доводу: до місяця m готівку вже
+// могло змести в invested порогом (step нижче), тож брати треба спершу
+// звідти, потім із cash. Якщо не вистачає жодного — cash іде в мінус:
+// застосунок показує наслідок гіпотези, а не блокує її, як і кошик
+// покупки (handlers_whatif.go).
 func (p *projState) stepSleeve(s Sleeve, m int, contrib float64) {
 	if amt := s.Lock[m]; amt > 0 {
-		fromInvested := math.Min(amt, p.invested)
-		p.invested -= fromInvested
-		p.cash -= amt - fromInvested
+		p.debit(amt)
 		p.locked += amt
+	}
+	if amt := s.Spend[m]; amt > 0 {
+		// locked НЕ росте: гроші пішли в позицію, яка росте сама.
+		p.debit(amt)
 	}
 	fromFunds := p.grow(m) + p.pay()
 	p.step(MonthlyRate(s.rateAt(m)), contrib, s.Threshold, s.Coupon[m]+fromFunds, s.Redeem[m])
+}
+
+// debit — зняти суму з ліквідного боку: спершу з invested, потім із cash.
+//
+// Спільна для Lock і Spend навмисно. Порядок «спершу invested» тут не
+// косметика (див. stepSleeve), і дві копії цього правила розійшлися б
+// саме тоді, коли одну з них хтось поправить.
+func (p *projState) debit(amt float64) {
+	fromInvested := math.Min(amt, p.invested)
+	p.invested -= fromInvested
+	p.cash -= amt - fromInvested
 }
 
 // MonthsToReach — за скільки місяців капітал сягне кожної з цілей за

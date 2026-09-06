@@ -314,9 +314,11 @@ func TestLockPrefersInvestedOverCash(t *testing.T) {
 	approx(t, "сума не змінюється від переходу в locked", got, 200+1000*2, 0.01)
 }
 
-// Купон і повернення тіла замка — звичайні Coupon/Redeem: жодного нового
-// коду для них не знадобилось, замок економічно не відрізняється від
-// вкладу чи облігації, щойно гроші в ньому опинились.
+// Купон і повернення тіла замка — звичайні Coupon/Redeem: нового коду
+// для них не знадобилось, бо замок економічно не відрізняється від вкладу
+// чи облігації, щойно гроші в ньому опинились. Це лишається правдою для
+// ОВДП, вкладу й розподільного фонду; накопичувальний пішов у Spend —
+// див. тести нижче.
 func TestLockPaysCouponAndRedeemsAtTerm(t *testing.T) {
 	s := uahSleeve(10000, 0, 0, 0)
 	s.Lock = map[int]float64{1: 10000}
@@ -324,4 +326,82 @@ func TestLockPaysCouponAndRedeemsAtTerm(t *testing.T) {
 	s.Redeem = map[int]float64{3: 10000}
 	got := ProjectSleeves([]Sleeve{s}, 0, 3).TodayUAH
 	approx(t, "тіло + два купони", got, 10000+200, 0.01)
+}
+
+// buyAccum — планована купівля накопичувального фонду: ОБИДВІ половини
+// руху, як їх завжди й заводять разом. Порізно вони не заводяться ніколи,
+// тож і в тестах є одна функція, а не два виклики поруч.
+func buyAccum(s Sleeve, m int, amount, ratePct float64, closeM int) Sleeve {
+	if s.Spend == nil {
+		s.Spend = map[int]float64{}
+	}
+	s.Spend[m] += amount
+	vec := make([]float64, m)
+	vec[m-1] = amount
+	s.Accum = append(s.Accum, Accum{RatePct: ratePct, CloseM: closeM, ContribByMonth: vec})
+	return s
+}
+
+// Spend + Accum — той самий перехід, що й замок, і так само не сміє ні
+// губити, ні додавати капітал: за нульових ставок сума до й після місяця
+// покупки мусить збігтись.
+func TestSpendTransfersToAccumWithoutLoss(t *testing.T) {
+	s := buyAccum(uahSleeve(100000, 0, 0, 0), 6, 50000, 0, 0)
+	before := ProjectSleeves([]Sleeve{s}, 0, 5).TodayUAH
+	after := ProjectSleeves([]Sleeve{s}, 0, 6).TodayUAH
+	approx(t, "покупка фонду не губить і не додає капітал", after, before, 0.01)
+}
+
+// Той самий порядок списання, що й у замка: спершу invested, потім cash.
+// Обидва ходять спільним debit, і цей тест — його другий сторож.
+func TestSpendPrefersInvestedOverCash(t *testing.T) {
+	s := buyAccum(uahSleeve(200, 0, 0, 1000), 2, 500, 0, 0)
+	got := ProjectSleeves([]Sleeve{s}, 0, 2).TodayUAH
+	approx(t, "сума не змінюється від покупки фонду", got, 200+1000*2, 0.01)
+}
+
+// МІСЯЦЬ ФІНАНСУВАННЯ, і це найтонше місце всієї механіки: ContribByMonth
+// індексується з нуля (m-1), а Spend — з одиниці. Помилка на одиницю тут
+// не видна в підсумку сама собою — гроші однаково списані й однаково
+// зараховані, — тож ловиться вона РОСТОМ: ставка рукава нульова, ставка
+// фонду ні, отже кожен зайвий місяць у фонді видно в капіталі.
+func TestSpendFundsAccumExactlyOnItsMonth(t *testing.T) {
+	s := buyAccum(uahSleeve(100000, 0, 0, 0), 3, 50000, 20, 0)
+	// У сам місяць покупки внесок ще не росте (accum.go: contrib
+	// додається ПІСЛЯ множення), тож капітал дорівнює вихідному.
+	approx(t, "у місяць покупки фонд ще не встиг вирости",
+		ProjectSleeves([]Sleeve{s}, 0, 3).TodayUAH, 100000, 0.01)
+	// А на наступному — рівно один місяць росту, не два.
+	approx(t, "через місяць після покупки — рівно один місяць росту",
+		ProjectSleeves([]Sleeve{s}, 0, 4).TodayUAH,
+		50000+50000*(1+MonthlyRate(20)), 0.01)
+}
+
+// ГОЛОВНИЙ ІНВАРІАНТ, заради якого Spend і заведено: куплений фонд РОСТЕ.
+// Доти планована купівля прикидалась замком, а тіло замка не росте — і
+// покупка робила прогноз гіршим.
+func TestPlannedAccumCompoundsAfterFunding(t *testing.T) {
+	s := buyAccum(uahSleeve(100000, 0, 0, 0), 3, 50000, 20, 0)
+	// Дванадцять місяців росту за 20% річних від місяця фінансування;
+	// ліквідні 50000 лежать під нуль і не додають нічого.
+	approx(t, "фонд виріс на власну ставку",
+		ProjectSleeves([]Sleeve{s}, 0, 15).TodayUAH, 50000+50000*1.2, 1)
+}
+
+// Гроші не сміють опинитись у locked: там вони рахувались би ставкою
+// РУКАВА як дохід, тобто фонд платив би те, чого не платить.
+func TestSpendDoesNotEnterLocked(t *testing.T) {
+	// Купівля в ПЕРШОМУ ж місяці навмисно: інакше гроші встигли б
+	// вирости в ліквідному боці до покупки, і порівняння міряло б це
+	// зростання, а не те, куди вони потрапили.
+	s := buyAccum(uahSleeve(100000, 0, 10, 0), 1, 50000, 0, 0)
+	got := ProjectSleeves([]Sleeve{s}, 0, 12)
+	// Накопичувальний не платить нічого (incomeMonthly рахує accum
+	// нулем), тож дохід рукава — рівно той самий, що й у портфеля, у
+	// якого цих грошей просто немає. Якби вони лягли в locked, дохід
+	// рахувався б іще й з них, за ставкою РУКАВА: фонд платив би те,
+	// чого не платить.
+	bare := ProjectSleeves([]Sleeve{uahSleeve(50000, 0, 10, 0)}, 0, 12)
+	approx(t, "накопичувальний не додає доходу рукава",
+		got.IncomeMonthlyTodayUAH, bare.IncomeMonthlyTodayUAH, 0.01)
 }

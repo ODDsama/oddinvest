@@ -107,6 +107,11 @@ type projectionInput struct {
 	// фази «План», — це і є головний тест.
 	PlanFlows   []store.PlanFlow
 	PlanActions []store.PlanAction
+	// PlanFunds — планована купівля накопичувального фонду: позиція, якої
+	// сьогодні ще немає. Окремо від PlanActions, бо це не замок, а
+	// зростання — довід повністю записаний над planFundBuy
+	// (state_builder.go).
+	PlanFunds []planFundBuy
 	// PlanReceipts — відмітки фактичних надходжень (0027). Відмітка на
 	// МАЙБУТНІЙ місяць заміщає планову суму того місяця, тож «відпускні
 	// прийшли наперед, далі два місяці нуль» перестає бути знанням у голові
@@ -220,6 +225,12 @@ type sleeveFactory struct {
 	// звичайний мінус у plan вище. Див. newSleeveFactory.
 	npfContrib map[string][]float64
 	lock       map[string]map[int]float64
+	// spend / planAccum — ОБИДВІ половини планованої купівлі фонду:
+	// валюта → місяць → сума, що йде з ліквідного, і валюта → позиції,
+	// які з неї народжуються. Заповнюються одним циклом і ніколи
+	// поодинці (див. planFundBuy).
+	spend     map[string]map[int]float64
+	planAccum map[string][]domain.Accum
 	// shareBreaks — точки зламу валютних часток від дій set_shares,
 	// відсортовані за місяцем. Порожньо = частки з налаштувань незмінні
 	// на весь горизонт, як і до фази «План».
@@ -573,6 +584,39 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 		}
 	}
 
+	// --- планована купівля фонду: дебет у f.spend, кредит у f.planAccum ---
+	//
+	// Обидві половини пишуться ОДНИМ циклом навмисно: розведені по двох
+	// проходах, вони розійшлися б рівно тоді, коли хтось поправить один.
+	f.spend = map[string]map[int]float64{}
+	f.planAccum = map[string][]domain.Accum{}
+	for _, b := range in.PlanFunds {
+		// monthOffset, а НЕ monthOffsetRaw: покупка, датована пізнішим
+		// днем ПОТОЧНОГО місяця, дає нуль, а нуль тут означав би vec[-1].
+		// Той самий клемп, що й у решти плану, і з того самого доводу.
+		m0 := monthOffset(today, b.When)
+		if b.Amount <= 0 || m0 > goalHorizonMonths {
+			continue
+		}
+		rate := b.Rate
+		if b.Growth {
+			// Поправка на знецінення — лише зростанню, як і для вже
+			// наявної позиції (state_funds.go): виплатам її не роблять.
+			rate = inFundCurrency(rate, b.RateCur, b.Currency, in.Deval)
+		}
+		vec := make([]float64, goalHorizonMonths)
+		vec[m0-1] = b.Amount
+		f.planAccum[b.Currency] = append(f.planAccum[b.Currency], domain.Accum{
+			RatePct: rate, CloseM: b.CloseM,
+			TaxPct: b.TaxPct, ExitTaxPct: b.ExitTaxPct,
+			ContribByMonth: vec,
+		})
+		if f.spend[b.Currency] == nil {
+			f.spend[b.Currency] = map[int]float64{}
+		}
+		f.spend[b.Currency][m0] += b.Amount
+	}
+
 	return f
 }
 
@@ -625,12 +669,27 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 			}
 			accum = append(append([]domain.Accum{}, accum...), withContrib...)
 		}
+		// Планована купівля фонду — позиція, якої сьогодні ще немає. Теж
+		// копією зрізу й з того самого доводу, що абзацом вище: f живе
+		// довше за один виклик build.
+		if pf := f.planAccum[cur]; len(pf) > 0 {
+			accum = append(append([]domain.Accum{}, accum...), pf...)
+		}
 		contrib := contribTotal * share[cur]
 		// План (фаза 9): справжній вектор внеску й дії lock — незалежно
 		// від contribTotal/ratePP цього виклику, вони приходять із f і
 		// стоять на кожному рукаві, який factory будь-коли збирає.
 		planVec, lockMap := f.plan[cur], f.lock[cur]
 		nativeVec := f.planNative[cur]
+		spendMap := f.spend[cur]
+		// Планованого фонду в сторожі НЕМАЄ окремим доданком, і це не
+		// недогляд: обидві його половини пишуться одним циклом, тож spend
+		// непорожній рівно тоді, коли непорожній і planAccum, — а той уже
+		// влитий в accum вище. Дописати сюди ще й len(spendMap) означало б
+		// умову, яка не може спрацювати (CLAUDE.md §3). Тримається це на
+		// порядку: злиття planAccum стоїть ДО сторожа. Що купівля у
+		// валюті, якої в портфелі немає, не зникає, перевіряє
+		// TestWhatIfPlannedFundBuyInAbsentCurrency.
 		if cash == 0 && nom == 0 && contrib == 0 && len(accum) == 0 && len(dist) == 0 &&
 			!anyNonZero(planVec) && !anyNonZero(nativeVec) && len(lockMap) == 0 {
 			continue // валюти немає і не планується
@@ -670,6 +729,7 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 			Redeem: f.redeem[cur], ContribUAH: contrib, Rate0: rate0,
 			Accum: accum, Dist: dist,
 			ContribByMonth: planVec, ContribNativeByMonth: nativeVec, Lock: lockMap,
+			Spend: spendMap,
 		})
 	}
 	return sleeves
@@ -687,12 +747,17 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 // з зануленим планом нічого спільного не псує. Три речі лишаються
 // НАВМИСНО:
 //
-//   - lock. Замок переносить гроші з ліквідного в замкнене, не створюючи
-//     припливу (projection.go: total() від переносу не міняється), тож у
-//     базовій лінії йому місце. Механічна причина та сама: купон і
-//     погашення замка вже вмішані в coupon/redeem і роз'єднати їх не
-//     можна, а занулити сам lock означало б загубити рукав, у якому,
-//     крім замка, нічого немає.
+//   - lock, а разом із ним spend/planAccum. Причина МЕХАНІЧНА, і саме
+//     її варто тримати першою: обидві половини кожного з цих рухів
+//     нероздільні, а купон і погашення замка вже вмішані в
+//     coupon/redeem — занулити сам lock означало б загубити рукав, у
+//     якому, крім замка, нічого немає, або зняти гроші, не поклавши їх
+//     нікуди. Колись тут стояв простіший довід — «замок капітало-
+//     нейтральний, total() від переносу не міняється», — і для самого
+//     переносу він досі правдивий; неправдивим він став для того, що за
+//     переносом іде: замкнене платить купон, а Accum росте власною
+//     ставкою. Отже це не нейтральність, а названа МЕЖА ТОЧНОСТІ
+//     базової лінії: плану в ній немає, а куплене за планом лишилось.
 //   - coupon/redeem. Це реальні папери, вони від плану не залежать.
 //   - shareBreaks. Дії set_shares описують політику, а не гроші.
 //

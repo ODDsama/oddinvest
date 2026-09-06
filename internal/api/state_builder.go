@@ -153,6 +153,53 @@ type hypothetical struct {
 	cash    []store.Deposit
 	debts   []domain.Debt
 	debtOps []domain.DebtOp
+	// planFunds — планована купівля сертифіката НАКОПИЧУВАЛЬНОГО (чи
+	// реінвестуючого) фонду: позиція, якої сьогодні ще немає й яка
+	// НАРОДЖУЄТЬСЯ порожньою в місяці покупки.
+	//
+	// ШОСТА ПРИРОДА, і власний канал у неї не з примхи. Виразити її через
+	// actions не можна: дія «lock» приходить ще й від людини (POST
+	// /api/plan/actions), і відрізнити там синтетичну від справжньої
+	// нічим — тобто будь-яке поле, дописане в PlanAction заради плану
+	// купівель, змінило б і поведінку замка, який людина завела руками.
+	//
+	// Чому не замок узагалі: у замкненому накопичувальний фонд лежав би
+	// цеглиною (довід дослівно записаний у domain/sleeves.go над Accum),
+	// а весь його дохід саме в зростанні. Замок платив би натомість
+	// простий купон від замороженого тіла — і планована купівля робила б
+	// прогноз ГІРШИМ. Розподільний фонд лишається замком: там замок і є
+	// правильною моделлю, бо Dist так само не росте тілом і платить
+	// власною ставкою.
+	planFunds []planFundBuy
+}
+
+// planFundBuy — обидві половини руху грошей в одному записі: скільки йде
+// з ліквідного боку і в яку позицію воно перетворюється.
+//
+// Порізно вони не заводяться НІКОЛИ. Сама по собі кожна половина або
+// губить гроші мовчки, або створює їх із нічого, і в обох випадках числа
+// лишаються правдоподібними — тому вони й лежать в одній структурі, а не
+// в двох сусідніх полях, які легко розійтись.
+type planFundBuy struct {
+	Currency string      // валюта рукава й суми
+	When     domain.Date // місяць, у якому гроші переходять
+	Amount   float64     // major, нативна валюта
+	// Rate / RateCur — ВЛАСНА ставка фонду й валюта, у якій її обіцяно.
+	//
+	// Поправка на знецінення (inFundCurrency) застосовується не тут, а у
+	// фабриці рукавів: знецінення живе в src.deval, куди розгортання
+	// плану не дивиться й не має.
+	Rate    float64
+	RateCur string
+	// CloseM — АБСОЛЮТНИЙ місяць закриття фонду, 0 = не закривається.
+	// Саме абсолютний, бо Accum.CloseM порівнюється з номером місяця
+	// симуляції, а не зі строком від покупки.
+	CloseM     int
+	TaxPct     float64
+	ExitTaxPct float64
+	// Growth — чи застосовувати inFundCurrency. Лише накопичувальному:
+	// довід той самий, що в state_funds.go для вже наявної позиції.
+	Growth bool
 }
 
 // empty — чи це звичайна збірка. Дешевша перевірка, ніж порівняння
@@ -166,7 +213,8 @@ func (h hypothetical) empty() bool {
 	return len(h.lots) == 0 && len(h.fundOps) == 0 && len(h.deposits) == 0 &&
 		len(h.npfOps) == 0 && len(h.actions) == 0 && len(h.flows) == 0 &&
 		len(h.settings) == 0 && len(h.rates) == 0 &&
-		len(h.cash) == 0 && len(h.debts) == 0 && len(h.debtOps) == 0
+		len(h.cash) == 0 && len(h.debts) == 0 && len(h.debtOps) == 0 &&
+		len(h.planFunds) == 0
 }
 
 // buildState — стан портфеля яким він є.
@@ -202,6 +250,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// виклик на чотириста рядків нижче), тож розійтись тут нема чому.
 		src.planActions = append(append([]store.PlanAction{}, src.planActions...), what.actions...)
 		src.planFlows = append(append([]store.PlanFlow{}, src.planFlows...), what.flows...)
+		src.planFunds = append(append([]planFundBuy{}, src.planFunds...), what.planFunds...)
 		// Довідник — лише для ISIN, яких у ньому ще немає: інакше графік
 		// виплат наявного паперу подвоївся б, а разом із ним купони,
 		// драбина й дюрація.
@@ -1139,6 +1188,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		Rates:            rates, Deval: deval, ActualMonthly: actualMonthly,
 		IncomeMonthlyNow: incomeMonthlyNow, Today: today,
 		PlanFlows: src.planFlows, PlanActions: src.planActions,
+		PlanFunds:    src.planFunds,
 		PlanReceipts: src.planReceipts,
 		// Розриви подушки й цілей — щоб прогноз віднімав від місячних
 		// внесків те, що піде поза портфель, і переставав це робити, коли

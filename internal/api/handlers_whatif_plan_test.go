@@ -52,6 +52,57 @@ func planServer(t *testing.T) (string, *store.Store) {
 	return srv.URL, st
 }
 
+// seedCatalogFund — фонд у ДОВІДНИКУ з видом, обіцянкою й податками.
+//
+// Довідник наповнюється операцією (інакше рядка фонду просто немає), а
+// вид і обіцянка дописуються правкою: окремого «створити фонд» у сховищі
+// немає навмисно — фонд існує рівно доти, доки є його операції.
+//
+// Операція навмисно ПРОДАНА назад тим самим днем: тест міряє планований
+// фонд, якого в портфелі ще немає, і залишок позиції зсував би капітал.
+func seedCatalogFund(t *testing.T, st *store.Store, name, kind string,
+	yieldBP int64, closeDate string) {
+
+	t.Helper()
+	ctx := context.Background()
+	day := domain.NewDate(time.Now().AddDate(0, 0, -20))
+	for _, op := range []domain.FundOp{
+		{Date: day, Fund: name, Kind: domain.FundBuy,
+			Qty: 1, Amount: 100, Currency: money.UAH, Broker: "mono"},
+		{Date: day, Fund: name, Kind: domain.FundSell,
+			Qty: 1, Amount: 100, Currency: money.UAH, Broker: "mono"},
+	} {
+		if _, err := st.AddFundOp(ctx, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+	funds, err := st.ListFunds(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range funds {
+		if f.Name != name {
+			continue
+		}
+		f.Kind, f.ExpectedYieldBP, f.CloseDate = kind, yieldBP, closeDate
+		f.Currency = money.UAH
+		if err := st.RenameFund(ctx, f.ID, f); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Fatalf("фонд %q не зʼявився в довіднику", name)
+}
+
+// planFundBody — рядок плану на купівлю сертифіката через N місяців.
+// Ціна за штуку задається явно: фонда в портфелі немає, тож узяти її
+// нема звідки (state_plan_buys.go).
+func planFundBody(name string, months int) string {
+	when := time.Now().AddDate(0, months, 0).Format("2006-01-02")
+	return `{"draft":[{"kind":"fund","ref":"` + name + `","qty":1000,` +
+		`"unit_price":"100","currency":"UAH","broker":"mono","buy_date":"` + when + `"}]}`
+}
+
 func whatIf(t *testing.T, url, body string) (int, string) {
 	t.Helper()
 	resp, out := do(t, "POST", url+"/api/whatif", body)
@@ -245,6 +296,126 @@ func TestWhatIfFutureRowDoesNotMoveToday(t *testing.T) {
 	}
 }
 
+// ГОЛОВНИЙ ТЕСТ КОМІТА: планована купівля хорошого фонду не сміє
+// ПОГІРШУВАТИ прогноз.
+//
+// Доти вона це робила. Накопичувальний фонд у плані прикидався замком, а
+// тіло замка не росте (domain/projection.go: компаундиться лише
+// invested) — гроші виймались із пулу реінвесту, де вони працювали за
+// ставкою рукава, і клались туди, де вони лежать. Купівля фонду, який
+// обіцяє БІЛЬШЕ за рукав, робила «треба вносити щомісяця» більшим.
+//
+// Напрямок тут перевіряється навмисно, а не сама лише нерівність: усі
+// наявні тести майбутнього рядка питали `!=`, і помилка знаку прожила б
+// під ними скільки завгодно.
+func TestWhatIfPlannedFundBuyDoesNotWorsenForecast(t *testing.T) {
+	url, st := planServer(t)
+	seedCatalogFund(t, st, "Накопичувальний", store.FundAccumulating, 3000, "")
+
+	_, summary := do(t, "GET", url+"/api/summary", "")
+	before := goalsOf(t, summary)
+	if before.MonthTargetUAH == 0 {
+		t.Fatal("місячного плану немає — ціль і дедлайн не задані?")
+	}
+
+	code, body := whatIf(t, url, planFundBody("Накопичувальний", 6))
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	after := goalsOf(t, afterOf(t, body))
+	if after.MonthTargetUAH >= before.MonthTargetUAH {
+		t.Errorf("покупка фонду під 30%% не здешевила місячний план: %.2f → %.2f",
+			before.MonthTargetUAH, after.MonthTargetUAH)
+	}
+}
+
+// ТЕСТ, ЯКИЙ РОЗРІЗНЯЄ ДВІ МОДЕЛІ, і єдиний, що це вміє.
+//
+// За ОДНАКОВОЇ обіцяної ставки накопичувальний фонд мусить дати більше за
+// розподільний. Це не домовленість, а арифметика: накопичувальний
+// компаундить усередині себе (accum.go), а розподільний платить простий
+// купон від тіла, яке не росте (Dist, і замок як його модель). За 30% на
+// шість років різниця виходить у рази.
+//
+// Доти обидва йшли ОДНИМ каналом — замком, — тобто накопичувальному
+// приписувалась чужа, гірша механіка. На цій фікстурі це коштувало 73%
+// користі від покупки: місячний план дешевшав на 898 ₴ замість 3282 ₴.
+// Напрямок при цьому лишався правильним в обох випадках, і саме тому
+// перевірка знаку тут нічого не ловить — потрібне порівняння двох видів.
+func TestWhatIfAccumulatingFundBeatsDistributingAtSameRate(t *testing.T) {
+	url, st := planServer(t)
+	seedCatalogFund(t, st, "Накопичувальний", store.FundAccumulating, 3000, "")
+	seedCatalogFund(t, st, "Розподільний", store.FundDistributing, 3000, "")
+
+	target := func(name string) float64 {
+		t.Helper()
+		code, body := whatIf(t, url, planFundBody(name, 6))
+		if code != http.StatusOK {
+			t.Fatalf("%s: %d %s", name, code, body)
+		}
+		return goalsOf(t, afterOf(t, body)).MonthTargetUAH
+	}
+	accum, dist := target("Накопичувальний"), target("Розподільний")
+	if accum == 0 || dist == 0 {
+		t.Fatal("місячного плану немає — ціль і дедлайн не задані?")
+	}
+	// Менший місячний план = більша користь від покупки.
+	if accum >= dist {
+		t.Errorf("накопичувальний не переграв розподільного за тієї самої ставки: "+
+			"%.2f проти %.2f — обидва пішли одним каналом", accum, dist)
+	}
+}
+
+// СТОРОЖ ВАЛЮТИ. Рукав валюти, у якій сьогодні порожньо, фабрика
+// пропускає — і без окремої згадки про планований фонд покупка в такій
+// валюті зникла б БЕЗ ПОМИЛКИ: рукав просто не зібрався б, а всі числа
+// лишились би правдоподібними. Це той клас втрати, який не видно ніяк,
+// крім прицільного тесту.
+func TestWhatIfPlannedFundBuyInAbsentCurrency(t *testing.T) {
+	url, st := planServer(t)
+	seedCatalogFund(t, st, "Долар", store.FundAccumulating, 3000, "")
+
+	_, summary := do(t, "GET", url+"/api/summary", "")
+	before := goalsOf(t, summary)
+	if before.MonthTargetUAH == 0 {
+		t.Fatal("місячного плану немає")
+	}
+	when := time.Now().AddDate(0, 6, 0).Format("2006-01-02")
+	code, body := whatIf(t, url, `{"draft":[{"kind":"fund","ref":"Долар","qty":1000,`+
+		`"unit_price":"100","currency":"USD","broker":"mono","buy_date":"`+when+`"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	after := goalsOf(t, afterOf(t, body))
+	if after.MonthTargetUAH == before.MonthTargetUAH {
+		t.Errorf("покупка у валюті, якої в портфелі немає, зникла безслідно (%.2f)",
+			after.MonthTargetUAH)
+	}
+}
+
+// ПОВТОРЮВАНІСТЬ. Фабрика рукавів збирає їх ШІСТЬ разів під різні
+// сценарії, і якби планована позиція дописувалась у той самий зріз, а не
+// в копію, другий прогін бачив би внески першого. Числа при цьому
+// лишились би цілком правдоподібними — саме тому це окремий тест, а не
+// сподівання на уважність.
+func TestWhatIfPlannedFundBuyIsRepeatable(t *testing.T) {
+	url, st := planServer(t)
+	seedCatalogFund(t, st, "Накопичувальний", store.FundAccumulating, 3000, "")
+
+	body := planFundBody("Накопичувальний", 6)
+	code, first := whatIf(t, url, body)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, first)
+	}
+	code, second := whatIf(t, url, body)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, second)
+	}
+	if a, b := stripDoc(t, []byte(afterOf(t, first))), stripDoc(t, []byte(afterOf(t, second))); a != b {
+		t.Error("два однакові запити дали різні документи — планована позиція мутує вхід фабрики")
+	}
+}
+
 func sameBrokers(a, b map[string]map[string]float64) bool {
 	if len(a) != len(b) {
 		return false
@@ -388,10 +559,17 @@ func TestWhatIfRejectsUnresolvableRate(t *testing.T) {
 // Синтетика живе рівно один запит. Якби вона писалась у сховище,
 // кожне превʼю дописувало б план, і той ріс би сам собою.
 func TestWhatIfSyntheticPlanIsNotPersisted(t *testing.T) {
-	url, _ := planServer(t)
+	url, st := planServer(t)
+	seedCatalogFund(t, st, "Накопичувальний", store.FundAccumulating, 3000, "")
 	when := time.Now().AddDate(1, 0, 0).Format("2006-01-02")
+	// Обидва канали разом: замок (вклад) і планований фонд. Другий
+	// синтетики в plan_actions не лишає взагалі — він живе власним
+	// каналом гіпотези, — але саме тому його варто перевірити тут:
+	// «нічого не записалось» має лишитись правдою і для нього.
 	code, body := whatIf(t, url, `{"draft":[{"kind":"deposit","ref":"privat",`+
-		`"amount":"300000","currency":"UAH","months":12,"rate_pct":"16","buy_date":"`+when+`"}]}`)
+		`"amount":"300000","currency":"UAH","months":12,"rate_pct":"16","buy_date":"`+when+`"},`+
+		`{"kind":"fund","ref":"Накопичувальний","qty":100,"unit_price":"100",`+
+		`"currency":"UAH","broker":"mono","buy_date":"`+when+`"}]}`)
 	if code != http.StatusOK {
 		t.Fatalf("%d %s", code, body)
 	}

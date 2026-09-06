@@ -83,6 +83,11 @@ type sources struct {
 	// в помісячні вектори робить sleeveFactory (state_projection.go).
 	planFlows   []store.PlanFlow
 	planActions []store.PlanAction
+	// planFunds — планована купівля накопичувального фонду. Читанню зі
+	// сховища не підлягає: це ЛИШЕ гіпотеза (див. planFundBuy у
+	// state_builder.go), тож loadSources її не наповнює — вона
+	// зʼявляється рівно в блоці домішування.
+	planFunds []planFundBuy
 	// planReceipts — відмітки фактичних надходжень (0027). Так само сирі:
 	// індекс (потік, місяць) будує newPlanMarks, а заміщення планової суми
 	// робить те саме ядро, що й розгортання, — щоб означення надходження
