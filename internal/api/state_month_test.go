@@ -409,3 +409,154 @@ func TestReserveMonthShareUsesAllowedBase(t *testing.T) {
 			month, fill)
 	}
 }
+
+// --- планові витрати (0056) ---
+
+// plannedSrc — план доходу з однією зарплатою плюс названі планові
+// витрати. Зарплата потрібна не для краси: без потоків buildMonthPlan
+// повертає nil, і планова витрата сама місяця не створює (довід — у
+// ранній відмові функції).
+func plannedSrc(now time.Time, exps ...domain.PlanExpense) *sources {
+	src := monthPlanSrc([]store.PlanFlow{
+		{ID: 1, Name: "Зарплата", Kind: "income", Amount: 4_000_000, Currency: money.UAH,
+			Cadence: "month", FromDate: domain.NewDate(now.AddDate(0, 0, -30)), InvestBP: 10000},
+	}, nil, nil)
+	src.planExpenses = exps
+	return src
+}
+
+func planExp(name, due, paid, from string, amount int64) domain.PlanExpense {
+	return domain.PlanExpense{
+		Name: name, Amount: amount, Currency: money.UAH,
+		DueDate: domain.Date(due), PaidDate: domain.Date(paid), PaidFrom: from,
+	}
+}
+
+// Планова витрата з ПОРТФЕЛЬНОГО контуру віднімається від грошей місяця
+// нарівні з витратним потоком — і лише у свій місяць.
+func TestMonthPlanSubtractsPlannedExpense(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	src := plannedSrc(now,
+		planExp("Котел", "2026-07-20", "", domain.PaidFromPlan, 3_000_000),
+		planExp("Гуми", "2026-09-01", "", domain.PaidFromPlan, 800_000),
+	)
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
+	if p.PlannedUAH != 30000 {
+		t.Errorf("планові витрати місяця %v, очікували 30000 — вересневі гуми в липні не тиснуть", p.PlannedUAH)
+	}
+	if p.PlanUAH != 10000 { // 40 000 − 30 000
+		t.Errorf("нетто %v, очікували 10000", p.PlanUAH)
+	}
+	// А у вересні — навпаки: котел уже позаду, гуми попереду.
+	if q := buildMonthPlan(src, fx.Rates{}, today, 2, 0, ""); q.PlannedUAH != 8000 {
+		t.Errorf("вересень: планові витрати %v, очікували 8000", q.PlannedUAH)
+	}
+}
+
+// ГОЛОВНЕ. Прострочена й далі тисне — і саме на ПОТОЧНИЙ місяць, а не на
+// свій. Разовий потік у цьому місці дає нуль, і це та різниця, заради якої
+// заведено окрему таблицю 0056.
+func TestMonthPlanOverduePlannedStillPresses(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	src := plannedSrc(now, planExp("Страховка", "2026-05-14", "", domain.PaidFromPlan, 1_200_000))
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
+	if p.PlannedUAH != 12000 {
+		t.Errorf("прострочена дала %v, а мусить тиснути на поточний місяць своїми 12000: "+
+			"травень уже прожито, а зникнувши, вона перестала б вимагати грошей, "+
+			"яких далі вимагає", p.PlannedUAH)
+	}
+	// І тисне РІВНО ОДИН РАЗ: у наступному місяці її вже немає.
+	if q := buildMonthPlan(src, fx.Rates{}, today, 1, 0, ""); q.PlannedUAH != 0 {
+		t.Errorf("серпень: прострочена тисне вдруге на %v", q.PlannedUAH)
+	}
+}
+
+func TestMonthPlanPaidPlannedGone(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	src := plannedSrc(now, planExp("Котел", "2026-07-10", "2026-07-11", domain.PaidFromPlan, 3_000_000))
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
+	if p.PlannedUAH != 0 {
+		t.Errorf("сплачена тисне на %v — гроші вже пішли", p.PlannedUAH)
+	}
+	if p.PlanUAH != 40000 {
+		t.Errorf("нетто %v, очікували 40000", p.PlanUAH)
+	}
+}
+
+// СТОРОЖ ПРОТИ ПОДВІЙНОГО РАХУНКУ. Витрата з картки не має права чіпати
+// план місяця: вона живе в другому контурі (buildDebtExit), і віднята в
+// обох, забрала б удвічі більше, ніж коштує. Дзеркальний сторож стоїть у
+// TestDebtExitPlanPlannedDoesNotTouchCap.
+func TestMonthPlanCardPlannedDoesNotTouchPlan(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	src := plannedSrc(now, planExp("Котел", "2026-07-20", "", domain.PaidFromCard, 3_000_000))
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
+	if p.PlannedUAH != 0 {
+		t.Errorf("карткова витрата зайшла в план місяця на %v", p.PlannedUAH)
+	}
+	if p.PlanUAH != 40000 {
+		t.Errorf("нетто %v, очікували 40000 — карткова витрата плану не стосується", p.PlanUAH)
+	}
+}
+
+// Планова витрата ріже ВСІ ТРИ дозволені числа повністю, а не пропорційно
+// — той самий довід, що для витратного потоку: рознести її між дозволеними
+// й недозволеними доходами можна лише вигаданим правилом.
+func TestMonthPlanPlannedCutsAllThreeAllowances(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	src := monthPlanSrc([]store.PlanFlow{
+		{ID: 1, Name: "Зарплата", Kind: "income", Amount: 4_000_000, Currency: money.UAH,
+			Cadence: "month", FromDate: domain.NewDate(now.AddDate(0, 0, -30)), InvestBP: 10000},
+	}, nil, nil)
+	src.planExpenses = []domain.PlanExpense{
+		planExp("Котел", "2026-07-20", "", domain.PaidFromPlan, 3_000_000),
+	}
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
+	for _, c := range []struct {
+		name string
+		got  float64
+	}{
+		{"подушці", p.PlanReserveUAH},
+		{"цілям", p.PlanGoalsUAH},
+		{"боргу", p.PlanDebtUAH},
+	} {
+		if c.got != 10000 {
+			t.Errorf("дозволено %s %v, очікували 10000 — витрата ріже кожен кошик повністю", c.name, c.got)
+		}
+	}
+}
+
+// Місяць звірки картки: витрата, чий день НЕ пізніший за звірку, у
+// балансі вже сидить. Але прострочена — ні, хай яка стара її дата: її не
+// сплатили, отже в балансі її немає за визначенням.
+func TestMonthPlanPlannedRespectsAfterFilter(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	src := plannedSrc(now,
+		planExp("Рано", "2026-07-10", "", domain.PaidFromPlan, 500_000),  // до звірки, і вже прострочена
+		planExp("Пізно", "2026-07-25", "", domain.PaidFromPlan, 700_000), // після звірки
+	)
+
+	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "2026-07-18")
+	// 5 000 прострочені (фільтр їх не бере) + 7 000 попереду = 12 000.
+	if p.PlannedUAH != 12000 {
+		t.Errorf("у місяці звірки %v, очікували 12000: прострочену фільтр не відсікає ніколи, "+
+			"бо в балансі звірки її немає — її ж не сплатили", p.PlannedUAH)
+	}
+
+	// А сплачена до звірки справді зникає: гроші пішли й уже в мінусі.
+	src2 := plannedSrc(now, planExp("Рано", "2026-07-10", "2026-07-10", domain.PaidFromPlan, 500_000))
+	if q := buildMonthPlan(src2, fx.Rates{}, today, 0, 0, "2026-07-18"); q.PlannedUAH != 0 {
+		t.Errorf("сплачена до звірки тисне на %v — вона вже у виміряному балансі", q.PlannedUAH)
+	}
+}

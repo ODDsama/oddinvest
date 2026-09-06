@@ -679,6 +679,28 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		`{"date":"`+string(d(200))+`","type":"lock","amount":"50000.00","rate_pct":"20","months":24,"name":"MilTech"}`); resp.StatusCode != 201 {
 		t.Fatalf("дія плану: %d %s", resp.StatusCode, b)
 	}
+
+	// Планові витрати (0056) — по рядку на гілку, і кожен незамінний:
+	//  · ПОРТФЕЛЬНА в поточному місяці — month_plan.planned_uah;
+	//  · ПОРТФЕЛЬНА ПРОСТРОЧЕНА — та сама сума, але зібрана правилом
+	//    «прострочена падає в поточний місяць». Без неї гілка простроченої
+	//    не виконується взагалі, а це головне, чим ця таблиця
+	//    відрізняється від разового потоку;
+	//  · КАРТКОВА в майбутньому — debt.exit.planned_uah і колонка planned
+	//    у розкладі виходу з ліміту. Дата на пів року вперед, щоб рядок
+	//    напевно потрапив у вікно виходу;
+	//  · СПЛАЧЕНА — не заповнює жодного числа навмисно: вона мусить дати
+	//    нулі скрізь, і саме тому стереже її окремий тест, а не golden.
+	for _, e := range []string{
+		`{"name":"Ремонт балкона","amount":"1800.00","due_date":"` + string(d(12)) + `","paid_from":"plan"}`,
+		`{"name":"Страховка","amount":"420.00","due_date":"` + string(d(-40)) + `","paid_from":"plan"}`,
+		`{"name":"Котел","amount":"3000.00","due_date":"` + string(d(180)) + `","paid_from":"card"}`,
+		`{"name":"Гуми","amount":"900.00","due_date":"` + string(d(-70)) + `","paid_from":"card","paid_date":"` + string(d(-69)) + `"}`,
+	} {
+		if resp, b := do(t, "POST", srv+"/api/plan/expenses", e); resp.StatusCode != 201 {
+			t.Fatalf("планова витрата: %d %s", resp.StatusCode, b)
+		}
+	}
 }
 
 // buildRichDoc піднімає сервер на багатій фікстурі й будує документ на

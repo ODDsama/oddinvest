@@ -529,7 +529,16 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	// показує екран, інакше вилізе переповнення на півкопійки, якого він
 	// не пояснить.
 	out.DebtFromPlanUAH = math.Max(0, out.DebtDueUAH-out.OnCardUAH)
-	spent := out.ExpenseUAH + out.DebtFromPlanUAH
+	// Планові витрати — та сама неминучість, що витратний потік, і тому
+	// віднімаються так само: повністю з кожного з чотирьох чисел. Але лише
+	// ПОРТФЕЛЬНИЙ контур: рядок із paid_from=card тисне на стелю витрат, а
+	// не на план, і зайшовши сюди, витратив би ті самі гроші двічі.
+	//
+	// Поглинання OnCardUAH, як у боргу, тут не робиться навмисно: контур
+	// вибрала людина, і «спершу з картки, потім із плану» було б третім
+	// правилом поверх її власного вибору.
+	out.PlannedUAH = plannedInMonth(src, rates, today, m, after, domain.PaidFromPlan)
+	spent := out.ExpenseUAH + out.DebtFromPlanUAH + out.PlannedUAH
 
 	out.PlanUAH = out.IncomeUAH + out.ExtraUAH - spent
 	out.PlanReserveUAH = math.Max(0, incReserve-spent)
@@ -557,6 +566,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	out.IncomeUAH = round2(out.IncomeUAH)
 	out.GrossUAH = round2(out.GrossUAH)
 	out.ExpenseUAH = round2(out.ExpenseUAH)
+	out.PlannedUAH = round2(out.PlannedUAH)
 	out.ExtraUAH = round2(out.ExtraUAH)
 	out.PlanUAH = round2(out.PlanUAH)
 	out.PlanReserveUAH = round2(out.PlanReserveUAH)
@@ -634,6 +644,45 @@ func debtDueForMonth(src *sources, rates fx.Rates, today domain.Date, m int) flo
 		}
 	}
 	return total
+}
+
+// plannedInMonth — планові витрати (0056), що тиснуть у місяці зі зсувом m
+// і платяться з контуру from, у гривні.
+//
+// ОДНЕ ОЗНАЧЕННЯ НА ТРЬОХ ЧИТАЧІВ: план місяця (контур plan), вихід із
+// кредитного ліміту й таблиця боргу на горизонті (обидва — контур card).
+// Друге сказало б, що котел тисне в жовтні, а перше — що в листопаді, і
+// помітили б це не одразу.
+//
+// «Чи тисне вона в цьому місяці» рахує не цикл, а domain.PlanExpense:
+// прострочена падає в поточний місяць, сплачена не тисне ніде, і обидва
+// правила мусять читатись однаково скрізь.
+//
+// ПОСЛІДОВНІСТЬ ІЗ БОРГОМ: контур card сюди НЕ входить і не має входити.
+// OnCardUAH — валовий залишок, а не профіцит картки; побут із нього тут не
+// віднімається навмисно (довід — при DebtFromPlanUAH), і планова витрата з
+// картки — це той самий побут, лише названий. Її місце — buildDebtExit,
+// тобто екран, який і питає «чи вистачає карткових грошей».
+//
+// after — НЕПОРОЖНЄ лише для місяця звірки картки: тоді входять самі
+// витрати, чий день СТРОГО ПІЗНІШИЙ за цю дату. ПРОСТРОЧЕНА фільтром не
+// відсікається НІКОЛИ, хай яка в неї дата: її не сплатили, отже в балансі
+// звірки її немає за визначенням. Без цього винятку прострочена страховка
+// зникала б рівно в тому місяці, у якому власник дивиться на екран.
+func plannedInMonth(src *sources, rates fx.Rates, today domain.Date,
+	m int, after domain.Date, from string) float64 {
+
+	total := 0.0
+	for _, p := range src.planExpenses {
+		if p.PaidFrom != from || p.PressMonth(today) != m {
+			continue
+		}
+		if after != "" && !p.Overdue(today) && !p.PressDate(today).After(after) {
+			continue
+		}
+		total += planFlowUAH(float64(p.Amount)/100, p.Currency, rates)
+	}
+	return round2(total)
 }
 
 // monthStart — перше число місяця зі зсувом m від сьогодні. Окремо від

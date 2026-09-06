@@ -226,6 +226,11 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/plan/buys", s.handleAddPlanBuy)
 	mux.HandleFunc("PUT /api/plan/buys/{id}", s.handleUpdatePlanBuy)
 	mux.HandleFunc("DELETE /api/plan/buys/{id}", s.handleDeletePlanBuy)
+	// Планові витрати (0056) — handlers_plan_expenses.go.
+	mux.HandleFunc("GET /api/plan/expenses", s.handleListPlanExpenses)
+	mux.HandleFunc("POST /api/plan/expenses", s.handleAddPlanExpense)
+	mux.HandleFunc("PUT /api/plan/expenses/{id}", s.handleUpdatePlanExpense)
+	mux.HandleFunc("DELETE /api/plan/expenses/{id}", s.handleDeletePlanExpense)
 	mux.HandleFunc("GET /api/plan/receipts", s.handleListPlanReceipts)
 	mux.HandleFunc("POST /api/plan/receipts", s.handleAddPlanReceipt)
 	mux.HandleFunc("PUT /api/plan/receipts/{id}", s.handleUpdatePlanReceipt)

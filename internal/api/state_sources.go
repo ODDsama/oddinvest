@@ -97,6 +97,11 @@ type sources struct {
 	// зараз» і «купую потім» робить state_plan_buys.go, бо для цього
 	// потрібне сьогодні, а sources його не знає (див. шапку файла).
 	planBuys []store.PlanBuy
+	// planExpenses — вирішені разові витрати (0056). Сирими: «чи тисне вона
+	// в жовтні» вміє сказати лише domain.PlanExpense.PressMonth, і другого
+	// означення цього не зʼявляється — читачів у нього троє (план місяця,
+	// вихід із ліміту, таблиця горизонту), і розійшлися б вони тихо.
+	planExpenses []domain.PlanExpense
 
 	// auctions — останнє розміщення Мінфіну по кожній парі (валюта,
 	// строк). Єдине, що приходить сюди із ЗОВНІШНЬОГО світу, а не з
@@ -226,6 +231,9 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		return nil, err
 	}
 	if src.planBuys, err = s.st.ListPlanBuys(ctx); err != nil {
+		return nil, err
+	}
+	if src.planExpenses, err = s.st.ListPlanExpenses(ctx); err != nil {
 		return nil, err
 	}
 	if src.npfAccounts, err = s.st.ListNPFAccounts(ctx); err != nil {

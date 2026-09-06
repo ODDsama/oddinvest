@@ -189,9 +189,9 @@
     "full_target_uah": 150000,
     "debt_cover_uah": 32512.34,
     "fill_share_pct": 20,
-    "fill_from_uah": 10600,
-    "fill_month_uah": 2120,
-    "fill_now_uah": 1120,
+    "fill_from_uah": 8380,
+    "fill_month_uah": 1676,
+    "fill_now_uah": 676,
     "fill_moved_uah": 1000,
     "moved_month_uah": 1000,
     "places": {
@@ -277,9 +277,9 @@
       "actual_native": 921.74,
       "actual_uah": 40670.3,
       "moved_uah": 1000,
-      "fill_month_uah": 2120,
-      "fill_now_uah": 1120,
-      "short_month_uah": 67026.29,
+      "fill_month_uah": 1676,
+      "fill_now_uah": 676,
+      "short_month_uah": 67470.29,
       "eta_date": "2027-12-15",
       "behind": true
     },
@@ -324,8 +324,8 @@
     "top_rate_pct": 59.92,
     "top_name": "ПУМБ ВсеМожу",
     "due_this_month_uah": 150,
-    "fill_month_uah": 4240,
-    "fill_now_uah": 2170.33,
+    "fill_month_uah": 3352,
+    "fill_now_uah": 1282.33,
     "paid_extra_uah": 2069.67,
     "exit": {
       "cards": [
@@ -542,17 +542,18 @@
     "month": "2026-07",
     "income_uah": 16600,
     "expense_uah": 9000,
+    "planned_uah": 2220,
     "gross_uah": 47500,
     "on_card_uah": 27900,
     "extra_uah": 3000,
-    "plan_uah": 10600,
-    "plan_reserve_uah": 10600,
-    "plan_goals_uah": 10600,
-    "plan_debt_uah": 10600,
+    "plan_uah": 8380,
+    "plan_reserve_uah": 8380,
+    "plan_goals_uah": 8380,
+    "plan_debt_uah": 8380,
     "debt_due_uah": 150,
     "received_uah": 16600,
     "left_uah": 0,
-    "covered_pct": 632.08,
+    "covered_pct": 799.52,
     "sources": 1,
     "marked": 1
   },
@@ -1437,8 +1438,8 @@
       "target_uah": 378158.52,
       "current_uah": 240370.2,
       "fill_pct": 63.56,
-      "month_share_uah": 2862,
-      "month_balance_uah": 2297.63,
+      "month_share_uah": 2262.6,
+      "month_balance_uah": 1814.28,
       "transit_pct": 3.93,
       "transit_uah": 33010.17
     },
@@ -1461,8 +1462,8 @@
       "target_uah": 168070.45,
       "current_uah": 10300,
       "fill_pct": 6.13,
-      "month_share_uah": 1272,
-      "month_balance_uah": 2598.08
+      "month_share_uah": 1005.6,
+      "month_balance_uah": 2056.85
     },
     {
       "dimension": "kind",
@@ -1483,8 +1484,8 @@
       "target_uah": 126052.84,
       "current_uah": 120000,
       "fill_pct": 95.2,
-      "month_share_uah": 954,
-      "month_balance_uah": 114.46,
+      "month_share_uah": 754.2,
+      "month_balance_uah": 88.18,
       "transit_uah": 33010.17
     },
     {
@@ -1506,8 +1507,8 @@
       "target_uah": 84035.23,
       "current_uah": 2041.64,
       "fill_pct": 2.43,
-      "month_share_uah": 636,
-      "month_balance_uah": 1349.82
+      "month_share_uah": 502.8,
+      "month_balance_uah": 1068.69
     },
     {
       "dimension": "kind",
@@ -1645,20 +1646,20 @@
       "sev": "now",
       "rank": 10,
       "kind": "reserve",
-      "title": "Спершу поповнити резерв — 1 120,00 ₴",
+      "title": "Спершу поповнити резерв — 676,00 ₴",
       "why": "Стеля, яку ти сам поставив: до цілі ще 41 350,64 ₴, решта грошей лишається на папери. Голова добрана, тож це вже сходинка драбини: потрібно ≈6 місяців. Якщо банк такого строку не дає, бери довший — тоді ближчий місяць лишиться на готівці, а драбина зсунеться.",
       "action": "fill-reserve",
-      "amount_uah": 1120
+      "amount_uah": 676
     },
     {
       "id": "goal-fill-1",
       "sev": "now",
       "rank": 12,
       "kind": "goal",
-      "title": "Відкласти на «Авто» — 1 120,00 ₴",
-      "why": "До 2027-05-11 лишилось 681 468,00 ₴, тобто ≈69 146,29 ₴ на місяць. Береться це зі стелі, яку ти сам поставив: решта грошей лишається на папери. Сама ця сума МЕНША за потрібний темп на 67 026,29 ₴: стільки застосунок відрізати не може за твоєю ж стелею. Підніми частку або зсунь дату.",
+      "title": "Відкласти на «Авто» — 676,00 ₴",
+      "why": "До 2027-05-11 лишилось 681 468,00 ₴, тобто ≈69 146,29 ₴ на місяць. Береться це зі стелі, яку ти сам поставив: решта грошей лишається на папери. Сама ця сума МЕНША за потрібний темп на 67 470,29 ₴: стільки застосунок відрізати не може за твоєю ж стелею. Підніми частку або зсунь дату.",
       "action": "fill-goal",
-      "amount_uah": 1120
+      "amount_uah": 676
     },
     {
       "id": "buy-best",
