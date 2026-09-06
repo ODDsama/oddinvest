@@ -621,6 +621,16 @@ type SettingsDoc struct {
 	// а не окремий стан.
 	ReserveLiquidMonths  *float64 `json:"reserve_liquid_months,omitempty"`
 	ReserveMaxTermMonths *float64 `json:"reserve_max_term_months,omitempty"`
+	// ReserveLoanRatePct — під скільки людина позичає сама в себе, коли
+	// бере з подушки (0057). Ставка ФІКСОВАНА й задана, а не виведена з
+	// дохідності портфеля чи з інфляції, і це рішення власника: втрачена
+	// вигода плаває разом із ринком, а тут потрібне число, яке не міняє
+	// ціну вже взятої позики.
+	//
+	// У саму позику воно потрапляє ЗНІМКОМ (reserve_loans.rate_bp), тож
+	// правка тут діє лише на наступні. Порожньо чи 0 = позика без
+	// відсотка: обіцянка повернути ту саму суму теж обіцянка.
+	ReserveLoanRatePct *float64 `json:"reserve_loan_rate_pct,omitempty"`
 	// GoalsFillSharePct — яка частка планового доходу місяця йде в цілі
 	// накопичення РАЗОМ, %; GoalsFillFrom — з яких грошей вона ріже.
 	//
@@ -998,6 +1008,26 @@ type Reserve struct {
 	// час боргу опустила її нижче за сам борг.
 	DebtCoverUAH    float64 `json:"debt_cover_uah,omitempty"`
 	DebtCoverGapUAH float64 `json:"debt_cover_gap_uah,omitempty"`
+	// Позики в самого себе (0057): узяв із подушки — повертаєш із
+	// відсотком. OwedUAH — скільки ще винен разом; OwedInterestUAH — з
+	// нього відсоток, і саме на нього піднята TargetUAH; BaseTargetUAH —
+	// ціль без надбавки.
+	//
+	// ТІЛО В ЦІЛЬ НЕ ВХОДИТЬ, і це головне, що тут треба знати: подушка
+	// вже впала на нього самим зняттям, тож розрив і БЕЗ надбавки виріс
+	// рівно на тіло. Додати тіло вдруге означало б вимагати повернути
+	// його двічі.
+	//
+	// Наслідок: GapUAH == OwedUAH на ПОВНІЙ подушці, а на недобраній
+	// GapUAH більший рівно на те, чого бракувало й до позики. Виведення —
+	// у шапці міграції 0057.
+	//
+	// Три поля, а не одне, з того самого доводу, що при DebtCapped вище:
+	// піднята ціль без базової поруч читається як помилка застосунку.
+	OwedUAH         float64       `json:"owed_uah,omitempty"`
+	OwedInterestUAH float64       `json:"owed_interest_uah,omitempty"`
+	BaseTargetUAH   float64       `json:"base_target_uah,omitempty"`
+	Loans           []ReserveLoan `json:"loans,omitempty"`
 	// Поповнення резерву — те, чого в цій картці не було: ціль стояла, а
 	// механізму під неї не було жодного.
 	//
@@ -1471,6 +1501,40 @@ type ReserveRung struct {
 	// SpentUAH — скільки буде витрачено до цього горизонту при заданих
 	// місячних витратах. Те, з чим порівнюються обидва числа вище.
 	SpentUAH float64 `json:"spent_uah"`
+}
+
+// ReserveLoan — одна відкрита позика в самого себе (0057).
+//
+// ЧОМУ ЦЕ НЕ РЯДОК У debts. Спокуса завести третій debts.kind сильна: там
+// уже є ставка, журнал і черга погашення. Але Capital УЖЕ впав на зняту
+// суму — резерв входить у капітал. Записати ту саму суму ще й боргом
+// означало б відняти її двічі: на знятті 12 000 ₴ чистий капітал просів би
+// на 24 000 ₴. Борг перед подушкою не є зобовʼязанням перед кимось — це
+// обіцянка поповнити, і єдина його дія на числа — надбавка до цілі.
+//
+// Дві одиниці на тіло (нативна й гривня) — як у Goal: подушку можна
+// тримати в доларах, а ціль міряється в гривні.
+type ReserveLoan struct {
+	ID   int64 `json:"id"`
+	OpID int64 `json:"op_id"`
+	// Date — коли взято, звідси й рахуються дні.
+	Date        string  `json:"date"`
+	TakenUAH    float64 `json:"taken_uah"`
+	TakenNative float64 `json:"taken_native,omitempty"`
+	Currency    string  `json:"currency,omitempty"`
+	RatePct     float64 `json:"rate_pct"`
+	Days        int     `json:"days"`
+	// OwedUAH — скільки ще винен; InterestUAH — з нього відсоток, і саме
+	// він піднімає ціль. Тіло ціль не піднімає (довід — при Reserve).
+	OwedUAH     float64 `json:"owed_uah"`
+	InterestUAH float64 `json:"interest_uah"`
+	// DueDate — власний дедлайн, порожньо = «поверну колись». Overdue
+	// існує лише при заданому дедлайні: позика без дати не може бути
+	// простроченою, і фарбувати її червоним означало б вимагати того,
+	// чого людина собі не обіцяла.
+	DueDate string `json:"due_date,omitempty"`
+	Overdue bool   `json:"overdue,omitempty"`
+	Note    string `json:"note,omitempty"`
 }
 
 // MonthPlan — скільки план доходу заводить у портфель ЦЬОГО місяця.

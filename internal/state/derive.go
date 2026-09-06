@@ -113,6 +113,10 @@ type DeriveInput struct {
 	// Тут вона потрібна рівно для одного: цілі задають у СЬОГОДНІШНІХ
 	// грошах, а купувати за них будуть у рік дедлайну.
 	InflationPct float64
+	// ReserveLoans — відкриті позики в самого себе (0057), уже пораховані
+	// й переведені в гривню шаром api: пакет state курсів не має.
+	// Закриті сюди не потрапляють — картка показує обіцянки, а не історію.
+	ReserveLoans []ReserveLoan
 	// TopN — скільки виплат показати в «найближчих» (0 = 5).
 	TopN int
 }
@@ -299,10 +303,20 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 	if doc.ReserveUAH == 0 && monthlyExp <= 0 {
 		return
 	}
+	// Позики в самого себе. Сума приходить порахованою з шару api (там
+	// курси), тут вона лише розкладається по картці — той самий поділ, що
+	// в драбини резерву.
+	var owedUAH, owedInterest float64
+	for _, l := range in.ReserveLoans {
+		owedUAH += l.OwedUAH
+		owedInterest += l.InterestUAH
+	}
 	r := &Reserve{
 		UAH: doc.ReserveUAH, ByCurrency: in.ReserveByCur, Places: in.ReservePlaces,
 		LastMove: in.ReserveLastMove, MonthlyExpensesUAH: monthlyExp,
 		TargetMonths: targetMonths,
+		Loans:        in.ReserveLoans,
+		OwedUAH:      round2(owedUAH), OwedInterestUAH: round2(owedInterest),
 	}
 	if total := in.Capital.TotalUAH(); total > 0 {
 		r.SharePct = doc.ReserveUAH * 100 / total
@@ -310,12 +324,17 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 	if monthlyExp > 0 {
 		r.Months = doc.ReserveUAH / monthlyExp
 		r.TargetUAH, r.GapUAH = ReserveTarget(doc.Settings, doc.ReserveUAH,
-			in.DebtCapsReserve, in.DebtCoverUAH)
+			in.DebtCapsReserve, in.DebtCoverUAH, owedInterest)
 		// Обрізання називається вголос і разом із тим, що було б без нього:
 		// ціль, яка мовчки просіла вдвічі, читається як помилка.
 		if full, _ := ReserveTarget(doc.Settings, doc.ReserveUAH,
-			false, in.DebtCoverUAH); full > r.TargetUAH {
+			false, in.DebtCoverUAH, owedInterest); full > r.TargetUAH {
 			r.DebtCapped, r.FullTargetUAH = true, round2(full)
+		}
+		// ДВА ЧИСЛА, А НЕ ОДНЕ, з того самого доводу, що при DebtCapped:
+		// піднята ціль без базової читається як помилка застосунку.
+		if owedInterest > 0 {
+			r.BaseTargetUAH = round2(r.TargetUAH - owedInterest)
 		}
 	}
 	// Рубіж покриття боргу — ближчий за ціль у місяцях витрат і не
@@ -853,8 +872,20 @@ func deriveReserveLadder(r *Reserve, s *SettingsDoc, in DeriveInput) {
 // Gap лише додатний: «перебір» резерву не є браком, і від'ємне число тут UI
 // прочитав би як «докласти −5 000». Ціль без місячних витрат або без цілі в
 // місяцях не існує — обидва нулі означають «міряти нема чим».
+// owedInterestUAH — нарахований відсоток за ВІДКРИТИМИ позиками в самого
+// себе (0057). ДОДАЄТЬСЯ, а не стоїть третім обмежувачем поруч зі стелею й
+// підлогою, і це не смак: max(150 000, 5 000) дав би ту саму ціль, тобто
+// розрив рівно в тіло, і «поверну з відсотком» не означало б нічого.
+// Стеля й підлога відповідають на питання «якої ВЕЛИЧИНИ потрібна
+// подушка», надбавка — на інше, «скільки я винен згори», тож сперечатися
+// за одну ціль вони не можуть.
+//
+// Тіла позики тут НЕМАЄ навмисно: воно вже вирахуване з подушки самим
+// зняттям, і додати його вдруге означало б порахувати ту саму гривню двічі.
+// Через це на повній подушці розрив сам собою дорівнює залишку боргу, а на
+// недобраній — більший рівно на те, чого бракувало й до позики (0057).
 func ReserveTarget(s *SettingsDoc, reserveUAH float64, debtCaps bool,
-	coverUAH float64) (target, gap float64) {
+	coverUAH, owedInterestUAH float64) (target, gap float64) {
 	if s == nil || s.MonthlyExpensesUAH == nil || s.ReserveTargetMonths == nil {
 		return 0, 0
 	}
@@ -886,6 +917,13 @@ func ReserveTarget(s *SettingsDoc, reserveUAH float64, debtCaps bool,
 	// полями картки.
 	if coverUAH > target {
 		target = coverUAH
+	}
+	// Надбавка ПІСЛЯ обох — див. довід при сигнатурі. Порожня базова ціль
+	// її не отримує зовсім (ранній return вище): вигадати подушку за
+	// людину, яка її не ставила, не можна навіть заради боргу. Сама позика
+	// від цього не зникає — вона показується власним блоком картки.
+	if owedInterestUAH > 0 {
+		target += owedInterestUAH
 	}
 	if d := target - reserveUAH; d > 0 {
 		gap = d

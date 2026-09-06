@@ -345,6 +345,55 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 			t.Fatal(err)
 		}
 	}
+	// Позика в самого себе (0057): зняття з подушки, яке треба повернути з
+	// відсотком. Разом із ЧАСТКОВИМ поверненням — інакше не перевіряється
+	// ні розлив FIFO, ні те, що база нарахування зменшується. Дедлайн
+	// заданий і МИНУВ, тож у фікстурі є й overdue.
+	//
+	// Дата ПІЗНІШЕ за поповнення вище — і це не дрібниця фікстури, а те, як
+	// працює модель: поповнення, зроблене після узяття, гасить позику саме
+	// собою (FIFO). Позика, узята першою, була б закрита тими 30 000 ₴ ще
+	// до першого рядка картки.
+	loanOp, err := st.AddReserveOp(ctx, store.ReserveOp{
+		Date: d(-20), Amount: -1200000, Currency: money.UAH, Place: "готівка",
+		Note: "ремонт",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loanID, err := st.AddReserveLoan(ctx, store.ReserveLoan{
+		OpID: loanOp, RateBP: 1200, DueDate: string(d(-5)), Note: "ремонт",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ЯВНЕ повернення, привʼязане до позики, і ВІЛЬНЕ (рух d(-4) вище) —
+	// у фікстурі мусять бути обидва шляхи: без явного не перевіряється
+	// loan_id, без вільного — розлив FIFO.
+	//
+	// Дата — МИНУЛОГО місяця навмисно: рух поточного місяця тут з'їв би
+	// reserve.fill_now_uah («лишилось відкласти») до нуля, і гілка, заради
+	// якої стелю переробляли, знову перестала б перевірятись.
+	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
+		Date: d(-16), Amount: 300000, Currency: money.UAH, Place: "готівка",
+		Note: "часткове повернення", LoanID: loanID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Друга позика — у ВАЛЮТІ, і без повернень. Без неї не перевіряється
+	// ні переведення тіла в гривню, ні те, що гривневе поповнення
+	// доларову позику не гасить.
+	usdOp, err := st.AddReserveOp(ctx, store.ReserveOp{
+		Date: d(-18), Amount: -20000, Currency: money.USD, Place: "сейф",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddReserveLoan(ctx, store.ReserveLoan{
+		OpID: usdOp, RateBP: 1200,
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Дві цілі накопичення, і вони РІЗНІ навмисно.
 	//
@@ -565,6 +614,7 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		// добрана» перевіряється окремим тестом — у golden він лишив би
 		// половину драбини нулями.
 		"reserve_liquid_months": "1", "reserve_max_term_months": "6",
+		"reserve_loan_rate_pct": "12",
 		// Припущення прогнозу. Ціль доходу НЕ дорівнює витратам навмисно:
 		// інакше спад «порожньо = витрати» був би невідрізнимий від
 		// заданого значення, і зламаний спад пройшов би повз тест.

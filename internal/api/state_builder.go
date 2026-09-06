@@ -1167,7 +1167,11 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// стелею, бо обидва числа читає і картка подушки, і розкладка, і другий
 	// їхній екземпляр розійшовся б із першим (той самий довід, що при debtCaps).
 	debtCover := debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today)
-	_, reserveGapUAH := state.ReserveTarget(settings, reserveUAH, debtCaps, debtCover)
+	// Позики в самого себе: ціль піднята на нарахований відсоток, тож
+	// розрив мусить рахуватись тим самим числом, що й картка.
+	resLoans := reserveLoans(src.reserveLoans, src.reserveOps, today, rates)
+	_, reserveGapUAH := state.ReserveTarget(settings, reserveUAH, debtCaps, debtCover,
+		reserveOwedInterestUAH(resLoans))
 
 	// Проєкція, місячний план і віяло прогнозів (state_projection.go).
 	// Вхід виписаний полем за полем навмисно: проєкція залежить від усіх
@@ -1337,6 +1341,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// domain.NetRate; у state лишається сама арифметика покриття.
 		ReserveLiquidUAH: reserveLiquidUAH,
 		ReserveDeposits:  reserveLadderInput(reserveRungs, today, rates),
+		// Позики в самого себе — теж ГОТОВИМИ: залишок і відсоток рахує
+		// domain, курс і «сьогодні» знає будівник, а в state лишається
+		// розклад цілі на базову й надбавку.
+		ReserveLoans: resLoans,
 		// Цілі — так само ГОТОВИМИ: суми в обох одиницях і поміряний темп.
 		// Курс, «сьогодні» й вікно темпу знає будівник (state_goals.go), а в
 		// state лишається «скільки лишилось і чи встигаю».

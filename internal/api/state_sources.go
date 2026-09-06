@@ -56,6 +56,7 @@ type sources struct {
 	fundPrices   []domain.FundPrice
 	termDeposits []domain.Deposit
 	reserveOps   []store.ReserveOp
+	reserveLoans []store.ReserveLoan
 	goals        []store.Goal
 	goalOps      []store.GoalOp
 
@@ -174,6 +175,9 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		return nil, err
 	}
 	if src.reserveOps, err = s.st.ListReserveOps(ctx); err != nil {
+		return nil, err
+	}
+	if src.reserveLoans, err = s.st.ListReserveLoans(ctx); err != nil {
 		return nil, err
 	}
 	if src.goals, err = s.st.ListGoals(ctx); err != nil {

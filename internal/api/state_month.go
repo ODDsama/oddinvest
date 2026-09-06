@@ -244,7 +244,8 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	out.ReserveMonthUAH, out.ReserveFillUAH = reserveMonthShare(
 		src.settings, reserveUAH, out.Plan, out.ReserveMovedUAH,
 		debtCapsReserve(src.debts, src.debtMarks, src.debtOps, src.deval, today),
-		debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today))
+		debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today),
+		reserveOwedInterestUAH(reserveLoans(src.reserveLoans, src.reserveOps, today, rates)))
 	return out, nil
 }
 
@@ -291,9 +292,14 @@ func paceMonths(first, today domain.Date) float64 {
 // Обрізаємо розривом ПЛЮС уже відкладеним, а не самим розривом: розрив уже
 // не бачить того, що ти цього місяця поклав, і без поправки місячна частка
 // сама себе з'їдала б — після переказу вона впала б на ту саму суму двічі.
+//
+// owedInterestUAH — надбавка до цілі за відкритими позиками в самого себе
+// (0057). Вона проходить сюди, а не лише в картку, бо стеля міряється
+// РОЗРИВОМ: без неї застосунок вважав би подушку зібраною рівно тоді, коли
+// борг перед нею ще висить, і сам би переставав пропонувати його гасити.
 func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	mp *state.MonthPlan, moved float64, debtCaps bool,
-	coverUAH float64) (monthUAH, fillUAH float64) {
+	coverUAH, owedInterestUAH float64) (monthUAH, fillUAH float64) {
 	if set == nil || set.ReserveFillSharePct == nil || mp == nil {
 		return 0, 0
 	}
@@ -307,7 +313,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	if share <= 0 || mp.PlanReserveUAH <= 0 {
 		return 0, 0
 	}
-	_, gap := state.ReserveTarget(set, reserveUAH, debtCaps, coverUAH)
+	_, gap := state.ReserveTarget(set, reserveUAH, debtCaps, coverUAH, owedInterestUAH)
 	room := gap + moved
 	if room <= 0 {
 		return 0, 0 // ціль зібрана — стеля мовчить, і правильно робить

@@ -21,6 +21,7 @@ import { opsGrid, rowActions, actionsCol } from "../grid.js";
 import {
   money as moneyField, text as textField, date as dateField,
   note as noteField, num as numField, textarea as textareaField,
+  pct as pctField, check as checkField,
   selectOf, formHTML,
 } from "../fields.js";
 import { refSelect, refValue } from "../refs.js";
@@ -153,10 +154,56 @@ export function reserveTilesHTML(ctx) {
     ? `запас зібраний${r.uah > r.target_uah ? ` — з перевищенням на ${fmtUAH(r.uah - r.target_uah)}` : ""}`
     : `до цілі ще ${fmtUAH(r.gap_uah || 0)} · ціль ${fmtUAH(r.target_uah || 0)}`}</div>` : ""}
     ${debtCoverHTML(r)}
+    ${reserveLoansHTML(r)}
     ${places.length ? `<div class="note">Де лежить: ${places.map(([p, v]) =>
     `${esc(p)} — ${fmtUAH(v)}`).join(" · ")}</div>` : ""}
     ${accessHTML(r)}
   </div>`;
+}
+
+/** Борг перед подушкою: узяв із неї — повертаєш із відсотком (0057).
+ *
+ *  ЧОМУ ЦІЛЬ РОЗКЛАДАЄТЬСЯ ВГОЛОС. Ціль, яка сама собою підросла на 186 ₴,
+ *  читається як помилка застосунку — рівно те, чого уникає пара
+ *  debt_capped/full_target_uah поруч. Тому тут завжди видно обидва числа:
+ *  базову ціль і надбавку, і що саме її породило.
+ *
+ *  ТІЛО В НАДБАВКУ НЕ ВХОДИТЬ, і це сказано словами, бо інакше перше
+ *  питання читача буде «а чому ціль виросла лише на 186, я ж узяв 12 000».
+ *  Відповідь: подушка вже впала на 12 000 самим зняттям, і розрив їх уже
+ *  вимагає. */
+function reserveLoansHTML(r) {
+  const loans = r.loans || [];
+  if (!loans.length) return "";
+  const owed = r.owed_uah || 0;
+  const interest = r.owed_interest_uah || 0;
+  const base = r.base_target_uah || 0;
+  const overdue = loans.filter((l) => l.overdue).length;
+  const rows = loans.map((l) => {
+    const taken = l.currency
+      ? `${fmtCur(l.taken_native, curSym(l.currency))} (${fmtUAH(l.taken_uah)})`
+      : fmtUAH(l.taken_uah);
+    const due = l.due_date
+      ? (l.overdue
+        ? ` · <b class="t-danger">мав повернути до ${dayMonth(l.due_date)}</b>`
+        : ` · повернути до ${dayMonth(l.due_date)}`)
+      : "";
+    return `<div class="kv"><span>${taken} узято ${dayMonth(l.date)}${
+      l.note ? ` — ${esc(l.note)}` : ""}${due}</span>`
+      + `<span>${fmtUAH(l.owed_uah)} · ${l.days} ${
+        plural(l.days, "день", "дні", "днів")} під ${pct(l.rate_pct)} → ${
+        fmtUAH(l.interest_uah)}</span></div>`;
+  }).join("");
+  return `<div class="note">
+    <b${overdue ? ' class="t-danger"' : ""}>Винен подушці ${fmtUAH(owed)}</b> —
+    ${loans.length === 1 ? "одна позика" : `${loans.length} ${
+    plural(loans.length, "позика", "позики", "позик")}`} в самого себе,
+    з них ${fmtUAH(interest)} відсотка. Саме на нього піднята ціль:
+    ${fmtUAH(base)} базової + ${fmtUAH(interest)} = ${fmtUAH(r.target_uah || 0)}.
+    Тіло ціль не піднімає — подушка вже впала на нього, коли ти його брав,
+    і розрив його вже вимагає. Повернеш усе — ціль стане такою, якою була.
+    </div>
+    ${rows}`;
 }
 
 /** Перший рубіж подушки: чи є чим закрити кредити.
@@ -285,15 +332,53 @@ export const reserveFields = (ctx, row = null) => [
   }),
   dateField("date", "Дата", row ? { value: row.date } : {}),
   noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
+  ...reserveLoanFields(ctx, row),
 ];
 
-export const reserveBody = (f) => ({
-  amount: f.amount.value.trim(),
-  currency: refValue(f, "currency"),
-  place: f.place.value.trim(),
-  date: f.date.value,
-  note: f.note.value.trim(),
-});
+/** Поля позики в самого себе (0057).
+ *
+ *  ТИПОВО УВІМКНЕНО на новому русі, і це не самовпевненість форми, а
+ *  прямо названий намір власника: «якщо я беру щось із резерву, то хочу
+ *  повертати цю суму з відсотком». Виняток тут — витрата подушки за
+ *  призначенням, і зняти галочку дешевше, ніж щоразу її ставити.
+ *
+ *  Ставка порожня НЕ означає нуль: порожнє поле бере reserve_loan_rate_pct,
+ *  а явний 0 лишається нулем («поверну ту саму суму» — теж обіцянка).
+ *  Різницю тримає бекенд, тут вона лише не затирається значенням.
+ *
+ *  На ПРАВЦІ полів немає: умови позики міняє власний ресурс
+ *  /api/reserve/loans, і другий шлях до них розійшовся б із першим —
+ *  форма руху не знає ні id позики, ні того, чи вона взагалі є. */
+function reserveLoanFields(ctx, row) {
+  if (row) return [];
+  const rate = ((ctx.summary || {}).settings || {}).reserve_loan_rate_pct;
+  return [
+    checkField("loan", "Зняття — це позика: поверну з відсотком", { checked: true }),
+    pctField("loan_rate_pct", "Ставка позики, % річних", {
+      ph: rate != null ? String(rate) : "12",
+    }),
+    dateField("loan_due", "Повернути до"),
+  ];
+}
+
+export const reserveBody = (f) => {
+  const body = {
+    amount: f.amount.value.trim(),
+    currency: refValue(f, "currency"),
+    place: f.place.value.trim(),
+    date: f.date.value,
+    note: f.note.value.trim(),
+  };
+  // Позика — лише на ЗНЯТТІ. «Позичити, кладучи гроші в подушку» не
+  // означає нічого, і бекенд це теж відкидає; тут воно ще й не долітає,
+  // щоб форма не обіцяла того, чого не станеться.
+  if (f.loan && f.loan.checked && Number(body.amount) < 0) {
+    body.loan = true;
+    body.loan_rate_pct = f.loan_rate_pct.value.trim();
+    body.loan_due = f.loan_due.value;
+  }
+  return body;
+};
 
 export function reserveJournalHTML(ops) {
   const list = (ops || []).slice()
@@ -303,7 +388,9 @@ export function reserveJournalHTML(ops) {
     cols: [
       { key: "date", label: "Дата", cell: (o) => esc(o.date) },
       { key: "kind", label: "Рух",
-        cell: (o) => (Number(o.amount.amount) >= 0 ? "Відклав" : "Узяв") },
+        cell: (o) => (Number(o.amount.amount) >= 0
+          ? (o.repays_loan_id ? "Повернув" : "Відклав")
+          : (o.loan_id ? `Позичив (${pct(o.loan_rate_pct || 0)})` : "Узяв")) },
       { key: "amount", label: "Сума", num: true, cell: (o) => fmtMoney(o.amount) },
       { key: "place", label: "Місце", cell: (o) => esc(o.place || "")
         + (o.note ? ` <span class="muted">${esc(o.note)}</span>` : "") },
@@ -322,6 +409,9 @@ export function reserveFormHTML(ctx) {
     ${formHTML({ id: "resForm", fields: reserveFields(ctx), submit: "Записати", cls: "mb" })}
     <div class="note">Переклав із рахунку? Запиши ще й зняття в «Записати → Готівка» —
       інакше відкладене виглядатиме як втрата капіталу.</div>
+    <div class="note">Зняття-позика піднімає ціль подушки на відсоток, доки її не
+      повернуто. Поповнення гасить найстарішу відкриту позику саме собою — окремо
+      його відмічати не треба, і ноги «Маршруту грошей» так само її гасять.</div>
   </div>`;
 }
 

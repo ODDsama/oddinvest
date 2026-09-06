@@ -329,6 +329,24 @@ type routeCarry struct {
 	debtLeft    float64
 	debtFillNow float64
 	debtFillMon float64
+	// Борг перед подушкою (0057) у проході вперед. ОДНА ЗВЕДЕНА СУМА під
+	// середньозваженою ставкою, а не кожна позика окремо, і це свідоме
+	// наближення: маршрут — проєкція, а не журнал, і моделювати тут FIFO
+	// по позиках означало б завести друге означення погашення, яке
+	// розійдеться з першим (той самий довід, яким синтетика plan_buys
+	// ніколи не пишеться у сховище).
+	//
+	// БЕЗ ЦИХ ДВОХ ЧИСЕЛ ПРОХІД ЛАМАЄТЬСЯ МОВЧКИ: gapUAH тільки СПАДАЄ
+	// (див. перелік перенесеного в шапці файла), а ціль із живою позикою
+	// щомісяця РОСТЕ на відсоток. Маршрут обіцяв би закриту подушку там,
+	// де борг перед нею ще висить.
+	//
+	// loanInterest — НАРАХОВАНЕ, тобто рівно та надбавка, на яку піднята
+	// ціль. Саме воно, а не loanOwed, іде в reserveMonthShare: тіло вже
+	// вирахуване з подушки самим зняттям (довід — шапка 0057).
+	loanOwed     float64
+	loanRate     float64 // %/рік, зважена залишками позик
+	loanInterest float64
 	// debtLeftAt — борг під ставкою на кінець кожного пройденого місяця
 	// (зсув від сьогодні → сума), для таблиці months.
 	debtLeftAt map[int]float64
@@ -357,6 +375,8 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 		debtCover:  reserveDebtCover(doc.Reserve),
 		capitalUAH: doc.CapitalUAH,
 		reserveUAH: doc.ReserveUAH,
+		loanOwed:   routeLoanOwed(doc.Reserve),
+		loanRate:   routeLoanRate(doc.Reserve),
 		// Поточний місяць береться з документа як є — разом із уже
 		// відкладеним цього місяця. Перерахувати його тут означало б
 		// втратити moved і розійтися з карткою резерву на першому ж рядку.
@@ -371,6 +391,10 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 	}
 	if r := doc.Reserve; r != nil {
 		c.gapUAH, c.fillMonth, c.fillNow = r.GapUAH, r.FillMonthUAH, r.FillNowUAH
+		// Надбавка, що вже сидить у цьому розриві. Без неї закриття позики
+		// в проході зняло б лише те, що наросло за прохід, а піднята з
+		// самого початку ціль лишилась би піднятою назавжди.
+		c.loanInterest = r.OwedInterestUAH
 	}
 	// Цілі беруться з документа ЯК Є — разом із уже покладеним цього
 	// місяця, з тієї ж причини, що й подушка: перерахувати їх тут означало
@@ -439,6 +463,55 @@ func (c *routeCarry) doc(carryInUAH float64) *state.Doc {
 	return &d
 }
 
+// routeLoanOwed / routeLoanRate — борг перед подушкою на старті проходу,
+// узятий із УЖЕ ПОРАХОВАНОЇ картки, а не зважений удруге: те саме правило,
+// що з debtCaps вище, і з тієї ж причини — друге означення розійшлося б із
+// першим на першому ж місяці.
+//
+// Ставка зважується ЗАЛИШКАМИ, а не тілами: далі нараховувати будемо саме
+// на залишок, і вага мусить бути тією самою величиною, інакше зведена
+// ставка дрейфувала б із кожним поверненням.
+func routeLoanOwed(r *state.Reserve) float64 {
+	if r == nil {
+		return 0
+	}
+	return r.OwedUAH
+}
+
+func routeLoanRate(r *state.Reserve) float64 {
+	if r == nil || len(r.Loans) == 0 {
+		return 0
+	}
+	var sum, weight float64
+	for _, l := range r.Loans {
+		sum += l.RatePct * l.OwedUAH
+		weight += l.OwedUAH
+	}
+	if weight <= 0 {
+		return 0
+	}
+	return sum / weight
+}
+
+// accrueLoan — місячний відсоток на борг перед подушкою.
+//
+// МІСЯЦЯМИ, А НЕ ACT/365, як у domain.ReserveLoanBalance, і це навмисна
+// розбіжність: прохід уперед іде помісячною сіткою, а тягнути сюди
+// календар означало б, що маршрут і картка розходяться на довжині лютого.
+// Ціна наближення — копійки на рік; ціна другого календаря — два різні
+// «скільки винен» на сусідніх екранах.
+func (c *routeCarry) accrueLoan() {
+	if c.loanOwed <= 0 || c.loanRate <= 0 {
+		return
+	}
+	i := c.loanOwed * c.loanRate / 100 / 12
+	c.loanOwed += i
+	c.loanInterest += i
+	// Ціль піднялась — розрив мусить піднятись разом із нею. Це ЄДИНЕ
+	// місце, де gapUAH росте; усюди інде він лише спадає.
+	c.gapUAH += i
+}
+
 // enterMonth переставляє стелю подушки на новий місяць (зсув m від сьогодні).
 //
 // Мовчить, доки місяць той самий, — і саме тому поточний місяць лишається
@@ -461,11 +534,12 @@ func (c *routeCarry) enterMonth(m int, plans map[string]*state.MonthPlan,
 			c.debtCover = d.CoverUAH
 		}
 		c.debtLeftAt[c.monthIdx] = round2(c.debtLeft)
+		c.accrueLoan()
 	}
 	mp := plans[c.month]
 	// moved = 0: у місяці, який ще не настав, у подушку ще нічого не клали.
 	c.fillMonth, c.fillNow = reserveMonthShare(c.set, c.reserveUAH, mp, 0,
-		c.debtCaps, c.debtCover)
+		c.debtCaps, c.debtCover, c.loanInterest)
 
 	// Стеля дострокового погашення — теж частка ОДНОГО МІСЯЦЯ, і без цього
 	// скидання прохід уперед віддав би річну норму за перші два купони.
@@ -536,6 +610,19 @@ func (c *routeCarry) apply(p allocPlan) {
 		c.reserveUAH += v
 		c.gapUAH = math.Max(0, c.gapUAH-v)
 		c.fillNow = math.Max(0, c.fillNow-v)
+		// Нога подушки гасить і борг перед нею — те саме правило FIFO, що
+		// в reserveLoans: поповнення без явної привʼязки йде в позику.
+		// Інакше борг у проході не танув би ніколи, а він і є те, через що
+		// розрив щомісяця росте.
+		c.loanOwed = math.Max(0, c.loanOwed-v)
+		// Позика закрилась — надбавка до цілі зникає разом із нею, і
+		// розрив мусить упасти ще й на неї. Без цього рядка маршрут
+		// вимагав би відсоток після того, як борг уже погашено: розрив
+		// зменшився б лише на віддане, а ціль лишилась би піднятою.
+		if c.loanOwed == 0 && c.loanInterest > 0 {
+			c.gapUAH = math.Max(0, c.gapUAH-c.loanInterest)
+			c.loanInterest = 0
+		}
 	}
 	if p.Debt != nil && p.Debt.AmountUAH > 0 {
 		v := p.Debt.AmountUAH

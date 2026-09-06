@@ -117,6 +117,15 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/reserve", s.handleAddReserveOp)
 	mux.HandleFunc("PUT /api/reserve/{id}", s.handleUpdateReserveOp)
 	mux.HandleFunc("DELETE /api/reserve/{id}", s.handleDeleteReserveOp)
+	// Позики в самого себе (0057) — ОКРЕМИЙ ресурс під тим самим коренем,
+	// бо сутностей дві: рух подушки й обіцянка його повернути. Повний КРУД
+	// не про повноту заради повноти: у позики є ставка й дедлайн, а
+	// «видалити й завести заново» тут означає стерти зняття, на якому вона
+	// стоїть, і разом із ним половину журналу подушки.
+	mux.HandleFunc("GET /api/reserve/loans", s.handleListReserveLoans)
+	mux.HandleFunc("POST /api/reserve/loans", s.handleAddReserveLoan)
+	mux.HandleFunc("PUT /api/reserve/loans/{id}", s.handleUpdateReserveLoan)
+	mux.HandleFunc("DELETE /api/reserve/loans/{id}", s.handleDeleteReserveLoan)
 
 	// Цілі накопичення — ДВА ресурси, бо сутностей дві: сама ціль і рухи
 	// під нею. Довід, чому їх не можна звести в один, — у шапці

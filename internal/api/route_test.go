@@ -873,3 +873,50 @@ func TestRouteEndpointRejectsUnknownPick(t *testing.T) {
 		t.Fatalf("крива форма pick: %d %s — чекали 400", resp.StatusCode, body)
 	}
 }
+
+// Борг перед подушкою в проході вперед: ціль щомісяця РОСТЕ на відсоток,
+// тож розрив мусить рости разом із нею.
+//
+// Це єдине місце в маршруті, де gapUAH збільшується. Шапка файла тому й
+// перелічує перенесені числа поіменно: без цього прохід обіцяв би закриту
+// подушку там, де борг перед нею ще висить.
+//
+// Фікстура навмисне впирається в РОЗРИВ, а не в стелю: подушка майже
+// зібрана (59 500 із 60 000), тож без позики в неї піде рівно 500 ₴ і на
+// цьому все. З позикою під 12% ціль щомісяця підростає, і маршрут щомісяця
+// знаходить, що туди донести.
+func TestRouteReserveGapGrowsWithLoanInterest(t *testing.T) {
+	build := func(res *state.Reserve) float64 {
+		doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, res)
+		doc.Settings = routeSettings(10000, 6, 40) // ціль 60 000
+		doc.ReserveUAH = 59500
+
+		got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+			routeInc("mono", money.UAH,
+				routeFlow("2026-09-10", 20000, "UA0001"),
+				routeFlow("2026-10-10", 20000, "UA0001"),
+				routeFlow("2026-11-10", 20000, "UA0001")),
+			routePlans(30000), nil, allocRates, nil, nil, routeToday)
+		total := 0.0
+		for _, leg := range got.Legs {
+			if leg.Reserve != nil {
+				total += leg.Reserve.AmountUAH
+			}
+		}
+		return total
+	}
+
+	plain := build(&state.Reserve{FillNowUAH: 500, FillMonthUAH: 500, GapUAH: 500})
+	if plain != 500 {
+		t.Fatalf("без позики в подушку пішло %.2f, чекали 500 — фікстура більше не впирається в розрив", plain)
+	}
+	withLoan := build(&state.Reserve{
+		FillNowUAH: 500, FillMonthUAH: 500, GapUAH: 500,
+		OwedUAH: 12000, OwedInterestUAH: 0,
+		Loans: []state.ReserveLoan{{ID: 1, RatePct: 12, OwedUAH: 12000}},
+	})
+	if withLoan <= plain {
+		t.Fatalf("з позикою в подушку пішло %.2f проти %.2f без неї — відсоток не набігає",
+			withLoan, plain)
+	}
+}
