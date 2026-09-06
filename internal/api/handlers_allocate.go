@@ -963,7 +963,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	// --- ДРУГИЙ ПРОХІД: залишок тим, хто ще недобирає ---
 	rest = allocTopUp(&out, topUpIn{
 		rest: rest, rows: rows, rooms: roomByKind, goals: doc.Goals,
-		allow: allow, goalsElig: elig,
+		reserve: doc.Reserve, allow: allow, goalsElig: elig,
 		sug: sug, rates: rates, cur: cur, npfID: npfID,
 		cheapest: &cheapest, cheapestWhat: &cheapestWhat,
 	})
@@ -1053,11 +1053,12 @@ func allocAddLine(lines *[]allocLine, add allocLine) {
 // дванадцятьма аргументами: половина з них — числа однакового типу, і
 // переставлені місцями вони компілювались би мовчки.
 type topUpIn struct {
-	rest  float64
-	rows  []state.RebalanceRow
-	rooms map[string]float64 // недобір виду ПІСЛЯ його бюджету, ₴
-	goals []state.Goal
-	allow allocAllow
+	rest    float64
+	rows    []state.RebalanceRow
+	rooms   map[string]float64 // недобір виду ПІСЛЯ його бюджету, ₴
+	goals   []state.Goal
+	reserve *state.Reserve
+	allow   allocAllow
 	// goalsElig — скільки цілям іще дозволено ПІСЛЯ першого проходу. Число
 	// приїжджає звідти, а не рахується тут: друге означення розійшлося б із
 	// першим рівно тоді, коли вирізка була частковою.
@@ -1082,6 +1083,14 @@ type allocSpot struct {
 	goal int64  // 0 — не ціль
 	rank float64
 	room float64
+	// allow — ДОЗВІЛ МІСЯЦЯ для цього приймача: скільки з доходу місяця
+	// взагалі можна вести сюди. Нуль означає «не можна нічого», а не «без
+	// обмежень», і це навмисно: приймач без дозволу мовчить, а не бере все.
+	//
+	// Тільки у вирізок. У видів дозвіл інший за природою — не сума, а
+	// «можна/ні» (plan_flows.uses), і його вже перевірено при складанні
+	// кандидатів.
+	allow float64
 }
 
 // allocTopUp — ДРУГИЙ ПРОХІД: залишок пропонується тим, хто ще недобирає до
@@ -1151,7 +1160,9 @@ func allocTopUp(out *allocPlan, in topUpIn) float64 {
 		if room <= 0.005 {
 			continue
 		}
-		spots = append(spots, allocSpot{goal: g.ID, rank: g.ShortMonthUAH, room: room})
+		spots = append(spots, allocSpot{
+			goal: g.ID, rank: g.ShortMonthUAH, room: room, allow: g.FillFromUAH,
+		})
 	}
 	sortSpots(spots)
 
@@ -1177,40 +1188,50 @@ func allocTopUp(out *allocPlan, in topUpIn) float64 {
 	sortSpots(kinds)
 	spots = append(spots, kinds...)
 
-	// --- ярус 3: подушка, термінальна ---
+	// --- ярус 3: подушка, ТЕРМІНАЛЬНА ---
 	//
-	// ЇЇ ТУТ ПОКИ НЕМАЄ, і це не забутий рядок, а знайдена межа.
+	// ОСТАННЯ, І САМЕ ТОМУ ЯРУС ПРАЦЮЄ. Це єдиний приймач без кроку: він
+	// бере будь-яку суму. Постав його першим — і він поглине кожен залишок,
+	// а решта черги стане недосяжною, тобто прохід існував би й був
+	// невидимий. Останнім він стає гарантованим дном: гроші, які не змогли
+	// стати інструментом, стають подушкою замість того, щоб лишатись
+	// готівкою.
 	//
-	// Задум був такий: подушка ловить те, чого не взяв жоден інструмент, бо
-	// місячна стеля міряє ТЕМП планових внесків, а ребалансування питає про
-	// РОЗРИВ. Довід чинний. Але FillNowUAH змішує в одному числі дві різні
-	// речі: темп (reserve_fill_share_pct) і ДОЗВІЛ — PlanReserveUAH, тобто
-	// «скільки з доходу цього місяця взагалі можна вести в подушку». Другий
-	// доданок обходити не можна: місяць, увесь дохід якого позначено «не в
-	// подушку», не дає їй нічого, і на це стоїть окремий тест
-	// (TestRoutePlanLegCappedByAllowedPlan).
+	// ДВІ СТЕЛІ, І ДРУГОЇ ДОТИ НЕ БУЛО — через неї цей ярус і не існував.
+	// FillNowUAH змішує ТЕМП (reserve_fill_share_pct) і ДОЗВІЛ місяця
+	// (PlanReserveUAH). Темп обійти можна: він про швидкість планових
+	// внесків, а не про ціль. Дозвіл — ні: місяць, увесь дохід якого
+	// позначено «не в подушку», не дає їй нічого
+	// (TestRouteMonthCeilingBindsCouponToo). Тепер дозвіл приїжджає окремим
+	// числом — Reserve.FillFromUAH, свіжим на кожному місяці проходу
+	// (routeCarry.fillFrom), — і обидві стелі стоять поруч.
 	//
-	// Розділити їх звідси нічим: у розкладку приїжджає вже зведене число, а
-	// PlanReserveUAH потрібного МІСЯЦЯ в маршруті взагалі не під рукою —
-	// carry.doc() оновлює стелю, а не план. Тож або цей ярус чекає на
-	// розділення двох сенсів у самій стелі, або протікає повз дозвіл.
-	//
-	// Види від цього не страждають: у них дозвіл окремий (uses) і
-	// перевіряється вище.
-	//
-	// Поля reserve в topUpIn через це немає зовсім: параметр «про запас»
-	// читається як зразок і тиражується (CLAUDE.md §3). Абзац лишається
-	// замість нього.
+	// РОЗРИВ, А НЕ СТЕЛЯ, у ролі кімнати: ребалансування питає «скільки ще
+	// бракує до цілі», і саме на це питання подушка тут і відповідає.
+	if in.reserve != nil {
+		// allow — ВАЛОВА стеля, як і в цілей: відняти вже взяте — робота
+		// того, хто ріже. Два різні правила відрахування на два приймачі
+		// розійшлися б на першій же правці.
+		if room := in.reserve.GapUAH - reserveTaken(out); room > 0.005 {
+			spots = append(spots, allocSpot{
+				rank: room, room: room,
+				allow: math.Min(in.allow.ReserveUAH, in.reserve.FillFromUAH),
+			})
+		}
+	}
 
 	for _, s := range spots {
 		if rest < allocMinCutUAH {
 			break
 		}
-		if s.kind != "" {
+		switch {
+		case s.kind != "":
 			rest = topUpKind(out, in, s, rest)
-			continue
+		case s.goal > 0:
+			rest = topUpGoal(out, in, s, rest)
+		default:
+			rest = topUpReserve(out, s, rest)
 		}
-		rest = topUpGoal(out, in, s, rest)
 	}
 	return rest
 }
@@ -1279,10 +1300,22 @@ func topUpKind(out *allocPlan, in topUpIn, s allocSpot, rest float64) float64 {
 // подвоїла б суму в кожного читача — і в підсумку модалки, і в проході
 // маршруту, який зводить їх у c.goals.
 func topUpGoal(out *allocPlan, in topUpIn, s allocSpot, rest float64) float64 {
-	// Стеля дозволу — те, що лишилось ПІСЛЯ першого проходу, і рахується
-	// вона від ФАКТУ: перший прохід міг обнулити свою вирізку порогом, і
-	// тоді дозволу витрачено нуль.
-	left := in.goalsElig - out.GoalsUAH
+	// ДВІ СТЕЛІ, І ОБИДВІ ОБОВʼЯЗКОВІ.
+	//
+	// goalsElig — дозвіл ПОЛІТИКИ й ДЖЕРЕЛА (goals_fill_from + uses цього
+	// надходження). FillFromUAH — дозвіл САМОГО МІСЯЦЯ: скільки з його
+	// доходу взагалі можна вести в цілі (PlanGoalsUAH).
+	//
+	// Другої тут доти не було, і це був витік. Прохід має право обійти ТЕМП
+	// (goals_fill_share_pct) — гроші, яким інакше нема куди подітись, краще
+	// віддати цілі, що не встигає до дати. Але темп і дозвіл місяця
+	// перемножені в FillMonthUAH одним числом, тож обходячи стелю, прохід
+	// обходив і дозвіл: ціль діставала більше, ніж місяць їй дає. Саме через
+	// цей витік подушка й не входила в чергу — а цілі ввійшли недоглядом.
+	//
+	// Обидві рахуються від ФАКТУ, а не від наміру: перший прохід міг
+	// обнулити свою вирізку порогом, і тоді дозволу витрачено нуль.
+	left := math.Min(in.goalsElig, s.allow) - out.GoalsUAH
 	take := math.Min(math.Min(rest, s.room), math.Max(0, left))
 	// Той самий поріг і той самий виняток «закриває розрив», що в першому
 	// проході: остання пʼятірка гривень до цілі мусить мати право закритись.
@@ -1294,6 +1327,44 @@ func topUpGoal(out *allocPlan, in topUpIn, s allocSpot, rest float64) float64 {
 	}
 	growGoalCut(out, in.goals, s.goal, take)
 	return rest - take
+}
+
+// topUpReserve — залишок у подушку, останнім кроком черги.
+//
+// Дзеркало topUpGoal, і навмисно окремою функцією, а не гілкою в ній: у
+// подушки поле одне, у цілей масив, а спільна функція з двома if усередині
+// читалась би як одна дія над двома різними речами.
+func topUpReserve(out *allocPlan, s allocSpot, rest float64) float64 {
+	take := math.Min(math.Min(rest, s.room), math.Max(0, s.allow-reserveTaken(out)))
+	// Той самий поріг і той самий виняток «закриває розрив», що всюди:
+	// остання пʼятірка гривень до цілі мусить мати право закритись.
+	if closes := take >= s.room-0.005; take < allocMinCutUAH && !closes {
+		return rest
+	}
+	if take <= 0.005 {
+		return rest
+	}
+	if out.Reserve == nil {
+		out.Reserve = &allocReserve{}
+	}
+	out.Reserve.AmountUAH = round2(out.Reserve.AmountUAH + take)
+	out.Reserve.Why = allocTopUpWhy("подушка")
+	// ПРИЧИНА-ПОРІГ ЗНІМАЄТЬСЯ. Перший прохід міг сказати «подушка тут свого
+	// не бере: 3 ₴ — менше за 10 ₴», а цей дав їй 400 ₴; лишити обидва рядки
+	// поруч означало б надрукувати заперечення власного числа. Причину
+	// ПОЛІТИКИ не чіпаємо: вона й далі правда про ту частину, якої подушці
+	// не дали.
+	if strings.Contains(out.ReserveSkipWhy, uah(allocMinCutUAH)) {
+		out.ReserveSkipWhy = ""
+	}
+	return rest - take
+}
+
+func reserveTaken(p *allocPlan) float64 {
+	if p.Reserve == nil {
+		return 0
+	}
+	return p.Reserve.AmountUAH
 }
 
 func goalTaken(p *allocPlan, id int64) float64 {

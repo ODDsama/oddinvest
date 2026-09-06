@@ -312,6 +312,16 @@ type routeCarry struct {
 	gapUAH     float64
 	fillMonth  float64
 	fillNow    float64
+	// fillFrom — ДОЗВІЛ місяця: скільки з його доходу взагалі можна вести в
+	// подушку (MonthPlan.PlanReserveUAH). Не те саме, що fillMonth: той —
+	// дозвіл, помножений на темп.
+	//
+	// Окремим полем, бо оновлювати його треба ЩОМІСЯЦЯ, як fillMonth. Доти
+	// Reserve.FillFromUAH їхало в кожну ногу з нульового місяця, і на
+	// листопадовій нозі це було число серпня — тихо, бо на екрані маршруту
+	// його не видно. Читає його розкладка: другий прохід має право обійти
+	// темп і не має права обійти дозвіл.
+	fillFrom float64
 	// debtCaps — чи діє стеля подушки на час боргу. Прапорцем із документа,
 	// а не перерахунком: правило одне на застосунок (state_debts.go).
 	debtCaps bool
@@ -391,6 +401,7 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 	}
 	if r := doc.Reserve; r != nil {
 		c.gapUAH, c.fillMonth, c.fillNow = r.GapUAH, r.FillMonthUAH, r.FillNowUAH
+		c.fillFrom = r.FillFromUAH
 		// Надбавка, що вже сидить у цьому розриві. Без неї закриття позики
 		// в проході зняло б лише те, що наросло за прохід, а піднята з
 		// самого початку ціль лишилась би піднятою назавжди.
@@ -436,6 +447,7 @@ func (c *routeCarry) doc(carryInUAH float64) *state.Doc {
 	if c.base.Reserve != nil {
 		r := *c.base.Reserve
 		r.GapUAH, r.FillMonthUAH, r.FillNowUAH = c.gapUAH, c.fillMonth, c.fillNow
+		r.FillFromUAH = c.fillFrom
 		d.Reserve = &r
 	}
 	if c.base.Debt != nil {
@@ -538,7 +550,7 @@ func (c *routeCarry) enterMonth(m int, plans map[string]*state.MonthPlan,
 	}
 	mp := plans[c.month]
 	// moved = 0: у місяці, який ще не настав, у подушку ще нічого не клали.
-	c.fillMonth, c.fillNow = reserveMonthShare(c.set, c.reserveUAH, mp, 0,
+	c.fillMonth, c.fillNow, c.fillFrom = reserveMonthShare(c.set, c.reserveUAH, mp, 0,
 		c.debtCaps, c.debtCover, c.loanInterest)
 
 	// Стеля дострокового погашення — теж частка ОДНОГО МІСЯЦЯ, і без цього

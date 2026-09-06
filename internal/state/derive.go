@@ -597,6 +597,12 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 		if g.DoneDate != "" || g.GapUAH <= 0 {
 			continue
 		}
+		// ДОЗВІЛ МІСЯЦЯ — у кожен рядок, і саме тут: усі ранні виходи вище
+		// (стелі немає, план порожній, цілі на паузі через борг, усе
+		// зібрано) означають «цього місяця цілям не йде нічого», і нуль у
+		// цьому полі каже рівно це. Довід, чому число одне на всіх і чому
+		// воно взагалі потрібне, — при самому полі.
+		g.FillFromUAH = round2(planUAH)
 		need := g.RequiredUAH
 		if g.DueDate == "" || need <= 0 {
 			need = g.GapUAH

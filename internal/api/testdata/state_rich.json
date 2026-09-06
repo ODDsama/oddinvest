@@ -309,6 +309,7 @@
       "moved_uah": 1000,
       "fill_month_uah": 1676,
       "fill_now_uah": 676,
+      "fill_from_uah": 8380,
       "short_month_uah": 67470.29,
       "eta_date": "2027-12-15",
       "behind": true
@@ -340,6 +341,7 @@
       "months_left": 119.91,
       "required_native": 5003.84,
       "required_uah": 5003.84,
+      "fill_from_uah": 8380,
       "short_month_uah": 5003.84,
       "behind": true,
       "target_future_native": 3105875.81,

@@ -174,6 +174,89 @@ func TestAllocateTopUpLeavesDebtAlone(t *testing.T) {
 	}
 }
 
+// ДОЗВІЛ МІСЯЦЯ ТРИМАЄ І ДРУГИЙ ПРОХІД. Це латка живого дефекту, не нова
+// властивість.
+//
+// Прохід має право обійти ТЕМП (goals_fill_share_pct): гроші, яким інакше
+// нема куди подітись, краще віддати цілі, що не встигає до дати. Але темп і
+// ДОЗВІЛ місяця (PlanGoalsUAH — «скільки з доходу взагалі можна вести в
+// цілі») були перемножені в FillMonthUAH одним числом, тож обходячи стелю,
+// прохід обходив і дозвіл. Ціль діставала більше, ніж місяць їй дає.
+//
+// Саме через цей витік у чергу не пускали подушку — а цілі пропустили.
+func TestAllocateTopUpGoalRespectsMonthAllowance(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)}, nil)
+	doc.Goals = []state.Goal{{
+		ID: 1, Name: "Авто", Currency: money.UAH,
+		GapUAH: 500_000, DueDate: "2027-06-01",
+		// Не встигає — отже кандидат першого ярусу.
+		ShortMonthUAH: 30_000,
+		// А місяць дозволяє їй лише тисячу.
+		FillFromUAH: 1000,
+	}}
+	// Папір НЕДОСЯЖНИЙ навмисно: інакше бюджет ОВДП зʼїв би 1 000 ₴, у
+	// залишок пішло б 340, і тест не дійшов би до дозволу взагалі —
+	// перевіряв би те, що менше за нього самого.
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 5000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
+		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
+
+	if got.GoalsUAH > 1000.01 {
+		t.Errorf("ціль узяла %.2f при дозволі місяця 1000 — прохід обійшов не лише темп",
+			got.GoalsUAH)
+	}
+}
+
+// Дзеркально: дозвіл нульовий — місяць увесь позначено «не в цілі», і прохід
+// не дає нічого, хоч ціль і не встигає. Нуль тут означає заборону, а не
+// «без обмежень», і саме тому поле не має omitempty-семантики «немає».
+func TestAllocateTopUpGoalSilentWithoutAllowance(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)}, nil)
+	doc.Goals = []state.Goal{{
+		ID: 1, Name: "Авто", Currency: money.UAH,
+		GapUAH: 500_000, DueDate: "2027-06-01", ShortMonthUAH: 30_000,
+	}}
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
+		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
+
+	if got.GoalsUAH > 0.005 {
+		t.Errorf("ціль узяла %.2f без дозволу місяця", got.GoalsUAH)
+	}
+}
+
+// Подушка тепер У ЧЕРЗІ — термінальним приймачем, — і теж під дозволом.
+func TestAllocateTopUpReserveTakesTailWithinAllowance(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)},
+		// Стелю темпу вже вибрано (FillNowUAH = 0), розрив великий, дозвіл
+		// місяця — 200 ₴. Прохід має взяти рівно 200, а не весь хвіст.
+		&state.Reserve{FillNowUAH: 0, FillMonthUAH: 0, GapUAH: 90000, FillFromUAH: 200})
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
+		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
+
+	if got.Reserve == nil {
+		t.Fatal("подушка не взяла нічого, хоч розрив живий і дозвіл є")
+	}
+	if got.Reserve.AmountUAH > 200.01 {
+		t.Errorf("подушка взяла %.2f при дозволі місяця 200", got.Reserve.AmountUAH)
+	}
+}
+
+// Без дозволу місяця подушка мовчить — той самий випадок, що
+// TestRouteMonthCeilingBindsCouponToo, лише в другому проході.
+func TestAllocateTopUpReserveSilentWithoutAllowance(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)},
+		&state.Reserve{FillNowUAH: 0, FillMonthUAH: 0, GapUAH: 90000})
+	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
+		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
+
+	if got.Reserve != nil {
+		t.Errorf("подушка взяла %+v без дозволу місяця", got.Reserve)
+	}
+}
+
 // Вибір паперу діє й у другому проході. Інакше тому, хто обрав дорогий
 // папір, мовчки купили б рейтинговий із хвоста — рівно те, від чого людина
 // втекла, обираючи.

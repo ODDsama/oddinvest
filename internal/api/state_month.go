@@ -241,7 +241,11 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	}
 
 	out.Plan = buildMonthPlan(src, rates, today, 0, float64(out.DepositedUAH.Amount())/100, "")
-	out.ReserveMonthUAH, out.ReserveFillUAH = reserveMonthShare(
+	// Дозвіл тут відкидається навмисно: у документі його ставить Derive з
+	// doc.MonthPlan.PlanReserveUAH — того самого числа й того самого місяця.
+	// Другий носій крізь buildMonth був би третьою копією одного факту.
+	// Потрібен він лише проходу маршруту, де плану місяця під рукою немає.
+	out.ReserveMonthUAH, out.ReserveFillUAH, _ = reserveMonthShare(
 		src.settings, reserveUAH, out.Plan, out.ReserveMovedUAH,
 		debtCapsReserve(src.debts, src.debtMarks, src.debtOps, src.deval, today),
 		debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today),
@@ -299,9 +303,9 @@ func paceMonths(first, today domain.Date) float64 {
 // борг перед нею ще висить, і сам би переставав пропонувати його гасити.
 func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	mp *state.MonthPlan, moved float64, debtCaps bool,
-	coverUAH, owedInterestUAH float64) (monthUAH, fillUAH float64) {
+	coverUAH, owedInterestUAH float64) (monthUAH, fillUAH, fromUAH float64) {
 	if set == nil || set.ReserveFillSharePct == nil || mp == nil {
-		return 0, 0
+		return 0, 0, 0
 	}
 	share := *set.ReserveFillSharePct
 	// БАЗА — ДОЗВОЛЕНА ЧАСТИНА ПЛАНУ, а не весь план (0041). Доти стеля
@@ -311,12 +315,12 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	// розкладки. Той самий довід, що привів сюди reserve_fill_from, лише
 	// на рівні джерела замість рівня політики.
 	if share <= 0 || mp.PlanReserveUAH <= 0 {
-		return 0, 0
+		return 0, 0, 0
 	}
 	_, gap := state.ReserveTarget(set, reserveUAH, debtCaps, coverUAH, owedInterestUAH)
 	room := gap + moved
 	if room <= 0 {
-		return 0, 0 // ціль зібрана — стеля мовчить, і правильно робить
+		return 0, 0, 0 // ціль зібрана — стеля мовчить, і правильно робить
 	}
 	monthUAH = mp.PlanReserveUAH * share / 100
 	if monthUAH > room {
@@ -325,7 +329,19 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	if fillUAH = monthUAH - moved; fillUAH < 0 {
 		fillUAH = 0
 	}
-	return round2(monthUAH), round2(fillUAH)
+	// ТРЕТЄ ЧИСЛО — САМ ДОЗВІЛ, БЕЗ ТЕМПУ.
+	//
+	// Рядок вище перемножує дві різні за природою речі: ДОЗВІЛ (скільки з
+	// доходу місяця взагалі можна вести в подушку — plan_flows.uses) і ТЕМП
+	// (reserve_fill_share_pct). Назад добуток не ділиться, бо його ще й
+	// обрізає розрив, — а розрізняти їх доводиться: темп це рішення про
+	// швидкість, і обійти його заради грошей, яким інакше нема куди подітись,
+	// можна; дозвіл обійти не можна ніколи.
+	//
+	// Віддається звідси, а не рахується читачем, з того самого доводу, що
+	// need у spreadMonth: друге означення розійшлося б із першим рівно в тих
+	// гілках, де ця функція мовчить.
+	return round2(monthUAH), round2(fillUAH), round2(mp.PlanReserveUAH)
 }
 
 // buildMonthPlan — скільки план доходу заводить у портфель ЦЬОГО місяця.
