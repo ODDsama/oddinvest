@@ -434,6 +434,139 @@ func sameBrokers(a, b map[string]map[string]float64) bool {
 	return true
 }
 
+// lastDayThisMonth / firstDayNextMonth — дві дати обабіч межі, і саме
+// вони роблять тести нижче детермінованими за будь-якого дня запуску.
+//
+// Останній день поточного місяця завжди >= сьогодні (тобто ніколи не
+// прострочений) і завжди в тому самому місяці. Перше число наступного —
+// найщільніша можлива «майбутня» дата. Разом вони затискають межу з
+// обох боків, чого не робив жоден наявний тест: усі вони датовані через
+// рік або два й далекої гілки не покидають.
+func lastDayThisMonth() string {
+	now := time.Now()
+	return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).
+		AddDate(0, 1, -1).Format("2006-01-02")
+}
+
+func firstDayNextMonth() string {
+	now := time.Now()
+	return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).
+		AddDate(0, 1, 0).Format("2006-01-02")
+}
+
+// ДЗЕРКАЛО до TestWhatIfFutureRowDoesNotMoveToday: рядок ЦЬОГО місяця
+// сьогоднішні числа рухати МУСИТЬ.
+//
+// Доти він не рухав нічого й ніде — у портфель не входив, бо майбутній,
+// а в прогнозі його разова половина зникала на нулі monthOffsetRaw. Саме
+// цей випадок і привів до всієї серії: два рядки на завтра, а картка
+// «Що зміниться» майже мовчить.
+func TestWhatIfThisMonthRowMovesToday(t *testing.T) {
+	url, _ := planServer(t)
+	_, summary := do(t, "GET", url+"/api/summary", "")
+	before := goalsOf(t, summary)
+
+	code, body := whatIf(t, url, `{"draft":[{"kind":"bond","ref":"UA4000227748",`+
+		`"qty":10,"broker":"mono","buy_date":"`+lastDayThisMonth()+`"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	after := goalsOf(t, afterOf(t, body))
+	if after.CapitalUAH == before.CapitalUAH {
+		t.Errorf("капітал не зрушив (%.2f) — рядок цього місяця не доїхав до портфеля",
+			after.CapitalUAH)
+	}
+	var line struct {
+		Basket struct {
+			Lines []struct {
+				Future  bool `json:"future"`
+				Overdue bool `json:"overdue"`
+			} `json:"lines"`
+		} `json:"basket"`
+	}
+	if err := json.Unmarshal([]byte(body), &line); err != nil {
+		t.Fatal(err)
+	}
+	if len(line.Basket.Lines) != 1 {
+		t.Fatalf("мав бути один рядок, маємо %d", len(line.Basket.Lines))
+	}
+	if line.Basket.Lines[0].Future {
+		t.Error("рядок цього місяця позначено майбутнім")
+	}
+	if line.Basket.Lines[0].Overdue {
+		t.Error("рядок цього місяця позначено простроченим — підпис у таблиці збреше")
+	}
+}
+
+// МЕЖА З ДРУГОГО БОКУ, і вона щільна: перше число наступного місяця вже
+// майбутнє. Наявні тести стоять на «+1 рік» і межі не торкаються, тож
+// зсув порога на місяць пройшов би під ними непоміченим.
+func TestWhatIfNextMonthRowDoesNotMoveToday(t *testing.T) {
+	url, _ := planServer(t)
+	_, summary := do(t, "GET", url+"/api/summary", "")
+	before := goalsOf(t, summary)
+
+	code, body := whatIf(t, url, `{"draft":[{"kind":"bond","ref":"UA4000227748",`+
+		`"qty":10,"broker":"mono","buy_date":"`+firstDayNextMonth()+`"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	after := goalsOf(t, afterOf(t, body))
+	if after.CapitalUAH != before.CapitalUAH {
+		t.Errorf("капітал зрушив на %.2f — рядок наступного місяця потрапив у портфель",
+			after.CapitalUAH-before.CapitalUAH)
+	}
+}
+
+// НАСЛІДОК, ПРИЙНЯТИЙ СВІДОМО, і тест стоїть тут саме тому, щоб його не
+// відкотили мовчки. Рядок цього місяця вже в портфелі, і готівку брокера
+// за нього вже списано, — отже він мусить рахуватись і в нестачі.
+// Виключити його означало б показати наслідок (залишок упав) без рядка,
+// який називає причину.
+func TestWhatIfThisMonthRowCountsInShortfall(t *testing.T) {
+	url, _ := planServer(t)
+	code, body := whatIf(t, url, `{"draft":[{"kind":"deposit","ref":"privat",`+
+		`"amount":"90000000","currency":"UAH","months":12,"rate_pct":"16","buy_date":"`+
+		lastDayThisMonth()+`"}]}`)
+	if code != http.StatusOK {
+		t.Fatalf("%d %s", code, body)
+	}
+	var got struct {
+		Basket struct {
+			Shorts []struct {
+				Broker string `json:"broker"`
+			} `json:"shorts"`
+		} `json:"basket"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Basket.Shorts) == 0 {
+		t.Error("нестачі немає — рядок цього місяця не порахували, хоч гроші за нього вже списані")
+	}
+}
+
+// Вклад цього місяця без ставки лишається ЧЕСНОЮ ВІДМОВОЮ.
+//
+// Доти перевірка стояла всередині майбутньої гілки, і поки «майбутнє»
+// починалось із завтра, це збігалось. Після зміни порога вклад цього
+// місяця пішов у портфель — і без підняття перевірки мовчазний RateBP: 0
+// дав би нарахування на нуль там, де раніше було 400.
+// TestWhatIfRejectsUnresolvableRate датований «+1 рік» і проходив би,
+// поки це відбувається.
+func TestWhatIfRejectsUnresolvableRateThisMonth(t *testing.T) {
+	url, st := planServer(t)
+	if err := st.SetSetting(context.Background(), "deposit_rate_uah_pct", ""); err != nil {
+		t.Fatal(err)
+	}
+	code, body := whatIf(t, url, `{"draft":[{"kind":"deposit","ref":"privat",`+
+		`"amount":"100000","currency":"UAH","months":12,"buy_date":"`+
+		lastDayThisMonth()+`"}]}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("мав бути 400, маємо %d %s", code, body)
+	}
+}
+
 // Нестача — питання про СЬОГОДНІШНІЙ залишок, і майбутній рядок його не
 // ставить. Підсумок при цьому його містить: «скільки я збираюсь
 // витратити» рахує все.
