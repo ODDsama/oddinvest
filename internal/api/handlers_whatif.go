@@ -37,9 +37,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"sort"
 	"time"
+
+	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
@@ -129,6 +132,24 @@ type basketDoc struct {
 type whatIfPayload struct {
 	After  *state.Doc `json:"after"`
 	Basket basketDoc  `json:"basket"`
+	// Topup — чим добрати РЕШТУ грошей місяця, щоб частки вирівнялись.
+	//
+	// Тим самим типом, що розкладка надходження (allocPlan), і тією ж
+	// функцією: питання одне — «ось сума, розклади її цілими квитками», —
+	// і друга відповідь на нього розійшлася б із першою. Різниця лише в
+	// тому, ЯКА це сума й ВІД ЯКОГО портфеля міряються частки.
+	//
+	// nil означає «розкладати нема чого»: плану доходу немає, або місяць
+	// уже закритий, або весь залишок розписаний планом купівель. Порожня
+	// розкладка нуля читалась би як поломка, тому нуля тут не буває.
+	Topup *allocPlan `json:"topup,omitempty"`
+	// TopupPlanUAH / TopupLeftUAH — два числа, з яких вийшла сума Topup:
+	// скільки план місяця ще обіцяє і скільки з того вже розписав план
+	// купівель. Без них картка показала б результат віднімання, не
+	// показавши самого віднімання, — а питання «чому пропонують так мало»
+	// виникає рівно на ньому.
+	TopupPlanUAH float64 `json:"topup_plan_uah,omitempty"`
+	TopupLeftUAH float64 `json:"topup_left_uah,omitempty"`
 }
 
 // handleWhatIf — стан портфеля ПІСЛЯ планованих покупок.
@@ -179,7 +200,82 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, whatIfPayload{After: after, Basket: basket})
+	out := whatIfPayload{After: after, Basket: basket}
+	if err := s.addTopup(ctx, now, after, basket, &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// addTopup — чим добрати решту грошей місяця, щоб частки вирівнялись.
+//
+// ЧОМУ ЦЕ ТУТ, А НЕ ОКРЕМИМ ЕНДПОЙНТОМ. Обидва входи є разом рівно в цьому
+// місці й більше ніде: повний документ ПІСЛЯ плану (after) і сам план у
+// грошах (basket). Окремий ендпойнт мусив би зібрати їх удруге — тобто
+// вдруге розгорнути plan_buys і вдруге перебудувати стан, — і два
+// перерахунки одного дня давали б два різні числа щоразу, коли між ними
+// щось запишуть.
+//
+// ВЛАСНОЇ АРИФМЕТИКИ ТУТ ОДНЕ ВІДНІМАННЯ, і воно нижче. Усе решта —
+// allocatePlan, та сама чиста функція, що обслуговує розкладку надходження
+// й ногу маршруту.
+func (s *Server) addTopup(ctx context.Context, now time.Time,
+	after *state.Doc, basket basketDoc, out *whatIfPayload) error {
+
+	if after.MonthPlan == nil || after.MonthPlan.LeftUAH <= 0 {
+		return nil
+	}
+	rates, err := s.rates(ctx)
+	if err != nil {
+		return err
+	}
+	// ТЕ САМЕ ВІДНІМАННЯ, ЗАРАДИ ЯКОГО ВСЕ Й ЗАТІЯНО.
+	//
+	// LeftUAH міряється від грошей, ВНЕСЕНИХ у портфель (state_month.go), а
+	// не від покупок: план купівель у ньому не врахований і врахуватись не
+	// може — це намір, а не рух грошей. Тому його доводиться відняти тут,
+	// і без цього віднімання картка радила б докупити рівно те, що вже
+	// заплановане, — подвійний рахунок на кожен рядок плану.
+	//
+	// МАЙБУТНІ РЯДКИ НЕ ВІДНІМАЮТЬСЯ: вони живуть у наступному місяці й
+	// цих грошей не витрачають. Та сама межа, що ділить портфельні числа
+	// картки наслідків від цільових (basketLine.Future).
+	planUAH := 0.0
+	for _, l := range basket.Lines {
+		if l.Future {
+			continue
+		}
+		planUAH += moneyAmount(l.Total) * allocRate(l.Currency, rates)
+	}
+	avail := after.MonthPlan.LeftUAH - planUAH
+	out.TopupPlanUAH = round2(after.MonthPlan.LeftUAH)
+	out.TopupLeftUAH = round2(math.Max(0, avail))
+	// Поріг той самий, що в розкладки: сума, з якої не вийде жодного руху,
+	// не варта картки. Нуль і від'ємне значення сюди ж — план купівель
+	// може бути й більшим за те, що місяць обіцяє.
+	if avail < allocMinCutUAH {
+		return nil
+	}
+	// ПОРАДИ ВІД `after`, А НЕ ВІД `before`. Рейтинг ранжує сумою розривів
+	// (suggPlanScore), і розриви мусять бути ті, що лишились ПІСЛЯ плану:
+	// інакше вершиною стане саме той вид, який план уже закрив.
+	sug, err := s.reinvestSuggestions(ctx, now, after)
+	if err != nil {
+		return err
+	}
+	// БЕЗ ОБМЕЖЕНЬ ЗА ДЖЕРЕЛОМ, і це не недогляд. Розкладають не одне
+	// надходження, а зведений залишок місяця — десяток потоків із різними
+	// дозволами (plan_flows.uses), — і одне слово «чиї це гроші» на нього
+	// було б неправдою для половини суми. Той самий довід, що при
+	// reserveEligibleUAH, лише з протилежним висновком: там сума одна й
+	// дозвіл у неї один, тут сум багато.
+	plan := allocatePlan(after, sug, rates,
+		toMoneyJSON(money.New(int64(math.Round(avail*100)), money.UAH)), avail,
+		allocAllow{ReserveUAH: avail, DebtUAH: avail, GoalsUAH: avail},
+		money.UAH, s.npfIDByName(ctx))
+	out.Topup = &plan
+	return nil
 }
 
 // planBuyRows — набір рядків, наслідки якого рахуємо: збережені (за

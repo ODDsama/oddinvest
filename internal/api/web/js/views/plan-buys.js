@@ -31,6 +31,7 @@ import { apply, openEdit } from "../forms.js";
 import { kindPill } from "../components.js";
 import { routeFor } from "../routes.js";
 import { fetchWhatIf, impactHTML } from "./buy-plan.js";
+import { topupHTML, wireTopup } from "./topup.js";
 import { lotFields, lotBody } from "./bonds.js";
 import { depositFields, depositBody } from "./deposits.js";
 import { fundOpFields, fundOpBody } from "../fund-ops.js";
@@ -277,9 +278,20 @@ export function planBuysHTML(res) {
 // `exclude` не могла спрацювати ніколи — порожній шов, який читається як
 // зразок (CLAUDE.md §3). Щоб превʼю правки зʼявилось, треба спершу дати
 // модалці свій блок наслідків, а не дописувати параметр назад.
+//
+// ДВА БЛОКИ, А НЕ ОДИН. Картка «Чим добрати» перемальовується тим самим
+// оновленням, що й наслідки, і це не косметика: набрана у формі покупка
+// зменшує решту місяця рівно на свою суму. Лишити її нерухомою означало б
+// показати два числа про ті самі гроші, з яких одне застаріло на один
+// рядок, — і різниця між ними виглядала б як помилка рахунку.
+//
+// Проводка кнопок картки повторюється після КОЖНОГО перемальовування:
+// innerHTML викидає старі елементи разом зі слухачами, і «+» на рядку
+// мовчки перестав би працювати після першої ж літери у формі.
 function wirePreview(ctx, main) {
   const form = main.querySelector("#planBuyForm");
   const box = main.querySelector("[data-impact]");
+  const topupBox = main.querySelector("[data-topup]");
   if (!form || !box) return;
   let timer = null, ctl = null, seq = 0;
 
@@ -301,6 +313,10 @@ function wirePreview(ctx, main) {
       const res = await fetchWhatIf(ctx, body, ctl.signal);
       if (mine !== seq) return;
       box.innerHTML = impactHTML(ctx, res);
+      if (topupBox) {
+        topupBox.innerHTML = topupHTML(ctx, res);
+        wireTopup(ctx, topupBox, res);
+      }
     } catch (err) {
       if (mine !== seq || (err && err.name === "AbortError")) return;
       // Тихий рядок, а не тост: тост на кожну літеру неможливо читати, а

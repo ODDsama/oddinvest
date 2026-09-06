@@ -23,7 +23,8 @@ import {
   planBuysHTML, planBuyFormHTML, wirePlanBuys, addToPlan, emptyPlanHTML,
 } from "./plan-buys.js";
 import { tasksHTML } from "./tasks.js";
-import { allocationCardHTML, currencyCardHTML, wireAllocation } from "./allocation.js";
+import { allocationCardHTML, currencyCardHTML } from "./allocation.js";
+import { topupHTML, wireTopup } from "./topup.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
@@ -607,10 +608,19 @@ export async function todo(ctx, main) {
  *  тієї самої поради іншими словами рано чи пізно розійшовся б із першим.
  *
  *  Порожнього стану тут немає навмисно: обидві картки кажуть, чого їм
- *  бракує (needsSetting), коли не задано жодної цілі. */
+ *  бракує (needsSetting), коли не задано жодної цілі.
+ *
+ *  СТОРІНКУ ТІЛЬКИ ЧИТАЮТЬ — це рішення власника, і воно пояснює
+ *  відсутність проводки нижче. Звідси пішла остання дія, кнопка «Розкласти
+ *  залишок місяця»: розкладка не знала про план купівель (handleAllocate
+ *  будує стан без нього) і радила докупити те, що вже заплановане.
+ *  Питання «чим добрати з решти місяця» переїхало в «План купівель», де
+ *  перед очима стоїть сам план, — а тут лишилось число й посилання.
+ *
+ *  Тому в цій функції немає й не має бути жодного wire*: усе, що вміє
+ *  сторінка, вона малює. */
 export async function buy(ctx, main) {
   main.innerHTML = currencyCardHTML(ctx) + allocationCardHTML(ctx);
-  wireAllocation(ctx, main);
 }
 
 /** План купівель: що я збираюсь узяти — і що з цього вийде.
@@ -638,11 +648,17 @@ export async function buys(ctx, main) {
     return;
   }
   const lines = ((res.basket || {}).lines || []);
+  // Порядок карток = порядок питань. «Що заплановано» → «чим добрати
+  // решту» → форма → наслідки: добір продовжує список плану (він про ті
+  // самі гроші й ту саму решту місяця), а не форму, тож стоїть одразу за
+  // ним. Наслідки лишаються останніми — вони підсумовують усе разом.
   main.innerHTML = (lines.length ? planBuysHTML(res) : emptyPlanHTML())
+    + `<div data-topup>${topupHTML(ctx, res)}</div>`
     + `<div class="card"><h2>Внести покупку ${infoBtn("basket")}</h2>
         <div class="note">Наслідки перерахуються, щойн наберені поля складуться
           в покупку — зберігати для цього нічого не треба.</div>
         ${planBuyFormHTML(ctx)}</div>`
     + `<div data-impact>${impactHTML(ctx, res)}</div>`;
   wirePlanBuys(ctx, main, rows || []);
+  wireTopup(ctx, main, res);
 }
