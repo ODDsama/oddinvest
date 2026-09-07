@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -1025,5 +1026,41 @@ func TestBackupRoundTripPlanExpenses(t *testing.T) {
 			got[i].Place != e.Place || got[i].Note != e.Note {
 			t.Errorf("витрата %d поїхала: %+v vs %+v", i, got[i], e)
 		}
+	}
+}
+
+// Приховані рядки переживають відновлення, і це рішення, а не побічний
+// ефект: сусідній nav_order із бекапу свідомо виключений як «вподобання
+// цієї машини». Різниця в тому, про що вподобання — довід повністю в шапці
+// поля Backup.HiddenRows.
+//
+// Друга половина тесту — про те, що позначка НЕ додається до наявної, а
+// заміняє її разом із рештою даних: ImportAll заявлений як «ЗАМІНЮЄ всі
+// користувацькі дані», і рядок, прихований у приймачі до відновлення, не
+// має пережити чужий дамп.
+func TestBackupRoundTripKeepsHiddenRows(t *testing.T) {
+	ctx := context.Background()
+	src := openTest(t)
+	if err := src.SetHiddenRows(ctx, []string{"fund:Inzhur Ocean", "npf:ВПФ Династія"}); err != nil {
+		t.Fatal(err)
+	}
+	dump, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dst := openTest(t)
+	if err := dst.SetHiddenRows(ctx, []string{"goal:7"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := dst.ImportAll(ctx, dump); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dst.HiddenRows(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "fund:Inzhur Ocean,npf:ВПФ Династія" {
+		t.Fatalf("приховані рядки після відновлення: %v", got)
 	}
 }

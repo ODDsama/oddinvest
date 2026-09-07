@@ -186,6 +186,10 @@ func (s *Server) routes() *http.ServeMux {
 	// налаштуваннями й окремо від них (довід — у шапці handlers_navorder.go).
 	mux.HandleFunc("GET /api/nav-order", s.handleGetNavOrder)
 	mux.HandleFunc("PUT /api/nav-order", s.handlePutNavOrder)
+	// Приховані рядки того ж списку — так само вподобання, але вже про
+	// конкретний папір, тож портфельне (довід — у handlers_hidden.go).
+	mux.HandleFunc("GET /api/hidden-rows", s.handleGetHidden)
+	mux.HandleFunc("PUT /api/hidden-rows", s.handlePutHidden)
 	mux.HandleFunc("POST /api/payments/status", s.handlePaymentStatus)
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)
 	mux.HandleFunc("GET /api/xirr", s.handleXIRR)

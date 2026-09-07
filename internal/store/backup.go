@@ -160,6 +160,19 @@ type Backup struct {
 	Settings       map[string]string     `json:"settings"`
 	PaymentStatus  []BackupPayStatus     `json:"payment_status"`
 	Snapshots      []Snapshot            `json:"snapshots"`
+	// HiddenRows (0060) — рядки лівого списку, які власник відмітив «не
+	// показувати». У бекапі вони Є, і це не самоочевидно: сусідній nav_order
+	// із бекапу свідомо виключений (derivedTables) як «вподобання цієї
+	// машини».
+	//
+	// Різниця в тому, ПРО ЩО вподобання. Порядок вкладок — про звичку
+	// людини й належить інсталяції: відновлення копії з ноутбука не має
+	// перекладати список на телефоні. Позначка ж «цей фонд закритий, не
+	// показуй» — про конкретну позицію ЦЬОГО портфеля, і їде вона разом із
+	// самою позицією. Без неї відновлення повертало б на екран усе, що
+	// власник роками прибирав, — і мовчки, бо жодного повідомлення про
+	// приховане не існує за задумом.
+	HiddenRows []string `json:"hidden_rows,omitempty"`
 }
 
 // BackupFund — рядок довідника фондів (refs.go: Fund).
@@ -1109,6 +1122,16 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}, s.pid); err != nil {
 		return nil, err
 	}
+	hidden, err := s.HiddenRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Порожній список у бекап не пишеться (omitempty): у переважної
+	// більшості портфелів приховано нічого, і порожній масив у кожному
+	// дампі був би шумом, який ще й натякає, що поле щось означає.
+	if len(hidden) > 0 {
+		b.HiddenRows = hidden
+	}
 	if err := s.scan(ctx, `SELECT isin,pay_date,status,marked_at FROM payment_status WHERE portfolio_id=?`,
 		func(scan func(...any) error) error {
 			var r BackupPayStatus
@@ -1162,7 +1185,7 @@ var importAllTables = []string{
 	"npf_accounts", "plan_flows", "plan_flow_revisions",
 	"plan_receipts", "plan_actions", "plan_buys", "plan_expenses",
 	"decisions", "import_profiles",
-	"settings", "payment_status", "snapshots",
+	"settings", "payment_status", "snapshots", "hidden_rows",
 	"funds", "brokers",
 	"ovdp_quotes",
 }
@@ -1770,6 +1793,16 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	for k, v := range b.Settings {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO settings (portfolio_id,key,value) VALUES (?,?,?)`, s.pid, k, v); err != nil {
 			return fmt.Errorf("налаштування %q: %w", k, err)
+		}
+	}
+	// Приховані рядки — плоский список без жодних посилань на id, тож
+	// перенумерація рядків (idMaps) його не стосується: «fund:Inzhur Ocean»
+	// адресує позицію назвою, а не ключем.
+	for _, id := range b.HiddenRows {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT OR IGNORE INTO hidden_rows (portfolio_id, row_id) VALUES (?,?)`,
+			s.pid, id); err != nil {
+			return fmt.Errorf("прихований рядок %q: %w", id, err)
 		}
 	}
 	for _, p := range b.PaymentStatus {
