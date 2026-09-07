@@ -196,3 +196,35 @@ func TestAllocLineSaysNominalToo(t *testing.T) {
 		t.Errorf("за номіналом продавця бути не може: %+v", line)
 	}
 }
+
+// Папір із РИНКОВОЮ ціною більше не понижується за те, що його рік не
+// розміщували на аукціоні.
+//
+// Довід пониження був про НАШУ невпевненість у власному числі: ціна
+// виводилась із первинного розміщення, і для паперу, якого рік не
+// розміщували, вона була вигадкою. Відколи ціну приносить джерело, ця
+// невпевненість зникла — а факт «лише вторинний ринок» лишився в причині
+// рядка, бо він і далі правда.
+func TestStaleDoesNotDemoteWhenPriceIsReal(t *testing.T) {
+	priced := suggestion{Kind: "bond", ISIN: "UA-PRICED", Currency: money.UAH,
+		CostBasis: CostBasisMarket, stale: true, RealPct: 10}
+	guessed := suggestion{Kind: "bond", ISIN: "UA-GUESS", Currency: money.UAH,
+		CostBasis: CostBasisNominal, stale: false, RealPct: 9}
+	if !lessSuggestion(priced, guessed, "rate", orderReal) {
+		t.Error("папір із ринковою ціною мусить стояти вище: його дохідність вища, " +
+			"а старий аукціон до знання ціни стосунку не має")
+	}
+}
+
+// А без ринкової ціни все лишається як було: там головне число справді
+// виведене з номіналу, і stale каже про нього правду.
+func TestStaleStillDemotesGuessedPrice(t *testing.T) {
+	stale := suggestion{Kind: "bond", ISIN: "UA-STALE", Currency: money.UAH,
+		CostBasis: CostBasisNominal, stale: true, RealPct: 20}
+	fresh := suggestion{Kind: "bond", ISIN: "UA-FRESH", Currency: money.UAH,
+		CostBasis: CostBasisNominal, stale: false, RealPct: 9}
+	if lessSuggestion(stale, fresh, "rate", orderReal) {
+		t.Error("без ринкової ціни папір без розміщення мусить лишатись нижчим " +
+			"навіть із більшою дохідністю — вона порахована з вигаданої ціни")
+	}
+}
