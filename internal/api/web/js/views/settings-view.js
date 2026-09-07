@@ -79,13 +79,26 @@ export function catalogsHTML(ctx, marks = [], fundOps = [], fundRows = []) {
   // віддає саме джерело (GET /api/quotes), і вводити їх руками означало б
   // ловити друкарські помилки там, де вибір відомий. Порожній варіант
   // перший, бо незіставлений брокер — нормальний стан.
-  const srcOpts = [{ v: "", t: "— не зіставлено —" }].concat(
-    (quotesDoc().sources || []).map((x) => ({ v: x.key, t: x.key })));
-  const brokerFields = (b) => [{
-    key: "quote_source", value: b.quote_source || "", w: 130, opts: srcOpts,
-    title: "Ключ цього ж брокера в джерелі цін. Порожньо — ціни для нього не знаємо, "
-      + "і в порівнянні «у кого дешевше» він не бере участі",
-  }];
+  const srcRows = quotesDoc().sources || [];
+  // ВЛАСНА НАЗВА — теж законний вибір, і саме вона потрібна найчастіше там,
+  // де джерело брокера не покриває: mono ОВДП продає, а цін не публікує
+  // ніде. Такий брокер зіставляється сам із собою, а ціну для нього
+  // вписують руками в розкритті паперу.
+  //
+  // Дописується ЛИШЕ якщо серед джерел такого ключа ще немає: інакше
+  // брокер із назвою «Inzhur» дістав би два однакові рядки у випадайці.
+  const brokerFields = (b) => {
+    const opts = [{ v: "", t: "— не зіставлено —" }].concat(
+      srcRows.map((x) => ({ v: x.key, t: x.label ? `${x.key} — ${x.label}` : x.key })));
+    if (b.name && !srcRows.some((x) => x.key === b.name)) {
+      opts.push({ v: b.name, t: `${b.name} — ціну вписуєш руками` });
+    }
+    return [{
+      key: "quote_source", value: b.quote_source || "", w: 190, opts,
+      title: "Хто цей брокер у джерелі цін. Порожньо — ціни для нього не знаємо, "
+        + "і в порівнянні «у кого дешевше» він не бере участі",
+    }];
+  };
   const brokers = (ctx.brokers || []).length
     ? ctx.brokers.map((b) => catalogRowHTML(b, brokerFields(b))).join("")
     : `<div class="sub">Ще немає брокерів. Додай mono, inzhur…</div>`;

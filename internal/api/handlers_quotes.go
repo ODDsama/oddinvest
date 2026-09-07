@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/finomo"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -59,8 +60,11 @@ type quotesDoc struct {
 }
 
 type quoteSource struct {
-	Key  string `json:"key"`
-	Mine string `json:"mine,omitempty"`
+	Key string `json:"key"`
+	// Label — назва продавця людською мовою. Без неї у випадайці стояли б
+	// самі латинські ключі, і «BtcBroker» довелось би вгадувати.
+	Label string `json:"label,omitempty"`
+	Mine  string `json:"mine,omitempty"`
 }
 
 // handleListQuotes — увесь відомий зріз цін.
@@ -82,8 +86,20 @@ func (s *Server) handleListQuotes(w http.ResponseWriter, r *http.Request) {
 	for src := range book.mine {
 		seen[src] = true
 	}
+	// І ВІДОМІ ПРОДАВЦІ — ТЕЖ, НАВІТЬ КОЛИ ЦІН ЩЕ НЕМА ЖОДНОЇ.
+	//
+	// Без цього виходило замкнене коло, у яке робота й потрапила на
+	// бойовому: ціна не йде в квиток без зіставлення, а зіставляти нема з
+	// чим, доки не набрано цін. Перелік — засів (finomo.KnownSellers), і
+	// саме тому він ЗВОДИТЬСЯ з тим, що реально прийшло, а не підміняє
+	// його: новий продавець у джерела з'явиться сам після першого обходу.
+	for src := range finomo.KnownSellers {
+		seen[src] = true
+	}
 	for src := range seen {
-		doc.Sources = append(doc.Sources, quoteSource{Key: src, Mine: book.mine[src]})
+		doc.Sources = append(doc.Sources, quoteSource{
+			Key: src, Label: finomo.KnownSellers[src], Mine: book.mine[src],
+		})
 	}
 	sort.Slice(doc.Sources, func(i, j int) bool { return doc.Sources[i].Key < doc.Sources[j].Key })
 	writeJSON(w, http.StatusOK, doc)
