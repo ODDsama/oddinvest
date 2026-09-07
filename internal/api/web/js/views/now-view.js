@@ -16,6 +16,7 @@ import { infoBtn } from "../info.js";
 import { yieldCell } from "../yield.js";
 import { tile, kindPill, progressBar } from "../components.js";
 import { isOpen, remember } from "../uistate.js";
+import { quotesBarHTML, quotesDoc } from "../quotes.js";
 import { routeFor } from "../routes.js";
 import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
 import { fetchWhatIf, impactHTML } from "./buy-plan.js";
@@ -196,7 +197,29 @@ export function reinvestHTML(ctx, opts = {}) {
     if (!byKey.has(k)) byKey.set(k, r);
   }
   const rows = [...byKey.values()];
-  if (!rows.length) return "";
+  // ПОРОЖНІЙ СПИСОК — ТЕЖ ВІДПОВІДЬ, і мовчати про нього більше не можна.
+  //
+  // Доти порожнеча означала «довідник ще не завантажили», і німа картка
+  // була чесною. Відколи папір без свіжої ціни від СВОГО брокера
+  // ховається (handlers_reinvest.go), порожнеча має другу причину — «ціни
+  // застаріли, і застосунок не має права стверджувати, що щось доступне».
+  // Різниця між ними — це різниця між «зачекай» і «натисни кнопку», і
+  // залишати людину гадати, яка з них зараз, було б найгіршим виглядом
+  // тиші: екран виглядав би зламаним.
+  //
+  // Розрізняє їх наявність цін узагалі: є хоч одна — отже, довідник на
+  // місці, і порожнеча саме про доступність.
+  if (!rows.length) {
+    if (!(kinds && !kinds.includes("bond")) && (quotesDoc().rows || []).length) {
+      return `<div class="card"><h2 class="card-head"><span>${esc(title)}</span></h2>
+        ${quotesBarHTML()}
+        <div class="sub">Жоден із твоїх брокерів зараз не продає нічого з довідника —
+          принаймні за тими цінами, які ми бачили востаннє. Онови ціни: якщо папір
+          зняли з продажу, він і не має тут стояти, а якщо ціни просто застаріли,
+          список повернеться.</div></div>`;
+    }
+    return "";
+  }
   const s = ctx.summary || {};
   const purse = Object.entries(s.brokers || {})
     .flatMap(([b, byCur]) => Object.entries(byCur)

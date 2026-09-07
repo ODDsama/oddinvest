@@ -35,9 +35,9 @@ package api
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
-
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -66,7 +66,28 @@ type quoteBook struct {
 	// поломка, а стан «зіставлення ще не зробили».
 	mine      map[string]string
 	fetchedAt string
+	// sweptFresh — обхід НЕДАВНО покрив увесь довідник, тож «ціни немає»
+	// означає «ніхто зі своїх не продає», а не «ми не питали». Лише за
+	// цієї умови можна ховати папери без ціни; довід — при hideUnpriced.
+	sweptFresh bool
 }
+
+// hideUnpriced — чи можна зараз ховати папери без ціни свого брокера.
+//
+// # ЧОМУ ЦЕ НЕ ПРОСТО «НЕМАЄ ЦІНИ — НЕМАЄ ПОРАДИ»
+//
+// Власник попросив не показувати те, чого не купиш: «важливіше щоб він був
+// у доступності». Ціна від ТВОГО брокера і є доказом доступності — але
+// ЛИШЕ тоді, коли її відсутність щось означає. Доки обхід питав шістдесят
+// паперів зі ста вісімдесяти шести, відсутність ціни означала переважно
+// «ми не питали», і фільтр сховав би півтори сотні паперів за неправдивою
+// підставою.
+//
+// Тому право ховати вмикається знаком повного обходу (QuotesSweptAtKey) і
+// гасне разом із ним: знака немає або він протух — список лишається таким,
+// як був, а екран каже, що ціни давно не оновлювали. Тобто застосунок
+// мовчить про доступність рівно доти, доки не має права про неї говорити.
+func (b quoteBook) hideUnpriced() bool { return b.sweptFresh }
 
 func (b quoteBook) pick(isin string) *store.Quote {
 	if p, ok := b.byISIN[strings.ToUpper(isin)]; ok {
@@ -99,7 +120,27 @@ func (s *Server) quotesFor(ctx context.Context, isins []string, on domain.Date) 
 		return book, err
 	}
 	book.byISIN = pickQuotes(all, book.mine, on)
+	swept, err := s.st.GetAppState(ctx, store.QuotesSweptAtKey)
+	if err != nil {
+		return book, err
+	}
+	book.sweptFresh = sweepFresh(swept, on)
 	return book, nil
+}
+
+// sweepFresh — чи не застарів знак повного обходу.
+//
+// Той самий поріг, що й у самої ціни (quoteFreshDays): обхід, старший за
+// нього, не може підтверджувати доступність, бо й ціни з нього вже не
+// ціни. Порожній або нерозбірливий знак читається як «обходу не було» —
+// найобережніше з можливих значень, бо від нього залежить, чи ховати.
+func sweepFresh(at string, on domain.Date) bool {
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(at))
+	if err != nil {
+		return false
+	}
+	days := domain.DaysBetween(domain.NewDate(t), on)
+	return days >= 0 && days <= quoteFreshDays
 }
 
 // pickQuotes — найдешевша СВІЖА ціна кожного паперу серед своїх, і

@@ -2,11 +2,14 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/nbu"
 )
 
 func q(isin, source string, date domain.Date, minor int64, origin string) Quote {
@@ -175,5 +178,44 @@ func TestBrokerQuoteSourceRoundTrip(t *testing.T) {
 	}
 	if bs, _ = s.ListBrokers(ctx); len(bs) != 1 || bs[0].QuoteSource != "" {
 		t.Fatalf("зіставлення не знялось: %+v", bs)
+	}
+}
+
+// AllBondsFrom віддає ВЕСЬ довідник, а не перші 50.
+//
+// Сторож проти повернення того, що вже раз сталось: помічник кликав
+// SearchBonds із лімітом 5000, сховище мовчки затискало його до 50, і
+// оскільки вибірка йде ORDER BY maturity, «Що купити» бачило рівно 50
+// найкоротших паперів зі 186. Мовчки — жоден тест цього не ловив.
+func TestAllBondsFromIsNotCapped(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	base := domain.NewDate(time.Now())
+	var secs []nbu.Security
+	for i := 0; i < 120; i++ {
+		isin := fmt.Sprintf("UA900000%04d", i)
+		secs = append(secs, nbu.Security{
+			Bond: domain.Bond{ISIN: isin, Nominal: money.New(100000, money.UAH),
+				RateBP: 1600, Maturity: base.AddDays(30 + i*30)},
+		})
+	}
+	if err := s.ReplaceDirectory(ctx, secs, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	all, err := s.AllBondsFrom(ctx, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 120 {
+		t.Fatalf("віддано %d зі 120 — схоже, з'явилось затискання ліміту", len(all))
+	}
+	// А SearchBonds лишається затиснутим: він для підказки, і 120 рядків
+	// автокомпліта нікому не потрібні.
+	few, err := s.SearchBonds(ctx, "", "", base, "", 5000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(few) != 50 {
+		t.Errorf("SearchBonds віддав %d — його затискання чіпати не можна", len(few))
 	}
 }

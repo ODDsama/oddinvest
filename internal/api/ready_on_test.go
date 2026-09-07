@@ -596,3 +596,52 @@ func TestRouteIncomeReinvestingFundSendsOnlyTheLeftover(t *testing.T) {
 		t.Errorf("оцінку позначати нема чого, а Ref = %q", got.Ref)
 	}
 }
+
+// ДАТА, ЩО НАСТАЄ ПІСЛЯ ПОГАШЕННЯ, — НЕ ВІДПОВІДЬ.
+//
+// Живий випадок: папір гасився 16 вересня, а під ним стояло «з надходжень
+// портфеля набереться 18 листопада» — порада збирати два місяці на те,
+// чого на той час не існуватиме. Поріг minTermDays прибирає майже всі такі
+// рядки ще на збірці порад; цей сторож — щоб решта не брехала.
+func TestAnnotateReadyRefusesDateAfterMaturity(t *testing.T) {
+	today := domain.NewDate(time.Now())
+	// Купони маленькі, тож набереться далеко — вже після погашення.
+	inc := incomeAhead{
+		{Broker: "inzhur", Currency: money.UAH}: {
+			{Date: today.AddDays(10), Amount: 400_00, Label: "купон"},
+			{Date: today.AddDays(80), Amount: 400_00, Label: "купон"},
+			{Date: today.AddDays(150), Amount: 400_00, Label: "купон"},
+		},
+	}
+	doc := docWith(map[string]map[string]float64{"inzhur": {money.UAH: 0}})
+
+	// Папір, що гаситься РАНІШЕ, ніж набереться: дати бути не повинно.
+	short := []suggestion{{
+		Kind: "bond", ISIN: "UA-SHORT", Currency: money.UAH,
+		CostPerBond: toMoneyJSON(money.New(1000_00, money.UAH)),
+		Maturity:    string(today.AddDays(60)),
+	}}
+	if err := annotateReadyWith(inc, doc, today, short); err != nil {
+		t.Fatal(err)
+	}
+	if short[0].ReadyOn != "" {
+		t.Errorf("дата %s настає після погашення %s — її не мало бути",
+			short[0].ReadyOn, short[0].Maturity)
+	}
+	if short[0].ReadyNote == "" {
+		t.Error("зникла дата без причини читається як поломка")
+	}
+
+	// Папір, що доживе: дата на місці, як і була.
+	long := []suggestion{{
+		Kind: "bond", ISIN: "UA-LONG", Currency: money.UAH,
+		CostPerBond: toMoneyJSON(money.New(1000_00, money.UAH)),
+		Maturity:    string(today.AddDays(900)),
+	}}
+	if err := annotateReadyWith(inc, doc, today, long); err != nil {
+		t.Fatal(err)
+	}
+	if long[0].ReadyOn == "" {
+		t.Errorf("папір доживе до дати — вона мала лишитись: %+v", long[0])
+	}
+}

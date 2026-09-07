@@ -33,10 +33,11 @@ import (
 
 // quotesRunTimeout — стеля на весь прохід.
 //
-// Шістдесят сторінок по секунді плюс відповіді — це близько двох хвилин у
-// найгіршому разі; три дають запас, не перетворюючи зависання джерела на
-// вічно відкрите з'єднання.
-const quotesRunTimeout = 3 * time.Minute
+// Відколи обхід покриває ВЕСЬ довідник (близько двохсот сторінок по
+// півсекунди плюс відповіді), найгірший випадок — близько трьох хвилин;
+// п'ять дають запас, не перетворюючи зависання джерела на вічно відкрите
+// з'єднання.
+const quotesRunTimeout = 5 * time.Minute
 
 // quoteRow — рядок зрізу для екрана: ціна плюс те, що про неї треба знати.
 type quoteRow struct {
@@ -169,18 +170,18 @@ func (s *Server) quoteISINs(ctx context.Context, now time.Time) ([]string, error
 			add(p.ISIN)
 		}
 	}
-	doc, err := s.buildState(ctx, now)
+	// ДАЛІ — УВЕСЬ ДОВІДНИК, А НЕ ПОРАДИ, і це не розширення, а розрив
+	// замикання. Порада тепер ховається, коли ціни від свого брокера немає
+	// (handlers_reinvest.go); якби перелік на обхід брався з порад, то
+	// схований папір не потрапляв би в обхід, а без обходу не діставав би
+	// ціни — і не з'явився б уже ніколи. Коло, яке фільтрує, і коло, яке
+	// питає, мусять бути одним і тим самим.
+	all, err := s.st.AllBondsFrom(ctx, today)
 	if err != nil {
 		return nil, err
 	}
-	sug, err := s.reinvestSuggestions(ctx, now, doc)
-	if err != nil {
-		return nil, err
-	}
-	for _, g := range sug {
-		if g.Kind == "bond" {
-			add(g.ISIN)
-		}
+	for _, b := range all {
+		add(b.ISIN)
 	}
 	return out, nil
 }

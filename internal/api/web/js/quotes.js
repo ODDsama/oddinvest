@@ -128,7 +128,10 @@ export function wireQuotes(ctx, main) {
       btn.disabled = true;
       btn.setAttribute("aria-busy", "true");
       const was = btn.textContent;
-      btn.textContent = "Питаю ціни…";
+      // Обхід покриває ВЕСЬ довідник (близько двохсот сторінок по
+      // півсекунди), тобто це хвилини, а не секунди. Підпис мусить це
+      // сказати: мовчазна кнопка на другій хвилині читається як зависла.
+      btn.textContent = "Питаю ціни в усіх продавців… це кілька хвилин";
       try {
         const res = await ctx.api("POST", "quotes/refresh", {});
         const bits = [`оновлено ${res.stored}`];
@@ -136,6 +139,11 @@ export function wireQuotes(ctx, main) {
         if (res.missing) bits.push(`${res.missing} немає в джерела`);
         if (res.failed) bits.push(`${res.failed} не вийшло`);
         if (res.skipped) bits.push(`${res.skipped} не влізли — натисни ще раз`);
+        // Неповний обхід окремим словом: саме від нього залежить, чи має
+        // застосунок право ховати папери без ціни (store.QuotesSweptAtKey).
+        if (res.skipped || res.failed) {
+          bits.push("довідник покрито не цілком — поради поки нікого не ховають");
+        }
         ctx.toast(`Ціни: ${bits.join(", ")}`);
         await ctx.reload();
       } catch (e) {

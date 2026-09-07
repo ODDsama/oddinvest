@@ -753,6 +753,17 @@ func (s *Server) annotateReady(ctx context.Context, today domain.Date,
 	if err != nil {
 		return err
 	}
+	return annotateReadyWith(inc, doc, today, sug)
+}
+
+// annotateReadyWith — та сама робота над ГОТОВИМИ надходженнями.
+//
+// Винесено рівно заради перевірності: усе, що вище, — це два читання
+// сховища, а все, що нижче, — правила, які й треба перевіряти тестом. Той
+// самий поділ, що в allocatePlan і pickQuotes.
+func annotateReadyWith(inc incomeAhead, doc *state.Doc, today domain.Date,
+	sug []suggestion) error {
+
 	for i := range sug {
 		if sug[i].CanBuy {
 			continue
@@ -764,6 +775,23 @@ func (s *Server) annotateReady(ctx context.Context, today domain.Date,
 		r, ok := inc.readyFor(doc, sug[i].Currency, cost.Amount())
 		if !ok {
 			sug[i].ReadyNote = "з відомих надходжень портфеля не набереться"
+			continue
+		}
+		// ДАТА, ЩО НАСТАЄ ПІСЛЯ ПОГАШЕННЯ, — НЕ ВІДПОВІДЬ.
+		//
+		// Живий випадок: папір гасився 16 вересня, а під ним стояло «з
+		// надходжень портфеля набереться 18 листопада» — порада збирати два
+		// місяці на те, чого на той час не існуватиме. Це єдине місце, де
+		// обидва числа є одночасно (Maturity — поле поради, дата —
+		// щойно порахована), тож звірити їх більше ніде.
+		//
+		// Поріг короткого строку (minTermDays) прибирає майже всі такі
+		// рядки ще на збірці; цей — щоб решта не брехала. Порядок рядків
+		// при цьому НЕ чіпається: межа в шапці файла тримається, дата
+		// лишається фактом ПОРУЧ із політикою, а не всередині неї.
+		if m := domain.Date(sug[i].Maturity); m != "" && r.Date.After(m) {
+			sug[i].ReadyNote = "погаситься " + string(m) +
+				" — раніше, ніж на нього набереться"
 			continue
 		}
 		sug[i].ReadyOn = string(r.Date)

@@ -761,6 +761,51 @@ func (s *Store) SearchBonds(ctx context.Context, q, currency string, matFrom, ma
 	return out, rows.Err()
 }
 
+// AllBondsFrom — УВЕСЬ довідник із погашенням не раніше from.
+//
+// # ЧОМУ ОКРЕМИЙ МЕТОД, А НЕ ЩЕ ОДНЕ ЗНАЧЕННЯ ЛІМІТУ В SearchBonds
+//
+// «Дай перші 50 для підказки» і «дай усе, що є, для ранжування» — різні
+// питання, і друге не має тихо залежати від константи, написаної для
+// першого. Затискання `limit > 200 → 50` у SearchBonds існує заради
+// автокомпліта й лишається на місці.
+//
+// ЩО ЦЕ КОШТУВАЛО. Помічник реінвесту кликав SearchBonds із лімітом 5000,
+// тобто з наміром «усі», і мовчки діставав 50 — а оскільки вибірка йде
+// ORDER BY maturity, це були рівно 50 НАЙКОРОТШИХ паперів. На бойовому:
+// 186 паперів у довіднику, видно 50 (до березня 2028), не видно 136,
+// зокрема 135 гривневих. Тобто «Що купити» ніколи не бачило довгих
+// паперів, а короткі системно стояли вгорі — не за вигодою, а тому, що
+// список був відсортований за строком і обрізаний. Через той самий
+// перелік це діставалось альтернативі заміни паперу, ставці «ціни
+// простою» й топ-рядку журналу рішень.
+//
+// Ліміту тут немає навмисно: довідник НБУ — це кількасот рядків, які
+// щоранку й так переписуються цілком (ReplaceDirectory).
+func (s *Store) AllBondsFrom(ctx context.Context, from domain.Date) ([]domain.Bond, error) {
+	q := `SELECT isin, nominal, currency, rate_bp, maturity, descr FROM bonds`
+	var args []any
+	if from != "" {
+		q += ` WHERE maturity >= ?`
+		args = append(args, string(from))
+	}
+	q += ` ORDER BY maturity`
+	rows, err := s.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.Bond{}
+	for rows.Next() {
+		b, err := scanBond(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
 // BondsFor — довідник по ISIN портфеля у вигляді map для домену.
 // inPlaceholders — "?,?,…" під довжину зрізу.
 //
