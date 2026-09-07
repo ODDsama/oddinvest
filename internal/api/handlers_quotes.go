@@ -69,7 +69,7 @@ type quoteSource struct {
 
 // handleListQuotes — увесь відомий зріз цін.
 func (s *Server) handleListQuotes(w http.ResponseWriter, r *http.Request) {
-	book, err := s.quotesFor(r.Context(), nil)
+	book, err := s.quotesFor(r.Context(), nil, domain.NewDate(time.Now()))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return

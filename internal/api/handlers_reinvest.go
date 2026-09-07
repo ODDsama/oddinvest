@@ -463,7 +463,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	// тим самим N+1, проти якого вже стоять доводи в store/auctions.go.
 	// Порожній перелік означає «весь зріз», і саме він тут потрібен: які з
 	// паперів мають ціну, наперед невідомо.
-	quotes, err := s.quotesFor(ctx, nil)
+	quotes, err := s.quotesFor(ctx, nil, today)
 	if err != nil {
 		return nil, err
 	}

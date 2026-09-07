@@ -115,7 +115,7 @@ func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 	var quotes *quoteBook
 	quoteFor := func(isin string) (*store.Quote, error) {
 		if quotes == nil {
-			b, err := s.quotesFor(ctx, nil)
+			b, err := s.quotesFor(ctx, nil, today)
 			if err != nil {
 				return nil, err
 			}

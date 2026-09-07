@@ -36,6 +36,8 @@ import (
 	"context"
 	"strings"
 
+	"github.com/ODDsama/oddinvest/internal/domain"
+
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -76,7 +78,8 @@ func (b quoteBook) pick(isin string) *store.Quote {
 // quotesFor — зріз цін для названих паперів разом із відбором по своїх.
 //
 // Порожній перелік паперів означає «всі» — так читає сторінка позицій.
-func (s *Server) quotesFor(ctx context.Context, isins []string) (quoteBook, error) {
+// on — дата, НА ЯКУ обираємо: свіжість міряється проти неї (див. pickQuotes).
+func (s *Server) quotesFor(ctx context.Context, isins []string, on domain.Date) (quoteBook, error) {
 	book := quoteBook{byISIN: map[string]quotePick{}, mine: map[string]string{}}
 	brokers, err := s.st.ListBrokers(ctx)
 	if err != nil {
@@ -95,25 +98,51 @@ func (s *Server) quotesFor(ctx context.Context, isins []string) (quoteBook, erro
 	if book.fetchedAt, err = s.st.QuotesFetchedAt(ctx); err != nil {
 		return book, err
 	}
+	book.byISIN = pickQuotes(all, book.mine, on)
+	return book, nil
+}
+
+// pickQuotes — найдешевша СВІЖА ціна кожного паперу серед своїх, і
+// наступна за нею.
+//
+// СВІЖІСТЬ ПЕРЕВІРЯЄТЬСЯ ТУТ, А НЕ ПОТІМ, і це головна річ у цій функції.
+// Доти відбір ішов самою лише ціною, а вік перевірявся аж у bondUnitCost —
+// тобто протухла, але дешевша котировка вигравала відбір, провалювала
+// перевірку й забирала з собою свіжу дорожчу, лишаючи рядок за номіналом.
+// На живих даних: UA4000236228 мав учорашню ціну Privat24 (1 097,09) і
+// ціну Inzhur місячної давнини (1 087,18) — рядок показував 1 084,56 за
+// номіналом і дохідність 17,9 % замість справжніх 15,0 %.
+//
+// Alt теж мусить бути свіжим: рядок «у Privat24 дорожче» з тримісячною
+// ціною порівнював би сьогоднішнє з позаминулим і виглядав би при цьому
+// як звичайне порівняння.
+//
+// Чиста функція над готовим зрізом — саме тому її можна перевірити тестом,
+// не піднімаючи ні сервера, ні бази.
+func pickQuotes(all []store.Quote, mine map[string]string, on domain.Date) map[string]quotePick {
+	out := map[string]quotePick{}
 	// LatestQuotes уже віддає «папір, далі дешевший першим», тож перші дві
-	// СВОЇ котировки в кожному папері — це найкраща й наступна за нею.
+	// придатні котировки в кожному папері — це найкраща й наступна за нею.
 	// Другого сортування тут немає навмисно: порядок — властивість запиту,
 	// і друга його копія розійшлася б із першою тихо.
 	for i := range all {
 		q := all[i]
-		if _, mine := book.mine[q.Source]; !mine {
+		if _, ok := mine[q.Source]; !ok {
 			continue
 		}
-		p := book.byISIN[q.ISIN]
+		if !quoteFresh(&all[i], on) {
+			continue
+		}
+		p := out[q.ISIN]
 		switch {
 		case p.Best == nil:
-			p.Best, p.Label = &all[i], book.mine[q.Source]
+			p.Best, p.Label = &all[i], mine[q.Source]
 		case p.Alt == nil:
 			p.Alt = &all[i]
 		default:
 			continue
 		}
-		book.byISIN[q.ISIN] = p
+		out[q.ISIN] = p
 	}
-	return book, nil
+	return out
 }
