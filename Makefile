@@ -48,7 +48,7 @@ test:
 # Ті самі пакети, що збираються без C-компілятора.
 test-pure:
 	$(GO) test ./internal/domain/... ./internal/state/... ./internal/fx/... \
-		./internal/nbu/... ./internal/imports/... -count=1
+		./internal/nbu/... ./internal/finomo/... ./internal/imports/... -count=1
 
 build:
 	$(GO) build -o oddinvestd ./cmd/oddinvestd
