@@ -21,6 +21,7 @@ import { npfDetailHTML, setNPF, wireNPF } from "../npf.js";
 import { isOpen, remember } from "../uistate.js";
 import { wireDisclosures } from "../disclosure.js";
 import { wireBonds } from "./bonds.js";
+import { setQuotes, quotesTableHTML, wireQuotes } from "../quotes.js";
 import { wireDeposits, topupFormHTML, closeFormHTML } from "./deposits.js";
 
 
@@ -106,7 +107,10 @@ function bondDetailHTML(p, lots, sales) {
       "data-sale": v.id, "data-lot": v.lot_id, "data-cur": v.clean_per_bond.currency,
     }),
   }) : "";
-  return next + lotsTbl + salesTbl;
+  // Ціни продавців — під лотами: спершу «що я маю», далі «почім це
+  // зараз». Зворотний порядок ставив би чуже число поперед власного
+  // факту.
+  return next + lotsTbl + salesTbl + quotesTableHTML(p.isin);
 }
 
 function fundDetailHTML(ctx, f) {
@@ -459,7 +463,7 @@ export function wirePositions(ctx, main) {
  *  Платня — нуль: GET-и йдуть через кеш store.js, тож обхід усіх сторінок,
  *  які його кличуть, коштує один набір запитів. */
 export async function loadPositionsData(ctx) {
-  const [positions, lots, sales, ops, deposits, npfAcc, npfOps, npfNav] = await Promise.all([
+  const [positions, lots, sales, ops, deposits, npfAcc, npfOps, npfNav, quotes] = await Promise.all([
     ctx.api("GET", "positions"),
     ctx.api("GET", "lots"),
     ctx.api("GET", "sales"),
@@ -470,9 +474,14 @@ export async function loadPositionsData(ctx) {
     ctx.soft("npf-accounts", []),
     ctx.soft("npf", []),
     ctx.soft("npf-nav", []),
+    // М'яко: на старій БД таблиці цін ще немає, і валити через це сторінку
+    // портфеля означало б сховати позиції заради відсутнього довідкового
+    // числа.
+    ctx.soft("quotes", { rows: [], sources: [] }),
   ]);
   setFundOps(ops);
   setNPF({ accounts: npfAcc, ops: npfOps, nav: npfNav });
+  setQuotes(quotes);
   return { positions, lots, sales, deposits };
 }
 
@@ -496,5 +505,6 @@ export function wirePositionRows(ctx, main, data = {}) {
   wireFundOps(ctx, main);
   wireNPF(ctx, main);
   wireDeposits(ctx, main, deposits);
+  wireQuotes(ctx, main);
   wireDisclosures(main);
 }

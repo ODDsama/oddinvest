@@ -108,6 +108,21 @@ func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 	// план на десять рядків інакше давав би десять однакових запитів.
 	var fundRefs map[string]store.Fund
 	var npfByID map[int64]domain.NPFAccount
+	// Ринкові ціни — тим самим правилом «один запит на весь план».
+	//
+	// Ліниво, бо план часто без жодного паперу: читання цін для плану з
+	// самих фондів було б запитом заради нічого.
+	var quotes *quoteBook
+	quoteFor := func(isin string) (*store.Quote, error) {
+		if quotes == nil {
+			b, err := s.quotesFor(ctx, nil)
+			if err != nil {
+				return nil, err
+			}
+			quotes = &b
+		}
+		return quotes.pick(isin), nil
+	}
 
 	for _, row := range rows {
 		// МАЙБУТНЄ ТУТ МІРЯЄТЬСЯ МІСЯЦЯМИ, А НЕ ДНЯМИ, і це не округлення.
@@ -156,7 +171,17 @@ func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 			if perr != nil {
 				return out, perr
 			}
-			unit = bondUnitCost(*b, pays, when)
+			// Ціна НА ДАТУ ПОКУПКИ, і саме тому котировка сюди подається
+			// без жодного особливого випадку: рядок плану на півроку
+			// вперед не пройде перевірку свіжості в bondUnitCost і сам
+			// відкотиться на номінал плюс НКД, як було завжди. Рядок же,
+			// який купують сьогодні, дістане справжню ціну — ту саму, що
+			// показує «Що купити».
+			q, qerr := quoteFor(row.Ref)
+			if qerr != nil {
+				return out, qerr
+			}
+			unit, _ = bondUnitCost(*b, pays, when, q)
 			line.Label = row.Ref
 			if unit.Amount() <= 0 {
 				return out, badRequestf("%s: ціни немає, купувати нема за чим", row.Ref)

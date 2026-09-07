@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ODDsama/oddinvest/internal/finomo"
 	"github.com/ODDsama/oddinvest/internal/store"
 	"github.com/ODDsama/oddinvest/internal/tunnel"
 )
@@ -23,6 +24,14 @@ var webFS embed.FS
 type Refresher interface {
 	RefreshAll(ctx context.Context) error
 	PublishState(ctx context.Context) error
+	// RefreshQuotes — ринкові ціни названих паперів, НА ВИМОГУ.
+	//
+	// Перелік іде звідси туди, а не збирається там: «які папери мене
+	// цікавлять» знає рейтинг, тобто цей пакет; «як сходити назовні, не
+	// нарвавшись» — тротлінг, тобто jobs. У цьому пакеті вихідних HTTP
+	// немає жодного, і другі двері назовні означали б другу машинерію
+	// пауз, таймаутів і журналу.
+	RefreshQuotes(ctx context.Context, isins []string) (finomo.RunResult, error)
 }
 
 type Server struct {
@@ -184,6 +193,12 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/brokers", s.handleAddBroker)
 	mux.HandleFunc("PUT /api/brokers/{id}", s.handleRenameBroker)
 	mux.HandleFunc("DELETE /api/brokers/{id}", s.handleDeleteBroker)
+	// Ринкові ціни ОВДП. Обхід — ТІЛЬКИ на вимогу: фонової джоби немає
+	// навмисно (довід — у шапці jobs/quotes.go).
+	mux.HandleFunc("GET /api/quotes", s.handleListQuotes)
+	mux.HandleFunc("POST /api/quotes/refresh", s.handleRefreshQuotes)
+	mux.HandleFunc("POST /api/quotes/manual", s.handleSetManualQuote)
+	mux.HandleFunc("DELETE /api/quotes/manual/{isin}", s.handleDeleteManualQuote)
 	mux.HandleFunc("GET /api/fund-catalog", s.handleListFundCatalog)
 	mux.HandleFunc("PUT /api/fund-catalog/{id}", s.handleUpdateFundCatalog)
 	mux.HandleFunc("DELETE /api/fund-catalog/{id}", s.handleDeleteFundCatalog)

@@ -23,6 +23,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/api"
 	"github.com/ODDsama/oddinvest/internal/config"
+	"github.com/ODDsama/oddinvest/internal/finomo"
 	"github.com/ODDsama/oddinvest/internal/jobs"
 	"github.com/ODDsama/oddinvest/internal/mqtt"
 	"github.com/ODDsama/oddinvest/internal/nbu"
@@ -100,6 +101,9 @@ func main() {
 	}
 
 	nc := nbu.New(cfg.NBUBase)
+	// Джерело ринкових цін ОВДП. Ходить туди лише кнопка (jobs/quotes.go),
+	// тож клієнт створюється тут просто поруч із НБУ — розкладу в нього немає.
+	fc := finomo.New(cfg.FinomoBase)
 
 	// злам циклічної залежності api <-> jobs: сервер створюється без
 	// refresher-а, runner отримує збірку стану від сервера, потім
@@ -108,7 +112,7 @@ func main() {
 	// щоденний JSON-дамп поряд із БД — потрапляє в бекап Proxmox і
 	// переживає навіть пошкодження SQLite-файла
 	dataDir := filepath.Dir(cfg.DBPath)
-	runner := jobs.New(st, nc, pub, srv.BuildStateDoc, log, filepath.Join(dataDir, "oddinvest-backup.json"))
+	runner := jobs.New(st, nc, fc, pub, srv.BuildStateDoc, log, filepath.Join(dataDir, "oddinvest-backup.json"))
 	srv.SetRefresher(runner)
 	// Тунель назовні (internal/tunnel). Створюється тут, а не в api:
 	// йому потрібні шлях бази (HOME для конектора) і адреса
@@ -127,7 +131,7 @@ func main() {
 	// jobs.Satellite. Публікатор підʼєднується з горутини: mqtt.New чекає
 	// на брокер до 15 с, а POST /api/portfolios стільки тримати не можна.
 	spawn := func(p store.Portfolio, sat *api.Server) (api.Refresher, func()) {
-		own := jobs.New(st.For(p.ID), nc, nil, sat.BuildStateDoc, log,
+		own := jobs.New(st.For(p.ID), nc, fc, nil, sat.BuildStateDoc, log,
 			filepath.Join(dataDir, "portfolios", p.Slug, "oddinvest-backup.json"))
 		fleet.Add(p.Slug, own)
 		if cfg.MQTTAddr != "" {

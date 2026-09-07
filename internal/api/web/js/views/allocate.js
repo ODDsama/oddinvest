@@ -16,7 +16,7 @@
 // набором тих самих полів, а два набори розходяться — саме про це шапка
 // fields.js. Тому вибір рівно один і бінарний: класти це в план чи ні.
 
-import { esc, uah0 as fmtUAH, cur2 as fmtCur, curSym, pct } from "../format.js";
+import { esc, uah0 as fmtUAH, cur2 as fmtCur, curSym, pct, dayMonth } from "../format.js";
 import { check as checkField, selectOf } from "../fields.js";
 import { openEdit } from "../forms.js";
 import { opsGrid } from "../grid.js";
@@ -44,6 +44,32 @@ const SOURCES = [
 // handlers_allocate.go).
 const WHERE = { deposit: "instr/deposits" };
 
+// Звідки взялась ціна кроку — під самим числом, а не в підказці.
+//
+// МОВЧАЗНА ПІДМІНА БАЗИ ЦІНИ — головний ризик ринкових котирувань. Той
+// самий папір коштує 1 013 ₴ за ціною продавця й 1 011 ₴ за номіналом
+// плюс НКД, і без підпису різниця між двома натисканнями читалась би як
+// рух ринку, а не як поява чи протухання ціни. Тому підпис стоїть завжди,
+// в обох випадках.
+//
+// Порівняння з другим брокером — окремим рядком і лише тоді, коли він є:
+// заради нього все й робилось, бо «найдешевше» без другого числа є
+// твердженням, яке нема з чим звірити.
+function priceBasisHTML(l) {
+  if (l.kind !== "bond" || !l.cost_basis) return "";
+  if (l.cost_basis !== "market") {
+    return `<div class="fine-xs muted">за номіналом + НКД — ринкової ціни немає</div>`;
+  }
+  const who = l.cost_where_label || l.cost_where;
+  let out = `<div class="fine-xs muted">${esc(who)}${l.cost_as_of
+    ? ", ціна за " + esc(dayMonth(l.cost_as_of)) : ""}</div>`;
+  if (l.cost_alt && l.cost_alt_where) {
+    out += `<div class="fine-xs muted">у ${esc(l.cost_alt_where)} — ${esc(fmtCur(
+      Number(l.cost_alt.amount), curSym(l.currency)))}</div>`;
+  }
+  return out;
+}
+
 function linesHTML(res) {
   return opsGrid({
     cols: [
@@ -63,7 +89,8 @@ function linesHTML(res) {
         cell: (l) => (l.qty
           ? `${l.qty} <span class="muted fine-xs">× ${esc(fmtCur(Number(l.unit.amount),
             curSym(l.currency)))}</span>`
-          : esc(l.amount ? fmtCur(Number(l.amount.amount), curSym(l.currency)) : "—")),
+          : esc(l.amount ? fmtCur(Number(l.amount.amount), curSym(l.currency)) : "—"))
+          + priceBasisHTML(l),
       },
       { key: "total", label: "Разом", num: true, cell: (l) => fmtUAH(l.total_uah) },
       { key: "real", label: "Реальних", num: true, cell: (l) => pct(l.real_pct) },

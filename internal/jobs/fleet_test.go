@@ -44,8 +44,8 @@ func TestFleetRefreshesOnceAndPersistsEach(t *testing.T) {
 	nc := nbu.New(srv.URL)
 	mainBackup := filepath.Join(dir, "oddinvest-backup.json")
 	wifeBackup := filepath.Join(dir, "portfolios", "wife", "oddinvest-backup.json")
-	main := New(st, nc, nil, build, log, mainBackup)
-	wife := New(st.For(wid), nc, nil, build, log, wifeBackup)
+	main := New(st, nc, nil, nil, build, log, mainBackup)
+	wife := New(st.For(wid), nc, nil, nil, build, log, wifeBackup)
 	main.pause, wife.pause = 0, 0
 
 	f := NewFleet(main)

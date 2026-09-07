@@ -18,6 +18,7 @@ import { inlineEdit } from "../crud.js";
 import { infoBtn } from "../info.js";
 import { wireDisclosures } from "../disclosure.js";
 import { fundPricePanelHTML, wireFundPrices } from "../fund-prices.js";
+import { quotesDoc, setQuotes } from "../quotes.js";
 
 // Брокери й фонди — довідники з власними ендпойнтами. Раніше брокери
 // жили CSV-рядком у налаштуваннях, тож «перейменувати» означало лише
@@ -66,8 +67,27 @@ export function catalogRowHTML(item, fields = []) {
 // єдиний споживач, і схована залежність від того, хто відрендерився першим,
 // тут нікому не потрібна (у npf.js вона є, але там у неї є причина).
 export function catalogsHTML(ctx, marks = [], fundOps = [], fundRows = []) {
+  // ЗІСТАВЛЕННЯ З ДЖЕРЕЛОМ ЦІН — друге поле рядка брокера.
+  //
+  // Без нього ринкової ціни не буде НІ В КОГО: у квиток іде найдешевша
+  // ціна серед ТВОЇХ брокерів, а «твій» означає рівно «зіставлений»
+  // (quotes_pick.go). Порожньо — брокер у порівнянні не бере участі, і це
+  // чесна відповідь, а не поломка: у mono ціни не публікує ніхто, доки її
+  // не впишуть руками.
+  //
+  // Список, а не текстове поле: ключі продавців — скінченний перелік, який
+  // віддає саме джерело (GET /api/quotes), і вводити їх руками означало б
+  // ловити друкарські помилки там, де вибір відомий. Порожній варіант
+  // перший, бо незіставлений брокер — нормальний стан.
+  const srcOpts = [{ v: "", t: "— не зіставлено —" }].concat(
+    (quotesDoc().sources || []).map((x) => ({ v: x.key, t: x.key })));
+  const brokerFields = (b) => [{
+    key: "quote_source", value: b.quote_source || "", w: 130, opts: srcOpts,
+    title: "Ключ цього ж брокера в джерелі цін. Порожньо — ціни для нього не знаємо, "
+      + "і в порівнянні «у кого дешевше» він не бере участі",
+  }];
   const brokers = (ctx.brokers || []).length
-    ? ctx.brokers.map((b) => catalogRowHTML(b)).join("")
+    ? ctx.brokers.map((b) => catalogRowHTML(b, brokerFields(b))).join("")
     : `<div class="sub">Ще немає брокерів. Додай mono, inzhur…</div>`;
   const fundFields = (f) => [
     { key: "currency", value: f.currency, w: 70, title: "Валюта сертифіката" },
@@ -287,11 +307,17 @@ export function bindBackup(ctx, main) {
  *  показати довідники: цю сторінку відкривають саме тоді, коли решта ще не
  *  заведена. */
 export async function refs(ctx, main) {
-  const [marks, fundOps, sum] = await Promise.all([
+  const [marks, fundOps, sum, quotes] = await Promise.all([
     ctx.soft("fund-prices", []),
     ctx.soft("funds", []),
     ctx.soft("summary", {}),
+    // Четверте м'яке читання, і воно тут заради ОДНОГО поля: перелік
+    // ключів продавців для зіставлення брокерів. Порожній список означає,
+    // що цін ще не питали, — і тоді в рядку лишається сам «не зіставлено»,
+    // що чесно: зіставляти поки нема з чим.
+    ctx.soft("quotes", { rows: [], sources: [] }),
   ]);
+  setQuotes(quotes);
   main.innerHTML = catalogsHTML(ctx, marks, fundOps, (sum || {}).funds || []);
   bindBrokers(ctx, main);
   wireFundPrices(ctx, main, marks);

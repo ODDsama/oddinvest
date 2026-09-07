@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/finomo"
 	"github.com/ODDsama/oddinvest/internal/mqtt"
 	"github.com/ODDsama/oddinvest/internal/nbu"
 	"github.com/ODDsama/oddinvest/internal/state"
@@ -24,6 +25,10 @@ import (
 type Runner struct {
 	st  *store.Store
 	nbu *nbu.Client
+	// finomo — джерело ринкових цін ОВДП, nil = вимкнено. Поруч із nbu, бо
+	// це другий і поки останній хтось, до кого демон ходить назовні; на
+	// відміну від нього, кличе його не розклад, а кнопка (quotes.go).
+	finomo *finomo.Client
 	// pub — публікатор MQTT, nil = вимкнено. Під мʼютексом, бо в сателіта
 	// він зʼявляється ПІЗНІШЕ за Runner: mqtt.New блокує до 15 с, і
 	// тримати стільки POST /api/portfolios не можна — публікатор
@@ -40,13 +45,13 @@ type Runner struct {
 	pause time.Duration
 }
 
-func New(st *store.Store, nc *nbu.Client, pub *mqtt.Publisher,
+func New(st *store.Store, nc *nbu.Client, fc *finomo.Client, pub *mqtt.Publisher,
 	build func(ctx context.Context, now time.Time) (*state.Doc, error), log *slog.Logger, backupPath string) *Runner {
 	loc, err := time.LoadLocation("Europe/Kyiv")
 	if err != nil {
 		loc = time.FixedZone("EET", 2*3600)
 	}
-	return &Runner{st: st, nbu: nc, pub: pub, build: build, log: log, loc: loc,
+	return &Runner{st: st, nbu: nc, finomo: fc, pub: pub, build: build, log: log, loc: loc,
 		backupPath: backupPath, pause: 250 * time.Millisecond}
 }
 

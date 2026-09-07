@@ -252,6 +252,21 @@ export function reinvestHTML(ctx, opts = {}) {
     const auc = r.last_auction
       ? `<div>на аукціоні ${esc(dayMonth(r.last_auction))} давали ${pct(r.last_auction_pct)}</div>`
       : "";
+    // ЗВІДКИ ЦІНА — окремим рядком, і саме тут, поруч із аукціонним рівнем.
+    //
+    // Дохідність у цьому рядку рахується ВІД ЦІНИ ВХОДУ, тож підстава ціни
+    // і є підставою самого числа, за яким стоїть увесь порядок списку.
+    // Ринкова ціна й «номінал + НКД» відрізняються на пару відсотків, а
+    // YTM через це — на пару відсоткових пунктів; без підпису перехід між
+    // ними читався б як рух ринку. Тому рядок стоїть В ОБОХ випадках.
+    const price = r.kind !== "bond" || !r.cost_basis ? ""
+      : r.cost_basis !== "market"
+        ? `<div>ціна за номіналом + НКД — ринкової немає</div>`
+        : `<div>ціна ${esc(r.cost_where_label || r.cost_where)}${
+          r.cost_as_of ? ", " + esc(dayMonth(r.cost_as_of)) : ""}${
+          r.cost_alt && r.cost_alt_where
+            ? ` · у ${esc(r.cost_alt_where)} ${fmtCur(Number(r.cost_alt.amount), curSym(r.currency))}`
+            : ""}</div>`;
     // Номінальної тут БІЛЬШЕ НЕМА: вона переїхала в головне число рядка
     // (yield.js), і повторювати її в стрічці означало б сказати те саме
     // двічі. Основа лишилась — вона відповідає на інше питання.
@@ -271,7 +286,7 @@ export function reinvestHTML(ctx, opts = {}) {
       ${addBtn(kind, r)}
     </div>
     ${ready}
-    <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : " hidden"}>${details}${auc}</div>`;
+    <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : " hidden"}>${details}${price}${auc}</div>`;
   };
 
   // Групуємо за тим, що вирішує: чи можу купити зараз. Доти шість

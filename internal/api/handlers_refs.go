@@ -43,14 +43,23 @@ func (s *Server) handleRenameBroker(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	// QuoteSource їде ТИМ САМИМ запитом, що й назва, а не своїм маршрутом:
+	// рядок довідника правиться на місці одним PUT (inlineEdit у crud.js),
+	// і другий ендпойнт для другого поля того самого рядка означав би, що
+	// кит більше не покриває цю форму.
 	var req struct {
-		Name string `json:"name"`
+		Name        string `json:"name"`
+		QuoteSource string `json:"quote_source"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
 	if err := s.st.RenameBroker(r.Context(), id, req.Name); err != nil {
+		writeStoreErr(w, err, http.StatusBadRequest)
+		return
+	}
+	if err := s.st.SetBrokerQuoteSource(r.Context(), id, req.QuoteSource); err != nil {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}

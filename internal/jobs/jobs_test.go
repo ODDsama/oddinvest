@@ -55,7 +55,7 @@ func testRunner(t *testing.T, base string) (*Runner, *store.Store) {
 	t.Cleanup(func() { st.Close() })
 	build := func(context.Context, time.Time) (*state.Doc, error) { return &state.Doc{}, nil }
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	r := New(st, nbu.New(base), nil, build, log, "")
+	r := New(st, nbu.New(base), nil, nil, build, log, "")
 	// Витримка між запитами тут ні до чого: перевіряємо, СКІЛЬКИ запитів
 	// іде, а не як повільно. З бойовими 250 мс тест на стелю чекав би 15
 	// секунд рівно ні на що.

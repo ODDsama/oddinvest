@@ -38,7 +38,7 @@ func dailyRunner(t *testing.T, base, backupPath string) (*Runner, *store.Store) 
 	t.Cleanup(func() { st.Close() })
 	build := func(context.Context, time.Time) (*state.Doc, error) { return &state.Doc{}, nil }
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	r := New(st, nbu.New(base), nil, build, log, backupPath)
+	r := New(st, nbu.New(base), nil, nil, build, log, backupPath)
 	r.pause = 0
 	return r, st
 }

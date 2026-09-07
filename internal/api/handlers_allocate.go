@@ -284,6 +284,24 @@ type allocLine struct {
 	// (allocAllow.PickISIN). Сторінка підписує такий рядок «твій вибір» і
 	// пропонує його скинути; без позначки вибір і порада виглядали б однаково.
 	Picked bool `json:"picked,omitempty"`
+	// Звідки взялась ціна кроку й у кого вона така.
+	//
+	// CostBasis тут БЕЗ omitempty з тієї ж причини, що й у пораді:
+	// підстава є завжди, і порожнє поле читалось би як «невідомо». Рядок,
+	// порахований за номіналом, мусить це сказати — інакше база ціни
+	// мовчки мінялася б між натисканнями, і на екрані це виглядало б як
+	// рух ринку, а не як поява чи протухання котировки.
+	//
+	// CostAlt / CostAltWhere несуть наступну ціну серед ТВОЇХ брокерів —
+	// заради того одного речення, яке робить «найдешевше» перевірюваним.
+	// Жодної нової арифметики тут немає: усі чотири поля копіюються з
+	// поради, яка вже їх порахувала (allocOne).
+	CostBasis      string     `json:"cost_basis"`
+	CostAsOf       string     `json:"cost_as_of,omitempty"`
+	CostWhere      string     `json:"cost_where,omitempty"`
+	CostWhereLabel string     `json:"cost_where_label,omitempty"`
+	CostAlt        *moneyJSON `json:"cost_alt,omitempty"`
+	CostAltWhere   string     `json:"cost_alt_where,omitempty"`
 }
 
 // allocReserve — вирізка подушки. Окремим полем, а не рядком у Lines: у
@@ -1524,6 +1542,9 @@ func allocOne(sg suggestion, left float64, rates fx.Rates,
 	line := allocLine{
 		Kind: sg.Kind, Label: sg.Label, Currency: sg.Currency,
 		RealPct: sg.RealPct, Why: sg.Reason,
+		CostBasis: sg.CostBasis, CostAsOf: sg.CostAsOf,
+		CostWhere: sg.CostWhere, CostWhereLabel: sg.CostWhereLabel,
+		CostAlt: sg.CostAlt, CostAltWhere: sg.CostAltWhere,
 	}
 
 	if sg.Kind == "npf" {

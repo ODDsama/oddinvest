@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/finomo"
 )
 
 // Fleet — усі Runner-и процесу: головний і по одному на кожен інший
@@ -71,6 +72,15 @@ type Satellite struct {
 
 func (s Satellite) RefreshAll(ctx context.Context) error   { return s.Main.RefreshAll(ctx) }
 func (s Satellite) PublishState(ctx context.Context) error { return s.Own.PublishState(ctx) }
+
+// RefreshQuotes — теж справа ГОЛОВНОГО, і з того самого доводу, що
+// RefreshAll: ціна паперу в брокера спільна для всіх портфелів (0059), тож
+// другий обхід тим самим сайтом заради тих самих чисел був би лише другим
+// приводом нас відрізати. Перелік паперів при цьому свій — його зібрав той
+// api.Server, у якого натиснули кнопку.
+func (s Satellite) RefreshQuotes(ctx context.Context, isins []string) (finomo.RunResult, error) {
+	return s.Main.RefreshQuotes(ctx, isins)
+}
 
 // dailyRun — добовий прогін: довідник один раз, далі кожному портфелю
 // його знімок, дамп і публікацію, наостанок гігієна сховища.

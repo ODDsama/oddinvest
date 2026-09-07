@@ -28,6 +28,7 @@ import { routeFor } from "../routes.js";
 import { wireCrud } from "../crud.js";
 import { wireRefs } from "../refs.js";
 import { wireDisclosures } from "../disclosure.js";
+import { quotesBarHTML } from "../quotes.js";
 import { bondBuyFormHTML } from "./bonds.js";
 import { depositFormHTML, closedDepositsHTML } from "./deposits.js";
 import { reserveFormHTML, reserveFields, reserveBody } from "./money-cards.js";
@@ -69,6 +70,7 @@ export async function positions(ctx, main) {
   main.innerHTML = `
     ${yieldTilesHTML(ctx)}
     ${yieldMixCard(ctx)}
+    ${quotesBarHTML()}
     ${positionsTableHTML(ctx, d.positions, d.lots, d.sales, d.deposits)}
     ${closedDepositsHTML(ctx, d.deposits || [])}`;
   wirePositionRows(ctx, main, d);

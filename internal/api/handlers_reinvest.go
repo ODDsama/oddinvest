@@ -56,6 +56,24 @@ type suggestion struct {
 	// НКД, один сертифікат за останньою ціною, або поповнення вкладу
 	// на суму відкриття.
 	CostPerBond moneyJSON `json:"cost_per_bond"`
+	// CostBasis — з ЧОГО взята CostPerBond: "market" (ринкова ціна
+	// продавця, разом із НКД) чи "nominal" (номінал плюс НКД, тобто
+	// наближення). Без omitempty навмисно: підстава є завжди, і порожнє
+	// поле читалось би як «невідомо», чого не буває.
+	//
+	// CostAsOf — дата ринкової ціни; порожньо при "nominal". Вік ціни
+	// мусить бути видно, бо оновлює її лише людина з кнопкою.
+	// CostWhere / CostWhereLabel — у КОГО ця ціна: ключ продавця і назва
+	// твого брокера, з яким його зіставлено.
+	CostBasis      string `json:"cost_basis"`
+	CostAsOf       string `json:"cost_as_of,omitempty"`
+	CostWhere      string `json:"cost_where,omitempty"`
+	CostWhereLabel string `json:"cost_where_label,omitempty"`
+	// CostAlt / CostAltWhere — наступна за ціною пропозиція серед ТВОЇХ
+	// брокерів. Заради цього порівняння робота й робилась: «найдешевше»
+	// без другого числа — твердження, яке нема з чим звірити.
+	CostAlt      *moneyJSON `json:"cost_alt,omitempty"`
+	CostAltWhere string     `json:"cost_alt_where,omitempty"`
 	// YTMPct — дохідність до погашення (лише облігації).
 	// RealPct — після податку й знецінення; порівнянна між усіма.
 	// YieldBasis — з ЧОГО ця дохідність узята: обіцянка (до погашення,
@@ -418,6 +436,15 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	if err != nil {
 		return nil, err
 	}
+	// Ринкові ціни — ОДНИМ запитом на всі папери, не по одному в циклі
+	// нижче: довідник тримає під дві сотні рядків, і запит на кожен був би
+	// тим самим N+1, проти якого вже стоять доводи в store/auctions.go.
+	// Порожній перелік означає «весь зріз», і саме він тут потрібен: які з
+	// паперів мають ціну, наперед невідомо.
+	quotes, err := s.quotesFor(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
 
 	// Валютний вимір існує ЛИШЕ тоді, коли валютну ціль назвали.
 	//
@@ -569,7 +596,12 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		}
 		// Ціна входу сьогодні — спільна з кошиком (unit_cost.go): два
 		// обчислення давали б на екрані дві ціни того самого паперу.
-		cost := bondUnitCost(b, paysByISIN[b.ISIN], today)
+		//
+		// Ринкова, якщо є свіжа в котрогось із ТВОЇХ брокерів; інакше
+		// номінал плюс НКД. Підстава їде поруч і доходить до екрана —
+		// мовчки міняти базу ціни між натисканнями не можна.
+		pick := quotes.byISIN[b.ISIN]
+		cost, basis := bondUnitCost(b, paysByISIN[b.ISIN], today, pick.Best)
 		costMajor := float64(cost.Amount()) / 100
 		if costMajor <= 0 {
 			continue
@@ -645,11 +677,12 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		if note != "" {
 			parts = append(parts, "⚠ "+note)
 		}
-		out = append(out, suggestion{
+		sg := suggestion{
 			Kind: "bond", Label: b.ISIN,
 			ISIN: b.ISIN, Currency: c,
 			Maturity: string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
 			CostPerBond: toMoneyJSON(cost),
+			CostBasis:   basis,
 			YTMPct:      round2(ytm * 100), NominalPct: round2(ytm * 100),
 			RealPct:    round2(real * 100),
 			YieldBasis: "до погашення",
@@ -661,7 +694,19 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			LastAuction: lastAucDate, LastAuctionPct: round2(lastAucPct),
 			def: def, kindDef: kindDef["bonds"], ladderNom: lnom,
 			overLimit: note != "", stale: stale,
-		})
+		}
+		// Хто назвав цю ціну й почім у наступного — двома окремими
+		// полями, а не одним рядком: підпис збирає екран, і зліплена тут
+		// фраза не піддалась би ні перекладу, ні іншій розкладці.
+		if basis == CostBasisMarket && pick.Best != nil {
+			sg.CostAsOf = string(pick.Best.Date)
+			sg.CostWhere, sg.CostWhereLabel = pick.Best.Source, pick.Label
+			if pick.Alt != nil {
+				alt := toMoneyJSON(pick.Alt.Money())
+				sg.CostAlt, sg.CostAltWhere = &alt, pick.Alt.Source
+			}
+		}
+		out = append(out, sg)
 	}
 
 	// --- сертифікати фондів ---
@@ -751,11 +796,14 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		out = append(out, suggestion{
 			Kind: "fund", Label: f.Fund, Currency: c,
 			CostPerBond: toMoneyJSON(fundCost),
-			NominalPct:  round2(nominal),
-			RealPct:     round2(realYield(nominal/100, yc, devalPct) * 100),
-			YieldBasis:  basis,
-			RateParts:   rc.breakdown(gross/100, nominal/100, yc, basis),
-			Brokers:     fits, Affordable: best, CanBuy: best > 0,
+			// У сертифіката ціна одна й публікує її сам фонд — це позначка
+			// (0034), а не котирування продавця, тож підстава ринкова.
+			CostBasis:  CostBasisMarket,
+			NominalPct: round2(nominal),
+			RealPct:    round2(realYield(nominal/100, yc, devalPct) * 100),
+			YieldBasis: basis,
+			RateParts:  rc.breakdown(gross/100, nominal/100, yc, basis),
+			Brokers:    fits, Affordable: best, CanBuy: best > 0,
 			Reason:    strings.Join(parts, "; "),
 			def:       target[c] - cur[c],
 			kindDef:   kindDef["funds"],

@@ -23,6 +23,7 @@ type Config struct {
 	MQTTPass   string // ODDINVEST_MQTT_PASS
 	MQTTPrefix string // ODDINVEST_MQTT_PREFIX, типово oddinvest
 	NBUBase    string // ODDINVEST_NBU_BASE, для тестів/проксі
+	FinomoBase string // ODDINVEST_FINOMO_BASE, для тестів/проксі
 	// ACMEURL — каталог ACME; порожньо = бойовий Let's Encrypt. Існує
 	// заради його ж лімітів: на тестовому каталозі
 	// (https://acme-staging-v02.api.letsencrypt.org/directory) можна
@@ -48,6 +49,7 @@ func Load() Config {
 		MQTTPass:   env("ODDINVEST_MQTT_PASS", ""),
 		MQTTPrefix: env("ODDINVEST_MQTT_PREFIX", "oddinvest"),
 		NBUBase:    env("ODDINVEST_NBU_BASE", ""),
+		FinomoBase: env("ODDINVEST_FINOMO_BASE", ""),
 		ACMEURL:    env("ODDINVEST_ACME_URL", ""),
 	}
 }
