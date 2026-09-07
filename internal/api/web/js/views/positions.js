@@ -21,7 +21,7 @@ import { npfDetailHTML, setNPF, wireNPF } from "../npf.js";
 import { isOpen, remember } from "../uistate.js";
 import { wireDisclosures } from "../disclosure.js";
 import { wireBonds } from "./bonds.js";
-import { setQuotes, quotesTableHTML, wireQuotes } from "../quotes.js";
+import { setQuotes, quotesBarHTML, quotesTableHTML, wireQuotes } from "../quotes.js";
 import { wireDeposits, topupFormHTML, closeFormHTML } from "./deposits.js";
 
 
@@ -373,6 +373,18 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits, opts =
     return `<div class="card"><h2>${esc(title)}</h2>${empty(
       "Тут ще порожньо", e.text, e.action || undefined)}</div>`;
   }
+  // СМУЖКА ЦІН МАЛЮЄТЬСЯ ТУТ, А НЕ НА СТОРІНЦІ, і це виправлення.
+  //
+  // Доти кнопка «Оновити ціни» стояла в portfolio-view, тобто лише на
+  // «Портфель цілком → Позиції». Але та сама таблиця живе ще й у воронці
+  // одного інструмента (instrument-view, вкладка «Що маю»), і людина, яка
+  // дивиться свій папір саме там, кнопки не бачила зовсім — при тому, що
+  // ціни продавців показуються в розкритті ЦЬОГО Ж рядка.
+  //
+  // Умова «є хоч один папір» не косметична: та сама таблиця малює вклади,
+  // фонди й пенсійні, а «Ціни брокерів» над списком вкладів — обіцянка, за
+  // якою нічого немає.
+  const bar = items.some((it) => it.kind === "bond") ? quotesBarHTML() : "";
   // data-label і data-prio — увесь механізм адаптивності цієї таблиці.
   // Ширина вирішує CSS, а розмітка лише каже, ЯК називається кожна
   // комірка (щоб на телефоні підпис можна було дописати перед числом)
@@ -403,6 +415,7 @@ export function positionsTableHTML(ctx, positions, lots, sales, deposits, opts =
   }).join("");
 
   return `<div class="card"><h2 class="h-row">${esc(title)} ${infoBtn("positions")}</h2>
+    ${bar}
     <div class="table-scroll"><table class="pos-table">
       <caption class="sr-only">${esc(title)}: вкладено, вартість, реальна дохідність, строк</caption>
       <thead><tr>
