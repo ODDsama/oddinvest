@@ -74,12 +74,22 @@ func (s *Store) fundRef(ctx context.Context, name, currency string) (int64, erro
 type Broker struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
+	// QuoteSource — ключ цього ж брокера в джерелі ринкових цін (0059):
+	// Privat24, Inzhur, Univer, BtcBroker, ICU, Kinto — або власна назва
+	// для того, кому ціну вписують руками.
+	//
+	// Порожньо = не зіставлено, і такий брокер у вибір ціни не потрапляє
+	// зовсім. Це не поломка, а чесна відповідь: мовчки підставити замість
+	// його ціни чужу означало б порадити крок за числом, якого в цьому
+	// брокері немає.
+	QuoteSource string `json:"quote_source"`
 }
 
 // ListBrokers — довідник плюс ті, що вже зустрічались в операціях.
 // Раніше цей список був CSV-рядком у settings('channels').
 func (s *Store) ListBrokers(ctx context.Context) ([]Broker, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name FROM brokers WHERE portfolio_id=? ORDER BY name COLLATE NOCASE`, s.pid)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, quote_source FROM brokers
+		WHERE portfolio_id=? ORDER BY name COLLATE NOCASE`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +97,7 @@ func (s *Store) ListBrokers(ctx context.Context) ([]Broker, error) {
 	out := []Broker{}
 	for rows.Next() {
 		var b Broker
-		if err := rows.Scan(&b.ID, &b.Name); err != nil {
+		if err := rows.Scan(&b.ID, &b.Name, &b.QuoteSource); err != nil {
 			return nil, err
 		}
 		out = append(out, b)
@@ -115,6 +125,21 @@ func (s *Store) RenameBroker(ctx context.Context, id int64, name string) error {
 		return fmt.Errorf("вкажіть назву брокера")
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE brokers SET name=? WHERE id=? AND portfolio_id=?`, name, id, s.pid)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "брокера")
+}
+
+// SetBrokerQuoteSource — зіставити брокера з джерелом цін (або зняти
+// зіставлення порожнім рядком).
+//
+// Окремим методом, а не полем у RenameBroker: перейменування правлять,
+// коли помилились у назві, а зіставлення — коли завели нового брокера, і
+// зводити їх в одну форму означало б щоразу підтверджувати чуже.
+func (s *Store) SetBrokerQuoteSource(ctx context.Context, id int64, source string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE brokers SET quote_source=? WHERE id=? AND portfolio_id=?`,
+		strings.TrimSpace(source), id, s.pid)
 	if err != nil {
 		return err
 	}

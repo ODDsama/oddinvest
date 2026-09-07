@@ -140,6 +140,13 @@ type Backup struct {
 	// відновлення тихо повертало б ринкову вартість до собівартості, а
 	// дохідність — до нуля, і числа лишились би правдоподібними.
 	FundPrices []BackupFundPrice `json:"fund_prices,omitempty"`
+	// OVDPQuotes (0059) — ЛИШЕ ціни, вписані руками (origin='manual').
+	// Решту зрізу повертає кнопка «оновити ціни» одним натисканням, тож
+	// вона похідна; ручний рядок не поверне ніхто. Заводять його там, де
+	// джерело не покриває брокера — mono ОВДП продає, а цін не публікує, —
+	// і без цього поля відновлення тихо викидало б брокера з порівняння
+	// «у кого дешевше», лишивши числа правдоподібними.
+	OVDPQuotes []BackupOVDPQuote `json:"ovdp_quotes,omitempty"`
 	// Довідники. omitempty з тієї ж причини, що й усе вище: бекапи, зроблені
 	// до їхньої появи, читаються без цих полів так само, як раніше — фонди й
 	// брокери відновляться з назв в операціях, рівно як доти.
@@ -253,6 +260,18 @@ type BackupFundPrice struct {
 	Fund    string `json:"fund"`
 	Date    string `json:"date"`
 	PriceE4 int64  `json:"price_e4"`
+}
+
+// BackupOVDPQuote — ручна ціна ОВДП у названого продавця. Валюта своя, бо
+// довідник паперів у бекапі не їде (він похідний від НБУ), а ціна без
+// валюти читалась би як гривня.
+type BackupOVDPQuote struct {
+	ISIN       string `json:"isin"`
+	Source     string `json:"source"`
+	Date       string `json:"date"`
+	PriceMinor int64  `json:"price_minor"`
+	Currency   string `json:"currency"`
+	FetchedAt  string `json:"fetched_at"`
 }
 
 // BackupBroker — рядок довідника брокерів.
@@ -824,6 +843,18 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
+	if err := s.scan(ctx, `SELECT isin,source,quote_date,price_minor,currency,fetched_at
+		FROM ovdp_quotes WHERE origin='manual' ORDER BY isin, source, quote_date`,
+		func(scan func(...any) error) error {
+			var r BackupOVDPQuote
+			if err := scan(&r.ISIN, &r.Source, &r.Date, &r.PriceMinor, &r.Currency, &r.FetchedAt); err != nil {
+				return err
+			}
+			b.OVDPQuotes = append(b.OVDPQuotes, r)
+			return nil
+		}); err != nil {
+		return nil, err
+	}
 	if err := s.scan(ctx, `SELECT id,date,amount,currency,place,note,COALESCE(loan_id,0) FROM reserve_ops
 		WHERE portfolio_id=? ORDER BY id`,
 		func(scan func(...any) error) error {
@@ -1133,6 +1164,7 @@ var importAllTables = []string{
 	"decisions", "import_profiles",
 	"settings", "payment_status", "snapshots",
 	"funds", "brokers",
+	"ovdp_quotes",
 }
 
 // importGlobalTables — ті з importAllTables, що НЕ мають portfolio_id
@@ -1140,7 +1172,7 @@ var importAllTables = []string{
 // ImportAll витирає їх не за портфелем, а за вжитком (pruneOrphanFundsIn).
 // Окремий набір, а не правка importAllTables: той перелік звіряється зі
 // схемою тестом, і саме ним ведеться порядок «діти → батьки».
-var importGlobalTables = map[string]bool{"funds": true, "fund_prices": true}
+var importGlobalTables = map[string]bool{"funds": true, "fund_prices": true, "ovdp_quotes": true}
 
 // pruneOrphanFundsIn — витерти фонди (з позначками), якими не користується
 // жоден портфель. Кличеться ПІСЛЯ очищення власних операцій, тож фонди
@@ -1614,6 +1646,22 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			 ON CONFLICT(fund_id,date) DO UPDATE SET price_e4=excluded.price_e4`,
 			fid, p.Date, p.PriceE4); err != nil {
 			return fmt.Errorf("позначка ціни %q %s: %w", p.Fund, p.Date, err)
+		}
+	}
+	// Ручні ціни ОВДП — тим самим upsert-ом і з того самого доводу, що
+	// позначки фондів: таблиця спільна для портфелів і перед restore не
+	// витирається, тож той самий ключ із файла переписує наявний рядок, а
+	// не падає. Походження проставляється тут, а не береться з файла:
+	// бекап везе ЛИШЕ ручні, і рядок обходу через нього не пролізе.
+	for _, q := range b.OVDPQuotes {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO ovdp_quotes (isin,source,quote_date,price_minor,currency,origin,fetched_at)
+			 VALUES (?,?,?,?,?,'manual',?)
+			 ON CONFLICT(isin,source,quote_date) DO UPDATE SET
+			   price_minor=excluded.price_minor, currency=excluded.currency,
+			   origin='manual', fetched_at=excluded.fetched_at`,
+			q.ISIN, q.Source, q.Date, q.PriceMinor, q.Currency, q.FetchedAt); err != nil {
+			return fmt.Errorf("ручна ціна %s/%s %s: %w", q.ISIN, q.Source, q.Date, err)
 		}
 	}
 	// План FK не має — порядок серед решти вставок вільний.
