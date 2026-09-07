@@ -497,6 +497,72 @@ header .sp { flex: 1 1 auto; min-width: var(--oi-gap); }
   white-space: nowrap;
 }
 
+/* Група виду: заголовок зі стрілкою й вкладений список під ним.
+
+   Заголовок — КНОПКА, і саме тому в нього своя сітка, а не .m-row: у
+   .m-row три смуги, тут чотири (стрілка попереду), а всередину <a> кнопку
+   не покласти — натискання на стрілку відкривало б сторінку.
+
+   Решта — рівно .m-row: ті самі відступи, той самий волосяний розділювач,
+   ті самі .m-t/.m-v усередині. Заголовок мусить читатись як рядок того ж
+   списку, а не як окремий елемент над ним. */
+.m-grp { display: block; }
+.m-gh {
+  display: grid;
+  grid-template-columns: auto 3px minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: center;
+  width: 100%;
+  padding: 13px var(--oi-gap-lg);
+  border: none;
+  border-top: var(--oi-rule) solid var(--oi-rule-hair);
+  border-left: var(--oi-rule-strong) solid transparent;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+}
+.m-gh:hover { background: var(--oi-surface); }
+/* Зазор між стрілкою й смугою кольору свій: у .m-gh загальний gap 13px, і
+   на цій парі він розганяє два дрібні знаки на пів колонки. */
+.m-gh > .caret { margin-right: -7px; }
+.m-sub { list-style: none; margin: 0; padding: 0; }
+/* Рядки групи посунуті рівно на ширину стрілки: без цього назва паперу
+   стоїть під назвою виду, і вкладеність видно лише з того, що вона зникає
+   при згортанні. Те саме число, що в .sg-d на сторінці «Що купити». */
+.m-sub .m-row { padding-left: 26px; }
+
+/* Режим видимості. Ті самі три смуги, що в рядку, лише третя — перемикач:
+   назва, число, око. Розмітку пише master.js — тут лише місце під неї. */
+.m-vis {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 13px;
+  align-items: center;
+  padding: var(--oi-gap-xs) var(--oi-gap-lg);
+  border-top: var(--oi-rule) solid var(--oi-rule-hair);
+}
+.m-vis .m-val { font-family: var(--oi-font-mono); font-size: var(--oi-fs-sm); }
+/* Приховане притлумлене, але ЧИТНЕ: у цьому екрані на нього й дивляться,
+   вирішуючи, чи повертати. Сховати сховане було б тим самим, що зробити
+   позначку незворотною. */
+.m-off .m-n, .m-off .m-s, .m-off .m-val { color: var(--oi-text-faint); }
+/* Ціль дотику 44px — той самий довід, що в стрілок режиму порядку: по
+   перемикачах б'ють підряд по кілька разів, і промах коштує зайвої
+   позначки. */
+.m-eye {
+  width: 44px;
+  height: 44px;
+  border: var(--oi-rule) solid var(--oi-border);
+  border-radius: var(--oi-radius-sm);
+  background: var(--oi-surface-2);
+  color: var(--oi-text);
+  font-family: inherit;
+  font-size: var(--oi-fs);
+}
+.m-eye:hover { background: var(--oi-master-on); }
+.m-eye[aria-checked="false"] { color: var(--oi-text-faint); }
+
 /* Порожній список — не те саме, що порожній фільтр, і сказати треба
    різне. Обидва тексти пише оболонка; тут лише місце під них. */
 .m-none {

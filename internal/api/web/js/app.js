@@ -32,9 +32,11 @@ import { skeleton } from "./skeleton.js";
 import { fitCharts } from "./charts.js";
 import { parseRoute, ANCHORS, markerKind, seg } from "./routes.js";
 import {
-  portfolioRows, moneyRows, staticRows, chipsOf, rowHTML, orderRowHTML, footValue,
+  portfolioRows, moneyRows, staticRows, chipsOf, orderRowHTML, footValue,
   kindOfItem, KIND_ONE, KIND_COLOR, overLimit,
+  visibleRows, groupsOf, groupHTML, visRowHTML,
 } from "./master.js";
+import { isOpen, remember } from "./uistate.js";
 import { applyOrder, moveInOrder } from "./navorder.js";
 import { loadPositionsData } from "./views/positions.js";
 
@@ -64,6 +66,15 @@ const MARK = `<svg class="mark" viewBox="0 0 24 24" fill="currentColor" aria-hid
 </svg>`;
 
 const TAB_BY_KEY = new Map(TABS.map((t) => [t.key, t]));
+
+// Простір імен для згорнутих груп у uistate.js. Ключ у ньому — ВИД
+// ("bond", "fund"), а не рядок: згортають вид цілком, і запамʼятати
+// «розкрито ОВДП» на позиції означало б стільки записів, скільки паперів.
+//
+// Groups у localStorage, на відміну від самих позначок «не показувати»
+// (ті на бекенді): згорнута група — погляд із цього екрана, і те, що на
+// телефоні згорнуто інакше, ніж на ноутбуці, є нормою, а не розходженням.
+const MASTER_FOLD = "master";
 
 // Вкладки, які малюються НАВІТЬ коли /api/summary не віддається.
 //
@@ -171,6 +182,14 @@ export class OddInvestApp extends HTMLElement {
     // Сам ПОРЯДОК, на відміну від режиму, живе на бекенді (navorder.js).
     this._ordering = false;
     this._navOrder = {};
+    // Режим видимості — сусід режиму порядку, і живе так само в памʼяті.
+    // Самі ж ПОЗНАЧКИ лежать на бекенді (/api/hidden-rows), а не в
+    // localStorage поруч зі згорнутими групами: згорнута група — це погляд
+    // із цього екрана, а «цей фонд закритий» — рішення про портфель, і
+    // повторювати його на телефоні після ноутбука означало б робити ту
+    // саму роботу двічі.
+    this._hiding = false;
+    this._hidden = [];
   }
 
   /** Транспорт до бекенда. Ставиться ззовні; поки його немає —
@@ -345,6 +364,11 @@ export class OddInvestApp extends HTMLElement {
       // Порядок рядків, поставлений власником: його читає staticRows —
       // і для списку, і для палітри Ctrl+K.
       navOrder: this._navOrder || {},
+      // Приховані рядки. У ctx вони потрібні підвалу (footValue рахує, що
+      // саме прибрано з очей) — і на цьому все: палітра Ctrl+K про них
+      // навмисно не знає, бо «сховати зі списку» не означає «зробити
+      // недосяжним», а іншого шляху на сторінку закритого фонду немає.
+      hidden: this._hidden || [],
       portfolio: currentPortfolio() || "main",
       setPortfolio: (slug) => this._setPortfolio(slug),
       // Дані позицій, уже завантажені оболонкою для майстер-списку.
@@ -563,6 +587,21 @@ export class OddInvestApp extends HTMLElement {
       if (ord) { this._orderAction(ord.dataset.ord); return; }
       const mv = e.target.closest("[data-mv]");
       if (mv) { this._moveRow(mv.dataset.id, mv.dataset.mv === "up" ? -1 : 1); return; }
+      // Видимість: вхід у режим, вихід і сам перемикач.
+      if (e.target.closest("[data-vis-on]")) { this._visMode(true); return; }
+      if (e.target.closest("[data-vis-done]")) { this._visMode(false); return; }
+      const eye = e.target.closest("[data-vis]");
+      if (eye) { this._toggleHidden(eye.dataset.vis); return; }
+      // Згортання групи. Перемальовується весь список, тож стан групи
+      // читається зі сховища, а не з класу на кнопці: клас живе до
+      // наступного рендеру, сховище — до наступного власника.
+      const grp = e.target.closest("[data-grp]");
+      if (grp) {
+        remember(MASTER_FOLD, grp.dataset.grp,
+          grp.getAttribute("aria-expanded") !== "true");
+        this._paintMaster();
+        return;
+      }
       const chip = e.target.closest(".chip");
       if (!chip) return;
       this._chip = chip.dataset.chip === this._chip ? "" : chip.dataset.chip;
@@ -854,13 +893,34 @@ export class OddInvestApp extends HTMLElement {
       return;
     }
 
+    // Режим видимості: так само інша шапка й так само без фільтра — довід
+    // той самий, що вище. Рядки тут УСІ, зокрема приховані: цей екран і є
+    // єдине місце, де позначку знімають, і сховати в ньому сховане означало
+    // б зробити її незворотною.
+    if (this._hiding) {
+      const off = new Set(this._hidden);
+      host.innerHTML = `
+        <div class="master-h">
+          <span class="master-t">Що показувати</span>
+          <button type="button" class="master-a" data-vis-done="1">Готово</button>
+        </div>
+        <ul class="m-list">${all.filter((r) => r.kind !== "all")
+          .map((r) => visRowHTML(r, !off.has(r.id))).join("")}</ul>
+        <div class="master-foot"><span>Зведення сховати не можна</span></div>`;
+      return;
+    }
+
     const q = this._filter.trim().toLowerCase();
-    const shown = all.filter((r) =>
+    // Приховані відпадають ПЕРШИМИ, до чипів і пошуку: інакше лічильник у
+    // чипі рахував би те, чого в списку немає, а «нічого не знайшлось» на
+    // прихованому рядку читалося б як зламаний пошук.
+    const live = visibleRows(all, this._hidden);
+    const shown = live.filter((r) =>
       (!this._chip || r.kind === this._chip || r.kind === "all")
       && (!q || `${r.name} ${r.sub}`.toLowerCase().includes(q)));
 
     const chips = tab.chips
-      ? `<div class="chips">${chipsOf(all).map((c) =>
+      ? `<div class="chips">${chipsOf(live).map((c) =>
         `<button type="button" class="chip" data-chip="${esc(c.key)}"
           aria-pressed="${c.key === this._chip}">${esc(c.label)}</button>`).join("")}</div>`
       : "";
@@ -871,6 +931,11 @@ export class OddInvestApp extends HTMLElement {
     const order = tab.items
       ? `<button type="button" class="master-o" data-ord="on"
           title="Змінити порядок рядків" aria-label="Змінити порядок рядків">⇅</button>` : "";
+    // ◉ стоїть там, де ⇅ на інших вкладках, і жодна вкладка не має обох:
+    // «Портфель» і «Гроші» без сталих рядків, решта — без прихованих.
+    const vis = tab.hideable
+      ? `<button type="button" class="master-o" data-vis-on="1"
+          title="Що показувати в списку" aria-label="Що показувати в списку">◉</button>` : "";
     const a = tab.action;
     const action = a
       ? `<a class="master-a" href="#/${tab.key}/${a.item}/${a.pane}${
@@ -879,9 +944,22 @@ export class OddInvestApp extends HTMLElement {
     // Два різні порожні стани, бо сказати треба різне: у списку немає
     // нічого — це факт про портфель; фільтр нічого не знайшов — це факт
     // про набраний рядок, і виправляється він інакше.
+    // Групи розкриті ЗАВЖДИ, доки набраний пошук або вибраний зріз: згорнута
+    // група ховала б знайдене, тобто пошук мовчки не працював би. Група з
+    // поточним рядком розкрита теж — інакше дип-лінк на папір відкривав би
+    // список, у якому цього паперу не видно.
+    // Розкривається група, яка СПРАВДІ тримає поточний рядок, а не просто
+    // група його виду: на прихований рядок можна прийти з палітри Ctrl+K, і
+    // тоді «розкрити вид» показало б розгорнутий список, у якому того, за
+    // чим прийшли, все одно немає.
+    const forceOpen = Boolean(q || this._chip);
     const body = shown.length
-      ? `<ul class="m-list">${shown.map((r) =>
-        rowHTML(tab.key, r, this._item)).join("")}</ul>`
+      ? `<ul class="m-list">${groupsOf(shown).map((g) => groupHTML(tab.key, g, {
+        current: this._item,
+        summary: this._summary,
+        open: forceOpen || g.rows.some((r) => r.id === this._item)
+          || isOpen(MASTER_FOLD, g.kind),
+      })).join("")}</ul>`
       : `<div class="m-none">${q || this._chip
         ? "Нічого не знайшлось. Спробуй інакший запит або зніми зріз."
         : "Тут поки порожньо."}</div>`;
@@ -891,6 +969,7 @@ export class OddInvestApp extends HTMLElement {
         <input class="master-f" type="search" placeholder="${esc(tab.search)}"
           aria-label="${esc(tab.search)}" value="${esc(this._filter)}">
         ${order}
+        ${vis}
         ${action}
       </div>
       ${chips}
@@ -986,6 +1065,59 @@ export class OddInvestApp extends HTMLElement {
     });
     if (now) send();
     else this._orderTimer = setTimeout(send, 500);
+  }
+
+  // ---------- видимість рядків ----------
+
+  /** Вхід у режим і вихід.
+   *
+   *  Фільтр і зріз знімаються входом — той самий довід, що в режимі
+   *  порядку: інакше вийти з режиму означало б повернутись до набраного
+   *  рядка, про який людина вже забула. Тут він навіть сильніший, бо в
+   *  режимі видно й приховані, тобто набір рядків усе одно інший. */
+  _visMode(on) {
+    if (on) {
+      this._filter = "";
+      this._chip = "";
+    }
+    this._hiding = on;
+    // Вихід дописує те, що ще не полетіло: піти зі сторінки можна й не
+    // натиснувши «Готово».
+    if (!on) this._saveHidden(true);
+    this._paintMaster();
+  }
+
+  /** Перемкнути позначку одного рядка.
+   *
+   *  ЕКРАН МІНЯЄТЬСЯ ОДРАЗУ, запис летить услід. Чекати на відповідь
+   *  бекенда, щоб перемалювати перемикач, означало б клацання, яке
+   *  «залипає» на пів секунди, — і саме тут це найпомітніше, бо рядків
+   *  відмічають кілька підряд. */
+  _toggleHidden(id) {
+    const off = new Set(this._hidden);
+    if (off.has(id)) off.delete(id);
+    else off.add(id);
+    this._hidden = [...off];
+    const row = (this._allRows || []).find((r) => r.id === id);
+    // Читачу екрана — словами: перемикач сам по собі каже лише «увімкнено»,
+    // а чого саме це стосується, зі списку не чути.
+    this._announce(`${row ? row.name : id} — ${off.has(id) ? "приховано" : "показується"}`);
+    this._paintMaster();
+    this._saveHidden();
+  }
+
+  /** Запис позначок на бекенд із затримкою. Дослівно той самий механізм і
+   *  той самий довід, що в _saveOrder: рядків відмічають кілька підряд, а
+   *  цікавий лише останній набір. */
+  _saveHidden(now = false) {
+    clearTimeout(this._hiddenTimer);
+    const send = () => this._api("PUT", "hidden-rows", this._hidden).catch((err) => {
+      // Екран лишається як є — з тієї ж причини, що й порядок: відкотити
+      // позначку на очах означало б покарати за поломку мережі.
+      this._toast(`Не збереглося: ${err.message || err}`, false);
+    });
+    if (now) send();
+    else this._hiddenTimer = setTimeout(send, 500);
   }
 
   // Шухляда — атрибут на хості, а не <dialog>. Три причини, і всі три з
@@ -1277,7 +1409,7 @@ export class OddInvestApp extends HTMLElement {
       this._store = this._newStore();
       this._toast(`Портфеля «${cur}» більше немає — відкрито головний`, false);
     }
-    const [brokers, funds, npf, order] = await Promise.all([
+    const [brokers, funds, npf, order, hidden] = await Promise.all([
       this._store.soft("brokers", []),
       this._store.soft("fund-catalog", []),
       this._store.soft("npf-accounts", []),
@@ -1285,11 +1417,16 @@ export class OddInvestApp extends HTMLElement {
       // раніше за будь-яку панель, а маршрут може бути новішим за бекенд.
       // Список у природному порядку кращий за порожню вкладку.
       this._store.soft("nav-order", {}),
+      // Приховані рядки — так само мʼяко, і наслідок відмови тут навіть
+      // безпечніший за порядок: без них список показує ВСЕ, тобто зайве, а
+      // не втрачене.
+      this._store.soft("hidden-rows", []),
     ]);
     this._brokers = brokers || [];
     this._fundCatalog = funds || [];
     this._npfAccounts = npf || [];
     this._navOrder = order || {};
+    this._hidden = hidden || [];
   }
 
   // Саме зведення (без рендеру: плитки живуть у панелях). Кидає — і

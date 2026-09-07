@@ -11,7 +11,7 @@ import { svgBars, svgGrouped, svgDonut, fluid } from "../charts.js";
 import { tile, yieldNote, yieldPair, needsSetting, empty, legend, kindPill } from "../components.js";
 import { routeFor } from "../routes.js";
 import { disclosure } from "../disclosure.js";
-import { KIND_GROUP } from "../constants.js";
+import { KIND_GROUP, kindMoneyUAH } from "../constants.js";
 
 
 // Кільце часток вкладеного капіталу по брокерах. Малюємо SVG-donut
@@ -93,13 +93,9 @@ export function currencyChartHTML(ctx) {
 export function yieldMixCard(ctx) {
   const s = ctx.summary || {};
   const real = s.kind_yield_real_pct || {}, nom = s.kind_yield_pct || {};
-  const MONEY = {
-    bonds: s.nominal_uah_eq, funds: s.funds_uah,
-    deposits: s.deposits_uah, npf: s.npf_uah,
-  };
   const rows = [];
   for (const k of ["bonds", "funds", "deposits", "npf"]) {
-    const money = MONEY[k] || 0;
+    const money = kindMoneyUAH(s, k) || 0;
     if (!money) continue;
     rows.push({ id: k, name: KIND_GROUP[k], money, real: real[k], nominal: nom[k] });
   }

@@ -20,6 +20,7 @@ import { esc, cur2, uah0, pct, plural, capitalUAH } from "./format.js";
 import { seg } from "./routes.js";
 import { panesFor } from "./nav.js";
 import { applyOrder } from "./navorder.js";
+import { KIND_GROUP, KIND_SUM_KEY, kindMoneyUAH } from "./constants.js";
 
 /** Підпис виду в пігулці інспектора й у чипах. Множина й однина
  *  розходяться не випадково — так само, як у KINDS старої воронки:
@@ -284,7 +285,10 @@ export const overLimit = (s) =>
  *  і є вибором виду, а зріз по виду лишається тут.
  *
  *  Лічильник у підписі — з тих самих рядків, з яких малюється список, а
- *  не з окремого підрахунку: два способи порахувати те саме розійшлися б. */
+ *  не з окремого підрахунку: два способи порахувати те саме розійшлися б.
+ *  Саме тому приховані рядки сюди не доходять: викликач подає вже
+ *  відфільтрований набір, і «Фонди 4» над списком із двох фондів був би
+ *  тим самим розходженням, лише повільнішим на виявлення. */
 export function chipsOf(rows) {
   const n = {};
   for (const r of rows) if (r.kind !== "all") n[r.kind] = (n[r.kind] || 0) + 1;
@@ -322,6 +326,127 @@ export function rowHTML(tabKey, r, current) {
   </a></li>`;
 }
 
+/** Рядки без прихованих.
+ *
+ *  ОДНЕ МІСЦЕ на весь застосунок, бо відповідей на «скільки їх» три:
+ *  скільки малювати, скільки писати в чипи й скільки сказати в підвалі. Три
+ *  окремі фільтри розійшлися б на першому ж рядку, який зник із портфеля,
+ *  лишившись у позначках.
+ *
+ *  Саме тому лічильник у підвалі рахується ТУТ, а не довжиною самого
+ *  списку позначок: проданий папір із позначки нікуди не дівається (знімати
+ *  її нема кому й нема з чого), і «3 приховано» над двома схованими
+ *  рядками було б числом про сміття в базі, а не про екран. */
+export const visibleRows = (rows, hidden) => {
+  const off = new Set(hidden || []);
+  return off.size ? rows.filter((r) => !off.has(r.id)) : rows;
+};
+
+/** Рядки, згруповані за видом, у тому ж порядку, у якому прийшли.
+ *
+ *  Порядок не переставляється навмисно: portfolioRows уже викладає види в
+ *  KIND_ORDER, і друге сортування тут означало б два місця, де вирішується
+ *  те саме.
+ *
+ *  Рядок БЕЗ виду (зведення «Портфель цілком», рахунки в «Грошах») стає
+ *  групою з себе самого. Не окремою гілкою у викликача: гілка «а тут групи,
+ *  а тут ні» довелося б повторити в кожному з трьох місць, де список
+ *  малюється, і розійтись вона могла б у кожному. */
+export function groupsOf(rows) {
+  const out = [];
+  const at = new Map();
+  for (const r of rows) {
+    if (!r.kind || r.kind === "all") { out.push({ kind: "", rows: [r] }); continue; }
+    let g = at.get(r.kind);
+    if (!g) { g = { kind: r.kind, rows: [] }; at.set(r.kind, g); out.push(g); }
+    g.rows.push(r);
+  }
+  return out;
+}
+
+// Чим рахується група. Слово потрібне саме тут і саме в родовому: «9
+// паперів», «2 фонди». KIND_MANY для цього не годиться — він називає вид
+// («ОВДП»), а не одиниці в ньому, і «ОВДП 9» уже стоїть у чипі поруч.
+const KIND_UNIT = {
+  bond: ["папір", "папери", "паперів"],
+  fund: ["фонд", "фонди", "фондів"],
+  npf: ["рахунок", "рахунки", "рахунків"],
+  deposit: ["вклад", "вклади", "вкладів"],
+  goal: ["ціль", "цілі", "цілей"],
+  reserve: ["рядок", "рядки", "рядків"],
+};
+
+/** Розмітка групи: заголовок зі стрілкою плюс вкладений список.
+ *
+ *  ЧИСЛО ЗАГОЛОВКА — ПІДСУМОК ВИДУ ЗІ ЗВЕДЕННЯ, А НЕ СУМА РЯДКІВ ПІД НИМ.
+ *  Довід той самий, що в «Портфелі цілком» на початку файла, і тут у нього
+ *  є друга половина: під заголовком видно не всі рядки виду — приховані з
+ *  нього прибрані. Сума видимого була б числом, яке не збігається ні з
+ *  капіталом, ні зі «Структурою за видом», і розходились би вони рівно на
+ *  те, що власник сам вирішив не показувати.
+ *
+ *  ГРУПА З ОДНОГО РЯДКА заголовка не отримує. Він збігся б із самим рядком
+ *  слово в слово й число в число — НПФ «602 ₴» над НПФ «602 ₴», — а стрілка
+ *  над ним не згортала б нічого. У групи з одного вид і є той рядок.
+ *
+ *  Заголовок — кнопка, а не посилання, і рядки лежать у ВКЛАДЕНОМУ списку,
+ *  а не сусідами. Кнопку не можна покласти всередину .m-row: це <a>, і
+ *  натискання на стрілку відкривало б сторінку замість того, щоб згорнути
+ *  групу. */
+export function groupHTML(tabKey, g, { current, summary, open }) {
+  const rows = g.rows.map((r) => rowHTML(tabKey, r, current)).join("");
+  if (!g.kind || g.rows.length < 2) return rows;
+
+  const s = summary || {};
+  const sum = KIND_SUM_KEY[g.kind];
+  const money = kindMoneyUAH(s, sum);
+  const y = (s.kind_yield_real_pct || {})[sum];
+  const unit = KIND_UNIT[g.kind] || KIND_UNIT.reserve;
+  const id = `m-g-${g.kind}`;
+  return `<li class="m-grp">
+    <button type="button" class="m-gh" data-grp="${esc(g.kind)}"
+      aria-expanded="${open}" aria-controls="${id}">
+      <span class="caret${open ? " open" : ""}" aria-hidden="true">▸</span>
+      <span class="m-bar" style="--oi-c:${KIND_COLOR[g.kind] || "transparent"}"></span>
+      <span class="m-t">
+        <span class="m-n">${esc(KIND_GROUP[sum] || g.kind)}</span>
+        <span class="m-s">${esc(nOf(g.rows.length, ...unit))}</span>
+      </span>
+      <span class="m-v">
+        ${money ? `<span class="m-val">${esc(uah0(money))}</span>` : ""}
+        <span class="m-meta" style="--oi-c:${y > 0 ? TONE.ok : "var(--oi-muted)"}">${
+          esc(y ? pct(y) : "—")}</span>
+      </span>
+    </button>
+    <ul class="m-sub" id="${id}"${open ? "" : " hidden"}>${rows}</ul>
+  </li>`;
+}
+
+/** Рядок у режимі видимості: те саме, але не посилання, і з перемикачем.
+ *
+ *  НЕ ПОСИЛАННЯ — з того самого доводу, що в режимі порядку: доки список
+ *  розмічають, рядок є річчю, яку вмикають, а не місцем, куди йдуть.
+ *
+ *  Показуються ВСІ рядки, зокрема приховані, і саме цей режим є єдиним
+ *  місцем, де їх видно назад. Ховати приховане в екрані, який про приховане
+ *  й існує, означало б зробити позначку незворотною.
+ *
+ *  Число тут те саме, що в списку, і це не зайве: вибираючи, що прибрати з
+ *  очей, дивляться саме на нього — «нуль сертифікатів» і є та причина, з
+ *  якої рядок ховають. */
+export function visRowHTML(r, on) {
+  return `<li class="m-vis${on ? "" : " m-off"}">
+    <span class="m-t">
+      <span class="m-n">${esc(r.name)}</span>
+      <span class="m-s">${esc(r.sub)}</span>
+    </span>
+    ${r.value ? `<span class="m-val">${esc(r.value)}</span>` : "<span></span>"}
+    <button type="button" class="m-eye" data-vis="${esc(r.id)}"
+      role="switch" aria-checked="${on}"
+      aria-label="Показувати: ${esc(r.name)}">${on ? "◉" : "◎"}</button>
+  </li>`;
+}
+
 /** Рядок у режимі перестановки: те саме, але не посилання, і з двома
  *  стрілками.
  *
@@ -357,8 +482,13 @@ export function orderRowHTML(r, i, n) {
 export function footValue(tabKey, ctx, rows) {
   const s = ctx.summary || {};
   if (tabKey === "portfolio") {
+    // Приховане називається ЧИСЛОМ, і це не косметика. Капітал у підвалі
+    // береться зі зведення, тобто рахує й те, чого на екрані немає, — а без
+    // цього хвоста розбіжність між сумою видимого й підсумком була б
+    // мовчазною рівно доти, доки хтось не почне складати рядки руками.
+    const off = rows.length - visibleRows(rows, ctx.hidden).length;
     return `${uah0(capitalUAH(s))}${s.blended_yield_real_pct
-      ? ` · ${pct(s.blended_yield_real_pct)}` : ""}`;
+      ? ` · ${pct(s.blended_yield_real_pct)}` : ""}${off ? ` · ${off} приховано` : ""}`;
   }
   if (tabKey === "money") return uah0(s.account_uah || 0);
   if (tabKey === "work") {
