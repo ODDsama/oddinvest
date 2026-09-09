@@ -1267,6 +1267,13 @@ type Goal struct {
 	TargetFutureNative   float64 `json:"target_future_native,omitempty"`
 	GapFutureNative      float64 `json:"gap_future_native,omitempty"`
 	RequiredFutureNative float64 `json:"required_future_native,omitempty"`
+	// Гривневі двійники двох попередніх. Сьогодні вони ДОРІВНЮЮТЬ нативним
+	// тотожно, бо весь цей блок рахується лише для гривневих цілей, — і
+	// існують саме тому, що на них стоять читачі, які про це знати не
+	// мусять: черга наповнення й вирок «встигаю» працюють у гривні й не
+	// повинні здогадуватись, що native тут випадково та сама одиниця.
+	GapFutureUAH      float64 `json:"gap_future_uah,omitempty"`
+	RequiredFutureUAH float64 `json:"required_future_uah,omitempty"`
 	// InflationPct — темп, яким пораховані числа вище. Стоїть поруч із
 	// ними навмисно: без нього «780 000 ₴ у 2036-му» неможливо ні
 	// перевірити, ні відтворити.

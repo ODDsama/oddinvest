@@ -349,11 +349,13 @@
       "required_uah": 4586.85,
       "rate_pct": 13.09,
       "fill_from_uah": 8380,
-      "short_month_uah": 4586.85,
+      "short_month_uah": 12486.97,
       "behind": true,
       "target_future_native": 3105875.81,
-      "gap_future_native": 3055875.81,
-      "required_future_native": 25484.75,
+      "gap_future_native": 2934790.77,
+      "required_future_native": 12486.97,
+      "gap_future_uah": 2934790.77,
+      "required_future_uah": 12486.97,
       "inflation_pct": 17.87
     }
   ],
