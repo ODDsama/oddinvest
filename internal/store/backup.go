@@ -611,6 +611,12 @@ type BackupTermDeposit struct {
 	// вклад фізособи безвідкличний, доки в договорі не написано інакше.
 	IsReserve bool `json:"is_reserve,omitempty"`
 	Revocable bool `json:"revocable,omitempty"`
+	// GoalID — ціль, якій належить вклад (0062). Той самий omitempty з тим
+	// самим наслідком: у старішому бекапі поля немає, і вклад відновиться
+	// нічим не позначеним, тобто звичайною інвестицією — це й є типове
+	// значення колонки. Id СТАРИЙ: відновлення перемаповує його через
+	// ids.of("goals"), як робить із брокером.
+	GoalID int64 `json:"goal_id,omitempty"`
 }
 
 // BackupFundOp — операція з сертифікатами фонду. Без неї бекап був
@@ -776,15 +782,17 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		func(scan func(...any) error) error {
 			var r BackupTermDeposit
 			var capInt, replInt, resInt, revInt int64
+			var goalID sql.NullInt64
 			if err := scan(&r.ID, &r.Bank, &r.Currency, &r.Principal, &r.RateBP,
 				&r.OpenDate, &r.MaturityDate, &r.Payout, &capInt, &r.TaxBP,
 				&r.ClosedDate, &r.ClosedAmount, &r.Note, &replInt,
-				&resInt, &revInt); err != nil {
+				&resInt, &revInt, &goalID); err != nil {
 				return err
 			}
 			r.Capitalized = capInt != 0
 			r.Replenishable = replInt != 0
 			r.IsReserve, r.Revocable = resInt != 0, revInt != 0
+			r.GoalID = goalID.Int64
 			b.TermDeposits = append(b.TermDeposits, r)
 			return nil
 		}, s.pid); err != nil {
@@ -1508,19 +1516,41 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			return fmt.Errorf("конвертація фонду %d: %w", op.ID, err)
 		}
 	}
+	// Цілі — ПЕРЕД вкладами й рухами: на них є FK і в term_deposits.goal_id
+	// (0062), і в goal_ops. Доти вони стояли нижче, поруч зі своїми рухами,
+	// і поки читач був один, порядок нічого не вирішував; відколи ціль може
+	// висіти на вкладі, ids.of("goals") мусить бути заповнена РАНІШЕ за
+	// вставку вкладів — інакше відновлення падає на FK, і падає лише в тих,
+	// у кого така ціль є.
+	for _, g := range b.Goals {
+		if err := ids.insert(ctx, tx, "goals", g.ID, `INSERT INTO goals
+			(%sportfolio_id,name,target_amount,currency,due_date,priority,place,note,done_date)
+			VALUES (%s?,?,?,?,?,?,?,?,?)`,
+			s.pid, g.Name, g.TargetAmount, g.Currency, g.DueDate, g.Priority,
+			g.Place, g.Note, g.DoneDate); err != nil {
+			return fmt.Errorf("ціль %d: %w", g.ID, err)
+		}
+	}
 	for _, d := range b.TermDeposits {
 		broker, err := brokerRef(d.Bank)
 		if err != nil {
 			return fmt.Errorf("вклад %d: %w", d.ID, err)
 		}
+		// Ціль перемаповується, як і брокер: id у файлі — старі. Нуль
+		// лишається нулем і стає NULL у goalRef.
+		goal := d.GoalID
+		if goal > 0 {
+			goal = ids.of("goals", goal)
+		}
 		if err := ids.insert(ctx, tx, "term_deposits", d.ID,
 			`INSERT INTO term_deposits (%sportfolio_id,broker_id,currency,principal,rate_bp,open_date,
 			 maturity_date,payout,capitalized,tax_bp,closed_date,closed_amount,note,replenishable,
-			 is_reserve,revocable)
-			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+			 is_reserve,revocable,goal_id)
+			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			s.pid, broker, d.Currency, d.Principal, d.RateBP, d.OpenDate, d.MaturityDate,
 			d.Payout, boolInt(d.Capitalized), d.TaxBP, d.ClosedDate, d.ClosedAmount, d.Note,
-			boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable)); err != nil {
+			boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable),
+			goalRef(goal)); err != nil {
 			return fmt.Errorf("вклад %d: %w", d.ID, err)
 		}
 	}
@@ -1557,17 +1587,6 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			`UPDATE reserve_ops SET loan_id=? WHERE id=? AND portfolio_id=?`,
 			ids.of("reserve_loans", r.LoanID), ids.of("reserve_ops", r.ID), s.pid); err != nil {
 			return fmt.Errorf("повернення в резерв %d: %w", r.ID, err)
-		}
-	}
-	// Цілі — ПЕРЕД рухами: goal_ops має на них FK. Той самий порядок, що в
-	// пенсійного рахунку з внесками нижче.
-	for _, g := range b.Goals {
-		if err := ids.insert(ctx, tx, "goals", g.ID, `INSERT INTO goals
-			(%sportfolio_id,name,target_amount,currency,due_date,priority,place,note,done_date)
-			VALUES (%s?,?,?,?,?,?,?,?,?)`,
-			s.pid, g.Name, g.TargetAmount, g.Currency, g.DueDate, g.Priority,
-			g.Place, g.Note, g.DoneDate); err != nil {
-			return fmt.Errorf("ціль %d: %w", g.ID, err)
 		}
 	}
 	for _, o := range b.GoalOps {

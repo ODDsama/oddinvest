@@ -32,10 +32,14 @@ type termDepositReq struct {
 	Replenishable bool   `json:"replenishable"`
 	IsReserve     bool   `json:"is_reserve"`
 	Revocable     bool   `json:"revocable"`
-	TaxPct        string `json:"tax_pct"`
-	ClosedDate    string `json:"closed_date"`
-	ClosedAmount  string `json:"closed_amount"`
-	Note          string `json:"note"`
+	// GoalID — вклад належить цілі накопичення (0062). Рядком, як і решта
+	// числових полів тут: порожньо мусить означати «нічия», а не нуль, і
+	// на json-числі ця різниця зникла б.
+	GoalID       string `json:"goal_id"`
+	TaxPct       string `json:"tax_pct"`
+	ClosedDate   string `json:"closed_date"`
+	ClosedAmount string `json:"closed_amount"`
+	Note         string `json:"note"`
 }
 
 // parsePercentBP: "16.5" -> 1650. Ставки й податок вводяться відсотками,
@@ -112,6 +116,20 @@ func termDepositFromReq(req termDepositReq) (domain.Deposit, error) {
 		IsReserve:     req.IsReserve,
 		Revocable:     req.Revocable,
 	}
+	// Ціль і подушка — ВЗАЄМОВИКЛЮЧНІ, і перевірка тут, а не CHECK у схемі:
+	// зрозуміла 400 замість сирої відмови БД (довід у шапці 0062). Гроші
+	// або аварійні, або на авто; «і те, і те» означало б, що на аварію їх
+	// заберуть саме тоді, коли вони вже витрачені.
+	if gs := strings.TrimSpace(req.GoalID); gs != "" {
+		gid, err := strconv.ParseInt(gs, 10, 64)
+		if err != nil || gid <= 0 {
+			return out, fmt.Errorf("ціль: %q не схоже на номер цілі", req.GoalID)
+		}
+		if req.IsReserve {
+			return out, fmt.Errorf("вклад не може бути водночас подушкою й ціллю")
+		}
+		out.GoalID = gid
+	}
 	// Дострокове розірвання: обидва поля разом або жодного.
 	if strings.TrimSpace(req.ClosedDate) != "" {
 		cd, err := domain.ParseDate(req.ClosedDate)
@@ -144,20 +162,25 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		Principal moneyJSON `json:"principal"`
 		// Balance — накопичене тіло (початкове + поповнення) на сьогодні:
 		// UI показує саме його, а principal лишається сумою відкриття.
-		Balance       moneyJSON   `json:"balance"`
-		RatePct       float64     `json:"rate_pct"`
-		OpenDate      string      `json:"open_date"`
-		MaturityDate  string      `json:"maturity_date"`
-		Payout        string      `json:"payout"`
-		Capitalized   bool        `json:"capitalized,omitempty"`
-		Replenishable bool        `json:"replenishable"`
-		IsReserve     bool        `json:"is_reserve"`
-		Revocable     bool        `json:"revocable"`
-		TaxPct        float64     `json:"tax_pct"`
-		ClosedDate    string      `json:"closed_date,omitempty"`
-		ClosedAmount  moneyJSON   `json:"closed_amount,omitempty"`
-		Note          string      `json:"note,omitempty"`
-		Topups        []topupJSON `json:"topups,omitempty"`
+		Balance       moneyJSON `json:"balance"`
+		RatePct       float64   `json:"rate_pct"`
+		OpenDate      string    `json:"open_date"`
+		MaturityDate  string    `json:"maturity_date"`
+		Payout        string    `json:"payout"`
+		Capitalized   bool      `json:"capitalized,omitempty"`
+		Replenishable bool      `json:"replenishable"`
+		IsReserve     bool      `json:"is_reserve"`
+		Revocable     bool      `json:"revocable"`
+		// GoalID/GoalName — ціль, якій належить вклад (0062). Імʼя поруч із
+		// id, бо таблиця показує його людині, а другий запит по цілях
+		// заради одного рядка був би дорожчим за саме поле.
+		GoalID       int64       `json:"goal_id,omitempty"`
+		GoalName     string      `json:"goal_name,omitempty"`
+		TaxPct       float64     `json:"tax_pct"`
+		ClosedDate   string      `json:"closed_date,omitempty"`
+		ClosedAmount moneyJSON   `json:"closed_amount,omitempty"`
+		Note         string      `json:"note,omitempty"`
+		Topups       []topupJSON `json:"topups,omitempty"`
 		// NetPct — ставка після податку, але ДО знецінення: номінальний
 		// двійник до RealPct. Поруч уже є RatePct, але це ставка з
 		// договору, до податку, і показувати її як «номінальну дохідність»
@@ -177,6 +200,14 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 	deval := s.devaluation(r.Context())
 	rc := s.newRateContext(r.Context(), deval)
 	today := domain.NewDate(time.Now())
+	// Імена цілей одним запитом на всю таблицю: цілей одиниці, а запит на
+	// кожен рядок був би N звернень на один екран.
+	goalNames := map[int64]string{}
+	if gs, gerr := s.st.ListGoals(r.Context()); gerr == nil {
+		for _, g := range gs {
+			goalNames[g.ID] = g.Name
+		}
+	}
 	out := make([]row, 0, len(deps))
 	for _, d := range deps {
 		tj := make([]topupJSON, 0, len(d.Topups))
@@ -194,6 +225,8 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 			Replenishable: d.Replenishable,
 			IsReserve:     d.IsReserve,
 			Revocable:     d.Revocable,
+			GoalID:        d.GoalID,
+			GoalName:      goalNames[d.GoalID],
 			TaxPct:        float64(d.TaxBP) / 100,
 			ClosedDate:    string(d.ClosedDate),
 			ClosedAmount:  toMoneyJSON(money.New(d.ClosedAmount, d.Currency)),

@@ -383,6 +383,14 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	reserveDepositsByCur := map[string]float64{}
 	reserveDepositsUAHByCur := map[string]float64{}
 	var reserveRungs []domain.Deposit
+	// Вклади, позначені ЦІЛЛЮ (0062) — той самий прохід і той самий довід.
+	// Записи, а не суми, і за id цілі: потрібний темп кожної цілі мусить
+	// знати ставку саме СВОЇХ грошей, а не середню по всіх.
+	//
+	// Сум тут навмисно немає. Гроші цілей зводить buildGoals — одне місце
+	// на журнал і на вклади, — інакше капітал порахував би цільовий вклад
+	// двічі, і помітно це стало б аж на інваріанті зведення.
+	goalDepositsByGoal := map[int64][]domain.Deposit{}
 	for _, dep := range termDeposits {
 		if !dep.Active(today) {
 			continue
@@ -415,6 +423,20 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			reserveDepositsByCur[dep.Currency] += float64(dep.BalanceAt(today)) / 100
 			reserveDepositsUAHByCur[dep.Currency] += v
 			reserveRungs = append(reserveRungs, dep)
+			continue
+		}
+		// Цільовий вклад (0062) — дзеркало резервного, і виходить із
+		// портфельного контуру рівно так само: гроші, обіцяні авто, не є
+		// купівельною спроможністю, і частка ОВДП не має ними міритись.
+		//
+		// РІЗНИЦЯ З РЕЗЕРВОМ ОДНА, і вона тут важлива: у резерву ставка
+		// нікого не цікавила (подушку тримають не заради неї), а в цілі
+		// саме ставка й є те, заради чого вклад заводять — інакше ціль
+		// гарантовано програє інфляції. Тому ставка збирається окремо,
+		// по кожній цілі, і її забирає deriveGoals: потрібний темп мусить
+		// знати, під скільки працюють уже відкладені гроші.
+		if dep.GoalID != 0 {
+			goalDepositsByGoal[dep.GoalID] = append(goalDepositsByGoal[dep.GoalID], dep)
 			continue
 		}
 		depositsUAH += v
@@ -518,7 +540,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Цілі накопичення — до buildMonth: та рахує «внесено нетто», і рухи
 	// цілей входять у нього нарівні з рухами резерву (довід — у міграції
 	// 0039 про дві ноги переказу).
-	goals := buildGoals(src.goals, src.goalOps, rates, today, now)
+	goals := buildGoals(src.goals, src.goalOps, goalDepositsByGoal, rates, today, now)
 
 	mth, err := buildMonth(src, hold, rates, now, today, reserveUAH)
 	if err != nil {

@@ -103,6 +103,17 @@ func (s *Store) DeleteGoal(ctx context.Context, id int64) error {
 	if used > 0 {
 		return fmt.Errorf("під ціллю %d рухів — спершу видали їх або познач ціль досягнутою", used)
 	}
+	// Те саме про вклади (0062), і з того самого доводу: сирий FK сказав
+	// би правду незрозуміло. Тут вихід ще й інший — вклад не видаляють, з
+	// нього знімають ціль, тож про це й сказано.
+	var deps int
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM term_deposits WHERE goal_id=? AND portfolio_id=?`, id, s.pid).Scan(&deps); err != nil {
+		return err
+	}
+	if deps > 0 {
+		return fmt.Errorf("на цілі %d вкладів — спершу зніми з них ціль", deps)
+	}
 	res, err := s.db.ExecContext(ctx, `DELETE FROM goals WHERE id=? AND portfolio_id=?`, id, s.pid)
 	if err != nil {
 		return err

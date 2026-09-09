@@ -59,6 +59,14 @@ const REFS = {
     label: "Пенсійний рахунок", blank: "— рахунок —", allowNew: false,
     list: (ctx) => (ctx.npfAccounts || []).map((a) => [String(a.id), a.name]),
   },
+  goal: {
+    // Досягнуті цілі зі списку випадають: покласти вклад під ціль, річ
+    // якої вже куплена, — не вибір, а описка, і пропонувати її не варто.
+    label: "Ціль накопичення", blank: "— не належить цілі —", allowNew: false,
+    list: (ctx) => ((ctx.summary || {}).goals || [])
+      .filter((g) => !g.done_date)
+      .map((g) => [String(g.id), g.name]),
+  },
   currency: {
     label: "Валюта", blank: "", allowNew: false,
     list: () => CURRENCIES.map((c) => [c, c]),

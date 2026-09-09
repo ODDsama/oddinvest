@@ -1195,6 +1195,14 @@ type Goal struct {
 	RequiredUAH    float64 `json:"required_uah,omitempty"`
 	ActualNative   float64 `json:"actual_native,omitempty"`
 	ActualUAH      float64 `json:"actual_uah,omitempty"`
+	// RatePct — під скільки річних працює вже зібране, чистими після
+	// податку. Нуль (і тому omitempty) = гроші лежать готівкою, і це
+	// ВИМІР, а не «невідомо»: журнал цілі відсотків не нараховує.
+	//
+	// Зважене тілом цільових вкладів (0062). Стоїть у документі, а не
+	// лише в картці, бо на ньому тримається потрібний темп проти
+	// майбутньої ціни — тобто вирок «встигаю».
+	RatePct float64 `json:"rate_pct,omitempty"`
 	// MovedUAH — скільки вже покладено в цю ціль ЦЬОГО МІСЯЦЯ, нетто.
 	// FillMonthUAH — скільки їй належить за місяць; FillNowUAH — скільки з
 	// того ще лишилось відкласти.

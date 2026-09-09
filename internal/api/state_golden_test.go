@@ -435,9 +435,23 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 	// сьогоднішніх грошах і ціль у грошах дедлайну не порівнювались би у
 	// фікстурі ніде. Дедлайн далекий навмисно: на десяти роках різниця
 	// втричі, і помилку в проєкції видно оком.
-	if _, err := st.AddGoal(ctx, store.Goal{
+	school, err := st.AddGoal(ctx, store.Goal{
 		Name: "Школа", TargetAmount: 60000000, Currency: money.UAH,
 		DueDate: d(3650), Priority: 2, Place: "готівка",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Вклад під ЦІЛЬ (0062) — четвертий строковий у фікстурі, і заведений
+	// саме на «Школі»: на десяти роках різниця між грошима під нуль і
+	// грошима під ставку найбільша, а goals.rate_pct без такого вкладу
+	// лишався б нулем, тобто гілка «зібране працює» не перевірялась би
+	// ніде. Ставка навмисно НЕ дорівнює жодній із резервних: інакше
+	// помилка «взяли середню по всіх вкладах» пройшла б непоміченою.
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: money.UAH, Principal: 5000000, RateBP: 1700,
+		OpenDate: d(-20), MaturityDate: d(345), Payout: domain.PayoutEnd,
+		TaxBP: 2300, GoalID: school,
 	}); err != nil {
 		t.Fatal(err)
 	}

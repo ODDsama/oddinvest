@@ -1295,16 +1295,19 @@ func termDepositCols() string {
 	return `d.id, COALESCE(b.name,''), d.currency, d.principal, d.rate_bp,
 		d.open_date, d.maturity_date, d.payout, d.capitalized, d.tax_bp,
 		d.closed_date, d.closed_amount, d.note, d.replenishable,
-		d.is_reserve, d.revocable`
+		d.is_reserve, d.revocable, d.goal_id`
 }
 
 func scanTermDeposit(rows *sql.Rows) (domain.Deposit, error) {
 	var d domain.Deposit
 	var open, mat, payout, closed string
 	var capInt, replInt, resInt, revInt int64
+	// goal_id — NULL у вкладу, який нічий (0062), тож без sql.NullInt64
+	// скан упав би на першому ж звичайному вкладі.
+	var goalID sql.NullInt64
 	if err := rows.Scan(&d.ID, &d.Bank, &d.Currency, &d.Principal, &d.RateBP,
 		&open, &mat, &payout, &capInt, &d.TaxBP, &closed, &d.ClosedAmount, &d.Note,
-		&replInt, &resInt, &revInt); err != nil {
+		&replInt, &resInt, &revInt, &goalID); err != nil {
 		return d, err
 	}
 	d.OpenDate, d.MaturityDate = domain.Date(open), domain.Date(mat)
@@ -1312,7 +1315,17 @@ func scanTermDeposit(rows *sql.Rows) (domain.Deposit, error) {
 	d.Capitalized = capInt != 0
 	d.Replenishable = replInt != 0
 	d.IsReserve, d.Revocable = resInt != 0, revInt != 0
+	d.GoalID = goalID.Int64
 	return d, nil
+}
+
+// goalRef — id цілі у вигляді, придатному для запису: 0 стає NULL.
+// Порожній FK мусить бути NULL, інакше SQLite шукатиме ціль з id=0.
+func goalRef(id int64) any {
+	if id <= 0 {
+		return nil
+	}
+	return id
 }
 
 func (s *Store) AddTermDeposit(ctx context.Context, d domain.Deposit) (int64, error) {
@@ -1323,11 +1336,12 @@ func (s *Store) AddTermDeposit(ctx context.Context, d domain.Deposit) (int64, er
 	res, err := s.db.ExecContext(ctx, `INSERT INTO term_deposits
 		(portfolio_id, broker_id, currency, principal, rate_bp, open_date, maturity_date,
 		 payout, capitalized, tax_bp, closed_date, closed_amount, note, replenishable,
-		 is_reserve, revocable)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		 is_reserve, revocable, goal_id)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		s.pid, broker, d.Currency, d.Principal, d.RateBP, string(d.OpenDate), string(d.MaturityDate),
 		string(d.Payout), boolInt(d.Capitalized), d.TaxBP, string(d.ClosedDate), d.ClosedAmount,
-		d.Note, boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable))
+		d.Note, boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable),
+		goalRef(d.GoalID))
 	if err != nil {
 		return 0, err
 	}
@@ -1342,10 +1356,11 @@ func (s *Store) UpdateTermDeposit(ctx context.Context, d domain.Deposit) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE term_deposits SET
 		broker_id=?, currency=?, principal=?, rate_bp=?, open_date=?, maturity_date=?,
 		payout=?, capitalized=?, tax_bp=?, closed_date=?, closed_amount=?, note=?,
-		replenishable=?, is_reserve=?, revocable=? WHERE id=? AND portfolio_id=?`,
+		replenishable=?, is_reserve=?, revocable=?, goal_id=? WHERE id=? AND portfolio_id=?`,
 		broker, d.Currency, d.Principal, d.RateBP, string(d.OpenDate), string(d.MaturityDate),
 		string(d.Payout), boolInt(d.Capitalized), d.TaxBP, string(d.ClosedDate), d.ClosedAmount,
-		d.Note, boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable), d.ID, s.pid)
+		d.Note, boolInt(d.Replenishable), boolInt(d.IsReserve), boolInt(d.Revocable),
+		goalRef(d.GoalID), d.ID, s.pid)
 	if err != nil {
 		return err
 	}

@@ -338,6 +338,39 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 	// велика, але це не інша ДІЯ: робити треба те саме — відкласти, — а
 	// відставання є причиною, чому саме стільки. Дві задачі на одну дію
 	// заповнили б чергу дублями рівно тоді, коли цілей кілька.
+	// Вклад цілі, що от-от гаситься (0062) — дзеркало reserve-rung вище, і
+	// окремою задачею з того самого доводу: та про НОВІ гроші, ця — про
+	// гроші, які вже під ціллю й от-от випадуть із неї під нуль. Своя,
+	// а не спільна з подушкою, бо різна дія: там драбина, тут одна ціль,
+	// і назвати її треба на імʼя.
+	if len(doc.Goals) > 0 {
+		soon := today.AddMonths(1)
+		names := map[int64]string{}
+		for i := range doc.Goals {
+			names[doc.Goals[i].ID] = doc.Goals[i].Name
+		}
+		for _, dep := range src.termDeposits {
+			if dep.GoalID == 0 || !dep.Active(today) || dep.MaturityDate.After(soon) {
+				continue
+			}
+			name := names[dep.GoalID]
+			if name == "" {
+				continue // ціль зникла; мовчати краще, ніж казати «на «»»
+			}
+			amount := money.New(dep.BalanceAt(dep.MaturityDate), dep.Currency)
+			add(state.Task{
+				ID:  fmt.Sprintf("goal-rung-%s", dep.SyntheticISIN()),
+				Sev: sevSoon, Rank: 12, Kind: "goal",
+				Title: fmt.Sprintf("Перевкласти вклад цілі «%s» — %s", name, amount.Display()),
+				Why: fmt.Sprintf("Гаситься %s. Без перевкладення ці гроші "+
+					"лежатимуть під нуль, а ціна цілі й далі росте на інфляцію — "+
+					"саме те, від чого вклад і рятує.", dep.MaturityDate),
+				When:   string(dep.MaturityDate),
+				Action: actTopUpDeposit,
+			})
+		}
+	}
+
 	for i := range doc.Goals {
 		g := doc.Goals[i]
 		if g.DoneDate != "" || g.FillNowUAH <= 0 {

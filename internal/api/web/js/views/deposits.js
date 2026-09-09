@@ -57,6 +57,16 @@ export const depositFields = (ctx, row = null) => [
   checkField("is_reserve", "Це подушка (резерв)", { checked: row ? !!row.is_reserve : false }),
   checkField("revocable", "Відкличний (можна забрати достроково)",
     { checked: row ? !!row.revocable : false }),
+  // Третя властивість того самого роду: чиї це гроші. Не прапорець, а
+  // посилання, бо цілей багато — «на авто» і «на ремонт» лежать різними
+  // вкладами. З подушкою взаємовиключне: перевіряє бекенд і каже словами.
+  //
+  // Заради чого воно взагалі: доти гроші цілей лежали під нуль, а ціна
+  // самої цілі росла на інфляцію. Вклад — єдине, що це зупиняє.
+  refSelect(ctx, {
+    name: "goal_id", ref: "goal", value: row ? (row.goal_id || "") : "",
+    title: "Тіло такого вкладу йде в ціль, а не в портфель: у «Що купити» він не потрапляє",
+  }),
   pctField("tax_pct", "Податок, %", {
     ph: "23 (за замовч.)", value: row ? row.tax_pct : "",
   }),
@@ -83,6 +93,7 @@ export const depositBody = (f, closed = {}) => ({
   replenishable: f.replenishable.checked,
   is_reserve: f.is_reserve.checked,
   revocable: f.revocable.checked,
+  goal_id: refValue(f, "goal_id"),
   tax_pct: f.tax_pct.value.trim(),
   note: f.note.value.trim(),
   closed_date: closed.date || "",
@@ -100,6 +111,7 @@ function bodyFromRow(d, patch) {
     payout: d.payout, capitalized: !!d.capitalized,
     replenishable: !!d.replenishable,
     is_reserve: !!d.is_reserve, revocable: !!d.revocable,
+    goal_id: d.goal_id ? String(d.goal_id) : "",
     tax_pct: String(d.tax_pct), note: d.note || "",
     closed_date: d.closed_date || "", closed_amount: (d.closed_amount || {}).amount || "",
     ...patch,

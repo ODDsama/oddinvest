@@ -418,6 +418,15 @@ type GoalInput struct {
 	// Стеля наповнення його віднімає: без цього порада висіла б незмінною,
 	// хай би скільки ти відкладав.
 	MovedUAH float64
+	// RatePct — під скільки річних працює вже зібране, чистими після
+	// податку. Нуль = лежить готівкою, і це не «невідомо», а стан: журнал
+	// цілі відсотків не нараховує, тож нуль тут — вимір.
+	//
+	// Число ВИМІРЯНЕ, а не припущене: воно зважене тілом цільових вкладів
+	// (0062). Саме на ньому стоїть потрібний темп проти майбутньої ціни —
+	// без нього застосунок вимагав би однакового темпу від цілі на вкладі
+	// під 16% і від цілі в шухляді.
+	RatePct float64
 }
 
 // deriveGoals — картки цілей накопичення.
@@ -445,6 +454,7 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 			ByCurrency: g.ByCurrency, Places: g.Places, LastMove: g.LastMove,
 			DueDate: g.DueDate, DoneDate: g.DoneDate,
 			ActualNative: round2(g.ActualNative), ActualUAH: round2(g.ActualUAH),
+			RatePct:  g.RatePct,
 			MovedUAH: round2(g.MovedUAH),
 		}
 		// Розрив — у ВАЛЮТІ ЦІЛІ, гривневий іде поруч. Від'ємного не буває:

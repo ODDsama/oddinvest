@@ -62,7 +62,12 @@ type goalsBuilt struct {
 // Рухи розкладаються по цілях ОДНИМ проходом: ListGoalOps віддає весь
 // журнал разом навмисно (див. її коментар), і запит на кожну ціль означав
 // би N звернень до сховища на кожен /api/summary.
+// deps — вклади, позначені ціллю (0062), розкладені за її id. Вони
+// заходять сюди, а не додаються будівником окремо, бо гроші цілі мусить
+// зводити ОДНЕ місце: два додавання роздули б капітал на тіло вкладу, і
+// побачити це можна було б лише на інваріанті зведення.
 func buildGoals(goals []store.Goal, ops []store.GoalOp,
+	deps map[int64][]domain.Deposit,
 	rates fx.Rates, today domain.Date, now time.Time) goalsBuilt {
 
 	out := goalsBuilt{ByCur: map[string]float64{}}
@@ -126,6 +131,46 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 		}
 	}
 
+	// Вклади цілі — те саме зібране, лише в іншій формі зберігання, тож
+	// вони лягають у той самий накопичувач: тіло йде в «зібрано», банк —
+	// у місця, валюта — в експозицію. Окремої суми немає навмисно (довід
+	// у шапці параметра deps).
+	//
+	// Ставка збирається ПОРУЧ і зважується тілом. Вона й є те, заради чого
+	// цільовий вклад заводять: доти гроші цілі лежали під нуль, а ціна
+	// цілі росла на інфляцію, і потрібний темп рахувався так, ніби це
+	// нікого не стосується.
+	rateWeighted := map[int64]float64{}
+	rateWeight := map[int64]float64{}
+	for id, list := range deps {
+		a := per[id]
+		if a == nil {
+			continue // вклад на цілі, якої немає: той самий довід, що з рухом
+		}
+		for _, d := range list {
+			body := d.BalanceAt(today)
+			u, err := fx.ToUAH(money.New(body, d.Currency), rates)
+			if err != nil {
+				continue
+			}
+			v := float64(u.Amount()) / 100
+			a.uah += v
+			a.byCur[d.Currency] += float64(body) / 100
+			place := strings.TrimSpace(d.Bank)
+			if place == "" {
+				place = "—"
+			}
+			a.places[place] += v
+			// Вклад без ставки у зважування не входить узагалі — нуль там
+			// був би не «нульова дохідність», а «невідома». Той самий
+			// довід, що у зведеній дохідності (state_builder.go).
+			if d.RateBP > 0 && v > 0 {
+				rateWeighted[id] += domain.NetRate(d.RateBP, d.TaxBP) * 100 * v
+				rateWeight[id] += v
+			}
+		}
+	}
+
 	for _, g := range goals {
 		a := per[g.ID]
 		rate := goalRate(g.Currency, rates)
@@ -142,6 +187,9 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 			DueDate:         string(g.DueDate),
 			DoneDate:        string(g.DoneDate),
 			MovedUAH:        a.movedUAH,
+		}
+		if w := rateWeight[g.ID]; w > 0 {
+			in.RatePct = round2(rateWeighted[g.ID] / w)
 		}
 		if a.hasWindow && a.windowUAH > 0 {
 			months := paceMonths(a.windowFrom, today)
