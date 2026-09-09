@@ -450,7 +450,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// Вклад без ставки у зважування не входить узагалі: нуль там був би
 		// не «нульова дохідність», а «невідома», і тягнув би середню вниз.
 		if dep.RateBP > 0 {
-			net := domain.NetRate(dep.RateBP, dep.TaxBP)
+			// ЕФЕКТИВНА: цей доданок стоїть в одному зваженому середньому
+			// з YTM облігацій, а YTM — IRR. Довід цілком — при
+			// domain.Deposit.EffectiveNetRate.
+			net := dep.EffectiveNetRate()
 			depRealWeighted += realYield(net, dep.Currency, deval) * 100 * v
 			depNomWeighted += net * 100 * v
 			depRealWeight += v

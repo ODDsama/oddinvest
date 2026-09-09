@@ -277,7 +277,7 @@
     "ladder_rungs": 2,
     "ladder_rungs_target": 5,
     "next_rung_months": 6,
-    "ladder_earns_uah": 4286.62
+    "ladder_earns_uah": 4478.24
   },
   "goals_uah": 251000,
   "goals": [
@@ -979,14 +979,14 @@
     "USD": 0.85
   },
   "funds_yield_pct": 13.22,
-  "blended_yield_pct": 5.27,
+  "blended_yield_pct": 5.52,
   "portfolio_yield_real": {
     "EUR": 0.54,
     "UAH": -0.17,
     "USD": 0.85
   },
   "funds_yield_real_pct": 5.82,
-  "blended_yield_real_pct": 2.42,
+  "blended_yield_real_pct": 2.66,
   "funds_yield_basis": "різні основи",
   "funds_yield_split": {
     "measured_real_pct": -1.4,
@@ -999,18 +999,18 @@
   "blended_yield_split": {
     "measured_real_pct": 1.68,
     "measured_uah": 7041.64,
-    "promised_real_pct": 2.43,
+    "promised_real_pct": 2.67,
     "promised_uah": 365670.2
   },
   "kind_yield_real_pct": {
     "bonds": 0.68,
-    "deposits": 5.5,
+    "deposits": 6.23,
     "funds": 5.82,
     "npf": 9.24
   },
   "kind_yield_pct": {
     "bonds": 1.03,
-    "deposits": 12.88,
+    "deposits": 13.67,
     "funds": 13.22,
     "npf": 16.89
   },

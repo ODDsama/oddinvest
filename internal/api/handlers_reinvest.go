@@ -921,8 +921,10 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			continue
 		}
 		c := d.Currency
-		// Ставка після податку — те, що реально лишається.
-		netRate := domain.NetRate(d.RateBP, d.TaxBP)
+		// Ставка після податку — те, що реально лишається, і ЕФЕКТИВНА:
+		// поруч у цій самій колонці стоїть YTM облігації, а це IRR. Довід
+		// цілком — при domain.Deposit.EffectiveNetRate.
+		netRate := d.EffectiveNetRate()
 		real := realYield(netRate, c, devalPct)
 		costMajor := float64(d.Principal) / 100
 		fits, best := fitsFor(c, costMajor)
@@ -972,6 +974,12 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			continue
 		}
 		rateBP := int64(math.Round(*rp * 100)) // % → ×100, як RateBP
+		// ТУТ ЛИШАЄТЬСЯ ПРОСТА, і це не недогляд. Строку в майбутнього
+		// вкладу немає — його обирають у банку, — а без строку питання
+		// «проста чи ефективна» не має відповіді. Банки котирують річну
+		// номінальну, а на РІЧНОМУ вкладі з виплатою в кінці обидва
+		// означення збігаються тотожно (є тест), тож це не наближення, а
+		// названий строк за замовчуванням: рік.
 		netRate := domain.NetRate(rateBP, defaultDepositTaxBP)
 		real := realYield(netRate, c, devalPct)
 		costMajor := float64(minMinor) / 100

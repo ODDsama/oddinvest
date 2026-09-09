@@ -301,7 +301,16 @@ func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 				// НЕТТО, як і в помічнику реінвесту: відсотки вкладу
 				// оподатковані, купон ОВДП ні, і брутто в тій самій моделі
 				// робило б вклад систематично кращим, ніж він є.
-				net := domain.NetRate(rateBP, defaultDepositTaxBP)
+				// І ЕФЕКТИВНА: строк тут відомий (row.Months), а рукав
+				// прогнозу компаундить щомісяця — підставити туди просту
+				// ставку тризначного вкладу означало б домалювати йому
+				// відсотки, яких договір не обіцяє. Договір збирається тими
+				// самими дефолтами, що в гілці нижче.
+				net := domain.Deposit{
+					Currency: cur, Principal: row.Amount, RateBP: rateBP,
+					OpenDate: when, MaturityDate: when.AddMonths(row.Months),
+					Payout: domain.PayoutEnd, TaxBP: defaultDepositTaxBP,
+				}.EffectiveNetRate()
 				act := lockAction(row, when, row.Amount, cur,
 					bpFromPct(net*100), row.Months, "план: вклад "+row.Ref)
 				emit = func(string) { out.what.actions = append(out.what.actions, act) }

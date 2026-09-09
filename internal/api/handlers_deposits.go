@@ -232,11 +232,11 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 			ClosedAmount:  toMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
 			Note:          d.Note, Topups: tj,
 		}
-		// domain.NetRate — та сама формула, що й у реінвест-помічнику:
+		// EffectiveNetRate — та сама формула, що й у реінвест-помічнику:
 		// ставка мінус податок, далі знецінення. Доти вона стояла тут і
 		// ще двічі там, із проханням у коментарі не розходитись.
 		if d.RateBP > 0 {
-			net := domain.NetRate(d.RateBP, d.TaxBP)
+			net := d.EffectiveNetRate()
 			dr.NetPct = round2(net * 100)
 			dr.RealPct = round2(realYield(net, d.Currency, deval) * 100)
 			dr.YieldBasis = "ставка вкладу"

@@ -165,7 +165,7 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 			// був би не «нульова дохідність», а «невідома». Той самий
 			// довід, що у зведеній дохідності (state_builder.go).
 			if d.RateBP > 0 && v > 0 {
-				rateWeighted[id] += domain.NetRate(d.RateBP, d.TaxBP) * 100 * v
+				rateWeighted[id] += d.EffectiveNetRate() * 100 * v
 				rateWeight[id] += v
 			}
 		}

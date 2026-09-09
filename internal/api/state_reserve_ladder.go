@@ -47,7 +47,7 @@ func reserveLadderInput(deps []domain.Deposit, today domain.Date,
 		// подушку готівкою». Відповідь на нього — гривні на рахунку.
 		earns := 0.0
 		if d.RateBP > 0 {
-			earns = amountUAH * domain.NetRate(d.RateBP, d.TaxBP)
+			earns = amountUAH * d.EffectiveNetRate()
 		}
 		out = append(out, state.ReserveDeposit{
 			Months: months, AmountUAH: amountUAH,
