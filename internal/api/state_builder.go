@@ -1361,6 +1361,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		FXWindow:    fxw.rows,
 		AccruedUAH:  round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
 		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,
+		SavingsRatePct: savingsRatePct(actualMonthly, mth.Plan),
 	}
 	// Похідні — те, що виводиться з уже покладеного (state/derive.go).
 	// Capital зібраний вище один раз; state його лише читає.

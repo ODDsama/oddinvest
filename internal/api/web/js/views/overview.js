@@ -23,6 +23,7 @@
 
 import {
   esc, uah0, signedUAH, pct, capitalUAH, outsideUAH, uah2 as fmtUAH, curSym, dayMonth,
+  plural,
 } from "../format.js";
 import { tile, empty } from "../components.js";
 import { routeFor } from "../routes.js";
@@ -67,7 +68,32 @@ function heroHTML(ctx) {
     xirr ? `<div class="sub-xs">з урахуванням дат внесків</div>`
       : `<div class="sub-xs">гроші ще замолоді, щоб міряти</div>`)}
     ${tile("Вільні гроші", uah0(s.account_uah || 0), idleSubHTML(s))}
+    ${savingsRateTile(s)}
   </div>`;
+}
+
+/** Норма заощаджень — яка частка доходу справді відкладається.
+ *
+ *  Стоїть поруч із дохідністю навмисно, і саме в цьому суть плитки: на
+ *  стадії набору норма визначає накопичений капітал СИЛЬНІШЕ за
+ *  дохідність, і вона єдина цілком у твоїх руках. Доти застосунок показував
+ *  усе про 0.5 в.п. дохідності й нічого про 5 в.п. норми.
+ *
+ *  Обидві половини названі в підписі, тож число перевіряється діленням, а
+ *  не береться на віру. Разом із ними названа й межа: чисельник — темп за
+ *  вікном у кілька місяців, знаменник — дохід ЦЬОГО місяця.
+ *
+ *  Мовчить без плану доходу: ділити нема на що, а нуль читався б як
+ *  «нічого не відкладаю» — зовсім інше твердження. */
+function savingsRateTile(s) {
+  const r = s.savings_rate_pct;
+  if (!r) return "";
+  const gross = ((s.month_plan || {}).gross_uah) || 0;
+  const months = s.actual_months || 0;
+  const sub = `<div class="sub-xs">${uah0(s.actual_monthly_uah || 0)}/міс
+    ${months ? `за ${months} ${plural(months, "місяць", "місяці", "місяців")} ` : ""}з
+    ${uah0(gross)} доходу</div>`;
+  return tile("Норма заощаджень", pct(r), sub);
 }
 
 /** Підпис під «Вільними грішми»: простій, якщо він є, інакше поріг покупки.

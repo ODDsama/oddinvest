@@ -666,7 +666,7 @@
           "title": { "type": "string", "description": "саме рішення, одним рядком" },
           "why": { "type": "string", "description": "чому воно тут" },
           "when": { "type": "string", "description": "дата, строк або головне число задачі" },
-          "action": { "type": "string", "enum": ["record-buy", "top-up-deposit", "fill-reserve", "record-npf", "confirm-payment", "record-receipt", "review-limits", "see-suggestions", "review-deposit", "how-to-fund", "fill-goal"], "description": "семантичний ТОКЕН дії, а не підпис кнопки: маршрутизувати по перекладеній прозі означало б ламати посилання кожною редактурою. Порожньо, коли робити нічого не треба" },
+          "action": { "type": "string", "enum": ["record-buy", "top-up-deposit", "fill-reserve", "record-npf", "confirm-payment", "record-receipt", "review-limits", "see-suggestions", "review-deposit", "how-to-fund", "confirm-route", "fill-goal", "pay-planned", "pay-card", "pay-debt"], "description": "семантичний ТОКЕН дії, а не підпис кнопки: маршрутизувати по перекладеній прозі означало б ламати посилання кожною редактурою. Порожньо, коли робити нічого не треба" },
           "amount_uah": { "type": "number", "description": "сума, про яку йдеться, грн-екв.: проза для людини, число для автоматизації" }
         },
         "required": ["id", "sev", "rank", "title", "why"]
@@ -1230,6 +1230,10 @@
       "type": "integer",
       "description": "Скільки місяців увійшло у вимір фактичного темпу (адитивне поле)"
     },
+    "savings_rate_pct": {
+      "type": "number",
+      "description": "Норма заощаджень: actual_monthly_uah поділене на валовий дохід місяця (month_plan.gross_uah), у відсотках. Чисельник — середній темп за вікном, знаменник — цей місяць; на стрибучому доході це різні вікна, і так і сказано в картці. Порожньо = немає плану доходу (адитивне поле)"
+    },
     "nbu_refreshed_at": {
       "type": "string",
       "description": "Коли востаннє оновлювався довідник НБУ (адитивне поле)"
@@ -1294,9 +1298,10 @@
           "items": {
             "type": "object",
             "properties": {
-              "lever": { "type": "string", "enum": ["contrib", "rate", "deval", "deadline", "goal"], "description": "Який вхід зсунуто" },
+              "lever": { "type": "string", "enum": ["contrib", "rate", "deval", "deadline", "goal", "step_contrib", "step_rate"], "description": "Який вхід зсунуто. step_contrib і step_rate — ті самі внесок і ставка, зрушені в ОДНАКОВИХ кроках: решта рядків рухає внесок множниками, а ставку пунктами, і прочитати з них «що сильніше» неможливо" },
               "factor": { "type": "number", "description": "Множник (важелі contrib і goal)" },
-              "delta_pp": { "type": "number", "description": "Зсув у п.п. (важелі rate і deval)" },
+              "delta_pp": { "type": "number", "description": "Зсув у п.п. (важелі rate, deval і step_rate)" },
+              "delta_uah": { "type": "number", "description": "Зсув у ₴/міс (важіль step_contrib): крок узятий від нинішнього темпу й округлений до круглого числа" },
               "delta_months": { "type": "integer", "description": "Зсув у місяцях (важіль deadline)" },
               "value": { "type": "number", "description": "Величина ПІСЛЯ зсуву, у своїй одиниці: ₴/міс, %, п.п., ₴ або місяців" },
               "goal_months": { "type": "integer", "description": "Місяців до цілі за цього входу. Для важеля deadline — базові: місяць досягнення від дедлайну не залежить" },

@@ -499,6 +499,28 @@ type Doc struct {
 	ActualMonthlyUAH float64 `json:"actual_monthly_uah,omitempty"`
 	ActualMonths     int     `json:"actual_months,omitempty"`
 
+	// SavingsRatePct — НОРМА ЗАОЩАДЖЕНЬ: яка частка валового доходу
+	// справді відкладається. ActualMonthlyUAH ділиться на валовий дохід
+	// місяця (MonthPlan.GrossUAH).
+	//
+	// Чому це окреме число, а не «поділи очима»: на стадії набору саме
+	// норма заощаджень визначає накопичений капітал сильніше за
+	// дохідність, і вона єдина цілком у руках людини. Застосунок при цьому
+	// показував усе про 0.5 в.п. дохідності й нічого про 5 в.п. норми.
+	//
+	// ОБИДВІ ПОЛОВИНИ СТОЯТЬ ПОРУЧ (ActualMonthlyUAH і GrossUAH у
+	// MonthPlan), тож число перевіряється діленням, а не береться на віру.
+	//
+	// МЕЖА, І ЇЇ ТРЕБА НАЗИВАТИ: чисельник — середній темп за вікном
+	// (ActualMonths місяців), знаменник — валовий дохід ЦЬОГО місяця. На
+	// рівному доході це те саме, на стрибучому — ні. Зводити їх до одного
+	// вікна нема з чого: історії валового доходу застосунок не тримає,
+	// план доходу описує теперішній місяць.
+	//
+	// Нуль = або немає плану доходу, або темп нульовий. Розрізняти їх тут
+	// нема потреби: у першому випадку картка мовчить сама.
+	SavingsRatePct float64 `json:"savings_rate_pct,omitempty"`
+
 	// Settings — сирі налаштування сервіса (v0.3+, адитивне поле).
 	// Потрібні HA для number/date-сутностей: значення приходять сюди
 	// MQTT-пушем, зміни йдуть у PUT /api/settings.
@@ -2043,11 +2065,17 @@ type Drawdown struct {
 // Підписів тут немає навмисно: складати «внесок ×2» у бекенді означало б
 // тримати форматування у двох місцях — тут і в панелі.
 type SensitivityRow struct {
-	Lever       string  `json:"lever"` // contrib | rate | deval | deadline | goal
+	// Lever — contrib | rate | deval | deadline | goal, а також step_contrib
+	// і step_rate: ті самі два важелі, зрушені в ОДНАКОВИХ одиницях, щоб їх
+	// можна було порівняти між собою. Довід — у шапці buildSensitivity.
+	Lever       string  `json:"lever"`
 	Factor      float64 `json:"factor,omitempty"`
 	DeltaPP     float64 `json:"delta_pp,omitempty"`
 	DeltaMonths int     `json:"delta_months,omitempty"`
-	Value       float64 `json:"value"`
+	// DeltaUAH — на скільки гривень на місяць зрушений внесок. Тільки в
+	// рядка step_contrib: у решти важелів гривневого кроку немає.
+	DeltaUAH float64 `json:"delta_uah,omitempty"`
+	Value    float64 `json:"value"`
 	// GoalMonths / GoalDate — коли ціль буде досягнута за цього входу.
 	// Для важеля «дедлайн» вони БАЗОВІ, і це не помилка: місяць
 	// досягнення від дедлайну не залежить — він каже, коли ціль буде

@@ -1350,6 +1350,24 @@
         "goal_pct": 163.6
       },
       {
+        "lever": "step_contrib",
+        "delta_uah": 10000,
+        "value": 86790.8,
+        "goal_months": 37,
+        "goal_date": "2029-08-15",
+        "amount_uah": 4164244.66,
+        "goal_pct": 104.1
+      },
+      {
+        "lever": "step_rate",
+        "delta_pp": 1,
+        "value": 1,
+        "goal_months": 42,
+        "goal_date": "2030-01-15",
+        "amount_uah": 3835234.11,
+        "goal_pct": 95.9
+      },
+      {
         "lever": "rate",
         "delta_pp": 3,
         "value": 3,
@@ -1958,6 +1976,7 @@
   "nbu_refreshed_at": "2026-07-15T06:00:00Z",
   "actual_monthly_uah": 76790.8,
   "actual_months": 6,
+  "savings_rate_pct": 161.66,
   "settings": {
     "monthly_target_uah": 82183.41,
     "usd_target_share_pct": 25,

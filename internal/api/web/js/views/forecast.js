@@ -177,6 +177,12 @@ export function goalsHTML(ctx) {
 // Підпис важеля будується ТУТ, а не в бекенді: документ несе числа й
 // ключ, як RebalanceRow. Інакше форматування жило б у двох місцях.
 const LEVER_GROUP = [
+  // Перша група — ті самі два важелі в ОДНАКОВИХ кроках, і стоїть вона
+  // першою навмисно. Решта картки рухає внесок множниками, а ставку
+  // пунктами; з такої пари неможливо прочитати, що сильніше, — а це й є
+  // питання, заради якого сюди приходять. Тут кроки співмірні, тож
+  // порівняння читається прямо з двох сусідніх рядків.
+  ["step", "Однаковий крок", "що сильніше — відкладати більше чи знайти дохідніше"],
   ["contrib", "Внесок", "єдине, що ти рухаєш сам"],
   ["rate", "Ставка", "куди прийде довгострокова"],
   ["deval", "Знецінення", "як швидко слабшає гривня"],
@@ -187,6 +193,7 @@ const LEVER_GROUP = [
 // Як прочитати зсув рядка. Множник для внеску й цілі, п.п. для ринку,
 // місяці для дедлайну — заповнене рівно одне.
 function leverShift(r) {
+  if (r.delta_uah) return `+${Math.round(r.delta_uah).toLocaleString("uk-UA")} ₴/міс`;
   if (r.factor) return `×${String(r.factor).replace(".", ",")}`;
   if (r.delta_pp) return `${r.delta_pp > 0 ? "+" : "−"}${Math.abs(r.delta_pp)} п.п.`;
   if (r.delta_months) return `${r.delta_months > 0 ? "+" : "−"}${Math.abs(r.delta_months)} міс`;
@@ -198,8 +205,9 @@ function leverShift(r) {
 function leverValue(r) {
   const round = (v) => Math.round(v || 0).toLocaleString("uk-UA");
   switch (r.lever) {
-    case "contrib": return `${round(r.value)} ₴/міс`;
+    case "contrib": case "step_contrib": return `${round(r.value)} ₴/міс`;
     case "rate": return `${r.value > 0 ? "+" : ""}${r.value} п.п.`;
+    case "step_rate": return "до дохідності";
     case "deval": return `${pct(r.value)}/рік`;
     case "deadline": return humanMonths(r.value);
     case "goal": return `${round(r.value)} ₴`;
@@ -225,7 +233,11 @@ export function sensitivityHTML(ctx) {
     ? "від фактичного темпу" : "від планового внеску";
 
   const groups = LEVER_GROUP.map(([key, title, why]) => {
-    const rows = s.rows.filter((r) => r.lever === key);
+    // «Однаковий крок» збирає ДВА ключі — це одна група з двох рядків,
+    // які й треба читати поруч.
+    const rows = key === "step"
+      ? s.rows.filter((r) => r.lever === "step_contrib" || r.lever === "step_rate")
+      : s.rows.filter((r) => r.lever === key);
     if (!rows.length) return "";
     const items = rows.map((r) => {
       const when = goalWhen(r.goal_months, r.goal_date);
