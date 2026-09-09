@@ -71,18 +71,18 @@ func buildCapitalDelta(src *sources, capitalNow float64, rates fx.Rates) *state.
 		}
 	}
 	// Той самий склад, що в «усіх грошах» ціни рішень (rivalFlows,
-	// levelAll): гаманець, подушка, цілі, пенсійний.
-	for _, d := range src.deposits {
-		add(d.Date, d.Amount, d.Currency)
-	}
-	for _, op := range src.reserveOps {
-		add(op.Date, op.Amount, op.Currency)
-	}
-	for _, op := range src.goalOps {
-		add(op.Date, op.Amount, op.Currency)
-	}
-	for _, op := range src.npfOps {
-		add(op.Date, op.Amount, money.UAH)
+	// levelAll): гаманець, подушка, цілі. Означення й довід — externalMoves
+	// (state_money.go), а не переписаний тут четвертий раз перелік.
+	//
+	// ПЕНСІЙНОГО тут більше немає, і це виправлення, а не спрощення. Внесок
+	// у НПФ списується з рахунку (state_builder.go), тобто це переказ
+	// рахунок → НПФ усередині капіталу; форма НПФ ще й заводить парний
+	// рядок у deposits сама. Порахований окремим журналом, він давав ті самі
+	// гроші двічі: на бойовому три внески (500 + 101 + 1 000 ₴) роздували
+	// «зовнішні гроші» місяця на 1 601 ₴, а капітал від них не змінювався
+	// взагалі.
+	for _, m := range externalMoves(src) {
+		add(m.Date, m.Amount, m.Currency)
 	}
 	out.ContribUAH = round2(float64(contrib) / 100)
 	return out
