@@ -501,3 +501,47 @@ func TestRatePointOnOrBeforeCarriesItsDate(t *testing.T) {
 		t.Errorf("RateOnOrBefore = %d", r)
 	}
 }
+
+// Рядок, старший за колонку 0061, мусить читатись як −1, а не як 0.
+//
+// Це ЄДИНА властивість, заради якої в eur_share_bp узагалі заведено
+// сентинел, і вона не покривається сусіднім TestSnapshotSurvivesEveryColumn:
+// той пише всі колонки й перевіряє, що жодна не загубилась, тобто ніколи
+// не бачить рядка, у якому колонки не було.
+//
+// Ціна помилки тут не арифметична, а смислова: 0 % — законна частка
+// («євро немає»), тож DEFAULT 0 звів би докупи «тоді не рахували» і «тоді
+// не було», і обидва екрани намалювали б рівну лінію нуля за всю історію
+// як вимір. Тест імітує саме той рядок — вставка повз реєстр, без згадки
+// про колонку, — бо саме так виглядають знімки, записані до міграції.
+func TestSnapshotEURShareIsUnknownBeforeItsColumn(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+
+	if _, err := s.db.ExecContext(ctx,
+		`INSERT INTO snapshots (portfolio_id, date, invested_uah, nominal_uah_eq,
+		                        usd_share_bp, uninvested_uah)
+		 VALUES (?,?,?,?,?,?)`,
+		s.pid, "2026-07-15", 100, 200, 4200, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListSnapshots(ctx, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("очікували один знімок, маємо %d", len(got))
+	}
+	if got[0].EURShareBP != -1 {
+		t.Errorf("eur_share_bp = %d, чекали −1: DEFAULT 0 зробив би «не "+
+			"рахували» нерозрізнимим від виміряного нуля («євро немає»), "+
+			"і історія показала б рівну лінію нуля як вимір",
+			got[0].EURShareBP)
+	}
+	// А долар у тому самому рядку виміряний — на ньому колонка є з 0001,
+	// і сентинела в нього немає й бути не повинно.
+	if got[0].USDShareBP != 4200 {
+		t.Errorf("usd_share_bp = %d, чекали 4200", got[0].USDShareBP)
+	}
+}

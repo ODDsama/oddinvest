@@ -401,10 +401,15 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 	}
 	today := domain.NewDate(time.Now().In(r.loc))
 	return r.st.SaveSnapshot(ctx, store.Snapshot{
-		Date:           today,
-		InvestedUAH:    int64(doc.InvestedUAH * 100),
-		NominalUAHEq:   int64(doc.NominalUAHEq * 100),
-		USDShareBP:     int64(doc.USDSharePct * 100),
+		Date:         today,
+		InvestedUAH:  int64(doc.InvestedUAH * 100),
+		NominalUAHEq: int64(doc.NominalUAHEq * 100),
+		USDShareBP:   int64(doc.USDSharePct * 100),
+		// Джоба ЗАВЖДИ пише виміряну частку, зокрема й нуль: «євро немає»
+		// — це факт про день, а не порожнеча. Сентинел −1 із міграції 0061
+		// лишається виключно в рядках, старших за саму колонку, і саме на
+		// цьому стоїть право обох екранів показувати їх прочерком.
+		EURShareBP:     int64(doc.EURSharePct * 100),
 		UninvestedUAH:  int64(doc.UninvestedUAH * 100),
 		MonthTargetUAH: int64(doc.MonthTargetUAH * 100),
 		AccountUAH:     int64(doc.AccountUAH * 100),

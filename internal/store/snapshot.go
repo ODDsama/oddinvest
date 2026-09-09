@@ -27,10 +27,19 @@ type Snapshot struct {
 	InvestedUAH  int64       `json:"invested_uah"`
 	NominalUAHEq int64       `json:"nominal_uah_eq"`
 	USDShareBP   int64       `json:"usd_share_bp"`
+	// EURShareBP — частка EUR у капіталі того дня, базисні пункти (0061).
+	// Пара до USDShareBP, але з ІНШИМ означенням «невідомо»: тут це −1, а
+	// не 0, бо 0 % — законна частка («євро немає»), і зводити її з «тоді
+	// не рахували» означало б намалювати рівну лінію нуля як вимір. Тому
+	// й без omitempty: −1 мусить пережити бекап. Довід повністю — у шапці
+	// міграції; тут він скорочений, щоб наступний не «полагодив» знак.
+	EURShareBP int64 `json:"eur_share_bp"`
 	// Поля нижче додавались пізніше за сам знімок, і всі вони
 	// `omitempty`: бекап, зроблений до появи колонки, читається
 	// по-старому — там, де поля немає, лишається нуль, тобто те саме
-	// «тоді не рахували», що й у самій колонці.
+	// «тоді не рахували», що й у самій колонці. Виняток стоїть ВИЩЕ:
+	// EURShareBP теж пізній, але тримається біля своєї пари, бо валютні
+	// частки читають разом, — і саме тому має інше «невідомо».
 	UninvestedUAH  int64 `json:"uninvested_uah"`
 	MonthTargetUAH int64 `json:"month_target_uah,omitempty"`
 	AccountUAH     int64 `json:"account_uah,omitempty"`
@@ -93,6 +102,7 @@ var snapshotCols = []snapshotCol{
 	{"invested_uah", func(s *Snapshot) *int64 { return &s.InvestedUAH }},
 	{"nominal_uah_eq", func(s *Snapshot) *int64 { return &s.NominalUAHEq }},
 	{"usd_share_bp", func(s *Snapshot) *int64 { return &s.USDShareBP }},
+	{"eur_share_bp", func(s *Snapshot) *int64 { return &s.EURShareBP }},
 	{"uninvested_uah", func(s *Snapshot) *int64 { return &s.UninvestedUAH }},
 	{"month_target_uah", func(s *Snapshot) *int64 { return &s.MonthTargetUAH }},
 	{"account_uah", func(s *Snapshot) *int64 { return &s.AccountUAH }},
