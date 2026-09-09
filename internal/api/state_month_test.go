@@ -564,3 +564,121 @@ func TestMonthPlanPlannedRespectsAfterFilter(t *testing.T) {
 		t.Errorf("сплачена до звірки тисне на %v — вона вже у виміряному балансі", q.PlannedUAH)
 	}
 }
+
+// --- фактичний темп поповнень ---
+
+// paceOf — темп із buildMonth під тест: курсів немає навмисно, усе в
+// гривні, щоб перевірялась сама вибірка рухів, а не конвертація.
+func paceOf(t *testing.T, now time.Time, src *sources) (float64, int) {
+	t.Helper()
+	out, err := buildMonth(src, domain.Holdings{}, fx.Rates{}, now, domain.NewDate(now), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out.ActualMonthlyUAH, out.ActualMonths
+}
+
+// TestActualPaceIgnoresTransferToGoal — переказ гаманець → ціль не міняє
+// темпу, хоч і записаний двома ногами в різних журналах.
+//
+// Доти цикл темпу читав лише deposits, тобто бачив саму від'ємну ногу й
+// ЗАНИЖУВАВ темп на суму переказу: відкладання на авто виглядало як провал
+// дисципліни. Коментар у buildMonth обіцяв протилежне ще з міграції 0039,
+// а перевіряти обіцянку не було чим — жоден тест не дивився на
+// ActualMonthlyUAH.
+func TestActualPaceIgnoresTransferToGoal(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	d := func(off int) domain.Date { return domain.NewDate(now.AddDate(0, 0, off)) }
+
+	base := []store.Deposit{{Date: d(-60), Amount: 200_000, Currency: money.UAH, Broker: "mono"}}
+	want, wantMonths := paceOf(t, now, &sources{deposits: base})
+
+	withTransfer := &sources{
+		deposits: append(append([]store.Deposit{}, base...),
+			store.Deposit{Date: d(-30), Amount: -100_000, Currency: money.UAH, Broker: "mono"}),
+		goalOps: []store.GoalOp{
+			{GoalID: 1, Date: d(-30), Amount: 100_000, Currency: money.UAH, Place: "готівка"},
+		},
+	}
+	got, gotMonths := paceOf(t, now, withTransfer)
+	if got != want {
+		t.Errorf("темп після переказу в ціль %.2f, а мусив лишитись %.2f — нових грошей не з'явилось і не зникло", got, want)
+	}
+	if gotMonths != wantMonths {
+		t.Errorf("місяців %d, очікували %d", gotMonths, wantMonths)
+	}
+}
+
+// TestActualPaceCountsOutsideReserve — відкладене в матрац ЗЗОВНІ теж
+// внесок, хоч на рахунок брокера воно не заходило.
+//
+// Дзеркало попереднього тесту, той самий довід, що й у пари про
+// DepositedUAH: резерв рахується тим самим нетто, а не окремим правилом.
+func TestActualPaceCountsOutsideReserve(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	d := func(off int) domain.Date { return domain.NewDate(now.AddDate(0, 0, off)) }
+
+	src := &sources{reserveOps: []store.ReserveOp{
+		{Date: d(-2), Amount: 50_000, Currency: money.UAH, Place: "сейф"},
+	}}
+	got, months := paceOf(t, now, src)
+	want := round2(500 / paceMonths(d(-2), today))
+	if got != want {
+		t.Errorf("темп %.2f, очікували %.2f — резерв без жодного поповнення гаманця мусить давати темп сам", got, want)
+	}
+	if months != 1 {
+		t.Errorf("місяців %d, очікували 1", months)
+	}
+}
+
+// TestActualPaceReserveSpendLowersPace — витрата з матраца знижує темп:
+// гроші пішли з капіталу так само, як пішли б із рахунку.
+func TestActualPaceReserveSpendLowersPace(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	d := func(off int) domain.Date { return domain.NewDate(now.AddDate(0, 0, off)) }
+
+	base := []store.Deposit{{Date: d(-60), Amount: 200_000, Currency: money.UAH, Broker: "mono"}}
+	src := &sources{deposits: base, reserveOps: []store.ReserveOp{
+		{Date: d(-2), Amount: -50_000, Currency: money.UAH, Place: "готівка", Note: "на вет клініку"},
+	}}
+	got, _ := paceOf(t, now, src)
+	want := round2(1500 / paceMonths(d(-60), today))
+	if got != want {
+		t.Errorf("темп %.2f, очікували %.2f — витрата з резерву мусить зменшити нетто", got, want)
+	}
+}
+
+// TestActualPaceWindowCoversAllJournals — вікно 183 дні однакове для всіх
+// трьох журналів, і рух резерву на його межі так само розсовує знаменник.
+//
+// Знаменник тут і є суттю: доти `first` шукався лише серед поповнень, тож
+// найстаріший рух резерву в вікно потрапляв, а на кількість місяців не
+// впливав — темп виходив завищеним.
+func TestActualPaceWindowCoversAllJournals(t *testing.T) {
+	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	d := func(off int) domain.Date { return domain.NewDate(now.AddDate(0, 0, off)) }
+
+	base := []store.Deposit{{Date: d(-10), Amount: 200_000, Currency: money.UAH, Broker: "mono"}}
+
+	tooOld := &sources{deposits: base, reserveOps: []store.ReserveOp{
+		{Date: d(-184), Amount: 100_000, Currency: money.UAH, Place: "сейф"},
+	}}
+	got, _ := paceOf(t, now, tooOld)
+	if want := round2(2000 / paceMonths(d(-10), today)); got != want {
+		t.Errorf("темп %.2f, очікували %.2f — рух за 184 дні до вікна не входить", got, want)
+	}
+
+	onEdge := &sources{deposits: base, reserveOps: []store.ReserveOp{
+		{Date: d(-183), Amount: 100_000, Currency: money.UAH, Place: "сейф"},
+	}}
+	got, months := paceOf(t, now, onEdge)
+	if want := round2(3000 / paceMonths(d(-183), today)); got != want {
+		t.Errorf("темп %.2f, очікували %.2f — рух на 183-й день у вікні, і він же найстаріший", got, want)
+	}
+	if months != 7 {
+		t.Errorf("місяців %d, очікували 7 — знаменник рахується від руху резерву", months)
+	}
+}

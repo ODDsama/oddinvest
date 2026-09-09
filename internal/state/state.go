@@ -492,9 +492,10 @@ type Doc struct {
 	AccruedUAH     float64 `json:"accrued_uah,omitempty"`
 	NBURefreshedAt string  `json:"nbu_refreshed_at,omitempty"`
 
-	// ActualMonthlyUAH — фактичний середній темп поповнень, грн/міс
-	// (нові гроші, не покупки). ActualMonths — за скільки місяців історії
-	// він порахований. 0 = історії ще замало (<60 днів).
+	// ActualMonthlyUAH — фактичний середній темп поповнень, грн/міс: нето
+	// по трьох журналах зовнішніх грошей (гаманець, подушка, цілі), не
+	// покупки. ActualMonths — за скільки місяців історії він порахований.
+	// 0 = у вікні немає руху грошей або нето від'ємне.
 	ActualMonthlyUAH float64 `json:"actual_monthly_uah,omitempty"`
 	ActualMonths     int     `json:"actual_months,omitempty"`
 
