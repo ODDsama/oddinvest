@@ -74,6 +74,14 @@ type periodStructure struct {
 	Rows         []periodRow `json:"rows"`
 	USDShareFrom float64     `json:"usd_share_from"`
 	USDShareTo   float64     `json:"usd_share_to"`
+	// Частка EUR — пара до доларової, але з сентинелом: до міграції 0061
+	// колонки не було, і в старих знімках стоїть −1 бп, тобто −0.01 тут.
+	// Затирати його нулем НЕ можна — 0 % це законна частка («євро
+	// немає»), — тож відповідь везе знак як є, а рядок малює чи мовчить
+	// уже фронтенд. Те саме правило, що над kept нижче: те, чого не було
+	// ні на початку, ні в кінці, з екрана зникає.
+	EURShareFrom float64 `json:"eur_share_from"`
+	EURShareTo   float64 `json:"eur_share_to"`
 }
 
 // periodPlan — місячна ціль проти внесеного.
@@ -240,6 +248,8 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date, acc, gen string
 		ToDate:       string(after.Date),
 		USDShareFrom: round2(float64(before.USDShareBP) / 100),
 		USDShareTo:   round2(float64(after.USDShareBP) / 100),
+		EURShareFrom: round2(float64(before.EURShareBP) / 100),
+		EURShareTo:   round2(float64(after.EURShareBP) / 100),
 		Rows: []periodRow{
 			row("capital", "Капітал", snapshotCapitalUAH(*before), snapshotCapitalUAH(*after)),
 			row("bonds", "ОВДП (номінал)", before.NominalUAHEq, after.NominalUAHEq),

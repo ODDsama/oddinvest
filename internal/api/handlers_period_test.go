@@ -301,3 +301,68 @@ func TestPeriodOwnMatchesMonthTile(t *testing.T) {
 		t.Errorf("на рахунки: плитка %v ≠ підсумок %v", sum.Contributed, got.Money.ContribUAH)
 	}
 }
+
+// saveSnapFX — знімок із обома валютними частками. Окремо від saveSnap,
+// бо той лишає EURShareBP нулем, а нуль тут ЗНАЧУЩИЙ: він означає
+// «євро немає», і сплутати його з «не рахували» (−1) — рівно та помилка,
+// проти якої заведено сентинел у міграції 0061.
+func saveSnapFX(t *testing.T, st *store.Store, date string, nominalMinor, usdBP, eurBP int64) {
+	t.Helper()
+	if err := st.SaveSnapshot(context.Background(), store.Snapshot{
+		Date: domain.Date(date), NominalUAHEq: nominalMinor,
+		USDShareBP: usdBP, EURShareBP: eurBP,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Частка EUR їде поруч із доларовою й обома кінцями.
+//
+// Довго її не було ніде в історії: колонка знімка з'явилась лише 0061,
+// хоч ціль по євро задається з дев'ятого питання конфігуратора. Тобто
+// половина валютної політики жила без руху факту саме тоді, коли її
+// почали задавати.
+func TestPeriodCarriesEURShare(t *testing.T) {
+	srv, st := testServer(t)
+	seedPeriodMonth(t, st)
+	saveSnapFX(t, st, "2026-06-30", 100_000_00, 1000, 500)
+	saveSnapFX(t, st, "2026-07-31", 130_000_00, 1500, 800)
+
+	got := periodOf(t, srv.URL, "2026-07")
+	if got.Structure == nil {
+		t.Fatalf("розділ структури мав бути: %s", got.StructureNote)
+	}
+	if got.Structure.EURShareFrom != 5 || got.Structure.EURShareTo != 8 {
+		t.Errorf("частка EUR %.1f → %.1f, чекали 5 → 8",
+			got.Structure.EURShareFrom, got.Structure.EURShareTo)
+	}
+	if got.Structure.USDShareFrom != 10 || got.Structure.USDShareTo != 15 {
+		t.Errorf("частка USD %.1f → %.1f, чекали 10 → 15 — євро не мало "+
+			"зачепити доларову пару",
+			got.Structure.USDShareFrom, got.Structure.USDShareTo)
+	}
+}
+
+// Невиміряна частка EUR доїжджає ВІД'ЄМНОЮ, а не нулем.
+//
+// Знімок, старший за колонку 0061, несе −1 бп, тобто −0.01 після ділення.
+// Відповідь мусить довезти знак як є: рішення «малювати чи мовчати»
+// ухвалює екран, і ухвалити його він може лише за знаком. Затерти
+// сентинел нулем тут означало б сказати «євро не було» про день, про
+// який ми нічого не знаємо.
+func TestPeriodKeepsEURShareUnknownNegative(t *testing.T) {
+	srv, st := testServer(t)
+	seedPeriodMonth(t, st)
+	saveSnapFX(t, st, "2026-06-30", 100_000_00, 1000, -1)
+	saveSnapFX(t, st, "2026-07-31", 130_000_00, 1500, -1)
+
+	got := periodOf(t, srv.URL, "2026-07")
+	if got.Structure == nil {
+		t.Fatalf("розділ структури мав бути: %s", got.StructureNote)
+	}
+	if got.Structure.EURShareFrom >= 0 || got.Structure.EURShareTo >= 0 {
+		t.Errorf("частка EUR %.2f → %.2f, чекали від'ємні: сентинел "+
+			"«не рахували» не має перетворюватись на виміряний нуль",
+			got.Structure.EURShareFrom, got.Structure.EURShareTo)
+	}
+}

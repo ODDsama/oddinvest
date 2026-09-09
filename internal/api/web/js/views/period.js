@@ -95,12 +95,26 @@ export function structureHTML(p) {
   }
   const s = p.structure;
   const rows = s.rows.slice();
+  const sharePart = (label, from, to) => (from !== to
+    ? ` · частка ${label} ${pct(from)} → ${pct(to)}`
+    : ` · частка ${label} ${pct(to)}`);
+  // Долар стоїть завжди: колонка є з першої міграції, тож у кожному
+  // знімку він виміряний, і нуль у нього — теж вимір.
+  //
+  // Євро — лише коли обидва кінці ВИМІРЯНІ й хоч один ненульовий, і це
+  // дві різні відмови. Невиміряне приїжджає сюди від'ємним: колонки до
+  // 0061 не було, у старих рядках стоїть сентинел −1 бп (тут −0.01), і
+  // «було → стало» через появу колонки не проведеш. А нуль з обох боків
+  // — частка законна, але не факт про період: те саме правило, що вже
+  // ріже з таблиці нижче вид, якого не було ні на початку, ні в кінці.
+  const eurSeen = s.eur_share_from >= 0 && s.eur_share_to >= 0;
+  const eur = eurSeen && (s.eur_share_from > 0 || s.eur_share_to > 0)
+    ? sharePart("EUR", s.eur_share_from, s.eur_share_to)
+    : "";
   return `<div class="card">
     <h2>Було → стало</h2>
     <div class="note">${esc(s.from_date)} → ${esc(s.to_date)}${
-  s.usd_share_from !== s.usd_share_to
-    ? ` · частка USD ${pct(s.usd_share_from)} → ${pct(s.usd_share_to)}`
-    : ` · частка USD ${pct(s.usd_share_to)}`}</div>
+  sharePart("USD", s.usd_share_from, s.usd_share_to)}${eur}</div>
     ${opsGrid({
     cols: [
       { key: "label", label: "Що", cell: (r) => esc(r.label) },

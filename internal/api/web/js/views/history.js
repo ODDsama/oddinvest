@@ -297,6 +297,13 @@ export function snapshotsTableHTML(ctx) {
   const hasRes = rows.some((s) => (s.reserve_uah || 0) > 0);
   const hasGoals = rows.some((s) => (s.goals_uah || 0) > 0);
   const hasNPF = rows.some((s) => (s.npf_uah || 0) > 0);
+  // Євро — за тим самим правилом, що інструменти вище, але з ДВОМА
+  // станами «нічого»: частка може бути невиміряна (сентинел −1 бп із
+  // міграції 0061, сюди приїжджає −0.01: колонки тоді ще не було) або
+  // виміряна нулем («євро немає»). Колонку показуємо лише коли євро
+  // справді було, а невиміряні дні в ній малюємо прочерком — інакше
+  // рівна лінія нуля за півроку назад читалась би як вимір.
+  const hasEUR = rows.some((s) => (s.eur_share_pct || 0) > 0);
   const col = (on, key, label, cell) => (on ? { key, label, num: true, cell } : null);
   const cols = [
     { key: "date", label: "Дата", cell: (s) => esc(s.date) },
@@ -310,6 +317,8 @@ export function snapshotsTableHTML(ctx) {
     col(hasGoals, "goals", "Цілі", (s) => fmtUAH(s.goals_uah || 0)),
     { key: "usd", label: "Частка USD", num: true,
       cell: (s) => `${(s.usd_share_pct || 0).toFixed(1)}%` },
+    col(hasEUR, "eur", "Частка EUR",
+      (s) => (s.eur_share_pct >= 0 ? `${s.eur_share_pct.toFixed(1)}%` : "—")),
     { key: "uninvested", label: "Не перевкл.", num: true,
       cell: (s) => fmtUAH(s.uninvested_uah) },
   ].filter(Boolean);

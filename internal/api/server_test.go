@@ -4752,3 +4752,41 @@ func TestBlendedYieldSkipsRatelessDeposit(t *testing.T) {
 		t.Errorf("у дохідність мав увійти лише вклад зі ставкою, 100000, маємо %v", sum.BlendedBase)
 	}
 }
+
+// Валютні частки виїжджають із /api/snapshots ВІДСОТКАМИ, тобто під
+// іменами usd_share_pct і eur_share_pct.
+//
+// У базі вони базисні пункти, і перейменування робить рівно одна мапа
+// (apiName у handlers_reports.go). Доти в ній був один рядок, і коментар
+// поруч називав його «єдиним розходженням»; коли розходжень стало два,
+// забути друге було б тихо: відповідь віддала б сире eur_share_bp зі
+// значенням у сто разів більшим, а фронтенд намалював би 500 % замість 5.
+func TestSnapshotsAPIRenamesBothShares(t *testing.T) {
+	srv, st := testServer(t)
+	if err := st.SaveSnapshot(context.Background(), store.Snapshot{
+		Date: "2026-07-15", NominalUAHEq: 100_000_00,
+		USDShareBP: 1234, EURShareBP: 567,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	var rows []map[string]any
+	_, body := do(t, "GET", srv.URL+"/api/snapshots", "")
+	if err := json.Unmarshal([]byte(body), &rows); err != nil {
+		t.Fatalf("snapshots: %v: %s", err, body)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("очікували один знімок, маємо %d: %s", len(rows), body)
+	}
+	for _, raw := range []string{"usd_share_bp", "eur_share_bp"} {
+		if _, ok := rows[0][raw]; ok {
+			t.Errorf("у відповіді лишилось сире %q — apiName його не перейменувала", raw)
+		}
+	}
+	if got, _ := rows[0]["usd_share_pct"].(float64); got != 12.34 {
+		t.Errorf("usd_share_pct = %v, чекали 12.34", rows[0]["usd_share_pct"])
+	}
+	if got, _ := rows[0]["eur_share_pct"].(float64); got != 5.67 {
+		t.Errorf("eur_share_pct = %v, чекали 5.67", rows[0]["eur_share_pct"])
+	}
+}
