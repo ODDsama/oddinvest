@@ -1817,22 +1817,22 @@
       {
         "delta_pp": -2,
         "change_pct": 4.44,
-        "change_uah": 10673.9
+        "change_uah": 10687.25
       },
       {
         "delta_pp": -1,
         "change_pct": 2.22,
-        "change_uah": 5336.95
+        "change_uah": 5343.62
       },
       {
         "delta_pp": 1,
         "change_pct": -2.22,
-        "change_uah": -5336.95
+        "change_uah": -5343.62
       },
       {
         "delta_pp": 2,
         "change_pct": -4.44,
-        "change_uah": -10673.9
+        "change_uah": -10687.25
       }
     ],
     "reinvest_years": 1.5,

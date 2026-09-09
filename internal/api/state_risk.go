@@ -120,7 +120,7 @@ func buildRisk(in riskInput) riskPhase {
 		}
 	}
 	byCurDur := map[string]float64{}
-	var pvUAHTotal, macWeighted float64
+	var pvUAHTotal, macWeighted, modWeighted float64
 	for c, pts := range ptsByCur {
 		y := in.YieldByCur[c] / 100
 		if y <= 0 {
@@ -134,11 +134,19 @@ func buildRisk(in riskInput) riskPhase {
 		pvUAH := pv * rateMajor
 		pvUAHTotal += pvUAH
 		macWeighted += mac * pvUAH
+		// Модифікована зважується ТУТ, разом із Маколея, і саме тому, що
+		// ділиться вона на СВОЮ ставку. Доти зведена рахувалась нижче як
+		// mac / (1 + YieldPct), тобто доларова нога ділилась на гривневу
+		// ставку: при YTM 16.5% (UAH) проти ~4% (USD) її модифікована
+		// дюрація занижувалась на 9-10%, і рівно на стільки ж — усі чотири
+		// сценарії ±1/±2 в.п. у грошах. Подюрація по валютах (byCurDur)
+		// була правильна весь цей час — розходилось саме зведене число.
+		modWeighted += mod * pvUAH
 		byCurDur[c] = round2(mod)
 	}
 	if pvUAHTotal > 0 {
 		mac := macWeighted / pvUAHTotal
-		mod := mac / (1 + in.YieldPct/100)
+		mod := modWeighted / pvUAHTotal
 		scen := make([]state.RiskScenario, 0, 4)
 		for _, d := range []float64{-2, -1, 1, 2} {
 			chg := domain.PriceChangePct(mod, d)
