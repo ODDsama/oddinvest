@@ -163,9 +163,27 @@ func buildRisk(in riskInput) riskPhase {
 	}
 
 	// --- ліквідність ---
+	//
+	// ПІД РУКОЮ — це рахунки ПЛЮС готівка подушки ПЛЮС відкладене під
+	// цілі. Доти головним числом картки стояли самі рахунки, і на
+	// портфелі, де подушка лежить готівкою, вона казала «доступно 9,87 ₴»
+	// людині з десятьма тисячами в сейфі.
+	//
+	// Питання картки — коли гроші стають ДОСТУПНІ, а не що з них дозволено
+	// витратити. Подушку й ціль діставати нізвідки не треба: вони вже в
+	// руках, і мовчати про них означало б відповідати не на те питання.
+	// Куди їх не можна: у NowUAH (на рівності now_uah == account_uah
+	// тримається звірка звіту про рух коштів) і в LockedUAH (те означає
+	// «доведеться щось ламати»).
+	//
+	// Подвійного обліку з резервними ВКЛАДАМИ тут немає: сюди приходить
+	// ReserveUAH == reserveLiquidUAH, тобто журнальна готівка подушки без
+	// тіл рунг (state_builder.go). Самі рунги проходять картку нижче
+	// звичайними строковими.
+	availableNow := float64(in.AccountMinor)/100 + in.ReserveUAH + in.GoalsUAH
 	d30 := domain.NewDate(in.Now.AddDate(0, 0, 30))
 	d90 := domain.NewDate(in.Now.AddDate(0, 0, 90))
-	in30, in90 := in.AccountMinor, in.AccountMinor
+	var cf30, cf90 int64
 	for _, cf := range in.Cashflow {
 		if cf.Date.After(d90) {
 			continue
@@ -175,9 +193,9 @@ func buildRisk(in riskInput) riskPhase {
 			continue
 		}
 		if !cf.Date.After(d30) {
-			in30 += u.Amount()
+			cf30 += u.Amount()
 		}
-		in90 += u.Amount()
+		cf90 += u.Amount()
 	}
 	// ЗАМКНЕНЕ Й ЗЛАМНЕ — ДВІ РІЗНІ ВІДПОВІДІ, і доти вони стояли під одним
 	// підписом.
@@ -189,10 +207,16 @@ func buildRisk(in riskInput) riskPhase {
 	// revocable), і зсипати обидва в одне число означало б казати «цього не
 	// дістати» про гроші, які дістати можна, заплативши відсотками.
 	//
-	// У NowUAH/In30/In90 зламне НЕ входить: це не вільні гроші, і додати їх
-	// туди означало б зробити подушку купівельною спроможністю — та сама
-	// помилка, від якої резерв тримають окремим полем (див. Liquidity).
+	// У «під рукою»/In30/In90 зламне НЕ входить: це не вільні гроші, і
+	// додати їх туди означало б назвати негайно доступним те, що лежить у
+	// банку до дати погашення.
 	var lockedUAH, breakableUAH int64
+	// РЕЗЕРВНІ РУНГИ рахуються тут же й окремою сумою. Вони лишаються в
+	// спільному числі, бо для питання «коли гроші звільняться» вклад є
+	// вклад, — але без підпису картка мовчала про те, що частина
+	// замкненого це власна подушка, яка просто ще не дозріла, а не
+	// портфель.
+	var lockedReserveUAH, breakableReserveUAH int64
 	var unlockDate domain.Date
 	for _, dep := range in.TermDeposits {
 		// Вклад, що гаситься у вікні, вже порахований потоками вище —
@@ -203,8 +227,14 @@ func buildRisk(in riskInput) riskPhase {
 		if u, cerr := fx.ToUAH(money.New(dep.BalanceAt(today), dep.Currency), rates); cerr == nil {
 			if dep.Revocable {
 				breakableUAH += u.Amount()
+				if dep.IsReserve {
+					breakableReserveUAH += u.Amount()
+				}
 			} else {
 				lockedUAH += u.Amount()
+				if dep.IsReserve {
+					lockedReserveUAH += u.Amount()
+				}
 			}
 		}
 		// Дата — з УСІХ строкових, і зламних теж: питання «коли звільниться
@@ -236,15 +266,18 @@ func buildRisk(in riskInput) riskPhase {
 		npfLockedUAH += row.ValueUAH
 	}
 	out.Liquidity = &state.Liquidity{
-		NowUAH:       round2(float64(in.AccountMinor) / 100),
-		In30UAH:      round2(float64(in30) / 100),
-		In90UAH:      round2(float64(in90) / 100),
-		ReserveUAH:   round2(in.ReserveUAH),
-		GoalsUAH:     round2(in.GoalsUAH),
-		LockedUAH:    round2(float64(lockedUAH)/100 + npfLockedUAH),
-		BreakableUAH: round2(float64(breakableUAH) / 100),
-		UnlockDate:   string(unlockDate),
-		LockedNPFUAH: round2(npfLockedUAH),
+		AvailableNowUAH:     round2(availableNow),
+		NowUAH:              round2(float64(in.AccountMinor) / 100),
+		In30UAH:             round2(availableNow + float64(cf30)/100),
+		In90UAH:             round2(availableNow + float64(cf90)/100),
+		ReserveUAH:          round2(in.ReserveUAH),
+		GoalsUAH:            round2(in.GoalsUAH),
+		LockedUAH:           round2(float64(lockedUAH)/100 + npfLockedUAH),
+		BreakableUAH:        round2(float64(breakableUAH) / 100),
+		UnlockDate:          string(unlockDate),
+		LockedNPFUAH:        round2(npfLockedUAH),
+		LockedReserveUAH:    round2(float64(lockedReserveUAH) / 100),
+		BreakableReserveUAH: round2(float64(breakableReserveUAH) / 100),
 	}
 	return out
 }

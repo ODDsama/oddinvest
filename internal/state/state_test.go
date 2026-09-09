@@ -172,7 +172,14 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		},
 		NBURefreshedAt: "2026-07-15T06:10:00Z",
 		Liquidity: &Liquidity{
-			NowUAH: 1_500, In30UAH: 5_637.50, In90UAH: 9_775,
+			// «Під рукою» — рахунки ПЛЮС готівка подушки ПЛЮС цілі, і саме
+			// тому воно більше за now_uah рівно на 90 000. Рівність двох
+			// чисел приховала б головне рішення картки: рахунки лишились
+			// окремим підрядком, бо на now_uah == account_uah стоїть звірка
+			// зі звітом про рух коштів.
+			AvailableNowUAH: 91_500,
+			NowUAH:          1_500,
+			In30UAH:         95_637.50, In90UAH: 99_775,
 			ReserveUAH: 60_000, GoalsUAH: 30_000,
 			LockedUAH: 120_000, UnlockDate: "2027-03-17",
 			// Зламне — ОКРЕМО від замкненого, і навмисно не нуль: це різні
@@ -186,6 +193,10 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 			// приховала б підполе, а сума понад LockedUAH описувала б
 			// неможливий портфель.
 			LockedNPFUAH: 45_000,
+			// Подушка всередині замкненого й зламного — такі самі підполя, і
+			// теж не нулі: 20 000 із 75 000 вкладених намертво та 10 000 із
+			// 40 000 відкличних належать подушці, а не портфелю.
+			LockedReserveUAH: 20_000, BreakableReserveUAH: 10_000,
 		},
 		Independence: &Independence{
 			TargetUAH: 30_000, IncomeNowUAH: 1_240.50, TargetFrom: "expenses",

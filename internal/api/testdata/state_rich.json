@@ -1816,15 +1816,17 @@
     "reinvest_soon_uah": 174329.63
   },
   "liquidity": {
+    "available_now_uah": 699465.11,
     "now_uah": 467640.43,
-    "in_30_uah": 468950.37,
-    "in_90_uah": 492250.41,
+    "in_30_uah": 700775.05,
+    "in_90_uah": 724075.09,
     "reserve_uah": 30824.68,
     "goals_uah": 201000,
     "locked_uah": 17041.64,
     "breakable_uah": 120000,
     "unlock_date": "2026-10-28",
-    "locked_npf_uah": 2041.64
+    "locked_npf_uah": 2041.64,
+    "locked_reserve_uah": 15000
   },
   "market_yield": [
     {

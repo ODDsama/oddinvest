@@ -1208,7 +1208,12 @@ function factHTML(id, s, answers, current) {
   if (id === "when") {
     const l = s.liquidity;
     if (!l) return "";
-    out.push(line(`Зараз доступно <b>${fmtUAH(l.now_uah)}</b>, за 30 днів — ${
+    // Те саме число, що головне в картці ліквідності: рахунки плюс
+    // готівка подушки плюс відкладене під цілі. Лишити тут сам рахунок
+    // означало б, що два екрани називають різні суми на одне питання —
+    // а питання тут якраз про те, коли гроші будуть у руках.
+    const avail = l.available_now_uah == null ? l.now_uah : l.available_now_uah;
+    out.push(line(`Зараз під рукою <b>${fmtUAH(avail)}</b>, за 30 днів — ${
       fmtUAH(l.in_30_uah)}, за 90 — ${fmtUAH(l.in_90_uah)} (накопичувально, якщо нічого не купувати).`));
     if (l.locked_uah > 0) {
       const npf = l.locked_npf_uah > 0

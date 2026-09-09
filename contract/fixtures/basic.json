@@ -333,15 +333,18 @@
     }
   ],
   "liquidity": {
+    "available_now_uah": 91500,
     "now_uah": 1500,
-    "in_30_uah": 5637.5,
-    "in_90_uah": 9775,
+    "in_30_uah": 95637.5,
+    "in_90_uah": 99775,
     "reserve_uah": 60000,
     "goals_uah": 30000,
     "locked_uah": 120000,
     "breakable_uah": 40000,
     "unlock_date": "2027-03-17",
-    "locked_npf_uah": 45000
+    "locked_npf_uah": 45000,
+    "locked_reserve_uah": 20000,
+    "breakable_reserve_uah": 10000
   },
   "market_yield": [
     {
