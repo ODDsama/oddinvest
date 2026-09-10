@@ -113,6 +113,9 @@ func main() {
 	// переживає навіть пошкодження SQLite-файла
 	dataDir := filepath.Dir(cfg.DBPath)
 	runner := jobs.New(st, nc, fc, pub, srv.BuildStateDoc, log, filepath.Join(dataDir, "oddinvest-backup.json"))
+	// Публікація в MQTT іде у валюті звітності — тим самим шляхом, що
+	// /api/summary. Знімок лишається сирим (довід у jobs.Runner.present).
+	runner.SetPresenter(srv.PresentDoc)
 	srv.SetRefresher(runner)
 	// Тунель назовні (internal/tunnel). Створюється тут, а не в api:
 	// йому потрібні шлях бази (HOME для конектора) і адреса
@@ -133,6 +136,7 @@ func main() {
 	spawn := func(p store.Portfolio, sat *api.Server) (api.Refresher, func()) {
 		own := jobs.New(st.For(p.ID), nc, fc, nil, sat.BuildStateDoc, log,
 			filepath.Join(dataDir, "portfolios", p.Slug, "oddinvest-backup.json"))
+		own.SetPresenter(sat.PresentDoc)
 		fleet.Add(p.Slug, own)
 		if cfg.MQTTAddr != "" {
 			go func() {

@@ -50,7 +50,6 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
-	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -398,19 +397,12 @@ func (s *Server) rivalInputs(ctx context.Context, from domain.Date) (domain.Riva
 		code string
 		to   *domain.Quotes
 	}{{money.USD, &out.USD}, {money.EUR, &out.EUR}} {
-		pts, err := s.st.RatesSince(ctx, c.code, from)
+		// Разом із точкою ПЕРЕД початком сітки (quotesSince): історія курсів
+		// помісячна, і без неї суперник замовк би на всіх днях до першого
+		// числа наступного місяця.
+		q, err := s.quotesSince(ctx, c.code, from)
 		if err != nil {
 			return out, err
-		}
-		// Точка ПЕРЕД початком сітки потрібна окремо: історія курсів
-		// помісячна, і без неї суперник замовк би на всіх днях до
-		// першого числа наступного місяця.
-		if p, err := s.st.RatePointOnOrBefore(ctx, c.code, from); err == nil && p.RateE4 > 0 {
-			pts = append(pts, p)
-		}
-		q := make(domain.Quotes, 0, len(pts))
-		for _, p := range pts {
-			q = append(q, domain.Quote{On: p.Date, V: fx.Major(p.RateE4)})
 		}
 		*c.to = q
 	}

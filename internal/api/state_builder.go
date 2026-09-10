@@ -30,6 +30,11 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Валюта звітності — на виході, на готовому документі (presenter.go).
+	if err := s.present(r.Context(), doc); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, doc)
 }
 
@@ -1339,8 +1344,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 
 		Settings: settings, XIRRPct: xirr, Realized: realized,
 		PortfolioYieldPct: portfolioYield, PortfolioYield: portfolioYieldByCur,
-		PortfolioYieldReal: portfolioYieldRealByCur,
-		FundsYieldPct:      fundsYield, FundsYieldRealPct: fundsYieldReal,
+		PortfolioYieldRealPct: portfolioYieldReal, PortfolioYieldReal: portfolioYieldRealByCur,
+		FundsYieldPct: fundsYield, FundsYieldRealPct: fundsYieldReal,
 		FundsYieldBasis: fnd.Basis, FundsYieldSplit: fnd.Split,
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
 		BlendedYieldBasis: blendedYieldBasis, BlendedYieldBaseUAH: state.Major(blendedYieldBase, money.UAH),

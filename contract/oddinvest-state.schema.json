@@ -566,6 +566,10 @@
       "type": "number",
       "description": "Зведена дохідність після знецінення (адитивне поле)"
     },
+    "portfolio_yield_real_pct": {
+      "type": "number",
+      "description": "Зведений YTM облігацій після знецінення, скаляром (schema 3). У валюті звітності ≠ UAH саме він стоїть у portfolio_yield_pct, а це поле порожнє"
+    },
     "kind_yield_pct": {
       "type": "object",
       "description": "Номінальні двійники kind_yield_real_pct: bonds | funds | deposits | npf (адитивне поле)",

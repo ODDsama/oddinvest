@@ -32,9 +32,16 @@ type Runner struct {
 	// він зʼявляється ПІЗНІШЕ за Runner: mqtt.New блокує до 15 с, і
 	// тримати стільки POST /api/portfolios не можна — публікатор
 	// підʼєднується з горутини (SetPublisher), доки прогони вже йдуть.
-	pubMu      sync.Mutex
-	pub        *mqtt.Publisher
-	build      func(ctx context.Context, now time.Time) (*state.Doc, error)
+	pubMu sync.Mutex
+	pub   *mqtt.Publisher
+	build func(ctx context.Context, now time.Time) (*state.Doc, error)
+	// present — переклад документа у валюту звітності (api.Server.PresentDoc).
+	// Кличеться ЛИШЕ в PublishState, і це не забудькуватість, а межа:
+	// Snapshot читає сирий документ, бо знімок мусить лишатись у гривні —
+	// перекладений документ записав би долари в гривневі колонки, і
+	// побачити це можна було б лише за стрибком кривої в день перемикання.
+	// nil = публікувати як є (тести, старі виклики).
+	present    func(ctx context.Context, doc *state.Doc) error
 	log        *slog.Logger
 	loc        *time.Location
 	backupPath string // куди щодня писати JSON-дамп (порожньо = вимкнено)
@@ -467,11 +474,23 @@ func (r *Runner) PublishState(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if r.present != nil {
+		if err := r.present(ctx, doc); err != nil {
+			return err
+		}
+	}
 	b, err := doc.JSON()
 	if err != nil {
 		return err
 	}
 	return pub.PublishState(b)
+}
+
+// SetPresenter — підʼєднати переклад у валюту звітності. Окремим сетером, а
+// не параметром New, з тієї ж причини, що й публікатор: сервер створюється
+// без runner-а, а runner дістає збірку від сервера — цикл розривається тут.
+func (r *Runner) SetPresenter(fn func(ctx context.Context, doc *state.Doc) error) {
+	r.present = fn
 }
 
 // BackfillRates — разово підтягує історію курсу з НБУ, по одній точці на

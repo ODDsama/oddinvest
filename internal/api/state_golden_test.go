@@ -820,6 +820,72 @@ func TestBuildStateGolden(t *testing.T) {
 	}
 }
 
+// TestBuildStateGoldenUSD — той самий багатий портфель у валюті звітності
+// USD. Другий golden, а не правки в першому: перший тримає збірку (і мусить
+// лишатись байт у байт на перенесеннях), цей — переклад (курси, дати,
+// лінійка, поля лише для гривні). Обидва дивляться на один документ.
+func TestBuildStateGoldenUSD(t *testing.T) {
+	srv, st := testServer(t)
+	richPortfolio(t, srv.URL, st)
+	ctx := context.Background()
+	if err := st.SetSetting(ctx, reportCurrencyKey, "USD"); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	s := New(st, nil, log)
+	doc, err := s.buildStateTasked(ctx, goldenNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := doc.CapitalUAH
+	p, err := s.presenter(ctx, domain.NewDate(goldenNow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.doc(doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Currency != "USD" || doc.CurrencyNote != "" {
+		t.Fatalf("валюта: %s (%s)", doc.Currency, doc.CurrencyNote)
+	}
+	// Інваріанти, які golden сам не пояснює.
+	if rate := doc.Rates["USD"]; doc.CapitalUAH != raw.In("USD", rate) {
+		t.Errorf("капітал: %v ≠ %v / %v", doc.CapitalUAH, raw, rate)
+	}
+	if d := doc.CapitalDelta30; d != nil && d.DeltaUAH != doc.CapitalUAH.Sub(d.FromUAH) {
+		t.Errorf("дельта — різниця перекладених: %v ≠ %v − %v", d.DeltaUAH, doc.CapitalUAH, d.FromUAH)
+	}
+	if doc.BlendedYieldRealPct != 0 || doc.BlendedYieldPct == 0 {
+		t.Errorf("лінійка: %v / %v", doc.BlendedYieldPct, doc.BlendedYieldRealPct)
+	}
+	for _, g := range doc.Goals {
+		if !g.GapFutureUAH.IsZero() || g.InflationPct != 0 {
+			t.Errorf("ціль %s: майбутні гроші лише в гривні", g.Name)
+		}
+	}
+
+	got, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = append(got, '\n')
+	path := filepath.Join("testdata", "state_rich_usd.json")
+	if *updateGolden {
+		if err := os.WriteFile(path, got, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("немає golden (%v). Створи: go test ./internal/api -run TestBuildStateGoldenUSD -update", err)
+	}
+	if string(got) != string(want) {
+		t.Errorf("доларовий документ змінився:\n  go test ./internal/api -run TestBuildStateGoldenUSD -update\n\n%s",
+			firstDiff(string(want), string(got)))
+	}
+}
+
 // TestBuildStateIsDeterministic — той самий портфель мусить давати той
 // самий документ БАЙТ У БАЙТ, скільки разів його не будуй.
 //

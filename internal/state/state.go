@@ -49,7 +49,7 @@ type Doc struct {
 	// перекладає документ у валюту звітності й переписує це поле.
 	// CurrencyNote — чому показано не те, що просили: курсу на сьогодні ще
 	// немає, тож замість долара — гривня.
-	Currency     string `json:"currency"`
+	Currency     string `json:"currency" money:"code"`
 	CurrencyNote string `json:"currency_note,omitempty"`
 
 	InvestedUAH  Money `json:"invested_uah"`   // вартість входу залишків, грн-екв.
@@ -326,12 +326,24 @@ type Doc struct {
 	// означають «не знаємо», а не «нуль», і вказівник тримає цю різницю.
 	TotalReturn *TotalReturn `json:"total_return,omitempty"`
 
-	PortfolioYieldPct float64 `json:"portfolio_yield_pct,omitempty"`
+	// ЛІНІЙКА ДОХІДНОСТІ ЗАЛЕЖИТЬ ВІД ВАЛЮТИ ЗВІТНОСТІ (теги money:"ruler=…",
+	// schema 3). У гривні номінальна й реальна стоять парою, як і доти. У
+	// доларі чи євро номінальна гривнева ставка нічого не каже — 15% ОВДП
+	// це не 15% у доларах, — тож головним числом стає те, що зветься
+	// «реальна проти долара» (realYield: номінал, поділений на знецінення;
+	// валютні папери як є), а гривневий номінал не публікується зовсім.
+	// Робить це презентер (internal/present): поле бере значення
+	// *_real*-сусіда, сусід обнуляється.
+	PortfolioYieldPct float64 `json:"portfolio_yield_pct,omitempty" money:"ruler=portfolio_yield_real_pct"`
+	// PortfolioYieldRealPct — реальний двійник зведеного YTM облігацій
+	// (schema 3): доти в документі була лише мапа по валютах, а скалярного
+	// числа, яке взяла б лінійка, не було.
+	PortfolioYieldRealPct float64 `json:"portfolio_yield_real_pct,omitempty"`
 
 	// PortfolioYield — та сама дохідність, але окремо по кожній валюті
 	// (нативно, без конвертації): YTM паперів цієї валюти, зважений
 	// вкладеними грішми. Відсутня валюта = паперів немає.
-	PortfolioYield map[string]float64 `json:"portfolio_yield,omitempty"`
+	PortfolioYield map[string]float64 `json:"portfolio_yield,omitempty" money:"ruler=portfolio_yield_real"`
 
 	// FundsYieldPct — дохідність сертифікатів, зважена їхньою ринковою
 	// вартістю (повна: дивіденди зі зміною ціни; де історії замало —
@@ -342,8 +354,8 @@ type Doc struct {
 	// дохідність фонду — факт по прожитому, який завтра буде іншим. Одне
 	// число замість двох сховало б цю різницю, а саме воно потім керує
 	// проєкціями.
-	FundsYieldPct   float64 `json:"funds_yield_pct,omitempty"`
-	BlendedYieldPct float64 `json:"blended_yield_pct,omitempty"`
+	FundsYieldPct   float64 `json:"funds_yield_pct,omitempty" money:"ruler=funds_yield_real_pct"`
+	BlendedYieldPct float64 `json:"blended_yield_pct,omitempty" money:"ruler=blended_yield_real_pct"`
 
 	// *Real — ті самі три величини після знецінення гривні, тобто в
 	// сьогоднішній купівельній спроможності (адитивні поля, v0.5+).
@@ -433,7 +445,7 @@ type Doc struct {
 	// єдиним місцем застосунку, де це правило не діяло, — просто тому, що
 	// номінальних двійників для вкладів і НПФ не існувало взагалі. Тепер
 	// вони пораховані там само, де реальні, і мовчати про них немає причин.
-	KindYieldPct map[string]float64 `json:"kind_yield_pct,omitempty"`
+	KindYieldPct map[string]float64 `json:"kind_yield_pct,omitempty" money:"ruler=kind_yield_real_pct"`
 
 	// Projection — прогноз капіталу помісячною симуляцією реальних потоків
 	// (купони/погашення наявних паперів + внески, реінвест під дохідність).
@@ -1307,20 +1319,25 @@ type Goal struct {
 	// відмови, що й «суперник депозит» у README.
 	//
 	// Порожні, коли ряду ІСЦ ще немає, дедлайну немає або він минув.
-	TargetFutureNative   Money `json:"target_future_native,omitzero"`
-	GapFutureNative      Money `json:"gap_future_native,omitzero"`
-	RequiredFutureNative Money `json:"required_future_native,omitzero"`
+	//
+	// І порожні у валюті звітності ≠ гривні (money:"uah-only", schema 3):
+	// весь блок індексований українським ІСЦ, тобто це відповідь про
+	// гривневі ціни, і в доларовому документі їй немає місця — ані як
+	// числу, ані як поділеному на курс числу.
+	TargetFutureNative   Money `json:"target_future_native,omitzero" money:"uah-only"`
+	GapFutureNative      Money `json:"gap_future_native,omitzero" money:"uah-only"`
+	RequiredFutureNative Money `json:"required_future_native,omitzero" money:"uah-only"`
 	// Гривневі двійники двох попередніх. Сьогодні вони ДОРІВНЮЮТЬ нативним
 	// тотожно, бо весь цей блок рахується лише для гривневих цілей, — і
 	// існують саме тому, що на них стоять читачі, які про це знати не
 	// мусять: черга наповнення й вирок «встигаю» працюють у гривні й не
 	// повинні здогадуватись, що native тут випадково та сама одиниця.
-	GapFutureUAH      Money `json:"gap_future_uah,omitzero"`
-	RequiredFutureUAH Money `json:"required_future_uah,omitzero"`
+	GapFutureUAH      Money `json:"gap_future_uah,omitzero" money:"uah-only"`
+	RequiredFutureUAH Money `json:"required_future_uah,omitzero" money:"uah-only"`
 	// InflationPct — темп, яким пораховані числа вище. Стоїть поруч із
 	// ними навмисно: без нього «780 000 ₴ у 2036-му» неможливо ні
 	// перевірити, ні відтворити.
-	InflationPct float64 `json:"inflation_pct,omitempty"`
+	InflationPct float64 `json:"inflation_pct,omitempty" money:"uah-only"`
 }
 
 // DebtPlan — борг у документі стану.
@@ -1415,9 +1432,14 @@ type CapitalDelta struct {
 	// FromDate — дата знімка, з яким порівнюємо: останній на 30 і більше
 	// днів тому. Не «рівно 30» — знімок може бути пропущений (демон
 	// лежав), і тоді береться найближчий старший.
+	//
+	// У валюті звітності (schema 3) FromUAH перекладається курсом СВОЄЇ дати,
+	// а DeltaUAH — різниця вже перекладених капіталу й старту, не гривнева
+	// дельта, поділена на один курс: за місяць курс рухається, і саме цей
+	// рух і є частиною відповіді «на скільки я багатший у доларах».
 	FromDate string  `json:"from_date"`
-	FromUAH  Money   `json:"from_uah"`
-	DeltaUAH Money   `json:"delta_uah"`
+	FromUAH  Money   `json:"from_uah" money:"asof=from_date"`
+	DeltaUAH Money   `json:"delta_uah" money:"diff=capital_uah,from_uah"`
 	DeltaPct float64 `json:"delta_pct,omitempty"`
 	// ContribUAH — зовнішні гроші за вікно НЕТТО: поповнення й зняття
 	// гаманця, рухи подушки й цілей. Той самий склад, що в «усіх грошах»
@@ -2484,13 +2506,15 @@ type RateBreakdown struct {
 	// НБУ, обіцянка фонду. NetPct — вона ж після податку; для ОВДП вони
 	// збігаються, бо дохід з них звільнений і від ПДФО, і від
 	// військового збору.
-	GrossPct       float64  `json:"gross_pct"`
-	TaxPct         float64  `json:"tax_pct,omitempty"`
-	NetPct         float64  `json:"net_pct"`
-	DevaluationPct float64  `json:"devaluation_pct"`
-	RealFXPct      float64  `json:"real_fx_pct"`
-	InflationPct   *float64 `json:"inflation_pct,omitempty"`
-	RealCPIPct     *float64 `json:"real_cpi_pct,omitempty"`
+	GrossPct       float64 `json:"gross_pct"`
+	TaxPct         float64 `json:"tax_pct,omitempty"`
+	NetPct         float64 `json:"net_pct"`
+	DevaluationPct float64 `json:"devaluation_pct"`
+	RealFXPct      float64 `json:"real_fx_pct"`
+	// Обидва лише в гривні (money:"uah-only", schema 3): ІСЦ — про
+	// гривневі ціни, і в доларовому документі другої лінійки немає.
+	InflationPct *float64 `json:"inflation_pct,omitempty" money:"uah-only"`
+	RealCPIPct   *float64 `json:"real_cpi_pct,omitempty" money:"uah-only"`
 	// Basis — те саме, що YieldBasis поруч: із ЧОГО взята ставка
 	// (обіцянка, ставка вкладу, дохідність до погашення, вимір). Дублюється
 	// сюди навмисно: розклад відкривають окремим вікном, і в ньому мусить
