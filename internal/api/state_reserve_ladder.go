@@ -50,7 +50,7 @@ func reserveLadderInput(deps []domain.Deposit, today domain.Date,
 			earns = amountUAH * d.EffectiveNetRate()
 		}
 		out = append(out, state.ReserveDeposit{
-			Months: months, AmountUAH: amountUAH,
+			Months: months, AmountUAH: state.Major(amountUAH, money.UAH),
 			Revocable: d.Revocable, EarnsUAH: earns,
 		})
 	}

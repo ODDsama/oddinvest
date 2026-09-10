@@ -31,6 +31,7 @@ package api
 
 import (
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -84,17 +85,17 @@ func (c *cashLedger) byCurrency() map[string]int64 {
 // перевірки «чи вистачає на папір». Порожня назва брокера показується як
 // «—»: гроші без прив'язки — це теж місце, і мовчки зливати їх із чиїмось
 // рахунком не можна.
-func (c *cashLedger) byBroker() map[string]map[string]float64 {
-	out := map[string]map[string]float64{}
+func (c *cashLedger) byBroker() map[string]map[string]state.Money {
+	out := map[string]map[string]state.Money{}
 	for k, m := range c.byBC {
 		name := k.Broker
 		if name == "" {
 			name = noBrokerLabel
 		}
 		if out[name] == nil {
-			out[name] = map[string]float64{}
+			out[name] = map[string]state.Money{}
 		}
-		out[name][k.Currency] = float64(m) / 100
+		out[name][k.Currency] = state.Minor(m, k.Currency)
 	}
 	return out
 }

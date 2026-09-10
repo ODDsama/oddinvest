@@ -100,7 +100,7 @@ func (s *Server) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 		return nil
 	}
 	out := &state.TotalReturn{
-		GainUAH:      round2(float64(gain) / 100),
+		GainUAH:      state.Minor(gain, money.UAH),
 		GainPct:      round2(float64(gain) / float64(invested) * 100),
 		MinDays:      xirrMinMoneyDays,
 		FXMaxLagDays: asOf.maxLag,

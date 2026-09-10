@@ -11,6 +11,7 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 // TestProgressReconciles — числа прогресу мусять дорівнювати тим
@@ -612,7 +613,7 @@ func TestProgressCardZeroDatedByCurrentRun(t *testing.T) {
 // Порогам капіталу темп дає ціль внесків: 30 000 ₴/міс — це 1 000 на
 // день, і 100 000 з нуля — це 100 днів.
 func TestProgressEtaNamesItsBasis(t *testing.T) {
-	doc := &state.Doc{MonthTargetUAH: 30_000}
+	doc := &state.Doc{MonthTargetUAH: state.Major(30_000, money.UAH)}
 	ms := buildMilestones(doc, &sources{}, nil, nil, streakDoc{}, nil, nil, nil, "2026-07-15")
 	byKey := map[string]milestone{}
 	for _, m := range ms {

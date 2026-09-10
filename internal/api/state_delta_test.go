@@ -42,8 +42,8 @@ func TestCapitalDeltaCountsNPFContributionOnce(t *testing.T) {
 	if out == nil {
 		t.Fatal("дельти немає, хоч знімок є")
 	}
-	if out.ContribUAH != 500 {
-		t.Errorf("зовнішні гроші %.2f, очікували 500 — внесок у НПФ уже порахований поповненням", out.ContribUAH)
+	if out.ContribUAH.Major() != 500 {
+		t.Errorf("зовнішні гроші %.2f, очікували 500 — внесок у НПФ уже порахований поповненням", out.ContribUAH.Major())
 	}
 }
 
@@ -73,7 +73,7 @@ func TestCapitalDeltaCountsThreeJournals(t *testing.T) {
 	if out == nil {
 		t.Fatal("дельти немає, хоч знімок є")
 	}
-	if out.ContribUAH != 1000 {
-		t.Errorf("зовнішні гроші %.2f, очікували 1000 (700 гаманець + 300 матрац; переказ у ціль дає нуль)", out.ContribUAH)
+	if out.ContribUAH.Major() != 1000 {
+		t.Errorf("зовнішні гроші %.2f, очікували 1000 (700 гаманець + 300 матрац; переказ у ціль дає нуль)", out.ContribUAH.Major())
 	}
 }

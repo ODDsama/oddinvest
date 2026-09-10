@@ -613,8 +613,8 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 
 	// --- подушка першою ---
 	avail := amountUAH
-	if doc.Reserve != nil && doc.Reserve.FillNowUAH > 0 {
-		want := math.Min(amountUAH, doc.Reserve.FillNowUAH)
+	if doc.Reserve != nil && doc.Reserve.FillNowUAH.Major() > 0 {
+		want := math.Min(amountUAH, doc.Reserve.FillNowUAH.Major())
 		cut := math.Min(want, math.Max(0, allow.ReserveUAH))
 		if blocked := want - cut; blocked > 0.005 {
 			out.ReserveSkipWhy = reserveSkipWhy(doc.Settings, blocked, cut,
@@ -630,8 +630,8 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		// жене розрив до нуля, лишаючи FillNowUAH додатним (route.go, apply),
 		// і без цієї перевірки копійчана вирізка пролізла б у вже закритий
 		// розрив саме дверима винятку.
-		if closes := doc.Reserve.GapUAH > 0.005 &&
-			cut >= doc.Reserve.GapUAH-0.005; cut > 0.005 && cut < allocMinCutUAH && !closes {
+		if closes := doc.Reserve.GapUAH.Major() > 0.005 &&
+			cut >= doc.Reserve.GapUAH.Major()-0.005; cut > 0.005 && cut < allocMinCutUAH && !closes {
 			why := allocBelowFloorWhy("подушка", "не бере", "добере", cut)
 			if out.ReserveSkipWhy != "" {
 				// Політика вже сказала, ЧОМУ вирізка схудла до цього числа;
@@ -644,12 +644,12 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		}
 		if cut > 0.005 {
 			why := fmt.Sprintf("місячна частка подушки — %s з %s",
-				uah(cut), uah(doc.Reserve.FillMonthUAH))
+				uah(cut), uah(doc.Reserve.FillMonthUAH.Major()))
 			switch {
-			case cut < doc.Reserve.FillNowUAH:
+			case cut < doc.Reserve.FillNowUAH.Major():
 				why += "; більше з цієї суми не вийде — решту добере наступне надходження"
-			case doc.Reserve.GapUAH > 0:
-				why += fmt.Sprintf("; до цілі ще %s", uah(doc.Reserve.GapUAH))
+			case doc.Reserve.GapUAH.Major() > 0:
+				why += fmt.Sprintf("; до цілі ще %s", uah(doc.Reserve.GapUAH.Major()))
 			}
 			out.Reserve = &allocReserve{AmountUAH: round2(cut), Why: why}
 			avail = amountUAH - cut
@@ -713,10 +713,10 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		blocked, floored := 0.0, 0.0
 		for i := range doc.Goals {
 			g := &doc.Goals[i]
-			if g.FillNowUAH <= 0 {
+			if g.FillNowUAH.Major() <= 0 {
 				continue
 			}
-			want := math.Min(avail, g.FillNowUAH)
+			want := math.Min(avail, g.FillNowUAH.Major())
 			cut := math.Min(want, elig)
 			if b := want - cut; b > 0.005 {
 				blocked += b
@@ -731,20 +731,20 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			// continue стоїть ПЕРЕД avail -= cut і elig -= cut, тож пропущена
 			// вирізка справді лишається доступною далі — і паперам цієї ноги, і
 			// цілям наступної.
-			if closes := g.GapUAH > 0.005 && cut >= g.GapUAH-0.005; cut < allocMinCutUAH && !closes {
+			if closes := g.GapUAH.Major() > 0.005 && cut >= g.GapUAH.Major()-0.005; cut < allocMinCutUAH && !closes {
 				floored += cut
 				continue
 			}
-			why := fmt.Sprintf("місячна частка цілі — %s з %s", uah(cut), uah(g.FillMonthUAH))
+			why := fmt.Sprintf("місячна частка цілі — %s з %s", uah(cut), uah(g.FillMonthUAH.Major()))
 			switch {
-			case cut < g.FillNowUAH:
+			case cut < g.FillNowUAH.Major():
 				why += "; більше з цієї суми не вийде — решту добере наступне надходження"
-			case g.GapUAH > 0:
-				why += fmt.Sprintf("; до цілі ще %s", uah(g.GapUAH))
+			case g.GapUAH.Major() > 0:
+				why += fmt.Sprintf("; до цілі ще %s", uah(g.GapUAH.Major()))
 			}
-			if g.ShortMonthUAH > 0 {
+			if g.ShortMonthUAH.Major() > 0 {
 				why += fmt.Sprintf(". Щоб устигнути до %s, треба ще %s на місяць — стеля стільки не дає",
-					g.DueDate, uah(g.ShortMonthUAH))
+					g.DueDate, uah(g.ShortMonthUAH.Major()))
 			}
 			out.Goals = append(out.Goals, allocGoalCut{
 				ID: g.ID, Name: g.Name, AmountUAH: round2(cut), Why: why,
@@ -782,7 +782,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	rows := make([]state.RebalanceRow, len(doc.Rebalance))
 	copy(rows, doc.Rebalance)
 	for i := range rows {
-		rows[i].MonthShareUAH, rows[i].MonthBalanceUAH = 0, 0
+		rows[i].MonthShareUAH, rows[i].MonthBalanceUAH = state.Money{}, state.Money{}
 	}
 	// ЗАБОРОНЕНИЙ ВИД ГАСИТЬСЯ ЦІЛЛЮ, А НЕ ВИКИДАЄТЬСЯ ПІСЛЯ ПОДІЛУ.
 	//
@@ -807,7 +807,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	// вкладати: перша чекає на аварію, друга — на річ у названу дату.
 	// Лишити їх у базі означало б ділити гроші місяця на знаменник, у
 	// якому частина ніколи не стане папером.
-	needs := spreadMonth(rows, avail, doc.CapitalUAH-doc.ReserveUAH-doc.GoalsUAH)
+	needs := spreadMonth(rows, avail, doc.CapitalUAH.Major()-doc.ReserveUAH.Major()-doc.GoalsUAH.Major())
 
 	type kindBudget struct {
 		key string
@@ -820,14 +820,14 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	}
 	var budgets []kindBudget
 	for i, r := range rows {
-		if r.Dimension != "kind" || r.TargetPct <= 0 || r.MonthBalanceUAH <= 0 {
+		if r.Dimension != "kind" || r.TargetPct <= 0 || r.MonthBalanceUAH.Major() <= 0 {
 			continue
 		}
 		n := 0.0
 		if i < len(needs) {
 			n = needs[i]
 		}
-		budgets = append(budgets, kindBudget{key: r.Key, uah: r.MonthBalanceUAH, need: n})
+		budgets = append(budgets, kindBudget{key: r.Key, uah: r.MonthBalanceUAH.Major(), need: n})
 	}
 	// ПОРОЖНІЙ ПЕРЕЛІК БЮДЖЕТІВ БІЛЬШЕ НЕ Є РАННІМ ВИХОДОМ.
 	//
@@ -1123,15 +1123,15 @@ func allocTopUp(out *allocPlan, in topUpIn) float64 {
 	// --- ярус 1: цілі, що не встигають ---
 	for i := range in.goals {
 		g := &in.goals[i]
-		if g.ShortMonthUAH <= 0 {
+		if g.ShortMonthUAH.Major() <= 0 {
 			continue
 		}
-		room := g.GapUAH - goalTaken(out, g.ID)
+		room := g.GapUAH.Major() - goalTaken(out, g.ID)
 		if room <= 0.005 {
 			continue
 		}
 		spots = append(spots, allocSpot{
-			goal: g.ID, rank: g.ShortMonthUAH, room: room, allow: g.FillFromUAH,
+			goal: g.ID, rank: g.ShortMonthUAH.Major(), room: room, allow: g.FillFromUAH.Major(),
 		})
 	}
 	sortSpots(spots)
@@ -1182,10 +1182,10 @@ func allocTopUp(out *allocPlan, in topUpIn) float64 {
 		// allow — ВАЛОВА стеля, як і в цілей: відняти вже взяте — робота
 		// того, хто ріже. Два різні правила відрахування на два приймачі
 		// розійшлися б на першій же правці.
-		if room := in.reserve.GapUAH - reserveTaken(out); room > 0.005 {
+		if room := in.reserve.GapUAH.Major() - reserveTaken(out); room > 0.005 {
 			spots = append(spots, allocSpot{
 				rank: room, room: room,
-				allow: math.Min(in.allow.ReserveUAH, in.reserve.FillFromUAH),
+				allow: math.Min(in.allow.ReserveUAH, in.reserve.FillFromUAH.Major()),
 			})
 		}
 	}

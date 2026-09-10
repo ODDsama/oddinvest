@@ -241,7 +241,7 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 func (s *Server) addTopup(ctx context.Context, now time.Time,
 	after *state.Doc, basket basketDoc, pickISIN string, out *whatIfPayload) error {
 
-	if after.MonthPlan == nil || after.MonthPlan.LeftUAH <= 0 {
+	if after.MonthPlan == nil || after.MonthPlan.LeftUAH.Major() <= 0 {
 		return nil
 	}
 	rates, err := s.rates(ctx)
@@ -269,12 +269,12 @@ func (s *Server) addTopup(ctx context.Context, now time.Time,
 	// й далі описує ті самі гроші, і наступний автор, шукаючи «де ж тут
 	// віднімання», мусить знайти цей абзац, а не порожній параметр.
 	avail := after.MonthPlan.LeftUAH
-	out.TopupPlanUAH = round2(planCostUAH(basket, rates) + avail)
-	out.TopupLeftUAH = round2(math.Max(0, avail))
+	out.TopupPlanUAH = round2(planCostUAH(basket, rates) + avail.Major())
+	out.TopupLeftUAH = round2(math.Max(0, avail.Major()))
 	// Поріг той самий, що в розкладки: сума, з якої не вийде жодного руху,
 	// не варта картки. Нуль і від'ємне значення сюди ж — план купівель
 	// може бути й більшим за те, що місяць обіцяє.
-	if avail < allocMinCutUAH {
+	if avail.Major() < allocMinCutUAH {
 		return nil
 	}
 	// ПОРАДИ ВІД `after`, А НЕ ВІД `before`. Рейтинг ранжує сумою розривів
@@ -299,8 +299,8 @@ func (s *Server) addTopup(ctx context.Context, now time.Time,
 	// reserveEligibleUAH, лише з протилежним висновком: там сума одна й
 	// дозвіл у неї один, тут сум багато.
 	plan := allocatePlan(after, sug, rates,
-		toMoneyJSON(money.New(int64(math.Round(avail*100)), money.UAH)), avail,
-		allocAllow{ReserveUAH: avail, GoalsUAH: avail, PickISIN: pick},
+		toMoneyJSON(money.New(int64(math.Round(avail.Major()*100)), money.UAH)), avail.Major(),
+		allocAllow{ReserveUAH: avail.Major(), GoalsUAH: avail.Major(), PickISIN: pick},
 		money.UAH, s.npfIDByName(ctx))
 	out.Topup = &plan
 	return nil
@@ -381,8 +381,8 @@ func pickBroker(doc *state.Doc, cur, want string) (string, bool) {
 	}
 	best, bestAmt := "", -1.0
 	for name, byCur := range doc.Brokers {
-		if v := byCur[cur]; v > bestAmt {
-			best, bestAmt = name, v
+		if v := byCur[cur]; v.Major() > bestAmt {
+			best, bestAmt = name, v.Major()
 		}
 	}
 	if best == "" {

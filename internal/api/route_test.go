@@ -53,8 +53,8 @@ func routePlans(planUAH float64) map[string]*state.MonthPlan {
 		key := monthKeyAt(routeToday, m)
 		// Без обмежень за дозволом: підмножини дорівнюють плану, тобто
 		// поведінка, яку ці тести й описують.
-		out[key] = &state.MonthPlan{Month: key, PlanUAH: planUAH,
-			PlanReserveUAH: planUAH, PlanGoalsUAH: planUAH}
+		out[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(planUAH, money.UAH),
+			PlanReserveUAH: state.Major(planUAH, money.UAH), PlanGoalsUAH: state.Major(planUAH, money.UAH)}
 	}
 	return out
 }
@@ -79,7 +79,7 @@ func routePlans(planUAH float64) map[string]*state.MonthPlan {
 // /api/allocate на ту саму суму — саме тому, що знає, звідки гроші.
 func TestRouteFirstLegEqualsAllocate(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 2000, FillMonthUAH: 2000, GapUAH: 40000})
+		&state.Reserve{FillNowUAH: state.Major(2000, money.UAH), FillMonthUAH: state.Major(2000, money.UAH), GapUAH: state.Major(40000, money.UAH)})
 	doc.Settings = routeSettings(10000, 6, 40)
 	sug := []suggestion{bondSug("UA0001", 1000, money.UAH)}
 
@@ -152,9 +152,9 @@ func TestAllocateFloorKeepsFirstLegEqualToAllocate(t *testing.T) {
 // 12 000 = 36 000 ₴.
 func TestRouteReserveCeilingResetsEachMonth(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 12000, FillMonthUAH: 12000, GapUAH: 40000})
-	doc.Settings = routeSettings(10000, 6, 40) // ціль 60 000, стеля 40%
-	doc.ReserveUAH = 20000                     // 60 000 − 20 000 = розрив 40 000
+		&state.Reserve{FillNowUAH: state.Major(12000, money.UAH), FillMonthUAH: state.Major(12000, money.UAH), GapUAH: state.Major(40000, money.UAH)})
+	doc.Settings = routeSettings(10000, 6, 40)     // ціль 60 000, стеля 40%
+	doc.ReserveUAH = state.Major(20000, money.UAH) // 60 000 − 20 000 = розрив 40 000
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		routeInc("mono", money.UAH,
@@ -188,9 +188,9 @@ func TestRouteReserveCeilingResetsEachMonth(t *testing.T) {
 // місяцем, а не подією.
 func TestRouteReserveCeilingSharedWithinMonth(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 12000, FillMonthUAH: 12000, GapUAH: 40000})
+		&state.Reserve{FillNowUAH: state.Major(12000, money.UAH), FillMonthUAH: state.Major(12000, money.UAH), GapUAH: state.Major(40000, money.UAH)})
 	doc.Settings = routeSettings(10000, 6, 40)
-	doc.ReserveUAH = 20000
+	doc.ReserveUAH = state.Major(20000, money.UAH)
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		routeInc("mono", money.UAH,
@@ -212,9 +212,9 @@ func TestRouteReserveCeilingSharedWithinMonth(t *testing.T) {
 // Розрив закривається — і подушка замовкає, хай би скільки лишалось стелі.
 func TestRouteReserveStopsAtGap(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 5000, FillMonthUAH: 5000, GapUAH: 5000})
+		&state.Reserve{FillNowUAH: state.Major(5000, money.UAH), FillMonthUAH: state.Major(5000, money.UAH), GapUAH: state.Major(5000, money.UAH)})
 	doc.Settings = routeSettings(10000, 6, 40)
-	doc.ReserveUAH = 55000 // ціль 60 000 → розрив 5 000
+	doc.ReserveUAH = state.Major(55000, money.UAH) // ціль 60 000 → розрив 5 000
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		routeInc("mono", money.UAH,
@@ -321,7 +321,7 @@ func TestRouteKindDeficitShrinks(t *testing.T) {
 		kindRow("bonds", 50, 0),
 		kindRow("funds", 50, 50000),
 	}, nil)
-	doc.CapitalUAH = 100000
+	doc.CapitalUAH = state.Major(100000, money.UAH)
 
 	sug := []suggestion{
 		bondSug("UA0001", 1000, money.UAH),
@@ -366,7 +366,7 @@ func TestRouteKindDeficitShrinks(t *testing.T) {
 func TestRoutePrincipalIsNotIncome(t *testing.T) {
 	mk := func(principal int64) *routeCarry {
 		doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)}, nil)
-		doc.CapitalUAH = 100000
+		doc.CapitalUAH = state.Major(100000, money.UAH)
 		c := newRouteCarry(doc, routeToday)
 		// Той самий порядок, що й у проході: тіло виходить із виду ДО
 		// розкладки, дохід стає капіталом ПІСЛЯ.
@@ -401,7 +401,7 @@ func TestRoutePrincipalIsNotIncome(t *testing.T) {
 // правдоподібним.
 func TestRouteDoesNotMutateDoc(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 2000, FillMonthUAH: 2000, GapUAH: 40000})
+		&state.Reserve{FillNowUAH: state.Major(2000, money.UAH), FillMonthUAH: state.Major(2000, money.UAH), GapUAH: state.Major(40000, money.UAH)})
 	doc.Settings = routeSettings(10000, 6, 40)
 	before, _ := json.Marshal(doc)
 
@@ -466,9 +466,9 @@ func TestRouteDeterministic(t *testing.T) {
 	}
 	run := func() string {
 		doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-			&state.Reserve{FillNowUAH: 12000, FillMonthUAH: 12000, GapUAH: 40000})
+			&state.Reserve{FillNowUAH: state.Major(12000, money.UAH), FillMonthUAH: state.Major(12000, money.UAH), GapUAH: state.Major(40000, money.UAH)})
 		doc.Settings = routeSettings(10000, 6, 40)
-		doc.ReserveUAH = 20000
+		doc.ReserveUAH = state.Major(20000, money.UAH)
 		b, _ := json.Marshal(buildRoute(doc,
 			[]suggestion{bondSug("UA0001", 1000, money.UAH)},
 			inc, routePlans(30000), nil, allocRates, nil, nil, routeToday))
@@ -826,7 +826,7 @@ func TestRoutePickIsPerLeg(t *testing.T) {
 // дорівнює розкладці з тим самим обраним папером.
 func TestRouteFirstLegEqualsAllocateWithPick(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 2000, FillMonthUAH: 2000, GapUAH: 40000})
+		&state.Reserve{FillNowUAH: state.Major(2000, money.UAH), FillMonthUAH: state.Major(2000, money.UAH), GapUAH: state.Major(40000, money.UAH)})
 	doc.Settings = routeSettings(10000, 6, 40)
 	sug := []suggestion{
 		bondSug("UA0001", 1000, money.UAH),
@@ -889,7 +889,7 @@ func TestRouteReserveGapGrowsWithLoanInterest(t *testing.T) {
 	build := func(res *state.Reserve) float64 {
 		doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, res)
 		doc.Settings = routeSettings(10000, 6, 40) // ціль 60 000
-		doc.ReserveUAH = 59500
+		doc.ReserveUAH = state.Major(59500, money.UAH)
 
 		got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 			routeInc("mono", money.UAH,
@@ -906,14 +906,14 @@ func TestRouteReserveGapGrowsWithLoanInterest(t *testing.T) {
 		return total
 	}
 
-	plain := build(&state.Reserve{FillNowUAH: 500, FillMonthUAH: 500, GapUAH: 500})
+	plain := build(&state.Reserve{FillNowUAH: state.Major(500, money.UAH), FillMonthUAH: state.Major(500, money.UAH), GapUAH: state.Major(500, money.UAH)})
 	if plain != 500 {
 		t.Fatalf("без позики в подушку пішло %.2f, чекали 500 — фікстура більше не впирається в розрив", plain)
 	}
 	withLoan := build(&state.Reserve{
-		FillNowUAH: 500, FillMonthUAH: 500, GapUAH: 500,
-		OwedUAH: 12000, OwedInterestUAH: 0,
-		Loans: []state.ReserveLoan{{ID: 1, RatePct: 12, OwedUAH: 12000}},
+		FillNowUAH: state.Major(500, money.UAH), FillMonthUAH: state.Major(500, money.UAH), GapUAH: state.Major(500, money.UAH),
+		OwedUAH: state.Major(12000, money.UAH), OwedInterestUAH: state.Major(0, money.UAH),
+		Loans: []state.ReserveLoan{{ID: 1, RatePct: 12, OwedUAH: state.Major(12000, money.UAH)}},
 	})
 	if withLoan <= plain {
 		t.Fatalf("з позикою в подушку пішло %.2f проти %.2f без неї — відсоток не набігає",

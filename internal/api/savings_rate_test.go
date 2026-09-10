@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ODDsama/oddinvest/internal/state"
+	money "github.com/Rhymond/go-money"
 )
 
 // TestSavingsRateIsCheckableByDivision — норма заощаджень мусить точно
@@ -30,7 +31,7 @@ func TestSavingsRateIsCheckableByDivision(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := savingsRatePct(c.actual, &state.MonthPlan{GrossUAH: c.gross})
+			got := savingsRatePct(c.actual, &state.MonthPlan{GrossUAH: state.Major(c.gross, money.UAH)})
 			if math.Abs(got-c.wantPct) > 0.01 {
 				t.Errorf("норма %.2f%%, чекали %.2f%%", got, c.wantPct)
 			}
@@ -57,11 +58,11 @@ func TestSavingsRateStaysSilentWithoutIncome(t *testing.T) {
 	if got := savingsRatePct(12_000, nil); got != 0 {
 		t.Errorf("без плану доходу норма %.2f, мала мовчати", got)
 	}
-	if got := savingsRatePct(12_000, &state.MonthPlan{GrossUAH: 0}); got != 0 {
+	if got := savingsRatePct(12_000, &state.MonthPlan{GrossUAH: state.Major(0, money.UAH)}); got != 0 {
 		t.Errorf("при нульовому доході норма %.2f, мала мовчати", got)
 	}
 	// І навпаки: без темпу теж нема чого казати.
-	if got := savingsRatePct(0, &state.MonthPlan{GrossUAH: 60_000}); got != 0 {
+	if got := savingsRatePct(0, &state.MonthPlan{GrossUAH: state.Major(60_000, money.UAH)}); got != 0 {
 		t.Errorf("без темпу норма %.2f, мала мовчати", got)
 	}
 }

@@ -20,7 +20,14 @@ import (
 // docWith — мінімальний документ стану з одними лише балансами: readyFor
 // більше нічого й не читає.
 func docWith(brokers map[string]map[string]float64) *state.Doc {
-	return &state.Doc{Brokers: brokers}
+	out := map[string]map[string]state.Money{}
+	for b, byCur := range brokers {
+		out[b] = map[string]state.Money{}
+		for cur, v := range byCur {
+			out[b][cur] = state.Major(v, cur)
+		}
+	}
+	return &state.Doc{Brokers: out}
 }
 
 // testLogger — тихий журнал для сервера, зібраного повз testServer:

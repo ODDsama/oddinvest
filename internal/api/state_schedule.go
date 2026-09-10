@@ -207,7 +207,7 @@ func summarizeIncome(sch schedule, rates fx.Rates, today domain.Date) incomeSumm
 	out := incomeSummary{LadderUAH: make([]state.YearAmount, 0, len(years))}
 	for _, y := range years {
 		out.LadderUAH = append(out.LadderUAH,
-			state.YearAmount{Year: y, UAH: round2(float64(ladderByYear[y]) / 100)})
+			state.YearAmount{Year: y, UAH: state.Minor(ladderByYear[y], money.UAH)})
 	}
 
 	incByMonth := map[string]float64{}
@@ -231,9 +231,9 @@ func summarizeIncome(sch schedule, rates fx.Rates, today domain.Date) incomeSumm
 		t := today.Time().AddDate(0, i, 0)
 		key := fmt.Sprintf("%04d-%02d", t.Year(), int(t.Month()))
 		out.Income12m = append(out.Income12m,
-			state.MonthAmount{Month: key, Amount: round2(incByMonth[key])})
+			state.MonthAmount{Month: key, Amount: state.Major(incByMonth[key], money.UAH)})
 		out.Coupons12m = append(out.Coupons12m,
-			state.MonthAmount{Month: key, Amount: round2(couByMonth[key])})
+			state.MonthAmount{Month: key, Amount: state.Major(couByMonth[key], money.UAH)})
 		couponSum += couByMonth[key]
 	}
 	// Число ЧИСТЕ, і це не збіг трьох різних правил, а наслідок одного:

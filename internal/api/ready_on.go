@@ -590,7 +590,7 @@ func planAhead(src *sources, plans map[string]*state.MonthPlan,
 		if mp == nil {
 			continue
 		}
-		total := mp.PlanUAH - mp.ExtraUAH
+		total := mp.PlanUAH.Major() - mp.ExtraUAH.Major()
 		if total <= 0 {
 			continue
 		}

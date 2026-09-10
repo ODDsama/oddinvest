@@ -83,7 +83,7 @@ func buildFXWindow(hist map[string][]store.RatePoint, rates fx.Rates,
 			// Ділимо на МАЖОРНІ курси, тобто масштаб ×10⁴ за межі fx не
 			// витікає (fx-boundary).
 			if d := deficitUAH[cur]; d > 0 && row.MedianRate > 0 && row.NowRate > 0 {
-				row.VsMedianNative = round2(d/row.NowRate - d/row.MedianRate)
+				row.VsMedianNative = state.Major(d/row.NowRate-d/row.MedianRate, cur)
 			}
 			out = append(out, row)
 		}
@@ -108,8 +108,8 @@ func round4(v float64) float64 { return math.Round(v*10_000) / 10_000 }
 func currencyDeficitUAH(rows []state.RebalanceRow) map[string]float64 {
 	out := map[string]float64{}
 	for _, r := range rows {
-		if r.Dimension == "currency" && r.DeficitUAH > 0 {
-			out[r.Key] = r.DeficitUAH
+		if r.Dimension == "currency" && r.DeficitUAH.Major() > 0 {
+			out[r.Key] = r.DeficitUAH.Major()
 		}
 	}
 	return out

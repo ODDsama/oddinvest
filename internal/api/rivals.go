@@ -483,7 +483,7 @@ func snapshotLevelUAH(sn store.Snapshot, level string) int64 {
 
 func docLevelUAH(doc *state.Doc, level string) float64 {
 	if level == levelAll {
-		return doc.CapitalUAH
+		return doc.CapitalUAH.Major()
 	}
-	return round2(doc.NominalUAHEq + doc.AccountUAH + doc.FundsUAH + doc.DepositsUAH)
+	return round2(doc.NominalUAHEq.Major() + doc.AccountUAH.Major() + doc.FundsUAH.Major() + doc.DepositsUAH.Major())
 }

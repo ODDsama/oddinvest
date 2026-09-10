@@ -134,8 +134,8 @@ func spreadMonth(rows []state.RebalanceRow, avail, kindMajor float64) []float64 
 			continue
 		}
 		sharePct += r.TargetPct
-		r.MonthShareUAH = round2(avail * r.TargetPct / 100)
-		if d := after*r.TargetPct/100 - r.CurrentUAH; d > 0 {
+		r.MonthShareUAH = state.Major(avail*r.TargetPct/100, money.UAH)
+		if d := after*r.TargetPct/100 - r.CurrentUAH.Major(); d > 0 {
 			need[i] = d
 			needSum += d
 		}
@@ -162,7 +162,7 @@ func spreadMonth(rows []state.RebalanceRow, avail, kindMajor float64) []float64 
 		} else if rest > 0 {
 			v += rest * r.TargetPct / 100
 		}
-		r.MonthBalanceUAH = round2(v)
+		r.MonthBalanceUAH = state.Major(v, money.UAH)
 	}
 	return need
 }
@@ -267,17 +267,17 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		out.Rebalance = append(out.Rebalance, state.RebalanceRow{
 			Dimension: "currency", Key: cur,
 			Currency: cur, TargetPct: *tp, CurrentPct: round2(currentPct),
-			DeficitUAH: round2(deficitUAH), DeficitNative: round2(deficitUAH / rateMajor),
-			CashNative: round2(cashNative), BondCostNative: round2(unitNative),
-			BondCostUAH: round2(unitUAH), CanBuy: canBuy, ConvertUAH: round2(convertUAH),
-			MinPortfolioUAH: round2(unitUAH / (*tp / 100)),
+			DeficitUAH: state.Major(deficitUAH, money.UAH), DeficitNative: state.Major(deficitUAH/rateMajor, cur),
+			CashNative: state.Major(cashNative, cur), BondCostNative: state.Major(unitNative, cur),
+			BondCostUAH: state.Major(unitUAH, money.UAH), CanBuy: canBuy, ConvertUAH: state.Major(convertUAH, money.UAH),
+			MinPortfolioUAH: state.Major(unitUAH/(*tp/100), money.UAH),
 			Feasible:        unitUAH > 0 && unitUAH <= targetUAH,
 			UnitKind:        unitKind,
-			TargetUAH:       round2(targetUAH),
-			CurrentUAH:      round2(curUAH),
+			TargetUAH:       state.Major(targetUAH, money.UAH),
+			CurrentUAH:      state.Major(curUAH, money.UAH),
 			FillPct:         round2(fillPct(curUAH, targetUAH)),
-			TransitUAH:      round2(transitCur),
-			TransitNative:   round2(transitCur / rateMajor),
+			TransitUAH:      state.Major(transitCur, money.UAH),
+			TransitNative:   state.Major(transitCur/rateMajor, cur),
 		})
 	}
 
@@ -309,20 +309,20 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 	// Цілі накопичення — з того самого доводу, що резерв, і тим самим
 	// відніманням: гроші під авто в капіталі є, але видом інструмента вони
 	// не стануть ніколи.
-	kindMajor := totalMajor - cap.ReserveUAH - cap.GoalsUAH
+	kindMajor := totalMajor - cap.ReserveUAH.Major() - cap.GoalsUAH.Major()
 	kindTargets := []struct {
 		key    string
 		nowUAH float64
 		target *float64
 		unit   float64 // найдешевший вхід у цей вид, грн-екв.; 0 = невідомо
 	}{
-		{"bonds", cap.BondsUAH, set.TargetBondsPct, in.MinBondUAH},
-		{"funds", cap.FundsUAH, set.TargetFundsPct, in.MinFundUAH},
-		{"deposits", cap.DepositsUAH, set.TargetDepositsPct, in.MinDepositUAH},
+		{"bonds", cap.BondsUAH.Major(), set.TargetBondsPct, in.MinBondUAH},
+		{"funds", cap.FundsUAH.Major(), set.TargetFundsPct, in.MinFundUAH},
+		{"deposits", cap.DepositsUAH.Major(), set.TargetDepositsPct, in.MinDepositUAH},
 		// НПФ із одиницею входу 0 — і це не «не дізнались», а «її немає»:
 		// внести в пенсійний можна будь-яку суму, порога входу він не має.
 		// Нуль тут вимикає перевірку здійсненності, як і в резерву.
-		{"npf", cap.NPFUAH, set.TargetNPFPct, 0},
+		{"npf", cap.NPFUAH.Major(), set.TargetNPFPct, 0},
 	}
 	// ВИРІЗКА ТРАНЗИТУ З ЦІЛІ ОВДП.
 	//
@@ -351,23 +351,23 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		row := state.RebalanceRow{
 			Dimension: "kind", Key: k.key, Currency: money.UAH,
 			TargetPct: round2(*k.target), CurrentPct: round2(currentPct),
-			DeficitUAH: round2(math.Max(0, targetUAH-k.nowUAH)),
+			DeficitUAH: state.Major(math.Max(0, targetUAH-k.nowUAH), money.UAH),
 			// Одиниця входу тут завжди в гривні-еквіваленті: питання «яким
 			// інструментом», а не «якою валютою», і мішати сюди ще й
 			// нативні суми означало б два виміри в одному рядку.
-			BondCostUAH: round2(k.unit), UnitKind: k.key,
+			BondCostUAH: state.Major(k.unit, money.UAH), UnitKind: k.key,
 			// Без заданої одиниці входу здійсненність не перевіряється:
 			// у резерв кладуть будь-яку суму, а не «мінімальний внесок».
 			Feasible: k.unit == 0 || k.unit <= targetUAH,
 			// Ті самі ціль і факт у грошах. Питання «скільки ще докласти»
 			// ставиться в гривнях, і рахувати їх зі згаданих поруч відсотків
 			// означало б відповідати на нього з похибкою округлення.
-			TargetUAH:  round2(targetUAH),
-			CurrentUAH: round2(k.nowUAH),
+			TargetUAH:  state.Major(targetUAH, money.UAH),
+			CurrentUAH: state.Major(k.nowUAH, money.UAH),
 			FillPct:    round2(fillPct(k.nowUAH, targetUAH)),
 		}
 		if k.unit > 0 {
-			row.MinPortfolioUAH = round2(k.unit / (*k.target / 100))
+			row.MinPortfolioUAH = state.Major(k.unit/(*k.target/100), money.UAH)
 		}
 		// Транзит бачать двоє, і бачать по-різному. ОВДП — як частину
 		// власної цілі, якої поки не досягти папером (тому і в.п., і
@@ -376,9 +376,9 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		// інакше вирізка знову стала б другою ціллю.
 		switch k.key {
 		case "bonds":
-			row.TransitPct, row.TransitUAH = round2(transitPct), round2(transitCarveUAH)
+			row.TransitPct, row.TransitUAH = round2(transitPct), state.Major(transitCarveUAH, money.UAH)
 		case "deposits":
-			row.TransitUAH = round2(transitCarveUAH)
+			row.TransitUAH = state.Major(transitCarveUAH, money.UAH)
 		}
 		out.Rebalance = append(out.Rebalance, row)
 	}
@@ -424,11 +424,11 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		row := state.RebalanceRow{
 			Dimension: "kind", Key: k.key, Currency: money.UAH,
 			CurrentPct: round2(k.nowUAH / kindMajor * 100),
-			CurrentUAH: round2(k.nowUAH),
+			CurrentUAH: state.Major(k.nowUAH, money.UAH),
 			UnitKind:   k.key, Feasible: true,
 		}
 		if k.key == "deposits" {
-			row.TransitUAH = round2(transitCarveUAH)
+			row.TransitUAH = state.Major(transitCarveUAH, money.UAH)
 		}
 		out.Rebalance = append(out.Rebalance, row)
 	}
@@ -473,8 +473,8 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 	if kindMajor > 0 {
 		out.Rebalance = append(out.Rebalance, state.RebalanceRow{
 			Dimension: "kind", Key: "cash", Currency: money.UAH,
-			CurrentPct: round2(cap.AccountUAH / kindMajor * 100),
-			CurrentUAH: round2(cap.AccountUAH),
+			CurrentPct: round2(cap.AccountUAH.Major() / kindMajor * 100),
+			CurrentUAH: cap.AccountUAH,
 			UnitKind:   "cash", Feasible: true,
 		})
 	}
@@ -491,10 +491,10 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		share := amount / base * 100
 		row := state.ConcentrationRow{
 			Dimension: dim, Key: key, Label: label,
-			AmountUAH: round2(amount), SharePct: round2(share), LimitPct: limit,
+			AmountUAH: state.Major(amount, money.UAH), SharePct: round2(share), LimitPct: limit,
 		}
 		if share > limit {
-			row.OverUAH = round2(amount - base*limit/100)
+			row.OverUAH = state.Major(amount-base*limit/100, money.UAH)
 		}
 		out.Concentration = append(out.Concentration, row)
 	}
@@ -512,22 +512,22 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		// саме там, де ризик найбільший: на живих даних один фонд важив
 		// 16.7% капіталу — більше за будь-яку окрему облігацію в списку.
 		for _, row := range in.FundRows {
-			if row.MarketValue <= 0 {
+			if row.MarketValue.Major() <= 0 {
 				continue
 			}
 			addConc("isin", domain.FundISINPrefix+row.Fund, row.Fund,
-				row.MarketValue, totalMajor, *set.LimitISINPct)
+				row.MarketValue.Major(), totalMajor, *set.LimitISINPct)
 		}
 		// НПФ — тим самим виміром і з тієї ж причини. «Що буде, якщо ця КУА
 		// не заплатить» — те саме питання, що про емітента паперу, і на
 		// довгому горизонті воно навіть гостріше: вийти з фонду до пенсії не
 		// можна, тобто помилку концентрації тут не виправити продажем.
 		for _, row := range in.NPFRows {
-			if row.ValueUAH <= 0 {
+			if row.ValueUAH.Major() <= 0 {
 				continue
 			}
 			addConc("isin", domain.NPFSyntheticISIN(row.Name), row.Name,
-				row.ValueUAH, totalMajor, *set.LimitISINPct)
+				row.ValueUAH.Major(), totalMajor, *set.LimitISINPct)
 		}
 	}
 	if set.LimitBrokerPct != nil && *set.LimitBrokerPct > 0 {
@@ -542,10 +542,10 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		// грошей у фондах, — тобто там, де погашень немає взагалі.
 		ladderTotal := 0.0
 		for _, y := range in.LadderUAH {
-			ladderTotal += y.UAH
+			ladderTotal += y.UAH.Major()
 		}
 		for _, y := range in.LadderUAH {
-			addConc("year", strconv.Itoa(y.Year), "", y.UAH, ladderTotal, *set.LimitYearPct)
+			addConc("year", strconv.Itoa(y.Year), "", y.UAH.Major(), ladderTotal, *set.LimitYearPct)
 		}
 	}
 	// Найщільніше — зверху: список читають згори, і перше, що впадає в

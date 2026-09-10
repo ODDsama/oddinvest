@@ -47,8 +47,8 @@ func TestBuildTasksEmptyPortfolio(t *testing.T) {
 // не мають брати участі в покупці — на це вже спирається сам помічник.
 func TestBuildTasksReserveBeforeBuy(t *testing.T) {
 	doc := &state.Doc{
-		NominalUAHEq: 50_000,
-		Reserve:      &state.Reserve{FillNowUAH: 3_000, GapUAH: 20_000, TargetUAH: 60_000, TargetMonths: 6},
+		NominalUAHEq: state.Major(50_000, money.UAH),
+		Reserve:      &state.Reserve{FillNowUAH: state.Major(3_000, money.UAH), GapUAH: state.Major(20_000, money.UAH), TargetUAH: state.Major(60_000, money.UAH), TargetMonths: 6},
 	}
 	sug := []suggestion{{
 		Kind: "bond", ISIN: "UA4000228811", Label: "UA4000228811", Currency: "UAH",
@@ -70,8 +70,8 @@ func TestBuildTasksReserveBeforeBuy(t *testing.T) {
 // «ще збираєш», і та мусить сказати, СКІЛЬКИ бракує.
 func TestBuildTasksSavingWhenNothingAffordable(t *testing.T) {
 	doc := &state.Doc{
-		NominalUAHEq: 50_000,
-		Brokers:      map[string]map[string]float64{"mono": {"UAH": 400}},
+		NominalUAHEq: state.Major(50_000, money.UAH),
+		Brokers:      map[string]map[string]state.Money{"mono": {money.UAH: state.UAH(40_000)}},
 	}
 	sug := []suggestion{{
 		Kind: "bond", Label: "UA4000228811", Currency: "UAH", RealPct: 12.5,
@@ -90,8 +90,8 @@ func TestBuildTasksSavingWhenNothingAffordable(t *testing.T) {
 	if saving == nil {
 		t.Fatal("задачі «ще збираєш» немає")
 	}
-	if saving.AmountUAH != 600 {
-		t.Errorf("бракує = %v, треба 600 (1000 ціна − 400 на рахунку)", saving.AmountUAH)
+	if saving.AmountUAH.Major() != 600 {
+		t.Errorf("бракує = %v, треба 600 (1000 ціна − 400 на рахунку)", saving.AmountUAH.Major())
 	}
 }
 
@@ -200,9 +200,9 @@ func TestOverduePlannedExpenseRaisesTask(t *testing.T) {
 			t.Errorf("у заголовку є «%s», хоч вона не прострочена: %q", no, got.Title)
 		}
 	}
-	if got.AmountUAH != 20000 {
+	if got.AmountUAH.Major() != 20000 {
 		t.Errorf("сума %v, чекали 20000 — обидва контури разом: це похід у список, "+
-			"а не арифметика кошиків", got.AmountUAH)
+			"а не арифметика кошиків", got.AmountUAH.Major())
 	}
 	// Дата — НАЙРАННІША з прострочених: саме вона каже, наскільки відстав.
 	if got.When != dayMonth("2026-08-14") {
@@ -236,9 +236,9 @@ func TestOverduePlannedTaskSkipsSumOnMixedCurrency(t *testing.T) {
 	if !ok {
 		t.Fatal("задачі немає")
 	}
-	if got.AmountUAH != 0 || strings.Contains(got.Title, "₴") {
+	if got.AmountUAH.Major() != 0 || strings.Contains(got.Title, "₴") {
 		t.Errorf("задача назвала гривневу суму на змішаних валютах: %q / %v",
-			got.Title, got.AmountUAH)
+			got.Title, got.AmountUAH.Major())
 	}
 	if !strings.Contains(got.Title, "Хостинг") {
 		t.Errorf("валютна витрата випала із заголовка: %q", got.Title)

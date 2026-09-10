@@ -42,7 +42,7 @@ func TestEmptyPlanMatchesBaseline(t *testing.T) {
 	for i := range base.Forecast.Rows {
 		if base.Forecast.Rows[i].Amount != got.Forecast.Rows[i].Amount {
 			t.Errorf("сценарій %s: сума розійшлась: %v vs %v",
-				base.Forecast.Rows[i].Key, base.Forecast.Rows[i].Amount, got.Forecast.Rows[i].Amount)
+				base.Forecast.Rows[i].Key, base.Forecast.Rows[i].Amount.Major(), got.Forecast.Rows[i].Amount.Major())
 		}
 	}
 }
@@ -65,9 +65,9 @@ func TestPlanFlowFeedsProjection(t *testing.T) {
 		t.Fatalf("різна кількість рядків: %d vs %d", len(base.Rows), len(got.Rows))
 	}
 	for i := range base.Rows {
-		if got.Rows[i].WithReinvest <= base.Rows[i].WithReinvest {
+		if got.Rows[i].WithReinvest.Cmp(base.Rows[i].WithReinvest) <= 0 {
 			t.Errorf("%d р.: план мав додати капітал, маємо %.2f (з планом) vs %.2f (без)",
-				base.Rows[i].Years, got.Rows[i].WithReinvest, base.Rows[i].WithReinvest)
+				base.Rows[i].Years, got.Rows[i].WithReinvest.Major(), base.Rows[i].WithReinvest.Major())
 		}
 	}
 }
@@ -86,9 +86,9 @@ func TestPlanExpenseFlowReducesProjection(t *testing.T) {
 	got := buildProjection(withExpense)
 
 	for i := range base.Rows {
-		if got.Rows[i].WithReinvest >= base.Rows[i].WithReinvest {
+		if got.Rows[i].WithReinvest.Cmp(base.Rows[i].WithReinvest) >= 0 {
 			t.Errorf("%d р.: витратний потік мав зменшити капітал, маємо %.2f (з витратою) vs %.2f (без)",
-				base.Rows[i].Years, got.Rows[i].WithReinvest, base.Rows[i].WithReinvest)
+				base.Rows[i].Years, got.Rows[i].WithReinvest.Major(), base.Rows[i].WithReinvest.Major())
 		}
 	}
 }
@@ -110,7 +110,7 @@ func TestPlanFlowInvestPctZeroHasNoEffect(t *testing.T) {
 	for i := range base.Rows {
 		if base.Rows[i].WithReinvest != got.Rows[i].WithReinvest {
 			t.Errorf("%d р.: invest_pct=0 мав не вплинути, маємо %.2f vs %.2f",
-				base.Rows[i].Years, got.Rows[i].WithReinvest, base.Rows[i].WithReinvest)
+				base.Rows[i].Years, got.Rows[i].WithReinvest.Major(), base.Rows[i].WithReinvest.Major())
 		}
 	}
 }
@@ -519,9 +519,9 @@ func TestRequiredTotalEqualsRequiredOnEmptyPlan(t *testing.T) {
 	for _, r := range marketRows(t, in) {
 		if r.RequiredMonthly != r.RequiredTotalMonthly {
 			t.Errorf("%s: без плану числа мали збігтись, маємо %.2f проти %.2f",
-				r.Key, r.RequiredTotalMonthly, r.RequiredMonthly)
+				r.Key, r.RequiredTotalMonthly.Major(), r.RequiredMonthly.Major())
 		}
-		if r.RequiredMonthly == 0 {
+		if r.RequiredMonthly.Major() == 0 {
 			t.Errorf("%s: тест нічого не перевірив — обидва нулі", r.Key)
 		}
 	}
@@ -567,13 +567,13 @@ func TestRequiredTotalMinusPlanEqualsGapOnFlatPlan(t *testing.T) {
 	in := forecastInput(t, goalSettings("", "2030-07-15"))
 	in.PlanFlows = flow(300_000)
 	real, out := realisticRow(t, in)
-	if real.RequiredMonthly <= 0 {
+	if real.RequiredMonthly.Major() <= 0 {
 		t.Fatalf("план мав лишити нестачу, інакше тотожність не перевіряється: бракує=%.2f",
-			real.RequiredMonthly)
+			real.RequiredMonthly.Major())
 	}
-	if d := real.RequiredTotalMonthly - out.PlanProvidesUAH - real.RequiredMonthly; math.Abs(d) > 1 {
+	if d := real.RequiredTotalMonthly.Major() - out.PlanProvidesUAH - real.RequiredMonthly.Major(); math.Abs(d) > 1 {
 		t.Errorf("треба(%.2f) − план(%.2f) − бракує(%.2f) = %.2f, мало бути ~0",
-			real.RequiredTotalMonthly, out.PlanProvidesUAH, real.RequiredMonthly, d)
+			real.RequiredTotalMonthly.Major(), out.PlanProvidesUAH, real.RequiredMonthly.Major(), d)
 	}
 
 	// План, якого З ЛИШКОМ: «бракує» лягає в нуль, і «треба» лишається
@@ -581,17 +581,17 @@ func TestRequiredTotalMinusPlanEqualsGapOnFlatPlan(t *testing.T) {
 	rich := forecastInput(t, goalSettings("", "2030-07-15"))
 	rich.PlanFlows = flow(2_000_000)
 	realRich, outRich := realisticRow(t, rich)
-	if realRich.RequiredMonthly != 0 {
-		t.Errorf("план із лишком мав дати нульову нестачу, маємо %.2f", realRich.RequiredMonthly)
+	if realRich.RequiredMonthly.Major() != 0 {
+		t.Errorf("план із лишком мав дати нульову нестачу, маємо %.2f", realRich.RequiredMonthly.Major())
 	}
-	if realRich.RequiredTotalMonthly >= outRich.PlanProvidesUAH {
+	if realRich.RequiredTotalMonthly.Major() >= outRich.PlanProvidesUAH {
 		t.Errorf("треба(%.2f) мало лишитись меншим за план(%.2f)",
-			realRich.RequiredTotalMonthly, outRich.PlanProvidesUAH)
+			realRich.RequiredTotalMonthly.Major(), outRich.PlanProvidesUAH)
 	}
 	// І головне: саме «треба» не залежить від того, який у тебе план.
-	if math.Abs(realRich.RequiredTotalMonthly-real.RequiredTotalMonthly) > 1 {
+	if math.Abs(realRich.RequiredTotalMonthly.Major()-real.RequiredTotalMonthly.Major()) > 1 {
 		t.Errorf("«треба з нуля» не сміє залежати від плану: %.2f проти %.2f",
-			realRich.RequiredTotalMonthly, real.RequiredTotalMonthly)
+			realRich.RequiredTotalMonthly.Major(), real.RequiredTotalMonthly.Major())
 	}
 }
 
@@ -622,12 +622,12 @@ func TestRequiredTotalOnlyDominatesGapOnUnevenPlan(t *testing.T) {
 			real = r
 		}
 	}
-	if real.RequiredTotalMonthly < real.RequiredMonthly {
+	if real.RequiredTotalMonthly.Cmp(real.RequiredMonthly) < 0 {
 		t.Errorf("треба з нуля (%.2f) не може бути меншим за нестачу понад план (%.2f)",
-			real.RequiredTotalMonthly, real.RequiredMonthly)
+			real.RequiredTotalMonthly.Major(), real.RequiredMonthly.Major())
 	}
 	// І документуємо, що проста рівність тут саме НЕ виконується.
-	if d := math.Abs(real.RequiredTotalMonthly - out.PlanProvidesUAH - real.RequiredMonthly); d <= 1 {
+	if d := math.Abs(real.RequiredTotalMonthly.Major() - out.PlanProvidesUAH - real.RequiredMonthly.Major()); d <= 1 {
 		t.Errorf("на нерівному плані рівність не мала триматись, а розбіжність лише %.2f — "+
 			"схоже, план став рівним і тест перевіряє не те, що заявляє", d)
 	}
@@ -676,7 +676,7 @@ func TestPlanForeignFlowKeepsItsCurrency(t *testing.T) {
 	// капітал, бо курс не рухається.
 	flat, flatUAH := run(0, usdFlow), run(0, uahFlow)
 	for i := range flat {
-		if d := math.Abs(flat[i].WithReinvest - flatUAH[i].WithReinvest); d > 1 {
+		if d := math.Abs(flat[i].WithReinvest.Major() - flatUAH[i].WithReinvest.Major()); d > 1 {
 			t.Errorf("%d р. без знецінення: долар і гривня мали збігтись, розбіжність %.2f",
 				flat[i].Years, d)
 		}
@@ -686,16 +686,16 @@ func TestPlanForeignFlowKeepsItsCurrency(t *testing.T) {
 	// доларовий лишається доларовим — тож він мусить дати СТРОГО більше.
 	usd, uah := run(10, usdFlow), run(10, uahFlow)
 	for i := range usd {
-		if usd[i].WithReinvest <= uah[i].WithReinvest {
+		if usd[i].WithReinvest.Cmp(uah[i].WithReinvest) <= 0 {
 			t.Errorf("%d р.: доларовий потік мав дати більше за гривневий (%.2f vs %.2f) — "+
 				"схоже, він знову проходить через сьогоднішній курс",
-				usd[i].Years, usd[i].WithReinvest, uah[i].WithReinvest)
+				usd[i].Years, usd[i].WithReinvest.Major(), uah[i].WithReinvest.Major())
 		}
 	}
 	// І сам доларовий потік не має залежати від знецінення гривні взагалі:
 	// його рукав живе у своїй валюті.
 	for i := range usd {
-		if d := math.Abs(usd[i].WithReinvest - flat[i].WithReinvest); d > 1 {
+		if d := math.Abs(usd[i].WithReinvest.Major() - flat[i].WithReinvest.Major()); d > 1 {
 			t.Errorf("%d р.: знецінення гривні зрушило доларовий потік на %.2f", usd[i].Years, d)
 		}
 	}
@@ -723,7 +723,7 @@ func TestPlanSetSharesRoutesFutureContributions(t *testing.T) {
 				continue
 			}
 			for _, s := range r.ByCurrency {
-				out[s.Currency] = s.Amount
+				out[s.Currency] = s.Amount.Major()
 			}
 		}
 		return out
@@ -764,10 +764,10 @@ func TestPlanLockActionAppliesToProjection(t *testing.T) {
 	for i := range base.Rows {
 		if got.Rows[i].WithReinvest == base.Rows[i].WithReinvest {
 			t.Errorf("%d р.: замок мав змінити капітал (ставка 20%% проти дохідності портфеля), маємо %.2f обидва рази",
-				base.Rows[i].Years, got.Rows[i].WithReinvest)
+				base.Rows[i].Years, got.Rows[i].WithReinvest.Major())
 		}
-		if got.Rows[i].WithReinvest <= 0 {
-			t.Errorf("%d р.: капітал із замком має лишатись додатним, маємо %.2f", base.Rows[i].Years, got.Rows[i].WithReinvest)
+		if got.Rows[i].WithReinvest.Major() <= 0 {
+			t.Errorf("%d р.: капітал із замком має лишатись додатним, маємо %.2f", base.Rows[i].Years, got.Rows[i].WithReinvest.Major())
 		}
 	}
 }

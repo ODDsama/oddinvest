@@ -730,7 +730,7 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 		}
 		// MarketValue у рядку документа вже гривневий, тож і подія гривнева.
 		v := domain.AccumCloseValue(domain.Accum{
-			Value0: r.MarketValue, Cost0: r.CostBasis,
+			Value0: r.MarketValue.Major(), Cost0: r.CostBasis.Major(),
 			RatePct: r.ExpectedPct, CloseM: closeM, TaxPct: r.IncomeTaxPct,
 		})
 		if v <= 0 {
@@ -785,7 +785,7 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 				}
 			}
 		}
-		if r.ValueUAH <= 0 && contrib == nil {
+		if r.ValueUAH.Major() <= 0 && contrib == nil {
 			continue
 		}
 		// Ставка НОМІНАЛЬНА власна, а не real_pct: та вже після податку й
@@ -797,7 +797,7 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 			rate = r.ExpectedPct
 		}
 		v := domain.AccumCloseValue(domain.Accum{
-			Value0: r.ValueUAH, Cost0: r.CostUAH,
+			Value0: r.ValueUAH.Major(), Cost0: r.CostUAH.Major(),
 			RatePct: rate, CloseM: closeM,
 			TaxPct:         float64(acc.IncomeTaxBP) / 100,
 			ContribByMonth: contrib,
@@ -988,8 +988,8 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 	if doc.Forecast != nil && doc.Forecast.Curve != nil {
 		for _, p := range doc.Forecast.Curve.Points {
 			out.Curve = append(out.Curve, timelineCurvePoint{
-				Date: string(today.AddMonths(p.Month)), Plan: p.Plan,
-				Optimistic: p.Optimistic, Pessimistic: p.Pessimistic, Actual: p.Actual,
+				Date: string(today.AddMonths(p.Month)), Plan: p.Plan.Major(),
+				Optimistic: p.Optimistic.Major(), Pessimistic: p.Pessimistic.Major(), Actual: p.Actual.Major(),
 			})
 		}
 	}

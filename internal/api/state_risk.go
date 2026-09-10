@@ -151,11 +151,11 @@ func buildRisk(in riskInput) riskPhase {
 		for _, d := range []float64{-2, -1, 1, 2} {
 			chg := domain.PriceChangePct(mod, d)
 			scen = append(scen, state.RiskScenario{
-				DeltaPP: d, ChangePct: round2(chg), ChangeUAH: round2(chg / 100 * pvUAHTotal),
+				DeltaPP: d, ChangePct: round2(chg), ChangeUAH: state.Major(chg/100*pvUAHTotal, money.UAH),
 			})
 		}
 		out.RateRisk = &state.RateRisk{
-			DurationYears: round2(mac), ModifiedDur: round2(mod), PVUAH: round2(pvUAHTotal),
+			DurationYears: round2(mac), ModifiedDur: round2(mod), PVUAH: state.Major(pvUAHTotal, money.UAH),
 			ByCurrency: byCurDur, Scenarios: scen,
 		}
 	}
@@ -166,8 +166,8 @@ func buildRisk(in riskInput) riskPhase {
 			out.RateRisk = &state.RateRisk{}
 		}
 		out.RateRisk.ReinvestYears = round2(backWeighted / backUAH)
-		out.RateRisk.ReturningUAH = round2(backUAH)
-		out.RateRisk.ReinvestSoonUAH = round2(backSoonUAH)
+		out.RateRisk.ReturningUAH = state.Major(backUAH, money.UAH)
+		out.RateRisk.ReinvestSoonUAH = state.Major(backSoonUAH, money.UAH)
 	}
 
 	// --- ліквідність ---
@@ -277,21 +277,21 @@ func buildRisk(in riskInput) riskPhase {
 	// звільниться найближче», і 2051 рік на нього не відповідає.
 	var npfLockedUAH float64
 	for _, row := range in.NPFRows {
-		npfLockedUAH += row.ValueUAH
+		npfLockedUAH += row.ValueUAH.Major()
 	}
 	out.Liquidity = &state.Liquidity{
-		AvailableNowUAH:     round2(availableNow),
-		NowUAH:              round2(float64(in.AccountMinor) / 100),
-		In30UAH:             round2(availableNow + float64(cf30)/100),
-		In90UAH:             round2(availableNow + float64(cf90)/100),
-		ReserveUAH:          round2(in.ReserveUAH),
-		GoalsUAH:            round2(in.GoalsUAH),
-		LockedUAH:           round2(float64(lockedUAH)/100 + npfLockedUAH),
-		BreakableUAH:        round2(float64(breakableUAH) / 100),
+		AvailableNowUAH:     state.Major(availableNow, money.UAH),
+		NowUAH:              state.Minor(in.AccountMinor, money.UAH),
+		In30UAH:             state.Major(availableNow+float64(cf30)/100, money.UAH),
+		In90UAH:             state.Major(availableNow+float64(cf90)/100, money.UAH),
+		ReserveUAH:          state.Major(in.ReserveUAH, money.UAH),
+		GoalsUAH:            state.Major(in.GoalsUAH, money.UAH),
+		LockedUAH:           state.Major(float64(lockedUAH)/100+npfLockedUAH, money.UAH),
+		BreakableUAH:        state.Minor(breakableUAH, money.UAH),
 		UnlockDate:          string(unlockDate),
-		LockedNPFUAH:        round2(npfLockedUAH),
-		LockedReserveUAH:    round2(float64(lockedReserveUAH) / 100),
-		BreakableReserveUAH: round2(float64(breakableReserveUAH) / 100),
+		LockedNPFUAH:        state.Major(npfLockedUAH, money.UAH),
+		LockedReserveUAH:    state.Minor(lockedReserveUAH, money.UAH),
+		BreakableReserveUAH: state.Minor(breakableReserveUAH, money.UAH),
 	}
 	return out
 }

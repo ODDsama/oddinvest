@@ -26,6 +26,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
+	money "github.com/Rhymond/go-money"
 )
 
 // sensitivityInput — усе, що фазі потрібно понад те, що вже порахувала
@@ -63,19 +64,19 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 	}
 
 	out := &state.Sensitivity{
-		BaseContribUAH: round2(in.ContribBase),
+		BaseContribUAH: state.Major(in.ContribBase, money.UAH),
 		BaseFrom:       in.BaseFrom,
-		GoalUAH:        in.Goal,
+		GoalUAH:        state.Major(in.Goal, money.UAH),
 		DeadlineMonths: in.Deadline,
 	}
-	out.BaseGoalMonths, out.BaseAmountUAH =
-		run(in.ContribBase, 0, in.Deval, in.Goal, in.Deadline)
+	baseMonths, baseAmount := run(in.ContribBase, 0, in.Deval, in.Goal, in.Deadline)
+	out.BaseGoalMonths, out.BaseAmountUAH = baseMonths, state.Major(baseAmount, money.UAH)
 	out.BaseGoalDate = goalDate(in.Today, out.BaseGoalMonths)
-	out.BaseGoalPct = goalPct(out.BaseAmountUAH, in.Goal)
+	out.BaseGoalPct = goalPct(out.BaseAmountUAH.Major(), in.Goal)
 
 	add := func(r state.SensitivityRow, months int, amount, goal float64) {
 		r.GoalMonths, r.GoalDate = months, goalDate(in.Today, months)
-		r.AmountUAH, r.GoalPct = amount, goalPct(amount, goal)
+		r.AmountUAH, r.GoalPct = state.Major(amount, money.UAH), goalPct(amount, goal)
 		out.Rows = append(out.Rows, r)
 	}
 
@@ -107,7 +108,7 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 	// стоять поруч, а що з ними робити, вирішує людина.
 	if step := niceStep(in.ContribBase * 0.10); step > 0 {
 		m, a := run(in.ContribBase+step, 0, in.Deval, in.Goal, in.Deadline)
-		add(state.SensitivityRow{Lever: "step_contrib", DeltaUAH: step,
+		add(state.SensitivityRow{Lever: "step_contrib", DeltaUAH: state.Major(step, money.UAH),
 			Value: round2(in.ContribBase + step)}, m, a, in.Goal)
 	}
 	{
@@ -150,7 +151,7 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 		goal := in.Goal * k
 		m := domain.MonthsToReachSleeves(sleevesBase, in.Deval, goal, goalHorizonMonths)
 		add(state.SensitivityRow{Lever: "goal", Factor: k, Value: round2(goal)},
-			m, out.BaseAmountUAH, goal)
+			m, out.BaseAmountUAH.Major(), goal)
 	}
 	return out
 }

@@ -50,7 +50,7 @@ type goalsBuilt struct {
 	// UAH — усі цілі разом, грн-екв.; ByCur — валютна експозиція за валютою
 	// САМИХ ГРОШЕЙ, а не за валютою цілі (аргумент — у capital.go).
 	UAH   float64
-	ByCur map[string]float64
+	ByCur map[string]state.Money
 	// MovedUAH — скільки покладено в цілі за ПОТОЧНИЙ місяць, нетто.
 	// Дзеркалить ReserveMovedUAH і потрібне тому самому: стеля наповнення
 	// віднімає вже відкладене, інакше порада висіла б незмінною.
@@ -70,15 +70,15 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 	deps map[int64][]domain.Deposit,
 	rates fx.Rates, today domain.Date, now time.Time) goalsBuilt {
 
-	out := goalsBuilt{ByCur: map[string]float64{}}
+	out := goalsBuilt{ByCur: map[string]state.Money{}}
 	if len(goals) == 0 {
 		return out
 	}
 
 	type acc struct {
 		uah        float64
-		byCur      map[string]float64
-		places     map[string]float64
+		byCur      map[string]state.Money
+		places     map[string]state.Money
 		lastMove   string
 		windowUAH  float64
 		windowFrom domain.Date
@@ -87,7 +87,7 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 	}
 	per := make(map[int64]*acc, len(goals))
 	for _, g := range goals {
-		per[g.ID] = &acc{byCur: map[string]float64{}, places: map[string]float64{}}
+		per[g.ID] = &acc{byCur: map[string]state.Money{}, places: map[string]state.Money{}}
 	}
 
 	for _, op := range ops {
@@ -107,12 +107,12 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 		}
 		v := float64(u.Amount()) / 100
 		a.uah += v
-		a.byCur[op.Currency] += float64(op.Amount) / 100
+		a.byCur[op.Currency] = a.byCur[op.Currency].Add(state.Minor(op.Amount, op.Currency))
 		place := strings.TrimSpace(op.Place)
 		if place == "" {
 			place = "—"
 		}
-		a.places[place] += v
+		a.places[place] = a.places[place].Add(state.Major(v, money.UAH))
 		if string(op.Date) > a.lastMove {
 			a.lastMove = string(op.Date)
 		}
@@ -155,12 +155,12 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 			}
 			v := float64(u.Amount()) / 100
 			a.uah += v
-			a.byCur[d.Currency] += float64(body) / 100
+			a.byCur[d.Currency] = a.byCur[d.Currency].Add(state.Minor(body, d.Currency))
 			place := strings.TrimSpace(d.Bank)
 			if place == "" {
 				place = "—"
 			}
-			a.places[place] += v
+			a.places[place] = a.places[place].Add(state.Major(v, money.UAH))
 			// Вклад без ставки у зважування не входить узагалі — нуль там
 			// був би не «нульова дохідність», а «невідома». Той самий
 			// довід, що у зведеній дохідності (state_builder.go).
@@ -176,25 +176,25 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 		rate := goalRate(g.Currency, rates)
 		in := state.GoalInput{
 			ID: g.ID, Name: g.Name, Currency: g.Currency,
-			TargetNative: float64(g.TargetAmount) / 100,
-			TargetUAH:    float64(g.TargetAmount) / 100 * rate,
-			CollectedUAH: a.uah,
+			TargetNative: state.Minor(g.TargetAmount, g.Currency),
+			TargetUAH:    state.Major(float64(g.TargetAmount)/100*rate, money.UAH),
+			CollectedUAH: state.Major(a.uah, money.UAH),
 			// У валюту цілі — СЬОГОДНІШНІМ курсом; довід у шапці файла.
-			CollectedNative: a.uah / rate,
+			CollectedNative: state.Major(a.uah/rate, g.Currency),
 			ByCurrency:      pruneZero(a.byCur),
 			Places:          pruneZero(a.places),
 			LastMove:        a.lastMove,
 			DueDate:         string(g.DueDate),
 			DoneDate:        string(g.DoneDate),
-			MovedUAH:        a.movedUAH,
+			MovedUAH:        state.Major(a.movedUAH, money.UAH),
 		}
 		if w := rateWeight[g.ID]; w > 0 {
 			in.RatePct = round2(rateWeighted[g.ID] / w)
 		}
 		if a.hasWindow && a.windowUAH > 0 {
 			months := paceMonths(a.windowFrom, today)
-			in.ActualUAH = a.windowUAH / months
-			in.ActualNative = in.ActualUAH / rate
+			in.ActualUAH = state.Major(a.windowUAH/months, money.UAH)
+			in.ActualNative = state.Major(in.ActualUAH.Major()/rate, g.Currency)
 		}
 		out.Input = append(out.Input, in)
 
@@ -204,8 +204,8 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 		// є. Окремого правила для done_date тут свідомо немає.
 		out.UAH += a.uah
 		for cur, v := range a.byCur {
-			if u, err := fx.ToUAH(money.New(int64(v*100+0.5), cur), rates); err == nil {
-				out.ByCur[cur] += float64(u.Amount()) / 100
+			if u, err := fx.ToUAH(money.New(int64(v.Major()*100+0.5), cur), rates); err == nil {
+				out.ByCur[cur] = out.ByCur[cur].Add(state.Of(u))
 			}
 		}
 	}
@@ -227,9 +227,9 @@ func goalRate(cur string, rates fx.Rates) float64 {
 // Ціль, куди поклали 5 000 ₴ і звідти ж їх узяли, не мусить показувати
 // «UAH — 0,00 ₴»: рядок є, суми немає, і читається це як загублені гроші.
 // Той самий прийом уже стоїть для місць резерву в state_builder.go.
-func pruneZero(m map[string]float64) map[string]float64 {
+func pruneZero(m map[string]state.Money) map[string]state.Money {
 	for k, v := range m {
-		if v > -0.005 && v < 0.005 {
+		if v.IsZero() {
 			delete(m, k)
 		}
 	}

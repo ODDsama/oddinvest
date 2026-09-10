@@ -552,8 +552,8 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	// тому тут не з'являється ні курс, ні друге ділення.
 	transitNative := map[string]float64{}
 	for _, r := range doc.Rebalance {
-		if r.Dimension == "currency" && r.TransitNative > 0 {
-			transitNative[r.Key] = r.TransitNative
+		if r.Dimension == "currency" && r.TransitNative.Major() > 0 {
+			transitNative[r.Key] = r.TransitNative.Major()
 		}
 		if r.Dimension != "kind" || r.TargetPct <= 0 {
 			continue
@@ -563,7 +563,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		}
 	}
 	for _, c := range doc.Concentration {
-		if c.OverUAH <= 0 {
+		if c.OverUAH.Major() <= 0 {
 			continue
 		}
 		switch c.Dimension {
@@ -580,7 +580,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 
 	ladderYear := map[int]map[string]float64{}
 	for _, row := range doc.Ladder {
-		ladderYear[row.Year] = map[string]float64{"UAH": row.UAH, "USD": row.USD, "EUR": row.EUR}
+		ladderYear[row.Year] = map[string]float64{"UAH": row.UAH.Major(), "USD": row.USD.Major(), "EUR": row.EUR.Major()}
 	}
 
 	rank := rankOf(doc)
@@ -622,7 +622,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			return nil, 0
 		}
 		for name, byCur := range doc.Brokers {
-			if n := int64(byCur[c] / costMajor); n > 0 {
+			if n := int64(byCur[c].Major() / costMajor); n > 0 {
 				fits = append(fits, brokerFit{Broker: name, Qty: n})
 				if n > best {
 					best = n
@@ -1043,10 +1043,10 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		var maxOne float64
 		var fits []brokerFit
 		for name, byCur := range doc.Brokers {
-			if v := byCur[ccy]; v > 0 {
+			if v := byCur[ccy]; v.Major() > 0 {
 				fits = append(fits, brokerFit{Broker: name, Qty: 1})
-				if v > maxOne {
-					maxOne = v
+				if v.Major() > maxOne {
+					maxOne = v.Major()
 				}
 			}
 		}
@@ -1056,8 +1056,8 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			nominal = n.ExpectedPct
 		}
 		reason := "внесок у пенсійний; гроші замкнені до " + n.AccessDate
-		if n.CreditEstUAH > 0 {
-			reason += fmt.Sprintf("; знижка ПДФО за рік ≈%.0f ₴", n.CreditEstUAH)
+		if n.CreditEstUAH.Major() > 0 {
+			reason += fmt.Sprintf("; знижка ПДФО за рік ≈%.0f ₴", n.CreditEstUAH.Major())
 		}
 		out = append(out, suggestion{
 			Kind: "npf", Label: n.Name, Currency: ccy,
@@ -1095,13 +1095,13 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	// Штук у нього немає з того ж доводу, що в пенсійного: питання не «чи
 	// вистачить на одну», а «чи є з чого». Брокерів немає взагалі — гроші
 	// йдуть у банк, а не на рахунок.
-	if d := doc.Debt; d != nil && d.TotalUAH > 0 && d.TopRatePct > 0 {
+	if d := doc.Debt; d != nil && d.TotalUAH.Major() > 0 && d.TopRatePct > 0 {
 		// realYield приймає ЧАСТКУ, а ставка боргу приходить відсотками —
 		// звідси ділення й множення назад. Та сама пара, що на рядку фонда.
 		real := round2(realYield(d.TopRatePct/100, money.UAH, devalPct) * 100)
 		reason := fmt.Sprintf("погасити борг: %s під %.1f%% річних", d.TopName, d.TopRatePct)
-		if d.FillNowUAH > 0 {
-			reason += fmt.Sprintf("; місячна частка — ще %s", uah(d.FillNowUAH))
+		if d.FillNowUAH.Major() > 0 {
+			reason += fmt.Sprintf("; місячна частка — ще %s", uah(d.FillNowUAH.Major()))
 		}
 		out = append(out, suggestion{
 			Kind: "debt", Label: d.TopName, Currency: money.UAH,

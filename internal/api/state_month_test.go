@@ -125,17 +125,17 @@ func TestMonthPlanNets(t *testing.T) {
 	if p == nil {
 		t.Fatal("план місяця не порахувався")
 	}
-	if p.IncomeUAH != 20000 { // 40 000 × 50%
-		t.Errorf("надходження %v, очікували 20000", p.IncomeUAH)
+	if p.IncomeUAH.Major() != 20000 { // 40 000 × 50%
+		t.Errorf("надходження %v, очікували 20000", p.IncomeUAH.Major())
 	}
-	if p.ExpenseUAH != 9000 {
-		t.Errorf("витрати %v, очікували 9000 ДОДАТНІМ числом", p.ExpenseUAH)
+	if p.ExpenseUAH.Major() != 9000 {
+		t.Errorf("витрати %v, очікували 9000 ДОДАТНІМ числом", p.ExpenseUAH.Major())
 	}
-	if p.ExtraUAH != 3000 { // 6 000 × 50%
-		t.Errorf("позапланове %v, очікували 3000", p.ExtraUAH)
+	if p.ExtraUAH.Major() != 3000 { // 6 000 × 50%
+		t.Errorf("позапланове %v, очікували 3000", p.ExtraUAH.Major())
 	}
-	if p.PlanUAH != 14000 { // 20 000 + 3 000 − 9 000
-		t.Errorf("нетто %v, очікували 14000", p.PlanUAH)
+	if p.PlanUAH.Major() != 14000 { // 20 000 + 3 000 − 9 000
+		t.Errorf("нетто %v, очікували 14000", p.PlanUAH.Major())
 	}
 	if p.Sources != 1 {
 		t.Errorf("джерел %d, очікували 1 — витрата джерелом доходу не є", p.Sources)
@@ -160,8 +160,8 @@ func TestMonthPlanMarkNotArrived(t *testing.T) {
 	p := buildMonthPlan(monthPlanSrc(flows, []store.PlanReceipt{
 		{FlowID: 1, Month: "2026-07", Amount: 0, Currency: money.UAH, InvestBP: 10000},
 	}, nil), fx.Rates{}, today, 0, 0, "")
-	if p.IncomeUAH != 0 {
-		t.Errorf("надходження %v, очікували 0 — відмічено «не прийшло»", p.IncomeUAH)
+	if p.IncomeUAH.Major() != 0 {
+		t.Errorf("надходження %v, очікували 0 — відмічено «не прийшло»", p.IncomeUAH.Major())
 	}
 	if p.Sources != 1 || p.Marked != 1 {
 		t.Errorf("джерел %d, відмічено %d — очікували 1 і 1: джерело нікуди не поділось",
@@ -181,9 +181,9 @@ func TestMonthPlanMarkReplacesAmount(t *testing.T) {
 	p := buildMonthPlan(monthPlanSrc(flows, []store.PlanReceipt{
 		{FlowID: 1, Month: "2026-07", Amount: 4_500_000, Currency: money.UAH, InvestBP: 10000},
 	}, nil), fx.Rates{}, today, 0, 0, "")
-	if p.IncomeUAH != 45000 || p.ReceivedUAH != 45000 {
+	if p.IncomeUAH.Major() != 45000 || p.ReceivedUAH.Major() != 45000 {
 		t.Errorf("надходження %v, підтверджено %v — очікували 45000 в обох: факт заміщає план",
-			p.IncomeUAH, p.ReceivedUAH)
+			p.IncomeUAH.Major(), p.ReceivedUAH.Major())
 	}
 }
 
@@ -203,8 +203,8 @@ func TestMonthPlanLeftAndCovered(t *testing.T) {
 	src := monthPlanSrc(flows, nil, nil)
 
 	p := buildMonthPlan(src, fx.Rates{}, today, 0, 12000, "")
-	if p.LeftUAH != 18000 { // 30 000 плану − 12 000 уже внесених
-		t.Errorf("лишилось %v, очікували 18000", p.LeftUAH)
+	if p.LeftUAH.Major() != 18000 { // 30 000 плану − 12 000 уже внесених
+		t.Errorf("лишилось %v, очікували 18000", p.LeftUAH.Major())
 	}
 	if p.CoveredPct != 40 {
 		t.Errorf("покрито %v%%, очікували 40", p.CoveredPct)
@@ -213,8 +213,8 @@ func TestMonthPlanLeftAndCovered(t *testing.T) {
 	// Обрізати 133% до 100% означало б сховати саме те, заради чого число й
 	// показують.
 	p = buildMonthPlan(src, fx.Rates{}, today, 0, 40000, "")
-	if p.LeftUAH != 0 {
-		t.Errorf("лишилось %v, очікували 0 — план місяця перевиконано", p.LeftUAH)
+	if p.LeftUAH.Major() != 0 {
+		t.Errorf("лишилось %v, очікували 0 — план місяця перевиконано", p.LeftUAH.Major())
 	}
 	if p.CoveredPct != 133.33 {
 		t.Errorf("покрито %v%%, очікували 133.33 без обрізання", p.CoveredPct)
@@ -234,7 +234,7 @@ func TestReserveMonthShare(t *testing.T) {
 	set := &state.SettingsDoc{
 		MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months, ReserveFillSharePct: &share,
 	}
-	plan := &state.MonthPlan{PlanUAH: 30000, PlanReserveUAH: 30000, PlanGoalsUAH: 30000}
+	plan := &state.MonthPlan{PlanUAH: state.Major(30000, money.UAH), PlanReserveUAH: state.Major(30000, money.UAH), PlanGoalsUAH: state.Major(30000, money.UAH)}
 
 	// Резерв порожній при цілі 60 000 — розрив великий, обрізати нічим.
 	month, fill, _ := reserveMonthShare(set, 0, plan, 0, false, 0, 0)
@@ -305,7 +305,7 @@ func TestMonthPlanBucketsEqualPlanWithoutLimits(t *testing.T) {
 	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
 	if p.PlanReserveUAH != p.PlanUAH || p.PlanGoalsUAH != p.PlanUAH {
 		t.Errorf("без обмежень: план %v, подушці %v, цілям %v — мусять збігатися",
-			p.PlanUAH, p.PlanReserveUAH, p.PlanGoalsUAH)
+			p.PlanUAH.Major(), p.PlanReserveUAH.Major(), p.PlanGoalsUAH.Major())
 	}
 }
 
@@ -328,15 +328,15 @@ func TestMonthPlanBucketsAreIndependent(t *testing.T) {
 	}, nil, nil)
 
 	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
-	if p.PlanUAH != 45000 {
-		t.Fatalf("план %v, очікували 45000", p.PlanUAH)
+	if p.PlanUAH.Major() != 45000 {
+		t.Fatalf("план %v, очікували 45000", p.PlanUAH.Major())
 	}
-	if p.PlanReserveUAH != 30000 { // лише зарплата
+	if p.PlanReserveUAH.Major() != 30000 { // лише зарплата
 		t.Errorf("подушці %v, очікували 30000 — оренда й дивіденд їй заборонені",
-			p.PlanReserveUAH)
+			p.PlanReserveUAH.Major())
 	}
-	if p.PlanGoalsUAH != 35000 { // зарплата + дивіденд
-		t.Errorf("цілям %v, очікували 35000 — заборонена лише оренда", p.PlanGoalsUAH)
+	if p.PlanGoalsUAH.Major() != 35000 { // зарплата + дивіденд
+		t.Errorf("цілям %v, очікували 35000 — заборонена лише оренда", p.PlanGoalsUAH.Major())
 	}
 }
 
@@ -358,13 +358,13 @@ func TestMonthPlanExpensesEatAllowedFirst(t *testing.T) {
 	}, nil, nil)
 
 	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
-	if p.PlanUAH != 35000 { // 10 000 + 40 000 − 15 000
-		t.Fatalf("план %v, очікували 35000", p.PlanUAH)
+	if p.PlanUAH.Major() != 35000 { // 10 000 + 40 000 − 15 000
+		t.Fatalf("план %v, очікували 35000", p.PlanUAH.Major())
 	}
 	// Дозволених 10 000, витрат 15 000 — не нижче нуля, а не «мінус 5 000».
-	if p.PlanReserveUAH != 0 {
+	if p.PlanReserveUAH.Major() != 0 {
 		t.Errorf("подушці %v, очікували 0: витрати більші за дозволений дохід",
-			p.PlanReserveUAH)
+			p.PlanReserveUAH.Major())
 	}
 }
 
@@ -383,14 +383,14 @@ func TestMonthPlanOtherReceiptUsesOwnPermission(t *testing.T) {
 	}, nil)
 
 	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
-	if p.PlanUAH != 15000 {
-		t.Fatalf("план %v, очікували 15000", p.PlanUAH)
+	if p.PlanUAH.Major() != 15000 {
+		t.Fatalf("план %v, очікували 15000", p.PlanUAH.Major())
 	}
-	if p.PlanReserveUAH != 10000 {
-		t.Errorf("подушці %v, очікували 10000 — премія їй заборонена", p.PlanReserveUAH)
+	if p.PlanReserveUAH.Major() != 10000 {
+		t.Errorf("подушці %v, очікували 10000 — премія їй заборонена", p.PlanReserveUAH.Major())
 	}
-	if p.PlanGoalsUAH != 15000 {
-		t.Errorf("цілям %v, очікували 15000 — премія саме для них", p.PlanGoalsUAH)
+	if p.PlanGoalsUAH.Major() != 15000 {
+		t.Errorf("цілям %v, очікували 15000 — премія саме для них", p.PlanGoalsUAH.Major())
 	}
 }
 
@@ -402,7 +402,7 @@ func TestReserveMonthShareUsesAllowedBase(t *testing.T) {
 	set := &state.SettingsDoc{
 		MonthlyExpensesUAH: &exp, ReserveTargetMonths: &months, ReserveFillSharePct: &share,
 	}
-	plan := &state.MonthPlan{PlanUAH: 30000, PlanReserveUAH: 12000, PlanGoalsUAH: 30000}
+	plan := &state.MonthPlan{PlanUAH: state.Major(30000, money.UAH), PlanReserveUAH: state.Major(12000, money.UAH), PlanGoalsUAH: state.Major(30000, money.UAH)}
 	month, fill, from := reserveMonthShare(set, 0, plan, 0, false, 0, 0)
 	// Третє число — САМ ДОЗВІЛ, без темпу: саме на нього спирається другий
 	// прохід розкладки, якому темп обходити можна, а дозвіл — ні.
@@ -448,15 +448,15 @@ func TestMonthPlanSubtractsPlannedExpense(t *testing.T) {
 	)
 
 	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
-	if p.PlannedUAH != 30000 {
-		t.Errorf("планові витрати місяця %v, очікували 30000 — вересневі гуми в липні не тиснуть", p.PlannedUAH)
+	if p.PlannedUAH.Major() != 30000 {
+		t.Errorf("планові витрати місяця %v, очікували 30000 — вересневі гуми в липні не тиснуть", p.PlannedUAH.Major())
 	}
-	if p.PlanUAH != 10000 { // 40 000 − 30 000
-		t.Errorf("нетто %v, очікували 10000", p.PlanUAH)
+	if p.PlanUAH.Major() != 10000 { // 40 000 − 30 000
+		t.Errorf("нетто %v, очікували 10000", p.PlanUAH.Major())
 	}
 	// А у вересні — навпаки: котел уже позаду, гуми попереду.
-	if q := buildMonthPlan(src, fx.Rates{}, today, 2, 0, ""); q.PlannedUAH != 8000 {
-		t.Errorf("вересень: планові витрати %v, очікували 8000", q.PlannedUAH)
+	if q := buildMonthPlan(src, fx.Rates{}, today, 2, 0, ""); q.PlannedUAH.Major() != 8000 {
+		t.Errorf("вересень: планові витрати %v, очікували 8000", q.PlannedUAH.Major())
 	}
 }
 
@@ -469,14 +469,14 @@ func TestMonthPlanOverduePlannedStillPresses(t *testing.T) {
 	src := plannedSrc(now, planExp("Страховка", "2026-05-14", "", domain.PaidFromPlan, 1_200_000))
 
 	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
-	if p.PlannedUAH != 12000 {
+	if p.PlannedUAH.Major() != 12000 {
 		t.Errorf("прострочена дала %v, а мусить тиснути на поточний місяць своїми 12000: "+
 			"травень уже прожито, а зникнувши, вона перестала б вимагати грошей, "+
-			"яких далі вимагає", p.PlannedUAH)
+			"яких далі вимагає", p.PlannedUAH.Major())
 	}
 	// І тисне РІВНО ОДИН РАЗ: у наступному місяці її вже немає.
-	if q := buildMonthPlan(src, fx.Rates{}, today, 1, 0, ""); q.PlannedUAH != 0 {
-		t.Errorf("серпень: прострочена тисне вдруге на %v", q.PlannedUAH)
+	if q := buildMonthPlan(src, fx.Rates{}, today, 1, 0, ""); q.PlannedUAH.Major() != 0 {
+		t.Errorf("серпень: прострочена тисне вдруге на %v", q.PlannedUAH.Major())
 	}
 }
 
@@ -486,11 +486,11 @@ func TestMonthPlanPaidPlannedGone(t *testing.T) {
 	src := plannedSrc(now, planExp("Котел", "2026-07-10", "2026-07-11", domain.PaidFromPlan, 3_000_000))
 
 	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
-	if p.PlannedUAH != 0 {
-		t.Errorf("сплачена тисне на %v — гроші вже пішли", p.PlannedUAH)
+	if p.PlannedUAH.Major() != 0 {
+		t.Errorf("сплачена тисне на %v — гроші вже пішли", p.PlannedUAH.Major())
 	}
-	if p.PlanUAH != 40000 {
-		t.Errorf("нетто %v, очікували 40000", p.PlanUAH)
+	if p.PlanUAH.Major() != 40000 {
+		t.Errorf("нетто %v, очікували 40000", p.PlanUAH.Major())
 	}
 }
 
@@ -504,11 +504,11 @@ func TestMonthPlanCardPlannedDoesNotTouchPlan(t *testing.T) {
 	src := plannedSrc(now, planExp("Котел", "2026-07-20", "", domain.PaidFromCard, 3_000_000))
 
 	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "")
-	if p.PlannedUAH != 0 {
-		t.Errorf("карткова витрата зайшла в план місяця на %v", p.PlannedUAH)
+	if p.PlannedUAH.Major() != 0 {
+		t.Errorf("карткова витрата зайшла в план місяця на %v", p.PlannedUAH.Major())
 	}
-	if p.PlanUAH != 40000 {
-		t.Errorf("нетто %v, очікували 40000 — карткова витрата плану не стосується", p.PlanUAH)
+	if p.PlanUAH.Major() != 40000 {
+		t.Errorf("нетто %v, очікували 40000 — карткова витрата плану не стосується", p.PlanUAH.Major())
 	}
 }
 
@@ -531,8 +531,8 @@ func TestMonthPlanPlannedCutsAllThreeAllowances(t *testing.T) {
 		name string
 		got  float64
 	}{
-		{"подушці", p.PlanReserveUAH},
-		{"цілям", p.PlanGoalsUAH},
+		{"подушці", p.PlanReserveUAH.Major()},
+		{"цілям", p.PlanGoalsUAH.Major()},
 	} {
 		if c.got != 10000 {
 			t.Errorf("дозволено %s %v, очікували 10000 — витрата ріже кожен кошик повністю", c.name, c.got)
@@ -553,15 +553,15 @@ func TestMonthPlanPlannedRespectsAfterFilter(t *testing.T) {
 
 	p := buildMonthPlan(src, fx.Rates{}, today, 0, 0, "2026-07-18")
 	// 5 000 прострочені (фільтр їх не бере) + 7 000 попереду = 12 000.
-	if p.PlannedUAH != 12000 {
+	if p.PlannedUAH.Major() != 12000 {
 		t.Errorf("у місяці звірки %v, очікували 12000: прострочену фільтр не відсікає ніколи, "+
-			"бо в балансі звірки її немає — її ж не сплатили", p.PlannedUAH)
+			"бо в балансі звірки її немає — її ж не сплатили", p.PlannedUAH.Major())
 	}
 
 	// А сплачена до звірки справді зникає: гроші пішли й уже в мінусі.
 	src2 := plannedSrc(now, planExp("Рано", "2026-07-10", "2026-07-10", domain.PaidFromPlan, 500_000))
-	if q := buildMonthPlan(src2, fx.Rates{}, today, 0, 0, "2026-07-18"); q.PlannedUAH != 0 {
-		t.Errorf("сплачена до звірки тисне на %v — вона вже у виміряному балансі", q.PlannedUAH)
+	if q := buildMonthPlan(src2, fx.Rates{}, today, 0, 0, "2026-07-18"); q.PlannedUAH.Major() != 0 {
+		t.Errorf("сплачена до звірки тисне на %v — вона вже у виміряному балансі", q.PlannedUAH.Major())
 	}
 }
 

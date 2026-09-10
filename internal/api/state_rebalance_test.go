@@ -24,7 +24,7 @@ func pct(v float64) *float64 { return &v }
 func TestRebalanceFallsBackToDepositWhenBondTooBig(t *testing.T) {
 	in := rebalanceInput{
 		// Капітал 10 000 ₴ — доларова ціль 25% це лише 2 500 ₴.
-		Capital:  state.Capital{AccountUAH: 10000},
+		Capital:  state.Capital{AccountUAH: state.Major(10000, money.UAH)},
 		Settings: &state.SettingsDoc{USDTargetSharePct: pct(25)},
 		Rates:    fx.Rates{money.USD: 441234},
 		// Найдешевший папір — $1000 (≈44 123 ₴), тобто далеко за ціллю.
@@ -48,8 +48,8 @@ func TestRebalanceFallsBackToDepositWhenBondTooBig(t *testing.T) {
 		t.Errorf("одиниця входу %q, очікували \"deposit\": папір на $1000 не влазить у ціль 2 500 ₴",
 			row.UnitKind)
 	}
-	if row.BondCostNative != 100 {
-		t.Errorf("вхід %v, очікували 100 (мінімальний вклад)", row.BondCostNative)
+	if row.BondCostNative.Major() != 100 {
+		t.Errorf("вхід %v, очікували 100 (мінімальний вклад)", row.BondCostNative.Major())
 	}
 	// Здійсненність міряється ОДИНИЦЕЮ ВХОДУ проти цілі, і тут вона чесно
 	// негативна: навіть вклад на $100 більший за 2 500 ₴ цілі.
@@ -71,7 +71,7 @@ func TestRebalanceFallsBackToDepositWhenBondTooBig(t *testing.T) {
 // шукали б довго.
 func TestConcentrationOrderIsStableOnEqualShares(t *testing.T) {
 	in := rebalanceInput{
-		Capital:  state.Capital{AccountUAH: 100000},
+		Capital:  state.Capital{AccountUAH: state.Major(100000, money.UAH)},
 		Settings: &state.SettingsDoc{LimitISINPct: pct(20)},
 		Rates:    fx.Rates{},
 		// Три папери, два з них — рівно однакового номіналу.
@@ -109,10 +109,10 @@ func TestConcentrationOrderIsStableOnEqualShares(t *testing.T) {
 // два порожні. Той самий розклад, що на живих даних, лише круглими числами.
 func monthRows() []state.RebalanceRow {
 	return []state.RebalanceRow{
-		{Dimension: "kind", Key: "bonds", TargetPct: 50, CurrentUAH: 55_000},
-		{Dimension: "kind", Key: "funds", TargetPct: 10, CurrentUAH: 40_000},
-		{Dimension: "kind", Key: "deposits", TargetPct: 15, CurrentUAH: 0},
-		{Dimension: "kind", Key: "npf", CurrentUAH: 10_000}, // без цілі — не чіпаємо
+		{Dimension: "kind", Key: "bonds", TargetPct: 50, CurrentUAH: state.Major(55_000, money.UAH)},
+		{Dimension: "kind", Key: "funds", TargetPct: 10, CurrentUAH: state.Major(40_000, money.UAH)},
+		{Dimension: "kind", Key: "deposits", TargetPct: 15, CurrentUAH: state.Major(0, money.UAH)},
+		{Dimension: "kind", Key: "npf", CurrentUAH: state.Major(10_000, money.UAH)}, // без цілі — не чіпаємо
 	}
 }
 
@@ -140,21 +140,21 @@ func TestSpreadMonthShareIgnoresSkew(t *testing.T) {
 		key  string
 		want float64
 	}{{"bonds", 5000}, {"funds", 1000}, {"deposits", 1500}} {
-		if got := rowByKey(rows, c.key).MonthShareUAH; got != c.want {
-			t.Errorf("%s за часткою %v, очікували %v", c.key, got, c.want)
+		if got := rowByKey(rows, c.key).MonthShareUAH; got.Major() != c.want {
+			t.Errorf("%s за часткою %v, очікували %v", c.key, got.Major(), c.want)
 		}
 	}
 	// Нерозподілені 25% нікому не дістаються: сума колонки менша за
 	// доступне рівно на них.
 	var sum float64
 	for _, r := range rows {
-		sum += r.MonthShareUAH
+		sum += r.MonthShareUAH.Major()
 	}
 	if sum != 7500 {
 		t.Errorf("сума колонки %v, очікували 7500 — решта 25%% лишається користувачу", sum)
 	}
 	// Рядок без цілі місячних чисел не дістає взагалі.
-	if r := rowByKey(rows, "reserve"); r.MonthShareUAH != 0 || r.MonthBalanceUAH != 0 {
+	if r := rowByKey(rows, "reserve"); r.MonthShareUAH.Major() != 0 || r.MonthBalanceUAH.Major() != 0 {
 		t.Errorf("рядок без цілі дістав місячні гроші: %+v", r)
 	}
 }
@@ -172,15 +172,15 @@ func TestSpreadMonthBalanceSkipsOverweight(t *testing.T) {
 	rows := monthRows()
 	spreadMonth(rows, 10_000, 110_000)
 
-	if got := rowByKey(rows, "funds").MonthBalanceUAH; got != 0 {
-		t.Errorf("фонди на вирівнювання %v, очікували 0 — вони вчетверо понад ціль", got)
+	if got := rowByKey(rows, "funds").MonthBalanceUAH; got.Major() != 0 {
+		t.Errorf("фонди на вирівнювання %v, очікували 0 — вони вчетверо понад ціль", got.Major())
 	}
 	bonds := rowByKey(rows, "bonds").MonthBalanceUAH
 	deps := rowByKey(rows, "deposits").MonthBalanceUAH
-	if bonds <= 0 || deps <= bonds {
-		t.Errorf("bonds %v, deposits %v — більший розрив мусить дістати більше", bonds, deps)
+	if bonds.Major() <= 0 || deps.Cmp(bonds) <= 0 {
+		t.Errorf("bonds %v, deposits %v — більший розрив мусить дістати більше", bonds.Major(), deps.Major())
 	}
-	if sum := bonds + deps; sum < 9999.9 || sum > 10000.1 {
+	if sum := bonds.Major() + deps.Major(); sum < 9999.9 || sum > 10000.1 {
 		t.Errorf("роздано %v, а доступно було 10000", sum)
 	}
 }
@@ -206,9 +206,9 @@ func TestSpreadMonthBalanceBaseExcludesReserve(t *testing.T) {
 		{"bonds", round2(5_000.0 / 23_000 * 10_000)},
 		{"deposits", round2(18_000.0 / 23_000 * 10_000)},
 	} {
-		if got := rowByKey(rows, c.key).MonthBalanceUAH; got != c.want {
+		if got := rowByKey(rows, c.key).MonthBalanceUAH; got.Major() != c.want {
 			t.Errorf("%s на вирівнювання %v, очікували %v — база після місяця мусить бути "+
-				"110 000 + 10 000, без грошей подушки", c.key, got, c.want)
+				"110 000 + 10 000, без грошей подушки", c.key, got.Major(), c.want)
 		}
 	}
 }
@@ -221,8 +221,8 @@ func TestSpreadMonthBalanceBaseExcludesReserve(t *testing.T) {
 // застосунок сам вирішив би долю грошей, які користувач лишив собі.
 func TestSpreadMonthBalanceRestBySharePct(t *testing.T) {
 	rows := []state.RebalanceRow{
-		{Dimension: "kind", Key: "bonds", TargetPct: 50, CurrentUAH: 1_000},
-		{Dimension: "kind", Key: "funds", TargetPct: 10, CurrentUAH: 100},
+		{Dimension: "kind", Key: "bonds", TargetPct: 50, CurrentUAH: state.Major(1_000, money.UAH)},
+		{Dimension: "kind", Key: "funds", TargetPct: 10, CurrentUAH: state.Major(100, money.UAH)},
 	}
 	// Капітал 1 100, план 100 000 — потреби мізерні проти доступного.
 	spreadMonth(rows, 100_000, 1_100)
@@ -230,11 +230,11 @@ func TestSpreadMonthBalanceRestBySharePct(t *testing.T) {
 	b, f := rowByKey(rows, "bonds"), rowByKey(rows, "funds")
 	// Потреби: bonds 50 550 − 1 000 = 49 550; funds 10 110 − 100 = 10 010.
 	// Разом 59 560, лишок 40 440 → за частками 50% і 10%.
-	if want := 49_550 + 40_440*0.5; b.MonthBalanceUAH != want {
-		t.Errorf("bonds на вирівнювання %v, очікували %v", b.MonthBalanceUAH, want)
+	if want := 49_550 + 40_440*0.5; b.MonthBalanceUAH.Major() != want {
+		t.Errorf("bonds на вирівнювання %v, очікували %v", b.MonthBalanceUAH.Major(), want)
 	}
-	if want := 10_010 + 40_440*0.1; f.MonthBalanceUAH != want {
-		t.Errorf("funds на вирівнювання %v, очікували %v", f.MonthBalanceUAH, want)
+	if want := 10_010 + 40_440*0.1; f.MonthBalanceUAH.Major() != want {
+		t.Errorf("funds на вирівнювання %v, очікували %v", f.MonthBalanceUAH.Major(), want)
 	}
 }
 
@@ -254,9 +254,9 @@ func TestSpreadMonthSilentWithoutPlan(t *testing.T) {
 		rows := monthRows()
 		spreadMonth(rows, c.avail, 110_000)
 		for _, r := range rows {
-			if r.MonthShareUAH != 0 || r.MonthBalanceUAH != 0 {
+			if r.MonthShareUAH.Major() != 0 || r.MonthBalanceUAH.Major() != 0 {
 				t.Errorf("%s: %s дістав місячні гроші (%v / %v)",
-					c.name, r.Key, r.MonthShareUAH, r.MonthBalanceUAH)
+					c.name, r.Key, r.MonthShareUAH.Major(), r.MonthBalanceUAH.Major())
 			}
 		}
 	}
@@ -275,7 +275,7 @@ func TestTransitCarvesOutOfBondTarget(t *testing.T) {
 	// в голові, а не звіряти з реалізацією.
 	build := func(capitalUAH float64) state.RebalanceRow {
 		out := buildRebalance(rebalanceInput{
-			Capital: state.Capital{AccountUAH: capitalUAH},
+			Capital: state.Capital{AccountUAH: state.Major(capitalUAH, money.UAH)},
 			Settings: &state.SettingsDoc{
 				USDTargetSharePct: pct(40), TargetBondsPct: pct(90),
 			},
@@ -319,7 +319,7 @@ func TestTransitCarvesOutOfBondTarget(t *testing.T) {
 // частку паперів, і картка сказала б число, якого не буває.
 func TestTransitClampedByBondTarget(t *testing.T) {
 	out := buildRebalance(rebalanceInput{
-		Capital: state.Capital{AccountUAH: 100_000},
+		Capital: state.Capital{AccountUAH: state.Major(100_000, money.UAH)},
 		Settings: &state.SettingsDoc{
 			USDTargetSharePct: pct(40), TargetBondsPct: pct(20),
 		},
@@ -339,7 +339,7 @@ func TestTransitClampedByBondTarget(t *testing.T) {
 // вирізати з неї нічого — цілі ОВДП немає взагалі.
 func TestNoTransitWithoutBondTarget(t *testing.T) {
 	out := buildRebalance(rebalanceInput{
-		Capital: state.Capital{AccountUAH: 100_000, DepositsUAH: 50_000},
+		Capital: state.Capital{AccountUAH: state.Major(100_000, money.UAH), DepositsUAH: state.Major(50_000, money.UAH)},
 		Settings: &state.SettingsDoc{
 			USDTargetSharePct: pct(40), TargetDepositsPct: pct(100),
 		},
@@ -350,9 +350,9 @@ func TestNoTransitWithoutBondTarget(t *testing.T) {
 		if r.Dimension != "kind" {
 			continue
 		}
-		if r.TransitPct != 0 || r.TransitUAH != 0 {
+		if r.TransitPct != 0 || r.TransitUAH.Major() != 0 {
 			t.Errorf("вид %q дістав транзит %.2f в.п. / %.2f ₴ без цілі ОВДП",
-				r.Key, r.TransitPct, r.TransitUAH)
+				r.Key, r.TransitPct, r.TransitUAH.Major())
 		}
 	}
 }
@@ -366,7 +366,7 @@ func TestNoTransitWithoutBondTarget(t *testing.T) {
 // цьому просіла б під ціль без жодного пояснення, куди поділись гроші.
 func TestDepositsShowAsReferenceRowWithoutTarget(t *testing.T) {
 	out := buildRebalance(rebalanceInput{
-		Capital: state.Capital{AccountUAH: 60_000, DepositsUAH: 40_000},
+		Capital: state.Capital{AccountUAH: state.Major(60_000, money.UAH), DepositsUAH: state.Major(40_000, money.UAH)},
 		Settings: &state.SettingsDoc{
 			USDTargetSharePct: pct(40), TargetBondsPct: pct(100),
 		},
@@ -385,13 +385,13 @@ func TestDepositsShowAsReferenceRowWithoutTarget(t *testing.T) {
 	if dep.TargetPct != 0 {
 		t.Errorf("довідковий рядок дістав ціль %.2f — це була б друга ціль поруч із вирізкою", dep.TargetPct)
 	}
-	if dep.CurrentUAH != 40_000 {
-		t.Errorf("у рядку %.2f ₴, очікували 40 000", dep.CurrentUAH)
+	if dep.CurrentUAH.Major() != 40_000 {
+		t.Errorf("у рядку %.2f ₴, очікували 40 000", dep.CurrentUAH.Major())
 	}
 	// Транзит на рядку вкладів — у ГРОШАХ: скільки з того, що лежить у
 	// банку, потреба виправдовує. 40% від 100 000 = 40 000 ₴ цілі USD, а
 	// квиток 42 000 ₴ — не доросли, тож транзитом є вся ціль.
-	if dep.TransitUAH != 40_000 {
-		t.Errorf("транзит на рядку вкладів %.2f ₴, очікували 40 000", dep.TransitUAH)
+	if dep.TransitUAH.Major() != 40_000 {
+		t.Errorf("транзит на рядку вкладів %.2f ₴, очікували 40 000", dep.TransitUAH.Major())
 	}
 }

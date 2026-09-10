@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -385,7 +384,7 @@ func idleMinor(doc *state.Doc) int64 {
 	if doc.Idle == nil {
 		return 0
 	}
-	return int64(math.Round(doc.Idle.InvestableUAH * 100))
+	return doc.Idle.InvestableUAH.Minor()
 }
 
 // Snapshot зберігає добовий знімок агрегатів для майбутнього графіка
@@ -402,33 +401,33 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 	today := domain.NewDate(time.Now().In(r.loc))
 	return r.st.SaveSnapshot(ctx, store.Snapshot{
 		Date:         today,
-		InvestedUAH:  int64(doc.InvestedUAH * 100),
-		NominalUAHEq: int64(doc.NominalUAHEq * 100),
+		InvestedUAH:  doc.InvestedUAH.Minor(),
+		NominalUAHEq: doc.NominalUAHEq.Minor(),
 		USDShareBP:   int64(doc.USDSharePct * 100),
 		// Джоба ЗАВЖДИ пише виміряну частку, зокрема й нуль: «євро немає»
 		// — це факт про день, а не порожнеча. Сентинел −1 із міграції 0061
 		// лишається виключно в рядках, старших за саму колонку, і саме на
 		// цьому стоїть право обох екранів показувати їх прочерком.
 		EURShareBP:     int64(doc.EURSharePct * 100),
-		UninvestedUAH:  int64(doc.UninvestedUAH * 100),
-		MonthTargetUAH: int64(doc.MonthTargetUAH * 100),
-		AccountUAH:     int64(doc.AccountUAH * 100),
-		FundsUAH:       int64(doc.FundsUAH * 100),
-		DepositsUAH:    int64(doc.DepositsUAH * 100),
+		UninvestedUAH:  doc.UninvestedUAH.Minor(),
+		MonthTargetUAH: doc.MonthTargetUAH.Minor(),
+		AccountUAH:     doc.AccountUAH.Minor(),
+		FundsUAH:       doc.FundsUAH.Minor(),
+		DepositsUAH:    doc.DepositsUAH.Minor(),
 		// Собівартість фондів беремо готовою з документа, а не складаємо
 		// тут заново: без неї крива не може показати прибуток (InvestedUAH —
 		// це лише облігації), а друга копія суми рано чи пізно розійшлася б
 		// із тією, що показує плитка «Вкладено».
-		FundsCostUAH: int64(doc.FundsCostUAH * 100),
+		FundsCostUAH: doc.FundsCostUAH.Minor(),
 		// Резерв — частина капіталу, тож без нього крива показувала б
 		// портфель меншим за фактичний. Собівартості в нього немає: вона
 		// дорівнює самій сумі, і в прибуток він не додає нічого.
-		ReserveUAH: int64(doc.ReserveUAH * 100),
+		ReserveUAH: doc.ReserveUAH.Minor(),
 		// Цілі накопичення — окремою колонкою, а не всередині резерву.
 		// Інакше «Підсумок місяця» показував би приріст подушки в місяць,
 		// коли людина просто відклала на авто, і пояснити його не було б чим
 		// (аргумент — у міграції 0040).
-		GoalsUAH: int64(doc.GoalsUAH * 100),
+		GoalsUAH: doc.GoalsUAH.Minor(),
 		// Простій — готовим із документа: означення одне (state_idle.go), і
 		// нуль тут означає «простою не було», а не «не рахували» (міграція
 		// 0052 тримає для другого −1).
@@ -437,12 +436,12 @@ func (r *Runner) Snapshot(ctx context.Context) error {
 		// РЕАЛЬНА (внески) і відрізняється від вартості, тож без неї крива
 		// малювала б прибуток, завищений на весь пенсійний баланс. Резерву
 		// така пара не потрібна саме тому, що в нього вони збігаються.
-		NPFUAH:     int64(doc.NPFUAH * 100),
-		NPFCostUAH: int64(doc.NPFCostUAH * 100),
+		NPFUAH:     doc.NPFUAH.Minor(),
+		NPFCostUAH: doc.NPFCostUAH.Minor(),
 		// Чистий капітал — готовим числом із документа, а не відніманням
 		// тут: борг картки складається зі звірки й рухів після неї, і
 		// друга його копія розійшлася б із першою (0048).
-		NetWorthUAH: int64(doc.NetWorthUAH * 100),
+		NetWorthUAH: doc.NetWorthUAH.Minor(),
 	})
 }
 

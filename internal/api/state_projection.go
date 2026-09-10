@@ -92,7 +92,7 @@ type projectionInput struct {
 	// якої ще немає, і поріг докупівлі.
 	YieldByCur       map[string]float64
 	AvgRateByCur     map[string]float64
-	ReinvestMinByCur map[string]float64
+	ReinvestMinByCur map[string]state.Money
 
 	Rates fx.Rates
 	// Deval — річне знецінення гривні. Те саме число, що й у дохідностях:
@@ -725,7 +725,7 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 		sleeves = append(sleeves, domain.Sleeve{
 			Currency: cur, Cash0: cash, Nominal0: nom, RatePct: rate,
 			RateTerminalPct: terminal, GlideYears: f.glideYears,
-			Threshold: in.ReinvestMinByCur[cur], Coupon: f.coupon[cur],
+			Threshold: in.ReinvestMinByCur[cur].Major(), Coupon: f.coupon[cur],
 			Redeem: f.redeem[cur], ContribUAH: contrib, Rate0: rate0,
 			Accum: accum, Dist: dist,
 			ContribByMonth: planVec, ContribNativeByMonth: nativeVec, Lock: lockMap,
@@ -952,7 +952,7 @@ func buildProjection(in projectionInput) projectionPhase {
 	// подушку хоч тримають безстроково, а гроші під авто ПІДУТЬ із портфеля
 	// у названу дату. Компаундити їх означало б малювати приріст на гроші,
 	// яких у портфелі вже не буде.
-	p0 := in.Capital.TotalUAH() - in.Capital.ReserveUAH - in.Capital.GoalsUAH
+	p0 := in.Capital.TotalUAH() - in.Capital.ReserveUAH.Major() - in.Capital.GoalsUAH.Major()
 	out.Rows = make([]state.ProjectionRow, 0, 4)
 	for _, y := range []int{1, 3, 5, 10} {
 		m := y * 12
@@ -962,14 +962,14 @@ func buildProjection(in projectionInput) projectionPhase {
 			// Обидві колонки — у сьогоднішніх гривнях, інакше таблиця
 			// віднімала б номінальні гроші від реальних і на коротких
 			// горизонтах показувала б від'ємний приріст.
-			Contributed:   round2(domain.RealContributed(p0, out.ContribM, in.Deval, m)),
-			WithReinvest:  round2(res.TodayUAH),
-			IncomeMonthly: round2(res.IncomeMonthlyTodayUAH),
+			Contributed:   state.Major(domain.RealContributed(p0, out.ContribM, in.Deval, m), money.UAH),
+			WithReinvest:  state.Major(res.TodayUAH, money.UAH),
+			IncomeMonthly: state.Major(res.IncomeMonthlyTodayUAH, money.UAH),
 		}
 		if in.ActualMonthly > 0 {
 			act := domain.ProjectSleeves(buildSleeves(in.ActualMonthly, 0), in.Deval, m)
-			row.WithReinvestActual = round2(act.TodayUAH)
-			row.IncomeMonthlyActual = round2(act.IncomeMonthlyTodayUAH)
+			row.WithReinvestActual = state.Major(act.TodayUAH, money.UAH)
+			row.IncomeMonthlyActual = state.Major(act.IncomeMonthlyTodayUAH, money.UAH)
 		}
 		out.Rows = append(out.Rows, row)
 	}
@@ -1003,8 +1003,8 @@ func buildProjection(in projectionInput) projectionPhase {
 	f := &state.Forecast{
 		Date:        string(domain.NewDate(today.Time().AddDate(0, deadlineMonths, 0))),
 		Months:      deadlineMonths,
-		GoalAmount:  goalAmount,
-		ContribPlan: round2(out.ContribM),
+		GoalAmount:  state.Major(goalAmount, money.UAH),
+		ContribPlan: state.Major(out.ContribM, money.UAH),
 		Rate0USD:    round2(rate0USD),
 		GlideYears:  glideYears,
 	}
@@ -1012,20 +1012,20 @@ func buildProjection(in projectionInput) projectionPhase {
 		sl := buildSleeves(d.contrib, d.ratePP)
 		res := domain.ProjectSleeves(sl, d.deval, deadlineMonths)
 		row := state.ForecastRow{Key: d.key, Label: d.label,
-			Amount: round2(res.TodayUAH), AmountNominal: round2(res.NominalUAH),
-			ContribMonthly: round2(d.contrib), DevaluationPct: round2(d.deval)}
+			Amount: state.Major(res.TodayUAH, money.UAH), AmountNominal: state.Major(res.NominalUAH, money.UAH),
+			ContribMonthly: state.Major(d.contrib, money.UAH), DevaluationPct: round2(d.deval)}
 		// Скільки треба вносити САМЕ ЗА ЦИХ допущень. За гіршого ринку
 		// той самий фінансовий результат коштує більшого внеску — це і
 		// показує, наскільки ціль посильна, а не лише чи вона досяжна.
 		if goalAmount > 0 && d.key != "actual" {
-			row.RequiredMonthly = round2(domain.RequiredMonthlySleeves(
-				buildSleeves(1, d.ratePP), d.deval, goalAmount, deadlineMonths))
+			row.RequiredMonthly = state.Major(domain.RequiredMonthlySleeves(
+				buildSleeves(1, d.ratePP), d.deval, goalAmount, deadlineMonths), money.UAH)
 			// Те саме, але з нуля: план ігнорується, тож число стає
 			// порівнянним із «дає план» і «заходить фактично».
 			// factory.buildPlanFree, а не buildSleeves — той псевдонім
 			// прибитий до factory.build і план несе.
-			row.RequiredTotalMonthly = round2(domain.RequiredMonthlySleeves(
-				factory.buildPlanFree(1, d.ratePP), d.deval, goalAmount, deadlineMonths))
+			row.RequiredTotalMonthly = state.Major(domain.RequiredMonthlySleeves(
+				factory.buildPlanFree(1, d.ratePP), d.deval, goalAmount, deadlineMonths), money.UAH)
 		}
 		// Ставку показуємо ту, під яку реально росте основна валюта
 		// портфеля, а не середню по лікарні.
@@ -1037,8 +1037,8 @@ func buildProjection(in projectionInput) projectionPhase {
 			row.ByCurrency = append(row.ByCurrency, state.SleeveRow{
 				Currency: s.Currency, RatePct: round2(s.RatePct),
 				RateTerminalPct: round2(s.RateTerminalPct),
-				ContribMonthly:  round2(s.ContribUAH),
-				Amount:          round2(res.ByCurrency[s.Currency]),
+				ContribMonthly:  state.Major(s.ContribUAH, s.Currency),
+				Amount:          state.Major(res.ByCurrency[s.Currency], s.Currency),
 			})
 		}
 		if goalAmount > 0 {
@@ -1093,13 +1093,13 @@ func buildForecastCurve(factory sleeveFactory, defs []scenarioDef,
 		}
 		return round2(s[i].UAH)
 	}
-	out := &state.ForecastCurve{StepMonths: step, GoalUAH: goal}
+	out := &state.ForecastCurve{StepMonths: step, GoalUAH: state.Major(goal, money.UAH)}
 	for i, p := range plan {
 		out.Points = append(out.Points, state.ForecastCurvePoint{
-			Month: p.Month, Plan: round2(p.UAH),
-			Optimistic:  at("optimistic", i),
-			Pessimistic: at("pessimistic", i),
-			Actual:      at("actual", i),
+			Month: p.Month, Plan: state.Major(p.UAH, money.UAH),
+			Optimistic:  state.Major(at("optimistic", i), money.UAH),
+			Pessimistic: state.Major(at("pessimistic", i), money.UAH),
+			Actual:      state.Major(at("actual", i), money.UAH),
 		})
 	}
 	return out

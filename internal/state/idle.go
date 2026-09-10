@@ -14,7 +14,7 @@ package state
 // радила б проти щойно купленого. Тому й два поля, а не одне.
 type IdleCash struct {
 	// InvestableUAH — Σ по парах цілих квитків, грн-екв.
-	InvestableUAH float64 `json:"investable_uah"`
+	InvestableUAH Money `json:"investable_uah"`
 	// Since — дата найстарішого надходження, яке досі лежить; Days — днів
 	// від неї; AgeDays — зважений за сумою вік, у днях.
 	Since   string     `json:"since,omitempty"`
@@ -28,8 +28,8 @@ type IdlePair struct {
 	Broker   string `json:"broker"`
 	Currency string `json:"currency"`
 	// Investable — цілі квитки, нативно; InvestableUAH — те саме в грн-екв.
-	Investable    float64 `json:"investable"`
-	InvestableUAH float64 `json:"investable_uah"`
+	Investable    Money   `json:"investable"`
+	InvestableUAH Money   `json:"investable_uah"`
 	Since         string  `json:"since,omitempty"`
 	Days          int     `json:"days,omitempty"`
 	AgeDays       float64 `json:"age_days,omitempty"`
@@ -41,8 +41,8 @@ type IdlePair struct {
 type IdleCost struct {
 	// CostMonthUAH — скільки простій коштує на місяць; CostSoFarUAH —
 	// скільки вже недоотримано від дат надходжень, ACT/365.
-	CostMonthUAH float64 `json:"cost_month_uah"`
-	CostSoFarUAH float64 `json:"cost_so_far_uah,omitempty"`
+	CostMonthUAH Money `json:"cost_month_uah"`
+	CostSoFarUAH Money `json:"cost_so_far_uah,omitzero"`
 	// RatePct — реальна ставка, за якою це рахувалось (зважена по парах);
 	// RateLabel — порада, звідки вона взята (для найбільшої пари).
 	RatePct   float64        `json:"rate_pct"`
@@ -54,8 +54,8 @@ type IdleCost struct {
 type IdleCostPair struct {
 	Broker       string  `json:"broker"`
 	Currency     string  `json:"currency"`
-	CostMonthUAH float64 `json:"cost_month_uah"`
-	CostSoFarUAH float64 `json:"cost_so_far_uah,omitempty"`
+	CostMonthUAH Money   `json:"cost_month_uah"`
+	CostSoFarUAH Money   `json:"cost_so_far_uah,omitzero"`
 	RatePct      float64 `json:"rate_pct"`
 	RateLabel    string  `json:"rate_label"`
 }

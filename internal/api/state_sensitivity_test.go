@@ -73,13 +73,13 @@ func TestSensitivityContribIsMonotone(t *testing.T) {
 	byFactorAmt := map[float64]float64{}
 	for _, r := range out.Rows {
 		if r.Lever == "contrib" {
-			byFactorAmt[r.Factor] = r.AmountUAH
+			byFactorAmt[r.Factor] = r.AmountUAH.Major()
 		}
 	}
-	if byFactorAmt[0.5] >= out.BaseAmountUAH || byFactorAmt[1.5] <= out.BaseAmountUAH ||
+	if byFactorAmt[0.5] >= out.BaseAmountUAH.Major() || byFactorAmt[1.5] <= out.BaseAmountUAH.Major() ||
 		byFactorAmt[2] <= byFactorAmt[1.5] {
 		t.Errorf("суми на дедлайн не зростають із внеском: ×0.5=%v база=%v ×1.5=%v ×2=%v",
-			byFactorAmt[0.5], out.BaseAmountUAH, byFactorAmt[1.5], byFactorAmt[2])
+			byFactorAmt[0.5], out.BaseAmountUAH.Major(), byFactorAmt[1.5], byFactorAmt[2])
 	}
 }
 
@@ -100,20 +100,20 @@ func TestSensitivityMarketLeversPointTheRightWay(t *testing.T) {
 		t.Fatalf("немає рядка %s %+v", lever, pp)
 		return state.SensitivityRow{}
 	}
-	if up := pick("rate", 3); up.AmountUAH <= out.BaseAmountUAH {
-		t.Errorf("ставка +3 п.п. дала не більше грошей (%v проти %v)", up.AmountUAH, out.BaseAmountUAH)
+	if up := pick("rate", 3); up.AmountUAH.Cmp(out.BaseAmountUAH) <= 0 {
+		t.Errorf("ставка +3 п.п. дала не більше грошей (%v проти %v)", up.AmountUAH.Major(), out.BaseAmountUAH.Major())
 	}
-	if down := pick("rate", -3); down.AmountUAH >= out.BaseAmountUAH {
-		t.Errorf("ставка −3 п.п. дала не менше грошей (%v проти %v)", down.AmountUAH, out.BaseAmountUAH)
+	if down := pick("rate", -3); down.AmountUAH.Cmp(out.BaseAmountUAH) >= 0 {
+		t.Errorf("ставка −3 п.п. дала не менше грошей (%v проти %v)", down.AmountUAH.Major(), out.BaseAmountUAH.Major())
 	}
 	// Знецінення: мінус до нього — це КРАЩЕ, бо гривня слабшає повільніше.
-	if better := pick("deval", -4); better.AmountUAH <= out.BaseAmountUAH {
+	if better := pick("deval", -4); better.AmountUAH.Cmp(out.BaseAmountUAH) <= 0 {
 		t.Errorf("менше знецінення дало не більше сьогоднішніх грошей (%v проти %v)",
-			better.AmountUAH, out.BaseAmountUAH)
+			better.AmountUAH.Major(), out.BaseAmountUAH.Major())
 	}
-	if worse := pick("deval", 4); worse.AmountUAH >= out.BaseAmountUAH {
+	if worse := pick("deval", 4); worse.AmountUAH.Cmp(out.BaseAmountUAH) >= 0 {
 		t.Errorf("більше знецінення дало не менше сьогоднішніх грошей (%v проти %v)",
-			worse.AmountUAH, out.BaseAmountUAH)
+			worse.AmountUAH.Major(), out.BaseAmountUAH.Major())
 	}
 }
 
@@ -174,10 +174,10 @@ func TestSensitivityBaseAgreesWithForecastActual(t *testing.T) {
 	}
 	s := out.Sensitivity
 	if actual.ContribMonthly != s.BaseContribUAH {
-		t.Errorf("внесок: прогноз %v, чутливість %v", actual.ContribMonthly, s.BaseContribUAH)
+		t.Errorf("внесок: прогноз %v, чутливість %v", actual.ContribMonthly.Major(), s.BaseContribUAH.Major())
 	}
 	if actual.Amount != s.BaseAmountUAH {
-		t.Errorf("сума на дедлайн: прогноз %v, чутливість %v", actual.Amount, s.BaseAmountUAH)
+		t.Errorf("сума на дедлайн: прогноз %v, чутливість %v", actual.Amount.Major(), s.BaseAmountUAH.Major())
 	}
 	if actual.GoalMonths != s.BaseGoalMonths {
 		t.Errorf("місяців до цілі: прогноз %d, чутливість %d", actual.GoalMonths, s.BaseGoalMonths)
@@ -192,9 +192,9 @@ func TestSensitivityBaseAgreesWithForecastActual(t *testing.T) {
 // портфель, якого немає.
 func TestSensitivityBasePrefersActualPace(t *testing.T) {
 	withPace := sens(t, 20_000)
-	if withPace.BaseFrom != "actual" || withPace.BaseContribUAH != 20_000 {
+	if withPace.BaseFrom != "actual" || withPace.BaseContribUAH.Major() != 20_000 {
 		t.Errorf("база %q %v; очікували фактичний темп 20000",
-			withPace.BaseFrom, withPace.BaseContribUAH)
+			withPace.BaseFrom, withPace.BaseContribUAH.Major())
 	}
 	// Без історії поповнень лишається план — інакше картки не було б зовсім.
 	noPace := sens(t, 0)

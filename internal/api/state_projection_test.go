@@ -17,7 +17,7 @@ import (
 func forecastInput(t *testing.T, set *state.SettingsDoc) projectionInput {
 	t.Helper()
 	return projectionInput{
-		Capital:  state.Capital{AccountUAH: 100_000},
+		Capital:  state.Capital{AccountUAH: state.Major(100_000, money.UAH)},
 		Settings: set,
 		CashByCur: map[string]int64{
 			money.UAH: 100_000_00,
@@ -68,13 +68,13 @@ func TestPlanFreeBaselineDoesNotCreateMoney(t *testing.T) {
 	bareRows, planRows := marketRows(t, bare), marketRows(t, withPlan)
 	for i := range bareRows {
 		a, b := bareRows[i].RequiredTotalMonthly, planRows[i].RequiredTotalMonthly
-		if a == 0 {
+		if a.Major() == 0 {
 			t.Fatalf("%s: тест нічого не перевірив — «треба з нуля» дорівнює нулю", bareRows[i].Key)
 		}
-		if math.Abs(a-b) > 0.01 {
+		if math.Abs(a.Major()-b.Major()) > 0.01 {
 			t.Errorf("%s: базова лінія побачила план — %.2f без плану проти %.2f із планом "+
 				"(різниця %.2f: кредит у пенсійний лишився, а дебет занулили)",
-				bareRows[i].Key, a, b, b-a)
+				bareRows[i].Key, a.Major(), b.Major(), b.Major()-a.Major())
 		}
 	}
 }
@@ -101,11 +101,11 @@ func TestForecastSpreadComesFromSettings(t *testing.T) {
 	for _, r := range out.Forecast.Rows {
 		switch r.Key {
 		case "optimistic":
-			opt = r.Amount
+			opt = r.Amount.Major()
 		case "realistic":
-			real = r.Amount
+			real = r.Amount.Major()
 		case "pessimistic":
-			pess = r.Amount
+			pess = r.Amount.Major()
 		}
 	}
 	if opt != real || pess != real {
@@ -134,7 +134,7 @@ func TestForecastSpreadDefaultsMatchOldConstants(t *testing.T) {
 		a, b := bare.Forecast.Rows[i], same.Forecast.Rows[i]
 		if a.Amount != b.Amount {
 			t.Errorf("%s: без налаштування %v, із явними 3/4 — %v; спад мусить давати те саме",
-				a.Key, a.Amount, b.Amount)
+				a.Key, a.Amount.Major(), b.Amount.Major())
 		}
 	}
 }
@@ -162,16 +162,16 @@ func TestForecastCurveEndsAtScenarioAmounts(t *testing.T) {
 	}
 	byKey := map[string]float64{}
 	for _, r := range f.Rows {
-		byKey[r.Key] = r.Amount
+		byKey[r.Key] = r.Amount.Major()
 	}
 	for _, c := range []struct {
 		key  string
 		curv float64
 	}{
-		{"realistic", last.Plan},
-		{"optimistic", last.Optimistic},
-		{"pessimistic", last.Pessimistic},
-		{"actual", last.Actual},
+		{"realistic", last.Plan.Major()},
+		{"optimistic", last.Optimistic.Major()},
+		{"pessimistic", last.Pessimistic.Major()},
+		{"actual", last.Actual.Major()},
 	} {
 		if want, ok := byKey[c.key]; ok && want != c.curv {
 			t.Errorf("%s: рядок каже %v, крива веде до %v", c.key, want, c.curv)
@@ -180,7 +180,7 @@ func TestForecastCurveEndsAtScenarioAmounts(t *testing.T) {
 	// Ціль лежить у самій кривій, щоб UI не діставав її з іншого місця й
 	// не малював лінію проти числа, якого в цьому ж обʼєкті немає.
 	if f.Curve.GoalUAH != f.GoalAmount {
-		t.Errorf("ціль у кривій %v, а в прогнозі %v", f.Curve.GoalUAH, f.GoalAmount)
+		t.Errorf("ціль у кривій %v, а в прогнозі %v", f.Curve.GoalUAH.Major(), f.GoalAmount.Major())
 	}
 }
 
@@ -213,9 +213,9 @@ func TestForecastWiderSpreadWidensFan(t *testing.T) {
 		for _, r := range out.Forecast.Rows {
 			switch r.Key {
 			case "optimistic":
-				hi = r.Amount
+				hi = r.Amount.Major()
 			case "pessimistic":
-				lo = r.Amount
+				lo = r.Amount.Major()
 			}
 		}
 		return hi - lo

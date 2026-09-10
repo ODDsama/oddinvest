@@ -304,8 +304,8 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		if doc.Debt != nil {
 			exitDoc = doc.Debt.Exit
 		}
-		if doc.Debt != nil && doc.Debt.FillNowUAH > 0 {
-			extra = int64(math.Round(doc.Debt.FillNowUAH * 100))
+		if doc.Debt != nil && doc.Debt.FillNowUAH.Major() > 0 {
+			extra = int64(math.Round(doc.Debt.FillNowUAH.Major() * 100))
 		}
 		// ЗАПАСНОГО ЗНАЧЕННЯ З ГРОШЕЙ МІСЯЦЯ ТУТ БІЛЬШЕ НЕМАЄ.
 		//
@@ -515,40 +515,40 @@ func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
 	out := &payoffExitJSON{
 		Cards:  e.Cards,
 		ExitBy: e.ExitBy, Months: e.Months,
-		Installments: uah(e.InstallmentsUAH), Planned: uah(e.PlannedUAH),
-		SpendCap: uah(e.SpendCapUAH), NeedPerMonth: uah(e.NeedPerMonthUAH),
-		Feasible: e.Feasible, ShortPerMonth: uah(e.ShortPerMonthUAH),
+		Installments: uah(e.InstallmentsUAH.Major()), Planned: uah(e.PlannedUAH.Major()),
+		SpendCap: uah(e.SpendCapUAH.Major()), NeedPerMonth: uah(e.NeedPerMonthUAH.Major()),
+		Feasible: e.Feasible, ShortPerMonth: uah(e.ShortPerMonthUAH.Major()),
 		ETADate: e.ETADate,
-		Gross:   uah(e.GrossUAH), Invest: uah(e.InvestUAH),
-		SpendUsed: uah(e.SpendUsedUAH), SpendBasis: e.SpendBasis,
-		SpendDeclared: uah(e.SpendDeclaredUAH),
+		Gross:   uah(e.GrossUAH.Major()), Invest: uah(e.InvestUAH.Major()),
+		SpendUsed: uah(e.SpendUsedUAH.Major()), SpendBasis: e.SpendBasis,
+		SpendDeclared: uah(e.SpendDeclaredUAH.Major()),
 		BurnWhy:       e.BurnWhy, BurnFrom: e.BurnFrom, BurnTo: e.BurnTo,
-		WithInvestSpendCap: uah(e.WithInvestSpendCapUAH),
+		WithInvestSpendCap: uah(e.WithInvestSpendCapUAH.Major()),
 		WithInvestETADate:  e.WithInvestETADate,
-		OnCard:             uah(e.GrossUAH - e.InvestUAH - e.InstallmentsUAH - e.PlannedUAH),
-		Headroom:           uah(e.HeadroomUAH),
-		MaxDebt:            uah(e.MaxDebtUAH),
-		WithInvestHeadroom: uah(e.WithInvestHeadroomUAH),
-		StartDebt:          uah(e.StartDebtUAH), DebtNow: uah(e.DebtNowUAH),
+		OnCard:             uah(e.GrossUAH.Major() - e.InvestUAH.Major() - e.InstallmentsUAH.Major() - e.PlannedUAH.Major()),
+		Headroom:           uah(e.HeadroomUAH.Major()),
+		MaxDebt:            uah(e.MaxDebtUAH.Major()),
+		WithInvestHeadroom: uah(e.WithInvestHeadroomUAH.Major()),
+		StartDebt:          uah(e.StartDebtUAH.Major()), DebtNow: uah(e.DebtNowUAH.Major()),
 		StartMonth: e.StartMonth, MarkDate: e.MarkDate,
 	}
 	if e.LimitLeftUAH != nil {
-		l := uah(*e.LimitLeftUAH)
+		l := uah((*e.LimitLeftUAH).Major())
 		out.LimitLeft = &l
 	}
 	if e.MarkDate != "" {
-		p, i, s := uah(e.PaidBeforeMarkUAH), uah(e.InstallmentsBeforeMarkUAH), uah(e.SpendBeforeMarkUAH)
+		p, i, s := uah(e.PaidBeforeMarkUAH.Major()), uah(e.InstallmentsBeforeMarkUAH.Major()), uah(e.SpendBeforeMarkUAH.Major())
 		out.PaidBeforeMark, out.InstallmentsBeforeMark, out.SpendBeforeMark = &p, &i, &s
 	}
 	for _, st := range e.Schedule {
 		out.Schedule = append(out.Schedule, payoffExitStepJSON{
-			Month: st.Month, Gross: uah(st.GrossUAH), Invest: uah(st.InvestUAH),
-			Installments: uah(st.InstallmentsUAH), Planned: uah(st.PlannedUAH),
-			Spend: uah(st.SpendUAH), Left: uah(st.LeftUAH),
+			Month: st.Month, Gross: uah(st.GrossUAH.Major()), Invest: uah(st.InvestUAH.Major()),
+			Installments: uah(st.InstallmentsUAH.Major()), Planned: uah(st.PlannedUAH.Major()),
+			Spend: uah(st.SpendUAH.Major()), Left: uah(st.LeftUAH.Major()),
 		})
 	}
-	if e.SpendMeasuredUAH > 0 {
-		m := uah(e.SpendMeasuredUAH)
+	if e.SpendMeasuredUAH.Major() > 0 {
+		m := uah(e.SpendMeasuredUAH.Major())
 		out.SpendMeasured = &m
 	}
 	return out

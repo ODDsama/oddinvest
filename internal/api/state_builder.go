@@ -357,7 +357,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// валютних часток. Розірвані/погашені не рахуємо: їхнє тіло вже не
 	// «в портфелі», воно повернулось на рахунок.
 	depositsUAH := 0.0
-	depositsUAHByCur := map[string]float64{}
+	depositsUAHByCur := map[string]state.Money{}
 	depositExposureUAH := map[string]float64{} // банк → тіло, грн-екв.
 	// Тіло вкладів у НАТИВНІЙ валюті — для рукавів проєкції: вони рахують
 	// у своїй валюті, а не в грн-еквіваленті.
@@ -440,7 +440,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			continue
 		}
 		depositsUAH += v
-		depositsUAHByCur[dep.Currency] += v
+		depositsUAHByCur[dep.Currency] = depositsUAHByCur[dep.Currency].Add(state.Major(v, dep.Currency))
 		// Банк вкладу — такий самий контрагент, як брокер: гроші замкнені
 		// саме в ньому. Ліміт концентрації рахується по обох разом, бо
 		// питання «скільки я втрачу, якщо ця установа зникне» від того,
@@ -475,9 +475,9 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// гроші.
 	reserveOps := src.reserveOps
 	reserveUAH := 0.0
-	reserveByCur := map[string]float64{}
-	reserveUAHByCur := map[string]float64{}
-	reservePlaces := map[string]float64{}
+	reserveByCur := map[string]state.Money{}
+	reserveUAHByCur := map[string]state.Money{}
+	reservePlaces := map[string]state.Money{}
 	reserveLastMove := ""
 	for _, op := range reserveOps {
 		u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates)
@@ -486,13 +486,13 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		}
 		v := float64(u.Amount()) / 100
 		reserveUAH += v
-		reserveUAHByCur[op.Currency] += v
-		reserveByCur[op.Currency] += float64(op.Amount) / 100
+		reserveUAHByCur[op.Currency] = reserveUAHByCur[op.Currency].Add(state.Major(v, op.Currency))
+		reserveByCur[op.Currency] = reserveByCur[op.Currency].Add(state.Minor(op.Amount, op.Currency))
 		place := op.Place
 		if place == "" {
 			place = "без місця"
 		}
-		reservePlaces[place] += v
+		reservePlaces[place] = reservePlaces[place].Add(state.Major(v, money.UAH))
 		if string(op.Date) > reserveLastMove {
 			reserveLastMove = string(op.Date)
 		}
@@ -509,10 +509,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// ставиться так само, як до сейфа, і відповідь на нього є.
 	reserveUAH += reserveDepositsUAH
 	for c, v := range reserveDepositsUAHByCur {
-		reserveUAHByCur[c] += v
+		reserveUAHByCur[c] = reserveUAHByCur[c].Add(state.Major(v, c))
 	}
 	for c, v := range reserveDepositsByCur {
-		reserveByCur[c] += v
+		reserveByCur[c] = reserveByCur[c].Add(state.Major(v, c))
 	}
 	for _, dep := range reserveRungs {
 		place := dep.Bank
@@ -523,17 +523,17 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		if cerr != nil {
 			continue
 		}
-		reservePlaces[place] += float64(u.Amount()) / 100
+		reservePlaces[place] = reservePlaces[place].Add(state.Of(u))
 	}
 	// Місця й валюти, що вийшли в нуль (усе забрали), прибираємо: рядок
 	// «сейф — 0 ₴» описує не стан, а історію, і в картці лише заважає.
 	for k, v := range reservePlaces {
-		if math.Abs(v) < 0.005 {
+		if math.Abs(v.Major()) < 0.005 {
 			delete(reservePlaces, k)
 		}
 	}
 	for k, v := range reserveByCur {
-		if math.Abs(v) < 0.005 {
+		if math.Abs(v.Major()) < 0.005 {
 			delete(reserveByCur, k)
 			delete(reserveUAHByCur, k)
 		}
@@ -773,7 +773,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 
 	// Вкладено по брокерах (грн-екв.): дзеркалить логіку Positions —
 	// ціна×залишок + пропорційна комісія, лише згруповано по брокеру.
-	investedByBroker := map[string]float64{}
+	investedByBroker := map[string]state.Money{}
 	for _, l := range hold.Lots {
 		rem := l.Remaining
 		if rem == 0 {
@@ -793,7 +793,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		if name == "" {
 			name = "—"
 		}
-		investedByBroker[name] += float64(u.Amount()) / 100
+		investedByBroker[name] = investedByBroker[name].Add(state.Of(u))
 	}
 	// Сертифікати теж лежать у брокера, і без них картка «Вкладено по
 	// брокерах» показувала неправду про те, ДЕ твої гроші: 3 389 ₴ в
@@ -838,7 +838,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			for b, v := range byBroker {
 				share := money.New(pos.CostBasis*v/totalBought, pos.Currency)
 				if u, uerr := fx.ToUAH(share, rates); uerr == nil {
-					investedByBroker[b] += float64(u.Amount()) / 100
+					investedByBroker[b] = investedByBroker[b].Add(state.Of(u))
 				}
 				if u, uerr := fx.ToUAH(money.New(mvMinor*v/totalBought, pos.Currency), rates); uerr == nil {
 					addExposure(b, float64(u.Amount())/100)
@@ -873,7 +873,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		}
 		sort.Strings(curs)
 		for _, cur := range curs {
-			if u, err := fx.ToUAH(money.New(int64(math.Round(byCur[cur]*100)), cur), rates); err == nil {
+			if u, err := fx.ToUAH(byCur[cur].Money(), rates); err == nil {
 				addExposure(name, float64(u.Amount())/100)
 			}
 		}
@@ -906,7 +906,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// таблиці рахунків його немає навмисно, бо з нього нічого не списати, і
 	// у випадайках лотів він був би фальшивим рахунком (див. 0028).
 	for _, r := range npf.Rows {
-		addExposure(r.Administrator, r.ValueUAH)
+		addExposure(r.Administrator, r.ValueUAH.Major())
 	}
 	// Зведена по портфелю — окремо від фондової: це третє число, а не
 	// уточнення другого, і рахується воно нижче, коли вже відома
@@ -916,10 +916,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	var blendedYieldBasis string
 	var blendedYieldSplit *state.YieldSplit
 
-	accounts := map[string]float64{}
+	accounts := map[string]state.Money{}
 	accountUAHMinor := int64(0)
 	for cur, m := range bal {
-		accounts[cur] = float64(m) / 100
+		accounts[cur] = state.Minor(m, money.UAH)
 		if uahAmt, err := fx.ToUAH(money.New(m, cur), rates); err == nil {
 			accountUAHMinor += uahAmt.Amount()
 		}
@@ -957,10 +957,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			minByCur[cur] = depMin
 		}
 	}
-	reinvestMinByCur := map[string]float64{}
+	reinvestMinByCur := map[string]state.Money{}
 	reinvestMin := money.New(0, money.UAH)
 	for cur, minNom := range minByCur {
-		reinvestMinByCur[cur] = float64(minNom) / 100
+		reinvestMinByCur[cur] = state.Minor(minNom, cur)
 		uahAmt, err := fx.ToUAH(money.New(minNom, cur), rates)
 		if err != nil {
 			continue
@@ -1105,7 +1105,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		days := domain.MoneyWeightedDays(flows, today)
 		gain, invested := domain.RealizedGain(flows)
 		row := state.RealizedRow{
-			Gain:      round2(float64(gain) / 100),
+			Gain:      state.Minor(gain, cur),
 			MoneyDays: math.Round(days*10) / 10,
 			MinDays:   xirrMinMoneyDays,
 		}
@@ -1163,10 +1163,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// ребаланс, старт проєкції й сам документ; доти кожен з них складав
 	// свою суму, і на сусідніх картках стояли числа, які не сходились.
 	capital := state.Capital{
-		BondsUAH: nominalMajor, AccountUAH: float64(accountUAHMinor) / 100,
-		FundsUAH: fundsUAH, DepositsUAH: depositsUAH, ReserveUAH: reserveUAH,
-		GoalsUAH:   goals.UAH,
-		NPFUAH:     npf.TotalUAH,
+		BondsUAH: state.Major(nominalMajor, money.UAH), AccountUAH: state.Minor(accountUAHMinor, money.UAH),
+		FundsUAH: state.Major(fundsUAH, money.UAH), DepositsUAH: state.Major(depositsUAH, money.UAH), ReserveUAH: state.Major(reserveUAH, money.UAH),
+		GoalsUAH:   state.Major(goals.UAH, money.UAH),
+		NPFUAH:     state.Major(npf.TotalUAH, money.UAH),
 		BondsByCur: bnd.NominalByCurUAH, DepositsByCur: depositsUAHByCur,
 		ReserveByCur: reserveUAHByCur, GoalsByCur: goals.ByCur,
 		NPFByCur: npf.ExposureUAH,
@@ -1304,17 +1304,17 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// пʼятдесят полів: тридцять із них були дзеркалом Doc, тобто пакет
 	// state здебільшого переписував із однієї структури в іншу.
 	doc := &state.Doc{
-		MonthInvestedUAH:    state.Of(monthInv).Major(),
-		MonthDepositedUAH:   state.Of(monthDep).Major(),
-		MonthWithdrawnUAH:   state.Of(monthOut).Major(),
-		MonthOutsideUAH:     state.Of(mth.OutsideUAH).Major(),
-		MonthContributedUAH: state.Of(mth.ContributedUAH).Major(),
-		MonthTargetUAH:      state.Of(target).Major(),
+		MonthInvestedUAH:    state.Of(monthInv),
+		MonthDepositedUAH:   state.Of(monthDep),
+		MonthWithdrawnUAH:   state.Of(monthOut),
+		MonthOutsideUAH:     state.Of(mth.OutsideUAH),
+		MonthContributedUAH: state.Of(mth.ContributedUAH),
+		MonthTargetUAH:      state.Of(target),
 		MonthPlan:           mth.Plan,
 		// Чистий капітал — капітал мінус УСЕ, що винен, включно з пільговим
 		// боргом картки: питання «скільки в мене насправді» не про ставки
 		// (довід — при полі та в міграції 0048).
-		NetWorthUAH: round2(capital.TotalUAH() - debtOwedUAH(src, rates, today)),
+		NetWorthUAH: state.Major(capital.TotalUAH()-debtOwedUAH(src, rates, today), money.UAH),
 		// Дельта за 30 днів — проти знімка з sources; nil, доки знімка
 		// місячної давнини немає (state_delta.go).
 		CapitalDelta30: buildCapitalDelta(src, capital.TotalUAH(), rates),
@@ -1323,19 +1323,19 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// зменшили (state_month.go).
 		Debt: buildDebtPlan(src, src.debts, src.debtMarks, src.debtOps,
 			settings, mth.Plan, rates, now, today),
-		UninvestedUAH:  state.Of(unin).Major(),
-		AccountUAH:     state.Of(account).Major(),
-		ReinvestMinUAH: state.Of(reinvestMin).Major(),
+		UninvestedUAH:  state.Of(unin),
+		AccountUAH:     state.Of(account),
+		ReinvestMinUAH: state.Of(reinvestMin),
 		Idle:           idleCash,
 
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
 		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
-		FundsUAH: round2(fundsUAH), Funds: fundRows,
-		DepositsUAH: round2(depositsUAH), ReserveUAH: round2(reserveUAH),
-		GoalsUAH: round2(goals.UAH),
-		NPFUAH:   round2(npf.TotalUAH), NPFCostUAH: round2(npf.CostUAH),
+		FundsUAH: state.Major(fundsUAH, money.UAH), Funds: fundRows,
+		DepositsUAH: state.Major(depositsUAH, money.UAH), ReserveUAH: state.Major(reserveUAH, money.UAH),
+		GoalsUAH: state.Major(goals.UAH, money.UAH),
+		NPFUAH:   state.Major(npf.TotalUAH, money.UAH), NPFCostUAH: state.Major(npf.CostUAH, money.UAH),
 		NPF: npf.Rows, NPFContribDue: npf.ContribDue,
-		IncomeMonthlyNow: incomeMonthlyNow, ReinvestMin: reinvestMinByCur,
+		IncomeMonthlyNow: state.Major(incomeMonthlyNow, money.UAH), ReinvestMin: reinvestMinByCur,
 
 		Settings: settings, XIRRPct: xirr, Realized: realized,
 		PortfolioYieldPct: portfolioYield, PortfolioYield: portfolioYieldByCur,
@@ -1343,7 +1343,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		FundsYieldPct:      fundsYield, FundsYieldRealPct: fundsYieldReal,
 		FundsYieldBasis: fnd.Basis, FundsYieldSplit: fnd.Split,
 		BlendedYieldPct: blendedYield, BlendedYieldRealPct: blendedYieldReal,
-		BlendedYieldBasis: blendedYieldBasis, BlendedYieldBaseUAH: blendedYieldBase,
+		BlendedYieldBasis: blendedYieldBasis, BlendedYieldBaseUAH: state.Major(blendedYieldBase, money.UAH),
 		BlendedYieldSplit: blendedYieldSplit,
 		TotalReturn:       totalReturn,
 		KindYieldPct: kindYieldReal(portfolioYield, fundsYield,
@@ -1352,28 +1352,28 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			depositsYieldReal, npf.YieldRealPct),
 
 		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
-		PlanProvidesUAH: prj.PlanProvidesUAH,
+		PlanProvidesUAH: state.Major(prj.PlanProvidesUAH, money.UAH),
 		Sensitivity:     prj.Sensitivity, Independence: prj.Independence,
 		Drawdown:  prj.Drawdown,
 		Rebalance: rebalance, Concentration: concentration,
 		RateRisk: rateRisk, Liquidity: liquidity,
 		MarketYield: mkt.yield,
 		FXWindow:    fxw.rows,
-		AccruedUAH:  round2(float64(accruedUAH) / 100), NBURefreshedAt: nbuAt,
-		ActualMonthlyUAH: actualMonthly, ActualMonths: actualMonths,
+		AccruedUAH:  state.Minor(accruedUAH, money.UAH), NBURefreshedAt: nbuAt,
+		ActualMonthlyUAH: state.Major(actualMonthly, money.UAH), ActualMonths: actualMonths,
 		SavingsRatePct: savingsRatePct(actualMonthly, mth.Plan),
 	}
 	// Похідні — те, що виводиться з уже покладеного (state/derive.go).
 	// Capital зібраний вище один раз; state його лише читає.
 	if err := state.Derive(doc, state.DeriveInput{
-		DebtCapsReserve: debtCaps, DebtCoverUAH: debtCover,
+		DebtCapsReserve: debtCaps, DebtCoverUAH: state.Major(debtCover, money.UAH),
 		Now: now, Positions: positions, Rates: rates, Capital: capital,
 		Cashflow: cashflow, Ladder: ladder,
 		MonthDeposited: monthDep, MonthTarget: target,
 		ReserveByCur: reserveByCur, ReservePlaces: reservePlaces,
 		ReserveLastMove: reserveLastMove, TopN: 5,
-		ReserveFillMonthUAH: mth.ReserveMonthUAH, ReserveFillNowUAH: mth.ReserveFillUAH,
-		ReserveMovedUAH: mth.ReserveMovedUAH,
+		ReserveFillMonthUAH: state.Major(mth.ReserveMonthUAH, money.UAH), ReserveFillNowUAH: state.Major(mth.ReserveFillUAH, money.UAH),
+		ReserveMovedUAH: state.Major(mth.ReserveMovedUAH, money.UAH),
 		// Інфляція — щоб ціль, задана в сьогоднішніх грошах, знала, у що
 		// вона обійдеться в рік дедлайну. Нуль = ряду ще немає, і тоді
 		// майбутні числа просто не малюються.
@@ -1382,7 +1382,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// самі вклади, зведені до чотирьох чисел. Перевід у гривню, у місяці
 		// й у річний дохід робиться ТУТ — там, де є курси, «сьогодні» й
 		// domain.NetRate; у state лишається сама арифметика покриття.
-		ReserveLiquidUAH: reserveLiquidUAH,
+		ReserveLiquidUAH: state.Major(reserveLiquidUAH, money.UAH),
 		ReserveDeposits:  reserveLadderInput(reserveRungs, today, rates),
 		// Позики в самого себе — теж ГОТОВИМИ: залишок і відсоток рахує
 		// domain, курс і «сьогодні» знає будівник, а в state лишається
@@ -1415,7 +1415,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// «Скільки чого за стратегією» обіцяла на вирізку цілей більше, ніж
 	// показувала модалка розкладки, яку сама ж і відкриває.
 	if mth.Plan != nil {
-		avail := mth.Plan.PlanUAH - mth.ReserveMonthUAH - goalsMonthUAH(doc.Goals)
+		avail := mth.Plan.PlanUAH.Major() - mth.ReserveMonthUAH - goalsMonthUAH(doc.Goals)
 		spreadMonth(doc.Rebalance, avail, rbl.KindMajorUAH)
 	}
 	return doc, nil
@@ -1435,7 +1435,7 @@ func goalsMonthUAH(goals []state.Goal) float64 {
 		if g.DoneDate != "" {
 			continue
 		}
-		sum += g.FillMonthUAH
+		sum += g.FillMonthUAH.Major()
 	}
 	return sum
 }

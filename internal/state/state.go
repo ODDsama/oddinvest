@@ -34,8 +34,8 @@ type Doc struct {
 	Schema      int    `json:"schema"`
 	GeneratedAt string `json:"generated_at"` // RFC3339
 
-	InvestedUAH  float64 `json:"invested_uah"`   // вартість входу залишків, грн-екв.
-	NominalUAHEq float64 `json:"nominal_uah_eq"` // номінал портфеля, грн-екв.
+	InvestedUAH  Money `json:"invested_uah"`   // вартість входу залишків, грн-екв.
+	NominalUAHEq Money `json:"nominal_uah_eq"` // номінал портфеля, грн-екв.
 	// CapitalUAH — УВЕСЬ капітал: номінал ОВДП + рахунок + фонди + вклади +
 	// резерв + НПФ (адитивне поле). Знаменник, від якого рахуються всі
 	// частки.
@@ -43,7 +43,7 @@ type Doc struct {
 	// Довго його в документі не було, і кожен споживач складав своє: плитка
 	// «Капітал» на фронтенді — одну суму, картка ребалансу — іншу, старт
 	// проєкції — третю. Числа стояли на сусідніх картках і не сходились.
-	CapitalUAH float64 `json:"capital_uah,omitempty"`
+	CapitalUAH Money `json:"capital_uah,omitzero"`
 	// CapitalDelta30 — як змінився капітал за останні 30 днів, проти
 	// добового знімка (адитивне поле). Порожньо, коли знімка місячної
 	// давнини ще немає: перший місяць життя бази число не вигадується.
@@ -66,29 +66,29 @@ type Doc struct {
 	// частки зі знаменника. Див. state.Capital.
 	USDSharePct   float64 `json:"usd_share_pct"`
 	EURSharePct   float64 `json:"eur_share_pct"`
-	UninvestedUAH float64 `json:"uninvested_uah"` // надійшло і не перевкладено, грн-екв.
+	UninvestedUAH Money   `json:"uninvested_uah"` // надійшло і не перевкладено, грн-екв.
 
 	// Грошовий рахунок (гаманець). AccountUAH — сумарний баланс у грн-екв.
 	// (для «Разом» і плитки). Accounts — баланси по валютах (нативно).
 	// ReinvestMinUAH — ціна найдешевшого паперу (грн-екв.); ReinvestMin —
 	// найдешевший папір по кожній валюті (нативно) для по-валютного CTA.
-	AccountUAH     float64            `json:"account_uah"`
-	ReinvestMinUAH float64            `json:"reinvest_min_uah"`
-	Accounts       map[string]float64 `json:"accounts"`
-	ReinvestMin    map[string]float64 `json:"reinvest_min"`
+	AccountUAH     Money            `json:"account_uah"`
+	ReinvestMinUAH Money            `json:"reinvest_min_uah"`
+	Accounts       map[string]Money `json:"accounts"`
+	ReinvestMin    map[string]Money `json:"reinvest_min"`
 	// Brokers — баланси в розрізі (брокер → валюта → сума). Рахунки
 	// роздільні, тож «чи вистачає на папір» рахується саме тут, а
 	// Accounts лишається зведенням по валютах для портфельних показників.
-	Brokers map[string]map[string]float64 `json:"brokers,omitempty"`
+	Brokers map[string]map[string]Money `json:"brokers,omitzero"`
 	// InvestedByBroker — вкладено (вартість входу залишків, грн-екв.) по
 	// кожному брокеру. Довідкова розбивка для «Портфеля».
-	InvestedByBroker map[string]float64 `json:"invested_by_broker,omitempty"`
+	InvestedByBroker map[string]Money `json:"invested_by_broker,omitzero"`
 
 	// FundsUAH — вартість сертифікатів фондів (Inzhur REIT і подібні) у
 	// грн-екв. за останньою відомою ціною. ОКРЕМЕ поле, а не додаток до
 	// nominal_uah_eq: у сертифіката немає номіналу, і змішування зламало
 	// б і драбину, і дюрацію, які будуються на номіналі облігацій.
-	FundsUAH float64           `json:"funds_uah,omitempty"`
+	FundsUAH Money             `json:"funds_uah,omitzero"`
 	Funds    []FundPositionRow `json:"funds,omitempty"`
 	// FundsCostUAH — за скільки ці сертифікати куплені, грн-екв.
 	// (адитивне поле).
@@ -98,14 +98,14 @@ type Doc struct {
 	// «Вкладено», і крива капіталу — уже з колонки знімка. Три копії
 	// однієї суми, дві з них у різних мовах, і жодного способу помітити,
 	// коли вони розійдуться.
-	FundsCostUAH float64 `json:"funds_cost_uah,omitempty"`
+	FundsCostUAH Money `json:"funds_cost_uah,omitzero"`
 
 	// DepositsUAH — тіло діючих банківських вкладів у грн-екв. ОКРЕМЕ поле,
 	// як funds_uah: вклад — інший інструмент (є строк і фіксована ставка,
 	// немає штук і ринкової ціни), тож у номінал ОВДП його не змішуємо.
 	// Входить у капітал і валютні частки; сам список вкладів UI бере з
 	// /api/term-deposits, тож масиву тут не тримаємо.
-	DepositsUAH float64 `json:"deposits_uah,omitempty"`
+	DepositsUAH Money `json:"deposits_uah,omitzero"`
 
 	// ReserveUAH — резерв («матрац») у грн-екв.: гроші, відкладені на
 	// чорний день. Четверта сутність, і за природою вона від решти
@@ -120,7 +120,7 @@ type Doc struct {
 	// бо він от-от стане чимось іншим. Резерв же грішми й лишиться, тож
 	// $5000 у матраці — справжня валютна експозиція, і рахується вона в
 	// чисельнику нарівні з паперами.
-	ReserveUAH float64  `json:"reserve_uah,omitempty"`
+	ReserveUAH Money    `json:"reserve_uah,omitzero"`
 	Reserve    *Reserve `json:"reserve,omitempty"`
 	// GoalsUAH — цілі накопичення разом, грн-екв. Goals — кожна окремо.
 	//
@@ -134,8 +134,8 @@ type Doc struct {
 	// У капіталі обидва (гроші є), у купівельній спроможності — жоден
 	// (витратити їх на папір не збираються). Довід дослівно той самий, що в
 	// міграції 0020, і поширений на третю сутність.
-	GoalsUAH float64 `json:"goals_uah,omitempty"`
-	Goals    []Goal  `json:"goals,omitempty"`
+	GoalsUAH Money  `json:"goals_uah,omitzero"`
+	Goals    []Goal `json:"goals,omitempty"`
 	// NetWorthUAH — ЧИСТИЙ капітал: CapitalUAH мінус усе, що винен.
 	//
 	// Окремим полем, а не правкою капіталу: на капіталі стоять частки,
@@ -147,7 +147,7 @@ type Doc struct {
 	// картки. У чергу погашення він не йде (нараховувати ще нема на що),
 	// але винен ти його однаково — а питання «скільки в мене насправді» не
 	// про ставки.
-	NetWorthUAH float64 `json:"net_worth_uah,omitempty"`
+	NetWorthUAH Money `json:"net_worth_uah,omitzero"`
 	// Debt — рівно те, що борг змінює в ЧУЖИХ числах: скільки його,
 	// наскільки він дорогий і скільки з грошей місяця йде на дострокове
 	// погашення, — плюс стан кожної картки на сьогодні (Cards).
@@ -184,8 +184,8 @@ type Doc struct {
 	// стоїть у kind_yield_real_pct від фази 9, і в XIRR, де про замок
 	// сказано дослівно — «Замок на це не впливає: XIRR питає, скільки
 	// принесли вкладені гроші, а не чи можна їх забрати».
-	NPFUAH     float64          `json:"npf_uah,omitempty"`
-	NPFCostUAH float64          `json:"npf_cost_uah,omitempty"`
+	NPFUAH     Money            `json:"npf_uah,omitzero"`
+	NPFCostUAH Money            `json:"npf_cost_uah,omitzero"`
 	NPF        []NPFPositionRow `json:"npf,omitempty"`
 	// NPFContribDue — чи прострочений внесок цього місяця хоч на одному
 	// рахунку. Єдина дія, якої НПФ від власника вимагає, — вчасно внести,
@@ -213,18 +213,18 @@ type Doc struct {
 	// саме цей ряд. IncomeMonthlyNow — середній місячний купонний дохід
 	// за наступні 12 місяців.
 	Coupons12m       []MonthAmount `json:"coupons_12m,omitempty"`
-	IncomeMonthlyNow float64       `json:"income_monthly_now,omitempty"`
+	IncomeMonthlyNow Money         `json:"income_monthly_now,omitzero"`
 
 	// MonthInvestedUAH — куплено паперів цього місяця (перекладання
 	// грошей з рахунку в папери). MonthDepositedUAH — НОВІ гроші, внесені
 	// цього місяця. Прогрес рахується від поповнень: план виведений із
 	// цілі й означає «скільки нових грошей треба вносити», а купівля за
 	// накопичені купони до цілі не додає нічого.
-	MonthInvestedUAH float64 `json:"month_invested_uah"`
+	MonthInvestedUAH Money `json:"month_invested_uah"`
 	// MonthDepositedUAH — НЕТТО нових грошей за місяць: поповнення мінус
 	// зняття. MonthWithdrawnUAH — самі зняття, додатнім числом, щоб UI міг
 	// показати розклад, коли нетто не збігається з сумою поповнень.
-	MonthDepositedUAH float64 `json:"month_deposited_uah"`
+	MonthDepositedUAH Money `json:"month_deposited_uah"`
 	// MonthWithdrawnUAH рахує й ДРУГУ НОГУ внутрішніх переміщень: переказ
 	// гаманець → матрац записується мінусом у deposits і плюсом у
 	// reserve_ops, тож він входить і сюди, і в поповнення. Нетто від цього
@@ -237,7 +237,7 @@ type Doc struct {
 	//
 	// Поле лишається в контракті: його читає інтеграція HA. Але показувати
 	// його валовим числом поруч із поповненнями не можна.
-	MonthWithdrawnUAH float64 `json:"month_withdrawn_uah,omitempty"`
+	MonthWithdrawnUAH Money `json:"month_withdrawn_uah,omitzero"`
 	// MonthOutsideUAH / MonthContributedUAH — з ЧОГО складається внесене:
 	// рухи резерву й цілей нетто, і решта, тобто рахунки брокерів.
 	//
@@ -246,11 +246,11 @@ type Doc struct {
 	// браузер із reserve.moved_month_uah і goals[].moved_uah — тобто друге
 	// означення того, що бекенд уже рахує як outside_uah для «Періоду» й
 	// «Року» (cashflow.go), тільки з іншим порядком округлення.
-	MonthOutsideUAH     float64 `json:"month_outside_uah,omitempty"`
-	MonthContributedUAH float64 `json:"month_contributed_uah,omitempty"`
-	MonthTargetUAH      float64 `json:"month_target_uah"`
-	MonthProgressPct    int     `json:"month_progress_pct"`
-	MonthIncomingUAH    float64 `json:"month_incoming_uah"` // купони+погашення в поточному місяці
+	MonthOutsideUAH     Money `json:"month_outside_uah,omitzero"`
+	MonthContributedUAH Money `json:"month_contributed_uah,omitzero"`
+	MonthTargetUAH      Money `json:"month_target_uah"`
+	MonthProgressPct    int   `json:"month_progress_pct"`
+	MonthIncomingUAH    Money `json:"month_incoming_uah"` // купони+погашення в поточному місяці
 
 	// MonthPlan — що план доходу обіцяє САМЕ ЦЬОГО місяця (адитивне поле).
 	//
@@ -376,7 +376,7 @@ type Doc struct {
 	// або чиєї ставки застосунок не знає (вклад без заданої ставки). Саме це
 	// й було головним питанням власника — «щоб воно все враховувало», — і
 	// відповіддю на нього мусить бути число, а не запевнення.
-	BlendedYieldBaseUAH float64 `json:"blended_yield_base_uah,omitempty"`
+	BlendedYieldBaseUAH Money `json:"blended_yield_base_uah,omitzero"`
 
 	// BlendedYieldSplit — те саме для зведеної по портфелю. На звичайному
 	// портфелі обіцяна половина буде переважною: YTM ОВДП зафіксований до
@@ -436,7 +436,7 @@ type Doc struct {
 	// заведено. Живе поряд із Projection, а не всередині Forecast: план
 	// має сенс і без цілі й дедлайну, тож Forecast (який без них nil)
 	// не годиться йому домівкою.
-	PlanProvidesUAH float64 `json:"plan_provides_uah,omitempty"`
+	PlanProvidesUAH Money `json:"plan_provides_uah,omitzero"`
 	// Forecast — віяло прогнозів на дедлайн: скільки буде на цю дату за
 	// трьох наборів допущень. Ціль — одна сума-орієнтир, з якою вони
 	// порівнюються.
@@ -488,15 +488,15 @@ type Doc struct {
 	// зароблено, але ще не виплачено. У проєкції НЕ додається (там майбутні
 	// купони враховані повністю). NBURefreshedAt — коли востаннє успішно
 	// оновлювався довідник НБУ (ISO), щоб ловити тиху несвіжість даних.
-	AccruedUAH     float64 `json:"accrued_uah,omitempty"`
-	NBURefreshedAt string  `json:"nbu_refreshed_at,omitempty"`
+	AccruedUAH     Money  `json:"accrued_uah,omitzero"`
+	NBURefreshedAt string `json:"nbu_refreshed_at,omitempty"`
 
 	// ActualMonthlyUAH — фактичний середній темп поповнень, грн/міс: нето
 	// по трьох журналах зовнішніх грошей (гаманець, подушка, цілі), не
 	// покупки. ActualMonths — за скільки місяців історії він порахований.
 	// 0 = у вікні немає руху грошей або нето від'ємне.
-	ActualMonthlyUAH float64 `json:"actual_monthly_uah,omitempty"`
-	ActualMonths     int     `json:"actual_months,omitempty"`
+	ActualMonthlyUAH Money `json:"actual_monthly_uah,omitzero"`
+	ActualMonths     int   `json:"actual_months,omitempty"`
 
 	// SavingsRatePct — НОРМА ЗАОЩАДЖЕНЬ: яка частка валового доходу
 	// справді відкладається. ActualMonthlyUAH ділиться на валовий дохід
@@ -808,14 +808,14 @@ type RebalanceRow struct {
 	Currency        string  `json:"currency"`
 	TargetPct       float64 `json:"target_pct"`
 	CurrentPct      float64 `json:"current_pct"`
-	DeficitUAH      float64 `json:"deficit_uah"`
-	DeficitNative   float64 `json:"deficit_native"`
-	CashNative      float64 `json:"cash_native"`
-	BondCostNative  float64 `json:"bond_cost_native"`
-	BondCostUAH     float64 `json:"bond_cost_uah"`
+	DeficitUAH      Money   `json:"deficit_uah"`
+	DeficitNative   Money   `json:"deficit_native"`
+	CashNative      Money   `json:"cash_native"`
+	BondCostNative  Money   `json:"bond_cost_native"`
+	BondCostUAH     Money   `json:"bond_cost_uah"`
 	CanBuy          int64   `json:"can_buy"`
-	ConvertUAH      float64 `json:"convert_uah"`
-	MinPortfolioUAH float64 `json:"min_portfolio_uah"`
+	ConvertUAH      Money   `json:"convert_uah"`
+	MinPortfolioUAH Money   `json:"min_portfolio_uah"`
 	Feasible        bool    `json:"feasible"`
 	// UnitKind — чим є ця одиниця входу: "bond" (найдешевша ОВДП) чи
 	// "deposit" (мінімальний вклад). Керує формулюванням картки. Адитивне
@@ -834,8 +834,8 @@ type RebalanceRow struct {
 	//
 	// У рядків БЕЗ цілі (довідкові резерв і НПФ) заповнене лише CurrentUAH:
 	// цілі за часткою в них справді немає, і нуль тут означає саме це.
-	TargetUAH  float64 `json:"target_uah,omitempty"`
-	CurrentUAH float64 `json:"current_uah,omitempty"`
+	TargetUAH  Money   `json:"target_uah,omitzero"`
+	CurrentUAH Money   `json:"current_uah,omitzero"`
 	FillPct    float64 `json:"fill_pct,omitempty"`
 	// MonthShareUAH / MonthBalanceUAH — скільки з грошей ЦЬОГО МІСЯЦЯ
 	// припадає на цей вид. Лише для рядків виміру "kind".
@@ -855,8 +855,8 @@ type RebalanceRow struct {
 	// Обидва рахуються від грошей, що лишились ПІСЛЯ резерву
 	// (MonthPlan.ReserveUAH): подушка забирає своє першим, і ділити суму, з
 	// якої вона ще не відрахована, означало б порадити ті самі гроші двічі.
-	MonthShareUAH   float64 `json:"month_share_uah,omitempty"`
-	MonthBalanceUAH float64 `json:"month_balance_uah,omitempty"`
+	MonthShareUAH   Money `json:"month_share_uah,omitzero"`
+	MonthBalanceUAH Money `json:"month_balance_uah,omitzero"`
 	// TransitPct / TransitUAH — ТРАНЗИТ: скільки з цілі ОВДП поки не може
 	// бути папером, бо на наступний валютний папір ще не зібрано.
 	//
@@ -878,8 +878,8 @@ type RebalanceRow struct {
 	// курс кожному споживачеві окремо означало б завести другу копію
 	// валютної арифметики — рівно те, від чого застережено вище.
 	TransitPct    float64 `json:"transit_pct,omitempty"`
-	TransitUAH    float64 `json:"transit_uah,omitempty"`
-	TransitNative float64 `json:"transit_native,omitempty"`
+	TransitUAH    Money   `json:"transit_uah,omitzero"`
+	TransitNative Money   `json:"transit_native,omitzero"`
 }
 
 // Task — один рядок черги «що робити»: рівно одне рішення, яке чекає на
@@ -942,7 +942,7 @@ type Task struct {
 	// AmountUAH — сума, про яку йдеться, грн-екв. Дублює число, вже
 	// вписане в Title, і саме тому omitempty: проза потрібна людині,
 	// число — автоматизації, яка хоче поріг.
-	AmountUAH float64 `json:"amount_uah,omitempty"`
+	AmountUAH Money `json:"amount_uah,omitzero"`
 }
 
 // ConcentrationRow — де портфель зібраний надто щільно.
@@ -968,10 +968,10 @@ type ConcentrationRow struct {
 	// SharePct — яка це частка (капіталу для isin/broker, усіх погашень
 	// для year); LimitPct — заданий ліміт; OverUAH — на скільки грошей
 	// перевищено (0, якщо в межах).
-	AmountUAH float64 `json:"amount_uah"`
+	AmountUAH Money   `json:"amount_uah"`
 	SharePct  float64 `json:"share_pct"`
 	LimitPct  float64 `json:"limit_pct"`
-	OverUAH   float64 `json:"over_uah,omitempty"`
+	OverUAH   Money   `json:"over_uah,omitzero"`
 	// Label — людська назва для рядка, коли ключ сам по собі мовчить
 	// (опис паперу з довідника НБУ замість голого ISIN).
 	Label string `json:"label,omitempty"`
@@ -1002,18 +1002,18 @@ type ConcentrationRow struct {
 // Months = 0, коли не задано місячні витрати: без них питання «на скільки
 // вистачить» не має відповіді, і вигадувати її не будемо.
 type Reserve struct {
-	UAH        float64            `json:"uah"`
-	ByCurrency map[string]float64 `json:"by_currency,omitempty"` // нативно
-	SharePct   float64            `json:"share_pct"`
+	UAH        Money            `json:"uah"`
+	ByCurrency map[string]Money `json:"by_currency,omitzero"` // нативно
+	SharePct   float64          `json:"share_pct"`
 	// Months — на скільки місяців витрат вистачить; TargetMonths — ціль;
 	// TargetUAH — та ціль у грошах; GapUAH — скільки ще докласти (0, якщо
 	// вистачає). MonthlyExpensesUAH — витрати, від яких усе пораховано:
 	// без них число «3.4 місяця» неможливо перевірити.
 	Months             float64 `json:"months,omitempty"`
 	TargetMonths       float64 `json:"target_months,omitempty"`
-	TargetUAH          float64 `json:"target_uah,omitempty"`
-	GapUAH             float64 `json:"gap_uah,omitempty"`
-	MonthlyExpensesUAH float64 `json:"monthly_expenses_uah,omitempty"`
+	TargetUAH          Money   `json:"target_uah,omitzero"`
+	GapUAH             Money   `json:"gap_uah,omitzero"`
+	MonthlyExpensesUAH Money   `json:"monthly_expenses_uah,omitzero"`
 	// DebtCapped — ціль обрізана стелею на час боргу (reserve_debt_months),
 	// а FullTargetUAH — та ціль, яка була б без обрізання.
 	//
@@ -1025,8 +1025,8 @@ type Reserve struct {
 	// Читає це не лише картка: прохід маршруту вперед бере прапорець
 	// звідси, щоб щомісячна стеля подушки рахувалась тим самим правилом,
 	// що й у документі (route.go).
-	DebtCapped    bool    `json:"debt_capped,omitempty"`
-	FullTargetUAH float64 `json:"full_target_uah,omitempty"`
+	DebtCapped    bool  `json:"debt_capped,omitempty"`
+	FullTargetUAH Money `json:"full_target_uah,omitzero"`
 	// DebtCoverUAH — скільки боргу подушка мусить перекривати, щоб його
 	// було чим закрити, коли дохід зникне; DebtCoverGapUAH — скільки до
 	// цього бракує (нуль = перекрито).
@@ -1037,8 +1037,8 @@ type Reserve struct {
 	// показується поруч, а не замість. Ціль він піднімає лише тоді, коли
 	// виявиться більшим (ReserveTarget), — саме на випадок, коли стеля на
 	// час боргу опустила її нижче за сам борг.
-	DebtCoverUAH    float64 `json:"debt_cover_uah,omitempty"`
-	DebtCoverGapUAH float64 `json:"debt_cover_gap_uah,omitempty"`
+	DebtCoverUAH    Money `json:"debt_cover_uah,omitzero"`
+	DebtCoverGapUAH Money `json:"debt_cover_gap_uah,omitzero"`
 	// Позики в самого себе (0057): узяв із подушки — повертаєш із
 	// відсотком. OwedUAH — скільки ще винен разом; OwedInterestUAH — з
 	// нього відсоток, і саме на нього піднята TargetUAH; BaseTargetUAH —
@@ -1055,9 +1055,9 @@ type Reserve struct {
 	//
 	// Три поля, а не одне, з того самого доводу, що при DebtCapped вище:
 	// піднята ціль без базової поруч читається як помилка застосунку.
-	OwedUAH         float64       `json:"owed_uah,omitempty"`
-	OwedInterestUAH float64       `json:"owed_interest_uah,omitempty"`
-	BaseTargetUAH   float64       `json:"base_target_uah,omitempty"`
+	OwedUAH         Money         `json:"owed_uah,omitzero"`
+	OwedInterestUAH Money         `json:"owed_interest_uah,omitzero"`
+	BaseTargetUAH   Money         `json:"base_target_uah,omitzero"`
 	Loans           []ReserveLoan `json:"loans,omitempty"`
 	// Поповнення резерву — те, чого в цій картці не було: ціль стояла, а
 	// механізму під неї не було жодного.
@@ -1087,18 +1087,18 @@ type Reserve struct {
 	// чого, — а нулі в документі читались би як «механізм працює і радить
 	// нуль».
 	FillSharePct float64 `json:"fill_share_pct,omitempty"`
-	FillFromUAH  float64 `json:"fill_from_uah,omitempty"`
-	FillMonthUAH float64 `json:"fill_month_uah,omitempty"`
-	FillNowUAH   float64 `json:"fill_now_uah,omitempty"`
-	FillMovedUAH float64 `json:"fill_moved_uah,omitempty"`
+	FillFromUAH  Money   `json:"fill_from_uah,omitzero"`
+	FillMonthUAH Money   `json:"fill_month_uah,omitzero"`
+	FillNowUAH   Money   `json:"fill_now_uah,omitzero"`
+	FillMovedUAH Money   `json:"fill_moved_uah,omitzero"`
 	// MovedMonthUAH — рух подушки за цей місяць нетто, ЗАВЖДИ (fill_moved
 	// лише при заданій стелі). Читає плитка «Цей місяць»: «внесено» там —
 	// гаманець разом із подушкою, і без цього рядка зняття з матраца
 	// читалось би як загадковий мінус (адитивне поле).
-	MovedMonthUAH float64 `json:"moved_month_uah,omitempty"`
+	MovedMonthUAH Money `json:"moved_month_uah,omitzero"`
 	// Places — де лежить, грн-екв. по місцях зберігання. Резерв тим і
 	// цінний, що доступний миттєво, а це залежить від місця.
-	Places map[string]float64 `json:"places,omitempty"`
+	Places map[string]Money `json:"places,omitzero"`
 	// LastMove — дата останнього руху (ISO). Резерв, якого не чіпали рік,
 	// і резерв, з якого щойно взяли, — різні речі.
 	LastMove string `json:"last_move,omitempty"`
@@ -1115,8 +1115,8 @@ type Reserve struct {
 	// (reserve_liquid_months × витрати). Це ЄДИНА пара, що має право
 	// сказати «не сходиться»: удар на всю суму одразу — машина, лікарня —
 	// не витрачається помісячно, і драбина його не покриває в принципі.
-	LiquidUAH       float64 `json:"liquid_uah,omitempty"`
-	LiquidTargetUAH float64 `json:"liquid_target_uah,omitempty"`
+	LiquidUAH       Money `json:"liquid_uah,omitzero"`
+	LiquidTargetUAH Money `json:"liquid_target_uah,omitzero"`
 	// Ladder — профіль доступу по горизонтах, а не вирок. Поля `ok` тут
 	// немає навмисно: станів ТРИ, і булеве поле злило б два з них.
 	Ladder []ReserveRung `json:"ladder,omitempty"`
@@ -1131,7 +1131,7 @@ type Reserve struct {
 	// стан хвоста: безвідкличний вклад робить гроші недосяжними взагалі, а
 	// не дорогими. Нулі, коли такого місяця немає.
 	LadderGapMonth float64 `json:"ladder_gap_month,omitempty"`
-	LadderGapUAH   float64 `json:"ladder_gap_uah,omitempty"`
+	LadderGapUAH   Money   `json:"ladder_gap_uah,omitzero"`
 	// LadderRungs / LadderRungsTarget — скільки сходинок стоїть проти
 	// скількох треба на режимі. Саме ця пара відрізняє РОЗГОРТАННЯ від
 	// діри: «2 з 6, усе за планом» і «хвіст недосяжний» — різні стани, і
@@ -1153,7 +1153,7 @@ type Reserve struct {
 	// податку. Ціни дострокового розірвання поруч НЕМАЄ: штрафну ставку
 	// знає банк, застосунок її не рахує ніде (domain/deposit.go), і
 	// вигадане число поруч зі справжнім знецінило б обидва.
-	LadderEarnsUAH float64 `json:"ladder_earns_uah,omitempty"`
+	LadderEarnsUAH Money `json:"ladder_earns_uah,omitzero"`
 }
 
 // Goal — ціль накопичення: авто, будинок, ремонт.
@@ -1179,22 +1179,22 @@ type Goal struct {
 	Name     string `json:"name"`
 	Currency string `json:"currency"`
 	// --- у валюті цілі ---
-	TargetNative    float64 `json:"target_native"`
-	CollectedNative float64 `json:"collected_native"`
-	GapNative       float64 `json:"gap_native,omitempty"`
+	TargetNative    Money `json:"target_native"`
+	CollectedNative Money `json:"collected_native"`
+	GapNative       Money `json:"gap_native,omitzero"`
 	// --- у гривні ---
-	TargetUAH    float64 `json:"target_uah"`
-	CollectedUAH float64 `json:"collected_uah"`
-	GapUAH       float64 `json:"gap_uah,omitempty"`
+	TargetUAH    Money `json:"target_uah"`
+	CollectedUAH Money `json:"collected_uah"`
+	GapUAH       Money `json:"gap_uah,omitzero"`
 	// DonePct — скільки цілі закрито, %. Рахується в НАТИВНІЙ валюті: у
 	// гривневій те саме число росло б само собою від девальвації.
 	DonePct float64 `json:"done_pct"`
 	// ByCurrency — у чому саме лежить зібране, нативно; Places — де воно
 	// лежить, грн-екв. LastMove — дата останнього руху: ціль, якої не
 	// чіпали пів року, і ціль, у яку щойно доклали, — різні речі.
-	ByCurrency map[string]float64 `json:"by_currency,omitempty"`
-	Places     map[string]float64 `json:"places,omitempty"`
-	LastMove   string             `json:"last_move,omitempty"`
+	ByCurrency map[string]Money `json:"by_currency,omitzero"`
+	Places     map[string]Money `json:"places,omitzero"`
+	LastMove   string           `json:"last_move,omitempty"`
 	// FXMixed — гроші лежать не в тій валюті, у якій названа ціль.
 	FXMixed bool `json:"fx_mixed,omitempty"`
 	// DueDate порожня = ціль без дедлайну. Тоді немає ні MonthsLeft, ні
@@ -1212,10 +1212,10 @@ type Goal struct {
 	// Обидва в обох одиницях, бо читачів двоє й вони різні: картка говорить
 	// валютою цілі («треба ще $420 на місяць»), а стеля наповнення ріже
 	// гривневий план місяця.
-	RequiredNative float64 `json:"required_native,omitempty"`
-	RequiredUAH    float64 `json:"required_uah,omitempty"`
-	ActualNative   float64 `json:"actual_native,omitempty"`
-	ActualUAH      float64 `json:"actual_uah,omitempty"`
+	RequiredNative Money `json:"required_native,omitzero"`
+	RequiredUAH    Money `json:"required_uah,omitzero"`
+	ActualNative   Money `json:"actual_native,omitzero"`
+	ActualUAH      Money `json:"actual_uah,omitzero"`
 	// RatePct — під скільки річних працює вже зібране, чистими після
 	// податку. Нуль (і тому omitempty) = гроші лежать готівкою, і це
 	// ВИМІР, а не «невідомо»: журнал цілі відсотків не нараховує.
@@ -1235,9 +1235,9 @@ type Goal struct {
 	// Числа зʼявляються разом і лише коли є що радити: без стелі, без плану
 	// доходу або на зібраній цілі сказати нема чого, а нулі читались би як
 	// «механізм працює й радить нуль».
-	MovedUAH     float64 `json:"moved_uah,omitempty"`
-	FillMonthUAH float64 `json:"fill_month_uah,omitempty"`
-	FillNowUAH   float64 `json:"fill_now_uah,omitempty"`
+	MovedUAH     Money `json:"moved_uah,omitzero"`
+	FillMonthUAH Money `json:"fill_month_uah,omitzero"`
+	FillNowUAH   Money `json:"fill_now_uah,omitzero"`
 	// FillFromUAH — ДОЗВІЛ місяця: скільки з його доходу взагалі можна вести
 	// в цілі (MonthPlan.PlanGoalsUAH). Не те саме, що FillMonthUAH: той —
 	// дозвіл, помножений на темп (goals_fill_share_pct) і поділений між
@@ -1254,11 +1254,11 @@ type Goal struct {
 	// не має права обійти ДОЗВІЛ (місяць, увесь дохід якого позначено «не в
 	// цілі», не дає їм нічого). Доти обидва сенси були перемножені в
 	// FillMonthUAH, і прохід обходив разом із темпом і дозвіл.
-	FillFromUAH float64 `json:"fill_from_uah,omitempty"`
+	FillFromUAH Money `json:"fill_from_uah,omitzero"`
 	// ShortMonthUAH — скільки НЕ ВЛІЗЛО у стелю з потрібного темпу. Саме це
 	// число перетворює «відстаю» з відчуття на дію: або підняти стелю, або
 	// зсунути дату. Нуль, коли темп у стелю вкладається.
-	ShortMonthUAH float64 `json:"short_month_uah,omitempty"`
+	ShortMonthUAH Money `json:"short_month_uah,omitzero"`
 	// ETADate — коли ціль закриється ЗА НИНІШНІМ ТЕМПОМ. Порожньо, коли
 	// темпу немає (нічого не відкладалось) — вигадувати дату там нема з
 	// чого.
@@ -1285,16 +1285,16 @@ type Goal struct {
 	// відмови, що й «суперник депозит» у README.
 	//
 	// Порожні, коли ряду ІСЦ ще немає, дедлайну немає або він минув.
-	TargetFutureNative   float64 `json:"target_future_native,omitempty"`
-	GapFutureNative      float64 `json:"gap_future_native,omitempty"`
-	RequiredFutureNative float64 `json:"required_future_native,omitempty"`
+	TargetFutureNative   Money `json:"target_future_native,omitzero"`
+	GapFutureNative      Money `json:"gap_future_native,omitzero"`
+	RequiredFutureNative Money `json:"required_future_native,omitzero"`
 	// Гривневі двійники двох попередніх. Сьогодні вони ДОРІВНЮЮТЬ нативним
 	// тотожно, бо весь цей блок рахується лише для гривневих цілей, — і
 	// існують саме тому, що на них стоять читачі, які про це знати не
 	// мусять: черга наповнення й вирок «встигаю» працюють у гривні й не
 	// повинні здогадуватись, що native тут випадково та сама одиниця.
-	GapFutureUAH      float64 `json:"gap_future_uah,omitempty"`
-	RequiredFutureUAH float64 `json:"required_future_uah,omitempty"`
+	GapFutureUAH      Money `json:"gap_future_uah,omitzero"`
+	RequiredFutureUAH Money `json:"required_future_uah,omitzero"`
 	// InflationPct — темп, яким пораховані числа вище. Стоїть поруч із
 	// ними навмисно: без нього «780 000 ₴ у 2036-му» неможливо ні
 	// перевірити, ні відтворити.
@@ -1310,22 +1310,22 @@ type DebtPlan struct {
 	// TotalUAH — скільки боргу під ставкою, грн-екв. TopRatePct/TopName —
 	// найдорожчий рядок: одне число «разом» не каже, з чого починати, а
 	// саме це питання й ставлять.
-	TotalUAH   float64 `json:"total_uah"`
+	TotalUAH   Money   `json:"total_uah"`
 	TopRatePct float64 `json:"top_rate_pct,omitempty"`
 	TopName    string  `json:"top_name,omitempty"`
 	// DueThisMonthUAH — обовʼязкові платежі цього місяця. Дублює
 	// MonthPlan.DebtDueUAH навмисно: там воно доданок місячної арифметики,
 	// тут — рядок картки боргу, і читачі різні. Тотожність має тест.
-	DueThisMonthUAH float64 `json:"due_this_month_uah,omitempty"`
+	DueThisMonthUAH Money `json:"due_this_month_uah,omitzero"`
 	// FillMonthUAH — стеля ДОСТРОКОВОГО погашення на місяць; FillNowUAH —
 	// скільки з неї ще лишилось віддати; PaidExtraUAH — скільки вже
 	// віддано понад обовʼязкове.
 	//
 	// Останнє віднімання — те саме, без якого порада висіла б незмінною,
 	// хай би скільки ти платив (та сама вада вже була в подушки й у цілей).
-	FillMonthUAH float64 `json:"fill_month_uah,omitempty"`
-	FillNowUAH   float64 `json:"fill_now_uah,omitempty"`
-	PaidExtraUAH float64 `json:"paid_extra_uah,omitempty"`
+	FillMonthUAH Money `json:"fill_month_uah,omitzero"`
+	FillNowUAH   Money `json:"fill_now_uah,omitzero"`
+	PaidExtraUAH Money `json:"paid_extra_uah,omitzero"`
 	// Exit — режим виходу з кредитного ліміту, якщо на картці названа дата.
 	//
 	// ОДИН НА ДОКУМЕНТ, за найближчою датою, і картка названа в самому
@@ -1367,15 +1367,15 @@ type DebtCard struct {
 	// BringByDueUAH — скільки ПРИНЕСТИ до DueDate, щоб відсотків не було
 	// взагалі; MinDueUAH — мінімум, який рятує від штрафу й підвищеної
 	// ставки. Два пороги — довід у шапці domain/debt.go.
-	BringByDueUAH float64 `json:"bring_by_due_uah"`
-	MinDueUAH     float64 `json:"min_due_uah,omitempty"`
+	BringByDueUAH Money `json:"bring_by_due_uah"`
+	MinDueUAH     Money `json:"min_due_uah,omitzero"`
 	// FreeUAH — скільки своїх грошей на картці лишається вільним після
 	// виписки й найближчих частин розстрочок. ЗІ ЗНАКОМ: відʼємне — стільки
 	// ще треба принести, інакше пільговий оборот стане боргом під ставку.
-	FreeUAH float64 `json:"free_uah"`
+	FreeUAH Money `json:"free_uah"`
 	// DebtUAH — використаний ліміт додатним числом; UsedPct — його частка
 	// від ліміту, нуль без ліміту.
-	DebtUAH float64 `json:"debt_uah"`
+	DebtUAH Money   `json:"debt_uah"`
 	UsedPct float64 `json:"used_pct,omitempty"`
 	// ExitBy — дата, до якої картку виводять у нуль (порожньо = режиму
 	// немає). Дублює Exit.Cards/ExitBy навмисно: там план на всі картки
@@ -1394,15 +1394,15 @@ type CapitalDelta struct {
 	// днів тому. Не «рівно 30» — знімок може бути пропущений (демон
 	// лежав), і тоді береться найближчий старший.
 	FromDate string  `json:"from_date"`
-	FromUAH  float64 `json:"from_uah"`
-	DeltaUAH float64 `json:"delta_uah"`
+	FromUAH  Money   `json:"from_uah"`
+	DeltaUAH Money   `json:"delta_uah"`
 	DeltaPct float64 `json:"delta_pct,omitempty"`
 	// ContribUAH — зовнішні гроші за вікно НЕТТО: поповнення й зняття
 	// гаманця, рухи подушки й цілей. Той самий склад, що в «усіх грошах»
 	// ціни рішень; переказ між кошиками записується двома ногами й дає нуль
 	// сам. Внесок у НПФ сюди НЕ входить — він списується з рахунку, тобто
 	// вже порахований поповненням (див. externalMoves).
-	ContribUAH float64 `json:"contributed_uah"`
+	ContribUAH Money `json:"contributed_uah"`
 }
 
 // DebtExit — вихід із кредитного ліміту: скільки можна витрачати на
@@ -1429,26 +1429,26 @@ type DebtExit struct {
 	Months float64 `json:"months"`
 	// SpendCapUAH — ГОЛОВНЕ ЧИСЛО: скільки можна витрачати на місяць.
 	// NeedPerMonthUAH — скільки треба звільняти, щоб устигнути.
-	SpendCapUAH     float64 `json:"spend_cap_uah"`
-	NeedPerMonthUAH float64 `json:"need_per_month_uah"`
+	SpendCapUAH     Money `json:"spend_cap_uah"`
+	NeedPerMonthUAH Money `json:"need_per_month_uah"`
 	// Feasible — стеля додатна. Хибне означає «не встигнути навіть при
 	// нульових витратах»: окреме твердження, а не «мало».
 	Feasible bool `json:"feasible"`
 	// ShortPerMonthUAH — наскільки нинішні витрати перевищують стелю.
-	ShortPerMonthUAH float64 `json:"short_per_month_uah,omitempty"`
+	ShortPerMonthUAH Money `json:"short_per_month_uah,omitzero"`
 	// ETADate — коли вийде за НИНІШНІМИ витратами; порожньо, коли борг не
 	// меншає (шістсот місяців — число про стелю розрахунку, а не про гроші).
 	ETADate string `json:"eta_date,omitempty"`
 	// GrossUAH / InvestUAH — СЕРЕДНІ за місяцями до цілі: увесь дохід і та
 	// його частина, яку виводять в інструменти. Показуються, бо без них
 	// стеля виглядає взятою зі стелі.
-	GrossUAH  float64 `json:"gross_uah"`
-	InvestUAH float64 `json:"invest_uah"`
+	GrossUAH  Money `json:"gross_uah"`
+	InvestUAH Money `json:"invest_uah"`
 	// InstallmentsUAH — щомісячні платежі розстрочок, привʼязаних до
 	// карток. Окремим числом, бо це найбільший регулярний відтік із
 	// картки після самих витрат, і сховати його всередині стелі означало б
 	// лишити людину гадати, куди подівся залишок.
-	InstallmentsUAH float64 `json:"installments_uah,omitempty"`
+	InstallmentsUAH Money `json:"installments_uah,omitzero"`
 	// PlannedUAH — ПЛАНОВІ РАЗОВІ ВИТРАТИ (0056), що платяться з картки, у
 	// СЕРЕДНЬОМУ за місяцями вікна. Ті, що з портфельних грошей, сюди не
 	// входять — вони в MonthPlan.PlannedUAH, і відняти їх в обох означало б
@@ -1463,35 +1463,35 @@ type DebtExit struct {
 	// в одному листопаді. Це та сама ціна, яку вікно платить за GrossUAH та
 	// InstallmentsUAH, і рятує від неї те саме — розклад Schedule нижче,
 	// де листопад стоїть окремим рядком.
-	PlannedUAH float64 `json:"planned_uah,omitempty"`
+	PlannedUAH Money `json:"planned_uah,omitzero"`
 	// SpendUsedUAH — витрати, з якими рахували; SpendBasis — «виміряно» чи
 	// «заявлено»; обидва числа поруч, а BurnWhy каже, чому виміру немає.
-	SpendUsedUAH     float64 `json:"spend_used_uah"`
-	SpendBasis       string  `json:"spend_basis"`
-	SpendDeclaredUAH float64 `json:"spend_declared_uah,omitempty"`
-	SpendMeasuredUAH float64 `json:"spend_measured_uah,omitempty"`
-	BurnWhy          string  `json:"burn_why,omitempty"`
-	BurnFrom         string  `json:"burn_from,omitempty"`
-	BurnTo           string  `json:"burn_to,omitempty"`
+	SpendUsedUAH     Money  `json:"spend_used_uah"`
+	SpendBasis       string `json:"spend_basis"`
+	SpendDeclaredUAH Money  `json:"spend_declared_uah,omitzero"`
+	SpendMeasuredUAH Money  `json:"spend_measured_uah,omitzero"`
+	BurnWhy          string `json:"burn_why,omitempty"`
+	BurnFrom         string `json:"burn_from,omitempty"`
+	BurnTo           string `json:"burn_to,omitempty"`
 	// WithInvest* — те саме, якщо на картку піде й інвестиційна частка.
 	// Другий рядок, а не перемикач: рішення власника — вирішувати
 	// щомісяця, а застосунок називає ціну числом.
-	WithInvestSpendCapUAH float64 `json:"with_invest_spend_cap_uah"`
-	WithInvestETADate     string  `json:"with_invest_eta_date,omitempty"`
+	WithInvestSpendCapUAH Money  `json:"with_invest_spend_cap_uah"`
+	WithInvestETADate     string `json:"with_invest_eta_date,omitempty"`
 	// HeadroomUAH — ОБЕРНЕНЕ питання: на скільки ще можна залізти в ліміт
 	// при нинішніх витратах і все одно вийти до дати. Стеля мінус витрати,
 	// помножене на місяці. ЗІ ЗНАКОМ і без omitempty: відʼємне — той самий
 	// перебір, що й short_per_month_uah, лише разом за всі місяці, а нуль —
 	// «рівно на межі», не «не порахували». MaxDebtUAH — гранична глибина,
 	// борг плюс запас, не менше нуля.
-	HeadroomUAH           float64 `json:"headroom_uah"`
-	MaxDebtUAH            float64 `json:"max_debt_uah"`
-	WithInvestHeadroomUAH float64 `json:"with_invest_headroom_uah"`
+	HeadroomUAH           Money `json:"headroom_uah"`
+	MaxDebtUAH            Money `json:"max_debt_uah"`
+	WithInvestHeadroomUAH Money `json:"with_invest_headroom_uah"`
 	// LimitLeftUAH — скільки ще дозволяють САМІ ліміти карток (сума
 	// «ліміт мінус борг» по картках плану). Вказівник, а не число: «ліміт
 	// не заданий» і «ліміт вибраний до нуля» — різні відповіді, і нуль тут
 	// має право означати лише другу.
-	LimitLeftUAH *float64 `json:"limit_left_uah,omitempty"`
+	LimitLeftUAH *Money `json:"limit_left_uah,omitzero"`
 	// StartDebtUAH — борг на ПОЧАТОК вікна (першого його місяця), від якого
 	// йде відлік потреби, стелі, дати й таблиці. DebtNowUAH — борг зараз.
 	// Вони різняться, коли вікно починається з місяця звірки: аванс уже
@@ -1501,13 +1501,13 @@ type DebtExit struct {
 	// (InstallmentsBeforeMarkUAH), що витрачено за прожиті дні
 	// (SpendBeforeMarkUAH, заявлені або виміряні — як усюди тут). Порожні,
 	// коли вікно починається з наступного місяця: відновлювати нема чого.
-	StartDebtUAH              float64 `json:"start_debt_uah"`
-	DebtNowUAH                float64 `json:"debt_now_uah"`
-	StartMonth                string  `json:"start_month"`
-	MarkDate                  string  `json:"mark_date,omitempty"`
-	PaidBeforeMarkUAH         float64 `json:"paid_before_mark_uah,omitempty"`
-	InstallmentsBeforeMarkUAH float64 `json:"installments_before_mark_uah,omitempty"`
-	SpendBeforeMarkUAH        float64 `json:"spend_before_mark_uah,omitempty"`
+	StartDebtUAH              Money  `json:"start_debt_uah"`
+	DebtNowUAH                Money  `json:"debt_now_uah"`
+	StartMonth                string `json:"start_month"`
+	MarkDate                  string `json:"mark_date,omitempty"`
+	PaidBeforeMarkUAH         Money  `json:"paid_before_mark_uah,omitzero"`
+	InstallmentsBeforeMarkUAH Money  `json:"installments_before_mark_uah,omitzero"`
+	SpendBeforeMarkUAH        Money  `json:"spend_before_mark_uah,omitzero"`
 	// Schedule — прохід балансу картки вперед, помісячно. Порожній, коли
 	// борг не меншає: двадцять чотири однакові рядки — не таблиця, а
 	// спосіб не сказати «за цим темпом виходу не буде».
@@ -1524,18 +1524,18 @@ type DebtExitStep struct {
 	// Усі чотири, а не сама лише різниця: місяці різні (одна зарплата
 	// починається у вересні, друга закінчилась у серпні), і рядок, у якому
 	// видно лише «лишиться», не пояснює, чому темп стрибнув.
-	GrossUAH  float64 `json:"gross_uah"`
-	InvestUAH float64 `json:"invest_uah"`
+	GrossUAH  Money `json:"gross_uah"`
+	InvestUAH Money `json:"invest_uah"`
 	// InstallmentsUAH — платежі карткових розстрочок цього місяця. Окремою
 	// колонкою, бо це не витрати й не інвестиції, а третій відтік.
-	InstallmentsUAH float64 `json:"installments_uah,omitempty"`
+	InstallmentsUAH Money `json:"installments_uah,omitzero"`
 	// PlannedUAH — планові разові витрати з картки, що тиснуть саме цього
 	// місяця. Заради цієї колонки розклад і потрібен: у середньому числі
 	// поруч котел розмазаний по всьому вікну, а тут видно, у якому саме
 	// місяці по картці вдарить.
-	PlannedUAH float64 `json:"planned_uah,omitempty"`
-	SpendUAH   float64 `json:"spend_uah"`
-	LeftUAH    float64 `json:"left_uah"`
+	PlannedUAH Money `json:"planned_uah,omitzero"`
+	SpendUAH   Money `json:"spend_uah"`
+	LeftUAH    Money `json:"left_uah"`
 }
 
 // ReserveRung — один горизонт драбини подушки: що буде доступно через
@@ -1558,13 +1558,13 @@ type ReserveRung struct {
 	Months float64 `json:"months"`
 	// AvailableUAH — скільки звільниться само: готівка голови плюс тіла
 	// сходинок, що погасяться до цього горизонту.
-	AvailableUAH float64 `json:"available_uah"`
+	AvailableUAH Money `json:"available_uah"`
 	// ReachableUAH — те саме плюс ВІДКЛИЧНІ сходинки, ще не погашені:
 	// скільки можна дістати, якщо піти на розірвання.
-	ReachableUAH float64 `json:"reachable_uah"`
+	ReachableUAH Money `json:"reachable_uah"`
 	// SpentUAH — скільки буде витрачено до цього горизонту при заданих
 	// місячних витратах. Те, з чим порівнюються обидва числа вище.
-	SpentUAH float64 `json:"spent_uah"`
+	SpentUAH Money `json:"spent_uah"`
 }
 
 // ReserveLoan — одна відкрита позика в самого себе (0057).
@@ -1583,15 +1583,15 @@ type ReserveLoan struct {
 	OpID int64 `json:"op_id"`
 	// Date — коли взято, звідси й рахуються дні.
 	Date        string  `json:"date"`
-	TakenUAH    float64 `json:"taken_uah"`
-	TakenNative float64 `json:"taken_native,omitempty"`
+	TakenUAH    Money   `json:"taken_uah"`
+	TakenNative Money   `json:"taken_native,omitzero"`
 	Currency    string  `json:"currency,omitempty"`
 	RatePct     float64 `json:"rate_pct"`
 	Days        int     `json:"days"`
 	// OwedUAH — скільки ще винен; InterestUAH — з нього відсоток, і саме
 	// він піднімає ціль. Тіло ціль не піднімає (довід — при Reserve).
-	OwedUAH     float64 `json:"owed_uah"`
-	InterestUAH float64 `json:"interest_uah"`
+	OwedUAH     Money `json:"owed_uah"`
+	InterestUAH Money `json:"interest_uah"`
 	// DueDate — власний дедлайн, порожньо = «поверну колись». Overdue
 	// існує лише при заданому дедлайні: позика без дати не може бути
 	// простроченою, і фарбувати її червоним означало б вимагати того,
@@ -1633,8 +1633,8 @@ type MonthPlan struct {
 	// IncomeUAH — надходження місяця в портфель: валова сума × частка в
 	// портфель, з підстановкою відміток. ExpenseUAH — планові витрати,
 	// ДОДАТНІМ числом (у потоках вони від'ємні; знак у контракті плутав би).
-	IncomeUAH  float64 `json:"income_uah"`
-	ExpenseUAH float64 `json:"expense_uah,omitempty"`
+	IncomeUAH  Money `json:"income_uah"`
+	ExpenseUAH Money `json:"expense_uah,omitzero"`
 	// PlannedUAH — ПЛАНОВІ ВИТРАТИ (0056), що тиснуть саме цього місяця й
 	// платяться з ПОРТФЕЛЬНИХ грошей (paid_from = plan). Ті, що з картки,
 	// сюди не входять і не мають: вони живуть у другому контурі
@@ -1649,7 +1649,7 @@ type MonthPlan struct {
 	// одне число, вони зробили б неможливим друге читання: вихід із
 	// кредитного ліміту мусить узяти планові витрати картки й НЕ сміє
 	// узяти ExpenseUAH.
-	PlannedUAH float64 `json:"planned_uah,omitempty"`
+	PlannedUAH Money `json:"planned_uah,omitzero"`
 	// GrossUAH — ВАЛОВИЙ дохід місяця: ті самі потоки, але БЕЗ частки в
 	// портфель.
 	//
@@ -1661,7 +1661,7 @@ type MonthPlan struct {
 	// нема з чого.
 	//
 	// Витрати сюди не входять: це саме дохід, а не нетто.
-	GrossUAH float64 `json:"gross_uah,omitempty"`
+	GrossUAH Money `json:"gross_uah,omitzero"`
 	// OnCardUAH — ЗАЛИШОК: валовий дохід мінус те, що дійшло до портфеля.
 	//
 	// Це і є «все інше»: гроші, які нікуди не розподіляються, бо просто
@@ -1669,16 +1669,16 @@ type MonthPlan struct {
 	// Питання «скільки лишається на життя» ставлять щомісяця, і рахувати
 	// його відніманням двох сусідніх чисел означало б змушувати читача
 	// робити це очима.
-	OnCardUAH float64 `json:"on_card_uah,omitempty"`
+	OnCardUAH Money `json:"on_card_uah,omitzero"`
 	// ExtraUAH — позапланові надходження місяця, теж у портфельних грошах.
 	// Окремо від IncomeUAH, бо вони не мають планового рядка: обіцянки не
 	// було, і складати їх із виконанням обіцянки означало б сховати різницю
 	// між «прийшло, як планували» і «прийшло понад план».
-	ExtraUAH float64 `json:"extra_uah,omitempty"`
+	ExtraUAH Money `json:"extra_uah,omitzero"`
 	// PlanUAH — нетто: income + extra − expense. Та сама природа, що в
 	// PlanProvidesUAH (той теж сумує витратні потоки від'ємними), інакше два
 	// числа поруч на екрані були б непорівнянні.
-	PlanUAH float64 `json:"plan_uah"`
+	PlanUAH Money `json:"plan_uah"`
 	// PlanReserveUAH / PlanGoalsUAH — скільки з PlanUAH ДОЗВОЛЕНО подушці
 	// й цілям накопичення (plan_flows.uses, міграція 0041). Від них, а не
 	// від PlanUAH, міряються обидві стелі наповнення.
@@ -1691,8 +1691,8 @@ type MonthPlan struct {
 	// поля. Саме тому на них НЕМАЄ omitempty: нуль тут осмислена
 	// відповідь («подушці з цього місяця не належить нічого»), і сховати
 	// його означало б показати відсутність поля там, де є заборона.
-	PlanReserveUAH float64 `json:"plan_reserve_uah"`
-	PlanGoalsUAH   float64 `json:"plan_goals_uah"`
+	PlanReserveUAH Money `json:"plan_reserve_uah"`
+	PlanGoalsUAH   Money `json:"plan_goals_uah"`
 	// PlanDebtUAH ТУТ БІЛЬШЕ НЕМАЄ. Воно означало «скільки з PlanUAH
 	// дозволено на дострокове погашення», і читала його стеля дострокового
 	// — та сама, що тепер міряється від карткових грошей. Портфельних
@@ -1718,7 +1718,7 @@ type MonthPlan struct {
 	// НАСЛІДОК, ЯКИЙ ТРЕБА НАЗВАТИ КОРИСТУВАЧЕВІ: платежі за розстрочками
 	// не можна вдруге вписувати у витрати чи занижувати ними invest_bp —
 	// застосунок цього не бачить і побачити не може.
-	DebtDueUAH float64 `json:"debt_due_uah,omitempty"`
+	DebtDueUAH Money `json:"debt_due_uah,omitzero"`
 	// DebtFromPlanUAH — скільки з обовʼязкового таки лягло на ПОРТФЕЛЬНІ
 	// гроші: max(0, DebtDueUAH − OnCardUAH).
 	//
@@ -1726,15 +1726,15 @@ type MonthPlan struct {
 	// «скільки з того забрав портфель» — різні питання, і картка боргу
 	// питає перше (DebtPlan.DueThisMonthUAH), а розклад плану місяця —
 	// друге. Нуль — звичайний випадок, і на екрані про нього рядка немає.
-	DebtFromPlanUAH float64 `json:"debt_from_plan_uah,omitempty"`
+	DebtFromPlanUAH Money `json:"debt_from_plan_uah,omitzero"`
 	// ReceivedUAH — скільки з IncomeUAH уже підтверджено відмітками.
-	ReceivedUAH float64 `json:"received_uah,omitempty"`
+	ReceivedUAH Money `json:"received_uah,omitzero"`
 	// LeftUAH — скільки ще закинути: max(0, PlanUAH − MonthDepositedUAH).
 	//
 	// Скільки з місячних грошей іде в подушку, тут НЕМАЄ навмисно: це
 	// Reserve.FillMonthUAH, і другий екземпляр того самого числа розійшовся
 	// б із першим на першій же правці стелі.
-	LeftUAH float64 `json:"left_uah"`
+	LeftUAH Money `json:"left_uah"`
 	// CoveredPct — скільки відсотків плану місяця вже внесено:
 	// MonthDepositedUAH / PlanUAH × 100.
 	//
@@ -1765,10 +1765,10 @@ type Liquidity struct {
 	// тіла рунг проходять цю картку звичайними строковими — у LockedUAH
 	// або BreakableUAH за розривністю. Інакше та сама рунга стояла б і в
 	// «під рукою», і в «замкнено».
-	AvailableNowUAH float64 `json:"available_now_uah,omitempty"`
-	NowUAH          float64 `json:"now_uah"`
-	In30UAH         float64 `json:"in_30_uah"`
-	In90UAH         float64 `json:"in_90_uah"`
+	AvailableNowUAH Money `json:"available_now_uah,omitzero"`
+	NowUAH          Money `json:"now_uah"`
+	In30UAH         Money `json:"in_30_uah"`
+	In90UAH         Money `json:"in_90_uah"`
 	// ReserveUAH — резерв, доступний негайно: ГОТІВКА подушки, без
 	// резервних вкладів. Ті проходять цю картку звичайними строковими —
 	// у locked_uah або breakable_uah за розривністю, — бо саме про них
@@ -1779,7 +1779,7 @@ type Liquidity struct {
 	// У NowUAH йому місця немає (інваріант звірки вище), у LockedUAH — теж:
 	// те означає «доведеться щось ламати», а резерв на те й резерв, що
 	// ламати нічого не треба.
-	ReserveUAH float64 `json:"reserve_uah,omitempty"`
+	ReserveUAH Money `json:"reserve_uah,omitzero"`
 	// GoalsUAH — гроші під цілями накопичення. Так само доданок
 	// AvailableNowUAH і так само окремим рядком.
 	//
@@ -1788,8 +1788,8 @@ type Liquidity struct {
 	// річ, і саме тому в неї є дата, а в подушки немає. Доступність же в
 	// них однакова, і міряється тут саме вона: картка не каже, що ці гроші
 	// МОЖНА витратити, — вона каже, що їх нема потреби діставати.
-	GoalsUAH  float64 `json:"goals_uah,omitempty"`
-	LockedUAH float64 `json:"locked_uah,omitempty"`
+	GoalsUAH  Money `json:"goals_uah,omitzero"`
+	LockedUAH Money `json:"locked_uah,omitzero"`
 	// BreakableUAH — тіла ВІДКЛИЧНИХ вкладів зі строком далі: гроші, які
 	// дістати можна, але за відсотки.
 	//
@@ -1802,14 +1802,14 @@ type Liquidity struct {
 	// Скільки саме коштує розірвання, тут не сказано й не буде: штрафну
 	// ставку знає банк, застосунок її не рахує ніде (domain/deposit.go), а
 	// вигадане число поруч зі справжнім знецінює обидва.
-	BreakableUAH float64 `json:"breakable_uah,omitempty"`
-	UnlockDate   string  `json:"unlock_date,omitempty"`
+	BreakableUAH Money  `json:"breakable_uah,omitzero"`
+	UnlockDate   string `json:"unlock_date,omitempty"`
 	// LockedNPFUAH — скільки із замкненого сидить у НПФ. Підполе, а не
 	// заміна: без нього картка казала б «замкнено 1.4 млн, розблокується
 	// 2027-03», коли 1.2 млн з них недоступні до 2051-го. UnlockDate бере
 	// НАЙБЛИЖЧУ дату, тож він і далі показував би вклад — тобто твердження
 	// лишалось би формально правдивим і повністю хибним по суті.
-	LockedNPFUAH float64 `json:"locked_npf_uah,omitempty"`
+	LockedNPFUAH Money `json:"locked_npf_uah,omitzero"`
 	// LockedReserveUAH / BreakableReserveUAH — скільки із замкненого й зі
 	// зламного це рунги ПОДУШКИ, а не портфель. Підполя того самого штибу,
 	// що LockedNPFUAH: доти резервні вклади зсипались до портфельних, і
@@ -1821,8 +1821,8 @@ type Liquidity struct {
 	// Дати доступності тут немає навмисно: на «коли дозріє рунга»
 	// відповідає сходинка доступу в картці подушки (Reserve.Ladder), і
 	// друга копія тієї відповіді розійшлася б із першою.
-	LockedReserveUAH    float64 `json:"locked_reserve_uah,omitempty"`
-	BreakableReserveUAH float64 `json:"breakable_reserve_uah,omitempty"`
+	LockedReserveUAH    Money `json:"locked_reserve_uah,omitzero"`
+	BreakableReserveUAH Money `json:"breakable_reserve_uah,omitzero"`
 }
 
 // RateRisk — те, що ставки роблять із портфелем. Це ДВА різні ризики, і
@@ -1841,7 +1841,7 @@ type Liquidity struct {
 type RateRisk struct {
 	DurationYears float64            `json:"duration_years"`
 	ModifiedDur   float64            `json:"modified_dur"`
-	PVUAH         float64            `json:"pv_uah"`
+	PVUAH         Money              `json:"pv_uah"`
 	ByCurrency    map[string]float64 `json:"by_currency,omitempty"`
 	Scenarios     []RiskScenario     `json:"scenarios,omitempty"`
 	// ReinvestYears — середній строк повернення грошей, зважений сумами
@@ -1850,14 +1850,14 @@ type RateRisk struct {
 	// ReinvestSoonUAH — скільки з цього протягом 12 місяців: саме ці
 	// гроші доведеться перевкладати за ставкою, якої ще не знаєш.
 	ReinvestYears   float64 `json:"reinvest_years,omitempty"`
-	ReturningUAH    float64 `json:"returning_uah,omitempty"`
-	ReinvestSoonUAH float64 `json:"reinvest_soon_uah,omitempty"`
+	ReturningUAH    Money   `json:"returning_uah,omitzero"`
+	ReinvestSoonUAH Money   `json:"reinvest_soon_uah,omitzero"`
 }
 
 type RiskScenario struct {
 	DeltaPP   float64 `json:"delta_pp"`
 	ChangePct float64 `json:"change_pct"`
-	ChangeUAH float64 `json:"change_uah"`
+	ChangeUAH Money   `json:"change_uah"`
 }
 
 // Forecast — «скільки в мене буде на дедлайн» за трьох сценаріїв.
@@ -1872,7 +1872,7 @@ type Forecast struct {
 	Date   string `json:"date"`   // дедлайн, на який рахуємо
 	Months int    `json:"months"` // скільки місяців до нього
 	// GoalAmount — сума-орієнтир; 0 = ціль не задана, показуємо самі суми.
-	GoalAmount float64 `json:"goal_amount,omitempty"`
+	GoalAmount Money `json:"goal_amount,omitzero"`
 	// ContribPlan — на порожньому плані (фаза 9, «Плани») це і є «скільки
 	// треба відкладати, щоб устигнути до дедлайну»: план виводиться з
 	// цілі, тож окреме поле під потрібну суму лише дублювало б це число.
@@ -1882,7 +1882,7 @@ type Forecast struct {
 	// НАДБАВКОЮ понад те, що план і так уже дає, — «скільки ще бракує»,
 	// а не «скільки треба з нуля». Без PlanProvidesUAH поряд надбавка
 	// читалась би як уся сума.
-	ContribPlan float64 `json:"contrib_plan,omitempty"`
+	ContribPlan Money `json:"contrib_plan,omitzero"`
 	// Rate0USD — сьогоднішній курс, ₴ за долар. UI ділить на нього, щоб
 	// показати ті самі числа в доларах: це та сама величина в іншій
 	// одиниці, а не окремий розрахунок.
@@ -1910,7 +1910,7 @@ type ForecastCurve struct {
 	StepMonths int `json:"step_months"`
 	// GoalUAH — лінія цілі, щоб UI не діставав її з іншого місця й не
 	// малював криву проти числа, якого в цьому ж об'єкті немає.
-	GoalUAH float64              `json:"goal_uah,omitempty"`
+	GoalUAH Money                `json:"goal_uah,omitzero"`
 	Points  []ForecastCurvePoint `json:"points"`
 }
 
@@ -1920,11 +1920,11 @@ type ForecastCurve struct {
 // Actual зʼявляється лише коли відомий фактичний темп поповнень — і саме
 // його розрив із Plan показує, що це поведінка, а не ринок.
 type ForecastCurvePoint struct {
-	Month       int     `json:"month"`
-	Plan        float64 `json:"plan"`
-	Optimistic  float64 `json:"optimistic,omitempty"`
-	Pessimistic float64 `json:"pessimistic,omitempty"`
-	Actual      float64 `json:"actual,omitempty"`
+	Month       int   `json:"month"`
+	Plan        Money `json:"plan"`
+	Optimistic  Money `json:"optimistic,omitzero"`
+	Pessimistic Money `json:"pessimistic,omitzero"`
+	Actual      Money `json:"actual,omitzero"`
 }
 
 // ForecastRow — один сценарій: допущення і що з них виходить.
@@ -1935,13 +1935,13 @@ type ForecastRow struct {
 	// Amount — капітал на дедлайн у гривні СЬОГОДНІШНЬОЇ купівельної
 	// спроможності; саме він порівнюється з ціллю. AmountNominal — те
 	// саме в гривні того дня, тобто скільки буде намальовано на рахунку.
-	Amount        float64 `json:"amount"`
-	AmountNominal float64 `json:"amount_nominal,omitempty"`
+	Amount        Money `json:"amount"`
+	AmountNominal Money `json:"amount_nominal,omitzero"`
 	// RequiredMonthly — скільки треба вносити щомісяця, щоб дійти до цілі
 	// САМЕ ЗА ЦИХ допущень. Головне число сценарію: платіж під ціль один,
 	// але ринок вирішує, наскільки він посильний. Для рядка «За фактом»
 	// порожнє — там головне число це сам фактичний темп.
-	RequiredMonthly float64 `json:"required_monthly,omitempty"`
+	RequiredMonthly Money `json:"required_monthly,omitzero"`
 	// RequiredTotalMonthly — те саме, але З НУЛЯ: план ігнорується цілком.
 	//
 	// Різниця між двома полями і є причина, чому обидва потрібні.
@@ -1957,10 +1957,10 @@ type ForecastRow struct {
 	// непорожньому — більше на те, що план і так дає.
 	//
 	// Порожнє для рядка «За фактом», як і RequiredMonthly.
-	RequiredTotalMonthly float64 `json:"required_total_monthly,omitempty"`
+	RequiredTotalMonthly Money   `json:"required_total_monthly,omitzero"`
 	RatePct              float64 `json:"rate_pct"`                    // сьогоднішня дохідність гривневої частини
 	RateTerminalPct      float64 `json:"rate_terminal_pct,omitempty"` // куди вона сповзає
-	ContribMonthly       float64 `json:"contrib_monthly"`             // припущений внесок, ₴/міс
+	ContribMonthly       Money   `json:"contrib_monthly"`             // припущений внесок, ₴/міс
 	DevaluationPct       float64 `json:"devaluation_pct"`             // припущене знецінення гривні, %/рік
 	GoalPct              float64 `json:"goal_pct,omitempty"`
 	GoalMonths           int     `json:"goal_months,omitempty"`
@@ -1985,16 +1985,16 @@ type Sensitivity struct {
 	// BaseFrom — "actual" (фактичний темп) або "plan". Фактичний
 	// береться, коли відомий: людина стоїть там, де стоїть, і «×2 від
 	// плану, якого вона не тягне» — марна відповідь.
-	BaseContribUAH float64 `json:"base_contrib_uah"`
-	BaseFrom       string  `json:"base_from"`
+	BaseContribUAH Money  `json:"base_contrib_uah"`
+	BaseFrom       string `json:"base_from"`
 	// Базовий результат — із чим порівнюються рядки. GoalMonths: -1 =
 	// вже досягнуто, 0 = не досягається за 60 років.
 	BaseGoalMonths int     `json:"base_goal_months"`
 	BaseGoalDate   string  `json:"base_goal_date,omitempty"`
-	BaseAmountUAH  float64 `json:"base_amount_uah"`
+	BaseAmountUAH  Money   `json:"base_amount_uah"`
 	BaseGoalPct    float64 `json:"base_goal_pct"`
 	// Умови, спільні для всіх рядків.
-	GoalUAH        float64          `json:"goal_uah"`
+	GoalUAH        Money            `json:"goal_uah"`
 	DeadlineMonths int              `json:"deadline_months"`
 	Rows           []SensitivityRow `json:"rows,omitempty"`
 }
@@ -2012,8 +2012,8 @@ type Sensitivity struct {
 type Independence struct {
 	// TargetUAH — який дохід вважаємо достатнім, ₴/міс; IncomeNowUAH —
 	// скільки портфель приносить уже зараз.
-	TargetUAH    float64 `json:"target_uah"`
-	IncomeNowUAH float64 `json:"income_now_uah"`
+	TargetUAH    Money `json:"target_uah"`
+	IncomeNowUAH Money `json:"income_now_uah"`
 	// TargetFrom — "setting" (задано явно) чи "expenses" (спад на місячні
 	// витрати). Читач має право знати, з чим саме порівнюють.
 	TargetFrom string `json:"target_from"`
@@ -2028,7 +2028,7 @@ type Independence struct {
 	// сьогоднішніх гривнях. Не «скільки треба»: потрібна сума залежить від
 	// ставки на той момент, і називати її окремо означало б дати друге,
 	// незалежне число про те саме.
-	CapitalUAH float64 `json:"capital_uah,omitempty"`
+	CapitalUAH Money `json:"capital_uah,omitzero"`
 }
 
 // Drawdown — на скільки вистачить, якщо перестати вносити й почати
@@ -2041,8 +2041,8 @@ type Independence struct {
 type Drawdown struct {
 	// WithdrawUAH — скільки знімати щомісяця, ₴ у сьогоднішніх грошах;
 	// WithdrawFrom — "setting" чи "expenses".
-	WithdrawUAH  float64 `json:"withdraw_uah"`
-	WithdrawFrom string  `json:"withdraw_from"`
+	WithdrawUAH  Money  `json:"withdraw_uah"`
+	WithdrawFrom string `json:"withdraw_from"`
 	// Months — на скільки місяців вистачить; -1 = не вичерпується за 60
 	// років, бо потоки покривають зняття. Нуль означає, що не вистачає
 	// навіть на перший місяць, і це теж відповідь.
@@ -2073,7 +2073,7 @@ type SensitivityRow struct {
 	DeltaMonths int     `json:"delta_months,omitempty"`
 	// DeltaUAH — на скільки гривень на місяць зрушений внесок. Тільки в
 	// рядка step_contrib: у решти важелів гривневого кроку немає.
-	DeltaUAH float64 `json:"delta_uah,omitempty"`
+	DeltaUAH Money   `json:"delta_uah,omitzero"`
 	Value    float64 `json:"value"`
 	// GoalMonths / GoalDate — коли ціль буде досягнута за цього входу.
 	// Для важеля «дедлайн» вони БАЗОВІ, і це не помилка: місяць
@@ -2083,7 +2083,7 @@ type SensitivityRow struct {
 	GoalDate   string `json:"goal_date,omitempty"`
 	// AmountUAH — скільки буде на дедлайн, у сьогоднішніх гривнях;
 	// GoalPct — яка це частка цілі.
-	AmountUAH float64 `json:"amount_uah"`
+	AmountUAH Money   `json:"amount_uah"`
 	GoalPct   float64 `json:"goal_pct"`
 }
 
@@ -2092,8 +2092,8 @@ type SleeveRow struct {
 	Currency        string  `json:"currency"`
 	RatePct         float64 `json:"rate_pct"`
 	RateTerminalPct float64 `json:"rate_terminal_pct,omitempty"`
-	ContribMonthly  float64 `json:"contrib_monthly"` // ₴/міс, що йдуть у цю валюту
-	Amount          float64 `json:"amount"`
+	ContribMonthly  Money   `json:"contrib_monthly"` // ₴/міс, що йдуть у цю валюту
+	Amount          Money   `json:"amount"`
 }
 
 // FundPositionRow — позиція в одному фонді. YieldNetPct — дивідендна
@@ -2117,7 +2117,7 @@ type FundPositionRow struct {
 	Fund          string  `json:"fund"`
 	Currency      string  `json:"currency"`
 	Qty           int64   `json:"qty"`
-	CostBasis     float64 `json:"cost_basis"`
+	CostBasis     Money   `json:"cost_basis"`
 	LastPrice     float64 `json:"last_price"`
 	LastPriceDate string  `json:"last_price_date,omitempty"`
 	// PriceMarked — LastPrice прийшла з РУЧНОЇ ПОЗНАЧКИ ціни (0034), а не з
@@ -2158,10 +2158,10 @@ type FundPositionRow struct {
 	// завести там другу копію календарної арифметики.
 	PriceChangePct  float64 `json:"price_change_pct,omitempty"`
 	PriceChangeDays int     `json:"price_change_days,omitempty"`
-	MarketValue     float64 `json:"market_value"`
-	DividendsNet    float64 `json:"dividends_net"`
-	DividendsTax    float64 `json:"dividends_tax"`
-	Realized        float64 `json:"realized,omitempty"`
+	MarketValue     Money   `json:"market_value"`
+	DividendsNet    Money   `json:"dividends_net"`
+	DividendsTax    Money   `json:"dividends_tax"`
+	Realized        Money   `json:"realized,omitzero"`
 	YieldNetPct     float64 `json:"yield_net_pct,omitempty"`
 	// TotalPct — ПОВНА дохідність позиції, % річних: дивіденди після
 	// податку разом зі зміною ціни (XIRR по операціях фонду з
@@ -2244,9 +2244,9 @@ type NPFPositionRow struct {
 	NavDate string  `json:"nav_date,omitempty"`
 	// CostUAH — сума внесків, ValueUAH — вартість за ЧВОПА, GainUAH —
 	// різниця. Усі три в грн-екв., як і всюди в документі.
-	CostUAH  float64 `json:"cost_uah"`
-	ValueUAH float64 `json:"value_uah"`
-	GainUAH  float64 `json:"gain_uah"`
+	CostUAH  Money `json:"cost_uah"`
+	ValueUAH Money `json:"value_uah"`
+	GainUAH  Money `json:"gain_uah"`
 	// NavReturnPct — зростання ЧВОПА, % річних: як спрацював ФОНД,
 	// незалежно від дат моїх внесків (time-weighted). ExpectedPct — обіцянка
 	// з довідника.
@@ -2278,42 +2278,42 @@ type NPFPositionRow struct {
 	// зобовʼязаний показати арифметику й підпис «не входить у жоден
 	// прогноз». Нуль означає «не порахувати» — найчастіше тому, що не
 	// введено річний ПДФО, без якого стелі знижки немає.
-	CreditEstUAH float64 `json:"credit_est_uah,omitempty"`
+	CreditEstUAH Money `json:"credit_est_uah,omitzero"`
 	// Administrator — хто веде рахунок. Контрагент, а не мій рахунок: з
 	// нього нічого не списати, тому в brokers його немає (див. 0028).
 	Administrator string `json:"administrator,omitempty"`
 }
 
 type YearAmount struct {
-	Year int     `json:"year"`
-	UAH  float64 `json:"uah"`
+	Year int   `json:"year"`
+	UAH  Money `json:"uah"`
 }
 
 type MonthAmount struct {
-	Month  string  `json:"month"` // "2026-07"
-	Amount float64 `json:"amount"`
+	Month  string `json:"month"` // "2026-07"
+	Amount Money  `json:"amount"`
 }
 
 type ProjectionRow struct {
-	Years        int     `json:"years"`
-	Contributed  float64 `json:"contributed"`   // внесено без %, грн-екв.
-	WithReinvest float64 `json:"with_reinvest"` // з реінвестом за ПЛАНОМ, грн-екв.
+	Years        int   `json:"years"`
+	Contributed  Money `json:"contributed"`   // внесено без %, грн-екв.
+	WithReinvest Money `json:"with_reinvest"` // з реінвестом за ПЛАНОМ, грн-екв.
 	// WithReinvestActual — те саме, але за фактичним темпом поповнень.
-	WithReinvestActual float64 `json:"with_reinvest_actual,omitempty"`
+	WithReinvestActual Money `json:"with_reinvest_actual,omitzero"`
 	// IncomeMonthly — скільки капітал приноситиме ЩОМІСЯЦЯ на цьому
 	// горизонті, у сьогоднішніх гривнях: купонний потік, який можна
 	// забирати, не проїдаючи тіло. IncomeMonthlyActual — те саме за
 	// фактичним темпом поповнень.
-	IncomeMonthly       float64 `json:"income_monthly,omitempty"`
-	IncomeMonthlyActual float64 `json:"income_monthly_actual,omitempty"`
+	IncomeMonthly       Money `json:"income_monthly,omitzero"`
+	IncomeMonthlyActual Money `json:"income_monthly_actual,omitzero"`
 }
 
 type NextPayment struct {
-	Date     string  `json:"date"` // ISO
-	ISIN     string  `json:"isin"`
-	Type     string  `json:"type"` // coupon | redemption | early
-	Amount   float64 `json:"amount"`
-	Currency string  `json:"currency"`
+	Date     string `json:"date"` // ISO
+	ISIN     string `json:"isin"`
+	Type     string `json:"type"` // coupon | redemption | early
+	Amount   Money  `json:"amount"`
+	Currency string `json:"currency"`
 	// Label — те саме, що в PaymentRow: див. коментар там.
 	Label string `json:"label,omitempty"`
 }
@@ -2390,7 +2390,7 @@ type FXWindowRow struct {
 	// Причина в CLAUDE.md §5: інакше цю різницю рахував би браузер, і це
 	// була б друга копія арифметики курсу — рівно те, через що плитка з
 	// карткою вже одного разу розійшлись (див. handlers_reinvest.go).
-	VsMedianNative float64 `json:"vs_median_native,omitempty"`
+	VsMedianNative Money `json:"vs_median_native,omitzero"`
 }
 
 // RealizedRow — результат по одній валюті за фактом і причина, з якої
@@ -2423,9 +2423,9 @@ type FXWindowRow struct {
 // повторив би головне число, а порожня половина читалась би як нуль.
 type YieldSplit struct {
 	MeasuredRealPct float64 `json:"measured_real_pct,omitempty"`
-	MeasuredUAH     float64 `json:"measured_uah,omitempty"`
+	MeasuredUAH     Money   `json:"measured_uah,omitzero"`
 	PromisedRealPct float64 `json:"promised_real_pct,omitempty"`
-	PromisedUAH     float64 `json:"promised_uah,omitempty"`
+	PromisedUAH     Money   `json:"promised_uah,omitzero"`
 }
 
 // RateBreakdown — з чого складається ставка інструмента.
@@ -2485,7 +2485,7 @@ type RateBreakdown struct {
 // бо не ануалізований, — і саме він пояснює, чого бракує річному числу.
 type TotalReturn struct {
 	XIRRPct   *float64 `json:"xirr_pct,omitempty"`
-	GainUAH   float64  `json:"gain_uah"`
+	GainUAH   Money    `json:"gain_uah"`
 	GainPct   float64  `json:"gain_pct"`
 	MoneyDays float64  `json:"money_days"`
 	MinDays   int      `json:"min_days"`
@@ -2498,25 +2498,25 @@ type TotalReturn struct {
 }
 
 type RealizedRow struct {
-	Gain      float64 `json:"gain"`       // заробок у валюті рядка
+	Gain      Money   `json:"gain"`       // заробок у валюті рядка
 	GainPct   float64 `json:"gain_pct"`   // він же у % від вкладеного
 	MoneyDays float64 `json:"money_days"` // середньозважений вік вкладених грошей
 	MinDays   int     `json:"min_days"`   // з якого віку публікується XIRR
 }
 
 type LadderRow struct {
-	Year int     `json:"year"`
-	UAH  float64 `json:"uah"`
-	USD  float64 `json:"usd"` // номінал у доларах (не еквівалент)
-	EUR  float64 `json:"eur"` // номінал у євро (не еквівалент)
+	Year int   `json:"year"`
+	UAH  Money `json:"uah"`
+	USD  Money `json:"usd"` // номінал у доларах (не еквівалент)
+	EUR  Money `json:"eur"` // номінал у євро (не еквівалент)
 }
 
 type PaymentRow struct {
-	Date     string  `json:"date"`
-	ISIN     string  `json:"isin"`
-	Type     string  `json:"type"`
-	Amount   float64 `json:"amount"`
-	Currency string  `json:"currency"`
+	Date     string `json:"date"`
+	ISIN     string `json:"isin"`
+	Type     string `json:"type"`
+	Amount   Money  `json:"amount"`
+	Currency string `json:"currency"`
 	// Label — людська назва, коли ISIN сам по собі мовчить. Той самий
 	// випадок, що й ConcentrationRow.Label вище.
 	//

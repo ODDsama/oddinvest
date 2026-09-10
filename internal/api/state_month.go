@@ -325,7 +325,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	// узагалі дозволяє, і різниця осідала в reserve_skip_why кожної
 	// розкладки. Той самий довід, що привів сюди reserve_fill_from, лише
 	// на рівні джерела замість рівня політики.
-	if share <= 0 || mp.PlanReserveUAH <= 0 {
+	if share <= 0 || mp.PlanReserveUAH.Major() <= 0 {
 		return 0, 0, 0
 	}
 	_, gap := state.ReserveTarget(set, reserveUAH, debtCaps, coverUAH, owedInterestUAH)
@@ -333,7 +333,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	if room <= 0 {
 		return 0, 0, 0 // ціль зібрана — стеля мовчить, і правильно робить
 	}
-	monthUAH = mp.PlanReserveUAH * share / 100
+	monthUAH = mp.PlanReserveUAH.Major() * share / 100
 	if monthUAH > room {
 		monthUAH = room
 	}
@@ -352,7 +352,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	// Віддається звідси, а не рахується читачем, з того самого доводу, що
 	// need у spreadMonth: друге означення розійшлося б із першим рівно в тих
 	// гілках, де ця функція мовчить.
-	return round2(monthUAH), round2(fillUAH), round2(mp.PlanReserveUAH)
+	return round2(monthUAH), round2(fillUAH), round2(mp.PlanReserveUAH.Major())
 }
 
 // buildMonthPlan — скільки план доходу заводить у портфель ЦЬОГО місяця.
@@ -463,11 +463,11 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		if f.Kind == "expense" {
 			// У потоках витрата від'ємна; у контракті вона додатна, бо поле
 			// зветься «витрати», і знак у ньому читався б як помилка.
-			out.ExpenseUAH += -amt
+			out.ExpenseUAH = out.ExpenseUAH.Add(state.Major(-amt, money.UAH))
 			continue
 		}
-		out.IncomeUAH += amt
-		out.GrossUAH += planFlowUAH(planFlowAtMonth(gross, today, m, marks), f.Currency, rates)
+		out.IncomeUAH = out.IncomeUAH.Add(state.Major(amt, money.UAH))
+		out.GrossUAH = out.GrossUAH.Add(state.Major(planFlowUAH(planFlowAtMonth(gross, today, m, marks), f.Currency, rates), money.UAH))
 		if domain.PlanUseAllowed(f.Uses, domain.UsePlanReserve) {
 			incReserve += amt
 		}
@@ -476,7 +476,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		}
 		out.Sources++
 		if _, ok := marks.at(f.ID, today, m); ok {
-			out.ReceivedUAH += amt
+			out.ReceivedUAH = out.ReceivedUAH.Add(state.Major(amt, money.UAH))
 			out.Marked++
 		}
 	}
@@ -496,8 +496,8 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		}
 		share := float64(r.Amount) / 100 * float64(r.InvestBP) / 10000
 		v := planFlowUAH(share, r.Currency, rates)
-		out.ExtraUAH += v
-		out.GrossUAH += planFlowUAH(float64(r.Amount)/100, r.Currency, rates)
+		out.ExtraUAH = out.ExtraUAH.Add(state.Major(v, money.UAH))
+		out.GrossUAH = out.GrossUAH.Add(state.Major(planFlowUAH(float64(r.Amount)/100, r.Currency, rates), money.UAH))
 		// Позапланове читає ВЛАСНИЙ дозвіл, і лише воно: потоку за ним
 		// немає, тож успадкувати нема від кого (та сама межа, що з InvestBP).
 		if domain.PlanUseAllowed(r.Uses, domain.UsePlanReserve) {
@@ -550,12 +550,12 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	// (state_debts.go) беруть лише GrossUAH та IncomeUAH+ExtraUAH, а
 	// PlanUAH звідти не читає ніхто. Якщо почне — фільтр треба завести
 	// тут, а не другим циклом.
-	out.OnCardUAH = round2(math.Max(0, out.GrossUAH-out.IncomeUAH-out.ExtraUAH))
-	out.DebtDueUAH = debtDueForMonth(src, rates, today, m)
+	out.OnCardUAH = state.Major(math.Max(0, out.GrossUAH.Major()-out.IncomeUAH.Major()-out.ExtraUAH.Major()), money.UAH)
+	out.DebtDueUAH = state.Major(debtDueForMonth(src, rates, today, m), money.UAH)
 	// Округлене OnCardUAH, а не сире: поглинати мусить те саме число, яке
 	// показує екран, інакше вилізе переповнення на півкопійки, якого він
 	// не пояснить.
-	out.DebtFromPlanUAH = math.Max(0, out.DebtDueUAH-out.OnCardUAH)
+	out.DebtFromPlanUAH = state.Major(math.Max(0, out.DebtDueUAH.Major()-out.OnCardUAH.Major()), money.UAH)
 	// Планові витрати — та сама неминучість, що витратний потік, і тому
 	// віднімаються так само: повністю з кожного з чотирьох чисел. Але лише
 	// ПОРТФЕЛЬНИЙ контур: рядок із paid_from=card тисне на стелю витрат, а
@@ -564,21 +564,21 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	// Поглинання OnCardUAH, як у боргу, тут не робиться навмисно: контур
 	// вибрала людина, і «спершу з картки, потім із плану» було б третім
 	// правилом поверх її власного вибору.
-	out.PlannedUAH = plannedInMonth(src, rates, today, m, after, domain.PaidFromPlan)
-	spent := out.ExpenseUAH + out.DebtFromPlanUAH + out.PlannedUAH
+	out.PlannedUAH = state.Major(plannedInMonth(src, rates, today, m, after, domain.PaidFromPlan), money.UAH)
+	spent := out.ExpenseUAH.Major() + out.DebtFromPlanUAH.Major() + out.PlannedUAH.Major()
 
-	out.PlanUAH = out.IncomeUAH + out.ExtraUAH - spent
-	out.PlanReserveUAH = math.Max(0, incReserve-spent)
-	out.PlanGoalsUAH = math.Max(0, incGoals-spent)
+	out.PlanUAH = state.Major(out.IncomeUAH.Major()+out.ExtraUAH.Major()-spent, money.UAH)
+	out.PlanReserveUAH = state.Major(math.Max(0, incReserve-spent), money.UAH)
+	out.PlanGoalsUAH = state.Major(math.Max(0, incGoals-spent), money.UAH)
 
 	// Лишилось закинути — проти ВНЕСЕНОГО, а не проти купленого: план
 	// означає «скільки нових грошей принести», а купівля лише переносить їх
 	// з рахунку в папери (та сама межа, що названа в шапці цього файла).
-	if left := out.PlanUAH - depositedUAH; left > 0 {
-		out.LeftUAH = round2(left)
+	if left := out.PlanUAH.Major() - depositedUAH; left > 0 {
+		out.LeftUAH = state.Major(left, money.UAH)
 	}
-	if out.PlanUAH > 0 {
-		out.CoveredPct = round2(depositedUAH / out.PlanUAH * 100)
+	if out.PlanUAH.Major() > 0 {
+		out.CoveredPct = round2(depositedUAH / out.PlanUAH.Major() * 100)
 	}
 
 	// OnCardUAH порахований ВИЩЕ, разом із боргом, і саме там, бо він у
@@ -589,17 +589,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	// Окремим числом, а не відніманням у голові: питання «скільки лишається
 	// на життя» ставлять щомісяця, і два доданки поруч без різниці між ними
 	// змушують рахувати очима.
-	out.IncomeUAH = round2(out.IncomeUAH)
-	out.GrossUAH = round2(out.GrossUAH)
-	out.ExpenseUAH = round2(out.ExpenseUAH)
-	out.PlannedUAH = round2(out.PlannedUAH)
-	out.ExtraUAH = round2(out.ExtraUAH)
-	out.PlanUAH = round2(out.PlanUAH)
-	out.PlanReserveUAH = round2(out.PlanReserveUAH)
-	out.PlanGoalsUAH = round2(out.PlanGoalsUAH)
-	out.DebtDueUAH = round2(out.DebtDueUAH)
-	out.DebtFromPlanUAH = round2(out.DebtFromPlanUAH)
-	out.ReceivedUAH = round2(out.ReceivedUAH)
+
 	return out
 }
 
@@ -735,8 +725,8 @@ func monthStart(today domain.Date, m int) domain.Date {
 // план), і зрізати такий місяць до сотні означало б сховати саме те, що
 // сталось. Число називає факт, а не оцінює його.
 func savingsRatePct(actualMonthly float64, plan *state.MonthPlan) float64 {
-	if plan == nil || plan.GrossUAH <= 0 || actualMonthly <= 0 {
+	if plan == nil || plan.GrossUAH.Major() <= 0 || actualMonthly <= 0 {
 		return 0
 	}
-	return round2(actualMonthly / plan.GrossUAH * 100)
+	return round2(actualMonthly / plan.GrossUAH.Major() * 100)
 }

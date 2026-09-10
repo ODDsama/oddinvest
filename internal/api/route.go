@@ -382,8 +382,8 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 		// першому ж місяці проходу.
 		debtCaps:   doc.Reserve != nil && doc.Reserve.DebtCapped,
 		debtCover:  reserveDebtCover(doc.Reserve),
-		capitalUAH: doc.CapitalUAH,
-		reserveUAH: doc.ReserveUAH,
+		capitalUAH: doc.CapitalUAH.Major(),
+		reserveUAH: doc.ReserveUAH.Major(),
 		loanOwed:   routeLoanOwed(doc.Reserve),
 		loanRate:   routeLoanRate(doc.Reserve),
 		// Поточний місяць береться з документа як є — разом із уже
@@ -399,27 +399,27 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 		kindUAH: map[string]float64{},
 	}
 	if r := doc.Reserve; r != nil {
-		c.gapUAH, c.fillMonth, c.fillNow = r.GapUAH, r.FillMonthUAH, r.FillNowUAH
-		c.fillFrom = r.FillFromUAH
+		c.gapUAH, c.fillMonth, c.fillNow = r.GapUAH.Major(), r.FillMonthUAH.Major(), r.FillNowUAH.Major()
+		c.fillFrom = r.FillFromUAH.Major()
 		// Надбавка, що вже сидить у цьому розриві. Без неї закриття позики
 		// в проході зняло б лише те, що наросло за прохід, а піднята з
 		// самого початку ціль лишилась би піднятою назавжди.
-		c.loanInterest = r.OwedInterestUAH
+		c.loanInterest = r.OwedInterestUAH.Major()
 	}
 	// Цілі беруться з документа ЯК Є — разом із уже покладеним цього
 	// місяця, з тієї ж причини, що й подушка: перерахувати їх тут означало
 	// б втратити moved і розійтися з карткою на першому ж рядку.
 	c.goals = append([]state.Goal(nil), doc.Goals...)
-	c.goalsUAH = doc.GoalsUAH
+	c.goalsUAH = doc.GoalsUAH.Major()
 	if dp := doc.Debt; dp != nil {
 		// Борг — так само ЯК Є: разом із уже сплаченим достроково цього
 		// місяця. Той самий довід, що в подушки й цілей.
-		c.debtLeft = dp.TotalUAH
+		c.debtLeft = dp.TotalUAH.Major()
 	}
 	c.debtLeftAt[0] = c.debtLeft
 	for _, row := range doc.Rebalance {
 		if row.Dimension == "kind" {
-			c.kindUAH[row.Key] = row.CurrentUAH
+			c.kindUAH[row.Key] = row.CurrentUAH.Major()
 		}
 	}
 	return c
@@ -441,12 +441,12 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 // зʼявляється, одне й те саме перестає рахуватись двічі.
 func (c *routeCarry) doc(carryInUAH float64) *state.Doc {
 	d := *c.base
-	d.CapitalUAH = c.capitalUAH - carryInUAH
-	d.ReserveUAH = c.reserveUAH
+	d.CapitalUAH = state.Major(c.capitalUAH-carryInUAH, money.UAH)
+	d.ReserveUAH = state.Major(c.reserveUAH, money.UAH)
 	if c.base.Reserve != nil {
 		r := *c.base.Reserve
-		r.GapUAH, r.FillMonthUAH, r.FillNowUAH = c.gapUAH, c.fillMonth, c.fillNow
-		r.FillFromUAH = c.fillFrom
+		r.GapUAH, r.FillMonthUAH, r.FillNowUAH = state.Major(c.gapUAH, money.UAH), state.Major(c.fillMonth, money.UAH), state.Major(c.fillNow, money.UAH)
+		r.FillFromUAH = state.Major(c.fillFrom, money.UAH)
 		d.Reserve = &r
 	}
 	if c.base.Debt != nil {
@@ -454,10 +454,10 @@ func (c *routeCarry) doc(carryInUAH float64) *state.Doc {
 		// Лише залишок боргу: стелю дострокового розкладка більше не читає,
 		// і просунуте число без читача наступний автор «полагодить» під
 		// щось інше (те саме правило, що при CurrentPct вище).
-		dp.TotalUAH = c.debtLeft
+		dp.TotalUAH = state.Major(c.debtLeft, money.UAH)
 		d.Debt = &dp
 	}
-	d.GoalsUAH = c.goalsUAH
+	d.GoalsUAH = state.Major(c.goalsUAH, money.UAH)
 	if len(c.goals) > 0 {
 		g := make([]state.Goal, len(c.goals))
 		copy(g, c.goals)
@@ -470,7 +470,7 @@ func (c *routeCarry) doc(carryInUAH float64) *state.Doc {
 			continue
 		}
 		if v, ok := c.kindUAH[rows[i].Key]; ok {
-			rows[i].CurrentUAH = round2(v)
+			rows[i].CurrentUAH = state.Major(v, money.UAH)
 		}
 	}
 	d.Rebalance = rows
@@ -489,7 +489,7 @@ func routeLoanOwed(r *state.Reserve) float64 {
 	if r == nil {
 		return 0
 	}
-	return r.OwedUAH
+	return r.OwedUAH.Major()
 }
 
 func routeLoanRate(r *state.Reserve) float64 {
@@ -498,8 +498,8 @@ func routeLoanRate(r *state.Reserve) float64 {
 	}
 	var sum, weight float64
 	for _, l := range r.Loans {
-		sum += l.RatePct * l.OwedUAH
-		weight += l.OwedUAH
+		sum += l.RatePct * l.OwedUAH.Major()
+		weight += l.OwedUAH.Major()
 	}
 	if weight <= 0 {
 		return 0
@@ -571,9 +571,9 @@ func (c *routeCarry) enterMonth(m int, plans map[string]*state.MonthPlan,
 	// кожному кроці меншає.
 	if len(c.goals) > 0 && mp != nil {
 		for i := range c.goals {
-			c.goals[i].MovedUAH = 0
-			c.goals[i].FillMonthUAH, c.goals[i].FillNowUAH = 0, 0
-			c.goals[i].ShortMonthUAH = 0
+			c.goals[i].MovedUAH = state.Money{}
+			c.goals[i].FillMonthUAH, c.goals[i].FillNowUAH = state.Money{}, state.Money{}
+			c.goals[i].ShortMonthUAH = state.Money{}
 		}
 		// Дозволеною частиною, тією самою, що в документі: інакше прохід
 		// уперед рахував би стелю цілей від усього плану, а картка — від
@@ -581,7 +581,7 @@ func (c *routeCarry) enterMonth(m int, plans map[string]*state.MonthPlan,
 		// місяць.
 		// Прапорець боргу — той самий, що тримає стелю подушки: пауза цілей
 		// у проході вперед мусить діяти так само, як у документі.
-		state.GoalsFill(c.set, c.goals, mp.PlanGoalsUAH, c.debtCaps)
+		state.GoalsFill(c.set, c.goals, mp.PlanGoalsUAH.Major(), c.debtCaps)
 	}
 }
 
@@ -640,8 +640,8 @@ func (c *routeCarry) apply(p allocPlan) {
 			if c.goals[i].ID != gc.ID {
 				continue
 			}
-			c.goals[i].GapUAH = math.Max(0, c.goals[i].GapUAH-gc.AmountUAH)
-			c.goals[i].FillNowUAH = math.Max(0, c.goals[i].FillNowUAH-gc.AmountUAH)
+			c.goals[i].GapUAH = state.Major(math.Max(0, c.goals[i].GapUAH.Major()-gc.AmountUAH), money.UAH)
+			c.goals[i].FillNowUAH = state.Major(math.Max(0, c.goals[i].FillNowUAH.Major()-gc.AmountUAH), money.UAH)
 			break
 		}
 	}
@@ -985,7 +985,7 @@ func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
 			DebtLeftUAH: c.debtLeftAt[m],
 		}
 		if mp := plans[key]; mp != nil {
-			row.PlanUAH = round2(mp.PlanUAH)
+			row.PlanUAH = round2(mp.PlanUAH.Major())
 		}
 		// Падіння обовʼязкового проти попереднього місяця — тут щось
 		// закрилось. Поточний місяць порівнювати нема з чим.
@@ -1081,5 +1081,5 @@ func reserveDebtCover(r *state.Reserve) float64 {
 	if r == nil {
 		return 0
 	}
-	return r.DebtCoverUAH
+	return r.DebtCoverUAH.Major()
 }

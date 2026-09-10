@@ -43,16 +43,16 @@ func TestFundsSplitNamesMeasuredAndPromised(t *testing.T) {
 	}
 	// Гроші розкладу мусять зійтися з вагою зведеної: інакше десь загубився
 	// доданок, і число обіцяє більше, ніж покриває.
-	if math.Abs(out.Split.MeasuredUAH+out.Split.PromisedUAH-out.YieldWeight) > 0.01 {
+	if math.Abs(out.Split.MeasuredUAH.Major()+out.Split.PromisedUAH.Major()-out.YieldWeight) > 0.01 {
 		t.Errorf("половини %v + %v не дають вагу %v",
-			out.Split.MeasuredUAH, out.Split.PromisedUAH, out.YieldWeight)
+			out.Split.MeasuredUAH.Major(), out.Split.PromisedUAH.Major(), out.YieldWeight)
 	}
 	// МілТех — 5 000 ₴ обіцянки, REIT — 1 000 ₴ факту.
-	if math.Abs(out.Split.PromisedUAH-5000) > 0.01 {
-		t.Errorf("в обіцяній половині мав бути МілТех на 5000, маємо %v", out.Split.PromisedUAH)
+	if math.Abs(out.Split.PromisedUAH.Major()-5000) > 0.01 {
+		t.Errorf("в обіцяній половині мав бути МілТех на 5000, маємо %v", out.Split.PromisedUAH.Major())
 	}
-	if math.Abs(out.Split.MeasuredUAH-1000) > 0.01 {
-		t.Errorf("у заробленій половині мав бути REIT на 1000, маємо %v", out.Split.MeasuredUAH)
+	if math.Abs(out.Split.MeasuredUAH.Major()-1000) > 0.01 {
+		t.Errorf("у заробленій половині мав бути REIT на 1000, маємо %v", out.Split.MeasuredUAH.Major())
 	}
 	// Обіцянка МілТеху — 25% простих за три роки, тобто 20.51 складних.
 	if math.Abs(out.Split.PromisedRealPct-20.51) > 0.01 {
@@ -123,15 +123,15 @@ func TestBlendedSplitPutsBondsAndDepositsInPromised(t *testing.T) {
 	if sum.Split == nil {
 		t.Fatalf("вклад обіцяний, фонд виміряний — розклад мав бути: %s", body)
 	}
-	if math.Abs(sum.Split.MeasuredUAH+sum.Split.PromisedUAH-sum.Base) > 0.01 {
+	if math.Abs(sum.Split.MeasuredUAH.Major()+sum.Split.PromisedUAH.Major()-sum.Base) > 0.01 {
 		t.Errorf("половини %v + %v не дають базу %v",
-			sum.Split.MeasuredUAH, sum.Split.PromisedUAH, sum.Base)
+			sum.Split.MeasuredUAH.Major(), sum.Split.PromisedUAH.Major(), sum.Base)
 	}
 	// Вклад на 100 000 ₴ — в обіцяній; фонд на 1 000 ₴ — у заробленій.
-	if math.Abs(sum.Split.PromisedUAH-100000) > 0.01 {
-		t.Errorf("вклад мав піти в обіцяну половину: %v", sum.Split.PromisedUAH)
+	if math.Abs(sum.Split.PromisedUAH.Major()-100000) > 0.01 {
+		t.Errorf("вклад мав піти в обіцяну половину: %v", sum.Split.PromisedUAH.Major())
 	}
-	if math.Abs(sum.Split.MeasuredUAH-1000) > 0.01 {
-		t.Errorf("фонд мав піти в зароблену половину: %v", sum.Split.MeasuredUAH)
+	if math.Abs(sum.Split.MeasuredUAH.Major()-1000) > 0.01 {
+		t.Errorf("фонд мав піти в зароблену половину: %v", sum.Split.MeasuredUAH.Major())
 	}
 }

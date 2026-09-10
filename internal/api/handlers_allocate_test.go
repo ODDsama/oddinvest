@@ -15,7 +15,7 @@ import (
 // речі: подушку, рядки ребалансу, капітал і резерв.
 func allocDoc(kinds []state.RebalanceRow, res *state.Reserve) *state.Doc {
 	return &state.Doc{
-		CapitalUAH: 100000, ReserveUAH: 0,
+		CapitalUAH: state.Major(100000, money.UAH), ReserveUAH: state.Major(0, money.UAH),
 		Rebalance: kinds, Reserve: res,
 	}
 }
@@ -23,7 +23,7 @@ func allocDoc(kinds []state.RebalanceRow, res *state.Reserve) *state.Doc {
 func kindRow(key string, targetPct, currentUAH float64) state.RebalanceRow {
 	return state.RebalanceRow{
 		Dimension: "kind", Key: key, Currency: money.UAH,
-		TargetPct: targetPct, CurrentUAH: currentUAH,
+		TargetPct: targetPct, CurrentUAH: state.Major(currentUAH, money.UAH),
 	}
 }
 
@@ -73,7 +73,7 @@ func TestAllocateWholeTicketsOnly(t *testing.T) {
 // Хвіст добере наступна відмітка; рядків покупок при цьому бути не може.
 func TestAllocateReserveEatsEverything(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 9000, FillMonthUAH: 9000, GapUAH: 50000})
+		&state.Reserve{FillNowUAH: state.Major(9000, money.UAH), FillMonthUAH: state.Major(9000, money.UAH), GapUAH: state.Major(50000, money.UAH)})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
 		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
@@ -93,7 +93,7 @@ func TestAllocateReserveEatsEverything(t *testing.T) {
 // Часткове закриття: подушка бере свою місячну частку, решта йде в папери.
 func TestAllocateReserveThenBuys(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 2000, FillMonthUAH: 2000, GapUAH: 40000})
+		&state.Reserve{FillNowUAH: state.Major(2000, money.UAH), FillMonthUAH: state.Major(2000, money.UAH), GapUAH: state.Major(40000, money.UAH)})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
 		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
@@ -249,7 +249,7 @@ func TestAllocateWithoutKindTargets(t *testing.T) {
 // викликом. Без цього розкладка 500 ₴ порадила б купити на тридцять тисяч.
 func TestAllocateIgnoresMonthSplitFromDoc(t *testing.T) {
 	row := kindRow("bonds", 100, 0)
-	row.MonthBalanceUAH = 30000 // поділ плану місяця, що вже лежить у документі
+	row.MonthBalanceUAH = state.Major(30000, money.UAH) // поділ плану місяця, що вже лежить у документі
 	doc := allocDoc([]state.RebalanceRow{row}, nil)
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(50000, money.UAH)), 500,
@@ -277,7 +277,7 @@ func TestAllocateIgnoresMonthSplitFromDoc(t *testing.T) {
 // дохід» під відміткою планового доходу читається як поломка застосунку.
 func TestAllocateSourceForbidsReserve(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 2000, FillMonthUAH: 2000, GapUAH: 50000})
+		&state.Reserve{FillNowUAH: state.Major(2000, money.UAH), FillMonthUAH: state.Major(2000, money.UAH), GapUAH: state.Major(50000, money.UAH)})
 
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
@@ -436,7 +436,7 @@ func TestAllocateNPFAtFloorTaken(t *testing.T) {
 // паперам цієї ж ноги.
 func TestAllocateReserveBelowFloorSkippedButMoneyStays(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 3, FillMonthUAH: 3, GapUAH: 50000})
+		&state.Reserve{FillNowUAH: state.Major(3, money.UAH), FillMonthUAH: state.Major(3, money.UAH), GapUAH: state.Major(50000, money.UAH)})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400,
 		allocAllow{ReserveUAH: 3400, GoalsUAH: 3400}, money.UAH, nil)
@@ -463,7 +463,7 @@ func TestAllocateReserveBelowFloorSkippedButMoneyStays(t *testing.T) {
 // поріг. Інакше остання пʼятірка гривень до цілі не закрилась би ніколи.
 func TestAllocateReserveBelowFloorClosesGap(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 4, FillMonthUAH: 4, GapUAH: 4})
+		&state.Reserve{FillNowUAH: state.Major(4, money.UAH), FillMonthUAH: state.Major(4, money.UAH), GapUAH: state.Major(4, money.UAH)})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400,
 		allocAllow{ReserveUAH: 3400, GoalsUAH: 3400}, money.UAH, nil)
@@ -477,8 +477,8 @@ func TestAllocateReserveBelowFloorClosesGap(t *testing.T) {
 func TestAllocateGoalBelowFloorClosesGap(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	doc.Goals = []state.Goal{
-		{ID: 1, Name: "майже зібрана", FillNowUAH: 4, FillMonthUAH: 4, GapUAH: 4},
-		{ID: 2, Name: "далека", FillNowUAH: 6, FillMonthUAH: 6, GapUAH: 50000},
+		{ID: 1, Name: "майже зібрана", FillNowUAH: state.Major(4, money.UAH), FillMonthUAH: state.Major(4, money.UAH), GapUAH: state.Major(4, money.UAH)},
+		{ID: 2, Name: "далека", FillNowUAH: state.Major(6, money.UAH), FillMonthUAH: state.Major(6, money.UAH), GapUAH: state.Major(50000, money.UAH)},
 	}
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400,
@@ -497,7 +497,7 @@ func TestAllocateGoalBelowFloorClosesGap(t *testing.T) {
 // пояснює всього.
 func TestAllocateFloorReasonsDoNotCollide(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 3000, FillMonthUAH: 3000, GapUAH: 50000})
+		&state.Reserve{FillNowUAH: state.Major(3000, money.UAH), FillMonthUAH: state.Major(3000, money.UAH), GapUAH: state.Major(50000, money.UAH)})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400,
 		// Дозволено лише пʼять гривень: решту ріже політика, а й ці пʼять

@@ -1021,6 +1021,14 @@ func walkDoc(v reflect.Value, path string) map[string]string {
 		}
 		return walkDoc(v.Elem(), path)
 	case reflect.Struct:
+		// Money — сума, а не структура: у неї немає експортованих полів, і
+		// обхід нижче вважав би її заповненою завжди.
+		if m, ok := v.Interface().(state.Money); ok {
+			if m.IsZero() {
+				empty[path] = "нуль"
+			}
+			return empty
+		}
 		typ := v.Type()
 		for i := 0; i < typ.NumField(); i++ {
 			f := typ.Field(i)

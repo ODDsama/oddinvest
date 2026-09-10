@@ -1,6 +1,9 @@
 package state
 
-import "testing"
+import (
+	money "github.com/Rhymond/go-money"
+	"testing"
+)
 
 // Драбина доступу до подушки.
 //
@@ -14,10 +17,10 @@ import "testing"
 func ladderFor(t *testing.T, liquid float64, deps ...ReserveDeposit) *Reserve {
 	t.Helper()
 	liquidMonths, maxTerm := 2.0, 12.0
-	r := &Reserve{MonthlyExpensesUAH: 50_000, TargetMonths: 12}
+	r := &Reserve{MonthlyExpensesUAH: Major(50_000, money.UAH), TargetMonths: 12}
 	deriveReserveLadder(r, &SettingsDoc{
 		ReserveLiquidMonths: &liquidMonths, ReserveMaxTermMonths: &maxTerm,
-	}, DeriveInput{ReserveLiquidUAH: liquid, ReserveDeposits: deps})
+	}, DeriveInput{ReserveLiquidUAH: Major(liquid, money.UAH), ReserveDeposits: deps})
 	return r
 }
 
@@ -28,7 +31,7 @@ func ladderFor(t *testing.T, liquid float64, deps ...ReserveDeposit) *Reserve {
 // оголосило б порушенням, — і оголосило б хибно: тіло повернуть будь-коли,
 // згорять лише відсотки.
 func TestLadderRevocableTailIsTradeNotHole(t *testing.T) {
-	r := ladderFor(t, 100_000, ReserveDeposit{Months: 12, AmountUAH: 500_000, Revocable: true})
+	r := ladderFor(t, 100_000, ReserveDeposit{Months: 12, AmountUAH: Major(500_000, money.UAH), Revocable: true})
 	if r.LadderCoversMonths != 2 {
 		t.Errorf("сама тягне %.0f міс., очікували 2 — далі рунга ще не погасилась",
 			r.LadderCoversMonths)
@@ -37,9 +40,9 @@ func TestLadderRevocableTailIsTradeNotHole(t *testing.T) {
 		t.Errorf("з розірванням дотягує %.0f міс., очікували 12 — тіло відкличного вкладу "+
 			"доступне будь-коли", r.LadderReachMonths)
 	}
-	if r.LadderGapMonth != 0 || r.LadderGapUAH != 0 {
+	if r.LadderGapMonth != 0 || r.LadderGapUAH.Major() != 0 {
 		t.Errorf("розмін показано дірою (місяць %.0f, %.2f ₴) — це не помилка, а ціна у відсотках",
-			r.LadderGapMonth, r.LadderGapUAH)
+			r.LadderGapMonth, r.LadderGapUAH.Major())
 	}
 }
 
@@ -49,7 +52,7 @@ func TestLadderRevocableTailIsTradeNotHole(t *testing.T) {
 // Різниця з тестом вище — рівно один прапорець, і саме тому вони поруч:
 // якщо колись їх зіллють в одну гілку, впаде рівно цей.
 func TestLadderIrrevocableTailIsHole(t *testing.T) {
-	r := ladderFor(t, 100_000, ReserveDeposit{Months: 12, AmountUAH: 500_000})
+	r := ladderFor(t, 100_000, ReserveDeposit{Months: 12, AmountUAH: Major(500_000, money.UAH)})
 	if r.LadderReachMonths != 2 {
 		t.Errorf("з розірванням дотягує %.0f міс. — безвідкличний вклад розірвати НЕ можна",
 			r.LadderReachMonths)
@@ -58,8 +61,8 @@ func TestLadderIrrevocableTailIsHole(t *testing.T) {
 		t.Errorf("перша діра на %.0f-му місяці, очікували 3", r.LadderGapMonth)
 	}
 	// 3 × 50 000 = 150 000 витрачено, у руках 100 000.
-	if r.LadderGapUAH != 50_000 {
-		t.Errorf("бракує %.2f ₴, очікували 50 000", r.LadderGapUAH)
+	if r.LadderGapUAH.Major() != 50_000 {
+		t.Errorf("бракує %.2f ₴, очікували 50 000", r.LadderGapUAH.Major())
 	}
 }
 
@@ -69,17 +72,17 @@ func TestLadderIrrevocableTailIsHole(t *testing.T) {
 // Порядок наповнення тут і живе: покласти правильну суму в неправильній
 // формі гірше, ніж не покласти нічого.
 func TestLadderHeadIsTheOnlyHardRule(t *testing.T) {
-	full := ladderFor(t, 100_000, ReserveDeposit{Months: 6, AmountUAH: 200_000, Revocable: true})
+	full := ladderFor(t, 100_000, ReserveDeposit{Months: 6, AmountUAH: Major(200_000, money.UAH), Revocable: true})
 	if full.NextRungMonths == 0 {
 		t.Fatal("при добраній голові порада про сходинку мусить бути — інакше тест нижче нічого не доводить")
 	}
-	short := ladderFor(t, 99_999, ReserveDeposit{Months: 6, AmountUAH: 200_000, Revocable: true})
+	short := ladderFor(t, 99_999, ReserveDeposit{Months: 6, AmountUAH: Major(200_000, money.UAH), Revocable: true})
 	if short.NextRungMonths != 0 {
 		t.Errorf("голова недобрана, а застосунок радить сходинку на %.0f міс. — "+
 			"вклад на цьому кроці погіршує доступ, а не покращує", short.NextRungMonths)
 	}
-	if short.LiquidTargetUAH != 100_000 {
-		t.Errorf("вимога голови %.2f ₴, очікували 100 000 (2 міс. × 50 000)", short.LiquidTargetUAH)
+	if short.LiquidTargetUAH.Major() != 100_000 {
+		t.Errorf("вимога голови %.2f ₴, очікували 100 000 (2 міс. × 50 000)", short.LiquidTargetUAH.Major())
 	}
 }
 
@@ -98,10 +101,10 @@ func TestLadderNextRungTakesFarthestGap(t *testing.T) {
 	// Стеля строку обрізає результат, і саме тому картка окремо каже, що
 	// робити, коли банк такого строку не пропонує.
 	liquidMonths, maxTerm := 2.0, 6.0
-	capped := &Reserve{MonthlyExpensesUAH: 50_000, TargetMonths: 12}
+	capped := &Reserve{MonthlyExpensesUAH: Major(50_000, money.UAH), TargetMonths: 12}
 	deriveReserveLadder(capped, &SettingsDoc{
 		ReserveLiquidMonths: &liquidMonths, ReserveMaxTermMonths: &maxTerm,
-	}, DeriveInput{ReserveLiquidUAH: 100_000})
+	}, DeriveInput{ReserveLiquidUAH: Major(100_000, money.UAH)})
 	if capped.NextRungMonths != 6 {
 		t.Errorf("зі стелею 6 сходинка на %.0f міс. — стеля мусить обрізати", capped.NextRungMonths)
 	}
@@ -114,8 +117,8 @@ func TestLadderNextRungTakesFarthestGap(t *testing.T) {
 // пара LadderRungs/LadderRungsTarget існує окремо від LadderGapMonth.
 func TestLadderBuildingIsNotAHole(t *testing.T) {
 	building := ladderFor(t, 100_000,
-		ReserveDeposit{Months: 11, AmountUAH: 250_000, Revocable: true},
-		ReserveDeposit{Months: 12, AmountUAH: 250_000, Revocable: true})
+		ReserveDeposit{Months: 11, AmountUAH: Major(250_000, money.UAH), Revocable: true},
+		ReserveDeposit{Months: 12, AmountUAH: Major(250_000, money.UAH), Revocable: true})
 	if building.LadderGapMonth != 0 {
 		t.Errorf("розгортання показано дірою на %.0f-му місяці", building.LadderGapMonth)
 	}
@@ -134,9 +137,9 @@ func TestLadderSilentWithoutExpenses(t *testing.T) {
 	liquidMonths, maxTerm := 2.0, 12.0
 	deriveReserveLadder(r, &SettingsDoc{
 		ReserveLiquidMonths: &liquidMonths, ReserveMaxTermMonths: &maxTerm,
-	}, DeriveInput{ReserveLiquidUAH: 100_000,
-		ReserveDeposits: []ReserveDeposit{{Months: 6, AmountUAH: 200_000}}})
-	if r.Ladder != nil || r.LiquidUAH != 0 || r.LadderRungs != 0 || r.NextRungMonths != 0 {
+	}, DeriveInput{ReserveLiquidUAH: Major(100_000, money.UAH),
+		ReserveDeposits: []ReserveDeposit{{Months: 6, AmountUAH: Major(200_000, money.UAH)}}})
+	if r.Ladder != nil || r.LiquidUAH.Major() != 0 || r.LadderRungs != 0 || r.NextRungMonths != 0 {
 		t.Errorf("без витрат драбина заговорила: %+v", r)
 	}
 }
@@ -150,7 +153,7 @@ func TestLadderCoversStopsAtFirstGap(t *testing.T) {
 	// Голова 100 000 тягне 2 місяці. Третій порожній. На 4-му приходить
 	// велика сходинка, і накопиченого знову вистачає — але 3-й місяць уже
 	// прожити не було чим.
-	r := ladderFor(t, 100_000, ReserveDeposit{Months: 4, AmountUAH: 500_000})
+	r := ladderFor(t, 100_000, ReserveDeposit{Months: 4, AmountUAH: Major(500_000, money.UAH)})
 	if r.LadderCoversMonths != 2 {
 		t.Errorf("сама тягне %.0f міс., очікували 2 — далі діра на третьому",
 			r.LadderCoversMonths)

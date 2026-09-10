@@ -66,8 +66,8 @@ type DeriveInput struct {
 	MonthTarget    *money.Money
 	// Резерв: те, чого в документі немає окремими полями (сам ReserveUAH
 	// будівник кладе прямо в Doc, і Derive читає його звідти).
-	ReserveByCur    map[string]float64
-	ReservePlaces   map[string]float64
+	ReserveByCur    map[string]Money
+	ReservePlaces   map[string]Money
 	ReserveLastMove string
 	// Стеля поповнення резерву, порахована будівником (state_month.go):
 	// ReserveFillMonthUAH — частка МІСЯЦЯ, ReserveFillNowUAH — скільки з неї
@@ -77,17 +77,17 @@ type DeriveInput struct {
 	// Рахується там, а не тут, попри те, що живе в цій картці: ту саму
 	// місячну частку потребує ще й ребаланс (він ділить гроші вже ПІСЛЯ
 	// подушки), а він працює до Derive. Два обчислення розійшлись би.
-	ReserveFillMonthUAH float64
-	ReserveFillNowUAH   float64
-	ReserveMovedUAH     float64
+	ReserveFillMonthUAH Money
+	ReserveFillNowUAH   Money
+	ReserveMovedUAH     Money
 	// DebtCoverUAH — скільки боргу подушка мусить перекривати: майбутні
 	// обовʼязкові платежі за розстрочками плюс непільгова частина карток.
 	// Рахує будівник (state_debts.go), бо там курси й «сьогодні».
-	DebtCoverUAH float64
+	DebtCoverUAH Money
 	// ReserveLiquidUAH — частина подушки, доступна СЬОГОДНІ: журнал без
 	// резервних вкладів. Приходить окремим числом, бо doc.ReserveUAH це вже
 	// сума обох джерел, а різницю між «є» і «є в руках» з неї не відновити.
-	ReserveLiquidUAH float64
+	ReserveLiquidUAH Money
 	// ReserveDeposits — резервні вклади, зведені до того, що потрібно
 	// драбині. Приходять ГОТОВИМИ, а не як domain.Deposit: перевід у гривню
 	// й у місяці — робота будівника (там курси й «сьогодні»), а тут лишається
@@ -142,10 +142,10 @@ func Derive(doc *Doc, in DeriveInput) error {
 		investedUAH += inv.Amount()
 		nominalUAH += nom.Amount()
 	}
-	doc.InvestedUAH = float64(investedUAH) / 100
-	doc.NominalUAHEq = float64(nominalUAH) / 100
+	doc.InvestedUAH = Minor(investedUAH, money.UAH)
+	doc.NominalUAHEq = Minor(nominalUAH, money.UAH)
 
-	doc.CapitalUAH = round2(in.Capital.TotalUAH())
+	doc.CapitalUAH = Major(in.Capital.TotalUAH(), money.UAH)
 	doc.USDSharePct = in.Capital.SharePct(money.USD)
 	doc.EURSharePct = in.Capital.SharePct(money.EUR)
 	doc.MonthProgressPct = domain.ProgressPct(in.MonthDeposited, in.MonthTarget)
@@ -167,17 +167,16 @@ func Derive(doc *Doc, in DeriveInput) error {
 	// Собівартість фондів — ЄДИНА сума, і зводиться вона тут, із тих самих
 	// позицій, що йдуть у документ. Складати її окремо десь іще означало б
 	// завести другу відповідь на те саме питання.
-	doc.FundsCostUAH = 0
+	doc.FundsCostUAH = Money{}
 	for _, f := range doc.Funds {
-		doc.FundsCostUAH += f.CostBasis
+		doc.FundsCostUAH = doc.FundsCostUAH.Add(f.CostBasis)
 	}
-	doc.FundsCostUAH = round2(doc.FundsCostUAH)
 
 	if doc.Accounts == nil {
-		doc.Accounts = map[string]float64{}
+		doc.Accounts = map[string]Money{}
 	}
 	if doc.ReinvestMin == nil {
-		doc.ReinvestMin = map[string]float64{}
+		doc.ReinvestMin = map[string]Money{}
 	}
 
 	deriveReserve(doc, in)
@@ -194,7 +193,7 @@ func Derive(doc *Doc, in DeriveInput) error {
 			monthIncoming += uahAmt.Amount()
 		}
 	}
-	doc.MonthIncomingUAH = float64(monthIncoming) / 100
+	doc.MonthIncomingUAH = Minor(monthIncoming, money.UAH)
 
 	for _, cf := range in.Cashflow {
 		if cf.Date.Before(nowDate) {
@@ -204,7 +203,7 @@ func Derive(doc *Doc, in DeriveInput) error {
 			Date:     string(cf.Date),
 			ISIN:     cf.ISIN,
 			Type:     payTypeStr(cf.Type),
-			Amount:   Of(cf.Amount).Major(),
+			Amount:   Of(cf.Amount),
 			Currency: cf.Amount.Currency().Code,
 			Label:    payLabel(cf.ISIN),
 		}
@@ -227,11 +226,11 @@ func Derive(doc *Doc, in DeriveInput) error {
 		}
 		switch le.Currency {
 		case money.UAH:
-			row.UAH += float64(le.Nominal) / 100
+			row.UAH = row.UAH.Add(Minor(le.Nominal, money.UAH))
 		case money.USD:
-			row.USD += float64(le.Nominal) / 100
+			row.USD = row.USD.Add(Minor(le.Nominal, money.USD))
 		case money.EUR:
-			row.EUR += float64(le.Nominal) / 100
+			row.EUR = row.EUR.Add(Minor(le.Nominal, money.EUR))
 		}
 	}
 	for _, y := range years {
@@ -247,7 +246,7 @@ func Derive(doc *Doc, in DeriveInput) error {
 			Date:     string(cf.Date),
 			ISIN:     cf.ISIN,
 			Type:     payTypeStr(cf.Type),
-			Amount:   Of(cf.Amount).Major(),
+			Amount:   Of(cf.Amount),
 			Currency: cf.Amount.Currency().Code,
 			Label:    payLabel(cf.ISIN),
 		}
@@ -300,7 +299,7 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 			targetMonths = *doc.Settings.ReserveTargetMonths
 		}
 	}
-	if doc.ReserveUAH == 0 && monthlyExp <= 0 {
+	if doc.ReserveUAH.Major() == 0 && monthlyExp <= 0 {
 		return
 	}
 	// Позики в самого себе. Сума приходить порахованою з шару api (там
@@ -308,42 +307,43 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 	// в драбини резерву.
 	var owedUAH, owedInterest float64
 	for _, l := range in.ReserveLoans {
-		owedUAH += l.OwedUAH
-		owedInterest += l.InterestUAH
+		owedUAH += l.OwedUAH.Major()
+		owedInterest += l.InterestUAH.Major()
 	}
 	r := &Reserve{
 		UAH: doc.ReserveUAH, ByCurrency: in.ReserveByCur, Places: in.ReservePlaces,
-		LastMove: in.ReserveLastMove, MonthlyExpensesUAH: monthlyExp,
+		LastMove: in.ReserveLastMove, MonthlyExpensesUAH: Major(monthlyExp, money.UAH),
 		TargetMonths: targetMonths,
 		Loans:        in.ReserveLoans,
-		OwedUAH:      round2(owedUAH), OwedInterestUAH: round2(owedInterest),
+		OwedUAH:      Major(owedUAH, money.UAH), OwedInterestUAH: Major(owedInterest, money.UAH),
 	}
 	if total := in.Capital.TotalUAH(); total > 0 {
-		r.SharePct = doc.ReserveUAH * 100 / total
+		r.SharePct = doc.ReserveUAH.Major() * 100 / total
 	}
 	if monthlyExp > 0 {
-		r.Months = doc.ReserveUAH / monthlyExp
-		r.TargetUAH, r.GapUAH = ReserveTarget(doc.Settings, doc.ReserveUAH,
-			in.DebtCapsReserve, in.DebtCoverUAH, owedInterest)
+		r.Months = doc.ReserveUAH.Major() / monthlyExp
+		target, gap := ReserveTarget(doc.Settings, doc.ReserveUAH.Major(),
+			in.DebtCapsReserve, in.DebtCoverUAH.Major(), owedInterest)
+		r.TargetUAH, r.GapUAH = Major(target, money.UAH), Major(gap, money.UAH)
 		// Обрізання називається вголос і разом із тим, що було б без нього:
 		// ціль, яка мовчки просіла вдвічі, читається як помилка.
-		if full, _ := ReserveTarget(doc.Settings, doc.ReserveUAH,
-			false, in.DebtCoverUAH, owedInterest); full > r.TargetUAH {
-			r.DebtCapped, r.FullTargetUAH = true, round2(full)
+		if full, _ := ReserveTarget(doc.Settings, doc.ReserveUAH.Major(),
+			false, in.DebtCoverUAH.Major(), owedInterest); full > r.TargetUAH.Major() {
+			r.DebtCapped, r.FullTargetUAH = true, Major(full, money.UAH)
 		}
 		// ДВА ЧИСЛА, А НЕ ОДНЕ, з того самого доводу, що при DebtCapped:
 		// піднята ціль без базової читається як помилка застосунку.
 		if owedInterest > 0 {
-			r.BaseTargetUAH = round2(r.TargetUAH - owedInterest)
+			r.BaseTargetUAH = Major(r.TargetUAH.Major()-owedInterest, money.UAH)
 		}
 	}
 	// Рубіж покриття боргу — ближчий за ціль у місяцях витрат і не
 	// виводиться з неї. Показується завжди, коли борг є, у тому числі коли
 	// подушка його вже перекрила: «перекрито» — відповідь, а не мовчання.
-	if in.DebtCoverUAH > 0 {
-		r.DebtCoverUAH = round2(in.DebtCoverUAH)
-		if d := in.DebtCoverUAH - doc.ReserveUAH; d > 0 {
-			r.DebtCoverGapUAH = round2(d)
+	if in.DebtCoverUAH.Major() > 0 {
+		r.DebtCoverUAH = in.DebtCoverUAH
+		if d := in.DebtCoverUAH.Major() - doc.ReserveUAH.Major(); d > 0 {
+			r.DebtCoverGapUAH = Major(d, money.UAH)
 		}
 	}
 	// Скільки з нових грошей варто відкласти просто зараз.
@@ -365,13 +365,13 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 	// «Цей місяць» і підсумок називають його поруч із «внесено», бо
 	// внесено — гаманець разом із подушкою, і зняття з матраца інакше
 	// читалось би як загадковий мінус (спіймано власником на подарунку).
-	r.MovedMonthUAH = round2(in.ReserveMovedUAH)
-	if r.GapUAH > 0 && doc.Settings != nil && doc.Settings.ReserveFillSharePct != nil {
-		if share := *doc.Settings.ReserveFillSharePct; share > 0 && in.ReserveFillMonthUAH > 0 {
+	r.MovedMonthUAH = in.ReserveMovedUAH
+	if r.GapUAH.Major() > 0 && doc.Settings != nil && doc.Settings.ReserveFillSharePct != nil {
+		if share := *doc.Settings.ReserveFillSharePct; share > 0 && in.ReserveFillMonthUAH.Major() > 0 {
 			r.FillSharePct = share
-			r.FillMonthUAH = round2(in.ReserveFillMonthUAH)
-			r.FillNowUAH = round2(in.ReserveFillNowUAH)
-			r.FillMovedUAH = round2(in.ReserveMovedUAH)
+			r.FillMonthUAH = in.ReserveFillMonthUAH
+			r.FillNowUAH = in.ReserveFillNowUAH
+			r.FillMovedUAH = in.ReserveMovedUAH
 			if doc.MonthPlan != nil {
 				// Саме ДОЗВОЛЕНА частина плану, а не весь план: від неї
 				// рахується стеля (reserveMonthShare), і показати тут інше
@@ -403,21 +403,21 @@ type GoalInput struct {
 	// Target/Collected — обидва в обох одиницях. Collected — те, що вже
 	// відкладено, переведене в валюту цілі за СЬОГОДНІШНІМ курсом: гривні в
 	// шухляді коштують стільки доларів, скільки за них дають зараз.
-	TargetNative, TargetUAH       float64
-	CollectedNative, CollectedUAH float64
+	TargetNative, TargetUAH       Money
+	CollectedNative, CollectedUAH Money
 	// ByCurrency — у чому лежить зібране (нативно); Places — де (грн-екв.).
-	ByCurrency map[string]float64
-	Places     map[string]float64
+	ByCurrency map[string]Money
+	Places     map[string]Money
 	LastMove   string
 	DueDate    string
 	DoneDate   string
 	// ActualNative/ActualUAH — темп за вікном; нуль означає «нічого не
 	// відкладалось», і дати «коли збереться» тоді немає.
-	ActualNative, ActualUAH float64
+	ActualNative, ActualUAH Money
 	// MovedUAH — скільки вже покладено в цю ціль ЦЬОГО МІСЯЦЯ, нетто.
 	// Стеля наповнення його віднімає: без цього порада висіла б незмінною,
 	// хай би скільки ти відкладав.
-	MovedUAH float64
+	MovedUAH Money
 	// RatePct — під скільки річних працює вже зібране, чистими після
 	// податку. Нуль = лежить готівкою, і це не «невідомо», а стан: журнал
 	// цілі відсотків не нараховує, тож нуль тут — вимір.
@@ -449,33 +449,33 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 	for _, g := range in.Goals {
 		row := Goal{
 			ID: g.ID, Name: g.Name, Currency: g.Currency,
-			TargetNative: round2(g.TargetNative), TargetUAH: round2(g.TargetUAH),
-			CollectedNative: round2(g.CollectedNative), CollectedUAH: round2(g.CollectedUAH),
+			TargetNative: g.TargetNative, TargetUAH: g.TargetUAH,
+			CollectedNative: g.CollectedNative, CollectedUAH: g.CollectedUAH,
 			ByCurrency: g.ByCurrency, Places: g.Places, LastMove: g.LastMove,
 			DueDate: g.DueDate, DoneDate: g.DoneDate,
-			ActualNative: round2(g.ActualNative), ActualUAH: round2(g.ActualUAH),
+			ActualNative: g.ActualNative, ActualUAH: g.ActualUAH,
 			RatePct:  g.RatePct,
-			MovedUAH: round2(g.MovedUAH),
+			MovedUAH: g.MovedUAH,
 		}
 		// Розрив — у ВАЛЮТІ ЦІЛІ, гривневий іде поруч. Від'ємного не буває:
 		// зібрано більше, ніж треба, — це не «мінус розрив», а нуль плюс
 		// перевищення, і показує його сама пара «зібрано / ціль».
-		if d := g.TargetNative - g.CollectedNative; d > 0 {
-			row.GapNative = round2(d)
+		if d := g.TargetNative.Major() - g.CollectedNative.Major(); d > 0 {
+			row.GapNative = Major(d, g.Currency)
 		}
-		if d := g.TargetUAH - g.CollectedUAH; d > 0 {
-			row.GapUAH = round2(d)
+		if d := g.TargetUAH.Major() - g.CollectedUAH.Major(); d > 0 {
+			row.GapUAH = Major(d, money.UAH)
 		}
 		// Відсоток — у НАТИВНІЙ валюті. У гривневій він ріс би сам собою від
 		// девальвації: та сама сума в шухляді, більше гривень, «ближче до
 		// цілі» — при тому, що авто подорожчало рівно на стільки ж.
-		if g.TargetNative > 0 {
-			row.DonePct = round2(g.CollectedNative * 100 / g.TargetNative)
+		if g.TargetNative.Major() > 0 {
+			row.DonePct = round2(g.CollectedNative.Major() * 100 / g.TargetNative.Major())
 		}
 		// Гроші лежать не в тій валюті, у якій названа ціль. Саме тоді курс
 		// рухає розрив без жодного руху в журналі, і сказати це треба прямо.
 		for cur, v := range g.ByCurrency {
-			if v != 0 && cur != g.Currency {
+			if v.Major() != 0 && cur != g.Currency {
 				row.FXMixed = true
 				break
 			}
@@ -491,7 +491,7 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 		// Ціль при цьому лишається в списку разом із сумою й датою закриття:
 		// саме вона й пояснює, куди поділись гроші.
 		if row.DoneDate != "" {
-			row.GapNative, row.GapUAH, row.DonePct = 0, 0, 0
+			row.GapNative, row.GapUAH, row.DonePct = Money{}, Money{}, 0
 		} else {
 			deriveGoalPace(&row, today)
 			deriveGoalFuture(&row, in.InflationPct)
@@ -500,7 +500,7 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 			// «відстаю» жило всередині deriveGoalPace і не могло знати
 			// нічого, крім сьогоднішніх грошей.
 			row.Behind = row.RequiredPaceUAH() > 0 &&
-				row.ActualUAH+0.005 < row.RequiredPaceUAH()
+				row.ActualUAH.Major()+0.005 < row.RequiredPaceUAH()
 			// ETA — ТІЄЮ САМОЮ лінійкою, що й вирок, інакше картка
 			// суперечить сама собі. Спіймано живцем на екрані: поруч
 			// стояли «за нинішнім темпом збереться 2035-10» і «⚠ до
@@ -508,7 +508,7 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 			// правильні — перший ділив СЬОГОДНІШНІЙ розрив на темп,
 			// другий міряв майбутню ціну, — і саме тому суперечність
 			// читалась як поломка розрахунку.
-			if row.RequiredFutureUAH > 0 {
+			if row.RequiredFutureUAH.Major() > 0 {
 				row.ETADate = goalETAFuture(today, &row)
 			}
 		}
@@ -521,7 +521,7 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 		// Дозволена цілям частина плану, а не весь план (0041): дохід,
 		// позначений «лише на інвестиції», цілі наповнювати не має права,
 		// і власна стеля в них саме тому й окрема від подушчиної.
-		GoalsFill(doc.Settings, out, doc.MonthPlan.PlanGoalsUAH, in.DebtCapsReserve)
+		GoalsFill(doc.Settings, out, doc.MonthPlan.PlanGoalsUAH.Major(), in.DebtCapsReserve)
 	}
 	doc.Goals = out
 }
@@ -540,7 +540,7 @@ func GoalsGapUAH(goals []GoalInput) float64 {
 		if g.DoneDate != "" {
 			continue
 		}
-		if d := g.TargetUAH - g.CollectedUAH; d > 0 {
+		if d := g.TargetUAH.Major() - g.CollectedUAH.Major(); d > 0 {
 			sum += d
 		}
 	}
@@ -603,8 +603,8 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 		if g.DoneDate != "" {
 			continue
 		}
-		moved += g.MovedUAH
-		room += g.GapUAH
+		moved += g.MovedUAH.Major()
+		room += g.GapUAH.Major()
 	}
 	room += moved
 	if room <= 0 {
@@ -620,7 +620,7 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 	}
 	for i := range goals {
 		g := &goals[i]
-		if g.DoneDate != "" || g.GapUAH <= 0 {
+		if g.DoneDate != "" || g.GapUAH.Major() <= 0 {
 			continue
 		}
 		// ДОЗВІЛ МІСЯЦЯ — у кожен рядок, і саме тут: усі ранні виходи вище
@@ -628,7 +628,7 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 		// зібрано) означають «цього місяця цілям не йде нічого», і нуль у
 		// цьому полі каже рівно це. Довід, чому число одне на всіх і чому
 		// воно взагалі потрібне, — при самому полі.
-		g.FillFromUAH = round2(planUAH)
+		g.FillFromUAH = Major(planUAH, money.UAH)
 		// Потреба — ТИМ САМИМ темпом, яким виноситься вирок «відстаю»
 		// (RequiredPaceUAH). Інакше застосунок казав би «не встигаєш» і
 		// тут-таки відрізав рівно стільки, скільки треба було, щоб не
@@ -643,7 +643,7 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 		if whole := g.GapPaceUAH(); need > whole {
 			need = whole
 		}
-		want := need - g.MovedUAH
+		want := need - g.MovedUAH.Major()
 		if want < 0 {
 			want = 0
 		}
@@ -660,11 +660,11 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 		//
 		// Так само влаштована подушка: у неї FillMonthUAH теж стеля, а не
 		// потреба. Одна назва на дві сутності мусить означати одне й те саме.
-		if v := g.MovedUAH + take; v > 0.005 {
-			g.FillMonthUAH = round2(v)
+		if v := g.MovedUAH.Major() + take; v > 0.005 {
+			g.FillMonthUAH = Major(v, money.UAH)
 		}
 		if take > 0.005 {
-			g.FillNowUAH = round2(take)
+			g.FillNowUAH = Major(take, money.UAH)
 		}
 		// А ЧОГО НЕ ВИСТАЧАЄ — окремим числом, і саме воно перетворює
 		// «відстаю» на дію: стеля фізично не дає стільки, скільки треба.
@@ -677,7 +677,7 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 		// Те, що стеля не дійшла до бездедлайнової цілі цього місяця, —
 		// звичайний стан черги, а не тривога: дійде наступного.
 		if short := want - take; short > 0.005 && g.DueDate != "" {
-			g.ShortMonthUAH = round2(short)
+			g.ShortMonthUAH = Major(short, money.UAH)
 		}
 		left -= take
 	}
@@ -690,11 +690,11 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 // від чого), дата вже минула (розрив є, а місяців — нуль; ділити на нуль
 // нема сенсу, і «треба нескінченність на місяць» нікому не допомагає).
 func deriveGoalPace(row *Goal, today domain.Date) {
-	if row.DueDate == "" || row.GapNative <= 0 {
+	if row.DueDate == "" || row.GapNative.Major() <= 0 {
 		// Дата «коли збереться» тут теж не потрібна: зібраній цілі нема куди
 		// збиратись, а без дедлайну прогноз усе одно рахується нижче.
-		if row.DueDate == "" && row.GapUAH > 0 && row.ActualUAH > 0 {
-			row.ETADate = goalETA(today, row.GapUAH/row.ActualUAH)
+		if row.DueDate == "" && row.GapUAH.Major() > 0 && row.ActualUAH.Major() > 0 {
+			row.ETADate = goalETA(today, row.GapUAH.Major()/row.ActualUAH.Major())
 		}
 		return
 	}
@@ -707,10 +707,10 @@ func deriveGoalPace(row *Goal, today domain.Date) {
 		return
 	}
 	row.MonthsLeft = round2(months)
-	row.RequiredNative = round2(row.GapNative / months)
-	row.RequiredUAH = round2(row.GapUAH / months)
-	if row.ActualUAH > 0 {
-		row.ETADate = goalETA(today, row.GapUAH/row.ActualUAH)
+	row.RequiredNative = Major(row.GapNative.Major()/months, row.Currency)
+	row.RequiredUAH = Major(row.GapUAH.Major()/months, money.UAH)
+	if row.ActualUAH.Major() > 0 {
+		row.ETADate = goalETA(today, row.GapUAH.Major()/row.ActualUAH.Major())
 	}
 	// Вирок «відстаю» тут БІЛЬШЕ НЕ ВИНОСИТЬСЯ: він переїхав до
 	// deriveGoals, під deriveGoalFuture, бо міряється майбутньою ціною, а
@@ -738,10 +738,10 @@ func deriveGoalPace(row *Goal, today domain.Date) {
 // картці поруч: людина тримає ціль у голові в сьогоднішніх грошах, і
 // різниця між двома числами — це і є те, заради чого все робилось.
 func (g Goal) RequiredPaceUAH() float64 {
-	if g.RequiredFutureUAH > 0 {
-		return g.RequiredFutureUAH
+	if g.RequiredFutureUAH.Major() > 0 {
+		return g.RequiredFutureUAH.Major()
 	}
-	return g.RequiredUAH
+	return g.RequiredUAH.Major()
 }
 
 // GapPaceUAH — розрив у тих самих грошах, що й RequiredPaceUAH.
@@ -752,10 +752,10 @@ func (g Goal) RequiredPaceUAH() float64 {
 // сьогоднішнім розривом означало б зрізати саме ту добавку, заради якої
 // вирок і переїхав.
 func (g Goal) GapPaceUAH() float64 {
-	if g.RequiredFutureUAH > 0 && g.GapFutureUAH > 0 {
-		return g.GapFutureUAH
+	if g.RequiredFutureUAH.Major() > 0 && g.GapFutureUAH.Major() > 0 {
+		return g.GapFutureUAH.Major()
 	}
-	return g.GapUAH
+	return g.GapUAH.Major()
 }
 
 // deriveGoalFuture — скільки ця сама ціль коштуватиме в рік дедлайну.
@@ -782,7 +782,7 @@ func deriveGoalFuture(row *Goal, inflationPct float64) {
 		return
 	}
 	row.InflationPct = inflationPct
-	row.TargetFutureNative = round2(domain.CPIProject(row.TargetNative, inflationPct, months))
+	row.TargetFutureNative = Major(domain.CPIProject(row.TargetNative.Major(), inflationPct, months), row.Currency)
 	// ЗІБРАНЕ РОСТЕ РІВНО НА СВОЮ СТАВКУ, і це відповідь на питання «а ДЕ
 	// воно лежить», яке тут колись оголосили не стосовним до цілі.
 	//
@@ -797,15 +797,15 @@ func deriveGoalFuture(row *Goal, inflationPct float64) {
 	// обидві формули нижче сходяться до старих (af == months), і в цілі
 	// готівкою жодне число не зрушило.
 	r := domain.MonthlyRate(row.RatePct)
-	grown := row.CollectedNative * math.Pow(1+r, float64(months))
-	if gap := row.TargetFutureNative - grown; gap > 0 {
-		row.GapFutureNative = round2(gap)
+	grown := row.CollectedNative.Major() * math.Pow(1+r, float64(months))
+	if gap := row.TargetFutureNative.Major() - grown; gap > 0 {
+		row.GapFutureNative = Major(gap, row.Currency)
 		// Ануїтет: внески щомісяця в кінці місяця, кожен встигає
 		// попрацювати решту строку. Ділити розрив на місяці можна лише
 		// коли ставка нульова — і саме цим af і стає.
 		af := annuityFactor(r, months)
 		if af > 0 {
-			row.RequiredFutureNative = round2(gap / af)
+			row.RequiredFutureNative = Major(gap/af, row.Currency)
 		}
 		// Гривневі двійники. Множник тут одиниця за побудовою — блок
 		// рахується тільки для гривневих цілей, — і саме тому він написаний
@@ -858,16 +858,16 @@ func goalETA(today domain.Date, months float64) string {
 // (Behind == false), дата не може бути пізнішою за дедлайн, і навпаки.
 // На нього є тест.
 func goalETAFuture(today domain.Date, row *Goal) string {
-	if row.ActualUAH <= 0 && row.CollectedUAH <= 0 {
+	if row.ActualUAH.Major() <= 0 && row.CollectedUAH.Major() <= 0 {
 		return ""
 	}
 	r := domain.MonthlyRate(row.RatePct)
 	infl := domain.MonthlyRate(row.InflationPct)
 	have, price := row.CollectedUAH, row.TargetUAH
 	for m := 1; m <= 1200; m++ {
-		have = have*(1+r) + row.ActualUAH
-		price *= 1 + infl
-		if have >= price {
+		have = Major(have.Major()*(1+r)+row.ActualUAH.Major(), money.UAH)
+		price = Major(price.Major()*(1+infl), money.UAH)
+		if have.Cmp(price) >= 0 {
 			return string(today.AddMonths(m))
 		}
 	}
@@ -879,12 +879,17 @@ type ReserveDeposit struct {
 	// Months — за скільки місяців від сьогодні тіло звільниться само.
 	Months float64
 	// AmountUAH — тіло, грн-екв.
-	AmountUAH float64
+	AmountUAH Money
 	// Revocable — договір дозволяє забрати достроково. Властивість
 	// ДОГОВОРУ, не строку: за ЦКУ строковий вклад фізособи безвідкличний,
 	// доки в договорі не написано інакше.
 	Revocable bool
 	// EarnsUAH — скільки цей вклад приносить за рік після податку.
+	//
+	// Float, а не Money, і це навмисно: сума по драбині доти складалась із
+	// НЕЗАОКРУГЛЕНИХ доданків і округлялась раз, у кінці. Округлити кожен
+	// вклад до копійки перед сумою означало б зрушити ladder_earns_uah на
+	// копійку — тобто змінити число заради типу.
 	EarnsUAH float64
 }
 
@@ -917,7 +922,7 @@ type ReserveDeposit struct {
 // дванадцять місяців, — і оголошувало б порушенням цілком розумний стан:
 // голова готівкою плюс один річний відкличний вклад на решту.
 func deriveReserveLadder(r *Reserve, s *SettingsDoc, in DeriveInput) {
-	if r.MonthlyExpensesUAH <= 0 {
+	if r.MonthlyExpensesUAH.Major() <= 0 {
 		return // без витрат жодне з цих питань не має відповіді
 	}
 	liquidMonths, maxTerm := 0.0, 0.0
@@ -929,13 +934,14 @@ func deriveReserveLadder(r *Reserve, s *SettingsDoc, in DeriveInput) {
 			maxTerm = *s.ReserveMaxTermMonths
 		}
 	}
-	r.LiquidUAH = round2(in.ReserveLiquidUAH)
-	r.LiquidTargetUAH = round2(liquidMonths * r.MonthlyExpensesUAH)
+	r.LiquidUAH = in.ReserveLiquidUAH
+	r.LiquidTargetUAH = Major(liquidMonths*r.MonthlyExpensesUAH.Major(), money.UAH)
+	earns := 0.0
 	for _, d := range in.ReserveDeposits {
 		r.LadderRungs++
-		r.LadderEarnsUAH += d.EarnsUAH
+		earns += d.EarnsUAH
 	}
-	r.LadderEarnsUAH = round2(r.LadderEarnsUAH)
+	r.LadderEarnsUAH = Major(earns, money.UAH)
 	// Горизонти рахуємо лише до ЦІЛІ подушки: далі витрачати вже нічого, і
 	// рядок «на 13-й місяць бракує» описував би подушку, якої ніхто не
 	// обіцяв.
@@ -958,38 +964,38 @@ func deriveReserveLadder(r *Reserve, s *SettingsDoc, in DeriveInput) {
 		for _, d := range in.ReserveDeposits {
 			switch {
 			case d.Months <= hf:
-				avail += d.AmountUAH
-				reachable += d.AmountUAH
+				avail = avail.Add(d.AmountUAH)
+				reachable = reachable.Add(d.AmountUAH)
 			case d.Revocable:
 				// Ще не погашений, але договір дозволяє забрати: у
 				// «доступно» він не входить, у «дістати можна» — входить.
-				reachable += d.AmountUAH
+				reachable = reachable.Add(d.AmountUAH)
 			}
 		}
-		spent := hf * r.MonthlyExpensesUAH
+		spent := hf * r.MonthlyExpensesUAH.Major()
 		// «Доки тягне» — до ПЕРШОГО недобору, а не до останнього: покриття
 		// з дірою посередині це не покриття, і рахувати його далі означало
 		// б назвати драбину справною через місяць після того, як вона
 		// перестала бути такою.
-		if coversOpen && avail+0.005 >= spent {
+		if coversOpen && avail.Major()+0.005 >= spent {
 			covers = hf
 		} else {
 			coversOpen = false
 		}
-		if reachOpen && reachable+0.005 >= spent {
+		if reachOpen && reachable.Major()+0.005 >= spent {
 			reach = hf
 		} else {
 			reachOpen = false
 		}
-		if reachable+0.005 < spent && firstGapH == 0 {
-			firstGapH, r.LadderGapUAH = hf, round2(spent-reachable)
+		if reachable.Major()+0.005 < spent && firstGapH == 0 {
+			firstGapH, r.LadderGapUAH = hf, Major(spent-reachable.Major(), money.UAH)
 		}
-		if avail+0.005 < spent {
+		if avail.Major()+0.005 < spent {
 			lastUncovered = hf
 		}
 		r.Ladder = append(r.Ladder, ReserveRung{
-			Months: hf, AvailableUAH: round2(avail),
-			ReachableUAH: round2(reachable), SpentUAH: round2(spent),
+			Months: hf, AvailableUAH: avail,
+			ReachableUAH: reachable, SpentUAH: Major(spent, money.UAH),
 		})
 	}
 	r.LadderCoversMonths, r.LadderReachMonths, r.LadderGapMonth = covers, reach, firstGapH
@@ -1004,7 +1010,7 @@ func deriveReserveLadder(r *Reserve, s *SettingsDoc, in DeriveInput) {
 	// тримає готівка голови, а гроші, які не знадобляться півроку, мусять
 	// півроку й заробляти. Стеля строку обрізає результат — і саме тому
 	// картка окремо каже, що робити, коли банк такого строку не пропонує.
-	if maxTerm > 0 && r.LiquidUAH+0.005 >= r.LiquidTargetUAH && lastUncovered > 0 {
+	if maxTerm > 0 && r.LiquidUAH.Major()+0.005 >= r.LiquidTargetUAH.Major() && lastUncovered > 0 {
 		r.NextRungMonths = math.Min(lastUncovered, maxTerm)
 	}
 }

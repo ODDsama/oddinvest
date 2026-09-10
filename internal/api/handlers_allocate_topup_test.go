@@ -169,8 +169,8 @@ func TestAllocateTopUpLeavesDebtAlone(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)}, nil)
 	// Борг живий, дорогий і зі стелею — усе, що колись вмикало вирізку.
 	doc.Debt = &state.DebtPlan{
-		TotalUAH: 90000, TopRatePct: 49.8, TopName: "Холодильник",
-		FillMonthUAH: 2000, FillNowUAH: 2000,
+		TotalUAH: state.Major(90000, money.UAH), TopRatePct: 49.8, TopName: "Холодильник",
+		FillMonthUAH: state.Major(2000, money.UAH), FillNowUAH: state.Major(2000, money.UAH),
 	}
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
@@ -203,11 +203,11 @@ func TestAllocateTopUpGoalRespectsMonthAllowance(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)}, nil)
 	doc.Goals = []state.Goal{{
 		ID: 1, Name: "Авто", Currency: money.UAH,
-		GapUAH: 500_000, DueDate: "2027-06-01",
+		GapUAH: state.Major(500_000, money.UAH), DueDate: "2027-06-01",
 		// Не встигає — отже кандидат першого ярусу.
-		ShortMonthUAH: 30_000,
+		ShortMonthUAH: state.Major(30_000, money.UAH),
 		// А місяць дозволяє їй лише тисячу.
-		FillFromUAH: 1000,
+		FillFromUAH: state.Major(1000, money.UAH),
 	}}
 	// Папір НЕДОСЯЖНИЙ навмисно: інакше бюджет ОВДП зʼїв би 1 000 ₴, у
 	// залишок пішло б 340, і тест не дійшов би до дозволу взагалі —
@@ -229,7 +229,7 @@ func TestAllocateTopUpGoalSilentWithoutAllowance(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)}, nil)
 	doc.Goals = []state.Goal{{
 		ID: 1, Name: "Авто", Currency: money.UAH,
-		GapUAH: 500_000, DueDate: "2027-06-01", ShortMonthUAH: 30_000,
+		GapUAH: state.Major(500_000, money.UAH), DueDate: "2027-06-01", ShortMonthUAH: state.Major(30_000, money.UAH),
 	}}
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
@@ -245,7 +245,7 @@ func TestAllocateTopUpReserveTakesTailWithinAllowance(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)},
 		// Стелю темпу вже вибрано (FillNowUAH = 0), розрив великий, дозвіл
 		// місяця — 200 ₴. Прохід має взяти рівно 200, а не весь хвіст.
-		&state.Reserve{FillNowUAH: 0, FillMonthUAH: 0, GapUAH: 90000, FillFromUAH: 200})
+		&state.Reserve{FillNowUAH: state.Major(0, money.UAH), FillMonthUAH: state.Major(0, money.UAH), GapUAH: state.Major(90000, money.UAH), FillFromUAH: state.Major(200, money.UAH)})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
 		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
@@ -262,7 +262,7 @@ func TestAllocateTopUpReserveTakesTailWithinAllowance(t *testing.T) {
 // TestRouteMonthCeilingBindsCouponToo, лише в другому проході.
 func TestAllocateTopUpReserveSilentWithoutAllowance(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)},
-		&state.Reserve{FillNowUAH: 0, FillMonthUAH: 0, GapUAH: 90000})
+		&state.Reserve{FillNowUAH: state.Major(0, money.UAH), FillMonthUAH: state.Major(0, money.UAH), GapUAH: state.Major(90000, money.UAH)})
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
 		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)

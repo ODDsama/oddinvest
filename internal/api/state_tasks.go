@@ -218,15 +218,15 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 	// ---------- резерв ----------
 	// Першим не тому, що найважливіший, а тому, що на це вже спирається сам
 	// помічник: гроші, які підуть у резерв, не мають брати участі в покупці.
-	if r := doc.Reserve; r != nil && r.FillNowUAH > 0 {
+	if r := doc.Reserve; r != nil && r.FillNowUAH.Major() > 0 {
 		// Чому саме стільки — стеля чи сам розрив. Мовчати про це не можна:
 		// сума без причини читається як вимога, а не як стеля, яку людина
 		// сама собі поставила.
 		why := fmt.Sprintf("Стеля, яку ти сам поставив: до цілі ще %s, "+
-			"решта грошей лишається на папери.", uah(r.GapUAH))
-		if r.FillNowUAH >= r.GapUAH {
+			"решта грошей лишається на папери.", uah(r.GapUAH.Major()))
+		if r.FillNowUAH.Cmp(r.GapUAH) >= 0 {
 			why = fmt.Sprintf("Це все, чого бракує до цілі — %s, тобто %d %s витрат.",
-				uah(r.TargetUAH), int(r.TargetMonths),
+				uah(r.TargetUAH.Major()), int(r.TargetMonths),
 				plural(int(r.TargetMonths), "місяць", "місяці", "місяців"))
 		}
 		// У ЯКІЙ ФОРМІ — те, чого задачі бракувало. Стеля каже, СКІЛЬКИ
@@ -244,10 +244,10 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		// 7-місячних вкладів більшість не пропонує. Тому названо і потребу,
 		// і наслідок округлення.
 		switch {
-		case r.LiquidTargetUAH > 0 && r.LiquidUAH+0.005 < r.LiquidTargetUAH:
+		case r.LiquidTargetUAH.Major() > 0 && r.LiquidUAH.Major()+0.005 < r.LiquidTargetUAH.Major():
 			why += fmt.Sprintf(" Клади ГОТІВКОЮ: доступно миттєво %s із потрібних %s, "+
 				"і вклад на цьому кроці погіршить доступ, а не покращить.",
-				uah(r.LiquidUAH), uah(r.LiquidTargetUAH))
+				uah(r.LiquidUAH.Major()), uah(r.LiquidTargetUAH.Major()))
 		case r.NextRungMonths > 0:
 			why += fmt.Sprintf(" Голова добрана, тож це вже сходинка драбини: "+
 				"потрібно ≈%d %s. Якщо банк такого строку не дає, бери довший — "+
@@ -257,10 +257,10 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		}
 		add(state.Task{
 			ID: "reserve-fill", Sev: sevNow, Rank: 10, Kind: "reserve",
-			Title:     fmt.Sprintf("Спершу поповнити резерв — %s", uah(r.FillNowUAH)),
+			Title:     fmt.Sprintf("Спершу поповнити резерв — %s", uah(r.FillNowUAH.Major())),
 			Why:       why,
 			Action:    actFillReserve,
-			AmountUAH: round2(r.FillNowUAH),
+			AmountUAH: r.FillNowUAH,
 		})
 	}
 
@@ -316,14 +316,14 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			add(state.Task{
 				ID:  fmt.Sprintf("reserve-loan-%d", l.ID),
 				Sev: sevNow, Rank: 10, Kind: "reserve",
-				Title: fmt.Sprintf("Повернути в подушку — %s", uah(l.OwedUAH)),
+				Title: fmt.Sprintf("Повернути в подушку — %s", uah(l.OwedUAH.Major())),
 				Why: fmt.Sprintf("Ти взяв %s %s і обіцяв повернути до %s. "+
 					"Відсоток набіг на %s і росте далі — рівно на нього піднята "+
 					"ціль подушки, і опуститься вона тільки після повернення.",
-					uah(l.TakenUAH), l.Date, l.DueDate, uah(l.InterestUAH)),
+					uah(l.TakenUAH.Major()), l.Date, l.DueDate, uah(l.InterestUAH.Major())),
 				When:      l.DueDate,
 				Action:    actFillReserve,
-				AmountUAH: round2(l.OwedUAH),
+				AmountUAH: l.OwedUAH,
 			})
 		}
 	}
@@ -373,29 +373,29 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 
 	for i := range doc.Goals {
 		g := doc.Goals[i]
-		if g.DoneDate != "" || g.FillNowUAH <= 0 {
+		if g.DoneDate != "" || g.FillNowUAH.Major() <= 0 {
 			continue
 		}
 		// Розрив називається РІВНО ОДИН раз, і в цілі з дедлайном — разом із
 		// темпом, який із нього виводиться. Друга згадка тієї самої суми
 		// через рядок читалась би як два різні числа, що випадково збіглись.
 		why := fmt.Sprintf("Стеля, яку ти сам поставив: до цілі ще %s, "+
-			"решта грошей лишається на папери.", uah(g.GapUAH))
+			"решта грошей лишається на папери.", uah(g.GapUAH.Major()))
 		if g.DueDate != "" {
 			why = fmt.Sprintf("До %s лишилось %s, тобто ≈%s на місяць. "+
 				"Береться це зі стелі, яку ти сам поставив: решта грошей "+
 				"лишається на папери.",
-				g.DueDate, uah(g.GapUAH), uah(g.RequiredUAH))
+				g.DueDate, uah(g.GapUAH.Major()), uah(g.RequiredUAH.Major()))
 			// Ціна цілі в рік дедлайну — ОКРЕМИМ реченням і лише коли вона
 			// справді більша. Саме на ній стоїть «відстаю», тож промовчати
 			// про неї означало б винести вирок числом, якого на екрані
 			// немає. Ставку називаємо теж: різниця між ціллю на вкладі й
 			// ціллю в шухляді тут і видно.
-			if g.RequiredFutureUAH > g.RequiredUAH+0.005 {
+			if g.RequiredFutureUAH.Major() > g.RequiredUAH.Major()+0.005 {
 				why += fmt.Sprintf(" Але до %s ця сама ціль коштуватиме %s "+
 					"(інфляція %.1f%%/рік), і щоб вистачило на НЕЇ, треба ≈%s на місяць.",
-					g.DueDate, uah(g.TargetFutureNative), g.InflationPct,
-					uah(g.RequiredFutureUAH))
+					g.DueDate, uah(g.TargetFutureNative.Major()), g.InflationPct,
+					uah(g.RequiredFutureUAH.Major()))
 				if g.RatePct <= 0 {
 					why += " Зібране при цьому лежить готівкою й не працює зовсім — " +
 						"вклад під ціль це змінює."
@@ -409,17 +409,17 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		// стільки, скільки потрібно, і жодна дисципліна цього не виправить.
 		// Мовчати про це означало б щомісяця радити суму, яка до дедлайну
 		// не веде, і жодного разу не сказати чому.
-		if g.ShortMonthUAH > 0 {
+		if g.ShortMonthUAH.Major() > 0 {
 			why += fmt.Sprintf(" Сама ця сума МЕНША за потрібний темп на %s: "+
 				"стільки застосунок відрізати не може за твоєю ж стелею. "+
-				"Підніми частку або зсунь дату.", uah(g.ShortMonthUAH))
+				"Підніми частку або зсунь дату.", uah(g.ShortMonthUAH.Major()))
 		}
 		add(state.Task{
 			ID: fmt.Sprintf("goal-fill-%d", g.ID), Sev: sevNow, Rank: 12, Kind: "goal",
-			Title:     fmt.Sprintf("Відкласти на «%s» — %s", g.Name, uah(g.FillNowUAH)),
+			Title:     fmt.Sprintf("Відкласти на «%s» — %s", g.Name, uah(g.FillNowUAH.Major())),
 			Why:       why,
 			Action:    actFillGoal,
-			AmountUAH: round2(g.FillNowUAH),
+			AmountUAH: g.FillNowUAH,
 		})
 	}
 
@@ -564,8 +564,8 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 // «Почни з першої покупки», а задача про власну ціль до неї не доходила б
 // узагалі. Спіймано живцем на порожній базі.
 func hasPortfolio(doc *state.Doc) bool {
-	return doc.NominalUAHEq > 0 || doc.FundsUAH > 0 ||
-		doc.DepositsUAH > 0 || doc.ReserveUAH > 0 || doc.GoalsUAH > 0 ||
+	return doc.NominalUAHEq.Major() > 0 || doc.FundsUAH.Major() > 0 ||
+		doc.DepositsUAH.Major() > 0 || doc.ReserveUAH.Major() > 0 || doc.GoalsUAH.Major() > 0 ||
 		// Борг — теж «портфель є»: людина, у якої лише картка й
 		// розстрочка, приходить сюди саме по чергу погашення, а порада
 		// «почни з першої покупки» була б знущанням.
@@ -603,8 +603,8 @@ func buyTask(best, bestAny *suggestion, idle *state.IdleCash) state.Task {
 	// документа, а не рахується тут: означення одне (state_idle.go), і на
 	// цей момент воно ще без ціни (її припише annotateIdleCost), тож
 	// показуємо вік — він уже відомий.
-	if idle != nil && idle.InvestableUAH > 0 && idle.Since != "" {
-		why += fmt.Sprintf(" %s лежать з %s.", uah(idle.InvestableUAH), dayMonth(domain.Date(idle.Since)))
+	if idle != nil && idle.InvestableUAH.Major() > 0 && idle.Since != "" {
+		why += fmt.Sprintf(" %s лежать з %s.", uah(idle.InvestableUAH.Major()), dayMonth(domain.Date(idle.Since)))
 	}
 	return state.Task{
 		ID: "buy-best", Sev: sevNow, Rank: 20, Kind: best.Kind,
@@ -622,15 +622,15 @@ func buyTask(best, bestAny *suggestion, idle *state.IdleCash) state.Task {
 func savingTask(doc *state.Doc, best *suggestion) state.Task {
 	purse := 0.0
 	for _, byCur := range doc.Brokers {
-		if v := byCur[best.Currency]; v > purse {
-			purse = v
+		if v := byCur[best.Currency]; v.Major() > purse {
+			purse = v.Major()
 		}
 	}
 	need := math.Max(0, moneyAmount(best.CostPerBond)-purse)
 	why := fmt.Sprintf("Найкраще зараз — %s.", suggestName(best))
 	// Темп беремо з ЦІЛІ місяця. Це найчесніше з того, що є в документі:
 	// скільки треба вносити, щоб вийти на ціль.
-	if perDay := doc.MonthTargetUAH / 30; perDay > 0 && need > 0 {
+	if perDay := doc.MonthTargetUAH.Major() / 30; perDay > 0 && need > 0 {
 		d := int(math.Ceil(need / perDay))
 		why += fmt.Sprintf(" За твоїм темпом це ≈ %d %s.", d,
 			plural(d, "день", "дні", "днів"))
@@ -640,7 +640,7 @@ func savingTask(doc *state.Doc, best *suggestion) state.Task {
 		Title:     fmt.Sprintf("Купувати ще рано — бракує %s", cur(need, best.Currency)),
 		Why:       why,
 		Action:    actSeeSuggest,
-		AmountUAH: round2(need),
+		AmountUAH: state.Major(need, money.UAH),
 	}
 }
 
@@ -843,7 +843,7 @@ func overduePlannedTask(src *sources, today domain.Date) (state.Task, bool) {
 	}
 	if allUAH {
 		t.Title = title + " — " + uah(total)
-		t.AmountUAH = round2(total)
+		t.AmountUAH = state.Major(total, money.UAH)
 	}
 	return t, true
 }
@@ -913,7 +913,7 @@ func fundWindowTask(src *sources, today domain.Date) (state.Task, bool) {
 func overLimits(doc *state.Doc) []string {
 	var out []string
 	for _, c := range doc.Concentration {
-		if c.OverUAH <= 0 {
+		if c.OverUAH.Major() <= 0 {
 			continue
 		}
 		name := c.Label
@@ -1046,7 +1046,7 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 				// туди долари означало б збрехати сенсору в Home Assistant,
 				// який складає ці суми. Валютна картка лишається без числа,
 				// а сума названа в самому заголовку.
-				AmountUAH: cardAmountUAH(st.BringByDue, cur),
+				AmountUAH: state.Major(cardAmountUAH(st.BringByDue, cur), money.UAH),
 			})
 		}
 
@@ -1068,7 +1068,7 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 					d.Name, debtMoney(-st.Free, cur)),
 				Why:       why,
 				Action:    actPayCard,
-				AmountUAH: cardAmountUAH(-st.Free, cur),
+				AmountUAH: state.Major(cardAmountUAH(-st.Free, cur), money.UAH),
 			})
 		}
 
@@ -1079,12 +1079,12 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 		// раз — при першій із них. Інакше та сама вимога зʼявилась би в
 		// черзі стільки разів, скільки карток, і читалась як кілька різних.
 		if exit != nil && len(exit.Cards) > 0 && exit.Cards[0] == d.Name &&
-			exit.ShortPerMonthUAH > 0 {
+			exit.ShortPerMonthUAH.Major() > 0 {
 			why := fmt.Sprintf(
 				"Щоб вивести в нуль %s до %s, треба звільняти %s на місяць — тобто "+
 					"витрачати не більше %s. Зараз виходить на %s більше.",
-				strings.Join(exit.Cards, " і "), exit.ExitBy, uah(exit.NeedPerMonthUAH),
-				uah(exit.SpendCapUAH), uah(exit.ShortPerMonthUAH))
+				strings.Join(exit.Cards, " і "), exit.ExitBy, uah(exit.NeedPerMonthUAH.Major()),
+				uah(exit.SpendCapUAH.Major()), uah(exit.ShortPerMonthUAH.Major()))
 			if exit.ETADate != "" {
 				why += " За нинішнім темпом вихід буде " + exit.ETADate + "."
 			} else {

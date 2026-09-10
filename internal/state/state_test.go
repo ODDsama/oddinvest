@@ -67,18 +67,18 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		}
 	}()
 	doc := &Doc{
-		MonthInvestedUAH:  Of(money.New(450_000, money.UAH)).Major(),
-		MonthDepositedUAH: Of(monthDep).Major(),
-		MonthTargetUAH:    Of(monthTarget).Major(),
-		UninvestedUAH:     Of(money.New(0, money.UAH)).Major(),
+		MonthInvestedUAH:  Of(money.New(450_000, money.UAH)),
+		MonthDepositedUAH: Of(monthDep),
+		MonthTargetUAH:    Of(monthTarget),
+		UninvestedUAH:     Of(money.New(0, money.UAH)),
 		Settings:          settings,
 		XIRRPct:           map[string]float64{"UAH": 16.51, "USD": 3.22},
 		// Гривня має і річну ставку, і результат за фактом; долар —
 		// лише факт, бо його гроші ще молодші за поріг. Саме ця пара і є
 		// суть контракту: realized є завжди, xirr — не завжди.
 		Realized: map[string]RealizedRow{
-			"UAH": {Gain: 1240.55, GainPct: 3.31, MoneyDays: 74.2, MinDays: 30},
-			"USD": {Gain: -12.40, GainPct: -0.62, MoneyDays: 18.5, MinDays: 30},
+			"UAH": {Gain: Major(1240.55, money.UAH), GainPct: 3.31, MoneyDays: 74.2, MinDays: 30},
+			"USD": {Gain: Major(-12.40, money.USD), GainPct: -0.62, MoneyDays: 18.5, MinDays: 30},
 		},
 		// Дві валюти, щоб у фікстурі було видно, що строки не змішуються
 		// в одну криву: 16% гривні й 3% долара — це різні шкали.
@@ -105,10 +105,10 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		FXWindow: []FXWindowRow{
 			{Currency: "USD", Years: 1, Points: 12, Percentile: 91.67,
 				NowRate: 44.1234, MedianRate: 43.2, MinRate: 41.8, MaxRate: 44.5,
-				VsMedianNative: -42.19},
+				VsMedianNative: Major(-42.19, "USD")},
 			{Currency: "USD", Years: 3, Points: 36, Percentile: 78.5,
 				NowRate: 44.1234, MedianRate: 40.15, MinRate: 36.57, MaxRate: 44.5,
-				VsMedianNative: -178.4},
+				VsMedianNative: Major(-178.4, "USD")},
 			{Currency: "USD", Years: 10, Points: 120, Percentile: 96.25,
 				NowRate: 44.1234, MedianRate: 27.9, MinRate: 24.6, MaxRate: 44.5},
 		},
@@ -117,33 +117,33 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		// мусять бути НЕНУЛЬОВИМИ: нуль у фікстурі не відрізнити від
 		// відсутнього поля, і тест «старий сервіс не надсилає» на тому боці
 		// перестав би щось означати.
-		ReserveUAH: 60_000,
+		ReserveUAH: Major(60_000, money.UAH),
 		// GoalsUAH — сума під цілями. Мусить збігатися з in.Goals нижче й з
 		// Capital.GoalsUAH: фікстура, у якій ці три числа розходяться,
 		// описувала б неможливий портфель.
-		GoalsUAH: 30_000,
+		GoalsUAH: Major(30_000, money.UAH),
 		// НПФ. npf_uah читає інтеграція (він іде в атрибути капіталу й у
 		// резервну суму capital()), npf_contrib_due — новий binary_sensor,
 		// тож обидва мусять бути тут і обидва ненульовими. Для bool це
 		// означає саме true: false у фікстурі не відрізнити від
 		// відсутнього поля.
-		NPFUAH:        45_000,
-		NPFCostUAH:    40_000,
+		NPFUAH:        Major(45_000, money.UAH),
+		NPFCostUAH:    Major(40_000, money.UAH),
 		NPFContribDue: true,
 		NPF: []NPFPositionRow{{
 			Name: "Династія", Currency: money.UAH,
 			Units: 12_960.55, Nav: 3.472156, NavDate: "2026-06-30",
-			CostUAH: 40_000, ValueUAH: 45_000, GainUAH: 5_000,
+			CostUAH: Major(40_000, money.UAH), ValueUAH: Major(45_000, money.UAH), GainUAH: Major(5_000, money.UAH),
 			// Обидві дохідності заповнені разом навмисно: пара «обіцяли /
 			// фактично» і є головним, що показує картка, а yield_basis каже,
 			// котре з двох потрапило в real_pct.
 			NavReturnPct: 12.40, ExpectedPct: 15, RealPct: 4.85,
 			YieldBasis: "зростання ЧВОПА",
 			AccessDate: "2051-04-01", ContribDay: 5, ContribDue: true,
-			CreditEstUAH: 7_200, Administrator: "ЦПО",
+			CreditEstUAH: Major(7_200, money.UAH), Administrator: "ЦПО",
 		}},
-		IncomeMonthlyNow:    1_240.50,
-		AccruedUAH:          812.33,
+		IncomeMonthlyNow:    Major(1_240.50, money.UAH),
+		AccruedUAH:          Major(812.33, money.UAH),
 		PortfolioYieldPct:   14.93,
 		FundsYieldPct:       11.20,
 		BlendedYieldPct:     14.10,
@@ -162,7 +162,7 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 				Title:     "Спершу поповнити резерв — 12 400,00 ₴",
 				Why:       "Стеля, яку ти сам поставив: до цілі ще 47 600,00 ₴, решта грошей лишається на папери.",
 				Action:    "fill-reserve",
-				AmountUAH: 12_400,
+				AmountUAH: Major(12_400, money.UAH),
 			},
 			{
 				ID: "nbu", Sev: "watch", Rank: 20,
@@ -177,29 +177,29 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 			// чисел приховала б головне рішення картки: рахунки лишились
 			// окремим підрядком, бо на now_uah == account_uah стоїть звірка
 			// зі звітом про рух коштів.
-			AvailableNowUAH: 91_500,
-			NowUAH:          1_500,
-			In30UAH:         95_637.50, In90UAH: 99_775,
-			ReserveUAH: 60_000, GoalsUAH: 30_000,
-			LockedUAH: 120_000, UnlockDate: "2027-03-17",
+			AvailableNowUAH: Major(91_500, money.UAH),
+			NowUAH:          Major(1_500, money.UAH),
+			In30UAH:         Major(95_637.50, money.UAH), In90UAH: Major(99_775, money.UAH),
+			ReserveUAH: Major(60_000, money.UAH), GoalsUAH: Major(30_000, money.UAH),
+			LockedUAH: Major(120_000, money.UAH), UnlockDate: "2027-03-17",
 			// Зламне — ОКРЕМО від замкненого, і навмисно не нуль: це різні
 			// твердження, а не відтінки одного, і фікстура мусить показати
 			// обидва. 40 000 у відкличному вкладі — тіло повернуть, відсотки
 			// згорять; 120 000 замкнено намертво.
-			BreakableUAH: 40_000,
+			BreakableUAH: Major(40_000, money.UAH),
 			// Замкнене в НПФ — частина LockedUAH, а не додаток до нього, і
 			// саме тому менша за нього: 120 000 замкнено всього, з них
 			// 45 000 у пенсійному, решта у вкладі. Рівність двох чисел
 			// приховала б підполе, а сума понад LockedUAH описувала б
 			// неможливий портфель.
-			LockedNPFUAH: 45_000,
+			LockedNPFUAH: Major(45_000, money.UAH),
 			// Подушка всередині замкненого й зламного — такі самі підполя, і
 			// теж не нулі: 20 000 із 75 000 вкладених намертво та 10 000 із
 			// 40 000 відкличних належать подушці, а не портфелю.
-			LockedReserveUAH: 20_000, BreakableReserveUAH: 10_000,
+			LockedReserveUAH: Major(20_000, money.UAH), BreakableReserveUAH: Major(10_000, money.UAH),
 		},
 		Independence: &Independence{
-			TargetUAH: 30_000, IncomeNowUAH: 1_240.50, TargetFrom: "expenses",
+			TargetUAH: Major(30_000, money.UAH), IncomeNowUAH: Major(1_240.50, money.UAH), TargetFrom: "expenses",
 			PlanMonths: 214, PlanDate: "2044-05-15",
 			ActualMonths: 262, ActualDate: "2048-05-15",
 		},
@@ -207,35 +207,35 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		// споживачеві треба вміти відрізнити «ліміт заданий і дотриманий»
 		// від «перевищено», а з однорідного переліку це не видно.
 		Concentration: []ConcentrationRow{
-			{Dimension: "isin", Key: "UA4000230114", AmountUAH: 88_246.80,
-				SharePct: 34.2, LimitPct: 25, OverUAH: 23_746.80,
+			{Dimension: "isin", Key: "UA4000230114", AmountUAH: Major(88_246.80, money.UAH),
+				SharePct: 34.2, LimitPct: 25, OverUAH: Major(23_746.80, money.UAH),
 				Label: "валютні військові"},
-			{Dimension: "year", Key: "2027", AmountUAH: 138_246.80,
+			{Dimension: "year", Key: "2027", AmountUAH: Major(138_246.80, money.UAH),
 				SharePct: 100, LimitPct: 100},
 		},
 		// Дельта за 30 днів: знімок місячної давнини є, капітал виріс на
 		// 5 000, з яких 4 500 — власний внесок місяця (monthDep нижче).
 		// Обидва числа поруч навмисно: саме їх пара й є контрактом.
 		CapitalDelta30: &CapitalDelta{
-			FromDate: "2026-06-15", FromUAH: 268_246.80,
-			DeltaUAH: 5_000, DeltaPct: 1.86, ContribUAH: 4_500,
+			FromDate: "2026-06-15", FromUAH: Major(268_246.80, money.UAH),
+			DeltaUAH: Major(5_000, money.UAH), DeltaPct: 1.86, ContribUAH: Major(4_500, money.UAH),
 		},
 		// Простій і його ціна — обидва блоки, бо інтеграція читає обидва:
 		// сенсор бере ціну з idle_cost, атрибути «скільки й відколи» — з
 		// idle. Числа узгоджені: 12 000 ₴ при 9,84 % реальних = 98,40 ₴/міс;
 		// за 20,5 дня зваженого віку — 66,32 ₴.
 		Idle: &IdleCash{
-			InvestableUAH: 12_000, Since: "2026-06-20", Days: 25, AgeDays: 20.5,
+			InvestableUAH: Major(12_000, money.UAH), Since: "2026-06-20", Days: 25, AgeDays: 20.5,
 			ByPair: []IdlePair{{
-				Broker: "mono", Currency: money.UAH, Investable: 12_000,
-				InvestableUAH: 12_000, Since: "2026-06-20", Days: 25, AgeDays: 20.5,
+				Broker: "mono", Currency: money.UAH, Investable: Major(12_000, money.UAH),
+				InvestableUAH: Major(12_000, money.UAH), Since: "2026-06-20", Days: 25, AgeDays: 20.5,
 			}},
 		},
 		IdleCost: &IdleCost{
-			CostMonthUAH: 98.40, CostSoFarUAH: 66.32, RatePct: 9.84, RateLabel: "UA4000227748",
+			CostMonthUAH: Major(98.40, money.UAH), CostSoFarUAH: Major(66.32, money.UAH), RatePct: 9.84, RateLabel: "UA4000227748",
 			ByPair: []IdleCostPair{{
 				Broker: "mono", Currency: money.UAH,
-				CostMonthUAH: 98.40, CostSoFarUAH: 66.32, RatePct: 9.84, RateLabel: "UA4000227748",
+				CostMonthUAH: Major(98.40, money.UAH), CostSoFarUAH: Major(66.32, money.UAH), RatePct: 9.84, RateLabel: "UA4000227748",
 			}},
 		},
 		// Борг: одна картка зі звіркою. Доти фікстура боргу не мала
@@ -245,17 +245,17 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		// відʼємне рівно на суму виписки — картка в мінусі. Чистий капітал
 		// — капітал мінус увесь борг картки, включно з пільговим: 273 246.80
 		// − 17 000 (у DeriveInput нижче капітал саме такий).
-		NetWorthUAH: 256_246.80,
+		NetWorthUAH: Major(256_246.80, money.UAH),
 		Debt: &DebtPlan{
-			TotalUAH: 5_000, TopRatePct: 60, TopName: "ПУМБ ВсеМожу",
-			DueThisMonthUAH: 510, FillMonthUAH: 2_000, FillNowUAH: 2_000,
+			TotalUAH: Major(5_000, money.UAH), TopRatePct: 60, TopName: "ПУМБ ВсеМожу",
+			DueThisMonthUAH: Major(510, money.UAH), FillMonthUAH: Major(2_000, money.UAH), FillNowUAH: Major(2_000, money.UAH),
 			CardsWatched: 1,
 			Cards: []DebtCard{{
 				Name: "ПУМБ ВсеМожу", Known: true,
 				MarkDate: "2026-07-10", MarkAgeDays: 5,
 				DueDate: "2026-07-30", DaysToDue: 15,
-				BringByDueUAH: 15_400, MinDueUAH: 510, FreeUAH: -15_400,
-				DebtUAH: 17_000, UsedPct: 8.5, ExitBy: "2027-05-11",
+				BringByDueUAH: Major(15_400, money.UAH), MinDueUAH: Major(510, money.UAH), FreeUAH: Major(-15_400, money.UAH),
+				DebtUAH: Major(17_000, money.UAH), UsedPct: 8.5, ExitBy: "2027-05-11",
 			}},
 		},
 	}
@@ -304,24 +304,24 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		// не додає — але сам по собі НПФ у чисельник часток входить, на
 		// відміну від сертифікатів.
 		Capital: Capital{
-			BondsUAH:   50_000 + 88_246.80,
-			ReserveUAH: 60_000,
-			GoalsUAH:   30_000,
-			NPFUAH:     45_000,
-			BondsByCur: map[string]float64{money.USD: 88_246.80},
+			BondsUAH:   Major(50_000+88_246.80, money.UAH),
+			ReserveUAH: Major(60_000, money.UAH),
+			GoalsUAH:   Major(30_000, money.UAH),
+			NPFUAH:     Major(45_000, money.UAH),
+			BondsByCur: map[string]Money{money.USD: Major(88_246.80, money.USD)},
 			// Цілі гривневі, як і резерв: валютної експозиції не додають.
-			GoalsByCur: map[string]float64{money.UAH: 30_000},
+			GoalsByCur: map[string]Money{money.UAH: Major(30_000, money.UAH)},
 		},
 		// Драбина доступу. ReserveLiquidUAH тут МЕНШИЙ за doc.ReserveUAH
 		// навмисно: різниця й є резервний вклад, і фікстура, у якій вони
 		// рівні, показувала б подушку без драбини — тобто саме той стан,
 		// який ці поля й додані розрізняти.
-		ReserveLiquidUAH: 35_000,
+		ReserveLiquidUAH: Major(35_000, money.UAH),
 		ReserveDeposits: []ReserveDeposit{
 			// Відкличний: у профілі він дає РОЗМІН, а не діру, і без нього
 			// reachable_uah у фікстурі дорівнював би available_uah скрізь —
 			// тобто друге число ніколи не перевірялось би.
-			{Months: 2, AmountUAH: 25_000, Revocable: true, EarnsUAH: 3_000},
+			{Months: 2, AmountUAH: Major(25_000, money.UAH), Revocable: true, EarnsUAH: 3_000},
 		},
 		// Ціль накопичення — доларова з гривневими рухами й дедлайном.
 		//
@@ -335,12 +335,12 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		// 30 000 ₴ за курсом фікстури 44.1234.
 		Goals: []GoalInput{{
 			ID: 1, Name: "Авто", Currency: money.USD,
-			TargetNative: 20_000, TargetUAH: 882_468,
-			CollectedNative: 679.93, CollectedUAH: 30_000,
-			ByCurrency: map[string]float64{money.UAH: 30_000},
-			Places:     map[string]float64{"готівка": 30_000},
+			TargetNative: Major(20_000, money.USD), TargetUAH: Major(882_468, money.USD),
+			CollectedNative: Major(679.93, money.USD), CollectedUAH: Major(30_000, money.USD),
+			ByCurrency: map[string]Money{money.UAH: Major(30_000, money.UAH)},
+			Places:     map[string]Money{"готівка": Major(30_000, money.USD)},
 			LastMove:   "2026-07-10", DueDate: "2027-05-01",
-			ActualNative: 113.32, ActualUAH: 5_000,
+			ActualNative: Major(113.32, money.USD), ActualUAH: Major(5_000, money.USD),
 		}},
 		MonthDeposited: monthDep,
 		MonthTarget:    monthTarget,
@@ -358,8 +358,8 @@ func TestDerive(t *testing.T) {
 		t.Errorf("schema = %d", doc.Schema)
 	}
 	// invested: 49500 грн + $1990×44.1234 = 49500 + 87805.57 (банківське) = 137305.57
-	if doc.InvestedUAH != 137305.57 {
-		t.Errorf("invested_uah = %v", doc.InvestedUAH)
+	if doc.InvestedUAH.Major() != 137305.57 {
+		t.Errorf("invested_uah = %v", doc.InvestedUAH.Major())
 	}
 	// Найближча виплата — відсотки ВКЛАДУ, і разом із нею перевіряється
 	// підпис: голий "deposit:1" на екрані показувати не можна, тож правило
@@ -380,15 +380,15 @@ func TestDerive(t *testing.T) {
 	if doc.MonthProgressPct != 90 {
 		t.Errorf("progress = %d", doc.MonthProgressPct)
 	}
-	if doc.MonthDepositedUAH != 4500 {
-		t.Errorf("month_deposited = %v", doc.MonthDepositedUAH)
+	if doc.MonthDepositedUAH.Major() != 4500 {
+		t.Errorf("month_deposited = %v", doc.MonthDepositedUAH.Major())
 	}
 	// 4137.50 купона + 300.00 відсотків вкладу: у «надходженнях місяця»
 	// вклад рахується нарівні з папером.
-	if doc.MonthIncomingUAH != 4437.50 {
-		t.Errorf("month_incoming = %v", doc.MonthIncomingUAH)
+	if doc.MonthIncomingUAH.Major() != 4437.50 {
+		t.Errorf("month_incoming = %v", doc.MonthIncomingUAH.Major())
 	}
-	if len(doc.Ladder) != 1 || doc.Ladder[0].UAH != 50000 || doc.Ladder[0].USD != 2000 {
+	if len(doc.Ladder) != 1 || doc.Ladder[0].UAH.Major() != 50000 || doc.Ladder[0].USD.Major() != 2000 {
 		t.Errorf("ladder: %+v", doc.Ladder)
 	}
 	// $2 000 × 44.1234 = 88 246.80 ₴ від капіталу 273 246.80 ₴ (номінал
@@ -479,9 +479,9 @@ func TestReserveFillCarriesMonthNumbers(t *testing.T) {
 	share := 25.0
 	doc, in := sampleDoc(t)
 	doc.Settings.ReserveFillSharePct = &share
-	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: 40_000,
-		PlanReserveUAH: 40_000, PlanGoalsUAH: 40_000}
-	in.ReserveFillMonthUAH, in.ReserveFillNowUAH, in.ReserveMovedUAH = 10_000, 6_000, 4_000
+	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: Major(40_000, money.UAH),
+		PlanReserveUAH: Major(40_000, money.UAH), PlanGoalsUAH: Major(40_000, money.UAH)}
+	in.ReserveFillMonthUAH, in.ReserveFillNowUAH, in.ReserveMovedUAH = Major(10_000, money.UAH), Major(6_000, money.UAH), Major(4_000, money.UAH)
 	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
 	}
@@ -489,35 +489,35 @@ func TestReserveFillCarriesMonthNumbers(t *testing.T) {
 	if r == nil {
 		t.Fatal("картки резерву немає")
 	}
-	if r.GapUAH != 30_000 {
-		t.Fatalf("розрив = %v, очікували 30000 — змінився sampleDoc", r.GapUAH)
+	if r.GapUAH.Major() != 30_000 {
+		t.Fatalf("розрив = %v, очікували 30000 — змінився sampleDoc", r.GapUAH.Major())
 	}
-	if r.FillMonthUAH != 10_000 || r.FillNowUAH != 6_000 || r.FillMovedUAH != 4_000 {
+	if r.FillMonthUAH.Major() != 10_000 || r.FillNowUAH.Major() != 6_000 || r.FillMovedUAH.Major() != 4_000 {
 		t.Errorf("частка місяця %v, лишилось %v, уже відкладено %v — очікували 10000/6000/4000",
-			r.FillMonthUAH, r.FillNowUAH, r.FillMovedUAH)
+			r.FillMonthUAH.Major(), r.FillNowUAH.Major(), r.FillMovedUAH.Major())
 	}
 	// База й стеля перевіряються разом із сумою навмисно: число без «звідки»
 	// нема чим перевірити, і саме тому їх у документі кілька.
-	if r.FillFromUAH != 40_000 || r.FillSharePct != share {
+	if r.FillFromUAH.Major() != 40_000 || r.FillSharePct != share {
 		t.Errorf("з чого пораховано: від %v за стелею %v%%, очікували від 40000 за 25%% — "+
 			"базою мусять бути гроші місяця, а не готівка на рахунках",
-			r.FillFromUAH, r.FillSharePct)
+			r.FillFromUAH.Major(), r.FillSharePct)
 	}
 
 	// Ціль зібрана — механізм мовчить цілком, хай би що прийшло з будівника:
 	// нулі в документі читались би як «працює і радить нуль».
 	doc, in = sampleDoc(t)
 	doc.Settings.ReserveFillSharePct = &share
-	doc.ReserveUAH = 90_000
-	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: 40_000,
-		PlanReserveUAH: 40_000, PlanGoalsUAH: 40_000}
-	in.ReserveFillMonthUAH, in.ReserveFillNowUAH = 10_000, 10_000
+	doc.ReserveUAH = Major(90_000, money.UAH)
+	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: Major(40_000, money.UAH),
+		PlanReserveUAH: Major(40_000, money.UAH), PlanGoalsUAH: Major(40_000, money.UAH)}
+	in.ReserveFillMonthUAH, in.ReserveFillNowUAH = Major(10_000, money.UAH), Major(10_000, money.UAH)
 	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
 	}
-	if r := doc.Reserve; r.FillNowUAH != 0 || r.FillMonthUAH != 0 || r.FillFromUAH != 0 {
+	if r := doc.Reserve; r.FillNowUAH.Major() != 0 || r.FillMonthUAH.Major() != 0 || r.FillFromUAH.Major() != 0 {
 		t.Errorf("ціль зібрана, а картка радить відкласти %v з %v — механізм мусить мовчати",
-			r.FillNowUAH, r.FillFromUAH)
+			r.FillNowUAH.Major(), r.FillFromUAH.Major())
 	}
 }
 
@@ -538,19 +538,19 @@ func TestReserveFillSilentWhenOff(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			doc, in := sampleDoc(t)
 			doc.Settings.ReserveFillSharePct = c.share
-			in.Capital.AccountUAH = c.free
+			in.Capital.AccountUAH = Major(c.free, money.UAH)
 			if err := Derive(doc, in); err != nil {
 				t.Fatal(err)
 			}
 			r := doc.Reserve
-			if r.FillNowUAH != 0 || r.FillFromUAH != 0 || r.FillSharePct != 0 {
+			if r.FillNowUAH.Major() != 0 || r.FillFromUAH.Major() != 0 || r.FillSharePct != 0 {
 				t.Errorf("механізм заговорив, хоч його не вмикали: %v ₴ від %v за %v%%",
-					r.FillNowUAH, r.FillFromUAH, r.FillSharePct)
+					r.FillNowUAH.Major(), r.FillFromUAH.Major(), r.FillSharePct)
 			}
 			// Решта картки при цьому лишається на місці: вимкнена стеля — це
 			// не вимкнений резерв.
-			if r.GapUAH != 30_000 {
-				t.Errorf("розрив зник разом зі стелею: %v", r.GapUAH)
+			if r.GapUAH.Major() != 30_000 {
+				t.Errorf("розрив зник разом зі стелею: %v", r.GapUAH.Major())
 			}
 		})
 	}
@@ -563,14 +563,14 @@ func TestReserveFillZeroWhenTargetReached(t *testing.T) {
 	doc, in := sampleDoc(t)
 	share := 40.0
 	doc.Settings.ReserveFillSharePct = &share
-	in.Capital.AccountUAH = 200_000
-	doc.ReserveUAH, in.Capital.ReserveUAH = 120_000, 120_000 // ціль 90 000
+	in.Capital.AccountUAH = Major(200_000, money.UAH)
+	doc.ReserveUAH, in.Capital.ReserveUAH = Major(120_000, money.UAH), Major(120_000, money.UAH) // ціль 90 000
 	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
 	}
-	if r := doc.Reserve; r.GapUAH != 0 || r.FillNowUAH != 0 {
+	if r := doc.Reserve; r.GapUAH.Major() != 0 || r.FillNowUAH.Major() != 0 {
 		t.Errorf("резерву 120 000 при цілі 90 000, а застосунок радить докласти %v ₴ (розрив %v)",
-			r.FillNowUAH, r.GapUAH)
+			r.FillNowUAH.Major(), r.GapUAH.Major())
 	}
 }
 
@@ -580,7 +580,7 @@ func TestDeriveEmptyPortfolio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.InvestedUAH != 0 || doc.NextPayment != nil || len(doc.Calendar) != 0 {
+	if doc.InvestedUAH.Major() != 0 || doc.NextPayment != nil || len(doc.Calendar) != 0 {
 		t.Errorf("порожній портфель: %+v", doc)
 	}
 }
@@ -620,8 +620,8 @@ func TestGoalsFillUsesAllowedBase(t *testing.T) {
 	doc.Settings.GoalsFillSharePct = &share
 	// План дає 40 000, але цілям із них дозволено лише 10 000: решта —
 	// дохід, позначений «не в накопичення».
-	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: 40_000,
-		PlanReserveUAH: 40_000, PlanGoalsUAH: 10_000}
+	doc.MonthPlan = &MonthPlan{Month: "2026-08", PlanUAH: Major(40_000, money.UAH),
+		PlanReserveUAH: Major(40_000, money.UAH), PlanGoalsUAH: Major(10_000, money.UAH)}
 	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
 	}
@@ -629,7 +629,7 @@ func TestGoalsFillUsesAllowedBase(t *testing.T) {
 		t.Fatalf("цілей %d, чекали 1", len(doc.Goals))
 	}
 	// 50% від дозволених 10 000, а не від усього плану (там було б 20 000).
-	if got := doc.Goals[0].FillNowUAH; got != 5_000 {
-		t.Errorf("цілі належить %v, чекали 5000 — 50%% від ДОЗВОЛЕНИХ 10 000", got)
+	if got := doc.Goals[0].FillNowUAH; got.Major() != 5_000 {
+		t.Errorf("цілі належить %v, чекали 5000 — 50%% від ДОЗВОЛЕНИХ 10 000", got.Major())
 	}
 }

@@ -116,8 +116,8 @@ func buildIdle(cash *cashLedger, minByCur map[string]int64, rates fx.Rates, toda
 		}
 		p := state.IdlePair{
 			Broker: broker, Currency: k.Currency,
-			Investable:    float64(investable) / 100,
-			InvestableUAH: state.Of(uahAmt).Major(),
+			Investable:    state.Minor(investable, k.Currency),
+			InvestableUAH: state.Of(uahAmt),
 			Since:         string(since),
 			AgeDays:       round2(moneyDays / float64(investable)),
 		}
@@ -127,8 +127,8 @@ func buildIdle(cash *cashLedger, minByCur map[string]int64, rates fx.Rates, toda
 			}
 		}
 		out.ByPair = append(out.ByPair, p)
-		out.InvestableUAH += p.InvestableUAH
-		ageWeighted += p.InvestableUAH * p.AgeDays
+		out.InvestableUAH = out.InvestableUAH.Add(p.InvestableUAH)
+		ageWeighted += p.InvestableUAH.Major() * p.AgeDays
 		if out.Since == "" || (p.Since != "" && p.Since < out.Since) {
 			out.Since = p.Since
 		}
@@ -139,8 +139,8 @@ func buildIdle(cash *cashLedger, minByCur map[string]int64, rates fx.Rates, toda
 	if len(out.ByPair) == 0 {
 		return nil
 	}
-	out.InvestableUAH = round2(out.InvestableUAH)
-	out.AgeDays = round2(ageWeighted / out.InvestableUAH)
+
+	out.AgeDays = round2(ageWeighted / out.InvestableUAH.Major())
 	return out
 }
 
@@ -182,23 +182,22 @@ func buildIdleCost(idle *state.IdleCash, sug []suggestion) *state.IdleCost {
 			Broker: p.Broker, Currency: p.Currency,
 			RatePct:      s.RealPct,
 			RateLabel:    suggestName(s),
-			CostMonthUAH: round2(p.InvestableUAH * s.RealPct / 100 / 12),
-			CostSoFarUAH: round2(p.InvestableUAH * s.RealPct / 100 * p.AgeDays / 365),
+			CostMonthUAH: state.Major(p.InvestableUAH.Major()*s.RealPct/100/12, money.UAH),
+			CostSoFarUAH: state.Major(p.InvestableUAH.Major()*s.RealPct/100*p.AgeDays/365, money.UAH),
 		}
 		out.ByPair = append(out.ByPair, c)
-		out.CostMonthUAH += c.CostMonthUAH
-		out.CostSoFarUAH += c.CostSoFarUAH
-		rateW += p.InvestableUAH * s.RealPct
-		base += p.InvestableUAH
-		if p.InvestableUAH > topUAH {
-			topUAH, out.RateLabel = p.InvestableUAH, c.RateLabel
+		out.CostMonthUAH = out.CostMonthUAH.Add(c.CostMonthUAH)
+		out.CostSoFarUAH = out.CostSoFarUAH.Add(c.CostSoFarUAH)
+		rateW += p.InvestableUAH.Major() * s.RealPct
+		base += p.InvestableUAH.Major()
+		if p.InvestableUAH.Major() > topUAH {
+			topUAH, out.RateLabel = p.InvestableUAH.Major(), c.RateLabel
 		}
 	}
 	if len(out.ByPair) == 0 {
 		return nil
 	}
-	out.CostMonthUAH = round2(out.CostMonthUAH)
-	out.CostSoFarUAH = round2(out.CostSoFarUAH)
+
 	out.RatePct = math.Round(rateW/base*100) / 100
 	return out
 }

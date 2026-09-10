@@ -320,7 +320,7 @@ func TestFundsYieldIsWeightedByMarketValue(t *testing.T) {
 			n = r.YieldNetPct
 		}
 		nom[r.Fund] = n
-		mv[r.Fund] = r.MarketValue
+		mv[r.Fund] = r.MarketValue.Major()
 	}
 	if mv["Великий"] <= mv["Дрібний"] {
 		t.Fatalf("фікстура зіпсована: великий фонд не більший (%v проти %v)",
@@ -418,9 +418,9 @@ func TestFundMeasuredDisplacesPromiseAfterMark(t *testing.T) {
 	if !row.PriceMarked {
 		t.Error("price_marked мав сказати, що ціна прийшла з позначки")
 	}
-	if row.MarketValue <= row.CostBasis {
+	if row.MarketValue.Cmp(row.CostBasis) <= 0 {
 		t.Errorf("вартість %v мала піднятись над собівартістю %v",
-			row.MarketValue, row.CostBasis)
+			row.MarketValue.Major(), row.CostBasis.Major())
 	}
 	// Обіцянка при цьому НЕ зникає з рядка: без неї звірка припущення була
 	// б неможлива саме тоді, коли вона нарешті стала можливою.

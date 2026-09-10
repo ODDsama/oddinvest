@@ -69,11 +69,11 @@ func TestCashLedgerBrokerNamesUnnamedStaysApart(t *testing.T) {
 	c.add("", money.UAH, "2026-01-01", 5_000)
 
 	b := c.byBroker()
-	if b["mono"][money.UAH] != 1000 {
-		t.Errorf("mono: %v, очікували 1000.00", b["mono"][money.UAH])
+	if b["mono"][money.UAH].Major() != 1000 {
+		t.Errorf("mono: %v, очікували 1000.00", b["mono"][money.UAH].Major())
 	}
-	if b["—"][money.UAH] != 50 {
-		t.Errorf("безіменний: %v, очікували 50.00", b["—"][money.UAH])
+	if b["—"][money.UAH].Major() != 50 {
+		t.Errorf("безіменний: %v, очікували 50.00", b["—"][money.UAH].Major())
 	}
 	if _, ok := b[""]; ok {
 		t.Error("порожня назва брокера дійшла до UI як порожня")

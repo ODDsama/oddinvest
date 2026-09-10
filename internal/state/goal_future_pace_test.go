@@ -27,10 +27,10 @@ func paceGoal(months int, collected, actual, ratePct float64, cur string) Derive
 		Now: now,
 		Goals: []GoalInput{{
 			ID: 1, Name: "Школа", Currency: cur,
-			TargetNative: 600_000, TargetUAH: 600_000,
-			CollectedNative: collected, CollectedUAH: collected,
+			TargetNative: Major(600_000, cur), TargetUAH: Major(600_000, cur),
+			CollectedNative: Major(collected, cur), CollectedUAH: Major(collected, cur),
 			DueDate:   string(due),
-			ActualUAH: actual, ActualNative: actual,
+			ActualUAH: Major(actual, cur), ActualNative: Major(actual, cur),
 			RatePct: ratePct,
 		}},
 		InflationPct: 10.7,
@@ -57,28 +57,28 @@ func oneGoal(t *testing.T, in DeriveInput) Goal {
 func TestGoalPaceMeasuredAgainstFuturePrice(t *testing.T) {
 	// 120 місяців, нічого не зібрано, гроші лежать під нуль.
 	g := oneGoal(t, paceGoal(120, 0, 0, 0, money.UAH))
-	if g.RequiredUAH <= 0 || g.RequiredFutureUAH <= 0 {
-		t.Fatalf("темпів немає: сьогоднішній %.2f, майбутній %.2f", g.RequiredUAH, g.RequiredFutureUAH)
+	if g.RequiredUAH.Major() <= 0 || g.RequiredFutureUAH.Major() <= 0 {
+		t.Fatalf("темпів немає: сьогоднішній %.2f, майбутній %.2f", g.RequiredUAH.Major(), g.RequiredFutureUAH.Major())
 	}
-	if g.RequiredFutureUAH <= g.RequiredUAH {
+	if g.RequiredFutureUAH.Cmp(g.RequiredUAH) <= 0 {
 		t.Errorf("майбутній темп %.2f не більший за сьогоднішній %.2f — інфляція загубилась",
-			g.RequiredFutureUAH, g.RequiredUAH)
+			g.RequiredFutureUAH.Major(), g.RequiredUAH.Major())
 	}
-	if g.RequiredPaceUAH() != g.RequiredFutureUAH {
+	if g.RequiredPaceUAH() != g.RequiredFutureUAH.Major() {
 		t.Errorf("вирок стоїть на %.2f, а мав би на майбутньому темпі %.2f",
-			g.RequiredPaceUAH(), g.RequiredFutureUAH)
+			g.RequiredPaceUAH(), g.RequiredFutureUAH.Major())
 	}
 
 	// Темп РІВНО МІЖ двома числами: старий вирок сказав би «встигаю».
-	mid := (g.RequiredUAH + g.RequiredFutureUAH) / 2
+	mid := (g.RequiredUAH.Major() + g.RequiredFutureUAH.Major()) / 2
 	g2 := oneGoal(t, paceGoal(120, 0, mid, 0, money.UAH))
 	if !g2.Behind {
 		t.Errorf("темп %.2f перевищує сьогоднішній %.2f, але до майбутньої ціни "+
 			"%.2f не дотягує — а застосунок каже «встигаю»",
-			mid, g2.RequiredUAH, g2.RequiredFutureUAH)
+			mid, g2.RequiredUAH.Major(), g2.RequiredFutureUAH.Major())
 	}
 	// І навпаки: темп понад майбутній — не відставання.
-	g3 := oneGoal(t, paceGoal(120, 0, g.RequiredFutureUAH*1.01, 0, money.UAH))
+	g3 := oneGoal(t, paceGoal(120, 0, g.RequiredFutureUAH.Major()*1.01, 0, money.UAH))
 	if g3.Behind {
 		t.Error("темп понад майбутній вважається відставанням — вирок став невиконанним")
 	}
@@ -93,14 +93,14 @@ func TestGoalPaceMeasuredAgainstFuturePrice(t *testing.T) {
 func TestGoalOnDepositNeedsLess(t *testing.T) {
 	cash := oneGoal(t, paceGoal(120, 50_000, 0, 0, money.UAH))
 	dep := oneGoal(t, paceGoal(120, 50_000, 0, 13.09, money.UAH))
-	if dep.RequiredFutureUAH >= cash.RequiredFutureUAH {
+	if dep.RequiredFutureUAH.Cmp(cash.RequiredFutureUAH) >= 0 {
 		t.Errorf("ціль на вкладі вимагає %.2f, готівкою %.2f — ставка не дійшла до рівняння",
-			dep.RequiredFutureUAH, cash.RequiredFutureUAH)
+			dep.RequiredFutureUAH.Major(), cash.RequiredFutureUAH.Major())
 	}
 	// Розрив теж менший: зібране встигає вирости.
-	if dep.GapFutureUAH >= cash.GapFutureUAH {
+	if dep.GapFutureUAH.Cmp(cash.GapFutureUAH) >= 0 {
 		t.Errorf("розрив на вкладі %.2f не менший за готівковий %.2f — зібране не росте",
-			dep.GapFutureUAH, cash.GapFutureUAH)
+			dep.GapFutureUAH.Major(), cash.GapFutureUAH.Major())
 	}
 }
 
@@ -116,15 +116,15 @@ func TestZeroRateGoalKeepsTheOldArithmetic(t *testing.T) {
 	// стояли дробові MonthsLeft, тобто ціну проєктували на 60 місяців, а
 	// ділили на 60.01 — розбіжність у копійки, але в різних одиницях.
 	// Ануїтет прибрав її заразом, і саме тому порівняння тут із round().
-	want := g.GapFutureUAH / math.Round(g.MonthsLeft)
-	if math.Abs(g.RequiredFutureUAH-want) > 0.02 {
+	want := g.GapFutureUAH.Major() / math.Round(g.MonthsLeft)
+	if math.Abs(g.RequiredFutureUAH.Major()-want) > 0.02 {
 		t.Errorf("при нульовій ставці темп %.2f, а проста формула дає %.2f — "+
-			"ануїтет розійшовся з тим, що було", g.RequiredFutureUAH, want)
+			"ануїтет розійшовся з тим, що було", g.RequiredFutureUAH.Major(), want)
 	}
 	// І зібране справді не виросло: розрив = майбутня ціна мінус те, що є.
-	if math.Abs(g.GapFutureUAH-(g.TargetFutureNative-100_000)) > 0.02 {
+	if math.Abs(g.GapFutureUAH.Major()-(g.TargetFutureNative.Major()-100_000)) > 0.02 {
 		t.Errorf("розрив %.2f при ціні %.2f — гроші під нуль десь підросли",
-			g.GapFutureUAH, g.TargetFutureNative)
+			g.GapFutureUAH.Major(), g.TargetFutureNative.Major())
 	}
 }
 
@@ -136,12 +136,12 @@ func TestZeroRateGoalKeepsTheOldArithmetic(t *testing.T) {
 // дорожчає, як гривня.
 func TestForeignGoalKeepsTodayPace(t *testing.T) {
 	g := oneGoal(t, paceGoal(120, 0, 0, 0, money.USD))
-	if g.RequiredFutureUAH != 0 || g.GapFutureUAH != 0 || g.TargetFutureNative != 0 {
+	if g.RequiredFutureUAH.Major() != 0 || g.GapFutureUAH.Major() != 0 || g.TargetFutureNative.Major() != 0 {
 		t.Errorf("валютна ціль дістала майбутні числа: %+v", g)
 	}
-	if g.RequiredPaceUAH() != g.RequiredUAH {
+	if g.RequiredPaceUAH() != g.RequiredUAH.Major() {
 		t.Errorf("вирок валютної цілі стоїть на %.2f замість сьогоднішнього %.2f",
-			g.RequiredPaceUAH(), g.RequiredUAH)
+			g.RequiredPaceUAH(), g.RequiredUAH.Major())
 	}
 }
 
@@ -156,11 +156,11 @@ func TestForeignGoalKeepsTodayPace(t *testing.T) {
 func TestGoalETAAgreesWithTheVerdict(t *testing.T) {
 	// Темп між двома потрібними: старої лінійки вистачає, нової — ні.
 	base := oneGoal(t, paceGoal(120, 55_000, 0, 13.16, money.UAH))
-	mid := (base.RequiredUAH + base.RequiredFutureUAH) / 2
+	mid := (base.RequiredUAH.Major() + base.RequiredFutureUAH.Major()) / 2
 	g := oneGoal(t, paceGoal(120, 55_000, mid, 13.16, money.UAH))
 	if !g.Behind {
 		t.Fatalf("темп %.2f мав би не дотягувати до %.2f — тест нічого не перевіряє",
-			mid, g.RequiredFutureUAH)
+			mid, g.RequiredFutureUAH.Major())
 	}
 	if g.ETADate == "" {
 		t.Fatal("дати немає зовсім — при живому темпі ціль колись та збереться")
@@ -171,7 +171,7 @@ func TestGoalETAAgreesWithTheVerdict(t *testing.T) {
 	}
 
 	// І дзеркало: темпу вистачає — дата не може бути пізнішою за дедлайн.
-	ok := oneGoal(t, paceGoal(120, 55_000, base.RequiredFutureUAH*1.05, 13.16, money.UAH))
+	ok := oneGoal(t, paceGoal(120, 55_000, base.RequiredFutureUAH.Major()*1.05, 13.16, money.UAH))
 	if ok.Behind {
 		t.Fatalf("темп понад потрібний вважається відставанням")
 	}

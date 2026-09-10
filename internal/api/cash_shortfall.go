@@ -46,7 +46,7 @@ func brokerBalanceMinor(doc *state.Doc, broker, currency string) int64 {
 	if !ok {
 		return 0
 	}
-	return int64(math.Round(byCur[currency] * 100))
+	return int64(math.Round(byCur[currency].Major() * 100))
 }
 
 // shortfallMinor — скільки НЕ ВИСТАЧАЄ рахунку broker×currency, щоб

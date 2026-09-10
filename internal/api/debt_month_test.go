@@ -29,12 +29,12 @@ import (
 // потягнеться повернути вирізку саме сюди.
 func TestAllocateLeavesDebtOutOfPortfolioMoney(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, &state.Reserve{
-		GapUAH: 5000, FillMonthUAH: 1000, FillNowUAH: 1000, FillFromUAH: 5000,
+		GapUAH: state.Major(5000, money.UAH), FillMonthUAH: state.Major(1000, money.UAH), FillNowUAH: state.Major(1000, money.UAH), FillFromUAH: state.Major(5000, money.UAH),
 	})
 	// Борг живий, дорогий і зі стелею — тобто все, що колись вмикало вирізку.
 	doc.Debt = &state.DebtPlan{
-		TotalUAH: 30000, TopRatePct: 49.8, TopName: "Холодильник",
-		FillMonthUAH: 2000, FillNowUAH: 2000,
+		TotalUAH: state.Major(30000, money.UAH), TopRatePct: 49.8, TopName: "Холодильник",
+		FillMonthUAH: state.Major(2000, money.UAH), FillNowUAH: state.Major(2000, money.UAH),
 	}
 
 	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
@@ -77,7 +77,7 @@ func TestCardInstallmentsLeaveMonthPlanAlone(t *testing.T) {
 	}
 
 	base := monthPlanOf(t, srv.URL)
-	if base.PlanUAH <= 0 {
+	if base.PlanUAH.Major() <= 0 {
 		t.Fatalf("план місяця порожній: %+v", base)
 	}
 
@@ -89,9 +89,9 @@ func TestCardInstallmentsLeaveMonthPlanAlone(t *testing.T) {
 		`{"debt_id":"`+did(card)+`","balance":"-18400","statement_due":"18400"}`); resp.StatusCode != 201 {
 		t.Fatalf("звірка: %d %s", resp.StatusCode, out)
 	}
-	if got := monthPlanOf(t, srv.URL); got.PlanUAH != base.PlanUAH || got.DebtDueUAH != 0 {
+	if got := monthPlanOf(t, srv.URL); got.PlanUAH != base.PlanUAH || got.DebtDueUAH.Major() != 0 {
 		t.Errorf("пільговий оборот зрушив гроші місяця: план %.2f (був %.2f), борг %.2f",
-			got.PlanUAH, base.PlanUAH, got.DebtDueUAH)
+			got.PlanUAH.Major(), base.PlanUAH.Major(), got.DebtDueUAH.Major())
 	}
 
 	// Розстрочка, ПРИВʼЯЗАНА до картки, теж не чіпає портфельних грошей:
@@ -106,9 +106,9 @@ func TestCardInstallmentsLeaveMonthPlanAlone(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if got := monthPlanOf(t, srv.URL); got.PlanUAH != base.PlanUAH || got.DebtDueUAH != 0 {
+	if got := monthPlanOf(t, srv.URL); got.PlanUAH != base.PlanUAH || got.DebtDueUAH.Major() != 0 {
 		t.Errorf("карткова розстрочка зрушила гроші місяця: план %.2f (був %.2f), борг %.2f",
-			got.PlanUAH, base.PlanUAH, got.DebtDueUAH)
+			got.PlanUAH.Major(), base.PlanUAH.Major(), got.DebtDueUAH.Major())
 	}
 
 	// А САМОСТІЙНА — мусить, І САМЕ НА ЦІЙ ФІКСТУРІ.
@@ -129,18 +129,18 @@ func TestCardInstallmentsLeaveMonthPlanAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := monthPlanOf(t, srv.URL)
-	if got.DebtDueUAH <= 0 {
+	if got.DebtDueUAH.Major() <= 0 {
 		t.Fatalf("обовʼязковий платіж не зʼявився: %+v", got)
 	}
-	if want := base.PlanUAH - got.DebtDueUAH; got.PlanUAH != want {
+	if want := base.PlanUAH.Major() - got.DebtDueUAH.Major(); got.PlanUAH.Major() != want {
 		t.Errorf("план місяця %.2f, чекали %.2f (менше рівно на обовʼязковий платіж)",
-			got.PlanUAH, want)
+			got.PlanUAH.Major(), want)
 	}
 	// Дозволена частина зменшується тим самим числом: інакше стеля подушки
 	// міряла б від грошей, яких немає.
 	if got.PlanReserveUAH != got.PlanUAH {
 		t.Errorf("дозволена частина %.2f не збіглася з планом %.2f",
-			got.PlanReserveUAH, got.PlanUAH)
+			got.PlanReserveUAH.Major(), got.PlanUAH.Major())
 	}
 }
 
@@ -174,24 +174,24 @@ func TestMandatoryDebtPaidFromNonPortfolioMoney(t *testing.T) {
 	}
 
 	got := monthPlanOf(t, srv.URL)
-	if got.DebtDueUAH <= 0 {
+	if got.DebtDueUAH.Major() <= 0 {
 		t.Fatalf("обовʼязковий платіж не зʼявився: %+v", got)
 	}
-	if got.OnCardUAH <= got.DebtDueUAH {
+	if got.OnCardUAH.Cmp(got.DebtDueUAH) <= 0 {
 		t.Fatalf("тест нічого не перевіряє: на картці %.2f при платежі %.2f",
-			got.OnCardUAH, got.DebtDueUAH)
+			got.OnCardUAH.Major(), got.DebtDueUAH.Major())
 	}
-	if got.DebtFromPlanUAH != 0 {
+	if got.DebtFromPlanUAH.Major() != 0 {
 		t.Errorf("на портфельні гроші лягло %.2f, хоч на картці %.2f — вистачало з запасом",
-			got.DebtFromPlanUAH, got.OnCardUAH)
+			got.DebtFromPlanUAH.Major(), got.OnCardUAH.Major())
 	}
 	if got.PlanUAH != got.IncomeUAH {
 		t.Errorf("план місяця %.2f, чекали %.2f — рівно те, що доходить до портфеля",
-			got.PlanUAH, got.IncomeUAH)
+			got.PlanUAH.Major(), got.IncomeUAH.Major())
 	}
 	if got.PlanReserveUAH != got.PlanUAH {
 		t.Errorf("дозволена частина %.2f розійшлася з планом %.2f",
-			got.PlanReserveUAH, got.PlanUAH)
+			got.PlanReserveUAH.Major(), got.PlanUAH.Major())
 	}
 }
 
@@ -222,22 +222,22 @@ func TestMandatoryDebtOverflowsIntoMonthPlan(t *testing.T) {
 	}
 
 	got := monthPlanOf(t, srv.URL)
-	if got.DebtDueUAH <= got.OnCardUAH {
+	if got.DebtDueUAH.Cmp(got.OnCardUAH) <= 0 {
 		t.Fatalf("тест нічого не перевіряє: платіж %.2f, на картці %.2f — переповнення немає",
-			got.DebtDueUAH, got.OnCardUAH)
+			got.DebtDueUAH.Major(), got.OnCardUAH.Major())
 	}
-	if want := got.DebtDueUAH - got.OnCardUAH; math.Abs(got.DebtFromPlanUAH-want) > 0.005 {
+	if want := got.DebtDueUAH.Major() - got.OnCardUAH.Major(); math.Abs(got.DebtFromPlanUAH.Major()-want) > 0.005 {
 		t.Errorf("на портфельні гроші лягло %.2f, чекали %.2f (платіж мінус картка)",
-			got.DebtFromPlanUAH, want)
+			got.DebtFromPlanUAH.Major(), want)
 	}
-	if want := got.IncomeUAH - got.DebtFromPlanUAH; math.Abs(got.PlanUAH-want) > 0.005 {
-		t.Errorf("план місяця %.2f, чекали %.2f", got.PlanUAH, want)
+	if want := got.IncomeUAH.Major() - got.DebtFromPlanUAH.Major(); math.Abs(got.PlanUAH.Major()-want) > 0.005 {
+		t.Errorf("план місяця %.2f, чекали %.2f", got.PlanUAH.Major(), want)
 	}
 	// І головне: стара формула віднімала ВЕСЬ платіж, тобто була строго
 	// гіршою. Без цієї перевірки тест задовольнило б і повернення до неї.
-	if old := got.IncomeUAH - got.DebtDueUAH; got.PlanUAH <= old {
+	if old := got.IncomeUAH.Major() - got.DebtDueUAH.Major(); got.PlanUAH.Major() <= old {
 		t.Errorf("план %.2f не кращий за старий %.2f — картка не поглинула нічого",
-			got.PlanUAH, old)
+			got.PlanUAH.Major(), old)
 	}
 }
 
@@ -256,15 +256,15 @@ func TestMonthPlanGrossDiffersFromIncome(t *testing.T) {
 		t.Fatalf("потік: %d %s", resp.StatusCode, out)
 	}
 	got := monthPlanOf(t, srv.URL)
-	if got.GrossUAH <= 0 {
+	if got.GrossUAH.Major() <= 0 {
 		t.Fatalf("валового немає: %+v", got)
 	}
-	if got.IncomeUAH >= got.GrossUAH {
-		t.Errorf("у портфель %.2f не менше за валове %.2f", got.IncomeUAH, got.GrossUAH)
+	if got.IncomeUAH.Cmp(got.GrossUAH) >= 0 {
+		t.Errorf("у портфель %.2f не менше за валове %.2f", got.IncomeUAH.Major(), got.GrossUAH.Major())
 	}
 	// Десята частина — саме та пропорція, яку задано потоку.
-	if diff := got.GrossUAH/10 - got.IncomeUAH; diff > 0.01 || diff < -0.01 {
-		t.Errorf("валове %.2f, у портфель %.2f — чекали десятину", got.GrossUAH, got.IncomeUAH)
+	if diff := got.GrossUAH.Major()/10 - got.IncomeUAH.Major(); diff > 0.01 || diff < -0.01 {
+		t.Errorf("валове %.2f, у портфель %.2f — чекали десятину", got.GrossUAH.Major(), got.IncomeUAH.Major())
 	}
 }
 
@@ -314,19 +314,19 @@ func TestMonthPlanGrossCountsZeroInvestFlows(t *testing.T) {
 		t.Fatalf("потік: %d %s", resp.StatusCode, out)
 	}
 	got := monthPlanOf(t, srv.URL)
-	if got.GrossUAH < 99_999 {
-		t.Fatalf("валовий %.2f — потік із нульовою часткою зник", got.GrossUAH)
+	if got.GrossUAH.Major() < 99_999 {
+		t.Fatalf("валовий %.2f — потік із нульовою часткою зник", got.GrossUAH.Major())
 	}
-	if got.IncomeUAH != 0 {
-		t.Errorf("у портфель %.2f, чекали нуль: частка ж нульова", got.IncomeUAH)
+	if got.IncomeUAH.Major() != 0 {
+		t.Errorf("у портфель %.2f, чекали нуль: частка ж нульова", got.IncomeUAH.Major())
 	}
 	// І він рахується джерелом доходу: він таки платить.
 	if got.Sources != 1 {
 		t.Errorf("джерел %d, чекали 1", got.Sources)
 	}
 	// Залишок — усе, що не пішло в портфель.
-	if diff := got.OnCardUAH - got.GrossUAH; diff > 0.01 || diff < -0.01 {
-		t.Errorf("залишок %.2f при валовому %.2f", got.OnCardUAH, got.GrossUAH)
+	if diff := got.OnCardUAH.Major() - got.GrossUAH.Major(); diff > 0.01 || diff < -0.01 {
+		t.Errorf("залишок %.2f при валовому %.2f", got.OnCardUAH.Major(), got.GrossUAH.Major())
 	}
 }
 
@@ -340,9 +340,9 @@ func TestMonthPlanOnCardIsGrossMinusIncome(t *testing.T) {
 		t.Fatalf("потік: %d %s", resp.StatusCode, out)
 	}
 	got := monthPlanOf(t, srv.URL)
-	if diff := got.GrossUAH - got.IncomeUAH - got.ExtraUAH - got.OnCardUAH; diff > 0.01 || diff < -0.01 {
+	if diff := got.GrossUAH.Major() - got.IncomeUAH.Major() - got.ExtraUAH.Major() - got.OnCardUAH.Major(); diff > 0.01 || diff < -0.01 {
 		t.Errorf("валовий %.2f ≠ портфель %.2f + позапланове %.2f + залишок %.2f",
-			got.GrossUAH, got.IncomeUAH, got.ExtraUAH, got.OnCardUAH)
+			got.GrossUAH.Major(), got.IncomeUAH.Major(), got.ExtraUAH.Major(), got.OnCardUAH.Major())
 	}
 }
 
@@ -409,17 +409,17 @@ func TestDebtExitScheduleReachesZero(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("кроків %d, чекали 3: 120 000 ÷ (100 000 − 20 000 − 40 000)", len(got))
 	}
-	if got[len(got)-1].LeftUAH != 0 {
-		t.Errorf("останній крок лишає %.2f боргу", got[len(got)-1].LeftUAH)
+	if got[len(got)-1].LeftUAH.Major() != 0 {
+		t.Errorf("останній крок лишає %.2f боргу", got[len(got)-1].LeftUAH.Major())
 	}
 	// Місяці НЕ однакові за побудовою — кожен несе свої числа, а не
 	// середнє: інакше стрибок темпу не пояснити.
-	if got[0].GrossUAH != 100_000 || got[0].InvestUAH != 20_000 || got[0].SpendUAH != 40_000 {
+	if got[0].GrossUAH.Major() != 100_000 || got[0].InvestUAH.Major() != 20_000 || got[0].SpendUAH.Major() != 40_000 {
 		t.Errorf("рядок не називає своїх чисел: %+v", got[0])
 	}
 	// Крок за кроком борг меншає рівно на профіцит.
-	if got[0].LeftUAH != 80_000 || got[1].LeftUAH != 40_000 {
-		t.Errorf("хід проходу: %.2f → %.2f", got[0].LeftUAH, got[1].LeftUAH)
+	if got[0].LeftUAH.Major() != 80_000 || got[1].LeftUAH.Major() != 40_000 {
+		t.Errorf("хід проходу: %.2f → %.2f", got[0].LeftUAH.Major(), got[1].LeftUAH.Major())
 	}
 }
 
@@ -441,8 +441,8 @@ func TestDebtExitScheduleStopsWhenDebtGrows(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("живий профіцит у другому місяці дав %d кроків, чекали 2", len(got))
 	}
-	if got[0].LeftUAH != 120_000 || got[1].LeftUAH != 119_000 {
-		t.Errorf("хід проходу: %.2f → %.2f, чекали 120 000 → 119 000", got[0].LeftUAH, got[1].LeftUAH)
+	if got[0].LeftUAH.Major() != 120_000 || got[1].LeftUAH.Major() != 119_000 {
+		t.Errorf("хід проходу: %.2f → %.2f, чекали 120 000 → 119 000", got[0].LeftUAH.Major(), got[1].LeftUAH.Major())
 	}
 }
 
@@ -494,7 +494,7 @@ func TestDebtExitWalkSkipsMonthAlreadyLived(t *testing.T) {
 	if want := first.AddDate(0, 1, 0).Format("2006-01"); sch[0].Month != want {
 		t.Errorf("перший крок %s, чекали %s", sch[0].Month, want)
 	}
-	if sch[0].SpendUAH != 10_000 {
+	if sch[0].SpendUAH.Major() != 10_000 {
 		t.Errorf("повний місяць має бути цілим: %+v", sch[0])
 	}
 	if e.Months != 3 {
@@ -502,9 +502,9 @@ func TestDebtExitWalkSkipsMonthAlreadyLived(t *testing.T) {
 	}
 	// Відновлювати борг на початок нема чого: вікно починається з
 	// наступного місяця, і на його початок борг — той, що зараз.
-	if e.MarkDate != "" || e.StartDebtUAH != 90_000 || e.DebtNowUAH != 90_000 {
+	if e.MarkDate != "" || e.StartDebtUAH.Major() != 90_000 || e.DebtNowUAH.Major() != 90_000 {
 		t.Errorf("борг на початок %.2f (звірка %q), чекали 90 000 без відновлення",
-			e.StartDebtUAH, e.MarkDate)
+			e.StartDebtUAH.Major(), e.MarkDate)
 	}
 }
 
@@ -556,7 +556,7 @@ func TestDebtExitStartsFromMonthStart(t *testing.T) {
 	if want := today.Format("2006-01"); sch[0].Month != want {
 		t.Fatalf("перший крок %s, чекали поточний %s", sch[0].Month, want)
 	}
-	if sch[0].GrossUAH != 60_000 || sch[0].SpendUAH != 10_000 {
+	if sch[0].GrossUAH.Major() != 60_000 || sch[0].SpendUAH.Major() != 10_000 {
 		t.Errorf("місяць звірки має бути цілим: %+v", sch[0])
 	}
 	if e.Months != 4 {
@@ -564,24 +564,24 @@ func TestDebtExitStartsFromMonthStart(t *testing.T) {
 	}
 	// Борг на початок відновлено зі звірки 1-го: доходу до неї не було,
 	// витрати — за один прожитий день.
-	if e.MarkDate != first.Format("2006-01-02") || e.PaidBeforeMarkUAH != 0 {
-		t.Errorf("звірка %q, прийшло до неї %.2f — чекали %s і 0", e.MarkDate, e.PaidBeforeMarkUAH, first.Format("2006-01-02"))
+	if e.MarkDate != first.Format("2006-01-02") || e.PaidBeforeMarkUAH.Major() != 0 {
+		t.Errorf("звірка %q, прийшло до неї %.2f — чекали %s і 0", e.MarkDate, e.PaidBeforeMarkUAH.Major(), first.Format("2006-01-02"))
 	}
-	if want := round2(90_000 - 10_000/float64(days)); math.Abs(e.StartDebtUAH-want) > 0.01 {
-		t.Errorf("борг на початок %.2f, чекали %.2f (90 000 мінус день витрат)", e.StartDebtUAH, want)
+	if want := round2(90_000 - 10_000/float64(days)); math.Abs(e.StartDebtUAH.Major()-want) > 0.01 {
+		t.Errorf("борг на початок %.2f, чекали %.2f (90 000 мінус день витрат)", e.StartDebtUAH.Major(), want)
 	}
-	if e.DebtNowUAH != 90_000 {
-		t.Errorf("борг зараз %.2f, чекали 90 000", e.DebtNowUAH)
+	if e.DebtNowUAH.Major() != 90_000 {
+		t.Errorf("борг зараз %.2f, чекали 90 000", e.DebtNowUAH.Major())
 	}
 	// Тотожність запасу: місяці × (стеля − витрати) = Σ профіцитів − борг
 	// на початок; гранична глибина — від боргу ЗАРАЗ.
-	if want := e.Months * (e.SpendCapUAH - e.SpendUsedUAH); math.Abs(e.HeadroomUAH-want) > 0.05 {
-		t.Errorf("запас %.2f, чекали %.2f", e.HeadroomUAH, want)
+	if want := e.Months * (e.SpendCapUAH.Major() - e.SpendUsedUAH.Major()); math.Abs(e.HeadroomUAH.Major()-want) > 0.05 {
+		t.Errorf("запас %.2f, чекали %.2f", e.HeadroomUAH.Major(), want)
 	}
-	if want := e.DebtNowUAH + e.HeadroomUAH; math.Abs(e.MaxDebtUAH-want) > 0.05 {
-		t.Errorf("гранична глибина %.2f, чекали %.2f", e.MaxDebtUAH, want)
+	if want := e.DebtNowUAH.Major() + e.HeadroomUAH.Major(); math.Abs(e.MaxDebtUAH.Major()-want) > 0.05 {
+		t.Errorf("гранична глибина %.2f, чекали %.2f", e.MaxDebtUAH.Major(), want)
 	}
-	if sch[len(sch)-1].LeftUAH != 0 {
+	if sch[len(sch)-1].LeftUAH.Major() != 0 {
 		t.Errorf("прохід не доходить до нуля: %+v", sch)
 	}
 }
@@ -617,13 +617,13 @@ func TestDebtExitRebuildsStartDebtFromPaidBefore(t *testing.T) {
 	}
 
 	e := exitOf(t, srv.URL)
-	if e.PaidBeforeMarkUAH != 60_000 {
-		t.Errorf("прийшло до звірки %.2f, чекали зарплату 1-го — 60 000", e.PaidBeforeMarkUAH)
+	if e.PaidBeforeMarkUAH.Major() != 60_000 {
+		t.Errorf("прийшло до звірки %.2f, чекали зарплату 1-го — 60 000", e.PaidBeforeMarkUAH.Major())
 	}
-	if want := round2(90_000 + 60_000 - 10_000/float64(days)); math.Abs(e.StartDebtUAH-want) > 0.01 {
-		t.Errorf("борг на початок %.2f, чекали %.2f", e.StartDebtUAH, want)
+	if want := round2(90_000 + 60_000 - 10_000/float64(days)); math.Abs(e.StartDebtUAH.Major()-want) > 0.01 {
+		t.Errorf("борг на початок %.2f, чекали %.2f", e.StartDebtUAH.Major(), want)
 	}
-	if len(e.Schedule) == 0 || e.Schedule[0].GrossUAH != 120_000 {
+	if len(e.Schedule) == 0 || e.Schedule[0].GrossUAH.Major() != 120_000 {
 		t.Errorf("місяць звірки має нести обидві зарплати: %+v", e.Schedule)
 	}
 }
@@ -657,26 +657,26 @@ func TestDebtExitHeadroomMatchesCap(t *testing.T) {
 	if e == nil {
 		t.Fatal("блоку виходу немає")
 	}
-	if e.Months < 1 || e.SpendCapUAH <= e.SpendUsedUAH {
+	if e.Months < 1 || e.SpendCapUAH.Cmp(e.SpendUsedUAH) <= 0 {
 		t.Fatalf("фікстура не дає запасу: %+v", e)
 	}
-	want := e.Months * (e.SpendCapUAH - e.SpendUsedUAH)
-	if math.Abs(e.HeadroomUAH-want) > 0.05 {
+	want := e.Months * (e.SpendCapUAH.Major() - e.SpendUsedUAH.Major())
+	if math.Abs(e.HeadroomUAH.Major()-want) > 0.05 {
 		t.Errorf("запас %.2f, чекали %.2f (%.0f міс × (%.2f − %.2f))",
-			e.HeadroomUAH, want, e.Months, e.SpendCapUAH, e.SpendUsedUAH)
+			e.HeadroomUAH.Major(), want, e.Months, e.SpendCapUAH.Major(), e.SpendUsedUAH.Major())
 	}
-	if want := 90_000 + e.HeadroomUAH; math.Abs(e.MaxDebtUAH-want) > 0.05 {
-		t.Errorf("гранична глибина %.2f, чекали %.2f", e.MaxDebtUAH, want)
+	if want := 90_000 + e.HeadroomUAH.Major(); math.Abs(e.MaxDebtUAH.Major()-want) > 0.05 {
+		t.Errorf("гранична глибина %.2f, чекали %.2f", e.MaxDebtUAH.Major(), want)
 	}
 	if e.LimitLeftUAH == nil {
 		t.Fatal("ліміт заданий, а «скільки ще дозволяє ліміт» не порахували")
 	}
-	if *e.LimitLeftUAH != 60_000 {
-		t.Errorf("ліміт дозволяє %.2f, чекали 60 000", *e.LimitLeftUAH)
+	if (*e.LimitLeftUAH).Major() != 60_000 {
+		t.Errorf("ліміт дозволяє %.2f, чекали 60 000", (*e.LimitLeftUAH).Major())
 	}
-	if math.Abs(e.WithInvestHeadroomUAH-e.HeadroomUAH) > 0.05 {
+	if math.Abs(e.WithInvestHeadroomUAH.Major()-e.HeadroomUAH.Major()) > 0.05 {
 		t.Errorf("при нульовій інвестчастці запаси мусять збігатись: %.2f і %.2f",
-			e.WithInvestHeadroomUAH, e.HeadroomUAH)
+			e.WithInvestHeadroomUAH.Major(), e.HeadroomUAH.Major())
 	}
 
 	// Картка без ліміту — межі ліміту немає, а не «нуль».
@@ -746,9 +746,9 @@ func TestDebtExitCoversAllCardsWithTarget(t *testing.T) {
 	// Потреба — СУМА по картках, кожна за власною датою. У малої картки
 	// всього 6 000 боргу, тож будь-яке число більше за нього доводить, що
 	// велику порахували; беремо із запасом.
-	if exit.NeedPerMonthUAH < 20_000 {
+	if exit.NeedPerMonthUAH.Major() < 20_000 {
 		t.Errorf("треба звільняти %.2f — це потреба самої лише малої картки",
-			exit.NeedPerMonthUAH)
+			exit.NeedPerMonthUAH.Major())
 	}
 }
 
@@ -923,15 +923,15 @@ func TestDebtExitWalkShowsPlannedInItsMonth(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("у розкладі %d місяців, чекали 3: %+v", len(got), got)
 	}
-	if got[0].PlannedUAH != 0 || got[2].PlannedUAH != 0 {
+	if got[0].PlannedUAH.Major() != 0 || got[2].PlannedUAH.Major() != 0 {
 		t.Errorf("витрата розмазалась на сусідні місяці: %+v", got)
 	}
-	if got[1].PlannedUAH != 30_000 {
-		t.Errorf("у своєму місяці витрата %v, чекали 30000", got[1].PlannedUAH)
+	if got[1].PlannedUAH.Major() != 30_000 {
+		t.Errorf("у своєму місяці витрата %v, чекали 30000", got[1].PlannedUAH.Major())
 	}
 	// І борг у тому місяці меншає повільніше рівно на неї: 60 000 проти
 	// 30 000 гасіння.
-	if drop := got[0].LeftUAH - got[1].LeftUAH; drop != 30_000 {
+	if drop := got[0].LeftUAH.Major() - got[1].LeftUAH.Major(); drop != 30_000 {
 		t.Errorf("у місяці витрати борг упав на %v, чекали 30000 замість звичних 60000", drop)
 	}
 }

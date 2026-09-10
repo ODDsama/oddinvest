@@ -33,22 +33,22 @@ func round2(v float64) float64 { return math.Round(v*100) / 100 }
 // лише читається.
 type Capital struct {
 	// BondsUAH — номінал ОВДП, грн-екв., усі валюти разом.
-	BondsUAH float64
+	BondsUAH Money
 	// AccountUAH — гроші на рахунках брокерів, грн-екв.
-	AccountUAH float64
+	AccountUAH Money
 	// FundsUAH — ринкова вартість сертифікатів, грн-екв.
-	FundsUAH float64
+	FundsUAH Money
 	// DepositsUAH — тіло діючих вкладів, грн-екв.
-	DepositsUAH float64
+	DepositsUAH Money
 	// ReserveUAH — резерв («матрац»), грн-екв.
-	ReserveUAH float64
+	ReserveUAH Money
 	// GoalsUAH — цілі накопичення, грн-екв.
 	//
 	// У капіталі з того самого доводу, що й резерв: капітал — це «скільки в
 	// мене є», а не «скільки я можу вкласти». На друге відповідає купівельна
 	// спроможність, і там цілі віднімаються нарівні з подушкою (аргумент —
 	// у міграції 0039).
-	GoalsUAH float64
+	GoalsUAH Money
 	// NPFUAH — пенсійні активи, грн-екв.
 	//
 	// У капіталі, попри те, що витратити їх не можна до 50 років: капітал —
@@ -56,7 +56,7 @@ type Capital struct {
 	// ставить ліквідність, і саме там НПФ стоїть у locked_uah окремим
 	// рядком, щоб «замкнено до 2027-03» не читалось як правда про гроші, що
 	// звільняються у 2051-му.
-	NPFUAH float64
+	NPFUAH Money
 
 	// *ByCur — грн-еквівалент того, що є СПРАВЖНЬОЮ експозицією в валюту.
 	//
@@ -74,23 +74,23 @@ type Capital struct {
 	// валютою САМИХ ГРОШЕЙ, а не за валютою цілі. Це різні речі: «збираю на
 	// авто $20 000, лежить у гривні» дає гривневу експозицію, а курс при
 	// цьому працює ПРОТИ цілі — саме те, що Goal.FXMixed і називає.
-	BondsByCur    map[string]float64
-	DepositsByCur map[string]float64
-	ReserveByCur  map[string]float64
-	GoalsByCur    map[string]float64
-	NPFByCur      map[string]float64
+	BondsByCur    map[string]Money
+	DepositsByCur map[string]Money
+	ReserveByCur  map[string]Money
+	GoalsByCur    map[string]Money
+	NPFByCur      map[string]Money
 }
 
 // TotalUAH — увесь капітал, грн-екв.
 func (c Capital) TotalUAH() float64 {
-	return c.BondsUAH + c.AccountUAH + c.FundsUAH + c.DepositsUAH +
-		c.ReserveUAH + c.GoalsUAH + c.NPFUAH
+	return c.BondsUAH.Major() + c.AccountUAH.Major() + c.FundsUAH.Major() + c.DepositsUAH.Major() +
+		c.ReserveUAH.Major() + c.GoalsUAH.Major() + c.NPFUAH.Major()
 }
 
 // ExposureUAH — скільки капіталу стоїть у цій валюті, грн-екв.
 func (c Capital) ExposureUAH(cur string) float64 {
-	return c.BondsByCur[cur] + c.DepositsByCur[cur] + c.ReserveByCur[cur] +
-		c.GoalsByCur[cur] + c.NPFByCur[cur]
+	return c.BondsByCur[cur].Major() + c.DepositsByCur[cur].Major() + c.ReserveByCur[cur].Major() +
+		c.GoalsByCur[cur].Major() + c.NPFByCur[cur].Major()
 }
 
 // SharePct — частка валюти в капіталі, %.

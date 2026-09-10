@@ -17,8 +17,8 @@ func goalsDocFor(gap, required, moved float64, sharePct float64) *state.Doc {
 	d.Settings = &state.SettingsDoc{GoalsFillSharePct: fptr(sharePct)}
 	d.Goals = []state.Goal{{
 		ID: 1, Name: "Авто", Currency: money.UAH,
-		GapUAH: gap, RequiredUAH: required, MovedUAH: moved,
-		DueDate: "2028-01-01", FillMonthUAH: required, FillNowUAH: required - moved,
+		GapUAH: state.Major(gap, money.UAH), RequiredUAH: state.Major(required, money.UAH), MovedUAH: state.Major(moved, money.UAH),
+		DueDate: "2028-01-01", FillMonthUAH: state.Major(required, money.UAH), FillNowUAH: state.Major(required-moved, money.UAH),
 	}}
 	return d
 }

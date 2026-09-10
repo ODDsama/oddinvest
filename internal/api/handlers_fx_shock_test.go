@@ -362,7 +362,7 @@ func TestFXShockReExpressesForeignExpenses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Reserve == nil || before.Reserve.MonthlyExpensesUAH <= 0 {
+	if before.Reserve == nil || before.Reserve.MonthlyExpensesUAH.Major() <= 0 {
 		t.Fatalf("витрати не переклались і без шоку: %+v", before.Reserve)
 	}
 
@@ -382,8 +382,8 @@ func TestFXShockReExpressesForeignExpenses(t *testing.T) {
 	if err := json.Unmarshal(got.After, &after); err != nil {
 		t.Fatal(err)
 	}
-	if after.Reserve.MonthlyExpensesUAH <= before.Reserve.MonthlyExpensesUAH {
+	if after.Reserve.MonthlyExpensesUAH <= before.Reserve.MonthlyExpensesUAH.Major() {
 		t.Errorf("долар подорожчав, а місяць життя в гривні — ні: %v → %v",
-			before.Reserve.MonthlyExpensesUAH, after.Reserve.MonthlyExpensesUAH)
+			before.Reserve.MonthlyExpensesUAH.Major(), after.Reserve.MonthlyExpensesUAH)
 	}
 }

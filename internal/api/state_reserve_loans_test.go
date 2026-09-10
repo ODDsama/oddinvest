@@ -32,8 +32,8 @@ func TestReserveLoanFreeTopUpRepaysIt(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("позик %d, чекали 1 (частково повернена)", len(got))
 	}
-	if got[0].OwedUAH >= 12000 {
-		t.Errorf("залишок %.2f не зменшився на поповнення", got[0].OwedUAH)
+	if got[0].OwedUAH.Major() >= 12000 {
+		t.Errorf("залишок %.2f не зменшився на поповнення", got[0].OwedUAH.Major())
 	}
 }
 
@@ -64,8 +64,8 @@ func TestReserveLoanOlderTopUpDoesNotBlockQueue(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("позик %d, чекали 1", len(got))
 	}
-	if got[0].OwedUAH != 8000 {
-		t.Errorf("залишок %.2f, чекали 8000: давнє поповнення не гасить, свіже гасить", got[0].OwedUAH)
+	if got[0].OwedUAH.Major() != 8000 {
+		t.Errorf("залишок %.2f, чекали 8000: давнє поповнення не гасить, свіже гасить", got[0].OwedUAH.Major())
 	}
 }
 
@@ -83,8 +83,8 @@ func TestReserveLoanCurrencyQueuesAreSeparate(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("гривневе поповнення закрило доларову позику: %+v", got)
 	}
-	if got[0].TakenNative != 200 || got[0].Currency != money.USD {
-		t.Errorf("тіло %v %s, чекали 200 USD", got[0].TakenNative, got[0].Currency)
+	if got[0].TakenNative.Major() != 200 || got[0].Currency != money.USD {
+		t.Errorf("тіло %v %s, чекали 200 USD", got[0].TakenNative.Major(), got[0].Currency)
 	}
 }
 
@@ -152,8 +152,8 @@ func TestReserveOwedInterestIsInterestNotBody(t *testing.T) {
 	if markup <= 0 || markup >= 1000 {
 		t.Fatalf("надбавка %.2f — вона мусить бути відсотком за 30 днів, а не тілом 12 000", markup)
 	}
-	if got[0].OwedUAH-got[0].InterestUAH != 12000 {
+	if got[0].OwedUAH.Major()-got[0].InterestUAH.Major() != 12000 {
 		t.Errorf("залишок мінус відсоток = %.2f, чекали тіло 12 000",
-			got[0].OwedUAH-got[0].InterestUAH)
+			got[0].OwedUAH.Major()-got[0].InterestUAH.Major())
 	}
 }

@@ -72,7 +72,7 @@ func TestCalendarAgreesWithSummary(t *testing.T) {
 	want := map[string]bool{}
 	funded := 0
 	for _, p := range doc.Calendar {
-		want[fmt.Sprintf("%s|%s|%.2f", p.Date, p.ISIN, p.Amount)] = true
+		want[fmt.Sprintf("%s|%s|%.2f", p.Date, p.ISIN, p.Amount.Major())] = true
 		if domain.IsFundISIN(p.ISIN) {
 			funded++
 		}

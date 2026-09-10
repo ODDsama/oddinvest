@@ -47,7 +47,7 @@ type bondsPhase struct {
 	// NominalByCurUAH — він самий у грн-екв., мажорні (для капіталу й
 	// валютних часток, які міряються в спільній одиниці).
 	NominalByCur    map[string]int64
-	NominalByCurUAH map[string]float64
+	NominalByCurUAH map[string]state.Money
 	// NominalByISIN — номінал по ПАПЕРАХ, грн-екв., мінорні. Рахувався тут
 	// транзитом і викидався — а це єдиний вимір диверсифікації, якого в
 	// застосунку не було зовсім: «половина портфеля в одному ISIN»
@@ -84,7 +84,7 @@ func buildBonds(hold domain.Holdings, pays []domain.Payment,
 	rates fx.Rates, deval float64) bondsPhase {
 	out := bondsPhase{
 		NominalByCur:    map[string]int64{},
-		NominalByCurUAH: map[string]float64{},
+		NominalByCurUAH: map[string]state.Money{},
 		NominalByISIN:   map[string]int64{},
 		YieldByCur:      map[string]float64{},
 		YieldRealByCur:  map[string]float64{},
@@ -137,7 +137,7 @@ func buildBonds(hold domain.Holdings, pays []domain.Payment,
 	// бо це та сама облігаційна величина, тільки в іншій одиниці.
 	for cur, minor := range out.NominalByCur {
 		if u, err := fx.ToUAH(money.New(minor, cur), rates); err == nil {
-			out.NominalByCurUAH[cur] = float64(u.Amount()) / 100
+			out.NominalByCurUAH[cur] = state.Of(u)
 		}
 	}
 	return out
@@ -262,8 +262,8 @@ func (m *yieldMix) split() *state.YieldSplit {
 		return nil
 	}
 	return &state.YieldSplit{
-		MeasuredRealPct: round2(m.mReal / m.mWeight), MeasuredUAH: round2(m.mWeight),
-		PromisedRealPct: round2(m.pReal / m.pWeight), PromisedUAH: round2(m.pWeight),
+		MeasuredRealPct: round2(m.mReal / m.mWeight), MeasuredUAH: state.Major(m.mWeight, money.UAH),
+		PromisedRealPct: round2(m.pReal / m.pWeight), PromisedUAH: state.Major(m.pWeight, money.UAH),
 	}
 }
 

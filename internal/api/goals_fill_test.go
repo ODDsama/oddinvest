@@ -17,7 +17,7 @@ import (
 func goalRow(id int64, name string, gap, required, moved float64, due string) state.Goal {
 	return state.Goal{
 		ID: id, Name: name, Currency: money.UAH,
-		GapUAH: gap, RequiredUAH: required, MovedUAH: moved, DueDate: due,
+		GapUAH: state.Major(gap, money.UAH), RequiredUAH: state.Major(required, money.UAH), MovedUAH: state.Major(moved, money.UAH), DueDate: due,
 	}
 }
 
@@ -39,13 +39,13 @@ func TestGoalsFillGivesEachItsOwnRate(t *testing.T) {
 	// План 100 000 × 20% = 20 000 стелі; потрібно 8 000 разом.
 	state.GoalsFill(fillShare(20), goals, 100_000, false)
 
-	if math.Abs(goals[0].FillNowUAH-5_000) > 0.01 || math.Abs(goals[1].FillNowUAH-3_000) > 0.01 {
+	if math.Abs(goals[0].FillNowUAH.Major()-5_000) > 0.01 || math.Abs(goals[1].FillNowUAH.Major()-3_000) > 0.01 {
 		t.Errorf("частки поїхали: %.2f і %.2f, чекали 5 000 і 3 000",
-			goals[0].FillNowUAH, goals[1].FillNowUAH)
+			goals[0].FillNowUAH.Major(), goals[1].FillNowUAH.Major())
 	}
 	for _, g := range goals {
-		if g.ShortMonthUAH != 0 {
-			t.Errorf("%s: нестача %.2f там, де стеля все покриває", g.Name, g.ShortMonthUAH)
+		if g.ShortMonthUAH.Major() != 0 {
+			t.Errorf("%s: нестача %.2f там, де стеля все покриває", g.Name, g.ShortMonthUAH.Major())
 		}
 	}
 }
@@ -63,18 +63,18 @@ func TestGoalsFillQueuesByPriorityAndNamesTheShortfall(t *testing.T) {
 	// План 30 000 × 20% = 6 000 стелі на потрібні 8 000.
 	state.GoalsFill(fillShare(20), goals, 30_000, false)
 
-	if math.Abs(goals[0].FillNowUAH-5_000) > 0.01 {
+	if math.Abs(goals[0].FillNowUAH.Major()-5_000) > 0.01 {
 		t.Errorf("перша ціль дістала %.2f замість своїх 5 000 — стеля поділилась порівну",
-			goals[0].FillNowUAH)
+			goals[0].FillNowUAH.Major())
 	}
-	if math.Abs(goals[1].FillNowUAH-1_000) > 0.01 {
-		t.Errorf("другій дісталось %.2f, а лишалось 1 000", goals[1].FillNowUAH)
+	if math.Abs(goals[1].FillNowUAH.Major()-1_000) > 0.01 {
+		t.Errorf("другій дісталось %.2f, а лишалось 1 000", goals[1].FillNowUAH.Major())
 	}
-	if math.Abs(goals[1].ShortMonthUAH-2_000) > 0.01 {
-		t.Errorf("нестача другої = %.2f, а це 3 000 − 1 000 = 2 000", goals[1].ShortMonthUAH)
+	if math.Abs(goals[1].ShortMonthUAH.Major()-2_000) > 0.01 {
+		t.Errorf("нестача другої = %.2f, а це 3 000 − 1 000 = 2 000", goals[1].ShortMonthUAH.Major())
 	}
-	if goals[0].ShortMonthUAH != 0 {
-		t.Errorf("перша ціль дістала своє, нестачі бути не мусить: %.2f", goals[0].ShortMonthUAH)
+	if goals[0].ShortMonthUAH.Major() != 0 {
+		t.Errorf("перша ціль дістала своє, нестачі бути не мусить: %.2f", goals[0].ShortMonthUAH.Major())
 	}
 }
 
@@ -88,12 +88,12 @@ func TestGoalsFillSubtractsWhatIsAlreadyMoved(t *testing.T) {
 	goals := []state.Goal{goalRow(1, "Авто", 100_000, 5_000, 2_000, "2027-06-01")}
 	state.GoalsFill(fillShare(20), goals, 100_000, false)
 
-	if math.Abs(goals[0].FillMonthUAH-5_000) > 0.01 {
+	if math.Abs(goals[0].FillMonthUAH.Major()-5_000) > 0.01 {
 		t.Errorf("стеля місяця = %.2f, чекали 5 000 (2 000 покладено + 3 000 лишилось)",
-			goals[0].FillMonthUAH)
+			goals[0].FillMonthUAH.Major())
 	}
-	if math.Abs(goals[0].FillNowUAH-3_000) > 0.01 {
-		t.Errorf("лишилось відкласти %.2f, а це 5 000 − 2 000 = 3 000", goals[0].FillNowUAH)
+	if math.Abs(goals[0].FillNowUAH.Major()-3_000) > 0.01 {
+		t.Errorf("лишилось відкласти %.2f, а це 5 000 − 2 000 = 3 000", goals[0].FillNowUAH.Major())
 	}
 }
 
@@ -106,11 +106,11 @@ func TestGoalWithoutDueDateTakesWholeGap(t *testing.T) {
 	goals := []state.Goal{goalRow(1, "Будинок", 40_000, 0, 0, "")}
 	state.GoalsFill(fillShare(50), goals, 200_000, false) // стеля 100 000 > розриву
 
-	if math.Abs(goals[0].FillNowUAH-40_000) > 0.01 {
-		t.Errorf("ціль без дати дістала %.2f замість усього розриву 40 000", goals[0].FillNowUAH)
+	if math.Abs(goals[0].FillNowUAH.Major()-40_000) > 0.01 {
+		t.Errorf("ціль без дати дістала %.2f замість усього розриву 40 000", goals[0].FillNowUAH.Major())
 	}
-	if goals[0].ShortMonthUAH != 0 {
-		t.Errorf("нестачі бути не мусить — стеля більша за розрив: %.2f", goals[0].ShortMonthUAH)
+	if goals[0].ShortMonthUAH.Major() != 0 {
+		t.Errorf("нестачі бути не мусить — стеля більша за розрив: %.2f", goals[0].ShortMonthUAH.Major())
 	}
 }
 
@@ -128,13 +128,13 @@ func TestGoalsFillIgnoresDoneAndClosedGoals(t *testing.T) {
 	}
 	state.GoalsFill(fillShare(20), goals, 30_000, false)
 
-	if goals[0].FillNowUAH != 0 || goals[1].FillNowUAH != 0 {
+	if goals[0].FillNowUAH.Major() != 0 || goals[1].FillNowUAH.Major() != 0 {
 		t.Errorf("закрита або зібрана ціль узяла своє: %.2f і %.2f",
-			goals[0].FillNowUAH, goals[1].FillNowUAH)
+			goals[0].FillNowUAH.Major(), goals[1].FillNowUAH.Major())
 	}
-	if math.Abs(goals[2].FillNowUAH-5_000) > 0.01 {
+	if math.Abs(goals[2].FillNowUAH.Major()-5_000) > 0.01 {
 		t.Errorf("живій цілі дісталось %.2f замість 5 000 — чергу зайняли закриті",
-			goals[2].FillNowUAH)
+			goals[2].FillNowUAH.Major())
 	}
 }
 
@@ -149,7 +149,7 @@ func TestGoalsFillSilentWithoutSetting(t *testing.T) {
 	state.GoalsFill(&state.SettingsDoc{}, goals, 100_000, false)
 	state.GoalsFill(fillShare(20), goals, 0, false) // плану доходу немає
 
-	if goals[0].FillMonthUAH != 0 || goals[0].FillNowUAH != 0 {
+	if goals[0].FillMonthUAH.Major() != 0 || goals[0].FillNowUAH.Major() != 0 {
 		t.Errorf("механізм заговорив без стелі або без плану: %+v", goals[0])
 	}
 }
@@ -361,21 +361,21 @@ func TestGoalsPausedWhileExiting(t *testing.T) {
 
 	goals := []state.Goal{goalRow(1, "Авто", 500_000, 0, 0, "")}
 	state.GoalsFill(set, goals, 100_000, true)
-	if goals[0].FillNowUAH <= 0 {
+	if goals[0].FillNowUAH.Major() <= 0 {
 		t.Fatalf("без ключа борг зупинив цілі: %+v", goals[0])
 	}
 
 	set.GoalsWhileDebt = "pause"
 	goals = []state.Goal{goalRow(1, "Авто", 500_000, 0, 0, "")}
 	state.GoalsFill(set, goals, 100_000, true)
-	if goals[0].FillMonthUAH != 0 || goals[0].FillNowUAH != 0 {
+	if goals[0].FillMonthUAH.Major() != 0 || goals[0].FillNowUAH.Major() != 0 {
 		t.Errorf("пауза не спрацювала: %+v", goals[0])
 	}
 
 	// Боргу немає — пауза не діє, хай би що стояло в ключі.
 	goals = []state.Goal{goalRow(1, "Авто", 500_000, 0, 0, "")}
 	state.GoalsFill(set, goals, 100_000, false)
-	if goals[0].FillNowUAH <= 0 {
+	if goals[0].FillNowUAH.Major() <= 0 {
 		t.Errorf("пауза діє без боргу: %+v", goals[0])
 	}
 }

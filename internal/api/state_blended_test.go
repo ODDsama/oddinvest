@@ -125,15 +125,15 @@ func TestBlendYieldSplitsMeasuredFromPromised(t *testing.T) {
 	if split == nil {
 		t.Fatal("обидві половини є — розклад мав зʼявитись")
 	}
-	if split.MeasuredRealPct != 2 || split.MeasuredUAH != 500 {
+	if split.MeasuredRealPct != 2 || split.MeasuredUAH.Major() != 500 {
 		t.Errorf("зароблена половина: %+v", split)
 	}
-	if split.PromisedRealPct != 10 || split.PromisedUAH != 1000 {
+	if split.PromisedRealPct != 10 || split.PromisedUAH.Major() != 1000 {
 		t.Errorf("обіцяна половина: %+v", split)
 	}
-	if split.MeasuredUAH+split.PromisedUAH != base {
+	if split.MeasuredUAH.Major()+split.PromisedUAH.Major() != base {
 		t.Errorf("половини %v + %v не дають базу %v",
-			split.MeasuredUAH, split.PromisedUAH, base)
+			split.MeasuredUAH.Major(), split.PromisedUAH.Major(), base)
 	}
 }
 

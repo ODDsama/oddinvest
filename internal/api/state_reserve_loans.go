@@ -72,18 +72,18 @@ func reserveLoans(loans []store.ReserveLoan, ops []store.ReserveOp,
 		}
 		row := state.ReserveLoan{
 			ID: l.ID, OpID: l.OpID, Date: string(l.TakenDate),
-			TakenUAH: float64(takenUAH.Amount()) / 100,
+			TakenUAH: state.Of(takenUAH),
 			RatePct:  float64(l.RateBP) / 100,
 			Days:     domain.DaysBetween(l.TakenDate, today),
-			OwedUAH:  float64(owedUAH.Amount()) / 100,
+			OwedUAH:  state.Of(owedUAH),
 			// Саме це число піднімає ціль. Тіло її не піднімає: подушка
 			// вже впала на нього самим зняттям (довід — шапка 0057).
-			InterestUAH: float64(interestUAH.Amount()) / 100,
+			InterestUAH: state.Of(interestUAH),
 			DueDate:     l.DueDate, Note: l.Note,
 		}
 		if l.TakenCurrency != money.UAH {
 			row.Currency = l.TakenCurrency
-			row.TakenNative = float64(l.TakenAmount) / 100
+			row.TakenNative = state.Minor(l.TakenAmount, l.TakenCurrency)
 		}
 		// Простроченою може бути лише позика з дедлайном: без дати людина
 		// собі нічого не обіцяла, і фарбувати її червоним — вимагати того,
@@ -180,7 +180,7 @@ func reserveRepays(loans []store.ReserveLoan, ops []store.ReserveOp,
 func reserveOwedInterestUAH(loans []state.ReserveLoan) float64 {
 	var sum float64
 	for _, l := range loans {
-		sum += l.InterestUAH
+		sum += l.InterestUAH.Major()
 	}
 	return sum
 }

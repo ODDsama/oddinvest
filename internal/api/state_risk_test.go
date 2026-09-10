@@ -39,9 +39,9 @@ func TestLiquidityDoesNotCountMaturingDepositTwice(t *testing.T) {
 		AccountMinor: 1_000_00, Now: now, Today: today,
 	})
 
-	if got := out.Liquidity.LockedUAH; got != 7000 {
+	if got := out.Liquidity.LockedUAH; got.Major() != 7000 {
 		t.Errorf("замкнено %v, очікували 7000: вклад, що гаситься за 60 днів, "+
-			"уже стоїть у in_90 і замкненим бути не може", got)
+			"уже стоїть у in_90 і замкненим бути не може", got.Major())
 	}
 	if got := out.Liquidity.UnlockDate; got != string(d(400)) {
 		t.Errorf("дата розблокування %q, очікували %q — найближчий СПРАВДІ замкнений вклад",
@@ -69,17 +69,17 @@ func TestLiquidityWindowsAreCumulative(t *testing.T) {
 		AccountMinor: 1_000_00, Now: now, Today: today,
 	})
 
-	if out.Liquidity.NowUAH != 1000 {
-		t.Errorf("зараз %v, очікували 1000", out.Liquidity.NowUAH)
+	if out.Liquidity.NowUAH.Major() != 1000 {
+		t.Errorf("зараз %v, очікували 1000", out.Liquidity.NowUAH.Major())
 	}
-	if out.Liquidity.In30UAH != 1100 {
-		t.Errorf("за 30 днів %v, очікували 1100 (рахунок + купон на 10-й день)", out.Liquidity.In30UAH)
+	if out.Liquidity.In30UAH.Major() != 1100 {
+		t.Errorf("за 30 днів %v, очікували 1100 (рахунок + купон на 10-й день)", out.Liquidity.In30UAH.Major())
 	}
-	if out.Liquidity.In90UAH != 1400 {
+	if out.Liquidity.In90UAH.Major() != 1400 {
 		t.Errorf("за 90 днів %v, очікували 1400 — вікно НАКОПИЧУВАЛЬНЕ й містить перше",
-			out.Liquidity.In90UAH)
+			out.Liquidity.In90UAH.Major())
 	}
-	if out.Liquidity.In90UAH < out.Liquidity.In30UAH {
+	if out.Liquidity.In90UAH.Cmp(out.Liquidity.In30UAH) < 0 {
 		t.Error("за 90 днів доступно менше, ніж за 30 — вікна перестали перекриватись")
 	}
 }
@@ -108,17 +108,17 @@ func TestLiquiditySplitsLockedFromBreakable(t *testing.T) {
 	if l == nil {
 		t.Fatal("картки ліквідності немає")
 	}
-	if l.LockedUAH != 100_000 {
-		t.Errorf("замкнено %.2f ₴, очікували 100 000 — це безвідкличний вклад", l.LockedUAH)
+	if l.LockedUAH.Major() != 100_000 {
+		t.Errorf("замкнено %.2f ₴, очікували 100 000 — це безвідкличний вклад", l.LockedUAH.Major())
 	}
-	if l.BreakableUAH != 300_000 {
+	if l.BreakableUAH.Major() != 300_000 {
 		t.Errorf("зламне %.2f ₴, очікували 300 000 — договір дозволяє забрати достроково",
-			l.BreakableUAH)
+			l.BreakableUAH.Major())
 	}
 	// Ні те, ні те не є вільними грошима: додати зламне в «зараз» означало
 	// б зробити подушку купівельною спроможністю.
-	if l.NowUAH != 0 {
-		t.Errorf("«зараз» %.2f ₴ — вклади не є готівкою, хай би якими розривними були", l.NowUAH)
+	if l.NowUAH.Major() != 0 {
+		t.Errorf("«зараз» %.2f ₴ — вклади не є готівкою, хай би якими розривними були", l.NowUAH.Major())
 	}
 }
 
@@ -150,21 +150,21 @@ func TestLiquidityAvailableNowCountsReserveAndGoals(t *testing.T) {
 	})
 	l := out.Liquidity
 
-	if l.NowUAH != 1000 {
+	if l.NowUAH.Major() != 1000 {
 		t.Errorf("«на рахунках» %.2f, очікували 1000: подушка й цілі сюди не входять — "+
-			"на now_uah == account_uah стоїть звірка звіту про рух коштів", l.NowUAH)
+			"на now_uah == account_uah стоїть звірка звіту про рух коштів", l.NowUAH.Major())
 	}
-	if l.AvailableNowUAH != 14000 {
+	if l.AvailableNowUAH.Major() != 14000 {
 		t.Errorf("«під рукою» %.2f, очікували 14000 = рахунок 1000 + подушка 10000 + цілі 3000",
-			l.AvailableNowUAH)
+			l.AvailableNowUAH.Major())
 	}
-	if l.In30UAH != 14100 || l.In90UAH != 14100 {
+	if l.In30UAH.Major() != 14100 || l.In90UAH.Major() != 14100 {
 		t.Errorf("вікна %.2f / %.2f, очікували 14100: вони рахуються від «під рукою», "+
-			"а не від рахунку", l.In30UAH, l.In90UAH)
+			"а не від рахунку", l.In30UAH.Major(), l.In90UAH.Major())
 	}
-	if l.ReserveUAH != 10000 || l.GoalsUAH != 3000 {
+	if l.ReserveUAH.Major() != 10000 || l.GoalsUAH.Major() != 3000 {
 		t.Errorf("доданки мають лишитись видимими окремо: подушка %.2f, цілі %.2f",
-			l.ReserveUAH, l.GoalsUAH)
+			l.ReserveUAH.Major(), l.GoalsUAH.Major())
 	}
 }
 
@@ -191,19 +191,19 @@ func TestLiquidityMarksReserveRungs(t *testing.T) {
 		TermDeposits: deps, Rates: fx.Rates{}, Now: now, Today: today,
 	}).Liquidity
 
-	if l.LockedUAH != 12000 {
+	if l.LockedUAH.Major() != 12000 {
 		t.Errorf("замкнено %.2f, очікували 12000: резервна рунга лишається в спільному числі",
-			l.LockedUAH)
+			l.LockedUAH.Major())
 	}
-	if l.LockedReserveUAH != 5000 {
-		t.Errorf("з них подушка %.2f, очікували 5000", l.LockedReserveUAH)
+	if l.LockedReserveUAH.Major() != 5000 {
+		t.Errorf("з них подушка %.2f, очікували 5000", l.LockedReserveUAH.Major())
 	}
-	if l.BreakableUAH != 2000 || l.BreakableReserveUAH != 2000 {
+	if l.BreakableUAH.Major() != 2000 || l.BreakableReserveUAH.Major() != 2000 {
 		t.Errorf("зламне %.2f, з них подушка %.2f — очікували 2000 і 2000",
-			l.BreakableUAH, l.BreakableReserveUAH)
+			l.BreakableUAH.Major(), l.BreakableReserveUAH.Major())
 	}
-	if l.AvailableNowUAH != 0 {
+	if l.AvailableNowUAH.Major() != 0 {
 		t.Errorf("«під рукою» %.2f: тіло вкладу, хай і резервного, у руках не лежить",
-			l.AvailableNowUAH)
+			l.AvailableNowUAH.Major())
 	}
 }

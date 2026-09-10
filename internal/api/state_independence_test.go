@@ -33,14 +33,14 @@ func TestDrawdownWithdrawPrefersSetting(t *testing.T) {
 	if out == nil {
 		t.Fatal("декумуляції немає")
 	}
-	if out.WithdrawUAH != 12_000 || out.WithdrawFrom != "setting" {
+	if out.WithdrawUAH.Major() != 12_000 || out.WithdrawFrom != "setting" {
 		t.Errorf("зняття %v (%s); очікували 12000 із налаштування",
-			out.WithdrawUAH, out.WithdrawFrom)
+			out.WithdrawUAH.Major(), out.WithdrawFrom)
 	}
 	fallback := buildProjection(indepInput(t, 50_000, 30_000)).Drawdown
-	if fallback.WithdrawUAH != 50_000 || fallback.WithdrawFrom != "expenses" {
+	if fallback.WithdrawUAH.Major() != 50_000 || fallback.WithdrawFrom != "expenses" {
 		t.Errorf("спад дав %v (%s); очікували 50000 із витрат",
-			fallback.WithdrawUAH, fallback.WithdrawFrom)
+			fallback.WithdrawUAH.Major(), fallback.WithdrawFrom)
 	}
 }
 
@@ -145,15 +145,15 @@ func TestIndependenceTargetPrefersSetting(t *testing.T) {
 	if out == nil {
 		t.Fatal("незалежності немає")
 	}
-	if out.TargetUAH != 30_000 || out.TargetFrom != "setting" {
+	if out.TargetUAH.Major() != 30_000 || out.TargetFrom != "setting" {
 		t.Errorf("ціль %v (%s); очікували 30000 із налаштування",
-			out.TargetUAH, out.TargetFrom)
+			out.TargetUAH.Major(), out.TargetFrom)
 	}
 	// Без явної цілі лишаються витрати — і документ каже це вголос.
 	fallback := buildProjection(indepInput(t, 50_000, 0)).Independence
-	if fallback.TargetUAH != 50_000 || fallback.TargetFrom != "expenses" {
+	if fallback.TargetUAH.Major() != 50_000 || fallback.TargetFrom != "expenses" {
 		t.Errorf("спад дав %v (%s); очікували 50000 із витрат",
-			fallback.TargetUAH, fallback.TargetFrom)
+			fallback.TargetUAH.Major(), fallback.TargetFrom)
 	}
 }
 
@@ -203,8 +203,8 @@ func TestIndependenceSlowerPaceComesLater(t *testing.T) {
 func TestIndependenceIncomeNowMatchesDocument(t *testing.T) {
 	in := indepInput(t, 50_000, 30_000)
 	out := buildProjection(in).Independence
-	if out.IncomeNowUAH != in.IncomeMonthlyNow {
-		t.Errorf("дохід зараз %v, а у фазі доходу %v", out.IncomeNowUAH, in.IncomeMonthlyNow)
+	if out.IncomeNowUAH.Major() != in.IncomeMonthlyNow {
+		t.Errorf("дохід зараз %v, а у фазі доходу %v", out.IncomeNowUAH.Major(), in.IncomeMonthlyNow)
 	}
 }
 
@@ -221,7 +221,7 @@ func TestIndependenceCapitalOnlyWhenReached(t *testing.T) {
 	if out.PlanMonths != 0 {
 		t.Fatalf("ціль мала лишитись недосяжною, маємо %d", out.PlanMonths)
 	}
-	if out.CapitalUAH != 0 {
-		t.Errorf("капітал %v на момент, якого не буде", out.CapitalUAH)
+	if out.CapitalUAH.Major() != 0 {
+		t.Errorf("капітал %v на момент, якого не буде", out.CapitalUAH.Major())
 	}
 }

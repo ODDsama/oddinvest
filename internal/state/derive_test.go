@@ -1,6 +1,9 @@
 package state
 
-import "testing"
+import (
+	money "github.com/Rhymond/go-money"
+	"testing"
+)
 
 func ptr(v float64) *float64 { return &v }
 
@@ -91,29 +94,29 @@ func TestReserveDebtCoverGap(t *testing.T) {
 			MonthlyExpensesUAH:  ptr(25000),
 			ReserveTargetMonths: ptr(6),
 		},
-		ReserveUAH: 30000,
+		ReserveUAH: Major(30000, money.UAH),
 	}
-	if err := Derive(doc, DeriveInput{DebtCoverUAH: 74000}); err != nil {
+	if err := Derive(doc, DeriveInput{DebtCoverUAH: Major(74000, money.UAH)}); err != nil {
 		t.Fatalf("Derive: %v", err)
 	}
 	r := doc.Reserve
 	if r == nil {
 		t.Fatal("картки резерву немає")
 	}
-	if r.DebtCoverUAH != 74000 || r.DebtCoverGapUAH != 44000 {
+	if r.DebtCoverUAH.Major() != 74000 || r.DebtCoverGapUAH.Major() != 44000 {
 		t.Errorf("рубіж %.2f / бракує %.2f, чекали 74000 / 44000",
-			r.DebtCoverUAH, r.DebtCoverGapUAH)
+			r.DebtCoverUAH.Major(), r.DebtCoverGapUAH.Major())
 	}
 
 	// Подушка переросла борг — рубіж лишається названим, а «бракує» зникає:
 	// «перекрито» це відповідь, а не мовчання.
-	doc.ReserveUAH = 90000
-	if err := Derive(doc, DeriveInput{DebtCoverUAH: 74000}); err != nil {
+	doc.ReserveUAH = Major(90000, money.UAH)
+	if err := Derive(doc, DeriveInput{DebtCoverUAH: Major(74000, money.UAH)}); err != nil {
 		t.Fatalf("Derive: %v", err)
 	}
-	if doc.Reserve.DebtCoverUAH != 74000 || doc.Reserve.DebtCoverGapUAH != 0 {
+	if doc.Reserve.DebtCoverUAH.Major() != 74000 || doc.Reserve.DebtCoverGapUAH.Major() != 0 {
 		t.Errorf("після перекриття: рубіж %.2f / бракує %.2f",
-			doc.Reserve.DebtCoverUAH, doc.Reserve.DebtCoverGapUAH)
+			doc.Reserve.DebtCoverUAH.Major(), doc.Reserve.DebtCoverGapUAH.Major())
 	}
 }
 

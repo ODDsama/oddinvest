@@ -200,14 +200,14 @@ func buildDebtPlan(src *sources, debts []domain.Debt, marks []domain.DebtMark,
 			}
 		}
 		if u, err := fx.ToUAH(money.New(balance, d.Currency), rates); err == nil {
-			out.TotalUAH += float64(u.Amount()) / 100
+			out.TotalUAH = out.TotalUAH.Add(state.Of(u))
 		}
 		if rate, basis := domain.DebtEffectiveRate(d, balance); basis != domain.DebtRateNone &&
 			rate > out.TopRatePct {
 			out.TopRatePct, out.TopName = round2(rate), d.Name
 		}
 	}
-	out.TotalUAH = round2(out.TotalUAH)
+
 	if mp != nil {
 		out.DueThisMonthUAH = mp.DebtDueUAH
 	}
@@ -235,10 +235,10 @@ func buildDebtPlan(src *sources, debts []domain.Debt, marks []domain.DebtMark,
 			continue
 		}
 		if u, err := fx.ToUAH(money.New(op.Amount, debtCurrency(debts, op.DebtID)), rates); err == nil {
-			out.PaidExtraUAH += float64(u.Amount()) / 100
+			out.PaidExtraUAH = out.PaidExtraUAH.Add(state.Of(u))
 		}
 	}
-	out.PaidExtraUAH = round2(math.Max(0, out.PaidExtraUAH-instDue))
+	out.PaidExtraUAH = state.Major(math.Max(0, out.PaidExtraUAH.Major()-instDue), money.UAH)
 
 	// СТЕЛЯ ДОСТРОКОВОГО — ВІД КАРТКОВИХ ГРОШЕЙ, А НЕ ВІД ПОРТФЕЛЬНИХ.
 	//
@@ -259,17 +259,17 @@ func buildDebtPlan(src *sources, debts []domain.Debt, marks []domain.DebtMark,
 	// ЧИСЛО ЛИШИЛОСЬ ПОРАДОЮ, А НЕ ВИРІЗКОЮ. Розкладка й маршрут більше не
 	// ведуть гроші в борг зовсім; це стеля на сторінці боргу й запасне
 	// значення для /api/payoff. Вибір робить людина.
-	if set != nil && set.DebtFillSharePct != nil && mp != nil && out.TotalUAH > 0 {
-		base := math.Max(0, mp.OnCardUAH-mp.DebtDueUAH)
+	if set != nil && set.DebtFillSharePct != nil && mp != nil && out.TotalUAH.Major() > 0 {
+		base := math.Max(0, mp.OnCardUAH.Major()-mp.DebtDueUAH.Major())
 		if share := *set.DebtFillSharePct; share > 0 && base > 0 {
-			month := math.Min(base*share/100, out.TotalUAH)
-			out.FillMonthUAH = round2(month)
-			out.FillNowUAH = round2(math.Max(0, month-out.PaidExtraUAH))
+			month := math.Min(base*share/100, out.TotalUAH.Major())
+			out.FillMonthUAH = state.Major(month, money.UAH)
+			out.FillNowUAH = state.Major(math.Max(0, month-out.PaidExtraUAH.Major()), money.UAH)
 		}
 	}
 	out.Exit = buildDebtExit(debts, marks, ops, set, src, rates, today)
 	out.Cards = buildDebtCards(debts, marks, ops, rates, today)
-	if out.TotalUAH == 0 && out.CardsWatched == 0 && out.Exit == nil {
+	if out.TotalUAH.Major() == 0 && out.CardsWatched == 0 && out.Exit == nil {
 		return nil
 	}
 	return out
@@ -300,10 +300,10 @@ func buildDebtCards(debts []domain.Debt, marks []domain.DebtMark, ops []domain.D
 			MarkAgeDays:   st.MarkAgeDays,
 			DueDate:       string(st.DueDate),
 			DaysToDue:     st.DaysToDue,
-			BringByDueUAH: minorUAH(st.BringByDue, d.Currency, rates),
-			MinDueUAH:     minorUAH(st.MinDue, d.Currency, rates),
-			FreeUAH:       minorUAH(st.Free, d.Currency, rates),
-			DebtUAH:       minorUAH(st.Debt, d.Currency, rates),
+			BringByDueUAH: state.Major(minorUAH(st.BringByDue, d.Currency, rates), money.UAH),
+			MinDueUAH:     state.Major(minorUAH(st.MinDue, d.Currency, rates), money.UAH),
+			FreeUAH:       state.Major(minorUAH(st.Free, d.Currency, rates), money.UAH),
+			DebtUAH:       state.Major(minorUAH(st.Debt, d.Currency, rates), money.UAH),
 			UsedPct:       round2(st.UsedPct),
 			ExitBy:        string(d.ExitBy),
 		})
@@ -446,7 +446,7 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 	if markDate != "" {
 		markM := domain.MonthsBetween(today, markDate)
 		startM = markM + 1
-		if mp := buildMonthPlan(src, rates, today, markM, 0, markDate); mp != nil && mp.GrossUAH > 0 {
+		if mp := buildMonthPlan(src, rates, today, markM, 0, markDate); mp != nil && mp.GrossUAH.Major() > 0 {
 			startM = markM
 			markMonth = markDate
 		}
@@ -489,7 +489,7 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 	for m := startM; m < startM+months; m++ {
 		row := debtMonthRow{}
 		if mp := buildMonthPlan(src, rates, today, m, 0, ""); mp != nil {
-			row.gross, row.invest = mp.GrossUAH, mp.IncomeUAH+mp.ExtraUAH
+			row.gross, row.invest = mp.GrossUAH.Major(), mp.IncomeUAH.Major()+mp.ExtraUAH.Major()
 		}
 		row.inst = cardInstallmentsInMonth(src, rates, today, m, "")
 		// Планові витрати КАРТКОВОГО контуру — тим самим збирачем, що й у
@@ -518,7 +518,7 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		full := perMonth[0]
 		after := debtMonthRow{}
 		if mp := buildMonthPlan(src, rates, today, startM, 0, markMonth); mp != nil {
-			after.gross, after.invest = mp.GrossUAH, mp.IncomeUAH+mp.ExtraUAH
+			after.gross, after.invest = mp.GrossUAH.Major(), mp.IncomeUAH.Major()+mp.ExtraUAH.Major()
 		}
 		after.inst = cardInstallmentsInMonth(src, rates, today, startM, markMonth.AddDays(1))
 		// ПЛАНОВИХ ВИТРАТ ДО ЗВІРКИ ТУТ НЕМАЄ, і це рішення, а не пропуск —
@@ -583,42 +583,42 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 	}
 	out := &state.DebtExit{
 		Cards: names, ExitBy: string(plan.ExitBy), Months: round2(plan.Months),
-		SpendCapUAH:      round2(float64(plan.SpendCap) / 100),
-		NeedPerMonthUAH:  round2(float64(plan.NeedPerMonth) / 100),
+		SpendCapUAH:      state.Minor(plan.SpendCap, money.UAH),
+		NeedPerMonthUAH:  state.Minor(plan.NeedPerMonth, money.UAH),
 		Feasible:         plan.Feasible,
-		ShortPerMonthUAH: round2(float64(plan.ShortPerMonth) / 100),
+		ShortPerMonthUAH: state.Minor(plan.ShortPerMonth, money.UAH),
 		ETADate:          string(plan.ETADate),
-		GrossUAH:         round2(gross),
-		InvestUAH:        round2(invest),
-		InstallmentsUAH:  round2(inst),
-		PlannedUAH:       round2(planned),
-		SpendUsedUAH:     round2(spend),
+		GrossUAH:         state.Major(gross, money.UAH),
+		InvestUAH:        state.Major(invest, money.UAH),
+		InstallmentsUAH:  state.Major(inst, money.UAH),
+		PlannedUAH:       state.Major(planned, money.UAH),
+		SpendUsedUAH:     state.Major(spend, money.UAH),
 		SpendBasis:       basis,
-		SpendDeclaredUAH: round2(declared),
+		SpendDeclaredUAH: state.Major(declared, money.UAH),
 		BurnWhy:          burn.Why,
 
-		WithInvestSpendCapUAH: round2(float64(plan.WithInvestSpendCap) / 100),
+		WithInvestSpendCapUAH: state.Minor(plan.WithInvestSpendCap, money.UAH),
 		WithInvestETADate:     string(plan.WithInvestETADate),
 
-		HeadroomUAH:           round2(float64(plan.Headroom) / 100),
-		MaxDebtUAH:            round2(float64(plan.MaxDebt) / 100),
-		WithInvestHeadroomUAH: round2(float64(plan.WithInvestHeadroom) / 100),
+		HeadroomUAH:           state.Minor(plan.Headroom, money.UAH),
+		MaxDebtUAH:            state.Minor(plan.MaxDebt, money.UAH),
+		WithInvestHeadroomUAH: state.Minor(plan.WithInvestHeadroom, money.UAH),
 
-		StartDebtUAH: round2(startDebt), DebtNowUAH: round2(debtNow),
+		StartDebtUAH: state.Major(startDebt, money.UAH), DebtNowUAH: state.Major(debtNow, money.UAH),
 		StartMonth: monthKeyAt(today, startM),
 	}
 	if markMonth != "" {
 		out.MarkDate = string(markMonth)
-		out.PaidBeforeMarkUAH = paidBefore
-		out.InstallmentsBeforeMarkUAH = instBefore
-		out.SpendBeforeMarkUAH = spendBefore
+		out.PaidBeforeMarkUAH = state.Major(paidBefore, money.UAH)
+		out.InstallmentsBeforeMarkUAH = state.Major(instBefore, money.UAH)
+		out.SpendBeforeMarkUAH = state.Major(spendBefore, money.UAH)
 	}
 	if limitKnown {
-		v := round2(float64(limitLeft) / 100)
+		v := state.Minor(limitLeft, money.UAH)
 		out.LimitLeftUAH = &v
 	}
 	if burn.Known {
-		out.SpendMeasuredUAH = round2(float64(burn.PerMonth) / 100)
+		out.SpendMeasuredUAH = state.Minor(burn.PerMonth, money.UAH)
 		out.BurnFrom, out.BurnTo = string(burn.From), string(burn.To)
 	}
 	out.Schedule = debtExitWalk(perMonth, startDebt, spend, today, startM)
@@ -739,9 +739,9 @@ func debtExitWalk(perMonth []debtMonthRow,
 		}
 		out = append(out, state.DebtExitStep{
 			Month:    monthKeyAt(today, startM+m),
-			GrossUAH: round2(row.gross), InvestUAH: round2(row.invest),
-			InstallmentsUAH: round2(row.inst), PlannedUAH: round2(row.planned),
-			SpendUAH: round2(spendUAH), LeftUAH: round2(left),
+			GrossUAH: state.Major(row.gross, money.UAH), InvestUAH: state.Major(row.invest, money.UAH),
+			InstallmentsUAH: state.Major(row.inst, money.UAH), PlannedUAH: state.Major(row.planned, money.UAH),
+			SpendUAH: state.Major(spendUAH, money.UAH), LeftUAH: state.Major(left, money.UAH),
 		})
 		if left == 0 {
 			break

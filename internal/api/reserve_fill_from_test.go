@@ -102,10 +102,10 @@ func routeRedeem(date string, amountMajor float64, label string) readyFlow {
 // routeReserveDoc — портфель із живим розривом подушки й ціллю в ОВДП.
 func routeReserveDoc(fillFrom string) *state.Doc {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 12000, FillMonthUAH: 12000, GapUAH: 40000})
+		&state.Reserve{FillNowUAH: state.Major(12000, money.UAH), FillMonthUAH: state.Major(12000, money.UAH), GapUAH: state.Major(40000, money.UAH)})
 	doc.Settings = routeSettings(10000, 6, 40)
 	doc.Settings.ReserveFillFrom = fillFrom
-	doc.ReserveUAH = 20000
+	doc.ReserveUAH = state.Major(20000, money.UAH)
 	return doc
 }
 
@@ -401,8 +401,8 @@ func TestPlanAheadCurrentMonthSkipsPastAndMarked(t *testing.T) {
 	}}
 	key := monthKeyAt(today, 0)
 	plans := map[string]*state.MonthPlan{key: {
-		Month: key, PlanUAH: 40000, PlanReserveUAH: 40000,
-		PlanGoalsUAH: 40000, LeftUAH: 12345.67,
+		Month: key, PlanUAH: state.UAH(4_000_000), PlanReserveUAH: state.UAH(4_000_000),
+		PlanGoalsUAH: state.UAH(4_000_000), LeftUAH: state.UAH(1_234_567),
 	}}
 
 	flows := planAhead(src, plans, today, 0)
@@ -512,8 +512,8 @@ func TestPlanAheadCurrentMonthCarriesOwnShare(t *testing.T) {
 	key := monthKeyAt(routeToday, 0)
 	// Дозволені суми дорівнюють плану: цей тест про політику, а не про
 	// дозвіл джерела (для нього — TestPlanLegCappedByAllowedPlan).
-	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 30000,
-		PlanReserveUAH: 30000, PlanGoalsUAH: 30000, LeftUAH: 4000}
+	plans[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(30000, money.UAH),
+		PlanReserveUAH: state.Major(30000, money.UAH), PlanGoalsUAH: state.Major(30000, money.UAH), LeftUAH: state.Major(4000, money.UAH)}
 
 	flows := planAhead(src, plans, routeToday, 0)
 	if len(flows) != 1 {
@@ -534,8 +534,8 @@ func TestPlanAheadCurrentMonthIgnoresDeposits(t *testing.T) {
 	}}
 	plans := routePlans(9000)
 	key := monthKeyAt(routeToday, 0)
-	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 9000,
-		PlanReserveUAH: 9000, PlanGoalsUAH: 9000, LeftUAH: 6799}
+	plans[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(9000, money.UAH),
+		PlanReserveUAH: state.Major(9000, money.UAH), PlanGoalsUAH: state.Major(9000, money.UAH), LeftUAH: state.Major(6799, money.UAH)}
 
 	flows := planAhead(src, plans, routeToday, 0)
 	if len(flows) != 2 {
@@ -555,8 +555,8 @@ func TestPlanAheadExtraIsNotSpread(t *testing.T) {
 	src := &sources{planFlows: []store.PlanFlow{planFlow(1, "зарплата", "2026-01-29", 10000)}}
 	plans := routePlans(12000)
 	key := monthKeyAt(routeToday, 0)
-	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 12000, ExtraUAH: 2000,
-		PlanReserveUAH: 12000, PlanGoalsUAH: 12000}
+	plans[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(12000, money.UAH), ExtraUAH: state.Major(2000, money.UAH),
+		PlanReserveUAH: state.Major(12000, money.UAH), PlanGoalsUAH: state.Major(12000, money.UAH)}
 
 	flows := planAhead(src, plans, routeToday, 0)
 	if len(flows) != 1 {
@@ -691,12 +691,12 @@ func TestAllocateEndpointTakesSourceAndPrincipal(t *testing.T) {
 // план їй не дає, і сторінка маршруту розійшлася б із карткою резерву.
 func TestRoutePlanLegCappedByAllowedPlan(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 5000, FillMonthUAH: 5000, GapUAH: 90000})
+		&state.Reserve{FillNowUAH: state.Major(5000, money.UAH), FillMonthUAH: state.Major(5000, money.UAH), GapUAH: state.Major(90000, money.UAH)})
 	// Стеля 100%: питання тесту — скільки дозволяє ПЛАН, а не скільки
 	// відрізає частка. Розрив великий, тож обрізати вирізку нічим, крім
 	// самого дозволу.
 	doc.Settings = routeSettings(20000, 6, 100)
-	doc.ReserveUAH = 30000
+	doc.ReserveUAH = state.Major(30000, money.UAH)
 
 	plan := routeFlow("2026-09-17", 6000, "план місяця")
 	plan.Basis = basisPlan
@@ -706,8 +706,8 @@ func TestRoutePlanLegCappedByAllowedPlan(t *testing.T) {
 	key := monthKeyAt(routeToday, 1)
 	// Із 6 000 ₴ місяця подушці дозволено лише 1 500: решта — дохід,
 	// позначений «не в подушку».
-	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 6000,
-		PlanReserveUAH: 1500, PlanGoalsUAH: 6000}
+	plans[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(6000, money.UAH),
+		PlanReserveUAH: state.Major(1500, money.UAH), PlanGoalsUAH: state.Major(6000, money.UAH)}
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		inc, plans, nil, allocRates, nil, nil, routeToday)
@@ -737,15 +737,15 @@ func TestRoutePlanLegCappedByAllowedPlan(t *testing.T) {
 // її розмір.
 func TestRouteMonthCeilingBindsCouponToo(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)},
-		&state.Reserve{FillNowUAH: 5000, FillMonthUAH: 5000, GapUAH: 90000})
+		&state.Reserve{FillNowUAH: state.Major(5000, money.UAH), FillMonthUAH: state.Major(5000, money.UAH), GapUAH: state.Major(90000, money.UAH)})
 	doc.Settings = routeSettings(20000, 6, 100)
-	doc.ReserveUAH = 30000
+	doc.ReserveUAH = state.Major(30000, money.UAH)
 
 	inc := routeInc("mono", money.UAH, routeFlow("2026-09-10", 6000, "UA0001"))
 	plans := routePlans(6000)
 	key := monthKeyAt(routeToday, 1)
-	plans[key] = &state.MonthPlan{Month: key, PlanUAH: 6000,
-		PlanReserveUAH: 0, PlanGoalsUAH: 6000}
+	plans[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(6000, money.UAH),
+		PlanReserveUAH: state.Major(0, money.UAH), PlanGoalsUAH: state.Major(6000, money.UAH)}
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		inc, plans, nil, allocRates, nil, nil, routeToday)

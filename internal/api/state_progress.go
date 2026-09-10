@@ -584,7 +584,7 @@ func buildCollection(doc *state.Doc) collectionDoc {
 		if r.Year == 0 {
 			continue
 		}
-		cells := []bool{r.UAH > 0, r.USD > 0, r.EUR > 0}
+		cells := []bool{r.UAH.Major() > 0, r.USD.Major() > 0, r.EUR.Major() > 0}
 		for _, c := range cells {
 			if c {
 				out.Filled++
@@ -655,7 +655,7 @@ func buildMilestones(
 		// Темп — ціль внесків на день, як у savingTask: найчесніше з
 		// того, що є в документі.
 		if !earned {
-			m.EtaOn = etaAtPace(today, t.uah-cap0, doc.MonthTargetUAH/30)
+			m.EtaOn = etaAtPace(today, t.uah-cap0, doc.MonthTargetUAH.Major()/30)
 			m.EtaBasis = noteOr(m.EtaOn != "", etaByTarget, "")
 		}
 		add(m)
@@ -716,7 +716,7 @@ func buildMilestones(
 		if !m.Earned {
 			m.Left = "лишилось " + num1(r.TargetMonths-r.Months) + " місяця витрат"
 			// Темп — стеля подушки на місяць, яку задав сам користувач.
-			m.EtaOn = etaAtPace(today, r.GapUAH, r.FillMonthUAH/30)
+			m.EtaOn = etaAtPace(today, r.GapUAH.Major(), r.FillMonthUAH.Major()/30)
 			m.EtaBasis = noteOr(m.EtaOn != "", etaByReserve, "")
 		}
 		return m
@@ -806,7 +806,7 @@ func buildMilestones(
 	add(func() milestone {
 		over := 0
 		for _, c := range doc.Concentration {
-			if c.OverUAH > 0 {
+			if c.OverUAH.Major() > 0 {
 				over++
 			}
 		}
@@ -831,12 +831,12 @@ func buildMilestones(
 			return m
 		}
 		need := expenses / 4
-		m.Earned = doc.IncomeMonthlyNow >= need
-		m.ProgressPct = ratioPct(doc.IncomeMonthlyNow, need)
+		m.Earned = doc.IncomeMonthlyNow.Major() >= need
+		m.ProgressPct = ratioPct(doc.IncomeMonthlyNow.Major(), need)
 		m.Note = fmt.Sprintf("%s на місяць із %s — це чверть витрат",
-			uah(doc.IncomeMonthlyNow), uah(need))
+			uah(doc.IncomeMonthlyNow.Major()), uah(need))
 		if !m.Earned {
-			m.Left = "лишилось " + uah(need-doc.IncomeMonthlyNow) + " доходу на місяць"
+			m.Left = "лишилось " + uah(need-doc.IncomeMonthlyNow.Major()) + " доходу на місяць"
 		}
 		return m
 	}())
@@ -846,7 +846,7 @@ func buildMilestones(
 	// Лічильник, що росте (lifeDoc), із двома порогами: місяць і рік.
 	// Дата — з подій руху грошей, а не зі знімків: купон датований сам.
 	for _, t := range lifeThresholds {
-		add(lifeMilestone(t.key, t.title, t.days, ev, life, doc.IncomeMonthlyNow, today))
+		add(lifeMilestone(t.key, t.title, t.days, ev, life, doc.IncomeMonthlyNow.Major(), today))
 	}
 
 	// --- 17-21. Борг (state_progress_debt.go) ---
@@ -860,7 +860,7 @@ func buildMilestones(
 	// було». Сьогоднішній простій обриває серію сьогодні, не чекаючи
 	// ранкового знімка.
 	add(func() milestone {
-		idleNow := doc.Idle != nil && doc.Idle.InvestableUAH > 0
+		idleNow := doc.Idle != nil && doc.Idle.InvestableUAH.Major() > 0
 		run, when := idleStreak(snaps, idleNow)
 		m := milestone{Key: "idle_free_month", Title: "Місяць без простою",
 			Earned: when != "", EarnedOn: when,
@@ -870,11 +870,11 @@ func buildMilestones(
 		case m.Earned:
 			m.Note = "пройдено " + when
 			if idleNow {
-				m.Note += fmt.Sprintf(" · зараз лежить %s понад квиток", uah(doc.Idle.InvestableUAH))
+				m.Note += fmt.Sprintf(" · зараз лежить %s понад квиток", uah(doc.Idle.InvestableUAH.Major()))
 			}
 		case idleNow:
 			m.Note = fmt.Sprintf("зараз лежить %s понад квиток з %s — серія почнеться з покупки",
-				uah(doc.Idle.InvestableUAH), doc.Idle.Since)
+				uah(doc.Idle.InvestableUAH.Major()), doc.Idle.Since)
 			m.Left = fmt.Sprintf("лишилось %d днів поспіль", idleFreeDays)
 		default:
 			m.Note = fmt.Sprintf("%s поспіль без грошей понад квиток", daysWord(float64(run)))
@@ -1001,11 +1001,11 @@ func atTarget(r state.RebalanceRow) bool {
 // воно є; сума частин — лише запасний шлях для старішого документа, і
 // саме в такому порядку, як у format.js на фронтенді.
 func capitalNow(doc *state.Doc) float64 {
-	if doc.CapitalUAH > 0 {
-		return doc.CapitalUAH
+	if doc.CapitalUAH.Major() > 0 {
+		return doc.CapitalUAH.Major()
 	}
-	return doc.NominalUAHEq + doc.AccountUAH + doc.FundsUAH +
-		doc.DepositsUAH + doc.ReserveUAH + doc.GoalsUAH + doc.NPFUAH
+	return doc.NominalUAHEq.Major() + doc.AccountUAH.Major() + doc.FundsUAH.Major() +
+		doc.DepositsUAH.Major() + doc.ReserveUAH.Major() + doc.GoalsUAH.Major() + doc.NPFUAH.Major()
 }
 
 // firstSnapshotAtLeast — перший день, коли капітал у знімках дійшов
@@ -1029,16 +1029,16 @@ func firstSnapshotAtLeast(snaps []store.Snapshot, uah float64) string {
 // нічого не заробляє, і «чотири види» про інструменти.
 func kindsHeld(doc *state.Doc) []string {
 	var out []string
-	if doc.NominalUAHEq > 0 {
+	if doc.NominalUAHEq.Major() > 0 {
 		out = append(out, "ОВДП")
 	}
-	if doc.FundsUAH > 0 {
+	if doc.FundsUAH.Major() > 0 {
 		out = append(out, "фонди")
 	}
-	if doc.DepositsUAH > 0 {
+	if doc.DepositsUAH.Major() > 0 {
 		out = append(out, "вклади")
 	}
-	if doc.NPFUAH > 0 {
+	if doc.NPFUAH.Major() > 0 {
 		out = append(out, "НПФ")
 	}
 	return out

@@ -19,7 +19,7 @@ func routeDebtDoc() (*state.Doc, map[string]*state.MonthPlan) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	doc.Settings = routeSettings(10000, 6, 40)
 	doc.Debt = &state.DebtPlan{
-		TotalUAH: 3000, TopName: "Розстрочка", TopRatePct: 40,
+		TotalUAH: state.Major(3000, money.UAH), TopName: "Розстрочка", TopRatePct: 40,
 	}
 	return doc, routePlans(30000)
 }
@@ -212,8 +212,8 @@ func TestRouteLegsShrinkOnPlanPlanned(t *testing.T) {
 	doc2, plans2 := routeDebtDoc()
 	// Те саме, що зробив би buildMonthPlan із витратою 10 000 у вересні.
 	sep := monthKeyAt(routeToday, 1)
-	plans2[sep].PlannedUAH = 10000
-	plans2[sep].PlanUAH -= 10000
+	plans2[sep].PlannedUAH = state.Major(10000, money.UAH)
+	plans2[sep].PlanUAH = plans2[sep].PlanUAH.Sub(state.Major(10000, money.UAH))
 	with := buildRoute(doc2, sug, routeDebtFlows(), plans2, nil, allocRates, nil, nil, routeToday)
 
 	if len(base.Months) == 0 || len(with.Months) == 0 {

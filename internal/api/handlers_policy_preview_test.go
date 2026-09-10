@@ -166,7 +166,7 @@ func TestPolicyPreviewOnEmptyPortfolio(t *testing.T) {
 		if r.Feasible {
 			t.Errorf("ціль %s названа здійсненною при нульовому капіталі: %+v", r.Key, r)
 		}
-		if r.MinPortfolioUAH <= 0 {
+		if r.MinPortfolioUAH.Major() <= 0 {
 			t.Errorf("ціль %s недосяжна, але не сказано, при якому капіталі вписалась би: %+v", r.Key, r)
 		}
 	}

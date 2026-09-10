@@ -191,15 +191,15 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		y, _ := domain.DividendYieldNet(src.fundOps, fp, today)
 		row := state.FundPositionRow{
 			Fund: fp.Fund, Currency: fp.Currency, Qty: fp.Qty,
-			CostBasis:     toUAH(fp.CostBasis),
+			CostBasis:     state.Major(toUAH(fp.CostBasis), fp.Currency),
 			LastPrice:     math.Round(float64(fp.LastPrice)) / 10000,
 			LastPriceDate: string(fp.LastPriceDate),
 			PriceMarked:   fp.PriceMarked,
 			PriceStale:    fp.PriceStale(today),
-			MarketValue:   round2(mvUAH),
-			DividendsNet:  toUAH(fp.DividendsGross - fp.DividendsTax),
-			DividendsTax:  toUAH(fp.DividendsTax),
-			Realized:      toUAH(fp.Realized),
+			MarketValue:   state.Major(mvUAH, fp.Currency),
+			DividendsNet:  state.Major(toUAH(fp.DividendsGross-fp.DividendsTax), fp.Currency),
+			DividendsTax:  state.Major(toUAH(fp.DividendsTax), fp.Currency),
+			Realized:      state.Major(toUAH(fp.Realized), fp.Currency),
 			YieldNetPct:   y,
 			Short:         fp.Short,
 		}
@@ -380,7 +380,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		}
 		out.Rows = append(out.Rows, row)
 		weights = append(weights, fundWeight{
-			MarketValue: row.MarketValue, NominalPct: nominalPct,
+			MarketValue: row.MarketValue.Major(), NominalPct: nominalPct,
 			RealPct: row.RealPct, Basis: row.YieldBasis, Measured: measured,
 		})
 	}

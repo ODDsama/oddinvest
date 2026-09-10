@@ -55,8 +55,8 @@ func buildCapitalDelta(src *sources, capitalNow float64, rates fx.Rates) *state.
 	fromUAH := float64(snapshotCapitalUAH(*src.capitalAgo)) / 100
 	out := &state.CapitalDelta{
 		FromDate: string(from),
-		FromUAH:  round2(fromUAH),
-		DeltaUAH: round2(capitalNow - fromUAH),
+		FromUAH:  state.Major(fromUAH, money.UAH),
+		DeltaUAH: state.Major(capitalNow-fromUAH, money.UAH),
 	}
 	if fromUAH > 0 {
 		out.DeltaPct = round2((capitalNow - fromUAH) / fromUAH * 100)
@@ -84,7 +84,7 @@ func buildCapitalDelta(src *sources, capitalNow float64, rates fx.Rates) *state.
 	for _, m := range externalMoves(src) {
 		add(m.Date, m.Amount, m.Currency)
 	}
-	out.ContribUAH = round2(float64(contrib) / 100)
+	out.ContribUAH = state.Minor(contrib, money.UAH)
 	return out
 }
 

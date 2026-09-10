@@ -33,7 +33,7 @@ type npfPhase struct {
 	// сертифікатів, НПФ у чисельник валютних часток входить: одиниці
 	// пенсійних активів — справжня експозиція, і замок на це не впливає.
 	// Гроші, яких не можна забрати, знецінюються разом із гривнею так само.
-	ExposureUAH map[string]float64
+	ExposureUAH map[string]state.Money
 	// Accum — позиції для симуляції, по валютах і в НАТИВНІЙ валюті, усі з
 	// Locked: продати їх не можна ні за яку ставку.
 	Accum map[string][]domain.Accum
@@ -77,7 +77,7 @@ type npfPhase struct {
 func buildNPF(src *sources, rates fx.Rates, deval float64,
 	today domain.Date) npfPhase {
 	out := npfPhase{
-		ExposureUAH: map[string]float64{},
+		ExposureUAH: map[string]state.Money{},
 		Accum:       map[string][]domain.Accum{},
 	}
 	// Накопичувачі зведеної ставки: сума «ставка × вартість» і сама вага.
@@ -105,7 +105,7 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		valueUAH, costUAH := toUAH(p.Value()), toUAH(p.Cost)
 		out.TotalUAH += valueUAH
 		out.CostUAH += costUAH
-		out.ExposureUAH[cur] += valueUAH
+		out.ExposureUAH[cur] = out.ExposureUAH[cur].Add(state.Major(valueUAH, money.UAH))
 
 		// Власна ставка: виміряне зростання ЧВОПА витісняє обіцянку, і
 		// основа каже, котре з двох показано. Точки — обʼєднання ручних із
@@ -151,15 +151,15 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 			Name: acc.Name, Currency: cur,
 			Units: p.UnitsMajor(), Nav: p.NavMajor(),
 			NavDate:  string(p.NavDate),
-			CostUAH:  costUAH,
-			ValueUAH: valueUAH,
-			GainUAH:  round2(valueUAH - costUAH),
+			CostUAH:  state.Major(costUAH, money.UAH),
+			ValueUAH: state.Major(valueUAH, money.UAH),
+			GainUAH:  state.Major(valueUAH-costUAH, money.UAH),
 			RealPct:  realPct, YieldBasis: basis,
 			AccessDate: string(acc.AccessDate),
 			ContribDay: acc.ContribDay, ContribDue: contribDue,
 			Administrator: acc.Administrator,
-			CreditEstUAH: npfCreditUAH(acc, src.npfOps, src.settings,
-				today.Year()),
+			CreditEstUAH: state.Major(npfCreditUAH(acc, src.npfOps, src.settings,
+				today.Year()), money.UAH),
 		}
 		// Обидві дохідності в рядку, а не одна: пара «обіцяли / фактично» і
 		// є головним, що картка показує. ExpectedPct стоїть навіть тоді, коли

@@ -20,6 +20,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
+	money "github.com/Rhymond/go-money"
 )
 
 // independenceInput — понад те, що вже порахувала проєкція.
@@ -46,9 +47,9 @@ func buildIndependence(in independenceInput) *state.Independence {
 		return nil
 	}
 	out := &state.Independence{
-		TargetUAH:    round2(in.TargetUAH),
+		TargetUAH:    state.Major(in.TargetUAH, money.UAH),
 		TargetFrom:   in.TargetFrom,
-		IncomeNowUAH: round2(in.IncomeNowUAH),
+		IncomeNowUAH: state.Major(in.IncomeNowUAH, money.UAH),
 	}
 
 	planSleeves := in.Factory.build(in.ContribPlan, 0)
@@ -59,8 +60,8 @@ func buildIndependence(in independenceInput) *state.Independence {
 	// не «потрібний»: потрібна сума залежить від ставки того місяця, і
 	// друге незалежне число про те саме лише розходилось би з першим.
 	if out.PlanMonths > 0 {
-		out.CapitalUAH = round2(
-			domain.ProjectSleeves(planSleeves, in.Deval, out.PlanMonths).TodayUAH)
+		out.CapitalUAH = state.Major(
+			domain.ProjectSleeves(planSleeves, in.Deval, out.PlanMonths).TodayUAH, money.UAH)
 	}
 
 	if in.ContribActual > 0 {
@@ -95,7 +96,7 @@ func buildDrawdown(in drawdownInput) *state.Drawdown {
 	sl := in.Factory.build(0, 0)
 	months := domain.DrawdownMonths(sl, in.Deval, in.WithdrawUAH, goalHorizonMonths)
 	out := &state.Drawdown{
-		WithdrawUAH:  round2(in.WithdrawUAH),
+		WithdrawUAH:  state.Major(in.WithdrawUAH, money.UAH),
 		WithdrawFrom: in.WithdrawFrom,
 		Months:       months,
 		CoveredPct:   round1(in.IncomeNowUAH / in.WithdrawUAH * 100),

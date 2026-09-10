@@ -170,7 +170,7 @@ func (s *Server) digestFX(ctx context.Context, from domain.Date) (float64, strin
 		if err != nil || then.RateE4 <= 0 {
 			continue
 		}
-		exposure := doc.CapitalUAH * share / 100
+		exposure := doc.CapitalUAH.Major() * share / 100
 		v := exposure * (1 - float64(then.RateE4)/float64(nowE4))
 		total += v
 		parts = append(parts, fmt.Sprintf("%s %s→%s", cur,
