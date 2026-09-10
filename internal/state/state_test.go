@@ -354,8 +354,11 @@ func TestDerive(t *testing.T) {
 	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Schema != 2 {
+	if doc.Schema != 3 {
 		t.Errorf("schema = %d", doc.Schema)
+	}
+	if doc.Currency != "UAH" {
+		t.Errorf("будівник кладе книжкову валюту, а не %q", doc.Currency)
 	}
 	// invested: 49500 грн + $1990×44.1234 = 49500 + 87805.57 (банківське) = 137305.57
 	if doc.InvestedUAH.Major() != 137305.57 {

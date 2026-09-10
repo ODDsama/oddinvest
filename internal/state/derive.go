@@ -125,6 +125,9 @@ type DeriveInput struct {
 func Derive(doc *Doc, in DeriveInput) error {
 	doc.Schema = SchemaVersion
 	doc.GeneratedAt = in.Now.UTC().Format(time.RFC3339)
+	// Книжкова валюта: будівник рахує в гривні завжди, і саме такий документ
+	// іде в добовий знімок. Валюту звітності проставляє презентер на виході.
+	doc.Currency = money.UAH
 	doc.Ladder = []LadderRow{}
 	doc.TopPayments = []PaymentRow{}
 	doc.Calendar = []PaymentRow{}

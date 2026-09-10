@@ -103,7 +103,7 @@ func TestLotLifecycleAndSummary(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("summary: %d %s", resp.StatusCode, body)
 	}
-	for _, want := range []string{`"schema":2`, `"invested_uah":4975`, `"next_payment"`, `"2026-09-16"`} {
+	for _, want := range []string{`"schema":3`, `"currency":"UAH"`, `"invested_uah":4975`, `"next_payment"`, `"2026-09-16"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("summary не містить %s: %s", want, body)
 		}

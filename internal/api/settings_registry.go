@@ -74,6 +74,17 @@ var settingsRegistry = []settingDef{
 	{Key: "reinvest_rank", Str: func(s *state.SettingsDoc) *string { return &s.ReinvestRank },
 		Why: "критерій порядку в «Що купити»"},
 
+	// Валюта ЗВІТНОСТІ — у чому документ і застосунок показують гроші.
+	// Облік лишається в гривні: база, домен і добовий знімок валюти звітності
+	// не бачать, перекладає на неї лише шар презентації на виході
+	// (internal/present). Тут, у settings, а не в app_state: це фінансова
+	// політика портфеля — HA дістає документ у цій валюті, тож вона мусить
+	// їхати разом із портфелем, а не з браузером. Перелік обов'язковий з
+	// того самого доводу, що в monthly_expenses_currency нижче.
+	{Key: "report_currency", Str: func(s *state.SettingsDoc) *string { return &s.ReportCurrency },
+		Enum: []string{"UAH", "USD", "EUR"},
+		Why:  "у якій валюті звітує документ і застосунок; порожньо = гривня, облік завжди в гривні"},
+
 	{Key: "deposit_min_usd", Num: func(s *state.SettingsDoc) **float64 { return &s.DepositMinUSD },
 		Why: "мінімальне вкладення у вклад; воно ж поріг «готовий до реінвесту»"},
 	{Key: "deposit_min_eur", Num: func(s *state.SettingsDoc) **float64 { return &s.DepositMinEUR }},

@@ -20,6 +20,17 @@ import (
 
 // SchemaVersion — версія контракту з інтеграцією HA.
 //
+// 3 (2026-09-10): змінився СЕНС усіх грошових полів. Доти кожне з них
+// було гривнею за побудовою, і суфікс _uah казав це назвою. Тепер усі
+// суми документа — у валюті поля currency (валюта звітності,
+// settings.report_currency): гривня, долар чи євро. Суфікс _uah
+// лишився як історична назва — перейменувати сто шістдесят вісім полів
+// означало б зламати контракт заради косметики, а сенс і так задає одне
+// поле. Поля, що мають сенс лише в гривні (реальна дохідність проти
+// долара, лінійка ІСЦ, цілі «у майбутніх грошах»), при валюті ≠ UAH не
+// публікуються. Парсер, який читає суми як гривню, мусить це побачити
+// явно — тому мажорна версія, а не додане поле.
+//
 // 2 (2026-09-07): з документа ЗНИКЛИ поля. Контракт дозволяє лише
 // додавання — «зміна семантики поля = інкремент schema», — а тут прибрані
 // month_plan.plan_debt_uah і три поля розкладки (debt, debt_uah,
@@ -28,11 +39,18 @@ import (
 // це побачити явно, а не дізнатись із мовчазного нуля.
 //
 // 1 — усе до того.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 type Doc struct {
 	Schema      int    `json:"schema"`
 	GeneratedAt string `json:"generated_at"` // RFC3339
+	// Currency — валюта, у якій показані ВСІ суми документа. Будівник
+	// завжди кладе гривню (у ній облік); шар презентації на виході
+	// перекладає документ у валюту звітності й переписує це поле.
+	// CurrencyNote — чому показано не те, що просили: курсу на сьогодні ще
+	// немає, тож замість долара — гривня.
+	Currency     string `json:"currency"`
+	CurrencyNote string `json:"currency_note,omitempty"`
 
 	InvestedUAH  Money `json:"invested_uah"`   // вартість входу залишків, грн-екв.
 	NominalUAHEq Money `json:"nominal_uah_eq"` // номінал портфеля, грн-екв.
@@ -603,8 +621,12 @@ type SettingsDoc struct {
 	// міграцію 0038, працює без жодної правки.
 	MonthlyExpenses         *float64 `json:"monthly_expenses,omitempty"`
 	MonthlyExpensesCurrency string   `json:"monthly_expenses_currency,omitempty"`
-	MonthlyExpensesUAH      *float64 `json:"monthly_expenses_uah,omitempty"`
-	ReserveTargetMonths     *float64 `json:"reserve_target_months,omitempty"`
+	// ReportCurrency — валюта звітності (settings_registry.go). Порожньо =
+	// гривня. Це ВХІД: сама сума в документі показана у валюті Doc.Currency,
+	// яка може відрізнятись від цього ключа, коли курсу ще немає.
+	ReportCurrency      string   `json:"report_currency,omitempty"`
+	MonthlyExpensesUAH  *float64 `json:"monthly_expenses_uah,omitempty"`
+	ReserveTargetMonths *float64 `json:"reserve_target_months,omitempty"`
 	// ReserveFillSharePct — яка частка ВІЛЬНИХ грошей (готівки на рахунках)
 	// іде в резерв, доки він не добраний до цілі, %.
 	//

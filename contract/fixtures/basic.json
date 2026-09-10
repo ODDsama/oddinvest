@@ -1,6 +1,7 @@
 {
-  "schema": 2,
+  "schema": 3,
   "generated_at": "2026-07-15T10:00:00Z",
+  "currency": "UAH",
   "invested_uah": 137305.57,
   "nominal_uah_eq": 138246.8,
   "capital_uah": 273246.8,

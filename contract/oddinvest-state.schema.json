@@ -7,6 +7,7 @@
   "required": [
     "schema",
     "generated_at",
+    "currency",
     "invested_uah",
     "nominal_uah_eq",
     "usd_share_pct",
@@ -22,11 +23,20 @@
   "properties": {
     "schema": {
       "type": "integer",
-      "const": 2
+      "const": 3
     },
     "generated_at": {
       "type": "string",
       "format": "date-time"
+    },
+    "currency": {
+      "type": "string",
+      "enum": ["UAH", "USD", "EUR"],
+      "description": "Валюта, у якій показані ВСІ суми документа (schema 3). Суфікс _uah у назвах полів — історичний: сума в полі — у цій валюті"
+    },
+    "currency_note": {
+      "type": "string",
+      "description": "Чому показано не валюту з settings.report_currency (наприклад, курсу на сьогодні ще немає)"
     },
     "invested_uah": {
       "type": "number",
@@ -368,6 +378,11 @@
           "type": "string",
           "enum": ["UAH", "USD", "EUR"],
           "description": "Валюта, у якій мисляться витрати. Порожньо = гривня (адитивне поле)"
+        },
+        "report_currency": {
+          "type": "string",
+          "enum": ["UAH", "USD", "EUR"],
+          "description": "Валюта звітності: у ній документ показує всі суми (schema 3). Порожньо = гривня; облік завжди в гривні"
         },
         "monthly_expenses_uah": {
           "type": "number",
