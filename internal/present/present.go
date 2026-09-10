@@ -180,6 +180,19 @@ func (w *walker) visit(v reflect.Value, on domain.Date) reflect.Value {
 		if v.IsNil() {
 			return v
 		}
+		// Мапа з ключем "date" — рядок без структури (/api/snapshots будує
+		// рядки з реєстру колонок): її дата — та сама область, що й
+		// money:"asof" у структури.
+		if v.Type().Key().Kind() == reflect.String {
+			if d := v.MapIndex(reflect.ValueOf("date")); d.IsValid() {
+				if d.Kind() == reflect.Interface {
+					d = d.Elem()
+				}
+				if dd, ok := dateOf(d); ok {
+					on = dd
+				}
+			}
+		}
 		for _, k := range v.MapKeys() {
 			e := v.MapIndex(k)
 			nv := w.visit(e, on)
@@ -209,11 +222,23 @@ func dateOf(v reflect.Value) (domain.Date, bool) {
 	if v.Kind() != reflect.String {
 		return "", false
 	}
-	d := domain.Date(v.String())
-	if d == "" {
+	return dateString(v.String())
+}
+
+// dateString — дата з рядка. Місяць «2026-07» читається як його КІНЕЦЬ:
+// рядок про місяць (історія плану, серія внесків, рік по місяцях)
+// перекладається курсом останнього дня, а для поточного місяця кінець ще
+// попереду — і курс береться останній відомий, тобто сьогоднішній. «-31»
+// тут лише межа порівняння рядків (точки шукаються як «не пізніше»), а не
+// календарна дата.
+func dateString(s string) (domain.Date, bool) {
+	switch len(s) {
+	case 0:
 		return "", false
+	case 7:
+		return domain.Date(s + "-31"), true
 	}
-	return d, true
+	return domain.Date(s), true
 }
 
 func (w *walker) visitStruct(v reflect.Value, on domain.Date) {
@@ -272,15 +297,15 @@ func (w *walker) visitStruct(v reflect.Value, on domain.Date) {
 	}
 }
 
-// visitAsOf — поле з курсом на дату названого сусіда; для зрізу дат —
+// visitAsOf — поле з курсом на дату названого сусіда (або предка: дні
+// ряду суперників лежать у батьківській відповіді); для зрізу дат —
 // поіндексно.
 func (w *walker) visitAsOf(sc scope, fv reflect.Value, ref string) {
-	idx, ok := sc.byJSON[ref]
+	src, ok := w.lookup(ref)
 	if !ok {
-		w.fail(fmt.Errorf("present: money:\"asof=%s\" не знаходить сусіда", ref))
+		w.fail(fmt.Errorf("present: money:\"asof=%s\" не знаходить ні сусіда, ні предка", ref))
 		return
 	}
-	src := sc.val.Field(idx)
 	if src.Kind() == reflect.Slice && src.Type().Elem().Kind() == reflect.String {
 		if fv.Kind() != reflect.Slice {
 			w.fail(fmt.Errorf("present: money:\"asof=%s\" поіндексно, а поле не зріз", ref))

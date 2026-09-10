@@ -75,5 +75,10 @@ func (s *Server) handleProgress(w http.ResponseWriter, r *http.Request) {
 		vs = buildVsUSD(rv.Days, rv.row(domain.RivalUSDCash).PointsDiff, today)
 	}
 
-	writeJSON(w, http.StatusOK, buildProgress(doc, src, snaps, ev, dec, bench, vs, today))
+	out := buildProgress(doc, src, snaps, ev, dec, bench, vs, today)
+	if err := s.present(ctx, &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }

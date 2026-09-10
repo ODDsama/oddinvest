@@ -188,6 +188,12 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, row)
 	}
+	// Кожен рядок — курсом СВОЄЇ дати: презентер читає "date" з мапи так
+	// само, як money:"asof" зі структури.
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

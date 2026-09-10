@@ -31,7 +31,9 @@ import (
 )
 
 type yearMonth struct {
-	Month      string      `json:"month"`
+	// Month — і дата області (present: asof): у валюті звітності місяць
+	// перекладається курсом свого кінця, поточний — сьогоднішнім.
+	Month      string      `json:"month" money:"asof"`
 	ContribUAH state.Money `json:"contributed_uah"`
 	IncomeUAH  state.Money `json:"income_uah"`
 	// TargetUAH/Known/Hit — з тієї самої смужки серії, що у «Звичці»:
@@ -46,7 +48,7 @@ type yearMonth struct {
 // за квартилями суми |внесок|+|дохід|+|покупка| серед активних днів
 // року; нуль не буває (дні без руху в списку відсутні).
 type yearDay struct {
-	Date        string      `json:"date"`
+	Date        string      `json:"date" money:"asof"`
 	ContribUAH  state.Money `json:"contributed_uah,omitzero"`
 	IncomeUAH   state.Money `json:"income_uah,omitzero"`
 	PurchaseUAH state.Money `json:"purchased_uah,omitzero"`
@@ -56,7 +58,8 @@ type yearDay struct {
 type yearResp struct {
 	Year int    `json:"year"`
 	From string `json:"from"`
-	To   string `json:"to"`
+	// To — дата області для підсумків року (present: asof), як у періоду.
+	To string `json:"to" money:"asof"`
 	// Partial — рік ще триває: числа «поки що», і сторінка каже це
 	// вголос замість того, щоб читатись як провал.
 	Partial bool `json:"partial"`
@@ -110,7 +113,12 @@ func (s *Server) handleYear(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, buildYear(year, from, to, today, events, snaps, list))
+	out := buildYear(year, from, to, today, events, snaps, list)
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // buildYear — чиста функція над готовими даними (як buildProgress).

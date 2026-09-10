@@ -346,6 +346,10 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	if err := s.present(ctx, &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -596,9 +600,14 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	out := struct {
 		// Year — 0, коли період заданий парою from/to, а не роком. Клієнту
 		// це потрібно, щоб не підписувати довільний відрізок роком.
-		Year     int     `json:"year,omitempty"`
-		From     string  `json:"from"`
-		To       string  `json:"to"`
+		Year int    `json:"year,omitempty"`
+		From string `json:"from"`
+		To   string `json:"to"`
+		// Currency — завжди гривня, і сказано це явно (schema 3): податок
+		// платиться в гривні за курсом на дату події, і звіт для декларації
+		// у валюту звітності НЕ перекладається — єдиний такий маршрут.
+		// Читач, який бере символ із summary.currency, тут мусить узяти цей.
+		Currency string  `json:"currency"`
 		GrossUAH float64 `json:"gross_uah"`
 		TaxUAH   float64 `json:"tax_uah"`
 		NetUAH   float64 `json:"net_uah"`
@@ -702,6 +711,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	out.Currency = money.UAH
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -728,27 +738,31 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	type row struct {
-		Date  string      `json:"date"`
+		Date  string      `json:"date" money:"asof"` // рядок — курсом свого дня
 		Label string      `json:"label"`
 		UAH   state.Money `json:"uah"`
 		Kind  string      `json:"kind"`
 		// Principal — дохід, який є поверненням тіла (адитивно).
 		Principal bool `json:"principal,omitempty"`
 	}
+	// Підсумки — курсом КІНЦЯ вікна (To з тегом asof): тотожність «відкриття
+	// + дохід + свої − покупки ± конверсії = закриття» сходиться лише за
+	// одним курсом; що всередині вікна курс ходив — свідоме наближення, і
+	// рядки нижче показують кожен рух за своїм днем.
 	out := struct {
-		From        string  `json:"from"`
-		To          string  `json:"to"`
-		OpeningUAH  float64 `json:"opening_uah"`
-		IncomeUAH   float64 `json:"income_uah"`
-		ContribUAH  float64 `json:"contributed_uah"`
-		PurchaseUAH float64 `json:"purchased_uah"`
-		ConvUAH     float64 `json:"conversions_uah"`
-		ClosingUAH  float64 `json:"closing_uah"`
+		From        string      `json:"from"`
+		To          string      `json:"to" money:"asof"`
+		OpeningUAH  state.Money `json:"opening_uah"`
+		IncomeUAH   state.Money `json:"income_uah"`
+		ContribUAH  state.Money `json:"contributed_uah"`
+		PurchaseUAH state.Money `json:"purchased_uah"`
+		ConvUAH     state.Money `json:"conversions_uah"`
+		ClosingUAH  state.Money `json:"closing_uah"`
 		// OutsideUAH — у подушку й цілі, поза тотожністю залишку; OwnUAH
 		// — «внесено своїх» разом із гаманцем (адитивно).
-		OutsideUAH float64 `json:"outside_uah"`
-		OwnUAH     float64 `json:"own_uah"`
-		Rows       []row   `json:"rows,omitempty"`
+		OutsideUAH state.Money `json:"outside_uah"`
+		OwnUAH     state.Money `json:"own_uah"`
+		Rows       []row       `json:"rows,omitempty"`
 	}{From: string(from), To: string(to)}
 
 	sum := summarizeCash(events, from, to)
@@ -758,16 +772,20 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 			UAH: state.Minor(e.UAH, money.UAH), Kind: e.Kind, Principal: e.Principal,
 		})
 	}
-	out.OpeningUAH = sum.major(sum.OpeningUAH)
-	out.IncomeUAH = sum.major(sum.IncomeUAH)
-	out.ContribUAH = sum.major(sum.ContribUAH)
+	out.OpeningUAH = state.UAH(sum.OpeningUAH)
+	out.IncomeUAH = state.UAH(sum.IncomeUAH)
+	out.ContribUAH = state.UAH(sum.ContribUAH)
 	// Покупки віддаємо ДОДАТНИМИ: у звіті вони віднімаються, і мінус на
 	// мінусі читався б як помилка.
-	out.PurchaseUAH = sum.major(-sum.PurchaseUAH)
-	out.ConvUAH = sum.major(sum.ConvUAH)
-	out.ClosingUAH = sum.major(sum.ClosingUAH())
-	out.OutsideUAH = sum.major(sum.OutsideUAH)
-	out.OwnUAH = sum.major(sum.OwnUAH())
+	out.PurchaseUAH = state.UAH(-sum.PurchaseUAH)
+	out.ConvUAH = state.UAH(sum.ConvUAH)
+	out.ClosingUAH = state.UAH(sum.ClosingUAH())
+	out.OutsideUAH = state.UAH(sum.OutsideUAH)
+	out.OwnUAH = state.UAH(sum.OwnUAH())
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

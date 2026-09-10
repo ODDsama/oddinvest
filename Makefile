@@ -121,6 +121,24 @@ check:
 	@$(MAKE) --no-print-directory whatif-boundary
 	@$(MAKE) --no-print-directory portfolio-boundary
 	@$(MAKE) --no-print-directory order-boundary
+	@$(MAKE) --no-print-directory present-boundary
+
+# Відповідь із грішми (state.Money) іде на дріт ЛИШЕ через презентер:
+# обробник, що пише writeJSON без s.present, віддав би гривню під
+# валютою звітності — саме та тиха помилка, заради якої шар і заведено
+# (internal/present). Знімок (jobs) презентера не бачить навмисно, і це
+# стереже TestSnapshotNeverPresents.
+#
+# Винятки поіменно: cashflow.go тримає й виписку (презентує), і податок
+# (гривня за законом, currency:"UAH" явно) — файл проходить за першим.
+# handlers_reports.go — знімки презентує, CSV податку пише сирим.
+# state*.go документ не пишуть на дріт самі — його презентує handleSummary.
+.PHONY: present-boundary
+present-boundary:
+	@for f in $$(grep -l 'state\.Money' internal/api/handlers_*.go internal/api/cashflow.go internal/api/rivals.go); do \
+		grep -q 'writeJSON(' "$$f" && ! grep -q 's\.present(' "$$f" \
+			&& { echo "$$f: гроші на дріт повз презентер — додай s.present перед writeJSON"; exit 1; }; \
+	done; true
 
 # fx — ЄДИНА точка конвертації, і масштаб курсу ×10⁴ не має витікати за
 # її межі. Витікав: курс ділили на RateScale вручну в шести місцях, а в

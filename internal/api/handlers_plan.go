@@ -307,6 +307,10 @@ func (s *Server) handleListPlanFlows(w http.ResponseWriter, r *http.Request) {
 	for _, f := range flows {
 		out = append(out, toPlanFlowRow(f, today, rates, marks))
 	}
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -505,6 +509,12 @@ func (s *Server) handleListPlanActions(w http.ResponseWriter, r *http.Request) {
 	out := make([]planActionRow, 0, len(actions))
 	for _, a := range actions {
 		out = append(out, toPlanActionRow(a))
+	}
+	// Грошей у діях немає (частки й ставка), але той самий шлях, що в
+	// потоків: одна форма на файл дешевша за виняток у гейті.
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }

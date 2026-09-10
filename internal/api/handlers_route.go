@@ -109,6 +109,10 @@ func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
 	// План купівель — окремим проходом поверх готових ніг: аргумент при
 	// annotatePlanned. Рядки вже лежать у джерелах, другого читання немає.
 	annotatePlanned(out.Legs, src.planBuys, today)
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

@@ -109,12 +109,15 @@ type rivalsResp struct {
 	ActualUAH state.Money `json:"actual_uah"`
 	// Days / Actual — сітка й крива факту, однакової довжини з Points
 	// кожного суперника, що не мовчить.
-	Days   []string      `json:"days"`
-	Actual []state.Money `json:"actual"`
+	Days []string `json:"days"`
+	// У валюті звітності кожна точка ряду — курсом СВОГО дня (present:
+	// asof=days, поіндексно); те саме для points_diff суперників, які
+	// знаходять days у цій батьківській відповіді.
+	Actual []state.Money `json:"actual" money:"asof=days"`
 	// OpenUAH — скільки грошей уже було на руках у перший день вікна.
 	// Входить у порівняння першим внеском: суперник дістає рівно те, що
 	// мав я, у той самий день, за тодішньою ціною.
-	OpenUAH state.Money `json:"open_uah"`
+	OpenUAH state.Money `json:"open_uah" money:"asof=first_day"`
 	// InUAH — скільки грошей зайшло в гру НЕТТО, грн-екв. за курсами
 	// їхніх днів: відкриття плюс дальші рухи. Це і є термінал «гривні під
 	// матрацом», і показується він окремим полем, щоб різницю можна було
@@ -173,6 +176,10 @@ func (s *Server) handleRivals(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.rivals(ctx, doc, level)
 	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

@@ -87,5 +87,10 @@ func (s *Server) handleFXShock(w http.ResponseWriter, r *http.Request) {
 		}
 		doc.After = after
 	}
+	// «Після» — теж у валюті звітності; курси в episode лишаються курсами.
+	if err := s.present(ctx, &doc); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, doc)
 }

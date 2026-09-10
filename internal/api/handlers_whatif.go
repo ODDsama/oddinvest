@@ -223,6 +223,12 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	// Обидва документи гіпотези — «до» і «після» — у валюті звітності
+	// (теги state.Doc діють і на вкладених).
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

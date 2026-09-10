@@ -75,8 +75,13 @@ func (s *Server) handlePolicyPreview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, policyPreviewResp{
+	out := policyPreviewResp{
 		Rebalance:     doc.Rebalance,
 		Concentration: doc.Concentration,
-	})
+	}
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }

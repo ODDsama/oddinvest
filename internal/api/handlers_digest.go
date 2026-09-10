@@ -50,11 +50,13 @@ type digestResp struct {
 	// міг лежати, і підписати різницю замовленими датами означало б
 	// приписати їй проміжок, якого вона не міряє. Той самий прийом, що в
 	// periodStructureOf.
-	FromDate  string           `json:"from_date,omitempty"`
-	ToDate    string           `json:"to_date,omitempty"`
-	FromUAH   state.Money      `json:"from_uah,omitzero"`
+	FromDate string `json:"from_date,omitempty"`
+	// ToDate — дата області (present: asof): «стало» і причини — курсом
+	// другого знімка, «було» — першого, дельта — різниця перекладених.
+	ToDate    string           `json:"to_date,omitempty" money:"asof"`
+	FromUAH   state.Money      `json:"from_uah,omitzero" money:"asof=from_date"`
 	ToUAH     state.Money      `json:"to_uah,omitzero"`
-	DeltaUAH  state.Money      `json:"delta_uah"`
+	DeltaUAH  state.Money      `json:"delta_uah" money:"diff=to_uah,from_uah"`
 	DeltaPct  float64          `json:"delta_pct,omitempty"`
 	Causes    []digestCause    `json:"causes,omitempty"`
 	Structure *periodStructure `json:"structure,omitempty"`
@@ -140,6 +142,10 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		{Key: "fx", Label: "Курс", UAH: state.Major(fx, money.UAH), Measured: false, Why: fxWhy},
 		{Key: "rest", Label: "Решта", UAH: state.Major(rest, money.UAH), Measured: false,
 			Why: "ціни фондів, ЧВОПА НПФ, накопичений купон, округлення — тут немає подобового джерела, тож це чесно решта, а не розкладка"},
+	}
+	if err := s.present(ctx, &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }

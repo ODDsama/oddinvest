@@ -102,7 +102,7 @@ type vsDoc struct {
 }
 
 type vsMark struct {
-	Month   string      `json:"month"`
+	Month   string      `json:"month" money:"asof"`
 	Ahead   bool        `json:"ahead"`
 	DiffUAH state.Money `json:"diff_uah"`
 }
@@ -257,7 +257,7 @@ type streakDoc struct {
 // власну сліпоту як зрив плану — рівно те, проти чого стоїть уся шапка
 // цього файлу.
 type streakMark struct {
-	Month string `json:"month"`
+	Month string `json:"month" money:"asof"`
 	Known bool   `json:"known"`
 	Hit   bool   `json:"hit"`
 

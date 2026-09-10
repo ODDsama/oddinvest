@@ -62,7 +62,7 @@ type importCard struct {
 }
 
 type importCardMonth struct {
-	Month   string      `json:"month"`
+	Month   string      `json:"month" money:"asof"`
 	OutUAH  state.Money `json:"out_uah"`
 	InUAH   state.Money `json:"in_uah"`
 	CashUAH state.Money `json:"cash_uah"`

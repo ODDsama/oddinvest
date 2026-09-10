@@ -131,7 +131,7 @@ type planProfile struct {
 // UI, бо різницю між «так було» і «так виходить, якщо припустити, що
 // нічого не мінялось» читач мусить бачити, а не вгадувати.
 type planHistoryPoint struct {
-	Month       string      `json:"month"` // YYYY-MM
+	Month       string      `json:"month" money:"asof"` // YYYY-MM; курс кінця місяця (present)
 	PlanUAH     state.Money `json:"plan_uah"`
 	ActualUAH   state.Money `json:"actual_uah"`
 	GapUAH      state.Money `json:"gap_uah,omitzero"`
@@ -994,5 +994,9 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }

@@ -84,7 +84,11 @@ type suggestion struct {
 	// YTMPct поруч є лише в облігацій, тож без цього поля фонд і
 	// вклад показувались у списку самою реальною, а папір — двома
 	// числами, і порівняти їх по-номінальному було ні з чим.
-	NominalPct float64 `json:"nominal_pct,omitempty"`
+	//
+	// У валюті звітності ≠ гривні номінальної лінійки немає (тег ruler):
+	// nominal_pct бере значення real_pct, а real_pct зникає — 15% ОВДП
+	// це не 15% у доларах.
+	NominalPct float64 `json:"nominal_pct,omitempty" money:"ruler=real_pct"`
 	RealPct    float64 `json:"real_pct"`
 	YieldBasis string  `json:"yield_basis"`
 	// Rate — той самий рядок, розкладений на складники: валова ставка,
@@ -298,6 +302,10 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	}
 	// Ліміту немає свідомо: у таблиці є фільтри, сортування й пагінація,
 	// тож звужує користувач, а не бекенд мовчки.
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

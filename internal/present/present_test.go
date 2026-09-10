@@ -141,8 +141,10 @@ func TestConvert(t *testing.T) {
 	if d.Currency != "USD" {
 		t.Errorf("code: %q", d.Currency)
 	}
-	if got := d.Any["x"].(state.Money); got != usd(100) {
-		t.Errorf("any у мапі: %v", got)
+	// Мапа з ключем "date" — рядок зі своєю датою: 4 000 ₴ за січневим
+	// курсом 20 — це 200 $, а не 100 за сьогоднішнім.
+	if got := d.Any["x"].(state.Money); got != usd(200) {
+		t.Errorf("any у мапі за своєю датою: %v", got)
 	}
 	if d.Any["pct"] != 1.5 || d.Any["date"] != "2026-01-01" {
 		t.Errorf("не-гроші в any зрушили: %v", d.Any)
@@ -197,6 +199,56 @@ func TestOldDateFallsBackToToday(t *testing.T) {
 	}
 	if d.Rows[0].Sum != usd(100) {
 		t.Errorf("стара дата: %v", d.Rows[0].Sum)
+	}
+}
+
+// Посилання asof= знаходить дні в батьківській відповіді (суперники),
+// місяць «YYYY-MM» читається як його кінець, а мапа з ключем "date" — як
+// рядок зі своєю датою (знімки).
+func TestAsOfAncestorMonthAndMap(t *testing.T) {
+	type rowMonth struct {
+		Month string      `json:"month" money:"asof"`
+		Sum   state.Money `json:"sum"`
+	}
+	type rival struct {
+		Points []state.Money `json:"points" money:"asof=days"`
+	}
+	type resp struct {
+		Days   []string           `json:"days"`
+		Rivals []rival            `json:"rivals"`
+		Months []rowMonth         `json:"months"`
+		Snaps  []map[string]any   `json:"snaps"`
+		ByCur  map[string]float64 `json:"by_cur"`
+	}
+	d := &resp{
+		Days:   []string{"2026-01-01", "2026-09-10"},
+		Rivals: []rival{{Points: []state.Money{state.UAH(2000), state.UAH(4000)}}},
+		Months: []rowMonth{{Month: "2026-01", Sum: state.UAH(2000)}, {Month: "2026-09", Sum: state.UAH(4000)}},
+		Snaps: []map[string]any{
+			{"date": "2026-01-05", "cap": state.UAH(2000), "pct": 1.5},
+			{"date": "2026-09-10", "cap": state.UAH(4000)},
+		},
+		ByCur: map[string]float64{"USD": 1},
+	}
+	if err := Apply(d, Opts{Book: "UAH", Report: "USD", Rates: rates(), Today: today}); err != nil {
+		t.Fatal(err)
+	}
+	if d.Rivals[0].Points[0] != usd(100) || d.Rivals[0].Points[1] != usd(100) {
+		t.Errorf("дні з предка: %v", d.Rivals[0].Points)
+	}
+	// Січень — кінець місяця → курс 20; вересень — кінець ще попереду →
+	// останній відомий, тобто сьогоднішній 40.
+	if d.Months[0].Sum != usd(100) || d.Months[1].Sum != usd(100) {
+		t.Errorf("місяці: %v / %v", d.Months[0].Sum, d.Months[1].Sum)
+	}
+	if got := d.Snaps[0]["cap"].(state.Money); got != usd(100) {
+		t.Errorf("знімок за своєю датою: %v", got)
+	}
+	if got := d.Snaps[1]["cap"].(state.Money); got != usd(100) {
+		t.Errorf("знімок сьогодні: %v", got)
+	}
+	if d.Snaps[0]["pct"] != 1.5 || d.ByCur["USD"] != 1 {
+		t.Error("не-гроші зрушили")
 	}
 }
 

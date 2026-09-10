@@ -56,11 +56,15 @@ type periodMoney struct {
 
 // periodRow — один вимір «було → стало».
 type periodRow struct {
-	Key    string      `json:"key"`
-	Label  string      `json:"label"`
-	Before state.Money `json:"before"`
-	After  state.Money `json:"after"`
-	Delta  state.Money `json:"delta"`
+	Key   string `json:"key"`
+	Label string `json:"label"`
+	// У валюті звітності «було» перекладається курсом дати першого знімка,
+	// «стало» — другого (дати лежать у батьківській periodStructure), а
+	// дельта — різниця перекладених (present: asof, diff): за місяць курс
+	// рухається, і саме цей рух — частина відповіді.
+	Before state.Money `json:"before" money:"asof=from_date"`
+	After  state.Money `json:"after" money:"asof=to_date"`
+	Delta  state.Money `json:"delta" money:"diff=after,before"`
 }
 
 // periodStructure — з чого складався портфель на початку періоду і з чого
@@ -88,7 +92,7 @@ type periodStructure struct {
 
 // periodPlan — місячна ціль проти внесеного.
 type periodPlan struct {
-	TargetUAH  state.Money `json:"target_uah"`
+	TargetUAH  state.Money `json:"target_uah" money:"asof=target_on"`
 	ContribUAH state.Money `json:"contributed_uah"`
 	DonePct    float64     `json:"done_pct"`
 	// TargetOn — дата знімка, з якого взята ціль. Ціль міняють, і
@@ -122,8 +126,12 @@ type periodDecisions struct {
 }
 
 type periodResp struct {
-	From  string      `json:"from"`
-	To    string      `json:"to"`
+	From string `json:"from"`
+	// To — дата області для решти сум (present: asof): гроші періоду й
+	// простій перекладаються курсом КІНЦЯ періоду. Один курс на всю
+	// виписку, інакше тотожність «відкриття + дохід − покупки = закриття»
+	// не сходилась би; що всередині місяця курс ходив — свідоме наближення.
+	To    string      `json:"to" money:"asof"`
 	Money periodMoney `json:"money"`
 	// IdleUAH — скільки з доходу, що надійшов У ЦЬОМУ місяці, до кінця
 	// місяця не пішло в діло. Саме місячна відповідь, а не всесвітня:
@@ -203,6 +211,10 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.Decisions = periodDecisionsOf(list, from, to)
+	if err := s.present(ctx, &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

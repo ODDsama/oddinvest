@@ -439,6 +439,10 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		out.Grace = append(out.Grace, row)
 	}
 
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

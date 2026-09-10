@@ -433,7 +433,7 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 	// нього один. Дробові стелі бувають лише в маршруту, і вже не тому, що
 	// нога зводить цілий місяць (вона більше не зводить — див. planAhead), а
 	// тому, що горщик там накопичує кілька надходжень із різними дозволами.
-	writeJSON(w, http.StatusOK, allocatePlan(doc, sug, rates,
+	out := allocatePlan(doc, sug, rates,
 		toMoneyJSON(money.New(minor, cur)), amountUAH,
 		allocAllow{
 			ReserveUAH: reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
@@ -442,7 +442,12 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 				sourceCapUAH(uses, domain.UsePlanGoals, amountUAH)),
 			Uses:     uses,
 			PickISIN: pick,
-		}, cur, s.npfIDByName(r.Context())))
+		}, cur, s.npfIDByName(r.Context()))
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // pickSuggestion — чи є обраний папір серед порад, і сам ISIN очищеним.
