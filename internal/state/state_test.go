@@ -67,10 +67,10 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		}
 	}()
 	doc := &Doc{
-		MonthInvestedUAH:  Major(money.New(450_000, money.UAH)),
-		MonthDepositedUAH: Major(monthDep),
-		MonthTargetUAH:    Major(monthTarget),
-		UninvestedUAH:     Major(money.New(0, money.UAH)),
+		MonthInvestedUAH:  Of(money.New(450_000, money.UAH)).Major(),
+		MonthDepositedUAH: Of(monthDep).Major(),
+		MonthTargetUAH:    Of(monthTarget).Major(),
+		UninvestedUAH:     Of(money.New(0, money.UAH)).Major(),
 		Settings:          settings,
 		XIRRPct:           map[string]float64{"UAH": 16.51, "USD": 3.22},
 		// Гривня має і річну ставку, і результат за фактом; долар —

@@ -117,7 +117,7 @@ func buildIdle(cash *cashLedger, minByCur map[string]int64, rates fx.Rates, toda
 		p := state.IdlePair{
 			Broker: broker, Currency: k.Currency,
 			Investable:    float64(investable) / 100,
-			InvestableUAH: state.Major(uahAmt),
+			InvestableUAH: state.Of(uahAmt).Major(),
 			Since:         string(since),
 			AgeDays:       round2(moneyDays / float64(investable)),
 		}

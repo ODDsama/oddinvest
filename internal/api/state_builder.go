@@ -1304,12 +1304,12 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// пʼятдесят полів: тридцять із них були дзеркалом Doc, тобто пакет
 	// state здебільшого переписував із однієї структури в іншу.
 	doc := &state.Doc{
-		MonthInvestedUAH:    state.Major(monthInv),
-		MonthDepositedUAH:   state.Major(monthDep),
-		MonthWithdrawnUAH:   state.Major(monthOut),
-		MonthOutsideUAH:     state.Major(mth.OutsideUAH),
-		MonthContributedUAH: state.Major(mth.ContributedUAH),
-		MonthTargetUAH:      state.Major(target),
+		MonthInvestedUAH:    state.Of(monthInv).Major(),
+		MonthDepositedUAH:   state.Of(monthDep).Major(),
+		MonthWithdrawnUAH:   state.Of(monthOut).Major(),
+		MonthOutsideUAH:     state.Of(mth.OutsideUAH).Major(),
+		MonthContributedUAH: state.Of(mth.ContributedUAH).Major(),
+		MonthTargetUAH:      state.Of(target).Major(),
 		MonthPlan:           mth.Plan,
 		// Чистий капітал — капітал мінус УСЕ, що винен, включно з пільговим
 		// боргом картки: питання «скільки в мене насправді» не про ставки
@@ -1323,9 +1323,9 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// зменшили (state_month.go).
 		Debt: buildDebtPlan(src, src.debts, src.debtMarks, src.debtOps,
 			settings, mth.Plan, rates, now, today),
-		UninvestedUAH:  state.Major(unin),
-		AccountUAH:     state.Major(account),
-		ReinvestMinUAH: state.Major(reinvestMin),
+		UninvestedUAH:  state.Of(unin).Major(),
+		AccountUAH:     state.Of(account).Major(),
+		ReinvestMinUAH: state.Of(reinvestMin).Major(),
 		Idle:           idleCash,
 
 		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,

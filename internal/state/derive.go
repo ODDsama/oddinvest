@@ -204,7 +204,7 @@ func Derive(doc *Doc, in DeriveInput) error {
 			Date:     string(cf.Date),
 			ISIN:     cf.ISIN,
 			Type:     payTypeStr(cf.Type),
-			Amount:   Major(cf.Amount),
+			Amount:   Of(cf.Amount).Major(),
 			Currency: cf.Amount.Currency().Code,
 			Label:    payLabel(cf.ISIN),
 		}
@@ -247,7 +247,7 @@ func Derive(doc *Doc, in DeriveInput) error {
 			Date:     string(cf.Date),
 			ISIN:     cf.ISIN,
 			Type:     payTypeStr(cf.Type),
-			Amount:   Major(cf.Amount),
+			Amount:   Of(cf.Amount).Major(),
 			Currency: cf.Amount.Currency().Code,
 			Label:    payLabel(cf.ISIN),
 		}
