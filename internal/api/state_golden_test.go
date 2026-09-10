@@ -855,8 +855,8 @@ func TestBuildStateGoldenUSD(t *testing.T) {
 	if d := doc.CapitalDelta30; d != nil && d.DeltaUAH != doc.CapitalUAH.Sub(d.FromUAH) {
 		t.Errorf("дельта — різниця перекладених: %v ≠ %v − %v", d.DeltaUAH, doc.CapitalUAH, d.FromUAH)
 	}
-	if doc.BlendedYieldRealPct != 0 || doc.BlendedYieldPct == 0 {
-		t.Errorf("лінійка: %v / %v", doc.BlendedYieldPct, doc.BlendedYieldRealPct)
+	if doc.BlendedYieldRealPct != doc.BlendedYieldPct || doc.BlendedYieldPct == 0 {
+		t.Errorf("лінійка одна: %v / %v", doc.BlendedYieldPct, doc.BlendedYieldRealPct)
 	}
 	for _, g := range doc.Goals {
 		if !g.GapFutureUAH.IsZero() || g.InflationPct != 0 {

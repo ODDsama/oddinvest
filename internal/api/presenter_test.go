@@ -98,7 +98,8 @@ func TestSummaryInReportCurrency(t *testing.T) {
 	if usd.Rates["USD"] != uah.Rates["USD"] {
 		t.Errorf("курс — не сума, він не перекладається: %v → %v", uah.Rates, usd.Rates)
 	}
-	if usd.BlendedYieldPct != uah.BlendedYieldRealPct || usd.BlendedYieldRealPct != 0 {
+	// Лінійка одна: номінал бере реальну, реальна лишається рівною йому.
+	if usd.BlendedYieldPct != uah.BlendedYieldRealPct || usd.BlendedYieldRealPct != uah.BlendedYieldRealPct {
 		t.Errorf("лінійка: у доларі головною стає реальна (%v), а не номінал (%v); дістали %v / %v",
 			uah.BlendedYieldRealPct, uah.BlendedYieldPct, usd.BlendedYieldPct, usd.BlendedYieldRealPct)
 	}
@@ -115,7 +116,7 @@ func TestSummaryInReportCurrency(t *testing.T) {
 		t.Errorf("у гривні проза мусить лишитись гривневою: %q", got)
 	}
 	// Ставка проєкції — теж лінійка: у доларі стоїть реальна.
-	if usd.ProjectionRatePct != uah.ProjectionRateReal || usd.ProjectionRateReal != 0 || uah.ProjectionRateReal == 0 {
+	if usd.ProjectionRatePct != uah.ProjectionRateReal || usd.ProjectionRateReal != uah.ProjectionRateReal || uah.ProjectionRateReal == 0 {
 		t.Errorf("ставка проєкції: гривня %v/%v, долар %v/%v",
 			uah.ProjectionRatePct, uah.ProjectionRateReal, usd.ProjectionRatePct, usd.ProjectionRateReal)
 	}

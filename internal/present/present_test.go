@@ -149,10 +149,11 @@ func TestConvert(t *testing.T) {
 	if d.Any["pct"] != 1.5 || d.Any["date"] != "2026-01-01" {
 		t.Errorf("не-гроші в any зрушили: %v", d.Any)
 	}
-	if d.Nominal != 8 || d.Real != 0 {
+	// Лінійка одна: номінал бере реальну, реальна лишається рівною йому.
+	if d.Nominal != 8 || d.Real != 8 {
 		t.Errorf("лінійка: nominal %v, real %v", d.Nominal, d.Real)
 	}
-	if d.Kind["bonds"] != 8 || d.KindReal != nil {
+	if d.Kind["bonds"] != 8 || d.KindReal["bonds"] != 8 {
 		t.Errorf("лінійка-мапа: %v / %v", d.Kind, d.KindReal)
 	}
 	if d.CPI != nil {

@@ -968,6 +968,7 @@
     "fx_max_lag_days": 23
   },
   "portfolio_yield_pct": 0.68,
+  "portfolio_yield_real_pct": 0.68,
   "portfolio_yield": {
     "EUR": 0.54,
     "UAH": -0.17,
@@ -975,6 +976,13 @@
   },
   "funds_yield_pct": 5.82,
   "blended_yield_pct": 2.66,
+  "portfolio_yield_real": {
+    "EUR": 0.54,
+    "UAH": -0.17,
+    "USD": 0.85
+  },
+  "funds_yield_real_pct": 5.82,
+  "blended_yield_real_pct": 2.66,
   "funds_yield_basis": "різні основи",
   "funds_yield_split": {
     "measured_real_pct": -1.4,
@@ -989,6 +997,12 @@
     "measured_uah": 159.59,
     "promised_real_pct": 2.67,
     "promised_uah": 8287.44
+  },
+  "kind_yield_real_pct": {
+    "bonds": 0.68,
+    "deposits": 6.23,
+    "funds": 5.82,
+    "npf": 9.24
   },
   "kind_yield_pct": {
     "bonds": 0.68,
@@ -1031,6 +1045,7 @@
     }
   ],
   "projection_rate_pct": 0.15,
+  "projection_rate_real_pct": 0.15,
   "plan_provides_uah": 158.65,
   "forecast": {
     "date": "2029-10-15",
@@ -1308,6 +1323,7 @@
         "lever": "contrib",
         "factor": 0.5,
         "value": 38395.4,
+        "value_uah": 870.18,
         "goal_months": 81,
         "goal_date": "2033-04-15",
         "amount_uah": 55278.18,
@@ -1317,6 +1333,7 @@
         "lever": "contrib",
         "factor": 1.5,
         "value": 115186.2,
+        "value_uah": 2610.55,
         "goal_months": 29,
         "goal_date": "2028-12-15",
         "amount_uah": 117317.92,
@@ -1326,6 +1343,7 @@
         "lever": "contrib",
         "factor": 2,
         "value": 153581.6,
+        "value_uah": 3480.73,
         "goal_months": 22,
         "goal_date": "2028-05-15",
         "amount_uah": 148338.24,
@@ -1335,6 +1353,7 @@
         "lever": "step_contrib",
         "delta_uah": 226.64,
         "value": 86790.8,
+        "value_uah": 1967,
         "goal_months": 37,
         "goal_date": "2029-08-15",
         "amount_uah": 94377.24,
@@ -1407,6 +1426,7 @@
         "lever": "goal",
         "factor": 0.75,
         "value": 3000000,
+        "value_uah": 67991.13,
         "goal_months": 29,
         "goal_date": "2028-12-15",
         "amount_uah": 86298.61,
@@ -1416,6 +1436,7 @@
         "lever": "goal",
         "factor": 0.5,
         "value": 2000000,
+        "value_uah": 45327.42,
         "goal_months": 15,
         "goal_date": "2027-10-15",
         "amount_uah": 86298.61,

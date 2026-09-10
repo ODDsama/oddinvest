@@ -1324,6 +1324,7 @@
               "delta_uah": { "type": "number", "description": "Зсув у ₴/міс (важіль step_contrib): крок узятий від нинішнього темпу й округлений до круглого числа" },
               "delta_months": { "type": "integer", "description": "Зсув у місяцях (важіль deadline)" },
               "value": { "type": "number", "description": "Величина ПІСЛЯ зсуву, у своїй одиниці: ₴/міс, %, п.п., ₴ або місяців" },
+              "value_uah": { "type": "number", "description": "Те саме значення грішми для важелів contrib, step_contrib і goal — у валюті документа (schema 3); value для них лишається гривневим" },
               "goal_months": { "type": "integer", "description": "Місяців до цілі за цього входу. Для важеля deadline — базові: місяць досягнення від дедлайну не залежить" },
               "goal_date": { "type": "string", "format": "date" },
               "amount_uah": { "type": "number", "description": "Скільки буде на дедлайн, у сьогоднішніх ₴" },

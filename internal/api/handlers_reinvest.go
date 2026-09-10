@@ -86,8 +86,8 @@ type suggestion struct {
 	// числами, і порівняти їх по-номінальному було ні з чим.
 	//
 	// У валюті звітності ≠ гривні номінальної лінійки немає (тег ruler):
-	// nominal_pct бере значення real_pct, а real_pct зникає — 15% ОВДП
-	// це не 15% у доларах.
+	// nominal_pct бере значення real_pct, і обидва рівні — 15% ОВДП це
+	// не 15% у доларах.
 	NominalPct float64 `json:"nominal_pct,omitempty" money:"ruler=real_pct"`
 	RealPct    float64 `json:"real_pct"`
 	YieldBasis string  `json:"yield_basis"`
