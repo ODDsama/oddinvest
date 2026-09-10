@@ -50,6 +50,7 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 // progressDoc — відповідь GET /api/progress.
@@ -101,14 +102,14 @@ type vsDoc struct {
 }
 
 type vsMark struct {
-	Month   string  `json:"month"`
-	Ahead   bool    `json:"ahead"`
-	DiffUAH float64 `json:"diff_uah"`
+	Month   string      `json:"month"`
+	Ahead   bool        `json:"ahead"`
+	DiffUAH state.Money `json:"diff_uah"`
 }
 
 // buildVsUSD — серія з добового ряду. days і diff — з rivalsResp, однієї
 // довжини, за датою; nil, коли ряду немає.
-func buildVsUSD(days []string, diff []float64, today domain.Date) *vsDoc {
+func buildVsUSD(days []string, diff []state.Money, today domain.Date) *vsDoc {
 	if len(days) == 0 || len(diff) != len(days) {
 		return nil
 	}
@@ -121,10 +122,10 @@ func buildVsUSD(days []string, diff []float64, today domain.Date) *vsDoc {
 		}
 		m := d[:7]
 		if n := len(out.Marks); n > 0 && out.Marks[n-1].Month == m {
-			out.Marks[n-1] = vsMark{Month: m, Ahead: diff[i] > 0, DiffUAH: round2(diff[i])}
+			out.Marks[n-1] = vsMark{Month: m, Ahead: diff[i].Major() > 0, DiffUAH: diff[i]}
 			continue
 		}
-		out.Marks = append(out.Marks, vsMark{Month: m, Ahead: diff[i] > 0, DiffUAH: round2(diff[i])})
+		out.Marks = append(out.Marks, vsMark{Month: m, Ahead: diff[i].Major() > 0, DiffUAH: diff[i]})
 	}
 	run := 0
 	for _, mk := range out.Marks {
@@ -144,7 +145,7 @@ func buildVsUSD(days []string, diff []float64, today domain.Date) *vsDoc {
 		if days[i] > string(today) {
 			continue
 		}
-		if diff[i] <= 0 {
+		if diff[i].Major() <= 0 {
 			break
 		}
 		out.Since = days[i]
@@ -164,9 +165,9 @@ func buildVsUSD(days []string, diff []float64, today domain.Date) *vsDoc {
 // чверть життя», яка дивиться вперед на щомісячний дохід. Вони не
 // суперечать: перша каже, що вже сталось, друга — що обіцяно.
 type lifeDoc struct {
-	IncomeUAH float64 `json:"income_uah"`
-	PerDayUAH float64 `json:"per_day_uah"`
-	Days      float64 `json:"days"`
+	IncomeUAH state.Money `json:"income_uah"`
+	PerDayUAH state.Money `json:"per_day_uah"`
+	Days      float64     `json:"days"`
 	// Since — дата першого заробленого руху; порожньо, доки його немає.
 	Since string `json:"since,omitempty"`
 }
@@ -176,7 +177,7 @@ func buildLife(ev []flowEvent, expenses float64) *lifeDoc {
 	if expenses <= 0 {
 		return nil
 	}
-	out := &lifeDoc{PerDayUAH: round2(expenses / 30)}
+	out := &lifeDoc{PerDayUAH: state.Major(expenses/30, money.UAH)}
 	var earned int64
 	for _, e := range ev {
 		if e.Kind != flowIncome || e.Principal || e.UAH <= 0 {
@@ -187,8 +188,8 @@ func buildLife(ev []flowEvent, expenses float64) *lifeDoc {
 		}
 		earned += e.UAH
 	}
-	out.IncomeUAH = round2(float64(earned) / 100)
-	out.Days = round2(out.IncomeUAH / out.PerDayUAH)
+	out.IncomeUAH = state.Minor(earned, money.UAH)
+	out.Days = round2(out.IncomeUAH.Major() / out.PerDayUAH.Major())
 	return out
 }
 
@@ -262,8 +263,8 @@ type streakMark struct {
 
 	// TargetUAH є лише у відомого місяця, ContribUAH — завжди: внесок
 	// береться з подій руху грошей і від знімків не залежить зовсім.
-	TargetUAH  float64 `json:"target_uah,omitempty"`
-	ContribUAH float64 `json:"contrib_uah,omitempty"`
+	TargetUAH  state.Money `json:"target_uah,omitzero"`
+	ContribUAH state.Money `json:"contrib_uah,omitzero"`
 }
 
 // disciplineDoc — частка покупок, узятих із верхнього рядка помічника.
@@ -493,9 +494,9 @@ func buildStreak(snaps []store.Snapshot, ev []flowEvent, today domain.Date) stre
 	// Поточного місяця в ній немає з того самого доводу, що й у серії, —
 	// він ще не закінчився.
 	for m := months[0]; m != "" && m < nowMonth; m = nextMonth(m) {
-		mk := streakMark{Month: m, Known: want[m] > 0, ContribUAH: float64(got[m]) / 100}
+		mk := streakMark{Month: m, Known: want[m] > 0, ContribUAH: state.Minor(got[m], money.UAH)}
 		if mk.Known {
-			mk.TargetUAH = float64(want[m]) / 100
+			mk.TargetUAH = state.Minor(want[m], money.UAH)
 			mk.Hit = got[m] >= want[m]
 		}
 		out.Marks = append(out.Marks, mk)
@@ -669,11 +670,11 @@ func buildMilestones(
 	add(func() milestone {
 		m := milestone{Key: "beat_dollars", Title: "Обіграв «просто долари»",
 			ProgressPct: progressNoProgress}
-		if bench == nil || bench.BenchmarkUAH == 0 {
+		if bench == nil || bench.BenchmarkUAH.Major() == 0 {
 			m.Note = "порівнювати ще нема з чим"
 			return m
 		}
-		m.Earned = bench.DiffUAH > 0
+		m.Earned = bench.DiffUAH.Major() > 0
 		// Дата — перший день НИНІШНЬОГО відрізка «попереду» з добового
 		// ряду суперників (vsDoc.Since). Доти дати не було ніде: бенчмарк
 		// був порівнянням на сьогодні, а день, коли портфель обійшов
@@ -682,7 +683,7 @@ func buildMilestones(
 			m.EarnedOn = vs.Since
 		}
 		m.Note = fmt.Sprintf("%s проти %s, якби просто тримав долари",
-			uah(bench.PortfolioUAH), uah(bench.BenchmarkUAH))
+			uah(bench.PortfolioUAH.Major()), uah(bench.BenchmarkUAH.Major()))
 		return m
 	}())
 
@@ -908,15 +909,15 @@ func lifeMilestone(key, title string, need float64, ev []flowEvent, life *lifeDo
 		return m
 	}
 	m.Earned = life.Days >= need
-	m.EarnedOn = lifeCrossedOn(ev, life.PerDayUAH, need)
+	m.EarnedOn = lifeCrossedOn(ev, life.PerDayUAH.Major(), need)
 	m.ProgressPct = ratioPct(life.Days, need)
 	m.Note = fmt.Sprintf("оплачено %s із %s — %s заробленого при %s на день",
-		daysWord(life.Days), daysWord(need), uah(life.IncomeUAH), uah(life.PerDayUAH))
+		daysWord(life.Days), daysWord(need), uah(life.IncomeUAH.Major()), uah(life.PerDayUAH.Major()))
 	if !m.Earned {
 		m.Left = "лишилось " + daysWord(need-life.Days)
 		// Темп — щомісячний дохід портфеля вже зараз (IncomeMonthlyNow):
 		// це «з надходжень портфеля», інша основа, ніж у порогів капіталу.
-		m.EtaOn = etaAtPace(today, (need-life.Days)*life.PerDayUAH, incomeMonthly/30)
+		m.EtaOn = etaAtPace(today, (need-life.Days)*life.PerDayUAH.Major(), incomeMonthly/30)
 		m.EtaBasis = noteOr(m.EtaOn != "", etaByIncome, "")
 	}
 	return m

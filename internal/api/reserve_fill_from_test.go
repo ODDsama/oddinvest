@@ -128,7 +128,7 @@ func TestRouteCouponSkipsReserveWhenPlanOnly(t *testing.T) {
 	}
 	leg := got.Legs[0]
 	if leg.Reserve != nil {
-		t.Errorf("подушка взяла %.2f — купон за політикою в неї не йде", leg.Reserve.AmountUAH)
+		t.Errorf("подушка взяла %.2f — купон за політикою в неї не йде", leg.Reserve.AmountUAH.Major())
 	}
 	if leg.ReserveSkipWhy == "" {
 		t.Error("вирізка зникла мовчки — причина мусить бути названа")
@@ -145,8 +145,8 @@ func TestRouteRedemptionFollowsLevel(t *testing.T) {
 	if len(redeem.Legs) != 1 || redeem.Legs[0].Reserve == nil {
 		t.Fatalf("redeem: подушка нічого не взяла: %+v", redeem.Legs)
 	}
-	if got := redeem.Legs[0].Reserve.AmountUAH; got != 12000 {
-		t.Errorf("redeem: у подушку %.2f, чекали 12000 — стеля місяця", got)
+	if got := redeem.Legs[0].Reserve.AmountUAH; got.Major() != 12000 {
+		t.Errorf("redeem: у подушку %.2f, чекали 12000 — стеля місяця", got.Major())
 	}
 
 	plan := routeOnce(routeReserveDoc("plan"), routeRedeem("2026-09-10", 20000, "UA0001"))
@@ -155,7 +155,7 @@ func TestRouteRedemptionFollowsLevel(t *testing.T) {
 	}
 	if plan.Legs[0].Reserve != nil {
 		t.Errorf("plan: подушка взяла %.2f — тіло за цією політикою теж не її",
-			plan.Legs[0].Reserve.AmountUAH)
+			plan.Legs[0].Reserve.AmountUAH.Major())
 	}
 }
 
@@ -171,8 +171,8 @@ func TestRouteMixedEventGivesReserveOnlyPrincipal(t *testing.T) {
 	if len(got.Legs) != 1 || got.Legs[0].Reserve == nil {
 		t.Fatalf("подушка нічого не взяла: %+v", got.Legs)
 	}
-	if v := got.Legs[0].Reserve.AmountUAH; v != 10000 {
-		t.Errorf("у подушку %.2f, чекали 10000 — рівно тіло", v)
+	if v := got.Legs[0].Reserve.AmountUAH; v.Major() != 10000 {
+		t.Errorf("у подушку %.2f, чекали 10000 — рівно тіло", v.Major())
 	}
 	if got.Legs[0].ReserveSkipWhy == "" {
 		t.Error("подушка недобрала стелю через політику й не сказала цього")
@@ -208,7 +208,7 @@ func TestRouteFirstLegEqualsAllocateWithSource(t *testing.T) {
 	}
 	if got.Legs[0].Reserve.AmountUAH != want.Reserve.AmountUAH {
 		t.Errorf("маршрут дав подушці %.2f, розкладка %.2f — завелась друга арифметика",
-			got.Legs[0].Reserve.AmountUAH, want.Reserve.AmountUAH)
+			got.Legs[0].Reserve.AmountUAH.Major(), want.Reserve.AmountUAH.Major())
 	}
 }
 
@@ -224,8 +224,8 @@ func TestRouteEmptyFillFromBehavesAsAny(t *testing.T) {
 		t.Fatal("подушка мовчить там, де політики немає")
 	}
 	if any.Legs[0].Reserve.AmountUAH != none.Legs[0].Reserve.AmountUAH {
-		t.Errorf("порожньо дало %.2f, any — %.2f", none.Legs[0].Reserve.AmountUAH,
-			any.Legs[0].Reserve.AmountUAH)
+		t.Errorf("порожньо дало %.2f, any — %.2f", none.Legs[0].Reserve.AmountUAH.Major(),
+			any.Legs[0].Reserve.AmountUAH.Major())
 	}
 	if none.Legs[0].ReserveSkipWhy != "" {
 		t.Errorf("причина там, де ніщо не заблоковане: %q", none.Legs[0].ReserveSkipWhy)
@@ -469,7 +469,7 @@ func TestRoutePlanLegCarriesItsOwnUses(t *testing.T) {
 	if !strings.Contains(got.Legs[0].ReserveSkipWhy, "надходження") {
 		t.Errorf("причина не вказує на саме надходження: %q", got.Legs[0].ReserveSkipWhy)
 	}
-	if got.Legs[1].Reserve == nil || got.Legs[1].Reserve.AmountUAH <= 0 {
+	if got.Legs[1].Reserve == nil || got.Legs[1].Reserve.AmountUAH.Major() <= 0 {
 		t.Errorf("подушка мовчить на нозі, якій це дозволено: %+v", got.Legs[1].Reserve)
 	}
 }
@@ -599,8 +599,8 @@ func TestRoutePlanLegHasItsOwnPot(t *testing.T) {
 			t.Errorf("нога %d купила на %d рядків — 600 ₴ квитка за 1000 ₴ не беруть",
 				i, len(leg.Lines))
 		}
-		if leg.CarryInUAH != 0 {
-			t.Errorf("нога %d дістала %.2f з чужого горщика", i, leg.CarryInUAH)
+		if leg.CarryInUAH.Major() != 0 {
+			t.Errorf("нога %d дістала %.2f з чужого горщика", i, leg.CarryInUAH.Major())
 		}
 	}
 }
@@ -642,8 +642,8 @@ func TestRouteEndpointSeesPlanIncome(t *testing.T) {
 	if plan.Ref != "" {
 		t.Errorf("планова нога несе ref %q — кнопка «Прийшло» писала б не в ту таблицю", plan.Ref)
 	}
-	if plan.InflowUAH <= 0 {
-		t.Errorf("планова нога на %.2f ₴ — надходження без грошей не буває", plan.InflowUAH)
+	if plan.InflowUAH.Major() <= 0 {
+		t.Errorf("планова нога на %.2f ₴ — надходження без грошей не буває", plan.InflowUAH.Major())
 	}
 }
 
@@ -719,9 +719,9 @@ func TestRoutePlanLegCappedByAllowedPlan(t *testing.T) {
 	if res == nil {
 		t.Fatal("вирізки подушки немає зовсім — 1 500 ₴ їй дозволені")
 	}
-	if res.AmountUAH != 1500 {
+	if res.AmountUAH.Major() != 1500 {
 		t.Errorf("подушка взяла %v, чекали 1500 — стелю ріже дозволена частина плану",
-			res.AmountUAH)
+			res.AmountUAH.Major())
 	}
 }
 
@@ -757,7 +757,7 @@ func TestRouteMonthCeilingBindsCouponToo(t *testing.T) {
 		t.Errorf("вирізка %+v — цього місяця подушці не належить нічого", res)
 	}
 	// Гроші при цьому не зникли: усі пішли в папери.
-	if got.Legs[0].AvailUAH != 6000 {
-		t.Errorf("доступно %v, чекали всі 6000", got.Legs[0].AvailUAH)
+	if got.Legs[0].AvailUAH.Major() != 6000 {
+		t.Errorf("доступно %v, чекали всі 6000", got.Legs[0].AvailUAH.Major())
 	}
 }

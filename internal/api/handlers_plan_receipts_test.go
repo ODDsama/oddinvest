@@ -45,8 +45,8 @@ func TestPlanExpectedComesFromTheFlow(t *testing.T) {
 	if cur.Amount.Amount != "40000.00" {
 		t.Errorf("планова сума мала бути валова 40000.00, маємо %q", cur.Amount.Amount)
 	}
-	if cur.PlanUAH != 10000 {
-		t.Errorf("plan_uah мав бути 10000 (25%% від 40000), маємо %v", cur.PlanUAH)
+	if cur.PlanUAH.Major() != 10000 {
+		t.Errorf("plan_uah мав бути 10000 (25%% від 40000), маємо %v", cur.PlanUAH.Major())
 	}
 	if cur.DueDate != now+"-17" {
 		t.Errorf("платіжний день мав бути 17-те: %q", cur.DueDate)

@@ -171,11 +171,11 @@ func TestRouteReserveCeilingResetsEachMonth(t *testing.T) {
 		if leg.Reserve == nil {
 			t.Fatalf("нога %d без вирізки подушки — стеля не поновилась", i)
 		}
-		if leg.Reserve.AmountUAH != 12000 {
+		if leg.Reserve.AmountUAH.Major() != 12000 {
 			t.Errorf("нога %d: у подушку %.2f, чекали 12000 (30000 × 40%%)",
-				i, leg.Reserve.AmountUAH)
+				i, leg.Reserve.AmountUAH.Major())
 		}
-		total += leg.Reserve.AmountUAH
+		total += leg.Reserve.AmountUAH.Major()
 	}
 	if total != 36000 {
 		t.Errorf("усього в подушку %.2f, чекали 36000 — три місяці по стелі", total)
@@ -201,7 +201,7 @@ func TestRouteReserveCeilingSharedWithinMonth(t *testing.T) {
 	total := 0.0
 	for _, leg := range got.Legs {
 		if leg.Reserve != nil {
-			total += leg.Reserve.AmountUAH
+			total += leg.Reserve.AmountUAH.Major()
 		}
 	}
 	if total != 12000 {
@@ -225,7 +225,7 @@ func TestRouteReserveStopsAtGap(t *testing.T) {
 	total := 0.0
 	for _, leg := range got.Legs {
 		if leg.Reserve != nil {
-			total += leg.Reserve.AmountUAH
+			total += leg.Reserve.AmountUAH.Major()
 		}
 	}
 	if total != 5000 {
@@ -254,18 +254,18 @@ func TestRoutePoolsUntilWholeTicket(t *testing.T) {
 	if n := len(got.Legs[0].Lines); n != 0 {
 		t.Errorf("перша нога купила %d рядків — на квиток не набралось", n)
 	}
-	if got.Legs[1].CarryInUAH != 340 {
-		t.Errorf("у другу ногу перенесено %.2f, чекали 340", got.Legs[1].CarryInUAH)
+	if got.Legs[1].CarryInUAH.Major() != 340 {
+		t.Errorf("у другу ногу перенесено %.2f, чекали 340", got.Legs[1].CarryInUAH.Major())
 	}
 	// Надійде саме 1 200 — решта горщика чекала з минулого разу. Це те
 	// число, яким нога підписується на екрані, і плутати його з горщиком
 	// означало б обіцяти прихід, якого банк не зробить.
-	if got.Legs[1].InflowUAH != 1200 {
+	if got.Legs[1].InflowUAH.Major() != 1200 {
 		t.Errorf("надійде %.2f, чекали 1200 — це подія, а не горщик",
-			got.Legs[1].InflowUAH)
+			got.Legs[1].InflowUAH.Major())
 	}
-	if got.Legs[1].AmountUAH != 1540 {
-		t.Errorf("горщик %.2f, чекали 1540 = 340 + 1200", got.Legs[1].AmountUAH)
+	if got.Legs[1].AmountUAH.Major() != 1540 {
+		t.Errorf("горщик %.2f, чекали 1540 = 340 + 1200", got.Legs[1].AmountUAH.Major())
 	}
 	// 340 + 1 200 = 1 540 → один папір, 540 лишається.
 	if n := len(got.Legs[1].Lines); n != 1 || got.Legs[1].Lines[0].Qty != 1 {
@@ -274,8 +274,8 @@ func TestRoutePoolsUntilWholeTicket(t *testing.T) {
 	if got.Legs[1].Via == nil {
 		t.Error("нога, що витратила гроші з двох надходжень, мусить їх назвати")
 	}
-	if got.Legs[2].CarryInUAH != 540 {
-		t.Errorf("у третю ногу перенесено %.2f, чекали 540", got.Legs[2].CarryInUAH)
+	if got.Legs[2].CarryInUAH.Major() != 540 {
+		t.Errorf("у третю ногу перенесено %.2f, чекали 540", got.Legs[2].CarryInUAH.Major())
 	}
 	// 540 + 900 = 1 440 → ще один папір.
 	if n := len(got.Legs[2].Lines); n != 1 || got.Legs[2].Lines[0].Qty != 1 {
@@ -301,9 +301,9 @@ func TestRouteSeparatePools(t *testing.T) {
 			t.Errorf("нога %d (%s) купила щось на 600 ₴ при квитку 1000 ₴: %+v",
 				i, leg.Broker, leg.Lines)
 		}
-		if leg.CarryInUAH != 0 {
+		if leg.CarryInUAH.Major() != 0 {
 			t.Errorf("нога %d дістала перенос %.2f — горщики різних брокерів злились",
-				i, leg.CarryInUAH)
+				i, leg.CarryInUAH.Major())
 		}
 	}
 }
@@ -342,7 +342,7 @@ func TestRouteKindDeficitShrinks(t *testing.T) {
 		v := 0.0
 		for _, l := range leg.Lines {
 			if l.Kind == "bond" {
-				v += l.TotalUAH
+				v += l.TotalUAH.Major()
 			}
 		}
 		return v
@@ -536,8 +536,8 @@ func TestRouteEndpointSeesScheduledCoupon(t *testing.T) {
 			t.Errorf("нога %d у брокера %q, чекали mono — купон кредитує рахунок покупки",
 				i, leg.Broker)
 		}
-		if leg.AmountUAH <= 0 {
-			t.Errorf("нога %d на %.2f ₴ — надходження без грошей не буває", i, leg.AmountUAH)
+		if leg.AmountUAH.Major() <= 0 {
+			t.Errorf("нога %d на %.2f ₴ — надходження без грошей не буває", i, leg.AmountUAH.Major())
 		}
 	}
 	if got.From == "" || got.To == "" {
@@ -627,8 +627,8 @@ func TestRoutePotBasisResetsWhenEmpty(t *testing.T) {
 	if got.Legs[0].Basis != basisEstimate {
 		t.Fatalf("перша нога: основа %q, чекали %q", got.Legs[0].Basis, basisEstimate)
 	}
-	if got.Legs[0].RestUAH != 0 {
-		t.Fatalf("перша нога мала витратити все: залишок %.2f", got.Legs[0].RestUAH)
+	if got.Legs[0].RestUAH.Major() != 0 {
+		t.Fatalf("перша нога мала витратити все: залишок %.2f", got.Legs[0].RestUAH.Major())
 	}
 	if got.Legs[1].Basis != basisOwed {
 		t.Errorf("друга нога: основа %q, чекали %q — оцінка вже пішла в діло",
@@ -808,14 +808,14 @@ func TestRoutePickIsPerLeg(t *testing.T) {
 	if len(first.Lines) != 1 || first.Lines[0].Ref != "UA0002" || !first.Lines[0].Picked {
 		t.Fatalf("перша нога: %+v — чекали один рядок обраного UA0002", first.Lines)
 	}
-	if first.Lines[0].Qty != 3 || first.RestUAH != 500 {
+	if first.Lines[0].Qty != 3 || first.RestUAH.Major() != 500 {
 		t.Errorf("перша нога: %d шт, залишок %.2f — чекали 3 × 1500 і 500",
-			first.Lines[0].Qty, first.RestUAH)
+			first.Lines[0].Qty, first.RestUAH.Major())
 	}
 	second := got.Legs[1]
-	if second.CarryInUAH != 500 {
+	if second.CarryInUAH.Major() != 500 {
 		t.Errorf("у другу ногу перенесено %.2f, чекали 500 — залишок вибору їде далі",
-			second.CarryInUAH)
+			second.CarryInUAH.Major())
 	}
 	if len(second.Lines) != 1 || second.Lines[0].Ref != "UA0001" || second.Lines[0].Picked {
 		t.Errorf("друга нога: %+v — вибір першої ноги не мав на неї перейти", second.Lines)
@@ -900,7 +900,7 @@ func TestRouteReserveGapGrowsWithLoanInterest(t *testing.T) {
 		total := 0.0
 		for _, leg := range got.Legs {
 			if leg.Reserve != nil {
-				total += leg.Reserve.AmountUAH
+				total += leg.Reserve.AmountUAH.Major()
 			}
 		}
 		return total

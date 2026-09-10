@@ -36,6 +36,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/imports"
+	"github.com/ODDsama/oddinvest/internal/state"
 )
 
 // importCard — картковий блок відповіді /api/import.
@@ -53,18 +54,18 @@ type importCard struct {
 	Spend []importCardMonth `json:"spend"`
 	// CashSincePrevMark — готівка з файлу після попередньої звірки: це
 	// non_grace нової звірки, коли її пишуть.
-	CashSincePrevMark float64 `json:"cash_since_prev_mark"`
-	PrevMarkDate      string  `json:"prev_mark_date,omitempty"`
+	CashSincePrevMark state.Money `json:"cash_since_prev_mark"`
+	PrevMarkDate      string      `json:"prev_mark_date,omitempty"`
 	// MarkWritten/MarkNote — чи записано звірку й чому ні.
 	MarkWritten bool   `json:"mark_written"`
 	MarkNote    string `json:"mark_note,omitempty"`
 }
 
 type importCardMonth struct {
-	Month   string  `json:"month"`
-	OutUAH  float64 `json:"out_uah"`
-	InUAH   float64 `json:"in_uah"`
-	CashUAH float64 `json:"cash_uah"`
+	Month   string      `json:"month"`
+	OutUAH  state.Money `json:"out_uah"`
+	InUAH   state.Money `json:"in_uah"`
+	CashUAH state.Money `json:"cash_uah"`
 }
 
 // cardImport — стан одного імпорту виписки картки.
@@ -164,12 +165,12 @@ func (c *cardImport) take(ctx context.Context, row imports.Row, dry bool) (bool,
 	case "card_out":
 		// Покупка не пишеться (шапка файла) — лише сумується. «Вже є»
 		// тут означає «врахована», і превʼю підписує її саме так.
-		m.OutUAH = round2(m.OutUAH + float64(row.Amount)/100)
+		m.OutUAH = state.Major(m.OutUAH.Major()+float64(row.Amount)/100, money.UAH)
 		return true, nil
 	case "card_in":
-		m.InUAH = round2(m.InUAH + float64(row.Amount)/100)
+		m.InUAH = state.Major(m.InUAH.Major()+float64(row.Amount)/100, money.UAH)
 	case "card_cash":
-		m.CashUAH = round2(m.CashUAH + float64(row.Amount)/100)
+		m.CashUAH = state.Major(m.CashUAH.Major()+float64(row.Amount)/100, money.UAH)
 		if row.Date.After(c.prevMark) {
 			c.cashNew += row.Amount
 		}
@@ -194,7 +195,7 @@ func (c *cardImport) take(ctx context.Context, row imports.Row, dry bool) (bool,
 // finish — блок відповіді й, коли просили і не dry, звірка.
 func (c *cardImport) finish(ctx context.Context, dry bool) (*importCard, error) {
 	out := &importCard{DebtID: c.card.ID, Name: c.card.Name, Spend: []importCardMonth{},
-		CashSincePrevMark: round2(float64(c.cashNew) / 100), PrevMarkDate: string(c.prevMark)}
+		CashSincePrevMark: state.Minor(c.cashNew, money.UAH), PrevMarkDate: string(c.prevMark)}
 	for _, m := range c.months {
 		out.Spend = append(out.Spend, *m)
 	}

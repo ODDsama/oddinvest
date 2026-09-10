@@ -16,6 +16,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
@@ -195,8 +196,8 @@ type planFlowRow struct {
 	// Сума ProvidesUAH по всіх рядках == summary.plan_provides_uah. Це не
 	// збіг, а те саме означення з переставленими сумами — і воно закріплене
 	// тестом, бо саме на ньому стоїть підсумок таблиці.
-	ProvidesUAH float64 `json:"provides_uah"`
-	GrossUAH    float64 `json:"gross_uah"`
+	ProvidesUAH state.Money `json:"provides_uah"`
+	GrossUAH    state.Money `json:"gross_uah"`
 
 	// Далі — три різні відповіді на «скільки це в гривні», і плутати їх не
 	// можна, бо саме плутанина між ними й породила цей набір полів.
@@ -206,16 +207,16 @@ type planFlowRow struct {
 	// справжній розмір. Рахувати його в браузері як GrossUAH×12 не можна:
 	// у разової поза вікном GrossUAH нуль, і множення сказало б, що премії
 	// немає.
-	AmountUAH float64 `json:"amount_uah"`
+	AmountUAH state.Money `json:"amount_uah"`
 	// MonthlyUAH — СТАЛА ставка на місяць (сума ÷ період, частка
 	// застосована); MonthlyGrossUAH — вона ж до частки. Для разової обидва
 	// нулі: у неї немає «щомісяця».
-	MonthlyUAH      float64 `json:"monthly_uah"`
-	MonthlyGrossUAH float64 `json:"monthly_gross_uah"`
+	MonthlyUAH      state.Money `json:"monthly_uah"`
+	MonthlyGrossUAH state.Money `json:"monthly_gross_uah"`
 	// NextMonthUAH — скільки потік дає в НАЙБЛИЖЧОМУ місяці плану (місяць 1
 	// моделі). Саме тут разова виплата показує повну суму — того місяця
 	// вона справді приходить.
-	NextMonthUAH float64 `json:"next_month_uah"`
+	NextMonthUAH state.Money `json:"next_month_uah"`
 	// Expired — цей потік більше не заплатить ЖОДНОГО разу.
 	//
 	// Рахує бекенд, а не браузер, і це та сама межа, що в MaturityDate
@@ -273,16 +274,16 @@ func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates, marks pl
 		Uses:        planUsesRow(f),
 		Note:        f.Note,
 		Expired:     planFlowExpired(f, today),
-		ProvidesUAH: round2(planFlowProvidesUAH(f, today, rates, planProvidesMonths, marks)),
-		GrossUAH:    round2(planFlowGrossUAH(f, today, rates, planProvidesMonths, marks)),
+		ProvidesUAH: state.Major(planFlowProvidesUAH(f, today, rates, planProvidesMonths, marks), money.UAH),
+		GrossUAH:    state.Major(planFlowGrossUAH(f, today, rates, planProvidesMonths, marks), money.UAH),
 
-		AmountUAH: round2(planFlowUAH(float64(f.Amount)/100, f.Currency, rates)),
+		AmountUAH: state.Major(planFlowUAH(float64(f.Amount)/100, f.Currency, rates), money.UAH),
 		// Стала ставка відміток НЕ бачить, і це навмисно: вона відповідає на
 		// «скільки цей потік платить, коли платить», — питання без місяця,
 		// тож і замістити в ньому нема чого.
-		MonthlyUAH:      round2(planFlowUAH(planFlowSteadyNative(f, today, true), f.Currency, rates)),
-		MonthlyGrossUAH: round2(planFlowUAH(planFlowSteadyNative(f, today, false), f.Currency, rates)),
-		NextMonthUAH:    round2(planFlowMonthlyUAH(f, today, rates, 1, marks)),
+		MonthlyUAH:      state.Major(planFlowUAH(planFlowSteadyNative(f, today, true), f.Currency, rates), money.UAH),
+		MonthlyGrossUAH: state.Major(planFlowUAH(planFlowSteadyNative(f, today, false), f.Currency, rates), money.UAH),
+		NextMonthUAH:    state.Major(planFlowMonthlyUAH(f, today, rates, 1, marks), money.UAH),
 	}
 }
 

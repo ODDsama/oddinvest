@@ -22,21 +22,21 @@ import (
 )
 
 type timelineFlow struct {
-	ID        int64   `json:"id"`
-	Name      string  `json:"name"`
-	Kind      string  `json:"kind"`
-	Cadence   string  `json:"cadence"`
-	From      string  `json:"from"`
-	Until     string  `json:"until,omitempty"`
-	AmountUAH float64 `json:"amount_uah"`
+	ID        int64       `json:"id"`
+	Name      string      `json:"name"`
+	Kind      string      `json:"kind"`
+	Cadence   string      `json:"cadence"`
+	From      string      `json:"from"`
+	Until     string      `json:"until,omitempty"`
+	AmountUAH state.Money `json:"amount_uah"`
 }
 
 type timelineAction struct {
-	ID        int64   `json:"id"`
-	Date      string  `json:"date"`
-	Type      string  `json:"type"`
-	Name      string  `json:"name,omitempty"`
-	AmountUAH float64 `json:"amount_uah,omitempty"`
+	ID        int64       `json:"id"`
+	Date      string      `json:"date"`
+	Type      string      `json:"type"`
+	Name      string      `json:"name,omitempty"`
+	AmountUAH state.Money `json:"amount_uah,omitzero"`
 }
 
 // timelineInstrument — термін реального інструмента: коли він повертає
@@ -55,11 +55,11 @@ type timelineMilestone struct {
 }
 
 type timelineCurvePoint struct {
-	Date        string  `json:"date"`
-	Plan        float64 `json:"plan"`
-	Optimistic  float64 `json:"optimistic,omitempty"`
-	Pessimistic float64 `json:"pessimistic,omitempty"`
-	Actual      float64 `json:"actual,omitempty"`
+	Date        string      `json:"date"`
+	Plan        state.Money `json:"plan"`
+	Optimistic  state.Money `json:"optimistic,omitzero"`
+	Pessimistic state.Money `json:"pessimistic,omitzero"`
+	Actual      state.Money `json:"actual,omitzero"`
 }
 
 // profileSeries / profilePoint — «форма плану в часі»: скільки ₴/міс
@@ -74,14 +74,14 @@ type profileSeries struct {
 }
 
 type profilePoint struct {
-	Date   string    `json:"date"`
-	Values []float64 `json:"values"`
-	Net    float64   `json:"net"`
+	Date   string        `json:"date"`
+	Values []state.Money `json:"values"`
+	Net    state.Money   `json:"net"`
 	// Income — що ЦЬОГО місяця приносить сам портфель: купони ОВДП,
 	// відсотки вкладів, дивіденди фондів. Окремо від Values і від Net
 	// навмисно: Net мусить і далі точно дорівнювати плитці «План дає»,
 	// інакше картинка знову розійдеться з числом над нею.
-	Income float64 `json:"income,omitempty"`
+	Income state.Money `json:"income,omitzero"`
 }
 
 // profileEvent — повернення ТІЛА: погашення ОВДП, закриття вкладу,
@@ -98,9 +98,9 @@ type profileEvent struct {
 	// npf — та сама природа події, що закриття фонду: гроші стають доступні
 	// рівно раз, і в розкладі цього моменту немає. Різниця лише в горизонті —
 	// двадцять пʼять років проти трьох.
-	Kind      string  `json:"kind"` // bond | deposit | fund | npf
-	Label     string  `json:"label"`
-	AmountUAH float64 `json:"amount_uah"`
+	Kind      string      `json:"kind"` // bond | deposit | fund | npf
+	Label     string      `json:"label"`
+	AmountUAH state.Money `json:"amount_uah"`
 }
 
 type planProfile struct {
@@ -131,17 +131,17 @@ type planProfile struct {
 // UI, бо різницю між «так було» і «так виходить, якщо припустити, що
 // нічого не мінялось» читач мусить бачити, а не вгадувати.
 type planHistoryPoint struct {
-	Month       string  `json:"month"` // YYYY-MM
-	PlanUAH     float64 `json:"plan_uah"`
-	ActualUAH   float64 `json:"actual_uah"`
-	GapUAH      float64 `json:"gap_uah,omitempty"`
-	PlanDerived bool    `json:"plan_derived,omitempty"`
+	Month       string      `json:"month"` // YYYY-MM
+	PlanUAH     state.Money `json:"plan_uah"`
+	ActualUAH   state.Money `json:"actual_uah"`
+	GapUAH      state.Money `json:"gap_uah,omitzero"`
+	PlanDerived bool        `json:"plan_derived,omitempty"`
 	// ReceivedUAH — скільки НАДІЙШЛО за відмітками, у тих самих грошах, що
 	// й PlanUAH (частка в портфель застосована). omitempty тут безпечний
 	// лише тому, що поруч стоїть Marked: сам по собі нуль не відрізнити від
 	// «не відмічено», і саме прапорець вирішує, малювати стовпчик чи ні.
-	ReceivedUAH float64 `json:"received_uah,omitempty"`
-	Marked      bool    `json:"marked,omitempty"`
+	ReceivedUAH state.Money `json:"received_uah,omitzero"`
+	Marked      bool        `json:"marked,omitempty"`
 }
 
 // flowRevisionRow — рядок «Історії правок» для UI.
@@ -162,13 +162,13 @@ type flowRevisionRow struct {
 // planRev — поля потоку, які має сенс порівнювати між ревізіями. Сума
 // рядком у мінорних одиницях не потрібна: UI показує гроші, а не int64.
 type planRev struct {
-	Amount    float64 `json:"amount"`
-	Currency  string  `json:"currency"`
-	Cadence   string  `json:"cadence"`
-	FromDate  string  `json:"from_date"`
-	UntilDate string  `json:"until_date,omitempty"`
-	InvestPct float64 `json:"invest_pct"`
-	GrowthPct float64 `json:"growth_pct,omitempty"`
+	Amount    state.Money `json:"amount"`
+	Currency  string      `json:"currency"`
+	Cadence   string      `json:"cadence"`
+	FromDate  string      `json:"from_date"`
+	UntilDate string      `json:"until_date,omitempty"`
+	InvestPct float64     `json:"invest_pct"`
+	GrowthPct float64     `json:"growth_pct,omitempty"`
 	// Uses — дозвіл на момент ревізії. Без нього історія правок мовчала б
 	// про зміну, яка рухає стелю подушки: «нічого не змінилось» там, де
 	// змінилось те, з чого вона рахується.
@@ -182,13 +182,13 @@ type planRev struct {
 // у чеклисті людина звіряє його з тим, що прийшло на картку, а не з тим,
 // скільки з нього дійде до брокера.
 type receiptRow struct {
-	ID        int64     `json:"id"`
-	FlowID    int64     `json:"flow_id"`
-	Month     string    `json:"month"`
-	Name      string    `json:"name"`
-	Amount    moneyJSON `json:"amount"`
-	InvestPct float64   `json:"invest_pct"`
-	GivesUAH  float64   `json:"gives_uah"`
+	ID        int64       `json:"id"`
+	FlowID    int64       `json:"flow_id"`
+	Month     string      `json:"month"`
+	Name      string      `json:"name"`
+	Amount    moneyJSON   `json:"amount"`
+	InvestPct float64     `json:"invest_pct"`
+	GivesUAH  state.Money `json:"gives_uah"`
 	// Uses — дозвіл, ЧИННИЙ для цієї відмітки: у прив'язаної він приходить
 	// із потоку, у позапланової — власний. Тією самою підстановкою, що й
 	// InvestPct поруч, і з того самого доводу.
@@ -213,7 +213,7 @@ type expectedReceipt struct {
 	Month   string      `json:"month"`
 	DueDate string      `json:"due_date"`
 	Amount  moneyJSON   `json:"amount"`
-	PlanUAH float64     `json:"plan_uah"`
+	PlanUAH state.Money `json:"plan_uah"`
 	Uses    []string    `json:"uses,omitempty"`
 	Receipt *receiptRow `json:"receipt,omitempty"`
 }
@@ -286,12 +286,12 @@ func buildPlanProfile(flows []store.PlanFlow, marks planMarks, today, to domain.
 	}
 
 	for m := 1; m <= months; m += step {
-		pt := profilePoint{Date: string(today.AddMonths(m)), Values: make([]float64, len(flows))}
+		pt := profilePoint{Date: string(today.AddMonths(m)), Values: make([]state.Money, len(flows))}
 		var inc float64
 		for k := 0; k < step; k++ {
 			inc += income[m+k]
 		}
-		pt.Income = round2(inc / float64(step))
+		pt.Income = state.Major(inc/float64(step), money.UAH)
 		for i, f := range flows {
 			// Крок > 1 усереднює вікно, а не бере його перший місяць:
 			// інакше квартальний потік то потрапляв би в точку, то ні, і
@@ -301,12 +301,12 @@ func buildPlanProfile(flows []store.PlanFlow, marks planMarks, today, to domain.
 				sum += planFlowMonthlyUAH(f, today, rates, m+k, marks)
 			}
 			v := round2(sum / float64(step))
-			pt.Values[i] = v
-			pt.Net += v
+			pt.Values[i] = state.Major(v, money.UAH)
+			pt.Net = pt.Net.Add(state.Major(v, money.UAH))
 		}
 		// Net — САМЕ план, без доходу портфеля: на ньому стоїть рівність
 		// із плиткою «План дає», і тест її стереже.
-		pt.Net = round2(pt.Net)
+
 		p.Points = append(p.Points, pt)
 	}
 	return p
@@ -380,7 +380,7 @@ func flowRevisionRows(revs []store.PlanFlowRevision) []flowRevisionRow {
 			At: r.ChangedAt.Format(time.RFC3339), Op: r.Op,
 			FlowID: r.FlowID, Name: r.Flow.Name,
 			Flow: planRev{
-				Amount:    float64(r.Flow.Amount) / 100,
+				Amount:    state.Minor(r.Flow.Amount, r.Flow.Currency),
 				Currency:  r.Flow.Currency,
 				Cadence:   r.Flow.Cadence,
 				FromDate:  string(r.Flow.FromDate),
@@ -522,16 +522,16 @@ func buildPlanHistory(flows []store.PlanFlow, deposits []store.Deposit,
 			marked = true
 		}
 		out = append(out, planHistoryPoint{
-			Month: key, PlanUAH: round2(plan), PlanDerived: derived,
-			ActualUAH: round2(actual[key]), GapUAH: round2(gap[key]),
-			ReceivedUAH: round2(recv), Marked: marked,
+			Month: key, PlanUAH: state.Major(plan, money.UAH), PlanDerived: derived,
+			ActualUAH: state.Major(actual[key], money.UAH), GapUAH: state.Major(gap[key], money.UAH),
+			ReceivedUAH: state.Major(recv, money.UAH), Marked: marked,
 		})
 	}
 	// Порожній хвіст на початку — це не «нуль», а «застосунком тоді ще не
 	// користувались»: намальований нулем він читався б як провалений план.
 	// Той самий прийом, що й usableSnaps на кривій «Як росте».
 	i := 0
-	for i < len(out) && out[i].PlanUAH == 0 && out[i].ActualUAH == 0 && out[i].GapUAH == 0 &&
+	for i < len(out) && out[i].PlanUAH.Major() == 0 && out[i].ActualUAH.Major() == 0 && out[i].GapUAH.Major() == 0 &&
 		!out[i].Marked {
 		i++
 	}
@@ -600,7 +600,7 @@ func receiptRows(rs []store.PlanReceipt, flows []store.PlanFlow, rates fx.Rates)
 			ID: r.ID, FlowID: r.FlowID, Month: r.Month, Name: r.Name,
 			Amount:    toMoneyJSON(money.New(r.Amount, r.Currency)),
 			InvestPct: round2(float64(bp) / 100),
-			GivesUAH:  round2(planFlowUAH(float64(r.Amount)/100*float64(bp)/10000, r.Currency, rates)),
+			GivesUAH:  state.Major(planFlowUAH(float64(r.Amount)/100*float64(bp)/10000, r.Currency, rates), money.UAH),
 			Uses:      domain.PlanUsesList(use),
 			Note:      r.Note,
 		})
@@ -663,7 +663,7 @@ func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
 				FlowID: f.ID, Name: f.Name, Month: key,
 				DueDate: receiptDueDate(key, f.FromDate.Day()),
 				Amount:  toMoneyJSON(money.New(int64(math.Round(amt*100)), f.Currency)),
-				PlanUAH: round2(planFlowUAH(amt*float64(f.InvestBP)/10000, f.Currency, rates)),
+				PlanUAH: state.Major(planFlowUAH(amt*float64(f.InvestBP)/10000, f.Currency, rates), money.UAH),
 				Uses:    domain.PlanUsesList(f.Uses),
 			}
 			if r, ok := byKey[markKey{flow: f.ID, month: key}]; ok {
@@ -705,7 +705,7 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 		}
 		out = append(out, profileEvent{
 			Date: string(cf.Date), Kind: kind, Label: label,
-			AmountUAH: round2(float64(u.Amount()) / 100),
+			AmountUAH: state.Of(u),
 		})
 	}
 
@@ -737,7 +737,7 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 			continue
 		}
 		out = append(out, profileEvent{
-			Date: ref.CloseDate, Kind: "fund", Label: r.Fund, AmountUAH: round2(v),
+			Date: ref.CloseDate, Kind: "fund", Label: r.Fund, AmountUAH: state.Major(v, money.UAH),
 		})
 	}
 
@@ -806,7 +806,7 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 			continue
 		}
 		out = append(out, profileEvent{
-			Date: r.AccessDate, Kind: "npf", Label: r.Name, AmountUAH: round2(v),
+			Date: r.AccessDate, Kind: "npf", Label: r.Name, AmountUAH: state.Major(v, money.UAH),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
@@ -922,7 +922,7 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 		}
 		out.Flows = append(out.Flows, timelineFlow{
 			ID: f.ID, Name: f.Name, Kind: f.Kind, Cadence: f.Cadence,
-			From: string(f.FromDate), Until: string(f.UntilDate), AmountUAH: round2(amt),
+			From: string(f.FromDate), Until: string(f.UntilDate), AmountUAH: state.Major(amt, money.UAH),
 		})
 	}
 
@@ -935,7 +935,7 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 					amt = float64(u.Amount()) / 100
 				}
 			}
-			ta.AmountUAH = round2(amt)
+			ta.AmountUAH = state.Major(amt, money.UAH)
 		}
 		out.Actions = append(out.Actions, ta)
 	}
@@ -988,8 +988,8 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 	if doc.Forecast != nil && doc.Forecast.Curve != nil {
 		for _, p := range doc.Forecast.Curve.Points {
 			out.Curve = append(out.Curve, timelineCurvePoint{
-				Date: string(today.AddMonths(p.Month)), Plan: p.Plan.Major(),
-				Optimistic: p.Optimistic.Major(), Pessimistic: p.Pessimistic.Major(), Actual: p.Actual.Major(),
+				Date: string(today.AddMonths(p.Month)), Plan: p.Plan,
+				Optimistic: p.Optimistic, Pessimistic: p.Pessimistic, Actual: p.Actual,
 			})
 		}
 	}

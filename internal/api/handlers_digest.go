@@ -10,6 +10,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 )
 
 // Що змінилось за вікно — і ЧОМУ саме.
@@ -36,11 +37,11 @@ import (
 // «що вважати вартим сповіщення», тобто судження, якого застосунок не
 // виносить ніде.
 type digestCause struct {
-	Key      string  `json:"key"`
-	Label    string  `json:"label"`
-	UAH      float64 `json:"uah"`
-	Measured bool    `json:"measured"`
-	Why      string  `json:"why,omitempty"`
+	Key      string      `json:"key"`
+	Label    string      `json:"label"`
+	UAH      state.Money `json:"uah"`
+	Measured bool        `json:"measured"`
+	Why      string      `json:"why,omitempty"`
 }
 
 type digestResp struct {
@@ -51,9 +52,9 @@ type digestResp struct {
 	// periodStructureOf.
 	FromDate  string           `json:"from_date,omitempty"`
 	ToDate    string           `json:"to_date,omitempty"`
-	FromUAH   float64          `json:"from_uah,omitempty"`
-	ToUAH     float64          `json:"to_uah,omitempty"`
-	DeltaUAH  float64          `json:"delta_uah"`
+	FromUAH   state.Money      `json:"from_uah,omitzero"`
+	ToUAH     state.Money      `json:"to_uah,omitzero"`
+	DeltaUAH  state.Money      `json:"delta_uah"`
 	DeltaPct  float64          `json:"delta_pct,omitempty"`
 	Causes    []digestCause    `json:"causes,omitempty"`
 	Structure *periodStructure `json:"structure,omitempty"`
@@ -99,8 +100,8 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	for _, row := range st.Rows {
 		if row.Key == "capital" {
 			out.FromUAH, out.ToUAH, out.DeltaUAH = row.Before, row.After, row.Delta
-			if row.Before > 0 {
-				out.DeltaPct = round2(row.Delta / row.Before * 100)
+			if row.Before.Major() > 0 {
+				out.DeltaPct = round2(row.Delta.Major() / row.Before.Major() * 100)
 			}
 		}
 	}
@@ -129,15 +130,15 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 
 	fx, fxWhy := s.digestFX(ctx, fromD)
 	own, income := sum.major(sum.OwnUAH()), sum.major(earned)
-	rest := round2(out.DeltaUAH - own - income - fx)
+	rest := round2(out.DeltaUAH.Major() - own - income - fx)
 
 	out.Causes = []digestCause{
-		{Key: "own", Label: "Свої гроші", UAH: own, Measured: true,
+		{Key: "own", Label: "Свої гроші", UAH: state.Major(own, money.UAH), Measured: true,
 			Why: "внески й зняття, разом із подушкою та цілями"},
-		{Key: "income", Label: "Дохід", UAH: income, Measured: true,
+		{Key: "income", Label: "Дохід", UAH: state.Major(income, money.UAH), Measured: true,
 			Why: "купони, дивіденди й відсотки, що надійшли; тіло погашення сюди не входить — воно лише переїжджає"},
-		{Key: "fx", Label: "Курс", UAH: fx, Measured: false, Why: fxWhy},
-		{Key: "rest", Label: "Решта", UAH: rest, Measured: false,
+		{Key: "fx", Label: "Курс", UAH: state.Major(fx, money.UAH), Measured: false, Why: fxWhy},
+		{Key: "rest", Label: "Решта", UAH: state.Major(rest, money.UAH), Measured: false,
 			Why: "ціни фондів, ЧВОПА НПФ, накопичений купон, округлення — тут немає подобового джерела, тож це чесно решта, а не розкладка"},
 	}
 	writeJSON(w, http.StatusOK, out)

@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/ODDsama/oddinvest/internal/state"
+	money "github.com/Rhymond/go-money"
 	"net/http"
 	"testing"
 )
@@ -46,27 +48,27 @@ func TestYearMoneyAgreesWithCashflowAndDays(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := got.Money
-	if m.IncomeUAH != cf.IncomeUAH || m.ContribUAH != cf.ContribUAH ||
-		m.PurchaseUAH != cf.PurchaseUAH || m.ClosingUAH != cf.ClosingUAH {
+	if m.IncomeUAH.Major() != cf.IncomeUAH || m.ContribUAH.Major() != cf.ContribUAH ||
+		m.PurchaseUAH.Major() != cf.PurchaseUAH || m.ClosingUAH.Major() != cf.ClosingUAH {
 		t.Errorf("рік %+v розійшовся з рухом %+v", m, cf)
 	}
 	var contrib, income, purchase float64
 	for _, d := range got.Days {
-		contrib += d.ContribUAH
-		income += d.IncomeUAH
-		purchase -= d.PurchaseUAH
+		contrib += d.ContribUAH.Major()
+		income += d.IncomeUAH.Major()
+		purchase -= d.PurchaseUAH.Major()
 		if d.Lvl < 1 || d.Lvl > 4 {
 			t.Errorf("%s: рівень %d поза 1..4", d.Date, d.Lvl)
 		}
 	}
 	// Дні несуть свої гроші РАЗОМ із подушкою (own_uah), а не лише
 	// гаманець (contributed_uah).
-	if round2(contrib) != m.OwnUAH || round2(income) != m.IncomeUAH ||
-		round2(purchase) != m.PurchaseUAH {
+	if round2(contrib) != m.OwnUAH.Major() || round2(income) != m.IncomeUAH.Major() ||
+		round2(purchase) != m.PurchaseUAH.Major() {
 		t.Errorf("дні (%v/%v/%v) не сходяться зі статтями %+v", contrib, income, purchase, m)
 	}
-	if got.EarnedUAH+got.PrincipalUAH != m.IncomeUAH {
-		t.Errorf("зароблене %v + тіло %v ≠ дохід %v", got.EarnedUAH, got.PrincipalUAH, m.IncomeUAH)
+	if got.EarnedUAH.Major()+got.PrincipalUAH.Major() != m.IncomeUAH.Major() {
+		t.Errorf("зароблене %v + тіло %v ≠ дохід %v", got.EarnedUAH.Major(), got.PrincipalUAH.Major(), m.IncomeUAH.Major())
 	}
 	if len(got.Years) == 0 || got.Years[0] < 2026 {
 		t.Errorf("роки %v мають починатись із поточного", got.Years)
@@ -79,7 +81,7 @@ func TestYearEmptyAndBadInput(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 	got := yearOf(t, srv.URL, "2019")
-	if got.Money.ClosingUAH != 0 || len(got.Days) != 0 || got.BestMonth != nil {
+	if got.Money.ClosingUAH.Major() != 0 || len(got.Days) != 0 || got.BestMonth != nil {
 		t.Errorf("порожній рік мав бути порожнім: %+v", got)
 	}
 	if got.Partial {
@@ -95,7 +97,7 @@ func TestYearEmptyAndBadInput(t *testing.T) {
 func TestYearHeatLevelsByQuartile(t *testing.T) {
 	byDay := map[string]*yearDay{}
 	for i, v := range []float64{10, 20, 30, 40, 1_000_000} {
-		d := &yearDay{Date: "2026-01-0" + string(rune('1'+i)), ContribUAH: v}
+		d := &yearDay{Date: "2026-01-0" + string(rune('1'+i)), ContribUAH: state.Major(v, money.UAH)}
 		byDay[d.Date] = d
 	}
 	days := heatDays(byDay)

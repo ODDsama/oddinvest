@@ -81,11 +81,11 @@ type rivalRow struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
 	// TerminalUAH — вартість суперника сьогодні, грн-екв.
-	TerminalUAH float64 `json:"terminal_uah"`
+	TerminalUAH state.Money `json:"terminal_uah"`
 	// DiffUAH — наскільки МОЇ гроші попереду суперника (може бути
 	// від'ємним: у цьому й сенс вимірювання).
-	DiffUAH float64 `json:"diff_uah"`
-	DiffPct float64 `json:"diff_pct"`
+	DiffUAH state.Money `json:"diff_uah"`
+	DiffPct float64     `json:"diff_pct"`
 	// PointsDiff — НАСКІЛЬКИ я попереду цього суперника на кожен день
 	// сітки. Саме воно малюється, а не самі вартості.
 	//
@@ -99,35 +99,35 @@ type rivalRow struct {
 	//
 	// Рахується ТУТ, а не в браузері: CLAUDE.md §5. Остання точка мусить
 	// дорівнювати DiffUAH — на це є тест.
-	PointsDiff []float64 `json:"points_diff,omitempty"`
-	Why        string    `json:"why,omitempty"`
+	PointsDiff []state.Money `json:"points_diff,omitzero"`
+	Why        string        `json:"why,omitempty"`
 }
 
 type rivalsResp struct {
 	Level      string `json:"level"`
 	LevelLabel string `json:"level_label"`
 	// ActualUAH — мої гроші сьогодні на цьому рівні.
-	ActualUAH float64 `json:"actual_uah"`
+	ActualUAH state.Money `json:"actual_uah"`
 	// Days / Actual — сітка й крива факту, однакової довжини з Points
 	// кожного суперника, що не мовчить.
-	Days   []string  `json:"days"`
-	Actual []float64 `json:"actual"`
+	Days   []string      `json:"days"`
+	Actual []state.Money `json:"actual"`
 	// OpenUAH — скільки грошей уже було на руках у перший день вікна.
 	// Входить у порівняння першим внеском: суперник дістає рівно те, що
 	// мав я, у той самий день, за тодішньою ціною.
-	OpenUAH float64 `json:"open_uah"`
+	OpenUAH state.Money `json:"open_uah"`
 	// InUAH — скільки грошей зайшло в гру НЕТТО, грн-екв. за курсами
 	// їхніх днів: відкриття плюс дальші рухи. Це і є термінал «гривні під
 	// матрацом», і показується він окремим полем, щоб різницю можна було
 	// перевірити відніманням.
-	InUAH      float64    `json:"in_uah"`
-	Flows      int        `json:"flows"`
-	FirstDay   string     `json:"first_day,omitempty"`
-	DayCount   int        `json:"day_count"`
-	Young      bool       `json:"young"`
-	OVDPBucket string     `json:"ovdp_bucket"`
-	Rivals     []rivalRow `json:"rivals"`
-	Note       string     `json:"note,omitempty"`
+	InUAH      state.Money `json:"in_uah"`
+	Flows      int         `json:"flows"`
+	FirstDay   string      `json:"first_day,omitempty"`
+	DayCount   int         `json:"day_count"`
+	Young      bool        `json:"young"`
+	OVDPBucket string      `json:"ovdp_bucket"`
+	Rivals     []rivalRow  `json:"rivals"`
+	Note       string      `json:"note,omitempty"`
 	// Why — чому порівняння не склалось узагалі. Порожні рядки замість
 	// нього показали б чотири нулі, а нуль на цьому екрані читається як
 	// «усе втрачено», а не як «нема чого рахувати».
@@ -239,8 +239,8 @@ func (s *Server) rivals(ctx context.Context, doc *state.Doc, level string) (riva
 	// «те, що вже лежало» і «те, що донесли» — це те саме питання «скільки
 	// грошей зайшло в гру до цього дня», і рушій відповідає на нього
 	// однаково.
-	out.OpenUAH = round2(float64(snapshotLevelUAH(snaps[0], level)) / 100)
-	if out.OpenUAH == 0 && len(flows) == 0 {
+	out.OpenUAH = state.Minor(snapshotLevelUAH(snaps[0], level), money.UAH)
+	if out.OpenUAH.Major() == 0 && len(flows) == 0 {
 		// Ані копійки у вікні. Суперники порахувались би — усі в нуль, —
 		// і чотири нулі в таблиці читаються як «усе втрачено», а не як
 		// «рахувати нічого». Перший день життя бази виглядає саме так:
@@ -248,7 +248,7 @@ func (s *Server) rivals(ctx context.Context, doc *state.Doc, level string) (riva
 		out.Why = "порівнювати ще нема з чим: у вікні не було жодних грошей"
 		return out, nil
 	}
-	flows = append([]domain.Contribution{{On: from, UAH: out.OpenUAH}}, flows...)
+	flows = append([]domain.Contribution{{On: from, UAH: out.OpenUAH.Major()}}, flows...)
 
 	days := domain.DaysGrid(from, today)
 	out.FirstDay, out.DayCount = string(from), len(days)
@@ -259,8 +259,8 @@ func (s *Server) rivals(ctx context.Context, doc *state.Doc, level string) (riva
 		return out, err
 	}
 	actual := rivalActual(snaps, doc, level, days)
-	out.Actual = actual
-	out.ActualUAH = round2(actual[len(actual)-1])
+	out.Actual = uahSeries(actual)
+	out.ActualUAH = state.Major(actual[len(actual)-1], money.UAH)
 	out.Days = make([]string, len(days))
 	for i, d := range days {
 		out.Days[i] = string(d)
@@ -269,12 +269,12 @@ func (s *Server) rivals(ctx context.Context, doc *state.Doc, level string) (riva
 	for _, rv := range domain.RunRivals(flows, days, in) {
 		row := rivalRow{Key: rv.Key, Label: rivalLabels[rv.Key], Why: rv.Why}
 		if rv.Why == "" {
-			row.TerminalUAH = round2(rv.TerminalUAH)
-			row.DiffUAH = round2(out.ActualUAH - row.TerminalUAH)
-			if row.TerminalUAH != 0 {
-				row.DiffPct = round2(row.DiffUAH / math.Abs(row.TerminalUAH) * 100)
+			row.TerminalUAH = state.Major(rv.TerminalUAH, money.UAH)
+			row.DiffUAH = state.Major(out.ActualUAH.Major()-row.TerminalUAH.Major(), money.UAH)
+			if row.TerminalUAH.Major() != 0 {
+				row.DiffPct = round2(row.DiffUAH.Major() / math.Abs(row.TerminalUAH.Major()) * 100)
 			}
-			row.PointsDiff = diffSeries(actual, rv.Points)
+			row.PointsDiff = uahSeries(diffSeries(actual, rv.Points))
 		}
 		if rv.Key == domain.RivalUAHCash {
 			out.InUAH = row.TerminalUAH
@@ -288,6 +288,16 @@ func (s *Server) rivals(ctx context.Context, doc *state.Doc, level string) (riva
 //
 // Довжини рівні за побудовою (одна сітка на всіх), але коротший ряд тут
 // обрізав би криву мовчки, а не впав, — тож беремо мінімум явно.
+// uahSeries — ряд гривневих сум у Money: рушій суперників рахує у float,
+// а на дріт іде типізована сума, як і решта документа.
+func uahSeries(v []float64) []state.Money {
+	out := make([]state.Money, len(v))
+	for i, x := range v {
+		out[i] = state.Major(x, money.UAH)
+	}
+	return out
+}
+
 func diffSeries(mine, rival []float64) []float64 {
 	n := len(mine)
 	if len(rival) < n {

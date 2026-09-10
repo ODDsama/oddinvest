@@ -25,30 +25,32 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 type yearMonth struct {
-	Month      string  `json:"month"`
-	ContribUAH float64 `json:"contributed_uah"`
-	IncomeUAH  float64 `json:"income_uah"`
+	Month      string      `json:"month"`
+	ContribUAH state.Money `json:"contributed_uah"`
+	IncomeUAH  state.Money `json:"income_uah"`
 	// TargetUAH/Known/Hit — з тієї самої смужки серії, що у «Звичці»:
 	// ціль ТОГО місяця зі знімка, і Known:false означає «судити нічим»,
 	// а не «повз».
-	TargetUAH float64 `json:"target_uah,omitempty"`
-	Known     bool    `json:"known"`
-	Hit       bool    `json:"hit"`
+	TargetUAH state.Money `json:"target_uah,omitzero"`
+	Known     bool        `json:"known"`
+	Hit       bool        `json:"hit"`
 }
 
 // yearDay — один день із рухом грошей. Lvl — рівень інтенсивності 1..4
 // за квартилями суми |внесок|+|дохід|+|покупка| серед активних днів
 // року; нуль не буває (дні без руху в списку відсутні).
 type yearDay struct {
-	Date        string  `json:"date"`
-	ContribUAH  float64 `json:"contributed_uah,omitempty"`
-	IncomeUAH   float64 `json:"income_uah,omitempty"`
-	PurchaseUAH float64 `json:"purchased_uah,omitempty"`
-	Lvl         int     `json:"lvl"`
+	Date        string      `json:"date"`
+	ContribUAH  state.Money `json:"contributed_uah,omitzero"`
+	IncomeUAH   state.Money `json:"income_uah,omitzero"`
+	PurchaseUAH state.Money `json:"purchased_uah,omitzero"`
+	Lvl         int         `json:"lvl"`
 }
 
 type yearResp struct {
@@ -64,9 +66,9 @@ type yearResp struct {
 	Money periodMoney `json:"money"`
 	// EarnedUAH — дохід БЕЗ повернутого тіла; PrincipalUAH — саме тіло
 	// (погашення ОВДП, тіло вкладу). Разом вони і є Money.IncomeUAH.
-	EarnedUAH    float64 `json:"earned_uah"`
-	PrincipalUAH float64 `json:"principal_uah,omitempty"`
-	IdleUAH      float64 `json:"idle_uah"`
+	EarnedUAH    state.Money `json:"earned_uah"`
+	PrincipalUAH state.Money `json:"principal_uah,omitzero"`
+	IdleUAH      state.Money `json:"idle_uah"`
 
 	Structure     *periodStructure `json:"structure,omitempty"`
 	StructureNote string           `json:"structure_note,omitempty"`
@@ -121,14 +123,14 @@ func buildYear(year int, from, to, today domain.Date, events []flowEvent,
 		Partial: to.After(today),
 		Years:   yearsOf(events, snaps, today),
 		Money: periodMoney{
-			OpeningUAH:  sum.major(sum.OpeningUAH),
-			IncomeUAH:   sum.major(sum.IncomeUAH),
-			ContribUAH:  sum.major(sum.ContribUAH),
-			PurchaseUAH: sum.major(-sum.PurchaseUAH),
-			ConvUAH:     sum.major(sum.ConvUAH),
-			ClosingUAH:  sum.major(sum.ClosingUAH()),
-			OutsideUAH:  sum.major(sum.OutsideUAH),
-			OwnUAH:      sum.major(sum.OwnUAH()),
+			OpeningUAH:  state.Major(sum.major(sum.OpeningUAH), money.UAH),
+			IncomeUAH:   state.Major(sum.major(sum.IncomeUAH), money.UAH),
+			ContribUAH:  state.Major(sum.major(sum.ContribUAH), money.UAH),
+			PurchaseUAH: state.Major(sum.major(-sum.PurchaseUAH), money.UAH),
+			ConvUAH:     state.Major(sum.major(sum.ConvUAH), money.UAH),
+			ClosingUAH:  state.Major(sum.major(sum.ClosingUAH()), money.UAH),
+			OutsideUAH:  state.Major(sum.major(sum.OutsideUAH), money.UAH),
+			OwnUAH:      state.Major(sum.major(sum.OwnUAH()), money.UAH),
 		},
 		Months: []yearMonth{},
 		Days:   []yearDay{},
@@ -152,20 +154,20 @@ func buildYear(year int, from, to, today domain.Date, events []flowEvent,
 			} else {
 				earned += e.UAH
 			}
-			d.IncomeUAH += float64(e.UAH) / 100
+			d.IncomeUAH = d.IncomeUAH.Add(state.Minor(e.UAH, money.UAH))
 			byMonthIncome[string(e.Date)[:7]] += e.UAH
 		case flowPurchase:
 			buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
-			d.PurchaseUAH += float64(e.UAH) / 100
+			d.PurchaseUAH = d.PurchaseUAH.Add(state.Minor(e.UAH, money.UAH))
 		case flowContribution, flowOutside:
 			// Свої гроші — гаманець і подушка разом, як у плитці «Цей
 			// місяць»: день, коли відклав у подушку, — день із рухом.
-			d.ContribUAH += float64(e.UAH) / 100
+			d.ContribUAH = d.ContribUAH.Add(state.Minor(e.UAH, money.UAH))
 		}
 	}
-	out.EarnedUAH = round2(float64(earned) / 100)
-	out.PrincipalUAH = round2(float64(principal) / 100)
-	out.IdleUAH = sum.major(domain.IdleIncome(income, buys))
+	out.EarnedUAH = state.Minor(earned, money.UAH)
+	out.PrincipalUAH = state.Minor(principal, money.UAH)
+	out.IdleUAH = state.Major(sum.major(domain.IdleIncome(income, buys)), money.UAH)
 	out.Days = heatDays(byDay)
 
 	out.Structure, out.StructureNote = periodStructureOf(snaps, from, "рік", "року")
@@ -184,16 +186,16 @@ func buildYear(year int, from, to, today domain.Date, events []flowEvent,
 		}
 		out.Months = append(out.Months, yearMonth{
 			Month: mk.Month, ContribUAH: mk.ContribUAH, TargetUAH: mk.TargetUAH,
-			IncomeUAH: round2(float64(byMonthIncome[mk.Month]) / 100),
+			IncomeUAH: state.Minor(byMonthIncome[mk.Month], money.UAH),
 			Known:     mk.Known, Hit: mk.Hit,
 		})
 	}
 	for i := range out.Months {
-		if out.BestMonth == nil || out.Months[i].ContribUAH > out.BestMonth.ContribUAH {
+		if out.BestMonth == nil || out.Months[i].ContribUAH.Cmp(out.BestMonth.ContribUAH) > 0 {
 			out.BestMonth = &out.Months[i]
 		}
 	}
-	if out.BestMonth != nil && out.BestMonth.ContribUAH <= 0 {
+	if out.BestMonth != nil && out.BestMonth.ContribUAH.Major() <= 0 {
 		out.BestMonth = nil
 	}
 	return out
@@ -206,12 +208,10 @@ func heatDays(byDay map[string]*yearDay) []yearDay {
 	out := make([]yearDay, 0, len(byDay))
 	mags := make([]float64, 0, len(byDay))
 	for _, d := range byDay {
-		mag := abs(d.ContribUAH) + abs(d.IncomeUAH) + abs(d.PurchaseUAH)
+		mag := abs(d.ContribUAH.Major()) + abs(d.IncomeUAH.Major()) + abs(d.PurchaseUAH.Major())
 		if mag == 0 {
 			continue
 		}
-		d.ContribUAH, d.IncomeUAH, d.PurchaseUAH =
-			round2(d.ContribUAH), round2(d.IncomeUAH), round2(d.PurchaseUAH)
 		out = append(out, *d)
 		mags = append(mags, mag)
 	}
@@ -225,7 +225,7 @@ func heatDays(byDay map[string]*yearDay) []yearDay {
 	}
 	q1, q2, q3 := q(0.25), q(0.5), q(0.75)
 	for i := range out {
-		mag := abs(out[i].ContribUAH) + abs(out[i].IncomeUAH) + abs(out[i].PurchaseUAH)
+		mag := abs(out[i].ContribUAH.Major()) + abs(out[i].IncomeUAH.Major()) + abs(out[i].PurchaseUAH.Major())
 		switch {
 		case mag > q3:
 			out[i].Lvl = 4

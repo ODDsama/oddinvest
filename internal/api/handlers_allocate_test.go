@@ -55,11 +55,11 @@ func TestAllocateWholeTicketsOnly(t *testing.T) {
 	if got.Lines[0].Qty != 3 {
 		t.Errorf("кількість %d, чекали 3 (3400 ÷ 1000 вниз)", got.Lines[0].Qty)
 	}
-	if got.Lines[0].TotalUAH != 3000 {
-		t.Errorf("сума рядка %.2f, чекали 3000", got.Lines[0].TotalUAH)
+	if got.Lines[0].TotalUAH.Major() != 3000 {
+		t.Errorf("сума рядка %.2f, чекали 3000", got.Lines[0].TotalUAH.Major())
 	}
-	if got.RestUAH != 400 {
-		t.Errorf("залишок %.2f, чекали 400", got.RestUAH)
+	if got.RestUAH.Major() != 400 {
+		t.Errorf("залишок %.2f, чекали 400", got.RestUAH.Major())
 	}
 	if got.RestWhy == "" {
 		t.Error("залишок без причини читається як загублені гроші")
@@ -78,12 +78,12 @@ func TestAllocateReserveEatsEverything(t *testing.T) {
 		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
 		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
-	if got.Reserve == nil || got.Reserve.AmountUAH != 5000 {
+	if got.Reserve == nil || got.Reserve.AmountUAH.Major() != 5000 {
 		t.Fatalf("вирізка резерву %+v, чекали всі 5000", got.Reserve)
 	}
-	if got.AvailUAH != 0 || len(got.Lines) != 0 {
+	if got.AvailUAH.Major() != 0 || len(got.Lines) != 0 {
 		t.Errorf("після подушки нема чого розкладати, а маємо avail=%.2f, рядків %d",
-			got.AvailUAH, len(got.Lines))
+			got.AvailUAH.Major(), len(got.Lines))
 	}
 	if got.Note == "" {
 		t.Error("порожня відповідь без причини читається як поломка")
@@ -98,11 +98,11 @@ func TestAllocateReserveThenBuys(t *testing.T) {
 		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
 		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
-	if got.Reserve == nil || got.Reserve.AmountUAH != 2000 {
+	if got.Reserve == nil || got.Reserve.AmountUAH.Major() != 2000 {
 		t.Fatalf("вирізка резерву %+v, чекали 2000", got.Reserve)
 	}
-	if got.AvailUAH != 3000 {
-		t.Fatalf("доступно %.2f, чекали 3000", got.AvailUAH)
+	if got.AvailUAH.Major() != 3000 {
+		t.Fatalf("доступно %.2f, чекали 3000", got.AvailUAH.Major())
 	}
 	if len(got.Lines) != 1 || got.Lines[0].Qty != 3 {
 		t.Errorf("чекали 3 папери з 3000 ₴, маємо %+v", got.Lines)
@@ -153,8 +153,8 @@ func TestAllocateMarksConversion(t *testing.T) {
 	if !l.Convert {
 		t.Error("гривневий папір за доларову суму — це конвертація, і мовчати про неї не можна")
 	}
-	if l.ConvertNative != 500 {
-		t.Errorf("міняти %.2f, чекали 500 $ (22000 ÷ 44)", l.ConvertNative)
+	if l.ConvertNative.Major() != 500 {
+		t.Errorf("міняти %.2f, чекали 500 $ (22000 ÷ 44)", l.ConvertNative.Major())
 	}
 }
 
@@ -195,8 +195,8 @@ func TestAllocateNPFTakesWholeBudgetAndDepositDoesNot(t *testing.T) {
 	if !npf.Addable {
 		t.Error("внесок у пенсійний plan_buys приймає: сума — усе, що йому треба")
 	}
-	if npf.TotalUAH != 2000 {
-		t.Errorf("внесок %.2f, чекали весь бюджет виду — 2000", npf.TotalUAH)
+	if npf.TotalUAH.Major() != 2000 {
+		t.Errorf("внесок %.2f, чекали весь бюджет виду — 2000", npf.TotalUAH.Major())
 	}
 	if dep == nil {
 		t.Fatalf("рядка вкладу немає: %+v", got.Lines)
@@ -219,8 +219,8 @@ func TestAllocateNPFWithoutIDSkipped(t *testing.T) {
 	if len(got.Lines) != 0 {
 		t.Fatalf("без id рахунку рядка бути не може: %+v", got.Lines)
 	}
-	if got.RestUAH != 4000 {
-		t.Errorf("залишок %.2f, чекали всі 4000", got.RestUAH)
+	if got.RestUAH.Major() != 4000 {
+		t.Errorf("залишок %.2f, чекали всі 4000", got.RestUAH.Major())
 	}
 }
 
@@ -238,8 +238,8 @@ func TestAllocateWithoutKindTargets(t *testing.T) {
 	if got.Note == "" {
 		t.Error("порожня відповідь мусить назвати причину")
 	}
-	if got.RestUAH != 5000 {
-		t.Errorf("залишок %.2f, чекали всі 5000", got.RestUAH)
+	if got.RestUAH.Major() != 5000 {
+		t.Errorf("залишок %.2f, чекали всі 5000", got.RestUAH.Major())
 	}
 }
 
@@ -256,12 +256,12 @@ func TestAllocateIgnoresMonthSplitFromDoc(t *testing.T) {
 		allocAllow{ReserveUAH: 500, GoalsUAH: 500}, money.UAH, nil)
 
 	for _, l := range got.Lines {
-		if l.TotalUAH > 500 {
-			t.Fatalf("розкладка 500 ₴ порадила %.2f — числа з плану місяця протекли", l.TotalUAH)
+		if l.TotalUAH.Major() > 500 {
+			t.Fatalf("розкладка 500 ₴ порадила %.2f — числа з плану місяця протекли", l.TotalUAH.Major())
 		}
 	}
-	if got.RestUAH != 500 {
-		t.Errorf("залишок %.2f, чекали 500: на квиток 1000 ₴ не вистачає", got.RestUAH)
+	if got.RestUAH.Major() != 500 {
+		t.Errorf("залишок %.2f, чекали 500: на квиток 1000 ₴ не вистачає", got.RestUAH.Major())
 	}
 }
 
@@ -296,8 +296,8 @@ func TestAllocateSourceForbidsReserve(t *testing.T) {
 			got.ReserveSkipWhy)
 	}
 	// Гроші не зникли: усе, що подушка не взяла, пішло в папери.
-	if got.AvailUAH != 5000 {
-		t.Errorf("доступно %v, очікували всі 5000", got.AvailUAH)
+	if got.AvailUAH.Major() != 5000 {
+		t.Errorf("доступно %v, очікували всі 5000", got.AvailUAH.Major())
 	}
 }
 
@@ -333,8 +333,8 @@ func TestAllocateForbiddenNPFRedistributes(t *testing.T) {
 	if spent := linesTotal(got.Lines); spent != 4000 {
 		t.Errorf("у папери пішло %v, очікували всі 4000 — частка НПФ мусить перетекти", spent)
 	}
-	if got.RestUAH != 0 {
-		t.Errorf("залишок %v, очікували 0", got.RestUAH)
+	if got.RestUAH.Major() != 0 {
+		t.Errorf("залишок %v, очікували 0", got.RestUAH.Major())
 	}
 }
 
@@ -352,8 +352,8 @@ func TestAllocateSavingsOnlyNamesItsReason(t *testing.T) {
 	if len(got.Lines) != 0 {
 		t.Errorf("рядки покупок є, хоч інструменти заборонені: %+v", got.Lines)
 	}
-	if got.RestUAH != 5000 {
-		t.Errorf("залишок %v, очікували 5000", got.RestUAH)
+	if got.RestUAH.Major() != 5000 {
+		t.Errorf("залишок %v, очікували 5000", got.RestUAH.Major())
 	}
 	if !strings.Contains(got.Note, "дозволено") {
 		t.Errorf("причина %q не про дозвіл — вона веде не туди", got.Note)
@@ -372,7 +372,7 @@ func hasKind(lines []allocLine, kind string) bool {
 func linesTotal(lines []allocLine) float64 {
 	var sum float64
 	for _, l := range lines {
-		sum += l.TotalUAH
+		sum += l.TotalUAH.Major()
 	}
 	return sum
 }
@@ -404,8 +404,8 @@ func TestAllocateNPFBelowFloorSkipped(t *testing.T) {
 	if len(got.Lines) != 0 {
 		t.Fatalf("рядок нижче порога: %+v", got.Lines)
 	}
-	if got.RestUAH != 4 {
-		t.Errorf("залишок %.2f, чекали всі 4 — гроші не гинуть", got.RestUAH)
+	if got.RestUAH.Major() != 4 {
+		t.Errorf("залишок %.2f, чекали всі 4 — гроші не гинуть", got.RestUAH.Major())
 	}
 	// Причина мусить назвати поріг і рахунок: «інструментів із відомою ціною
 	// немає» тут було б неправдою про наявний пенсійний.
@@ -427,8 +427,8 @@ func TestAllocateNPFAtFloorTaken(t *testing.T) {
 	if len(got.Lines) != 1 {
 		t.Fatalf("рядків %d, чекали 1 — рівно поріг проходить: %+v", len(got.Lines), got)
 	}
-	if got.Lines[0].TotalUAH != allocMinCutUAH {
-		t.Errorf("сума рядка %.2f, чекали %d", got.Lines[0].TotalUAH, allocMinCutUAH)
+	if got.Lines[0].TotalUAH.Major() != allocMinCutUAH {
+		t.Errorf("сума рядка %.2f, чекали %d", got.Lines[0].TotalUAH.Major(), allocMinCutUAH)
 	}
 }
 
@@ -444,9 +444,9 @@ func TestAllocateReserveBelowFloorSkippedButMoneyStays(t *testing.T) {
 	if got.Reserve != nil {
 		t.Fatalf("вирізка нижче порога: %+v", got.Reserve)
 	}
-	if got.AvailUAH != 3400 {
+	if got.AvailUAH.Major() != 3400 {
 		t.Errorf("доступно %.2f, чекали всі 3400 — пропущена вирізка нікуди не поділась",
-			got.AvailUAH)
+			got.AvailUAH.Major())
 	}
 	// Причина саме порогова: політика й дозвіл тут ні при чому, і послати
 	// людину в «Політику» означало б збрехати про місце поломки.
@@ -468,7 +468,7 @@ func TestAllocateReserveBelowFloorClosesGap(t *testing.T) {
 		allocRates, toMoneyJSON(money.New(340000, money.UAH)), 3400,
 		allocAllow{ReserveUAH: 3400, GoalsUAH: 3400}, money.UAH, nil)
 
-	if got.Reserve == nil || got.Reserve.AmountUAH != 4 {
+	if got.Reserve == nil || got.Reserve.AmountUAH.Major() != 4 {
 		t.Fatalf("розрив не закрився: %+v", got.Reserve)
 	}
 }
@@ -537,14 +537,14 @@ func TestAllocatePickTakesBondsBudget(t *testing.T) {
 	if l.Ref != "UA0002" || !l.Picked {
 		t.Errorf("рядок %+v — чекали обраний UA0002 із позначкою picked", l)
 	}
-	if l.Qty != 2 || l.TotalUAH != 3000 {
-		t.Errorf("кількість %d на %.2f, чекали 2 × 1500 (3400 ÷ 1500 вниз)", l.Qty, l.TotalUAH)
+	if l.Qty != 2 || l.TotalUAH.Major() != 3000 {
+		t.Errorf("кількість %d на %.2f, чекали 2 × 1500 (3400 ÷ 1500 вниз)", l.Qty, l.TotalUAH.Major())
 	}
 	if !strings.HasPrefix(l.Why, "твій вибір") {
 		t.Errorf("причина %q мусить починатись із «твій вибір» — інакше вибір і порада однакові", l.Why)
 	}
-	if got.RestUAH != 400 {
-		t.Errorf("залишок %.2f, чекали 400", got.RestUAH)
+	if got.RestUAH.Major() != 400 {
+		t.Errorf("залишок %.2f, чекали 400", got.RestUAH.Major())
 	}
 }
 
@@ -566,8 +566,8 @@ func TestAllocatePickTooExpensiveWaits(t *testing.T) {
 	if len(got.Lines) != 0 {
 		t.Fatalf("рядки %+v — обраний папір не вміщується, а щось куплено", got.Lines)
 	}
-	if got.RestUAH != 3400 {
-		t.Errorf("залишок %.2f, чекали всі 3400", got.RestUAH)
+	if got.RestUAH.Major() != 3400 {
+		t.Errorf("залишок %.2f, чекали всі 3400", got.RestUAH.Major())
 	}
 	if !strings.Contains(got.RestWhy, "UA0002") {
 		t.Errorf("причина залишку %q мусить називати обраний папір", got.RestWhy)

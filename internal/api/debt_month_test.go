@@ -42,18 +42,18 @@ func TestAllocateLeavesDebtOutOfPortfolioMoney(t *testing.T) {
 		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
 	// Подушка своє бере — вона з портфельних грошей і далі ріже.
-	if got.Reserve == nil || got.Reserve.AmountUAH != 1000 {
+	if got.Reserve == nil || got.Reserve.AmountUAH.Major() != 1000 {
 		t.Fatalf("подушка: %+v", got.Reserve)
 	}
 	// А на папери йде ВСЯ решта: 5 000 − 1 000 = 4 000, чотири квитки по
 	// 1 000. Була б вирізка боргу — лишилось би два.
-	if got.AvailUAH != 4000 {
+	if got.AvailUAH.Major() != 4000 {
 		t.Errorf("на папери %.2f, чекали 4000: борг більше не ріже портфельних грошей",
-			got.AvailUAH)
+			got.AvailUAH.Major())
 	}
 	spent := 0.0
 	for _, l := range got.Lines {
-		spent += l.TotalUAH
+		spent += l.TotalUAH.Major()
 	}
 	if spent != 4000 {
 		t.Errorf("куплено на %.2f, чекали 4000", spent)

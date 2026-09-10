@@ -67,9 +67,9 @@ func TestBuildPlanHistory(t *testing.T) {
 		{"2026-07", 40000, 45000, 9000, "нетто поповнень плюс резерв; нестача з останнього знімка"},
 	} {
 		p := byMonth[c.month]
-		if p.PlanUAH != c.plan || p.ActualUAH != c.actual || p.GapUAH != c.gap {
+		if p.PlanUAH.Major() != c.plan || p.ActualUAH.Major() != c.actual || p.GapUAH.Major() != c.gap {
 			t.Errorf("%s (%s): маємо план=%v факт=%v бракує=%v, чекали %v/%v/%v",
-				c.month, c.why, p.PlanUAH, p.ActualUAH, p.GapUAH, c.plan, c.actual, c.gap)
+				c.month, c.why, p.PlanUAH.Major(), p.ActualUAH.Major(), p.GapUAH.Major(), c.plan, c.actual, c.gap)
 		}
 	}
 }
@@ -100,11 +100,11 @@ func TestBuildPlanHistoryCountsGoalOps(t *testing.T) {
 	for _, p := range got {
 		byMonth[p.Month] = p
 	}
-	if p := byMonth["2026-07"]; p.ActualUAH != 15000 {
-		t.Errorf("липень: факт %v, а це 20 000 − 5 000 = 15 000", p.ActualUAH)
+	if p := byMonth["2026-07"]; p.ActualUAH.Major() != 15000 {
+		t.Errorf("липень: факт %v, а це 20 000 − 5 000 = 15 000", p.ActualUAH.Major())
 	}
-	if p := byMonth["2026-06"]; p.ActualUAH != 0 {
-		t.Errorf("червень рухів не мав: %v", p.ActualUAH)
+	if p := byMonth["2026-06"]; p.ActualUAH.Major() != 0 {
+		t.Errorf("червень рухів не мав: %v", p.ActualUAH.Major())
 	}
 }
 
@@ -138,22 +138,22 @@ func TestBuildPlanHistoryReceived(t *testing.T) {
 
 	// План скрізь той самий: 40 000 × 50% = 20 000. Відмітка його не чіпає.
 	for _, m := range []string{"2026-05", "2026-06", "2026-07"} {
-		if p := byMonth[m]; p.PlanUAH != 20000 {
-			t.Errorf("%s: план мав лишитись 20000, маємо %v", m, p.PlanUAH)
+		if p := byMonth[m]; p.PlanUAH.Major() != 20000 {
+			t.Errorf("%s: план мав лишитись 20000, маємо %v", m, p.PlanUAH.Major())
 		}
 	}
 	// Червень: 12 000 × 50% (частка ПОТОКУ) = 6 000.
-	if p := byMonth["2026-06"]; !p.Marked || p.ReceivedUAH != 6000 {
-		t.Errorf("червень: чекали відмічені 6000, маємо marked=%v %v", p.Marked, p.ReceivedUAH)
+	if p := byMonth["2026-06"]; !p.Marked || p.ReceivedUAH.Major() != 6000 {
+		t.Errorf("червень: чекали відмічені 6000, маємо marked=%v %v", p.Marked, p.ReceivedUAH.Major())
 	}
 	// Липень: зарплата 0 плюс премія 10 000 × 20% (частка ВІДМІТКИ) = 2 000.
-	if p := byMonth["2026-07"]; !p.Marked || p.ReceivedUAH != 2000 {
-		t.Errorf("липень: чекали відмічені 2000, маємо marked=%v %v", p.Marked, p.ReceivedUAH)
+	if p := byMonth["2026-07"]; !p.Marked || p.ReceivedUAH.Major() != 2000 {
+		t.Errorf("липень: чекали відмічені 2000, маємо marked=%v %v", p.Marked, p.ReceivedUAH.Major())
 	}
 	// Травень не відмічали: нуль тут означає «не відмічено», і прапорець
 	// мусить це сказати — інакше графік намалював би провалений місяць.
-	if p := byMonth["2026-05"]; p.Marked || p.ReceivedUAH != 0 {
-		t.Errorf("травень мав лишитись невідміченим, маємо marked=%v %v", p.Marked, p.ReceivedUAH)
+	if p := byMonth["2026-05"]; p.Marked || p.ReceivedUAH.Major() != 0 {
+		t.Errorf("травень мав лишитись невідміченим, маємо marked=%v %v", p.Marked, p.ReceivedUAH.Major())
 	}
 }
 
@@ -296,9 +296,9 @@ func TestBuildPlanHistoryReadsJournalNotTodaysTable(t *testing.T) {
 		{"2026-07", 6000, false, "після правки"},
 	} {
 		p := byMonth[c.month]
-		if p.PlanUAH != c.plan || p.PlanDerived != c.derived {
+		if p.PlanUAH.Major() != c.plan || p.PlanDerived != c.derived {
 			t.Errorf("%s (%s): маємо план=%v derived=%v, чекали %v/%v",
-				c.month, c.why, p.PlanUAH, p.PlanDerived, c.plan, c.derived)
+				c.month, c.why, p.PlanUAH.Major(), p.PlanDerived, c.plan, c.derived)
 		}
 	}
 }

@@ -48,10 +48,10 @@ func TestRouteGoalCeilingResetsEachMonth(t *testing.T) {
 			t.Fatalf("нога %d без вирізки цілі — стеля не поновилась", i)
 		}
 		// 30 000 плану × 40% = 12 000 стелі; потрібний темп теж 12 000.
-		if leg.GoalsUAH != 12_000 {
-			t.Errorf("нога %d: у ціль %.2f, чекали 12000", i, leg.GoalsUAH)
+		if leg.GoalsUAH.Major() != 12_000 {
+			t.Errorf("нога %d: у ціль %.2f, чекали 12000", i, leg.GoalsUAH.Major())
 		}
-		total += leg.GoalsUAH
+		total += leg.GoalsUAH.Major()
 	}
 	if total != 36_000 {
 		t.Errorf("усього в цілі %.2f, чекали 36000 — три місяці по стелі", total)
@@ -70,7 +70,7 @@ func TestRouteGoalCeilingSharedWithinMonth(t *testing.T) {
 
 	total := 0.0
 	for _, leg := range got.Legs {
-		total += leg.GoalsUAH
+		total += leg.GoalsUAH.Major()
 	}
 	if total != 12_000 {
 		t.Errorf("за місяць у цілі %.2f, чекали 12000 — стеля одна на місяць", total)
@@ -93,7 +93,7 @@ func TestRouteGoalStopsAtGap(t *testing.T) {
 
 	total := 0.0
 	for _, leg := range got.Legs {
-		total += leg.GoalsUAH
+		total += leg.GoalsUAH.Major()
 	}
 	if total != 15_000 {
 		t.Errorf("у ціль пішло %.2f при розриві 15 000 — прохід не побачив, що вона зібрана",

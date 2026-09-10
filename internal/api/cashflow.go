@@ -325,13 +325,13 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 // «обіграв просто долари» — це рівно DiffUAH > 0, і рахувати її вдруге
 // означало б завести другий бенчмарк.
 type benchResult struct {
-	PortfolioUAH float64 `json:"portfolio_uah"`
-	BenchmarkUAH float64 `json:"benchmark_uah"`
-	DiffUAH      float64 `json:"diff_uah"`
-	DiffPct      float64 `json:"diff_pct"`
-	USDBought    float64 `json:"usd_bought"`
-	RateNow      float64 `json:"rate_now"`
-	Note         string  `json:"note,omitempty"`
+	PortfolioUAH state.Money `json:"portfolio_uah"`
+	BenchmarkUAH state.Money `json:"benchmark_uah"`
+	DiffUAH      state.Money `json:"diff_uah"`
+	DiffPct      float64     `json:"diff_pct"`
+	USDBought    state.Money `json:"usd_bought"`
+	RateNow      float64     `json:"rate_now"`
+	Note         string      `json:"note,omitempty"`
 }
 
 func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
@@ -399,7 +399,7 @@ func benchFromRivals(rv rivalsResp, rates fx.Rates) benchResult {
 	// USDBought виводиться з терміналу, а не рахується вдруге: термінал і
 	// є «куплені долари, оцінені сьогоднішнім курсом», тож ділення на той
 	// самий курс повертає рівно ті самі долари.
-	out.USDBought = round2(out.BenchmarkUAH / nowUSD)
+	out.USDBought = state.Major(out.BenchmarkUAH.Major()/nowUSD, money.UAH)
 	return out
 }
 
@@ -461,12 +461,12 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	const bondTaxUAH int64 = 0
 
 	type line struct {
-		Kind     string  `json:"kind"`
-		Label    string  `json:"label"`
-		GrossUAH float64 `json:"gross_uah"`
-		TaxUAH   float64 `json:"tax_uah"`
-		NetUAH   float64 `json:"net_uah"`
-		RatePct  float64 `json:"rate_pct"`
+		Kind     string      `json:"kind"`
+		Label    string      `json:"label"`
+		GrossUAH state.Money `json:"gross_uah"`
+		TaxUAH   state.Money `json:"tax_uah"`
+		NetUAH   state.Money `json:"net_uah"`
+		RatePct  float64     `json:"rate_pct"`
 	}
 	var bondGross, bondAccrued, fundGross, fundTax, saleGross, saleTax, depGross, depTax int64
 
@@ -584,7 +584,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	minor := func(v int64) float64 { return round2(float64(v) / 100) }
 	mk := func(kind, label string, gross, tax int64) line {
 		l := line{Kind: kind, Label: label,
-			GrossUAH: minor(gross), TaxUAH: minor(tax), NetUAH: minor(gross - tax)}
+			GrossUAH: state.Major(minor(gross), money.UAH), TaxUAH: state.Major(minor(tax), money.UAH), NetUAH: state.Major(minor(gross-tax), money.UAH)}
 		// Ставку рахуємо лише на додатному брутто. Нуль тут не тільки рятує
 		// від ділення на нуль: рядок відрахування (НКД) відʼємний, і ставка на
 		// поверненні власних грошей — не мале число, а помилка категорії.
@@ -658,7 +658,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		mk("fund_sale", "Прибуток із продажу сертифікатів", saleGross, saleTax),
 		mk("deposit", "Відсотки вкладів", depGross, depTax),
 	} {
-		if l.GrossUAH != 0 {
+		if l.GrossUAH.Major() != 0 {
 			out.ByKind = append(out.ByKind, l)
 		}
 	}
@@ -692,7 +692,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 					// рух державі, тож повернення від'ємне.
 					out.Credits = append(out.Credits, line{
 						Kind: "npf_credit", Label: "Податкова знижка на внески в НПФ",
-						TaxUAH: -minor(credit), NetUAH: minor(credit),
+						TaxUAH: state.Major(-minor(credit), money.UAH), NetUAH: state.Major(minor(credit), money.UAH),
 					})
 					out.Note = strings.TrimSpace(out.Note + " Знижка на внески в НПФ — ОЦІНКА, " +
 						"а не факт: її треба отримати декларацією до 31 грудня наступного року, " +
@@ -728,10 +728,10 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	type row struct {
-		Date  string  `json:"date"`
-		Label string  `json:"label"`
-		UAH   float64 `json:"uah"`
-		Kind  string  `json:"kind"`
+		Date  string      `json:"date"`
+		Label string      `json:"label"`
+		UAH   state.Money `json:"uah"`
+		Kind  string      `json:"kind"`
 		// Principal — дохід, який є поверненням тіла (адитивно).
 		Principal bool `json:"principal,omitempty"`
 	}
@@ -755,7 +755,7 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 	for _, e := range sum.Rows {
 		out.Rows = append(out.Rows, row{
 			Date: string(e.Date), Label: e.Label,
-			UAH: round2(float64(e.UAH) / 100), Kind: e.Kind, Principal: e.Principal,
+			UAH: state.Minor(e.UAH, money.UAH), Kind: e.Kind, Principal: e.Principal,
 		})
 	}
 	out.OpeningUAH = sum.major(sum.OpeningUAH)

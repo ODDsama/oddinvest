@@ -34,8 +34,8 @@ func TestAllocateTopUpTailGoesToNPF(t *testing.T) {
 	}, allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
 		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, npfID)
 
-	if got.RestUAH != 0 {
-		t.Errorf("залишок %.2f, чекали 0: хвіст мав доїхати в пенсійний", got.RestUAH)
+	if got.RestUAH.Major() != 0 {
+		t.Errorf("залишок %.2f, чекали 0: хвіст мав доїхати в пенсійний", got.RestUAH.Major())
 	}
 	var npf *allocLine
 	n := 0
@@ -50,13 +50,13 @@ func TestAllocateTopUpTailGoesToNPF(t *testing.T) {
 	// Сума розкладки дорівнює тому, що прийшло: гроші не гинуть ніде.
 	spent := 0.0
 	for _, l := range got.Lines {
-		spent += l.TotalUAH
+		spent += l.TotalUAH.Major()
 	}
-	if d := spent + got.RestUAH - 1340; d > 0.01 || d < -0.01 {
-		t.Errorf("розклали %.2f + залишок %.2f, а прийшло 1340", spent, got.RestUAH)
+	if d := spent + got.RestUAH.Major() - 1340; d > 0.01 || d < -0.01 {
+		t.Errorf("розклали %.2f + залишок %.2f, а прийшло 1340", spent, got.RestUAH.Major())
 	}
-	if npf.TotalUAH <= 264 {
-		t.Errorf("внесок %.2f — прохід нічого не додав до бюджету виду", npf.TotalUAH)
+	if npf.TotalUAH.Major() <= 264 {
+		t.Errorf("внесок %.2f — прохід нічого не додав до бюджету виду", npf.TotalUAH.Major())
 	}
 }
 
@@ -82,9 +82,9 @@ func TestAllocateTopUpNeverOvershoots(t *testing.T) {
 		}
 		// Частка НПФ від бази «капітал + сума» — стеля, вище якої прохід
 		// піднятись не має права. База: 100 000 + 1 340.
-		if max := (100000 + 1340) * 0.10; l.TotalUAH+10130 > max+0.01 {
+		if max := (100000 + 1340) * 0.10; l.TotalUAH.Major()+10130 > max+0.01 {
 			t.Errorf("внесок %.2f підняв НПФ понад його частку (%.2f при стелі %.2f)",
-				l.TotalUAH, l.TotalUAH+10130, max)
+				l.TotalUAH.Major(), l.TotalUAH.Major()+10130, max)
 		}
 	}
 }
@@ -116,7 +116,7 @@ func TestAllocateTopUpRespectsUses(t *testing.T) {
 			t.Fatalf("внесок у заборонений пенсійний: %+v", l)
 		}
 	}
-	if got.RestUAH <= 0 {
+	if got.RestUAH.Major() <= 0 {
 		t.Error("залишок мав лишитись: єдиний приймач для нього закритий дозволом")
 	}
 }
@@ -139,16 +139,16 @@ func TestAllocateTopUpKeepsFloor(t *testing.T) {
 		allocAllow{ReserveUAH: 2004, GoalsUAH: 2004}, money.UAH,
 		map[string]int64{"Династія": 7})
 
-	if got.RestUAH < 0.005 || got.RestUAH >= allocMinCutUAH {
+	if got.RestUAH.Major() < 0.005 || got.RestUAH.Major() >= allocMinCutUAH {
 		t.Fatalf("залишок %.2f — фікстура мала дати хвіст МЕНШИЙ за поріг %.0f",
-			got.RestUAH, float64(allocMinCutUAH))
+			got.RestUAH.Major(), float64(allocMinCutUAH))
 	}
 	for _, l := range got.Lines {
 		if l.Kind != "npf" {
 			continue
 		}
-		if l.TotalUAH > 1002.01 {
-			t.Errorf("внесок %.2f: прохід протягнув у пенсійний хвіст нижче порога", l.TotalUAH)
+		if l.TotalUAH.Major() > 1002.01 {
+			t.Errorf("внесок %.2f: прохід протягнув у пенсійний хвіст нижче порога", l.TotalUAH.Major())
 		}
 	}
 	if got.RestWhy == "" {
@@ -178,13 +178,13 @@ func TestAllocateTopUpLeavesDebtAlone(t *testing.T) {
 
 	spent := 0.0
 	for _, l := range got.Lines {
-		spent += l.TotalUAH
+		spent += l.TotalUAH.Major()
 	}
-	if d := spent + got.RestUAH - 1340; d > 0.01 || d < -0.01 {
+	if d := spent + got.RestUAH.Major() - 1340; d > 0.01 || d < -0.01 {
 		t.Errorf("куплено %.2f + залишок %.2f ≠ 1340: частина грошей пішла кудись ще",
-			spent, got.RestUAH)
+			spent, got.RestUAH.Major())
 	}
-	if got.RestUAH <= 0 {
+	if got.RestUAH.Major() <= 0 {
 		t.Error("залишок мав лишитись: інших приймачів у фікстурі немає")
 	}
 }
@@ -216,9 +216,9 @@ func TestAllocateTopUpGoalRespectsMonthAllowance(t *testing.T) {
 		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
 		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
 
-	if got.GoalsUAH > 1000.01 {
+	if got.GoalsUAH.Major() > 1000.01 {
 		t.Errorf("ціль узяла %.2f при дозволі місяця 1000 — прохід обійшов не лише темп",
-			got.GoalsUAH)
+			got.GoalsUAH.Major())
 	}
 }
 
@@ -235,8 +235,8 @@ func TestAllocateTopUpGoalSilentWithoutAllowance(t *testing.T) {
 		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
 		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
 
-	if got.GoalsUAH > 0.005 {
-		t.Errorf("ціль узяла %.2f без дозволу місяця", got.GoalsUAH)
+	if got.GoalsUAH.Major() > 0.005 {
+		t.Errorf("ціль узяла %.2f без дозволу місяця", got.GoalsUAH.Major())
 	}
 }
 
@@ -253,8 +253,8 @@ func TestAllocateTopUpReserveTakesTailWithinAllowance(t *testing.T) {
 	if got.Reserve == nil {
 		t.Fatal("подушка не взяла нічого, хоч розрив живий і дозвіл є")
 	}
-	if got.Reserve.AmountUAH > 200.01 {
-		t.Errorf("подушка взяла %.2f при дозволі місяця 200", got.Reserve.AmountUAH)
+	if got.Reserve.AmountUAH.Major() > 200.01 {
+		t.Errorf("подушка взяла %.2f при дозволі місяця 200", got.Reserve.AmountUAH.Major())
 	}
 }
 

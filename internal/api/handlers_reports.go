@@ -14,6 +14,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -153,10 +154,11 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 	// кількість перевіряє компілятор, а порядок — ніхто, тож сусідні поля
 	// можна поміняти місцями й отримати правильний ключ із чужим числом.
 	//
-	// Ділення на 100 однакове для всіх: гроші йдуть з мінорних у мажорні,
-	// а частка — з базисних пунктів у відсотки. Збіг зручний, але саме
-	// збіг, тож якщо колись з'явиться колонка в інших одиницях — їй
-	// знадобиться свій дільник, і це місце доведеться розділити.
+	// Гроші йдуть у відповідь типом state.Money (на дроті — те саме число в
+	// мажорних одиницях), а частки — з базисних пунктів у відсотки. Доти
+	// обидва ділились на 100 одним рядком, і збіг дільника ховав різницю
+	// природи; тепер розділяє їх apiName: що в ньому — частка, решта —
+	// сума.
 	//
 	// apiName — усі розходження між назвою колонки й ключем відповіді, і
 	// всі вони одного роду: у БД зберігаються базисні пункти, а віддаються
@@ -177,11 +179,12 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 		row := make(map[string]any, len(cols)+1)
 		row["date"] = string(snaps[i].Date)
 		for _, c := range cols {
-			name := c
+			v := store.SnapshotValue(&snaps[i], c)
 			if alt, ok := apiName[c]; ok {
-				name = alt
+				row[alt] = float64(v) / 100
+				continue
 			}
-			row[name] = float64(store.SnapshotValue(&snaps[i], c)) / 100
+			row[c] = state.UAH(v)
 		}
 		out = append(out, row)
 	}

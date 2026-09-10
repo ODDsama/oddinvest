@@ -59,12 +59,12 @@ func TestPeriodMoneyAgreesWithCashflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := got.Money
-	if m.OpeningUAH != cf.OpeningUAH || m.IncomeUAH != cf.IncomeUAH ||
-		m.ContribUAH != cf.ContribUAH || m.PurchaseUAH != cf.PurchaseUAH ||
-		m.ConvUAH != cf.ConvUAH || m.ClosingUAH != cf.ClosingUAH {
+	if m.OpeningUAH.Major() != cf.OpeningUAH || m.IncomeUAH.Major() != cf.IncomeUAH ||
+		m.ContribUAH.Major() != cf.ContribUAH || m.PurchaseUAH.Major() != cf.PurchaseUAH ||
+		m.ConvUAH.Major() != cf.ConvUAH || m.ClosingUAH.Major() != cf.ClosingUAH {
 		t.Errorf("підсумок %+v розійшовся з рухом %+v", m, cf)
 	}
-	if m.ContribUAH <= 0 || m.PurchaseUAH <= 0 {
+	if m.ContribUAH.Major() <= 0 || m.PurchaseUAH.Major() <= 0 {
 		t.Errorf("місяць мав нести і внески, і покупку: %+v", m)
 	}
 }
@@ -75,7 +75,7 @@ func TestPeriodEmptyMonthIsAllZeros(t *testing.T) {
 	seedPeriodMonth(t, st)
 
 	got := periodOf(t, srv.URL, "2026-05")
-	if got.Money.IncomeUAH != 0 || got.Money.ContribUAH != 0 || got.Money.PurchaseUAH != 0 {
+	if got.Money.IncomeUAH.Major() != 0 || got.Money.ContribUAH.Major() != 0 || got.Money.PurchaseUAH.Major() != 0 {
 		t.Errorf("порожній місяць не мав нести грошей: %+v", got.Money)
 	}
 	if got.Decisions.Count != 0 || got.Decisions.Note == "" {
@@ -110,7 +110,7 @@ func TestPeriodStructureNamesTheRealSnapshotDates(t *testing.T) {
 	if capital == nil {
 		t.Fatalf("рядка капіталу немає: %+v", got.Structure.Rows)
 	}
-	if capital.Before != 100000 || capital.After != 130000 || capital.Delta != 30000 {
+	if capital.Before.Major() != 100000 || capital.After.Major() != 130000 || capital.Delta.Major() != 30000 {
 		t.Errorf("капітал %+v, чекали 100 000 → 130 000 (+30 000)", capital)
 	}
 	if got.Structure.USDShareFrom != 10 || got.Structure.USDShareTo != 15 {
@@ -132,7 +132,7 @@ func TestPeriodWithoutSnapshotsStillCountsMoney(t *testing.T) {
 	if got.StructureNote == "" {
 		t.Error("причина мовчання не названа")
 	}
-	if got.Money.ContribUAH <= 0 {
+	if got.Money.ContribUAH.Major() <= 0 {
 		t.Errorf("гроші мали порахуватись і без знімків: %+v", got.Money)
 	}
 }
@@ -157,12 +157,12 @@ func TestPeriodPlanUsesTheTargetOfThatMonth(t *testing.T) {
 	if got.Plan == nil {
 		t.Fatalf("розділ плану мав бути: %s", got.PlanNote)
 	}
-	if got.Plan.TargetUAH != 20000 || got.Plan.TargetOn != "2026-07-20" {
+	if got.Plan.TargetUAH.Major() != 20000 || got.Plan.TargetOn != "2026-07-20" {
 		t.Errorf("ціль %+v, чекали 20 000 ₴ зі знімка 2026-07-20", got.Plan)
 	}
 	if got.Plan.ContribUAH != got.Money.ContribUAH {
 		t.Errorf("внесене в плані %.2f, у грошах %.2f — мусить бути те саме",
-			got.Plan.ContribUAH, got.Money.ContribUAH)
+			got.Plan.ContribUAH.Major(), got.Money.ContribUAH.Major())
 	}
 	if got.Plan.DonePct != 50 {
 		t.Errorf("виконано %.1f%%, чекали 50 (10 000 з 20 000)", got.Plan.DonePct)
@@ -266,13 +266,13 @@ func TestPeriodOwnMatchesMonthTile(t *testing.T) {
 		}
 	}
 	got := periodOf(t, srv.URL, string(today)[:7])
-	if got.Money.ContribUAH != 10_000 || got.Money.OutsideUAH != 3_500 || got.Money.OwnUAH != 13_500 {
+	if got.Money.ContribUAH.Major() != 10_000 || got.Money.OutsideUAH.Major() != 3_500 || got.Money.OwnUAH.Major() != 13_500 {
 		t.Errorf("гаманець %v / подушка %v / разом %v, чекали 10 000 / 3 500 / 13 500",
-			got.Money.ContribUAH, got.Money.OutsideUAH, got.Money.OwnUAH)
+			got.Money.ContribUAH.Major(), got.Money.OutsideUAH.Major(), got.Money.OwnUAH.Major())
 	}
 	// Залишок гаманця подушки не бачить.
-	if got.Money.ClosingUAH != 10_000 {
-		t.Errorf("залишок гаманця %v, чекали 10 000", got.Money.ClosingUAH)
+	if got.Money.ClosingUAH.Major() != 10_000 {
+		t.Errorf("залишок гаманця %v, чекали 10 000", got.Money.ClosingUAH.Major())
 	}
 	resp, body := do(t, "GET", srv.URL+"/api/summary", "")
 	if resp.StatusCode != http.StatusOK {
@@ -286,19 +286,19 @@ func TestPeriodOwnMatchesMonthTile(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &sum); err != nil {
 		t.Fatal(err)
 	}
-	if sum.Deposited != got.Money.OwnUAH {
-		t.Errorf("плитка «Цей місяць» %v ≠ підсумок %v", sum.Deposited, got.Money.OwnUAH)
+	if sum.Deposited != got.Money.OwnUAH.Major() {
+		t.Errorf("плитка «Цей місяць» %v ≠ підсумок %v", sum.Deposited, got.Money.OwnUAH.Major())
 	}
 	// І РОЗКЛАД теж мусить збігтись, доданок у доданок. Це вже не одне
 	// число, а два незалежні обчислення того самого: buildMonth ходить
 	// журналами місяця, summarizeCash — рухами періоду. Плитка тепер малює
 	// перший розклад, «Період» — другий, і розійтись їм нема на чому лише
 	// доти, доки цей тест стоїть.
-	if sum.Outside != got.Money.OutsideUAH {
-		t.Errorf("повз рахунки: плитка %v ≠ підсумок %v", sum.Outside, got.Money.OutsideUAH)
+	if sum.Outside != got.Money.OutsideUAH.Major() {
+		t.Errorf("повз рахунки: плитка %v ≠ підсумок %v", sum.Outside, got.Money.OutsideUAH.Major())
 	}
-	if sum.Contributed != got.Money.ContribUAH {
-		t.Errorf("на рахунки: плитка %v ≠ підсумок %v", sum.Contributed, got.Money.ContribUAH)
+	if sum.Contributed != got.Money.ContribUAH.Major() {
+		t.Errorf("на рахунки: плитка %v ≠ підсумок %v", sum.Contributed, got.Money.ContribUAH.Major())
 	}
 }
 

@@ -390,17 +390,17 @@ func TestProgressStreakMarksMatchStreak(t *testing.T) {
 	if got.Marks[1].Known {
 		t.Error("лютий без знімка позначено як відомий")
 	}
-	if got.Marks[1].ContribUAH != 12000 {
+	if got.Marks[1].ContribUAH.Major() != 12000 {
 		t.Errorf("внесок лютого %v: він відомий із руху грошей навіть без знімка",
-			got.Marks[1].ContribUAH)
+			got.Marks[1].ContribUAH.Major())
 	}
 	if !got.Marks[2].Known || got.Marks[2].Hit {
 		t.Errorf("березень: ціль була, внеску не було — known=%v hit=%v",
 			got.Marks[2].Known, got.Marks[2].Hit)
 	}
-	if got.Marks[0].TargetUAH != 10000 || got.Marks[0].ContribUAH != 12000 {
+	if got.Marks[0].TargetUAH.Major() != 10000 || got.Marks[0].ContribUAH.Major() != 12000 {
 		t.Errorf("січень: %v із %v — мало бути 12000 із 10000",
-			got.Marks[0].ContribUAH, got.Marks[0].TargetUAH)
+			got.Marks[0].ContribUAH.Major(), got.Marks[0].TargetUAH.Major())
 	}
 
 	// Серія, перерахована зі смужки, дорівнює заявленій.
@@ -531,7 +531,7 @@ func TestProgressLifeSkipsPrincipal(t *testing.T) {
 	if life == nil {
 		t.Fatal("витрати задані — Life мав бути")
 	}
-	if life.IncomeUAH != 12_000 || life.PerDayUAH != 1_000 || life.Days != 12 {
+	if life.IncomeUAH.Major() != 12_000 || life.PerDayUAH.Major() != 1_000 || life.Days != 12 {
 		t.Errorf("Life = %+v, чекали 12 000 ₴ / 1 000 на день / 12 днів", *life)
 	}
 	if life.Since != "2026-04-01" {
@@ -653,14 +653,14 @@ func TestProgressEtaNamesItsBasis(t *testing.T) {
 func TestProgressVsUSDStreak(t *testing.T) {
 	grid := domain.DaysGrid("2026-05-30", "2026-07-15")
 	days := make([]string, len(grid))
-	diff := make([]float64, len(grid))
+	diff := make([]state.Money, len(grid))
 	for i, d := range grid {
 		days[i] = string(d)
 		switch {
 		case d < "2026-06-03":
-			diff[i] = -100 // травень і перші дні червня позаду
+			diff[i] = state.Major(-100, money.UAH) // травень і перші дні червня позаду
 		default:
-			diff[i] = 50 + float64(i) // далі попереду
+			diff[i] = state.Major(50+float64(i), money.UAH) // далі попереду
 		}
 	}
 	vs := buildVsUSD(days, diff, "2026-07-15")

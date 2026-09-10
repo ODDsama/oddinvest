@@ -264,13 +264,13 @@ type allocLine struct {
 	// паперу віз би порожній `amount:{"amount":"","currency":""}`, який у
 	// браузері читається як «сума є, вона нульова» — тобто «0 ₴» замість
 	// прочерку.
-	Qty      int64      `json:"qty,omitempty"`
-	Unit     *moneyJSON `json:"unit,omitempty"`
-	Amount   *moneyJSON `json:"amount,omitempty"`
-	TotalUAH float64    `json:"total_uah"`
-	RealPct  float64    `json:"real_pct"`
-	Why      string     `json:"why"`
-	Addable  bool       `json:"addable"`
+	Qty      int64       `json:"qty,omitempty"`
+	Unit     *moneyJSON  `json:"unit,omitempty"`
+	Amount   *moneyJSON  `json:"amount,omitempty"`
+	TotalUAH state.Money `json:"total_uah"`
+	RealPct  float64     `json:"real_pct"`
+	Why      string      `json:"why"`
+	Addable  bool        `json:"addable"`
 	// Convert — валюта кроку не збігається з валютою надходження.
 	// ConvertNative — скільки самого надходження на це піде.
 	//
@@ -278,8 +278,8 @@ type allocLine struct {
 	// вона в іншій валюті, означало б відповісти «нема куди» там, де
 	// відповідь — «поміняй спершу гроші». Мовчки конвертувати теж не можна,
 	// тому позначка й число.
-	Convert       bool    `json:"convert,omitempty"`
-	ConvertNative float64 `json:"convert_native,omitempty"`
+	Convert       bool        `json:"convert,omitempty"`
+	ConvertNative state.Money `json:"convert_native,omitzero"`
 	// Picked — папір у цьому рядку обрала людина, а не рейтинг
 	// (allocAllow.PickISIN). Сторінка підписує такий рядок «твій вибір» і
 	// пропонує його скинути; без позначки вибір і порада виглядали б однаково.
@@ -309,8 +309,8 @@ type allocLine struct {
 // поставити його в один список із покупками означало б або вигадати йому
 // ці числа, або завести для нього особливий випадок у кожному читачі.
 type allocReserve struct {
-	AmountUAH float64 `json:"amount_uah"`
-	Why       string  `json:"why"`
+	AmountUAH state.Money `json:"amount_uah"`
+	Why       string      `json:"why"`
 }
 
 // allocPlan.ReserveSkipWhy — чому подушка НЕ взяла те, що мала б узяти за
@@ -327,30 +327,30 @@ type allocReserve struct {
 // сказати, на які саме. У Lines же їм не місце з того самого доводу, що й
 // подушці: немає ні ціни кроку, ні дохідності, ні рядка в плані купівель.
 type allocGoalCut struct {
-	ID        int64   `json:"id"`
-	Name      string  `json:"name"`
-	AmountUAH float64 `json:"amount_uah"`
-	Why       string  `json:"why"`
+	ID        int64       `json:"id"`
+	Name      string      `json:"name"`
+	AmountUAH state.Money `json:"amount_uah"`
+	Why       string      `json:"why"`
 }
 
 type allocPlan struct {
 	Amount    moneyJSON     `json:"amount"`
-	AmountUAH float64       `json:"amount_uah"`
+	AmountUAH state.Money   `json:"amount_uah"`
 	Reserve   *allocReserve `json:"reserve,omitempty"`
 	// Goals — вирізки цілей, у порядку наповнення. GoalsSkipWhy — чому цілі
 	// не взяли свого: те саме правило, що в ReserveSkipWhy, і той самий
 	// довід — зникла вирізка без пояснення читається як поломка.
 	Goals        []allocGoalCut `json:"goals,omitempty"`
-	GoalsUAH     float64        `json:"goals_uah,omitempty"`
+	GoalsUAH     state.Money    `json:"goals_uah,omitzero"`
 	GoalsSkipWhy string         `json:"goals_skip_why,omitempty"`
 	// ReserveSkipWhy — аргумент вище, при allocReserve.
 	ReserveSkipWhy string      `json:"reserve_skip_why,omitempty"`
-	AvailUAH       float64     `json:"avail_uah"`
+	AvailUAH       state.Money `json:"avail_uah"`
 	Lines          []allocLine `json:"lines"`
 	// RestUAH — те, що не склалося в цілі квитки. RestWhy називає причину
 	// словами: сума без пояснення читається як загублена.
-	RestUAH float64 `json:"rest_uah,omitempty"`
-	RestWhy string  `json:"rest_why,omitempty"`
+	RestUAH state.Money `json:"rest_uah,omitzero"`
+	RestWhy string      `json:"rest_why,omitempty"`
 	// Note — чому рядків немає взагалі. Порожня відповідь без причини
 	// читається як поломка, а причин рівно три: усе забрала подушка, цілей
 	// за видом не задано, або на жоден цілий крок не вистачило.
@@ -609,7 +609,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	amount moneyJSON, amountUAH float64, allow allocAllow,
 	cur string, npfID map[string]int64) allocPlan {
 
-	out := allocPlan{Amount: amount, AmountUAH: round2(amountUAH), Lines: []allocLine{}}
+	out := allocPlan{Amount: amount, AmountUAH: state.Major(amountUAH, money.UAH), Lines: []allocLine{}}
 
 	// --- подушка першою ---
 	avail := amountUAH
@@ -651,7 +651,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			case doc.Reserve.GapUAH.Major() > 0:
 				why += fmt.Sprintf("; до цілі ще %s", uah(doc.Reserve.GapUAH.Major()))
 			}
-			out.Reserve = &allocReserve{AmountUAH: round2(cut), Why: why}
+			out.Reserve = &allocReserve{AmountUAH: state.Major(cut, money.UAH), Why: why}
 			avail = amountUAH - cut
 		}
 	}
@@ -747,14 +747,14 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 					g.DueDate, uah(g.ShortMonthUAH.Major()))
 			}
 			out.Goals = append(out.Goals, allocGoalCut{
-				ID: g.ID, Name: g.Name, AmountUAH: round2(cut), Why: why,
+				ID: g.ID, Name: g.Name, AmountUAH: state.Major(cut, money.UAH), Why: why,
 			})
-			out.GoalsUAH = round2(out.GoalsUAH + cut)
+			out.GoalsUAH = state.Major(out.GoalsUAH.Major()+cut, money.UAH)
 			avail -= cut
 			elig -= cut
 		}
 		if blocked > 0.005 {
-			out.GoalsSkipWhy = goalsSkipWhy(doc.Settings, blocked, out.GoalsUAH,
+			out.GoalsSkipWhy = goalsSkipWhy(doc.Settings, blocked, out.GoalsUAH.Major(),
 				!domain.PlanUseAllowed(allow.Uses, domain.UsePlanGoals))
 		}
 		if floored > 0.005 {
@@ -766,7 +766,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		}
 	}
 
-	out.AvailUAH = round2(avail)
+	out.AvailUAH = state.Major(avail, money.UAH)
 	if avail <= 0 {
 		out.Note = allocAllTakenNote(out)
 		return out
@@ -938,7 +938,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		cheapest: &cheapest, cheapestWhat: &cheapestWhat,
 	})
 
-	out.RestUAH = round2(rest)
+	out.RestUAH = state.Major(rest, money.UAH)
 	// Причина залишку — три різні речі, і зводити їх до однієї фрази не можна:
 	// «бракує 730 ₴» і «інструментів немає взагалі» вимагають різних дій.
 	if rest > 0.005 {
@@ -1011,8 +1011,8 @@ func allocAddLine(lines *[]allocLine, add allocLine) {
 				continue
 			}
 			l.Qty += add.Qty
-			l.TotalUAH = round2(l.TotalUAH + add.TotalUAH)
-			l.ConvertNative = round2(l.ConvertNative + add.ConvertNative)
+			l.TotalUAH = state.Major(l.TotalUAH.Major()+add.TotalUAH.Major(), money.UAH)
+			l.ConvertNative = l.ConvertNative.Add(add.ConvertNative)
 			return
 		}
 	}
@@ -1285,7 +1285,7 @@ func topUpGoal(out *allocPlan, in topUpIn, s allocSpot, rest float64) float64 {
 	//
 	// Обидві рахуються від ФАКТУ, а не від наміру: перший прохід міг
 	// обнулити свою вирізку порогом, і тоді дозволу витрачено нуль.
-	left := math.Min(in.goalsElig, s.allow) - out.GoalsUAH
+	left := math.Min(in.goalsElig, s.allow) - out.GoalsUAH.Major()
 	take := math.Min(math.Min(rest, s.room), math.Max(0, left))
 	// Той самий поріг і той самий виняток «закриває розрив», що в першому
 	// проході: остання пʼятірка гривень до цілі мусить мати право закритись.
@@ -1317,7 +1317,7 @@ func topUpReserve(out *allocPlan, s allocSpot, rest float64) float64 {
 	if out.Reserve == nil {
 		out.Reserve = &allocReserve{}
 	}
-	out.Reserve.AmountUAH = round2(out.Reserve.AmountUAH + take)
+	out.Reserve.AmountUAH = state.Major(out.Reserve.AmountUAH.Major()+take, money.UAH)
 	out.Reserve.Why = allocTopUpWhy("подушка")
 	// ПРИЧИНА-ПОРІГ ЗНІМАЄТЬСЯ. Перший прохід міг сказати «подушка тут свого
 	// не бере: 3 ₴ — менше за 10 ₴», а цей дав їй 400 ₴; лишити обидва рядки
@@ -1334,13 +1334,13 @@ func reserveTaken(p *allocPlan) float64 {
 	if p.Reserve == nil {
 		return 0
 	}
-	return p.Reserve.AmountUAH
+	return p.Reserve.AmountUAH.Major()
 }
 
 func goalTaken(p *allocPlan, id int64) float64 {
 	for i := range p.Goals {
 		if p.Goals[i].ID == id {
-			return p.Goals[i].AmountUAH
+			return p.Goals[i].AmountUAH.Major()
 		}
 	}
 	return 0
@@ -1351,9 +1351,9 @@ func growGoalCut(out *allocPlan, goals []state.Goal, id int64, take float64) {
 		if out.Goals[i].ID != id {
 			continue
 		}
-		out.Goals[i].AmountUAH = round2(out.Goals[i].AmountUAH + take)
+		out.Goals[i].AmountUAH = state.Major(out.Goals[i].AmountUAH.Major()+take, money.UAH)
 		out.Goals[i].Why = allocTopUpWhy("ціль")
-		out.GoalsUAH = round2(out.GoalsUAH + take)
+		out.GoalsUAH = state.Major(out.GoalsUAH.Major()+take, money.UAH)
 		return
 	}
 	name := ""
@@ -1364,9 +1364,9 @@ func growGoalCut(out *allocPlan, goals []state.Goal, id int64, take float64) {
 		}
 	}
 	out.Goals = append(out.Goals, allocGoalCut{
-		ID: id, Name: name, AmountUAH: round2(take), Why: allocTopUpWhy("ціль"),
+		ID: id, Name: name, AmountUAH: state.Major(take, money.UAH), Why: allocTopUpWhy("ціль"),
 	})
-	out.GoalsUAH = round2(out.GoalsUAH + take)
+	out.GoalsUAH = state.Major(out.GoalsUAH.Major()+take, money.UAH)
 	if strings.Contains(out.GoalsSkipWhy, uah(allocMinCutUAH)) {
 		out.GoalsSkipWhy = ""
 	}
@@ -1410,10 +1410,10 @@ func allocSavingsOnly(uses string) bool {
 // «усе пішло в подушку» при живих цілях було б неправдою рівно наполовину.
 func allocAllTakenNote(p allocPlan) string {
 	switch {
-	case p.Reserve != nil && p.GoalsUAH > 0:
+	case p.Reserve != nil && p.GoalsUAH.Major() > 0:
 		return "усе розібрали подушка й цілі накопичення: доки їхні розриви живі, " +
 			"вони забирають своє першими"
-	case p.GoalsUAH > 0:
+	case p.GoalsUAH.Major() > 0:
 		return "усе пішло в цілі накопичення: доки розрив не закритий, " +
 			"вони забирають своє перед паперами"
 	default:
@@ -1572,7 +1572,7 @@ func allocOne(sg suggestion, left float64, rates fx.Rates,
 		line.Currency = money.UAH
 		amt := toMoneyJSON(money.New(int64(math.Round(left*100)), money.UAH))
 		line.Amount = &amt
-		line.TotalUAH = round2(left)
+		line.TotalUAH = state.Major(left, money.UAH)
 		line.Addable = true
 		return line, left, true
 	}
@@ -1589,7 +1589,7 @@ func allocOne(sg suggestion, left float64, rates fx.Rates,
 	line.Qty = n
 	unit := sg.CostPerBond
 	line.Unit = &unit
-	line.TotalUAH = round2(spent)
+	line.TotalUAH = state.Major(spent, money.UAH)
 	switch sg.Kind {
 	case "bond":
 		line.Ref, line.Addable = sg.ISIN, sg.ISIN != ""
@@ -1607,7 +1607,7 @@ func allocOne(sg suggestion, left float64, rates fx.Rates,
 	if sg.Currency != cur {
 		line.Convert = true
 		if rate, ok := fx.RateMajor(cur, rates); ok && rate > 0 {
-			line.ConvertNative = round2(spent / rate)
+			line.ConvertNative = state.Major(spent/rate, cur)
 		}
 	}
 	return line, spent, true

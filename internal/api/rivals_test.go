@@ -83,15 +83,15 @@ func TestRivalsUSDMatchesBenchmark(t *testing.T) {
 	if usd.Why != "" {
 		t.Fatalf("курси є на всі дати, а суперник мовчить: %s", usd.Why)
 	}
-	if math.Abs(usd.TerminalUAH-b.BenchmarkUAH) > 0.005 {
+	if math.Abs(usd.TerminalUAH.Major()-b.BenchmarkUAH.Major()) > 0.005 {
 		t.Errorf("долар: суперник %.2f, бенчмарк %.2f — це два різні рахунки одного числа",
-			usd.TerminalUAH, b.BenchmarkUAH)
+			usd.TerminalUAH.Major(), b.BenchmarkUAH.Major())
 	}
-	if math.Abs(rv.ActualUAH-b.PortfolioUAH) > 0.005 {
-		t.Errorf("портфель: суперники %.2f, бенчмарк %.2f", rv.ActualUAH, b.PortfolioUAH)
+	if math.Abs(rv.ActualUAH.Major()-b.PortfolioUAH.Major()) > 0.005 {
+		t.Errorf("портфель: суперники %.2f, бенчмарк %.2f", rv.ActualUAH.Major(), b.PortfolioUAH.Major())
 	}
-	if math.Abs(usd.DiffUAH-b.DiffUAH) > 0.005 {
-		t.Errorf("різниця: суперники %.2f, бенчмарк %.2f", usd.DiffUAH, b.DiffUAH)
+	if math.Abs(usd.DiffUAH.Major()-b.DiffUAH.Major()) > 0.005 {
+		t.Errorf("різниця: суперники %.2f, бенчмарк %.2f", usd.DiffUAH.Major(), b.DiffUAH.Major())
 	}
 }
 
@@ -112,12 +112,12 @@ func TestRivalsUAHCashEqualsContributions(t *testing.T) {
 	}
 	rv := getRivals(t, srv.URL, levelPortfolio)
 	cash := rv.row(domain.RivalUAHCash)
-	if math.Abs(cash.TerminalUAH-20000) > 0.01 {
-		t.Errorf("сума внесків = %.2f, очікували 20 000", cash.TerminalUAH)
+	if math.Abs(cash.TerminalUAH.Major()-20000) > 0.01 {
+		t.Errorf("сума внесків = %.2f, очікували 20 000", cash.TerminalUAH.Major())
 	}
-	if math.Abs(rv.InUAH-cash.TerminalUAH) > 0.005 {
+	if math.Abs(rv.InUAH.Major()-cash.TerminalUAH.Major()) > 0.005 {
 		t.Errorf("in_uah (%.2f) мусить дорівнювати гривні під матрацом (%.2f)",
-			rv.InUAH, cash.TerminalUAH)
+			rv.InUAH.Major(), cash.TerminalUAH.Major())
 	}
 }
 
@@ -156,12 +156,12 @@ func TestRivalsLevelGapEqualsThreeJournals(t *testing.T) {
 	all := getRivals(t, srv.URL, levelAll)
 
 	// Внески: 10 000 проти 10 000 + 5 000 + 3 000.
-	gapIn := all.InUAH - one.InUAH
+	gapIn := all.InUAH.Major() - one.InUAH.Major()
 	if math.Abs(gapIn-8000) > 0.01 {
 		t.Errorf("різниця внесків = %.2f, а три журнали дають 8 000", gapIn)
 	}
 	// Бази: те саме, бо в цьому наборі подушка й ціль лежать грішми.
-	gapBase := all.ActualUAH - one.ActualUAH
+	gapBase := all.ActualUAH.Major() - one.ActualUAH.Major()
 	if math.Abs(gapBase-8000) > 0.01 {
 		t.Errorf("різниця баз = %.2f, а подушка+ціль дають 8 000", gapBase)
 	}
@@ -199,9 +199,9 @@ func TestRivalsTransferIsNotContribution(t *testing.T) {
 	}
 	after := getRivals(t, srv.URL, levelAll).InUAH
 
-	if math.Abs(after-before) > 0.01 {
+	if math.Abs(after.Major()-before.Major()) > 0.01 {
 		t.Errorf("переказ додав %.2f нових грошей, а мав нуль (було %.2f, стало %.2f)",
-			after-before, before, after)
+			after.Major()-before.Major(), before.Major(), after.Major())
 	}
 }
 
@@ -228,8 +228,8 @@ func TestRivalsOVDPUsesAuctionLevel(t *testing.T) {
 	if ovdp.Why != "" {
 		t.Fatalf("рівень розміщення є, а суперник мовчить: %s", ovdp.Why)
 	}
-	if ovdp.TerminalUAH < 114_500 || ovdp.TerminalUAH > 115_500 {
-		t.Errorf("рік під 15%% мав дати ≈115 000, а маємо %.2f", ovdp.TerminalUAH)
+	if ovdp.TerminalUAH.Major() < 114_500 || ovdp.TerminalUAH.Major() > 115_500 {
+		t.Errorf("рік під 15%% мав дати ≈115 000, а маємо %.2f", ovdp.TerminalUAH.Major())
 	}
 	if rv.OVDPBucket != rivalOVDPBucket {
 		t.Errorf("строк суперника мусить бути названий у відповіді, а маємо %q", rv.OVDPBucket)
@@ -251,9 +251,9 @@ func TestRivalsOVDPSilentWithoutAuctions(t *testing.T) {
 	if ovdp.Why == "" {
 		t.Fatal("без жодного аукціону суперник мусив назвати причину мовчання")
 	}
-	if len(ovdp.PointsDiff) != 0 || ovdp.TerminalUAH != 0 {
+	if len(ovdp.PointsDiff) != 0 || ovdp.TerminalUAH.Major() != 0 {
 		t.Errorf("мовчазний суперник не має віддавати чисел: точок %d, термінал %.2f",
-			len(ovdp.PointsDiff), ovdp.TerminalUAH)
+			len(ovdp.PointsDiff), ovdp.TerminalUAH.Major())
 	}
 }
 
@@ -331,8 +331,8 @@ func TestRivalsOpeningDayFlowCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 	rv := getRivals(t, srv.URL, levelPortfolio)
-	if math.Abs(rv.InUAH-7000) > 0.01 {
-		t.Errorf("у грі %.2f ₴, а внесок дня відкриття — 7 000 ₴", rv.InUAH)
+	if math.Abs(rv.InUAH.Major()-7000) > 0.01 {
+		t.Errorf("у грі %.2f ₴, а внесок дня відкриття — 7 000 ₴", rv.InUAH.Major())
 	}
 	if rv.Flows != 1 {
 		t.Errorf("рухів %d, а мав бути один", rv.Flows)
@@ -381,8 +381,8 @@ func TestRivalsDiffCurveEndsAtDiffNumber(t *testing.T) {
 			continue
 		}
 		last := r.PointsDiff[len(r.PointsDiff)-1]
-		if math.Abs(last-r.DiffUAH) > 0.01 {
-			t.Errorf("%s: кінець кривої %.2f, а в таблиці %.2f", r.Key, last, r.DiffUAH)
+		if math.Abs(last.Major()-r.DiffUAH.Major()) > 0.01 {
+			t.Errorf("%s: кінець кривої %.2f, а в таблиці %.2f", r.Key, last.Major(), r.DiffUAH.Major())
 		}
 	}
 }

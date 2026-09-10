@@ -59,9 +59,9 @@ func TestRouteDebtLeftFollowsSchedule(t *testing.T) {
 	doc, plans := routeDebtDoc()
 	old := buildRoute(doc, sug, routeDebtFlows(), plans, nil, allocRates, nil, nil, routeToday)
 	for i, r := range old.Months {
-		if r.DebtLeftUAH != 3000 {
+		if r.DebtLeftUAH.Major() != 3000 {
 			t.Fatalf("місяць %d: борг %.2f, чекали 3000 — без графіка танути нема від чого",
-				i, r.DebtLeftUAH)
+				i, r.DebtLeftUAH.Major())
 		}
 	}
 
@@ -74,8 +74,8 @@ func TestRouteDebtLeftFollowsSchedule(t *testing.T) {
 		t.Fatalf("рядків months %d, чекали %d", len(got.Months), routeHorizonMonths+1)
 	}
 	for m, want := range map[int]float64{0: 3000, 1: 2000, 2: 1000, 3: 0, 4: 0} {
-		if r := got.Months[m]; r.DebtLeftUAH != want {
-			t.Errorf("місяць %d: лишається %.2f, чекали %.2f", m, r.DebtLeftUAH, want)
+		if r := got.Months[m]; r.DebtLeftUAH.Major() != want {
+			t.Errorf("місяць %d: лишається %.2f, чекали %.2f", m, r.DebtLeftUAH.Major(), want)
 		}
 	}
 }
@@ -92,19 +92,19 @@ func TestRouteDebtMeltsInMonthsWithoutLegs(t *testing.T) {
 		plans, routeDebtAhead(1000, 2, 3), allocRates, nil, nil, routeToday)
 	// Тіло списується у ЖОВТНІ й ЛИСТОПАДІ, хоч ноги там немає: графік не
 	// чекає на купон. До грудня борг уже нульовий.
-	if got.Months[1].DebtLeftUAH != 3000 {
+	if got.Months[1].DebtLeftUAH.Major() != 3000 {
 		t.Errorf("вересень: %.2f, чекали 3000 — графік починається з жовтня",
-			got.Months[1].DebtLeftUAH)
+			got.Months[1].DebtLeftUAH.Major())
 	}
-	if got.Months[2].DebtLeftUAH != 2000 {
-		t.Errorf("жовтень: %.2f, чекали 2000", got.Months[2].DebtLeftUAH)
+	if got.Months[2].DebtLeftUAH.Major() != 2000 {
+		t.Errorf("жовтень: %.2f, чекали 2000", got.Months[2].DebtLeftUAH.Major())
 	}
 	// Графік має рівно два платежі по 1 000 ₴, тож 3 000 − 2 000 = 1 000
 	// лишаються під ставкою до кінця горизонту. Доти цей хвіст доїдали
 	// вирізки дострокового на ногах — тепер їх немає, і борг чесно стоїть.
 	for m := 3; m <= routeHorizonMonths; m++ {
-		if got.Months[m].DebtLeftUAH != 1000 {
-			t.Errorf("місяць +%d: лишається %.2f, чекали 1000", m, got.Months[m].DebtLeftUAH)
+		if got.Months[m].DebtLeftUAH.Major() != 1000 {
+			t.Errorf("місяць +%d: лишається %.2f, чекали 1000", m, got.Months[m].DebtLeftUAH.Major())
 		}
 	}
 }
@@ -125,13 +125,13 @@ func TestRouteMonthsNameTheDrop(t *testing.T) {
 		if m == 4 {
 			want = 2500
 		}
-		if r.DropUAH != want {
-			t.Errorf("місяць +%d: drop %.2f, чекали %.2f", m, r.DropUAH, want)
+		if r.DropUAH.Major() != want {
+			t.Errorf("місяць +%d: drop %.2f, чекали %.2f", m, r.DropUAH.Major(), want)
 		}
 	}
-	if got.Months[1].DebtDueUAH != 2000 || got.Months[1].CardInstUAH != 500 {
+	if got.Months[1].DebtDueUAH.Major() != 2000 || got.Months[1].CardInstUAH.Major() != 500 {
 		t.Errorf("вересень: обовʼязкове %.2f / карткові %.2f, чекали 2000 / 500",
-			got.Months[1].DebtDueUAH, got.Months[1].CardInstUAH)
+			got.Months[1].DebtDueUAH.Major(), got.Months[1].CardInstUAH.Major())
 	}
 
 	plain := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
@@ -163,8 +163,8 @@ func TestRouteMonthsShowCardPlanned(t *testing.T) {
 		if m == 2 {
 			want = 30000
 		}
-		if r.PlannedUAH != want {
-			t.Errorf("місяць +%d: планові %.2f, чекали %.2f", m, r.PlannedUAH, want)
+		if r.PlannedUAH.Major() != want {
+			t.Errorf("місяць +%d: планові %.2f, чекали %.2f", m, r.PlannedUAH.Major(), want)
 		}
 	}
 }
@@ -194,9 +194,9 @@ func TestRouteDropIgnoresPlanned(t *testing.T) {
 		if m == 4 {
 			want = 2000 // саме тут обовʼязкове справді скінчилось
 		}
-		if r.DropUAH != want {
+		if r.DropUAH.Major() != want {
 			t.Errorf("місяць +%d: drop %.2f, чекали %.2f — разова витрата "+
-				"нічого не закриває, тож у drop не входить", m, r.DropUAH, want)
+				"нічого не закриває, тож у drop не входить", m, r.DropUAH.Major(), want)
 		}
 	}
 }
@@ -219,11 +219,11 @@ func TestRouteLegsShrinkOnPlanPlanned(t *testing.T) {
 	if len(base.Months) == 0 || len(with.Months) == 0 {
 		t.Skip("таблиці місяців без боргу немає — перевіряємо самі ноги")
 	}
-	if with.Months[1].PlanUAH >= base.Months[1].PlanUAH {
+	if with.Months[1].PlanUAH.Cmp(base.Months[1].PlanUAH) >= 0 {
 		t.Errorf("вересень: план %.2f не менший за %.2f — витрата не дійшла до маршруту",
-			with.Months[1].PlanUAH, base.Months[1].PlanUAH)
+			with.Months[1].PlanUAH.Major(), base.Months[1].PlanUAH.Major())
 	}
-	if diff := base.Months[1].PlanUAH - with.Months[1].PlanUAH; diff != 10000 {
+	if diff := base.Months[1].PlanUAH.Major() - with.Months[1].PlanUAH.Major(); diff != 10000 {
 		t.Errorf("план схуд на %.2f, чекали рівно 10000", diff)
 	}
 }

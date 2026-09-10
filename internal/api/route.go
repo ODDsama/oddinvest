@@ -173,7 +173,7 @@ type routeLeg struct {
 	// але лише доти, доки з них НІЧОГО не витрачено: щойно частина пішла в
 	// діло, приписати залишок конкретній події вже не можна, і далі він
 	// їде безіменним числом.
-	CarryInUAH float64      `json:"carry_in_uah,omitempty"`
+	CarryInUAH state.Money  `json:"carry_in_uah,omitzero"`
 	Via        []readyEvent `json:"via,omitempty"`
 	// InflowUAH — скільки надійде САМЕ ЦЬОГО ДНЯ, без переносу.
 	//
@@ -185,12 +185,12 @@ type routeLeg struct {
 	//
 	// Числом із бекенда, а не відніманням у браузері: різницю двох
 	// округлених чисел уже двічі показували як зайву копійку.
-	InflowUAH float64 `json:"inflow_uah"`
+	InflowUAH state.Money `json:"inflow_uah"`
 	// PrincipalUAH — скільки з InflowUAH є поверненням власного тіла. Не
 	// косметика: саме цим число відрізняється від «доходу» в підсумку
 	// місяця, і без підпису нога на 10 000 ₴ погашення читалась би як
 	// заробіток.
-	PrincipalUAH float64 `json:"principal_uah,omitempty"`
+	PrincipalUAH state.Money `json:"principal_uah,omitzero"`
 	// InflowWhy — чому InflowUAH менший за те, що інструмент нарахував.
 	// Сьогодні єдиний випадок — фонд, який утримує виплату й докуповує на
 	// неї свої ж сертифікати: на рахунок падає лише решта.
@@ -285,17 +285,17 @@ type routeDebtMonth struct {
 
 // routeMonthRow — рядок таблиці «Борг на горизонті».
 type routeMonthRow struct {
-	Month       string  `json:"month"`
-	DebtDueUAH  float64 `json:"debt_due_uah"`
-	CardInstUAH float64 `json:"card_inst_uah,omitempty"`
+	Month       string      `json:"month"`
+	DebtDueUAH  state.Money `json:"debt_due_uah"`
+	CardInstUAH state.Money `json:"card_inst_uah,omitzero"`
 	// PlannedUAH — планові разові витрати з картки цього місяця (0056).
-	PlannedUAH float64 `json:"planned_uah,omitempty"`
+	PlannedUAH state.Money `json:"planned_uah,omitzero"`
 	// DebtLeftUAH — борг під ставкою на кінець місяця за проходом.
-	DebtLeftUAH float64 `json:"debt_left_uah"`
-	PlanUAH     float64 `json:"plan_uah"`
+	DebtLeftUAH state.Money `json:"debt_left_uah"`
+	PlanUAH     state.Money `json:"plan_uah"`
 	// DropUAH — на скільки обовʼязкових платежів (разом із картковими) стало
 	// менше проти попереднього місяця: тут щось закрилось.
-	DropUAH float64 `json:"drop_uah,omitempty"`
+	DropUAH state.Money `json:"drop_uah,omitzero"`
 }
 
 // routeCarry — те, що подія N мусить знати про події 1..N−1.
@@ -612,16 +612,16 @@ func (c *routeCarry) earn(incomeUAH float64) {
 
 // apply — наслідки однієї розкладки.
 func (c *routeCarry) apply(p allocPlan) {
-	if p.Reserve != nil && p.Reserve.AmountUAH > 0 {
+	if p.Reserve != nil && p.Reserve.AmountUAH.Major() > 0 {
 		v := p.Reserve.AmountUAH
-		c.reserveUAH += v
-		c.gapUAH = math.Max(0, c.gapUAH-v)
-		c.fillNow = math.Max(0, c.fillNow-v)
+		c.reserveUAH += v.Major()
+		c.gapUAH = math.Max(0, c.gapUAH-v.Major())
+		c.fillNow = math.Max(0, c.fillNow-v.Major())
 		// Нога подушки гасить і борг перед нею — те саме правило FIFO, що
 		// в reserveLoans: поповнення без явної привʼязки йде в позику.
 		// Інакше борг у проході не танув би ніколи, а він і є те, через що
 		// розрив щомісяця росте.
-		c.loanOwed = math.Max(0, c.loanOwed-v)
+		c.loanOwed = math.Max(0, c.loanOwed-v.Major())
 		// Позика закрилась — надбавка до цілі зникає разом із нею, і
 		// розрив мусить упасти ще й на неї. Без цього рядка маршрут
 		// вимагав би відсоток після того, як борг уже погашено: розрив
@@ -632,22 +632,22 @@ func (c *routeCarry) apply(p allocPlan) {
 		}
 	}
 	for _, gc := range p.Goals {
-		if gc.AmountUAH <= 0 {
+		if gc.AmountUAH.Major() <= 0 {
 			continue
 		}
-		c.goalsUAH += gc.AmountUAH
+		c.goalsUAH += gc.AmountUAH.Major()
 		for i := range c.goals {
 			if c.goals[i].ID != gc.ID {
 				continue
 			}
-			c.goals[i].GapUAH = state.Major(math.Max(0, c.goals[i].GapUAH.Major()-gc.AmountUAH), money.UAH)
-			c.goals[i].FillNowUAH = state.Major(math.Max(0, c.goals[i].FillNowUAH.Major()-gc.AmountUAH), money.UAH)
+			c.goals[i].GapUAH = state.Major(math.Max(0, c.goals[i].GapUAH.Major()-gc.AmountUAH.Major()), money.UAH)
+			c.goals[i].FillNowUAH = state.Major(math.Max(0, c.goals[i].FillNowUAH.Major()-gc.AmountUAH.Major()), money.UAH)
 			break
 		}
 	}
 	for _, l := range p.Lines {
 		if k, ok := allocKind[l.Kind]; ok {
-			c.kindUAH[k] += l.TotalUAH
+			c.kindUAH[k] += l.TotalUAH.Major()
 		}
 	}
 }
@@ -917,18 +917,18 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		// два оновлення розійшлися б на першій же правці, тож це один
 		// прохід.
 		if plan.Reserve != nil {
-			pot.spend(plan.Reserve.AmountUAH, rate)
+			pot.spend(plan.Reserve.AmountUAH.Major(), rate)
 		}
-		pot.spend(plan.GoalsUAH, rate)
+		pot.spend(plan.GoalsUAH.Major(), rate)
 		// Дохід стає капіталом аж тепер — аргумент при earn.
 		carry.earn(amountUAH - principalUAH)
 
 		leg := routeLeg{
 			Date: string(ev.Date), Broker: ev.bc.Broker, Currency: cur,
 			Label: ev.Label, Ref: ev.Ref, allocPlan: plan,
-			CarryInUAH:   round2(carryInUAH),
-			InflowUAH:    round2(amountUAH),
-			PrincipalUAH: round2(principalUAH),
+			CarryInUAH:   state.Major(carryInUAH, money.UAH),
+			InflowUAH:    state.Major(amountUAH, money.UAH),
+			PrincipalUAH: state.Major(principalUAH, money.UAH),
 			InflowWhy:    ev.Why,
 			Basis:        pot.basis,
 		}
@@ -939,7 +939,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		// Витрачене — це те, чого в залишку вже немає. Рахуємо саме так, а
 		// не сумою рядків: розкладка сама знає, що з суми пішло в діло, і
 		// друге складання розійшлося б із нею на копійку округлення.
-		spentUAH := plan.AmountUAH - plan.RestUAH
+		spentUAH := plan.AmountUAH.Major() - plan.RestUAH.Major()
 		if spentUAH > 0.005 {
 			// Гроші пішли в діло — і поіменно назвати, з яких надходжень
 			// вони склались, можна рівно зараз. Далі залишок безіменний.
@@ -948,7 +948,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			}
 			pot.pending = nil
 		}
-		pot.minor = int64(math.Round(plan.RestUAH / rate * 100))
+		pot.minor = int64(math.Round(plan.RestUAH.Major() / rate * 100))
 		if pot.minor <= 0 {
 			// Горщик спорожнів — основа наступних грошей буде їхня власна, а
 			// не успадкована від тих, що вже пішли в діло.
@@ -979,13 +979,13 @@ func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
 		d := debt[key]
 		row := routeMonthRow{
 			Month:       key,
-			DebtDueUAH:  round2(d.DueUAH),
-			CardInstUAH: round2(d.CardInstUAH),
-			PlannedUAH:  round2(d.PlannedUAH),
-			DebtLeftUAH: c.debtLeftAt[m],
+			DebtDueUAH:  state.Major(d.DueUAH, money.UAH),
+			CardInstUAH: state.Major(d.CardInstUAH, money.UAH),
+			PlannedUAH:  state.Major(d.PlannedUAH, money.UAH),
+			DebtLeftUAH: state.Major(c.debtLeftAt[m], money.UAH),
 		}
 		if mp := plans[key]; mp != nil {
-			row.PlanUAH = round2(mp.PlanUAH.Major())
+			row.PlanUAH = mp.PlanUAH
 		}
 		// Падіння обовʼязкового проти попереднього місяця — тут щось
 		// закрилось. Поточний місяць порівнювати нема з чим.
@@ -999,7 +999,7 @@ func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
 		// місяць котла показував би нуль там, де попередній щось закрив.
 		due := d.DueUAH + d.CardInstUAH
 		if prevDue >= 0 && prevDue-due > 0.005 {
-			row.DropUAH = round2(prevDue - due)
+			row.DropUAH = state.Major(prevDue-due, money.UAH)
 		}
 		prevDue = due
 		out = append(out, row)

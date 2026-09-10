@@ -34,31 +34,33 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 // periodMoney — гроші періоду, у гривнях.
 type periodMoney struct {
-	OpeningUAH  float64 `json:"opening_uah"`
-	IncomeUAH   float64 `json:"income_uah"`
-	ContribUAH  float64 `json:"contributed_uah"`
-	PurchaseUAH float64 `json:"purchased_uah"`
-	ConvUAH     float64 `json:"conversions_uah"`
-	ClosingUAH  float64 `json:"closing_uah"`
+	OpeningUAH  state.Money `json:"opening_uah"`
+	IncomeUAH   state.Money `json:"income_uah"`
+	ContribUAH  state.Money `json:"contributed_uah"`
+	PurchaseUAH state.Money `json:"purchased_uah"`
+	ConvUAH     state.Money `json:"conversions_uah"`
+	ClosingUAH  state.Money `json:"closing_uah"`
 	// OutsideUAH — у подушку й цілі (поза залишком гаманця); OwnUAH —
 	// «внесено своїх» разом, те саме означення, що в плитки «Цей місяць».
 	// contributed_uah лишається ЛИШЕ гаманцем — це рядок виписки.
-	OutsideUAH float64 `json:"outside_uah"`
-	OwnUAH     float64 `json:"own_uah"`
+	OutsideUAH state.Money `json:"outside_uah"`
+	OwnUAH     state.Money `json:"own_uah"`
 }
 
 // periodRow — один вимір «було → стало».
 type periodRow struct {
-	Key    string  `json:"key"`
-	Label  string  `json:"label"`
-	Before float64 `json:"before"`
-	After  float64 `json:"after"`
-	Delta  float64 `json:"delta"`
+	Key    string      `json:"key"`
+	Label  string      `json:"label"`
+	Before state.Money `json:"before"`
+	After  state.Money `json:"after"`
+	Delta  state.Money `json:"delta"`
 }
 
 // periodStructure — з чого складався портфель на початку періоду і з чого
@@ -86,9 +88,9 @@ type periodStructure struct {
 
 // periodPlan — місячна ціль проти внесеного.
 type periodPlan struct {
-	TargetUAH  float64 `json:"target_uah"`
-	ContribUAH float64 `json:"contributed_uah"`
-	DonePct    float64 `json:"done_pct"`
+	TargetUAH  state.Money `json:"target_uah"`
+	ContribUAH state.Money `json:"contributed_uah"`
+	DonePct    float64     `json:"done_pct"`
 	// TargetOn — дата знімка, з якого взята ціль. Ціль міняють, і
 	// сьогоднішня не є тією, що діяла в тому місяці; знімок тримає ту,
 	// що діяла.
@@ -127,7 +129,7 @@ type periodResp struct {
 	// місяця не пішло в діло. Саме місячна відповідь, а не всесвітня:
 	// гроші могли піти в діло наступного числа, і рядок каже про місяць,
 	// а не про долю цих грошей узагалі.
-	IdleUAH       float64          `json:"idle_uah"`
+	IdleUAH       state.Money      `json:"idle_uah"`
 	Structure     *periodStructure `json:"structure,omitempty"`
 	StructureNote string           `json:"structure_note,omitempty"`
 	Plan          *periodPlan      `json:"plan,omitempty"`
@@ -161,17 +163,17 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 	}
 	sum := summarizeCash(events, from, to)
 	out := periodResp{From: string(from), To: string(to), Money: periodMoney{
-		OpeningUAH: sum.major(sum.OpeningUAH),
-		IncomeUAH:  sum.major(sum.IncomeUAH),
-		ContribUAH: sum.major(sum.ContribUAH),
+		OpeningUAH: state.Major(sum.major(sum.OpeningUAH), money.UAH),
+		IncomeUAH:  state.Major(sum.major(sum.IncomeUAH), money.UAH),
+		ContribUAH: state.Major(sum.major(sum.ContribUAH), money.UAH),
 		// Знак перевертається тут із тієї ж причини, що й у звіті про рух:
 		// у підсумку покупки віднімаються, і мінус на мінусі читався б як
 		// помилка.
-		PurchaseUAH: sum.major(-sum.PurchaseUAH),
-		ConvUAH:     sum.major(sum.ConvUAH),
-		ClosingUAH:  sum.major(sum.ClosingUAH()),
-		OutsideUAH:  sum.major(sum.OutsideUAH),
-		OwnUAH:      sum.major(sum.OwnUAH()),
+		PurchaseUAH: state.Major(sum.major(-sum.PurchaseUAH), money.UAH),
+		ConvUAH:     state.Major(sum.major(sum.ConvUAH), money.UAH),
+		ClosingUAH:  state.Major(sum.major(sum.ClosingUAH()), money.UAH),
+		OutsideUAH:  state.Major(sum.major(sum.OutsideUAH), money.UAH),
+		OwnUAH:      state.Major(sum.major(sum.OwnUAH()), money.UAH),
 	}}
 
 	var income, buys []domain.CashEvent
@@ -183,7 +185,7 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 			buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
 		}
 	}
-	out.IdleUAH = sum.major(domain.IdleIncome(income, buys))
+	out.IdleUAH = state.Major(sum.major(domain.IdleIncome(income, buys)), money.UAH)
 
 	snaps, err := s.st.ListSnapshots(ctx, "", to)
 	if err != nil {
@@ -240,8 +242,8 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date, acc, gen string
 	}
 	row := func(key, label string, b, a int64) periodRow {
 		return periodRow{Key: key, Label: label,
-			Before: round2(float64(b) / 100), After: round2(float64(a) / 100),
-			Delta: round2(float64(a-b) / 100)}
+			Before: state.Minor(b, money.UAH), After: state.Minor(a, money.UAH),
+			Delta: state.Minor(a-b, money.UAH)}
 	}
 	out := &periodStructure{
 		FromDate:     string(before.Date),
@@ -266,7 +268,7 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date, acc, gen string
 	// якого в тебе немає. Капітал лишається завжди — він і є підсумком.
 	kept := out.Rows[:1]
 	for _, r := range out.Rows[1:] {
-		if r.Before != 0 || r.After != 0 {
+		if r.Before.Major() != 0 || r.After.Major() != 0 {
 			kept = append(kept, r)
 		}
 	}
@@ -294,8 +296,8 @@ func periodPlanOf(snaps []store.Snapshot, from, to domain.Date, contribMinor int
 		return nil, "місячної цілі тоді не було задано, тож порівнювати внесене немає з чим"
 	}
 	return &periodPlan{
-		TargetUAH:  round2(float64(target) / 100),
-		ContribUAH: round2(float64(contribMinor) / 100),
+		TargetUAH:  state.Minor(target, money.UAH),
+		ContribUAH: state.Minor(contribMinor, money.UAH),
 		DonePct:    round2(float64(contribMinor) / float64(target) * 100),
 		TargetOn:   string(on),
 	}, ""
