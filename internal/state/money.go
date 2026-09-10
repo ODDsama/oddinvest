@@ -131,6 +131,16 @@ func (m Money) Mul(f float64) Money {
 	return Money{minor: int64(math.Round(float64(m.minor) * f)), cur: m.cur}
 }
 
+// In — та сама сума в іншій валюті за курсом perUnit: скільки ЦІЄЇ валюти
+// коштує одиниця code. Округлення до копійки — те саме, що в Major.
+//
+// Це не арифметика домену (там обмін іде через fx.ToUAH/FromUAH у
+// копійках ×10⁴), а шар презентації: документ уже порахований у гривні,
+// і питання лише в тому, якою одиницею його показати.
+func (m Money) In(code string, perUnit float64) Money {
+	return Money{minor: int64(math.Round(float64(m.minor) / perUnit)), cur: code}
+}
+
 // Cmp — −1, 0, +1. Різні валюти — паніка.
 func (m Money) Cmp(o Money) int {
 	m.same(o, "порівняти")
