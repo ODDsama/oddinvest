@@ -616,6 +616,7 @@ func buildMilestones(
 	doc *state.Doc, src *sources, snaps []store.Snapshot, ev []flowEvent,
 	streak streakDoc, bench *benchResult, life *lifeDoc, vs *vsDoc, today domain.Date,
 ) []milestone {
+	mt := moneyTextOf(doc)
 	out := make([]milestone, 0, milestoneCount)
 	add := func(m milestone) { out = append(out, m) }
 
@@ -648,8 +649,8 @@ func buildMilestones(
 			Key: t.key, Title: t.title,
 			Note: noteOr(earned,
 				noteOr(when != "", "пройдено "+when, "пройдено до першого знімка"),
-				fmt.Sprintf("%s із %s", uah(cap0), uah(t.uah))),
-			Left:   noteOr(earned, "", "лишилось "+uah(t.uah-cap0)),
+				fmt.Sprintf("%s із %s", mt.uah(cap0), mt.uah(t.uah))),
+			Left:   noteOr(earned, "", "лишилось "+mt.uah(t.uah-cap0)),
 			Earned: earned, EarnedOn: when,
 			ProgressPct: ratioPct(cap0, t.uah),
 		}
@@ -683,7 +684,7 @@ func buildMilestones(
 			m.EarnedOn = vs.Since
 		}
 		m.Note = fmt.Sprintf("%s проти %s, якби просто тримав долари",
-			uah(bench.PortfolioUAH.Major()), uah(bench.BenchmarkUAH.Major()))
+			mt.uah(bench.PortfolioUAH.Major()), mt.uah(bench.BenchmarkUAH.Major()))
 		return m
 	}())
 
@@ -835,9 +836,9 @@ func buildMilestones(
 		m.Earned = doc.IncomeMonthlyNow.Major() >= need
 		m.ProgressPct = ratioPct(doc.IncomeMonthlyNow.Major(), need)
 		m.Note = fmt.Sprintf("%s на місяць із %s — це чверть витрат",
-			uah(doc.IncomeMonthlyNow.Major()), uah(need))
+			mt.uah(doc.IncomeMonthlyNow.Major()), mt.uah(need))
 		if !m.Earned {
-			m.Left = "лишилось " + uah(need-doc.IncomeMonthlyNow.Major()) + " доходу на місяць"
+			m.Left = "лишилось " + mt.uah(need-doc.IncomeMonthlyNow.Major()) + " доходу на місяць"
 		}
 		return m
 	}())
@@ -847,7 +848,7 @@ func buildMilestones(
 	// Лічильник, що росте (lifeDoc), із двома порогами: місяць і рік.
 	// Дата — з подій руху грошей, а не зі знімків: купон датований сам.
 	for _, t := range lifeThresholds {
-		add(lifeMilestone(t.key, t.title, t.days, ev, life, doc.IncomeMonthlyNow.Major(), today))
+		add(lifeMilestone(mt, t.key, t.title, t.days, ev, life, doc.IncomeMonthlyNow.Major(), today))
 	}
 
 	// --- 17-21. Борг (state_progress_debt.go) ---
@@ -871,11 +872,11 @@ func buildMilestones(
 		case m.Earned:
 			m.Note = "пройдено " + when
 			if idleNow {
-				m.Note += fmt.Sprintf(" · зараз лежить %s понад квиток", uah(doc.Idle.InvestableUAH.Major()))
+				m.Note += fmt.Sprintf(" · зараз лежить %s понад квиток", mt.uah(doc.Idle.InvestableUAH.Major()))
 			}
 		case idleNow:
 			m.Note = fmt.Sprintf("зараз лежить %s понад квиток з %s — серія почнеться з покупки",
-				uah(doc.Idle.InvestableUAH.Major()), doc.Idle.Since)
+				mt.uah(doc.Idle.InvestableUAH.Major()), doc.Idle.Since)
 			m.Left = fmt.Sprintf("лишилось %d днів поспіль", idleFreeDays)
 		default:
 			m.Note = fmt.Sprintf("%s поспіль без грошей понад квиток", daysWord(float64(run)))
@@ -900,7 +901,7 @@ var lifeThresholds = []struct {
 	{"life_year", "Портфель оплатив рік життя", 365},
 }
 
-func lifeMilestone(key, title string, need float64, ev []flowEvent, life *lifeDoc,
+func lifeMilestone(mt moneyText, key, title string, need float64, ev []flowEvent, life *lifeDoc,
 	incomeMonthly float64, today domain.Date) milestone {
 
 	m := milestone{Key: key, Title: title, ProgressPct: progressNoProgress,
@@ -912,7 +913,7 @@ func lifeMilestone(key, title string, need float64, ev []flowEvent, life *lifeDo
 	m.EarnedOn = lifeCrossedOn(ev, life.PerDayUAH.Major(), need)
 	m.ProgressPct = ratioPct(life.Days, need)
 	m.Note = fmt.Sprintf("оплачено %s із %s — %s заробленого при %s на день",
-		daysWord(life.Days), daysWord(need), uah(life.IncomeUAH.Major()), uah(life.PerDayUAH.Major()))
+		daysWord(life.Days), daysWord(need), mt.uah(life.IncomeUAH.Major()), mt.uah(life.PerDayUAH.Major()))
 	if !m.Earned {
 		m.Left = "лишилось " + daysWord(need-life.Days)
 		// Темп — щомісячний дохід портфеля вже зараз (IncomeMonthlyNow):

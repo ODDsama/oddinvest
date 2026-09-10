@@ -1105,7 +1105,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		real := round2(realYield(d.TopRatePct/100, money.UAH, devalPct) * 100)
 		reason := fmt.Sprintf("погасити борг: %s під %.1f%% річних", d.TopName, d.TopRatePct)
 		if d.FillNowUAH.Major() > 0 {
-			reason += fmt.Sprintf("; місячна частка — ще %s", uah(d.FillNowUAH.Major()))
+			reason += fmt.Sprintf("; місячна частка — ще %s", moneyTextOf(doc).uah(d.FillNowUAH.Major()))
 		}
 		out = append(out, suggestion{
 			Kind: "debt", Label: d.TopName, Currency: money.UAH,

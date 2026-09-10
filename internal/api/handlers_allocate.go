@@ -608,6 +608,7 @@ var allocKind = map[string]string{
 func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	amount moneyJSON, amountUAH float64, allow allocAllow,
 	cur string, npfID map[string]int64) allocPlan {
+	mt := moneyTextOf(doc)
 
 	out := allocPlan{Amount: amount, AmountUAH: state.Major(amountUAH, money.UAH), Lines: []allocLine{}}
 
@@ -617,7 +618,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		want := math.Min(amountUAH, doc.Reserve.FillNowUAH.Major())
 		cut := math.Min(want, math.Max(0, allow.ReserveUAH))
 		if blocked := want - cut; blocked > 0.005 {
-			out.ReserveSkipWhy = reserveSkipWhy(doc.Settings, blocked, cut,
+			out.ReserveSkipWhy = reserveSkipWhy(mt, doc.Settings, blocked, cut,
 				!domain.PlanUseAllowed(allow.Uses, domain.UsePlanReserve))
 		}
 		// ПОРІГ, І ВИНЯТОК ІЗ НЬОГО — ЗАКРИТТЯ РОЗРИВУ. Якщо цієї вирізки
@@ -632,7 +633,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		// розрив саме дверима винятку.
 		if closes := doc.Reserve.GapUAH.Major() > 0.005 &&
 			cut >= doc.Reserve.GapUAH.Major()-0.005; cut > 0.005 && cut < allocMinCutUAH && !closes {
-			why := allocBelowFloorWhy("подушка", "не бере", "добере", cut)
+			why := allocBelowFloorWhy(mt, "подушка", "не бере", "добере", cut)
 			if out.ReserveSkipWhy != "" {
 				// Політика вже сказала, ЧОМУ вирізка схудла до цього числа;
 				// поріг каже, чому й цього числа не стало рядком. Обидві
@@ -644,12 +645,12 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		}
 		if cut > 0.005 {
 			why := fmt.Sprintf("місячна частка подушки — %s з %s",
-				uah(cut), uah(doc.Reserve.FillMonthUAH.Major()))
+				mt.uah(cut), mt.uah(doc.Reserve.FillMonthUAH.Major()))
 			switch {
 			case cut < doc.Reserve.FillNowUAH.Major():
 				why += "; більше з цієї суми не вийде — решту добере наступне надходження"
 			case doc.Reserve.GapUAH.Major() > 0:
-				why += fmt.Sprintf("; до цілі ще %s", uah(doc.Reserve.GapUAH.Major()))
+				why += fmt.Sprintf("; до цілі ще %s", mt.uah(doc.Reserve.GapUAH.Major()))
 			}
 			out.Reserve = &allocReserve{AmountUAH: state.Major(cut, money.UAH), Why: why}
 			avail = amountUAH - cut
@@ -735,16 +736,16 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 				floored += cut
 				continue
 			}
-			why := fmt.Sprintf("місячна частка цілі — %s з %s", uah(cut), uah(g.FillMonthUAH.Major()))
+			why := fmt.Sprintf("місячна частка цілі — %s з %s", mt.uah(cut), mt.uah(g.FillMonthUAH.Major()))
 			switch {
 			case cut < g.FillNowUAH.Major():
 				why += "; більше з цієї суми не вийде — решту добере наступне надходження"
 			case g.GapUAH.Major() > 0:
-				why += fmt.Sprintf("; до цілі ще %s", uah(g.GapUAH.Major()))
+				why += fmt.Sprintf("; до цілі ще %s", mt.uah(g.GapUAH.Major()))
 			}
 			if g.ShortMonthUAH.Major() > 0 {
 				why += fmt.Sprintf(". Щоб устигнути до %s, треба ще %s на місяць — стеля стільки не дає",
-					g.DueDate, uah(g.ShortMonthUAH.Major()))
+					g.DueDate, mt.uah(g.ShortMonthUAH.Major()))
 			}
 			out.Goals = append(out.Goals, allocGoalCut{
 				ID: g.ID, Name: g.Name, AmountUAH: state.Major(cut, money.UAH), Why: why,
@@ -754,11 +755,11 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			elig -= cut
 		}
 		if blocked > 0.005 {
-			out.GoalsSkipWhy = goalsSkipWhy(doc.Settings, blocked, out.GoalsUAH.Major(),
+			out.GoalsSkipWhy = goalsSkipWhy(mt, doc.Settings, blocked, out.GoalsUAH.Major(),
 				!domain.PlanUseAllowed(allow.Uses, domain.UsePlanGoals))
 		}
 		if floored > 0.005 {
-			why := allocBelowFloorWhy("цілі", "не беруть", "доберуть", floored)
+			why := allocBelowFloorWhy(mt, "цілі", "не беруть", "доберуть", floored)
 			if out.GoalsSkipWhy != "" {
 				why = out.GoalsSkipWhy + ". " + why
 			}
@@ -932,7 +933,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 
 	// --- ДРУГИЙ ПРОХІД: залишок тим, хто ще недобирає ---
 	rest = allocTopUp(&out, topUpIn{
-		rest: rest, rows: rows, rooms: roomByKind, goals: doc.Goals,
+		rest: rest, mt: mt, rows: rows, rooms: roomByKind, goals: doc.Goals,
 		reserve: doc.Reserve, allow: allow, goalsElig: elig,
 		sug: sug, rates: rates, cur: cur, npfID: npfID,
 		cheapest: &cheapest, cheapestWhat: &cheapestWhat,
@@ -945,7 +946,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		switch {
 		case cheapest > rest:
 			out.RestWhy = fmt.Sprintf("на наступний крок (%s, %s) бракує %s",
-				cheapestWhat, uah(cheapest), uah(cheapest-rest))
+				cheapestWhat, mt.uah(cheapest), mt.uah(cheapest-rest))
 		case cheapest > 0:
 			// Найдешевший крок дешевший за залишок, і другий прохід його вже
 			// пробував. Доти тут стояло «залишок зібраний із різних видів, і в
@@ -959,7 +960,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			out.RestWhy = fmt.Sprintf("найдешевший крок (%s, %s) дешевший за залишок, "+
 				"але його виду ці гроші вже не потрібні: до частки йому лишилось менше, "+
 				"ніж коштує крок, або він її вже добрав, або цим грошам туди не можна",
-				cheapestWhat, uah(cheapest))
+				cheapestWhat, mt.uah(cheapest))
 		default:
 			out.RestWhy = "інструментів із відомою ціною в цих видах немає — " +
 				"довідник порожній або без цін"
@@ -1024,6 +1025,7 @@ func allocAddLine(lines *[]allocLine, add allocLine) {
 // переставлені місцями вони компілювались би мовчки.
 type topUpIn struct {
 	rest    float64
+	mt      moneyText // гроші в прозі «чому» — у валюті звітності
 	rows    []state.RebalanceRow
 	rooms   map[string]float64 // недобір виду ПІСЛЯ його бюджету, ₴
 	goals   []state.Goal
@@ -1200,7 +1202,7 @@ func allocTopUp(out *allocPlan, in topUpIn) float64 {
 		case s.goal > 0:
 			rest = topUpGoal(out, in, s, rest)
 		default:
-			rest = topUpReserve(out, s, rest)
+			rest = topUpReserve(in.mt, out, s, rest)
 		}
 	}
 	return rest
@@ -1295,7 +1297,7 @@ func topUpGoal(out *allocPlan, in topUpIn, s allocSpot, rest float64) float64 {
 	if take <= 0.005 {
 		return rest
 	}
-	growGoalCut(out, in.goals, s.goal, take)
+	growGoalCut(in.mt, out, in.goals, s.goal, take)
 	return rest - take
 }
 
@@ -1304,7 +1306,7 @@ func topUpGoal(out *allocPlan, in topUpIn, s allocSpot, rest float64) float64 {
 // Дзеркало topUpGoal, і навмисно окремою функцією, а не гілкою в ній: у
 // подушки поле одне, у цілей масив, а спільна функція з двома if усередині
 // читалась би як одна дія над двома різними речами.
-func topUpReserve(out *allocPlan, s allocSpot, rest float64) float64 {
+func topUpReserve(mt moneyText, out *allocPlan, s allocSpot, rest float64) float64 {
 	take := math.Min(math.Min(rest, s.room), math.Max(0, s.allow-reserveTaken(out)))
 	// Той самий поріг і той самий виняток «закриває розрив», що всюди:
 	// остання пʼятірка гривень до цілі мусить мати право закритись.
@@ -1324,7 +1326,7 @@ func topUpReserve(out *allocPlan, s allocSpot, rest float64) float64 {
 	// поруч означало б надрукувати заперечення власного числа. Причину
 	// ПОЛІТИКИ не чіпаємо: вона й далі правда про ту частину, якої подушці
 	// не дали.
-	if strings.Contains(out.ReserveSkipWhy, uah(allocMinCutUAH)) {
+	if strings.Contains(out.ReserveSkipWhy, mt.uah(allocMinCutUAH)) {
 		out.ReserveSkipWhy = ""
 	}
 	return rest - take
@@ -1346,7 +1348,7 @@ func goalTaken(p *allocPlan, id int64) float64 {
 	return 0
 }
 
-func growGoalCut(out *allocPlan, goals []state.Goal, id int64, take float64) {
+func growGoalCut(mt moneyText, out *allocPlan, goals []state.Goal, id int64, take float64) {
 	for i := range out.Goals {
 		if out.Goals[i].ID != id {
 			continue
@@ -1367,7 +1369,7 @@ func growGoalCut(out *allocPlan, goals []state.Goal, id int64, take float64) {
 		ID: id, Name: name, AmountUAH: state.Major(take, money.UAH), Why: allocTopUpWhy("ціль"),
 	})
 	out.GoalsUAH = state.Major(out.GoalsUAH.Major()+take, money.UAH)
-	if strings.Contains(out.GoalsSkipWhy, uah(allocMinCutUAH)) {
+	if strings.Contains(out.GoalsSkipWhy, mt.uah(allocMinCutUAH)) {
 		out.GoalsSkipWhy = ""
 	}
 }
@@ -1425,9 +1427,9 @@ func allocAllTakenNote(p allocPlan) string {
 //
 // Дзеркалить reserveSkipWhy і з того самого доводу: рядок, що не веде до
 // налаштування, змушує шукати причину в чужих числах.
-func goalsSkipWhy(set *state.SettingsDoc, blocked, cut float64, bySource bool) string {
+func goalsSkipWhy(mt moneyText, set *state.SettingsDoc, blocked, cut float64, bySource bool) string {
 	if bySource {
-		return allocBySourceWhy("цілі", "взяли", "не беруть", blocked, cut)
+		return allocBySourceWhy(mt, "цілі", "взяли", "не беруть", blocked, cut)
 	}
 	rule := "їх наповнює лише плановий дохід"
 	if goalsFillFrom(set) == "redeem" {
@@ -1435,10 +1437,10 @@ func goalsSkipWhy(set *state.SettingsDoc, blocked, cut float64, bySource bool) s
 	}
 	if cut > 0.005 {
 		return fmt.Sprintf("цілі взяли лише %s: решта — %s — за твоєю політикою в них не йде, %s",
-			uah(cut), uah(blocked), rule)
+			mt.uah(cut), mt.uah(blocked), rule)
 	}
 	return fmt.Sprintf("цілі тут свого не беруть (%s за стелею): за твоєю політикою %s",
-		uah(blocked), rule)
+		mt.uah(blocked), rule)
 }
 
 // reserveSkipWhy — чому подушка не взяла своєї частки (або взяла менше).
@@ -1446,9 +1448,9 @@ func goalsSkipWhy(set *state.SettingsDoc, blocked, cut float64, bySource bool) s
 // Називає САМЕ ТУ політику, яку поставив користувач, а не загальне «не
 // можна»: рядок, що не веде до налаштування, змушує шукати причину в
 // чужих числах. Аргумент, чому це поле взагалі є, — при allocReserve.
-func reserveSkipWhy(set *state.SettingsDoc, blocked, cut float64, bySource bool) string {
+func reserveSkipWhy(mt moneyText, set *state.SettingsDoc, blocked, cut float64, bySource bool) string {
 	if bySource {
-		return allocBySourceWhy("подушка", "взяла", "не бере", blocked, cut)
+		return allocBySourceWhy(mt, "подушка", "взяла", "не бере", blocked, cut)
 	}
 	rule := "її наповнює лише плановий дохід"
 	if reserveFillFrom(set) == "redeem" {
@@ -1456,10 +1458,10 @@ func reserveSkipWhy(set *state.SettingsDoc, blocked, cut float64, bySource bool)
 	}
 	if cut > 0.005 {
 		return fmt.Sprintf("подушка взяла лише %s: решта — %s — за твоєю політикою в неї не йде, %s",
-			uah(cut), uah(blocked), rule)
+			mt.uah(cut), mt.uah(blocked), rule)
 	}
 	return fmt.Sprintf("подушка тут своє не бере (%s за стелею): за твоєю політикою %s",
-		uah(blocked), rule)
+		mt.uah(blocked), rule)
 }
 
 // allocBySourceWhy — вирізки немає через ДОЗВІЛ САМОГО НАДХОДЖЕННЯ, а не
@@ -1472,13 +1474,13 @@ func reserveSkipWhy(set *state.SettingsDoc, blocked, cut float64, bySource bool)
 // Дієслова параметрами, а не однією формою на двох: подушка одна, цілей
 // багато, і «цілі накопичення тут свого НЕ БЕРЕ» — рядок, який людина
 // прочитає як недбалість, а далі так само поставиться й до числа поруч.
-func allocBySourceWhy(who, took, takes string, blocked, cut float64) string {
+func allocBySourceWhy(mt moneyText, who, took, takes string, blocked, cut float64) string {
 	if cut > 0.005 {
 		return fmt.Sprintf("%s %s лише %s: решта — %s — сюди не йде, "+
-			"бо саме це надходження позначене інакше", who, took, uah(cut), uah(blocked))
+			"бо саме це надходження позначене інакше", who, took, mt.uah(cut), mt.uah(blocked))
 	}
 	return fmt.Sprintf("%s тут нічого %s (%s за стелею): це надходження "+
-		"позначене як таке, що сюди не йде", who, takes, uah(blocked))
+		"позначене як таке, що сюди не йде", who, takes, mt.uah(blocked))
 }
 
 // allocBelowFloorWhy — вирізки немає через ПОРІГ, а не через політику й не
@@ -1493,11 +1495,11 @@ func allocBySourceWhy(who, took, takes string, blocked, cut float64) string {
 //
 // Дієслова параметрами, а не однією формою на двох, — рівно з того доводу,
 // що при allocBySourceWhy: подушка одна, цілей багато.
-func allocBelowFloorWhy(who, takes, willTake string, amountUAH float64) string {
+func allocBelowFloorWhy(mt moneyText, who, takes, willTake string, amountUAH float64) string {
 	return fmt.Sprintf("%s тут свого %s: %s — менше за %s, з яких має сенс "+
 		"окремий рух. Гроші не зникли, вони йдуть далі разом із сумою, "+
 		"а своє %s наступного разу",
-		who, takes, uah(amountUAH), uah(allocMinCutUAH), willTake)
+		who, takes, mt.uah(amountUAH), mt.uah(allocMinCutUAH), willTake)
 }
 
 // allocStepUAH — ціна одного кроку поради в гривні-еквіваленті. Нуль

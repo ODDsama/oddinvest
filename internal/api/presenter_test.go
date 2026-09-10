@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/ODDsama/oddinvest/internal/state"
@@ -27,6 +28,20 @@ type summaryView struct {
 	Settings struct {
 		ReportCurrency string `json:"report_currency"`
 	} `json:"settings"`
+	Tasks []struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	} `json:"tasks"`
+}
+
+// taskTitle — заголовок задачі за id; порожньо, коли її немає.
+func (v summaryView) taskTitle(id string) string {
+	for _, t := range v.Tasks {
+		if t.ID == id {
+			return t.Title
+		}
+	}
+	return ""
 }
 
 func summaryOf(t *testing.T, url string) summaryView {
@@ -89,6 +104,15 @@ func TestSummaryInReportCurrency(t *testing.T) {
 	}
 	if usd.Settings.ReportCurrency != "USD" {
 		t.Errorf("налаштування в документі: %+v", usd.Settings)
+	}
+	// Проза задач — теж у валюті звітності: рядок презентер не бачить, тож
+	// текст пишеться одразу тим самим курсом (moneyText). «Купувати ще
+	// рано — бракує 1 080,02 ₴» стає «…бракує 24,48 $».
+	if got := usd.taskTitle("saving"); !strings.Contains(got, "$") || strings.Contains(got, "₴") {
+		t.Errorf("проза задачі не в доларах: %q (у гривні було %q)", got, uah.taskTitle("saving"))
+	}
+	if got := uah.taskTitle("saving"); !strings.Contains(got, "₴") {
+		t.Errorf("у гривні проза мусить лишитись гривневою: %q", got)
 	}
 	// Ставка проєкції — теж лінійка: у доларі стоїть реальна.
 	if usd.ProjectionRatePct != uah.ProjectionRateReal || usd.ProjectionRateReal != 0 || uah.ProjectionRateReal == 0 {

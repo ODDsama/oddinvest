@@ -27,6 +27,7 @@ import (
 
 // debtMilestones — пʼять віх боргу в сталому порядку.
 func debtMilestones(doc *state.Doc, src *sources, snaps []store.Snapshot, today domain.Date) []milestone {
+	mt := moneyTextOf(doc)
 	silent := func(key, title string) milestone {
 		return milestone{Key: key, Title: title, ProgressPct: progressNoProgress,
 			Note: "боргу не було — віха не про тебе"}
@@ -52,14 +53,14 @@ func debtMilestones(doc *state.Doc, src *sources, snaps []store.Snapshot, today 
 		m := milestone{Key: "net_worth_positive", Title: "Чистий капітал над нулем",
 			Earned: nw.Major() > 0, EarnedOn: netWorthPositiveOn(snaps)}
 		if m.Earned {
-			m.Note = "чистий капітал " + uah(nw.Major())
+			m.Note = "чистий капітал " + mt.uah(nw.Major())
 			m.ProgressPct = 100
 			return m
 		}
 		owed := cap0 - nw.Major()
 		m.ProgressPct = ratioPct(cap0, owed)
-		m.Note = fmt.Sprintf("капітал %s проти боргу %s", uah(cap0), uah(owed))
-		m.Left = "лишилось " + uah(nw.Neg().Major()) + " боргу понад капітал"
+		m.Note = fmt.Sprintf("капітал %s проти боргу %s", mt.uah(cap0), mt.uah(owed))
+		m.Left = "лишилось " + mt.uah(nw.Neg().Major()) + " боргу понад капітал"
 		// Дата — з плану виходу з ліміту, коли він є: там уже пораховано
 		// середній дохід місяців до цілі, і другого темпу не треба.
 		if doc.Debt != nil && doc.Debt.Exit != nil && doc.Debt.Exit.ETADate != "" {
@@ -157,9 +158,9 @@ func debtMilestones(doc *state.Doc, src *sources, snaps []store.Snapshot, today 
 		m.Earned = r.DebtCoverGapUAH.Major() <= 0
 		m.ProgressPct = ratioPct(r.DebtCoverUAH.Major()-r.DebtCoverGapUAH.Major(), r.DebtCoverUAH.Major())
 		m.Note = fmt.Sprintf("майбутні платежі %s, подушка покриває %s",
-			uah(r.DebtCoverUAH.Major()), uah(r.DebtCoverUAH.Major()-r.DebtCoverGapUAH.Major()))
+			mt.uah(r.DebtCoverUAH.Major()), mt.uah(r.DebtCoverUAH.Major()-r.DebtCoverGapUAH.Major()))
 		if !m.Earned {
-			m.Left = "лишилось " + uah(r.DebtCoverGapUAH.Major()) + " до покриття"
+			m.Left = "лишилось " + mt.uah(r.DebtCoverGapUAH.Major()) + " до покриття"
 			m.EtaOn = etaAtPace(today, r.DebtCoverGapUAH.Major(), r.FillMonthUAH.Major()/30)
 			m.EtaBasis = noteOr(m.EtaOn != "", etaByReserve, "")
 		}

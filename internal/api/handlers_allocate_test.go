@@ -410,7 +410,7 @@ func TestAllocateNPFBelowFloorSkipped(t *testing.T) {
 	// Причина мусить назвати поріг і рахунок: «інструментів із відомою ціною
 	// немає» тут було б неправдою про наявний пенсійний.
 	if !strings.Contains(got.RestWhy, "Династія") ||
-		!strings.Contains(got.RestWhy, uah(allocMinCutUAH)) {
+		!strings.Contains(got.RestWhy, uahText(allocMinCutUAH)) {
 		t.Errorf("причина залишку не називає порога й рахунку: %q", got.RestWhy)
 	}
 }
@@ -510,7 +510,7 @@ func TestAllocateFloorReasonsDoNotCollide(t *testing.T) {
 	if !strings.Contains(got.ReserveSkipWhy, "політикою") {
 		t.Errorf("причина мовчить про політику: %q", got.ReserveSkipWhy)
 	}
-	if !strings.Contains(got.ReserveSkipWhy, uah(allocMinCutUAH)) {
+	if !strings.Contains(got.ReserveSkipWhy, uahText(allocMinCutUAH)) {
 		t.Errorf("причина мовчить про поріг: %q", got.ReserveSkipWhy)
 	}
 }

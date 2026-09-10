@@ -95,12 +95,17 @@ const taskPastDays = 90
 // Те саме число, що показував веб, коли ця перевірка жила в ньому.
 const nbuStaleDays = 3
 
-// uah — гроші українською для ПРОЗИ, а не для таблиці.
+// uahText — гроші українською для ПРОЗИ, а не для таблиці: «1 234,56 ₴».
 //
 // Своя, бо x/text у залежностях немає, а тягнути його заради одного
-// формату — обмін не на користь: тут потрібен рівно один вигляд, «1 234,56 ₴»
-// з нерозривними пробілами між групами.
-func uah(v float64) string {
+// формату — обмін не на користь: тут потрібен рівно один вигляд, з
+// нерозривними пробілами між групами.
+//
+// СИРА гривня. У тексті задач, порад і віх її НЕ кличуть напряму — там
+// стоїть moneyText (нижче), який знає валюту звітності; напряму вона
+// потрібна лише там, де гривня за законом (податковий CSV) і самому
+// moneyText.
+func uahText(v float64) string {
 	neg := v < 0
 	if neg {
 		v = -v
@@ -126,13 +131,59 @@ func uah(v float64) string {
 	return fmt.Sprintf("%s%s,%02d ₴", sign, b.String(), cents)
 }
 
-// cur — те саме в довільній валюті, символом.
-func cur(v float64, code string) string {
+// curText — те саме в довільній валюті, символом.
+func curText(v float64, code string) string {
 	sym := map[string]string{"UAH": "₴", "USD": "$", "EUR": "€"}[code]
 	if sym == "" {
 		sym = code
 	}
-	return strings.Replace(uah(v), "₴", sym, 1)
+	return strings.Replace(uahText(v), "₴", sym, 1)
+}
+
+// moneyText — гроші в ПРОЗІ у валюті звітності: «Принести 12 000 ₴» стає
+// «Принести 290,11 $», коли документ доларовий.
+//
+// Числа документа перекладає презентер (internal/present) за типом
+// state.Money; проза — рядок, і презентер її не бачить. Тому текст
+// пишеться одразу в валюті звітності, тим самим кодом і тим самим курсом,
+// що бере презентер: код — settings.report_currency, курс — doc.Rates на
+// сьогодні. Обидва вже лежать у документі, тож форматер будується з нього
+// де завгодно, і жодного параметра через десять сигнатур тягнути не треба.
+// Без курсу — гривня, як і в презентера (reportCurrency).
+//
+// Гривневий і доларовий рядки ніколи не стоять в одному документі: обидва
+// шари читають одне джерело, і розійтись їм нема де.
+type moneyText struct {
+	code string
+	rate float64 // гривень за одиницю code; 1 для гривні
+}
+
+func moneyTextOf(doc *state.Doc) moneyText {
+	code := ""
+	if doc != nil && doc.Settings != nil {
+		code = doc.Settings.ReportCurrency
+	}
+	if code == "" || code == money.UAH || doc.Rates[code] <= 0 {
+		return moneyText{code: money.UAH, rate: 1}
+	}
+	return moneyText{code: code, rate: doc.Rates[code]}
+}
+
+// uah — гривнева сума прозою у валюті звітності.
+func (t moneyText) uah(v float64) string {
+	if t.code == money.UAH || t.rate <= 0 {
+		return uahText(v)
+	}
+	return curText(state.Major(v, money.UAH).In(t.code, t.rate).Major(), t.code)
+}
+
+// cur — сума в названій валюті: гривня — як uah, решта — як є (натуральні
+// суми презентер теж не чіпає).
+func (t moneyText) cur(v float64, code string) string {
+	if code == money.UAH {
+		return t.uah(v)
+	}
+	return curText(v, code)
 }
 
 var monthsGen = [...]string{"січня", "лютого", "березня", "квітня", "травня",
@@ -189,6 +240,7 @@ func (s *Server) buildStateTasked(ctx context.Context, now time.Time) (*state.Do
 func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Date) []state.Task {
 	var out []state.Task
 	add := func(t state.Task) { out = append(out, t) }
+	mt := moneyTextOf(doc)
 
 	// ---------- порожній портфель ----------
 	// Витісняє всі інші: доки портфеля немає, решта черги або порожня за
@@ -223,10 +275,10 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		// сума без причини читається як вимога, а не як стеля, яку людина
 		// сама собі поставила.
 		why := fmt.Sprintf("Стеля, яку ти сам поставив: до цілі ще %s, "+
-			"решта грошей лишається на папери.", uah(r.GapUAH.Major()))
+			"решта грошей лишається на папери.", mt.uah(r.GapUAH.Major()))
 		if r.FillNowUAH.Cmp(r.GapUAH) >= 0 {
 			why = fmt.Sprintf("Це все, чого бракує до цілі — %s, тобто %d %s витрат.",
-				uah(r.TargetUAH.Major()), int(r.TargetMonths),
+				mt.uah(r.TargetUAH.Major()), int(r.TargetMonths),
 				plural(int(r.TargetMonths), "місяць", "місяці", "місяців"))
 		}
 		// У ЯКІЙ ФОРМІ — те, чого задачі бракувало. Стеля каже, СКІЛЬКИ
@@ -247,7 +299,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		case r.LiquidTargetUAH.Major() > 0 && r.LiquidUAH.Major()+0.005 < r.LiquidTargetUAH.Major():
 			why += fmt.Sprintf(" Клади ГОТІВКОЮ: доступно миттєво %s із потрібних %s, "+
 				"і вклад на цьому кроці погіршить доступ, а не покращить.",
-				uah(r.LiquidUAH.Major()), uah(r.LiquidTargetUAH.Major()))
+				mt.uah(r.LiquidUAH.Major()), mt.uah(r.LiquidTargetUAH.Major()))
 		case r.NextRungMonths > 0:
 			why += fmt.Sprintf(" Голова добрана, тож це вже сходинка драбини: "+
 				"потрібно ≈%d %s. Якщо банк такого строку не дає, бери довший — "+
@@ -257,7 +309,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		}
 		add(state.Task{
 			ID: "reserve-fill", Sev: sevNow, Rank: 10, Kind: "reserve",
-			Title:     fmt.Sprintf("Спершу поповнити резерв — %s", uah(r.FillNowUAH.Major())),
+			Title:     fmt.Sprintf("Спершу поповнити резерв — %s", mt.uah(r.FillNowUAH.Major())),
 			Why:       why,
 			Action:    actFillReserve,
 			AmountUAH: r.FillNowUAH,
@@ -316,11 +368,11 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			add(state.Task{
 				ID:  fmt.Sprintf("reserve-loan-%d", l.ID),
 				Sev: sevNow, Rank: 10, Kind: "reserve",
-				Title: fmt.Sprintf("Повернути в подушку — %s", uah(l.OwedUAH.Major())),
+				Title: fmt.Sprintf("Повернути в подушку — %s", mt.uah(l.OwedUAH.Major())),
 				Why: fmt.Sprintf("Ти взяв %s %s і обіцяв повернути до %s. "+
 					"Відсоток набіг на %s і росте далі — рівно на нього піднята "+
 					"ціль подушки, і опуститься вона тільки після повернення.",
-					uah(l.TakenUAH.Major()), l.Date, l.DueDate, uah(l.InterestUAH.Major())),
+					mt.uah(l.TakenUAH.Major()), l.Date, l.DueDate, mt.uah(l.InterestUAH.Major())),
 				When:      l.DueDate,
 				Action:    actFillReserve,
 				AmountUAH: l.OwedUAH,
@@ -380,12 +432,12 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		// темпом, який із нього виводиться. Друга згадка тієї самої суми
 		// через рядок читалась би як два різні числа, що випадково збіглись.
 		why := fmt.Sprintf("Стеля, яку ти сам поставив: до цілі ще %s, "+
-			"решта грошей лишається на папери.", uah(g.GapUAH.Major()))
+			"решта грошей лишається на папери.", mt.uah(g.GapUAH.Major()))
 		if g.DueDate != "" {
 			why = fmt.Sprintf("До %s лишилось %s, тобто ≈%s на місяць. "+
 				"Береться це зі стелі, яку ти сам поставив: решта грошей "+
 				"лишається на папери.",
-				g.DueDate, uah(g.GapUAH.Major()), uah(g.RequiredUAH.Major()))
+				g.DueDate, mt.uah(g.GapUAH.Major()), mt.uah(g.RequiredUAH.Major()))
 			// Ціна цілі в рік дедлайну — ОКРЕМИМ реченням і лише коли вона
 			// справді більша. Саме на ній стоїть «відстаю», тож промовчати
 			// про неї означало б винести вирок числом, якого на екрані
@@ -394,8 +446,8 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			if g.RequiredFutureUAH.Major() > g.RequiredUAH.Major()+0.005 {
 				why += fmt.Sprintf(" Але до %s ця сама ціль коштуватиме %s "+
 					"(інфляція %.1f%%/рік), і щоб вистачило на НЕЇ, треба ≈%s на місяць.",
-					g.DueDate, uah(g.TargetFutureNative.Major()), g.InflationPct,
-					uah(g.RequiredFutureUAH.Major()))
+					g.DueDate, mt.uah(g.TargetFutureNative.Major()), g.InflationPct,
+					mt.uah(g.RequiredFutureUAH.Major()))
 				if g.RatePct <= 0 {
 					why += " Зібране при цьому лежить готівкою й не працює зовсім — " +
 						"вклад під ціль це змінює."
@@ -412,11 +464,11 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		if g.ShortMonthUAH.Major() > 0 {
 			why += fmt.Sprintf(" Сама ця сума МЕНША за потрібний темп на %s: "+
 				"стільки застосунок відрізати не може за твоєю ж стелею. "+
-				"Підніми частку або зсунь дату.", uah(g.ShortMonthUAH.Major()))
+				"Підніми частку або зсунь дату.", mt.uah(g.ShortMonthUAH.Major()))
 		}
 		add(state.Task{
 			ID: fmt.Sprintf("goal-fill-%d", g.ID), Sev: sevNow, Rank: 12, Kind: "goal",
-			Title:     fmt.Sprintf("Відкласти на «%s» — %s", g.Name, uah(g.FillNowUAH.Major())),
+			Title:     fmt.Sprintf("Відкласти на «%s» — %s", g.Name, mt.uah(g.FillNowUAH.Major())),
 			Why:       why,
 			Action:    actFillGoal,
 			AmountUAH: g.FillNowUAH,
@@ -438,7 +490,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		}
 	}
 	if bestCan != nil {
-		add(buyTask(bestCan, bestAny, doc.Idle))
+		add(buyTask(mt, bestCan, bestAny, doc.Idle))
 	}
 
 	// ---------- пенсійний внесок ----------
@@ -503,7 +555,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 	// ---------- прострочена планова витрата ----------
 	// Поруч із надходженням плану навмисно: обидві задачі про те саме —
 	// дата минула, а факту немає.
-	if t, ok := overduePlannedTask(src, today); ok {
+	if t, ok := overduePlannedTask(mt, src, today); ok {
 		add(t)
 	}
 
@@ -572,7 +624,7 @@ func hasPortfolio(doc *state.Doc) bool {
 		doc.Debt != nil
 }
 
-func buyTask(best, bestAny *suggestion, idle *state.IdleCash) state.Task {
+func buyTask(mt moneyText, best, bestAny *suggestion, idle *state.IdleCash) state.Task {
 	action, verb := actRecordBuy, "купити"
 	switch best.Kind {
 	case "deposit":
@@ -588,7 +640,7 @@ func buyTask(best, bestAny *suggestion, idle *state.IdleCash) state.Task {
 	for _, f := range best.Brokers {
 		where = append(where, fmt.Sprintf("%s ×%d", f.Broker, f.Qty))
 	}
-	why := cur(moneyAmount(best.CostPerBond), best.Currency)
+	why := mt.cur(moneyAmount(best.CostPerBond), best.Currency)
 	if len(where) > 0 {
 		why += " · " + strings.Join(where, " · ")
 	}
@@ -604,7 +656,7 @@ func buyTask(best, bestAny *suggestion, idle *state.IdleCash) state.Task {
 	// цей момент воно ще без ціни (її припише annotateIdleCost), тож
 	// показуємо вік — він уже відомий.
 	if idle != nil && idle.InvestableUAH.Major() > 0 && idle.Since != "" {
-		why += fmt.Sprintf(" %s лежать з %s.", uah(idle.InvestableUAH.Major()), dayMonth(domain.Date(idle.Since)))
+		why += fmt.Sprintf(" %s лежать з %s.", mt.uah(idle.InvestableUAH.Major()), dayMonth(domain.Date(idle.Since)))
 	}
 	return state.Task{
 		ID: "buy-best", Sev: sevNow, Rank: 20, Kind: best.Kind,
@@ -620,6 +672,7 @@ func buyTask(best, bestAny *suggestion, idle *state.IdleCash) state.Task {
 }
 
 func savingTask(doc *state.Doc, best *suggestion) state.Task {
+	mt := moneyTextOf(doc)
 	purse := 0.0
 	for _, byCur := range doc.Brokers {
 		if v := byCur[best.Currency]; v.Major() > purse {
@@ -637,7 +690,7 @@ func savingTask(doc *state.Doc, best *suggestion) state.Task {
 	}
 	return state.Task{
 		ID: "saving", Sev: sevWatch, Rank: 30, Kind: best.Kind,
-		Title:     fmt.Sprintf("Купувати ще рано — бракує %s", cur(need, best.Currency)),
+		Title:     fmt.Sprintf("Купувати ще рано — бракує %s", mt.cur(need, best.Currency)),
 		Why:       why,
 		Action:    actSeeSuggest,
 		AmountUAH: state.Major(need, money.UAH),
@@ -808,7 +861,7 @@ func receiptTask(src *sources, today domain.Date) (state.Task, bool) {
 //
 // САМОГАСНА: щойно зʼявиться paid_date, Overdue стане хибним, і задача
 // зникне сама — жодного стану поза самим рядком тримати не треба.
-func overduePlannedTask(src *sources, today domain.Date) (state.Task, bool) {
+func overduePlannedTask(mt moneyText, src *sources, today domain.Date) (state.Task, bool) {
 	var names []string
 	var total float64
 	allUAH := true
@@ -842,7 +895,7 @@ func overduePlannedTask(src *sources, today domain.Date) (state.Task, bool) {
 		Action: actPayPlanned,
 	}
 	if allUAH {
-		t.Title = title + " — " + uah(total)
+		t.Title = title + " — " + mt.uah(total)
 		t.AmountUAH = state.Major(total, money.UAH)
 	}
 	return t, true
@@ -982,6 +1035,7 @@ func mustShift(d domain.Date, days int) string {
 // Злиття будь-яких двох зробило б задачу, що зникає в момент, коли саме
 // вона й потрібна: перевитрата найгостріша тоді, коли до дати ще далеко.
 func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
+	mt := moneyTextOf(doc)
 	var out []state.Task
 	// Числа режиму виходу приходять ГОТОВИМИ з документа: середній дохід
 	// місяців до цілі вміє порахувати лише будівник (шапка state.DebtExit).
@@ -1011,8 +1065,8 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 			why := fmt.Sprintf(
 				"До %s принести %s — і відсотків не буде взагалі. Мінімум %s: менше — "+
 					"штраф і підвищена ставка на весь борг.",
-				st.DueDate, debtMoney(st.BringByDue, cur),
-				debtMoney(st.MinDue, cur))
+				st.DueDate, debtMoney(mt, st.BringByDue, cur),
+				debtMoney(mt, st.MinDue, cur))
 			if st.InstallmentDue > 0 {
 				// Частини розстрочок до цієї суми НЕ додаються: вони підуть
 				// із картки до тієї ж дати, але лягають у НАСТУПНУ виписку.
@@ -1020,7 +1074,7 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 				// раніше (спіймано вживу — див. CardStatus.BringByDue).
 				why += fmt.Sprintf(" Ще %s спишеться частинами розстрочок до тієї ж дати, "+
 					"але вони йдуть у наступну виписку — до цієї їх вносити не треба.",
-					debtMoney(st.InstallmentDue, cur))
+					debtMoney(mt, st.InstallmentDue, cur))
 			}
 			if st.NonGrace > 0 {
 				// Готівка не має пільгового ніколи, і мовчати про це не
@@ -1028,7 +1082,7 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 				// нарахувань немає.
 				why += fmt.Sprintf(" %s із цього — готівка або переказ: на них "+
 					"пільговий не діє, відсоток уже йде.",
-					debtMoney(st.NonGrace, cur))
+					debtMoney(mt, st.NonGrace, cur))
 			}
 			sev := sevSoon
 			if st.DaysToDue <= 7 {
@@ -1038,7 +1092,7 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 				ID:  "card-due-" + d.Name,
 				Sev: sev, Rank: 1, Kind: "debt",
 				Title: fmt.Sprintf("Внести на «%s» — %s до %s",
-					d.Name, debtMoney(st.BringByDue, cur), st.DueDate),
+					d.Name, debtMoney(mt, st.BringByDue, cur), st.DueDate),
 				Why:    why,
 				When:   string(st.DueDate),
 				Action: actPayCard,
@@ -1055,17 +1109,17 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 		// вже не вистачає на те, що з нього мусить піти.
 		if st.Free < 0 {
 			why := fmt.Sprintf("На картці %s, але %s із цього вже обіцяно виписці",
-				debtMoney(st.Balance, cur),
-				debtMoney(st.StatementDue, cur))
+				debtMoney(mt, st.Balance, cur),
+				debtMoney(mt, st.StatementDue, cur))
 			if st.InstallmentDue > 0 {
 				why += fmt.Sprintf(" і ще %s спишуть частинами розстрочок до %s",
-					debtMoney(st.InstallmentDue, cur), st.DueDate)
+					debtMoney(mt, st.InstallmentDue, cur), st.DueDate)
 			}
 			why += ". Витратиш ці гроші — безкоштовний оборот стане боргом під ставку."
 			out = append(out, state.Task{
 				ID: "card-overspend-" + d.Name, Sev: sevNow, Rank: 2, Kind: "debt",
 				Title: fmt.Sprintf("«%s»: бракує %s до безпечного нуля",
-					d.Name, debtMoney(-st.Free, cur)),
+					d.Name, debtMoney(mt, -st.Free, cur)),
 				Why:       why,
 				Action:    actPayCard,
 				AmountUAH: state.Major(cardAmountUAH(-st.Free, cur), money.UAH),
@@ -1083,8 +1137,8 @@ func cardTasks(src *sources, doc *state.Doc, today domain.Date) []state.Task {
 			why := fmt.Sprintf(
 				"Щоб вивести в нуль %s до %s, треба звільняти %s на місяць — тобто "+
 					"витрачати не більше %s. Зараз виходить на %s більше.",
-				strings.Join(exit.Cards, " і "), exit.ExitBy, uah(exit.NeedPerMonthUAH.Major()),
-				uah(exit.SpendCapUAH.Major()), uah(exit.ShortPerMonthUAH.Major()))
+				strings.Join(exit.Cards, " і "), exit.ExitBy, mt.uah(exit.NeedPerMonthUAH.Major()),
+				mt.uah(exit.SpendCapUAH.Major()), mt.uah(exit.ShortPerMonthUAH.Major()))
 			if exit.ETADate != "" {
 				why += " За нинішнім темпом вихід буде " + exit.ETADate + "."
 			} else {
@@ -1125,13 +1179,13 @@ func cardAmountUAH(minor int64, cur string) float64 {
 
 // debtMoney — сума боргу для прози задачі.
 //
-// Гривня йде через uah(), решта — через Display(): у гривні застосунок
+// Гривня йде через mt.uah(), решта — через Display(): у гривні застосунок
 // скрізь пише «18 400,00 ₴», і одне місце з «18,400.00 UAH» читалось би як
 // чужий екран. Валютний борг рідкість, і для нього рідний формат money
 // чесніший за підроблений під гривню.
-func debtMoney(minor int64, cur string) string {
+func debtMoney(mt moneyText, minor int64, cur string) string {
 	if cur == money.UAH {
-		return uah(float64(minor) / 100)
+		return mt.uah(float64(minor) / 100)
 	}
 	return money.New(minor, cur).Display()
 }

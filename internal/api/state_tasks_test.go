@@ -113,12 +113,12 @@ func TestUAHFormat(t *testing.T) {
 		100528.094: "100" + nb + "528,09" + nb + "₴",
 	}
 	for in, want := range cases {
-		if got := uah(in); got != want {
-			t.Errorf("uah(%v) = %q, треба %q", in, got, want)
+		if got := uahText(in); got != want {
+			t.Errorf("uahText(%v) = %q, треба %q", in, got, want)
 		}
 	}
-	if got, want := cur(1234.5, "USD"), "1"+nb+"234,50"+nb+"$"; got != want {
-		t.Errorf("cur(USD) = %q, треба %q", got, want)
+	if got, want := curText(1234.5, "USD"), "1"+nb+"234,50"+nb+"$"; got != want {
+		t.Errorf("curText(USD) = %q, треба %q", got, want)
 	}
 }
 
@@ -184,7 +184,7 @@ func TestOverduePlannedExpenseRaisesTask(t *testing.T) {
 			DueDate: "2026-12-01", PaidFrom: domain.PaidFromCard},
 	}}
 
-	got, ok := overduePlannedTask(src, today)
+	got, ok := overduePlannedTask(moneyText{}, src, today)
 	if !ok {
 		t.Fatal("двох прострочених витрат мало вистачити на задачу")
 	}
@@ -217,7 +217,7 @@ func TestOverduePlannedExpenseRaisesTask(t *testing.T) {
 	for i := range src.planExpenses {
 		src.planExpenses[i].PaidDate = "2026-09-05"
 	}
-	if _, ok := overduePlannedTask(src, today); ok {
+	if _, ok := overduePlannedTask(moneyText{}, src, today); ok {
 		t.Error("після позначок «сплачено» задача лишилась")
 	}
 }
@@ -232,7 +232,7 @@ func TestOverduePlannedTaskSkipsSumOnMixedCurrency(t *testing.T) {
 		{Name: "Хостинг", Amount: 120_00, Currency: money.USD,
 			DueDate: "2026-08-20", PaidFrom: domain.PaidFromCard},
 	}}
-	got, ok := overduePlannedTask(src, today)
+	got, ok := overduePlannedTask(moneyText{}, src, today)
 	if !ok {
 		t.Fatal("задачі немає")
 	}
