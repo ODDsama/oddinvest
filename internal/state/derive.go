@@ -501,6 +501,16 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 			// нічого, крім сьогоднішніх грошей.
 			row.Behind = row.RequiredPaceUAH() > 0 &&
 				row.ActualUAH+0.005 < row.RequiredPaceUAH()
+			// ETA — ТІЄЮ САМОЮ лінійкою, що й вирок, інакше картка
+			// суперечить сама собі. Спіймано живцем на екрані: поруч
+			// стояли «за нинішнім темпом збереться 2035-10» і «⚠ до
+			// 2036-09 не збереться». Обидва рядки поодинці були
+			// правильні — перший ділив СЬОГОДНІШНІЙ розрив на темп,
+			// другий міряв майбутню ціну, — і саме тому суперечність
+			// читалась як поломка розрахунку.
+			if row.RequiredFutureUAH > 0 {
+				row.ETADate = goalETAFuture(today, &row)
+			}
 		}
 		out = append(out, row)
 	}
@@ -831,6 +841,37 @@ func goalETA(today domain.Date, months float64) string {
 		return ""
 	}
 	return string(today.AddMonths(int(math.Ceil(months))))
+}
+
+// goalETAFuture — коли ціль справді збереться, якщо темп не зміниться.
+//
+// Крок за місяцем, а не діленням, і це не примха: тут ДВІ величини
+// рухаються назустріч одна одній. Зібране росте на власну ставку й на
+// внесок, а сама ціна росте на інфляцію — тобто «розрив поділити на
+// темп» відповідає на питання, якого ніхто не ставив, і саме воно
+// суперечило вироку на екрані.
+//
+// Стеля 1200 місяців — та сама, що в goalETA: сто років попереду це вже
+// не дата, а спосіб сказати «ніколи». Порожньо тоді й означає «ніколи».
+//
+// Інваріант, заради якого все це й написане: якщо темпу вистачає
+// (Behind == false), дата не може бути пізнішою за дедлайн, і навпаки.
+// На нього є тест.
+func goalETAFuture(today domain.Date, row *Goal) string {
+	if row.ActualUAH <= 0 && row.CollectedUAH <= 0 {
+		return ""
+	}
+	r := domain.MonthlyRate(row.RatePct)
+	infl := domain.MonthlyRate(row.InflationPct)
+	have, price := row.CollectedUAH, row.TargetUAH
+	for m := 1; m <= 1200; m++ {
+		have = have*(1+r) + row.ActualUAH
+		price *= 1 + infl
+		if have >= price {
+			return string(today.AddMonths(m))
+		}
+	}
+	return ""
 }
 
 // ReserveDeposit — резервний вклад у вигляді, потрібному драбині.

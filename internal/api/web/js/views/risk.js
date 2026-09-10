@@ -271,8 +271,12 @@ export function yieldTilesHTML(ctx) {
       // видно, що поза числом — подушка й готівка, а не забутий вид.
       `${yieldNote(s0.blended_yield_real_pct, s0.blended_yield_basis || "")}
        ${s0.blended_yield_base_uah > 0
+         // «Поза числом», а не «не заробляють»: подушка (0032) і ціль
+         // (0062) можуть лежати на вкладі. Різниця між капіталом і базою —
+         // це межа ВИМІРУ, а не твердження, що ті гроші лежать мертві.
          ? `<div class="sub-xs muted">по ${fmtUAH(s0.blended_yield_base_uah)} з
-             ${fmtUAH(s0.capital_uah)} капіталу · подушка й готівка не заробляють</div>`
+             ${fmtUAH(s0.capital_uah)} капіталу · решта — подушка, цілі й готівка,
+             вони поза цим числом</div>`
          : ""}`) : ""}
     ${totalTile}
     ${xirrTiles}

@@ -144,3 +144,38 @@ func TestForeignGoalKeepsTodayPace(t *testing.T) {
 			g.RequiredPaceUAH(), g.RequiredUAH)
 	}
 }
+
+// TestGoalETAAgreesWithTheVerdict — «збереться такого-то» й «відстаю» не
+// можуть суперечити одне одному.
+//
+// Спіймано живцем на екрані, а не тестом: поруч стояли «за нинішнім
+// темпом збереться 2035-10» і «⚠ до 2036-09 не збереться». Обидва рядки
+// поодинці були правильні — перший ділив СЬОГОДНІШНІЙ розрив на темп,
+// другий міряв майбутню ціну, — і саме тому суперечність читалась як
+// поломка розрахунку, а не як два різні питання.
+func TestGoalETAAgreesWithTheVerdict(t *testing.T) {
+	// Темп між двома потрібними: старої лінійки вистачає, нової — ні.
+	base := oneGoal(t, paceGoal(120, 55_000, 0, 13.16, money.UAH))
+	mid := (base.RequiredUAH + base.RequiredFutureUAH) / 2
+	g := oneGoal(t, paceGoal(120, 55_000, mid, 13.16, money.UAH))
+	if !g.Behind {
+		t.Fatalf("темп %.2f мав би не дотягувати до %.2f — тест нічого не перевіряє",
+			mid, g.RequiredFutureUAH)
+	}
+	if g.ETADate == "" {
+		t.Fatal("дати немає зовсім — при живому темпі ціль колись та збереться")
+	}
+	if g.ETADate <= g.DueDate {
+		t.Errorf("картка каже «відстаю», а поруч обіцяє %s — не пізніше за дедлайн %s",
+			g.ETADate, g.DueDate)
+	}
+
+	// І дзеркало: темпу вистачає — дата не може бути пізнішою за дедлайн.
+	ok := oneGoal(t, paceGoal(120, 55_000, base.RequiredFutureUAH*1.05, 13.16, money.UAH))
+	if ok.Behind {
+		t.Fatalf("темп понад потрібний вважається відставанням")
+	}
+	if ok.ETADate == "" || ok.ETADate > ok.DueDate {
+		t.Errorf("темпу вистачає, а дата %s пізніша за дедлайн %s", ok.ETADate, ok.DueDate)
+	}
+}
