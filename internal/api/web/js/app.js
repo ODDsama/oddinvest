@@ -18,7 +18,8 @@
 // конкретному розрізі. Дерево живе в nav.js, розбір адреси — в routes.js,
 // рядки списку — в master.js; тут лишається саме РОЗКЛАДАННЯ.
 
-import { esc, uah0, signedUAH, capitalUAH } from "./format.js";
+import { esc, uah0, signedUAH, capitalUAH, curSym } from "./format.js";
+import { setCurrency, currency, BOOK, ALT } from "./currency.js";
 import { TABS, PATHS, HOME, panesFor, kindOf } from "./nav.js";
 import { bindInfo } from "./info.js";
 import { bindYield } from "./yield.js";
@@ -371,6 +372,9 @@ export class OddInvestApp extends HTMLElement {
       hidden: this._hidden || [],
       portfolio: currentPortfolio() || "main",
       setPortfolio: (slug) => this._setPortfolio(slug),
+      // Валюта звітності — для тих карток, чия розмітка від неї залежить
+      // (перемикач лінійки дохідності є лише в гривні). Суми ж уже в ній.
+      currency: currency(),
       // Дані позицій, уже завантажені оболонкою для майстер-списку.
       // Панель бере їх звідси, а не тягне вдруге: store дедуплікує GET-и,
       // але зайвий обхід восьми маршрутів усе одно коштує кадр.
@@ -463,6 +467,14 @@ export class OddInvestApp extends HTMLElement {
              контрол з одним варіантом нічого не перемикає. -->
         <select id="pf" class="hdr-sel" hidden aria-label="Портфель"></select>
         <span id="avail" class="hdr-stamp"></span>
+        <!-- Валюта звітності (currency.js): кнопка показує символ ІНШОЇ
+             валюти як дію — «$» у гривневому документі, «₴» у доларовому.
+             Це не погляд браузера, а налаштування портфеля
+             (settings.report_currency): бекенд перекладає весь документ
+             сам, тут лише перемикач. Схована, доки курсу НБУ немає —
+             перемикати нема на що. -->
+        <button class="hdr-btn" id="cur" aria-label="Валюта звітності"
+          aria-pressed="false" hidden>$</button>
         <!-- Капітал і дельта в шапці: єдине число, яке має бути видно з
              будь-якої панелі. Дельту віддає зведення (capital_delta_30) —
              рух за 30 днів проти добового знімка; тут вона лише
@@ -663,6 +675,19 @@ export class OddInvestApp extends HTMLElement {
     this.shadowRoot.getElementById("pf")?.addEventListener("change", (e) => {
       this._setPortfolio(e.target.value);
     });
+    // Перемикач валюти звітності: запис у налаштування портфеля й теплий
+    // перерендер — зведення приїде вже в новій валюті, і setCurrency у
+    // _loadSummaryData перемкне символ до першого малювання.
+    this.shadowRoot.getElementById("cur")?.addEventListener("click", async (e) => {
+      const next = currency() === BOOK ? ALT : BOOK;
+      e.target.disabled = true;
+      try {
+        await this._api("PUT", "settings", { report_currency: next });
+        await this._loadPage({ warm: true });
+      }
+      catch (err) { this._toast(String(err.message || err), false); }
+      finally { e.target.disabled = false; }
+    });
     window.addEventListener("keydown", (e) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -814,6 +839,18 @@ export class OddInvestApp extends HTMLElement {
     delta.title = d
       ? `з ${d.from_date}: капітал ${uah0(d.from_uah)}, внесено ${signedUAH(d.contributed_uah)}`
       : "";
+    // Перемикач валюти: символ ІНШОЇ валюти як дія; у підказці — курс і,
+    // якщо бекенд не зміг показати те, що просили, його примітка.
+    const curBtn = this.shadowRoot.getElementById("cur");
+    const rate = ((s.rates || {})[ALT]) || 0;
+    const other = currency() === BOOK ? ALT : BOOK;
+    curBtn.hidden = !this._summary || !(rate > 0);
+    curBtn.textContent = curSym(other);
+    curBtn.setAttribute("aria-pressed", String(currency() !== BOOK));
+    curBtn.title = (currency() === BOOK
+      ? `Показувати в ${other === ALT ? "доларах" : other}: курс НБУ ${rate.toLocaleString("uk", { maximumFractionDigits: 4 })} ₴/$, минуле — за курсом на свою дату`
+      : "Показувати в гривні")
+      + (s.currency_note ? ` · ${s.currency_note}` : "");
     delta.classList.toggle("up", !!d && d.delta_uah > 0);
     delta.classList.toggle("down", !!d && d.delta_uah < 0);
 
@@ -1434,6 +1471,9 @@ export class OddInvestApp extends HTMLElement {
   // читає з нього числа, без нього показала б не «даних немає», а нулі.
   async _loadSummaryData() {
     this._summary = await this._api("GET", "summary");
+    // Валюта, у якій бекенд віддав зведення, — ДО першого малювання: усі
+    // помічники format.js беруть символ звідси (currency.js).
+    setCurrency(this._summary.currency);
     const avail = this.shadowRoot.getElementById("avail");
     avail.textContent = this._summary.generated_at
       ? "стан на " + new Date(this._summary.generated_at).toLocaleString("uk-UA") : "";

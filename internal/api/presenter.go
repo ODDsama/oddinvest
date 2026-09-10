@@ -84,7 +84,14 @@ func (s *Server) presenter(ctx context.Context, today domain.Date) (*presenter, 
 	}
 	sort.SliceStable(q, func(i, j int) bool { return q[i].On < q[j].On })
 	p.quotes = q
-	if _, ok := p.At(today); !ok {
+	// «Сьогодні» для курсу — найновіша відома точка, навіть якщо вона
+	// датована завтра: НБУ вдень публікує курс на наступний день, і саме
+	// його документ віддає в rates (LatestRate). Брати тут «останню не
+	// пізніше сьогодні» означало б перекладати капітал старішим курсом, ніж
+	// той, що стоїть поруч у тому самому документі, — і 49 209 ₴ ставали б
+	// 1 105 $ при курсі, за яким це 1 104,52.
+	p.today = latestAsOf(q, today)
+	if _, ok := p.At(p.today); !ok {
 		// Свіжа база до першого оновлення НБУ. Не помилка й не нулі: людина
 		// попросила долар, а показати його нема чим — сказати це прямо й
 		// лишитись у гривні, поки курс не приїде.
@@ -93,6 +100,17 @@ func (s *Server) presenter(ctx context.Context, today domain.Date) (*presenter, 
 	}
 	p.report = report
 	return p, nil
+}
+
+// latestAsOf — «сьогодні» очима курсів: сама дата, або найновіша точка,
+// коли вона вже датована пізніше (завтрашній курс НБУ). Одне правило для
+// презентера й для будівника (дельта капіталу), щоб вони брали ту саму
+// точку, що й rates у документі.
+func latestAsOf(q domain.Quotes, today domain.Date) domain.Date {
+	if n := len(q); n > 0 && q[n-1].On > today {
+		return q[n-1].On
+	}
+	return today
 }
 
 // At — курс на дату: остання точка НЕ ПІЗНІША за неї (та сама умова, що в

@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
@@ -134,6 +136,31 @@ func TestSummaryInReportCurrency(t *testing.T) {
 	}
 	if d := *usd.TotalReturn.XIRRPct - *uah.TotalReturn.XIRRPct; d > 0.1 || d < -0.1 {
 		t.Errorf("XIRR при сталому курсі мусить сходитись: %v / %v", *usd.TotalReturn.XIRRPct, *uah.TotalReturn.XIRRPct)
+	}
+}
+
+// Курс НБУ, датований ЗАВТРА, — і є сьогоднішній: rates у документі беруть
+// найновішу точку, і презентер мусить ділити на неї ж, а не на вчорашню.
+func TestPresenterUsesTomorrowsRateLikeRates(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st) // 44.1234 на 2026-07-15
+	ctx := context.Background()
+	tomorrow := domain.NewDate(time.Now()).AddDays(1)
+	if err := st.SaveRate(ctx, "USD", 450000, tomorrow); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSetting(ctx, reportCurrencyKey, "USD"); err != nil {
+		t.Fatal(err)
+	}
+	do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"995.00","buy_date":"2026-07-01","channel":"Дія"}`)
+	v := summaryOf(t, srv.URL)
+	if v.Rates["USD"] != 45 {
+		t.Fatalf("rates у документі — найновіша точка: %v", v.Rates)
+	}
+	// 4 975 ₴ / 45 = 110,56 $ — за завтрашнім, не за 44.1234 (112,75).
+	if got := v.InvestedUAH.Minor(); got != 11056 {
+		t.Errorf("invested перекладено не тим курсом, що в rates: %v", v.InvestedUAH)
 	}
 }
 

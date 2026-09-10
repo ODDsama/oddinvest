@@ -160,10 +160,11 @@ function positionTilesHTML(ctx, kind, row) {
   // в таблиці позицій і в порадах; довід при yieldPair у components.js.
   // Тут воно живе окремим замиканням, бо плитка — не рядок таблиці:
   // у неї свій підпис і своя ширина.
+  // Другий рядок — лише коли лінійки дві (довід при yieldPair).
   const yieldTile = (nominal, real, basis) => tile("Дохідність",
     nominal != null ? pct(nominal) : (real ? pct(real) : "—"),
-    real ? `<div class="sub">${pct(real)} реальних — після податку й знецінення${
-      basis ? ` · ${esc(basis)}` : ""}</div>` : "");
+    real && real !== nominal ? `<div class="sub">${pct(real)} реальних — після податку й знецінення${
+      basis ? ` · ${esc(basis)}` : ""}</div>` : (basis ? `<div class="sub">${esc(basis)}</div>` : ""));
 
   if (kind === "bond") {
     return `<div class="tiles flush">

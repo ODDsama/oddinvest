@@ -23,7 +23,7 @@
 
 import {
   esc, uah0, signedUAH, pct, capitalUAH, outsideUAH, uah2 as fmtUAH, curSym, dayMonth,
-  plural,
+  plural, approxOther,
 } from "../format.js";
 import { tile, empty } from "../components.js";
 import { routeFor } from "../routes.js";
@@ -44,11 +44,12 @@ import { debtOverviewHTML } from "./debts.js";
 function heroHTML(ctx) {
   const s = ctx.summary || {};
   const cap = capitalUAH(s);
-  const usd = (s.rates || {}).USD || 0;
   const xirr = (s.xirr || {}).UAH;
   const d = s.capital_delta_30;
   const sub = [
-    usd > 0 ? `≈ ${(cap / usd).toLocaleString("uk", { maximumFractionDigits: 0 })} $` : "",
+    // Та сама сума в іншій валюті — доларах у гривневому документі, гривні
+    // в доларовому (format.js: approxOther).
+    approxOther(s, cap),
     d ? `за 30 днів ${signedUAH(d.delta_uah)}, з них внесено ${signedUAH(d.contributed_uah)}` : "",
     // Резерв і цілі — обидва, одним рядком: питання в них одне («скільки
     // з капіталу не працює»), і два рядки поспіль про це читались би як
@@ -66,7 +67,10 @@ function heroHTML(ctx) {
     ${tile("Капітал", fmtUAH(cap), sub, { hero: true })}
     ${tile("Дохідність портфеля",
     s.blended_yield_pct ? pct(s.blended_yield_pct) : "—",
-    s.blended_yield_pct
+    // Другий рядок — лише коли лінійки дві: у валюті звітності ≠ гривні
+    // бекенд віддає реальну рівною номінальній, і повторювати число під
+    // ним означало б підписати «реальних» те, що й так єдине.
+    s.blended_yield_pct && s.blended_yield_real_pct !== s.blended_yield_pct
       ? `<div class="sub-xs">${pct(s.blended_yield_real_pct)} реальних —
          після податку й знецінення</div>` : "")}
     ${tile("XIRR", xirr ? pct(xirr) : "—",

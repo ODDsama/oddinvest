@@ -974,15 +974,22 @@ export function taxHTML(x) {
   const years = Array.from({ length: 5 }, (_, i) => now - i);
   const picker = `<select data-tax-year>${years.map((y) =>
     `<option value="${y}"${y === sel ? " selected" : ""}>${y}</option>`).join("")}</select>`;
+  // Податок — ЗАВЖДИ в гривні, хоч би в чому звітував документ: платиться
+  // він у гривні за курсом на дату події, і звіт для декларації бекенд у
+  // валюту звітності не перекладає (єдиний такий маршрут). Символ тому не
+  // з currency.js, а з власного поля відповіді; старіший бекенд поля не
+  // шле — тоді гривня.
+  const taxCur = x.currency || "UAH";
+  const tax = (v) => fmtCur(v, taxCur);
   // Порожній рік — не привід ховати картку: «за 2023-й податків не було»
   // це відповідь, а зникла картка читається як поломка.
   const body = opsGrid({
     cols: [
       { key: "label", label: "Джерело", cell: (l) => esc(l.label) },
-      { key: "gross", label: "Нараховано", num: true, cell: (l) => fmtUAH(l.gross_uah) },
+      { key: "gross", label: "Нараховано", num: true, cell: (l) => tax(l.gross_uah) },
       { key: "tax", label: "Податок", num: true,
-        cell: (l) => (l.tax_uah ? "−" + fmtUAH(l.tax_uah) : "—") },
-      { key: "net", label: "Чистими", num: true, cell: (l) => fmtUAH(l.net_uah) },
+        cell: (l) => (l.tax_uah ? "−" + tax(l.tax_uah) : "—") },
+      { key: "net", label: "Чистими", num: true, cell: (l) => tax(l.net_uah) },
       // Ставку показуємо лише на ДОДАТНОМУ нарахованому. Рядок НКД
       // відʼємний, тобто істинний, і без цієї умови в колонці стояло б
       // «0,0%» — ставка на поверненні власних грошей, тобто не мале
@@ -995,9 +1002,9 @@ export function taxHTML(x) {
     caption: `Податок на дохід за ${esc(String(sel))}: джерело, нараховано, податок, чистими, ставка`,
     foot: [
       { cell: "Разом" },
-      { cell: fmtUAH(x.gross_uah), num: true },
-      { cell: "−" + fmtUAH(x.tax_uah), num: true },
-      { cell: fmtUAH(x.net_uah), num: true },
+      { cell: tax(x.gross_uah), num: true },
+      { cell: "−" + tax(x.tax_uah), num: true },
+      { cell: tax(x.net_uah), num: true },
       { cell: pct(x.rate_pct), num: true },
     ],
     // Порожній рік — не привід ховати картку: «за 2023-й податків не було»
@@ -1014,7 +1021,7 @@ export function taxHTML(x) {
     cols: [
       { key: "label", label: "Підстава", cell: (l) => esc(l.label) },
       { key: "back", label: "Повернення", num: true, cls: "t-ok",
-        cell: (l) => "+" + fmtUAH(l.net_uah) },
+        cell: (l) => "+" + tax(l.net_uah) },
     ],
     rows: x.credits,
     caption: "Що держава повертає: підстава й сума",

@@ -10,7 +10,7 @@
 // Копій більше немає, а правило лишається — колір вирішує тема, не
 // функція, і хекс тут читається як помилка.
 
-import { esc, compact } from "./format.js";
+import { esc, compact, uah0 } from "./format.js";
 
 /** Палітра категорій без власного значення (сегменти кільця брокерів):
  *  тут потрібна саме відрізнюваність, а не сенс. */
@@ -141,7 +141,7 @@ export function svgBars(items, { showVals = false, W = W0, H = H0 } = {}) {
     const h = (it.value / max) * ih, x = Pl + gap * i + (gap - bw) / 2, y = Pt + ih - h;
     out += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, h).toFixed(1)}"`
       + ` fill="${it.color || "var(--oi-series-invested)"}">`
-      + `<title>${esc(it.label)}: ${Math.round(it.value).toLocaleString("uk")} ₴</title></rect>`;
+      + `<title>${esc(it.label)}: ${uah0(it.value)}</title></rect>`;
     out += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(it.label)}</text>`;
     if (showVals && it.value > 0) {
       out += `<text x="${(x + bw / 2).toFixed(1)}" y="${(y - 4).toFixed(1)}" text-anchor="middle" font-size="${FS_SM}" fill="${AXIS}">${compact(it.value)}</text>`;
@@ -469,8 +469,7 @@ export function svgInflowProfile(profile, actions = [], milestones = [], { W = W
     const x = X(e.date);
     if (x < Pl - 1 || x > Pl + iw + 1) return "";
     const r = 5, y = zero + 5, color = EVENT_COLORS[e.kind] || AXIS;
-    const title = `<title>${esc(e.label)}: повертається ${
-      Math.round(e.amount_uah).toLocaleString("uk-UA")} ₴</title>`;
+    const title = `<title>${esc(e.label)}: повертається ${uah0(e.amount_uah)}</title>`;
     return `<line x1="${x.toFixed(1)}" y1="${zero.toFixed(1)}" x2="${x.toFixed(1)}"
         y2="${y.toFixed(1)}" stroke="${color}" stroke-width="1.5">${title}</line>
       <polygon points="${x.toFixed(1)},${(y + r).toFixed(1)} ${(x + r).toFixed(1)},${y.toFixed(1)}`

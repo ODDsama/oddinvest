@@ -80,8 +80,11 @@ export function yieldNote(real, basis = "") {
  *  кнопкою, що відкриває ланцюжок; немає — лишається просто числом. */
 export function yieldPair(real, nominal, basis = "", parts = null) {
   if (parts) return `${yieldCell(parts)}${basis ? `<div class="sub-xs">${esc(basis)}</div>` : ""}`;
+  // Реальна під числом — лише коли вона інша: у валюті звітності ≠ гривні
+  // бекенд віддає одну лінійку (номінал = реальна), і повтор під числом
+  // був би підписом «реальних» до того, що й так єдине.
   return `${pct(nominal != null ? nominal : real)}${yieldNote(
-    nominal != null ? real : null, basis)}`;
+    nominal != null && real !== nominal ? real : null, basis)}`;
 }
 
 /** Картка, якої ще немає: чому її не видно й що зробити, щоб була.

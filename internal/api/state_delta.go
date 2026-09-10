@@ -70,7 +70,9 @@ func buildCapitalDelta(src *sources, capitalNow float64, rates fx.Rates, today d
 			q = append(q, domain.Quote{On: p.Date, V: fx.Major(p.RateE4)})
 		}
 		r0, ok0 := q.AsOf(from)
-		r1, ok1 := q.AsOf(today)
+		// Сьогоднішній — найновіша точка, як у презентера й у rates
+		// документа (latestAsOf): курс НБУ буває датований завтра.
+		r1, ok1 := q.AsOf(latestAsOf(q, today))
 		if ok0 && ok1 && r0 > 0 && r1 > 0 {
 			fromRep, nowRep = fromUAH/r0, capitalNow/r1
 		}

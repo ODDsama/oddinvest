@@ -10,7 +10,9 @@
 // Доки вона була методом, обидва розділи малювали її НЕЗАЛЕЖНО, і будь-яка
 // правка формулювання мала шанс поїхати лише в одному з них.
 
-import { esc, curSym, humanMonths, monthYear, monthYearGen, pct, uah2 as fmtUAH } from "../format.js";
+import {
+  esc, curSym, humanMonths, monthYear, monthYearGen, pct, uah0, uah2 as fmtUAH,
+} from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty, progressBar } from "../components.js";
 import { contribTriad, shareOfNeed } from "../contrib.js";
@@ -70,7 +72,8 @@ export function goalsHTML(ctx) {
     pessimistic: "var(--oi-pessimistic)" };
   // Планові суми — без копійок: у числі «96 973,50 ₴/міс» дробова
   // частина не несе рішення, а заважає порівнювати рядки поглядом.
-  const pay = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
+  // Символ — із валюти звітності (uah0), як і скрізь.
+  const pay = (v) => uah0(v);
   const goalFmt = (v) => pay(v);
 
   // Вилка — головне число блока.
@@ -79,7 +82,7 @@ export function goalsHTML(ctx) {
     const vals = market.map(payOf).filter((v) => v > 0).sort((a, b) => a - b);
     if (vals.length) {
       range = `<div class="mb">
-        <div class="val">${Math.round(vals[0]).toLocaleString("uk-UA")} — ${pay(vals[vals.length - 1])}<span class="unit">/міс</span></div>
+        <div class="val">${Math.round(vals[0]).toLocaleString("uk")} — ${pay(vals[vals.length - 1])}<span class="unit">/міс</span></div>
         ${need > 0 ? `<div class="muted fine mt-xs">найімовірніше ${pay(need)}/міс</div>` : ""}
       </div>`;
     }
@@ -193,7 +196,7 @@ const LEVER_GROUP = [
 // Як прочитати зсув рядка. Множник для внеску й цілі, п.п. для ринку,
 // місяці для дедлайну — заповнене рівно одне.
 function leverShift(r) {
-  if (r.delta_uah) return `+${Math.round(r.delta_uah).toLocaleString("uk-UA")} ₴/міс`;
+  if (r.delta_uah) return `+${uah0(r.delta_uah)}/міс`;
   if (r.factor) return `×${String(r.factor).replace(".", ",")}`;
   if (r.delta_pp) return `${r.delta_pp > 0 ? "+" : "−"}${Math.abs(r.delta_pp)} п.п.`;
   if (r.delta_months) return `${r.delta_months > 0 ? "+" : "−"}${Math.abs(r.delta_months)} міс`;
@@ -202,15 +205,19 @@ function leverShift(r) {
 
 // Величина після зсуву — у своїй одиниці. Одиницю знає лише важіль, тож
 // вибір тут, а не у форматері.
+//
+// Гривневі важелі читають value_uah, а не value: value — float змішаних
+// одиниць, і у валюту звітності бекенд перекладає лише грошове поле поруч
+// (schema 3). Старіший бекенд value_uah не шле — тоді лишається value.
 function leverValue(r) {
-  const round = (v) => Math.round(v || 0).toLocaleString("uk-UA");
+  const amt = r.value_uah != null ? r.value_uah : r.value;
   switch (r.lever) {
-    case "contrib": case "step_contrib": return `${round(r.value)} ₴/міс`;
+    case "contrib": case "step_contrib": return `${uah0(amt)}/міс`;
     case "rate": return `${r.value > 0 ? "+" : ""}${r.value} п.п.`;
     case "step_rate": return "до дохідності";
     case "deval": return `${pct(r.value)}/рік`;
     case "deadline": return humanMonths(r.value);
-    case "goal": return `${round(r.value)} ₴`;
+    case "goal": return uah0(amt);
     default: return "";
   }
 }
@@ -227,7 +234,6 @@ function goalWhen(months, date) {
 export function sensitivityHTML(ctx) {
   const s = (ctx.summary || {}).sensitivity;
   if (!s || !(s.rows || []).length) return "";
-  const round = (v) => Math.round(v || 0).toLocaleString("uk-UA");
   const baseWhen = goalWhen(s.base_goal_months, s.base_goal_date);
   const baseFrom = s.base_from === "actual"
     ? "від фактичного темпу" : "від планового внеску";
@@ -258,7 +264,7 @@ export function sensitivityHTML(ctx) {
   }).join("");
 
   return `<div class="card"><h2 class="h-row"><span>Що зрушить ціль ${infoBtn("sensitivity")}</span></h2>
-    <div class="sub">Один вхід за раз, ${esc(baseFrom)} ${round(s.base_contrib_uah)} ₴/міс.
+    <div class="sub">Один вхід за раз, ${esc(baseFrom)} ${uah0(s.base_contrib_uah)}/міс.
       Зараз ціль ${esc(baseWhen)} — ${(s.base_goal_pct || 0).toFixed(0)}% на дедлайн.</div>
     <div class="sub-xs mb">Це наслідки припущень, а не поради: рядки не
       відсортовані «найкращий зверху», і половина з них — ставка й знецінення — від тебе не

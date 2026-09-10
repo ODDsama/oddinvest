@@ -11,7 +11,8 @@
 
 import {
   esc, curSym, monthYearGen, dayMonth, pct, plural, capitalUAH, outsideUAH, today,
-  uah2 as fmtUAH, cur2 as fmtCur, signedUAH2 } from "../format.js";
+  uah2 as fmtUAH, cur2 as fmtCur, signedUAH2, approxOther } from "../format.js";
+import { currency, BOOK } from "../currency.js";
 import { infoBtn } from "../info.js";
 import { yieldCell } from "../yield.js";
 import { tile, kindPill, progressBar } from "../components.js";
@@ -323,21 +324,30 @@ export function reinvestHTML(ctx, opts = {}) {
   // Типово реальна: тільки вона розсуджує гривню з доларом. Номінальна
   // відповідає на інше питання — «де більше гривень», — і людина має
   // право поставити список саме так.
-  const seg = `<span class="seg">
+  //
+  // Лише в гривні: у валюті звітності ≠ гривні номінальної лінійки немає
+  // (15% ОВДП — не 15% у доларах), бекенд віддає одну, і перемикати нема
+  // що; order=nominal він у такому документі й так ігнорує.
+  const inBook = currency() === BOOK;
+  const seg = inBook ? `<span class="seg">
     <button data-sgorder="real" aria-pressed="${order === "real"}"
       title="Порядок за реальною дохідністю — після податку й знецінення">реальна</button>
     <button data-sgorder="nominal" aria-pressed="${order === "nominal"}"
       title="Порядок за номінальною — валюти при цьому незіставні">номінальна</button>
-  </span>`;
+  </span>` : "";
+  const legend = inBook
+    ? `Головне число — <b>номінальне</b>: те, що в договорі чи в довіднику.
+      Під ним реальне, і саме за ним упорядкований список — тільки воно розсуджує
+      гривню з доларом.`
+    : `Головне число — дохідність <b>у валюті звітності</b>: гривневі ставки вже
+      після податку й знецінення, валютні — як є; саме за ним упорядкований список.`;
   return `<div class="card"><h2 class="card-head">
     <span>${esc(title)} ${infoBtn("reinvest")}</span>
     ${purse ? `<span class="muted fine">${purse}</span>` : ""}
     ${seg}</h2>
     ${group("Можеш купити зараз", ready)}
     ${group(ready.length ? "Ще збираєш" : "Купувати ще рано — ось наскільки близько", soon)}
-    <div class="sub">Головне число — <b>номінальне</b>: те, що в договорі чи в довіднику.
-      Під ним реальне, і саме за ним упорядкований список — тільки воно розсуджує
-      гривню з доларом. Клік по числу показує весь ланцюжок: податок, знецінення,
+    <div class="sub">${legend} Клік по числу показує весь ланцюжок: податок, знецінення,
       інфляція. Каретка розкриває решту рядка. Додане лежить у
       <a href="${routeFor("now/buys")}">Плані купівель</a>.</div></div>`;
 }
@@ -590,9 +600,8 @@ export async function todo(ctx, main) {
   const cap = capitalUAH(s);
   const np = s.next_payment;
   const accrued = s.accrued_uah || 0;
-  const usdRate = (s.rates || {}).USD || 0;
   const capSub = [
-    usdRate > 0 ? `≈ ${fmtCur(cap / usdRate, "$")}` : "",
+    approxOther(s, cap),
     accrued > 0 ? `+ ${fmtUAH(accrued)} НКД зароблено` : "",
     // Резерв і цілі накопичення названі окремо: вони в капіталі, але не
     // працюють, і без цього рядка сума виглядала б як «стільки в мене

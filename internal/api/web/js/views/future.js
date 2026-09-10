@@ -8,7 +8,7 @@
 
 import {
   esc, today, humanMonths, monthYear, pct, capitalUAH, outsideUAH,
-  uah2 as fmtUAH, money as fmtMoney,
+  uah0, uah2 as fmtUAH, money as fmtMoney,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { needsSetting, empty, legend } from "../components.js";
@@ -341,7 +341,7 @@ export function incomeHTML(ctx) {
   if (!rows.length && now <= 0) return "";
   // Без копійок, як і в решті планових чисел: дробова частина місячного
   // доходу на горизонті в роки — це точність, якої в оцінці немає.
-  const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
+  const inc = (v) => uah0(v);
   const line = (label, v, extra = "") => `<div class="kv mb-sm">
     <span class="muted fine">${label}</span>
     <span><b>${inc(v)}</b><span class="muted fine">/міс</span>${extra}</span></div>`;
@@ -379,7 +379,7 @@ export function drawdownHTML(ctx) {
       + "в «Політиці → Резерв».",
     routeFor("policy/reserve"));
   }
-  const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
+  const inc = (v) => uah0(v);
   const from = d.withdraw_from === "expenses"
     ? "стільки коштує місяць життя" : "задано в налаштуваннях";
   // Три різні відповіді, і жодну не можна показати замість іншої.
@@ -432,7 +432,7 @@ function independenceHTML(ctx) {
       <div class="sub-xs">Щоб побачити, коли дохід покриє життя, задай «цільовий дохід»
         або «місячні витрати» в «Налаштуваннях».</div></div>`;
   }
-  const inc = (v) => Math.round(v || 0).toLocaleString("uk-UA") + " ₴";
+  const inc = (v) => uah0(v);
   // Нуль означає «не досягається за 60 років», −1 — «уже». Різниця між
   // ними протилежна за змістом, тож жодного спільного «немає даних».
   const when = (m, d) => m === -1 ? "вже покриває"
