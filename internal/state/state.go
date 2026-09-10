@@ -459,7 +459,11 @@ type Doc struct {
 	//
 	// Goal* — прогноз і потрібний внесок під ціль (якщо задано ціль і дату).
 	Projection        []ProjectionRow `json:"projection,omitempty"`
-	ProjectionRatePct float64         `json:"projection_rate_pct,omitempty"`
+	ProjectionRatePct float64         `json:"projection_rate_pct,omitempty" money:"ruler=projection_rate_real_pct"`
+	// ProjectionRateRealPct — та сама ставка після знецінення гривні
+	// (schema 3): зважуванням реальних ставок рукавів, як і решта реальних
+	// дохідностей. У валюті звітності ≠ гривні стоїть замість номінальної.
+	ProjectionRateRealPct float64 `json:"projection_rate_real_pct,omitempty"`
 	// PlanProvidesUAH — скільки джерела доходу плану (фаза 9, «Плани»)
 	// РЕАЛЬНО дають щомісяця зараз: середнє за найближчий рік, щоб разові
 	// статті (премія, ремонт) не смикали число. 0 = джерел доходу ще не

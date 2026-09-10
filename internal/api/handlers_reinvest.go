@@ -280,7 +280,11 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	// перемикач на екрані не має права переписувати те, чим застосунок
 	// міряє власні рішення. Тому переупорядкування живе в обробнику, а не
 	// в reinvestSuggestions (межу тримає make order-boundary).
-	if r.URL.Query().Get("order") == orderNominal {
+	//
+	// У валюті звітності ≠ гривні номінальної лінійки немає — 15% ОВДП це
+	// не 15% у доларах, — тож і перемикача немає: поради йдуть за реальною.
+	if report, err := s.reportCurrency(r.Context()); err == nil && report == money.UAH &&
+		r.URL.Query().Get("order") == orderNominal {
 		rank := rankOf(doc)
 		sort.SliceStable(out, func(i, j int) bool {
 			return lessSuggestion(out[i], out[j], rank, orderNominal)

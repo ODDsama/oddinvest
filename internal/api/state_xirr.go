@@ -39,13 +39,23 @@ import (
 // різний порядок і плаваюче останнє знаке.
 var xirrCurrencies = []string{money.UAH, money.USD, money.EUR}
 
-// totalReturn — зведений результат по всіх валютах разом, у гривні.
+// totalReturn — зведений результат по всіх валютах разом, у валюті
+// звітності (report): у гривні, як і доти, або в доларі, коли документ
+// доларовий.
+//
+// Це та сама операція з іншою цільовою валютою: кожен потік переводиться
+// в неї за курсом СВОЄЇ дати, і один IRR розвʼязується по вже
+// перекладеному графіку. Поділити гривневий результат на сьогоднішній курс
+// не можна — це IRR того, хто витрачає гривню, і курсова різниця в ньому
+// доданок; для того, хто рахує в доларах, вона доданком не є. Тому число
+// рахує будівник, а не презентер, і GainUAH лягає в документ уже в
+// валюті звітності (презентер натуральні суми не чіпає).
 //
 // byCur — потоки, зібрані будівником; broken каже, що хоч одна валюта не
 // зібралась. Повертає nil, коли сказати нічого: nil на екрані стає
 // відсутньою плиткою, а не прочерком, і це навмисно.
 func (s *Server) totalReturn(ctx context.Context, byCur map[string][]domain.Flow,
-	broken bool, today domain.Date) *state.TotalReturn {
+	broken bool, today domain.Date, report string) *state.TotalReturn {
 
 	// Валюта, яка не зібралась, робить зведене число ТИХО НЕПОВНИМ. Для
 	// валютної плитки пропуск нешкідливий — плитки просто немає, і це
@@ -55,11 +65,14 @@ func (s *Server) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 		return nil
 	}
 
+	if report == "" {
+		report = money.UAH
+	}
 	asOf := newAsOfRates(s.st)
 	var flows []domain.Flow
 	for _, cur := range xirrCurrencies {
 		for _, f := range byCur[cur] {
-			u, err := asOf.uah(ctx, money.New(f.Amount, cur), f.Date)
+			u, err := asOf.in(ctx, money.New(f.Amount, cur), report, f.Date)
 			if err != nil {
 				return nil
 			}
@@ -100,7 +113,7 @@ func (s *Server) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 		return nil
 	}
 	out := &state.TotalReturn{
-		GainUAH:      state.Minor(gain, money.UAH),
+		GainUAH:      state.Minor(gain, report),
 		GainPct:      round2(float64(gain) / float64(invested) * 100),
 		MinDays:      xirrMinMoneyDays,
 		FXMaxLagDays: asOf.maxLag,

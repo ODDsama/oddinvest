@@ -8,6 +8,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -38,7 +39,7 @@ func TestCapitalDeltaCountsNPFContributionOnce(t *testing.T) {
 			{NPFID: 1, Date: on, Amount: 50_000, Broker: "пумб"},
 		},
 	}
-	out := buildCapitalDelta(src, 1500, fx.Rates{})
+	out := buildCapitalDelta(src, 1500, fx.Rates{}, domain.NewDate(now))
 	if out == nil {
 		t.Fatal("дельти немає, хоч знімок є")
 	}
@@ -69,11 +70,41 @@ func TestCapitalDeltaCountsThreeJournals(t *testing.T) {
 			{GoalID: 1, Date: on, Amount: 20_000, Currency: money.UAH, Place: "готівка"},
 		},
 	}
-	out := buildCapitalDelta(src, 2000, fx.Rates{})
+	out := buildCapitalDelta(src, 2000, fx.Rates{}, domain.NewDate(now))
 	if out == nil {
 		t.Fatal("дельти немає, хоч знімок є")
 	}
 	if out.ContribUAH.Major() != 1000 {
 		t.Errorf("зовнішні гроші %.2f, очікували 1000 (700 гаманець + 300 матрац; переказ у ціль дає нуль)", out.ContribUAH.Major())
+	}
+}
+
+// Відсоток дельти — у валюті звітності: курс 40 → 44 за місяць зʼїдає
+// весь гривневий ріст. Суми при цьому лишаються гривневими — їх перекладе
+// презентер тими самими курсами.
+func TestCapitalDeltaPctInReportCurrency(t *testing.T) {
+	now := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
+	today := domain.NewDate(now)
+	ago := domain.NewDate(now.AddDate(0, 0, -30))
+	src := &sources{
+		capitalAgo: &store.Snapshot{Date: ago, AccountUAH: 100_000},
+		report:     money.USD,
+		fxHistory: map[string][]store.RatePoint{
+			money.USD: {{Date: ago, RateE4: 400000}, {Date: today, RateE4: 440000}},
+		},
+	}
+	out := buildCapitalDelta(src, 1100, fx.Rates{}, today)
+	if out == nil {
+		t.Fatal("дельти немає")
+	}
+	if out.DeltaPct != 0 {
+		t.Errorf("у доларах ріст нульовий, дістали %v%%", out.DeltaPct)
+	}
+	if out.FromUAH != state.UAH(100_000) || out.DeltaUAH != state.UAH(10_000) {
+		t.Errorf("суми мусять лишитись гривневими: %v / %v", out.FromUAH, out.DeltaUAH)
+	}
+	src.report = money.UAH
+	if out := buildCapitalDelta(src, 1100, fx.Rates{}, today); out.DeltaPct != 10 {
+		t.Errorf("у гривні +10%%, дістали %v%%", out.DeltaPct)
 	}
 }

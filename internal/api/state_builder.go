@@ -1139,7 +1139,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			xirr[cur] = math.Round(r*10000) / 100 // частка -> %, 2 знаки
 		}
 	}
-	totalReturn := s.totalReturn(ctx, flowsByCur, flowsBroken, today)
+	totalReturn := s.totalReturn(ctx, flowsByCur, flowsBroken, today, src.report)
 
 	// Облігації: номінал і дохідність до погашення (state_bonds.go).
 	bnd := buildBonds(hold, pays, rates, deval)
@@ -1257,7 +1257,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну (див. state_projection.go).
 	target := prj.TargetUAH
-	projection, forecast, capRate := prj.Rows, prj.Forecast, prj.CapRatePct
+	projection, forecast, capRate, capRateReal := prj.Rows, prj.Forecast, prj.CapRatePct, prj.CapRateRealPct
 	// Ось ТУТ місячний план нарешті існує — і тільки тепер його можна
 	// покласти в налаштування. Раніше присвоєння стояло на чотириста
 	// рядків вище, де target ще нуль, і поле не віддавалось ніколи.
@@ -1322,7 +1322,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		NetWorthUAH: state.Major(capital.TotalUAH()-debtOwedUAH(src, rates, today), money.UAH),
 		// Дельта за 30 днів — проти знімка з sources; nil, доки знімка
 		// місячної давнини немає (state_delta.go).
-		CapitalDelta30: buildCapitalDelta(src, capital.TotalUAH(), rates),
+		CapitalDelta30: buildCapitalDelta(src, capital.TotalUAH(), rates, today),
 		// Борг — після плану місяця навмисно: стеля дострокового міряється
 		// від дозволеної частини ПЛАНУ, а обовʼязкові платежі той план уже
 		// зменшили (state_month.go).
@@ -1356,7 +1356,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		KindYieldRealPct: kindYieldReal(portfolioYieldReal, fundsYieldReal,
 			depositsYieldReal, npf.YieldRealPct),
 
-		Projection: projection, ProjectionRatePct: capRate, Forecast: forecast,
+		Projection: projection, ProjectionRatePct: capRate, ProjectionRateRealPct: capRateReal, Forecast: forecast,
 		PlanProvidesUAH: state.Major(prj.PlanProvidesUAH, money.UAH),
 		Sensitivity:     prj.Sensitivity, Independence: prj.Independence,
 		Drawdown:  prj.Drawdown,

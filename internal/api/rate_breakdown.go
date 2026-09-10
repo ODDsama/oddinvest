@@ -32,8 +32,15 @@ type rateContext struct {
 // приходить готовим (у buildState воно вже лежить у src.deval — одна
 // точка входу, яку стереже make sources-boundary), інфляція читається
 // тут, бо ряд цін ніхто інший не питає.
+//
+// При валюті звітності ≠ гривні другої лінійки немає: ІСЦ — про гривневі
+// ціни (довід при sources.cpi). Гривневий номінал у розкладі лишається —
+// він пояснює, звідки взялась реальна ставка.
 func (s *Server) newRateContext(ctx context.Context, deval float64) rateContext {
 	cpi, ok := s.inflation(ctx)
+	if report, err := s.reportCurrency(ctx); err != nil || report != money.UAH {
+		ok = false
+	}
 	return rateContext{deval: deval, cpi: cpi, cpiOK: ok}
 }
 

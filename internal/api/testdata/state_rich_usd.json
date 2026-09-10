@@ -9,7 +9,7 @@
     "from_date": "2026-06-10",
     "from_uah": 4407.59,
     "delta_uah": 20685.15,
-    "delta_pct": 473.67,
+    "delta_pct": 469.31,
     "contributed_uah": 661.22
   },
   "idle": {
@@ -350,7 +350,7 @@
       "required_uah": 103.96,
       "rate_pct": 13.09,
       "fill_from_uah": 189.92,
-      "short_month_uah": 283,
+      "short_month_uah": 103.96,
       "behind": true
     }
   ],
@@ -960,12 +960,12 @@
     }
   },
   "total_return": {
-    "xirr_pct": 6.89,
-    "gain_uah": 205.34,
-    "gain_pct": 1.8,
-    "money_days": 99.2,
+    "xirr_pct": 1.76,
+    "gain_uah": 54.37,
+    "gain_pct": 0.47,
+    "money_days": 99.6,
     "min_days": 30,
-    "fx_max_lag_days": 20
+    "fx_max_lag_days": 23
   },
   "portfolio_yield_pct": 0.68,
   "portfolio_yield": {
@@ -1030,7 +1030,7 @@
       "income_monthly_actual": 1302.79
     }
   ],
-  "projection_rate_pct": 4.69,
+  "projection_rate_pct": 0.15,
   "plan_provides_uah": 158.65,
   "forecast": {
     "date": "2029-10-15",

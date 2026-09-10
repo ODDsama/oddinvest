@@ -166,6 +166,9 @@ type projectionPhase struct {
 	// YTM своєї валюти. Число стояло на екрані як пояснення до кривої,
 	// якої воно не пояснювало.
 	CapRatePct float64
+	// CapRateRealPct — та сама ставка після знецінення гривні (лінійка
+	// валюти звітності: у доларовому документі стоїть замість CapRatePct).
+	CapRateRealPct float64
 	// ContribM — місячний внесок плану, виведений із цілі й дедлайну;
 	// TargetUAH — він самий грішми (нуль, якщо цілі або дедлайну немає).
 	//
@@ -842,14 +845,19 @@ func buildProjection(in projectionInput) projectionPhase {
 	}
 
 	if sl := buildSleeves(0, 0); len(sl) > 0 {
-		var w, wr float64
+		var w, wr, wreal float64
 		for _, s := range sl {
 			base := (s.Cash0 + s.Nominal0) * s.Rate0
 			w += base
 			wr += base * s.RatePct
+			// Реальний двійник — зважуванням реальних ставок рукавів, а не
+			// поділом готової суміші: знецінення торкається лише гривневого
+			// рукава (той самий довід, що в зведеній дохідності).
+			wreal += base * realYield(s.RatePct/100, s.Currency, in.Deval) * 100
 		}
 		if w > 0 {
 			out.CapRatePct = round2(wr / w)
+			out.CapRateRealPct = round2(wreal / w)
 		}
 	}
 

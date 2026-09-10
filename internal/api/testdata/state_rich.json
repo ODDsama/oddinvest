@@ -1051,6 +1051,7 @@
     }
   ],
   "projection_rate_pct": 4.69,
+  "projection_rate_real_pct": 0.15,
   "plan_provides_uah": 7000,
   "forecast": {
     "date": "2029-10-15",

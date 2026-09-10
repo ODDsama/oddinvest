@@ -35,6 +35,29 @@ import (
 
 const reportCurrencyKey = "report_currency"
 
+// reportCurrency — ЕФЕКТИВНА валюта звітності: та, що в налаштуваннях, або
+// гривня, коли курсу для неї ще немає. Одне означення на всіх: презентер
+// перекладає числа, будівник за тим самим кодом вибирає лінійку
+// (state_sources.go) — і розійтись їм нема де.
+func (s *Server) reportCurrency(ctx context.Context) (string, error) {
+	raw, err := s.st.GetSetting(ctx, reportCurrencyKey)
+	if err != nil {
+		return "", err
+	}
+	report := strings.TrimSpace(raw)
+	if report == "" || report == money.UAH {
+		return money.UAH, nil
+	}
+	e4, err := s.st.LatestRate(ctx, report)
+	if err != nil {
+		return "", err
+	}
+	if e4 <= 0 {
+		return money.UAH, nil
+	}
+	return report, nil
+}
+
 type presenter struct {
 	// report — ЕФЕКТИВНА валюта: та, що просили, або гривня, коли курсу на
 	// сьогодні ще немає; note тоді каже чому.

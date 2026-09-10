@@ -47,7 +47,7 @@ func (s *Server) snapshotAgo(ctx context.Context, today domain.Date) (*store.Sna
 // до сьогодні, сьогоднішнім курсом. Не курсом дня кожного руху, як у
 // зведеному XIRR: вікно місячне, різниця в межах похибки, а курс на дату
 // коштував би запиту на рух у збірці, що йде на кожен whatif.
-func buildCapitalDelta(src *sources, capitalNow float64, rates fx.Rates) *state.CapitalDelta {
+func buildCapitalDelta(src *sources, capitalNow float64, rates fx.Rates, today domain.Date) *state.CapitalDelta {
 	if src.capitalAgo == nil {
 		return nil
 	}
@@ -58,8 +58,25 @@ func buildCapitalDelta(src *sources, capitalNow float64, rates fx.Rates) *state.
 		FromUAH:  state.Major(fromUAH, money.UAH),
 		DeltaUAH: state.Major(capitalNow-fromUAH, money.UAH),
 	}
-	if fromUAH > 0 {
-		out.DeltaPct = round2((capitalNow - fromUAH) / fromUAH * 100)
+	// Відсоток — у валюті звітності: старт за курсом СВОЄЇ дати, сьогодні
+	// за сьогоднішнім. Суми лишаються гривневими (їх перекладе презентер тими
+	// самими курсами), а відсоток — не сума, і презентер його не бачить;
+	// поділити гривневий відсоток нема на що — він би не змінився, хоч за
+	// місяць курс міг зʼїсти половину росту.
+	fromRep, nowRep := fromUAH, capitalNow
+	if src.report != "" && src.report != money.UAH {
+		q := make(domain.Quotes, 0, len(src.fxHistory[src.report]))
+		for _, p := range src.fxHistory[src.report] {
+			q = append(q, domain.Quote{On: p.Date, V: fx.Major(p.RateE4)})
+		}
+		r0, ok0 := q.AsOf(from)
+		r1, ok1 := q.AsOf(today)
+		if ok0 && ok1 && r0 > 0 && r1 > 0 {
+			fromRep, nowRep = fromUAH/r0, capitalNow/r1
+		}
+	}
+	if fromRep > 0 {
+		out.DeltaPct = round2((nowRep - fromRep) / fromRep * 100)
 	}
 	var contrib int64
 	add := func(on domain.Date, amount int64, cur string) {

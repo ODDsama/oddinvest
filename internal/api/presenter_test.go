@@ -18,7 +18,13 @@ type summaryView struct {
 	BlendedYieldPct     float64            `json:"blended_yield_pct"`
 	BlendedYieldRealPct float64            `json:"blended_yield_real_pct"`
 	PortfolioYieldPct   float64            `json:"portfolio_yield_pct"`
-	Settings            struct {
+	ProjectionRatePct   float64            `json:"projection_rate_pct"`
+	ProjectionRateReal  float64            `json:"projection_rate_real_pct"`
+	TotalReturn         *struct {
+		GainUAH state.Money `json:"gain_uah"`
+		XIRRPct *float64    `json:"xirr_pct"`
+	} `json:"total_return"`
+	Settings struct {
 		ReportCurrency string `json:"report_currency"`
 	} `json:"settings"`
 }
@@ -42,6 +48,12 @@ func summaryOf(t *testing.T, url string) summaryView {
 func TestSummaryInReportCurrency(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st) // курс USD 44.1234 на 2026-07-15
+	// І той самий курс на день купівлі: зведений результат у доларах
+	// перекладає кожен потік курсом ЙОГО дати й мовчить, коли курсу
+	// бракує хоч на один (усе або нічого, state_xirr.go).
+	if err := st.SaveRate(context.Background(), "USD", 441234, "2026-07-01"); err != nil {
+		t.Fatal(err)
+	}
 	resp, body := do(t, "POST", srv.URL+"/api/lots",
 		`{"isin":"UA4000227748","qty":5,"price_per_bond":"995.00","buy_date":"2026-07-01","channel":"Дія"}`)
 	if resp.StatusCode != http.StatusCreated {
@@ -77,6 +89,26 @@ func TestSummaryInReportCurrency(t *testing.T) {
 	}
 	if usd.Settings.ReportCurrency != "USD" {
 		t.Errorf("налаштування в документі: %+v", usd.Settings)
+	}
+	// Ставка проєкції — теж лінійка: у доларі стоїть реальна.
+	if usd.ProjectionRatePct != uah.ProjectionRateReal || usd.ProjectionRateReal != 0 || uah.ProjectionRateReal == 0 {
+		t.Errorf("ставка проєкції: гривня %v/%v, долар %v/%v",
+			uah.ProjectionRatePct, uah.ProjectionRateReal, usd.ProjectionRatePct, usd.ProjectionRateReal)
+	}
+	// Зведений результат рахується в доларах на дату кожного потоку, а не
+	// ділиться на сьогоднішній курс. Тут курс один на всі дати, тож числа
+	// сходяться з поділеним — з точністю до цента: кожен потік округлюється
+	// окремо, і сума округлених не дорівнює округленій сумі. Річна ставка
+	// та сама лише тому, що курс сталий.
+	if uah.TotalReturn == nil || usd.TotalReturn == nil {
+		t.Fatalf("total_return: %v / %v", uah.TotalReturn, usd.TotalReturn)
+	}
+	got, want := usd.TotalReturn.GainUAH.Minor(), uah.TotalReturn.GainUAH.In("USD", uah.Rates["USD"]).Minor()
+	if got < want-1 || got > want+1 {
+		t.Errorf("gain у доларах: %d, чекали %d ±1", got, want)
+	}
+	if d := *usd.TotalReturn.XIRRPct - *uah.TotalReturn.XIRRPct; d > 0.1 || d < -0.1 {
+		t.Errorf("XIRR при сталому курсі мусить сходитись: %v / %v", *usd.TotalReturn.XIRRPct, *uah.TotalReturn.XIRRPct)
 	}
 }
 

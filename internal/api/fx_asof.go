@@ -101,6 +101,37 @@ func (a *asOfRates) uah(ctx context.Context, m *money.Money, on domain.Date) (in
 	return u.Amount(), nil
 }
 
+// in — сума у ВАЛЮТІ ЗВІТНОСТІ за курсом НА ДАТУ ПОДІЇ: гривня — через uah,
+// далі з гривні у code за курсом того самого дня. Для code == UAH це рівно
+// uah; для потоку вже в code — сама сума. Пропущений курс рахується так
+// само, як в uah: нуль і missing, а не помилка.
+func (a *asOfRates) in(ctx context.Context, m *money.Money, code string, on domain.Date) (int64, error) {
+	if m == nil {
+		return 0, nil
+	}
+	if m.Currency().Code == code {
+		return m.Amount(), nil
+	}
+	u, err := a.uah(ctx, m, on)
+	if err != nil || code == money.UAH {
+		return u, err
+	}
+	r, err := a.rate(ctx, code, on)
+	if err != nil {
+		return 0, err
+	}
+	if r <= 0 {
+		a.missing++
+		return 0, nil
+	}
+	out, cerr := fx.FromUAH(money.New(u, money.UAH), code, fx.Rates{code: r})
+	if cerr != nil {
+		a.missing++
+		return 0, nil
+	}
+	return out.Amount(), nil
+}
+
 // note — те, що треба сказати читачеві про якість конвертації.
 //
 // Форма навмисно та сама, що й у handleBenchmark: там уже вирішено, як
