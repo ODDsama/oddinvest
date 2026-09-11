@@ -41,6 +41,19 @@ type inner struct {
 	Delta state.Money `json:"delta" money:"diff=cap,own"` // cap — у предка
 }
 
+// plan — неіменоване вкладення приватного типу (routeLeg так вкладає
+// allocPlan): json піднімає його поля до господаря, і презентер мусить у
+// нього зайти, хоч поле й неекспортоване. Before дивиться на дату предка.
+type plan struct {
+	Amount state.Money `json:"amount"`
+	Before state.Money `json:"before_leg" money:"asof=from_date"`
+}
+
+type leg struct {
+	Label string `json:"label"`
+	plan
+}
+
 type doc struct {
 	Currency string                 `json:"currency" money:"code"`
 	Cap      state.Money            `json:"cap"`
@@ -63,6 +76,7 @@ type doc struct {
 	Ptr      *state.Money           `json:"ptr"`
 	Nested   *inner                 `json:"nested"`
 	Pct      float64                `json:"pct"`
+	Legs     []leg                  `json:"legs"`
 }
 
 func sample() *doc {
@@ -85,6 +99,7 @@ func sample() *doc {
 		Ptr:    func() *state.Money { m := state.UAH(8000); return &m }(),
 		Nested: &inner{Own: state.UAH(100_000)},
 		Pct:    3.3,
+		Legs:   []leg{{Label: "нога", plan: plan{Amount: state.UAH(4000), Before: state.UAH(2000)}}},
 	}
 }
 
@@ -132,6 +147,8 @@ func TestConvert(t *testing.T) {
 		{"вказівник", *d.Ptr, usd(200)},
 		{"вкладене", d.Nested.Own, usd(2500)},
 		{"дельта від предка", d.Nested.Delta, usd(7500)},
+		{"вкладене без імені (приватний тип)", d.Legs[0].Amount, usd(100)},
+		{"вкладене без імені: asof= бачить дату господаря", d.Legs[0].Before, usd(100)},
 	}
 	for _, c := range cases {
 		if c.got != c.want {

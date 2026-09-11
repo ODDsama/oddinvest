@@ -186,6 +186,26 @@ func (t moneyText) cur(v float64, code string) string {
 	return curText(v, code)
 }
 
+// money — те саме для суми з домену. Замість money.Display(): той пише
+// «18,400.00 UAH», і одне таке місце серед «18 400,00 ₴» читалось би як
+// чужий екран, а гривню він ще й лишав би гривнею в доларовому документі.
+func (t moneyText) money(m *money.Money) string {
+	if m == nil {
+		return ""
+	}
+	return t.cur(float64(m.Amount())/100, m.Currency().Code)
+}
+
+// moneyTextOfSrc — той самий форматер із джерел, де документа ще немає
+// (routeIncome): код — src.report, курс — src.rates, тобто рівно ті два
+// значення, з яких потім складуться settings.report_currency і doc.Rates.
+func moneyTextOfSrc(src *sources) moneyText {
+	if src == nil || src.report == "" || src.report == money.UAH || src.rates[src.report] <= 0 {
+		return moneyText{code: money.UAH, rate: 1}
+	}
+	return moneyText{code: src.report, rate: float64(src.rates[src.report]) / 1e4}
+}
+
 var monthsGen = [...]string{"січня", "лютого", "березня", "квітня", "травня",
 	"червня", "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"}
 
@@ -340,7 +360,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			add(state.Task{
 				ID:  "reserve-rung-" + dep.SyntheticISIN(),
 				Sev: sevSoon, Rank: 11, Kind: "reserve",
-				Title: "Перевкласти сходинку подушки — " + amount.Display(),
+				Title: "Перевкласти сходинку подушки — " + mt.money(amount),
 				Why: fmt.Sprintf("Гаситься %s. Без перевкладення драбина осяде: "+
 					"саме цей місяць подушки лишиться без покриття, а гроші "+
 					"лежатимуть під нуль.", dep.MaturityDate),
@@ -413,7 +433,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			add(state.Task{
 				ID:  fmt.Sprintf("goal-rung-%s", dep.SyntheticISIN()),
 				Sev: sevSoon, Rank: 12, Kind: "goal",
-				Title: fmt.Sprintf("Перевкласти вклад цілі «%s» — %s", name, amount.Display()),
+				Title: fmt.Sprintf("Перевкласти вклад цілі «%s» — %s", name, mt.money(amount)),
 				Why: fmt.Sprintf("Гаситься %s. Без перевкладення ці гроші "+
 					"лежатимуть під нуль, а ціна цілі й далі росте на інфляцію — "+
 					"саме те, від чого вклад і рятує.", dep.MaturityDate),
@@ -745,10 +765,11 @@ func arrivedTodayTask(src *sources, today domain.Date) (state.Task, bool) {
 	if n == 0 {
 		return state.Task{}, false
 	}
-	// Суми по валютах НЕ зводяться в гривню: для цього потрібні курси, яких
-	// у цій функції немає, а тягнути їх сюди заради заголовка означало б
-	// завести в чергу задач власну конвертацію. Валюти перелічуються, як їх
-	// і отримають — окремими сумами на окремі рахунки.
+	// Суми по валютах НЕ зводяться докупи: валюти перелічуються, як їх і
+	// отримають — окремими сумами на окремі рахунки. Гривнева частина при
+	// цьому йде у валюті звітності, як і решта прози (moneyText), а
+	// доларова лишається доларовою — тим самим правилом, що й у презентера.
+	mt := moneyTextOfSrc(src)
 	codes := make([]string, 0, len(sum))
 	for c := range sum {
 		codes = append(codes, c)
@@ -756,7 +777,7 @@ func arrivedTodayTask(src *sources, today domain.Date) (state.Task, bool) {
 	sort.Strings(codes)
 	parts := make([]string, 0, len(codes))
 	for _, c := range codes {
-		parts = append(parts, money.New(sum[c], c).Display())
+		parts = append(parts, mt.cur(float64(sum[c])/100, c))
 	}
 	return state.Task{
 		ID: "route-arrived", Sev: sevNow, Rank: 45,
@@ -1177,17 +1198,10 @@ func cardAmountUAH(minor int64, cur string) float64 {
 	return round2(float64(minor) / 100)
 }
 
-// debtMoney — сума боргу для прози задачі.
-//
-// Гривня йде через mt.uah(), решта — через Display(): у гривні застосунок
-// скрізь пише «18 400,00 ₴», і одне місце з «18,400.00 UAH» читалось би як
-// чужий екран. Валютний борг рідкість, і для нього рідний формат money
-// чесніший за підроблений під гривню.
+// debtMoney — сума боргу для прози задачі: гривня у валюті звітності,
+// валютний борг — символом своєї валюти (mt.cur).
 func debtMoney(mt moneyText, minor int64, cur string) string {
-	if cur == money.UAH {
-		return mt.uah(float64(minor) / 100)
-	}
-	return money.New(minor, cur).Display()
+	return mt.cur(float64(minor)/100, cur)
 }
 
 // cardMarkStaleDays — з якого віку звірка перестає бути виміром.

@@ -132,15 +132,17 @@ type readyFlow struct {
 }
 
 // reinvestFlowWhy — підпис до ноги фонду, який докуповує сертифікати сам.
-// Порожньо, коли нічого не докупив: тоді сума й так уся.
-func reinvestFlowWhy(s domain.FundReinvestSplit, cur string) string {
+// Порожньо, коли нічого не докупив: тоді сума й так уся. Суми — прозою у
+// валюті звітності (mt), як і решта підписів ноги: числа ноги перекладає
+// презентер, а рядок він не бачить.
+func reinvestFlowWhy(mt moneyText, s domain.FundReinvestSplit, cur string) string {
 	if s.Units <= 0 || s.Spent <= 0 {
 		return ""
 	}
 	return fmt.Sprintf("фонд утримав виплату %s і докупив %d %s на %s — на рахунок іде лише решта",
-		money.New(s.Gross, cur).Display(), s.Units,
+		mt.cur(float64(s.Gross)/100, cur), s.Units,
 		plural(int(s.Units), "сертифікат", "сертифікати", "сертифікатів"),
-		money.New(s.Spent, cur).Display())
+		mt.cur(float64(s.Spent)/100, cur))
 }
 
 // Основи надходження. Порожній рядок у readyFlow.Basis означає basisOwed —
@@ -320,6 +322,7 @@ func (s *Server) routeIncome(src *sources, today domain.Date, months int) (incom
 	// позначці ціни.
 	hold := domain.NewHoldings(src.lots, src.sales, src.bonds,
 		src.fundOps, src.fundPrices, src.payoutDays(), today)
+	mt := moneyTextOfSrc(src)
 
 	for i := range hold.Funds {
 		fp := &hold.Funds[i].FundPosition
@@ -354,7 +357,7 @@ func (s *Server) routeIncome(src *sources, today domain.Date, months int) (incom
 			out[k] = append(out[k], readyFlow{
 				Date: f.Date, Amount: f.Amount.Amount(),
 				Label: fp.Fund, Kind: "funds", Basis: basisEstimate,
-				Why: reinvestFlowWhy(f.Split, fp.Currency),
+				Why: reinvestFlowWhy(mt, f.Split, fp.Currency),
 			})
 		}
 	}

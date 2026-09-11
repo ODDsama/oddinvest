@@ -108,14 +108,25 @@ export const compact = (v) => {
  *  читається як «12 000 ₴» або «290 $» залежно від того, що людина
  *  поставила в налаштуваннях. Ділити чи множити тут нема чого — це
  *  зроблено на сервері, курсом на дату кожного рядка (CLAUDE.md §5). */
-export const uah0 = (v) => Math.round(Number(v) || 0)
-  .toLocaleString("uk").replace(/^-/, "−") + " " + sym();
+export const uah0 = (v) => (small(v) ? dec2(v) : Math.round(Number(v) || 0)
+  .toLocaleString("uk").replace(/^-/, "−")) + " " + sym();
 
 /** Без копійок ЗІ ЗНАКОМ: дельти й рухи, де «+5 000» і «−5 000» — різні
  *  відповіді, а голе число читалось би як сума. Нуль без знака. */
 export const signedUAH = (v) => {
-  const n = Math.round(Number(v) || 0);
-  return (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toLocaleString("uk") + " " + sym();
+  const n = Number(v) || 0;
+  const abs = small(v) ? dec2(Math.abs(n)) : Math.round(Math.abs(n)).toLocaleString("uk");
+  return (n > 0 ? "+" : n < 0 ? "−" : "") + abs + " " + sym();
+};
+
+/** Маленька сума в ЧУЖІЙ валюті звітності лишає копійки. У гривні «3 ₴»
+ *  ще щось каже; в доларах ті самі 3,47 ₴ — це 0,08 $, і «0 $» на нозі
+ *  маршруту, яка існує, читалось би як поломка: цент долара — пів гривні,
+ *  і на рівні «капітал» він ще нічого не важить, а на рівні решти з
+ *  виплати — уже все. У книжковій валюті поведінка незмінна. */
+const small = (v) => {
+  const a = Math.abs(Number(v) || 0);
+  return currency() !== BOOK && a > 0 && a < 10;
 };
 
 /** Мінус ОДНИМ знаком на весь застосунок: U+2212, як у signedUAH вище.

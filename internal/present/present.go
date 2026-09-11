@@ -25,6 +25,10 @@
 //	                          «у майбутніх грошах»)
 //	money:"code"           — рядок із кодом ефективної валюти
 //
+// Приватні поля структур прохід не бачить (на дріт вони не йдуть), з
+// одним винятком: неіменоване вкладення приватного типу — його поля json
+// піднімає до господаря, і презентер іде в нього (довід у visitStruct).
+//
 // У книжковій валюті прохід — тотожність: він лише проставляє code. Саме
 // це тримає золотий документ незмінним і робить шар безпечним для тих, хто
 // його не вмикав.
@@ -248,7 +252,7 @@ func (w *walker) visitStruct(v reflect.Value, on domain.Date) {
 	sc := scope{val: v, byJSON: make(map[string]int, t.NumField()), asof: on}
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
-		if !f.IsExported() {
+		if !f.IsExported() || f.Anonymous {
 			continue
 		}
 		sc.byJSON[jsonName(f)] = i
@@ -264,10 +268,23 @@ func (w *walker) visitStruct(v reflect.Value, on domain.Date) {
 	var diffs []int
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
+		fv := v.Field(i)
+		// Неіменоване вкладення — та сама структура з погляду json: його
+		// поля лягають поруч із полями господаря, і презентер іде в нього
+		// НЕЗАЛЕЖНО від експортованості. Тип вкладення в обробників
+		// зазвичай пакетний (routeLeg вкладає allocPlan), і пропустити його
+		// як «приватне поле» означало б віддати половину ноги в гривні під
+		// знаком долара — саме так і сталось на живих даних. Reflect у
+		// експортовані поля такого вкладення пише (на цьому стоїть і decode
+		// json), тож окремої області вистачає: lookup іде вгору предками, і
+		// asof=/diff= усередині бачать дату господаря.
+		if f.Anonymous && !f.IsExported() {
+			w.visit(fv, sc.asof)
+			continue
+		}
 		if !f.IsExported() {
 			continue
 		}
-		fv := v.Field(i)
 		tag := f.Tag.Get("money")
 		key, arg, _ := strings.Cut(tag, "=")
 		switch key {

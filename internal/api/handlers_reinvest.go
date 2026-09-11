@@ -209,13 +209,12 @@ func withKindDef(base string, def float64, what string) string {
 // чекати на щось, чого застосунок не знає. Він лише перестає вдавати, що
 // цей вклад про наступний папір, — і те саме твердження опускає рядок у
 // порядку (overTransit).
-func withTransit(base, cur string, transitNative, haveNative float64) string {
+func withTransit(mt moneyText, base, cur string, transitNative, haveNative float64) string {
 	if transitNative <= 0 {
 		return base
 	}
 	if left := transitNative - haveNative; left > 0 {
-		return base + "; " + money.New(int64(math.Round(left*100)), cur).Display() +
-			" до наступного паперу"
+		return base + "; " + mt.cur(left, cur) + " до наступного паперу"
 	}
 	return base + "; понад транзит — у вкладах уже стільки, скільки треба на папір"
 }
@@ -490,6 +489,8 @@ func lessSuggestion(a, b suggestion, rank, order string) bool {
 func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	doc *state.Doc) ([]suggestion, error) {
 	today := domain.NewDate(now)
+	// Проза порад — у валюті звітності, тим самим форматером, що й задачі.
+	mt := moneyTextOf(doc)
 	// УВЕСЬ довідник, а не перші 50. Доти тут стояв SearchBonds із лімітом
 	// 5000 — намір «усі», — а сховище мовчки затискало його до 50 і
 	// віддавало їх ORDER BY maturity, тобто рівно 50 НАЙКОРОТШИХ паперів.
@@ -955,7 +956,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			RateParts: rc.breakdown(float64(d.RateBP)/10000, netRate, c,
 				"ставка вкладу після податку"),
 			Brokers: fits, Affordable: best, CanBuy: best > 0,
-			Reason:      withTransit("поповнення на суму відкриття", c, transitNative[c], depByCur[c]),
+			Reason:      withTransit(mt, "поповнення на суму відкриття", c, transitNative[c], depByCur[c]),
 			def:         target[c] - cur[c],
 			kindDef:     kindDef["deposits"],
 			overTransit: overTransitFor(c),
@@ -1006,7 +1007,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 			RateParts: rc.breakdown(float64(rateBP)/10000, netRate, c,
 				"ставка вкладу після податку"),
 			Brokers: fits, Affordable: best, CanBuy: best > 0,
-			Reason: withTransit("новий вклад, мінімум "+money.New(minMinor, c).Display(),
+			Reason: withTransit(mt, "новий вклад, мінімум "+mt.cur(float64(minMinor)/100, c),
 				c, transitNative[c], depByCur[c]),
 			def:         target[c] - cur[c],
 			kindDef:     kindDef["deposits"],
@@ -1113,7 +1114,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		real := round2(realYield(d.TopRatePct/100, money.UAH, devalPct) * 100)
 		reason := fmt.Sprintf("погасити борг: %s під %.1f%% річних", d.TopName, d.TopRatePct)
 		if d.FillNowUAH.Major() > 0 {
-			reason += fmt.Sprintf("; місячна частка — ще %s", moneyTextOf(doc).uah(d.FillNowUAH.Major()))
+			reason += fmt.Sprintf("; місячна частка — ще %s", mt.uah(d.FillNowUAH.Major()))
 		}
 		out = append(out, suggestion{
 			Kind: "debt", Label: d.TopName, Currency: money.UAH,
