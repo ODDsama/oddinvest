@@ -879,6 +879,11 @@ export function wireImportProfiles(ctx, main, debts = []) {
 //
 // Тотожність унизу — не оздоба: якщо вона не сходиться, розійшлись облік
 // і дійсність, і це має бути видно.
+//
+// Обидві таблиці — виписки (.ledger): дві-три колонки, підпис і сума. На
+// всю ширину main сума відʼїжджала від статті на пів монітора, і
+// тотожність «було + надійшло − куплено = лишилось» читалась стовпчиком
+// чисел без підписів. Міра рядка та сама, що в стелі витрат на «Боргах».
 export function flowHTML(f) {
   if (!f) return "";
   // Рядки виписки — дані, а не розмітка: підпис, число і знак перед ним.
@@ -899,6 +904,7 @@ export function flowHTML(f) {
     <div class="note">${esc(f.from)} → ${esc(f.to)}</div>
     ${opsGrid({
     head: false,
+    cls: "ledger",
     cols: [
       { key: "label", label: "Стаття", cell: (r) => r.label },
       { key: "uah", label: "Сума", num: true,
@@ -917,6 +923,7 @@ export function flowHTML(f) {
   plural(detail.length, "операція", "операції", "операцій")}</span></summary>
       <div class="disclosure-body">${opsGrid({
     head: false,
+    cls: "ledger",
     cols: [
       { key: "date", label: "Дата", cls: "muted", cell: (r) => esc(r.date) },
       { key: "label", label: "Що", cell: (r) => esc(r.label) },
