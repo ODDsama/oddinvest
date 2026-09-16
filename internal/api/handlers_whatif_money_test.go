@@ -116,12 +116,29 @@ func TestWhatIfCapitalGrowsByNominalNotByPrice(t *testing.T) {
 	}
 	// А різниця з ціною покупки — сплачений НКД, і вона ДОДАТНА: без неї
 	// фікстура нічого не стереже.
+	//
+	// Крім одного дня на пів року: у день купона НКД дорівнює нулю ЗА
+	// ПОБУДОВОЮ, і папір із seed платить його 2026-09-16 — саме тоді CI
+	// почервонів на комітах, які Go не чіпали. Тому нуль тут питаємо в
+	// того самого бекенда, а не вгадуємо дату: у такий день перевірка
+	// стережу не має, і тест каже про це вголос замість того, щоб падати.
 	spent, err := domain.ParseDecimalToMinor(got.Basket.Totals[0].Amount, money.UAH)
 	if err != nil {
 		t.Fatal(err)
 	}
 	accrued := float64(spent)/100 - grew
 	if accrued <= 0 {
+		_, acc := do(t, "GET", url+"/api/accrued/UA4000227748", "")
+		var today struct {
+			PerBond moneyJSON `json:"per_bond"`
+		}
+		if err := json.Unmarshal([]byte(acc), &today); err != nil {
+			t.Fatal(err)
+		}
+		if today.PerBond.Amount == "0.00" {
+			t.Logf("день купона: НКД нуль за побудовою, різницю з ціною сьогодні не перевірити")
+			return
+		}
 		t.Errorf("заплачено %.2f, капітал зріс на %.2f — НКД не видно, фікстура порожня",
 			float64(spent)/100, grew)
 	}
