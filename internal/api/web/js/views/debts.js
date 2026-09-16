@@ -20,10 +20,21 @@
 // свободи й порівняння стратегій приходять готовими з /api/payoff.
 // Друга копія в браузері вже двічі закінчувалась різними числами на одному
 // екрані (CLAUDE.md §5).
+//
+// ЧИСЛА — ВИПИСКОЮ, ПОЯСНЕННЯ — ЗА КНОПКОЮ «i». Доти під плитками стояли
+// рядки «підпис — число» на всю ширину екрана, а між ними — абзаци про те,
+// чому воно так, того самого кольору й кеглю, що й підписи. На моніторі
+// число відʼїжджало від підпису на пів екрана, а око не відрізняло рядок
+// розкладу від пояснення до нього; власник назвав це «кашею». Тепер
+// розклад стелі — виписка з підсумком (гроші на картку − портфель −
+// розстрочки − планові = лишається; − звільняти = можна витрачати), тобто
+// головне число зверху виводиться з чисел під ним, а довгі «чому»
+// переїхали в INFO.cardExit / INFO.card — туди, де решта застосунку тримає
+// своє «як це читати».
 
 import { esc, uah2 as fmtUAH, money as fmtMoney, pct, plural, monthYear } from "../format.js";
 import { infoBtn } from "../info.js";
-import { empty } from "../components.js";
+import { empty, tile } from "../components.js";
 import { yieldCell } from "../yield.js";
 import { opsGrid, actionsCol } from "../grid.js";
 import {
@@ -101,42 +112,42 @@ function graceHTML(g) {
   }
   const free = Number(g.free.amount);
   const short = free < 0;
+  const bring = Number(g.bring_by_due.amount) > 0;
+  const missMin = Number(g.miss_min_cost.amount) > 0;
   return `<div class="card">
     <h2 class="h-row">${esc(g.name)} ${infoBtn("card")}</h2>
-    <div class="note">Пільговий оборот — це побут, а не борг: доки виписку закривають
-      вчасно, він не коштує нічого й у чергу погашення не входить. Помилитись можна
-      двома різними способами, і коштують вони по-різному — обидва названі нижче.</div>
+    <div class="note">Пільговий оборот — побут, а не борг: доки виписку закривають
+      вчасно, він нічого не коштує й у чергу погашення не входить.</div>
     <div class="tiles flush">
-      <div class="tile hero"><div class="lbl">Принести до ${esc(g.due_date || "дати")}</div>
-        <div class="val ${Number(g.bring_by_due.amount) > 0 ? "t-warn" : "t-ok"}">${
-  fmtMoney(g.bring_by_due)}</div>
-        <div class="sub">${Number(g.bring_by_due.amount) > 0
-    ? "стільки — і відсотків не буде взагалі"
-    : "виписка вже покрита тим, що на картці"}</div></div>
-      <div class="tile"><div class="lbl">Вільно</div>
-        <div class="val ${short ? "t-danger" : "t-ok"}">${fmtMoney(g.free)}</div>
-        <div class="sub">${!short
-    ? "стільки своїх грошей лишається після виписки й найближчих частин розстрочок"
-    : "стільки бракує, щоб покрити й виписку, і частини розстрочок — але в них РІЗНІ строки, див. нижче"}</div></div>
-      <div class="tile"><div class="lbl">Мінімум</div>
-        <div class="val">${fmtMoney(g.min_due)}</div>
-        <div class="sub">менше — штраф і підвищена ставка на весь борг</div></div>
+      ${tile(`Принести до ${esc(g.due_date || "дати")}`, fmtMoney(g.bring_by_due),
+    `<div class="sub">${bring
+      ? "стільки — і відсотків не буде взагалі"
+      : "виписка вже покрита тим, що на картці"}</div>`,
+    { hero: true, tone: bring ? "t-warn" : "t-ok" })}
+      ${tile("Вільно", fmtMoney(g.free),
+    `<div class="sub">${short
+      ? "бракує на виписку й частини розстрочок — строки в них різні, див. нижче"
+      : "своїх грошей після виписки й найближчих частин розстрочок"}</div>`,
+    { tone: short ? "t-danger" : "t-ok" })}
+      ${tile("Мінімум", fmtMoney(g.min_due),
+    `<div class="sub">менше — штраф і підвищена ставка</div>`)}
     </div>
-    ${g.days_to_due ? `<div class="kv"><span class="muted">До розрахункової дати</span>
-      <b>${g.days_to_due} ${plural(g.days_to_due, "день", "дні", "днів")}</b></div>` : ""}
-    ${installmentsHTML(g)}
-    <div class="kv"><span class="muted">Не закрити виписку — коштуватиме за місяць</span>
-      <b>${fmtMoney(g.miss_full_cost)}</b></div>
-    ${Number(g.miss_min_cost.amount) > 0
-    ? `<div class="kv"><span class="muted">Пропустити мінімалку — коштуватиме</span>
-       <b class="t-danger">${fmtMoney(g.miss_min_cost)}</b></div>`
-    : `<div class="sub">Скільки коштуватиме ПРОПУСТИТИ мінімалку, застосунок не рахує:
-       у картки не задані підвищена ставка й штраф. Це не те саме, що не закрити
-       виписку, — прострочення дорожче, і в договорі воно назване окремо.</div>`}
-    <div class="sub">Звірка від ${esc(g.mark_date || "—")}${g.mark_age_days > 14
-    ? ` <span class="t-warn">— числам уже ${g.mark_age_days} ${plural(g.mark_age_days,
-      "день", "дні", "днів")}, а баланс кредитки рухається щодня</span>`
-    : ""}</div>
+    <div class="ledger">
+      ${g.days_to_due ? `<div class="kv"><span class="muted">До розрахункової дати</span>
+        <b>${g.days_to_due} ${plural(g.days_to_due, "день", "дні", "днів")}</b></div>` : ""}
+      ${installmentsHTML(g)}
+      <div class="kv"><span class="muted">Не закрити виписку — за місяць</span>
+        <b class="nowrap">${fmtMoney(g.miss_full_cost)}</b></div>
+      <div class="kv"><span class="muted">Пропустити мінімалку</span>
+        ${missMin
+    ? `<b class="t-danger nowrap">${fmtMoney(g.miss_min_cost)}</b>`
+    : `<span class="muted fine">не рахується: штраф і підвищена ставка не задані</span>`}</div>
+      <div class="kv"><span class="muted">Звірка</span>
+        <span><b>${esc(g.mark_date || "—")}</b>${g.mark_age_days > 14
+    ? ` <span class="t-warn fine">— ${g.mark_age_days} ${plural(g.mark_age_days,
+      "день", "дні", "днів")} тому, а баланс рухається щодня</span>`
+    : ""}</span></div>
+    </div>
   </div>`;
 }
 
@@ -152,74 +163,89 @@ function graceHTML(g) {
 function exitHTML(g) {
   const e = g.exit;
   if (!e) return "";
+  const many = (e.cards || []).length > 1;
+  const months = Math.round(e.months);
   return `<div class="card">
     <h2 class="h-row">Вихід із ${esc(cardsWord(e))} до ${esc(e.exit_by)} ${infoBtn("cardExit")}</h2>
-    ${(e.cards || []).length > 1 ? `<div class="sub">План СПІЛЬНИЙ на ${esc(
-    (e.cards || []).join(" і "))}: гроші в них одні, і два окремі плани кожен
-      вважав би весь залишок своїм. Дата — найпізніша з названих, тобто коли
-      закриється все; тисне при цьому сума потреб, бо в ближчої картки менше
-      місяців.</div>` : ""}
+    ${many ? `<div class="note">Спільний план на ${esc((e.cards || []).join(" і "))} —
+      гроші в них одні; дата — найпізніша з двох.</div>` : ""}
     <div class="tiles flush">
-      <div class="tile hero"><div class="lbl">Можна витрачати</div>
-        <div class="val ${e.feasible ? "t-ok" : "t-danger"}">${e.feasible
-    ? fmtMoney(e.spend_cap) : "не встигнути"}</div>
-        <div class="sub">${e.feasible
-    ? `на місяць — і до ${esc(e.exit_by)} ${(e.cards || []).length > 1
-      ? "картки вийдуть у нуль" : "картка вийде в нуль"}`
-    : `навіть при нульових витратах: за ${e.months.toFixed(1)} міс треба звільняти
-       ${fmtMoney(e.need_per_month)}, а на картці лишається менше`}</div></div>
-      <div class="tile"><div class="lbl">Треба звільняти</div>
-        <div class="val">${fmtMoney(e.need_per_month)}</div>
-        <div class="sub">на місяць, щоб устигнути</div></div>
-      <div class="tile"><div class="lbl">За твоїм темпом</div>
-        <div class="val">${e.eta_date ? esc(e.eta_date) : "—"}</div>
-        <div class="sub">${e.eta_date
-    ? "якщо витрачати стільки ж, скільки зараз"
-    : "борг не меншає: витрати зʼїдають усе, що приходить"}</div></div>
+      ${tile("Можна витрачати", e.feasible ? fmtMoney(e.spend_cap) : "не встигнути",
+    `<div class="sub">${e.feasible
+      ? `на місяць — і до ${esc(e.exit_by)} ${many ? "картки вийдуть у нуль" : "картка вийде в нуль"}`
+      : `навіть при нульових витратах: за ${e.months.toFixed(1)} міс треба звільняти
+         ${fmtMoney(e.need_per_month)}, а на картці лишається менше`}</div>`,
+    { hero: true, tone: e.feasible ? "t-ok" : "t-danger" })}
+      ${tile("Треба звільняти", fmtMoney(e.need_per_month),
+    `<div class="sub">на місяць, щоб устигнути</div>`)}
+      ${tile("За твоїм темпом", e.eta_date ? esc(e.eta_date) : "—",
+    `<div class="sub">${e.eta_date
+      ? "якщо витрачати стільки ж, скільки зараз"
+      : "борг не меншає: витрати зʼїдають усе, що приходить"}</div>`)}
       ${headroomTile(e)}
     </div>
-    ${Number(e.short_per_month.amount) > 0 ? `<div class="kv">
-      <span class="muted">Щоб устигнути, врізати витрати на</span>
-      <b class="t-warn">${fmtMoney(e.short_per_month)}/міс</b></div>` : ""}
-    <div class="kv"><span class="muted">Приходить усього, у середньому</span>
-      <b>${fmtMoney(e.gross)}/міс</b></div>
-    <div class="kv"><span class="muted">З них виводиться в інструменти</span>
-      <b>${fmtMoney(e.invest)}/міс</b></div>
-    ${e.installments && Number(e.installments.amount) > 0 ? `<div class="kv">
-      <span class="muted">Спишуть розстрочки, привʼязані до карток</span>
-      <b>${fmtMoney(e.installments)}/міс</b></div>
-    <div class="sub">Це не тіло до погашення: «вийти з ліміту» означає звести в
-      нуль самі картки, а розстрочки йдуть за своїм графіком. Але списуються
-      вони з картки, тож витратити ці гроші вже не можна — і зі стелі вище
-      вони відняті.</div>` : ""}
-    ${e.planned && Number(e.planned.amount) > 0 ? `<div class="kv">
-      <span class="muted">Планові разові витрати з картки</span>
-      <b>${fmtMoney(e.planned)}/міс</b></div>
-    <div class="sub">Це СЕРЕДНЄ за вікном, а не платіж: котел на 30 000 ₴ у вікні на
-      десять місяців дає 3 000 ₴/міс, хоча стоїть він в одному листопаді. Тобто стеля
-      вище рівномірно занижена в решті місяців і завищена в тому, де витрата
-      справді буде, — таблиця нижче показує, у якому саме. Заводяться вони в
-      <a class="lnk" href="${routeFor("plan/expenses")}">Плані → Планові витрати</a>.</div>` : ""}
-    <div class="kv"><span class="muted">Лишається на картці — це «все інше»</span>
-      <b>${fmtMoney(e.on_card)}/міс</b></div>
-    <div class="sub">Числа вище — СЕРЕДНІ за ${Math.round(e.months)} ${esc(plural(Math.round(e.months),
-    "місяць", "місяці", "місяців"))} вікна, і місяць звірки входить ЦІЛИМ: відлік іде від
-      боргу на його початок, а не від мінуса, який показала звірка. Те, що до неї вже
-      прийшло й списалось, додано назад, витрати за прожиті дні — ${esc(e.spend_basis)}.
-      Місяці при цьому різні — одна зарплата закінчується, інша починається, — і таблиця
-      нижче показує кожен окремо.</div>
-    <div class="kv"><span class="muted">Витрати, з якими рахували (${esc(e.spend_basis)})</span>
-      <b>${fmtMoney(e.spend_used)}/міс</b></div>
-    ${spendGapHTML(e)}
-    ${exitWalkHTML(e)}
-    <div class="sub">Якщо докинути на картку й інвестиційну частку —
-      витрачати можна <b>${fmtMoney(e.with_invest_spend_cap)}/міс</b>${e.with_invest_eta_date
-    ? `, а за нинішніми витратами вихід зсунеться на ${esc(e.with_invest_eta_date)}` : ""}${
+    ${exitLedgerHTML(e)}
+    <div class="sub">Середні за ${months} ${esc(plural(months, "місяць", "місяці", "місяців"))}
+      вікна від ${esc(monthYear(e.start_month + "-01"))} (місяць звірки — цілим); розстрочки й
+      планові — теж середнє, а по місяцях — у «Помісячно до нуля» нижче. Планові
+      заводяться в <a class="lnk" href="${routeFor("plan/expenses")}">Плані → Планові витрати</a>.</div>
+    <div class="ledger rule-top">
+      <div class="kv"><span class="muted">Витрачається зараз (${esc(e.spend_basis)})</span>
+        <b class="nowrap">${fmtMoney(e.spend_used)}/міс</b></div>
+      ${spendGapHTML(e)}
+      ${Number(e.short_per_month.amount) > 0 ? `<div class="kv">
+        <span class="muted">Щоб устигнути, врізати на</span>
+        <b class="t-warn nowrap">${fmtMoney(e.short_per_month)}/міс</b></div>` : ""}
+    </div>
+    <div class="ledger rule-top">
+      <div class="kv"><span class="muted">Якщо докинути й інвестиційну частку</span>
+        <b class="nowrap">${fmtMoney(e.with_invest_spend_cap)}/міс</b></div>
+      <div class="sub-xs">${e.with_invest_eta_date
+    ? `вихід за нинішніми витратами — ${esc(e.with_invest_eta_date)}; ` : ""}${
     Number(e.with_invest_headroom.amount) > 0
-      ? `, а залізти можна було б ще на <b>${fmtMoney(e.with_invest_headroom)}</b>` : ""}.
-      Ціна цього — купівель за цей час не буде. Вирішувати щомісяця, застосунок лише
-      ставить обидва числа поруч.</div>
+      ? `залізти можна було б ще на ${fmtMoney(e.with_invest_headroom)}. ` : ""}Ціна —
+        купівель за цей час не буде; вирішувати щомісяця.</div>
+    </div>
+    ${exitWalkHTML(e)}
   </div>`;
+}
+
+/** Розклад стелі — випискою, з підсумком.
+ *
+ *  Головне число блока мусить виводитись із чисел під ним: гроші на
+ *  картку мінус портфель, розстрочки й планові — це «лишається», мінус
+ *  «звільняти» — це стеля. Пʼять окремих рядків «підпис — число» цієї
+ *  тотожності не показували, і стеля читалась як число нізвідки.
+ *  Віднімання — підрядками (tr.sub-row), проміжний підсумок — вагою
+ *  (tr.tot); колонка нулів не малюється: рядок розстрочок чи планових є
+ *  лише тоді, коли є що віднімати. */
+function exitLedgerHTML(e) {
+  const has = (m) => m && Number(m.amount) > 0;
+  const rows = [
+    { label: "Приходить на картку, у середньому", v: e.gross },
+    { label: "− у портфель", v: e.invest, cls: "sub-row" },
+    has(e.installments) ? { label: "− розстрочки з картки", v: e.installments, cls: "sub-row" } : null,
+    has(e.planned) ? { label: "− планові разові витрати", v: e.planned, cls: "sub-row" } : null,
+    { label: "Лишається на картці", v: e.on_card, cls: "tot" },
+    { label: `− звільняти, щоб вийти до ${esc(e.exit_by)}`, v: e.need_per_month, cls: "sub-row" },
+  ].filter(Boolean);
+  return opsGrid({
+    head: false,
+    cls: "ledger",
+    rowAttrs: (r) => ({ class: r.cls }),
+    cols: [
+      { key: "label", label: "Стаття", cell: (r) => r.label },
+      { key: "v", label: "На місяць", num: true, cls: "nowrap", cell: (r) => fmtMoney(r.v) + "/міс" },
+    ],
+    rows,
+    caption: "Розклад стелі витрат: що приходить на картку, що з цього відняте й скільки лишається",
+    foot: [
+      { cell: "Можна витрачати" },
+      { cell: e.feasible
+        ? `<span class="t-ok">${fmtMoney(e.spend_cap)}/міс</span>`
+        : `<span class="t-danger">не встигнути</span>`, num: true },
+    ],
+  });
 }
 
 /** Обернене питання до стелі: НА СКІЛЬКИ ще можна залізти в ліміт, щоб усе
@@ -230,17 +256,14 @@ function headroomTile(e) {
   const room = Number(e.headroom.amount);
   const limitLeft = e.limit_left ? Number(e.limit_left.amount) : null;
   if (room < 0) {
-    return `<div class="tile"><div class="lbl">Перебір боргу</div>
-        <div class="val t-warn">${fmtUAH(-room)}</div>
-        <div class="sub">гранична глибина при цих витратах — ${fmtMoney(e.max_debt)};
-          далі — або врізати витрати, або зсувати дату</div></div>`;
+    return tile("Перебір боргу", fmtUAH(-room),
+      `<div class="sub">гранична глибина — ${fmtMoney(e.max_debt)}; далі — врізати
+        витрати або зсувати дату</div>`, { tone: "t-warn" });
   }
   const tight = limitLeft != null && limitLeft < room;
-  return `<div class="tile"><div class="lbl">Ще можна залізти</div>
-        <div class="val t-ok">${fmtMoney(e.headroom)}</div>
-        <div class="sub">до граничного боргу ${fmtMoney(e.max_debt)} — глибше при
-          витратах ${fmtMoney(e.spend_used)}/міс до ${esc(e.exit_by)} уже не вийти${tight
-    ? `; самі ліміти карток при цьому дозволяють лише ${fmtUAH(limitLeft)}` : ""}</div></div>`;
+  return tile("Ще можна залізти", fmtMoney(e.headroom),
+    `<div class="sub">до граничного боргу ${fmtMoney(e.max_debt)} при нинішніх витратах${tight
+      ? `; ліміти карток дозволяють лише ${fmtUAH(limitLeft)}` : ""}</div>`, { tone: "t-ok" });
 }
 
 /** Слово «картка» в потрібному числі: план буває спільним на кілька. */
@@ -296,18 +319,17 @@ function exitWalkHTML(e) {
  *  б намір на факт — а на живих даних вони розходяться в рази. */
 function spendGapHTML(e) {
   if (!e.spend_measured) {
-    return `<div class="sub">Виміряти витрати ще не вийшло: ${esc(e.burn_why || "")}
-      Доти стеля стоїть на заявлених ${fmtMoney(e.spend_declared)}/міс — це намір,
-      а не факт.</div>`;
+    return `<div class="sub-xs">виміряти ще не вийшло (${esc((e.burn_why || "").replace(/\.\s*$/, ""))});
+      стеля стоїть на заявлених — це намір, а не факт</div>`;
   }
   const diff = Number(e.spend_measured.amount) - Number(e.spend_declared.amount);
-  return `<div class="sub">Заявлено ${fmtMoney(e.spend_declared)}/міс, виміряно
-    ${fmtMoney(e.spend_measured)}/міс за ${esc(e.burn_from)} — ${esc(e.burn_to)}.
-    ${Math.abs(diff) < 1 ? "Сходиться."
+  return `<div class="sub-xs">заявлено ${fmtMoney(e.spend_declared)}/міс, виміряно
+    ${fmtMoney(e.spend_measured)}/міс за ${esc(e.burn_from)} — ${esc(e.burn_to)}${
+    Math.abs(diff) < 1 ? "; сходиться"
     : diff > 0
-      ? `<span class="t-warn">Витрачається на ${fmtUAH(diff)} більше, ніж заявлено —
-         і саме ця різниця тримає ліміт на дні.</span>`
-      : `Витрачається менше, ніж заявлено; стеля рахується з виміряного.`}</div>`;
+      ? `; <span class="t-warn">на ${fmtUAH(diff)} більше, ніж заявлено — саме ця
+         різниця тримає ліміт на дні</span>`
+      : "; менше, ніж заявлено — стеля рахується з виміряного"}</div>`;
 }
 
 /** Частини розстрочок, що спишуться до тієї ж дати.
@@ -321,11 +343,11 @@ function spendGapHTML(e) {
 function installmentsHTML(g) {
   const v = Number((g.installment_due || {}).amount || 0);
   if (!v) return "";
-  return `<div class="kv"><span class="muted">Спишеться частинами розстрочок до тієї ж дати</span>
-      <b>${fmtMoney(g.installment_due)}</b></div>
-    <div class="sub">Ці гроші підуть із картки до ${esc(g.due_date || "розрахункової дати")},
-      але лягають у НАСТУПНУ виписку — зі строком через місяць. До найближчої дати їх
-      вносити не треба; відсотки з неї нарахують лише на невнесену суму виписки.</div>`;
+  // «У наступну виписку» — і все: чому їх не треба вносити до найближчої
+  // дати, пояснює INFO.card. Абзац під рядком був тут третім поспіль.
+  return `<div class="kv"><span class="muted">Спишеться розстрочок до тієї ж дати
+      <span class="fine">— у наступну виписку</span></span>
+      <b class="nowrap">${fmtMoney(g.installment_due)}</b></div>`;
 }
 
 // ---------- ЧЕРГА ПОГАШЕННЯ ----------
@@ -831,17 +853,15 @@ export function debtOverviewHTML(s) {
   if (!d || (!d.total_uah && !d.cards_watched)) return "";
   return `<div class="card"><h2 class="h-row">Борг ${infoBtn("debts")}</h2>
     <div class="tiles flush">
-      <div class="tile"><div class="lbl">Під ставкою</div>
-        <div class="val ${d.total_uah ? "t-danger" : "t-ok"}">${fmtUAH(d.total_uah || 0)}</div>
-        <div class="sub">${d.top_name
-    ? `найдорожчий — ${esc(d.top_name)} під ${pct(d.top_rate_pct)}`
-    : "пільговий оборот не рахується: він нічого не коштує, доки закритий вчасно"}</div></div>
-      <div class="tile"><div class="lbl">Обовʼязкове цього місяця</div>
-        <div class="val">${fmtUAH(d.due_this_month_uah || 0)}</div>
-        <div class="sub">уже відняте від грошей місяця</div></div>
-      ${d.fill_now_uah ? `<div class="tile"><div class="lbl">Достроково ще</div>
-        <div class="val">${fmtUAH(d.fill_now_uah)}</div>
-        <div class="sub">із ${fmtUAH(d.fill_month_uah || 0)} місячної частки</div></div>` : ""}
+      ${tile("Під ставкою", fmtUAH(d.total_uah || 0),
+    `<div class="sub">${d.top_name
+      ? `найдорожчий — ${esc(d.top_name)} під ${pct(d.top_rate_pct)}`
+      : "пільговий оборот не рахується: він нічого не коштує, доки закритий вчасно"}</div>`,
+    { tone: d.total_uah ? "t-danger" : "t-ok" })}
+      ${tile("Обовʼязкове цього місяця", fmtUAH(d.due_this_month_uah || 0),
+    `<div class="sub">уже відняте від грошей місяця</div>`)}
+      ${d.fill_now_uah ? tile("Достроково ще", fmtUAH(d.fill_now_uah),
+    `<div class="sub">із ${fmtUAH(d.fill_month_uah || 0)} місячної частки</div>`) : ""}
     </div>
     <div class="sub"><a class="lnk" href="${routeFor("plan/debts/main")}">План → Борги</a>
       — чесна ставка кожного, черга погашення й дата, коли це скінчиться.</div>
