@@ -127,7 +127,8 @@ func (r *Runner) backupGenPath(at time.Time) string {
 // а не в os.TempDir.
 func writeAtomic(path string, data []byte) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	// 0600: дамп — уся база портфеля, і читати його мусить лише демон.
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -155,6 +156,9 @@ func (r *Runner) pruneBackups() {
 		n := e.Name()
 		if !e.IsDir() && strings.HasPrefix(n, prefix) && strings.HasSuffix(n, ext) {
 			gens = append(gens, n)
+			// Покоління, записані до переходу на 0600, лежали 0644. Правимо
+			// їх тут, раз на добу: прибирання однаково переглядає кожне.
+			os.Chmod(filepath.Join(filepath.Dir(r.backupPath), n), 0o600) //nolint:errcheck // права — не привід зривати прибирання
 		}
 	}
 	if len(gens) <= backupKeep {

@@ -104,7 +104,7 @@ func CloudflaredPath() string {
 
 // runCloudflared — конектор дочірнім процесом.
 //
-// Лише --token: конфіг тунелю живе в хмарі (config_src=cloudflare), тож
+// Лише токен: конфіг тунелю живе в хмарі (config_src=cloudflare), тож
 // ані файла конфігурації, ані credentials-файла тут не треба — і добре,
 // бо під юнітом /root і /etc/cloudflared демонові недосяжні
 // (ProtectHome=strict). HOME задається явно з тієї ж причини: юніт із
@@ -114,9 +114,12 @@ func (m *Manager) runCloudflared(ctx context.Context, token string) error {
 	if bin == "" {
 		return errors.New("cloudflared не встановлений")
 	}
+	// Токен — змінною TUNNEL_TOKEN, а не аргументом --token: командний
+	// рядок видно будь-кому в контейнері (ps, /proc/<pid>/cmdline), а
+	// середовище процесу — лише його власнику.
 	cmd := exec.CommandContext(ctx, bin, "tunnel", "--no-autoupdate",
-		"--loglevel", "warn", "run", "--token", token)
-	cmd.Env = append(os.Environ(), "HOME="+m.home)
+		"--loglevel", "warn", "run")
+	cmd.Env = append(os.Environ(), "HOME="+m.home, "TUNNEL_TOKEN="+token)
 	// Вивід конектора — у журнал демона: інакше причина «тунель не
 	// піднявся» лишилась би в /dev/null.
 	cmd.Stdout = logWriter{m.log, slog.LevelInfo}

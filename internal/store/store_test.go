@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -629,5 +630,38 @@ func TestSnapshotEURShareIsUnknownBeforeItsColumn(t *testing.T) {
 	// і сентинела в нього немає й бути не повинно.
 	if got[0].USDShareBP != 4200 {
 		t.Errorf("usd_share_bp = %d, чекали 4200", got[0].USDShareBP)
+	}
+}
+
+// База й копії перед міграціями — 0600: у таблиці secrets відкритим
+// текстом лежать токени Cloudflare і ключ сертифіката.
+func TestOpenTightensFileModes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	old := path + ".pre-0001_init"
+	if err := os.WriteFile(old, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, p := range []string{path, old} {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := fi.Mode().Perm(); m != 0o600 {
+			t.Errorf("%s: права %o, чекали 600", filepath.Base(p), m)
+		}
 	}
 }

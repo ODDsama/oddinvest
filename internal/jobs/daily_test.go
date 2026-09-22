@@ -122,6 +122,18 @@ func TestBackupRotates(t *testing.T) {
 		t.Fatalf("сьогоднішнє покоління прибрали: %v", err)
 	}
 
+	// Дамп — уся база портфеля: лише власнику, включно з поколіннями,
+	// записаними ще з правами 0644 (фікстура вище саме так їх і кладе).
+	for _, g := range gens {
+		fi, err := os.Stat(filepath.Join(dir, g))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := fi.Mode().Perm(); m != 0o600 {
+			t.Errorf("%s: права %o, чекали 600", g, m)
+		}
+	}
+
 	// І дамп читається як бекап, а не як будь-що.
 	data, err := os.ReadFile(filepath.Join(dir, today))
 	if err != nil {

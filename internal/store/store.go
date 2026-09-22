@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,7 +51,41 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	tightenFiles(path)
 	return &Store{db: db, pid: MainPortfolio}, nil
+}
+
+// tightenFiles — база, її журнали й копії перед міграціями читаються лише
+// власником (0600).
+//
+// SQLite створює файл із правами за umask процесу, тобто 0644: будь-який
+// користувач контейнера читав би базу — а в ній відкритим текстом лежать
+// токен Cloudflare, токен тунелю й ключ сертифіката (таблиця secrets), і
+// ті самі секрети їдуть у кожну копію .pre-*. -wal і -shm SQLite
+// створює з правами самої бази, тож досить поправити її до першого
+// запису; наявні журнали правимо заодно. Каталог не чіпаємо навмисно: у
+// розробці база лежить просто в /tmp.
+//
+// Помилки ковтаються: файла може не бути (журнал ще не створено), а
+// невдалий chmod — не привід не стартувати.
+func tightenFiles(dbPath string) {
+	if dbPath == "" || strings.HasPrefix(dbPath, ":memory:") {
+		return
+	}
+	for _, p := range []string{dbPath, dbPath + "-wal", dbPath + "-shm"} {
+		os.Chmod(p, 0o600) //nolint:errcheck // файла може не бути; довід вище
+	}
+	dir := filepath.Dir(dbPath)
+	prefix := filepath.Base(dbPath) + ".pre-"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
+			os.Chmod(filepath.Join(dir, e.Name()), 0o600) //nolint:errcheck // довід вище
+		}
+	}
 }
 
 // For — те саме сховище, звужене до іншого портфеля. Копія, а не новий
