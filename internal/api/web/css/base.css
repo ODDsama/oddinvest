@@ -2175,6 +2175,9 @@ main { transition: opacity var(--oi-dur) var(--oi-ease); }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .toast.ok { background: var(--oi-ok); }
 .toast.err { background: var(--oi-danger); }
+/* Помилка сервера під формою (forms.js, formError): лишається, доки форму
+   не відправлять знову. */
+.form-err { margin-top: var(--oi-gap-sm); color: var(--oi-danger); font-size: var(--oi-fs-sm); }
 
 /* --- ритм і дрібні носії --- */
 

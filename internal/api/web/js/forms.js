@@ -19,16 +19,41 @@ import { money as fmtMoney } from "./format.js";
  *  це байдуже (значення просто ігнорується), а модальній правці — ні:
  *  без нього вона не відрізнить «збережено» від «400 від валідатора» і
  *  або закриється, зʼївши введене, або не закриється ніколи. */
-export async function apply(ctx, { method = "POST", path, body }, msg) {
+export async function apply(ctx, { method = "POST", path, body }, msg, form = null) {
   try {
     await ctx.api(method, path, body);
     if (msg) ctx.toast(msg);
     ctx.reload();
     return true;
   } catch (err) {
-    ctx.toast(String(err.message || err), false);
+    const text = String(err.message || err);
+    ctx.toast(text, false);
+    formError(form, text);
     return false;
   }
+}
+
+/** Помилка сервера ПІД САМОЮ ФОРМОЮ, а не лише тостом.
+ *
+ *  Тост живе кілька секунд у кутку екрана, і на довгій формі (вклад, лот
+ *  із комісією) людина, що дивилась на поля, його просто не бачила:
+ *  натискала ще раз і отримувала той самий 400. Рядок під формою лишається,
+ *  доки форму не відправлять знову, і каже рівно те саме, що бекенд.
+ *  role="alert" — щоб зчитувач екрана оголосив його одразу. */
+export function formError(form, text) {
+  if (!form) return;
+  let el = form.querySelector(":scope > .form-err");
+  if (!text) {
+    if (el) el.remove();
+    return;
+  }
+  if (!el) {
+    el = document.createElement("div");
+    el.className = "form-err";
+    el.setAttribute("role", "alert");
+    form.appendChild(el);
+  }
+  el.textContent = text;
 }
 
 /** Кілька записів поспіль як ОДНА правка: усі запити по черзі, тост і
@@ -62,13 +87,30 @@ export async function applyAll(ctx, reqs, msg) {
  *  form може бути null: проводка шукає елементи через querySelector, і доти,
  *  доки перевірки не було, умовний рендер однієї картки обривав реєстрацію
  *  всіх наступних обробників розділу. */
+//
+// Другий сабміт, доки перший у дорозі, ІГНОРУЄТЬСЯ, а кнопка на цей час
+// вимкнена. Доти так поводилась лише onSubmitFunded; звичайна форма на
+// повільному зʼєднанні (тунель, телефон) від подвійного кліку записувала
+// дві однакові операції — і «видалити й набрати заново» тут гірше за
+// обидві, бо з першою зникає те, що на неї посилається.
 export function onSubmit(ctx, form, build) {
   if (!form) return;
+  let busy = false;
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (busy) return;
     const req = build(e.target);
     if (!req) return;
-    await apply(ctx, req, req.msg);
+    busy = true;
+    const btn = form.querySelector("[type=submit], button:not([type])");
+    if (btn) btn.disabled = true;
+    formError(form, "");
+    try {
+      await apply(ctx, req, req.msg, form);
+    } finally {
+      busy = false;
+      if (btn) btn.disabled = false;
+    }
   });
 }
 

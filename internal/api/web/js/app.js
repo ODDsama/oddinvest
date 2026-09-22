@@ -403,12 +403,17 @@ export class OddInvestApp extends HTMLElement {
     return this._store[m](path, body);
   }
 
+  // Помилка — role="alert" і довше на екрані: у ввічливій (polite) черзі
+  // зчитувач екрана доти оголошував відмову сервера після всього іншого,
+  // а чотири секунди — замало, щоб дочитати текст валідатора.
   _toast(msg, ok = true) {
     const t = this.shadowRoot.getElementById("toast");
     t.textContent = msg;
     t.className = ok ? "toast ok show" : "toast err show";
+    t.setAttribute("role", ok ? "status" : "alert");
+    t.setAttribute("aria-live", ok ? "polite" : "assertive");
     clearTimeout(this._toastTimer);
-    this._toastTimer = setTimeout(() => t.classList.remove("show"), 4000);
+    this._toastTimer = setTimeout(() => t.classList.remove("show"), ok ? 4000 : 8000);
   }
 
   // Брокери: з довідника ∪ ті, що вже зустрічались у лотах і балансах.
