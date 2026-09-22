@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,9 +23,14 @@ import (
 // тягнеться ОДИН раз на прогін, а знімок і дамп дістає КОЖЕН портфель у
 // своє місце.
 func TestFleetRefreshesOnceAndPersistsEach(t *testing.T) {
+	// Лічимо саме запити ДОВІДНИКА: відколи його збій не обриває курсів,
+	// аукціонів і ІСЦ (RefreshAll), прогін робить і їх — але кожен теж
+	// рівно раз на флот, і межу стереже саме довідник.
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls.Add(1)
+		if strings.Contains(r.URL.Path, "depo_securities") {
+			calls.Add(1)
+		}
 		http.Error(w, "лежить", http.StatusInternalServerError)
 	}))
 	t.Cleanup(srv.Close)
@@ -53,11 +59,10 @@ func TestFleetRefreshesOnceAndPersistsEach(t *testing.T) {
 	ctx := context.Background()
 	f.dailyRun(ctx)
 
-	// Один прогін — один похід до НБУ (перший же запит падає на 500, тож
-	// далі RefreshAll не йде). Два означали б, що сателіт тягне довідник
-	// сам.
+	// Один прогін — один запит довідника. Два означали б, що сателіт тягне
+	// довідник сам.
 	if n := calls.Load(); n != 1 {
-		t.Errorf("запитів до НБУ %d, хочемо 1", n)
+		t.Errorf("запитів довідника НБУ %d, хочемо 1", n)
 	}
 	today := domain.NewDate(time.Now().In(main.loc))
 	for _, s := range []*store.Store{st, st.For(wid)} {

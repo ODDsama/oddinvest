@@ -164,3 +164,24 @@ func generations(t *testing.T, dir string) []string {
 	}
 	return out
 }
+
+// Довідник НБУ лежить, курси — ні. Доти RefreshAll виходив на першій же
+// помилці довідника, і курс того дня не зберігався, хоч його віддавали:
+// гривневі еквіваленти мовчки старіли разом із довідником.
+func TestRatesSurviveDeadDirectory(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.RawQuery, "valcode=USD") {
+			w.Write([]byte(`[{"rate":44.5,"cc":"USD","exchangedate":"22.09.2026"}]`)) //nolint:errcheck // тестова заглушка
+			return
+		}
+		http.Error(w, "боляче", http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+	r, st := dailyRunner(t, srv.URL, filepath.Join(t.TempDir(), "b.json"))
+	if err := r.RefreshAll(context.Background()); err == nil {
+		t.Error("збій довідника мусить лишатись помилкою — з неї RunDaily вирішує про повтор")
+	}
+	if rate, err := st.LatestRate(context.Background(), "USD"); err != nil || rate != 445000 {
+		t.Errorf("курс USD після збою довідника: %d, %v — чекали 445000", rate, err)
+	}
+}

@@ -1164,6 +1164,20 @@ func (s *Store) RateMonthCount(ctx context.Context, code string) (int, error) {
 	return n, err
 }
 
+// LatestRateDate — дата останнього збереженого курсу валюти; порожня, якщо
+// курсу немає зовсім. Курс береться «останній будь-якої давності»
+// (LatestRate), тож його вік мусить бути видно окремо — інакше тиждень
+// мовчання НБУ читався б як сьогоднішня правда про гривневі еквіваленти.
+func (s *Store) LatestRateDate(ctx context.Context, code string) (domain.Date, error) {
+	var d string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT date FROM fx_rates WHERE code=? ORDER BY date DESC LIMIT 1`, code).Scan(&d)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return domain.Date(d), err
+}
+
 func (s *Store) LatestRate(ctx context.Context, code string) (int64, error) {
 	var r int64
 	err := s.db.QueryRowContext(ctx,

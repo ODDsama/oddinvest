@@ -88,22 +88,39 @@ func (s Satellite) RefreshQuotes(ctx context.Context, isins []string) (finomo.Ru
 // RefreshAll НЕ обриває послідовність: його помилка означає лише «НБУ
 // мовчить», а знімки й бекапи рахуються з того, що вже в базі, і чужа
 // недоступність не привід їх пропустити (шапка Runner.RefreshAll).
-func (f *Fleet) dailyRun(ctx context.Context) {
-	cctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	if err := f.main.RefreshAll(cctx); err != nil {
-		f.main.log.Error("добове оновлення довідника", "err", err)
+//
+// КОЖНА ФАЗА — СВІЙ ТАЙМАУТ. Доти одні пʼять хвилин ділили всі кроки, і
+// НБУ, що відповідає по 30 секунд на запит, зʼїдав час знімкам і бекапам
+// портфелів, які від нього не залежать узагалі.
+//
+// Повертає помилку оновлення НБУ: за нею RunDaily вирішує про повтор.
+func (f *Fleet) dailyRun(ctx context.Context) error {
+	rctx, rcancel := context.WithTimeout(ctx, 3*time.Minute)
+	refreshErr := f.main.RefreshAll(rctx)
+	rcancel()
+	if refreshErr != nil {
+		f.main.log.Error("добове оновлення НБУ", "err", refreshErr)
 	}
 	for _, r := range f.runners() {
-		r.persistDaily(cctx)
-		if err := r.PublishState(cctx); err != nil {
+		pctx, pcancel := context.WithTimeout(ctx, 2*time.Minute)
+		r.persistDaily(pctx)
+		if err := r.PublishState(pctx); err != nil {
 			r.log.Error("добова публікація", "err", err)
 		}
+		pcancel()
 	}
-	if err := f.main.st.Maintain(cctx); err != nil {
+	mctx, mcancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer mcancel()
+	if err := f.main.st.Maintain(mctx); err != nil {
 		f.main.log.Error("обслуговування сховища", "err", err)
 	}
+	return refreshErr
 }
+
+// refreshRetries — скільки разів за день повторити прогін, якщо НБУ
+// лежав: щогодини до 12:10. Далі — завтра о 06:10, як і доти. Повтор —
+// увесь прогін, бо він ідемпотентний (upsert знімка, перезапис дампа).
+const refreshRetries = 6
 
 // RunDaily — цикл: щодня о 06:10 Києва добовий прогін.
 //
@@ -116,24 +133,42 @@ func (f *Fleet) dailyRun(ctx context.Context) {
 // Коштує наздоганяння нічого, бо крок ідемпотентний: (portfolio_id, date)
 // у snapshots — PRIMARY KEY, а SaveSnapshot робить upsert, тож повторний
 // прогін того самого дня перезаписує рядок тими самими числами.
+//
+// ПОВТОР ПІСЛЯ ЗБОЮ. Доти НБУ, що лежав о 06:10, коштував цілої доби
+// несвіжих даних: наступна спроба — лише завтра. Тепер прогін, чиє
+// оновлення впало, повторюється щогодини (refreshRetries разів), і
+// лічильник скидається першим же вдалим прогоном.
 func (f *Fleet) RunDaily(ctx context.Context) {
+	failed := false
 	if f.needsCatchUp(ctx) {
 		f.main.log.Info("знімка за сьогодні немає — наздоганяю")
-		f.dailyRun(ctx)
+		failed = f.dailyRun(ctx) != nil
 	}
 	loc := f.main.loc
+	retries := 0
 	for {
 		now := time.Now().In(loc)
 		next := time.Date(now.Year(), now.Month(), now.Day(), 6, 10, 0, 0, loc)
 		if !next.After(now) {
 			next = next.Add(24 * time.Hour)
 		}
-		f.main.log.Info("наступне оновлення", "at", next.Format(time.RFC3339))
+		retry := false
+		if failed && retries < refreshRetries {
+			if r := now.Add(time.Hour); r.Before(next) {
+				next, retry = r, true
+			}
+		}
+		f.main.log.Info("наступне оновлення", "at", next.Format(time.RFC3339), "повтор", retry)
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(time.Until(next)):
-			f.dailyRun(ctx)
+			if retry {
+				retries++
+			} else {
+				retries = 0
+			}
+			failed = f.dailyRun(ctx) != nil
 		}
 	}
 }

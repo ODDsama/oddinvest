@@ -138,6 +138,10 @@ type sources struct {
 	deposits    []store.Deposit
 	conversions []store.Conversion
 	statuses    map[string]string
+	// ratesAsOf — дата НАЙСТАРІШОГО з останніх курсів USD і EUR: вік
+	// гривневих еквівалентів визначає той курс, що відстав. Порожньо, коли
+	// курсів немає зовсім (свіжа база) — тоді й старіти нічому.
+	ratesAsOf domain.Date
 
 	// Пороги й курси-запаснки: найдешевший папір у валюті, мінімум вкладу,
 	// середній курс купівлі валюти.
@@ -207,6 +211,15 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	}
 	if src.statuses, err = s.st.PaymentStatuses(ctx); err != nil {
 		return nil, err
+	}
+	for _, code := range []string{money.USD, money.EUR} {
+		d, derr := s.st.LatestRateDate(ctx, code)
+		if derr != nil {
+			return nil, derr
+		}
+		if d != "" && (src.ratesAsOf == "" || d.Before(src.ratesAsOf)) {
+			src.ratesAsOf = d
+		}
 	}
 	if src.conversions, err = s.st.ListConversions(ctx); err != nil {
 		return nil, err

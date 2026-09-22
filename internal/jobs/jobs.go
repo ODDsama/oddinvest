@@ -186,20 +186,14 @@ func (r *Runner) pruneBackups() {
 // НБУ віддасть ще раз завтра, а лоти, вклади й план — ніхто. Перше може
 // впасти й почекати, друге мусить статись у будь-якому разі; хто це
 // зводить докупи — RunDaily.
+//
+// ДОВІДНИК НЕ ОБРИВАЄ РЕШТИ. Доти його помилка виходила з функції першою
+// ж, і курси, аукціони й ІСЦ того дня не тягнулись зовсім, хоч їх
+// віддавали: гривневі еквіваленти мовчки старіли разом із довідником.
+// Тепер кожне джерело пробується своїм запитом, а помилка довідника
+// повертається НАОСТАНОК — з неї Fleet.RunDaily вирішує про повтор.
 func (r *Runner) RefreshAll(ctx context.Context) error {
-	secs, err := r.nbu.Securities(ctx)
-	if err != nil {
-		return err
-	}
-	if err := r.st.ReplaceDirectory(ctx, secs, time.Now()); err != nil {
-		return err
-	}
-	// Позначаємо час успішного оновлення: інакше несвіжість довідника
-	// лишається тихою (порожній довідник ми свого часу помітили випадково).
-	if err := r.st.SetAppState(ctx, "nbu_refreshed_at", time.Now().UTC().Format(time.RFC3339)); err != nil {
-		r.log.Warn("не зберіг час оновлення довідника", "err", err)
-	}
-	r.log.Info("довідник НБУ оновлено", "паперів", len(secs))
+	dirErr := r.refreshDirectory(ctx)
 
 	rateDate := domain.NewDate(time.Now().In(r.loc))
 	for _, code := range []string{"USD", "EUR"} {
@@ -232,6 +226,26 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 	if err := r.RefreshCPI(ctx); err != nil {
 		r.log.Warn("ІСЦ недоступний", "err", err)
 	}
+	return dirErr
+}
+
+// refreshDirectory — довідник НБУ й мітка його свіжості.
+func (r *Runner) refreshDirectory(ctx context.Context) error {
+	secs, err := r.nbu.Securities(ctx)
+	if err != nil {
+		return err
+	}
+	if err := r.st.ReplaceDirectory(ctx, secs, time.Now()); err != nil {
+		return err
+	}
+	// Позначаємо час успішного оновлення: інакше несвіжість довідника
+	// лишається тихою (порожній довідник ми свого часу помітили випадково).
+	// Про курси ця мітка нічого не каже — їхній вік видно з дати самого
+	// курсу (задача fx-stale).
+	if err := r.st.SetAppState(ctx, "nbu_refreshed_at", time.Now().UTC().Format(time.RFC3339)); err != nil {
+		r.log.Warn("не зберіг час оновлення довідника", "err", err)
+	}
+	r.log.Info("довідник НБУ оновлено", "паперів", len(secs))
 	return nil
 }
 

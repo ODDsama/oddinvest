@@ -276,3 +276,26 @@ func TestRebalanceTaskNeedsWholeTicket(t *testing.T) {
 		t.Errorf("задача не сказала про валюту на рахунку: %q", got.Why)
 	}
 }
+
+// Курс, що відстав на тиждень, мусить стати задачею: гривневі еквіваленти
+// рахуються за ним мовчки. Курс пʼятниці в понеділок — ні.
+func TestFXStaleTask(t *testing.T) {
+	has := func(tasks []state.Task) bool {
+		for _, x := range tasks {
+			if x.ID == "fx-stale" {
+				return true
+			}
+		}
+		return false
+	}
+	// Порожній портфель відповідає лише «почни»; задачі про дані — тим, хто
+	// вже щось тримає.
+	doc := func() *state.Doc { return &state.Doc{NominalUAHEq: state.Major(10_000, money.UAH)} }
+	if has(buildTasks(doc(), nil, &sources{ratesAsOf: "2026-09-18"}, "2026-09-21")) {
+		t.Error("курс пʼятниці в понеділок — не задача")
+	}
+	got := buildTasks(doc(), nil, &sources{ratesAsOf: "2026-09-14"}, "2026-09-21")
+	if !has(got) {
+		t.Errorf("тижневий курс мав дати задачу: %+v", got)
+	}
+}
