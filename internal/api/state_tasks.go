@@ -1262,7 +1262,7 @@ func rebalanceTask(doc *state.Doc) (state.Task, bool) {
 		ID: "rebalance-" + worst.Currency, Sev: sevWatch, Rank: 12,
 		Title: fmt.Sprintf("%s нижче цілі: %s%% проти %s%%", worst.Currency,
 			pct1(worst.CurrentPct), pct1(worst.TargetPct)),
-		Why: why,
+		Why:       why,
 		Action:    actReviewRebalance,
 		AmountUAH: worst.DeficitUAH,
 	}, true
