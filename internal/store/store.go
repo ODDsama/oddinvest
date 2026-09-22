@@ -648,25 +648,62 @@ func (s *Store) AvgRateByCurrency(ctx context.Context, today domain.Date) (map[s
 // --- довідник ---
 
 // ReplaceDirectory атомарно оновлює кеш довідника НБУ (весь ринок).
+//
+// «Замінити» — не зовсім: довідник тут не лише кеш ринку, а й єдине місце,
+// де живе графік виплат паперів, які ТРИМАЮТЬ. Доти функція витирала
+// обидві таблиці дощенту й заливала рівно те, що НБУ віддав сьогодні. Щойно
+// погашений папір випадав би з /depo_securities, лот ставав невідомим
+// (domain.NewHoldings, Known=false), і з гаманця, XIRR та податкового
+// звіту зникали вже отримані купони й погашення — а списання за купівлю
+// лишалось. НБУ не обіцяє тримати погашені папери вічно.
+//
+// Тому правила три:
+//   - папір, якого немає в жодному лоті (жодного портфеля), замінюється
+//     цілком, як і раніше;
+//   - папір у лотах, що зник із вибірки, лишається з усім графіком;
+//   - у паперу в лотах, що у вибірці є, МАЙБУТНІ виплати (від fetchedAt)
+//     беруться від НБУ — виправлення графіка мусить доходити, — а минулі
+//     лишаються фактом, навіть якщо НБУ їх більше не віддає.
+//
+// Порожня вибірка — збій джерела, а не ринок без паперів: помилка, і
+// довідник лишається вчорашнім.
 func (s *Store) ReplaceDirectory(ctx context.Context, secs []nbu.Security, fetchedAt time.Time) error {
+	if len(secs) == 0 {
+		return errors.New("довідник НБУ прийшов порожнім — лишаю попередній")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM payments`); err != nil {
+	// Лоти — всіх портфелів навмисно: довідник спільний, і папір, який
+	// тримає хоч один портфель, не можна витерти з-під нього.
+	if _, err := tx.Exec(`DELETE FROM payments WHERE isin NOT IN (SELECT isin FROM lots)`); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM bonds`); err != nil {
+	if _, err := tx.Exec(`DELETE FROM bonds WHERE isin NOT IN (SELECT isin FROM lots)`); err != nil {
 		return err
 	}
+	// UPSERT, а не INSERT OR REPLACE: REPLACE видаляє рядок перед вставкою,
+	// і каскад забрав би з собою графік тримача.
 	bstmt, err := tx.Prepare(`INSERT INTO bonds
 		(isin, nominal, currency, rate_bp, maturity, descr, fetched_at)
-		VALUES (?,?,?,?,?,?,?)`)
+		VALUES (?,?,?,?,?,?,?)
+		ON CONFLICT(isin) DO UPDATE SET nominal = excluded.nominal,
+			currency = excluded.currency, rate_bp = excluded.rate_bp,
+			maturity = excluded.maturity, descr = excluded.descr,
+			fetched_at = excluded.fetched_at`)
 	if err != nil {
 		return err
 	}
 	defer bstmt.Close()
+	// Майбутнє паперу у вибірці — за НБУ. Для нічиїх паперів рядків уже
+	// немає, тож це стосується лише тримачів.
+	fstmt, err := tx.Prepare(`DELETE FROM payments WHERE isin = ? AND pay_date >= ?`)
+	if err != nil {
+		return err
+	}
+	defer fstmt.Close()
 	pstmt, err := tx.Prepare(`INSERT OR REPLACE INTO payments
 		(isin, pay_date, pay_type, per_bond) VALUES (?,?,?,?)`)
 	if err != nil {
@@ -674,11 +711,15 @@ func (s *Store) ReplaceDirectory(ctx context.Context, secs []nbu.Security, fetch
 	}
 	defer pstmt.Close()
 	ft := fetchedAt.UTC().Format(time.RFC3339)
+	cut := string(domain.NewDate(fetchedAt))
 	for _, sec := range secs {
 		b := sec.Bond
 		if _, err := bstmt.Exec(b.ISIN, b.Nominal.Amount(), b.Nominal.Currency().Code,
 			b.RateBP, string(b.Maturity), b.Descr, ft); err != nil {
 			return fmt.Errorf("bond %s: %w", b.ISIN, err)
+		}
+		if _, err := fstmt.Exec(b.ISIN, cut); err != nil {
+			return fmt.Errorf("графік %s: %w", b.ISIN, err)
 		}
 		for _, p := range sec.Payments {
 			if _, err := pstmt.Exec(p.ISIN, string(p.PayDate), int(p.Type), p.PerBond.Amount()); err != nil {

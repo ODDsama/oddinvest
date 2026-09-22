@@ -112,6 +112,92 @@ func TestDirectoryReplaceAndSearch(t *testing.T) {
 	}
 }
 
+// Папір, що зник із вибірки НБУ, але лежить у лотах, мусить лишитись у
+// довіднику разом із МИНУЛИМИ виплатами: без нього лот стає невідомим, і
+// з гаманця, XIRR та податкового звіту зникають уже отримані купони й
+// погашення — а списання за купівлю лишається. НБУ не зобовʼязаний
+// тримати погашені папери вічно.
+//
+// І навпаки: майбутній графік тримаємо за НБУ (виправлення графіка мусить
+// доходити), а папір, якого ніхто не тримає, прибираємо, як і раніше.
+func TestReplaceDirectoryKeepsHeldHistory(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	past := domain.NewDate(time.Now()).AddDays(-30)
+	future := domain.NewDate(time.Now()).AddDays(60)
+	held := nbu.Security{
+		Bond: domain.Bond{ISIN: "UAHELD", Nominal: money.New(100000, money.UAH),
+			RateBP: 1600, Maturity: future, Descr: "у лотах"},
+		Payments: []domain.Payment{
+			{ISIN: "UAHELD", PayDate: past, Type: domain.PayCoupon, PerBond: money.New(8000, money.UAH)},
+			{ISIN: "UAHELD", PayDate: future, Type: domain.PayCoupon, PerBond: money.New(8000, money.UAH)},
+		},
+	}
+	other := nbu.Security{Bond: domain.Bond{ISIN: "UAOTHER", Nominal: money.New(100000, money.UAH),
+		RateBP: 1500, Maturity: future, Descr: "нічий"}}
+	if err := s.ReplaceDirectory(ctx, []nbu.Security{held, other}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddLot(ctx, domain.Lot{ISIN: "UAHELD", Qty: 2,
+		PricePerBond: money.New(100000, money.UAH), BuyDate: past.AddDays(-10), Channel: "mono"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. НБУ віддав графік без минулого купона і з виправленим майбутнім.
+	trimmed := held
+	trimmed.Payments = []domain.Payment{
+		{ISIN: "UAHELD", PayDate: future, Type: domain.PayCoupon, PerBond: money.New(8100, money.UAH)},
+	}
+	if err := s.ReplaceDirectory(ctx, []nbu.Security{trimmed, other}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	pays, err := s.PaymentsFor(ctx, []string{"UAHELD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[domain.Date]int64{}
+	for _, p := range pays {
+		got[p.PayDate] = p.PerBond.Amount()
+	}
+	if got[past] != 8000 {
+		t.Errorf("минулий купон тримача зник або змінився: %+v", got)
+	}
+	if got[future] != 8100 {
+		t.Errorf("виправлення майбутнього купона не дійшло: %+v", got)
+	}
+
+	// 2. НБУ більше не віддає папір узагалі — тримач лишає його собі,
+	// нічий прибирається.
+	fresh := nbu.Security{Bond: domain.Bond{ISIN: "UANEW", Nominal: money.New(100000, money.UAH),
+		RateBP: 1700, Maturity: future, Descr: "новий"}}
+	if err := s.ReplaceDirectory(ctx, []nbu.Security{fresh}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	all, err := s.SearchBonds(ctx, "", "", "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isins := map[string]bool{}
+	for _, b := range all {
+		isins[b.ISIN] = true
+	}
+	if !isins["UAHELD"] || isins["UAOTHER"] || !isins["UANEW"] {
+		t.Errorf("після зникнення з вибірки: %v — чекали UAHELD і UANEW без UAOTHER", isins)
+	}
+	if pays, _ := s.PaymentsFor(ctx, []string{"UAHELD"}); len(pays) != 2 {
+		t.Errorf("графік тримача мав лишитись цілим (2 виплати), маємо %d", len(pays))
+	}
+
+	// 3. Порожня вибірка — збій джерела, а не порожній ринок: довідник
+	// лишається як був.
+	if err := s.ReplaceDirectory(ctx, nil, time.Now()); err == nil {
+		t.Error("порожня вибірка мала повернути помилку")
+	}
+	if all, _ := s.SearchBonds(ctx, "", "", "", "", 10); len(all) != 2 {
+		t.Errorf("порожня вибірка зачепила довідник: %d паперів", len(all))
+	}
+}
+
 func TestSettingsRatesSnapshotsStatuses(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
