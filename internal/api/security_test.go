@@ -1,0 +1,57 @@
+package api
+
+import (
+	"crypto/sha256"
+	"encoding/base64"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+// Вбудований скрипт index.html мусить бути в політиці ЗА ХЕШЕМ. Інакше
+// браузер відмовиться його виконати, і сторінка лишиться порожньою —
+// причому на бойовому, а не в тестах: Go такої помилки не бачить.
+func TestCSPCoversIndexInlineScript(t *testing.T) {
+	index := indexHTML()
+	m := inlineScriptRe.FindAllSubmatch(index, -1)
+	if len(m) != 1 {
+		t.Fatalf("у index.html чекали рівно один вбудований модуль, маємо %d — "+
+			"перевір inlineScriptRe, якщо розмітку змінено", len(m))
+	}
+	sum := sha256.Sum256(m[0][1])
+	want := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+	if csp := contentSecurityPolicy(); !strings.Contains(csp, want) {
+		t.Errorf("політика не містить хеша вбудованого скрипта %s: %s", want, csp)
+	}
+}
+
+// Заголовки стоять на будь-якій відповіді — і статиці, і API, і помилці.
+func TestSecurityHeadersEverywhere(t *testing.T) {
+	srv, _ := testHub(t)
+	for _, path := range []string{"/", "/api/summary", "/api/nope"} {
+		resp, _ := doP(t, "GET", srv.URL+path, "", nil)
+		for k, v := range map[string]string{
+			"X-Content-Type-Options": "nosniff",
+			"X-Frame-Options":        "DENY",
+			"Referrer-Policy":        "same-origin",
+		} {
+			if got := resp.Header.Get(k); got != v {
+				t.Errorf("%s: %s = %q, чекали %q", path, k, got, v)
+			}
+		}
+		if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "frame-ancestors 'none'") {
+			t.Errorf("%s: CSP без frame-ancestors: %q", path, csp)
+		}
+	}
+}
+
+// Тіло понад стелю не читається в памʼять до кінця: обробник дістає
+// помилку читання й відповідає помилкою, а не 2xx.
+func TestBodyOverLimitRejected(t *testing.T) {
+	srv, _ := testHub(t)
+	big := `{"note":"` + strings.Repeat("x", maxBodyBytes+1) + `"}`
+	resp, _ := doP(t, "POST", srv.URL+"/api/deposits", big, nil)
+	if resp.StatusCode < http.StatusBadRequest {
+		t.Errorf("тіло понад %d байт прийнято: %d", maxBodyBytes, resp.StatusCode)
+	}
+}

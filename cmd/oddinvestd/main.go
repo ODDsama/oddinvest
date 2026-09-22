@@ -220,7 +220,7 @@ func main() {
 	// екземпляри означали б дві копії того самого без жодної потреби.
 	h := hub.Handler()
 
-	httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: h}
+	httpSrv := newHTTPServer(cfg.HTTPAddr, h)
 	go func() {
 		log.Info("http слухає", "addr", cfg.HTTPAddr)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -239,10 +239,8 @@ func main() {
 	// помилку не відрізнити від зупинки, — а stop() свідомо не кличемо.
 	var tlsSrv *http.Server
 	if cfg.HTTPSAddr != "" {
-		tlsSrv = &http.Server{
-			Addr: cfg.HTTPSAddr, Handler: h,
-			TLSConfig: &tls.Config{GetCertificate: tun.Certificate, MinVersion: tls.VersionTLS12},
-		}
+		tlsSrv = newHTTPServer(cfg.HTTPSAddr, h)
+		tlsSrv.TLSConfig = &tls.Config{GetCertificate: tun.Certificate, MinVersion: tls.VersionTLS12}
 		if ln, err := net.Listen("tcp", cfg.HTTPSAddr); err != nil {
 			log.Warn("https не слухає — локальний доступ по домену не працюватиме",
 				"addr", cfg.HTTPSAddr, "err", err)
@@ -273,5 +271,26 @@ func main() {
 		if err := tlsSrv.Shutdown(shCtx); err != nil {
 			log.Error("зупинка HTTPS", "err", err)
 		}
+	}
+}
+
+// newHTTPServer — сервер з таймаутами; однаковий для обох слухачів.
+//
+// Без них одне зʼєднання, що шле заголовки по байту на хвилину, тримало
+// б горутину й сокет вічно, а застосунок виходить в інтернет тунелем.
+// Межі щедрі там, де законний запит справді довгий:
+//   - заголовки — 10 с: їм нема чого йти довше навіть із телефона;
+//   - тіло — 2 хв: файл виписки до 16 МіБ по поганому мобільному;
+//   - відповідь — 10 хв: «Оновити НБУ» з досипкою історії й повний бекап
+//     бувають довгими, а стримінгових відповідей тут немає зовсім;
+//   - простій keep-alive — 2 хв.
+func newHTTPServer(addr string, h http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       2 * time.Minute,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
 	}
 }

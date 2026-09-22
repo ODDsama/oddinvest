@@ -116,7 +116,7 @@ func (h *Hub) attach(p store.Portfolio) *satellite {
 
 // Handler — журнал, заборона кешу, ОДИН замок, диспетчер.
 func (h *Hub) Handler() http.Handler {
-	return logMiddleware(h.log, noStoreAPI(h.main.requireAuth(http.HandlerFunc(h.dispatch))))
+	return logMiddleware(h.log, securityHeaders(noStoreAPI(h.main.requireAuth(http.HandlerFunc(h.dispatch)))))
 }
 
 // mainOnly — маршрути, що не мають портфеля: вхід, пароль, токен машин,
