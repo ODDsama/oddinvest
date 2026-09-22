@@ -103,7 +103,7 @@ func TestLotLifecycleAndSummary(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("summary: %d %s", resp.StatusCode, body)
 	}
-	for _, want := range []string{`"schema":3`, `"currency":"UAH"`, `"invested_uah":4975`, `"next_payment"`, `"2026-09-16"`} {
+	for _, want := range []string{`"schema":3`, `"currency":"UAH"`, `"invested_uah":4975`, `"next_payment":{"date":"2027-03-17"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("summary не містить %s: %s", want, body)
 		}
@@ -3621,8 +3621,11 @@ func TestKindSharesSumToHundredWithoutCash(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// Купівля СЬОГОДНІ, а не фіксованою датою: з датою 2026-07-01 купон
+	// 16.09 належав лоту, і після того дня на рахунку лишались 827,50 ₴ —
+	// тест мовчки перетворився на бомбу з годинником.
 	if resp, b := do(t, "POST", srv.URL+"/api/lots",
-		`{"isin":"UA4000227748","qty":10,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+		`{"isin":"UA4000227748","qty":10,"price_per_bond":"1000.00","buy_date":"`+string(domain.NewDate(time.Now()))+`","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("лот: %d %s", resp.StatusCode, b)
 	}
 	// Резерв навмисно великий: якби він лишався в знаменнику, сума часток

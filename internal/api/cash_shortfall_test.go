@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	money "github.com/Rhymond/go-money"
 
@@ -108,9 +110,11 @@ func TestLotCheckFromNegativeBalance(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 	// Лот без жодного поповнення: рахунок inzhur іде в мінус на 1 000 ₴.
+	// Куплено СЬОГОДНІ: з фіксованою датою 2026-07-01 лоту належав купон
+	// 16.09, і після того дня баланс ставав −917,25 замість −1 000.
 	if _, err := st.AddLot(context.Background(), domain.Lot{
 		ISIN: "UA4000227748", Qty: 1, PricePerBond: money.New(1000_00, money.UAH),
-		BuyDate: "2026-07-01", Channel: "inzhur",
+		BuyDate: domain.NewDate(time.Now()), Channel: "inzhur",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -131,15 +135,19 @@ func TestLotCheckFromNegativeBalance(t *testing.T) {
 func TestTopUpThenBuyLandsAtZero(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
-	// Стартуємо з боргу, щоб перевірити найгірший випадок разом.
+	// Стартуємо з боргу, щоб перевірити найгірший випадок разом. Обидва
+	// лоти куплені СЬОГОДНІ — з тієї ж причини, що й у тесті вище: купон
+	// 16.09, що належав би лотам від 2026-07-01, лишав на рахунку залишок.
+	today := string(domain.NewDate(time.Now()))
+	lotReq := strings.Replace(lotBody, "2026-07-01", today, 1)
 	if _, err := st.AddLot(context.Background(), domain.Lot{
 		ISIN: "UA4000227748", Qty: 1, PricePerBond: money.New(1000_00, money.UAH),
-		BuyDate: "2026-07-01", Channel: "inzhur",
+		BuyDate: domain.Date(today), Channel: "inzhur",
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	chk := checkOf(t, srv.URL+"/api/lots/check", lotBody)
+	chk := checkOf(t, srv.URL+"/api/lots/check", lotReq)
 	// Фронтенд саме так і робить: рядок суми йде в тіло поповнення
 	// ДОСЛІВНО, без жодної арифметики на своєму боці.
 	dep, body := do(t, "POST", srv.URL+"/api/deposits",
@@ -148,7 +156,7 @@ func TestTopUpThenBuyLandsAtZero(t *testing.T) {
 	if dep.StatusCode != http.StatusCreated {
 		t.Fatalf("поповнення: %d %s", dep.StatusCode, body)
 	}
-	lot, body := do(t, "POST", srv.URL+"/api/lots", lotBody)
+	lot, body := do(t, "POST", srv.URL+"/api/lots", lotReq)
 	if lot.StatusCode != http.StatusCreated {
 		t.Fatalf("лот: %d %s", lot.StatusCode, body)
 	}
