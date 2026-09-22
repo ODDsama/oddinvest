@@ -86,6 +86,7 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 	// Порядок — за довідником, який уже відсортований за назвою. Обхід мапи
 	// позицій дав би документ, що змінюється між викликами без причини, а на
 	// нього спирається TestBuildStateIsDeterministic.
+	credits := npfCreditsUAH(src.npfAccounts, src.npfOps, src.settings, today.Year())
 	for _, acc := range src.npfAccounts {
 		p := positions[acc.ID]
 		if p == nil {
@@ -158,8 +159,7 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 			AccessDate: string(acc.AccessDate),
 			ContribDay: acc.ContribDay, ContribDue: contribDue,
 			Administrator: acc.Administrator,
-			CreditEstUAH: state.Major(npfCreditUAH(acc, src.npfOps, src.settings,
-				today.Year()), money.UAH),
+			CreditEstUAH:  state.Major(credits[acc.ID], money.UAH),
 		}
 		// Обидві дохідності в рядку, а не одна: пара «обіцяли / фактично» і
 		// є головним, що картка показує. ExpectedPct стоїть навіть тоді, коли
@@ -213,7 +213,11 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 	return out
 }
 
-// npfCreditUAH — оцінка податкової знижки за рік, грн.
+// npfCreditsUAH — оцінка податкової знижки за рік, грн., по рахунках.
+//
+// Одна на ВСІ рахунки разом (domain.NPFCreditByAccount): ліміт і стеля ПДФО
+// — на платника, тож рахунок за рахунком їх рахувати не можна. Рядок
+// рахунку показує свою частку, податковий звіт — суму.
 //
 // Порожній ПДФО за рік означає «не рахувати»: без стелі число перетворилось
 // би на обіцянку держави, якої вона не давала. Саме це поле й є
@@ -222,18 +226,22 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 // Ліміт внеску за місяць читається з налаштувань, бо щороку інший.
 // Порожньо = ліміту не застосовувати; це чесніше за зашите число, яке з
 // січня почало б занижувати або завищувати оцінку без жодного попередження.
-func npfCreditUAH(acc domain.NPFAccount, ops []domain.NPFOp,
-	set *state.SettingsDoc, year int) float64 {
+func npfCreditsUAH(accs []domain.NPFAccount, ops []domain.NPFOp,
+	set *state.SettingsDoc, year int) map[int64]float64 {
+	out := map[int64]float64{}
 	if set == nil || set.NPFCreditPDFOYearUAH == nil {
-		return 0
+		return out
 	}
 	pdfo := int64(*set.NPFCreditPDFOYearUAH * 100)
 	if pdfo <= 0 {
-		return 0
+		return out
 	}
 	var capMonth int64
 	if set.NPFCreditCapMonthUAH != nil {
 		capMonth = int64(*set.NPFCreditCapMonthUAH * 100)
 	}
-	return round2(float64(domain.NPFCreditEstimate(acc, ops, year, capMonth, pdfo)) / 100)
+	for id, minor := range domain.NPFCreditByAccount(accs, ops, year, capMonth, pdfo) {
+		out[id] = round2(float64(minor) / 100)
+	}
+	return out
 }

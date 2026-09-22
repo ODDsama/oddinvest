@@ -408,36 +408,94 @@ func NPFContribDue(a NPFAccount, ops []NPFOp, today Date) bool {
 // pdfoYear — фактично утриманий за рік ПДФО (мінорні, 0 = стелю не
 // застосовувати). Знижка не може перевищити його: держава повертає
 // сплачене, а не дарує.
+//
+// Для одного рахунку — окремий випадок NPFCreditByAccount: означення одне,
+// і ліміт платника тут просто збігається з лімітом рахунку.
 func NPFCreditEstimate(a NPFAccount, ops []NPFOp, year int, capMonth, pdfoYear int64) int64 {
-	if a.CreditRateBP <= 0 {
-		return 0
+	return NPFCreditByAccount([]NPFAccount{a}, ops, year, capMonth, pdfoYear)[a.ID]
+}
+
+// NPFCreditByAccount — та сама оцінка знижки, але на ПЛАТНИКА: місячний
+// ліміт діє на СУМУ внесків усіх рахунків (і всіх фондів — закон рахує
+// внески платника, а не договору), і річна стеля ПДФО — на всю знижку
+// разом. Доти оцінка рахувалась рахунок за рахунком і складалась: два
+// рахунки по 4 000 ₴ на місяць давали знижку з 8 000 при ліміті 4 660, і
+// разом вони могли перевищити утриманий податок.
+//
+// Результат розкладено по рахунках (id → знижка, мінорні) пропорційно
+// тому, скільки кожен приніс у базу, — рядок рахунку показує свою частку,
+// а сума часток дорівнює знижці платника. Залишок від цілочисельного
+// ділення віддається найбільшому внеску, щоб сума сходилась до копійки.
+func NPFCreditByAccount(accs []NPFAccount, ops []NPFOp, year int, capMonth, pdfoYear int64) map[int64]int64 {
+	out := map[int64]int64{}
+	rate := map[int64]int64{}
+	for _, a := range accs {
+		if a.CreditRateBP > 0 {
+			rate[a.ID] = a.CreditRateBP
+			out[a.ID] = 0
+		}
 	}
-	// Ліміт місячний, тож і внески групуються по місяцях: 60 000 ₴ одним
-	// платежем у січні дають знижку лише з ліміту одного місяця, а не з
-	// усієї суми. Рахувати від річної суми означало б завищити її для
-	// нерівномірних внесків — а вони тут звичайна річ.
-	byMonth := map[int]int64{}
+	// month → account → внесок
+	byMonth := map[int]map[int64]int64{}
 	for _, op := range ops {
-		if op.NPFID != a.ID {
+		if _, ok := rate[op.NPFID]; !ok || op.Date.Year() != year {
 			continue
 		}
-		if op.Date.Year() != year {
-			continue
+		m := int(op.Date.Month())
+		if byMonth[m] == nil {
+			byMonth[m] = map[int64]int64{}
 		}
-		byMonth[int(op.Date.Month())] += op.Amount
+		byMonth[m][op.NPFID] += op.Amount
 	}
-	var base int64
-	for _, sum := range byMonth {
-		if capMonth > 0 && sum > capMonth {
-			sum = capMonth
+	for _, contrib := range byMonth {
+		var total int64
+		for _, v := range contrib {
+			total += v
 		}
-		base += sum
+		base := total
+		if capMonth > 0 && base > capMonth {
+			base = capMonth
+		}
+		for id, share := range splitProportional(base, contrib) {
+			out[id] += share * rate[id] / 10000
+		}
 	}
-	credit := base * a.CreditRateBP / 10000
+	var credit int64
+	for _, v := range out {
+		credit += v
+	}
 	if pdfoYear > 0 && credit > pdfoYear {
-		credit = pdfoYear
+		scaled := splitProportional(pdfoYear, out)
+		for id := range out {
+			out[id] = scaled[id]
+		}
 	}
-	return credit
+	return out
+}
+
+// splitProportional ділить total між ключами пропорційно ваг, цілими
+// одиницями; залишок — ключу з найбільшою вагою (за рівних — меншому id,
+// щоб результат не залежав від порядку обходу мапи).
+func splitProportional(total int64, weights map[int64]int64) map[int64]int64 {
+	out := make(map[int64]int64, len(weights))
+	var sum int64
+	for _, w := range weights {
+		sum += w
+	}
+	if sum <= 0 {
+		return out
+	}
+	var given int64
+	var top int64 = -1
+	for id, w := range weights {
+		out[id] = total * w / sum
+		given += out[id]
+		if top < 0 || w > weights[top] || (w == weights[top] && id < top) {
+			top = id
+		}
+	}
+	out[top] += total - given
+	return out
 }
 
 // NPFPayoutMonths — на скільки місяців розтягнута виплата й з яким кроком.

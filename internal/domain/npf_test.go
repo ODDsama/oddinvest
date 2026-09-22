@@ -413,3 +413,33 @@ func TestNPFPayoutScheduleRespectsHorizon(t *testing.T) {
 		t.Errorf("разова виплата мала дати одну подію-погашення, маємо %+v", cf)
 	}
 }
+
+// Ліміт і стеля ПДФО — на ПЛАТНИКА, а не на рахунок. Два рахунки по 4 000 ₴
+// в одному місяці при ліміті 4 660 ₴ дають знижку з 4 660, а не з 8 000; і
+// разом вони не можуть перевищити утриманий за рік ПДФО.
+func TestNPFCreditCapsAreForThePayerNotTheAccount(t *testing.T) {
+	a := dynastia() // ID 1, 18%
+	b := dynastia()
+	b.ID, b.Name = 2, "Другий"
+	ops := []NPFOp{
+		{NPFID: 1, Date: Date("2026-03-05"), Units: 1, Amount: 400_000},
+		{NPFID: 2, Date: Date("2026-03-20"), Units: 1, Amount: 400_000},
+	}
+	capMonth := int64(466_000)
+	got := NPFCreditByAccount([]NPFAccount{a, b}, ops, 2026, capMonth, 0)
+	total := got[1] + got[2]
+	if want := capMonth * 1800 / 10000; total != want {
+		t.Errorf("разом %d, чекали %d — ліміт місяця один на обидва рахунки", total, want)
+	}
+	if got[1] != got[2] {
+		t.Errorf("рівні внески мали поділити знижку порівну: %d і %d", got[1], got[2])
+	}
+	capped := NPFCreditByAccount([]NPFAccount{a, b}, ops, 2026, capMonth, 10_000)
+	if s := capped[1] + capped[2]; s != 10_000 {
+		t.Errorf("стеля ПДФО 100 ₴ на платника, а разом %d", s)
+	}
+	// Один рахунок — те саме, що й доти.
+	if one := NPFCreditByAccount([]NPFAccount{a}, ops, 2026, capMonth, 0)[1]; one != NPFCreditEstimate(a, ops, 2026, capMonth, 0) {
+		t.Errorf("для одного рахунку розклад %d розійшовся з оцінкою рахунку %d", one, NPFCreditEstimate(a, ops, 2026, capMonth, 0))
+	}
+}

@@ -8,6 +8,7 @@ package api
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -691,9 +692,11 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 			raw, _ := s.st.AllSettings(ctx) //nolint:errcheck // без налаштувань знижки просто не буде — рядок звіту, а не сам звіт
 			set := loadSettings(raw)
 			if oerr == nil {
+				// Сума часток — знижка платника: ліміт і стеля ПДФО одні на
+				// всі рахунки (domain.NPFCreditByAccount).
 				var credit int64
-				for _, acc := range npfAccounts {
-					credit += int64(npfCreditUAH(acc, npfOps, set, year) * 100)
+				for _, v := range npfCreditsUAH(npfAccounts, npfOps, set, year) {
+					credit += int64(math.Round(v * 100))
 				}
 				if credit > 0 {
 					// GrossUAH — сума внесків у межах ліміту, TaxUAH — сама
