@@ -3642,6 +3642,94 @@ func TestKindTargetsDoNotNormalise(t *testing.T) {
 // видом не могла дійти до сотні в принципі, бо в знаменнику сиділа подушка.
 // Тепер вона там не сидить, і сума стає перевірною — а «нерозподілено» в
 // картці означає справжню діру в цілях, а не місце під матрац.
+// У день погашення кнопка «Отримано» переносить гроші з паперу на рахунок,
+// а не ДОДАЄ їх: капітал до позначки і після мусить бути той самий. Доти
+// папір лишався «в портфелі» до півночі (Matured = дата строго раніше за
+// сьогодні), а погашення вже лежало на рахунку — і номінал рахувався двічі,
+// зокрема в MQTT.
+func TestRedemptionMarkMovesMoneyNotDoubles(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	today := domain.NewDate(time.Now())
+	const isin = "UA4000299999"
+	if err := st.ReplaceDirectory(ctx, []nbu.Security{{
+		Bond: domain.Bond{ISIN: isin, Nominal: money.New(100000, money.UAH),
+			RateBP: 1500, Maturity: today, Descr: "гаситься сьогодні"},
+		Payments: []domain.Payment{
+			{ISIN: isin, PayDate: today, Type: domain.PayRedemption, PerBond: money.New(100000, money.UAH)},
+		},
+	}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: today.AddDays(-40), Amount: 200000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddLot(ctx, domain.Lot{ISIN: isin, Qty: 2,
+		PricePerBond: money.New(100000, money.UAH), BuyDate: today.AddDays(-30), Channel: "mono"}); err != nil {
+		t.Fatal(err)
+	}
+	type doc struct {
+		Capital float64 `json:"capital_uah"`
+		Nominal float64 `json:"nominal_uah_eq"`
+		Account float64 `json:"account_uah"`
+	}
+	summary := func() doc {
+		t.Helper()
+		var d doc
+		_, body := do(t, "GET", srv.URL+"/api/summary", "")
+		if err := json.Unmarshal([]byte(body), &d); err != nil {
+			t.Fatalf("summary: %v: %s", err, body)
+		}
+		return d
+	}
+	before := summary()
+	if before.Nominal != 2000 || before.Account != 0 {
+		t.Fatalf("до позначки чекали 2000 у паперах і 0 на рахунку: %+v", before)
+	}
+	if resp, body := do(t, "POST", srv.URL+"/api/payments/status",
+		`{"isin":"`+isin+`","pay_date":"`+string(today)+`","status":"received"}`,
+	); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("позначка: %d %s", resp.StatusCode, body)
+	}
+	after := summary()
+	if after.Account != 2000 || after.Nominal != 0 {
+		t.Errorf("після позначки гроші мали перейти на рахунок: %+v", after)
+	}
+	if math.Abs(after.Capital-before.Capital) > 0.01 {
+		t.Errorf("позначка погашення змінила капітал: %.2f → %.2f", before.Capital, after.Capital)
+	}
+
+	// Те саме для вкладу, що закінчується сьогодні: позначене тіло лягає на
+	// рахунок і мусить вийти зі складу вкладів того ж дня.
+	depID, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "mono", Currency: "UAH", Principal: 100000, RateBP: 0,
+		OpenDate: today.AddDays(-20), MaturityDate: today, Payout: domain.PayoutEnd,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: today.AddDays(-21), Amount: 100000, Currency: "UAH", Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	beforeDep := summary()
+	if resp, body := do(t, "POST", srv.URL+"/api/payments/status",
+		`{"isin":"deposit:`+strconv.FormatInt(depID, 10)+`","pay_date":"`+string(today)+`","status":"received"}`,
+	); resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("позначка вкладу: %d %s", resp.StatusCode, body)
+	}
+	afterDep := summary()
+	if math.Abs(afterDep.Account-beforeDep.Account-1000) > 0.01 {
+		t.Errorf("тіло вкладу мало лягти на рахунок: %.2f → %.2f", beforeDep.Account, afterDep.Account)
+	}
+	if math.Abs(afterDep.Capital-beforeDep.Capital) > 0.01 {
+		t.Errorf("позначка погашення вкладу змінила капітал: %.2f → %.2f", beforeDep.Capital, afterDep.Capital)
+	}
+}
+
 func TestKindSharesSumToHundredWithoutCash(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()

@@ -364,7 +364,7 @@ func TestCalendarKeepsGrossWhileRouteTakesLeftover(t *testing.T) {
 		t.Fatal(err)
 	}
 	hold := domain.NewHoldings(src.lots, src.sales, src.bonds,
-		src.fundOps, src.fundPrices, src.payoutDays(), today)
+		src.fundOps, src.fundPrices, src.payoutDays(), today, nil)
 	sch, err := buildSchedule(src, hold, today, today, 12)
 	if err != nil {
 		t.Fatal(err)

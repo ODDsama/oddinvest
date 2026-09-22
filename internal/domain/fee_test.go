@@ -52,7 +52,7 @@ func TestPositionsInvestedIncludesFee(t *testing.T) {
 		RateBP: 1600, Maturity: "2027-01-01"}}
 	lots := []Lot{{ID: 1, ISIN: "UA1", Qty: 10, PricePerBond: money.New(99000, money.UAH),
 		Fee: money.New(5000, money.UAH), BuyDate: "2026-01-10"}}
-	pos, err := Positions(bonds, nil, lots, nil, "2026-02-01")
+	pos, err := Positions(bonds, nil, lots, nil, "2026-02-01", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

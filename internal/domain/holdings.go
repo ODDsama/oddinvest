@@ -45,6 +45,11 @@ type LotHolding struct {
 	Known bool
 	// Matured — строк уже минув, гроші повернулись на рахунок.
 	//
+	// «Минув» — те саме, що «погашення надійшло» за Arrived: дата вже
+	// позаду АБО людина позначила погашення отриманим. Лише за датою в день
+	// погашення кнопка «Отримано» клала номінал на рахунок, а папір до
+	// півночі лишався в портфелі — і капітал рахував ті самі гроші двічі.
+	//
 	// ⚠️ Порожня дата тут вважається погашеною, і це НЕ помилка копіювання,
 	// а поведінка, яку цей тип зберігає: Date.Before — порівняння рядків,
 	// тож "" «раніше» за будь-яку дату. Викликачі (номінал, експозиція
@@ -71,8 +76,13 @@ type FundHolding struct {
 // fundMarks — позначки ціни сертифікатів (0034). Окремим параметром, а не
 // полем поруч із payoutDays: вони з різних таблиць і з різним часом життя,
 // а тип на два поля запросив би третє «про запас».
+//
+// arrived — предикат Arrived(statuses, asOf): чи надійшло погашення. nil
+// означає «лише за датою» — для викликачів без позначок (тести, чисті
+// зведення фондів).
 func NewHoldings(lots []Lot, sales []Sale, bonds map[string]Bond,
-	fundOps []FundOp, fundMarks []FundPrice, payoutDays map[string]int64, asOf Date) Holdings {
+	fundOps []FundOp, fundMarks []FundPrice, payoutDays map[string]int64, asOf Date,
+	arrived func(isin string, d Date) bool) Holdings {
 	// Продажі — ОДИН прохід замість одного на кожен лот. RemainingQtyNow
 	// сам по собі O(len(sales)), і чотири виклики на лот перетворювали
 	// звичайну вибірку на квадрат.
@@ -93,7 +103,8 @@ func NewHoldings(lots []Lot, sales []Sale, bonds map[string]Bond,
 		b, ok := bonds[l.ISIN]
 		h.Lots = append(h.Lots, LotHolding{
 			Lot: l, Remaining: rem, Bond: b, Known: ok,
-			Matured: ok && b.Maturity.Before(asOf),
+			Matured: ok && (b.Maturity.Before(asOf) ||
+				(arrived != nil && arrived(l.ISIN, b.Maturity))),
 		})
 	}
 

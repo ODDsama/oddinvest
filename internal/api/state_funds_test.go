@@ -38,7 +38,7 @@ func TestFundsPromiseYieldPairsWithItself(t *testing.T) {
 		"Inzhur": {Name: "Inzhur", Currency: money.UAH,
 			ExpectedYieldBP: 950, ExpectedYieldCur: money.USD},
 	}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today, nil)
 
 	out := buildFunds(src, hold, fx.Rates{}, 7 /* знецінення, % */, today)
 	if len(out.Rows) != 1 || out.Rows[0].YieldBasis != "обіцяно фондом" {
@@ -79,7 +79,7 @@ func TestFundsSimplePromiseBecomesCompoundEverywhere(t *testing.T) {
 			ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
 			YieldSimpleYears: 3, Kind: store.FundAccumulating},
 	}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today, nil)
 	out := buildFunds(src, hold, fx.Rates{}, 0 /* без знецінення */, today)
 
 	if len(out.Rows) != 1 {
@@ -122,7 +122,7 @@ func TestFundsAccumulatingLeavesLockedCapital(t *testing.T) {
 	ref := store.Fund{Name: "MilTech", Currency: money.UAH,
 		ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
 		CloseDate: "2029-07-26", IncomeTaxBP: 1400, ExitTaxBP: 2300}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today, nil)
 
 	ref.Kind = store.FundAccumulating
 	acc := buildFunds(&sources{fundOps: ops,
@@ -200,7 +200,7 @@ func TestForeignPromiseConvertsForGrowthNotForPayouts(t *testing.T) {
 	}
 	ref := store.Fund{Name: "REIT", Currency: money.UAH,
 		ExpectedYieldBP: 950, ExpectedYieldCur: money.USD}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today, nil)
 	const deval = 7.0
 
 	ref.Kind = store.FundDistributing
@@ -270,7 +270,7 @@ func TestFundsMixedBasesSayMixed(t *testing.T) {
 	src := &sources{fundOps: ops, fundRefs: map[string]store.Fund{
 		"Новий": {Name: "Новий", Currency: money.UAH, ExpectedYieldBP: 900},
 	}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today, nil)
 
 	out := buildFunds(src, hold, fx.Rates{}, 7, today)
 	if out.Basis != "різні основи" {
@@ -305,7 +305,7 @@ func TestFundsYieldIsWeightedByMarketValue(t *testing.T) {
 			Amount: 4_000, Currency: money.UAH},
 	}
 	src := &sources{fundOps: ops, fundRefs: map[string]store.Fund{}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today, nil)
 
 	out := buildFunds(src, hold, fx.Rates{}, 0, today)
 	if len(out.Rows) != 2 {
@@ -371,7 +371,7 @@ func TestFundPromiseSurvivesWithoutPriceEvidence(t *testing.T) {
 			ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
 			YieldSimpleYears: 3, Kind: store.FundAccumulating},
 	}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today, nil)
 	out := buildFunds(src, hold, fx.Rates{}, 0 /* без знецінення */, today)
 
 	row := out.Rows[0]
@@ -405,7 +405,7 @@ func TestFundMeasuredDisplacesPromiseAfterMark(t *testing.T) {
 				ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
 				YieldSimpleYears: 3, Kind: store.FundAccumulating},
 		}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, marks, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, marks, nil, today, nil)
 	out := buildFunds(src, hold, fx.Rates{}, 0 /* без знецінення */, today)
 
 	row := out.Rows[0]
@@ -449,7 +449,7 @@ func TestFundPriceReturnStandsApartFromBasis(t *testing.T) {
 				ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH,
 				YieldSimpleYears: 3, Kind: store.FundAccumulating},
 		}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, marks, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, marks, nil, today, nil)
 	out := buildFunds(src, hold, fx.Rates{}, 0 /* без знецінення */, today)
 
 	row := out.Rows[0]
@@ -479,7 +479,7 @@ func TestReinvestingFundGrowsInsteadOfPaying(t *testing.T) {
 	ref := store.Fund{Name: "REIT", Currency: money.UAH, PayoutDay: 10,
 		ExpectedYieldBP: 950, ExpectedYieldCur: money.USD,
 		Kind: store.FundReinvesting}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today, nil)
 
 	got := buildFunds(&sources{fundOps: ops,
 		fundRefs: map[string]store.Fund{"REIT": ref}}, hold, fx.Rates{}, 7.0, today)

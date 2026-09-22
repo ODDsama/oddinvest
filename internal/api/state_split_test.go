@@ -35,7 +35,7 @@ func TestFundsSplitNamesMeasuredAndPromised(t *testing.T) {
 		"MilTech": {Name: "MilTech", Currency: money.UAH, Kind: store.FundAccumulating,
 			ExpectedYieldBP: 2500, ExpectedYieldCur: money.UAH, YieldSimpleYears: 3},
 	}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today, nil)
 	out := buildFunds(src, hold, fx.Rates{}, 0 /* без знецінення */, today)
 
 	if out.Split == nil {
@@ -77,7 +77,7 @@ func TestFundsNoSplitWhenSingleBasis(t *testing.T) {
 	src := &sources{fundOps: ops, fundRefs: map[string]store.Fund{
 		"REIT": {Name: "REIT", Currency: money.UAH, PayoutDay: 10},
 	}}
-	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today)
+	hold := domain.NewHoldings(nil, nil, nil, ops, nil, nil, today, nil)
 	if out := buildFunds(src, hold, fx.Rates{}, 0, today); out.Split != nil {
 		t.Errorf("основа одна — розкладу бути не мало: %+v", out.Split)
 	}

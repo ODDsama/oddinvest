@@ -7,7 +7,12 @@ import (
 )
 
 // Positions — агрегація лотів у позиції по ISIN станом на дату asOf.
-func Positions(bonds map[string]Bond, payments []Payment, lots []Lot, sales []Sale, asOf Date) ([]Position, error) {
+//
+// arrived — той самий предикат, що й у NewHoldings (Arrived): погашення,
+// позначене «Отримано» в сам день погашення, уже на рахунку, тож позицією
+// папір бути перестає. nil — лише за датою.
+func Positions(bonds map[string]Bond, payments []Payment, lots []Lot, sales []Sale, asOf Date,
+	arrived func(isin string, d Date) bool) ([]Position, error) {
 	type acc struct {
 		qty      int64
 		invested *money.Money
@@ -81,7 +86,8 @@ func Positions(bonds map[string]Bond, payments []Payment, lots []Lot, sales []Sa
 		// немає в довіднику, сюди не доходять (їх забирає гілка вище), але
 		// довідник може віддати запис і без дати погашення — і тоді умова
 		// без цієї перевірки тихо викинула б живу позицію.
-		if b.Maturity != "" && b.Maturity.Before(asOf) {
+		if b.Maturity != "" && (b.Maturity.Before(asOf) ||
+			(arrived != nil && arrived(isin, b.Maturity))) {
 			continue
 		}
 		pos := Position{

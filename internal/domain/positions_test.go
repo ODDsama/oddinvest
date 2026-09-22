@@ -22,7 +22,7 @@ func TestPositions(t *testing.T) {
 	}
 	sales := []Sale{{ID: 1, LotID: 2, SaleDate: "2026-06-01", Qty: 5, CleanPerBond: uah(98000), Accrued: uah(0)}}
 
-	pos, err := Positions(bonds, pays, lots, sales, "2026-07-15")
+	pos, err := Positions(bonds, pays, lots, sales, "2026-07-15", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestPositionsToleratesUnknownISIN(t *testing.T) {
 		{ID: 1, ISIN: "UA9999999999", Qty: 2, PricePerBond: money.New(100000, money.UAH),
 			BuyDate: "2026-07-20", Channel: "inzhur"},
 	}
-	pos, err := Positions(map[string]Bond{}, nil, lots, nil, "2026-07-22")
+	pos, err := Positions(map[string]Bond{}, nil, lots, nil, "2026-07-22", nil)
 	if err != nil {
 		t.Fatalf("невідомий папір не мав давати помилку: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestPositionsDropMaturedBonds(t *testing.T) {
 		{ID: 1, ISIN: "UA1", Qty: 3, PricePerBond: uah(100000), BuyDate: "2025-06-01"},
 		{ID: 2, ISIN: "UA2", Qty: 2, PricePerBond: uah(100000), BuyDate: "2025-06-01"},
 	}
-	pos, err := Positions(bonds, nil, lots, nil, "2026-07-22")
+	pos, err := Positions(bonds, nil, lots, nil, "2026-07-22", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestPositionsKeepBondWithoutMaturity(t *testing.T) {
 	lots := []Lot{
 		{ID: 1, ISIN: "UA1", Qty: 2, PricePerBond: uah(100000), BuyDate: "2026-07-20"},
 	}
-	pos, err := Positions(bonds, nil, lots, nil, "2026-07-22")
+	pos, err := Positions(bonds, nil, lots, nil, "2026-07-22", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

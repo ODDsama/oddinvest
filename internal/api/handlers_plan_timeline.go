@@ -843,7 +843,12 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	positions, err := domain.Positions(bonds, pays, lots, sales, today)
+	arrived, err := s.arrived(ctx, today)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	positions, err := domain.Positions(bonds, pays, lots, sales, today, arrived)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -871,7 +876,8 @@ func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
 	var moves, reserveMoves = []store.Deposit(nil), []store.ReserveOp(nil)
 	var goalMoves []store.GoalOp
 	if src, serr := s.loadSources(ctx, today); serr == nil {
-		hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps, src.fundPrices, src.payoutDays(), today)
+		hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps, src.fundPrices, src.payoutDays(), today,
+			domain.Arrived(src.statuses, today))
 		if sch, serr := buildSchedule(src, hold, today, today, profileFundMonths); serr == nil {
 			portfolioCF = sch.Cashflow
 		}

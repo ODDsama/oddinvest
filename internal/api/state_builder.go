@@ -345,9 +345,15 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Чим володіємо — зведене за ОДИН прохід (domain/holdings.go). Доти
 	// lots обходився тут сімома циклами, а залишок після продажів
 	// рахувався по чотири рази на лот, щоразу наново.
-	hold := domain.NewHoldings(lots, sales, bonds, fundOps, src.fundPrices, src.payoutDays(), today)
+	// Чому дата сама по собі не відповідь і навіщо тут кнопка «Отримано» —
+	// у domain.Arrived. Предикат один на застосунок навмисно: доти його
+	// було три, і два перевіряли різне. Він же вирішує, чи папір або вклад
+	// УЖЕ погашений: гроші не можуть бути одночасно й на рахунку, і в
+	// позиції.
+	arrived := domain.Arrived(src.statuses, today)
+	hold := domain.NewHoldings(lots, sales, bonds, fundOps, src.fundPrices, src.payoutDays(), today, arrived)
 
-	positions, err := domain.Positions(bonds, pays, lots, sales, today)
+	positions, err := domain.Positions(bonds, pays, lots, sales, today, arrived)
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +403,10 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// двічі, і помітно це стало б аж на інваріанті зведення.
 	goalDepositsByGoal := map[int64][]domain.Deposit{}
 	for _, dep := range termDeposits {
-		if !dep.Active(today) {
+		// Погашене тіло, позначене «Отримано» в сам день погашення, уже
+		// лежить на рахунку (цикл гаманця нижче) — у складі вкладів його
+		// бути не може, інакше до півночі воно рахувалось би двічі.
+		if !dep.Active(today) || arrived(dep.SyntheticISIN(), dep.MaturityDate) {
 			continue
 		}
 		// Накопичене тіло (початкове + поповнення), а не сума відкриття:
@@ -563,12 +572,6 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// й тіло вкладів нижче, у їхньому циклі. Правило одне: запланована
 	// виплата, що вже надійшла і не позначена «перевкладено», — це гроші,
 	// які лежать без діла.
-	statuses := src.statuses
-
-	// Чому дата сама по собі не відповідь і навіщо тут кнопка «Отримано» —
-	// у domain.Arrived. Предикат один на застосунок навмисно: доти його
-	// було три, і два перевіряли різне.
-	arrived := domain.Arrived(statuses, today)
 	pastCF, err := domain.FuturePayments(pays, lots, sales, "1970-01-01")
 	if err != nil {
 		return nil, err

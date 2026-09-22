@@ -29,7 +29,7 @@ func TestHoldingsRemainingMatchesRemainingQtyNow(t *testing.T) {
 		{ID: 5, LotID: 99, SaleDate: "2026-06-03", Qty: 5, CleanPerBond: uah(99500)}, // лота немає
 	}
 
-	h := NewHoldings(lots, sales, map[string]Bond{}, nil, nil, nil, "2026-07-15")
+	h := NewHoldings(lots, sales, map[string]Bond{}, nil, nil, nil, "2026-07-15", nil)
 	if len(h.Lots) != len(lots) {
 		t.Fatalf("Holdings загубив лоти: %d проти %d", len(h.Lots), len(lots))
 	}
@@ -72,7 +72,7 @@ func TestHoldingsMaturedKeepsEmptyDateSemantics(t *testing.T) {
 		{ID: 3, ISIN: "UA3", Qty: 1, PricePerBond: uah(99000), BuyDate: "2026-01-01"},
 		{ID: 4, ISIN: "XX9", Qty: 1, PricePerBond: uah(99000), BuyDate: "2026-01-01"}, // не в довіднику
 	}
-	h := NewHoldings(lots, nil, bonds, nil, nil, nil, "2026-07-15")
+	h := NewHoldings(lots, nil, bonds, nil, nil, nil, "2026-07-15", nil)
 
 	want := map[int64]struct{ known, matured, held bool }{
 		1: {known: true, matured: false, held: true},
@@ -102,7 +102,7 @@ func TestHoldingsFundsAreValuesInStableOrder(t *testing.T) {
 		{Date: "2026-02-01", Fund: "Бета", Kind: FundBuy, Qty: 2, Amount: 4000, Currency: money.UAH},
 	}
 	h := NewHoldings(nil, nil, map[string]Bond{}, ops, nil,
-		map[string]int64{"Альфа": 10, "Ямбол": 25}, "2026-07-15")
+		map[string]int64{"Альфа": 10, "Ямбол": 25}, "2026-07-15", nil)
 
 	var names []string
 	for _, f := range h.Funds {

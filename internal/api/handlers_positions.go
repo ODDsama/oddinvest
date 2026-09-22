@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"time"
@@ -10,6 +11,18 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
+
+// arrived — предикат domain.Arrived на позначках портфеля: для викликачів,
+// що вантажать лоти через s.portfolio, а не через loadSources. Без нього
+// папір, погашення якого вже позначене «Отримано», у сам день погашення
+// лишався б позицією на одній сторінці й зникав на іншій.
+func (s *Server) arrived(ctx context.Context, today domain.Date) (func(string, domain.Date) bool, error) {
+	statuses, err := s.st.PaymentStatuses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return domain.Arrived(statuses, today), nil
+}
 
 func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -19,7 +32,12 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	today := domain.NewDate(time.Now())
-	pos, err := domain.Positions(bonds, pays, lots, sales, today)
+	arrived, err := s.arrived(ctx, today)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	pos, err := domain.Positions(bonds, pays, lots, sales, today, arrived)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -140,7 +158,7 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps,
-		src.fundPrices, src.payoutDays(), today)
+		src.fundPrices, src.payoutDays(), today, domain.Arrived(src.statuses, today))
 	sch, err := buildSchedule(src, hold, from, today, scheduleFundMonths)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)

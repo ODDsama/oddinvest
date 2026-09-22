@@ -321,7 +321,7 @@ func (s *Server) routeIncome(src *sources, today domain.Date, months int) (incom
 	// сертифікатів у мене зараз» розійшлося б із першим на першій же
 	// позначці ціни.
 	hold := domain.NewHoldings(src.lots, src.sales, src.bonds,
-		src.fundOps, src.fundPrices, src.payoutDays(), today)
+		src.fundOps, src.fundPrices, src.payoutDays(), today, domain.Arrived(src.statuses, today))
 	mt := moneyTextOfSrc(src)
 
 	for i := range hold.Funds {

@@ -161,7 +161,11 @@ func (s *Server) quoteISINs(ctx context.Context, now time.Time) ([]string, error
 		return nil, err
 	}
 	today := domain.NewDate(now)
-	pos, err := domain.Positions(bonds, pays, lots, sales, today)
+	arrived, err := s.arrived(ctx, today)
+	if err != nil {
+		return nil, err
+	}
+	pos, err := domain.Positions(bonds, pays, lots, sales, today, arrived)
 	if err != nil {
 		return nil, err
 	}
