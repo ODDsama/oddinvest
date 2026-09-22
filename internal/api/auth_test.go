@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -481,5 +482,122 @@ func TestSecretsSurviveRestoreAndStayOutOfBackup(t *testing.T) {
 	resp, _ = doH(t, "GET", srv.URL+"/api/brokers", "", h)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("після відновлення сесія померла: %d", resp.StatusCode)
+	}
+}
+
+// Cf-Connecting-Ip важить лише від конектора на петлі. З локальної мережі
+// його пише будь-хто — і, міняючи на кожну спробу, обходив би гальмо.
+func TestClientIPTrustsCloudflareOnlyFromLoopback(t *testing.T) {
+	r := httptest.NewRequest("POST", "/api/login", nil)
+	r.Header.Set("Cf-Connecting-Ip", "203.0.113.7")
+	r.Header.Set("X-Forwarded-Proto", "https")
+
+	r.RemoteAddr = "127.0.0.1:51000"
+	if got := clientIP(r); got != "203.0.113.7" {
+		t.Errorf("від тунелю: %q, чекали адресу з Cf-Connecting-Ip", got)
+	}
+	if !secureRequest(r) {
+		t.Error("від тунелю X-Forwarded-Proto: https мусить робити cookie Secure")
+	}
+
+	r.RemoteAddr = "192.168.88.20:51000"
+	if got := clientIP(r); got != "192.168.88.20" {
+		t.Errorf("з LAN: %q — підроблений заголовок узяли на віру", got)
+	}
+	if secureRequest(r) {
+		t.Error("з LAN X-Forwarded-Proto не мусить нічого важити")
+	}
+}
+
+// Мапа невдач не росте без меж: перебір із тисяч адрес не їсть памʼять.
+func TestAuthFailsMapBounded(t *testing.T) {
+	st := newAuthState()
+	now := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
+	st.now = func() time.Time { return now }
+	for i := 0; i < authFailsCap*2; i++ {
+		st.fail("10.0." + strconv.Itoa(i/256) + "." + strconv.Itoa(i%256))
+	}
+	if n := len(st.fails); n > authFailsCap {
+		t.Errorf("у мапі %d записів понад стелю %d", n, authFailsCap)
+	}
+	// Гальмо на свіжій адресі однаково працює.
+	for i := 0; i < authMaxFails; i++ {
+		st.fail("198.51.100.1")
+	}
+	if !st.locked("198.51.100.1") {
+		t.Error("після прибирання гальмо перестало працювати")
+	}
+}
+
+// Мутація з чужої сторінки відкидається ще до замка; своя сторінка, GET і
+// машина з Bearer (без браузерних заголовків) проходять.
+func TestSameOriginGuardsMutations(t *testing.T) {
+	srv, _ := authServer(t, "correct-horse")
+	h := login(t, srv, "correct-horse")
+	with := func(extra map[string]string) map[string]string {
+		out := map[string]string{}
+		for k, v := range h {
+			out[k] = v
+		}
+		for k, v := range extra {
+			out[k] = v
+		}
+		return out
+	}
+	host := strings.TrimPrefix(srv.URL, "http://")
+	body := `{"name":"test-broker"}`
+	cases := []struct {
+		name   string
+		method string
+		hdr    map[string]string
+		denied bool
+	}{
+		{"чужий Origin", "POST", with(map[string]string{"Origin": "https://evil.example"}), true},
+		{"cross-site", "POST", with(map[string]string{"Sec-Fetch-Site": "cross-site"}), true},
+		{"same-site піддомен", "POST", with(map[string]string{"Sec-Fetch-Site": "same-site"}), true},
+		{"свій Origin", "POST", with(map[string]string{"Origin": "http://" + host}), false},
+		{"same-origin", "POST", with(map[string]string{"Sec-Fetch-Site": "same-origin"}), false},
+		{"без заголовків (машина)", "POST", h, false},
+		{"GET з чужого сайту", "GET", with(map[string]string{"Sec-Fetch-Site": "cross-site"}), false},
+	}
+	for _, c := range cases {
+		b := body
+		if c.method == "GET" {
+			b = ""
+		}
+		resp, out := doH(t, c.method, srv.URL+"/api/brokers", b, c.hdr)
+		if denied := resp.StatusCode == http.StatusForbidden; denied != c.denied {
+			t.Errorf("%s: %d %s", c.name, resp.StatusCode, out)
+		}
+	}
+}
+
+// «Вийти на інших пристроях» гасить усі раніше видані cookie, а тому, хто
+// натиснув, видає нову.
+func TestSessionsRevokeKillsOthersKeepsCaller(t *testing.T) {
+	srv, _ := authServer(t, "correct-horse")
+	phone := login(t, srv, "correct-horse")
+	laptop := login(t, srv, "correct-horse")
+
+	resp, body := doH(t, "POST", srv.URL+"/api/auth/sessions/revoke", "", laptop)
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("відкликання: %d %s", resp.StatusCode, body)
+	}
+	fresh := sessionOf(t, resp)
+	if fresh == nil {
+		t.Fatal("той, хто відкликав, лишився без cookie")
+	}
+	for name, h := range map[string]map[string]string{"телефон": phone, "стара cookie ноутбука": laptop} {
+		if resp, _ := doH(t, "GET", srv.URL+"/api/brokers", "", h); resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("%s після відкликання: %d, чекали 401", name, resp.StatusCode)
+		}
+	}
+	nh := map[string]string{"Cookie": authCookie + "=" + fresh.Value}
+	if resp, _ := doH(t, "GET", srv.URL+"/api/brokers", "", nh); resp.StatusCode != http.StatusOK {
+		t.Errorf("нова cookie того, хто відкликав: %d", resp.StatusCode)
+	}
+	// Без входу відкликати не можна.
+	if resp, _ := do(t, "POST", srv.URL+"/api/auth/sessions/revoke", ""); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("анонімне відкликання: %d", resp.StatusCode)
 	}
 }

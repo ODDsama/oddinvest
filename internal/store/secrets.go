@@ -61,6 +61,27 @@ func (s *Store) SetSecret(ctx context.Context, key, value string) error {
 	return err
 }
 
+// SetSecrets — кілька секретів ОДНІЄЮ транзакцією. Пароль і ключ сесій
+// пишуться парою: хеш без обернутого ключа лишив би живими сесії старого
+// пароля, а ключ без хеша — розлогінив би всіх зі старим паролем на
+// місці. Порожнє значення тут не означає видалення: пара завжди повна.
+func (s *Store) SetSecrets(ctx context.Context, kv map[string]string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	now := time.Now().UTC().Format(time.RFC3339)
+	for k, v := range kv {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO secrets(key, value, updated_at) VALUES (?,?,?)
+			ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+			k, v, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) DeleteSecret(ctx context.Context, key string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM secrets WHERE key=?`, key)
 	return err

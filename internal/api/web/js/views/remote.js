@@ -30,7 +30,14 @@ const TUNNEL_STATE = {
   inactive: ["muted", "жодного зʼєднання"],
 };
 
-function passwordCard() {
+function passwordCard(auth) {
+  // «Вийти на інших пристроях» — лише коли замок є: без пароля сесій
+  // немає, і відкликати нема чого.
+  const sessions = auth.enabled ? `<div class="pv-row mt"><span>Інші пристрої</span>
+      <button type="button" class="quiet" id="btnSessionsRevoke">Вийти на інших пристроях</button></div>
+    <div class="sub-xs muted">Загубився телефон чи вхід лишився на чужому компʼютері — усі
+      раніше видані сесії перестануть діяти, а цей браузер лишиться в застосунку.
+      Пароль при цьому не змінюється.</div>` : "";
   return `<div class="card">
     <h2 class="h-row">Пароль ${infoBtn("setRemote")}</h2>
     <div class="note">Змінити пароль можна лише знаючи поточний — навіть із цього браузера.
@@ -46,6 +53,7 @@ function passwordCard() {
         { type: "password", required: true, autocomplete: "new-password" }),
     ],
   })}
+    ${sessions}
   </div>`;
 }
 
@@ -167,7 +175,7 @@ export async function remote(ctx, main) {
     ctx.soft("auth", {}),
     ctx.soft("remote", {}),
   ]);
-  main.innerHTML = passwordCard() + tokenCard(auth || {}) + tunnelCard(st || {})
+  main.innerHTML = passwordCard(auth || {}) + tokenCard(auth || {}) + tunnelCard(st || {})
     + localCard(st || {});
 
   onSubmit(ctx, main.querySelector("#pwForm"), (f) => ({
@@ -199,6 +207,13 @@ export async function remote(ctx, main) {
     } finally {
       e.target.disabled = false;
     }
+  });
+
+  main.querySelector("#btnSessionsRevoke")?.addEventListener("click", async () => {
+    if (!await confirmDialog(ctx,
+      "Вийти на всіх інших пристроях? Там доведеться знову ввести пароль.",
+      { yes: "Вийти на інших" })) return;
+    await apply(ctx, { path: "auth/sessions/revoke" }, "Інші пристрої вийшли");
   });
 
   main.querySelector("#btnTokenRevoke")?.addEventListener("click", async () => {

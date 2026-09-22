@@ -314,6 +314,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("PUT /api/auth/password", s.handleAuthPassword)
 	mux.HandleFunc("POST /api/auth/token", s.handleAuthToken)
 	mux.HandleFunc("DELETE /api/auth/token", s.handleAuthTokenRevoke)
+	mux.HandleFunc("POST /api/auth/sessions/revoke", s.handleAuthSessionsRevoke)
 	mux.HandleFunc("POST /api/login", s.handleLogin)
 	mux.HandleFunc("POST /api/logout", s.handleLogout)
 	mux.HandleFunc("GET /api/remote", s.handleRemoteStatus)

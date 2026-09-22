@@ -58,8 +58,10 @@ package api
 // зберігся б узагалі.
 //
 // ПЕРЕБІР. Пʼять невдач з однієї адреси — і наступні спроби на пів
-// хвилини дістають 429. Адреса береться з Cf-Connecting-Ip, коли він є
-// (за тунелем RemoteAddr — це сам тунель), інакше з RemoteAddr. Це
+// хвилини дістають 429. Адреса береться з Cf-Connecting-Ip, коли запит
+// прийшов від самого конектора (петля: тунель веде на 127.0.0.1), інакше з
+// RemoteAddr. Заголовку з локальної мережі не віримо: інакше будь-хто вдома
+// міняв би його на кожну спробу й гальма не існувало б. Це
 // пригальмовує підбір, а не робить його неможливим: справжній другий
 // замок — Cloudflare Access перед тунелем, і README радить його ввімкнути.
 //
@@ -81,6 +83,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -110,8 +113,9 @@ const (
 )
 
 var (
-	errNeedLogin  = errors.New("потрібен вхід")
-	errNoPassword = errors.New("пароль ще не заданий")
+	errNeedLogin   = errors.New("потрібен вхід")
+	errNoPassword  = errors.New("пароль ще не заданий")
+	errCrossOrigin = errors.New("запит з чужої сторінки")
 )
 
 // authCache — секрети в памʼяті, щоб кожен запит не ходив у базу.
@@ -204,22 +208,31 @@ func verifyPassword(hash, pw string) bool {
 }
 
 // setPassword — записати пароль і ОБЕРНУТИ ключ сесій (довід у шапці).
+// Обидва секрети — однією транзакцією (store.SetSecrets).
 func (s *Server) setPassword(ctx context.Context, pw string) error {
 	hash, err := hashPassword(pw)
 	if err != nil {
 		return err
 	}
-	secret := make([]byte, 32)
-	if _, err := rand.Read(secret); err != nil {
+	secret, err := newSessionSecret()
+	if err != nil {
 		return err
 	}
-	if err := s.st.SetSecret(ctx, store.SecretPasswordHash, hash); err != nil {
-		return err
-	}
-	if err := s.st.SetSecret(ctx, store.SecretSessionSecret, hex.EncodeToString(secret)); err != nil {
+	if err := s.st.SetSecrets(ctx, map[string]string{
+		store.SecretPasswordHash:  hash,
+		store.SecretSessionSecret: secret,
+	}); err != nil {
 		return err
 	}
 	return s.reloadAuth(ctx)
+}
+
+func newSessionSecret() (string, error) {
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(secret), nil
 }
 
 // checkNewPassword — спільні вимоги до пароля для setup і зміни.
@@ -286,6 +299,9 @@ func tokenOK(want string, r *http.Request) bool {
 
 // authState — лічильники невдач у памʼяті. Губляться на рестарті, і це
 // нормально: рестарт сам по собі коштує дорожче за 5 спроб.
+//
+// Мапа обмежена authFailsCap: кожна нова адреса — новий запис, і без стелі
+// перебір із тисяч адрес ріс би в памʼяті без кінця.
 type authState struct {
 	mu    sync.Mutex
 	fails map[string]authFail
@@ -295,7 +311,15 @@ type authState struct {
 type authFail struct {
 	n     int
 	until time.Time
+	seen  time.Time // остання невдача — для прибирання
 }
+
+// authFailsCap — стеля мапи невдач; authFailsForget — через скільки тиші
+// запис без гальма забувається при прибиранні.
+const (
+	authFailsCap    = 4096
+	authFailsForget = 10 * time.Minute
+)
 
 func newAuthState() *authState {
 	return &authState{fails: map[string]authFail{}, now: time.Now}
@@ -322,12 +346,34 @@ func (s *authState) locked(ip string) bool {
 func (s *authState) fail(ip string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := s.now()
+	if _, ok := s.fails[ip]; !ok && len(s.fails) >= authFailsCap {
+		s.sweep(now)
+	}
 	f := s.fails[ip]
 	f.n++
+	f.seen = now
 	if f.n >= authMaxFails {
 		f.until = s.now().Add(authLockFor)
 	}
 	s.fails[ip] = f
+}
+
+// sweep прибирає записи, що вже нічого не гальмують. Якщо й після цього
+// мапа повна — це сам перебір із тисяч адрес, і лічильники скидаються
+// цілком: памʼять важить більше за точність гальма, яке однаково лише
+// пригальмовує (довід у шапці). Кличеться під s.mu.
+func (s *authState) sweep(now time.Time) {
+	for ip, f := range s.fails {
+		if f.until.IsZero() && now.Sub(f.seen) > authFailsForget {
+			delete(s.fails, ip)
+		} else if !f.until.IsZero() && !now.Before(f.until) {
+			delete(s.fails, ip)
+		}
+	}
+	if len(s.fails) >= authFailsCap {
+		s.fails = map[string]authFail{}
+	}
 }
 
 func (s *authState) success(ip string) {
@@ -365,6 +411,10 @@ func authExempt(path string) bool {
 // requireAuth — замок на /api/*. Статика проходить повз (довід у шапці).
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") && !sameOrigin(r) {
+			writeErr(w, http.StatusForbidden, errCrossOrigin)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/api/") && !authExempt(r.URL.Path) && !s.authed(r) {
 			writeErr(w, http.StatusUnauthorized, errNeedLogin)
 			return
@@ -374,26 +424,76 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 }
 
 // secureRequest — чи запит дійшов по https. За тунелем TLS термінується
-// не в нас, і про нього каже лише заголовок.
+// не в нас, і про нього каже лише заголовок — якому віримо лише від
+// конектора на петлі (довід у fromTunnel).
 func secureRequest(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
 	}
-	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	return fromTunnel(r) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
-// clientIP — ключ лічильника невдач. Cf-Connecting-Ip — лише він, а не
-// X-Forwarded-For цілком: перший підробляється не легше за RemoteAddr,
-// коли запит іде через тунель, а другий пишеться ким завгодно.
-func clientIP(r *http.Request) string {
-	if ip := strings.TrimSpace(r.Header.Get("Cf-Connecting-Ip")); ip != "" {
-		return ip
-	}
+// remoteHost — адреса з RemoteAddr без порту.
+func remoteHost(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// fromTunnel — чи запит прийшов від конектора Cloudflare. Тунель веде на
+// 127.0.0.1 (tunnel.Manager.origin), тож заголовки Cloudflare мають вагу
+// лише з петлі. З локальної мережі їх пише хто завгодно.
+func fromTunnel(r *http.Request) bool {
+	ip := net.ParseIP(remoteHost(r))
+	return ip != nil && ip.IsLoopback()
+}
+
+// clientIP — ключ лічильника невдач. Cf-Connecting-Ip — лише він, а не
+// X-Forwarded-For цілком, і лише від конектора на петлі: з тунелю його
+// ставить Cloudflare, з локальної мережі — будь-хто, і тоді кожна спроба
+// приходила б «з нової адреси».
+func clientIP(r *http.Request) string {
+	if fromTunnel(r) {
+		if ip := strings.TrimSpace(r.Header.Get("Cf-Connecting-Ip")); ip != "" {
+			return ip
+		}
+	}
+	return remoteHost(r)
+}
+
+// sameOrigin — чи мутація прийшла зі сторінки ЦЬОГО ж застосунку.
+//
+// SameSite=Lax не пускає cookie в POST із чужого сайту, але лише в
+// браузерах, що його дотримуються, і не між піддоменами одного сайту.
+// Тож мутації (усе, крім GET/HEAD/OPTIONS) перевіряються ще й за
+// заголовками, які браузер ставить сам і які сторінка підробити не може:
+//   - Sec-Fetch-Site: same-origin або none (адресний рядок) — свій;
+//   - інакше Origin: його хост мусить збігатися з Host запиту.
+//
+// Запит без обох заголовків — не браузер (Home Assistant з Bearer, curl),
+// і cookie в нього чужої не буває; його пропускаємо, право перевіряє замок.
+// Та сама логіка, що в http.CrossOriginProtection із Go 1.25; своя — щоб
+// не піднімати мінімум go.mod заради двадцяти рядків.
+func sameOrigin(r *http.Request) bool {
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "same-origin", "none":
+		return true
+	case "":
+	default:
+		return false
+	}
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	return err == nil && u.Host == r.Host
 }
 
 func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, value string, maxAge int) {
@@ -541,6 +641,35 @@ func (s *Server) handleAuthTokenRevoke(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// POST /api/auth/sessions/revoke — вийти на ВСІХ інших пристроях.
+//
+// Cookie сесії не має запису на сервері (строк:HMAC), тож відкликати одну
+// конкретну нема чого — відкликається ключ: обертається, і кожна раніше
+// видана cookie стає недійсною. Цьому браузеру нова видається одразу —
+// кнопку тиснуть, коли телефон загубився, а не щоб вийти самому.
+// Звичайний «Вийти» ключ не чіпає: він лише прибирає cookie тут.
+func (s *Server) handleAuthSessionsRevoke(w http.ResponseWriter, r *http.Request) {
+	if !s.authEnabled() {
+		writeErr(w, http.StatusConflict, errNoPassword)
+		return
+	}
+	secret, err := newSessionSecret()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.st.SetSecret(r.Context(), store.SecretSessionSecret, secret); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.reloadAuth(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.startSession(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
