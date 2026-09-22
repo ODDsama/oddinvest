@@ -635,6 +635,25 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: l.BuyDate, Amount: u.Amount()})
 		}
 	}
+	// Продаж на вторинці повертає виручку (чиста ціна + НКД) на рахунок
+	// того брокера, де лежав лот. Лот вище списаний ЦІЛИМ, тож без цього
+	// кредиту продана частина лишалась би «витраченою» назавжди — і саме
+	// так було: cashflow.go виручку зараховував, а гаманець ні, і звірка
+	// мовчала лише тому, що в її тесті не було жодного продажу.
+	//
+	// У incomeEvents продаж НЕ йде — з тієї ж причини, що й продаж
+	// сертифікатів нижче: це вихід із позиції, а не заробіток на ній.
+	lotChannel := make(map[int64]string, len(hold.Lots))
+	for _, l := range hold.Lots {
+		lotChannel[l.ID] = l.Channel
+	}
+	for _, sl := range sales {
+		proceeds, serr := domain.SaleProceeds(sl)
+		if serr != nil {
+			return nil, serr
+		}
+		cash.add(lotChannel[sl.LotID], proceeds.Currency().Code, sl.SaleDate, proceeds.Amount())
+	}
 
 	// Операції фондів рухають той самий гаманець: купівля списує гроші,
 	// продаж і дивіденд зараховують уже за вирахуванням податку. Без

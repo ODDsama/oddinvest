@@ -2140,9 +2140,40 @@ func TestCashflowStatementReconciles(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if resp, b := do(t, "POST", srv.URL+"/api/lots",
-		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","fee":"25.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
+	resp, b := do(t, "POST", srv.URL+"/api/lots",
+		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","fee":"25.00","buy_date":"2026-07-01","channel":"mono"}`)
+	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("лот: %d %s", resp.StatusCode, b)
+	}
+	var lot struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(b), &lot); err != nil || lot.ID == 0 {
+		t.Fatalf("id лота: %v: %s", err, b)
+	}
+	// Продаж на вторинці — рух, що повертає гроші на рахунок. Без нього
+	// тест лишав сліпою рівно ту половину, яку збирач свого часу забув:
+	// звіт зараховував виручку, а гаманець — ні.
+	accountBefore := func() float64 {
+		var sum struct {
+			AccountUAH float64 `json:"account_uah"`
+		}
+		_, body := do(t, "GET", srv.URL+"/api/summary", "")
+		if err := json.Unmarshal([]byte(body), &sum); err != nil {
+			t.Fatalf("summary: %v: %s", err, body)
+		}
+		return sum.AccountUAH
+	}
+	before := accountBefore()
+	if resp, b := do(t, "POST", srv.URL+"/api/sales",
+		`{"lot_id":`+strconv.FormatInt(lot.ID, 10)+`,"sale_date":"`+string(domain.NewDate(time.Now()))+`","qty":2,"clean_per_bond":"1010.00","accrued":"30.00","currency":"UAH"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("продаж: %d %s", resp.StatusCode, b)
+	}
+	// 2 × 1010 + 30 = 2050 ₴ виручки мають лягти на рахунок. Продаж —
+	// сьогодні: тоді жоден купон проданих паперів ще не «відпав», і різниця
+	// дорівнює рівно виручці.
+	if got := accountBefore() - before; math.Abs(got-2050) > 0.02 {
+		t.Errorf("продаж мав додати на рахунок 2050.00, додав %.2f", got)
 	}
 	if _, err := st.AddFundOp(ctx, domain.FundOp{
 		Date: "2026-06-01", Fund: "Inzhur", Kind: domain.FundBuy,
