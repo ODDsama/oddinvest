@@ -22,7 +22,7 @@
 // разом із доріжками, полем колекції та стрічкою датованих віх.
 
 import {
-  esc, uah0, signedUAH, pct, capitalUAH, outsideUAH, uah2 as fmtUAH, curSym, dayMonth,
+  esc, uah0, signedUAH, pct, capitalUAH, outsideUAH, uah2 as fmtUAH, dayMonth,
   plural, approxOther,
 } from "../format.js";
 import { tile, empty } from "../components.js";
@@ -178,21 +178,22 @@ function silenceHTML() {
  *  Перші рядки маршруту, а не весь маршрут: питання «Огляду» — «чи є що
  *  розкладати», а не «як саме». Повний маршрут із колонкою основи
  *  (зобов'язання / намір / оцінка) живе у «Плані». */
-function routePreviewHTML(rows) {
-  if (!rows || !rows.length) {
+function routePreviewHTML(legs) {
+  if (!legs || !legs.length) {
     return `<div class="card"><h2>Що заходить найближчим часом</h2>${empty(
       "Надходжень попереду немає",
       "Тут стануть найближчі надходження й те, куди вони підуть.",
       { href: routeFor("plan/inflow"), label: "Додати джерело доходу" })}</div>`;
   }
+  // Ноги маршруту (/api/route → legs), і сума — inflow_uah: те, що ляже на
+  // рахунок того дня, як і в колонці «Надійде» самого маршруту. Доти картка
+  // читала неіснуючі rows/amount і на будь-яких даних показувала порожнечу.
   return `<div class="card">
     <h2 class="card-head"><span>Що заходить найближчим часом</span>
       <a class="lnk" href="${routeFor("plan/route")}">увесь маршрут</a></h2>
-    ${rows.slice(0, 5).map((r) => `<div class="pv-row">
-      <span class="muted">${esc(r.date || "")} · ${esc(r.label || r.name || "")}</span>
-      <span>${r.amount ? esc(`${Number(r.amount.amount || r.amount)
-    .toLocaleString("uk", { minimumFractionDigits: 2 })} ${
-    curSym((r.amount && r.amount.currency) || "UAH")}`) : "—"}</span>
+    ${legs.slice(0, 5).map((l) => `<div class="pv-row">
+      <span class="muted">${esc(dayMonth(l.date))} · ${esc(l.label || "")}</span>
+      <span>${uah0(l.inflow_uah)}</span>
     </div>`).join("")}
   </div>`;
 }
@@ -214,7 +215,7 @@ export async function overview(ctx, main) {
     ${debtOverviewHTML(s)}
     <div class="card"><h2>Цей місяць</h2>
       <div class="tiles flush">${monthTile(ctx, s)}</div></div>
-    ${routePreviewHTML(route && (route.rows || route))}
+    ${routePreviewHTML(route && route.legs)}
     ${rebalanceCard(ctx)}
     ${silenceHTML()}`;
 }
