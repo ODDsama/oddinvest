@@ -1247,12 +1247,22 @@ func rebalanceTask(doc *state.Doc) (state.Task, bool) {
 	if worst == nil {
 		return state.Task{}, false
 	}
+	// Готівка у валюті в частку не входить (шапка state.Capital: вона лише
+	// в знаменнику), тож дефіцит може стояти й тоді, коли долари вже лежать
+	// на рахунку. Тоді порада інша — не «докупи валюту», а «вклади те, що
+	// є», — і сказати її мусить сама задача.
+	why := "Бракує щонайменше одного квитка в цій валюті — відхилення вже " +
+		"можна виправити новими грошима."
+	if worst.CanBuy > 0 {
+		why = fmt.Sprintf("На рахунку вже є %s — вистачає на %d %s: "+
+			"частку вирівнює вкладення цих грошей, а не нова конвертація.",
+			worst.Currency, worst.CanBuy, plural(int(worst.CanBuy), "квиток", "квитки", "квитків"))
+	}
 	return state.Task{
 		ID: "rebalance-" + worst.Currency, Sev: sevWatch, Rank: 12,
 		Title: fmt.Sprintf("%s нижче цілі: %s%% проти %s%%", worst.Currency,
 			pct1(worst.CurrentPct), pct1(worst.TargetPct)),
-		Why: "Бракує щонайменше одного квитка в цій валюті — відхилення вже " +
-			"можна виправити новими грошима.",
+		Why: why,
 		Action:    actReviewRebalance,
 		AmountUAH: worst.DeficitUAH,
 	}, true

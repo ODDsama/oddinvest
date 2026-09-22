@@ -270,4 +270,9 @@ func TestRebalanceTaskNeedsWholeTicket(t *testing.T) {
 	if got.Title != "EUR нижче цілі: 12,5% проти 20,0%" {
 		t.Errorf("заголовок: %q", got.Title)
 	}
+	// Валюта вже на рахунку — порада «вклади її», а не «докупи».
+	doc.Rebalance[1].CanBuy = 2
+	if got, _ := rebalanceTask(doc); !strings.Contains(got.Why, "вистачає на 2 квитки") {
+		t.Errorf("задача не сказала про валюту на рахунку: %q", got.Why)
+	}
 }
