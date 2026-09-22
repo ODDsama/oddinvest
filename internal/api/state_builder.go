@@ -598,7 +598,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		if err != nil {
 			return nil, err
 		}
-		incomeEvents = append(incomeEvents, domain.CashEvent{Date: cf.Date, Amount: uahAmt.Amount()})
+		incomeEvents = append(incomeEvents, domain.CashEvent{Date: domain.ArrivalDate(cf.Date, today), Amount: uahAmt.Amount()})
 	}
 
 	// купон кредитує рахунок ТОГО брокера, де куплено папір.
@@ -612,7 +612,8 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			}
 			if q := domain.HolderQty(l, sales, p.PayDate); q > 0 {
 				amt := domain.MulQty(p.PerBond, q)
-				cash.add(l.Channel, amt.Currency().Code, p.PayDate, amt.Amount())
+				// Позначена наперед — сьогоднішнім днем (domain.ArrivalDate).
+				cash.add(l.Channel, amt.Currency().Code, domain.ArrivalDate(p.PayDate, today), amt.Amount())
 			}
 		}
 	}
@@ -766,11 +767,12 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			if !arrived(cf.ISIN, cf.Date) {
 				continue
 			}
-			cash.add(dep.Bank, cf.Amount.Currency().Code, cf.Date, cf.Amount.Amount())
+			on := domain.ArrivalDate(cf.Date, today)
+			cash.add(dep.Bank, cf.Amount.Currency().Code, on, cf.Amount.Amount())
 			// Відсотки вкладу — такий самий дохід, як купон, і в чергу
 			// простою стають нарівні з ним.
 			if u, cerr := fx.ToUAH(cf.Amount, rates); cerr == nil {
-				incomeEvents = append(incomeEvents, domain.CashEvent{Date: cf.Date, Amount: u.Amount()})
+				incomeEvents = append(incomeEvents, domain.CashEvent{Date: on, Amount: u.Amount()})
 			}
 		}
 	}

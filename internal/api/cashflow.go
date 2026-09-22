@@ -92,8 +92,10 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		return &out[len(out)-1]
 	}
 	// income — виплата з розкладу: купон або погашення; друге — тіло.
+	// Дата — ArrivalDate: позначена наперед виплата лягає сьогоднішнім днем,
+	// рівно як у гаманці збирача.
 	income := func(cf domain.CashflowItem, label string) {
-		if e := add(cf.Date, flowIncome, uah(cf.Amount), label); e != nil {
+		if e := add(domain.ArrivalDate(cf.Date, today), flowIncome, uah(cf.Amount), label); e != nil {
 			e.Principal = cf.Type == domain.PayRedemption
 		}
 	}

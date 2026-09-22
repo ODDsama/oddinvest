@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"flag"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1151,4 +1152,35 @@ func walkDoc(v reflect.Value, path string) map[string]string {
 		}
 	}
 	return empty
+}
+
+// Два гаманці — збирач стану (state_builder.go) і подієвий звіт
+// (cashflow.go) — рахують ті самі гроші двома реалізаціями й мусять
+// сходитись до копійки. TestCashflowStatementReconciles стереже це на
+// маленькому сценарії; тут — на НАЙБАГАТШІЙ фікстурі застосунку: фонди,
+// НПФ, вклади з поповненнями, конвертації, продажі, купони, кілька
+// брокерів і валют. Саме так розходження й траплялось (продаж, який звіт
+// зараховував, а гаманець — ні): у малому сценарії потрібної події просто
+// не було.
+func TestCashflowReconcilesOnRichPortfolio(t *testing.T) {
+	srv, st := testServer(t)
+	richPortfolio(t, srv.URL, st)
+	var cf struct {
+		ClosingUAH float64 `json:"closing_uah"`
+	}
+	_, body := do(t, "GET", srv.URL+"/api/cashflow?from=2000-01-01", "")
+	if err := json.Unmarshal([]byte(body), &cf); err != nil {
+		t.Fatalf("cashflow: %v: %s", err, body)
+	}
+	var sum struct {
+		AccountUAH float64 `json:"account_uah"`
+	}
+	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	if err := json.Unmarshal([]byte(body), &sum); err != nil {
+		t.Fatalf("summary: %v: %s", err, body)
+	}
+	if math.Abs(cf.ClosingUAH-sum.AccountUAH) > 0.05 {
+		t.Errorf("звіт дає %.2f, рахунок зі зведення %.2f — гаманці розійшлись на %.2f",
+			cf.ClosingUAH, sum.AccountUAH, cf.ClosingUAH-sum.AccountUAH)
+	}
 }

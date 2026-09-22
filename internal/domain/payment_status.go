@@ -30,6 +30,10 @@ const (
 // сказати «вже прийшли», не чекаючи опівночі.
 //
 // statuses — мапа "ISIN|дата" → статус, як її віддає сховище.
+//
+// Позначка працює й НАПЕРЕД: брокер буває платить раніше за графік. Тоді
+// гроші вже на рахунку, але датувати їх треба сьогоднішнім днем, а не
+// датою графіка — див. ArrivalDate.
 func Arrived(statuses map[string]string, today Date) func(isin string, d Date) bool {
 	return func(isin string, d Date) bool {
 		if d.Before(today) {
@@ -38,4 +42,19 @@ func Arrived(statuses map[string]string, today Date) func(isin string, d Date) b
 		st := statuses[isin+"|"+string(d)]
 		return st == StatusReceived || st == statusReinvested
 	}
+}
+
+// ArrivalDate — коли виплата лягла в гроші: дата графіка, або СЬОГОДНІ,
+// якщо її позначили отриманою ще до тієї дати.
+//
+// Без цього правила два гаманці розходились: збирач стану клав позначену
+// наперед виплату на рахунок майбутньою датою (і рахував би її «вік»
+// від дня, якого ще не було), а звіт про рух грошей відсікав її вікном
+// «до сьогодні» — 993 ₴ на багатій фікстурі. Гроші, що вже прийшли,
+// прийшли не пізніше за сьогодні.
+func ArrivalDate(scheduled, today Date) Date {
+	if scheduled.After(today) {
+		return today
+	}
+	return scheduled
 }
