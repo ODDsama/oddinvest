@@ -4,7 +4,6 @@ package api
 import (
 	"context"
 	"embed"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -322,8 +321,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/remote/cert", s.handleRemoteCert)
 	mux.HandleFunc("POST /api/remote/disconnect", s.handleRemoteDisconnect)
 
-	sub, _ := fs.Sub(webFS, "web") //nolint:errcheck // шлях у go:embed — константа, помилка неможлива
-	mux.Handle("GET /", noCache(http.FileServerFS(sub)))
+	// Статика з ETag і gzip (static.go); свіжість, як і доти, — noCache.
+	mux.Handle("GET /", noCache(staticHandler()))
 	return mux
 }
 
@@ -356,10 +355,10 @@ func noStoreAPI(next http.Handler) http.Handler {
 // заголовком: інакше після оновлення бінарника браузер лишався б на
 // старих модулях, і зміни не з'являлись би навіть після Ctrl+Shift+R.
 //
-// Ціна — повторне вивантаження ~90 КБ на завантаження сторінки: файли
-// вбудовані через go:embed з нульовим ModTime, тож Last-Modified немає і
-// відповісти 304 нема на що. Для домашнього сервісу в локальній мережі
-// це дешевше за годину пошуку «чому не оновилось».
+// Перепитування дешеве: кожен файл має ETag за вмістом (static.go), тож
+// незмінений модуль відповідається 304 без тіла. Доти ETag не було, файли
+// вшиті з нульовим ModTime, і «перепитати» означало вивантажити весь UI
+// (~2 МБ) на кожне відкриття.
 //
 // Виняток один — шрифти. Вони важать більше за весь решту застосунку
 // разом, і та сама відсутність ModTime означала б 88 КБ на КОЖНЕ
