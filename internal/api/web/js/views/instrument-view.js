@@ -360,11 +360,11 @@ function panePaneHTML(ctx, spec, d) {
       || `<div class="card">${empty("Порад по цьому виду немає",
         "Помічник радить лише те, що проходить за твоїми умовами. Порівняти види між "
         + "собою можна там, де вони стоять поруч.",
-        { href: routeFor("work/buy/main"), label: "Що купити" })}</div>`)
+        { href: routeFor("work/pick/main"), label: "2 · Що взяти" })}</div>`)
       + (spec.kind === "bond" ? switchHTML() : "")
       + `<div class="card"><div class="sub">Порівняти з іншими видами —
-        <a class="lnk" href="${routeFor("work/buy/main")}">у «Що купити»</a>: там ОВДП, фонд,
-        вклад і НПФ стоять поруч і міряні однією реальною дохідністю.</div></div>`;
+        <a class="lnk" href="${routeFor("work/pick/main")}">у «Роботі → 2 · Що взяти»</a>: там ОВДП,
+        фонд, вклад і НПФ стоять поруч і міряні однією реальною дохідністю.</div></div>`;
   case "record":
     return writeHTML(ctx, spec, d);
   default:

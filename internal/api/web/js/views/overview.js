@@ -1,18 +1,29 @@
-// «Огляд» — головне одним екраном. Знак ODD у шапці веде сюди.
+// «Сьогодні» — єдина домашня сторінка. Знак ODD у шапці веде сюди.
 //
 // Єдина вкладка без майстер-списку: у неї немає сутності, яку можна
 // вибрати, — вона про портфель ЦІЛКОМ.
 //
-// ПОРЯДОК БЛОКІВ ВЕДЕ ПИТАННЯМ, А НЕ РОЗМІРОМ ЧИСЕЛ. Спершу скільки в
-// мене, далі що потребує рішення, і аж тоді контекст: найближча віха,
-// місяць, що заходить, де розриви. Черга стоїть ВИЩЕ за плитки місяця
-// навмисно: сторінка зветься «Огляд», але заходять на неї з питанням
-// «що робити».
+// ДОТИ ДОМАШНІХ БУЛО ДВІ: «Огляд» і «Робота → Що робити». Обидві несли
+// героя капіталу, чергу задач і плитку місяця, лише в різному порядку й
+// з різними підписами під тим самим числом, — і на питання «що мені
+// сьогодні робити» застосунок мав дві відповіді. Злито в одну за
+// рішенням власника (2026-09-22): черга звідти, плитки й контекст звідси.
+//
+// ПОРЯДОК БЛОКІВ ВЕДЕ ПИТАННЯМ, А НЕ РОЗМІРОМ ЧИСЕЛ. Спершу що потребує
+// рішення — черга ПЕРШОЮ й цілком, «Тримай на оці» згорнуто; далі
+// скільки в мене; і аж тоді контекст: місяць, наступна виплата, план,
+// що заходить, найближча віха, борг.
+//
+// ВАЛЮТНОГО РЕБАЛАНСУ ТУТ НЕМАЄ: картка живе лише в «Портфель →
+// Структура», а сюди приходить задачею в черзі (review-rebalance), коли
+// відхилення можна виправити бодай одним квитком. Картка-дубль на
+// головній показувала той самий розрив щодня, навіть коли зробити з ним
+// було нічого.
 //
 // ЖОДНОГО ВЛАСНОГО ЧИСЛА. Кожен блок або бере готове зі зведення, або
 // кличе ту саму функцію, що малює це число на своїй вкладці: плитка
-// місяця — monthTile з «Роботи», валютні розриви — rebalanceCard із
-// «Портфеля», найближча віха — nextLineHTML із «Шляху». Друга копія
+// місяця — monthTile, найближча віха — nextLineHTML із «Шляху», черга —
+// tasksHTML, той самий, що на сторінці інструмента. Друга копія
 // будь-якого з них розійшлася б із першою тихо.
 //
 // ПРОГРЕСУ ТУТ БІЛЬШЕ НЕМАЄ, і від нього лишився один рядок. Сітка з
@@ -22,15 +33,14 @@
 // разом із доріжками, полем колекції та стрічкою датованих віх.
 
 import {
-  esc, uah0, signedUAH, pct, capitalUAH, outsideUAH, uah2 as fmtUAH, dayMonth,
-  plural, approxOther,
+  esc, uah0, signedUAH, pct, capitalUAH, outsideUAH, dayMonth,
+  plural, approxOther, cur2,
 } from "../format.js";
 import { tile, empty } from "../components.js";
 import { routeFor } from "../routes.js";
-import { tasksOf, tasksHTML } from "./tasks.js";
-import { monthTile } from "./now-view.js";
+import { tasksHTML } from "./tasks.js";
+import { monthTile, planTileSub } from "./now-view.js";
 import { nextLineHTML } from "./path.js";
-import { rebalanceCard } from "./risk.js";
 import { debtOverviewHTML } from "./debts.js";
 
 /** Головне число й три поруч.
@@ -61,10 +71,13 @@ function heroHTML(ctx) {
       // неправдою — 50 000 під 13% вона називала грішми, які не працюють.
       // Що саме заробляє, каже blended_yield_base_uah.
       ? `з них ${uah0(outsideUAH(s))} у резерві й цілях — поза дохідністю портфеля` : "",
+    // Накопичений купон — зароблене, але ще не виплачене. Рядок переїхав
+    // сюди з колишньої «Що робити» разом із самою сторінкою.
+    s.accrued_uah > 0 ? `+ ${uah0(s.accrued_uah)} накопиченого купона` : "",
   ].filter(Boolean).map((t) => `<div class="sub">${esc(t)}</div>`).join("");
 
   return `<div class="tiles flush">
-    ${tile("Капітал", fmtUAH(cap), sub, { hero: true })}
+    ${tile("Капітал", uah0(cap), sub, { hero: true })}
     ${tile("Дохідність портфеля",
     s.blended_yield_pct ? pct(s.blended_yield_pct) : "—",
     // Другий рядок — лише коли лінійки дві: у валюті звітності ≠ гривні
@@ -73,8 +86,8 @@ function heroHTML(ctx) {
     s.blended_yield_pct && s.blended_yield_real_pct !== s.blended_yield_pct
       ? `<div class="sub-xs">${pct(s.blended_yield_real_pct)} реальних —
          після податку й знецінення</div>` : "")}
-    ${tile("XIRR", xirr ? pct(xirr) : "—",
-    xirr ? `<div class="sub-xs">з урахуванням дат внесків</div>`
+    ${tile("Заробило, річних", xirr ? pct(xirr) : "—",
+    xirr ? `<div class="sub-xs">XIRR — з урахуванням дат внесків</div>`
       : `<div class="sub-xs">гроші ще замолоді, щоб міряти</div>`)}
     ${tile("Вільні гроші", uah0(s.account_uah || 0), idleSubHTML(s))}
     ${savingsRateTile(s)}
@@ -124,21 +137,6 @@ function idleSubHTML(s) {
   }
   return s.reinvest_min_uah > 0
     ? `<div class="sub-xs">поріг покупки ${uah0(s.reinvest_min_uah)}</div>` : "";
-}
-
-/** Черга рішень, розрізана на «зараз» і «скоро».
- *
- *  Два блоки, а не один список із підзаголовками: питання в них різні —
- *  перше «що зробити сьогодні», друге «про що пам'ятати». Розрізає їх
- *  сам бекенд полем sev, тож жодного власного правила тут немає. */
-function queuesHTML(ctx) {
-  const all = tasksOf(ctx);
-  const now = all.filter((t) => t.sev === "now");
-  const soon = all.filter((t) => t.sev === "soon");
-  const block = (title, list, none) => `<div class="card"><h2>${esc(title)}</h2>${
-    list.length ? tasksHTML(ctx, list) : `<div class="sub">${esc(none)}</div>`}</div>`;
-  return block("Потребує рішення зараз", now, "Зараз нічого не чекає рішення.")
-    + block("Скоро · 30 днів", soon, "У найближчі тридцять днів строків немає.");
 }
 
 // ---------------------------------------------------------------------
@@ -202,20 +200,30 @@ function routePreviewHTML(legs) {
 export async function overview(ctx, main) {
   // Три м'які читання паралельно. Кожне живить свій блок, і падіння
   // будь-якого прибирає рівно його — той самий прийом, що в «Порівнянні».
-  const [progress, route] = await Promise.all([
+  // /api/plan — заради плитки «План»: найближча подія (замок, вікно
+  // купівлі фонду) живе тільки там.
+  const [progress, route, planDoc] = await Promise.all([
     ctx.soft("progress", null),
     ctx.soft("route", null),
+    ctx.soft("plan", null),
   ]);
   const s = ctx.summary || {};
+  const np = s.next_payment;
 
   main.innerHTML = `
+    ${tasksHTML(ctx, null, { foldWatch: true })}
     ${heroHTML(ctx)}
-    ${queuesHTML(ctx)}
+    <div class="tiles flush">
+      ${monthTile(ctx, s)}
+      ${tile("Наступна виплата",
+    np ? cur2(Number(np.amount), np.currency) : "—",
+    np ? `<div class="sub">${dayMonth(np.date)}</div>` : "")}
+      ${tile("План",
+    s.plan_provides_uah > 0 ? `${uah0(s.plan_provides_uah)}/міс` : "—",
+    planTileSub(ctx, planDoc))}
+    </div>
+    ${routePreviewHTML(route && route.legs)}
     ${nextLineHTML(progress)}
     ${debtOverviewHTML(s)}
-    <div class="card"><h2>Цей місяць</h2>
-      <div class="tiles flush">${monthTile(ctx, s)}</div></div>
-    ${routePreviewHTML(route && route.legs)}
-    ${rebalanceCard(ctx)}
     ${silenceHTML()}`;
 }

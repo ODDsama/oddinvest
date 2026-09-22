@@ -419,7 +419,7 @@ function monthHeadHTML(s) {
   // відповідає на питання цієї сторінки, а не наступної.
   const split = mp.left_uah > 0
     ? `<div class="sub-xs">Чим саме добрати ці ${fmtUAH(mp.left_uah)} — у <a class="lnk"
-       href="${routeFor("now/buys")}">Плані купівель</a>: там видно, скільки з них уже
+       href="${routeFor("work/buys/main")}">«3 · План і наслідки»</a>: там видно, скільки з них уже
        розписано, і скільки лишилось. Коли гроші вже прийшли, звичніший шлях — кнопка
        «⤵» на самому рядку в <a class="lnk"
        href="${routeFor("plan/inflow")}">Надходженнях</a>.</div>`

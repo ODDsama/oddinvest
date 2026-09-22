@@ -105,8 +105,8 @@ const SUMMARY_FREE = new Set(["policy", "settings"]);
 const VIEWS = {
   "overview/main/main": overview,
 
-  "work/todo/main": now.todo,
   "work/buy/main": now.buy,
+  "work/pick/main": now.pick,
   "work/buys/main": now.buys,
 
   "portfolio/all/positions": portfolio.positions,
@@ -828,6 +828,13 @@ export class OddInvestApp extends HTMLElement {
       && this._pane === homePane;
     if (atHome) mark.setAttribute("aria-current", "page");
     else mark.removeAttribute("aria-current");
+    // Лічильник рішень «зараз» — на знаку, бо черга на домашній. Підпис
+    // для зчитувача екрана каже число словами: сама цифра поруч із
+    // картинкою без контексту нічого б не сказала.
+    const due = this._tabBadge("overview");
+    mark.innerHTML = MARK + (due ? `<span class="tab-n">${esc(due)}</span>` : "");
+    mark.setAttribute("aria-label", due
+      ? `ODD Invest — на початок, рішень зараз: ${due}` : "ODD Invest — на початок");
 
     const cap = this.shadowRoot.getElementById("cap");
     cap.textContent = this._summary ? uah0(capitalUAH(s)) : "";
@@ -870,7 +877,9 @@ export class OddInvestApp extends HTMLElement {
   // цифра поруч із підписом читається як «тут щось не так».
   _tabBadge(key) {
     const s = this._summary || {};
-    if (key === "work") {
+    // Черга задач живе на «Сьогодні», тож і лічильник «зараз» стоїть на
+    // знаку ODD, що туди веде (_paintHeader), а не на «Роботі».
+    if (key === "overview") {
       const n = (s.tasks || []).filter((t) => t.sev === "now").length;
       return n ? String(n) : "";
     }

@@ -72,7 +72,9 @@ const OLD_KIND = {
 
 const LEGACY = new Map([
   // --- вкладка «Робота» ---
-  ["now/todo", "work/todo/main"],
+  // «Що робити» злилась із «Оглядом» у «Сьогодні» (2026-09-22).
+  ["now/todo", "overview/main/main"],
+  ["work/todo", "overview/main/main"],
   ["now/buy", "work/buy/main"],
   ["now/buys", "work/buys/main"],
   // Кошик покупки став планом купівель: рядки переїхали в базу й дістали

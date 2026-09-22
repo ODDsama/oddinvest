@@ -66,13 +66,13 @@ export function switchHTML() {
         cell: (r) => (r.reason ? `<span class="muted">${esc(r.reason)}</span>` : amt(r.break_even)) },
       { key: "bepct", label: "% номіналу", num: true, prio: 2,
         cell: (r) => (r.break_even_pct ? pct(r.break_even_pct) : "—") },
-      { key: "accrued", label: "НКД", num: true, prio: 3,
+      { key: "accrued", label: "Накопичений купон", num: true, prio: 3,
         cell: (r) => amt(r.accrued) },
     ],
     rows,
-    caption: "Пороги перекладання: папір, кількість, ціна купівлі, дохідність утримання, поріг, поріг у % номіналу, НКД",
+    caption: "Пороги перекладання: папір, кількість, ціна купівлі, дохідність утримання, поріг, поріг у % номіналу, накопичений купон",
   })}
-    <div class="sub">Поріг — ЧИСТА ціна, як її називає брокер: НКД додається зверху.
+    <div class="sub">Поріг — ЧИСТА ціна, як її називає брокер: накопичений купон додається зверху.
       Комісія за продаж у поріг не входить — застосунок її не знає, тож на свій тариф
       поправ сам.</div>
   </div>

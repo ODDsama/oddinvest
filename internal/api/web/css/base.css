@@ -153,6 +153,8 @@ header {
 }
 .mark-l[aria-current] { color: var(--oi-accent); }
 .mark-l .mark { width: 17px; height: 17px; display: block; }
+/* Лічильник рішень «зараз» на знаку (app.js, _paintHeader). */
+.mark-l .tab-n { margin-left: var(--oi-gap-xs); }
 
 /* Вкладки. Посилання, а не кнопки: браузер задарма дає фокус, Enter,
    «відкрити в новій вкладці» й закладку. Той самий довід, що був у
@@ -1551,6 +1553,14 @@ td.num .sale-f { text-align: right; }
    відступ їй ні до чого — інакше картка починається порожнечею. */
 .tasks .sg-h { margin-top: var(--oi-gap-lg); }
 .tasks .sg-h:first-child { margin-top: 0; }
+/* «Тримай на оці» згорнуто на головній (tasks.js, foldWatch): заголовок
+   групи сам стає кнопкою розкриття. */
+.tasks .sg-fold { margin-top: var(--oi-gap-lg); }
+.tasks .sg-fold:first-child { margin-top: 0; }
+.tasks .sg-fold > summary.sg-h { margin-top: 0; cursor: pointer; }
+/* Навігація між кроками «Роботи» (now-view.js, stepNavHTML): назад
+   ліворуч, далі праворуч, навіть коли одного з них немає. */
+.step-nav { justify-content: space-between; }
 .task {
   display: grid;
   /* Смуга · текст · дія. На телефоні дія падає окремим рядком під текст —

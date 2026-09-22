@@ -58,7 +58,7 @@ const WHERE = { deposit: "instr/deposits" };
 function priceBasisHTML(l) {
   if (l.kind !== "bond" || !l.cost_basis) return "";
   if (l.cost_basis !== "market") {
-    return `<div class="fine-xs muted">за номіналом + НКД — ринкової ціни немає</div>`;
+    return `<div class="fine-xs muted">за номіналом + накопичений купон — ринкової ціни немає</div>`;
   }
   const who = l.cost_where_label || l.cost_where;
   let out = `<div class="fine-xs muted">${esc(who)}${l.cost_as_of
@@ -292,7 +292,7 @@ export async function openAllocate(ctx, opts) {
     + (res.note ? `<div class="note">${esc(res.note)}</div>` : "")
     + `<div class="sub-xs">Поділ між видами — той самий, що в картці «Куди йдуть гроші
        місяця»: скільки кожному виду бракує до його цілі. Порядок усередині виду —
-       твій, із налаштування «Порядок у ‹Що купити›». Ціна кроку тут «номінал + НКД»,
+       твій, із налаштування «Порядок у ‹Що купити›». Ціна кроку тут «номінал + накопичений купон»,
        у брокера може бути інша.</div>`;
 
   // Зміна джерела ПЕРЕПИТУЄ розкладку, а не править її в браузері: з іншим

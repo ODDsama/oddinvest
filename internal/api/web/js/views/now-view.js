@@ -10,12 +10,12 @@
 // склад і історія — у «Портфель», потоки й прогнози — у «Майбутнє».
 
 import {
-  esc, curSym, monthYearGen, dayMonth, pct, plural, capitalUAH, outsideUAH, today,
-  uah2 as fmtUAH, cur2 as fmtCur, signedUAH2, approxOther } from "../format.js";
+  esc, curSym, monthYearGen, dayMonth, pct, plural, today,
+  uah2 as fmtUAH, cur2 as fmtCur, signedUAH2 } from "../format.js";
 import { currency, BOOK } from "../currency.js";
 import { infoBtn } from "../info.js";
 import { yieldCell } from "../yield.js";
-import { tile, kindPill, progressBar } from "../components.js";
+import { tile, kindPill, progressBar, empty } from "../components.js";
 import { isOpen, remember } from "../uistate.js";
 import { quotesBarHTML, quotesDoc } from "../quotes.js";
 import { routeFor } from "../routes.js";
@@ -24,7 +24,6 @@ import { fetchWhatIf, impactHTML } from "./buy-plan.js";
 import {
   planBuysHTML, planBuyFormHTML, wirePlanBuys, addToPlan, emptyPlanHTML,
 } from "./plan-buys.js";
-import { tasksHTML } from "./tasks.js";
 import { allocationCardHTML, currencyCardHTML } from "./allocation.js";
 import { topupHTML, wireTopup, topupPick, clearTopupPick } from "./topup.js";
 
@@ -40,51 +39,10 @@ let reinvest = [];
 // трьома задачами в views/tasks.js, де вони стоять поруч із рештою того,
 // що теж потребує рішення.
 
-// Виплати одного дня — це ОДИН прихід грошей, і питання до картки саме
-// таке: скільки впаде на рахунок і коли. Доти кожен потік малювався
-// окремим рядком, тож один день займав два, а список рвався на четвертому
-// незалежно від того, що там за потоки.
-//
-// Гірше було з погашеннями: 18 листопада той самий папір платить купон
-// 81,75 ₴ і повертає тіло 1 000 ₴, але друга половина не влазила в чотири
-// рядки — і картка показувала 82 ₴ там, де прийде 1 082 ₴.
-//
-// Групуємо за датою І ВАЛЮТОЮ: складати гривню з доларом не можна навіть
-// одного дня. Джерело — повний календар, а не top_payments: той обрізаний
-// до N потоків ще на бекенді, тож після склеювання дат рядків лишалось би
-// менше, ніж є днів.
-function groupPayments(list, limit) {
-  const out = [];
-  const idx = new Map();
-  for (const p of list) {
-    const key = p.date + "|" + p.currency;
-    let g = idx.get(key);
-    if (!g) {
-      if (out.length >= limit) continue;
-      g = { date: p.date, currency: p.currency, amount: 0, n: 0 };
-      idx.set(key, g);
-      out.push(g);
-    }
-    g.amount += Number(p.amount) || 0;
-    g.n++;
-  }
-  return out;
-}
-
-export function paymentsPreviewHTML(ctx) {
-  const s = ctx.summary || {};
-  // calendar — повний горизонт; top_payments лишається запасним джерелом
-  // для старшого бекенда, який календаря ще не надсилав.
-  const src = (s.calendar || []).length ? s.calendar : (s.top_payments || []);
-  const rows = groupPayments(src, 4);
-  const body = rows.length
-    ? rows.map((p) => `<div class="pv-row"><span class="muted">${dayMonth(p.date)}${
-        p.n > 1 ? ` <span class="sub-xs">· ${p.n} ${plural(p.n, "виплата", "виплати", "виплат")}</span>` : ""}</span>
-        <span>${fmtCur(p.amount, p.currency)}</span></div>`).join("")
-    : `<div class="sub">Виплат попереду немає.</div>`;
-  return `<div class="card"><h2>Найближчі виплати</h2>${body}
-    <div class="sub">Суми за день складені. Повний календар — у «Плані»</div></div>`;
-}
+// Картки «Найближчі виплати» тут більше немає: вона жила на колишній «Що
+// робити», а на «Сьогодні» те саме питання закриває «Що заходить
+// найближчим часом» — ноги маршруту вже складені за датою, брокером і
+// валютою, тож купон і погашення одного дня й там стоять одним числом.
 
 // Що купити: папери, відранжовані БЕКЕНДОМ. Показуємо кілька позицій ЗАВЖДИ —
 // попередній варіант зникав саме тоді, коли ти плануєш наступний крок, а ще
@@ -285,7 +243,7 @@ export function reinvestHTML(ctx, opts = {}) {
     // ними читався б як рух ринку. Тому рядок стоїть В ОБОХ випадках.
     const price = r.kind !== "bond" || !r.cost_basis ? ""
       : r.cost_basis !== "market"
-        ? `<div>ціна за номіналом + НКД — ринкової немає</div>`
+        ? `<div>ціна за номіналом + накопичений купон — ринкової немає</div>`
         : `<div>ціна ${esc(r.cost_where_label || r.cost_where)}${
           r.cost_as_of ? ", " + esc(dayMonth(r.cost_as_of)) : ""}${
           r.cost_alt && r.cost_alt_where
@@ -539,7 +497,7 @@ export function monthTile(ctx, s) {
 
 // Друга половина плитки: чи є план, чи вистачає його на ціль, і якщо ні
 // ні на що дивитись — найближча дата, коли доведеться щось вирішити.
-function planTileSub(ctx, doc) {
+export function planTileSub(ctx, doc) {
   const t = contribTriad(ctx);
   if (!t.hasPlan) {
     return `<div class="sub"><a class="lnk" href="${routeFor("planflow")}">додай перше джерело доходу</a></div>`;
@@ -576,52 +534,45 @@ export async function loadReinvest(ctx) {
   } catch (_) { reinvest = []; }
 }
 
-/** Що робити зараз — головна сторінка застосунку.
+/** Кроки «Роботи» — одна дорога «куди покласти гроші цього місяця».
  *
- *  ЧЕРГА ЗАДАЧ ІДЕ ПЕРШОЮ І САМА. Вона і є відповідь на питання розділу;
- *  усе інше на сторінці — контекст до неї.
+ *  Доти ця дорога була розкидана по пʼяти місцях (карта, план, «Що
+ *  зробити» кожної позиції, діалог маршруту, ребаланс у «Структурі»), і
+ *  переходу між ними не було: з карти розподілу не можна було дістатись
+ *  до порад, а з порад — до плану. Три рядки «Роботи» тепер пронумеровані
+ *  й зшиті посиланням «Далі» (рішення власника, 2026-09-22). Маршрут і
+ *  «Прийшло» лишаються в «Плані»: вони про надходження, а не про вибір. */
+const STEPS = [
+  { id: "buy", label: "1 · Скільки й куди" },
+  { id: "pick", label: "2 · Що взяти" },
+  { id: "buys", label: "3 · План і наслідки" },
+];
+
+function stepNavHTML(id) {
+  const i = STEPS.findIndex((s) => s.id === id);
+  const prev = STEPS[i - 1];
+  const next = STEPS[i + 1];
+  const a = (s, text) => `<a class="lnk" href="${routeFor(`work/${s.id}/main`)}">${esc(text)}</a>`;
+  return `<div class="card row-h step-nav">
+    ${prev ? a(prev, `← ${prev.label}`) : "<span></span>"}
+    ${next ? a(next, `Далі: ${next.label} →`) : "<span></span>"}
+  </div>`;
+}
+
+/** Крок 2 — «Що взяти»: поради помічника по ВСІХ видах поруч.
  *
- *  Плитки лишились, але ПІСЛЯ черги, а не замість неї. Вони відповідають на
- *  «як справи» — капітал, темп місяця, найближча виплата, план, — і це
- *  чесне питання, просто інше. Доти вони стояли зверху, і сторінка з назвою
- *  «Що робити» відкривалась оглядом.
- *
- *  Попередження про застарілий довідник НБУ зі сторінки зникло: воно стало
- *  задачею в черзі. Лишити обидва означало б сказати те саме двічі на
- *  одному екрані.
- *
- *  Запит тут рівно один, і він не про задачі: черга вже приїхала в
- *  summary.tasks готовою (бекенд рахує її в state_tasks.go). /api/plan
- *  лишається заради плитки «План» — найближча подія (замок, вікно купівлі
- *  фонду) живе тільки там.
- */
-export async function todo(ctx, main) {
-  const s = ctx.summary || {};
-  const cap = capitalUAH(s);
-  const np = s.next_payment;
-  const accrued = s.accrued_uah || 0;
-  const capSub = [
-    approxOther(s, cap),
-    accrued > 0 ? `+ ${fmtUAH(accrued)} НКД зароблено` : "",
-    // Резерв і цілі накопичення названі окремо: вони в капіталі, але не
-    // працюють, і без цього рядка сума виглядала б як «стільки в мене
-    // інвестовано». Разом, а не двома рядками: питання одне.
-    outsideUAH(s) > 0 ? `з них ${fmtUAH(outsideUAH(s))} у резерві й цілях` : "",
-  ].filter(Boolean).map((t) => `<div class="sub">${t}</div>`).join("");
-  const planDoc = await ctx.soft("plan", null);
-  main.innerHTML = `
-    ${tasksHTML(ctx)}
-    <div class="tiles flush">
-      ${tile("Капітал", fmtUAH(cap), capSub, { hero: true })}
-      ${monthTile(ctx, s)}
-      ${tile("Наступна виплата",
-    np ? `${Number(np.amount).toLocaleString("uk-UA", { minimumFractionDigits: 2 })} ${curSym(np.currency)}` : "—",
-    np ? `<div class="sub">${dayMonth(np.date)}</div>` : "")}
-      ${tile("План",
-    s.plan_provides_uah > 0 ? `${fmtUAH(s.plan_provides_uah)}/міс` : "—",
-    planTileSub(ctx, planDoc))}
-    </div>
-    ${paymentsPreviewHTML(ctx)}`;
+ *  Той самий reinvestHTML, що на панелі «Що зробити» позиції, лише без
+ *  фільтра виду. Порівняння видів між собою доти лишалось без місця
+ *  (див. «Що купити» нижче); тепер воно тут, між картою розподілу й
+ *  планом, і «+» кожної поради кладе її просто в план наступного кроку. */
+export async function pick(ctx, main) {
+  await loadReinvest(ctx);
+  main.innerHTML = (reinvestHTML(ctx, { title: "Що взяти" })
+    || `<div class="card">${empty("Порад зараз немає",
+      "Помічник радить лише те, що проходить за твоїми умовами й по кишені. "
+      + "Коли зʼявляться гроші чи зміняться умови — поради стануть тут.")}</div>`)
+    + stepNavHTML("pick");
+  wireReinvest(ctx, main);
 }
 
 /** Що купити — карта розподілу: скільки чого має бути й наскільки кожна ціль
@@ -637,11 +588,11 @@ export async function todo(ctx, main) {
  *  ціні (у кишені лежало 6,19 ₴), — тобто повторював відповідь «нічого»
  *  шість разів і гірше, ніж одна задача.
  *
- *  Сам список нікуди не дівся: reinvestHTML далі малюється у воронках
- *  «Інструментів» кроком «Що взяти з цього виду», і саме тому функція
- *  лишається експортованою. Без свого місця тимчасово лишилось ПОРІВНЯННЯ
- *  ВИДІВ між собою — це зважене рішення власника, а не недогляд, і
- *  повертається воно одним доданком нижче.
+ *  Сам список нікуди не дівся: reinvestHTML малюється на панелі «Що
+ *  зробити» кожної позиції, а ПОРІВНЯННЯ ВИДІВ між собою, яке довго
+ *  лишалось без місця, стало окремим кроком «2 · Що взяти» (pick вище).
+ *  Сюди він не повернувся навмисно: ця сторінка — карта, і її тільки
+ *  читають.
  *
  *  ЩО СЮДИ ПОВЕРНУЛОСЬ. Валютний поверх: доти сторінка показувала лише мапу
  *  за ВИДОМ, хоч помічник ранжує поради сумою двох розривів — валютного й
@@ -667,7 +618,7 @@ export async function todo(ctx, main) {
  *  Тому в цій функції немає й не має бути жодного wire*: усе, що вміє
  *  сторінка, вона малює. */
 export async function buy(ctx, main) {
-  main.innerHTML = currencyCardHTML(ctx) + allocationCardHTML(ctx);
+  main.innerHTML = currencyCardHTML(ctx) + allocationCardHTML(ctx) + stepNavHTML("buy");
 }
 
 /** План купівель: що я збираюсь узяти — і що з цього вийде.
@@ -711,7 +662,8 @@ export async function buys(ctx, main) {
         <div class="note">Наслідки перерахуються, щойн наберені поля складуться
           в покупку — зберігати для цього нічого не треба.</div>
         ${planBuyFormHTML(ctx)}</div>`
-    + `<div data-impact>${impactHTML(ctx, res)}</div>`;
+    + `<div data-impact>${impactHTML(ctx, res)}</div>`
+    + stepNavHTML("buys");
   wirePlanBuys(ctx, main, rows || []);
   wireTopup(ctx, main, res);
 }

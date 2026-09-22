@@ -130,7 +130,9 @@ const F = (kind) => `portfolio/@first:${kind}`;
 
 const MOVED = {
   // старе дерево, 31 сторінка
-  "now/todo": "work/todo/main",
+  // «Що робити» злилась з «Оглядом» у «Сьогодні» (2026-09-22).
+  "now/todo": HOME,
+  "work/todo/main": HOME,
   "now/buy": "work/buy/main",
   "now/buys": "work/buys/main",
   "instr/bonds": `${F("bond")}/state`,
@@ -199,7 +201,7 @@ const MOVED = {
   instr: "portfolio/all/positions",
 
   // голі назви живих вкладок розкриває правило FIRST, а не таблиця
-  work: "work/todo/main",
+  work: "work/buy/main",
   portfolio: "portfolio/all/positions",
   money: "money/all/balances",
   // «План» голим хешем веде тепер у «Борги»: доки борг живий, він

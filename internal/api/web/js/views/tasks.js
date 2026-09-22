@@ -60,8 +60,13 @@ const ACTIONS = {
   // Обидва робляться на самій сторінці: ₴ ставить сьогоднішню дату, ✎
   // зсуває дату платежу.
   "pay-planned": { to: "plan/expenses", label: "Розібратись із витратою" },
-  "review-limits": { to: "risk/limits", label: "Подивитись ліміти" },
-  "see-suggestions": { to: "now/buy", label: "Що купити" },
+  "review-limits": { to: "portfolio/all/limits", label: "Подивитись ліміти" },
+  // Картка валютного ребалансування живе лише в «Структурі»; з головної її
+  // прибрано, і черга кличе туди, коли відхилення можна виправити.
+  "review-rebalance": { to: "portfolio/all/structure", label: "Подивитись структуру" },
+  // Крок «Що взяти» — зведений список порад по всіх видах. Доти задача
+  // вела в «Що купити», де списку порад давно не було.
+  "see-suggestions": { to: "work/pick/main", label: "Що взяти" },
   "review-deposit": { to: "assets/deposits", label: "Подивитись вклад" },
   "how-to-fund": { to: "assets/funds", label: "Як завести сертифікат" },
 };
@@ -112,7 +117,7 @@ function emptyHTML(ctx) {
     : "Наступна дія — коли надійдуть гроші або зміняться умови.";
   return `<div class="card">${empty(
     "Зараз нічого не потребує рішення", why,
-    { href: routeFor("now/buy"), label: "Подивитись, що купити" })}</div>`;
+    { href: routeFor("work/pick/main"), label: "Подивитись, що взяти" })}</div>`;
 }
 
 /** Черга задач списком, згрупована за терміновістю.
@@ -120,12 +125,19 @@ function emptyHTML(ctx) {
  *  Власного заголовка картка НЕ має: сторінку вже названо оболонкою
  *  (app.js малює <h1> із nav.js), і другий такий самий рядок під ним — не
  *  структура, а заїкання. */
-export function tasksHTML(ctx, list = null) {
+export function tasksHTML(ctx, list = null, { foldWatch = false } = {}) {
   const tasks = list || tasksOf(ctx);
   if (!tasks.length) return emptyHTML(ctx);
   const group = (g) => {
     const items = tasks.filter((t) => t.sev === g.sev);
     if (!items.length) return "";
+    // «Тримай на оці» на головній згорнуто: це спостереження, а не
+    // рішення, і розгорнуте воно відсувало б плитки нижче екрана. Число в
+    // заголовку лишає його видимим — сховано зміст, а не факт.
+    if (foldWatch && g.sev === "watch") {
+      return `<details class="sg-fold"><summary class="sg-h">${esc(g.label)} · ${
+        items.length}</summary>${items.map(taskRow).join("")}</details>`;
+    }
     return `<h3 class="sg-h">${esc(g.label)}</h3>${items.map(taskRow).join("")}`;
   };
   return `<div class="card tasks">${GROUPS.map(group).join("")}</div>`;

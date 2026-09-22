@@ -104,7 +104,7 @@ function manualFormHTML(isin) {
       attrs: { "data-quote-form": isin },
       fields: [
         textField("source", "Продавець", { ph: "mono", required: true }),
-        moneyField("price", "Ціна за 1 шт, брудна (з НКД)", { required: true }),
+        moneyField("price", "Ціна за 1 шт, брудна (з накопиченим купоном)", { required: true }),
         dateField("date", "На дату"),
       ],
       submit: "Зберегти ціну",

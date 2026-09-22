@@ -66,7 +66,7 @@ export const saleFields = (ctx, row = null, lots = []) => [
   moneyField("clean_per_bond", "Чиста ціна/папір", {
     ph: "1001.50", required: true, value: row ? row.clean_per_bond.amount : "",
   }),
-  moneyField("accrued", "НКД (сумарно)", { value: row ? row.accrued.amount : "" }),
+  moneyField("accrued", "Накопичений купон (сумарно)", { value: row ? row.accrued.amount : "" }),
   noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
 ];
 

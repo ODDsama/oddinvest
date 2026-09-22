@@ -237,10 +237,6 @@ export function moneyRows(ctx) {
 export function staticRows(tab, ctx) {
   const s = (ctx && ctx.summary) || {};
   const num = {
-    todo: () => {
-      const n = (s.tasks || []).filter((t) => t.sev === "now").length;
-      return n ? [String(n), "зараз", "warn"] : null;
-    },
     inflow: () => (s.plan_provides_uah
       ? [`${uah0(s.plan_provides_uah)}`, "/міс", ""] : null),
     goal: () => {
@@ -487,15 +483,18 @@ export function footValue(tabKey, ctx, rows) {
     // цього хвоста розбіжність між сумою видимого й підсумком була б
     // мовчазною рівно доти, доки хтось не почне складати рядки руками.
     const off = rows.length - visibleRows(rows, ctx.hidden).length;
+    // Дохідність підписана: на «Сьогодні» головне число — номінальна, і
+    // голе «8,4%» тут читалось би як те саме, хоч це реальна.
     return `${uah0(capitalUAH(s))}${s.blended_yield_real_pct
-      ? ` · ${pct(s.blended_yield_real_pct)}` : ""}${off ? ` · ${off} приховано` : ""}`;
+      ? ` · ${pct(s.blended_yield_real_pct)} реальних` : ""}${off ? ` · ${off} приховано` : ""}`;
   }
   if (tabKey === "money") return uah0(s.account_uah || 0);
+  // «Можна вкласти» — те саме число, що в підписі «Вільних грошей» на
+  // «Сьогодні» (idle.investable_uah): з нього й починається дорога трьох
+  // кроків. Черги задач тут більше немає — вона на домашній.
   if (tabKey === "work") {
-    const t = s.tasks || [];
-    const now = t.filter((x) => x.sev === "now").length;
-    const soon = t.filter((x) => x.sev === "soon").length;
-    return t.length ? `${now} зараз · ${soon} скоро` : "нічого";
+    const inv = (s.idle || {}).investable_uah || 0;
+    return inv > 0 ? uah0(inv) : "—";
   }
   if (tabKey === "plan") {
     return s.plan_provides_uah ? `${uah0(s.plan_provides_uah)}/міс` : "—";

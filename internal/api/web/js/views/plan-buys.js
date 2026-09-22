@@ -251,7 +251,7 @@ export function planBuysHTML(res) {
   return `<div class="card"><h2>Що заплановано</h2>
     ${linesHTML(basket)}
     <div class="pv-row mt"><span><b>Разом</b></span><span><b>${totals}</b></span></div>
-    <div class="sub-xs mt-sm">Ціна тут — «номінал + НКД» для паперу й остання
+    <div class="sub-xs mt-sm">Ціна тут — «номінал + накопичений купон» для паперу й остання
       відома ціна для сертифіката. У брокера може бути інша, і тоді інші будуть
       усі числа нижче.</div>
   </div>`;
@@ -462,6 +462,6 @@ export function emptyPlanHTML() {
     <div class="note">Тут порожньо. Внеси сюди те, що збираєшся взяти — і
       побачиш, що станеться з капіталом, частками, подушкою й ціллю ДО того,
       як гроші підуть. Рядки додаються формою нижче або кнопкою «+» у
-      <a href="${routeFor("now/buy")}">«Що купити»</a>.</div>
+      <a href="${routeFor("work/pick/main")}">«2 · Що взяти»</a>.</div>
   </div>`;
 }
