@@ -858,14 +858,14 @@ export const RESERVE_FROM = [
 const FIELD_LABEL = {
   usd_target_share_pct: "Цільова частка USD, %",
   eur_target_share_pct: "Цільова частка EUR, %",
-  target_bonds_pct: "Ціль ОВДП, %",
-  target_funds_pct: "Ціль фондів, %",
-  target_deposits_pct: "Ціль вкладів, %",
-  target_npf_pct: "Ціль НПФ, %",
+  target_bonds_pct: "Цільова частка ОВДП, %",
+  target_funds_pct: "Цільова частка фондів, %",
+  target_deposits_pct: "Цільова частка вкладів, %",
+  target_npf_pct: "Цільова частка НПФ, %",
   limit_isin_pct: "Макс. в одному папері, %",
   limit_broker_pct: "Макс. в одній установі, %",
   limit_year_pct: "Макс. погашень в один рік, %",
-  reserve_target_months: "Ціль резерву, місяців",
+  reserve_target_months: "Запас, місяців витрат",
   reserve_fill_share_pct: "З вільних у резерв, %",
   reserve_fill_from: "Подушку наповнювати",
   reserve_liquid_months: "Доступно миттєво, місяців витрат",
@@ -1039,7 +1039,7 @@ function measuredOf(preset, eff, s) {
 //
 // ЧОГО СЮДИ НЕ ВХОДИТЬ І ЧОМУ.
 //
-// Ціль накопичення (goal_amount_uah / goal_date). Жоден набір її не пише, і
+// Мета капіталу (goal_amount_uah / goal_date). Жоден набір її не пише, і
 // жодне число набору без неї не ламається: частки, ліміти, резерв і порядок
 // «Що купити» рахуються самі. Навіть режим «під план» не про ціль — у
 // planScore входять валютний і видовий дефіцити, а дедлайн не входить

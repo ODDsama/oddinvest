@@ -86,10 +86,10 @@ const SPEC = {
     { key: "reinvest_rank", label: "Критерій", type: "select", opts: RANKS },
   ],
   kindTargets: [
-    { key: "target_bonds_pct", label: "Ціль ОВДП, %", type: "pct", ph: "порожньо = без цілі" },
-    { key: "target_funds_pct", label: "Ціль фондів, %", type: "pct", ph: "порожньо = без цілі" },
-    { key: "target_deposits_pct", label: "Ціль вкладів, %", type: "pct", ph: "порожньо = без цілі" },
-    { key: "target_npf_pct", label: "Ціль НПФ, %", type: "pct", ph: "порожньо = без цілі" },
+    { key: "target_bonds_pct", label: "Цільова частка ОВДП, %", type: "pct", ph: "порожньо = без цілі" },
+    { key: "target_funds_pct", label: "Цільова частка фондів, %", type: "pct", ph: "порожньо = без цілі" },
+    { key: "target_deposits_pct", label: "Цільова частка вкладів, %", type: "pct", ph: "порожньо = без цілі" },
+    { key: "target_npf_pct", label: "Цільова частка НПФ, %", type: "pct", ph: "порожньо = без цілі" },
   ],
   npfCredit: [
     { key: "npf_credit_pdfo_year_uah", label: "Утриманий за рік ПДФО, ₴", ph: "порожньо = знижку не рахувати" },
@@ -107,7 +107,7 @@ const SPEC = {
     // перепишуть руками.
     { key: "monthly_expenses", label: "Місячні витрати", ph: "порожньо = не рахувати" },
     { key: "monthly_expenses_currency", label: "У валюті", type: "select", opts: CURRENCY_OPTS },
-    { key: "reserve_target_months", label: "Ціль запасу, місяців", type: "pct", ph: "напр. 6" },
+    { key: "reserve_target_months", label: "Запас, місяців витрат", type: "pct", ph: "напр. 6" },
     { key: "reserve_fill_share_pct", label: "З вільних грошей у резерв, %", type: "pct", ph: "порожньо = не пропонувати" },
     // Друга половина тієї самої стелі: скільки — вище, з ЧОГО — тут.
     { key: "reserve_fill_from", label: "Подушку наповнювати", type: "select", opts: RESERVE_FROM },
@@ -148,7 +148,7 @@ const SPEC = {
     { key: "deval_spread_pp", label: "Розкид знецінення, п.п.", type: "pct", ph: "порожньо = 4" },
   ],
   goal: [
-    { key: "goal_amount_uah", label: "Ціль, ₴", ph: "скільки хочу накопичити" },
+    { key: "goal_amount_uah", label: "Мета капіталу, ₴", ph: "скільки хочу накопичити" },
     { key: "goal_date", label: "Дедлайн — коли", type: "date" },
     { key: "usd_target_share_pct", label: "Цільова частка USD, %", type: "pct" },
     { key: "eur_target_share_pct", label: "Цільова частка EUR, %", type: "pct" },
@@ -420,7 +420,7 @@ function rateAssumptionsCard(s) {
   </div>`;
 }
 
-/** Стратегія і ціль: пресети, ціль із дедлайном, цільові валютні частки. */
+/** Стратегія й мета капіталу: пресети, ціль із дедлайном, цільові валютні частки. */
 export async function strategy(ctx, main) {
   const s = await ctx.api("GET", "settings");
   main.innerHTML = `${strategyCardHTML(ctx, s)}${goalCard(s)}`;
