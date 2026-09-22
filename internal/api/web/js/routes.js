@@ -107,7 +107,9 @@ const LEGACY = new Map([
   // відповідала (довід — у nav.js). Запис потрібен ЯВНО: без нього
   // закладка впала б у правило голої вкладки — тобто в ті самі «Борги»,
   // але випадково й без обіцянки.
-  ["plan/spend", "plan/debts/main"],
+  ["plan/spend", "plan/debts/state"],
+  // «Борги» дістали панелі (2026-09-23): стара адреса сторінки — у «Стан».
+  ["plan/debts/main", "plan/debts/state"],
   ["policy/strategy", "policy/strategy/main"],
   ["policy/mix", "policy/mix/main"],
   ["policy/instruments", "policy/instruments/main"],

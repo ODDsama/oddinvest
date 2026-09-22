@@ -732,29 +732,36 @@ export async function debts(ctx, main) {
   // про свій же список.
   ctx.debtList = list || [];
   const cards = (list || []).filter((d) => d.kind === "card" && !d.closed_date);
-  main.innerHTML = `
+  // Панелі (nav.js, "plan/debts") — за питанням. Блоки ті самі, що й
+  // доти на одній сторінці, лише розкладені: «Стан» — що зараз і в якому
+  // порядку гасити; «Скільки й коли» — «а якщо докласти», стратегії,
+  // графік; «Звірка» й «Рухи» — форма разом із журналом, який вона
+  // поповнює; «Борги» — завести й переглянути самі борги.
+  const intro = cards.length || (list || []).length ? "" : `<div class="card"><h2 class="h-row">Борги ${infoBtn("debts")}</h2>
+      <div class="note">Заведи картку або розстрочку на панелі «Борги» — і застосунок почне
+        рахувати чесну ставку, чергу погашення й дату, коли це скінчиться.</div></div>`;
+  const PANES = {
+    state: () => `${intro}
     ${(plan && plan.grace || []).map((g) => graceHTML(g) + exitHTML(g)).join("")}
-    ${cards.length ? "" : `<div class="card"><h2 class="h-row">Борги ${infoBtn("debts")}</h2>
-      <div class="note">Заведи картку або розстрочку внизу — і застосунок почне рахувати
-        чесну ставку, чергу погашення й дату, коли це скінчиться.</div></div>`}
-    ${queueHTML(plan, list)}
+    ${queueHTML(plan, list)}`,
+    plan: () => `${intro}
     ${askHTML(plan)}
     ${strategiesHTML(plan)}
-    ${scheduleHTML(plan)}
-    <div class="card"><h2 class="h-row">Звірити картку ${infoBtn("card")}</h2>
+    ${scheduleHTML(plan)}`,
+    reconcile: () => `<div class="card"><h2 class="h-row">Звірити картку ${infoBtn("card")}</h2>
       ${formHTML({ id: "debtMarkForm", fields: markFields(ctx), submit: "Записати звірку" })}
       <div class="note">Два числа з додатка банку: скільки на картці зараз і скільки
         банк просить до розрахункової дати. Третє — лише якщо знімав готівку або робив
         переказ із ліміту: на них пільговий не діє ніколи.</div>
     </div>
-    ${marksHTML(marks, list)}
-    <div class="card"><h2 class="h-row">Записати рух ${infoBtn("debts")}</h2>
+    ${marksHTML(marks, list)}`,
+    journal: () => `<div class="card"><h2 class="h-row">Записати рух ${infoBtn("debts")}</h2>
       ${formHTML({ id: "debtOpForm", fields: opFields(ctx), submit: "Записати" })}
       <div class="note">Між звірками — лише велике: зарплата на картку, покупка в
         розстрочку, зняття готівки. Кожну каву сюди писати не треба, для цього і є звірка.</div>
     </div>
-    ${journalHTML(ops, list)}
-    <div class="card"><h2 class="h-row">Завести борг ${infoBtn("setDebt")}</h2>
+    ${journalHTML(ops, list)}`,
+    list: () => `<div class="card"><h2 class="h-row">Завести борг ${infoBtn("setDebt")}</h2>
       ${formHTML({ id: "debtForm", fields: debtFields(ctx), submit: "Зберегти" })}
       <div class="note">Комісія розстрочки береться від ПОЧАТКОВОЇ суми — так її беруть
         банки, і саме тому «1,99% на місяць» коштує близько 50% річних, а не 24%.
@@ -762,7 +769,9 @@ export async function debts(ctx, main) {
         <a class="lnk" href="${routeFor("policy/reserve/main")}">місячні витрати</a>
         їх вписувати НЕ треба — інакше віднімуться двічі.</div>
     </div>
-    ${listHTML(list)}`;
+    ${listHTML(list)}`,
+  };
+  main.innerHTML = (PANES[ctx.pane] || PANES.state)();
 
   wireDisclosures(main);
   const askForm = main.querySelector("#payoffAskForm");
@@ -863,7 +872,7 @@ export function debtOverviewHTML(s) {
       ${d.fill_now_uah ? tile("Достроково ще", fmtUAH(d.fill_now_uah),
     `<div class="sub">із ${fmtUAH(d.fill_month_uah || 0)} місячної частки</div>`) : ""}
     </div>
-    <div class="sub"><a class="lnk" href="${routeFor("plan/debts/main")}">План → Борги</a>
+    <div class="sub"><a class="lnk" href="${routeFor("plan/debts/state")}">План → Борги</a>
       — чесна ставка кожного, черга погашення й дата, коли це скінчиться.</div>
   </div>`;
 }

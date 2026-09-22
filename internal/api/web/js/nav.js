@@ -141,6 +141,18 @@ const PANE_SETS = {
     { key: "flows", label: "Рухи" },
     { key: "reconcile", label: "Звірка рахунку" },
   ],
+  // «Борги» — єдиний рядок «Плану» з панелями. Доти він був однією
+  // сторінкою на одинадцять блоків: пільговий період, вихід, черга,
+  // «а якщо докласти», стратегії, графік, три форми й два журнали. Панелі
+  // — за питанням, як у позиції: що зараз, що далі, звірити з банком,
+  // записати рух, завести борг.
+  "plan/debts": [
+    { key: "state", label: "Стан" },
+    { key: "plan", label: "Скільки й коли" },
+    { key: "reconcile", label: "Звірка" },
+    { key: "journal", label: "Рухи" },
+    { key: "list", label: "Борги" },
+  ],
   // Рядок, який сам собі сторінка. Рейка панелей у нього з одного
   // елемента, тож оболонка її не малює зовсім — лишається сама лінійка.
   single: [{ key: "main", label: "" }],
@@ -353,6 +365,7 @@ export function kindOf(tab, item) {
     return /^(bond|fund|npf|deposit):/.test(item) ? "portfolio/position" : null;
   }
   if (tab === "money") return item.startsWith("acct:") ? "money/account" : null;
+  if (tab === "plan" && item === "debts") return "plan/debts";
   return (t.items || []).some((it) => it.id === item) ? "single" : null;
 }
 

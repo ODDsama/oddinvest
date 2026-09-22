@@ -127,7 +127,12 @@ const VIEWS = {
   "money/all/import": money.importStatement,
   "money/all/reconcile": money.reconcile,
 
-  "plan/debts/main": plan.debts,
+  // Одна вʼюшка на пʼять панелей: debts() малює ту, що в ctx.pane.
+  "plan/debts/state": plan.debts,
+  "plan/debts/plan": plan.debts,
+  "plan/debts/reconcile": plan.debts,
+  "plan/debts/journal": plan.debts,
+  "plan/debts/list": plan.debts,
   "plan/inflow/main": plan.inflow,
   "plan/expenses/main": plan.planExpenses,
   "plan/route/main": plan.route,
@@ -1447,6 +1452,28 @@ export class OddInvestApp extends HTMLElement {
   _settle(main) {
     delete main.dataset.busy;
     main.setAttribute("aria-busy", "false");
+    this._wireRail(main);
+  }
+
+  // Рейка панелей ширша за вузький екран — у «Портфеля цілком» їх десять.
+  // Прокрутка по горизонталі лишається (довід у base.css при .panes), але
+  // доти ніщо не казало, що праворуч є ще: людина бачила пʼять панелей і
+  // вважала, що це всі. Тепер активна панель прокручується у видиме, а край,
+  // за яким щось сховано, мʼяко згасає (more-left / more-right) — лише
+  // тоді, коли там справді щось є.
+  _wireRail(main) {
+    const rail = main.querySelector(".panes:not(.solo)");
+    if (!rail) return;
+    const cur = rail.querySelector("[aria-current]");
+    if (cur && rail.scrollWidth > rail.clientWidth) {
+      rail.scrollLeft = cur.offsetLeft - (rail.clientWidth - cur.offsetWidth) / 2;
+    }
+    const edges = () => {
+      rail.classList.toggle("more-left", rail.scrollLeft > 1);
+      rail.classList.toggle("more-right", rail.scrollLeft + rail.clientWidth < rail.scrollWidth - 1);
+    };
+    edges();
+    rail.addEventListener("scroll", edges, { passive: true });
   }
 
   // Довідники: брокери, фонди, пенсійні рахунки. Випадайки з них

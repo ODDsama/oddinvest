@@ -658,6 +658,18 @@ main:focus { outline: none; }
   margin-bottom: var(--oi-flow);
   border-bottom: var(--oi-rule) solid var(--oi-border);
 }
+/* Край, за яким іще є панелі, згасає (app.js, _wireRail). Маска бере
+   лише прозорість, тож непрозорий колір тут — будь-який токен. */
+.panes.more-right {
+  mask-image: linear-gradient(to right, var(--oi-text) calc(100% - var(--oi-gap-3xl)), transparent);
+}
+.panes.more-left {
+  mask-image: linear-gradient(to left, var(--oi-text) calc(100% - var(--oi-gap-3xl)), transparent);
+}
+.panes.more-left.more-right {
+  mask-image: linear-gradient(to right, transparent, var(--oi-text) var(--oi-gap-3xl),
+    var(--oi-text) calc(100% - var(--oi-gap-3xl)), transparent);
+}
 .pane-l {
   white-space: nowrap;
   text-decoration: none;

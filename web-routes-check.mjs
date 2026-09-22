@@ -159,7 +159,8 @@ const MOVED = {
   // Панель, яку прибрали, а не перейменували: питання «що коштує ця
   // витрата» відповіді в застосунку більше не має (довід — у nav.js).
   // Закладка веде в перший рядок «Плану».
-  "plan/spend": "plan/debts/main",
+  "plan/spend": "plan/debts/state",
+  "plan/debts/main": "plan/debts/state",
   "policy/strategy": "policy/strategy/main",
   "policy/mix": "policy/mix/main",
   "policy/instruments": "policy/instruments/main",
@@ -208,7 +209,7 @@ const MOVED = {
   // з'їдає гроші місяця раніше за все інше, і план поверх грошей, яких
   // уже немає, читається неправильно. Стара закладка на саму ціль
   // (plan/goal) лишається чинною й нікуди не переїжджала.
-  plan: "plan/debts/main",
+  plan: "plan/debts/state",
   policy: "policy/strategy/main",
   settings: "settings/refs/main",
 

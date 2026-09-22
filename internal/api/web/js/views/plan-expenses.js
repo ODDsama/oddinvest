@@ -185,7 +185,7 @@ function footHTML(ctx) {
     і саме на стільки худіші ноги в
     <a class="lnk" href="${routeFor("plan/route")}">Маршруті грошей</a>.
     Витрати з картки сюди не входять: вони зменшують «скільки можна витрачати» в
-    <a class="lnk" href="${routeFor("plan/debts/main")}">Боргах</a>.</div>`;
+    <a class="lnk" href="${routeFor("plan/debts/state")}">Боргах</a>.</div>`;
 }
 
 // ЧОГО ЗАСТОСУНОК НЕ БАЧИТЬ — обовʼязковий блок, а не косметика. Усі
