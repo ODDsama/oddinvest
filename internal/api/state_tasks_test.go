@@ -244,3 +244,30 @@ func TestOverduePlannedTaskSkipsSumOnMixedCurrency(t *testing.T) {
 		t.Errorf("валютна витрата випала із заголовка: %q", got.Title)
 	}
 }
+
+// Задача ребалансу — лише коли бракує бодай одного квитка: менше
+// відхилення виправити нічим, і задача про нього була б шумом.
+func TestRebalanceTaskNeedsWholeTicket(t *testing.T) {
+	row := func(cur string, deficit, ticket float64) state.RebalanceRow {
+		return state.RebalanceRow{Dimension: "currency", Currency: cur,
+			TargetPct: 20, CurrentPct: 12.5,
+			DeficitUAH: state.Major(deficit, money.UAH), BondCostUAH: state.Major(ticket, money.UAH)}
+	}
+	if _, ok := rebalanceTask(&state.Doc{Rebalance: []state.RebalanceRow{row("USD", 3000, 4400)}}); ok {
+		t.Error("дефіцит менший за квиток дав задачу")
+	}
+	doc := &state.Doc{Rebalance: []state.RebalanceRow{
+		row("USD", 9000, 4400), row("EUR", 12000, 4800),
+		{Dimension: "kind", Key: "bonds", DeficitUAH: state.Major(90000, money.UAH), BondCostUAH: state.Major(1000, money.UAH)},
+	}}
+	got, ok := rebalanceTask(doc)
+	if !ok {
+		t.Fatal("дефіцит у два квитки не дав задачі")
+	}
+	if got.ID != "rebalance-EUR" || got.Action != actReviewRebalance || got.Sev != sevWatch {
+		t.Errorf("чекали найбільший валютний дефіцит (EUR) як спостереження: %+v", got)
+	}
+	if got.Title != "EUR нижче цілі: 12,5% проти 20,0%" {
+		t.Errorf("заголовок: %q", got.Title)
+	}
+}

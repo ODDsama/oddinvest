@@ -686,7 +686,7 @@
           "title": { "type": "string", "description": "саме рішення, одним рядком" },
           "why": { "type": "string", "description": "чому воно тут" },
           "when": { "type": "string", "description": "дата, строк або головне число задачі" },
-          "action": { "type": "string", "enum": ["record-buy", "top-up-deposit", "fill-reserve", "record-npf", "confirm-payment", "record-receipt", "review-limits", "see-suggestions", "review-deposit", "how-to-fund", "confirm-route", "fill-goal", "pay-planned", "pay-card", "pay-debt"], "description": "семантичний ТОКЕН дії, а не підпис кнопки: маршрутизувати по перекладеній прозі означало б ламати посилання кожною редактурою. Порожньо, коли робити нічого не треба" },
+          "action": { "type": "string", "enum": ["record-buy", "top-up-deposit", "fill-reserve", "record-npf", "confirm-payment", "record-receipt", "review-limits", "see-suggestions", "review-deposit", "how-to-fund", "confirm-route", "fill-goal", "pay-planned", "pay-card", "pay-debt", "review-rebalance"], "description": "семантичний ТОКЕН дії, а не підпис кнопки: маршрутизувати по перекладеній прозі означало б ламати посилання кожною редактурою. Порожньо, коли робити нічого не треба" },
           "amount_uah": { "type": "number", "description": "сума, про яку йдеться, грн-екв.: проза для людини, число для автоматизації" }
         },
         "required": ["id", "sev", "rank", "title", "why"]

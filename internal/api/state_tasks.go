@@ -62,11 +62,15 @@ const (
 	actConfirmPay    = "confirm-payment"
 	actRecordReceipt = "record-receipt"
 	actReviewLimits  = "review-limits"
-	actSeeSuggest    = "see-suggestions"
-	actReviewDeposit = "review-deposit"
-	actHowToFund     = "how-to-fund"
-	actConfirmRoute  = "confirm-route"
-	actFillGoal      = "fill-goal"
+	// actReviewRebalance веде в «Портфель → Структура»: картка валютного
+	// ребалансування живе лише там (з головної її прибрано), а черга
+	// кличе туди, коли відхилення можна виправити бодай одним квитком.
+	actReviewRebalance = "review-rebalance"
+	actSeeSuggest      = "see-suggestions"
+	actReviewDeposit   = "review-deposit"
+	actHowToFund       = "how-to-fund"
+	actConfirmRoute    = "confirm-route"
+	actFillGoal        = "fill-goal"
 	// actPayPlanned веде до списку планових витрат: рішення там подвійне —
 	// «сплатив» або «переніс», — і кнопка, що робить лише перше, змусила б
 	// брехати того, хто вибрав друге.
@@ -602,6 +606,11 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 				"поради воно не ховає.", over[0]),
 			Action: actReviewLimits,
 		})
+	}
+
+	// ---------- валюта нижче цілі ----------
+	if t, ok := rebalanceTask(doc); ok {
+		add(t)
 	}
 
 	// ---------- довідник НБУ ----------
@@ -1209,3 +1218,48 @@ func debtMoney(mt moneyText, minor int64, cur string) string {
 // Два тижні, а не місяць: пільговий цикл місячний, і звірка, старша за
 // півцикла, не встигає попередити про той самий цикл, про який говорить.
 const cardMarkStaleDays = 14
+
+// rebalanceTask — валюта нижче цільової частки настільки, що бракує
+// бодай одного квитка (найдешевшого паперу чи мінімального вкладу в ній).
+//
+// Поріг — не вигаданий відсоток, а сама одиниця входу: відхилення, менше
+// за квиток, виправити нічим, і задача про нього була б шумом, який
+// щоранку каже «зроби те, чого зробити не можна». Готові числа — з
+// rebalance (state_rebalance.go), своєї арифметики тут немає.
+//
+// Перебір (частка вище цілі) задачі не дає навмисно: продавати заради
+// частки застосунок не радить, а нові гроші однаково підуть у дефіцитну
+// валюту — про це скаже та сама задача з іншого боку.
+func rebalanceTask(doc *state.Doc) (state.Task, bool) {
+	var worst *state.RebalanceRow
+	for i := range doc.Rebalance {
+		r := &doc.Rebalance[i]
+		if r.Dimension != "" && r.Dimension != "currency" {
+			continue
+		}
+		if r.BondCostUAH.Major() <= 0 || r.DeficitUAH.Major() < r.BondCostUAH.Major() {
+			continue
+		}
+		if worst == nil || r.DeficitUAH.Major() > worst.DeficitUAH.Major() {
+			worst = r
+		}
+	}
+	if worst == nil {
+		return state.Task{}, false
+	}
+	return state.Task{
+		ID: "rebalance-" + worst.Currency, Sev: sevWatch, Rank: 12,
+		Title: fmt.Sprintf("%s нижче цілі: %s%% проти %s%%", worst.Currency,
+			pct1(worst.CurrentPct), pct1(worst.TargetPct)),
+		Why: "Бракує щонайменше одного квитка в цій валюті — відхилення вже " +
+			"можна виправити новими грошима.",
+		Action:    actReviewRebalance,
+		AmountUAH: worst.DeficitUAH,
+	}, true
+}
+
+// pct1 — відсоток з одним знаком і українською комою, як у When задачі
+// «ще збираєш».
+func pct1(v float64) string {
+	return strings.Replace(fmt.Sprintf("%.1f", v), ".", ",", 1)
+}

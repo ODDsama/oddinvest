@@ -1816,6 +1816,15 @@
       "action": "review-limits"
     },
     {
+      "id": "rebalance-USD",
+      "sev": "watch",
+      "rank": 12,
+      "title": "USD нижче цілі: 12,7% проти 25,0%",
+      "why": "Бракує щонайменше одного квитка в цій валюті — відхилення вже можна виправити новими грошима.",
+      "action": "review-rebalance",
+      "amount_uah": 3090.42
+    },
+    {
       "id": "fund-price-stale:Inzhur REIT",
       "sev": "watch",
       "rank": 25,
