@@ -501,6 +501,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			Why:       why,
 			Action:    actFillGoal,
 			AmountUAH: g.FillNowUAH,
+			Ref:       fmt.Sprintf("goal:%d", g.ID),
 		})
 	}
 
@@ -719,7 +720,17 @@ func buyTask(mt moneyText, best, bestAny *suggestion, idle *state.IdleCash) stat
 		// них читається як чужий рядок.
 		When:   strings.Replace(fmt.Sprintf("%.1f%% реальних", best.RealPct), ".", ",", 1),
 		Action: action,
+		Ref:    fundRef(best),
 	}
+}
+
+// fundRef — рядок фонду, про який порада: сертифікат заводить виписка, і
+// «Як завести» веде в сам фонд, а не в перший ліпший.
+func fundRef(s *suggestion) string {
+	if s.Kind != "fund" {
+		return ""
+	}
+	return "fund:" + s.Label
 }
 
 func savingTask(doc *state.Doc, best *suggestion) state.Task {
@@ -976,6 +987,7 @@ func maturingDepositTask(src *sources, today domain.Date) (state.Task, bool) {
 		When: fmt.Sprintf("%s · %d %s", dayMonth(best.MaturityDate), bestDays,
 			plural(bestDays, "день", "дні", "днів")),
 		Action: actReviewDeposit,
+		Ref:    best.SyntheticISIN(),
 	}, true
 }
 

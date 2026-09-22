@@ -46,7 +46,7 @@ const ACTIONS = {
   // наявною записують у її власному рядку. Вести в конкретну ціль було б
   // чесніше, але для цього задача мусила б нести її id у маршруті — а
   // ACTIONS зіставляє ТОКЕН із адресою, без параметрів (шапка state_tasks.go).
-  "fill-goal": { to: "portfolio/all/record", label: "Записати рух" },
+  "fill-goal": { to: "portfolio/all/record", label: "Записати рух", pane: "record" },
   "record-npf": { to: "entry/npf", label: "Записати внесок" },
   "confirm-payment": { to: "plan/payouts", label: "Відмітити" },
   // Веде НЕ в календар, хоч дія в обох — «позначити отриманим». Календар
@@ -67,8 +67,10 @@ const ACTIONS = {
   // Крок «Що взяти» — зведений список порад по всіх видах. Доти задача
   // вела в «Що купити», де списку порад давно не було.
   "see-suggestions": { to: "work/pick/main", label: "Що взяти" },
-  "review-deposit": { to: "assets/deposits", label: "Подивитись вклад" },
-  "how-to-fund": { to: "assets/funds", label: "Як завести сертифікат" },
+  // pane — панель рядка, коли задача несе ref (конкретний запис). Без ref
+  // лишається загальна адреса to.
+  "review-deposit": { to: "assets/deposits", label: "Подивитись вклад", pane: "next" },
+  "how-to-fund": { to: "assets/funds", label: "Як завести сертифікат", pane: "state" },
 };
 
 const GROUPS = [
@@ -94,9 +96,16 @@ export function tasksOfKind(ctx, kind) {
   return tasksOf(ctx).filter((t) => t.kind === kind);
 }
 
+// Куди веде кнопка задачі: у рядок того самого запису, якщо задача його
+// називає (ref), інакше — у загальне місце дії.
+function taskHref(t, a) {
+  if (t.ref && a.pane) return `#/portfolio/${encodeURIComponent(t.ref)}/${a.pane}`;
+  return routeFor(a.to);
+}
+
 function taskRow(t) {
   const a = ACTIONS[t.action];
-  const cta = a ? `<a class="task-a" href="${routeFor(a.to)}">${esc(a.label)}</a>` : "";
+  const cta = a ? `<a class="task-a" href="${taskHref(t, a)}">${esc(a.label)}</a>` : "";
   return `<div class="task" data-sev="${esc(t.sev)}">
     <div class="task-sev" aria-hidden="true"></div>
     <div class="task-t"><b>${esc(t.title)}</b>${t.when
