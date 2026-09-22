@@ -47,10 +47,14 @@ func (s *Server) snapshotAgo(ctx context.Context, today domain.Date) (*store.Sna
 // до сьогодні, сьогоднішнім курсом. Не курсом дня кожного руху, як у
 // зведеному XIRR: вікно місячне, різниця в межах похибки, а курс на дату
 // коштував би запиту на рух у збірці, що йде на кожен whatif.
-func buildCapitalDelta(src *sources, capitalNow float64, rates fx.Rates, today domain.Date) *state.CapitalDelta {
+//
+// accruedNow — сьогоднішній накопичений купон, мажорні: потрібен, щоб
+// порівняти з давнім знімком без купона в однаковому складі (comparableNow).
+func buildCapitalDelta(src *sources, capitalNow, accruedNow float64, rates fx.Rates, today domain.Date) *state.CapitalDelta {
 	if src.capitalAgo == nil {
 		return nil
 	}
+	capitalNow = comparableNow(capitalNow, accruedNow, *src.capitalAgo)
 	from := src.capitalAgo.Date
 	fromUAH := float64(snapshotCapitalUAH(*src.capitalAgo)) / 100
 	out := &state.CapitalDelta{
@@ -120,6 +124,47 @@ func buildCapitalDelta(src *sources, capitalNow float64, rates fx.Rates, today d
 // рівнями «Ціни моїх рішень» — це рівно три останні доданки, і записана
 // вона тут одним рядком, щоб не бути домовленістю. Читачі: підсумок
 // місяця, ціна рішень, віхи капіталу й ця дельта — одне означення на всіх.
+//
+// Накопичений купон (0063) додається, коли знімок його знає: облігації в
+// капіталі — «номінал + накопичений купон». Знімок, старший за колонку
+// (−1), дає капітал БЕЗ купона — і порівнювати його треба з таким самим
+// (comparableNow).
 func snapshotCapitalUAH(sn store.Snapshot) int64 {
-	return snapshotPortfolioUAH(sn) + sn.ReserveUAH + sn.GoalsUAH + sn.NPFUAH
+	c := snapshotPortfolioUAH(sn) + sn.ReserveUAH + sn.GoalsUAH + sn.NPFUAH
+	if sn.AccruedUAH > 0 {
+		c += sn.AccruedUAH
+	}
+	return c
+}
+
+// snapshotCapitalPair — капітал двох знімків у ОДНАКОВОМУ складі: якщо
+// бодай один старший за колонку купона, купон знімається з обох. Інакше
+// місяць, на який припала міграція 0063, показав би весь накопичений купон
+// рядком приросту.
+func snapshotCapitalPair(a, b store.Snapshot) (int64, int64) {
+	if accruedKnown(a) && accruedKnown(b) {
+		return snapshotCapitalUAH(a), snapshotCapitalUAH(b)
+	}
+	strip := func(sn store.Snapshot) int64 {
+		c := snapshotCapitalUAH(sn)
+		if sn.AccruedUAH > 0 {
+			c -= sn.AccruedUAH
+		}
+		return c
+	}
+	return strip(a), strip(b)
+}
+
+// accruedKnown — чи знімок знає накопичений купон (0063).
+func accruedKnown(sn store.Snapshot) bool { return sn.AccruedUAH >= 0 }
+
+// comparableNow — сьогоднішній капітал у ТОМУ Ж складі, що й знімок: якщо
+// знімок старший за колонку купона, купон знімається й звідси. Інакше
+// перші тридцять днів після 0063 «за 30 днів» показувало б увесь
+// накопичений купон як приріст.
+func comparableNow(capitalNow, accruedNowMajor float64, from store.Snapshot) float64 {
+	if accruedKnown(from) {
+		return capitalNow
+	}
+	return capitalNow - accruedNowMajor
 }

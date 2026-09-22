@@ -311,6 +311,7 @@ func TestWhatIfExcludeReproducesEdit(t *testing.T) {
 type goalsView struct {
 	CapitalUAH  float64                       `json:"capital_uah"`
 	NominalUAH  float64                       `json:"nominal_uah_eq"`
+	AccruedUAH  float64                       `json:"accrued_uah"`
 	DepositsUAH float64                       `json:"deposits_uah"`
 	USDSharePct float64                       `json:"usd_share_pct"`
 	NPFUAH      float64                       `json:"npf_uah"`
@@ -994,6 +995,7 @@ func TestWhatIfFirstBuyOfUnheldBondCountsAtNominal(t *testing.T) {
 		After struct {
 			CapitalUAH float64 `json:"capital_uah"`
 			NominalUAH float64 `json:"nominal_uah_eq"`
+			AccruedUAH float64 `json:"accrued_uah"`
 		} `json:"after"`
 		Basket basketDoc `json:"basket"`
 	}
@@ -1004,21 +1006,19 @@ func TestWhatIfFirstBuyOfUnheldBondCountsAtNominal(t *testing.T) {
 	if d := got.After.NominalUAH - before.NominalUAH; d != 2000 {
 		t.Errorf("номінал зріс на %.2f, хочемо 2000 — довідник паперу не доїхав разом із лотом", d)
 	}
-	// КАПІТАЛ РОСТЕ РІВНО НА НОМІНАЛ, а не на заплачене, і різниця між ними
-	// — це сплачений НКД.
+	// КАПІТАЛ РОСТЕ НА НОМІНАЛ ПЛЮС НАКОПИЧЕНИЙ КУПОН нового паперу.
 	//
 	// Гіпотеза приносить гроші, якими папір оплачений (topUps), тож із
-	// рахунку нічого не зникає; але в капітал папір входить за номіналом
-	// (Capital.BondsUAH = nominalMajor), а платять за нього номінал плюс
-	// накопичений купон. Той купон повернеться першою ж виплатою, і саме
-	// тому просідання тут НЕМАЄ — є менший приріст.
+	// рахунку нічого не зникає; у капітал папір входить за «номінал +
+	// накопичений купон» (Capital.BondsUAH, 2026-09-22) — тобто рівно за тим,
+	// за що його й купили.
 	spent, err := domain.ParseDecimalToMinor(got.Basket.Totals[0].Amount, money.UAH)
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := before.CapitalUAH + 2000
+	want := before.CapitalUAH + 2000 + (got.After.AccruedUAH - before.AccruedUAH)
 	if diff := got.After.CapitalUAH - want; diff > 0.01 || diff < -0.01 {
-		t.Errorf("капітал %.2f, хочемо %.2f (було %.2f + номінал 2000)",
+		t.Errorf("капітал %.2f, хочемо %.2f (було %.2f + номінал 2000 + накопичений купон)",
 			got.After.CapitalUAH, want, before.CapitalUAH)
 	}
 	if accrued := float64(spent)/100 - 2000; accrued <= 0 {

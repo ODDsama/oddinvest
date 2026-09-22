@@ -1183,18 +1183,33 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Зведена дохідність: облігації важать номіналом у грн-екв., фонди —
 	// ринковою вартістю. Саме вона й потрібна проєкціям — до неї капітал
 	// у сертифікатах ріс за ставкою облігацій, яких у ньому немає.
-	nominalMajor := float64(bnd.NominalUAH) / 100
 
 	// Капітал — один раз і на всіх, і саме тут: це ТОЧКА ЗБІРКИ п'яти
 	// інструментів, а не частина котрогось із них. Далі його читають
 	// ребаланс, старт проєкції й сам документ; доти кожен з них складав
 	// свою суму, і на сусідніх картках стояли числа, які не сходились.
+	// Облігації в капіталі — «номінал + накопичений купон» (рішення власника
+	// 2026-09-22): так само, як їх оцінює XIRR, і без стрибка капіталу в
+	// день купона — гроші, зароблені за пів року, не зʼявляються з нізвідки
+	// одного ранку. Номінал окремо лишається в nominal_uah_eq.
+	acc := accruedOf(hold, pays, today, rates)
+	bondsByCur := make(map[string]state.Money, len(bnd.NominalByCurUAH))
+	for cur, m := range bnd.NominalByCurUAH {
+		bondsByCur[cur] = state.Minor(m.Minor()+acc.ByCur[cur], money.UAH)
+	}
+	for cur, minor := range acc.ByCur {
+		if _, ok := bondsByCur[cur]; !ok {
+			bondsByCur[cur] = state.Minor(minor, money.UAH)
+		}
+	}
 	capital := state.Capital{
-		BondsUAH: state.Major(nominalMajor, money.UAH), AccountUAH: state.Minor(accountUAHMinor, money.UAH),
-		FundsUAH: state.Major(fundsUAH, money.UAH), DepositsUAH: state.Major(depositsUAH, money.UAH), ReserveUAH: state.Major(reserveUAH, money.UAH),
+		BondsUAH:        state.Minor(bnd.NominalUAH+acc.TotalMinor, money.UAH),
+		BondsAccruedUAH: state.Minor(acc.TotalMinor, money.UAH),
+		AccountUAH:      state.Minor(accountUAHMinor, money.UAH),
+		FundsUAH:        state.Major(fundsUAH, money.UAH), DepositsUAH: state.Major(depositsUAH, money.UAH), ReserveUAH: state.Major(reserveUAH, money.UAH),
 		GoalsUAH:   state.Major(goals.UAH, money.UAH),
 		NPFUAH:     state.Major(npf.TotalUAH, money.UAH),
-		BondsByCur: bnd.NominalByCurUAH, DepositsByCur: depositsUAHByCur,
+		BondsByCur: bondsByCur, DepositsByCur: depositsUAHByCur,
 		ReserveByCur: reserveUAHByCur, GoalsByCur: goals.ByCur,
 		NPFByCur: npf.ExposureUAH,
 	}
@@ -1344,7 +1359,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		NetWorthUAH: state.Major(capital.TotalUAH()-debtOwedUAH(src, rates, today), money.UAH),
 		// Дельта за 30 днів — проти знімка з sources; nil, доки знімка
 		// місячної давнини немає (state_delta.go).
-		CapitalDelta30: buildCapitalDelta(src, capital.TotalUAH(), rates, today),
+		CapitalDelta30: buildCapitalDelta(src, capital.TotalUAH(), capital.BondsAccruedUAH.Major(), rates, today),
 		// Борг — після плану місяця навмисно: стеля дострокового міряється
 		// від дозволеної частини ПЛАНУ, а обовʼязкові платежі той план уже
 		// зменшили (state_month.go).

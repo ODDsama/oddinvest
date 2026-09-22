@@ -257,6 +257,14 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date, acc, gen string
 			Before: state.Minor(b, money.UAH), After: state.Minor(a, money.UAH),
 			Delta: state.Minor(a-b, money.UAH)}
 	}
+	// Капітал — у ОДНАКОВОМУ складі на обох кінцях (snapshotCapitalPair), і
+	// рядок купона — лише коли його знають обидва знімки: місяць міграції
+	// 0063 інакше показав би весь накопичений купон приростом.
+	capB, capA := snapshotCapitalPair(*before, *after)
+	var accB, accA int64
+	if accruedKnown(*before) && accruedKnown(*after) {
+		accB, accA = before.AccruedUAH, after.AccruedUAH
+	}
 	out := &periodStructure{
 		FromDate:     string(before.Date),
 		ToDate:       string(after.Date),
@@ -265,8 +273,9 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date, acc, gen string
 		EURShareFrom: round2(float64(before.EURShareBP) / 100),
 		EURShareTo:   round2(float64(after.EURShareBP) / 100),
 		Rows: []periodRow{
-			row("capital", "Капітал", snapshotCapitalUAH(*before), snapshotCapitalUAH(*after)),
+			row("capital", "Капітал", capB, capA),
 			row("bonds", "ОВДП (номінал)", before.NominalUAHEq, after.NominalUAHEq),
+			row("accrued", "Накопичений купон", accB, accA),
 			row("funds", "Фонди", before.FundsUAH, after.FundsUAH),
 			row("deposits", "Вклади", before.DepositsUAH, after.DepositsUAH),
 			row("npf", "НПФ", before.NPFUAH, after.NPFUAH),

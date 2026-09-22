@@ -960,7 +960,11 @@ func buildProjection(in projectionInput) projectionPhase {
 	// подушку хоч тримають безстроково, а гроші під авто ПІДУТЬ із портфеля
 	// у названу дату. Компаундити їх означало б малювати приріст на гроші,
 	// яких у портфелі вже не буде.
-	p0 := in.Capital.TotalUAH() - in.Capital.ReserveUAH.Major() - in.Capital.GoalsUAH.Major()
+	// Накопичений купон — так само геть: симуляція заплатить його повним
+	// купоном у дату виплати, і старт, що вже містить його частину,
+	// порахував би ці гроші двічі (state.Capital.BondsAccruedUAH).
+	p0 := in.Capital.TotalUAH() - in.Capital.ReserveUAH.Major() - in.Capital.GoalsUAH.Major() -
+		in.Capital.BondsAccruedUAH.Major()
 	out.Rows = make([]state.ProjectionRow, 0, 4)
 	for _, y := range []int{1, 3, 5, 10} {
 		m := y * 12

@@ -30,6 +30,7 @@ type cashView struct {
 	CapitalUAH float64                       `json:"capital_uah"`
 	AccountUAH float64                       `json:"account_uah"`
 	NominalUAH float64                       `json:"nominal_uah_eq"`
+	AccruedUAH float64                       `json:"accrued_uah"`
 	Brokers    map[string]map[string]float64 `json:"brokers"`
 	Rebalance  []struct {
 		Dimension  string  `json:"dimension"`
@@ -77,13 +78,15 @@ func TestWhatIfPlanBringsItsOwnMoney(t *testing.T) {
 	}
 }
 
-// КАПІТАЛ РОСТЕ, А НЕ ПАДАЄ — і росте менше за суму плану рівно на
-// сплачений НКД.
+// КАПІТАЛ РОСТЕ, А НЕ ПАДАЄ — на номінал ПЛЮС накопичений купон куплених
+// паперів.
 //
-// Це те саме число, яке власник побачив на екрані: план на 6 445 ₴, а
-// капітал 77 314 → 76 913. Різниця там розкладалась без залишку на НКД
-// пʼяти паперів і переоцінку сертифіката.
-func TestWhatIfCapitalGrowsByNominalNotByPrice(t *testing.T) {
+// Доти капітал оцінював облігації голим номіналом, і приріст був меншим
+// за суму плану рівно на сплачений НКД (власник бачив: план на 6 445 ₴, а
+// капітал 77 314 → 76 913). Відколи облігації в капіталі — «номінал +
+// накопичений купон» (2026-09-22), сплачений купон не зникає: він сидить
+// у капіталі тим самим накопиченим купоном.
+func TestWhatIfCapitalGrowsByNominalAndAccrued(t *testing.T) {
 	url, st := planServer(t)
 	if _, err := st.AddPlanBuy(t.Context(), store.PlanBuy{
 		Kind: store.BuyBond, Ref: "UA4000227748", Qty: 3, Broker: "mono",
@@ -110,24 +113,22 @@ func TestWhatIfCapitalGrowsByNominalNotByPrice(t *testing.T) {
 	if grew <= 0 {
 		t.Fatalf("капітал зрушив на %.2f — він мусить РОСТИ: гроші плану тепер у гіпотезі", grew)
 	}
-	// Приріст — це номінал куплених паперів.
-	if d := after.NominalUAH - before.NominalUAH; math.Abs(grew-d) > 0.01 {
-		t.Errorf("капітал зріс на %.2f, номінал — на %.2f: мали збігтись", grew, d)
+	// Приріст — це номінал куплених паперів плюс їхній накопичений купон.
+	dNom := after.NominalUAH - before.NominalUAH
+	dAcc := after.AccruedUAH - before.AccruedUAH
+	if math.Abs(grew-dNom-dAcc) > 0.01 {
+		t.Errorf("капітал зріс на %.2f, а номінал %.2f + накопичений купон %.2f = %.2f",
+			grew, dNom, dAcc, dNom+dAcc)
 	}
-	// А різниця з ціною покупки — сплачений НКД, і вона ДОДАТНА: без неї
-	// фікстура нічого не стереже.
+	// Накопичений купон куплених паперів — ДОДАТНИЙ: без нього фікстура
+	// нічого не стереже.
 	//
 	// Крім одного дня на пів року: у день купона НКД дорівнює нулю ЗА
 	// ПОБУДОВОЮ, і папір із seed платить його 2026-09-16 — саме тоді CI
 	// почервонів на комітах, які Go не чіпали. Тому нуль тут питаємо в
 	// того самого бекенда, а не вгадуємо дату: у такий день перевірка
 	// стережу не має, і тест каже про це вголос замість того, щоб падати.
-	spent, err := domain.ParseDecimalToMinor(got.Basket.Totals[0].Amount, money.UAH)
-	if err != nil {
-		t.Fatal(err)
-	}
-	accrued := float64(spent)/100 - grew
-	if accrued <= 0 {
+	if dAcc <= 0 {
 		_, acc := do(t, "GET", url+"/api/accrued/UA4000227748", "")
 		var today struct {
 			PerBond moneyJSON `json:"per_bond"`
@@ -139,8 +140,7 @@ func TestWhatIfCapitalGrowsByNominalNotByPrice(t *testing.T) {
 			t.Logf("день купона: НКД нуль за побудовою, різницю з ціною сьогодні не перевірити")
 			return
 		}
-		t.Errorf("заплачено %.2f, капітал зріс на %.2f — НКД не видно, фікстура порожня",
-			float64(spent)/100, grew)
+		t.Errorf("накопичений купон куплених паперів %.2f — фікстура порожня", dAcc)
 	}
 }
 

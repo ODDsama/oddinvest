@@ -60,10 +60,43 @@ type riskPhase struct {
 	// AccruedUAH — накопичений купонний дохід, МІНОРНІ. Гроші, які вже
 	// зароблені, але ще не виплачені.
 	//
-	// Показується ОКРЕМО, а не додається в капітал проєкцій: у симуляції
-	// майбутні купони враховані повністю, тож додавання НКД було б
-	// подвійним рахунком.
+	// У КАПІТАЛІ він є (рішення власника 2026-09-22: облігації оцінюються
+	// «номінал + накопичений купон», як і в XIRR), а в СТАРТІ ПРОЄКЦІЙ —
+	// ні: у симуляції майбутні купони враховані повністю, тож додавання
+	// його туди було б подвійним рахунком (state_projection.go віднімає).
 	AccruedUAH int64
+}
+
+// accrued — накопичений купон паперів, що ще в портфелі, грн-екв.
+type accrued struct {
+	// TotalMinor — усього, мінорні.
+	TotalMinor int64
+	// ByCur — те саме по валюті ПАПЕРУ, мінорні грн-екв.: купон доларового
+	// паперу — доларова експозиція нарівні з його номіналом.
+	ByCur map[string]int64
+}
+
+// accruedOf — одне означення накопиченого купона на капітал і на картку
+// ризику. Лише папери, які ще в портфелі (LotHolding.Held — те саме
+// правило, що й для номіналу), інакше капітал складав би номінал одних
+// лотів із купоном інших.
+func accruedOf(hold domain.Holdings, pays []domain.Payment, today domain.Date, rates fx.Rates) accrued {
+	out := accrued{ByCur: map[string]int64{}}
+	for _, l := range hold.Lots {
+		if !l.Held() {
+			continue
+		}
+		acc, err := domain.EstimateAccrued(pays, l.ISIN, today)
+		if err != nil || acc == nil || acc.IsZero() {
+			continue
+		}
+		cur := acc.Currency().Code
+		if u, err := fx.ToUAH(money.New(acc.Amount()*l.Remaining, cur), rates); err == nil {
+			out.TotalMinor += u.Amount()
+			out.ByCur[cur] += u.Amount()
+		}
+	}
+	return out
 }
 
 // buildRisk рахує процентний ризик, ліквідність і НКД.
@@ -71,19 +104,7 @@ func buildRisk(in riskInput) riskPhase {
 	var out riskPhase
 	today, rates := in.Today, in.Rates
 
-	for _, l := range in.Holdings.Lots {
-		q := l.Remaining
-		if q == 0 {
-			continue
-		}
-		acc, err := domain.EstimateAccrued(in.Pays, l.ISIN, today)
-		if err != nil || acc == nil || acc.IsZero() {
-			continue
-		}
-		if u, err := fx.ToUAH(money.New(acc.Amount()*q, acc.Currency().Code), rates); err == nil {
-			out.AccruedUAH += u.Amount()
-		}
-	}
+	out.AccruedUAH = accruedOf(in.Holdings, in.Pays, today, rates).TotalMinor
 
 	// --- процентний ризик ---
 	ptsByCur := map[string][]domain.CashPoint{}

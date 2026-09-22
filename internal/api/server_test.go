@@ -3584,6 +3584,7 @@ func TestKindTargetsDoNotNormalise(t *testing.T) {
 	var doc struct {
 		CapitalUAH float64 `json:"capital_uah"`
 		NominalUAH float64 `json:"nominal_uah_eq"`
+		AccruedUAH float64 `json:"accrued_uah"`
 		ReserveUAH float64 `json:"reserve_uah"`
 		Rebalance  []struct {
 			Dimension  string  `json:"dimension"`
@@ -3624,11 +3625,12 @@ func TestKindTargetsDoNotNormalise(t *testing.T) {
 	if _, ok := byKey["reserve"]; ok {
 		t.Error("резерв повернувся рядком у вимір «kind» — там інший знаменник")
 	}
-	// Дефіцит ОВДП — від капіталу БЕЗ резерву. Беремо nominal_uah_eq, а не
-	// current_pct: частка округлена до сотих, і на капіталі в сотні тисяч це
-	// вже дає розбіжність у гривнях.
+	// Дефіцит ОВДП — від капіталу БЕЗ резерву. Беремо nominal_uah_eq +
+	// accrued_uah (облігації в капіталі — номінал + накопичений купон), а
+	// не current_pct: частка округлена до сотих, і на капіталі в сотні тисяч
+	// це вже дає розбіжність у гривнях.
 	b := doc.Rebalance[byKey["bonds"]]
-	wantDef := (doc.CapitalUAH-doc.ReserveUAH)*0.40 - doc.NominalUAH
+	wantDef := (doc.CapitalUAH-doc.ReserveUAH)*0.40 - doc.NominalUAH - doc.AccruedUAH
 	if math.Abs(b.DeficitUAH-wantDef) > 0.02 {
 		t.Errorf("дефіцит ОВДП %.2f, а від капіталу без резерву %.2f і номіналу %.2f виходить %.2f",
 			b.DeficitUAH, doc.CapitalUAH-doc.ReserveUAH, doc.NominalUAH, wantDef)

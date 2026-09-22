@@ -113,7 +113,11 @@ function tooShortHTML(title, key, n) {
 function capitalCardHTML(ctx, snaps) {
   const dates = snaps.map((s) => s.date);
   const areas = [
-    { name: "ОВДП (номінал)", color: "var(--oi-series-nominal)", area: true, values: snaps.map((s) => s.nominal_uah_eq || 0) },
+    // Номінал + накопичений купон — той самий склад, що в капіталі. У знімках,
+    // старших за колонку купона (0063), він −1 і додає нуль: смуга там
+    // просто номінальна, і сходинка на даті міграції — чесна.
+    { name: "ОВДП (номінал + купон)", color: "var(--oi-series-nominal)", area: true,
+      values: snaps.map((s) => (s.nominal_uah_eq || 0) + Math.max(0, s.accrued_uah || 0)) },
     { name: "Фонди", color: "var(--oi-series-funds)", area: true, values: snaps.map((s) => s.funds_uah || 0) },
     // НПФ — серед працюючих, а не поруч із резервом: він компаундиться, він
     // просто неліквідний. Порядок стосу читається як «що працює → що ні».

@@ -81,6 +81,11 @@ type Snapshot struct {
 	// старший за колонку, поля не має й читається нулем — це відома й
 	// прийнята похибка (довід у міграції).
 	IdleUAH int64 `json:"idle_uah"`
+	// AccruedUAH — накопичений купон паперів того дня, грн-екв. (0063).
+	// Частина капіталу знімка: облігації в капіталі — «номінал +
+	// накопичений купон». −1 = «тоді не рахували» (довід у міграції), тож
+	// без omitempty — інакше −1 не пережив би бекапу.
+	AccruedUAH int64 `json:"accrued_uah"`
 }
 
 // snapshotCol — одна колонка знімка. Ptr дає доступ до поля структури,
@@ -115,6 +120,7 @@ var snapshotCols = []snapshotCol{
 	{"goals_uah", func(s *Snapshot) *int64 { return &s.GoalsUAH }},
 	{"net_worth_uah", func(s *Snapshot) *int64 { return &s.NetWorthUAH }},
 	{"idle_uah", func(s *Snapshot) *int64 { return &s.IdleUAH }},
+	{"accrued_uah", func(s *Snapshot) *int64 { return &s.AccruedUAH }},
 }
 
 // SnapshotColumns — імена числових колонок знімка, для споживачів поза

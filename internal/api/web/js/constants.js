@@ -88,7 +88,10 @@ export const KIND_GROUP = {
  *  Готівки в мапі немає навмисно — вона не вид, і грошей «виду cash» у
  *  зведенні окремим полем не лежить. */
 export const kindMoneyUAH = (s, key) => ({
-  bonds: s.nominal_uah_eq,
+  // Облігації в капіталі — «номінал + накопичений купон» (2026-09-22): без
+  // купона гроші видів не складались би в капітал, на якому стоять частки.
+  bonds: s.nominal_uah_eq == null ? undefined
+    : s.nominal_uah_eq + Math.max(0, s.accrued_uah || 0),
   funds: s.funds_uah,
   deposits: s.deposits_uah,
   npf: s.npf_uah,
