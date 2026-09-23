@@ -181,7 +181,7 @@ function futureHTML(g, sym) {
 function fxHTML(g, sym) {
   if (!g.fx_mixed) return "";
   const held = Object.entries(g.by_currency || {})
-    .map(([c, v]) => fmtCur(v, curSym(c))).join(" · ");
+    .map(([c, v]) => fmtCur(v, c)).join(" · ");
   return `<div class="note">Ціль названа у ${esc(g.currency)}, а лежить це ${esc(held)}.
     Зібране міряється сьогоднішнім курсом — стільки ${sym}, скільки за ці гроші дають
     ЗАРАЗ. Через це прогрес може поїхати назад без жодного зняття: девальвація гривні

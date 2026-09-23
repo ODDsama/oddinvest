@@ -49,7 +49,7 @@ export function setFundOps(ops) { fundOps = ops || []; }
 // сам викликач — розійшлись би вони тихо, зсувом на одну колонку.
 export function fundTable(ctx, kind, cols, empty, filter) {
   const ops = fundOps || [];
-  const money = (m) => (m ? fmtCur(m.amount, curSym(m.currency)) : "—");
+  const money = (m) => (m ? fmtCur(m.amount, m.currency) : "—");
   // Найновіші зверху: дивишся майже завжди на щойно імпортоване.
   const rows = ops.filter((o) => o.kind === kind && (!filter || filter(o)))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id));

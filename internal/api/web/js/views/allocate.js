@@ -81,7 +81,7 @@ function linesHTML(res) {
           // конвертувати» без числа не каже, скільки саме міняти.
           + (l.convert
             ? `<div class="fine-xs t-warn">треба конвертувати${l.convert_native
-              ? " ≈" + esc(fmtCur(l.convert_native, curSym(res.amount.currency))) : ""}</div>`
+              ? " ≈" + esc(fmtCur(l.convert_native, res.amount.currency)) : ""}</div>`
             : ""),
       },
       {
@@ -89,7 +89,7 @@ function linesHTML(res) {
         cell: (l) => (l.qty
           ? `${l.qty} <span class="muted fine-xs">× ${esc(fmtCur(Number(l.unit.amount),
             curSym(l.currency)))}</span>`
-          : esc(l.amount ? fmtCur(Number(l.amount.amount), curSym(l.currency)) : "—"))
+          : esc(l.amount ? fmtCur(Number(l.amount.amount), l.currency) : "—"))
           + priceBasisHTML(l),
       },
       { key: "total", label: "Разом", num: true, cell: (l) => fmtUAH(l.total_uah) },

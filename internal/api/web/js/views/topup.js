@@ -114,7 +114,7 @@ function linesHTML(t) {
           // конвертувати» без числа не каже, скільки саме міняти.
           + (l.convert
             ? `<div class="fine-xs t-warn">треба конвертувати${l.convert_native
-              ? " ≈" + esc(fmtCur(l.convert_native, curSym(t.amount.currency))) : ""}</div>`
+              ? " ≈" + esc(fmtCur(l.convert_native, t.amount.currency)) : ""}</div>`
             : ""),
       },
       {
@@ -122,7 +122,7 @@ function linesHTML(t) {
         cell: (l) => (l.qty
           ? `${l.qty} <span class="muted fine-xs">× ${esc(fmtCur(Number(l.unit.amount),
             curSym(l.currency)))}</span>`
-          : esc(l.amount ? fmtCur(Number(l.amount.amount), curSym(l.currency)) : "—")),
+          : esc(l.amount ? fmtCur(Number(l.amount.amount), l.currency) : "—")),
       },
       { key: "total", label: "Разом", num: true, cell: (l) => fmtUAH(l.total_uah) },
       { key: "real", label: "Реальних, проти $", num: true, cell: (l) => pct(l.real_pct) },

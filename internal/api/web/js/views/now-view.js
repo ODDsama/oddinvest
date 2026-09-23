@@ -10,7 +10,7 @@
 // склад і історія — у «Портфель», потоки й прогнози — у «Майбутнє».
 
 import {
-  esc, curSym, monthYearGen, dayMonth, pct, plural, today,
+  esc, monthYearGen, dayMonth, pct, plural, today,
   uah2 as fmtUAH, cur2 as fmtCur, signedUAH2 } from "../format.js";
 import { currency, BOOK } from "../currency.js";
 import { infoBtn } from "../info.js";
@@ -183,7 +183,7 @@ export function reinvestHTML(ctx, opts = {}) {
   const purse = Object.entries(s.brokers || {})
     .flatMap(([b, byCur]) => Object.entries(byCur)
       .filter(([, v]) => v > 0)
-      .map(([c, v]) => `${esc(b)} ${fmtCur(v, curSym(c))}`)).join(" · ");
+      .map(([c, v]) => `${esc(b)} ${fmtCur(v, c)}`)).join(" · ");
   // Рядок пропозиції. Головне число — НОМІНАЛЬНЕ (те, що в договорі),
   // реальне під ним дрібним, увесь ланцюжок — на клік (yield.js). Порядок
   // при цьому лишився за реальним: показ і порядок — різні питання, і в
@@ -196,14 +196,14 @@ export function reinvestHTML(ctx, opts = {}) {
     const key = `${r.kind || "bond"}|${r.currency}`;
     const open = isOpen(OPEN_SCOPE, key);
     const kind = ["fund", "deposit", "npf"].includes(r.kind) ? r.kind : "bond";
-    const cost = r.cost_per_bond ? fmtCur(Number(r.cost_per_bond.amount), curSym(r.currency)) : "";
+    const cost = r.cost_per_bond ? fmtCur(Number(r.cost_per_bond.amount), r.currency) : "";
     const purseCur = Math.max(0, ...Object.values(s.brokers || {}).map((m) => m[r.currency] || 0));
     const need = Number((r.cost_per_bond || {}).amount || 0) - purseCur;
     // Коли не по кишені — кажемо СКІЛЬКИ бракує: «ще не по кишені» саме по
     // собі не підказує, скільки лишилось відкласти.
     const status = r.can_buy
       ? `<span class="t-ok">вистачає${r.affordable > 1 ? ` ×${r.affordable}` : ""}</span>`
-      : need > 0 ? `бракує ${fmtCur(need, curSym(r.currency))}` : "";
+      : need > 0 ? `бракує ${fmtCur(need, r.currency)}` : "";
     const fits = (r.brokers || []).map((f) => `${esc(f.broker)} ×${f.qty}`).join(" · ");
     // «Коли вистачить» стоїть У РЯДКУ, а не під кареткою: це і є відповідь,
     // по яку сюди дивляться, коли грошей ще нема. Під кареткою лежить те,
@@ -212,9 +212,9 @@ export function reinvestHTML(ctx, opts = {}) {
     // Усі числа готові: дату, брокера, дні й ціну очікування рахує
     // ready_on.go. Тут лише формат — жодного віднімання дат у браузері.
     const via = (r.ready_via || []).map((e) =>
-      `${esc(e.label)} ${fmtCur(Number(e.amount.amount), curSym(e.amount.currency))}`).join(" + ");
+      `${esc(e.label)} ${fmtCur(Number(e.amount.amount), e.amount.currency)}`).join(" + ");
     const waiting = r.wait_cost
-      ? ` Це очікування коштує ${fmtCur(Number(r.wait_cost.amount), curSym(r.wait_cost.currency))
+      ? ` Це очікування коштує ${fmtCur(Number(r.wait_cost.amount), r.wait_cost.currency)
       } — стільки за ці дні дав би ${esc(r.wait_alt)}.` : "";
     // Дні названі поруч із датою навмисно: «17 березня» саме по собі не
     // каже, це за тиждень чи за півроку.
@@ -247,7 +247,7 @@ export function reinvestHTML(ctx, opts = {}) {
         : `<div>ціна ${esc(r.cost_where_label || r.cost_where)}${
           r.cost_as_of ? ", " + esc(dayMonth(r.cost_as_of)) : ""}${
           r.cost_alt && r.cost_alt_where
-            ? ` · у ${esc(r.cost_alt_where)} ${fmtCur(Number(r.cost_alt.amount), curSym(r.currency))}`
+            ? ` · у ${esc(r.cost_alt_where)} ${fmtCur(Number(r.cost_alt.amount), r.currency)}`
             : ""}</div>`;
     // Номінальної тут БІЛЬШЕ НЕМА: вона переїхала в головне число рядка
     // (yield.js), і повторювати її в стрічці означало б сказати те саме
