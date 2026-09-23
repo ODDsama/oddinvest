@@ -67,7 +67,7 @@ type goalsBuilt struct {
 // зводити ОДНЕ місце: два додавання роздули б капітал на тіло вкладу, і
 // побачити це можна було б лише на інваріанті зведення.
 func buildGoals(goals []store.Goal, ops []store.GoalOp,
-	deps map[int64][]domain.Deposit,
+	deps map[int64][]domain.Deposit, pools earmarkPools,
 	rates fx.Rates, today domain.Date, now time.Time) goalsBuilt {
 
 	out := goalsBuilt{ByCur: map[string]state.Money{}}
@@ -129,6 +129,24 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 			a.movedUAH += v
 			out.MovedUAH += v
 		}
+	}
+
+	// Пул цілі — гроші її погашених вкладів, ще не перевкладені
+	// (earmark_pool.go). Зібране, як і журнал, але не новий рух: у темп і
+	// «покладено цього місяця» не входить.
+	for k, v := range pools.left {
+		a := per[k.goal]
+		if k.goal == 0 || a == nil || v <= 0 {
+			continue
+		}
+		u, err := fx.ToUAH(money.New(v, k.cur), rates)
+		if err != nil {
+			continue
+		}
+		uv := float64(u.Amount()) / 100
+		a.uah += uv
+		a.byCur[k.cur] = a.byCur[k.cur].Add(state.Minor(v, k.cur))
+		a.places[k.bank] = a.places[k.bank].Add(state.Major(uv, money.UAH))
 	}
 
 	// Вклади цілі — те саме зібране, лише в іншій формі зберігання, тож

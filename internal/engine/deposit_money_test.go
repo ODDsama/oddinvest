@@ -2,13 +2,14 @@ package engine
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 // Закритий вклад не стирає відсотків, які вже надійшли до закриття.
@@ -214,5 +215,94 @@ func TestEarmarkedDepositStaysOutOfProjection(t *testing.T) {
 			t.Errorf("горизонт %d р.: прогноз %.2f → %.2f від вкладу подушки",
 				b.Years, b.WithReinvest.Major(), a.WithReinvest.Major())
 		}
+	}
+}
+
+// Погашений вклад подушки лишається подушкою, а пролонгація бере гроші з
+// неї, а не з рахунку банку.
+//
+// Доти тіло й відсотки такого вкладу, щойно надійшли, лягали на рахунок
+// банку звичайною готівкою: подушка меншала на розмір вкладу, а розкладка
+// пропонувала вкласти ці гроші в папери.
+func TestMaturedReserveDepositStaysInReserve(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	today := domain.NewDate(time.Now())
+	open := today.AddMonths(-12).AddDays(-10) // погашено 10 днів тому
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: open, Broker: "ПУМБ", Amount: 100_000_00, Currency: money.UAH,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dep := domain.Deposit{
+		Bank: "ПУМБ", Currency: money.UAH, Principal: 100_000_00, RateBP: 1200,
+		OpenDate: open, MaturityDate: open.AddMonths(12),
+		Payout: domain.PayoutEnd, TaxBP: domain.TaxBPByLaw, IsReserve: true,
+	}
+	if _, err := st.AddTermDeposit(ctx, dep); err != nil {
+		t.Fatal(err)
+	}
+	e := New(st, testLogger())
+	doc, err := e.BuildState(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var maturity int64
+	for _, cf := range domain.DepositSchedule(dep, "1970-01-01") {
+		maturity += cf.Amount.Amount()
+	}
+	if got := doc.Brokers["ПУМБ"][money.UAH].Minor(); got != 0 {
+		t.Errorf("на рахунку ПУМБ %d — гроші погашеного вкладу подушки стали вільною готівкою", got)
+	}
+	if got := doc.ReserveUAH.Minor(); got != maturity {
+		t.Errorf("подушка %d, чекали %d (тіло + відсотки погашеного вкладу)", got, maturity)
+	}
+	reconcile(t, e, doc)
+	src, err := e.loadSources(ctx, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var task bool
+	for _, x := range buildTasks(doc, nil, src, today) {
+		if strings.HasPrefix(x.ID, "earmark-matured:reserve:ПУМБ") {
+			task = true
+		}
+	}
+	if !task {
+		t.Error("погашений вклад подушки мав дати задачу «перевклади або лиши»")
+	}
+
+	// Пролонгація: новий вклад подушки в тому самому банку в день погашення
+	// бере гроші з пулу — з рахунку не списується нічого.
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: money.UAH, Principal: maturity, RateBP: 1300,
+		OpenDate: dep.MaturityDate, MaturityDate: dep.MaturityDate.AddMonths(12),
+		Payout: domain.PayoutEnd, TaxBP: domain.TaxBPByLaw, IsReserve: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	doc, err = e.BuildState(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Brokers["ПУМБ"][money.UAH].Minor(); got != 0 {
+		t.Errorf("після пролонгації на рахунку %d — новий вклад мав узяти гроші з подушки", got)
+	}
+	if got := doc.ReserveUAH.Minor(); got != maturity {
+		t.Errorf("подушка після пролонгації %d, чекали %d", got, maturity)
+	}
+	reconcile(t, e, doc)
+}
+
+// reconcile — подієвий рух грошей сходиться з гаманцем збирача.
+func reconcile(t *testing.T, e *Engine, doc *state.Doc) {
+	t.Helper()
+	ev, err := e.CashEvents(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := SummarizeCash(ev, "1970-01-01", domain.NewDate(time.Now()))
+	if got, want := sum.ClosingUAH(), doc.AccountUAH.Minor(); got != want {
+		t.Errorf("рух грошей %d ≠ рахунок %d — гаманці розійшлись", got, want)
 	}
 }

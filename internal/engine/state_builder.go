@@ -331,6 +331,9 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// УЖЕ погашений: гроші не можуть бути одночасно й на рахунку, і в
 	// позиції.
 	arrived := domain.Arrived(src.statuses, today)
+	// Гроші погашених вкладів подушки й цілей — у пулі свого призначення, а
+	// не на рахунку банку (earmark_pool.go).
+	pools := buildEarmarkPools(termDeposits, arrived, today)
 	hold := domain.NewHoldings(lots, sales, bonds, fundOps, src.fundPrices, src.payoutDays(), today, arrived)
 
 	positions, err := domain.Positions(bonds, pays, lots, sales, today, arrived)
@@ -494,6 +497,22 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// ГОТІВКА подушки — саме журнал, і саме ДО того, як до неї додадуться
 	// резервні вклади. Це те, що можна взяти сьогодні, не ламаючи нічого, і
 	// далі саме проти цього числа міряється ГОЛОВА подушки.
+	// Пул подушки — теж готівка подушки: гроші погашеного резервного
+	// вкладу, які ще не перевкладено. Доступні сьогодні, як і журнал.
+	for k, v := range pools.left {
+		if k.goal != 0 || v <= 0 {
+			continue
+		}
+		u, cerr := fx.ToUAH(money.New(v, k.cur), rates)
+		if cerr != nil {
+			continue
+		}
+		uv := float64(u.Amount()) / 100
+		reserveUAH += uv
+		reserveUAHByCur[k.cur] = reserveUAHByCur[k.cur].Add(state.Major(uv, k.cur))
+		reserveByCur[k.cur] = reserveByCur[k.cur].Add(state.Minor(v, k.cur))
+		reservePlaces[k.bank] = reservePlaces[k.bank].Add(state.Major(uv, money.UAH))
+	}
 	reserveLiquidUAH := reserveUAH
 	// Резервні вклади — друге джерело тієї самої подушки. Вони входять у її
 	// суму й у валютні частки, але НЕ в готівку вище: рунга, що гаситься
@@ -537,7 +556,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// Цілі накопичення — до buildMonth: та рахує «внесено нетто», і рухи
 	// цілей входять у нього нарівні з рухами резерву (довід — у міграції
 	// 0039 про дві ноги переказу).
-	goals := buildGoals(src.goals, src.goalOps, goalDepositsByGoal, rates, today, now)
+	goals := buildGoals(src.goals, src.goalOps, goalDepositsByGoal, pools, rates, today, now)
 
 	mth, err := buildMonth(src, hold, rates, now, today, reserveUAH)
 	if err != nil {
@@ -711,24 +730,34 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// Закритий вклад — за фактом: списане тіло при відкритті й повернута
 	// сума ClosedAmount на дату розірвання (як фактична ціна продажу лота).
 	for _, dep := range termDeposits {
-		// розміщення: −тіло на дату відкриття (якщо вона вже настала)
-		if !dep.OpenDate.After(today) {
-			cash.add(dep.Bank, dep.Currency, dep.OpenDate, -dep.Principal)
+		// Списання з рахунку банку. Вклад подушки чи цілі спершу бере гроші
+		// з пулу свого призначення (пролонгація), і з рахунку йде лише решта.
+		debit := func(on domain.Date, amount, fromPool int64) {
+			if amount -= fromPool; amount <= 0 {
+				return
+			}
+			cash.add(dep.Bank, dep.Currency, on, -amount)
 			// Відкрити вклад — така сама покупка, як узяти папір: гроші
 			// пішли в діло.
-			if u, cerr := fx.ToUAH(money.New(dep.Principal, dep.Currency), rates); cerr == nil {
-				purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: dep.OpenDate, Amount: u.Amount()})
+			if u, cerr := fx.ToUAH(money.New(amount, dep.Currency), rates); cerr == nil {
+				purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: on, Amount: u.Amount()})
 			}
+		}
+		// розміщення: −тіло на дату відкриття (якщо вона вже настала)
+		if !dep.OpenDate.After(today) {
+			debit(dep.OpenDate, dep.Principal, pools.fromPool(dep.ID, 0))
 		}
 		// кожне поповнення теж списує гроші з рахунку банку на свою дату —
 		// це записаний факт, тож arrived() не потрібен
 		for _, t := range dep.Topups {
 			if !t.Date.After(today) {
-				cash.add(dep.Bank, dep.Currency, t.Date, -t.Amount)
-				if u, cerr := fx.ToUAH(money.New(t.Amount, dep.Currency), rates); cerr == nil {
-					purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: t.Date, Amount: u.Amount()})
-				}
+				debit(t.Date, t.Amount, pools.fromPool(dep.ID, t.ID))
 			}
+		}
+		// Виплати вкладу подушки чи цілі на рахунок не йдуть — вони в пулі
+		// призначення (earmark_pool.go) і вже пораховані подушкою чи ціллю.
+		if dep.Earmarked() {
+			continue
 		}
 		// Виплата вкладу, що надійшла (минула дата або позначка), — на рахунок
 		// банку. Відсотки вкладу — такий самий дохід, як купон, і в чергу

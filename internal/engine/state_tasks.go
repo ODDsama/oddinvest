@@ -652,6 +652,37 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		}
 	}
 
+	// ---------- погашений вклад подушки чи цілі ----------
+	// Гроші лишились подушці чи цілі (earmark_pool.go), але лежать
+	// готівкою: рішення — перевкласти (новий вклад того самого
+	// призначення в тому самому банку візьме їх сам) чи лишити так. Місяць
+	// від надходження, не довше: «лишити готівкою» — теж законне рішення, і
+	// задача, що висить вічно, перестала б щось означати.
+	if src != nil {
+		pools := buildEarmarkPools(src.termDeposits, domain.Arrived(src.statuses, today), today)
+		goalName := map[int64]string{}
+		for _, g := range src.goals {
+			goalName[g.ID] = g.Name
+		}
+		for k, v := range pools.left {
+			if v <= 0 || daysBetween(pools.lastIn[k], today) > taskSoonDays {
+				continue
+			}
+			whose, id := "подушки", fmt.Sprintf("earmark-matured:reserve:%s:%s", k.bank, k.cur)
+			if k.goal != 0 {
+				whose = "цілі «" + goalName[k.goal] + "»"
+				id = fmt.Sprintf("earmark-matured:goal-%d:%s:%s", k.goal, k.bank, k.cur)
+			}
+			add(state.Task{
+				ID: id, Sev: sevSoon, Rank: 30,
+				Title: fmt.Sprintf("Вклад %s у %s погашено — %s лежать готівкою", whose, k.bank,
+					mt.cur(float64(v)/100, k.cur)),
+				Why: "Гроші лишились " + whose + ", а не стали вільними для паперів. Перевклади — " +
+					"новий вклад того самого призначення в цьому банку візьме їх сам, — або лиши готівкою.",
+			})
+		}
+	}
+
 	// ---------- добовий прогін ----------
 	// Збої прогону доти жили лише в journald: бекап, що не пишеться,
 	// тихо прокручував усі покоління, а пошкоджена база чекала першого

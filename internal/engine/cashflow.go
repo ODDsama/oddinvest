@@ -187,14 +187,25 @@ func (e *Engine) CashEvents(ctx context.Context) ([]FlowEvent, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Пул погашених вкладів подушки й цілей — той самий, що в гаманці
+	// (earmark_pool.go): списання з пулу рахунку не зачіпає, виплати таких
+	// вкладів на рахунок не йдуть. Без дзеркала звірка розійшлася б на пул.
+	pools := buildEarmarkPools(termDeposits, arrived, today)
 	for _, dep := range termDeposits {
 		if !dep.OpenDate.After(today) {
-			add(dep.OpenDate, FlowPurchase, -uah(money.New(dep.Principal, dep.Currency)), "вклад "+dep.Bank)
+			if amt := dep.Principal - pools.fromPool(dep.ID, 0); amt > 0 {
+				add(dep.OpenDate, FlowPurchase, -uah(money.New(amt, dep.Currency)), "вклад "+dep.Bank)
+			}
 		}
 		for _, t := range dep.Topups {
 			if !t.Date.After(today) {
-				add(t.Date, FlowPurchase, -uah(money.New(t.Amount, dep.Currency)), "поповнення вкладу "+dep.Bank)
+				if amt := t.Amount - pools.fromPool(dep.ID, t.ID); amt > 0 {
+					add(t.Date, FlowPurchase, -uah(money.New(amt, dep.Currency)), "поповнення вкладу "+dep.Bank)
+				}
 			}
+		}
+		if dep.Earmarked() {
+			continue
 		}
 		if dep.ClosedDate != "" {
 			// Відсотки, що надійшли до розірвання, лишаються доходом — так
