@@ -10,7 +10,7 @@
 # на 1.24, обидва середовища збірки лишились на 1.23, а GOTOOLCHAIN=local
 # забороняє довантажити потрібний — розгортання падало на
 # «go.mod requires go >= 1.24.0» і тихо лишало старий бінарник.
-FROM golang:1.24-bookworm AS build
+FROM golang:1.25-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum* ./
 RUN go mod download

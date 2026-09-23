@@ -2,12 +2,15 @@ name: ci
 on:
   push: { branches: [main] }
   pull_request:
+  # Щотижня — заради вразливостей: нова CVE у net/http зʼявляється без
+  # жодного коміту тут, і дізнатись про неї треба не з наступною правкою.
+  schedule: [{ cron: "17 5 * * 1" }]
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         # Версія одна на всі місця: go.mod, Dockerfile і deploy/proxmox-lxc.sh
         # мали три різні, і «яка в нас насправді» ставало питанням.
         with: { go-version-file: go.mod }
@@ -29,7 +32,7 @@ jobs:
       # (.golangci.yml) відкидає як «invalid elements». Версію лінтера
       # закріплюємо, щоб локальний `make lint` і CI бачили одне й те саме.
       - name: Лінтер
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with: { version: v2.12.2 }
 
       # -race, бо MQTT-публікатор, добовий планувальник і HTTP-сервер ділять
@@ -40,11 +43,34 @@ jobs:
       # свої парсери проти цих фікстур.
       - run: go test ./internal/state -run TestFixtureUpToDate -count=1
 
+      # Межі коду (Makefile, boundaries): ті самі grep-правила, що й у
+      # `make check`. Доти вони жили лише локально.
+      - name: Межі коду
+        run: make boundaries
+
+  vuln:
+    name: Вразливості
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # govulncheck сам вимагає свіжого Go, тож ставиться на stable, а
+      # АНАЛІЗУЄ тулчейном з go.mod — саме тим, яким збирається бойовий
+      # (deploy/lxc-deploy.sh бере версію звідти ж). Інакше звіт казав би
+      # про стандартну бібліотеку, якої в бінарнику немає.
+      #
+      # Знайдено ж саме так: go.mod стояв на 1.24.0, і бойовий бінарник ніс
+      # 13 досяжних із коду вразливостей net/http, crypto/tls, crypto/x509.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with: { go-version: stable }
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: govulncheck тулчейном бойового
+        run: GOTOOLCHAIN="go$(sed -n 's/^go //p' go.mod)" "$(go env GOPATH)/bin/govulncheck" ./...
+
   ui:
     name: UI
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Збірки в UI немає навмисно (сервіс ставиться в LXC без Node, модулі
       # віддаються браузеру як є), тож бандлера, який ловив би друкарські
       # помилки, теж немає. Ці три перевірки — його заміна.
@@ -53,7 +79,7 @@ jobs:
       # частину розбіжностей ловила джоба ui-drift у ha-oddinvest, звіряючи
       # вендорену копію з оригіналом. Другого споживача більше немає — усе,
       # що не впіймають ці кроки, побачить браузер.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: "22" }
 
       # 1. Синтаксис кожного модуля. package.json у каталозі каже node,

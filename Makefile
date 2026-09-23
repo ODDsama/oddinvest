@@ -115,6 +115,14 @@ check:
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo 'запусти: make fmt'; exit 1; }
 	$(GO) vet ./...
 	golangci-lint run ./...
+	@$(MAKE) --no-print-directory boundaries
+
+# boundaries — усі grep-межі коду ОДНИМ списком. Його кличуть і `make check`,
+# і CI (.github/workflows/ci.yml). Доти CI ганяв gofmt, vet, лінтер і тести,
+# а сім меж жили лише в `make check` — тобто правило, яке проєкт сам собі
+# встановив, стерегла тільки памʼять того, хто не забув запустити make.
+.PHONY: boundaries
+boundaries:
 	@$(MAKE) --no-print-directory fx-boundary
 	@$(MAKE) --no-print-directory sources-boundary
 	@$(MAKE) --no-print-directory sleeve-state

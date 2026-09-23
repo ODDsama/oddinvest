@@ -5,7 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -50,47 +50,56 @@ func TestScopedQueriesMentionPortfolio(t *testing.T) {
 	re := regexp.MustCompile(`(?is)\b(FROM|INTO|UPDATE|JOIN)\s+(` +
 		strings.Join(scopedTables, "|") + `)\b`)
 
+	// Файли по одному, а не parser.ParseDir: той застарів із Go 1.25 (не
+	// бачить build-тегів), а тут потрібні саме всі не-тестові файли пакета.
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi fs.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	names, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
+	var files []*ast.File
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, f)
+	}
 	var bad []string
 	seenAllow := map[string]bool{}
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
-			for _, decl := range f.Decls {
-				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Body == nil {
-					continue
-				}
-				ast.Inspect(fn.Body, func(n ast.Node) bool {
-					lit, ok := n.(*ast.BasicLit)
-					if !ok || lit.Kind != token.STRING {
-						return true
-					}
-					s, err := strconv.Unquote(lit.Value)
-					if err != nil {
-						return true
-					}
-					m := re.FindStringSubmatch(s)
-					if m == nil {
-						return true
-					}
-					if _, allowed := scopeGuardAllow[fn.Name.Name]; allowed {
-						seenAllow[fn.Name.Name] = true
-						return true
-					}
-					if !strings.Contains(s, "portfolio_id") {
-						pos := fset.Position(lit.Pos())
-						bad = append(bad, fmt.Sprintf("%s:%d %s: %s %s без portfolio_id",
-							pos.Filename, pos.Line, fn.Name.Name, strings.ToUpper(m[1]), m[2]))
-					}
-					return true
-				})
+	for _, f := range files {
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
 			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				lit, ok := n.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					return true
+				}
+				s, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					return true
+				}
+				m := re.FindStringSubmatch(s)
+				if m == nil {
+					return true
+				}
+				if _, allowed := scopeGuardAllow[fn.Name.Name]; allowed {
+					seenAllow[fn.Name.Name] = true
+					return true
+				}
+				if !strings.Contains(s, "portfolio_id") {
+					pos := fset.Position(lit.Pos())
+					bad = append(bad, fmt.Sprintf("%s:%d %s: %s %s без portfolio_id",
+						pos.Filename, pos.Line, fn.Name.Name, strings.ToUpper(m[1]), m[2]))
+				}
+				return true
+			})
 		}
 	}
 	sort.Strings(bad)
