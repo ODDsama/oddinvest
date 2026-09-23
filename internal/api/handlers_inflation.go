@@ -134,17 +134,6 @@ func (s *Server) handleInflation(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// firstAtOrAfter — перший місяць ряду, не давніший за want. Порожньо, коли
-// таких немає.
-func firstAtOrAfter(levels []domain.CPILevel, want string) string {
-	for _, l := range levels {
-		if l.Period >= want {
-			return l.Period
-		}
-	}
-	return ""
-}
-
 // handleDevaluation — звідки взялося знецінення і що показують дані.
 //
 // REST-only, поза MQTT: це екран Налаштувань, а не стан портфеля, і

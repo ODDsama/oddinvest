@@ -39,15 +39,13 @@ import (
 	"errors"
 	"math"
 	"net/http"
-	"sort"
 	"time"
-
-	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 // whatIfReq — три випадки одним тілом.
@@ -76,66 +74,6 @@ type whatIfReq struct {
 	// вирішено, а вибір — куди вести те, що ще не розписано. Тому поле й
 	// стоїть поруч із трьома попередніми, а не всередині draft.
 	PickISIN string `json:"pick_isin,omitempty"`
-}
-
-// basketLine — один рядок плану, вже з ціною.
-type basketLine struct {
-	// ID — рядок у plan_buys; 0 означає чернетку, якої в базі ще немає.
-	// Саме за ним UI чіпляє «змінити», «виконано» й «прибрати».
-	ID       int64     `json:"id,omitempty"`
-	Kind     string    `json:"kind"`
-	Label    string    `json:"label"`
-	Qty      int64     `json:"qty"`
-	Unit     moneyJSON `json:"unit"`
-	Total    moneyJSON `json:"total"`
-	Currency string    `json:"currency"`
-	// BuyDate — коли планую; порожньо = «зараз».
-	//
-	// Future каже, чи дата в НАСТУПНОМУ місяці або далі — саме місяць, а
-	// не день: сітка симуляції календарно-місячна, і рядок цього місяця
-	// їй нема куди покласти окремо від сьогоднішнього (state_plan_buys.go).
-	//
-	// Overdue — дата вже минула. Прострочений намір рахується як «зараз»
-	// (гроші за ним досі не витрачені), тож у нього Future = false, як і в
-	// рядка цього місяця, — і без окремого поля підпис у таблиці не
-	// відрізнив би одне від одного. Порівнювати дати в браузері не можна:
-	// його «сьогодні» й серверне — різні дати в різних поясах.
-	BuyDate string `json:"buy_date,omitempty"`
-	Future  bool   `json:"future,omitempty"`
-	Overdue bool   `json:"overdue,omitempty"`
-	// IsReserve — планований вклад є подушкою. У відповіді він потрібен не
-	// заради значка: саме за ним картка наслідків вирішує, чи взагалі
-	// малювати рядки подушки й драбини (рядок, який структурно не може
-	// зрушити, гірший за його відсутність).
-	IsReserve bool `json:"is_reserve,omitempty"`
-	// Broker — у кого купуємо. Assumed каже, що брокера обрав застосунок,
-	// а не людина: припущення, яке впливає на «вистачає / не вистачає»,
-	// має бути видно, а не лежати мовчки в обчисленні.
-	Broker  string `json:"broker"`
-	Assumed bool   `json:"broker_assumed,omitempty"`
-}
-
-// basketDoc — план купівель у грошах.
-//
-// НЕСТАЧІ ТУТ БІЛЬШЕ НЕМАЄ, і абзац лишається, щоб її не завели заново.
-// Доти поруч із Totals стояли Shorts: скільки бракує кожному брокеру,
-// пораховане проти СЬОГОДНІШНЬОГО залишку. Питання виявилось не тим.
-// План купівель міряється ПЛАНОВИМИ грошима — тим, що надійде, — а не
-// тим, що лежить на рахунку зараз: якщо на рахунку бракує, він
-// поповниться з планових надходжень раніше, ніж покупка станеться. Тобто
-// «у mono бракує 1 000» було тривогою про стан, який не настане.
-//
-// Половина цього доводу вже стояла в коді — і стосувалась лише далеких
-// рядків («назвати нестачею те, що станеться після п'яти зарплат»). Вона
-// просто не була поширена на найближчі.
-//
-// Сама арифметика жива й недоторкана: shortfallMinor у cash_shortfall.go
-// обслуговує форми запису (лот, вклад, поповнення, НПФ) і дату «коли
-// вистачить» у ready_on.go. Там питання інше — «я записую платіж ЗАРАЗ»,
-// — і сьогоднішній залишок відповідає на нього правильно.
-type basketDoc struct {
-	Lines  []basketLine `json:"lines"`
-	Totals []moneyJSON  `json:"totals"` // разом по кожній валюті
 }
 
 type whatIfPayload struct {
@@ -363,43 +301,4 @@ func (e *engine) planBuyRows(ctx context.Context, req whatIfReq) ([]store.PlanBu
 		rows = append(rows, b)
 	}
 	return rows, nil
-}
-
-// findFundRow — фонд у вже зібраному стані. Беремо звідти, а не з
-// довідника, бо потрібна остання ЦІНА, а її знає саме зведення.
-func findFundRow(doc *state.Doc, name string) *state.FundPositionRow {
-	for i := range doc.Funds {
-		if doc.Funds[i].Fund == name {
-			return &doc.Funds[i]
-		}
-	}
-	return nil
-}
-
-// pickBroker — у кого купуємо. Названого беремо як є; без назви —
-// того, у кого найбільше грошей у цій валюті, і кажемо про це вголос.
-//
-// Рахунки роздільні: гривня на inzhur не купить папір у mono, тож
-// «вистачає / не вистачає» без імені брокера відповіді не має.
-func pickBroker(doc *state.Doc, cur, want string) (string, bool) {
-	if want != "" {
-		return want, false
-	}
-	best, bestAmt := "", -1.0
-	for name, byCur := range doc.Brokers {
-		if v := byCur[cur]; v.Major() > bestAmt {
-			best, bestAmt = name, v.Major()
-		}
-	}
-	if best == "" {
-		return "—", true
-	}
-	return best, true
-}
-
-// Порядок у відповіді детермінований навмисно: інакше два однакові
-// запити давали б різний JSON (мапи в Go обходяться випадково), і будь-яке
-// порівняння відповідей — очима чи тестом — перетворилось би на гадання.
-func sortMoneyJSON(m []moneyJSON) {
-	sort.Slice(m, func(i, j int) bool { return m[i].Currency < m[j].Currency })
 }

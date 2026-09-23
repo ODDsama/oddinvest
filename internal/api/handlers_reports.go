@@ -17,19 +17,6 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-// plural — українське відмінювання для довідкових підписів.
-func plural(n int, one, few, many string) string {
-	d, h := n%10, n%100
-	switch {
-	case d == 1 && h != 11:
-		return one
-	case d >= 2 && d <= 4 && (h < 10 || h >= 20):
-		return few
-	default:
-		return many
-	}
-}
-
 func (s *Server) handlePaymentStatus(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ISIN    string `json:"isin"`

@@ -83,3 +83,14 @@ func (e *engine) inflation(ctx context.Context) (float64, bool) {
 	pct, _, _, ok := e.measuredInflation(ctx)
 	return pct, ok
 }
+
+// firstAtOrAfter — перший місяць ряду, не давніший за want. Порожньо, коли
+// таких немає.
+func firstAtOrAfter(levels []domain.CPILevel, want string) string {
+	for _, l := range levels {
+		if l.Period >= want {
+			return l.Period
+		}
+	}
+	return ""
+}

@@ -4,12 +4,7 @@ package api
 
 import (
 	"encoding/json"
-	"math"
 	"net/http"
-	"strconv"
-	"strings"
-
-	money "github.com/Rhymond/go-money"
 )
 
 // Ключі, які приймає API, і перевірка «мусить бути числом» виводяться з
@@ -18,37 +13,6 @@ import (
 //
 // «channels» немає ні там, ні тут: список брокерів був CSV-рядком у
 // налаштуваннях, а тепер це таблиця brokers із власними ендпойнтами.
-
-// depositMinMinorByCur — мінімальне вкладення у вклад по валютах, у МІНОРНИХ
-// одиницях. Це водночас поріг «простій готовий до реінвесту» і крок поради
-// «відкрити новий вклад». USD/EUR за замовчуванням 100.00 (=10000 мінорних):
-// порожній ключ = дефолт, явний 0 (чи сміття) = вимкнено (валюти в мапі
-// немає). UAH — лише якщо задано явно.
-func depositMinMinorByCur(raw map[string]string) map[string]int64 {
-	out := map[string]int64{}
-	for _, sp := range []struct {
-		cur, key string
-		def      int64 // мінорні; 0 = без дефолту
-	}{
-		{money.USD, "deposit_min_usd", 10000},
-		{money.EUR, "deposit_min_eur", 10000},
-		{money.UAH, "deposit_min_uah", 0},
-	} {
-		v := raw[sp.key]
-		if v == "" {
-			if sp.def > 0 {
-				out[sp.cur] = sp.def
-			}
-			continue
-		}
-		f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
-		if err != nil || f <= 0 {
-			continue // явний 0 або сміття = вимкнено
-		}
-		out[sp.cur] = int64(math.Round(f * 100))
-	}
-	return out
-}
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	raw, err := s.st.AllSettings(r.Context())

@@ -32,10 +32,9 @@ import (
 	"strings"
 	"time"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 type planBuyReq struct {
@@ -155,13 +154,6 @@ func planBuyFromReq(req planBuyReq) (store.PlanBuy, error) {
 		return out, fmt.Errorf("вид має бути bond, fund, deposit або npf, маємо %q", req.Kind)
 	}
 	return out, nil
-}
-
-func orUAH(cur string) string {
-	if cur == "" {
-		return money.UAH
-	}
-	return cur
 }
 
 // planBuyRow — рядок таким, яким його заповнюють у формі. Готових чисел
