@@ -67,6 +67,7 @@ func ReadXLSX(r io.ReaderAt, size int64) ([][]string, error) {
 	}
 
 	out := make([][]string, 0, len(doc.Rows))
+	total := 0
 	for _, row := range doc.Rows {
 		cells := map[int]string{}
 		width := 0
@@ -83,10 +84,20 @@ func ReadXLSX(r io.ReaderAt, size int64) ([][]string, error) {
 				txt = c.V
 			}
 			i := colIndex(c.Ref)
+			if i < 0 {
+				return nil, fmt.Errorf("клітинка %q поза межами аркуша", c.Ref)
+			}
 			cells[i] = strings.TrimSpace(txt)
 			if i+1 > width {
 				width = i + 1
 			}
+		}
+		// Стеля на ВЕСЬ аркуш, а не лише на колонку: тисячі рядків із
+		// клітинкою в XFD — це 16 384 комірки кожен, і 64 МіБ XML вистачає
+		// на мільйони таких рядків. Справжня виписка — сотні рядків по
+		// десятку колонок.
+		if total += width; total > maxXLSXCells {
+			return nil, fmt.Errorf("аркуш завеликий: понад %d клітинок", maxXLSXCells)
 		}
 		line := make([]string, width)
 		for i := range line {
@@ -97,27 +108,55 @@ func ReadXLSX(r io.ReaderAt, size int64) ([][]string, error) {
 	return out, nil
 }
 
+// maxXLSXPart — стеля РОЗПАКОВАНОГО розміру однієї частини книги.
+//
+// Файл виписки обмежений 16 МіБ (handlers_import.go), але це стиснений
+// zip: кілобайти нулів розпаковуються в гігабайти («zip-бомба»), і
+// декодер XML тримав би їх у памʼяті цілком. Справжня виписка за роки — це
+// сотні кілобайтів XML; 64 МіБ лишає запас на порядки. Обрізана частина
+// дасть помилку декодера («unexpected EOF»), тобто відмову файлу, а не
+// падіння сервісу.
+const maxXLSXPart = 64 << 20
+
 func readXML(f *zip.File, v any) error {
 	rc, err := f.Open()
 	if err != nil {
 		return err
 	}
 	defer rc.Close()
-	return xml.NewDecoder(rc).Decode(v)
+	return xml.NewDecoder(io.LimitReader(rc, maxXLSXPart)).Decode(v)
 }
 
 var refRe = regexp.MustCompile(`^([A-Z]+)`)
 
-// colIndex перетворює «C7» на 2. Порожнє чи дивне посилання — нульова
-// колонка: краще зсув, ніж паніка на чужому файлі.
+// maxXLSXCols — колонок в аркуші Excel не більше XFD, тобто 16 384.
+// maxXLSXCells — стеля всіх клітинок аркуша, які читач готовий
+// розгорнути в памʼяті (≈ 32 МіБ рядкових заголовків).
+const (
+	maxXLSXCols  = 16384
+	maxXLSXCells = 2_000_000
+)
+
+// colIndex перетворює «C7» на 2. Порожнє посилання — нульова колонка:
+// краще зсув, ніж відмова на чужому файлі. Посилання ЗА межами аркуша
+// (понад XFD) — −1, і читач відмовляє файлу: доти номер рахувався без
+// межі, і «ZZZZZZZZ1» просив рядок на сотні мільярдів клітинок — процес
+// падав на нестачі памʼяті від одного завантаженого файлу (знайдено
+// FuzzReadXLSX).
 func colIndex(ref string) int {
 	m := refRe.FindStringSubmatch(ref)
 	if m == nil {
 		return 0
 	}
+	if len(m[1]) > 3 {
+		return -1
+	}
 	n := 0
 	for _, ch := range m[1] {
 		n = n*26 + int(ch-'A') + 1
+	}
+	if n > maxXLSXCols {
+		return -1
 	}
 	return n - 1
 }
