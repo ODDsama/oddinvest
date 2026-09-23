@@ -12,6 +12,7 @@
 
 import {
   esc, curSym, dayMonth, humanMonths, monthYear, monthYearGen, pct, uah0, uah2 as fmtUAH,
+  TODAY_FX,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty, progressBar } from "../components.js";
@@ -173,8 +174,8 @@ export function goalsHTML(ctx) {
     } · через ${humanMonths(f.months)}</div>
     ${nowRates ? `<div class="sub-xs">сьогодні номінальні ставки: ${nowRates}${
       f.glide_years > 0 ? ` → сповзають до довгострокових за ${humanMonths(Math.round(f.glide_years * 12))}` : ""}</div>` : ""}
-    <div class="sub-xs">Суми — у гривні сьогоднішньої купівельної спроможності: знецінення вже
-      враховане всередині моделі, тож із сьогоднішніми витратами їх можна порівнювати прямо.</div>`;
+    <div class="sub-xs">Суми — ${TODAY_FX}: знецінення гривні вже враховане всередині
+      моделі, тож із сьогоднішніми витратами їх можна порівнювати прямо.</div>`;
   return `<div class="card" id="fcCard"><h2 class="h-row">
     <span>${asPayment ? "Скільки треба вносити" : "Скільки буде на дедлайн"} ${infoBtn("forecast")}</span></h2>
     ${head}${range}${marketRows}${planBlock}${actualBlock}</div>`;

@@ -17,7 +17,7 @@
 // таблиці особливо велика — і це рівно та копія арифметики, через яку
 // плитка з карткою вже одного разу розійшлись.
 
-import { esc, pct, pp, cur2 as fmtCur, curSym } from "../format.js";
+import { esc, pct, pp, cur2 as fmtCur, curSym, REAL_FX } from "../format.js";
 import { empty } from "../components.js";
 import { opsGrid } from "../grid.js";
 import { money as moneyField, formHTML } from "../fields.js";
@@ -48,7 +48,7 @@ export function switchHTML() {
   const alt = data.alt;
   const head = alt
     ? `<div class="note">Порівнюємо з тим, що помічник вважає найкращим зараз:
-        <b>${esc(alt.label)}</b> — ${pct(alt.real_pct)} реальних.</div>`
+        <b>${esc(alt.label)}</b> — ${pct(alt.real_pct)} ${REAL_FX}.</div>`
     : `<div class="note">Помічник зараз нічого не пропонує, тож порівнювати нема з чим.</div>`;
 
   return `<div class="card"><h3 class="card-head">

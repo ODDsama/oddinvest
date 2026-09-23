@@ -25,7 +25,7 @@
  *  і поверненню фокуса заново — усе це вже зроблено в bindInfo, разом із
  *  обходом того, що всередині shadow root подія `cancel` не настає. */
 
-import { esc, pct, pp } from "./format.js";
+import { esc, pct, pp, REAL_FX } from "./format.js";
 
 /** Дані розкладу їдуть в атрибуті самі, а не через модульну мапу з
  *  ключами: рядки перемальовуються від кожного оновлення, і мапа
@@ -46,7 +46,7 @@ export function yieldCell(parts, { real, nominal, bare = false } = {}) {
   // І без другого рядка, коли лінійки збіглись: у валюті звітності ≠
   // гривні бекенд віддає одну лінійку (номінал = реальна), і підпис
   // «реальних» під тим самим числом був би повтором.
-  const sub = bare || r === n ? "" : `<span class="yld-r">${pct(r)} реальних</span>`;
+  const sub = bare || r === n ? "" : `<span class="yld-r">${pct(r)} ${REAL_FX}</span>`;
   return `<button type="button" class="yld" data-rate="${packRate(parts)}"
     title="З чого складається ця ставка">${num}${sub}</button>`;
 }

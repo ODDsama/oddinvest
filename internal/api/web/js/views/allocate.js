@@ -93,7 +93,7 @@ function linesHTML(res) {
           + priceBasisHTML(l),
       },
       { key: "total", label: "Разом", num: true, cell: (l) => fmtUAH(l.total_uah) },
-      { key: "real", label: "Реальних", num: true, cell: (l) => pct(l.real_pct) },
+      { key: "real", label: "Реальних, проти $", num: true, cell: (l) => pct(l.real_pct) },
       {
         key: "where", label: "",
         cell: (l) => (l.addable

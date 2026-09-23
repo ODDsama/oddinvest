@@ -16,7 +16,7 @@
 // дохідності (резерв), і папір, якого немає в довіднику НБУ, — це
 // «нема чого міряти», а не «нуль»; нуль тут невідрізнимий від справжнього.
 
-import { esc, cur2, uah0, pct, plural, capitalUAH } from "./format.js";
+import { esc, cur2, uah0, pct, plural, capitalUAH, REAL_FX } from "./format.js";
 import { seg } from "./routes.js";
 import { panesFor } from "./nav.js";
 import { applyOrder } from "./navorder.js";
@@ -486,7 +486,7 @@ export function footValue(tabKey, ctx, rows) {
     // Дохідність підписана: на «Сьогодні» головне число — номінальна, і
     // голе «8,4%» тут читалось би як те саме, хоч це реальна.
     return `${uah0(capitalUAH(s))}${s.blended_yield_real_pct
-      ? ` · ${pct(s.blended_yield_real_pct)} реальних` : ""}${off ? ` · ${off} приховано` : ""}`;
+      ? ` · ${pct(s.blended_yield_real_pct)} ${REAL_FX}` : ""}${off ? ` · ${off} приховано` : ""}`;
   }
   if (tabKey === "money") return uah0(s.account_uah || 0);
   // «Можна вкласти» — те саме число, що в підписі «Вільних грошей» на

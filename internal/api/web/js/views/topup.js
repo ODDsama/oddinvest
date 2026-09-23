@@ -125,7 +125,7 @@ function linesHTML(t) {
           : esc(l.amount ? fmtCur(Number(l.amount.amount), curSym(l.currency)) : "—")),
       },
       { key: "total", label: "Разом", num: true, cell: (l) => fmtUAH(l.total_uah) },
-      { key: "real", label: "Реальних", num: true, cell: (l) => pct(l.real_pct) },
+      { key: "real", label: "Реальних, проти $", num: true, cell: (l) => pct(l.real_pct) },
       {
         key: "add", label: "",
         // «Інший папір» стоїть лише в рядка ОВДП і лише поруч із «+»: у

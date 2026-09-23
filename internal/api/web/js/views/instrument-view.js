@@ -35,7 +35,7 @@
 // на дві третини.
 
 import {
-  esc, pct, money as fmtMoney, uah2 as fmtUAH, dayMonth, curSym,
+  esc, pct, money as fmtMoney, uah2 as fmtUAH, dayMonth, curSym, REAL_FX,
 } from "../format.js";
 import { tile, empty } from "../components.js";
 import { PAYOUT_LABEL } from "../constants.js";
@@ -163,7 +163,7 @@ function positionTilesHTML(ctx, kind, row) {
   // Другий рядок — лише коли лінійки дві (довід при yieldPair).
   const yieldTile = (nominal, real, basis) => tile("Дохідність",
     nominal != null ? pct(nominal) : (real ? pct(real) : "—"),
-    real && real !== nominal ? `<div class="sub">${pct(real)} реальних — після податку й знецінення${
+    real && real !== nominal ? `<div class="sub">${pct(real)} ${REAL_FX} — після податку й знецінення${
       basis ? ` · ${esc(basis)}` : ""}</div>` : (basis ? `<div class="sub">${esc(basis)}</div>` : ""));
 
   if (kind === "bond") {

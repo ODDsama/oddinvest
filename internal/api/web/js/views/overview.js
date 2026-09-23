@@ -34,7 +34,7 @@
 
 import {
   esc, uah0, signedUAH, pct, capitalUAH, outsideUAH, dayMonth,
-  plural, approxOther, cur2,
+  plural, approxOther, cur2, REAL_FX,
 } from "../format.js";
 import { tile, empty } from "../components.js";
 import { routeFor } from "../routes.js";
@@ -85,7 +85,7 @@ function heroHTML(ctx) {
     // бекенд віддає реальну рівною номінальній, і повторювати число під
     // ним означало б підписати «реальних» те, що й так єдине.
     s.blended_yield_pct && s.blended_yield_real_pct !== s.blended_yield_pct
-      ? `<div class="sub-xs">${pct(s.blended_yield_real_pct)} реальних —
+      ? `<div class="sub-xs">${pct(s.blended_yield_real_pct)} ${REAL_FX} —
          після податку й знецінення</div>` : "")}
     ${tile("Заробило, річних", xirr ? pct(xirr) : "—",
     xirr ? `<div class="sub-xs">XIRR — з урахуванням дат внесків</div>`

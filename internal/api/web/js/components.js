@@ -4,7 +4,7 @@
 // чиста функція «значення -> HTML». Щойно шматку знадобився store чи
 // summary, він уже не компонент, а частина розділу.
 
-import { esc, pct } from "./format.js";
+import { esc, pct, REAL_FX } from "./format.js";
 import { yieldCell } from "./yield.js";
 import { KIND_LABEL } from "./constants.js";
 import { routeFor } from "./routes.js";
@@ -74,7 +74,7 @@ export function progressBar(v, { color = "", cls = "" } = {}) {
  *  сказати нічого — щоб не малювати порожній рядок під значенням. */
 export function yieldNote(real, basis = "") {
   const bits = [];
-  if (real != null) bits.push(`${pct(real)} реальних`);
+  if (real != null) bits.push(`${pct(real)} ${REAL_FX}`);
   if (basis) bits.push(esc(basis));
   return bits.length ? `<div class="sub-xs">${bits.join(" · ")}</div>` : "";
 }

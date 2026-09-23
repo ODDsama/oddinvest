@@ -32,7 +32,7 @@
 // переїхали в INFO.cardExit / INFO.card — туди, де решта застосунку тримає
 // своє «як це читати».
 
-import { esc, uah2 as fmtUAH, money as fmtMoney, pct, plural, monthYear } from "../format.js";
+import { esc, uah2 as fmtUAH, money as fmtMoney, pct, plural, monthYear, REAL_FX } from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty, tile } from "../components.js";
 import { yieldCell } from "../yield.js";
@@ -395,7 +395,7 @@ function queueHTML(p, list) {
         cell: (d) => (d.rate_parts
           ? `<b class="t-danger">${yieldCell(d.rate_parts, { bare: true })}</b>`
           : `<b class="t-danger">${pct(d.rate_pct)}</b>`) },
-      { key: "real", label: "Реальна", num: true, cell: (d) => pct(d.real_pct) },
+      { key: "real", label: "Реальна, проти $", num: true, cell: (d) => pct(d.real_pct) },
       { key: "basis", label: "Звідки", cell: (d) => esc(BASIS_TEXT[d.rate_basis] || "") },
       // Достроково — не довідка, а межа: саме вона вирішує, чи доходять до
       // цього рядка гроші понад обовʼязкове. Без неї порядок черги
@@ -411,7 +411,7 @@ function queueHTML(p, list) {
     empty: "",
   })}
     ${p.invest_instead_pct ? `<div class="sub">Портфель заробляє
-      ${pct(p.invest_instead_pct)} реальних. Рядки вище — гарантовані: погашення не
+      ${pct(p.invest_instead_pct)} ${REAL_FX}. Рядки вище — гарантовані: погашення не
       має ні податку, ні ризику ціни. Порівняння робиш ти, застосунок лише ставить
       числа в одну колонку.</div>` : ""}
   </div>`;

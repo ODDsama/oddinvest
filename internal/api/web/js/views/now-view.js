@@ -289,7 +289,7 @@ export function reinvestHTML(ctx, opts = {}) {
   const inBook = currency() === BOOK;
   const seg = inBook ? `<span class="seg">
     <button data-sgorder="real" aria-pressed="${order === "real"}"
-      title="Порядок за реальною дохідністю — після податку й знецінення">реальна</button>
+      title="Порядок за реальною дохідністю проти долара — після податку й знецінення гривні">реальна</button>
     <button data-sgorder="nominal" aria-pressed="${order === "nominal"}"
       title="Порядок за номінальною — валюти при цьому незіставні">номінальна</button>
   </span>` : "";
