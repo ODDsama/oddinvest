@@ -80,7 +80,7 @@ func (s *Server) handleFXShock(w http.ResponseWriter, r *http.Request) {
 
 	doc, shocked := buildFXShock(fxPointsOf(hist), rates, window)
 	if len(shocked) > 0 {
-		after, err := s.buildStateWith(ctx, now, hypothetical{rates: shocked})
+		after, err := s.buildStateWith(ctx, now, hypoRates(shocked))
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return

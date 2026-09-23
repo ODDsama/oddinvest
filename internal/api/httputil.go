@@ -6,6 +6,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 )
@@ -24,6 +25,18 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 
 func writeErr(w http.ResponseWriter, code int, err error) {
 	writeJSON(w, code, map[string]string{"error": err.Error()})
+}
+
+// writeCalcErr — помилка розрахунку: 400, коли винне питання
+// (badRequestError — невідомий папір, криве поле), інакше 500. Одне місце,
+// щоб «описка у формі» ніде не ставала «зламався сервер».
+func writeCalcErr(w http.ResponseWriter, err error) {
+	var bad badRequestError
+	if errors.As(err, &bad) {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeErr(w, http.StatusInternalServerError, err)
 }
 
 // --- handlers ---

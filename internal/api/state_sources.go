@@ -24,7 +24,6 @@ import (
 	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
-
 	money "github.com/Rhymond/go-money"
 )
 
@@ -371,4 +370,16 @@ func (s *sources) payoutDays() map[string]int64 {
 		out[name] = ref.PayoutDay
 	}
 	return out
+}
+
+// arrived — предикат domain.Arrived на позначках портфеля: для викликачів,
+// що вантажать лоти через s.portfolio, а не через loadSources. Без нього
+// папір, погашення якого вже позначене «Отримано», у сам день погашення
+// лишався б позицією на одній сторінці й зникав на іншій.
+func (e *engine) arrived(ctx context.Context, today domain.Date) (func(string, domain.Date) bool, error) {
+	statuses, err := e.st.PaymentStatuses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return domain.Arrived(statuses, today), nil
 }

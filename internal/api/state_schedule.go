@@ -19,6 +19,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
@@ -26,7 +27,6 @@ import (
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
-
 	money "github.com/Rhymond/go-money"
 )
 
@@ -243,4 +243,29 @@ func summarizeIncome(sch schedule, rates fx.Rates, today domain.Date) incomeSumm
 	// забрав податок — окремо, у /api/tax.
 	out.MonthlyNow = round2(couponSum / 12)
 	return out
+}
+
+// calendar — розклад виплат від from (GET /api/calendar) разом із
+// позначками «Отримано» за ключем ISIN|дата.
+func (e *engine) calendar(ctx context.Context, from, today domain.Date) ([]domain.CashflowItem, map[string]string, error) {
+	// Розклад збирає buildSchedule — та сама функція, що й для зведення.
+	// Доти цей обробник мав власного збирача: облігації плюс вклади, і
+	// фонди повз нього. На живих даних REIT платив 10 числа щомісяця, у
+	// зведенні давав чверть доходу, а тут його не було взагалі — одне
+	// питання, дві відповіді.
+	//
+	// from і today різні навмисно: показуємо з дати запиту (вкладка
+	// гортає й минуле), а оцінки рахуємо від справжнього сьогодні —
+	// оцінених дивідендів у минулому не буває, там фактичні операції.
+	src, err := e.loadSources(ctx, today)
+	if err != nil {
+		return nil, nil, err
+	}
+	hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps,
+		src.fundPrices, src.payoutDays(), today, domain.Arrived(src.statuses, today))
+	sch, err := buildSchedule(src, hold, from, today, scheduleFundMonths)
+	if err != nil {
+		return nil, nil, err
+	}
+	return sch.Cashflow, src.statuses, nil
 }

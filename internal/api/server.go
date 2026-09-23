@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/finomo"
+	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 	"github.com/ODDsama/oddinvest/internal/tunnel"
 )
@@ -470,4 +471,23 @@ func (s *Server) publishLoop() {
 		s.pubPending = false
 		s.pubMu.Unlock()
 	}
+}
+
+// PresentDoc — для публікації в MQTT: той самий шлях, що /api/summary, щоб
+// Home Assistant бачив рівно те, що бачить застосунок.
+func (s *Server) PresentDoc(ctx context.Context, doc *state.Doc) error {
+	return s.present(ctx, doc)
+}
+
+// BuildStateDoc — спільна збірка документа стану для API і MQTT.
+//
+// Із чергою задач, як і GET /api/summary: обидва шляхи ведуть до людини —
+// один в браузер, другий у Home Assistant, — і показувати їй різні відповіді
+// на «що робити» було б гірше, ніж не показувати жодної.
+//
+// Решта викликів (whatif, план, cashflow, xirr) лишається на голому
+// buildState навмисно: черга їм ні до чого, а вона тягне за собою
+// SearchBonds на п'ять тисяч паперів.
+func (s *Server) BuildStateDoc(ctx context.Context, now time.Time) (*state.Doc, error) {
+	return s.buildStateTasked(ctx, now)
 }

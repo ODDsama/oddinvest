@@ -25,12 +25,11 @@ import (
 	"strings"
 	"time"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/present"
 	"github.com/ODDsama/oddinvest/internal/state"
+	money "github.com/Rhymond/go-money"
 )
 
 const reportCurrencyKey = "report_currency"
@@ -68,9 +67,9 @@ type presenter struct {
 }
 
 // presenter — валюта з налаштувань і курси з бази, один раз на запит.
-func (s *Server) presenter(ctx context.Context, today domain.Date) (*presenter, error) {
+func (e *engine) presenter(ctx context.Context, today domain.Date) (*presenter, error) {
 	p := &presenter{report: money.UAH, today: today}
-	raw, err := s.st.GetSetting(ctx, reportCurrencyKey)
+	raw, err := e.st.GetSetting(ctx, reportCurrencyKey)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +77,7 @@ func (s *Server) presenter(ctx context.Context, today domain.Date) (*presenter, 
 	if report == "" || report == money.UAH {
 		return p, nil
 	}
-	q, err := s.quotesSince(ctx, report, "")
+	q, err := e.quotesSince(ctx, report, "")
 	if err != nil {
 		return nil, err
 	}
@@ -137,8 +136,8 @@ func (p *presenter) doc(d *state.Doc) error {
 }
 
 // present — обробникам: перекласти відповідь перед writeJSON.
-func (s *Server) present(ctx context.Context, v any) error {
-	p, err := s.presenter(ctx, domain.NewDate(time.Now()))
+func (e *engine) present(ctx context.Context, v any) error {
+	p, err := e.presenter(ctx, domain.NewDate(time.Now()))
 	if err != nil {
 		return err
 	}
@@ -146,12 +145,6 @@ func (s *Server) present(ctx context.Context, v any) error {
 		return p.doc(d)
 	}
 	return p.apply(v)
-}
-
-// PresentDoc — для публікації в MQTT: той самий шлях, що /api/summary, щоб
-// Home Assistant бачив рівно те, що бачить застосунок.
-func (s *Server) PresentDoc(ctx context.Context, doc *state.Doc) error {
-	return s.present(ctx, doc)
 }
 
 // quotesSince — історія курсу валюти одним читанням, у мажорних одиницях.

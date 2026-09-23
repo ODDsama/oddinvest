@@ -3,7 +3,6 @@
 package api
 
 import (
-	"context"
 	"net/http"
 	"sort"
 	"time"
@@ -11,18 +10,6 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
-
-// arrived — предикат domain.Arrived на позначках портфеля: для викликачів,
-// що вантажать лоти через s.portfolio, а не через loadSources. Без нього
-// папір, погашення якого вже позначене «Отримано», у сам день погашення
-// лишався б позицією на одній сторінці й зникав на іншій.
-func (e *engine) arrived(ctx context.Context, today domain.Date) (func(string, domain.Date) bool, error) {
-	statuses, err := e.st.PaymentStatuses(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return domain.Arrived(statuses, today), nil
-}
 
 func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -143,28 +130,11 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 			to = d
 		}
 	}
-	// Розклад збирає buildSchedule — та сама функція, що й для зведення.
-	// Доти цей обробник мав власного збирача: облігації плюс вклади, і
-	// фонди повз нього. На живих даних REIT платив 10 числа щомісяця, у
-	// зведенні давав чверть доходу, а тут його не було взагалі — одне
-	// питання, дві відповіді.
-	//
-	// from і today різні навмисно: показуємо з дати запиту (вкладка
-	// гортає й минуле), а оцінки рахуємо від справжнього сьогодні —
-	// оцінених дивідендів у минулому не буває, там фактичні операції.
-	src, err := s.loadSources(ctx, today)
+	cf, statuses, err := s.calendar(ctx, from, today)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps,
-		src.fundPrices, src.payoutDays(), today, domain.Arrived(src.statuses, today))
-	sch, err := buildSchedule(src, hold, from, today, scheduleFundMonths)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	cf, statuses := sch.Cashflow, src.statuses
 	type cfJSON struct {
 		Date   string    `json:"date"`
 		ISIN   string    `json:"isin"`

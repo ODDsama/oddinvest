@@ -43,19 +43,6 @@ const xirrMinMoneyDays = domain.XIRRMinMoneyDays
 // round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
 
-// BuildStateDoc — спільна збірка документа стану для API і MQTT.
-//
-// Із чергою задач, як і GET /api/summary: обидва шляхи ведуть до людини —
-// один в браузер, другий у Home Assistant, — і показувати їй різні відповіді
-// на «що робити» було б гірше, ніж не показувати жодної.
-//
-// Решта викликів (whatif, план, cashflow, xirr) лишається на голому
-// buildState навмисно: черга їм ні до чого, а вона тягне за собою
-// SearchBonds на п'ять тисяч паперів.
-func (s *Server) BuildStateDoc(ctx context.Context, now time.Time) (*state.Doc, error) {
-	return s.buildStateTasked(ctx, now)
-}
-
 // hypothetical — покупки, яких ЩЕ НЕМАЄ. Порожня структура означає
 // звичайний стан, і саме тому buildState нижче лишається однорядковою
 // обгорткою: жоден із його викликів не знає, що така можливість є.
@@ -179,6 +166,14 @@ type hypothetical struct {
 	// власною ставкою.
 	planFunds []planFundBuy
 }
+
+// hypoRates — гіпотеза «інші курси» (валютний шок, handlers_fx_shock.go);
+// hypoSettings — «інша політика» (превʼю налаштувань). Конструкторами, а
+// не літералом: поля гіпотези закриті для обробників, і кожен із них
+// бачить рівно ту одну підміну, яку просить.
+func hypoRates(r fx.Rates) hypothetical { return hypothetical{rates: r} }
+
+func hypoSettings(set map[string]string) hypothetical { return hypothetical{settings: set} }
 
 // planFundBuy — обидві половини руху грошей в одному записі: скільки йде
 // з ліквідного боку і в яку позицію воно перетворюється.

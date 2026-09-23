@@ -42,10 +42,12 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
@@ -1080,4 +1082,68 @@ func ratioPct(have, need float64) int {
 // додає гривню, а тут ідеться про місяці.
 func num1(v float64) string {
 	return strings.Replace(fmt.Sprintf("%.1f", v), ".", ",", 1)
+}
+
+// progress — віхи, серія й поле колекції (GET /api/progress): зводить
+// дані й кличе чисту buildProgress.
+func (e *engine) progress(ctx context.Context, now time.Time) (progressDoc, error) {
+	today := domain.NewDate(now)
+
+	// Документ — обов'язковий: із нього беруться драбина, резерв,
+	// ребаланс і концентрація, тобто дев'ять віх із чотирнадцяти. Без
+	// нього відповідати нема чим.
+	doc, err := e.buildState(ctx, now)
+	if err != nil {
+		return progressDoc{}, err
+	}
+	src, err := e.loadSources(ctx, today)
+	if err != nil {
+		return progressDoc{}, err
+	}
+
+	// А далі — три м'які джерела. Кожне з них живить СВОЮ частину
+	// відповіді, і падіння будь-якого не робить решту неправдою: краще
+	// віддати дванадцять віх із прочерком у двох, ніж 500 на весь блок.
+	// Той самий прийом, що в оболонки з soft(): маршрут може бути
+	// новішим за дані.
+	snaps, serr := e.st.ListSnapshots(ctx, "", "")
+	if serr != nil {
+		e.log.Warn("знімки для прогресу не зібрались", "err", serr)
+		snaps = nil
+	}
+	ev, eerr := e.cashEvents(ctx)
+	if eerr != nil {
+		e.log.Warn("рух грошей для прогресу не зібрався", "err", eerr)
+		ev = nil
+	}
+
+	// Дисципліна — з ТІЄЇ САМОЇ функції, що й /api/decisions, і з тим
+	// самим порогом: доки журнал закороткий, зведення не показує його й
+	// там. Один вдалий вибір із одного — це 100%, і доріжка, яка це
+	// малює, обіцяє точність, якої немає.
+	var dec *decisionsSummary
+	if rows, derr := e.decisionRows(ctx); derr != nil {
+		e.log.Warn("журнал рішень для прогресу не зібрався", "err", derr)
+	} else if len(rows) >= decisionsMinRows {
+		sum := summarizeDecisions(rows)
+		dec = &sum
+	}
+
+	// Суперники — над УЖЕ зібраним документом, а не власним buildState, і
+	// ОДНИМ прогоном на два читачі: бенчмарк («обіграв долари») і серію
+	// «попереду долара» по місяцях — обидва з того самого добового ряду.
+	var bench *benchResult
+	var vs *vsDoc
+	if rv, rerr := e.rivals(ctx, doc, levelPortfolio); rerr != nil {
+		e.log.Warn("суперники для прогресу не зібрались", "err", rerr)
+	} else if rates, ferr := e.rates(ctx); ferr != nil {
+		e.log.Warn("курси для прогресу не зібрались", "err", ferr)
+	} else {
+		b := benchFromRivals(rv, rates)
+		bench = &b
+		vs = buildVsUSD(rv.Days, rv.row(domain.RivalUSDCash).PointsDiff, today)
+	}
+
+	out := buildProgress(doc, src, snaps, ev, dec, bench, vs, today)
+	return out, nil
 }

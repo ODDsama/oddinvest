@@ -36,16 +36,10 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"math"
 	"net/http"
 	"time"
 
-	"github.com/ODDsama/oddinvest/internal/domain"
-	"github.com/ODDsama/oddinvest/internal/fx"
-	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
-	money "github.com/Rhymond/go-money"
 )
 
 // whatIfReq — три випадки одним тілом.
@@ -76,29 +70,6 @@ type whatIfReq struct {
 	PickISIN string `json:"pick_isin,omitempty"`
 }
 
-type whatIfPayload struct {
-	After  *state.Doc `json:"after"`
-	Basket basketDoc  `json:"basket"`
-	// Topup — чим добрати РЕШТУ грошей місяця, щоб частки вирівнялись.
-	//
-	// Тим самим типом, що розкладка надходження (allocPlan), і тією ж
-	// функцією: питання одне — «ось сума, розклади її цілими квитками», —
-	// і друга відповідь на нього розійшлася б із першою. Різниця лише в
-	// тому, ЯКА це сума й ВІД ЯКОГО портфеля міряються частки.
-	//
-	// nil означає «розкладати нема чого»: плану доходу немає, або місяць
-	// уже закритий, або весь залишок розписаний планом купівель. Порожня
-	// розкладка нуля читалась би як поломка, тому нуля тут не буває.
-	Topup *allocPlan `json:"topup,omitempty"`
-	// TopupPlanUAH / TopupLeftUAH — два числа, з яких вийшла сума Topup:
-	// скільки план місяця ще обіцяє і скільки з того вже розписав план
-	// купівель. Без них картка показала б результат віднімання, не
-	// показавши самого віднімання, — а питання «чому пропонують так мало»
-	// виникає рівно на ньому.
-	TopupPlanUAH float64 `json:"topup_plan_uah,omitempty"`
-	TopupLeftUAH float64 `json:"topup_left_uah,omitempty"`
-}
-
 // handleWhatIf — стан портфеля ПІСЛЯ планованих покупок.
 //
 // «До» фронтенд уже тримає як ctx.summary, тож другий документ у
@@ -110,8 +81,6 @@ type whatIfPayload struct {
 // нестача грошей — пішла разом із самою нестачею (див. basketDoc).
 func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	now := time.Now()
-	today := domain.NewDate(now)
 
 	var req whatIfReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -123,42 +92,9 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	// Стан ДО — потрібен, щоб знати, у кого скільки грошей, за якою ціною
-	// йде сертифікат і кого обрати брокером, коли його не назвали.
-	before, err := s.buildState(ctx, now)
+	out, err := s.whatIf(ctx, time.Now(), rows, req.PickISIN)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	exp, err := s.expandPlanBuys(ctx, before, today, rows)
-	if err != nil {
-		var bad badRequestError
-		if errors.As(err, &bad) {
-			writeErr(w, http.StatusBadRequest, err)
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	basket := exp.basket
-
-	after, err := s.buildStateWith(ctx, now, exp.what)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	out := whatIfPayload{After: after, Basket: basket}
-	if err := s.addTopup(ctx, now, after, basket, req.PickISIN, &out); err != nil {
-		// Невідомий папір — помилка ЗАПИТУ, а не збій: людина назвала ISIN,
-		// якого немає серед порад. П'ятисотка тут читалась би як поломка
-		// застосунку, і сторінка не змогла б показати причину дослівно —
-		// а причина в тому й полягає, щоб її прочитали.
-		var bad badRequestError
-		if errors.As(err, &bad) {
-			writeErr(w, http.StatusBadRequest, err)
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, err)
+		writeCalcErr(w, err)
 		return
 	}
 	// Обидва документи гіпотези — «до» і «після» — у валюті звітності
@@ -170,116 +106,16 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// addTopup — чим добрати решту грошей місяця, щоб частки вирівнялись.
-//
-// ЧОМУ ЦЕ ТУТ, А НЕ ОКРЕМИМ ЕНДПОЙНТОМ. Обидва входи є разом рівно в цьому
-// місці й більше ніде: повний документ ПІСЛЯ плану (after) і сам план у
-// грошах (basket). Окремий ендпойнт мусив би зібрати їх удруге — тобто
-// вдруге розгорнути plan_buys і вдруге перебудувати стан, — і два
-// перерахунки одного дня давали б два різні числа щоразу, коли між ними
-// щось запишуть.
-//
-// ВЛАСНОЇ АРИФМЕТИКИ ТУТ ОДНЕ ВІДНІМАННЯ, і воно нижче. Усе решта —
-// allocatePlan, та сама чиста функція, що обслуговує розкладку надходження
-// й ногу маршруту.
-func (e *engine) addTopup(ctx context.Context, now time.Time,
-	after *state.Doc, basket basketDoc, pickISIN string, out *whatIfPayload) error {
-
-	if after.MonthPlan == nil || after.MonthPlan.LeftUAH.Major() <= 0 {
-		return nil
-	}
-	rates, err := e.rates(ctx)
-	if err != nil {
-		return err
-	}
-	// ВІДНІМАННЯ ТУТ БІЛЬШЕ НЕМАЄ, І ЦЕ ГОЛОВНЕ, ЩО ТРЕБА ЗНАТИ ПРО ЦЮ
-	// ФУНКЦІЮ.
-	//
-	// Стояло `avail = LeftUAH − Σ(рядки кошика)`: LeftUAH міряв гроші,
-	// ВНЕСЕНІ в портфель, а план купівель у ньому не був урахований —
-	// намір, а не рух грошей, — тож без явного віднімання картка радила б
-	// докупити рівно те, що вже заплановане.
-	//
-	// Відколи гіпотеза приносить гроші, якими план оплачений
-	// (hypothetical.topUps), синтетичне поповнення потрапляє в
-	// MonthDepositedUAH, і LeftUAH зменшується САМ. Лишити віднімання
-	// означало б відняти план ДВІЧІ — і картка мовчала б там, де гроші ще
-	// є.
-	//
-	// Майбутні рядки й тут не рахуються: вони грошей не приносять, тож і
-	// LeftUAH не чіпають (state_plan_buys.go, гілка при topUps).
-	//
-	// Через це `basket` лишається в підписі, хоч більше не читається: воно
-	// й далі описує ті самі гроші, і наступний автор, шукаючи «де ж тут
-	// віднімання», мусить знайти цей абзац, а не порожній параметр.
-	avail := after.MonthPlan.LeftUAH
-	out.TopupPlanUAH = round2(planCostUAH(basket, rates) + avail.Major())
-	out.TopupLeftUAH = round2(math.Max(0, avail.Major()))
-	// Поріг той самий, що в розкладки: сума, з якої не вийде жодного руху,
-	// не варта картки. Нуль і від'ємне значення сюди ж — план купівель
-	// може бути й більшим за те, що місяць обіцяє.
-	if avail.Major() < allocMinCutUAH {
-		return nil
-	}
-	// ПОРАДИ ВІД `after`, А НЕ ВІД `before`. Рейтинг ранжує сумою розривів
-	// (suggPlanScore), і розриви мусять бути ті, що лишились ПІСЛЯ плану:
-	// інакше вершиною стане саме той вид, який план уже закрив.
-	sug, err := e.reinvestSuggestions(ctx, now, after)
-	if err != nil {
-		return err
-	}
-	// Вибір перевіряється ТІЄЮ САМОЮ pickSuggestion, що й у розкладці, і
-	// над порадами від after: невідомий ISIN мусить дати одну й ту саму
-	// відмову з обох екранів, інакше два різні тексти на один папір
-	// читались би як дві різні причини.
-	pick, err := pickSuggestion(sug, pickISIN)
-	if err != nil {
-		return err
-	}
-	// БЕЗ ОБМЕЖЕНЬ ЗА ДЖЕРЕЛОМ, і це не недогляд. Розкладають не одне
-	// надходження, а зведений залишок місяця — десяток потоків із різними
-	// дозволами (plan_flows.uses), — і одне слово «чиї це гроші» на нього
-	// було б неправдою для половини суми. Той самий довід, що при
-	// reserveEligibleUAH, лише з протилежним висновком: там сума одна й
-	// дозвіл у неї один, тут сум багато.
-	plan := allocatePlan(after, sug, rates,
-		toMoneyJSON(money.New(int64(math.Round(avail.Major()*100)), money.UAH)), avail.Major(),
-		allocAllow{ReserveUAH: avail.Major(), GoalsUAH: avail.Major(), PickISIN: pick},
-		money.UAH, e.npfIDByName(ctx))
-	out.Topup = &plan
-	return nil
-}
-
-// planCostUAH — скільки коштують рядки «зараз», грн-екв.
-//
-// Потрібне ЛИШЕ шапці картки: вона показує три числа — скільки місяць
-// обіцяв, скільки з того вже розписано планом, скільки лишилось, — і без
-// середнього результат віднімання стояв би без самого віднімання.
-//
-// Саме віднімання при цьому робить уже не картка: гіпотеза приносить гроші
-// плану, тож LeftUAH зменшується сам (довід — при avail вище). Тут лише
-// відновлюється те, що місяць обіцяв ДО плану: залишок плюс його вартість.
-func planCostUAH(basket basketDoc, rates fx.Rates) float64 {
-	out := 0.0
-	for _, l := range basket.Lines {
-		if l.Future {
-			continue
-		}
-		out += moneyAmount(l.Total) * allocRate(l.Currency, rates)
-	}
-	return out
-}
-
 // planBuyRows — набір рядків, наслідки якого рахуємо: збережені (за
 // відрахуванням виключених) плюс чернетки з тіла запиту.
 //
 // Чернетка проходить ту саму planBuyFromReq, що й запис у базу. Друга
 // перевірка форми для превʼю означала б, що рядок може виглядати
 // правильним доти, доки його не збережеш.
-func (e *engine) planBuyRows(ctx context.Context, req whatIfReq) ([]store.PlanBuy, error) {
+func (s *Server) planBuyRows(ctx context.Context, req whatIfReq) ([]store.PlanBuy, error) {
 	var rows []store.PlanBuy
 	if req.Saved == nil || *req.Saved {
-		saved, err := e.st.ListPlanBuys(ctx)
+		saved, err := s.st.ListPlanBuys(ctx)
 		if err != nil {
 			return nil, err
 		}

@@ -140,29 +140,3 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, out)
 }
-
-// pickSuggestion — чи є обраний папір серед порад, і сам ISIN очищеним.
-//
-// Перевіряти обовʼязково, і саме тут, а не в allocatePlan: та — чиста
-// функція без помилки в сигнатурі, і невідомий ISIN у ній мовчки дав би
-// ногу без жодного рядка ОВДП із причиною «інструментів немає» — неправдою
-// про довідник. Порад же бракує рівно двом паперам: погашеному й тому, в
-// якого немає графіка виплат (domain.YTM без майбутніх виплат відмовляє), і
-// обидва людина обрати може лише помилково.
-//
-// Один читач на два ендпойнти (розкладка й маршрут) — привід виносити, а не
-// копіювати: різні тексти відмови на одному й тому самому ISIN читались би
-// як різні причини.
-func pickSuggestion(sug []suggestion, isin string) (string, error) {
-	isin = strings.ToUpper(strings.TrimSpace(isin))
-	if isin == "" {
-		return "", nil
-	}
-	for i := range sug {
-		if sug[i].Kind == "bond" && sug[i].ISIN == isin {
-			return isin, nil
-		}
-	}
-	return "", badRequestf("паперу %s немає серед порад — він або погашений, або без графіка виплат",
-		isin)
-}

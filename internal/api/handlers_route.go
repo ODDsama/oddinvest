@@ -26,139 +26,18 @@ package api
 
 import (
 	"net/http"
-	"strings"
 	"time"
-
-	money "github.com/Rhymond/go-money"
-
-	"github.com/ODDsama/oddinvest/internal/domain"
-	"github.com/ODDsama/oddinvest/internal/state"
-	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
-	now := time.Now()
-	today := domain.NewDate(now)
-
-	doc, err := s.buildState(r.Context(), now)
+	out, err := s.route(r.Context(), time.Now(), r.URL.Query()["pick"])
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
+		writeCalcErr(w, err)
 		return
 	}
-	sug, err := s.reinvestSuggestions(r.Context(), now, doc)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	// Другий прохід по джерелах — рівно той самий, що й у annotateReady, і
-	// з тієї самої причини: прив'язати виплату до брокера можна лише через
-	// лоти, а документ брокера у виплатах не несе (і не має нести — він іде
-	// в MQTT).
-	src, err := s.loadSources(r.Context(), today)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	// routeIncome, а не futureIncome: маршрут бачить іще й оцінені дивіденди
-	// фондів, кожен зі своєю названою основою. Чому це можна тут і не можна
-	// в даті «коли вистачить» — у шапці routeIncome.
-	inc, err := routeIncome(src, today, routeHorizonMonths)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	// План доходу по місяцях горизонту. Двом читачам: стелі подушки (вона
-	// рахується від PlanUAH) і планових ніг маршруту.
-	//
-	// depositedUAH нульовий скрізь, і поточний місяць — не виняток. Обидва
-	// читачі беруть від плану лише те, що не залежить від закинутого:
-	// стеля поточного місяця приходить із документа готовою (enterMonth
-	// поточний місяць пропускає — див. newRouteCarry), а нога планового
-	// доходу несе свою частку плану, а не «лишилось закинути» (довід — у
-	// шапці planAhead). Тут колись стояла підміна doc.MonthPlan заради
-	// LeftUAH; читача в неї більше немає.
-	plans := make(map[string]*state.MonthPlan, routeHorizonMonths+1)
-	for m := 0; m <= routeHorizonMonths; m++ {
-		plans[monthKeyAt(today, m)] = buildMonthPlan(src, src.rates, today, m, 0, "")
-	}
-
-	// Плановий дохід — окремим збирачем і ОКРЕМИМ ДОДАВАННЯМ, а не всередині
-	// routeIncome: тій потрібні plans, яких у неї немає й бути не має (вона
-	// про розклад портфеля), а futureIncome чіпати не можна взагалі — її
-	// незмінність тримає регресійний тест, і саме на ній стоїть відмова
-	// показувати намір у даті «коли вистачить».
-	if flows := planAhead(src, plans, today, routeHorizonMonths); len(flows) > 0 {
-		k := store.BrokerCur{Broker: noBrokerLabel, Currency: money.UAH}
-		inc[k] = append(inc[k], flows...)
-		sortFlows(inc[k])
-	}
-
-	picks, err := routePicks(r.URL.Query()["pick"], sug)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-
-	// Борг місяцями горизонту — тим самим графіком, що й план місяця й
-	// картка боргу (state_debts.go); маршрут його лише віднімає.
-	debt := debtAhead(src, src.rates, today, routeHorizonMonths)
-
-	out := buildRoute(doc, sug, inc, plans, debt, src.rates,
-		s.npfIDByName(r.Context()), picks, today)
-	// План купівель — окремим проходом поверх готових ніг: аргумент при
-	// annotatePlanned. Рядки вже лежать у джерелах, другого читання немає.
-	annotatePlanned(out.Legs, src.planBuys, today)
 	if err := s.present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
-}
-
-// routePickSep — роздільник у значенні ?pick=. Вертикальна риска, бо її
-// немає ні в даті, ні в ISIN, ні в коді валюти, а в назві брокера вона
-// була б дивиною, якої досі ніхто не завів.
-const routePickSep = "|"
-
-// routePicks — вибір паперів по ногах із параметрів запиту.
-//
-// ПАРАМЕТРОМ ЗАПИТУ, А НЕ ТАБЛИЦЕЮ, і це не спрощення. Маршрут — вигляд, а
-// не стан (шапка annotatePlanned): вибір живе, доки людина дивиться на
-// сторінку, і щойно ногу закріплено, його тримає plan_buys — рядком із тим
-// самим ISIN. Третє місце, де лежав би «майбутній папір», розійшлося б із
-// планом купівель при першій же правці того плану.
-//
-// Формат одного значення — <дата>|<брокер>|<валюта>|<ISIN>, чотири частини
-// routeKey плюс сам вибір; кілька ніг — кілька параметрів pick. Брокер без
-// рахунку йде тим самим «—», яким його показує нога (noBrokerLabel).
-//
-// ISIN перевіряється проти порад тим самим pickSuggestion, що й у
-// POST /api/allocate: перша нога маршруту дорівнює розкладці, і відмова
-// на невідомий папір мусить бути тією самою в обох. Ключ ноги натомість не
-// перевіряється (див. buildRoute): нога могла зникнути з розкладу, і це
-// не привід валити всю сторінку.
-func routePicks(raw []string, sug []suggestion) (map[routeKey]string, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	picks := make(map[routeKey]string, len(raw))
-	for _, v := range raw {
-		parts := strings.SplitN(v, routePickSep, 4)
-		if len(parts) != 4 {
-			return nil, badRequestf("pick: чекали <дата>|<брокер>|<валюта>|<ISIN>, отримали %q", v)
-		}
-		isin, err := pickSuggestion(sug, parts[3])
-		if err != nil {
-			return nil, err
-		}
-		if isin == "" {
-			return nil, badRequestf("pick: порожній ISIN у %q", v)
-		}
-		picks[routeKey{
-			Date: strings.TrimSpace(parts[0]), Broker: strings.TrimSpace(parts[1]),
-			Currency: orUAH(strings.TrimSpace(parts[2])),
-		}] = isin
-	}
-	return picks, nil
 }
