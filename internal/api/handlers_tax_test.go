@@ -866,3 +866,21 @@ func TestTaxIgnoresConvertedFundLegs(t *testing.T) {
 		t.Errorf("нараховано = %.2f, а переказ доходу не дає", got.GrossUAH)
 	}
 }
+
+// Криві дати в запиті — 400, а не паніка чи не те вікно.
+//
+// Вікно порівнюється рядками, тож «2026-1-5» мовчки давало не той період,
+// а коротке ?to= роняло виписку на зрізі [:8].
+func TestReportsRejectMalformedDates(t *testing.T) {
+	srv, _ := testServer(t)
+	for _, u := range []string{
+		"/api/cashflow?to=2026",
+		"/api/cashflow?from=2026-1-5",
+		"/api/tax?from=2026-1-5&to=2026-12-31",
+		"/api/tax?from=2026-01-01&to=31.12.2026",
+	} {
+		if resp, body := do(t, "GET", srv.URL+u, ""); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("%s: %d %s, чекали 400", u, resp.StatusCode, body)
+		}
+	}
+}

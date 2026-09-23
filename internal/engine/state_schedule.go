@@ -21,6 +21,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -159,7 +160,7 @@ func buildSchedule(src *sources, hold domain.Holdings, from, today domain.Date, 
 			continue
 		}
 		cashflow = append(cashflow, domain.NPFPayoutSchedule(acc,
-			int64(total*100), today.AddMonths(fundMonths))...)
+			int64(math.Round(total*100)), today.AddMonths(fundMonths))...)
 	}
 
 	// next_payment бере перший потік, драбина йде по роках — обидва

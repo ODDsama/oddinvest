@@ -448,14 +448,26 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 // скільки надійшло доходу, скільки ти доклав своїх і що з цього купив.
 func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	to := domain.Date(q.Get("to"))
-	if to == "" {
-		to = domain.NewDate(time.Now())
+	// Дати перевіряються: коротке ?to= роняло обробник на зрізі [:8], а
+	// криве — давало не те вікно (порівняння рядками).
+	to := domain.NewDate(time.Now())
+	if v := q.Get("to"); v != "" {
+		d, err := domain.ParseDate(v)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		to = d
 	}
-	from := domain.Date(q.Get("from"))
-	if from == "" {
-		// За замовчуванням — поточний місяць.
-		from = domain.Date(string(to)[:8] + "01")
+	// За замовчуванням — поточний місяць.
+	from := domain.Date(string(to)[:8] + "01")
+	if v := q.Get("from"); v != "" {
+		d, err := domain.ParseDate(v)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		from = d
 	}
 
 	events, err := s.CashEvents(r.Context())

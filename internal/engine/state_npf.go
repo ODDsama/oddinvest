@@ -1,11 +1,12 @@
 package engine
 
 import (
-	money "github.com/Rhymond/go-money"
+	"math"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
+	money "github.com/Rhymond/go-money"
 )
 
 // Фаза НПФ: пенсійні рахунки у стан.
@@ -232,13 +233,13 @@ func npfCreditsUAH(accs []domain.NPFAccount, ops []domain.NPFOp,
 	if set == nil || set.NPFCreditPDFOYearUAH == nil {
 		return out
 	}
-	pdfo := int64(*set.NPFCreditPDFOYearUAH * 100)
+	pdfo := int64(math.Round(*set.NPFCreditPDFOYearUAH * 100))
 	if pdfo <= 0 {
 		return out
 	}
 	var capMonth int64
 	if set.NPFCreditCapMonthUAH != nil {
-		capMonth = int64(*set.NPFCreditCapMonthUAH * 100)
+		capMonth = int64(math.Round(*set.NPFCreditCapMonthUAH * 100))
 	}
 	for id, minor := range domain.NPFCreditByAccount(accs, ops, year, capMonth, pdfo) {
 		out[id] = Round2(float64(minor) / 100)

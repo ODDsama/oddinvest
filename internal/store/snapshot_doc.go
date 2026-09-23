@@ -14,6 +14,8 @@
 package store
 
 import (
+	"math"
+
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
@@ -34,12 +36,12 @@ func SnapshotOf(date domain.Date, doc *state.Doc) Snapshot {
 		Date:         date,
 		InvestedUAH:  doc.InvestedUAH.Minor(),
 		NominalUAHEq: doc.NominalUAHEq.Minor(),
-		USDShareBP:   int64(doc.USDSharePct * 100),
+		USDShareBP:   int64(math.Round(doc.USDSharePct * 100)),
 		// Документ ЗАВЖДИ дає виміряну частку, зокрема й нуль: «євро немає»
 		// — це факт про день, а не порожнеча. Сентинел −1 із міграції 0061
 		// лишається виключно в рядках, старших за саму колонку, і саме на
 		// цьому стоїть право обох екранів показувати їх прочерком.
-		EURShareBP:     int64(doc.EURSharePct * 100),
+		EURShareBP:     int64(math.Round(doc.EURSharePct * 100)),
 		UninvestedUAH:  doc.UninvestedUAH.Minor(),
 		MonthTargetUAH: doc.MonthTargetUAH.Minor(),
 		AccountUAH:     doc.AccountUAH.Minor(),

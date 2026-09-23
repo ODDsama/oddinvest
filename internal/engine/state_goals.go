@@ -222,7 +222,7 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 		// є. Окремого правила для done_date тут свідомо немає.
 		out.UAH += a.uah
 		for cur, v := range a.byCur {
-			if u, err := fx.ToUAH(money.New(int64(v.Major()*100+0.5), cur), rates); err == nil {
+			if u, err := fx.ToUAH(money.New(v.Minor(), cur), rates); err == nil {
 				out.ByCur[cur] = out.ByCur[cur].Add(state.Of(u))
 			}
 		}

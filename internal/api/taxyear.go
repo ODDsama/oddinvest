@@ -44,12 +44,18 @@ func taxYear(q url.Values, now time.Time) (year int, from, to domain.Date, err e
 
 	qf, qt := q.Get("from"), q.Get("to")
 	if qf != "" || qt != "" {
-		from, to = domain.Date(qf), domain.Date(qt)
-		if from == "" {
-			from = "1970-01-01"
+		// Дати перевіряються: вікно порівнюється рядками, і «2026-1-5»
+		// мовчки дало б не той період.
+		from, to = "1970-01-01", domain.NewDate(now)
+		if qf != "" {
+			if from, err = domain.ParseDate(qf); err != nil {
+				return 0, "", "", err
+			}
 		}
-		if to == "" {
-			to = domain.NewDate(now)
+		if qt != "" {
+			if to, err = domain.ParseDate(qt); err != nil {
+				return 0, "", "", err
+			}
 		}
 		if to.Before(from) {
 			return 0, "", "", fmt.Errorf("кінець періоду %q раніший за початок %q", to, from)
