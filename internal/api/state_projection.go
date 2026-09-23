@@ -88,8 +88,10 @@ type projectionInput struct {
 	// між колонками на портфелі, де пенсійна частка велика.
 	NPFAccumByCur map[string][]domain.Accum
 
-	// Ставки: дохідність портфеля по валютах, запасна середня для валюти,
-	// якої ще немає, і поріг докупівлі.
+	// Ставки: поточна крива аукціонів (перший вибір, state_market.go),
+	// дохідність портфеля по валютах, запасна середня для валюти, якої ще
+	// немає, і поріг докупівлі. Порядок вибору — sleeveFactory.startRate.
+	MarketRateByCur  map[string]marketRate
 	YieldByCur       map[string]float64
 	AvgRateByCur     map[string]float64
 	ReinvestMinByCur map[string]state.Money
@@ -363,6 +365,26 @@ func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 			vec[m] *= k
 		}
 	}
+}
+
+// Джерела стартової ставки рукава — те, що бачить людина біля ставки.
+const (
+	rateFromAuction   = "auction"   // свіже розміщення Мінфіну
+	rateFromPortfolio = "portfolio" // дохідність куплених паперів
+	rateFromDirectory = "directory" // середній купон довідника
+)
+
+// startRate — сьогоднішня ставка реінвесту валюти і звідки вона взялась.
+// Одна функція і для симуляції, і для рядка прогнозу: інакше підпис міг
+// би назвати одне джерело, а рукав рости під інше.
+func (f sleeveFactory) startRate(cur string) (float64, string, domain.Date) {
+	if m, ok := f.in.MarketRateByCur[cur]; ok {
+		return m.Pct, rateFromAuction, m.Date
+	}
+	if r, ok := f.in.YieldByCur[cur]; ok {
+		return r, rateFromPortfolio, ""
+	}
+	return f.in.AvgRateByCur[cur], rateFromDirectory, ""
 }
 
 func newSleeveFactory(in projectionInput) sleeveFactory {
@@ -706,10 +728,7 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 			!anyNonZero(planVec) && !anyNonZero(nativeVec) && len(lockMap) == 0 {
 			continue // валюти немає і не планується
 		}
-		rate, ok := in.YieldByCur[cur]
-		if !ok {
-			rate = in.AvgRateByCur[cur] // паперів цієї валюти ще немає
-		}
+		rate, _, _ := f.startRate(cur)
 		if rate > 40 {
 			rate = 40 // стеля, щоб компаунд не вибухав
 		}
@@ -1055,11 +1074,13 @@ func buildProjection(in projectionInput) projectionPhase {
 				row.RatePct = round2(s.RatePct)
 				row.RateTerminalPct = round2(s.RateTerminalPct)
 			}
+			_, src, srcDate := factory.startRate(s.Currency)
 			row.ByCurrency = append(row.ByCurrency, state.SleeveRow{
 				Currency: s.Currency, RatePct: round2(s.RatePct),
 				RateTerminalPct: round2(s.RateTerminalPct),
-				ContribMonthly:  state.Major(s.ContribUAH, s.Currency),
-				Amount:          state.Major(res.ByCurrency[s.Currency], s.Currency),
+				RateSource:      src, RateDate: string(srcDate),
+				ContribMonthly: state.Major(s.ContribUAH, s.Currency),
+				Amount:         state.Major(res.ByCurrency[s.Currency], s.Currency),
 			})
 		}
 		if goalAmount > 0 {

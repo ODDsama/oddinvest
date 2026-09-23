@@ -8,6 +8,7 @@
 package api
 
 import (
+	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -55,4 +56,66 @@ func buildMarket(pts []store.AuctionPoint, yieldByCur map[string]float64) market
 		out = append(out, row)
 	}
 	return marketPhase{yield: out}
+}
+
+// marketRate — стартова ставка реінвесту валюти з кривої аукціонів і
+// дата розміщення, з якого вона взята.
+type marketRate struct {
+	Pct  float64
+	Date domain.Date
+}
+
+// auctionMinDays — коротші розміщення (3–6 місяців) у стартову ставку не
+// йдуть: вона про гроші, які реінвестуються роками, і тримісячна ставка
+// тут відповідала б на інше питання.
+const auctionMinDays = 180
+
+// auctionRateByCur — під скільки Мінфін розміщує ЗАРАЗ, по валютах: з неї
+// прогноз стартує реінвест (рішення власника 2026-09-23).
+//
+// Доти стартовою ставкою була дохідність УЖЕ куплених лотів. Це факт про
+// минулі покупки, а реінвестуються купони й нові гроші за тим, що ринок
+// дасть сьогодні, — і портфель, купований пів року тому під 19 %, малював
+// би майбутнє під 19 % і тоді, коли аукціон дає 16.
+//
+// Правило вибору, без нового запиту (рядки ті самі, що в buildMarket):
+//   - лише свіжі розміщення: не старші за staleAfterDays — той самий поріг
+//     несвіжості, що в помічника реінвесту;
+//   - строк «1y» (rivalOVDPBucket — той самий орієнтир, що в бенчмарку);
+//     немає його — строк, найближчий до року, але не коротший за
+//     auctionMinDays; рівні — новіше розміщення.
+//
+// Валюти без свіжого аукціону в мапі немає: там прогноз лишається на
+// запасних шляхах (дохідність портфеля, далі купон довідника) — див.
+// sleeveFactory.startRate.
+func auctionRateByCur(pts []store.AuctionPoint, today domain.Date) map[string]marketRate {
+	type pick struct {
+		p    store.AuctionPoint
+		dist int64
+	}
+	best := map[string]pick{}
+	for _, p := range pts {
+		if p.IncomeBP <= 0 || p.Days < auctionMinDays {
+			continue
+		}
+		if daysBetween(p.Date, today) > staleAfterDays {
+			continue
+		}
+		dist := p.Days - 365
+		if dist < 0 {
+			dist = -dist
+		}
+		if p.Bucket == rivalOVDPBucket {
+			dist = -1 // «1y» перемагає будь-що
+		}
+		cur, ok := best[p.Currency]
+		if !ok || dist < cur.dist || (dist == cur.dist && p.Date.After(cur.p.Date)) {
+			best[p.Currency] = pick{p, dist}
+		}
+	}
+	out := make(map[string]marketRate, len(best))
+	for c, b := range best {
+		out[c] = marketRate{Pct: round2(float64(b.p.IncomeBP) / 100), Date: b.p.Date}
+	}
+	return out
 }

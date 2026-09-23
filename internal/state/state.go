@@ -2152,8 +2152,14 @@ type SleeveRow struct {
 	Currency        string  `json:"currency"`
 	RatePct         float64 `json:"rate_pct"`
 	RateTerminalPct float64 `json:"rate_terminal_pct,omitempty"`
-	ContribMonthly  Money   `json:"contrib_monthly"` // ₴/міс, що йдуть у цю валюту
-	Amount          Money   `json:"amount"`
+	// RateSource — звідки сьогоднішня ставка: "auction" (свіже розміщення
+	// Мінфіну), "portfolio" (дохідність куплених паперів), "directory"
+	// (середній купон довідника). RateDate — дата розміщення, коли джерело
+	// аукціон. Без них підпис біля ставки мусив би вгадувати.
+	RateSource     string `json:"rate_source,omitempty"`
+	RateDate       string `json:"rate_date,omitempty"`
+	ContribMonthly Money  `json:"contrib_monthly"` // ₴/міс, що йдуть у цю валюту
+	Amount         Money  `json:"amount"`
 }
 
 // FundPositionRow — позиція в одному фонді. YieldNetPct — дивідендна

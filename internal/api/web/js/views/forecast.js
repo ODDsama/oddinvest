@@ -11,7 +11,7 @@
 // правка формулювання мала шанс поїхати лише в одному з них.
 
 import {
-  esc, curSym, humanMonths, monthYear, monthYearGen, pct, uah0, uah2 as fmtUAH,
+  esc, curSym, dayMonth, humanMonths, monthYear, monthYearGen, pct, uah0, uah2 as fmtUAH,
 } from "../format.js";
 import { infoBtn } from "../info.js";
 import { empty, progressBar } from "../components.js";
@@ -31,6 +31,19 @@ import { contribTriad, shareOfNeed } from "../contrib.js";
 //
 // Старий бекенд required_monthly у рядках не надсилає — тоді лишаємо
 // попередній вигляд (сума на дедлайн), щоб картка не показувала порожньо.
+/** Звідки сьогоднішня ставка рукава — словами (SleeveRow.rate_source).
+ *  Ставку бере бекенд (sleeveFactory.startRate): свіже розміщення Мінфіну,
+ *  а без нього — дохідність куплених паперів чи купон довідника. Без
+ *  підпису «15,65 %» читалось би як обіцянка портфеля, а це ринок. */
+export function rateSourceLabel(c) {
+  switch ((c || {}).rate_source) {
+  case "auction": return `аукціон${c.rate_date ? ` ${dayMonth(c.rate_date)}` : ""}`;
+  case "portfolio": return "за купленими паперами";
+  case "directory": return "середній купон довідника";
+  default: return "";
+  }
+}
+
 export function goalsHTML(ctx) {
   const s = ctx.summary || {};
   const f = s.forecast;
@@ -151,12 +164,14 @@ export function goalsHTML(ctx) {
   }
 
   // Сьогоднішні ставки однакові в усіх рядках — кажемо їх один раз тут.
-  const nowRates = (real.by_currency || []).map((c) =>
-    `${curSym(c.currency)} ${pct(c.rate_pct)}`).join(" · ");
+  const nowRates = (real.by_currency || []).map((c) => {
+    const src = rateSourceLabel(c);
+    return `${curSym(c.currency)} ${pct(c.rate_pct)}${src ? ` (${src})` : ""}`;
+  }).join(" · ");
   const head = `<div class="sub">${
     asPayment && goal > 0 ? `щоб дійти до ${goalFmt(goal)} до ${monthYearGen(f.date)}` : `на ${monthYear(f.date)}`
     } · через ${humanMonths(f.months)}</div>
-    ${nowRates ? `<div class="sub-xs">сьогодні ставки ${nowRates} номінальних${
+    ${nowRates ? `<div class="sub-xs">сьогодні номінальні ставки: ${nowRates}${
       f.glide_years > 0 ? ` → сповзають до довгострокових за ${humanMonths(Math.round(f.glide_years * 12))}` : ""}</div>` : ""}
     <div class="sub-xs">Суми — у гривні сьогоднішньої купівельної спроможності: знецінення вже
       враховане всередині моделі, тож із сьогоднішніми витратами їх можна порівнювати прямо.</div>`;

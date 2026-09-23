@@ -17,6 +17,7 @@ import { svgBars, svgLine, svgBandLine, fluid } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
 import { CONTRIB, contribTriad } from "../contrib.js";
 import { opsGrid } from "../grid.js";
+import { rateSourceLabel } from "./forecast.js";
 
 // Дохід по місяцях: коли саме надійдуть купони й погашення на рік наперед.
 export function income12mChartHTML(ctx) {
@@ -115,10 +116,17 @@ export function projectionHTML(ctx) {
   // застосовується всередині моделі, до кожного гривневого рукава
   // окремо. Без цього слова читач вважав би, що ставку вже приведено, і
   // приріст здавався б удвічі меншим, ніж модель насправді рахує.
+  //
+  // Звідки ставка — з рядка рукава, а не «за портфелем» наосліп: відколи
+  // старт береться з аукціонів Мінфіну (2026-09-23), «YTM портфеля» тут
+  // була б неправдою про джерело. Рукави можуть мати різні джерела —
+  // тоді їх перелічено через кому.
+  const srcs = [...new Set((term.by_currency || []).map(rateSourceLabel).filter(Boolean))];
+  const from = srcs.length ? ` (${srcs.join(", ")})` : "";
   const rateSrc = rate <= 0 ? "додай папери — і дохідність порахується сама"
     : term.rate_terminal_pct && gy > 0 && Math.abs(term.rate_terminal_pct - rate) > 0.05
-      ? `за портфелем ${pct(rate)} номінальних (YTM) сьогодні → ${pct(term.rate_terminal_pct)} за ${humanMonths(Math.round(gy * 12))}`
-      : `за портфелем ${pct(rate)} номінальних (YTM до погашення)`;
+      ? `${pct(rate)} номінальних${from} сьогодні → ${pct(term.rate_terminal_pct)} за ${humanMonths(Math.round(gy * 12))}`
+      : `${pct(rate)} номінальних${from}`;
 
   const hasActual = (s.actual_monthly_uah || 0) > 0;
   // Колонка «За фактом» з'являється лише тоді, коли факт є: порожня

@@ -1273,8 +1273,9 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// отримати їх обидва, але злиття двох мап — робота фабрики, і
 		// зробивши її тут, я лишив би проєкцію без способу відрізнити
 		// замкнене від продаваного.
-		NPFAccumByCur: npf.Accum,
-		YieldByCur:    portfolioYieldByCur, AvgRateByCur: src.avgRate,
+		NPFAccumByCur:   npf.Accum,
+		MarketRateByCur: auctionRateByCur(src.auctions, today),
+		YieldByCur:      portfolioYieldByCur, AvgRateByCur: src.avgRate,
 		ReinvestMinByCur: reinvestMinByCur,
 		Rates:            rates, Deval: deval, ActualMonthly: actualMonthly,
 		IncomeMonthlyNow: incomeMonthlyNow, Today: today,
