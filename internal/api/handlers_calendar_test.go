@@ -380,7 +380,7 @@ func TestCalendarKeepsGrossWhileRouteTakesLeftover(t *testing.T) {
 		t.Fatal("фонд мав лишитись у календарі: дохід нікуди не дівається")
 	}
 
-	inc, err := srv.routeIncome(src, today, 12)
+	inc, err := routeIncome(src, today, 12)
 	if err != nil {
 		t.Fatal(err)
 	}

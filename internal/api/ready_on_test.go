@@ -133,7 +133,7 @@ func TestFutureIncomeCarriesPrincipal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inc, err := srv.futureIncome(src, today)
+	inc, err := futureIncome(src, today)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestFutureIncomeSplitByBrokerSumsToWholeSchedule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inc, err := srv.futureIncome(src, today)
+	inc, err := futureIncome(src, today)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestFutureIncomeSkipsWhatTheWalletAlreadyCounted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inc, err := srv.futureIncome(src, today)
+	inc, err := futureIncome(src, today)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +277,7 @@ func TestFutureIncomeSkipsWhatTheWalletAlreadyCounted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inc, err = srv.futureIncome(src, today)
+	inc, err = futureIncome(src, today)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,11 +479,11 @@ func TestRouteIncomeAddsEstimatesAndLeavesObligationsAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	base, err := srv.futureIncome(src, today)
+	base, err := futureIncome(src, today)
 	if err != nil {
 		t.Fatal(err)
 	}
-	full, err := srv.routeIncome(src, today, 12)
+	full, err := routeIncome(src, today, 12)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +560,7 @@ func TestRouteIncomeReinvestingFundSendsOnlyTheLeftover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain, err := srv.routeIncome(src, today, 12)
+	plain, err := routeIncome(src, today, 12)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +578,7 @@ func TestRouteIncomeReinvestingFundSendsOnlyTheLeftover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	drip, err := srv.routeIncome(src, today, 12)
+	drip, err := routeIncome(src, today, 12)
 	if err != nil {
 		t.Fatal(err)
 	}

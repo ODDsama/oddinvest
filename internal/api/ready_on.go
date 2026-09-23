@@ -190,7 +190,7 @@ type incomeAhead map[store.BrokerCur][]readyFlow
 // arrived фільтрує те, що гаманець УЖЕ порахував балансом. Без цього
 // виплата, датована сьогодні й позначена «отримано», лічилась би двічі —
 // один раз у балансі, другий як майбутнє надходження.
-func (s *Server) futureIncome(src *sources, today domain.Date) (incomeAhead, error) {
+func futureIncome(src *sources, today domain.Date) (incomeAhead, error) {
 	arrived := domain.Arrived(src.statuses, today)
 	out := incomeAhead{}
 	add := func(broker, currency string, f readyFlow) {
@@ -309,8 +309,8 @@ func sortFlows(flows []readyFlow) {
 // не друге означення того самого числа: ділиться рівно MonthPlan.PlanUAH, у
 // частках того самого внеску, з якого воно складене, тож сума ніг місяця і
 // є місяць. Довід, чому це стало можливим, — у шапці planAhead.
-func (s *Server) routeIncome(src *sources, today domain.Date, months int) (incomeAhead, error) {
-	out, err := s.futureIncome(src, today)
+func routeIncome(src *sources, today domain.Date, months int) (incomeAhead, error) {
+	out, err := futureIncome(src, today)
 	if err != nil {
 		return nil, err
 	}
@@ -752,7 +752,7 @@ func (s *Server) annotateReady(ctx context.Context, today domain.Date,
 	if err != nil {
 		return err
 	}
-	inc, err := s.futureIncome(src, today)
+	inc, err := futureIncome(src, today)
 	if err != nil {
 		return err
 	}
