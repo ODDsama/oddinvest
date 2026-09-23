@@ -15,6 +15,7 @@ import {
   esc, curSym, dayMonth, monthYear, plural, pct, signedUAH,
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
 } from "../format.js";
+import { eq } from "../currency.js";
 import { infoBtn } from "../info.js";
 import { empty } from "../components.js";
 import { opsGrid, rowActions, actionsCol } from "../grid.js";
@@ -41,7 +42,7 @@ export function walletHTML(ctx) {
       <div class="tile"><div class="lbl">UAH</div><div class="val">${fmtCur(a.UAH || 0, "UAH")}</div></div>
       <div class="tile"><div class="lbl">USD</div><div class="val">${fmtCur(a.USD || 0, "USD")}</div></div>
       <div class="tile"><div class="lbl">EUR</div><div class="val">${fmtCur(a.EUR || 0, "EUR")}</div></div>
-      <div class="tile"><div class="lbl">Разом (грн-екв.)</div><div class="val">${fmtUAH(s.account_uah || 0)}</div></div>
+      <div class="tile"><div class="lbl">Разом (${eq()})</div><div class="val">${fmtUAH(s.account_uah || 0)}</div></div>
       <div class="tile"><div class="lbl">Дохід без діла ${infoBtn("idle")}</div>
         <div class="val">${fmtUAH(s.uninvested_uah || 0)}</div>
         <div class="sub">надійшло й ще не вкладено</div></div>
@@ -429,7 +430,7 @@ export function reserveJournalHTML(ops) {
 export function reserveFormHTML(ctx) {
   return `<div class="card"><h2 class="h-row">Рух резерву ${infoBtn("reserve")}</h2>
     ${formHTML({ id: "resForm", fields: reserveFields(ctx), submit: "Записати", cls: "mb" })}
-    <div class="note">Переклав із рахунку? Запиши ще й зняття в «Записати → Готівка» —
+    <div class="note">Переклав із рахунку? Запиши ще й зняття в «Гроші → Баланси й валюта» —
       інакше відкладене виглядатиме як втрата капіталу.</div>
     <div class="note">Зняття-позика піднімає ціль подушки на відсоток, доки її не
       повернуто. Поповнення гасить найстарішу відкриту позику саме собою — окремо

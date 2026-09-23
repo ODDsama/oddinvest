@@ -5,6 +5,7 @@ import {
   esc, curSym, dayMonth, pct, pp, signedUAH, uah2 as fmtUAH, cur2 as fmtCur,
   fundsCost, marketCostUAH, uahSharePct, uahTargetPct,
 } from "../format.js";
+import { eq } from "../currency.js";
 import { infoBtn } from "../info.js";
 import { opsGrid } from "../grid.js";
 import { svgBars, svgGrouped, svgDonut, fluid } from "../charts.js";
@@ -132,7 +133,7 @@ export function yieldMixCard(ctx) {
     ${opsGrid({
     cols: [
       { key: "name", label: "Вид", cell: (r) => esc(r.name) },
-      { key: "money", label: "грн-екв.", num: true, cell: (r) => fmtUAH(r.money) },
+      { key: "money", label: eq(), num: true, cell: (r) => fmtUAH(r.money) },
       { key: "share", label: "Частка", num: true, prio: 3,
         cell: (r) => pct(total > 0 ? (r.money / total) * 100 : 0) },
       { key: "yield", label: "Дохідність", num: true,
@@ -242,13 +243,13 @@ export function yieldTilesHTML(ctx) {
     : tile("XIRR", "—",
         `<div class="sub">потоків замало, щоб було що міряти</div>`);
   return `<div class="tiles flush">
-    ${tile("Вкладено: ОВДП + фонди (грн-екв.)", fmtUAH(marketCostUAH(s0)),
+    ${tile(`Вкладено: ОВДП + фонди (${eq()})`, fmtUAH(marketCostUAH(s0)),
       `${fundsCost(s0) > 0 ? `<div class="sub">з них ${fmtUAH(fundsCost(s0))} у фондах</div>` : ""}
        <div class="sub-xs">без вкладів і резерву — вони коштують рівно те, що в них</div>`)}
-    ${tile("Номінал (грн-екв.)", fmtUAH(s0.nominal_uah_eq))}
-    ${s0.deposits_uah > 0 ? tile("Вклади (грн-екв.)", fmtUAH(s0.deposits_uah),
+    ${tile(`Номінал (${eq()})`, fmtUAH(s0.nominal_uah_eq))}
+    ${s0.deposits_uah > 0 ? tile(`Вклади (${eq()})`, fmtUAH(s0.deposits_uah),
       `<div class="sub">тіло діючих банківських вкладів</div>`) : ""}
-    ${s0.reserve_uah > 0 ? tile(`Резерв (грн-екв.) ${infoBtn("reserve")}`, fmtUAH(s0.reserve_uah),
+    ${s0.reserve_uah > 0 ? tile(`Резерв (${eq()}) ${infoBtn("reserve")}`, fmtUAH(s0.reserve_uah),
       `<div class="sub">не працює навмисно — саме тому доступний миттєво</div>`) : ""}
     ${tile("Накопичений купон", fmtUAH(s0.accrued_uah || 0),
       `<div class="sub">зароблено, ще не виплачено</div>`)}
@@ -373,7 +374,7 @@ export function kindMixCard(ctx) {
   if (!rows.length) {
     return needsSetting(`Структура за видом інструмента ${infoBtn("kindmix")}`,
       "Цілі за видом (ОВДП / фонди / НПФ / вклади / резерв) не задані. "
-      + "Задай їх у «Частках і межах» — і «Що купити» почне зважати ще й на них, "
+      + "Задай їх у «Частках і межах» — і «Що взяти» почне зважати ще й на них, "
       + "а не лише на валютну частку.",
     routeFor("policy/mix"));
   }
@@ -526,7 +527,7 @@ export function concentrationCard(ctx) {
     <div class="note">${broken
       ? `Перевищено лімітів: <b>${broken}</b>.`
       : "Усі задані ліміти витримані."}
-      Це спостереження, а не заборона: поради в «Що купити» від нього не змінюються й нічого
+      Це спостереження, а не заборона: поради в «Що взяти» від нього не змінюються й нічого
       не ховається. Ліміт міг бути порушений із причин, яких застосунок не знає.</div>
     ${blocks}</div>`;
 }
@@ -774,7 +775,7 @@ export function rateRiskCard(ctx) {
       <div class="tile"><div class="lbl">Середній строк</div><div class="val">${rr.reinvest_years} р.</div>
         <div class="sub">поки гроші повернуться</div></div>
       <div class="tile"><div class="lbl">Повернеться всього</div><div class="val">${fmtUAH(rr.returning_uah)}</div>
-        <div class="sub">тіло + відсотки, грн-екв.</div></div>
+        <div class="sub">тіло + відсотки, ${eq()}</div></div>
       <div class="tile"><div class="lbl">З них за 12 міс.</div><div class="val">${fmtUAH(rr.reinvest_soon_uah)}</div>
         <div class="sub">перевкладати за новою ставкою</div></div>
     </div>

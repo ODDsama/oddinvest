@@ -41,11 +41,11 @@ import { heatmapHTML } from "./year.js";
  *  однією дією, а часом, і кнопка «зробити щось» під нею обіцяла б
  *  важіль, якого немає. */
 const MOVES = {
-  first_bond: { to: "work/buy/main", label: "Що купити" },
-  first_100k: { to: "work/buy/main", label: "Що купити" },
-  first_1m: { to: "work/buy/main", label: "Що купити" },
-  first_2m: { to: "work/buy/main", label: "Що купити" },
-  four_kinds: { to: "work/buy/main", label: "Що купити" },
+  first_bond: { to: "work/pick/main", label: "Що взяти" },
+  first_100k: { to: "work/pick/main", label: "Що взяти" },
+  first_1m: { to: "work/pick/main", label: "Що взяти" },
+  first_2m: { to: "work/pick/main", label: "Що взяти" },
+  four_kinds: { to: "work/pick/main", label: "Що взяти" },
   half_year_streak: { to: "plan/goal/main", label: "Мета капіталу й прогноз" },
   year_no_gaps: { to: "plan/goal/main", label: "Мета капіталу й прогноз" },
   income_quarter: { to: "plan/goal/main", label: "Мета капіталу й прогноз" },
@@ -54,8 +54,8 @@ const MOVES = {
   shares_aligned: { to: "portfolio/all/structure", label: "Структура" },
   currency_aligned: { to: "portfolio/all/structure", label: "Структура" },
   no_limit_breach: { to: "portfolio/all/limits", label: "Ліміти" },
-  life_month: { to: "work/buy/main", label: "Що купити" },
-  life_year: { to: "work/buy/main", label: "Що купити" },
+  life_month: { to: "work/pick/main", label: "Що взяти" },
+  life_year: { to: "work/pick/main", label: "Що взяти" },
   net_worth_positive: { to: "plan/debts/state", label: "Борги" },
   card_zero: { to: "plan/debts/state", label: "Борги" },
   exit_by_met: { to: "plan/debts/state", label: "Борги" },
@@ -105,7 +105,7 @@ function noProgress() {
   return `<div class="card">${empty("Прогресу поки немає",
     "Віхи рахуються з портфеля, знімків і журналу рішень. Щойно з'явиться "
     + "перший папір, тут стане що показувати.",
-    { href: routeFor("work/buy/main"), label: "Що купити" })}</div>`;
+    { href: routeFor("work/pick/main"), label: "Що взяти" })}</div>`;
 }
 
 // ---------------------------------------------------------------------
@@ -486,7 +486,7 @@ export function collection(ctx, main) {
       "Драбини погашень ще немає",
       "Поле показує, у якому році й у якій валюті до тебе повертається тіло. "
       + "Доки паперів із датою погашення немає, показувати нічого.",
-      { href: routeFor("work/buy/main"), label: "Що купити" })}</div>`;
+      { href: routeFor("work/pick/main"), label: "Що взяти" })}</div>`;
     return;
   }
   main.innerHTML = `<div class="card">

@@ -128,7 +128,7 @@ export function catalogsHTML(ctx, marks = [], fundOps = [], fundRows = []) {
     { key: "close_date", value: f.close_date, w: 110, ph: "закриття",
       title: "Дата, коли фонд закривається й повертає гроші. Порожньо = безстроковий" },
     { key: "buy_until", value: f.buy_until, w: 110, ph: "купувати до",
-      title: "Остання дата, коли фонд можна купити. Після неї він не потрапляє в «Що купити»" },
+      title: "Остання дата, коли фонд можна купити. Після неї він не потрапляє в «Що взяти»" },
     { key: "income_tax_pct", w: 84, ph: "податок, %",
       value: f.income_tax_bp ? (f.income_tax_bp / 100).toFixed(2).replace(/\.?0+$/, "") : "",
       title: "Податок на дохід фонду, якщо дожити до закриття. Купон ОВДП від податку "

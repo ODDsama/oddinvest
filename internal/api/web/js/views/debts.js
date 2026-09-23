@@ -852,11 +852,7 @@ function termsOf(d) {
   ].filter(Boolean).join(" · ");
 }
 
-/** Скільки боргу під ставкою — для смуги стану й «Огляду». Експортується,
- *  бо читачів двоє, а число одне (doc.debt). */
-export const debtTotalUAH = (s) => ((s || {}).debt || {}).total_uah || 0;
-
-/** Рядок «Огляду»: борг як перше, що з'їдає гроші місяця. */
+/** Рядок «Сьогодні»: борг як перше, що з'їдає гроші місяця. */
 export function debtOverviewHTML(s) {
   const d = (s || {}).debt;
   if (!d || (!d.total_uah && !d.cards_watched)) return "";

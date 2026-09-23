@@ -10,6 +10,7 @@ import {
   esc, today, humanMonths, monthYear, pct, capitalUAH, outsideUAH,
   uah0, uah2 as fmtUAH, money as fmtMoney, TODAY_FX,
 } from "../format.js";
+import { eq } from "../currency.js";
 import { infoBtn } from "../info.js";
 import { needsSetting, empty, legend } from "../components.js";
 import { routeFor } from "../routes.js";
@@ -27,7 +28,7 @@ export function income12mChartHTML(ctx) {
     ${fluid((w, h) => svgBars(
       inc.map((m) => ({ label: m.month.slice(5), value: m.amount, color: "var(--oi-series-nominal)" })),
       { W: w, H: h }))}
-    <div class="sub">Купони + погашення на рік наперед (грн-екв.).</div></div>`;
+    <div class="sub">Купони + погашення на рік наперед (${eq()}).</div></div>`;
 }
 
 // Крива капіталу до дедлайну.
