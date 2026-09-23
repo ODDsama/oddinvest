@@ -185,3 +185,25 @@ func TestRatesSurviveDeadDirectory(t *testing.T) {
 		t.Errorf("курс USD після збою довідника: %d, %v — чекали 445000", rate, err)
 	}
 }
+
+// Наступний прогін — о 06:10 за Києвом і в дні переходу на зимовий чи
+// літній час. Доти до 06:10 сьогоднішнього додавались 24 години, а доба
+// 25 жовтня 2026 має 25 годин: прогін виходив о 05:10, а 29 березня — о
+// 07:10.
+func TestNextDailySurvivesDST(t *testing.T) {
+	kyiv, err := time.LoadLocation("Europe/Kyiv")
+	if err != nil {
+		t.Skip("немає tzdata:", err)
+	}
+	for _, tc := range []struct{ now, want string }{
+		{"2026-10-24 07:00", "2026-10-25 06:10"}, // осінь: доба 25 год
+		{"2026-03-28 07:00", "2026-03-29 06:10"}, // весна: доба 23 год
+		{"2026-09-23 05:00", "2026-09-23 06:10"}, // ще сьогодні
+	} {
+		now, _ := time.ParseInLocation("2006-01-02 15:04", tc.now, kyiv) //nolint:errcheck // літерал теста
+		got := nextDaily(now).Format("2006-01-02 15:04")
+		if got != tc.want {
+			t.Errorf("після %s наступний прогін %s, чекали %s", tc.now, got, tc.want)
+		}
+	}
+}

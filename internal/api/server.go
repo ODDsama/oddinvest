@@ -53,6 +53,11 @@ type Server struct {
 	// Замок на /api/* і лічильник невдалих входів — auth.go.
 	auth      authCache
 	authFails *authState
+	// loginSlots — скільки перевірок пароля йде одночасно (PBKDF2, 600 тис.
+	// ітерацій кожна). Блокування за адресою не рятує від перебору з тисяч
+	// адрес через тунель: процесор контейнера зайнятий цілком. Понад межу —
+	// 429 одразу, без хешування.
+	loginSlots chan struct{}
 	// tun — доступ ззовні (internal/tunnel). nil у тестах і в збірках без
 	// демона: сторінка тоді каже «не налаштовано», а дії відповідають 501.
 	tun *tunnel.Manager
@@ -74,7 +79,7 @@ func (s *Server) SetRefresher(ref Refresher) { s.ref = ref }
 // навмисно, інакше секрети читались би раз на портфель, а зміна пароля
 // на головному розлогінювала б лише його.
 func NewSatellite(st *store.Store, log *slog.Logger) *Server {
-	return &Server{st: st, log: log, Engine: engine.New(st, log)}
+	return &Server{st: st, log: log, Engine: engine.New(st, log), loginSlots: make(chan struct{}, loginConcurrency)}
 }
 
 // New — сервер із секретами, прочитаними зі сховища.
@@ -84,7 +89,8 @@ func NewSatellite(st *store.Store, log *slog.Logger) *Server {
 // сервера через це не можна — сторінка відновлення з копії саме тоді й
 // потрібна, коли зі сховищем щось не так.
 func New(st *store.Store, ref Refresher, log *slog.Logger) *Server {
-	s := &Server{st: st, log: log, Engine: engine.New(st, log), ref: ref, authFails: newAuthState()}
+	s := &Server{st: st, log: log, Engine: engine.New(st, log), ref: ref, authFails: newAuthState(),
+		loginSlots: make(chan struct{}, loginConcurrency)}
 	if err := s.reloadAuth(context.Background()); err != nil {
 		log.Error("секрети не прочитались — сервіс лишається відкритим", "err", err)
 	}

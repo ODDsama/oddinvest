@@ -635,3 +635,28 @@ func TestNoPasswordClosedViaTunnel(t *testing.T) {
 		t.Errorf("перший пароль удома: %d %s", resp.StatusCode, body)
 	}
 }
+
+// Перевірок пароля одночасно не більше loginConcurrency: понад межу —
+// 429 одразу, без PBKDF2. Блокування за адресою не рятує від перебору з
+// тисяч адрес через тунель — процесор контейнера лягав би цілком.
+func TestLoginConcurrencyBounded(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	s := New(st, nil, testLogger())
+	if err := s.setPassword(context.Background(), "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < loginConcurrency; i++ {
+		s.loginSlots <- struct{}{}
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"password":"correct horse battery"}`))
+	req.RemoteAddr = "192.168.88.20:5000"
+	s.handleLogin(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Errorf("усі слоти зайняті: %d, чекали 429 без хешування", rec.Code)
+	}
+}

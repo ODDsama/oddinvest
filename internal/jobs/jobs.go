@@ -28,12 +28,17 @@ type Runner struct {
 	// це другий і поки останній хтось, до кого демон ходить назовні; на
 	// відміну від нього, кличе його не розклад, а кнопка (quotes.go).
 	finomo *finomo.Client
-	// pub — публікатор MQTT, nil = вимкнено. Під мʼютексом, бо в сателіта
-	// він зʼявляється ПІЗНІШЕ за Runner: mqtt.New блокує до 15 с, і
-	// тримати стільки POST /api/portfolios не можна — публікатор
-	// підʼєднується з горутини (SetPublisher), доки прогони вже йдуть.
+	// pub — публікатор MQTT, nil = вимкнено. Під мʼютексом, бо сателіту
+	// його ставлять і знімають SetPublisher-ом, доки прогони вже йдуть
+	// (створення портфеля, видалення — Retire).
 	pubMu sync.Mutex
 	pub   *mqtt.Publisher
+	// refreshMu — RefreshAll по черзі, а не паралельно. Його кличуть
+	// добовий прогін, наздоганяння при старті й кнопка «Оновити НБУ» (з
+	// будь-якого портфеля — див. Satellite); разом вони читали ту саму
+	// позначку і тягнули ті самі дні з НБУ двічі. По черзі другий бачить
+	// уже оновлену позначку й робить майже нічого.
+	refreshMu sync.Mutex
 	build func(ctx context.Context, now time.Time) (*state.Doc, error)
 	// present — переклад документа у валюту звітності (api.Server.PresentDoc).
 	// Кличеться ЛИШЕ в PublishState, і це не забудькуватість, а межа:
@@ -198,6 +203,8 @@ func (r *Runner) pruneBackups() {
 // Тепер кожне джерело пробується своїм запитом, а помилка довідника
 // повертається НАОСТАНОК — з неї Fleet.RunDaily вирішує про повтор.
 func (r *Runner) RefreshAll(ctx context.Context) error {
+	r.refreshMu.Lock()
+	defer r.refreshMu.Unlock()
 	dirErr := r.refreshDirectory(ctx)
 
 	rateDate := domain.NewDate(time.Now().In(r.loc))

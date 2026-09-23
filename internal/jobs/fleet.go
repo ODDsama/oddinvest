@@ -166,10 +166,7 @@ func (f *Fleet) RunDaily(ctx context.Context) {
 	retries := 0
 	for {
 		now := time.Now().In(loc)
-		next := time.Date(now.Year(), now.Month(), now.Day(), 6, 10, 0, 0, loc)
-		if !next.After(now) {
-			next = next.Add(24 * time.Hour)
-		}
+		next := nextDaily(now)
 		retry := false
 		if failed && retries < refreshRetries {
 			if r := now.Add(time.Hour); r.Before(next) {
@@ -189,6 +186,19 @@ func (f *Fleet) RunDaily(ctx context.Context) {
 			failed = f.dailyRun(ctx) != nil
 		}
 	}
+}
+
+// nextDaily — найближчі 06:10 у часовому поясі now.
+//
+// Календарною добою (AddDate), а не 24 годинами: доба переходу на
+// зимовий час має 25 годин, на літній — 23, і «+24 год» до сьогоднішніх
+// 06:10 давало 05:10 чи 07:10 — прогін зсувався на годину двічі на рік.
+func nextDaily(now time.Time) time.Time {
+	next := time.Date(now.Year(), now.Month(), now.Day(), 6, 10, 0, 0, now.Location())
+	if !next.After(now) {
+		next = time.Date(now.Year(), now.Month(), now.Day()+1, 6, 10, 0, 0, now.Location())
+	}
+	return next
 }
 
 // needsCatchUp — чи бракує знімка за сьогодні. Питає ГОЛОВНИЙ портфель:

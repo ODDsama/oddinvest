@@ -319,6 +319,9 @@ type authFail struct {
 const (
 	authFailsCap    = 4096
 	authFailsForget = 10 * time.Minute
+	// loginConcurrency — одночасних перевірок пароля (Server.loginSlots).
+	// Людині досить однієї; чотири лишають запас на кілька пристроїв.
+	loginConcurrency = 4
 )
 
 func newAuthState() *authState {
@@ -712,6 +715,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	select {
+	case s.loginSlots <- struct{}{}:
+		defer func() { <-s.loginSlots }()
+	default:
+		writeErr(w, http.StatusTooManyRequests, errors.New("забагато одночасних спроб входу — спробуй за мить"))
 		return
 	}
 	if !verifyPassword(hash, in.Password) {
