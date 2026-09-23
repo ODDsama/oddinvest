@@ -333,3 +333,45 @@ func TestJobHealthTasks(t *testing.T) {
 		t.Error("порушена цілісність мала дати задачу")
 	}
 }
+
+// Задача веде в СВІЙ запис, а не в перший-ліпший.
+//
+// Внесок НПФ: у кого два рахунки, той доти потрапляв у форму першого — і
+// міг записати внесок не туди. Вклад, що гаситься: подушка й ціль мають
+// власні задачі («перевкласти сходинку»), а рядка «вклад» для резервного
+// вкладу в «Портфелі» немає зовсім — загальна задача вела в нікуди й
+// дублювала ту, що вела правильно.
+func TestTasksCarryTheirRecord(t *testing.T) {
+	today := domain.Date("2026-09-21")
+	find := func(tasks []state.Task, prefix string) []state.Task {
+		var out []state.Task
+		for _, x := range tasks {
+			if strings.HasPrefix(x.ID, prefix) {
+				out = append(out, x)
+			}
+		}
+		return out
+	}
+
+	doc := &state.Doc{
+		NominalUAHEq: state.Major(10_000, money.UAH),
+		NPF:          []state.NPFPositionRow{{Name: "КІНТО"}, {Name: "Ю.Ес.Ей.", ContribDue: true}},
+	}
+	npf := find(buildTasks(doc, nil, &sources{}, today), "npf-due:")
+	if len(npf) != 1 || npf[0].Ref != "npf:Ю.Ес.Ей." {
+		t.Errorf("задача внеску мала нести свій рахунок: %+v", npf)
+	}
+
+	src := &sources{termDeposits: []domain.Deposit{
+		{ID: 1, Bank: "Приват", Currency: "UAH", Principal: 100_000_00, RateBP: 1500,
+			OpenDate: "2025-09-30", MaturityDate: "2026-09-30", IsReserve: true},
+	}}
+	if got := find(buildTasks(&state.Doc{NominalUAHEq: state.Major(10_000, money.UAH)}, nil, src, today), "dep-maturing"); len(got) != 0 {
+		t.Errorf("вклад подушки має свою задачу, загальна зайва: %+v", got)
+	}
+	src.termDeposits[0].IsReserve = false
+	got := find(buildTasks(&state.Doc{NominalUAHEq: state.Major(10_000, money.UAH)}, nil, src, today), "dep-maturing")
+	if len(got) != 1 || got[0].Ref != "deposit:1" {
+		t.Errorf("звичайний вклад, що гаситься, — задача зі своїм ref: %+v", got)
+	}
+}

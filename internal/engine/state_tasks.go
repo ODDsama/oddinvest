@@ -541,6 +541,9 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			Title:  fmt.Sprintf("Внеску в %s за цей місяць ще немає", n.Name),
 			Why:    why,
 			Action: actRecordNPF,
+			// Рахунок, а не вид: із двома рахунками форма першого прийняла б
+			// внесок, що належить другому.
+			Ref: "npf:" + n.Name,
 		})
 	}
 
@@ -669,9 +672,11 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 				continue
 			}
 			whose, id := "подушки", fmt.Sprintf("earmark-matured:reserve:%s:%s", k.bank, k.cur)
+			action, ref := actFillReserve, ""
 			if k.goal != 0 {
 				whose = "цілі «" + goalName[k.goal] + "»"
 				id = fmt.Sprintf("earmark-matured:goal-%d:%s:%s", k.goal, k.bank, k.cur)
+				action, ref = actFillGoal, fmt.Sprintf("goal:%d", k.goal)
 			}
 			add(state.Task{
 				ID: id, Sev: sevSoon, Rank: 30,
@@ -679,6 +684,8 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 					mt.cur(float64(v)/100, k.cur)),
 				Why: "Гроші лишились " + whose + ", а не стали вільними для паперів. Перевклади — " +
 					"новий вклад того самого призначення в цьому банку візьме їх сам, — або лиши готівкою.",
+				Action: action,
+				Ref:    ref,
 			})
 		}
 	}
@@ -1026,7 +1033,11 @@ func maturingDepositTask(src *sources, today domain.Date) (state.Task, bool) {
 	var best *domain.Deposit
 	bestDays := taskSoonDays + 1
 	for i, d := range src.termDeposits {
-		if d.ClosedDate != "" || d.MaturityDate == "" {
+		// Вклад подушки чи цілі має власну задачу («перевкласти сходинку»),
+		// і гроші з нього на рахунок не повертаються (earmark_pool.go) — тож
+		// «тіло повернеться на рахунок» було б неправдою, а резервного вкладу
+		// серед рядків «Портфеля» немає, і посилання вело б у нікуди.
+		if d.ClosedDate != "" || d.MaturityDate == "" || d.Earmarked() {
 			continue
 		}
 		days := daysBetween(today, d.MaturityDate)

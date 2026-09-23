@@ -1804,7 +1804,8 @@
       "kind": "npf",
       "title": "Внеску в Династія за цей місяць ще немає",
       "why": "Звичайний день внеску — 5 числа.",
-      "action": "record-npf"
+      "action": "record-npf",
+      "ref": "npf:Династія"
     },
     {
       "id": "pay-confirm",

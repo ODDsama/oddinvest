@@ -15,6 +15,7 @@ import {
   TODAY_FX,
 } from "../format.js";
 import { infoBtn } from "../info.js";
+import { routeFor } from "../routes.js";
 import { empty, progressBar } from "../components.js";
 import { contribTriad, shareOfNeed } from "../contrib.js";
 
@@ -53,7 +54,7 @@ export function goalsHTML(ctx) {
       "",
       `Задай ціль і дедлайн — і тут зʼявиться, скільки треба відкладати щомісяця за
        песимістичного, реалістичного й оптимістичного сценаріїв.`,
-      { href: "#/settings", label: "Відкрити налаштування" })}</div>`;
+      { href: routeFor("policy/strategy/main"), label: "Задати мету капіталу" })}</div>`;
   }
   // Доларового вигляду тут немає навмисно. Внески ти платиш гривнею —
   // про це каже й підказка картки, — а суми вже приведені до
