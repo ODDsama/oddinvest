@@ -388,7 +388,11 @@ func (s *authState) success(ip string) {
 func (s *Server) authed(r *http.Request) bool {
 	hash, key, token := s.auth.snapshot()
 	if hash == "" {
-		return true // замка немає: перший запуск
+		// Замка немає: перший запуск, -reset-auth або секрети не
+		// прочитались. Відкрито — але лише вдома. Тунель стартує зі
+		// збереженого токена незалежно від пароля, і без цього рядка
+		// публічний домен віддавав би всю базу кожному.
+		return !viaTunnel(r)
 	}
 	if tokenOK(token, r) {
 		return true
@@ -448,6 +452,15 @@ func remoteHost(r *http.Request) string {
 func fromTunnel(r *http.Request) bool {
 	ip := net.ParseIP(remoteHost(r))
 	return ip != nil && ip.IsLoopback()
+}
+
+// viaTunnel — запит справді прийшов з інтернету через тунель: петля І
+// заголовок, який ставить Cloudflare. Сама петля — ще не тунель: так само
+// приходять curl на хості й dev-сервер у браузері, і закривати їх без
+// пароля означало б закрити застосунок від власника. А заголовок на петлю
+// ззовні не донести інакше, ніж через конектор.
+func viaTunnel(r *http.Request) bool {
+	return fromTunnel(r) && strings.TrimSpace(r.Header.Get("Cf-Connecting-Ip")) != ""
 }
 
 // clientIP — ключ лічильника невдач. Cf-Connecting-Ip — лише він, а не
@@ -538,6 +551,13 @@ func (s *Server) handleAuthStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 	if s.authEnabled() {
 		writeErr(w, http.StatusConflict, errors.New("пароль уже заданий — міняти його можна лише зсередини"))
+		return
+	}
+	// Перший пароль — лише з домашньої мережі. Задати його тунелем означало
+	// б віддати застосунок першому, хто відкрив публічну адресу, доки
+	// власник не встиг.
+	if viaTunnel(r) {
+		writeErr(w, http.StatusForbidden, errors.New("перший пароль задається з домашньої мережі, не через тунель"))
 		return
 	}
 	var in struct {

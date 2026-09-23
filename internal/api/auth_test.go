@@ -601,3 +601,37 @@ func TestSessionsRevokeKillsOthersKeepsCaller(t *testing.T) {
 		t.Errorf("анонімне відкликання: %d", resp.StatusCode)
 	}
 }
+
+// Без пароля застосунок відкритий — але лише вдома.
+//
+// Тунель стартує зі збереженого токена незалежно від пароля: після
+// -reset-auth, або коли секрети не прочиталися, публічний домен віддавав
+// би всю базу (GET /api/backup) і дозволяв би будь-кому з інтернету
+// задати перший пароль, тобто забрати застосунок собі. Тепер запит, що
+// прийшов тунелем (петля + Cf-Connecting-Ip), без пароля отримує 401 на
+// /api/* і 403 на перший пароль; з домашньої мережі все як доти.
+func TestNoPasswordClosedViaTunnel(t *testing.T) {
+	srv, _ := authServer(t, "")
+	cf := map[string]string{"Cf-Connecting-Ip": "203.0.113.7", "X-Forwarded-Proto": "https"}
+
+	if resp, _ := doH(t, "GET", srv.URL+"/api/backup", "", cf); resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("бекап тунелем без пароля: %d, чекали 401", resp.StatusCode)
+	}
+	resp, body := doH(t, "POST", srv.URL+"/api/auth/setup",
+		`{"password":"correct horse battery","confirm":"correct horse battery"}`, cf)
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("перший пароль тунелем: %d %s, чекали 403", resp.StatusCode, body)
+	}
+	if resp, _ := doH(t, "GET", srv.URL+"/api/auth", "", cf); resp.StatusCode != http.StatusOK {
+		t.Errorf("статус замка тунелем: %d — сторінка мусить дізнатись, чому закрито", resp.StatusCode)
+	}
+
+	// Удома — як доти: відкрито, і перший пароль задається.
+	if resp, _ := doH(t, "GET", srv.URL+"/api/summary", "", nil); resp.StatusCode != http.StatusOK {
+		t.Errorf("удома без пароля: %d, чекали 200", resp.StatusCode)
+	}
+	if resp, body := doH(t, "POST", srv.URL+"/api/auth/setup",
+		`{"password":"correct horse battery","confirm":"correct horse battery"}`, nil); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("перший пароль удома: %d %s", resp.StatusCode, body)
+	}
+}
