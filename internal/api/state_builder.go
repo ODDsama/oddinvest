@@ -18,6 +18,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
@@ -307,19 +308,19 @@ func (e *engine) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			// Другий переклад витрат — обовʼязковий, і рівно з того самого
 			// доводу, що в накладці політики нижче: без нього достатність
 			// подушки мовчки міряється за старим курсом.
-			resolveExpensesUAH(src.settings, src.rates)
+			settings.ResolveExpensesUAH(src.settings, src.rates)
 		}
 		// Політика — накладкою поверх прочитаної, і теж ТУТ: нижче за
 		// текстом жодна фаза не має знати, що цілі гіпотетичні. Правити
-		// документ на місці безпечно — loadSettings збирає його заново на
+		// документ на місці безпечно — settings.Load збирає його заново на
 		// кожен запит, спільного з іншими викликами в ньому немає.
 		if len(what.settings) > 0 {
-			overrideSettings(src.settings, what.settings)
+			settings.Override(src.settings, what.settings)
 			// Другий переклад витрат, і він обовʼязковий: накладка могла
 			// назвати іншу суму або іншу валюту, а loadSources переклав ще
 			// стару. Без цього рядка превʼю політики показувало б ціль
 			// резерву від витрат, яких у наборі вже немає.
-			resolveExpensesUAH(src.settings, src.rates)
+			settings.ResolveExpensesUAH(src.settings, src.rates)
 		}
 	}
 	lots, sales, bonds, pays := src.lots, src.sales, src.bonds, src.pays
@@ -1040,7 +1041,7 @@ func (e *engine) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		minOf(&minDepositUAH, depMin, cur)
 	}
 
-	// Налаштування — одним проходом по реєстру (settings_registry.go).
+	// Налаштування — одним проходом по реєстру (internal/settings).
 	// Доти двадцять ключів читались циклом, ще шість — окремими блоками
 	// поруч, і два мали третє читання в інших файлах.
 	settings := src.settings

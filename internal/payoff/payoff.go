@@ -1,4 +1,4 @@
-// План погашення: коли це скінчиться і скільки коштуватиме дорогою.
+// Package payoff — план погашення: коли це скінчиться і скільки коштуватиме дорогою.
 //
 // # ЩО САМЕ СТОЇТЬ У ЧЕРЗІ, А ЩО НІ
 //
@@ -44,7 +44,7 @@
 // це вже робить deriveGoals. Борг у валюті в застосунку можливий, але
 // зростання курсу на горизонті погашення тут не моделюється — і це
 // сказано, а не сховане.
-package api
+package payoff
 
 import (
 	"math"
@@ -58,24 +58,24 @@ import (
 
 // Стратегії. Рядками, бо приходять параметром запиту і їдуть у JSON.
 const (
-	// payoffAvalanche — спершу найдорожчий за ставкою. Дає найменшу
+	// Avalanche — спершу найдорожчий за ставкою. Дає найменшу
 	// переплату завжди; це арифметика, а не думка.
-	payoffAvalanche = "avalanche"
-	// payoffSnowball — спершу найменший за залишком. Платить більше, але
+	Avalanche = "avalanche"
+	// Snowball — спершу найменший за залишком. Платить більше, але
 	// закриває перший борг раніше, і рядків у списку меншає швидше.
-	payoffSnowball = "snowball"
-	// payoffMinimum — нічого понад обовʼязкове. Не порада, а лінійка: без
+	Snowball = "snowball"
+	// Minimum — нічого понад обовʼязкове. Не порада, а лінійка: без
 	// неї «швидше на 4 місяці» немає з чим порівняти.
-	payoffMinimum = "minimum"
+	Minimum = "minimum"
 )
 
-// payoffMaxMonths — стеля проходу. 50 років: усе, що довше, читається як
+// maxMonths — стеля проходу. 50 років: усе, що довше, читається як
 // «ніколи», і зайві рядки цього не уточнять.
-const payoffMaxMonths = 600
+const maxMonths = 600
 
-// payoffDebt — борг у вигляді, придатному до проходу вперед. Усе в
+// Debt — борг у вигляді, придатному до проходу вперед. Усе в
 // грн-еквіваленті й у копійках.
-type payoffDebt struct {
+type Debt struct {
 	ID        int64
 	Name      string
 	Kind      string
@@ -99,15 +99,15 @@ type payoffDebt struct {
 	minBp       int64
 	minFloor    int64
 
-	// prepayable — чи скасовує дострокове погашення майбутню ціну цього
+	// Prepayable — чи скасовує дострокове погашення майбутню ціну цього
 	// боргу; prepayBasis — чому. Копією з domain, а не другим означенням:
 	// правило одне, і живе воно там, де живе договір.
-	prepayable  bool
-	prepayBasis string
+	Prepayable  bool
+	PrepayBasis string
 }
 
-// payoffStep — один місяць одного боргу.
-type payoffStep struct {
+// Step — один місяць одного боргу.
+type Step struct {
 	Month     int
 	DebtID    int64
 	Paid      int64
@@ -116,23 +116,23 @@ type payoffStep struct {
 	Extra     int64 // скільки з Paid пішло понад обовʼязкове
 }
 
-// payoffRun — підсумок одного проходу.
-type payoffRun struct {
+// Run — підсумок одного проходу.
+type Run struct {
 	Months   int
 	Paid     int64
 	Cost     int64
 	CloseAt  map[int64]int // борг → місяць закриття
-	Steps    []payoffStep
+	Steps    []Step
 	Unfunded bool // обовʼязкових платежів не вистачило навіть на мінімум
 }
 
-// buildPayoffDebts перетворює борги, звірки й рухи на вхід проходу.
+// BuildDebts перетворює борги, звірки й рухи на вхід проходу.
 //
 // Картка потрапляє сюди ЛИШЕ непільговою частиною (готівка, перекази) —
 // довід у шапці файла. Картка без неї у черзі не зʼявляється взагалі, і це
 // правильна відповідь, а не пропуск.
-func buildPayoffDebts(debts []domain.Debt, marks []domain.DebtMark,
-	ops []domain.DebtOp, rates fx.Rates, today domain.Date) []payoffDebt {
+func BuildDebts(debts []domain.Debt, marks []domain.DebtMark,
+	ops []domain.DebtOp, rates fx.Rates, today domain.Date) []Debt {
 
 	toUAH := func(minor int64, cur string) int64 {
 		if minor == 0 {
@@ -148,19 +148,19 @@ func buildPayoffDebts(debts []domain.Debt, marks []domain.DebtMark,
 		return u.Amount()
 	}
 
-	out := make([]payoffDebt, 0, len(debts))
+	out := make([]Debt, 0, len(debts))
 	for _, d := range debts {
 		if d.Closed() {
 			continue
 		}
-		rate, basis := domain.DebtEffectiveRate(d, payoffCardDebt(d, marks, ops, today))
-		p := payoffDebt{ID: d.ID, Name: d.Name, Kind: d.Kind,
+		rate, basis := domain.DebtEffectiveRate(d, CardDebt(d, marks, ops, today))
+		p := Debt{ID: d.ID, Name: d.Name, Kind: d.Kind,
 			Rate: rate, RateBasis: basis,
-			prepayable:  domain.DebtPrepayCancels(d),
-			prepayBasis: domain.DebtPrepayBasis(d)}
+			Prepayable:  domain.DebtPrepayCancels(d),
+			PrepayBasis: domain.DebtPrepayBasis(d)}
 
 		if d.IsCard() {
-			left := payoffCardDebt(d, marks, ops, today)
+			left := CardDebt(d, marks, ops, today)
 			if left <= 0 {
 				continue
 			}
@@ -209,9 +209,9 @@ func buildPayoffDebts(debts []domain.Debt, marks []domain.DebtMark,
 	return out
 }
 
-// payoffCardDebt — та частина боргу картки, на яку НАРАХОВУЮТЬ: готівка й
+// CardDebt — та частина боргу картки, на яку НАРАХОВУЮТЬ: готівка й
 // перекази. Решта живе в пільговому циклі й у чергу погашення не входить.
-func payoffCardDebt(d domain.Debt, marks []domain.DebtMark,
+func CardDebt(d domain.Debt, marks []domain.DebtMark,
 	ops []domain.DebtOp, today domain.Date) int64 {
 
 	if !d.IsCard() {
@@ -229,17 +229,17 @@ func payoffCardDebt(d domain.Debt, marks []domain.DebtMark,
 	return st.NonGrace
 }
 
-// runPayoff проходить місяці вперед, доки борги не закриються.
+// Simulate проходить місяці вперед, доки борги не закриються.
 //
 // extra — скільки гривень на місяць є ПОНАД обовʼязкові платежі. Воно йде
 // цілком у голову черги: розмазування по всіх боргах відкладає закриття
 // кожного, тобто продовжує платити комісію всім одночасно.
-func runPayoff(debts []payoffDebt, strategy string, extra int64) payoffRun {
-	run := payoffRun{CloseAt: map[int64]int{}}
-	live := make([]payoffDebt, len(debts))
+func Simulate(debts []Debt, strategy string, extra int64) Run {
+	run := Run{CloseAt: map[int64]int{}}
+	live := make([]Debt, len(debts))
 	copy(live, debts)
 
-	for month := 0; month < payoffMaxMonths; month++ {
+	for month := 0; month < maxMonths; month++ {
 		left := 0
 		for i := range live {
 			if live[i].Left > 0 {
@@ -252,7 +252,7 @@ func runPayoff(debts []payoffDebt, strategy string, extra int64) payoffRun {
 		}
 
 		pool := extra
-		if strategy == payoffMinimum {
+		if strategy == Minimum {
 			pool = 0
 		}
 		// 1. Обовʼязкове — до останньої копійки й незалежно від стратегії.
@@ -261,7 +261,7 @@ func runPayoff(debts []payoffDebt, strategy string, extra int64) payoffRun {
 			if d.Left <= 0 {
 				continue
 			}
-			pay, principal, cost := payoffMandatory(d, month)
+			pay, principal, cost := mandatory(d, month)
 			if pay == 0 {
 				continue
 			}
@@ -277,9 +277,9 @@ func runPayoff(debts []payoffDebt, strategy string, extra int64) payoffRun {
 		// обовʼязкові платежі — половина всієї арифметики), але грошей
 		// понад обовʼязкове не отримують ніколи. Довід — у шапці файла.
 		if pool > 0 {
-			for _, i := range payoffOrder(live, strategy) {
+			for _, i := range Order(live, strategy) {
 				d := &live[i]
-				if d.Left <= 0 || pool <= 0 || !d.prepayable {
+				if d.Left <= 0 || pool <= 0 || !d.Prepayable {
 					continue
 				}
 				take := d.Left
@@ -295,7 +295,7 @@ func runPayoff(debts []payoffDebt, strategy string, extra int64) payoffRun {
 			}
 		}
 	}
-	run.Months = payoffMaxMonths
+	run.Months = maxMonths
 	run.Unfunded = true
 	return run
 }
@@ -303,8 +303,8 @@ func runPayoff(debts []payoffDebt, strategy string, extra int64) payoffRun {
 // record додає крок і зводить підсумки. Окремим методом, бо місць, звідки
 // пишуться кроки, два, і другий екземпляр цих трьох рядків розійшовся б із
 // першим на першій же правці.
-func (r *payoffRun) record(month int, d *payoffDebt, paid, principal, cost, extra int64) {
-	r.Steps = append(r.Steps, payoffStep{
+func (r *Run) record(month int, d *Debt, paid, principal, cost, extra int64) {
+	r.Steps = append(r.Steps, Step{
 		Month: month, DebtID: d.ID, Paid: paid,
 		Principal: principal, Cost: cost, Extra: extra,
 	})
@@ -312,9 +312,9 @@ func (r *payoffRun) record(month int, d *payoffDebt, paid, principal, cost, extr
 	r.Cost += cost
 }
 
-// payoffMandatory — обовʼязковий платіж цього місяця. Повертає скільки
+// mandatory — обовʼязковий платіж цього місяця. Повертає скільки
 // сплачено, скільки з того пішло в тіло й скільки лишилось банку.
-func payoffMandatory(d *payoffDebt, month int) (paid, principal, cost int64) {
+func mandatory(d *Debt, month int) (paid, principal, cost int64) {
 	if d.Kind == domain.DebtCard {
 		interest := int64(math.Round(float64(d.Left) * d.monthlyRate))
 		pay := d.Left * d.minBp / 10000
@@ -351,7 +351,7 @@ func payoffMandatory(d *payoffDebt, month int) (paid, principal, cost int64) {
 	return p + fee, p, fee
 }
 
-// payoffOrder — у якому порядку віддавати дострокові гроші.
+// Order — у якому порядку віддавати дострокові гроші.
 //
 // Лавина за ставкою, сніжок за залишком; рівних розводить id, щоб порядок
 // не залежав від того, як база віддала рядки.
@@ -361,17 +361,17 @@ func payoffMandatory(d *payoffDebt, month int) (paid, principal, cost int64) {
 // із власного списку, був би гіршою неправдою за будь-яке місце в ньому.
 // Хвіст при цьому не косметичний — він каже, що черги для цих рядків
 // немає, бо дострокові гроші до них не доходять.
-func payoffOrder(debts []payoffDebt, strategy string) []int {
+func Order(debts []Debt, strategy string) []int {
 	idx := make([]int, 0, len(debts))
 	for i := range debts {
 		idx = append(idx, i)
 	}
 	sort.SliceStable(idx, func(a, b int) bool {
 		x, y := debts[idx[a]], debts[idx[b]]
-		if x.prepayable != y.prepayable {
-			return x.prepayable
+		if x.Prepayable != y.Prepayable {
+			return x.Prepayable
 		}
-		if strategy == payoffSnowball {
+		if strategy == Snowball {
 			if x.Left != y.Left {
 				return x.Left < y.Left
 			}
@@ -385,13 +385,13 @@ func payoffOrder(debts []payoffDebt, strategy string) []int {
 	return idx
 }
 
-// payoffGraceCost — ціна ДВОХ помилок із карткою за один місяць.
+// GraceCost — ціна ДВОХ помилок із карткою за один місяць.
 //
 // Два числа, бо помилки дві й вони різні: не закрив пільгову суму —
 // відсоток на решту за звичайною ставкою; пропустив мінімалку — штраф і
 // підвищена ставка на весь борг. Друга дорожча, але перша трапляється
 // частіше, і одне число на обидві сховало б саме ту, яку легше зробити.
-func payoffGraceCost(d domain.Debt, st domain.CardStatus) (missFull, missMin int64) {
+func GraceCost(d domain.Debt, st domain.CardStatus) (missFull, missMin int64) {
 	if !d.IsCard() || st.StatementDue <= 0 {
 		return 0, 0
 	}

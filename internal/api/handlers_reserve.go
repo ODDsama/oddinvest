@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
@@ -93,7 +94,7 @@ func (s *Server) reserveLoanFromReq(ctx context.Context, req reserveReq, opID in
 		if err != nil {
 			return l, err
 		}
-		if set := loadSettings(raw); set.ReserveLoanRatePct != nil {
+		if set := settings.Load(raw); set.ReserveLoanRatePct != nil {
 			l.RateBP = int64(math.Round(*set.ReserveLoanRatePct * 100))
 		}
 	}

@@ -16,7 +16,8 @@
 // витрати, — «скільки коштує місяць життя ЗАРАЗ». Історії в них немає:
 // це не потік подій, а одне число політики, і fx_asof.go (курс на дату
 // події) тут не при чому.
-package api
+
+package settings
 
 import (
 	money "github.com/Rhymond/go-money"
@@ -25,7 +26,7 @@ import (
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
-// resolveExpensesUAH заповнює MonthlyExpensesUAH із валютної пари.
+// ResolveExpensesUAH заповнює MonthlyExpensesUAH із валютної пари.
 //
 // Порожній MonthlyExpenses лишає гривневе поле незайманим, і це не
 // байдужість, а сам механізм сумісності: у базі, старшій за 0038, воно
@@ -35,12 +36,15 @@ import (
 // Помилка переведення веде туди ж, куди й порожнє значення. Причина в неї
 // одна — невідомий код валюти, — а від нього стереже перелік у реєстрі;
 // падати ж на розборі того, що вже лежить у базі, довелось би на кожній
-// сторінці (той самий довід, що при applySetting).
-func resolveExpensesUAH(set *state.SettingsDoc, rates fx.Rates) {
+// сторінці (той самий довід, що при apply).
+func ResolveExpensesUAH(set *state.SettingsDoc, rates fx.Rates) {
 	if set == nil || set.MonthlyExpenses == nil {
 		return
 	}
-	cur := orUAH(set.MonthlyExpensesCurrency)
+	cur := set.MonthlyExpensesCurrency
+	if cur == "" {
+		cur = money.UAH
+	}
 	m := money.New(int64(*set.MonthlyExpenses*100+0.5), cur)
 	u, err := fx.ToUAH(m, rates)
 	if err != nil {

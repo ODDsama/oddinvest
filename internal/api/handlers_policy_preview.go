@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
@@ -63,7 +64,7 @@ func (s *Server) handlePolicyPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	// Та сама перевірка, що й у запису. Превʼю, яке приймає те, чого не
 	// прийме PUT, показувало б числа, яких не буде.
-	if err := validateSettings(req.Settings); err != nil {
+	if err := settings.Validate(req.Settings); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}

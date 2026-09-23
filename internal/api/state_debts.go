@@ -31,6 +31,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/payoff"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
@@ -139,7 +140,7 @@ func debtCoverUAH(debts []domain.Debt, marks []domain.DebtMark,
 			}
 		}
 		if d.IsCard() {
-			add(payoffCardDebt(d, marks, ops, today))
+			add(payoff.CardDebt(d, marks, ops, today))
 			continue
 		}
 		for _, p := range domain.InstallmentSchedule(d) {

@@ -1,8 +1,6 @@
-package api
+package payoff
 
 import (
-	"encoding/json"
-	"net/http"
 	"testing"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -17,14 +15,14 @@ import (
 // прапорця жодна стратегія не розійшлася б із мінімалками, бо дострокові
 // гроші не доходили б нікуди (payoff.go), і три тести нижче міряли б
 // порожнечу замість арифметики.
-func payoffFixture() []payoffDebt {
-	return []payoffDebt{
+func payoffFixture() []Debt {
+	return []Debt{
 		{ID: 1, Name: "Дорога", Kind: domain.DebtInstallment, Rate: 49.8,
 			Left: 30_000_00, perMonth: 3_333_33, feeMonth: 597_00,
-			prepayable: true, prepayBasis: domain.DebtPrepayCancel},
+			Prepayable: true, PrepayBasis: domain.DebtPrepayCancel},
 		{ID: 2, Name: "Дешева", Kind: domain.DebtInstallment, Rate: 8.0,
 			Left: 6_000_00, perMonth: 1_000_00, feeMonth: 30_00,
-			prepayable: true, prepayBasis: domain.DebtPrepayCancel},
+			Prepayable: true, PrepayBasis: domain.DebtPrepayCancel},
 	}
 }
 
@@ -34,9 +32,9 @@ func TestPayoffAvalancheBeatsSnowballInMoney(t *testing.T) {
 	debts := payoffFixture()
 	const extra = 2_000_00
 
-	av := runPayoff(debts, payoffAvalanche, extra)
-	sn := runPayoff(debts, payoffSnowball, extra)
-	min := runPayoff(debts, payoffMinimum, 0)
+	av := Simulate(debts, Avalanche, extra)
+	sn := Simulate(debts, Snowball, extra)
+	min := Simulate(debts, Minimum, 0)
 
 	if av.Cost >= sn.Cost {
 		t.Errorf("лавина віддала банку %d, сніжок %d — лавина мусить платити менше",
@@ -59,8 +57,8 @@ func TestPayoffAvalancheBeatsSnowballInMoney(t *testing.T) {
 // Прохід мусить закрити КОЖЕН борг і віддати рівно тіло плюс комісії.
 func TestPayoffScheduleClosesEveryDebt(t *testing.T) {
 	debts := payoffFixture()
-	for _, strategy := range []string{payoffAvalanche, payoffSnowball, payoffMinimum} {
-		run := runPayoff(debts, strategy, 2_000_00)
+	for _, strategy := range []string{Avalanche, Snowball, Minimum} {
+		run := Simulate(debts, strategy, 2_000_00)
 		if run.Unfunded {
 			t.Fatalf("%s: борг не гаситься взагалі", strategy)
 		}
@@ -86,8 +84,8 @@ func TestPayoffScheduleClosesEveryDebt(t *testing.T) {
 // місяців — у цьому вся суть черги.
 func TestPayoffExtraSavesFutureFees(t *testing.T) {
 	debts := payoffFixture()
-	none := runPayoff(debts, payoffAvalanche, 0)
-	some := runPayoff(debts, payoffAvalanche, 5_000_00)
+	none := Simulate(debts, Avalanche, 0)
+	some := Simulate(debts, Avalanche, 5_000_00)
 	if some.Cost >= none.Cost || some.Months >= none.Months {
 		t.Errorf("додаткові 5 000/міс не дали нічого: %d міс / %d ₴ проти %d / %d",
 			some.Months, some.Cost, none.Months, none.Cost)
@@ -108,14 +106,14 @@ func TestPayoffGraceCarouselStaysOutOfQueue(t *testing.T) {
 	// Звичайний місяць: борг є, але весь він у пільговому.
 	marks := []domain.DebtMark{{DebtID: 1, Date: "2026-09-01",
 		Balance: -18_400_00, StatementDue: 18_400_00}}
-	got := buildPayoffDebts([]domain.Debt{card}, marks, nil, nil, today)
+	got := BuildDebts([]domain.Debt{card}, marks, nil, nil, today)
 	if len(got) != 0 {
 		t.Errorf("пільговий оборот потрапив у чергу: %+v", got)
 	}
 
 	// А готівка — потрапляє, і саме своєю сумою.
 	marks[0].NonGrace = 5_000_00
-	got = buildPayoffDebts([]domain.Debt{card}, marks, nil, nil, today)
+	got = BuildDebts([]domain.Debt{card}, marks, nil, nil, today)
 	if len(got) != 1 || got[0].Left != 5_000_00 {
 		t.Fatalf("готівка з ліміту не стала боргом черги: %+v", got)
 	}
@@ -134,7 +132,7 @@ func TestPayoffGraceCostSplitsTwoMistakes(t *testing.T) {
 		[]domain.DebtMark{{DebtID: 1, Date: "2026-09-01",
 			Balance: -20_000_00, StatementDue: 18_400_00}}, nil, nil, "2026-09-10")
 
-	missFull, missMin := payoffGraceCost(card, st)
+	missFull, missMin := GraceCost(card, st)
 	if missFull <= 0 || missMin <= 0 {
 		t.Fatalf("ціни помилок: %d / %d", missFull, missMin)
 	}
@@ -143,7 +141,7 @@ func TestPayoffGraceCostSplitsTwoMistakes(t *testing.T) {
 	// однаковими — на екрані власника обидва показали 207,96 ₴.
 	bare := card
 	bare.APROverdueBp, bare.LateFee = 0, 0
-	if full, min := payoffGraceCost(bare, st); full <= 0 || min != 0 {
+	if full, min := GraceCost(bare, st); full <= 0 || min != 0 {
 		t.Errorf("без підвищеної ставки: %d / %d, чекали друге число нулем", full, min)
 	}
 	// Пропустити мінімалку дорожче: підвищена ставка йде на ВЕСЬ борг, та
@@ -151,85 +149,6 @@ func TestPayoffGraceCostSplitsTwoMistakes(t *testing.T) {
 	if missMin <= missFull {
 		t.Errorf("пропустити мінімалку (%d) мусить коштувати більше, ніж не закрити виписку (%d)",
 			missMin, missFull)
-	}
-}
-
-// Наскрізь через HTTP: три стратегії, чутливість і пільговий блок.
-func TestPayoffEndpoint(t *testing.T) {
-	srv, _ := testServer(t)
-	card := addDebt(t, srv.URL, `{"name":"ПУМБ","kind":"card","currency":"UAH",
-		"limit":"200000","statement_day":"30","apr_pct":"47.88","apr_overdue_pct":"62",
-		"min_payment_pct":"3","late_fee":"100"}`)
-	addDebt(t, srv.URL, `{"name":"Холодильник","kind":"installment","currency":"UAH",
-		"card_id":"`+did(card)+`","principal":"30000","payments_total":"9",
-		"first_payment_date":"2026-09-30","fee_month_pct":"1.99"}`)
-	if resp, out := do(t, "POST", srv.URL+"/api/debt-marks",
-		`{"debt_id":"`+did(card)+`","balance":"5000","statement_due":"12000","non_grace":"4000"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("звірка: %d %s", resp.StatusCode, out)
-	}
-
-	resp, out := do(t, "GET", srv.URL+"/api/payoff?extra=3000", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /api/payoff: %d %s", resp.StatusCode, out)
-	}
-	var got payoffResp
-	if err := json.Unmarshal([]byte(out), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Strategy != payoffAvalanche {
-		t.Errorf("замовчування %q, чекали лавину", got.Strategy)
-	}
-	if len(got.Debts) != 2 {
-		t.Fatalf("боргів у черзі %d, чекали 2 (розстрочка + готівка картки): %s",
-			len(got.Debts), out)
-	}
-	// Порядок рядків — це черга погашення: першою стоїть найдорожча.
-	// Готівка з ліміту під 60% обходить розстрочку під ~50%.
-	if got.Debts[0].Rate <= got.Debts[1].Rate {
-		t.Errorf("черга не за ставкою: %.2f%% перед %.2f%%",
-			got.Debts[0].Rate, got.Debts[1].Rate)
-	}
-	var inst payoffDebtJSON
-	for _, d := range got.Debts {
-		if d.Kind == domain.DebtInstallment {
-			inst = d
-		}
-	}
-	// Розстрочка з комісією 1,99% коштує ~50% річних, а не 23,88% — це
-	// головна знахідка всієї фази.
-	if inst.Rate < 45 || inst.Rate > 55 {
-		t.Errorf("ставка розстрочки %.2f%%, чекали ~50%%: %+v", inst.Rate, got.Debts)
-	}
-	if inst.Basis != domain.DebtRateFromSchedule {
-		t.Errorf("основа %q, чекали виведену з графіка", inst.Basis)
-	}
-	// Реальна ставка мусить бути НИЖЧОЮ за номінальну рівно на знецінення.
-	if inst.RealPct >= inst.Rate {
-		t.Errorf("реальна %.2f не менша за номінальну %.2f", inst.RealPct, inst.Rate)
-	}
-	if len(got.Compare) != 3 {
-		t.Errorf("порівняння стратегій: %d рядків", len(got.Compare))
-	}
-	if got.Plan.FreeDate == "" || got.Plan.Months == 0 {
-		t.Errorf("дати свободи немає: %+v", got.Plan)
-	}
-	if len(got.Sensitivity) == 0 {
-		t.Error("чутливості немає — саме вона відповідає «а якщо ще тисяча»")
-	}
-	if len(got.Grace) != 1 {
-		t.Fatalf("пільгового блоку немає: %s", out)
-	}
-	g := got.Grace[0]
-	if !g.Known || g.DueDate == "" {
-		t.Errorf("пільговий блок без дати або без звірки: %+v", g)
-	}
-	// «Вільно» = 5 000 − 12 000 − частина розстрочки: відʼємне, і саме це
-	// і є та пастка, через яку безкоштовний оборот стає боргом.
-	if g.Free.Amount[0] != '-' {
-		t.Errorf("вільно %s — чекали відʼємне при боргу більшому за баланс", g.Free.Amount)
-	}
-	if g.MissMinCost.Amount == g.MissFullCost.Amount {
-		t.Error("ціни двох помилок злилися")
 	}
 }
 
@@ -260,17 +179,17 @@ func TestPayoffStickyFeeIgnoresExtra(t *testing.T) {
 			return d
 		}},
 	} {
-		debts := buildPayoffDebts([]domain.Debt{c.with(base)}, nil, nil, fx.Rates{}, today)
+		debts := BuildDebts([]domain.Debt{c.with(base)}, nil, nil, fx.Rates{}, today)
 
-		zero := runPayoff(debts, payoffAvalanche, 0)
-		much := runPayoff(debts, payoffAvalanche, 10_000_00)
+		zero := Simulate(debts, Avalanche, 0)
+		much := Simulate(debts, Avalanche, 10_000_00)
 		if zero.Months != much.Months || zero.Cost != much.Cost {
 			t.Errorf("%s: 10 000/міс змінили план — %d міс / %d ₴ проти %d / %d",
 				c.what, much.Months, much.Cost, zero.Months, zero.Cost)
 		}
 		// І три стратегії збігаються за побудовою: розподіляти нічого.
-		sn := runPayoff(debts, payoffSnowball, 10_000_00)
-		min := runPayoff(debts, payoffMinimum, 10_000_00)
+		sn := Simulate(debts, Snowball, 10_000_00)
+		min := Simulate(debts, Minimum, 10_000_00)
 		if sn.Cost != zero.Cost || min.Cost != zero.Cost {
 			t.Errorf("%s: стратегії розійшлися — %d / %d / %d",
 				c.what, zero.Cost, sn.Cost, min.Cost)
@@ -283,12 +202,12 @@ func TestPayoffStickyFeeIgnoresExtra(t *testing.T) {
 // того самого правила, і без неї перша читалась би як «борг чіпати не
 // можна взагалі».
 func TestPayoffCardTakesExtra(t *testing.T) {
-	card := payoffDebt{ID: 1, Name: "ПУМБ", Kind: domain.DebtCard,
+	card := Debt{ID: 1, Name: "ПУМБ", Kind: domain.DebtCard,
 		Left: 50_000_00, monthlyRate: 0.0399, minBp: 300, minFloor: 100_00,
-		prepayable: true, prepayBasis: domain.DebtPrepayCard}
+		Prepayable: true, PrepayBasis: domain.DebtPrepayCard}
 
-	slow := runPayoff([]payoffDebt{card}, payoffAvalanche, 0)
-	fast := runPayoff([]payoffDebt{card}, payoffAvalanche, 10_000_00)
+	slow := Simulate([]Debt{card}, Avalanche, 0)
+	fast := Simulate([]Debt{card}, Avalanche, 10_000_00)
 	if fast.Months >= slow.Months || fast.Cost >= slow.Cost {
 		t.Errorf("картка не відреагувала на дострокові: %d міс / %d ₴ проти %d / %d",
 			fast.Months, fast.Cost, slow.Months, slow.Cost)
@@ -296,7 +215,7 @@ func TestPayoffCardTakesExtra(t *testing.T) {
 }
 
 // Правило договору читається з самого боргу, а не проставляється рукою в
-// проході: buildPayoffDebts мусить донести його з domain до черги.
+// проході: BuildDebts мусить донести його з domain до черги.
 func TestBuildPayoffDebtsCarriesPrepayBasis(t *testing.T) {
 	today := domain.Date("2026-09-10")
 	keep := domain.Debt{ID: 1, Name: "mono", Kind: domain.DebtInstallment,
@@ -306,19 +225,19 @@ func TestBuildPayoffDebtsCarriesPrepayBasis(t *testing.T) {
 	cancel := keep
 	cancel.ID, cancel.FeeOnPrepay = 2, domain.DebtFeeCancel
 
-	got := buildPayoffDebts([]domain.Debt{keep, cancel}, nil, nil, fx.Rates{}, today)
+	got := BuildDebts([]domain.Debt{keep, cancel}, nil, nil, fx.Rates{}, today)
 	if len(got) != 2 {
 		t.Fatalf("боргів у черзі %d, чекали 2", len(got))
 	}
 	for _, d := range got {
 		want := d.ID == 2
-		if d.prepayable != want {
-			t.Errorf("борг %d: prepayable=%v, чекали %v", d.ID, d.prepayable, want)
+		if d.Prepayable != want {
+			t.Errorf("борг %d: prepayable=%v, чекали %v", d.ID, d.Prepayable, want)
 		}
 	}
 	// І черга ставить придатний ПЕРШИМ, хай би яким був порядок у базі:
 	// список на екрані малюється цим самим порядком.
-	if order := payoffOrder(got, payoffAvalanche); got[order[0]].ID != 2 {
+	if order := Order(got, Avalanche); got[order[0]].ID != 2 {
 		t.Errorf("першим у черзі борг %d, а не той, що приймає дострокові",
 			got[order[0]].ID)
 	}

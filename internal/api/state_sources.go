@@ -21,6 +21,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 
@@ -311,12 +312,12 @@ func (e *engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	if src.report != money.UAH {
 		src.cpi = 0 // довід при полі
 	}
-	src.settings = loadSettings(rawSettings)
+	src.settings = settings.Load(rawSettings)
 	// Витрати — у гривню одразу тут, бо саме тут уперше зустрічаються
 	// налаштування й курс. Кожен, хто читає src.settings далі, дістає
-	// MonthlyExpensesUAH уже гривневим — довід при resolveExpensesUAH.
-	resolveExpensesUAH(src.settings, src.rates)
-	src.depositMin = depositMinMinorByCur(rawSettings)
+	// MonthlyExpensesUAH уже гривневим — довід при settings.ResolveExpensesUAH.
+	settings.ResolveExpensesUAH(src.settings, src.rates)
+	src.depositMin = settings.DepositMinMinorByCur(rawSettings)
 	return src, nil
 }
 

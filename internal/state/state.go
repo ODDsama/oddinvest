@@ -625,7 +625,7 @@ type SettingsDoc struct {
 	// тією валютою, у якій живуть, і «1 500 доларів на місяць» — це сама
 	// одиниця рахунку, а не оцінка в чужих грошах. MonthlyExpensesUAH —
 	// те саме число в гривні, і воно ВИВЕДЕНЕ: переводить його будівник
-	// (resolveExpensesUAH), бо курсів у цьому пакеті немає й бути не має —
+	// (settings.ResolveExpensesUAH), бо курсів у цьому пакеті немає й бути не має —
 	// той самий поділ, що описаний у шапці state_reserve_ladder.go.
 	//
 	// Поле в гривні лишилось окремим, а не замінилось парою, рівно тому,
@@ -638,7 +638,7 @@ type SettingsDoc struct {
 	// міграцію 0038, працює без жодної правки.
 	MonthlyExpenses         *float64 `json:"monthly_expenses,omitempty"`
 	MonthlyExpensesCurrency string   `json:"monthly_expenses_currency,omitempty"`
-	// ReportCurrency — валюта звітності (settings_registry.go). Порожньо =
+	// ReportCurrency — валюта звітності (internal/settings). Порожньо =
 	// гривня. Це ВХІД: сама сума в документі показана у валюті Doc.Currency,
 	// яка може відрізнятись від цього ключа, коли курсу ще немає.
 	ReportCurrency      string   `json:"report_currency,omitempty"`
@@ -661,7 +661,7 @@ type SettingsDoc struct {
 	//
 	// Порожньо = механізму немає взагалі. Явний 0 означає те саме — нуль
 	// відсотків це нічого, — і розрізняти їх нема сенсу, як і всюди в
-	// loadSettings.
+	// settings.Load.
 	ReserveFillSharePct *float64 `json:"reserve_fill_share_pct,omitempty"`
 	// ReserveFillFrom — З ЯКИХ ГРОШЕЙ ця стеля ріже. Друга половина того
 	// самого механізму, і доти її не було зовсім.

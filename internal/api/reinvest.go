@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/state"
 	money "github.com/Rhymond/go-money"
 )
@@ -924,7 +925,7 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 	if err != nil {
 		return nil, err
 	}
-	depMin := depositMinMinorByCur(rawSettings)
+	depMin := settings.DepositMinMinorByCur(rawSettings)
 	for _, c := range []string{money.USD, money.EUR, money.UAH} {
 		rp := depRate[c]
 		minMinor, hasMin := depMin[c]

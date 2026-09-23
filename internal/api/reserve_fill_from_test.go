@@ -11,6 +11,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -77,11 +78,11 @@ func TestReserveEligibleUAH(t *testing.T) {
 // шукати причину довелось би в чужих числах.
 func TestValidateSettingsChecksEnum(t *testing.T) {
 	for _, v := range []string{"any", "redeem", "plan", ""} {
-		if err := validateSettings(map[string]string{"reserve_fill_from": v}); err != nil {
+		if err := settings.Validate(map[string]string{"reserve_fill_from": v}); err != nil {
 			t.Errorf("значення %q відхилене: %v", v, err)
 		}
 	}
-	err := validateSettings(map[string]string{"reserve_fill_from": "plann"})
+	err := settings.Validate(map[string]string{"reserve_fill_from": "plann"})
 	if err == nil {
 		t.Fatal("описка пройшла — подушку можна вимкнути непоміченим ключем")
 	}

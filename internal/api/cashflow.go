@@ -15,6 +15,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/state"
 	money "github.com/Rhymond/go-money"
 )
@@ -644,7 +645,7 @@ func (e *engine) taxReport(ctx context.Context, year int, from, to domain.Date, 
 			// без неї звіт лишається правильним. Мапа nil читається як
 			// «нічого не задано», тобто веде до дефолтів.
 			raw, _ := e.st.AllSettings(ctx) //nolint:errcheck // без налаштувань знижки просто не буде — рядок звіту, а не сам звіт
-			set := loadSettings(raw)
+			set := settings.Load(raw)
 			if oerr == nil {
 				// Сума часток — знижка платника: ліміт і стеля ПДФО одні на
 				// всі рахунки (domain.NPFCreditByAccount).

@@ -21,6 +21,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/payoff"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
@@ -234,7 +235,7 @@ type payoffResp struct {
 	Schedule    []payoffMonthJSON       `json:"schedule,omitempty"`
 	Sensitivity []payoffSensitivityJSON `json:"sensitivity,omitempty"`
 	// Grace — пільговий цикл карток. Не входить у чергу погашення (довід у
-	// payoff.go), але саме тут його ціна стає видимою.
+	// internal/payoff), але саме тут його ціна стає видимою.
 	Grace []payoffGraceJSON `json:"grace,omitempty"`
 	// PrepayNone — дострокові гроші нема куди подіти: у жодному боргу вони
 	// нічого не скасовують. Окремим прапорцем, бо на екрані це не «нуль
@@ -259,12 +260,12 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 
 	strategy := strings.TrimSpace(r.URL.Query().Get("strategy"))
 	switch strategy {
-	case payoffAvalanche, payoffSnowball, payoffMinimum:
+	case payoff.Avalanche, payoff.Snowball, payoff.Minimum:
 	default:
 		// Замовчування — лавина: вона дає найменшу переплату, і це
 		// арифметика, а не думка. Сніжок обирають свідомо, заради того,
 		// щоб рядків меншало швидше.
-		strategy = payoffAvalanche
+		strategy = payoff.Avalanche
 	}
 
 	rates, err := s.rates(ctx)
@@ -334,7 +335,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 
 	deval := s.devaluation(ctx)
 	rc := s.newRateContext(ctx, deval)
-	list := buildPayoffDebts(debts, marks, ops, rates, today)
+	list := payoff.BuildDebts(debts, marks, ops, rates, today)
 
 	out := payoffResp{
 		Strategy:         strategy,
@@ -346,13 +347,13 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		Note: "У черзі лише те, на що нараховують: розстрочки й непільгова частина картки. " +
 			"Оборот у межах пільгового періоду сюди не входить — його ціна показана окремо.",
 	}
-	run := runPayoff(list, strategy, extra)
+	run := payoff.Simulate(list, strategy, extra)
 	out.PrepayNone = len(list) > 0
 	var total int64
 	// Порядок рядків — це ЧЕРГА ПОГАШЕННЯ обраної стратегії, а не порядок
 	// зі сховища. Список, у якому перший рядок не той, що гаситься першим,
 	// довелося б читати очима проти власного заголовка.
-	for _, i := range payoffOrder(list, strategy) {
+	for _, i := range payoff.Order(list, strategy) {
 		d := list[i]
 		total += d.Left
 		row := payoffDebtJSON{
@@ -360,10 +361,10 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 			Rate:        round2(d.Rate),
 			Basis:       d.RateBasis,
 			Left:        toMoneyJSON(money.New(d.Left, money.UAH)),
-			PrepayHelps: d.prepayable,
-			PrepayBasis: d.prepayBasis,
+			PrepayHelps: d.Prepayable,
+			PrepayBasis: d.PrepayBasis,
 		}
-		if d.prepayable {
+		if d.Prepayable {
 			out.PrepayNone = false
 		}
 		if d.RateBasis != domain.DebtRateNone {
@@ -381,10 +382,10 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 	out.Total = toMoneyJSON(money.New(total, money.UAH))
 	out.Plan = payoffPlanToJSON(strategy, run, today)
 
-	for _, alt := range []string{payoffAvalanche, payoffSnowball, payoffMinimum} {
+	for _, alt := range []string{payoff.Avalanche, payoff.Snowball, payoff.Minimum} {
 		r := run
 		if alt != strategy {
-			r = runPayoff(list, alt, extra)
+			r = payoff.Simulate(list, alt, extra)
 		}
 		out.Compare = append(out.Compare, payoffPlanToJSON(alt, r, today))
 	}
@@ -401,9 +402,9 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 	// І мовчить, коли дострокові гроші нема куди подіти: усі різниці там
 	// нульові за побудовою, а рядок «що дасть іще тисяча» з нулями читався
 	// б як поломка розрахунку замість відповіді «нічого, і ось чому».
-	if len(list) > 0 && strategy != payoffMinimum && !run.Unfunded && !out.PrepayNone {
+	if len(list) > 0 && strategy != payoff.Minimum && !run.Unfunded && !out.PrepayNone {
 		for _, step := range []int64{1_000_00, 5_000_00} {
-			alt := runPayoff(list, strategy, extra+step)
+			alt := payoff.Simulate(list, strategy, extra+step)
 			out.Sensitivity = append(out.Sensitivity, payoffSensitivityJSON{
 				Extra:       toMoneyJSON(money.New(step, money.UAH)),
 				MonthsSaved: run.Months - alt.Months,
@@ -417,7 +418,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		st := domain.CardState(d, marks, ops, debts, today)
-		missFull, missMin := payoffGraceCost(d, st)
+		missFull, missMin := payoff.GraceCost(d, st)
 		row := payoffGraceJSON{
 			DebtID: d.ID, Name: d.Name,
 			DueDate: string(st.DueDate), DaysToDue: st.DaysToDue,
@@ -446,7 +447,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func payoffPlanToJSON(strategy string, run payoffRun, today domain.Date) payoffPlanJSON {
+func payoffPlanToJSON(strategy string, run payoff.Run, today domain.Date) payoffPlanJSON {
 	out := payoffPlanJSON{
 		Strategy: strategy,
 		Months:   run.Months,
@@ -462,7 +463,7 @@ func payoffPlanToJSON(strategy string, run payoffRun, today domain.Date) payoffP
 
 // payoffSchedule зводить кроки в помісячні рядки: скільки віддано, скільки
 // з того лишилось банку й скільки боргу ще попереду.
-func payoffSchedule(run payoffRun, total int64, today domain.Date) []payoffMonthJSON {
+func payoffSchedule(run payoff.Run, total int64, today domain.Date) []payoffMonthJSON {
 	if len(run.Steps) == 0 {
 		return nil
 	}

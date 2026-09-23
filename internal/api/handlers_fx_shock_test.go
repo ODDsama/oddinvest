@@ -344,7 +344,7 @@ func TestFXShockWritesNothing(t *testing.T) {
 
 // Витрати, названі у валюті, мусять перекластись УЖЕ за новим курсом —
 // інакше достатність подушки мовчки міряється за старим. Рядок
-// resolveExpensesUAH після підміни забути найлегше, і тримає його саме
+// settings.ResolveExpensesUAH після підміни забути найлегше, і тримає його саме
 // цей тест.
 func TestFXShockReExpressesForeignExpenses(t *testing.T) {
 	s, st, srv := fxShockServer(t)

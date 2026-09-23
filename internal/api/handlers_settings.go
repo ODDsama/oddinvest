@@ -4,11 +4,12 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/ODDsama/oddinvest/internal/settings"
 	"net/http"
 )
 
 // Ключі, які приймає API, і перевірка «мусить бути числом» виводяться з
-// settings_registry.go. Окремих списків тут більше немає: доти їх було
+// internal/settings. Окремих списків тут більше немає: доти їх було
 // два, і розійтись вони могли мовчки.
 //
 // «channels» немає ні там, ні тут: список брокерів був CSV-рядком у
@@ -25,8 +26,8 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	// налаштувань їм не місце — PUT їх усе одно не прийме. (Робочий стан
 	// джоб — nbu_refreshed_at, ovdp_auctions_polled_through — з 0054 живе
 	// в app_state і сюди не потрапляє взагалі.)
-	out := make(map[string]string, len(settingsKeys))
-	for _, k := range settingsKeys {
+	out := make(map[string]string, len(settings.Keys))
+	for _, k := range settings.Keys {
 		out[k] = raw[k]
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -43,9 +44,9 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	// пройти, — половину набору, якої ніхто не просив; а що мапа
 	// перебирається в довільному порядку, половина щоразу була інша.
 	//
-	// Сама перевірка живе в settings_registry.go, бо споживачів у неї
+	// Сама перевірка живе в internal/settings, бо споживачів у неї
 	// тепер двоє: цей запис і превʼю політики.
-	if err := validateSettings(req); err != nil {
+	if err := settings.Validate(req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -55,7 +56,7 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 	// Без нього форма бреше найтихішим чином. Міграція 0038 скопіювала
 	// monthly_expenses_uah у нову пару, тож після неї обидва ключі несуть
 	// одне число; порожній monthly_expenses читається як «не рахувати», а
-	// resolveExpensesUAH у цьому разі лишає гривневе поле спадковому
+	// settings.ResolveExpensesUAH у цьому разі лишає гривневе поле спадковому
 	// ключу — тобто очищене поле мовчки поверталося б до старого значення,
 	// і скасувати ціль резерву стало б неможливо через UI взагалі.
 	//

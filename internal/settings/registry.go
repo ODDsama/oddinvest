@@ -1,4 +1,4 @@
-// Реєстр налаштувань: одне місце, де ключ описаний повністю.
+// Package settings — реєстр налаштувань: одне місце, де ключ описаний повністю.
 //
 // Досі ключ доводилось вписувати в тринадцять місць, і машиною
 // перевірялися лише два зв'язки з них. Наслідок був не теоретичний:
@@ -6,11 +6,11 @@
 // бекенд прибрав ключ, тож кожен рух слайдера давав 400 — і дізнатись про
 // це не було де.
 //
-// Тепер ключ описується ТУТ, а `settingsKeys`, перевірка на число й
+// Тепер ключ описується ТУТ, а `Keys`, перевірка на число й
 // заповнення SettingsDoc виводяться з опису. Схема лишається окремою
 // (вона контракт, а не код), але звіряється з реєстром тестом.
 
-package api
+package settings
 
 import (
 	"fmt"
@@ -23,14 +23,14 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-// settingDef — опис одного ключа.
+// Def — опис одного ключа.
 //
 // Num і Str — куди класти значення в SettingsDoc; заповнений рівно один
 // із них, і саме він каже, число це чи рядок. Обидва nil означає
 // «ключ приймається, але в документ не публікується» — так живе
 // `import_since`: він робочий стан імпорту, а не політика портфеля, і
 // споживає його сам імпорт.
-type settingDef struct {
+type Def struct {
 	Key string
 	Num func(*state.SettingsDoc) **float64
 	Str func(*state.SettingsDoc) *string
@@ -45,19 +45,19 @@ type settingDef struct {
 	// Там, де від значення залежить, ЧИ ВІДБУДЕТЬСЯ дія, цього замало:
 	// друкарська помилка в reserve_fill_from мовчки вимкнула б подушку, і
 	// шукати причину довелось би в чужих числах. Тому перелік, і перевірка
-	// в тому самому validateSettings, який ділять запис і превʼю.
+	// в тому самому Validate, який ділять запис і превʼю.
 	Enum []string
 }
 
 // numeric — чи мусить значення бути невід'ємним числом. Виводиться з
 // того, куди ключ пишеться: окремого списку більше немає, тож «додав
 // ключ, забув про валідацію» стало неможливим.
-func (d settingDef) numeric() bool { return d.Num != nil }
+func (d Def) numeric() bool { return d.Num != nil }
 
-// settingsRegistry — усі ключі застосунку.
+// Registry — усі ключі застосунку.
 //
 // Порядок групами, як їх бачить користувач у «Налаштуваннях».
-var settingsRegistry = []settingDef{
+var Registry = []Def{
 	{Key: "usd_target_share_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.USDTargetSharePct },
 		Why: "цільова частка валюти в капіталі"},
 	{Key: "eur_target_share_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.EURTargetSharePct },
@@ -243,24 +243,24 @@ var settingsRegistry = []settingDef{
 	{Key: "import_since", Why: "водяний знак імпорту виписки"},
 }
 
-// settingsKeys — ключі, які приймає API. Виводяться з реєстру.
-var settingsKeys = func() []string {
-	out := make([]string, 0, len(settingsRegistry))
-	for _, d := range settingsRegistry {
+// Keys — ключі, які приймає API. Виводяться з реєстру.
+var Keys = func() []string {
+	out := make([]string, 0, len(Registry))
+	for _, d := range Registry {
 		out = append(out, d.Key)
 	}
 	return out
 }()
 
-var settingsByKey = func() map[string]settingDef {
-	out := make(map[string]settingDef, len(settingsRegistry))
-	for _, d := range settingsRegistry {
+var byKey = func() map[string]Def {
+	out := make(map[string]Def, len(Registry))
+	for _, d := range Registry {
 		out[d.Key] = d
 	}
 	return out
 }()
 
-// loadSettings збирає SettingsDoc одним проходом по реєстру.
+// Load збирає SettingsDoc одним проходом по реєстру.
 //
 // Доти двадцять ключів читались циклом, ще шість — окремими блоками
 // поруч, і два (uah_devaluation_pct, import_since) мали ТРЕТЄ читання в
@@ -276,18 +276,18 @@ var settingsByKey = func() map[string]settingDef {
 //
 // Відсутній ключ дає порожній рядок — рівно те, що робив GetSetting, тож
 // «не задано» веде до дефолту так само, як і раніше.
-func loadSettings(raw map[string]string) *state.SettingsDoc {
+func Load(raw map[string]string) *state.SettingsDoc {
 	doc := &state.SettingsDoc{}
-	for _, d := range settingsRegistry {
-		applySetting(doc, d, raw[d.Key])
+	for _, d := range Registry {
+		apply(doc, d, raw[d.Key])
 	}
 	return doc
 }
 
-// applySetting кладе СИРЕ значення ключа в документ.
+// apply кладе СИРЕ значення ключа в документ.
 //
 // Винесене з циклу вище не заради охайності, а тому, що споживачів стало
-// двоє: прочитане зі сховища й НАКЛАДКА (overrideSettings нижче). Другий
+// двоє: прочитане зі сховища й НАКЛАДКА (Override нижче). Другий
 // розбір тих самих рядків означав би, що превʼю політики вміє прочитати
 // число інакше, ніж його прочитає застосунок після запису, — і різницю
 // між ними ніхто б не побачив, бо обидва відповіді виглядають правдиво.
@@ -298,9 +298,9 @@ func loadSettings(raw map[string]string) *state.SettingsDoc {
 // ціль НПФ, мусить її стерти, а не лишити від попереднього.
 //
 // Сміття лишає значення незайманим: сюди воно доходить лише повз
-// validateSettings, тобто ніколи, — а падати на розборі того, що вже
+// Validate, тобто ніколи, — а падати на розборі того, що вже
 // лежить у базі, довелось би на кожній сторінці.
-func applySetting(doc *state.SettingsDoc, d settingDef, raw string) {
+func apply(doc *state.SettingsDoc, d Def, raw string) {
 	raw = strings.TrimSpace(raw)
 	switch {
 	case d.Num != nil:
@@ -316,20 +316,20 @@ func applySetting(doc *state.SettingsDoc, d settingDef, raw string) {
 	}
 }
 
-// overrideSettings — політика, якої ще немає, поверх прочитаної.
+// Override — політика, якої ще немає, поверх прочитаної.
 //
 // Перебирається РЕЄСТР, а не мапа: порядок тоді сталий, а ключ, якого в
 // реєстрі немає, не має шансу дійти сюди мовчки (його вже відхилив
-// validateSettings).
-func overrideSettings(doc *state.SettingsDoc, over map[string]string) {
-	for _, d := range settingsRegistry {
+// Validate).
+func Override(doc *state.SettingsDoc, over map[string]string) {
+	for _, d := range Registry {
 		if raw, ok := over[d.Key]; ok {
-			applySetting(doc, d, raw)
+			apply(doc, d, raw)
 		}
 	}
 }
 
-// validateSettings — чи можна такі значення взагалі приймати.
+// Validate — чи можна такі значення взагалі приймати.
 //
 // Спільна для запису (PUT /api/settings) і для превʼю політики. Доти
 // перевірка жила всередині циклу запису, і превʼю мусило б завести другу —
@@ -338,9 +338,9 @@ func overrideSettings(doc *state.SettingsDoc, over map[string]string) {
 //
 // Порожнє значення дозволене й означає «прибрати»: саме так знецінення
 // повертається з ручного на виміряне.
-func validateSettings(req map[string]string) error {
+func Validate(req map[string]string) error {
 	for k, v := range req {
-		d, ok := settingsByKey[k]
+		d, ok := byKey[k]
 		if !ok {
 			return fmt.Errorf("невідомий ключ %q", k)
 		}
@@ -365,12 +365,12 @@ func validateSettings(req map[string]string) error {
 	return nil
 }
 
-// depositMinMinorByCur — мінімальне вкладення у вклад по валютах, у МІНОРНИХ
+// DepositMinMinorByCur — мінімальне вкладення у вклад по валютах, у МІНОРНИХ
 // одиницях. Це водночас поріг «простій готовий до реінвесту» і крок поради
 // «відкрити новий вклад». USD/EUR за замовчуванням 100.00 (=10000 мінорних):
 // порожній ключ = дефолт, явний 0 (чи сміття) = вимкнено (валюти в мапі
 // немає). UAH — лише якщо задано явно.
-func depositMinMinorByCur(raw map[string]string) map[string]int64 {
+func DepositMinMinorByCur(raw map[string]string) map[string]int64 {
 	out := map[string]int64{}
 	for _, sp := range []struct {
 		cur, key string

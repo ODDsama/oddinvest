@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/ODDsama/oddinvest/internal/settings"
 	"strings"
 	"testing"
 )
@@ -10,11 +11,11 @@ import (
 // вмикається. Той самий довід, що при reserve_fill_from.
 func TestReportCurrencyEnum(t *testing.T) {
 	for _, v := range []string{"UAH", "USD", "EUR", ""} {
-		if err := validateSettings(map[string]string{"report_currency": v}); err != nil {
+		if err := settings.Validate(map[string]string{"report_currency": v}); err != nil {
 			t.Errorf("значення %q відхилене: %v", v, err)
 		}
 	}
-	err := validateSettings(map[string]string{"report_currency": "usd"})
+	err := settings.Validate(map[string]string{"report_currency": "usd"})
 	if err == nil {
 		t.Fatal("«usd» пройшло — валюта звітності приймає лише коди з переліку")
 	}

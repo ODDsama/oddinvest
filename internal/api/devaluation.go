@@ -16,7 +16,7 @@ import (
 )
 
 // nbuRefreshedKey — час останнього успішного оновлення довідника НБУ.
-// Пишеться джобою (не через PUT /api/settings), тож у settingsKeys нема.
+// Пишеться джобою (не через PUT /api/settings), тож у settings.Keys нема.
 const nbuRefreshedKey = "nbu_refreshed_at"
 
 // defaultDevaluationPct — очікуване річне знецінення гривні до твердої
