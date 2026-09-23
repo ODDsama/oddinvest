@@ -375,6 +375,22 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			money.New(op.Amount, op.Currency), taxUAH, "")
 	}
 
+	// Продаж сертифікатів — ті самі рядки, що в /api/tax (domain.FundSales, FIFO):
+	// база — ПРИБУТОК, і лише додатний (збиток доходу не дає), податок —
+	// фактично утриманий. Доти CSV цього рядка не мав зовсім, і його сума
+	// податку була меншою за картку рівно на утримане з продажів.
+	for _, sale := range domain.FundSales(fundOps) {
+		if !inWindow(sale.Date) {
+			continue
+		}
+		taxUAH, terr := asOf.UAH(ctx, money.New(sale.Tax, sale.Currency), sale.Date)
+		if terr != nil {
+			continue
+		}
+		row("продаж сертифікатів", sale.Date, "", sale.Fund, "",
+			money.New(max(sale.Gain, 0), sale.Currency), taxUAH, "база — прибуток (FIFO)")
+	}
+
 	// Відсотки вкладів — ті самі події, що й у /api/tax (DepositInterestEvents):
 	// кожна виплата зі своєю датою й курсом того дня, лише та, що вже
 	// надійшла, з урахуванням розірвання. Доти тут стояв один рядок на вклад

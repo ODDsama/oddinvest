@@ -331,6 +331,21 @@ func TestCSVTaxMatchesTaxEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Продаж сертифікатів з утриманим податком: картка його рахує
+	// (прибуток як база), і CSV мусить мати той самий рядок.
+	// Окремий гривневий фонд: REIT вище доларовий, і змішувати валюти в
+	// одній позиції тест не має права.
+	for _, op := range []domain.FundOp{
+		{Date: domain.Date(fmt.Sprintf("%d-02-08", year)), Fund: "Inzhur Житній", Kind: domain.FundBuy,
+			Qty: 100, Amount: 100_000, Currency: money.UAH, Broker: "inzhur"},
+		{Date: domain.Date(fmt.Sprintf("%d-03-10", year)), Fund: "Inzhur Житній", Kind: domain.FundSell,
+			Qty: 50, Amount: 60_000, Tax: 2_300, Currency: money.UAH, Broker: "inzhur"},
+	} {
+		if _, err := st.AddFundOp(ctx, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	card := getTax(t, srv.URL, "")
 	resp, csvBody := do(t, "GET", srv.URL+"/api/export/csv", "")
 	if resp.StatusCode != http.StatusOK {
