@@ -365,17 +365,17 @@ func TestProgressStreakMarksMatchStreak(t *testing.T) {
 		{Date: "2026-04-30", MonthTargetUAH: 1_000_000},
 		{Date: "2026-05-31", MonthTargetUAH: 1_000_000},
 	}
-	ev := []flowEvent{
-		{Date: "2026-01-15", Kind: flowContribution, UAH: 1_200_000},
-		{Date: "2026-02-15", Kind: flowContribution, UAH: 1_200_000},
-		{Date: "2026-04-15", Kind: flowContribution, UAH: 1_200_000},
-		{Date: "2026-05-15", Kind: flowContribution, UAH: 1_200_000},
+	ev := []FlowEvent{
+		{Date: "2026-01-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-02-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-04-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-05-15", Kind: FlowContribution, UAH: 1_200_000},
 	}
-	got := buildStreak(snaps, ev, "2026-06-10")
+	got := BuildStreak(snaps, ev, "2026-06-10")
 
 	// Ряд суцільний: лютий у ньому Є, просто невідомий. Без нього
 	// січень і березень стали б сусідами, і серія на смужці вийшла б
-	// довшою за ту, яку рахує сам buildStreak.
+	// довшою за ту, яку рахує сам BuildStreak.
 	wantMonths := []string{"2026-01", "2026-02", "2026-03", "2026-04", "2026-05"}
 	if len(got.Marks) != len(wantMonths) {
 		t.Fatalf("у смужці %d місяців, а мало бути %d: %+v",
@@ -444,12 +444,12 @@ func TestProgressStreakUsesTargetOfItsMonth(t *testing.T) {
 		// Березень: ціль знову 10 000 — виконано.
 		{Date: "2026-03-31", MonthTargetUAH: 1_000_000},
 	}
-	ev := []flowEvent{
-		{Date: "2026-01-15", Kind: flowContribution, UAH: 1_200_000},
-		{Date: "2026-02-15", Kind: flowContribution, UAH: 1_200_000},
-		{Date: "2026-03-15", Kind: flowContribution, UAH: 1_200_000},
+	ev := []FlowEvent{
+		{Date: "2026-01-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-02-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-03-15", Kind: FlowContribution, UAH: 1_200_000},
 	}
-	got := buildStreak(snaps, ev, "2026-04-10")
+	got := BuildStreak(snaps, ev, "2026-04-10")
 
 	if got.Months != 1 {
 		t.Errorf("поточна серія мала бути 1 (сам березень), маємо %d", got.Months)
@@ -480,12 +480,12 @@ func TestProgressStreakSkipsUnknownMonths(t *testing.T) {
 		{Date: "2026-03-31", MonthTargetUAH: 1_000_000},
 		{Date: "2026-04-30", MonthTargetUAH: 1_000_000},
 	}
-	ev := []flowEvent{
-		{Date: "2026-01-15", Kind: flowContribution, UAH: 1_200_000},
-		{Date: "2026-03-15", Kind: flowContribution, UAH: 1_200_000},
-		{Date: "2026-04-15", Kind: flowContribution, UAH: 1_200_000},
+	ev := []FlowEvent{
+		{Date: "2026-01-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-03-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-04-15", Kind: FlowContribution, UAH: 1_200_000},
 	}
-	got := buildStreak(snaps, ev, "2026-05-10")
+	got := BuildStreak(snaps, ev, "2026-05-10")
 
 	// Січень виконано, лютий невідомий, березень і квітень виконані:
 	// серія — два, а не три (діра обірвала) і не нуль (докору немає).
@@ -504,27 +504,27 @@ func TestProgressStreakSkipsUnknownMonths(t *testing.T) {
 // означало б святкувати те, що сталося саме собою.
 func TestProgressCountsOnlyContributions(t *testing.T) {
 	snaps := []store.Snapshot{{Date: "2026-01-31", MonthTargetUAH: 1_000_000}}
-	ev := []flowEvent{
-		{Date: "2026-01-15", Kind: flowIncome, UAH: 5_000_000},
-		{Date: "2026-01-20", Kind: flowContribution, UAH: 100_000},
+	ev := []FlowEvent{
+		{Date: "2026-01-15", Kind: FlowIncome, UAH: 5_000_000},
+		{Date: "2026-01-20", Kind: FlowContribution, UAH: 100_000},
 	}
-	got := buildStreak(snaps, ev, "2026-02-10")
+	got := BuildStreak(snaps, ev, "2026-02-10")
 	if got.Months != 0 {
 		t.Errorf("внесено 1 000 ₴ з 10 000 — місяць не виконано, а серія %d", got.Months)
 	}
 }
 
 // TestProgressLifeSkipsPrincipal — оплачені дні рахуються лише із
-// ЗАРОБЛЕНОГО: погашення номіналу — flowIncome для виписки, але для
+// ЗАРОБЛЕНОГО: погашення номіналу — FlowIncome для виписки, але для
 // прогресу воно Principal, і рахувати його означало б оплатити роки, яких
 // портфель не заробляв. Внески й покупки не входять узагалі.
 func TestProgressLifeSkipsPrincipal(t *testing.T) {
-	ev := []flowEvent{
-		{Date: "2026-03-01", Kind: flowContribution, UAH: 10_000_000},
-		{Date: "2026-04-01", Kind: flowIncome, UAH: 500_000},                     // купон 5 000
-		{Date: "2026-05-01", Kind: flowIncome, UAH: 20_000_000, Principal: true}, // погашення
-		{Date: "2026-06-01", Kind: flowIncome, UAH: 700_000},                     // відсотки 7 000
-		{Date: "2026-06-02", Kind: flowPurchase, UAH: -300_000},
+	ev := []FlowEvent{
+		{Date: "2026-03-01", Kind: FlowContribution, UAH: 10_000_000},
+		{Date: "2026-04-01", Kind: FlowIncome, UAH: 500_000},                     // купон 5 000
+		{Date: "2026-05-01", Kind: FlowIncome, UAH: 20_000_000, Principal: true}, // погашення
+		{Date: "2026-06-01", Kind: FlowIncome, UAH: 700_000},                     // відсотки 7 000
+		{Date: "2026-06-02", Kind: FlowPurchase, UAH: -300_000},
 	}
 	// 30 000 ₴/міс → 1 000 ₴ на день; зароблено 12 000 → 12 днів.
 	life := buildLife(ev, 30_000)

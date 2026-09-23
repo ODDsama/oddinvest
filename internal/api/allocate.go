@@ -15,7 +15,7 @@
 //	бюджет виду    — spreadMonth (state_rebalance.go), той самий поділ, що
 //	                 малює картка «Куди йдуть гроші місяця», лише
 //	                 прикладений до цієї суми замість плану місяця;
-//	порядок і ціна — reinvestSuggestions, тобто рейтинг, упорядкований
+//	порядок і ціна — ReinvestSuggestions, тобто рейтинг, упорядкований
 //	                 налаштуванням reinvest_rank, яке вибрав користувач.
 //
 // Друга копія будь-чого з цього означала б, що «Що купити» радить одне, а
@@ -72,8 +72,8 @@ const (
 // несе окреме число (скільки з них — повернення тіла), і третє слово
 // дублювало б його з ризиком розійтись.
 const (
-	allocFromPlan      = "plan"
-	allocFromPortfolio = "portfolio"
+	AllocFromPlan      = "plan"
+	AllocFromPortfolio = "portfolio"
 )
 
 // reserveFillFrom — рівень політики словом, із дефолтом.
@@ -115,14 +115,14 @@ func fillFromLevel(raw string) string {
 	}
 }
 
-// reserveEligibleUAH — скільки з цих грошей політика дозволяє віддати подушці.
+// ReserveEligibleUAH — скільки з цих грошей політика дозволяє віддати подушці.
 //
 // ОДНЕ ОЗНАЧЕННЯ НА ДВОХ ЧИТАЧІВ: ручну розкладку (POST /api/allocate) і
 // прохід маршруту. Друга копія означала б, що сторінка маршруту веде купон
 // у папери, а розкладка того ж дня ріже з нього подушку — рівно та
 // розбіжність, проти якої стоїть TestRouteFirstLegEqualsAllocate.
 //
-// sourceCapUAH — стеля САМОГО ДЖЕРЕЛА: скільки з цих грошей дозволяє
+// SourceCapUAH — стеля САМОГО ДЖЕРЕЛА: скільки з цих грошей дозволяє
 // подушці той, хто їх приніс (plan_flows.uses, 0041). Дві межі, а не
 // одна, бо питання різні: політика каже «з яких грошей узагалі», джерело
 // — «з ЦИХ конкретно». Мінімум із двох, бо жодна з них не має права
@@ -132,7 +132,7 @@ func fillFromLevel(raw string) string {
 // Principal: нога маршруту буває зведеною (місяць плану — це десяток
 // потоків із різними дозволами), і одне слово на неї було б неправдою
 // для половини суми.
-func reserveEligibleUAH(set *state.SettingsDoc, src string,
+func ReserveEligibleUAH(set *state.SettingsDoc, src string,
 	amountUAH, principalUAH, sourceCapUAH float64) float64 {
 
 	return math.Min(eligibleUAH(reserveFillFrom(set), src, amountUAH, principalUAH),
@@ -144,10 +144,10 @@ func reserveEligibleUAH(set *state.SettingsDoc, src string,
 // (довід — у місці, де вирізка стояла). Ключ debt_fill_from лишився без
 // жодного читача й прибраний із реєстру налаштувань.
 
-// goalsEligibleUAH — те саме для цілей, і навмисно ТІЄЮ САМОЮ функцією:
+// GoalsEligibleUAH — те саме для цілей, і навмисно ТІЄЮ САМОЮ функцією:
 // правило «що таке планові гроші» одне на застосунок, і друга його копія
 // дала б подушці й цілям різні відповіді про той самий купон.
-func goalsEligibleUAH(set *state.SettingsDoc, src string,
+func GoalsEligibleUAH(set *state.SettingsDoc, src string,
 	amountUAH, principalUAH, sourceCapUAH float64) float64 {
 
 	return math.Min(eligibleUAH(goalsFillFrom(set), src, amountUAH, principalUAH),
@@ -157,12 +157,12 @@ func goalsEligibleUAH(set *state.SettingsDoc, src string,
 func eligibleUAH(level, src string, amountUAH, principalUAH float64) float64 {
 	switch level {
 	case "plan":
-		if src == allocFromPlan {
+		if src == AllocFromPlan {
 			return amountUAH
 		}
 		return 0
 	case "redeem": //nolint:goconst // рівні політики названі в реєстрі, тут вони читаються
-		if src == allocFromPlan {
+		if src == AllocFromPlan {
 			return amountUAH
 		}
 		// Повернення тіла — не заробіток портфеля, а власні гроші, що вийшли
@@ -174,11 +174,11 @@ func eligibleUAH(level, src string, amountUAH, principalUAH float64) float64 {
 	}
 }
 
-// allocAllow — що дозволяє САМЕ ДЖЕРЕЛО цих грошей.
+// AllocAllow — що дозволяє САМЕ ДЖЕРЕЛО цих грошей.
 //
 // ReserveUAH/GoalsUAH приходять уже готовими: політика (reserve_fill_from,
 // goals_fill_from) і дозвіл джерела в них зведені мінімумом ще в
-// reserveEligibleUAH/goalsEligibleUAH. Uses ж потрібен окремо й сирим — по
+// ReserveEligibleUAH/GoalsEligibleUAH. Uses ж потрібен окремо й сирим — по
 // ньому вирішується доля ВИДІВ інструментів, у яких грошового ліміту
 // немає взагалі: «сюди можна» або «сюди ні».
 //
@@ -186,7 +186,7 @@ func eligibleUAH(level, src string, amountUAH, principalUAH float64) float64 {
 // як порожній uses у сховищі. Це не випадковість, а страховка: булеани
 // «дозволено» дали б протилежний дефолт, і структура, зібрана не до
 // кінця, мовчки заборонила б усе.
-type allocAllow struct {
+type AllocAllow struct {
 	ReserveUAH float64
 	GoalsUAH   float64
 	// Uses — канонічний дозвіл джерела ("" = будь-куди), читається через
@@ -229,8 +229,8 @@ type allocLine struct {
 	// браузері читається як «сума є, вона нульова» — тобто «0 ₴» замість
 	// прочерку.
 	Qty      int64       `json:"qty,omitempty"`
-	Unit     *moneyJSON  `json:"unit,omitempty"`
-	Amount   *moneyJSON  `json:"amount,omitempty"`
+	Unit     *MoneyJSON  `json:"unit,omitempty"`
+	Amount   *MoneyJSON  `json:"amount,omitempty"`
 	TotalUAH state.Money `json:"total_uah"`
 	RealPct  float64     `json:"real_pct"`
 	Why      string      `json:"why"`
@@ -245,7 +245,7 @@ type allocLine struct {
 	Convert       bool        `json:"convert,omitempty"`
 	ConvertNative state.Money `json:"convert_native,omitzero"`
 	// Picked — папір у цьому рядку обрала людина, а не рейтинг
-	// (allocAllow.PickISIN). Сторінка підписує такий рядок «твій вибір» і
+	// (AllocAllow.PickISIN). Сторінка підписує такий рядок «твій вибір» і
 	// пропонує його скинути; без позначки вибір і порада виглядали б однаково.
 	Picked bool `json:"picked,omitempty"`
 	// Звідки взялась ціна кроку й у кого вона така.
@@ -264,7 +264,7 @@ type allocLine struct {
 	CostAsOf       string     `json:"cost_as_of,omitempty"`
 	CostWhere      string     `json:"cost_where,omitempty"`
 	CostWhereLabel string     `json:"cost_where_label,omitempty"`
-	CostAlt        *moneyJSON `json:"cost_alt,omitempty"`
+	CostAlt        *MoneyJSON `json:"cost_alt,omitempty"`
 	CostAltWhere   string     `json:"cost_alt_where,omitempty"`
 }
 
@@ -298,7 +298,7 @@ type allocGoalCut struct {
 }
 
 type allocPlan struct {
-	Amount    moneyJSON     `json:"amount"`
+	Amount    MoneyJSON     `json:"amount"`
 	AmountUAH state.Money   `json:"amount_uah"`
 	Reserve   *allocReserve `json:"reserve,omitempty"`
 	// Goals — вирізки цілей, у порядку наповнення. GoalsSkipWhy — чому цілі
@@ -321,21 +321,21 @@ type allocPlan struct {
 	Note string `json:"note,omitempty"`
 }
 
-// sourceCapUAH — стеля джерела для одного кошика: уся сума або нуль.
+// SourceCapUAH — стеля джерела для одного кошика: уся сума або нуль.
 //
 // Проміжних значень тут не буває за побудовою: дозвіл — це «можна» або
 // «ні», а СКІЛЬКИ саме взяти, вирішує стеля наповнення. Число ж замість
 // булеана тому, що далі його чекає мінімум із політикою, і два різні типи
 // на одному рядку довелось би зводити руками (аргумент при
-// reserveEligibleUAH).
-func sourceCapUAH(uses, bucket string, amountUAH float64) float64 {
+// ReserveEligibleUAH).
+func SourceCapUAH(uses, bucket string, amountUAH float64) float64 {
 	if domain.PlanUseAllowed(uses, bucket) {
 		return amountUAH
 	}
 	return 0
 }
 
-// usesForRef — дозвіл того надходження, яке розкладають.
+// UsesForRef — дозвіл того надходження, яке розкладають.
 //
 // Читає СХОВИЩЕ, а не тіло запиту, і це не педантизм: дозвіл вирішує, чи
 // піде вирізка в подушку, тож взяти його зі сторінки означало б дати
@@ -344,7 +344,7 @@ func sourceCapUAH(uses, bucket string, amountUAH float64) float64 {
 // Невідоме посилання — помилка, а не «обмежень немає». Мовчазний дефолт
 // тут був би найгіршим виглядом збою: розкладка виглядала б звичайною й
 // різала б подушку з грошей, яким це заборонено.
-func (e *engine) usesForRef(ctx context.Context, ref string) (string, error) {
+func (e *Engine) UsesForRef(ctx context.Context, ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return "", nil
@@ -353,7 +353,7 @@ func (e *engine) usesForRef(ctx context.Context, ref string) (string, error) {
 	case strings.HasPrefix(ref, allocRefFlow):
 		id, err := strconv.ParseInt(strings.TrimPrefix(ref, allocRefFlow), 10, 64)
 		if err != nil || id <= 0 {
-			return "", badRequestf("джерело розкладки: %q не схоже на %s<id>", ref, allocRefFlow)
+			return "", BadRequestf("джерело розкладки: %q не схоже на %s<id>", ref, allocRefFlow)
 		}
 		flows, err := e.st.ListPlanFlows(ctx)
 		if err != nil {
@@ -368,7 +368,7 @@ func (e *engine) usesForRef(ctx context.Context, ref string) (string, error) {
 	case strings.HasPrefix(ref, allocRefReceipt):
 		id, err := strconv.ParseInt(strings.TrimPrefix(ref, allocRefReceipt), 10, 64)
 		if err != nil || id <= 0 {
-			return "", badRequestf("джерело розкладки: %q не схоже на %s<id>", ref, allocRefReceipt)
+			return "", BadRequestf("джерело розкладки: %q не схоже на %s<id>", ref, allocRefReceipt)
 		}
 		receipts, err := e.st.ListPlanReceipts(ctx)
 		if err != nil {
@@ -379,20 +379,20 @@ func (e *engine) usesForRef(ctx context.Context, ref string) (string, error) {
 				continue
 			}
 			// Прив'язана відмітка своєї колонки не читає — дозвіл їй задає
-			// потік. Та сама підстановка, що в receiptRows, і без неї
+			// потік. Та сама підстановка, що в ReceiptRows, і без неї
 			// «інше» й «зарплата» відповідали б на дозвіл по-різному.
 			if rc.FlowID == 0 {
 				return rc.Uses, nil
 			}
-			return e.usesForRef(ctx, allocRefFlow+strconv.FormatInt(rc.FlowID, 10))
+			return e.UsesForRef(ctx, allocRefFlow+strconv.FormatInt(rc.FlowID, 10))
 		}
 		return "", fmt.Errorf("відмітка надходження %d %w", id, store.ErrNotFound)
 	}
-	return "", badRequestf("джерело розкладки: %q — буває %s<id> або %s<id>",
+	return "", BadRequestf("джерело розкладки: %q — буває %s<id> або %s<id>",
 		ref, allocRefFlow, allocRefReceipt)
 }
 
-// npfIDByName — id рахунків НПФ за назвою.
+// NPFIDByName — id рахунків НПФ за назвою.
 //
 // Id береться зі СХОВИЩА, а не з поради: doc.NPF несе назву (саме її й
 // видно на екрані), а план тримається за id, щоб виправлення описки в
@@ -404,7 +404,7 @@ func (e *engine) usesForRef(ctx context.Context, ref string) (string, error) {
 // означала б, що дві відповіді на «у котрий пенсійний вносити» можуть
 // розійтись — а розійтись вони можуть рівно в тому випадку, заради якого
 // нуль нижче й стоїть.
-func (e *engine) npfIDByName(ctx context.Context) map[string]int64 {
+func (e *Engine) NPFIDByName(ctx context.Context) map[string]int64 {
 	out := map[string]int64{}
 	accs, err := e.st.ListNPFAccounts(ctx)
 	if err != nil {
@@ -453,10 +453,10 @@ var allocKind = map[string]string{
 	"bond": "bonds", "fund": "funds", "deposit": "deposits", "npf": "npf",
 }
 
-// allocatePlan — уся розкладка. Чиста функція над готовим документом: саме
+// AllocatePlan — уся розкладка. Чиста функція над готовим документом: саме
 // тому її можна перевірити тестом, не піднімаючи сервера.
-func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
-	amount moneyJSON, amountUAH float64, allow allocAllow,
+func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
+	amount MoneyJSON, amountUAH float64, allow AllocAllow,
 	cur string, npfID map[string]int64) allocPlan {
 	mt := moneyTextOf(doc)
 
@@ -700,11 +700,11 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	// давати осмислений результат узагалі. Копійчані бюджети — не рідкість,
 	// і зловити це на очі неможливо: порядок просто інший, ніж мав би бути.
 	//
-	// round2 тому, що гривня однаково округлюється перед показом: два
+	// Round2 тому, що гривня однаково округлюється перед показом: два
 	// бюджети, які на екрані одне й те саме число, мусять і впорядкуватись
 	// за ключем, а не за невидимою третьою цифрою.
 	sort.Slice(budgets, func(i, j int) bool {
-		a, b := round2(budgets[i].uah), round2(budgets[j].uah)
+		a, b := Round2(budgets[i].uah), Round2(budgets[j].uah)
 		if a != b {
 			return a > b
 		}
@@ -734,7 +734,7 @@ func allocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			}
 			// Обраний папір ЗАМІСТЬ рейтингу, а не поперед нього: доки вибір
 			// названий, решта ОВДП для цієї суми не існує. Довід — при
-			// allocAllow.PickISIN.
+			// AllocAllow.PickISIN.
 			if b.key == "bonds" && allow.PickISIN != "" && sg.ISIN != allow.PickISIN {
 				continue
 			}
@@ -880,7 +880,7 @@ type topUpIn struct {
 	rooms   map[string]float64 // недобір виду ПІСЛЯ його бюджету, ₴
 	goals   []state.Goal
 	reserve *state.Reserve
-	allow   allocAllow
+	allow   AllocAllow
 	// goalsElig — скільки цілям іще дозволено ПІСЛЯ першого проходу. Число
 	// приїжджає звідти, а не рахується тут: друге означення розійшлося б із
 	// першим рівно тоді, коли вирізка була частковою.
@@ -1062,7 +1062,7 @@ func allocTopUp(out *allocPlan, in topUpIn) float64 {
 // Порівняння точне по округленому числу (довід — при сортуванні бюджетів).
 func sortSpots(s []allocSpot) {
 	sort.Slice(s, func(i, j int) bool {
-		a, b := round2(s[i].rank), round2(s[j].rank)
+		a, b := Round2(s[i].rank), Round2(s[j].rank)
 		if a != b {
 			return a > b
 		}
@@ -1363,7 +1363,7 @@ func allocBelowFloorWhy(mt moneyText, who, takes, willTake string, amountUAH flo
 // залишок фразою «інструментів із відомою ціною в цих видах немає» —
 // неправдою про наявний рахунок.
 //
-// І лише коли рахунок є. Без id вносити нема куди (npfIDByName вимикає
+// І лише коли рахунок є. Без id вносити нема куди (NPFIDByName вимикає
 // рядок замість того, щоб угадати), а назвати поріг «наступним кроком»
 // означало б обіцяти дію, якої застосунок виконати не може.
 func allocStepUAH(sg suggestion, rates fx.Rates, npfID map[string]int64) float64 {
@@ -1422,7 +1422,7 @@ func allocOne(sg suggestion, left float64, rates fx.Rates,
 		// «конвертація» на ньому була б неправдою.
 		line.Ref = strconv.FormatInt(id, 10)
 		line.Currency = money.UAH
-		amt := toMoneyJSON(money.New(int64(math.Round(left*100)), money.UAH))
+		amt := ToMoneyJSON(money.New(int64(math.Round(left*100)), money.UAH))
 		line.Amount = &amt
 		line.TotalUAH = state.Major(left, money.UAH)
 		line.Addable = true
@@ -1451,7 +1451,7 @@ func allocOne(sg suggestion, left float64, rates fx.Rates,
 		// Ref — банк, і лише для наявного вкладу: у рядка «Новий вклад» банку
 		// немає взагалі. Addable хибне в обох випадках (див. allocLine).
 		line.Ref = sg.Label
-		amt := toMoneyJSON(money.New(
+		amt := ToMoneyJSON(money.New(
 			int64(math.Round(spent/allocRate(sg.Currency, rates)*100)), sg.Currency))
 		line.Amount = &amt
 		line.Qty, line.Unit = 0, nil

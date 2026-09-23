@@ -136,7 +136,7 @@ func planFlowFromReq(req planFlowReq) (store.PlanFlow, error) {
 	// самою формою.
 	//
 	// Проєкція розгортає внесок рівно з відʼємної місячної суми
-	// (state_projection.go: `if v := planFlowMonthlyUAH(...); v < 0`), тож
+	// (state_projection.go: `if v := PlanFlowMonthlyUAH(...); v < 0`), тож
 	// на доході призначення не робить НІЧОГО. Мовчазний нуль там гірший за
 	// помилку: поле лишалось видимим, список малював під рядком пігулку
 	// «переказ, а не витрата», і застосунок стверджував рух, якого не було
@@ -173,7 +173,7 @@ type planFlowRow struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
 	Kind      string    `json:"kind"`
-	Amount    moneyJSON `json:"amount"`
+	Amount    MoneyJSON `json:"amount"`
 	Cadence   string    `json:"cadence"`
 	FromDate  string    `json:"from_date"`
 	UntilDate string    `json:"until_date,omitempty"`
@@ -253,10 +253,10 @@ func planUsesRow(f store.PlanFlow) []string {
 // Перебором вікна це рахувати не можна: дванадцять нулів попереду однаково
 // дає й потік, який почнеться на третій рік, — а він не завершений.
 func planFlowExpired(f store.PlanFlow, today domain.Date) bool {
-	if f.UntilDate != "" && monthOffsetRaw(today, f.UntilDate) < 1 {
+	if f.UntilDate != "" && MonthOffsetRaw(today, f.UntilDate) < 1 {
 		return true
 	}
-	return f.Cadence == "once" && monthOffsetRaw(today, f.FromDate) < 1
+	return f.Cadence == "once" && MonthOffsetRaw(today, f.FromDate) < 1
 }
 
 // toPlanFlowRow. marks обов'язковий саме тут, і забути його було б тихо:
@@ -264,26 +264,26 @@ func planFlowExpired(f store.PlanFlow, today domain.Date) bool {
 // рахується з відмітками (state_projection.go). Без них таблиця показувала
 // б план так, ніби майбутніх нулів ніхто не відмічав, а підсумок під нею —
 // уже з ними. Тест тримає рівність.
-func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates, marks planMarks) planFlowRow {
+func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates, marks PlanMarks) planFlowRow {
 	return planFlowRow{
 		ID: f.ID, Name: f.Name, Kind: f.Kind,
-		Amount: toMoneyJSON(money.New(f.Amount, f.Currency)), Cadence: f.Cadence,
+		Amount: ToMoneyJSON(money.New(f.Amount, f.Currency)), Cadence: f.Cadence,
 		FromDate: string(f.FromDate), UntilDate: string(f.UntilDate),
-		GrowthPct: round2(float64(f.GrowthBP) / 100), InvestPct: round2(float64(f.InvestBP) / 100),
+		GrowthPct: Round2(float64(f.GrowthBP) / 100), InvestPct: Round2(float64(f.InvestBP) / 100),
 		Dest:        f.Dest,
 		Uses:        planUsesRow(f),
 		Note:        f.Note,
 		Expired:     planFlowExpired(f, today),
-		ProvidesUAH: state.Major(planFlowProvidesUAH(f, today, rates, planProvidesMonths, marks), money.UAH),
-		GrossUAH:    state.Major(planFlowGrossUAH(f, today, rates, planProvidesMonths, marks), money.UAH),
+		ProvidesUAH: state.Major(PlanFlowProvidesUAH(f, today, rates, PlanProvidesMonths, marks), money.UAH),
+		GrossUAH:    state.Major(PlanFlowGrossUAH(f, today, rates, PlanProvidesMonths, marks), money.UAH),
 
-		AmountUAH: state.Major(planFlowUAH(float64(f.Amount)/100, f.Currency, rates), money.UAH),
+		AmountUAH: state.Major(PlanFlowUAH(float64(f.Amount)/100, f.Currency, rates), money.UAH),
 		// Стала ставка відміток НЕ бачить, і це навмисно: вона відповідає на
 		// «скільки цей потік платить, коли платить», — питання без місяця,
 		// тож і замістити в ньому нема чого.
-		MonthlyUAH:      state.Major(planFlowUAH(planFlowSteadyNative(f, today, true), f.Currency, rates), money.UAH),
-		MonthlyGrossUAH: state.Major(planFlowUAH(planFlowSteadyNative(f, today, false), f.Currency, rates), money.UAH),
-		NextMonthUAH:    state.Major(planFlowMonthlyUAH(f, today, rates, 1, marks), money.UAH),
+		MonthlyUAH:      state.Major(PlanFlowUAH(PlanFlowSteadyNative(f, today, true), f.Currency, rates), money.UAH),
+		MonthlyGrossUAH: state.Major(PlanFlowUAH(PlanFlowSteadyNative(f, today, false), f.Currency, rates), money.UAH),
+		NextMonthUAH:    state.Major(PlanFlowMonthlyUAH(f, today, rates, 1, marks), money.UAH),
 	}
 }
 
@@ -298,16 +298,16 @@ func (s *Server) handleListPlanFlows(w http.ResponseWriter, r *http.Request) {
 	// не ламається. Єдина поверхня правки плану не має вмирати від того,
 	// що довідник НБУ сьогодні не оновився.
 	today := domain.NewDate(time.Now())
-	rates, _ := s.rates(r.Context()) //nolint:errcheck // свідомо: див. вище
+	rates, _ := s.Rates(r.Context()) //nolint:errcheck // свідомо: див. вище
 	// Відмітки ковтаємо з тієї ж причини й з тим самим наслідком: без них
 	// колонка покаже чистий план. Порожні відмітки — звичайний стан.
 	receipts, _ := s.st.ListPlanReceipts(r.Context()) //nolint:errcheck // свідомо: див. вище
-	marks := newPlanMarks(receipts)
+	marks := NewPlanMarks(receipts)
 	out := make([]planFlowRow, 0, len(flows))
 	for _, f := range flows {
 		out = append(out, toPlanFlowRow(f, today, rates, marks))
 	}
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -474,7 +474,7 @@ type planActionRow struct {
 	// float64 мовчки з'їв би її так само, як і незадану. nil = не задано.
 	USDSharePct *float64   `json:"usd_share_pct,omitempty"`
 	EURSharePct *float64   `json:"eur_share_pct,omitempty"`
-	Amount      *moneyJSON `json:"amount,omitempty"`
+	Amount      *MoneyJSON `json:"amount,omitempty"`
 	RatePct     float64    `json:"rate_pct,omitempty"`
 	Months      int        `json:"months,omitempty"`
 	Name        string     `json:"name,omitempty"`
@@ -484,17 +484,17 @@ type planActionRow struct {
 func toPlanActionRow(a store.PlanAction) planActionRow {
 	out := planActionRow{ID: a.ID, Date: string(a.Date), Type: a.Type, Name: a.Name, Note: a.Note}
 	if a.USDBP >= 0 {
-		v := round2(float64(a.USDBP) / 100)
+		v := Round2(float64(a.USDBP) / 100)
 		out.USDSharePct = &v
 	}
 	if a.EURBP >= 0 {
-		v := round2(float64(a.EURBP) / 100)
+		v := Round2(float64(a.EURBP) / 100)
 		out.EURSharePct = &v
 	}
 	if a.Type == "lock" {
-		v := toMoneyJSON(money.New(a.Amount, a.Currency))
+		v := ToMoneyJSON(money.New(a.Amount, a.Currency))
 		out.Amount = &v
-		out.RatePct = round2(float64(a.RateBP) / 100)
+		out.RatePct = Round2(float64(a.RateBP) / 100)
 		out.Months = a.Months
 	}
 	return out
@@ -512,7 +512,7 @@ func (s *Server) handleListPlanActions(w http.ResponseWriter, r *http.Request) {
 	}
 	// Грошей у діях немає (частки й ставка), але той самий шлях, що в
 	// потоків: одна форма на файл дешевша за виняток у гейті.
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

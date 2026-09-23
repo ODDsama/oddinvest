@@ -2,9 +2,9 @@
 //
 // Та сама природа, що в підсумку місяця (handlers_period.go): сторінка
 // дивиться назад на ЗАКРИТИЙ період як на ціле, і нічого тут не
-// рахується вдруге. Гроші — summarizeCash, «було → стало» —
+// рахується вдруге. Гроші — SummarizeCash, «було → стало» —
 // periodStructureOf, рішення — periodDecisionsOf, місяці — та сама
-// смужка серії (buildStreak), яку малює «Звичка». Рік лише складає їх
+// смужка серії (BuildStreak), яку малює «Звичка». Рік лише складає їх
 // поруч і додає те, чого місяць не має:
 //
 //   - хітмап днів (Days) — кожен день року з рухом грошей і рівень
@@ -98,7 +98,7 @@ func (s *Server) handleYear(w http.ResponseWriter, r *http.Request) {
 	from := domain.Date(fmt.Sprintf("%04d-01-01", year))
 	to := domain.Date(fmt.Sprintf("%04d-12-31", year))
 
-	events, err := s.cashEvents(ctx)
+	events, err := s.CashEvents(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -114,7 +114,7 @@ func (s *Server) handleYear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := buildYear(year, from, to, today, events, snaps, list)
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -122,23 +122,23 @@ func (s *Server) handleYear(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildYear — чиста функція над готовими даними (як buildProgress).
-func buildYear(year int, from, to, today domain.Date, events []flowEvent,
+func buildYear(year int, from, to, today domain.Date, events []FlowEvent,
 	snaps []store.Snapshot, list []store.Decision) yearResp {
 
-	sum := summarizeCash(events, from, to)
+	sum := SummarizeCash(events, from, to)
 	out := yearResp{
 		Year: year, From: string(from), To: string(to),
 		Partial: to.After(today),
 		Years:   yearsOf(events, snaps, today),
 		Money: periodMoney{
-			OpeningUAH:  state.Major(sum.major(sum.OpeningUAH), money.UAH),
-			IncomeUAH:   state.Major(sum.major(sum.IncomeUAH), money.UAH),
-			ContribUAH:  state.Major(sum.major(sum.ContribUAH), money.UAH),
-			PurchaseUAH: state.Major(sum.major(-sum.PurchaseUAH), money.UAH),
-			ConvUAH:     state.Major(sum.major(sum.ConvUAH), money.UAH),
-			ClosingUAH:  state.Major(sum.major(sum.ClosingUAH()), money.UAH),
-			OutsideUAH:  state.Major(sum.major(sum.OutsideUAH), money.UAH),
-			OwnUAH:      state.Major(sum.major(sum.OwnUAH()), money.UAH),
+			OpeningUAH:  state.Major(sum.Major(sum.OpeningUAH), money.UAH),
+			IncomeUAH:   state.Major(sum.Major(sum.IncomeUAH), money.UAH),
+			ContribUAH:  state.Major(sum.Major(sum.ContribUAH), money.UAH),
+			PurchaseUAH: state.Major(sum.Major(-sum.PurchaseUAH), money.UAH),
+			ConvUAH:     state.Major(sum.Major(sum.ConvUAH), money.UAH),
+			ClosingUAH:  state.Major(sum.Major(sum.ClosingUAH()), money.UAH),
+			OutsideUAH:  state.Major(sum.Major(sum.OutsideUAH), money.UAH),
+			OwnUAH:      state.Major(sum.Major(sum.OwnUAH()), money.UAH),
 		},
 		Months: []yearMonth{},
 		Days:   []yearDay{},
@@ -155,7 +155,7 @@ func buildYear(year int, from, to, today domain.Date, events []flowEvent,
 			byDay[string(e.Date)] = d
 		}
 		switch e.Kind {
-		case flowIncome:
+		case FlowIncome:
 			income = append(income, domain.CashEvent{Date: e.Date, Amount: e.UAH})
 			if e.Principal {
 				principal += e.UAH
@@ -164,10 +164,10 @@ func buildYear(year int, from, to, today domain.Date, events []flowEvent,
 			}
 			d.IncomeUAH = d.IncomeUAH.Add(state.Minor(e.UAH, money.UAH))
 			byMonthIncome[string(e.Date)[:7]] += e.UAH
-		case flowPurchase:
+		case FlowPurchase:
 			buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
 			d.PurchaseUAH = d.PurchaseUAH.Add(state.Minor(e.UAH, money.UAH))
-		case flowContribution, flowOutside:
+		case FlowContribution, FlowOutside:
 			// Свої гроші — гаманець і подушка разом, як у плитці «Цей
 			// місяць»: день, коли відклав у подушку, — день із рухом.
 			d.ContribUAH = d.ContribUAH.Add(state.Minor(e.UAH, money.UAH))
@@ -175,7 +175,7 @@ func buildYear(year int, from, to, today domain.Date, events []flowEvent,
 	}
 	out.EarnedUAH = state.Minor(earned, money.UAH)
 	out.PrincipalUAH = state.Minor(principal, money.UAH)
-	out.IdleUAH = state.Major(sum.major(domain.IdleIncome(income, buys)), money.UAH)
+	out.IdleUAH = state.Major(sum.Major(domain.IdleIncome(income, buys)), money.UAH)
 	out.Days = heatDays(byDay)
 
 	out.Structure, out.StructureNote = periodStructureOf(snaps, from, "рік", "року")
@@ -188,7 +188,7 @@ func buildYear(year int, from, to, today domain.Date, events []flowEvent,
 	// місяць смужка не містить (ціль ще не закрита), і тут його теж
 	// немає — за тим самим доводом.
 	prefix := fmt.Sprintf("%04d-", year)
-	for _, mk := range buildStreak(snaps, events, today).Marks {
+	for _, mk := range BuildStreak(snaps, events, today).Marks {
 		if len(mk.Month) < 4 || mk.Month[:5] != prefix {
 			continue
 		}
@@ -257,7 +257,7 @@ func abs(v float64) float64 {
 }
 
 // yearsOf — роки від першого руху грошей (або знімка) до сьогодні.
-func yearsOf(events []flowEvent, snaps []store.Snapshot, today domain.Date) []int {
+func yearsOf(events []FlowEvent, snaps []store.Snapshot, today domain.Date) []int {
 	first := today.Year()
 	for _, e := range events {
 		if y := e.Date.Year(); y < first {

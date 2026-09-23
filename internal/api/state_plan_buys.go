@@ -50,7 +50,7 @@
 // пройшла б зеленою.
 
 // Синтетика НІКОЛИ не пишеться в сховище. Вона живе рівно один виклик
-// buildStateWith, тож GET /api/plan/actions і /api/plan/flows після
+// BuildStateWith, тож GET /api/plan/actions і /api/plan/flows після
 // будь-якого whatif лишаються тими самими — це закріплено тестом.
 package api
 
@@ -90,18 +90,18 @@ func (s *synthID) next() int64 { s.n--; return s.n }
 
 // planBuyExpansion — результат розгортання всього плану.
 type planBuyExpansion struct {
-	what   hypothetical
-	basket basketDoc
+	what   Hypothetical
+	basket BasketDoc
 }
 
 // expandPlanBuys — увесь план купівель у гіпотезу й рядки кошика.
 //
 // before потрібен двічі: за цінами сертифікатів (їх знає лише зведення) і
 // за брокером, коли його не назвали.
-func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
+func (e *Engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 	today domain.Date, rows []store.PlanBuy) (planBuyExpansion, error) {
 
-	out := planBuyExpansion{basket: basketDoc{Lines: []basketLine{}}}
+	out := planBuyExpansion{basket: BasketDoc{Lines: []basketLine{}}}
 	totals := map[string]int64{}
 	var ids synthID
 
@@ -116,7 +116,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 	var quotes *quoteBook
 	quoteFor := func(isin string) (*store.Quote, error) {
 		if quotes == nil {
-			b, err := e.quotesFor(ctx, nil, today)
+			b, err := e.QuotesFor(ctx, nil, today)
 			if err != nil {
 				return nil, err
 			}
@@ -166,7 +166,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 		case store.BuyBond:
 			b, err := e.st.GetBond(ctx, row.Ref)
 			if err != nil || b == nil {
-				return out, badRequestf("паперу %q немає в довіднику", row.Ref)
+				return out, BadRequestf("паперу %q немає в довіднику", row.Ref)
 			}
 			pays, perr := e.st.PaymentsFor(ctx, []string{row.Ref})
 			if perr != nil {
@@ -185,7 +185,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 			unit, _ = bondUnitCost(*b, pays, when, q)
 			line.Label = row.Ref
 			if unit.Amount() <= 0 {
-				return out, badRequestf("%s: ціни немає, купувати нема за чим", row.Ref)
+				return out, BadRequestf("%s: ціни немає, купувати нема за чим", row.Ref)
 			}
 			total := unit.Amount() * row.Qty
 			if future {
@@ -195,7 +195,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 				// числа на сусідніх екранах.
 				ytm, yerr := domain.YTM(unit, when, pays, row.Ref)
 				if yerr != nil || ytm <= 0 {
-					return out, badRequestf(
+					return out, BadRequestf(
 						"%s: не вдалось порахувати дохідність до погашення — без неї замок у прогнозі лише заморозить гроші",
 						row.Ref)
 				}
@@ -206,7 +206,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 				// Довідник паперу їде РАЗОМ із лотом: loadSources тягне його
 				// лише для ISIN, що вже зустрічаються в портфелі, і без цього
 				// куплений уперше папір увійшов би в капітал нулем (див.
-				// hypothetical.bonds).
+				// Hypothetical.bonds).
 				if out.what.bonds == nil {
 					out.what.bonds = map[string]domain.Bond{}
 				}
@@ -236,7 +236,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 			unit = fundUnitCost(planBuyFundPrice(row, before), cur)
 			line.Label = row.Ref
 			if unit.Amount() <= 0 {
-				return out, badRequestf(
+				return out, BadRequestf(
 					"%s: ціни сертифіката немає — цього фонду ще немає в портфелі, тож задай ціну за штуку",
 					row.Ref)
 			}
@@ -279,7 +279,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 			}
 
 		case store.BuyDeposit:
-			cur := orUAH(row.Currency)
+			cur := OrUAH(row.Currency)
 			unit = money.New(row.Amount, cur)
 			line.Qty = 1
 			line.Label = row.Ref
@@ -294,7 +294,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 			// на нуль, тобто неправильне число там, де раніше була чесна
 			// відмова.
 			if rateBP <= 0 {
-				return out, badRequestf(
+				return out, BadRequestf(
 					"вклад у %s: ставки немає ні в рядку, ні в налаштуваннях — без неї порахувати відсотки нема з чого",
 					cur)
 			}
@@ -343,9 +343,9 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 			id, _ := strconv.ParseInt(row.Ref, 10, 64) //nolint:errcheck // форму перевірив planBuyFromReq
 			acc, ok := npfByID[id]
 			if !ok {
-				return out, badRequestf("пенсійного рахунку %s немає", row.Ref)
+				return out, BadRequestf("пенсійного рахунку %s немає", row.Ref)
 			}
-			cur := orUAH(acc.Currency)
+			cur := OrUAH(acc.Currency)
 			unit = money.New(row.Amount, cur)
 			line.Qty = 1
 			line.Label = acc.Name
@@ -363,7 +363,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 				// списав би гроші й не приніс вартості: капітал просів би
 				// рівно на суму внеску.
 				if acc.Nav <= 0 {
-					return out, badRequestf(
+					return out, BadRequestf(
 						"%s: ЧВОПА невідома — порахувати, скільки одиниць купить внесок, нема з чого",
 						acc.Name)
 				}
@@ -378,7 +378,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 			}
 
 		default:
-			return out, badRequestf("невідомий вид покупки %q", row.Kind)
+			return out, BadRequestf("невідомий вид покупки %q", row.Kind)
 		}
 
 		cur := unit.Currency().Code
@@ -404,7 +404,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 		//
 		// ЧОМУ ВЗАГАЛІ. Гіпотеза додавала витрату й нічого більше — і
 		// капітал через це ПАДАВ на покупці. Довід повністю записаний при
-		// hypothetical.topUps.
+		// Hypothetical.topUps.
 		//
 		// НЕ ГРИВНЕВИМ ЕКВІВАЛЕНТОМ однією сумою: доларовий папір списує
 		// долари, і компенсація в гривні лишила б валютний рахунок у
@@ -421,8 +421,8 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 				Note: "план купівель",
 			})
 		}
-		line.Unit = toMoneyJSON(unit)
-		line.Total = toMoneyJSON(money.New(total, cur))
+		line.Unit = ToMoneyJSON(unit)
+		line.Total = ToMoneyJSON(money.New(total, cur))
 		line.Currency = cur
 		line.Broker, line.Assumed = broker, assumed
 		out.basket.Lines = append(out.basket.Lines, line)
@@ -430,7 +430,7 @@ func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 	}
 
 	for cur, v := range totals {
-		out.basket.Totals = append(out.basket.Totals, toMoneyJSON(money.New(v, cur)))
+		out.basket.Totals = append(out.basket.Totals, ToMoneyJSON(money.New(v, cur)))
 	}
 	sortMoneyJSON(out.basket.Totals)
 	return out, nil
@@ -460,7 +460,7 @@ func lockAction(row store.PlanBuy, when domain.Date, amount int64,
 // Для накопичувального це компроміс, записаний нижче.
 func fundLockTerms(ref store.Fund, when domain.Date) (int64, int, error) {
 	if ref.Name == "" {
-		return 0, 0, badRequestf(
+		return 0, 0, BadRequestf(
 			"фонду немає в довіднику — без обіцяної дохідності замок у прогнозі лише заморозить гроші")
 	}
 	pct := float64(ref.ExpectedYieldBP) / 100
@@ -482,7 +482,7 @@ func fundLockTerms(ref store.Fund, when domain.Date) (int64, int, error) {
 		pct = domain.NetOfTax(pct, float64(ref.IncomeTaxBP)/100, years)
 	}
 	if pct <= 0 {
-		return 0, 0, badRequestf(
+		return 0, 0, BadRequestf(
 			"у фонда «%s» не задана очікувана дохідність — без неї замок у прогнозі лише заморозить гроші",
 			ref.Name)
 	}
@@ -523,12 +523,12 @@ func planFundAccum(ref store.Fund, when, today domain.Date, amount float64,
 	cur string) (planFundBuy, error) {
 
 	if ref.Name == "" {
-		return planFundBuy{}, badRequestf(
+		return planFundBuy{}, BadRequestf(
 			"фонду немає в довіднику — без обіцяної дохідності позиція в прогнозі не росла б")
 	}
 	rate := fundOwnRatePct(ref, 0)
 	if rate <= 0 {
-		return planFundBuy{}, badRequestf(
+		return planFundBuy{}, BadRequestf(
 			"у фонда «%s» не задана очікувана дохідність — без неї позиція в прогнозі не росла б",
 			ref.Name)
 	}
@@ -632,15 +632,15 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// badRequestf — помилка, яку handleWhatIf віддає як 400. Окремий тип, бо
+// BadRequestf — помилка, яку handleWhatIf віддає як 400. Окремий тип, бо
 // решта помилок фази — це поломки сховища, і плутати їх з опискою у формі
 // означало б показати людині 500 там, де вона просто не дозаповнила поле.
-type badRequestError struct{ msg string }
+type BadRequestError struct{ msg string }
 
-func (e badRequestError) Error() string { return e.msg }
+func (e BadRequestError) Error() string { return e.msg }
 
-func badRequestf(format string, args ...any) error {
-	return badRequestError{msg: fmt.Sprintf(format, args...)}
+func BadRequestf(format string, args ...any) error {
+	return BadRequestError{msg: fmt.Sprintf(format, args...)}
 }
 
 // basketLine — один рядок плану, вже з ціною.
@@ -651,8 +651,8 @@ type basketLine struct {
 	Kind     string    `json:"kind"`
 	Label    string    `json:"label"`
 	Qty      int64     `json:"qty"`
-	Unit     moneyJSON `json:"unit"`
-	Total    moneyJSON `json:"total"`
+	Unit     MoneyJSON `json:"unit"`
+	Total    MoneyJSON `json:"total"`
 	Currency string    `json:"currency"`
 	// BuyDate — коли планую; порожньо = «зараз».
 	//
@@ -680,7 +680,7 @@ type basketLine struct {
 	Assumed bool   `json:"broker_assumed,omitempty"`
 }
 
-// basketDoc — план купівель у грошах.
+// BasketDoc — план купівель у грошах.
 //
 // НЕСТАЧІ ТУТ БІЛЬШЕ НЕМАЄ, і абзац лишається, щоб її не завели заново.
 // Доти поруч із Totals стояли Shorts: скільки бракує кожному брокеру,
@@ -694,13 +694,13 @@ type basketLine struct {
 // рядків («назвати нестачею те, що станеться після п'яти зарплат»). Вона
 // просто не була поширена на найближчі.
 //
-// Сама арифметика жива й недоторкана: shortfallMinor у cash_shortfall.go
+// Сама арифметика жива й недоторкана: ShortfallMinor у cash_shortfall.go
 // обслуговує форми запису (лот, вклад, поповнення, НПФ) і дату «коли
 // вистачить» у ready_on.go. Там питання інше — «я записую платіж ЗАРАЗ»,
 // — і сьогоднішній залишок відповідає на нього правильно.
-type basketDoc struct {
+type BasketDoc struct {
 	Lines  []basketLine `json:"lines"`
-	Totals []moneyJSON  `json:"totals"` // разом по кожній валюті
+	Totals []MoneyJSON  `json:"totals"` // разом по кожній валюті
 }
 
 // findFundRow — фонд у вже зібраному стані. Беремо звідти, а не з
@@ -745,15 +745,15 @@ func pickBroker(doc *state.Doc, cur, want string) (string, bool) {
 // щось запишуть.
 //
 // ВЛАСНОЇ АРИФМЕТИКИ ТУТ ОДНЕ ВІДНІМАННЯ, і воно нижче. Усе решта —
-// allocatePlan, та сама чиста функція, що обслуговує розкладку надходження
+// AllocatePlan, та сама чиста функція, що обслуговує розкладку надходження
 // й ногу маршруту.
-func (e *engine) addTopup(ctx context.Context, now time.Time,
-	after *state.Doc, basket basketDoc, pickISIN string, out *whatIfPayload) error {
+func (e *Engine) addTopup(ctx context.Context, now time.Time,
+	after *state.Doc, basket BasketDoc, pickISIN string, out *whatIfPayload) error {
 
 	if after.MonthPlan == nil || after.MonthPlan.LeftUAH.Major() <= 0 {
 		return nil
 	}
-	rates, err := e.rates(ctx)
+	rates, err := e.Rates(ctx)
 	if err != nil {
 		return err
 	}
@@ -766,7 +766,7 @@ func (e *engine) addTopup(ctx context.Context, now time.Time,
 	// докупити рівно те, що вже заплановане.
 	//
 	// Відколи гіпотеза приносить гроші, якими план оплачений
-	// (hypothetical.topUps), синтетичне поповнення потрапляє в
+	// (Hypothetical.topUps), синтетичне поповнення потрапляє в
 	// MonthDepositedUAH, і LeftUAH зменшується САМ. Лишити віднімання
 	// означало б відняти план ДВІЧІ — і картка мовчала б там, де гроші ще
 	// є.
@@ -778,8 +778,8 @@ func (e *engine) addTopup(ctx context.Context, now time.Time,
 	// й далі описує ті самі гроші, і наступний автор, шукаючи «де ж тут
 	// віднімання», мусить знайти цей абзац, а не порожній параметр.
 	avail := after.MonthPlan.LeftUAH
-	out.TopupPlanUAH = round2(planCostUAH(basket, rates) + avail.Major())
-	out.TopupLeftUAH = round2(math.Max(0, avail.Major()))
+	out.TopupPlanUAH = Round2(planCostUAH(basket, rates) + avail.Major())
+	out.TopupLeftUAH = Round2(math.Max(0, avail.Major()))
 	// Поріг той самий, що в розкладки: сума, з якої не вийде жодного руху,
 	// не варта картки. Нуль і від'ємне значення сюди ж — план купівель
 	// може бути й більшим за те, що місяць обіцяє.
@@ -789,15 +789,15 @@ func (e *engine) addTopup(ctx context.Context, now time.Time,
 	// ПОРАДИ ВІД `after`, А НЕ ВІД `before`. Рейтинг ранжує сумою розривів
 	// (suggPlanScore), і розриви мусять бути ті, що лишились ПІСЛЯ плану:
 	// інакше вершиною стане саме той вид, який план уже закрив.
-	sug, err := e.reinvestSuggestions(ctx, now, after)
+	sug, err := e.ReinvestSuggestions(ctx, now, after)
 	if err != nil {
 		return err
 	}
-	// Вибір перевіряється ТІЄЮ САМОЮ pickSuggestion, що й у розкладці, і
+	// Вибір перевіряється ТІЄЮ САМОЮ PickSuggestion, що й у розкладці, і
 	// над порадами від after: невідомий ISIN мусить дати одну й ту саму
 	// відмову з обох екранів, інакше два різні тексти на один папір
 	// читались би як дві різні причини.
-	pick, err := pickSuggestion(sug, pickISIN)
+	pick, err := PickSuggestion(sug, pickISIN)
 	if err != nil {
 		return err
 	}
@@ -805,12 +805,12 @@ func (e *engine) addTopup(ctx context.Context, now time.Time,
 	// надходження, а зведений залишок місяця — десяток потоків із різними
 	// дозволами (plan_flows.uses), — і одне слово «чиї це гроші» на нього
 	// було б неправдою для половини суми. Той самий довід, що при
-	// reserveEligibleUAH, лише з протилежним висновком: там сума одна й
+	// ReserveEligibleUAH, лише з протилежним висновком: там сума одна й
 	// дозвіл у неї один, тут сум багато.
-	plan := allocatePlan(after, sug, rates,
-		toMoneyJSON(money.New(int64(math.Round(avail.Major()*100)), money.UAH)), avail.Major(),
-		allocAllow{ReserveUAH: avail.Major(), GoalsUAH: avail.Major(), PickISIN: pick},
-		money.UAH, e.npfIDByName(ctx))
+	plan := AllocatePlan(after, sug, rates,
+		ToMoneyJSON(money.New(int64(math.Round(avail.Major()*100)), money.UAH)), avail.Major(),
+		AllocAllow{ReserveUAH: avail.Major(), GoalsUAH: avail.Major(), PickISIN: pick},
+		money.UAH, e.NPFIDByName(ctx))
 	out.Topup = &plan
 	return nil
 }
@@ -824,7 +824,7 @@ func (e *engine) addTopup(ctx context.Context, now time.Time,
 // Саме віднімання при цьому робить уже не картка: гіпотеза приносить гроші
 // плану, тож LeftUAH зменшується сам (довід — при avail вище). Тут лише
 // відновлюється те, що місяць обіцяв ДО плану: залишок плюс його вартість.
-func planCostUAH(basket basketDoc, rates fx.Rates) float64 {
+func planCostUAH(basket BasketDoc, rates fx.Rates) float64 {
 	out := 0.0
 	for _, l := range basket.Lines {
 		if l.Future {
@@ -837,12 +837,12 @@ func planCostUAH(basket basketDoc, rates fx.Rates) float64 {
 
 // whatIf — стан портфеля ПІСЛЯ рядків плану купівель rows і добір решти
 // грошей місяця (POST /api/whatif). Помилка в самих рядках чи невідомий
-// pickISIN — badRequestError.
-func (e *engine) whatIf(ctx context.Context, now time.Time, rows []store.PlanBuy, pickISIN string) (whatIfPayload, error) {
+// pickISIN — BadRequestError.
+func (e *Engine) WhatIf(ctx context.Context, now time.Time, rows []store.PlanBuy, pickISIN string) (whatIfPayload, error) {
 	today := domain.NewDate(now)
 	// Стан ДО — потрібен, щоб знати, у кого скільки грошей, за якою ціною
 	// йде сертифікат і кого обрати брокером, коли його не назвали.
-	before, err := e.buildState(ctx, now)
+	before, err := e.BuildState(ctx, now)
 	if err != nil {
 		return whatIfPayload{}, err
 	}
@@ -852,7 +852,7 @@ func (e *engine) whatIf(ctx context.Context, now time.Time, rows []store.PlanBuy
 	}
 	basket := exp.basket
 
-	after, err := e.buildStateWith(ctx, now, exp.what)
+	after, err := e.BuildStateWith(ctx, now, exp.what)
 	if err != nil {
 		return whatIfPayload{}, err
 	}
@@ -869,7 +869,7 @@ func (e *engine) whatIf(ctx context.Context, now time.Time, rows []store.PlanBuy
 
 type whatIfPayload struct {
 	After  *state.Doc `json:"after"`
-	Basket basketDoc  `json:"basket"`
+	Basket BasketDoc  `json:"basket"`
 	// Topup — чим добрати РЕШТУ грошей місяця, щоб частки вирівнялись.
 	//
 	// Тим самим типом, що розкладка надходження (allocPlan), і тією ж

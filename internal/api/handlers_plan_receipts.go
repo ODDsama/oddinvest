@@ -167,8 +167,8 @@ func (s *Server) handleListPlanReceipts(w http.ResponseWriter, r *http.Request) 
 	}
 	// Курс ковтаємо свідомо, як і в списку потоків: без нього валютні
 	// відмітки дадуть 0 у гривневій колонці, але сама сторінка працює.
-	rates, _ := s.rates(r.Context()) //nolint:errcheck // свідомо: див. вище
-	writeJSON(w, http.StatusOK, receiptRows(receipts, flows, rates))
+	rates, _ := s.Rates(r.Context()) //nolint:errcheck // свідомо: див. вище
+	writeJSON(w, http.StatusOK, ReceiptRows(receipts, flows, rates))
 }
 
 func (s *Server) handleAddPlanReceipt(w http.ResponseWriter, r *http.Request) {

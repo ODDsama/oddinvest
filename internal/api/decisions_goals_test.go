@@ -33,7 +33,7 @@ func TestDecisionRecordedOnGoalFill(t *testing.T) {
 	r := out.Rows[0]
 	// Ref — НАЗВА цілі, а не місце й не id: журнал читає людина, і «Авто»
 	// каже про рішення все, тоді як «сейф» відповідає на інше питання.
-	if r.Kind != decisionKindGoal || r.Ref != "Авто" {
+	if r.Kind != DecisionKindGoal || r.Ref != "Авто" {
 		t.Errorf("рішення не про ціль або без її назви: %+v", r)
 	}
 	if r.Amount.Amount != "12000.00" {
@@ -80,11 +80,11 @@ func TestDecisionNotRecordedOnGoalWithdrawal(t *testing.T) {
 // Від подушки — бо доля різна: матрац тримають, ЩОБ НЕ витратити, а на
 // авто збирають, ЩОБ витратити. Спільне число сховало б саме цю різницю.
 func TestDecisionsSummaryKeepsGoalsApartFromReserve(t *testing.T) {
-	got := summarizeDecisions([]decisionRow{
+	got := SummarizeDecisions([]DecisionRow{
 		{Kind: "bond", RankMode: "plan", RankPos: 1},
-		{Kind: decisionKindReserve, TopLabel: "UA0001", ForgonePct: 9.4},
-		{Kind: decisionKindGoal, TopLabel: "UA0001", ForgonePct: 8.0},
-		{Kind: decisionKindGoal, TopLabel: "UA0001", ForgonePct: 6.0},
+		{Kind: DecisionKindReserve, TopLabel: "UA0001", ForgonePct: 9.4},
+		{Kind: DecisionKindGoal, TopLabel: "UA0001", ForgonePct: 8.0},
+		{Kind: DecisionKindGoal, TopLabel: "UA0001", ForgonePct: 6.0},
 	})
 	if got.Count != 1 || got.Followed != 1 {
 		t.Errorf("покупок %d, за верхнім %d — чекали 1/1: ні подушка, ні цілі сюди не входять",

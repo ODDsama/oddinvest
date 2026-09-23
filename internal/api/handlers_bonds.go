@@ -56,7 +56,7 @@ func (s *Server) handleAccrued(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"isin": isin, "on": string(on), "per_bond": toMoneyJSON(acc),
+		"isin": isin, "on": string(on), "per_bond": ToMoneyJSON(acc),
 		"note": "оцінка ACT/ACT; фактичний НКД може відрізнятись",
 	})
 }
@@ -65,7 +65,7 @@ func bondsJSON(bonds []domain.Bond) []map[string]any {
 	out := make([]map[string]any, 0, len(bonds))
 	for _, b := range bonds {
 		out = append(out, map[string]any{
-			"isin": b.ISIN, "nominal": toMoneyJSON(b.Nominal),
+			"isin": b.ISIN, "nominal": ToMoneyJSON(b.Nominal),
 			"rate_pct": fmt.Sprintf("%d.%02d", b.RateBP/100, b.RateBP%100),
 			"maturity": string(b.Maturity), "descr": b.Descr,
 		})

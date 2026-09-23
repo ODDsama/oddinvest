@@ -28,10 +28,10 @@ func writeErr(w http.ResponseWriter, code int, err error) {
 }
 
 // writeCalcErr — помилка розрахунку: 400, коли винне питання
-// (badRequestError — невідомий папір, криве поле), інакше 500. Одне місце,
+// (BadRequestError — невідомий папір, криве поле), інакше 500. Одне місце,
 // щоб «описка у формі» ніде не ставала «зламався сервер».
 func writeCalcErr(w http.ResponseWriter, err error) {
-	var bad badRequestError
+	var bad BadRequestError
 	if errors.As(err, &bad) {
 		writeErr(w, http.StatusBadRequest, err)
 		return

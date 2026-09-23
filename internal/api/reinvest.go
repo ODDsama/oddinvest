@@ -51,11 +51,11 @@ type suggestion struct {
 	// вже є поруч двома чесними числами — YTMPct і RealPct.
 	RatePct  string    `json:"rate_pct,omitempty"`
 	Maturity string    `json:"maturity,omitempty"`
-	Nominal  moneyJSON `json:"nominal,omitempty"`
+	Nominal  MoneyJSON `json:"nominal,omitempty"`
 	// CostPerBond — скільки коштує ОДИН крок: папір за номіналом плюс
 	// НКД, один сертифікат за останньою ціною, або поповнення вкладу
 	// на суму відкриття.
-	CostPerBond moneyJSON `json:"cost_per_bond"`
+	CostPerBond MoneyJSON `json:"cost_per_bond"`
 	// CostBasis — з ЧОГО взята CostPerBond: "market" (ринкова ціна
 	// продавця, разом із НКД) чи "nominal" (номінал плюс НКД, тобто
 	// наближення). Без omitempty навмисно: підстава є завжди, і порожнє
@@ -72,7 +72,7 @@ type suggestion struct {
 	// CostAlt / CostAltWhere — наступна за ціною пропозиція серед ТВОЇХ
 	// брокерів. Заради цього порівняння робота й робилась: «найдешевше»
 	// без другого числа — твердження, яке нема з чим звірити.
-	CostAlt      *moneyJSON `json:"cost_alt,omitempty"`
+	CostAlt      *MoneyJSON `json:"cost_alt,omitempty"`
 	CostAltWhere string     `json:"cost_alt_where,omitempty"`
 	// YTMPct — дохідність до погашення (лише облігації).
 	// RealPct — після податку й знецінення; порівнянна між усіма.
@@ -165,7 +165,7 @@ type suggestion struct {
 	LockedUntil string `json:"locked_until,omitempty"`
 	// ReadyOn / ReadyBroker / ReadyDays / ReadyVia / ReadyNote — коли на цей
 	// рядок набереться, на чиєму рахунку і з чого саме. Заповнює
-	// annotateReady (ready_on.go) і лише в /api/reinvest: черга задач тієї ж
+	// AnnotateReady (ready_on.go) і лише в /api/reinvest: черга задач тієї ж
 	// збірки порад цих полів не показує, а другий прохід по джерелах
 	// подорожчав би кожен /api/summary.
 	//
@@ -179,7 +179,7 @@ type suggestion struct {
 	// WaitCost / WaitAlt — скільки коштують ці дні очікування й чим міряно.
 	// Вказівник, а не значення: нуль і «не було чим міряти» — різні
 	// відповіді, і друга не має права виглядати як «безкоштовно».
-	WaitCost *moneyJSON `json:"wait_cost,omitempty"`
+	WaitCost *MoneyJSON `json:"wait_cost,omitempty"`
 	WaitAlt  string     `json:"wait_alt,omitempty"`
 }
 
@@ -230,7 +230,7 @@ func withTransit(mt moneyText, base, cur string, transitNative, haveNative float
 // можна вже не завжди — див. suggUnpriced нижче.
 const staleAfterDays = 365
 
-// minTermDays — коротший залишок, і папір у поради не потрапляє зовсім.
+// MinTermDays — коротший залишок, і папір у поради не потрапляє зовсім.
 //
 // НЕ СУДЖЕННЯ ПРО ПАПІР, А ПРО ЧИСЛО, ЯКИМ МИ ЙОГО МІРЯЄМО. Дохідність тут
 // річна, і на дев'ятиденному залишку вона перестає бути виміром: на живих
@@ -252,10 +252,10 @@ const staleAfterDays = 365
 // А роль «перечекати, доки набереться на нормальний папір» у застосунку
 // вже зайнята вкладом (overTransit нижче), тож короткий папір не лишається
 // й без роботи.
-const minTermDays = 30
+const MinTermDays = 30
 
-// suggMatKey / suggPlanScore / lessSuggestion — порівнювач порад, вийнятий
-// із reinvestSuggestions, бо він потрібен ДВІЧІ: сама збірка впорядковує за
+// suggMatKey / suggPlanScore / LessSuggestion — порівнювач порад, вийнятий
+// із ReinvestSuggestions, бо він потрібен ДВІЧІ: сама збірка впорядковує за
 // реальною дохідністю (це те, що бачать черга задач, журнал рішень і
 // прогноз), а обробник за запитом переупорядковує за номінальною. Копія
 // комаратора в другому місці розійшлася б із першою на пʼяти тайбрейкерах,
@@ -314,10 +314,10 @@ func suggPlanScore(s suggestion) float64 {
 	return math.Max(0, s.def) + math.Max(0, s.kindDef)
 }
 
-// rankOf — за чим упорядковувати поради. Обробник читає його вдруге, щоб
+// RankOf — за чим упорядковувати поради. Обробник читає його вдруге, щоб
 // переупорядкувати за іншою лінійкою, і читає саме звідси: два місця з
 // власним дефолтом «plan» розійшлися б на першій же правці набору.
-func rankOf(doc *state.Doc) string {
+func RankOf(doc *state.Doc) string {
 	if doc != nil && doc.Settings != nil && doc.Settings.ReinvestRank != "" {
 		return doc.Settings.ReinvestRank
 	}
@@ -334,7 +334,7 @@ func rankOf(doc *state.Doc) string {
 // «де більше гривень», і людина має право поставити список саме так —
 // але типовим це бути не може, бо в такому порядку валюти незіставні.
 func orderKey(s suggestion, order string) float64 {
-	if order == orderNominal {
+	if order == OrderNominal {
 		return s.NominalPct
 	}
 	return s.RealPct
@@ -342,10 +342,10 @@ func orderKey(s suggestion, order string) float64 {
 
 const (
 	orderReal    = "real"
-	orderNominal = "nominal"
+	OrderNominal = "nominal"
 )
 
-func lessSuggestion(a, b suggestion, rank, order string) bool {
+func LessSuggestion(a, b suggestion, rank, order string) bool {
 	// Замкнене — нижче за все ліквідне, і ПЕРШИМ серед пониження: це
 	// найсильніше з трьох тверджень. Ліміт каже «ти сам цього не хотів»,
 	// stale — «ми не впевнені в ціні», а замок — «це взагалі не те саме
@@ -427,12 +427,12 @@ func lessSuggestion(a, b suggestion, rank, order string) bool {
 	return suggMatKey(a) < suggMatKey(b)
 }
 
-// reinvestSuggestions — ранжовані поради за готовим документом стану.
+// ReinvestSuggestions — ранжовані поради за готовим документом стану.
 //
 // Документ приймається АРГУМЕНТОМ, а не будується всередині: тут його вже
 // має той, хто кличе (обробник — свій, черга задач — свій), і другий
-// buildState був би найдорожчим шляхом бекенда, пройденим двічі поспіль.
-func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
+// BuildState був би найдорожчим шляхом бекенда, пройденим двічі поспіль.
+func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 	doc *state.Doc) ([]suggestion, error) {
 	today := domain.NewDate(now)
 	// Проза порад — у валюті звітності, тим самим форматером, що й задачі.
@@ -450,7 +450,7 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 	// тим самим N+1, проти якого вже стоять доводи в store/auctions.go.
 	// Порожній перелік означає «весь зріз», і саме він тут потрібен: які з
 	// паперів мають ціну, наперед невідомо.
-	quotes, err := e.quotesFor(ctx, nil, today)
+	quotes, err := e.QuotesFor(ctx, nil, today)
 	if err != nil {
 		return nil, err
 	}
@@ -492,7 +492,7 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 		cur["UAH"] = 100 - doc.USDSharePct - doc.EURSharePct
 	}
 
-	// Виміри диверсифікації, зібрані в buildState, доводяться сюди — доти
+	// Виміри диверсифікації, зібрані в BuildState, доводяться сюди — доти
 	// вони жили самі по собі, і помічник про них не знав нічого: цілі за
 	// видом інструмента стояли в налаштуваннях, а порядок порад від них
 	// не змінювався.
@@ -542,11 +542,11 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 		ladderYear[row.Year] = map[string]float64{"UAH": row.UAH.Major(), "USD": row.USD.Major(), "EUR": row.EUR.Major()}
 	}
 
-	rank := rankOf(doc)
+	rank := RankOf(doc)
 	// Знецінення гривні: те саме припущення, що й у прогнозі, інакше
 	// помічник радив би одне, а прогноз малював інше.
-	devalPct := e.devaluation(ctx)
-	rc := e.newRateContext(ctx, devalPct)
+	devalPct := e.Devaluation(ctx)
+	rc := e.NewRateContext(ctx, devalPct)
 	isins := make([]string, 0, len(bonds))
 	for _, b := range bonds {
 		isins = append(isins, b.ISIN)
@@ -603,8 +603,8 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 		if nomMajor <= 0 {
 			continue
 		}
-		// Занадто короткий, щоб бути порадою (довід — при minTermDays).
-		if domain.DaysBetween(today, b.Maturity) < minTermDays {
+		// Занадто короткий, щоб бути порадою (довід — при MinTermDays).
+		if domain.DaysBetween(today, b.Maturity) < MinTermDays {
 			continue
 		}
 		// Ціна входу сьогодні — спільна з кошиком (unit_cost.go): два
@@ -636,7 +636,7 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 		if yerr != nil {
 			continue // без майбутніх виплат порівнювати нема чого
 		}
-		real := realYield(ytm, c, devalPct)
+		real := RealYield(ytm, c, devalPct)
 		fits, best := fitsFor(c, costMajor)
 		// Показуємо рекомендації ЗАВЖДИ, навіть коли грошей ще не вистачає:
 		// інакше список порожніє одразу після покупки й помічник мовчить
@@ -703,18 +703,18 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 		sg := suggestion{
 			Kind: "bond", Label: b.ISIN,
 			ISIN: b.ISIN, Currency: c,
-			Maturity: string(b.Maturity), Nominal: toMoneyJSON(b.Nominal),
-			CostPerBond: toMoneyJSON(cost),
+			Maturity: string(b.Maturity), Nominal: ToMoneyJSON(b.Nominal),
+			CostPerBond: ToMoneyJSON(cost),
 			CostBasis:   basis,
-			YTMPct:      round2(ytm * 100), NominalPct: round2(ytm * 100),
-			RealPct:    round2(real * 100),
+			YTMPct:      Round2(ytm * 100), NominalPct: Round2(ytm * 100),
+			RealPct:    Round2(real * 100),
 			YieldBasis: "до погашення",
 			// Валова й чиста збігаються: дохід з ОВДП звільнений і від
 			// ПДФО, і від військового збору.
-			RateParts:  rc.breakdown(ytm, ytm, c, "до погашення"),
+			RateParts:  rc.Breakdown(ytm, ytm, c, "до погашення"),
 			Brokers:    fits,
 			Affordable: best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
-			LastAuction: lastAucDate, LastAuctionPct: round2(lastAucPct),
+			LastAuction: lastAucDate, LastAuctionPct: Round2(lastAucPct),
 			def: def, kindDef: kindDef["bonds"], ladderNom: lnom,
 			overLimit: note != "", stale: stale,
 		}
@@ -725,7 +725,7 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 			sg.CostAsOf = string(pick.Best.Date)
 			sg.CostWhere, sg.CostWhereLabel = pick.Best.Source, pick.Label
 			if pick.Alt != nil {
-				alt := toMoneyJSON(pick.Alt.Money())
+				alt := ToMoneyJSON(pick.Alt.Money())
 				sg.CostAlt, sg.CostAltWhere = &alt, pick.Alt.Source
 			}
 		}
@@ -788,7 +788,7 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 		}
 		gross := nominal // до податку — для розкладу ставки
 		if f.IncomeTaxPct > 0 {
-			nominal = round2(domain.NetOfTax(nominal, f.IncomeTaxPct, years))
+			nominal = Round2(domain.NetOfTax(nominal, f.IncomeTaxPct, years))
 			basis += ", після податку"
 		}
 		fundCost := fundUnitCost(f.LastPrice, c) // спільне з кошиком (unit_cost.go)
@@ -818,14 +818,14 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 		}
 		out = append(out, suggestion{
 			Kind: "fund", Label: f.Fund, Currency: c,
-			CostPerBond: toMoneyJSON(fundCost),
+			CostPerBond: ToMoneyJSON(fundCost),
 			// У сертифіката ціна одна й публікує її сам фонд — це позначка
 			// (0034), а не котирування продавця, тож підстава ринкова.
 			CostBasis:  CostBasisMarket,
-			NominalPct: round2(nominal),
-			RealPct:    round2(realYield(nominal/100, yc, devalPct) * 100),
+			NominalPct: Round2(nominal),
+			RealPct:    Round2(RealYield(nominal/100, yc, devalPct) * 100),
 			YieldBasis: basis,
-			RateParts:  rc.breakdown(gross/100, nominal/100, yc, basis),
+			RateParts:  rc.Breakdown(gross/100, nominal/100, yc, basis),
 			Brokers:    fits, Affordable: best, CanBuy: best > 0,
 			Reason:    strings.Join(parts, "; "),
 			def:       target[c] - cur[c],
@@ -884,7 +884,7 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 		// поруч у цій самій колонці стоїть YTM облігації, а це IRR. Довід
 		// цілком — при domain.Deposit.EffectiveNetRate.
 		netRate := d.EffectiveNetRate()
-		real := realYield(netRate, c, devalPct)
+		real := RealYield(netRate, c, devalPct)
 		costMajor := float64(d.Principal) / 100
 		fits, best := fitsFor(c, costMajor)
 		bank := d.Bank
@@ -895,11 +895,11 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 			Kind: "deposit", Label: bank, Currency: c,
 			RatePct:     fmt.Sprintf("%d.%02d", d.RateBP/100, d.RateBP%100),
 			Maturity:    string(d.MaturityDate),
-			CostPerBond: toMoneyJSON(money.New(d.Principal, c)),
-			NominalPct:  round2(netRate * 100),
-			RealPct:     round2(real * 100),
+			CostPerBond: ToMoneyJSON(money.New(d.Principal, c)),
+			NominalPct:  Round2(netRate * 100),
+			RealPct:     Round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
-			RateParts: rc.breakdown(float64(d.RateBP)/10000, netRate, c,
+			RateParts: rc.Breakdown(float64(d.RateBP)/10000, netRate, c,
 				"ставка вкладу після податку"),
 			Brokers: fits, Affordable: best, CanBuy: best > 0,
 			Reason:      withTransit(mt, "поповнення на суму відкриття", c, transitNative[c], depByCur[c]),
@@ -940,17 +940,17 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 		// означення збігаються тотожно (є тест), тож це не наближення, а
 		// названий строк за замовчуванням: рік.
 		netRate := domain.NetRate(rateBP, defaultDepositTaxBP)
-		real := realYield(netRate, c, devalPct)
+		real := RealYield(netRate, c, devalPct)
 		costMajor := float64(minMinor) / 100
 		fits, best := fitsFor(c, costMajor)
 		out = append(out, suggestion{
 			Kind: "deposit", Label: "Новий вклад", Currency: c,
 			RatePct:     fmt.Sprintf("%d.%02d", rateBP/100, rateBP%100),
-			CostPerBond: toMoneyJSON(money.New(minMinor, c)),
-			NominalPct:  round2(netRate * 100),
-			RealPct:     round2(real * 100),
+			CostPerBond: ToMoneyJSON(money.New(minMinor, c)),
+			NominalPct:  Round2(netRate * 100),
+			RealPct:     Round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
-			RateParts: rc.breakdown(float64(rateBP)/10000, netRate, c,
+			RateParts: rc.Breakdown(float64(rateBP)/10000, netRate, c,
 				"ставка вкладу після податку"),
 			Brokers: fits, Affordable: best, CanBuy: best > 0,
 			Reason: withTransit(mt, "новий вклад, мінімум "+mt.cur(float64(minMinor)/100, c),
@@ -1020,11 +1020,11 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 		}
 		out = append(out, suggestion{
 			Kind: "npf", Label: n.Name, Currency: ccy,
-			CostPerBond: toMoneyJSON(money.New(0, ccy)),
+			CostPerBond: ToMoneyJSON(money.New(0, ccy)),
 			NominalPct:  nominal,
 			RealPct:     real,
 			YieldBasis:  n.YieldBasis + "; замкнено до " + n.AccessDate,
-			RateParts: rc.breakdown(nominal/100, nominal/100, ccy,
+			RateParts: rc.Breakdown(nominal/100, nominal/100, ccy,
 				n.YieldBasis+"; замкнено до "+n.AccessDate),
 			// Affordable = 1, бо «скільки штук» до пенсійного не стосується:
 			// нуль читався б як «жодної», а справжня відповідь — «будь-яка
@@ -1055,21 +1055,21 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 	// вистачить на одну», а «чи є з чого». Брокерів немає взагалі — гроші
 	// йдуть у банк, а не на рахунок.
 	if d := doc.Debt; d != nil && d.TotalUAH.Major() > 0 && d.TopRatePct > 0 {
-		// realYield приймає ЧАСТКУ, а ставка боргу приходить відсотками —
+		// RealYield приймає ЧАСТКУ, а ставка боргу приходить відсотками —
 		// звідси ділення й множення назад. Та сама пара, що на рядку фонда.
-		real := round2(realYield(d.TopRatePct/100, money.UAH, devalPct) * 100)
+		real := Round2(RealYield(d.TopRatePct/100, money.UAH, devalPct) * 100)
 		reason := fmt.Sprintf("погасити борг: %s під %.1f%% річних", d.TopName, d.TopRatePct)
 		if d.FillNowUAH.Major() > 0 {
 			reason += fmt.Sprintf("; місячна частка — ще %s", mt.uah(d.FillNowUAH.Major()))
 		}
 		out = append(out, suggestion{
 			Kind: "debt", Label: d.TopName, Currency: money.UAH,
-			CostPerBond: toMoneyJSON(money.New(0, money.UAH)),
+			CostPerBond: ToMoneyJSON(money.New(0, money.UAH)),
 			NominalPct:  d.TopRatePct,
 			RealPct:     real,
 			// Податку тут немає й бути не може: погашення боргу нічого не
 			// заробляє, воно перестає витрачати.
-			RateParts: rc.breakdown(d.TopRatePct/100, d.TopRatePct/100, money.UAH,
+			RateParts: rc.Breakdown(d.TopRatePct/100, d.TopRatePct/100, money.UAH,
 				"гарантовано: без податку й без ризику ціни"),
 			// Основу названо повністю: це не оцінка й не обіцянка ринку, а
 			// ставка з договору, і саме тому вона порівнянна з рештою.
@@ -1097,14 +1097,14 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 	// яку ніхто не спожив, коштувала більше за все, що вона мала дати.
 	//
 	sort.Slice(out, func(i, j int) bool {
-		return lessSuggestion(out[i], out[j], rank, orderReal)
+		return LessSuggestion(out[i], out[j], rank, orderReal)
 	})
 	return out, nil
 }
 
-// pickSuggestion — чи є обраний папір серед порад, і сам ISIN очищеним.
+// PickSuggestion — чи є обраний папір серед порад, і сам ISIN очищеним.
 //
-// Перевіряти обовʼязково, і саме тут, а не в allocatePlan: та — чиста
+// Перевіряти обовʼязково, і саме тут, а не в AllocatePlan: та — чиста
 // функція без помилки в сигнатурі, і невідомий ISIN у ній мовчки дав би
 // ногу без жодного рядка ОВДП із причиною «інструментів немає» — неправдою
 // про довідник. Порад же бракує рівно двом паперам: погашеному й тому, в
@@ -1114,7 +1114,7 @@ func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 // Один читач на два ендпойнти (розкладка й маршрут) — привід виносити, а не
 // копіювати: різні тексти відмови на одному й тому самому ISIN читались би
 // як різні причини.
-func pickSuggestion(sug []suggestion, isin string) (string, error) {
+func PickSuggestion(sug []suggestion, isin string) (string, error) {
 	isin = strings.ToUpper(strings.TrimSpace(isin))
 	if isin == "" {
 		return "", nil
@@ -1124,6 +1124,6 @@ func pickSuggestion(sug []suggestion, isin string) (string, error) {
 			return isin, nil
 		}
 	}
-	return "", badRequestf("паперу %s немає серед порад — він або погашений, або без графіка виплат",
+	return "", BadRequestf("паперу %s немає серед порад — він або погашений, або без графіка виплат",
 		isin)
 }

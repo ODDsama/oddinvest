@@ -110,7 +110,7 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleXIRR(w http.ResponseWriter, r *http.Request) {
-	doc, err := s.buildState(r.Context(), time.Now())
+	doc, err := s.BuildState(r.Context(), time.Now())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -176,7 +176,7 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 	}
 	// Кожен рядок — курсом СВОЄЇ дати: презентер читає "date" з мапи так
 	// само, як money:"asof" зі структури.
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -212,7 +212,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		name = string(from) + "_" + string(to)
 	}
 	ctx := r.Context()
-	lots, sales, _, pays, err := s.portfolio(ctx)
+	lots, sales, _, pays, err := s.Portfolio(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -240,7 +240,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	today := domain.NewDate(time.Now())
 	inWindow := func(d domain.Date) bool { return !d.Before(from) && !d.After(to) }
 	arrived := domain.Arrived(statuses, today)
-	asOf := newAsOfRates(s.st)
+	asOf := NewAsOfRates(s.st)
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition",
@@ -260,7 +260,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		if m == nil || m.Currency().Code == money.UAH {
 			return ""
 		}
-		e4, rerr := asOf.rate(ctx, m.Currency().Code, on)
+		e4, rerr := asOf.Rate(ctx, m.Currency().Code, on)
 		if rerr != nil || e4 <= 0 {
 			return ""
 		}
@@ -268,7 +268,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	row := func(kind string, d domain.Date, isin, label, qty string,
 		amt *money.Money, taxUAH int64, note string) {
-		uah, uerr := asOf.uah(ctx, amt, d)
+		uah, uerr := asOf.UAH(ctx, amt, d)
 		if uerr != nil {
 			return
 		}
@@ -276,7 +276,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		amount := ""
 		if amt != nil {
 			cur = amt.Currency().Code
-			amount = toMoneyJSON(amt).Amount
+			amount = ToMoneyJSON(amt).Amount
 		}
 		cw.Write([]string{kind, string(d), isin, label, qty, amount, cur,
 			rate(amt, d), dec(uah), dec(taxUAH), note})
@@ -343,7 +343,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		proceeds, _ := domain.SaleProceeds(sl) //nolint:errcheck // RealizedResult вище вже відсіяв биті продажі
 		row("продаж", sl.SaleDate, lot.ISIN, "", fmt.Sprintf("%d", sl.Qty),
 			proceeds, 0,
-			"результат "+toMoneyJSON(res).Amount+" "+res.Currency().Code)
+			"результат "+ToMoneyJSON(res).Amount+" "+res.Currency().Code)
 	}
 
 	// Дивіденди фондів: податок ФАКТИЧНО утриманий, а не ставка. Ставка
@@ -352,7 +352,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		if op.Kind != domain.FundDividend || !inWindow(op.Date) {
 			continue
 		}
-		taxUAH, terr := asOf.uah(ctx, money.New(op.Tax, op.Currency), op.Date)
+		taxUAH, terr := asOf.UAH(ctx, money.New(op.Tax, op.Currency), op.Date)
 		if terr != nil {
 			continue
 		}
@@ -370,7 +370,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		if g == 0 {
 			continue
 		}
-		taxUAH, terr := asOf.uah(ctx, money.New(tx, dep.Currency), to)
+		taxUAH, terr := asOf.UAH(ctx, money.New(tx, dep.Currency), to)
 		if terr != nil {
 			continue
 		}
@@ -378,7 +378,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			money.New(g, dep.Currency), taxUAH, "за період "+string(from)+" → "+string(to))
 	}
 
-	if note := asOf.note(); note != "" {
+	if note := asOf.Note(); note != "" {
 		cw.Write([]string{"# " + note, "", "", "", "", "", "", "", "", "", ""})
 	}
 	cw.Flush()
@@ -402,7 +402,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	out, err := s.taxReport(r.Context(), year, from, to, time.Now())
+	out, err := s.TaxReport(r.Context(), year, from, to, time.Now())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -427,13 +427,13 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 		from = domain.Date(string(to)[:8] + "01")
 	}
 
-	events, err := s.cashEvents(r.Context())
+	events, err := s.CashEvents(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	out := cashflowStatement(events, from, to)
-	if err := s.present(r.Context(), &out); err != nil {
+	out := CashflowStatement(events, from, to)
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -457,17 +457,17 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 // сенс вимірювання, а не привід його ховати.
 func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	doc, err := s.buildState(ctx, time.Now())
+	doc, err := s.BuildState(ctx, time.Now())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	out, err := s.benchmark(ctx, doc)
+	out, err := s.Benchmark(ctx, doc)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	if err := s.present(ctx, &out); err != nil {
+	if err := s.Present(ctx, &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -478,24 +478,24 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRivals(w http.ResponseWriter, r *http.Request) {
 	level := r.URL.Query().Get("level")
 	if level == "" {
-		level = levelPortfolio
+		level = LevelPortfolio
 	}
-	if _, ok := rivalLevelLabels[level]; !ok {
+	if _, ok := RivalLevelLabels[level]; !ok {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("невідомий рівень %q — буває portfolio або all", level))
 		return
 	}
 	ctx := r.Context()
-	doc, err := s.buildState(ctx, time.Now())
+	doc, err := s.BuildState(ctx, time.Now())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	out, err := s.rivals(ctx, doc, level)
+	out, err := s.Rivals(ctx, doc, level)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

@@ -2,7 +2,7 @@
 //
 // Читання сховища — у state_sources.go, зведення лотів і фондів — у
 // domain/holdings.go, гаманець — у state_cash.go. Там же й попередження
-// про те, що ті самі гроші рахує ще cashEvents у cashflow.go: воно
+// про те, що ті самі гроші рахує ще CashEvents у cashflow.go: воно
 // переїхало РАЗОМ із кодом, до якого стосується. Коментар-ADR за дві
 // функції від того, що він пояснює, читають випадково, а не тоді, коли
 // він потрібен.
@@ -40,11 +40,11 @@ const defaultGlideYears = 5.0
 // в пояснення на екрані; саме число одне на застосунок — domain.XIRRMinMoneyDays.
 const xirrMinMoneyDays = domain.XIRRMinMoneyDays
 
-// round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
-func round2(v float64) float64 { return math.Round(v*100) / 100 }
+// Round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
+func Round2(v float64) float64 { return math.Round(v*100) / 100 }
 
-// hypothetical — покупки, яких ЩЕ НЕМАЄ. Порожня структура означає
-// звичайний стан, і саме тому buildState нижче лишається однорядковою
+// Hypothetical — покупки, яких ЩЕ НЕМАЄ. Порожня структура означає
+// звичайний стан, і саме тому BuildState нижче лишається однорядковою
 // обгорткою: жоден із його викликів не знає, що така можливість є.
 //
 // Навіщо взагалі. Кошик покупки питає «що станеться з портфелем, якщо це
@@ -63,7 +63,7 @@ func round2(v float64) float64 { return math.Round(v*100) / 100 }
 // березнем, не має права рухати сьогоднішні частки й готівку, зате
 // мусить рухати точку незалежності й криву капіталу. Чому саме так —
 // у шапці state_plan_buys.go.
-type hypothetical struct {
+type Hypothetical struct {
 	lots     []domain.Lot
 	fundOps  []domain.FundOp
 	deposits []domain.Deposit
@@ -78,7 +78,7 @@ type hypothetical struct {
 	//
 	// Правило застосунку при цьому не змінилось і не мало: план купівель
 	// міряється ПЛАНОВИМИ грошима, а не сьогоднішнім залишком (шапка
-	// basketDoc). Бракувало саме другої половини цієї обіцянки — покласти
+	// BasketDoc). Бракувало саме другої половини цієї обіцянки — покласти
 	// в гіпотезу ще й те, що надійде.
 	//
 	// store.Deposit, а не domain.Deposit: перше — поповнення рахунку, друге
@@ -167,13 +167,13 @@ type hypothetical struct {
 	planFunds []planFundBuy
 }
 
-// hypoRates — гіпотеза «інші курси» (валютний шок, handlers_fx_shock.go);
-// hypoSettings — «інша політика» (превʼю налаштувань). Конструкторами, а
+// HypoRates — гіпотеза «інші курси» (валютний шок, handlers_fx_shock.go);
+// HypoSettings — «інша політика» (превʼю налаштувань). Конструкторами, а
 // не літералом: поля гіпотези закриті для обробників, і кожен із них
 // бачить рівно ту одну підміну, яку просить.
-func hypoRates(r fx.Rates) hypothetical { return hypothetical{rates: r} }
+func HypoRates(r fx.Rates) Hypothetical { return Hypothetical{rates: r} }
 
-func hypoSettings(set map[string]string) hypothetical { return hypothetical{settings: set} }
+func HypoSettings(set map[string]string) Hypothetical { return Hypothetical{settings: set} }
 
 // planFundBuy — обидві половини руху грошей в одному записі: скільки йде
 // з ліквідного боку і в яку позицію воно перетворюється.
@@ -208,10 +208,10 @@ type planFundBuy struct {
 // структур, і читається на місці виклику.
 //
 // НОВЕ ПОЛЕ ГІПОТЕЗИ МУСИТЬ ЗʼЯВИТИСЬ І ТУТ. Забути це не боляче й не
-// видно: buildStateWith просто пропустить увесь блок домішування, і
+// видно: BuildStateWith просто пропустить увесь блок домішування, і
 // фіча поверне 200 з документом, у якому гіпотези немає. Тиха пустушка
 // замість помилки.
-func (h hypothetical) empty() bool {
+func (h Hypothetical) empty() bool {
 	return len(h.lots) == 0 && len(h.fundOps) == 0 && len(h.deposits) == 0 &&
 		len(h.npfOps) == 0 && len(h.actions) == 0 && len(h.flows) == 0 &&
 		len(h.settings) == 0 && len(h.rates) == 0 &&
@@ -219,18 +219,18 @@ func (h hypothetical) empty() bool {
 		len(h.planFunds) == 0
 }
 
-// buildState — стан портфеля яким він є.
-func (e *engine) buildState(ctx context.Context, now time.Time) (*state.Doc, error) {
-	return e.buildStateWith(ctx, now, hypothetical{})
+// BuildState — стан портфеля яким він є.
+func (e *Engine) BuildState(ctx context.Context, now time.Time) (*state.Doc, error) {
+	return e.BuildStateWith(ctx, now, Hypothetical{})
 }
 
-// buildStateWith — той самий стан, але портфель можна доповнити
+// BuildStateWith — той самий стан, але портфель можна доповнити
 // покупками, яких ще не зробили.
 //
 // Публічний вхід лишився байт у байт тим самим свідомо: документ
 // публікується в MQTT і щодня лягає в знімок, і якби гіпотезу приймав
-// САМ buildState, рано чи пізно хтось опублікував би вигадку як стан.
-func (e *engine) buildStateWith(ctx context.Context, now time.Time, what hypothetical) (*state.Doc, error) {
+// САМ BuildState, рано чи пізно хтось опублікував би вигадку як стан.
+func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothetical) (*state.Doc, error) {
 	today := domain.NewDate(now)
 	// Усі читання сховища — одним місцем (state_sources.go). Доти вони
 	// були розсипані по всій функції, і ListDeposits через це викликався
@@ -287,7 +287,7 @@ func (e *engine) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// витрати можуть бути названі у валюті, і переклад їх у гривню
 		// мусить статись уже за новим курсом.
 		//
-		// Копією мапи, а не правкою на місці: s.rates() віддає свіжу мапу
+		// Копією мапи, а не правкою на місці: s.Rates() віддає свіжу мапу
 		// на кожен запит, але вона їде далі в кожну фазу документа, і
 		// правити спільну структуру, коли поруч є дешева копія, — це
 		// зайвий спосіб помилитись.
@@ -356,7 +356,7 @@ func (e *engine) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Зведена реальна ставка вкладів, зважена тілом. Рахується тут, у
 	// єдиному циклі по вкладах, а не окремим проходом: формула та сама, що
 	// в handlers_deposits.go і в реінвест-помічнику (domain.NetRate далі
-	// realYield), і третій прохід над тими самими вкладами був би третім
+	// RealYield), і третій прохід над тими самими вкладами був би третім
 	// місцем, де її треба тримати незміненою.
 	// Номінальний двійник іде поруч і з того самого net: правило «реальна
 	// головна, номінальна дрібним поруч» діє для кожного доданка зведеної,
@@ -448,15 +448,15 @@ func (e *engine) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			// з YTM облігацій, а YTM — IRR. Довід цілком — при
 			// domain.Deposit.EffectiveNetRate.
 			net := dep.EffectiveNetRate()
-			depRealWeighted += realYield(net, dep.Currency, deval) * 100 * v
+			depRealWeighted += RealYield(net, dep.Currency, deval) * 100 * v
 			depNomWeighted += net * 100 * v
 			depRealWeight += v
 		}
 	}
 	depositsYieldReal, depositsYieldNominal := 0.0, 0.0
 	if depRealWeight > 0 {
-		depositsYieldReal = round2(depRealWeighted / depRealWeight)
-		depositsYieldNominal = round2(depNomWeighted / depRealWeight)
+		depositsYieldReal = Round2(depRealWeighted / depRealWeight)
+		depositsYieldNominal = Round2(depNomWeighted / depRealWeight)
 	}
 
 	// Резерв («матрац») — журнал рухів, поточний залишок це Σ сум. Читаємо
@@ -979,7 +979,7 @@ func (e *engine) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		}
 	}
 	// Простій — та частина гаманця, на яку квиток уже є (state_idle.go).
-	// Ціну йому припише buildStateTasked: вона потребує порад, а ті
+	// Ціну йому припише BuildStateTasked: вона потребує порад, а ті
 	// рахуються за готовим документом.
 	idleCash := buildIdle(cash, minByCur, rates, today)
 
@@ -1062,7 +1062,7 @@ func (e *engine) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Фонди входять у XIRR нарівні з облігаціями: показник міряє, скільки
 	// реально зароблено на вкладених грошах, а гроші в сертифікатах — ті
 	// самі гроші. Без цього він рахував облігаційну частину й видавав її
-	// за портфельну. fundOps уже стягнуто раз на початку buildState.
+	// за портфельну. fundOps уже стягнуто раз на початку BuildState.
 	xirr := map[string]float64{}
 	realized := map[string]state.RealizedRow{}
 	// Позиції НПФ зводяться РАЗ на всі три валюти: усередині циклу це була б
@@ -1119,7 +1119,7 @@ func (e *engine) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			MinDays:   xirrMinMoneyDays,
 		}
 		if invested > 0 {
-			row.GainPct = round2(float64(gain) / float64(invested) * 100)
+			row.GainPct = Round2(float64(gain) / float64(invested) * 100)
 		}
 		realized[cur] = row
 

@@ -41,7 +41,7 @@ type payoffDebtJSON struct {
 	// компонент; імʼя поля тут інше, бо Rate вище вже зайняте самою
 	// ставкою.
 	RateParts *state.RateBreakdown `json:"rate_parts,omitempty"`
-	Left      moneyJSON            `json:"left"`
+	Left      MoneyJSON            `json:"left"`
 	// PrepayHelps — чи доходять до цього боргу гроші ПОНАД обовʼязкове;
 	// PrepayBasis — чому. Друге поле не прикраса до першого: «банк бере
 	// комісії за всі місяці» вимагає лишити борг у спокої, а «не з'ясовано»
@@ -57,10 +57,10 @@ type payoffPlanJSON struct {
 	Months   int    `json:"months"`
 	// FreeDate — місяць, у якому не лишиться жодного боргу.
 	FreeDate string    `json:"free_date,omitempty"`
-	Paid     moneyJSON `json:"paid"`
+	Paid     MoneyJSON `json:"paid"`
 	// Cost — скільки з Paid лишається банку: комісії розстрочок і відсотки
 	// картки. Саме воно, а не сума платежів, є ціною боргу.
-	Cost moneyJSON `json:"cost"`
+	Cost MoneyJSON `json:"cost"`
 	// Unfunded — за цієї стратегії борг не гаситься взагалі: мінімалка не
 	// покриває навіть відсотка. Не помилка розрахунку, а стан, який треба
 	// побачити.
@@ -69,18 +69,18 @@ type payoffPlanJSON struct {
 
 type payoffMonthJSON struct {
 	Month string    `json:"month"`
-	Paid  moneyJSON `json:"paid"`
-	Cost  moneyJSON `json:"cost"`
-	Left  moneyJSON `json:"left"`
+	Paid  MoneyJSON `json:"paid"`
+	Cost  MoneyJSON `json:"cost"`
+	Left  MoneyJSON `json:"left"`
 }
 
 type payoffSensitivityJSON struct {
-	Extra moneyJSON `json:"extra"`
+	Extra MoneyJSON `json:"extra"`
 	// MonthsSaved / CostSaved — скільки місяців і грошей дає ця добавка
 	// ПРОТИ обраної суми. Різницею, а не абсолютом: питання тут «що дасть
 	// іще тисяча», і відповідь на нього — різниця.
 	MonthsSaved int       `json:"months_saved"`
-	CostSaved   moneyJSON `json:"cost_saved"`
+	CostSaved   MoneyJSON `json:"cost_saved"`
 }
 
 type payoffGraceJSON struct {
@@ -91,22 +91,22 @@ type payoffGraceJSON struct {
 	// ставку. Два пороги, бо помилки дві.
 	DueDate   string    `json:"due_date,omitempty"`
 	DaysToDue int       `json:"days_to_due,omitempty"`
-	FullDue   moneyJSON `json:"full_due"`
-	MinDue    moneyJSON `json:"min_due"`
+	FullDue   MoneyJSON `json:"full_due"`
+	MinDue    MoneyJSON `json:"min_due"`
 	// BringByDue — скільки треба ПРИНЕСТИ до дати: виписка за вирахуванням
 	// своїх грошей на картці. Окремо від Free, бо Free рахує ще й частини
 	// розстрочок, у яких СВІЙ строк (довід — при CardStatus.BringByDue).
-	BringByDue moneyJSON `json:"bring_by_due"`
+	BringByDue MoneyJSON `json:"bring_by_due"`
 	// Free — скільки СВОЇХ грошей лишається після виписки й найближчих
 	// частин розстрочок.
-	Free moneyJSON `json:"free"`
+	Free MoneyJSON `json:"free"`
 	// InstallmentDue — ті самі частини окремим числом. Окремим, бо в них
 	// СВІЙ строк: вони спишуться до розрахункової дати, але потраплять у
 	// наступну виписку (довід — при CardStatus.BringByDue).
-	InstallmentDue moneyJSON `json:"installment_due,omitempty"`
+	InstallmentDue MoneyJSON `json:"installment_due,omitempty"`
 	// MissFullCost / MissMinCost — ціна кожної з двох помилок за місяць.
-	MissFullCost moneyJSON `json:"miss_full_cost"`
-	MissMinCost  moneyJSON `json:"miss_min_cost"`
+	MissFullCost MoneyJSON `json:"miss_full_cost"`
+	MissMinCost  MoneyJSON `json:"miss_min_cost"`
 	// Exit — режим виходу з ліміту, якщо на картці названа дата. Тут, а не
 	// окремим блоком відповіді: питання те саме («що з цією карткою»), і
 	// два списки з однаковими рядками довелося б звіряти очима.
@@ -127,49 +127,49 @@ type payoffExitJSON struct {
 	Months float64  `json:"months"`
 	// Installments — щомісячні платежі карткових розстрочок. Третій відтік
 	// із картки поруч із витратами й портфелем, і саме тому окремо.
-	Installments moneyJSON `json:"installments"`
+	Installments MoneyJSON `json:"installments"`
 	// Planned — планові разові витрати з картки, у середньому за місяцями
 	// вікна. Четвертий відтік, і окремо від Installments з тієї ж причини,
 	// з якої ті окремо від витрат: розстрочка — графік банку, планова
 	// витрата — рішення власника, яке можна зсунути або скасувати.
-	Planned moneyJSON `json:"planned,omitempty"`
+	Planned MoneyJSON `json:"planned,omitempty"`
 	// SpendCap — головне число: скільки можна витрачати на місяць, щоб
 	// устигнути. NeedPerMonth — скільки треба звільняти.
-	SpendCap     moneyJSON `json:"spend_cap"`
-	NeedPerMonth moneyJSON `json:"need_per_month"`
+	SpendCap     MoneyJSON `json:"spend_cap"`
+	NeedPerMonth MoneyJSON `json:"need_per_month"`
 	// Feasible — стеля додатна. Хибне означає «не встигнути навіть при
 	// нульових витратах»: окреме твердження, а не «мало».
 	Feasible bool `json:"feasible"`
 	// ShortPerMonth — наскільки нинішні витрати перевищують стелю.
-	ShortPerMonth moneyJSON `json:"short_per_month,omitempty"`
+	ShortPerMonth MoneyJSON `json:"short_per_month,omitempty"`
 	// ETADate — коли вийдеш за НИНІШНІМИ витратами; порожньо, коли борг не
 	// меншає.
 	ETADate string `json:"eta_date,omitempty"`
 	// GrossUAH / InvestUAH — з чого це пораховано: увесь дохід місяця й та
 	// його частина, яку зараз виводять в інструменти. Показуються, бо без
 	// них стеля виглядає взятою зі стелі.
-	Gross  moneyJSON `json:"gross"`
-	Invest moneyJSON `json:"invest"`
+	Gross  MoneyJSON `json:"gross"`
+	Invest MoneyJSON `json:"invest"`
 	// SpendUsed — витрати, з якими рахували; SpendBasis — «виміряно» чи
 	// «заявлено»; SpendDeclared / SpendMeasured — обидва числа поруч, а
 	// BurnWhy каже, чому виміру немає (рішення власника: розбіжність
 	// вголос).
-	SpendUsed     moneyJSON `json:"spend_used"`
+	SpendUsed     MoneyJSON `json:"spend_used"`
 	SpendBasis    string    `json:"spend_basis"`
-	SpendDeclared moneyJSON `json:"spend_declared,omitempty"`
+	SpendDeclared MoneyJSON `json:"spend_declared,omitempty"`
 	// ВКАЗІВНИКОМ, а не значенням, і це не стиль: omitempty на структурі
 	// НЕ ДІЄ (та сама пастка, що вже названа при allocLine.Amount).
 	// Значенням поле їхало б у браузер як {"amount":"","currency":""} і
 	// читалось як «виміряно 0,00 ₴» — тобто застосунок стверджував би
 	// нульові витрати там, де виміру не було зовсім. Спіймано вживу.
-	SpendMeasured *moneyJSON `json:"spend_measured,omitempty"`
+	SpendMeasured *MoneyJSON `json:"spend_measured,omitempty"`
 	BurnWhy       string     `json:"burn_why,omitempty"`
 	BurnFrom      string     `json:"burn_from,omitempty"`
 	BurnTo        string     `json:"burn_to,omitempty"`
 	// WithInvest* — те саме, якщо на картку піде й інвестиційна частка.
 	// Другий рядок, а не перемикач: рішення власника — вирішувати щомісяця,
 	// а застосунок називає ціну числом.
-	WithInvestSpendCap moneyJSON `json:"with_invest_spend_cap"`
+	WithInvestSpendCap MoneyJSON `json:"with_invest_spend_cap"`
 	WithInvestETADate  string    `json:"with_invest_eta_date,omitempty"`
 	// OnCard — залишок: скільки з валового доходу лишається на картці ПІСЛЯ
 	// портфельної частки, платежів карткових розстрочок і планових разових
@@ -182,30 +182,30 @@ type payoffExitJSON struct {
 	// повторювати onCard із domain.CardExit доданок у доданок: розійшовшись
 	// із ним, воно не завалить нічого — просто ланцюг на екрані перестане
 	// сходитися зі стелею під ним.
-	OnCard moneyJSON `json:"on_card"`
+	OnCard MoneyJSON `json:"on_card"`
 	// Headroom — обернене питання: на скільки ще можна залізти в ліміт при
 	// цих витратах і все одно вийти до дати. Зі знаком: відʼємне — той
 	// самий перебір, що й ShortPerMonth, разом за всі місяці. MaxDebt —
 	// гранична глибина боргу (борг плюс запас). WithInvestHeadroom — те
 	// саме з докинутою інвестиційною часткою.
-	Headroom           moneyJSON `json:"headroom"`
-	MaxDebt            moneyJSON `json:"max_debt"`
-	WithInvestHeadroom moneyJSON `json:"with_invest_headroom"`
+	Headroom           MoneyJSON `json:"headroom"`
+	MaxDebt            MoneyJSON `json:"max_debt"`
+	WithInvestHeadroom MoneyJSON `json:"with_invest_headroom"`
 	// LimitLeft — скільки ще дозволяють самі ліміти карток. Вказівник з
 	// тієї самої причини, що й SpendMeasured: «ліміт не заданий» мусить
 	// доїхати до браузера як відсутність, а не як «0,00 ₴».
-	LimitLeft *moneyJSON `json:"limit_left,omitempty"`
+	LimitLeft *MoneyJSON `json:"limit_left,omitempty"`
 	// StartDebt — борг на початок вікна, від якого йде відлік; DebtNow —
 	// зараз. Коли вікно починається з місяця звірки (MarkDate непорожнє),
 	// три *BeforeMark кажуть, із чого борг на початок відновлено. Вказівники
 	// з тієї самої причини, що й SpendMeasured.
-	StartDebt              moneyJSON  `json:"start_debt"`
-	DebtNow                moneyJSON  `json:"debt_now"`
+	StartDebt              MoneyJSON  `json:"start_debt"`
+	DebtNow                MoneyJSON  `json:"debt_now"`
 	StartMonth             string     `json:"start_month"`
 	MarkDate               string     `json:"mark_date,omitempty"`
-	PaidBeforeMark         *moneyJSON `json:"paid_before_mark,omitempty"`
-	InstallmentsBeforeMark *moneyJSON `json:"installments_before_mark,omitempty"`
-	SpendBeforeMark        *moneyJSON `json:"spend_before_mark,omitempty"`
+	PaidBeforeMark         *MoneyJSON `json:"paid_before_mark,omitempty"`
+	InstallmentsBeforeMark *MoneyJSON `json:"installments_before_mark,omitempty"`
+	SpendBeforeMark        *MoneyJSON `json:"spend_before_mark,omitempty"`
 	// Schedule — прохід балансу вперед. Порожній, коли борг не меншає.
 	Schedule []payoffExitStepJSON `json:"schedule,omitempty"`
 }
@@ -213,22 +213,22 @@ type payoffExitJSON struct {
 // payoffExitStepJSON — один місяць проходу до нуля.
 type payoffExitStepJSON struct {
 	Month        string    `json:"month"`
-	Gross        moneyJSON `json:"gross"`
-	Invest       moneyJSON `json:"invest"`
-	Installments moneyJSON `json:"installments"`
-	Planned      moneyJSON `json:"planned,omitempty"`
-	Spend        moneyJSON `json:"spend"`
-	Left         moneyJSON `json:"left"`
+	Gross        MoneyJSON `json:"gross"`
+	Invest       MoneyJSON `json:"invest"`
+	Installments MoneyJSON `json:"installments"`
+	Planned      MoneyJSON `json:"planned,omitempty"`
+	Spend        MoneyJSON `json:"spend"`
+	Left         MoneyJSON `json:"left"`
 }
 
 type payoffResp struct {
 	Strategy string    `json:"strategy"`
-	Extra    moneyJSON `json:"extra"`
+	Extra    MoneyJSON `json:"extra"`
 	// ExtraFrom — звідки взялося це число. Сума без походження читається
 	// як вимога застосунку, а не як те, що людина сама собі поставила.
 	ExtraFrom string           `json:"extra_from,omitempty"`
 	Debts     []payoffDebtJSON `json:"debts"`
-	Total     moneyJSON        `json:"total"`
+	Total     MoneyJSON        `json:"total"`
 	Plan      payoffPlanJSON   `json:"plan"`
 	// Compare — усі три стратегії поруч, у місяцях і в гривнях.
 	Compare     []payoffPlanJSON        `json:"compare"`
@@ -268,7 +268,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		strategy = payoff.Avalanche
 	}
 
-	rates, err := s.rates(ctx)
+	rates, err := s.Rates(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -301,7 +301,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 	extra, extraFrom := int64(0), "стеля дострокового погашення"
 	investPct := 0.0
 	var exitDoc *state.DebtExit
-	if doc, derr := s.buildState(ctx, now); derr == nil && doc != nil {
+	if doc, derr := s.BuildState(ctx, now); derr == nil && doc != nil {
 		if doc.Debt != nil {
 			exitDoc = doc.Debt.Exit
 		}
@@ -333,13 +333,13 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		extraFrom = "твоє число"
 	}
 
-	deval := s.devaluation(ctx)
-	rc := s.newRateContext(ctx, deval)
+	deval := s.Devaluation(ctx)
+	rc := s.NewRateContext(ctx, deval)
 	list := payoff.BuildDebts(debts, marks, ops, rates, today)
 
 	out := payoffResp{
 		Strategy:         strategy,
-		Extra:            toMoneyJSON(money.New(extra, money.UAH)),
+		Extra:            ToMoneyJSON(money.New(extra, money.UAH)),
 		ExtraFrom:        extraFrom,
 		DevaluationPct:   deval,
 		InvestInsteadPct: investPct,
@@ -358,9 +358,9 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		total += d.Left
 		row := payoffDebtJSON{
 			ID: d.ID, Name: d.Name, Kind: d.Kind,
-			Rate:        round2(d.Rate),
+			Rate:        Round2(d.Rate),
 			Basis:       d.RateBasis,
-			Left:        toMoneyJSON(money.New(d.Left, money.UAH)),
+			Left:        ToMoneyJSON(money.New(d.Left, money.UAH)),
 			PrepayHelps: d.Prepayable,
 			PrepayBasis: d.PrepayBasis,
 		}
@@ -368,18 +368,18 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 			out.PrepayNone = false
 		}
 		if d.RateBasis != domain.DebtRateNone {
-			// realYield приймає ЧАСТКУ, а ставка боргу — у відсотках.
-			row.RealPct = round2(realYield(d.Rate/100, money.UAH, deval) * 100)
+			// RealYield приймає ЧАСТКУ, а ставка боргу — у відсотках.
+			row.RealPct = Round2(RealYield(d.Rate/100, money.UAH, deval) * 100)
 			// Погашення боргу нічого не заробляє — воно перестає
 			// витрачати, — тож податку тут немає й валова дорівнює чистій.
-			row.RateParts = rc.breakdown(d.Rate/100, d.Rate/100, money.UAH, d.RateBasis)
+			row.RateParts = rc.Breakdown(d.Rate/100, d.Rate/100, money.UAH, d.RateBasis)
 		}
 		if m, ok := run.CloseAt[d.ID]; ok {
-			row.CloseDate = monthKeyAt(today, m)
+			row.CloseDate = MonthKeyAt(today, m)
 		}
 		out.Debts = append(out.Debts, row)
 	}
-	out.Total = toMoneyJSON(money.New(total, money.UAH))
+	out.Total = ToMoneyJSON(money.New(total, money.UAH))
 	out.Plan = payoffPlanToJSON(strategy, run, today)
 
 	for _, alt := range []string{payoff.Avalanche, payoff.Snowball, payoff.Minimum} {
@@ -406,9 +406,9 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		for _, step := range []int64{1_000_00, 5_000_00} {
 			alt := payoff.Simulate(list, strategy, extra+step)
 			out.Sensitivity = append(out.Sensitivity, payoffSensitivityJSON{
-				Extra:       toMoneyJSON(money.New(step, money.UAH)),
+				Extra:       ToMoneyJSON(money.New(step, money.UAH)),
 				MonthsSaved: run.Months - alt.Months,
-				CostSaved:   toMoneyJSON(money.New(run.Cost-alt.Cost, money.UAH)),
+				CostSaved:   ToMoneyJSON(money.New(run.Cost-alt.Cost, money.UAH)),
 			})
 		}
 	}
@@ -422,13 +422,13 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		row := payoffGraceJSON{
 			DebtID: d.ID, Name: d.Name,
 			DueDate: string(st.DueDate), DaysToDue: st.DaysToDue,
-			FullDue:        toMoneyJSON(money.New(st.StatementDue, d.Currency)),
-			MinDue:         toMoneyJSON(money.New(st.MinDue, d.Currency)),
-			BringByDue:     toMoneyJSON(money.New(st.BringByDue, d.Currency)),
-			Free:           toMoneyJSON(money.New(st.Free, d.Currency)),
-			InstallmentDue: toMoneyJSON(money.New(st.InstallmentDue, d.Currency)),
-			MissFullCost:   toMoneyJSON(money.New(missFull, d.Currency)),
-			MissMinCost:    toMoneyJSON(money.New(missMin, d.Currency)),
+			FullDue:        ToMoneyJSON(money.New(st.StatementDue, d.Currency)),
+			MinDue:         ToMoneyJSON(money.New(st.MinDue, d.Currency)),
+			BringByDue:     ToMoneyJSON(money.New(st.BringByDue, d.Currency)),
+			Free:           ToMoneyJSON(money.New(st.Free, d.Currency)),
+			InstallmentDue: ToMoneyJSON(money.New(st.InstallmentDue, d.Currency)),
+			MissFullCost:   ToMoneyJSON(money.New(missFull, d.Currency)),
+			MissMinCost:    ToMoneyJSON(money.New(missMin, d.Currency)),
 			MarkDate:       string(st.MarkDate), MarkAgeDays: st.MarkAgeDays,
 			Known: st.Known,
 		}
@@ -440,7 +440,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		out.Grace = append(out.Grace, row)
 	}
 
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -451,12 +451,12 @@ func payoffPlanToJSON(strategy string, run payoff.Run, today domain.Date) payoff
 	out := payoffPlanJSON{
 		Strategy: strategy,
 		Months:   run.Months,
-		Paid:     toMoneyJSON(money.New(run.Paid, money.UAH)),
-		Cost:     toMoneyJSON(money.New(run.Cost, money.UAH)),
+		Paid:     ToMoneyJSON(money.New(run.Paid, money.UAH)),
+		Cost:     ToMoneyJSON(money.New(run.Cost, money.UAH)),
 		Unfunded: run.Unfunded,
 	}
 	if !run.Unfunded && run.Months > 0 {
-		out.FreeDate = monthKeyAt(today, run.Months-1)
+		out.FreeDate = MonthKeyAt(today, run.Months-1)
 	}
 	return out
 }
@@ -495,10 +495,10 @@ func payoffSchedule(run payoff.Run, total int64, today domain.Date) []payoffMont
 			left = 0
 		}
 		out = append(out, payoffMonthJSON{
-			Month: monthKeyAt(today, m),
-			Paid:  toMoneyJSON(money.New(a.paid, money.UAH)),
-			Cost:  toMoneyJSON(money.New(a.cost, money.UAH)),
-			Left:  toMoneyJSON(money.New(left, money.UAH)),
+			Month: MonthKeyAt(today, m),
+			Paid:  ToMoneyJSON(money.New(a.paid, money.UAH)),
+			Cost:  ToMoneyJSON(money.New(a.cost, money.UAH)),
+			Left:  ToMoneyJSON(money.New(left, money.UAH)),
 		})
 	}
 	return out
@@ -514,8 +514,8 @@ func exitJSONOf(e *state.DebtExit, card string) *payoffExitJSON {
 	if e == nil || len(e.Cards) == 0 || e.Cards[0] != card {
 		return nil
 	}
-	uah := func(v float64) moneyJSON {
-		return toMoneyJSON(money.New(int64(math.Round(v*100)), money.UAH))
+	uah := func(v float64) MoneyJSON {
+		return ToMoneyJSON(money.New(int64(math.Round(v*100)), money.UAH))
 	}
 	out := &payoffExitJSON{
 		Cards:  e.Cards,

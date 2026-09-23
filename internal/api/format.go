@@ -1,7 +1,7 @@
 // Гроші в JSON і довідкові підписи — спільні для розрахунку й обробників.
 //
 // Жили в httputil.go та handlers_*.go, але їх читає й розрахунок
-// (moneyJSON — у поле рядків розкладки й маршруту, plural — у пояснення
+// (MoneyJSON — у поле рядків розкладки й маршруту, plural — у пояснення
 // задач), а розрахунок не має тягнути за собою HTTP-шар.
 
 package api
@@ -14,27 +14,27 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-type moneyJSON struct {
+type MoneyJSON struct {
 	Amount   string `json:"amount"` // десятковий рядок "995.00"
 	Currency string `json:"currency"`
 }
 
-func toMoneyJSON(m *money.Money) moneyJSON {
+func ToMoneyJSON(m *money.Money) MoneyJSON {
 	if m == nil {
-		return moneyJSON{Amount: "0", Currency: money.UAH}
+		return MoneyJSON{Amount: "0", Currency: money.UAH}
 	}
 	minor := m.Amount()
 	sign := ""
 	if minor < 0 {
 		sign, minor = "-", -minor
 	}
-	return moneyJSON{
+	return MoneyJSON{
 		Amount:   fmt.Sprintf("%s%d.%02d", sign, minor/100, minor%100),
 		Currency: m.Currency().Code,
 	}
 }
 
-func parseMoney(amount, currency string) (*money.Money, error) {
+func ParseMoney(amount, currency string) (*money.Money, error) {
 	minor, err := domain.ParseDecimalToMinor(amount, currency)
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func parseMoney(amount, currency string) (*money.Money, error) {
 }
 
 // plural — українське відмінювання для довідкових підписів.
-func plural(n int, one, few, many string) string {
+func Plural(n int, one, few, many string) string {
 	d, h := n%10, n%100
 	switch {
 	case d == 1 && h != 11:
@@ -55,7 +55,7 @@ func plural(n int, one, few, many string) string {
 	}
 }
 
-func orUAH(cur string) string {
+func OrUAH(cur string) string {
 	if cur == "" {
 		return money.UAH
 	}
@@ -65,6 +65,6 @@ func orUAH(cur string) string {
 // Порядок у відповіді детермінований навмисно: інакше два однакові
 // запити давали б різний JSON (мапи в Go обходяться випадково), і будь-яке
 // порівняння відповідей — очима чи тестом — перетворилось би на гадання.
-func sortMoneyJSON(m []moneyJSON) {
+func sortMoneyJSON(m []MoneyJSON) {
 	sort.Slice(m, func(i, j int) bool { return m[i].Currency < m[j].Currency })
 }

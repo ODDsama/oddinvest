@@ -86,8 +86,8 @@ func (s *Server) handleFundOps(w http.ResponseWriter, r *http.Request) {
 		Fund   string    `json:"fund"`
 		Kind   string    `json:"kind"`
 		Qty    int64     `json:"qty,omitempty"`
-		Amount moneyJSON `json:"amount"`
-		Tax    moneyJSON `json:"tax,omitempty"`
+		Amount MoneyJSON `json:"amount"`
+		Tax    MoneyJSON `json:"tax,omitempty"`
 		Broker string    `json:"broker,omitempty"`
 		Note   string    `json:"note,omitempty"`
 	}
@@ -95,8 +95,8 @@ func (s *Server) handleFundOps(w http.ResponseWriter, r *http.Request) {
 	for _, op := range ops {
 		out = append(out, row{ID: op.ID, Date: string(op.Date), Fund: op.Fund,
 			Kind: string(op.Kind), Qty: op.Qty,
-			Amount: toMoneyJSON(money.New(op.Amount, op.Currency)),
-			Tax:    toMoneyJSON(money.New(op.Tax, op.Currency)),
+			Amount: ToMoneyJSON(money.New(op.Amount, op.Currency)),
+			Tax:    ToMoneyJSON(money.New(op.Tax, op.Currency)),
 			Broker: op.Broker, Note: op.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -118,16 +118,16 @@ func (s *Server) handleAddFundOp(w http.ResponseWriter, r *http.Request) {
 	// сюди не заходить — вона пише через сховище (handlers_import.go), і
 	// саме тому пачка операцій заднім числом не засмічує журнал.
 	now := time.Now()
-	var snap decisionSnapshot
+	var snap DecisionSnapshot
 	if op.Kind == domain.FundBuy {
-		snap = s.takeDecisionSnapshot(r.Context(), now, store.BuyFund, op.Fund)
+		snap = s.TakeDecisionSnapshot(r.Context(), now, store.BuyFund, op.Fund)
 	}
 	id, err := s.st.AddFundOp(r.Context(), op)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.saveDecision(r.Context(), snap, now, store.BuyFund, op.Fund,
+	s.SaveDecision(r.Context(), snap, now, store.BuyFund, op.Fund,
 		money.New(op.Amount, op.Currency), id, op.Note)
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})

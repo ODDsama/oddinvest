@@ -41,7 +41,7 @@ type inner struct {
 	Delta state.Money `json:"delta" money:"diff=cap,own"` // cap — у предка
 }
 
-// plan — неіменоване вкладення приватного типу (routeLeg так вкладає
+// plan — неіменоване вкладення приватного типу (RouteLeg так вкладає
 // allocPlan): json піднімає його поля до господаря, і презентер мусить у
 // нього зайти, хоч поле й неекспортоване. Before дивиться на дату предка.
 type plan struct {

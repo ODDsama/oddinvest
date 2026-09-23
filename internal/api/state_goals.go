@@ -189,7 +189,7 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 			MovedUAH:        state.Major(a.movedUAH, money.UAH),
 		}
 		if w := rateWeight[g.ID]; w > 0 {
-			in.RatePct = round2(rateWeighted[g.ID] / w)
+			in.RatePct = Round2(rateWeighted[g.ID] / w)
 		}
 		if a.hasWindow && a.windowUAH > 0 {
 			months := paceMonths(a.windowFrom, today)
@@ -209,7 +209,7 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 			}
 		}
 	}
-	out.MovedUAH = round2(out.MovedUAH)
+	out.MovedUAH = Round2(out.MovedUAH)
 	return out
 }
 

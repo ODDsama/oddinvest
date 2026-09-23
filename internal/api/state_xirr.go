@@ -54,7 +54,7 @@ var xirrCurrencies = []string{money.UAH, money.USD, money.EUR}
 // byCur — потоки, зібрані будівником; broken каже, що хоч одна валюта не
 // зібралась. Повертає nil, коли сказати нічого: nil на екрані стає
 // відсутньою плиткою, а не прочерком, і це навмисно.
-func (e *engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow,
+func (e *Engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow,
 	broken bool, today domain.Date, report string) *state.TotalReturn {
 
 	// Валюта, яка не зібралась, робить зведене число ТИХО НЕПОВНИМ. Для
@@ -68,7 +68,7 @@ func (e *engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 	if report == "" {
 		report = money.UAH
 	}
-	asOf := newAsOfRates(e.st)
+	asOf := NewAsOfRates(e.st)
 	var flows []domain.Flow
 	for _, cur := range xirrCurrencies {
 		for _, f := range byCur[cur] {
@@ -87,7 +87,7 @@ func (e *engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 	// читабельним, а скільки їх було, каже note(). Тут пропущений потік —
 	// це зникла КУПІВЛЯ, тобто знаменник. Термінальна вартість датована
 	// сьогодні, курс на сьогодні є завжди, а те, що за неї заплатили,
-	// перетворюється на нуль (asOfRates.uah повертає 0 і рахує missing).
+	// перетворюється на нуль (asOfRates.UAH повертає 0 і рахує missing).
 	// Дохідність тоді летить у стелю — і це навіть не схоже на поломку,
 	// просто дуже приємне число.
 	//
@@ -114,7 +114,7 @@ func (e *engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 	}
 	out := &state.TotalReturn{
 		GainUAH:      state.Minor(gain, report),
-		GainPct:      round2(float64(gain) / float64(invested) * 100),
+		GainPct:      Round2(float64(gain) / float64(invested) * 100),
 		MinDays:      xirrMinMoneyDays,
 		FXMaxLagDays: asOf.maxLag,
 	}
@@ -124,7 +124,7 @@ func (e *engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 	// і свіжою гривневою може дозріти зведено, коли гривнева плитка ще
 	// мовчить, — і навпаки.
 	days := domain.MoneyWeightedDays(flows, today)
-	out.MoneyDays = round2(days)
+	out.MoneyDays = Round2(days)
 	if days < xirrMinMoneyDays {
 		return out
 	}
@@ -132,7 +132,7 @@ func (e *engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 	if err != nil || !domain.XIRRPlausible(r) {
 		return out
 	}
-	pct := round2(r * 100)
+	pct := Round2(r * 100)
 	out.XIRRPct = &pct
 	return out
 }

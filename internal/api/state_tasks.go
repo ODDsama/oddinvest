@@ -1,16 +1,16 @@
 // Черга «що робити»: усе, що чекає рішення, одним впорядкованим списком.
 //
-// ЧОМУ ЦЕ ОКРЕМА ФАЗА, А НЕ ЧАСТИНА buildState
+// ЧОМУ ЦЕ ОКРЕМА ФАЗА, А НЕ ЧАСТИНА BuildState
 //
 // Задачі потребують ПОРАД реінвесту, а поради рахуються за готовим
-// документом (reinvestSuggestions приймає *state.Doc). Покласти їх усередину
-// buildStateWith означало б замкнути це в кільце — і, що дорожче, ганяти
+// документом (ReinvestSuggestions приймає *state.Doc). Покласти їх усередину
+// BuildStateWith означало б замкнути це в кільце — і, що дорожче, ганяти
 // SearchBonds на п'ять тисяч паперів на КОЖНОМУ POST /api/whatif, де черга
 // не потрібна взагалі.
 //
 // Тому черга — обгортка над готовим документом, і кличуть її рівно два
 // шляхи: GET /api/summary і публікація в MQTT. Решта (whatif, план,
-// cashflow, xirr) лишається на голому buildState.
+// cashflow, xirr) лишається на голому BuildState.
 //
 // ЧОМУ ПРОЗА ТУТ, А НЕ В UI
 //
@@ -158,7 +158,7 @@ func curText(v float64, code string) string {
 // що бере презентер: код — settings.report_currency, курс — doc.Rates на
 // сьогодні. Обидва вже лежать у документі, тож форматер будується з нього
 // де завгодно, і жодного параметра через десять сигнатур тягнути не треба.
-// Без курсу — гривня, як і в презентера (reportCurrency).
+// Без курсу — гривня, як і в презентера (ReportCurrency).
 //
 // Гривневий і доларовий рядки ніколи не стоять в одному документі: обидва
 // шари читають одне джерело, і розійтись їм нема де.
@@ -237,17 +237,17 @@ func daysBetween(from, to domain.Date) int {
 	return int(b.Sub(a).Hours() / 24)
 }
 
-// buildStateTasked — документ стану разом із чергою задач.
+// BuildStateTasked — документ стану разом із чергою задач.
 //
 // Помилка збірки порад чергу ГАСИТЬ, а не документ: стан портфеля цінний
 // сам по собі, і віддати порожню чергу замість п'ятисотки — єдина розумна
 // поведінка, коли впав саме помічник.
-func (e *engine) buildStateTasked(ctx context.Context, now time.Time) (*state.Doc, error) {
-	doc, err := e.buildState(ctx, now)
+func (e *Engine) BuildStateTasked(ctx context.Context, now time.Time) (*state.Doc, error) {
+	doc, err := e.BuildState(ctx, now)
 	if err != nil {
 		return nil, err
 	}
-	sug, serr := e.reinvestSuggestions(ctx, now, doc)
+	sug, serr := e.ReinvestSuggestions(ctx, now, doc)
 	if serr != nil {
 		e.log.Warn("поради для черги задач не зібрались", "err", serr)
 		sug = nil
@@ -258,7 +258,7 @@ func (e *engine) buildStateTasked(ctx context.Context, now time.Time) (*state.Do
 		return doc, nil
 	}
 	doc.Tasks = buildTasks(doc, sug, src, domain.NewDate(now))
-	// Ціна простою — тут, а не в buildState, з тієї ж причини, що й
+	// Ціна простою — тут, а не в BuildState, з тієї ж причини, що й
 	// задачі: вона береться з порад (state_idle.go).
 	doc.IdleCost = buildIdleCost(doc.Idle, sug)
 	return doc, nil
@@ -308,7 +308,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		if r.FillNowUAH.Cmp(r.GapUAH) >= 0 {
 			why = fmt.Sprintf("Це все, чого бракує до цілі — %s, тобто %d %s витрат.",
 				mt.uah(r.TargetUAH.Major()), int(r.TargetMonths),
-				plural(int(r.TargetMonths), "місяць", "місяці", "місяців"))
+				Plural(int(r.TargetMonths), "місяць", "місяці", "місяців"))
 		}
 		// У ЯКІЙ ФОРМІ — те, чого задачі бракувало. Стеля каже, СКІЛЬКИ
 		// відкласти; драбина доступу додає, у що саме, і порядок тут не
@@ -334,7 +334,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 				"потрібно ≈%d %s. Якщо банк такого строку не дає, бери довший — "+
 				"тоді ближчий місяць лишиться на готівці, а драбина зсунеться.",
 				int(r.NextRungMonths),
-				plural(int(r.NextRungMonths), "місяць", "місяці", "місяців"))
+				Plural(int(r.NextRungMonths), "місяць", "місяці", "місяців"))
 		}
 		add(state.Task{
 			ID: "reserve-fill", Sev: sevNow, Rank: 10, Kind: "reserve",
@@ -506,7 +506,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 	}
 
 	// ---------- що купити ----------
-	// Стрічка вже впорядкована reinvestSuggestions — беремо перше, що по
+	// Стрічка вже впорядкована ReinvestSuggestions — беремо перше, що по
 	// кишені, і перше взагалі. Власного сортування тут немає навмисно: два
 	// порядки на одні поради означали б, що черга радить одне, а «Що
 	// купити» інше.
@@ -559,7 +559,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		add(state.Task{
 			ID: "fund-price-stale:" + f.Fund, Sev: sevWatch, Rank: 25, Kind: "fund",
 			Title: fmt.Sprintf("%s: ціну не позначали %d %s", f.Fund, days,
-				plural(days, "день", "дні", "днів")),
+				Plural(days, "день", "дні", "днів")),
 			Why: "Вартість позиції й її дохідність рахуються за цією ціною. " +
 				"Доки її не оновити, зростання фонду лишається невидимим.",
 			When: dayMonth(domain.Date(f.LastPriceDate)),
@@ -603,7 +603,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 	if over := overLimits(doc); len(over) > 0 {
 		add(state.Task{
 			ID: "conc", Sev: sevWatch, Rank: 10,
-			Title: fmt.Sprintf("%d %s", len(over), plural(len(over),
+			Title: fmt.Sprintf("%d %s", len(over), Plural(len(over),
 				"ліміт перевищено", "ліміти перевищено", "лімітів перевищено")),
 			// Спостереження, а не заборона — рівно як каже коментар до
 			// ConcentrationRow: ліміт може бути порушений із причин, яких
@@ -624,7 +624,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		add(state.Task{
 			ID: "nbu", Sev: sevWatch, Rank: 20,
 			Title: fmt.Sprintf("Довідник НБУ не оновлювався %d %s", d,
-				plural(d, "день", "дні", "днів")),
+				Plural(d, "день", "дні", "днів")),
 			Why: "Ставки й графіки виплат можуть бути несвіжі.",
 			// Дії немає: кнопка оновлення стоїть у шапці вебу й видима з
 			// будь-якої сторінки, а в Home Assistant її натискає розклад.
@@ -641,7 +641,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			add(state.Task{
 				ID: "fx-stale", Sev: sevWatch, Rank: 19,
 				Title: fmt.Sprintf("Курс НБУ не оновлювався %d %s", d,
-					plural(d, "день", "дні", "днів")),
+					Plural(d, "день", "дні", "днів")),
 				Why: fmt.Sprintf("Усі гривневі еквіваленти рахуються за курсом від %s.",
 					src.ratesAsOf),
 			})
@@ -748,7 +748,7 @@ func savingTask(doc *state.Doc, best *suggestion) state.Task {
 	if perDay := doc.MonthTargetUAH.Major() / 30; perDay > 0 && need > 0 {
 		d := int(math.Ceil(need / perDay))
 		why += fmt.Sprintf(" За твоїм темпом це ≈ %d %s.", d,
-			plural(d, "день", "дні", "днів"))
+			Plural(d, "день", "дні", "днів"))
 	}
 	return state.Task{
 		ID: "saving", Sev: sevWatch, Rank: 30, Kind: best.Kind,
@@ -867,7 +867,7 @@ func unconfirmedTask(src *sources, today domain.Date) (state.Task, bool) {
 	return state.Task{
 		ID: "pay-confirm", Sev: sevNow, Rank: 40,
 		Title: fmt.Sprintf("%d %s без відмітки", n,
-			plural(n, "виплата", "виплати", "виплат")),
+			Plural(n, "виплата", "виплати", "виплат")),
 		Why: "Дата минула, але надходження не підтверджене — доки його немає, " +
 			"помічник не бачить цих грошей.",
 		When:   dayMonth(last),
@@ -985,7 +985,7 @@ func maturingDepositTask(src *sources, today domain.Date) (state.Task, bool) {
 		Title: fmt.Sprintf("Вклад %s гаситься", best.Bank),
 		Why:   "Тіло повернеться на рахунок — варто вирішити наперед, куди воно піде.",
 		When: fmt.Sprintf("%s · %d %s", dayMonth(best.MaturityDate), bestDays,
-			plural(bestDays, "день", "дні", "днів")),
+			Plural(bestDays, "день", "дні", "днів")),
 		Action: actReviewDeposit,
 		Ref:    best.SyntheticISIN(),
 	}, true
@@ -1022,7 +1022,7 @@ func fundWindowTask(src *sources, today domain.Date) (state.Task, bool) {
 		Title: fmt.Sprintf("%s: вікно купівлі закривається", name),
 		Why:   "Після цієї дати фонд перестане з'являтись у порадах.",
 		When: fmt.Sprintf("%s · %d %s", dayMonth(until), bestDays,
-			plural(bestDays, "день", "дні", "днів")),
+			Plural(bestDays, "день", "дні", "днів")),
 		Action: actSeeSuggest,
 	}, true
 }
@@ -1074,7 +1074,7 @@ func suggestName(r *suggestion) string {
 	return r.ISIN
 }
 
-func moneyAmount(m moneyJSON) float64 {
+func moneyAmount(m MoneyJSON) float64 {
 	var v float64
 	_, _ = fmt.Sscanf(m.Amount, "%f", &v) //nolint:errcheck // нерозбірлива сума лишає нуль, і це та сама відповідь, що й порожня
 	return v
@@ -1238,7 +1238,7 @@ func cardAmountUAH(minor int64, cur string) float64 {
 	if cur != money.UAH {
 		return 0
 	}
-	return round2(float64(minor) / 100)
+	return Round2(float64(minor) / 100)
 }
 
 // debtMoney — сума боргу для прози задачі: гривня у валюті звітності,
@@ -1290,7 +1290,7 @@ func rebalanceTask(doc *state.Doc) (state.Task, bool) {
 	if worst.CanBuy > 0 {
 		why = fmt.Sprintf("На рахунку вже є %s — вистачає на %d %s: "+
 			"частку вирівнює вкладення цих грошей, а не нова конвертація.",
-			worst.Currency, worst.CanBuy, plural(int(worst.CanBuy), "квиток", "квитки", "квитків"))
+			worst.Currency, worst.CanBuy, Plural(int(worst.CanBuy), "квиток", "квитки", "квитків"))
 	}
 	return state.Task{
 		ID: "rebalance-" + worst.Currency, Sev: sevWatch, Rank: 12,

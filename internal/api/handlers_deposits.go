@@ -154,15 +154,15 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 	type topupJSON struct {
 		ID     int64     `json:"id"`
 		Date   string    `json:"date"`
-		Amount moneyJSON `json:"amount"`
+		Amount MoneyJSON `json:"amount"`
 	}
 	type row struct {
 		ID        int64     `json:"id"`
 		Bank      string    `json:"bank,omitempty"`
-		Principal moneyJSON `json:"principal"`
+		Principal MoneyJSON `json:"principal"`
 		// Balance — накопичене тіло (початкове + поповнення) на сьогодні:
 		// UI показує саме його, а principal лишається сумою відкриття.
-		Balance       moneyJSON `json:"balance"`
+		Balance       MoneyJSON `json:"balance"`
 		RatePct       float64   `json:"rate_pct"`
 		OpenDate      string    `json:"open_date"`
 		MaturityDate  string    `json:"maturity_date"`
@@ -178,7 +178,7 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		GoalName     string      `json:"goal_name,omitempty"`
 		TaxPct       float64     `json:"tax_pct"`
 		ClosedDate   string      `json:"closed_date,omitempty"`
-		ClosedAmount moneyJSON   `json:"closed_amount,omitempty"`
+		ClosedAmount MoneyJSON   `json:"closed_amount,omitempty"`
 		Note         string      `json:"note,omitempty"`
 		Topups       []topupJSON `json:"topups,omitempty"`
 		// NetPct — ставка після податку, але ДО знецінення: номінальний
@@ -197,8 +197,8 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		// найкраще: між договірною ставкою й чистою тут 23 в.п.
 		RateParts *state.RateBreakdown `json:"rate_parts,omitempty"`
 	}
-	deval := s.devaluation(r.Context())
-	rc := s.newRateContext(r.Context(), deval)
+	deval := s.Devaluation(r.Context())
+	rc := s.NewRateContext(r.Context(), deval)
 	today := domain.NewDate(time.Now())
 	// Імена цілей одним запитом на всю таблицю: цілей одиниці, а запит на
 	// кожен рядок був би N звернень на один екран.
@@ -213,12 +213,12 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		tj := make([]topupJSON, 0, len(d.Topups))
 		for _, t := range d.Topups {
 			tj = append(tj, topupJSON{ID: t.ID, Date: string(t.Date),
-				Amount: toMoneyJSON(money.New(t.Amount, d.Currency))})
+				Amount: ToMoneyJSON(money.New(t.Amount, d.Currency))})
 		}
 		dr := row{
 			ID: d.ID, Bank: d.Bank,
-			Principal: toMoneyJSON(money.New(d.Principal, d.Currency)),
-			Balance:   toMoneyJSON(money.New(d.BalanceAt(today), d.Currency)),
+			Principal: ToMoneyJSON(money.New(d.Principal, d.Currency)),
+			Balance:   ToMoneyJSON(money.New(d.BalanceAt(today), d.Currency)),
 			RatePct:   float64(d.RateBP) / 100,
 			OpenDate:  string(d.OpenDate), MaturityDate: string(d.MaturityDate),
 			Payout: string(d.Payout), Capitalized: d.Capitalized,
@@ -229,7 +229,7 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 			GoalName:      goalNames[d.GoalID],
 			TaxPct:        float64(d.TaxBP) / 100,
 			ClosedDate:    string(d.ClosedDate),
-			ClosedAmount:  toMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
+			ClosedAmount:  ToMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
 			Note:          d.Note, Topups: tj,
 		}
 		// EffectiveNetRate — та сама формула, що й у реінвест-помічнику:
@@ -237,10 +237,10 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		// ще двічі там, із проханням у коментарі не розходитись.
 		if d.RateBP > 0 {
 			net := d.EffectiveNetRate()
-			dr.NetPct = round2(net * 100)
-			dr.RealPct = round2(realYield(net, d.Currency, deval) * 100)
+			dr.NetPct = Round2(net * 100)
+			dr.RealPct = Round2(RealYield(net, d.Currency, deval) * 100)
 			dr.YieldBasis = "ставка вкладу"
-			dr.RateParts = rc.breakdown(float64(d.RateBP)/10000, net, d.Currency, "ставка вкладу")
+			dr.RateParts = rc.Breakdown(float64(d.RateBP)/10000, net, d.Currency, "ставка вкладу")
 		}
 		out = append(out, dr)
 	}
@@ -330,7 +330,7 @@ func (s *Server) handleTermDepositCheck(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.writeCashCheck(w, r, cashDebit{Broker: d.Bank, Currency: d.Currency, Amount: d.Principal})
+	s.writeCashCheck(w, r, CashDebit{Broker: d.Bank, Currency: d.Currency, Amount: d.Principal})
 }
 
 // handleDepositTopupCheck — POST /api/term-deposits/{id}/topups/check.
@@ -346,7 +346,7 @@ func (s *Server) handleDepositTopupCheck(w http.ResponseWriter, r *http.Request)
 		writeErr(w, code, err)
 		return
 	}
-	s.writeCashCheck(w, r, cashDebit{Broker: dep.Bank, Currency: dep.Currency, Amount: t.Amount})
+	s.writeCashCheck(w, r, CashDebit{Broker: dep.Bank, Currency: dep.Currency, Amount: t.Amount})
 }
 
 // handleUpdateDepositTopup — PUT /api/term-deposits/{id}/topups/{topupId}.
@@ -417,13 +417,13 @@ func (s *Server) handleAddTermDeposit(w http.ResponseWriter, r *http.Request) {
 	// Помічник називає вклад банком — тими самими словами, що й сам
 	// вклад. Знімок до запису, з тієї ж причини, що й у лоті.
 	now := time.Now()
-	snap := s.takeDecisionSnapshot(r.Context(), now, store.BuyDeposit, d.Bank)
+	snap := s.TakeDecisionSnapshot(r.Context(), now, store.BuyDeposit, d.Bank)
 	id, err := s.st.AddTermDeposit(r.Context(), d)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.saveDecision(r.Context(), snap, now, store.BuyDeposit, d.Bank,
+	s.SaveDecision(r.Context(), snap, now, store.BuyDeposit, d.Bank,
 		money.New(d.Principal, d.Currency), id, d.Note)
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})

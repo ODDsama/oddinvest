@@ -12,7 +12,7 @@ import (
 // номінальної.
 //
 // Доти цей ланцюжок був розписаний по дванадцятьох місцях: у кожному
-// виробнику стояла пара рядків «NominalPct: x, RealPct: realYield(...)»,
+// виробнику стояла пара рядків «NominalPct: x, RealPct: RealYield(...)»,
 // і кожен знав свій шматок правди про те, що вже відняте, а що ні. Тепер
 // виробник каже, ЩО в нього за ставка (валова, чиста, у якій валюті, з
 // якої основи), а як із неї виходить реальна — вирішує ця функція.
@@ -28,17 +28,17 @@ type rateContext struct {
 	cpiOK bool
 }
 
-// newRateContext збирає обидві лінійки один раз на запит. Знецінення
-// приходить готовим (у buildState воно вже лежить у src.deval — одна
+// NewRateContext збирає обидві лінійки один раз на запит. Знецінення
+// приходить готовим (у BuildState воно вже лежить у src.deval — одна
 // точка входу, яку стереже make sources-boundary), інфляція читається
 // тут, бо ряд цін ніхто інший не питає.
 //
 // При валюті звітності ≠ гривні другої лінійки немає: ІСЦ — про гривневі
 // ціни (довід при sources.cpi). Гривневий номінал у розкладі лишається —
 // він пояснює, звідки взялась реальна ставка.
-func (e *engine) newRateContext(ctx context.Context, deval float64) rateContext {
+func (e *Engine) NewRateContext(ctx context.Context, deval float64) rateContext {
 	cpi, ok := e.inflation(ctx)
-	if report, err := e.reportCurrency(ctx); err != nil || report != money.UAH {
+	if report, err := e.ReportCurrency(ctx); err != nil || report != money.UAH {
 		ok = false
 	}
 	return rateContext{deval: deval, cpi: cpi, cpiOK: ok}
@@ -46,21 +46,21 @@ func (e *engine) newRateContext(ctx context.Context, deval float64) rateContext 
 
 // breakdown — gross і net у ЧАСТКАХ (0.1655), як їх рахують виробники;
 // назовні йдуть відсотки, як їх показує UI.
-func (rc rateContext) breakdown(gross, net float64, cur, basis string) *state.RateBreakdown {
+func (rc rateContext) Breakdown(gross, net float64, cur, basis string) *state.RateBreakdown {
 	b := &state.RateBreakdown{
 		Currency:       cur,
-		GrossPct:       round2(gross * 100),
-		NetPct:         round2(net * 100),
+		GrossPct:       Round2(gross * 100),
+		NetPct:         Round2(net * 100),
 		DevaluationPct: rc.deval,
-		RealFXPct:      round2(realYield(net, cur, rc.deval) * 100),
+		RealFXPct:      Round2(RealYield(net, cur, rc.deval) * 100),
 		Basis:          basis,
 	}
 	if tax := (gross - net) * 100; tax > 0.005 {
-		b.TaxPct = round2(tax)
+		b.TaxPct = Round2(tax)
 	}
 	if rc.cpiOK {
 		infl := rc.cpi
-		real := round2(realByCPI(net, cur, rc.deval, rc.cpi) * 100)
+		real := Round2(realByCPI(net, cur, rc.deval, rc.cpi) * 100)
 		b.InflationPct, b.RealCPIPct = &infl, &real
 	}
 	return b
@@ -68,12 +68,12 @@ func (rc rateContext) breakdown(gross, net float64, cur, basis string) *state.Ra
 
 // realByCPI — дохідність проти ЦІН.
 //
-// Для гривні це та сама дія, що realYield, лише з іншим дефлятором. Для
+// Для гривні це та сама дія, що RealYield, лише з іншим дефлятором. Для
 // валюти — ДВА кроки, і другий не є другим відрахуванням: ставка спершу
 // переводиться в гривневі терміни знеціненням (гроші прийдуть у долар, а
 // витрачати їх тут), і вже гривневе число дефлюється цінами.
 //
-// Саме тут ІСЦ і робить те, заради чого заводився: realYield для валюти
+// Саме тут ІСЦ і робить те, заради чого заводився: RealYield для валюти
 // повертає ставку НЕТОРКАНОЮ, тобто вважає, що долар купівельну
 // спроможність тримає. Це припущення, і воно єдине в моделі, якого не
 // було чим перевірити. Тепер поруч стоїть вимір.

@@ -75,7 +75,7 @@ func universeSetup(t *testing.T, secs []nbu.Security) (string, *store.Store) {
 
 // ПОМІЧНИК БАЧИТЬ УВЕСЬ ДОВІДНИК, А НЕ ПЕРШІ 50.
 //
-// Доти `reinvestSuggestions` кликав `SearchBonds` із лімітом 5000 — намір
+// Доти `ReinvestSuggestions` кликав `SearchBonds` із лімітом 5000 — намір
 // «усі», — а сховище мовчки затискало його до 50 і віддавало ORDER BY
 // maturity, тобто рівно 50 НАЙКОРОТШИХ. На бойовому це ховало 136 паперів
 // зі 186: помічник ніколи не бачив нічого з погашенням після березня 2028.
@@ -103,8 +103,8 @@ func TestReinvestSkipsNearMaturity(t *testing.T) {
 	base := domain.NewDate(time.Now())
 	url, _ := universeSetup(t, []nbu.Security{
 		universeBond("UA0000000009", base.AddDays(9)),             // як у живому випадку
-		universeBond("UA0000000029", base.AddDays(minTermDays-1)), // рівно під порогом
-		universeBond("UA0000000030", base.AddDays(minTermDays)),   // рівно на порозі — лишається
+		universeBond("UA0000000029", base.AddDays(MinTermDays-1)), // рівно під порогом
+		universeBond("UA0000000030", base.AddDays(MinTermDays)),   // рівно на порозі — лишається
 		universeBond("UA0000000400", base.AddDays(400)),           // звичайний
 	})
 	got := reinvestBonds(t, url)
@@ -173,7 +173,7 @@ func TestReinvestHidesUnpricedOnlyAfterFullSweep(t *testing.T) {
 	// Протухлий знак прирівнюється до відсутнього: обхід, старший за
 	// поріг, не може підтверджувати доступність.
 	if err := st.SetAppState(ctx, store.QuotesSweptAtKey,
-		time.Now().AddDate(0, 0, -(quoteFreshDays+1)).UTC().Format(time.RFC3339)); err != nil {
+		time.Now().AddDate(0, 0, -(QuoteFreshDays+1)).UTC().Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
 	if got := reinvestBonds(t, url); len(got) != 2 {

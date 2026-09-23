@@ -10,7 +10,7 @@ type decisionsOut struct {
 	Rows []struct {
 		Kind        string    `json:"kind"`
 		Ref         string    `json:"ref"`
-		Amount      moneyJSON `json:"amount"`
+		Amount      MoneyJSON `json:"amount"`
 		RankMode    string    `json:"rank_mode"`
 		PromisedPct float64   `json:"promised_pct"`
 		RankPos     int       `json:"rank_pos"`
@@ -57,9 +57,9 @@ func TestDecisionsEmpty(t *testing.T) {
 	if out.Summary != nil {
 		t.Error("зведення на порожньому журналі не мало бути")
 	}
-	if out.MinRows != decisionsMinRows {
+	if out.MinRows != DecisionsMinRows {
 		t.Errorf("поріг %d, очікували %d — UI не має вписувати його в себе",
-			out.MinRows, decisionsMinRows)
+			out.MinRows, DecisionsMinRows)
 	}
 }
 
@@ -224,7 +224,7 @@ func TestDecisionRecordedOnReserveFill(t *testing.T) {
 		t.Fatalf("очікували одне рішення, маємо %d", len(out.Rows))
 	}
 	r := out.Rows[0]
-	if r.Kind != decisionKindReserve || r.Ref != "готівка" {
+	if r.Kind != DecisionKindReserve || r.Ref != "готівка" {
 		t.Errorf("рішення не про подушку: %+v", r)
 	}
 	if r.Amount.Amount != "12000.00" {
@@ -262,11 +262,11 @@ func TestDecisionNotRecordedOnReserveWithdrawal(t *testing.T) {
 // донизу й перетворив би метрику дисципліни на метрику «як часто я
 // поповнюю резерв».
 func TestDecisionsSummaryKeepsReserveApart(t *testing.T) {
-	got := summarizeDecisions([]decisionRow{
+	got := SummarizeDecisions([]DecisionRow{
 		{Kind: "bond", RankMode: "plan", RankPos: 1},
 		{Kind: "bond", RankMode: "plan", RankPos: 1},
-		{Kind: decisionKindReserve, TopLabel: "UA0001", ForgonePct: 9.4},
-		{Kind: decisionKindReserve, TopLabel: "UA0001", ForgonePct: 8.6},
+		{Kind: DecisionKindReserve, TopLabel: "UA0001", ForgonePct: 9.4},
+		{Kind: DecisionKindReserve, TopLabel: "UA0001", ForgonePct: 8.6},
 	})
 	if got.Count != 2 || got.Followed != 2 {
 		t.Errorf("покупок %d, за верхнім %d — чекали 2/2: подушка сюди не входить",

@@ -1,6 +1,6 @@
 // Сертифікати фондів — рядки картки й зважена дохідність.
 //
-// П'ята фаза розбиття buildState. Позиція фонду — сальдо журналу
+// П'ята фаза розбиття BuildState. Позиція фонду — сальдо журналу
 // операцій; дивіденди беруться ПІСЛЯ податку, бо купон ОВДП від нього
 // звільнений, а дивіденд фонду ні, і в спільну картку доходу вони можуть
 // потрапити лише в одній мірі.
@@ -116,7 +116,7 @@ func fundOwnRatePct(ref store.Fund, measured float64) float64 {
 // Гривневий сертифікат, чия ціна йде за курсом НБУ, обіцяє у доларах.
 // Така обіцянка вже РЕАЛЬНА: приріст ціни в гривні і є компенсацією
 // знецінення. Тож гривнева вартість такого паперу росте на знецінення
-// понад обіцянку — дзеркало realYield, який ходить у зворотний бік.
+// понад обіцянку — дзеркало RealYield, який ходить у зворотний бік.
 //
 // Застосовується ЛИШЕ до зростання, і це головне в цій функції. Виплати
 // нею чіпати не можна: цінова частина доларової обіцянки сидить у ціні
@@ -182,9 +182,9 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 
 		toUAH := func(minor int64) float64 {
 			if u, cerr := fx.ToUAH(money.New(minor, fp.Currency), rates); cerr == nil {
-				return round2(float64(u.Amount()) / 100)
+				return Round2(float64(u.Amount()) / 100)
 			}
-			return round2(float64(minor) / 100)
+			return Round2(float64(minor) / 100)
 		}
 		// Довідник і день виплати проставлені в Holdings, разом із потоками.
 		ref := src.fundRefs[fp.Fund]
@@ -259,7 +259,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		// і не мала б жодного способу зрозуміти, звідки взялась різниця.
 		if ref.ExpectedYieldBP > 0 {
 			simple := float64(ref.ExpectedYieldBP) / 100
-			row.ExpectedPct = round2(domain.CompoundFromSimple(simple, int(ref.YieldSimpleYears)))
+			row.ExpectedPct = Round2(domain.CompoundFromSimple(simple, int(ref.YieldSimpleYears)))
 			row.ExpectedCurrency = ref.ExpectedYieldCur
 			if ref.YieldSimpleYears > 0 {
 				row.ExpectedSimplePct = simple
@@ -333,7 +333,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		if tot, ok := domain.FundTotalReturn(src.fundOps, src.fundPrices, fp.Fund, today); ok {
 			measured = true
 			row.TotalPct = tot
-			row.RealPct = round2(realYield(tot/100, cur, deval) * 100)
+			row.RealPct = Round2(RealYield(tot/100, cur, deval) * 100)
 			row.YieldBasis = "дивіденди + зміна ціни"
 			nominalPct = tot
 		} else if ref.ExpectedYieldBP > 0 {
@@ -361,7 +361,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			// однією назвою й різними одиницями. Рівно те, від чого
 			// стереже коментар нижче про пару.
 			exp := row.ExpectedPct
-			row.RealPct = round2(realYield(exp/100, expCur, deval) * 100)
+			row.RealPct = Round2(RealYield(exp/100, expCur, deval) * 100)
 			row.YieldBasis = "обіцяно фондом"
 			// Номінальна тут — сама обіцянка, ЯК ВОНА ЗАДАНА, без переводу
 			// в гривню. Це та сама угода, що й для валютних ОВДП: доларовий
@@ -374,7 +374,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			// Виміряна дивідендна — теж ФАКТ: фонд ці гроші справді
 			// заплатив. Обіцянкою є лише гілка вище.
 			measured = true
-			row.RealPct = round2(realYield(y/100, cur, deval) * 100)
+			row.RealPct = Round2(RealYield(y/100, cur, deval) * 100)
 			row.YieldBasis = "дивіденди після податку"
 			nominalPct = y
 		}

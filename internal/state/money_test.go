@@ -67,7 +67,7 @@ func TestMoneyUnmarshal(t *testing.T) {
 	}
 }
 
-// Major не обрізає float-похибку й заокруглює так само, як round2 доти.
+// Major не обрізає float-похибку й заокруглює так само, як Round2 доти.
 func TestMoneyMajorRounding(t *testing.T) {
 	for _, c := range []struct {
 		in   float64

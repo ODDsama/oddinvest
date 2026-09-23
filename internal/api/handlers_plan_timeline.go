@@ -9,12 +9,12 @@ import (
 
 // handlePlanTimeline — GET /api/plan.
 func (s *Server) handlePlanTimeline(w http.ResponseWriter, r *http.Request) {
-	out, err := s.planTimeline(r.Context(), time.Now())
+	out, err := s.PlanTimeline(r.Context(), time.Now())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

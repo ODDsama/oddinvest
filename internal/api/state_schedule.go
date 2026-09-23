@@ -1,6 +1,6 @@
 // Розклад портфеля — коли й скільки повертається, і що з того дохід.
 //
-// Четверта фаза розбиття buildState. Тут дві сусідні, але різні речі:
+// Четверта фаза розбиття BuildState. Тут дві сусідні, але різні речі:
 // СКЛАСТИ розклад (календар виплат і драбина погашень, нативно) і
 // ЗВЕСТИ з нього показники (надходження по місяцях, дохід на місяць,
 // драбина в грн-екв.). Перше — про факти й оцінки, друге — про те, як
@@ -241,13 +241,13 @@ func summarizeIncome(sch schedule, rates fx.Rates, today domain.Date) incomeSumm
 	// звільнений (брутто = нетто), відсотки вкладу графік віддає після
 	// утримання, дивіденди фондів додаються теж чистими. Скільки саме
 	// забрав податок — окремо, у /api/tax.
-	out.MonthlyNow = round2(couponSum / 12)
+	out.MonthlyNow = Round2(couponSum / 12)
 	return out
 }
 
 // calendar — розклад виплат від from (GET /api/calendar) разом із
 // позначками «Отримано» за ключем ISIN|дата.
-func (e *engine) calendar(ctx context.Context, from, today domain.Date) ([]domain.CashflowItem, map[string]string, error) {
+func (e *Engine) Calendar(ctx context.Context, from, today domain.Date) ([]domain.CashflowItem, map[string]string, error) {
 	// Розклад збирає buildSchedule — та сама функція, що й для зведення.
 	// Доти цей обробник мав власного збирача: облігації плюс вклади, і
 	// фонди повз нього. На живих даних REIT платив 10 числа щомісяця, у

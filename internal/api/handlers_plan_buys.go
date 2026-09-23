@@ -19,7 +19,7 @@
 // вистачить грошей» плану купівель просто не ставлять. План міряється
 // ПЛАНОВИМИ грошима — тим, що надійде, — і рахунок поповниться з
 // надходжень раніше, ніж покупка станеться (довід повністю записаний над
-// basketDoc у handlers_whatif.go). Перевірка залишку лишається там, де
+// BasketDoc у handlers_whatif.go). Перевірка залишку лишається там, де
 // платіж записують СПРАВДІ: /api/lots/check і три його близнюки.
 package api
 
@@ -99,7 +99,7 @@ func planBuyFromReq(req planBuyReq) (store.PlanBuy, error) {
 			if req.Kind != store.BuyFund {
 				return out, errors.New("ціну вручну можна задати лише сертифікату фонду")
 			}
-			p, err := domain.ParseDecimalToMinor(req.UnitPrice, orUAH(cur))
+			p, err := domain.ParseDecimalToMinor(req.UnitPrice, OrUAH(cur))
 			if err != nil {
 				return out, fmt.Errorf("ціна за штуку: %w", err)
 			}
@@ -112,7 +112,7 @@ func planBuyFromReq(req planBuyReq) (store.PlanBuy, error) {
 		if ref == "" {
 			return out, errors.New("вкажи банк: вклад лежить у конкретній установі, і саме з її рахунку йдуть гроші")
 		}
-		out.Currency = orUAH(cur)
+		out.Currency = OrUAH(cur)
 		amt, err := domain.ParseDecimalToMinor(req.Amount, out.Currency)
 		if err != nil {
 			return out, fmt.Errorf("сума: %w", err)
@@ -189,10 +189,10 @@ func toPlanBuyRow(b store.PlanBuy, today domain.Date) planBuyRow {
 	// Гроші рядком, а не числом: форма їх туди й покладе назад, а
 	// десятковий рядок переживає коло без плаваючої коми.
 	if b.Amount > 0 {
-		out.Amount = minorToDecimal(b.Amount, orUAH(b.Currency))
+		out.Amount = minorToDecimal(b.Amount, OrUAH(b.Currency))
 	}
 	if b.UnitPrice > 0 {
-		out.UnitPrice = minorToDecimal(b.UnitPrice, orUAH(b.Currency))
+		out.UnitPrice = minorToDecimal(b.UnitPrice, OrUAH(b.Currency))
 	}
 	if b.RateBP > 0 {
 		out.RatePct = minorToDecimal(b.RateBP, money.UAH)
@@ -206,7 +206,7 @@ func toPlanBuyRow(b store.PlanBuy, today domain.Date) planBuyRow {
 // minorToDecimal — мінорні в десятковий рядок тим самим шляхом, яким вони
 // туди потрапили (domain.ParseDecimalToMinor у зворотний бік).
 func minorToDecimal(minor int64, cur string) string {
-	return toMoneyJSON(money.New(minor, cur)).Amount
+	return ToMoneyJSON(money.New(minor, cur)).Amount
 }
 
 func (s *Server) handleListPlanBuys(w http.ResponseWriter, r *http.Request) {

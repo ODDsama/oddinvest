@@ -8,10 +8,10 @@ import (
 )
 
 // TestRealNominalRoundTrip — той самий тест, який коментар при
-// nominalYield обіцяв, а репозиторій не мав: пару realYield/nominalYield
+// NominalYield обіцяв, а репозиторій не мав: пару RealYield/NominalYield
 // не стерегло ніщо.
 //
-// Ціна розходження конкретна. nominalYield годує поріг перекладання
+// Ціна розходження конкретна. NominalYield годує поріг перекладання
 // (handlers_switch.go): реальна ставка альтернативи вертається в
 // номінальну, щоб дисконтувати графік виплат у валюті паперу. Помилка на
 // цьому кроці не падає й не виглядає помилкою — вона просто зсуває
@@ -24,7 +24,7 @@ func TestRealNominalRoundTrip(t *testing.T) {
 	for _, cur := range curs {
 		for _, d := range devals {
 			for _, y := range rates {
-				got := nominalYield(realYield(y, cur, d), cur, d)
+				got := NominalYield(RealYield(y, cur, d), cur, d)
 				if math.Abs(got-y) > 1e-12 {
 					t.Fatalf("%s, знецінення %.1f%%: %v -> %v (розбіжність %.3g)",
 						cur, d, y, got, got-y)
@@ -45,13 +45,13 @@ func TestRealNominalRoundTrip(t *testing.T) {
 func TestRealYieldTouchesOnlyHryvnia(t *testing.T) {
 	const y, deval = 0.045, 12.0
 
-	if got := realYield(y, money.USD, deval); got != y {
+	if got := RealYield(y, money.USD, deval); got != y {
 		t.Fatalf("долар продефльовано: %v", got)
 	}
-	if got := realYield(y, money.EUR, deval); got != y {
+	if got := RealYield(y, money.EUR, deval); got != y {
 		t.Fatalf("євро продефльовано: %v", got)
 	}
-	uah := realYield(y, money.UAH, deval)
+	uah := RealYield(y, money.UAH, deval)
 	if uah >= y {
 		t.Fatalf("гривню не продефльовано: %v", uah)
 	}

@@ -45,7 +45,7 @@ type asOfRates struct {
 	missing int
 }
 
-func newAsOfRates(st *store.Store) *asOfRates {
+func NewAsOfRates(st *store.Store) *asOfRates {
 	return &asOfRates{st: st, cache: map[string]int64{}}
 }
 
@@ -55,7 +55,7 @@ func newAsOfRates(st *store.Store) *asOfRates {
 // Гривню сюди не подають: uah() відсікає її раніше. Так і задумано —
 // масштаб курсу (×10⁴) не має витікати за межі internal/fx, і саме це
 // стереже гейт fx-boundary.
-func (a *asOfRates) rate(ctx context.Context, code string, on domain.Date) (int64, error) {
+func (a *asOfRates) Rate(ctx context.Context, code string, on domain.Date) (int64, error) {
 	key := code + "|" + string(on)
 	if r, ok := a.cache[key]; ok {
 		return r, nil
@@ -77,7 +77,7 @@ func (a *asOfRates) rate(ctx context.Context, code string, on domain.Date) (int6
 //
 // Нуль і лічильник missing замість помилки: одна подія без курсу не
 // привід не показати звіт цілком. Скільки їх було — видно в note.
-func (a *asOfRates) uah(ctx context.Context, m *money.Money, on domain.Date) (int64, error) {
+func (a *asOfRates) UAH(ctx context.Context, m *money.Money, on domain.Date) (int64, error) {
 	if m == nil {
 		return 0, nil
 	}
@@ -85,7 +85,7 @@ func (a *asOfRates) uah(ctx context.Context, m *money.Money, on domain.Date) (in
 	if code == money.UAH {
 		return m.Amount(), nil
 	}
-	r, err := a.rate(ctx, code, on)
+	r, err := a.Rate(ctx, code, on)
 	if err != nil {
 		return 0, err
 	}
@@ -112,11 +112,11 @@ func (a *asOfRates) in(ctx context.Context, m *money.Money, code string, on doma
 	if m.Currency().Code == code {
 		return m.Amount(), nil
 	}
-	u, err := a.uah(ctx, m, on)
+	u, err := a.UAH(ctx, m, on)
 	if err != nil || code == money.UAH {
 		return u, err
 	}
-	r, err := a.rate(ctx, code, on)
+	r, err := a.Rate(ctx, code, on)
 	if err != nil {
 		return 0, err
 	}
@@ -137,10 +137,10 @@ func (a *asOfRates) in(ctx context.Context, m *money.Money, code string, on doma
 // Форма навмисно та сама, що й у handleBenchmark: там уже вирішено, як
 // цей застосунок говорить про пропущені курси, і другий спосіб сказати
 // те саме читався б як інша за природою проблема.
-func (a *asOfRates) note() string {
+func (a *asOfRates) Note() string {
 	if a.missing == 0 {
 		return ""
 	}
 	return fmt.Sprintf("%d %s без курсу на свою дату — не враховано",
-		a.missing, plural(a.missing, "рух", "рухи", "рухів"))
+		a.missing, Plural(a.missing, "рух", "рухи", "рухів"))
 }

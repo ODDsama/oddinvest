@@ -50,7 +50,7 @@ func reserveLoans(loans []store.ReserveLoan, ops []store.ReserveOp,
 	if len(loans) == 0 {
 		return nil
 	}
-	byLoan := reserveRepays(loans, ops, today)
+	byLoan := ReserveRepays(loans, ops, today)
 	var out []state.ReserveLoan
 	for _, l := range loans {
 		owed, interest := domain.ReserveLoanBalance(l.TakenAmount, l.RateBP,
@@ -96,13 +96,13 @@ func reserveLoans(loans []store.ReserveLoan, ops []store.ReserveOp,
 	return out
 }
 
-// reserveRepays — які повернення належать якій позиці.
+// ReserveRepays — які повернення належать якій позиці.
 //
 // ОКРЕМО ВІД reserveLoans, бо читачів двоє й вони питають різне: картка
 // хоче гривню (там курси), журнал позик — власну валюту рядка. Спільним у
 // них є саме розподіл, і другий його екземпляр розійшовся б із першим на
 // першому ж поверненні без явної привʼязки.
-func reserveRepays(loans []store.ReserveLoan, ops []store.ReserveOp,
+func ReserveRepays(loans []store.ReserveLoan, ops []store.ReserveOp,
 	today domain.Date) map[int64][]domain.LoanRepay {
 	// Повернення по позиках. Спершу явні, потім вільні гроші — інакше
 	// FIFO забрало б поповнення, на яке вже вказує рядок.

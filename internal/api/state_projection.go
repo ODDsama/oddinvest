@@ -1,6 +1,6 @@
 // Проєкція капіталу, місячний план і віяло прогнозів.
 //
-// Восьма фаза розбиття buildState — і найбільша. Проєкція залежить від
+// Восьма фаза розбиття BuildState — і найбільша. Проєкція залежить від
 // УСІХ інструментів одразу, тож її вхід навмисно виписаний полем за
 // полем: серед сотні локальних змінних цю залежність не було видно
 // взагалі, і саме тому сюди роками не потрапляли то вклади, то фонди.
@@ -501,7 +501,7 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	// Відмітки заходять сюди тим самим ядром, що й сам план, а не окремим
 	// проходом зверху: інакше «скільки план дає» рахувалось би з відмітками
 	// в одному місці й без них у другому.
-	marks := newPlanMarks(in.PlanReceipts)
+	marks := NewPlanMarks(in.PlanReceipts)
 	// npfContrib — ДРУГА половина руху внеску: скільки надходить у кожен
 	// пенсійний рахунок на кожен місяць.
 	//
@@ -515,7 +515,7 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	// безглуздим.
 	npfContrib := map[string][]float64{}
 	// Дозволені подушці й цілям частини плану — ОКРЕМИМИ лічильниками в
-	// тому самому циклі, тим самим ядром planFlowMonthlyUAH і тим самим
+	// тому самому циклі, тим самим ядром PlanFlowMonthlyUAH і тим самим
 	// правилом дозволу (domain.PlanUseAllowed), що в buildMonthPlan. Другий
 	// прохід був би другим означенням «скільки цей потік платить у серпні»,
 	// і розійшлись би вони саме там, де людина щось правила.
@@ -537,12 +537,12 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 				npfContrib[fl.Dest] = make([]float64, goalHorizonMonths)
 			}
 			for m := 1; m <= goalHorizonMonths; m++ {
-				// Той самий planFlowMonthlyUAH, що живить ліквідний бік, а не
+				// Той самий PlanFlowMonthlyUAH, що живить ліквідний бік, а не
 				// власна арифметика: періодичність, «до», індексація, частка в
 				// портфель і відмітки надходжень мусять діяти однаково для
 				// обох половин, інакше вони розійдуться саме там, де людина
 				// щось із них змінила.
-				if v := planFlowMonthlyUAH(fl, today, in.Rates, m, marks); v < 0 {
+				if v := PlanFlowMonthlyUAH(fl, today, in.Rates, m, marks); v < 0 {
 					npfContrib[fl.Dest][m-1] += -v
 				}
 			}
@@ -551,7 +551,7 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 			// planTotal лишається гривневим і включає ВСЕ: на ньому стоїть
 			// PlanProvidesUAH («скільки план дає зараз»), якому валюта
 			// байдужа, і воно свідомо міряне сьогоднішнім курсом.
-			v := planFlowMonthlyUAH(fl, today, in.Rates, m, marks)
+			v := PlanFlowMonthlyUAH(fl, today, in.Rates, m, marks)
 			planTotal[m-1] += v
 			if fl.Kind == "expense" {
 				expense[m-1] += -v
@@ -625,7 +625,7 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	f.spend = map[string]map[int]float64{}
 	f.planAccum = map[string][]domain.Accum{}
 	for _, b := range in.PlanFunds {
-		// monthOffset, а НЕ monthOffsetRaw: покупка, датована пізнішим
+		// monthOffset, а НЕ MonthOffsetRaw: покупка, датована пізнішим
 		// днем ПОТОЧНОГО місяця, дає нуль, а нуль тут означав би vec[-1].
 		// Той самий клемп, що й у решти плану, і з того самого доводу.
 		m0 := monthOffset(today, b.When)
@@ -850,14 +850,14 @@ func buildProjection(in projectionInput) projectionPhase {
 	// горизонт, якщо факторі побудовано на менше) — щоб разова стаття
 	// (премія, ремонт) не смикала число вгору-вниз щомісяця.
 	if n := len(factory.planTotal); n > 0 {
-		if n > planProvidesMonths {
-			n = planProvidesMonths
+		if n > PlanProvidesMonths {
+			n = PlanProvidesMonths
 		}
 		var sum float64
 		for i := 0; i < n; i++ {
 			sum += factory.planTotal[i]
 		}
-		out.PlanProvidesUAH = round2(sum / float64(n))
+		out.PlanProvidesUAH = Round2(sum / float64(n))
 	}
 
 	// Ширина віяла — з налаштувань, зі спадом на ті самі числа, що доти
@@ -881,11 +881,11 @@ func buildProjection(in projectionInput) projectionPhase {
 			// Реальний двійник — зважуванням реальних ставок рукавів, а не
 			// поділом готової суміші: знецінення торкається лише гривневого
 			// рукава (той самий довід, що в зведеній дохідності).
-			wreal += base * realYield(s.RatePct/100, s.Currency, in.Deval) * 100
+			wreal += base * RealYield(s.RatePct/100, s.Currency, in.Deval) * 100
 		}
 		if w > 0 {
-			out.CapRatePct = round2(wr / w)
-			out.CapRateRealPct = round2(wreal / w)
+			out.CapRatePct = Round2(wr / w)
+			out.CapRateRealPct = Round2(wreal / w)
 		}
 	}
 
@@ -922,7 +922,7 @@ func buildProjection(in projectionInput) projectionPhase {
 	if goalAmount > 0 && deadlineMonths > 0 {
 		// Рукави тут потрібні лише щоб задати ПРОПОРЦІЇ між валютами;
 		// саму суму підбирає бісекція, тож стартове число довільне.
-		out.ContribM = round2(domain.RequiredMonthlySleeves(
+		out.ContribM = Round2(domain.RequiredMonthlySleeves(
 			buildSleeves(1, 0), in.Deval, goalAmount, deadlineMonths))
 		out.TargetUAH = money.New(int64(math.Round(out.ContribM*100)), money.UAH)
 	}
@@ -1045,7 +1045,7 @@ func buildProjection(in projectionInput) projectionPhase {
 		Months:      deadlineMonths,
 		GoalAmount:  state.Major(goalAmount, money.UAH),
 		ContribPlan: state.Major(out.ContribM, money.UAH),
-		Rate0USD:    round2(rate0USD),
+		Rate0USD:    Round2(rate0USD),
 		GlideYears:  glideYears,
 	}
 	for _, d := range defs {
@@ -1053,7 +1053,7 @@ func buildProjection(in projectionInput) projectionPhase {
 		res := domain.ProjectSleeves(sl, d.deval, deadlineMonths)
 		row := state.ForecastRow{Key: d.key, Label: d.label,
 			Amount: state.Major(res.TodayUAH, money.UAH), AmountNominal: state.Major(res.NominalUAH, money.UAH),
-			ContribMonthly: state.Major(d.contrib, money.UAH), DevaluationPct: round2(d.deval)}
+			ContribMonthly: state.Major(d.contrib, money.UAH), DevaluationPct: Round2(d.deval)}
 		// Скільки треба вносити САМЕ ЗА ЦИХ допущень. За гіршого ринку
 		// той самий фінансовий результат коштує більшого внеску — це і
 		// показує, наскільки ціль посильна, а не лише чи вона досяжна.
@@ -1071,13 +1071,13 @@ func buildProjection(in projectionInput) projectionPhase {
 		// портфеля, а не середню по лікарні.
 		for _, s := range sl {
 			if s.Currency == money.UAH {
-				row.RatePct = round2(s.RatePct)
-				row.RateTerminalPct = round2(s.RateTerminalPct)
+				row.RatePct = Round2(s.RatePct)
+				row.RateTerminalPct = Round2(s.RateTerminalPct)
 			}
 			_, src, srcDate := factory.startRate(s.Currency)
 			row.ByCurrency = append(row.ByCurrency, state.SleeveRow{
-				Currency: s.Currency, RatePct: round2(s.RatePct),
-				RateTerminalPct: round2(s.RateTerminalPct),
+				Currency: s.Currency, RatePct: Round2(s.RatePct),
+				RateTerminalPct: Round2(s.RateTerminalPct),
 				RateSource:      src, RateDate: string(srcDate),
 				ContribMonthly: state.Major(s.ContribUAH, s.Currency),
 				Amount:         state.Major(res.ByCurrency[s.Currency], s.Currency),
@@ -1133,7 +1133,7 @@ func buildForecastCurve(factory sleeveFactory, defs []scenarioDef,
 		if i >= len(s) {
 			return 0
 		}
-		return round2(s[i].UAH)
+		return Round2(s[i].UAH)
 	}
 	out := &state.ForecastCurve{StepMonths: step, GoalUAH: state.Major(goal, money.UAH)}
 	for i, p := range plan {

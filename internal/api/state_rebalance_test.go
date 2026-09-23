@@ -203,8 +203,8 @@ func TestSpreadMonthBalanceBaseExcludesReserve(t *testing.T) {
 		key  string
 		want float64
 	}{
-		{"bonds", round2(5_000.0 / 23_000 * 10_000)},
-		{"deposits", round2(18_000.0 / 23_000 * 10_000)},
+		{"bonds", Round2(5_000.0 / 23_000 * 10_000)},
+		{"deposits", Round2(18_000.0 / 23_000 * 10_000)},
 	} {
 		if got := rowByKey(rows, c.key).MonthBalanceUAH; got.Major() != c.want {
 			t.Errorf("%s на вирівнювання %v, очікували %v — база після місяця мусить бути "+

@@ -21,8 +21,8 @@ type lotJSON struct {
 	ISIN      string    `json:"isin"`
 	Qty       int64     `json:"qty"`
 	Remaining int64     `json:"remaining"`
-	Price     moneyJSON `json:"price_per_bond"`
-	Fee       moneyJSON `json:"fee"`
+	Price     MoneyJSON `json:"price_per_bond"`
+	Fee       MoneyJSON `json:"fee"`
 	BuyDate   string    `json:"buy_date"`
 	Channel   string    `json:"channel"`
 	Note      string    `json:"note"`
@@ -59,13 +59,13 @@ func (s *Server) lotFromReq(r *http.Request, req lotReq) (domain.Lot, error) {
 			return out, errors.New("папір не в довіднику — вкажіть currency явно")
 		}
 	}
-	price, err := parseMoney(req.Price, cur)
+	price, err := ParseMoney(req.Price, cur)
 	if err != nil {
 		return out, err
 	}
 	var fee *money.Money
 	if strings.TrimSpace(req.Fee) != "" {
-		if fee, err = parseMoney(req.Fee, cur); err != nil {
+		if fee, err = ParseMoney(req.Fee, cur); err != nil {
 			return out, err
 		}
 	}
@@ -87,14 +87,14 @@ func (s *Server) handleAddLot(w http.ResponseWriter, r *http.Request) {
 	// Знімок рейтингу — ДО запису: після нього частки вже зрушені, і
 	// папір, що стояв першим, опинився б п'ятим (шапка decisions.go).
 	now := time.Now()
-	snap := s.takeDecisionSnapshot(r.Context(), now, store.BuyBond, lot.ISIN)
+	snap := s.TakeDecisionSnapshot(r.Context(), now, store.BuyBond, lot.ISIN)
 	id, err := s.st.AddLot(r.Context(), lot)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	if cost, cerr := domain.LotCost(lot); cerr == nil {
-		s.saveDecision(r.Context(), snap, now, store.BuyBond, lot.ISIN, cost, id, lot.Note)
+		s.SaveDecision(r.Context(), snap, now, store.BuyBond, lot.ISIN, cost, id, lot.Note)
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
@@ -119,7 +119,7 @@ func (s *Server) handleLotCheck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	d, err := lotDebit(lot)
+	d, err := LotDebit(lot)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -201,7 +201,7 @@ func (s *Server) handleListLots(w http.ResponseWriter, r *http.Request) {
 	out := make([]lotJSON, 0, len(lots))
 	for _, l := range lots {
 		out = append(out, lotJSON{l.ID, l.ISIN, l.Qty, domain.RemainingQtyNow(l, sales),
-			toMoneyJSON(l.PricePerBond), toMoneyJSON(l.Fee), string(l.BuyDate), l.Channel, l.Note})
+			ToMoneyJSON(l.PricePerBond), ToMoneyJSON(l.Fee), string(l.BuyDate), l.Channel, l.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

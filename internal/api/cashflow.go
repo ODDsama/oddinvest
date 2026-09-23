@@ -20,17 +20,17 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-// flowEvent — один рух грошей на рахунку, у грн-еквіваленті. Знак —
+// FlowEvent — один рух грошей на рахунку, у грн-еквіваленті. Знак —
 // напрямок: плюс збільшує рахунок, мінус зменшує.
-type flowEvent struct {
+type FlowEvent struct {
 	Date  domain.Date
 	Kind  string // income | contribution | purchase | conversion
 	UAH   int64
 	Label string
 	// Principal — цей «дохід» є поверненням ТІЛА: погашення ОВДП або
 	// тіло вкладу на дату закриття. Для виписки це той самий рух на
-	// рахунок, що й купон (і саме тому Kind лишається flowIncome —
-	// summarizeCash мусить сходитись із account_uah), але заробітком воно
+	// рахунок, що й купон (і саме тому Kind лишається FlowIncome —
+	// SummarizeCash мусить сходитись із account_uah), але заробітком воно
 	// не є: гроші повернулись, а не прибули. Читає прогрес («портфель
 	// оплатив N днів життя») — без цієї ознаки повернений номінал
 	// рахувався б доходом і оплачував би роки.
@@ -38,32 +38,32 @@ type flowEvent struct {
 }
 
 const (
-	flowIncome       = "income"
-	flowContribution = "contribution"
-	flowPurchase     = "purchase"
+	FlowIncome       = "income"
+	FlowContribution = "contribution"
+	FlowPurchase     = "purchase"
 	flowConversion   = "conversion"
-	// flowOutside — рух ПОЗА рахунками брокерів: у подушку чи ціль
-	// накопичення й назад. Свої гроші, як і flowContribution, але залишку
+	// FlowOutside — рух ПОЗА рахунками брокерів: у подушку чи ціль
+	// накопичення й назад. Свої гроші, як і FlowContribution, але залишку
 	// гаманця вони не змінюють: у виписці стоять окремим рядком поза
 	// тотожністю, у «внесено своїх» підсумку й серії — разом із гаманцем.
-	// Довід — при summarizeCash.
-	flowOutside = "outside"
+	// Довід — при SummarizeCash.
+	FlowOutside = "outside"
 )
 
-// cashEvents — усе, що коли-небудь рухало гроші на рахунках, окремими
+// CashEvents — усе, що коли-небудь рухало гроші на рахунках, окремими
 // датованими подіями.
 //
-// buildState рахує ті самі величини, але зведеними за весь час, тож
+// BuildState рахує ті самі величини, але зведеними за весь час, тож
 // відповісти «а що сталося в липні» з нього не можна. Тут та сама
 // арифметика розкладена на події — і саме тому підсумок обов'язково має
 // збігтися з account_uah зі зведення; тест на це і є захистом від того,
 // що дві реалізації розійдуться.
-func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
-	lots, sales, _, pays, err := e.portfolio(ctx)
+func (e *Engine) CashEvents(ctx context.Context) ([]FlowEvent, error) {
+	lots, sales, _, pays, err := e.Portfolio(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rates, err := e.rates(ctx)
+	rates, err := e.Rates(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -80,22 +80,22 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		return 0
 	}
 
-	var out []flowEvent
+	var out []FlowEvent
 	// add віддає щойно доданий рух (nil, коли сума нуль і руху немає) —
 	// щоб позначку Principal ставив той, хто знає тип виплати, а не
 	// окрема гілка з тим самим кодом.
-	add := func(d domain.Date, kind string, amt int64, label string) *flowEvent {
+	add := func(d domain.Date, kind string, amt int64, label string) *FlowEvent {
 		if amt == 0 {
 			return nil
 		}
-		out = append(out, flowEvent{Date: d, Kind: kind, UAH: amt, Label: label})
+		out = append(out, FlowEvent{Date: d, Kind: kind, UAH: amt, Label: label})
 		return &out[len(out)-1]
 	}
 	// income — виплата з розкладу: купон або погашення; друге — тіло.
 	// Дата — ArrivalDate: позначена наперед виплата лягає сьогоднішнім днем,
 	// рівно як у гаманці збирача.
 	income := func(cf domain.CashflowItem, label string) {
-		if e := add(domain.ArrivalDate(cf.Date, today), flowIncome, uah(cf.Amount), label); e != nil {
+		if e := add(domain.ArrivalDate(cf.Date, today), FlowIncome, uah(cf.Amount), label); e != nil {
 			e.Principal = cf.Type == domain.PayRedemption
 		}
 	}
@@ -133,9 +133,9 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 			if op.PairID != 0 {
 				label = what
 			}
-			add(op.Date, flowPurchase, -uah(money.New(op.Amount, op.Currency)), label)
+			add(op.Date, FlowPurchase, -uah(money.New(op.Amount, op.Currency)), label)
 		case domain.FundDividend:
-			add(op.Date, flowIncome, uah(money.New(op.Amount-op.Tax, op.Currency)), "дивіденд "+op.Fund)
+			add(op.Date, FlowIncome, uah(money.New(op.Amount-op.Tax, op.Currency)), "дивіденд "+op.Fund)
 		case domain.FundSell:
 			// Продаж повертає гроші на рахунок, але це не дохід і не
 			// внесок — це вихід із позиції. Окремої категорії він не
@@ -144,7 +144,7 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 			if op.PairID != 0 {
 				label = what
 			}
-			add(op.Date, flowPurchase, uah(money.New(op.Amount-op.Tax, op.Currency)), label)
+			add(op.Date, FlowPurchase, uah(money.New(op.Amount-op.Tax, op.Currency)), label)
 		}
 	}
 	// Внески в НПФ — покупки, і лише вони: доходу звідси не приходить до
@@ -180,7 +180,7 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		if cur == "" {
 			cur = money.UAH
 		}
-		add(op.Date, flowPurchase, -uah(money.New(op.Amount, cur)), "внесок "+npfName[op.NPFID])
+		add(op.Date, FlowPurchase, -uah(money.New(op.Amount, cur)), "внесок "+npfName[op.NPFID])
 	}
 	// Вклади: розміщення й поповнення — покупки, відсотки — дохід.
 	termDeposits, err := e.st.ListTermDeposits(ctx)
@@ -189,16 +189,16 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	}
 	for _, dep := range termDeposits {
 		if !dep.OpenDate.After(today) {
-			add(dep.OpenDate, flowPurchase, -uah(money.New(dep.Principal, dep.Currency)), "вклад "+dep.Bank)
+			add(dep.OpenDate, FlowPurchase, -uah(money.New(dep.Principal, dep.Currency)), "вклад "+dep.Bank)
 		}
 		for _, t := range dep.Topups {
 			if !t.Date.After(today) {
-				add(t.Date, flowPurchase, -uah(money.New(t.Amount, dep.Currency)), "поповнення вкладу "+dep.Bank)
+				add(t.Date, FlowPurchase, -uah(money.New(t.Amount, dep.Currency)), "поповнення вкладу "+dep.Bank)
 			}
 		}
 		if dep.ClosedDate != "" {
 			if !dep.ClosedDate.After(today) {
-				add(dep.ClosedDate, flowPurchase, uah(money.New(dep.ClosedAmount, dep.Currency)), "розірвано "+dep.Bank)
+				add(dep.ClosedDate, FlowPurchase, uah(money.New(dep.ClosedAmount, dep.Currency)), "розірвано "+dep.Bank)
 			}
 			continue
 		}
@@ -220,7 +220,7 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		if cerr != nil {
 			continue
 		}
-		add(l.BuyDate, flowPurchase, -uah(cost), l.ISIN)
+		add(l.BuyDate, FlowPurchase, -uah(cost), l.ISIN)
 	}
 	// Продаж паперів на вторинці — теж від'ємна покупка.
 	lotISIN := map[int64]string{}
@@ -229,7 +229,7 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	}
 	for _, sl := range sales {
 		if res, serr := domain.SaleProceeds(sl); serr == nil {
-			add(sl.SaleDate, flowPurchase, uah(res), "продаж "+lotISIN[sl.LotID])
+			add(sl.SaleDate, FlowPurchase, uah(res), "продаж "+lotISIN[sl.LotID])
 		}
 	}
 	// Свої гроші: поповнення й зняття рахунку.
@@ -242,9 +242,9 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		if d.Amount < 0 {
 			label = "зняття"
 		}
-		add(d.Date, flowContribution, uah(money.New(d.Amount, d.Currency)), label)
+		add(d.Date, FlowContribution, uah(money.New(d.Amount, d.Currency)), label)
 	}
-	// Подушка й цілі — ОКРЕМИМ видом (flowOutside), і це виправлення, а
+	// Подушка й цілі — ОКРЕМИМ видом (FlowOutside), і це виправлення, а
 	// не доповнення. Доти їх тут не було зовсім: звіт відповідає на «що
 	// робилось із грошима НА РАХУНКАХ», і його підсумок мусить дорівнювати
 	// account_uah (TestCashflowStatementReconciles) — матрац на рахунку
@@ -269,7 +269,7 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		if op.Amount < 0 {
 			label = "з подушки"
 		}
-		add(op.Date, flowOutside, uah(money.New(op.Amount, op.Currency)), label)
+		add(op.Date, FlowOutside, uah(money.New(op.Amount, op.Currency)), label)
 	}
 	goalOps, err := e.st.ListGoalOps(ctx)
 	if err != nil {
@@ -288,7 +288,7 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		if op.Amount < 0 {
 			label = "з цілі " + goalName[op.GoalID]
 		}
-		add(op.Date, flowOutside, uah(money.New(op.Amount, op.Currency)), label)
+		add(op.Date, FlowOutside, uah(money.New(op.Amount, op.Currency)), label)
 	}
 	//
 	// Конвертації. У гривневому еквіваленті вони не нульові: обмін
@@ -308,11 +308,11 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	return out, nil
 }
 
-// benchResult — відповідь бенчмарка. Окремим типом, а не анонімною
+// BenchResult — відповідь бенчмарка. Окремим типом, а не анонімною
 // структурою в обробнику, відколи його питає ще й прогрес: віха
 // «обіграв просто долари» — це рівно DiffUAH > 0, і рахувати її вдруге
 // означало б завести другий бенчмарк.
-type benchResult struct {
+type BenchResult struct {
 	PortfolioUAH state.Money `json:"portfolio_uah"`
 	BenchmarkUAH state.Money `json:"benchmark_uah"`
 	DiffUAH      state.Money `json:"diff_uah"`
@@ -325,7 +325,7 @@ type benchResult struct {
 // benchmark — сам рахунок, над УЖЕ ЗІБРАНИМ документом.
 //
 // Документ приходить аргументом, а не будується тут: обробник його вже
-// має, і прогрес теж — а buildState найдорожчий шлях у бекенді, щоб
+// має, і прогрес теж — а BuildState найдорожчий шлях у бекенді, щоб
 // проходити його двічі за один запит.
 //
 // ТІЛА В НЬОГО БІЛЬШЕ НЕМАЄ, і це головне, що тут варто знати. Долар як
@@ -335,14 +335,14 @@ type benchResult struct {
 // Другий рахунок того самого числа розійшовся б із першим мовчки, і
 // помітно це стало б на віхі «Обіграв просто долари», яка каже те саме
 // іншими словами.
-func (e *engine) benchmark(ctx context.Context, doc *state.Doc) (benchResult, error) {
-	rates, err := e.rates(ctx)
+func (e *Engine) Benchmark(ctx context.Context, doc *state.Doc) (BenchResult, error) {
+	rates, err := e.Rates(ctx)
 	if err != nil {
-		return benchResult{}, err
+		return BenchResult{}, err
 	}
-	rv, err := e.rivals(ctx, doc, levelPortfolio)
+	rv, err := e.Rivals(ctx, doc, LevelPortfolio)
 	if err != nil {
-		return benchResult{}, err
+		return BenchResult{}, err
 	}
 	return benchFromRivals(rv, rates), nil
 }
@@ -352,16 +352,16 @@ func (e *engine) benchmark(ctx context.Context, doc *state.Doc) (benchResult, er
 // (йому потрібен і добовий ряд для серії «попереду долара»), і другий
 // прогін rivals заради того самого числа коштував би ще один обхід
 // добової сітки.
-func benchFromRivals(rv rivalsResp, rates fx.Rates) benchResult {
+func benchFromRivals(rv rivalsResp, rates fx.Rates) BenchResult {
 	nowUSD, _ := fx.RateMajor(money.USD, rates) //nolint:errcheck // немає курсу — нижче про це й сказано
-	out := benchResult{RateNow: round2(nowUSD)}
+	out := BenchResult{RateNow: Round2(nowUSD)}
 	out.PortfolioUAH = rv.ActualUAH
 	out.Note = rv.Note
 	if nowUSD <= 0 {
 		out.Note = "немає курсу — порівнювати нема з чим"
 		return out
 	}
-	row := rv.row(domain.RivalUSDCash)
+	row := rv.Row(domain.RivalUSDCash)
 	if row.Why != "" {
 		out.Note = row.Why
 		return out
@@ -386,7 +386,7 @@ type taxLine struct {
 	RatePct  float64     `json:"rate_pct"`
 }
 
-// taxReport — відповідь /api/tax (handlers_reports.go).
+// TaxReport — відповідь /api/tax (handlers_reports.go).
 type taxReport struct {
 	// Year — 0, коли період заданий парою from/to, а не роком. Клієнту
 	// це потрібно, щоб не підписувати довільний відрізок роком.
@@ -433,7 +433,7 @@ type taxReport struct {
 	FundGaps []fundGap `json:"fund_gaps,omitempty"`
 }
 
-// taxReport — скільки з доходу забрала держава за [from, to].
+// TaxReport — скільки з доходу забрала держава за [from, to].
 //
 // Скільки з доходу забрала держава. Асиметрія між інструментами вже
 // зашита в real_pct, але відсотком її не відчуваєш: вклад під 16% і
@@ -444,9 +444,9 @@ type taxReport struct {
 // (нині 14% = ПДФО 9% + військовий збір 5%), відсотки вкладу теж (23%
 // = ПДФО 18% + ВЗ 5%). Ставки НЕ зашиті: у фонду беремо фактично
 // утримане з операції, у вкладу — ставку з самого вкладу.
-func (e *engine) taxReport(ctx context.Context, year int, from, to domain.Date, now time.Time) (taxReport, error) {
+func (e *Engine) TaxReport(ctx context.Context, year int, from, to domain.Date, now time.Time) (taxReport, error) {
 
-	lots, sales, _, pays, err := e.portfolio(ctx)
+	lots, sales, _, pays, err := e.Portfolio(ctx)
 	if err != nil {
 		return taxReport{}, err
 	}
@@ -462,10 +462,10 @@ func (e *engine) taxReport(ctx context.Context, year int, from, to domain.Date, 
 	// суми переводились одним поточним курсом: на портфелі, де долар
 	// купували по 27, а дивляться на нього по 44, податок за минулий рік
 	// виходив у півтора раза більшим за реально сплачений.
-	asOf := newAsOfRates(e.st)
+	asOf := NewAsOfRates(e.st)
 	var fxErr error
 	uah := func(m *money.Money, on domain.Date) int64 {
-		v, err := asOf.uah(ctx, m, on)
+		v, err := asOf.UAH(ctx, m, on)
 		if err != nil && fxErr == nil {
 			fxErr = err
 		}
@@ -585,7 +585,7 @@ func (e *engine) taxReport(ctx context.Context, year int, from, to domain.Date, 
 		return taxReport{}, fxErr
 	}
 
-	minor := func(v int64) float64 { return round2(float64(v) / 100) }
+	minor := func(v int64) float64 { return Round2(float64(v) / 100) }
 	mk := func(kind, label string, gross, tax int64) taxLine {
 		l := taxLine{Kind: kind, Label: label,
 			GrossUAH: state.Major(minor(gross), money.UAH), TaxUAH: state.Major(minor(tax), money.UAH), NetUAH: state.Major(minor(gross-tax), money.UAH)}
@@ -593,7 +593,7 @@ func (e *engine) taxReport(ctx context.Context, year int, from, to domain.Date, 
 		// від ділення на нуль: рядок відрахування (НКД) відʼємний, і ставка на
 		// поверненні власних грошей — не мале число, а помилка категорії.
 		if gross > 0 {
-			l.RatePct = round2(float64(tax) / float64(gross) * 100)
+			l.RatePct = Round2(float64(tax) / float64(gross) * 100)
 		}
 		return l
 	}
@@ -603,7 +603,7 @@ func (e *engine) taxReport(ctx context.Context, year int, from, to domain.Date, 
 		FXMaxLagDay: asOf.maxLag,
 	}
 	coverNote, gaps := fundCoverage(fundOps, fundRefs, from, to, today)
-	out.Note = joinNotes(asOf.note(), coverNote)
+	out.Note = joinNotes(asOf.Note(), coverNote)
 	out.FundGaps = gaps
 	for _, l := range []taxLine{
 		// Нуль тут — не «податку немає в наших даних», а законодавче
@@ -630,7 +630,7 @@ func (e *engine) taxReport(ctx context.Context, year int, from, to domain.Date, 
 	gross, tax := bondGross+bondAccrued+fundGross+saleGross+depGross, fundTax+saleTax+depTax
 	out.GrossUAH, out.TaxUAH, out.NetUAH = minor(gross), minor(tax), minor(gross-tax)
 	if gross > 0 {
-		out.RatePct = round2(float64(tax) / float64(gross) * 100)
+		out.RatePct = Round2(float64(tax) / float64(gross) * 100)
 	}
 
 	// Податкова знижка на внески в НПФ — лише для КАЛЕНДАРНОГО року: ліміт
@@ -705,12 +705,12 @@ type cashflowReport struct {
 	Rows       []cashflowRow `json:"rows,omitempty"`
 }
 
-// cashflowStatement — звіт про рух грошей за [from, to] із готового
-// журналу cashEvents. Чиста функція: обробник лише читає журнал і
+// CashflowStatement — звіт про рух грошей за [from, to] із готового
+// журналу CashEvents. Чиста функція: обробник лише читає журнал і
 // перекладає відповідь у валюту звітності.
-func cashflowStatement(events []flowEvent, from, to domain.Date) cashflowReport {
+func CashflowStatement(events []FlowEvent, from, to domain.Date) cashflowReport {
 	out := cashflowReport{From: string(from), To: string(to)}
-	sum := summarizeCash(events, from, to)
+	sum := SummarizeCash(events, from, to)
 	for _, e := range sum.Rows {
 		out.Rows = append(out.Rows, cashflowRow{
 			Date: string(e.Date), Label: e.Label,
@@ -736,7 +736,7 @@ func cashflowStatement(events []flowEvent, from, to domain.Date) cashflowReport 
 // (handlers_period.go): дві сторінки питають про той самий місяць, і два
 // обчислення тих самих п'яти сум розійшлись би при першій же правці —
 // мовчки, бо обидва числа лишились би правдоподібними. Той самий довід, що
-// вже записаний у шапці цього файла про cashEvents проти state_cash.go,
+// вже записаний у шапці цього файла про CashEvents проти state_cash.go,
 // тільки цього разу застосований ДО того, як копія з'явилась.
 //
 // Знаки сирі, як у самих подіях: покупка від'ємна. Перевертає її той, хто
@@ -751,7 +751,7 @@ type cashSummary struct {
 	// OpeningUAH теж лише гаманець, тож ці рухи в нього не входять ні на
 	// початок, ні на кінець. «Внесено своїх» разом — OwnUAH.
 	OutsideUAH int64
-	Rows       []flowEvent
+	Rows       []FlowEvent
 }
 
 // ClosingUAH — залишок на кінець проміжку. Не поле, а вираз: збережене
@@ -766,15 +766,15 @@ func (c cashSummary) OwnUAH() int64 { return c.ContribUAH + c.OutsideUAH }
 
 // major — мінорні в гривні, для JSON. Метод, а не вільна функція, щоб
 // обидва споживачі округляли однаково.
-func (cashSummary) major(v int64) float64 { return round2(float64(v) / 100) }
+func (cashSummary) Major(v int64) float64 { return Round2(float64(v) / 100) }
 
-func summarizeCash(events []flowEvent, from, to domain.Date) cashSummary {
+func SummarizeCash(events []FlowEvent, from, to domain.Date) cashSummary {
 	var out cashSummary
 	for _, e := range events {
 		if e.Date.Before(from) {
 			// Залишок на початок — лише гаманець: подушка на рахунках не
 			// лежить.
-			if e.Kind != flowOutside {
+			if e.Kind != FlowOutside {
 				out.OpeningUAH += e.UAH
 			}
 			continue
@@ -783,15 +783,15 @@ func summarizeCash(events []flowEvent, from, to domain.Date) cashSummary {
 			continue
 		}
 		switch e.Kind {
-		case flowIncome:
+		case FlowIncome:
 			out.IncomeUAH += e.UAH
-		case flowContribution:
+		case FlowContribution:
 			out.ContribUAH += e.UAH
-		case flowPurchase:
+		case FlowPurchase:
 			out.PurchaseUAH += e.UAH
 		case flowConversion:
 			out.ConvUAH += e.UAH
-		case flowOutside:
+		case FlowOutside:
 			out.OutsideUAH += e.UAH
 		}
 		out.Rows = append(out.Rows, e)

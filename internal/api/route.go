@@ -12,7 +12,7 @@
 // # ВЛАСНОЇ АРИФМЕТИКИ ТУТ НЕМАЄ ЖОДНОЇ
 //
 // Це головна вимога до файла, і вона та сама, що й у розкладки. Вирізку
-// подушки, бюджети видів і порядок рахує allocatePlan — незмінена, тим
+// подушки, бюджети видів і порядок рахує AllocatePlan — незмінена, тим
 // самим викликом. Стелю місяця рахує reserveMonthShare від buildMonthPlan
 // свого місяця. Надходження збирає routeIncome. Тут лишається рівно
 // прохід: узяти подію, віддати її розкладці, запам'ятати наслідок.
@@ -29,7 +29,7 @@
 // концентрацію й позиції, а він їх не просуває й не може (цін майбутнього
 // дня ми не знаємо).
 //
-// Тому просувається РІВНО те, що allocatePlan читає:
+// Тому просувається РІВНО те, що AllocatePlan читає:
 //
 //	Reserve.FillNowUAH    вирізка подушки        мінус вирізка; ЩОМІСЯЦЯ ЗАНОВО
 //	Reserve.FillMonthUAH  текст причини          щомісяця заново
@@ -155,13 +155,13 @@ import (
 // за якою ці гроші розкладаються, вже ні.
 const routeHorizonMonths = 12
 
-// routeLeg — одна подія надходження й те, що з її грошей виходить.
+// RouteLeg — одна подія надходження й те, що з її грошей виходить.
 //
 // Розкладка вкладена БЕЗ ІМЕНІ: у JSON її поля лягають поруч із датою й
 // брокером, тобто нога маршруту читається тим самим кодом, що й відповідь
 // POST /api/allocate. Вкласти її полем означало б дати двом однаковим
 // відповідям дві різні форми.
-type routeLeg struct {
+type RouteLeg struct {
 	Date     string `json:"date"`
 	Broker   string `json:"broker"`
 	Currency string `json:"currency"`
@@ -205,7 +205,7 @@ type routeLeg struct {
 	// і не заради симетрії: кнопка «Прийшло» шле в POST /api/allocate суму
 	// та тіло в одній валюті, і гривневе число на нозі в доларах віддало б
 	// подушці рівно курс. Показує його ніхто — воно для запиту.
-	Principal *moneyJSON `json:"principal,omitempty"`
+	Principal *MoneyJSON `json:"principal,omitempty"`
 	// Basis — на чому стоять ГРОШІ ЦІЄЇ НОГИ, разом із перенесеними.
 	//
 	// Не косметика й не дублювання основи події: горщик може зібратись із
@@ -249,11 +249,11 @@ type routeKey struct {
 	Date, Broker, Currency string
 }
 
-// routeDoc — увесь маршрут.
-type routeDoc struct {
+// RouteDoc — увесь маршрут.
+type RouteDoc struct {
 	From string     `json:"from"`
 	To   string     `json:"to"`
-	Legs []routeLeg `json:"legs"`
+	Legs []RouteLeg `json:"legs"`
 	// Note — чому ніг немає взагалі. Порожня відповідь без причини
 	// читається як поломка, а причина тут одна: портфель нічого не
 	// винен собі до горизонту.
@@ -392,7 +392,7 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 		// відкладеним цього місяця. Перерахувати його тут означало б
 		// втратити moved і розійтися з карткою резерву на першому ж рядку.
 		today:      today,
-		month:      monthKeyAt(today, 0),
+		month:      MonthKeyAt(today, 0),
 		debtLeftAt: map[int]float64{},
 		// Мапа заповнюється лише рядками виміру "kind": решта рядків
 		// ребалансу (валюта, брокер, ISIN) розкладці не потрібна, і
@@ -433,7 +433,7 @@ func newRouteCarry(doc *state.Doc, today domain.Date) *routeCarry {
 // далі читають черга задач і сам обробник, і мовчки просунутий у них
 // капітал був би найгіршим виглядом помилки — правдоподібним. Rebalance і
 // Reserve перевиділяються, бо саме їх ми й підміняємо; решта полів
-// спільна з базою й лише читається (allocatePlan чиста, вона нічого не
+// спільна з базою й лише читається (AllocatePlan чиста, вона нічого не
 // пише).
 // carryInUAH — гроші, які вже лежать у капіталі (вони зайшли туди
 // доходом попередньої події) і зараз подаються розкладці ЩЕ РАЗ, у складі
@@ -544,12 +544,12 @@ func (c *routeCarry) enterMonth(m int, plans map[string]*state.MonthPlan,
 	}
 	for c.monthIdx < m {
 		c.monthIdx++
-		c.month = monthKeyAt(c.today, c.monthIdx)
+		c.month = MonthKeyAt(c.today, c.monthIdx)
 		if d, ok := debt[c.month]; ok {
 			c.debtLeft = math.Max(0, c.debtLeft-d.PrincipalUAH)
 			c.debtCover = d.CoverUAH
 		}
-		c.debtLeftAt[c.monthIdx] = round2(c.debtLeft)
+		c.debtLeftAt[c.monthIdx] = Round2(c.debtLeft)
 		c.accrueLoan()
 	}
 	mp := plans[c.month]
@@ -757,7 +757,7 @@ func (p *routePot) spend(uah, rate float64) {
 
 // clamp тримає інваріант горщика: ЖОДЕН лічильник дозволу не буває більший
 // за сам горщик. Дозволити подушці більше грошей, ніж у ньому лежить, не
-// можна навіть на мить — це число їде в allocAllow як стеля.
+// можна навіть на мить — це число їде в AllocAllow як стеля.
 //
 // ЧОМУ ЦЕ ОКРЕМИЙ МЕТОД, А НЕ ТРИ if НА МІСЦІ. Доти на вході стояли три
 // однакові обрізання, а на виході з ноги — ОДНЕ, лише для подушки. Два
@@ -802,7 +802,7 @@ func mergeBasis(pot, ev string) string {
 //
 // plans — план доходу по місяцях горизонту (ключ YYYY-MM). Приходить
 // готовим, а не будується тут: для нього потрібні sources, а цей файл
-// свідомо працює лише над документом і розкладом, як і allocatePlan поруч.
+// свідомо працює лише над документом і розкладом, як і AllocatePlan поруч.
 //
 // picks — папери, які людина обрала сама, по нозі (routeKey → ISIN). Ідуть
 // У ПРОХІД, а не поверх готових ніг, як annotatePlanned: інший папір — інша
@@ -812,10 +812,10 @@ func mergeBasis(pot, ev string) string {
 // а вибір на ногу, що зникла з розкладу, — не помилка, а застаріла вкладка.
 func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 	plans map[string]*state.MonthPlan, debt map[string]routeDebtMonth, rates fx.Rates,
-	npfID map[string]int64, picks map[routeKey]string, today domain.Date) routeDoc {
+	npfID map[string]int64, picks map[routeKey]string, today domain.Date) RouteDoc {
 
 	horizon := today.AddMonths(routeHorizonMonths)
-	out := routeDoc{From: string(today), To: string(horizon), Legs: []routeLeg{}}
+	out := RouteDoc{From: string(today), To: string(horizon), Legs: []RouteLeg{}}
 	carry := newRouteCarry(doc, today)
 
 	events := flattenIncome(inc, horizon)
@@ -831,7 +831,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 	pots := map[store.BrokerCur]*routePot{}
 
 	for _, ev := range events {
-		carry.enterMonth(monthOffsetRaw(today, ev.Date), plans, debt)
+		carry.enterMonth(MonthOffsetRaw(today, ev.Date), plans, debt)
 
 		cur := ev.bc.Currency
 		rate := allocRate(cur, rates)
@@ -848,9 +848,9 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		// Джерело події — те саме слово, що його шле кнопка «Прийшло», і те
 		// саме означення дозволеного, що в POST /api/allocate. Друга копія
 		// вирішувала б за подушку інакше, ніж модалка того самого дня.
-		src := allocFromPortfolio
-		if flowBasis(ev.readyFlow) == basisPlan {
-			src = allocFromPlan
+		src := AllocFromPortfolio
+		if flowBasis(ev.readyFlow) == BasisPlan {
+			src = AllocFromPlan
 		}
 		// ДОЗВІЛ ДЖЕРЕЛА ТЕПЕР ПЕРЕДАЄТЬСЯ, і аргумент, який стояв тут проти
 		// цього, зник разом зі зведеною ногою місяця. Він казав: заборонити
@@ -883,10 +883,10 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		// Різниця з ручною розкладкою (POST /api/allocate) лишилась одна — і
 		// вона про те, ЗВІДКИ береться дозвіл: там його читають зі сховища за
 		// source_ref, тут він приїхав із подією.
-		evEligible := reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
-			sourceCapUAH(ev.Uses, domain.UsePlanReserve, amountUAH))
-		evGoalsEligible := goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
-			sourceCapUAH(ev.Uses, domain.UsePlanGoals, amountUAH))
+		evEligible := ReserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
+			SourceCapUAH(ev.Uses, domain.UsePlanReserve, amountUAH))
+		evGoalsEligible := GoalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
+			SourceCapUAH(ev.Uses, domain.UsePlanGoals, amountUAH))
 
 		carryIn := pot.minor
 		pot.minor += ev.Amount
@@ -896,7 +896,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		pot.basis = mergeBasis(pot.basis, flowBasis(ev.readyFlow))
 		pot.pending = append(pot.pending, readyEvent{
 			Date: string(ev.Date), Label: ev.Label,
-			Amount: toMoneyJSON(money.New(ev.Amount, cur)),
+			Amount: ToMoneyJSON(money.New(ev.Amount, cur)),
 		})
 
 		carryInUAH := float64(carryIn) / 100 * rate
@@ -905,9 +905,9 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		// («ця зарплата не в пенсійний») ділиться не краще за грошовий, а
 		// ділити його більше й не треба — нога стала одним потоком. Довід
 		// цілком — при evEligible вище.
-		plan := allocatePlan(carry.doc(carryInUAH), sug, rates,
-			toMoneyJSON(money.New(pot.minor, cur)), potUAH,
-			allocAllow{
+		plan := AllocatePlan(carry.doc(carryInUAH), sug, rates,
+			ToMoneyJSON(money.New(pot.minor, cur)), potUAH,
+			AllocAllow{
 				ReserveUAH: float64(pot.eligible) / 100 * rate,
 				GoalsUAH:   float64(pot.goalsEligible) / 100 * rate,
 				Uses:       ev.Uses,
@@ -925,7 +925,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		// Дохід стає капіталом аж тепер — аргумент при earn.
 		carry.earn(amountUAH - principalUAH)
 
-		leg := routeLeg{
+		leg := RouteLeg{
 			Date: string(ev.Date), Broker: ev.bc.Broker, Currency: cur,
 			Label: ev.Label, Ref: ev.Ref, allocPlan: plan,
 			CarryInUAH:   state.Major(carryInUAH, money.UAH),
@@ -935,7 +935,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 			Basis:        pot.basis,
 		}
 		if ev.Principal > 0 {
-			p := toMoneyJSON(money.New(ev.Principal, cur))
+			p := ToMoneyJSON(money.New(ev.Principal, cur))
 			leg.Principal = &p
 		}
 		// Витрачене — це те, чого в залишку вже немає. Рахуємо саме так, а
@@ -969,7 +969,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 // танув і після останньої ноги: графік розстрочки не чекає на купон.
 // Дострокове береться з готових ніг, а не рахується вдруге.
 func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
-	debt map[string]routeDebtMonth, legs []routeLeg) []routeMonthRow {
+	debt map[string]routeDebtMonth, legs []RouteLeg) []routeMonthRow {
 	if c.base.Debt == nil {
 		return nil
 	}
@@ -977,7 +977,7 @@ func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
 	out := make([]routeMonthRow, 0, routeHorizonMonths+1)
 	prevDue := -1.0
 	for m := 0; m <= routeHorizonMonths; m++ {
-		key := monthKeyAt(c.today, m)
+		key := MonthKeyAt(c.today, m)
 		d := debt[key]
 		row := routeMonthRow{
 			Month:       key,
@@ -1012,7 +1012,7 @@ func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
 // annotatePlanned дописує до ніг те, що вже стоїть у плані купівель.
 //
 // ОКРЕМИМ ПРОХОДОМ, а не всередині buildRoute, і з тієї самої причини, з
-// якої annotateReady живе окремо від reinvestSuggestions: сам маршрут — це
+// якої AnnotateReady живе окремо від ReinvestSuggestions: сам маршрут — це
 // прохід над розкладом і політикою, а план купівель до його арифметики
 // стосунку не має. Він лише каже, чи ти вже щось про цю дату вирішив.
 //
@@ -1028,7 +1028,7 @@ func (c *routeCarry) debtMonths(plans map[string]*state.MonthPlan,
 // вигляд, а не стан: у прогноз він не входить, у знімок не потрапляє, тож
 // подвійного рахунку немає ніде. Відняти означало б завести тут власне
 // правило «скільки з цих грошей уже витрачено», якого більше ніхто не знає.
-func annotatePlanned(legs []routeLeg, buys []store.PlanBuy, today domain.Date) {
+func annotatePlanned(legs []RouteLeg, buys []store.PlanBuy, today domain.Date) {
 	soon := string(today.AddDays(taskSoonDays))
 	for i := range legs {
 		leg := &legs[i]
@@ -1038,7 +1038,7 @@ func annotatePlanned(legs []routeLeg, buys []store.PlanBuy, today domain.Date) {
 				continue // «купую зараз» — не про майбутню ногу
 			}
 			// Нога планового доходу рахунку не має (planAhead) і показується
-			// як noBrokerLabel; її ж закріплення лягає в план БЕЗ брокера —
+			// як NoBrokerLabel; її ж закріплення лягає в план БЕЗ брокера —
 			// саме так шле «Закріпити», бо планові гроші ще ні в кого. Ці двоє
 			// мусять зійтись: доки не сходились, власне закріплення планової
 			// ноги не показувалось ніколи, і кнопка лишалась — тобто
@@ -1048,7 +1048,7 @@ func annotatePlanned(legs []routeLeg, buys []store.PlanBuy, today domain.Date) {
 			if string(b.BuyDate) != leg.Date {
 				continue
 			}
-			if b.Broker != leg.Broker && !(b.Broker == "" && leg.Broker == noBrokerLabel) {
+			if b.Broker != leg.Broker && !(b.Broker == "" && leg.Broker == NoBrokerLabel) {
 				continue
 			}
 			// Валюта звіряється, ЛИШЕ коли вона в рядку названа. Порожня в
@@ -1088,32 +1088,32 @@ func reserveDebtCover(r *state.Reserve) float64 {
 
 // route — маршрут грошей на горизонт routeHorizonMonths (GET /api/route).
 // pickRaw — сирі значення ?pick= (формат — при routePicks); помилка в них
-// повертається як badRequestError.
-func (e *engine) route(ctx context.Context, now time.Time, pickRaw []string) (routeDoc, error) {
+// повертається як BadRequestError.
+func (e *Engine) Route(ctx context.Context, now time.Time, pickRaw []string) (RouteDoc, error) {
 	today := domain.NewDate(now)
 
-	doc, err := e.buildState(ctx, now)
+	doc, err := e.BuildState(ctx, now)
 	if err != nil {
-		return routeDoc{}, err
+		return RouteDoc{}, err
 	}
-	sug, err := e.reinvestSuggestions(ctx, now, doc)
+	sug, err := e.ReinvestSuggestions(ctx, now, doc)
 	if err != nil {
-		return routeDoc{}, err
+		return RouteDoc{}, err
 	}
-	// Другий прохід по джерелах — рівно той самий, що й у annotateReady, і
+	// Другий прохід по джерелах — рівно той самий, що й у AnnotateReady, і
 	// з тієї самої причини: прив'язати виплату до брокера можна лише через
 	// лоти, а документ брокера у виплатах не несе (і не має нести — він іде
 	// в MQTT).
 	src, err := e.loadSources(ctx, today)
 	if err != nil {
-		return routeDoc{}, err
+		return RouteDoc{}, err
 	}
 	// routeIncome, а не futureIncome: маршрут бачить іще й оцінені дивіденди
 	// фондів, кожен зі своєю названою основою. Чому це можна тут і не можна
 	// в даті «коли вистачить» — у шапці routeIncome.
 	inc, err := routeIncome(src, today, routeHorizonMonths)
 	if err != nil {
-		return routeDoc{}, err
+		return RouteDoc{}, err
 	}
 
 	// План доходу по місяцях горизонту. Двом читачам: стелі подушки (вона
@@ -1128,7 +1128,7 @@ func (e *engine) route(ctx context.Context, now time.Time, pickRaw []string) (ro
 	// LeftUAH; читача в неї більше немає.
 	plans := make(map[string]*state.MonthPlan, routeHorizonMonths+1)
 	for m := 0; m <= routeHorizonMonths; m++ {
-		plans[monthKeyAt(today, m)] = buildMonthPlan(src, src.rates, today, m, 0, "")
+		plans[MonthKeyAt(today, m)] = buildMonthPlan(src, src.rates, today, m, 0, "")
 	}
 
 	// Плановий дохід — окремим збирачем і ОКРЕМИМ ДОДАВАННЯМ, а не всередині
@@ -1137,14 +1137,14 @@ func (e *engine) route(ctx context.Context, now time.Time, pickRaw []string) (ro
 	// незмінність тримає регресійний тест, і саме на ній стоїть відмова
 	// показувати намір у даті «коли вистачить».
 	if flows := planAhead(src, plans, today, routeHorizonMonths); len(flows) > 0 {
-		k := store.BrokerCur{Broker: noBrokerLabel, Currency: money.UAH}
+		k := store.BrokerCur{Broker: NoBrokerLabel, Currency: money.UAH}
 		inc[k] = append(inc[k], flows...)
 		sortFlows(inc[k])
 	}
 
 	picks, err := routePicks(pickRaw, sug)
 	if err != nil {
-		return routeDoc{}, err
+		return RouteDoc{}, err
 	}
 
 	// Борг місяцями горизонту — тим самим графіком, що й план місяця й
@@ -1152,7 +1152,7 @@ func (e *engine) route(ctx context.Context, now time.Time, pickRaw []string) (ro
 	debt := debtAhead(src, src.rates, today, routeHorizonMonths)
 
 	out := buildRoute(doc, sug, inc, plans, debt, src.rates,
-		e.npfIDByName(ctx), picks, today)
+		e.NPFIDByName(ctx), picks, today)
 	// План купівель — окремим проходом поверх готових ніг: аргумент при
 	// annotatePlanned. Рядки вже лежать у джерелах, другого читання немає.
 	annotatePlanned(out.Legs, src.planBuys, today)
@@ -1174,9 +1174,9 @@ const routePickSep = "|"
 //
 // Формат одного значення — <дата>|<брокер>|<валюта>|<ISIN>, чотири частини
 // routeKey плюс сам вибір; кілька ніг — кілька параметрів pick. Брокер без
-// рахунку йде тим самим «—», яким його показує нога (noBrokerLabel).
+// рахунку йде тим самим «—», яким його показує нога (NoBrokerLabel).
 //
-// ISIN перевіряється проти порад тим самим pickSuggestion, що й у
+// ISIN перевіряється проти порад тим самим PickSuggestion, що й у
 // POST /api/allocate: перша нога маршруту дорівнює розкладці, і відмова
 // на невідомий папір мусить бути тією самою в обох. Ключ ноги натомість не
 // перевіряється (див. buildRoute): нога могла зникнути з розкладу, і це
@@ -1189,18 +1189,18 @@ func routePicks(raw []string, sug []suggestion) (map[routeKey]string, error) {
 	for _, v := range raw {
 		parts := strings.SplitN(v, routePickSep, 4)
 		if len(parts) != 4 {
-			return nil, badRequestf("pick: чекали <дата>|<брокер>|<валюта>|<ISIN>, отримали %q", v)
+			return nil, BadRequestf("pick: чекали <дата>|<брокер>|<валюта>|<ISIN>, отримали %q", v)
 		}
-		isin, err := pickSuggestion(sug, parts[3])
+		isin, err := PickSuggestion(sug, parts[3])
 		if err != nil {
 			return nil, err
 		}
 		if isin == "" {
-			return nil, badRequestf("pick: порожній ISIN у %q", v)
+			return nil, BadRequestf("pick: порожній ISIN у %q", v)
 		}
 		picks[routeKey{
 			Date: strings.TrimSpace(parts[0]), Broker: strings.TrimSpace(parts[1]),
-			Currency: orUAH(strings.TrimSpace(parts[2])),
+			Currency: OrUAH(strings.TrimSpace(parts[2])),
 		}] = isin
 	}
 	return picks, nil

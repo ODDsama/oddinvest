@@ -29,7 +29,7 @@ func routeDebtDoc() (*state.Doc, map[string]*state.MonthPlan) {
 func routeDebtAhead(principal float64, months ...int) map[string]routeDebtMonth {
 	out := map[string]routeDebtMonth{}
 	for _, m := range months {
-		out[monthKeyAt(routeToday, m)] = routeDebtMonth{PrincipalUAH: principal}
+		out[MonthKeyAt(routeToday, m)] = routeDebtMonth{PrincipalUAH: principal}
 	}
 	return out
 }
@@ -117,7 +117,7 @@ func TestRouteMonthsNameTheDrop(t *testing.T) {
 	doc, plans := routeDebtDoc()
 	debt := map[string]routeDebtMonth{}
 	for m := 0; m <= 3; m++ {
-		debt[monthKeyAt(routeToday, m)] = routeDebtMonth{DueUAH: 2000, CardInstUAH: 500}
+		debt[MonthKeyAt(routeToday, m)] = routeDebtMonth{DueUAH: 2000, CardInstUAH: 500}
 	}
 	got := buildRoute(doc, sug, routeDebtFlows(), plans, debt, allocRates, nil, nil, routeToday)
 	for m, r := range got.Months {
@@ -155,7 +155,7 @@ func TestRouteMonthsShowCardPlanned(t *testing.T) {
 		if m == 2 {
 			row.PlannedUAH = 30000 // котел
 		}
-		debt[monthKeyAt(routeToday, m)] = row
+		debt[MonthKeyAt(routeToday, m)] = row
 	}
 	got := buildRoute(doc, sug, routeDebtFlows(), plans, debt, allocRates, nil, nil, routeToday)
 	for m, r := range got.Months {
@@ -186,7 +186,7 @@ func TestRouteDropIgnoresPlanned(t *testing.T) {
 		if m == 1 {
 			row.PlannedUAH = 30000
 		}
-		debt[monthKeyAt(routeToday, m)] = row
+		debt[MonthKeyAt(routeToday, m)] = row
 	}
 	got := buildRoute(doc, sug, routeDebtFlows(), plans, debt, allocRates, nil, nil, routeToday)
 	for m, r := range got.Months {
@@ -211,7 +211,7 @@ func TestRouteLegsShrinkOnPlanPlanned(t *testing.T) {
 
 	doc2, plans2 := routeDebtDoc()
 	// Те саме, що зробив би buildMonthPlan із витратою 10 000 у вересні.
-	sep := monthKeyAt(routeToday, 1)
+	sep := MonthKeyAt(routeToday, 1)
 	plans2[sep].PlannedUAH = state.Major(10000, money.UAH)
 	plans2[sep].PlanUAH = plans2[sep].PlanUAH.Sub(state.Major(10000, money.UAH))
 	with := buildRoute(doc2, sug, routeDebtFlows(), plans2, nil, allocRates, nil, nil, routeToday)

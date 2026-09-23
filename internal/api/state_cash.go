@@ -1,6 +1,6 @@
 // Гаманець портфеля — скільки грошей і де саме лежить, і з якого дня.
 //
-// Третя фаза розбиття buildState. Доти тут стояли ДВА акумулятори: bal
+// Третя фаза розбиття BuildState. Доти тут стояли ДВА акумулятори: bal
 // (валюта → сума) і balBC (брокер×валюта → сума), і дев'ять місць
 // оновлювали їх рядок у рядок:
 //
@@ -23,7 +23,7 @@
 // знає. Ціна — два підсумовані читання сховища (DepositsByBrokerCurrency,
 // ConversionsNetByBroker) замінено списками з датами; суми ті самі.
 //
-// УВАГА: ті самі величини рахує ще cashEvents у cashflow.go — там та сама
+// УВАГА: ті самі величини рахує ще CashEvents у cashflow.go — там та сама
 // арифметика, але розкладена на окремі події. Дві реалізації мусять
 // сходитись, і єдиний захист від їх розходження — тест
 // TestCashflowStatementReconciles. Міняєш тут — дивись і туди.
@@ -90,7 +90,7 @@ func (c *cashLedger) byBroker() map[string]map[string]state.Money {
 	for k, m := range c.byBC {
 		name := k.Broker
 		if name == "" {
-			name = noBrokerLabel
+			name = NoBrokerLabel
 		}
 		if out[name] == nil {
 			out[name] = map[string]state.Money{}

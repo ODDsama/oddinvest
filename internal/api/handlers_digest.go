@@ -101,7 +101,7 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		if row.Key == "capital" {
 			out.FromUAH, out.ToUAH, out.DeltaUAH = row.Before, row.After, row.Delta
 			if row.Before.Major() > 0 {
-				out.DeltaPct = round2(row.Delta.Major() / row.Before.Major() * 100)
+				out.DeltaPct = Round2(row.Delta.Major() / row.Before.Major() * 100)
 			}
 		}
 	}
@@ -109,13 +109,13 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	// Проміжок для потоків — ТОЙ САМИЙ, що між знімками. Інакше причини
 	// покривали б інші дні, ніж різниця, яку вони пояснюють, і залишок
 	// приймав би на себе чужі гроші.
-	events, err := s.cashEvents(ctx)
+	events, err := s.CashEvents(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	fromD, toD := domain.Date(st.FromDate).AddDays(1), domain.Date(st.ToDate)
-	sum := summarizeCash(events, fromD, toD)
+	sum := SummarizeCash(events, fromD, toD)
 
 	// Тіло погашення НЕ дохід: воно лише переїжджає з номіналу на
 	// рахунок, і капітал від нього не міняється. Той самий поділ, що в
@@ -128,9 +128,9 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	}
 	earned := sum.IncomeUAH - principal
 
-	fx, fxWhy := s.digestFX(ctx, fromD)
-	own, income := sum.major(sum.OwnUAH()), sum.major(earned)
-	rest := round2(out.DeltaUAH.Major() - own - income - fx)
+	fx, fxWhy := s.DigestFX(ctx, fromD)
+	own, income := sum.Major(sum.OwnUAH()), sum.Major(earned)
+	rest := Round2(out.DeltaUAH.Major() - own - income - fx)
 
 	out.Causes = []digestCause{
 		{Key: "own", Label: "Свої гроші", UAH: state.Major(own, money.UAH), Measured: true,
@@ -141,7 +141,7 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		{Key: "rest", Label: "Решта", UAH: state.Major(rest, money.UAH), Measured: false,
 			Why: "ціни фондів, ЧВОПА НПФ, накопичений купон, округлення — тут немає подобового джерела, тож це чесно решта, а не розкладка"},
 	}
-	if err := s.present(ctx, &out); err != nil {
+	if err := s.Present(ctx, &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

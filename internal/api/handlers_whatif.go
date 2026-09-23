@@ -3,8 +3,8 @@
 // Питання ставиться ДО оплати, і відповідь на нього — той самий документ
 // стану, тільки над портфелем, у якому покупки вже записані. Тому тут
 // немає жодної власної арифметики: ні часток, ні драбини, ні дюрації, ні
-// точки незалежності. buildStateWith домішує гіпотезу в sources, і далі
-// все рахує той самий код, що й завжди (див. коментар до hypothetical).
+// точки незалежності. BuildStateWith домішує гіпотезу в sources, і далі
+// все рахує той самий код, що й завжди (див. коментар до Hypothetical).
 //
 // Чому не на фронтенді. Порахувати «нові валютні частки» у JS — це
 // другий спосіб відповісти на питання, у якого вже є один. Обидва рази,
@@ -78,7 +78,7 @@ type whatIfReq struct {
 //
 // Ніщо тут нічого не блокує: перевищений ліміт концентрації показується
 // й лишає рішення людині. Правило живе, а от друга його ілюстрація —
-// нестача грошей — пішла разом із самою нестачею (див. basketDoc).
+// нестача грошей — пішла разом із самою нестачею (див. BasketDoc).
 func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -92,14 +92,14 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	out, err := s.whatIf(ctx, time.Now(), rows, req.PickISIN)
+	out, err := s.WhatIf(ctx, time.Now(), rows, req.PickISIN)
 	if err != nil {
 		writeCalcErr(w, err)
 		return
 	}
 	// Обидва документи гіпотези — «до» і «після» — у валюті звітності
 	// (теги state.Doc діють і на вкладених).
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

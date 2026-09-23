@@ -12,7 +12,7 @@
 // АЛЬТЕРНАТИВА БЕРЕТЬСЯ З ПОМІЧНИКА, і це головне рішення цього файла.
 // Свій рейтинг тут означав би, що «Що купити» і «Чи продати» радять
 // різне — рівно та розбіжність, проти якої в now-view.js уже стоїть
-// окреме попередження. Тому reinvestSuggestions кличеться як є, а звідси
+// окреме попередження. Тому ReinvestSuggestions кличеться як є, а звідси
 // беруться лише два числа з найкращого рядка.
 //
 // ЩО ТУТ НЕ ХОВАЄТЬСЯ. Порогів не буває «поганих»: папір, куплений під
@@ -34,19 +34,19 @@ import (
 func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	now := time.Now()
-	alt, err := s.switchAlternative(ctx, now)
+	alt, err := s.SwitchAlternative(ctx, now)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	rows, err := s.switchRows(ctx, now, alt)
+	rows, err := s.SwitchRows(ctx, now, alt)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
-		Alt  *switchAlt  `json:"alt,omitempty"`
-		Rows []switchRow `json:"rows"`
+		Alt  *SwitchAlt  `json:"alt,omitempty"`
+		Rows []SwitchRow `json:"rows"`
 	}{Alt: alt, Rows: rows})
 }
 
@@ -63,8 +63,8 @@ type switchVerdictOut struct {
 	// Gain — виграш у грошах: на папір і на всю позицію. Це різниця двох
 	// СЬОГОДНІШНІХ сум, тож «строку окупності» поруч немає й не буде —
 	// аргумент у шапці domain/switch.go.
-	GainPerBond moneyJSON `json:"gain_per_bond"`
-	GainTotal   moneyJSON `json:"gain_total"`
+	GainPerBond MoneyJSON `json:"gain_per_bond"`
+	GainTotal   MoneyJSON `json:"gain_total"`
 	Worth       bool      `json:"worth"`
 }
 
@@ -86,7 +86,7 @@ func (s *Server) handleSwitchVerdict(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	today := domain.NewDate(now)
 
-	alt, err := s.switchAlternative(ctx, now)
+	alt, err := s.SwitchAlternative(ctx, now)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -97,7 +97,7 @@ func (s *Server) handleSwitchVerdict(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Довідник питаємо ОКРЕМО від портфеля, і це не зайвий запит.
-	// s.portfolio віддає лише папери, на які є лоти, тож перевірка по
+	// s.Portfolio віддає лише папери, на які є лоти, тож перевірка по
 	// ньому злила б дві різні відповіді в одну: «такого паперу не існує»
 	// (404, помилка клієнта) і «такий папір є, але не в тебе» (409, стан
 	// портфеля). Людині це різні речі, і коду теж.
@@ -110,13 +110,13 @@ func (s *Server) handleSwitchVerdict(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("паперу %s немає в довіднику", req.ISIN))
 		return
 	}
-	lots, sales, _, pays, err := s.portfolio(ctx)
+	lots, sales, _, pays, err := s.Portfolio(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	cur := b.Nominal.Currency().Code
-	clean, err := parseMoney(req.Clean, cur)
+	clean, err := ParseMoney(req.Clean, cur)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -132,22 +132,22 @@ func (s *Server) handleSwitchVerdict(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deval := s.devaluation(ctx)
+	deval := s.Devaluation(ctx)
 	res, err := domain.SwitchVerdict(domain.SwitchInput{
 		ISIN: req.ISIN, Payments: pays, Today: today,
-		AltRatePct: nominalYield(alt.RealPct/100, cur, deval) * 100,
+		AltRatePct: NominalYield(alt.RealPct/100, cur, deval) * 100,
 	}, clean)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	holdReal := round2(realYield(res.HoldRatePct/100, cur, deval) * 100)
+	holdReal := Round2(RealYield(res.HoldRatePct/100, cur, deval) * 100)
 	writeJSON(w, http.StatusOK, switchVerdictOut{
 		ISIN: req.ISIN, Qty: qty,
 		HoldRealPct: holdReal, AltRealPct: alt.RealPct,
-		EdgePP:      round2(alt.RealPct - holdReal),
-		GainPerBond: toMoneyJSON(res.GainPerBond),
-		GainTotal:   toMoneyJSON(domain.MulQty(res.GainPerBond, qty)),
+		EdgePP:      Round2(alt.RealPct - holdReal),
+		GainPerBond: ToMoneyJSON(res.GainPerBond),
+		GainTotal:   ToMoneyJSON(domain.MulQty(res.GainPerBond, qty)),
 		Worth:       res.GainPerBond.Amount() > 0,
 	})
 }

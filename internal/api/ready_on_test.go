@@ -608,7 +608,7 @@ func TestRouteIncomeReinvestingFundSendsOnlyTheLeftover(t *testing.T) {
 //
 // Живий випадок: папір гасився 16 вересня, а під ним стояло «з надходжень
 // портфеля набереться 18 листопада» — порада збирати два місяці на те,
-// чого на той час не існуватиме. Поріг minTermDays прибирає майже всі такі
+// чого на той час не існуватиме. Поріг MinTermDays прибирає майже всі такі
 // рядки ще на збірці порад; цей сторож — щоб решта не брехала.
 func TestAnnotateReadyRefusesDateAfterMaturity(t *testing.T) {
 	today := domain.NewDate(time.Now())
@@ -625,7 +625,7 @@ func TestAnnotateReadyRefusesDateAfterMaturity(t *testing.T) {
 	// Папір, що гаситься РАНІШЕ, ніж набереться: дати бути не повинно.
 	short := []suggestion{{
 		Kind: "bond", ISIN: "UA-SHORT", Currency: money.UAH,
-		CostPerBond: toMoneyJSON(money.New(1000_00, money.UAH)),
+		CostPerBond: ToMoneyJSON(money.New(1000_00, money.UAH)),
 		Maturity:    string(today.AddDays(60)),
 	}}
 	if err := annotateReadyWith(inc, doc, today, short); err != nil {
@@ -642,7 +642,7 @@ func TestAnnotateReadyRefusesDateAfterMaturity(t *testing.T) {
 	// Папір, що доживе: дата на місці, як і була.
 	long := []suggestion{{
 		Kind: "bond", ISIN: "UA-LONG", Currency: money.UAH,
-		CostPerBond: toMoneyJSON(money.New(1000_00, money.UAH)),
+		CostPerBond: ToMoneyJSON(money.New(1000_00, money.UAH)),
 		Maturity:    string(today.AddDays(900)),
 	}}
 	if err := annotateReadyWith(inc, doc, today, long); err != nil {

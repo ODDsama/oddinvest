@@ -53,16 +53,16 @@ import (
 
 // Рівні. Рядками, бо приходять параметром запиту й їдуть у JSON.
 const (
-	levelPortfolio = "portfolio"
-	levelAll       = "all"
+	LevelPortfolio = "portfolio"
+	LevelAll       = "all"
 )
 
-// rivalOVDPBucket — строк, який купує ринковий суперник.
+// RivalOVDPBucket — строк, який купує ринковий суперник.
 //
 // Названо константою й показано в відповіді (`ovdp_bucket`), бо це
 // ПОЛІТИКА, а не подробиця реалізації: на дворічному строку суперник дав
 // би інше число, і мовчазний вибір строку читався б як властивість ринку.
-const rivalOVDPBucket = "1y"
+const RivalOVDPBucket = "1y"
 
 // rivalYoungDays — доки порівнянню менше за цей вік, воно каже про момент
 // входу, а не про стратегію.
@@ -134,7 +134,7 @@ type rivalsResp struct {
 }
 
 // row — рядок суперника за ключем. Порожній, коли такого немає.
-func (r rivalsResp) row(key string) rivalRow {
+func (r rivalsResp) Row(key string) rivalRow {
 	for _, x := range r.Rivals {
 		if x.Key == key {
 			return x
@@ -147,18 +147,18 @@ var rivalLabels = map[string]string{
 	domain.RivalUAHCash:    "Гривня під матрацом",
 	domain.RivalUSDCash:    "Долари під матрацом",
 	domain.RivalEURCash:    "Євро під матрацом",
-	domain.RivalOVDPMarket: "Ринкова ОВДП, " + rivalOVDPBucket,
+	domain.RivalOVDPMarket: "Ринкова ОВДП, " + RivalOVDPBucket,
 }
 
-var rivalLevelLabels = map[string]string{
-	levelPortfolio: "Портфель",
-	levelAll:       "Усі гроші",
+var RivalLevelLabels = map[string]string{
+	LevelPortfolio: "Портфель",
+	LevelAll:       "Усі гроші",
 }
 
 // rivals — увесь рахунок над УЖЕ ЗІБРАНИМ документом.
 //
 // Документ приходить аргументом із тієї самої причини, що й у benchmark:
-// buildState — найдорожчий шлях у бекенді, і обробник його вже має.
+// BuildState — найдорожчий шлях у бекенді, і обробник його вже має.
 //
 // ВІКНО ПОЧИНАЄТЬСЯ ТАМ, ДЕ ПОЧИНАЄТЬСЯ ЗНАННЯ — на першому добовому
 // знімку, — і це рішення коштувало живої перевірки, тож ось воно
@@ -183,9 +183,9 @@ var rivalLevelLabels = map[string]string{
 // рівно те, що мав я, у той самий день, за тодішньою ціною. Чого це вікно
 // не вміє — сказати «а якби я робив так від 2024-го»; на це відповіді
 // немає й не могло бути, бо історії капіталу за той час не існує.
-func (e *engine) rivals(ctx context.Context, doc *state.Doc, level string) (rivalsResp, error) {
-	out := rivalsResp{Level: level, LevelLabel: rivalLevelLabels[level],
-		OVDPBucket: rivalOVDPBucket, Rivals: []rivalRow{}}
+func (e *Engine) Rivals(ctx context.Context, doc *state.Doc, level string) (rivalsResp, error) {
+	out := rivalsResp{Level: level, LevelLabel: RivalLevelLabels[level],
+		OVDPBucket: RivalOVDPBucket, Rivals: []rivalRow{}}
 
 	today := domain.NewDate(time.Now())
 	snaps, err := e.st.ListSnapshots(ctx, "", today)
@@ -202,13 +202,13 @@ func (e *engine) rivals(ctx context.Context, doc *state.Doc, level string) (riva
 		return out, nil
 	}
 
-	ar := newAsOfRates(e.st)
+	ar := NewAsOfRates(e.st)
 	flows, err := e.rivalFlows(ctx, level, ar, from)
 	if err != nil {
 		return out, err
 	}
 	out.Flows = len(flows)
-	out.Note = ar.note()
+	out.Note = ar.Note()
 
 	// Відкриття вікна — перший внесок. Окремої сутності йому не треба:
 	// «те, що вже лежало» і «те, що донесли» — це те саме питання «скільки
@@ -247,7 +247,7 @@ func (e *engine) rivals(ctx context.Context, doc *state.Doc, level string) (riva
 			row.TerminalUAH = state.Major(rv.TerminalUAH, money.UAH)
 			row.DiffUAH = state.Major(out.ActualUAH.Major()-row.TerminalUAH.Major(), money.UAH)
 			if row.TerminalUAH.Major() != 0 {
-				row.DiffPct = round2(row.DiffUAH.Major() / math.Abs(row.TerminalUAH.Major()) * 100)
+				row.DiffPct = Round2(row.DiffUAH.Major() / math.Abs(row.TerminalUAH.Major()) * 100)
 			}
 			row.PointsDiff = uahSeries(diffSeries(actual, rv.Points))
 		}
@@ -280,7 +280,7 @@ func diffSeries(mine, rival []float64) []float64 {
 	}
 	out := make([]float64, n)
 	for i := 0; i < n; i++ {
-		out[i] = round2(mine[i] - rival[i])
+		out[i] = Round2(mine[i] - rival[i])
 	}
 	return out
 }
@@ -289,7 +289,7 @@ func diffSeries(mine, rival []float64) []float64 {
 //
 // Порядок журналів тут не має значення (RunRivals сортує сам), а от
 // СКЛАД — має, і він же є означенням рівня.
-func (e *engine) rivalFlows(ctx context.Context, level string, ar *asOfRates, from domain.Date) ([]domain.Contribution, error) {
+func (e *Engine) rivalFlows(ctx context.Context, level string, ar *asOfRates, from domain.Date) ([]domain.Contribution, error) {
 	out := []domain.Contribution{}
 	add := func(on domain.Date, minor int64, cur string) error {
 		if minor == 0 || on < from {
@@ -304,12 +304,12 @@ func (e *engine) rivalFlows(ctx context.Context, level string, ar *asOfRates, fr
 			// усюди стоять сторожі.
 			return nil
 		}
-		u, err := ar.uah(ctx, money.New(minor, cur), on)
+		u, err := ar.UAH(ctx, money.New(minor, cur), on)
 		if err != nil {
 			return err
 		}
 		if u == 0 {
-			return nil // курсу на цю дату немає; ar.note() уже це порахував
+			return nil // курсу на цю дату немає; ar.Note() уже це порахував
 		}
 		out = append(out, domain.Contribution{On: on, UAH: float64(u) / 100})
 		return nil
@@ -327,7 +327,7 @@ func (e *engine) rivalFlows(ctx context.Context, level string, ar *asOfRates, fr
 			return nil, err
 		}
 	}
-	if level != levelAll {
+	if level != LevelAll {
 		return out, nil
 	}
 
@@ -354,7 +354,7 @@ func (e *engine) rivalFlows(ctx context.Context, level string, ar *asOfRates, fr
 	// а форма НПФ заводить парний рядок у deposits сама. Порахований ще й
 	// окремим журналом, він ставав другою копією тих самих грошей: суперник
 	// діставав гроші, яких власник не вносив, і бенчмарк занижував власний
-	// результат рівно на суму внесків. Склад рівня levelAll мусить збігатися
+	// результат рівно на суму внесків. Склад рівня LevelAll мусить збігатися
 	// зі snapshotCapitalUAH, а НПФ входить у нього ЗАЛИШКОМ рахунку, а не
 	// потоком.
 	return out, nil
@@ -367,7 +367,7 @@ func (e *engine) rivalFlows(ctx context.Context, level string, ar *asOfRates, fr
 // довідника брокерів. Ряди малі за природою (курс — по точці на день,
 // аукціони — раз-два на тиждень), тож читаються цілком і розвʼязуються
 // в памʼяті.
-func (e *engine) rivalInputs(ctx context.Context, from domain.Date) (domain.RivalInputs, error) {
+func (e *Engine) rivalInputs(ctx context.Context, from domain.Date) (domain.RivalInputs, error) {
 	var out domain.RivalInputs
 	for _, c := range []struct {
 		code string
@@ -383,7 +383,7 @@ func (e *engine) rivalInputs(ctx context.Context, from domain.Date) (domain.Riva
 		*c.to = q
 	}
 
-	lv, err := e.st.AuctionLevels(ctx, money.UAH, rivalOVDPBucket)
+	lv, err := e.st.AuctionLevels(ctx, money.UAH, RivalOVDPBucket)
 	if err != nil {
 		return out, err
 	}
@@ -453,15 +453,15 @@ func snapshotPortfolioUAH(sn store.Snapshot) int64 {
 }
 
 func snapshotLevelUAH(sn store.Snapshot, level string) int64 {
-	if level == levelAll {
+	if level == LevelAll {
 		return snapshotCapitalUAH(sn)
 	}
 	return snapshotPortfolioUAH(sn)
 }
 
 func docLevelUAH(doc *state.Doc, level string) float64 {
-	if level == levelAll {
+	if level == LevelAll {
 		return doc.CapitalUAH.Major()
 	}
-	return round2(doc.NominalUAHEq.Major() + doc.AccountUAH.Major() + doc.FundsUAH.Major() + doc.DepositsUAH.Major())
+	return Round2(doc.NominalUAHEq.Major() + doc.AccountUAH.Major() + doc.FundsUAH.Major() + doc.DepositsUAH.Major())
 }

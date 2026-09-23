@@ -47,7 +47,7 @@ func planExpenseFromReq(req planExpenseReq) (domain.PlanExpense, error) {
 	if name == "" {
 		return domain.PlanExpense{}, errors.New("планова витрата без назви: за нею її й шукатимуть")
 	}
-	cur := orUAH(strings.TrimSpace(req.Currency))
+	cur := OrUAH(strings.TrimSpace(req.Currency))
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return domain.PlanExpense{}, err
@@ -170,7 +170,7 @@ func (s *Server) handleListPlanExpenses(w http.ResponseWriter, r *http.Request) 
 	type planExpenseJSON struct {
 		ID       int64     `json:"id"`
 		Name     string    `json:"name"`
-		Amount   moneyJSON `json:"amount"`
+		Amount   MoneyJSON `json:"amount"`
 		DueDate  string    `json:"due_date"`
 		PaidFrom string    `json:"paid_from"`
 		PaidDate string    `json:"paid_date"`
@@ -180,7 +180,7 @@ func (s *Server) handleListPlanExpenses(w http.ResponseWriter, r *http.Request) 
 	out := make([]planExpenseJSON, 0, len(exps))
 	for _, e := range exps {
 		out = append(out, planExpenseJSON{e.ID, e.Name,
-			toMoneyJSON(money.New(e.Amount, e.Currency)),
+			ToMoneyJSON(money.New(e.Amount, e.Currency)),
 			string(e.DueDate), e.PaidFrom, string(e.PaidDate), e.Place, e.Note})
 	}
 	writeJSON(w, http.StatusOK, out)

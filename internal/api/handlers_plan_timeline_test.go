@@ -203,7 +203,7 @@ func TestMonthKeyAtSurvivesMonthEnds(t *testing.T) {
 		{"2026-01-15", -13, "2024-12"},
 		{"2026-12-31", -12, "2025-12"},
 	} {
-		if got := monthKeyAt(domain.Date(c.today), c.m); got != c.want {
+		if got := MonthKeyAt(domain.Date(c.today), c.m); got != c.want {
 			t.Errorf("monthKeyAt(%s, %d) = %s, чекали %s", c.today, c.m, got, c.want)
 		}
 	}

@@ -52,7 +52,7 @@ func TestBuildTasksReserveBeforeBuy(t *testing.T) {
 	}
 	sug := []suggestion{{
 		Kind: "bond", ISIN: "UA4000228811", Label: "UA4000228811", Currency: "UAH",
-		RealPct: 12.5, CanBuy: true, CostPerBond: moneyJSON{Amount: "1000.00", Currency: "UAH"},
+		RealPct: 12.5, CanBuy: true, CostPerBond: MoneyJSON{Amount: "1000.00", Currency: "UAH"},
 	}}
 	got := buildTasks(doc, sug, &sources{}, "2026-08-19")
 	if len(got) < 2 {
@@ -75,7 +75,7 @@ func TestBuildTasksSavingWhenNothingAffordable(t *testing.T) {
 	}
 	sug := []suggestion{{
 		Kind: "bond", Label: "UA4000228811", Currency: "UAH", RealPct: 12.5,
-		CanBuy: false, CostPerBond: moneyJSON{Amount: "1000.00", Currency: "UAH"},
+		CanBuy: false, CostPerBond: MoneyJSON{Amount: "1000.00", Currency: "UAH"},
 	}}
 	got := buildTasks(doc, sug, &sources{}, "2026-08-19")
 	var saving *state.Task

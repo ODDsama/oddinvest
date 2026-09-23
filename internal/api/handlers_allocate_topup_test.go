@@ -29,10 +29,10 @@ func TestAllocateTopUpTailGoesToNPF(t *testing.T) {
 		kindRow("npf", 10, 0),
 	}, nil)
 	npfID := map[string]int64{"Династія": 7}
-	got := allocatePlan(doc, []suggestion{
+	got := AllocatePlan(doc, []suggestion{
 		bondSug("UA0001", 1000, money.UAH), npfSug("Династія"),
-	}, allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
-		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, npfID)
+	}, allocRates, ToMoneyJSON(money.New(134000, money.UAH)), 1340,
+		AllocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, npfID)
 
 	if got.RestUAH.Major() != 0 {
 		t.Errorf("залишок %.2f, чекали 0: хвіст мав доїхати в пенсійний", got.RestUAH.Major())
@@ -70,10 +70,10 @@ func TestAllocateTopUpNeverOvershoots(t *testing.T) {
 		kindRow("bonds", 90, 50000),
 		kindRow("npf", 10, 10130),
 	}, nil)
-	got := allocatePlan(doc, []suggestion{
+	got := AllocatePlan(doc, []suggestion{
 		bondSug("UA0001", 1000, money.UAH), npfSug("Династія"),
-	}, allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
-		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH,
+	}, allocRates, ToMoneyJSON(money.New(134000, money.UAH)), 1340,
+		AllocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH,
 		map[string]int64{"Династія": 7})
 
 	for _, l := range got.Lines {
@@ -102,10 +102,10 @@ func TestAllocateTopUpRespectsUses(t *testing.T) {
 		kindRow("bonds", 90, 50000),
 		kindRow("npf", 10, 0),
 	}, nil)
-	got := allocatePlan(doc, []suggestion{
+	got := AllocatePlan(doc, []suggestion{
 		bondSug("UA0001", 1000, money.UAH), npfSug("Династія"),
-	}, allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
-		allocAllow{
+	}, allocRates, ToMoneyJSON(money.New(134000, money.UAH)), 1340,
+		AllocAllow{
 			ReserveUAH: 1340, GoalsUAH: 1340,
 			// Усе, крім пенсійного.
 			Uses: domain.UsePlanReserve + "," + domain.UsePlanGoals + "," + domain.UsePlanInvest,
@@ -133,10 +133,10 @@ func TestAllocateTopUpKeepsFloor(t *testing.T) {
 		kindRow("bonds", 50, 0),
 		kindRow("npf", 50, 0),
 	}, nil)
-	got := allocatePlan(doc, []suggestion{
+	got := AllocatePlan(doc, []suggestion{
 		bondSug("UA0001", 1000, money.UAH), npfSug("Династія"),
-	}, allocRates, toMoneyJSON(money.New(200400, money.UAH)), 2004,
-		allocAllow{ReserveUAH: 2004, GoalsUAH: 2004}, money.UAH,
+	}, allocRates, ToMoneyJSON(money.New(200400, money.UAH)), 2004,
+		AllocAllow{ReserveUAH: 2004, GoalsUAH: 2004}, money.UAH,
 		map[string]int64{"Династія": 7})
 
 	if got.RestUAH.Major() < 0.005 || got.RestUAH.Major() >= allocMinCutUAH {
@@ -172,9 +172,9 @@ func TestAllocateTopUpLeavesDebtAlone(t *testing.T) {
 		TotalUAH: state.Major(90000, money.UAH), TopRatePct: 49.8, TopName: "Холодильник",
 		FillMonthUAH: state.Major(2000, money.UAH), FillNowUAH: state.Major(2000, money.UAH),
 	}
-	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
-		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
+	got := AllocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, ToMoneyJSON(money.New(134000, money.UAH)), 1340,
+		AllocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
 
 	spent := 0.0
 	for _, l := range got.Lines {
@@ -212,9 +212,9 @@ func TestAllocateTopUpGoalRespectsMonthAllowance(t *testing.T) {
 	// Папір НЕДОСЯЖНИЙ навмисно: інакше бюджет ОВДП зʼїв би 1 000 ₴, у
 	// залишок пішло б 340, і тест не дійшов би до дозволу взагалі —
 	// перевіряв би те, що менше за нього самого.
-	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 5000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
-		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
+	got := AllocatePlan(doc, []suggestion{bondSug("UA0001", 5000, money.UAH)},
+		allocRates, ToMoneyJSON(money.New(134000, money.UAH)), 1340,
+		AllocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
 
 	if got.GoalsUAH.Major() > 1000.01 {
 		t.Errorf("ціль узяла %.2f при дозволі місяця 1000 — прохід обійшов не лише темп",
@@ -231,9 +231,9 @@ func TestAllocateTopUpGoalSilentWithoutAllowance(t *testing.T) {
 		ID: 1, Name: "Авто", Currency: money.UAH,
 		GapUAH: state.Major(500_000, money.UAH), DueDate: "2027-06-01", ShortMonthUAH: state.Major(30_000, money.UAH),
 	}}
-	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
-		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
+	got := AllocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, ToMoneyJSON(money.New(134000, money.UAH)), 1340,
+		AllocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
 
 	if got.GoalsUAH.Major() > 0.005 {
 		t.Errorf("ціль узяла %.2f без дозволу місяця", got.GoalsUAH.Major())
@@ -246,9 +246,9 @@ func TestAllocateTopUpReserveTakesTailWithinAllowance(t *testing.T) {
 		// Стелю темпу вже вибрано (FillNowUAH = 0), розрив великий, дозвіл
 		// місяця — 200 ₴. Прохід має взяти рівно 200, а не весь хвіст.
 		&state.Reserve{FillNowUAH: state.Major(0, money.UAH), FillMonthUAH: state.Major(0, money.UAH), GapUAH: state.Major(90000, money.UAH), FillFromUAH: state.Major(200, money.UAH)})
-	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
-		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
+	got := AllocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, ToMoneyJSON(money.New(134000, money.UAH)), 1340,
+		AllocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
 
 	if got.Reserve == nil {
 		t.Fatal("подушка не взяла нічого, хоч розрив живий і дозвіл є")
@@ -263,9 +263,9 @@ func TestAllocateTopUpReserveTakesTailWithinAllowance(t *testing.T) {
 func TestAllocateTopUpReserveSilentWithoutAllowance(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)},
 		&state.Reserve{FillNowUAH: state.Major(0, money.UAH), FillMonthUAH: state.Major(0, money.UAH), GapUAH: state.Major(90000, money.UAH)})
-	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
-		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
+	got := AllocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, ToMoneyJSON(money.New(134000, money.UAH)), 1340,
+		AllocAllow{ReserveUAH: 1340, GoalsUAH: 1340}, money.UAH, nil)
 
 	if got.Reserve != nil {
 		t.Errorf("подушка взяла %+v без дозволу місяця", got.Reserve)
@@ -280,12 +280,12 @@ func TestAllocateTopUpHonoursPick(t *testing.T) {
 		kindRow("bonds", 90, 50000),
 		kindRow("npf", 10, 0),
 	}, nil)
-	got := allocatePlan(doc, []suggestion{
+	got := AllocatePlan(doc, []suggestion{
 		bondSug("UA0001", 1000, money.UAH),
 		bondSug("UA0002", 5000, money.UAH),
 		npfSug("Династія"),
-	}, allocRates, toMoneyJSON(money.New(134000, money.UAH)), 1340,
-		allocAllow{ReserveUAH: 1340, GoalsUAH: 1340, PickISIN: "UA0002"},
+	}, allocRates, ToMoneyJSON(money.New(134000, money.UAH)), 1340,
+		AllocAllow{ReserveUAH: 1340, GoalsUAH: 1340, PickISIN: "UA0002"},
 		money.UAH, map[string]int64{"Династія": 7})
 
 	for _, l := range got.Lines {

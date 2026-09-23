@@ -60,12 +60,12 @@ type quoteBook struct {
 	// позицій показує його цілком, включно з продавцями, у яких рахунку
 	// немає: як орієнтир «де взагалі дешевше» це чесно, доки поруч
 	// написано, що рахунку там немає.
-	all []store.Quote
+	All []store.Quote
 	// mine — ключ джерела -> назва МОГО брокера. Порожня мапа означає, що
 	// не зіставлено жодного, і тоді ринкової ціни немає ні в кого: це не
 	// поломка, а стан «зіставлення ще не зробили».
-	mine      map[string]string
-	fetchedAt string
+	Mine      map[string]string
+	FetchedAt string
 	// sweptFresh — обхід НЕДАВНО покрив увесь довідник, тож «ціни немає»
 	// означає «ніхто зі своїх не продає», а не «ми не питали». Лише за
 	// цієї умови можна ховати папери без ціни; довід — при hideUnpriced.
@@ -96,30 +96,30 @@ func (b quoteBook) pick(isin string) *store.Quote {
 	return nil
 }
 
-// quotesFor — зріз цін для названих паперів разом із відбором по своїх.
+// QuotesFor — зріз цін для названих паперів разом із відбором по своїх.
 //
 // Порожній перелік паперів означає «всі» — так читає сторінка позицій.
 // on — дата, НА ЯКУ обираємо: свіжість міряється проти неї (див. pickQuotes).
-func (e *engine) quotesFor(ctx context.Context, isins []string, on domain.Date) (quoteBook, error) {
-	book := quoteBook{byISIN: map[string]quotePick{}, mine: map[string]string{}}
+func (e *Engine) QuotesFor(ctx context.Context, isins []string, on domain.Date) (quoteBook, error) {
+	book := quoteBook{byISIN: map[string]quotePick{}, Mine: map[string]string{}}
 	brokers, err := e.st.ListBrokers(ctx)
 	if err != nil {
 		return book, err
 	}
 	for _, b := range brokers {
 		if src := strings.TrimSpace(b.QuoteSource); src != "" {
-			book.mine[src] = b.Name
+			book.Mine[src] = b.Name
 		}
 	}
 	all, err := e.st.LatestQuotes(ctx, isins)
 	if err != nil {
 		return book, err
 	}
-	book.all = all
-	if book.fetchedAt, err = e.st.QuotesFetchedAt(ctx); err != nil {
+	book.All = all
+	if book.FetchedAt, err = e.st.QuotesFetchedAt(ctx); err != nil {
 		return book, err
 	}
-	book.byISIN = pickQuotes(all, book.mine, on)
+	book.byISIN = pickQuotes(all, book.Mine, on)
 	swept, err := e.st.GetAppState(ctx, store.QuotesSweptAtKey)
 	if err != nil {
 		return book, err
@@ -130,7 +130,7 @@ func (e *engine) quotesFor(ctx context.Context, isins []string, on domain.Date) 
 
 // sweepFresh — чи не застарів знак повного обходу.
 //
-// Той самий поріг, що й у самої ціни (quoteFreshDays): обхід, старший за
+// Той самий поріг, що й у самої ціни (QuoteFreshDays): обхід, старший за
 // нього, не може підтверджувати доступність, бо й ціни з нього вже не
 // ціни. Порожній або нерозбірливий знак читається як «обходу не було» —
 // найобережніше з можливих значень, бо від нього залежить, чи ховати.
@@ -140,7 +140,7 @@ func sweepFresh(at string, on domain.Date) bool {
 		return false
 	}
 	days := domain.DaysBetween(domain.NewDate(t), on)
-	return days >= 0 && days <= quoteFreshDays
+	return days >= 0 && days <= QuoteFreshDays
 }
 
 // pickQuotes — найдешевша СВІЖА ціна кожного паперу серед своїх, і

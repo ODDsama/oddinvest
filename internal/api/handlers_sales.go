@@ -30,13 +30,13 @@ func saleFromReq(req saleReq) (domain.Sale, error) {
 	if err != nil {
 		return out, err
 	}
-	clean, err := parseMoney(req.Clean, req.Currency)
+	clean, err := ParseMoney(req.Clean, req.Currency)
 	if err != nil {
 		return out, err
 	}
 	accrued := money.New(0, req.Currency)
 	if req.Accrued != "" {
-		if accrued, err = parseMoney(req.Accrued, req.Currency); err != nil {
+		if accrued, err = ParseMoney(req.Accrued, req.Currency); err != nil {
 			return out, err
 		}
 	}
@@ -139,9 +139,9 @@ func (s *Server) handleListSales(w http.ResponseWriter, r *http.Request) {
 		ISIN     string    `json:"isin"`
 		SaleDate string    `json:"sale_date"`
 		Qty      int64     `json:"qty"`
-		Clean    moneyJSON `json:"clean_per_bond"`
-		Accrued  moneyJSON `json:"accrued"`
-		Result   moneyJSON `json:"realized_result"`
+		Clean    MoneyJSON `json:"clean_per_bond"`
+		Accrued  MoneyJSON `json:"accrued"`
+		Result   MoneyJSON `json:"realized_result"`
 	}
 	out := make([]saleJSON, 0, len(sales))
 	for _, sl := range sales {
@@ -152,7 +152,7 @@ func (s *Server) handleListSales(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out = append(out, saleJSON{sl.ID, sl.LotID, lot.ISIN, string(sl.SaleDate),
-			sl.Qty, toMoneyJSON(sl.CleanPerBond), toMoneyJSON(sl.Accrued), toMoneyJSON(res)})
+			sl.Qty, ToMoneyJSON(sl.CleanPerBond), ToMoneyJSON(sl.Accrued), ToMoneyJSON(res)})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

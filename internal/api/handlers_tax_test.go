@@ -676,8 +676,8 @@ func TestTaxNoteDeclaresFundCoverage(t *testing.T) {
 	if !strings.Contains(partial.Note, "по фондах дані з") {
 		t.Errorf("картка змовчала про межу даних: %q", partial.Note)
 	}
-	if !strings.Contains(partial.Note, human(earliest)) {
-		t.Errorf("у примітці немає дати початку журналу %s: %q", human(earliest), partial.Note)
+	if !strings.Contains(partial.Note, HumanDate(earliest)) {
+		t.Errorf("у примітці немає дати початку журналу %s: %q", HumanDate(earliest), partial.Note)
 	}
 
 	// Вікно ЦІЛКОМ раніше за журнал: інше твердження, не те саме.

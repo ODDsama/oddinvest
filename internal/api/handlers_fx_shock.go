@@ -56,10 +56,10 @@ func (s *Server) handleFXShock(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	today := domain.NewDate(now)
 
-	window := fxShockWindows[len(fxShockWindows)-1]
+	window := FXShockWindows[len(FXShockWindows)-1]
 	if q := r.URL.Query().Get("window"); q != "" {
 		v, err := strconv.Atoi(q)
-		if err != nil || !slices.Contains(fxShockWindows, v) {
+		if err != nil || !slices.Contains(FXShockWindows, v) {
 			writeErr(w, http.StatusBadRequest,
 				errors.New("вікно буває 1, 3 або 12 місяців"))
 			return
@@ -67,20 +67,20 @@ func (s *Server) handleFXShock(w http.ResponseWriter, r *http.Request) {
 		window = v
 	}
 
-	hist, err := s.fxHistorySince(ctx, today)
+	hist, err := s.FXHistorySince(ctx, today)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	rates, err := s.rates(ctx)
+	rates, err := s.Rates(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 
-	doc, shocked := buildFXShock(fxPointsOf(hist), rates, window)
+	doc, shocked := BuildFXShock(fxPointsOf(hist), rates, window)
 	if len(shocked) > 0 {
-		after, err := s.buildStateWith(ctx, now, hypoRates(shocked))
+		after, err := s.BuildStateWith(ctx, now, HypoRates(shocked))
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
@@ -88,7 +88,7 @@ func (s *Server) handleFXShock(w http.ResponseWriter, r *http.Request) {
 		doc.After = after
 	}
 	// «Після» — теж у валюті звітності; курси в episode лишаються курсами.
-	if err := s.present(ctx, &doc); err != nil {
+	if err := s.Present(ctx, &doc); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

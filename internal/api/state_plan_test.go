@@ -147,11 +147,11 @@ func TestPlanFlowProvidesSumsToPlanProvides(t *testing.T) {
 
 	var sum float64
 	for _, f := range in.PlanFlows {
-		sum += planFlowProvidesUAH(f, in.Today, in.Rates, planProvidesMonths, nil)
+		sum += PlanFlowProvidesUAH(f, in.Today, in.Rates, PlanProvidesMonths, nil)
 	}
 	got := buildProjection(in).PlanProvidesUAH
-	if math.Abs(round2(sum)-got) > 0.005 {
-		t.Fatalf("сума колонки %.2f ≠ плитка %.2f", round2(sum), got)
+	if math.Abs(Round2(sum)-got) > 0.005 {
+		t.Fatalf("сума колонки %.2f ≠ плитка %.2f", Round2(sum), got)
 	}
 	if got == 0 {
 		t.Fatal("тест нічого не перевірив: обидва боки нулі")
@@ -162,24 +162,24 @@ func TestPlanFlowProvidesSumsToPlanProvides(t *testing.T) {
 	// історія), і забутий marks в одному з них проявився б саме тут —
 	// таблиця показувала б чистий план, а плитка над нею вже з нулями.
 	// Потоки в цьому наборі йдуть без id (усі нулі), тож спершу роздамо їх:
-	// planMarks шукає саме за id, і на нульових вона мовчала б.
+	// PlanMarks шукає саме за id, і на нульових вона мовчала б.
 	for i := range in.PlanFlows {
 		in.PlanFlows[i].ID = int64(i + 1)
 	}
 	// Гривнева зарплата не прийшла зовсім, доларова прийшла меншою — обидві
 	// гілки, і нативна теж.
 	in.PlanReceipts = []store.PlanReceipt{
-		{FlowID: 1, Month: monthKeyAt(in.Today, 1), Amount: 0, Currency: "UAH"},
-		{FlowID: 4, Month: monthKeyAt(in.Today, 2), Amount: 20_000, Currency: "USD"},
+		{FlowID: 1, Month: MonthKeyAt(in.Today, 1), Amount: 0, Currency: "UAH"},
+		{FlowID: 4, Month: MonthKeyAt(in.Today, 2), Amount: 20_000, Currency: "USD"},
 	}
-	marks := newPlanMarks(in.PlanReceipts)
+	marks := NewPlanMarks(in.PlanReceipts)
 	var sumM float64
 	for _, f := range in.PlanFlows {
-		sumM += planFlowProvidesUAH(f, in.Today, in.Rates, planProvidesMonths, marks)
+		sumM += PlanFlowProvidesUAH(f, in.Today, in.Rates, PlanProvidesMonths, marks)
 	}
 	gotM := buildProjection(in).PlanProvidesUAH
-	if math.Abs(round2(sumM)-gotM) > 0.005 {
-		t.Fatalf("з відмітками: сума колонки %.2f ≠ плитка %.2f", round2(sumM), gotM)
+	if math.Abs(Round2(sumM)-gotM) > 0.005 {
+		t.Fatalf("з відмітками: сума колонки %.2f ≠ плитка %.2f", Round2(sumM), gotM)
 	}
 	// І відмітки мусять справді щось змінити — інакше тест зелений даремно.
 	if math.Abs(gotM-got) < 0.005 {
@@ -197,8 +197,8 @@ func TestMarkOverridesPlanForItsMonthOnly(t *testing.T) {
 		ID: 1, Name: "Зарплата", Kind: "income", Amount: 4_000_000, Currency: "UAH",
 		Cadence: "month", FromDate: "2026-01-17", InvestBP: 10000,
 	}
-	marks := newPlanMarks([]store.PlanReceipt{
-		{FlowID: 1, Month: monthKeyAt(today, 2), Amount: 1_000_000},
+	marks := NewPlanMarks([]store.PlanReceipt{
+		{FlowID: 1, Month: MonthKeyAt(today, 2), Amount: 1_000_000},
 	})
 	if got := planFlowNative(f, today, 1, marks); got != 40000 {
 		t.Errorf("місяць 1 (без відмітки) мав лишитись 40000, маємо %.2f", got)
@@ -212,8 +212,8 @@ func TestMarkOverridesPlanForItsMonthOnly(t *testing.T) {
 	// Минуле читається тим самим ключем місяця, тож відмітка на -2 має
 	// діяти так само, як на +2. Інакше історія й прогноз розуміли б слово
 	// «травень» по-різному.
-	past := newPlanMarks([]store.PlanReceipt{
-		{FlowID: 1, Month: monthKeyAt(today, -2), Amount: 500_000},
+	past := NewPlanMarks([]store.PlanReceipt{
+		{FlowID: 1, Month: MonthKeyAt(today, -2), Amount: 500_000},
 	})
 	if got := planFlowNativePast(f, today, -2, past); got != 5000 {
 		t.Errorf("минулий відмічений місяць мав дати 5000, маємо %.2f", got)
@@ -234,8 +234,8 @@ func TestZeroMarkIsNotAbsentMark(t *testing.T) {
 		ID: 1, Kind: "income", Amount: 4_000_000, Currency: "UAH",
 		Cadence: "month", FromDate: "2026-01-17", InvestBP: 10000,
 	}
-	zero := newPlanMarks([]store.PlanReceipt{
-		{FlowID: 1, Month: monthKeyAt(today, 1), Amount: 0},
+	zero := NewPlanMarks([]store.PlanReceipt{
+		{FlowID: 1, Month: MonthKeyAt(today, 1), Amount: 0},
 	})
 	if got := planFlowNative(f, today, 1, zero); got != 0 {
 		t.Errorf("відмічений нуль мав дати 0, маємо %.2f", got)
@@ -262,15 +262,15 @@ func TestMarkDoesNotCreateAPaymentPlanDoesNotHave(t *testing.T) {
 	if got := planFlowNative(q, today, 2, nil); got != 0 {
 		t.Fatalf("передумова: місяць 2 мав бути порожній, маємо %.2f", got)
 	}
-	stale := newPlanMarks([]store.PlanReceipt{
-		{FlowID: 1, Month: monthKeyAt(today, 2), Amount: 3_000_000},
+	stale := NewPlanMarks([]store.PlanReceipt{
+		{FlowID: 1, Month: MonthKeyAt(today, 2), Amount: 3_000_000},
 	})
 	if got := planFlowNative(q, today, 2, stale); got != 0 {
 		t.Errorf("застаріла відмітка створила виплату з нічого: %.2f", got)
 	}
 	// А у свій місяць — заміщає як належить.
-	live := newPlanMarks([]store.PlanReceipt{
-		{FlowID: 1, Month: monthKeyAt(today, 1), Amount: 1_000_000},
+	live := NewPlanMarks([]store.PlanReceipt{
+		{FlowID: 1, Month: MonthKeyAt(today, 1), Amount: 1_000_000},
 	})
 	if got := planFlowNative(q, today, 1, live); got != 10000 {
 		t.Errorf("відмітка у свій місяць мала дати 10000, маємо %.2f", got)
@@ -279,7 +279,7 @@ func TestMarkDoesNotCreateAPaymentPlanDoesNotHave(t *testing.T) {
 
 // «Валове» лишається валовим і для відмічених місяців.
 //
-// planFlowGrossUAH працює фокусом — копією потоку зі InvestBP = 10000, — і
+// PlanFlowGrossUAH працює фокусом — копією потоку зі InvestBP = 10000, — і
 // саме тому гілка накладання бере частку З ПОТОКУ, а не з відмітки: інакше
 // фокус перестав би діяти рівно там, де відмітка є, і колонка «повне ₴/міс»
 // показувала б у відмічених місяцях уже урізану суму.
@@ -291,14 +291,14 @@ func TestMarkedGrossIgnoresInvestShare(t *testing.T) {
 	}
 	// Відмічено 1 000 000 (10 000 ₴) у кожному з 12 місяців вікна.
 	var rs []store.PlanReceipt
-	for m := 1; m <= planProvidesMonths; m++ {
-		rs = append(rs, store.PlanReceipt{FlowID: 1, Month: monthKeyAt(today, m), Amount: 1_000_000})
+	for m := 1; m <= PlanProvidesMonths; m++ {
+		rs = append(rs, store.PlanReceipt{FlowID: 1, Month: MonthKeyAt(today, m), Amount: 1_000_000})
 	}
-	marks := newPlanMarks(rs)
-	if got := planFlowGrossUAH(f, today, fx.Rates{}, planProvidesMonths, marks); got != 10000 {
+	marks := NewPlanMarks(rs)
+	if got := PlanFlowGrossUAH(f, today, fx.Rates{}, PlanProvidesMonths, marks); got != 10000 {
 		t.Errorf("валове мало бути 10000, маємо %.2f", got)
 	}
-	if got := planFlowProvidesUAH(f, today, fx.Rates{}, planProvidesMonths, marks); got != 2500 {
+	if got := PlanFlowProvidesUAH(f, today, fx.Rates{}, PlanProvidesMonths, marks); got != 2500 {
 		t.Errorf("у портфель мало бути 2500 (25%%), маємо %.2f", got)
 	}
 }
@@ -316,8 +316,8 @@ func TestMarkIgnoresIndexation(t *testing.T) {
 	if got := planFlowNative(f, today, 13, nil); got != 20000 {
 		t.Fatalf("передумова: місяць 13 мав дати 20000, маємо %.2f", got)
 	}
-	marks := newPlanMarks([]store.PlanReceipt{
-		{FlowID: 1, Month: monthKeyAt(today, 13), Amount: 1_000_000},
+	marks := NewPlanMarks([]store.PlanReceipt{
+		{FlowID: 1, Month: MonthKeyAt(today, 13), Amount: 1_000_000},
 	})
 	if got := planFlowNative(f, today, 13, marks); got != 10000 {
 		t.Errorf("відмічений місяць мав дати рівно 10000, маємо %.2f", got)
@@ -344,7 +344,7 @@ func TestPlanFlowClosedInPastPaysNothing(t *testing.T) {
 			t.Fatalf("місяць %d: закритий торік потік мав дати 0, маємо %.2f", m, got)
 		}
 	}
-	if got := planFlowProvidesUAH(closed, today, fx.Rates{}, planProvidesMonths, nil); got != 0 {
+	if got := PlanFlowProvidesUAH(closed, today, fx.Rates{}, PlanProvidesMonths, nil); got != 0 {
 		t.Errorf("колонка «дає ₴/міс» мала бути 0, маємо %.2f", got)
 	}
 
@@ -399,10 +399,10 @@ func TestPlanFlowProvidesOnceWindow(t *testing.T) {
 	far := near
 	far.FromDate = "2029-01-15"
 
-	if got := planFlowProvidesUAH(near, today, fx.Rates{}, planProvidesMonths, nil); math.Abs(got-10000) > 0.005 {
+	if got := PlanFlowProvidesUAH(near, today, fx.Rates{}, PlanProvidesMonths, nil); math.Abs(got-10000) > 0.005 {
 		t.Errorf("разова у вікні мала дати 120000/12 = 10000, маємо %.2f", got)
 	}
-	if got := planFlowProvidesUAH(far, today, fx.Rates{}, planProvidesMonths, nil); got != 0 {
+	if got := PlanFlowProvidesUAH(far, today, fx.Rates{}, PlanProvidesMonths, nil); got != 0 {
 		t.Errorf("разова поза вікном мала дати 0, маємо %.2f", got)
 	}
 }
@@ -410,7 +410,7 @@ func TestPlanFlowProvidesOnceWindow(t *testing.T) {
 // РАЗОВА ПОДІЯ ЦЬОГО МІСЯЦЯ. Регресія на баг, через який рядок плану
 // купівель зникав безслідно.
 //
-// monthOffsetRaw міряє МІСЯЦІ й дня не бачить, тож для дати «пізніше цього
+// MonthOffsetRaw міряє МІСЯЦІ й дня не бачить, тож для дати «пізніше цього
 // ж місяця» він дає нуль. Доти гілка "once" читала цей нуль як минуле
 // (raw < 1) і мовчки повертала 0. Для внеску в пенсійний, запланованого
 // на 28-ме, це означало рядок, якого не було ніде: у портфель він не
@@ -552,7 +552,7 @@ func realisticRow(t *testing.T, in projectionInput) (state.ForecastRow, projecti
 // «треба» стає МЕНШИМ за сам план. Це не вада: питання «скільки бракує»
 // просто не має відʼємної відповіді.
 //
-// Допуск 1 ₴, а не 0.02: три незалежні round2 плюс 60 ітерацій бісекції.
+// Допуск 1 ₴, а не 0.02: три незалежні Round2 плюс 60 ітерацій бісекції.
 // Сама рівність можлива лише тому, що потік рівний і гривневий — тоді
 // 12-місячне середнє плану й плаский внесок бісекції взаємозамінні.
 func TestRequiredTotalMinusPlanEqualsGapOnFlatPlan(t *testing.T) {
@@ -834,7 +834,7 @@ func TestPlanFlowNativePast(t *testing.T) {
 //
 // Це намір, записаний у самій кнопці «⇗»: вона закриває старий рядок
 // напередодні нової дати, «щоб місяць зміни не оплатили обидва рядки». Доти
-// намір не виконувався — monthOffsetRaw бачить лише рік і місяць, тож 16 і
+// намір не виконувався — MonthOffsetRaw бачить лише рік і місяць, тож 16 і
 // 17 травня для нього однакові, і травень платив 21 041 ₴ замість 8 941 ₴.
 func TestPlanFlowHandoverMonthPaysOnce(t *testing.T) {
 	today := domain.Date("2026-08-15")

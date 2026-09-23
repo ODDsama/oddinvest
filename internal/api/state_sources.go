@@ -1,6 +1,6 @@
-// Джерела документа стану — усе, що buildState читає зі сховища.
+// Джерела документа стану — усе, що BuildState читає зі сховища.
 //
-// Перша фаза розбиття buildState. Доти читання були розсипані по всій
+// Перша фаза розбиття BuildState. Доти читання були розсипані по всій
 // функції: lots на початку, statuses на 330-му рядку, налаштування на
 // 950-му, середній курс на 1215-му. Наслідок передбачуваний — ListDeposits
 // викликався ДВІЧІ, за пʼятсот рядків один від одного, і жодне з двох
@@ -13,7 +13,7 @@
 // Межа проведена по «сирих фактах»: sources НІЧОГО не рахує, не
 // конвертує й не знає про сьогоднішній день, окрім місць, де сам запит
 // його вимагає (AvgRateByCurrency). Усе, що з цих фактів виводиться,
-// лишається у фазах — інакше це був би просто buildState під іншою назвою.
+// лишається у фазах — інакше це був би просто BuildState під іншою назвою.
 package api
 
 import (
@@ -50,7 +50,7 @@ type sources struct {
 	// а не в кожному споживачі, дешевше й безпечніше: споживачі вже вміють
 	// мовчати при нулі (свіжа база), і другої гілки їм не треба.
 	cpi float64
-	// report — ефективна валюта звітності (reportCurrency): вона вибирає
+	// report — ефективна валюта звітності (ReportCurrency): вона вибирає
 	// лінійку дохідності й валюту зведеного результату; суми будівник і
 	// далі кладе в гривні, їх перекладає презентер.
 	report string
@@ -100,7 +100,7 @@ type sources struct {
 	// зʼявляється рівно в блоці домішування.
 	planFunds []planFundBuy
 	// planReceipts — відмітки фактичних надходжень (0027). Так само сирі:
-	// індекс (потік, місяць) будує newPlanMarks, а заміщення планової суми
+	// індекс (потік, місяць) будує NewPlanMarks, а заміщення планової суми
 	// робить те саме ядро, що й розгортання, — щоб означення надходження
 	// лишалось одне.
 	planReceipts []store.PlanReceipt
@@ -160,7 +160,7 @@ type sources struct {
 // Про порядок помилок. Доти «жорсткі» читання були розкидані по функції,
 // і якщо падали два, назовні йшло те, яке трапилось раніше ПО КОДУ. Тепер
 // перемагає те, яке раніше в цьому списку. Спостережувано це нічого не
-// змінює — buildState в обох випадках повертає помилку й не будує
+// змінює — BuildState в обох випадках повертає помилку й не будує
 // документа, — але сказати про це варто, бо текст помилки може бути інший.
 //
 // ЧОМУ ТУТ БІЛЬШЕ НЕМАЄ «М'ЯКИХ» ЧИТАНЬ. Сімнадцять читань нижче раніше
@@ -178,14 +178,14 @@ type sources struct {
 // у правдоподібному вигляді: на кривій за півроку таку діру вже не
 // відрізнити від правди. Порожня таблиця й зламане читання мусять
 // говорити різне, і саме тому тепер друге — помилка.
-func (e *engine) loadSources(ctx context.Context, today domain.Date) (*sources, error) {
+func (e *Engine) loadSources(ctx context.Context, today domain.Date) (*sources, error) {
 	src := &sources{}
 	var err error
 
-	if src.lots, src.sales, src.bonds, src.pays, err = e.portfolio(ctx); err != nil {
+	if src.lots, src.sales, src.bonds, src.pays, err = e.Portfolio(ctx); err != nil {
 		return nil, err
 	}
-	if src.rates, err = e.rates(ctx); err != nil {
+	if src.rates, err = e.Rates(ctx); err != nil {
 		return nil, err
 	}
 	if src.reserveOps, err = e.st.ListReserveOps(ctx); err != nil {
@@ -272,7 +272,7 @@ func (e *engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	if src.npfNav, err = e.st.ListNPFNav(ctx); err != nil {
 		return nil, err
 	}
-	if src.fxHistory, err = e.fxHistorySince(ctx, today); err != nil {
+	if src.fxHistory, err = e.FXHistorySince(ctx, today); err != nil {
 		return nil, err
 	}
 	if src.capitalAgo, err = e.snapshotAgo(ctx, today); err != nil {
@@ -303,9 +303,9 @@ func (e *engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		src.fundRefs[f.Name] = f
 	}
 
-	src.deval = e.devaluation(ctx)
+	src.deval = e.Devaluation(ctx)
 	src.cpi, _ = e.inflation(ctx)
-	if src.report, err = e.reportCurrency(ctx); err != nil {
+	if src.report, err = e.ReportCurrency(ctx); err != nil {
 		return nil, err
 	}
 	if src.report != money.UAH {
@@ -328,7 +328,7 @@ func (e *engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 // (jobs.RefreshAll).
 var fxHistoryCurrencies = []string{money.USD, money.EUR}
 
-// fxHistorySince — історія курсів за найдовше з вікон.
+// FXHistorySince — історія курсів за найдовше з вікон.
 //
 // Помилку читання ТЕПЕР повертаємо (довід — у шапці loadSources): вона
 // означає зламане сховище, а не «історії ще немає». Порожню історію
@@ -339,7 +339,7 @@ var fxHistoryCurrencies = []string{money.USD, money.EUR}
 // Скільки саме років брати, вирішує НЕ цей файл: список вікон живе в
 // state_fxwindow.go, і два місця з незалежними числами розійшлись би на
 // першій же правці — вікно «10 років» мовчки читало б п'ять.
-func (e *engine) fxHistorySince(ctx context.Context, today domain.Date) (map[string][]store.RatePoint, error) {
+func (e *Engine) FXHistorySince(ctx context.Context, today domain.Date) (map[string][]store.RatePoint, error) {
 	longest := 0
 	for _, y := range fxWindowYears {
 		if y > longest {
@@ -373,10 +373,10 @@ func (s *sources) payoutDays() map[string]int64 {
 }
 
 // arrived — предикат domain.Arrived на позначках портфеля: для викликачів,
-// що вантажать лоти через s.portfolio, а не через loadSources. Без нього
+// що вантажать лоти через s.Portfolio, а не через loadSources. Без нього
 // папір, погашення якого вже позначене «Отримано», у сам день погашення
 // лишався б позицією на одній сторінці й зникав на іншій.
-func (e *engine) arrived(ctx context.Context, today domain.Date) (func(string, domain.Date) bool, error) {
+func (e *Engine) Arrived(ctx context.Context, today domain.Date) (func(string, domain.Date) bool, error) {
 	statuses, err := e.st.PaymentStatuses(ctx)
 	if err != nil {
 		return nil, err

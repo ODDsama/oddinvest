@@ -101,15 +101,15 @@ func TestFXShockSameRatesMatchSummary(t *testing.T) {
 	s, _, _ := fxShockServer(t)
 	ctx, now := context.Background(), time.Now()
 
-	rates, err := s.rates(ctx)
+	rates, err := s.Rates(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	plain, err := s.buildState(ctx, now)
+	plain, err := s.BuildState(ctx, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	same, err := s.buildStateWith(ctx, now, hypothetical{rates: rates})
+	same, err := s.BuildStateWith(ctx, now, Hypothetical{rates: rates})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,10 +123,10 @@ func TestFXShockSameRatesMatchSummary(t *testing.T) {
 // Порожня гіпотеза курсів не вмикає прийом взагалі — і саме це найлегше
 // зламати, забувши поле в empty().
 func TestFXShockEmptyRatesIsNotAHypothesis(t *testing.T) {
-	if !(hypothetical{}).empty() {
+	if !(Hypothetical{}).empty() {
 		t.Fatal("порожня гіпотеза мусить лишатись порожньою")
 	}
-	if (hypothetical{rates: map[string]int64{money.USD: 400_000}}).empty() {
+	if (Hypothetical{rates: map[string]int64{money.USD: 400_000}}).empty() {
 		t.Error("гіпотеза з курсами вважається порожньою — прийом буде мовчки пропущено")
 	}
 }
@@ -275,7 +275,7 @@ func TestFXShockDoesNotMoveDeval(t *testing.T) {
 		}
 	}
 
-	before, err := s.buildState(ctx, time.Now())
+	before, err := s.BuildState(ctx, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestFXShockReExpressesForeignExpenses(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	before, err := s.buildState(ctx, time.Now())
+	before, err := s.BuildState(ctx, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

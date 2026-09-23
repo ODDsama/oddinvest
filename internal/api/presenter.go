@@ -32,14 +32,14 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-const reportCurrencyKey = "report_currency"
+const ReportCurrencyKey = "report_currency"
 
-// reportCurrency — ЕФЕКТИВНА валюта звітності: та, що в налаштуваннях, або
+// ReportCurrency — ЕФЕКТИВНА валюта звітності: та, що в налаштуваннях, або
 // гривня, коли курсу для неї ще немає. Одне означення на всіх: презентер
 // перекладає числа, будівник за тим самим кодом вибирає лінійку
 // (state_sources.go) — і розійтись їм нема де.
-func (e *engine) reportCurrency(ctx context.Context) (string, error) {
-	raw, err := e.st.GetSetting(ctx, reportCurrencyKey)
+func (e *Engine) ReportCurrency(ctx context.Context) (string, error) {
+	raw, err := e.st.GetSetting(ctx, ReportCurrencyKey)
 	if err != nil {
 		return "", err
 	}
@@ -67,9 +67,9 @@ type presenter struct {
 }
 
 // presenter — валюта з налаштувань і курси з бази, один раз на запит.
-func (e *engine) presenter(ctx context.Context, today domain.Date) (*presenter, error) {
+func (e *Engine) Presenter(ctx context.Context, today domain.Date) (*presenter, error) {
 	p := &presenter{report: money.UAH, today: today}
-	raw, err := e.st.GetSetting(ctx, reportCurrencyKey)
+	raw, err := e.st.GetSetting(ctx, ReportCurrencyKey)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (p *presenter) apply(v any) error {
 }
 
 // doc — документ стану: переклад плюс примітка, чому валюта не та.
-func (p *presenter) doc(d *state.Doc) error {
+func (p *presenter) Doc(d *state.Doc) error {
 	if err := p.apply(d); err != nil {
 		return err
 	}
@@ -136,13 +136,13 @@ func (p *presenter) doc(d *state.Doc) error {
 }
 
 // present — обробникам: перекласти відповідь перед writeJSON.
-func (e *engine) present(ctx context.Context, v any) error {
-	p, err := e.presenter(ctx, domain.NewDate(time.Now()))
+func (e *Engine) Present(ctx context.Context, v any) error {
+	p, err := e.Presenter(ctx, domain.NewDate(time.Now()))
 	if err != nil {
 		return err
 	}
 	if d, ok := v.(*state.Doc); ok {
-		return p.doc(d)
+		return p.Doc(d)
 	}
 	return p.apply(v)
 }
@@ -152,7 +152,7 @@ func (e *engine) present(ctx context.Context, v any) error {
 // Точка ПЕРЕД початком потрібна окремо: історія курсів помісячна, і без
 // неї ряд мовчав би на всіх днях до першого числа наступного місяця.
 // Порожній from — уся історія.
-func (e *engine) quotesSince(ctx context.Context, code string, from domain.Date) (domain.Quotes, error) {
+func (e *Engine) quotesSince(ctx context.Context, code string, from domain.Date) (domain.Quotes, error) {
 	pts, err := e.st.RatesSince(ctx, code, from)
 	if err != nil {
 		return nil, err

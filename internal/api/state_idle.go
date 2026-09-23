@@ -38,8 +38,8 @@ package api
 // дати кожного надходження до сьогодні, ACT/365 як у domain.WaitCost.
 // Ставка сьогоднішня, і підпис це каже («за сьогоднішньою порадою»).
 //
-// ЧОМУ ДВА КРОКИ. Суму й вік рахує buildState — вони з гаманця. Ціну
-// приписує buildStateTasked: порад усередині buildState немає (довід у
+// ЧОМУ ДВА КРОКИ. Суму й вік рахує BuildState — вони з гаманця. Ціну
+// приписує BuildStateTasked: порад усередині BuildState немає (довід у
 // шапці state_tasks.go), тож поле там заповнене без ціни, і whatif/план це
 // не хвилює — вони її не читають.
 
@@ -112,14 +112,14 @@ func buildIdle(cash *cashLedger, minByCur map[string]int64, rates fx.Rates, toda
 		}
 		broker := k.Broker
 		if broker == "" {
-			broker = noBrokerLabel
+			broker = NoBrokerLabel
 		}
 		p := state.IdlePair{
 			Broker: broker, Currency: k.Currency,
 			Investable:    state.Minor(investable, k.Currency),
 			InvestableUAH: state.Of(uahAmt),
 			Since:         string(since),
-			AgeDays:       round2(moneyDays / float64(investable)),
+			AgeDays:       Round2(moneyDays / float64(investable)),
 		}
 		if since != "" {
 			if d := daysBetween(since, today); d > 0 {
@@ -140,7 +140,7 @@ func buildIdle(cash *cashLedger, minByCur map[string]int64, rates fx.Rates, toda
 		return nil
 	}
 
-	out.AgeDays = round2(ageWeighted / out.InvestableUAH.Major())
+	out.AgeDays = Round2(ageWeighted / out.InvestableUAH.Major())
 	return out
 }
 

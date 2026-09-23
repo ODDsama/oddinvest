@@ -98,9 +98,9 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		}
 		toUAH := func(minor int64) float64 {
 			if u, err := fx.ToUAH(money.New(minor, cur), rates); err == nil {
-				return round2(float64(u.Amount()) / 100)
+				return Round2(float64(u.Amount()) / 100)
 			}
-			return round2(float64(minor) / 100)
+			return Round2(float64(minor) / 100)
 		}
 
 		valueUAH, costUAH := toUAH(p.Value()), toUAH(p.Cost)
@@ -128,7 +128,7 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		if years > 0 {
 			net = domain.NetOfTax(rate, float64(acc.IncomeTaxBP)/100, years)
 		}
-		realPct := round2(realYield(net/100, cur, deval) * 100)
+		realPct := Round2(RealYield(net/100, cur, deval) * 100)
 		// Вагою йде ВАРТІСТЬ рахунку, і зважуємо тут, усередині циклу, а не
 		// сумуємо готові рядки потім: знецінення торкається лише гривневих
 		// рахунків, тож поділ уже змішаного числа занизив би валютні.
@@ -169,7 +169,7 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 			row.NavReturnPct = navReturn
 		}
 		if acc.ExpectedYieldBP > 0 {
-			row.ExpectedPct = round2(domain.CompoundFromSimple(
+			row.ExpectedPct = Round2(domain.CompoundFromSimple(
 				float64(acc.ExpectedYieldBP)/100, int(acc.YieldSimpleYears)))
 		}
 		out.Rows = append(out.Rows, row)
@@ -241,7 +241,7 @@ func npfCreditsUAH(accs []domain.NPFAccount, ops []domain.NPFOp,
 		capMonth = int64(*set.NPFCreditCapMonthUAH * 100)
 	}
 	for id, minor := range domain.NPFCreditByAccount(accs, ops, year, capMonth, pdfo) {
-		out[id] = round2(float64(minor) / 100)
+		out[id] = Round2(float64(minor) / 100)
 	}
 	return out
 }

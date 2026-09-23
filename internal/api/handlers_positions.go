@@ -13,13 +13,13 @@ import (
 
 func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	lots, sales, bonds, pays, err := s.portfolio(ctx)
+	lots, sales, bonds, pays, err := s.Portfolio(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	today := domain.NewDate(time.Now())
-	arrived, err := s.arrived(ctx, today)
+	arrived, err := s.Arrived(ctx, today)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -33,12 +33,12 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		ISIN      string    `json:"isin"`
 		Currency  string    `json:"currency"`
 		Qty       int64     `json:"qty"`
-		Invested  moneyJSON `json:"invested"`
-		Nominal   moneyJSON `json:"nominal"`
+		Invested  MoneyJSON `json:"invested"`
+		Nominal   MoneyJSON `json:"nominal"`
 		Maturity  string    `json:"maturity"`
 		DaysToMat int       `json:"days_to_maturity"`
 		NextDate  string    `json:"next_pay_date,omitempty"`
-		NextAmt   moneyJSON `json:"next_pay_amount"`
+		NextAmt   MoneyJSON `json:"next_pay_amount"`
 		// YTMPct — дохідність до погашення за ТВОЄЮ собівартістю (з
 		// комісією), а не за сьогоднішньою ціною довідника: питання тут
 		// «скільки заробляю я», а не «скільки платить папір».
@@ -64,8 +64,8 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 
 	// Дохідність рахуємо по ISIN: позиція — це всі непродані лоти одного
 	// паперу, і взята вона зважено по вкладеному, як і зведена цифра.
-	deval := s.devaluation(ctx)
-	rc := s.newRateContext(ctx, deval)
+	deval := s.Devaluation(ctx)
+	rc := s.NewRateContext(ctx, deval)
 	ytmByISIN := map[string][]domain.YTMLot{}
 	for _, l := range lots {
 		b, ok := bonds[l.ISIN]
@@ -76,23 +76,23 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		if q == 0 {
 			continue
 		}
-		ytmByISIN[l.ISIN] = append(ytmByISIN[l.ISIN], ytmLot(l, q))
+		ytmByISIN[l.ISIN] = append(ytmByISIN[l.ISIN], YTMLot(l, q))
 	}
 
 	out := make([]posJSON, 0, len(pos))
 	for _, p := range pos {
 		row := posJSON{ISIN: p.ISIN, Currency: p.Currency, Qty: p.Qty,
-			Invested: toMoneyJSON(p.Invested), Nominal: toMoneyJSON(p.Nominal),
+			Invested: ToMoneyJSON(p.Invested), Nominal: ToMoneyJSON(p.Nominal),
 			Maturity: string(p.Maturity), DaysToMat: p.DaysToMat,
-			NextDate: string(p.NextPayDate), NextAmt: toMoneyJSON(p.NextPayAmt),
+			NextDate: string(p.NextPayDate), NextAmt: ToMoneyJSON(p.NextPayAmt),
 			Unknown: p.Unknown}
 		// WeightedYTM віддає вже ВІДСОТКИ (ytm.go), на відміну від YTM,
-		// що віддає частку. realYield же працює з часткою — звідси /100.
+		// що віддає частку. RealYield же працює з часткою — звідси /100.
 		if y, ok := domain.WeightedYTM(ytmByISIN[p.ISIN], pays); ok {
-			row.YTMPct = round2(y)
-			row.RealPct = round2(realYield(y/100, p.Currency, deval) * 100)
+			row.YTMPct = Round2(y)
+			row.RealPct = Round2(RealYield(y/100, p.Currency, deval) * 100)
 			row.YieldBasis = "до погашення"
-			row.RateParts = rc.breakdown(y/100, y/100, p.Currency, "до погашення")
+			row.RateParts = rc.Breakdown(y/100, y/100, p.Currency, "до погашення")
 		}
 		out = append(out, row)
 	}
@@ -130,7 +130,7 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 			to = d
 		}
 	}
-	cf, statuses, err := s.calendar(ctx, from, today)
+	cf, statuses, err := s.Calendar(ctx, from, today)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -139,7 +139,7 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		Date   string    `json:"date"`
 		ISIN   string    `json:"isin"`
 		Type   int       `json:"type"`
-		Amount moneyJSON `json:"amount"`
+		Amount MoneyJSON `json:"amount"`
 		Status string    `json:"status,omitempty"`
 	}
 	out := make([]cfJSON, 0, len(cf))
@@ -148,14 +148,14 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		out = append(out, cfJSON{string(item.Date), item.ISIN, int(item.Type),
-			toMoneyJSON(item.Amount), statuses[item.ISIN+"|"+string(item.Date)]})
+			ToMoneyJSON(item.Amount), statuses[item.ISIN+"|"+string(item.Date)]})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) handleLadder(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	lots, sales, bonds, _, err := s.portfolio(ctx)
+	lots, sales, bonds, _, err := s.Portfolio(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return

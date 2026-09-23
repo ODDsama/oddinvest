@@ -1,6 +1,6 @@
 // Фаза «валютне вікно»: де стоїть сьогоднішній курс серед історії.
 //
-// Друга з фаз buildState, що дивиться не на портфель, а на зовнішній
+// Друга з фаз BuildState, що дивиться не на портфель, а на зовнішній
 // орієнтир — поруч зі state_market.go і за тим самим зразком: чиста
 // проєкція рядків сховища на рядки контракту, жодного звернення до бази
 // (воно в state_sources.go, як вимагає sources-boundary).
@@ -73,7 +73,7 @@ func buildFXWindow(hist map[string][]store.RatePoint, rates fx.Rates,
 			}
 			row := state.FXWindowRow{
 				Currency: cur, Years: w.Years, Points: w.Points,
-				Percentile: round2(w.Percentile),
+				Percentile: Round2(w.Percentile),
 				NowRate:    round4(nowMajor),
 				MedianRate: round4(fx.Major(w.MedianE4)),
 				MinRate:    round4(fx.Major(w.MinE4)),
@@ -91,7 +91,7 @@ func buildFXWindow(hist map[string][]store.RatePoint, rates fx.Rates,
 	return fxWindowPhase{rows: out}
 }
 
-// round4 — під курс, у якого чотири знаки за визначенням НБУ. round2
+// round4 — під курс, у якого чотири знаки за визначенням НБУ. Round2
 // поруч (state_builder.go) під гроші й відсотки; третього масштабу тут
 // не заводимо.
 func round4(v float64) float64 { return math.Round(v*10_000) / 10_000 }

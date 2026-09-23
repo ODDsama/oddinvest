@@ -114,14 +114,14 @@ func (s *Server) handleListDeposits(w http.ResponseWriter, r *http.Request) {
 	type depJSON struct {
 		ID     int64     `json:"id"`
 		Date   string    `json:"date"`
-		Amount moneyJSON `json:"amount"`
+		Amount MoneyJSON `json:"amount"`
 		Broker string    `json:"broker"`
 		Note   string    `json:"note"`
 	}
 	out := make([]depJSON, 0, len(deps))
 	for _, d := range deps {
 		out = append(out, depJSON{d.ID, string(d.Date),
-			toMoneyJSON(money.New(d.Amount, d.Currency)), d.Broker, d.Note})
+			ToMoneyJSON(money.New(d.Amount, d.Currency)), d.Broker, d.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -232,16 +232,16 @@ func (s *Server) handleListConversions(w http.ResponseWriter, r *http.Request) {
 	type convJSON struct {
 		ID     int64     `json:"id"`
 		Date   string    `json:"date"`
-		From   moneyJSON `json:"from"`
-		To     moneyJSON `json:"to"`
+		From   MoneyJSON `json:"from"`
+		To     MoneyJSON `json:"to"`
 		Broker string    `json:"broker"`
 		Note   string    `json:"note"`
 	}
 	out := make([]convJSON, 0, len(convs))
 	for _, c := range convs {
 		out = append(out, convJSON{c.ID, string(c.Date),
-			toMoneyJSON(money.New(c.FromAmount, c.FromCurrency)),
-			toMoneyJSON(money.New(c.ToAmount, c.ToCurrency)), c.Broker, c.Note})
+			ToMoneyJSON(money.New(c.FromAmount, c.FromCurrency)),
+			ToMoneyJSON(money.New(c.ToAmount, c.ToCurrency)), c.Broker, c.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -256,9 +256,9 @@ func (s *Server) handleListConversions(w http.ResponseWriter, r *http.Request) {
 // (store/refs.go:25), і в довіднику з'явився б брокер на ім'я «—».
 type cashCheckResp struct {
 	Broker string    `json:"broker"`
-	Cost   moneyJSON `json:"cost"`
-	Have   moneyJSON `json:"have"` // може бути від'ємним
-	Short  moneyJSON `json:"short"`
+	Cost   MoneyJSON `json:"cost"`
+	Have   MoneyJSON `json:"have"` // може бути від'ємним
+	Short  MoneyJSON `json:"short"`
 	Enough bool      `json:"enough"`
 }
 
@@ -269,18 +269,18 @@ type cashCheckResp struct {
 // балансом, який буде на її дату; свідомо не ускладнюємо, бо це та сама
 // позиція, що вже записана в handlers_whatif.go:85-88 — застосунок
 // показує наслідки, рішення за людиною.
-func (s *Server) writeCashCheck(w http.ResponseWriter, r *http.Request, d cashDebit) {
-	doc, err := s.buildState(r.Context(), time.Now())
+func (s *Server) writeCashCheck(w http.ResponseWriter, r *http.Request, d CashDebit) {
+	doc, err := s.BuildState(r.Context(), time.Now())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	short := shortfallMinor(doc, d.Broker, d.Currency, d.Amount)
+	short := ShortfallMinor(doc, d.Broker, d.Currency, d.Amount)
 	writeJSON(w, http.StatusOK, cashCheckResp{
 		Broker: d.Broker,
-		Cost:   toMoneyJSON(money.New(d.Amount, d.Currency)),
-		Have:   toMoneyJSON(money.New(brokerBalanceMinor(doc, d.Broker, d.Currency), d.Currency)),
-		Short:  toMoneyJSON(money.New(short, d.Currency)),
+		Cost:   ToMoneyJSON(money.New(d.Amount, d.Currency)),
+		Have:   ToMoneyJSON(money.New(BrokerBalanceMinor(doc, d.Broker, d.Currency), d.Currency)),
+		Short:  ToMoneyJSON(money.New(short, d.Currency)),
 		Enough: short == 0,
 	})
 }

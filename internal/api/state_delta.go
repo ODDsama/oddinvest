@@ -30,7 +30,7 @@ const deltaLookbackDays = 14
 
 // snapshotAgo — останній знімок на deltaWindowDays і більше днів тому в
 // межах пошуку; nil, коли такого немає.
-func (e *engine) snapshotAgo(ctx context.Context, today domain.Date) (*store.Snapshot, error) {
+func (e *Engine) snapshotAgo(ctx context.Context, today domain.Date) (*store.Snapshot, error) {
 	to := today.AddDays(-deltaWindowDays)
 	snaps, err := e.st.ListSnapshots(ctx, to.AddDays(-deltaLookbackDays), to)
 	if err != nil || len(snaps) == 0 {
@@ -82,7 +82,7 @@ func buildCapitalDelta(src *sources, capitalNow, accruedNow float64, rates fx.Ra
 		}
 	}
 	if fromRep > 0 {
-		out.DeltaPct = round2((nowRep - fromRep) / fromRep * 100)
+		out.DeltaPct = Round2((nowRep - fromRep) / fromRep * 100)
 	}
 	var contrib int64
 	add := func(on domain.Date, amount int64, cur string) {
@@ -94,7 +94,7 @@ func buildCapitalDelta(src *sources, capitalNow, accruedNow float64, rates fx.Ra
 		}
 	}
 	// Той самий склад, що в «усіх грошах» ціни рішень (rivalFlows,
-	// levelAll): гаманець, подушка, цілі. Означення й довід — externalMoves
+	// LevelAll): гаманець, подушка, цілі. Означення й довід — externalMoves
 	// (state_money.go), а не переписаний тут четвертий раз перелік.
 	//
 	// ПЕНСІЙНОГО тут більше немає, і це виправлення, а не спрощення. Внесок
@@ -137,12 +137,12 @@ func snapshotCapitalUAH(sn store.Snapshot) int64 {
 	return c
 }
 
-// snapshotCapitalPair — капітал двох знімків у ОДНАКОВОМУ складі: якщо
+// SnapshotCapitalPair — капітал двох знімків у ОДНАКОВОМУ складі: якщо
 // бодай один старший за колонку купона, купон знімається з обох. Інакше
 // місяць, на який припала міграція 0063, показав би весь накопичений купон
 // рядком приросту.
-func snapshotCapitalPair(a, b store.Snapshot) (int64, int64) {
-	if accruedKnown(a) && accruedKnown(b) {
+func SnapshotCapitalPair(a, b store.Snapshot) (int64, int64) {
+	if AccruedKnown(a) && AccruedKnown(b) {
 		return snapshotCapitalUAH(a), snapshotCapitalUAH(b)
 	}
 	strip := func(sn store.Snapshot) int64 {
@@ -155,15 +155,15 @@ func snapshotCapitalPair(a, b store.Snapshot) (int64, int64) {
 	return strip(a), strip(b)
 }
 
-// accruedKnown — чи знімок знає накопичений купон (0063).
-func accruedKnown(sn store.Snapshot) bool { return sn.AccruedUAH >= 0 }
+// AccruedKnown — чи знімок знає накопичений купон (0063).
+func AccruedKnown(sn store.Snapshot) bool { return sn.AccruedUAH >= 0 }
 
 // comparableNow — сьогоднішній капітал у ТОМУ Ж складі, що й знімок: якщо
 // знімок старший за колонку купона, купон знімається й звідси. Інакше
 // перші тридцять днів після 0063 «за 30 днів» показувало б увесь
 // накопичений купон як приріст.
 func comparableNow(capitalNow, accruedNowMajor float64, from store.Snapshot) float64 {
-	if accruedKnown(from) {
+	if AccruedKnown(from) {
 		return capitalNow
 	}
 	return capitalNow - accruedNowMajor

@@ -81,7 +81,7 @@ func TestBondUnitCostMarketPriceIsDirty(t *testing.T) {
 }
 
 func TestBondUnitCostFallsBackWhenStale(t *testing.T) {
-	stale := fxQuote(fxToday.AddDays(-(quoteFreshDays + 1)), fxPriceDirt)
+	stale := fxQuote(fxToday.AddDays(-(QuoteFreshDays + 1)), fxPriceDirt)
 	got, basis := bondUnitCost(fxBond(), fxPays(), fxToday, stale)
 	if basis != CostBasisNominal {
 		t.Fatalf("підстава %q, чекали %q", basis, CostBasisNominal)
@@ -151,10 +151,10 @@ func TestBondUnitCostIgnoresFutureQuote(t *testing.T) {
 // повідомляв би про подію, якої не було. Арифметики в перенесенні немає
 // жодної, і саме тому тест перевіряє КОЖНЕ поле: пропущене мовчить.
 func TestAllocLineCarriesCostProvenance(t *testing.T) {
-	alt := toMoneyJSON(money.New(101862, money.UAH))
+	alt := ToMoneyJSON(money.New(101862, money.UAH))
 	sg := suggestion{
 		Kind: "bond", Label: fxISIN, ISIN: fxISIN, Currency: money.UAH,
-		CostPerBond:    toMoneyJSON(money.New(fxPriceDirt, money.UAH)),
+		CostPerBond:    ToMoneyJSON(money.New(fxPriceDirt, money.UAH)),
 		CostBasis:      CostBasisMarket,
 		CostAsOf:       "2026-09-06",
 		CostWhere:      "Inzhur",
@@ -182,7 +182,7 @@ func TestAllocLineCarriesCostProvenance(t *testing.T) {
 func TestAllocLineSaysNominalToo(t *testing.T) {
 	sg := suggestion{
 		Kind: "bond", Label: fxISIN, ISIN: fxISIN, Currency: money.UAH,
-		CostPerBond: toMoneyJSON(money.New(101142, money.UAH)),
+		CostPerBond: ToMoneyJSON(money.New(101142, money.UAH)),
 		CostBasis:   CostBasisNominal,
 	}
 	line, _, ok := allocOne(sg, 5000, nil, money.UAH, nil)
@@ -210,7 +210,7 @@ func TestStaleDoesNotDemoteWhenPriceIsReal(t *testing.T) {
 		CostBasis: CostBasisMarket, stale: true, RealPct: 10}
 	guessed := suggestion{Kind: "bond", ISIN: "UA-GUESS", Currency: money.UAH,
 		CostBasis: CostBasisNominal, stale: false, RealPct: 9}
-	if !lessSuggestion(priced, guessed, "rate", orderReal) {
+	if !LessSuggestion(priced, guessed, "rate", orderReal) {
 		t.Error("папір із ринковою ціною мусить стояти вище: його дохідність вища, " +
 			"а старий аукціон до знання ціни стосунку не має")
 	}
@@ -223,7 +223,7 @@ func TestStaleStillDemotesGuessedPrice(t *testing.T) {
 		CostBasis: CostBasisNominal, stale: true, RealPct: 20}
 	fresh := suggestion{Kind: "bond", ISIN: "UA-FRESH", Currency: money.UAH,
 		CostBasis: CostBasisNominal, stale: false, RealPct: 9}
-	if lessSuggestion(stale, fresh, "rate", orderReal) {
+	if LessSuggestion(stale, fresh, "rate", orderReal) {
 		t.Error("без ринкової ціни папір без розміщення мусить лишатись нижчим " +
 			"навіть із більшою дохідністю — вона порахована з вигаданої ціни")
 	}

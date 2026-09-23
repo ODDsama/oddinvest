@@ -5,9 +5,9 @@
 // пішли повз рейтинг». Другий механізм завівся тому, що без нього журнал
 // був сліпий саме до найчастішого рішення живого портфеля: маршрут веде в
 // подушку й цілі всі надходження року, а купівель за той рік може не бути
-// жодної. Механіка різна (takeDecisionSnapshot проти takeOutsideSnapshot),
+// жодної. Механіка різна (TakeDecisionSnapshot проти TakeOutsideSnapshot),
 // і в зведенні жоден із трьох видів не зводиться в спільний знаменник —
-// аргумент при decisionsSummary.
+// аргумент при DecisionsSummary.
 //
 // ПОРЯДОК ТУТ ВИРІШАЛЬНИЙ. Знімок рейтингу знімається ДО запису операції,
 // а сам рядок журналу пишеться ПІСЛЯ. Інакше знімок був би про портфель,
@@ -15,7 +15,7 @@
 // драбина закрила дірку — і папір, що стояв першим, опинився б п'ятим.
 // Тобто журнал систематично брехав би саме про те, заради чого існує.
 //
-// ЦІНА ЦЬОГО чесно названа: знімок — це повний buildState плюс збірка
+// ЦІНА ЦЬОГО чесно названа: знімок — це повний BuildState плюс збірка
 // рейтингу, тобто найдорожчий шлях бекенда, і POST /api/lots через нього
 // помітно повільнішає. Прийнятно, бо покупка — рідка дія людини, а не
 // щось у циклі; той самий порядок величин уже витрачає /api/lots/check,
@@ -35,7 +35,7 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-// decisionSnapshot — рейтинг помічника в момент рішення, звужений до
+// DecisionSnapshot — рейтинг помічника в момент рішення, звужений до
 // того, що про нього питають.
 //
 // ok=false означає «рішення не фіксуємо»: купленого не було в рейтингу
@@ -44,7 +44,7 @@ import (
 // довіднику, куплений усупереч пораді). Записати такий рядок із нульовою
 // обіцянкою означало б сказати «помічник обіцяв 0%», хоч він не обіцяв
 // нічого.
-type decisionSnapshot struct {
+type DecisionSnapshot struct {
 	ok         bool
 	realPct    float64
 	rankPos    int
@@ -53,28 +53,28 @@ type decisionSnapshot struct {
 	rankMode   string
 }
 
-// takeDecisionSnapshot — знайти купленe в сьогоднішньому рейтингу.
+// TakeDecisionSnapshot — знайти купленe в сьогоднішньому рейтингу.
 //
 // Кличеться ДО запису операції (див. шапку файла). Порівнюємо за парою
 // (kind, label): у помічника label для облігації — це ISIN, для фонду —
 // назва, для вкладу — банк, для НПФ — назва рахунку, тобто рівно ті самі
 // слова, якими операція називає свою сутність.
-func (e *engine) takeDecisionSnapshot(ctx context.Context, now time.Time,
-	kind, ref string) decisionSnapshot {
+func (e *Engine) TakeDecisionSnapshot(ctx context.Context, now time.Time,
+	kind, ref string) DecisionSnapshot {
 	if kind == "" || ref == "" {
-		return decisionSnapshot{}
+		return DecisionSnapshot{}
 	}
-	doc, err := e.buildState(ctx, now)
+	doc, err := e.BuildState(ctx, now)
 	if err != nil {
 		e.log.Debug("рішення: стан не зібрався", "err", err)
-		return decisionSnapshot{}
+		return DecisionSnapshot{}
 	}
-	sugg, err := e.reinvestSuggestions(ctx, now, doc)
+	sugg, err := e.ReinvestSuggestions(ctx, now, doc)
 	if err != nil {
 		e.log.Debug("рішення: рейтинг не зібрався", "err", err)
-		return decisionSnapshot{}
+		return DecisionSnapshot{}
 	}
-	snap := decisionSnapshot{rankMode: "plan"}
+	snap := DecisionSnapshot{rankMode: "plan"}
 	if doc.Settings != nil && doc.Settings.ReinvestRank != "" {
 		snap.rankMode = doc.Settings.ReinvestRank
 	}
@@ -93,7 +93,7 @@ func (e *engine) takeDecisionSnapshot(ctx context.Context, now time.Time,
 	return snap
 }
 
-// saveDecision — дописати рядок журналу, якщо знімок щось знайшов.
+// SaveDecision — дописати рядок журналу, якщо знімок щось знайшов.
 //
 // Помилка лише логується: див. шапку файла про те, чому примітка не
 // може завалити факт.
@@ -102,7 +102,7 @@ func (e *engine) takeDecisionSnapshot(ctx context.Context, now time.Time,
 // момент рішення. Через рік «Ціна рішень» покаже не лише що ти зробив,
 // а й що тоді думав; тягти її з операції за op_id не можна — операцію
 // правлять і видаляють, а журнал мусить памʼятати той день.
-func (e *engine) saveDecision(ctx context.Context, snap decisionSnapshot,
+func (e *Engine) SaveDecision(ctx context.Context, snap DecisionSnapshot,
 	now time.Time, kind, ref string, amount *money.Money, opID int64, note string) {
 	if !snap.ok {
 		return
@@ -135,18 +135,18 @@ func (e *engine) saveDecision(ctx context.Context, snap decisionSnapshot,
 // слово злило б їх у «не в портфель» і сховало б різницю, заради якої цілі
 // й заводились.
 const (
-	decisionKindReserve = "reserve"
-	decisionKindGoal    = "goal"
+	DecisionKindReserve = "reserve"
+	DecisionKindGoal    = "goal"
 )
 
-// takeOutsideSnapshot — рейтинг у момент, коли гроші пішли ПОВЗ нього:
+// TakeOutsideSnapshot — рейтинг у момент, коли гроші пішли ПОВЗ нього:
 // у подушку або в ціль накопичення.
 //
 // # ЧОМУ ЦИМ ГРОШАМ ПОТРІБЕН СВІЙ ЗНІМОК
 //
-// takeDecisionSnapshot шукає КУПЛЕНЕ в рейтингу за парою (kind, label).
+// TakeDecisionSnapshot шукає КУПЛЕНЕ в рейтингу за парою (kind, label).
 // Ні подушка, ні ціль у рейтингу не стоять узагалі: вирізка на них
-// береться ДО ранжування (allocatePlan), бо ціль у кожної своя й
+// береться ДО ранжування (AllocatePlan), бо ціль у кожної своя й
 // абсолютна. Тобто звичайний знімок повернув би ok=false, і журнал лишався
 // б сліпим саме до тих рішень, які на живому портфелі трапляються
 // найчастіше — маршрут веде в подушку й цілі всі надходження року.
@@ -167,21 +167,21 @@ const (
 // ОДНА ФУНКЦІЯ НА ДВІ СУТНОСТІ, бо в тілі немає нічого, що відрізняло б
 // подушку від цілі: знімок питає рейтинг, а не того, хто його питає.
 // Друга копія розійшлася б із першою на першій же правці режиму.
-func (e *engine) takeOutsideSnapshot(ctx context.Context, now time.Time) decisionSnapshot {
-	doc, err := e.buildState(ctx, now)
+func (e *Engine) TakeOutsideSnapshot(ctx context.Context, now time.Time) DecisionSnapshot {
+	doc, err := e.BuildState(ctx, now)
 	if err != nil {
 		e.log.Debug("рішення: стан не зібрався", "err", err)
-		return decisionSnapshot{}
+		return DecisionSnapshot{}
 	}
-	sugg, err := e.reinvestSuggestions(ctx, now, doc)
+	sugg, err := e.ReinvestSuggestions(ctx, now, doc)
 	if err != nil || len(sugg) == 0 {
 		// Порожній рейтинг — не помилка: буває на порожньому портфелі й
 		// тоді, коли купити нема чого. Але тоді й альтернативи немає, а
 		// рядок журналу без альтернативи не каже нічого.
 		e.log.Debug("рішення: рейтинг порожній", "err", err)
-		return decisionSnapshot{}
+		return DecisionSnapshot{}
 	}
-	snap := decisionSnapshot{ok: true, rankMode: "plan"}
+	snap := DecisionSnapshot{ok: true, rankMode: "plan"}
 	if doc.Settings != nil && doc.Settings.ReinvestRank != "" {
 		snap.rankMode = doc.Settings.ReinvestRank
 	}
@@ -191,8 +191,8 @@ func (e *engine) takeOutsideSnapshot(ctx context.Context, now time.Time) decisio
 	return snap
 }
 
-// decisionsSummary — зведення, яке й є відповіддю розділу.
-type decisionsSummary struct {
+// DecisionsSummary — зведення, яке й є відповіддю розділу.
+type DecisionsSummary struct {
 	Count int `json:"count"`
 	// Followed — скільки разів обране стояло верхнім рядком.
 	Followed int `json:"followed"`
@@ -270,20 +270,20 @@ type decisionsSummary struct {
 // ЧОМУ ЗВЕДЕННЯ МОВЧИТЬ НА МАЛИХ ЧИСЛАХ. Різниця в кілька десятих
 // відсоткового пункта на трьох рішеннях — це шум, а поданий як висновок
 // шум гірший за мовчання: за ним міняють режим рейтингу. Тому нижче
-// decisionsMinRows зведення не віддається зовсім, а поріг їде в
+// DecisionsMinRows зведення не віддається зовсім, а поріг їде в
 // відповіді, щоб UI не вписував його в себе (та сама причина, з якої
 // min_days лежить у RealizedRow).
 
-// decisionsMinRows — скільки рішень має набратись, перш ніж зведення
+// DecisionsMinRows — скільки рішень має набратись, перш ніж зведення
 // почне щось означати.
-const decisionsMinRows = 10
+const DecisionsMinRows = 10
 
-type decisionRow struct {
+type DecisionRow struct {
 	ID       int64     `json:"id"`
 	MadeOn   string    `json:"made_on"`
 	Kind     string    `json:"kind"`
 	Ref      string    `json:"ref"`
-	Amount   moneyJSON `json:"amount"`
+	Amount   MoneyJSON `json:"amount"`
 	RankMode string    `json:"rank_mode,omitempty"`
 	// PromisedPct — реальна дохідність обраного НА МОМЕНТ рішення.
 	PromisedPct float64 `json:"promised_pct"`
@@ -326,19 +326,19 @@ type decisionsModeRow struct {
 }
 
 // handleDecisions — GET /api/decisions.
-// decisionRows — журнал, розкладений у рядки відповіді.
+// DecisionRows — журнал, розкладений у рядки відповіді.
 //
 // Окремо від обробника, відколи дисципліну питає ще й прогрес: доріжка
 // «Дисципліна» на «Огляді» мусить дорівнювати журналу рішень ЗНАК У
 // ЗНАК, і єдиний спосіб це гарантувати — рахувати обидва з одних рядків
 // однією функцією. Другою реалізацією вони розійшлись би так само тихо,
 // як у прототипі, де доріжка казала 75% при 2 з 4 у журналі.
-func (e *engine) decisionRows(ctx context.Context) ([]decisionRow, error) {
+func (e *Engine) DecisionRows(ctx context.Context) ([]DecisionRow, error) {
 	list, err := e.st.ListDecisions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	lots, sales, bonds, pays, err := e.portfolio(ctx)
+	lots, sales, bonds, pays, err := e.Portfolio(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -347,14 +347,14 @@ func (e *engine) decisionRows(ctx context.Context) ([]decisionRow, error) {
 		lotByID[l.ID] = l
 	}
 	today := domain.NewDate(time.Now())
-	deval := e.devaluation(ctx)
+	deval := e.Devaluation(ctx)
 
-	rows := make([]decisionRow, 0, len(list))
+	rows := make([]DecisionRow, 0, len(list))
 	for _, d := range list {
-		row := decisionBase(d)
+		row := DecisionBase(d)
 		if actual, basis, ok := decisionActual(d, lotByID, sales, bonds, pays, today, deval); ok {
 			row.ActualPct, row.Basis = actual, basis
-			row.DriftPP = round2(actual - d.RealPct)
+			row.DriftPP = Round2(actual - d.RealPct)
 		} else {
 			row.Basis = basis
 		}
@@ -363,7 +363,7 @@ func (e *engine) decisionRows(ctx context.Context) ([]decisionRow, error) {
 	return rows, nil
 }
 
-// decisionBase — та половина рядка, яку видно з самого журналу, без
+// DecisionBase — та половина рядка, яку видно з самого журналу, без
 // портфеля: що обрано, яким рядком воно стояло і на скільки п.п.
 // розійшлось із верхнім.
 //
@@ -371,24 +371,24 @@ func (e *engine) decisionRows(ctx context.Context) ([]decisionRow, error) {
 // потрібні саме ці поля й НЕ потрібен факт (він про долю паперу, а не про
 // місяць). Без спільної функції вираз VsTopPP — а разом із ним і умова,
 // коли він узагалі має сенс, — жив би у двох місцях.
-func decisionBase(d store.Decision) decisionRow {
-	row := decisionRow{
+func DecisionBase(d store.Decision) DecisionRow {
+	row := DecisionRow{
 		ID: d.ID, MadeOn: string(d.MadeOn), Kind: d.Kind, Ref: d.Ref,
-		Amount:   toMoneyJSON(money.New(d.Amount, orUAH(d.Currency))),
+		Amount:   ToMoneyJSON(money.New(d.Amount, OrUAH(d.Currency))),
 		RankMode: d.RankMode, PromisedPct: d.RealPct, RankPos: d.RankPos,
 		Note: d.Note,
 	}
-	if d.Kind == decisionKindReserve || d.Kind == decisionKindGoal {
+	if d.Kind == DecisionKindReserve || d.Kind == DecisionKindGoal {
 		// Ні в подушки, ні в цілі немає ні місця в рейтингу, ні власної
 		// обіцянки — лише те, від чого ці гроші відмовились. PromisedPct
 		// лишається нулем, і це точне твердження: ні матрац, ні шухляда під
 		// авто не приносять нічого.
-		row.TopLabel, row.ForgonePct = d.TopLabel, round2(d.TopRealPct)
+		row.TopLabel, row.ForgonePct = d.TopLabel, Round2(d.TopRealPct)
 		return row
 	}
 	if d.RankPos > 1 && d.TopLabel != "" {
 		row.TopLabel = d.TopLabel
-		row.VsTopPP = round2(d.RealPct - d.TopRealPct)
+		row.VsTopPP = Round2(d.RealPct - d.TopRealPct)
 	}
 	return row
 }
@@ -440,16 +440,16 @@ func decisionActual(d store.Decision, lotByID map[int64]domain.Lot,
 	if err != nil || !domain.XIRRPlausible(rate) {
 		return 0, "ще зарано міряти", false
 	}
-	return round2(realYield(rate, cur, deval) * 100), "за фактом виплат", true
+	return Round2(RealYield(rate, cur, deval) * 100), "за фактом виплат", true
 }
 
-// summarizeDecisions — зведення по журналу.
+// SummarizeDecisions — зведення по журналу.
 //
 // Рахується тут, а не в браузері (CLAUDE.md §5): середнє по підмножині —
 // саме той різновид арифметики, який у двох місцях дає два різні числа,
 // бо підмножини визначають по-різному.
-func summarizeDecisions(rows []decisionRow) decisionsSummary {
-	var sum decisionsSummary
+func SummarizeDecisions(rows []DecisionRow) DecisionsSummary {
+	var sum DecisionsSummary
 	byMode := map[string]*decisionsModeRow{}
 	var order []string
 	var vsTop, vsTopN float64
@@ -460,12 +460,12 @@ func summarizeDecisions(rows []decisionRow) decisionsSummary {
 		// Подушка й цілі — свої пари чисел, і в жодну з решти вони не
 		// входять: аргумент при ReserveCount. Режими їх теж не стосуються —
 		// рух повз рейтинг не залежить від того, чим той упорядкований.
-		if r.Kind == decisionKindReserve {
+		if r.Kind == DecisionKindReserve {
 			sum.ReserveCount++
 			forgone += r.ForgonePct
 			continue
 		}
-		if r.Kind == decisionKindGoal {
+		if r.Kind == DecisionKindGoal {
 			sum.GoalCount++
 			goalForgone += r.ForgonePct
 			continue
@@ -494,23 +494,23 @@ func summarizeDecisions(rows []decisionRow) decisionsSummary {
 		}
 	}
 	if vsTopN > 0 {
-		sum.VsTopPPAvg = round2(vsTop / vsTopN)
+		sum.VsTopPPAvg = Round2(vsTop / vsTopN)
 	}
 	if driftN > 0 {
-		sum.DriftPPAvg = round2(drift / driftN)
+		sum.DriftPPAvg = Round2(drift / driftN)
 	}
 	if sum.ReserveCount > 0 {
-		sum.ReserveForgonePctAvg = round2(forgone / float64(sum.ReserveCount))
+		sum.ReserveForgonePctAvg = Round2(forgone / float64(sum.ReserveCount))
 	}
 	if sum.GoalCount > 0 {
-		sum.GoalForgonePctAvg = round2(goalForgone / float64(sum.GoalCount))
+		sum.GoalForgonePctAvg = Round2(goalForgone / float64(sum.GoalCount))
 	}
 	// Порядок режимів — той, у якому вони вперше трапились у журналі,
 	// тобто хронологічний. Мапа дала б новий порядок на кожен запит.
 	for _, name := range order {
 		m := byMode[name]
 		if m.Measured > 0 {
-			m.DriftPPAvg = round2(m.DriftPPAvg / float64(m.Measured))
+			m.DriftPPAvg = Round2(m.DriftPPAvg / float64(m.Measured))
 		}
 		sum.ByMode = append(sum.ByMode, *m)
 	}

@@ -132,9 +132,9 @@ func (s *Server) handleAddReserveOp(w http.ResponseWriter, r *http.Request) {
 	// сталось те, заради чого подушку й тримали. Записати таке рядком
 	// «відмовився від 9.4%» означало б назвати аварію вибором.
 	now := time.Now()
-	var snap decisionSnapshot
+	var snap DecisionSnapshot
 	if op.Amount > 0 {
-		snap = s.takeOutsideSnapshot(r.Context(), now)
+		snap = s.TakeOutsideSnapshot(r.Context(), now)
 	}
 	// Умови позики розбираються ДО запису руху: помилка в ставці чи даті
 	// має лишити журнал недоторканим, а не зняття без позики, яке потім
@@ -160,7 +160,7 @@ func (s *Server) handleAddReserveOp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if op.Amount > 0 {
-		s.saveDecision(r.Context(), snap, now, decisionKindReserve, op.Place,
+		s.SaveDecision(r.Context(), snap, now, DecisionKindReserve, op.Place,
 			money.New(op.Amount, op.Currency), id, op.Note)
 	}
 	s.publishAsync()
@@ -227,7 +227,7 @@ func (s *Server) handleListReserveOps(w http.ResponseWriter, r *http.Request) {
 	type opJSON struct {
 		ID     int64     `json:"id"`
 		Date   string    `json:"date"`
-		Amount moneyJSON `json:"amount"`
+		Amount MoneyJSON `json:"amount"`
 		Place  string    `json:"place"`
 		Note   string    `json:"note"`
 		// Позика, відкрита цим зняттям (0 = звичайний рух).
@@ -240,7 +240,7 @@ func (s *Server) handleListReserveOps(w http.ResponseWriter, r *http.Request) {
 	out := make([]opJSON, 0, len(ops))
 	for _, op := range ops {
 		row := opJSON{ID: op.ID, Date: string(op.Date),
-			Amount: toMoneyJSON(money.New(op.Amount, op.Currency)),
+			Amount: ToMoneyJSON(money.New(op.Amount, op.Currency)),
 			Place:  op.Place, Note: op.Note, RepaysLoanID: op.LoanID}
 		if l, ok := loanOf[op.ID]; ok {
 			row.LoanID, row.LoanRatePct, row.LoanDue = l.ID, float64(l.RateBP)/100, l.DueDate
@@ -371,31 +371,31 @@ func (s *Server) handleListReserveLoans(w http.ResponseWriter, r *http.Request) 
 	// рядків, а не зведення. Курс тут не потрібен зовсім — і добре, бо
 	// журнал мусить читатись і тоді, коли курсу на сьогодні ще немає.
 	today := domain.NewDate(time.Now())
-	repays := reserveRepays(loans, ops, today)
+	repays := ReserveRepays(loans, ops, today)
 	type loanJSON struct {
 		ID      int64     `json:"id"`
 		OpID    int64     `json:"op_id"`
 		Date    string    `json:"date"`
-		Taken   moneyJSON `json:"taken"`
+		Taken   MoneyJSON `json:"taken"`
 		RatePct float64   `json:"rate_pct"`
 		DueDate string    `json:"due_date,omitempty"`
 		Note    string    `json:"note,omitempty"`
 		// Owed/Interest — лише у відкритих; закрита каже про себе Closed.
-		Owed     moneyJSON `json:"owed,omitempty"`
-		Interest moneyJSON `json:"interest,omitempty"`
+		Owed     MoneyJSON `json:"owed,omitempty"`
+		Interest MoneyJSON `json:"interest,omitempty"`
 		Closed   bool      `json:"closed,omitempty"`
 	}
 	out := make([]loanJSON, 0, len(loans))
 	for _, l := range loans {
 		row := loanJSON{ID: l.ID, OpID: l.OpID, Date: string(l.TakenDate),
-			Taken:   toMoneyJSON(money.New(l.TakenAmount, l.TakenCurrency)),
+			Taken:   ToMoneyJSON(money.New(l.TakenAmount, l.TakenCurrency)),
 			RatePct: float64(l.RateBP) / 100, DueDate: l.DueDate, Note: l.Note}
 		owed, interest := domain.ReserveLoanBalance(l.TakenAmount, l.RateBP,
 			l.TakenDate, repays[l.ID], today)
 		row.Closed = owed <= 0
 		if !row.Closed {
-			row.Owed = toMoneyJSON(money.New(owed, l.TakenCurrency))
-			row.Interest = toMoneyJSON(money.New(interest, l.TakenCurrency))
+			row.Owed = ToMoneyJSON(money.New(owed, l.TakenCurrency))
+			row.Interest = ToMoneyJSON(money.New(interest, l.TakenCurrency))
 		}
 		out = append(out, row)
 	}

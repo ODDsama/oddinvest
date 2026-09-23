@@ -53,9 +53,9 @@ type switchListOut struct {
 	Rows []struct {
 		ISIN         string    `json:"isin"`
 		Qty          int64     `json:"qty"`
-		CostPerBond  moneyJSON `json:"cost_per_bond"`
-		Accrued      moneyJSON `json:"accrued"`
-		BreakEven    moneyJSON `json:"break_even"`
+		CostPerBond  MoneyJSON `json:"cost_per_bond"`
+		Accrued      MoneyJSON `json:"accrued"`
+		BreakEven    MoneyJSON `json:"break_even"`
 		BreakEvenPct float64   `json:"break_even_pct"`
 		HoldRealPct  float64   `json:"hold_real_pct"`
 		Reason       string    `json:"reason"`
@@ -255,5 +255,5 @@ func bump(t *testing.T, amount string, delta int64) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return toMoneyJSON(money.New(minor+delta*100, money.UAH)).Amount
+	return ToMoneyJSON(money.New(minor+delta*100, money.UAH)).Amount
 }

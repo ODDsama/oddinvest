@@ -1,6 +1,6 @@
 // Ребаланс і концентрація — два різні питання про склад портфеля.
 //
-// Дев'ята фаза розбиття buildState.
+// Дев'ята фаза розбиття BuildState.
 //
 // РЕБАЛАНС відповідає на «чого бракує до цілі». Він має два виміри, і їх
 // не можна плутати. Валютний каже, В ЧОМУ тримати гроші; видовий — ЧИМ
@@ -266,7 +266,7 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		transitUAH += transitCur
 		out.Rebalance = append(out.Rebalance, state.RebalanceRow{
 			Dimension: "currency", Key: cur,
-			Currency: cur, TargetPct: *tp, CurrentPct: round2(currentPct),
+			Currency: cur, TargetPct: *tp, CurrentPct: Round2(currentPct),
 			DeficitUAH: state.Major(deficitUAH, money.UAH), DeficitNative: state.Major(deficitUAH/rateMajor, cur),
 			CashNative: state.Major(cashNative, cur), BondCostNative: state.Major(unitNative, cur),
 			BondCostUAH: state.Major(unitUAH, money.UAH), CanBuy: canBuy, ConvertUAH: state.Major(convertUAH, money.UAH),
@@ -275,7 +275,7 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 			UnitKind:        unitKind,
 			TargetUAH:       state.Major(targetUAH, money.UAH),
 			CurrentUAH:      state.Major(curUAH, money.UAH),
-			FillPct:         round2(fillPct(curUAH, targetUAH)),
+			FillPct:         Round2(fillPct(curUAH, targetUAH)),
 			TransitUAH:      state.Major(transitCur, money.UAH),
 			TransitNative:   state.Major(transitCur/rateMajor, cur),
 		})
@@ -350,7 +350,7 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		targetUAH := kindMajor * (*k.target) / 100
 		row := state.RebalanceRow{
 			Dimension: "kind", Key: k.key, Currency: money.UAH,
-			TargetPct: round2(*k.target), CurrentPct: round2(currentPct),
+			TargetPct: Round2(*k.target), CurrentPct: Round2(currentPct),
 			DeficitUAH: state.Major(math.Max(0, targetUAH-k.nowUAH), money.UAH),
 			// Одиниця входу тут завжди в гривні-еквіваленті: питання «яким
 			// інструментом», а не «якою валютою», і мішати сюди ще й
@@ -364,7 +364,7 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 			// означало б відповідати на нього з похибкою округлення.
 			TargetUAH:  state.Major(targetUAH, money.UAH),
 			CurrentUAH: state.Major(k.nowUAH, money.UAH),
-			FillPct:    round2(fillPct(k.nowUAH, targetUAH)),
+			FillPct:    Round2(fillPct(k.nowUAH, targetUAH)),
 		}
 		if k.unit > 0 {
 			row.MinPortfolioUAH = state.Major(k.unit/(*k.target/100), money.UAH)
@@ -376,7 +376,7 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		// інакше вирізка знову стала б другою ціллю.
 		switch k.key {
 		case "bonds":
-			row.TransitPct, row.TransitUAH = round2(transitPct), state.Major(transitCarveUAH, money.UAH)
+			row.TransitPct, row.TransitUAH = Round2(transitPct), state.Major(transitCarveUAH, money.UAH)
 		case "deposits":
 			row.TransitUAH = state.Major(transitCarveUAH, money.UAH)
 		}
@@ -423,7 +423,7 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		}
 		row := state.RebalanceRow{
 			Dimension: "kind", Key: k.key, Currency: money.UAH,
-			CurrentPct: round2(k.nowUAH / kindMajor * 100),
+			CurrentPct: Round2(k.nowUAH / kindMajor * 100),
 			CurrentUAH: state.Major(k.nowUAH, money.UAH),
 			UnitKind:   k.key, Feasible: true,
 		}
@@ -473,7 +473,7 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 	if kindMajor > 0 {
 		out.Rebalance = append(out.Rebalance, state.RebalanceRow{
 			Dimension: "kind", Key: "cash", Currency: money.UAH,
-			CurrentPct: round2(cap.AccountUAH.Major() / kindMajor * 100),
+			CurrentPct: Round2(cap.AccountUAH.Major() / kindMajor * 100),
 			CurrentUAH: cap.AccountUAH,
 			UnitKind:   "cash", Feasible: true,
 		})
@@ -491,7 +491,7 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		share := amount / base * 100
 		row := state.ConcentrationRow{
 			Dimension: dim, Key: key, Label: label,
-			AmountUAH: state.Major(amount, money.UAH), SharePct: round2(share), LimitPct: limit,
+			AmountUAH: state.Major(amount, money.UAH), SharePct: Round2(share), LimitPct: limit,
 		}
 		if share > limit {
 			row.OverUAH = state.Major(amount-base*limit/100, money.UAH)

@@ -9,13 +9,13 @@ import (
 )
 
 func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
-	doc, err := s.buildStateTasked(r.Context(), time.Now())
+	doc, err := s.BuildStateTasked(r.Context(), time.Now())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 	// Валюта звітності — на виході, на готовому документі (presenter.go).
-	if err := s.present(r.Context(), doc); err != nil {
+	if err := s.Present(r.Context(), doc); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

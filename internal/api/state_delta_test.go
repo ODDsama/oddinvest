@@ -133,11 +133,11 @@ func TestCapitalDeltaLikeForLikeAcrossAccruedColumn(t *testing.T) {
 	// знімається з обох.
 	a := store.Snapshot{NominalUAHEq: 100_000, AccruedUAH: -1}
 	b := store.Snapshot{NominalUAHEq: 100_000, AccruedUAH: 5_000}
-	if ca, cb := snapshotCapitalPair(a, b); ca != cb {
+	if ca, cb := SnapshotCapitalPair(a, b); ca != cb {
 		t.Errorf("пара %d → %d: місяць міграції показав купон приростом", ca, cb)
 	}
 	a.AccruedUAH = 2_000
-	if ca, cb := snapshotCapitalPair(a, b); cb-ca != 3_000 {
+	if ca, cb := SnapshotCapitalPair(a, b); cb-ca != 3_000 {
 		t.Errorf("пара %d → %d, чекали приріст купона 30,00", ca, cb)
 	}
 }

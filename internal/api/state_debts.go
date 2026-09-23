@@ -98,11 +98,11 @@ func debtCapsReserve(debts []domain.Debt, marks []domain.DebtMark,
 		if basis == domain.DebtRateNone {
 			continue
 		}
-		// Ставка приходить відсотками, realYield чекає частку. Помилка
+		// Ставка приходить відсотками, RealYield чекає частку. Помилка
 		// масштабу тут не косметична: без ділення умова була б істинною
 		// майже завжди, і стеля подушки вмикалась би від безкоштовної
 		// розстрочки.
-		if realYield(rate/100, d.Currency, devalPct) > 0 {
+		if RealYield(rate/100, d.Currency, devalPct) > 0 {
 			return true
 		}
 	}
@@ -150,7 +150,7 @@ func debtCoverUAH(debts []domain.Debt, marks []domain.DebtMark,
 			add(p.Amount)
 		}
 	}
-	return round2(float64(minor) / 100)
+	return Round2(float64(minor) / 100)
 }
 
 // buildDebtPlan зводить борги в те, що змінює чужі числа.
@@ -205,7 +205,7 @@ func buildDebtPlan(src *sources, debts []domain.Debt, marks []domain.DebtMark,
 		}
 		if rate, basis := domain.DebtEffectiveRate(d, balance); basis != domain.DebtRateNone &&
 			rate > out.TopRatePct {
-			out.TopRatePct, out.TopName = round2(rate), d.Name
+			out.TopRatePct, out.TopName = Round2(rate), d.Name
 		}
 	}
 
@@ -305,7 +305,7 @@ func buildDebtCards(debts []domain.Debt, marks []domain.DebtMark, ops []domain.D
 			MinDueUAH:     state.Major(minorUAH(st.MinDue, d.Currency, rates), money.UAH),
 			FreeUAH:       state.Major(minorUAH(st.Free, d.Currency, rates), money.UAH),
 			DebtUAH:       state.Major(minorUAH(st.Debt, d.Currency, rates), money.UAH),
-			UsedPct:       round2(st.UsedPct),
+			UsedPct:       Round2(st.UsedPct),
 			ExitBy:        string(d.ExitBy),
 		})
 	}
@@ -327,7 +327,7 @@ func minorUAH(minor int64, cur string, rates fx.Rates) float64 {
 	if err != nil {
 		return 0
 	}
-	return round2(float64(sign*u.Amount()) / 100)
+	return Round2(float64(sign*u.Amount()) / 100)
 }
 
 // buildDebtExit — вихід із кредитних лімітів: спільний план на ВСІ картки
@@ -530,10 +530,10 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		// НЕМАЄ за визначенням; додати її назад означало б стверджувати, що
 		// гроші пішли.
 		days := monthStart(today, startM+1).AddDays(-1).Day()
-		paidBefore = round2((full.gross - full.invest) - (after.gross - after.invest))
-		instBefore = round2(full.inst - after.inst)
-		spendBefore = round2(spend * float64(markMonth.Day()) / float64(days))
-		startDebt = round2(debtNow + paidBefore - instBefore - spendBefore)
+		paidBefore = Round2((full.gross - full.invest) - (after.gross - after.invest))
+		instBefore = Round2(full.inst - after.inst)
+		spendBefore = Round2(spend * float64(markMonth.Day()) / float64(days))
+		startDebt = Round2(debtNow + paidBefore - instBefore - spendBefore)
 		if limitAll && startDebt > float64(limitTotal)/100 {
 			startDebt = float64(limitTotal) / 100
 		}
@@ -583,7 +583,7 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		return nil
 	}
 	out := &state.DebtExit{
-		Cards: names, ExitBy: string(plan.ExitBy), Months: round2(plan.Months),
+		Cards: names, ExitBy: string(plan.ExitBy), Months: Round2(plan.Months),
 		SpendCapUAH:      state.Minor(plan.SpendCap, money.UAH),
 		NeedPerMonthUAH:  state.Minor(plan.NeedPerMonth, money.UAH),
 		Feasible:         plan.Feasible,
@@ -606,7 +606,7 @@ func buildDebtExit(debts []domain.Debt, marks []domain.DebtMark, ops []domain.De
 		WithInvestHeadroomUAH: state.Minor(plan.WithInvestHeadroom, money.UAH),
 
 		StartDebtUAH: state.Major(startDebt, money.UAH), DebtNowUAH: state.Major(debtNow, money.UAH),
-		StartMonth: monthKeyAt(today, startM),
+		StartMonth: MonthKeyAt(today, startM),
 	}
 	if markMonth != "" {
 		out.MarkDate = string(markMonth)
@@ -652,7 +652,7 @@ func cardInstallmentsInMonth(src *sources, rates fx.Rates, today domain.Date,
 			}
 		}
 	}
-	return round2(total)
+	return Round2(total)
 }
 
 // debtAhead — борг по місяцях горизонту для «Маршруту грошей» (route.go,
@@ -684,10 +684,10 @@ func debtAhead(src *sources, rates fx.Rates, today domain.Date, months int) map[
 				}
 			}
 		}
-		out[monthKeyAt(today, m)] = routeDebtMonth{
+		out[MonthKeyAt(today, m)] = routeDebtMonth{
 			DueUAH:       debtDueForMonth(src, rates, today, m),
 			CardInstUAH:  cardInstallmentsInMonth(src, rates, today, m, ""),
-			PrincipalUAH: round2(principal),
+			PrincipalUAH: Round2(principal),
 			CoverUAH:     debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, first),
 			PlannedUAH:   plannedInMonth(src, rates, today, m, "", domain.PaidFromCard),
 		}
@@ -739,7 +739,7 @@ func debtExitWalk(perMonth []debtMonthRow,
 			left = 0
 		}
 		out = append(out, state.DebtExitStep{
-			Month:    monthKeyAt(today, startM+m),
+			Month:    MonthKeyAt(today, startM+m),
 			GrossUAH: state.Major(row.gross, money.UAH), InvestUAH: state.Major(row.invest, money.UAH),
 			InstallmentsUAH: state.Major(row.inst, money.UAH), PlannedUAH: state.Major(row.planned, money.UAH),
 			SpendUAH: state.Major(spendUAH, money.UAH), LeftUAH: state.Major(left, money.UAH),
@@ -804,7 +804,7 @@ func debtOwedUAH(src *sources, rates fx.Rates, today domain.Date) float64 {
 			total += float64(u.Amount()) / 100
 		}
 	}
-	return round2(total)
+	return Round2(total)
 }
 
 // lastMarkDate — дата останньої звірки картки на або до сьогодні.

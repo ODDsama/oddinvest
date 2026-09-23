@@ -1,6 +1,6 @@
 // Поточний місяць і фактичний темп поповнень.
 //
-// Сьома фаза розбиття buildState. Тут три різні відповіді на схоже
+// Сьома фаза розбиття BuildState. Тут три різні відповіді на схоже
 // питання «скільки я вклав», і плутати їх не можна:
 //
 //   - ВКЛАДЕНО цього місяця — покупки: облігації й сертифікати. Це рух
@@ -72,7 +72,7 @@ type monthPhase struct {
 	//
 	// Рахується ТУТ, а не в deriveReserve, попри те, що живе воно в картці
 	// резерву: споживачів двоє, і другий — поділ грошей місяця по видах
-	// (spreadMonth у buildState), який ділить уже ПІСЛЯ подушки. Він
+	// (spreadMonth у BuildState), який ділить уже ПІСЛЯ подушки. Він
 	// стоїть після Derive заради стелі цілей, але сама подушка потрібна
 	// раніше — і мати два місця, де вона рахується, не можна.
 	ReserveMovedUAH float64
@@ -171,7 +171,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 			}
 		}
 	}
-	out.ReserveMovedUAH = round2(out.ReserveMovedUAH)
+	out.ReserveMovedUAH = Round2(out.ReserveMovedUAH)
 
 	// Рухи ЦІЛЕЙ — у той самий нетто, і з того самого доводу, що резерв.
 	// Переміщення гаманець → ціль записується двома ногами (мінус у
@@ -248,7 +248,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	if totalUAH > 0 {
 		months := paceMonths(first, today)
 		out.ActualMonths = int(months + 0.5)
-		out.ActualMonthlyUAH = round2(float64(totalUAH) / 100 / months)
+		out.ActualMonthlyUAH = Round2(float64(totalUAH) / 100 / months)
 	}
 
 	out.Plan = buildMonthPlan(src, rates, today, 0, float64(out.DepositedUAH.Amount())/100, "")
@@ -352,7 +352,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	// Віддається звідси, а не рахується читачем, з того самого доводу, що
 	// need у spreadMonth: друге означення розійшлося б із першим рівно в тих
 	// гілках, де ця функція мовчить.
-	return round2(monthUAH), round2(fillUAH), round2(mp.PlanReserveUAH.Major())
+	return Round2(monthUAH), Round2(fillUAH), Round2(mp.PlanReserveUAH.Major())
 }
 
 // buildMonthPlan — скільки план доходу заводить у портфель ЦЬОГО місяця.
@@ -377,7 +377,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 // # ЗСУВ МІСЯЦЯ
 //
 // m — на скільки місяців уперед від сьогодні. Нуль — поточний місяць, і
-// саме його бере buildMonth: monthKeyAt(today, 0) дає його ключ, а
+// саме його бере buildMonth: MonthKeyAt(today, 0) дає його ключ, а
 // planFlowAtMonth для m <= 0 іде в гілку минулого, де дата початку НЕ
 // підтягується до першого місяця. Для поточного це правильно: потік,
 // заведений завтра, у серпні ще не платив.
@@ -417,8 +417,8 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	if len(src.planFlows) == 0 && len(src.planReceipts) == 0 {
 		return nil // плану доходу немає — це не «план обіцяє нуль»
 	}
-	month := monthKeyAt(today, m)
-	marks := newPlanMarks(src.planReceipts)
+	month := MonthKeyAt(today, m)
+	marks := NewPlanMarks(src.planReceipts)
 	out := &state.MonthPlan{Month: month}
 
 	// Дозволені суми накопичуються ОКРЕМИМИ лічильниками в тому самому
@@ -427,7 +427,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 	incReserve, incGoals := 0.0, 0.0
 	for _, f := range src.planFlows {
 		// Валова копія — з часткою в портфель 100%. Той самий фокус, що в
-		// planFlowGrossUAH, і потрібен він тут ДВІЧІ: для самого валового
+		// PlanFlowGrossUAH, і потрібен він тут ДВІЧІ: для самого валового
 		// числа й для охорони нижче.
 		gross := f
 		gross.InvestBP = 10000
@@ -459,7 +459,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		if after != "" && !domain.Date(receiptDueDate(month, f.FromDate.Day())).After(after) {
 			continue
 		}
-		amt := planFlowUAH(planFlowAtMonth(f, today, m, marks), f.Currency, rates)
+		amt := PlanFlowUAH(planFlowAtMonth(f, today, m, marks), f.Currency, rates)
 		if f.Kind == "expense" {
 			// У потоках витрата від'ємна; у контракті вона додатна, бо поле
 			// зветься «витрати», і знак у ньому читався б як помилка.
@@ -467,7 +467,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 			continue
 		}
 		out.IncomeUAH = out.IncomeUAH.Add(state.Major(amt, money.UAH))
-		out.GrossUAH = out.GrossUAH.Add(state.Major(planFlowUAH(planFlowAtMonth(gross, today, m, marks), f.Currency, rates), money.UAH))
+		out.GrossUAH = out.GrossUAH.Add(state.Major(PlanFlowUAH(planFlowAtMonth(gross, today, m, marks), f.Currency, rates), money.UAH))
 		if domain.PlanUseAllowed(f.Uses, domain.UsePlanReserve) {
 			incReserve += amt
 		}
@@ -481,7 +481,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		}
 	}
 
-	// Позапланове — окремо, і не з примхи: у planMarks воно не входить
+	// Позапланове — окремо, і не з примхи: у PlanMarks воно не входить
 	// навмисно (немає потоку, який можна замістити), тож без цього циклу
 	// премія просто зникла б із місяця, у якому вона прийшла.
 	for _, r := range src.planReceipts {
@@ -495,9 +495,9 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 			continue
 		}
 		share := float64(r.Amount) / 100 * float64(r.InvestBP) / 10000
-		v := planFlowUAH(share, r.Currency, rates)
+		v := PlanFlowUAH(share, r.Currency, rates)
 		out.ExtraUAH = out.ExtraUAH.Add(state.Major(v, money.UAH))
-		out.GrossUAH = out.GrossUAH.Add(state.Major(planFlowUAH(float64(r.Amount)/100, r.Currency, rates), money.UAH))
+		out.GrossUAH = out.GrossUAH.Add(state.Major(PlanFlowUAH(float64(r.Amount)/100, r.Currency, rates), money.UAH))
 		// Позапланове читає ВЛАСНИЙ дозвіл, і лише воно: потоку за ним
 		// немає, тож успадкувати нема від кого (та сама межа, що з InvestBP).
 		if domain.PlanUseAllowed(r.Uses, domain.UsePlanReserve) {
@@ -578,7 +578,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		out.LeftUAH = state.Major(left, money.UAH)
 	}
 	if out.PlanUAH.Major() > 0 {
-		out.CoveredPct = round2(depositedUAH / out.PlanUAH.Major() * 100)
+		out.CoveredPct = Round2(depositedUAH / out.PlanUAH.Major() * 100)
 	}
 
 	// OnCardUAH порахований ВИЩЕ, разом із боргом, і саме там, бо він у
@@ -759,13 +759,13 @@ func plannedInMonth(src *sources, rates fx.Rates, today domain.Date,
 		if after != "" && !p.Overdue(today) && !p.PressDate(today).After(after) {
 			continue
 		}
-		total += planFlowUAH(float64(p.Amount)/100, p.Currency, rates)
+		total += PlanFlowUAH(float64(p.Amount)/100, p.Currency, rates)
 	}
-	return round2(total)
+	return Round2(total)
 }
 
 // monthStart — перше число місяця зі зсувом m від сьогодні. Окремо від
-// monthKeyAt, бо тому потрібен ключ "YYYY-MM", а тут — сама дата.
+// MonthKeyAt, бо тому потрібен ключ "YYYY-MM", а тут — сама дата.
 func monthStart(today domain.Date, m int) domain.Date {
 	t := today.Time()
 	return domain.NewDate(time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, m, 0))
@@ -792,5 +792,5 @@ func savingsRatePct(actualMonthly float64, plan *state.MonthPlan) float64 {
 	if plan == nil || plan.GrossUAH.Major() <= 0 || actualMonthly <= 0 {
 		return 0
 	}
-	return round2(actualMonthly / plan.GrossUAH.Major() * 100)
+	return Round2(actualMonthly / plan.GrossUAH.Major() * 100)
 }

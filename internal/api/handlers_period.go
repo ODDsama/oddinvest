@@ -6,13 +6,13 @@
 // липень відрізнявся від червня» не було, бо вона розсипана по чотирьох
 // сторінках і жодна з них не бере період як ціле.
 //
-// ЩО ТУТ НЕ РАХУЄТЬСЯ ВДРУГЕ. Гроші періоду — це summarizeCash
+// ЩО ТУТ НЕ РАХУЄТЬСЯ ВДРУГЕ. Гроші періоду — це SummarizeCash
 // (cashflow.go), той самий виклик, яким живе «Гроші → Рухи». Дві
 // реалізації тих самих п'яти сум розійшлись би мовчки, бо обидва числа
 // лишились би правдоподібними; у цьому застосунку таке вже траплялось
 // двічі (шапка handlers_whatif.go). Простій рахує domain.IdleIncome —
 // та сама черга «покупка з'їдає найстаріший дохід», що й у зведенні.
-// Рядок рішення збирає decisionBase (handlers_decisions.go).
+// Рядок рішення збирає DecisionBase (handlers_decisions.go).
 //
 // ЧОГО ТУТ СВІДОМО НЕМАЄ — звірки «мало прийти за графіком проти
 // надійшло». Спокуса очевидна: календар знає, що папір платить, а звіт
@@ -104,7 +104,7 @@ type periodPlan struct {
 // periodDecisions — що куплено в цьому місяці й за чиєю порадою.
 type periodDecisions struct {
 	// Count і Followed — про ПОКУПКИ. Рухи в подушку сюди не входять і
-	// мають свою пару: аргумент той самий, що в decisionsSummary, і
+	// мають свою пару: аргумент той самий, що в DecisionsSummary, і
 	// зводити їх в одне число не можна там і тут однаково.
 	Count      int     `json:"count"`
 	Followed   int     `json:"followed"`
@@ -121,7 +121,7 @@ type periodDecisions struct {
 	// Rows — усі рядки місяця, подушку й цілі ВКЛЮЧНО: у таблиці вид
 	// підписаний, і сховати з неї половину рішень заради чистого знаменника
 	// означало б відповісти на «що я вирішив у серпні» неповно.
-	Rows []decisionRow `json:"rows,omitempty"`
+	Rows []DecisionRow `json:"rows,omitempty"`
 	Note string        `json:"note,omitempty"`
 }
 
@@ -164,36 +164,36 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	events, err := s.cashEvents(ctx)
+	events, err := s.CashEvents(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	sum := summarizeCash(events, from, to)
+	sum := SummarizeCash(events, from, to)
 	out := periodResp{From: string(from), To: string(to), Money: periodMoney{
-		OpeningUAH: state.Major(sum.major(sum.OpeningUAH), money.UAH),
-		IncomeUAH:  state.Major(sum.major(sum.IncomeUAH), money.UAH),
-		ContribUAH: state.Major(sum.major(sum.ContribUAH), money.UAH),
+		OpeningUAH: state.Major(sum.Major(sum.OpeningUAH), money.UAH),
+		IncomeUAH:  state.Major(sum.Major(sum.IncomeUAH), money.UAH),
+		ContribUAH: state.Major(sum.Major(sum.ContribUAH), money.UAH),
 		// Знак перевертається тут із тієї ж причини, що й у звіті про рух:
 		// у підсумку покупки віднімаються, і мінус на мінусі читався б як
 		// помилка.
-		PurchaseUAH: state.Major(sum.major(-sum.PurchaseUAH), money.UAH),
-		ConvUAH:     state.Major(sum.major(sum.ConvUAH), money.UAH),
-		ClosingUAH:  state.Major(sum.major(sum.ClosingUAH()), money.UAH),
-		OutsideUAH:  state.Major(sum.major(sum.OutsideUAH), money.UAH),
-		OwnUAH:      state.Major(sum.major(sum.OwnUAH()), money.UAH),
+		PurchaseUAH: state.Major(sum.Major(-sum.PurchaseUAH), money.UAH),
+		ConvUAH:     state.Major(sum.Major(sum.ConvUAH), money.UAH),
+		ClosingUAH:  state.Major(sum.Major(sum.ClosingUAH()), money.UAH),
+		OutsideUAH:  state.Major(sum.Major(sum.OutsideUAH), money.UAH),
+		OwnUAH:      state.Major(sum.Major(sum.OwnUAH()), money.UAH),
 	}}
 
 	var income, buys []domain.CashEvent
 	for _, e := range sum.Rows {
 		switch e.Kind {
-		case flowIncome:
+		case FlowIncome:
 			income = append(income, domain.CashEvent{Date: e.Date, Amount: e.UAH})
-		case flowPurchase:
+		case FlowPurchase:
 			buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
 		}
 	}
-	out.IdleUAH = state.Major(sum.major(domain.IdleIncome(income, buys)), money.UAH)
+	out.IdleUAH = state.Major(sum.Major(domain.IdleIncome(income, buys)), money.UAH)
 
 	snaps, err := s.st.ListSnapshots(ctx, "", to)
 	if err != nil {
@@ -211,7 +211,7 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.Decisions = periodDecisionsOf(list, from, to)
-	if err := s.present(ctx, &out); err != nil {
+	if err := s.Present(ctx, &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -257,21 +257,21 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date, acc, gen string
 			Before: state.Minor(b, money.UAH), After: state.Minor(a, money.UAH),
 			Delta: state.Minor(a-b, money.UAH)}
 	}
-	// Капітал — у ОДНАКОВОМУ складі на обох кінцях (snapshotCapitalPair), і
+	// Капітал — у ОДНАКОВОМУ складі на обох кінцях (SnapshotCapitalPair), і
 	// рядок купона — лише коли його знають обидва знімки: місяць міграції
 	// 0063 інакше показав би весь накопичений купон приростом.
-	capB, capA := snapshotCapitalPair(*before, *after)
+	capB, capA := SnapshotCapitalPair(*before, *after)
 	var accB, accA int64
-	if accruedKnown(*before) && accruedKnown(*after) {
+	if AccruedKnown(*before) && AccruedKnown(*after) {
 		accB, accA = before.AccruedUAH, after.AccruedUAH
 	}
 	out := &periodStructure{
 		FromDate:     string(before.Date),
 		ToDate:       string(after.Date),
-		USDShareFrom: round2(float64(before.USDShareBP) / 100),
-		USDShareTo:   round2(float64(after.USDShareBP) / 100),
-		EURShareFrom: round2(float64(before.EURShareBP) / 100),
-		EURShareTo:   round2(float64(after.EURShareBP) / 100),
+		USDShareFrom: Round2(float64(before.USDShareBP) / 100),
+		USDShareTo:   Round2(float64(after.USDShareBP) / 100),
+		EURShareFrom: Round2(float64(before.EURShareBP) / 100),
+		EURShareTo:   Round2(float64(after.EURShareBP) / 100),
 		Rows: []periodRow{
 			row("capital", "Капітал", capB, capA),
 			row("bonds", "ОВДП (номінал)", before.NominalUAHEq, after.NominalUAHEq),
@@ -319,14 +319,14 @@ func periodPlanOf(snaps []store.Snapshot, from, to domain.Date, contribMinor int
 	return &periodPlan{
 		TargetUAH:  state.Minor(target, money.UAH),
 		ContribUAH: state.Minor(contribMinor, money.UAH),
-		DonePct:    round2(float64(contribMinor) / float64(target) * 100),
+		DonePct:    Round2(float64(contribMinor) / float64(target) * 100),
 		TargetOn:   string(on),
 	}, ""
 }
 
 // periodDecisionsOf — рішення, ухвалені в цьому місяці.
 //
-// Зведення тут БЕЗ порога decisionsMinRows, і це не суперечність із
+// Зведення тут БЕЗ порога DecisionsMinRows, і це не суперечність із
 // сусіднім розділом. Там зведення відповідає на «який режим рейтингу мені
 // підходить» — висновок, який на трьох рядках був би шумом. Тут же
 // питання інше й дрібніше: що я купив цього місяця і чи це були верхні
@@ -340,14 +340,14 @@ func periodDecisionsOf(list []store.Decision, from, to domain.Date) periodDecisi
 		if d.MadeOn.Before(from) || d.MadeOn.After(to) {
 			continue
 		}
-		row := decisionBase(d)
+		row := DecisionBase(d)
 		out.Rows = append(out.Rows, row)
-		if d.Kind == decisionKindReserve {
+		if d.Kind == DecisionKindReserve {
 			out.ReserveCount++
 			forgone += row.ForgonePct
 			continue
 		}
-		if d.Kind == decisionKindGoal {
+		if d.Kind == DecisionKindGoal {
 			out.GoalCount++
 			goalForgone += row.ForgonePct
 			continue
@@ -362,13 +362,13 @@ func periodDecisionsOf(list []store.Decision, from, to domain.Date) periodDecisi
 		}
 	}
 	if withTop > 0 {
-		out.VsTopPPAvg = round2(sum / float64(withTop))
+		out.VsTopPPAvg = Round2(sum / float64(withTop))
 	}
 	if out.ReserveCount > 0 {
-		out.ReserveForgonePctAvg = round2(forgone / float64(out.ReserveCount))
+		out.ReserveForgonePctAvg = Round2(forgone / float64(out.ReserveCount))
 	}
 	if out.GoalCount > 0 {
-		out.GoalForgonePctAvg = round2(goalForgone / float64(out.GoalCount))
+		out.GoalForgonePctAvg = Round2(goalForgone / float64(out.GoalCount))
 	}
 	if out.Count == 0 {
 		out.Note = "цього місяця нічого не куплено"

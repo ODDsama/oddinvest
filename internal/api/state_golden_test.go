@@ -1,6 +1,6 @@
-// Характеризаційний тест buildState — сітка під розбиття.
+// Характеризаційний тест BuildState — сітка під розбиття.
 //
-// buildState — це 1800 рядків в одній функції зі сотнею локальних
+// BuildState — це 1800 рядків в одній функції зі сотнею локальних
 // змінних. Розносити її по фазах без такої сітки означає міняти проводку,
 // вимкнувши світло: жоден наявний тест не перевіряє документ ЦІЛКОМ, вони
 // дивляться по кілька полів кожен.
@@ -733,7 +733,7 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 			`","amount":"41500.00","currency":"UAH","note":"премія за квартал"}`); resp.StatusCode != 201 {
 		t.Fatalf("відмітка надходження: %d %s", resp.StatusCode, b)
 	}
-	// Позапланове надходження — окрема гілка (у planMarks воно не входить),
+	// Позапланове надходження — окрема гілка (у PlanMarks воно не входить),
 	// і без нього month_plan.extra_uah не заповнюється нічим.
 	if resp, b := do(t, "POST", srv+"/api/plan/receipts",
 		`{"flow_id":0,"month":"`+month+
@@ -773,9 +773,9 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 // buildRichDoc піднімає сервер на багатій фікстурі й будує документ на
 // ФІКСОВАНИЙ момент.
 //
-// buildStateTasked, а не голий buildState: саме цей документ віддає
+// BuildStateTasked, а не голий BuildState: саме цей документ віддає
 // /api/summary і публікує MQTT, тож сітка мусить лежати під тим, що
-// справді їде споживачам, — разом із чергою задач. Голий buildState лишив
+// справді їде споживачам, — разом із чергою задач. Голий BuildState лишив
 // би tasks вічно порожніми, і TestDocFieldsPopulated довелось би вимикати
 // винятком, тобто перестати перевіряти цілу фазу.
 func buildRichDoc(t *testing.T) *state.Doc {
@@ -783,7 +783,7 @@ func buildRichDoc(t *testing.T) *state.Doc {
 	srv, st := testServer(t)
 	richPortfolio(t, srv.URL, st)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	doc, err := New(st, nil, log).buildStateTasked(context.Background(), goldenNow)
+	doc, err := New(st, nil, log).BuildStateTasked(context.Background(), goldenNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -829,21 +829,21 @@ func TestBuildStateGoldenUSD(t *testing.T) {
 	srv, st := testServer(t)
 	richPortfolio(t, srv.URL, st)
 	ctx := context.Background()
-	if err := st.SetSetting(ctx, reportCurrencyKey, "USD"); err != nil {
+	if err := st.SetSetting(ctx, ReportCurrencyKey, "USD"); err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	s := New(st, nil, log)
-	doc, err := s.buildStateTasked(ctx, goldenNow)
+	doc, err := s.BuildStateTasked(ctx, goldenNow)
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw := doc.CapitalUAH
-	p, err := s.presenter(ctx, domain.NewDate(goldenNow))
+	p, err := s.Presenter(ctx, domain.NewDate(goldenNow))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := p.doc(doc); err != nil {
+	if err := p.Doc(doc); err != nil {
 		t.Fatal(err)
 	}
 	if doc.Currency != "USD" || doc.CurrencyNote != "" {

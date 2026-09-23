@@ -23,13 +23,13 @@ import (
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
-type engine struct {
+type Engine struct {
 	st  *store.Store
 	log *slog.Logger
 }
 
 // portfolio — все, що треба домену, одним заходом.
-func (e *engine) portfolio(ctx context.Context) (lots []domain.Lot, sales []domain.Sale,
+func (e *Engine) Portfolio(ctx context.Context) (lots []domain.Lot, sales []domain.Sale,
 	bonds map[string]domain.Bond, pays []domain.Payment, err error) {
 	lots, err = e.st.ListLots(ctx)
 	if err != nil {
@@ -55,7 +55,7 @@ func (e *engine) portfolio(ctx context.Context) (lots []domain.Lot, sales []doma
 	return
 }
 
-func (e *engine) rates(ctx context.Context) (fx.Rates, error) {
+func (e *Engine) Rates(ctx context.Context) (fx.Rates, error) {
 	r := fx.Rates{}
 	for _, code := range []string{"USD", "EUR"} {
 		v, err := e.st.LatestRate(ctx, code)

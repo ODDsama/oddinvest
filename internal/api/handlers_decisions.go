@@ -8,19 +8,19 @@ import (
 )
 
 func (s *Server) handleDecisions(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.decisionRows(r.Context())
+	rows, err := s.DecisionRows(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
 
 	out := struct {
-		Rows    []decisionRow     `json:"rows"`
-		Summary *decisionsSummary `json:"summary,omitempty"`
+		Rows    []DecisionRow     `json:"rows"`
+		Summary *DecisionsSummary `json:"summary,omitempty"`
 		MinRows int               `json:"min_rows"`
-	}{Rows: rows, MinRows: decisionsMinRows}
-	if len(rows) >= decisionsMinRows {
-		sum := summarizeDecisions(rows)
+	}{Rows: rows, MinRows: DecisionsMinRows}
+	if len(rows) >= DecisionsMinRows {
+		sum := SummarizeDecisions(rows)
 		out.Summary = &sum
 	}
 	writeJSON(w, http.StatusOK, out)

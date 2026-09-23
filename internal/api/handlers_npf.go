@@ -307,7 +307,7 @@ func (s *Server) handleNPFOps(w http.ResponseWriter, r *http.Request) {
 		NPFID  int64     `json:"npf_id"`
 		Date   string    `json:"date"`
 		Units  float64   `json:"units"`
-		Amount moneyJSON `json:"amount"`
+		Amount MoneyJSON `json:"amount"`
 		// Nav — ЧВОПА, за якою пройшов внесок. Віддається ВИВЕДЕНОЮ, а не
 		// зберігається: вона завжди сума ÷ одиниці, і окреме поле лише дало б
 		// їм розійтись.
@@ -324,7 +324,7 @@ func (s *Server) handleNPFOps(w http.ResponseWriter, r *http.Request) {
 		out = append(out, row{
 			ID: op.ID, NPFID: op.NPFID, Date: string(op.Date),
 			Units:  float64(op.Units) / 1_000_000,
-			Amount: toMoneyJSON(money.New(op.Amount, c)),
+			Amount: ToMoneyJSON(money.New(op.Amount, c)),
 			Nav:    float64(op.NavE6()) / 1_000_000,
 			Broker: op.Broker, Note: op.Note,
 		})
@@ -352,17 +352,17 @@ func (s *Server) handleAddNPFOp(w http.ResponseWriter, r *http.Request) {
 	// лише id, тож ім'я доводиться взяти з довідника. Порожнє означає, що
 	// рахунок зник між двома запитами — тоді рішення просто не пишеться.
 	now := time.Now()
-	var snap decisionSnapshot
+	var snap DecisionSnapshot
 	name := s.npfAccountName(r.Context(), req.NPFID)
 	if name != "" {
-		snap = s.takeDecisionSnapshot(r.Context(), now, store.BuyNPF, name)
+		snap = s.TakeDecisionSnapshot(r.Context(), now, store.BuyNPF, name)
 	}
 	id, err := s.st.AddNPFOp(r.Context(), op)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.saveDecision(r.Context(), snap, now, store.BuyNPF, name,
+	s.SaveDecision(r.Context(), snap, now, store.BuyNPF, name,
 		money.New(op.Amount, cur), id, op.Note)
 	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
@@ -388,7 +388,7 @@ func (s *Server) handleNPFOpCheck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.writeCashCheck(w, r, cashDebit{
+	s.writeCashCheck(w, r, CashDebit{
 		Broker: op.Broker, Currency: cur, Amount: op.Amount,
 	})
 }

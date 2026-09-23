@@ -80,7 +80,7 @@ func debtFromReq(req debtReq) (domain.Debt, error) {
 			"невідомий вид боргу %q: буває %q (картка з пільговим циклом) або %q",
 			kind, domain.DebtCard, domain.DebtInstallment)
 	}
-	cur := orUAH(strings.TrimSpace(req.Currency))
+	cur := OrUAH(strings.TrimSpace(req.Currency))
 	d := domain.Debt{
 		Name: name, Kind: kind, Currency: cur,
 		Place: strings.TrimSpace(req.Place), Note: req.Note,
@@ -373,16 +373,16 @@ func (s *Server) handleListDebts(w http.ResponseWriter, r *http.Request) {
 		Kind            string    `json:"kind"`
 		Currency        string    `json:"currency"`
 		CardID          int64     `json:"card_id,omitempty"`
-		Limit           moneyJSON `json:"limit,omitempty"`
+		Limit           MoneyJSON `json:"limit,omitempty"`
 		StatementDay    int64     `json:"statement_day,omitempty"`
 		APRPct          float64   `json:"apr_pct,omitempty"`
 		APROverduePct   float64   `json:"apr_overdue_pct,omitempty"`
 		MinPaymentPct   float64   `json:"min_payment_pct,omitempty"`
-		MinPaymentFloor moneyJSON `json:"min_payment_floor,omitempty"`
-		LateFee         moneyJSON `json:"late_fee,omitempty"`
+		MinPaymentFloor MoneyJSON `json:"min_payment_floor,omitempty"`
+		LateFee         MoneyJSON `json:"late_fee,omitempty"`
 		ExitBy          string    `json:"exit_by,omitempty"`
 
-		Principal        moneyJSON `json:"principal,omitempty"`
+		Principal        MoneyJSON `json:"principal,omitempty"`
 		PaymentsTotal    int64     `json:"payments_total,omitempty"`
 		FirstPaymentDate string    `json:"first_payment_date,omitempty"`
 		FeeMonthPct      float64   `json:"fee_month_pct,omitempty"`
@@ -399,16 +399,16 @@ func (s *Server) handleListDebts(w http.ResponseWriter, r *http.Request) {
 		out = append(out, debtJSON{
 			ID: d.ID, Name: d.Name, Kind: d.Kind, Currency: d.Currency,
 			CardID:          d.CardID,
-			Limit:           toMoneyJSON(money.New(d.LimitAmount, d.Currency)),
+			Limit:           ToMoneyJSON(money.New(d.LimitAmount, d.Currency)),
 			StatementDay:    d.StatementDay,
 			APRPct:          float64(d.APRBp) / 100,
 			APROverduePct:   float64(d.APROverdueBp) / 100,
 			MinPaymentPct:   float64(d.MinPaymentBp) / 100,
-			MinPaymentFloor: toMoneyJSON(money.New(d.MinPaymentFloor, d.Currency)),
-			LateFee:         toMoneyJSON(money.New(d.LateFee, d.Currency)),
+			MinPaymentFloor: ToMoneyJSON(money.New(d.MinPaymentFloor, d.Currency)),
+			LateFee:         ToMoneyJSON(money.New(d.LateFee, d.Currency)),
 			ExitBy:          string(d.ExitBy),
 
-			Principal:        toMoneyJSON(money.New(d.Principal, d.Currency)),
+			Principal:        ToMoneyJSON(money.New(d.Principal, d.Currency)),
 			PaymentsTotal:    d.PaymentsTotal,
 			FirstPaymentDate: string(d.FirstPaymentDate),
 			FeeMonthPct:      float64(d.FeeMonthBp) / 100,
@@ -589,13 +589,13 @@ func (s *Server) handleListDebtOps(w http.ResponseWriter, r *http.Request) {
 		DebtID int64     `json:"debt_id"`
 		Date   string    `json:"date"`
 		Kind   string    `json:"kind"`
-		Amount moneyJSON `json:"amount"`
+		Amount MoneyJSON `json:"amount"`
 		Note   string    `json:"note,omitempty"`
 	}
 	out := make([]opJSON, 0, len(ops))
 	for _, op := range ops {
 		out = append(out, opJSON{op.ID, op.DebtID, string(op.Date), op.Kind,
-			toMoneyJSON(money.New(op.Amount, orUAH(cur[op.DebtID]))), op.Note})
+			ToMoneyJSON(money.New(op.Amount, OrUAH(cur[op.DebtID]))), op.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -753,18 +753,18 @@ func (s *Server) handleListDebtMarks(w http.ResponseWriter, r *http.Request) {
 		ID           int64     `json:"id"`
 		DebtID       int64     `json:"debt_id"`
 		Date         string    `json:"date"`
-		Balance      moneyJSON `json:"balance"`
-		StatementDue moneyJSON `json:"statement_due,omitempty"`
-		NonGrace     moneyJSON `json:"non_grace,omitempty"`
+		Balance      MoneyJSON `json:"balance"`
+		StatementDue MoneyJSON `json:"statement_due,omitempty"`
+		NonGrace     MoneyJSON `json:"non_grace,omitempty"`
 		Note         string    `json:"note,omitempty"`
 	}
 	out := make([]markJSON, 0, len(marks))
 	for _, m := range marks {
-		c := orUAH(cur[m.DebtID])
+		c := OrUAH(cur[m.DebtID])
 		out = append(out, markJSON{m.ID, m.DebtID, string(m.Date),
-			toMoneyJSON(money.New(m.Balance, c)),
-			toMoneyJSON(money.New(m.StatementDue, c)),
-			toMoneyJSON(money.New(m.NonGrace, c)), m.Note})
+			ToMoneyJSON(money.New(m.Balance, c)),
+			ToMoneyJSON(money.New(m.StatementDue, c)),
+			ToMoneyJSON(money.New(m.NonGrace, c)), m.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

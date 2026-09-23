@@ -52,9 +52,9 @@ func fundCoverage(ops []domain.FundOp, refs []store.Fund, from, to, today domain
 	note := ""
 	switch {
 	case to.Before(earliest):
-		note = fmt.Sprintf("по фондах за цей період записів немає: журнал починається з %s", human(earliest))
+		note = fmt.Sprintf("по фондах за цей період записів немає: журнал починається з %s", HumanDate(earliest))
 	case from.Before(earliest):
-		note = fmt.Sprintf("по фондах дані з %s — за раніші місяці виписку не заведено", human(earliest))
+		note = fmt.Sprintf("по фондах дані з %s — за раніші місяці виписку не заведено", HumanDate(earliest))
 	}
 
 	// Дірки шукаємо лише там, де журнал уже мав би бути повним, і лише за
@@ -153,7 +153,7 @@ func heldOn(ops []domain.FundOp, fund string, on domain.Date) int64 {
 
 // human — дата словами для примітки: 04.06.2026 читається як дата, а
 // 2026-06-04 посеред речення — як номер версії.
-func human(d domain.Date) string {
+func HumanDate(d domain.Date) string {
 	t := d.Time()
 	return t.Format("02.01.2006")
 }

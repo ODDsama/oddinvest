@@ -1,6 +1,6 @@
 // Фаза «ринок»: що первинний ринок платить за строк.
 //
-// Найменша з фаз buildState і єдина, що дивиться назовні: решта зводить
+// Найменша з фаз BuildState і єдина, що дивиться назовні: решта зводить
 // портфель користувача, ця приносить у документ зовнішній орієнтир.
 // Чистa проєкція — рядки зі сховища на рядки контракту, жодного
 // звернення до бази (воно в state_sources.go, як вимагає sources-boundary).
@@ -39,7 +39,7 @@ func buildMarket(pts []store.AuctionPoint, yieldByCur map[string]float64) market
 		if p.IncomeBP <= 0 {
 			continue
 		}
-		pct := round2(float64(p.IncomeBP) / 100)
+		pct := Round2(float64(p.IncomeBP) / 100)
 		row := state.MarketYieldRow{
 			Currency: p.Currency,
 			Bucket:   p.Bucket,
@@ -51,7 +51,7 @@ func buildMarket(pts []store.AuctionPoint, yieldByCur map[string]float64) market
 		// прочитався б як «ринок платить рівно стільки ж», хоч насправді
 		// порівнювати нема з чим.
 		if my, ok := yieldByCur[p.Currency]; ok && my > 0 {
-			row.VsPortfolioPP = round2(pct - my)
+			row.VsPortfolioPP = Round2(pct - my)
 		}
 		out = append(out, row)
 	}
@@ -81,7 +81,7 @@ const auctionMinDays = 180
 // Правило вибору, без нового запиту (рядки ті самі, що в buildMarket):
 //   - лише свіжі розміщення: не старші за staleAfterDays — той самий поріг
 //     несвіжості, що в помічника реінвесту;
-//   - строк «1y» (rivalOVDPBucket — той самий орієнтир, що в бенчмарку);
+//   - строк «1y» (RivalOVDPBucket — той самий орієнтир, що в бенчмарку);
 //     немає його — строк, найближчий до року, але не коротший за
 //     auctionMinDays; рівні — новіше розміщення.
 //
@@ -105,7 +105,7 @@ func auctionRateByCur(pts []store.AuctionPoint, today domain.Date) map[string]ma
 		if dist < 0 {
 			dist = -dist
 		}
-		if p.Bucket == rivalOVDPBucket {
+		if p.Bucket == RivalOVDPBucket {
 			dist = -1 // «1y» перемагає будь-що
 		}
 		cur, ok := best[p.Currency]
@@ -115,7 +115,7 @@ func auctionRateByCur(pts []store.AuctionPoint, today domain.Date) map[string]ma
 	}
 	out := make(map[string]marketRate, len(best))
 	for c, b := range best {
-		out[c] = marketRate{Pct: round2(float64(b.p.IncomeBP) / 100), Date: b.p.Date}
+		out[c] = marketRate{Pct: Round2(float64(b.p.IncomeBP) / 100), Date: b.p.Date}
 	}
 	return out
 }

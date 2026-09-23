@@ -7,7 +7,7 @@
 // зникли з рахунку, не давши нічого, крім паперу.
 //
 // Правило застосунку при цьому не змінилось: план купівель міряється
-// ПЛАНОВИМИ грошима, а не сьогоднішнім залишком (шапка basketDoc).
+// ПЛАНОВИМИ грошима, а не сьогоднішнім залишком (шапка BasketDoc).
 // Бракувало другої половини тієї самої обіцянки.
 
 package api
@@ -102,7 +102,7 @@ func TestWhatIfCapitalGrowsByNominalAndAccrued(t *testing.T) {
 	}
 	var got struct {
 		After  json.RawMessage `json:"after"`
-		Basket basketDoc       `json:"basket"`
+		Basket BasketDoc       `json:"basket"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestWhatIfCapitalGrowsByNominalAndAccrued(t *testing.T) {
 	if dAcc <= 0 {
 		_, acc := do(t, "GET", url+"/api/accrued/UA4000227748", "")
 		var today struct {
-			PerBond moneyJSON `json:"per_bond"`
+			PerBond MoneyJSON `json:"per_bond"`
 		}
 		if err := json.Unmarshal([]byte(acc), &today); err != nil {
 			t.Fatal(err)

@@ -1,6 +1,6 @@
 // POST /api/allocate — розкладка надходження. Уся арифметика й довід,
 // чому вона саме така, — в allocate.go; тут лише розбір запиту й зведення
-// готових чисел (стан, поради, дозвіл джерела) до allocatePlan.
+// готових чисел (стан, поради, дозвіл джерела) до AllocatePlan.
 
 package api
 
@@ -54,19 +54,19 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	cur := orUAH(strings.TrimSpace(req.Currency))
+	cur := OrUAH(strings.TrimSpace(req.Currency))
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("сума: %w", err))
 		return
 	}
 	if minor <= 0 {
-		writeErr(w, http.StatusBadRequest, badRequestf("сума розкладки має бути > 0"))
+		writeErr(w, http.StatusBadRequest, BadRequestf("сума розкладки має бути > 0"))
 		return
 	}
-	src := allocFromPlan
-	if strings.TrimSpace(req.Source) == allocFromPortfolio {
-		src = allocFromPortfolio
+	src := AllocFromPlan
+	if strings.TrimSpace(req.Source) == AllocFromPortfolio {
+		src = AllocFromPortfolio
 	}
 	var principalMinor int64
 	if s := strings.TrimSpace(req.Principal); s != "" {
@@ -75,17 +75,17 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if principalMinor < 0 {
-			writeErr(w, http.StatusBadRequest, badRequestf("тіло не буває відʼємним"))
+			writeErr(w, http.StatusBadRequest, BadRequestf("тіло не буває відʼємним"))
 			return
 		}
 	}
 	now := time.Now()
-	doc, err := s.buildState(r.Context(), now)
+	doc, err := s.BuildState(r.Context(), now)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	rates, err := s.rates(r.Context())
+	rates, err := s.Rates(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -95,7 +95,7 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	sug, err := s.reinvestSuggestions(r.Context(), now, doc)
+	sug, err := s.ReinvestSuggestions(r.Context(), now, doc)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -109,12 +109,12 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 			principalUAH = float64(pm.Amount()) / 100
 		}
 	}
-	uses, err := s.usesForRef(r.Context(), req.SourceRef)
+	uses, err := s.UsesForRef(r.Context(), req.SourceRef)
 	if err != nil {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	pick, err := pickSuggestion(sug, req.PickISIN)
+	pick, err := PickSuggestion(sug, req.PickISIN)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -124,17 +124,17 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 	// нього один. Дробові стелі бувають лише в маршруту, і вже не тому, що
 	// нога зводить цілий місяць (вона більше не зводить — див. planAhead), а
 	// тому, що горщик там накопичує кілька надходжень із різними дозволами.
-	out := allocatePlan(doc, sug, rates,
-		toMoneyJSON(money.New(minor, cur)), amountUAH,
-		allocAllow{
-			ReserveUAH: reserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
-				sourceCapUAH(uses, domain.UsePlanReserve, amountUAH)),
-			GoalsUAH: goalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
-				sourceCapUAH(uses, domain.UsePlanGoals, amountUAH)),
+	out := AllocatePlan(doc, sug, rates,
+		ToMoneyJSON(money.New(minor, cur)), amountUAH,
+		AllocAllow{
+			ReserveUAH: ReserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
+				SourceCapUAH(uses, domain.UsePlanReserve, amountUAH)),
+			GoalsUAH: GoalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
+				SourceCapUAH(uses, domain.UsePlanGoals, amountUAH)),
 			Uses:     uses,
 			PickISIN: pick,
-		}, cur, s.npfIDByName(r.Context()))
-	if err := s.present(r.Context(), &out); err != nil {
+		}, cur, s.NPFIDByName(r.Context()))
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

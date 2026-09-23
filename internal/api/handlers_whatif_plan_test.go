@@ -547,7 +547,7 @@ func TestWhatIfBuyOfHeldFundMovesCapitalByOverpaymentOnly(t *testing.T) {
 
 	// КАПІТАЛ РОСТЕ НА ВАРТІСТЬ КУПЛЕНОГО, а не падає на переплату:
 	// гіпотеза приносить і гроші, якими покупка оплачена
-	// (hypothetical.topUps). Заплачено qty × price, у капітал увійшло
+	// (Hypothetical.topUps). Заплачено qty × price, у капітал увійшло
 	// qty × ринкова ціна — різниця й є переплата.
 	want := qty * pos.LastPrice
 	got := after.CapitalUAH - before.CapitalUAH
@@ -722,7 +722,7 @@ func firstDayNextMonth() string {
 // сьогоднішні числа рухати МУСИТЬ.
 //
 // Доти він не рухав нічого й ніде — у портфель не входив, бо майбутній,
-// а в прогнозі його разова половина зникала на нулі monthOffsetRaw. Саме
+// а в прогнозі його разова половина зникала на нулі MonthOffsetRaw. Саме
 // цей випадок і привів до всієї серії: два рядки на завтра, а картка
 // «Що зміниться» майже мовчить.
 func TestWhatIfThisMonthRowMovesToday(t *testing.T) {
@@ -788,7 +788,7 @@ func TestWhatIfNextMonthRowDoesNotMoveToday(t *testing.T) {
 // нестачі», ухвалене на попередній фазі, — і те рішення скасовано
 // власником. План купівель міряється ПЛАНОВИМИ грошима, а не
 // сьогоднішнім залишком, тож нестачі на цій картці більше немає зовсім
-// (довід над basketDoc у handlers_whatif.go).
+// (довід над BasketDoc у handlers_whatif.go).
 //
 // Друга половина його аргументу лишається правдою й лишається під
 // тестом: рядок цього місяця СПРАВДІ входить у портфель і справді
@@ -834,7 +834,7 @@ func TestWhatIfFutureRowStaysOutOfPortfolioButInTotals(t *testing.T) {
 		t.Fatalf("%d %s", code, body)
 	}
 	var got struct {
-		Basket basketDoc `json:"basket"`
+		Basket BasketDoc `json:"basket"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
@@ -922,7 +922,7 @@ func TestWhatIfNPFContributionMovesAccount(t *testing.T) {
 		t.Errorf("пенсійний виріс на %.2f, хочемо ≈4000", d)
 	}
 	// Рахунок не просідає: внесок оплачений грішми, які гіпотеза принесла
-	// разом із ним (довід — при hypothetical.topUps).
+	// разом із ним (довід — при Hypothetical.topUps).
 	if d := after.Brokers["mono"]["UAH"] - before.Brokers["mono"]["UAH"]; d != 0 {
 		t.Errorf("гривня в mono змінилась на %.2f, хочемо 0: гіпотеза приносить гроші внеску", d)
 	}
@@ -997,7 +997,7 @@ func TestWhatIfFirstBuyOfUnheldBondCountsAtNominal(t *testing.T) {
 			NominalUAH float64 `json:"nominal_uah_eq"`
 			AccruedUAH float64 `json:"accrued_uah"`
 		} `json:"after"`
-		Basket basketDoc `json:"basket"`
+		Basket BasketDoc `json:"basket"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)

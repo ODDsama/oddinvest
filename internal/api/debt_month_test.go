@@ -37,9 +37,9 @@ func TestAllocateLeavesDebtOutOfPortfolioMoney(t *testing.T) {
 		FillMonthUAH: state.Major(2000, money.UAH), FillNowUAH: state.Major(2000, money.UAH),
 	}
 
-	got := allocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
-		allocRates, toMoneyJSON(money.New(500000, money.UAH)), 5000,
-		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
+	got := AllocatePlan(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
+		allocRates, ToMoneyJSON(money.New(500000, money.UAH)), 5000,
+		AllocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
 	// Подушка своє бере — вона з портфельних грошей і далі ріже.
 	if got.Reserve == nil || got.Reserve.AmountUAH.Major() != 1000 {
@@ -376,7 +376,7 @@ func TestDebtCapsReserveIgnoresFreeInstallment(t *testing.T) {
 	}
 }
 
-// monthPlanOf — план місяця зі зведення. Через HTTP, а не через buildState:
+// monthPlanOf — план місяця зі зведення. Через HTTP, а не через BuildState:
 // саме те, що бачить екран, і саме там ловиться поле, яке перестало
 // доїжджати до контракту.
 func monthPlanOf(t *testing.T, url string) state.MonthPlan {
@@ -567,7 +567,7 @@ func TestDebtExitStartsFromMonthStart(t *testing.T) {
 	if e.MarkDate != first.Format("2006-01-02") || e.PaidBeforeMarkUAH.Major() != 0 {
 		t.Errorf("звірка %q, прийшло до неї %.2f — чекали %s і 0", e.MarkDate, e.PaidBeforeMarkUAH.Major(), first.Format("2006-01-02"))
 	}
-	if want := round2(90_000 - 10_000/float64(days)); math.Abs(e.StartDebtUAH.Major()-want) > 0.01 {
+	if want := Round2(90_000 - 10_000/float64(days)); math.Abs(e.StartDebtUAH.Major()-want) > 0.01 {
 		t.Errorf("борг на початок %.2f, чекали %.2f (90 000 мінус день витрат)", e.StartDebtUAH.Major(), want)
 	}
 	if e.DebtNowUAH.Major() != 90_000 {
@@ -620,7 +620,7 @@ func TestDebtExitRebuildsStartDebtFromPaidBefore(t *testing.T) {
 	if e.PaidBeforeMarkUAH.Major() != 60_000 {
 		t.Errorf("прийшло до звірки %.2f, чекали зарплату 1-го — 60 000", e.PaidBeforeMarkUAH.Major())
 	}
-	if want := round2(90_000 + 60_000 - 10_000/float64(days)); math.Abs(e.StartDebtUAH.Major()-want) > 0.01 {
+	if want := Round2(90_000 + 60_000 - 10_000/float64(days)); math.Abs(e.StartDebtUAH.Major()-want) > 0.01 {
 		t.Errorf("борг на початок %.2f, чекали %.2f", e.StartDebtUAH.Major(), want)
 	}
 	if len(e.Schedule) == 0 || e.Schedule[0].GrossUAH.Major() != 120_000 {

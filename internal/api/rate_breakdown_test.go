@@ -22,8 +22,8 @@ func TestBreakdownRealFXMatchesRealPct(t *testing.T) {
 		{-0.02, money.UAH},
 	}
 	for _, c := range cases {
-		want := round2(realYield(c.net, c.cur, rc.deval) * 100)
-		got := rc.breakdown(c.net, c.net, c.cur, "тест").RealFXPct
+		want := Round2(RealYield(c.net, c.cur, rc.deval) * 100)
+		got := rc.Breakdown(c.net, c.net, c.cur, "тест").RealFXPct
 		if got != want {
 			t.Fatalf("%s %v: розклад дав %v замість %v", c.cur, c.net, got, want)
 		}
@@ -37,7 +37,7 @@ func TestBreakdownRealFXMatchesRealPct(t *testing.T) {
 func TestBreakdownNamesTaxWithoutRecomputingIt(t *testing.T) {
 	rc := rateContext{deval: 6.1}
 
-	dep := rc.breakdown(0.16, 0.1232, money.UAH, "ставка вкладу") // 16% і 23% податку
+	dep := rc.Breakdown(0.16, 0.1232, money.UAH, "ставка вкладу") // 16% і 23% податку
 	if dep.GrossPct != 16 || dep.NetPct != 12.32 {
 		t.Fatalf("валова/чиста = %v/%v", dep.GrossPct, dep.NetPct)
 	}
@@ -46,7 +46,7 @@ func TestBreakdownNamesTaxWithoutRecomputingIt(t *testing.T) {
 	}
 
 	// ОВДП: податку немає взагалі, і рядок про нього не малюється.
-	bond := rc.breakdown(0.1712, 0.1712, money.UAH, "до погашення")
+	bond := rc.Breakdown(0.1712, 0.1712, money.UAH, "до погашення")
 	if bond.TaxPct != 0 {
 		t.Fatalf("в ОВДП зʼявився податок %v", bond.TaxPct)
 	}
@@ -56,7 +56,7 @@ func TestBreakdownNamesTaxWithoutRecomputingIt(t *testing.T) {
 // запуск, обірваний бекфіл). Тоді друга лінійка МОВЧИТЬ, а не показує
 // нуль: нуль читався б як «інфляції немає».
 func TestBreakdownSilentWithoutCPI(t *testing.T) {
-	b := rateContext{deval: 6.1}.breakdown(0.16, 0.16, money.UAH, "тест")
+	b := rateContext{deval: 6.1}.Breakdown(0.16, 0.16, money.UAH, "тест")
 	if b.InflationPct != nil || b.RealCPIPct != nil {
 		t.Fatalf("без ряду ІСЦ зʼявились числа: %v / %v", b.InflationPct, b.RealCPIPct)
 	}
@@ -68,7 +68,7 @@ func TestBreakdownSilentWithoutCPI(t *testing.T) {
 // TestBreakdownCPIConvertsForeignBeforeDeflating — саме тут ІСЦ і робить
 // те, заради чого заводився.
 //
-// realYield для валюти повертає ставку НЕТОРКАНОЮ: у моделі зашито, що
+// RealYield для валюти повертає ставку НЕТОРКАНОЮ: у моделі зашито, що
 // долар купівельну спроможність тримає. Друга лінійка це припущення не
 // повторює — вона переводить валютну ставку в гривневі терміни
 // знеціненням (гроші прийдуть у долар, витрачати їх тут) і лише тоді
@@ -76,7 +76,7 @@ func TestBreakdownSilentWithoutCPI(t *testing.T) {
 func TestBreakdownCPIConvertsForeignBeforeDeflating(t *testing.T) {
 	rc := rateContext{deval: 6.1, cpi: 8.4, cpiOK: true}
 
-	usd := rc.breakdown(0.045, 0.045, money.USD, "до погашення")
+	usd := rc.Breakdown(0.045, 0.045, money.USD, "до погашення")
 	if usd.RealFXPct != 4.5 {
 		t.Fatalf("перша лінійка зрушила: %v", usd.RealFXPct)
 	}
@@ -89,8 +89,8 @@ func TestBreakdownCPIConvertsForeignBeforeDeflating(t *testing.T) {
 	}
 
 	// Для гривні кроку конвертації немає — лише інший дефлятор.
-	uah := rc.breakdown(0.16, 0.16, money.UAH, "ставка вкладу")
-	want := round2(((1+0.16)/(1+8.4/100) - 1) * 100)
+	uah := rc.Breakdown(0.16, 0.16, money.UAH, "ставка вкладу")
+	want := Round2(((1+0.16)/(1+8.4/100) - 1) * 100)
 	if *uah.RealCPIPct != want {
 		t.Fatalf("гривня проти цін = %v, хочемо %v", *uah.RealCPIPct, want)
 	}

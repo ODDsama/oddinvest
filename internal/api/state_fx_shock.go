@@ -43,12 +43,12 @@ import (
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
-// fxShockWindows — вікна, які можна питати, у місяцях.
+// FXShockWindows — вікна, які можна питати, у місяцях.
 //
 // Рік, квартал і місяць: три різні питання про ту саму історію. Довшого
 // немає навмисно — на десятирічному вікні «найгірші десять років» були б
 // одним-єдиним кандидатом, тобто не найгіршим, а просто наявним.
-var fxShockWindows = []int{1, 3, 12}
+var FXShockWindows = []int{1, 3, 12}
 
 // fxShockAnchor — валюта, по якій шукається найгірше вікно.
 const fxShockAnchor = money.USD
@@ -97,12 +97,12 @@ type fxShockDoc struct {
 // rateUAH — курс ×10⁴ у звичайних гривнях.
 func rateUAH(e4 int64) float64 { return math.Round(float64(e4)) / 10000 }
 
-// buildFXShock шукає епізод і рахує курси, якими стане сьогоднішній день.
+// BuildFXShock шукає епізод і рахує курси, якими стане сьогоднішній день.
 //
 // Друге значення — накладка курсів для гіпотези (домішує її вже
 // handlers_fx_shock.go); порожня, коли епізоду немає. Документа стану ця
 // функція не збирає: вона чиста, а збирання ходить у сховище.
-func buildFXShock(hist map[string][]domain.FXPoint, rates fx.Rates, window int) (*fxShockDoc, fx.Rates) {
+func BuildFXShock(hist map[string][]domain.FXPoint, rates fx.Rates, window int) (*fxShockDoc, fx.Rates) {
 	anchorHist := domain.MonthlyFX(hist[fxShockAnchor])
 	out := &fxShockDoc{
 		Granularity: "month",
@@ -113,7 +113,7 @@ func buildFXShock(hist map[string][]domain.FXPoint, rates fx.Rates, window int) 
 		out.Measured.From = anchorHist[0].Date
 		out.Measured.To = anchorHist[len(anchorHist)-1].Date
 	}
-	for _, w := range fxShockWindows {
+	for _, w := range FXShockWindows {
 		if _, ok := domain.WorstFXMove(anchorHist, w); ok {
 			out.Windows = append(out.Windows, w)
 		}
@@ -160,7 +160,7 @@ func buildFXShock(hist map[string][]domain.FXPoint, rates fx.Rates, window int) 
 		ep.Moves = append(ep.Moves, fxShockMove{
 			Currency: cur, From: mv.From, To: mv.To,
 			FromRate: rateUAH(mv.FromE4), ToRate: rateUAH(mv.ToE4),
-			MovePct: round2(mv.Pct), RateNow: rateUAH(now), RateThen: rateUAH(after),
+			MovePct: Round2(mv.Pct), RateNow: rateUAH(now), RateThen: rateUAH(after),
 		})
 	}
 

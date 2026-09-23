@@ -36,7 +36,7 @@ func periodOf(t *testing.T, srv, month string) periodResp {
 //
 // Дві сторінки питають про той самий липень, і саме тут вони могли б
 // розійтися мовчки — обидва числа лишились би правдоподібними. Тест
-// стереже те, заради чого summarizeCash і винесена в спільну функцію.
+// стереже те, заради чого SummarizeCash і винесена в спільну функцію.
 func TestPeriodMoneyAgreesWithCashflow(t *testing.T) {
 	srv, st := testServer(t)
 	seedPeriodMonth(t, st)
@@ -291,7 +291,7 @@ func TestPeriodOwnMatchesMonthTile(t *testing.T) {
 	}
 	// І РОЗКЛАД теж мусить збігтись, доданок у доданок. Це вже не одне
 	// число, а два незалежні обчислення того самого: buildMonth ходить
-	// журналами місяця, summarizeCash — рухами періоду. Плитка тепер малює
+	// журналами місяця, SummarizeCash — рухами періоду. Плитка тепер малює
 	// перший розклад, «Період» — другий, і розійтись їм нема на чому лише
 	// доти, доки цей тест стоїть.
 	if sum.Outside != got.Money.OutsideUAH.Major() {

@@ -12,26 +12,26 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-// switchAlt — з чим порівнюємо. Одна альтернатива на всі рядки, а не
+// SwitchAlt — з чим порівнюємо. Одна альтернатива на всі рядки, а не
 // своя на кожен: рейтинг помічника впорядкований за реальною дохідністю,
 // і «найкраще доступне» — це один рядок, а не сто вісімдесят сім.
 //
 // Валюта альтернативи може відрізнятись від валюти паперу, і це не
 // помилка: реальна дохідність на те й реальна, щоб бути порівнянною між
-// валютами (див. realYield). Дисконтування ж іде НОМІНАЛЬНОЮ ставкою
-// валюти самого паперу — переклад робить nominalYield.
-type switchAlt struct {
+// валютами (див. RealYield). Дисконтування ж іде НОМІНАЛЬНОЮ ставкою
+// валюти самого паперу — переклад робить NominalYield.
+type SwitchAlt struct {
 	Kind  string `json:"kind"`
 	Label string `json:"label"`
 	// ISIN — лише в облігації. Потрібен рівно для того, щоб не радити
-	// перекласти папір сам у себе (див. switchRows).
+	// перекласти папір сам у себе (див. SwitchRows).
 	ISIN     string  `json:"isin,omitempty"`
 	Currency string  `json:"currency"`
 	RealPct  float64 `json:"real_pct"`
 }
 
-// switchRow — один папір у портфелі й поріг для нього.
-type switchRow struct {
+// SwitchRow — один папір у портфелі й поріг для нього.
+type SwitchRow struct {
 	ISIN     string `json:"isin"`
 	Currency string `json:"currency"`
 	Qty      int64  `json:"qty"`
@@ -40,15 +40,15 @@ type switchRow struct {
 	// комісією). Стоїть поруч із порогом, бо без неї не видно головного:
 	// поріг нижчий за собівартість означає продаж у збиток, і рішення про
 	// нього приймають інакше.
-	CostPerBond moneyJSON `json:"cost_per_bond"`
+	CostPerBond MoneyJSON `json:"cost_per_bond"`
 	// Accrued — НКД на сьогодні, той самий, що в картці позиції.
 	// Показується, бо котирування брокера ЧИСТЕ, а виручка — брудна.
-	Accrued moneyJSON `json:"accrued"`
+	Accrued MoneyJSON `json:"accrued"`
 	// BreakEven — чиста ціна за папір, за якої перекладання нічого не
 	// змінює. BreakEvenPct — вона ж у відсотках номіналу: саме так
 	// котирування й називають, і порівнювати з ним зручніше, ніж із
 	// гривнями.
-	BreakEven    moneyJSON `json:"break_even"`
+	BreakEven    MoneyJSON `json:"break_even"`
 	BreakEvenPct float64   `json:"break_even_pct,omitempty"`
 	// HoldRealPct — реальна дохідність, яку папір дає ТОБІ за твоєю
 	// собівартістю. Не поріг і не альтернатива: третє число, яке пояснює
@@ -59,18 +59,18 @@ type switchRow struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// switchAlternative — найкраще, що помічник пропонує сьогодні.
+// SwitchAlternative — найкраще, що помічник пропонує сьогодні.
 //
 // nil означає «нема з чим порівнювати»: порожній довідник, порожня
 // політика або свіжа база. Це законний стан, і вигадувати замість нього
 // нульову ставку не можна — під нуль поріг дорівнював би сумі всіх
 // майбутніх виплат, тобто радив би продати будь-що за будь-яку ціну.
-func (e *engine) switchAlternative(ctx context.Context, now time.Time) (*switchAlt, error) {
-	doc, err := e.buildState(ctx, now)
+func (e *Engine) SwitchAlternative(ctx context.Context, now time.Time) (*SwitchAlt, error) {
+	doc, err := e.BuildState(ctx, now)
 	if err != nil {
 		return nil, err
 	}
-	sugg, err := e.reinvestSuggestions(ctx, now, doc)
+	sugg, err := e.ReinvestSuggestions(ctx, now, doc)
 	if err != nil {
 		return nil, err
 	}
@@ -84,18 +84,18 @@ func (e *engine) switchAlternative(ctx context.Context, now time.Time) (*switchA
 		return nil, nil
 	}
 	g := sugg[best]
-	return &switchAlt{Kind: g.Kind, Label: g.Label, ISIN: g.ISIN,
+	return &SwitchAlt{Kind: g.Kind, Label: g.Label, ISIN: g.ISIN,
 		Currency: g.Currency, RealPct: g.RealPct}, nil
 }
 
-// switchRows — поріг на кожен папір, який ще в портфелі.
-func (e *engine) switchRows(ctx context.Context, now time.Time, alt *switchAlt) ([]switchRow, error) {
-	lots, sales, bonds, pays, err := e.portfolio(ctx)
+// SwitchRows — поріг на кожен папір, який ще в портфелі.
+func (e *Engine) SwitchRows(ctx context.Context, now time.Time, alt *SwitchAlt) ([]SwitchRow, error) {
+	lots, sales, bonds, pays, err := e.Portfolio(ctx)
 	if err != nil {
 		return nil, err
 	}
 	today := domain.NewDate(now)
-	deval := e.devaluation(ctx)
+	deval := e.Devaluation(ctx)
 	held, err := heldByISIN(lots, sales, bonds, today)
 	if err != nil {
 		return nil, err
@@ -109,18 +109,18 @@ func (e *engine) switchRows(ctx context.Context, now time.Time, alt *switchAlt) 
 	// і таблиця перетасовувалась би сама собою між оновленнями.
 	sort.Strings(isins)
 
-	rows := make([]switchRow, 0, len(isins))
+	rows := make([]SwitchRow, 0, len(isins))
 	for _, isin := range isins {
 		b, h := bonds[isin], held[isin]
 		cur := b.Nominal.Currency().Code
-		row := switchRow{ISIN: isin, Currency: cur, Qty: h.qty,
+		row := SwitchRow{ISIN: isin, Currency: cur, Qty: h.qty,
 			Maturity:    string(b.Maturity),
-			CostPerBond: toMoneyJSON(avgPerBond(h.cost, h.qty))}
+			CostPerBond: ToMoneyJSON(avgPerBond(h.cost, h.qty))}
 		if acc, aerr := domain.EstimateAccrued(pays, isin, today); aerr == nil {
-			row.Accrued = toMoneyJSON(acc)
+			row.Accrued = ToMoneyJSON(acc)
 		}
 		if y, ok := domain.WeightedYTM(h.ytm, pays); ok {
-			row.HoldRealPct = round2(realYield(y/100, cur, deval) * 100)
+			row.HoldRealPct = Round2(RealYield(y/100, cur, deval) * 100)
 		}
 		if alt == nil {
 			row.Reason = "нема з чим порівнювати: помічник не пропонує жодного інструмента"
@@ -141,16 +141,16 @@ func (e *engine) switchRows(ctx context.Context, now time.Time, alt *switchAlt) 
 		}
 		be, berr := domain.BreakEvenClean(domain.SwitchInput{
 			ISIN: isin, Payments: pays, Today: today,
-			AltRatePct: nominalYield(alt.RealPct/100, cur, deval) * 100,
+			AltRatePct: NominalYield(alt.RealPct/100, cur, deval) * 100,
 		})
 		if berr != nil {
 			row.Reason = berr.Error()
 			rows = append(rows, row)
 			continue
 		}
-		row.BreakEven = toMoneyJSON(be)
+		row.BreakEven = ToMoneyJSON(be)
 		if b.Nominal != nil && b.Nominal.Amount() > 0 {
-			row.BreakEvenPct = round2(float64(be.Amount()) / float64(b.Nominal.Amount()) * 100)
+			row.BreakEvenPct = Round2(float64(be.Amount()) / float64(b.Nominal.Amount()) * 100)
 		}
 		rows = append(rows, row)
 	}
@@ -205,7 +205,7 @@ func heldByISIN(lots []domain.Lot, sales []domain.Sale,
 			return nil, err
 		}
 		h.cost, h.qty = sum, h.qty+q
-		h.ytm = append(h.ytm, ytmLot(l, q))
+		h.ytm = append(h.ytm, YTMLot(l, q))
 	}
 	return out, nil
 }

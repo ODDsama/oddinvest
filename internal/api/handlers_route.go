@@ -1,12 +1,12 @@
 // GET /api/route — маршрут грошей, які ще тільки прийдуть.
 //
-// # ЧОМУ ЦЕ НЕ ФАЗА buildState
+// # ЧОМУ ЦЕ НЕ ФАЗА BuildState
 //
-// Маршруту потрібен reinvestSuggestions, а той приймає ГОТОВИЙ документ.
-// Усередині buildState це замкнуло б цикл, а обійти цикл можна лише другою
+// Маршруту потрібен ReinvestSuggestions, а той приймає ГОТОВИЙ документ.
+// Усередині BuildState це замкнуло б цикл, а обійти цикл можна лише другою
 // збіркою порад — тобто SearchBonds на п'ять тисяч паперів на кожному
 // POST /api/whatif і кожній публікації в MQTT. Черга задач стоїть на тій
-// самій межі й з тієї самої причини (див. buildStateTasked).
+// самій межі й з тієї самої причини (див. BuildStateTasked).
 //
 // # ЧОМУ ЦЕ НЕ ЙДЕ В КОНТРАКТ
 //
@@ -19,9 +19,9 @@
 //
 // # ЦІНА
 //
-// buildState + reinvestSuggestions + другий loadSources — рівно стільки ж,
+// BuildState + ReinvestSuggestions + другий loadSources — рівно стільки ж,
 // скільки коштує GET /api/reinvest із датою доступності. Для сторінки, яку
-// відкривають свідомо, це прийнятно; заповзти в buildState цьому не можна.
+// відкривають свідомо, це прийнятно; заповзти в BuildState цьому не можна.
 package api
 
 import (
@@ -30,12 +30,12 @@ import (
 )
 
 func (s *Server) handleRoute(w http.ResponseWriter, r *http.Request) {
-	out, err := s.route(r.Context(), time.Now(), r.URL.Query()["pick"])
+	out, err := s.Route(r.Context(), time.Now(), r.URL.Query()["pick"])
 	if err != nil {
 		writeCalcErr(w, err)
 		return
 	}
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 // thisMonth / monthPlus — місяці відносно сьогодні, як їх бачить бекенд.
-// Через ту саму арифметику над роком і місяцем, що monthKeyAt: тест, який
+// Через ту саму арифметику над роком і місяцем, що MonthKeyAt: тест, який
 // рахував би місяці інакше, ловив би не помилку, а розбіжність із собою.
 func monthPlus(n int) string {
 	now := time.Now()
@@ -32,7 +32,7 @@ func TestPlanExpectedComesFromTheFlow(t *testing.T) {
 
 	doc := planDoc(t, srv.URL)
 	now := monthPlus(0)
-	var cur *expectedReceipt
+	var cur *ExpectedReceipt
 	for i := range doc.Expected {
 		if doc.Expected[i].Month == now {
 			cur = &doc.Expected[i]
@@ -170,7 +170,7 @@ func TestPlanReceiptValidation(t *testing.T) {
 // --- дрібні читачі відповіді, щоб тести вище лишались про суть ---
 
 type planDocResp struct {
-	Expected []expectedReceipt  `json:"expected"`
+	Expected []ExpectedReceipt  `json:"expected"`
 	Receipts []receiptRow       `json:"receipts"`
 	History  []planHistoryPoint `json:"history"`
 }
@@ -241,7 +241,7 @@ func planProvides(t *testing.T, base string) float64 {
 // Та сама межа, що вже проведена для частки в портфель, і потрібна вона з
 // тієї ж причини: інакше в одного надходження стало б два дозволи —
 // власний і джерела, — і котрий із них правда, не сказав би жоден екран.
-// Перевіряється НАСКРІЗЬ, бо підстановка живе в receiptRows, а не в
+// Перевіряється НАСКРІЗЬ, бо підстановка живе в ReceiptRows, а не в
 // сховищі: у колонці лежить порожньо, і взяти дозвіл звідти означало б
 // показати «можна всюди» там, де заборона є.
 func TestBoundReceiptTakesUsesFromFlow(t *testing.T) {

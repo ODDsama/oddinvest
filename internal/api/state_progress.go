@@ -23,11 +23,11 @@
 //   — «ЗІБРАТИ ВСЕ» ЯК ЦІЛІ. Поле колекції — карта того, що є, а не
 //     список до закриття; ліміт на один рік погашень існує саме тому.
 //
-// ЧОМУ ЦЕ ОКРЕМА ФАЗА, А НЕ ЧАСТИНА buildState
+// ЧОМУ ЦЕ ОКРЕМА ФАЗА, А НЕ ЧАСТИНА BuildState
 //
 // Той самий довід, що й у черги задач: прогрес читає ГОТОВИЙ документ,
 // а понад нього ще й знімки та помісячний рух грошей. Покласти це
-// всередину buildState означало б платити обходом усієї історії на
+// всередину BuildState означало б платити обходом усієї історії на
 // КОЖНОМУ POST /api/whatif, де прогрес не потрібен взагалі.
 //
 // ЧОМУ ОКРЕМИЙ МАРШРУТ, А НЕ ПОЛЕ ДОКУМЕНТА
@@ -158,7 +158,7 @@ func buildVsUSD(days []string, diff []state.Money, today domain.Date) *vsDoc {
 // lifeDoc — скільки днів життя вже оплатив портфель.
 //
 // ЧИСЕЛЬНИК — лише ЗАРОБЛЕНЕ: купони, дивіденди після податку, відсотки
-// вкладів. Погашення ОВДП і тіло вкладу — flowIncome для виписки, але
+// вкладів. Погашення ОВДП і тіло вкладу — FlowIncome для виписки, але
 // Principal для нас: повернений номінал оплачував би роки, яких портфель
 // не заробив. ЗНАМЕННИК — місячні витрати з налаштувань, поділені на
 // тридцять. Обидва числа поруч, бо саме з них і складено дні.
@@ -175,14 +175,14 @@ type lifeDoc struct {
 }
 
 // buildLife — оплачені дні з подій руху грошей. nil без витрат.
-func buildLife(ev []flowEvent, expenses float64) *lifeDoc {
+func buildLife(ev []FlowEvent, expenses float64) *lifeDoc {
 	if expenses <= 0 {
 		return nil
 	}
 	out := &lifeDoc{PerDayUAH: state.Major(expenses/30, money.UAH)}
 	var earned int64
 	for _, e := range ev {
-		if e.Kind != flowIncome || e.Principal || e.UAH <= 0 {
+		if e.Kind != FlowIncome || e.Principal || e.UAH <= 0 {
 			continue
 		}
 		if out.Since == "" || string(e.Date) < out.Since {
@@ -191,23 +191,23 @@ func buildLife(ev []flowEvent, expenses float64) *lifeDoc {
 		earned += e.UAH
 	}
 	out.IncomeUAH = state.Minor(earned, money.UAH)
-	out.Days = round2(out.IncomeUAH.Major() / out.PerDayUAH.Major())
+	out.Days = Round2(out.IncomeUAH.Major() / out.PerDayUAH.Major())
 	return out
 }
 
 // lifeCrossedOn — день, коли зароблений дохід уперше сягнув суми, що
 // оплачує need днів. Дата не зі знімків, а з самих подій: вони датовані,
 // тож віха отримує день навіть до першого знімка. Порожньо — ще не сягнув.
-func lifeCrossedOn(ev []flowEvent, perDay float64, need float64) string {
+func lifeCrossedOn(ev []FlowEvent, perDay float64, need float64) string {
 	if perDay <= 0 {
 		return ""
 	}
-	sorted := append([]flowEvent(nil), ev...)
+	sorted := append([]FlowEvent(nil), ev...)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Date < sorted[j].Date })
 	target := int64(math.Round(perDay * need * 100))
 	var earned int64
 	for _, e := range sorted {
-		if e.Kind != flowIncome || e.Principal || e.UAH <= 0 {
+		if e.Kind != FlowIncome || e.Principal || e.UAH <= 0 {
 			continue
 		}
 		if earned += e.UAH; earned >= target {
@@ -245,7 +245,7 @@ type streakDoc struct {
 
 	// Marks — та сама серія, розкладена помісячно.
 	//
-	// Числа тут не нові: want і got усередині buildStreak рахувались і
+	// Числа тут не нові: want і got усередині BuildStreak рахувались і
 	// доти, просто згорталися в одне число й викидались. Смужка — це
 	// вони самі, і саме тому вона не може розійтись із Months.
 	Marks []streakMark `json:"marks,omitempty"`
@@ -281,7 +281,7 @@ type disciplineDoc struct {
 	TopRow int `json:"top_row"`
 	Total  int `json:"total"`
 	// Enough — чи журнал уже досить довгий, щоб із нього щось читати.
-	// Той самий поріг, що й у самому журналі (decisionsMinRows): один
+	// Той самий поріг, що й у самому журналі (DecisionsMinRows): один
 	// вдалий вибір із одного — це 100%, і показувати таке означає обіцяти
 	// точність, якої немає.
 	Enough bool `json:"enough"`
@@ -400,16 +400,16 @@ func buildProgress(
 	doc *state.Doc,
 	src *sources,
 	snaps []store.Snapshot,
-	ev []flowEvent,
-	dec *decisionsSummary,
-	bench *benchResult,
+	ev []FlowEvent,
+	dec *DecisionsSummary,
+	bench *BenchResult,
 	vs *vsDoc,
 	today domain.Date,
 ) progressDoc {
 	out := progressDoc{
 		GeneratedAt: doc.GeneratedAt,
 		LevelOf:     milestoneCount,
-		Streak:      buildStreak(snaps, ev, today),
+		Streak:      BuildStreak(snaps, ev, today),
 		Collection:  buildCollection(doc),
 	}
 	if dec != nil {
@@ -431,7 +431,7 @@ func buildProgress(
 // Серія
 // ---------------------------------------------------------------------
 
-// buildStreak — місяці поспіль, у яких внесено не менше цілі того місяця.
+// BuildStreak — місяці поспіль, у яких внесено не менше цілі того місяця.
 //
 // ВНЕСЕНО береться з подій руху грошей (cashflow.go), а не зі знімків:
 // саме ця розкладка вже звірена зі зведенням тестом
@@ -442,7 +442,7 @@ func buildProgress(
 // Ціль живе в налаштуваннях і історії не має; узявши сьогоднішню, ми
 // переписували б минуле щоразу, коли її змінюють, — підняв ціль удвічі й
 // заднім числом «зривався» пів року.
-func buildStreak(snaps []store.Snapshot, ev []flowEvent, today domain.Date) streakDoc {
+func BuildStreak(snaps []store.Snapshot, ev []FlowEvent, today domain.Date) streakDoc {
 	// Внесено по місяцях. Свої гроші — гаманець (contribution) І подушка
 	// з цілями (outside): те саме означення, що в плитки «Цей місяць».
 	// Купон і погашення теж збільшують рахунок, але вони не є ТВОЇМ
@@ -450,7 +450,7 @@ func buildStreak(snaps []store.Snapshot, ev []flowEvent, today domain.Date) stre
 	// місяць, у якому $800 пішли в матрац повз гаманець, стояв «повз».
 	got := map[string]int64{}
 	for _, e := range ev {
-		if e.Kind == flowContribution || e.Kind == flowOutside {
+		if e.Kind == FlowContribution || e.Kind == FlowOutside {
 			got[monthOf(e.Date)] += e.UAH
 		}
 	}
@@ -615,8 +615,8 @@ var capitalThresholds = []struct {
 }
 
 func buildMilestones(
-	doc *state.Doc, src *sources, snaps []store.Snapshot, ev []flowEvent,
-	streak streakDoc, bench *benchResult, life *lifeDoc, vs *vsDoc, today domain.Date,
+	doc *state.Doc, src *sources, snaps []store.Snapshot, ev []FlowEvent,
+	streak streakDoc, bench *BenchResult, life *lifeDoc, vs *vsDoc, today domain.Date,
 ) []milestone {
 	mt := moneyTextOf(doc)
 	out := make([]milestone, 0, milestoneCount)
@@ -696,7 +696,7 @@ func buildMilestones(
 		Key: "four_kinds", Title: "Чотири види в портфелі",
 		Note: fmt.Sprintf("%d із 4: %s", len(kinds), strings.Join(kinds, ", ")),
 		Left: noteOr(len(kinds) >= 4, "", fmt.Sprintf("лишилось %d %s", 4-len(kinds),
-			plural(4-len(kinds), "вид", "види", "видів"))),
+			Plural(4-len(kinds), "вид", "види", "видів"))),
 		Earned:      len(kinds) >= 4,
 		ProgressPct: ratioPct(float64(len(kinds)), 4),
 	})
@@ -737,10 +737,10 @@ func buildMilestones(
 		m.Earned = r.LadderRungs >= r.LadderRungsTarget
 		m.ProgressPct = ratioPct(float64(r.LadderRungs), float64(r.LadderRungsTarget))
 		m.Note = fmt.Sprintf("%d %s з %d", r.LadderRungs,
-			plural(r.LadderRungs, "сходинка", "сходинки", "сходинок"), r.LadderRungsTarget)
+			Plural(r.LadderRungs, "сходинка", "сходинки", "сходинок"), r.LadderRungsTarget)
 		if n := r.LadderRungsTarget - r.LadderRungs; n > 0 {
 			m.Left = fmt.Sprintf("лишилось %d %s", n,
-				plural(n, "сходинка", "сходинки", "сходинок"))
+				Plural(n, "сходинка", "сходинки", "сходинок"))
 		}
 		return m
 	}())
@@ -766,10 +766,10 @@ func buildMilestones(
 		m.Earned = at == total
 		m.ProgressPct = ratioPct(float64(at), float64(total))
 		m.Note = fmt.Sprintf("%d %s із %d на цілі", at,
-			plural(at, "вимір", "виміри", "вимірів"), total)
+			Plural(at, "вимір", "виміри", "вимірів"), total)
 		if n := total - at; n > 0 {
 			m.Left = fmt.Sprintf("лишилось звести %d %s", n,
-				plural(n, "вимір", "виміри", "вимірів"))
+				Plural(n, "вимір", "виміри", "вимірів"))
 		}
 		return m
 	}())
@@ -796,7 +796,7 @@ func buildMilestones(
 		m.Note = fmt.Sprintf("%d з %d валютних вимірів на цілі", at, total)
 		if n := total - at; n > 0 {
 			m.Left = fmt.Sprintf("лишилось звести %d %s", n,
-				plural(n, "валютний вимір", "валютні виміри", "валютних вимірів"))
+				Plural(n, "валютний вимір", "валютні виміри", "валютних вимірів"))
 		}
 		return m
 	}())
@@ -903,7 +903,7 @@ var lifeThresholds = []struct {
 	{"life_year", "Портфель оплатив рік життя", 365},
 }
 
-func lifeMilestone(mt moneyText, key, title string, need float64, ev []flowEvent, life *lifeDoc,
+func lifeMilestone(mt moneyText, key, title string, need float64, ev []FlowEvent, life *lifeDoc,
 	incomeMonthly float64, today domain.Date) milestone {
 
 	m := milestone{Key: key, Title: title, ProgressPct: progressNoProgress,
@@ -929,7 +929,7 @@ func lifeMilestone(mt moneyText, key, title string, need float64, ev []flowEvent
 // daysWord — «12 днів», без дробу: день життя дробом не оплачують.
 func daysWord(d float64) string {
 	n := int(math.Floor(d + 1e-9))
-	return fmt.Sprintf("%d %s", n, plural(n, "день", "дні", "днів"))
+	return fmt.Sprintf("%d %s", n, Plural(n, "день", "дні", "днів"))
 }
 
 // pickNext — найближча ВИМІРНА незібрана віха.
@@ -970,11 +970,11 @@ func streakMilestone(key, title string, need int, st streakDoc, today domain.Dat
 		Earned:      st.Best >= need,
 		ProgressPct: ratioPct(float64(st.Best), float64(need)),
 		Note: fmt.Sprintf("найдовша серія — %d %s з %d потрібних",
-			st.Best, plural(st.Best, "місяць", "місяці", "місяців"), need),
+			st.Best, Plural(st.Best, "місяць", "місяці", "місяців"), need),
 	}
 	if n := need - st.Best; n > 0 {
 		m.Left = fmt.Sprintf("лишилось %d %s поспіль", n,
-			plural(n, "місяць", "місяці", "місяців"))
+			Plural(n, "місяць", "місяці", "місяців"))
 		// Дата — від ПОТОЧНОЇ серії, не від найкращої: щоб дійти до need,
 		// треба need − Months місяців без зриву, і останній із них
 		// закінчується в кінці місяця. Умова названа основою.
@@ -1086,13 +1086,13 @@ func num1(v float64) string {
 
 // progress — віхи, серія й поле колекції (GET /api/progress): зводить
 // дані й кличе чисту buildProgress.
-func (e *engine) progress(ctx context.Context, now time.Time) (progressDoc, error) {
+func (e *Engine) Progress(ctx context.Context, now time.Time) (progressDoc, error) {
 	today := domain.NewDate(now)
 
 	// Документ — обов'язковий: із нього беруться драбина, резерв,
 	// ребаланс і концентрація, тобто дев'ять віх із чотирнадцяти. Без
 	// нього відповідати нема чим.
-	doc, err := e.buildState(ctx, now)
+	doc, err := e.BuildState(ctx, now)
 	if err != nil {
 		return progressDoc{}, err
 	}
@@ -1111,7 +1111,7 @@ func (e *engine) progress(ctx context.Context, now time.Time) (progressDoc, erro
 		e.log.Warn("знімки для прогресу не зібрались", "err", serr)
 		snaps = nil
 	}
-	ev, eerr := e.cashEvents(ctx)
+	ev, eerr := e.CashEvents(ctx)
 	if eerr != nil {
 		e.log.Warn("рух грошей для прогресу не зібрався", "err", eerr)
 		ev = nil
@@ -1121,27 +1121,27 @@ func (e *engine) progress(ctx context.Context, now time.Time) (progressDoc, erro
 	// самим порогом: доки журнал закороткий, зведення не показує його й
 	// там. Один вдалий вибір із одного — це 100%, і доріжка, яка це
 	// малює, обіцяє точність, якої немає.
-	var dec *decisionsSummary
-	if rows, derr := e.decisionRows(ctx); derr != nil {
+	var dec *DecisionsSummary
+	if rows, derr := e.DecisionRows(ctx); derr != nil {
 		e.log.Warn("журнал рішень для прогресу не зібрався", "err", derr)
-	} else if len(rows) >= decisionsMinRows {
-		sum := summarizeDecisions(rows)
+	} else if len(rows) >= DecisionsMinRows {
+		sum := SummarizeDecisions(rows)
 		dec = &sum
 	}
 
-	// Суперники — над УЖЕ зібраним документом, а не власним buildState, і
+	// Суперники — над УЖЕ зібраним документом, а не власним BuildState, і
 	// ОДНИМ прогоном на два читачі: бенчмарк («обіграв долари») і серію
 	// «попереду долара» по місяцях — обидва з того самого добового ряду.
-	var bench *benchResult
+	var bench *BenchResult
 	var vs *vsDoc
-	if rv, rerr := e.rivals(ctx, doc, levelPortfolio); rerr != nil {
+	if rv, rerr := e.Rivals(ctx, doc, LevelPortfolio); rerr != nil {
 		e.log.Warn("суперники для прогресу не зібрались", "err", rerr)
-	} else if rates, ferr := e.rates(ctx); ferr != nil {
+	} else if rates, ferr := e.Rates(ctx); ferr != nil {
 		e.log.Warn("курси для прогресу не зібрались", "err", ferr)
 	} else {
 		b := benchFromRivals(rv, rates)
 		bench = &b
-		vs = buildVsUSD(rv.Days, rv.row(domain.RivalUSDCash).PointsDiff, today)
+		vs = buildVsUSD(rv.Days, rv.Row(domain.RivalUSDCash).PointsDiff, today)
 	}
 
 	out := buildProgress(doc, src, snaps, ev, dec, bench, vs, today)

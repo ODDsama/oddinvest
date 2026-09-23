@@ -639,7 +639,7 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 			s.publishAsync()
 		}
 	}
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

@@ -70,8 +70,8 @@ func (s *Server) handlePolicyPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	// Порожнє тіло — законний запит, і відповідь на нього чесна: це стан за
 	// ЧИННОЇ політики. Окремої гілки він не потребує, бо порожня накладка
-	// нічого не підміняє (hypothetical.empty).
-	doc, err := s.buildStateWith(r.Context(), time.Now(), hypoSettings(req.Settings))
+	// нічого не підміняє (Hypothetical.empty).
+	doc, err := s.BuildStateWith(r.Context(), time.Now(), HypoSettings(req.Settings))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -80,7 +80,7 @@ func (s *Server) handlePolicyPreview(w http.ResponseWriter, r *http.Request) {
 		Rebalance:     doc.Rebalance,
 		Concentration: doc.Concentration,
 	}
-	if err := s.present(r.Context(), &out); err != nil {
+	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

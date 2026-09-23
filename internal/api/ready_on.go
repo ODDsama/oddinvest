@@ -49,8 +49,8 @@
 // ЦІНА ЦЬОГО ФАЙЛУ — один зайвий прохід по джерелах на /api/reinvest:
 // привʼязати виплату до брокера можна лише через лоти, а state.Doc
 // брокера у виплатах не несе (і не має нести — той документ іде в MQTT).
-// Тому анотація живе в обробнику, а не в reinvestSuggestions: та сама
-// збірка порад працює ще й усередині buildState (черга задач), і другий
+// Тому анотація живе в обробнику, а не в ReinvestSuggestions: та сама
+// збірка порад працює ще й усередині BuildState (черга задач), і другий
 // loadSources подорожчав би кожен /api/summary заради поля, якого черга
 // не показує.
 package api
@@ -68,10 +68,10 @@ import (
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
-// noBrokerLabel — як показується рахунок без брокера. Те саме «—», що й у
+// NoBrokerLabel — як показується рахунок без брокера. Те саме «—», що й у
 // гаманці (state_cash.go): два різні позначення одного рахунку розвели б
 // баланс із датою.
-const noBrokerLabel = "—"
+const NoBrokerLabel = "—"
 
 // readyFlow — одне майбутнє надходження на конкретний рахунок.
 //
@@ -85,7 +85,7 @@ const noBrokerLabel = "—"
 //
 // Обидва поля тут, а не в окремій структурі поруч, бо джерело в них одне й
 // те саме — розклад, — і другий збирач розкладу розійшовся б із першим.
-// readyFor і annotateReady їх не читають: дата від цього не змінюється.
+// readyFor і AnnotateReady їх не читають: дата від цього не змінюється.
 type readyFlow struct {
 	Date   domain.Date
 	Amount int64 // мінорні, у валюті рахунку
@@ -141,7 +141,7 @@ func reinvestFlowWhy(mt moneyText, s domain.FundReinvestSplit, cur string) strin
 	}
 	return fmt.Sprintf("фонд утримав виплату %s і докупив %d %s на %s — на рахунок іде лише решта",
 		mt.cur(float64(s.Gross)/100, cur), s.Units,
-		plural(int(s.Units), "сертифікат", "сертифікати", "сертифікатів"),
+		Plural(int(s.Units), "сертифікат", "сертифікати", "сертифікатів"),
 		mt.cur(float64(s.Spent)/100, cur))
 }
 
@@ -151,7 +151,7 @@ func reinvestFlowWhy(mt moneyText, s domain.FundReinvestSplit, cur string) strin
 const (
 	basisOwed     = "owed"     // портфель винен сам собі: купон, погашення, відсотки
 	basisEstimate = "estimate" // оцінка: дивіденд фонду, порахований зі ставки
-	basisPlan     = "plan"     // намір: дохід із plan_flows
+	BasisPlan     = "plan"     // намір: дохід із plan_flows
 	basisMixed    = "mixed"    // у горщику зійшлись різні
 )
 
@@ -168,7 +168,7 @@ func flowBasis(f readyFlow) string {
 type readyEvent struct {
 	Date   string    `json:"date"`
 	Label  string    `json:"label"`
-	Amount moneyJSON `json:"amount"`
+	Amount MoneyJSON `json:"amount"`
 }
 
 // incomeAhead — майбутні надходження в розрізі (брокер × валюта).
@@ -195,7 +195,7 @@ func futureIncome(src *sources, today domain.Date) (incomeAhead, error) {
 	out := incomeAhead{}
 	add := func(broker, currency string, f readyFlow) {
 		if broker == "" {
-			broker = noBrokerLabel
+			broker = NoBrokerLabel
 		}
 		k := store.BrokerCur{Broker: broker, Currency: currency}
 		out[k] = append(out[k], f)
@@ -449,7 +449,7 @@ type planPart struct {
 // портфель не дає нічого, однаково платить, і саме так це питання ставлять
 // buildMonthPlan і чеклист надходжень. «Скільки він додає в підсумок» —
 // чистий, із відміткою: це той самий доданок, із якого підсумок і складений.
-func planParts(src *sources, marks planMarks, today domain.Date,
+func planParts(src *sources, marks PlanMarks, today domain.Date,
 	m int, key string) []planPart {
 
 	var out []planPart
@@ -476,7 +476,7 @@ func planParts(src *sources, marks planMarks, today domain.Date,
 		// в поділі (довід — при planPart).
 		_, marked := marks.at(f.ID, today, m)
 		skip := date < today || (marked && m == 0)
-		w := planFlowUAH(planFlowAtMonth(f, today, m, marks), f.Currency, src.rates)
+		w := PlanFlowUAH(planFlowAtMonth(f, today, m, marks), f.Currency, src.rates)
 		if w <= 0 {
 			continue
 		}
@@ -585,10 +585,10 @@ func planAhead(src *sources, plans map[string]*state.MonthPlan,
 	if len(src.planFlows) == 0 {
 		return nil
 	}
-	marks := newPlanMarks(src.planReceipts)
+	marks := NewPlanMarks(src.planReceipts)
 	var out []readyFlow
 	for m := 0; m <= months; m++ {
-		key := monthKeyAt(today, m)
+		key := MonthKeyAt(today, m)
 		mp := plans[key]
 		if mp == nil {
 			continue
@@ -611,7 +611,7 @@ func planAhead(src *sources, plans map[string]*state.MonthPlan,
 			}
 			out = append(out, readyFlow{
 				Date: parts[i].date, Amount: cut,
-				Label: parts[i].name, Basis: basisPlan, Uses: parts[i].uses,
+				Label: parts[i].name, Basis: BasisPlan, Uses: parts[i].uses,
 			})
 		}
 	}
@@ -634,11 +634,11 @@ func fundBroker(ops []domain.FundOp, fund string) string {
 		}
 		b := op.Broker
 		if b == "" {
-			b = noBrokerLabel
+			b = NoBrokerLabel
 		}
 		byBroker[b] += op.Amount
 	}
-	best, bestAmt, tie := noBrokerLabel, int64(0), false
+	best, bestAmt, tie := NoBrokerLabel, int64(0), false
 	// Обхід за відсортованими ключами: мапа в Go обходиться в довільному
 	// порядку, і два запуски на тих самих даних інакше давали б різних
 	// брокерів, а разом із ними — різні горщики.
@@ -656,7 +656,7 @@ func fundBroker(ops []domain.FundOp, fund string) string {
 		}
 	}
 	if tie {
-		return noBrokerLabel
+		return NoBrokerLabel
 	}
 	return best
 }
@@ -723,7 +723,7 @@ func (inc incomeAhead) readyFor(doc *state.Doc, currency string, costMinor int64
 	var best readiness
 	found := false
 	for _, name := range names {
-		bal := brokerBalanceMinor(doc, name, currency)
+		bal := BrokerBalanceMinor(doc, name, currency)
 		var via []readyFlow
 		for _, f := range inc[store.BrokerCur{Broker: name, Currency: currency}] {
 			bal += f.Amount
@@ -741,12 +741,12 @@ func (inc incomeAhead) readyFor(doc *state.Doc, currency string, costMinor int64
 	return best, found
 }
 
-// annotateReady дописує до порад дату доступності й ціну очікування.
+// AnnotateReady дописує до порад дату доступності й ціну очікування.
 //
 // Мовчить там, де відповіді немає: рядок, на який стає вже сьогодні, дати
 // не отримує (він і так зверху), а рядок, на який із відомих надходжень не
 // набереться, отримує названу причину замість порожнечі.
-func (e *engine) annotateReady(ctx context.Context, today domain.Date,
+func (e *Engine) AnnotateReady(ctx context.Context, today domain.Date,
 	doc *state.Doc, sug []suggestion) error {
 	src, err := e.loadSources(ctx, today)
 	if err != nil {
@@ -763,7 +763,7 @@ func (e *engine) annotateReady(ctx context.Context, today domain.Date,
 //
 // Винесено рівно заради перевірності: усе, що вище, — це два читання
 // сховища, а все, що нижче, — правила, які й треба перевіряти тестом. Той
-// самий поділ, що в allocatePlan і pickQuotes.
+// самий поділ, що в AllocatePlan і pickQuotes.
 func annotateReadyWith(inc incomeAhead, doc *state.Doc, today domain.Date,
 	sug []suggestion) error {
 
@@ -771,7 +771,7 @@ func annotateReadyWith(inc incomeAhead, doc *state.Doc, today domain.Date,
 		if sug[i].CanBuy {
 			continue
 		}
-		cost, cerr := parseMoney(sug[i].CostPerBond.Amount, sug[i].CostPerBond.Currency)
+		cost, cerr := ParseMoney(sug[i].CostPerBond.Amount, sug[i].CostPerBond.Currency)
 		if cerr != nil || cost.Amount() <= 0 {
 			continue
 		}
@@ -788,7 +788,7 @@ func annotateReadyWith(inc incomeAhead, doc *state.Doc, today domain.Date,
 		// обидва числа є одночасно (Maturity — поле поради, дата —
 		// щойно порахована), тож звірити їх більше ніде.
 		//
-		// Поріг короткого строку (minTermDays) прибирає майже всі такі
+		// Поріг короткого строку (MinTermDays) прибирає майже всі такі
 		// рядки ще на збірці; цей — щоб решта не брехала. Порядок рядків
 		// при цьому НЕ чіпається: межа в шапці файла тримається, дата
 		// лишається фактом ПОРУЧ із політикою, а не всередині неї.
@@ -804,7 +804,7 @@ func annotateReadyWith(inc incomeAhead, doc *state.Doc, today domain.Date,
 		for _, f := range r.Via {
 			sug[i].ReadyVia = append(sug[i].ReadyVia, readyEvent{
 				Date: string(f.Date), Label: f.Label,
-				Amount: toMoneyJSON(money.New(f.Amount, sug[i].Currency)),
+				Amount: ToMoneyJSON(money.New(f.Amount, sug[i].Currency)),
 			})
 		}
 		annotateWaitCost(&sug[i], sug, doc)
@@ -828,7 +828,7 @@ func annotateWaitCost(row *suggestion, all []suggestion, doc *state.Doc) {
 	if row.ReadyDays <= 0 {
 		return
 	}
-	bal := brokerBalanceMinor(doc, row.ReadyBroker, row.Currency)
+	bal := BrokerBalanceMinor(doc, row.ReadyBroker, row.Currency)
 	if bal <= 0 {
 		return
 	}
@@ -849,7 +849,7 @@ func annotateWaitCost(row *suggestion, all []suggestion, doc *state.Doc) {
 		if !fitsHere {
 			continue
 		}
-		c, cerr := parseMoney(a.CostPerBond.Amount, a.CostPerBond.Currency)
+		c, cerr := ParseMoney(a.CostPerBond.Amount, a.CostPerBond.Currency)
 		if cerr != nil || c.Amount() <= 0 || c.Amount() > bal {
 			continue
 		}
@@ -865,7 +865,7 @@ func annotateWaitCost(row *suggestion, all []suggestion, doc *state.Doc) {
 	if cost <= 0 {
 		return
 	}
-	m := toMoneyJSON(money.New(cost, row.Currency))
+	m := ToMoneyJSON(money.New(cost, row.Currency))
 	row.WaitCost = &m
 	row.WaitAlt = alt.Label
 }

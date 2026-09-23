@@ -1,6 +1,6 @@
 // Процентний ризик, ліквідність і накопичений купон.
 //
-// Десята фаза розбиття buildState.
+// Десята фаза розбиття BuildState.
 //
 // Тут три різні питання про той самий графік виплат, і кожне має власну
 // вибірку — саме тому вони й розʼїжджались, коли стояли впереміш.
@@ -163,7 +163,7 @@ func buildRisk(in riskInput) riskPhase {
 		// сценарії ±1/±2 в.п. у грошах. Подюрація по валютах (byCurDur)
 		// була правильна весь цей час — розходилось саме зведене число.
 		modWeighted += mod * pvUAH
-		byCurDur[c] = round2(mod)
+		byCurDur[c] = Round2(mod)
 	}
 	if pvUAHTotal > 0 {
 		mac := macWeighted / pvUAHTotal
@@ -172,11 +172,11 @@ func buildRisk(in riskInput) riskPhase {
 		for _, d := range []float64{-2, -1, 1, 2} {
 			chg := domain.PriceChangePct(mod, d)
 			scen = append(scen, state.RiskScenario{
-				DeltaPP: d, ChangePct: round2(chg), ChangeUAH: state.Major(chg/100*pvUAHTotal, money.UAH),
+				DeltaPP: d, ChangePct: Round2(chg), ChangeUAH: state.Major(chg/100*pvUAHTotal, money.UAH),
 			})
 		}
 		out.RateRisk = &state.RateRisk{
-			DurationYears: round2(mac), ModifiedDur: round2(mod), PVUAH: state.Major(pvUAHTotal, money.UAH),
+			DurationYears: Round2(mac), ModifiedDur: Round2(mod), PVUAH: state.Major(pvUAHTotal, money.UAH),
 			ByCurrency: byCurDur, Scenarios: scen,
 		}
 	}
@@ -186,7 +186,7 @@ func buildRisk(in riskInput) riskPhase {
 		if out.RateRisk == nil {
 			out.RateRisk = &state.RateRisk{}
 		}
-		out.RateRisk.ReinvestYears = round2(backWeighted / backUAH)
+		out.RateRisk.ReinvestYears = Round2(backWeighted / backUAH)
 		out.RateRisk.ReturningUAH = state.Major(backUAH, money.UAH)
 		out.RateRisk.ReinvestSoonUAH = state.Major(backSoonUAH, money.UAH)
 	}
@@ -285,7 +285,7 @@ func buildRisk(in riskInput) riskPhase {
 	// САМА ТА ПРИЧИНА ЗМІНИЛАСЬ (0059), і це варто сказати, бо в
 	// застосунку тепер є ринкова ціна паперу. Але вона є лише після
 	// натискання кнопки, лише для частини паперів і лише кілька днів
-	// (quoteFreshDays). Твердження «стільки-то капіталу замкнено» —
+	// (QuoteFreshDays). Твердження «стільки-то капіталу замкнено» —
 	// постійне, і будувати його на числі, яке зникає, коли ціну не
 	// оновлювали тиждень, означало б, що замкнена частка портфеля стрибає
 	// від старанності людини, а не від складу активів. Вартість же

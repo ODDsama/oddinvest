@@ -159,7 +159,7 @@ func TestWhatIfMovesSharesAndCash(t *testing.T) {
 //
 // Доти цей тест звався …ReportsShortfallWithoutBlocking і перевіряв ще й
 // точну нестачу по брокеру. Нестача з картки плану пішла (довід — над
-// basketDoc), тож лишилась половина, яка від неї не залежала й лишається
+// BasketDoc), тож лишилась половина, яка від неї не залежала й лишається
 // правдою: expandPlanBuys не має відрощувати замок на залишок.
 func TestWhatIfOverspendDoesNotBlock(t *testing.T) {
 	url := whatIfServer(t)

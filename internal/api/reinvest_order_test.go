@@ -38,7 +38,7 @@ func TestOrderKeyDefaultsToReal(t *testing.T) {
 			t.Fatalf("order=%q дав %v замість реальної 4.5", order, got)
 		}
 	}
-	if got := orderKey(s, orderNominal); got != 16 {
+	if got := orderKey(s, OrderNominal); got != 16 {
 		t.Fatalf("номінальна лінійка дала %v", got)
 	}
 }
@@ -53,10 +53,10 @@ func TestLessSuggestionOrderFlipsOnlyTheYieldStep(t *testing.T) {
 	// Валютний папір: навпаки.
 	usd := suggestion{Kind: "bond", Currency: money.USD, NominalPct: 4.5, RealPct: 4.5, CanBuy: true}
 
-	if !lessSuggestion(usd, uah, "rate", orderReal) {
+	if !LessSuggestion(usd, uah, "rate", orderReal) {
 		t.Fatal("за реальною валютний папір мусить бути вище")
 	}
-	if !lessSuggestion(uah, usd, "rate", orderNominal) {
+	if !LessSuggestion(uah, usd, "rate", OrderNominal) {
 		t.Fatal("за номінальною гривневий вклад мусить бути вище")
 	}
 
@@ -64,7 +64,7 @@ func TestLessSuggestionOrderFlipsOnlyTheYieldStep(t *testing.T) {
 	// опускається В ОБОХ лінійках, хоч номінально й найвигідніший.
 	over := uah
 	over.overTransit = true
-	if !lessSuggestion(usd, over, "rate", orderNominal) {
+	if !LessSuggestion(usd, over, "rate", OrderNominal) {
 		t.Fatal("пониження за транзитом мусить діяти й у номінальній лінійці")
 	}
 }

@@ -39,7 +39,7 @@ type Server struct {
 	// (engine.go). Вбудований, тож s.st, s.log і s.loadSources(...) у
 	// обробниках читаються як доти, а межа «що тут HTTP, а що розрахунок»
 	// проходить по типу, а не по памʼяті автора.
-	*engine
+	*Engine
 	ref Refresher
 
 	// Стан публікатора стану — див. publishAsync.
@@ -71,7 +71,7 @@ func (s *Server) SetRefresher(ref Refresher) { s.ref = ref }
 // навмисно, інакше секрети читались би раз на портфель, а зміна пароля
 // на головному розлогінювала б лише його.
 func NewSatellite(st *store.Store, log *slog.Logger) *Server {
-	return &Server{engine: &engine{st: st, log: log}}
+	return &Server{Engine: &Engine{st: st, log: log}}
 }
 
 // New — сервер із секретами, прочитаними зі сховища.
@@ -81,7 +81,7 @@ func NewSatellite(st *store.Store, log *slog.Logger) *Server {
 // сервера через це не можна — сторінка відновлення з копії саме тоді й
 // потрібна, коли зі сховищем щось не так.
 func New(st *store.Store, ref Refresher, log *slog.Logger) *Server {
-	s := &Server{engine: &engine{st: st, log: log}, ref: ref, authFails: newAuthState()}
+	s := &Server{Engine: &Engine{st: st, log: log}, ref: ref, authFails: newAuthState()}
 	if err := s.reloadAuth(context.Background()); err != nil {
 		log.Error("секрети не прочитались — сервіс лишається відкритим", "err", err)
 	}
@@ -292,7 +292,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/auctions/curve", s.handleAuctionsCurve)
 	mux.HandleFunc("POST /api/whatif", s.handleWhatIf)
 	mux.HandleFunc("POST /api/policy/preview", s.handlePolicyPreview)
-	// Третє превʼю поверх того самого buildStateWith, і питання в нього
+	// Третє превʼю поверх того самого BuildStateWith, і питання в нього
 	// третє: не «якщо це купити» й не «що означають цілі», а «що зробив
 	// би з цим портфелем рух курсу, який уже був». GET, бо тіла від
 	// людини немає — вхід виводиться з власної історії (довід у шапці).
@@ -476,7 +476,7 @@ func (s *Server) publishLoop() {
 // PresentDoc — для публікації в MQTT: той самий шлях, що /api/summary, щоб
 // Home Assistant бачив рівно те, що бачить застосунок.
 func (s *Server) PresentDoc(ctx context.Context, doc *state.Doc) error {
-	return s.present(ctx, doc)
+	return s.Present(ctx, doc)
 }
 
 // BuildStateDoc — спільна збірка документа стану для API і MQTT.
@@ -486,8 +486,8 @@ func (s *Server) PresentDoc(ctx context.Context, doc *state.Doc) error {
 // на «що робити» було б гірше, ніж не показувати жодної.
 //
 // Решта викликів (whatif, план, cashflow, xirr) лишається на голому
-// buildState навмисно: черга їм ні до чого, а вона тягне за собою
+// BuildState навмисно: черга їм ні до чого, а вона тягне за собою
 // SearchBonds на п'ять тисяч паперів.
 func (s *Server) BuildStateDoc(ctx context.Context, now time.Time) (*state.Doc, error) {
-	return s.buildStateTasked(ctx, now)
+	return s.BuildStateTasked(ctx, now)
 }

@@ -28,7 +28,7 @@ import (
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
-// brokerBalanceMinor — баланс рахунку broker×currency у МІНОРНИХ одиницях.
+// BrokerBalanceMinor — баланс рахунку broker×currency у МІНОРНИХ одиницях.
 //
 // state.Doc тримає гаманець мажорними float64 (так його бачить UI і так
 // описує contract/oddinvest-state.schema.json), тож зворотний переклад
@@ -37,7 +37,7 @@ import (
 // −100000 — на копійку менше боргу. А від'ємний баланс тут не крайній
 // випадок, а рівно той стан, під який цей файл і пишеться: після
 // «поповнити рівно на нестачу» рахунок мусить стати 0, а не −0.01.
-func brokerBalanceMinor(doc *state.Doc, broker, currency string) int64 {
+func BrokerBalanceMinor(doc *state.Doc, broker, currency string) int64 {
 	byCur, ok := doc.Brokers[broker]
 	if !ok {
 		return 0
@@ -45,33 +45,33 @@ func brokerBalanceMinor(doc *state.Doc, broker, currency string) int64 {
 	return int64(math.Round(byCur[currency].Major() * 100))
 }
 
-// shortfallMinor — скільки НЕ ВИСТАЧАЄ рахунку broker×currency, щоб
+// ShortfallMinor — скільки НЕ ВИСТАЧАЄ рахунку broker×currency, щоб
 // витратити want. Нуль означає «вистачає».
-func shortfallMinor(doc *state.Doc, broker, currency string, want int64) int64 {
-	have := brokerBalanceMinor(doc, broker, currency)
+func ShortfallMinor(doc *state.Doc, broker, currency string, want int64) int64 {
+	have := BrokerBalanceMinor(doc, broker, currency)
 	if want <= have {
 		return 0
 	}
 	return want - have
 }
 
-// cashDebit — що саме списується з рахунку і звідки. Переклад операції
+// CashDebit — що саме списується з рахунку і звідки. Переклад операції
 // (лот, вклад, поповнення вкладу) в один спільний знаменник.
-type cashDebit struct {
+type CashDebit struct {
 	Broker   string
 	Currency string
 	Amount   int64 // мінорні, > 0
 }
 
-// lotDebit — списання під купівлю лота. Вартість рахує domain.LotCost —
+// LotDebit — списання під купівлю лота. Вартість рахує domain.LotCost —
 // та сама функція, якою потім віднімає гроші гаманець
 // (state_builder.go). Доки формула одна, «перевірили» й «списали»
 // розійтись не можуть.
-func lotDebit(l domain.Lot) (cashDebit, error) {
+func LotDebit(l domain.Lot) (CashDebit, error) {
 	cost, err := domain.LotCost(l)
 	if err != nil {
-		return cashDebit{}, err
+		return CashDebit{}, err
 	}
-	return cashDebit{Broker: l.Channel, Currency: cost.Currency().Code,
+	return CashDebit{Broker: l.Channel, Currency: cost.Currency().Code,
 		Amount: cost.Amount()}, nil
 }

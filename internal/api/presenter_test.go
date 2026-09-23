@@ -149,7 +149,7 @@ func TestPresenterUsesTomorrowsRateLikeRates(t *testing.T) {
 	if err := st.SaveRate(ctx, "USD", 450000, tomorrow); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetSetting(ctx, reportCurrencyKey, "USD"); err != nil {
+	if err := st.SetSetting(ctx, ReportCurrencyKey, "USD"); err != nil {
 		t.Fatal(err)
 	}
 	do(t, "POST", srv.URL+"/api/lots",
@@ -167,7 +167,7 @@ func TestPresenterUsesTomorrowsRateLikeRates(t *testing.T) {
 // Попросили долар, а курсу ще немає: гривня і примітка, а не 500 і не нулі.
 func TestSummaryFallsBackWithoutRate(t *testing.T) {
 	srv, st := testServer(t)
-	if err := st.SetSetting(context.Background(), reportCurrencyKey, "USD"); err != nil {
+	if err := st.SetSetting(context.Background(), ReportCurrencyKey, "USD"); err != nil {
 		t.Fatal(err)
 	}
 	v := summaryOf(t, srv.URL)
@@ -184,7 +184,7 @@ func TestSummaryFallsBackWithoutRate(t *testing.T) {
 func TestBuildStateDocStaysInBookCurrency(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
-	if err := st.SetSetting(context.Background(), reportCurrencyKey, "USD"); err != nil {
+	if err := st.SetSetting(context.Background(), ReportCurrencyKey, "USD"); err != nil {
 		t.Fatal(err)
 	}
 	do(t, "POST", srv.URL+"/api/lots",

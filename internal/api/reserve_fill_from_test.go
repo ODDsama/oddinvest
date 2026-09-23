@@ -36,33 +36,33 @@ func TestReserveEligibleUAH(t *testing.T) {
 		// Дефолт — поведінка ДО появи ключа, і це головний рядок таблиці:
 		// налаштування, яке мовчки вимкнуло б подушку, було б найгіршим
 		// виглядом помилки.
-		{"немає налаштувань: план", nil, allocFromPlan, 5000, 0, 5000},
-		{"немає налаштувань: купон", nil, allocFromPortfolio, 5000, 0, 5000},
-		{"порожньо: купон", set(""), allocFromPortfolio, 5000, 0, 5000},
-		{"сміття читається як any", set("щось"), allocFromPortfolio, 5000, 0, 5000},
-		{"any: погашення", set("any"), allocFromPortfolio, 5000, 5000, 5000},
+		{"немає налаштувань: план", nil, AllocFromPlan, 5000, 0, 5000},
+		{"немає налаштувань: купон", nil, AllocFromPortfolio, 5000, 0, 5000},
+		{"порожньо: купон", set(""), AllocFromPortfolio, 5000, 0, 5000},
+		{"сміття читається як any", set("щось"), AllocFromPortfolio, 5000, 0, 5000},
+		{"any: погашення", set("any"), AllocFromPortfolio, 5000, 5000, 5000},
 
-		{"redeem: план цілком", set("redeem"), allocFromPlan, 5000, 0, 5000},
-		{"redeem: купон нічого", set("redeem"), allocFromPortfolio, 5000, 0, 0},
-		{"redeem: погашення цілком", set("redeem"), allocFromPortfolio, 5000, 5000, 5000},
+		{"redeem: план цілком", set("redeem"), AllocFromPlan, 5000, 0, 5000},
+		{"redeem: купон нічого", set("redeem"), AllocFromPortfolio, 5000, 0, 0},
+		{"redeem: погашення цілком", set("redeem"), AllocFromPortfolio, 5000, 5000, 5000},
 		// Заради цього рядка вирізка й міряється ЧАСТКОЮ, а не подією:
 		// зведений «купон 817 + погашення 10 000 того самого дня» — одна
 		// подія з двома природами.
-		{"redeem: купон+погашення — лише тіло", set("redeem"), allocFromPortfolio, 10817, 10000, 10000},
+		{"redeem: купон+погашення — лише тіло", set("redeem"), AllocFromPortfolio, 10817, 10000, 10000},
 		// Тіло приходить із події, сума — з горщика, і в маршруті другий
 		// буває меншим: частину вже витратили на папери.
-		{"redeem: тіло більше за горщик", set("redeem"), allocFromPortfolio, 900, 5000, 900},
+		{"redeem: тіло більше за горщик", set("redeem"), AllocFromPortfolio, 900, 5000, 900},
 
-		{"plan: план цілком", set("plan"), allocFromPlan, 5000, 0, 5000},
-		{"plan: купон нічого", set("plan"), allocFromPortfolio, 5000, 0, 0},
-		{"plan: погашення теж нічого", set("plan"), allocFromPortfolio, 5000, 5000, 0},
+		{"plan: план цілком", set("plan"), AllocFromPlan, 5000, 0, 5000},
+		{"plan: купон нічого", set("plan"), AllocFromPortfolio, 5000, 0, 0},
+		{"plan: погашення теж нічого", set("plan"), AllocFromPortfolio, 5000, 5000, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			// Стеля джерела дорівнює сумі — тобто «джерело не забороняє
 			// нічого»: таблиця перевіряє рівень ПОЛІТИКИ, а дозвіл
 			// надходження має власні рядки нижче.
-			got := reserveEligibleUAH(c.set, c.src, c.amount, c.principal, c.amount)
+			got := ReserveEligibleUAH(c.set, c.src, c.amount, c.principal, c.amount)
 			if got != c.want {
 				t.Errorf("дозволено %.2f, чекали %.2f", got, c.want)
 			}
@@ -110,7 +110,7 @@ func routeReserveDoc(fillFrom string) *state.Doc {
 	return doc
 }
 
-func routeOnce(doc *state.Doc, flows ...readyFlow) routeDoc {
+func routeOnce(doc *state.Doc, flows ...readyFlow) RouteDoc {
 	return buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		routeInc("mono", money.UAH, flows...),
 		routePlans(30000), nil, allocRates, nil, nil, routeToday)
@@ -196,11 +196,11 @@ func TestRouteFirstLegEqualsAllocateWithSource(t *testing.T) {
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1", len(got.Legs))
 	}
-	want := allocatePlan(doc, sug, allocRates,
-		toMoneyJSON(money.New(500000, money.UAH)), 5000,
-		allocAllow{
-			ReserveUAH: reserveEligibleUAH(doc.Settings, allocFromPortfolio, 5000, 3000, 5000),
-			GoalsUAH:   goalsEligibleUAH(doc.Settings, allocFromPortfolio, 5000, 3000, 5000),
+	want := AllocatePlan(doc, sug, allocRates,
+		ToMoneyJSON(money.New(500000, money.UAH)), 5000,
+		AllocAllow{
+			ReserveUAH: ReserveEligibleUAH(doc.Settings, AllocFromPortfolio, 5000, 3000, 5000),
+			GoalsUAH:   GoalsEligibleUAH(doc.Settings, AllocFromPortfolio, 5000, 3000, 5000),
 		}, money.UAH, nil)
 
 	if got.Legs[0].Reserve == nil || want.Reserve == nil {
@@ -281,8 +281,8 @@ func TestPlanAheadSplitsMonthAcrossFlows(t *testing.T) {
 				i, got.Date, got.Label, got.Amount, w.date, w.label, w.amount)
 		}
 	}
-	if flows[0].Basis != basisPlan {
-		t.Errorf("основа %q, чекали %q", flows[0].Basis, basisPlan)
+	if flows[0].Basis != BasisPlan {
+		t.Errorf("основа %q, чекали %q", flows[0].Basis, BasisPlan)
 	}
 	if flows[0].Ref != "" || flows[0].Kind != "" || flows[0].Principal != 0 {
 		t.Errorf("планова нога несе зайве: ref=%q kind=%q principal=%d",
@@ -400,7 +400,7 @@ func TestPlanAheadCurrentMonthSkipsPastAndMarked(t *testing.T) {
 		planFlow(3, "зарплата А", "2026-01-15", 10000),
 		planFlow(4, "зарплата Б", "2026-01-21", 10000),
 	}}
-	key := monthKeyAt(today, 0)
+	key := MonthKeyAt(today, 0)
 	plans := map[string]*state.MonthPlan{key: {
 		Month: key, PlanUAH: state.UAH(4_000_000), PlanReserveUAH: state.UAH(4_000_000),
 		PlanGoalsUAH: state.UAH(4_000_000), LeftUAH: state.UAH(1_234_567),
@@ -459,7 +459,7 @@ func TestRoutePlanLegCarriesItsOwnUses(t *testing.T) {
 	}
 
 	doc := routeReserveDoc("any")
-	inc := incomeAhead{store.BrokerCur{Broker: noBrokerLabel, Currency: money.UAH}: flows}
+	inc := incomeAhead{store.BrokerCur{Broker: NoBrokerLabel, Currency: money.UAH}: flows}
 	got := buildRoute(doc, nil, inc, routePlans(40000), nil, allocRates, nil, nil, routeToday)
 	if len(got.Legs) != 2 {
 		t.Fatalf("ніг маршруту %d, чекали 2", len(got.Legs))
@@ -510,7 +510,7 @@ func TestPlanAheadLegsAreDeterministic(t *testing.T) {
 func TestPlanAheadCurrentMonthCarriesOwnShare(t *testing.T) {
 	src := &sources{planFlows: []store.PlanFlow{planFlow(1, "зарплата", "2026-01-29", 40000)}}
 	plans := routePlans(30000)
-	key := monthKeyAt(routeToday, 0)
+	key := MonthKeyAt(routeToday, 0)
 	// Дозволені суми дорівнюють плану: цей тест про політику, а не про
 	// дозвіл джерела (для нього — TestPlanLegCappedByAllowedPlan).
 	plans[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(30000, money.UAH),
@@ -534,7 +534,7 @@ func TestPlanAheadCurrentMonthIgnoresDeposits(t *testing.T) {
 		planFlow(2, "зарплата", "2026-01-30", 4500),
 	}}
 	plans := routePlans(9000)
-	key := monthKeyAt(routeToday, 0)
+	key := MonthKeyAt(routeToday, 0)
 	plans[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(9000, money.UAH),
 		PlanReserveUAH: state.Major(9000, money.UAH), PlanGoalsUAH: state.Major(9000, money.UAH), LeftUAH: state.Major(6799, money.UAH)}
 
@@ -555,7 +555,7 @@ func TestPlanAheadCurrentMonthIgnoresDeposits(t *testing.T) {
 func TestPlanAheadExtraIsNotSpread(t *testing.T) {
 	src := &sources{planFlows: []store.PlanFlow{planFlow(1, "зарплата", "2026-01-29", 10000)}}
 	plans := routePlans(12000)
-	key := monthKeyAt(routeToday, 0)
+	key := MonthKeyAt(routeToday, 0)
 	plans[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(12000, money.UAH), ExtraUAH: state.Major(2000, money.UAH),
 		PlanReserveUAH: state.Major(12000, money.UAH), PlanGoalsUAH: state.Major(12000, money.UAH)}
 
@@ -584,10 +584,10 @@ func TestPlanAheadSilentWithoutFlows(t *testing.T) {
 func TestRoutePlanLegHasItsOwnPot(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	plan := routeFlow("2026-09-17", 600, "план місяця")
-	plan.Basis = basisPlan
+	plan.Basis = BasisPlan
 
 	inc := routeInc("mono", money.UAH, routeFlow("2026-09-10", 600, "UA0001"))
-	inc[store.BrokerCur{Broker: noBrokerLabel, Currency: money.UAH}] = []readyFlow{plan}
+	inc[store.BrokerCur{Broker: NoBrokerLabel, Currency: money.UAH}] = []readyFlow{plan}
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		inc, routePlans(0), nil, allocRates, nil, nil, routeToday)
@@ -623,13 +623,13 @@ func TestRouteEndpointSeesPlanIncome(t *testing.T) {
 	}
 
 	_, body := do(t, "GET", srv.URL+"/api/route", "")
-	var got routeDoc
+	var got RouteDoc
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatalf("маршрут не розбирається: %v — %s", err, body)
 	}
-	var plan *routeLeg
+	var plan *RouteLeg
 	for i := range got.Legs {
-		if got.Legs[i].Basis == basisPlan {
+		if got.Legs[i].Basis == BasisPlan {
 			plan = &got.Legs[i]
 			break
 		}
@@ -637,7 +637,7 @@ func TestRouteEndpointSeesPlanIncome(t *testing.T) {
 	if plan == nil {
 		t.Fatalf("планової ноги в маршруті немає: %s", body)
 	}
-	if plan.Broker != noBrokerLabel {
+	if plan.Broker != NoBrokerLabel {
 		t.Errorf("планова нога в брокера %q — планових грошей у брокера ще немає", plan.Broker)
 	}
 	if plan.Ref != "" {
@@ -700,11 +700,11 @@ func TestRoutePlanLegCappedByAllowedPlan(t *testing.T) {
 	doc.ReserveUAH = state.Major(30000, money.UAH)
 
 	plan := routeFlow("2026-09-17", 6000, "план місяця")
-	plan.Basis = basisPlan
-	inc := incomeAhead{store.BrokerCur{Broker: noBrokerLabel, Currency: money.UAH}: {plan}}
+	plan.Basis = BasisPlan
+	inc := incomeAhead{store.BrokerCur{Broker: NoBrokerLabel, Currency: money.UAH}: {plan}}
 
 	plans := routePlans(6000)
-	key := monthKeyAt(routeToday, 1)
+	key := MonthKeyAt(routeToday, 1)
 	// Із 6 000 ₴ місяця подушці дозволено лише 1 500: решта — дохід,
 	// позначений «не в подушку».
 	plans[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(6000, money.UAH),
@@ -744,7 +744,7 @@ func TestRouteMonthCeilingBindsCouponToo(t *testing.T) {
 
 	inc := routeInc("mono", money.UAH, routeFlow("2026-09-10", 6000, "UA0001"))
 	plans := routePlans(6000)
-	key := monthKeyAt(routeToday, 1)
+	key := MonthKeyAt(routeToday, 1)
 	plans[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(6000, money.UAH),
 		PlanReserveUAH: state.Major(0, money.UAH), PlanGoalsUAH: state.Major(6000, money.UAH)}
 

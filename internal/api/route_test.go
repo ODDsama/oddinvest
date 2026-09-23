@@ -21,7 +21,7 @@ var routeToday = domain.Date("2026-08-27")
 
 func fptr(v float64) *float64 { return &v }
 
-// routeDoc-и тут будуються тим самим allocDoc, що й у тестах розкладки, і
+// RouteDoc-и тут будуються тим самим allocDoc, що й у тестах розкладки, і
 // це не економія: маршрут читає з документа РІВНО те саме, що розкладка, і
 // другий будівник документа мовчки дозволив би їм розійтись.
 func routeSettings(expenses, months, fillSharePct float64) *state.SettingsDoc {
@@ -52,7 +52,7 @@ func routeInc(broker, cur string, flows ...readyFlow) incomeAhead {
 func routePlans(planUAH float64) map[string]*state.MonthPlan {
 	out := map[string]*state.MonthPlan{}
 	for m := 0; m <= routeHorizonMonths; m++ {
-		key := monthKeyAt(routeToday, m)
+		key := MonthKeyAt(routeToday, m)
 		// Без обмежень за дозволом: підмножини дорівнюють плану, тобто
 		// поведінка, яку ці тести й описують.
 		out[key] = &state.MonthPlan{Month: key, PlanUAH: state.Major(planUAH, money.UAH),
@@ -66,7 +66,7 @@ func routePlans(planUAH float64) map[string]*state.MonthPlan {
 // Перша нога маршруту дорівнює розкладці на ту саму суму.
 //
 // ЦЕ І Є ДОКАЗ, що власної арифметики в маршруті немає жодної: подушка,
-// бюджети видів і порядок беруться з allocatePlan, а не рахуються вдруге.
+// бюджети видів і порядок беруться з AllocatePlan, а не рахуються вдруге.
 // Той самий прийом, яким закріплено «порожня гіпотеза whatif == /api/summary».
 //
 // Порівняння через JSON, а не по полях: саме в такому вигляді обидві
@@ -92,9 +92,9 @@ func TestRouteFirstLegEqualsAllocate(t *testing.T) {
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1: %+v", len(got.Legs), got)
 	}
-	want := allocatePlan(doc, sug, allocRates,
-		toMoneyJSON(money.New(500000, money.UAH)), 5000,
-		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
+	want := AllocatePlan(doc, sug, allocRates,
+		ToMoneyJSON(money.New(500000, money.UAH)), 5000,
+		AllocAllow{ReserveUAH: 5000, GoalsUAH: 5000}, money.UAH, nil)
 
 	gotJSON, _ := json.Marshal(got.Legs[0].allocPlan)
 	wantJSON, _ := json.Marshal(want)
@@ -127,9 +127,9 @@ func TestAllocateFloorKeepsFirstLegEqualToAllocate(t *testing.T) {
 		t.Fatalf("поріг не спрацював — фікстура його більше не зачіпає: %+v",
 			got.Legs[0].Lines)
 	}
-	want := allocatePlan(doc, sug, allocRates,
-		toMoneyJSON(money.New(400, money.UAH)), 4,
-		allocAllow{ReserveUAH: 4, GoalsUAH: 4}, money.UAH, npfOne)
+	want := AllocatePlan(doc, sug, allocRates,
+		ToMoneyJSON(money.New(400, money.UAH)), 4,
+		AllocAllow{ReserveUAH: 4, GoalsUAH: 4}, money.UAH, npfOne)
 
 	gotJSON, _ := json.Marshal(got.Legs[0].allocPlan)
 	wantJSON, _ := json.Marshal(want)
@@ -328,7 +328,7 @@ func TestRouteKindDeficitShrinks(t *testing.T) {
 	sug := []suggestion{
 		bondSug("UA0001", 1000, money.UAH),
 		{Kind: "fund", Label: "ІНЖУР", Currency: money.UAH,
-			CostPerBond: toMoneyJSON(money.New(100000, money.UAH)),
+			CostPerBond: ToMoneyJSON(money.New(100000, money.UAH)),
 			RealPct:     8.1, Reason: "сертифікат"},
 	}
 	got := buildRoute(doc, sug,
@@ -340,7 +340,7 @@ func TestRouteKindDeficitShrinks(t *testing.T) {
 	if len(got.Legs) != 2 {
 		t.Fatalf("ніг %d, чекали 2", len(got.Legs))
 	}
-	bondsIn := func(leg routeLeg) float64 {
+	bondsIn := func(leg RouteLeg) float64 {
 		v := 0.0
 		for _, l := range leg.Lines {
 			if l.Kind == "bond" {
@@ -509,7 +509,7 @@ func TestRouteEndpointEmptyDB(t *testing.T) {
 // куди веде політика.
 //
 // Тест наскрізний навмисно — між buildRoute і людиною стоять ще чотири
-// кроки (buildState, рейтинг, джерела, futureIncome), і кожен із них уміє
+// кроки (BuildState, рейтинг, джерела, futureIncome), і кожен із них уміє
 // віддати порожнечу, яку модульний тест не побачить.
 func TestRouteEndpointSeesScheduledCoupon(t *testing.T) {
 	srv, st := testServer(t)
@@ -521,7 +521,7 @@ func TestRouteEndpointSeesScheduledCoupon(t *testing.T) {
 	}
 
 	_, body := do(t, "GET", srv.URL+"/api/route", "")
-	var got routeDoc
+	var got RouteDoc
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatalf("маршрут не розбирається: %v — %s", err, body)
 	}
@@ -583,12 +583,12 @@ func TestRouteEndpointInReportCurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	route := func() routeDoc {
+	route := func() RouteDoc {
 		resp, body := do(t, "GET", srv.URL+"/api/route", "")
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("маршрут: %d %s", resp.StatusCode, body)
 		}
-		var got routeDoc
+		var got RouteDoc
 		if err := json.Unmarshal([]byte(body), &got); err != nil {
 			t.Fatalf("маршрут не розбирається: %v — %s", err, body)
 		}
@@ -755,12 +755,12 @@ func TestFundBrokerIsMajorityAndTieIsNobody(t *testing.T) {
 		{Fund: "REIT", Kind: domain.FundBuy, Broker: "inzhur", Amount: 200_00},
 		{Fund: "REIT", Kind: domain.FundBuy, Broker: "mono", Amount: 200_00},
 	}
-	if got := fundBroker(tie, "REIT"); got != noBrokerLabel {
+	if got := fundBroker(tie, "REIT"); got != NoBrokerLabel {
 		t.Errorf("нічия дала %q, чекали %q — вгадувати навмання не можна",
-			got, noBrokerLabel)
+			got, NoBrokerLabel)
 	}
-	if got := fundBroker(nil, "REIT"); got != noBrokerLabel {
-		t.Errorf("без операцій %q, чекали %q", got, noBrokerLabel)
+	if got := fundBroker(nil, "REIT"); got != NoBrokerLabel {
+		t.Errorf("без операцій %q, чекали %q", got, NoBrokerLabel)
 	}
 }
 
@@ -774,7 +774,7 @@ func TestFundBrokerIsMajorityAndTieIsNobody(t *testing.T) {
 // й у черги задач.
 func TestAnnotatePlannedPinWindow(t *testing.T) {
 	line := allocLine{Kind: "bond", Ref: "UA0001", Addable: true}
-	legs := []routeLeg{
+	legs := []RouteLeg{
 		{Date: "2026-09-10", Broker: "mono", Currency: money.UAH,
 			allocPlan: allocPlan{Lines: []allocLine{line}}},
 		{Date: "2027-06-10", Broker: "mono", Currency: money.UAH,
@@ -795,7 +795,7 @@ func TestAnnotatePlannedPinWindow(t *testing.T) {
 // У вкладу такого рядка немає взагалі (allocLine.Addable), і кнопка, яка
 // нічого не записує, гірша за її відсутність.
 func TestAnnotatePlannedNeedsAddableLine(t *testing.T) {
-	legs := []routeLeg{
+	legs := []RouteLeg{
 		{Date: "2026-09-10", Broker: "ПУМБ", Currency: money.UAH,
 			allocPlan: allocPlan{Lines: []allocLine{{Kind: "deposit", Addable: false}}}},
 		{Date: "2026-09-11", Broker: "mono", Currency: money.UAH,
@@ -816,7 +816,7 @@ func TestAnnotatePlannedNeedsAddableLine(t *testing.T) {
 // закріплений рядок читалась би як «усе вирішено».
 func TestAnnotatePlannedMatchesDateBrokerCurrency(t *testing.T) {
 	line := allocLine{Kind: "bond", Ref: "UA0001", Addable: true}
-	legs := []routeLeg{
+	legs := []RouteLeg{
 		{Date: "2026-09-10", Broker: "mono", Currency: money.UAH,
 			allocPlan: allocPlan{Lines: []allocLine{line}}},
 		{Date: "2026-09-10", Broker: "inzhur", Currency: money.UAH,
@@ -859,8 +859,8 @@ func TestAnnotatePlannedMatchesDateBrokerCurrency(t *testing.T) {
 // тиснути без кінця (спіймано вживу на нозі авансу).
 func TestAnnotatePlannedMatchesPlanLegWithoutBroker(t *testing.T) {
 	line := allocLine{Kind: "bond", Ref: "UA0001", Addable: true}
-	legs := []routeLeg{
-		{Date: "2026-09-07", Broker: noBrokerLabel, Currency: money.UAH,
+	legs := []RouteLeg{
+		{Date: "2026-09-07", Broker: NoBrokerLabel, Currency: money.UAH,
 			allocPlan: allocPlan{Lines: []allocLine{line}}},
 		{Date: "2026-09-07", Broker: "mono", Currency: money.UAH,
 			allocPlan: allocPlan{Lines: []allocLine{line}}},
@@ -941,9 +941,9 @@ func TestRouteFirstLegEqualsAllocateWithPick(t *testing.T) {
 	if len(got.Legs) != 1 {
 		t.Fatalf("ніг %d, чекали 1", len(got.Legs))
 	}
-	want := allocatePlan(doc, sug, allocRates,
-		toMoneyJSON(money.New(500000, money.UAH)), 5000,
-		allocAllow{ReserveUAH: 5000, GoalsUAH: 5000, PickISIN: "UA0002"}, money.UAH, nil)
+	want := AllocatePlan(doc, sug, allocRates,
+		ToMoneyJSON(money.New(500000, money.UAH)), 5000,
+		AllocAllow{ReserveUAH: 5000, GoalsUAH: 5000, PickISIN: "UA0002"}, money.UAH, nil)
 
 	gotJSON, _ := json.Marshal(got.Legs[0].allocPlan)
 	wantJSON, _ := json.Marshal(want)

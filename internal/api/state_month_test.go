@@ -623,7 +623,7 @@ func TestActualPaceCountsOutsideReserve(t *testing.T) {
 		{Date: d(-2), Amount: 50_000, Currency: money.UAH, Place: "сейф"},
 	}}
 	got, months := paceOf(t, now, src)
-	want := round2(500 / paceMonths(d(-2), today))
+	want := Round2(500 / paceMonths(d(-2), today))
 	if got != want {
 		t.Errorf("темп %.2f, очікували %.2f — резерв без жодного поповнення гаманця мусить давати темп сам", got, want)
 	}
@@ -644,7 +644,7 @@ func TestActualPaceReserveSpendLowersPace(t *testing.T) {
 		{Date: d(-2), Amount: -50_000, Currency: money.UAH, Place: "готівка", Note: "на вет клініку"},
 	}}
 	got, _ := paceOf(t, now, src)
-	want := round2(1500 / paceMonths(d(-60), today))
+	want := Round2(1500 / paceMonths(d(-60), today))
 	if got != want {
 		t.Errorf("темп %.2f, очікували %.2f — витрата з резерву мусить зменшити нетто", got, want)
 	}
@@ -667,7 +667,7 @@ func TestActualPaceWindowCoversAllJournals(t *testing.T) {
 		{Date: d(-184), Amount: 100_000, Currency: money.UAH, Place: "сейф"},
 	}}
 	got, _ := paceOf(t, now, tooOld)
-	if want := round2(2000 / paceMonths(d(-10), today)); got != want {
+	if want := Round2(2000 / paceMonths(d(-10), today)); got != want {
 		t.Errorf("темп %.2f, очікували %.2f — рух за 184 дні до вікна не входить", got, want)
 	}
 
@@ -675,7 +675,7 @@ func TestActualPaceWindowCoversAllJournals(t *testing.T) {
 		{Date: d(-183), Amount: 100_000, Currency: money.UAH, Place: "сейф"},
 	}}
 	got, months := paceOf(t, now, onEdge)
-	if want := round2(3000 / paceMonths(d(-183), today)); got != want {
+	if want := Round2(3000 / paceMonths(d(-183), today)); got != want {
 		t.Errorf("темп %.2f, очікували %.2f — рух на 183-й день у вікні, і він же найстаріший", got, want)
 	}
 	if months != 7 {

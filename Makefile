@@ -132,7 +132,7 @@ boundaries:
 	@$(MAKE) --no-print-directory present-boundary
 
 # Відповідь із грішми (state.Money) іде на дріт ЛИШЕ через презентер:
-# обробник, що пише writeJSON без s.present, віддав би гривню під
+# обробник, що пише writeJSON без s.Present, віддав би гривню під
 # валютою звітності — саме та тиха помилка, заради якої шар і заведено
 # (internal/present). Знімок (jobs) презентера не бачить навмисно, і це
 # стереже TestSnapshotNeverPresents.
@@ -145,8 +145,8 @@ boundaries:
 .PHONY: present-boundary
 present-boundary:
 	@for f in $$(grep -l 'state\.Money' internal/api/handlers_*.go); do \
-		grep -q 'writeJSON(' "$$f" && ! grep -q 's\.present(' "$$f" \
-			&& { echo "$$f: гроші на дріт повз презентер — додай s.present перед writeJSON"; exit 1; }; \
+		grep -q 'writeJSON(' "$$f" && ! grep -q 's\.Present(' "$$f" \
+			&& { echo "$$f: гроші на дріт повз презентер — додай s.Present перед writeJSON"; exit 1; }; \
 	done; true
 	@! grep -lE '\bwrite(JSON|Err)\(|http\.ResponseWriter' internal/api/*.go \
 		| grep -vE '/(handlers_[a-z_]+|auth|health|httputil|hub|security|server|static)\.go$$|_test\.go$$' \
@@ -213,9 +213,10 @@ sleeve-state:
 # сьогодні насправді.
 .PHONY: whatif-boundary
 whatif-boundary:
-	@! grep -rn 'hypothetical' internal/api/*.go \
-		| grep -vE 'state_builder\.go|handlers_whatif\.go|state_plan_buys\.go|handlers_policy_preview\.go|handlers_fx_shock\.go|_test\.go' \
-		|| { echo 'гіпотеза протікає повз buildStateWith: у MQTT і знімок іде реальний стан'; exit 1; }
+	@! grep -rnE '\b(Hypothetical|HypoRates|HypoSettings|BuildStateWith)\b' internal/api/*.go \
+		| grep -vE '^[^:]+:[0-9]+:\s*//' \
+		| grep -vE 'state_builder\.go|state_plan_buys\.go|handlers_policy_preview\.go|handlers_fx_shock\.go|_test\.go' \
+		|| { echo 'гіпотеза протікає повз BuildStateWith: у MQTT і знімок іде реальний стан'; exit 1; }
 
 # Лінійка порядку порад (номінальна замість реальної) — ЛИШЕ на екрані.
 #

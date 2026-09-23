@@ -63,8 +63,8 @@ func TestYearMoneyAgreesWithCashflowAndDays(t *testing.T) {
 	}
 	// Дні несуть свої гроші РАЗОМ із подушкою (own_uah), а не лише
 	// гаманець (contributed_uah).
-	if round2(contrib) != m.OwnUAH.Major() || round2(income) != m.IncomeUAH.Major() ||
-		round2(purchase) != m.PurchaseUAH.Major() {
+	if Round2(contrib) != m.OwnUAH.Major() || Round2(income) != m.IncomeUAH.Major() ||
+		Round2(purchase) != m.PurchaseUAH.Major() {
 		t.Errorf("дні (%v/%v/%v) не сходяться зі статтями %+v", contrib, income, purchase, m)
 	}
 	if got.EarnedUAH.Major()+got.PrincipalUAH.Major() != m.IncomeUAH.Major() {

@@ -83,19 +83,19 @@ func (s *Server) handleAuctionsCurve(w http.ResponseWriter, r *http.Request) {
 	for _, p := range cur {
 		row := curveRow{
 			Currency: p.Currency, Bucket: p.Bucket, Days: p.Days,
-			Pct:  round2(float64(p.IncomeBP) / 100),
+			Pct:  Round2(float64(p.IncomeBP) / 100),
 			Date: string(p.Date), ISIN: p.ISIN,
-			MinPct: round2(float64(p.MinBP) / 100),
-			MaxPct: round2(float64(p.MaxBP) / 100),
-			Demand: round2(float64(p.BTCx100) / 100),
-			Sold:   round2(float64(p.SoldMinor) / 100),
+			MinPct: Round2(float64(p.MinBP) / 100),
+			MaxPct: Round2(float64(p.MaxBP) / 100),
+			Demand: Round2(float64(p.BTCx100) / 100),
+			Sold:   Round2(float64(p.SoldMinor) / 100),
 		}
 		// Порівнюємо лише з ІНШИМ розміщенням: коли за рік нового не
 		// було, «тоді» і «зараз» — це один і той самий аукціон, і два
 		// однакові стовпчики поруч читались би як «нічого не змінилось»,
 		// хоч насправді нічого й не вимірювалось.
 		if q, ok := was[p.Currency+"|"+p.Bucket]; ok && q.Date != p.Date {
-			row.PrevPct = round2(float64(q.IncomeBP) / 100)
+			row.PrevPct = Round2(float64(q.IncomeBP) / 100)
 			row.PrevDate = string(q.Date)
 		}
 		out = append(out, row)

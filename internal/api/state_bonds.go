@@ -1,6 +1,6 @@
 // Облігаційна частина — номінал і дохідність до погашення.
 //
-// Шоста фаза розбиття buildState.
+// Шоста фаза розбиття BuildState.
 //
 // Дохідність тут — ДО ПОГАШЕННЯ (YTM) від того, що фактично сплачено, і
 // зважена вкладеними грішми. Раніше на її місці стояло «річний купон ÷
@@ -26,10 +26,10 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-// ytmLot — лот у вигляді, який розуміє розрахунок дохідності: собівартість
+// YTMLot — лот у вигляді, який розуміє розрахунок дохідності: собівартість
 // одного паперу — «брудна» ціна плюс частка комісії. Комісія теж з'їдає
 // дохідність, тож ховати її означало б завищувати результат.
-func ytmLot(l domain.Lot, qty int64) domain.YTMLot {
+func YTMLot(l domain.Lot, qty int64) domain.YTMLot {
 	cost := l.PricePerBond
 	if fee, err := domain.Apportion(l.Fee, 1, l.Qty); err == nil && !fee.IsZero() {
 		if c2, aerr := cost.Add(fee); aerr == nil {
@@ -102,7 +102,7 @@ func buildBonds(hold domain.Holdings, pays []domain.Payment,
 			out.NominalUAH += n.Amount()
 			out.NominalByISIN[l.ISIN] += n.Amount()
 		}
-		lot := ytmLot(l.Lot, q)
+		lot := YTMLot(l.Lot, q)
 		cost := lot.CostPerBond
 		ytmLotsByCur[cur] = append(ytmLotsByCur[cur], lot)
 		// Для зведеної цифри вагу переводимо в гривню, щоб валюти
@@ -118,7 +118,7 @@ func buildBonds(hold domain.Holdings, pays []domain.Payment,
 				// готову суміш на знецінення: знецінення торкається лише
 				// гривневих рукавів, і поділ суміші цілком занизив би
 				// доларову частину.
-				ytmWeightedRealUAH += float64(w.Amount()) * realYield(y/100, cur, deval) * 100
+				ytmWeightedRealUAH += float64(w.Amount()) * RealYield(y/100, cur, deval) * 100
 			}
 		}
 	}
@@ -130,7 +130,7 @@ func buildBonds(hold domain.Holdings, pays []domain.Payment,
 	for cur, ls := range ytmLotsByCur {
 		if y, ok := domain.WeightedYTM(ls, pays); ok {
 			out.YieldByCur[cur] = math.Round(y*100) / 100
-			out.YieldRealByCur[cur] = round2(realYield(y/100, cur, deval) * 100)
+			out.YieldRealByCur[cur] = Round2(RealYield(y/100, cur, deval) * 100)
 		}
 	}
 	// Номінал по валютах у грн-екв. — переводиться тут, а не в капіталі,
@@ -221,7 +221,7 @@ func (m *yieldMix) result() (nominal, real, base float64, basis string) {
 		// за спільну означало б збрехати саме там, де людина звіряється.
 		basis = "різні основи"
 	}
-	return round2(m.nom / m.weight), round2(m.real / m.weight), round2(m.weight), basis
+	return Round2(m.nom / m.weight), Round2(m.real / m.weight), Round2(m.weight), basis
 }
 
 // halves — той самий вид ДВОМА доданками для зведеної по видах: заробленою
@@ -262,8 +262,8 @@ func (m *yieldMix) split() *state.YieldSplit {
 		return nil
 	}
 	return &state.YieldSplit{
-		MeasuredRealPct: round2(m.mReal / m.mWeight), MeasuredUAH: state.Major(m.mWeight, money.UAH),
-		PromisedRealPct: round2(m.pReal / m.pWeight), PromisedUAH: state.Major(m.pWeight, money.UAH),
+		MeasuredRealPct: Round2(m.mReal / m.mWeight), MeasuredUAH: state.Major(m.mWeight, money.UAH),
+		PromisedRealPct: Round2(m.pReal / m.pWeight), PromisedUAH: state.Major(m.pWeight, money.UAH),
 	}
 }
 

@@ -186,7 +186,7 @@ type receiptRow struct {
 	FlowID    int64       `json:"flow_id"`
 	Month     string      `json:"month"`
 	Name      string      `json:"name"`
-	Amount    moneyJSON   `json:"amount"`
+	Amount    MoneyJSON   `json:"amount"`
 	InvestPct float64     `json:"invest_pct"`
 	GivesUAH  state.Money `json:"gives_uah"`
 	// Uses — дозвіл, ЧИННИЙ для цієї відмітки: у прив'язаної він приходить
@@ -196,7 +196,7 @@ type receiptRow struct {
 	Note string   `json:"note,omitempty"`
 }
 
-// expectedReceipt — очікувана виплата одного потоку в одному місяці: рядок
+// ExpectedReceipt — очікувана виплата одного потоку в одному місяці: рядок
 // чеклиста «Надходження місяця».
 //
 // Розгортається з плану, а не зберігається: очікування — це і є план,
@@ -207,12 +207,12 @@ type receiptRow struct {
 // Receipt — відмітка, якщо вона вже стоїть. Порожнє поле означає «місяць
 // ще не відмічено», і це третій стан поруч із «прийшло» та «не прийшло»:
 // плутати його з нулем не можна ніде, ні тут, ні в історії.
-type expectedReceipt struct {
+type ExpectedReceipt struct {
 	FlowID  int64       `json:"flow_id"`
 	Name    string      `json:"name"`
 	Month   string      `json:"month"`
 	DueDate string      `json:"due_date"`
-	Amount  moneyJSON   `json:"amount"`
+	Amount  MoneyJSON   `json:"amount"`
 	PlanUAH state.Money `json:"plan_uah"`
 	Uses    []string    `json:"uses,omitempty"`
 	Receipt *receiptRow `json:"receipt,omitempty"`
@@ -229,7 +229,7 @@ type timelineDoc struct {
 	Profile       *planProfile         `json:"profile,omitempty"`
 	History       []planHistoryPoint   `json:"history,omitempty"`
 	FlowRevisions []flowRevisionRow    `json:"flow_revisions,omitempty"`
-	Expected      []expectedReceipt    `json:"expected,omitempty"`
+	Expected      []ExpectedReceipt    `json:"expected,omitempty"`
 	Receipts      []receiptRow         `json:"receipts,omitempty"`
 }
 
@@ -245,15 +245,15 @@ const profileMaxPoints = 120
 const profileFundMonths = 720
 
 // buildPlanProfile розгортає потоки в помісячні суми на тому самому
-// ядрі, що й проєкція з колонкою «дає ₴/міс» (planFlowMonthlyUAH) — тож
+// ядрі, що й проєкція з колонкою «дає ₴/міс» (PlanFlowMonthlyUAH) — тож
 // третього означення надходжень не з'являється, і форма на картинці не
 // може розійтися з числом над нею.
-func buildPlanProfile(flows []store.PlanFlow, marks planMarks, today, to domain.Date,
+func buildPlanProfile(flows []store.PlanFlow, marks PlanMarks, today, to domain.Date,
 	rates fx.Rates, cashflow []domain.CashflowItem) *planProfile {
 	if len(flows) == 0 {
 		return nil
 	}
-	months := monthOffsetRaw(today, to)
+	months := MonthOffsetRaw(today, to)
 	if months < 12 {
 		months = 12
 	}
@@ -274,7 +274,7 @@ func buildPlanProfile(flows []store.PlanFlow, marks planMarks, today, to domain.
 		if cf.Type == domain.PayRedemption {
 			continue // повернення тіла — подія, не дохід (див. profileEvent)
 		}
-		mi := monthOffsetRaw(today, cf.Date)
+		mi := MonthOffsetRaw(today, cf.Date)
 		if mi < 1 || mi > months {
 			continue
 		}
@@ -298,9 +298,9 @@ func buildPlanProfile(flows []store.PlanFlow, marks planMarks, today, to domain.
 			// картинка стрибала б від вибору кроку, а не від плану.
 			var sum float64
 			for k := 0; k < step; k++ {
-				sum += planFlowMonthlyUAH(f, today, rates, m+k, marks)
+				sum += PlanFlowMonthlyUAH(f, today, rates, m+k, marks)
 			}
-			v := round2(sum / float64(step))
+			v := Round2(sum / float64(step))
 			pt.Values[i] = state.Major(v, money.UAH)
 			pt.Net = pt.Net.Add(state.Major(v, money.UAH))
 		}
@@ -318,14 +318,14 @@ func buildPlanProfile(flows []store.PlanFlow, marks planMarks, today, to domain.
 // ще не користувались стільки часу.
 const planHistoryMonths = 12
 
-// monthKeyAt — календарний місяць, зсунутий на m від today, як "YYYY-MM".
+// MonthKeyAt — календарний місяць, зсунутий на m від today, як "YYYY-MM".
 //
 // Рахується арифметикою над роком і місяцем, а НЕ через Date.AddMonths: та
 // має Go-семантику переповнення (31 березня мінус місяць = 3 березня), і
 // ключ місяця з неї часом виходив би не тим. Тут та сама формула, що і в
-// monthOffsetRaw, тільки в інший бік — тож місяць, який monthOffsetRaw
+// MonthOffsetRaw, тільки в інший бік — тож місяць, який MonthOffsetRaw
 // називає m-им, і місяць, який називає ним ця функція, завжди один і той же.
-func monthKeyAt(today domain.Date, m int) string {
+func MonthKeyAt(today domain.Date, m int) string {
 	tot := today.Year()*12 + int(today.Month()) - 1 + m
 	return fmt.Sprintf("%04d-%02d", tot/12, tot%12+1)
 }
@@ -432,9 +432,9 @@ func buildPlanHistory(flows []store.PlanFlow, deposits []store.Deposit,
 	if len(flows) == 0 && len(deposits) == 0 && len(receipts) == 0 {
 		return nil
 	}
-	marks := newPlanMarks(receipts)
-	first := monthKeyAt(today, -planHistoryMonths)
-	last := monthKeyAt(today, -1)
+	marks := NewPlanMarks(receipts)
+	first := MonthKeyAt(today, -planHistoryMonths)
+	last := MonthKeyAt(today, -1)
 
 	actual := map[string]float64{}
 	addMove := func(d domain.Date, amount int64, cur string) {
@@ -485,7 +485,7 @@ func buildPlanHistory(flows []store.PlanFlow, deposits []store.Deposit,
 
 	out := make([]planHistoryPoint, 0, planHistoryMonths)
 	for k := planHistoryMonths; k >= 1; k-- {
-		key := monthKeyAt(today, -k)
+		key := MonthKeyAt(today, -k)
 		// Стан плану беремо на КІНЕЦЬ місяця: питання «скільки план давав
 		// у травні» про травень цілком, а не про якийсь його день.
 		asOf := monthEnd(key)
@@ -518,7 +518,7 @@ func buildPlanHistory(flows []store.PlanFlow, deposits []store.Deposit,
 			if r.FlowID != 0 || r.Month != key {
 				continue
 			}
-			recv += planFlowUAH(float64(r.Amount)/100*float64(r.InvestBP)/10000, r.Currency, rates)
+			recv += PlanFlowUAH(float64(r.Amount)/100*float64(r.InvestBP)/10000, r.Currency, rates)
 			marked = true
 		}
 		out = append(out, planHistoryPoint{
@@ -545,7 +545,7 @@ func buildPlanHistory(flows []store.PlanFlow, deposits []store.Deposit,
 // будь-якого знака m. Різниця між напрямками часу вже означена в
 // planFlowNative/planFlowNativePast (підтягувати дату початку чи ні); тут
 // лише вибір між ними, щоб чеклист не робив цього вибору в трьох місцях.
-func planFlowAtMonth(f store.PlanFlow, today domain.Date, m int, marks planMarks) float64 {
+func planFlowAtMonth(f store.PlanFlow, today domain.Date, m int, marks PlanMarks) float64 {
 	if m >= 1 {
 		return planFlowNative(f, today, m, marks)
 	}
@@ -570,13 +570,13 @@ func receiptDueDate(month string, day int) string {
 	return fmt.Sprintf("%04d-%02d-%02d", y, mo, day)
 }
 
-// receiptRows — відмітки для UI.
+// ReceiptRows — відмітки для UI.
 //
 // Частка в портфель для прив'язаної відмітки береться з ТЕПЕРІШНЬОГО
 // потоку, а не з його тодішньої ревізії, і це свідома межа: цей список
 // живить чеклист, тобто розмову про «зараз». Історія, де точність
 // важлива, рахує свою частку сама й із planAsOf — див. buildPlanHistory.
-func receiptRows(rs []store.PlanReceipt, flows []store.PlanFlow, rates fx.Rates) []receiptRow {
+func ReceiptRows(rs []store.PlanReceipt, flows []store.PlanFlow, rates fx.Rates) []receiptRow {
 	share := map[int64]int64{}
 	uses := map[int64]string{}
 	for _, f := range flows {
@@ -598,9 +598,9 @@ func receiptRows(rs []store.PlanReceipt, flows []store.PlanFlow, rates fx.Rates)
 		}
 		out = append(out, receiptRow{
 			ID: r.ID, FlowID: r.FlowID, Month: r.Month, Name: r.Name,
-			Amount:    toMoneyJSON(money.New(r.Amount, r.Currency)),
-			InvestPct: round2(float64(bp) / 100),
-			GivesUAH:  state.Major(planFlowUAH(float64(r.Amount)/100*float64(bp)/10000, r.Currency, rates), money.UAH),
+			Amount:    ToMoneyJSON(money.New(r.Amount, r.Currency)),
+			InvestPct: Round2(float64(bp) / 100),
+			GivesUAH:  state.Major(PlanFlowUAH(float64(r.Amount)/100*float64(bp)/10000, r.Currency, rates), money.UAH),
 			Uses:      domain.PlanUsesList(use),
 			Note:      r.Note,
 		})
@@ -614,7 +614,7 @@ func receiptRows(rs []store.PlanReceipt, flows []store.PlanFlow, rates fx.Rates)
 // — це і є план, і копія його неминуче розійшлась би з оригіналом після
 // першої ж правки суми.
 //
-// Вікно [-planHistoryMonths, +planProvidesMonths] обране не круглим числом,
+// Вікно [-planHistoryMonths, +PlanProvidesMonths] обране не круглим числом,
 // а двома наявними межами: назад — рівно те, що показує «План проти факту»
 // (глибше відмічати нема куди, стовпчика все одно не буде), уперед — рівно
 // вікно, за яким усереднюється «План дає» (далі відмітка на плитку вже не
@@ -624,7 +624,7 @@ func receiptRows(rs []store.PlanReceipt, flows []store.PlanFlow, rates fx.Rates)
 // в травневий рядок сьогоднішню зарплату означало б пропонувати відмітити
 // суму, якої тоді не було.
 func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
-	revs []store.PlanFlowRevision, today domain.Date, rates fx.Rates) []expectedReceipt {
+	revs []store.PlanFlowRevision, today domain.Date, rates fx.Rates) []ExpectedReceipt {
 	if len(flows) == 0 && len(revs) == 0 {
 		return nil
 	}
@@ -634,9 +634,9 @@ func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
 			byKey[markKey{flow: r.FlowID, month: r.Month}] = r
 		}
 	}
-	var out []expectedReceipt
-	for m := -planHistoryMonths; m <= planProvidesMonths; m++ {
-		key := monthKeyAt(today, m)
+	var out []ExpectedReceipt
+	for m := -planHistoryMonths; m <= PlanProvidesMonths; m++ {
+		key := MonthKeyAt(today, m)
 		src := flows
 		if m < 0 {
 			if asOf := planAsOf(revs, monthEnd(key)); len(revs) > 0 && !revs[0].ChangedAt.After(monthEnd(key)) {
@@ -649,7 +649,7 @@ func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
 			if f.Kind != "income" {
 				continue
 			}
-			// Валова сума — тим самим фокусом, що й planFlowGrossUAH: копія
+			// Валова сума — тим самим фокусом, що й PlanFlowGrossUAH: копія
 			// потоку зі 100% частки. І БЕЗ відміток: чеклист показує, скільки
 			// план ОБІЦЯВ, інакше вже відмічений рядок пропонував би звірити
 			// суму сам із собою.
@@ -659,15 +659,15 @@ func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
 			if amt == 0 {
 				continue // цього місяця потік мовчить — відмічати нема чого
 			}
-			e := expectedReceipt{
+			e := ExpectedReceipt{
 				FlowID: f.ID, Name: f.Name, Month: key,
 				DueDate: receiptDueDate(key, f.FromDate.Day()),
-				Amount:  toMoneyJSON(money.New(int64(math.Round(amt*100)), f.Currency)),
-				PlanUAH: state.Major(planFlowUAH(amt*float64(f.InvestBP)/10000, f.Currency, rates), money.UAH),
+				Amount:  ToMoneyJSON(money.New(int64(math.Round(amt*100)), f.Currency)),
+				PlanUAH: state.Major(PlanFlowUAH(amt*float64(f.InvestBP)/10000, f.Currency, rates), money.UAH),
 				Uses:    domain.PlanUsesList(f.Uses),
 			}
 			if r, ok := byKey[markKey{flow: f.ID, month: key}]; ok {
-				row := receiptRows([]store.PlanReceipt{r}, flows, rates)[0]
+				row := ReceiptRows([]store.PlanReceipt{r}, flows, rates)[0]
 				e.Receipt = &row
 			}
 			out = append(out, e)
@@ -685,7 +685,7 @@ func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
 // випускає симуляція.
 func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 	refs []store.Fund, npfRows []state.NPFPositionRow, npfAccounts []domain.NPFAccount,
-	flows []store.PlanFlow, marks planMarks,
+	flows []store.PlanFlow, marks PlanMarks,
 	today, to domain.Date, rates fx.Rates) []profileEvent {
 	var out []profileEvent
 	for _, cf := range cashflow {
@@ -724,7 +724,7 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 		if close < today || close > to {
 			continue
 		}
-		closeM := monthOffsetRaw(today, close)
+		closeM := MonthOffsetRaw(today, close)
 		if closeM < 1 {
 			continue
 		}
@@ -761,12 +761,12 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 		if access < today || access > to {
 			continue
 		}
-		closeM := monthOffsetRaw(today, access)
+		closeM := MonthOffsetRaw(today, access)
 		if closeM < 1 {
 			continue
 		}
 		// Внески з плану — тим самим ядром, що живить проєкцію
-		// (planFlowMonthlyUAH), а не власною арифметикою: періодичність,
+		// (PlanFlowMonthlyUAH), а не власною арифметикою: періодичність,
 		// індексація й відмітки надходжень мусять діяти однаково, інакше
 		// подія на осі й крива капіталу розійшлися б саме там, де людина
 		// щось у плані змінила.
@@ -780,7 +780,7 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 				contrib = make([]float64, closeM)
 			}
 			for m := 1; m <= closeM; m++ {
-				if v := planFlowMonthlyUAH(fl, today, rates, m, marks); v < 0 {
+				if v := PlanFlowMonthlyUAH(fl, today, rates, m, marks); v < 0 {
 					contrib[m-1] += -v
 				}
 			}
@@ -813,14 +813,14 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 	return out
 }
 
-// planTimeline — документ стрічки плану (GET /api/plan). Той самий buildState, що й
+// PlanTimeline — документ стрічки плану (GET /api/plan). Той самий BuildState, що й
 // /api/summary (тож дедлайн цілі, крива й точка незалежності — ті самі
 // числа, що й на «Майбутньому»), плюс сирі терміни інструментів, яких у
 // state.Doc немає: вони потрібні лише картинці, а не сутностям HA.
-func (e *engine) planTimeline(ctx context.Context, now time.Time) (timelineDoc, error) {
+func (e *Engine) PlanTimeline(ctx context.Context, now time.Time) (timelineDoc, error) {
 	today := domain.NewDate(now)
 
-	doc, err := e.buildState(ctx, now)
+	doc, err := e.BuildState(ctx, now)
 	if err != nil {
 		return timelineDoc{}, err
 	}
@@ -833,11 +833,11 @@ func (e *engine) planTimeline(ctx context.Context, now time.Time) (timelineDoc, 
 	if err != nil {
 		return timelineDoc{}, err
 	}
-	lots, sales, bonds, pays, err := e.portfolio(ctx)
+	lots, sales, bonds, pays, err := e.Portfolio(ctx)
 	if err != nil {
 		return timelineDoc{}, err
 	}
-	arrived, err := e.arrived(ctx, today)
+	arrived, err := e.Arrived(ctx, today)
 	if err != nil {
 		return timelineDoc{}, err
 	}
@@ -845,7 +845,7 @@ func (e *engine) planTimeline(ctx context.Context, now time.Time) (timelineDoc, 
 	if err != nil {
 		return timelineDoc{}, err
 	}
-	rates, err := e.rates(ctx)
+	rates, err := e.Rates(ctx)
 	if err != nil {
 		return timelineDoc{}, err
 	}
@@ -891,7 +891,7 @@ func (e *engine) planTimeline(ctx context.Context, now time.Time) (timelineDoc, 
 	// Відмітки надходжень. Ковтаємо з тієї ж причини, що й усе вище:
 	// невідмічений план — звичайний стан, а не поламана стрічка.
 	receipts, _ := e.st.ListPlanReceipts(ctx) //nolint:errcheck
-	marks := newPlanMarks(receipts)
+	marks := NewPlanMarks(receipts)
 
 	out := timelineDoc{From: string(today)}
 
@@ -971,7 +971,7 @@ func (e *engine) planTimeline(ctx context.Context, now time.Time) (timelineDoc, 
 		snaps, revs, receipts, today, rates)
 	out.FlowRevisions = flowRevisionRows(revs)
 	out.Expected = buildExpectedReceipts(flows, receipts, revs, today, rates)
-	out.Receipts = receiptRows(receipts, flows, rates)
+	out.Receipts = ReceiptRows(receipts, flows, rates)
 
 	out.Milestones = append(out.Milestones, timelineMilestone{Date: string(today), Label: "сьогодні"})
 	if doc.Forecast != nil && doc.Forecast.Date != "" {

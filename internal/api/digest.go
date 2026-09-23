@@ -11,14 +11,14 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-// digestFX — курсова переоцінка валютної частини капіталу.
+// DigestFX — курсова переоцінка валютної частини капіталу.
 //
 // Обсяг береться НИНІШНІЙ (частки з документа стану), бо обсягу на
 // початок вікна застосунок не зберігає: у знімку є частка долара й немає
 // євро. Похибка при цьому в один бік і названа: гроші, що зайшли
 // всередині вікна, порахуються повним рухом курсу.
-func (e *engine) digestFX(ctx context.Context, from domain.Date) (float64, string) {
-	doc, err := e.buildState(ctx, time.Now())
+func (e *Engine) DigestFX(ctx context.Context, from domain.Date) (float64, string) {
+	doc, err := e.BuildState(ctx, time.Now())
 	if err != nil || doc == nil {
 		return 0, "курс не пораховано: стан не зібрався"
 	}
@@ -49,7 +49,7 @@ func (e *engine) digestFX(ctx context.Context, from domain.Date) (float64, strin
 	}
 	why := "переоцінка НИНІШНЬОГО валютного обсягу: " + joinSemi(parts) +
 		". Обсягу на початок вікна застосунок не зберігає, тож гроші, що зайшли всередині, пораховані повним рухом курсу"
-	return round2(total), why
+	return Round2(total), why
 }
 
 func fx4(e4 int64) string { return fmt.Sprintf("%.2f", float64(e4)/10000) }

@@ -29,7 +29,7 @@ const (
 	inflMinDays = 8 * 365
 )
 
-// measuredInflation — річний темп зростання цін із ряду НБУ.
+// MeasuredInflation — річний темп зростання цін із ряду НБУ.
 //
 // Вікно відлічується від ОСТАННЬОЇ ТОЧКИ РЯДУ назад, а не від сьогодні:
 // ІСЦ виходить із затримкою 8-10 днів, і «десять років від сьогодні» дало
@@ -39,7 +39,7 @@ const (
 //
 // Повертає ще й межі вікна: картка мусить сказати, ЯКИМ відрізком міряно,
 // інакше «10.6%/рік» неможливо ні перевірити, ні зрозуміти.
-func (e *engine) measuredInflation(ctx context.Context) (pct float64, from, to string, ok bool) {
+func (e *Engine) MeasuredInflation(ctx context.Context) (pct float64, from, to string, ok bool) {
 	pts, err := e.st.CPISince(ctx, "")
 	if err != nil || len(pts) < 2 {
 		return 0, "", "", false
@@ -63,7 +63,7 @@ func (e *engine) measuredInflation(ctx context.Context) (pct float64, from, to s
 	if err != nil {
 		return 0, "", "", false
 	}
-	start := firstAtOrAfter(levels, string(lastDate.AddMonths(-12 * inflWindowYears))[:7])
+	start := FirstAtOrAfter(levels, string(lastDate.AddMonths(-12 * inflWindowYears))[:7])
 	if start == "" {
 		return 0, "", "", false
 	}
@@ -75,18 +75,18 @@ func (e *engine) measuredInflation(ctx context.Context) (pct float64, from, to s
 	if !ok {
 		return 0, "", "", false
 	}
-	return round2(v), start, last, true
+	return Round2(v), start, last, true
 }
 
 // inflation — інфляція, з якою рахує застосунок: виміряна або ніякої.
-func (e *engine) inflation(ctx context.Context) (float64, bool) {
-	pct, _, _, ok := e.measuredInflation(ctx)
+func (e *Engine) inflation(ctx context.Context) (float64, bool) {
+	pct, _, _, ok := e.MeasuredInflation(ctx)
 	return pct, ok
 }
 
-// firstAtOrAfter — перший місяць ряду, не давніший за want. Порожньо, коли
+// FirstAtOrAfter — перший місяць ряду, не давніший за want. Порожньо, коли
 // таких немає.
-func firstAtOrAfter(levels []domain.CPILevel, want string) string {
+func FirstAtOrAfter(levels []domain.CPILevel, want string) string {
 	for _, l := range levels {
 		if l.Period >= want {
 			return l.Period

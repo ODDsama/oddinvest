@@ -48,7 +48,7 @@ type quoteRow struct {
 	Mine string `json:"mine,omitempty"`
 	// Price — та сама ціна грошима. Мінорні одиниці поруч лишаються, бо на
 	// них тримається порівняння, а гроші — щоб екран не ділив на сто сам.
-	Price moneyJSON `json:"price"`
+	Price MoneyJSON `json:"price"`
 }
 
 type quotesDoc struct {
@@ -70,21 +70,21 @@ type quoteSource struct {
 
 // handleListQuotes — увесь відомий зріз цін.
 func (s *Server) handleListQuotes(w http.ResponseWriter, r *http.Request) {
-	book, err := s.quotesFor(r.Context(), nil, domain.NewDate(time.Now()))
+	book, err := s.QuotesFor(r.Context(), nil, domain.NewDate(time.Now()))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	doc := quotesDoc{FetchedAt: book.fetchedAt, Rows: []quoteRow{}}
+	doc := quotesDoc{FetchedAt: book.FetchedAt, Rows: []quoteRow{}}
 	seen := map[string]bool{}
-	for _, q := range book.all {
-		doc.Rows = append(doc.Rows, quoteRow{Quote: q, Mine: book.mine[q.Source], Price: toMoneyJSON(q.Money())})
+	for _, q := range book.All {
+		doc.Rows = append(doc.Rows, quoteRow{Quote: q, Mine: book.Mine[q.Source], Price: ToMoneyJSON(q.Money())})
 		seen[q.Source] = true
 	}
 	// Зіставлені джерела показуються навіть тоді, коли ціни від них ще
 	// немає: інакше форма зіставлення була б порожня рівно доти, доки не
 	// натиснуто кнопку, і виглядало б це як поломка зіставлення.
-	for src := range book.mine {
+	for src := range book.Mine {
 		seen[src] = true
 	}
 	// І ВІДОМІ ПРОДАВЦІ — ТЕЖ, НАВІТЬ КОЛИ ЦІН ЩЕ НЕМА ЖОДНОЇ.
@@ -99,7 +99,7 @@ func (s *Server) handleListQuotes(w http.ResponseWriter, r *http.Request) {
 	}
 	for src := range seen {
 		doc.Sources = append(doc.Sources, quoteSource{
-			Key: src, Label: finomo.KnownSellers[src], Mine: book.mine[src],
+			Key: src, Label: finomo.KnownSellers[src], Mine: book.Mine[src],
 		})
 	}
 	sort.Slice(doc.Sources, func(i, j int) bool { return doc.Sources[i].Key < doc.Sources[j].Key })
@@ -121,7 +121,7 @@ func (s *Server) handleRefreshQuotes(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(isins) == 0 {
 		writeErr(w, http.StatusBadRequest,
-			badRequestf("немає паперів, для яких питати ціну: ані в портфелі, ані в порадах"))
+			BadRequestf("немає паперів, для яких питати ціну: ані в портфелі, ані в порадах"))
 		return
 	}
 	res, err := s.ref.RefreshQuotes(ctx, isins)
@@ -156,12 +156,12 @@ func (s *Server) quoteISINs(ctx context.Context, now time.Time) ([]string, error
 	// Свої папери — тим самим завантаженням, що й сторінка позицій: другий
 	// спосіб дізнатись «що я тримаю» розійшовся б із першим рівно на
 	// погашених паперах.
-	lots, sales, bonds, pays, err := s.portfolio(ctx)
+	lots, sales, bonds, pays, err := s.Portfolio(ctx)
 	if err != nil {
 		return nil, err
 	}
 	today := domain.NewDate(now)
-	arrived, err := s.arrived(ctx, today)
+	arrived, err := s.Arrived(ctx, today)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ func (s *Server) handleSetManualQuote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b == nil {
-		writeErr(w, http.StatusBadRequest, badRequestf("паперу %q немає в довіднику", req.ISIN))
+		writeErr(w, http.StatusBadRequest, BadRequestf("паперу %q немає в довіднику", req.ISIN))
 		return
 	}
 	cur := strings.ToUpper(strings.TrimSpace(req.Currency))
@@ -229,14 +229,14 @@ func (s *Server) handleSetManualQuote(w http.ResponseWriter, r *http.Request) {
 		cur = b.Nominal.Currency().Code
 	}
 	if cur != b.Nominal.Currency().Code {
-		writeErr(w, http.StatusBadRequest, badRequestf(
+		writeErr(w, http.StatusBadRequest, BadRequestf(
 			"%s випущений у %s — ціна в %s стосується іншого паперу",
 			isin, b.Nominal.Currency().Code, cur))
 		return
 	}
 	minor, err := domain.ParseDecimalToMinor(req.Price, cur)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, badRequestf("ціна: %v", err))
+		writeErr(w, http.StatusBadRequest, BadRequestf("ціна: %v", err))
 		return
 	}
 	date := domain.Date(strings.TrimSpace(req.Date))
@@ -264,7 +264,7 @@ func (s *Server) handleDeleteManualQuote(w http.ResponseWriter, r *http.Request)
 	date := domain.Date(r.URL.Query().Get("date"))
 	if source == "" || date == "" {
 		writeErr(w, http.StatusBadRequest,
-			badRequestf("вкажіть продавця й дату: ?source=…&date=YYYY-MM-DD"))
+			BadRequestf("вкажіть продавця й дату: ?source=…&date=YYYY-MM-DD"))
 		return
 	}
 	if err := s.st.DeleteManualQuote(r.Context(), isin, source, date); err != nil {
