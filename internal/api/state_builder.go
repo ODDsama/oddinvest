@@ -50,10 +50,9 @@ const defaultTerminalRatePct = 11.0
 const defaultGlideYears = 5.0
 
 // xirrMinMoneyDays — з якого середньозваженого віку грошей публікується
-// XIRR. Доводи за сам поріг — біля місця, де він застосовується; тут він
-// іменем, бо їде в документ стану (RealizedRow.MinDays) і звідти в
-// пояснення на екрані. Літерал у двох місцях розійшовся б.
-const xirrMinMoneyDays = 30
+// XIRR. Іменем тут, бо їде в документ стану (RealizedRow.MinDays) і звідти
+// в пояснення на екрані; саме число одне на застосунок — domain.XIRRMinMoneyDays.
+const xirrMinMoneyDays = domain.XIRRMinMoneyDays
 
 // round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
 func round2(v float64) float64 { return math.Round(v*100) / 100 }
@@ -1159,7 +1158,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// навіть >30 днів нерівномірні потоки дають артефакти (сотні %);
 		// реалізована дохідність портфеля ОВДП поза смугою -95%..+100%
 		// — це шум ануалізації, а не сигнал, тож не публікуємо.
-		if r, err := domain.XIRR(flows); err == nil && r <= 1.0 && r >= -0.95 {
+		if r, err := domain.XIRR(flows); err == nil && domain.XIRRPlausible(r) {
 			xirr[cur] = math.Round(r*10000) / 100 // частка -> %, 2 знаки
 		}
 	}

@@ -35,7 +35,7 @@ func TestSleevesMatchSingleCurrencyWhenNoDevaluation(t *testing.T) {
 	s.Coupon, s.Redeem = coupon, redeem
 
 	got := ProjectSleeves([]Sleeve{s}, 0, 24)
-	want := ProjectCapital(1000, 10000, 5000, 1000, 15, coupon, redeem, 24)
+	want := runSteps(1000, 10000, 5000, 1000, 15, coupon, redeem, 24)
 
 	approx(t, "TodayUAH", got.TodayUAH, want, 0.01)
 	approx(t, "NominalUAH", got.NominalUAH, want, 0.01)

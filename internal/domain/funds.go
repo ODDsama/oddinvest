@@ -371,15 +371,9 @@ func FundPositions(ops []FundOp, marks []FundPrice) map[string]*FundPosition {
 	return out
 }
 
-// Мінімальний вік грошей і смуга правдоподібності для ануалізації —
-// ті самі, що й у портфельного XIRR. Три дні тримання з приростом 0.4%
-// дають 60% річних, і це не дохідність, а арифметика ділення на малий
-// строк.
-const (
-	fundReturnMinDays = 30.0
-	fundReturnMax     = 1.0
-	fundReturnMin     = -0.95
-)
+// Мінімальний вік грошей і смуга правдоподібності для ануалізації — ті
+// самі, що й у портфельного XIRR, і тепер буквально: XIRRMinMoneyDays,
+// XIRRPlausible (xirr.go).
 
 // ReturnMeasurable — чи є взагалі ЩО міряти повною дохідністю.
 //
@@ -438,11 +432,11 @@ func FundTotalReturn(ops []FundOp, marks []FundPrice, fund string, asOf Date) (f
 	if len(flows) < 2 {
 		return 0, false
 	}
-	if MoneyWeightedDays(flows, asOf) < fundReturnMinDays {
+	if MoneyWeightedDays(flows, asOf) < XIRRMinMoneyDays {
 		return 0, false
 	}
 	r, err := XIRR(flows)
-	if err != nil || r > fundReturnMax || r < fundReturnMin {
+	if err != nil || !XIRRPlausible(r) {
 		return 0, false
 	}
 	return math.Round(r*10000) / 100, true
@@ -555,7 +549,7 @@ func FundPriceReturn(points []FundPrice, asOf Date) (float64, bool) {
 		return 0, false
 	}
 	r := (math.Pow(growth, 365.0/float64(days)) - 1) * 100
-	if r > fundReturnMax*100 || r < fundReturnMin*100 {
+	if !XIRRPlausible(r / 100) {
 		return 0, false
 	}
 	return math.Round(r*100) / 100, true

@@ -275,7 +275,7 @@ func decisionActual(d store.Decision, lotByID map[int64]domain.Lot,
 	rate, err := domain.XIRR(flows)
 	// Клапан на безглузді корені — той самий, що в total_return: XIRR на
 	// коротких і рваних потоках буває збіжним і при цьому нікчемним.
-	if err != nil || rate > 1.0 || rate < -0.95 {
+	if err != nil || !domain.XIRRPlausible(rate) {
 		return 0, "ще зарано міряти", false
 	}
 	return round2(realYield(rate, cur, deval) * 100), "за фактом виплат", true

@@ -266,7 +266,7 @@ func NPFFlows(p NPFPosition, ops []NPFOp, asOf Date) []Flow {
 
 // npfNavReturnMinDays — коротший відрізок ануалізувати не варто: два дні
 // різниці ЧВОПА, розтягнуті на рік, дають тризначні відсотки. Та сама
-// причина, що в fundReturnMinDays.
+// причина, що в XIRRMinMoneyDays.
 const npfNavReturnMinDays = 180
 
 // NPFNavReturn — зростання ЧВОПА, % річних складних: дохідність САМОГО

@@ -129,7 +129,7 @@ func (s *Server) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 		return out
 	}
 	r, err := domain.XIRR(flows)
-	if err != nil || r > 1.0 || r < -0.95 {
+	if err != nil || !domain.XIRRPlausible(r) {
 		return out
 	}
 	pct := round2(r * 100)
