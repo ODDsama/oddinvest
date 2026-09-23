@@ -312,11 +312,16 @@ func (d Deposit) interestDates() []Date {
 	default:
 		return []Date{d.MaturityDate} // end: одна виплата в кінці
 	}
+	// Від ПОЧАТКОВОЇ дати, з притиском до кінця місяця: вклад від 31-го
+	// платить 28 (29) лютого, 31 березня, 30 квітня — а не 3 березня й далі
+	// третього числа, як давав ланцюжок AddMonths із переповненням.
 	var dates []Date
-	cur := d.OpenDate.AddMonths(step)
-	for cur.Before(d.MaturityDate) {
+	for k := 1; ; k++ {
+		cur := d.OpenDate.AddMonthsClamp(k * step)
+		if !cur.Before(d.MaturityDate) {
+			break
+		}
 		dates = append(dates, cur)
-		cur = cur.AddMonths(step)
 	}
 	dates = append(dates, d.MaturityDate)
 	return dates
@@ -501,12 +506,16 @@ func DepositLadder(deposits []Deposit, asOf Date) []LadderEntry {
 func (d Deposit) compoundInterest() int64 {
 	base := d.Principal
 	prev := d.OpenDate
-	cur := d.OpenDate.AddMonths(1)
-	for cur.Before(d.MaturityDate) {
+	// Той самий графік місяців, що й у виплат (interestDates): від початкової
+	// дати з притиском до кінця місяця.
+	for k := 1; ; k++ {
+		cur := d.OpenDate.AddMonthsClamp(k)
+		if !cur.Before(d.MaturityDate) {
+			break
+		}
 		base += simpleInterest(base, d.RateBP, DaysBetween(prev, cur))
 		base += d.topupsBetween(prev, cur)
 		prev = cur
-		cur = cur.AddMonths(1)
 	}
 	base += simpleInterest(base, d.RateBP, DaysBetween(prev, d.MaturityDate))
 	base += d.topupsBetween(prev, d.MaturityDate)

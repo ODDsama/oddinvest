@@ -229,3 +229,28 @@ func TestDepositCapitalizationWithTopups(t *testing.T) {
 		t.Errorf("накопичене тіло: маємо %d, хочемо 20000000", got)
 	}
 }
+
+// Вклад, відкритий 31-го, платить в останній день кожного місяця, а не
+// дрейфує на третє число.
+//
+// Графік будувався ланцюжком cur.AddMonths(1) з Go-переповненням: 31.01 →
+// 03.03 → 03.04 → … → 03.01. Лютневої виплати не було, решта йшли на три дні
+// пізніше, а грудневі відсотки опинялись у наступному податковому році.
+func TestDepositMonthEndPaysLastDayOfMonth(t *testing.T) {
+	d := Deposit{Currency: "UAH", Principal: 100_000_00, RateBP: 1500,
+		OpenDate: "2025-01-31", MaturityDate: "2026-01-31", Payout: PayoutMonthly, TaxBP: 2300}
+	var got []string
+	for _, cf := range d.interestFlows() {
+		got = append(got, string(cf.Date))
+	}
+	want := []string{"2025-02-28", "2025-03-31", "2025-04-30", "2025-05-31", "2025-06-30", "2025-07-31",
+		"2025-08-31", "2025-09-30", "2025-10-31", "2025-11-30", "2025-12-31", "2026-01-31"}
+	if len(got) != len(want) {
+		t.Fatalf("виплат %d, чекали %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("виплата %d: %s, чекали %s", i+1, got[i], want[i])
+		}
+	}
+}
