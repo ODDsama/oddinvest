@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 	// База часових зон — у бінарнику. Без неї LoadLocation залежить від
@@ -138,6 +139,17 @@ func main() {
 			filepath.Join(dataDir, "portfolios", p.Slug, "oddinvest-backup.json"))
 		own.SetPresenter(sat.PresentDoc)
 		fleet.Add(p.Slug, own)
+		// Публікатор сателіта живе до видалення портфеля. Доти stop лише
+		// відвʼязував його від Runner-а: зʼєднання з брокером лишалось
+		// відкритим до рестарту, а retained «online» і останній стан —
+		// назавжди, тож HA показував живий портфель, якого вже немає.
+		// Гонитва врахована: портфель можуть видалити раніше, ніж горутина
+		// нижче встигне підключитись, — тоді вона сама й прибирає.
+		var (
+			pubMu   sync.Mutex
+			pub     *mqtt.Publisher
+			retired bool
+		)
 		if cfg.MQTTAddr != "" {
 			go func() {
 				sp, err := mqtt.New(cfg.MQTTAddr, cfg.MQTTUser, cfg.MQTTPass,
@@ -146,6 +158,14 @@ func main() {
 					log.Error("mqtt сателіта", "slug", p.Slug, "err", err)
 					return
 				}
+				pubMu.Lock()
+				if retired {
+					pubMu.Unlock()
+					sp.Retire()
+					return
+				}
+				pub = sp
+				pubMu.Unlock()
 				own.SetPublisher(sp)
 				if err := own.PublishState(ctx); err != nil {
 					log.Warn("стартова публікація сателіта", "slug", p.Slug, "err", err)
@@ -155,6 +175,13 @@ func main() {
 		return jobs.Satellite{Main: runner, Own: own}, func() {
 			fleet.Remove(p.Slug)
 			own.SetPublisher(nil)
+			pubMu.Lock()
+			retired = true
+			sp := pub
+			pubMu.Unlock()
+			if sp != nil {
+				sp.Retire()
+			}
 		}
 	}
 	hub := api.NewHub(st, srv, log, spawn)

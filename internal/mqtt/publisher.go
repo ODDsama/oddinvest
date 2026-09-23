@@ -53,3 +53,14 @@ func (p *Publisher) Close() {
 	p.c.Publish(p.prefix+"/availability", 1, true, "offline").WaitTimeout(3 * time.Second)
 	p.c.Disconnect(250)
 }
+
+// Retire — публікатор портфеля, якого більше НЕМАЄ: те саме, що Close,
+// плюс стерти retained-стан. Close лишає останній документ на брокері
+// навмисно (рестарт сервісу не має гасити сенсори до першої публікації),
+// а для видаленого портфеля це привид: Home Assistant при кожному
+// перепідключенні отримував би знову стан, якого вже не існує. Порожній
+// retained-payload — спосіб MQTT стерти повідомлення з топіка.
+func (p *Publisher) Retire() {
+	p.c.Publish(p.prefix+"/state", 1, true, []byte{}).WaitTimeout(3 * time.Second)
+	p.Close()
+}
