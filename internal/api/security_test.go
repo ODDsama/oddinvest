@@ -55,3 +55,18 @@ func TestBodyOverLimitRejected(t *testing.T) {
 		t.Errorf("тіло понад %d байт прийнято: %d", maxBodyBytes, resp.StatusCode)
 	}
 }
+
+// /healthz відповідає без сесії, з версією збірки й останньою міграцією:
+// саме це звіряє lxc-deploy.sh після підміни бінарника.
+func TestHealthzWithoutSessionReportsVersionAndMigration(t *testing.T) {
+	srv, _ := testHub(t)
+	resp, body := doP(t, "GET", srv.URL+"/healthz", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("healthz: %d %s", resp.StatusCode, body)
+	}
+	for _, want := range []string{`"status":"ok"`, `"version":"` + Version + `"`, `"migration":"00`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("healthz не містить %s: %s", want, body)
+		}
+	}
+}

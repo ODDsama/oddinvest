@@ -22,6 +22,8 @@ SRC=/opt/oddinvest-src
 BIN=/usr/local/bin/oddinvestd
 REV="${1:-main}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/}"
+# /healthz з версією — для НОВОГО бінарника (internal/api/health.go).
+HEALTHZ_URL="${HEALTHZ_URL:-http://127.0.0.1:8080/healthz}"
 
 # Git у хуку виставляє GIT_DIR=. — з ним checkout у чуже робоче дерево
 # піде не туди. Обидва шляхи задаємо явно й лише через цю обгортку.
@@ -111,7 +113,10 @@ fi
 # збірки завершує скрипт тут (set -e), живий бінарник не чіпається.
 cd "$SRC"
 echo "-- збірка"
-go build -o "$BIN.new" ./cmd/oddinvestd
+# Версія збірки — коротке sha коміту: /healthz віддає її назад, і
+# перевірка нижче переконується, що відповідає саме НОВИЙ бінарник.
+ver="$(printf '%s' "$sha" | cut -c1-7)"
+go build -ldflags "-X github.com/ODDsama/oddinvest/internal/api.Version=$ver"   -o "$BIN.new" ./cmd/oddinvestd
 
 # ---------- підміна + restart ----------
 if [ -x "$BIN" ]; then
@@ -121,9 +126,22 @@ mv -f "$BIN.new" "$BIN"
 systemctl restart oddinvestd
 
 # ---------- перевірка ----------
-# 200 на «/» — не просто «процес живий»: main.go відкриває сховище (і
-# проганяє міграції) ДО ListenAndServe, тож відповідь означає, що
-# міграції пройшли і сервер слухає. Окремого /api/health немає навмисно.
+# НОВИЙ бінарник — через /healthz: 200 означає, що база відповідає
+# (пінг + остання міграція), а версія в тілі має збігтись із щойно
+# зібраним комітом — тобто відповідає саме він, а не щось інше на порту.
+#
+# 200 на «/» лишається для ВІДКОТУ: попередній бінарник може бути старшим
+# за /healthz. Він теж щось доводить — main.go відкриває сховище й
+# проганяє міграції ДО ListenAndServe, тож відповідь означає, що процес
+# піднявся на цій базі.
+healthy_new() {
+  local _
+  for _ in $(seq 1 30); do
+    curl -fsS "$HEALTHZ_URL" 2>/dev/null | grep -q "\"version\":\"$ver\"" && return 0
+    sleep 0.5
+  done
+  return 1
+}
 healthy() {
   local _
   for _ in $(seq 1 30); do
@@ -133,13 +151,13 @@ healthy() {
   return 1
 }
 
-if healthy; then
+if healthy_new; then
   echo "health: ok"
   echo "== на бойовому: $(g log -1 --oneline "$sha")"
   exit 0
 fi
 
-echo "!! health: сервер не відповів на $HEALTH_URL за 15 с"
+echo "!! health: $HEALTHZ_URL не віддав версію $ver за 15 с"
 journalctl -u oddinvestd -n 20 --no-pager || true
 
 # Відкат бінарника — не відкат схеми: down-міграцій немає

@@ -321,6 +321,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/remote/cert", s.handleRemoteCert)
 	mux.HandleFunc("POST /api/remote/disconnect", s.handleRemoteDisconnect)
 
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	// Статика з ETag і gzip (static.go); свіжість, як і доти, — noCache.
 	mux.Handle("GET /", noCache(staticHandler()))
 	return mux

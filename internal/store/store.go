@@ -1164,6 +1164,18 @@ func (s *Store) RateMonthCount(ctx context.Context, code string) (int, error) {
 	return n, err
 }
 
+// Health — пінг бази й остання застосована міграція (для /healthz).
+func (s *Store) Health(ctx context.Context) (string, error) {
+	if err := s.db.PingContext(ctx); err != nil {
+		return "", err
+	}
+	var v sql.NullString
+	if err := s.db.QueryRowContext(ctx, `SELECT MAX(version) FROM schema_migrations`).Scan(&v); err != nil {
+		return "", err
+	}
+	return v.String, nil
+}
+
 // LatestRateDate — дата останнього збереженого курсу валюти; порожня, якщо
 // курсу немає зовсім. Курс береться «останній будь-якої давності»
 // (LatestRate), тож його вік мусить бути видно окремо — інакше тиждень
