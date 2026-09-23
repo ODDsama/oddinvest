@@ -39,7 +39,7 @@ type Runner struct {
 	// позначку і тягнули ті самі дні з НБУ двічі. По черзі другий бачить
 	// уже оновлену позначку й робить майже нічого.
 	refreshMu sync.Mutex
-	build func(ctx context.Context, now time.Time) (*state.Doc, error)
+	build     func(ctx context.Context, now time.Time) (*state.Doc, error)
 	// present — переклад документа у валюту звітності (api.Server.PresentDoc).
 	// Кличеться ЛИШЕ в PublishState, і це не забудькуватість, а межа:
 	// Snapshot читає сирий документ, бо знімок мусить лишатись у гривні —
