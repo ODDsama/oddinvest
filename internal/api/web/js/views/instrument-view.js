@@ -51,6 +51,7 @@ import { depositFormHTML } from "./deposits.js";
 import { npfDetailHTML } from "../npf.js";
 import {
   reserveTilesHTML, reserveJournalHTML, reserveFormHTML, reserveFields, reserveBody,
+  reserveLoanEditFields, reserveLoanBody,
 } from "./money-cards.js";
 import { reinvestHTML, reserveFillHTML, wireReinvest, loadReinvest } from "./now-view.js";
 import { kindTasksHTML } from "./tasks.js";
@@ -443,6 +444,16 @@ export async function reservePane(ctx, main) {
       add: "Рух резерву записано", edit: "Рух резерву виправлено",
       del: "Рух видалено",
     },
+  });
+  // Позики — у плитках «Стан». Форми додавання в них немає: позика
+  // народжується галочкою на знятті у формі руху.
+  wireCrud(ctx, main, {
+    resource: "reserve-loans", path: (id) => "reserve/loans/" + id,
+    title: "Позика", rows: ((ctx.summary || {}).reserve || {}).loans || [],
+    fields: reserveLoanEditFields, body: reserveLoanBody,
+    confirm: (l) => `Зняти з руху від ${l.date} статус позики? Сам рух лишиться в журналі, `
+      + "а ціль подушки перестане рости на її відсоток.",
+    msg: { edit: "Позику виправлено", del: "Позику знято" },
   });
   wireRefs(main);
   wireDisclosures(main);

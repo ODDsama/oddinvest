@@ -125,7 +125,7 @@ export function reserveTilesHTML(ctx) {
       <div class="tile"><div class="lbl">Відкладено</div>
         <div class="val">${fmtUAH(r.uah || 0)}</div>
         ${byCur.length > 1 ? `<div class="sub">${byCur.map(([c, v]) =>
-    fmtCur(v, curSym(c))).join(" · ")}</div>` : ""}</div>
+    fmtCur(v, c)).join(" · ")}</div>` : ""}</div>
       <div class="tile"><div class="lbl">Вистачить на</div>
         <div class="val">${months ? `${monthsNum(months)} міс.` : "—"}</div>
         <div class="sub">${months
@@ -181,7 +181,7 @@ function reserveLoansHTML(r) {
   const overdue = loans.filter((l) => l.overdue).length;
   const rows = loans.map((l) => {
     const taken = l.currency
-      ? `${fmtCur(l.taken_native, curSym(l.currency))} (${fmtUAH(l.taken_uah)})`
+      ? `${fmtCur(l.taken_native, l.currency)} (${fmtUAH(l.taken_uah)})`
       : fmtUAH(l.taken_uah);
     const due = l.due_date
       ? (l.overdue
@@ -192,7 +192,8 @@ function reserveLoansHTML(r) {
       l.note ? ` — ${esc(l.note)}` : ""}${due}</span>`
       + `<span>${fmtUAH(l.owed_uah)} · ${l.days} ${
         plural(l.days, "день", "дні", "днів")} під ${pct(l.rate_pct)} → ${
-        fmtUAH(l.interest_uah)}</span></div>`;
+        fmtUAH(l.interest_uah)} ${rowActions("reserve-loans", l.id,
+        { label: "позику від " + l.date })}</span></div>`;
   }).join("");
   return `<div class="note">
     <b${overdue ? ' class="t-danger"' : ""}>Винен подушці ${fmtUAH(owed)}</b> —
@@ -361,6 +362,27 @@ function reserveLoanFields(ctx, row) {
   ];
 }
 
+/** Правка позики: ставка, строк і нотатка — усе, що в неї можна змінити.
+ *
+ *  Суми й дати тут немає, і це не пропуск: вони належать РУХУ, з якого
+ *  позика виросла, і правляться в журналі рухів. Позика лише каже, під
+ *  який відсоток і до коли цей рух треба повернути (reserveLoanReq).
+ *
+ *  Видалення знімає статус позики, а не рух: «це була витрата за
+ *  призначенням» — законне виправлення, і журнал подушки від нього не
+ *  страждає (handleDeleteReserveLoan). */
+export const reserveLoanEditFields = (ctx, row) => [
+  pctField("rate_pct", "Ставка позики, % річних", { value: String(row.rate_pct ?? "") }),
+  dateField("due_date", "Повернути до", { value: row.due_date || "" }),
+  noteField("note", "Нотатка", { value: row.note || "" }),
+];
+
+export const reserveLoanBody = (f) => ({
+  rate_pct: f.rate_pct.value.trim(),
+  due_date: f.due_date.value,
+  note: f.note.value.trim(),
+});
+
 export const reserveBody = (f) => {
   const body = {
     amount: f.amount.value.trim(),
@@ -436,7 +458,7 @@ export function brokerBalancesHTML(ctx) {
       const v = cur[c], min = rmin[c] || 0;
       const enough = min > 0 && v >= min;
       const hint = min > 0
-        ? (enough ? `вистачає на ${Math.floor(v / min)}` : `до паперу ще ${fmtCur(min - v, curSym(c))}`)
+        ? (enough ? `вистачає на ${Math.floor(v / min)}` : `до паперу ще ${fmtCur(min - v, c)}`)
         : "";
       const p = idleBy.get(`${b}|${c}`);
       const pc = costBy.get(`${b}|${c}`);
@@ -444,7 +466,7 @@ export function brokerBalancesHTML(ctx) {
         ? `<div class="sub-xs muted">лежать з ${esc(dayMonth(p.since))}${
           pc && pc.cost_month_uah > 0 ? ` · ≈ ${esc(signedUAH(-pc.cost_month_uah))}/міс за сьогоднішньою порадою` : ""}</div>`
         : "";
-      return `<div class="pv-row"><span>${esc(c)} · <b>${fmtCur(v, curSym(c))}</b></span>
+      return `<div class="pv-row"><span>${esc(c)} · <b>${fmtCur(v, c)}</b></span>
         <span class="${enough ? "t-ok" : "muted"}">${hint}</span></div>${idle}`;
     }).join("");
     return `<div class="mb-lg"><div class="mb-xs"><b>${esc(b)}</b></div>${parts}</div>`;
@@ -536,7 +558,7 @@ export function reconcileHTML(ctx, only = "") {
     cols: [
       { key: "broker", label: "Брокер", cell: (r) => `${esc(r.b)} ${curSym(r.c)}` },
       { key: "book", label: "За записами", num: true,
-        cell: (r) => fmtCur(r.v, curSym(r.c)) },
+        cell: (r) => fmtCur(r.v, r.c) },
       { key: "actual", label: "Фактично", num: true,
         cell: (r) => `<input class="recAct num-in" inputmode="decimal"
           data-expected="${r.v}" placeholder="—">` },
@@ -564,7 +586,7 @@ export function wireReconcile(ctx, main) {
         return null;
       }
       const diff = Math.round((actual - Number(inp.dataset.expected)) * 100) / 100;
-      out.textContent = diff === 0 ? "сходиться" : (diff > 0 ? "+" : "") + fmtCur(diff, curSym(currency));
+      out.textContent = diff === 0 ? "сходиться" : (diff > 0 ? "+" : "") + fmtCur(diff, currency);
       // t-ok, а не ok: класу .ok у CSS не існує й ніколи не існувало,
       // тож «сходиться» два роки виходило звичайним текстом — рівно тим
       // самим, що й розбіжність.
