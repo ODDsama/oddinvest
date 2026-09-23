@@ -992,7 +992,7 @@ func buildProjection(in projectionInput) projectionPhase {
 	// купоном у дату виплати, і старт, що вже містить його частину,
 	// порахував би ці гроші двічі (state.Capital.BondsAccruedUAH).
 	p0 := in.Capital.TotalUAH() - in.Capital.ReserveUAH.Major() - in.Capital.GoalsUAH.Major() -
-		in.Capital.BondsAccruedUAH.Major()
+		in.Capital.BondsAccruedUAH.Major() - in.Capital.DepositsAccruedUAH.Major()
 	out.Rows = make([]state.ProjectionRow, 0, 4)
 	for _, y := range []int{1, 3, 5, 10} {
 		m := y * 12

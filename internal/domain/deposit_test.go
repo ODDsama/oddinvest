@@ -166,9 +166,11 @@ func TestDepositFlowsForXIRR(t *testing.T) {
 	for _, f := range flows {
 		sum += f.Amount
 	}
-	// −10М + 10М (термінал) = 0: гроші ще працюють, нічого не зароблено.
-	if sum != 0 {
-		t.Errorf("до погашення сума потоків має бути 0, маємо %d", sum)
+	// −тіло + (тіло + нараховане) = нараховані відсотки на 2026-06-01:
+	// гроші ще працюють, і заробленого до погашення рівно стільки, скільки
+	// банк уже нарахував (як накопичений купон облігації).
+	if want := d.AccruedNet("2026-06-01"); sum != want || want <= 0 {
+		t.Errorf("до погашення сума потоків %d, чекали нараховане %d", sum, want)
 	}
 	// Інша валюта — жодного потоку.
 	if DepositFlows([]Deposit{d}, "USD", "2026-06-01") != nil {
@@ -298,5 +300,30 @@ func TestDepositInterestEventsRespectClosing(t *testing.T) {
 	}
 	if ev[0].Tax != ev[0].Gross*2300/10000 && ev[0].Tax != ev[0].Gross*2300/10000+1 {
 		t.Errorf("податок %d з брутто %d — не 23%%", ev[0].Tax, ev[0].Gross)
+	}
+}
+
+// Накопичені відсотки вкладу: від останньої виплати до сьогодні, нетто.
+// Вклад із виплатою в кінці на пів строку має половину відсотків, а в день
+// виплати й після погашення — нуль (гроші вже на рахунку).
+func TestDepositAccruedNet(t *testing.T) {
+	d := Deposit{Currency: "UAH", Principal: 100_000_00, RateBP: 1200,
+		OpenDate: "2026-01-01", MaturityDate: "2027-01-01", Payout: PayoutEnd, TaxBP: TaxBPByLaw}
+	half := d.AccruedNet("2026-07-02") // 182 дні
+	want := int64(100_000_00) * 1200 * 182 / (10000 * 365)
+	want -= want * 2300 / 10000
+	if half != want {
+		t.Errorf("на пів строку %d, чекали %d", half, want)
+	}
+	if got := d.AccruedNet("2027-01-01"); got != 0 {
+		t.Errorf("у день погашення %d — відсотки вже виплачено", got)
+	}
+	m := d
+	m.Payout = PayoutMonthly
+	if got, want := m.AccruedNet("2026-02-01"), int64(0); got != want {
+		t.Errorf("щомісячний у день виплати: %d, чекали 0", got)
+	}
+	if got := m.AccruedNet("2026-02-16"); got <= 0 || got >= half/5 {
+		t.Errorf("щомісячний через 15 днів після виплати: %d — мав бути невеликий залишок", got)
 	}
 }

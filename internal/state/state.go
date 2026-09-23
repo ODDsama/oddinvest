@@ -118,7 +118,8 @@ type Doc struct {
 	// коли вони розійдуться.
 	FundsCostUAH Money `json:"funds_cost_uah,omitzero"`
 
-	// DepositsUAH — тіло діючих банківських вкладів у грн-екв. ОКРЕМЕ поле,
+	// DepositsUAH — тіло діючих банківських вкладів разом із нарахованими,
+	// ще не виплаченими відсотками (DepositsAccruedUAH), у грн-екв. ОКРЕМЕ поле,
 	// як funds_uah: вклад — інший інструмент (є строк і фіксована ставка,
 	// немає штук і ринкової ціни), тож у номінал ОВДП його не змішуємо.
 	// Входить у капітал і валютні частки; сам список вкладів UI бере з
@@ -523,8 +524,13 @@ type Doc struct {
 	// зароблено, але ще не виплачено. У проєкції НЕ додається (там майбутні
 	// купони враховані повністю). NBURefreshedAt — коли востаннє успішно
 	// оновлювався довідник НБУ (ISO), щоб ловити тиху несвіжість даних.
-	AccruedUAH     Money  `json:"accrued_uah,omitzero"`
-	NBURefreshedAt string `json:"nbu_refreshed_at,omitempty"`
+	AccruedUAH Money `json:"accrued_uah,omitzero"`
+	// DepositsAccruedUAH — те саме для вкладів: нетто-відсотки, нараховані
+	// від останньої виплати й ще не виплачені. Сидять у DepositsUAH (як
+	// купон — в облігаціях); вклади подушки й цілей — лише тілом, бо при
+	// достроковому знятті нараховане згорає.
+	DepositsAccruedUAH Money  `json:"deposits_accrued_uah,omitzero"`
+	NBURefreshedAt     string `json:"nbu_refreshed_at,omitempty"`
 
 	// ActualMonthlyUAH — фактичний середній темп поповнень, грн/міс: нето
 	// по трьох журналах зовнішніх грошей (гаманець, подушка, цілі), не

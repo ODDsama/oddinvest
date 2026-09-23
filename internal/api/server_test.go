@@ -1379,9 +1379,10 @@ func TestTermDepositMovesAccount(t *testing.T) {
 	if got := bankUAH(); got != 0 {
 		t.Errorf("після поповнення баланс ПУМБ має бути 0, маємо %v", got)
 	}
-	// deposits_uah = накопичене тіло 200к
-	if _, b := do(t, "GET", srv.URL+"/api/summary", ""); !strings.Contains(b, `"deposits_uah":200000`) {
-		t.Errorf("deposits_uah має бути 200000 після поповнення: %s", b)
+	// deposits_uah = накопичене тіло 200к плюс нараховані відсотки
+	// (deposits_accrued_uah) — вклад у капіталі, як облігація з купоном.
+	if _, b := do(t, "GET", srv.URL+"/api/summary", ""); depositsBody(t, b) != 200000 {
+		t.Errorf("тіло вкладів має бути 200000 після поповнення: %s", b)
 	}
 	// список вкладу віддає баланс 200к і одне поповнення
 	if _, b := do(t, "GET", srv.URL+"/api/term-deposits", ""); !strings.Contains(b, `"topups"`) {
@@ -1407,8 +1408,11 @@ func TestTermDepositFlowsIntoAggregates(t *testing.T) {
 
 	// summary: капітал бачить вклад через deposits_uah.
 	_, s := do(t, "GET", srv.URL+"/api/summary", "")
-	if !strings.Contains(s, `"deposits_uah":100000`) {
-		t.Errorf("summary не містить deposits_uah=100000: %s", s)
+	if depositsBody(t, s) != 100000 {
+		t.Errorf("тіло вкладу в summary не 100000: %s", s)
+	}
+	if !strings.Contains(s, `"deposits_accrued_uah":`) {
+		t.Errorf("вклад місячної давнини мав нарахувати відсотки: %s", s)
 	}
 
 	// календар: майбутні потоки вкладу — відсоток і повернення тіла — з
@@ -4806,13 +4810,14 @@ func TestBlendedYieldSkipsRatelessDeposit(t *testing.T) {
 	var sum struct {
 		BlendedBase float64 `json:"blended_yield_base_uah"`
 		DepositsUAH float64 `json:"deposits_uah"`
+		Accrued     float64 `json:"deposits_accrued_uah"`
 	}
 	_, body := do(t, "GET", srv.URL+"/api/summary", "")
 	if err := json.Unmarshal([]byte(body), &sum); err != nil {
 		t.Fatalf("summary: %v: %s", err, body)
 	}
-	if sum.DepositsUAH != 140000 {
-		t.Errorf("у капіталі мали бути обидва вклади, 140000, маємо %v", sum.DepositsUAH)
+	if body := math.Round((sum.DepositsUAH-sum.Accrued)*100) / 100; body != 140000 {
+		t.Errorf("у капіталі мали бути обидва вклади, тілом 140000, маємо %v", body)
 	}
 	if math.Abs(sum.BlendedBase-100000) > 0.01 {
 		t.Errorf("у дохідність мав увійти лише вклад зі ставкою, 100000, маємо %v", sum.BlendedBase)
@@ -4855,4 +4860,18 @@ func TestSnapshotsAPIRenamesBothShares(t *testing.T) {
 	if got, _ := rows[0]["eur_share_pct"].(float64); got != 5.67 {
 		t.Errorf("eur_share_pct = %v, чекали 5.67", rows[0]["eur_share_pct"])
 	}
+}
+
+// depositsBody — тіло вкладів із summary: deposits_uah без нарахованих
+// відсотків (deposits_accrued_uah), до копійки.
+func depositsBody(t *testing.T, summary string) float64 {
+	t.Helper()
+	var v struct {
+		DepositsUAH float64 `json:"deposits_uah"`
+		Accrued     float64 `json:"deposits_accrued_uah"`
+	}
+	if err := json.Unmarshal([]byte(summary), &v); err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	return math.Round((v.DepositsUAH-v.Accrued)*100) / 100
 }

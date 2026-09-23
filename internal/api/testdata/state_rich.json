@@ -4,12 +4,12 @@
   "currency": "UAH",
   "invested_uah": 240410.2,
   "nominal_uah_eq": 240370.2,
-  "capital_uah": 1110427.99,
+  "capital_uah": 1111656,
   "capital_delta_30": {
     "from_date": "2026-06-10",
     "from_uah": 193000,
-    "delta_uah": 917427.99,
-    "delta_pct": 475.35,
+    "delta_uah": 918656,
+    "delta_pct": 475.99,
     "contributed_uah": 29175.32
   },
   "idle": {
@@ -79,8 +79,8 @@
       }
     ]
   },
-  "usd_share_pct": 12.715356715747054,
-  "eur_share_pct": 8.645315217603622,
+  "usd_share_pct": 12.701310477341915,
+  "eur_share_pct": 8.635765020833785,
   "uninvested_uah": 993,
   "account_uah": 420682.43,
   "reinvest_min_uah": 1000,
@@ -172,7 +172,7 @@
     }
   ],
   "funds_cost_uah": 10000,
-  "deposits_uah": 120000,
+  "deposits_uah": 121228.01,
   "reserve_uah": 65824.68,
   "reserve": {
     "uah": 65824.68,
@@ -180,7 +180,7 @@
       "UAH": 57000,
       "USD": 200
     },
-    "share_pct": 5.92786570518634,
+    "share_pct": 5.9213173859539285,
     "months": 2.6329871999999996,
     "target_months": 6,
     "target_uah": 125114.01,
@@ -360,7 +360,7 @@
       "inflation_pct": 17.87
     }
   ],
-  "net_worth_uah": 1070094.65,
+  "net_worth_uah": 1071322.66,
   "debt": {
     "total_uah": 28333.34,
     "top_rate_pct": 59.92,
@@ -942,7 +942,7 @@
   ],
   "xirr": {
     "EUR": 0,
-    "UAH": 9.04,
+    "UAH": 13.95,
     "USD": 0.8
   },
   "realized": {
@@ -953,8 +953,8 @@
       "min_days": 30
     },
     "UAH": {
-      "gain": 3587.23,
-      "gain_pct": 1.52,
+      "gain": 5449.27,
+      "gain_pct": 2.31,
       "money_days": 65.1,
       "min_days": 30
     },
@@ -966,9 +966,9 @@
     }
   },
   "total_return": {
-    "xirr_pct": 6.89,
-    "gain_uah": 9060.2,
-    "gain_pct": 1.8,
+    "xirr_pct": 8.34,
+    "gain_uah": 10922.24,
+    "gain_pct": 2.17,
     "money_days": 99.2,
     "min_days": 30,
     "fx_max_lag_days": 20
@@ -1494,9 +1494,9 @@
       "key": "USD",
       "currency": "USD",
       "target_pct": 25,
-      "current_pct": 12.72,
-      "deficit_uah": 136412.12,
-      "deficit_native": 3091.6,
+      "current_pct": 12.7,
+      "deficit_uah": 136719.12,
+      "deficit_native": 3098.56,
       "cash_native": 1012,
       "bond_cost_native": 1000,
       "bond_cost_uah": 44123.4,
@@ -1505,20 +1505,20 @@
       "min_portfolio_uah": 176493.6,
       "feasible": true,
       "unit_kind": "bond",
-      "target_uah": 277607,
+      "target_uah": 277914,
       "current_uah": 141194.88,
-      "fill_pct": 50.86,
-      "transit_uah": 12866.6,
-      "transit_native": 291.6
+      "fill_pct": 50.81,
+      "transit_uah": 13173.6,
+      "transit_native": 298.56
     },
     {
       "dimension": "currency",
       "key": "EUR",
       "currency": "EUR",
       "target_pct": 10,
-      "current_pct": 8.65,
-      "deficit_uah": 15042.8,
-      "deficit_native": 313.39,
+      "current_pct": 8.64,
+      "deficit_uah": 15165.6,
+      "deficit_native": 315.95,
       "cash_native": 0,
       "bond_cost_native": 1000,
       "bond_cost_uah": 48000,
@@ -1527,19 +1527,19 @@
       "min_portfolio_uah": 480000,
       "feasible": true,
       "unit_kind": "bond",
-      "target_uah": 111042.8,
+      "target_uah": 111165.6,
       "current_uah": 96000,
-      "fill_pct": 86.45,
-      "transit_uah": 15042.8,
-      "transit_native": 313.39
+      "fill_pct": 86.36,
+      "transit_uah": 15165.6,
+      "transit_native": 315.95
     },
     {
       "dimension": "kind",
       "key": "bonds",
       "currency": "UAH",
       "target_pct": 45,
-      "current_pct": 30.31,
-      "deficit_uah": 116542.25,
+      "current_pct": 30.27,
+      "deficit_uah": 117094.85,
       "deficit_native": 0,
       "cash_native": 0,
       "bond_cost_native": 0,
@@ -1549,13 +1549,13 @@
       "min_portfolio_uah": 2222.22,
       "feasible": true,
       "unit_kind": "bonds",
-      "target_uah": 357121.49,
+      "target_uah": 357674.09,
       "current_uah": 240579.24,
-      "fill_pct": 67.37,
+      "fill_pct": 67.26,
       "month_share_uah": 2262.6,
-      "month_balance_uah": 1726.19,
-      "transit_pct": 3.52,
-      "transit_uah": 27909.4
+      "month_balance_uah": 1729.61,
+      "transit_pct": 3.57,
+      "transit_uah": 28339.2
     },
     {
       "dimension": "kind",
@@ -1563,7 +1563,7 @@
       "currency": "UAH",
       "target_pct": 20,
       "current_pct": 1.3,
-      "deficit_uah": 148420.66,
+      "deficit_uah": 148666.26,
       "deficit_native": 0,
       "cash_native": 0,
       "bond_cost_native": 0,
@@ -1573,18 +1573,18 @@
       "min_portfolio_uah": 50,
       "feasible": true,
       "unit_kind": "funds",
-      "target_uah": 158720.66,
+      "target_uah": 158966.26,
       "current_uah": 10300,
-      "fill_pct": 6.49,
+      "fill_pct": 6.48,
       "month_share_uah": 1005.6,
-      "month_balance_uah": 2171.1
+      "month_balance_uah": 2168.9
     },
     {
       "dimension": "kind",
       "key": "deposits",
       "currency": "UAH",
       "target_pct": 15,
-      "current_pct": 15.12,
+      "current_pct": 15.25,
       "deficit_uah": 0,
       "deficit_native": 0,
       "cash_native": 0,
@@ -1595,11 +1595,11 @@
       "min_portfolio_uah": 29415.6,
       "feasible": true,
       "unit_kind": "deposits",
-      "target_uah": 119040.5,
-      "current_uah": 120000,
-      "fill_pct": 100.81,
+      "target_uah": 119224.7,
+      "current_uah": 121228.01,
+      "fill_pct": 101.68,
       "month_share_uah": 754.2,
-      "transit_uah": 27909.4
+      "transit_uah": 28339.2
     },
     {
       "dimension": "kind",
@@ -1607,7 +1607,7 @@
       "currency": "UAH",
       "target_pct": 10,
       "current_pct": 0.26,
-      "deficit_uah": 77318.69,
+      "deficit_uah": 77441.49,
       "deficit_native": 0,
       "cash_native": 0,
       "bond_cost_native": 0,
@@ -1617,18 +1617,18 @@
       "min_portfolio_uah": 0,
       "feasible": true,
       "unit_kind": "npf",
-      "target_uah": 79360.33,
+      "target_uah": 79483.13,
       "current_uah": 2041.64,
       "fill_pct": 2.57,
       "month_share_uah": 502.8,
-      "month_balance_uah": 1130.71
+      "month_balance_uah": 1129.49
     },
     {
       "dimension": "kind",
       "key": "cash",
       "currency": "UAH",
       "target_pct": 0,
-      "current_pct": 53.01,
+      "current_pct": 52.93,
       "deficit_uah": 0,
       "deficit_native": 0,
       "cash_native": 0,
@@ -1647,15 +1647,15 @@
       "dimension": "broker",
       "key": "mono",
       "amount_uah": 679398.58,
-      "share_pct": 61.18,
+      "share_pct": 61.12,
       "limit_pct": 50,
-      "over_uah": 124184.59
+      "over_uah": 123570.58
     },
     {
       "dimension": "broker",
       "key": "inzhur",
       "amount_uah": 196794.45,
-      "share_pct": 17.72,
+      "share_pct": 17.7,
       "limit_pct": 50
     },
     {
@@ -1676,7 +1676,7 @@
       "dimension": "isin",
       "key": "UA4000230114",
       "amount_uah": 132370.2,
-      "share_pct": 11.92,
+      "share_pct": 11.91,
       "limit_pct": 20,
       "label": "валютні"
     },
@@ -1684,7 +1684,7 @@
       "dimension": "isin",
       "key": "UA4000239065",
       "amount_uah": 96000,
-      "share_pct": 8.65,
+      "share_pct": 8.64,
       "limit_pct": 20,
       "label": "єврові"
     },
@@ -1851,7 +1851,7 @@
       "title": "USD нижче цілі: 12,7% проти 25,0%",
       "why": "На рахунку вже є USD — вистачає на 1 квиток: частку вирівнює вкладення цих грошей, а не нова конвертація.",
       "action": "review-rebalance",
-      "amount_uah": 136412.12
+      "amount_uah": 136719.12
     },
     {
       "id": "fund-price-stale:Inzhur REIT",
@@ -1955,7 +1955,7 @@
       "median_rate": 42.9496,
       "min_rate": 42.1111,
       "max_rate": 44.1234,
-      "vs_median_native": -84.49
+      "vs_median_native": -84.68
     },
     {
       "currency": "USD",
@@ -1966,7 +1966,7 @@
       "median_rate": 41.1049,
       "min_rate": 38,
       "max_rate": 44.1234,
-      "vs_median_native": -227.03
+      "vs_median_native": -227.54
     },
     {
       "currency": "USD",
@@ -1977,7 +1977,7 @@
       "median_rate": 34.2294,
       "min_rate": 24,
       "max_rate": 44.1234,
-      "vs_median_native": -893.63
+      "vs_median_native": -895.64
     },
     {
       "currency": "EUR",
@@ -1988,7 +1988,7 @@
       "median_rate": 46.4445,
       "min_rate": 45.3334,
       "max_rate": 48,
-      "vs_median_native": -10.5
+      "vs_median_native": -10.58
     },
     {
       "currency": "EUR",
@@ -1999,7 +1999,7 @@
       "median_rate": 44,
       "min_rate": 40,
       "max_rate": 48,
-      "vs_median_native": -28.49
+      "vs_median_native": -28.72
     },
     {
       "currency": "EUR",
@@ -2010,10 +2010,11 @@
       "median_rate": 44,
       "min_rate": 40,
       "max_rate": 48,
-      "vs_median_native": -28.49
+      "vs_median_native": -28.72
     }
   ],
   "accrued_uah": 209.04,
+  "deposits_accrued_uah": 1228.01,
   "nbu_refreshed_at": "2026-07-15T06:00:00Z",
   "actual_monthly_uah": 76790.8,
   "actual_months": 6,

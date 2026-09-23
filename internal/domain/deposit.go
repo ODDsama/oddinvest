@@ -561,23 +561,58 @@ func DepositLadder(deposits []Deposit, asOf Date) []LadderEntry {
 // місяця, тобто починають працювати з наступного місяця. Це трохи
 // консервативно (докладене мід-місяця не заробляє частину місяця), зате
 // просто й ніколи не завищує.
-func (d Deposit) compoundInterest() int64 {
+func (d Deposit) compoundInterest() int64 { return d.compoundInterestTo(d.MaturityDate) }
+
+// compoundInterestTo — складний відсоток помісячно від відкриття до end
+// (погашення — для виплати, сьогодні — для накопиченого).
+func (d Deposit) compoundInterestTo(end Date) int64 {
 	base := d.Principal
 	prev := d.OpenDate
 	// Той самий графік місяців, що й у виплат (interestDates): від початкової
 	// дати з притиском до кінця місяця.
 	for k := 1; ; k++ {
 		cur := d.OpenDate.AddMonthsClamp(k)
-		if !cur.Before(d.MaturityDate) {
+		if !cur.Before(end) {
 			break
 		}
 		base += simpleInterest(base, d.RateBP, DaysBetween(prev, cur))
 		base += d.topupsBetween(prev, cur)
 		prev = cur
 	}
-	base += simpleInterest(base, d.RateBP, DaysBetween(prev, d.MaturityDate))
-	base += d.topupsBetween(prev, d.MaturityDate)
-	return base - d.BalanceAt(d.MaturityDate)
+	base += simpleInterest(base, d.RateBP, DaysBetween(prev, end))
+	base += d.topupsBetween(prev, end)
+	return base - d.BalanceAt(end)
+}
+
+// AccruedNet — відсотки, НАРАХОВАНІ від останньої виплати (чи відкриття)
+// до asOf, ще не виплачені, нетто після податку за ставкою дня наступної
+// виплати. Мінорні одиниці валюти вкладу; нуль для закритого, погашеного
+// чи ще не відкритого.
+//
+// Дзеркало накопиченого купона облігацій (рішення власника, 2026-09-23):
+// капітал і XIRR рахують вклад не лише тілом. Без цього вклад із виплатою
+// в кінці до погашення показував дохідність близько нуля, а в день
+// погашення — стрибок; облігації від того ж вилікувано в раунді 2.
+func (d Deposit) AccruedNet(asOf Date) int64 {
+	if !d.Active(asOf) || !asOf.After(d.OpenDate) {
+		return 0
+	}
+	prev, next := d.OpenDate, d.MaturityDate
+	for _, p := range d.interestDates() {
+		if p.After(asOf) {
+			next = p
+			break
+		}
+		prev = p
+	}
+	if !asOf.After(prev) {
+		return 0 // виплата сьогодні — нарахованого понад неї немає
+	}
+	gross := d.accruedInterest(prev, asOf)
+	if d.Payout == PayoutEnd && d.Capitalized {
+		gross = d.compoundInterestTo(asOf)
+	}
+	return gross - gross*d.taxBPOn(next)/10000
 }
 
 // DepositISINPrefix — префікс синтетичного ключа вкладу.

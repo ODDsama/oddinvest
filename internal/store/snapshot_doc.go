@@ -44,7 +44,10 @@ func SnapshotOf(date domain.Date, doc *state.Doc) Snapshot {
 		MonthTargetUAH: doc.MonthTargetUAH.Minor(),
 		AccountUAH:     doc.AccountUAH.Minor(),
 		FundsUAH:       doc.FundsUAH.Minor(),
-		DepositsUAH:    doc.DepositsUAH.Minor(),
+		// Тіло вкладів — без накопичених відсотків: вони йдуть у колонку
+		// накопиченого разом із купоном (нижче), щоб порівняння зі знімками,
+		// старшими за колонку, лишалось «яблука з яблуками».
+		DepositsUAH: doc.DepositsUAH.Minor() - doc.DepositsAccruedUAH.Minor(),
 		// Собівартість фондів беремо готовою з документа, а не складаємо
 		// тут заново: без неї крива не може показати прибуток (InvestedUAH —
 		// це лише облігації), а друга копія суми рано чи пізно розійшлася б
@@ -76,6 +79,8 @@ func SnapshotOf(date domain.Date, doc *state.Doc) Snapshot {
 		// Накопичений купон — частина облігацій у капіталі (0063). Документ
 		// дає його ЗАВЖДИ, нуль теж: −1 лишається лише в рядках, старших за
 		// колонку, і на цьому стоїть порівняння «яблука з яблуками».
-		AccruedUAH: doc.AccruedUAH.Minor(),
+		// З 0064 — купон і нараховані відсотки вкладів разом: усе
+		// накопичене, що сидить у капіталі.
+		AccruedUAH: doc.AccruedUAH.Minor() + doc.DepositsAccruedUAH.Minor(),
 	}
 }

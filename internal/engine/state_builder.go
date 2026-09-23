@@ -356,6 +356,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// Тіло вкладів у НАТИВНІЙ валюті — для рукавів проєкції: вони рахують
 	// у своїй валюті, а не в грн-еквіваленті.
 	depositBodyByCur := map[string]float64{}
+	depositsAccruedUAH := 0.0
 	// Зведена реальна ставка вкладів, зважена тілом. Рахується тут, у
 	// єдиному циклі по вкладах, а не окремим проходом: формула та сама, що
 	// в api/handlers_deposits.go і в реінвест-помічнику (domain.NetRate далі
@@ -438,6 +439,18 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		}
 		depositsUAH += v
 		depositsUAHByCur[dep.Currency] = depositsUAHByCur[dep.Currency].Add(state.Major(v, dep.Currency))
+		// Нараховані й ще не виплачені відсотки — у капіталі, як накопичений
+		// купон облігацій (рішення власника). Вклад із виплатою в кінці
+		// інакше до погашення «не заробляв» нічого, а в день погашення
+		// стрибав. Подушки й цілі це не стосується — вони вище, лише тілом.
+		if acc := dep.AccruedNet(today); acc > 0 {
+			if u, aerr := fx.ToUAH(money.New(acc, dep.Currency), rates); aerr == nil {
+				av := float64(u.Amount()) / 100
+				depositsUAH += av
+				depositsAccruedUAH += av
+				depositsUAHByCur[dep.Currency] = depositsUAHByCur[dep.Currency].Add(state.Major(av, dep.Currency))
+			}
+		}
 		// Банк вкладу — такий самий контрагент, як брокер: гроші замкнені
 		// саме в ньому. Ліміт концентрації рахується по обох разом, бо
 		// питання «скільки я втрачу, якщо ця установа зникне» від того,
@@ -1225,8 +1238,10 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	capital := state.Capital{
 		BondsUAH:        state.Minor(bnd.NominalUAH+acc.TotalMinor, money.UAH),
 		BondsAccruedUAH: state.Minor(acc.TotalMinor, money.UAH),
-		AccountUAH:      state.Minor(accountUAHMinor, money.UAH),
-		FundsUAH:        state.Major(fundsUAH, money.UAH), DepositsUAH: state.Major(depositsUAH, money.UAH), ReserveUAH: state.Major(reserveUAH, money.UAH),
+		// Накопичені відсотки вкладів — у DepositsUAH; окремо для проєкції.
+		DepositsAccruedUAH: state.Major(depositsAccruedUAH, money.UAH),
+		AccountUAH:         state.Minor(accountUAHMinor, money.UAH),
+		FundsUAH:           state.Major(fundsUAH, money.UAH), DepositsUAH: state.Major(depositsUAH, money.UAH), ReserveUAH: state.Major(reserveUAH, money.UAH),
 		GoalsUAH:   state.Major(goals.UAH, money.UAH),
 		NPFUAH:     state.Major(npf.TotalUAH, money.UAH),
 		BondsByCur: bondsByCur, DepositsByCur: depositsUAHByCur,
@@ -1382,7 +1397,8 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		NetWorthUAH: state.Major(capital.TotalUAH()-debtOwedUAH(src, rates, today), money.UAH),
 		// Дельта за 30 днів — проти знімка з sources; nil, доки знімка
 		// місячної давнини немає (state_delta.go).
-		CapitalDelta30: buildCapitalDelta(src, capital.TotalUAH(), capital.BondsAccruedUAH.Major(), rates, today),
+		CapitalDelta30: buildCapitalDelta(src, capital.TotalUAH(),
+			capital.BondsAccruedUAH.Major()+capital.DepositsAccruedUAH.Major(), rates, today),
 		// Борг — після плану місяця навмисно: стеля дострокового міряється
 		// від дозволеної частини ПЛАНУ, а обовʼязкові платежі той план уже
 		// зменшили (state_month.go).
@@ -1425,7 +1441,8 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		MarketYield: mkt.yield,
 		FXWindow:    fxw.rows,
 		AccruedUAH:  state.Minor(accruedUAH, money.UAH), NBURefreshedAt: nbuAt,
-		ActualMonthlyUAH: state.Major(actualMonthly, money.UAH), ActualMonths: actualMonths,
+		DepositsAccruedUAH: capital.DepositsAccruedUAH,
+		ActualMonthlyUAH:   state.Major(actualMonthly, money.UAH), ActualMonths: actualMonths,
 		SavingsRatePct: savingsRatePct(actualMonthly, mth.Plan),
 	}
 	// Похідні — те, що виводиться з уже покладеного (state/derive.go).

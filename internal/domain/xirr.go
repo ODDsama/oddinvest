@@ -414,11 +414,14 @@ func DepositFlows(deposits []Deposit, currency string, asOf Date) []Flow {
 			}
 		}
 		// Тіло: повернене (накопичене) на погашенні; інакше ще замкнене
-		// й оцінюється балансом на asOf.
+		// й оцінюється балансом на asOf РАЗОМ із нарахованими, ще не
+		// виплаченими відсотками — як облігація номіналом із накопиченим
+		// купоном. Без них вклад із виплатою в кінці до погашення мав XIRR
+		// близько нуля, а потім стрибав.
 		if !d.MaturityDate.After(asOf) {
 			flows = append(flows, Flow{Date: d.MaturityDate, Amount: d.BalanceAt(d.MaturityDate)})
 		} else {
-			terminal += d.BalanceAt(asOf)
+			terminal += d.BalanceAt(asOf) + d.AccruedNet(asOf)
 		}
 	}
 	if !got {
