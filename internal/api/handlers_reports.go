@@ -128,10 +128,16 @@ func (s *Server) handleXIRR(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSnapshots — добові знімки; з live=1 ще й сьогоднішній день зі
+// стану на зараз (engine.SnapshotSeries — там і довід).
+//
+// live — вибір споживача, а не поведінка за замовчуванням: без нього
+// відповідь рівно та, що в таблиці знімків, і кожен, кому потрібен саме
+// запис (архів, звірка з бекапом), його й отримує.
 func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	snaps, err := s.st.ListSnapshots(r.Context(),
-		domain.Date(q.Get("from")), domain.Date(q.Get("to")))
+	snaps, err := s.SnapshotSeries(r.Context(),
+		domain.Date(q.Get("from")), domain.Date(q.Get("to")), time.Now(), q.Get("live") == "1")
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -160,18 +166,26 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 		"usd_share_bp": "usd_share_pct",
 		"eur_share_bp": "eur_share_pct",
 	}
+	//
+	// external_uah — не колонка знімка, а накопичені зовнішні гроші на
+	// кінець дня (рахує розрахунок), тож іде поза реєстром. live є лише в
+	// живому рядку: відсутність поля й читається як «записаний».
 	cols := store.SnapshotColumns()
 	out := make([]map[string]any, 0, len(snaps))
 	for i := range snaps {
-		row := make(map[string]any, len(cols)+1)
+		row := make(map[string]any, len(cols)+3)
 		row["date"] = string(snaps[i].Date)
 		for _, c := range cols {
-			v := store.SnapshotValue(&snaps[i], c)
+			v := store.SnapshotValue(&snaps[i].Snapshot, c)
 			if alt, ok := apiName[c]; ok {
 				row[alt] = float64(v) / 100
 				continue
 			}
 			row[c] = state.UAH(v)
+		}
+		row["external_uah"] = state.UAH(snaps[i].ExternalUAH)
+		if snaps[i].Live {
+			row["live"] = true
 		}
 		out = append(out, row)
 	}

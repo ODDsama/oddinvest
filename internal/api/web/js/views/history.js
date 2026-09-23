@@ -22,7 +22,10 @@ function tipRows(tip, i, extra) {
   const list = tip.series.map((s) =>
     `<div class="r"><span><i style="--oi-c:${s.color}"></i>${esc(s.name)}</span>
       <b>${tipMoney(s.values[i])}</b></div>`).join("");
-  return `<div><b>${esc(tip.dates[i])}</b></div>${list}${extra || ""}`;
+  // Жива точка — не знімок дня, а стан на цю хвилину: підпис каже це
+  // прямо, інакше сьогоднішня дата читалась би як «записано о 06:10».
+  const when = tip.live && tip.live[i] ? `${tip.dates[i]} · зараз` : tip.dates[i];
+  return `<div><b>${esc(when)}</b></div>${list}${extra || ""}`;
 }
 
 const capTipHTML = (i) => tipRows(capTip, i, capTip
@@ -71,6 +74,13 @@ export function snapNonZero(s) {
 // дзеркалить фондову: якщо пенсійні активи в знімку є, а їхньої
 // собівартості тоді не писали, чесніше не малювати прибуток зовсім, ніж
 // намалювати завищений.
+//
+// «Внесено» на картці «Факт vs план» звідси БІЛЬШЕ НЕ рахується. Рахунку
+// брокера в цій сумі немає, тож гашення паперу (гроші переїжджають на
+// рахунок) тягло лінію вниз, а купівля з рахунку — вгору, хоча ззовні не
+// заходило нічого. Там тепер external_uah — зовнішні гроші від сервера
+// (engine/snapshots.go), а ця сума лишилась тим, чим була від початку:
+// пунктиром собівартості на «Капіталі».
 function snapCostUAH(s) {
   if ((s.funds_uah || 0) > 0 && !(s.funds_cost_uah > 0)) return null;
   if ((s.npf_uah || 0) > 0 && !(s.npf_cost_uah > 0)) return null;
@@ -82,6 +92,37 @@ const RANGE_KEY = "oddinvest.planRange";
 function planRange() {
   try { return localStorage.getItem(RANGE_KEY) === "all" ? "all" : "month"; }
   catch (_) { return "month"; }
+}
+
+// Вікно «Капіталу». За замовчуванням — уся історія: крива відповідає на
+// «як росте», і першим має бути видно весь шлях, а не останній місяць.
+// Ключ окремий від планового: це два різні питання, і перемикання одного
+// не має тягнути за собою другий.
+const CAP_KEY = "oi.capital.range";
+const CAP_RANGES = [
+  { v: 1, t: "місяць" },
+  { v: 3, t: "квартал" },
+  { v: 12, t: "рік" },
+  { v: 0, t: "усе" },
+];
+
+function capRange() {
+  try {
+    const v = Number(localStorage.getItem(CAP_KEY));
+    if (CAP_RANGES.some((r) => r.v === v)) return v;
+  } catch (_) { /* приватне вікно чи заблоковані дані сайту */ }
+  return 0;
+}
+
+// Дата на n календарних місяців раніше. День притискається до довжини
+// місяця: 31 березня мінус місяць — 28/29 лютого, а не 3 березня, як
+// зробив би голий Date.UTC із переповненням.
+function monthsBack(ds, n) {
+  const [y, m, d] = ds.split("-").map(Number);
+  const t = new Date(Date.UTC(y, m - 1 - n, 1));
+  const dim = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  t.setUTCDate(Math.min(d, dim));
+  return t.toISOString().slice(0, 10);
 }
 
 const daysInMonth = (ds) => { const p = ds.split("-"); return new Date(+p[0], +p[1], 0).getDate(); };
@@ -100,8 +141,8 @@ function usableSnaps(all) {
 
 function tooShortHTML(title, key, n) {
   return `<div class="card"><h2 class="h-row">${title} ${infoBtn(key)}</h2>
-    ${empty("", `Крива будується з добових знімків (пишуться щодня о 06:10, або одразу після
-      «↻ Оновити НБУ»). Потрібно ≥2 знімки з даними — наразі ${n}. Порожні знімки до появи
+    ${empty("", `Крива будується з добових знімків (пишуться щодня о 06:10), а остання точка —
+      стан на зараз. Потрібно ≥2 точки з даними — наразі ${n}. Порожні знімки до появи
       портфеля не рахуються.`)}</div>`;
 }
 
@@ -110,7 +151,29 @@ function tooShortHTML(title, key, n) {
 // Смугами, а не лініями: верхня межа стосу — увесь капітал, число, якого
 // на лініях від нуля не прочитати. І новий інструмент більше не «зʼявляється
 // в повітрі» — його смуга просто починає рости від нуля.
-function capitalCardHTML(ctx, snaps) {
+//
+// Перемикач вікна ріже ряд на клієнті: знімки й так приходять усі (їх
+// читає ще й план), а друга мандрівка на сервер за підмножиною того
+// самого списку нічого б не додала. Вікно, довше за наявну історію,
+// показало б рівно «усе» — його кнопка неактивна, а збережений вибір
+// такого вікна читається як «усе».
+function capitalCardHTML(ctx, allSnaps) {
+  const lastDate = allSnaps[allSnaps.length - 1].date;
+  const cutoffOf = (n) => (n ? monthsBack(lastDate, n) : "");
+  const dead = (n) => n > 0 && allSnaps[0].date >= cutoffOf(n);
+  const chosen = capRange();
+  const range = dead(chosen) ? 0 : chosen;
+  const btn = (r) => `<button data-caprange="${r.v}" aria-pressed="${range === r.v}"
+    ${dead(r.v) ? "disabled title=\"історія ще коротша за це вікно\"" : ""}>${r.t}</button>`;
+  const head = `<h2 class="card-head">
+    <span>Капітал ${infoBtn("capital")}</span>
+    <span class="seg">${CAP_RANGES.map(btn).join("")}</span></h2>`;
+  const snaps = range ? allSnaps.filter((s) => s.date >= cutoffOf(range)) : allSnaps;
+  if (snaps.length < 2) {
+    return `<div class="card">${head}${empty("",
+      `Для цього вікна замало точок — наразі ${snaps.length}. Візьми ширше.`)}</div>`;
+  }
+
   const dates = snaps.map((s) => s.date);
   const areas = [
     // Номінал + накопичений купон — той самий склад, що в капіталі. У знімках,
@@ -150,7 +213,10 @@ function capitalCardHTML(ctx, snaps) {
     .concat(net.some((v) => v != null)
       ? [{ name: "Чистий капітал", color: "var(--oi-series-networth)", values: net }] : []);
 
-  capTip = { dates, series, total: snaps.map((_, i) => areas.reduce((sum, a) => sum + a.values[i], 0)), cost };
+  capTip = {
+    dates, series, live: snaps.map((s) => !!s.live),
+    total: snaps.map((_, i) => areas.reduce((sum, a) => sum + a.values[i], 0)), cost,
+  };
   const frame = fluid(
     (w, h) => seriesChart(dates, series, { width: w, height: h, label: "Структура капіталу по днях" }).svg,
     { cls: "tall", onMount: (box) => wireChartTips(box.closest(".chart-wrap"), capTipHTML) });
@@ -164,7 +230,7 @@ function capitalCardHTML(ctx, snaps) {
     : gain >= 0
       ? `Розрив між верхом смуг і пунктиром — заробіток: зараз <b>${fmtUAH(gain)}</b>.`
       : `Зараз капітал НИЖЧЕ за вкладене на <b>${fmtUAH(-gain)}</b> — пунктир іде поверх смуг.`;
-  return `<div class="card"><h2 class="h-row">Капітал ${infoBtn("capital")}</h2>
+  return `<div class="card">${head}
     <div class="chart-wrap">${frame}<div class="chart-tip" data-tip="cap"></div></div>
     <div class="lg">${legend}</div>
     <div class="sub">Смуги складаються одна на одну, тож верхня межа — увесь капітал. ${gainLine}</div></div>`;
@@ -203,9 +269,20 @@ function planCardHTML(ctx, allSnaps) {
     acc += t / daysInMonth(s.date);
     return acc;
   });
-  const cost = snaps.map(snapCostUAH);
-  const base = cost.find((v) => v != null);
-  const fact = cost.map((v) => (v == null || base == null ? null : v - base));
+  // Факт — зовнішні гроші (external_uah: накопичено на кінець дня, нето),
+  // відлічені від кінця дня ПЕРЕД вікном. Саме перед, а не від першого
+  // дня вікна: інакше поповнення 1-го числа зникало б із місяця, у якому
+  // його зроблено. Рядка перед вікном немає лише на самому початку
+  // історії — тоді відлік від першого дня, як і в пунктира.
+  //
+  // Лінія законно йде в мінус: зняття з резерву — це гроші, що пішли
+  // назовні. Гашення й купівля паперу її не рухають — то переклад
+  // усередині капіталу.
+  const ext = (s) => (typeof s.external_uah === "number" ? s.external_uah : null);
+  const start = allSnaps.indexOf(snaps[0]);
+  const prev = start > 0 ? ext(allSnaps[start - 1]) : null;
+  const base = prev != null ? prev : ext(snaps[0]);
+  const fact = snaps.map((s) => (ext(s) == null || base == null ? null : ext(s) - base));
 
   const series = [{ name: "Внесено", color: "var(--oi-series-invested)", values: fact }];
   // Підпис навмисно не «План»: у знімках лежить month_target_uah — те, що
@@ -219,7 +296,7 @@ function planCardHTML(ctx, allSnaps) {
       color: "var(--oi-series-plan)", values: plan, dash: true,
     });
   }
-  planTip = { dates, series };
+  planTip = { dates, series, live: snaps.map((s) => !!s.live) };
   const frame = fluid(
     (w, h) => seriesChart(dates, series, { width: w, height: h, label: "Внесено проти плану" }).svg,
     { cls: "tall", onMount: (box) => wireChartTips(box.closest(".chart-wrap"), planTipHTML) });
@@ -237,6 +314,8 @@ function planCardHTML(ctx, allSnaps) {
     <div class="lg">${legend}</div>
     <div class="sub">Обидві лінії рахуються від початку періоду, тож порівнюються напряму.
       Внесено ${scope}: <b>${last == null ? "—" : fmtUAH(last)}</b>. ${verdict}</div>
+    <div class="sub-xs">Внесено — гроші, що зайшли ззовні: поповнення рахунків, резерв і цілі,
+      нето. Зняття з резерву — мінус; гашення й купівля паперів лінію не рухають.</div>
     ${anyTarget ? `<div class="sub-xs">Пунктир — місячна ціль у тому сенсі, який застосунок
       мав на той день; знімок несе саме її й не знає ні плану, ні потрібної суми, тож
       перерахувати старі точки під теперішні «треба / план / факт» нема з чого.</div>` : ""}</div>`;
@@ -245,7 +324,11 @@ function planCardHTML(ctx, allSnaps) {
 // Блок історії — угорі «Портфеля», одразу під плитками дохідностей:
 // дивишся часто, окрема вкладка була б зайвою.
 export async function chartBlockHTML(ctx) {
-  const snaps = usableSnaps(await ctx.soft("snapshots", []));
+  // live=1 — остання точка зі стану на зараз, а не ранковий знімок:
+  // інакше внесене вдень лягало на криву аж завтра. Кеш сторінки
+  // скидається будь-яким записом, тож після нової операції крива
+  // перечитується сама.
+  const snaps = usableSnaps(await ctx.soft("snapshots?live=1", []));
   snapsCache = snaps;
   capTip = planTip = null;
   if (snaps.length < 2) return tooShortHTML("Капітал", "capital", snaps.length);
@@ -283,10 +366,18 @@ export function wireHistory(ctx, main) {
       try { localStorage.setItem(RANGE_KEY, b.dataset.range); } catch (_) {}
       ctx.reload();
     }));
+  main.querySelectorAll("[data-caprange]").forEach((b) =>
+    b.addEventListener("click", () => {
+      try { localStorage.setItem(CAP_KEY, b.dataset.caprange); } catch (_) { /* дані сайту заблоковані */ }
+      ctx.reload();
+    }));
 }
 
 export function snapshotsTableHTML(ctx) {
-  const snaps = snapsCache || [];
+  // Жива точка — не знімок: таблиця під кривою — архів записаного, і
+  // рядок «сьогодні», що міняється від кожного перезавантаження, у ньому
+  // читався б як запис, якого немає.
+  const snaps = (snapsCache || []).filter((s) => !s.live);
   if (snaps.length < 2) return "";
   // Тепер справді згорнута — раніше про це казав лише коментар. Це архів:
   // крива вище відповідає на те саме питання, а числа потрібні зрідка.
