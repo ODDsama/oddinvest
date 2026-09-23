@@ -86,25 +86,25 @@
   "reinvest_min_uah": 22.66,
   "accounts": {
     "EUR": 0,
-    "UAH": 8522.23,
-    "USD": 22.94
+    "UAH": 376029.55,
+    "USD": 1012
   },
   "reinvest_min": {
     "EUR": 100,
-    "UAH": 22.66,
+    "UAH": 1000,
     "USD": 100
   },
   "brokers": {
     "inzhur": {
       "EUR": 0,
-      "UAH": 1937.62
+      "UAH": 85494.45
     },
     "mono": {
-      "UAH": 11227.05,
+      "UAH": 495375.5,
       "USD": 1012
     },
     "ПУМБ": {
-      "UAH": -4642.44
+      "UAH": -204840.4
     }
   },
   "invested_by_broker": {
@@ -177,7 +177,7 @@
   "reserve": {
     "uah": 1491.83,
     "by_currency": {
-      "UAH": 1291.83,
+      "UAH": 57000,
       "USD": 200
     },
     "share_pct": 5.9213173859539285,
@@ -294,7 +294,7 @@
       "gap_uah": 15444.59,
       "done_pct": 22.78,
       "by_currency": {
-        "UAH": 4555.41
+        "UAH": 201000
       },
       "places": {
         "готівка": 4555.41
@@ -339,7 +339,7 @@
       "gap_uah": 12465.04,
       "done_pct": 8.33,
       "by_currency": {
-        "UAH": 1133.19
+        "UAH": 50000
       },
       "places": {
         "ПУМБ": 1133.19

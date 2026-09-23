@@ -38,9 +38,9 @@ export function walletHTML(ctx) {
   return `<div class="card">
     <h2>Рахунок (гаманець)</h2>
     <div class="tiles flush">
-      <div class="tile"><div class="lbl">UAH</div><div class="val">${fmtUAH(a.UAH || 0)}</div></div>
-      <div class="tile"><div class="lbl">USD</div><div class="val">${fmtCur(a.USD || 0, "$")}</div></div>
-      <div class="tile"><div class="lbl">EUR</div><div class="val">${fmtCur(a.EUR || 0, "€")}</div></div>
+      <div class="tile"><div class="lbl">UAH</div><div class="val">${fmtCur(a.UAH || 0, "UAH")}</div></div>
+      <div class="tile"><div class="lbl">USD</div><div class="val">${fmtCur(a.USD || 0, "USD")}</div></div>
+      <div class="tile"><div class="lbl">EUR</div><div class="val">${fmtCur(a.EUR || 0, "EUR")}</div></div>
       <div class="tile"><div class="lbl">Разом (грн-екв.)</div><div class="val">${fmtUAH(s.account_uah || 0)}</div></div>
       <div class="tile"><div class="lbl">Дохід без діла ${infoBtn("idle")}</div>
         <div class="val">${fmtUAH(s.uninvested_uah || 0)}</div>

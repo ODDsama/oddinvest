@@ -92,12 +92,12 @@ type Doc struct {
 	// найдешевший папір по кожній валюті (нативно) для по-валютного CTA.
 	AccountUAH     Money            `json:"account_uah"`
 	ReinvestMinUAH Money            `json:"reinvest_min_uah"`
-	Accounts       map[string]Money `json:"accounts"`
-	ReinvestMin    map[string]Money `json:"reinvest_min"`
+	Accounts       map[string]Money `json:"accounts" money:"native"`
+	ReinvestMin    map[string]Money `json:"reinvest_min" money:"native"`
 	// Brokers — баланси в розрізі (брокер → валюта → сума). Рахунки
 	// роздільні, тож «чи вистачає на папір» рахується саме тут, а
 	// Accounts лишається зведенням по валютах для портфельних показників.
-	Brokers map[string]map[string]Money `json:"brokers,omitzero"`
+	Brokers map[string]map[string]Money `json:"brokers,omitzero" money:"native"`
 	// InvestedByBroker — вкладено (вартість входу залишків, грн-екв.) по
 	// кожному брокеру. Довідкова розбивка для «Портфеля».
 	InvestedByBroker map[string]Money `json:"invested_by_broker,omitzero"`
@@ -1054,7 +1054,7 @@ type ConcentrationRow struct {
 // вистачить» не має відповіді, і вигадувати її не будемо.
 type Reserve struct {
 	UAH        Money            `json:"uah"`
-	ByCurrency map[string]Money `json:"by_currency,omitzero"` // нативно
+	ByCurrency map[string]Money `json:"by_currency,omitzero" money:"native"` // нативно
 	SharePct   float64          `json:"share_pct"`
 	// Months — на скільки місяців витрат вистачить; TargetMonths — ціль;
 	// TargetUAH — та ціль у грошах; GapUAH — скільки ще докласти (0, якщо
@@ -1243,7 +1243,7 @@ type Goal struct {
 	// ByCurrency — у чому саме лежить зібране, нативно; Places — де воно
 	// лежить, грн-екв. LastMove — дата останнього руху: ціль, якої не
 	// чіпали пів року, і ціль, у яку щойно доклали, — різні речі.
-	ByCurrency map[string]Money `json:"by_currency,omitzero"`
+	ByCurrency map[string]Money `json:"by_currency,omitzero" money:"native"`
 	Places     map[string]Money `json:"places,omitzero"`
 	LastMove   string           `json:"last_move,omitempty"`
 	// FXMixed — гроші лежать не в тій валюті, у якій названа ціль.

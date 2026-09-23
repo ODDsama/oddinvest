@@ -322,3 +322,34 @@ func TestCurrencyFollowsAmount(t *testing.T) {
 		t.Errorf("доларова виплата лишилась доларовою, а код %q", rows[1].Currency)
 	}
 }
+
+// money:"native" — мапа «код валюти → сума» лишається нативною.
+//
+// Ключ тут і є валюта суми: brokers.mono.UAH, reserve.by_currency.UAH.
+// Переклад числа без зміни ключа давав «UAH: 1937.62», де 1937.62 —
+// долари. Звірка рахунку брала саме це число за «очікуване», і фактичний
+// залишок у гривні проти нього дав би коригування на сотні тисяч.
+func TestNativeMapStaysNative(t *testing.T) {
+	type doc struct {
+		Brokers map[string]map[string]state.Money `json:"brokers" money:"native"`
+		ByCur   map[string]state.Money            `json:"by_currency" money:"native"`
+		Places  map[string]state.Money            `json:"places"`
+	}
+	d := doc{
+		Brokers: map[string]map[string]state.Money{"mono": {"UAH": state.Major(41_000, "UAH")}},
+		ByCur:   map[string]state.Money{"UAH": state.Major(4_100, "UAH")},
+		Places:  map[string]state.Money{"готівка": state.Major(4_100, "UAH")},
+	}
+	if err := Apply(&d, Opts{Book: "UAH", Report: "USD", Rates: rates(), Today: today}); err != nil {
+		t.Fatal(err)
+	}
+	if m := d.Brokers["mono"]["UAH"]; m.Currency() != "UAH" || m.Major() != 41_000 {
+		t.Errorf("баланс брокера в гривні мусить лишитись гривнею: %v", m)
+	}
+	if m := d.ByCur["UAH"]; m.Currency() != "UAH" || m.Major() != 4_100 {
+		t.Errorf("by_currency нативно: %v", m)
+	}
+	if m := d.Places["готівка"]; m.Currency() != "USD" {
+		t.Errorf("places — грн-екв., тож перекладається: %v", m)
+	}
+}
