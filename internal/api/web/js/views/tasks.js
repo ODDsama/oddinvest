@@ -27,7 +27,7 @@
 // власна робота — вирішити, КУДИ веде дія, бо адрес бекенд не знає й знати
 // не має (там хеш-маршрути з nav.js, яких у Home Assistant не існує).
 
-import { esc, curSym, dayMonth, cur2 as fmtCur } from "../format.js";
+import { esc, dayMonth, cur2 as fmtCur } from "../format.js";
 import { empty } from "../components.js";
 import { routeFor } from "../routes.js";
 
@@ -127,7 +127,7 @@ function emptyHTML(ctx) {
   const np = (ctx.summary || {}).next_payment;
   const why = np
     ? `Наступна дія — коли ${dayMonth(np.date)} надійде виплата ${
-      fmtCur(Number(np.amount), curSym(np.currency))}.`
+      fmtCur(Number(np.amount), np.currency)}.`
     : "Наступна дія — коли надійдуть гроші або зміняться умови.";
   return `<div class="card">${empty(
     "Зараз нічого не потребує рішення", why,

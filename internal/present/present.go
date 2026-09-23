@@ -24,6 +24,9 @@
 //	money:"uah-only"       — обнуляється при валюті ≠ книжкової (ІСЦ, цілі
 //	                          «у майбутніх грошах»)
 //	money:"code"           — рядок із кодом ефективної валюти
+//	money:"cur=amount"     — рядок із кодом валюти названого сусіда ПІСЛЯ
+//	                          перекладу: гривнева виплата стала доларовою —
+//	                          і її «currency» теж, а чужа лишається своєю
 //
 // Приватні поля структур прохід не бачить (на дріт вони не йдуть), з
 // одним винятком: неіменоване вкладення приватного типу — його поля json
@@ -265,7 +268,7 @@ func (w *walker) visitStruct(v reflect.Value, on domain.Date) {
 	w.scopes = append(w.scopes, sc)
 	defer func() { w.scopes = w.scopes[:len(w.scopes)-1] }()
 
-	var diffs []int
+	var diffs, curs []int
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		fv := v.Field(i)
@@ -305,6 +308,8 @@ func (w *walker) visitStruct(v reflect.Value, on domain.Date) {
 			}
 		case "code":
 			fv.SetString(w.o.Report)
+		case "cur":
+			curs = append(curs, i)
 		default:
 			w.fail(fmt.Errorf("present: невідомий тег money:%q на %s.%s", tag, t.Name(), f.Name))
 		}
@@ -314,6 +319,24 @@ func (w *walker) visitStruct(v reflect.Value, on domain.Date) {
 	for _, i := range diffs {
 		w.diff(sc, v.Field(i), t.Field(i).Tag.Get("money"))
 	}
+	// Коди валют — теж ПІСЛЯ: сусід мусить бути вже перекладеним.
+	for _, i := range curs {
+		w.cur(v.Field(i), t.Field(i).Tag.Get("money"))
+	}
+}
+
+// cur — рядок бере код валюти названого сусіда-суми. Без нього сума й
+// окреме поле її валюти розходились: презентер перекладав гривневу
+// виплату в долари, а «currency» лишалось «UAH» — і «Наступна виплата»
+// ставила знак гривні до доларів.
+func (w *walker) cur(fv reflect.Value, tag string) {
+	_, arg, _ := strings.Cut(tag, "=")
+	src, ok := w.lookup(arg)
+	if !ok || src.Type() != moneyType || fv.Kind() != reflect.String {
+		w.fail(fmt.Errorf("present: money:%q — сусід мусить бути state.Money, а поле рядком", tag))
+		return
+	}
+	fv.SetString(src.Interface().(state.Money).Currency())
 }
 
 // visitAsOf — поле з курсом на дату названого сусіда (або предка: дні

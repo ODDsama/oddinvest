@@ -13,7 +13,7 @@
 // місяця»: обидві сторінки показують ті самі рядки за різні вікна, і
 // друга розмітка розійшлась би підписами.
 
-import { esc, uah2 as fmtUAH, uah0, signedUAH, pct, monthYear, plural } from "../format.js";
+import { esc, cur2, uah2 as fmtUAH, uah0, signedUAH, pct, monthYear, plural } from "../format.js";
 import { infoBtn } from "../info.js";
 import { tile, empty } from "../components.js";
 import { opsGrid } from "../grid.js";
@@ -121,15 +121,20 @@ function taxHTML(tax) {
     return `<div class="card"><h2>Податок за рік</h2>
       ${empty("", "Оподатковуваного доходу цього року не було.")}</div>`;
   }
+  // Податок — ЗАВЖДИ в гривні (/api/tax не перекладається у валюту
+  // звітності: платиться в гривні за курсом на дату події), тож знак — з
+  // tax.currency, а не з валюти звітності. Картка «Податки» в «Грошах»
+  // робить так само (money-cards.js).
+  const money = (v) => cur2(v, tax.currency || "UAH");
   return `<div class="card">
     <h2 class="card-head"><span>Податок за рік</span>
-      <span class="sub-xs">${pct(tax.rate_pct)} з ${fmtUAH(tax.gross_uah)}</span></h2>
+      <span class="sub-xs">${pct(tax.rate_pct)} з ${money(tax.gross_uah)}</span></h2>
     ${opsGrid({
     cols: [
       { key: "label", label: "Що", cell: (r) => esc(r.label) },
-      { key: "gross", label: "Брутто", num: true, cell: (r) => fmtUAH(r.gross_uah) },
-      { key: "tax", label: "Податок", num: true, cell: (r) => fmtUAH(r.tax_uah) },
-      { key: "net", label: "Чистими", num: true, prio: 3, cell: (r) => fmtUAH(r.net_uah) },
+      { key: "gross", label: "Брутто", num: true, cell: (r) => money(r.gross_uah) },
+      { key: "tax", label: "Податок", num: true, cell: (r) => money(r.tax_uah) },
+      { key: "net", label: "Чистими", num: true, prio: 3, cell: (r) => money(r.net_uah) },
     ],
     rows,
     // Умова відступу — спільна з карткою «Податки»: рядок НКД належить

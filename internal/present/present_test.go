@@ -296,3 +296,29 @@ func TestBadTags(t *testing.T) {
 		t.Error("не вказівник мав бути помилкою")
 	}
 }
+
+// money:"cur=amount" — код валюти суми-сусіда ПІСЛЯ перекладу.
+//
+// Виплата несе суму й окремим полем її валюту. Сума в книжковій валюті
+// перекладається у валюту звітності, а рядок валюти лишався «UAH» — і
+// «Наступна виплата» в доларовому режимі показувала долари зі знаком ₴.
+// Сума в чужій валюті не перекладається — і її код мусить лишитись її.
+func TestCurrencyFollowsAmount(t *testing.T) {
+	type row struct {
+		Amount   state.Money `json:"amount"`
+		Currency string      `json:"currency" money:"cur=amount"`
+	}
+	rows := []row{
+		{Amount: state.Major(4412, "UAH"), Currency: "UAH"},
+		{Amount: state.Major(50, "USD"), Currency: "USD"},
+	}
+	if err := Apply(&rows, Opts{Book: "UAH", Report: "USD", Rates: rates(), Today: today}); err != nil {
+		t.Fatal(err)
+	}
+	if rows[0].Currency != "USD" || rows[0].Amount.Currency() != "USD" {
+		t.Errorf("гривнева виплата в доларовому режимі: %v %s", rows[0].Amount, rows[0].Currency)
+	}
+	if rows[1].Currency != "USD" {
+		t.Errorf("доларова виплата лишилась доларовою, а код %q", rows[1].Currency)
+	}
+}

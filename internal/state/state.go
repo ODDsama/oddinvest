@@ -2385,7 +2385,7 @@ type NextPayment struct {
 	ISIN     string `json:"isin"`
 	Type     string `json:"type"` // coupon | redemption | early
 	Amount   Money  `json:"amount"`
-	Currency string `json:"currency"`
+	Currency string `json:"currency" money:"cur=amount"` // валюта Amount, і після перекладу теж
 	// Label — те саме, що в PaymentRow: див. коментар там.
 	Label string `json:"label,omitempty"`
 }
@@ -2590,7 +2590,7 @@ type PaymentRow struct {
 	ISIN     string `json:"isin"`
 	Type     string `json:"type"`
 	Amount   Money  `json:"amount"`
-	Currency string `json:"currency"`
+	Currency string `json:"currency" money:"cur=amount"` // валюта Amount, і після перекладу теж
 	// Label — людська назва, коли ISIN сам по собі мовчить. Той самий
 	// випадок, що й ConcentrationRow.Label вище.
 	//

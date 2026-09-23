@@ -114,7 +114,10 @@ export function portfolioRows(ctx, d) {
     out.push(row(
       `fund:${f.fund}`, f.fund,
       [KIND_ONE.fund, `${f.qty} сертифікатів`].join(" · "),
-      cur2(f.market_value, f.currency),
+      // market_value — уже в валюті звітності (state.FundPositionRow), а
+      // f.currency — лише валюта ціни сертифіката: знак з неї ставив «$» до
+      // гривень. Той самий форматер, що в рядку НПФ нижче.
+      uah0(f.market_value),
       pct(f.real_pct), "fund", f.real_pct > 0 ? "ok" : "",
     ));
   }

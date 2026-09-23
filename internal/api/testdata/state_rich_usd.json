@@ -607,7 +607,7 @@
     "isin": "deposit:1",
     "type": "coupon",
     "amount": 28.79,
-    "currency": "UAH",
+    "currency": "USD",
     "label": "вклад"
   },
   "ladder": [
@@ -636,7 +636,7 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 28.79,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -644,14 +644,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2026-08-16",
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 29.75,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -659,14 +659,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2026-09-13",
       "isin": "deposit:2",
       "type": "coupon",
       "amount": 13.5,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     }
   ],
@@ -676,7 +676,7 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 28.79,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -684,14 +684,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2026-08-16",
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 29.75,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -699,14 +699,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2026-09-13",
       "isin": "deposit:2",
       "type": "coupon",
       "amount": 13.5,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -714,7 +714,7 @@
       "isin": "deposit:2",
       "type": "redemption",
       "amount": 453.27,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -722,7 +722,7 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 29.75,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -730,14 +730,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2026-10-16",
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 28.79,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -745,7 +745,7 @@
       "isin": "deposit:3",
       "type": "redemption",
       "amount": 339.96,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -753,7 +753,7 @@
       "isin": "deposit:3",
       "type": "coupon",
       "amount": 13.95,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -761,14 +761,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2026-11-16",
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 29.75,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -776,21 +776,21 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2026-12-12",
       "isin": "UA4000227748",
       "type": "coupon",
       "amount": 22.51,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2026-12-16",
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 28.79,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -798,14 +798,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2027-01-16",
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 29.75,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -820,14 +820,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2027-02-16",
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 29.75,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -835,14 +835,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2027-03-16",
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 26.87,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -850,14 +850,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2027-04-16",
       "isin": "deposit:1",
       "type": "redemption",
       "amount": 2719.65,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -865,7 +865,7 @@
       "isin": "deposit:1",
       "type": "coupon",
       "amount": 29.75,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -873,7 +873,7 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2027-05-11",
@@ -887,14 +887,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2027-06-25",
       "isin": "deposit:5",
       "type": "coupon",
       "amount": 148.33,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -902,7 +902,7 @@
       "isin": "deposit:5",
       "type": "redemption",
       "amount": 1133.19,
-      "currency": "UAH",
+      "currency": "USD",
       "label": "вклад"
     },
     {
@@ -910,14 +910,14 @@
       "isin": "fund:Inzhur REIT",
       "type": "coupon",
       "amount": 0.9,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2028-03-06",
       "isin": "UA4000227748",
       "type": "redemption",
       "amount": 271.96,
-      "currency": "UAH"
+      "currency": "USD"
     },
     {
       "date": "2028-09-22",
