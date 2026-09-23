@@ -595,16 +595,20 @@ export function wireReconcile(ctx, main) {
       return diff;
     };
     inp.addEventListener("input", recalc);
+    // Різниця вище — лише підказка під полем. ЗАПИСУЄ поправку сервер:
+    // браузер шле факт, а «за записами» бекенд бере з книжкового
+    // документа (handleReconcile). Доти тут у базу йшло diff, пораховане
+    // від числа зі summary, — і в доларовому вигляді воно було доларами.
     btn.addEventListener("click", async () => {
-      const diff = recalc();
-      if (!diff) return;
+      if (!recalc()) return;
       btn.disabled = true;
       try {
-        await ctx.api("POST", "deposits", {
-          amount: String(diff), currency, broker,
-          note: diff > 0 ? "звірка: незаписане надходження" : "звірка: незаписана витрата",
+        const res = await ctx.api("POST", "cash/reconcile", {
+          broker, currency, actual: inp.value.trim().replace(/\s/g, "").replace(",", "."),
         });
-        ctx.toast("Коригування додано");
+        const d = (res || {}).diff || {};
+        ctx.toast(Number(d.amount) === 0 ? "Уже сходиться"
+          : `Коригування ${Number(d.amount) > 0 ? "+" : ""}${fmtCur(Number(d.amount), d.currency)} додано`);
         await ctx.reload();
       } catch (err) {
         ctx.toast(String(err.message || err), false);

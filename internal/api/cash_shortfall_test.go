@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -272,5 +273,71 @@ func TestTopupCheckRejectsSameAsWrite(t *testing.T) {
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("%s: %d %s, чекали 400", path, resp.StatusCode, body)
 		}
+	}
+}
+
+// Звірка рахунку: поправку рахує СЕРВЕР із фактичного залишку.
+//
+// Доти браузер віднімав від фактичного число «за записами» зі summary й
+// надсилав готову різницю звичайним поповненням. У режимі звітності в
+// доларах summary несло те число перекладеним — і в базу пішло б
+// коригування на сотні тисяч гривень. Тепер браузер надсилає лише те, що
+// бачить у банку, а «за записами» береться з книжкового документа.
+func TestReconcileWritesServerSideCorrection(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	if _, err := st.AddDeposit(context.Background(), store.Deposit{
+		Date: "2026-07-01", Amount: 1000_00, Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := st.ListDeposits(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Гривневий документ, тож summary тут — книжкові числа як є.
+	have := func() int64 {
+		_, raw := do(t, "GET", srv.URL+"/api/summary", "")
+		var s struct {
+			Brokers map[string]map[string]float64 `json:"brokers"`
+		}
+		if err := json.Unmarshal([]byte(raw), &s); err != nil {
+			t.Fatal(err)
+		}
+		return int64(math.Round(s.Brokers["inzhur"]["UAH"] * 100))
+	}
+	book := have()
+	actual := strconv.FormatFloat(float64(book+250_50)/100, 'f', 2, 64)
+
+	resp, raw := do(t, "POST", srv.URL+"/api/cash/reconcile",
+		`{"broker":"inzhur","currency":"UAH","actual":"`+actual+`"}`)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("звірка з розбіжністю: %d %s", resp.StatusCode, raw)
+	}
+	var got reconcileResp
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Diff.Amount != "250.50" || got.ID == 0 {
+		t.Errorf("поправка %+v, чекали +250.50 і id запису", got)
+	}
+	if have() != book+250_50 {
+		t.Errorf("після поправки рахунок %d, мав зійтись із фактичним %d", have(), book+250_50)
+	}
+
+	// Сходиться — нічого не пишеться.
+	resp, raw = do(t, "POST", srv.URL+"/api/cash/reconcile",
+		`{"broker":"inzhur","currency":"UAH","actual":"`+actual+`"}`)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(raw, `"0.00"`) {
+		t.Errorf("збіг: %d %s", resp.StatusCode, raw)
+	}
+	after, _ := st.ListDeposits(context.Background())
+	if len(after) != len(before)+1 {
+		t.Errorf("записів %d → %d, чекали рівно одну поправку", len(before), len(after))
+	}
+
+	resp, _ = do(t, "POST", srv.URL+"/api/cash/reconcile", `{"broker":"inzhur","currency":"UAH","actual":"abc"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("криве число — 400, а не %d", resp.StatusCode)
 	}
 }

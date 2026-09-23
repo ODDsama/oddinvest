@@ -132,6 +132,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/sales/{id}", s.handleDeleteSale)
 	mux.HandleFunc("GET /api/deposits", s.handleListDeposits)
 	mux.HandleFunc("POST /api/deposits", s.handleAddDeposit)
+	mux.HandleFunc("POST /api/cash/reconcile", s.handleReconcile)
 	mux.HandleFunc("PUT /api/deposits/{id}", s.handleUpdateDeposit)
 	mux.HandleFunc("DELETE /api/deposits/{id}", s.handleDeleteDeposit)
 	mux.HandleFunc("GET /api/reserve", s.handleListReserveOps)

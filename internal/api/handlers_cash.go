@@ -285,3 +285,69 @@ func (s *Server) writeCashCheck(w http.ResponseWriter, r *http.Request, d engine
 		Enough: short == 0,
 	})
 }
+
+// reconcileReq — звірка рахунку: що показує банк чи брокер. Лише факт,
+// жодної різниці: її рахує сервер (правило §5 у CLAUDE.md).
+type reconcileReq struct {
+	Broker   string `json:"broker"`
+	Currency string `json:"currency"`
+	Actual   string `json:"actual"` // десятковий, як у поповненні
+}
+
+type reconcileResp struct {
+	ID   int64            `json:"id,omitempty"` // запис поправки; 0 — сходиться
+	Diff engine.MoneyJSON `json:"diff"`
+}
+
+// handleReconcile — поправка «фактично мінус за записами» звичайним
+// поповненням із поміткою, а не окремою сутністю: так розбіжність
+// лишається видимою в історії рухів.
+//
+// ЧОМУ НА СЕРВЕРІ. Доти різницю віднімав браузер від числа зі summary. А
+// summary віддається у валюті звітності, і в доларовому вигляді гривневий
+// баланс брокера приходив перекладеним (до 25a4a82 — під гривневим
+// ключем): фактичні 495 375 ₴ проти «11 227» записали б поправку на
+// півмільйона. Тут баланс береться з книжкового документа — того самого,
+// що й у /check (engine.BrokerBalanceMinor), — тож поправка не залежить
+// від того, як сторінка його показала.
+func (s *Server) handleReconcile(w http.ResponseWriter, r *http.Request) {
+	var req reconcileReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	broker := strings.TrimSpace(req.Broker)
+	cur := req.Currency
+	if cur == "" {
+		cur = money.UAH
+	}
+	actual, err := domain.ParseDecimalToMinor(req.Actual, cur)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	doc, err := s.BuildState(r.Context(), time.Now())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	diff := actual - engine.BrokerBalanceMinor(doc, broker, cur)
+	out := reconcileResp{Diff: engine.ToMoneyJSON(money.New(diff, cur))}
+	if diff == 0 {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	note := "звірка: незаписане надходження"
+	if diff < 0 {
+		note = "звірка: незаписана витрата"
+	}
+	out.ID, err = s.st.AddDeposit(r.Context(), store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: diff, Currency: cur, Broker: broker, Note: note,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	writeJSON(w, http.StatusCreated, out)
+}
