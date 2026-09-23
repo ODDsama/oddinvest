@@ -133,15 +133,21 @@ type projectionInput struct {
 	// за проєкцію, а другого означення розриву бути не має.
 	ReserveGapUAH float64
 	GoalsGapUAH   float64
-	// DebtLeftUAH — скільки боргу під ставкою; DebtDueUAH — обовʼязкові
-	// платежі МІСЯЦЯ.
+	// Обовʼязкові платежі за боргами — ЗА ГРАФІКОМ, двома природами.
 	//
-	// Два числа, бо це дві різні речі. Обовʼязкове йде щомісяця, доки борг
-	// живий, і вибору в ньому немає; дострокове ріже стеля, і воно
-	// закінчується разом із самим боргом. Одне число на обидва зробило б
-	// платежі вічними або стелю обовʼязковою.
-	DebtLeftUAH float64
-	DebtDueUAH  float64
+	// InstallmentDueByMonth — самостійні розстрочки помісячно від поточного
+	// місяця до останнього платежу (state_month.go). CardDueUAH —
+	// мінімалка карток цього місяця, CardLeftUAH — непільговий залишок, до
+	// вичерпання якого вона йде.
+	//
+	// Доти тут стояли DebtDueUAH (обовʼязкове ЦЬОГО місяця) і DebtLeftUAH
+	// (сумарний залишок), і прогноз повторював перше, доки не вичерпувалось
+	// друге: розстрочка, що закінчується в березні, «платилась» довше, ніж
+	// насправді, картка — сумою чужого графіка, а місяць, коли розстрочку
+	// доплачено й гроші вивільнились, прогноз не бачив зовсім.
+	InstallmentDueByMonth []float64
+	CardDueUAH            float64
+	CardLeftUAH           float64
 	// Поля DebtFillSharePct тут більше немає: прохід уперед не ріже
 	// дострокового погашення взагалі, тож вимикати нема чого.
 	// ActualMonthly — фактичний темп поповнень, ₴/міс (0 = історії замало).
@@ -295,7 +301,7 @@ func (f sleeveFactory) shareAt(m int) map[string]float64 {
 func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 	planNative map[string][]float64, incReserve, incGoals, expense []float64) {
 	resGap, goalGap := in.ReserveGapUAH, in.GoalsGapUAH
-	debtLeft := in.DebtLeftUAH
+	cardLeft := in.CardLeftUAH
 	resShare, goalShare := 0.0, 0.0
 	if in.Settings != nil {
 		if v := in.Settings.ReserveFillSharePct; v != nil {
@@ -306,7 +312,7 @@ func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 		}
 	}
 	if (resGap <= 0 || resShare <= 0) && (goalGap <= 0 || goalShare <= 0) &&
-		debtLeft <= 0 {
+		len(in.InstallmentDueByMonth) == 0 && cardLeft <= 0 {
 		return // жодної живої стелі — прогноз лишається таким, як був
 	}
 	for m := range planTotal {
@@ -323,9 +329,12 @@ func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 		// зменшував тим самим портфельні гроші на шістдесят років уперед.
 		// Дострокове погашення більше не забирає портфельних грошей ніде —
 		// довід у handlers_allocate.go, у місці, де стояла вирізка.
-		if debtLeft > 0 {
-			c := math.Min(in.DebtDueUAH, debtLeft)
-			debtLeft -= c
+		if m < len(in.InstallmentDueByMonth) {
+			cut += in.InstallmentDueByMonth[m]
+		}
+		if cardLeft > 0 {
+			c := math.Min(in.CardDueUAH, cardLeft)
+			cardLeft -= c
 			cut += c
 		}
 		if resGap > 0 && resShare > 0 {

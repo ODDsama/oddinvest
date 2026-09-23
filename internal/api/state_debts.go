@@ -761,40 +761,11 @@ func debtCurrency(debts []domain.Debt, id int64) string {
 	return money.UAH
 }
 
-// debtLeftUAH — скільки боргу під ставкою, грн-екв.
-//
-// Окремою функцією від buildDebtPlan, бо читач другий і працює РАНІШЕ:
-// прогноз збирається до того, як зʼявиться план місяця, а той блок без
-// плану місяця порахувати стелю не може.
-func debtLeftUAH(src *sources, rates fx.Rates, today domain.Date) float64 {
-	total := 0.0
-	for _, d := range src.debts {
-		if d.Closed() {
-			continue
-		}
-		balance := int64(0)
-		if d.IsCard() {
-			st := domain.CardState(d, src.debtMarks, src.debtOps, nil, today)
-			balance = st.NonGrace
-			if st.Debt > 0 && balance > st.Debt {
-				balance = st.Debt
-			}
-		} else {
-			for _, p := range domain.InstallmentSchedule(d) {
-				if !p.Date.Before(today) {
-					balance += p.Principal
-				}
-			}
-		}
-		if balance <= 0 {
-			continue
-		}
-		if u, err := fx.ToUAH(money.New(balance, d.Currency), rates); err == nil {
-			total += float64(u.Amount()) / 100
-		}
-	}
-	return round2(total)
-}
+// debtLeftUAH ТУТ БІЛЬШЕ НЕМАЄ. Він складав у одне число залишок картки й
+// тіло розстрочок, і прогноз повторював обовʼязкове поточного місяця, доки
+// цей сумарний залишок не вичерпувався. Тепер прогноз веде розстрочки
+// графіком (installmentDueByMonth), а картку — до вичерпання її власного
+// залишку (cardLeftUAH), обидва в state_month.go.
 
 // debtFillSharePct ТУТ БІЛЬШЕ НЕМАЄ. Він віддавав стелю дострокового в
 // проєкцію, а та ріже з портфельних грошей на шістдесят років уперед —

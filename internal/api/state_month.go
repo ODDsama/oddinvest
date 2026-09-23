@@ -627,13 +627,23 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 // зсуне головне число «скільки можна витрачати», і в неї має бути власний
 // коміт із власним доводом.
 func debtDueForMonth(src *sources, rates fx.Rates, today domain.Date, m int) float64 {
+	inst, card := debtDueParts(src, rates, today, m)
+	return inst + card
+}
+
+// debtDueParts — те саме обовʼязкове місяця, розкладене на дві природи:
+// самостійні розстрочки (графік, що закінчується своєю датою) і
+// мінімалка непільгової частини картки (від СЬОГОДНІШНЬОГО залишку, тож
+// на будь-який місяць уперед вона та сама). Прогнозу ця різниця потрібна:
+// розстрочку він веде графіком, а картку — до вичерпання залишку
+// (state_projection.go, spendOutside).
+func debtDueParts(src *sources, rates fx.Rates, today domain.Date, m int) (inst, card float64) {
 	if len(src.debts) == 0 {
-		return 0
+		return 0, 0
 	}
 	first := monthStart(today, m)
 	last := monthStart(today, m+1).AddDays(-1)
 
-	total := 0.0
 	for _, d := range src.debts {
 		if d.Closed() {
 			continue
@@ -654,8 +664,62 @@ func debtDueForMonth(src *sources, rates fx.Rates, today domain.Date, m int) flo
 		}
 		for _, p := range domain.DebtSchedule(d, balance, first, last) {
 			if u, err := fx.ToUAH(money.New(p.Amount, d.Currency), rates); err == nil {
-				total += float64(u.Amount()) / 100
+				if d.IsCard() {
+					card += float64(u.Amount()) / 100
+				} else {
+					inst += float64(u.Amount()) / 100
+				}
 			}
+		}
+	}
+	return inst, card
+}
+
+// installmentDueByMonth — обовʼязкові платежі самостійних розстрочок
+// помісячно від поточного, до останнього платежу включно. Далі — нулі,
+// тобто вектор просто закінчується.
+func installmentDueByMonth(src *sources, rates fx.Rates, today domain.Date) []float64 {
+	var lastPay domain.Date
+	for _, d := range src.debts {
+		if d.Closed() || d.IsCard() || d.CardID != 0 {
+			continue
+		}
+		for _, p := range domain.InstallmentSchedule(d) {
+			if p.Date.After(lastPay) {
+				lastPay = p.Date
+			}
+		}
+	}
+	if lastPay == "" || lastPay.Before(today) {
+		return nil
+	}
+	var out []float64
+	for m := 0; !monthStart(today, m).After(lastPay); m++ {
+		inst, _ := debtDueParts(src, rates, today, m)
+		out = append(out, inst)
+	}
+	return out
+}
+
+// cardLeftUAH — непільговий борг карток (те, на що йде мінімалка), грн.
+// Ту саму частину бере debtLeftUAH; тут вона окремо, бо прогноз гасить
+// картку до вичерпання саме цього залишку.
+func cardLeftUAH(src *sources, rates fx.Rates, today domain.Date) float64 {
+	total := 0.0
+	for _, d := range src.debts {
+		if d.Closed() || !d.IsCard() {
+			continue
+		}
+		st := domain.CardState(d, src.debtMarks, src.debtOps, nil, today)
+		balance := st.NonGrace
+		if st.Debt > 0 && balance > st.Debt {
+			balance = st.Debt
+		}
+		if balance <= 0 {
+			continue
+		}
+		if u, err := fx.ToUAH(money.New(balance, d.Currency), rates); err == nil {
+			total += float64(u.Amount()) / 100
 		}
 	}
 	return total

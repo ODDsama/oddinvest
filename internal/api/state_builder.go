@@ -1263,6 +1263,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 	// Вхід виписаний полем за полем навмисно: проєкція залежить від усіх
 	// інструментів одразу, і серед сотні локальних змінних цього не було
 	// видно — саме тому сюди роками не потрапляли то вклади, то фонди.
+	_, cardDue0 := debtDueParts(src, rates, today, 0)
 	prj := buildProjection(projectionInput{
 		Capital: capital, Cashflow: cashflow, Settings: settings,
 		CashByCur: bal, NominalByCur: nominalByCur,
@@ -1289,8 +1290,9 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 		// Борг у прогнозі. Без цього крива обіцяла б гроші, які застосунок
 		// сам же віддає банку на сусідньому екрані — дослівно вада фази 20,
 		// лише про борг замість цілей.
-		DebtLeftUAH: debtLeftUAH(src, rates, today),
-		DebtDueUAH:  debtDueForMonth(src, rates, today, 0),
+		InstallmentDueByMonth: installmentDueByMonth(src, rates, today),
+		CardDueUAH:            cardDue0,
+		CardLeftUAH:           cardLeftUAH(src, rates, today),
 	})
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну (див. state_projection.go).

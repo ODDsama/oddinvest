@@ -160,3 +160,26 @@ func TestPlanProvidesStaysGrossUnderCeilings(t *testing.T) {
 			doc.PlanProvidesUAH)
 	}
 }
+
+// Борг у прогнозі — ЗА ГРАФІКОМ, а не сталою сумою сьогоднішнього місяця.
+// Розстрочка на три місяці по 3 000 ₴ ріже рівно три місяці й звільняє
+// гроші з четвертого; картка платить мінімалку, доки не вичерпано її
+// залишок. Доти прогноз повторював обовʼязкове ЦЬОГО місяця, доки не
+// вичерпувався сумарний залишок, — і розстрочка, що закінчується в
+// березні, «платилась» місяцями довше, а картка — сумою чужого графіка.
+func TestSpendOutsideDebtFollowsSchedule(t *testing.T) {
+	total, uah, res, goals, exp := outsideEnv(6)
+	in := projectionInput{
+		InstallmentDueByMonth: []float64{3_000, 3_000, 3_000},
+		CardDueUAH:            500, CardLeftUAH: 1_200,
+	}
+	spendOutside(in, total, uah, nil, res, goals, exp)
+	// Місяці 0–1: 3 000 розстрочки + 500 картки; 2: 3 000 + 200 (залишок
+	// картки); 3–5: нічого.
+	want := []float64{6_500, 6_500, 6_800, 10_000, 10_000, 10_000}
+	for m, w := range want {
+		if math.Abs(uah[m]-w) > 0.01 {
+			t.Errorf("місяць %d: до паперів %.2f, чекали %.2f", m, uah[m], w)
+		}
+	}
+}
