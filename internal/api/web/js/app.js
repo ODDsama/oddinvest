@@ -95,6 +95,12 @@ const MASTER_FOLD = "master";
 // сторінка, потрібна рівно тоді, коли все інше зламалось.
 const SUMMARY_FREE = new Set(["policy", "settings"]);
 
+// Скільки кеш вважається свіжим, коли на вкладку повертаються. П'ять
+// хвилин: коротша перерва — це перемикання між вікнами, і перемальовувати
+// тоді означало б смикати екран щоразу; довша вже встигає пережити запис
+// із телефона чи Home Assistant.
+const STALE_AFTER_MS = 5 * 60 * 1000;
+
 // Панель на СТАТИЧНИЙ рядок: ключ — повна трійка «вкладка/рядок/панель».
 //
 // Таблиця пласка, а не дерево, навмисно: маршрут приходить рядком, і
@@ -274,10 +280,39 @@ export class OddInvestApp extends HTMLElement {
         () => fitCharts(this.shadowRoot.getElementById("pbody")), 150);
     };
     window.addEventListener("resize", this._onResize);
+    // Повернення на вкладку після перерви — свіжі дані. Кеш store не
+    // протухає за часом і знає лише про записи з ЦІЄЇ вкладки, а ранковий
+    // прогін, Home Assistant чи телефон міняють дані повз неї: PWA, яку
+    // відкрили ввечері, показувала ранкові числа. Перемальовування — тепле
+    // (скрол і фокус лишаються), і лише коли нема чого втратити: відкритий
+    // діалог чи недописана форма важать більше за свіжість.
+    this._onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (this._store.age() < STALE_AFTER_MS || this._hasDraft()) return;
+      this._store.invalidate();
+      this._loadPage({ warm: true });
+    };
+    document.addEventListener("visibilitychange", this._onVisible);
     this._route();
   }
 
+  /** Чи є на екрані щось, що перемальовування стерло б: відкритий діалог
+   *  або поле форми, змінене відносно того, з чим його намалювали. */
+  _hasDraft() {
+    const root = this.shadowRoot;
+    if (root.querySelector("dialog[open]")) return true;
+    return [...root.querySelectorAll("#main input, #main textarea, #main select")].some((el) => {
+      if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
+      if (el.tagName !== "SELECT") return el.value !== el.defaultValue;
+      // Випадайка без жодного selected у розмітці показує першу опцію, і
+      // defaultSelected тоді хибне всюди — «змінена» була б кожна.
+      const def = [...el.options].findIndex((o) => o.defaultSelected);
+      return el.selectedIndex !== Math.max(def, 0);
+    });
+  }
+
   disconnectedCallback() {
+    if (this._onVisible) document.removeEventListener("visibilitychange", this._onVisible);
     if (this._onHash) window.removeEventListener("hashchange", this._onHash);
     if (this._onResize) window.removeEventListener("resize", this._onResize);
     if (this._onWide) this._wide.removeEventListener("change", this._onWide);
@@ -1333,7 +1368,12 @@ export class OddInvestApp extends HTMLElement {
     // «Політиці» нема за що.
     const tab = TAB_BY_KEY.get(this._tab);
     if (tab && tab.dynamic === "positions" && !broken) {
-      this._posData = await loadPositionsData(this._ctx).catch(() => ({}));
+      // Помилку — вголос, як у soft(). Доти catch ковтав її мовчки, і
+      // «Портфель» без жодного рядка виглядав як порожній портфель.
+      this._posData = await loadPositionsData(this._ctx).catch((err) => {
+        this._reportSoft("позиції", err);
+        return {};
+      });
     }
     // Те саме для «Шляху»: прогрес коштує обходу всієї історії внесків
     // (довід — у шапці internal/engine/state_progress.go), і платити за

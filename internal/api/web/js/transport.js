@@ -46,6 +46,17 @@ async function unwrap(resp) {
   return resp.json();
 }
 
+// Скільки чекати на ЧИТАННЯ. Доти запит, що завис (тунель упав на
+// півдорозі, сервер застряг), лишав скелет на екрані назавжди — без
+// помилки й без підказки, що варто оновити. 30 с — із запасом на
+// найважчу відповідь (зведення з чергою задач через тунель).
+//
+// Лише GET, і це не недогляд. Запис, що триває довше (оновлення
+// довідника НБУ, імпорт виписки), на сервері не скасовується тим, що
+// браузер перестав чекати: обірвати його тут означало б сказати
+// «не вдалось» про те, що насправді вдалось, — і людина повторила б.
+const READ_TIMEOUT_MS = 30_000;
+
 function make(doFetch) {
   const send = async (method, path, body) => {
     const opts = { method, headers: {} };
@@ -53,7 +64,19 @@ function make(doFetch) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
     }
-    return unwrap(await doFetch(path, opts));
+    if (method !== "GET") return unwrap(await doFetch(path, opts));
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), READ_TIMEOUT_MS);
+    try {
+      return await unwrap(await doFetch(path, { ...opts, signal: ctl.signal }));
+    } catch (err) {
+      if (!ctl.signal.aborted) throw err;
+      const e = new Error(`сервер не відповів за ${READ_TIMEOUT_MS / 1000} с`);
+      e.status = 0;
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
   };
   return {
     get: (path) => send("GET", path),

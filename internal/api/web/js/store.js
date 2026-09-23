@@ -19,6 +19,12 @@
 export function createStore(transport, report = () => {}) {
   const cache = new Map();    // path -> значення
   const inflight = new Map(); // path -> проміс, що ще летить
+  // Коли кеш почав наповнюватись після останнього повного скидання. Сам
+  // store за часом нічого не викидає (довід — у шапці), але «доки нічого
+  // не змінилось» знає лише про записи З ЦІЄЇ вкладки: ранковий прогін,
+  // Home Assistant чи другий пристрій міняють дані повз неї. Вік читає
+  // оболонка, коли на вкладку повертаються (app.js, visibilitychange).
+  let filledAt = 0;
 
   /** Читання з кешу. Паралельні виклики того самого шляху чекають на
    *  один запит, а не породжують кожен свій. */
@@ -27,6 +33,7 @@ export function createStore(transport, report = () => {}) {
     if (inflight.has(path)) return inflight.get(path);
     const p = transport.get(path)
       .then((v) => {
+        if (!cache.size) filledAt = Date.now();
         cache.set(path, v);
         return v;
       })
@@ -53,8 +60,7 @@ export function createStore(transport, report = () => {}) {
    *  позиції, і рахунок, і зведення, і календар, тож вибіркове скидання
    *  тільки давало б привід забути якийсь маршрут. */
   function invalidate(prefix) {
-    if (prefix === undefined) cache.clear();
-    else for (const k of [...cache.keys()]) if (k.startsWith(prefix)) cache.delete(k);
+    if (prefix === undefined) { cache.clear(); filledAt = 0; } else for (const k of [...cache.keys()]) if (k.startsWith(prefix)) cache.delete(k);
   }
 
   /** Запис + скидання кешу однією дією, щоб не можна було зробити
@@ -69,6 +75,8 @@ export function createStore(transport, report = () => {}) {
     get,
     soft,
     invalidate,
+    /** Скільки мілісекунд найстарішому в кеші; 0 — кеш порожній. */
+    age: () => (filledAt ? Date.now() - filledAt : 0),
     post: mutate("post"),
     put: mutate("put"),
     del: mutate("del"),
