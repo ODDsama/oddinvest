@@ -306,3 +306,49 @@ func reconcile(t *testing.T, e *Engine, doc *state.Doc) {
 		t.Errorf("рух грошей %d ≠ рахунок %d — гаманці розійшлись", got, want)
 	}
 }
+
+// Обіцяні дивіденди фонду в календарі й маршруті — після податку, який
+// фонд утримує з кожної виплати.
+//
+// Виміряна дохідність (DividendYieldNet) і так нетто, а обіцяна бралась
+// брутто: REIT на 100 тис. з обіцянкою 10% показував у календарі близько
+// 833 ₴ на місяць там, де при 14% податку приходить близько 717. «Що
+// купити» податок віднімав — і сусідні екрани розходились.
+func TestPromisedFundDividendsAreNetOfTax(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	today := domain.NewDate(time.Now())
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: today.AddDays(-40), Fund: "Inzhur REIT", Kind: domain.FundBuy,
+		Qty: 100, Amount: 100_000_00, Currency: money.UAH, Broker: "inzhur",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	calendarFund := func(taxBP int64) int64 {
+		t.Helper()
+		funds, err := st.ListFunds(ctx)
+		if err != nil || len(funds) != 1 {
+			t.Fatalf("довідник фондів: %v %+v", err, funds)
+		}
+		f := funds[0]
+		f.ExpectedYieldBP, f.ExpectedYieldCur, f.PayoutDay, f.IncomeTaxBP = 1000, money.UAH, 10, taxBP
+		if err := st.RenameFund(ctx, f.ID, f); err != nil {
+			t.Fatal(err)
+		}
+		doc, err := New(st, testLogger()).BuildState(ctx, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, p := range doc.Calendar {
+			if domain.IsFundISIN(p.ISIN) {
+				return p.Amount.Minor()
+			}
+		}
+		t.Fatal("фонду немає в календарі")
+		return 0
+	}
+	gross, net := calendarFund(0), calendarFund(1400)
+	if ratio := float64(net) / float64(gross); ratio < 0.855 || ratio > 0.865 {
+		t.Errorf("виплата з податком 14%% — %d, без податку — %d: частка %.3f, чекали 0.86", net, gross, ratio)
+	}
+}

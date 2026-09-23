@@ -110,6 +110,22 @@ func fundOwnRatePct(ref store.Fund, measured float64) float64 {
 		float64(ref.ExpectedYieldBP)/100, int(ref.YieldSimpleYears))
 }
 
+// fundPayoutRatePct — ставка ВИПЛАТ фонду (розподільного й
+// реінвестуючого): обіцянка — після податку, який фонд утримує з кожного
+// дивіденду; виміряна — як є, бо DividendYieldNet уже нетто.
+//
+// Окремо від fundOwnRatePct, бо та описує ще й ЗРОСТАННЯ накопичувального
+// фонду, де податок береться один раз на виході (Accum.TaxPct), а не з
+// кожної виплати. Доти обіцяна ставка йшла у виплати брутто: календар,
+// маршрут і кошик Dist показували дивіденди до податку, а «Що купити»
+// (reinvest.go) — після, і сусідні екрани розходились на 14–23%.
+func fundPayoutRatePct(ref store.Fund, measured float64) float64 {
+	if ref.ExpectedYieldBP <= 0 {
+		return measured
+	}
+	return domain.NetOfTax(fundOwnRatePct(ref, measured), float64(ref.IncomeTaxBP)/100, 0)
+}
+
 // inFundCurrency — обіцянка, дана в ЧУЖІЙ валюті, приведена до валюти
 // сертифіката.
 //
@@ -310,12 +326,15 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			// фонду описує ВИПЛАТИ — вони просто негайно вертаються в папір.
 			// Перевести 9.5% USD у 17.2% UAH тут означало б пообіцяти
 			// подорожчання, якого фонд не обіцяв.
+			//
+			// Ставка — ВИПЛАТ, після податку з кожного дивіденду: реінвестує
+			// фонд уже утримане (fundPayoutRatePct).
 			out.Accum[fcur] = append(out.Accum[fcur], domain.Accum{
-				Value0: value, Cost0: cost, RatePct: rate, ExitTaxPct: exitTax,
+				Value0: value, Cost0: cost, RatePct: fundPayoutRatePct(ref, y), ExitTaxPct: exitTax,
 			})
 		default:
 			out.Dist[fcur] = append(out.Dist[fcur], domain.Dist{
-				Value: value, Cost: cost, RatePct: rate, ExitTaxPct: exitTax,
+				Value: value, Cost: cost, RatePct: fundPayoutRatePct(ref, y), ExitTaxPct: exitTax,
 			})
 		}
 		// nominalPct — НОМІНАЛЬНИЙ ДВІЙНИК RealPct: те саме число до

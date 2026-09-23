@@ -335,7 +335,7 @@ func routeIncome(src *sources, today domain.Date, months int) (incomeAhead, erro
 		}
 		measured, _ := domain.DividendYieldNet(src.fundOps, fp, today)
 		ref := src.fundRefs[fp.Fund]
-		y := fundOwnRatePct(ref, measured)
+		y := fundPayoutRatePct(ref, measured) // виплати — після податку
 		broker := fundBroker(src.fundOps, fp.Fund)
 		// ТУТ — ЛИШЕ ГОТІВКОВА ЧАСТИНА, на відміну від календаря, який
 		// показує всю нараховану ренту (довід — у buildSchedule). Маршрут

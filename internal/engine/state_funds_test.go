@@ -4,12 +4,11 @@ import (
 	"math"
 	"testing"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 // TestFundsPromiseYieldPairsWithItself — коли основа рядка «обіцяно
@@ -171,11 +170,12 @@ func TestFundsAccumulatingLeavesLockedCapital(t *testing.T) {
 	if d.ExitTaxPct != 23 {
 		t.Errorf("податок при виході %v, очікували 23", d.ExitTaxPct)
 	}
-	// Ставка виплат — обіцянка фонду, та сама, з якої календар оцінює
-	// найближчі дивіденди. Два різні числа на той самий потік означали б,
-	// що картка виплат і крива капіталу говорять про різні фонди.
-	if d.RatePct != 25 {
-		t.Errorf("ставка виплат %v, очікували 25 (обіцянка фонду)", d.RatePct)
+	// Ставка виплат — обіцянка фонду ПІСЛЯ податку з кожного дивіденду, та
+	// сама, з якої календар оцінює найближчі дивіденди (fundPayoutRatePct):
+	// 25% × (1 − 14%) = 21.5%. Два різні числа на той самий потік означали
+	// б, що картка виплат і крива капіталу говорять про різні фонди.
+	if math.Abs(d.RatePct-21.5) > 1e-9 {
+		t.Errorf("ставка виплат %v, очікували 21.5 (обіцянка фонду після податку)", d.RatePct)
 	}
 }
 

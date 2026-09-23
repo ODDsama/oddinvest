@@ -527,6 +527,12 @@ func planFundAccum(ref store.Fund, when, today domain.Date, amount float64,
 			"фонду немає в довіднику — без обіцяної дохідності позиція в прогнозі не росла б")
 	}
 	rate := fundOwnRatePct(ref, 0)
+	// Реінвестуючий росте ВИПЛАТАМИ, тож його ставка — після податку з
+	// кожного дивіденду, як і для наявної позиції (state_funds.go);
+	// накопичувальний — брутто, податок на закритті окремим полем.
+	if ref.Kind != store.FundAccumulating {
+		rate = fundPayoutRatePct(ref, 0)
+	}
 	if rate <= 0 {
 		return planFundBuy{}, BadRequestf(
 			"у фонда «%s» не задана очікувана дохідність — без неї позиція в прогнозі не росла б",
