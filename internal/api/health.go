@@ -10,7 +10,11 @@
 // сесії, а відповідь не несе нічого, крім версії й імені файла міграції.
 package api
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/ODDsama/oddinvest/internal/store"
+)
 
 // Version — версія збірки: коротке sha коміту, яке lxc-deploy.sh вшиває
 // через -ldflags "-X …/internal/api.Version=<sha>". "dev" — локальна
@@ -27,7 +31,20 @@ func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"status": "ok", "version": Version, "migration": mig,
-	})
+	out := map[string]string{"status": "ok", "version": Version, "migration": mig}
+	// Здоровʼя добового прогону — щоб зовнішній моніторинг бачив збій без
+	// журналу. Лише дата й так/ні: подробиці пошкодження лишаються в
+	// журналі й задачі db-integrity, бо ендпойнт відкритий без замка. 200
+	// навмисно й при збої: деплой звіряє тут версію, а пропущений бекап не
+	// привід відкочувати бінарник.
+	if v, err := s.st.GetOwnState(r.Context(), store.BackupAtKey); err == nil && v != "" {
+		out["backup_at"] = v
+	}
+	if v, err := s.st.GetAppState(r.Context(), store.IntegrityKey); err == nil && v != "" {
+		out["integrity"] = "ok"
+		if v != "ok" {
+			out["integrity"] = "broken"
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }

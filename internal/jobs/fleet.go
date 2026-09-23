@@ -2,11 +2,13 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/finomo"
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 // Fleet — усі Runner-и процесу: головний і по одному на кожен інший
@@ -111,10 +113,26 @@ func (f *Fleet) dailyRun(ctx context.Context) error {
 	}
 	mctx, mcancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer mcancel()
-	if err := f.main.st.Maintain(mctx); err != nil {
-		f.main.log.Error("обслуговування сховища", "err", err)
+	// Результат перевірки цілісності — міткою в app_state: інакше про
+	// пошкоджену базу знав би лише журнал (задача db-integrity, /healthz).
+	// Таймаут чи зайнята база мітку не чіпають — це не відповідь про базу.
+	merr := f.main.st.Maintain(mctx)
+	switch {
+	case merr == nil:
+		f.markIntegrity(mctx, "ok")
+	case errors.Is(merr, store.ErrIntegrity):
+		f.main.log.Error("обслуговування сховища", "err", merr)
+		f.markIntegrity(mctx, merr.Error())
+	default:
+		f.main.log.Error("обслуговування сховища", "err", merr)
 	}
 	return refreshErr
+}
+
+func (f *Fleet) markIntegrity(ctx context.Context, v string) {
+	if err := f.main.st.SetAppState(ctx, store.IntegrityKey, v); err != nil {
+		f.main.log.Warn("мітка цілісності не записалась", "err", err)
+	}
 }
 
 // refreshRetries — скільки разів за день повторити прогін, якщо НБУ

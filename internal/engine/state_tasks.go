@@ -92,6 +92,10 @@ const taskSoonDays = 30
 // встановлює його на кілька днів уперед.
 const fxStaleDays = 4
 
+// backupStaleDays — з якого віку дамп вважається пропущеним. Два дні, а не
+// один: прогін о 06:10, і вчорашня дата до ранку — норма.
+const backupStaleDays = 2
+
 // taskPastDays — як глибоко назад шукаємо невідмічені виплати.
 //
 // Не «від початку часів»: питання задачі — «гроші мали надійти, підтверди»,
@@ -644,6 +648,29 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 					Plural(d, "день", "дні", "днів")),
 				Why: fmt.Sprintf("Усі гривневі еквіваленти рахуються за курсом від %s.",
 					src.ratesAsOf),
+			})
+		}
+	}
+
+	// ---------- добовий прогін ----------
+	// Збої прогону доти жили лише в journald: бекап, що не пишеться,
+	// тихо прокручував усі покоління, а пошкоджена база чекала першого
+	// запиту, який об неї спіткнеться.
+	if src != nil && src.integrity != "" && src.integrity != "ok" {
+		add(state.Task{
+			ID: "db-integrity", Sev: sevNow, Rank: 1,
+			Title: "База пошкоджена — перевірка цілісності не пройшла",
+			Why: "Добова PRAGMA integrity_check знайшла помилки. Не вноси нічого нового, " +
+				"поки база не відновлена з останнього дампу (README → «Відновлення»): " + src.integrity,
+		})
+	}
+	if src != nil && src.backupAt != "" {
+		if d := daysBetween(src.backupAt, today); d >= backupStaleDays {
+			add(state.Task{
+				ID: "backup-stale", Sev: sevWatch, Rank: 18,
+				Title: fmt.Sprintf("Бекап не записувався %d %s", d, Plural(d, "день", "дні", "днів")),
+				Why: fmt.Sprintf("Останній дамп — %s. Добовий прогін його не записав: "+
+					"причина в журналі сервісу (journalctl -u oddinvestd).", src.backupAt),
 			})
 		}
 	}

@@ -299,3 +299,37 @@ func TestFXStaleTask(t *testing.T) {
 		t.Errorf("тижневий курс мав дати задачу: %+v", got)
 	}
 }
+
+// Збої добового прогону видно в застосунку, а не лише в journald.
+//
+// Бекап, що не пишеться щодня, міг тихо прокрутити всі тридцять поколінь,
+// а пошкоджена база — чекати першого запиту, який об неї спіткнеться.
+// Мітки ставить сам прогін (jobs), задачі читають їх із джерел.
+func TestJobHealthTasks(t *testing.T) {
+	has := func(tasks []state.Task, id string) bool {
+		for _, x := range tasks {
+			if x.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	doc := func() *state.Doc { return &state.Doc{NominalUAHEq: state.Major(10_000, money.UAH)} }
+	today := domain.Date("2026-09-21")
+
+	if has(buildTasks(doc(), nil, &sources{backupAt: "2026-09-20"}, today), "backup-stale") {
+		t.Error("учорашній бекап — не задача")
+	}
+	if has(buildTasks(doc(), nil, &sources{}, today), "backup-stale") {
+		t.Error("мітки ще немає (перший прогін попереду) — не задача")
+	}
+	if !has(buildTasks(doc(), nil, &sources{backupAt: "2026-09-17"}, today), "backup-stale") {
+		t.Error("бекап чотири дні тому мав дати задачу")
+	}
+	if has(buildTasks(doc(), nil, &sources{integrity: "ok"}, today), "db-integrity") {
+		t.Error("ціла база — не задача")
+	}
+	if !has(buildTasks(doc(), nil, &sources{integrity: "*** in database main ***\nPage 7 is never used"}, today), "db-integrity") {
+		t.Error("порушена цілісність мала дати задачу")
+	}
+}

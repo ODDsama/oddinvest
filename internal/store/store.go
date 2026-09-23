@@ -158,13 +158,16 @@ func (s *Store) Close() error {
 // Без нього файл журналу росте до найбільшої транзакції за час життя
 // процесу (а це ReplaceDirectory) і таким лишається — і саме він, а не
 // база, потрапляє в бекап Proxmox напівпорожнім.
+//
+// ErrIntegrity відрізняє «база пошкоджена» від «перевірка не встигла» (таймаут,
+// зайнята база): перше прогін записує міткою й показує задачею, друге — ні.
 func (s *Store) Maintain(ctx context.Context) error {
 	var res string
 	if err := s.db.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&res); err != nil {
 		return fmt.Errorf("integrity_check: %w", err)
 	}
 	if res != "ok" {
-		return fmt.Errorf("цілісність БД порушена: %s", res)
+		return fmt.Errorf("%w: %s", ErrIntegrity, res)
 	}
 	if _, err := s.db.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
 		return fmt.Errorf("wal_checkpoint: %w", err)
@@ -183,6 +186,9 @@ func (s *Store) Maintain(ctx context.Context) error {
 // Продажі, вклади й довідники користуються тим самим affectedOne і далі
 // віддають 400 на неіснуючий id — це не недогляд, а межа цієї фази.
 var ErrNotFound = errors.New("не знайдено")
+
+// ErrIntegrity — PRAGMA integrity_check знайшла пошкодження (див. Maintain).
+var ErrIntegrity = errors.New("цілісність БД порушена")
 
 // ErrConflict — такий запис уже є. Другий сентинел поруч із ErrNotFound і
 // з тієї ж причини: без нього повторна відмітка надходження за той самий
@@ -998,6 +1004,26 @@ func (s *Store) SetAppState(ctx context.Context, key, value string) error {
 	_, err := s.db.ExecContext(ctx, `INSERT INTO app_state(key, value) VALUES(?,?)
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
 	return err
+}
+
+// BackupAtKey / IntegrityKey — мітки добового прогону в app_state. Пише
+// jobs, читають збирач задач (engine) і /healthz. Дамп — свій у кожного
+// портфеля (GetOwnState, дата YYYY-MM-DD за Києвом), цілісність — одна на
+// базу (результат PRAGMA integrity_check, "ok" — ціла).
+const (
+	BackupAtKey  = "backup_at"
+	IntegrityKey = "integrity"
+)
+
+// SetOwnState / GetOwnState — мітка app_state ЦЬОГО портфеля. Таблиця
+// спільна (довідник НБУ оновлюється раз на всіх), а мітки на кшталт «коли
+// востаннє записано дамп» у кожного портфеля свої — тож ключ несе id.
+func (s *Store) SetOwnState(ctx context.Context, key, value string) error {
+	return s.SetAppState(ctx, fmt.Sprintf("%s@%d", key, s.pid), value)
+}
+
+func (s *Store) GetOwnState(ctx context.Context, key string) (string, error) {
+	return s.GetAppState(ctx, fmt.Sprintf("%s@%d", key, s.pid))
 }
 
 func (s *Store) GetAppState(ctx context.Context, key string) (string, error) {

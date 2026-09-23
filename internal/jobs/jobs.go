@@ -114,6 +114,11 @@ func (r *Runner) dumpBackup(ctx context.Context) {
 	r.log.Info("бекап збережено", "path", dated,
 		"лотів", len(b.Lots), "поповнень", len(b.Deposits))
 	r.pruneBackups()
+	// Дата дампу — міткою портфеля: задача backup-stale і /healthz
+	// дізнаються про пропущений бекап не з журналу.
+	if err := r.st.SetOwnState(ctx, store.BackupAtKey, string(domain.NewDate(time.Now().In(r.loc)))); err != nil {
+		r.log.Warn("бекап: мітка дати не записалась", "err", err)
+	}
 }
 
 // backupGenPath — шлях покоління за дату: <ім'я>-YYYY-MM-DD<розширення>.

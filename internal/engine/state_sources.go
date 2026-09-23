@@ -153,6 +153,12 @@ type sources struct {
 	settings *state.SettingsDoc
 	brokers  []store.Broker
 	nbuAt    string
+
+	// Здоровʼя добового прогону (jobs): дата останнього записаного дампу
+	// цього портфеля і результат integrity_check бази. Порожньо — прогону
+	// ще не було, і це не задача.
+	backupAt  domain.Date
+	integrity string
 }
 
 // loadSources читає все й одразу.
@@ -291,6 +297,16 @@ func (e *Engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	// НБУ спільний для всіх портфелів (0054). Порожньо тут законне:
 	// довідник ще не оновлювався.
 	if src.nbuAt, err = e.st.GetAppState(ctx, nbuRefreshedKey); err != nil {
+		return nil, err
+	}
+	// Мітки добового прогону. Порожньо законне (прогону ще не було), тож
+	// читання жорсткі, як і решта тут.
+	backupAt, err := e.st.GetOwnState(ctx, store.BackupAtKey)
+	if err != nil {
+		return nil, err
+	}
+	src.backupAt = domain.Date(backupAt)
+	if src.integrity, err = e.st.GetAppState(ctx, store.IntegrityKey); err != nil {
 		return nil, err
 	}
 

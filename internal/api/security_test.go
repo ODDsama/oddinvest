@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 // Вбудований скрипт index.html мусить бути в політиці ЗА ХЕШЕМ. Інакше
@@ -68,5 +71,30 @@ func TestHealthzWithoutSessionReportsVersionAndMigration(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("healthz не містить %s: %s", want, body)
 		}
+	}
+}
+
+// /healthz несе здоровʼя добового прогону — дату дампу й цілісність, — але
+// без подробиць пошкодження: ендпойнт відкритий без замка.
+func TestHealthzReportsJobHealthWithoutDetails(t *testing.T) {
+	srv, st := testHub(t)
+	ctx := context.Background()
+	if err := st.SetOwnState(ctx, store.BackupAtKey, "2026-09-20"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetAppState(ctx, store.IntegrityKey, "Page 7 is never used"); err != nil {
+		t.Fatal(err)
+	}
+	resp, body := doP(t, "GET", srv.URL+"/healthz", "", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("healthz: %d %s — пропущений бекап не привід валити перевірку деплою", resp.StatusCode, body)
+	}
+	for _, want := range []string{`"backup_at":"2026-09-20"`, `"integrity":"broken"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("healthz не містить %s: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Page 7") {
+		t.Errorf("подробиці пошкодження вийшли назовні: %s", body)
 	}
 }
