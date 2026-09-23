@@ -562,6 +562,7 @@ export function reconcileHTML(ctx, only = "") {
         cell: (r) => fmtCur(r.v, r.c) },
       { key: "actual", label: "Фактично", num: true,
         cell: (r) => `<input class="recAct num-in" inputmode="decimal"
+          aria-label="Фактично на ${esc(r.b)}, ${esc(r.c)}"
           data-expected="${r.v}" placeholder="—">` },
       { key: "diff", label: "Розбіжність", num: true, cls: "recDiff muted", cell: () => "—" },
       { key: "fix", label: "", num: true,
@@ -634,11 +635,11 @@ export function importHTML(ctx, profiles = []) {
     <div class="muted fine mb-sm">Спершу перегляд — нічого не записується.</div>
     <div class="row-h">${selectOf("profile", "Звідки виписка", opts, "inzhur")}</div>
     <div class="row-h">
-      <input type="file" id="impFile" accept=".xlsx,.csv">
+      <input type="file" id="impFile" accept=".xlsx,.csv" aria-label="Файл виписки">
       <button id="impPreview">Переглянути</button>
     </div>
     <div class="muted fine mt-sm row-h">
-      Враховувати зміни від <input type="date" id="impSince" class="w-md">
+      Враховувати зміни від <input type="date" id="impSince" class="w-md" aria-label="Враховувати зміни від">
       <span>рухається сама після кожного імпорту</span>
     </div>
     <div id="impOut" class="mt"></div></div>`;
@@ -1006,7 +1007,7 @@ export function taxHTML(x) {
   const now = new Date().getFullYear();
   const sel = x.year || taxYear();
   const years = Array.from({ length: 5 }, (_, i) => now - i);
-  const picker = `<select data-tax-year>${years.map((y) =>
+  const picker = `<select data-tax-year aria-label="Податковий рік">${years.map((y) =>
     `<option value="${y}"${y === sel ? " selected" : ""}>${y}</option>`).join("")}</select>`;
   // Податок — ЗАВЖДИ в гривні, хоч би в чому звітував документ: платиться
   // він у гривні за курсом на дату події, і звіт для декларації бекенд у

@@ -86,18 +86,18 @@ function bondDetailHTML(p, lots, sales) {
   //
   // lot_id і валюта їдуть у data-атрибутах рядка: PUT замінює продаж
   // цілком, а в самому рядку їх не видно.
-  const saleF = (field, attrs) =>
-    `<input class="sale-f" data-field="${field}" ${attrs}>`;
+  const saleF = (field, label, attrs) =>
+    `<input class="sale-f" data-field="${field}" aria-label="${label}" ${attrs}>`;
   const salesTbl = mySales.length ? `<h4 class="mt">Продажі</h4>` + opsGrid({
     cols: [
       { key: "sale_date", label: "Дата",
-        cell: (v) => saleF("sale_date", `type="date" value="${esc(v.sale_date)}"`) },
+        cell: (v) => saleF("sale_date", "Дата продажу", `type="date" value="${esc(v.sale_date)}"`) },
       { key: "qty", label: "К-сть", num: true,
-        cell: (v) => saleF("qty", `data-num="1" type="number" min="1" step="1" value="${v.qty}"`) },
+        cell: (v) => saleF("qty", "Кількість", `data-num="1" type="number" min="1" step="1" value="${v.qty}"`) },
       { key: "clean", label: "Чиста", num: true,
-        cell: (v) => saleF("clean_per_bond", `inputmode="decimal" value="${esc(v.clean_per_bond.amount)}"`) },
+        cell: (v) => saleF("clean_per_bond", "Чиста ціна за папір", `inputmode="decimal" value="${esc(v.clean_per_bond.amount)}"`) },
       { key: "accrued", label: "Накопичений купон", num: true,
-        cell: (v) => saleF("accrued", `inputmode="decimal" value="${esc(v.accrued.amount)}"`) },
+        cell: (v) => saleF("accrued", "Накопичений купон", `inputmode="decimal" value="${esc(v.accrued.amount)}"`) },
       { key: "result", label: "Результат", num: true, cell: (v) => fmtMoney(v.realized_result) },
       actionsCol("sales", { edit: false, label: (v) => "продаж від " + v.sale_date }),
     ],

@@ -37,7 +37,11 @@ export function catalogRowHTML(item, fields = []) {
   // помилки там, де вибір скінченний. Клас той самий, тож проводка нижче
   // не розрізняє select від input — обидва мають .value.
   const inputs = fields.map((f) => {
+    // Підпис для читача екрана — з того, що вже є: title, а без нього
+    // placeholder («дохідн., %»). Порожнє поле без жодного з них
+    // оголошувалось би як «поле редагування» і нічого більше.
     const attrs = `class="cat-f" data-field="${f.key}" title="${esc(f.title || "")}"
+       aria-label="${esc(f.title || f.ph || f.key)}"
        style="--oi-w:${f.w || 90}px"`;
     if (f.opts) {
       const opts = f.opts.map((o) =>
@@ -58,8 +62,10 @@ export function catalogRowHTML(item, fields = []) {
   // копію того самого коду.
   return `<div class="pv-row" data-cat="${item.id}">
     <span class="row-h">
-      <input class="cat-f cat-name w-lg" data-field="name" value="${esc(item.name)}">${inputs}</span>
-    <button class="sm warn self-start" data-catdel="${item.id}">✕</button></div>`;
+      <input class="cat-f cat-name w-lg" data-field="name" value="${esc(item.name)}"
+        aria-label="Назва">${inputs}</span>
+    <button class="sm warn self-start" data-catdel="${item.id}"
+      aria-label="Видалити ${esc(item.name)}">✕</button></div>`;
 }
 
 // marks / fundOps / fundRows — усе, що потрібно панелі позначок ціни під
