@@ -393,6 +393,13 @@ func DepositFlows(deposits []Deposit, currency string, asOf Date) []Flow {
 		}
 
 		if d.ClosedDate != "" {
+			// Відсотки, що надійшли до розірвання, — реалізований дохід, як і
+			// в діючого вкладу (PaidBeforeClose).
+			for _, cf := range d.PaidBeforeClose() {
+				if !cf.Date.After(asOf) {
+					flows = append(flows, Flow{Date: cf.Date, Amount: cf.Amount.Amount()})
+				}
+			}
 			if !d.ClosedDate.After(asOf) {
 				flows = append(flows, Flow{Date: d.ClosedDate, Amount: d.ClosedAmount})
 			} else {

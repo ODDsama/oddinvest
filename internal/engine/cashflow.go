@@ -197,6 +197,13 @@ func (e *Engine) CashEvents(ctx context.Context) ([]FlowEvent, error) {
 			}
 		}
 		if dep.ClosedDate != "" {
+			// Відсотки, що надійшли до розірвання, лишаються доходом — так
+			// само, як у гаманці (state_builder.go).
+			for _, cf := range dep.PaidBeforeClose() {
+				if arrived(cf.ISIN, cf.Date) {
+					income(cf, "відсотки "+dep.Bank)
+				}
+			}
 			if !dep.ClosedDate.After(today) {
 				add(dep.ClosedDate, FlowPurchase, uah(money.New(dep.ClosedAmount, dep.Currency)), "розірвано "+dep.Bank)
 			}

@@ -730,7 +730,26 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 				}
 			}
 		}
+		// Виплата вкладу, що надійшла (минула дата або позначка), — на рахунок
+		// банку. Відсотки вкладу — такий самий дохід, як купон, і в чергу
+		// простою стають нарівні з ним.
+		credit := func(cf domain.CashflowItem) {
+			if !arrived(cf.ISIN, cf.Date) {
+				return
+			}
+			on := domain.ArrivalDate(cf.Date, today)
+			cash.add(dep.Bank, cf.Amount.Currency().Code, on, cf.Amount.Amount())
+			if u, cerr := fx.ToUAH(cf.Amount, rates); cerr == nil {
+				incomeEvents = append(incomeEvents, domain.CashEvent{Date: on, Amount: u.Amount()})
+			}
+		}
 		if dep.ClosedDate != "" {
+			// Відсотки, що надійшли ДО розірвання, лишаються на рахунку:
+			// розірвання їх не повертає (PaidBeforeClose). Доти весь графік
+			// пропускався, і запис розірвання зменшував баланс заднім числом.
+			for _, cf := range dep.PaidBeforeClose() {
+				credit(cf)
+			}
 			if !dep.ClosedDate.After(today) {
 				cash.add(dep.Bank, dep.Currency, dep.ClosedDate, dep.ClosedAmount)
 			}
@@ -740,20 +759,10 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 			// вклад у календарі рядка не має, і сума висіла б там вічно.
 			continue
 		}
-		// діючий вклад: відсотки й тіло — коли надійшли (минула дата або
-		// позначка). DepositSchedule від "1970-01-01" дає весь графік,
-		// зокрема минулі виплати.
+		// діючий вклад: відсотки й тіло. DepositSchedule від "1970-01-01" дає
+		// весь графік, зокрема минулі виплати.
 		for _, cf := range domain.DepositSchedule(dep, "1970-01-01") {
-			if !arrived(cf.ISIN, cf.Date) {
-				continue
-			}
-			on := domain.ArrivalDate(cf.Date, today)
-			cash.add(dep.Bank, cf.Amount.Currency().Code, on, cf.Amount.Amount())
-			// Відсотки вкладу — такий самий дохід, як купон, і в чергу
-			// простою стають нарівні з ним.
-			if u, cerr := fx.ToUAH(cf.Amount, rates); cerr == nil {
-				incomeEvents = append(incomeEvents, domain.CashEvent{Date: on, Amount: u.Amount()})
-			}
+			credit(cf)
 		}
 	}
 

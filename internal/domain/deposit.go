@@ -415,6 +415,28 @@ func (d Deposit) interestFlows() []CashflowItem {
 	return out
 }
 
+// PaidBeforeClose — виплати відсотків розірваного вкладу, що припали на
+// дні ДО розірвання: вони вже лежать на рахунку, і розірвання їх не
+// повертає. Порожньо для діючого вкладу.
+//
+// Доти розірваний вклад у гаманці, русі грошей і XIRR давав лише тіло
+// розірвання, а весь графік пропускався — разом із відсотками, що
+// надійшли за місяці до того. Запис розірвання тоді зменшував баланс
+// банку заднім числом на суму всіх виплат. Виплата в сам день розірвання
+// сюди не входить: її, якщо була, несе сума розірвання.
+func (d Deposit) PaidBeforeClose() []CashflowItem {
+	if d.ClosedDate == "" {
+		return nil
+	}
+	var out []CashflowItem
+	for _, cf := range d.interestFlows() {
+		if cf.Date.Before(d.ClosedDate) {
+			out = append(out, cf)
+		}
+	}
+	return out
+}
+
 // DepositInterestTax — брутто й податок із виплат відсотків, що
 // припадають на вікно [from; to] включно.
 func DepositInterestTax(d Deposit, from, to Date) (gross, tax int64) {
