@@ -8,6 +8,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 // Закритий вклад не стирає відсотків, які вже надійшли до закриття.
@@ -148,5 +149,70 @@ func TestTaxReportDepositEventsAtTheirDates(t *testing.T) {
 	}
 	if diff := gotTax - wantTax; diff < -5 || diff > 5 {
 		t.Errorf("податок %d коп., чекали %d", gotTax, wantTax)
+	}
+}
+
+// Вклад подушки чи цілі не живить прогноз портфеля.
+//
+// Його тіло збирач уже виводить зі старту проєкції (гроші подушки — не
+// купівельна спроможність), а відсотки й повернення тіла доливались у
+// рукави як звичайний дохід: 200 тис. подушки під 15% додавали до прогнозу
+// двісті тисяч і відсотки, що самі реінвестувались, — гроші нізвідки.
+// Тож вклад подушки мусить не зрушити прогноз ні на копійку.
+func TestEarmarkedDepositStaysOutOfProjection(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	seed(t, st)
+	today := domain.NewDate(time.Now())
+	if err := st.SetSetting(ctx, "goal_amount_uah", "2000000"); err != nil {
+		t.Fatal(err)
+	}
+	// Звичайний вклад, щоб прогноз мав що показувати: на порожньому
+	// портфелі він нульовий за будь-яких потоків, і тест не перевіряв би
+	// нічого.
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: today, Broker: "Приват", Amount: 100_000_00, Currency: money.UAH,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "Приват", Currency: money.UAH, Principal: 100_000_00, RateBP: 1400,
+		OpenDate: today, MaturityDate: today.AddMonths(12),
+		Payout: domain.PayoutEnd, TaxBP: domain.TaxBPByLaw,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e := New(st, testLogger())
+	before, err := e.BuildState(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Projection) == 0 || before.Projection[0].WithReinvest.Minor() == 0 {
+		t.Fatal("прогнозу немає — тест нічого не перевіряє")
+	}
+	// Гроші на вклад приходять поповненням рахунку банку — так, як це
+	// записує людина. Без нього рахунок пішов би в мінус на тіло вкладу.
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: today, Broker: "ПУМБ", Amount: 200_000_00, Currency: money.UAH,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
+		Bank: "ПУМБ", Currency: money.UAH, Principal: 200_000_00, RateBP: 1500,
+		OpenDate: today, MaturityDate: today.AddMonths(8),
+		Payout: domain.PayoutEnd, TaxBP: domain.TaxBPByLaw, IsReserve: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := e.BuildState(ctx, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range before.Projection {
+		b, a := before.Projection[i], after.Projection[i]
+		if b.WithReinvest.Minor() != a.WithReinvest.Minor() {
+			t.Errorf("горизонт %d р.: прогноз %.2f → %.2f від вкладу подушки",
+				b.Years, b.WithReinvest.Major(), a.WithReinvest.Major())
+		}
 	}
 }

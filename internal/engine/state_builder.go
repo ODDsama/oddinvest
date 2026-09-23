@@ -1255,7 +1255,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// видно — саме тому сюди роками не потрапляли то вклади, то фонди.
 	_, cardDue0 := debtDueParts(src, rates, today, 0)
 	prj := buildProjection(projectionInput{
-		Capital: capital, Cashflow: cashflow, Settings: settings,
+		Capital: capital, Cashflow: withoutEarmarked(cashflow, termDeposits), Settings: settings,
 		CashByCur: bal, NominalByCur: nominalByCur,
 		DepositBodyByCur: depositBodyByCur,
 		AccumByCur:       fnd.Accum, DistByCur: fnd.Dist,
@@ -1474,4 +1474,30 @@ func goalsMonthUAH(goals []state.Goal) float64 {
 		sum += g.FillMonthUAH.Major()
 	}
 	return sum
+}
+
+// withoutEarmarked — потоки без виплат вкладів подушки й цілей.
+//
+// Для ПРОЄКЦІЇ, і лише для неї. Тіло таких вкладів уже виведене з її
+// старту (гроші подушки — не купівельна спроможність), а відсотки й
+// повернення тіла доливались у рукави як звичайний дохід і реінвестувались:
+// гроші нізвідки. Календар, дохід місяця й драбина ці виплати бачать —
+// вони справді прийдуть, — тож фільтр тут, а не в розкладі.
+func withoutEarmarked(cf []domain.CashflowItem, deposits []domain.Deposit) []domain.CashflowItem {
+	earmarked := map[string]bool{}
+	for _, d := range deposits {
+		if d.Earmarked() {
+			earmarked[d.SyntheticISIN()] = true
+		}
+	}
+	if len(earmarked) == 0 {
+		return cf
+	}
+	out := make([]domain.CashflowItem, 0, len(cf))
+	for _, c := range cf {
+		if !earmarked[c.ISIN] {
+			out = append(out, c)
+		}
+	}
+	return out
 }
