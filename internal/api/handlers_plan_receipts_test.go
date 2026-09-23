@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ODDsama/oddinvest/internal/engine"
 )
 
 // thisMonth / monthPlus — місяці відносно сьогодні, як їх бачить бекенд.
@@ -32,7 +34,7 @@ func TestPlanExpectedComesFromTheFlow(t *testing.T) {
 
 	doc := planDoc(t, srv.URL)
 	now := monthPlus(0)
-	var cur *ExpectedReceipt
+	var cur *engine.ExpectedReceipt
 	for i := range doc.Expected {
 		if doc.Expected[i].Month == now {
 			cur = &doc.Expected[i]
@@ -170,9 +172,9 @@ func TestPlanReceiptValidation(t *testing.T) {
 // --- дрібні читачі відповіді, щоб тести вище лишались про суть ---
 
 type planDocResp struct {
-	Expected []ExpectedReceipt  `json:"expected"`
-	Receipts []receiptRow       `json:"receipts"`
-	History  []planHistoryPoint `json:"history"`
+	Expected []engine.ExpectedReceipt  `json:"expected"`
+	Receipts []engine.ReceiptRow       `json:"receipts"`
+	History  []engine.PlanHistoryPoint `json:"history"`
 }
 
 func planDoc(t *testing.T, base string) planDocResp {
@@ -213,7 +215,7 @@ func planFlowID(t *testing.T, base string) int64 {
 func planReceiptIDs(t *testing.T, base string) []int64 {
 	t.Helper()
 	_, body := do(t, "GET", base+"/api/plan/receipts", "")
-	var rows []receiptRow
+	var rows []engine.ReceiptRow
 	if err := json.Unmarshal([]byte(body), &rows); err != nil {
 		t.Fatalf("розбір відміток: %v (%s)", err, body)
 	}

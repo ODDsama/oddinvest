@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 )
 
 // handleSwitch — GET /api/switch: пороги для всіх паперів у портфелі.
@@ -45,8 +46,8 @@ func (s *Server) handleSwitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, struct {
-		Alt  *SwitchAlt  `json:"alt,omitempty"`
-		Rows []SwitchRow `json:"rows"`
+		Alt  *engine.SwitchAlt  `json:"alt,omitempty"`
+		Rows []engine.SwitchRow `json:"rows"`
 	}{Alt: alt, Rows: rows})
 }
 
@@ -63,9 +64,9 @@ type switchVerdictOut struct {
 	// Gain — виграш у грошах: на папір і на всю позицію. Це різниця двох
 	// СЬОГОДНІШНІХ сум, тож «строку окупності» поруч немає й не буде —
 	// аргумент у шапці domain/switch.go.
-	GainPerBond MoneyJSON `json:"gain_per_bond"`
-	GainTotal   MoneyJSON `json:"gain_total"`
-	Worth       bool      `json:"worth"`
+	GainPerBond engine.MoneyJSON `json:"gain_per_bond"`
+	GainTotal   engine.MoneyJSON `json:"gain_total"`
+	Worth       bool             `json:"worth"`
 }
 
 // handleSwitchVerdict — POST /api/switch: вердикт за котируванням брокера.
@@ -116,7 +117,7 @@ func (s *Server) handleSwitchVerdict(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cur := b.Nominal.Currency().Code
-	clean, err := ParseMoney(req.Clean, cur)
+	clean, err := engine.ParseMoney(req.Clean, cur)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -135,19 +136,19 @@ func (s *Server) handleSwitchVerdict(w http.ResponseWriter, r *http.Request) {
 	deval := s.Devaluation(ctx)
 	res, err := domain.SwitchVerdict(domain.SwitchInput{
 		ISIN: req.ISIN, Payments: pays, Today: today,
-		AltRatePct: NominalYield(alt.RealPct/100, cur, deval) * 100,
+		AltRatePct: engine.NominalYield(alt.RealPct/100, cur, deval) * 100,
 	}, clean)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	holdReal := Round2(RealYield(res.HoldRatePct/100, cur, deval) * 100)
+	holdReal := engine.Round2(engine.RealYield(res.HoldRatePct/100, cur, deval) * 100)
 	writeJSON(w, http.StatusOK, switchVerdictOut{
 		ISIN: req.ISIN, Qty: qty,
 		HoldRealPct: holdReal, AltRealPct: alt.RealPct,
-		EdgePP:      Round2(alt.RealPct - holdReal),
-		GainPerBond: ToMoneyJSON(res.GainPerBond),
-		GainTotal:   ToMoneyJSON(domain.MulQty(res.GainPerBond, qty)),
+		EdgePP:      engine.Round2(alt.RealPct - holdReal),
+		GainPerBond: engine.ToMoneyJSON(res.GainPerBond),
+		GainTotal:   engine.ToMoneyJSON(domain.MulQty(res.GainPerBond, qty)),
 		Worth:       res.GainPerBond.Amount() > 0,
 	})
 }

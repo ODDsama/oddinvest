@@ -96,7 +96,7 @@ func seedCPI(t *testing.T, st *store.Store, n int) {
 func seedCPIHoled(t *testing.T, st *store.Store, n, skip int) string {
 	t.Helper()
 	ctx := t.Context()
-	m := prevMonthStr(monthOf(domain.NewDate(time.Now())))
+	m := prevMonthStr(time.Now().Format("2006-01"))
 	hole := ""
 	for i := 0; i < n; i++ {
 		if i == skip {

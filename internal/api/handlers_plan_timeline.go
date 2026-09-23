@@ -1,4 +1,4 @@
-// GET /api/plan — стрічка часу плану. Збірка документа — plan_timeline.go.
+// GET /api/plan — стрічка часу плану. Збірка документа — engine/plan_timeline.go.
 
 package api
 

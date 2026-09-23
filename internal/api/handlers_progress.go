@@ -1,7 +1,7 @@
 // GET /api/progress — віхи, серія й поле колекції.
 //
 // Обробник лише віддає відповідь. Звідки що береться — e.Progress, як
-// воно зводиться у віхи — чиста buildProgress (обидва в state_progress.go):
+// воно зводиться у віхи — чиста buildProgress (обидва в engine/state_progress.go):
 // той самий поділ, що між handleSummary і BuildState.
 
 package api

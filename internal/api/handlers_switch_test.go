@@ -11,6 +11,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/nbu"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -51,14 +52,14 @@ type switchListOut struct {
 		RealPct float64 `json:"real_pct"`
 	} `json:"alt"`
 	Rows []struct {
-		ISIN         string    `json:"isin"`
-		Qty          int64     `json:"qty"`
-		CostPerBond  MoneyJSON `json:"cost_per_bond"`
-		Accrued      MoneyJSON `json:"accrued"`
-		BreakEven    MoneyJSON `json:"break_even"`
-		BreakEvenPct float64   `json:"break_even_pct"`
-		HoldRealPct  float64   `json:"hold_real_pct"`
-		Reason       string    `json:"reason"`
+		ISIN         string           `json:"isin"`
+		Qty          int64            `json:"qty"`
+		CostPerBond  engine.MoneyJSON `json:"cost_per_bond"`
+		Accrued      engine.MoneyJSON `json:"accrued"`
+		BreakEven    engine.MoneyJSON `json:"break_even"`
+		BreakEvenPct float64          `json:"break_even_pct"`
+		HoldRealPct  float64          `json:"hold_real_pct"`
+		Reason       string           `json:"reason"`
 	} `json:"rows"`
 }
 
@@ -255,5 +256,5 @@ func bump(t *testing.T, amount string, delta int64) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ToMoneyJSON(money.New(minor+delta*100, money.UAH)).Amount
+	return engine.ToMoneyJSON(money.New(minor+delta*100, money.UAH)).Amount
 }

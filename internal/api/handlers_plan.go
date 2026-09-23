@@ -2,7 +2,7 @@
 //
 // CRUD за зразком handlers_deposits.go/handlers_reserve.go. Сама
 // арифметика — розгортання потоку в помісячний вектор, дії set_shares/lock
-// у рукавах — живе в internal/api/state_projection.go (sleeveFactory):
+// у рукавах — живе в internal/engine/state_projection.go (sleeveFactory):
 // тут лише зберігання й перевірка форми.
 package api
 
@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
@@ -136,7 +137,7 @@ func planFlowFromReq(req planFlowReq) (store.PlanFlow, error) {
 	// самою формою.
 	//
 	// Проєкція розгортає внесок рівно з відʼємної місячної суми
-	// (state_projection.go: `if v := PlanFlowMonthlyUAH(...); v < 0`), тож
+	// (engine/state_projection.go: `if v := PlanFlowMonthlyUAH(...); v < 0`), тож
 	// на доході призначення не робить НІЧОГО. Мовчазний нуль там гірший за
 	// помилку: поле лишалось видимим, список малював під рядком пігулку
 	// «переказ, а не витрата», і застосунок стверджував рух, якого не було
@@ -170,16 +171,16 @@ func planFlowFromReq(req planFlowReq) (store.PlanFlow, error) {
 }
 
 type planFlowRow struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Kind      string    `json:"kind"`
-	Amount    MoneyJSON `json:"amount"`
-	Cadence   string    `json:"cadence"`
-	FromDate  string    `json:"from_date"`
-	UntilDate string    `json:"until_date,omitempty"`
-	GrowthPct float64   `json:"growth_pct,omitempty"`
-	InvestPct float64   `json:"invest_pct"`
-	Dest      string    `json:"dest,omitempty"`
+	ID        int64            `json:"id"`
+	Name      string           `json:"name"`
+	Kind      string           `json:"kind"`
+	Amount    engine.MoneyJSON `json:"amount"`
+	Cadence   string           `json:"cadence"`
+	FromDate  string           `json:"from_date"`
+	UntilDate string           `json:"until_date,omitempty"`
+	GrowthPct float64          `json:"growth_pct,omitempty"`
+	InvestPct float64          `json:"invest_pct"`
+	Dest      string           `json:"dest,omitempty"`
 	// Uses — дозвіл ПЕРЕЛІКОМ, завжди повний: назовні «без обмежень» має
 	// виглядати як «можна всюди», інакше браузеру довелось би знати про
 	// порожній рядок те саме, що знає сховище. Для витрати — nil: там
@@ -253,37 +254,37 @@ func planUsesRow(f store.PlanFlow) []string {
 // Перебором вікна це рахувати не можна: дванадцять нулів попереду однаково
 // дає й потік, який почнеться на третій рік, — а він не завершений.
 func planFlowExpired(f store.PlanFlow, today domain.Date) bool {
-	if f.UntilDate != "" && MonthOffsetRaw(today, f.UntilDate) < 1 {
+	if f.UntilDate != "" && engine.MonthOffsetRaw(today, f.UntilDate) < 1 {
 		return true
 	}
-	return f.Cadence == "once" && MonthOffsetRaw(today, f.FromDate) < 1
+	return f.Cadence == "once" && engine.MonthOffsetRaw(today, f.FromDate) < 1
 }
 
 // toPlanFlowRow. marks обов'язковий саме тут, і забути його було б тихо:
 // сума колонки ProvidesUAH мусить дорівнювати плитці «План дає», а та
-// рахується з відмітками (state_projection.go). Без них таблиця показувала
+// рахується з відмітками (engine/state_projection.go). Без них таблиця показувала
 // б план так, ніби майбутніх нулів ніхто не відмічав, а підсумок під нею —
 // уже з ними. Тест тримає рівність.
-func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates, marks PlanMarks) planFlowRow {
+func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates, marks engine.PlanMarks) planFlowRow {
 	return planFlowRow{
 		ID: f.ID, Name: f.Name, Kind: f.Kind,
-		Amount: ToMoneyJSON(money.New(f.Amount, f.Currency)), Cadence: f.Cadence,
+		Amount: engine.ToMoneyJSON(money.New(f.Amount, f.Currency)), Cadence: f.Cadence,
 		FromDate: string(f.FromDate), UntilDate: string(f.UntilDate),
-		GrowthPct: Round2(float64(f.GrowthBP) / 100), InvestPct: Round2(float64(f.InvestBP) / 100),
+		GrowthPct: engine.Round2(float64(f.GrowthBP) / 100), InvestPct: engine.Round2(float64(f.InvestBP) / 100),
 		Dest:        f.Dest,
 		Uses:        planUsesRow(f),
 		Note:        f.Note,
 		Expired:     planFlowExpired(f, today),
-		ProvidesUAH: state.Major(PlanFlowProvidesUAH(f, today, rates, PlanProvidesMonths, marks), money.UAH),
-		GrossUAH:    state.Major(PlanFlowGrossUAH(f, today, rates, PlanProvidesMonths, marks), money.UAH),
+		ProvidesUAH: state.Major(engine.PlanFlowProvidesUAH(f, today, rates, engine.PlanProvidesMonths, marks), money.UAH),
+		GrossUAH:    state.Major(engine.PlanFlowGrossUAH(f, today, rates, engine.PlanProvidesMonths, marks), money.UAH),
 
-		AmountUAH: state.Major(PlanFlowUAH(float64(f.Amount)/100, f.Currency, rates), money.UAH),
+		AmountUAH: state.Major(engine.PlanFlowUAH(float64(f.Amount)/100, f.Currency, rates), money.UAH),
 		// Стала ставка відміток НЕ бачить, і це навмисно: вона відповідає на
 		// «скільки цей потік платить, коли платить», — питання без місяця,
 		// тож і замістити в ньому нема чого.
-		MonthlyUAH:      state.Major(PlanFlowUAH(PlanFlowSteadyNative(f, today, true), f.Currency, rates), money.UAH),
-		MonthlyGrossUAH: state.Major(PlanFlowUAH(PlanFlowSteadyNative(f, today, false), f.Currency, rates), money.UAH),
-		NextMonthUAH:    state.Major(PlanFlowMonthlyUAH(f, today, rates, 1, marks), money.UAH),
+		MonthlyUAH:      state.Major(engine.PlanFlowUAH(engine.PlanFlowSteadyNative(f, today, true), f.Currency, rates), money.UAH),
+		MonthlyGrossUAH: state.Major(engine.PlanFlowUAH(engine.PlanFlowSteadyNative(f, today, false), f.Currency, rates), money.UAH),
+		NextMonthUAH:    state.Major(engine.PlanFlowMonthlyUAH(f, today, rates, 1, marks), money.UAH),
 	}
 }
 
@@ -302,7 +303,7 @@ func (s *Server) handleListPlanFlows(w http.ResponseWriter, r *http.Request) {
 	// Відмітки ковтаємо з тієї ж причини й з тим самим наслідком: без них
 	// колонка покаже чистий план. Порожні відмітки — звичайний стан.
 	receipts, _ := s.st.ListPlanReceipts(r.Context()) //nolint:errcheck // свідомо: див. вище
-	marks := NewPlanMarks(receipts)
+	marks := engine.NewPlanMarks(receipts)
 	out := make([]planFlowRow, 0, len(flows))
 	for _, f := range flows {
 		out = append(out, toPlanFlowRow(f, today, rates, marks))
@@ -472,29 +473,29 @@ type planActionRow struct {
 	// USDSharePct/EURSharePct — покажчики, а не float64: 0 тут ЛЕГАЛЬНА
 	// задана частка («долара не лишається зовсім»), а omitempty на
 	// float64 мовчки з'їв би її так само, як і незадану. nil = не задано.
-	USDSharePct *float64   `json:"usd_share_pct,omitempty"`
-	EURSharePct *float64   `json:"eur_share_pct,omitempty"`
-	Amount      *MoneyJSON `json:"amount,omitempty"`
-	RatePct     float64    `json:"rate_pct,omitempty"`
-	Months      int        `json:"months,omitempty"`
-	Name        string     `json:"name,omitempty"`
-	Note        string     `json:"note,omitempty"`
+	USDSharePct *float64          `json:"usd_share_pct,omitempty"`
+	EURSharePct *float64          `json:"eur_share_pct,omitempty"`
+	Amount      *engine.MoneyJSON `json:"amount,omitempty"`
+	RatePct     float64           `json:"rate_pct,omitempty"`
+	Months      int               `json:"months,omitempty"`
+	Name        string            `json:"name,omitempty"`
+	Note        string            `json:"note,omitempty"`
 }
 
 func toPlanActionRow(a store.PlanAction) planActionRow {
 	out := planActionRow{ID: a.ID, Date: string(a.Date), Type: a.Type, Name: a.Name, Note: a.Note}
 	if a.USDBP >= 0 {
-		v := Round2(float64(a.USDBP) / 100)
+		v := engine.Round2(float64(a.USDBP) / 100)
 		out.USDSharePct = &v
 	}
 	if a.EURBP >= 0 {
-		v := Round2(float64(a.EURBP) / 100)
+		v := engine.Round2(float64(a.EURBP) / 100)
 		out.EURSharePct = &v
 	}
 	if a.Type == "lock" {
-		v := ToMoneyJSON(money.New(a.Amount, a.Currency))
+		v := engine.ToMoneyJSON(money.New(a.Amount, a.Currency))
 		out.Amount = &v
-		out.RatePct = Round2(float64(a.RateBP) / 100)
+		out.RatePct = engine.Round2(float64(a.RateBP) / 100)
 		out.Months = a.Months
 	}
 	return out

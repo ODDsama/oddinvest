@@ -22,6 +22,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -101,8 +102,8 @@ func TestWhatIfCapitalGrowsByNominalAndAccrued(t *testing.T) {
 		t.Fatalf("%d %s", code, body)
 	}
 	var got struct {
-		After  json.RawMessage `json:"after"`
-		Basket BasketDoc       `json:"basket"`
+		After  json.RawMessage  `json:"after"`
+		Basket engine.BasketDoc `json:"basket"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
@@ -131,7 +132,7 @@ func TestWhatIfCapitalGrowsByNominalAndAccrued(t *testing.T) {
 	if dAcc <= 0 {
 		_, acc := do(t, "GET", url+"/api/accrued/UA4000227748", "")
 		var today struct {
-			PerBond MoneyJSON `json:"per_bond"`
+			PerBond engine.MoneyJSON `json:"per_bond"`
 		}
 		if err := json.Unmarshal([]byte(acc), &today); err != nil {
 			t.Fatal(err)

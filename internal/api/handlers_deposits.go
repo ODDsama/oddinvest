@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
@@ -152,35 +153,35 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type topupJSON struct {
-		ID     int64     `json:"id"`
-		Date   string    `json:"date"`
-		Amount MoneyJSON `json:"amount"`
+		ID     int64            `json:"id"`
+		Date   string           `json:"date"`
+		Amount engine.MoneyJSON `json:"amount"`
 	}
 	type row struct {
-		ID        int64     `json:"id"`
-		Bank      string    `json:"bank,omitempty"`
-		Principal MoneyJSON `json:"principal"`
+		ID        int64            `json:"id"`
+		Bank      string           `json:"bank,omitempty"`
+		Principal engine.MoneyJSON `json:"principal"`
 		// Balance — накопичене тіло (початкове + поповнення) на сьогодні:
 		// UI показує саме його, а principal лишається сумою відкриття.
-		Balance       MoneyJSON `json:"balance"`
-		RatePct       float64   `json:"rate_pct"`
-		OpenDate      string    `json:"open_date"`
-		MaturityDate  string    `json:"maturity_date"`
-		Payout        string    `json:"payout"`
-		Capitalized   bool      `json:"capitalized,omitempty"`
-		Replenishable bool      `json:"replenishable"`
-		IsReserve     bool      `json:"is_reserve"`
-		Revocable     bool      `json:"revocable"`
+		Balance       engine.MoneyJSON `json:"balance"`
+		RatePct       float64          `json:"rate_pct"`
+		OpenDate      string           `json:"open_date"`
+		MaturityDate  string           `json:"maturity_date"`
+		Payout        string           `json:"payout"`
+		Capitalized   bool             `json:"capitalized,omitempty"`
+		Replenishable bool             `json:"replenishable"`
+		IsReserve     bool             `json:"is_reserve"`
+		Revocable     bool             `json:"revocable"`
 		// GoalID/GoalName — ціль, якій належить вклад (0062). Імʼя поруч із
 		// id, бо таблиця показує його людині, а другий запит по цілях
 		// заради одного рядка був би дорожчим за саме поле.
-		GoalID       int64       `json:"goal_id,omitempty"`
-		GoalName     string      `json:"goal_name,omitempty"`
-		TaxPct       float64     `json:"tax_pct"`
-		ClosedDate   string      `json:"closed_date,omitempty"`
-		ClosedAmount MoneyJSON   `json:"closed_amount,omitempty"`
-		Note         string      `json:"note,omitempty"`
-		Topups       []topupJSON `json:"topups,omitempty"`
+		GoalID       int64            `json:"goal_id,omitempty"`
+		GoalName     string           `json:"goal_name,omitempty"`
+		TaxPct       float64          `json:"tax_pct"`
+		ClosedDate   string           `json:"closed_date,omitempty"`
+		ClosedAmount engine.MoneyJSON `json:"closed_amount,omitempty"`
+		Note         string           `json:"note,omitempty"`
+		Topups       []topupJSON      `json:"topups,omitempty"`
 		// NetPct — ставка після податку, але ДО знецінення: номінальний
 		// двійник до RealPct. Поруч уже є RatePct, але це ставка з
 		// договору, до податку, і показувати її як «номінальну дохідність»
@@ -193,7 +194,7 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		RealPct    float64 `json:"real_pct,omitempty"`
 		YieldBasis string  `json:"yield_basis,omitempty"`
 		// Rate — усі три числа разом із податком і обома лінійками
-		// реальності (rate_breakdown.go). Саме на вкладі розклад видно
+		// реальності (engine/rate_breakdown.go). Саме на вкладі розклад видно
 		// найкраще: між договірною ставкою й чистою тут 23 в.п.
 		RateParts *state.RateBreakdown `json:"rate_parts,omitempty"`
 	}
@@ -213,12 +214,12 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		tj := make([]topupJSON, 0, len(d.Topups))
 		for _, t := range d.Topups {
 			tj = append(tj, topupJSON{ID: t.ID, Date: string(t.Date),
-				Amount: ToMoneyJSON(money.New(t.Amount, d.Currency))})
+				Amount: engine.ToMoneyJSON(money.New(t.Amount, d.Currency))})
 		}
 		dr := row{
 			ID: d.ID, Bank: d.Bank,
-			Principal: ToMoneyJSON(money.New(d.Principal, d.Currency)),
-			Balance:   ToMoneyJSON(money.New(d.BalanceAt(today), d.Currency)),
+			Principal: engine.ToMoneyJSON(money.New(d.Principal, d.Currency)),
+			Balance:   engine.ToMoneyJSON(money.New(d.BalanceAt(today), d.Currency)),
 			RatePct:   float64(d.RateBP) / 100,
 			OpenDate:  string(d.OpenDate), MaturityDate: string(d.MaturityDate),
 			Payout: string(d.Payout), Capitalized: d.Capitalized,
@@ -229,7 +230,7 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 			GoalName:      goalNames[d.GoalID],
 			TaxPct:        float64(d.TaxBP) / 100,
 			ClosedDate:    string(d.ClosedDate),
-			ClosedAmount:  ToMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
+			ClosedAmount:  engine.ToMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
 			Note:          d.Note, Topups: tj,
 		}
 		// EffectiveNetRate — та сама формула, що й у реінвест-помічнику:
@@ -237,8 +238,8 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		// ще двічі там, із проханням у коментарі не розходитись.
 		if d.RateBP > 0 {
 			net := d.EffectiveNetRate()
-			dr.NetPct = Round2(net * 100)
-			dr.RealPct = Round2(RealYield(net, d.Currency, deval) * 100)
+			dr.NetPct = engine.Round2(net * 100)
+			dr.RealPct = engine.Round2(engine.RealYield(net, d.Currency, deval) * 100)
 			dr.YieldBasis = "ставка вкладу"
 			dr.RateParts = rc.Breakdown(float64(d.RateBP)/10000, net, d.Currency, "ставка вкладу")
 		}
@@ -330,7 +331,7 @@ func (s *Server) handleTermDepositCheck(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.writeCashCheck(w, r, CashDebit{Broker: d.Bank, Currency: d.Currency, Amount: d.Principal})
+	s.writeCashCheck(w, r, engine.CashDebit{Broker: d.Bank, Currency: d.Currency, Amount: d.Principal})
 }
 
 // handleDepositTopupCheck — POST /api/term-deposits/{id}/topups/check.
@@ -346,7 +347,7 @@ func (s *Server) handleDepositTopupCheck(w http.ResponseWriter, r *http.Request)
 		writeErr(w, code, err)
 		return
 	}
-	s.writeCashCheck(w, r, CashDebit{Broker: dep.Bank, Currency: dep.Currency, Amount: t.Amount})
+	s.writeCashCheck(w, r, engine.CashDebit{Broker: dep.Bank, Currency: dep.Currency, Amount: t.Amount})
 }
 
 // handleUpdateDepositTopup — PUT /api/term-deposits/{id}/topups/{topupId}.

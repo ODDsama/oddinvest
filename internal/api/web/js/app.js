@@ -1336,7 +1336,7 @@ export class OddInvestApp extends HTMLElement {
       this._posData = await loadPositionsData(this._ctx).catch(() => ({}));
     }
     // Те саме для «Шляху»: прогрес коштує обходу всієї історії внесків
-    // (довід — у шапці internal/api/state_progress.go), і платити за
+    // (довід — у шапці internal/engine/state_progress.go), і платити за
     // нього на «Грошах» нема за що. М'яке читання: сторінка віх без віх
     // мусить сказати це словами, а не впасти.
     if (this._tab === "path") {

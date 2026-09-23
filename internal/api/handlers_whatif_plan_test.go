@@ -12,6 +12,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/nbu"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -193,7 +194,7 @@ func (v fundsView) kindUAH(key string) float64 {
 
 // planFundBody — рядок плану на купівлю сертифіката через N місяців.
 // Ціна за штуку задається явно: фонда в портфелі немає, тож узяти її
-// нема звідки (state_plan_buys.go).
+// нема звідки (engine/state_plan_buys.go).
 func planFundBody(name string, months int) string {
 	when := time.Now().AddDate(0, months, 0).Format("2006-01-02")
 	return `{"draft":[{"kind":"fund","ref":"` + name + `","qty":1000,` +
@@ -788,7 +789,7 @@ func TestWhatIfNextMonthRowDoesNotMoveToday(t *testing.T) {
 // нестачі», ухвалене на попередній фазі, — і те рішення скасовано
 // власником. План купівель міряється ПЛАНОВИМИ грошима, а не
 // сьогоднішнім залишком, тож нестачі на цій картці більше немає зовсім
-// (довід над BasketDoc у handlers_whatif.go).
+// (довід над BasketDoc у engine/state_plan_buys.go).
 //
 // Друга половина його аргументу лишається правдою й лишається під
 // тестом: рядок цього місяця СПРАВДІ входить у портфель і справді
@@ -834,7 +835,7 @@ func TestWhatIfFutureRowStaysOutOfPortfolioButInTotals(t *testing.T) {
 		t.Fatalf("%d %s", code, body)
 	}
 	var got struct {
-		Basket BasketDoc `json:"basket"`
+		Basket engine.BasketDoc `json:"basket"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
@@ -997,7 +998,7 @@ func TestWhatIfFirstBuyOfUnheldBondCountsAtNominal(t *testing.T) {
 			NominalUAH float64 `json:"nominal_uah_eq"`
 			AccruedUAH float64 `json:"accrued_uah"`
 		} `json:"after"`
-		Basket BasketDoc `json:"basket"`
+		Basket engine.BasketDoc `json:"basket"`
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)

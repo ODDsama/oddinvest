@@ -21,6 +21,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -303,11 +304,11 @@ func (s *Server) handleNPFOps(w http.ResponseWriter, r *http.Request) {
 		cur[a.ID] = c
 	}
 	type row struct {
-		ID     int64     `json:"id"`
-		NPFID  int64     `json:"npf_id"`
-		Date   string    `json:"date"`
-		Units  float64   `json:"units"`
-		Amount MoneyJSON `json:"amount"`
+		ID     int64            `json:"id"`
+		NPFID  int64            `json:"npf_id"`
+		Date   string           `json:"date"`
+		Units  float64          `json:"units"`
+		Amount engine.MoneyJSON `json:"amount"`
 		// Nav — ЧВОПА, за якою пройшов внесок. Віддається ВИВЕДЕНОЮ, а не
 		// зберігається: вона завжди сума ÷ одиниці, і окреме поле лише дало б
 		// їм розійтись.
@@ -324,7 +325,7 @@ func (s *Server) handleNPFOps(w http.ResponseWriter, r *http.Request) {
 		out = append(out, row{
 			ID: op.ID, NPFID: op.NPFID, Date: string(op.Date),
 			Units:  float64(op.Units) / 1_000_000,
-			Amount: ToMoneyJSON(money.New(op.Amount, c)),
+			Amount: engine.ToMoneyJSON(money.New(op.Amount, c)),
 			Nav:    float64(op.NavE6()) / 1_000_000,
 			Broker: op.Broker, Note: op.Note,
 		})
@@ -352,7 +353,7 @@ func (s *Server) handleAddNPFOp(w http.ResponseWriter, r *http.Request) {
 	// лише id, тож ім'я доводиться взяти з довідника. Порожнє означає, що
 	// рахунок зник між двома запитами — тоді рішення просто не пишеться.
 	now := time.Now()
-	var snap DecisionSnapshot
+	var snap engine.DecisionSnapshot
 	name := s.npfAccountName(r.Context(), req.NPFID)
 	if name != "" {
 		snap = s.TakeDecisionSnapshot(r.Context(), now, store.BuyNPF, name)
@@ -371,7 +372,7 @@ func (s *Server) handleAddNPFOp(w http.ResponseWriter, r *http.Request) {
 // handleNPFOpCheck — POST /api/npf/check: чи вистачить грошей на внесок.
 //
 // Те саме тіло й той самий розбирач, що в POST /api/npf: перевіряти треба
-// рівно те, що потім запишуть (див. шапку cash_shortfall.go).
+// рівно те, що потім запишуть (див. шапку engine/cash_shortfall.go).
 func (s *Server) handleNPFOpCheck(w http.ResponseWriter, r *http.Request) {
 	var req npfOpReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -388,7 +389,7 @@ func (s *Server) handleNPFOpCheck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.writeCashCheck(w, r, CashDebit{
+	s.writeCashCheck(w, r, engine.CashDebit{
 		Broker: op.Broker, Currency: cur, Amount: op.Amount,
 	})
 }

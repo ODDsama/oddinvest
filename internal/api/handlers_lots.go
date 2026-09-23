@@ -12,20 +12,21 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
 type lotJSON struct {
-	ID        int64     `json:"id"`
-	ISIN      string    `json:"isin"`
-	Qty       int64     `json:"qty"`
-	Remaining int64     `json:"remaining"`
-	Price     MoneyJSON `json:"price_per_bond"`
-	Fee       MoneyJSON `json:"fee"`
-	BuyDate   string    `json:"buy_date"`
-	Channel   string    `json:"channel"`
-	Note      string    `json:"note"`
+	ID        int64            `json:"id"`
+	ISIN      string           `json:"isin"`
+	Qty       int64            `json:"qty"`
+	Remaining int64            `json:"remaining"`
+	Price     engine.MoneyJSON `json:"price_per_bond"`
+	Fee       engine.MoneyJSON `json:"fee"`
+	BuyDate   string           `json:"buy_date"`
+	Channel   string           `json:"channel"`
+	Note      string           `json:"note"`
 }
 
 type lotReq struct {
@@ -59,13 +60,13 @@ func (s *Server) lotFromReq(r *http.Request, req lotReq) (domain.Lot, error) {
 			return out, errors.New("папір не в довіднику — вкажіть currency явно")
 		}
 	}
-	price, err := ParseMoney(req.Price, cur)
+	price, err := engine.ParseMoney(req.Price, cur)
 	if err != nil {
 		return out, err
 	}
 	var fee *money.Money
 	if strings.TrimSpace(req.Fee) != "" {
-		if fee, err = ParseMoney(req.Fee, cur); err != nil {
+		if fee, err = engine.ParseMoney(req.Fee, cur); err != nil {
 			return out, err
 		}
 	}
@@ -85,7 +86,7 @@ func (s *Server) handleAddLot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Знімок рейтингу — ДО запису: після нього частки вже зрушені, і
-	// папір, що стояв першим, опинився б п'ятим (шапка decisions.go).
+	// папір, що стояв першим, опинився б п'ятим (шапка engine/decisions.go).
 	now := time.Now()
 	snap := s.TakeDecisionSnapshot(r.Context(), now, store.BuyBond, lot.ISIN)
 	id, err := s.st.AddLot(r.Context(), lot)
@@ -119,7 +120,7 @@ func (s *Server) handleLotCheck(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	d, err := LotDebit(lot)
+	d, err := engine.LotDebit(lot)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -201,7 +202,7 @@ func (s *Server) handleListLots(w http.ResponseWriter, r *http.Request) {
 	out := make([]lotJSON, 0, len(lots))
 	for _, l := range lots {
 		out = append(out, lotJSON{l.ID, l.ISIN, l.Qty, domain.RemainingQtyNow(l, sales),
-			ToMoneyJSON(l.PricePerBond), ToMoneyJSON(l.Fee), string(l.BuyDate), l.Channel, l.Note})
+			engine.ToMoneyJSON(l.PricePerBond), engine.ToMoneyJSON(l.Fee), string(l.BuyDate), l.Channel, l.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

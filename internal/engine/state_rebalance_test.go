@@ -1,0 +1,397 @@
+package engine
+
+import (
+	"testing"
+
+	money "github.com/Rhymond/go-money"
+
+	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/state"
+)
+
+func pct(v float64) *float64 { return &v }
+
+// TestRebalanceFallsBackToDepositWhenBondTooBig — коли найдешевша
+// облігація більша за всю цільову частку, одиницею входу стає ВКЛАД.
+//
+// Golden цього не бачить: у багатій фікстурі капітал такий, що доларовий
+// папір на $1000 вільно вписується в 25% частки, тож гілка вкладу не
+// виконується — мутація «прибрати запасний вклад» golden не завалила.
+//
+// Гілка потрібна саме на малих портфелях, тобто на самому початку, коли
+// поради найважливіші. Доти картка казала «ще зарано» на $1000-й папір,
+// хоча частку добирає й вклад на $100, і людина без потреби чекала.
+func TestRebalanceFallsBackToDepositWhenBondTooBig(t *testing.T) {
+	in := rebalanceInput{
+		// Капітал 10 000 ₴ — доларова ціль 25% це лише 2 500 ₴.
+		Capital:  state.Capital{AccountUAH: state.Major(10000, money.UAH)},
+		Settings: &state.SettingsDoc{USDTargetSharePct: pct(25)},
+		Rates:    fx.Rates{money.USD: 441234},
+		// Найдешевший папір — $1000 (≈44 123 ₴), тобто далеко за ціллю.
+		MinNominalByCur: map[string]int64{money.USD: 100_000},
+		// Найменший вклад — $100 (≈4 412 ₴). Теж більший за ціль, але
+		// на порядок ближчий, і саме він тут доречний.
+		DepositMinByCur: map[string]int64{money.USD: 10_000},
+	}
+	out := buildRebalance(in)
+
+	var row *state.RebalanceRow
+	for i := range out.Rebalance {
+		if out.Rebalance[i].Key == money.USD {
+			row = &out.Rebalance[i]
+		}
+	}
+	if row == nil {
+		t.Fatal("рядка ребалансу для USD немає")
+	}
+	if row.UnitKind != "deposit" {
+		t.Errorf("одиниця входу %q, очікували \"deposit\": папір на $1000 не влазить у ціль 2 500 ₴",
+			row.UnitKind)
+	}
+	if row.BondCostNative.Major() != 100 {
+		t.Errorf("вхід %v, очікували 100 (мінімальний вклад)", row.BondCostNative.Major())
+	}
+	// Здійсненність міряється ОДИНИЦЕЮ ВХОДУ проти цілі, і тут вона чесно
+	// негативна: навіть вклад на $100 більший за 2 500 ₴ цілі.
+	if row.Feasible {
+		t.Error("рядок позначено здійсненним, хоч і вклад більший за цільову суму")
+	}
+}
+
+// TestConcentrationOrderIsStableOnEqualShares — рядки з ОДНАКОВОЮ часткою
+// стоять у сталому порядку.
+//
+// Це та сама пастка, що вже коштувала копійки в over_uah: рядки сюди
+// приходять обходом мапи, а sort.Slice нестабільний. Поки часток-двійників
+// немає, порядок відтворюваний випадково — мутація «прибрати ключ третім
+// критерієм» golden не валить, і це очікувано.
+//
+// Але дві облігації з однаковим номіналом — не екзотика, а звичайний
+// наслідок рівних покупок. Того дня golden почав би блимати, і причину
+// шукали б довго.
+func TestConcentrationOrderIsStableOnEqualShares(t *testing.T) {
+	in := rebalanceInput{
+		Capital:  state.Capital{AccountUAH: state.Major(100000, money.UAH)},
+		Settings: &state.SettingsDoc{LimitISINPct: pct(20)},
+		Rates:    fx.Rates{},
+		// Три папери, два з них — рівно однакового номіналу.
+		NominalByISIN: map[string]int64{
+			"UA0000000009": 2_000_000,
+			"UA0000000001": 1_000_000,
+			"UA0000000005": 1_000_000,
+		},
+	}
+	want := []string{"UA0000000009", "UA0000000001", "UA0000000005"}
+
+	// Порядок обходу мап Go рандомізує на кожному проході, тож одного
+	// порівняння замало, щоб відрізнити сталий порядок від випадкового.
+	for i := 0; i < 20; i++ {
+		out := buildRebalance(in)
+		var got []string
+		for _, r := range out.Concentration {
+			got = append(got, r.Key)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("рядків %d, очікували %d", len(got), len(want))
+		}
+		for j := range want {
+			if got[j] != want[j] {
+				t.Fatalf("прохід %d: порядок %v, очікували %v — рівні частки стають у випадковому порядку",
+					i+1, got, want)
+			}
+		}
+	}
+}
+
+// --- місячні гроші по видах ---
+
+// monthRows — три види з цілями 50/10/15 і різним станом: один у перекосі,
+// два порожні. Той самий розклад, що на живих даних, лише круглими числами.
+func monthRows() []state.RebalanceRow {
+	return []state.RebalanceRow{
+		{Dimension: "kind", Key: "bonds", TargetPct: 50, CurrentUAH: state.Major(55_000, money.UAH)},
+		{Dimension: "kind", Key: "funds", TargetPct: 10, CurrentUAH: state.Major(40_000, money.UAH)},
+		{Dimension: "kind", Key: "deposits", TargetPct: 15, CurrentUAH: state.Major(0, money.UAH)},
+		{Dimension: "kind", Key: "npf", CurrentUAH: state.Major(10_000, money.UAH)}, // без цілі — не чіпаємо
+	}
+}
+
+func rowByKey(rows []state.RebalanceRow, key string) state.RebalanceRow {
+	for _, r := range rows {
+		if r.Key == key {
+			return r
+		}
+	}
+	return state.RebalanceRow{}
+}
+
+// TestSpreadMonthShareIgnoresSkew — колонка «за часткою» тримає пропорцію
+// й перекосу не помічає.
+//
+// Це не вада, а її призначення: фонди тут утричі понад ціль і все одно
+// дістають свої 10%. Саме тому поруч стоїть друга колонка — одна без
+// одної вони відповідали б на питання лише наполовину.
+func TestSpreadMonthShareIgnoresSkew(t *testing.T) {
+	rows := monthRows()
+	// План 12 000, з них 2 000 у резерв → ділиться 10 000.
+	spreadMonth(rows, 10_000, 110_000)
+
+	for _, c := range []struct {
+		key  string
+		want float64
+	}{{"bonds", 5000}, {"funds", 1000}, {"deposits", 1500}} {
+		if got := rowByKey(rows, c.key).MonthShareUAH; got.Major() != c.want {
+			t.Errorf("%s за часткою %v, очікували %v", c.key, got.Major(), c.want)
+		}
+	}
+	// Нерозподілені 25% нікому не дістаються: сума колонки менша за
+	// доступне рівно на них.
+	var sum float64
+	for _, r := range rows {
+		sum += r.MonthShareUAH.Major()
+	}
+	if sum != 7500 {
+		t.Errorf("сума колонки %v, очікували 7500 — решта 25%% лишається користувачу", sum)
+	}
+	// Рядок без цілі місячних чисел не дістає взагалі.
+	if r := rowByKey(rows, "reserve"); r.MonthShareUAH.Major() != 0 || r.MonthBalanceUAH.Major() != 0 {
+		t.Errorf("рядок без цілі дістав місячні гроші: %+v", r)
+	}
+}
+
+// TestSpreadMonthBalanceSkipsOverweight — колонка «на вирівнювання» не дає
+// нічого виду, який уже понад ціль, і ділить пропорційно потребам, коли
+// грошей на всіх не вистачає.
+//
+// База після місяця — 110 000 + 10 000 = 120 000, тобто РОЗДІЛЮВАНІ гроші, а
+// не весь план: те, що пішло в подушку, з цього знаменника виходить зовсім.
+// Звідси: bonds 60 000 при 55 000 → треба 5 000; funds 12 000 при 40 000 →
+// нуль; deposits 18 000 при нулі → треба 18 000. Разом 23 000 при доступних
+// 10 000, тобто пропорційно.
+func TestSpreadMonthBalanceSkipsOverweight(t *testing.T) {
+	rows := monthRows()
+	spreadMonth(rows, 10_000, 110_000)
+
+	if got := rowByKey(rows, "funds").MonthBalanceUAH; got.Major() != 0 {
+		t.Errorf("фонди на вирівнювання %v, очікували 0 — вони вчетверо понад ціль", got.Major())
+	}
+	bonds := rowByKey(rows, "bonds").MonthBalanceUAH
+	deps := rowByKey(rows, "deposits").MonthBalanceUAH
+	if bonds.Major() <= 0 || deps.Cmp(bonds) <= 0 {
+		t.Errorf("bonds %v, deposits %v — більший розрив мусить дістати більше", bonds.Major(), deps.Major())
+	}
+	if sum := bonds.Major() + deps.Major(); sum < 9999.9 || sum > 10000.1 {
+		t.Errorf("роздано %v, а доступно було 10000", sum)
+	}
+}
+
+// TestSpreadMonthBalanceBaseExcludesReserve — майбутня база росте рівно на
+// РОЗДІЛЮВАНІ гроші, а не на весь план місяця.
+//
+// Саме на цьому механізм і ловився на живих даних: база бралась як «портфель
+// + весь план», тобто разом із подушкою, майбутня ціль виходила завищеною на
+// її розмір, і ОВДП у переборі діставали 2 766 ₴ замість 800. Числа тут
+// зафіксовані точно, бо перевіряється саме знаменник: 110 000 + 10 000, а не
+// 110 000 + 20 000.
+func TestSpreadMonthBalanceBaseExcludesReserve(t *testing.T) {
+	rows := monthRows()
+	spreadMonth(rows, 10_000, 110_000)
+
+	// Потреби від бази 120 000: bonds 5 000, deposits 18 000, разом 23 000
+	// при доступних 10 000 → коефіцієнт 10/23.
+	for _, c := range []struct {
+		key  string
+		want float64
+	}{
+		{"bonds", Round2(5_000.0 / 23_000 * 10_000)},
+		{"deposits", Round2(18_000.0 / 23_000 * 10_000)},
+	} {
+		if got := rowByKey(rows, c.key).MonthBalanceUAH; got.Major() != c.want {
+			t.Errorf("%s на вирівнювання %v, очікували %v — база після місяця мусить бути "+
+				"110 000 + 10 000, без грошей подушки", c.key, got.Major(), c.want)
+		}
+	}
+}
+
+// TestSpreadMonthBalanceRestBySharePct — коли грошей більше, ніж потреб,
+// потреби закриваються повністю, а лишок ділиться за ЦІЛЬОВИМИ частками.
+//
+// Саме за частками від НАЗВАНИХ, а не нормалізованими до сотні: інакше
+// нерозподілені відсотки мовчки дісталися б тим видам, у яких ціль є, і
+// застосунок сам вирішив би долю грошей, які користувач лишив собі.
+func TestSpreadMonthBalanceRestBySharePct(t *testing.T) {
+	rows := []state.RebalanceRow{
+		{Dimension: "kind", Key: "bonds", TargetPct: 50, CurrentUAH: state.Major(1_000, money.UAH)},
+		{Dimension: "kind", Key: "funds", TargetPct: 10, CurrentUAH: state.Major(100, money.UAH)},
+	}
+	// Капітал 1 100, план 100 000 — потреби мізерні проти доступного.
+	spreadMonth(rows, 100_000, 1_100)
+
+	b, f := rowByKey(rows, "bonds"), rowByKey(rows, "funds")
+	// Потреби: bonds 50 550 − 1 000 = 49 550; funds 10 110 − 100 = 10 010.
+	// Разом 59 560, лишок 40 440 → за частками 50% і 10%.
+	if want := 49_550 + 40_440*0.5; b.MonthBalanceUAH.Major() != want {
+		t.Errorf("bonds на вирівнювання %v, очікували %v", b.MonthBalanceUAH.Major(), want)
+	}
+	if want := 10_010 + 40_440*0.1; f.MonthBalanceUAH.Major() != want {
+		t.Errorf("funds на вирівнювання %v, очікували %v", f.MonthBalanceUAH.Major(), want)
+	}
+}
+
+// TestSpreadMonthSilentWithoutPlan — без плану місяця чисел немає взагалі.
+//
+// Нулі тут читались би як «плану вистачає рівно на нуль», а це інша
+// відповідь, ніж «плану доходу немає».
+func TestSpreadMonthSilentWithoutPlan(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		avail float64
+	}{
+		{"плану немає", 0},
+		{"усе забрав резерв", 0},
+		{"мінус (стеля більша за план)", -500},
+	} {
+		rows := monthRows()
+		spreadMonth(rows, c.avail, 110_000)
+		for _, r := range rows {
+			if r.MonthShareUAH.Major() != 0 || r.MonthBalanceUAH.Major() != 0 {
+				t.Errorf("%s: %s дістав місячні гроші (%v / %v)",
+					c.name, r.Key, r.MonthShareUAH.Major(), r.MonthBalanceUAH.Major())
+			}
+		}
+	}
+}
+
+// TestTransitCarvesOutOfBondTarget — транзитна частка ПОХІДНА й міняється
+// разом із розміром портфеля.
+//
+// Це головна властивість усього механізму, і саме її неможливо було
+// записати константою в наборі: при тих самих цілях (USD 40%, ОВДП 90%)
+// вкладам треба то 40% капіталу, то майже нічого. Набір із «15» помилявся
+// на 25 в.п. з одного боку й на 14 в.п. з іншого.
+func TestTransitCarvesOutOfBondTarget(t *testing.T) {
+	// Курс і квиток кругленькі навмисно: 1 000 000 мінорних = $1000 при
+	// 42 ₴/$ це рівно 42 000 ₴, тож залишок від ділення можна перевірити
+	// в голові, а не звіряти з реалізацією.
+	build := func(capitalUAH float64) state.RebalanceRow {
+		out := buildRebalance(rebalanceInput{
+			Capital: state.Capital{AccountUAH: state.Major(capitalUAH, money.UAH)},
+			Settings: &state.SettingsDoc{
+				USDTargetSharePct: pct(40), TargetBondsPct: pct(90),
+			},
+			Rates:           fx.Rates{money.USD: 420000},
+			MinNominalByCur: map[string]int64{money.USD: 100_000},
+			DepositMinByCur: map[string]int64{money.USD: 10_000},
+		})
+		for _, r := range out.Rebalance {
+			if r.Dimension == "kind" && r.Key == "bonds" {
+				return r
+			}
+		}
+		t.Fatal("рядка ОВДП немає")
+		return state.RebalanceRow{}
+	}
+
+	// 100 000 ₴: ціль USD = 40 000 ₴, а квиток 42 000 ₴ — не доросли, тож
+	// транзитом є ВСЯ валютна нога.
+	if got := build(100_000).TransitPct; got != 40 {
+		t.Errorf("малий портфель: транзит %.2f в.п., очікували 40 — "+
+			"на $1000-й папір не зібрано, чекати мусить уся валютна ціль", got)
+	}
+	// 500 000 ₴: ціль USD = 200 000 ₴ = 4 квитки по 42 000 (168 000) плюс
+	// 32 000 ₴ решти. 32 000 / 500 000 = 6.4%.
+	if got := build(500_000).TransitPct; got != 6.4 {
+		t.Errorf("середній портфель: транзит %.2f в.п., очікували 6.4 — "+
+			"чекати мусить лише недобір на п'ятий папір", got)
+	}
+	// 3 000 000 ₴: ціль USD = 1 200 000 ₴ = 28 квитків (1 176 000) плюс
+	// 24 000 ₴. 24 000 / 3 000 000 = 0.8%.
+	if got := build(3_000_000).TransitPct; got != 0.8 {
+		t.Errorf("великий портфель: транзит %.2f в.п., очікували 0.8 — "+
+			"черга мусить майже зникнути", got)
+	}
+}
+
+// TestTransitClampedByBondTarget — вирізка не може бути більшою за те, з
+// чого ріжуть.
+//
+// Без обрізання ціль ОВДП 20% при транзиті 40% давала б від'ємну досяжну
+// частку паперів, і картка сказала б число, якого не буває.
+func TestTransitClampedByBondTarget(t *testing.T) {
+	out := buildRebalance(rebalanceInput{
+		Capital: state.Capital{AccountUAH: state.Major(100_000, money.UAH)},
+		Settings: &state.SettingsDoc{
+			USDTargetSharePct: pct(40), TargetBondsPct: pct(20),
+		},
+		Rates:           fx.Rates{money.USD: 420000},
+		MinNominalByCur: map[string]int64{money.USD: 100_000},
+	})
+	for _, r := range out.Rebalance {
+		if r.Dimension == "kind" && r.Key == "bonds" && r.TransitPct != 20 {
+			t.Errorf("транзит %.2f в.п. при цілі ОВДП 20 — вирізка більша за ціль", r.TransitPct)
+		}
+	}
+}
+
+// TestNoTransitWithoutBondTarget — «Тільки банк» вирізки не має.
+//
+// Там вклад не транзит, а призначення: ціль за ним стоїть навмисно, і
+// вирізати з неї нічого — цілі ОВДП немає взагалі.
+func TestNoTransitWithoutBondTarget(t *testing.T) {
+	out := buildRebalance(rebalanceInput{
+		Capital: state.Capital{AccountUAH: state.Major(100_000, money.UAH), DepositsUAH: state.Major(50_000, money.UAH)},
+		Settings: &state.SettingsDoc{
+			USDTargetSharePct: pct(40), TargetDepositsPct: pct(100),
+		},
+		Rates:           fx.Rates{money.USD: 420000},
+		MinNominalByCur: map[string]int64{money.USD: 100_000},
+	})
+	for _, r := range out.Rebalance {
+		if r.Dimension != "kind" {
+			continue
+		}
+		if r.TransitPct != 0 || r.TransitUAH.Major() != 0 {
+			t.Errorf("вид %q дістав транзит %.2f в.п. / %.2f ₴ без цілі ОВДП",
+				r.Key, r.TransitPct, r.TransitUAH.Major())
+		}
+	}
+}
+
+// TestDepositsShowAsReferenceRowWithoutTarget — вклади без цілі не зникають
+// зі складу портфеля.
+//
+// Доти довідковий рядок був іменним винятком для НПФ, і щойно ціль за
+// вкладами перестала бути ціллю, вони випали б зі «Структури за видом»
+// цілком — разом із транзитом, який їх і виправдовує. Решта видів при
+// цьому просіла б під ціль без жодного пояснення, куди поділись гроші.
+func TestDepositsShowAsReferenceRowWithoutTarget(t *testing.T) {
+	out := buildRebalance(rebalanceInput{
+		Capital: state.Capital{AccountUAH: state.Major(60_000, money.UAH), DepositsUAH: state.Major(40_000, money.UAH)},
+		Settings: &state.SettingsDoc{
+			USDTargetSharePct: pct(40), TargetBondsPct: pct(100),
+		},
+		Rates:           fx.Rates{money.USD: 420000},
+		MinNominalByCur: map[string]int64{money.USD: 100_000},
+	})
+	var dep *state.RebalanceRow
+	for i := range out.Rebalance {
+		if out.Rebalance[i].Dimension == "kind" && out.Rebalance[i].Key == "deposits" {
+			dep = &out.Rebalance[i]
+		}
+	}
+	if dep == nil {
+		t.Fatal("вклади зникли зі складу портфеля, хоч у них 40 000 ₴")
+	}
+	if dep.TargetPct != 0 {
+		t.Errorf("довідковий рядок дістав ціль %.2f — це була б друга ціль поруч із вирізкою", dep.TargetPct)
+	}
+	if dep.CurrentUAH.Major() != 40_000 {
+		t.Errorf("у рядку %.2f ₴, очікували 40 000", dep.CurrentUAH.Major())
+	}
+	// Транзит на рядку вкладів — у ГРОШАХ: скільки з того, що лежить у
+	// банку, потреба виправдовує. 40% від 100 000 = 40 000 ₴ цілі USD, а
+	// квиток 42 000 ₴ — не доросли, тож транзитом є вся ціль.
+	if dep.TransitUAH.Major() != 40_000 {
+		t.Errorf("транзит на рядку вкладів %.2f ₴, очікували 40 000", dep.TransitUAH.Major())
+	}
+}

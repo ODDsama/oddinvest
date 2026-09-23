@@ -226,7 +226,8 @@ go build -o oddinvestd ./cmd/oddinvestd
 MQTT як істина.
 
 Потрібен CGO (SQLite-драйвер `mattn/go-sqlite3`): `gcc` має бути в
-системі. Без нього не збираються `internal/store` і `internal/api` — тобто
+системі. Без нього не збираються `internal/store`, `internal/engine` і
+`internal/api` — тобто
 й їхні тести, тож на машині без компілятора локально бігають лише чисті
 пакети (`internal/domain`, `internal/state`, `internal/fx`, `internal/nbu`,
 `internal/imports`), а решту перевіряє CI.
@@ -506,7 +507,12 @@ internal/nbu/       — клієнт API НБУ (json.Number, без float64)
 internal/store/     — SQLite: STRICT-таблиці, вбудовані міграції
 internal/state/     — збірка документа oddinvest/state (контракт)
 internal/imports/   — читання .xlsx і розбір виписки Inzhur
-internal/api/       — REST + вбудований веб-UI (go:embed)
+internal/engine/    — розрахунки: збирач стану, поради, розкладка,
+                      маршрут, звіти — усе, що з портфеля й часу виводить
+                      числа, без HTTP
+internal/settings/  — реєстр налаштувань
+internal/payoff/    — прохід погашення боргів
+internal/api/       — REST поверх engine + вбудований веб-UI (go:embed)
 internal/api/web/   — фронтенд: ESM-модулі без збірки (js/app.js —
                       оболонка, js/nav.js — дерево, js/master.js — рядки
                       списку, js/views/ — панелі, css/ — токени й тема)
@@ -518,14 +524,17 @@ contract/           — те, що споживає репо ha-oddinvest: JSON 
 deploy/             — systemd unit і скрипти для Proxmox LXC
 ```
 
-Пакет `internal/api` розкладений по файлах за доменами: `server.go` —
-тільки тип, роутер і мідлвари; `state_builder.go` — збирання документа
-стану; `cashflow.go` — той самий рух грошей, але розкладений на події;
-решта — `handlers_*.go` за темою (лоти, продажі, вклади, фонди, довідники,
-налаштування, реінвест, звіти, імпорт).
+Розрахунок і HTTP — різні пакети, і імпорт іде в один бік: `api` →
+`engine`. `internal/engine` розкладений за доменами: `state_builder.go` —
+збирання документа стану; `cashflow.go` — той самий рух грошей, але
+розкладений на події; `reinvest.go`, `allocate.go`, `route.go` — поради,
+розкладка й маршрут. `internal/api` — HTTP-шар: `server.go` — тип, роутер
+і мідлвари; `handlers_*.go` за темою (лоти, продажі, вклади, фонди,
+довідники, налаштування, реінвест, звіти, імпорт) розбирають запит, кличуть
+engine і віддають відповідь через презентер.
 
-Двоє з них рахують ті самі величини різними способами й мусять сходитись:
-`buildState` зводить за весь час, `cashEvents` — по подіях. Єдиний захист
+Двоє з файлів engine рахують ті самі величини різними способами й мусять
+сходитись: `BuildState` зводить за весь час, `CashEvents` — по подіях. Єдиний захист
 від їх розходження — `TestCashflowStatementReconciles`; про це сказано на
 початку обох файлів.
 

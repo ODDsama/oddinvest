@@ -7,7 +7,7 @@
 // сторінках і жодна з них не бере період як ціле.
 //
 // ЩО ТУТ НЕ РАХУЄТЬСЯ ВДРУГЕ. Гроші періоду — це SummarizeCash
-// (cashflow.go), той самий виклик, яким живе «Гроші → Рухи». Дві
+// (engine/cashflow.go), той самий виклик, яким живе «Гроші → Рухи». Дві
 // реалізації тих самих п'яти сум розійшлись би мовчки, бо обидва числа
 // лишились би правдоподібними; у цьому застосунку таке вже траплялось
 // двічі (шапка handlers_whatif.go). Простій рахує domain.IdleIncome —
@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
@@ -73,7 +74,7 @@ type periodRow struct {
 // FromDate/ToDate — СПРАВЖНІ дати знімків, а не межі періоду. Демон міг
 // лежати, знімка рівно на 1 число могло не бути, і мовчазна підстановка
 // сусіднього дня зробила б із дірки в даних результат місяця. Той самий
-// прийом, що в fx_asof.go: дату, за якою рахували, називають уголос.
+// прийом, що в engine/fx_asof.go: дату, за якою рахували, називають уголос.
 type periodStructure struct {
 	FromDate     string      `json:"from_date"`
 	ToDate       string      `json:"to_date"`
@@ -121,8 +122,8 @@ type periodDecisions struct {
 	// Rows — усі рядки місяця, подушку й цілі ВКЛЮЧНО: у таблиці вид
 	// підписаний, і сховати з неї половину рішень заради чистого знаменника
 	// означало б відповісти на «що я вирішив у серпні» неповно.
-	Rows []DecisionRow `json:"rows,omitempty"`
-	Note string        `json:"note,omitempty"`
+	Rows []engine.DecisionRow `json:"rows,omitempty"`
+	Note string               `json:"note,omitempty"`
 }
 
 type periodResp struct {
@@ -169,7 +170,7 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	sum := SummarizeCash(events, from, to)
+	sum := engine.SummarizeCash(events, from, to)
 	out := periodResp{From: string(from), To: string(to), Money: periodMoney{
 		OpeningUAH: state.Major(sum.Major(sum.OpeningUAH), money.UAH),
 		IncomeUAH:  state.Major(sum.Major(sum.IncomeUAH), money.UAH),
@@ -187,9 +188,9 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 	var income, buys []domain.CashEvent
 	for _, e := range sum.Rows {
 		switch e.Kind {
-		case FlowIncome:
+		case engine.FlowIncome:
 			income = append(income, domain.CashEvent{Date: e.Date, Amount: e.UAH})
-		case FlowPurchase:
+		case engine.FlowPurchase:
 			buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
 		}
 	}
@@ -260,18 +261,18 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date, acc, gen string
 	// Капітал — у ОДНАКОВОМУ складі на обох кінцях (SnapshotCapitalPair), і
 	// рядок купона — лише коли його знають обидва знімки: місяць міграції
 	// 0063 інакше показав би весь накопичений купон приростом.
-	capB, capA := SnapshotCapitalPair(*before, *after)
+	capB, capA := engine.SnapshotCapitalPair(*before, *after)
 	var accB, accA int64
-	if AccruedKnown(*before) && AccruedKnown(*after) {
+	if engine.AccruedKnown(*before) && engine.AccruedKnown(*after) {
 		accB, accA = before.AccruedUAH, after.AccruedUAH
 	}
 	out := &periodStructure{
 		FromDate:     string(before.Date),
 		ToDate:       string(after.Date),
-		USDShareFrom: Round2(float64(before.USDShareBP) / 100),
-		USDShareTo:   Round2(float64(after.USDShareBP) / 100),
-		EURShareFrom: Round2(float64(before.EURShareBP) / 100),
-		EURShareTo:   Round2(float64(after.EURShareBP) / 100),
+		USDShareFrom: engine.Round2(float64(before.USDShareBP) / 100),
+		USDShareTo:   engine.Round2(float64(after.USDShareBP) / 100),
+		EURShareFrom: engine.Round2(float64(before.EURShareBP) / 100),
+		EURShareTo:   engine.Round2(float64(after.EURShareBP) / 100),
 		Rows: []periodRow{
 			row("capital", "Капітал", capB, capA),
 			row("bonds", "ОВДП (номінал)", before.NominalUAHEq, after.NominalUAHEq),
@@ -319,7 +320,7 @@ func periodPlanOf(snaps []store.Snapshot, from, to domain.Date, contribMinor int
 	return &periodPlan{
 		TargetUAH:  state.Minor(target, money.UAH),
 		ContribUAH: state.Minor(contribMinor, money.UAH),
-		DonePct:    Round2(float64(contribMinor) / float64(target) * 100),
+		DonePct:    engine.Round2(float64(contribMinor) / float64(target) * 100),
 		TargetOn:   string(on),
 	}, ""
 }
@@ -340,14 +341,14 @@ func periodDecisionsOf(list []store.Decision, from, to domain.Date) periodDecisi
 		if d.MadeOn.Before(from) || d.MadeOn.After(to) {
 			continue
 		}
-		row := DecisionBase(d)
+		row := engine.DecisionBase(d)
 		out.Rows = append(out.Rows, row)
-		if d.Kind == DecisionKindReserve {
+		if d.Kind == engine.DecisionKindReserve {
 			out.ReserveCount++
 			forgone += row.ForgonePct
 			continue
 		}
-		if d.Kind == DecisionKindGoal {
+		if d.Kind == engine.DecisionKindGoal {
 			out.GoalCount++
 			goalForgone += row.ForgonePct
 			continue
@@ -362,13 +363,13 @@ func periodDecisionsOf(list []store.Decision, from, to domain.Date) periodDecisi
 		}
 	}
 	if withTop > 0 {
-		out.VsTopPPAvg = Round2(sum / float64(withTop))
+		out.VsTopPPAvg = engine.Round2(sum / float64(withTop))
 	}
 	if out.ReserveCount > 0 {
-		out.ReserveForgonePctAvg = Round2(forgone / float64(out.ReserveCount))
+		out.ReserveForgonePctAvg = engine.Round2(forgone / float64(out.ReserveCount))
 	}
 	if out.GoalCount > 0 {
-		out.GoalForgonePctAvg = Round2(goalForgone / float64(out.GoalCount))
+		out.GoalForgonePctAvg = engine.Round2(goalForgone / float64(out.GoalCount))
 	}
 	if out.Count == 0 {
 		out.Note = "цього місяця нічого не куплено"

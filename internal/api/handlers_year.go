@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
@@ -122,10 +123,10 @@ func (s *Server) handleYear(w http.ResponseWriter, r *http.Request) {
 }
 
 // buildYear — чиста функція над готовими даними (як buildProgress).
-func buildYear(year int, from, to, today domain.Date, events []FlowEvent,
+func buildYear(year int, from, to, today domain.Date, events []engine.FlowEvent,
 	snaps []store.Snapshot, list []store.Decision) yearResp {
 
-	sum := SummarizeCash(events, from, to)
+	sum := engine.SummarizeCash(events, from, to)
 	out := yearResp{
 		Year: year, From: string(from), To: string(to),
 		Partial: to.After(today),
@@ -155,7 +156,7 @@ func buildYear(year int, from, to, today domain.Date, events []FlowEvent,
 			byDay[string(e.Date)] = d
 		}
 		switch e.Kind {
-		case FlowIncome:
+		case engine.FlowIncome:
 			income = append(income, domain.CashEvent{Date: e.Date, Amount: e.UAH})
 			if e.Principal {
 				principal += e.UAH
@@ -164,10 +165,10 @@ func buildYear(year int, from, to, today domain.Date, events []FlowEvent,
 			}
 			d.IncomeUAH = d.IncomeUAH.Add(state.Minor(e.UAH, money.UAH))
 			byMonthIncome[string(e.Date)[:7]] += e.UAH
-		case FlowPurchase:
+		case engine.FlowPurchase:
 			buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
 			d.PurchaseUAH = d.PurchaseUAH.Add(state.Minor(e.UAH, money.UAH))
-		case FlowContribution, FlowOutside:
+		case engine.FlowContribution, engine.FlowOutside:
 			// Свої гроші — гаманець і подушка разом, як у плитці «Цей
 			// місяць»: день, коли відклав у подушку, — день із рухом.
 			d.ContribUAH = d.ContribUAH.Add(state.Minor(e.UAH, money.UAH))
@@ -188,7 +189,7 @@ func buildYear(year int, from, to, today domain.Date, events []FlowEvent,
 	// місяць смужка не містить (ціль ще не закрита), і тут його теж
 	// немає — за тим самим доводом.
 	prefix := fmt.Sprintf("%04d-", year)
-	for _, mk := range BuildStreak(snaps, events, today).Marks {
+	for _, mk := range engine.BuildStreak(snaps, events, today).Marks {
 		if len(mk.Month) < 4 || mk.Month[:5] != prefix {
 			continue
 		}
@@ -257,7 +258,7 @@ func abs(v float64) float64 {
 }
 
 // yearsOf — роки від першого руху грошей (або знімка) до сьогодні.
-func yearsOf(events []FlowEvent, snaps []store.Snapshot, today domain.Date) []int {
+func yearsOf(events []engine.FlowEvent, snaps []store.Snapshot, today domain.Date) []int {
 	first := today.Year()
 	for _, e := range events {
 		if y := e.Date.Year(); y < first {

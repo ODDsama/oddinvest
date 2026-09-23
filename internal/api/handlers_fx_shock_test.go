@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 // firstOfMonth — перше число місяця, зсунутого на back назад від сьогодні.
@@ -109,7 +109,7 @@ func TestFXShockSameRatesMatchSummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	same, err := s.BuildStateWith(ctx, now, Hypothetical{rates: rates})
+	same, err := s.BuildStateWith(ctx, now, engine.HypoRates(rates))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,17 +117,6 @@ func TestFXShockSameRatesMatchSummary(t *testing.T) {
 	b, _ := json.Marshal(same)
 	if x, y := stripDoc(t, a), stripDoc(t, b); x != y {
 		t.Errorf("підміна тими самими курсами зрушила стан:\nбез неї: %s\nз нею:   %s", x, y)
-	}
-}
-
-// Порожня гіпотеза курсів не вмикає прийом взагалі — і саме це найлегше
-// зламати, забувши поле в empty().
-func TestFXShockEmptyRatesIsNotAHypothesis(t *testing.T) {
-	if !(Hypothetical{}).empty() {
-		t.Fatal("порожня гіпотеза мусить лишатись порожньою")
-	}
-	if (Hypothetical{rates: map[string]int64{money.USD: 400_000}}).empty() {
-		t.Error("гіпотеза з курсами вважається порожньою — прийом буде мовчки пропущено")
 	}
 }
 

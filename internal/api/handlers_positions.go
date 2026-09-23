@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
@@ -30,15 +31,15 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type posJSON struct {
-		ISIN      string    `json:"isin"`
-		Currency  string    `json:"currency"`
-		Qty       int64     `json:"qty"`
-		Invested  MoneyJSON `json:"invested"`
-		Nominal   MoneyJSON `json:"nominal"`
-		Maturity  string    `json:"maturity"`
-		DaysToMat int       `json:"days_to_maturity"`
-		NextDate  string    `json:"next_pay_date,omitempty"`
-		NextAmt   MoneyJSON `json:"next_pay_amount"`
+		ISIN      string           `json:"isin"`
+		Currency  string           `json:"currency"`
+		Qty       int64            `json:"qty"`
+		Invested  engine.MoneyJSON `json:"invested"`
+		Nominal   engine.MoneyJSON `json:"nominal"`
+		Maturity  string           `json:"maturity"`
+		DaysToMat int              `json:"days_to_maturity"`
+		NextDate  string           `json:"next_pay_date,omitempty"`
+		NextAmt   engine.MoneyJSON `json:"next_pay_amount"`
 		// YTMPct — дохідність до погашення за ТВОЄЮ собівартістю (з
 		// комісією), а не за сьогоднішньою ціною довідника: питання тут
 		// «скільки заробляю я», а не «скільки платить папір».
@@ -48,7 +49,7 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		YTMPct     float64 `json:"ytm_pct,omitempty"`
 		RealPct    float64 `json:"real_pct,omitempty"`
 		YieldBasis string  `json:"yield_basis,omitempty"`
-		// Rate — розклад тієї самої ставки (rate_breakdown.go). Податку в
+		// Rate — розклад тієї самої ставки (engine/rate_breakdown.go). Податку в
 		// ОВДП немає взагалі, тож валова й чиста тут збігаються, і саме це
 		// розклад і каже: у вкладі поруч між ними 23 в.п.
 		RateParts *state.RateBreakdown `json:"rate_parts,omitempty"`
@@ -76,21 +77,21 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		if q == 0 {
 			continue
 		}
-		ytmByISIN[l.ISIN] = append(ytmByISIN[l.ISIN], YTMLot(l, q))
+		ytmByISIN[l.ISIN] = append(ytmByISIN[l.ISIN], engine.YTMLot(l, q))
 	}
 
 	out := make([]posJSON, 0, len(pos))
 	for _, p := range pos {
 		row := posJSON{ISIN: p.ISIN, Currency: p.Currency, Qty: p.Qty,
-			Invested: ToMoneyJSON(p.Invested), Nominal: ToMoneyJSON(p.Nominal),
+			Invested: engine.ToMoneyJSON(p.Invested), Nominal: engine.ToMoneyJSON(p.Nominal),
 			Maturity: string(p.Maturity), DaysToMat: p.DaysToMat,
-			NextDate: string(p.NextPayDate), NextAmt: ToMoneyJSON(p.NextPayAmt),
+			NextDate: string(p.NextPayDate), NextAmt: engine.ToMoneyJSON(p.NextPayAmt),
 			Unknown: p.Unknown}
 		// WeightedYTM віддає вже ВІДСОТКИ (ytm.go), на відміну від YTM,
 		// що віддає частку. RealYield же працює з часткою — звідси /100.
 		if y, ok := domain.WeightedYTM(ytmByISIN[p.ISIN], pays); ok {
-			row.YTMPct = Round2(y)
-			row.RealPct = Round2(RealYield(y/100, p.Currency, deval) * 100)
+			row.YTMPct = engine.Round2(y)
+			row.RealPct = engine.Round2(engine.RealYield(y/100, p.Currency, deval) * 100)
 			row.YieldBasis = "до погашення"
 			row.RateParts = rc.Breakdown(y/100, y/100, p.Currency, "до погашення")
 		}
@@ -109,7 +110,7 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 //
 // Межа, а не сторінка: помічник реінвесту відмовляється обмежувати свій
 // перелік, бо «у таблиці є фільтри, сортування й пагінація»
-// (handlers_reinvest.go). Правильне прочитання цього для календаря —
+// (engine/reinvest.go). Правильне прочитання цього для календаря —
 // дати таблиці фільтр, а не дати API курсор: серверна пагінація забрала б
 // клієнтське сортування, тобто виміняла б одну ваду на гіршу.
 //
@@ -136,11 +137,11 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type cfJSON struct {
-		Date   string    `json:"date"`
-		ISIN   string    `json:"isin"`
-		Type   int       `json:"type"`
-		Amount MoneyJSON `json:"amount"`
-		Status string    `json:"status,omitempty"`
+		Date   string           `json:"date"`
+		ISIN   string           `json:"isin"`
+		Type   int              `json:"type"`
+		Amount engine.MoneyJSON `json:"amount"`
+		Status string           `json:"status,omitempty"`
 	}
 	out := make([]cfJSON, 0, len(cf))
 	for _, item := range cf {
@@ -148,7 +149,7 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		out = append(out, cfJSON{string(item.Date), item.ISIN, int(item.Type),
-			ToMoneyJSON(item.Amount), statuses[item.ISIN+"|"+string(item.Date)]})
+			engine.ToMoneyJSON(item.Amount), statuses[item.ISIN+"|"+string(item.Date)]})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

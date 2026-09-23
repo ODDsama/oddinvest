@@ -37,12 +37,12 @@ import (
 	"testing"
 	"time"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/nbu"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 var updateGolden = flag.Bool("update", false, "перегенерувати golden документа стану")
@@ -148,7 +148,7 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 	// Місяць беремо ВІД ПОПЕРЕДНЬОГО: ІСЦ виходить із затримкою 8-10 днів,
 	// тож ряду за поточний місяць не буває, і фікстура мусить це
 	// відтворювати — інакше вікна в ній вимірювались би довше, ніж у бою.
-	cpiMonth := monthOf(domain.NewDate(time.Now().AddDate(0, -1, 0)))
+	cpiMonth := time.Now().AddDate(0, -1, 0).Format("2006-01")
 	for i := 0; i < 132; i++ {
 		if err := st.SaveCPI(ctx, store.CPIPoint{
 			Period: cpiMonth,
@@ -829,7 +829,7 @@ func TestBuildStateGoldenUSD(t *testing.T) {
 	srv, st := testServer(t)
 	richPortfolio(t, srv.URL, st)
 	ctx := context.Background()
-	if err := st.SetSetting(ctx, ReportCurrencyKey, "USD"); err != nil {
+	if err := st.SetSetting(ctx, engine.ReportCurrencyKey, "USD"); err != nil {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -1154,8 +1154,8 @@ func walkDoc(v reflect.Value, path string) map[string]string {
 	return empty
 }
 
-// Два гаманці — збирач стану (state_builder.go) і подієвий звіт
-// (cashflow.go) — рахують ті самі гроші двома реалізаціями й мусять
+// Два гаманці — збирач стану (engine/state_builder.go) і подієвий звіт
+// (engine/cashflow.go) — рахують ті самі гроші двома реалізаціями й мусять
 // сходитись до копійки. TestCashflowStatementReconciles стереже це на
 // маленькому сценарії; тут — на НАЙБАГАТШІЙ фікстурі застосунку: фонди,
 // НПФ, вклади з поповненнями, конвертації, продажі, купони, кілька

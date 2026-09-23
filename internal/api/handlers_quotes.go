@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/finomo"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -48,7 +49,7 @@ type quoteRow struct {
 	Mine string `json:"mine,omitempty"`
 	// Price — та сама ціна грошима. Мінорні одиниці поруч лишаються, бо на
 	// них тримається порівняння, а гроші — щоб екран не ділив на сто сам.
-	Price MoneyJSON `json:"price"`
+	Price engine.MoneyJSON `json:"price"`
 }
 
 type quotesDoc struct {
@@ -78,7 +79,7 @@ func (s *Server) handleListQuotes(w http.ResponseWriter, r *http.Request) {
 	doc := quotesDoc{FetchedAt: book.FetchedAt, Rows: []quoteRow{}}
 	seen := map[string]bool{}
 	for _, q := range book.All {
-		doc.Rows = append(doc.Rows, quoteRow{Quote: q, Mine: book.Mine[q.Source], Price: ToMoneyJSON(q.Money())})
+		doc.Rows = append(doc.Rows, quoteRow{Quote: q, Mine: book.Mine[q.Source], Price: engine.ToMoneyJSON(q.Money())})
 		seen[q.Source] = true
 	}
 	// Зіставлені джерела показуються навіть тоді, коли ціни від них ще
@@ -121,7 +122,7 @@ func (s *Server) handleRefreshQuotes(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(isins) == 0 {
 		writeErr(w, http.StatusBadRequest,
-			BadRequestf("немає паперів, для яких питати ціну: ані в портфелі, ані в порадах"))
+			engine.BadRequestf("немає паперів, для яких питати ціну: ані в портфелі, ані в порадах"))
 		return
 	}
 	res, err := s.ref.RefreshQuotes(ctx, isins)
@@ -176,7 +177,7 @@ func (s *Server) quoteISINs(ctx context.Context, now time.Time) ([]string, error
 	}
 	// ДАЛІ — УВЕСЬ ДОВІДНИК, А НЕ ПОРАДИ, і це не розширення, а розрив
 	// замикання. Порада тепер ховається, коли ціни від свого брокера немає
-	// (handlers_reinvest.go); якби перелік на обхід брався з порад, то
+	// (engine/reinvest.go); якби перелік на обхід брався з порад, то
 	// схований папір не потрапляв би в обхід, а без обходу не діставав би
 	// ціни — і не з'явився б уже ніколи. Коло, яке фільтрує, і коло, яке
 	// питає, мусять бути одним і тим самим.
@@ -221,7 +222,7 @@ func (s *Server) handleSetManualQuote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if b == nil {
-		writeErr(w, http.StatusBadRequest, BadRequestf("паперу %q немає в довіднику", req.ISIN))
+		writeErr(w, http.StatusBadRequest, engine.BadRequestf("паперу %q немає в довіднику", req.ISIN))
 		return
 	}
 	cur := strings.ToUpper(strings.TrimSpace(req.Currency))
@@ -229,14 +230,14 @@ func (s *Server) handleSetManualQuote(w http.ResponseWriter, r *http.Request) {
 		cur = b.Nominal.Currency().Code
 	}
 	if cur != b.Nominal.Currency().Code {
-		writeErr(w, http.StatusBadRequest, BadRequestf(
+		writeErr(w, http.StatusBadRequest, engine.BadRequestf(
 			"%s випущений у %s — ціна в %s стосується іншого паперу",
 			isin, b.Nominal.Currency().Code, cur))
 		return
 	}
 	minor, err := domain.ParseDecimalToMinor(req.Price, cur)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, BadRequestf("ціна: %v", err))
+		writeErr(w, http.StatusBadRequest, engine.BadRequestf("ціна: %v", err))
 		return
 	}
 	date := domain.Date(strings.TrimSpace(req.Date))
@@ -264,7 +265,7 @@ func (s *Server) handleDeleteManualQuote(w http.ResponseWriter, r *http.Request)
 	date := domain.Date(r.URL.Query().Get("date"))
 	if source == "" || date == "" {
 		writeErr(w, http.StatusBadRequest,
-			BadRequestf("вкажіть продавця й дату: ?source=…&date=YYYY-MM-DD"))
+			engine.BadRequestf("вкажіть продавця й дату: ?source=…&date=YYYY-MM-DD"))
 		return
 	}
 	if err := s.st.DeleteManualQuote(r.Context(), isin, source, date); err != nil {

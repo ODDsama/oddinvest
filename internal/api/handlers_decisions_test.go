@@ -2,23 +2,24 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"net/http"
 	"testing"
 )
 
 type decisionsOut struct {
 	Rows []struct {
-		Kind        string    `json:"kind"`
-		Ref         string    `json:"ref"`
-		Amount      MoneyJSON `json:"amount"`
-		RankMode    string    `json:"rank_mode"`
-		PromisedPct float64   `json:"promised_pct"`
-		RankPos     int       `json:"rank_pos"`
-		TopLabel    string    `json:"top_label"`
-		VsTopPP     float64   `json:"vs_top_pp"`
-		ActualPct   float64   `json:"actual_pct"`
-		DriftPP     float64   `json:"drift_pp"`
-		Basis       string    `json:"basis"`
+		Kind        string           `json:"kind"`
+		Ref         string           `json:"ref"`
+		Amount      engine.MoneyJSON `json:"amount"`
+		RankMode    string           `json:"rank_mode"`
+		PromisedPct float64          `json:"promised_pct"`
+		RankPos     int              `json:"rank_pos"`
+		TopLabel    string           `json:"top_label"`
+		VsTopPP     float64          `json:"vs_top_pp"`
+		ActualPct   float64          `json:"actual_pct"`
+		DriftPP     float64          `json:"drift_pp"`
+		Basis       string           `json:"basis"`
 	} `json:"rows"`
 	Summary *struct {
 		Count      int     `json:"count"`
@@ -57,9 +58,9 @@ func TestDecisionsEmpty(t *testing.T) {
 	if out.Summary != nil {
 		t.Error("зведення на порожньому журналі не мало бути")
 	}
-	if out.MinRows != DecisionsMinRows {
+	if out.MinRows != engine.DecisionsMinRows {
 		t.Errorf("поріг %d, очікували %d — UI не має вписувати його в себе",
-			out.MinRows, DecisionsMinRows)
+			out.MinRows, engine.DecisionsMinRows)
 	}
 }
 
@@ -224,7 +225,7 @@ func TestDecisionRecordedOnReserveFill(t *testing.T) {
 		t.Fatalf("очікували одне рішення, маємо %d", len(out.Rows))
 	}
 	r := out.Rows[0]
-	if r.Kind != DecisionKindReserve || r.Ref != "готівка" {
+	if r.Kind != engine.DecisionKindReserve || r.Ref != "готівка" {
 		t.Errorf("рішення не про подушку: %+v", r)
 	}
 	if r.Amount.Amount != "12000.00" {
@@ -252,37 +253,5 @@ func TestDecisionNotRecordedOnReserveWithdrawal(t *testing.T) {
 	}
 	if out := decisions(t, srv.URL); len(out.Rows) != 0 {
 		t.Errorf("зняття дало рядок журналу: %+v", out.Rows)
-	}
-}
-
-// Подушка не входить у знаменник дисципліни.
-//
-// «Слідую помічнику» означає «взяв те, що стояло верхнім»; подушка верхнім
-// не стоїть НІКОЛИ. Потрапивши в Count, кожен її рух тягнув би Followed
-// донизу й перетворив би метрику дисципліни на метрику «як часто я
-// поповнюю резерв».
-func TestDecisionsSummaryKeepsReserveApart(t *testing.T) {
-	got := SummarizeDecisions([]DecisionRow{
-		{Kind: "bond", RankMode: "plan", RankPos: 1},
-		{Kind: "bond", RankMode: "plan", RankPos: 1},
-		{Kind: DecisionKindReserve, TopLabel: "UA0001", ForgonePct: 9.4},
-		{Kind: DecisionKindReserve, TopLabel: "UA0001", ForgonePct: 8.6},
-	})
-	if got.Count != 2 || got.Followed != 2 {
-		t.Errorf("покупок %d, за верхнім %d — чекали 2/2: подушка сюди не входить",
-			got.Count, got.Followed)
-	}
-	if got.ReserveCount != 2 {
-		t.Errorf("рухів у подушку %d, чекали 2", got.ReserveCount)
-	}
-	if got.ReserveForgonePctAvg != 9 {
-		t.Errorf("доступне давало %.2f, чекали 9 ((9.4+8.6)/2)", got.ReserveForgonePctAvg)
-	}
-	// Режими подушки не стосуються: рух у матрац не залежить від того, чим
-	// упорядкований рейтинг.
-	for _, m := range got.ByMode {
-		if m.Count != 2 {
-			t.Errorf("режим %q дістав %d рішень, чекали 2", m.Mode, m.Count)
-		}
 	}
 }

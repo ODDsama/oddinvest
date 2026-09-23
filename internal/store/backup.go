@@ -1224,7 +1224,7 @@ func (s *Store) pruneOrphanFundsIn(ctx context.Context, tx *sql.Tx) error {
 
 // decisionOpTable — у якій таблиці живе decisions.op_id за kind (0035:
 // «яка саме таблиця, каже kind»). Ті самі слова, що в plan_buys і в
-// журналі рішень (api/decisions.go: reserve, goal).
+// журналі рішень (engine/decisions.go: reserve, goal).
 var decisionOpTable = map[string]string{
 	BuyBond: "lots", BuyFund: "fund_ops", BuyDeposit: "term_deposits", BuyNPF: "npf_ops",
 	"goal": "goal_ops", "reserve": "reserve_ops",

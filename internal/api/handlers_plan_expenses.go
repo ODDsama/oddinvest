@@ -21,6 +21,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 )
 
 type planExpenseReq struct {
@@ -47,7 +48,7 @@ func planExpenseFromReq(req planExpenseReq) (domain.PlanExpense, error) {
 	if name == "" {
 		return domain.PlanExpense{}, errors.New("планова витрата без назви: за нею її й шукатимуть")
 	}
-	cur := OrUAH(strings.TrimSpace(req.Currency))
+	cur := engine.OrUAH(strings.TrimSpace(req.Currency))
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return domain.PlanExpense{}, err
@@ -168,19 +169,19 @@ func (s *Server) handleListPlanExpenses(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	type planExpenseJSON struct {
-		ID       int64     `json:"id"`
-		Name     string    `json:"name"`
-		Amount   MoneyJSON `json:"amount"`
-		DueDate  string    `json:"due_date"`
-		PaidFrom string    `json:"paid_from"`
-		PaidDate string    `json:"paid_date"`
-		Place    string    `json:"place"`
-		Note     string    `json:"note"`
+		ID       int64            `json:"id"`
+		Name     string           `json:"name"`
+		Amount   engine.MoneyJSON `json:"amount"`
+		DueDate  string           `json:"due_date"`
+		PaidFrom string           `json:"paid_from"`
+		PaidDate string           `json:"paid_date"`
+		Place    string           `json:"place"`
+		Note     string           `json:"note"`
 	}
 	out := make([]planExpenseJSON, 0, len(exps))
 	for _, e := range exps {
 		out = append(out, planExpenseJSON{e.ID, e.Name,
-			ToMoneyJSON(money.New(e.Amount, e.Currency)),
+			engine.ToMoneyJSON(money.New(e.Amount, e.Currency)),
 			string(e.DueDate), e.PaidFrom, string(e.PaidDate), e.Place, e.Note})
 	}
 	writeJSON(w, http.StatusOK, out)

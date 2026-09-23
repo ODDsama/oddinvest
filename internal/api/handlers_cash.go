@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
@@ -112,16 +113,16 @@ func (s *Server) handleListDeposits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type depJSON struct {
-		ID     int64     `json:"id"`
-		Date   string    `json:"date"`
-		Amount MoneyJSON `json:"amount"`
-		Broker string    `json:"broker"`
-		Note   string    `json:"note"`
+		ID     int64            `json:"id"`
+		Date   string           `json:"date"`
+		Amount engine.MoneyJSON `json:"amount"`
+		Broker string           `json:"broker"`
+		Note   string           `json:"note"`
 	}
 	out := make([]depJSON, 0, len(deps))
 	for _, d := range deps {
 		out = append(out, depJSON{d.ID, string(d.Date),
-			ToMoneyJSON(money.New(d.Amount, d.Currency)), d.Broker, d.Note})
+			engine.ToMoneyJSON(money.New(d.Amount, d.Currency)), d.Broker, d.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -230,18 +231,18 @@ func (s *Server) handleListConversions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type convJSON struct {
-		ID     int64     `json:"id"`
-		Date   string    `json:"date"`
-		From   MoneyJSON `json:"from"`
-		To     MoneyJSON `json:"to"`
-		Broker string    `json:"broker"`
-		Note   string    `json:"note"`
+		ID     int64            `json:"id"`
+		Date   string           `json:"date"`
+		From   engine.MoneyJSON `json:"from"`
+		To     engine.MoneyJSON `json:"to"`
+		Broker string           `json:"broker"`
+		Note   string           `json:"note"`
 	}
 	out := make([]convJSON, 0, len(convs))
 	for _, c := range convs {
 		out = append(out, convJSON{c.ID, string(c.Date),
-			ToMoneyJSON(money.New(c.FromAmount, c.FromCurrency)),
-			ToMoneyJSON(money.New(c.ToAmount, c.ToCurrency)), c.Broker, c.Note})
+			engine.ToMoneyJSON(money.New(c.FromAmount, c.FromCurrency)),
+			engine.ToMoneyJSON(money.New(c.ToAmount, c.ToCurrency)), c.Broker, c.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -255,11 +256,11 @@ func (s *Server) handleListConversions(w http.ResponseWriter, r *http.Request) {
 // тіло поповнення не можна: store.AddDeposit заводить брокера за назвою
 // (store/refs.go:25), і в довіднику з'явився б брокер на ім'я «—».
 type cashCheckResp struct {
-	Broker string    `json:"broker"`
-	Cost   MoneyJSON `json:"cost"`
-	Have   MoneyJSON `json:"have"` // може бути від'ємним
-	Short  MoneyJSON `json:"short"`
-	Enough bool      `json:"enough"`
+	Broker string           `json:"broker"`
+	Cost   engine.MoneyJSON `json:"cost"`
+	Have   engine.MoneyJSON `json:"have"` // може бути від'ємним
+	Short  engine.MoneyJSON `json:"short"`
+	Enough bool             `json:"enough"`
 }
 
 // writeCashCheck — спільне тіло трьох хендлерів /check. Нічого не пише.
@@ -269,18 +270,18 @@ type cashCheckResp struct {
 // балансом, який буде на її дату; свідомо не ускладнюємо, бо це та сама
 // позиція, що вже записана в handlers_whatif.go:85-88 — застосунок
 // показує наслідки, рішення за людиною.
-func (s *Server) writeCashCheck(w http.ResponseWriter, r *http.Request, d CashDebit) {
+func (s *Server) writeCashCheck(w http.ResponseWriter, r *http.Request, d engine.CashDebit) {
 	doc, err := s.BuildState(r.Context(), time.Now())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	short := ShortfallMinor(doc, d.Broker, d.Currency, d.Amount)
+	short := engine.ShortfallMinor(doc, d.Broker, d.Currency, d.Amount)
 	writeJSON(w, http.StatusOK, cashCheckResp{
 		Broker: d.Broker,
-		Cost:   ToMoneyJSON(money.New(d.Amount, d.Currency)),
-		Have:   ToMoneyJSON(money.New(BrokerBalanceMinor(doc, d.Broker, d.Currency), d.Currency)),
-		Short:  ToMoneyJSON(money.New(short, d.Currency)),
+		Cost:   engine.ToMoneyJSON(money.New(d.Amount, d.Currency)),
+		Have:   engine.ToMoneyJSON(money.New(engine.BrokerBalanceMinor(doc, d.Broker, d.Currency), d.Currency)),
+		Short:  engine.ToMoneyJSON(money.New(short, d.Currency)),
 		Enough: short == 0,
 	})
 }

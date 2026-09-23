@@ -9,14 +9,15 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/nbu"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 // getRivals — відповідь ручки на одному рівні.
-func getRivals(t *testing.T, base, level string) rivalsResp {
+func getRivals(t *testing.T, base, level string) engine.RivalsResp {
 	t.Helper()
-	var out rivalsResp
+	var out engine.RivalsResp
 	_, body := do(t, "GET", base+"/api/rivals?level="+level, "")
 	if err := json.Unmarshal([]byte(body), &out); err != nil {
 		t.Fatalf("rivals %s: %v: %s", level, err, body)
@@ -72,12 +73,12 @@ func TestRivalsUSDMatchesBenchmark(t *testing.T) {
 		}
 	}
 
-	var b BenchResult
+	var b engine.BenchResult
 	_, body := do(t, "GET", srv.URL+"/api/benchmark", "")
 	if err := json.Unmarshal([]byte(body), &b); err != nil {
 		t.Fatalf("benchmark: %v: %s", err, body)
 	}
-	rv := getRivals(t, srv.URL, LevelPortfolio)
+	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	usd := rv.Row(domain.RivalUSDCash)
 
 	if usd.Why != "" {
@@ -110,7 +111,7 @@ func TestRivalsUAHCashEqualsContributions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	rv := getRivals(t, srv.URL, LevelPortfolio)
+	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	cash := rv.Row(domain.RivalUAHCash)
 	if math.Abs(cash.TerminalUAH.Major()-20000) > 0.01 {
 		t.Errorf("сума внесків = %.2f, очікували 20 000", cash.TerminalUAH.Major())
@@ -152,8 +153,8 @@ func TestRivalsLevelGapEqualsThreeJournals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	one := getRivals(t, srv.URL, LevelPortfolio)
-	all := getRivals(t, srv.URL, LevelAll)
+	one := getRivals(t, srv.URL, engine.LevelPortfolio)
+	all := getRivals(t, srv.URL, engine.LevelAll)
 
 	// Внески: 10 000 проти 10 000 + 5 000 + 3 000.
 	gapIn := all.InUAH.Major() - one.InUAH.Major()
@@ -186,7 +187,7 @@ func TestRivalsTransferIsNotContribution(t *testing.T) {
 		Date: "2025-06-15", Amount: 1_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
 		t.Fatal(err)
 	}
-	before := getRivals(t, srv.URL, LevelAll).InUAH
+	before := getRivals(t, srv.URL, engine.LevelAll).InUAH
 
 	// Переклали 4 000 ₴ із гаманця під матрац.
 	if _, err := st.AddDeposit(ctx, store.Deposit{
@@ -197,7 +198,7 @@ func TestRivalsTransferIsNotContribution(t *testing.T) {
 		Date: "2025-07-01", Amount: 400_000, Currency: "UAH", Place: "готівка"}); err != nil {
 		t.Fatal(err)
 	}
-	after := getRivals(t, srv.URL, LevelAll).InUAH
+	after := getRivals(t, srv.URL, engine.LevelAll).InUAH
 
 	if math.Abs(after.Major()-before.Major()) > 0.01 {
 		t.Errorf("переказ додав %.2f нових грошей, а мав нуль (було %.2f, стало %.2f)",
@@ -212,7 +213,7 @@ func TestRivalsOVDPUsesAuctionLevel(t *testing.T) {
 	twoRatePoints(t, st, "USD", 400000, 400000)
 	if err := st.SaveAuctions(ctx, []nbu.Auction{{
 		Date: "2025-01-10", Num: "1", ISIN: "UA4000000001", Currency: "UAH",
-		Bucket: RivalOVDPBucket, DaysToRepay: 365, IncomeBP: 1500,
+		Bucket: engine.RivalOVDPBucket, DaysToRepay: 365, IncomeBP: 1500,
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +224,7 @@ func TestRivalsOVDPUsesAuctionLevel(t *testing.T) {
 		Date: yearAgo, Amount: 10_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
 		t.Fatal(err)
 	}
-	rv := getRivals(t, srv.URL, LevelPortfolio)
+	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	ovdp := rv.Row(domain.RivalOVDPMarket)
 	if ovdp.Why != "" {
 		t.Fatalf("рівень розміщення є, а суперник мовчить: %s", ovdp.Why)
@@ -231,7 +232,7 @@ func TestRivalsOVDPUsesAuctionLevel(t *testing.T) {
 	if ovdp.TerminalUAH.Major() < 114_500 || ovdp.TerminalUAH.Major() > 115_500 {
 		t.Errorf("рік під 15%% мав дати ≈115 000, а маємо %.2f", ovdp.TerminalUAH.Major())
 	}
-	if rv.OVDPBucket != RivalOVDPBucket {
+	if rv.OVDPBucket != engine.RivalOVDPBucket {
 		t.Errorf("строк суперника мусить бути названий у відповіді, а маємо %q", rv.OVDPBucket)
 	}
 }
@@ -247,7 +248,7 @@ func TestRivalsOVDPSilentWithoutAuctions(t *testing.T) {
 		Date: "2025-06-15", Amount: 1_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
 		t.Fatal(err)
 	}
-	ovdp := getRivals(t, srv.URL, LevelPortfolio).Row(domain.RivalOVDPMarket)
+	ovdp := getRivals(t, srv.URL, engine.LevelPortfolio).Row(domain.RivalOVDPMarket)
 	if ovdp.Why == "" {
 		t.Fatal("без жодного аукціону суперник мусив назвати причину мовчання")
 	}
@@ -270,7 +271,7 @@ func TestRivalsCurvesShareOneGrid(t *testing.T) {
 		Date: "2025-06-15", Amount: 1_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
 		t.Fatal(err)
 	}
-	rv := getRivals(t, srv.URL, LevelPortfolio)
+	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	if rv.DayCount != len(rv.Days) || len(rv.Actual) != len(rv.Days) {
 		t.Fatalf("сітка %d, дат %d, факту %d", rv.DayCount, len(rv.Days), len(rv.Actual))
 	}
@@ -294,7 +295,7 @@ func TestRivalsCurvesShareOneGrid(t *testing.T) {
 // нема з чим, і відповідь мусить це сказати, а не показати чотири нулі.
 func TestRivalsEmptyBaseSaysNothingToCompare(t *testing.T) {
 	srv, _ := testServer(t)
-	rv := getRivals(t, srv.URL, LevelPortfolio)
+	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	if rv.Flows != 0 || rv.DayCount != 0 || len(rv.Rivals) != 0 {
 		t.Errorf("на порожній базі: рухів %d, днів %d, суперників %d — усе мало бути нулем",
 			rv.Flows, rv.DayCount, len(rv.Rivals))
@@ -330,7 +331,7 @@ func TestRivalsOpeningDayFlowCounts(t *testing.T) {
 		Date: "2025-06-01", Amount: 700_000, Currency: "UAH", Broker: "mono"}); err != nil {
 		t.Fatal(err)
 	}
-	rv := getRivals(t, srv.URL, LevelPortfolio)
+	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	if math.Abs(rv.InUAH.Major()-7000) > 0.01 {
 		t.Errorf("у грі %.2f ₴, а внесок дня відкриття — 7 000 ₴", rv.InUAH.Major())
 	}
@@ -348,7 +349,7 @@ func TestRivalsEmptyWindowSaysNothingToCompare(t *testing.T) {
 	srv, st := testServer(t)
 	twoRatePoints(t, st, "USD", 400000, 400000)
 	openWindow(t, st, domain.NewDate(time.Now()), store.Snapshot{})
-	rv := getRivals(t, srv.URL, LevelPortfolio)
+	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	if rv.Why == "" {
 		t.Fatal("порожнє вікно мусить бути назване, а не показане нулями")
 	}
@@ -371,7 +372,7 @@ func TestRivalsDiffCurveEndsAtDiffNumber(t *testing.T) {
 		Date: "2025-06-15", Amount: 1_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
 		t.Fatal(err)
 	}
-	rv := getRivals(t, srv.URL, LevelPortfolio)
+	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	for _, r := range rv.Rivals {
 		if r.Why != "" {
 			continue

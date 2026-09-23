@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 )
 
 // Звідки взялася інфляція і де вона стоїть серед власної історії.
@@ -78,7 +79,7 @@ func (s *Server) handleInflation(w http.ResponseWriter, r *http.Request) {
 		out.Note = fmt.Sprintf(
 			"у ряду бракує %d %s (перший — %s): ланцюжок на ньому занижував би інфляцію, "+
 				"тож числа мовчать, поки джоба не долатає дірки",
-			len(gaps), Plural(len(gaps), "місяць", "місяці", "місяців"), gaps[0])
+			len(gaps), engine.Plural(len(gaps), "місяць", "місяці", "місяців"), gaps[0])
 		writeJSON(w, http.StatusOK, out)
 		return
 	}
@@ -108,11 +109,11 @@ func (s *Server) handleInflation(w http.ResponseWriter, r *http.Request) {
 		// мовчки втратити найдовше вікно — саме те, на якому стоїть чинне
 		// число. Обидва місяці показані в рядку, тож коротший відрізок
 		// видно, а не приховано.
-		from := FirstAtOrAfter(levels, want)
+		from := engine.FirstAtOrAfter(levels, want)
 		if pct, ok := domain.CPIAnnualPct(levels, from, last.Period); ok && from != "" {
 			out.Windows = append(out.Windows, window{
-				Label: fmt.Sprintf("за %d %s", y, Plural(y, "рік", "роки", "років")),
-				Years: y, Pct: Round2(pct), From: from, To: last.Period,
+				Label: fmt.Sprintf("за %d %s", y, engine.Plural(y, "рік", "роки", "років")),
+				Years: y, Pct: engine.Round2(pct), From: from, To: last.Period,
 			})
 		}
 		// Місце нинішнього річного темпу серед темпів того самого вікна.
@@ -124,7 +125,7 @@ func (s *Server) handleInflation(w http.ResponseWriter, r *http.Request) {
 		}
 		if pl, ok := domain.CPIPlace(yoy, last.YoYBP, y); ok {
 			out.Place = append(out.Place, place{
-				Years: y, Points: pl.Points, Percentile: Round2(pl.Percentile),
+				Years: y, Points: pl.Points, Percentile: engine.Round2(pl.Percentile),
 				MedianPct: float64(pl.MedianBP) / 100,
 				MinPct:    float64(pl.MinBP) / 100,
 				MaxPct:    float64(pl.MaxBP) / 100,

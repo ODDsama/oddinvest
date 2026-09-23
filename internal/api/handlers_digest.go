@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/state"
 	money "github.com/Rhymond/go-money"
 )
@@ -101,7 +102,7 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		if row.Key == "capital" {
 			out.FromUAH, out.ToUAH, out.DeltaUAH = row.Before, row.After, row.Delta
 			if row.Before.Major() > 0 {
-				out.DeltaPct = Round2(row.Delta.Major() / row.Before.Major() * 100)
+				out.DeltaPct = engine.Round2(row.Delta.Major() / row.Before.Major() * 100)
 			}
 		}
 	}
@@ -115,7 +116,7 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fromD, toD := domain.Date(st.FromDate).AddDays(1), domain.Date(st.ToDate)
-	sum := SummarizeCash(events, fromD, toD)
+	sum := engine.SummarizeCash(events, fromD, toD)
 
 	// Тіло погашення НЕ дохід: воно лише переїжджає з номіналу на
 	// рахунок, і капітал від нього не міняється. Той самий поділ, що в
@@ -130,7 +131,7 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 
 	fx, fxWhy := s.DigestFX(ctx, fromD)
 	own, income := sum.Major(sum.OwnUAH()), sum.Major(earned)
-	rest := Round2(out.DeltaUAH.Major() - own - income - fx)
+	rest := engine.Round2(out.DeltaUAH.Major() - own - income - fx)
 
 	out.Causes = []digestCause{
 		{Key: "own", Label: "Свої гроші", UAH: state.Major(own, money.UAH), Measured: true,

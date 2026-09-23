@@ -13,8 +13,8 @@
 # панель прибрана, ці перевірки ЄДИНА сітка під web/. Доти вони жили лише
 # в .github/workflows/ci.yml, тобто про поламане дізнавались після пушу.
 #
-# Тести: internal/api і internal/store потребують CGO (драйвер SQLite),
-# тож без gcc локально бігають лише чисті пакети — `make test-pure`.
+# Тести: internal/api, internal/engine і internal/store потребують CGO
+# (драйвер SQLite), тож без gcc локально бігають лише чисті пакети — `make test-pure`.
 #
 # `check` навмисно не тягне `ui`: Go і Node — різні набори інструментів, у
 # CI це теж дві окремі джоби, і людині без node має лишатись робочий
@@ -139,18 +139,20 @@ boundaries:
 #
 # Винятки поіменно: handlers_reports.go тримає й виписку, бенчмарк і
 # суперників (презентує), і податок (гривня за законом, currency:"UAH"
-# явно; CSV сирим) — файл проходить за першими. Розрахункові файли
-# (state*.go, cashflow.go, rivals.go…) на дріт не пишуть узагалі: відповідь
-# віддають лише handlers_*.go, тож перевіряються саме вони.
+# явно; CSV сирим) — файл проходить за першими.
+#
+# Розрахунок (internal/engine) на дріт не пише взагалі й net/http не
+# імпортує: відповідь віддають лише обробники api, розрахунок повертає
+# значення. Доти це трималось переліком файлів у межах одного пакета; тепер
+# межа — пакет, а grep лише стереже, щоб HTTP туди не повернувся.
 .PHONY: present-boundary
 present-boundary:
 	@for f in $$(grep -l 'state\.Money' internal/api/handlers_*.go); do \
 		grep -q 'writeJSON(' "$$f" && ! grep -q 's\.Present(' "$$f" \
 			&& { echo "$$f: гроші на дріт повз презентер — додай s.Present перед writeJSON"; exit 1; }; \
 	done; true
-	@! grep -lE '\bwrite(JSON|Err)\(|http\.ResponseWriter' internal/api/*.go \
-		| grep -vE '/(handlers_[a-z_]+|auth|health|httputil|hub|security|server|static)\.go$$|_test\.go$$' \
-		|| { echo 'HTTP у розрахунковому файлі: відповідь пише лише handlers_*.go, розрахунок повертає значення'; exit 1; }
+	@! grep -ln '"net/http"' internal/engine/*.go \
+		|| { echo 'net/http у internal/engine: відповідь пише обробник api, розрахунок повертає значення'; exit 1; }
 
 # fx — ЄДИНА точка конвертації, і масштаб курсу ×10⁴ не має витікати за
 # її межі. Витікав: курс ділили на RateScale вручну в шести місцях, а в
@@ -162,7 +164,7 @@ fx-boundary:
 	@! grep -rn 'fx\.RateScale' --include='*.go' . \
 		|| { echo 'RateScale поза internal/fx: візьми fx.FromUAH або fx.RateMajor'; exit 1; }
 
-# buildState читає сховище ЛИШЕ через sources (state_sources.go) і
+# BuildState читає сховище ЛИШЕ через sources (state_sources.go) і
 # зводить факти ЛИШЕ через Holdings (domain/holdings.go). Доти читання
 # були розсипані по всій функції, і ListDeposits через це викликався
 # двічі за п'ятсот рядків один від одного — обидва місця були певні, що
@@ -171,14 +173,14 @@ fx-boundary:
 # друга була свіжа. Правило дешеве, поки воно механічне; щойно воно стає
 # домовленістю, наступний запит просто дописують поруч.
 #
-# Приймач тепер e (*engine, engine.go), а не s: шаблон ловить обидва,
-# інакше після переносу методів межа мовчки стала б порожньою.
+# Файл живе в internal/engine, приймач — e (*Engine): і шлях, і шаблон
+# міняли разом із переносом, інакше межа мовчки стала б порожньою.
 .PHONY: sources-boundary
 sources-boundary:
-	@! grep -nE '\b[se]\.st\.' internal/api/state_builder.go \
-		|| { echo 'buildState читає сховище повз sources: додай поле в state_sources.go'; exit 1; }
-	@! grep -nE 'domain\.(FundPositions|RemainingQtyNow)\(' internal/api/state_builder.go \
-		|| { echo 'buildState зводить факти повз Holdings: візьми hold.Funds / hold.Lots'; exit 1; }
+	@! grep -nE '\b[se]\.st\.' internal/engine/state_builder.go \
+		|| { echo 'BuildState читає сховище повз sources: додай поле в state_sources.go'; exit 1; }
+	@! grep -nE 'domain\.(FundPositions|RemainingQtyNow)\(' internal/engine/state_builder.go \
+		|| { echo 'BuildState зводить факти повз Holdings: візьми hold.Funds / hold.Lots'; exit 1; }
 
 # Шість симуляцій рукавів (проєкція, крива, місяць до цілі, місяць до
 # доходу, потрібний внесок, декумуляція) мусять збирати стан ОДНИМ
@@ -192,16 +194,17 @@ sleeve-state:
 		|| { echo 'симуляція рукава чіпає стан повз newState/stepSleeve (projection.go): накопичувальні позиції не виростуть'; exit 1; }
 
 # Гіпотеза (покупки, яких ще немає) домішується в стан РІВНО в одному
-# місці — buildStateWith, — і збирається рівно в одному — state_plan_buys.go.
+# місці — BuildStateWith, — і збирається рівно в одному — state_plan_buys.go
+# (обидва в internal/engine).
 # Публічний BuildStateDoc її не приймає навмисно: той документ іде в MQTT
 # і щодня лягає в добовий знімок, тож щойн гіпотеза протече повз
-# buildStateWith, вигадка буде опублікована як стан. Домовленість, яку
+# BuildStateWith, вигадка буде опублікована як стан. Домовленість, яку
 # ніхто не перевіряє, живе до наступного поспіху.
 #
 # ТРЕТІЙ споживач гіпотези — handlers_policy_preview.go, і він названий
 # тут поіменно, бо питає інше: не «що станеться, якщо це купити», а «що
 # названі цілі означають для портфеля, який уже є». Гіпотезою в нього
-# лишається сама політика, домішується вона тим самим buildStateWith, і
+# лишається сама політика, домішується вона тим самим BuildStateWith, і
 # публічний BuildStateDoc її так само не приймає — правило не послаблене,
 # просто в нього з'явився ще один законний виклик.
 #
@@ -213,14 +216,14 @@ sleeve-state:
 # сьогодні насправді.
 .PHONY: whatif-boundary
 whatif-boundary:
-	@! grep -rnE '\b(Hypothetical|HypoRates|HypoSettings|BuildStateWith)\b' internal/api/*.go \
+	@! grep -rnE '\b(Hypothetical|HypoRates|HypoSettings|BuildStateWith)\b' internal/api/*.go internal/engine/*.go \
 		| grep -vE '^[^:]+:[0-9]+:\s*//' \
-		| grep -vE 'state_builder\.go|state_plan_buys\.go|handlers_policy_preview\.go|handlers_fx_shock\.go|_test\.go' \
+		| grep -vE 'engine/state_builder\.go|engine/state_plan_buys\.go|api/handlers_policy_preview\.go|api/handlers_fx_shock\.go|_test\.go' \
 		|| { echo 'гіпотеза протікає повз BuildStateWith: у MQTT і знімок іде реальний стан'; exit 1; }
 
 # Лінійка порядку порад (номінальна замість реальної) — ЛИШЕ на екрані.
 #
-# reinvestSuggestions віддає поради впорядкованими за реальною
+# ReinvestSuggestions (internal/engine) віддає поради впорядкованими за реальною
 # дохідністю, і саме цей порядок читають черга задач, журнал рішень
 # (vs_top_pp, rank_pos), прогноз і гейт «борг дорожчий за портфель». Їм
 # потрібне ОДНЕ число, і перемикач на екрані не має права переписувати
@@ -231,10 +234,12 @@ whatif-boundary:
 # Тому параметр order читає рівно один обробник, і тримає це grep.
 .PHONY: order-boundary
 order-boundary:
-	@! grep -rn '"order"' internal/api/*.go \
-		| grep -vE 'handlers_reinvest\.go|_test\.go' \
+	@! grep -rn '"order"' internal/api/*.go internal/engine/*.go \
+		| grep -vE 'api/handlers_reinvest\.go|_test\.go' \
 		|| { echo 'лінійка порядку протікає за екран: журнал рішень і черга задач мусять лишатись на реальній'; exit 1; }
-	@! grep -rn 'KeepPrice' internal/store internal/api --include="*.go" 		| grep -vE 'state_plan_buys\.go|_test\.go' 		|| { echo 'KeepPrice поза гіпотезою: синтетична ціна не має права доїхати до сховища'; exit 1; }
+	@! grep -rn 'KeepPrice' internal/store internal/api internal/engine --include="*.go" \
+		| grep -vE 'engine/state_plan_buys\.go|_test\.go' \
+		|| { echo 'KeepPrice поза гіпотезою: синтетична ціна не має права доїхати до сховища'; exit 1; }
 
 # Портфель запиту (0054) вирішує ОДИН диспетчер — hub.go. Обробник, що
 # читає X-Portfolio сам, обійшов би замок і диспетчер разом: сервер
@@ -243,6 +248,6 @@ order-boundary:
 # багаторядкові, і grep їх не бачить.
 .PHONY: portfolio-boundary
 portfolio-boundary:
-	@! grep -rn 'X-Portfolio' internal/api/*.go \
-		| grep -vE 'hub\.go|_test\.go' \
+	@! grep -rn 'X-Portfolio' internal/api/*.go internal/engine/*.go \
+		| grep -vE 'api/hub\.go|_test\.go' \
 		|| { echo 'портфель запиту читає хтось, крім hub.go'; exit 1; }

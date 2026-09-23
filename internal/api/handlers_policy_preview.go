@@ -8,7 +8,7 @@
 //
 // Власної арифметики тут немає жодної, і це головне в цьому файлі. Цілі в
 // гривнях, дефіцит, здійсненність, транзит і щільність рахує buildRebalance
-// (state_rebalance.go) — та сама функція, що малює «Ризик» і живить
+// (engine/state_rebalance.go) — та сама функція, що малює «Ризик» і живить
 // помічника реінвесту. Превʼю лише підмінює налаштування й переказує її
 // відповідь.
 //
@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
@@ -71,7 +72,7 @@ func (s *Server) handlePolicyPreview(w http.ResponseWriter, r *http.Request) {
 	// Порожнє тіло — законний запит, і відповідь на нього чесна: це стан за
 	// ЧИННОЇ політики. Окремої гілки він не потребує, бо порожня накладка
 	// нічого не підміняє (Hypothetical.empty).
-	doc, err := s.BuildStateWith(r.Context(), time.Now(), HypoSettings(req.Settings))
+	doc, err := s.BuildStateWith(r.Context(), time.Now(), engine.HypoSettings(req.Settings))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return

@@ -1,6 +1,6 @@
 // GET /api/fx-shock?window=1|3|12 — валютний шок на сьогоднішньому
-// портфелі. Поведінку читати в state_fx_shock.go; тут — лише звідки що
-// береться (той самий поділ, що між handleProgress і state_progress.go).
+// портфелі. Поведінку читати в engine/state_fx_shock.go; тут — лише звідки що
+// береться (той самий поділ, що між handleProgress і engine/state_progress.go).
 //
 // ЧОМУ ОКРЕМИЙ МАРШРУТ, А НЕ ПОЛЕ ДОКУМЕНТА СТАНУ. Довід той самий, що
 // при /api/progress: документ публікується в MQTT і щодня лягає в
@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -56,10 +57,10 @@ func (s *Server) handleFXShock(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	today := domain.NewDate(now)
 
-	window := FXShockWindows[len(FXShockWindows)-1]
+	window := engine.FXShockWindows[len(engine.FXShockWindows)-1]
 	if q := r.URL.Query().Get("window"); q != "" {
 		v, err := strconv.Atoi(q)
-		if err != nil || !slices.Contains(FXShockWindows, v) {
+		if err != nil || !slices.Contains(engine.FXShockWindows, v) {
 			writeErr(w, http.StatusBadRequest,
 				errors.New("вікно буває 1, 3 або 12 місяців"))
 			return
@@ -78,9 +79,9 @@ func (s *Server) handleFXShock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	doc, shocked := BuildFXShock(fxPointsOf(hist), rates, window)
+	doc, shocked := engine.BuildFXShock(fxPointsOf(hist), rates, window)
 	if len(shocked) > 0 {
-		after, err := s.BuildStateWith(ctx, now, HypoRates(shocked))
+		after, err := s.BuildStateWith(ctx, now, engine.HypoRates(shocked))
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return

@@ -1,5 +1,5 @@
 // POST /api/allocate — розкладка надходження. Уся арифметика й довід,
-// чому вона саме така, — в allocate.go; тут лише розбір запиту й зведення
+// чому вона саме така, — в engine/allocate.go; тут лише розбір запиту й зведення
 // готових чисел (стан, поради, дозвіл джерела) до AllocatePlan.
 
 package api
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	money "github.com/Rhymond/go-money"
 )
@@ -54,19 +55,19 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	cur := OrUAH(strings.TrimSpace(req.Currency))
+	cur := engine.OrUAH(strings.TrimSpace(req.Currency))
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("сума: %w", err))
 		return
 	}
 	if minor <= 0 {
-		writeErr(w, http.StatusBadRequest, BadRequestf("сума розкладки має бути > 0"))
+		writeErr(w, http.StatusBadRequest, engine.BadRequestf("сума розкладки має бути > 0"))
 		return
 	}
-	src := AllocFromPlan
-	if strings.TrimSpace(req.Source) == AllocFromPortfolio {
-		src = AllocFromPortfolio
+	src := engine.AllocFromPlan
+	if strings.TrimSpace(req.Source) == engine.AllocFromPortfolio {
+		src = engine.AllocFromPortfolio
 	}
 	var principalMinor int64
 	if s := strings.TrimSpace(req.Principal); s != "" {
@@ -75,7 +76,7 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if principalMinor < 0 {
-			writeErr(w, http.StatusBadRequest, BadRequestf("тіло не буває відʼємним"))
+			writeErr(w, http.StatusBadRequest, engine.BadRequestf("тіло не буває відʼємним"))
 			return
 		}
 	}
@@ -114,7 +115,7 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	pick, err := PickSuggestion(sug, req.PickISIN)
+	pick, err := engine.PickSuggestion(sug, req.PickISIN)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -124,13 +125,13 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 	// нього один. Дробові стелі бувають лише в маршруту, і вже не тому, що
 	// нога зводить цілий місяць (вона більше не зводить — див. planAhead), а
 	// тому, що горщик там накопичує кілька надходжень із різними дозволами.
-	out := AllocatePlan(doc, sug, rates,
-		ToMoneyJSON(money.New(minor, cur)), amountUAH,
-		AllocAllow{
-			ReserveUAH: ReserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
-				SourceCapUAH(uses, domain.UsePlanReserve, amountUAH)),
-			GoalsUAH: GoalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
-				SourceCapUAH(uses, domain.UsePlanGoals, amountUAH)),
+	out := engine.AllocatePlan(doc, sug, rates,
+		engine.ToMoneyJSON(money.New(minor, cur)), amountUAH,
+		engine.AllocAllow{
+			ReserveUAH: engine.ReserveEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
+				engine.SourceCapUAH(uses, domain.UsePlanReserve, amountUAH)),
+			GoalsUAH: engine.GoalsEligibleUAH(doc.Settings, src, amountUAH, principalUAH,
+				engine.SourceCapUAH(uses, domain.UsePlanGoals, amountUAH)),
 			Uses:     uses,
 			PickISIN: pick,
 		}, cur, s.NPFIDByName(r.Context()))

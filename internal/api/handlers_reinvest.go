@@ -1,5 +1,5 @@
 // GET /api/reinvest — поради «що купити». Збірка й порядок — у
-// reinvest.go; тут лише те, що належить екрану: перемикач лінійки порядку
+// engine/reinvest.go; тут лише те, що належить екрану: перемикач лінійки порядку
 // й дата доступності.
 
 package api
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -46,14 +47,14 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	// У валюті звітності ≠ гривні номінальної лінійки немає — 15% ОВДП це
 	// не 15% у доларах, — тож і перемикача немає: поради йдуть за реальною.
 	if report, err := s.ReportCurrency(r.Context()); err == nil && report == money.UAH &&
-		r.URL.Query().Get("order") == OrderNominal {
-		rank := RankOf(doc)
+		r.URL.Query().Get("order") == engine.OrderNominal {
+		rank := engine.RankOf(doc)
 		sort.SliceStable(out, func(i, j int) bool {
-			return LessSuggestion(out[i], out[j], rank, OrderNominal)
+			return engine.LessSuggestion(out[i], out[j], rank, engine.OrderNominal)
 		})
 	}
 	// Дата доступності — лише тут, і лише для екрана: чому не всередині
-	// ReinvestSuggestions, сказано в шапці ready_on.go.
+	// ReinvestSuggestions, сказано в шапці engine/ready_on.go.
 	if err := s.AnnotateReady(r.Context(), domain.NewDate(now), doc, out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return

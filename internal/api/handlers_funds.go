@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
@@ -81,22 +82,22 @@ func (s *Server) handleFundOps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type row struct {
-		ID     int64     `json:"id"`
-		Date   string    `json:"date"`
-		Fund   string    `json:"fund"`
-		Kind   string    `json:"kind"`
-		Qty    int64     `json:"qty,omitempty"`
-		Amount MoneyJSON `json:"amount"`
-		Tax    MoneyJSON `json:"tax,omitempty"`
-		Broker string    `json:"broker,omitempty"`
-		Note   string    `json:"note,omitempty"`
+		ID     int64            `json:"id"`
+		Date   string           `json:"date"`
+		Fund   string           `json:"fund"`
+		Kind   string           `json:"kind"`
+		Qty    int64            `json:"qty,omitempty"`
+		Amount engine.MoneyJSON `json:"amount"`
+		Tax    engine.MoneyJSON `json:"tax,omitempty"`
+		Broker string           `json:"broker,omitempty"`
+		Note   string           `json:"note,omitempty"`
 	}
 	out := make([]row, 0, len(ops))
 	for _, op := range ops {
 		out = append(out, row{ID: op.ID, Date: string(op.Date), Fund: op.Fund,
 			Kind: string(op.Kind), Qty: op.Qty,
-			Amount: ToMoneyJSON(money.New(op.Amount, op.Currency)),
-			Tax:    ToMoneyJSON(money.New(op.Tax, op.Currency)),
+			Amount: engine.ToMoneyJSON(money.New(op.Amount, op.Currency)),
+			Tax:    engine.ToMoneyJSON(money.New(op.Tax, op.Currency)),
 			Broker: op.Broker, Note: op.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -118,7 +119,7 @@ func (s *Server) handleAddFundOp(w http.ResponseWriter, r *http.Request) {
 	// сюди не заходить — вона пише через сховище (handlers_import.go), і
 	// саме тому пачка операцій заднім числом не засмічує журнал.
 	now := time.Now()
-	var snap DecisionSnapshot
+	var snap engine.DecisionSnapshot
 	if op.Kind == domain.FundBuy {
 		snap = s.TakeDecisionSnapshot(r.Context(), now, store.BuyFund, op.Fund)
 	}

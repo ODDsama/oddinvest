@@ -2,7 +2,7 @@
 //
 // Сирі рядки, як ReserveOp: sources.go (api) читає їх РІВНО ПО РАЗУ на
 // документ, а розгортання в помісячні вектори — справа sleeveFactory
-// (internal/api/state_projection.go), бо саме там уже живе фабрика
+// (internal/engine/state_projection.go), бо саме там уже живе фабрика
 // валютних рукавів, під яку вектори й будуються. Тут — тільки збереження
 // й читання.
 package store

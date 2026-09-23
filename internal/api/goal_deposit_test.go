@@ -8,10 +8,9 @@ import (
 	"testing"
 	"time"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 // Вклад під ціль накопичення (0062) — дзеркало резервного, і перевіряється
@@ -168,25 +167,5 @@ func TestGoalDepositIsExclusiveWithReserve(t *testing.T) {
 	}
 	if !strings.Contains(got, "подушкою") {
 		t.Errorf("помилка %q не називає причину — саме заради цього перевірка тут, а не в CHECK", got)
-	}
-}
-
-// TestDeleteGoalRefusesWhileDepositHangsOnIt — ціль не видаляється, доки на
-// ній висить вклад.
-//
-// Без цієї перевірки видалення падало б сирою помилкою FK: те саме по суті,
-// але незрозуміло, а головне — не сказало б, що робити (зняти ціль із
-// вкладу, а не видаляти сам вклад).
-func TestDeleteGoalRefusesWhileDepositHangsOnIt(t *testing.T) {
-	_, st := testServer(t)
-	seed(t, st)
-	ctx := context.Background()
-	gid := addGoalWithDeposit(t, st, ctx, "", 1600)
-	err := st.DeleteGoal(ctx, gid)
-	if err == nil {
-		t.Fatal("ціль видалилась разом із вкладом, який на неї посилається")
-	}
-	if !strings.Contains(err.Error(), "вклад") {
-		t.Errorf("помилка %q не називає вклади — людині нема з чого зрозуміти, що робити", err)
 	}
 }

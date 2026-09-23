@@ -11,6 +11,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/nbu"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -102,10 +103,10 @@ func TestReinvestSeesWholeDirectory(t *testing.T) {
 func TestReinvestSkipsNearMaturity(t *testing.T) {
 	base := domain.NewDate(time.Now())
 	url, _ := universeSetup(t, []nbu.Security{
-		universeBond("UA0000000009", base.AddDays(9)),             // як у живому випадку
-		universeBond("UA0000000029", base.AddDays(MinTermDays-1)), // рівно під порогом
-		universeBond("UA0000000030", base.AddDays(MinTermDays)),   // рівно на порозі — лишається
-		universeBond("UA0000000400", base.AddDays(400)),           // звичайний
+		universeBond("UA0000000009", base.AddDays(9)),                    // як у живому випадку
+		universeBond("UA0000000029", base.AddDays(engine.MinTermDays-1)), // рівно під порогом
+		universeBond("UA0000000030", base.AddDays(engine.MinTermDays)),   // рівно на порозі — лишається
+		universeBond("UA0000000400", base.AddDays(400)),                  // звичайний
 	})
 	got := reinvestBonds(t, url)
 	seen := map[string]bool{}
@@ -166,14 +167,14 @@ func TestReinvestHidesUnpricedOnlyAfterFullSweep(t *testing.T) {
 	if len(got) != 1 || got[0].ISIN != "UA0000000111" {
 		t.Fatalf("після повного обходу мав лишитись лише папір із ціною: %+v", got)
 	}
-	if got[0].CostBasis != CostBasisMarket {
+	if got[0].CostBasis != engine.CostBasisMarket {
 		t.Errorf("підстава %q, чекали ринкову", got[0].CostBasis)
 	}
 
 	// Протухлий знак прирівнюється до відсутнього: обхід, старший за
 	// поріг, не може підтверджувати доступність.
 	if err := st.SetAppState(ctx, store.QuotesSweptAtKey,
-		time.Now().AddDate(0, 0, -(QuoteFreshDays+1)).UTC().Format(time.RFC3339)); err != nil {
+		time.Now().AddDate(0, 0, -(engine.QuoteFreshDays+1)).UTC().Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
 	if got := reinvestBonds(t, url); len(got) != 2 {

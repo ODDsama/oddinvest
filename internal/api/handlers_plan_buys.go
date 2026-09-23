@@ -3,11 +3,11 @@
 // Тут ЛИШЕ зберігання й перевірка форми. Ціна кроку, брокер за
 // замовчуванням, підсумки по валютах і нестача рахуються в
 // handlers_whatif.go — там, де вони й були, — а перетворення рядка на
-// гіпотетичний портфель чи на запис прогнозу живе в state_plan_buys.go.
+// гіпотетичний портфель чи на запис прогнозу живе в engine/state_plan_buys.go.
 //
 // Чому список повертає СИРІ рядки, без цін і підсумків. Ті самі числа вже
 // приїжджають у basket.lines відповіді POST /api/whatif, і рахує їх один
-// unit_cost.go. Порахувати їх ще й тут означало б завести другу ціну того
+// engine/unit_cost.go. Порахувати їх ще й тут означало б завести другу ціну того
 // самого паперу на тому самому екрані — застосунок уже проходив це з
 // частками капіталу (state.Capital) і з арифметикою помічника. Тому
 // GET віддає рівно те, чим заповнюється форма правки, а таблицю малює
@@ -19,7 +19,7 @@
 // вистачить грошей» плану купівель просто не ставлять. План міряється
 // ПЛАНОВИМИ грошима — тим, що надійде, — і рахунок поповниться з
 // надходжень раніше, ніж покупка станеться (довід повністю записаний над
-// BasketDoc у handlers_whatif.go). Перевірка залишку лишається там, де
+// BasketDoc у engine/state_plan_buys.go). Перевірка залишку лишається там, де
 // платіж записують СПРАВДІ: /api/lots/check і три його близнюки.
 package api
 
@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
@@ -70,7 +71,7 @@ func planBuyFromReq(req planBuyReq) (store.PlanBuy, error) {
 	// він як «зараз», бо саме так і є: гроші досі не витрачені. Помилкою
 	// вона була б лише тоді, коли б минуле йшло в прогноз — а туди
 	// потрапляє лише те, що в НАСТУПНОМУ місяці або далі
-	// (state_plan_buys.go). Разом із минулим як «зараз» рахується й
+	// (engine/state_plan_buys.go). Разом із минулим як «зараз» рахується й
 	// решта цього місяця: сітка прогнозу місячна, і покласти «28-ме»
 	// окремо від «сьогодні» їй нікуди.
 	if strings.TrimSpace(req.BuyDate) != "" {
@@ -99,7 +100,7 @@ func planBuyFromReq(req planBuyReq) (store.PlanBuy, error) {
 			if req.Kind != store.BuyFund {
 				return out, errors.New("ціну вручну можна задати лише сертифікату фонду")
 			}
-			p, err := domain.ParseDecimalToMinor(req.UnitPrice, OrUAH(cur))
+			p, err := domain.ParseDecimalToMinor(req.UnitPrice, engine.OrUAH(cur))
 			if err != nil {
 				return out, fmt.Errorf("ціна за штуку: %w", err)
 			}
@@ -112,7 +113,7 @@ func planBuyFromReq(req planBuyReq) (store.PlanBuy, error) {
 		if ref == "" {
 			return out, errors.New("вкажи банк: вклад лежить у конкретній установі, і саме з її рахунку йдуть гроші")
 		}
-		out.Currency = OrUAH(cur)
+		out.Currency = engine.OrUAH(cur)
 		amt, err := domain.ParseDecimalToMinor(req.Amount, out.Currency)
 		if err != nil {
 			return out, fmt.Errorf("сума: %w", err)
@@ -175,7 +176,7 @@ type planBuyRow struct {
 	// MaturityDate — коли вклад погасився б, якби його відкрити СЬОГОДНІ.
 	// Поле є заради однієї кнопки — «Виконано», яка відкриває справжню
 	// форму вкладу, — і живе воно тут, а не в браузері, бо «дата відкриття
-	// плюс строк» уже порахована в state_plan_buys.go. Друга копія цього
+	// плюс строк» уже порахована в engine/state_plan_buys.go. Друга копія цього
 	// додавання в JS розійшлася б із першою на першому ж кроці місяця.
 	MaturityDate string `json:"maturity_date,omitempty"`
 }
@@ -189,10 +190,10 @@ func toPlanBuyRow(b store.PlanBuy, today domain.Date) planBuyRow {
 	// Гроші рядком, а не числом: форма їх туди й покладе назад, а
 	// десятковий рядок переживає коло без плаваючої коми.
 	if b.Amount > 0 {
-		out.Amount = minorToDecimal(b.Amount, OrUAH(b.Currency))
+		out.Amount = minorToDecimal(b.Amount, engine.OrUAH(b.Currency))
 	}
 	if b.UnitPrice > 0 {
-		out.UnitPrice = minorToDecimal(b.UnitPrice, OrUAH(b.Currency))
+		out.UnitPrice = minorToDecimal(b.UnitPrice, engine.OrUAH(b.Currency))
 	}
 	if b.RateBP > 0 {
 		out.RatePct = minorToDecimal(b.RateBP, money.UAH)
@@ -206,7 +207,7 @@ func toPlanBuyRow(b store.PlanBuy, today domain.Date) planBuyRow {
 // minorToDecimal — мінорні в десятковий рядок тим самим шляхом, яким вони
 // туди потрапили (domain.ParseDecimalToMinor у зворотний бік).
 func minorToDecimal(minor int64, cur string) string {
-	return ToMoneyJSON(money.New(minor, cur)).Amount
+	return engine.ToMoneyJSON(money.New(minor, cur)).Amount
 }
 
 func (s *Server) handleListPlanBuys(w http.ResponseWriter, r *http.Request) {

@@ -1,5 +1,5 @@
 // Дрібні помічники HTTP-шару: розбір шляху й відповіді. Гроші в JSON —
-// у format.go, читання portfolio/rates — в engine.go: їх потребує й
+// у engine/format.go, читання portfolio/rates — в engine/engine.go: їх потребує й
 // розрахунок, а не лише обробник.
 
 package api
@@ -7,6 +7,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"net/http"
 	"strconv"
 )
@@ -31,7 +32,7 @@ func writeErr(w http.ResponseWriter, code int, err error) {
 // (BadRequestError — невідомий папір, криве поле), інакше 500. Одне місце,
 // щоб «описка у формі» ніде не ставала «зламався сервер».
 func writeCalcErr(w http.ResponseWriter, err error) {
-	var bad BadRequestError
+	var bad engine.BadRequestError
 	if errors.As(err, &bad) {
 		writeErr(w, http.StatusBadRequest, err)
 		return

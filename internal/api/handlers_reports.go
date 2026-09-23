@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
@@ -188,7 +189,7 @@ func (s *Server) handleSnapshots(w http.ResponseWriter, r *http.Request) {
 // україномовний Excel відкривав без танців.
 //
 // Період — через taxYear (taxyear.go), той самий, що й у /api/tax.
-// Курс — через asOfRates (fx_asof.go), теж той самий: на дату події, а не
+// Курс — через asOfRates (engine/fx_asof.go), теж той самий: на дату події, а не
 // сьогоднішній.
 //
 // ІНВАРІАНТ, який робить розходження неповторюваним: сума колонки
@@ -240,7 +241,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	today := domain.NewDate(time.Now())
 	inWindow := func(d domain.Date) bool { return !d.Before(from) && !d.After(to) }
 	arrived := domain.Arrived(statuses, today)
-	asOf := NewAsOfRates(s.st)
+	asOf := engine.NewAsOfRates(s.st)
 
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition",
@@ -276,7 +277,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		amount := ""
 		if amt != nil {
 			cur = amt.Currency().Code
-			amount = ToMoneyJSON(amt).Amount
+			amount = engine.ToMoneyJSON(amt).Amount
 		}
 		cw.Write([]string{kind, string(d), isin, label, qty, amount, cur,
 			rate(amt, d), dec(uah), dec(taxUAH), note})
@@ -343,7 +344,7 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 		proceeds, _ := domain.SaleProceeds(sl) //nolint:errcheck // RealizedResult вище вже відсіяв биті продажі
 		row("продаж", sl.SaleDate, lot.ISIN, "", fmt.Sprintf("%d", sl.Qty),
 			proceeds, 0,
-			"результат "+ToMoneyJSON(res).Amount+" "+res.Currency().Code)
+			"результат "+engine.ToMoneyJSON(res).Amount+" "+res.Currency().Code)
 	}
 
 	// Дивіденди фондів: податок ФАКТИЧНО утриманий, а не ставка. Ставка
@@ -432,7 +433,7 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	out := CashflowStatement(events, from, to)
+	out := engine.CashflowStatement(events, from, to)
 	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -478,9 +479,9 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRivals(w http.ResponseWriter, r *http.Request) {
 	level := r.URL.Query().Get("level")
 	if level == "" {
-		level = LevelPortfolio
+		level = engine.LevelPortfolio
 	}
-	if _, ok := RivalLevelLabels[level]; !ok {
+	if _, ok := engine.RivalLevelLabels[level]; !ok {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("невідомий рівень %q — буває portfolio або all", level))
 		return
 	}

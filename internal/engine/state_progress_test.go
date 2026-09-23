@@ -1,0 +1,373 @@
+package engine
+
+import (
+	"testing"
+
+	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
+	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
+)
+
+// TestProgressPicksNearestMeasurable — правило вибору найближчої віхи
+// поодинці: фільтр, максимум і розв'язання рівності.
+//
+// Окремо від TestProgressReconciles, бо на живому портфелі рівність
+// відсотків може й не трапитись, а саме вона колись почне стрибати між
+// двома віхами при кожному перезавантаженні.
+func TestProgressPicksNearestMeasurable(t *testing.T) {
+	got := pickNext([]milestone{
+		// Зібрана й на ста відсотках — не кандидат узагалі.
+		{Key: "done", Earned: true, ProgressPct: 100},
+		// Невимірна: відстані немає, хоч віха й незібрана.
+		{Key: "blind", ProgressPct: progressNoProgress},
+		{Key: "far", ProgressPct: 10},
+		// Двоє на однакових 75% — виграє оголошена раніше.
+		{Key: "near", ProgressPct: 75},
+		{Key: "near2", ProgressPct: 75},
+	})
+	if got != "near" {
+		t.Errorf("найближчою мала бути «near», маємо «%s»", got)
+	}
+
+	if got := pickNext([]milestone{
+		{Key: "done", Earned: true, ProgressPct: 100},
+		{Key: "blind", ProgressPct: progressNoProgress},
+	}); got != "" {
+		t.Errorf("міряти нічим — найближчої немає, а названо «%s»", got)
+	}
+}
+
+// TestProgressStreakMarksMatchStreak — смужка місяців і число серії
+// мусять бути одним і тим самим, порахованим двічі.
+//
+// Це той самий клас захисту, що й TestProgressReconciles: два подання
+// одного числа розійшлись би тихо — смужка лишилась би правдоподібною.
+func TestProgressStreakMarksMatchStreak(t *testing.T) {
+	snaps := []store.Snapshot{
+		{Date: "2026-01-31", MonthTargetUAH: 1_000_000},
+		// Лютого немає взагалі — знімків за нього не робилось.
+		{Date: "2026-03-31", MonthTargetUAH: 1_000_000},
+		{Date: "2026-04-30", MonthTargetUAH: 1_000_000},
+		{Date: "2026-05-31", MonthTargetUAH: 1_000_000},
+	}
+	ev := []FlowEvent{
+		{Date: "2026-01-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-02-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-04-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-05-15", Kind: FlowContribution, UAH: 1_200_000},
+	}
+	got := BuildStreak(snaps, ev, "2026-06-10")
+
+	// Ряд суцільний: лютий у ньому Є, просто невідомий. Без нього
+	// січень і березень стали б сусідами, і серія на смужці вийшла б
+	// довшою за ту, яку рахує сам BuildStreak.
+	wantMonths := []string{"2026-01", "2026-02", "2026-03", "2026-04", "2026-05"}
+	if len(got.Marks) != len(wantMonths) {
+		t.Fatalf("у смужці %d місяців, а мало бути %d: %+v",
+			len(got.Marks), len(wantMonths), got.Marks)
+	}
+	for i, w := range wantMonths {
+		if got.Marks[i].Month != w {
+			t.Fatalf("клітинка %d за %s, а мала бути за %s",
+				i, got.Marks[i].Month, w)
+		}
+	}
+	if got.Marks[1].Known {
+		t.Error("лютий без знімка позначено як відомий")
+	}
+	if got.Marks[1].ContribUAH.Major() != 12000 {
+		t.Errorf("внесок лютого %v: він відомий із руху грошей навіть без знімка",
+			got.Marks[1].ContribUAH.Major())
+	}
+	if !got.Marks[2].Known || got.Marks[2].Hit {
+		t.Errorf("березень: ціль була, внеску не було — known=%v hit=%v",
+			got.Marks[2].Known, got.Marks[2].Hit)
+	}
+	if got.Marks[0].TargetUAH.Major() != 10000 || got.Marks[0].ContribUAH.Major() != 12000 {
+		t.Errorf("січень: %v із %v — мало бути 12000 із 10000",
+			got.Marks[0].ContribUAH.Major(), got.Marks[0].TargetUAH.Major())
+	}
+
+	// Серія, перерахована зі смужки, дорівнює заявленій.
+	streak, best := 0, 0
+	for _, mk := range got.Marks {
+		if mk.Known && mk.Hit {
+			streak++
+			if streak > best {
+				best = streak
+			}
+			continue
+		}
+		streak = 0
+	}
+	if streak != got.Months {
+		t.Errorf("зі смужки серія %d, а заявлено %d", streak, got.Months)
+	}
+	if best != got.Best {
+		t.Errorf("зі смужки найдовша серія %d, а заявлено %d", best, got.Best)
+	}
+
+	// Поточний місяць у смужку не входить: він ще не закінчився.
+	for _, mk := range got.Marks {
+		if mk.Month == "2026-06" {
+			t.Error("поточний місяць потрапив у смужку")
+		}
+	}
+}
+
+// TestProgressStreakUsesTargetOfItsMonth — ціль минулого місяця береться
+// зі знімка ТОГО місяця, а не з сьогоднішніх налаштувань.
+//
+// Без цього зміна цілі переписувала б минуле: підняв ціль удвічі — і
+// заднім числом «зривався» пів року, хоч тоді все було виконано.
+func TestProgressStreakUsesTargetOfItsMonth(t *testing.T) {
+	snaps := []store.Snapshot{
+		// Січень: ціль 10 000 ₴ (у копійках), внесено 12 000 — виконано.
+		{Date: "2026-01-31", MonthTargetUAH: 1_000_000},
+		// Лютий: ціль піднялась до 50 000, внесено ті самі 12 000 — ні.
+		{Date: "2026-02-28", MonthTargetUAH: 5_000_000},
+		// Березень: ціль знову 10 000 — виконано.
+		{Date: "2026-03-31", MonthTargetUAH: 1_000_000},
+	}
+	ev := []FlowEvent{
+		{Date: "2026-01-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-02-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-03-15", Kind: FlowContribution, UAH: 1_200_000},
+	}
+	got := BuildStreak(snaps, ev, "2026-04-10")
+
+	if got.Months != 1 {
+		t.Errorf("поточна серія мала бути 1 (сам березень), маємо %d", got.Months)
+	}
+	if got.Best != 1 {
+		t.Errorf("найкраща серія мала бути 1, маємо %d", got.Best)
+	}
+	if got.BrokenOn != "2026-02" {
+		t.Errorf("серія обірвалась у лютому, а сказано «%s»", got.BrokenOn)
+	}
+	if got.KnownFrom != "2026-01" {
+		t.Errorf("судити можна з січня, а сказано «%s»", got.KnownFrom)
+	}
+	if got.MonthsMeasured != 3 {
+		t.Errorf("вимірюваних місяців три, маємо %d", got.MonthsMeasured)
+	}
+}
+
+// TestProgressStreakSkipsUnknownMonths — місяць без знімка обриває
+// ЗНАННЯ, а не зараховується й не карається.
+//
+// Це головна різниця між «ти зривався» і «застосунок тоді не дивився», і
+// сплутати їх означає докоряти за власну сліпоту.
+func TestProgressStreakSkipsUnknownMonths(t *testing.T) {
+	snaps := []store.Snapshot{
+		{Date: "2026-01-31", MonthTargetUAH: 1_000_000},
+		// Лютого немає взагалі — знімків за нього не робилось.
+		{Date: "2026-03-31", MonthTargetUAH: 1_000_000},
+		{Date: "2026-04-30", MonthTargetUAH: 1_000_000},
+	}
+	ev := []FlowEvent{
+		{Date: "2026-01-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-03-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-04-15", Kind: FlowContribution, UAH: 1_200_000},
+	}
+	got := BuildStreak(snaps, ev, "2026-05-10")
+
+	// Січень виконано, лютий невідомий, березень і квітень виконані:
+	// серія — два, а не три (діра обірвала) і не нуль (докору немає).
+	if got.Months != 2 {
+		t.Errorf("серія мала бути 2 (березень і квітень), маємо %d", got.Months)
+	}
+	if got.BrokenOn != "" {
+		t.Errorf("пропущений місяць — не зрив плану, а він записаний як «%s»", got.BrokenOn)
+	}
+}
+
+// TestProgressCountsOnlyContributions — серія міряє ТВІЙ внесок, а не
+// будь-які гроші на рахунку.
+//
+// Купон і погашення теж збільшують рахунок, і зарахувати їх у план
+// означало б святкувати те, що сталося саме собою.
+func TestProgressCountsOnlyContributions(t *testing.T) {
+	snaps := []store.Snapshot{{Date: "2026-01-31", MonthTargetUAH: 1_000_000}}
+	ev := []FlowEvent{
+		{Date: "2026-01-15", Kind: FlowIncome, UAH: 5_000_000},
+		{Date: "2026-01-20", Kind: FlowContribution, UAH: 100_000},
+	}
+	got := BuildStreak(snaps, ev, "2026-02-10")
+	if got.Months != 0 {
+		t.Errorf("внесено 1 000 ₴ з 10 000 — місяць не виконано, а серія %d", got.Months)
+	}
+}
+
+// TestProgressLifeSkipsPrincipal — оплачені дні рахуються лише із
+// ЗАРОБЛЕНОГО: погашення номіналу — FlowIncome для виписки, але для
+// прогресу воно Principal, і рахувати його означало б оплатити роки, яких
+// портфель не заробляв. Внески й покупки не входять узагалі.
+func TestProgressLifeSkipsPrincipal(t *testing.T) {
+	ev := []FlowEvent{
+		{Date: "2026-03-01", Kind: FlowContribution, UAH: 10_000_000},
+		{Date: "2026-04-01", Kind: FlowIncome, UAH: 500_000},                     // купон 5 000
+		{Date: "2026-05-01", Kind: FlowIncome, UAH: 20_000_000, Principal: true}, // погашення
+		{Date: "2026-06-01", Kind: FlowIncome, UAH: 700_000},                     // відсотки 7 000
+		{Date: "2026-06-02", Kind: FlowPurchase, UAH: -300_000},
+	}
+	// 30 000 ₴/міс → 1 000 ₴ на день; зароблено 12 000 → 12 днів.
+	life := buildLife(ev, 30_000)
+	if life == nil {
+		t.Fatal("витрати задані — Life мав бути")
+	}
+	if life.IncomeUAH.Major() != 12_000 || life.PerDayUAH.Major() != 1_000 || life.Days != 12 {
+		t.Errorf("Life = %+v, чекали 12 000 ₴ / 1 000 на день / 12 днів", *life)
+	}
+	if life.Since != "2026-04-01" {
+		t.Errorf("Since = %q, чекали дату першого купона", life.Since)
+	}
+	// Поріг у 10 днів пройдено 1 червня (5 000 + 7 000 ≥ 10 000); погашення
+	// в травні його НЕ пройшло, хоч і принесло 200 000.
+	if got := lifeCrossedOn(ev, 1_000, 10); got != "2026-06-01" {
+		t.Errorf("поріг 10 днів пройдено %q, чекали 2026-06-01", got)
+	}
+	if got := lifeCrossedOn(ev, 1_000, 30); got != "" {
+		t.Errorf("поріг 30 днів не пройдено, а дата %q", got)
+	}
+	if buildLife(ev, 0) != nil {
+		t.Error("без витрат Life мав мовчати")
+	}
+}
+
+// TestProgressDebtMilestonesSilentWithoutDebt — на портфелі без боргу всі
+// пʼять віх боргу невимірні, а не незібрані: «15 із 21» у людини, яка
+// ніколи не була винна, читалось би як докір за те, чого не було.
+func TestProgressDebtMilestonesSilentWithoutDebt(t *testing.T) {
+	ms := debtMilestones(&state.Doc{}, &sources{}, nil, "2026-07-15")
+	if len(ms) != 5 {
+		t.Fatalf("віх боргу %d, чекали 5", len(ms))
+	}
+	for _, m := range ms {
+		if m.Earned || m.ProgressPct != progressNoProgress || m.Left != "" {
+			t.Errorf("%s без боргу мала мовчати: %+v", m.Key, m)
+		}
+	}
+}
+
+// TestProgressNetWorthDateSkipsUnknownZeros — нуль у старому знімку
+// означає «тоді не рахували» (міграція 0048), а не «чистий капітал був
+// нулем»: дата виходу з мінуса береться з першого ДОДАТНОГО після
+// відʼємного, і нулі між ними не є ні тим, ні іншим.
+func TestProgressNetWorthDateSkipsUnknownZeros(t *testing.T) {
+	snaps := []store.Snapshot{
+		{Date: "2026-03-01", NetWorthUAH: 0},
+		{Date: "2026-04-01", NetWorthUAH: -10_000_00},
+		{Date: "2026-05-01", NetWorthUAH: 0},
+		{Date: "2026-06-01", NetWorthUAH: 5_000_00},
+		{Date: "2026-07-01", NetWorthUAH: 6_000_00},
+	}
+	if got := netWorthPositiveOn(snaps); got != "2026-06-01" {
+		t.Errorf("вихід із мінуса %q, чекали 2026-06-01", got)
+	}
+	// Мінусу не було — нема з чого виходити, дати немає.
+	if got := netWorthPositiveOn(snaps[3:]); got != "" {
+		t.Errorf("без мінуса в історії дата мала бути порожньою, а є %q", got)
+	}
+}
+
+// TestProgressCardZeroDatedByCurrentRun — нуль на картці датований
+// звіркою, що ПОЧАЛА нинішній невідʼємний відрізок, а не першою
+// невідʼємною в історії: картка, що вийшла в плюс і знову провалилась,
+// інакше отримала б дату з минулого життя.
+func TestProgressCardZeroDatedByCurrentRun(t *testing.T) {
+	card := domain.Debt{ID: 7, Kind: domain.DebtCard}
+	marks := []domain.DebtMark{
+		{DebtID: 7, Date: "2026-01-10", Balance: 100},
+		{DebtID: 7, Date: "2026-02-10", Balance: -5_000},
+		{DebtID: 7, Date: "2026-03-10", Balance: 200},
+		{DebtID: 7, Date: "2026-04-10", Balance: 300},
+		{DebtID: 8, Date: "2026-05-10", Balance: -1}, // чужа картка
+	}
+	if got := zeroRunStart(card, marks, "2026-07-15"); got != "2026-03-10" {
+		t.Errorf("початок нинішнього плюса %q, чекали 2026-03-10", got)
+	}
+	marks = append(marks, domain.DebtMark{DebtID: 7, Date: "2026-05-01", Balance: -1})
+	if got := zeroRunStart(card, marks, "2026-07-15"); got != "" {
+		t.Errorf("остання звірка в мінусі — дати немає, а є %q", got)
+	}
+}
+
+// TestProgressEtaNamesItsBasis — дата «за твоїм темпом» ніколи не стоїть
+// без основи, і її немає у зібраних віх і там, де темпу не існує.
+// Порогам капіталу темп дає ціль внесків: 30 000 ₴/міс — це 1 000 на
+// день, і 100 000 з нуля — це 100 днів.
+func TestProgressEtaNamesItsBasis(t *testing.T) {
+	doc := &state.Doc{MonthTargetUAH: state.Major(30_000, money.UAH)}
+	ms := buildMilestones(doc, &sources{}, nil, nil, streakDoc{}, nil, nil, nil, "2026-07-15")
+	byKey := map[string]milestone{}
+	for _, m := range ms {
+		byKey[m.Key] = m
+		if (m.EtaOn == "") != (m.EtaBasis == "") {
+			t.Errorf("%s: дата й основа мають іти разом: %q / %q", m.Key, m.EtaOn, m.EtaBasis)
+		}
+		if m.Earned && m.EtaOn != "" {
+			t.Errorf("%s: зібраній вісі дата не належить", m.Key)
+		}
+	}
+	if got := byKey["first_100k"]; got.EtaOn != "2026-10-23" || got.EtaBasis != etaByTarget {
+		t.Errorf("first_100k: %q / %q, чекали 2026-10-23 за ціллю внесків", got.EtaOn, got.EtaBasis)
+	}
+	// Частки й ліміти темпу не мають — дати немає.
+	for _, k := range []string{"shares_aligned", "no_limit_breach", "four_kinds"} {
+		if byKey[k].EtaOn != "" {
+			t.Errorf("%s: темпу немає, а дата %q", k, byKey[k].EtaOn)
+		}
+	}
+	// Без цілі внесків темпу немає й у порогів.
+	ms = buildMilestones(&state.Doc{}, &sources{}, nil, nil, streakDoc{}, nil, nil, nil, "2026-07-15")
+	for _, m := range ms {
+		if m.Key == "first_100k" && m.EtaOn != "" {
+			t.Errorf("без цілі внесків дата мала мовчати, а є %q", m.EtaOn)
+		}
+	}
+	// Горизонт: 80 років — не дата.
+	if got := etaAfterDays("2026-07-15", 80*365); got != "" {
+		t.Errorf("задалекий горизонт мав мовчати, а є %q", got)
+	}
+}
+
+// TestProgressVsUSDStreak — серія «попереду долара» читається з добового
+// ряду вибіркою на останній день місяця, а дата віхи — перший день
+// нинішнього відрізка, не перший день місяця.
+func TestProgressVsUSDStreak(t *testing.T) {
+	grid := domain.DaysGrid("2026-05-30", "2026-07-15")
+	days := make([]string, len(grid))
+	diff := make([]state.Money, len(grid))
+	for i, d := range grid {
+		days[i] = string(d)
+		switch {
+		case d < "2026-06-03":
+			diff[i] = state.Major(-100, money.UAH) // травень і перші дні червня позаду
+		default:
+			diff[i] = state.Major(50+float64(i), money.UAH) // далі попереду
+		}
+	}
+	vs := buildVsUSD(days, diff, "2026-07-15")
+	if vs == nil {
+		t.Fatal("ряд є — серія мала бути")
+	}
+	if len(vs.Marks) != 3 || vs.Marks[0].Month != "2026-05" || vs.Marks[0].Ahead ||
+		!vs.Marks[1].Ahead || !vs.Marks[2].Ahead {
+		t.Errorf("позначки %+v, чекали травень позаду, червень і липень попереду", vs.Marks)
+	}
+	if vs.Months != 2 || vs.Best != 2 {
+		t.Errorf("серія %d / найдовша %d, чекали 2 / 2", vs.Months, vs.Best)
+	}
+	if vs.Since != "2026-06-03" {
+		t.Errorf("початок відрізка %q, чекали 2026-06-03", vs.Since)
+	}
+	// Дні після today не читаються: поточний місяць — сьогоднішнім днем.
+	if got := buildVsUSD(days, diff, "2026-06-01"); got.Months != 0 || got.Since != "" {
+		t.Errorf("на 1 червня ще позаду: %+v", got)
+	}
+	if buildVsUSD(nil, nil, "2026-07-15") != nil || buildVsUSD(days, diff[:1], "2026-07-15") != nil {
+		t.Error("без ряду або з рядом іншої довжини серія мала мовчати")
+	}
+}

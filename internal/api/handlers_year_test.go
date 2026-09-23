@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/state"
 	money "github.com/Rhymond/go-money"
 	"net/http"
@@ -63,8 +64,8 @@ func TestYearMoneyAgreesWithCashflowAndDays(t *testing.T) {
 	}
 	// Дні несуть свої гроші РАЗОМ із подушкою (own_uah), а не лише
 	// гаманець (contributed_uah).
-	if Round2(contrib) != m.OwnUAH.Major() || Round2(income) != m.IncomeUAH.Major() ||
-		Round2(purchase) != m.PurchaseUAH.Major() {
+	if engine.Round2(contrib) != m.OwnUAH.Major() || engine.Round2(income) != m.IncomeUAH.Major() ||
+		engine.Round2(purchase) != m.PurchaseUAH.Major() {
 		t.Errorf("дні (%v/%v/%v) не сходяться зі статтями %+v", contrib, income, purchase, m)
 	}
 	if got.EarnedUAH.Major()+got.PrincipalUAH.Major() != m.IncomeUAH.Major() {

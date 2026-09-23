@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
@@ -41,7 +42,7 @@ type reserveReq struct {
 	// LoanID — це ПОПОВНЕННЯ гасить названу позику. Порожньо (0) на
 	// поповненні не означає «нічого не гасить»: без привʼязки гроші
 	// розливаються по відкритих позиках у порядку узяття (довід — шапка
-	// state_reserve_loans.go).
+	// engine/state_reserve_loans.go).
 	LoanID int64 `json:"loan_id"`
 }
 
@@ -123,7 +124,7 @@ func (s *Server) handleAddReserveOp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Знімок рейтингу — ДО запису, тим самим порядком, що й у покупок
-	// (див. шапку decisions.go): після нього подушка вже підросла, стеля
+	// (див. шапку engine/decisions.go): після нього подушка вже підросла, стеля
 	// місяця впала, і «від чого ці гроші відмовились» стало б відповіддю
 	// про портфель, у якому вони вже відмовились.
 	//
@@ -132,7 +133,7 @@ func (s *Server) handleAddReserveOp(w http.ResponseWriter, r *http.Request) {
 	// сталось те, заради чого подушку й тримали. Записати таке рядком
 	// «відмовився від 9.4%» означало б назвати аварію вибором.
 	now := time.Now()
-	var snap DecisionSnapshot
+	var snap engine.DecisionSnapshot
 	if op.Amount > 0 {
 		snap = s.TakeOutsideSnapshot(r.Context(), now)
 	}
@@ -160,7 +161,7 @@ func (s *Server) handleAddReserveOp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if op.Amount > 0 {
-		s.SaveDecision(r.Context(), snap, now, DecisionKindReserve, op.Place,
+		s.SaveDecision(r.Context(), snap, now, engine.DecisionKindReserve, op.Place,
 			money.New(op.Amount, op.Currency), id, op.Note)
 	}
 	s.publishAsync()
@@ -225,11 +226,11 @@ func (s *Server) handleListReserveOps(w http.ResponseWriter, r *http.Request) {
 		loanOf[l.OpID] = l
 	}
 	type opJSON struct {
-		ID     int64     `json:"id"`
-		Date   string    `json:"date"`
-		Amount MoneyJSON `json:"amount"`
-		Place  string    `json:"place"`
-		Note   string    `json:"note"`
+		ID     int64            `json:"id"`
+		Date   string           `json:"date"`
+		Amount engine.MoneyJSON `json:"amount"`
+		Place  string           `json:"place"`
+		Note   string           `json:"note"`
 		// Позика, відкрита цим зняттям (0 = звичайний рух).
 		LoanID      int64   `json:"loan_id,omitempty"`
 		LoanRatePct float64 `json:"loan_rate_pct,omitempty"`
@@ -240,7 +241,7 @@ func (s *Server) handleListReserveOps(w http.ResponseWriter, r *http.Request) {
 	out := make([]opJSON, 0, len(ops))
 	for _, op := range ops {
 		row := opJSON{ID: op.ID, Date: string(op.Date),
-			Amount: ToMoneyJSON(money.New(op.Amount, op.Currency)),
+			Amount: engine.ToMoneyJSON(money.New(op.Amount, op.Currency)),
 			Place:  op.Place, Note: op.Note, RepaysLoanID: op.LoanID}
 		if l, ok := loanOf[op.ID]; ok {
 			row.LoanID, row.LoanRatePct, row.LoanDue = l.ID, float64(l.RateBP)/100, l.DueDate
@@ -371,31 +372,31 @@ func (s *Server) handleListReserveLoans(w http.ResponseWriter, r *http.Request) 
 	// рядків, а не зведення. Курс тут не потрібен зовсім — і добре, бо
 	// журнал мусить читатись і тоді, коли курсу на сьогодні ще немає.
 	today := domain.NewDate(time.Now())
-	repays := ReserveRepays(loans, ops, today)
+	repays := engine.ReserveRepays(loans, ops, today)
 	type loanJSON struct {
-		ID      int64     `json:"id"`
-		OpID    int64     `json:"op_id"`
-		Date    string    `json:"date"`
-		Taken   MoneyJSON `json:"taken"`
-		RatePct float64   `json:"rate_pct"`
-		DueDate string    `json:"due_date,omitempty"`
-		Note    string    `json:"note,omitempty"`
+		ID      int64            `json:"id"`
+		OpID    int64            `json:"op_id"`
+		Date    string           `json:"date"`
+		Taken   engine.MoneyJSON `json:"taken"`
+		RatePct float64          `json:"rate_pct"`
+		DueDate string           `json:"due_date,omitempty"`
+		Note    string           `json:"note,omitempty"`
 		// Owed/Interest — лише у відкритих; закрита каже про себе Closed.
-		Owed     MoneyJSON `json:"owed,omitempty"`
-		Interest MoneyJSON `json:"interest,omitempty"`
-		Closed   bool      `json:"closed,omitempty"`
+		Owed     engine.MoneyJSON `json:"owed,omitempty"`
+		Interest engine.MoneyJSON `json:"interest,omitempty"`
+		Closed   bool             `json:"closed,omitempty"`
 	}
 	out := make([]loanJSON, 0, len(loans))
 	for _, l := range loans {
 		row := loanJSON{ID: l.ID, OpID: l.OpID, Date: string(l.TakenDate),
-			Taken:   ToMoneyJSON(money.New(l.TakenAmount, l.TakenCurrency)),
+			Taken:   engine.ToMoneyJSON(money.New(l.TakenAmount, l.TakenCurrency)),
 			RatePct: float64(l.RateBP) / 100, DueDate: l.DueDate, Note: l.Note}
 		owed, interest := domain.ReserveLoanBalance(l.TakenAmount, l.RateBP,
 			l.TakenDate, repays[l.ID], today)
 		row.Closed = owed <= 0
 		if !row.Closed {
-			row.Owed = ToMoneyJSON(money.New(owed, l.TakenCurrency))
-			row.Interest = ToMoneyJSON(money.New(interest, l.TakenCurrency))
+			row.Owed = engine.ToMoneyJSON(money.New(owed, l.TakenCurrency))
+			row.Interest = engine.ToMoneyJSON(money.New(interest, l.TakenCurrency))
 		}
 		out = append(out, row)
 	}

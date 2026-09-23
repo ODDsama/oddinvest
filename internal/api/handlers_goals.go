@@ -27,6 +27,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
@@ -50,7 +51,7 @@ func goalFromReq(req goalReq) (store.Goal, error) {
 	if name == "" {
 		return store.Goal{}, errors.New("ціль без назви: за нею її й шукатимуть")
 	}
-	cur := OrUAH(strings.TrimSpace(req.Currency))
+	cur := engine.OrUAH(strings.TrimSpace(req.Currency))
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return store.Goal{}, err
@@ -163,19 +164,19 @@ func (s *Server) handleListGoals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type goalJSON struct {
-		ID       int64     `json:"id"`
-		Name     string    `json:"name"`
-		Amount   MoneyJSON `json:"amount"`
-		DueDate  string    `json:"due_date"`
-		Priority int64     `json:"priority"`
-		Place    string    `json:"place"`
-		Note     string    `json:"note"`
-		DoneDate string    `json:"done_date"`
+		ID       int64            `json:"id"`
+		Name     string           `json:"name"`
+		Amount   engine.MoneyJSON `json:"amount"`
+		DueDate  string           `json:"due_date"`
+		Priority int64            `json:"priority"`
+		Place    string           `json:"place"`
+		Note     string           `json:"note"`
+		DoneDate string           `json:"done_date"`
 	}
 	out := make([]goalJSON, 0, len(goals))
 	for _, g := range goals {
 		out = append(out, goalJSON{g.ID, g.Name,
-			ToMoneyJSON(money.New(g.TargetAmount, g.Currency)),
+			engine.ToMoneyJSON(money.New(g.TargetAmount, g.Currency)),
 			string(g.DueDate), g.Priority, g.Place, g.Note, string(g.DoneDate)})
 	}
 	writeJSON(w, http.StatusOK, out)
@@ -201,7 +202,7 @@ func goalOpFromReq(req goalOpReq) (store.GoalOp, error) {
 			return store.GoalOp{}, err
 		}
 	}
-	cur := OrUAH(strings.TrimSpace(req.Currency))
+	cur := engine.OrUAH(strings.TrimSpace(req.Currency))
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return store.GoalOp{}, err
@@ -228,7 +229,7 @@ func (s *Server) handleAddGoalOp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Знімок рейтингу — ДО запису, тим самим порядком, що й у покупок і в
-	// подушки (див. шапку decisions.go): після нього ціль уже підросла,
+	// подушки (див. шапку engine/decisions.go): після нього ціль уже підросла,
 	// стеля місяця впала, і «від чого ці гроші відмовились» стало б
 	// відповіддю про портфель, у якому вони вже відмовились.
 	//
@@ -238,7 +239,7 @@ func (s *Server) handleAddGoalOp(w http.ResponseWriter, r *http.Request) {
 	// коли ціль досягнута. Записати таке рядком «відмовився від 9.4%»
 	// означало б назвати покупку авто втраченою вигодою.
 	now := time.Now()
-	var snap DecisionSnapshot
+	var snap engine.DecisionSnapshot
 	if op.Amount > 0 {
 		snap = s.TakeOutsideSnapshot(r.Context(), now)
 	}
@@ -255,7 +256,7 @@ func (s *Server) handleAddGoalOp(w http.ResponseWriter, r *http.Request) {
 		// нічого, а «сейф» відповідає на інше питання. Назва може змінитись
 		// потім — рядок журналу лишиться з тією, що була в ту хвилину, і це
 		// правильно: він і є знімок моменту.
-		s.SaveDecision(r.Context(), snap, now, DecisionKindGoal, s.goalName(r.Context(), op.GoalID),
+		s.SaveDecision(r.Context(), snap, now, engine.DecisionKindGoal, s.goalName(r.Context(), op.GoalID),
 			money.New(op.Amount, op.Currency), id, op.Note)
 	}
 	s.publishAsync()
@@ -265,7 +266,7 @@ func (s *Server) handleAddGoalOp(w http.ResponseWriter, r *http.Request) {
 // goalName — назва цілі за id, для рядка журналу рішень.
 //
 // Порожнє значення законне: помилка читання не має валити запис руху
-// (рішення — примітка до факту, а не факт; шапка decisions.go), а рядок
+// (рішення — примітка до факту, а не факт; шапка engine/decisions.go), а рядок
 // без назви все одно несе суму, дату й альтернативу.
 func (s *Server) goalName(ctx context.Context, id int64) string {
 	goals, err := s.st.ListGoals(ctx)
@@ -326,17 +327,17 @@ func (s *Server) handleListGoalOps(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	type opJSON struct {
-		ID     int64     `json:"id"`
-		GoalID int64     `json:"goal_id"`
-		Date   string    `json:"date"`
-		Amount MoneyJSON `json:"amount"`
-		Place  string    `json:"place"`
-		Note   string    `json:"note"`
+		ID     int64            `json:"id"`
+		GoalID int64            `json:"goal_id"`
+		Date   string           `json:"date"`
+		Amount engine.MoneyJSON `json:"amount"`
+		Place  string           `json:"place"`
+		Note   string           `json:"note"`
 	}
 	out := make([]opJSON, 0, len(ops))
 	for _, op := range ops {
 		out = append(out, opJSON{op.ID, op.GoalID, string(op.Date),
-			ToMoneyJSON(money.New(op.Amount, op.Currency)), op.Place, op.Note})
+			engine.ToMoneyJSON(money.New(op.Amount, op.Currency)), op.Place, op.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

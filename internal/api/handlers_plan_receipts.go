@@ -2,8 +2,8 @@
 //
 // CRUD за зразком handlers_plan.go — уся перевірка форми в одній функції,
 // спільній для POST і PUT. Арифметики тут немає жодної: заміщення планової
-// суми робить ядро (state_plan.go), а чеклист розгортає
-// handlers_plan_timeline.go. Тут — зберігання й перевірка.
+// суми робить ядро (engine/state_plan.go), а чеклист розгортає
+// engine/plan_timeline.go. Тут — зберігання й перевірка.
 package api
 
 import (
@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
@@ -48,7 +49,7 @@ type planReceiptReq struct {
 // відмітка мусить вказувати на ІСНУЮЧЕ джерело доходу і мати ЙОГО валюту.
 // Друга — не формальність: нативний вектор проєкції складає суми у валюті
 // потоку, і гривнева відмітка на доларовій зарплаті мовчки додала б
-// тридцятикратну суму (state_plan.go пояснює, чому валютні потоки йдуть у
+// тридцятикратну суму (engine/state_plan.go пояснює, чому валютні потоки йдуть у
 // проєкцію повз гривню).
 func planReceiptFromReq(req planReceiptReq, flows []store.PlanFlow, today domain.Date) (store.PlanReceipt, error) {
 	var out store.PlanReceipt
@@ -168,7 +169,7 @@ func (s *Server) handleListPlanReceipts(w http.ResponseWriter, r *http.Request) 
 	// Курс ковтаємо свідомо, як і в списку потоків: без нього валютні
 	// відмітки дадуть 0 у гривневій колонці, але сама сторінка працює.
 	rates, _ := s.Rates(r.Context()) //nolint:errcheck // свідомо: див. вище
-	writeJSON(w, http.StatusOK, ReceiptRows(receipts, flows, rates))
+	writeJSON(w, http.StatusOK, engine.ReceiptRows(receipts, flows, rates))
 }
 
 func (s *Server) handleAddPlanReceipt(w http.ResponseWriter, r *http.Request) {

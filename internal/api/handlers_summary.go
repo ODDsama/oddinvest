@@ -1,5 +1,5 @@
 // GET /api/summary — документ стану, той самий, що їде в MQTT, але вже
-// перекладений у валюту звітності. Збирання — state_builder.go.
+// перекладений у валюту звітності. Збирання — engine/state_builder.go.
 
 package api
 
@@ -14,7 +14,7 @@ func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	// Валюта звітності — на виході, на готовому документі (presenter.go).
+	// Валюта звітності — на виході, на готовому документі (engine/presenter.go).
 	if err := s.Present(r.Context(), doc); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return

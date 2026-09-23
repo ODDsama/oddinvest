@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
@@ -67,7 +68,7 @@ func TestSummaryInReportCurrency(t *testing.T) {
 	seed(t, st) // курс USD 44.1234 на 2026-07-15
 	// І той самий курс на день купівлі: зведений результат у доларах
 	// перекладає кожен потік курсом ЙОГО дати й мовчить, коли курсу
-	// бракує хоч на один (усе або нічого, state_xirr.go).
+	// бракує хоч на один (усе або нічого, engine/state_xirr.go).
 	if err := st.SaveRate(context.Background(), "USD", 441234, "2026-07-01"); err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +150,7 @@ func TestPresenterUsesTomorrowsRateLikeRates(t *testing.T) {
 	if err := st.SaveRate(ctx, "USD", 450000, tomorrow); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetSetting(ctx, ReportCurrencyKey, "USD"); err != nil {
+	if err := st.SetSetting(ctx, engine.ReportCurrencyKey, "USD"); err != nil {
 		t.Fatal(err)
 	}
 	do(t, "POST", srv.URL+"/api/lots",
@@ -167,7 +168,7 @@ func TestPresenterUsesTomorrowsRateLikeRates(t *testing.T) {
 // Попросили долар, а курсу ще немає: гривня і примітка, а не 500 і не нулі.
 func TestSummaryFallsBackWithoutRate(t *testing.T) {
 	srv, st := testServer(t)
-	if err := st.SetSetting(context.Background(), ReportCurrencyKey, "USD"); err != nil {
+	if err := st.SetSetting(context.Background(), engine.ReportCurrencyKey, "USD"); err != nil {
 		t.Fatal(err)
 	}
 	v := summaryOf(t, srv.URL)
@@ -184,7 +185,7 @@ func TestSummaryFallsBackWithoutRate(t *testing.T) {
 func TestBuildStateDocStaysInBookCurrency(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
-	if err := st.SetSetting(context.Background(), ReportCurrencyKey, "USD"); err != nil {
+	if err := st.SetSetting(context.Background(), engine.ReportCurrencyKey, "USD"); err != nil {
 		t.Fatal(err)
 	}
 	do(t, "POST", srv.URL+"/api/lots",
