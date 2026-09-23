@@ -75,6 +75,32 @@ func pairLegQty(op domain.FundOp, ops []domain.FundOp, marks []domain.FundPrice)
 	return qty, ""
 }
 
+// couponWindow — наскільки дата купона у виписці може відійти від дати
+// графіка НБУ. Брокер зараховує в день графіка або поруч (вихідні,
+// пізно ввечері — вже наступним днем), а сусідні купони одного паперу
+// стоять за пів року, тож тиждень нікого чужого не зачепить.
+const couponWindow = 7
+
+// matchCoupon — виплата купона з графіка, якій відповідає рядок виписки:
+// найближча за датою серед купонів того самого паперу в межах вікна.
+func matchCoupon(pays []domain.Payment, isin string, on domain.Date) (domain.Payment, bool) {
+	var best domain.Payment
+	bestGap := couponWindow + 1
+	for _, p := range pays {
+		if p.ISIN != isin || p.Type != domain.PayCoupon {
+			continue
+		}
+		gap := domain.DaysBetween(p.PayDate, on)
+		if gap < 0 {
+			gap = -gap
+		}
+		if gap < bestGap {
+			best, bestGap = p, gap
+		}
+	}
+	return best, bestGap <= couponWindow
+}
+
 type outRow struct {
 	Date   string `json:"date"`
 	Kind   string `json:"kind"`
@@ -87,6 +113,7 @@ type outRow struct {
 	// Поки обліку фондів не було, купівлі й продажі сертифікатів
 	// доводилось записувати як поповнення/зняття; тепер операція фонду
 	// теж рухає гаманець, тож стара пара стала б подвійним рахунком.
+	// Для купона тут же — розбіжність суми виписки з графіком на лоти.
 	Conflict string `json:"conflict,omitempty"`
 }
 
@@ -246,6 +273,38 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		fundSeen[fundKey(op)] = true
 		pairSeen[pairKey(op)] = true
 	}
+	// Купони. Грошей у журнал вони не пишуть — виплату рахує графік НБУ
+	// на лоти (domain.FuturePayments), — тож «імпортувати купон» означає
+	// поставити на виплату графіка позначку «Отримано», ту саму, що й
+	// кнопка в календарі. «Вже є» — те, що Arrived і так вважає прийшлим:
+	// минула дата або вже поставлена позначка.
+	today := domain.NewDate(time.Now())
+	var couponISINs []string
+	for _, row := range res.Rows {
+		if row.Kind == "coupon" {
+			couponISINs = append(couponISINs, row.Fund)
+		}
+	}
+	var couponPays []domain.Payment
+	var sales []domain.Sale
+	arrived := func(string, domain.Date) bool { return false }
+	if len(couponISINs) > 0 {
+		if couponPays, err = s.st.PaymentsFor(ctx, couponISINs); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		if sales, err = s.st.ListSales(ctx); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		statuses, serr := s.st.PaymentStatuses(ctx)
+		if serr != nil {
+			writeErr(w, http.StatusInternalServerError, serr)
+			return
+		}
+		arrived = domain.Arrived(statuses, today)
+	}
+	couponSeen := map[string]bool{}
 	// applied — журнал, яким він СТАНЕ: база плюс усе, що цей файл додає.
 	// Потрібен позиції фонду на дату конвертації, і в сухому прогоні теж,
 	// інакше перегляд показував би не ті кількості, що справжній імпорт.
@@ -343,6 +402,7 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		}
 		cur := money.UAH
 		var exists bool
+		var conflict string
 		if imports.IsCardKind(row.Kind) {
 			if card == nil {
 				out.Skipped = append(out.Skipped, imports.Skipped{Date: string(row.Date), Op: row.Note,
@@ -428,6 +488,10 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 			exists = lotSeen[key]
 			if !exists {
 				lotSeen[key] = true
+				// Купон цього ж файлу рахується й на лот, який файл щойно
+				// заводить, — у сухому прогоні теж, інакше перегляд
+				// показував би нестачу, якої справжній імпорт не матиме.
+				lots = append(lots, domain.Lot{ISIN: row.Fund, Qty: row.Qty, BuyDate: row.Date})
 				if !dry {
 					// Ціна за папір — сума ділена на кількість; залишок від
 					// ділення кладемо в комісію, щоб сумарна вартість лота
@@ -450,6 +514,41 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 						return
 					}
 				}
+			}
+
+		case "coupon":
+			pay, ok := matchCoupon(couponPays, row.Fund, row.Date)
+			if !ok {
+				out.Skipped = append(out.Skipped, imports.Skipped{Date: string(row.Date), Op: row.Fund,
+					Reason: fmt.Sprintf("купона %s біля %s немає в графіку НБУ — онови довідник", row.Fund, row.Date)})
+				continue
+			}
+			cur = pay.PerBond.Currency().Code
+			key := row.Fund + "|" + string(pay.PayDate)
+			exists = couponSeen[key] || arrived(row.Fund, pay.PayDate)
+			couponSeen[key] = true
+			if !exists && !dry {
+				if serr := s.st.SetPaymentStatus(ctx, row.Fund, pay.PayDate, domain.StatusReceived); serr != nil {
+					writeErr(w, http.StatusInternalServerError, serr)
+					return
+				}
+			}
+			// Звірка з графіком. Позначка ставиться на виплату, а суму
+			// рахує графік на лоти, тож розбіжність тут означає, що лотів
+			// у журналі не стільки, скільки в брокера: зайвий, забутий чи
+			// не той продаж. Рядок не пропускаємо — гроші справді прийшли.
+			cf, cerr := domain.FuturePayments([]domain.Payment{pay}, lots, sales, pay.PayDate)
+			if cerr != nil {
+				writeErr(w, http.StatusInternalServerError, cerr)
+				return
+			}
+			var want int64
+			for _, c := range cf {
+				want += c.Amount.Amount()
+			}
+			if want != row.Amount {
+				conflict = fmt.Sprintf("у виписці %s, а графік на твої лоти дає %s — перевір лоти %s",
+					money.New(row.Amount, cur).Display(), money.New(want, cur).Display(), row.Fund)
 			}
 
 		case "deposit", "withdrawal":
@@ -479,15 +578,14 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		// Шукаємо ручний рух, який СТОЇТЬ ЗАМІСТЬ цієї операції.
 		//
 		// Напрямок вирішальний. Купівля списує гроші, тож її ручним
-		// відповідником було б ЗНЯТТЯ; продаж і дивіденд зараховують —
+		// відповідником було б ЗНЯТТЯ; продаж, дивіденд і купон зараховують —
 		// отже ПОПОВНЕННЯ. Порівняння за модулем, як було спершу, ловило
 		// й цілком нормальну пару «поповнив 8 051,74 і того ж дня купив
 		// на 8 051,74»: гроші прийшли й пішли, ніякого подвоєння немає.
 		// Хибні тривоги тут дорого коштують — на них перестають зважати
 		// саме тоді, коли трапляється справжня.
-		var conflict string
 		switch row.Kind {
-		case "fund_buy", "fund_sell", "dividend", "bond_buy":
+		case "fund_buy", "fund_sell", "dividend", "bond_buy", "coupon":
 			want := row.Amount
 			if row.Kind == "dividend" {
 				want = row.Amount - row.Tax
@@ -532,12 +630,11 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		}
 	}
 	if !dry {
-		today := string(domain.NewDate(time.Now()))
-		if serr := s.st.SetSetting(ctx, "import_since", today); serr != nil {
+		if serr := s.st.SetSetting(ctx, "import_since", string(today)); serr != nil {
 			writeErr(w, http.StatusInternalServerError, serr)
 			return
 		}
-		out.Since = today
+		out.Since = string(today)
 		if out.Imported > 0 {
 			s.publishAsync()
 		}

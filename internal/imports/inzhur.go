@@ -22,12 +22,17 @@ import (
 // підтягується до найближчого дивіденда чи продажу того самого фонду.
 // Без цього дохідність рахувалася б до податку, а вона в фондів, на
 // відміну від ОВДП, оподаткована.
+//
+// Купон ОВДП («Нарахування купону») грошей у журнал НЕ додає: виплату й
+// так рахує графік НБУ помножений на лоти. Рядок виписки — це лише
+// свідчення, що гроші вже прийшли, тобто позначка «Отримано» на виплаті
+// графіка (обробник імпорту). Окремий запис рахував би купон двічі.
 
 // Row — одна розібрана операція, готова до запису.
 type Row struct {
 	Date domain.Date
-	// Kind: fund_buy | fund_sell | dividend | deposit | withdrawal | bond_buy.
-	// Для bond_buy у полі Fund лежить ISIN паперу.
+	// Kind: fund_buy | fund_sell | dividend | deposit | withdrawal | bond_buy | coupon.
+	// Для bond_buy і coupon у полі Fund лежить ISIN паперу.
 	Kind string
 	Fund string
 	Qty  int64
@@ -160,6 +165,16 @@ func ParseInzhur(rows [][]string) (Result, error) {
 		case strings.HasPrefix(op, "Нарахування дивід"):
 			res.Rows = append(res.Rows, Row{Date: date, Kind: "dividend", Fund: fund, Amount: debit})
 			lastTaxable = append(lastTaxable, pending{len(res.Rows) - 1, fund, date})
+
+		case strings.HasPrefix(op, "Нарахування купон"):
+			// У lastTaxable не йде: купон ОВДП податком не обкладається, і
+			// чужий податок, що випадково стоїть поруч, до нього не липне.
+			isin := isinRe.FindString(fund)
+			if isin == "" {
+				skip("не знайшов ISIN у назві паперу")
+				continue
+			}
+			res.Rows = append(res.Rows, Row{Date: date, Kind: "coupon", Fund: isin, Amount: debit})
 
 		case strings.HasPrefix(op, "Сплата податку"):
 			// Прив'язуємо до найсвіжішої оподатковуваної події того ж

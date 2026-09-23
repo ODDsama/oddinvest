@@ -78,12 +78,12 @@ type Profile struct {
 // витрати.
 var profileKinds = map[string]bool{
 	"fund_buy": true, "fund_sell": true, "dividend": true,
-	"deposit": true, "withdrawal": true, "bond_buy": true,
+	"deposit": true, "withdrawal": true, "bond_buy": true, "coupon": true,
 	"card_in": true, "card_cash": true, "card_out": true,
 }
 
 // KindsList — перелік видів для повідомлень і довідки, у сталому порядку.
-const KindsList = "fund_buy, fund_sell, dividend, deposit, withdrawal, bond_buy, card_in, card_cash, card_out"
+const KindsList = "fund_buy, fund_sell, dividend, deposit, withdrawal, bond_buy, coupon, card_in, card_cash, card_out"
 
 // IsCardKind — чи вид належить виписці картки.
 func IsCardKind(kind string) bool {
@@ -247,6 +247,12 @@ func Parse(rows [][]string, p Profile) (Result, error) {
 			row.Fund = isin
 			if row.Qty = qtyOf(cell(p.Qty)); row.Qty <= 0 {
 				res.Skipped = append(res.Skipped, Skipped{string(date), op, "не розпізнав кількість облігацій"})
+				continue
+			}
+		case "coupon":
+			// Купон кількості не має: він приходить на всі папери, що є.
+			if row.Fund = isinRe.FindString(cell(p.Ref)); row.Fund == "" {
+				res.Skipped = append(res.Skipped, Skipped{string(date), op, "не знайшов ISIN у назві паперу"})
 				continue
 			}
 		default: // fund_buy, fund_sell, dividend

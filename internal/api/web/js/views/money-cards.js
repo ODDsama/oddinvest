@@ -662,7 +662,7 @@ export function wireImport(ctx, main) {
   };
 
   const KIND = { fund_buy: "купівля", fund_sell: "продаж", dividend: "дивіденд",
-    deposit: "поповнення", withdrawal: "виведення", bond_buy: "купівля ОВДП",
+    deposit: "поповнення", withdrawal: "виведення", bond_buy: "купівля ОВДП", coupon: "купон ОВДП",
     card_in: "надійшло на картку", card_cash: "готівка з картки", card_out: "покупка" };
   // Виписка картки: витрати по місяцях, залишок і поля звірки. Покупки
   // не пишуться (довід у handlers_import_card.go), тож у рядку вони
