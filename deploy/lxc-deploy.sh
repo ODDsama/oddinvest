@@ -108,6 +108,16 @@ if [ -f "$UNIT_FILE" ] && ! grep -q CAP_NET_BIND_SERVICE "$UNIT_FILE"; then
   systemctl daemon-reload
 fi
 
+# ---------- права файлів ----------
+# Юніти, поставлені раніше, не мають UMask: файли бази з'являлись 0644, і
+# домиграційна копія з секретами лежала відкритою, доки міграції не
+# пройдуть. Дописуємо один раз, як і право на 443 вище.
+if [ -f "$UNIT_FILE" ] && ! grep -q '^UMask=' "$UNIT_FILE"; then
+  echo "-- закриваю файли сервісу (UMask=0077)"
+  sed -i 's/^StateDirectory=oddinvestd$/StateDirectory=oddinvestd\nUMask=0077\nStateDirectoryMode=0700/' "$UNIT_FILE"
+  systemctl daemon-reload
+fi
+
 # ---------- збірка ----------
 # У ТИМЧАСОВИЙ файл, а не одразу в $BIN: раніше збірка писала прямо в
 # /usr/local/bin/oddinvestd, і невдала збірка лишала там обрізаний файл,

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 	// База часових зон — у бінарнику. Без неї LoadLocation залежить від
@@ -61,6 +62,15 @@ func setKyivLocal() {
 }
 
 func main() {
+	// Код виходу — ОСТАННІМ відкладеним викликом (перший defer виконується
+	// останнім): закриття бази й публікатора мусять відпрацювати й тоді,
+	// коли процес завершується з помилкою.
+	var httpFailed atomic.Bool
+	defer func() {
+		if httpFailed.Load() {
+			os.Exit(1)
+		}
+	}()
 	setKyivLocal() // до всього іншого: далі кожен time.Now() уже київський
 	// Прапорець рівно один, і він не про роботу сервісу, а про доступ до
 	// нього: забутий пароль інакше не скинеш — секрети лежать у базі
@@ -236,7 +246,11 @@ func main() {
 	go func() {
 		log.Info("http слухає", "addr", cfg.HTTPAddr)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Error("http", "err", err)
+			// Вихід із помилкою, а не чистий: systemd перезапускає лише
+			// on-failure, і зайнятий на мить порт інакше лишав би сервіс
+			// лежати до ручного рестарту.
+			log.Error("http не слухає — виходжу з помилкою, щоб systemd перезапустив", "err", err)
+			httpFailed.Store(true)
 			stop()
 		}
 	}()
