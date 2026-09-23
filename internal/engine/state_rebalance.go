@@ -151,18 +151,39 @@ func spreadMonth(rows []state.RebalanceRow, avail, kindMajor float64) []float64 
 	if needSum < avail {
 		rest = avail - needSum
 	}
+	// КОПІЙКАМИ, НАЙБІЛЬШИМИ ОСТАЧАМИ. Доти кожен рядок округлявся сам, і
+	// бюджети в сумі розходились з avail на копійку-дві — розкладка потім
+	// ділила не ті гроші, що прийшли. Ваги ті самі, що були: недобір, а
+	// коли потреби закриті — ще й лишок за частками.
+	w := make([]float64, len(rows))
+	wSum := 0.0
 	for i := range rows {
 		r := &rows[i]
 		if r.Dimension != "kind" || r.TargetPct <= 0 {
 			continue
 		}
-		v := need[i]
-		if needSum > avail {
-			v = need[i] / needSum * avail
-		} else if rest > 0 {
-			v += rest * r.TargetPct / 100
+		w[i] = need[i]
+		if needSum <= avail && rest > 0 {
+			w[i] += rest * r.TargetPct / 100
 		}
-		r.MonthBalanceUAH = state.Major(v, money.UAH)
+		wSum += w[i]
+	}
+	// Коли потреб більше, ніж грошей, ділиться весь avail. Коли менше —
+	// рівно стільки, скільки дають НАЗВАНІ частки, і не більше за avail:
+	// частки в сумі понад сотню не мають права роздати гроші, яких немає.
+	total := int64(math.Round(avail * 100))
+	if needSum <= avail {
+		if t := int64(math.Round(wSum * 100)); t < total {
+			total = t
+		}
+	}
+	parts := splitByWeights(total, w)
+	for i := range rows {
+		r := &rows[i]
+		if r.Dimension != "kind" || r.TargetPct <= 0 {
+			continue
+		}
+		r.MonthBalanceUAH = state.Minor(parts[i], money.UAH)
 	}
 	return need
 }

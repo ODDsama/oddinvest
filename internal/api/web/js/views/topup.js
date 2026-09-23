@@ -156,6 +156,10 @@ function restHTML(t) {
       t.rest_why ? ` — ${esc(t.rest_why)}` : ""}. Ці гроші не зникли:
       вони чекають на наступне надходження.</div>`);
   }
+  if (t.free_uah > 0) {
+    parts.push(`<div class="sub">Поза частками <b>${fmtUAH(t.free_uah)}</b>${
+      t.free_why ? ` — ${esc(t.free_why)}` : ""}.</div>`);
+  }
   if (t.note) parts.push(`<div class="note">${esc(t.note)}</div>`);
   return parts.join("");
 }

@@ -22,27 +22,24 @@
 package engine
 
 import (
-	"math"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
 // BrokerBalanceMinor — баланс рахунку broker×currency у МІНОРНИХ одиницях.
 //
-// state.Doc тримає гаманець мажорними float64 (так його бачить UI і так
-// описує contract/oddinvest-state.schema.json), тож зворотний переклад
-// неминучий. Саме math.Round, а не int64(v*100+0.5): другий вираз
-// обрізає до нуля, тобто на ВІД'ЄМНОМУ балансі дає −99999 замість
-// −100000 — на копійку менше боргу. А від'ємний баланс тут не крайній
-// випадок, а рівно той стан, під який цей файл і пишеться: після
-// «поповнити рівно на нестачу» рахунок мусить стати 0, а не −0.01.
+// Прямо з state.Money, без мажорного float посередині. Доти баланс ішов
+// через Major()×100 і math.Round — правильно, але зайвим колом: гаманець
+// і так лежить у копійках, а кожен переклад туди й назад — місце, де
+// від'ємний баланс колись уже губив копійку (int64(v*100+0.5) обрізав до
+// нуля). Після «поповнити рівно на нестачу» рахунок мусить стати 0, а не
+// −0.01, — і тепер це тримає сам тип.
 func BrokerBalanceMinor(doc *state.Doc, broker, currency string) int64 {
 	byCur, ok := doc.Brokers[broker]
 	if !ok {
 		return 0
 	}
-	return int64(math.Round(byCur[currency].Major() * 100))
+	return byCur[currency].Minor()
 }
 
 // ShortfallMinor — скільки НЕ ВИСТАЧАЄ рахунку broker×currency, щоб

@@ -188,9 +188,11 @@ function summaryHTML(res) {
   if (res.goals_uah > 0) parts.push(`у цілі ${fmtUAH(res.goals_uah)}`);
   const spent = (res.lines || []).reduce((a, l) => a + (l.total_uah || 0), 0);
   if (spent > 0) parts.push(`в інструменти ${fmtUAH(spent)}`);
+  if (res.free_uah > 0) parts.push(`поза частками ${fmtUAH(res.free_uah)}`);
   if (res.rest_uah > 0) parts.push(`лишається ${fmtUAH(res.rest_uah)}`);
   return `<div class="sub">З ${fmtUAH(res.amount_uah)}: ${parts.join(" · ") || "нічого"}.
-    ${res.rest_why ? esc(res.rest_why[0].toUpperCase() + res.rest_why.slice(1)) + "." : ""}</div>`;
+    ${res.rest_why ? esc(res.rest_why[0].toUpperCase() + res.rest_why.slice(1)) + "." : ""}
+    ${res.free_why ? esc(res.free_why[0].toUpperCase() + res.free_why.slice(1)) + "." : ""}</div>`;
 }
 
 // Тіло рядка плану купівель. Поля, яких цей вид не має, не надсилаються
@@ -222,6 +224,7 @@ function routedHTML(leg) {
   if (leg.debt && leg.debt.amount_uah > 0) parts.push(`борг ${fmtUAH(leg.debt.amount_uah)}`);
   for (const g of leg.goals || []) parts.push(`${g.name} ${fmtUAH(g.amount_uah)}`);
   for (const l of leg.lines || []) parts.push(`${l.label} ${fmtUAH(l.total_uah)}`);
+  if (leg.free_uah > 0) parts.push(`поза частками ${fmtUAH(leg.free_uah)}`);
   if (leg.rest_uah > 0) parts.push(`чекає ${fmtUAH(leg.rest_uah)}`);
   return `<div class="sub">Маршрут вів: ${parts.join(" · ") || "нікуди — на цілий крок не набиралось"}.
     Нижче — розкладка, порахована щойно.</div>`;

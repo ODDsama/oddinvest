@@ -206,6 +206,14 @@ type AllocAllow struct {
 	// Порожньо = рейтинг, тож нульове значення структури й далі означає
 	// «без обмежень», як обіцяно вище.
 	PickISIN string
+
+	// CarryUAH — скільки з суми ПЕРЕНЕСЕНО з попередньої ноги маршруту
+	// (залишок, що чекав цілого квитка). Ці гроші вже пройшли поділ за
+	// частками, і «поза частками» з них удруге не береться — інакше кожна
+	// нога відкушувала б нерозподілені відсотки від того самого залишку
+	// знову. Розкладка одного надходження (POST /api/allocate) нічого не
+	// переносить — нуль.
+	CarryUAH float64
 }
 
 // allocLine — один крок розкладки.
@@ -315,6 +323,13 @@ type allocPlan struct {
 	// словами: сума без пояснення читається як загублена.
 	RestUAH state.Money `json:"rest_uah,omitzero"`
 	RestWhy string      `json:"rest_why,omitempty"`
+	// FreeUAH — поза цільовими частками: гроші, яких бюджети видів не
+	// взяли, бо частки в сумі менші за сотню. Не залишок: маршрут їх далі
+	// не везе й наступному надходженню не пропонує (аргумент при free в
+	// AllocatePlan). Разом: подушка + цілі + рядки + FreeUAH + RestUAH ==
+	// сума надходження, до копійки.
+	FreeUAH state.Money `json:"free_uah,omitzero"`
+	FreeWhy string      `json:"free_why,omitempty"`
 	// Note — чому рядків немає взагалі. Порожня відповідь без причини
 	// читається як поломка, а причин рівно три: усе забрала подушка, цілей
 	// за видом не задано, або на жоден цілий крок не вистачило.
@@ -781,15 +796,49 @@ func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		roomByKind[b.key] = math.Max(0, b.need-(b.uah-left))
 	}
 
+	// ПОЗА ЧАСТКАМИ — те, що бюджети видів не взяли взагалі: частки в сумі
+	// менші за сотню (або вид, куди цим грошам не можна, обнулений вище), а
+	// потреби вже закриті, тож лишок ділиться лише за названими. spreadMonth
+	// свідомо не віддає ці відсотки тим видам, у яких ціль є, — це гроші,
+	// які людина лишила собі. Доти розкладка й не клала їх нікуди: вони не
+	// ставали ні рядком, ні залишком і просто зникали з відповіді.
+	//
+	// У другий прохід вони НЕ йдуть з тієї самої причини: він віддав би їх
+	// недобору виду чи цілі, тобто вирішив би за людину. І в залишок —
+	// теж ні: залишок маршрут везе до наступного надходження, і там ці гроші
+	// знову розклались би за частками.
+	free := 0.0
+	if len(budgets) > 0 {
+		var budgeted float64
+		for _, b := range budgets {
+			budgeted += b.uah
+		}
+		free = math.Max(0, avail-budgeted)
+		// Перенесене вже було поділене: його частку «поза частками» лишаємо
+		// в залишку, пропорційно до того, скільки перенесеного в avail.
+		if allow.CarryUAH > 0 && free > 0 && avail > 0 {
+			free -= math.Min(free, free*math.Min(allow.CarryUAH, avail)/avail)
+		}
+	}
+
 	// --- ДРУГИЙ ПРОХІД: залишок тим, хто ще недобирає ---
-	rest = allocTopUp(&out, topUpIn{
+	//
+	// Його float-залишок не береться: скільки лишилось, allocSettle нижче
+	// рахує точно — остачею в копійках від усього, що вже розписано.
+	allocTopUp(&out, topUpIn{
 		rest: rest, mt: mt, rows: rows, rooms: roomByKind, goals: doc.Goals,
 		reserve: doc.Reserve, allow: allow, goalsElig: elig,
 		sug: sug, rates: rates, cur: cur, npfID: npfID,
 		cheapest: &cheapest, cheapestWhat: &cheapestWhat,
 	})
 
-	out.RestUAH = state.Major(rest, money.UAH)
+	allocSettle(&out, free)
+	rest = out.RestUAH.Major()
+	if out.FreeUAH.Minor() > 0 {
+		out.FreeWhy = fmt.Sprintf("цільові частки видів, куди цим грошам можна, разом дають %s%% — "+
+			"решту розкладка не розписує: куди класти ці гроші, вирішуєш ти",
+			strconv.FormatFloat(allocSharePct(rows), 'f', -1, 64))
+	}
 	// Причина залишку — три різні речі, і зводити їх до однієї фрази не можна:
 	// «бракує 730 ₴» і «інструментів немає взагалі» вимагають різних дій.
 	if rest > 0.005 {
@@ -838,7 +887,7 @@ func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	// маршруті вона малюється першою (route.js, destHTML), і нога, у якій
 	// бракувало вісім гривень до внеску, пояснювала себе фразою «жодного
 	// виду не вистачило».
-	if len(out.Lines) == 0 && out.Note == "" && out.RestWhy == "" {
+	if len(out.Lines) == 0 && out.Note == "" && out.RestWhy == "" && out.FreeWhy == "" {
 		out.Note = "на цілий крок жодного виду не вистачило — гроші чекають на наступне надходження"
 	}
 	return out
@@ -854,6 +903,45 @@ func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 // Порожній Ref не зливається ні з чим: у «Нового вкладу» посилання немає
 // зовсім, і зводити два таких рядки в один означало б стверджувати, що це
 // той самий вклад.
+// allocSettle — залишок і «поза частками» копійками, так, щоб подушка +
+// цілі + рядки + поза частками + залишок давали РІВНО суму надходження.
+//
+// Залишок — не накопичений float із проходів, а точна остача: рядки
+// складались із цін, перекладених курсом, і кожне віднімання везло свою
+// дріб копійки. Доти залишок відходив від суми на копійку-дві, і маршрут,
+// що везе його до наступного надходження, возив і похибку. Від'ємної
+// остачі не буває за побудовою (ніхто не бере більше, ніж має); якщо
+// округлення все ж дасть мінус копійку, її забирає «поза частками», а не
+// залишок, — інакше маршрут повіз би борг, якого немає.
+func allocSettle(out *allocPlan, free float64) {
+	used := out.GoalsUAH.Minor()
+	if out.Reserve != nil {
+		used += out.Reserve.AmountUAH.Minor()
+	}
+	for _, l := range out.Lines {
+		used += l.TotalUAH.Minor()
+	}
+	freeMinor := int64(math.Round(free * 100))
+	rest := out.AmountUAH.Minor() - used - freeMinor
+	if rest < 0 {
+		freeMinor = max(0, freeMinor+rest)
+		rest = 0
+	}
+	out.RestUAH = state.Minor(rest, money.UAH)
+	out.FreeUAH = state.Minor(freeMinor, money.UAH)
+}
+
+// allocSharePct — сума цільових часток видів, які розкладка ділила.
+func allocSharePct(rows []state.RebalanceRow) float64 {
+	pct := 0.0
+	for _, r := range rows {
+		if r.Dimension == "kind" && r.TargetPct > 0 {
+			pct += r.TargetPct
+		}
+	}
+	return math.Round(pct*100) / 100
+}
+
 func allocAddLine(lines *[]allocLine, add allocLine) {
 	if add.Ref != "" {
 		for i := range *lines {
@@ -1373,15 +1461,25 @@ func allocStepUAH(sg suggestion, rates fx.Rates, npfID map[string]int64) float64
 		}
 		return 0
 	}
-	step := moneyAmount(sg.CostPerBond)
-	if step <= 0 {
+	return float64(allocStepMinor(sg, rates)) / 100
+}
+
+// allocStepMinor — ціна одного паперу, сертифіката чи кроку вкладу в
+// гривневих копійках, перекладена ЄДИНОЮ точкою конвертації (fx.ToUAH,
+// банківське округлення). Доти тут стояв float-добуток ціни на курс, і
+// рядок на двадцять доларових паперів розходився з «ціна за штуку ×
+// кількість» на копійки: кожен папір віз свою дріб копійки. Нуль — кроку
+// чи ціни немає.
+func allocStepMinor(sg suggestion, rates fx.Rates) int64 {
+	cost, err := ParseMoney(sg.CostPerBond.Amount, sg.CostPerBond.Currency)
+	if err != nil || cost.Amount() <= 0 {
 		return 0
 	}
-	rate, ok := fx.RateMajor(sg.Currency, rates)
-	if !ok {
+	uah, err := fx.ToUAH(cost, rates)
+	if err != nil {
 		return 0
 	}
-	return step * rate
+	return uah.Amount()
 }
 
 // allocOne — скільки цієї поради вміщується в залишок бюджету. ok=false
@@ -1429,19 +1527,22 @@ func allocOne(sg suggestion, left float64, rates fx.Rates,
 		return line, left, true
 	}
 
-	step := allocStepUAH(sg, rates, npfID)
+	// Копійками: кількість — ціла частка бюджету, сума — кількість × ціна
+	// кроку, без жодного округлення посередині.
+	step := allocStepMinor(sg, rates)
 	if step <= 0 {
 		return line, 0, false
 	}
-	n := int64(left / step)
+	n := int64(math.Round(left*100)) / step
 	if n < 1 {
 		return line, 0, false
 	}
-	spent := float64(n) * step
+	spentMinor := n * step
+	spent := float64(spentMinor) / 100
 	line.Qty = n
 	unit := sg.CostPerBond
 	line.Unit = &unit
-	line.TotalUAH = state.Major(spent, money.UAH)
+	line.TotalUAH = state.Minor(spentMinor, money.UAH)
 	switch sg.Kind {
 	case "bond":
 		line.Ref, line.Addable = sg.ISIN, sg.ISIN != ""
@@ -1451,15 +1552,18 @@ func allocOne(sg suggestion, left float64, rates fx.Rates,
 		// Ref — банк, і лише для наявного вкладу: у рядка «Новий вклад» банку
 		// немає взагалі. Addable хибне в обох випадках (див. allocLine).
 		line.Ref = sg.Label
-		amt := ToMoneyJSON(money.New(
-			int64(math.Round(spent/allocRate(sg.Currency, rates)*100)), sg.Currency))
-		line.Amount = &amt
+		// Сума вкладу — n кроків у його ж валюті, точно: ділити гривню
+		// назад на курс означало б повернути не ту суму, з якої крок узявся.
+		if cost, err := ParseMoney(sg.CostPerBond.Amount, sg.CostPerBond.Currency); err == nil {
+			amt := ToMoneyJSON(money.New(n*cost.Amount(), cost.Currency().Code))
+			line.Amount = &amt
+		}
 		line.Qty, line.Unit = 0, nil
 	}
 	if sg.Currency != cur {
 		line.Convert = true
-		if rate, ok := fx.RateMajor(cur, rates); ok && rate > 0 {
-			line.ConvertNative = state.Major(spent/rate, cur)
+		if m, err := fx.FromUAH(money.New(spentMinor, money.UAH), cur, rates); err == nil {
+			line.ConvertNative = state.Minor(m.Amount(), cur)
 		}
 	}
 	return line, spent, true

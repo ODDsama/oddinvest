@@ -520,7 +520,9 @@ func (c *routeCarry) accrueLoan() {
 	if c.loanOwed <= 0 || c.loanRate <= 0 {
 		return
 	}
-	i := c.loanOwed * c.loanRate / 100 / 12
+	// Цілими копійками, як і нараховує банк: дріб копійки в боргу не давала
+	// йому згаснути, коли нога подушки платила рівно те, що людина бачить.
+	i := math.Round(c.loanOwed*c.loanRate/100/12*100) / 100
 	c.loanOwed += i
 	c.loanInterest += i
 	// Ціль піднялась — розрив мусить піднятись разом із нею. Це ЄДИНЕ
@@ -624,6 +626,10 @@ func (c *routeCarry) apply(p allocPlan) {
 		// Інакше борг у проході не танув би ніколи, а він і є те, через що
 		// розрив щомісяця росте.
 		c.loanOwed = math.Max(0, c.loanOwed-v.Major())
+		// Менше за пів копійки — вже не борг, а слід float-віднімання.
+		if c.loanOwed < 0.005 {
+			c.loanOwed = 0
+		}
 		// Позика закрилась — надбавка до цілі зникає разом із нею, і
 		// розрив мусить упасти ще й на неї. Без цього рядка маршрут
 		// вимагав би відсоток після того, як борг уже погашено: розрив
@@ -912,6 +918,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 				GoalsUAH:   float64(pot.goalsEligible) / 100 * rate,
 				Uses:       ev.Uses,
 				PickISIN:   picks[routeKey{string(ev.Date), ev.bc.Broker, cur}],
+				CarryUAH:   carryInUAH,
 			}, cur, npfID)
 		carry.apply(plan)
 		// Будь-яка вирізка зменшує ВСІ ТРИ лічильники: гроші не можна
@@ -941,7 +948,13 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		// Витрачене — це те, чого в залишку вже немає. Рахуємо саме так, а
 		// не сумою рядків: розкладка сама знає, що з суми пішло в діло, і
 		// друге складання розійшлося б із нею на копійку округлення.
-		spentUAH := plan.AmountUAH.Major() - plan.RestUAH.Major()
+		//
+		// «Поза частками» — теж не витрачене: ці гроші лишились на рахунку
+		// людини, і назвати надходження, з яких вони склались, «пішли в діло»
+		// було б неправдою. Далі горщик їх не везе (pot.minor — лише залишок):
+		// наступна нога знову розклала б їх за частками, тобто вирішила б за
+		// людину те, що вона лишила собі.
+		spentUAH := plan.AmountUAH.Major() - plan.RestUAH.Major() - plan.FreeUAH.Major()
 		if spentUAH > 0.005 {
 			// Гроші пішли в діло — і поіменно назвати, з яких надходжень
 			// вони склались, можна рівно зараз. Далі залишок безіменний.
