@@ -43,6 +43,9 @@ func migrate(db *sql.DB, dbPath string) error {
 	}
 	sort.Strings(names)
 
+	if err := refuseNewerSchema(db, names); err != nil {
+		return err
+	}
 	pending, err := pendingMigrations(db, names)
 	if err != nil {
 		return err
@@ -71,6 +74,45 @@ func migrate(db *sql.DB, dbPath string) error {
 		if err := applyMigration(db, name); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// refuseNewerSchema — база не старша за бінарник.
+//
+// Бігун дивився лише на відомі йому файли, тож старий бінарник над схемою,
+// яку змінила новіша міграція, стартував мовчки й писав рядки, що
+// порушують її інваріанти. Так виходить при відкаті деплою: нова версія
+// змігрувала базу, не пройшла перевірку здоровʼя, і запущено попередню.
+// Відмова на старті тут — єдиний чесний варіант: down-міграцій немає, а
+// «якось працювати» над чужою схемою означає псувати дані тихо.
+func refuseNewerSchema(db *sql.DB, known []string) error {
+	knownSet := make(map[string]bool, len(known))
+	for _, n := range known {
+		knownSet[n] = true
+	}
+	rows, err := db.Query(`SELECT version FROM schema_migrations ORDER BY version`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var unknown []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return err
+		}
+		if !knownSet[v] {
+			unknown = append(unknown, v)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(unknown) > 0 {
+		return fmt.Errorf("база новіша за цей бінарник: застосовано міграції, яких він не знає (%s). "+
+			"Постав новіший бінарник або віднови копію <база>.pre-<перша з них> — "+
+			"писати в чужу схему означало б мовчки псувати дані", strings.Join(unknown, ", "))
 	}
 	return nil
 }
@@ -211,18 +253,59 @@ const migrateBackupKeep = 3
 // ПЕРЕД чим саме зроблено копію. Якщо така вже є — не перезаписуємо:
 // повторний старт того самого бінарника (а systemd має Restart=on-failure)
 // інакше затер би добру копію тим станом, який уже частково змігрований.
+//
+// НАЯВНА КОПІЯ ПЕРЕВІРЯЄТЬСЯ, А НЕ БЕРЕТЬСЯ НА ВІРУ. Доти VACUUM INTO писав
+// одразу в кінцеве імʼя, і переривання посеред копіювання (диск повний,
+// SIGTERM) лишало обрізаний файл, який наступний старт вважав страховкою.
+// Тепер копія пишеться в .tmp і отримує кінцеве імʼя лише після
+// quick_check; наявна бита копія переробляється. Це безпечно: версія в
+// імені — перша НЕзастосована, тобто база досі в стані «до» неї (кожна
+// міграція — окрема транзакція).
 func snapshotBeforeMigrate(db *sql.DB, dbPath, version string) error {
 	dst := dbPath + ".pre-" + strings.TrimSuffix(version, ".sql")
 	if _, err := os.Stat(dst); err == nil {
-		return nil
+		if quickCheck(dst) == nil {
+			return nil
+		}
+		os.Remove(dst) //nolint:errcheck // бита копія: VACUUM INTO нижче скаже, якщо місце справді недоступне
 	}
+	tmp := dst + ".tmp"
 	// VACUUM INTO відмовляється писати в наявний файл, тож недописаний
 	// залишок від перерваної спроби прибираємо самі.
-	os.Remove(dst) //nolint:errcheck // «його немає» — теж потрібний результат; про справжню відмову скаже VACUUM INTO нижче
-	if _, err := db.Exec(`VACUUM INTO ?`, dst); err != nil {
+	os.Remove(tmp) //nolint:errcheck // «його немає» — теж потрібний результат; про справжню відмову скаже VACUUM INTO нижче
+	if _, err := db.Exec(`VACUUM INTO ?`, tmp); err != nil {
+		os.Remove(tmp) //nolint:errcheck // прибирання після відмови
+		return err
+	}
+	// У копії ті самі секрети, що в базі (див. tightenFiles), — 0600 одразу,
+	// а не колись після успішних міграцій.
+	os.Chmod(tmp, 0o600) //nolint:errcheck // невдалий chmod не робить копію гіршою за її відсутність
+	if err := quickCheck(tmp); err != nil {
+		os.Remove(tmp) //nolint:errcheck // прибирання битої копії
+		return fmt.Errorf("копія %s не пройшла перевірку: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
 		return err
 	}
 	prunePreMigrate(dbPath)
+	return nil
+}
+
+// quickCheck — PRAGMA quick_check над файлом бази, відкритим лише на
+// читання. Помилка — файл не база або база пошкоджена.
+func quickCheck(path string) error {
+	db, err := sql.Open("sqlite3", "file:"+path+"?mode=ro")
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	var res string
+	if err := db.QueryRow(`PRAGMA quick_check`).Scan(&res); err != nil {
+		return err
+	}
+	if res != "ok" {
+		return fmt.Errorf("quick_check: %s", res)
+	}
 	return nil
 }
 
@@ -238,7 +321,7 @@ func prunePreMigrate(dbPath string) {
 	}
 	var found []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), prefix) && !strings.HasSuffix(e.Name(), ".tmp") {
 			found = append(found, e.Name())
 		}
 	}

@@ -24,6 +24,8 @@ REV="${1:-main}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/}"
 # /healthz з версією — для НОВОГО бінарника (internal/api/health.go).
 HEALTHZ_URL="${HEALTHZ_URL:-http://127.0.0.1:8080/healthz}"
+# База — та сама, що в unit-файлі (ODDINVEST_DB_PATH).
+DB="${DB:-/var/lib/oddinvestd/oddinvest.db}"
 
 # Git у хуку виставляє GIT_DIR=. — з ним checkout у чуже робоче дерево
 # піде не туди. Обидва шляхи задаємо явно й лише через цю обгортку.
@@ -119,6 +121,10 @@ ver="$(printf '%s' "$sha" | cut -c1-7)"
 go build -ldflags "-X github.com/ODDsama/oddinvest/internal/api.Version=$ver"   -o "$BIN.new" ./cmd/oddinvestd
 
 # ---------- підміна + restart ----------
+# Які домиграційні копії були ДО рестарту: нова, що зʼявиться після нього,
+# означає, що цей деплой змігрував базу, — і відкат мусить повернути саме
+# її (див. «відкат» нижче).
+pre_before="$(ls "$DB".pre-* 2>/dev/null | grep -v '\.tmp$' || true)"
 if [ -x "$BIN" ]; then
   mv -f "$BIN" "$BIN.prev"
 fi
@@ -161,13 +167,31 @@ echo "!! health: $HEALTHZ_URL не віддав версію $ver за 15 с"
 journalctl -u oddinvestd -n 20 --no-pager || true
 
 # Відкат бінарника — не відкат схеми: down-міграцій немає
-# (internal/store/migrate.go), і якщо нова версія вже мігрувала базу,
-# попередня може не піднятись на новій схемі. На цей випадок перед
-# міграцією сховище робить знімок <db>.pre-<version> поруч із базою.
+# (internal/store/migrate.go). Старий бінарник над новішою схемою тепер
+# відмовляється стартувати (refuseNewerSchema) — раніше він піднімався й
+# мовчки писав рядки, що ламають нові інваріанти. Тож якщо цей деплой
+# змігрував базу (зʼявилась нова копія <db>.pre-<версія>), відкат
+# повертає й саму базу з неї. Поточна база не зникає: вона лягає поруч
+# як <db>.failed-<час>, тож записане новою версією за ці секунди можна
+# дістати руками.
 if [ -x "$BIN.prev" ]; then
   echo "-- відкат на попередній бінарник (новий лишаю в $BIN.failed)"
   mv -f "$BIN" "$BIN.failed"
   mv -f "$BIN.prev" "$BIN"
+  pre_after="$(ls "$DB".pre-* 2>/dev/null | grep -v '\.tmp$' || true)"
+  pre_new="$(comm -13 <(printf '%s\n' "$pre_before" | sort) <(printf '%s\n' "$pre_after" | sort) | grep . | head -1 || true)"
+  if [ -n "$pre_new" ]; then
+    systemctl stop oddinvestd
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    echo "-- цей деплой змігрував базу: повертаю $pre_new (поточну лишаю в $DB.failed-$stamp)"
+    mv -f "$DB" "$DB.failed-$stamp"
+    # Журнали — разом із нею: без -wal у .failed бракувало б записаного
+    # після останнього checkpoint.
+    for j in wal shm; do if [ -e "$DB-$j" ]; then mv -f "$DB-$j" "$DB.failed-$stamp-$j"; fi; done
+    cp -p "$pre_new" "$DB"
+    chown oddinvestd:oddinvestd "$DB"
+    chmod 600 "$DB"
+  fi
   systemctl restart oddinvestd
   if healthy; then
     echo "відкат: попередня версія працює"
