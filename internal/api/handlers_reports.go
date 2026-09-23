@@ -11,11 +11,10 @@ import (
 	"net/http"
 	"time"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 // plural — українське відмінювання для довідкових підписів.
@@ -404,3 +403,114 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 // налаштуваннях, тож перейменувати брокера означало не зачепити жодного
 // лота — назва в записах лишалась старою. Тепер записи тримаються за id,
 // і перейменування підхоплюють усі разом.
+
+// handleTax — GET /api/tax?year= (або ?from=&to=)
+//
+// Період — через taxYear (taxyear.go), спільний із /api/export/csv.
+// Доти цей обробник типово брав ковзні дванадцять місяців, а вивантаження
+// поруч — календарний рік, і зійтись вони могли хіба випадково.
+func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
+	year, from, to, err := taxYear(r.URL.Query(), time.Now())
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	out, err := s.taxReport(r.Context(), year, from, to, time.Now())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleCashflowStatement — GET /api/cashflow?from=&to=
+//
+// «По операціях не видно, як і куди я перевклав гроші» — це запит на
+// звіт про рух, а не на прив'язку купона до покупки. Тут видно казан:
+// скільки надійшло доходу, скільки ти доклав своїх і що з цього купив.
+func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	to := domain.Date(q.Get("to"))
+	if to == "" {
+		to = domain.NewDate(time.Now())
+	}
+	from := domain.Date(q.Get("from"))
+	if from == "" {
+		// За замовчуванням — поточний місяць.
+		from = domain.Date(string(to)[:8] + "01")
+	}
+
+	events, err := s.cashEvents(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	out := cashflowStatement(events, from, to)
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleBenchmark — GET /api/benchmark
+//
+// «А якби я просто тримав долари?» — головне питання українського
+// інвестора, і доти відповісти на нього не було з чого: історія курсів
+// з'явилась лише коли знецінення почали міряти, а не припускати.
+//
+// Рахунок простий і навмисно суворий до себе. Кожне ПОПОВНЕННЯ рахунку
+// (свої гроші, не купони) переводимо в долари за курсом ТОГО дня; сума —
+// це скільки доларів було б, якби ти просто купував їх і не робив
+// більше нічого. Оцінюємо сьогоднішнім курсом і кладемо поруч із
+// фактичним капіталом.
+//
+// Бенчмарк НЕ приносить відсотків: це поведінка «нічого не робити», з
+// якою й порівнюють. Він може виявитись кращим за портфель — у цьому
+// сенс вимірювання, а не привід його ховати.
+func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	doc, err := s.buildState(ctx, time.Now())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	out, err := s.benchmark(ctx, doc)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.present(ctx, &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// handleRivals — GET /api/rivals?level=portfolio|all
+func (s *Server) handleRivals(w http.ResponseWriter, r *http.Request) {
+	level := r.URL.Query().Get("level")
+	if level == "" {
+		level = levelPortfolio
+	}
+	if _, ok := rivalLevelLabels[level]; !ok {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("невідомий рівень %q — буває portfolio або all", level))
+		return
+	}
+	ctx := r.Context()
+	doc, err := s.buildState(ctx, time.Now())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	out, err := s.rivals(ctx, doc, level)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := s.present(r.Context(), &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}

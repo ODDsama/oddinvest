@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 )
@@ -142,4 +143,17 @@ func firstAtOrAfter(levels []domain.CPILevel, want string) string {
 		}
 	}
 	return ""
+}
+
+// handleDevaluation — звідки взялося знецінення і що показують дані.
+//
+// REST-only, поза MQTT: це екран Налаштувань, а не стан портфеля, і
+// роздувати retained-повідомлення довідковою таблицею немає сенсу.
+func (s *Server) handleDevaluation(w http.ResponseWriter, r *http.Request) {
+	out, err := s.devaluationReport(r.Context(), time.Now())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }

@@ -245,3 +245,42 @@ func (s *Server) handleListConversions(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, out)
 }
+
+// cashCheckResp — відповідь усіх трьох /check.
+//
+// Broker повертає сервер, хоч у двох випадках його ж і прислали: для
+// поповнення вкладу банк відомий лише серверу (він у самому вкладі), і
+// фронтенд не мусить збирати тіло автопоповнення з двох джерел. Значення
+// СИРЕ, зокрема порожнє — показувати порожнє як «—» можна, а класти «—» у
+// тіло поповнення не можна: store.AddDeposit заводить брокера за назвою
+// (store/refs.go:25), і в довіднику з'явився б брокер на ім'я «—».
+type cashCheckResp struct {
+	Broker string    `json:"broker"`
+	Cost   moneyJSON `json:"cost"`
+	Have   moneyJSON `json:"have"` // може бути від'ємним
+	Short  moneyJSON `json:"short"`
+	Enough bool      `json:"enough"`
+}
+
+// writeCashCheck — спільне тіло трьох хендлерів /check. Нічого не пише.
+//
+// Баланс береться на СЬОГОДНІ — те саме число, яке людина бачить на
+// екрані. Для операції, датованої майбутнім, це може виявитись не тим
+// балансом, який буде на її дату; свідомо не ускладнюємо, бо це та сама
+// позиція, що вже записана в handlers_whatif.go:85-88 — застосунок
+// показує наслідки, рішення за людиною.
+func (s *Server) writeCashCheck(w http.ResponseWriter, r *http.Request, d cashDebit) {
+	doc, err := s.buildState(r.Context(), time.Now())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	short := shortfallMinor(doc, d.Broker, d.Currency, d.Amount)
+	writeJSON(w, http.StatusOK, cashCheckResp{
+		Broker: d.Broker,
+		Cost:   toMoneyJSON(money.New(d.Amount, d.Currency)),
+		Have:   toMoneyJSON(money.New(brokerBalanceMinor(doc, d.Broker, d.Currency), d.Currency)),
+		Short:  toMoneyJSON(money.New(short, d.Currency)),
+		Enough: short == 0,
+	})
+}

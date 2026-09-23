@@ -9,7 +9,6 @@ package api
 import (
 	"context"
 	"math"
-	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -308,21 +307,6 @@ func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	return out, nil
 }
 
-// handleBenchmark — GET /api/benchmark
-//
-// «А якби я просто тримав долари?» — головне питання українського
-// інвестора, і доти відповісти на нього не було з чого: історія курсів
-// з'явилась лише коли знецінення почали міряти, а не припускати.
-//
-// Рахунок простий і навмисно суворий до себе. Кожне ПОПОВНЕННЯ рахунку
-// (свої гроші, не купони) переводимо в долари за курсом ТОГО дня; сума —
-// це скільки доларів було б, якби ти просто купував їх і не робив
-// більше нічого. Оцінюємо сьогоднішнім курсом і кладемо поруч із
-// фактичним капіталом.
-//
-// Бенчмарк НЕ приносить відсотків: це поведінка «нічого не робити», з
-// якою й порівнюють. Він може виявитись кращим за портфель — у цьому
-// сенс вимірювання, а не привід його ховати.
 // benchResult — відповідь бенчмарка. Окремим типом, а не анонімною
 // структурою в обробнику, відколи його питає ще й прогрес: віха
 // «обіграв просто долари» — це рівно DiffUAH > 0, і рахувати її вдруге
@@ -335,25 +319,6 @@ type benchResult struct {
 	USDBought    state.Money `json:"usd_bought"`
 	RateNow      float64     `json:"rate_now"`
 	Note         string      `json:"note,omitempty"`
-}
-
-func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	doc, err := s.buildState(ctx, time.Now())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	out, err := s.benchmark(ctx, doc)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if err := s.present(ctx, &out); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
 }
 
 // benchmark — сам рахунок, над УЖЕ ЗІБРАНИМ документом.
@@ -410,7 +375,64 @@ func benchFromRivals(rv rivalsResp, rates fx.Rates) benchResult {
 	return out
 }
 
-// handleTax — GET /api/tax?year= (або ?from=&to=)
+// taxLine — рядок звіту про податок: один вид доходу.
+type taxLine struct {
+	Kind     string      `json:"kind"`
+	Label    string      `json:"label"`
+	GrossUAH state.Money `json:"gross_uah"`
+	TaxUAH   state.Money `json:"tax_uah"`
+	NetUAH   state.Money `json:"net_uah"`
+	RatePct  float64     `json:"rate_pct"`
+}
+
+// taxReport — відповідь /api/tax (handlers_reports.go).
+type taxReport struct {
+	// Year — 0, коли період заданий парою from/to, а не роком. Клієнту
+	// це потрібно, щоб не підписувати довільний відрізок роком.
+	Year int    `json:"year,omitempty"`
+	From string `json:"from"`
+	To   string `json:"to"`
+	// Currency — завжди гривня, і сказано це явно (schema 3): податок
+	// платиться в гривні за курсом на дату події, і звіт для декларації
+	// у валюту звітності НЕ перекладається — єдиний такий маршрут.
+	// Читач, який бере символ із summary.currency, тут мусить узяти цей.
+	Currency string    `json:"currency"`
+	GrossUAH float64   `json:"gross_uah"`
+	TaxUAH   float64   `json:"tax_uah"`
+	NetUAH   float64   `json:"net_uah"`
+	RatePct  float64   `json:"rate_pct"`
+	ByKind   []taxLine `json:"by_kind,omitempty"`
+	// Credits — те, що держава ПОВЕРТАЄ, а не забирає: податкова знижка
+	// на внески в НПФ.
+	//
+	// Окремий блок, а не рядок у ByKind, і це не оформлення. Арифметика
+	// того переліку — gross, tax, net = gross − tax, rate = tax/gross;
+	// відʼємний рядок ламає всі чотири числа, а rate_pct у нього стає
+	// безглуздим. Тому знижка стоїть поруч і в загальні суми вгорі НЕ
+	// входить: там питання «скільки податку з мене взяли», і змішувати з
+	// ним повернення означало б відповідати на нього заниженим числом.
+	//
+	// І головне: це ОЦІНКА, а не факт. Її ще треба отримати декларацією
+	// до 31 грудня наступного року, вона працює лише проти зарплати й не
+	// переноситься. Тому поруч стоїть Note.
+	Credits []taxLine `json:"credits,omitempty"`
+	// Звідки взялись гривневі числа. Читач має право знати, що це не
+	// сьогоднішній курс, і наскільки в найгіршому разі відстала точка,
+	// з якої курс узято: помісячний бекфіл на подіях 2019 року дає
+	// відставання до тридцяти днів, і мовчати про це означало б
+	// видавати оцінку за факт.
+	FXBasis     string `json:"fx_basis"`
+	FXMaxLagDay int    `json:"fx_max_lag_days,omitempty"`
+	Note        string `json:"note,omitempty"`
+	// FundGaps — місяці, у яких фонд мав заплатити (позиція була, день
+	// виплати минув), а запису в журналі немає. Це НЕ дохід, який ми
+	// оцінили: це зізнання, що виписку заведено не повністю. Купони
+	// приходять із довідника НБУ самі, дивіденди — лише з виписки, тож
+	// мовчати про пропуск означало б видавати два місяці за рік.
+	FundGaps []fundGap `json:"fund_gaps,omitempty"`
+}
+
+// taxReport — скільки з доходу забрала держава за [from, to].
 //
 // Скільки з доходу забрала держава. Асиметрія між інструментами вже
 // зашита в real_pct, але відсотком її не відчуваєш: вклад під 16% і
@@ -421,29 +443,17 @@ func benchFromRivals(rv rivalsResp, rates fx.Rates) benchResult {
 // (нині 14% = ПДФО 9% + військовий збір 5%), відсотки вкладу теж (23%
 // = ПДФО 18% + ВЗ 5%). Ставки НЕ зашиті: у фонду беремо фактично
 // утримане з операції, у вкладу — ставку з самого вкладу.
-//
-// Період — через taxYear (taxyear.go), спільний із /api/export/csv.
-// Доти цей обробник типово брав ковзні дванадцять місяців, а вивантаження
-// поруч — календарний рік, і зійтись вони могли хіба випадково.
-func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	year, from, to, err := taxYear(r.URL.Query(), time.Now())
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
+func (e *engine) taxReport(ctx context.Context, year int, from, to domain.Date, now time.Time) (taxReport, error) {
 
-	lots, sales, _, pays, err := s.portfolio(ctx)
+	lots, sales, _, pays, err := e.portfolio(ctx)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return taxReport{}, err
 	}
-	statuses, err := s.st.PaymentStatuses(ctx)
+	statuses, err := e.st.PaymentStatuses(ctx)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return taxReport{}, err
 	}
-	today := domain.NewDate(time.Now())
+	today := domain.NewDate(now)
 	inWindow := func(d domain.Date) bool { return !d.Before(from) && !d.After(to) }
 	arrived := domain.Arrived(statuses, today)
 
@@ -451,7 +461,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	// суми переводились одним поточним курсом: на портфелі, де долар
 	// купували по 27, а дивляться на нього по 44, податок за минулий рік
 	// виходив у півтора раза більшим за реально сплачений.
-	asOf := newAsOfRates(s.st)
+	asOf := newAsOfRates(e.st)
 	var fxErr error
 	uah := func(m *money.Money, on domain.Date) int64 {
 		v, err := asOf.uah(ctx, m, on)
@@ -467,21 +477,12 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	// видно, що це рішення законодавця, а не незаповнене поле.
 	const bondTaxUAH int64 = 0
 
-	type line struct {
-		Kind     string      `json:"kind"`
-		Label    string      `json:"label"`
-		GrossUAH state.Money `json:"gross_uah"`
-		TaxUAH   state.Money `json:"tax_uah"`
-		NetUAH   state.Money `json:"net_uah"`
-		RatePct  float64     `json:"rate_pct"`
-	}
 	var bondGross, bondAccrued, fundGross, fundTax, saleGross, saleTax, depGross, depTax int64
 
 	// ОВДП: купони. Погашення — повернення власного тіла, не дохід.
 	pastCF, err := domain.FuturePayments(pays, lots, sales, "1970-01-01")
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return taxReport{}, err
 	}
 	for _, cf := range pastCF {
 		if cf.Type == domain.PayRedemption || !inWindow(cf.Date) || !arrived(cf.ISIN, cf.Date) {
@@ -505,8 +506,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	// перевірки на PayRedemption — елементи купонодатовані за побудовою.
 	accrued, err := domain.AccruedPaid(pays, lots, sales)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return taxReport{}, err
 	}
 	for _, it := range accrued {
 		if !inWindow(it.Date) || !arrived(it.ISIN, it.Date) {
@@ -516,17 +516,15 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	}
 	// Фонди: беремо ФАКТИЧНО утримане, а не ставку. Ставка змінювалась і
 	// ще змінюватиметься, а у виписці стоїть те, що забрали насправді.
-	fundOps, err := s.st.ListFundOps(ctx)
+	fundOps, err := e.st.ListFundOps(ctx)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return taxReport{}, err
 	}
 	// Довідник — щоб знати день виплати й вид фонду: без них не відрізнити
 	// пропущений місяць від фонду, який просто не платить (tax_coverage.go).
-	fundRefs, err := s.st.ListFunds(ctx)
+	fundRefs, err := e.st.ListFunds(ctx)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return taxReport{}, err
 	}
 	// Дивіденди. Продаж сертифікатів рахується окремо нижче: у нього інша
 	// база — не виручка, а прибуток.
@@ -565,10 +563,9 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	// Вклади: брутто й податок із того самого проходу, що й самі
 	// відсотки — графік показує нетто, і ділити його назад означало б
 	// накопичувати похибку.
-	termDeposits, err := s.st.ListTermDeposits(ctx)
+	termDeposits, err := e.st.ListTermDeposits(ctx)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return taxReport{}, err
 	}
 	for _, dep := range termDeposits {
 		g, tx := domain.DepositInterestTax(dep, from, to)
@@ -584,13 +581,12 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		depTax += uah(money.New(tx, dep.Currency), to)
 	}
 	if fxErr != nil {
-		writeErr(w, http.StatusInternalServerError, fxErr)
-		return
+		return taxReport{}, fxErr
 	}
 
 	minor := func(v int64) float64 { return round2(float64(v) / 100) }
-	mk := func(kind, label string, gross, tax int64) line {
-		l := line{Kind: kind, Label: label,
+	mk := func(kind, label string, gross, tax int64) taxLine {
+		l := taxLine{Kind: kind, Label: label,
 			GrossUAH: state.Major(minor(gross), money.UAH), TaxUAH: state.Major(minor(tax), money.UAH), NetUAH: state.Major(minor(gross-tax), money.UAH)}
 		// Ставку рахуємо лише на додатному брутто. Нуль тут не тільки рятує
 		// від ділення на нуль: рядок відрахування (НКД) відʼємний, і ставка на
@@ -600,51 +596,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		}
 		return l
 	}
-	out := struct {
-		// Year — 0, коли період заданий парою from/to, а не роком. Клієнту
-		// це потрібно, щоб не підписувати довільний відрізок роком.
-		Year int    `json:"year,omitempty"`
-		From string `json:"from"`
-		To   string `json:"to"`
-		// Currency — завжди гривня, і сказано це явно (schema 3): податок
-		// платиться в гривні за курсом на дату події, і звіт для декларації
-		// у валюту звітності НЕ перекладається — єдиний такий маршрут.
-		// Читач, який бере символ із summary.currency, тут мусить узяти цей.
-		Currency string  `json:"currency"`
-		GrossUAH float64 `json:"gross_uah"`
-		TaxUAH   float64 `json:"tax_uah"`
-		NetUAH   float64 `json:"net_uah"`
-		RatePct  float64 `json:"rate_pct"`
-		ByKind   []line  `json:"by_kind,omitempty"`
-		// Credits — те, що держава ПОВЕРТАЄ, а не забирає: податкова знижка
-		// на внески в НПФ.
-		//
-		// Окремий блок, а не рядок у ByKind, і це не оформлення. Арифметика
-		// того переліку — gross, tax, net = gross − tax, rate = tax/gross;
-		// відʼємний рядок ламає всі чотири числа, а rate_pct у нього стає
-		// безглуздим. Тому знижка стоїть поруч і в загальні суми вгорі НЕ
-		// входить: там питання «скільки податку з мене взяли», і змішувати з
-		// ним повернення означало б відповідати на нього заниженим числом.
-		//
-		// І головне: це ОЦІНКА, а не факт. Її ще треба отримати декларацією
-		// до 31 грудня наступного року, вона працює лише проти зарплати й не
-		// переноситься. Тому поруч стоїть Note.
-		Credits []line `json:"credits,omitempty"`
-		// Звідки взялись гривневі числа. Читач має право знати, що це не
-		// сьогоднішній курс, і наскільки в найгіршому разі відстала точка,
-		// з якої курс узято: помісячний бекфіл на подіях 2019 року дає
-		// відставання до тридцяти днів, і мовчати про це означало б
-		// видавати оцінку за факт.
-		FXBasis     string `json:"fx_basis"`
-		FXMaxLagDay int    `json:"fx_max_lag_days,omitempty"`
-		Note        string `json:"note,omitempty"`
-		// FundGaps — місяці, у яких фонд мав заплатити (позиція була, день
-		// виплати минув), а запису в журналі немає. Це НЕ дохід, який ми
-		// оцінили: це зізнання, що виписку заведено не повністю. Купони
-		// приходять із довідника НБУ самі, дивіденди — лише з виписки, тож
-		// мовчати про пропуск означало б видавати два місяці за рік.
-		FundGaps []fundGap `json:"fund_gaps,omitempty"`
-	}{
+	out := taxReport{
 		Year: year, From: string(from), To: string(to),
 		FXBasis:     "курс НБУ на дату події або найближчий попередній",
 		FXMaxLagDay: asOf.maxLag,
@@ -652,7 +604,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	coverNote, gaps := fundCoverage(fundOps, fundRefs, from, to, today)
 	out.Note = joinNotes(asOf.note(), coverNote)
 	out.FundGaps = gaps
-	for _, l := range []line{
+	for _, l := range []taxLine{
 		// Нуль тут — не «податку немає в наших даних», а законодавче
 		// звільнення: доходи з ОВДП не оподатковуються ні ПДФО, ні
 		// військовим збором. Константа, а не літерал, щоб зміна закону
@@ -685,13 +637,13 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	// вона не означала б нічого. Рік 0 (заданий парою дат) знижку не
 	// показує — і це чесніше за число, пораховане не за той період.
 	if year > 0 {
-		if npfAccounts, aerr := s.st.ListNPFAccounts(ctx); aerr == nil && len(npfAccounts) > 0 {
-			npfOps, oerr := s.st.ListNPFOps(ctx)
+		if npfAccounts, aerr := e.st.ListNPFAccounts(ctx); aerr == nil && len(npfAccounts) > 0 {
+			npfOps, oerr := e.st.ListNPFOps(ctx)
 			// Помилку читання налаштувань ковтаємо тут так само, як уже
 			// ковтається oerr поруч: знижка — додаткова плитка звіту, і
 			// без неї звіт лишається правильним. Мапа nil читається як
 			// «нічого не задано», тобто веде до дефолтів.
-			raw, _ := s.st.AllSettings(ctx) //nolint:errcheck // без налаштувань знижки просто не буде — рядок звіту, а не сам звіт
+			raw, _ := e.st.AllSettings(ctx) //nolint:errcheck // без налаштувань знижки просто не буде — рядок звіту, а не сам звіт
 			set := loadSettings(raw)
 			if oerr == nil {
 				// Сума часток — знижка платника: ліміт і стеля ПДФО одні на
@@ -704,7 +656,7 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 					// GrossUAH — сума внесків у межах ліміту, TaxUAH — сама
 					// знижка з мінусом: у цьому блоці «податок» і означає
 					// рух державі, тож повернення від'ємне.
-					out.Credits = append(out.Credits, line{
+					out.Credits = append(out.Credits, taxLine{
 						Kind: "npf_credit", Label: "Податкова знижка на внески в НПФ",
 						TaxUAH: state.Major(-minor(credit), money.UAH), NetUAH: state.Major(minor(credit), money.UAH),
 					})
@@ -717,62 +669,49 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out.Currency = money.UAH
-	writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
 
-// handleCashflowStatement — GET /api/cashflow?from=&to=
+// cashflowRow — рядок звіту про рух грошей.
+type cashflowRow struct {
+	Date  string      `json:"date" money:"asof"` // рядок — курсом свого дня
+	Label string      `json:"label"`
+	UAH   state.Money `json:"uah"`
+	Kind  string      `json:"kind"`
+	// Principal — дохід, який є поверненням тіла (адитивно).
+	Principal bool `json:"principal,omitempty"`
+}
+
+// cashflowReport — відповідь /api/cashflow.
 //
-// «По операціях не видно, як і куди я перевклав гроші» — це запит на
-// звіт про рух, а не на прив'язку купона до покупки. Тут видно казан:
-// скільки надійшло доходу, скільки ти доклав своїх і що з цього купив.
-func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	to := domain.Date(q.Get("to"))
-	if to == "" {
-		to = domain.NewDate(time.Now())
-	}
-	from := domain.Date(q.Get("from"))
-	if from == "" {
-		// За замовчуванням — поточний місяць.
-		from = domain.Date(string(to)[:8] + "01")
-	}
+// Підсумки — курсом КІНЦЯ вікна (To з тегом asof): тотожність «відкриття
+// + дохід + свої − покупки ± конверсії = закриття» сходиться лише за
+// одним курсом; що всередині вікна курс ходив — свідоме наближення, і
+// рядки нижче показують кожен рух за своїм днем.
+type cashflowReport struct {
+	From        string      `json:"from"`
+	To          string      `json:"to" money:"asof"`
+	OpeningUAH  state.Money `json:"opening_uah"`
+	IncomeUAH   state.Money `json:"income_uah"`
+	ContribUAH  state.Money `json:"contributed_uah"`
+	PurchaseUAH state.Money `json:"purchased_uah"`
+	ConvUAH     state.Money `json:"conversions_uah"`
+	ClosingUAH  state.Money `json:"closing_uah"`
+	// OutsideUAH — у подушку й цілі, поза тотожністю залишку; OwnUAH
+	// — «внесено своїх» разом із гаманцем (адитивно).
+	OutsideUAH state.Money   `json:"outside_uah"`
+	OwnUAH     state.Money   `json:"own_uah"`
+	Rows       []cashflowRow `json:"rows,omitempty"`
+}
 
-	events, err := s.cashEvents(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	type row struct {
-		Date  string      `json:"date" money:"asof"` // рядок — курсом свого дня
-		Label string      `json:"label"`
-		UAH   state.Money `json:"uah"`
-		Kind  string      `json:"kind"`
-		// Principal — дохід, який є поверненням тіла (адитивно).
-		Principal bool `json:"principal,omitempty"`
-	}
-	// Підсумки — курсом КІНЦЯ вікна (To з тегом asof): тотожність «відкриття
-	// + дохід + свої − покупки ± конверсії = закриття» сходиться лише за
-	// одним курсом; що всередині вікна курс ходив — свідоме наближення, і
-	// рядки нижче показують кожен рух за своїм днем.
-	out := struct {
-		From        string      `json:"from"`
-		To          string      `json:"to" money:"asof"`
-		OpeningUAH  state.Money `json:"opening_uah"`
-		IncomeUAH   state.Money `json:"income_uah"`
-		ContribUAH  state.Money `json:"contributed_uah"`
-		PurchaseUAH state.Money `json:"purchased_uah"`
-		ConvUAH     state.Money `json:"conversions_uah"`
-		ClosingUAH  state.Money `json:"closing_uah"`
-		// OutsideUAH — у подушку й цілі, поза тотожністю залишку; OwnUAH
-		// — «внесено своїх» разом із гаманцем (адитивно).
-		OutsideUAH state.Money `json:"outside_uah"`
-		OwnUAH     state.Money `json:"own_uah"`
-		Rows       []row       `json:"rows,omitempty"`
-	}{From: string(from), To: string(to)}
-
+// cashflowStatement — звіт про рух грошей за [from, to] із готового
+// журналу cashEvents. Чиста функція: обробник лише читає журнал і
+// перекладає відповідь у валюту звітності.
+func cashflowStatement(events []flowEvent, from, to domain.Date) cashflowReport {
+	out := cashflowReport{From: string(from), To: string(to)}
 	sum := summarizeCash(events, from, to)
 	for _, e := range sum.Rows {
-		out.Rows = append(out.Rows, row{
+		out.Rows = append(out.Rows, cashflowRow{
 			Date: string(e.Date), Label: e.Label,
 			UAH: state.Minor(e.UAH, money.UAH), Kind: e.Kind, Principal: e.Principal,
 		})
@@ -787,11 +726,7 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 	out.ClosingUAH = state.UAH(sum.ClosingUAH())
 	out.OutsideUAH = state.UAH(sum.OutsideUAH)
 	out.OwnUAH = state.UAH(sum.OwnUAH())
-	if err := s.present(r.Context(), &out); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
+	return out
 }
 
 // cashSummary — рух грошей за проміжок, у мінорних гривнях.

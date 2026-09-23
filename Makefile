@@ -137,16 +137,20 @@ boundaries:
 # (internal/present). Знімок (jobs) презентера не бачить навмисно, і це
 # стереже TestSnapshotNeverPresents.
 #
-# Винятки поіменно: cashflow.go тримає й виписку (презентує), і податок
-# (гривня за законом, currency:"UAH" явно) — файл проходить за першим.
-# handlers_reports.go — знімки презентує, CSV податку пише сирим.
-# state*.go документ не пишуть на дріт самі — його презентує handleSummary.
+# Винятки поіменно: handlers_reports.go тримає й виписку, бенчмарк і
+# суперників (презентує), і податок (гривня за законом, currency:"UAH"
+# явно; CSV сирим) — файл проходить за першими. Розрахункові файли
+# (state*.go, cashflow.go, rivals.go…) на дріт не пишуть узагалі: відповідь
+# віддають лише handlers_*.go, тож перевіряються саме вони.
 .PHONY: present-boundary
 present-boundary:
-	@for f in $$(grep -l 'state\.Money' internal/api/handlers_*.go internal/api/cashflow.go internal/api/rivals.go); do \
+	@for f in $$(grep -l 'state\.Money' internal/api/handlers_*.go); do \
 		grep -q 'writeJSON(' "$$f" && ! grep -q 's\.present(' "$$f" \
 			&& { echo "$$f: гроші на дріт повз презентер — додай s.present перед writeJSON"; exit 1; }; \
 	done; true
+	@! grep -lE '\bwrite(JSON|Err)\(|http\.ResponseWriter' internal/api/*.go \
+		| grep -vE '/(handlers_[a-z_]+|auth|health|httputil|hub|security|server|static)\.go$$|_test\.go$$' \
+		|| { echo 'HTTP у розрахунковому файлі: відповідь пише лише handlers_*.go, розрахунок повертає значення'; exit 1; }
 
 # fx — ЄДИНА точка конвертації, і масштаб курсу ×10⁴ не має витікати за
 # її межі. Витікав: курс ділили на RateScale вручну в шести місцях, а в

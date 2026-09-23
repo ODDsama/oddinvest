@@ -12,7 +12,6 @@ package api
 import (
 	"context"
 	"math"
-	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -23,20 +22,6 @@ import (
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
-
-func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
-	doc, err := s.buildStateTasked(r.Context(), time.Now())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	// Валюта звітності — на виході, на готовому документі (presenter.go).
-	if err := s.present(r.Context(), doc); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, doc)
-}
 
 // defaultTerminalRatePct — довгострокова гривнева ставка ОВДП, до якої
 // сповзає сьогоднішня. 11% — це ціль НБУ по інфляції (5%) плюс типова

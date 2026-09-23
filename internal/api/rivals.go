@@ -42,16 +42,13 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"math"
-	"net/http"
 	"time"
-
-	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
 
 // Рівні. Рядками, бо приходять параметром запиту й їдуть у JSON.
@@ -156,34 +153,6 @@ var rivalLabels = map[string]string{
 var rivalLevelLabels = map[string]string{
 	levelPortfolio: "Портфель",
 	levelAll:       "Усі гроші",
-}
-
-// handleRivals — GET /api/rivals?level=portfolio|all
-func (s *Server) handleRivals(w http.ResponseWriter, r *http.Request) {
-	level := r.URL.Query().Get("level")
-	if level == "" {
-		level = levelPortfolio
-	}
-	if _, ok := rivalLevelLabels[level]; !ok {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("невідомий рівень %q — буває portfolio або all", level))
-		return
-	}
-	ctx := r.Context()
-	doc, err := s.buildState(ctx, time.Now())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	out, err := s.rivals(ctx, doc, level)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if err := s.present(r.Context(), &out); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
 }
 
 // rivals — увесь рахунок над УЖЕ ЗІБРАНИМ документом.

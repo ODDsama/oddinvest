@@ -7,7 +7,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -122,45 +121,44 @@ func nominalYield(real float64, cur string, devalPct float64) float64 {
 	return real
 }
 
-// handleDevaluation — звідки взялося знецінення і що показують дані.
-//
-// REST-only, поза MQTT: це екран Налаштувань, а не стан портфеля, і
-// роздувати retained-повідомлення довідковою таблицею немає сенсу.
+// devalWindow — знецінення гривні до долара за одне вікно років.
+type devalWindow struct {
+	Label string  `json:"label"`
+	Years int     `json:"years"`
+	Pct   float64 `json:"pct"`
+	From  string  `json:"from"`
+	To    string  `json:"to"`
+}
+
+// devalReport — відповідь /api/devaluation.
+type devalReport struct {
+	EffectivePct float64       `json:"effective_pct"`
+	Source       string        `json:"source"`
+	Windows      []devalWindow `json:"windows,omitempty"`
+	Note         string        `json:"note,omitempty"`
+}
+
+// devaluationReport — звідки взялося знецінення і що показують дані.
 //
 // Вікна показуємо всі, а не лише чинне десятирічне, саме тому, що вони
 // РІЗНІ: побачивши поруч «за рік 4.3%» і «за десять 6.1%», людина
 // розуміє, чому число не можна брати з короткого вікна, — а не мусить
 // вірити на слово.
-func (s *Server) handleDevaluation(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	type window struct {
-		Label string  `json:"label"`
-		Years int     `json:"years"`
-		Pct   float64 `json:"pct"`
-		From  string  `json:"from"`
-		To    string  `json:"to"`
-	}
-	out := struct {
-		EffectivePct float64  `json:"effective_pct"`
-		Source       string   `json:"source"`
-		Windows      []window `json:"windows,omitempty"`
-		Note         string   `json:"note,omitempty"`
-	}{}
-	out.EffectivePct, out.Source = s.devaluationWithSource(ctx)
+func (e *engine) devaluationReport(ctx context.Context, now time.Time) (devalReport, error) {
+	var out devalReport
+	out.EffectivePct, out.Source = e.devaluationWithSource(ctx)
 
-	newest, err := s.st.NewestRate(ctx, money.USD)
+	newest, err := e.st.NewestRate(ctx, money.USD)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return devalReport{}, err
 	}
 	if newest.RateE4 <= 0 {
 		out.Note = "історії курсу ще немає — застосунок працює на припущенні"
-		writeJSON(w, http.StatusOK, out)
-		return
+		return out, nil
 	}
 	for _, y := range []int{1, 3, 5, 10} {
-		from := domain.NewDate(time.Now().AddDate(-y, 0, 0))
-		oldest, err := s.st.OldestRate(ctx, money.USD, from)
+		from := domain.NewDate(now.AddDate(-y, 0, 0))
+		oldest, err := e.st.OldestRate(ctx, money.USD, from)
 		if err != nil || oldest.RateE4 <= 0 {
 			continue
 		}
@@ -169,11 +167,11 @@ func (s *Server) handleDevaluation(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue
 		}
-		out.Windows = append(out.Windows, window{
+		out.Windows = append(out.Windows, devalWindow{
 			Label: fmt.Sprintf("за %d %s", y, plural(y, "рік", "роки", "років")),
 			Years: y, Pct: round2(pct),
 			From: string(oldest.Date), To: string(newest.Date),
 		})
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out, nil
 }
