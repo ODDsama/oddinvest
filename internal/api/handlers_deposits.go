@@ -101,9 +101,10 @@ func termDepositFromReq(req termDepositReq) (domain.Deposit, error) {
 	default:
 		return out, fmt.Errorf("payout має бути end, monthly або quarterly, маємо %q", req.Payout)
 	}
-	// Податок за замовчуванням 23% (ПДФО 18% + військовий збір 5%);
-	// порожнє поле = це значення, а не «без податку».
-	tax := int64(2300)
+	// Порожнє поле — «за законом» (domain.TaxBPByLaw): ставка на дату
+	// кожної виплати, 19,5% до грудня 2024 і 23% після. Не «без податку»:
+	// нуль задається явно, числом.
+	tax := domain.TaxBPByLaw
 	if strings.TrimSpace(req.TaxPct) != "" {
 		if tax, err = parsePercentBP(req.TaxPct); err != nil {
 			return out, fmt.Errorf("податок: %w", err)
@@ -175,9 +176,13 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		// GoalID/GoalName — ціль, якій належить вклад (0062). Імʼя поруч із
 		// id, бо таблиця показує його людині, а другий запит по цілях
 		// заради одного рядка був би дорожчим за саме поле.
-		GoalID       int64            `json:"goal_id,omitempty"`
-		GoalName     string           `json:"goal_name,omitempty"`
-		TaxPct       float64          `json:"tax_pct"`
+		GoalID   int64   `json:"goal_id,omitempty"`
+		GoalName string  `json:"goal_name,omitempty"`
+		TaxPct   float64 `json:"tax_pct"`
+		// TaxByLaw — ставку не задано: вона за законом на дату виплати, а
+		// TaxPct показує чинну (на погашенні). Форма правки тоді лишає поле
+		// порожнім — інакше збереження перетворило б «за законом» на число.
+		TaxByLaw     bool             `json:"tax_by_law,omitempty"`
 		ClosedDate   string           `json:"closed_date,omitempty"`
 		ClosedAmount engine.MoneyJSON `json:"closed_amount,omitempty"`
 		Note         string           `json:"note,omitempty"`
@@ -228,7 +233,8 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 			Revocable:     d.Revocable,
 			GoalID:        d.GoalID,
 			GoalName:      goalNames[d.GoalID],
-			TaxPct:        float64(d.TaxBP) / 100,
+			TaxPct:        float64(d.CurrentTaxBP()) / 100,
+			TaxByLaw:      d.TaxBP == domain.TaxBPByLaw,
 			ClosedDate:    string(d.ClosedDate),
 			ClosedAmount:  engine.ToMoneyJSON(money.New(d.ClosedAmount, d.Currency)),
 			Note:          d.Note, Topups: tj,

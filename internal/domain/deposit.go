@@ -49,6 +49,39 @@ const (
 	PayoutQuarterly DepositPayout = "quarterly" // щокварталу на рахунок
 )
 
+// TaxBPByLaw — ставка податку вкладу «за законом»: не число в записі, а
+// ставка на дату кожної виплати (DepositTaxBPOn). Сентинел, бо закон
+// змінювався: число, збережене в записі, мовчки брехало б про виплати по
+// інший бік зміни.
+const TaxBPByLaw int64 = -1
+
+// depositMilitaryLevyRaise — з цього дня військовий збір із відсотків
+// вкладів 5% замість 1,5%: ставка ПДФО+ВЗ 23% замість 19,5%.
+const depositMilitaryLevyRaise Date = "2024-12-01"
+
+// DepositTaxBPOn — ставка податку на відсотки вкладу за законом на дату
+// виплати: ПДФО 18% + військовий збір.
+func DepositTaxBPOn(on Date) int64 {
+	if on.Before(depositMilitaryLevyRaise) {
+		return 1950
+	}
+	return 2300
+}
+
+// taxBPOn — ставка цього вкладу для виплати on: задана в записі, а якщо
+// «за законом» — законна на ту дату.
+func (d Deposit) taxBPOn(on Date) int64 {
+	if d.TaxBP >= 0 {
+		return d.TaxBP
+	}
+	return DepositTaxBPOn(on)
+}
+
+// CurrentTaxBP — ставка для ПОРІВНЯННЯ ставок (нетто-ставка, ефективна
+// ставка, поради): та, що діятиме на погашенні. Для заданої вручну — вона
+// сама.
+func (d Deposit) CurrentTaxBP() int64 { return d.taxBPOn(d.MaturityDate) }
+
 // NetRate — річна ставка вкладу ПІСЛЯ податку, часткою (0.129 = 12.9%).
 //
 // Одна формула на весь застосунок. Доти вона стояла в трьох місцях —
@@ -66,7 +99,8 @@ func NetRate(rateBP, taxBP int64) float64 {
 //
 // Суми (Principal, ClosedAmount) — мінорні одиниці валюти вкладу.
 // RateBP — річна ставка × 100 (16.5% = 1650), як RateBP у Bond.
-// TaxBP — ставка податку на відсотки × 100 (23% = 2300). Зберігаємо
+// TaxBP — ставка податку на відсотки × 100 (23% = 2300), або TaxBPByLaw
+// (−1) — «за законом», ставкою на дату кожної виплати. Зберігаємо
 // саме СТАВКУ, а не суму: відсотки рахуються з контракту, тож і податок з
 // них рахується, а не вводиться (на відміну від фондів, де дивіденд
 // нерегулярний і податок беруть фактом із виписки).
@@ -246,7 +280,7 @@ func (d Deposit) accruedInterest(from, to Date) int64 {
 // NetRate: гірше показати просту ставку, ніж не показати жодної.
 func (d Deposit) EffectiveNetRate() float64 {
 	if d.RateBP <= 0 || d.Principal <= 0 || !d.MaturityDate.After(d.OpenDate) {
-		return NetRate(d.RateBP, d.TaxBP)
+		return NetRate(d.RateBP, d.CurrentTaxBP())
 	}
 	// Копія БЕЗ поповнень — довід вище. Решта полів визначає гроші.
 	c := Deposit{
@@ -264,7 +298,7 @@ func (d Deposit) EffectiveNetRate() float64 {
 	flows = append(flows, Flow{Date: c.MaturityDate, Amount: c.Principal})
 	r, err := XIRR(flows)
 	if err != nil {
-		return NetRate(d.RateBP, d.TaxBP)
+		return NetRate(d.RateBP, d.CurrentTaxBP())
 	}
 	return r
 }
@@ -385,7 +419,7 @@ func (d Deposit) interestPayments() []DepositInterest {
 		// Округлення донизу цілочисельним діленням: копійка похибки на
 		// вклад тут дешевша за плутанину з half-to-even у контексті, де
 		// сам податок — оцінка.
-		tax := gross * d.TaxBP / 10000
+		tax := gross * d.taxBPOn(date) / 10000
 		if gross-tax > 0 {
 			out = append(out, DepositInterest{Date: date, Gross: gross, Tax: tax})
 		}
@@ -442,17 +476,41 @@ func (d Deposit) PaidBeforeClose() []CashflowItem {
 	return out
 }
 
-// DepositInterestTax — брутто й податок із виплат відсотків, що
-// припадають на вікно [from; to] включно.
-func DepositInterestTax(d Deposit, from, to Date) (gross, tax int64) {
+// DepositInterestEvents — податкові події вкладу у вікні [from; to]:
+// кожна виплата відсотків зі своєю датою (під курс і ставку того дня).
+//
+// Розірваний вклад дає виплати ДО розірвання (графікових після нього не
+// існувало) і відсотки в сумі розірвання: банк видає їх нетто, понад
+// тіло, тож брутто відновлюється за ставкою на ту дату. Доти звіт брав
+// повний договірний графік і для розірваного вкладу — показував рік
+// відсотків і податку, яких не було.
+//
+// Чи виплата вже НАДІЙШЛА (дата минула чи позначка), вирішує той, хто
+// кличе: домен не знає ні сьогодні, ні позначок.
+func DepositInterestEvents(d Deposit, from, to Date) []DepositInterest {
+	in := func(on Date) bool { return !on.Before(from) && !on.After(to) }
+	var out []DepositInterest
 	for _, p := range d.interestPayments() {
-		if p.Date.Before(from) || p.Date.After(to) {
+		if d.ClosedDate != "" && !p.Date.Before(d.ClosedDate) {
 			continue
 		}
-		gross += p.Gross
-		tax += p.Tax
+		if in(p.Date) {
+			out = append(out, p)
+		}
 	}
-	return gross, tax
+	if d.ClosedDate != "" && in(d.ClosedDate) {
+		if net := d.ClosedAmount - d.BalanceAt(d.ClosedDate); net > 0 {
+			rate := d.taxBPOn(d.ClosedDate)
+			gross := net
+			if rate > 0 && rate < 10000 {
+				// Округлення вгору: брутто, з якого після податку лишається
+				// рівно net.
+				gross = (net*10000 + (10000 - rate) - 1) / (10000 - rate)
+			}
+			out = append(out, DepositInterest{Date: d.ClosedDate, Gross: gross, Tax: gross - net})
+		}
+	}
+	return out
 }
 
 // DepositCashflows — майбутні потоки ВСІХ вкладів від asOf, відсортовані.

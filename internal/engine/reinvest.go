@@ -939,7 +939,9 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 		// номінальну, а на РІЧНОМУ вкладі з виплатою в кінці обидва
 		// означення збігаються тотожно (є тест), тож це не наближення, а
 		// названий строк за замовчуванням: рік.
-		netRate := domain.NetRate(rateBP, defaultDepositTaxBP)
+		// Податок — за законом на сьогодні: новий вклад платитиме вже за
+		// чинною ставкою.
+		netRate := domain.NetRate(rateBP, domain.DepositTaxBPOn(domain.NewDate(now)))
 		real := RealYield(netRate, c, devalPct)
 		costMajor := float64(minMinor) / 100
 		fits, best := fitsFor(c, costMajor)

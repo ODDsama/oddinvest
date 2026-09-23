@@ -67,8 +67,10 @@ export const depositFields = (ctx, row = null) => [
     name: "goal_id", ref: "goal", value: row ? (row.goal_id || "") : "",
     title: "Тіло такого вкладу йде в ціль, а не в портфель: у «Що купити» він не потрапляє",
   }),
+  // Порожнє — «за законом»: ставка на дату кожної виплати (19,5% до
+  // грудня 2024, далі 23%). Число — лише для договору зі своєю ставкою.
   pctField("tax_pct", "Податок, %", {
-    ph: "23 (за замовч.)", value: row ? row.tax_pct : "",
+    ph: "за законом", value: row && !row.tax_by_law ? row.tax_pct : "",
   }),
   noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
 ];
@@ -112,7 +114,7 @@ function bodyFromRow(d, patch) {
     replenishable: !!d.replenishable,
     is_reserve: !!d.is_reserve, revocable: !!d.revocable,
     goal_id: d.goal_id ? String(d.goal_id) : "",
-    tax_pct: String(d.tax_pct), note: d.note || "",
+    tax_pct: d.tax_by_law ? "" : String(d.tax_pct), note: d.note || "",
     closed_date: d.closed_date || "", closed_amount: (d.closed_amount || {}).amount || "",
     ...patch,
   };

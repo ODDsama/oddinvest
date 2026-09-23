@@ -92,3 +92,61 @@ func TestClosedDepositFlowsKeepPaidInterest(t *testing.T) {
 		}
 	}
 }
+
+// Податок із відсотків вкладу у звіті — подіями: кожна виплата за курсом
+// свого дня й лише та, що вже надійшла.
+//
+// Доти відсотки вікна зводились одним числом за курсом кінця вікна (для
+// поточного року — навіть майбутнього дня), і вже у вересні звіт за рік
+// показував відсотки жовтня–грудня. Доларовий вклад при курсі, що ріс із
+// 41 до 44, давав кілька відсотків вигаданого гривневого доходу.
+func TestTaxReportDepositEventsAtTheirDates(t *testing.T) {
+	ctx := context.Background()
+	st := testStore(t)
+	open := domain.Date("2026-01-10")
+	dep := domain.Deposit{
+		Bank: "ПУМБ", Currency: money.USD, Principal: 10_000_00,
+		RateBP: 600, OpenDate: open, MaturityDate: open.AddMonths(12),
+		Payout: domain.PayoutMonthly, TaxBP: domain.TaxBPByLaw,
+	}
+	if _, err := st.AddTermDeposit(ctx, dep); err != nil {
+		t.Fatal(err)
+	}
+	// Курс росте щомісяця: 41.00, 41.50, … — кожна виплата має свій.
+	rateOn := map[domain.Date]int64{}
+	for m := 0; m < 12; m++ {
+		d := open.AddMonths(m)
+		r := int64(410000 + m*5000)
+		rateOn[d] = r
+		if err := st.SaveRate(ctx, money.USD, r, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
+	e := New(st, testLogger())
+	rep, err := e.TaxReport(ctx, 2026, "2026-01-01", "2026-12-31", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want, wantTax int64
+	for _, ev := range domain.DepositInterestEvents(dep, "2026-01-01", "2026-12-31") {
+		if ev.Date.After(domain.NewDate(now)) {
+			continue // ще не надійшло
+		}
+		r := rateOn[domain.Date(string(ev.Date)[:8]+"10")]
+		want += (ev.Gross*r + 5000) / 10000
+		wantTax += (ev.Tax*r + 5000) / 10000
+	}
+	var got, gotTax int64
+	for _, l := range rep.ByKind {
+		if l.Kind == "deposit" {
+			got, gotTax = l.GrossUAH.Minor(), l.TaxUAH.Minor()
+		}
+	}
+	if diff := got - want; diff < -5 || diff > 5 {
+		t.Errorf("брутто відсотків %d коп., чекали %d (курс кожного дня, лише до 20 червня)", got, want)
+	}
+	if diff := gotTax - wantTax; diff < -5 || diff > 5 {
+		t.Errorf("податок %d коп., чекали %d", gotTax, wantTax)
+	}
+}

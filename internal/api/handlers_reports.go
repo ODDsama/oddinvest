@@ -375,22 +375,22 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 			money.New(op.Amount, op.Currency), taxUAH, "")
 	}
 
-	// Відсотки вкладів: брутто й податок з одного проходу — так само, як
-	// у /api/tax, інакше два способи порахувати одне число розійшлись би.
-	// Дата — кінець періоду: DepositInterestTax зводить нарахування вікна
-	// в одну суму, і розкладати її назад заради курсу означало б рахувати
-	// відсотки вдруге.
+	// Відсотки вкладів — ті самі події, що й у /api/tax (DepositInterestEvents):
+	// кожна виплата зі своєю датою й курсом того дня, лише та, що вже
+	// надійшла, з урахуванням розірвання. Доти тут стояв один рядок на вклад
+	// за курсом кінця вікна — і розійтись із /api/tax було б нічим.
 	for _, dep := range termDeposits {
-		g, tx := domain.DepositInterestTax(dep, from, to)
-		if g == 0 {
-			continue
+		for _, ev := range domain.DepositInterestEvents(dep, from, to) {
+			if !arrived(dep.SyntheticISIN(), ev.Date) {
+				continue
+			}
+			taxUAH, terr := asOf.UAH(ctx, money.New(ev.Tax, dep.Currency), ev.Date)
+			if terr != nil {
+				continue
+			}
+			row("відсотки вкладу", ev.Date, "", dep.Bank, "",
+				money.New(ev.Gross, dep.Currency), taxUAH, "")
 		}
-		taxUAH, terr := asOf.UAH(ctx, money.New(tx, dep.Currency), to)
-		if terr != nil {
-			continue
-		}
-		row("відсотки вкладу", to, "", dep.Bank, "",
-			money.New(g, dep.Currency), taxUAH, "за період "+string(from)+" → "+string(to))
 	}
 
 	if note := asOf.Note(); note != "" {

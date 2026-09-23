@@ -254,3 +254,49 @@ func TestDepositMonthEndPaysLastDayOfMonth(t *testing.T) {
 		}
 	}
 }
+
+// Податок на відсотки вкладу «за законом» — ставкою на дату КОЖНОЇ
+// виплати: до 1 грудня 2024 — 19,5% (ПДФО 18% + ВЗ 1,5%), далі 23%.
+//
+// Доти ставка була одна на вклад, і 0050 переписала всі 19,5% на 23%
+// заднім числом: звіт за 2024 рік завищував податок, а вклад через межу
+// не можна було описати жодною з двох ставок.
+func TestDepositTaxByLawFollowsPaymentDate(t *testing.T) {
+	d := Deposit{Currency: "UAH", Principal: 100_000_00, RateBP: 1200,
+		OpenDate: "2024-09-15", MaturityDate: "2025-03-15", Payout: PayoutMonthly, TaxBP: TaxBPByLaw}
+	for _, p := range d.interestPayments() {
+		want := p.Gross * 2300 / 10000
+		if p.Date.Before("2024-12-01") {
+			want = p.Gross * 1950 / 10000
+		}
+		if p.Tax != want {
+			t.Errorf("виплата %s: податок %d, чекали %d", p.Date, p.Tax, want)
+		}
+	}
+	// Явно задана ставка перемагає закон — договір, у якого своя.
+	d.TaxBP = 0
+	for _, p := range d.interestPayments() {
+		if p.Tax != 0 {
+			t.Errorf("ставка 0 задана явно, а податок %d", p.Tax)
+		}
+	}
+}
+
+// Події податку розірваного вкладу: виплати ДО розірвання й відсотки в
+// сумі розірвання (банк видає їх нетто, брутто відновлюється за ставкою).
+// Графікові виплати після розірвання не існували — і в звіті їх немає.
+func TestDepositInterestEventsRespectClosing(t *testing.T) {
+	d := Deposit{Currency: "UAH", Principal: 100_000_00, RateBP: 1200,
+		OpenDate: "2026-01-10", MaturityDate: "2027-01-10", Payout: PayoutEnd, TaxBP: TaxBPByLaw,
+		ClosedDate: "2026-08-10", ClosedAmount: 100_770_00}
+	ev := DepositInterestEvents(d, "2026-01-01", "2027-12-31")
+	if len(ev) != 1 || ev[0].Date != "2026-08-10" {
+		t.Fatalf("чекали одну подію на дату розірвання, маємо %+v", ev)
+	}
+	if ev[0].Net() != 770_00 {
+		t.Errorf("нетто %d, чекали 77000 — рівно те, що банк доклав до тіла", ev[0].Net())
+	}
+	if ev[0].Tax != ev[0].Gross*2300/10000 && ev[0].Tax != ev[0].Gross*2300/10000+1 {
+		t.Errorf("податок %d з брутто %d — не 23%%", ev[0].Tax, ev[0].Gross)
+	}
+}

@@ -576,17 +576,18 @@ func (e *Engine) TaxReport(ctx context.Context, year int, from, to domain.Date, 
 		return taxReport{}, err
 	}
 	for _, dep := range termDeposits {
-		g, tx := domain.DepositInterestTax(dep, from, to)
-		if g == 0 {
-			continue
+		// Кожна виплата — окремою подією: зі своєю датою (курс того дня,
+		// як у купонів і дивідендів) і лише коли вже НАДІЙШЛА. Доти відсотки
+		// вікна зводились в одну суму за курсом кінця вікна, розірвання не
+		// враховувалось, а поточний рік уже в вересні показував відсотки
+		// жовтня–грудня. Ставка податку — на дату виплати (DepositTaxBPOn).
+		for _, ev := range domain.DepositInterestEvents(dep, from, to) {
+			if !arrived(dep.SyntheticISIN(), ev.Date) {
+				continue
+			}
+			depGross += uah(money.New(ev.Gross, dep.Currency), ev.Date)
+			depTax += uah(money.New(ev.Tax, dep.Currency), ev.Date)
 		}
-		// Дата події для вкладу — кінець періоду, а не дати окремих
-		// нарахувань: DepositInterestTax зводить їх в одну суму за вікно,
-		// і розкладати назад заради курсу означало б рахувати відсотки
-		// вдруге, іншим способом. Для календарного року це курс 31 грудня,
-		// тобто рівно те, чим користуються в декларації.
-		depGross += uah(money.New(g, dep.Currency), to)
-		depTax += uah(money.New(tx, dep.Currency), to)
 	}
 	if fxErr != nil {
 		return taxReport{}, fxErr
