@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"syscall"
 	"time"
 	// База часових зон — у бінарнику. Без неї LoadLocation залежить від
@@ -91,14 +90,20 @@ func main() {
 		return
 	}
 
+	// Client ID із хостом: однаковий ID вибиває з брокера попереднього
+	// власника, і dev-екземпляр, спрямований на бойовий брокер, мовчки
+	// відключав би справжній сервіс і переписував його retained-стан.
+	host, _ := os.Hostname() //nolint:errcheck // без імені хоста лишається сам префікс — не гірше, ніж доти
+	clientID := "oddinvestd"
+	if host != "" {
+		clientID += "-" + host
+	}
 	var pub *mqtt.Publisher
 	if cfg.MQTTAddr != "" {
-		pub, err = mqtt.New(cfg.MQTTAddr, cfg.MQTTUser, cfg.MQTTPass, cfg.MQTTPrefix, "oddinvestd")
-		if err != nil {
-			log.Error("mqtt", "err", err) // не фатально: працюємо без публікації
-		} else {
-			defer pub.Close()
-		}
+		// Підключення — у фоні (mqtt.New): старт не чекає брокера, а стан
+		// доїде сам, щойно брокер зʼявиться.
+		pub = mqtt.New(cfg.MQTTAddr, cfg.MQTTUser, cfg.MQTTPass, cfg.MQTTPrefix, clientID, log)
+		defer pub.Close()
 	}
 
 	nc := nbu.New(cfg.NBUBase)
@@ -132,8 +137,8 @@ func main() {
 	// Інші портфелі (0054): кожному — свій Runner у флоті (знімок, дамп у
 	// portfolios/<slug>/, публікація) і свій публікатор із префіксом
 	// <prefix>/<slug>. Довідник НБУ оновлює лише головний — на те й
-	// jobs.Satellite. Публікатор підʼєднується з горутини: mqtt.New чекає
-	// на брокер до 15 с, а POST /api/portfolios стільки тримати не можна.
+	// jobs.Satellite. Публікатор підключається сам у фоні (mqtt.New не
+	// чекає брокера), тож POST /api/portfolios його не тримає.
 	spawn := func(p store.Portfolio, sat *api.Server) (api.Refresher, func()) {
 		own := jobs.New(st.For(p.ID), nc, fc, nil, sat.BuildStateDoc, log,
 			filepath.Join(dataDir, "portfolios", p.Slug, "oddinvest-backup.json"))
@@ -143,30 +148,14 @@ func main() {
 		// відвʼязував його від Runner-а: зʼєднання з брокером лишалось
 		// відкритим до рестарту, а retained «online» і останній стан —
 		// назавжди, тож HA показував живий портфель, якого вже немає.
-		// Гонитва врахована: портфель можуть видалити раніше, ніж горутина
-		// нижче встигне підключитись, — тоді вона сама й прибирає.
-		var (
-			pubMu   sync.Mutex
-			pub     *mqtt.Publisher
-			retired bool
-		)
+		var pub *mqtt.Publisher
 		if cfg.MQTTAddr != "" {
+			pub = mqtt.New(cfg.MQTTAddr, cfg.MQTTUser, cfg.MQTTPass,
+				cfg.MQTTPrefix+"/"+p.Slug, clientID+"-"+p.Slug, log)
+			own.SetPublisher(pub)
+			// Стартова публікація — у фоні: збірка стану не має тримати
+			// POST /api/portfolios.
 			go func() {
-				sp, err := mqtt.New(cfg.MQTTAddr, cfg.MQTTUser, cfg.MQTTPass,
-					cfg.MQTTPrefix+"/"+p.Slug, "oddinvestd-"+p.Slug)
-				if err != nil {
-					log.Error("mqtt сателіта", "slug", p.Slug, "err", err)
-					return
-				}
-				pubMu.Lock()
-				if retired {
-					pubMu.Unlock()
-					sp.Retire()
-					return
-				}
-				pub = sp
-				pubMu.Unlock()
-				own.SetPublisher(sp)
 				if err := own.PublishState(ctx); err != nil {
 					log.Warn("стартова публікація сателіта", "slug", p.Slug, "err", err)
 				}
@@ -175,12 +164,8 @@ func main() {
 		return jobs.Satellite{Main: runner, Own: own}, func() {
 			fleet.Remove(p.Slug)
 			own.SetPublisher(nil)
-			pubMu.Lock()
-			retired = true
-			sp := pub
-			pubMu.Unlock()
-			if sp != nil {
-				sp.Retire()
+			if pub != nil {
+				pub.Retire()
 			}
 		}
 	}
