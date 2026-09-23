@@ -152,12 +152,12 @@ type decisionsModeRow struct {
 // ЗНАК, і єдиний спосіб це гарантувати — рахувати обидва з одних рядків
 // однією функцією. Другою реалізацією вони розійшлись би так само тихо,
 // як у прототипі, де доріжка казала 75% при 2 з 4 у журналі.
-func (s *Server) decisionRows(ctx context.Context) ([]decisionRow, error) {
-	list, err := s.st.ListDecisions(ctx)
+func (e *engine) decisionRows(ctx context.Context) ([]decisionRow, error) {
+	list, err := e.st.ListDecisions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	lots, sales, bonds, pays, err := s.portfolio(ctx)
+	lots, sales, bonds, pays, err := e.portfolio(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (s *Server) decisionRows(ctx context.Context) ([]decisionRow, error) {
 		lotByID[l.ID] = l
 	}
 	today := domain.NewDate(time.Now())
-	deval := s.devaluation(ctx)
+	deval := e.devaluation(ctx)
 
 	rows := make([]decisionRow, 0, len(list))
 	for _, d := range list {

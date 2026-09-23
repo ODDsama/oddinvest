@@ -242,19 +242,19 @@ func daysBetween(from, to domain.Date) int {
 // Помилка збірки порад чергу ГАСИТЬ, а не документ: стан портфеля цінний
 // сам по собі, і віддати порожню чергу замість п'ятисотки — єдина розумна
 // поведінка, коли впав саме помічник.
-func (s *Server) buildStateTasked(ctx context.Context, now time.Time) (*state.Doc, error) {
-	doc, err := s.buildState(ctx, now)
+func (e *engine) buildStateTasked(ctx context.Context, now time.Time) (*state.Doc, error) {
+	doc, err := e.buildState(ctx, now)
 	if err != nil {
 		return nil, err
 	}
-	sug, serr := s.reinvestSuggestions(ctx, now, doc)
+	sug, serr := e.reinvestSuggestions(ctx, now, doc)
 	if serr != nil {
-		s.log.Warn("поради для черги задач не зібрались", "err", serr)
+		e.log.Warn("поради для черги задач не зібрались", "err", serr)
 		sug = nil
 	}
-	src, serr := s.loadSources(ctx, domain.NewDate(now))
+	src, serr := e.loadSources(ctx, domain.NewDate(now))
 	if serr != nil {
-		s.log.Warn("джерела для черги задач не зібрались", "err", serr)
+		e.log.Warn("джерела для черги задач не зібрались", "err", serr)
 		return doc, nil
 	}
 	doc.Tasks = buildTasks(doc, sug, src, domain.NewDate(now))

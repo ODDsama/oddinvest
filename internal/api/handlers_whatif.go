@@ -244,13 +244,13 @@ func (s *Server) handleWhatIf(w http.ResponseWriter, r *http.Request) {
 // ВЛАСНОЇ АРИФМЕТИКИ ТУТ ОДНЕ ВІДНІМАННЯ, і воно нижче. Усе решта —
 // allocatePlan, та сама чиста функція, що обслуговує розкладку надходження
 // й ногу маршруту.
-func (s *Server) addTopup(ctx context.Context, now time.Time,
+func (e *engine) addTopup(ctx context.Context, now time.Time,
 	after *state.Doc, basket basketDoc, pickISIN string, out *whatIfPayload) error {
 
 	if after.MonthPlan == nil || after.MonthPlan.LeftUAH.Major() <= 0 {
 		return nil
 	}
-	rates, err := s.rates(ctx)
+	rates, err := e.rates(ctx)
 	if err != nil {
 		return err
 	}
@@ -286,7 +286,7 @@ func (s *Server) addTopup(ctx context.Context, now time.Time,
 	// ПОРАДИ ВІД `after`, А НЕ ВІД `before`. Рейтинг ранжує сумою розривів
 	// (suggPlanScore), і розриви мусять бути ті, що лишились ПІСЛЯ плану:
 	// інакше вершиною стане саме той вид, який план уже закрив.
-	sug, err := s.reinvestSuggestions(ctx, now, after)
+	sug, err := e.reinvestSuggestions(ctx, now, after)
 	if err != nil {
 		return err
 	}
@@ -307,7 +307,7 @@ func (s *Server) addTopup(ctx context.Context, now time.Time,
 	plan := allocatePlan(after, sug, rates,
 		toMoneyJSON(money.New(int64(math.Round(avail.Major()*100)), money.UAH)), avail.Major(),
 		allocAllow{ReserveUAH: avail.Major(), GoalsUAH: avail.Major(), PickISIN: pick},
-		money.UAH, s.npfIDByName(ctx))
+		money.UAH, e.npfIDByName(ctx))
 	out.Topup = &plan
 	return nil
 }
@@ -338,10 +338,10 @@ func planCostUAH(basket basketDoc, rates fx.Rates) float64 {
 // Чернетка проходить ту саму planBuyFromReq, що й запис у базу. Друга
 // перевірка форми для превʼю означала б, що рядок може виглядати
 // правильним доти, доки його не збережеш.
-func (s *Server) planBuyRows(ctx context.Context, req whatIfReq) ([]store.PlanBuy, error) {
+func (e *engine) planBuyRows(ctx context.Context, req whatIfReq) ([]store.PlanBuy, error) {
 	var rows []store.PlanBuy
 	if req.Saved == nil || *req.Saved {
-		saved, err := s.st.ListPlanBuys(ctx)
+		saved, err := e.st.ListPlanBuys(ctx)
 		if err != nil {
 			return nil, err
 		}

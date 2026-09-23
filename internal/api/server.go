@@ -34,9 +34,12 @@ type Refresher interface {
 }
 
 type Server struct {
-	st  *store.Store
+	// engine — розрахунки: сховище, лог і все, що з них виводиться
+	// (engine.go). Вбудований, тож s.st, s.log і s.loadSources(...) у
+	// обробниках читаються як доти, а межа «що тут HTTP, а що розрахунок»
+	// проходить по типу, а не по памʼяті автора.
+	*engine
 	ref Refresher
-	log *slog.Logger
 
 	// Стан публікатора стану — див. publishAsync.
 	pubMu      sync.Mutex
@@ -67,7 +70,7 @@ func (s *Server) SetRefresher(ref Refresher) { s.ref = ref }
 // навмисно, інакше секрети читались би раз на портфель, а зміна пароля
 // на головному розлогінювала б лише його.
 func NewSatellite(st *store.Store, log *slog.Logger) *Server {
-	return &Server{st: st, log: log}
+	return &Server{engine: &engine{st: st, log: log}}
 }
 
 // New — сервер із секретами, прочитаними зі сховища.
@@ -77,7 +80,7 @@ func NewSatellite(st *store.Store, log *slog.Logger) *Server {
 // сервера через це не можна — сторінка відновлення з копії саме тоді й
 // потрібна, коли зі сховищем щось не так.
 func New(st *store.Store, ref Refresher, log *slog.Logger) *Server {
-	s := &Server{st: st, ref: ref, log: log, authFails: newAuthState()}
+	s := &Server{engine: &engine{st: st, log: log}, ref: ref, authFails: newAuthState()}
 	if err := s.reloadAuth(context.Background()); err != nil {
 		log.Error("секрети не прочитались — сервіс лишається відкритим", "err", err)
 	}

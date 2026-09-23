@@ -39,8 +39,8 @@ const (
 //
 // Повертає ще й межі вікна: картка мусить сказати, ЯКИМ відрізком міряно,
 // інакше «10.6%/рік» неможливо ні перевірити, ні зрозуміти.
-func (s *Server) measuredInflation(ctx context.Context) (pct float64, from, to string, ok bool) {
-	pts, err := s.st.CPISince(ctx, "")
+func (e *engine) measuredInflation(ctx context.Context) (pct float64, from, to string, ok bool) {
+	pts, err := e.st.CPISince(ctx, "")
 	if err != nil || len(pts) < 2 {
 		return 0, "", "", false
 	}
@@ -79,7 +79,7 @@ func (s *Server) measuredInflation(ctx context.Context) (pct float64, from, to s
 }
 
 // inflation — інфляція, з якою рахує застосунок: виміряна або ніякої.
-func (s *Server) inflation(ctx context.Context) (float64, bool) {
-	pct, _, _, ok := s.measuredInflation(ctx)
+func (e *engine) inflation(ctx context.Context) (float64, bool) {
+	pct, _, _, ok := e.measuredInflation(ctx)
 	return pct, ok
 }

@@ -746,9 +746,9 @@ func (inc incomeAhead) readyFor(doc *state.Doc, currency string, costMinor int64
 // Мовчить там, де відповіді немає: рядок, на який стає вже сьогодні, дати
 // не отримує (він і так зверху), а рядок, на який із відомих надходжень не
 // набереться, отримує названу причину замість порожнечі.
-func (s *Server) annotateReady(ctx context.Context, today domain.Date,
+func (e *engine) annotateReady(ctx context.Context, today domain.Date,
 	doc *state.Doc, sug []suggestion) error {
-	src, err := s.loadSources(ctx, today)
+	src, err := e.loadSources(ctx, today)
 	if err != nil {
 		return err
 	}

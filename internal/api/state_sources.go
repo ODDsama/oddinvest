@@ -178,42 +178,42 @@ type sources struct {
 // у правдоподібному вигляді: на кривій за півроку таку діру вже не
 // відрізнити від правди. Порожня таблиця й зламане читання мусять
 // говорити різне, і саме тому тепер друге — помилка.
-func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, error) {
+func (e *engine) loadSources(ctx context.Context, today domain.Date) (*sources, error) {
 	src := &sources{}
 	var err error
 
-	if src.lots, src.sales, src.bonds, src.pays, err = s.portfolio(ctx); err != nil {
+	if src.lots, src.sales, src.bonds, src.pays, err = e.portfolio(ctx); err != nil {
 		return nil, err
 	}
-	if src.rates, err = s.rates(ctx); err != nil {
+	if src.rates, err = e.rates(ctx); err != nil {
 		return nil, err
 	}
-	if src.reserveOps, err = s.st.ListReserveOps(ctx); err != nil {
+	if src.reserveOps, err = e.st.ListReserveOps(ctx); err != nil {
 		return nil, err
 	}
-	if src.reserveLoans, err = s.st.ListReserveLoans(ctx); err != nil {
+	if src.reserveLoans, err = e.st.ListReserveLoans(ctx); err != nil {
 		return nil, err
 	}
-	if src.goals, err = s.st.ListGoals(ctx); err != nil {
+	if src.goals, err = e.st.ListGoals(ctx); err != nil {
 		return nil, err
 	}
-	if src.goalOps, err = s.st.ListGoalOps(ctx); err != nil {
+	if src.goalOps, err = e.st.ListGoalOps(ctx); err != nil {
 		return nil, err
 	}
-	if src.debts, err = s.st.ListDebts(ctx); err != nil {
+	if src.debts, err = e.st.ListDebts(ctx); err != nil {
 		return nil, err
 	}
-	if src.debtOps, err = s.st.ListDebtOps(ctx); err != nil {
+	if src.debtOps, err = e.st.ListDebtOps(ctx); err != nil {
 		return nil, err
 	}
-	if src.debtMarks, err = s.st.ListDebtMarks(ctx); err != nil {
+	if src.debtMarks, err = e.st.ListDebtMarks(ctx); err != nil {
 		return nil, err
 	}
-	if src.statuses, err = s.st.PaymentStatuses(ctx); err != nil {
+	if src.statuses, err = e.st.PaymentStatuses(ctx); err != nil {
 		return nil, err
 	}
 	for _, code := range []string{money.USD, money.EUR} {
-		d, derr := s.st.LatestRateDate(ctx, code)
+		d, derr := e.st.LatestRateDate(ctx, code)
 		if derr != nil {
 			return nil, derr
 		}
@@ -221,61 +221,61 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 			src.ratesAsOf = d
 		}
 	}
-	if src.conversions, err = s.st.ListConversions(ctx); err != nil {
+	if src.conversions, err = e.st.ListConversions(ctx); err != nil {
 		return nil, err
 	}
-	if src.minNominal, err = s.st.MinNominalByCurrency(ctx); err != nil {
+	if src.minNominal, err = e.st.MinNominalByCurrency(ctx); err != nil {
 		return nil, err
 	}
-	if src.avgRate, err = s.st.AvgRateByCurrency(ctx, today); err != nil {
+	if src.avgRate, err = e.st.AvgRateByCurrency(ctx, today); err != nil {
 		return nil, err
 	}
-	if src.fundOps, err = s.st.ListFundOps(ctx); err != nil {
+	if src.fundOps, err = e.st.ListFundOps(ctx); err != nil {
 		return nil, err
 	}
-	if src.fundPrices, err = s.st.ListFundPrices(ctx); err != nil {
+	if src.fundPrices, err = e.st.ListFundPrices(ctx); err != nil {
 		return nil, err
 	}
-	if src.termDeposits, err = s.st.ListTermDeposits(ctx); err != nil {
+	if src.termDeposits, err = e.st.ListTermDeposits(ctx); err != nil {
 		return nil, err
 	}
-	if src.deposits, err = s.st.ListDeposits(ctx); err != nil {
+	if src.deposits, err = e.st.ListDeposits(ctx); err != nil {
 		return nil, err
 	}
-	if src.brokers, err = s.st.ListBrokers(ctx); err != nil {
+	if src.brokers, err = e.st.ListBrokers(ctx); err != nil {
 		return nil, err
 	}
-	if src.auctions, err = s.st.AuctionLatestByBucket(ctx); err != nil {
+	if src.auctions, err = e.st.AuctionLatestByBucket(ctx); err != nil {
 		return nil, err
 	}
-	if src.planFlows, err = s.st.ListPlanFlows(ctx); err != nil {
+	if src.planFlows, err = e.st.ListPlanFlows(ctx); err != nil {
 		return nil, err
 	}
-	if src.planActions, err = s.st.ListPlanActions(ctx); err != nil {
+	if src.planActions, err = e.st.ListPlanActions(ctx); err != nil {
 		return nil, err
 	}
-	if src.planReceipts, err = s.st.ListPlanReceipts(ctx); err != nil {
+	if src.planReceipts, err = e.st.ListPlanReceipts(ctx); err != nil {
 		return nil, err
 	}
-	if src.planBuys, err = s.st.ListPlanBuys(ctx); err != nil {
+	if src.planBuys, err = e.st.ListPlanBuys(ctx); err != nil {
 		return nil, err
 	}
-	if src.planExpenses, err = s.st.ListPlanExpenses(ctx); err != nil {
+	if src.planExpenses, err = e.st.ListPlanExpenses(ctx); err != nil {
 		return nil, err
 	}
-	if src.npfAccounts, err = s.st.ListNPFAccounts(ctx); err != nil {
+	if src.npfAccounts, err = e.st.ListNPFAccounts(ctx); err != nil {
 		return nil, err
 	}
-	if src.npfOps, err = s.st.ListNPFOps(ctx); err != nil {
+	if src.npfOps, err = e.st.ListNPFOps(ctx); err != nil {
 		return nil, err
 	}
-	if src.npfNav, err = s.st.ListNPFNav(ctx); err != nil {
+	if src.npfNav, err = e.st.ListNPFNav(ctx); err != nil {
 		return nil, err
 	}
-	if src.fxHistory, err = s.fxHistorySince(ctx, today); err != nil {
+	if src.fxHistory, err = e.fxHistorySince(ctx, today); err != nil {
 		return nil, err
 	}
-	if src.capitalAgo, err = s.snapshotAgo(ctx, today); err != nil {
+	if src.capitalAgo, err = e.snapshotAgo(ctx, today); err != nil {
 		return nil, err
 	}
 
@@ -283,18 +283,18 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	// ключ (їх сорок один). Звідси ж беруть своє мінімуми вкладів: два
 	// різні читання тієї самої таблиці в одній збірці — це два способи
 	// отримати дві різні відповіді.
-	rawSettings, err := s.st.AllSettings(ctx)
+	rawSettings, err := e.st.AllSettings(ctx)
 	if err != nil {
 		return nil, err
 	}
 	// Час оновлення довідника — з app_state, а не з налаштувань: довідник
 	// НБУ спільний для всіх портфелів (0054). Порожньо тут законне:
 	// довідник ще не оновлювався.
-	if src.nbuAt, err = s.st.GetAppState(ctx, nbuRefreshedKey); err != nil {
+	if src.nbuAt, err = e.st.GetAppState(ctx, nbuRefreshedKey); err != nil {
 		return nil, err
 	}
 
-	refs, err := s.st.ListFunds(ctx)
+	refs, err := e.st.ListFunds(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -303,9 +303,9 @@ func (s *Server) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		src.fundRefs[f.Name] = f
 	}
 
-	src.deval = s.devaluation(ctx)
-	src.cpi, _ = s.inflation(ctx)
-	if src.report, err = s.reportCurrency(ctx); err != nil {
+	src.deval = e.devaluation(ctx)
+	src.cpi, _ = e.inflation(ctx)
+	if src.report, err = e.reportCurrency(ctx); err != nil {
 		return nil, err
 	}
 	if src.report != money.UAH {
@@ -339,7 +339,7 @@ var fxHistoryCurrencies = []string{money.USD, money.EUR}
 // Скільки саме років брати, вирішує НЕ цей файл: список вікон живе в
 // state_fxwindow.go, і два місця з незалежними числами розійшлись би на
 // першій же правці — вікно «10 років» мовчки читало б п'ять.
-func (s *Server) fxHistorySince(ctx context.Context, today domain.Date) (map[string][]store.RatePoint, error) {
+func (e *engine) fxHistorySince(ctx context.Context, today domain.Date) (map[string][]store.RatePoint, error) {
 	longest := 0
 	for _, y := range fxWindowYears {
 		if y > longest {
@@ -349,7 +349,7 @@ func (s *Server) fxHistorySince(ctx context.Context, today domain.Date) (map[str
 	from := today.AddMonths(-12 * longest)
 	out := make(map[string][]store.RatePoint, len(fxHistoryCurrencies))
 	for _, cur := range fxHistoryCurrencies {
-		pts, err := s.st.RatesSince(ctx, cur, from)
+		pts, err := e.st.RatesSince(ctx, cur, from)
 		if err != nil {
 			return nil, err
 		}

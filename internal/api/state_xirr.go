@@ -54,7 +54,7 @@ var xirrCurrencies = []string{money.UAH, money.USD, money.EUR}
 // byCur — потоки, зібрані будівником; broken каже, що хоч одна валюта не
 // зібралась. Повертає nil, коли сказати нічого: nil на екрані стає
 // відсутньою плиткою, а не прочерком, і це навмисно.
-func (s *Server) totalReturn(ctx context.Context, byCur map[string][]domain.Flow,
+func (e *engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow,
 	broken bool, today domain.Date, report string) *state.TotalReturn {
 
 	// Валюта, яка не зібралась, робить зведене число ТИХО НЕПОВНИМ. Для
@@ -68,7 +68,7 @@ func (s *Server) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 	if report == "" {
 		report = money.UAH
 	}
-	asOf := newAsOfRates(s.st)
+	asOf := newAsOfRates(e.st)
 	var flows []domain.Flow
 	for _, cur := range xirrCurrencies {
 		for _, f := range byCur[cur] {

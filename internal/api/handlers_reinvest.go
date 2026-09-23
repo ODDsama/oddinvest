@@ -486,7 +486,7 @@ func lessSuggestion(a, b suggestion, rank, order string) bool {
 // Документ приймається АРГУМЕНТОМ, а не будується всередині: тут його вже
 // має той, хто кличе (обробник — свій, черга задач — свій), і другий
 // buildState був би найдорожчим шляхом бекенда, пройденим двічі поспіль.
-func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
+func (e *engine) reinvestSuggestions(ctx context.Context, now time.Time,
 	doc *state.Doc) ([]suggestion, error) {
 	today := domain.NewDate(now)
 	// Проза порад — у валюті звітності, тим самим форматером, що й задачі.
@@ -495,7 +495,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	// 5000 — намір «усі», — а сховище мовчки затискало його до 50 і
 	// віддавало їх ORDER BY maturity, тобто рівно 50 НАЙКОРОТШИХ паперів.
 	// Довід цілком — у шапці AllBondsFrom.
-	bonds, err := s.st.AllBondsFrom(ctx, today)
+	bonds, err := e.st.AllBondsFrom(ctx, today)
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +504,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	// тим самим N+1, проти якого вже стоять доводи в store/auctions.go.
 	// Порожній перелік означає «весь зріз», і саме він тут потрібен: які з
 	// паперів мають ціну, наперед невідомо.
-	quotes, err := s.quotesFor(ctx, nil, today)
+	quotes, err := e.quotesFor(ctx, nil, today)
 	if err != nil {
 		return nil, err
 	}
@@ -599,13 +599,13 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	rank := rankOf(doc)
 	// Знецінення гривні: те саме припущення, що й у прогнозі, інакше
 	// помічник радив би одне, а прогноз малював інше.
-	devalPct := s.devaluation(ctx)
-	rc := s.newRateContext(ctx, devalPct)
+	devalPct := e.devaluation(ctx)
+	rc := e.newRateContext(ctx, devalPct)
 	isins := make([]string, 0, len(bonds))
 	for _, b := range bonds {
 		isins = append(isins, b.ISIN)
 	}
-	allPays, err := s.st.PaymentsFor(ctx, isins)
+	allPays, err := e.st.PaymentsFor(ctx, isins)
 	if err != nil {
 		return nil, err
 	}
@@ -620,7 +620,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	// раніше. І поки їх немає взагалі (свіжа інсталяція, бекфіл ще в
 	// фоні), про них не сказано НІ СЛОВА — написати «не розміщувався»
 	// там, де ми просто не дивились, означало б видати незнання за факт.
-	lastAuction, aerr := s.st.LastAuctionByISIN(ctx)
+	lastAuction, aerr := e.st.LastAuctionByISIN(ctx)
 	if aerr != nil {
 		lastAuction = nil
 	}
@@ -892,7 +892,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 	// Ставка вкладу зафіксована, як YTM облігації, тож це така сама
 	// обіцянка — лише оподаткована. «Крок» = поповнення на суму
 	// відкриття: саме так працює поповнюваний вклад.
-	deps, derr := s.st.ListTermDeposits(ctx)
+	deps, derr := e.st.ListTermDeposits(ctx)
 	if derr != nil {
 		return nil, derr
 	}
@@ -975,7 +975,7 @@ func (s *Server) reinvestSuggestions(ctx context.Context, now time.Time,
 		depRate[money.EUR] = doc.Settings.DepositRateEURPct
 		depRate[money.UAH] = doc.Settings.DepositRateUAHPct
 	}
-	rawSettings, err := s.st.AllSettings(ctx)
+	rawSettings, err := e.st.AllSettings(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -58,16 +58,16 @@ const (
 // арифметика розкладена на події — і саме тому підсумок обов'язково має
 // збігтися з account_uah зі зведення; тест на це і є захистом від того,
 // що дві реалізації розійдуться.
-func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
-	lots, sales, _, pays, err := s.portfolio(ctx)
+func (e *engine) cashEvents(ctx context.Context) ([]flowEvent, error) {
+	lots, sales, _, pays, err := e.portfolio(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rates, err := s.rates(ctx)
+	rates, err := e.rates(ctx)
 	if err != nil {
 		return nil, err
 	}
-	statuses, err := s.st.PaymentStatuses(ctx)
+	statuses, err := e.st.PaymentStatuses(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		}
 	}
 	// Дохід і покупки по фондах.
-	fundOps, err := s.st.ListFundOps(ctx)
+	fundOps, err := e.st.ListFundOps(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	// TestCashflowStatementReconciles; половина без другої половини —
 	// розбіжність рівно на суму внесків, і обидва числа лишились би
 	// правдоподібними.
-	npfAccounts, err := s.st.ListNPFAccounts(ctx)
+	npfAccounts, err := e.st.ListNPFAccounts(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +168,7 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		}
 		npfCur[a.ID], npfName[a.ID] = cur, a.Name
 	}
-	npfOps, err := s.st.ListNPFOps(ctx)
+	npfOps, err := e.st.ListNPFOps(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		add(op.Date, flowPurchase, -uah(money.New(op.Amount, cur)), "внесок "+npfName[op.NPFID])
 	}
 	// Вклади: розміщення й поповнення — покупки, відсотки — дохід.
-	termDeposits, err := s.st.ListTermDeposits(ctx)
+	termDeposits, err := e.st.ListTermDeposits(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +233,7 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		}
 	}
 	// Свої гроші: поповнення й зняття рахунку.
-	cash, err := s.st.ListDeposits(ctx)
+	cash, err := e.st.ListDeposits(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +260,7 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	// серії — входять. Переміщення гаманець → подушка при цьому дає нуль
 	// сам: зняття в deposits (−) і поповнення подушки (+) — той самий
 	// довід, що в state_month.go.
-	res, err := s.st.ListReserveOps(ctx)
+	res, err := e.st.ListReserveOps(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -271,11 +271,11 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 		}
 		add(op.Date, flowOutside, uah(money.New(op.Amount, op.Currency)), label)
 	}
-	goalOps, err := s.st.ListGoalOps(ctx)
+	goalOps, err := e.st.ListGoalOps(ctx)
 	if err != nil {
 		return nil, err
 	}
-	goals, err := s.st.ListGoals(ctx)
+	goals, err := e.st.ListGoals(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +295,7 @@ func (s *Server) cashEvents(ctx context.Context) ([]flowEvent, error) {
 	// зроблено за курсом СВОГО дня, а перераховуємо ми за сьогоднішнім,
 	// і різниця — це рух курсу з того часу. Ховати її не можна, інакше
 	// підсумок не зійдеться з рахунком.
-	convs, err := s.st.ListConversions(ctx)
+	convs, err := e.st.ListConversions(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -369,12 +369,12 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 // Другий рахунок того самого числа розійшовся б із першим мовчки, і
 // помітно це стало б на віхі «Обіграв просто долари», яка каже те саме
 // іншими словами.
-func (s *Server) benchmark(ctx context.Context, doc *state.Doc) (benchResult, error) {
-	rates, err := s.rates(ctx)
+func (e *engine) benchmark(ctx context.Context, doc *state.Doc) (benchResult, error) {
+	rates, err := e.rates(ctx)
 	if err != nil {
 		return benchResult{}, err
 	}
-	rv, err := s.rivals(ctx, doc, levelPortfolio)
+	rv, err := e.rivals(ctx, doc, levelPortfolio)
 	if err != nil {
 		return benchResult{}, err
 	}

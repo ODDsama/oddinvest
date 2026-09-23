@@ -156,8 +156,8 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 // початок вікна застосунок не зберігає: у знімку є частка долара й немає
 // євро. Похибка при цьому в один бік і названа: гроші, що зайшли
 // всередині вікна, порахуються повним рухом курсу.
-func (s *Server) digestFX(ctx context.Context, from domain.Date) (float64, string) {
-	doc, err := s.buildState(ctx, time.Now())
+func (e *engine) digestFX(ctx context.Context, from domain.Date) (float64, string) {
+	doc, err := e.buildState(ctx, time.Now())
 	if err != nil || doc == nil {
 		return 0, "курс не пораховано: стан не зібрався"
 	}
@@ -169,11 +169,11 @@ func (s *Server) digestFX(ctx context.Context, from domain.Date) (float64, strin
 		if share <= 0 {
 			continue
 		}
-		nowE4, err := s.st.LatestRate(ctx, cur)
+		nowE4, err := e.st.LatestRate(ctx, cur)
 		if err != nil || nowE4 <= 0 {
 			continue
 		}
-		then, err := s.st.RatePointOnOrBefore(ctx, cur, from)
+		then, err := e.st.RatePointOnOrBefore(ctx, cur, from)
 		if err != nil || then.RateE4 <= 0 {
 			continue
 		}

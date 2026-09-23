@@ -48,13 +48,13 @@ const (
 // measuredDevaluation — річний темп зі СПРАВЖНІХ курсів НБУ, що лежать у
 // fx_rates. Історію туди пише добова джоба, а глибину дає разовий
 // backfill при старті.
-func (s *Server) measuredDevaluation(ctx context.Context) (float64, store.RatePoint, store.RatePoint, bool) {
+func (e *engine) measuredDevaluation(ctx context.Context) (float64, store.RatePoint, store.RatePoint, bool) {
 	from := domain.NewDate(time.Now().AddDate(-devalWindowYears, 0, 0))
-	oldest, err := s.st.OldestRate(ctx, money.USD, from)
+	oldest, err := e.st.OldestRate(ctx, money.USD, from)
 	if err != nil || oldest.RateE4 <= 0 {
 		return 0, oldest, store.RatePoint{}, false
 	}
-	newest, err := s.st.NewestRate(ctx, money.USD)
+	newest, err := e.st.NewestRate(ctx, money.USD)
 	if err != nil || newest.RateE4 <= 0 {
 		return 0, oldest, newest, false
 	}
@@ -73,18 +73,18 @@ func (s *Server) measuredDevaluation(ctx context.Context) (float64, store.RatePo
 // devaluation — знецінення, з яким рахує ВЕСЬ застосунок. Три сходинки, і
 // порядок тут — це порядок довіри: те, що людина задала свідомо, важить
 // більше за виміряне, а виміряне — більше за припущене.
-func (s *Server) devaluation(ctx context.Context) float64 {
-	v, _ := s.devaluationWithSource(ctx)
+func (e *engine) devaluation(ctx context.Context) float64 {
+	v, _ := e.devaluationWithSource(ctx)
 	return v
 }
 
-func (s *Server) devaluationWithSource(ctx context.Context) (float64, string) {
-	if raw, _ := s.st.GetSetting(ctx, "uah_devaluation_pct"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка так само веде на виміряне значення
+func (e *engine) devaluationWithSource(ctx context.Context) (float64, string) {
+	if raw, _ := e.st.GetSetting(ctx, "uah_devaluation_pct"); raw != "" { //nolint:errcheck // порожньо = не задано; помилка так само веде на виміряне значення
 		if f, err := strconv.ParseFloat(raw, 64); err == nil && f >= 0 {
 			return f, devalManual
 		}
 	}
-	if m, _, _, ok := s.measuredDevaluation(ctx); ok {
+	if m, _, _, ok := e.measuredDevaluation(ctx); ok {
 		return m, devalMeasured
 	}
 	return defaultDevaluationPct, devalDefault

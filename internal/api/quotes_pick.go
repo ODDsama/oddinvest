@@ -100,9 +100,9 @@ func (b quoteBook) pick(isin string) *store.Quote {
 //
 // Порожній перелік паперів означає «всі» — так читає сторінка позицій.
 // on — дата, НА ЯКУ обираємо: свіжість міряється проти неї (див. pickQuotes).
-func (s *Server) quotesFor(ctx context.Context, isins []string, on domain.Date) (quoteBook, error) {
+func (e *engine) quotesFor(ctx context.Context, isins []string, on domain.Date) (quoteBook, error) {
 	book := quoteBook{byISIN: map[string]quotePick{}, mine: map[string]string{}}
-	brokers, err := s.st.ListBrokers(ctx)
+	brokers, err := e.st.ListBrokers(ctx)
 	if err != nil {
 		return book, err
 	}
@@ -111,16 +111,16 @@ func (s *Server) quotesFor(ctx context.Context, isins []string, on domain.Date) 
 			book.mine[src] = b.Name
 		}
 	}
-	all, err := s.st.LatestQuotes(ctx, isins)
+	all, err := e.st.LatestQuotes(ctx, isins)
 	if err != nil {
 		return book, err
 	}
 	book.all = all
-	if book.fetchedAt, err = s.st.QuotesFetchedAt(ctx); err != nil {
+	if book.fetchedAt, err = e.st.QuotesFetchedAt(ctx); err != nil {
 		return book, err
 	}
 	book.byISIN = pickQuotes(all, book.mine, on)
-	swept, err := s.st.GetAppState(ctx, store.QuotesSweptAtKey)
+	swept, err := e.st.GetAppState(ctx, store.QuotesSweptAtKey)
 	if err != nil {
 		return book, err
 	}

@@ -30,9 +30,9 @@ const deltaLookbackDays = 14
 
 // snapshotAgo — останній знімок на deltaWindowDays і більше днів тому в
 // межах пошуку; nil, коли такого немає.
-func (s *Server) snapshotAgo(ctx context.Context, today domain.Date) (*store.Snapshot, error) {
+func (e *engine) snapshotAgo(ctx context.Context, today domain.Date) (*store.Snapshot, error) {
 	to := today.AddDays(-deltaWindowDays)
-	snaps, err := s.st.ListSnapshots(ctx, to.AddDays(-deltaLookbackDays), to)
+	snaps, err := e.st.ListSnapshots(ctx, to.AddDays(-deltaLookbackDays), to)
 	if err != nil || len(snaps) == 0 {
 		return nil, err
 	}

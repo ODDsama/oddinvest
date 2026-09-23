@@ -60,19 +60,19 @@ type decisionSnapshot struct {
 // (kind, label): у помічника label для облігації — це ISIN, для фонду —
 // назва, для вкладу — банк, для НПФ — назва рахунку, тобто рівно ті самі
 // слова, якими операція називає свою сутність.
-func (s *Server) takeDecisionSnapshot(ctx context.Context, now time.Time,
+func (e *engine) takeDecisionSnapshot(ctx context.Context, now time.Time,
 	kind, ref string) decisionSnapshot {
 	if kind == "" || ref == "" {
 		return decisionSnapshot{}
 	}
-	doc, err := s.buildState(ctx, now)
+	doc, err := e.buildState(ctx, now)
 	if err != nil {
-		s.log.Debug("рішення: стан не зібрався", "err", err)
+		e.log.Debug("рішення: стан не зібрався", "err", err)
 		return decisionSnapshot{}
 	}
-	sugg, err := s.reinvestSuggestions(ctx, now, doc)
+	sugg, err := e.reinvestSuggestions(ctx, now, doc)
 	if err != nil {
-		s.log.Debug("рішення: рейтинг не зібрався", "err", err)
+		e.log.Debug("рішення: рейтинг не зібрався", "err", err)
 		return decisionSnapshot{}
 	}
 	snap := decisionSnapshot{rankMode: "plan"}
@@ -103,7 +103,7 @@ func (s *Server) takeDecisionSnapshot(ctx context.Context, now time.Time,
 // момент рішення. Через рік «Ціна рішень» покаже не лише що ти зробив,
 // а й що тоді думав; тягти її з операції за op_id не можна — операцію
 // правлять і видаляють, а журнал мусить памʼятати той день.
-func (s *Server) saveDecision(ctx context.Context, snap decisionSnapshot,
+func (e *engine) saveDecision(ctx context.Context, snap decisionSnapshot,
 	now time.Time, kind, ref string, amount *money.Money, opID int64, note string) {
 	if !snap.ok {
 		return
@@ -117,8 +117,8 @@ func (s *Server) saveDecision(ctx context.Context, snap decisionSnapshot,
 	if amount != nil {
 		d.Amount, d.Currency = amount.Amount(), amount.Currency().Code
 	}
-	if _, err := s.st.AddDecision(ctx, d); err != nil {
-		s.log.Debug("рішення: рядок не записався", "kind", kind, "ref", ref, "err", err)
+	if _, err := e.st.AddDecision(ctx, d); err != nil {
+		e.log.Debug("рішення: рядок не записався", "kind", kind, "ref", ref, "err", err)
 	}
 }
 
@@ -168,18 +168,18 @@ const (
 // ОДНА ФУНКЦІЯ НА ДВІ СУТНОСТІ, бо в тілі немає нічого, що відрізняло б
 // подушку від цілі: знімок питає рейтинг, а не того, хто його питає.
 // Друга копія розійшлася б із першою на першій же правці режиму.
-func (s *Server) takeOutsideSnapshot(ctx context.Context, now time.Time) decisionSnapshot {
-	doc, err := s.buildState(ctx, now)
+func (e *engine) takeOutsideSnapshot(ctx context.Context, now time.Time) decisionSnapshot {
+	doc, err := e.buildState(ctx, now)
 	if err != nil {
-		s.log.Debug("рішення: стан не зібрався", "err", err)
+		e.log.Debug("рішення: стан не зібрався", "err", err)
 		return decisionSnapshot{}
 	}
-	sugg, err := s.reinvestSuggestions(ctx, now, doc)
+	sugg, err := e.reinvestSuggestions(ctx, now, doc)
 	if err != nil || len(sugg) == 0 {
 		// Порожній рейтинг — не помилка: буває на порожньому портфелі й
 		// тоді, коли купити нема чого. Але тоді й альтернативи немає, а
 		// рядок журналу без альтернативи не каже нічого.
-		s.log.Debug("рішення: рейтинг порожній", "err", err)
+		e.log.Debug("рішення: рейтинг порожній", "err", err)
 		return decisionSnapshot{}
 	}
 	snap := decisionSnapshot{ok: true, rankMode: "plan"}

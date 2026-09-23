@@ -97,7 +97,7 @@ type planBuyExpansion struct {
 //
 // before потрібен двічі: за цінами сертифікатів (їх знає лише зведення) і
 // за брокером, коли його не назвали.
-func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
+func (e *engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 	today domain.Date, rows []store.PlanBuy) (planBuyExpansion, error) {
 
 	out := planBuyExpansion{basket: basketDoc{Lines: []basketLine{}}}
@@ -115,7 +115,7 @@ func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 	var quotes *quoteBook
 	quoteFor := func(isin string) (*store.Quote, error) {
 		if quotes == nil {
-			b, err := s.quotesFor(ctx, nil, today)
+			b, err := e.quotesFor(ctx, nil, today)
 			if err != nil {
 				return nil, err
 			}
@@ -163,11 +163,11 @@ func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 
 		switch row.Kind {
 		case store.BuyBond:
-			b, err := s.st.GetBond(ctx, row.Ref)
+			b, err := e.st.GetBond(ctx, row.Ref)
 			if err != nil || b == nil {
 				return out, badRequestf("паперу %q немає в довіднику", row.Ref)
 			}
-			pays, perr := s.st.PaymentsFor(ctx, []string{row.Ref})
+			pays, perr := e.st.PaymentsFor(ctx, []string{row.Ref})
 			if perr != nil {
 				return out, perr
 			}
@@ -221,7 +221,7 @@ func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 
 		case store.BuyFund:
 			if fundRefs == nil {
-				refs, ferr := s.st.ListFunds(ctx)
+				refs, ferr := e.st.ListFunds(ctx)
 				if ferr != nil {
 					return out, ferr
 				}
@@ -330,7 +330,7 @@ func (s *Server) expandPlanBuys(ctx context.Context, before *state.Doc,
 
 		case store.BuyNPF:
 			if npfByID == nil {
-				accs, aerr := s.st.ListNPFAccounts(ctx)
+				accs, aerr := e.st.ListNPFAccounts(ctx)
 				if aerr != nil {
 					return out, aerr
 				}

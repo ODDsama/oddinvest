@@ -209,12 +209,12 @@ func (s *Server) handleSwitchVerdict(w http.ResponseWriter, r *http.Request) {
 // політика або свіжа база. Це законний стан, і вигадувати замість нього
 // нульову ставку не можна — під нуль поріг дорівнював би сумі всіх
 // майбутніх виплат, тобто радив би продати будь-що за будь-яку ціну.
-func (s *Server) switchAlternative(ctx context.Context, now time.Time) (*switchAlt, error) {
-	doc, err := s.buildState(ctx, now)
+func (e *engine) switchAlternative(ctx context.Context, now time.Time) (*switchAlt, error) {
+	doc, err := e.buildState(ctx, now)
 	if err != nil {
 		return nil, err
 	}
-	sugg, err := s.reinvestSuggestions(ctx, now, doc)
+	sugg, err := e.reinvestSuggestions(ctx, now, doc)
 	if err != nil {
 		return nil, err
 	}
@@ -233,13 +233,13 @@ func (s *Server) switchAlternative(ctx context.Context, now time.Time) (*switchA
 }
 
 // switchRows — поріг на кожен папір, який ще в портфелі.
-func (s *Server) switchRows(ctx context.Context, now time.Time, alt *switchAlt) ([]switchRow, error) {
-	lots, sales, bonds, pays, err := s.portfolio(ctx)
+func (e *engine) switchRows(ctx context.Context, now time.Time, alt *switchAlt) ([]switchRow, error) {
+	lots, sales, bonds, pays, err := e.portfolio(ctx)
 	if err != nil {
 		return nil, err
 	}
 	today := domain.NewDate(now)
-	deval := s.devaluation(ctx)
+	deval := e.devaluation(ctx)
 	held, err := heldByISIN(lots, sales, bonds, today)
 	if err != nil {
 		return nil, err

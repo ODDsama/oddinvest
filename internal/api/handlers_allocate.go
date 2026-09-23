@@ -499,7 +499,7 @@ func sourceCapUAH(uses, bucket string, amountUAH float64) float64 {
 // Невідоме посилання — помилка, а не «обмежень немає». Мовчазний дефолт
 // тут був би найгіршим виглядом збою: розкладка виглядала б звичайною й
 // різала б подушку з грошей, яким це заборонено.
-func (s *Server) usesForRef(ctx context.Context, ref string) (string, error) {
+func (e *engine) usesForRef(ctx context.Context, ref string) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return "", nil
@@ -510,7 +510,7 @@ func (s *Server) usesForRef(ctx context.Context, ref string) (string, error) {
 		if err != nil || id <= 0 {
 			return "", badRequestf("джерело розкладки: %q не схоже на %s<id>", ref, allocRefFlow)
 		}
-		flows, err := s.st.ListPlanFlows(ctx)
+		flows, err := e.st.ListPlanFlows(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -525,7 +525,7 @@ func (s *Server) usesForRef(ctx context.Context, ref string) (string, error) {
 		if err != nil || id <= 0 {
 			return "", badRequestf("джерело розкладки: %q не схоже на %s<id>", ref, allocRefReceipt)
 		}
-		receipts, err := s.st.ListPlanReceipts(ctx)
+		receipts, err := e.st.ListPlanReceipts(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -539,7 +539,7 @@ func (s *Server) usesForRef(ctx context.Context, ref string) (string, error) {
 			if rc.FlowID == 0 {
 				return rc.Uses, nil
 			}
-			return s.usesForRef(ctx, allocRefFlow+strconv.FormatInt(rc.FlowID, 10))
+			return e.usesForRef(ctx, allocRefFlow+strconv.FormatInt(rc.FlowID, 10))
 		}
 		return "", fmt.Errorf("відмітка надходження %d %w", id, store.ErrNotFound)
 	}
@@ -559,9 +559,9 @@ func (s *Server) usesForRef(ctx context.Context, ref string) (string, error) {
 // означала б, що дві відповіді на «у котрий пенсійний вносити» можуть
 // розійтись — а розійтись вони можуть рівно в тому випадку, заради якого
 // нуль нижче й стоїть.
-func (s *Server) npfIDByName(ctx context.Context) map[string]int64 {
+func (e *engine) npfIDByName(ctx context.Context) map[string]int64 {
 	out := map[string]int64{}
-	accs, err := s.st.ListNPFAccounts(ctx)
+	accs, err := e.st.ListNPFAccounts(ctx)
 	if err != nil {
 		return out
 	}

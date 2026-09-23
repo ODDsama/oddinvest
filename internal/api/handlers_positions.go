@@ -16,8 +16,8 @@ import (
 // що вантажать лоти через s.portfolio, а не через loadSources. Без нього
 // папір, погашення якого вже позначене «Отримано», у сам день погашення
 // лишався б позицією на одній сторінці й зникав на іншій.
-func (s *Server) arrived(ctx context.Context, today domain.Date) (func(string, domain.Date) bool, error) {
-	statuses, err := s.st.PaymentStatuses(ctx)
+func (e *engine) arrived(ctx context.Context, today domain.Date) (func(string, domain.Date) bool, error) {
+	statuses, err := e.st.PaymentStatuses(ctx)
 	if err != nil {
 		return nil, err
 	}

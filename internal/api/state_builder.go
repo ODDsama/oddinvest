@@ -239,8 +239,8 @@ func (h hypothetical) empty() bool {
 }
 
 // buildState — стан портфеля яким він є.
-func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, error) {
-	return s.buildStateWith(ctx, now, hypothetical{})
+func (e *engine) buildState(ctx context.Context, now time.Time) (*state.Doc, error) {
+	return e.buildStateWith(ctx, now, hypothetical{})
 }
 
 // buildStateWith — той самий стан, але портфель можна доповнити
@@ -249,12 +249,12 @@ func (s *Server) buildState(ctx context.Context, now time.Time) (*state.Doc, err
 // Публічний вхід лишився байт у байт тим самим свідомо: документ
 // публікується в MQTT і щодня лягає в знімок, і якби гіпотезу приймав
 // САМ buildState, рано чи пізно хтось опублікував би вигадку як стан.
-func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothetical) (*state.Doc, error) {
+func (e *engine) buildStateWith(ctx context.Context, now time.Time, what hypothetical) (*state.Doc, error) {
 	today := domain.NewDate(now)
 	// Усі читання сховища — одним місцем (state_sources.go). Доти вони
 	// були розсипані по всій функції, і ListDeposits через це викликався
 	// двічі за пʼятсот рядків один від одного.
-	src, err := s.loadSources(ctx, today)
+	src, err := e.loadSources(ctx, today)
 	if err != nil {
 		return nil, err
 	}
@@ -1162,7 +1162,7 @@ func (s *Server) buildStateWith(ctx context.Context, now time.Time, what hypothe
 			xirr[cur] = math.Round(r*10000) / 100 // частка -> %, 2 знаки
 		}
 	}
-	totalReturn := s.totalReturn(ctx, flowsByCur, flowsBroken, today, src.report)
+	totalReturn := e.totalReturn(ctx, flowsByCur, flowsBroken, today, src.report)
 
 	// Облігації: номінал і дохідність до погашення (state_bonds.go).
 	bnd := buildBonds(hold, pays, rates, deval)

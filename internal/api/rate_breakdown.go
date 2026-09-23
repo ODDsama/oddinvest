@@ -36,9 +36,9 @@ type rateContext struct {
 // При валюті звітності ≠ гривні другої лінійки немає: ІСЦ — про гривневі
 // ціни (довід при sources.cpi). Гривневий номінал у розкладі лишається —
 // він пояснює, звідки взялась реальна ставка.
-func (s *Server) newRateContext(ctx context.Context, deval float64) rateContext {
-	cpi, ok := s.inflation(ctx)
-	if report, err := s.reportCurrency(ctx); err != nil || report != money.UAH {
+func (e *engine) newRateContext(ctx context.Context, deval float64) rateContext {
+	cpi, ok := e.inflation(ctx)
+	if report, err := e.reportCurrency(ctx); err != nil || report != money.UAH {
 		ok = false
 	}
 	return rateContext{deval: deval, cpi: cpi, cpiOK: ok}

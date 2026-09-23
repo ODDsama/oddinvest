@@ -60,13 +60,13 @@ func parseMoney(amount, currency string) (*money.Money, error) {
 }
 
 // portfolio — все, що треба домену, одним заходом.
-func (s *Server) portfolio(ctx context.Context) (lots []domain.Lot, sales []domain.Sale,
+func (e *engine) portfolio(ctx context.Context) (lots []domain.Lot, sales []domain.Sale,
 	bonds map[string]domain.Bond, pays []domain.Payment, err error) {
-	lots, err = s.st.ListLots(ctx)
+	lots, err = e.st.ListLots(ctx)
 	if err != nil {
 		return
 	}
-	sales, err = s.st.ListSales(ctx)
+	sales, err = e.st.ListSales(ctx)
 	if err != nil {
 		return
 	}
@@ -78,18 +78,18 @@ func (s *Server) portfolio(ctx context.Context) (lots []domain.Lot, sales []doma
 			isins = append(isins, l.ISIN)
 		}
 	}
-	bonds, err = s.st.BondsFor(ctx, isins)
+	bonds, err = e.st.BondsFor(ctx, isins)
 	if err != nil {
 		return
 	}
-	pays, err = s.st.PaymentsFor(ctx, isins)
+	pays, err = e.st.PaymentsFor(ctx, isins)
 	return
 }
 
-func (s *Server) rates(ctx context.Context) (fx.Rates, error) {
+func (e *engine) rates(ctx context.Context) (fx.Rates, error) {
 	r := fx.Rates{}
 	for _, code := range []string{"USD", "EUR"} {
-		v, err := s.st.LatestRate(ctx, code)
+		v, err := e.st.LatestRate(ctx, code)
 		if err != nil {
 			return nil, err
 		}

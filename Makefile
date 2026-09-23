@@ -166,9 +166,12 @@ fx-boundary:
 # нікого не турбувало, що будівник дописує PayoutDay у першу мапу:
 # друга була свіжа. Правило дешеве, поки воно механічне; щойно воно стає
 # домовленістю, наступний запит просто дописують поруч.
+#
+# Приймач тепер e (*engine, engine.go), а не s: шаблон ловить обидва,
+# інакше після переносу методів межа мовчки стала б порожньою.
 .PHONY: sources-boundary
 sources-boundary:
-	@! grep -n 's\.st\.' internal/api/state_builder.go \
+	@! grep -nE '\b[se]\.st\.' internal/api/state_builder.go \
 		|| { echo 'buildState читає сховище повз sources: додай поле в state_sources.go'; exit 1; }
 	@! grep -nE 'domain\.(FundPositions|RemainingQtyNow)\(' internal/api/state_builder.go \
 		|| { echo 'buildState зводить факти повз Holdings: візьми hold.Funds / hold.Lots'; exit 1; }

@@ -214,12 +214,12 @@ func (s *Server) handleRivals(w http.ResponseWriter, r *http.Request) {
 // рівно те, що мав я, у той самий день, за тодішньою ціною. Чого це вікно
 // не вміє — сказати «а якби я робив так від 2024-го»; на це відповіді
 // немає й не могло бути, бо історії капіталу за той час не існує.
-func (s *Server) rivals(ctx context.Context, doc *state.Doc, level string) (rivalsResp, error) {
+func (e *engine) rivals(ctx context.Context, doc *state.Doc, level string) (rivalsResp, error) {
 	out := rivalsResp{Level: level, LevelLabel: rivalLevelLabels[level],
 		OVDPBucket: rivalOVDPBucket, Rivals: []rivalRow{}}
 
 	today := domain.NewDate(time.Now())
-	snaps, err := s.st.ListSnapshots(ctx, "", today)
+	snaps, err := e.st.ListSnapshots(ctx, "", today)
 	if err != nil {
 		return out, err
 	}
@@ -233,8 +233,8 @@ func (s *Server) rivals(ctx context.Context, doc *state.Doc, level string) (riva
 		return out, nil
 	}
 
-	ar := newAsOfRates(s.st)
-	flows, err := s.rivalFlows(ctx, level, ar, from)
+	ar := newAsOfRates(e.st)
+	flows, err := e.rivalFlows(ctx, level, ar, from)
 	if err != nil {
 		return out, err
 	}
@@ -260,7 +260,7 @@ func (s *Server) rivals(ctx context.Context, doc *state.Doc, level string) (riva
 	out.FirstDay, out.DayCount = string(from), len(days)
 	out.Young = len(days) < rivalYoungDays
 
-	in, err := s.rivalInputs(ctx, from)
+	in, err := e.rivalInputs(ctx, from)
 	if err != nil {
 		return out, err
 	}
@@ -320,7 +320,7 @@ func diffSeries(mine, rival []float64) []float64 {
 //
 // Порядок журналів тут не має значення (RunRivals сортує сам), а от
 // СКЛАД — має, і він же є означенням рівня.
-func (s *Server) rivalFlows(ctx context.Context, level string, ar *asOfRates, from domain.Date) ([]domain.Contribution, error) {
+func (e *engine) rivalFlows(ctx context.Context, level string, ar *asOfRates, from domain.Date) ([]domain.Contribution, error) {
 	out := []domain.Contribution{}
 	add := func(on domain.Date, minor int64, cur string) error {
 		if minor == 0 || on < from {
@@ -349,7 +349,7 @@ func (s *Server) rivalFlows(ctx context.Context, level string, ar *asOfRates, fr
 	// Гаманець: поповнення й зняття. Купівлі сюди НЕ пишуться (імпорт
 	// навіть застерігає про подвоєння, коли ручний рух дублює операцію),
 	// тож це справді зовнішні гроші, а не обіг усередині портфеля.
-	cash, err := s.st.ListDeposits(ctx)
+	cash, err := e.st.ListDeposits(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +362,7 @@ func (s *Server) rivalFlows(ctx context.Context, level string, ar *asOfRates, fr
 		return out, nil
 	}
 
-	res, err := s.st.ListReserveOps(ctx)
+	res, err := e.st.ListReserveOps(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +371,7 @@ func (s *Server) rivalFlows(ctx context.Context, level string, ar *asOfRates, fr
 			return nil, err
 		}
 	}
-	goals, err := s.st.ListGoalOps(ctx)
+	goals, err := e.st.ListGoalOps(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +398,7 @@ func (s *Server) rivalFlows(ctx context.Context, level string, ar *asOfRates, fr
 // довідника брокерів. Ряди малі за природою (курс — по точці на день,
 // аукціони — раз-два на тиждень), тож читаються цілком і розвʼязуються
 // в памʼяті.
-func (s *Server) rivalInputs(ctx context.Context, from domain.Date) (domain.RivalInputs, error) {
+func (e *engine) rivalInputs(ctx context.Context, from domain.Date) (domain.RivalInputs, error) {
 	var out domain.RivalInputs
 	for _, c := range []struct {
 		code string
@@ -407,14 +407,14 @@ func (s *Server) rivalInputs(ctx context.Context, from domain.Date) (domain.Riva
 		// Разом із точкою ПЕРЕД початком сітки (quotesSince): історія курсів
 		// помісячна, і без неї суперник замовк би на всіх днях до першого
 		// числа наступного місяця.
-		q, err := s.quotesSince(ctx, c.code, from)
+		q, err := e.quotesSince(ctx, c.code, from)
 		if err != nil {
 			return out, err
 		}
 		*c.to = q
 	}
 
-	lv, err := s.st.AuctionLevels(ctx, money.UAH, rivalOVDPBucket)
+	lv, err := e.st.AuctionLevels(ctx, money.UAH, rivalOVDPBucket)
 	if err != nil {
 		return out, err
 	}

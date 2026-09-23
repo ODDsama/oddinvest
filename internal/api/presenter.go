@@ -39,8 +39,8 @@ const reportCurrencyKey = "report_currency"
 // гривня, коли курсу для неї ще немає. Одне означення на всіх: презентер
 // перекладає числа, будівник за тим самим кодом вибирає лінійку
 // (state_sources.go) — і розійтись їм нема де.
-func (s *Server) reportCurrency(ctx context.Context) (string, error) {
-	raw, err := s.st.GetSetting(ctx, reportCurrencyKey)
+func (e *engine) reportCurrency(ctx context.Context) (string, error) {
+	raw, err := e.st.GetSetting(ctx, reportCurrencyKey)
 	if err != nil {
 		return "", err
 	}
@@ -48,7 +48,7 @@ func (s *Server) reportCurrency(ctx context.Context) (string, error) {
 	if report == "" || report == money.UAH {
 		return money.UAH, nil
 	}
-	e4, err := s.st.LatestRate(ctx, report)
+	e4, err := e.st.LatestRate(ctx, report)
 	if err != nil {
 		return "", err
 	}
@@ -159,13 +159,13 @@ func (s *Server) PresentDoc(ctx context.Context, doc *state.Doc) error {
 // Точка ПЕРЕД початком потрібна окремо: історія курсів помісячна, і без
 // неї ряд мовчав би на всіх днях до першого числа наступного місяця.
 // Порожній from — уся історія.
-func (s *Server) quotesSince(ctx context.Context, code string, from domain.Date) (domain.Quotes, error) {
-	pts, err := s.st.RatesSince(ctx, code, from)
+func (e *engine) quotesSince(ctx context.Context, code string, from domain.Date) (domain.Quotes, error) {
+	pts, err := e.st.RatesSince(ctx, code, from)
 	if err != nil {
 		return nil, err
 	}
 	if from != "" {
-		if p, err := s.st.RatePointOnOrBefore(ctx, code, from); err == nil && p.RateE4 > 0 {
+		if p, err := e.st.RatePointOnOrBefore(ctx, code, from); err == nil && p.RateE4 > 0 {
 			pts = append(pts, p)
 		}
 	}
