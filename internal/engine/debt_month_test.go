@@ -209,7 +209,7 @@ func TestDebtCoverCountsFuturePaymentsWithFees(t *testing.T) {
 		Principal: 30_000_00, PaymentsTotal: 9, FirstPaymentDate: "2026-09-30",
 		FeeMonthBp: 199, FeeOnPrepay: domain.DebtFeeKeep,
 	}
-	got := debtCoverUAH([]domain.Debt{inst}, nil, nil, fx.Rates{}, today)
+	got := debtCoverUAH([]domain.Debt{inst}, nil, nil, fx.Rates{}, today, false)
 	const want = 30_000 + 9*597 // тіло плюс девʼять комісій
 	if got != want {
 		t.Errorf("покриття %.2f, чекали %d — тіло разом із комісіями", got, want)
@@ -218,7 +218,7 @@ func TestDebtCoverCountsFuturePaymentsWithFees(t *testing.T) {
 	// Закритий борг не покривають: закривати нема чого.
 	closed := inst
 	closed.ClosedDate = "2026-09-01"
-	if v := debtCoverUAH([]domain.Debt{closed}, nil, nil, fx.Rates{}, today); v != 0 {
+	if v := debtCoverUAH([]domain.Debt{closed}, nil, nil, fx.Rates{}, today, false); v != 0 {
 		t.Errorf("погашений борг просить покриття %.2f", v)
 	}
 }
@@ -323,5 +323,29 @@ func TestDebtExitWalkShowsPlannedInItsMonth(t *testing.T) {
 	// 30 000 гасіння.
 	if drop := got[0].LeftUAH.Major() - got[1].LeftUAH.Major(); drop != 30_000 {
 		t.Errorf("у місяці витрати борг упав на %v, чекали 30000 замість звичних 60000", drop)
+	}
+}
+
+// Підлога цілі подушки — лише борг, якого НЕ можна вигідно погасити
+// достроково; рубіж на картці — усі борги.
+//
+// Доки підлогою йшли всі, розстрочка зі скасовними комісіями піднімала
+// ціль назад на свою суму — ту саму, яку стеля «місяців подушки в
+// боргах» щойно обрізала заради неї ж, і стеля не робила нічого.
+func TestDebtFloorOnlyNonPrepayable(t *testing.T) {
+	today := domain.Date("2026-09-10")
+	keep := domain.Debt{ID: 1, Kind: domain.DebtInstallment, Currency: money.UAH,
+		Principal: 9_000_00, PaymentsTotal: 9, FirstPaymentDate: "2026-09-30",
+		FeeMonthBp: 199, FeeOnPrepay: domain.DebtFeeKeep}
+	cancel := keep
+	cancel.ID, cancel.FeeOnPrepay = 2, domain.DebtFeeCancel
+	all := debtCoverUAH([]domain.Debt{keep, cancel}, nil, nil, fx.Rates{}, today, false)
+	floor := debtCoverUAH([]domain.Debt{keep, cancel}, nil, nil, fx.Rates{}, today, true)
+	one := debtCoverUAH([]domain.Debt{keep}, nil, nil, fx.Rates{}, today, false)
+	if all != 2*one {
+		t.Errorf("рубіж на картці %.2f, чекали обидва борги %.2f", all, 2*one)
+	}
+	if floor != one {
+		t.Errorf("підлога %.2f, чекали лише розстрочку без скасування комісій %.2f", floor, one)
 	}
 }

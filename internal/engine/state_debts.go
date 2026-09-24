@@ -123,12 +123,23 @@ func debtCapsReserve(debts []domain.Debt, marks []domain.DebtMark,
 // Оборот у межах пільгового періоду. Межа 0045 лишається на місці: він
 // уже описаний витратами, а подушка й так рахується в місяцях витрат, тож
 // друге його врахування наклало б побут на побут.
+//
+// # lockedOnly — ПІДЛОГА ЦІЛІ, А НЕ РУБІЖ НА КАРТЦІ
+//
+// Число має два читачі з різними питаннями. Картка резерву питає «чи є
+// чим закрити кредити» — усі (lockedOnly = false). Ціль подушки, стеля
+// місяця й маршрут беруть його ПІДЛОГОЮ, а підлога за рішенням у
+// state.ReserveTarget — лише борг, якого НЕ можна вигідно погасити
+// достроково (lockedOnly = true). Доки підлогою йшли всі борги, картка чи
+// розстрочка зі скасовними комісіями піднімали ціль назад на свою суму —
+// рівно ту, яку стеля «місяців подушки в боргах» щойно обрізала заради
+// них же, і стеля не робила нічого.
 func debtCoverUAH(debts []domain.Debt, marks []domain.DebtMark,
-	ops []domain.DebtOp, rates fx.Rates, today domain.Date) float64 {
+	ops []domain.DebtOp, rates fx.Rates, today domain.Date, lockedOnly bool) float64 {
 
 	minor := int64(0)
 	for _, d := range debts {
-		if d.Closed() {
+		if d.Closed() || (lockedOnly && domain.DebtPrepayCancels(d)) {
 			continue
 		}
 		add := func(v int64) {
@@ -688,7 +699,7 @@ func debtAhead(src *sources, rates fx.Rates, today domain.Date, months int) map[
 			DueUAH:       debtDueForMonth(src, rates, today, m),
 			CardInstUAH:  cardInstallmentsInMonth(src, rates, today, m, ""),
 			PrincipalUAH: Round2(principal),
-			CoverUAH:     debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, first),
+			CoverUAH:     debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, first, true),
 			PlannedUAH:   plannedInMonth(src, rates, today, m, "", domain.PaidFromCard),
 		}
 	}

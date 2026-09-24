@@ -84,6 +84,11 @@ type DeriveInput struct {
 	// обовʼязкові платежі за розстрочками плюс непільгова частина карток.
 	// Рахує будівник (state_debts.go), бо там курси й «сьогодні».
 	DebtCoverUAH Money
+	// DebtFloorUAH — та сама сума лише по боргах, яких НЕ можна вигідно
+	// погасити достроково: підлога цілі подушки (ReserveTarget). Окремо від
+	// DebtCoverUAH, бо картка показує рубіж по ВСІХ кредитах, а підлога з
+	// усіма боргами скасовувала б стелю «місяців подушки в боргах».
+	DebtFloorUAH Money
 	// ReserveLiquidUAH — частина подушки, доступна СЬОГОДНІ: журнал без
 	// резервних вкладів. Приходить окремим числом, бо doc.ReserveUAH це вже
 	// сума обох джерел, а різницю між «є» і «є в руках» з неї не відновити.
@@ -326,12 +331,12 @@ func deriveReserve(doc *Doc, in DeriveInput) {
 	if monthlyExp > 0 {
 		r.Months = doc.ReserveUAH.Major() / monthlyExp
 		target, gap := ReserveTarget(doc.Settings, doc.ReserveUAH.Major(),
-			in.DebtCapsReserve, in.DebtCoverUAH.Major(), owedInterest)
+			in.DebtCapsReserve, in.DebtFloorUAH.Major(), owedInterest)
 		r.TargetUAH, r.GapUAH = Major(target, money.UAH), Major(gap, money.UAH)
 		// Обрізання називається вголос і разом із тим, що було б без нього:
 		// ціль, яка мовчки просіла вдвічі, читається як помилка.
 		if full, _ := ReserveTarget(doc.Settings, doc.ReserveUAH.Major(),
-			false, in.DebtCoverUAH.Major(), owedInterest); full > r.TargetUAH.Major() {
+			false, in.DebtFloorUAH.Major(), owedInterest); full > r.TargetUAH.Major() {
 			r.DebtCapped, r.FullTargetUAH = true, Major(full, money.UAH)
 		}
 		// ДВА ЧИСЛА, А НЕ ОДНЕ, з того самого доводу, що при DebtCapped:

@@ -266,7 +266,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	out.ReserveMonthUAH, out.ReserveFillUAH, _ = reserveMonthShare(
 		src.settings, reserveUAH, out.Plan, out.ReserveMovedUAH,
 		debtCapsReserve(src.debts, src.debtMarks, src.debtOps, src.deval, today),
-		debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today),
+		debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today, true),
 		reserveOwedInterestUAH(reserveLoans(src.reserveLoans, src.reserveOps, today, rates)))
 	return out, nil
 }

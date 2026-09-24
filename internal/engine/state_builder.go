@@ -1290,7 +1290,10 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// Рубіж покриття боргу — підлога тієї самої цілі. Рахується тут разом зі
 	// стелею, бо обидва числа читає і картка подушки, і розкладка, і другий
 	// їхній екземпляр розійшовся б із першим (той самий довід, що при debtCaps).
-	debtCover := debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today)
+	// Рубіж на картці — усі борги; підлога цілі — лише ті, що не гасяться
+	// вигідно достроково (довід при debtCoverUAH).
+	debtCover := debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today, false)
+	debtFloor := debtCoverUAH(src.debts, src.debtMarks, src.debtOps, rates, today, true)
 	// Позики в самого себе: ціль піднята на нарахований відсоток, тож
 	// розрив мусить рахуватись тим самим числом, що й картка.
 	resLoans := reserveLoans(src.reserveLoans, src.reserveOps, today, rates)
@@ -1453,7 +1456,8 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// Capital зібраний вище один раз; state його лише читає.
 	if err := state.Derive(doc, state.DeriveInput{
 		DebtCapsReserve: debtCaps, DebtCoverUAH: state.Major(debtCover, money.UAH),
-		Now: now, Positions: positions, Rates: rates, Capital: capital,
+		DebtFloorUAH: state.Major(debtFloor, money.UAH),
+		Now:          now, Positions: positions, Rates: rates, Capital: capital,
 		Cashflow: cashflow, Ladder: ladder,
 		MonthDeposited: monthDep, MonthTarget: target,
 		ReserveByCur: reserveByCur, ReservePlaces: reservePlaces,
