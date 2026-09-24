@@ -152,6 +152,29 @@ type periodResp struct {
 // для закритого періоду, а незакритий щодня показував би інше число й
 // читався б як «місяць провалюється». Поточний доступний явним ?month —
 // заборони немає, є замовчування.
+// idleInputs — надходження доходу й покупки місяця для «доходу без діла».
+//
+// Покупка — лише рядок, що СПИСУЄ гроші. У кошику FlowPurchase лежить і
+// зворотний рух — виручка продажу паперу, гроші розірваного вкладу, — з
+// плюсом; перевернутий у «покупку» зі знаком мінус, він ставав для
+// IdleIncome надходженням, і продаж на 50 000 без нових покупок робив
+// місяць «доходом без діла» на 50 000. Головне зведення продажів туди
+// теж не бере (state_builder.go, incomeEvents): це вихід із позиції, а
+// не заробіток.
+func idleInputs(rows []engine.FlowEvent) (income, buys []domain.CashEvent) {
+	for _, e := range rows {
+		switch e.Kind {
+		case engine.FlowIncome:
+			income = append(income, domain.CashEvent{Date: e.Date, Amount: e.UAH})
+		case engine.FlowPurchase:
+			if e.UAH < 0 {
+				buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
+			}
+		}
+	}
+	return income, buys
+}
+
 func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	today := domain.NewDate(time.Now())
@@ -185,15 +208,7 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 		OwnUAH:      state.Major(sum.Major(sum.OwnUAH()), money.UAH),
 	}}
 
-	var income, buys []domain.CashEvent
-	for _, e := range sum.Rows {
-		switch e.Kind {
-		case engine.FlowIncome:
-			income = append(income, domain.CashEvent{Date: e.Date, Amount: e.UAH})
-		case engine.FlowPurchase:
-			buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
-		}
-	}
+	income, buys := idleInputs(sum.Rows)
 	out.IdleUAH = state.Major(sum.Major(domain.IdleIncome(income, buys)), money.UAH)
 
 	snaps, err := s.st.ListSnapshots(ctx, "", to)
