@@ -294,3 +294,30 @@ func TestAllocateTopUpHonoursPick(t *testing.T) {
 		}
 	}
 }
+
+// ДОЗВІЛ ДЖЕРЕЛА ВІДНІМАЄТЬСЯ ОДИН РАЗ. goalsElig приїжджає з першого
+// проходу вже за вирахуванням його вирізок, а topUpGoal віднімав від нього
+// ще й out.GoalsUAH — тобто ті самі вирізки вдруге. Дві цілі не
+// встигають, дозвіл джерела 800: перша бере 300 першим проходом, і другий
+// прохід мав би дати ще 500, а давав 200.
+func TestAllocateTopUpGoalsEligSubtractedOnce(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)}, nil)
+	doc.Goals = []state.Goal{
+		{ID: 1, Name: "Авто", Currency: money.UAH, DueDate: "2027-06-01",
+			GapUAH: state.Major(500_000, money.UAH), ShortMonthUAH: state.Major(10_000, money.UAH),
+			FillNowUAH: state.Major(300, money.UAH), FillMonthUAH: state.Major(300, money.UAH),
+			FillFromUAH: state.Major(1000, money.UAH)},
+		{ID: 2, Name: "Ремонт", Currency: money.UAH, DueDate: "2027-03-01",
+			GapUAH: state.Major(500_000, money.UAH), ShortMonthUAH: state.Major(30_000, money.UAH),
+			FillFromUAH: state.Major(1000, money.UAH)},
+	}
+	// Папір недосяжний — увесь хвіст іде в другий прохід.
+	got := AllocatePlan(doc, []suggestion{bondSug("UA0001", 5000, money.UAH)},
+		allocRates, ToMoneyJSON(money.New(134000, money.UAH)), 1340,
+		AllocAllow{ReserveUAH: 1340, GoalsUAH: 800}, money.UAH, nil)
+
+	if d := got.GoalsUAH.Major() - 800; d > 0.01 || d < -0.01 {
+		t.Errorf("цілі взяли %.2f, чекали весь дозвіл джерела 800 (300 першим проходом + 500 другим)",
+			got.GoalsUAH.Major())
+	}
+}

@@ -847,7 +847,7 @@ func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	// рахує точно — остачею в копійках від усього, що вже розписано.
 	allocTopUp(&out, topUpIn{
 		rest: rest, mt: mt, rows: rows, rooms: roomByKind, goals: doc.Goals,
-		reserve: doc.Reserve, allow: allow, goalsElig: elig,
+		reserve: doc.Reserve, allow: allow, goalsElig: elig, goalsFirst: out.GoalsUAH.Major(),
 		sug: sug, rates: rates, cur: cur, npfID: npfID,
 		cheapest: &cheapest, cheapestWhat: &cheapestWhat,
 	})
@@ -993,6 +993,9 @@ type topUpIn struct {
 	// приїжджає звідти, а не рахується тут: друге означення розійшлося б із
 	// першим рівно тоді, коли вирізка була частковою.
 	goalsElig float64
+	// goalsFirst — скільки цілі взяли ПЕРШИМ проходом: те, що в goalsElig
+	// уже віднято.
+	goalsFirst float64
 
 	sug   []suggestion
 	rates fx.Rates
@@ -1245,7 +1248,14 @@ func topUpGoal(out *allocPlan, in topUpIn, s allocSpot, rest float64) float64 {
 	//
 	// Обидві рахуються від ФАКТУ, а не від наміру: перший прохід міг
 	// обнулити свою вирізку порогом, і тоді дозволу витрачено нуль.
-	left := math.Min(in.goalsElig, s.allow) - out.GoalsUAH.Major()
+	//
+	// goalsElig уже БЕЗ вирізок першого проходу, тож від нього віднімаються
+	// лише взяті другим (goalsTopped); від дозволу місяця — усі. Доти від
+	// мінімуму обох віднімалось out.GoalsUAH цілком, і вирізки першого
+	// проходу лічились двічі: дозвіл джерела 800 після 300 першим проходом
+	// давав другому 200 замість 500.
+	topped := out.GoalsUAH.Major() - in.goalsFirst
+	left := math.Min(in.goalsElig-topped, s.allow-out.GoalsUAH.Major())
 	take := math.Min(math.Min(rest, s.room), math.Max(0, left))
 	// Той самий поріг і той самий виняток «закриває розрив», що в першому
 	// проході: остання пʼятірка гривень до цілі мусить мати право закритись.
