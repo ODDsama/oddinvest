@@ -37,6 +37,23 @@ type Store struct {
 	// path — файл бази; порожньо в тестах на :memory:. Потрібен лише для
 	// страхувальної копії перед відновленням (SafetyCopy).
 	path string
+	// rd — транзакція читання, через яку йдуть читання ExportAll; nil —
+	// звичайна база (reader). Див. ExportAll.
+	rd querier
+}
+
+// querier — те, чим читають: база або транзакція.
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// reader — транзакція ExportAll, якщо вона відкрита, інакше база.
+func (s *Store) reader() querier {
+	if s.rd != nil {
+		return s.rd
+	}
+	return s.db
 }
 
 // MainPortfolio — id портфеля, в який 0054 перевела наявні дані. Він же

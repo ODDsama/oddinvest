@@ -710,12 +710,28 @@ type BackupPayStatus struct {
 // restore просіла б рівно на вартість фондів.
 
 // ExportAll читає всі користувацькі таблиці в один знімок.
+//
+// ОДНІЄЮ транзакцією читання. Доти ~30 запитів ішли окремо, і запис
+// посеред щоденного дампу давав файл, що не сходиться сам із собою:
+// продаж без свого лота, рух без позики — і відновлення такого файлу
+// падало на зовнішньому ключі саме тоді, коли він був потрібен.
 func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback() //nolint:errcheck // лише читання
+	es := *s
+	es.rd = tx
+	return es.exportAll(ctx)
+}
+
+func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 	b := &Backup{Schema: BackupSchema, App: "oddinvest", Settings: map[string]string{}}
-	if err := s.db.QueryRowContext(ctx, `SELECT name FROM portfolios WHERE id=?`, s.pid).Scan(&b.Portfolio); err != nil {
+	if err := s.reader().QueryRowContext(ctx, `SELECT name FROM portfolios WHERE id=?`, s.pid).Scan(&b.Portfolio); err != nil {
 		return nil, fmt.Errorf("портфель %d: %w", s.pid, err)
 	}
-	if err := s.db.QueryRowContext(ctx,
+	if err := s.reader().QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(version), '') FROM schema_migrations`).Scan(&b.Migration); err != nil {
 		return nil, fmt.Errorf("версія схеми: %w", err)
 	}
@@ -1928,7 +1944,7 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 // scan — дрібний хелпер: виконати запит і прогнати кожен рядок через fn.
 // args — параметри запиту (0054: майже кожен SELECT тут тепер несе s.pid).
 func (s *Store) scan(ctx context.Context, query string, fn func(scan func(...any) error) error, args ...any) error {
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.reader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}

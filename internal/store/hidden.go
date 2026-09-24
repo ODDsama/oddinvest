@@ -22,7 +22,7 @@ import (
 // SQLite вільний віддати рядки як завгодно, і тест, що звіряє списки, почав
 // би моргати не через код.
 func (s *Store) HiddenRows(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.reader().QueryContext(ctx,
 		`SELECT row_id FROM hidden_rows WHERE portfolio_id=? ORDER BY row_id`, s.pid)
 	if err != nil {
 		return nil, err
