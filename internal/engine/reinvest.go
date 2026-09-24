@@ -346,6 +346,25 @@ const (
 )
 
 func LessSuggestion(a, b suggestion, rank, order string) bool {
+	return lessSuggestion(a, b, rank, order, true)
+}
+
+// futureOrder — ті самі поради в порядку для МАЙБУТНІХ грошей: той самий
+// LessSuggestion, лише без CanBuy. «Вистачає вже зараз» — відповідь для
+// списку «що взяти сьогодні»; розкладка й маршрут кладуть гроші, що
+// прийдуть, і кращий папір, на який сьогодні бракує, там мусить обганяти
+// гірший, на який уже є. Доти порядок успадковувався від сьогоднішнього
+// балансу, і план наступних місяців мінявся від того, скільки лежить на
+// рахунку зараз. Копія — вхідний зріз читають і інші.
+func futureOrder(sug []suggestion, rank string) []suggestion {
+	out := append([]suggestion(nil), sug...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return lessSuggestion(out[i], out[j], rank, orderReal, false)
+	})
+	return out
+}
+
+func lessSuggestion(a, b suggestion, rank, order string, byWallet bool) bool {
 	// Замкнене — нижче за все ліквідне, і ПЕРШИМ серед пониження: це
 	// найсильніше з трьох тверджень. Ліміт каже «ти сам цього не хотів»,
 	// stale — «ми не впевнені в ціні», а замок — «це взагалі не те саме
@@ -363,7 +382,7 @@ func LessSuggestion(a, b suggestion, rank, order string) bool {
 	if a.Locked != b.Locked {
 		return b.Locked
 	}
-	if a.CanBuy != b.CanBuy {
+	if byWallet && a.CanBuy != b.CanBuy {
 		return a.CanBuy // те, що вже по кишені, — зверху
 	}
 	// Порушений ліміт опускає пораду, але не ховає її: заборона тут

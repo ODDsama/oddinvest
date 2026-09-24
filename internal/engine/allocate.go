@@ -494,6 +494,9 @@ func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	amount MoneyJSON, amountUAH float64, allow AllocAllow,
 	cur string, npfID map[string]int64) allocPlan {
 	mt := moneyTextOf(doc)
+	// Гроші, що розкладаються, ще не на рахунку: сьогоднішній гаманець
+	// (CanBuy) порядок не задає (futureOrder).
+	sug = futureOrder(sug, RankOf(doc))
 
 	out := allocPlan{Amount: amount, AmountUAH: state.Major(amountUAH, money.UAH), Lines: []allocLine{}}
 

@@ -321,3 +321,22 @@ func TestAllocateTopUpGoalsEligSubtractedOnce(t *testing.T) {
 			got.GoalsUAH.Major())
 	}
 }
+
+// РОЗКЛАДКА МАЙБУТНІХ ГРОШЕЙ НЕ ДИВИТЬСЯ НА СЬОГОДНІШНІЙ ГАМАНЕЦЬ. CanBuy —
+// «вистачає вже зараз», і для списку «що взяти сьогодні» він правильно
+// піднімає досяжне. Але розкладка кладе гроші, що ПРИЙДУТЬ, і там кращий
+// папір, якому сьогодні бракує, мусить обганяти гірший, на який уже є.
+func TestAllocateIgnoresTodaysWalletInOrder(t *testing.T) {
+	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)}, nil)
+	worse := bondSug("UA_WORSE", 1000, money.UAH)
+	worse.RealPct, worse.CanBuy = 5, true
+	better := bondSug("UA_BETTER", 1000, money.UAH)
+	better.RealPct, better.CanBuy = 9, false
+	// Саме в такому порядку їх віддає ReinvestSuggestions: досяжне зверху.
+	got := AllocatePlan(doc, []suggestion{worse, better}, allocRates,
+		ToMoneyJSON(money.New(100000, money.UAH)), 1000,
+		AllocAllow{ReserveUAH: 1000, GoalsUAH: 1000}, money.UAH, nil)
+	if len(got.Lines) != 1 || got.Lines[0].Ref != "UA_BETTER" {
+		t.Errorf("на майбутні 1 000 ₴ мав піти кращий папір, маємо %+v", got.Lines)
+	}
+}
