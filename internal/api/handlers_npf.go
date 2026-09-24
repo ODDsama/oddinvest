@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -584,4 +585,73 @@ func (s *Server) npfAccountName(ctx context.Context, id int64) string {
 		}
 	}
 	return ""
+}
+
+// handleNPFCreditFlow — «Додати знижку в план»: річний рядок доходу на
+// суму оцінки податкової знижки рахунку.
+//
+// Оцінку бере СЕРВЕР, а не кнопка. Доти браузер слав credit_est_uah зі
+// зведення, а зведення вже переклала у валюту звітності: у доларовому
+// вигляді 180 ₴ знижки ставали рядком плану на 4 ₴ під currency "UAH".
+// Тут число береться з книжкового документа, тож від вигляду не залежить
+// (і друга копія арифметики знижки в браузері не потрібна, §5).
+//
+// Травень наступного року — подання весною, гроші приблизно за 60 днів;
+// дату можна поправити в самому плані, як і будь-який рядок.
+func (s *Server) handleNPFCreditFlow(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	accounts, err := s.st.ListNPFAccounts(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	name := ""
+	for _, a := range accounts {
+		if a.ID == id {
+			name = a.Name
+		}
+	}
+	if name == "" {
+		writeErr(w, http.StatusNotFound, errors.New("рахунку НПФ немає"))
+		return
+	}
+	now := time.Now()
+	doc, err := s.BuildState(r.Context(), now)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	var est int64
+	for _, n := range doc.NPF {
+		if n.Name == name {
+			est = n.CreditEstUAH.Minor()
+		}
+	}
+	if est <= 0 {
+		writeErr(w, http.StatusBadRequest, errors.New("оцінки знижки немає: внесків за рік або річного ПДФО не записано"))
+		return
+	}
+	f, err := planFlowFromReq(planFlowReq{
+		Name: "Податкова знижка (" + name + ")", Kind: "income",
+		Amount:   engine.ToMoneyJSON(money.New(est, money.UAH)).Amount,
+		Currency: money.UAH, Cadence: "year",
+		FromDate:  fmt.Sprintf("%d-05-01", now.Year()+1),
+		GrowthPct: "0", InvestPct: "100",
+		Note: "оцінка; потрібна декларація до 31 грудня",
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	fid, err := s.st.AddPlanFlow(r.Context(), f)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.publishAsync()
+	writeJSON(w, http.StatusCreated, map[string]int64{"id": fid})
 }

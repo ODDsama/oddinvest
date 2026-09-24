@@ -282,7 +282,12 @@ type allocLine struct {
 // ці числа, або завести для нього особливий випадок у кожному читачі.
 type allocReserve struct {
 	AmountUAH state.Money `json:"amount_uah"`
-	Why       string      `json:"why"`
+	// BookUAH — та сама сума в КНИЖКОВІЙ гривні, для запису. AmountUAH
+	// презентер перекладає у валюту звітності, і кнопка «Розкласти», що
+	// писала його під currency "UAH", у доларовому вигляді клала в подушку
+	// 340 ₴ замість 15 000. Заповнює StampBook перед перекладом.
+	BookUAH state.Money `json:"book_uah" money:"native"`
+	Why     string      `json:"why"`
 }
 
 // allocPlan.ReserveSkipWhy — чому подушка НЕ взяла те, що мала б узяти за
@@ -302,7 +307,22 @@ type allocGoalCut struct {
 	ID        int64       `json:"id"`
 	Name      string      `json:"name"`
 	AmountUAH state.Money `json:"amount_uah"`
+	BookUAH   state.Money `json:"book_uah" money:"native"` // для запису; див. allocReserve
 	Why       string      `json:"why"`
+}
+
+// StampBook — книжкові суми вирізок для запису (BookUAH), знімком
+// AmountUAH. Одним проходом наприкінці, а не в кожному місці, що
+// вирізку створює чи доливає (добір, top-up): копія, яку треба тримати
+// синхронною в п'яти місцях, розійшлася б у шостому. Викликати ДО
+// перекладу в валюту звітності.
+func (p *allocPlan) StampBook() {
+	if p.Reserve != nil {
+		p.Reserve.BookUAH = p.Reserve.AmountUAH
+	}
+	for i := range p.Goals {
+		p.Goals[i].BookUAH = p.Goals[i].AmountUAH
+	}
 }
 
 type allocPlan struct {

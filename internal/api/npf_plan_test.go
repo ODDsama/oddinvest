@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -377,5 +378,50 @@ func TestNPFSuggestionAlwaysBelowLiquid(t *testing.T) {
 			t.Errorf("режим %s: дохідність НПФ (%.2f) не вища за ліквідну (%.2f) — "+
 				"тест перестав перевіряти те, для чого написаний", rank, npfReal, liquidReal)
 		}
+	}
+}
+
+// «Додати знижку в план» пише ГРИВНЕВУ оцінку, хоч би в чому звітував
+// документ.
+//
+// Доти кнопка брала credit_est_uah зі зведення — уже перекладене в валюту
+// звітності — і слала його в потік плану під currency "UAH": у доларовому
+// вигляді 180 ₴ знижки ставали рядком плану на 4 ₴. Тепер оцінку бере й
+// записує сервер (POST /api/npf-accounts/{id}/credit-flow).
+func TestNPFCreditFlowWritesBookAmount(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st)
+	navDate := time.Now().Format("2006-01-02")
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"npf_credit_pdfo_year_uah":"40000","npf_credit_cap_month_uah":"4660","report_currency":"USD"}`); resp.StatusCode != 204 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+	resp, b := do(t, "POST", srv.URL+"/api/npf-accounts", `{"name":"Династія","currency":"UAH","nav":"2.0","nav_date":"`+
+		navDate+`","credit_rate_pct":"18"}`)
+	if resp.StatusCode != 201 {
+		t.Fatalf("рахунок: %d %s", resp.StatusCode, b)
+	}
+	var created struct{ ID int64 }
+	if err := json.Unmarshal([]byte(b), &created); err != nil {
+		t.Fatal(err)
+	}
+	id := strconv.FormatInt(created.ID, 10)
+	if resp, b := do(t, "POST", srv.URL+"/api/npf", `{"npf_id":`+id+`,"date":"`+navDate+
+		`","amount":"1000","units":"500"}`); resp.StatusCode != 201 {
+		t.Fatalf("внесок: %d %s", resp.StatusCode, b)
+	}
+
+	if resp, b := do(t, "POST", srv.URL+"/api/npf-accounts/"+id+"/credit-flow", ""); resp.StatusCode != 201 {
+		t.Fatalf("знижка в план: %d %s", resp.StatusCode, b)
+	}
+	flows, err := st.ListPlanFlows(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(flows) != 1 || flows[0].Amount != 180_00 || flows[0].Currency != "UAH" || flows[0].Cadence != "year" {
+		t.Fatalf("рядок плану %+v, чекали 180 ₴ щороку", flows)
+	}
+	if !strings.Contains(flows[0].Name, "Династія") {
+		t.Errorf("рядок не названо рахунком: %q", flows[0].Name)
 	}
 }

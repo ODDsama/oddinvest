@@ -206,3 +206,53 @@ func TestAllocateUnknownSourceRefFails(t *testing.T) {
 		t.Errorf("сміття в посиланні мало дати 400, маємо %d", resp.StatusCode)
 	}
 }
+
+// Кнопка «Розкласти» пише КНИЖКОВІ суми, хоч би в чому звітував документ.
+//
+// Модалка записувала подушку й цілі з amount_uah — числа, яке презентер
+// уже переклав у валюту звітності, — під currency "UAH". У доларовому
+// вигляді 15 000 ₴ ставали записом на ~340 ₴. Тепер поруч є book_uah
+// (тег native): те саме число в гривні, якого переклад не чіпає, і пише
+// саме його.
+func TestAllocateCarriesBookAmountsInReportCurrency(t *testing.T) {
+	srv, st := testServer(t)
+	seed(t, st) // курс USD 44.1234
+	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
+		`{"monthly_expenses":"10000","monthly_expenses_currency":"UAH","reserve_target_months":"6",
+		  "reserve_fill_share_pct":"30","goals_fill_share_pct":"30","target_bonds_pct":"100",
+		  "report_currency":"USD"}`); resp.StatusCode >= 300 {
+		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/plan/flows",
+		`{"name":"Зарплата","kind":"income","amount":"50000.00","cadence":"month",
+		  "from_date":"2026-01-01","invest_pct":"100"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("потік: %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/goals",
+		`{"name":"Авто","amount":"500000","currency":"UAH"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("ціль: %d %s", resp.StatusCode, b)
+	}
+	var plan struct {
+		Reserve *struct {
+			AmountUAH float64 `json:"amount_uah"`
+			BookUAH   float64 `json:"book_uah"`
+		} `json:"reserve"`
+		Goals []struct {
+			AmountUAH float64 `json:"amount_uah"`
+			BookUAH   float64 `json:"book_uah"`
+		} `json:"goals"`
+	}
+	_, body := do(t, "POST", srv.URL+"/api/allocate", `{"amount":"20000"}`)
+	if err := json.Unmarshal([]byte(body), &plan); err != nil {
+		t.Fatalf("allocate: %v: %s", err, body)
+	}
+	if plan.Reserve == nil || math.Abs(plan.Reserve.BookUAH-15_000) > 0.01 {
+		t.Fatalf("подушка для запису %+v, чекали 15 000 ₴", plan.Reserve)
+	}
+	if math.Abs(plan.Reserve.AmountUAH-15_000) < 1 {
+		t.Errorf("показна сума мала бути в доларах, а лишилась гривнею: %.2f", plan.Reserve.AmountUAH)
+	}
+	if len(plan.Goals) != 1 || math.Abs(plan.Goals[0].BookUAH-5_000) > 0.01 {
+		t.Fatalf("ціль для запису %+v, чекали 5 000 ₴", plan.Goals)
+	}
+}

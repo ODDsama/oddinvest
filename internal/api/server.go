@@ -239,6 +239,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/npf-accounts", s.handleAddNPFAccount)
 	mux.HandleFunc("PUT /api/npf-accounts/{id}", s.handleUpdateNPFAccount)
 	mux.HandleFunc("PUT /api/npf-accounts/{id}/nav", s.handleSetNPFNav)
+	mux.HandleFunc("POST /api/npf-accounts/{id}/credit-flow", s.handleNPFCreditFlow)
 	mux.HandleFunc("DELETE /api/npf-accounts/{id}", s.handleDeleteNPFAccount)
 	mux.HandleFunc("GET /api/npf", s.handleNPFOps)
 	mux.HandleFunc("POST /api/npf", s.handleAddNPFOp)

@@ -145,9 +145,12 @@ function creditHTML(ctx, row) {
   const est = row.credit_est_uah || 0;
   // Кнопка з'являється лише коли є що додавати: план із нульовим рядком
   // «знижка» був би обіцянкою держави, якої вона не давала.
-  const toPlan = est > 0
-    ? `<div class="form-actions"><button class="sm" data-npfcredit="${esc(row.name)}"
-         data-amount="${est.toFixed(2)}">Додати знижку в план</button></div>
+  // Суми в кнопці немає навмисно: оцінку бере й записує сервер
+  // (credit-flow). Число на екрані вже у валюті звітності, і доти кнопка
+  // писала його в план під «UAH» — у доларовому вигляді 180 ₴ ставали 4 ₴.
+  const acc = accByName(row.name);
+  const toPlan = est > 0 && acc
+    ? `<div class="form-actions"><button class="sm" data-npfcredit="${acc.id}">Додати знижку в план</button></div>
        <div class="sub-xs muted">Створить річний рядок доходу в «Плані» — з нього знижка почне
          впливати на проєкцію. Дата за замовчуванням — травень наступного року (подання весною,
          гроші за ~60 днів); її можна поправити в самому плані.</div>`
@@ -389,19 +392,10 @@ export function wireNPF(ctx, main) {
   // як усе інше в плані.
   main.querySelectorAll("[data-npfcredit]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const name = btn.dataset.npfcredit;
-      const amount = btn.dataset.amount;
-      // Травень наступного року: подання весною, а гроші приходять
-      // приблизно за 60 днів після подання.
-      const from = `${new Date().getFullYear() + 1}-05-01`;
+      // Дата (травень наступного року), назва й сума — на сервері
+      // (handleNPFCreditFlow): один рядок плану, одне місце правил.
       await apply(ctx, {
-        path: "plan/flows",
-        body: {
-          name: `Податкова знижка (${name})`, kind: "income", amount,
-          currency: "UAH", cadence: "year", from_date: from,
-          growth_pct: "0", invest_pct: "100",
-          note: "оцінка; потрібна декларація до 31 грудня",
-        },
+        path: `npf-accounts/${btn.dataset.npfcredit}/credit-flow`, body: {},
       }, "Знижку додано в план");
     });
   });

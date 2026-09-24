@@ -135,6 +135,7 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 			Uses:     uses,
 			PickISIN: pick,
 		}, cur, s.NPFIDByName(r.Context()))
+	out.StampBook()
 	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return

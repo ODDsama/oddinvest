@@ -336,7 +336,8 @@ export async function openAllocate(ctx, opts) {
       requests.push({
         path: "reserve",
         body: {
-          amount: res.reserve.amount_uah.toFixed(2),
+          // book_uah, а не amount_uah: друге вже у валюті звітності.
+          amount: res.reserve.book_uah.toFixed(2),
           currency: "UAH",
           note: "розкладка надходження" + (title ? ": " + title : ""),
         },
@@ -352,7 +353,7 @@ export async function openAllocate(ctx, opts) {
         path: "goal-ops",
         body: {
           goal_id: String(g.id),
-          amount: g.amount_uah.toFixed(2),
+          amount: g.book_uah.toFixed(2),
           currency: "UAH",
           note: "розкладка надходження" + (title ? ": " + title : ""),
         },
