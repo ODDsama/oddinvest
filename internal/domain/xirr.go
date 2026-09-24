@@ -186,6 +186,19 @@ func PortfolioFlows(bonds map[string]Bond, payments []Payment, lots []Lot,
 	return flows, nil
 }
 
+// fundOpsUpTo — журнал до asOf включно. Термінальна вартість мусить
+// стояти на тих самих операціях, що й потоки: купівля на завтра, яка в
+// потоки не входить, у терміналі завищувала б прибуток на всю свою суму.
+func fundOpsUpTo(ops []FundOp, asOf Date) []FundOp {
+	out := make([]FundOp, 0, len(ops))
+	for _, op := range ops {
+		if !op.Date.After(asOf) {
+			out = append(out, op)
+		}
+	}
+	return out
+}
+
 // FundFlows — грошові потоки сертифікатів фондів для XIRR.
 //
 // У фонду немає ні номіналу, ні графіка, тож дохідність до погашення для
@@ -277,7 +290,7 @@ func FundFlows(ops []FundOp, marks []FundPrice, currency string, asOf Date) []Fl
 	// параметром, а не накладаються десь на екрані: варіант «підняти ціну
 	// лише в картці» дав би вартість, яка виросла, і дохідність, яка ні.
 	var terminal int64
-	for _, p := range FundPositions(ops, marks) {
+	for _, p := range FundPositions(fundOpsUpTo(ops, asOf), marks) {
 		if p.Currency == currency {
 			terminal += p.MarketValue()
 		}
@@ -324,7 +337,7 @@ func FundFlowsOne(ops []FundOp, marks []FundPrice, fund string, asOf Date) []Flo
 	// Термінальна вартість — залишок за останньою ціною, тією самою, що
 	// показана в позиції: інше джерело дало б дохідність, яка не
 	// сходиться з видимими числами.
-	if p := FundPositions(ops, marks)[fund]; p != nil && p.MarketValue() > 0 {
+	if p := FundPositions(fundOpsUpTo(ops, asOf), marks)[fund]; p != nil && p.MarketValue() > 0 {
 		flows = append(flows, Flow{Date: asOf, Amount: p.MarketValue()})
 	}
 	sort.Slice(flows, func(i, j int) bool { return flows[i].Date < flows[j].Date })

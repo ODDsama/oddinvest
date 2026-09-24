@@ -257,6 +257,13 @@ func NPFFlows(p NPFPosition, ops []NPFOp, asOf Date) []Flow {
 	if len(flows) == 0 {
 		return nil
 	}
+	// Термінал — без одиниць внесків ПІСЛЯ asOf: у потоки вони не входять,
+	// і в вартості залишку їм так само не місце.
+	for _, op := range ops {
+		if op.NPFID == p.NPFID && op.Date.After(asOf) {
+			p.Units -= op.Units
+		}
+	}
 	if v := p.Value(); v > 0 {
 		flows = append(flows, Flow{Date: asOf, Amount: v})
 	}
