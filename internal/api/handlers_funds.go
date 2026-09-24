@@ -91,6 +91,9 @@ func (s *Server) handleFundOps(w http.ResponseWriter, r *http.Request) {
 		Tax    engine.MoneyJSON `json:"tax,omitempty"`
 		Broker string           `json:"broker,omitempty"`
 		Note   string           `json:"note,omitempty"`
+		// PairID — друга нога конвертації: питання перед видаленням мусить
+		// сказати, що зникне й вона (store.DeleteFundOp видаляє обидві).
+		PairID int64 `json:"pair_id,omitempty"`
 	}
 	out := make([]row, 0, len(ops))
 	for _, op := range ops {
@@ -98,7 +101,7 @@ func (s *Server) handleFundOps(w http.ResponseWriter, r *http.Request) {
 			Kind: string(op.Kind), Qty: op.Qty,
 			Amount: engine.ToMoneyJSON(money.New(op.Amount, op.Currency)),
 			Tax:    engine.ToMoneyJSON(money.New(op.Tax, op.Currency)),
-			Broker: op.Broker, Note: op.Note})
+			Broker: op.Broker, Note: op.Note, PairID: op.PairID})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

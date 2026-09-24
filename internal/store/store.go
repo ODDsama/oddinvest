@@ -531,9 +531,27 @@ func (s *Store) UpdateReserveOp(ctx context.Context, r ReserveOp) error {
 	return affectedOne(res, "рух резерву")
 }
 
+// DeleteReserveOp — видалити рух подушки.
+//
+// Зняття-позика забирає з собою позику (каскад reserve_loans.op_id), а
+// повернення, що на неї показували (reserve_ops.loan_id без дії на
+// видалення, 0057), доти валили DELETE на зовнішньому ключі. Тепер вони
+// спершу відв'язуються й лишаються звичайними поповненнями подушки.
 func (s *Store) DeleteReserveOp(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM reserve_ops WHERE id=? AND portfolio_id=?`, id, s.pid)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // після Commit — no-op
+	if _, err := tx.ExecContext(ctx, `UPDATE reserve_ops SET loan_id=NULL
+		WHERE portfolio_id=? AND loan_id IN (SELECT id FROM reserve_loans WHERE op_id=? AND portfolio_id=?)`,
+		s.pid, id, s.pid); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM reserve_ops WHERE id=? AND portfolio_id=?`, id, s.pid); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ListReserveOps(ctx context.Context) ([]ReserveOp, error) {
@@ -1396,9 +1414,44 @@ func nullID(id int64) any {
 	return id
 }
 
+// DeleteFundOp — видалити операцію; нога конвертації йде РАЗОМ із парною.
+//
+// Ноги показують одна на одну (LinkFundOps), і DELETE однієї доти падав на
+// зовнішньому ключі — помилкову конвертацію не можна було прибрати зовсім.
+// Рішення власника (2026-09-24): конвертація — одна подія, тож і зникає
+// цілою. Спершу розриваємо взаємні посилання, потім видаляємо обидві, в
+// одній транзакції.
 func (s *Store) DeleteFundOp(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM fund_ops WHERE id=? AND portfolio_id=?`, id, s.pid)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck // після Commit — no-op
+	var pair sql.NullInt64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT pair_id FROM fund_ops WHERE id=? AND portfolio_id=?`, id, s.pid).Scan(&pair); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	ids := []any{id}
+	if pair.Valid {
+		ids = append(ids, pair.Int64)
+	}
+	for _, x := range ids {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE fund_ops SET pair_id=NULL WHERE id=? AND portfolio_id=?`, x, s.pid); err != nil {
+			return err
+		}
+	}
+	for _, x := range ids {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM fund_ops WHERE id=? AND portfolio_id=?`, x, s.pid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // ListFundOps повертає журнал У ХРОНОЛОГІЧНОМУ порядку: собівартість

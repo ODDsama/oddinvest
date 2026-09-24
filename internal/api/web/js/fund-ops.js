@@ -159,8 +159,16 @@ export function wireFundOps(ctx, main) {
     fields: fundOpFields, body: fundOpBody,
     // У питанні називаємо саму операцію, а не її номер: «продаж Inzhur
     // REIT від 12-05» перевіряється поглядом, «запис #37» — ні.
-    confirm: (o) => `Видалити ${FUND_KIND[o.kind] || o.kind} ${o.fund} від ${o.date}?`
-      + " Позиція й ціна перерахуються.",
+    confirm: (o) => {
+      const head = `Видалити ${FUND_KIND[o.kind] || o.kind} ${o.fund} від ${o.date}?`;
+      // Нога конвертації йде разом із парною (store.DeleteFundOp): питання
+      // мусить це назвати, інакше зникла друга нога читалась би як поломка.
+      const pair = o.pair_id ? (fundOps || []).find((x) => x.id === o.pair_id) : null;
+      const both = pair
+        ? ` Це конвертація — разом зникне й ${FUND_KIND[pair.kind] || pair.kind} ${pair.fund}.`
+        : "";
+      return head + both + " Позиція й ціна перерахуються.";
+    },
     msg: { edit: "Запис виправлено", del: "Запис видалено" },
   });
 }
