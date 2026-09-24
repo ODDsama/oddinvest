@@ -257,3 +257,45 @@ func TestFetchCPIDoesNotRetryUnpublished(t *testing.T) {
 		t.Fatalf("неопублікований місяць запитано %d разів", hits)
 	}
 }
+
+// Ведучі місяці — теж дірка. Бекфіл, якому НБУ не віддав перших років,
+// лишав ряд, що починається пізніше за горизонт; CPIGaps бачить лише
+// дірки МІЖ крайніми точками, а BackfillCPIIfThin на 100+ місяцях більше
+// не запускається — тож початок ряду не добирався ніколи.
+func TestRefreshCPIFillsLeadingMonths(t *testing.T) {
+	r, st := dailyRunner(t, "", "")
+	ctx := context.Background()
+	// Горизонт — CPIHistoryYears від останнього завершеного місяця; ряд
+	// починається на два місяці пізніше.
+	first := prevMonth(monthOf(time.Now().In(r.loc)))
+	for i := 0; i < CPIHistoryYears*12; i++ {
+		first = prevMonth(first)
+	}
+	missing := []string{first, nextMonth(first)}
+	start := nextMonth(missing[1])
+	published := map[string]float64{}
+	for _, m := range missing {
+		published[strings.ReplaceAll(nextMonth(m), "-", "")] = 1
+	}
+	// Суцільний ряд від start до останнього місяця — наповнений (понад
+	// CPIBackfillMinMonths), дірок посередині немає.
+	for m := start; m <= monthsAgo(r.loc, 1); m = nextMonth(m) {
+		if err := st.SaveCPI(ctx, store.CPIPoint{Period: m, MoMBP: 100, YoYBP: 900}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetAppState(ctx, cpiWatermark, monthsAgo(r.loc, 1)); err != nil {
+		t.Fatal(err)
+	}
+	r.nbu = nbu.New(cpiNBU(t, published, nil))
+	if err := r.fillCPIGaps(ctx); err != nil {
+		t.Fatal(err)
+	}
+	pts, err := st.CPISince(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pts) == 0 || pts[0].Period != first {
+		t.Errorf("ряд мав почитатись із %s, починається з %+v", first, pts[0])
+	}
+}

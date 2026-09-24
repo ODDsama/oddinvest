@@ -97,9 +97,9 @@ func (s Satellite) RefreshQuotes(ctx context.Context, isins []string) (finomo.Ru
 //
 // Повертає помилку оновлення НБУ: за нею RunDaily вирішує про повтор.
 func (f *Fleet) dailyRun(ctx context.Context) error {
-	rctx, rcancel := context.WithTimeout(ctx, 3*time.Minute)
-	refreshErr := f.main.RefreshAll(rctx)
-	rcancel()
+	// Без спільної стелі: кожна фаза RefreshAll має свою (phaseTimeout), і
+	// спільна лише знову віддала б час повільного довідника решті.
+	refreshErr := f.main.RefreshAll(ctx)
 	if refreshErr != nil {
 		f.main.log.Error("добове оновлення НБУ", "err", refreshErr)
 	}
@@ -208,12 +208,20 @@ func nextDaily(now time.Time) time.Time {
 // не настільки, щоб робити його наосліп при зламаному сховищі — там
 // однаково все впаде наступним кроком, і сказати про це має він, а не ця
 // перевірка.
+//
+// ПО КОЖНОМУ ПОРТФЕЛЮ, а не лише по головному: сателіт, чий знімок не
+// записався, лишався б без точки на кривій до наступної доби.
 func (f *Fleet) needsCatchUp(ctx context.Context) bool {
 	today := domain.NewDate(time.Now().In(f.main.loc))
-	snaps, err := f.main.st.ListSnapshots(ctx, today, today)
-	if err != nil {
-		f.main.log.Warn("не перевірив знімок за сьогодні", "err", err)
-		return false
+	for _, r := range f.runners() {
+		snaps, err := r.st.ListSnapshots(ctx, today, today)
+		if err != nil {
+			r.log.Warn("не перевірив знімок за сьогодні", "err", err)
+			return false
+		}
+		if len(snaps) == 0 {
+			return true
+		}
 	}
-	return len(snaps) == 0
+	return false
 }

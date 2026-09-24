@@ -89,3 +89,37 @@ func TestFleetRefreshesOnceAndPersistsEach(t *testing.T) {
 		t.Errorf("після Remove у флоті %d, хочемо 1", got)
 	}
 }
+
+// Наздоганяти треба, коли знімка за сьогодні бракує ХОЧ ОДНОМУ портфелю.
+// Доти перевірявся лише головний: сателіт, чий знімок не записався,
+// лишався без точки на кривій до наступної доби.
+func TestNeedsCatchUpLooksAtEveryPortfolio(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	ctx := context.Background()
+	wid, err := st.AddPortfolio(ctx, "wife", "Дружина")
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := func(context.Context, time.Time) (*state.Doc, error) { return &state.Doc{}, nil }
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	main := New(st, nil, nil, nil, build, log, "")
+	wife := New(st.For(wid), nil, nil, nil, build, log, "")
+	f := NewFleet(main)
+	f.Add("wife", wife)
+	if err := main.Snapshot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !f.needsCatchUp(ctx) {
+		t.Error("у сателіта знімка за сьогодні немає — наздоганяти треба")
+	}
+	if err := wife.Snapshot(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if f.needsCatchUp(ctx) {
+		t.Error("знімки є в усіх — наздоганяти нема чого")
+	}
+}

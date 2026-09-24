@@ -5,6 +5,7 @@ package jobs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -202,12 +203,49 @@ func (r *Runner) pruneBackups() {
 // віддавали: гривневі еквіваленти мовчки старіли разом із довідником.
 // Тепер кожне джерело пробується своїм запитом, а помилка довідника
 // повертається НАОСТАНОК — з неї Fleet.RunDaily вирішує про повтор.
+//
+// КОЖНА ФАЗА — ЗІ СВОЇМ КОНТЕКСТОМ (phaseTimeout). Доти всі чотири жили
+// під одним трихвилинним: довідник, що відповідав по 30 секунд, зʼїдав час
+// курсам, аукціонам і ІСЦ, і вони падали на контексті, хоч самі були
+// живі. Так само запис курсу, що не вдався, більше не обриває аукціонів і
+// ІСЦ — лише пишеться в журнал.
 func (r *Runner) RefreshAll(ctx context.Context) error {
 	r.refreshMu.Lock()
 	defer r.refreshMu.Unlock()
-	dirErr := r.refreshDirectory(ctx)
+	phase := func(fn func(context.Context) error) error {
+		pctx, cancel := context.WithTimeout(ctx, phaseTimeout)
+		defer cancel()
+		return fn(pctx)
+	}
+	dirErr := phase(r.refreshDirectory)
 
+	if err := phase(r.refreshRates); err != nil {
+		r.log.Warn("курси не збережено", "err", err)
+	}
+
+	// Аукціони не фатальні, як і курс: без них не буде кривої первинного
+	// ринку, але портфель рахується й публікується далі.
+	if err := phase(r.RefreshAuctions); err != nil {
+		r.log.Warn("аукціони недоступні", "err", err)
+	}
+	// ІСЦ — теж не фатальний і з тієї ж причини. Виходить він раз на
+	// місяць, тож більшість прогонів тут не робить жодного запиту.
+	if err := phase(r.RefreshCPI); err != nil {
+		r.log.Warn("ІСЦ недоступний", "err", err)
+	}
+	return dirErr
+}
+
+// phaseTimeout — стеля однієї фази RefreshAll. Чотири фази разом
+// вміщуються в добовий прогін із запасом; одна повільна не забирає часу
+// в решти.
+const phaseTimeout = 90 * time.Second
+
+// refreshRates — сьогоднішні курси USD і EUR. Кожна валюта окремо:
+// недоступний долар не скасовує євро.
+func (r *Runner) refreshRates(ctx context.Context) error {
 	rateDate := domain.NewDate(time.Now().In(r.loc))
+	var firstErr error
 	for _, code := range []string{"USD", "EUR"} {
 		rate, quoted, err := r.nbu.RateOn(ctx, code, "")
 		if err != nil {
@@ -223,22 +261,14 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 			d = quoted
 		}
 		if err := r.st.SaveRate(ctx, code, rate, d); err != nil {
-			return err
+			if firstErr == nil {
+				firstErr = fmt.Errorf("курс %s: %w", code, err)
+			}
+			continue
 		}
 		r.log.Info("курс збережено", "code", code, "rate_e4", rate, "дата", string(d))
 	}
-
-	// Аукціони не фатальні, як і курс: без них не буде кривої первинного
-	// ринку, але портфель рахується й публікується далі.
-	if err := r.RefreshAuctions(ctx); err != nil {
-		r.log.Warn("аукціони недоступні", "err", err)
-	}
-	// ІСЦ — теж не фатальний і з тієї ж причини. Виходить він раз на
-	// місяць, тож більшість прогонів тут не робить жодного запиту.
-	if err := r.RefreshCPI(ctx); err != nil {
-		r.log.Warn("ІСЦ недоступний", "err", err)
-	}
-	return dirErr
+	return firstErr
 }
 
 // refreshDirectory — довідник НБУ й мітка його свіжості.

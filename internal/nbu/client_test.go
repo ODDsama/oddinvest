@@ -277,3 +277,23 @@ func TestParseSecuritiesSkipsBadRecord(t *testing.T) {
 		t.Errorf("кривий запис мав піти в пропущені з ISIN: %v", skipped)
 	}
 }
+
+// Курс, що прийшов не для тієї валюти або нульовий, — помилка, а не
+// котирування: записаний, він зробив би всі гривневі еквіваленти валюти
+// нулем або чужим числом, і мовчки.
+func TestRateOnRejectsWrongCurrencyAndZero(t *testing.T) {
+	for name, body := range map[string]string{
+		"чужа валюта": `[{"rate":48.1,"cc":"EUR","exchangedate":"15.07.2026"}]`,
+		"нуль":        `[{"rate":0,"cc":"USD","exchangedate":"15.07.2026"}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(body)) //nolint:errcheck // тестовий стенд
+			}))
+			defer srv.Close()
+			if _, _, err := New(srv.URL).RateOn(context.Background(), "USD", ""); err == nil {
+				t.Error("чекали помилку")
+			}
+		})
+	}
+}

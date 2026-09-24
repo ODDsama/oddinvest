@@ -104,7 +104,22 @@ func (r *Runner) fetchCPI(ctx context.Context, month string) (nbu.CPIPoint, erro
 	return r.nbu.Inflation(ctx, month)
 }
 
-// fillCPIGaps — місяці, яких у ряду бракує між крайніми точками.
+// CPIHistoryYears — глибина ряду ІСЦ: стільки років бекфіл тягне при
+// старті, і від стільки ж років fillCPIGaps добирає початок ряду.
+// Одинадцять, а не десять: ряд виходить із затримкою, тож рівно десять
+// давали б десятирічне вікно на 119 місяцях.
+const CPIHistoryYears = 11
+
+// CPIBackfillMinMonths — від скількох місяців ряд вважається наповненим:
+// менше — стартовий BackfillCPIIfThin тягне його весь, більше — ведучі
+// місяці добирає добовий fillCPIGaps.
+const CPIBackfillMinMonths = 100
+
+// fillCPIGaps — місяці, яких у ряду бракує між крайніми точками, І ПЕРЕД
+// першою — до горизонту CPIHistoryYears. Ведучі місяці — теж дірка:
+// бекфіл, якому НБУ не віддав перших років, лишав ряд, що починається
+// пізніше за горизонт, а BackfillCPIIfThin на повному вже ряді більше не
+// запускається.
 //
 // Окремо від бекфілу, бо це інша ситуація: бекфіл наповнює порожнє, а це
 // латає вже наявне. Стеля на прогін є, і саме тому дірки закриваються за
@@ -120,6 +135,17 @@ func (r *Runner) fillCPIGaps(ctx context.Context) error {
 		dom = append(dom, domain.CPIPoint{Period: p.Period, MoMBP: p.MoMBP, YoYBP: p.YoYBP})
 	}
 	gaps := domain.CPIGaps(dom)
+	// Ведучі — лише для НАПОВНЕНОГО ряду: порожній чи тонкий тягне
+	// стартовий бекфіл, і добова джоба не має перебирати за нього роки.
+	if len(pts) >= CPIBackfillMinMonths {
+		first := prevMonth(monthOf(time.Now().In(r.loc)))
+		for i := 0; i < CPIHistoryYears*12; i++ {
+			first = prevMonth(first)
+		}
+		for m := first; m < pts[0].Period; m = nextMonth(m) {
+			gaps = append(gaps, m)
+		}
+	}
 	if len(gaps) == 0 {
 		return nil
 	}

@@ -415,9 +415,19 @@ func (c *Client) RateOn(ctx context.Context, code string, on domain.Date) (int64
 	if len(raw) == 0 {
 		return 0, "", fmt.Errorf("НБУ exchange: порожня відповідь для %s", code)
 	}
+	// Курс не тієї валюти чи нульовий — помилка, а не котирування:
+	// записаний, він зробив би гривневі еквіваленти валюти чужим числом
+	// або нулем, і мовчки. Порожній cc — старі відповіді без поля, їм
+	// віримо, як і доти.
+	if cc := strings.TrimSpace(raw[0].CC); cc != "" && !strings.EqualFold(cc, code) {
+		return 0, "", fmt.Errorf("НБУ exchange: просили %s, прийшов курс %s", strings.ToUpper(code), cc)
+	}
 	e4, err := fx.ParseRateE4(raw[0].Rate.String())
 	if err != nil {
 		return 0, "", err
+	}
+	if e4 <= 0 {
+		return 0, "", fmt.Errorf("НБУ exchange: нульовий курс %s", strings.ToUpper(code))
 	}
 	return e4, parseExchangeDate(raw[0].ExchangeDate), nil
 }
