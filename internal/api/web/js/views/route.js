@@ -453,7 +453,6 @@ export async function renderRoute(ctx, main) {
     b.addEventListener("click", async () => {
       const leg = (doc.legs || [])[Number(b.dataset.pin)];
       if (!leg) return;
-      b.disabled = true;
       const requests = (leg.lines || []).filter((l) => l.addable).map((l) => ({
         path: "plan/buys",
         body: {
@@ -463,7 +462,10 @@ export async function renderRoute(ctx, main) {
           note: `маршрут: ${leg.label} · ${leg.date}`,
         },
       }));
+      // Кнопку вимикаємо ПІСЛЯ перевірки, що є що класти: доти вона
+      // вимикалась першою й на порожній нозі так і лишалась мертвою.
       if (!requests.length) return;
+      b.disabled = true;
       try {
         for (const rq of requests) await ctx.api("POST", rq.path, rq.body);
         // Далі вибір тримає план купівель — рядок із тим самим ISIN уже

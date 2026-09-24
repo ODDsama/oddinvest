@@ -347,6 +347,10 @@ export function fillForm(form, values) {
  *  екранів пізніше за проводку сторінки. Ловилось би це не помилкою, а
  *  тим, що поле просто не з'являється.
  *
+ *  fields — рядок або масив рядків, як їх повертають списки полів
+ *  (fields.js). Масив доти вставлявся як є, тобто через кому: між полями
+ *  модалки стояли зайві «,», і ловилось це лише оком.
+ *
  *  → Promise<boolean>: збережено чи ні. Помилка бекенда лишає діалог
  *  відкритим разом із уже введеним. */
 export function openEdit(ctx, { title, fields, submit = "Зберегти", wire = null }, build) {
@@ -358,7 +362,7 @@ export function openEdit(ctx, { title, fields, submit = "Зберегти", wire
   }
   const box = pop.querySelector(".box");
   box.innerHTML = `<h4 id="editPopTitle">${title}</h4>
-    <form id="editForm">${fields}
+    <form id="editForm">${Array.isArray(fields) ? fields.join("") : fields}
       <div class="form-actions">
         <button type="submit">${submit}</button>
         <button type="button" class="quiet" data-editcancel>Скасувати</button>

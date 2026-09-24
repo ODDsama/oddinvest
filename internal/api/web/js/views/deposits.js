@@ -151,10 +151,13 @@ export function topupFormHTML(ctx, d) {
 
 /** Поля дострокового розірвання. Банк перерахує відсотки сам за штрафною
  *  ставкою — ми лише вводимо те, що реально прийшло на рахунок. */
-export const closeFields = (ctx, d) => [
-  dateField("closed_date", "Дата розірвання", { required: true }),
+export const closeFields = (ctx, d, row = null) => [
+  dateField("closed_date", "Дата розірвання", {
+    required: true, ...(row ? { value: row.closed_date } : {}),
+  }),
   moneyField("closed_amount", "Отримано (тіло + відсотки)", {
-    ph: d.balance.amount, required: true,
+    ph: (d.balance || {}).amount || "", required: true,
+    value: row ? (row.closed_amount || {}).amount || "" : "",
   }),
 ];
 
@@ -175,9 +178,11 @@ export function closedDepositsHTML(ctx, deposits) {
       { key: "principal", label: "Тіло", num: true, cell: (d) => fmtMoney(d.principal) },
       { key: "closed_date", label: "Розірвано", cell: (d) => esc(d.closed_date) },
       { key: "closed_amount", label: "Отримано", num: true, cell: (d) => fmtMoney(d.closed_amount) },
-      actionsCol("term-deposits", {
-        edit: false, label: (d) => "закритий вклад #" + d.id,
-      }),
+      // Власний ресурс, а не "term-deposits": правка тут — САМЕ розірвання
+      // (дата й отримана сума), а не повна форма вкладу. Доти правки не
+      // було зовсім, і одруківку в отриманій сумі виправляли лише
+      // видаленням вкладу разом з усією його історією.
+      actionsCol("closed-deposits", { label: (d) => "закритий вклад #" + d.id }),
     ],
     rows: closed,
     caption: "Закриті достроково вклади: банк, тіло, дата розірвання, отримано",
@@ -245,6 +250,19 @@ export function wireDeposits(ctx, main, deposits = []) {
         del: "Поповнення видалено",
       },
     });
+  });
+
+  // Правка розірвання — тим самим PUT, що й саме розірвання (нижче).
+  wireCrud(ctx, main, {
+    resource: "closed-deposits", title: "Закритий вклад",
+    rows: (deposits || []).filter((d) => d.closed_date),
+    path: (id) => "term-deposits/" + id,
+    fields: (c, row) => closeFields(c, row, row),
+    body: (f, row) => bodyFromRow(row, {
+      closed_date: f.closed_date.value,
+      closed_amount: f.closed_amount.value.trim(),
+    }),
+    msg: { edit: "Розірвання виправлено", del: "Вклад видалено" },
   });
 
   // Розірвання = PUT усього вкладу з проставленими closed_*: банк

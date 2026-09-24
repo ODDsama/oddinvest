@@ -12,7 +12,7 @@
 // найпотрібніша.
 
 import { esc, today } from "../format.js";
-import { onSubmit, onDelete } from "../forms.js";
+import { onSubmit, onDelete, confirmDialog } from "../forms.js";
 import { text, formHTML } from "../fields.js";
 import { inlineEdit } from "../crud.js";
 import { infoBtn } from "../info.js";
@@ -300,7 +300,10 @@ export function bindBackup(ctx, main) {
       const text = await file.text();
       const data = JSON.parse(text);
       const n = (data.lots || []).length;
-      if (!confirm(`Відновити з бекапу? Це ЗАМІНИТЬ усі поточні дані (${n} лот(ів) у файлі). Дію не скасувати.`)) {
+      // Діалог застосунку, а не window.confirm (див. forms.js confirmDialog).
+      if (!await confirmDialog(ctx,
+        `Відновити з бекапу? Це ЗАМІНИТЬ усі поточні дані (${n} лот(ів) у файлі). Дію не скасувати.`,
+        { yes: "Відновити" })) {
         e.target.value = "";
         return;
       }

@@ -28,6 +28,7 @@ import {
 import { refSelect, refValue } from "../refs.js";
 import { routeFor } from "../routes.js";
 import { disclosure } from "../disclosure.js";
+import { confirmDialog } from "../forms.js";
 
 // ---------- ГАМАНЕЦЬ ----------
 
@@ -870,6 +871,15 @@ export function wireImportProfiles(ctx, main, debts = []) {
         debt_id: Number(fd.get("debt_id") || 0),
         ops: String(fd.get("ops") || ""), note: String(fd.get("note") || ""),
       });
+      // Перейменування. PUT за назвою — це upsert, тож нова назва
+      // створювала ДРУГИЙ профіль, а старий лишався поруч зі старими
+      // колонками. Стару назву форма пам'ятає з «Змінити» й прибирає її
+      // ПІСЛЯ збереження нової: на збої першого кроку профіль не зникає.
+      const was = form.dataset.editing || "";
+      if (was && was !== name) {
+        await ctx.api("DELETE", "import/profiles/" + encodeURIComponent(was));
+      }
+      delete form.dataset.editing;
       ctx.toast("Профіль збережено");
       await ctx.reload();
     } catch (err) { ctx.toast(String(err.message || err), false); }
@@ -887,13 +897,16 @@ export function wireImportProfiles(ctx, main, debts = []) {
         if (!p) { ctx.toast("Профіль не знайдено", false); return; }
         form.innerHTML = profileFields(ctx, p, debts).join("")
           + `<div class="form-actions"><button type="submit">Зберегти профіль</button></div>`;
+        form.dataset.editing = p.name;
         form.scrollIntoView({ block: "nearest" });
       } catch (err) { ctx.toast(String(err.message || err), false); }
     });
   });
   main.querySelectorAll(".profDel").forEach((b) => {
     b.addEventListener("click", async () => {
-      if (!window.confirm(`Видалити профіль «${b.dataset.name}»?`)) return;
+      // Діалог застосунку, а не window.confirm: у вбудованому вигляді
+      // (PWA, панель) той мовчки повертає false, і кнопка не робила нічого.
+      if (!await confirmDialog(ctx, `Видалити профіль «${b.dataset.name}»?`)) return;
       try {
         await ctx.api("DELETE", "import/profiles/" + encodeURIComponent(b.dataset.name));
         ctx.toast("Профіль видалено");

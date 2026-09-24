@@ -492,7 +492,9 @@ export function concentrationCard(ctx) {
     const limit = list[0].limit_pct;
     const items = list.map((r) => {
       const over = r.over_uah > 0;
-      const bar = Math.min(100, (r.share_pct / Math.max(limit, r.share_pct)) * 100);
+      // Нуль на нуль давав NaN у ширині смуги.
+      const den = Math.max(limit, r.share_pct);
+      const bar = den > 0 ? Math.min(100, (r.share_pct / den) * 100) : 0;
       // Ключ поруч із назвою корисний для облігації (ISIN — те, що шукають
       // у брокера), але для фонду він лише повторює назву: ключ там —
       // службовий «fund:Назва».
