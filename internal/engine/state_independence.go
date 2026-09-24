@@ -93,8 +93,12 @@ func buildDrawdown(in drawdownInput) *state.Drawdown {
 	if in.WithdrawUAH <= 0 {
 		return nil
 	}
-	// Рукави БЕЗ внеску: це й є декумуляція.
-	sl := in.Factory.build(0, 0)
+	// Рукави БЕЗ внеску: це й є декумуляція. І без плану надходжень
+	// (buildPlanFree): ліквідний бік DrawdownMonths і так крокує з нульовим
+	// внеском, але пенсійні внески плану сидять в Accum.ContribByMonth і
+	// росли б повз нього — а на виплаті НПФ ставали б ліквідними грошима,
+	// яких без зарплати ніхто не заплатив би.
+	sl := in.Factory.buildPlanFree(0, 0)
 	months := domain.DrawdownMonths(sl, in.Deval, in.WithdrawUAH, goalHorizonMonths)
 	out := &state.Drawdown{
 		WithdrawUAH:  state.Major(in.WithdrawUAH, money.UAH),

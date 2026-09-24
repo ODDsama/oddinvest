@@ -1023,3 +1023,23 @@ func TestActualCurveReplacesPlan(t *testing.T) {
 		t.Errorf("крива «За фактом» закінчується на %.2f, а рядок каже %.2f", last.Actual.Major(), row)
 	}
 }
+
+// Декумуляція — «на скільки вистачить БЕЗ внесків», тож план надходжень у
+// ній не бере участі. Доти рукави збирав factory.build — з плановою
+// зарплатою, — і «вистачить» з планом, що покриває зняття, тягнулось до
+// кінця горизонту.
+func TestDrawdownIgnoresPlanIncome(t *testing.T) {
+	w := 20_000.0
+	in := forecastInput(t, &state.SettingsDoc{WithdrawMonthlyUAH: &w})
+	base := buildProjection(in).Drawdown
+	in.PlanFlows = []store.PlanFlow{{Name: "Зарплата", Kind: "income", Amount: 5_000_000,
+		Currency: "UAH", Cadence: "month", FromDate: "2026-01-15", InvestBP: 10000}}
+	got := buildProjection(in).Drawdown
+	if base == nil || got == nil {
+		t.Fatal("декумуляції немає")
+	}
+	if got.Months != base.Months {
+		t.Errorf("з планом вистачає на %d міс, без плану — на %d: план доливає внески в декумуляцію",
+			got.Months, base.Months)
+	}
+}
