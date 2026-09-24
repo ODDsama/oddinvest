@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -1242,6 +1243,32 @@ func (m idMaps) of(table string, old int64) int64 {
 	return old
 }
 
+// refTables — вид текстового посилання «<вид>:<id>» → таблиця, чий id у
+// ньому. Вид за НАЗВОЮ («fund:Inzhur Ocean», рядок НПФ «npf:<назва>»)
+// числом не розбирається й лишається як є.
+var refTables = map[string]string{
+	"npf": "npf_accounts", "deposit": "term_deposits", "goal": "goals",
+}
+
+// remapRef — текстове посилання на рядок, якому відновлення дало новий id.
+//
+// Числові FK перечіплювались за idMaps, а текстові — ні: призначення
+// потоку «npf:<id>», приховані рядки «goal:<id>»/«deposit:<id>» після
+// відновлення в портфель із зайнятими id показували на чужий рахунок або
+// в нікуди (TestRestoreRemapsTextRefs).
+func (m idMaps) remapRef(ref string) string {
+	kind, raw, ok := strings.Cut(ref, ":")
+	table := refTables[kind]
+	if !ok || table == "" {
+		return ref
+	}
+	old, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return ref
+	}
+	return kind + ":" + strconv.FormatInt(m.of(table, old), 10)
+}
+
 // insert — вставити рядок з його id з бекапу, якщо той вільний, інакше з
 // новим, і запамʼятати заміну. tmpl має два %s: місце для «id,» у переліку
 // колонок і для «?,» у VALUES. Назва таблиці стоїть у самому tmpl, а не
@@ -1712,7 +1739,7 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			`INSERT INTO plan_flows (%sportfolio_id,name,kind,amount,currency,cadence,from_date,until_date,
 			 growth_bp,invest_bp,dest,uses,note) VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			s.pid, f.Name, f.Kind, f.Amount, f.Currency, f.Cadence, f.FromDate, f.UntilDate,
-			f.GrowthBP, f.InvestBP, f.Dest, f.Uses, f.Note); err != nil {
+			f.GrowthBP, f.InvestBP, ids.remapRef(f.Dest), f.Uses, f.Note); err != nil {
 			return fmt.Errorf("плановий потік %d: %w", f.ID, err)
 		}
 	}
@@ -1724,7 +1751,7 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			 cadence,from_date,until_date,growth_bp,invest_bp,dest,uses,note)
 			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			s.pid, ids.of("plan_flows", r.FlowID), r.ChangedAt, r.Op, r.Name, r.Kind, r.Amount, r.Currency,
-			r.Cadence, r.FromDate, r.UntilDate, r.GrowthBP, r.InvestBP, r.Dest,
+			r.Cadence, r.FromDate, r.UntilDate, r.GrowthBP, r.InvestBP, ids.remapRef(r.Dest),
 			r.Uses, r.Note); err != nil {
 			return fmt.Errorf("ревізія потоку %d: %w", r.ID, err)
 		}
@@ -1753,6 +1780,11 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		broker, err := brokerRef(p.Broker)
 		if err != nil {
 			return err
+		}
+		// Ref рядка НПФ — id рахунку ГОЛИМ числом (plan_buys.go), тож
+		// перечіплюється тим самим шляхом, що й «npf:<id>».
+		if p.Kind == "npf" {
+			p.Ref = strings.TrimPrefix(ids.remapRef("npf:"+p.Ref), "npf:")
 		}
 		if err := ids.insert(ctx, tx, "plan_buys", p.ID,
 			`INSERT INTO plan_buys (%sportfolio_id,kind,ref,qty,amount,unit_price,currency,broker_id,
@@ -1814,13 +1846,14 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			return fmt.Errorf("налаштування %q: %w", k, err)
 		}
 	}
-	// Приховані рядки — плоский список без жодних посилань на id, тож
-	// перенумерація рядків (idMaps) його не стосується: «fund:Inzhur Ocean»
-	// адресує позицію назвою, а не ключем.
+	// Приховані рядки: «fund:Inzhur Ocean» адресує позицію назвою, а
+	// «goal:<id>» і «deposit:<id>» — id, і ті перечіплюються за idMaps
+	// (remapRef). Доти тут стояло «посилань на id немає» — неправда для
+	// цілей і вкладів.
 	for _, id := range b.HiddenRows {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT OR IGNORE INTO hidden_rows (portfolio_id, row_id) VALUES (?,?)`,
-			s.pid, id); err != nil {
+			s.pid, ids.remapRef(id)); err != nil {
 			return fmt.Errorf("прихований рядок %q: %w", id, err)
 		}
 	}
