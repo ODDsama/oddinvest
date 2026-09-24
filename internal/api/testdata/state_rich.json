@@ -1247,91 +1247,91 @@
           "plan": 1043161.97,
           "optimistic": 1050361.19,
           "pessimistic": 1036298.37,
-          "actual": 1040611.58
+          "actual": 1028088.28
         },
         {
           "month": 6,
           "plan": 1298601.09,
           "optimistic": 1317428.67,
           "pessimistic": 1280847.66,
-          "actual": 1293524.07
+          "actual": 1268514
         },
         {
           "month": 9,
           "plan": 1550561.08,
           "optimistic": 1585639.26,
           "pessimistic": 1517834.19,
-          "actual": 1542943.38
+          "actual": 1505483.5
         },
         {
           "month": 12,
           "plan": 1803278.06,
           "optimistic": 1859656.05,
           "pessimistic": 1751292.44,
-          "actual": 1793142.92
+          "actual": 1743288.08
         },
         {
           "month": 15,
           "plan": 2053391.75,
           "optimistic": 2136204.95,
           "pessimistic": 1977878.51,
-          "actual": 2040739.4
+          "actual": 1978564.98
         },
         {
           "month": 18,
           "plan": 2302211.01,
           "optimistic": 2416861.28,
           "pessimistic": 2198885.57,
-          "actual": 2287058.91
+          "actual": 2212632.15
         },
         {
           "month": 21,
           "plan": 2549740.98,
           "optimistic": 2701867.86,
           "pessimistic": 2414240.46,
-          "actual": 2532109.27
+          "actual": 2445480.26
         },
         {
           "month": 24,
           "plan": 2795951.65,
           "optimistic": 2991477.86,
           "pessimistic": 2623866.49,
-          "actual": 2775855.52
+          "actual": 2677101.8
         },
         {
           "month": 27,
           "plan": 3040589.09,
           "optimistic": 3285778.73,
           "pessimistic": 2827462.97,
-          "actual": 3018044.66
+          "actual": 2907249.1
         },
         {
           "month": 30,
           "plan": 3283464.82,
           "optimistic": 3585090.81,
           "pessimistic": 3024695.25,
-          "actual": 3258483.53
+          "actual": 3135731.6
         },
         {
           "month": 33,
           "plan": 3524442.86,
           "optimistic": 3889569.18,
           "pessimistic": 3215202.63,
-          "actual": 3497027.37
+          "actual": 3362416.76
         },
         {
           "month": 36,
           "plan": 3763329.33,
           "optimistic": 4198926.29,
           "pessimistic": 3399158.89,
-          "actual": 3733505.66
+          "actual": 3587133.09
         },
         {
           "month": 39,
           "plan": 4000000,
           "optimistic": 4513275.15,
           "pessimistic": 3576434.79,
-          "actual": 3967797.09
+          "actual": 3809768.01
         }
       ]
     }

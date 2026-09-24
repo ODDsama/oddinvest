@@ -1000,3 +1000,26 @@ func TestContributedIncludesPlanFlows(t *testing.T) {
 		t.Errorf("за рік «Внесено» мало зрости на %.2f (план у сьогоднішніх гривнях), маємо %.2f", want, diff)
 	}
 }
+
+// Та сама заміна — і в кривій прогнозу: серія «За фактом» мусить
+// закінчуватись тим самим числом, що й рядок «За фактом».
+func TestActualCurveReplacesPlan(t *testing.T) {
+	in := forecastInput(t, goalSettings("", "2030-07-15"))
+	in.PlanFlows = []store.PlanFlow{{Name: "Зарплата", Kind: "income", Amount: 2_000_000,
+		Currency: "UAH", Cadence: "month", FromDate: "2026-01-15", InvestBP: 10000}}
+	in.ActualMonthly = 20000
+	got := buildProjection(in).Forecast
+	if got == nil || got.Curve == nil || len(got.Curve.Points) == 0 {
+		t.Fatal("кривої немає")
+	}
+	var row float64
+	for _, r := range got.Rows {
+		if r.Key == "actual" {
+			row = r.Amount.Major()
+		}
+	}
+	last := got.Curve.Points[len(got.Curve.Points)-1]
+	if math.Abs(last.Actual.Major()-row) > 0.01 {
+		t.Errorf("крива «За фактом» закінчується на %.2f, а рядок каже %.2f", last.Actual.Major(), row)
+	}
+}

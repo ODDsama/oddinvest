@@ -1206,8 +1206,13 @@ func buildForecastCurve(factory sleeveFactory, defs []scenarioDef,
 	// одні; збирати їх у точки можна за індексом.
 	series := map[string][]domain.SeriesPoint{}
 	for _, d := range defs {
-		series[d.key] = domain.ProjectSleevesSeries(
-			factory.build(d.contrib, d.ratePP), d.deval, months, step)
+		sl := factory.build(d.contrib, d.ratePP)
+		if d.key == "actual" {
+			// Факт замість плану — те саме правило, що в рядку «За фактом»,
+			// інакше крива закінчувалась би не тим числом, що рядок над нею.
+			sl = factory.buildPlanFree(d.contrib, d.ratePP)
+		}
+		series[d.key] = domain.ProjectSleevesSeries(sl, d.deval, months, step)
 	}
 	plan := series["realistic"]
 	if len(plan) == 0 {
