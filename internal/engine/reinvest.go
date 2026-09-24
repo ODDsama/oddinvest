@@ -787,9 +787,17 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			}
 		}
 		gross := nominal // до податку — для розкладу ставки
-		if f.IncomeTaxPct > 0 {
+		switch {
+		case f.IncomeTaxPct > 0 && f.ExpectedPct > 0:
 			nominal = Round2(domain.NetOfTax(nominal, f.IncomeTaxPct, years))
 			basis += ", після податку"
+		case f.IncomeTaxPct > 0 && f.IncomeTaxPct < 100:
+			// Виміряна дохідність (YieldNetPct) УЖЕ після податку: дивіденди
+			// приходять нетто, і податок узято з кожної виплати. Доти вона
+			// йшла через NetOfTax удруге — 10% ставали 8,05%, і фонд падав у
+			// рейтингу на податок, якого ніхто не бере двічі. Брутто для
+			// розкладу ставки — відновлене з нетто тією ж ставкою.
+			gross = nominal / (1 - f.IncomeTaxPct/100)
 		}
 		fundCost := fundUnitCost(f.LastPrice, c) // спільне з кошиком (unit_cost.go)
 		if fundCost.Amount() <= 0 {
