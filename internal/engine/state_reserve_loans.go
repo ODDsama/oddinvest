@@ -141,9 +141,7 @@ func ReserveRepays(loans []store.ReserveLoan, ops []store.ReserveOp,
 		if len(q) == 0 {
 			continue
 		}
-		owed, _ := domain.ReserveLoanBalance(l.TakenAmount, l.RateBP, l.TakenDate,
-			byLoan[l.ID], today)
-		for owed > 0 && len(q) > 0 {
+		for len(q) > 0 {
 			take := q[0]
 			// Поповнення, старіше за саму позику, її не гасить — і не
 			// згодиться нікому далі: позики йдуть від найстарішої, тож
@@ -154,6 +152,16 @@ func ReserveRepays(loans []store.ReserveLoan, ops []store.ReserveOp,
 				q = q[1:]
 				continue
 			}
+			// Борг — НА ДАТУ ПОПОВНЕННЯ, а не на сьогодні. Доти тут стояв
+			// борг станом на today, з усім відсотком, що набіг ПІСЛЯ цього
+			// поповнення: гроші наступного дня після узяття йшли в першу
+			// позику з запасом на рік уперед, надлишок зникав, а наступна
+			// лишалась відкритою (TestReserveRepayMatchedAtRepayDate).
+			owed, _ := domain.ReserveLoanBalance(l.TakenAmount, l.RateBP, l.TakenDate,
+				byLoan[l.ID], take.Date)
+			if owed <= 0 {
+				break
+			}
 			if take.Amount > owed {
 				// Решта поповнення лишається в черзі наступним позикам:
 				// одне поповнення може закрити дві.
@@ -162,7 +170,6 @@ func ReserveRepays(loans []store.ReserveLoan, ops []store.ReserveOp,
 				break
 			}
 			byLoan[l.ID] = append(byLoan[l.ID], take)
-			owed -= take.Amount
 			q = q[1:]
 		}
 		free[l.TakenCurrency] = q
