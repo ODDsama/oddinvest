@@ -9,6 +9,8 @@ package api
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -154,6 +156,84 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.importStatement(w, r, prof)
+}
+
+// importSinceKey — водяний знак ПРОФІЛЮ (стан портфеля, app_state).
+//
+// Доти ключ був один на всі виписки (settings.import_since): імпорт
+// картки 25-го ховав рядки брокерської виписки, старші за 25-те, і
+// навпаки. Рішення власника (2026-09-24): свій для кожного профілю.
+func importSinceKey(profile string) string {
+	return "import_since:" + strings.ToLower(strings.TrimSpace(profile))
+}
+
+// importSince — водяний знак профілю; без нього — старий спільний ключ,
+// щоб перше оновлення не почало перебирати всю історію з нуля.
+func (s *Server) importSince(ctx context.Context, profile string) (string, error) {
+	v, err := s.st.GetOwnState(ctx, importSinceKey(profile))
+	if err != nil || v != "" {
+		return v, err
+	}
+	return s.st.GetSetting(ctx, "import_since")
+}
+
+// nextImportSince — новий водяний знак після справжнього імпорту.
+//
+// Доти він ставав «сьогодні». Але рядки, пропущені з причиною, яку можна
+// виправити («додай позначку ціни… і рядок зайде», «онови довідник»),
+// після цього опинялись старшими за знак — і не заходили вже НІКОЛИ.
+// Тепер: найпізніша дата розглянутих рядків (записаних чи вже наявних),
+// але не пізніша за найраніший пропущений — його ще має бути видно.
+// Рядки на самій межі розглянуться вдруге, і дедуплікація їх відкине.
+func nextImportSince(prev string, rows []outRow, skipped []imports.Skipped) string {
+	next := prev
+	for _, r := range rows {
+		if r.Date > next {
+			next = r.Date
+		}
+	}
+	for _, sk := range skipped {
+		if sk.Date != "" && sk.Date < next {
+			next = sk.Date
+		}
+	}
+	return next
+}
+
+// handleImportSince — водяний знак профілю: показати й посунути руками
+// («перезавантажити позаминулий місяць» інакше неможливе).
+func (s *Server) handleImportSince(w http.ResponseWriter, r *http.Request) {
+	profile := r.URL.Query().Get("profile")
+	if profile == "" {
+		profile = inzhurProfile
+	}
+	if r.Method == http.MethodPut {
+		var req struct {
+			Since string `json:"since"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if req.Since != "" {
+			if _, err := domain.ParseDate(req.Since); err != nil {
+				writeErr(w, http.StatusBadRequest, err)
+				return
+			}
+		}
+		if err := s.st.SetOwnState(r.Context(), importSinceKey(profile), req.Since); err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	since, err := s.importSince(r.Context(), profile)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"since": since})
 }
 
 // inzhurProfile — назва вбудованого розбору. Іменем, а не літералом у
@@ -351,7 +431,11 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 	// Виписка щомісяця приносить повну історію, і покладатись лише на
 	// дедуплікацію більше не можна — після ручного підчищення журналу
 	// старі рядки почали проситися назад.
-	since, err := s.st.GetSetting(ctx, "import_since")
+	profName := inzhurProfile
+	if prof != nil {
+		profName = prof.Name
+	}
+	since, err := s.importSince(ctx, profName)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -389,6 +473,7 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		}
 	}
 
+	parserSkipped := len(out.Skipped) // далі — пропуски самого імпорту, з датами
 	for _, row := range res.Rows {
 		if since != "" && string(row.Date) < since {
 			out.Before++
@@ -630,11 +715,12 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		}
 	}
 	if !dry {
-		if serr := s.st.SetSetting(ctx, "import_since", string(today)); serr != nil {
+		next := nextImportSince(since, out.Rows, out.Skipped[parserSkipped:])
+		if serr := s.st.SetOwnState(ctx, importSinceKey(profName), next); serr != nil {
 			writeErr(w, http.StatusInternalServerError, serr)
 			return
 		}
-		out.Since = string(today)
+		out.Since = next
 		if out.Imported > 0 {
 			s.publishAsync()
 		}

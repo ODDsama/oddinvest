@@ -315,6 +315,8 @@ func (s *Server) routes() *http.ServeMux {
 	// Імпорт виписки. /api/import — за профілем; /api/import/inzhur —
 	// історичний псевдонім на один реліз (див. handlers_import.go).
 	mux.HandleFunc("POST /api/import", s.handleImport)
+	mux.HandleFunc("GET /api/import/since", s.handleImportSince)
+	mux.HandleFunc("PUT /api/import/since", s.handleImportSince)
 	mux.HandleFunc("POST /api/import/inzhur", s.handleImportInzhur)
 	mux.HandleFunc("GET /api/import/profiles", s.handleListImportProfiles)
 	mux.HandleFunc("PUT /api/import/profiles/{name}", s.handleSaveImportProfile)

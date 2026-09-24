@@ -658,13 +658,22 @@ export function wireImport(ctx, main) {
 
   // Водяний знак: показуємо поточний і даємо посунути руками — інакше
   // «перезавантажити позаминулий місяць» стало б неможливим узагалі.
+  //
+  // Знак — СВІЙ у кожного профілю (handlers_import.go, importSinceKey): доти
+  // він був один на всі виписки, і картка 25-го ховала рядки брокера,
+  // старші за 25-те. Тож поле перечитується, щойно міняють профіль.
   const since = main.querySelector("#impSince");
+  const profSel = main.querySelector('[name="profile"]');
+  const profOf = () => (profSel || {}).value || "inzhur";
+  const sinceURL = () => "import/since?profile=" + encodeURIComponent(profOf());
   if (since) {
-    ctx.api("GET", "settings")
-      .then((s) => { if (s && s.import_since) since.value = s.import_since; })
+    const load = () => ctx.api("GET", sinceURL())
+      .then((s) => { since.value = (s && s.since) || ""; })
       .catch(() => {});
+    load();
+    if (profSel) profSel.addEventListener("change", load);
     since.addEventListener("change", async () => {
-      try { await ctx.api("PUT", "settings", { import_since: since.value }); ctx.toast("Дату змінено"); }
+      try { await ctx.api("PUT", sinceURL(), { since: since.value }); ctx.toast("Дату змінено"); }
       catch (err) { ctx.toast(String(err.message || err), false); }
     });
   }

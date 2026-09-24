@@ -42,10 +42,14 @@ func testServer(t *testing.T) (*httptest.Server, *store.Store) {
 // виписка не розглядає взагалі. Тестам він потрібен явно — фікстури
 // датовані фіксованим липнем 2026, а справжній знак ставиться на день
 // запуску, тож без цього тести залежали б від сьогоднішнього числа.
+// importSince — водяний знак імпорту для всіх профілів, якими ходять
+// тести (знак свій у кожного профілю, handlers_import.go).
 func importSince(t *testing.T, st *store.Store, date string) {
 	t.Helper()
-	if err := st.SetSetting(context.Background(), "import_since", date); err != nil {
-		t.Fatal(err)
+	for _, p := range []string{inzhurProfile, "mono", "card"} {
+		if err := st.SetOwnState(context.Background(), importSinceKey(p), date); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -1216,22 +1220,24 @@ func TestImportIgnoresRowsOlderThanWatermark(t *testing.T) {
 	}
 	// Перегляд не має рухати знак: інакше кнопка «Переглянути» тихо
 	// з'їдала б період, і справжній імпорт уже нічого не побачив би.
-	if got, _ := st.GetSetting(context.Background(), "import_since"); got != "2026-07-15" {
+	if got, _ := st.GetOwnState(context.Background(), importSinceKey(inzhurProfile)); got != "2026-07-15" {
 		t.Errorf("перегляд зсунув знак на %q", got)
 	}
 
-	// Справжній імпорт рухає знак на СЬОГОДНІ, а не на 2026-07-21.
+	// Справжній імпорт рухає знак на межу РОЗГЛЯНУТОГО (купівля 21-го), а
+	// не на сьогодні: рядок, пропущений із причиною, яку можна виправити,
+	// лишається видимим (nextImportSince).
 	post(false)
-	today := string(domain.NewDate(time.Now()))
-	got, _ := st.GetSetting(context.Background(), "import_since")
-	if got != today {
-		t.Errorf("після імпорту знак %q, хочемо день запуску %q", got, today)
+	got, _ := st.GetOwnState(context.Background(), importSinceKey(inzhurProfile))
+	if got != "2026-07-21" {
+		t.Errorf("після імпорту знак %q, хочемо 2026-07-21", got)
 	}
 
-	// Повторний імпорт того самого файлу вже не бачить нічого.
+	// Повторний імпорт того самого файлу нового не дає: рядок на межі
+	// розглядається знову й відкидається дедуплікацією.
 	again := post(true)
-	if rows, _ := again["rows"].([]any); len(rows) != 0 {
-		t.Errorf("після зсуву знака файл дав %d рядків, хочемо 0", len(rows))
+	if n, _ := again["new"].(float64); n != 0 {
+		t.Errorf("повтор дав %v нових рядків, хочемо 0", again["new"])
 	}
 }
 
