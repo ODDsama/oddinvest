@@ -826,6 +826,47 @@ func (f sleeveFactory) buildPlanFree(contribTotal, ratePP float64) []domain.Slee
 	return f.build(contribTotal, ratePP)
 }
 
+// realContributed — «Внесено» в сьогоднішніх гривнях: старт, внесок під
+// ціль І плановий внесок — ті самі вектори, що живлять «З реінвестом».
+// Доти тут стояв голий domain.RealContributed(start, contribM), і план
+// надходжень потрапляв лише в другу колонку: приріст «від вкладання»
+// дорівнював самим внескам плану.
+//
+// Гривневі частини плану (і пенсійні внески — другу половину руху, що в
+// ліквідному боці стоїть мінусом) дисконтуються знеціненням, як і внесок
+// під ціль. Валютні — ні: вони тримають купівельну спроможність і в
+// сьогоднішніх гривнях коштують суму × сьогоднішній курс, так само як
+// рукав рахує TodayUAH.
+func (f sleeveFactory) realContributed(start, contribM, devalPct float64, months int) float64 {
+	out := domain.RealContributed(start, contribM, devalPct, months)
+	dM := domain.MonthlyRate(devalPct)
+	for m := 1; m <= months; m++ {
+		v := 0.0
+		for _, vec := range f.plan {
+			if m <= len(vec) {
+				v += vec[m-1]
+			}
+		}
+		for _, vec := range f.npfContrib {
+			if m <= len(vec) {
+				v += vec[m-1]
+			}
+		}
+		out += v / math.Pow(1+dM, float64(m))
+	}
+	for cur, vec := range f.planNative {
+		u, err := fx.ToUAH(money.New(100, cur), f.in.Rates)
+		if err != nil {
+			continue // курсу немає — рукав цієї валюти build теж пропускає
+		}
+		rate0 := float64(u.Amount()) / 100
+		for m := 1; m <= months && m <= len(vec); m++ {
+			out += vec[m-1] * rate0
+		}
+	}
+	return out
+}
+
 // anyNonZero — чи є в векторі хоч одне ненульове значення. build()
 // пропускає валюту, у якій немає нічого; порожній чи нульовий план не
 // має рятувати валюту від пропуску сам по собі.
@@ -1002,12 +1043,16 @@ func buildProjection(in projectionInput) projectionPhase {
 			// Обидві колонки — у сьогоднішніх гривнях, інакше таблиця
 			// віднімала б номінальні гроші від реальних і на коротких
 			// горизонтах показувала б від'ємний приріст.
-			Contributed:   state.Major(domain.RealContributed(p0, out.ContribM, in.Deval, m), money.UAH),
+			Contributed:   state.Major(factory.realContributed(p0, out.ContribM, in.Deval, m), money.UAH),
 			WithReinvest:  state.Major(res.TodayUAH, money.UAH),
 			IncomeMonthly: state.Major(res.IncomeMonthlyTodayUAH, money.UAH),
 		}
 		if in.ActualMonthly > 0 {
-			act := domain.ProjectSleeves(buildSleeves(in.ActualMonthly, 0), in.Deval, m)
+			// Факт ЗАМІНЮЄ план, а не додається: фактичний темп — усі
+			// зовнішні гроші, тобто й ті, що план описує зарплатою. Доти тут
+			// стояв buildSleeves (з плановими векторами), і план 20 000 плюс
+			// факт 20 000 давали 40 000 на місяць.
+			act := domain.ProjectSleeves(factory.buildPlanFree(in.ActualMonthly, 0), in.Deval, m)
 			row.WithReinvestActual = state.Major(act.TodayUAH, money.UAH)
 			row.IncomeMonthlyActual = state.Major(act.IncomeMonthlyTodayUAH, money.UAH)
 		}
@@ -1050,6 +1095,9 @@ func buildProjection(in projectionInput) projectionPhase {
 	}
 	for _, d := range defs {
 		sl := buildSleeves(d.contrib, d.ratePP)
+		if d.key == "actual" {
+			sl = factory.buildPlanFree(d.contrib, d.ratePP) // факт замість плану, див. рядки вище
+		}
 		res := domain.ProjectSleeves(sl, d.deval, deadlineMonths)
 		row := state.ForecastRow{Key: d.key, Label: d.label,
 			Amount: state.Major(res.TodayUAH, money.UAH), AmountNominal: state.Major(res.NominalUAH, money.UAH),

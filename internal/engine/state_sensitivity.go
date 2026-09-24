@@ -57,8 +57,14 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 	// Один прогін = одна відповідь. Обидві величини потрібні разом: «коли
 	// дійду» і «скільки буде на дедлайн» — різні питання, і важіль може
 	// зрушити одне, не торкнувшись другого.
+	// Від ФАКТУ — рукави без плану: фактичний темп уже містить ті гроші,
+	// що план описує, і build поверх нього рахував би їх удруге.
+	build := in.Factory.build
+	if in.BaseFrom == "actual" {
+		build = in.Factory.buildPlanFree
+	}
 	run := func(contrib, ratePP, deval, goal float64, months int) (int, float64) {
-		sl := in.Factory.build(contrib, ratePP)
+		sl := build(contrib, ratePP)
 		hit := domain.MonthsToReachSleeves(sl, deval, goal, goalHorizonMonths)
 		return hit, Round2(domain.ProjectSleeves(sl, deval, months).TodayUAH)
 	}
@@ -134,7 +140,7 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 	// Тут потрібна лише сума: місяць досягнення від дедлайну не залежить
 	// узагалі — він каже, КОЛИ ціль буде досягнута, а не коли її чекають.
 	// Тому GoalMonths у цих рядках базовий, і це не помилка копіювання.
-	sleevesBase := in.Factory.build(in.ContribBase, 0)
+	sleevesBase := build(in.ContribBase, 0)
 	for _, d := range []int{12, -12} {
 		months := in.Deadline + d
 		if months <= 0 {

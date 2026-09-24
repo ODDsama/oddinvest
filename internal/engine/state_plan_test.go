@@ -931,3 +931,72 @@ func TestPastStartedFlowKeepsPhaseAndIndexation(t *testing.T) {
 		t.Errorf("індексація в березні 2027: чекали 13310, маємо %.2f", got)
 	}
 }
+
+// «За фактом» ЗАМІНЮЄ план, а не додається до нього. Фактичний темп —
+// це всі зовнішні гроші, що заходили, тобто й ті, які план описує
+// зарплатою. Доти рукави «за фактом» збирались factory.build — з
+// плановими векторами, — і план 20 000 плюс факт 20 000 давали 40 000
+// на місяць. Те саме в чутливості від факту й у «незалежності за темпом».
+func TestActualScenarioReplacesPlan(t *testing.T) {
+	in := forecastInput(t, goalSettings("", "2030-07-15"))
+	in.PlanFlows = []store.PlanFlow{{Name: "Зарплата", Kind: "income", Amount: 2_000_000,
+		Currency: "UAH", Cadence: "month", FromDate: "2026-01-15", InvestBP: 10000}}
+	in.ActualMonthly = 20000
+	target := 30000.0
+	in.Settings.IncomeTargetUAH = &target
+	got := buildProjection(in)
+
+	// Без цілі в рядках (ContribM рахується під ціль) порівнюємо «за
+	// фактом» з тим самим фактом без плану — вони мусять збігтися.
+	free := in
+	free.PlanFlows = nil
+	want := buildProjection(free)
+	for i := range got.Rows {
+		a, b := got.Rows[i].WithReinvestActual.Major(), want.Rows[i].WithReinvestActual.Major()
+		if math.Abs(a-b) > 0.01 {
+			t.Errorf("%d р.: «за фактом» %.2f з планом ≠ %.2f без плану — план доданий до факту",
+				got.Rows[i].Years, a, b)
+		}
+	}
+	var gotAct, wantAct state.ForecastRow
+	for _, r := range got.Forecast.Rows {
+		if r.Key == "actual" {
+			gotAct = r
+		}
+	}
+	for _, r := range want.Forecast.Rows {
+		if r.Key == "actual" {
+			wantAct = r
+		}
+	}
+	if gotAct.Key == "" || math.Abs(gotAct.Amount.Major()-wantAct.Amount.Major()) > 0.01 {
+		t.Errorf("сценарій «За фактом»: %.2f з планом ≠ %.2f без", gotAct.Amount.Major(), wantAct.Amount.Major())
+	}
+	if got.Sensitivity == nil || got.Sensitivity.BaseFrom != "actual" ||
+		math.Abs(got.Sensitivity.BaseAmountUAH.Major()-want.Sensitivity.BaseAmountUAH.Major()) > 0.01 {
+		t.Error("чутливість від факту залежить від плану")
+	}
+	if got.Independence == nil || got.Independence.ActualMonths != want.Independence.ActualMonths {
+		t.Error("незалежність за темпом залежить від плану")
+	}
+}
+
+// «Внесено» рахує ті самі гроші, що й «З реінвестом»: плановий внесок
+// входить в обидві колонки. Доти він був лише в другій, і приріст «від
+// вкладання» дорівнював самим внескам плану.
+func TestContributedIncludesPlanFlows(t *testing.T) {
+	in := forecastInput(t, &state.SettingsDoc{})
+	base := buildProjection(in)
+	in.PlanFlows = []store.PlanFlow{{Name: "Зарплата", Kind: "income", Amount: 2_000_000,
+		Currency: "UAH", Cadence: "month", FromDate: "2026-01-15", InvestBP: 10000}}
+	got := buildProjection(in)
+	dM := domain.MonthlyRate(in.Deval)
+	want := 0.0
+	for m := 1; m <= 12; m++ {
+		want += 20000 / math.Pow(1+dM, float64(m))
+	}
+	diff := got.Rows[0].Contributed.Major() - base.Rows[0].Contributed.Major()
+	if math.Abs(diff-want) > 1 {
+		t.Errorf("за рік «Внесено» мало зрости на %.2f (план у сьогоднішніх гривнях), маємо %.2f", want, diff)
+	}
+}

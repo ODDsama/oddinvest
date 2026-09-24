@@ -66,7 +66,8 @@ func buildIndependence(in independenceInput) *state.Independence {
 
 	if in.ContribActual > 0 {
 		out.ActualMonths = domain.MonthsToIncomeSleeves(
-			in.Factory.build(in.ContribActual, 0), in.Deval, in.TargetUAH, goalHorizonMonths)
+			// Без плану: фактичний темп його вже містить (див. «За фактом»).
+			in.Factory.buildPlanFree(in.ContribActual, 0), in.Deval, in.TargetUAH, goalHorizonMonths)
 		out.ActualDate = goalDate(in.Today, out.ActualMonths)
 	}
 	return out
