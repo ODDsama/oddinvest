@@ -22,6 +22,23 @@ type Publisher struct {
 
 	mu   sync.Mutex
 	last []byte // останній документ стану — для доштовхування після (пере)підключення
+	// lastGen — покоління документа в last; gen — лічильник, з якого
+	// покоління роздаються (NextGen). Обидва під mu.
+	lastGen, gen uint64
+}
+
+// NextGen — покоління для документа, який викликач ЗАРАЗ почне збирати.
+//
+// Документи збираються паралельно (добова джоба, запис із вебу, старт), і
+// той, що почав збиратись раніше, міг закінчити пізніше — і лягти в
+// retained-топік поверх новішого. Покоління береться ДО збирання, тож
+// порядок публікацій — порядок того, коли стан читався, а не того, хто
+// швидше доїхав.
+func (p *Publisher) NextGen() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.gen++
+	return p.gen
 }
 
 // New — публікатор із LWT, що підключається У ФОНІ. addr — tcp://host:1883.
@@ -54,12 +71,14 @@ func New(addr, user, pass, prefix, clientID string, log *slog.Logger) *Publisher
 		// Не чекати токени тут: колбек іде з горутини клієнта, і
 		// блокування в ньому затримало б саму обробку зʼєднання.
 		c.Publish(prefix+"/availability", 1, true, "online")
+		// Під тим самим mu, що й PublishState: інакше доштовхнутий тут
+		// старіший документ міг стати в чергу клієнта ПІСЛЯ новішого.
+		// Publish лише ставить у чергу, тож тримати mu тут недовго.
 		p.mu.Lock()
-		last := p.last
-		p.mu.Unlock()
-		if last != nil {
-			c.Publish(prefix+"/state", 1, true, last)
+		if p.last != nil {
+			c.Publish(prefix+"/state", 1, true, p.last)
 		}
+		p.mu.Unlock()
 		log.Info("mqtt: підключено", "broker", addr, "prefix", prefix)
 	}
 	opts.OnConnectionLost = func(_ paho.Client, err error) {
@@ -78,16 +97,27 @@ func New(addr, user, pass, prefix, clientID string, log *slog.Logger) *Publisher
 	return p
 }
 
-// PublishState публікує документ стану (retained, QoS1). Без брокера —
-// запамʼятовує й повертає ErrNotConnected: документ піде з OnConnect.
-func (p *Publisher) PublishState(doc []byte) error {
+// PublishState публікує документ стану покоління gen (NextGen; retained,
+// QoS1). Без брокера — запамʼятовує й повертає ErrNotConnected: документ
+// піде з OnConnect. Документ старшого покоління, ніж уже відомий, — не
+// публікується: він старіший за те, що вже лежить у топіку.
+//
+// Постановка в чергу клієнта — під mu, разом із перевіркою покоління:
+// paho відправляє в порядку Publish, тож порядок у топіку той самий, що
+// порядок поколінь. Чекання підтвердження — вже поза mu.
+func (p *Publisher) PublishState(gen uint64, doc []byte) error {
 	p.mu.Lock()
-	p.last = doc
-	p.mu.Unlock()
+	if gen < p.lastGen {
+		p.mu.Unlock()
+		return nil
+	}
+	p.last, p.lastGen = doc, gen
 	if !p.c.IsConnectionOpen() {
+		p.mu.Unlock()
 		return ErrNotConnected
 	}
 	tok := p.c.Publish(p.prefix+"/state", 1, true, doc)
+	p.mu.Unlock()
 	if !tok.WaitTimeout(10 * time.Second) {
 		return errors.New("mqtt: таймаут публікації state")
 	}

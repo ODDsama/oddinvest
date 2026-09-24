@@ -485,6 +485,9 @@ func (r *Runner) PublishState(ctx context.Context) error {
 	if pub == nil {
 		return nil
 	}
+	// Покоління — ДО збирання: документ, що почав збиратись раніше, не
+	// ляже поверх новішого, хоч би й закінчив пізніше (mqtt.NextGen).
+	gen := pub.NextGen()
 	doc, err := r.build(ctx, time.Now().In(r.loc))
 	if err != nil {
 		return err
@@ -498,7 +501,7 @@ func (r *Runner) PublishState(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return pub.PublishState(b)
+	return pub.PublishState(gen, b)
 }
 
 // SetPresenter — підʼєднати переклад у валюту звітності. Окремим сетером, а

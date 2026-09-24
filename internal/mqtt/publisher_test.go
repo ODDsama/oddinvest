@@ -25,7 +25,7 @@ func TestPublisherWithoutBrokerKeepsLastDoc(t *testing.T) {
 	defer p.c.Disconnect(0)
 
 	doc := []byte(`{"schema":3}`)
-	if err := p.PublishState(doc); !errors.Is(err, ErrNotConnected) {
+	if err := p.PublishState(p.NextGen(), doc); !errors.Is(err, ErrNotConnected) {
 		t.Fatalf("без брокера: %v, чекали ErrNotConnected", err)
 	}
 	p.mu.Lock()
@@ -40,5 +40,22 @@ func TestPublisherWithoutBrokerKeepsLastDoc(t *testing.T) {
 	defer p.mu.Unlock()
 	if p.last != nil {
 		t.Error("Retire лишив документ — перепідключення воскресило б видалений портфель")
+	}
+}
+
+// Документ, що почав збиратись раніше, не лягає поверх новішого, хоч би
+// й закінчив пізніше: покоління береться до збирання.
+func TestPublisherDropsOlderGeneration(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	p := New("tcp://127.0.0.1:1", "", "", "test", "oddinvestd-test-gen", log)
+	defer p.c.Disconnect(0)
+
+	older, newer := p.NextGen(), p.NextGen()
+	_ = p.PublishState(newer, []byte(`{"n":2}`)) //nolint:errcheck // без брокера — ErrNotConnected
+	_ = p.PublishState(older, []byte(`{"n":1}`)) //nolint:errcheck // без брокера — ErrNotConnected
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if string(p.last) != `{"n":2}` {
+		t.Errorf("останнім лишився %s — старіший документ переписав новіший", p.last)
 	}
 }
