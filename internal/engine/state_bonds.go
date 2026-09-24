@@ -81,7 +81,7 @@ type bondsPhase struct {
 
 // buildBonds рахує номінал і дохідності по лотах, які ще в портфелі.
 func buildBonds(hold domain.Holdings, pays []domain.Payment,
-	rates fx.Rates, deval float64) bondsPhase {
+	rates fx.Rates, deval float64, today domain.Date) bondsPhase {
 	out := bondsPhase{
 		NominalByCur:    map[string]int64{},
 		NominalByCurUAH: map[string]state.Money{},
@@ -97,8 +97,11 @@ func buildBonds(hold domain.Holdings, pays []domain.Payment,
 		}
 		b, q := l.Bond, l.Remaining
 		cur := b.Nominal.Currency().Code
-		out.NominalByCur[cur] += b.Nominal.Amount() * q
-		if n, err := fx.ToUAH(money.New(b.Nominal.Amount()*q, cur), rates); err == nil {
+		// Номінал — після дострокових погашень (domain.Bond.NominalOn):
+		// погашене вже лежить у гаманці.
+		nom := b.NominalOn(pays, today)
+		out.NominalByCur[cur] += nom * q
+		if n, err := fx.ToUAH(money.New(nom*q, cur), rates); err == nil {
 			out.NominalUAH += n.Amount()
 			out.NominalByISIN[l.ISIN] += n.Amount()
 		}

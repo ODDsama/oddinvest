@@ -174,7 +174,9 @@ func PortfolioFlows(bonds map[string]Bond, payments []Payment, lots []Lot,
 			continue
 		}
 		rem := RemainingQtyNow(l, sales)
-		terminal += b.Nominal.Amount() * rem
+		// Після дострокових погашень — лише непогашена частина номіналу:
+		// погашене вже стоїть у потоках виплат.
+		terminal += b.NominalOn(payments, asOf) * rem
 		if acc, aerr := EstimateAccrued(payments, l.ISIN, asOf); aerr == nil && acc != nil && !acc.IsZero() {
 			terminal += acc.Amount() * rem
 		}

@@ -310,3 +310,29 @@ func TestPortfolioFlowsMaturityDayCountedOnce(t *testing.T) {
 		t.Errorf("надходжень %d, чекали 1 000 000 (номінал раз): %+v", in, flows)
 	}
 }
+
+// Дострокове погашення (pay_type 3) зменшує номінал залишку.
+//
+// Виплата приходила в гаманець і в потоки, а номінал у капіталі й у
+// терміналі XIRR лишався повним — погашена частина рахувалась двічі.
+func TestEarlyRedemptionReducesNominal(t *testing.T) {
+	b := Bond{ISIN: "UA1", Nominal: uah(100000), Maturity: "2027-07-01"}
+	pays := []Payment{
+		{ISIN: "UA1", PayDate: "2026-03-01", Type: PayEarly, PerBond: uah(40000)},
+		{ISIN: "UA2", PayDate: "2026-03-01", Type: PayEarly, PerBond: uah(99999)},
+	}
+	if got := b.NominalOn(pays, "2026-02-28"); got != 100000 {
+		t.Errorf("до дострокового номінал %d, чекали 1 000,00", got)
+	}
+	if got := b.NominalOn(pays, "2026-03-01"); got != 60000 {
+		t.Errorf("після дострокового номінал %d, чекали 600,00", got)
+	}
+	lots := []Lot{{ID: 1, ISIN: "UA1", Qty: 10, PricePerBond: uah(100000), BuyDate: "2026-01-10"}}
+	flows, err := PortfolioFlows(map[string]Bond{"UA1": b}, pays, lots, nil, "UAH", "2026-06-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last := flows[len(flows)-1]; last.Date != "2026-06-01" || last.Amount != 600000 {
+		t.Errorf("термінал %+v, чекали 6 000,00 — номінал після дострокового", last)
+	}
+}

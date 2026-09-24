@@ -1201,7 +1201,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	totalReturn := e.totalReturn(ctx, flowsByCur, flowsBroken, today, src.report)
 
 	// Облігації: номінал і дохідність до погашення (state_bonds.go).
-	bnd := buildBonds(hold, pays, rates, deval)
+	bnd := buildBonds(hold, pays, rates, deval, today)
 	nominalByCur, nominalByISIN := bnd.NominalByCur, bnd.NominalByISIN
 	portfolioYield, portfolioYieldReal := bnd.YieldPct, bnd.YieldRealPct
 	portfolioYieldByCur := bnd.YieldByCur

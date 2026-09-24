@@ -21,6 +21,20 @@ type Bond struct {
 }
 
 // Payment — одна виплата за одним папером (з графіка НБУ).
+// NominalOn — номінал одного паперу на дату: повний мінус дострокові
+// погашення (pay_type 3), що вже відбулись. Такі виплати гаманець і потоки
+// XIRR отримують як гроші, а номінал доти лишався повним — погашена
+// частина рахувалась двічі, у грошах і в капіталі.
+func (b Bond) NominalOn(pays []Payment, asOf Date) int64 {
+	n := b.Nominal.Amount()
+	for _, p := range pays {
+		if p.ISIN == b.ISIN && p.Type == PayEarly && !p.PayDate.After(asOf) && p.PerBond != nil {
+			n -= p.PerBond.Amount()
+		}
+	}
+	return max(0, n)
+}
+
 type Payment struct {
 	ISIN    string
 	PayDate Date
