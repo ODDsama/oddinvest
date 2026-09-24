@@ -45,7 +45,10 @@ type npfAccountReq struct {
 	// разово; порожня періодичність — місяць (див. store).
 	PayoutYears int64  `json:"payout_years"`
 	PayoutFreq  string `json:"payout_freq"`
-	Note        string `json:"note"`
+	// Note — вказівником: рядок довідника правиться НА МІСЦІ полями, яких
+	// нотатка не має, і PUT без неї стирав би її. Відсутня = лишити як є
+	// (handleUpdateNPFAccount); порожній рядок = стерти.
+	Note *string `json:"note"`
 }
 
 // pctToBP — відсоток рядком у базисні пункти. Порожньо = нуль, тобто «не
@@ -83,6 +86,10 @@ func npfAccountFromReq(req npfAccountReq) (domain.NPFAccount, error) {
 	if err != nil {
 		return out, err
 	}
+	note := ""
+	if req.Note != nil {
+		note = *req.Note
+	}
 	// Решту перевірок робить сховище: туди ж пише й відновлення бекапу, і
 	// подвоєні тут вони розійшлися б (див. шапку store/npf.go).
 	return domain.NPFAccount{
@@ -92,7 +99,7 @@ func npfAccountFromReq(req npfAccountReq) (domain.NPFAccount, error) {
 		AccessDate: domain.Date(req.AccessDate), IncomeTaxBP: tax,
 		CreditRateBP: credit, ContribDay: req.ContribDay,
 		PayoutYears: req.PayoutYears, PayoutFreq: req.PayoutFreq,
-		Note: req.Note,
+		Note: note,
 	}, nil
 }
 
@@ -175,6 +182,18 @@ func (s *Server) handleUpdateNPFAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	acc.ID = id
+	if req.Note == nil {
+		accounts, err := s.st.ListNPFAccounts(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err)
+			return
+		}
+		for _, a := range accounts {
+			if a.ID == id {
+				acc.Note = a.Note
+			}
+		}
+	}
 	if err := s.st.UpdateNPFAccount(r.Context(), acc); err != nil {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return

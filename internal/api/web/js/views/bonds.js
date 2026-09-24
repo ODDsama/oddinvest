@@ -115,7 +115,9 @@ function wireSales(ctx, main, lots, sales) {
   inlineEdit(ctx, main, {
     rows: "[data-sale]", fields: ".sale-f",
     path: (row) => "sales/" + row.dataset.sale,
-    extra: (row) => ({ lot_id: Number(row.dataset.lot), currency: row.dataset.cur }),
+    extra: (row) => ({
+      lot_id: Number(row.dataset.lot), currency: row.dataset.cur, note: row.dataset.note || "",
+    }),
     msg: "Продаж виправлено",
   });
 }

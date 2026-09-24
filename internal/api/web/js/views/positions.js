@@ -105,6 +105,8 @@ function bondDetailHTML(p, lots, sales) {
     caption: `Продажі ${esc(p.isin)}: дата, кількість, чиста ціна, накопичений купон, результат`,
     rowAttrs: (v) => ({
       "data-sale": v.id, "data-lot": v.lot_id, "data-cur": v.clean_per_bond.currency,
+      // Нотатка — теж у рядку: PUT замінює продаж цілком (bonds.js, extra).
+      "data-note": v.note || "",
     }),
   }) : "";
   // Ціни продавців — під лотами: спершу «що я маю», далі «почім це

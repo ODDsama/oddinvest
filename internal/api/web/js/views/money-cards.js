@@ -384,13 +384,17 @@ export const reserveLoanBody = (f) => ({
   note: f.note.value.trim(),
 });
 
-export const reserveBody = (f) => {
+// row — рух на правці. Позику, яку гасить поповнення (repays_loan_id),
+// форма не показує, а PUT замінює рух цілком: без неї виправлена сума
+// відв'язувала б повернення від позики, і та знову «висіла» б.
+export const reserveBody = (f, row = null) => {
   const body = {
     amount: f.amount.value.trim(),
     currency: refValue(f, "currency"),
     place: f.place.value.trim(),
     date: f.date.value,
     note: f.note.value.trim(),
+    loan_id: row ? row.repays_loan_id || 0 : 0,
   };
   // Позика — лише на ЗНЯТТІ. «Позичити, кладучи гроші в подушку» не
   // означає нічого, і бекенд це теж відкидає; тут воно ще й не долітає,

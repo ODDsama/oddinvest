@@ -590,9 +590,13 @@ const debtFields = (ctx, row = null) => [
  *  Шкоди від мертвої колонки немає, але вона перестає бути мертвою, щойно
  *  вид перемкнуть: запис успадкував би числа, яких ніхто не вводив для
  *  цього виду. */
-const debtBody = (f) => {
+// row — запис на правці: PUT замінює борг цілком, а поля place у формі
+// немає (його ставить імпорт виписки). Без нього правка ставки стирала б
+// місце, звідки борг гаситься.
+const debtBody = (f, row) => {
   const card = f.kind.value === "card";
   return {
+    place: row ? row.place || "" : "",
     name: f.name.value.trim(),
     kind: f.kind.value,
     currency: refValue(f, "currency"),

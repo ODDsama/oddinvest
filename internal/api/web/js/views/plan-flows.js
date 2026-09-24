@@ -615,7 +615,13 @@ export function wirePlanFlows(ctx, main, flows) {
       if (amount) {
         requests.push({
           method: "POST", path: "plan/flows",
-          body: { ...flowBodyFromValues(v), amount, from_date: date, until_date: "" },
+          // Кінець — той самий, що був у старого рядка: зміна суми не
+          // продовжує договір. Доти тут стояло "", і контракт до грудня
+          // після «змінити з дати» ставав безстроковим.
+          body: {
+            ...flowBodyFromValues(v), amount, from_date: date,
+            until_date: v.until_date && v.until_date >= date ? v.until_date : "",
+          },
         });
       }
       return { requests, msg: amount ? "Потік змінено з дати" : "Потік закрито" };

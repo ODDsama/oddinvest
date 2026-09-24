@@ -143,6 +143,10 @@ func (s *Server) handleListSales(w http.ResponseWriter, r *http.Request) {
 		Clean    engine.MoneyJSON `json:"clean_per_bond"`
 		Accrued  engine.MoneyJSON `json:"accrued"`
 		Result   engine.MoneyJSON `json:"realized_result"`
+		// Нотатка — щоб правка в рядку (bonds.js) могла надіслати її назад:
+		// PUT замінює продаж цілком, і без неї виправлена ціна стирала б
+		// нотатку.
+		Note string `json:"note,omitempty"`
 	}
 	out := make([]saleJSON, 0, len(sales))
 	for _, sl := range sales {
@@ -153,7 +157,8 @@ func (s *Server) handleListSales(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out = append(out, saleJSON{sl.ID, sl.LotID, lot.ISIN, string(sl.SaleDate),
-			sl.Qty, engine.ToMoneyJSON(sl.CleanPerBond), engine.ToMoneyJSON(sl.Accrued), engine.ToMoneyJSON(res)})
+			sl.Qty, engine.ToMoneyJSON(sl.CleanPerBond), engine.ToMoneyJSON(sl.Accrued), engine.ToMoneyJSON(res),
+			sl.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
