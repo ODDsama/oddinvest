@@ -113,12 +113,19 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	// Сертифікати фондів — теж купівля паперів, тож у «вкладено цього
 	// місяця» вони входять нарівні з облігаціями. Досі не входили лише
 	// тому, що фонди прибудовувались до моделі пізніше.
+	//
+	// Купівля-нога конвертації — лише доплатою понад виручку (FundBuyNew):
+	// переставлене з фонду у фонд уже було вкладене.
 	for _, op := range src.fundOps {
 		if op.Kind != domain.FundBuy ||
 			op.Date.Year() != now.Year() || op.Date.Month() != now.Month() {
 			continue
 		}
-		if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
+		fresh := domain.FundBuyNew(op, src.fundOps)
+		if fresh <= 0 {
+			continue
+		}
+		if u, cerr := fx.ToUAH(money.New(fresh, op.Currency), rates); cerr == nil {
 			if sum, aerr := out.InvestedUAH.Add(u); aerr == nil {
 				out.InvestedUAH = sum
 			}

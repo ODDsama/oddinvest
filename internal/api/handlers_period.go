@@ -161,15 +161,28 @@ type periodResp struct {
 // місяць «доходом без діла» на 50 000. Головне зведення продажів туди
 // теж не бере (state_builder.go, incomeEvents): це вихід із позиції, а
 // не заробіток.
+//
+// Покупки одного дня зводяться НЕТТО, перш ніж відкинути плюсові: пара
+// конвертації фонду — продаж і купівля того самого дня, і без зведення
+// купівля-нога лишалась би сама й з'їдала б дохід без діла на всю суму
+// переставлених між фондами грошей.
 func idleInputs(rows []engine.FlowEvent) (income, buys []domain.CashEvent) {
+	net := map[domain.Date]int64{}
+	var days []domain.Date
 	for _, e := range rows {
 		switch e.Kind {
 		case engine.FlowIncome:
 			income = append(income, domain.CashEvent{Date: e.Date, Amount: e.UAH})
 		case engine.FlowPurchase:
-			if e.UAH < 0 {
-				buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
+			if _, ok := net[e.Date]; !ok {
+				days = append(days, e.Date)
 			}
+			net[e.Date] += e.UAH
+		}
+	}
+	for _, d := range days {
+		if net[d] < 0 {
+			buys = append(buys, domain.CashEvent{Date: d, Amount: -net[d]})
 		}
 	}
 	return income, buys

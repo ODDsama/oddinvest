@@ -169,13 +169,13 @@ func (p FundPosition) Inconsistent() bool { return p.Short > 0 }
 // в handlers_import.go складається зі СПРАВЖНІХ операцій. Гілка «про
 // запас» тут була б порожнім швом (CLAUDE.md §3), тож замість неї —
 // цей абзац: зʼявиться «план продажу» — сторож потрібен буде й там.
-func stepPosition(p *FundPosition, op FundOp) {
+func stepPosition(p *FundPosition, op FundOp, carry carryBook) {
 	switch op.Kind {
 	case FundBuy:
 		// held — залишок ДО цієї покупки, і саме він вирішує долю ціни.
 		held := p.Qty
 		p.Qty += op.Qty
-		p.CostBasis += op.Amount
+		p.CostBasis += carry.cost(op)
 		// KeepPrice спиняє ЦІНУ, але не кількість і не собівартість:
 		// сертифікати куплено, гроші сплачено, і в капітал вони входять —
 		// просто за ціною, яка вже була відома (див. FundOp.KeepPrice).
@@ -205,6 +205,7 @@ func stepPosition(p *FundPosition, op FundOp) {
 			sold = p.CostBasis * op.Qty / p.Qty
 		}
 		p.CostBasis -= sold
+		carry.put(op, sold)
 		p.Qty -= op.Qty
 		if p.Qty < 0 {
 			// Мінус далі не тягнемо — інакше він поповз би в ринкову
@@ -230,6 +231,82 @@ func stepPosition(p *FundPosition, op FundOp) {
 		p.DividendsGross += op.Amount
 		p.DividendsTax += op.Tax
 	}
+}
+
+// carried — собівартість, яку продаж-нога конвертації забрала зі старого
+// фонду: її успадковує купівля-нога в новому (рішення власника
+// 2026-09-24). Без цього купівля клала в новий фонд РИНКОВУ суму, і
+// прибуток старого фонду зникав з усіх показників: у новому він ставав
+// собівартістю, а realized на парі не пишеться.
+type carried struct {
+	cost     int64
+	currency string
+}
+
+// carryBook — перенесена собівартість за id продаж-ноги. Купівля-нога
+// знаходить свою за PairID (LinkFundOps ставить ноги одна на одну).
+type carryBook map[int64]carried
+
+// put — запам'ятати собівартість проданої частки, якщо це продаж-нога пари.
+func (c carryBook) put(op FundOp, cost int64) {
+	if op.PairID != 0 {
+		c[op.ID] = carried{cost: cost, currency: op.Currency}
+	}
+}
+
+// cost — що купівля додає до собівартості: успадковане від своєї
+// продаж-ноги, або сплачене, коли це звичайна купівля. Чужа валюта ноги
+// не переноситься — гривнева собівартість у доларовому фонді була б
+// числом без одиниці, — і тоді купівля важить сплаченим, як доти.
+func (c carryBook) cost(op FundOp) int64 {
+	if op.PairID != 0 {
+		if k, ok := c[op.PairID]; ok && k.currency == op.Currency {
+			return k.cost
+		}
+	}
+	return op.Amount
+}
+
+// pairSellsFirst — журнал, у якому продаж-нога конвертації стоїть перед
+// купівлею-ногою того самого дня. Порядок записів у виписці не
+// гарантований, а купівля мусить знати, що саме вона успадковує.
+// Стабільно: решта операцій дня лишається у своєму порядку.
+func pairSellsFirst(ops []FundOp) []FundOp {
+	out := append([]FundOp(nil), ops...)
+	rank := func(op FundOp) int {
+		if op.PairID != 0 && op.Kind == FundSell {
+			return 0
+		}
+		return 1
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Date != out[j].Date {
+			return out[i].Date < out[j].Date
+		}
+		return rank(out[i]) < rank(out[j])
+	})
+	return out
+}
+
+// FundBuyNew — скільки з купівлі — НОВІ гроші в інструменті: уся сума для
+// звичайної купівлі, а для купівлі-ноги конвертації — лише доплата понад
+// виручку своєї продаж-ноги (не менше нуля). Конвертація переставляє вже
+// вкладене з фонду у фонд; рахувати її «вкладеним цього місяця» чи
+// покупкою, що з'їдає дохід без діла, означало б приписати їй гроші, яких
+// не було (рішення власника 2026-09-24).
+func FundBuyNew(op FundOp, ops []FundOp) int64 {
+	if op.Kind != FundBuy {
+		return 0
+	}
+	if op.PairID == 0 {
+		return op.Amount
+	}
+	for _, o := range ops {
+		if o.ID == op.PairID && o.Kind == FundSell && o.Currency == op.Currency {
+			return max(0, op.Amount-(o.Amount-o.Tax))
+		}
+	}
+	return op.Amount
 }
 
 // FundSale — один продаж сертифікатів як ПОДАТКОВА подія: база й те, що з
@@ -275,13 +352,14 @@ func FundSales(ops []FundOp) []FundSale {
 	// Черга партій на фонд: скільки сертифікатів і за скільки куплено.
 	type parcel struct{ qty, cost int64 }
 	queue := map[string][]parcel{}
+	carry := carryBook{}
 
 	var out []FundSale
-	for _, op := range ops {
+	for _, op := range pairSellsFirst(ops) {
 		switch op.Kind {
 		case FundBuy:
 			if op.Qty > 0 {
-				queue[op.Fund] = append(queue[op.Fund], parcel{op.Qty, op.Amount})
+				queue[op.Fund] = append(queue[op.Fund], parcel{op.Qty, carry.cost(op)})
 			}
 		case FundSell:
 			left, cost := op.Qty, int64(0)
@@ -302,6 +380,7 @@ func FundSales(ops []FundOp) []FundSale {
 				left = 0
 			}
 			queue[op.Fund] = q
+			carry.put(op, cost)
 			if op.PairID != 0 {
 				continue
 			}
@@ -327,13 +406,14 @@ func (p FundPosition) MarketValue() int64 { return p.Qty * p.LastPrice / 100 }
 // marks — позначки ціни, вклеєні руками (може бути nil).
 func FundPositions(ops []FundOp, marks []FundPrice) map[string]*FundPosition {
 	out := map[string]*FundPosition{}
-	for _, op := range ops {
+	carry := carryBook{}
+	for _, op := range pairSellsFirst(ops) {
 		p := out[op.Fund]
 		if p == nil {
 			p = &FundPosition{Fund: op.Fund, Currency: op.Currency}
 			out[op.Fund] = p
 		}
-		stepPosition(p, op)
+		stepPosition(p, op, carry)
 	}
 	// Позначки ціни — ДРУГЕ джерело тієї самої величини, і найсвіжіше з
 	// двох виграє. Не «завжди позначка»: журнал приносить ціну задарма й на

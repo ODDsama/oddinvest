@@ -680,8 +680,12 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		switch op.Kind {
 		case domain.FundBuy:
 			delta = -op.Amount
-			if u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates); cerr == nil {
-				purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: op.Date, Amount: u.Amount()})
+			// Покупкою, що з'їдає дохід без діла, — лише нові гроші: у
+			// конвертації це доплата понад виручку продаж-ноги (FundBuyNew).
+			if fresh := domain.FundBuyNew(op, fundOps); fresh > 0 {
+				if u, cerr := fx.ToUAH(money.New(fresh, op.Currency), rates); cerr == nil {
+					purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: op.Date, Amount: u.Amount()})
+				}
 			}
 		case domain.FundSell, domain.FundDividend:
 			delta = op.Amount - op.Tax
