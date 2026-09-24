@@ -29,3 +29,18 @@ func TestNPFPayoutTaxedOnWholePayout(t *testing.T) {
 		t.Errorf("ставка НПФ після податку %.4f, чекали %.4f", got, want)
 	}
 }
+
+// Графік виплат НПФ від 31-го — по одній на кожен місяць.
+func TestNPFPayoutScheduleMonthEnd(t *testing.T) {
+	a := NPFAccount{ID: 1, Currency: "UAH", AccessDate: "2040-01-31", PayoutYears: 10, PayoutFreq: "month"}
+	sch := NPFPayoutSchedule(a, 120_000_00, "2040-04-30")
+	want := []Date{"2040-01-31", "2040-02-29", "2040-03-31", "2040-04-30"}
+	if len(sch) != len(want) {
+		t.Fatalf("виплат %d, чекали %d: %+v", len(sch), len(want), sch)
+	}
+	for i, w := range want {
+		if sch[i].Date != w {
+			t.Errorf("виплата %d — %s, чекали %s", i+1, sch[i].Date, w)
+		}
+	}
+}

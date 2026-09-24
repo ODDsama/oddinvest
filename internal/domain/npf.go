@@ -574,7 +574,9 @@ func NPFPayoutSchedule(a NPFAccount, totalNet int64, until Date) []CashflowItem 
 	per := totalNet / int64(n)
 	var out []CashflowItem
 	for i := 0; i < n; i++ {
-		d := a.AccessDate.AddMonths(i * step)
+		// Clamp від дати доступу, як у вкладів: з 31-го звичайний AddMonths
+		// давав дві виплати в березні й жодної в лютому.
+		d := a.AccessDate.AddMonthsClamp(i * step)
 		if d > until {
 			break
 		}
