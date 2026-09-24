@@ -48,6 +48,12 @@ type Backup struct {
 	Schema     int    `json:"schema"`
 	App        string `json:"app"`
 	ExportedAt string `json:"exported_at"`
+	// Migration — остання міграція бази, з якої зроблено дамп
+	// («0064_deposit_tax_by_law.sql»). Схема дампу (Schema) сумісна між
+	// міграціями, але ЗМІСТ деяких полів — ні: ставка вкладу 19,5/23 % до
+	// 0064 означала «за замовчуванням», після — явний виняток. Дамп без
+	// мітки старший за неї самої, а отже й за 0064.
+	Migration string `json:"migration,omitempty"`
 	// Portfolio — назва портфеля-джерела (0054), лише для людини: restore
 	// її не читає, бо відновлює в той портфель, на який націлений запит.
 	Portfolio   string             `json:"portfolio,omitempty"`
@@ -708,6 +714,10 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 	b := &Backup{Schema: BackupSchema, App: "oddinvest", Settings: map[string]string{}}
 	if err := s.db.QueryRowContext(ctx, `SELECT name FROM portfolios WHERE id=?`, s.pid).Scan(&b.Portfolio); err != nil {
 		return nil, fmt.Errorf("портфель %d: %w", s.pid, err)
+	}
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(version), '') FROM schema_migrations`).Scan(&b.Migration); err != nil {
+		return nil, fmt.Errorf("версія схеми: %w", err)
 	}
 
 	// Бекап тримає НАЗВИ брокерів і фондів, а не їхні id. Так формат
@@ -1571,7 +1581,17 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			return fmt.Errorf("ціль %d: %w", g.ID, err)
 		}
 	}
+	// Ставка податку «за законом» (0064). Дамп, старший за міграцію, несе
+	// 19,5/23 %, заведені тоді за замовчуванням, — і відновлення повертало б
+	// рівно те, що 0064 виправила: вклад після грудня 2024 знову за 19,5 %.
+	// Тож для такого дампу — те саме правило, що в самій міграції. Дамп
+	// після неї несе мітку (Backup.Migration), і 19,5 % у ньому — явний
+	// виняток, який лишається.
+	preByLaw := b.Migration < "0064"
 	for _, d := range b.TermDeposits {
+		if preByLaw && (d.TaxBP == 1950 || d.TaxBP == 2300) {
+			d.TaxBP = domain.TaxBPByLaw
+		}
 		broker, err := brokerRef(d.Bank)
 		if err != nil {
 			return fmt.Errorf("вклад %d: %w", d.ID, err)
