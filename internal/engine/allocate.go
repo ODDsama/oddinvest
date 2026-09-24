@@ -1092,7 +1092,10 @@ func allocTopUp(out *allocPlan, in topUpIn) float64 {
 		if g.ShortMonthUAH.Major() <= 0 {
 			continue
 		}
-		room := g.GapUAH.Major() - goalTaken(out, g.ID)
+		// Розрив у лінійці темпу (GapPaceUAH), як і в стелі наповнення:
+		// ціль, що відстає лише через інфляцію, сьогоднішнього розриву не
+		// має, а майбутній — має.
+		room := g.GapPaceUAH() - goalTaken(out, g.ID)
 		if room <= 0.005 {
 			continue
 		}

@@ -612,7 +612,10 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 			continue
 		}
 		moved += g.MovedUAH.Major()
-		room += g.GapUAH.Major()
+		// Розрив у тій самій лінійці, що й потреба нижче (GapPaceUAH):
+		// сьогоднішній розрив зібраної сьогодні цілі — нуль, хоч у майбутніх
+		// грошах їй іще бракує.
+		room += g.GapPaceUAH()
 	}
 	room += moved
 	if room <= 0 {
@@ -628,7 +631,7 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 	}
 	for i := range goals {
 		g := &goals[i]
-		if g.DoneDate != "" || g.GapUAH.Major() <= 0 {
+		if g.DoneDate != "" || g.GapPaceUAH() <= 0 {
 			continue
 		}
 		// ДОЗВІЛ МІСЯЦЯ — у кожен рядок, і саме тут: усі ранні виходи вище
@@ -703,6 +706,18 @@ func deriveGoalPace(row *Goal, today domain.Date) {
 		// збиратись, а без дедлайну прогноз усе одно рахується нижче.
 		if row.DueDate == "" && row.GapUAH.Major() > 0 && row.ActualUAH.Major() > 0 {
 			row.ETADate = goalETA(today, row.GapUAH.Major()/row.ActualUAH.Major())
+		}
+		// Зібрана в СЬОГОДНІШНІХ грошах ціль із датою попереду в майбутніх
+		// грошах може бути ще не зібраною: місяці до дати потрібні
+		// deriveGoalFuture, щоб це порахувати. Доти вихід тут лишав
+		// MonthsLeft нулем, і ціль, що відстає лише через інфляцію, не
+		// бачив ніхто — ні вирок, ні стеля наповнення.
+		if row.DueDate != "" {
+			if due := domain.Date(row.DueDate); due.Valid() {
+				if months := float64(domain.DaysBetween(today, due)) / 30.44; months > 0 {
+					row.MonthsLeft = round2(months)
+				}
+			}
 		}
 		return
 	}

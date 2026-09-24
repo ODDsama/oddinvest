@@ -179,3 +179,29 @@ func TestGoalETAAgreesWithTheVerdict(t *testing.T) {
 		t.Errorf("темпу вистачає, а дата %s пізніша за дедлайн %s", ok.ETADate, ok.DueDate)
 	}
 }
+
+// Ціль, УЖЕ зібрана в сьогоднішніх грошах, але з датою попереду й
+// інфляцією: у майбутніх грошах вона ще не зібрана. Доти deriveGoalPace
+// виходив одразу (GapNative = 0), MonthsLeft лишався нулем, майбутнього
+// розриву ніхто не рахував — і стеля наповнення відсіювала ціль за
+// сьогоднішнім розривом. Ціль, яка відстає лише через інфляцію, не
+// діставала жодної гривні.
+func TestGoalBehindOnlyByInflationGetsMoney(t *testing.T) {
+	in := paceGoal(24, 600_000, 0, 0, money.UAH)
+	g := oneGoal(t, in)
+	if g.GapFutureUAH.Major() <= 0 || g.RequiredFutureUAH.Major() <= 0 {
+		t.Fatalf("зібрана сьогодні ціль через два роки при 10,7%% ще не зібрана: "+
+			"розрив %.2f, темп %.2f", g.GapFutureUAH.Major(), g.RequiredFutureUAH.Major())
+	}
+	if !g.Behind {
+		t.Error("ціль, у яку нічого не кладуть, при майбутньому розриві — відстає")
+	}
+
+	share := 50.0
+	doc := &Doc{Settings: &SettingsDoc{GoalsFillSharePct: &share},
+		MonthPlan: &MonthPlan{PlanGoalsUAH: Major(40_000, money.UAH)}}
+	deriveGoals(doc, in)
+	if got := doc.Goals[0].FillNowUAH.Major(); got <= 0 {
+		t.Errorf("стеля не дала цілі нічого, хоч вона відстає на %.2f", doc.Goals[0].GapFutureUAH.Major())
+	}
+}
