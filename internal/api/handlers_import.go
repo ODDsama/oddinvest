@@ -119,6 +119,26 @@ type outRow struct {
 	Conflict string `json:"conflict,omitempty"`
 }
 
+// twins — дедуплікація ЛІЧИЛЬНИКОМ, а не множиною ключів.
+//
+// Множина робила з двох СПРАВДІ однакових рядків файлу один запис:
+// автоінвест двічі за день на ту саму суму, два зняття в банкоматі, дві
+// купівлі тієї самої кількості паперу. Тепер n-й однаковий рядок файлу —
+// дубль лише коли таких у базі щонайменше n: два рядки заходять двома
+// записами, а повтор того самого файлу не додає нічого.
+type twins struct{ db, file map[string]int }
+
+func newTwins() *twins { return &twins{db: map[string]int{}, file: map[string]int{}} }
+
+// have — такий запис уже є в базі.
+func (t *twins) have(key string) { t.db[key]++ }
+
+// seen — ще один такий рядок у файлі; true — він уже має близнюка в базі.
+func (t *twins) seen(key string) bool {
+	t.file[key]++
+	return t.file[key] <= t.db[key]
+}
+
 func abs64(v int64) int64 {
 	if v < 0 {
 		return -v
@@ -312,13 +332,15 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 	// Лот вважаємо тим самим за папером, датою й кількістю. Ціну в ключ
 	// не беремо: та сама купівля, внесена вручну, могла бути округлена
 	// інакше, і розбіжність у копійці не робить її іншою купівлею.
-	lotSeen := map[string]bool{}
+	lotSeen := newTwins()
 	for _, l := range lots {
-		lotSeen[fmt.Sprintf("%s|%s|%d", l.ISIN, l.BuyDate, l.Qty)] = true
+		lotSeen.have(fmt.Sprintf("%s|%s|%d", l.ISIN, l.BuyDate, l.Qty))
 	}
-	depSeen := map[string]bool{}
+	// Брокер — без регістру: ручне «Inzhur» і профільне «inzhur» — той
+	// самий рахунок, і дубль між ними не мав ховатись за великою літерою.
+	depSeen := newTwins()
 	for _, d := range deps {
-		depSeen[fmt.Sprintf("%s|%d|%s|%s", d.Date, d.Amount, d.Currency, d.Broker)] = true
+		depSeen.have(fmt.Sprintf("%s|%d|%s|%s", d.Date, d.Amount, d.Currency, strings.ToLower(d.Broker)))
 	}
 	// Операції фондів і позначки цін. Перші — щоб знати позицію фонду на
 	// дату конвертації, другі — щоб перевести її суму в сертифікати.
@@ -348,13 +370,13 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 	pairKey := func(op domain.FundOp) string {
 		return fmt.Sprintf("%s|%s|%s|%d", op.Date, op.Fund, op.Kind, op.Amount)
 	}
-	fundSeen, pairSeen := map[string]bool{}, map[string]bool{}
+	fundSeen, pairSeen := newTwins(), map[string]bool{}
 	// orphanLeg — нога конвертації, що вже в базі, але БЕЗ пари: слід
 	// імпорту, який упав між ногами. Повтор дописує другу ногу й
 	// звʼязує її саме з цією (TestImportHealsHalfWrittenConversion).
 	orphanLeg := map[string]int64{}
 	for _, op := range fundOps {
-		fundSeen[fundKey(op)] = true
+		fundSeen.have(fundKey(op))
 		pairSeen[pairKey(op)] = true
 		if op.PairID == 0 && (op.Kind == domain.FundBuy || op.Kind == domain.FundSell) {
 			orphanLeg[pairKey(op)] = op.ID
@@ -569,10 +591,9 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 					row.Qty = op.Qty
 				}
 			} else {
-				exists = fundSeen[key]
+				exists = fundSeen.seen(key)
 			}
 			if !exists {
-				fundSeen[key] = true
 				pairSeen[pairKey(op)] = true
 				applied = append(applied, op)
 				if !dry {
@@ -597,9 +618,8 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 			}
 		case "bond_buy":
 			key := fmt.Sprintf("%s|%s|%d", row.Fund, row.Date, row.Qty)
-			exists = lotSeen[key]
+			exists = lotSeen.seen(key)
 			if !exists {
-				lotSeen[key] = true
 				// Купон цього ж файлу рахується й на лот, який файл щойно
 				// заводить, — у сухому прогоні теж, інакше перегляд
 				// показував би нестачу, якої справжній імпорт не матиме.
@@ -668,10 +688,9 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 			if row.Kind == "withdrawal" {
 				amt = -amt
 			}
-			key := fmt.Sprintf("%s|%d|%s|%s", row.Date, amt, cur, broker)
-			exists = depSeen[key]
+			key := fmt.Sprintf("%s|%d|%s|%s", row.Date, amt, cur, strings.ToLower(broker))
+			exists = depSeen.seen(key)
 			if !exists {
-				depSeen[key] = true // не задвоїти в межах одного файлу
 				if !dry {
 					if _, aerr := s.st.AddDeposit(ctx, store.Deposit{Date: row.Date, Amount: amt,
 						Currency: cur, Broker: broker, Note: "виписка"}); aerr != nil {

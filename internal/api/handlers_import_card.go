@@ -72,7 +72,7 @@ type importCardMonth struct {
 type cardImport struct {
 	s    *Server
 	card domain.Debt
-	seen map[string]bool
+	seen *twins
 	// prevMark — остання звірка до імпорту; готівка після неї йде в
 	// non_grace нової.
 	prevMark domain.Date
@@ -105,10 +105,10 @@ func (s *Server) newCardImport(ctx context.Context, debtID int64, q url.Values) 
 	if err != nil {
 		return nil, err
 	}
-	ci := &cardImport{s: s, card: *card, seen: map[string]bool{}, months: map[string]*importCardMonth{}}
+	ci := &cardImport{s: s, card: *card, seen: newTwins(), months: map[string]*importCardMonth{}}
 	for _, op := range ops {
 		if op.DebtID == debtID {
-			ci.seen[fmt.Sprintf("%s|%s|%d", op.Date, op.Kind, op.Amount)] = true
+			ci.seen.have(fmt.Sprintf("%s|%s|%d", op.Date, op.Kind, op.Amount))
 		}
 	}
 	marks, err := s.st.ListDebtMarks(ctx)
@@ -180,10 +180,9 @@ func (c *cardImport) take(ctx context.Context, row imports.Row, dry bool) (bool,
 		kind = domain.DebtOpCash
 	}
 	key := fmt.Sprintf("%s|%s|%d", row.Date, kind, row.Amount)
-	if c.seen[key] {
+	if c.seen.seen(key) {
 		return true, nil
 	}
-	c.seen[key] = true
 	if dry {
 		return false, nil
 	}

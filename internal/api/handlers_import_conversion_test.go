@@ -353,3 +353,38 @@ func TestImportHealsHalfWrittenConversion(t *testing.T) {
 		t.Errorf("ноги не зв'язані: продаж→%d, купівля→%d", sell.PairID, buy.PairID)
 	}
 }
+
+// Два СПРАВДІ однакові рядки файлу — дві операції, не одна.
+//
+// Дедуп тримав множину ключів: автоінвест двічі за день на ту саму суму
+// давав один запис — і в перегляді, і в імпорті. Тепер лічильник: n-й
+// однаковий рядок — дубль лише коли таких у базі вже щонайменше n, тож
+// повтор файлу й далі не додає нічого.
+func TestImportKeepsIdenticalTwins(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+	twins := func() [][]string {
+		return [][]string{
+			{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
+			{"45847.61", "Купівля 1 сертифікату", "Inzhur Житній", "", "1018.96"},
+			{"45847.60", "Купівля 1 сертифікату", "Inzhur Житній", "", "1018.96"},
+		}
+	}
+	importSince(t, st, "2024-01-01")
+	_, body := postXLSX(t, srv.URL+"/api/import", twins())
+	if got := parseImportOut(t, body); got.Imported != 2 {
+		t.Fatalf("два однакові авто-інвести мали дати дві операції, зайшло %d: %s", got.Imported, body)
+	}
+	importSince(t, st, "2024-01-01")
+	_, body = postXLSX(t, srv.URL+"/api/import", twins())
+	if got := parseImportOut(t, body); got.Imported != 0 {
+		t.Errorf("повтор того самого файлу записав %d: %s", got.Imported, body)
+	}
+	ops, err := st.ListFundOps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ops) != 2 {
+		t.Errorf("операцій %d, чекали 2", len(ops))
+	}
+}
