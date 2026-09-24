@@ -474,11 +474,15 @@ func TestPlanFlowRowMonthlyAndNextMonth(t *testing.T) {
 	// Поза дванадцятимісячним вікном: там provides/gross обнуляються, а
 	// amount_uah зобов'язаний вижити.
 	farFuture := first.AddDate(2, 1, 0).Format("2006-01-02")
+	// Квартальна й річна почались давно, але в ТОМУ Ж місяці року, що й
+	// наступний: потік тримає фазу від справжньої дати початку, тож
+	// «наступного місяця приходить увесь платіж» лише в такій фазі.
+	inPhase := first.AddDate(-3, 1, 0).Format("2006-01-02")
 
 	for _, body := range []string{
 		`{"name":"місячна","kind":"income","amount":"40000.00","cadence":"month","from_date":"2020-01-01","invest_pct":"40"}`,
-		`{"name":"квартальна","kind":"income","amount":"30000.00","cadence":"quarter","from_date":"2020-01-01","invest_pct":"100"}`,
-		`{"name":"річна","kind":"income","amount":"120000.00","cadence":"year","from_date":"2020-01-01","invest_pct":"100"}`,
+		`{"name":"квартальна","kind":"income","amount":"30000.00","cadence":"quarter","from_date":"` + inPhase + `","invest_pct":"100"}`,
+		`{"name":"річна","kind":"income","amount":"120000.00","cadence":"year","from_date":"` + inPhase + `","invest_pct":"100"}`,
 		`{"name":"разова скоро","kind":"income","amount":"5000.00","cadence":"once","from_date":"` + nextMonth + `","invest_pct":"100"}`,
 		`{"name":"разова нескоро","kind":"income","amount":"7000.00","cadence":"once","from_date":"` + farFuture + `","invest_pct":"100"}`,
 	} {

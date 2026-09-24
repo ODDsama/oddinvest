@@ -876,3 +876,58 @@ func TestPlanFlowHandoverMonthPaysOnce(t *testing.T) {
 		t.Errorf("закриття рівно в платіжний день мало ще заплатити 17000, маємо %v", got)
 	}
 }
+
+// Разова подія, що вже відбулась ЦЬОГО місяця, у проєкцію не входить:
+// гроші вже на рахунку (або відмічені отриманими), і місяць 1 порахував би
+// їх удруге. Пізніша дата цього ж місяця — ще попереду, лишається.
+func TestOnceFlowAlreadyHappenedThisMonthNotProjected(t *testing.T) {
+	today := domain.Date("2026-09-24")
+	past := store.PlanFlow{ID: 1, Kind: "income", Amount: 1_000_000, Currency: "UAH",
+		Cadence: "once", FromDate: "2026-09-05", InvestBP: 10000}
+	if got := planFlowNative(past, today, 1, nil); got != 0 {
+		t.Errorf("премія 5-го вже прийшла, а проєкція дала ще %.2f", got)
+	}
+	later := past
+	later.FromDate = "2026-09-28"
+	if got := planFlowNative(later, today, 1, nil); got != 10000 {
+		t.Errorf("премія 28-го ще попереду: чекали 10000, маємо %.2f", got)
+	}
+	// Відмічена отриманою — вже в грошах, навіть якщо день ще не минув.
+	marks := NewPlanMarks([]store.PlanReceipt{{FlowID: 1, Month: MonthKeyAt(today, 0), Amount: 1_000_000}})
+	if got := planFlowNative(later, today, 1, marks); got != 0 {
+		t.Errorf("відмічена отриманою премія дала ще %.2f", got)
+	}
+}
+
+// Потік, що почався в минулому, тримає СВОЮ фазу й базу індексації.
+// Доти початок підтягувався до місяця 1, і квартальна виплата з лютого
+// переїжджала на жовтень, річна березнева — теж на жовтень, а індексація
+// рахувала роки від сьогодні.
+func TestPastStartedFlowKeepsPhaseAndIndexation(t *testing.T) {
+	today := domain.Date("2026-09-24") // місяць 1 = жовтень
+	q := store.PlanFlow{Kind: "income", Amount: 3_000_000, Currency: "UAH",
+		Cadence: "quarter", FromDate: "2026-02-10", InvestBP: 10000}
+	// Лютий, травень, серпень → листопад (м. 2), лютий (м. 5).
+	for m, want := range map[int]float64{1: 0, 2: 30000, 3: 0, 4: 0, 5: 30000} {
+		if got := planFlowNative(q, today, m, nil); got != want {
+			t.Errorf("квартальний з лютого, м. %d: чекали %.0f, маємо %.2f", m, want, got)
+		}
+	}
+	y := store.PlanFlow{Kind: "income", Amount: 12_000_000, Currency: "UAH",
+		Cadence: "year", FromDate: "2025-03-15", InvestBP: 10000}
+	for m, want := range map[int]float64{1: 0, 6: 120000, 18: 120000} {
+		if got := planFlowNative(y, today, m, nil); got != want {
+			t.Errorf("річний березневий, м. %d: чекали %.0f, маємо %.2f", m, want, got)
+		}
+	}
+	// Індексація 10% з березня 2024: жовтень 2026 — два повні роки.
+	g := store.PlanFlow{Kind: "income", Amount: 1_000_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2024-03-10", GrowthBP: 1000, InvestBP: 10000}
+	if got := planFlowNative(g, today, 1, nil); math.Abs(got-12100) > 0.005 {
+		t.Errorf("індексація від березня 2024: чекали 12100, маємо %.2f", got)
+	}
+	// Березень 2027 (м. 6) — уже третій рік.
+	if got := planFlowNative(g, today, 6, nil); math.Abs(got-13310) > 0.005 {
+		t.Errorf("індексація в березні 2027: чекали 13310, маємо %.2f", got)
+	}
+}
