@@ -295,6 +295,11 @@ type BackupOVDPQuote struct {
 // разом із випадайкою, до якої людина звикла.
 type BackupBroker struct {
 	Name string `json:"name"`
+	// QuoteSource — зіставлення з джерелом цін (0059). Доти в бекап не
+	// йшло, і після відновлення кожен брокер випадав із порівняння «у кого
+	// дешевше», доки його не зіставлять руками знову. Старі дампи поля не
+	// мають — лишається порожнім, як і було.
+	QuoteSource string `json:"quote_source,omitempty"`
 }
 
 // BackupReserveOp — рух резерву. Резерв невідновний так само, як лоти:
@@ -1109,10 +1114,10 @@ func (s *Store) ExportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT name FROM brokers WHERE portfolio_id=? ORDER BY name COLLATE NOCASE`,
+	if err := s.scan(ctx, `SELECT name, quote_source FROM brokers WHERE portfolio_id=? ORDER BY name COLLATE NOCASE`,
 		func(scan func(...any) error) error {
 			var r BackupBroker
-			if err := scan(&r.Name); err != nil {
+			if err := scan(&r.Name, &r.QuoteSource); err != nil {
 				return err
 			}
 			b.Brokers = append(b.Brokers, r)
@@ -1442,8 +1447,16 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// Старі дампи цих переліків не мають — обидва цикли просто не
 	// виконуються, і відновлення йде рівно тим шляхом, що й доти.
 	for _, br := range b.Brokers {
-		if _, err := brokerRef(br.Name); err != nil {
+		id, err := brokerRef(br.Name)
+		if err != nil {
 			return fmt.Errorf("брокер %q: %w", br.Name, err)
+		}
+		if br.QuoteSource != "" && id != nil {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE brokers SET quote_source=? WHERE id=? AND portfolio_id=?`,
+				br.QuoteSource, id, s.pid); err != nil {
+				return fmt.Errorf("брокер %q, джерело цін: %w", br.Name, err)
+			}
 		}
 	}
 	for _, f := range b.Funds {
