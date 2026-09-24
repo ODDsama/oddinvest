@@ -162,7 +162,10 @@ type flowRevisionRow struct {
 // planRev — поля потоку, які має сенс порівнювати між ревізіями. Сума
 // рядком у мінорних одиницях не потрібна: UI показує гроші, а не int64.
 type planRev struct {
-	Amount    state.Money `json:"amount"`
+	// Сума ревізії — у валюті потоку (Currency), нативно: історія правок
+	// каже «50 000 ₴ → 55 000 ₴», і перекладене число під «UAH» було б
+	// доларами з гривневим знаком (plan-flows.js).
+	Amount    state.Money `json:"amount" money:"native"`
 	Currency  string      `json:"currency"`
 	Cadence   string      `json:"cadence"`
 	FromDate  string      `json:"from_date"`

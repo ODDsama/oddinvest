@@ -21,7 +21,7 @@
       {
         "broker": "inzhur",
         "currency": "UAH",
-        "investable": 1926.42,
+        "investable": 85000,
         "investable_uah": 1926.42,
         "since": "2026-04-06",
         "days": 100,
@@ -30,7 +30,7 @@
       {
         "broker": "mono",
         "currency": "UAH",
-        "investable": 11218.54,
+        "investable": 495000,
         "investable_uah": 11218.54,
         "since": "2025-12-27",
         "days": 200,
@@ -319,7 +319,7 @@
       "id": 2,
       "name": "Ремонт",
       "currency": "UAH",
-      "target_native": 3399.56,
+      "target_native": 150000,
       "collected_native": 0,
       "target_uah": 3399.56,
       "collected_uah": 0,
@@ -331,9 +331,9 @@
       "id": 3,
       "name": "Школа",
       "currency": "UAH",
-      "target_native": 13598.23,
-      "collected_native": 1133.19,
-      "gap_native": 12465.04,
+      "target_native": 600000,
+      "collected_native": 50000,
+      "gap_native": 550000,
       "target_uah": 13598.23,
       "collected_uah": 1133.19,
       "gap_uah": 12465.04,
@@ -346,7 +346,7 @@
       },
       "due_date": "2036-07-12",
       "months_left": 119.91,
-      "required_native": 103.96,
+      "required_native": 4586.85,
       "required_uah": 103.96,
       "rate_pct": 13.09,
       "fill_from_uah": 189.92,
@@ -613,19 +613,19 @@
   "ladder": [
     {
       "year": 2026,
-      "uah": 793.23,
+      "uah": 35000,
       "usd": 0,
       "eur": 0
     },
     {
       "year": 2027,
-      "uah": 3852.83,
+      "uah": 170000,
       "usd": 0,
       "eur": 0
     },
     {
       "year": 2028,
-      "uah": 271.96,
+      "uah": 12000,
       "usd": 3000,
       "eur": 2000
     }
@@ -947,7 +947,7 @@
       "min_days": 30
     },
     "UAH": {
-      "gain": 123.5,
+      "gain": 5449.27,
       "gain_pct": 2.31,
       "money_days": 65.1,
       "min_days": 30
@@ -1077,14 +1077,14 @@
             "rate_source": "auction",
             "rate_date": "2026-07-12",
             "contrib_monthly": 1145.82,
-            "amount": 77650.26
+            "amount": 3426193.43
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_terminal_pct": 3.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 19445.22,
+            "contrib_monthly": 440.7,
             "amount": 22054.39
           },
           {
@@ -1093,7 +1093,7 @@
             "rate_terminal_pct": 6.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 7778.09,
+            "contrib_monthly": 176.28,
             "amount": 8914.18
           }
         ]
@@ -1120,14 +1120,14 @@
             "rate_source": "auction",
             "rate_date": "2026-07-12",
             "contrib_monthly": 1145.82,
-            "amount": 76028.47
+            "amount": 3354634.69
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_terminal_pct": 0.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 19445.22,
+            "contrib_monthly": 440.7,
             "amount": 20549.91
           },
           {
@@ -1136,7 +1136,7 @@
             "rate_terminal_pct": 3.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 7778.09,
+            "contrib_monthly": 176.28,
             "amount": 8352.01
           }
         ]
@@ -1163,13 +1163,13 @@
             "rate_source": "auction",
             "rate_date": "2026-07-12",
             "contrib_monthly": 1145.82,
-            "amount": 74425.68
+            "amount": 3283913.96
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 19445.22,
+            "contrib_monthly": 440.7,
             "amount": 19501.69
           },
           {
@@ -1178,7 +1178,7 @@
             "rate_terminal_pct": 0.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 7778.09,
+            "contrib_monthly": 176.28,
             "amount": 7847.62
           }
         ]
@@ -1203,14 +1203,14 @@
             "rate_source": "auction",
             "rate_date": "2026-07-12",
             "contrib_monthly": 1131.24,
-            "amount": 75327.26
+            "amount": 3323694.87
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_terminal_pct": 0.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 19197.7,
+            "contrib_monthly": 435.09,
             "amount": 20351.49
           },
           {
@@ -1219,7 +1219,7 @@
             "rate_terminal_pct": 3.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 7679.08,
+            "contrib_monthly": 174.04,
             "amount": 8276.18
           }
         ]

@@ -28,7 +28,7 @@ type IdlePair struct {
 	Broker   string `json:"broker"`
 	Currency string `json:"currency"`
 	// Investable — цілі квитки, нативно; InvestableUAH — те саме в грн-екв.
-	Investable    Money   `json:"investable"`
+	Investable    Money   `json:"investable" money:"native"`
 	InvestableUAH Money   `json:"investable_uah"`
 	Since         string  `json:"since,omitempty"`
 	Days          int     `json:"days,omitempty"`

@@ -306,7 +306,7 @@ type Doc struct {
 	// набереться 30 днів історії», хоча історії було три місяці, а вік не
 	// дотягував саме в ГРОШЕЙ. Читалось це як поломка — і по-іншому
 	// прочитатись не могло.
-	Realized map[string]RealizedRow `json:"realized,omitempty"`
+	Realized map[string]RealizedRow `json:"realized,omitempty" money:"native"`
 
 	// PortfolioYieldPct — очікувана дохідність за придбаними паперами:
 	// дохідність до погашення (YTM) від фактично сплаченої ціни, зважена
@@ -854,9 +854,9 @@ type RebalanceRow struct {
 	TargetPct       float64 `json:"target_pct"`
 	CurrentPct      float64 `json:"current_pct"`
 	DeficitUAH      Money   `json:"deficit_uah"`
-	DeficitNative   Money   `json:"deficit_native"`
-	CashNative      Money   `json:"cash_native"`
-	BondCostNative  Money   `json:"bond_cost_native"`
+	DeficitNative   Money   `json:"deficit_native" money:"native"`
+	CashNative      Money   `json:"cash_native" money:"native"`
+	BondCostNative  Money   `json:"bond_cost_native" money:"native"`
 	BondCostUAH     Money   `json:"bond_cost_uah"`
 	CanBuy          int64   `json:"can_buy"`
 	ConvertUAH      Money   `json:"convert_uah"`
@@ -924,7 +924,7 @@ type RebalanceRow struct {
 	// валютної арифметики — рівно те, від чого застережено вище.
 	TransitPct    float64 `json:"transit_pct,omitempty"`
 	TransitUAH    Money   `json:"transit_uah,omitzero"`
-	TransitNative Money   `json:"transit_native,omitzero"`
+	TransitNative Money   `json:"transit_native,omitzero" money:"native"`
 }
 
 // Task — один рядок черги «що робити»: рівно одне рішення, яке чекає на
@@ -1230,9 +1230,9 @@ type Goal struct {
 	Name     string `json:"name"`
 	Currency string `json:"currency"`
 	// --- у валюті цілі ---
-	TargetNative    Money `json:"target_native"`
-	CollectedNative Money `json:"collected_native"`
-	GapNative       Money `json:"gap_native,omitzero"`
+	TargetNative    Money `json:"target_native" money:"native"`
+	CollectedNative Money `json:"collected_native" money:"native"`
+	GapNative       Money `json:"gap_native,omitzero" money:"native"`
 	// --- у гривні ---
 	TargetUAH    Money `json:"target_uah"`
 	CollectedUAH Money `json:"collected_uah"`
@@ -1263,9 +1263,9 @@ type Goal struct {
 	// Обидва в обох одиницях, бо читачів двоє й вони різні: картка говорить
 	// валютою цілі («треба ще $420 на місяць»), а стеля наповнення ріже
 	// гривневий план місяця.
-	RequiredNative Money `json:"required_native,omitzero"`
+	RequiredNative Money `json:"required_native,omitzero" money:"native"`
 	RequiredUAH    Money `json:"required_uah,omitzero"`
-	ActualNative   Money `json:"actual_native,omitzero"`
+	ActualNative   Money `json:"actual_native,omitzero" money:"native"`
 	ActualUAH      Money `json:"actual_uah,omitzero"`
 	// RatePct — під скільки річних працює вже зібране, чистими після
 	// податку. Нуль (і тому omitempty) = гроші лежать готівкою, і це
@@ -1645,7 +1645,7 @@ type ReserveLoan struct {
 	// Date — коли взято, звідси й рахуються дні.
 	Date        string  `json:"date"`
 	TakenUAH    Money   `json:"taken_uah"`
-	TakenNative Money   `json:"taken_native,omitzero"`
+	TakenNative Money   `json:"taken_native,omitzero" money:"native"`
 	Currency    string  `json:"currency,omitempty"`
 	RatePct     float64 `json:"rate_pct"`
 	Days        int     `json:"days"`
@@ -2165,7 +2165,9 @@ type SleeveRow struct {
 	RateSource     string `json:"rate_source,omitempty"`
 	RateDate       string `json:"rate_date,omitempty"`
 	ContribMonthly Money  `json:"contrib_monthly"` // ₴/міс, що йдуть у цю валюту
-	Amount         Money  `json:"amount"`
+	// Amount — у валюті рукава (Currency), нативно: гривневий рукав,
+	// перекладений у долари під міткою «UAH», збрехав би мітці.
+	Amount Money `json:"amount" money:"native"`
 }
 
 // FundPositionRow — позиція в одному фонді. YieldNetPct — дивідендна
@@ -2462,7 +2464,7 @@ type FXWindowRow struct {
 	// Причина в CLAUDE.md §5: інакше цю різницю рахував би браузер, і це
 	// була б друга копія арифметики курсу — рівно те, через що плитка з
 	// карткою вже одного разу розійшлись (див. engine/reinvest.go).
-	VsMedianNative Money `json:"vs_median_native,omitzero"`
+	VsMedianNative Money `json:"vs_median_native,omitzero" money:"native"`
 }
 
 // RealizedRow — результат по одній валюті за фактом і причина, з якої
@@ -2579,10 +2581,13 @@ type RealizedRow struct {
 }
 
 type LadderRow struct {
-	Year int   `json:"year"`
-	UAH  Money `json:"uah"`
-	USD  Money `json:"usd"` // номінал у доларах (не еквівалент)
-	EUR  Money `json:"eur"` // номінал у євро (не еквівалент)
+	Year int `json:"year"`
+	// Номінал гривневих паперів — НАТИВНО, як і сусіди: колонка «UAH»
+	// стоїть поруч із «USD» і «EUR», і перекладена в долари вона читалась
+	// би як гривня (risk.js підписує її «UAH»).
+	UAH Money `json:"uah" money:"native"`
+	USD Money `json:"usd"` // номінал у доларах (не еквівалент)
+	EUR Money `json:"eur"` // номінал у євро (не еквівалент)
 }
 
 type PaymentRow struct {

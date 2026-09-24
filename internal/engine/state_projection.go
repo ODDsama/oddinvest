@@ -1079,7 +1079,10 @@ func buildProjection(in projectionInput) projectionPhase {
 				Currency: s.Currency, RatePct: Round2(s.RatePct),
 				RateTerminalPct: Round2(s.RateTerminalPct),
 				RateSource:      src, RateDate: string(srcDate),
-				ContribMonthly: state.Major(s.ContribUAH, s.Currency),
+				// Гривня, а не валюта рукава: це ₴/міс, що ЙДУТЬ у рукав.
+				// З міткою USD презентер його не перекладав, і в доларовому
+				// вигляді гривня стояла під знаком долара.
+				ContribMonthly: state.Major(s.ContribUAH, money.UAH),
 				Amount:         state.Major(res.ByCurrency[s.Currency], s.Currency),
 			})
 		}
