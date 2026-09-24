@@ -221,11 +221,30 @@ func (s *Store) DeletePlanFlow(ctx context.Context, id int64) error {
 // id як вторинне сортування — щоб дві правки в ту саму секунду лишались
 // у тому порядку, у якому вони сталися.
 func (s *Store) ListPlanFlowRevisions(ctx context.Context, since time.Time) ([]PlanFlowRevision, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, flow_id, changed_at, op,
-		name, kind, amount, currency, cadence, from_date, until_date,
-		growth_bp, invest_bp, dest, uses, note
-		FROM plan_flow_revisions WHERE portfolio_id=? AND changed_at >= ? ORDER BY changed_at, id`,
-		s.pid, since.UTC().Format(time.RFC3339))
+	return s.planFlowRevisions(ctx, `r.changed_at >= ?`, since.UTC().Format(time.RFC3339))
+}
+
+// ListPlanFlowRevisionsWithBase — журнал від since І, для кожного потоку,
+// остання ревізія ДО since: стан, з яким потік увійшов у вікно.
+//
+// Без цієї основи реконструкція «яким план був» губила кожен потік, якого
+// у вікні ніхто не чіпав: planAsOf бачить лише ревізії, а зарплата,
+// заведена півтора року тому й відтоді незмінна, у вікні ревізій не має.
+// Історія плану тоді показувала місяці без неї — нестачу, якої не було.
+func (s *Store) ListPlanFlowRevisionsWithBase(ctx context.Context, since time.Time) ([]PlanFlowRevision, error) {
+	at := since.UTC().Format(time.RFC3339)
+	return s.planFlowRevisions(ctx, `(r.changed_at >= ? OR r.id = (
+		SELECT r2.id FROM plan_flow_revisions r2
+		WHERE r2.portfolio_id = r.portfolio_id AND r2.flow_id = r.flow_id AND r2.changed_at < ?
+		ORDER BY r2.changed_at DESC, r2.id DESC LIMIT 1))`, at, at)
+}
+
+func (s *Store) planFlowRevisions(ctx context.Context, where string, args ...any) ([]PlanFlowRevision, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT r.id, r.flow_id, r.changed_at, r.op,
+		r.name, r.kind, r.amount, r.currency, r.cadence, r.from_date, r.until_date,
+		r.growth_bp, r.invest_bp, r.dest, r.uses, r.note
+		FROM plan_flow_revisions r WHERE r.portfolio_id=? AND `+where+` ORDER BY r.changed_at, r.id`,
+		append([]any{s.pid}, args...)...)
 	if err != nil {
 		return nil, err
 	}

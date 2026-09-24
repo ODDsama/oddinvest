@@ -359,3 +359,72 @@ func TestPlanReceiptUsesRoundTrip(t *testing.T) {
 		t.Fatalf("дозвіл відмітки не повернувся: %+v", rs)
 	}
 }
+
+// Основа журналу: потік, якого у вікні не чіпали, приходить своєю
+// останньою ревізією ДО вікна. Без неї реконструкція «яким план був»
+// губила давню незмінну зарплату з усієї історії.
+func TestPlanFlowRevisionsWithBase(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	old, err := s.AddPlanFlow(ctx, PlanFlow{Name: "Зарплата", Kind: "income", Amount: 4_000_000,
+		Currency: "UAH", Cadence: "month", FromDate: "2024-01-17", InvestBP: 10000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := s.AddPlanFlow(ctx, PlanFlow{Name: "Оренда", Kind: "income", Amount: 1_000_000,
+		Currency: "UAH", Cadence: "month", FromDate: "2024-01-05", InvestBP: 10000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Обидва заведені давно (дві ревізії першого — create і update).
+	flows, _ := s.ListPlanFlows(ctx)
+	for _, f := range flows {
+		if f.ID == old {
+			f.Amount = 4_200_000
+			if err := s.UpdatePlanFlow(ctx, f); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE plan_flow_revisions SET changed_at = '2024-01-01T00:00:00Z'`); err != nil {
+		t.Fatal(err)
+	}
+	// ...а другий правили вже у вікні.
+	flows, _ = s.ListPlanFlows(ctx)
+	for _, f := range flows {
+		if f.ID == fresh {
+			f.Amount = 1_100_000
+			if err := s.UpdatePlanFlow(ctx, f); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	since := time.Now().AddDate(-1, 0, 0)
+	if got, _ := s.ListPlanFlowRevisions(ctx, since); len(got) != 1 {
+		t.Fatalf("саме вікно — одна правка, маємо %d", len(got))
+	}
+	got, err := s.ListPlanFlowRevisionsWithBase(ctx, since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Основа: остання ревізія давнього (update 4 200 000) і create другого,
+	// плюс правка у вікні — у хронології.
+	if len(got) != 3 {
+		t.Fatalf("чекали 3 ревізії (дві основи + правка), маємо %d: %+v", len(got), got)
+	}
+	var sawOld bool
+	for _, r := range got {
+		if r.FlowID == old {
+			sawOld = true
+			if r.Flow.Amount != 4_200_000 {
+				t.Errorf("основа давнього потоку — його ОСТАННЯ ревізія до вікна, маємо %d", r.Flow.Amount)
+			}
+		}
+	}
+	if !sawOld {
+		t.Error("давній незмінний потік випав із журналу")
+	}
+	if got[len(got)-1].FlowID != fresh || got[len(got)-1].Flow.Amount != 1_100_000 {
+		t.Errorf("остання в хронології — правка у вікні, маємо %+v", got[len(got)-1])
+	}
+}

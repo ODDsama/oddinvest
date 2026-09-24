@@ -367,6 +367,12 @@ func planAsOf(revs []store.PlanFlowRevision, t time.Time) []store.PlanFlow {
 	return out
 }
 
+// revisionsSince — ревізії з моменту since (журнал хронологічний).
+func revisionsSince(revs []store.PlanFlowRevision, since time.Time) []store.PlanFlowRevision {
+	i := sort.Search(len(revs), func(i int) bool { return !revs[i].ChangedAt.Before(since) })
+	return revs[i:]
+}
+
 // flowRevisionsShown — скільки правок показує «Історія правок». Стеля, а
 // не вікно: журнал сам по собі читається за рік, а список під таблицею —
 // це «що мінялось останнім часом», а не архів.
@@ -891,7 +897,10 @@ func (e *Engine) PlanTimeline(ctx context.Context, now time.Time) (timelineDoc, 
 	// найдавнішого показаного місяця, потрібна ревізія, що йому передує.
 	revSince := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).
 		AddDate(0, -planHistoryMonths-1, 0)
-	revs, _ := e.st.ListPlanFlowRevisions(ctx, revSince) //nolint:errcheck
+	//
+	// З ОСНОВОЮ: остання ревізія кожного потоку до вікна теж потрібна,
+	// інакше незмінений з давніх пір потік випадав би з усієї історії.
+	revs, _ := e.st.ListPlanFlowRevisionsWithBase(ctx, revSince) //nolint:errcheck
 	// Відмітки надходжень. Ковтаємо з тієї ж причини, що й усе вище:
 	// невідмічений план — звичайний стан, а не поламана стрічка.
 	receipts, _ := e.st.ListPlanReceipts(ctx) //nolint:errcheck
@@ -973,7 +982,9 @@ func (e *Engine) PlanTimeline(ctx context.Context, now time.Time) (timelineDoc, 
 	}
 	out.History = buildPlanHistory(flows, moves, reserveMoves, goalMoves,
 		snaps, revs, receipts, today, rates)
-	out.FlowRevisions = flowRevisionRows(revs)
+	// «Історія правок» — лише правки вікна: основа потрібна реконструкції,
+	// а не списку «що мінялось останнім часом».
+	out.FlowRevisions = flowRevisionRows(revisionsSince(revs, revSince))
 	out.Expected = buildExpectedReceipts(flows, receipts, revs, today, rates)
 	out.Receipts = ReceiptRows(receipts, flows, rates)
 
