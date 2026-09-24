@@ -292,3 +292,58 @@ func TestInzhurPairsTwoConversionsIndependently(t *testing.T) {
 		t.Errorf("доплати розійшлись не по своїх конвертаціях: %+v", res.Rows)
 	}
 }
+
+// Числа так, як їх пишуть виписки: кома й крапка тисяч, дужки для
+// мінуса, знак «−», суфікс «грн». Доти все це давало 0 — а нуль у сумі
+// купівлі сертифікатів записувався як купівля за нуль.
+func TestMoneyParsingLocalFormats(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want int64
+	}{
+		{"1.234,56", 123456}, {"1,234.56", 123456}, {"(123,45)", -12345},
+		{"−100,00", -10000}, {"1 234,56", 123456}, {"250,00 грн", 25000},
+	} {
+		if got := money(c.in); got != c.want {
+			t.Errorf("money(%q) = %d, очікували %d", c.in, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		in   string
+		want int64
+	}{{"12,00", 12}, {"1 234", 1234}, {"3", 3}} {
+		if got := qtyOf(c.in); got != c.want {
+			t.Errorf("qtyOf(%q) = %d, очікували %d", c.in, got, c.want)
+		}
+	}
+}
+
+// Виписка картки з ОКРЕМИМИ беззнаковими колонками: «списано» — витрата,
+// а не надходження. Доти вид виводився лише зі знаку, і кожна покупка з
+// колонки «списано» ставала card_in — платежем на картку.
+func TestCardKindBySeparateColumns(t *testing.T) {
+	if k := cardKindBySign(0, 50000, true, "5411"); k != "card_out" {
+		t.Errorf("беззнакове «списано» — покупка, а не %s", k)
+	}
+	if k := cardKindBySign(0, 50000, true, "6011"); k != "card_cash" {
+		t.Errorf("беззнакове «списано» в банкоматі — готівка, а не %s", k)
+	}
+	if k := cardKindBySign(50000, 0, true, ""); k != "card_in" {
+		t.Errorf("«надійшло» — надходження, а не %s", k)
+	}
+	if k := cardKindBySign(-50000, -50000, false, "5411"); k != "card_out" {
+		t.Errorf("одна знакова колонка: мінус — покупка, а не %s", k)
+	}
+	// Одна знакова колонка, вписана як «списано», а «надійшло» — немає:
+	// це НЕ окремі колонки, плюс лишається надходженням.
+	one := Profile{Debit: -1, Credit: 4}
+	if one.separateAmounts() {
+		t.Error("колонка без пари — не окремі колонки")
+	}
+	if !(Profile{Debit: 3, Credit: 4}).separateAmounts() {
+		t.Error("дві різні колонки — окремі")
+	}
+	if (Profile{Debit: 3, Credit: 3}).separateAmounts() {
+		t.Error("та сама колонка двічі — одна знакова")
+	}
+}

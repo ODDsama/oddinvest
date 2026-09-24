@@ -2,7 +2,6 @@ package imports
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -93,16 +92,31 @@ func IsCardKind(kind string) bool {
 // IsCard — профіль читає виписку картки.
 func (p Profile) IsCard() bool { return p.Card }
 
+// separateAmounts — «надійшло» й «списано» лежать у двох РІЗНИХ колонках.
+// Одна знакова колонка, вписана в будь-яке з двох полів (друге -1), —
+// не окремі: тоді знак її власний, і перевертати його не можна.
+func (p Profile) separateAmounts() bool {
+	return p.Debit >= 0 && p.Credit >= 0 && p.Debit != p.Credit
+}
+
 // cashMCC — коди категорій, за якими рух із картки є готівкою або
 // переказом, тобто під відсотком з першого дня. 6010 — видача готівки в
 // касі, 6011 — банкомат.
 var cashMCC = map[string]bool{"6010": true, "6011": true}
 
 // cardKindBySign — вид рядка виписки картки зі знаку суми й MCC.
-func cardKindBySign(debit, credit int64, mcc string) string {
+//
+// separate — «надійшло» (Debit) і «списано» (Credit) у РІЗНИХ колонках.
+// Тоді беззнакове число в «списано» — витрата: доти вид виводився лише
+// зі знаку, і кожна покупка з такої колонки ставала card_in, тобто
+// платежем на картку. Одна спільна колонка — знак, як і доти.
+func cardKindBySign(debit, credit int64, separate bool, mcc string) string {
 	signed := debit
 	if signed == 0 {
 		signed = credit
+		if separate && signed > 0 {
+			signed = -signed
+		}
 	}
 	switch {
 	case signed > 0:
@@ -205,7 +219,7 @@ func Parse(rows [][]string, p Profile) (Result, error) {
 			// відсотком з першого дня); решта мінусів — покупка. Словник
 			// лишається старшим: «Переказ на картку = card_cash» назве
 			// переказ готівкою там, де за MCC він був би покупкою.
-			kind = cardKindBySign(debit, credit, cell(p.MCC))
+			kind = cardKindBySign(debit, credit, p.separateAmounts(), cell(p.MCC))
 		}
 		if kind == "" {
 			res.Skipped = append(res.Skipped, Skipped{string(date), op, "невідомий тип операції"})
@@ -293,14 +307,13 @@ func (p Profile) match(op string) string {
 // qtyOf — кількість із колонки. Дробову частину відкидаємо: сертифікати й
 // облігації купують штуками, і «12,00» у виписці означає дванадцять, а не
 // привід для помилки.
+//
+// Той самий розбір числа, що й сума (decimalMinor): доти float-розбір
+// читав «1.234» як одиницю з дробом, а не тисячу.
 func qtyOf(s string) int64 {
-	s = strings.NewReplacer(" ", "", " ", "", ",", ".").Replace(strings.TrimSpace(s))
-	if s == "" {
-		return 0
-	}
-	f, err := strconv.ParseFloat(s, 64)
+	v, err := decimalMinor(s, 2)
 	if err != nil {
 		return 0
 	}
-	return int64(f)
+	return v / 100
 }

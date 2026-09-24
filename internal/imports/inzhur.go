@@ -2,7 +2,6 @@ package imports
 
 import (
 	"fmt"
-	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -151,6 +150,12 @@ func ParseInzhur(rows [][]string) (Result, error) {
 			qty, _ := strconv.ParseInt(digits(m[2]), 10, 64) //nolint:errcheck // регексп гарантує цифри, а qty <= 0 нижче ловить решту
 			if qty <= 0 {
 				skip("не розпізнав кількість сертифікатів")
+				continue
+			}
+			// Нуль у сумі — це нерозпізнане число, а не купівля за нуль:
+			// записаний, він дав би сертифікати без собівартості.
+			if (m[1] == "Купівля" && credit <= 0) || (m[1] != "Купівля" && debit <= 0) {
+				skip("не розпізнав суму операції — перевір колонку")
 				continue
 			}
 			if m[1] == "Купівля" {
@@ -326,17 +331,51 @@ func excelDate(s string) (domain.Date, error) {
 	return domain.NewDate(t), nil
 }
 
-// money розбирає «1 234,56» / «1234.56» у мінорні одиниці.
+// money розбирає суму виписки в мінорні одиниці: «1 234,56», «1234.56»,
+// «1.234,56», «1,234.56», «(123,45)», «−100», «250 грн».
+//
+// Доти — через float і з одним правилом «кома = крапка»: крапка тисяч,
+// дужки й суфікс валюти давали 0, а нуль у сумі купівлі сертифікатів
+// записувався як купівля за нуль. Тепер — domain-парсер (точний, без
+// float, сам знає пробіли й «−»), а тут лише те, чого він знати не
+// мусить: дужки, суфікс і вибір десяткового роздільника, коли в числі
+// обидва. У виписці формат задає банк, а не людина, тож «правіший —
+// десятковий» тут безпечний, на відміну від поля форми, де domain
+// відмовляє.
 func money(s string) int64 {
-	s = strings.NewReplacer(" ", "", " ", "", ",", ".").Replace(strings.TrimSpace(s))
-	if s == "" {
-		return 0
-	}
-	f, err := strconv.ParseFloat(s, 64)
+	v, err := decimalMinor(s, 2)
 	if err != nil {
 		return 0
 	}
-	return int64(math.Round(f * 100))
+	return v
+}
+
+// decimalMinor — число виписки в одиницях scale знаків після коми.
+func decimalMinor(s string, scale int) (int64, error) {
+	s = strings.TrimSpace(s)
+	for _, suf := range []string{"грн.", "грн", "UAH"} {
+		s = strings.TrimSpace(strings.TrimSuffix(s, suf))
+	}
+	neg := strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")")
+	if neg {
+		s = s[1 : len(s)-1]
+	}
+	// Кома й крапка разом: десятковий — той, що правіше, другий — тисячі.
+	if c, d := strings.LastIndex(s, ","), strings.LastIndex(s, "."); c >= 0 && d >= 0 {
+		if c > d {
+			s = strings.ReplaceAll(s, ".", "")
+		} else {
+			s = strings.ReplaceAll(s, ",", "")
+		}
+	}
+	v, err := domain.ParseDecimalToScale(s, scale)
+	if err != nil {
+		return 0, err
+	}
+	if neg {
+		v = -v
+	}
+	return v, nil
 }
 
 func digits(s string) string {
