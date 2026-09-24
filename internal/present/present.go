@@ -27,6 +27,7 @@
 //	money:"cur=amount"     — рядок із кодом валюти названого сусіда ПІСЛЯ
 //	                          перекладу: гривнева виплата стала доларовою —
 //	                          і її «currency» теж, а чужа лишається своєю
+//	money:"pct=delta,from" — відсоток зміни з уже перекладених сусідів
 //	money:"native"         — не перекладати зовсім: мапа «код валюти →
 //	                          сума», де ключ і є валюта числа. Перекладене
 //	                          «UAH: 1937.62» було б доларами під гривневим
@@ -50,6 +51,7 @@ package present
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 
@@ -273,7 +275,7 @@ func (w *walker) visitStruct(v reflect.Value, on domain.Date) {
 	w.scopes = append(w.scopes, sc)
 	defer func() { w.scopes = w.scopes[:len(w.scopes)-1] }()
 
-	var diffs, curs []int
+	var diffs, curs, pcts []int
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		fv := v.Field(i)
@@ -315,6 +317,8 @@ func (w *walker) visitStruct(v reflect.Value, on domain.Date) {
 			fv.SetString(w.o.Report)
 		case "cur":
 			curs = append(curs, i)
+		case "pct":
+			pcts = append(pcts, i)
 		case "native":
 			continue // ключ — валюта суми; переклад числа збрехав би ключу
 		default:
@@ -327,9 +331,44 @@ func (w *walker) visitStruct(v reflect.Value, on domain.Date) {
 		w.diff(sc, v.Field(i), t.Field(i).Tag.Get("money"))
 	}
 	// Коди валют — теж ПІСЛЯ: сусід мусить бути вже перекладеним.
+	// Відсотки — після дельт: вони діляться на вже перекладену різницю.
+	for _, i := range pcts {
+		w.pct(v.Field(i), t.Field(i).Tag.Get("money"))
+	}
 	for _, i := range curs {
 		w.cur(v.Field(i), t.Field(i).Tag.Get("money"))
 	}
+}
+
+// pct — відсоток зміни з УЖЕ перекладених сусідів: дельта / база × 100.
+// Лише при валюті ≠ книжкової; у гривні відсоток будівника — як був.
+//
+// Без нього дельта в доларах (різниця «було» й «стало», кожне своїм
+// курсом) стояла поруч із гривневим відсотком: «+100 $ · +120 %», де
+// +120 % — приріст у гривні, а в доларах він +10 %.
+func (w *walker) pct(fv reflect.Value, tag string) {
+	_, arg, _ := strings.Cut(tag, "=")
+	a, b, ok := strings.Cut(arg, ",")
+	if !ok {
+		w.fail(fmt.Errorf("present: money:%q — потрібно два імені через кому", tag))
+		return
+	}
+	if w.identity {
+		return
+	}
+	dv, dok := w.lookup(a)
+	bv, bok := w.lookup(b)
+	if !dok || !bok || dv.Type() != moneyType || bv.Type() != moneyType || fv.Kind() != reflect.Float64 {
+		w.fail(fmt.Errorf("present: money:%q — сусіди мусять бути state.Money, а поле float64", tag))
+		return
+	}
+	base := bv.Interface().(state.Money).Minor()
+	if base <= 0 {
+		fv.SetFloat(0)
+		return
+	}
+	pct := float64(dv.Interface().(state.Money).Minor()) / float64(base) * 100
+	fv.SetFloat(math.Round(pct*100) / 100)
 }
 
 // cur — рядок бере код валюти названого сусіда-суми. Без нього сума й

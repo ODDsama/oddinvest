@@ -390,7 +390,10 @@ func benchFromRivals(rv RivalsResp, rates fx.Rates) BenchResult {
 	// USDBought виводиться з терміналу, а не рахується вдруге: термінал і
 	// є «куплені долари, оцінені сьогоднішнім курсом», тож ділення на той
 	// самий курс повертає рівно ті самі долари.
-	out.USDBought = state.Major(out.BenchmarkUAH.Major()/nowUSD, money.UAH)
+	//
+	// Мітка — USD: це долари. З гривневою міткою презентер ділив їх на
+	// курс ще раз, і в доларовому вигляді usd_bought був у ~44 рази менший.
+	out.USDBought = state.Major(out.BenchmarkUAH.Major()/nowUSD, money.USD)
 	return out
 }
 

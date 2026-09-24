@@ -1457,7 +1457,7 @@ type CapitalDelta struct {
 	FromDate string  `json:"from_date"`
 	FromUAH  Money   `json:"from_uah" money:"asof=from_date"`
 	DeltaUAH Money   `json:"delta_uah" money:"diff=capital_uah,from_uah"`
-	DeltaPct float64 `json:"delta_pct,omitempty"`
+	DeltaPct float64 `json:"delta_pct,omitempty" money:"pct=delta_uah,from_uah"`
 	// ContribUAH — зовнішні гроші за вікно НЕТТО: поповнення й зняття
 	// гаманця, рухи подушки й цілей. Той самий склад, що в «усіх грошах»
 	// ціни рішень; переказ між кошиками записується двома ногами й дає нуль

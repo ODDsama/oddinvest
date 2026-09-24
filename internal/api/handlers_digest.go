@@ -56,7 +56,7 @@ type digestResp struct {
 	FromUAH   state.Money      `json:"from_uah,omitzero" money:"asof=from_date"`
 	ToUAH     state.Money      `json:"to_uah,omitzero"`
 	DeltaUAH  state.Money      `json:"delta_uah" money:"diff=to_uah,from_uah"`
-	DeltaPct  float64          `json:"delta_pct,omitempty"`
+	DeltaPct  float64          `json:"delta_pct,omitempty" money:"pct=delta_uah,from_uah"`
 	Causes    []digestCause    `json:"causes,omitempty"`
 	Structure *periodStructure `json:"structure,omitempty"`
 	Why       string           `json:"why,omitempty"`
@@ -131,7 +131,6 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 
 	fx, fxWhy := s.DigestFX(ctx, fromD)
 	own, income := sum.Major(sum.OwnUAH()), sum.Major(earned)
-	rest := engine.Round2(out.DeltaUAH.Major() - own - income - fx)
 
 	out.Causes = []digestCause{
 		{Key: "own", Label: "Свої гроші", UAH: state.Major(own, money.UAH), Measured: true,
@@ -139,12 +138,21 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		{Key: "income", Label: "Дохід", UAH: state.Major(income, money.UAH), Measured: true,
 			Why: "купони, дивіденди й відсотки, що надійшли; тіло погашення сюди не входить — воно лише переїжджає"},
 		{Key: "fx", Label: "Курс", UAH: state.Major(fx, money.UAH), Measured: false, Why: fxWhy},
-		{Key: "rest", Label: "Решта", UAH: state.Major(rest, money.UAH), Measured: false,
+		// Решта — ПІСЛЯ перекладу (нижче), а не тут: у доларовому вигляді
+		// дельта — різниця перекладених «було» й «стало», кожне своїм
+		// курсом, і гривнева решта, перекладена одним курсом, не зводила б
+		// причини до дельти.
+		{Key: "rest", Label: "Решта", UAH: state.Major(0, money.UAH), Measured: false,
 			Why: "ціни фондів, ЧВОПА НПФ, накопичений купон, округлення — тут немає подобового джерела, тож це чесно решта, а не розкладка"},
 	}
 	if err := s.Present(ctx, &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	rest := out.DeltaUAH
+	for _, c := range out.Causes[:len(out.Causes)-1] {
+		rest = rest.Sub(c.UAH)
+	}
+	out.Causes[len(out.Causes)-1].UAH = rest
 	writeJSON(w, http.StatusOK, out)
 }

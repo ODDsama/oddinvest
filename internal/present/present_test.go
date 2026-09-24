@@ -353,3 +353,35 @@ func TestNativeMapStaysNative(t *testing.T) {
 		t.Errorf("places — грн-екв., тож перекладається: %v", m)
 	}
 }
+
+// money:"pct=delta,before" — відсоток зміни з УЖЕ перекладених сусідів.
+//
+// Дельта в доларах — різниця перекладених «було» й «стало», кожне своїм
+// курсом, а відсоток лишався гривневим: «+120 $ · +3 %», де +3 % —
+// приріст у гривні, а в доларах він був −5 %.
+func TestPctFollowsConvertedDelta(t *testing.T) {
+	type d struct {
+		FromDate string      `json:"from_date"`
+		Before   state.Money `json:"before" money:"asof=from_date"`
+		After    state.Money `json:"after"`
+		Delta    state.Money `json:"delta" money:"diff=after,before"`
+		Pct      float64     `json:"pct" money:"pct=delta,before"`
+	}
+	// 20 000 ₴ за курсом 20 = 1 000 $; 44 000 ₴ за курсом 40 = 1 100 $:
+	// у гривні +120 %, у доларах +10 %.
+	v := d{FromDate: "2026-01-01", Before: state.Major(20_000, "UAH"), After: state.Major(44_000, "UAH"),
+		Delta: state.Major(24_000, "UAH"), Pct: 120}
+	if err := Apply(&v, Opts{Book: "UAH", Report: "USD", Rates: rates(), Today: today}); err != nil {
+		t.Fatal(err)
+	}
+	if v.Pct != 10 {
+		t.Errorf("відсоток у доларах %.2f, чекали 10 (+100 $ на 1 000 $)", v.Pct)
+	}
+	id := d{Before: state.Major(20_000, "UAH"), After: state.Major(44_000, "UAH"), Pct: 120}
+	if err := Apply(&id, Opts{Book: "UAH", Report: "UAH", Rates: rates(), Today: today}); err != nil {
+		t.Fatal(err)
+	}
+	if id.Pct != 120 {
+		t.Errorf("у книжковій валюті відсоток будівника не чіпається: %.2f", id.Pct)
+	}
+}

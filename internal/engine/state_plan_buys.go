@@ -784,8 +784,8 @@ func (e *Engine) addTopup(ctx context.Context, now time.Time,
 	// й далі описує ті самі гроші, і наступний автор, шукаючи «де ж тут
 	// віднімання», мусить знайти цей абзац, а не порожній параметр.
 	avail := after.MonthPlan.LeftUAH
-	out.TopupPlanUAH = Round2(planCostUAH(basket, rates) + avail.Major())
-	out.TopupLeftUAH = Round2(math.Max(0, avail.Major()))
+	out.TopupPlanUAH = state.Major(planCostUAH(basket, rates)+avail.Major(), money.UAH)
+	out.TopupLeftUAH = state.Major(math.Max(0, avail.Major()), money.UAH)
 	// Поріг той самий, що в розкладки: сума, з якої не вийде жодного руху,
 	// не варта картки. Нуль і від'ємне значення сюди ж — план купівель
 	// може бути й більшим за те, що місяць обіцяє.
@@ -892,6 +892,9 @@ type whatIfPayload struct {
 	// купівель. Без них картка показала б результат віднімання, не
 	// показавши самого віднімання, — а питання «чому пропонують так мало»
 	// виникає рівно на ньому.
-	TopupPlanUAH float64 `json:"topup_plan_uah,omitempty"`
-	TopupLeftUAH float64 `json:"topup_left_uah,omitempty"`
+	//
+	// Money, а не float: сусідня розкладка перекладається у валюту
+	// звітності, і голі гривні поруч із нею показувались зі знаком долара.
+	TopupPlanUAH state.Money `json:"topup_plan_uah,omitzero"`
+	TopupLeftUAH state.Money `json:"topup_left_uah,omitzero"`
 }
