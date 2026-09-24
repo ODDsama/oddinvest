@@ -1335,6 +1335,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		InstallmentDueByMonth: installmentDueByMonth(src, rates, today),
 		CardDueUAH:            cardDue0,
 		CardLeftUAH:           cardLeftUAH(src, rates, today),
+		PlannedByMonth:        plannedByMonth(src, rates, today),
 	})
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну (див. state_projection.go).

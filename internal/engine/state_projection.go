@@ -150,6 +150,11 @@ type projectionInput struct {
 	InstallmentDueByMonth []float64
 	CardDueUAH            float64
 	CardLeftUAH           float64
+	// PlannedByMonth — планові витрати ПОРТФЕЛЬНОГО контуру (paid_from =
+	// plan), помісячно від наступного місяця: індекс 0 — місяць 1, як і
+	// в InstallmentDueByMonth. Ті самі, що план місяця віднімає як
+	// PlannedUAH, — інакше крива витрачала б котел лише на одному екрані.
+	PlannedByMonth []float64
 	// Поля DebtFillSharePct тут більше немає: прохід уперед не ріже
 	// дострокового погашення взагалі, тож вимикати нема чого.
 	// ActualMonthly — фактичний темп поповнень, ₴/міс (0 = історії замало).
@@ -300,8 +305,18 @@ func (f sleeveFactory) shareAt(m int) map[string]float64 {
 // частці в місяці — те саме зважування, що splitByWeights у ready_on.go.
 // Вибрати, що подушка наповнюється «спершу з гривні», можна лише вигаданим
 // правилом, якого користувач не задавав.
+//
+// # ОБОВʼЯЗКОВЕ — ЯК У ПЛАНІ МІСЯЦЯ
+//
+// Борг і планові витрати віднімаються тим самим правилом, що в
+// buildMonthPlan: обовʼязкові платежі СПЕРШУ гасять непортфельні гроші
+// місяця (onCard, аналог OnCardUAH), і лише переповнення лягає на план
+// (DebtFromPlanUAH); планові витрати портфельного контуру — повністю
+// (PlannedUAH); і те, і те виходить із бази стелі подушки й цілей. Доти
+// прогноз різав увесь платіж із портфельних грошей, не бачив планових
+// витрат зовсім, і місяць 1 кривої розходився з планом наступного місяця.
 func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
-	planNative map[string][]float64, incReserve, incGoals, expense []float64) {
+	planNative map[string][]float64, incReserve, incGoals, expense, onCard []float64) {
 	resGap, goalGap := in.ReserveGapUAH, in.GoalsGapUAH
 	cardLeft := in.CardLeftUAH
 	resShare, goalShare := 0.0, 0.0
@@ -314,11 +329,11 @@ func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 		}
 	}
 	if (resGap <= 0 || resShare <= 0) && (goalGap <= 0 || goalShare <= 0) &&
-		len(in.InstallmentDueByMonth) == 0 && cardLeft <= 0 {
+		len(in.InstallmentDueByMonth) == 0 && cardLeft <= 0 && len(in.PlannedByMonth) == 0 {
 		return // жодної живої стелі — прогноз лишається таким, як був
 	}
 	for m := range planTotal {
-		cut := 0.0
+		debt := 0.0
 		// Борг ПЕРШИМ, і тепер ОДНИМ доданком. Обовʼязкове йде, доки борг
 		// живий, незалежно від стелі й від дозволів: це не вибір. Воно
 		// замовкає разом із боргом, і саме тому прохід уперед, а не стала
@@ -332,23 +347,35 @@ func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 		// Дострокове погашення більше не забирає портфельних грошей ніде —
 		// довід у allocate.go, у місці, де стояла вирізка.
 		if m < len(in.InstallmentDueByMonth) {
-			cut += in.InstallmentDueByMonth[m]
+			debt += in.InstallmentDueByMonth[m]
 		}
 		if cardLeft > 0 {
 			c := math.Min(in.CardDueUAH, cardLeft)
 			cardLeft -= c
-			cut += c
+			debt += c
 		}
+		// Непортфельні гроші гасять борг першими (DebtFromPlanUAH). Картка
+		// при цьому гаситься однаково — cardLeft вище зменшується за будь-
+		// якого платника.
+		if m < len(onCard) {
+			debt = math.Max(0, debt-onCard[m])
+		}
+		spent := debt
+		if m < len(in.PlannedByMonth) {
+			spent += in.PlannedByMonth[m]
+		}
+		cut := spent
 		if resGap > 0 && resShare > 0 {
 			// База — дозволена подушці частина місяця за відрахуванням
-			// витрат, тобто рівно PlanReserveUAH цього місяця.
-			base := math.Max(0, incReserve[m]-expense[m])
+			// витрат, боргу з плану й планових витрат, тобто рівно
+			// PlanReserveUAH цього місяця.
+			base := math.Max(0, incReserve[m]-expense[m]-spent)
 			c := math.Min(base*resShare/100, resGap)
 			resGap -= c
 			cut += c
 		}
 		if goalGap > 0 && goalShare > 0 {
-			base := math.Max(0, incGoals[m]-expense[m])
+			base := math.Max(0, incGoals[m]-expense[m]-spent)
 			c := math.Min(base*goalShare/100, goalGap)
 			goalGap -= c
 			cut += c
@@ -527,6 +554,10 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 	incReserve := make([]float64, goalHorizonMonths)
 	incGoals := make([]float64, goalHorizonMonths)
 	expense := make([]float64, goalHorizonMonths)
+	// onCard — непортфельна частина доходу місяця (валове мінус те, що
+	// дійшло до портфеля): той самий кошик, що OnCardUAH у buildMonthPlan.
+	// З нього обовʼязкові платежі гасяться ПЕРШИМИ.
+	onCard := make([]float64, goalHorizonMonths)
 	for _, fl := range in.PlanFlows {
 		native := fl.Currency != "" && fl.Currency != money.UAH
 		if native && planNative[fl.Currency] == nil {
@@ -556,6 +587,9 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 			if fl.Kind == "expense" {
 				expense[m-1] += -v
 			} else {
+				gross := fl
+				gross.InvestBP = 10000
+				onCard[m-1] += PlanFlowMonthlyUAH(gross, today, in.Rates, m, marks) - v
 				if domain.PlanUseAllowed(fl.Uses, domain.UsePlanReserve) {
 					incReserve[m-1] += v
 				}
@@ -570,7 +604,7 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 			}
 		}
 	}
-	spendOutside(in, planTotal, planUAHOnly, planNative, incReserve, incGoals, expense)
+	spendOutside(in, planTotal, planUAHOnly, planNative, incReserve, incGoals, expense, onCard)
 	f.planTotal = planTotal
 	f.planNative = planNative
 	f.npfContrib = npfContrib

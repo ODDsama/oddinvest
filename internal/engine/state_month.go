@@ -683,8 +683,13 @@ func debtDueParts(src *sources, rates fx.Rates, today domain.Date, m int) (inst,
 }
 
 // installmentDueByMonth — обовʼязкові платежі самостійних розстрочок
-// помісячно від поточного, до останнього платежу включно. Далі — нулі,
-// тобто вектор просто закінчується.
+// помісячно від НАСТУПНОГО місяця (індекс 0 — місяць 1 прогнозу), до
+// останнього платежу включно. Далі — нулі, тобто вектор просто
+// закінчується.
+//
+// Від наступного, а не від поточного: вектор читає прогноз, чий місяць 1
+// — наступний. Доти індекс 0 був поточним місяцем, і крива щомісяця
+// віднімала платіж на місяць раніше, ніж його віднімає план того місяця.
 func installmentDueByMonth(src *sources, rates fx.Rates, today domain.Date) []float64 {
 	var lastPay domain.Date
 	for _, d := range src.debts {
@@ -701,9 +706,29 @@ func installmentDueByMonth(src *sources, rates fx.Rates, today domain.Date) []fl
 		return nil
 	}
 	var out []float64
-	for m := 0; !monthStart(today, m).After(lastPay); m++ {
+	for m := 1; !monthStart(today, m).After(lastPay); m++ {
 		inst, _ := debtDueParts(src, rates, today, m)
 		out = append(out, inst)
+	}
+	return out
+}
+
+// plannedByMonth — планові витрати портфельного контуру помісячно від
+// наступного місяця (індекс 0 — місяць 1), тим самим plannedInMonth, що й
+// PlannedUAH плану місяця. nil — таких витрат попереду немає.
+func plannedByMonth(src *sources, rates fx.Rates, today domain.Date) []float64 {
+	last := 0
+	for _, p := range src.planExpenses {
+		if p.PaidFrom == domain.PaidFromPlan && p.PressMonth(today) > last {
+			last = p.PressMonth(today)
+		}
+	}
+	if last < 1 {
+		return nil
+	}
+	out := make([]float64, last)
+	for m := 1; m <= last; m++ {
+		out[m-1] = plannedInMonth(src, rates, today, m, "", domain.PaidFromPlan)
 	}
 	return out
 }

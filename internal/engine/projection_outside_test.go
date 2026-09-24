@@ -38,7 +38,7 @@ func TestSpendOutsideCutsBothCeilings(t *testing.T) {
 	total, uah, res, goals, exp := outsideEnv(3)
 	// Стелі 30% і 20% від 10 000 = 3 000 і 2 000; розривів вистачає на всі
 	// три місяці.
-	spendOutside(outsideInput(100_000, 100_000, 30, 20), total, uah, nil, res, goals, exp)
+	spendOutside(outsideInput(100_000, 100_000, 30, 20), total, uah, nil, res, goals, exp, nil)
 
 	for m := 0; m < 3; m++ {
 		if math.Abs(uah[m]-5_000) > 0.01 {
@@ -61,7 +61,7 @@ func TestSpendOutsideStopsWhenGapIsClosed(t *testing.T) {
 	total, uah, res, goals, exp := outsideEnv(4)
 	// Розрив подушки 4 500 при стелі 3 000/міс: повний місяць, залишок
 	// 1 500 у другому, далі тиша. Цілей немає взагалі.
-	spendOutside(outsideInput(4_500, 0, 30, 0), total, uah, nil, res, goals, exp)
+	spendOutside(outsideInput(4_500, 0, 30, 0), total, uah, nil, res, goals, exp, nil)
 
 	want := []float64{7_000, 8_500, 10_000, 10_000}
 	for m, w := range want {
@@ -77,8 +77,8 @@ func TestSpendOutsideStopsWhenGapIsClosed(t *testing.T) {
 // і саме це відрізняє виправлення від нового правила.
 func TestSpendOutsideSilentWithoutCeilings(t *testing.T) {
 	total, uah, res, goals, exp := outsideEnv(3)
-	spendOutside(outsideInput(100_000, 100_000, 0, 0), total, uah, nil, res, goals, exp)
-	spendOutside(projectionInput{}, total, uah, nil, res, goals, exp)
+	spendOutside(outsideInput(100_000, 100_000, 0, 0), total, uah, nil, res, goals, exp, nil)
+	spendOutside(projectionInput{}, total, uah, nil, res, goals, exp, nil)
 
 	for m := 0; m < 3; m++ {
 		if math.Abs(uah[m]-10_000) > 0.01 {
@@ -93,7 +93,7 @@ func TestSpendOutsideSubtractsExpensesFromBase(t *testing.T) {
 	exp[0] = 6_000
 	total[0], uah[0] = 4_000, 4_000
 	// База стелі: 10 000 дозволених − 6 000 витрат = 4 000; 30% = 1 200.
-	spendOutside(outsideInput(100_000, 0, 30, 0), total, uah, nil, res, goals, exp)
+	spendOutside(outsideInput(100_000, 0, 30, 0), total, uah, nil, res, goals, exp, nil)
 
 	if math.Abs(uah[0]-2_800) > 0.01 {
 		t.Errorf("у папери %.2f, чекали 4 000 − 1 200 = 2 800", uah[0])
@@ -106,7 +106,7 @@ func TestSpendOutsideSplitsProportionallyAcrossCurrencies(t *testing.T) {
 	// Місяць на 10 000 ₴: 6 000 гривнею і 4 000 еквівалента в доларі.
 	uah[0] = 6_000
 	native := map[string][]float64{"USD": {100}} // 100 $ ≈ 4 000 ₴
-	spendOutside(outsideInput(100_000, 0, 50, 0), total, uah, native, res, goals, exp)
+	spendOutside(outsideInput(100_000, 0, 50, 0), total, uah, native, res, goals, exp, nil)
 
 	// Стеля 50% від 10 000 = 5 000, тобто лишається половина кожного.
 	if math.Abs(uah[0]-3_000) > 0.01 {
@@ -129,13 +129,33 @@ func TestSpendOutsideDebtFollowsSchedule(t *testing.T) {
 		InstallmentDueByMonth: []float64{3_000, 3_000, 3_000},
 		CardDueUAH:            500, CardLeftUAH: 1_200,
 	}
-	spendOutside(in, total, uah, nil, res, goals, exp)
+	spendOutside(in, total, uah, nil, res, goals, exp, nil)
 	// Місяці 0–1: 3 000 розстрочки + 500 картки; 2: 3 000 + 200 (залишок
 	// картки); 3–5: нічого.
 	want := []float64{6_500, 6_500, 6_800, 10_000, 10_000, 10_000}
 	for m, w := range want {
 		if math.Abs(uah[m]-w) > 0.01 {
 			t.Errorf("місяць %d: до паперів %.2f, чекали %.2f", m, uah[m], w)
+		}
+	}
+}
+
+// Обовʼязкове спершу гасять непортфельні гроші місяця, як у плані місяця
+// (DebtFromPlanUAH): 5 000 розстрочки при 90 000 на картці план не
+// зачіпають, а при 2 000 — лише переповнення 3 000. Планові витрати
+// портфельного контуру ріжуть повністю (PlannedUAH).
+func TestSpendOutsideLikeMonthPlan(t *testing.T) {
+	total, uah, res, goals, exp := outsideEnv(3)
+	in := projectionInput{
+		InstallmentDueByMonth: []float64{5_000, 5_000},
+		PlannedByMonth:        []float64{0, 0, 4_000},
+	}
+	onCard := []float64{90_000, 2_000, 0}
+	spendOutside(in, total, uah, nil, res, goals, exp, onCard)
+	want := []float64{10_000, 7_000, 6_000}
+	for m, w := range want {
+		if math.Abs(uah[m]-w) > 0.01 {
+			t.Errorf("місяць %d: до паперів %.2f, чекали %.2f", m+1, uah[m], w)
 		}
 	}
 }

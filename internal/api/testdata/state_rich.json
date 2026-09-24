@@ -587,7 +587,7 @@
   "month_withdrawn_uah": 15000,
   "month_outside_uah": 2000,
   "month_contributed_uah": 65000,
-  "month_target_uah": 77780.88,
+  "month_target_uah": 77649.72,
   "month_progress_pct": 86,
   "month_incoming_uah": 1270.36,
   "month_plan": {
@@ -1019,34 +1019,34 @@
   "projection": [
     {
       "years": 1,
-      "contributed": 1740207.92,
-      "with_reinvest": 1803064.42,
+      "contributed": 1740425.91,
+      "with_reinvest": 1803278.06,
       "with_reinvest_actual": 1743288.08,
       "income_monthly": 14399.06,
       "income_monthly_actual": 13916.29
     },
     {
       "years": 3,
-      "contributed": 3452392.35,
-      "with_reinvest": 3763021.7,
+      "contributed": 3452676.32,
+      "with_reinvest": 3763329.33,
       "with_reinvest_actual": 3587133.09,
-      "income_monthly": 27179.57,
+      "income_monthly": 27180.16,
       "income_monthly_actual": 25926.01
     },
     {
       "years": 5,
-      "contributed": 4968808.09,
-      "with_reinvest": 5604383.95,
+      "contributed": 4966695.52,
+      "with_reinvest": 5602225.3,
       "with_reinvest_actual": 5298910.95,
-      "income_monthly": 35448.48,
+      "income_monthly": 35435.32,
       "income_monthly_actual": 33523.42
     },
     {
       "years": 10,
-      "contributed": 7986559.24,
-      "with_reinvest": 9778348.83,
+      "contributed": 7979699.68,
+      "with_reinvest": 9770729.31,
       "with_reinvest_actual": 9165755.92,
-      "income_monthly": 62683.75,
+      "income_monthly": 62635.83,
       "income_monthly_actual": 58787.03
     }
   ],
@@ -1057,20 +1057,20 @@
     "date": "2029-10-15",
     "months": 39,
     "goal_amount": 4000000,
-    "contrib_plan": 77780.88,
+    "contrib_plan": 77649.72,
     "rate0_usd": 44.12,
     "glide_years": 5,
     "rows": [
       {
         "key": "optimistic",
         "label": "Оптимістично",
-        "amount": 4513288.05,
-        "amount_nominal": 4968371.17,
-        "required_monthly": 65718.94,
+        "amount": 4513275.15,
+        "amount_nominal": 4968356.96,
+        "required_monthly": 65587.55,
         "required_total_monthly": 69787.55,
         "rate_pct": 15.65,
         "rate_terminal_pct": 14,
-        "contrib_monthly": 77780.88,
+        "contrib_monthly": 77649.72,
         "devaluation_pct": 3,
         "goal_pct": 112.8,
         "goal_months": 35,
@@ -1082,16 +1082,16 @@
             "rate_terminal_pct": 14,
             "rate_source": "auction",
             "rate_date": "2026-07-12",
-            "contrib_monthly": 50557.57,
-            "amount": 3426193.43
+            "contrib_monthly": 50472.32,
+            "amount": 3426198.91
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_terminal_pct": 3.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 19445.22,
-            "amount": 22054.39
+            "contrib_monthly": 19412.43,
+            "amount": 22054.16
           },
           {
             "currency": "EUR",
@@ -1099,25 +1099,25 @@
             "rate_terminal_pct": 6.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 7778.09,
-            "amount": 8914.18
+            "contrib_monthly": 7764.97,
+            "amount": 8914.02
           }
         ]
       },
       {
         "key": "realistic",
         "label": "Реалістично",
-        "amount": 4000010.52,
-        "amount_nominal": 4983774.81,
-        "required_monthly": 77780.88,
+        "amount": 4000000,
+        "amount_nominal": 4983761.7,
+        "required_monthly": 77649.72,
         "required_total_monthly": 81849.72,
         "rate_pct": 15.65,
         "rate_terminal_pct": 11,
-        "contrib_monthly": 77780.88,
+        "contrib_monthly": 77649.72,
         "devaluation_pct": 7,
         "goal_pct": 100,
-        "goal_months": 39,
-        "goal_date": "2029-10-15",
+        "goal_months": 40,
+        "goal_date": "2029-11-15",
         "by_currency": [
           {
             "currency": "UAH",
@@ -1125,16 +1125,16 @@
             "rate_terminal_pct": 11,
             "rate_source": "auction",
             "rate_date": "2026-07-12",
-            "contrib_monthly": 50557.57,
-            "amount": 3354634.69
+            "contrib_monthly": 50472.32,
+            "amount": 3354632.35
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_terminal_pct": 0.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 19445.22,
-            "amount": 20549.91
+            "contrib_monthly": 19412.43,
+            "amount": 20549.79
           },
           {
             "currency": "EUR",
@@ -1142,21 +1142,21 @@
             "rate_terminal_pct": 3.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 7778.09,
-            "amount": 8352.01
+            "contrib_monthly": 7764.97,
+            "amount": 8351.94
           }
         ]
       },
       {
         "key": "pessimistic",
         "label": "Песимістично",
-        "amount": 3576433.27,
-        "amount_nominal": 5020532.79,
-        "required_monthly": 90416.67,
+        "amount": 3576434.79,
+        "amount_nominal": 5020534.92,
+        "required_monthly": 90284.77,
         "required_total_monthly": 94484.77,
         "rate_pct": 15.65,
         "rate_terminal_pct": 8,
-        "contrib_monthly": 77780.88,
+        "contrib_monthly": 77649.72,
         "devaluation_pct": 11,
         "goal_pct": 89.4,
         "goal_months": 47,
@@ -1168,15 +1168,15 @@
             "rate_terminal_pct": 8,
             "rate_source": "auction",
             "rate_date": "2026-07-12",
-            "contrib_monthly": 50557.57,
-            "amount": 3283913.96
+            "contrib_monthly": 50472.32,
+            "amount": 3283903.9
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 19445.22,
-            "amount": 19501.69
+            "contrib_monthly": 19412.43,
+            "amount": 19501.74
           },
           {
             "currency": "EUR",
@@ -1184,8 +1184,8 @@
             "rate_terminal_pct": 0.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 7778.09,
-            "amount": 7847.62
+            "contrib_monthly": 7764.97,
+            "amount": 7847.75
           }
         ]
       },
@@ -1244,94 +1244,94 @@
         },
         {
           "month": 3,
-          "plan": 1043106.28,
-          "optimistic": 1050305.04,
-          "pessimistic": 1036243.14,
-          "actual": 1040168.25
+          "plan": 1043161.97,
+          "optimistic": 1050361.19,
+          "pessimistic": 1036298.37,
+          "actual": 1040611.58
         },
         {
           "month": 6,
-          "plan": 1298491.26,
-          "optimistic": 1317317.05,
-          "pessimistic": 1280739.54,
-          "actual": 1292602.04
+          "plan": 1298601.09,
+          "optimistic": 1317428.67,
+          "pessimistic": 1280847.66,
+          "actual": 1293524.07
         },
         {
           "month": 9,
-          "plan": 1550398.62,
-          "optimistic": 1585472.84,
-          "pessimistic": 1517675.44,
-          "actual": 1541567.65
+          "plan": 1550561.08,
+          "optimistic": 1585639.26,
+          "pessimistic": 1517834.19,
+          "actual": 1542943.38
         },
         {
           "month": 12,
-          "plan": 1803064.42,
-          "optimistic": 1859435.51,
-          "pessimistic": 1751085.24,
-          "actual": 1791325.65
+          "plan": 1803278.06,
+          "optimistic": 1859656.05,
+          "pessimistic": 1751292.44,
+          "actual": 1793142.92
         },
         {
           "month": 15,
-          "plan": 2053128.38,
-          "optimistic": 2135930.94,
-          "pessimistic": 1977624.96,
-          "actual": 2038471.3
+          "plan": 2053391.75,
+          "optimistic": 2136204.95,
+          "pessimistic": 1977878.51,
+          "actual": 2040739.4
         },
         {
           "month": 18,
-          "plan": 2301878.96,
-          "optimistic": 2416511.67,
-          "pessimistic": 2198569.56,
-          "actual": 2284339.47
+          "plan": 2302211.01,
+          "optimistic": 2416861.28,
+          "pessimistic": 2198885.57,
+          "actual": 2287058.91
         },
         {
           "month": 21,
-          "plan": 2549361.63,
-          "optimistic": 2701465.45,
-          "pessimistic": 2413881.99,
-          "actual": 2528949.57
+          "plan": 2549740.98,
+          "optimistic": 2701867.86,
+          "pessimistic": 2414240.46,
+          "actual": 2532109.27
         },
         {
           "month": 24,
-          "plan": 2795526.34,
-          "optimistic": 2991023.27,
-          "pessimistic": 2623465.58,
-          "actual": 2772270.33
+          "plan": 2795951.65,
+          "optimistic": 2991477.86,
+          "pessimistic": 2623866.49,
+          "actual": 2775855.52
         },
         {
           "month": 27,
-          "plan": 3040119.14,
-          "optimistic": 3285272.58,
-          "pessimistic": 2827023.31,
-          "actual": 3014014.16
+          "plan": 3040589.09,
+          "optimistic": 3285778.73,
+          "pessimistic": 2827462.97,
+          "actual": 3018044.66
         },
         {
           "month": 30,
-          "plan": 3282942.65,
-          "optimistic": 3584522.95,
-          "pessimistic": 3024211.4,
-          "actual": 3254037.76
+          "plan": 3283464.82,
+          "optimistic": 3585090.81,
+          "pessimistic": 3024695.25,
+          "actual": 3258483.53
         },
         {
           "month": 33,
-          "plan": 3523860.92,
-          "optimistic": 3888920.08,
-          "pessimistic": 3214669.47,
-          "actual": 3492151.46
+          "plan": 3524442.86,
+          "optimistic": 3889569.18,
+          "pessimistic": 3215202.63,
+          "actual": 3497027.37
         },
         {
           "month": 36,
-          "plan": 3763021.7,
-          "optimistic": 4198582.22,
-          "pessimistic": 3398872.81,
-          "actual": 3728538.23
+          "plan": 3763329.33,
+          "optimistic": 4198926.29,
+          "pessimistic": 3399158.89,
+          "actual": 3733505.66
         },
         {
           "month": 39,
-          "plan": 4000010.52,
-          "optimistic": 4513288.05,
-          "pessimistic": 3576433.27,
-          "actual": 3962783.83
+          "plan": 4000000,
+          "optimistic": 4513275.15,
+          "pessimistic": 3576434.79,
+          "actual": 3967797.09
         }
       ]
     }
@@ -1479,7 +1479,7 @@
     "plan_date": "2030-02-15",
     "actual_months": 48,
     "actual_date": "2030-07-15",
-    "capital_uah": 4313026.05
+    "capital_uah": 4312597.3
   },
   "drawdown": {
     "withdraw_uah": 20000,
@@ -2021,7 +2021,7 @@
   "actual_months": 6,
   "savings_rate_pct": 161.66,
   "settings": {
-    "monthly_target_uah": 77780.88,
+    "monthly_target_uah": 77649.72,
     "usd_target_share_pct": 25,
     "eur_target_share_pct": 10,
     "goal_amount_uah": 4000000,
