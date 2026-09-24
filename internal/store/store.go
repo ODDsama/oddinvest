@@ -759,6 +759,14 @@ func (s *Store) AvgRateByCurrency(ctx context.Context, today domain.Date) (map[s
 //
 // Порожня вибірка — збій джерела, а не ринок без паперів: помилка, і
 // довідник лишається вчорашнім.
+// minDirectoryShare / minDirectoryForShare — поріг неповної вибірки: живих
+// паперів у новій менше minDirectoryShare% від наявних, коли наявних не
+// менше minDirectoryForShare.
+const (
+	minDirectoryShare    = 80
+	minDirectoryForShare = 20
+)
+
 func (s *Store) ReplaceDirectory(ctx context.Context, secs []nbu.Security, fetchedAt time.Time) error {
 	if len(secs) == 0 {
 		return errors.New("довідник НБУ прийшов порожнім — лишаю попередній")
@@ -768,6 +776,28 @@ func (s *Store) ReplaceDirectory(ctx context.Context, secs []nbu.Security, fetch
 		return err
 	}
 	defer tx.Rollback()
+	// НЕПОВНА ВИБІРКА — той самий збій джерела, що й порожня, лише тихіший:
+	// обірвана відповідь чи тимчасово урізаний ендпойнт прибрали б із
+	// довідника нічиї папери, а тримачам не оновили б нічого. Порівнюються
+	// ЖИВІ папери (погашення попереду): давно погашені, що тримаються в
+	// лотах, у вибірці НБУ законно відсутні. На малому довіднику (менше
+	// minDirectoryForShare живих) частка не міряється — там і один папір
+	// різниці дає десятки відсотків.
+	cut := string(domain.NewDate(fetchedAt))
+	var had int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM bonds WHERE maturity >= ?`, cut).Scan(&had); err != nil {
+		return err
+	}
+	live := 0
+	for _, sec := range secs {
+		if string(sec.Bond.Maturity) >= cut {
+			live++
+		}
+	}
+	if had >= minDirectoryForShare && live*100 < had*minDirectoryShare {
+		return fmt.Errorf("довідник НБУ прийшов неповним: %d живих паперів проти %d у базі "+
+			"(менше %d%%) — лишаю попередній", live, had, minDirectoryShare)
+	}
 	// Лоти — всіх портфелів навмисно: довідник спільний, і папір, який
 	// тримає хоч один портфель, не можна витерти з-під нього.
 	if _, err := tx.Exec(`DELETE FROM payments WHERE isin NOT IN (SELECT isin FROM lots)`); err != nil {
@@ -803,12 +833,17 @@ func (s *Store) ReplaceDirectory(ctx context.Context, secs []nbu.Security, fetch
 	}
 	defer pstmt.Close()
 	ft := fetchedAt.UTC().Format(time.RFC3339)
-	cut := string(domain.NewDate(fetchedAt))
 	for _, sec := range secs {
 		b := sec.Bond
 		if _, err := bstmt.Exec(b.ISIN, b.Nominal.Amount(), b.Nominal.Currency().Code,
 			b.RateBP, string(b.Maturity), b.Descr, ft); err != nil {
 			return fmt.Errorf("bond %s: %w", b.ISIN, err)
+		}
+		// Порожній графік — не «виплат більше не буде», а відповідь без
+		// графіка: стерти через нього майбутні купони тримача означало б
+		// тихо викреслити їх із гаманця, прогнозу й маршруту.
+		if len(sec.Payments) == 0 {
+			continue
 		}
 		if _, err := fstmt.Exec(b.ISIN, cut); err != nil {
 			return fmt.Errorf("графік %s: %w", b.ISIN, err)

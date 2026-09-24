@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -663,5 +664,53 @@ func TestOpenTightensFileModes(t *testing.T) {
 		if m := fi.Mode().Perm(); m != 0o600 {
 			t.Errorf("%s: права %o, чекали 600", filepath.Base(p), m)
 		}
+	}
+}
+
+// Неповна вибірка (обірвана відповідь, урізаний ендпойнт) — збій джерела,
+// як і порожня: довідник лишається як був. Порожній графік паперу —
+// відповідь без графіка, а не «виплат не буде»: майбутні купони тримача
+// лишаються.
+func TestReplaceDirectoryRefusesPartialAndKeepsScheduleOnEmpty(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	future := domain.NewDate(time.Now()).AddDays(90)
+	mk := func(i int) nbu.Security {
+		isin := fmt.Sprintf("UA%010d", i)
+		return nbu.Security{Bond: domain.Bond{ISIN: isin, Nominal: money.New(100000, money.UAH),
+			RateBP: 1600, Maturity: future},
+			Payments: []domain.Payment{{ISIN: isin, PayDate: future, Type: domain.PayCoupon,
+				PerBond: money.New(8000, money.UAH)}}}
+	}
+	var full []nbu.Security
+	for i := 0; i < 25; i++ {
+		full = append(full, mk(i))
+	}
+	if err := s.ReplaceDirectory(ctx, full, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReplaceDirectory(ctx, full[:10], time.Now()); err == nil {
+		t.Error("10 паперів замість 25 мали бути відмовою")
+	}
+	if all, _ := s.SearchBonds(ctx, "", "", "", "", 100); len(all) != 25 {
+		t.Errorf("неповна вибірка зачепила довідник: %d паперів", len(all))
+	}
+	// Звичайне звуження (один папір погасили) — проходить.
+	if err := s.ReplaceDirectory(ctx, full[:24], time.Now()); err != nil {
+		t.Errorf("звуження на один папір — не збій: %v", err)
+	}
+
+	isin := full[0].Bond.ISIN
+	if _, err := s.AddLot(ctx, domain.Lot{ISIN: isin, Qty: 1,
+		PricePerBond: money.New(100000, money.UAH), BuyDate: domain.NewDate(time.Now()), Channel: "mono"}); err != nil {
+		t.Fatal(err)
+	}
+	noSchedule := append([]nbu.Security(nil), full[:24]...)
+	noSchedule[0].Payments = nil
+	if err := s.ReplaceDirectory(ctx, noSchedule, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if pays, _ := s.PaymentsFor(ctx, []string{isin}); len(pays) != 1 {
+		t.Errorf("порожній графік стер майбутній купон тримача: %+v", pays)
 	}
 }
