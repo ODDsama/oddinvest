@@ -3,6 +3,8 @@ package domain
 import (
 	"fmt"
 	"math/big"
+	"strings"
+	"unicode"
 
 	money "github.com/Rhymond/go-money"
 )
@@ -31,13 +33,47 @@ func ParseDecimalToScale(s string, decimals int) (int64, error) {
 	if decimals < 0 {
 		return 0, fmt.Errorf("масштаб не може бути відʼємним: %d", decimals)
 	}
-	r, ok := new(big.Rat).SetString(s)
+	norm, err := normalizeDecimal(s)
+	if err != nil {
+		return 0, err
+	}
+	r, ok := new(big.Rat).SetString(norm)
 	if !ok {
 		return 0, fmt.Errorf("невалідне десяткове число %q", s)
 	}
 	pow := new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(decimals)), nil))
 	r.Mul(r, pow)
 	return RatToInt64HalfEven(r)
+}
+
+// normalizeDecimal — число так, як його пише людина в Україні, у
+// вигляд, який розуміє big.Rat.
+//
+// Десятковий роздільник на українській клавіатурі — кома, а сам
+// застосунок показує суми з пробілами тисяч (toLocaleString("uk") ставить
+// нерозривний, U+00A0 чи U+202F) і знаком «−» (U+2212). Скопійоване з
+// екрана число доти відхилялось, і кожна форма мала нормалізувати його
+// сама — звірка так і робила, решта ні. Тут, один раз для всіх входів.
+//
+// Кома РАЗОМ із крапкою — відмова, а не вгадування: «1,234.5» і
+// «1.234,5» означають різне залежно від того, хто писав.
+func normalizeDecimal(s string) (string, error) {
+	out := strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsSpace(r):
+			return -1
+		case r == '−': // «−», яким format.js пише від'ємні суми
+			return '-'
+		}
+		return r
+	}, s)
+	if strings.Contains(out, ",") {
+		if strings.Contains(out, ".") {
+			return "", fmt.Errorf("неоднозначне число %q: і кома, і крапка", s)
+		}
+		out = strings.Replace(out, ",", ".", 1)
+	}
+	return out, nil
 }
 
 // RatToInt64HalfEven — заокруглення big.Rat до цілого за правилом

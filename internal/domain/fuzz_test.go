@@ -13,7 +13,8 @@ import (
 //
 //	go test ./internal/domain -run '^$' -fuzz FuzzParseDecimal -fuzztime 60s
 func FuzzParseDecimal(f *testing.F) {
-	for _, s := range []string{"16.5", "1000", "-0.005", "1e3", "0.125", "999999999999.99", "abc", ""} {
+	for _, s := range []string{"16.5", "1000", "-0.005", "1e3", "0.125", "999999999999.99", "abc", "",
+		"1 234,56", "\u221240\u00a0000,00", "1,2.3", ","} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {

@@ -610,7 +610,8 @@ export function wireReconcile(ctx, main) {
       btn.disabled = true;
       try {
         const res = await ctx.api("POST", "cash/reconcile", {
-          broker, currency, actual: inp.value.trim().replace(/\s/g, "").replace(",", "."),
+          // Сире: кому й пробіли тисяч розуміє сам парсер бекенда.
+          broker, currency, actual: inp.value.trim(),
         });
         const d = (res || {}).diff || {};
         ctx.toast(Number(d.amount) === 0 ? "Уже сходиться"
