@@ -120,6 +120,18 @@ function bodyFromRow(d, patch) {
   };
 }
 
+
+// Питання перед видаленням вкладу називає, що зникне разом із ним:
+// сервер стирає й поповнення (DeleteTermDeposit), а типове «Видалити
+// вклад?» про це мовчало.
+function depositDeleteQuestion(row) {
+  const n = (row.topups || []).length;
+  const tail = n
+    ? ` Разом із ним зникне поповнень: ${n}.`
+    : "";
+  return `Видалити вклад «${row.bank || "#" + row.id}»?${tail}`;
+}
+
 export function depositFormHTML(ctx) {
   return formHTML({ id: "termDepForm", fields: depositFields(ctx), submit: "Додати" });
 }
@@ -208,6 +220,7 @@ export function wireDeposits(ctx, main, deposits = []) {
     funded: (f) => ({
       check: "term-deposits/check", date: f.open_date.value, what: "відкриття вкладу",
     }),
+    confirm: depositDeleteQuestion,
     msg: { add: "Вклад додано", edit: "Вклад виправлено", del: "Вклад видалено" },
   });
 
@@ -262,6 +275,7 @@ export function wireDeposits(ctx, main, deposits = []) {
       closed_date: f.closed_date.value,
       closed_amount: f.closed_amount.value.trim(),
     }),
+    confirm: depositDeleteQuestion,
     msg: { edit: "Розірвання виправлено", del: "Вклад видалено" },
   });
 

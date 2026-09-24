@@ -98,6 +98,10 @@ func (s *Store) DeleteDebt(ctx context.Context, id int64) error {
 		{`SELECT COUNT(*) FROM debt_ops WHERE debt_id=? AND portfolio_id=?`, "рухів"},
 		{`SELECT COUNT(*) FROM debt_marks WHERE debt_id=? AND portfolio_id=?`, "звірок"},
 		{`SELECT COUNT(*) FROM debts WHERE card_id=? AND portfolio_id=?`, "прив'язаних розстрочок"},
+		// Профіль імпорту тримає картку без FK (0051: debt_id = 0 означає
+		// «не картковий»), тож видалення доти проходило, а наступний імпорт
+		// виписки падав на картці, якої вже немає.
+		{`SELECT COUNT(*) FROM import_profiles WHERE debt_id=? AND portfolio_id=?`, "профілів імпорту виписки"},
 	} {
 		var used int
 		if err := s.db.QueryRowContext(ctx, c.q, id, s.pid).Scan(&used); err != nil {

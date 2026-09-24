@@ -203,3 +203,30 @@ func TestDebtMarkSameDayOverwrites(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Картку, до якої привʼязаний профіль імпорту, видалити не можна: FK
+// немає (debt_id = 0 — «не картковий»), і доти видалення проходило, а
+// наступний імпорт виписки падав на картці, якої вже немає.
+func TestDeleteDebtRefusesWhileImportProfileHoldsIt(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	card, err := s.AddDebt(ctx, domain.Debt{Name: "Картка", Kind: domain.DebtCard, Currency: "UAH"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveImportProfile(ctx, ImportProfile{Name: "mono", Format: "csv",
+		Date: 0, Op: 1, Ref: -1, Qty: -1, Debit: 2, Credit: -1, Balance: 3, MCC: -1,
+		DebtID: card}); err != nil {
+		t.Fatal(err)
+	}
+	err = s.DeleteDebt(ctx, card)
+	if err == nil || !strings.Contains(err.Error(), "профілів імпорту") {
+		t.Fatalf("очікували відмову з поясненням, маємо %v", err)
+	}
+	if err := s.DeleteImportProfile(ctx, "mono"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteDebt(ctx, card); err != nil {
+		t.Fatalf("без профілю картка мала видалитись: %v", err)
+	}
+}

@@ -228,7 +228,11 @@ export function catalogsHTML(ctx, marks = [], fundOps = [], fundRows = []) {
 // слово: зібрати поля за data-field, звірити з попереднім станом, дописати
 // числам Number(), відправити PUT. Розходились копії в дрібниці — тут
 // слухали ще й Enter, там ні.
-export function bindCatalog(ctx, card, path) {
+//
+// question — питання перед видаленням, коли рядок довідника тягне за
+// собою записи: рахунок НПФ стирається разом із внесками й ЧВОПА
+// (DeleteNPFAccount), і «Видалити «X»?» цього не казало.
+export function bindCatalog(ctx, card, path, question = (name) => `Видалити «${name}»?`) {
   if (!card) return;
   inlineEdit(ctx, card, {
     rows: "[data-cat]", fields: ".cat-f",
@@ -242,7 +246,7 @@ export function bindCatalog(ctx, card, path) {
     const name = row.querySelector(".cat-name");
     onDelete(ctx, row, "[data-catdel]", () => ({
       path: `${path}/${row.dataset.cat}`,
-      confirm: `Видалити «${name.value}»?`,
+      confirm: question(name.value),
     }));
   });
 }
@@ -250,7 +254,8 @@ export function bindCatalog(ctx, card, path) {
 export function bindBrokers(ctx, main) {
   bindCatalog(ctx, main.querySelector("#brokerCard"), "brokers");
   bindCatalog(ctx, main.querySelector("#fundCatalogCard"), "fund-catalog");
-  bindCatalog(ctx, main.querySelector("#npfCatalogCard"), "npf-accounts");
+  bindCatalog(ctx, main.querySelector("#npfCatalogCard"), "npf-accounts",
+    (name) => `Видалити рахунок «${name}»? Разом із ним зникнуть усі його внески й позначки ЧВОПА.`);
   onSubmit(ctx, main.querySelector("#npfAddForm"), (f) => {
     const name = f.name.value.trim();
     if (!name) return null;
