@@ -167,7 +167,10 @@ func PortfolioFlows(bonds map[string]Bond, payments []Payment, lots []Lot,
 			continue
 		}
 		b, ok := bonds[l.ISIN]
-		if !ok || b.Maturity.Before(asOf) {
+		// Погашений СЬОГОДНІ теж поза терміналом: виплата дня asOf уже
+		// стоїть у потоках вище (дата не пізніша за asOf), і термінал додав
+		// би той самий номінал удруге (TestPortfolioFlowsMaturityDayCountedOnce).
+		if !ok || !b.Maturity.After(asOf) {
 			continue
 		}
 		rem := RemainingQtyNow(l, sales)

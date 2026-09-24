@@ -284,3 +284,29 @@ func TestFundFlowsOneSeesConversionAsExit(t *testing.T) {
 		t.Errorf("дохідність фонду не порахувалась: %v", err)
 	}
 }
+
+// День погашення: номінал — ОДИН раз.
+//
+// Виплата дня asOf входить у потоки (дата не пізніша за asOf), а папір
+// із Maturity == asOf ще не «Before» — і доти він потрапляв іще й у
+// термінальну вартість. 10 паперів по 1 000 у день погашення давали
+// +10 000 виплатою й ще +10 000 терміналом: realized і XIRR того дня
+// завищені на весь номінал.
+func TestPortfolioFlowsMaturityDayCountedOnce(t *testing.T) {
+	bonds := map[string]Bond{"UA1": {ISIN: "UA1", Nominal: uah(100000), Maturity: "2026-07-15"}}
+	pays := []Payment{{ISIN: "UA1", PayDate: "2026-07-15", Type: PayRedemption, PerBond: uah(100000)}}
+	lots := []Lot{{ID: 1, ISIN: "UA1", Qty: 10, PricePerBond: uah(98000), BuyDate: "2026-01-10"}}
+	flows, err := PortfolioFlows(bonds, pays, lots, nil, "UAH", "2026-07-15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := int64(0)
+	for _, f := range flows {
+		if f.Amount > 0 {
+			in += f.Amount
+		}
+	}
+	if in != 1_000_000 {
+		t.Errorf("надходжень %d, чекали 1 000 000 (номінал раз): %+v", in, flows)
+	}
+}
