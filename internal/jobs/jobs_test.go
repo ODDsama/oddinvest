@@ -22,7 +22,8 @@ import (
 type auctionStub struct {
 	srv   *httptest.Server
 	calls atomic.Int64
-	day   string // DD.MM.YYYY єдиного аукціонного дня
+	day   string       // DD.MM.YYYY єдиного аукціонного дня
+	fail  atomic.Value // DD.MM.YYYY дня, на який сервіс відповідає 500
 }
 
 func newAuctionStub(t *testing.T, day string) *auctionStub {
@@ -31,6 +32,10 @@ func newAuctionStub(t *testing.T, day string) *auctionStub {
 	st.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		st.calls.Add(1)
 		q := r.URL.Query().Get("date")
+		if f, _ := st.fail.Load().(string); f != "" && q == f {
+			http.Error(w, "down", http.StatusInternalServerError)
+			return
+		}
 		// Без дати — останній аукціонний день; з датою — лише той день.
 		// Порожній st.day означає «аукціонів не було взагалі».
 		if st.day != "" && (q == "" || q == st.day) {
@@ -213,5 +218,36 @@ func TestSnapshotBuildsStateForTheDayItDates(t *testing.T) {
 	}
 	if day, want := string(domain.NewDate(got)), runnerToday(r); day != want {
 		t.Errorf("рядок за %s містить стан за %s", want, day)
+	}
+}
+
+// Недоступний день догону ЗУПИНЯЄ знак перед собою: наступний прогін
+// бере його знову. Доти знак ставав на сьогодні за будь-якого результату,
+// і пропущений аукціон не перевірявся більше ніколи.
+func TestRefreshAuctionsWatermarkStopsAtFailedDay(t *testing.T) {
+	now := time.Now()
+	stub := newAuctionStub(t, now.Format("02.01.2006"))
+	r, st := testRunner(t, stub.srv.URL)
+	ctx := context.Background()
+	today := time.Now().In(r.loc)
+	if err := st.SetAppState(ctx, auctionWatermark, string(domain.NewDate(today.AddDate(0, 0, -5)))); err != nil {
+		t.Fatal(err)
+	}
+	stub.fail.Store(today.AddDate(0, 0, -3).Format("02.01.2006"))
+	if err := r.RefreshAuctions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	through, _ := st.GetAppState(ctx, auctionWatermark) //nolint:errcheck // перевіряємо значення
+	if want := string(domain.NewDate(today.AddDate(0, 0, -4))); through != want {
+		t.Fatalf("знак %q, чекали %q — останній день перед недоступним", through, want)
+	}
+	// Сервіс ожив — наступний прогін доходить до найсвіжішого аукціону.
+	stub.fail.Store("")
+	if err := r.RefreshAuctions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	through, _ = st.GetAppState(ctx, auctionWatermark) //nolint:errcheck // перевіряємо значення
+	if through != string(domain.NewDate(now)) {
+		t.Errorf("знак після відновлення %q, чекали день найсвіжішого аукціону", through)
 	}
 }

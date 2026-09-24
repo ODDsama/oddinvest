@@ -281,6 +281,13 @@ func (r *Runner) persistDaily(ctx context.Context) {
 // auctionWatermark — до якого дня аукціони вже переглянуто. Робочий стан
 // джоби, а не політика портфеля, тому в реєстрі налаштувань його немає —
 // так само, як nbu_refreshed_at поруч.
+//
+// Знак — останній ОПУБЛІКОВАНИЙ аукціонний день, до якого всі дні взяті
+// без пропусків, а не «сьогодні». Доти прогін ставив сьогоднішню дату й
+// тоді, коли догін пропустив недоступний день, і тоді, коли сьогоднішній
+// аукціон іще не опублікували (джоба о 06:10, результати — вдень): обидва
+// дні більше не перевірялись ніколи. Коли між двома прогонами було два
+// аукціони, ранній губився саме так.
 const auctionWatermark = "ovdp_auctions_polled_through"
 
 // auctionCatchupCap — скільки днів максимум догоняти за один прогін.
@@ -301,7 +308,6 @@ const auctionCatchupCap = 60
 // Аукціони бувають раз на тиждень, тож чотири дні з п'яти відповідь
 // порожня — і це не привід ні для помилки, ні для запитів.
 func (r *Runner) RefreshAuctions(ctx context.Context) error {
-	today := domain.NewDate(time.Now().In(r.loc))
 	latest, err := r.nbu.Auctions(ctx, "")
 	if err != nil {
 		return err
@@ -319,19 +325,29 @@ func (r *Runner) RefreshAuctions(ctx context.Context) error {
 			newest = a.Date
 		}
 	}
+	// Нічого новішого за знак не опубліковано — знак стоїть, де стояв.
+	if newest == "" || string(newest) <= through {
+		return nil
+	}
 	// Перший запуск історію не тягне — це справа бекфілу, який іде
 	// власною горутиною й має власний, довгий таймаут. Добова джоба не
 	// місце для сотні запитів.
 	from, perr := time.Parse("2006-01-02", through)
-	if through == "" || perr != nil || (newest != "" && string(newest) <= through) {
-		return r.st.SetAppState(ctx, auctionWatermark, string(today))
+	if through == "" || perr != nil {
+		return r.st.SetAppState(ctx, auctionWatermark, string(newest))
 	}
-	end := time.Now().In(r.loc)
-	if d := end.AddDate(0, 0, -auctionCatchupCap); d.After(from) {
+	// Догоняти треба лише дні МІЖ знаком і найсвіжішим: сам найсвіжіший уже
+	// в latest, а новішого за нього не опубліковано.
+	end, _ := time.Parse("2006-01-02", string(newest)) //nolint:errcheck // дата з відповіді НБУ вже розібрана
+	end = end.AddDate(0, 0, -1)
+	if d := time.Now().In(r.loc).AddDate(0, 0, -auctionCatchupCap); d.After(from) {
 		r.log.Info("аукціони: догін обрізано стелею",
 			"від", through, "беремо з", domain.NewDate(d), "стеля_днів", auctionCatchupCap)
 		from = d
 	}
+	// done — останній день, до якого все взято без пропусків. Недоступний
+	// день знак зупиняє: наступний прогін почне саме з нього.
+	done, failed := domain.NewDate(from), false
 	var got int
 	for d := from.AddDate(0, 0, 1); !d.After(end); d = d.AddDate(0, 0, 1) {
 		select {
@@ -344,17 +360,24 @@ func (r *Runner) RefreshAuctions(ctx context.Context) error {
 			// Один недоступний день не привід кидати решту: наступний
 			// прогін догоняє його з того самого знака.
 			r.log.Debug("аукціони: день пропущено", "date", domain.NewDate(d), "err", err)
+			failed = true
 			time.Sleep(r.pause)
 			continue
 		}
 		if err := r.st.SaveAuctions(ctx, as); err != nil {
 			return err
 		}
+		if !failed {
+			done = domain.NewDate(d)
+		}
 		got += len(as)
 		time.Sleep(r.pause)
 	}
-	r.log.Info("аукціони догнано", "рядків", got, "від", through, "до", string(today))
-	return r.st.SetAppState(ctx, auctionWatermark, string(today))
+	if !failed {
+		done = newest
+	}
+	r.log.Info("аукціони догнано", "рядків", got, "від", through, "до", string(done))
+	return r.st.SetAppState(ctx, auctionWatermark, string(done))
 }
 
 // BackfillAuctions — разово підтягує історію аукціонів за weeks тижнів.
@@ -393,7 +416,9 @@ func (r *Runner) BackfillAuctions(ctx context.Context, weeks int) error {
 		time.Sleep(r.pause)
 	}
 	r.log.Info("історію аукціонів підтягнуто", "рядків", got, "днів_пропущено", failed)
-	return r.st.SetAppState(ctx, auctionWatermark, string(domain.NewDate(end)))
+	// Учорашнім днем, а не сьогоднішнім: сьогоднішній аукціон могли ще не
+	// опублікувати (див. auctionWatermark).
+	return r.st.SetAppState(ctx, auctionWatermark, string(domain.NewDate(end.AddDate(0, 0, -1))))
 }
 
 // BackfillAuctionsIfThin — бекфіл лише тоді, коли історії справді мало.
