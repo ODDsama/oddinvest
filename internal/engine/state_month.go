@@ -63,6 +63,10 @@ type monthPhase struct {
 	// довжині історії він порахований (щоб було видно, наскільки вірити).
 	ActualMonthlyUAH float64
 	ActualMonths     int
+	// GrossAvgUAH — середній валовий дохід плану за ті самі ActualMonths
+	// місяців (поточний і попередні): знаменник норми заощаджень у ТОМУ Ж
+	// вікні, що й темп.
+	GrossAvgUAH float64
 	// Plan — що план доходу обіцяє САМЕ цього місяця. nil = плану немає.
 	Plan *state.MonthPlan
 	// Резерв цього місяця. ReserveMovedUAH — скільки вже покладено під
@@ -259,6 +263,25 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	}
 
 	out.Plan = buildMonthPlan(src, rates, today, 0, float64(out.DepositedUAH.Amount())/100, "")
+	// Місяць, у якому план не описує жодного доходу (потоки ще не
+	// почались), — «невідомо», а не «нуль»: з нулями в знаменнику норма
+	// для плану, заведеного цього місяця, виходила б у рази більшою.
+	if out.Plan != nil && out.ActualMonths > 0 {
+		sum, n := 0.0, 0
+		for m := 0; m < out.ActualMonths; m++ {
+			p := out.Plan
+			if m > 0 {
+				p = buildMonthPlan(src, rates, today, -m, 0, "")
+			}
+			if p != nil && p.GrossUAH.Major() > 0 {
+				sum += p.GrossUAH.Major()
+				n++
+			}
+		}
+		if n > 0 {
+			out.GrossAvgUAH = Round2(sum / float64(n))
+		}
+	}
 	// Дозвіл тут відкидається навмисно: у документі його ставить Derive з
 	// doc.MonthPlan.PlanReserveUAH — того самого числа й того самого місяця.
 	// Другий носій крізь buildMonth був би третьою копією одного факту.
@@ -820,9 +843,18 @@ func monthStart(today domain.Date, m int) domain.Date {
 // місяця, можна (продав щось, дістав із-під матраца, прийшов бонус повз
 // план), і зрізати такий місяць до сотні означало б сховати саме те, що
 // сталось. Число називає факт, а не оцінює його.
-func savingsRatePct(actualMonthly float64, plan *state.MonthPlan) float64 {
-	if plan == nil || plan.GrossUAH.Major() <= 0 || actualMonthly <= 0 {
+// savingsBase — знаменник, опублікований поруч із нормою; мовчить разом
+// із нею.
+func savingsBase(actualMonthly, grossAvg float64) state.Money {
+	if savingsRatePct(actualMonthly, grossAvg) == 0 {
+		return state.Money{}
+	}
+	return state.Major(grossAvg, money.UAH)
+}
+
+func savingsRatePct(actualMonthly, grossAvg float64) float64 {
+	if grossAvg <= 0 || actualMonthly <= 0 {
 		return 0
 	}
-	return Round2(actualMonthly / plan.GrossUAH.Major() * 100)
+	return Round2(actualMonthly / grossAvg * 100)
 }

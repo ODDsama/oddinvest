@@ -2019,7 +2019,8 @@
   "nbu_refreshed_at": "2026-07-15T06:00:00Z",
   "actual_monthly_uah": 76790.8,
   "actual_months": 6,
-  "savings_rate_pct": 161.66,
+  "savings_rate_pct": 175.52,
+  "savings_base_uah": 43750,
   "settings": {
     "monthly_target_uah": 77649.72,
     "usd_target_share_pct": 25,

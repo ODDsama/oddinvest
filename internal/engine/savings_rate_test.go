@@ -4,8 +4,9 @@ import (
 	"math"
 	"testing"
 
-	"github.com/ODDsama/oddinvest/internal/state"
-	money "github.com/Rhymond/go-money"
+	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 // TestSavingsRateIsCheckableByDivision — норма заощаджень мусить точно
@@ -31,7 +32,7 @@ func TestSavingsRateIsCheckableByDivision(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := savingsRatePct(c.actual, &state.MonthPlan{GrossUAH: state.Major(c.gross, money.UAH)})
+			got := savingsRatePct(c.actual, c.gross)
 			if math.Abs(got-c.wantPct) > 0.01 {
 				t.Errorf("норма %.2f%%, чекали %.2f%%", got, c.wantPct)
 			}
@@ -55,14 +56,14 @@ func TestSavingsRateIsCheckableByDivision(t *testing.T) {
 // твердження: ділити просто нема на що. Той самий поділ між «невідомо» й
 // «нуль», на якому стоїть половина полів цього документа.
 func TestSavingsRateStaysSilentWithoutIncome(t *testing.T) {
-	if got := savingsRatePct(12_000, nil); got != 0 {
+	if got := savingsRatePct(12_000, 0); got != 0 {
 		t.Errorf("без плану доходу норма %.2f, мала мовчати", got)
 	}
-	if got := savingsRatePct(12_000, &state.MonthPlan{GrossUAH: state.Major(0, money.UAH)}); got != 0 {
+	if got := savingsRatePct(12_000, 0); got != 0 {
 		t.Errorf("при нульовому доході норма %.2f, мала мовчати", got)
 	}
 	// І навпаки: без темпу теж нема чого казати.
-	if got := savingsRatePct(0, &state.MonthPlan{GrossUAH: state.Major(60_000, money.UAH)}); got != 0 {
+	if got := savingsRatePct(0, 60_000); got != 0 {
 		t.Errorf("без темпу норма %.2f, мала мовчати", got)
 	}
 }
@@ -89,5 +90,36 @@ func TestNiceStepReadsAsAnAction(t *testing.T) {
 		if got := niceStep(c.in); got != c.want {
 			t.Errorf("niceStep(%.0f) = %.0f, чекали %.0f", c.in, got, c.want)
 		}
+	}
+}
+
+// Знаменник норми — у ТОМУ Ж вікні, що й чисельник: середній валовий дохід
+// за ActualMonths місяців, а не дохід поточного. Доти премія цього місяця
+// (або її відсутність) хитала норму так, ніби змінилась дисципліна.
+func TestSavingsBaseAveragesSameWindow(t *testing.T) {
+	today := domain.Date("2026-09-24")
+	src := &sources{
+		planFlows: []store.PlanFlow{
+			{ID: 1, Name: "зарплата", Kind: "income", Amount: 6_000_000, Currency: "UAH",
+				Cadence: "month", FromDate: "2025-01-10", InvestBP: 10000},
+			{ID: 2, Name: "премія", Kind: "income", Amount: 6_000_000, Currency: "UAH",
+				Cadence: "once", FromDate: "2026-09-05", InvestBP: 10000},
+		},
+		deposits: []store.Deposit{
+			{Date: "2026-07-16", Amount: 3_000_000, Currency: "UAH"},
+			{Date: "2026-08-15", Amount: 3_000_000, Currency: "UAH"},
+			{Date: "2026-09-14", Amount: 3_000_000, Currency: "UAH"},
+		},
+	}
+	mth, err := buildMonth(src, domain.Holdings{}, fx.Rates{}, today.Time(), today, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mth.ActualMonths != 3 {
+		t.Fatalf("вікно %d місяців, фікстура розрахована на 3", mth.ActualMonths)
+	}
+	// Вересень 120 000 (зарплата + премія), серпень і липень по 60 000.
+	if math.Abs(mth.GrossAvgUAH-80_000) > 0.01 {
+		t.Errorf("середній валовий %.2f, чекали 80 000 — (120 000 + 60 000 + 60 000) / 3", mth.GrossAvgUAH)
 	}
 }

@@ -1451,7 +1451,8 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		AccruedUAH:  state.Minor(accruedUAH, money.UAH), NBURefreshedAt: nbuAt,
 		DepositsAccruedUAH: capital.DepositsAccruedUAH,
 		ActualMonthlyUAH:   state.Major(actualMonthly, money.UAH), ActualMonths: actualMonths,
-		SavingsRatePct: savingsRatePct(actualMonthly, mth.Plan),
+		SavingsRatePct: savingsRatePct(actualMonthly, mth.GrossAvgUAH),
+		SavingsBaseUAH: savingsBase(actualMonthly, mth.GrossAvgUAH),
 	}
 	// Похідні — те, що виводиться з уже покладеного (state/derive.go).
 	// Capital зібраний вище один раз; state його лише читає.
