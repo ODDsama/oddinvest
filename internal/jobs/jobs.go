@@ -243,9 +243,17 @@ func (r *Runner) RefreshAll(ctx context.Context) error {
 
 // refreshDirectory — довідник НБУ й мітка його свіжості.
 func (r *Runner) refreshDirectory(ctx context.Context) error {
-	secs, err := r.nbu.Securities(ctx)
+	secs, skipped, err := r.nbu.Securities(ctx)
 	if err != nil {
 		return err
+	}
+	// Пропущені записи — у лог і в мітку, з якої їх читає задача: папір,
+	// що випав із довідника, тихо «зникнути» не має.
+	if len(skipped) > 0 {
+		r.log.Warn("довідник НБУ: записи пропущено", "скільки", len(skipped), "перший", skipped[0])
+	}
+	if err := r.st.SetAppState(ctx, store.NBUSkippedKey, strings.Join(skipped, "; ")); err != nil {
+		r.log.Warn("не зберіг перелік пропущених записів довідника", "err", err)
 	}
 	if err := r.st.ReplaceDirectory(ctx, secs, time.Now()); err != nil {
 		return err

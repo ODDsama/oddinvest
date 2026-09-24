@@ -153,6 +153,9 @@ type sources struct {
 	settings *state.SettingsDoc
 	brokers  []store.Broker
 	nbuAt    string
+	// nbuSkipped — записи довідника, пропущені останнім оновленням
+	// (store.NBUSkippedKey); порожньо — усе розібралось.
+	nbuSkipped string
 
 	// Здоровʼя добового прогону (jobs): дата останнього записаного дампу
 	// цього портфеля і результат integrity_check бази. Порожньо — прогону
@@ -314,6 +317,9 @@ func (e *Engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	}
 	src.backupAt = domain.Date(backupAt)
 	if src.integrity, err = e.st.GetAppState(ctx, store.IntegrityKey); err != nil {
+		return nil, err
+	}
+	if src.nbuSkipped, err = e.st.GetAppState(ctx, store.NBUSkippedKey); err != nil {
 		return nil, err
 	}
 

@@ -1063,6 +1063,9 @@ func (s *Store) SetAppState(ctx context.Context, key, value string) error {
 const (
 	BackupAtKey  = "backup_at"
 	IntegrityKey = "integrity"
+	// NBUSkippedKey — записи довідника НБУ, пропущені останнім оновленням
+	// («ISIN: причина» через «; »). Порожньо — пропусків не було.
+	NBUSkippedKey = "nbu_directory_skipped"
 )
 
 // SetOwnState / GetOwnState — мітка app_state ЦЬОГО портфеля. Таблиця

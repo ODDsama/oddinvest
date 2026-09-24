@@ -69,88 +69,108 @@ type Security struct {
 }
 
 // Securities тягне повний довідник паперів в обігу.
-func (c *Client) Securities(ctx context.Context) ([]Security, error) {
+//
+// skipped — записи, які не розібрались, кожен «ISIN: причина». Один кривий
+// запис більше не валить довідник цілком: доти null у pay_val одного
+// паперу зупиняв оновлення всіх двохсот, і довідник мовчки старів.
+func (c *Client) Securities(ctx context.Context) (secs []Security, skipped []string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+securitiesURI, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("НБУ securities: %w", err)
+		return nil, nil, fmt.Errorf("НБУ securities: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("НБУ securities: HTTP %d", resp.StatusCode)
+		return nil, nil, fmt.Errorf("НБУ securities: HTTP %d", resp.StatusCode)
 	}
 	var raw []rawSecurity
 	dec := json.NewDecoder(resp.Body)
 	dec.UseNumber()
 	if err := dec.Decode(&raw); err != nil {
-		return nil, fmt.Errorf("НБУ securities: декодування: %w", err)
+		return nil, nil, fmt.Errorf("НБУ securities: декодування: %w", err)
 	}
-	return parseSecurities(raw)
+	secs, skipped = parseSecurities(raw)
+	return secs, skipped, nil
 }
 
-func parseSecurities(raw []rawSecurity) ([]Security, error) {
-	out := make([]Security, 0, len(raw))
+// parseSecurities — розбір довідника; запис, що не розібрався, іде в
+// skipped з причиною, а не валить решту.
+func parseSecurities(raw []rawSecurity) (out []Security, skipped []string) {
+	out = make([]Security, 0, len(raw))
 	for _, r := range raw {
-		if r.CPCode == "" || r.ValCode == "" {
+		sec, err := parseSecurity(r)
+		if err != nil {
+			skipped = append(skipped, err.Error())
 			continue
 		}
-		// Довідник змішує домашні ОВДП (ISIN UA…, номінал 1000) і зовнішні
-		// ОЗДП/єврооблігації (ISIN XS…), які НБУ нормалізує до номіналу 1
-		// (купони — частка одиниці). Беремо лише домашні ОВДП внутрішнього
-		// ринку, щоб не плутати шкалу номіналу.
-		if !strings.HasPrefix(strings.ToUpper(r.CPCode), "UA") {
-			continue
+		if sec != nil {
+			out = append(out, *sec)
 		}
-		code := strings.ToUpper(r.ValCode)
-		if money.GetCurrency(code) == nil {
-			continue
-		}
-		nomMinor, err := domain.ParseDecimalToMinor(r.Nominal.String(), code)
-		if err != nil {
-			return nil, fmt.Errorf("%s: номінал: %w", r.CPCode, err)
-		}
-		mat, err := parseNBUDate(r.PgsDate)
-		if err != nil {
-			return nil, fmt.Errorf("%s: pgs_date: %w", r.CPCode, err)
-		}
-		rateBP, err := parseRateBP(r.AukProc.String())
-		if err != nil {
-			return nil, fmt.Errorf("%s: auk_proc: %w", r.CPCode, err)
-		}
-		sec := Security{Bond: domain.Bond{
-			ISIN:     r.CPCode,
-			Nominal:  money.New(nomMinor, code),
-			RateBP:   rateBP,
-			Maturity: mat,
-			Descr:    r.CPDescr,
-		}}
-		for _, p := range r.Payments {
-			d, err := parseNBUDate(p.PayDate)
-			if err != nil {
-				return nil, fmt.Errorf("%s: pay_date: %w", r.CPCode, err)
-			}
-			t, err := p.PayType.Int64()
-			if err != nil {
-				return nil, fmt.Errorf("%s: pay_type: %w", r.CPCode, err)
-			}
-			valMinor, err := domain.ParseDecimalToMinor(p.PayVal.String(), code)
-			if err != nil {
-				return nil, fmt.Errorf("%s: pay_val: %w", r.CPCode, err)
-			}
-			sec.Payments = append(sec.Payments, domain.Payment{
-				ISIN:    r.CPCode,
-				PayDate: d,
-				Type:    domain.PayType(t),
-				PerBond: money.New(valMinor, code),
-			})
-		}
-		out = append(out, sec)
 	}
-	return out, nil
+	return out, skipped
+}
+
+// parseSecurity — один запис; nil без помилки — запис не наш (не ОВДП,
+// невідома валюта), і пропуском він не рахується.
+func parseSecurity(r rawSecurity) (*Security, error) {
+	if r.CPCode == "" || r.ValCode == "" {
+		return nil, nil
+	}
+	// Довідник змішує домашні ОВДП (ISIN UA…, номінал 1000) і зовнішні
+	// ОЗДП/єврооблігації (ISIN XS…), які НБУ нормалізує до номіналу 1
+	// (купони — частка одиниці). Беремо лише домашні ОВДП внутрішнього
+	// ринку, щоб не плутати шкалу номіналу.
+	if !strings.HasPrefix(strings.ToUpper(r.CPCode), "UA") {
+		return nil, nil
+	}
+	code := strings.ToUpper(r.ValCode)
+	if money.GetCurrency(code) == nil {
+		return nil, nil
+	}
+	nomMinor, err := domain.ParseDecimalToMinor(r.Nominal.String(), code)
+	if err != nil {
+		return nil, fmt.Errorf("%s: номінал: %w", r.CPCode, err)
+	}
+	mat, err := parseNBUDate(r.PgsDate)
+	if err != nil {
+		return nil, fmt.Errorf("%s: pgs_date: %w", r.CPCode, err)
+	}
+	rateBP, err := parseRateBP(r.AukProc.String())
+	if err != nil {
+		return nil, fmt.Errorf("%s: auk_proc: %w", r.CPCode, err)
+	}
+	sec := Security{Bond: domain.Bond{
+		ISIN:     r.CPCode,
+		Nominal:  money.New(nomMinor, code),
+		RateBP:   rateBP,
+		Maturity: mat,
+		Descr:    r.CPDescr,
+	}}
+	for _, p := range r.Payments {
+		d, err := parseNBUDate(p.PayDate)
+		if err != nil {
+			return nil, fmt.Errorf("%s: pay_date: %w", r.CPCode, err)
+		}
+		t, err := p.PayType.Int64()
+		if err != nil {
+			return nil, fmt.Errorf("%s: pay_type: %w", r.CPCode, err)
+		}
+		valMinor, err := domain.ParseDecimalToMinor(p.PayVal.String(), code)
+		if err != nil {
+			return nil, fmt.Errorf("%s: pay_val: %w", r.CPCode, err)
+		}
+		sec.Payments = append(sec.Payments, domain.Payment{
+			ISIN:    r.CPCode,
+			PayDate: d,
+			Type:    domain.PayType(t),
+			PerBond: money.New(valMinor, code),
+		})
+	}
+	return &sec, nil
 }
 
 // parseNBUDate — НБУ в різних ендпоінтах віддає дати по-різному;

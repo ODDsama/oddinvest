@@ -26,9 +26,9 @@ func TestParseSecuritiesFixture(t *testing.T) {
 	if err := dec.Decode(&rs); err != nil {
 		t.Fatal(err)
 	}
-	secs, err := parseSecurities(rs)
-	if err != nil {
-		t.Fatal(err)
+	secs, skipped := parseSecurities(rs)
+	if len(skipped) != 0 {
+		t.Fatalf("у фікстурі кривих записів немає, а пропущено: %v", skipped)
 	}
 	if len(secs) != 2 {
 		t.Fatalf("очікували 2 папери, маємо %d", len(secs))
@@ -251,5 +251,29 @@ func TestAuctionsEmptyDayIsNotError(t *testing.T) {
 	}
 	if got == nil || len(got) != 0 {
 		t.Errorf("хочемо порожній зріз, маємо %#v", got)
+	}
+}
+
+// Один кривий запис (null у сумі виплати) — пропуск із причиною, а не
+// відмова всього довідника. Доти він зупиняв оновлення всіх паперів.
+func TestParseSecuritiesSkipsBadRecord(t *testing.T) {
+	raw := `[
+	 {"cpcode":"UA4000000001","val_code":"UAH","nominal":1000,"auk_proc":16,"pgs_date":"2027-03-17",
+	  "payments":[{"pay_date":"2027-03-17","pay_type":1,"pay_val":null}]},
+	 {"cpcode":"UA4000000002","val_code":"UAH","nominal":1000,"auk_proc":15,"pgs_date":"2028-03-17",
+	  "payments":[{"pay_date":"2028-03-17","pay_type":2,"pay_val":1000}]}
+	]`
+	var rs []rawSecurity
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&rs); err != nil {
+		t.Fatal(err)
+	}
+	secs, skipped := parseSecurities(rs)
+	if len(secs) != 1 || secs[0].Bond.ISIN != "UA4000000002" {
+		t.Errorf("справний папір мав лишитись: %+v", secs)
+	}
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "UA4000000001") {
+		t.Errorf("кривий запис мав піти в пропущені з ISIN: %v", skipped)
 	}
 }
