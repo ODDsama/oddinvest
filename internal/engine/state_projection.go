@@ -901,6 +901,23 @@ func (f sleeveFactory) realContributed(start, contribM, devalPct float64, months
 	return out
 }
 
+// fullMonthsUntil — скільки ПОВНИХ місяців від today до d: день теж
+// важить. Доти рахувались лише рік і місяць, і ціль на 10 липня від 15
+// липня попереднього року мала 12 місяців замість 11 — прогноз і «треба
+// вносити» дивились на місяць далі за дату. Дата в майбутньому, ближча за
+// місяць, дає один крок, а не жодного: інакше ціль за три тижні лишалась
+// би без прогнозу зовсім.
+func fullMonthsUntil(today, d domain.Date) int {
+	m := domain.MonthsBetween(today, d)
+	if d.Day() < today.Day() {
+		m--
+	}
+	if m < 1 && d.After(today) {
+		m = 1
+	}
+	return m
+}
+
 // anyNonZero — чи є в векторі хоч одне ненульове значення. build()
 // пропускає валюту, у якій немає нічого; порожній чи нульовий план не
 // має рятувати валюту від пропуску сам по собі.
@@ -980,9 +997,8 @@ func buildProjection(in projectionInput) projectionPhase {
 	// рівно в ціль, тож питання «чи досяжна ціль» переїхало в рядок «За
 	// фактом» — порівняння потрібного темпу з тим, що є насправді.
 	deadlineMonths := 0
-	if domain.Date(in.Settings.GoalDate).Valid() {
-		gd := domain.Date(in.Settings.GoalDate)
-		deadlineMonths = (gd.Year()-today.Year())*12 + int(gd.Month()) - int(today.Month())
+	if gd := domain.Date(in.Settings.GoalDate); gd.Valid() {
+		deadlineMonths = fullMonthsUntil(today, gd)
 	}
 	// Ціль читаємо з нового одиночного поля, зі спадом на старі три — щоб
 	// профілі, які ще не пройшли міграцію 0008, не лишились без цілі.
@@ -1120,7 +1136,7 @@ func buildProjection(in projectionInput) projectionPhase {
 		defs = append(defs, scenarioDef{"actual", "За фактом", in.ActualMonthly, 0, in.Deval})
 	}
 	f := &state.Forecast{
-		Date:        string(domain.NewDate(today.Time().AddDate(0, deadlineMonths, 0))),
+		Date:        string(today.AddMonthsClamp(deadlineMonths)),
 		Months:      deadlineMonths,
 		GoalAmount:  state.Major(goalAmount, money.UAH),
 		ContribPlan: state.Major(out.ContribM, money.UAH),

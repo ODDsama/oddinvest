@@ -1043,3 +1043,30 @@ func TestDrawdownIgnoresPlanIncome(t *testing.T) {
 			got.Months, base.Months)
 	}
 }
+
+// Місяці до дедлайну цілі капіталу — ПОВНІ: день теж важить. Доти
+// рахувались лише рік і місяць, і ціль на 10 липня від 15 липня
+// попереднього року мала 12 місяців замість 11 — прогноз і «треба
+// вносити» дивились на місяць далі, ніж дата. Дата прогнозу — з
+// обрізанням до кінця місяця, а не з Go-переповненням (31 січня + 1 міс
+// ≠ 3 березня).
+func TestDeadlineMonthsCountDays(t *testing.T) {
+	in := forecastInput(t, goalSettings("", "2027-07-10")) // сьогодні 2026-07-15
+	f := buildProjection(in).Forecast
+	if f == nil || f.Months != 11 {
+		t.Fatalf("до 2027-07-10 від 2026-07-15 — 11 повних місяців, маємо %+v", f)
+	}
+	if f.Date != "2027-06-15" {
+		t.Errorf("дата прогнозу %s, чекали 2027-06-15", f.Date)
+	}
+	in = forecastInput(t, goalSettings("", "2026-02-28"))
+	in.Today = "2026-01-31"
+	if f := buildProjection(in).Forecast; f == nil || f.Date != "2026-02-28" {
+		t.Errorf("31 січня + 1 міс — 28 лютого, а не 3 березня; маємо %+v", f)
+	}
+	// Дедлайн ближчий за місяць — однаково один крок, а не жодного.
+	in = forecastInput(t, goalSettings("", "2026-08-05"))
+	if f := buildProjection(in).Forecast; f == nil || f.Months != 1 {
+		t.Errorf("ціль за три тижні лишилась без прогнозу: %+v", f)
+	}
+}
