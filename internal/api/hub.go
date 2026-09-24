@@ -246,6 +246,11 @@ func (h *Hub) handleDelete(w http.ResponseWriter, r *http.Request) {
 		sat.stop()
 	}
 	if err := h.root.DeletePortfolio(r.Context(), p.ID); err != nil {
+		// Сателіт зупинено ДО видалення навмисно — фонова джоба не має
+		// дописувати в рядки, які саме стираються. Але коли видалення
+		// впало, портфель лишився в базі, і без повторного attach він до
+		// рестарту відповідав би 404 й не отримував щоденного знімка.
+		h.attach(*p)
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}

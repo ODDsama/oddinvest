@@ -47,8 +47,11 @@ var scopeGuardAllow = map[string]string{
 }
 
 func TestScopedQueriesMentionPortfolio(t *testing.T) {
+	// Обидва переліки: таблиці, що народились із portfolio_id після 0054
+	// (plan_expenses, reserve_loans, hidden_rows), доти сюди не потрапляли —
+	// їхні запити правильні, але незахищений запит проскочив би мовчки.
 	re := regexp.MustCompile(`(?is)\b(FROM|INTO|UPDATE|JOIN)\s+(` +
-		strings.Join(scopedTables, "|") + `)\b`)
+		strings.Join(append(append([]string{}, scopedTables...), scopedTablesLater...), "|") + `)\b`)
 
 	// Файли по одному, а не parser.ParseDir: той застарів із Go 1.25 (не
 	// бачить build-тегів), а тут потрібні саме всі не-тестові файли пакета.

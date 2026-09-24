@@ -500,6 +500,13 @@ type ReserveOp struct {
 }
 
 func (s *Store) AddReserveOp(ctx context.Context, r ReserveOp) (int64, error) {
+	// Чужа позика — ErrNotFound, як і чужа ціль у вкладу: DeleteReserveLoan
+	// її портфеля чистить лише свої посилання, і FK валив би видалення.
+	if r.LoanID > 0 {
+		if err := s.ownsRow(ctx, "reserve_loans", r.LoanID); err != nil {
+			return 0, err
+		}
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO reserve_ops (portfolio_id, date, amount, currency, place, note, loan_id)
 		VALUES (?,?,?,?,?,?,?)`, s.pid, string(r.Date), r.Amount, r.Currency, r.Place, r.Note, nullID(r.LoanID))
 	if err != nil {
@@ -510,6 +517,11 @@ func (s *Store) AddReserveOp(ctx context.Context, r ReserveOp) (int64, error) {
 
 // UpdateReserveOp переписує рух, зберігаючи id.
 func (s *Store) UpdateReserveOp(ctx context.Context, r ReserveOp) error {
+	if r.LoanID > 0 {
+		if err := s.ownsRow(ctx, "reserve_loans", r.LoanID); err != nil {
+			return err
+		}
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE reserve_ops SET
 		date=?, amount=?, currency=?, place=?, note=?, loan_id=? WHERE id=? AND portfolio_id=?`,
 		string(r.Date), r.Amount, r.Currency, r.Place, r.Note, nullID(r.LoanID), r.ID, s.pid)
@@ -1466,6 +1478,14 @@ func (s *Store) AddTermDeposit(ctx context.Context, d domain.Deposit) (int64, er
 	if err != nil {
 		return 0, err
 	}
+	// Чужа ціль має читатися як ErrNotFound, а не тихо прийматись: інакше
+	// FK без дії на видалення валив би DeleteGoal у її портфелі
+	// (TestCrossPortfolioRefsRejected).
+	if d.GoalID > 0 {
+		if err := s.ownsRow(ctx, "goals", d.GoalID); err != nil {
+			return 0, err
+		}
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO term_deposits
 		(portfolio_id, broker_id, currency, principal, rate_bp, open_date, maturity_date,
 		 payout, capitalized, tax_bp, closed_date, closed_amount, note, replenishable,
@@ -1485,6 +1505,14 @@ func (s *Store) UpdateTermDeposit(ctx context.Context, d domain.Deposit) error {
 	broker, err := s.brokerRef(ctx, d.Bank)
 	if err != nil {
 		return err
+	}
+	// Чужа ціль має читатися як ErrNotFound, а не тихо прийматись: інакше
+	// FK без дії на видалення валив би DeleteGoal у її портфелі
+	// (TestCrossPortfolioRefsRejected).
+	if d.GoalID > 0 {
+		if err := s.ownsRow(ctx, "goals", d.GoalID); err != nil {
+			return err
+		}
 	}
 	res, err := s.db.ExecContext(ctx, `UPDATE term_deposits SET
 		broker_id=?, currency=?, principal=?, rate_bp=?, open_date=?, maturity_date=?,
