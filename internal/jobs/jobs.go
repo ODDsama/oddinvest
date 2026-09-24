@@ -512,8 +512,10 @@ func (r *Runner) BackfillRates(ctx context.Context, code string, years int) erro
 		}
 		// Перше число кожного місяця; НБУ на вихідний віддасть курс
 		// попереднього робочого дня і сам назве його дату.
-		d := domain.NewDate(now.AddDate(0, -i, 0))
-		day := domain.Date(string(d)[:8] + "01")
+		// Від ПЕРШОГО числа поточного місяця: now − i місяців з 31-го
+		// перескакувало лютий і брало березень двічі.
+		first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, r.loc)
+		day := domain.NewDate(first.AddDate(0, -i, 0))
 		rate, quoted, err := r.nbu.RateOn(ctx, code, day)
 		if err != nil {
 			failed++

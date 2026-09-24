@@ -102,7 +102,7 @@ func buildDrawdown(in drawdownInput) *state.Drawdown {
 		CoveredPct:   round1(in.IncomeNowUAH / in.WithdrawUAH * 100),
 	}
 	if months > 0 {
-		out.Until = string(domain.NewDate(in.Today.Time().AddDate(0, months, 0)))
+		out.Until = string(in.Today.AddMonthsClamp(months))
 	}
 	return out
 }

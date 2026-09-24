@@ -1091,7 +1091,7 @@ func buildProjection(in projectionInput) projectionPhase {
 			hit := domain.MonthsToReachSleeves(sl, d.deval, goalAmount, goalHorizonMonths)
 			row.GoalMonths = hit
 			if hit > 0 {
-				row.GoalDate = string(domain.NewDate(today.Time().AddDate(0, hit, 0)))
+				row.GoalDate = string(today.AddMonthsClamp(hit))
 			}
 		}
 		f.Rows = append(f.Rows, row)

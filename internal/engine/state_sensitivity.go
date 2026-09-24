@@ -165,7 +165,8 @@ func goalDate(today domain.Date, months int) string {
 	if months <= 0 {
 		return ""
 	}
-	return string(domain.NewDate(today.Time().AddDate(0, months, 0)))
+	// Clamp: із 31-го «через місяць» — кінець лютого, а не 3 березня.
+	return string(today.AddMonthsClamp(months))
 }
 
 // goalPct — той самий крок округлення, що й у ForecastRow.GoalPct: одна

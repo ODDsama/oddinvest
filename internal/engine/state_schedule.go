@@ -229,8 +229,10 @@ func summarizeIncome(sch schedule, rates fx.Rates, today domain.Date) incomeSumm
 	out.Coupons12m = make([]state.MonthAmount, 0, 12)
 	couponSum := 0.0
 	for i := 0; i < 12; i++ {
-		t := today.Time().AddDate(0, i, 0)
-		key := fmt.Sprintf("%04d-%02d", t.Year(), int(t.Month()))
+		// Місяць — арифметикою місяців (MonthKeyAt), а не today + i
+		// (AddDate): 31 січня + 1 міс у Go — березень, і з 29–31 числа п'ять
+		// місяців зникали, а п'ять ішли двічі.
+		key := MonthKeyAt(today, i)
 		out.Income12m = append(out.Income12m,
 			state.MonthAmount{Month: key, Amount: state.Major(incByMonth[key], money.UAH)})
 		out.Coupons12m = append(out.Coupons12m,
