@@ -405,3 +405,27 @@ func TestSpendDoesNotEnterLocked(t *testing.T) {
 	approx(t, "накопичувальний не додає доходу рукава",
 		got.IncomeMonthlyTodayUAH, bare.IncomeMonthlyTodayUAH, 0.01)
 }
+
+// «Незалежність» міряє РЕАЛЬНИЙ дохід, що зберігає капітал: мільйон під
+// 16% при 6% знецінення дає (1,16/1,06)^(1/12)−1 ≈ 0,754% на місяць,
+// тобто ≈7,5 тис., а не номінальні ≈12,4 тис. Ціль 10 тис. номінальний
+// дохід «покривав» уже сьогодні; реальний — ні.
+func TestMonthsToIncomeUsesRealCapitalPreservingIncome(t *testing.T) {
+	s := Sleeve{Currency: "UAH", Nominal0: 1_000_000, RatePct: 16, RateTerminalPct: 16}
+	real := 1_000_000 * MonthlyRate((1.16/1.06-1)*100)
+	if math.Abs(real-7545) > 5 {
+		t.Fatalf("самоперевірка: реальний дохід %.2f", real)
+	}
+	if got := MonthsToIncomeSleeves([]Sleeve{s}, 6, 10_000, 0); got == -1 {
+		t.Error("ціль 10 000 оголошено досягнутою — це номінальний дохід, що проїдає капітал")
+	}
+	if got := MonthsToIncomeSleeves([]Sleeve{s}, 6, real-1, 0); got != -1 {
+		t.Errorf("реальний дохід %.2f уже покриває %.2f, а маємо %d", real, real-1, got)
+	}
+	// Долар купівельну спроможність тримає — його дохід і так реальний.
+	usd := Sleeve{Currency: "USD", Nominal0: 10_000, RatePct: 5, RateTerminalPct: 5, Rate0: 42}
+	nominalUSD := 10_000 * MonthlyRate(5) * 42
+	if got := MonthsToIncomeSleeves([]Sleeve{usd}, 6, nominalUSD-1, 0); got != -1 {
+		t.Errorf("доларовий дохід %.2f мав лишитись цілим, маємо %d", nominalUSD, got)
+	}
+}

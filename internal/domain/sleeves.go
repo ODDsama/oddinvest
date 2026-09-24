@@ -141,7 +141,8 @@ type SleeveResult struct {
 	// IncomeMonthlyTodayUAH — скільки капітал приноситиме ЩОМІСЯЦЯ на
 	// кінець періоду, у сьогоднішніх гривнях: потік, який можна забирати,
 	// не проїдаючи тіло. Погашення сюди не входять — це повернення
-	// власних грошей, а не дохід.
+	// власних грошей, а не дохід. «Не проїдаючи» — у РЕАЛЬНИХ грошах:
+	// гривнева частина за вирахуванням знецінення (realIncomeMonthly).
 	IncomeMonthlyTodayUAH float64
 }
 
@@ -169,7 +170,10 @@ func ProjectSleeves(sleeves []Sleeve, devalPct float64, months int) SleeveResult
 		today, nominal := s.toUAH(total, dM, months)
 		out.TodayUAH += today
 		out.NominalUAH += nominal
-		incToday, _ := s.toUAH(st.incomeMonthly(s, months), dM, months)
+		// Реальний дохід — той самий, що міряє «незалежність»
+		// (MonthsToIncomeSleeves): картки «скільки приноситиме» й «коли
+		// покриє життя» відповідають одним числом.
+		incToday, _ := s.toUAH(st.realIncomeMonthly(s, months, dM), dM, months)
 		out.IncomeMonthlyTodayUAH += incToday
 	}
 	return out
@@ -362,7 +366,11 @@ func MonthsToIncomeSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths
 	incomeToday := func(m int) float64 {
 		sum := 0.0
 		for i, s := range sleeves {
-			today, _ := s.toUAH(sts[i].incomeMonthly(s, m), dM, m)
+			// РЕАЛЬНИЙ дохід, що зберігає капітал (рішення власника
+			// 2026-09-24): «можна жити з портфеля» — це жити, не проїдаючи
+			// його. Доти тут стояв номінальний дохід, і при 16% і 6%
+			// знецінення мільйон «покривав» 12,4 тис./міс замість 7,5 тис.
+			today, _ := s.toUAH(sts[i].realIncomeMonthly(s, m, dM), dM, m)
 			sum += today
 		}
 		return sum

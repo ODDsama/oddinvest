@@ -69,6 +69,29 @@ func (p *projState) incomeMonthly(s Sleeve, m int) float64 {
 	return (p.invested+p.locked)*MonthlyRate(s.rateAt(m)) + p.pay()
 }
 
+// realIncomeMonthly — той самий потік, але лише та його частина, яку
+// можна ЗАБИРАТИ, не проїдаючи капітал у реальних грошах.
+//
+// Питання «незалежності» — «коли можна жити з портфеля», і відповідь на
+// нього мусить зберігати капітал: гривневий рукав при знеціненні d
+// щомісяця втрачає купівельну спроможність, і номінальний купон, забраний
+// цілком, проїдав би тіло рівно на цю втрату. Тому з доходу віднімається
+// те, що треба лишити в портфелі, аби він не знецінився: для пулу й
+// номіналу це рівно реальна ставка (1+r)/(1+d)−1, для розподільних фондів
+// — та сама втрата від їхньої вартості. Від'ємного доходу не буває: коли
+// ставка нижча за знецінення, забирати нема чого.
+//
+// Валютні рукави не чіпаються: у моделі валюта тримає купівельну
+// спроможність (Sleeve.toUAH), і її дохід уже реальний.
+func (p *projState) realIncomeMonthly(s Sleeve, m int, dM float64) float64 {
+	inc := p.incomeMonthly(s, m)
+	if !s.isUAH() || dM <= 0 {
+		return inc
+	}
+	erosion := (p.invested + p.locked + p.distTotal()) * dM / (1 + dM)
+	return math.Max(0, inc-erosion)
+}
+
 func (p *projState) step(rMonthly, contrib, threshold, coupon, redeem float64) {
 	p.invested *= 1 + rMonthly
 	p.cash += contrib + coupon + redeem

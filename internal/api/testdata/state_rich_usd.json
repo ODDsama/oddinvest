@@ -1016,32 +1016,32 @@
       "contributed": 39444.51,
       "with_reinvest": 40868.97,
       "with_reinvest_actual": 39509.38,
-      "income_monthly": 326.34,
-      "income_monthly_actual": 315.39
+      "income_monthly": 175.59,
+      "income_monthly_actual": 169.61
     },
     {
       "years": 3,
       "contributed": 78250.46,
       "with_reinvest": 85291.01,
       "with_reinvest_actual": 81297.75,
-      "income_monthly": 616,
-      "income_monthly_actual": 587.58
+      "income_monthly": 294.02,
+      "income_monthly_actual": 280.51
     },
     {
       "years": 5,
       "contributed": 112563.75,
       "with_reinvest": 126967.22,
       "with_reinvest_actual": 120092.99,
-      "income_monthly": 803.1,
-      "income_monthly_actual": 759.77
+      "income_monthly": 320.34,
+      "income_monthly_actual": 302.97
     },
     {
       "years": 10,
       "contributed": 180849.61,
       "with_reinvest": 221440.99,
       "with_reinvest_actual": 207730.05,
-      "income_monthly": 1419.56,
-      "income_monthly_actual": 1332.33
+      "income_monthly": 564.69,
+      "income_monthly_actual": 529.9
     }
   ],
   "projection_rate_pct": 5.84,
@@ -1469,11 +1469,11 @@
     "target_uah": 679.91,
     "income_now_uah": 49.69,
     "target_from": "setting",
-    "plan_months": 43,
-    "plan_date": "2030-02-15",
-    "actual_months": 48,
-    "actual_date": "2030-07-15",
-    "capital_uah": 97739.46
+    "plan_months": 150,
+    "plan_date": "2039-01-15",
+    "actual_months": 161,
+    "actual_date": "2039-12-15",
+    "capital_uah": 266283.37
   },
   "drawdown": {
     "withdraw_uah": 453.27,

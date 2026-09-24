@@ -360,7 +360,9 @@ export function incomeHTML(ctx) {
   return `<div class="card"><h2 class="card-head">
     <span>Пасивний дохід ${infoBtn("income")}</span></h2>
     <div class="muted fine mb-sm">скільки портфель приноситиме щомісяця, ${TODAY_FX}</div>
-    <div class="sub-xs mb-sm">купони ОВДП і відсотки вкладів — за графіком; дивіденди фондів — оцінка</div>
+    <div class="sub-xs mb-sm">купони ОВДП і відсотки вкладів — за графіком; дивіденди фондів — оцінка.
+      «Зараз» — усе, що прийде за графіком; далі — реальний дохід: гривнева частина за
+      вирахуванням знецінення, тобто те, що можна забирати, не проїдаючи капітал</div>
     ${line("зараз", now)}
     <div class="rule-top tight">${body}</div>
     ${independenceHTML(ctx)}
@@ -454,7 +456,7 @@ function independenceHTML(ctx) {
   const showActual = ind.actual_months !== undefined
     && ind.actual_months !== ind.plan_months;
   return `<div class="rule-top">
-    <div class="sub-xs mb-xs">Коли дохід покриє ${inc(ind.target_uah)}/міс
+    <div class="sub-xs mb-xs">Коли реальний дохід покриє ${inc(ind.target_uah)}/міс
       <span class="muted">· ${esc(from)}</span></div>
     <div class="kv">
       <span class="muted fine">за планом</span>
