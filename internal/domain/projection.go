@@ -102,7 +102,8 @@ func (s Sleeve) newState() projState {
 			st.accum = append(st.accum, accumState{
 				value: a.Value0, cost: a.Cost0, rM: MonthlyRate(a.RatePct),
 				closeM: a.CloseM, taxPct: a.TaxPct, exitTaxPct: a.ExitTaxPct,
-				locked: a.Locked, contrib: a.ContribByMonth,
+				taxOnPayout: a.TaxOnPayout,
+				locked:      a.Locked, contrib: a.ContribByMonth,
 				payoutM: a.PayoutM,
 			})
 		}

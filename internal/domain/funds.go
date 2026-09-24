@@ -704,6 +704,25 @@ func NetOfTax(ratePct, taxPct, years float64) float64 {
 	return (math.Pow(net, 1/years) - 1) * 100
 }
 
+// NPFNetRatePct — ставка НПФ після податку на виплату: TaxPct береться з
+// УСІЄЇ суми, накопиченої за years, а не з доходу, як у NetOfTax
+// (Accum.TaxOnPayout). Тож на короткому строку вона може бути й нижчою
+// за нуль — податок бере й тіло внесків; повертає йому державна знижка на
+// внески, яка рахується окремо (CreditEstUAH).
+func NPFNetRatePct(ratePct, taxPct, years float64) float64 {
+	if taxPct <= 0 {
+		return ratePct
+	}
+	if years <= 0 {
+		return ratePct * (1 - taxPct/100)
+	}
+	net := math.Pow(1+ratePct/100, years) * (1 - taxPct/100)
+	if net <= 0 {
+		return -100
+	}
+	return (math.Pow(net, 1/years) - 1) * 100
+}
+
 // FundISINPrefix — префікс синтетичного ключа фонду в календарі.
 const FundISINPrefix = "fund:"
 

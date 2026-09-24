@@ -803,6 +803,7 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 			Value0: r.ValueUAH.Major(), Cost0: r.CostUAH.Major(),
 			RatePct: rate, CloseM: closeM,
 			TaxPct:         float64(acc.IncomeTaxBP) / 100,
+			TaxOnPayout:    true, // з усієї виплати (ПКУ 164.2.16)
 			ContribByMonth: contrib,
 		})
 		if v <= 0 {

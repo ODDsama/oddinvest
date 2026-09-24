@@ -127,7 +127,8 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		years := float64(domain.NPFAccessMonths(acc, today)) / 12
 		net := rate
 		if years > 0 {
-			net = domain.NetOfTax(rate, float64(acc.IncomeTaxBP)/100, years)
+			// З усієї виплати, а не з доходу (ПКУ 164.2.16, Accum.TaxOnPayout).
+			net = domain.NPFNetRatePct(rate, float64(acc.IncomeTaxBP)/100, years)
 		}
 		realPct := Round2(RealYield(net/100, cur, deval) * 100)
 		// Вагою йде ВАРТІСТЬ рахунку, і зважуємо тут, усередині циклу, а не
@@ -196,6 +197,8 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 				RatePct: rate,
 				CloseM:  domain.NPFAccessMonths(acc, today),
 				TaxPct:  float64(acc.IncomeTaxBP) / 100,
+				// Податок з усієї виплати, а не з доходу (ПКУ 164.2.16).
+				TaxOnPayout: true,
 				// ExitTaxPct не заповнюється навмисно: дострокового виходу в
 				// НПФ не існує, тож ставки для нього немає. Locked і робить
 				// це поле недосяжним — але лишати тут число означало б

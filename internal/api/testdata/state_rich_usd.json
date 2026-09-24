@@ -447,7 +447,7 @@
       "gain_uah": 0.94,
       "nav_return_pct": 17.58,
       "expected_pct": 13.19,
-      "real_pct": 9.24,
+      "real_pct": 9.23,
       "yield_basis": "зростання ЧВОПА",
       "access_date": "2051-03-06",
       "contrib_day": 5,
@@ -1002,13 +1002,13 @@
     "bonds": 0.68,
     "deposits": 6.23,
     "funds": 5.82,
-    "npf": 9.24
+    "npf": 9.23
   },
   "kind_yield_pct": {
     "bonds": 0.68,
     "deposits": 6.23,
     "funds": 5.82,
-    "npf": 9.24
+    "npf": 9.23
   },
   "projection": [
     {

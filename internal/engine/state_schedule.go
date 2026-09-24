@@ -155,6 +155,7 @@ func buildSchedule(src *sources, hold domain.Holdings, from, today domain.Date, 
 		total := domain.AccumCloseValue(domain.Accum{
 			Value0: float64(p.Value()) / 100, Cost0: float64(p.Cost) / 100,
 			RatePct: rate, CloseM: closeM, TaxPct: float64(acc.IncomeTaxBP) / 100,
+			TaxOnPayout: true, // з усієї виплати (ПКУ 164.2.16)
 		})
 		if total <= 0 {
 			continue

@@ -59,6 +59,12 @@ type Accum struct {
 	// гроші потрібні зараз» і бачить друге.
 	TaxPct     float64
 	ExitTaxPct float64
+	// TaxOnPayout — TaxPct береться з УСІЄЇ суми на закритті, а не з
+	// доходу. Так оподатковується пенсійна виплата НПФ (ПКУ 164.2.16:
+	// 60% виплати, ефективну ставку несе NPFAccount.IncomeTaxBP), і тіло
+	// внесків тут не звільнене. Для сертифікатів фондів — ні: там податок
+	// з доходу (рішення власника 2026-09-24).
+	TaxOnPayout bool
 	// Locked — позицію НЕ можна продати достроково (НПФ). Вона росте й
 	// закривається на CloseM як усі, але в ліквідність не входить і в
 	// декумуляції не витрачається. Див. шапку файла.
@@ -129,6 +135,7 @@ type accumState struct {
 	closeM      int
 	taxPct      float64
 	exitTaxPct  float64
+	taxOnPayout bool
 	closed      bool
 	locked      bool
 	contrib     []float64
@@ -190,7 +197,7 @@ func (p *projState) grow(m int) float64 {
 			// із повітря. Формула та сама, що й у продажу, тож і функція
 			// та сама — різниться лише ставка (дохід при закритті проти
 			// різниці цін при достроковому виході).
-			net := netAfterExitTax(a.value, a.cost, a.taxPct)
+			net := closeNet(a.value, a.cost, a.taxPct, a.taxOnPayout)
 			a.closed = true
 			if a.payoutM > 1 {
 				// Виплата потоком: залишок лишається у value (тобто в
@@ -247,7 +254,17 @@ func AccumCloseValue(a Accum) float64 {
 			st.cost += c
 		}
 	}
-	return netAfterExitTax(st.value, st.cost, a.TaxPct)
+	return closeNet(st.value, st.cost, a.TaxPct, a.TaxOnPayout)
+}
+
+// closeNet — на руки при закритті: податок з доходу (фонд) або з усієї
+// суми (виплата НПФ, Accum.TaxOnPayout). Одне місце для обох шляхів —
+// проєкції й події на осі, — щоб вони не розійшлись.
+func closeNet(value, cost, taxPct float64, onPayout bool) float64 {
+	if !onPayout {
+		return netAfterExitTax(value, cost, taxPct)
+	}
+	return math.Max(0, value*(1-taxPct/100))
 }
 
 // accumTotal — скільки зараз коштують іще не закриті позиції.
