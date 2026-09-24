@@ -153,6 +153,9 @@ func BuildDebts(debts []domain.Debt, marks []domain.DebtMark,
 		if d.Closed() {
 			continue
 		}
+		// Доплата понад графік — тут теж: обробник /api/payoff читає
+		// борги зі сховища сам, повз джерела engine (domain.Debt.Prepaid).
+		d.Prepaid = domain.InstallmentPrepaid(d, ops, today)
 		rate, basis := domain.DebtEffectiveRate(d, CardDebt(d, marks, ops, today))
 		p := Debt{ID: d.ID, Name: d.Name, Kind: d.Kind,
 			Rate: rate, RateBasis: basis,

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // did — id боргу рядком для шляху й тіла запиту.
@@ -226,5 +227,39 @@ func TestDebtMarksAPI(t *testing.T) {
 		  "statement_due":"1000","non_grace":"5000"}`); resp.StatusCode != http.StatusBadRequest ||
 		!strings.Contains(out, "поза пільговим більше") {
 		t.Errorf("непільгова частина більша за всю суму: %d %s", resp.StatusCode, out)
+	}
+}
+
+// Доплата розстрочки зменшує борг у зведенні одразу, а не лише після
+// повного закриття (domain.Debt.Prepaid, рішення власника 2026-09-24).
+func TestInstallmentPrepayLowersDebtTotal(t *testing.T) {
+	srv, _ := testServer(t)
+	now := time.Now()
+	first := now.AddDate(0, 1, 0).Format("2006-01-02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	inst := addDebt(t, srv.URL, `{"name":"Розстрочка","kind":"installment","currency":"UAH",
+		"principal":"12000","payments_total":"12","first_payment_date":"`+first+`",
+		"fee_month_pct":"1.99","fee_on_prepay":"cancel"}`)
+	total := func() float64 {
+		_, raw := do(t, "GET", srv.URL+"/api/summary", "")
+		var s struct {
+			Debt *struct {
+				TotalUAH float64 `json:"total_uah"`
+			} `json:"debt"`
+		}
+		if err := json.Unmarshal([]byte(raw), &s); err != nil || s.Debt == nil {
+			t.Fatalf("зведення: %v %s", err, raw[:min(len(raw), 200)])
+		}
+		return s.Debt.TotalUAH
+	}
+	if got := total(); got != 12_000 {
+		t.Fatalf("до доплати борг %.2f, чекали 12 000", got)
+	}
+	if resp, out := do(t, "POST", srv.URL+"/api/debt-ops",
+		`{"debt_id":"`+did(inst)+`","date":"`+yesterday+`","kind":"payment","amount":"3000"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("доплата: %d %s", resp.StatusCode, out)
+	}
+	if got := total(); got != 9_000 {
+		t.Errorf("після доплати 3 000 борг %.2f, чекали 9 000", got)
 	}
 }

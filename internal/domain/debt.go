@@ -128,6 +128,12 @@ type Debt struct {
 	// Довід, чому станів три й чому порожнє поводиться як keep, — у
 	// міграції 0049.
 	FeeOnPrepay string
+	// Prepaid — тіло, сплачене розстрочці ПОНАД графік на сьогодні.
+	// ВИВЕДЕНЕ, не зберігається: ставить engine при завантаженні джерел
+	// (і payoff) з InstallmentPrepaid. InstallmentSchedule з'їдає його з
+	// кінця графіка — доплата коротшає строк, а платіж лишається тим самим
+	// (рішення власника 2026-09-24).
+	Prepaid int64
 
 	OpenedDate Date
 	ClosedDate Date
@@ -287,7 +293,71 @@ func InstallmentSchedule(d Debt) []DebtPayment {
 		p.Amount = p.Principal + p.Fee
 		out = append(out, p)
 	}
-	return out
+	return consumePrepaid(d, out)
+}
+
+// consumePrepaid — доплата понад графік з'їдає ОСТАННІ внески.
+//
+// Не рівномірно й не з найближчого: так роблять «оплати частинами» —
+// платіж лишається тим самим, кінець настає раніше. Комісія рахується
+// від ПОЧАТКОВОЇ суми й іде щомісяця, доки тіло живе; за місяці, яких
+// після доплати вже немає, — за договором. Скасовує (cancel) чи комісії
+// нема взагалі (free) — такого платежу більше немає. Не скасовує або не
+// з'ясовано (keep/unknown, 0049) — банк бере комісію й за них, і вони
+// лишаються платежами самої комісії.
+func consumePrepaid(d Debt, out []DebtPayment) []DebtPayment {
+	left := d.Prepaid
+	if left <= 0 {
+		return out
+	}
+	drop := false
+	switch DebtPrepayBasis(d) {
+	case DebtPrepayCancel, DebtPrepayFree:
+		drop = true
+	}
+	for i := len(out) - 1; i >= 0 && left > 0; i-- {
+		take := min(left, out[i].Principal)
+		out[i].Principal -= take
+		out[i].Amount -= take
+		left -= take
+	}
+	if !drop {
+		return out
+	}
+	kept := out[:0]
+	for _, p := range out {
+		if p.Principal > 0 {
+			kept = append(kept, p)
+		}
+	}
+	return kept
+}
+
+// InstallmentPrepaid — скільки розстрочці сплачено ПОНАД графік до
+// сьогодні: записані платежі мінус належне за договором.
+//
+// Спирається на ту саму домовленість, що й «сплачено понад обовʼязкове»
+// місяця (engine/state_debts.go): платежі розстрочки записуються всі,
+// і регулярні, і доплати. Сьогоднішній день не входить ні в належне, ні
+// в сплачене — сьогоднішній внесок графік ще тримає попереду.
+func InstallmentPrepaid(d Debt, ops []DebtOp, today Date) int64 {
+	if d.IsCard() {
+		return 0
+	}
+	paid := int64(0)
+	for _, op := range ops {
+		if op.DebtID == d.ID && op.Kind == DebtOpPayment && op.Date.Before(today) {
+			paid += op.Amount
+		}
+	}
+	c := d
+	c.Prepaid = 0
+	for _, p := range InstallmentSchedule(c) {
+		if p.Date.Before(today) {
+			paid -= p.Amount
+		}
+	}
+	return max(0, paid)
 }
 
 // roundDiv — ділення з округленням до найближчого (половина вгору).
@@ -396,7 +466,11 @@ func DebtEffectiveRate(d Debt, balance int64) (float64, string) {
 		m := float64(d.APRBp) / 10000 / 12
 		return (math.Pow(1+m, 12) - 1) * 100, DebtRateCompound
 	}
-	sched := InstallmentSchedule(d)
+	// Ставка — ДОГОВОРУ: доплата не робить уже взяті гроші дешевшими, і
+	// графік без неї — єдиний, де потоки сходяться з тілом.
+	c := d
+	c.Prepaid = 0
+	sched := InstallmentSchedule(c)
 	if len(sched) == 0 {
 		return 0, DebtRateNone
 	}

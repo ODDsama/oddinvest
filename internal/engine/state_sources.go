@@ -212,6 +212,13 @@ func (e *Engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 	if src.debtOps, err = e.st.ListDebtOps(ctx); err != nil {
 		return nil, err
 	}
+	// Доплата розстрочки понад графік — ОДИН раз тут, і далі її бачить
+	// кожен, хто бере графік: залишок, план місяця, рубіж подушки, маршрут,
+	// дата свободи (domain.Debt.Prepaid). Доти вона жила лише в «сплачено
+	// понад обовʼязкове» місяця, а борг до повного закриття не танув.
+	for i := range src.debts {
+		src.debts[i].Prepaid = domain.InstallmentPrepaid(src.debts[i], src.debtOps, today)
+	}
 	if src.debtMarks, err = e.st.ListDebtMarks(ctx); err != nil {
 		return nil, err
 	}
