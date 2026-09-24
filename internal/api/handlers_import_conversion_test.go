@@ -301,3 +301,55 @@ func TestImportReportsHiddenRange(t *testing.T) {
 			out.BeforeFrom, out.BeforeTo)
 	}
 }
+
+// Повтор імпорту ДОПИСУЄ купівлю-ногу напівзаписаної конвертації.
+//
+// Імпорт не транзакційний навмисно (D5): «повтор лікує». Для пари це
+// було неправдою. Продаж-нога вже в базі, купівлі немає (процес упав
+// між ними) — і повтор рахував позицію джерела разом із цією ж
+// продаж-ногою, отримував нуль і пропускав УСЮ пару з «заведи історію
+// фонду». Купівля губилась назавжди.
+func TestImportHealsHalfWrittenConversion(t *testing.T) {
+	ctx := context.Background()
+	srv, st := testServer(t)
+
+	importSince(t, st, "2024-01-01")
+	postXLSX(t, srv.URL+"/api/import", conversionXLSX())
+	id := fundIDByName(t, srv.URL, "Inzhur REIT")
+	if _, err := st.AddFundPricePoints(ctx, id, []domain.FundPrice{{Date: "2025-09-03", Price: 100000}}); err != nil {
+		t.Fatal(err)
+	}
+	// Напівзаписана пара: лише продаж Житнього, як лишив би збій між ногами.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{Date: "2025-09-03", Fund: "Inzhur Житній",
+		Kind: domain.FundSell, Qty: 9, Amount: 919305, Currency: "UAH", Broker: "inzhur",
+		Note: "виписка"}); err != nil {
+		t.Fatal(err)
+	}
+
+	importSince(t, st, "2024-01-01")
+	_, body := postXLSX(t, srv.URL+"/api/import", conversionXLSX())
+	if got := parseImportOut(t, body); got.Imported != 1 {
+		t.Fatalf("повтор мав дописати рівно купівлю-ногу, записав %d: %s", got.Imported, body)
+	}
+	ops, err := st.ListFundOps(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sell, buy domain.FundOp
+	for _, op := range ops {
+		if op.Date != "2025-09-03" {
+			continue
+		}
+		if op.Kind == domain.FundSell {
+			sell = op
+		} else if op.Kind == domain.FundBuy {
+			buy = op
+		}
+	}
+	if buy.ID == 0 || buy.Fund != "Inzhur REIT" {
+		t.Fatalf("купівля REIT не дописалась: %+v", ops)
+	}
+	if sell.PairID != buy.ID || buy.PairID != sell.ID {
+		t.Errorf("ноги не зв'язані: продаж→%d, купівля→%d", sell.PairID, buy.PairID)
+	}
+}

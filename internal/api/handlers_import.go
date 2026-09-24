@@ -349,9 +349,16 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		return fmt.Sprintf("%s|%s|%s|%d", op.Date, op.Fund, op.Kind, op.Amount)
 	}
 	fundSeen, pairSeen := map[string]bool{}, map[string]bool{}
+	// orphanLeg — нога конвертації, що вже в базі, але БЕЗ пари: слід
+	// імпорту, який упав між ногами. Повтор дописує другу ногу й
+	// звʼязує її саме з цією (TestImportHealsHalfWrittenConversion).
+	orphanLeg := map[string]int64{}
 	for _, op := range fundOps {
 		fundSeen[fundKey(op)] = true
 		pairSeen[pairKey(op)] = true
+		if op.PairID == 0 && (op.Kind == domain.FundBuy || op.Kind == domain.FundSell) {
+			orphanLeg[pairKey(op)] = op.ID
+		}
 	}
 	// Купони. Грошей у журнал вони не пишуть — виплату рахує графік НБУ
 	// на лоти (domain.FuturePayments), — тож «імпортувати купон» означає
@@ -416,8 +423,14 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 			if r.Kind == "fund_sell" {
 				kind = domain.FundSell
 			}
-			q, why := pairLegQty(domain.FundOp{Date: r.Date, Fund: r.Fund,
-				Kind: kind, Amount: r.Amount}, applied, marks)
+			leg := domain.FundOp{Date: r.Date, Fund: r.Fund, Kind: kind, Amount: r.Amount}
+			// Нога, що вже в базі, кількості не потребує — і рахувати її не
+			// можна: позиція джерела вже містить цей самий продаж, дала б
+			// нуль, і вся пара пропускалась би з «заведи історію фонду».
+			if pairSeen[pairKey(leg)] {
+				continue
+			}
+			q, why := pairLegQty(leg, applied, marks)
 			if why != "" {
 				pairSkip[pair] = why
 				return
@@ -528,6 +541,20 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 				// кількість, інший ключ і другий запис тієї самої події.
 				key = pairKey(op)
 				exists = pairSeen[key]
+				// Наявна нога без пари — половина пари з перерваного
+				// імпорту: вона стає тією ногою, з якою звʼяжеться друга
+				// (або звʼязується з уже записаною другою).
+				if id, orphan := orphanLeg[key]; exists && orphan && !dry {
+					if first, ok := pairFirst[row.Pair]; ok {
+						if lerr := s.st.LinkFundOps(ctx, first, id); lerr != nil {
+							writeErr(w, http.StatusInternalServerError, lerr)
+							return
+						}
+					} else {
+						pairFirst[row.Pair] = id
+					}
+					delete(orphanLeg, key)
+				}
 				if !exists {
 					planPair(row.Pair)
 					if why, bad := pairSkip[row.Pair]; bad {
