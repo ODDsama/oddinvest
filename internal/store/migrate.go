@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 //go:embed migrations/*.sql
@@ -269,6 +270,18 @@ func snapshotBeforeMigrate(db *sql.DB, dbPath, version string) error {
 		}
 		os.Remove(dst) //nolint:errcheck // бита копія: VACUUM INTO нижче скаже, якщо місце справді недоступне
 	}
+	if err := copyAtomic(db, dst); err != nil {
+		return err
+	}
+	prunePreMigrate(dbPath)
+	return nil
+}
+
+// copyAtomic — цілісна копія бази у dst: VACUUM INTO у .tmp, 0600,
+// quick_check, rename. Спільна для копії перед міграцією й страхувальної
+// копії перед відновленням (SafetyCopy): напівзаписаний файл під справжнім
+// іменем читався б як справжня копія.
+func copyAtomic(db *sql.DB, dst string) error {
 	tmp := dst + ".tmp"
 	// VACUUM INTO відмовляється писати в наявний файл, тож недописаний
 	// залишок від перерваної спроби прибираємо самі.
@@ -277,18 +290,53 @@ func snapshotBeforeMigrate(db *sql.DB, dbPath, version string) error {
 		os.Remove(tmp) //nolint:errcheck // прибирання після відмови
 		return err
 	}
-	// У копії ті самі секрети, що в базі (див. tightenFiles), — 0600 одразу,
-	// а не колись після успішних міграцій.
+	// У копії ті самі секрети, що в базі (див. tightenFiles), — 0600 одразу.
 	os.Chmod(tmp, 0o600) //nolint:errcheck // невдалий chmod не робить копію гіршою за її відсутність
 	if err := quickCheck(tmp); err != nil {
 		os.Remove(tmp) //nolint:errcheck // прибирання битої копії
 		return fmt.Errorf("копія %s не пройшла перевірку: %w", tmp, err)
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		return err
+	return os.Rename(tmp, dst)
+}
+
+// SafetyCopiesKeep — скільки страхувальних копій перед відновленням
+// лишається поруч із базою.
+const SafetyCopiesKeep = 3
+
+// SafetyCopy — копія ВСІЄЇ бази перед відновленням з бекапу:
+// «<база>.restore-<мітка>». Повертає шлях; порожньо, коли база не файл
+// (тести на :memory:).
+//
+// Відновлення заміняє дані портфеля, і доти шляхом назад був лише
+// останній щоденний дамп — усе, внесене після нього, зникало. Префікс
+// свій, а не «.pre-»: його не мають зачепити ні prunePreMigrate, ні
+// відкат деплою (lxc-deploy.sh шукає саме копії міграцій).
+func (s *Store) SafetyCopy(now time.Time) (string, error) {
+	if s.path == "" || s.path == ":memory:" {
+		return "", nil
 	}
-	prunePreMigrate(dbPath)
-	return nil
+	dst := s.path + ".restore-" + now.UTC().Format("20060102T150405Z")
+	if err := copyAtomic(s.db, dst); err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(s.path)
+	prefix := filepath.Base(s.path) + ".restore-"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return dst, nil
+	}
+	var found []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), prefix) && !strings.HasSuffix(e.Name(), ".tmp") {
+			found = append(found, e.Name())
+		}
+	}
+	sort.Strings(found) // мітка UTC у назві — лексичний порядок і є хронологічний
+	for len(found) > SafetyCopiesKeep {
+		os.Remove(filepath.Join(dir, found[0])) //nolint:errcheck // зайва стара копія — не привід зривати відновлення
+		found = found[1:]
+	}
+	return dst, nil
 }
 
 // quickCheck — PRAGMA quick_check над файлом бази, відкритим лише на

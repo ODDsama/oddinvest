@@ -93,12 +93,21 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("не схоже на бекап: %w", err))
 		return
 	}
+	// Страхувальна копія ДО заміни: без неї шляхом назад був лише
+	// останній щоденний дамп. Не вийшло зробити копію — не відновлюємо.
+	safety, err := s.st.SafetyCopy(time.Now())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError,
+			fmt.Errorf("страхувальна копія перед відновленням не вдалась, дані не чіпали: %w", err))
+		return
+	}
 	if err := s.st.ImportAll(r.Context(), &b); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
 	s.publishAsync()
 	writeJSON(w, http.StatusOK, map[string]any{
+		"safety_copy": safety,
 		"restored": map[string]int{
 			"lots": len(b.Lots), "sales": len(b.Sales), "deposits": len(b.Deposits),
 			"conversions": len(b.Conversions), "fund_ops": len(b.FundOps),

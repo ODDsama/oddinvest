@@ -34,6 +34,9 @@ import (
 type Store struct {
 	db  *sql.DB
 	pid int64
+	// path — файл бази; порожньо в тестах на :memory:. Потрібен лише для
+	// страхувальної копії перед відновленням (SafetyCopy).
+	path string
 }
 
 // MainPortfolio — id портфеля, в який 0054 перевела наявні дані. Він же
@@ -52,7 +55,7 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	tightenFiles(path)
-	return &Store{db: db, pid: MainPortfolio}, nil
+	return &Store{db: db, pid: MainPortfolio, path: path}, nil
 }
 
 // tightenFiles — база, її журнали й копії перед міграціями читаються лише
