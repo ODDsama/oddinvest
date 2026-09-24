@@ -1360,11 +1360,15 @@ func (s *Store) UpdateFundOp(ctx context.Context, op domain.FundOp) error {
 	if err != nil {
 		return err
 	}
+	// pair_id тут НЕМАЄ навмисно: пару ставить лише LinkFundOps. Форма
+	// правки про пару не знає, і доти PUT писав її з тіла, тобто NULL, —
+	// виправлений податок перетворював конвертацію на справжній продаж із
+	// вигаданим прибутком (TestUpdateFundOpKeepsPair).
 	res, err := s.db.ExecContext(ctx, `UPDATE fund_ops SET
-		date=?, fund_id=?, kind=?, qty=?, amount=?, tax=?, broker_id=?, pair_id=?, note=?
+		date=?, fund_id=?, kind=?, qty=?, amount=?, tax=?, broker_id=?, note=?
 		WHERE id=? AND portfolio_id=?`,
 		string(op.Date), fund, string(op.Kind), op.Qty, op.Amount, op.Tax,
-		broker, nullID(op.PairID), op.Note, op.ID, s.pid)
+		broker, op.Note, op.ID, s.pid)
 	if err != nil {
 		return err
 	}
