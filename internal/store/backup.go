@@ -1226,13 +1226,18 @@ var importGlobalTables = map[string]bool{"funds": true, "fund_prices": true, "ov
 // цього портфеля йдуть у смітник, а сусідові лишаються — і саме тому запит
 // дивиться на fund_ops УСІХ портфелів, а не свого (виняток у сторожі
 // scope_guard_test.go).
+//
+// «Не користується ніхто» — це ні операцій, ні позначок ціни, ні рядка в
+// плані купівель у ЖОДНОМУ портфелі. Доти рахувались лише операції:
+// відновлення одного портфеля зносило фонд, позначки якого завели наперед
+// (крива, ціна для конвертації при імпорті), разом із цими позначками, і
+// фонд із плану купівель сусіда (TestRestoreKeepsFundsWithMarks). Позначки
+// вводяться руками — і пропадали без сліду.
 func (s *Store) pruneOrphanFundsIn(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM fund_prices WHERE fund_id IN
-		(SELECT f.id FROM funds f WHERE NOT EXISTS (SELECT 1 FROM fund_ops o WHERE o.fund_id=f.id))`); err != nil {
-		return fmt.Errorf("очищення позначок ціни: %w", err)
-	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM funds
-		WHERE NOT EXISTS (SELECT 1 FROM fund_ops o WHERE o.fund_id=funds.id)`); err != nil {
+		WHERE NOT EXISTS (SELECT 1 FROM fund_ops o WHERE o.fund_id=funds.id)
+		  AND NOT EXISTS (SELECT 1 FROM fund_prices p WHERE p.fund_id=funds.id)
+		  AND NOT EXISTS (SELECT 1 FROM plan_buys b WHERE b.kind='fund' AND b.ref=funds.name)`); err != nil {
 		return fmt.Errorf("очищення каталогу фондів: %w", err)
 	}
 	return nil
