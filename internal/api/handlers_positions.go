@@ -97,6 +97,14 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, row)
 	}
+	// Через презентер, як і решта відповідей. Гроші тут — MoneyJSON
+	// (нативно, переклад їх не чіпає), але розклад ставки несе поля
+	// money:"uah-only" (ІСЦ): без проходу вони лишались у доларовому
+	// вигляді, де означали б «реальна проти гривневих цін» під доларами.
+	if err := s.Present(ctx, &out); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

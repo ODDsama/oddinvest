@@ -30,6 +30,7 @@
 
 import { infoBtn } from "../info.js";
 import { wireDisclosures } from "../disclosure.js";
+import { sym } from "../currency.js";
 import {
   income12mChartHTML, capitalChartHTML, projectionHTML, incomeHTML, drawdownHTML,
   renderCalendar, calendarPlaceholderHTML,
@@ -71,7 +72,7 @@ export async function inflow(ctx, main) {
     <div class="card">
       <h2 class="card-head"><span>Джерела доходу й витрат</span></h2>
       <div class="note">Кожен потік — сума з датою, періодичністю й тим, яка його частка
-        доходить до портфеля. Колонка «дає ₴/міс» показує внесок саме цього рядка в число
+        доходить до портфеля. Колонка «дає ${sym()}/міс» показує внесок саме цього рядка в число
         вгорі; підсумок під таблицею розкладає його на складники.</div>
       ${planFlowsListHTML(flows, (ctx.summary || {}).plan_provides_uah || 0)}
       ${revisionsHTML((timeline || {}).flow_revisions || [])}

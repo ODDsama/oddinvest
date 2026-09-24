@@ -18,7 +18,7 @@
 //     мусить стояти власна арифметика й підпис про це — інакше вона
 //     читалась би як гроші, що вже враховані.
 
-import { esc, curSym, pct, uah2 as fmtUAH, money as fmtMoney } from "./format.js";
+import { esc, curSym, pct, uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney } from "./format.js";
 import { apply, onSubmit } from "./forms.js";
 import {
   money as moneyField, date as dateField, note as noteField, textarea, formHTML,
@@ -156,8 +156,8 @@ function creditHTML(ctx, row) {
          гроші за ~60 днів); її можна поправити в самому плані.</div>`
     : "";
   return `<div class="sub">Оцінка податкової знижки за рік: <b>${fmtUAH(est)}</b></div>
-    <div class="sub-xs muted">Внески за рік у межах ліміту ${cap ? fmtUAH(cap) + "/міс" : "(ліміт не задано)"}
-      × ставка знижки, обмежено утриманим ПДФО ${fmtUAH(pdfo)}. Ліміт щороку інший — він виводиться
+    <div class="sub-xs muted">Внески за рік у межах ліміту ${cap ? fmtCur(cap, "UAH") + "/міс" : "(ліміт не задано)"}
+      × ставка знижки, обмежено утриманим ПДФО ${fmtCur(pdfo, "UAH")}. Ліміт щороку інший — він виводиться
       з прожиткового мінімуму працездатних на 1 січня × 1,4.</div>
     <div class="sub-xs t-warn">Сама по собі не входить ні в капітал, ні в календар, ні в проєкцію,
       ні в загальні суми податкового звіту. Щоб знижку отримати, треба подати декларацію до

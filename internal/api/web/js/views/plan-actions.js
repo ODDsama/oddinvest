@@ -8,6 +8,7 @@
 
 import { esc, today, money as fmtMoney, uah0 as fmtUAH, pct, dayMonth, humanMonths } from "../format.js";
 import { onSubmit, onDelete, openEdit } from "../forms.js";
+import { currency } from "../currency.js";
 import {
   money as moneyField, num as numField, text as textField, date as dateField,
   note as noteField, formHTML,
@@ -232,7 +233,10 @@ function wireLockHint(form, timeline) {
       return;
     }
     const amount = parseFloat(String(form.amount.value).replace(",", ".")) || 0;
-    const over = form.currency.value === "UAH" && amount > v;
+    // Крива — у валюті звітності, тож і порівнюється лише замок у ній же.
+    // Доти тут стояло "UAH": у доларовому вигляді гривневий замок
+    // порівнювався з капіталом у доларах і «перевищував» його майже завжди.
+    const over = form.currency.value === currency() && amount > v;
     hint.textContent = `За планом на цю дату капітал ≈ ${fmtUAH(v)}`
       + (over ? " — замок більший за нього." : "");
     hint.classList.toggle("t-warn", over);

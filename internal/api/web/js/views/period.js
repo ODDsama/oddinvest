@@ -19,7 +19,9 @@
 // тих самих статей рано чи пізно розійшлася б підписами, і читач вирішив
 // би, що розійшлись числа.
 
-import { esc, uah2 as fmtUAH, pct, pp, monthYear, plural , signedUAH2 as signed } from "../format.js";
+import {
+  esc, uah2 as fmtUAH, money as fmtMoney, pct, pp, monthYear, plural, signedUAH2 as signed,
+} from "../format.js";
 import { infoBtn } from "../info.js";
 import { tile, empty, kindPill } from "../components.js";
 import { opsGrid } from "../grid.js";
@@ -168,7 +170,9 @@ export function decisionsHTML(p, title = "Рішення місяця") {
       { key: "kind", label: "Вид", cell: (r) => kindPill(r.kind === "bond" ? "bond" : r.kind) },
       { key: "ref", label: "Що", cell: (r) => esc(r.ref) },
       { key: "amount", label: "Сума", num: true,
-        cell: (r) => fmtUAH(Number((r.amount || {}).amount || 0)) },
+        // Сума рішення — у ЇЇ валюті (доларовий папір — долари), тож і
+        // знак її, а не валюти звітності.
+        cell: (r) => fmtMoney(r.amount) },
       { key: "promised", label: "Обіцяло", num: true, prio: 3,
         cell: (r) => pct(r.promised_pct) },
       { key: "rank", label: "Місце", num: true, prio: 3,

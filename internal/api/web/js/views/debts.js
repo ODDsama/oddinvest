@@ -256,14 +256,16 @@ function headroomTile(e) {
   const room = Number(e.headroom.amount);
   const limitLeft = e.limit_left ? Number(e.limit_left.amount) : null;
   if (room < 0) {
-    return tile("Перебір боргу", fmtUAH(-room),
+    // Payoff не проходить презентер (MoneyJSON, гривня), тож і знак —
+    // його власний, а не валюти звітності.
+    return tile("Перебір боргу", fmtMoney({ amount: -room, currency: e.headroom.currency }),
       `<div class="sub">гранична глибина — ${fmtMoney(e.max_debt)}; далі — врізати
         витрати або зсувати дату</div>`, { tone: "t-warn" });
   }
   const tight = limitLeft != null && limitLeft < room;
   return tile("Ще можна залізти", fmtMoney(e.headroom),
     `<div class="sub">до граничного боргу ${fmtMoney(e.max_debt)} при нинішніх витратах${tight
-      ? `; ліміти карток дозволяють лише ${fmtUAH(limitLeft)}` : ""}</div>`, { tone: "t-ok" });
+      ? `; ліміти карток дозволяють лише ${fmtMoney(e.limit_left)}` : ""}</div>`, { tone: "t-ok" });
 }
 
 /** Слово «картка» в потрібному числі: план буває спільним на кілька. */
@@ -327,7 +329,7 @@ function spendGapHTML(e) {
     ${fmtMoney(e.spend_measured)}/міс за ${esc(e.burn_from)} — ${esc(e.burn_to)}${
     Math.abs(diff) < 1 ? "; сходиться"
     : diff > 0
-      ? `; <span class="t-warn">на ${fmtUAH(diff)} більше, ніж заявлено — саме ця
+      ? `; <span class="t-warn">на ${fmtMoney({ amount: diff, currency: e.spend_measured.currency })} більше, ніж заявлено — саме ця
          різниця тримає ліміт на дні</span>`
       : "; менше, ніж заявлено — стеля рахується з виміряного"}</div>`;
 }

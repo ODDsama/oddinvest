@@ -1,4 +1,5 @@
 import { esc, pct, uah2 as fmtUAH } from "../format.js";
+import { sym } from "../currency.js";
 import { infoBtn } from "../info.js";
 import { svgLine, fluid, seriesLegend } from "../charts.js";
 import { tile, empty } from "../components.js";
@@ -86,7 +87,7 @@ export function rivalsCard(ctx, d) {
   const chart = `${fluid((w, h) => svgLine(d.days || [], series, { W: w, H: h, zero: false }),
     { cls: "tall" })}
     <div class="lg">${seriesLegend(series)}</div>
-    <div class="sub-xs muted">Наскільки я попереду кожного суперника, ₴.
+    <div class="sub-xs muted">Наскільки я попереду кожного суперника, ${sym()}.
       Вище нуля — попереду я. Середина кривої намальована з добових знімків
       і може відставати від внеску на день; кінець точний.</div>`;
 

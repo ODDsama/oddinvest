@@ -16,6 +16,7 @@ import { infoBtn } from "../info.js";
 import { empty, legend } from "../components.js";
 import { disclosure } from "../disclosure.js";
 import { opsGrid } from "../grid.js";
+import { sym } from "../currency.js";
 import { CONTRIB, contribTriad } from "../contrib.js";
 import {
   fluid, svgInflowProfile, svgGrouped, wireChartTips, CAT_COLORS, EVENT_COLORS,
@@ -277,7 +278,7 @@ export function profileHTML(doc) {
     infoBtn("planTimeline")}</span></h2>
     <div class="chart-wrap">${frame}<div class="chart-tip" data-tip="profile"></div></div>
     ${legend(names.concat(extra))}
-    <div class="sub-xs">Скільки ₴/міс заходить у портфель — уже після «частки в портфель».
+    <div class="sub-xs">Скільки ${sym()}/міс заходить у портфель — уже після «частки в портфель».
       Наведи мишу на місяць — побачиш розклад по джерелах. Витрати йдуть униз від нуля,
       ромби на нулі — дії плану${events.length
     ? ", засічки під нулем — повернення тіла (погашення, закриття вкладу чи фонду)"

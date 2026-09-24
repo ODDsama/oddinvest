@@ -20,6 +20,7 @@ import {
 import { PLAN_USES } from "../constants.js";
 import { refSelect } from "../refs.js";
 import { opsGrid } from "../grid.js";
+import { sym } from "../currency.js";
 import { npfDestOptions } from "../npf.js";
 
 const CADENCE_LABEL = { month: "щомісяця", quarter: "щокварталу", year: "щороку", once: "разово" };
@@ -351,7 +352,7 @@ export function planFlowsListHTML(flows, provides = 0) {
       f.kind === "income" ? "coupon" : "redemption"}">${
       f.kind === "income" ? "дохід" : "витрата"}</span>` },
     { key: "amount", label: "Сума", num: true, cell: (f) => fmtMoney(f.amount) },
-    { key: "full", label: "повне ₴/міс", num: true,
+    { key: "full", label: `повне ${sym()}/міс`, num: true,
       cell: (f) => `<span class="${fullCell(f) < 0 ? "t-warn" : ""}"
         title="сума за сьогоднішнім курсом, до «частки в портфель»">${fmtUAH(fullCell(f))}</span>`
         + (isOnce(f) ? `<div class="fine-xs muted">разова</div>` : "") },
