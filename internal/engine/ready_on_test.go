@@ -547,3 +547,44 @@ func seedFuturePayer(t *testing.T, st *store.Store, today domain.Date) {
 		t.Fatal(err)
 	}
 }
+
+// Погашення вкладу подушки чи цілі — не вільні гроші брокера. Після F7b
+// вони повертаються в подушку/ціль, а futureIncome їх не відсіював: маршрут
+// планував купівлі на гроші подушки, а «коли вистачить» називав зарану дату.
+func TestFutureIncomeSkipsEarmarkedDeposits(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	today := domain.NewDate(time.Now())
+	goal, err := st.AddGoal(ctx, store.Goal{Name: "Авто", TargetAmount: 500_000_00, Currency: money.UAH})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []domain.Deposit{
+		{Bank: "Резерв", IsReserve: true},
+		{Bank: "Ціль", GoalID: goal},
+		{Bank: "Вільний"},
+	} {
+		d.Currency, d.Principal, d.RateBP = money.UAH, 100_000_00, 1400
+		d.OpenDate, d.MaturityDate = today, today.AddMonths(6)
+		d.Payout, d.TaxBP = domain.PayoutEnd, domain.TaxBPByLaw
+		if _, err := st.AddTermDeposit(ctx, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	src, err := New(st, testLogger()).loadSources(ctx, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inc, err := futureIncome(src, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, flows := range inc {
+		if k.Broker != "Вільний" && len(flows) > 0 {
+			t.Errorf("гроші вкладу %q потрапили в надходження: %+v", k.Broker, flows)
+		}
+	}
+	if len(inc[store.BrokerCur{Broker: "Вільний", Currency: money.UAH}]) == 0 {
+		t.Error("вільний вклад мав лишитись у надходженнях")
+	}
+}
