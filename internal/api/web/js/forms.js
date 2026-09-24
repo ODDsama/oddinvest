@@ -67,7 +67,7 @@ export function formError(form, text) {
  *
  *  Зупиняється на першій помилці: решта не виконується, тост каже, що
  *  саме не вийшло. */
-export async function applyAll(ctx, reqs, msg) {
+export async function applyAll(ctx, reqs, msg, form = null) {
   try {
     for (const { method = "POST", path, body } of reqs) {
       await ctx.api(method, path, body);
@@ -76,7 +76,9 @@ export async function applyAll(ctx, reqs, msg) {
     ctx.reload();
     return true;
   } catch (err) {
-    ctx.toast(String(err.message || err), false);
+    const text = String(err.message || err);
+    ctx.toast(text, false);
+    formError(form, text);
     return false;
   }
 }
@@ -151,44 +153,58 @@ export function onSubmitFunded(ctx, form, build) {
     if (!req) return;
     busy = true;
     try {
-      let chk;
-      try {
-        chk = await ctx.api("POST", req.check, req.body);
-      } catch (err) {
-        ctx.toast(String(err.message || err), false);
-        return;
-      }
-      if (chk.enough) {
-        await apply(ctx, req, req.msg);
-        return;
-      }
-      // Порожня назва брокера — законний стан («гроші без прив'язки»), тож
-      // у питанні підміняємо її словами, а в тіло поповнення кладемо СИРЕ
-      // значення: бекенд заводить брокера за назвою, і «—» осів би в
-      // довіднику окремим рахунком.
-      const ok = await confirmDialog(ctx,
-        `На рахунку ${chk.broker || "без брокера"} не вистачає `
-        + `${fmtMoney(chk.short)}. Додати поповнення на цю суму і записати?`,
-        { yes: "Поповнити й записати", danger: false });
-      if (!ok) return;
-      await applyAll(ctx, [
-        {
-          path: "deposits",
-          body: {
-            // Дата поповнення — дата САМОЇ операції, не «сьогодні»: виписка
-            // руху грошей розкладена по датах, і внесок іншим місяцем
-            // показав би надходження, якого того місяця не було.
-            date: req.date, amount: chk.short.amount,
-            currency: chk.short.currency, broker: chk.broker,
-            note: "автопоповнення: " + req.what,
-          },
-        },
-        req,
-      ], req.msg);
+      await runFunded(ctx, req, form);
     } finally {
       busy = false;
     }
   });
+}
+
+/** Операція, що витрачає гроші, — з перевіркою рахунку й пропозицією
+ *  поповнити рівно на нестачу. Серцевина onSubmitFunded, винесена, щоб
+ *  тим самим шляхом ішла й модалка «Виконано» в плані купівель (доти
+ *  вона писала операцію повз перевірку, і рахунок мовчки ставав
+ *  від'ємним).
+ *
+ *  req: {check, path, body, date, what, msg, method?, after?}. after —
+ *  запити ПІСЛЯ операції в тому самому applyAll (прибрати рядок плану):
+ *  на збої операції вони не виконуються. → Promise<boolean>. */
+export async function runFunded(ctx, req, form = null) {
+  const after = req.after || [];
+  let chk;
+  try {
+    chk = await ctx.api("POST", req.check, req.body);
+  } catch (err) {
+    const text = String(err.message || err);
+    ctx.toast(text, false);
+    formError(form, text);
+    return false;
+  }
+  if (chk.enough) return applyAll(ctx, [req, ...after], req.msg, form);
+  // Порожня назва брокера — законний стан («гроші без прив'язки»), тож
+  // у питанні підміняємо її словами, а в тіло поповнення кладемо СИРЕ
+  // значення: бекенд заводить брокера за назвою, і «—» осів би в
+  // довіднику окремим рахунком.
+  const ok = await confirmDialog(ctx,
+    `На рахунку ${chk.broker || "без брокера"} не вистачає `
+    + `${fmtMoney(chk.short)}. Додати поповнення на цю суму і записати?`,
+    { yes: "Поповнити й записати", danger: false });
+  if (!ok) return false;
+  return applyAll(ctx, [
+    {
+      path: "deposits",
+      body: {
+        // Дата поповнення — дата САМОЇ операції, не «сьогодні»: виписка
+        // руху грошей розкладена по датах, і внесок іншим місяцем
+        // показав би надходження, якого того місяця не було.
+        date: req.date, amount: chk.short.amount,
+        currency: chk.short.currency, broker: chk.broker,
+        note: "автопоповнення: " + req.what,
+      },
+    },
+    req,
+    ...after,
+  ], req.msg, form);
 }
 
 /** Кнопки видалення за селектором. build(btn) повертає
@@ -363,15 +379,31 @@ export function openEdit(ctx, { title, fields, submit = "Зберегти", wire
     const onClose = () => finish(false);
     pop.addEventListener("close", onClose);
     box.querySelector("[data-editcancel]").addEventListener("click", () => finish(false));
+    // Той самий захист від подвійного кліку, що в onSubmit. Доти його тут
+    // не було, і «Виконано» в плані купівель (одна модалка — лот і
+    // видалення рядка плану) на повільному зʼєднанні записувало лот двічі:
+    // друге видалення падало, а зайвий лот лишався.
+    let busy = false;
+    const btn = form.querySelector("[type=submit]");
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (busy) return;
       const req = build(form);
       if (!req) return finish(false);
-      const ok = req.requests
-        ? await applyAll(ctx, req.requests, req.msg)
-        : await apply(ctx, req, req.msg);
+      busy = true;
+      if (btn) btn.disabled = true;
+      formError(form, "");
+      // Три форми відповіді build: операція з перевіркою грошей (check),
+      // кілька запитів одним рухом (requests), один запит.
+      const ok = req.check
+        ? await runFunded(ctx, req, form)
+        : req.requests
+          ? await applyAll(ctx, req.requests, req.msg, form)
+          : await apply(ctx, req, req.msg, form);
+      busy = false;
+      if (btn) btn.disabled = false;
       if (ok) finish(true);
-      // Інакше нічого не робимо: тост уже сказав, що не так, а введене
+      // Інакше нічого не робимо: помилка стоїть під формою, а введене
       // лишається в полях — саме заради цього apply і повертає результат.
     });
     pop.showModal();

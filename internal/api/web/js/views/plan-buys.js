@@ -389,13 +389,20 @@ function wireDone(ctx, main, rows) {
         title: "Записати: " + (row.ref || "покупка"),
         fields: spec.fields, submit: "Записати й прибрати з плану",
         wire: (f) => { wireRefs(f); wireSuggest(ctx, f); },
-      }, (f) => ({
-        requests: [
-          { method: "POST", path: spec.path, body: spec.body(f) },
-          { method: "DELETE", path: "plan/buys/" + row.id },
-        ],
-        msg: "Записано, рядок прибрано з плану",
-      }));
+      }, (f) => {
+        const drop = { method: "DELETE", path: "plan/buys/" + row.id };
+        const msg = "Записано, рядок прибрано з плану";
+        // Операція, що витрачає гроші, — тим самим шляхом, що звичайна
+        // форма (runFunded): перевірка рахунку й пропозиція поповнити.
+        // Доти «Виконано» писало повз неї, і рахунок мовчки ставав
+        // від'ємним.
+        if (spec.funded) {
+          return {
+            path: spec.path, body: spec.body(f), msg, after: [drop], ...spec.funded(f),
+          };
+        }
+        return { requests: [{ method: "POST", path: spec.path, body: spec.body(f) }, drop], msg };
+      });
     });
   });
 }
@@ -418,6 +425,7 @@ function doneSpec(ctx, row) {
     case "bond":
       return {
         path: "lots", body: lotBody,
+        funded: (f) => ({ check: "lots/check", date: f.buy_date.value, what: "купівля ОВДП" }),
         fields: lotFields(ctx, {
           isin: row.ref, qty: row.qty, price_per_bond: { amount: "", currency: row.currency || "" },
           fee: { amount: "" }, buy_date: when, channel: row.broker || "", note: row.note || "",
@@ -434,6 +442,9 @@ function doneSpec(ctx, row) {
     case "deposit":
       return {
         path: "term-deposits", body: (f) => depositBody(f),
+        funded: (f) => ({
+          check: "term-deposits/check", date: f.open_date.value, what: "відкриття вкладу",
+        }),
         fields: depositFields(ctx, {
           bank: row.ref, principal: { amount: row.amount || "", currency: row.currency || "UAH" },
           rate_pct: row.rate_pct || "", open_date: when,
@@ -445,6 +456,7 @@ function doneSpec(ctx, row) {
     case "npf":
       return {
         path: "npf", body: npfOpBody(parseInt(row.ref, 10)),
+        funded: (f) => ({ check: "npf/check", date: f.date.value, what: "внесок у НПФ" }),
         fields: npfOpFields(ctx, {
           date: when, amount: { amount: row.amount || "" }, units: 0,
           broker: row.broker || "", note: row.note || "",
