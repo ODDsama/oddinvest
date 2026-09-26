@@ -2,8 +2,7 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
+	"io/fs"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,20 +10,16 @@ import (
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
-// Вбудований скрипт index.html мусить бути в політиці ЗА ХЕШЕМ. Інакше
-// браузер відмовиться його виконати, і сторінка лишиться порожньою —
-// причому на бойовому, а не в тестах: Go такої помилки не бачить.
-func TestCSPCoversIndexInlineScript(t *testing.T) {
-	index := indexHTML()
-	m := inlineScriptRe.FindAllSubmatch(index, -1)
-	if len(m) != 1 {
-		t.Fatalf("у index.html чекали рівно один вбудований модуль, маємо %d — "+
-			"перевір inlineScriptRe, якщо розмітку змінено", len(m))
+// Вбудованого скрипта в index.html бути не може: script-src 'self' без
+// хеша, і браузер такий скрипт не виконає — сторінка лишиться порожньою
+// на бойовому, а Go такої помилки не бачить.
+func TestIndexHasNoInlineScript(t *testing.T) {
+	index, err := fs.ReadFile(webFS, "web/index.html")
+	if err != nil {
+		t.Fatal(err)
 	}
-	sum := sha256.Sum256(m[0][1])
-	want := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
-	if csp := contentSecurityPolicy(); !strings.Contains(csp, want) {
-		t.Errorf("політика не містить хеша вбудованого скрипта %s: %s", want, csp)
+	if strings.Contains(string(index), "<script type=\"module\">") {
+		t.Error("у index.html вбудований модуль — винеси його в js/main.js")
 	}
 }
 

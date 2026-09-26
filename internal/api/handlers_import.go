@@ -147,15 +147,6 @@ func abs64(v int64) int64 {
 	return v
 }
 
-// handleImportInzhur — POST /api/import/inzhur, історичний шлях.
-//
-// Лишається псевдонімом на один реліз, як робить таблиця LEGACY у
-// web/js/routes.js: адреса, названа форматом, пережила появу профілів, і
-// різко зламати її означало б зламати чиюсь закладку заради чистоти імені.
-func (s *Server) handleImportInzhur(w http.ResponseWriter, r *http.Request) {
-	s.importStatement(w, r, nil)
-}
-
 // handleImport — POST /api/import?profile=<назва>.
 //
 // Порожній profile (і «inzhur») означає вбудований розбір виписки Inzhur:

@@ -13,6 +13,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"net/http"
@@ -130,14 +131,15 @@ func TestWhatIfCapitalGrowsByNominalAndAccrued(t *testing.T) {
 	// того самого бекенда, а не вгадуємо дату: у такий день перевірка
 	// стережу не має, і тест каже про це вголос замість того, щоб падати.
 	if dAcc <= 0 {
-		_, acc := do(t, "GET", url+"/api/accrued/UA4000227748", "")
-		var today struct {
-			PerBond engine.MoneyJSON `json:"per_bond"`
-		}
-		if err := json.Unmarshal([]byte(acc), &today); err != nil {
+		pays, err := st.PaymentsFor(context.Background(), []string{"UA4000227748"})
+		if err != nil {
 			t.Fatal(err)
 		}
-		if today.PerBond.Amount == "0.00" {
+		acc, err := domain.EstimateAccrued(pays, "UA4000227748", domain.NewDate(time.Now()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if acc.IsZero() {
 			t.Logf("день купона: НКД нуль за побудовою, різницю з ціною сьогодні не перевірити")
 			return
 		}

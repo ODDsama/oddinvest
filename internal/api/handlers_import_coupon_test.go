@@ -64,7 +64,7 @@ func TestImportCouponMarksPaymentReceived(t *testing.T) {
 	}
 	post := func(dry bool, rows ...[]string) result {
 		t.Helper()
-		url := srv.URL + "/api/import/inzhur"
+		url := srv.URL + "/api/import"
 		if dry {
 			url += "?dry=1"
 		}

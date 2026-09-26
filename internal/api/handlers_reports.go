@@ -120,24 +120,6 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleXIRR(w http.ResponseWriter, r *http.Request) {
-	doc, err := s.BuildState(r.Context(), time.Now())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	// Підпис переписаний: «без конвертації» перестало бути правдою, щойн
-	// поруч зʼявилось total — воно якраз конвертоване, за курсом на дату
-	// кожного руху. Стара фраза була б рівно тим тихим невідповідністю
-	// між назвою й змістом, від якої лікують решта цих коментарів.
-	writeJSON(w, http.StatusOK, map[string]any{
-		"xirr_pct": doc.XIRRPct,
-		"total":    doc.TotalReturn,
-		"note": "залишок оцінено за номіналом; xirr_pct — по валютах у них самих, " +
-			"total — усе разом у гривні за курсом на дату кожного руху",
-	})
-}
-
 // handleSnapshots — добові знімки; з live=1 ще й сьогоднішній день зі
 // стану на зараз (engine.SnapshotSeries — там і довід).
 //
@@ -493,39 +475,10 @@ func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, out)
 }
 
-// handleBenchmark — GET /api/benchmark
-//
-// «А якби я просто тримав долари?» — головне питання українського
-// інвестора, і доти відповісти на нього не було з чого: історія курсів
-// з'явилась лише коли знецінення почали міряти, а не припускати.
-//
-// Рахунок простий і навмисно суворий до себе. Кожне ПОПОВНЕННЯ рахунку
-// (свої гроші, не купони) переводимо в долари за курсом ТОГО дня; сума —
-// це скільки доларів було б, якби ти просто купував їх і не робив
-// більше нічого. Оцінюємо сьогоднішнім курсом і кладемо поруч із
-// фактичним капіталом.
-//
-// Бенчмарк НЕ приносить відсотків: це поведінка «нічого не робити», з
-// якою й порівнюють. Він може виявитись кращим за портфель — у цьому
-// сенс вимірювання, а не привід його ховати.
-func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	doc, err := s.BuildState(ctx, time.Now())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	out, err := s.Benchmark(ctx, doc)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if err := s.Present(ctx, &out); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
-}
+// Окремих ручок /api/benchmark, /api/xirr, /api/ladder і /api/accrued
+// більше немає: UI бере ці числа зі зведення (/api/summary) і «Ціни
+// рішень» (/api/rivals), а HA — з документа стану. Ручки жили лише для
+// тестів, і кожна була другим входом до того самого числа.
 
 // handleRivals — GET /api/rivals?level=portfolio|all
 func (s *Server) handleRivals(w http.ResponseWriter, r *http.Request) {

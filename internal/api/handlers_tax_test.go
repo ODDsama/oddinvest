@@ -226,7 +226,7 @@ func TestTaxUsesRateOnEventDate(t *testing.T) {
 // Помісячний бекфіл означає, що подія може відставати від найближчої
 // точки на тижні. Мовчати про це означало б видавати оцінку за факт, тож
 // картка отримує і правило, і найгірше відставання, і лічильник
-// пропущеного — у тій самій формі, що вже вживається в /api/benchmark.
+// пропущеного — у тій самій формі, що вже вживається в /api/rivals.
 func TestTaxReportsFXBasisAndGaps(t *testing.T) {
 	ctx := context.Background()
 	srv, st := testServer(t)

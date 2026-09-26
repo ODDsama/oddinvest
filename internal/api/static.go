@@ -28,9 +28,9 @@ import (
 	"mime"
 	"net/http"
 	"path"
-	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type staticAsset struct {
@@ -104,15 +104,9 @@ func staticHandler() http.Handler {
 		}
 		h.Set("ETag", etag)
 		h.Set("Content-Type", a.ctype)
-		if noneMatch(r.Header.Get("If-None-Match"), etag) {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
-		h.Set("Content-Length", strconv.Itoa(len(body)))
-		if r.Method == http.MethodHead {
-			return
-		}
-		_, _ = w.Write(body) //nolint:errcheck // клієнт пішов — нам нема кому сказати
+		// If-None-Match → 304, HEAD, Content-Length — усе це робить
+		// ServeContent, щойно ETag стоїть у заголовку.
+		http.ServeContent(w, r, p, time.Time{}, bytes.NewReader(body))
 	})
 }
 
@@ -120,20 +114,6 @@ func acceptsGzip(r *http.Request) bool {
 	for _, part := range strings.Split(r.Header.Get("Accept-Encoding"), ",") {
 		enc, q, _ := strings.Cut(strings.TrimSpace(part), ";")
 		if strings.TrimSpace(enc) == "gzip" && strings.TrimSpace(q) != "q=0" {
-			return true
-		}
-	}
-	return false
-}
-
-// noneMatch — чи If-None-Match називає цей ETag (або «*»).
-func noneMatch(header, etag string) bool {
-	if header == "" {
-		return false
-	}
-	for _, t := range strings.Split(header, ",") {
-		t = strings.TrimPrefix(strings.TrimSpace(t), "W/")
-		if t == "*" || t == etag {
 			return true
 		}
 	}

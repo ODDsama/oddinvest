@@ -126,7 +126,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/summary", s.handleSummary)
 	mux.HandleFunc("GET /api/positions", s.handlePositions)
 	mux.HandleFunc("GET /api/calendar", s.handleCalendar)
-	mux.HandleFunc("GET /api/ladder", s.handleLadder)
+
 	mux.HandleFunc("GET /api/lots", s.handleListLots)
 	mux.HandleFunc("POST /api/lots", s.handleAddLot)
 	// /check нічого не пише — лише каже, чи вистачить грошей і скільки
@@ -191,7 +191,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/conversions/{id}", s.handleDeleteConversion)
 	mux.HandleFunc("GET /api/bonds/search", s.handleSearchBonds)
 	mux.HandleFunc("GET /api/bonds/{isin}", s.handleGetBond)
-	mux.HandleFunc("GET /api/accrued/{isin}", s.handleAccrued)
+
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("GET /api/devaluation", s.handleDevaluation)
 	mux.HandleFunc("GET /api/inflation", s.handleInflation)
@@ -200,7 +200,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/year", s.handleYear)
 	mux.HandleFunc("GET /api/digest", s.handleDigest)
 	mux.HandleFunc("GET /api/tax", s.handleTax)
-	mux.HandleFunc("GET /api/benchmark", s.handleBenchmark)
+
 	mux.HandleFunc("GET /api/rivals", s.handleRivals)
 	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
 	// Порядок рядків лівого списку — вподобання власника, поруч із
@@ -213,7 +213,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("PUT /api/hidden-rows", s.handlePutHidden)
 	mux.HandleFunc("POST /api/payments/status", s.handlePaymentStatus)
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)
-	mux.HandleFunc("GET /api/xirr", s.handleXIRR)
+
 	mux.HandleFunc("GET /api/brokers", s.handleListBrokers)
 	mux.HandleFunc("POST /api/brokers", s.handleAddBroker)
 	mux.HandleFunc("PUT /api/brokers/{id}", s.handleRenameBroker)
@@ -320,12 +320,12 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("GET /api/backup", s.handleBackupExport)
 	mux.HandleFunc("POST /api/restore", s.handleBackupImport)
-	// Імпорт виписки. /api/import — за профілем; /api/import/inzhur —
-	// історичний псевдонім на один реліз (див. handlers_import.go).
+	// Імпорт виписки за профілем. Історичного псевдоніма /api/import/inzhur
+	// більше немає: його «один реліз» давно минув, а UI ходить сюди.
 	mux.HandleFunc("POST /api/import", s.handleImport)
 	mux.HandleFunc("GET /api/import/since", s.handleImportSince)
 	mux.HandleFunc("PUT /api/import/since", s.handleImportSince)
-	mux.HandleFunc("POST /api/import/inzhur", s.handleImportInzhur)
+
 	mux.HandleFunc("GET /api/import/profiles", s.handleListImportProfiles)
 	mux.HandleFunc("PUT /api/import/profiles/{name}", s.handleSaveImportProfile)
 	mux.HandleFunc("DELETE /api/import/profiles/{name}", s.handleDeleteImportProfile)
@@ -419,16 +419,12 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-func (w *statusWriter) Write(b []byte) (int, error) {
-	w.code = cmp.Or(w.code, http.StatusOK)
-	return w.ResponseWriter.Write(b)
-}
-
 func logMiddleware(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w}
 		next.ServeHTTP(sw, r)
+		// Write без WriteHeader — це неявні 200, тож нуль тут означає саме їх.
 		sw.code = cmp.Or(sw.code, http.StatusOK)
 		log.Info("http", "method", r.Method, "path", r.URL.Path, "status", sw.code, "dur", time.Since(start))
 	})

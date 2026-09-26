@@ -51,51 +51,6 @@ func twoRatePoints(t *testing.T, st *store.Store, code string, thenE4, nowE4 int
 	}
 }
 
-// ГОЛОВНИЙ СТОРОЖ ФАЗИ: долар у «Ціні рішень» — те саме число, що й у
-// /api/benchmark, до копійки.
-//
-// Це не порівняння двох реалізацій, а доказ, що реалізація одна: benchmark
-// відколи існують суперники — тонка обгортка над тим самим рушієм. Тест
-// стоїть саме тому, що зворотне вилізло б не тут, а на віхі «Обіграв
-// просто долари», яка каже те саме іншими словами й на іншому екрані.
-func TestRivalsUSDMatchesBenchmark(t *testing.T) {
-	srv, st := testServer(t)
-	ctx := context.Background()
-	twoRatePoints(t, st, "USD", 250000, 500000)
-	openWindow(t, st, "2025-06-01", store.Snapshot{})
-	for _, d := range []struct {
-		on  domain.Date
-		amt int64
-	}{{"2025-06-15", 1_000_000}, {domain.NewDate(time.Now()), 1_000_000}} {
-		if _, err := st.AddDeposit(ctx, store.Deposit{
-			Date: d.on, Amount: d.amt, Currency: "UAH", Broker: "mono"}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	var b engine.BenchResult
-	_, body := do(t, "GET", srv.URL+"/api/benchmark", "")
-	if err := json.Unmarshal([]byte(body), &b); err != nil {
-		t.Fatalf("benchmark: %v: %s", err, body)
-	}
-	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
-	usd := rv.Row(domain.RivalUSDCash)
-
-	if usd.Why != "" {
-		t.Fatalf("курси є на всі дати, а суперник мовчить: %s", usd.Why)
-	}
-	if math.Abs(usd.TerminalUAH.Major()-b.BenchmarkUAH.Major()) > 0.005 {
-		t.Errorf("долар: суперник %.2f, бенчмарк %.2f — це два різні рахунки одного числа",
-			usd.TerminalUAH.Major(), b.BenchmarkUAH.Major())
-	}
-	if math.Abs(rv.ActualUAH.Major()-b.PortfolioUAH.Major()) > 0.005 {
-		t.Errorf("портфель: суперники %.2f, бенчмарк %.2f", rv.ActualUAH.Major(), b.PortfolioUAH.Major())
-	}
-	if math.Abs(usd.DiffUAH.Major()-b.DiffUAH.Major()) > 0.005 {
-		t.Errorf("різниця: суперники %.2f, бенчмарк %.2f", usd.DiffUAH.Major(), b.DiffUAH.Major())
-	}
-}
-
 // «Гривня під матрацом» — це сума внесків, і вона ж in_uah.
 //
 // Сторож зібраності потоку на рівні ручки: 10 000 + 10 000 внесених — це

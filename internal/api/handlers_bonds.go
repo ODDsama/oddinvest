@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/engine"
@@ -34,32 +33,6 @@ func (s *Server) handleGetBond(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, bondsJSON([]domain.Bond{*b})[0])
-}
-
-func (s *Server) handleAccrued(w http.ResponseWriter, r *http.Request) {
-	isin := r.PathValue("isin")
-	on := domain.NewDate(time.Now())
-	if q := r.URL.Query().Get("on"); q != "" {
-		var err error
-		if on, err = domain.ParseDate(q); err != nil {
-			writeErr(w, http.StatusBadRequest, err)
-			return
-		}
-	}
-	pays, err := s.st.PaymentsFor(r.Context(), []string{isin})
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	acc, err := domain.EstimateAccrued(pays, isin, on)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"isin": isin, "on": string(on), "per_bond": engine.ToMoneyJSON(acc),
-		"note": "оцінка ACT/ACT; фактичний НКД може відрізнятись",
-	})
 }
 
 func bondsJSON(bonds []domain.Bond) []map[string]any {

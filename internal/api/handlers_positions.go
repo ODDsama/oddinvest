@@ -4,7 +4,6 @@ package api
 
 import (
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -160,28 +159,4 @@ func (s *Server) handleCalendar(w http.ResponseWriter, r *http.Request) {
 			engine.ToMoneyJSON(item.Amount), statuses[item.ISIN+"|"+string(item.Date)]})
 	}
 	writeJSON(w, http.StatusOK, out)
-}
-
-func (s *Server) handleLadder(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	lots, sales, bonds, _, err := s.Portfolio(ctx)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	now := domain.NewDate(time.Now())
-	ladder := domain.Ladder(bonds, lots, sales, now)
-	deposits, err := s.st.ListTermDeposits(ctx)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	ladder = append(ladder, domain.DepositLadder(deposits, now)...)
-	sort.Slice(ladder, func(i, j int) bool {
-		if ladder[i].Year != ladder[j].Year {
-			return ladder[i].Year < ladder[j].Year
-		}
-		return ladder[i].Currency < ladder[j].Currency
-	})
-	writeJSON(w, http.StatusOK, ladder)
 }

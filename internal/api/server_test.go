@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/engine"
 	"github.com/ODDsama/oddinvest/internal/nbu"
 	"github.com/ODDsama/oddinvest/internal/settings"
 	"github.com/ODDsama/oddinvest/internal/store"
@@ -247,17 +248,12 @@ func TestSettingsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestBondSearchAndAccrued(t *testing.T) {
+func TestBondSearch(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 	_, body := do(t, "GET", srv.URL+"/api/bonds/search?q=військ", "")
 	if !strings.Contains(body, "UA4000227748") {
 		t.Errorf("пошук: %s", body)
-	}
-	_, body = do(t, "GET", srv.URL+"/api/accrued/UA4000227748?on=2026-10-16", "")
-	// період 2026-09-16..2027-03-17 (182 дні), 30 днів: 8275×30/182 = 1364.01 -> 13.64
-	if !strings.Contains(body, `"13.64"`) {
-		t.Errorf("НКД: %s", body)
 	}
 	_, body = do(t, "GET", srv.URL+"/api/bonds/UA0000000000", "")
 	if !strings.Contains(body, "не знайдено") {
@@ -930,7 +926,7 @@ func TestImportInzhurIsIdempotent(t *testing.T) {
 
 	post := func(dry bool) map[string]any {
 		t.Helper()
-		url := srv.URL + "/api/import/inzhur"
+		url := srv.URL + "/api/import"
 		if dry {
 			url += "?dry=1"
 		}
@@ -1050,7 +1046,7 @@ func TestImportSkipsAlreadyEnteredBond(t *testing.T) {
 		{"46223.376238425924", "Купівля 1 облігації", "ОВДП UA4000227748", "", "1032.46"},
 	})
 	body, ct := multipartFile(t, "file", "s.xlsx", xlsx)
-	req, _ := http.NewRequest("POST", srv.URL+"/api/import/inzhur", body)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/import", body)
 	req.Header.Set("Content-Type", ct)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -1095,7 +1091,7 @@ func TestImportConflictAcrossDatesAndBrokers(t *testing.T) {
 	}
 
 	body, ct := multipartFile(t, "file", "s.xlsx", xlsx)
-	req, _ := http.NewRequest("POST", srv.URL+"/api/import/inzhur?dry=1", body)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/import?dry=1", body)
 	req.Header.Set("Content-Type", ct)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -1136,7 +1132,7 @@ func TestImportNoConflictWhenDepositFundsPurchase(t *testing.T) {
 		{"45384.5", "Купівля 2 сертифікатів", "Inzhur Ocean", "", "8051.74"},
 	})
 	body, ct := multipartFile(t, "file", "s.xlsx", xlsx)
-	req, _ := http.NewRequest("POST", srv.URL+"/api/import/inzhur?dry=1", body)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/import?dry=1", body)
 	req.Header.Set("Content-Type", ct)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -1178,7 +1174,7 @@ func TestImportIgnoresRowsOlderThanWatermark(t *testing.T) {
 	})
 	post := func(dry bool) map[string]any {
 		t.Helper()
-		url := srv.URL + "/api/import/inzhur"
+		url := srv.URL + "/api/import"
 		if dry {
 			url += "?dry=1"
 		}
@@ -1416,12 +1412,22 @@ func TestTermDepositFlowsIntoAggregates(t *testing.T) {
 		t.Errorf("календар не містить потоків вкладу: %s", c)
 	}
 
-	// драбина: тіло повертається року погашення (Nominal — у мінорних,
-	// 100000.00 ₴ = 10000000).
-	_, l := do(t, "GET", srv.URL+"/api/ladder", "")
-	matYear := mat.Year()
-	if !strings.Contains(l, `"Year":`+strconv.Itoa(matYear)) || !strings.Contains(l, `"Nominal":10000000`) {
-		t.Errorf("драбина не містить тіла вкладу на %d: %s", matYear, l)
+	// драбина: тіло повертається року погашення.
+	var doc struct {
+		LadderUAH []struct {
+			Year int     `json:"year"`
+			UAH  float64 `json:"uah"`
+		} `json:"ladder_uah"`
+	}
+	if err := json.Unmarshal([]byte(s), &doc); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, y := range doc.LadderUAH {
+		found = found || (y.Year == mat.Year() && y.UAH >= 100000)
+	}
+	if !found {
+		t.Errorf("драбина не містить тіла вкладу на %d: %+v", mat.Year(), doc.LadderUAH)
 	}
 }
 
@@ -1828,32 +1834,20 @@ func TestBenchmarkBuysAtEachDayRate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var b struct {
-		PortfolioUAH float64 `json:"portfolio_uah"`
-		BenchmarkUAH float64 `json:"benchmark_uah"`
-		DiffUAH      float64 `json:"diff_uah"`
-		USDBought    float64 `json:"usd_bought"`
-		RateNow      float64 `json:"rate_now"`
-	}
-	_, body := do(t, "GET", srv.URL+"/api/benchmark", "")
-	if err := json.Unmarshal([]byte(body), &b); err != nil {
-		t.Fatalf("benchmark: %v: %s", err, body)
-	}
-	// 10000/25 = 400 $, 10000/50 = 200 $, разом 600 $.
-	if math.Abs(b.USDBought-600) > 0.01 {
-		t.Errorf("куплено доларів = %.2f, очікували 600 (400 по 25 + 200 по 50)", b.USDBought)
-	}
-	// Сьогодні ті 600 $ коштують 30 000 ₴ — утричі більше за половину
-	// внесеного, бо перша половина купувалась удвічі дешевше.
-	if math.Abs(b.BenchmarkUAH-30000) > 0.01 {
-		t.Errorf("бенчмарк = %.2f ₴, очікували 30 000", b.BenchmarkUAH)
+	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
+	usd := rv.Row(domain.RivalUSDCash)
+	// 10000/25 = 400 $, 10000/50 = 200 $, разом 600 $. Сьогодні ті 600 $
+	// коштують 30 000 ₴ — утричі більше за половину внесеного, бо перша
+	// половина купувалась удвічі дешевше.
+	if math.Abs(usd.TerminalUAH.Major()-30000) > 0.01 {
+		t.Errorf("долар = %.2f ₴, очікували 30 000 (400 $ по 25 + 200 $ по 50)", usd.TerminalUAH.Major())
 	}
 	// Портфель — самі гроші на рахунку (20 000 ₴), тож долари виграли.
-	if math.Abs(b.PortfolioUAH-20000) > 0.01 {
-		t.Errorf("портфель = %.2f ₴, очікували 20 000", b.PortfolioUAH)
+	if math.Abs(rv.ActualUAH.Major()-20000) > 0.01 {
+		t.Errorf("портфель = %.2f ₴, очікували 20 000", rv.ActualUAH.Major())
 	}
-	if b.DiffUAH >= 0 {
-		t.Errorf("гривня на рахунку мала програти долару, різниця %.2f", b.DiffUAH)
+	if usd.DiffUAH.Major() >= 0 {
+		t.Errorf("гривня на рахунку мала програти долару, різниця %.2f", usd.DiffUAH.Major())
 	}
 }
 
@@ -1879,16 +1873,10 @@ func TestBenchmarkWithdrawalsReduceIt(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	var b struct {
-		USDBought float64 `json:"usd_bought"`
-	}
-	_, body := do(t, "GET", srv.URL+"/api/benchmark", "")
-	if err := json.Unmarshal([]byte(body), &b); err != nil {
-		t.Fatalf("benchmark: %v: %s", err, body)
-	}
-	// (40000 − 10000) / 40 = 750 $.
-	if math.Abs(b.USDBought-750) > 0.01 {
-		t.Errorf("куплено доларів = %.2f, очікували 750", b.USDBought)
+	usd := getRivals(t, srv.URL, engine.LevelPortfolio).Row(domain.RivalUSDCash)
+	// (40000 − 10000) / 40 = 750 $, тобто 30 000 ₴ за сьогоднішнім курсом.
+	if math.Abs(usd.TerminalUAH.Major()-30000) > 0.01 {
+		t.Errorf("долар = %.2f ₴, очікували 30 000 (750 $ по 40)", usd.TerminalUAH.Major())
 	}
 }
 

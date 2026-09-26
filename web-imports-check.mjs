@@ -25,6 +25,10 @@ globalThis.HTMLElement = class { attachShadow() { return {}; } };
 globalThis.customElements = { get: () => undefined, define: () => {} };
 globalThis.localStorage = { getItem: () => null, setItem: () => {} };
 globalThis.Document = { prototype: {} };
+// Точка входу js/main.js виконує завантаження вже на імпорті: читає адресу
+// й шукає компонент на сторінці.
+globalThis.window = { location: { search: "" } };
+globalThis.document = { querySelector: () => ({}) };
 
 const walk = (d) => readdirSync(d).flatMap((f) => {
   const p = `${d}/${f}`;

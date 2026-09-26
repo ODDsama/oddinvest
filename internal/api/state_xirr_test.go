@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"math"
-	"net/http"
 	"testing"
 	"time"
 
@@ -186,30 +185,6 @@ func TestTotalReturnUsesRateOfFlowDate(t *testing.T) {
 	// Купівля за дешевим доларом означає більший гривневий приріст.
 	if cheap <= dear {
 		t.Errorf("дешевша купівля мала дати вищу гривневу дохідність: %v проти %v", cheap, dear)
-	}
-}
-
-// Ручка /api/xirr віддає зведене поруч із валютними.
-func TestXIRREndpointCarriesTotal(t *testing.T) {
-	srv, st := testServer(t)
-	ctx := context.Background()
-	today := domain.NewDate(time.Now())
-	if _, err := st.AddFundOp(ctx, domain.FundOp{
-		Date: today.AddDays(-200), Fund: "Ф", Kind: domain.FundBuy,
-		Qty: 100, Amount: 100000, Currency: "UAH",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	resp, body := do(t, "GET", srv.URL+"/api/xirr", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("xirr: %d %s", resp.StatusCode, body)
-	}
-	var got map[string]any
-	if err := json.Unmarshal([]byte(body), &got); err != nil {
-		t.Fatalf("xirr: %v: %s", err, body)
-	}
-	if _, has := got["total"]; !has {
-		t.Errorf("ручка мала нести зведене число: %s", body)
 	}
 }
 
