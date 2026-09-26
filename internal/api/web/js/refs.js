@@ -29,7 +29,7 @@
 // мають: у них немає назви, за якою бекенд міг би завести запис, — у
 // пенсійного рахунку дванадцять полів, і вигадати їх за людину не можна.
 
-import { esc } from "./format.js";
+import { esc, attrs } from "./format.js";
 import { CURRENCIES } from "./constants.js";
 
 /** Значення опції «завести нове». Не порожній рядок і не "other": порожній
@@ -112,10 +112,6 @@ const REFS = {
   },
 };
 
-function attrStr(map) {
-  return Object.entries(map || {}).map(([k, v]) =>
-    (v == null || v === "" ? "" : " " + k + '="' + esc(String(v)) + '"')).join("");
-}
 
 /** Поле-посилання на існуючу сутність.
  *
@@ -146,7 +142,7 @@ export function refSelect(ctx, {
   const blankLabel = blank == null ? spec.blank : blank;
   const opts = (blankLabel ? '<option value="">' + esc(blankLabel) + "</option>" : "")
     + all.map(([v, t, a]) => '<option value="' + esc(v) + '"'
-      + (String(v) === String(value) ? " selected" : "") + attrStr(a) + ">"
+      + (String(v) === String(value) ? " selected" : "") + attrs(a) + ">"
       + esc(t) + "</option>").join("")
     + (withNew ? '<option value="' + NEW + '">інший…</option>' : "");
 
@@ -158,7 +154,7 @@ export function refSelect(ctx, {
     ? '<input name="' + esc(name) + '__new" class="mt-sm" placeholder="'
       + esc(spec.newPh || "") + '" hidden>'
     : "";
-  return "<label" + attrStr({ title }) + ">" + esc(label || spec.label)
+  return "<label" + attrs({ title }) + ">" + esc(label || spec.label)
     + '<select name="' + esc(name) + '"' + (required ? " required" : "") + ">"
     + opts + "</select>" + newIn + "</label>";
 }

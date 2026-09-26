@@ -4,6 +4,7 @@ import { infoBtn } from "../info.js";
 import { svgLine, fluid, seriesLegend } from "../charts.js";
 import { tile, empty } from "../components.js";
 import { opsGrid } from "../grid.js";
+import { pref, wirePrefs } from "../uistate.js";
 
 // «Ціна моїх рішень»: мої гроші проти чотирьох механічних альтернатив.
 //
@@ -23,10 +24,7 @@ import { opsGrid } from "../grid.js";
 
 const LEVEL_KEY = "oddinvest.rivalLevel";
 
-function level() {
-  try { return localStorage.getItem(LEVEL_KEY) === "all" ? "all" : "portfolio"; }
-  catch (_) { return "portfolio"; }
-}
+const level = () => pref(LEVEL_KEY, ["portfolio", "all"], "portfolio");
 
 // Кольори — з наявних рядів, п'ятої палітри не заводимо.
 //
@@ -46,7 +44,7 @@ export function rivalsCard(ctx, d) {
   const lv = level();
   // aria-pressed, а не клас на НЕактивній: активний стан не має читатись
   // із заперечення — ані в розмітці, ані читачем екрана.
-  const btn = (v, t) => `<button data-rivlevel="${v}" aria-pressed="${lv === v}">${t}</button>`;
+  const btn = (v, t) => `<button data-pref="${LEVEL_KEY}" value="${v}" aria-pressed="${lv === v}">${t}</button>`;
   const head = `<h2 class="card-head">
     <span>Ціна моїх рішень ${infoBtn("rivals")}</span>
     <span class="seg">${btn("portfolio", "портфель")}${btn("all", "усі гроші")}</span></h2>`;
@@ -165,11 +163,7 @@ function silentHTML(mute) {
 }
 
 export function wireRivals(ctx, main) {
-  main.querySelectorAll("[data-rivlevel]").forEach((b) =>
-    b.addEventListener("click", () => {
-      try { localStorage.setItem(LEVEL_KEY, b.dataset.rivlevel); } catch (_) {}
-      ctx.reload();
-    }));
+  wirePrefs(main, ctx, LEVEL_KEY);
 }
 
 /** Рівень для запиту — щоб панель не знала про ключ у localStorage. */

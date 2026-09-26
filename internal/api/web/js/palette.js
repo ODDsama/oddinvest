@@ -24,6 +24,7 @@ import { TABS, panesFor } from "./nav.js";
 import { routeFor, seg } from "./routes.js";
 import { portfolioRows, moneyRows, staticRows } from "./master.js";
 import { loadPositionsData } from "./views/positions.js";
+import { loadJSON, saveJSON } from "./uistate.js";
 
 const RECENT_KEY = "oddinvest.palette";
 const LIMIT = 12;
@@ -38,16 +39,11 @@ const FORMS = [
   ["planflow", "Додати джерело доходу"],
 ];
 
-function recent() {
-  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); } catch (_) { return []; }
-}
+const recent = () => loadJSON(RECENT_KEY, []);
 
-function remember(entry) {
-  try {
-    const list = [entry, ...recent().filter((e) => e.href !== entry.href)].slice(0, 5);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
-  } catch (_) { /* приватний режим — палітра працює й без памʼяті */ }
-}
+// Приватний режим — палітра працює й без памʼяті.
+const remember = (entry) =>
+  saveJSON(RECENT_KEY, [entry, ...recent().filter((e) => e.href !== entry.href)].slice(0, 5));
 
 /** Усі місця, куди можна піти: {label, sub, href}. */
 async function entries(ctx, posData) {

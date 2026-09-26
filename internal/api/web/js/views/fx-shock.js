@@ -37,6 +37,7 @@ import { esc, uah2 as fmtUAH } from "../format.js";
 import { empty } from "../components.js";
 import { infoBtn } from "../info.js";
 import { delta, dateDelta, targetTail } from "./impact.js";
+import { pref, wirePrefs } from "../uistate.js";
 
 const WIN_KEY = "oi.shock.window";
 const WINDOWS = [
@@ -45,13 +46,7 @@ const WINDOWS = [
   { v: 12, t: "рік" },
 ];
 
-function window0() {
-  try {
-    const v = Number(localStorage.getItem(WIN_KEY));
-    if (WINDOWS.some((w) => w.v === v)) return v;
-  } catch (_) { /* приватне вікно чи заблоковані дані сайту */ }
-  return 12;
-}
+const window0 = () => pref(WIN_KEY, WINDOWS.map((w) => w.v), 12);
 
 /** Шлях запиту — щоб панель не знала про ключ у сховищі браузера. */
 export function shockPath() { return "fx-shock?window=" + window0(); }
@@ -70,7 +65,7 @@ function head(d) {
   const have = new Set(d && d.windows ? d.windows : []);
   const btn = (w) => {
     const dead = have.size > 0 && !have.has(w.v);
-    return `<button data-shockwin="${w.v}" aria-pressed="${cur === w.v}"
+    return `<button data-pref="${WIN_KEY}" value="${w.v}" aria-pressed="${cur === w.v}"
       ${dead ? "disabled title=\"на наявній історії це вікно не міряється\"" : ""}
       >${w.t}</button>`;
   };
@@ -190,9 +185,5 @@ export function fxShockCard(ctx, d) {
 }
 
 export function wireFXShock(ctx, main) {
-  main.querySelectorAll("[data-shockwin]").forEach((b) =>
-    b.addEventListener("click", () => {
-      try { localStorage.setItem(WIN_KEY, b.dataset.shockwin); } catch (_) { /* дані сайту заблоковані */ }
-      ctx.reload();
-    }));
+  wirePrefs(main, ctx, WIN_KEY);
 }

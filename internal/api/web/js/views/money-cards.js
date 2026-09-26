@@ -29,6 +29,7 @@ import { refSelect, refValue } from "../refs.js";
 import { routeFor } from "../routes.js";
 import { disclosure } from "../disclosure.js";
 import { confirmDialog } from "../forms.js";
+import { pref } from "../uistate.js";
 
 // ---------- ГАМАНЕЦЬ ----------
 
@@ -1002,13 +1003,10 @@ export function flowHTML(f) {
 const TAX_KEY = "oddinvest.taxYear";
 export function taxYear() {
   const now = new Date().getFullYear();
-  try {
-    const v = parseInt(localStorage.getItem(TAX_KEY), 10);
-    // Межа знизу та сама, що й у бекенді: сміття в сховищі не має
-    // перетворюватись на запит, який упаде чотирисоткою.
-    if (v >= 1990 && v <= now) return v;
-  } catch (_) { /* приватний режим */ }
-  return now;
+  const v = parseInt(pref(TAX_KEY, null, ""), 10);
+  // Межа знизу та сама, що й у бекенді: сміття в сховищі не має
+  // перетворюватись на запит, який упаде чотирисоткою.
+  return v >= 1990 && v <= now ? v : now;
 }
 
 // taxRowAttrs — рядок НКД належить купонам НАД ним, а не сусідить із

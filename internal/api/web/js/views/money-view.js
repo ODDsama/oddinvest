@@ -31,6 +31,7 @@ import {
   importHTML, wireImport, importProfilesHTML, wireImportProfiles,
   reconcileHTML, wireReconcile,
 } from "./money-cards.js";
+import { setPref } from "../uistate.js";
 
 /** Поля руху рахунку — ОДИН список і для форми додавання, і для модалки
  *  правки. row === null означає «додаємо».
@@ -172,7 +173,7 @@ export async function tax(ctx, main) {
   main.innerHTML = taxHTML(x);
 
   main.querySelector("[data-tax-year]")?.addEventListener("change", (e) => {
-    try { localStorage.setItem("oddinvest.taxYear", e.target.value); } catch (_) { /* приватний режим */ }
+    setPref("oddinvest.taxYear", e.target.value);
     ctx.reload();
   });
   // Вивантаження — тим самим шляхом, що й бекап у «Налаштуваннях»:

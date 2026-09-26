@@ -92,6 +92,7 @@ import { infoBtn } from "../info.js";
 import { opsGrid } from "../grid.js";
 import { apply } from "../forms.js";
 import { routeFor } from "../routes.js";
+import { loadJSON, saveJSON } from "../uistate.js";
 
 // Питання про ОБМЕЖЕННЯ, а не про смаки. Кожне має відповідь, яку людина
 // знає про себе без жодних знань про ринок, — у цьому й сенс: інакше
@@ -894,13 +895,8 @@ const shown = (k, v) => (CODED[k]
 // політика портфеля, а чернетка підбору. Записати в бекенд означало б
 // завести десяте налаштування, яке ні на що не впливає.
 const ANSWERS_KEY = "oddinvest.strategyAnswers";
-function readAnswers() {
-  try { return JSON.parse(localStorage.getItem(ANSWERS_KEY) || "{}") || {}; }
-  catch (_) { return {}; }
-}
-function writeAnswers(a) {
-  try { localStorage.setItem(ANSWERS_KEY, JSON.stringify(a)); } catch (_) { /* приватний режим */ }
-}
+const readAnswers = () => loadJSON(ANSWERS_KEY, {});
+const writeAnswers = (a) => saveJSON(ANSWERS_KEY, a);
 
 // Збіг набору з названими обмеженнями. Повертає РОЗКЛАД, а не оцінку:
 // саме він і показується поруч, бо число без пояснення — це та сама

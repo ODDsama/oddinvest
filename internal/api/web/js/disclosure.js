@@ -10,12 +10,11 @@
 // три секції щоразу заново дратує більше, ніж саме згортання допомагає.
 // (Перемикача ₴/$ у прогнозі, з якого це колись скопійовано, більше
 // немає: валюта звітності живе в налаштуваннях портфеля — currency.js.)
+import { loadJSON, saveJSON } from "./uistate.js";
+
 const FOLDS_KEY = "oddinvest.folds";
 
-function readFolds() {
-  try { return JSON.parse(localStorage.getItem(FOLDS_KEY) || "{}") || {}; }
-  catch (_) { return {}; }
-}
+const readFolds = () => loadJSON(FOLDS_KEY, {});
 
 export function wireDisclosures(main) {
   const folds = readFolds();
@@ -31,7 +30,7 @@ export function wireDisclosures(main) {
     d.addEventListener("toggle", () => {
       const cur = readFolds();
       cur[d.dataset.fold] = d.open;
-      try { localStorage.setItem(FOLDS_KEY, JSON.stringify(cur)); } catch (_) {}
+      saveJSON(FOLDS_KEY, cur);
     });
   });
 }

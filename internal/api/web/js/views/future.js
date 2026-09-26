@@ -19,6 +19,7 @@ import { PAY_TYPES, PAY_CLASS } from "../constants.js";
 import { CONTRIB, contribTriad } from "../contrib.js";
 import { opsGrid } from "../grid.js";
 import { rateSourceLabel } from "./forecast.js";
+import { pref, wirePrefs } from "../uistate.js";
 
 // Дохід по місяцях: коли саме надійдуть купони й погашення на рік наперед.
 export function income12mChartHTML(ctx) {
@@ -196,10 +197,7 @@ export function projectionHTML(ctx) {
 // сьогодні, «Архів» закінчується вчора. Кожен бере рівно ту межу, якої
 // потребує, — саме заради архіву в /api/calendar і зʼявився `to`.
 const CAL_KEY = "oddinvest.calRange";
-const calRange = () => {
-  try { return localStorage.getItem(CAL_KEY) === "past" ? "past" : "ahead"; }
-  catch (_) { return "ahead"; }
-};
+const calRange = () => pref(CAL_KEY, ["ahead", "past"], "ahead");
 const calQuery = (mode) => {
   const now = today();
   if (mode !== "past") return "from=" + now;
@@ -245,7 +243,7 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
   // aria-pressed, а не клас .quiet на НЕактивній: доти активний стан
   // читався із заперечення — і в розмітці, і читачем екрана, який про
   // нього не дізнавався взагалі.
-  const btn = (v, t) => `<button data-cal="${v}" aria-pressed="${mode === v}">${t}</button>`;
+  const btn = (v, t) => `<button data-pref="${CAL_KEY}" value="${v}" aria-pressed="${mode === v}">${t}</button>`;
   const html = `
     <div class="card">
       <h2 class="card-head">
@@ -288,11 +286,7 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
     </div>`;
   if (append) place(main, html);
   else main.innerHTML = html;
-  main.querySelectorAll("[data-cal]").forEach((b) =>
-    b.addEventListener("click", () => {
-      try { localStorage.setItem(CAL_KEY, b.dataset.cal); } catch (_) { /* приватний режим */ }
-      ctx.reload();
-    }));
+  wirePrefs(main, ctx, CAL_KEY);
   main.querySelectorAll("[data-st]").forEach((b) =>
     b.addEventListener("click", async () => {
       try {

@@ -19,19 +19,18 @@ import { tile, empty } from "../components.js";
 import { opsGrid } from "../grid.js";
 import { structureHTML, decisionsHTML } from "./period.js";
 import { taxRowAttrs } from "./money-cards.js";
+import { pref, wirePrefs } from "../uistate.js";
 
 const YEAR_KEY = "oi.year";
 
-function chosenYear() {
-  try { return localStorage.getItem(YEAR_KEY) || ""; } catch (_) { return ""; }
-}
+const chosenYear = () => pref(YEAR_KEY, null, "");
 
 /** Гроші зі знаком; рівний нуль — прочерк (довід у period.js). */
 const signed = (v) => (!v ? "—" : signedUAH(v));
 
 function headHTML(y) {
   const btn = (v) =>
-    `<button data-year="${v}" aria-pressed="${y.year === v}">${v}</button>`;
+    `<button data-pref="${YEAR_KEY}" value="${v}" aria-pressed="${y.year === v}">${v}</button>`;
   return `<h2 class="card-head">
     <span>${y.year}${y.partial ? " · поки що" : ""} ${infoBtn("year")}</span>
     <span class="seg">${(y.years || [y.year]).map(btn).join("")}</span></h2>`;
@@ -187,9 +186,5 @@ export async function year(ctx, main) {
     ${taxHTML(tax)}
     ${pathHTML(pr, y.year)}
     ${decisionsHTML({ decisions: y.decisions }, "Рішення року")}`;
-  main.querySelectorAll("[data-year]").forEach((b) =>
-    b.addEventListener("click", () => {
-      try { localStorage.setItem(YEAR_KEY, b.dataset.year); } catch (_) {}
-      ctx.reload();
-    }));
+  wirePrefs(main, ctx, YEAR_KEY);
 }

@@ -6,6 +6,7 @@ import { empty } from "../components.js";
 import { seriesChart, wireChartTips, fluid, seriesLegend } from "../charts.js";
 import { disclosure } from "../disclosure.js";
 import { opsGrid } from "../grid.js";
+import { pref, wirePrefs } from "../uistate.js";
 
 
 // Знімки для кривої «Як росте»: тягнуться раз, читаються графіком і
@@ -89,10 +90,7 @@ function snapCostUAH(s) {
 }
 
 const RANGE_KEY = "oddinvest.planRange";
-function planRange() {
-  try { return localStorage.getItem(RANGE_KEY) === "all" ? "all" : "month"; }
-  catch (_) { return "month"; }
-}
+const planRange = () => pref(RANGE_KEY, ["month", "all"], "month");
 
 // Вікно «Капіталу». За замовчуванням — уся історія: крива відповідає на
 // «як росте», і першим має бути видно весь шлях, а не останній місяць.
@@ -106,13 +104,7 @@ const CAP_RANGES = [
   { v: 0, t: "усе" },
 ];
 
-function capRange() {
-  try {
-    const v = Number(localStorage.getItem(CAP_KEY));
-    if (CAP_RANGES.some((r) => r.v === v)) return v;
-  } catch (_) { /* приватне вікно чи заблоковані дані сайту */ }
-  return 0;
-}
+const capRange = () => pref(CAP_KEY, CAP_RANGES.map((r) => r.v), 0);
 
 // Дата на n календарних місяців раніше. День притискається до довжини
 // місяця: 31 березня мінус місяць — 28/29 лютого, а не 3 березня, як
@@ -163,7 +155,7 @@ function capitalCardHTML(ctx, allSnaps) {
   const dead = (n) => n > 0 && allSnaps[0].date >= cutoffOf(n);
   const chosen = capRange();
   const range = dead(chosen) ? 0 : chosen;
-  const btn = (r) => `<button data-caprange="${r.v}" aria-pressed="${range === r.v}"
+  const btn = (r) => `<button data-pref="${CAP_KEY}" value="${r.v}" aria-pressed="${range === r.v}"
     ${dead(r.v) ? "disabled title=\"історія ще коротша за це вікно\"" : ""}>${r.t}</button>`;
   const head = `<h2 class="card-head">
     <span>Капітал ${infoBtn("capital")}</span>
@@ -249,7 +241,7 @@ function planCardHTML(ctx, allSnaps) {
   const snaps = mode === "month" ? allSnaps.filter((s) => s.date.slice(0, 7) === month) : allSnaps;
   // aria-pressed, а не клас .quiet на НЕактивній: доти активний стан
   // читався із заперечення — і в розмітці, і читачем екрана.
-  const btn = (v, t) => `<button data-range="${v}" aria-pressed="${mode === v}">${t}</button>`;
+  const btn = (v, t) => `<button data-pref="${RANGE_KEY}" value="${v}" aria-pressed="${mode === v}">${t}</button>`;
   const head = `<h2 class="card-head">
     <span>Факт vs план ${infoBtn("plan")}</span>
     <span class="seg">${btn("month", "місяць")}${btn("all", "уся історія")}</span></h2>`;
@@ -361,16 +353,8 @@ export async function chartBlockHTML(ctx) {
 // до чого. Тепер їх ставить onMount самої рамки — тобто рівно тоді,
 // коли смуги влучання з'явились.
 export function wireHistory(ctx, main) {
-  main.querySelectorAll("[data-range]").forEach((b) =>
-    b.addEventListener("click", () => {
-      try { localStorage.setItem(RANGE_KEY, b.dataset.range); } catch (_) {}
-      ctx.reload();
-    }));
-  main.querySelectorAll("[data-caprange]").forEach((b) =>
-    b.addEventListener("click", () => {
-      try { localStorage.setItem(CAP_KEY, b.dataset.caprange); } catch (_) { /* дані сайту заблоковані */ }
-      ctx.reload();
-    }));
+  wirePrefs(main, ctx, RANGE_KEY);
+  wirePrefs(main, ctx, CAP_KEY);
 }
 
 export function snapshotsTableHTML(ctx) {

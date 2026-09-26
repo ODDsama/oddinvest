@@ -19,6 +19,7 @@ import { infoBtn } from "../info.js";
 import { tile, empty } from "../components.js";
 import { opsGrid } from "../grid.js";
 import { structureHTML } from "./period.js";
+import { pref, wirePrefs } from "../uistate.js";
 
 const WINDOWS = [
   { v: 1, t: "день" },
@@ -28,12 +29,7 @@ const WINDOWS = [
 
 const KEY = "oi.digest.window";
 
-function chosenWindow() {
-  try {
-    const v = Number(localStorage.getItem(KEY));
-    return WINDOWS.some((w) => w.v === v) ? v : 7;
-  } catch (_) { return 7; }
-}
+const chosenWindow = () => pref(KEY, WINDOWS.map((w) => w.v), 7);
 
 /** Скільки днів МІЖ ЗНІМКАМИ насправді.
  *
@@ -49,7 +45,7 @@ function spanDays(d) {
 
 
 function headHTML(days) {
-  const btn = (w) => `<button data-digwin="${w.v}" aria-pressed="${days === w.v}">${w.t}</button>`;
+  const btn = (w) => `<button data-pref="${KEY}" value="${w.v}" aria-pressed="${days === w.v}">${w.t}</button>`;
   return `<h2 class="card-head">
     <span>Що змінилось ${infoBtn("digest")}</span>
     <span class="seg">${WINDOWS.map(btn).join("")}</span></h2>`;
@@ -102,9 +98,5 @@ export async function digest(ctx, main) {
     ? `${causesHTML(d)}${structureHTML(d)}`
     : `<div class="card">${headHTML(d.days)}
         ${empty("", esc(d.why || "порівнювати немає з чим"))}</div>`;
-  main.querySelectorAll("[data-digwin]").forEach((b) =>
-    b.addEventListener("click", () => {
-      try { localStorage.setItem(KEY, b.dataset.digwin); } catch (_) { /* приватне вікно */ }
-      ctx.reload();
-    }));
+  wirePrefs(main, ctx, KEY);
 }

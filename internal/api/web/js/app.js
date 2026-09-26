@@ -1157,14 +1157,20 @@ export class OddInvestApp extends HTMLElement {
    *  би дорожче за один перезапит зведення на перестановку, яку роблять
    *  раз на місяць. */
   _saveOrder(now = false) {
-    clearTimeout(this._orderTimer);
-    const send = () => this._api("PUT", "nav-order", this._navOrder).catch((err) => {
-      // Порядок на екрані лишається: він уже застосований, і відкотити
-      // його на очах означало б покарати за поломку мережі.
-      this._toast(`Порядок не зберігся: ${err.message || err}`, false);
-    });
+    this._putLater("nav-order", this._navOrder, "Порядок не зберігся", now);
+  }
+
+  /** PUT вподобання із затримкою: останній набір за пів секунди, або
+   *  одразу (now). Екран лишається як є й на помилці: він уже
+   *  застосований, і відкотити його на очах означало б покарати за
+   *  поломку мережі. */
+  _putLater(path, body, fail, now) {
+    this._putTimers ||= {};
+    clearTimeout(this._putTimers[path]);
+    const send = () => this._api("PUT", path, body)
+      .catch((err) => this._toast(`${fail}: ${err.message || err}`, false));
     if (now) send();
-    else this._orderTimer = setTimeout(send, 500);
+    else this._putTimers[path] = setTimeout(send, 500);
   }
 
   // ---------- видимість рядків ----------
@@ -1210,14 +1216,7 @@ export class OddInvestApp extends HTMLElement {
    *  той самий довід, що в _saveOrder: рядків відмічають кілька підряд, а
    *  цікавий лише останній набір. */
   _saveHidden(now = false) {
-    clearTimeout(this._hiddenTimer);
-    const send = () => this._api("PUT", "hidden-rows", this._hidden).catch((err) => {
-      // Екран лишається як є — з тієї ж причини, що й порядок: відкотити
-      // позначку на очах означало б покарати за поломку мережі.
-      this._toast(`Не збереглося: ${err.message || err}`, false);
-    });
-    if (now) send();
-    else this._hiddenTimer = setTimeout(send, 500);
+    this._putLater("hidden-rows", this._hidden, "Не збереглося", now);
   }
 
   // Шухляда — атрибут на хості, а не <dialog>. Три причини, і всі три з

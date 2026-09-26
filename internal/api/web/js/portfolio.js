@@ -15,21 +15,16 @@
 // відкритті, запамʼятовує й прибирає з адреси — щоб закладка на
 // «/?p=wife#/…» не перемикала портфель щоразу, коли нею скористались.
 
+import { pref, setPref } from "./uistate.js";
+
 const KEY = "oddinvest.portfolio";
 
 /** Slug поточного портфеля; порожньо = головний. */
-export function current() {
-  try { return localStorage.getItem(KEY) || ""; } catch (_) { return ""; }
-}
+export const current = () => pref(KEY, null, "");
 
 /** Запамʼятати вибір. Головний зберігається як ВІДСУТНІСТЬ ключа: так
  *  свіжий браузер і браузер, що повернувся на головний, не відрізняються. */
-export function set(slug) {
-  try {
-    if (!slug || slug === "main") localStorage.removeItem(KEY);
-    else localStorage.setItem(KEY, slug);
-  } catch (_) { /* приватний режим — працюємо в головному */ }
-}
+export const set = (slug) => setPref(KEY, slug === "main" ? "" : slug);
 
 /** ?p=<slug> у адресі при відкритті: прочитати, запамʼятати, прибрати. */
 export function boot() {

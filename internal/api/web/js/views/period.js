@@ -26,6 +26,7 @@ import { infoBtn } from "../info.js";
 import { tile, empty, kindPill } from "../components.js";
 import { opsGrid } from "../grid.js";
 import { flowHTML } from "./money-cards.js";
+import { pref, wirePrefs } from "../uistate.js";
 
 const MONTH_KEY = "oi.period.month";
 
@@ -34,9 +35,7 @@ const MONTH_KEY = "oi.period.month";
  *  У localStorage з тієї ж причини, що й вікно кривої поруч: вибір
  *  переживає перезавантаження сторінки, бо на неї повертаються дивитись
  *  той самий місяць. */
-function chosenMonth() {
-  try { return localStorage.getItem(MONTH_KEY) || ""; } catch (_) { return ""; }
-}
+const chosenMonth = () => pref(MONTH_KEY, null, "");
 
 /** Останні N закритих місяців, найновіший першим. */
 function recentMonths(n) {
@@ -59,7 +58,7 @@ function headHTML(month) {
   const months = recentMonths(6);
   const active = month || months[0];
   const btn = (v) =>
-    `<button data-month="${v}" aria-pressed="${active === v}">${esc(monthYear(v + "-01"))}</button>`;
+    `<button data-pref="${MONTH_KEY}" value="${v}" aria-pressed="${active === v}">${esc(monthYear(v + "-01"))}</button>`;
   return `<h2 class="card-head">
     <span>${esc(monthYear(active + "-01"))} ${infoBtn("period")}</span>
     <span class="seg">${months.map(btn).join("")}</span></h2>`;
@@ -204,9 +203,5 @@ export async function period(ctx, main) {
 }
 
 function wirePeriod(ctx, main) {
-  main.querySelectorAll("[data-month]").forEach((b) =>
-    b.addEventListener("click", () => {
-      try { localStorage.setItem(MONTH_KEY, b.dataset.month); } catch (_) {}
-      ctx.reload();
-    }));
+  wirePrefs(main, ctx, MONTH_KEY);
 }

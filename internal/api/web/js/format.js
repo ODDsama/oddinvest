@@ -38,13 +38,10 @@ const MON_NOM = ["січень", "лютий", "березень", "квітен
 const MON_GEN = ["січня", "лютого", "березня", "квітня", "травня", "червня",
   "липня", "серпня", "вересня", "жовтня", "листопада", "грудня"];
 
+const PLURAL = new Intl.PluralRules("uk");
+
 /** Українська множина: 1 рік / 2-4 роки / 5+ років (з винятком 11-14). */
-export function plural(n, one, few, many) {
-  const d = n % 10, h = n % 100;
-  if (d === 1 && h !== 11) return one;
-  if (d >= 2 && d <= 4 && (h < 10 || h >= 20)) return few;
-  return many;
-}
+export const plural = (n, one, few, many) => ({ one, few })[PLURAL.select(n)] ?? many;
 
 /** 32 -> «2 роки 8 місяців» (замість «2.6 р.»). */
 export function humanMonths(m) {
@@ -330,3 +327,10 @@ export const uahTargetPct = (s) => {
 /** Скільки днів лишилось до дати (відʼємне — скільки минуло). */
 export const daysUntil = (iso) =>
   Math.round((new Date(iso + "T00:00:00").getTime() - Date.now()) / 86400000);
+
+/** Атрибути з мапи: порожні й відсутні значення пропускаються, решта
+ *  екранується. Спільне для таблиць (grid.js) і довідкових полів (refs.js). */
+export function attrs(map) {
+  return Object.entries(map || {}).map(([k, v]) =>
+    (v == null || v === "" ? "" : " " + k + '="' + esc(String(v)) + '"')).join("");
+}

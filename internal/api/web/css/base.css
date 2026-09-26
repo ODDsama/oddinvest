@@ -636,11 +636,6 @@ main:focus { outline: none; }
 }
 .insp-s { color: var(--oi-muted); font-size: var(--oi-fs-sm); min-width: 0; }
 .insp-h .sp { flex: 1 1 auto; }
-.insp-a {
-  display: flex;
-  gap: var(--oi-gap-sm);
-  flex: 0 0 auto;
-}
 
 /* Рейка панелей. Заміняє рейку кроків воронки й успадковує її довід:
    показувати, ДЕ ти в сутності, — а це має бути видно й тоді, коли
@@ -827,16 +822,6 @@ button {
   color: var(--oi-on-accent);
 }
 button:disabled { opacity: .5; cursor: default; }
-/* Кнопка в шапці. Називалась ghost, а малювалась суцільною ЗЕЛЕНОЮ — і
-   виходило, що найгучніший колір на екрані витрачено на «оновити
-   довідник», тобто на дію, яка нічого не вирішує. Зелений тут потрібен
-   для стану («можна купувати»), а не для кнопки поруч із логотипом. */
-button.ghost {
-  background: none;
-  color: var(--oi-header-text);
-  border: var(--oi-rule) solid var(--oi-border-strong);
-}
-button.ghost:hover { border-color: var(--oi-accent); }
 button.sm { padding: var(--oi-gap-xs) 10px; font-size: var(--oi-fs-sm); }
 button.warn { background: var(--oi-danger); color: var(--oi-on-signal); }
 button.quiet {
@@ -939,7 +924,6 @@ button.link { background: none; border: none; color: var(--oi-danger); padding: 
 /* Блоки, розкладені ПОРУЧ, лінійкою не розділяються: там сусідство
    горизонтальне, і межа між ними вже є — проміжок сітки. Правило вище
    інакше малювало б рису над кожним, крім найлівішого. */
-.ov-grid > .card + .card,
 .chart-grid > .card + .card { border-top: none; padding-top: 0; }
 
 .card h2 { font-size: var(--oi-fs-lg); font-weight: var(--oi-fw-medium); margin: 0 0 var(--oi-gap); }
@@ -1523,10 +1507,6 @@ td.num .sale-f { text-align: right; }
    «Записати» з вісьмома іменованими входами, і три ярлики до трьох із них
    були б набором, який застаріє першим. Перевірка класів (css-tokens-check)
    такого не ловить: вона дивиться з розмітки в CSS, а не навпаки. */
-
-.ov-grid { display: grid; grid-template-columns: 1fr; gap: var(--oi-gap); align-items: start; }
-.ov-grid > .card { min-width: 0; }
-@media (min-width: 900px) { .ov-grid { grid-template-columns: 1.5fr 1fr; } }
 
 .pv-row {
   display: flex;
@@ -2136,14 +2116,6 @@ td.num .sale-f { text-align: right; }
    блок її втратив, а скелет ні. Заливка й поля лишились банеру: він
    єдиний із трьох, у кого вони справді є. */
 .skel-card { margin-bottom: var(--oi-gap-2xl); }
-/* Смуга рейки панелей у скелеті: висоту вона тримає тим самим, чим і
-   справжня рейка, тож заміна не рухає сторінку. */
-.skel-rail {
-  height: var(--oi-touch);
-  border-radius: var(--oi-radius-sm);
-  background: var(--oi-surface);
-  margin-bottom: var(--oi-flow);
-}
 .skel-tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -2291,8 +2263,6 @@ main { transition: opacity var(--oi-dur) var(--oi-ease); }
 .fine    { font-size: var(--oi-fs-sm); }
 .fine-xs { font-size: var(--oi-fs-xs); }
 
-/* Проза з мірою — для довгих пояснень поза модалкою «як це читати». */
-.prose { max-width: var(--oi-measure); line-height: var(--oi-lh-prose); }
 
 /* Сигнал у тексті. Доти ім'я мав рівно один із них — .ok-t, — а бурштин
    і червоний писались кольором прямо в розмітці, десять і три рази.

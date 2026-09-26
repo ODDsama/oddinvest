@@ -32,13 +32,9 @@
 // Усі три рішення оборотні однією правкою В ОДНОМУ місці — колонки описані
 // специфікацією саме заради цього.
 
-import { esc } from "./format.js";
+import { esc, attrs } from "./format.js";
 import { empty as emptyState } from "./components.js";
 
-function attrStr(map) {
-  return Object.entries(map || {}).map(([k, v]) =>
-    (v == null || v === "" ? "" : " " + k + '="' + esc(String(v)) + '"')).join("");
-}
 
 /** Таблиця операцій.
  *
@@ -92,7 +88,7 @@ export function opsGrid({
   const cellCls = (c) => [c.num ? "num" : "", c.cls || ""].filter(Boolean).join(" ");
 
   const head = cols.map((c) =>
-    "<th scope=\"col\"" + attrStr({
+    "<th scope=\"col\"" + attrs({
       "data-col": c.key, "data-prio": c.prio, class: cellCls(c),
     }) + ">" + esc(c.label || "") + "</th>").join("");
 
@@ -102,8 +98,8 @@ export function opsGrid({
   // цілком, але в таблиці ці два поля не показують). Без гачка їх довелось
   // би або показати зайвими колонками, або вгадувати.
   const body = list.map((row, i) => "<tr"
-    + attrStr({ "data-row": row.id, ...(rowAttrs ? rowAttrs(row) : {}) }) + ">"
-    + cols.map((c) => "<td" + attrStr({
+    + attrs({ "data-row": row.id, ...(rowAttrs ? rowAttrs(row) : {}) }) + ">"
+    + cols.map((c) => "<td" + attrs({
       "data-col": c.key, "data-prio": c.prio, class: cellCls(c),
     }) + ">" + c.cell(row, i) + "</td>").join("")
     + "</tr>").join("");
@@ -113,13 +109,13 @@ export function opsGrid({
   // кілька колонок, а порожні <td> замість нього читались би як нулі.
   const footRow = Array.isArray(foot)
     ? '<tr class="tot">' + foot.map((c) =>
-      "<td" + attrStr({ colspan: c.span, class: c.num ? "num" : "" }) + ">"
+      "<td" + attrs({ colspan: c.span, class: c.num ? "num" : "" }) + ">"
       + (c.cell || "") + "</td>").join("") + "</tr>"
     : foot || "";
   const tfoot = footRow ? "<tfoot>" + footRow + "</tfoot>" : "";
 
   return '<div class="table-scroll"><table'
-    + attrStr({ id, class: ("grid-table " + cls).trim() }) + ">"
+    + attrs({ id, class: ("grid-table " + cls).trim() }) + ">"
     + (caption ? '<caption class="sr-only">' + esc(caption) + "</caption>" : "")
     + (withHead ? "<thead><tr>" + head + "</tr></thead>" : "") + "<tbody>" + body + "</tbody>" + tfoot + "</table></div>";
 }

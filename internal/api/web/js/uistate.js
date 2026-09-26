@@ -16,14 +16,8 @@
 
 const KEY = "oddinvest.open";
 
-function read() {
-  try { return JSON.parse(localStorage.getItem(KEY) || "{}") || {}; }
-  catch (_) { return {}; }
-}
-
-function write(all) {
-  try { localStorage.setItem(KEY, JSON.stringify(all)); } catch (_) { /* приватне вікно */ }
-}
+const read = () => loadJSON(KEY, {});
+const write = (all) => saveJSON(KEY, all);
 
 /** Чи розкрито `key` в просторі `scope`. */
 export function isOpen(scope, key) {
@@ -40,4 +34,49 @@ export function remember(scope, key, on) {
   else delete bag[String(key)];
   if (!Object.keys(bag).length) delete all[scope];
   write(all);
+}
+
+// ---------------------------------------------------------------------
+// Решта «поглядів» браузера: обране вікно, рік, чернетка
+// ---------------------------------------------------------------------
+//
+// Та сама обгортка в try/catch, що й для розкритого вище. Доти її
+// переписували руками в шістнадцяти модулях, і сім перемикачів-сегментів
+// («день / тиждень / 30 днів», «портфель / усі гроші»…) несли кожен свою
+// копію читання, перевірки й запису.
+
+/** JSON під ключем; def — коли порожньо, зіпсовано чи сховище заблоковане. */
+export function loadJSON(key, def) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch (_) { return def; }
+}
+
+export function saveJSON(key, v) {
+  try { localStorage.setItem(key, JSON.stringify(v)); } catch (_) { /* приватне вікно */ }
+}
+
+/** Збережений вибір. allowed — дозволені значення (будь-якого типу,
+ *  звіряються як рядки, повертається саме значення зі списку); null —
+ *  будь-який непорожній рядок. Сміття чи порожнеча дають def. */
+export function pref(key, allowed, def) {
+  let raw = null;
+  try { raw = localStorage.getItem(key); } catch (_) { /* приватне вікно */ }
+  if (!allowed) return raw || def;
+  const hit = allowed.find((v) => String(v) === raw);
+  return hit === undefined ? def : hit;
+}
+
+/** Порожнє значення прибирає ключ: «за замовчуванням» не зберігається. */
+export function setPref(key, v) {
+  try {
+    if (v === "" || v == null) localStorage.removeItem(key);
+    else localStorage.setItem(key, String(v));
+  } catch (_) { /* приватне вікно */ }
+}
+
+/** Кнопки сегмента `data-pref="<key>" value="…"`: клік запамʼятовує вибір
+ *  і перемальовує розділ. Ключ у селекторі — щоб дві картки на одній
+ *  панелі не чіплялись до кнопок одна одної. */
+export function wirePrefs(root, ctx, key) {
+  root.querySelectorAll(`[data-pref="${key}"]`).forEach((b) =>
+    b.addEventListener("click", () => { setPref(key, b.value); ctx.reload(); }));
 }
