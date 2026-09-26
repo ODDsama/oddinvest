@@ -10,7 +10,11 @@
 #
 #   STORAGE=local-zfs BRIDGE=vmbr0 \
 #   MQTT_ADDR=tcp://192.168.1.10:1883 MQTT_USER=oddinvest MQTT_PASS=secret \
+#   PUBKEY="ssh-ed25519 AAAA… user@host" \
 #   bash <(curl -fsSL https://raw.githubusercontent.com/ODDsama/oddinvest/main/deploy/proxmox-lxc.sh)
+#
+# PUBKEY — SSH-ключ робочої станції для root: з ним `git push prod main`
+# деплоїть без заходу на хост.
 #
 set -euo pipefail
 
@@ -32,6 +36,7 @@ MQTT_ADDR="${MQTT_ADDR:-}"
 MQTT_USER="${MQTT_USER:-}"
 MQTT_PASS="${MQTT_PASS:-}"
 MQTT_PREFIX="${MQTT_PREFIX:-oddinvest}"
+PUBKEY="${PUBKEY:-}"
 
 echo "==> CTID=$CTID host=$CTHOSTNAME storage=$STORAGE bridge=$BRIDGE"
 
@@ -83,11 +88,10 @@ echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudf
 apt-get update -q
 apt-get install -y -q --no-install-recommends cloudflared
 echo "-- fetching source"
-# Розкладка та сама, що її робить proxmox-git-setup.sh для наявного
-# контейнера: bare-репозиторій /srv/git/oddinvest.git (ціль для
-# `git push prod main` з робочої станції) + робоче дерево /opt/oddinvest-src
-# без власного .git + post-receive хук. Свіжий контейнер без хука знову
-# оновлювався б лише one-liner-ом з хоста — саме від цього й відходимо.
+# Bare-репозиторій /srv/git/oddinvest.git (ціль для `git push prod main` з
+# робочої станції) + робоче дерево /opt/oddinvest-src без власного .git +
+# post-receive хук. Без хука контейнер оновлювався б лише one-liner-ом з
+# хоста.
 #
 # Протокол v0 і HTTP/1.1 — обхід обмеження GitHub на анонімні git-запити з
 # деяких адрес (401 на POST git-upload-pack); довід — у proxmox-update.sh.
@@ -111,35 +115,17 @@ ODDINVEST_MQTT_PASS=${MQTT_PASS}
 ODDINVEST_MQTT_PREFIX=${MQTT_PREFIX}
 ENV
 chmod 640 /etc/oddinvestd.env
-echo "-- systemd unit"
-cat >/etc/systemd/system/oddinvestd.service <<UNIT
-[Unit]
-Description=ODD Invest backend (oddinvestd)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=oddinvestd
-Group=oddinvestd
-EnvironmentFile=/etc/oddinvestd.env
-ExecStart=/usr/local/bin/oddinvestd
-Restart=on-failure
-RestartSec=5
-StateDirectory=oddinvestd
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/oddinvestd
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+echo "-- systemd unit (той самий файл, що ставить кожен деплой)"
+install -m 644 /opt/oddinvest-src/deploy/systemd/oddinvestd.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable oddinvestd
+if [ -n "${PUBKEY}" ]; then
+  echo "-- SSH-ключ робочої станції для root"
+  install -d -m 700 /root/.ssh
+  touch /root/.ssh/authorized_keys
+  chmod 600 /root/.ssh/authorized_keys
+  grep -qxF "${PUBKEY}" /root/.ssh/authorized_keys || echo "${PUBKEY}" >> /root/.ssh/authorized_keys
+fi
 echo "-- toolchain + build + start (deploy/lxc-deploy.sh)"
 # Тулчейн, збірку, старт і перевірку робить той самий скрипт, що й хук
 # після git push, і proxmox-update.sh: одна логіка на три входи. GO_VER
@@ -163,5 +149,5 @@ echo "  Edit config   : pct exec $CTID -- nano /etc/oddinvestd.env"
 echo "                  pct exec $CTID -- systemctl restart oddinvestd"
 echo "  Logs          : pct exec $CTID -- journalctl -u oddinvestd -f"
 echo "  Deploy        : git remote add prod root@$IP:/srv/git/oddinvest.git"
-echo "                  git push prod main   (ключ: PUBKEY=... proxmox-git-setup.sh)"
+echo "                  git push prod main   (ключ: PUBKEY=... під час провізії)"
 echo "======================================================================"

@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 #
 # post-receive хук bare-репозиторію /srv/git/oddinvest.git у контейнері.
-# Ставлять його proxmox-git-setup.sh (наявний контейнер) і proxmox-lxc.sh
-# (свіжа провізія) — копією в hooks/post-receive.
+# Ставить його proxmox-lxc.sh на провізії — копією в hooks/post-receive.
 #
 # Робота: для refs/heads/main викласти отриманий коміт у /opt/oddinvest-src
 # і віддати ревізію deploy/lxc-deploy.sh З ЦЬОГО Ж коміту. Checkout тому

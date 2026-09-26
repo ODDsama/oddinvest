@@ -53,7 +53,7 @@ import (
 // через .UTC().Format(RFC3339) явно.
 //
 // НЕ через Environment=TZ у юніті: тоді правильність залежала б від файла,
-// якого немає ні в тестах, ні при запуску з-під розробника, ні в Dockerfile.
+// якого немає ні в тестах, ні при запуску з-під розробника.
 func setKyivLocal() {
 	loc, err := time.LoadLocation("Europe/Kyiv")
 	if err != nil {

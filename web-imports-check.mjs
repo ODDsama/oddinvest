@@ -13,7 +13,7 @@
 // Доти цей код жив heredoc'ом усередині .github/workflows/ci.yml — тобто
 // існував рівно в CI, і локально відтворити його було нічим.
 
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const ROOT = "internal/api/web/js";
@@ -30,10 +30,7 @@ globalThis.Document = { prototype: {} };
 globalThis.window = { location: { search: "" } };
 globalThis.document = { querySelector: () => ({}) };
 
-const walk = (d) => readdirSync(d).flatMap((f) => {
-  const p = `${d}/${f}`;
-  return statSync(p).isDirectory() ? walk(p) : [p];
-});
+const walk = (d) => readdirSync(d, { recursive: true }).map((f) => `${d}/${f}`);
 
 let bad = 0;
 for (const m of walk(ROOT).filter((f) => f.endsWith(".js")).sort()) {

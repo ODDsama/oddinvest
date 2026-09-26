@@ -18,15 +18,16 @@
 // НЕПРАВДА: він читається як «так у застосунку роблять», і наступний
 // автор чесно бере його за зразок.
 //
-// Усі п'ять фатальні. Три останні деякий час лише звітували — див.
-// STRICT_MARKUP нижче, там записано, чому інакше було не можна.
+// Усі п'ять фатальні. Три останні деякий час лише звітували: на день
+// появи в розмітці лежало сто дев'яносто входжень style=, і фатальна
+// перевірка означала б або червоний CI, або двісті правок одним комітом.
 //
 // Конфіг лежить у корені репозиторію, а не поруч із модулями, з тієї ж
 // причини, що й eslint.config.mjs: internal/api/web цілком вшивається в
 // бінарник директивою `//go:embed web`, і файл звідти поїхав би
 // користувачам у браузер.
 
-import { readdirSync, statSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 const ROOT = "internal/api/web";
 
@@ -42,10 +43,7 @@ const ALLOW_UNUSED = new Map([
   ["--oi-bp-lg", "точка зламу: у @media var() не працює"],
 ]);
 
-const walk = (d) => readdirSync(d).flatMap((f) => {
-  const p = `${d}/${f}`;
-  return statSync(p).isDirectory() ? walk(p) : [p];
-});
+const walk = (d) => readdirSync(d, { recursive: true }).map((f) => `${d}/${f}`);
 
 const files = walk(ROOT).filter((f) => /\.(css|js|html)$/.test(f));
 
@@ -172,12 +170,6 @@ for (const f of files.filter((x) => /\.(js|html)$/.test(x))) {
 }
 const classBad = [...classUse].map(([c, w]) => `${w}  .${c}`);
 
-// Звіт скінчився: усі три перевірки на нулі, і від цієї миті вони тримають
-// межу, а не описують її. Вмикати їх одразу було не можна — на день появи
-// в розмітці лежало сто дев'яносто входжень style=, і фатальна перевірка
-// означала б або червоний CI, або двісті правок одним комітом.
-const STRICT_MARKUP = true;
-
 console.log(`токенів оголошено ${declared.size}, вжито ${used.size}`);
 console.log(`style= повз кастомні властивості: ${styleBad.length}`);
 console.log(`літеральних #hex поза темою: ${hexBad.length}`);
@@ -197,7 +189,7 @@ if (dead.length) {
 
 const show = (list, title, tail) => {
   if (!list.length) return;
-  console.log(`\n${title}${STRICT_MARKUP ? "" : "  (поки лише звіт)"}:`);
+  console.log(`\n${title}:`);
   for (const l of list.slice(0, 40)) console.log(`  ${l}`);
   if (list.length > 40) console.log(`  …і ще ${list.length - 40}`);
   console.log(tail);
@@ -213,6 +205,5 @@ show(classBad, "КЛАС У РОЗМІТЦІ, ЯКОГО НЕМАЄ В CSS",
   "Якщо правило не потрібне за будовою — у ALLOW_UNSTYLED разом із причиною.");
 
 process.exit(
-  missing.length || dead.length ||
-  (STRICT_MARKUP && (styleBad.length || hexBad.length || classBad.length)) ? 1 : 0,
+  missing.length || dead.length || styleBad.length || hexBad.length || classBad.length ? 1 : 0,
 );

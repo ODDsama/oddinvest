@@ -33,7 +33,7 @@ unset GIT_DIR GIT_WORK_TREE
 g() { git --git-dir="$BARE" --work-tree="$SRC" "$@"; }
 
 if [ ! -d "$BARE" ]; then
-  echo "!! немає $BARE — спершу deploy/proxmox-git-setup.sh на Proxmox-хості"
+  echo "!! немає $BARE — контейнер ставить deploy/proxmox-lxc.sh на Proxmox-хості"
   exit 1
 fi
 
@@ -96,25 +96,15 @@ if ! command -v cloudflared >/dev/null 2>&1; then
   ) || echo "!! cloudflared не поставився — доступ ззовні буде недоступний"
 fi
 
-# ---------- право на 443 ----------
-# Контейнери, поставлені до появи локального домену, мають юніт без
-# ambient-прав, а скрипт провізії заново не ганяють. Дописуємо один раз;
-# без цього другий слухач мовчки не піднімається, і сторінка каже про це
-# лише в журналі.
+# ---------- юніт ----------
+# Ставиться з репозиторію на кожному деплої, тож зміна в
+# deploy/systemd/oddinvestd.service їде на бойовий тим самим пушем. Доти
+# старі контейнери латались sed-ом (право на 443, UMask) — по латці на
+# кожне нове поле юніта, і кожна жила вічно.
 UNIT_FILE=/etc/systemd/system/oddinvestd.service
-if [ -f "$UNIT_FILE" ] && ! grep -q CAP_NET_BIND_SERVICE "$UNIT_FILE"; then
-  echo "-- дозволяю слухати 443"
-  sed -i 's/^StateDirectory=oddinvestd$/StateDirectory=oddinvestd\nAmbientCapabilities=CAP_NET_BIND_SERVICE\nCapabilityBoundingSet=CAP_NET_BIND_SERVICE/' "$UNIT_FILE"
-  systemctl daemon-reload
-fi
-
-# ---------- права файлів ----------
-# Юніти, поставлені раніше, не мають UMask: файли бази з'являлись 0644, і
-# домиграційна копія з секретами лежала відкритою, доки міграції не
-# пройдуть. Дописуємо один раз, як і право на 443 вище.
-if [ -f "$UNIT_FILE" ] && ! grep -q '^UMask=' "$UNIT_FILE"; then
-  echo "-- закриваю файли сервісу (UMask=0077)"
-  sed -i 's/^StateDirectory=oddinvestd$/StateDirectory=oddinvestd\nUMask=0077\nStateDirectoryMode=0700/' "$UNIT_FILE"
+if ! cmp -s "$SRC/deploy/systemd/oddinvestd.service" "$UNIT_FILE"; then
+  echo "-- юніт з репозиторію"
+  install -m 644 "$SRC/deploy/systemd/oddinvestd.service" "$UNIT_FILE"
   systemctl daemon-reload
 fi
 

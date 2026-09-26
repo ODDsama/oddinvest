@@ -28,7 +28,7 @@
 // в бінарник директивою `//go:embed web`, і скрипт звідти поїхав би
 // користувачам у браузер.
 
-import { readdirSync, statSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { parseRoute, routeFor, routeKnown, markerKind } from
   "./internal/api/web/js/routes.js";
@@ -44,10 +44,7 @@ const stripComments = (src) => src
   .replace(/\/\*[\s\S]*?\*\//g, blank)
   .replace(/(^|[^:])(\/\/[^\n]*)/g, (_, p, c) => p + blank(c));
 
-const walk = (d) => readdirSync(d).flatMap((f) => {
-  const p = `${d}/${f}`;
-  return statSync(p).isDirectory() ? walk(p) : [p];
-});
+const walk = (d) => readdirSync(d, { recursive: true }).map((f) => `${d}/${f}`);
 
 // ---------------------------------------------------------------------
 // 1. Живі посилання

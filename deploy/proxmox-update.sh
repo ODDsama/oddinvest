@@ -26,8 +26,7 @@ pct exec "$CT" -- bash -lc '
   set -e
   BARE=/srv/git/oddinvest.git
   if [ ! -d "$BARE" ]; then
-    echo "!! немає $BARE — контейнер ще на старій розкладці; спершу один раз:"
-    echo "   bash <(curl -fsSL https://raw.githubusercontent.com/ODDsama/oddinvest/main/deploy/proxmox-git-setup.sh)"
+    echo "!! немає $BARE — контейнер ставить deploy/proxmox-lxc.sh"
     exit 1
   fi
   # Старий протокол git і HTTP/1.1 — не смак, а обхід. GitHub відсікає

@@ -1,5 +1,5 @@
 [Unit]
-Description=ODD Invest portfolio manager
+Description=ODD Invest backend (oddinvestd)
 After=network-online.target
 Wants=network-online.target
 
@@ -11,14 +11,15 @@ ExecStart=/usr/local/bin/oddinvestd
 Restart=on-failure
 RestartSec=5
 
-Environment=ODDINVEST_HTTP_ADDR=:8080
-Environment=ODDINVEST_DB_PATH=/var/lib/oddinvestd/oddinvest.db
-# Environment=ODDINVEST_MQTT_ADDR=tcp://homeassistant.local:1883
-# Environment=ODDINVEST_MQTT_USER=oddinvest
-# Environment=ODDINVEST_MQTT_PASS=***
-Environment=ODDINVEST_MQTT_PREFIX=oddinvest
-# Секретів тут немає: пароль, токен для HA й реквізити тунелю живуть у
-# базі й задаються з самого застосунку (README → «Доступ ззовні»).
+# Єдина копія юніта: deploy/lxc-deploy.sh ставить САМЕ цей файл на
+# кожному деплої, а proxmox-lxc.sh — на провізії. Доти юніт жив у трьох
+# місцях (цей «довідковий», heredoc у провізії й sed-латки в деплої для
+# старих контейнерів), і копії вже розійшлись: у heredoc не було UMask.
+#
+# Змінні — у /etc/oddinvestd.env (адреса, база, MQTT; пише провізія).
+# Секретів застосунку там немає: пароль, токен для HA й реквізити тунелю
+# живуть у базі й задаються з самого застосунку (README → «Доступ ззовні»).
+EnvironmentFile=/etc/oddinvestd.env
 
 StateDirectory=oddinvestd
 # Файли сервісу — лише для нього. У базі відкритим текстом лежать токени

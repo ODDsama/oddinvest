@@ -292,14 +292,10 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ODDsama/oddinvest/main/deplo
 ```
 
 Створює контейнер, bare-репозиторій `/srv/git/oddinvest.git` з
-post-receive хуком, робоче дерево `/opt/oddinvest-src`, сервіс. Наявний
-контейнер на старій розкладці переводиться один раз тим самим кроком, що
-й додає SSH-ключ робочої станції для root:
-
-```sh
-CT=106 PUBKEY="$(cat ~/.ssh/id_ed25519.pub)" \
-bash <(curl -fsSL https://raw.githubusercontent.com/ODDsama/oddinvest/main/deploy/proxmox-git-setup.sh)
-```
+post-receive хуком, робоче дерево `/opt/oddinvest-src`, сервіс. З
+`PUBKEY="$(cat ~/.ssh/id_ed25519.pub)"` заодно кладе SSH-ключ робочої
+станції для root. (Разовий перевід контейнерів зі старої розкладки,
+`proxmox-git-setup.sh`, прибрано: переводити більше нічого.)
 
 **Звичайний деплой** — з робочої станції, після пушу в `origin` (щоб CI
 встиг сказати своє; гейта на це немає, порядок тримається руками):
@@ -328,8 +324,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/ODDsama/oddinvest/main/deplo
 міграцією сховище саме робить знімок `<db>.pre-<version>` поруч із базою
 (тримає три останні).
 
-`deploy/systemd/oddinvestd.service` — довідковий unit для ручної
-установки поза Proxmox; скрипт провізії пише свій, з `EnvironmentFile=`.
+`deploy/systemd/oddinvestd.service` — єдина копія юніта: її ставить
+провізія, і кожен деплой переставляє її, якщо вона змінилась.
 
 ## Доступ ззовні
 
