@@ -20,6 +20,8 @@
 package settings
 
 import (
+	"cmp"
+
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/fx"
@@ -41,10 +43,7 @@ func ResolveExpensesUAH(set *state.SettingsDoc, rates fx.Rates) {
 	if set == nil || set.MonthlyExpenses == nil {
 		return
 	}
-	cur := set.MonthlyExpensesCurrency
-	if cur == "" {
-		cur = money.UAH
-	}
+	cur := cmp.Or(set.MonthlyExpensesCurrency, money.UAH)
 	m := money.New(int64(*set.MonthlyExpenses*100+0.5), cur)
 	u, err := fx.ToUAH(m, rates)
 	if err != nil {

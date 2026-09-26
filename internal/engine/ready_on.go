@@ -56,9 +56,12 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 
 	money "github.com/Rhymond/go-money"
@@ -194,9 +197,7 @@ func futureIncome(src *sources, today domain.Date) (incomeAhead, error) {
 	arrived := domain.Arrived(src.statuses, today)
 	out := incomeAhead{}
 	add := func(broker, currency string, f readyFlow) {
-		if broker == "" {
-			broker = NoBrokerLabel
-		}
+		broker = cmp.Or(broker, NoBrokerLabel)
 		k := store.BrokerCur{Broker: broker, Currency: currency}
 		out[k] = append(out[k], f)
 	}
@@ -639,21 +640,14 @@ func fundBroker(ops []domain.FundOp, fund string) string {
 		if op.Kind != domain.FundBuy || op.Fund != fund {
 			continue
 		}
-		b := op.Broker
-		if b == "" {
-			b = NoBrokerLabel
-		}
+		b := cmp.Or(op.Broker, NoBrokerLabel)
 		byBroker[b] += op.Amount
 	}
 	best, bestAmt, tie := NoBrokerLabel, int64(0), false
 	// Обхід за відсортованими ключами: мапа в Go обходиться в довільному
 	// порядку, і два запуски на тих самих даних інакше давали б різних
 	// брокерів, а разом із ними — різні горщики.
-	names := make([]string, 0, len(byBroker))
-	for b := range byBroker {
-		names = append(names, b)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(byBroker))
 	for _, b := range names {
 		switch v := byBroker[b]; {
 		case v > bestAmt:
@@ -721,11 +715,7 @@ func (inc incomeAhead) readyFor(doc *state.Doc, currency string, costMinor int64
 			brokers[k.Broker] = true
 		}
 	}
-	names := make([]string, 0, len(brokers))
-	for name := range brokers {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(brokers))
 
 	var best readiness
 	found := false

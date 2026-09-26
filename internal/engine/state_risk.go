@@ -163,7 +163,7 @@ func buildRisk(in riskInput) riskPhase {
 		// сценарії ±1/±2 в.п. у грошах. Подюрація по валютах (byCurDur)
 		// була правильна весь цей час — розходилось саме зведене число.
 		modWeighted += mod * pvUAH
-		byCurDur[c] = Round2(mod)
+		byCurDur[c] = domain.Round2(mod)
 	}
 	if pvUAHTotal > 0 {
 		mac := macWeighted / pvUAHTotal
@@ -172,11 +172,11 @@ func buildRisk(in riskInput) riskPhase {
 		for _, d := range []float64{-2, -1, 1, 2} {
 			chg := domain.PriceChangePct(mod, d)
 			scen = append(scen, state.RiskScenario{
-				DeltaPP: d, ChangePct: Round2(chg), ChangeUAH: state.Major(chg/100*pvUAHTotal, money.UAH),
+				DeltaPP: d, ChangePct: domain.Round2(chg), ChangeUAH: state.Major(chg/100*pvUAHTotal, money.UAH),
 			})
 		}
 		out.RateRisk = &state.RateRisk{
-			DurationYears: Round2(mac), ModifiedDur: Round2(mod), PVUAH: state.Major(pvUAHTotal, money.UAH),
+			DurationYears: domain.Round2(mac), ModifiedDur: domain.Round2(mod), PVUAH: state.Major(pvUAHTotal, money.UAH),
 			ByCurrency: byCurDur, Scenarios: scen,
 		}
 	}
@@ -186,7 +186,7 @@ func buildRisk(in riskInput) riskPhase {
 		if out.RateRisk == nil {
 			out.RateRisk = &state.RateRisk{}
 		}
-		out.RateRisk.ReinvestYears = Round2(backWeighted / backUAH)
+		out.RateRisk.ReinvestYears = domain.Round2(backWeighted / backUAH)
 		out.RateRisk.ReturningUAH = state.Major(backUAH, money.UAH)
 		out.RateRisk.ReinvestSoonUAH = state.Major(backSoonUAH, money.UAH)
 	}

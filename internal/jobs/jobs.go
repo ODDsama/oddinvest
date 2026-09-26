@@ -3,6 +3,7 @@
 package jobs
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -359,9 +360,7 @@ func (r *Runner) RefreshAuctions(ctx context.Context) error {
 	}
 	var newest domain.Date
 	for _, a := range latest {
-		if a.Date > newest {
-			newest = a.Date
-		}
+		newest = max(newest, a.Date)
 	}
 	// Нічого новішого за знак не опубліковано — знак стоїть, де стояв.
 	if newest == "" || string(newest) <= through {
@@ -589,9 +588,7 @@ func (r *Runner) BackfillRates(ctx context.Context, code string, years int) erro
 			time.Sleep(pause)
 			continue
 		}
-		if quoted == "" {
-			quoted = day
-		}
+		quoted = cmp.Or(quoted, day)
 		if err := r.st.SaveRate(ctx, code, rate, quoted); err != nil {
 			return err
 		}

@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/ODDsama/oddinvest/internal/domain"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -22,7 +23,7 @@ func TestBreakdownRealFXMatchesRealPct(t *testing.T) {
 		{-0.02, money.UAH},
 	}
 	for _, c := range cases {
-		want := Round2(RealYield(c.net, c.cur, rc.deval) * 100)
+		want := domain.Round2(RealYield(c.net, c.cur, rc.deval) * 100)
 		got := rc.Breakdown(c.net, c.net, c.cur, "тест").RealFXPct
 		if got != want {
 			t.Fatalf("%s %v: розклад дав %v замість %v", c.cur, c.net, got, want)
@@ -90,7 +91,7 @@ func TestBreakdownCPIConvertsForeignBeforeDeflating(t *testing.T) {
 
 	// Для гривні кроку конвертації немає — лише інший дефлятор.
 	uah := rc.Breakdown(0.16, 0.16, money.UAH, "ставка вкладу")
-	want := Round2(((1+0.16)/(1+8.4/100) - 1) * 100)
+	want := domain.Round2(((1+0.16)/(1+8.4/100) - 1) * 100)
 	if *uah.RealCPIPct != want {
 		t.Fatalf("гривня проти цін = %v, хочемо %v", *uah.RealCPIPct, want)
 	}

@@ -211,9 +211,7 @@ func stepPosition(p *FundPosition, op FundOp, carry carryBook) {
 			p.Short += -p.Qty
 			p.Qty = 0
 		}
-		if p.CostBasis < 0 {
-			p.CostBasis = 0
-		}
+		p.CostBasis = max(p.CostBasis, 0)
 		// Парна операція — КОНВЕРТАЦІЯ між фондами, а не угода: сертифікати
 		// справді перейшли, тож кількість і собівартість рухаються, — але
 		// результату тут немає, бо немає й виходу з інструмента. Міграція
@@ -629,7 +627,7 @@ func FundPriceReturn(points []FundPrice, asOf Date) (float64, bool) {
 	if !XIRRPlausible(r / 100) {
 		return 0, false
 	}
-	return math.Round(r*100) / 100, true
+	return Round2(r), true
 }
 
 // FundPriceChange — ПРОСТА зміна ціни сертифіката за весь відрізок відомої
@@ -666,7 +664,7 @@ func FundPriceChange(points []FundPrice, asOf Date) (pct float64, days int, ok b
 		return 0, 0, false
 	}
 	r := (float64(last.Price)/float64(first.Price) - 1) * 100
-	return math.Round(r*100) / 100, DaysBetween(first.Date, last.Date), true
+	return Round2(r), DaysBetween(first.Date, last.Date), true
 }
 
 // NetOfTax — ставка після податку на дохід, % річних.
@@ -965,9 +963,7 @@ func DividendYieldNet(ops []FundOp, p *FundPosition, on Date) (float64, bool) {
 			period = float64(gaps[len(gaps)/2])
 		}
 	}
-	if period < 1 {
-		period = 1
-	}
+	period = max(period, 1)
 	annual := float64(net) * 365 / period
 	return math.Round(annual/float64(p.MarketValue())*10000) / 100, true
 }

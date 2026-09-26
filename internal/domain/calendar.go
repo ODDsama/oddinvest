@@ -22,9 +22,7 @@ func HolderQty(lot Lot, sales []Sale, on Date) int64 {
 			q -= s.Qty
 		}
 	}
-	if q < 0 {
-		q = 0
-	}
+	q = max(q, 0)
 	return q
 }
 
@@ -36,9 +34,7 @@ func RemainingQtyNow(lot Lot, sales []Sale) int64 {
 			q -= s.Qty
 		}
 	}
-	if q < 0 {
-		q = 0
-	}
+	q = max(q, 0)
 	return q
 }
 

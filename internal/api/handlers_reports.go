@@ -4,6 +4,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -528,10 +529,7 @@ func (s *Server) handleBenchmark(w http.ResponseWriter, r *http.Request) {
 
 // handleRivals — GET /api/rivals?level=portfolio|all
 func (s *Server) handleRivals(w http.ResponseWriter, r *http.Request) {
-	level := r.URL.Query().Get("level")
-	if level == "" {
-		level = engine.LevelPortfolio
-	}
+	level := cmp.Or(r.URL.Query().Get("level"), engine.LevelPortfolio)
 	if _, ok := engine.RivalLevelLabels[level]; !ok {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("невідомий рівень %q — буває portfolio або all", level))
 		return

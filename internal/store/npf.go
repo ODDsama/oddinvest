@@ -11,6 +11,7 @@
 package store
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
@@ -51,9 +52,7 @@ func checkNPFAccount(a domain.NPFAccount) (domain.NPFAccount, error) {
 	}
 	a.Administrator = strings.TrimSpace(a.Administrator)
 	a.Currency = strings.TrimSpace(a.Currency)
-	if a.Currency == "" {
-		a.Currency = "UAH"
-	}
+	a.Currency = cmp.Or(a.Currency, "UAH")
 	if a.Nav < 0 {
 		return a, fmt.Errorf("ЧВОПА не може бути відʼємною")
 	}
@@ -96,9 +95,7 @@ func checkNPFAccount(a domain.NPFAccount) (domain.NPFAccount, error) {
 		return a, fmt.Errorf("строк виплати має бути від 0 до 50 років")
 	}
 	a.PayoutFreq = strings.TrimSpace(a.PayoutFreq)
-	if a.PayoutFreq == "" {
-		a.PayoutFreq = "month"
-	}
+	a.PayoutFreq = cmp.Or(a.PayoutFreq, "month")
 	switch a.PayoutFreq {
 	case "month", "quarter", "year":
 	default:

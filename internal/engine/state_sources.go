@@ -371,9 +371,7 @@ var fxHistoryCurrencies = []string{money.USD, money.EUR}
 func (e *Engine) FXHistorySince(ctx context.Context, today domain.Date) (map[string][]store.RatePoint, error) {
 	longest := 0
 	for _, y := range fxWindowYears {
-		if y > longest {
-			longest = y
-		}
+		longest = max(longest, y)
 	}
 	from := today.AddMonths(-12 * longest)
 	out := make(map[string][]store.RatePoint, len(fxHistoryCurrencies))

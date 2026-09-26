@@ -120,10 +120,7 @@ func (s Sleeve) rateAt(m int) float64 {
 	if s.GlideYears <= 0 {
 		return s.RatePct
 	}
-	w := 1 - float64(m)/(12*s.GlideYears)
-	if w < 0 {
-		w = 0
-	}
+	w := max(1-float64(m)/(12*s.GlideYears), 0)
 	return s.RateTerminalPct + (s.RatePct-s.RateTerminalPct)*w
 }
 
@@ -298,9 +295,7 @@ func ProjectSleevesSeries(sleeves []Sleeve, devalPct float64, months, step int) 
 	if months <= 0 {
 		return nil
 	}
-	if step < 1 {
-		step = 1
-	}
+	step = max(step, 1)
 	dM := MonthlyRate(devalPct)
 	sts := make([]projState, len(sleeves))
 	for i, s := range sleeves {

@@ -24,9 +24,12 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -145,10 +148,7 @@ func uahText(v float64) string {
 
 // curText — те саме в довільній валюті, символом.
 func curText(v float64, code string) string {
-	sym := map[string]string{"UAH": "₴", "USD": "$", "EUR": "€"}[code]
-	if sym == "" {
-		sym = code
-	}
+	sym := cmp.Or(map[string]string{"UAH": "₴", "USD": "$", "EUR": "€"}[code], code)
 	return strings.Replace(uahText(v), "₴", sym, 1)
 }
 
@@ -231,6 +231,9 @@ func dayMonth(d domain.Date) string {
 	return fmt.Sprintf("%d %s", t.Day(), monthsGen[int(t.Month())-1])
 }
 
+// daysBetween — як domain.DaysBetween, але нуль для порожньої чи зіпсованої
+// дати: задача «давно не було» не мусить спрацьовувати на відсутності даних
+// (курсів ще не тягли, бекапу ще не було).
 func daysBetween(from, to domain.Date) int {
 	a, err1 := time.Parse("2006-01-02", string(from))
 	b, err2 := time.Parse("2006-01-02", string(to))
@@ -891,11 +894,7 @@ func arrivedTodayTask(src *sources, today domain.Date) (state.Task, bool) {
 	// цьому йде у валюті звітності, як і решта прози (moneyText), а
 	// доларова лишається доларовою — тим самим правилом, що й у презентера.
 	mt := moneyTextOfSrc(src)
-	codes := make([]string, 0, len(sum))
-	for c := range sum {
-		codes = append(codes, c)
-	}
-	sort.Strings(codes)
+	codes := slices.Sorted(maps.Keys(sum))
 	parts := make([]string, 0, len(codes))
 	for _, c := range codes {
 		parts = append(parts, mt.cur(float64(sum[c])/100, c))
@@ -921,7 +920,7 @@ func arrivedTodayTask(src *sources, today domain.Date) (state.Task, bool) {
 // там фактичні операції з виписки. Тому беремо лише те, що має розклад —
 // купони, погашення й відсотки вкладів.
 func unconfirmedTask(src *sources, today domain.Date) (state.Task, bool) {
-	from := domain.Date(mustShift(today, -taskPastDays))
+	from := today.AddDays(-taskPastDays)
 	cf, err := domain.FuturePayments(src.pays, src.lots, src.sales, from)
 	if err != nil {
 		return state.Task{}, false
@@ -936,9 +935,7 @@ func unconfirmedTask(src *sources, today domain.Date) (state.Task, bool) {
 			continue
 		}
 		n++
-		if it.Date > last {
-			last = it.Date
-		}
+		last = max(last, it.Date)
 	}
 	if n == 0 {
 		return state.Task{}, false
@@ -1116,10 +1113,7 @@ func overLimits(doc *state.Doc) []string {
 		if c.OverUAH.Major() <= 0 {
 			continue
 		}
-		name := c.Label
-		if name == "" {
-			name = c.Key
-		}
+		name := cmp.Or(c.Label, c.Key)
 		out = append(out, name)
 	}
 	return out
@@ -1161,14 +1155,6 @@ func moneyAmount(m MoneyJSON) float64 {
 	var v float64
 	_, _ = fmt.Sscanf(m.Amount, "%f", &v) //nolint:errcheck // нерозбірлива сума лишає нуль, і це та сама відповідь, що й порожня
 	return v
-}
-
-func mustShift(d domain.Date, days int) string {
-	t, err := time.Parse("2006-01-02", string(d))
-	if err != nil {
-		return string(d)
-	}
-	return t.AddDate(0, 0, days).Format("2006-01-02")
 }
 
 // cardTasks — задачі про пільговий цикл карток.
@@ -1321,7 +1307,7 @@ func cardAmountUAH(minor int64, cur string) float64 {
 	if cur != money.UAH {
 		return 0
 	}
-	return Round2(float64(minor) / 100)
+	return domain.Round2(float64(minor) / 100)
 }
 
 // debtMoney — сума боргу для прози задачі: гривня у валюті звітності,

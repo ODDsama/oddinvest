@@ -247,7 +247,7 @@ func (e *Engine) Rivals(ctx context.Context, doc *state.Doc, level string) (Riva
 			row.TerminalUAH = state.Major(rv.TerminalUAH, money.UAH)
 			row.DiffUAH = state.Major(out.ActualUAH.Major()-row.TerminalUAH.Major(), money.UAH)
 			if row.TerminalUAH.Major() != 0 {
-				row.DiffPct = Round2(row.DiffUAH.Major() / math.Abs(row.TerminalUAH.Major()) * 100)
+				row.DiffPct = domain.Round2(row.DiffUAH.Major() / math.Abs(row.TerminalUAH.Major()) * 100)
 			}
 			row.PointsDiff = uahSeries(diffSeries(actual, rv.Points))
 		}
@@ -280,7 +280,7 @@ func diffSeries(mine, rival []float64) []float64 {
 	}
 	out := make([]float64, n)
 	for i := 0; i < n; i++ {
-		out[i] = Round2(mine[i] - rival[i])
+		out[i] = domain.Round2(mine[i] - rival[i])
 	}
 	return out
 }
@@ -463,5 +463,5 @@ func docLevelUAH(doc *state.Doc, level string) float64 {
 	if level == LevelAll {
 		return doc.CapitalUAH.Major()
 	}
-	return Round2(doc.NominalUAHEq.Major() + doc.AccountUAH.Major() + doc.FundsUAH.Major() + doc.DepositsUAH.Major())
+	return domain.Round2(doc.NominalUAHEq.Major() + doc.AccountUAH.Major() + doc.FundsUAH.Major() + doc.DepositsUAH.Major())
 }

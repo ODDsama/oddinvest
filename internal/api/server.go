@@ -2,6 +2,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"embed"
 	"log/slog"
@@ -419,9 +420,7 @@ func (w *statusWriter) WriteHeader(code int) {
 }
 
 func (w *statusWriter) Write(b []byte) (int, error) {
-	if w.code == 0 {
-		w.code = http.StatusOK
-	}
+	w.code = cmp.Or(w.code, http.StatusOK)
 	return w.ResponseWriter.Write(b)
 }
 
@@ -430,9 +429,7 @@ func logMiddleware(log *slog.Logger, next http.Handler) http.Handler {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w}
 		next.ServeHTTP(sw, r)
-		if sw.code == 0 {
-			sw.code = http.StatusOK
-		}
+		sw.code = cmp.Or(sw.code, http.StatusOK)
 		log.Info("http", "method", r.Method, "path", r.URL.Path, "status", sw.code, "dur", time.Since(start))
 	})
 }

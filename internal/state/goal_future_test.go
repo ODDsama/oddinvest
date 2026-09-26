@@ -3,6 +3,7 @@ package state
 import (
 	"testing"
 
+	"github.com/ODDsama/oddinvest/internal/domain"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -24,7 +25,7 @@ func TestGoalFutureGrowsTargetAndGap(t *testing.T) {
 	if g.TargetFutureNative.Major() < 1_500_000 || g.TargetFutureNative.Major() > 1_600_000 {
 		t.Fatalf("майбутня ціна %v", g.TargetFutureNative.Major())
 	}
-	if g.GapFutureNative.Major() != round2(g.TargetFutureNative.Major()-100000) {
+	if g.GapFutureNative.Major() != domain.Round2(g.TargetFutureNative.Major()-100000) {
 		t.Fatalf("розрив %v не дорівнює майбутній ціні мінус зібране", g.GapFutureNative.Major())
 	}
 	if g.RequiredFutureNative.Major() <= 0 {

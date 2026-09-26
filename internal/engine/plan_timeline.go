@@ -6,6 +6,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
@@ -256,10 +257,7 @@ func buildPlanProfile(flows []store.PlanFlow, marks PlanMarks, today, to domain.
 	if len(flows) == 0 {
 		return nil
 	}
-	months := MonthOffsetRaw(today, to)
-	if months < 12 {
-		months = 12
-	}
+	months := max(MonthOffsetRaw(today, to), 12)
 	step := 1
 	for months/step > profileMaxPoints {
 		step += 2 // 1 → 3 → 5 …: квартал, потім рідше
@@ -303,7 +301,7 @@ func buildPlanProfile(flows []store.PlanFlow, marks PlanMarks, today, to domain.
 			for k := 0; k < step; k++ {
 				sum += PlanFlowMonthlyUAH(f, today, rates, m+k, marks)
 			}
-			v := Round2(sum / float64(step))
+			v := domain.Round2(sum / float64(step))
 			pt.Values[i] = state.Major(v, money.UAH)
 			pt.Net = pt.Net.Add(state.Major(v, money.UAH))
 		}
@@ -565,18 +563,11 @@ func planFlowAtMonth(f store.PlanFlow, today domain.Date, m int, marks PlanMarks
 // початку потоку (зарплата 17-го приходить 17-го), а обрізання до довжини
 // місяця потрібне для 29–31: інакше «31-го» у лютому дало б неіснуючу дату.
 func receiptDueDate(month string, day int) string {
-	y, mo := 0, 0
-	if _, err := fmt.Sscanf(month, "%04d-%02d", &y, &mo); err != nil {
+	d, err := domain.ParseDate(month + "-01")
+	if err != nil {
 		return ""
 	}
-	last := time.Date(y, time.Month(mo)+1, 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, -1).Day()
-	if day < 1 {
-		day = 1
-	}
-	if day > last {
-		day = last
-	}
-	return fmt.Sprintf("%04d-%02d-%02d", y, mo, day)
+	return string(domain.DateOnDay(d.Year(), d.Month(), day))
 }
 
 // ReceiptRows — відмітки для UI.
@@ -608,7 +599,7 @@ func ReceiptRows(rs []store.PlanReceipt, flows []store.PlanFlow, rates fx.Rates)
 		out = append(out, ReceiptRow{
 			ID: r.ID, FlowID: r.FlowID, Month: r.Month, Name: r.Name,
 			Amount:    ToMoneyJSON(money.New(r.Amount, r.Currency)),
-			InvestPct: Round2(float64(bp) / 100),
+			InvestPct: domain.Round2(float64(bp) / 100),
 			GivesUAH:  state.Major(PlanFlowUAH(float64(r.Amount)/100*float64(bp)/10000, r.Currency, rates), money.UAH),
 			Uses:      domain.PlanUsesList(use),
 			Note:      r.Note,
@@ -801,10 +792,7 @@ func profileEvents(cashflow []domain.CashflowItem, rows []state.FundPositionRow,
 		// знецінення, а тут потрібне саме зростання, з якого податок ще
 		// доведеться взяти. Виміряне витісняє обіцянку — те саме правило, що
 		// в самому рядку позиції.
-		rate := r.NavReturnPct
-		if rate == 0 {
-			rate = r.ExpectedPct
-		}
+		rate := cmp.Or(r.NavReturnPct, r.ExpectedPct)
 		v := domain.AccumCloseValue(domain.Accum{
 			Value0: r.ValueUAH.Major(), Cost0: r.CostUAH.Major(),
 			RatePct: rate, CloseM: closeM,

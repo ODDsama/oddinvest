@@ -121,9 +121,7 @@ func planFlowNative(f store.PlanFlow, today domain.Date, m int, marks PlanMarks)
 			}
 		}
 		start = raw
-		if start < 1 {
-			start = 1
-		}
+		start = max(start, 1)
 	default:
 		// Регулярний потік НЕ підтягує початок до місяця 1: від справжньої
 		// дати рахуються і фаза періодичності, і роки індексації. Доти

@@ -28,6 +28,7 @@
 package engine
 
 import (
+	"cmp"
 	"strings"
 	"time"
 
@@ -108,10 +109,7 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 		v := float64(u.Amount()) / 100
 		a.uah += v
 		a.byCur[op.Currency] = a.byCur[op.Currency].Add(state.Minor(op.Amount, op.Currency))
-		place := strings.TrimSpace(op.Place)
-		if place == "" {
-			place = "—"
-		}
+		place := cmp.Or(strings.TrimSpace(op.Place), "—")
 		a.places[place] = a.places[place].Add(state.Major(v, money.UAH))
 		if string(op.Date) > a.lastMove {
 			a.lastMove = string(op.Date)
@@ -174,10 +172,7 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 			v := float64(u.Amount()) / 100
 			a.uah += v
 			a.byCur[d.Currency] = a.byCur[d.Currency].Add(state.Minor(body, d.Currency))
-			place := strings.TrimSpace(d.Bank)
-			if place == "" {
-				place = "—"
-			}
+			place := cmp.Or(strings.TrimSpace(d.Bank), "—")
 			a.places[place] = a.places[place].Add(state.Major(v, money.UAH))
 			// Вклад без ставки у зважування не входить узагалі — нуль там
 			// був би не «нульова дохідність», а «невідома». Той самий
@@ -207,7 +202,7 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 			MovedUAH:        state.Major(a.movedUAH, money.UAH),
 		}
 		if w := rateWeight[g.ID]; w > 0 {
-			in.RatePct = Round2(rateWeighted[g.ID] / w)
+			in.RatePct = domain.Round2(rateWeighted[g.ID] / w)
 		}
 		if a.hasWindow && a.windowUAH > 0 {
 			months := paceMonths(a.windowFrom, today)
@@ -227,7 +222,7 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 			}
 		}
 	}
-	out.MovedUAH = Round2(out.MovedUAH)
+	out.MovedUAH = domain.Round2(out.MovedUAH)
 	return out
 }
 

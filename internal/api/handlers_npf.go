@@ -11,6 +11,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -64,10 +65,7 @@ func pctToBP(s string) (int64, error) {
 
 func npfAccountFromReq(req npfAccountReq) (domain.NPFAccount, error) {
 	var out domain.NPFAccount
-	cur := req.Currency
-	if cur == "" {
-		cur = money.UAH
-	}
+	cur := cmp.Or(req.Currency, money.UAH)
 	var nav int64
 	if req.Nav != "" {
 		var err error
@@ -317,10 +315,7 @@ func (s *Server) handleNPFOps(w http.ResponseWriter, r *http.Request) {
 	}
 	cur := map[int64]string{}
 	for _, a := range accounts {
-		c := a.Currency
-		if c == "" {
-			c = money.UAH
-		}
+		c := cmp.Or(a.Currency, money.UAH)
 		cur[a.ID] = c
 	}
 	type row struct {
@@ -338,10 +333,7 @@ func (s *Server) handleNPFOps(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]row, 0, len(ops))
 	for _, op := range ops {
-		c := cur[op.NPFID]
-		if c == "" {
-			c = money.UAH
-		}
+		c := cmp.Or(cur[op.NPFID], money.UAH)
 		out = append(out, row{
 			ID: op.ID, NPFID: op.NPFID, Date: string(op.Date),
 			Units:  float64(op.Units) / 1_000_000,

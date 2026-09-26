@@ -56,10 +56,7 @@ func ReadCSV(r io.Reader) ([][]string, error) {
 }
 
 func guessComma(text string) rune {
-	line := text
-	if i := strings.IndexByte(text, '\n'); i >= 0 {
-		line = text[:i]
-	}
+	line, _, _ := strings.Cut(text, "\n")
 	best, bestN := ',', strings.Count(line, ",")
 	for _, c := range []rune{';', '\t'} {
 		if n := strings.Count(line, string(c)); n > bestN {

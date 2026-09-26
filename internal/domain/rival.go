@@ -173,7 +173,7 @@ func fxRival(key string, flows []Contribution, days []Date, q Quotes, what strin
 			if !ok || rate <= 0 {
 				return Rival{Key: key, Why: "немає курсу " + what + " на " + string(flows[fi].On)}
 			}
-			units += math.Round(flows[fi].UAH/rate*100) / 100
+			units += Round2(flows[fi].UAH / rate)
 			fi++
 		}
 		rate, ok := q.AsOf(d)
@@ -257,10 +257,7 @@ func ovdpRival(flows []Contribution, days []Date, q Quotes) Rival {
 			if total <= 0 {
 				continue
 			}
-			keep := 1 + f.UAH/total // f.UAH від'ємне
-			if keep < 0 {
-				keep = 0
-			}
+			keep := max(1+f.UAH/total, 0) // f.UAH від'ємне
 			for i := range open {
 				open[i].principal *= keep
 			}

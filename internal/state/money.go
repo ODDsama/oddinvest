@@ -1,6 +1,7 @@
 package state
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -187,10 +188,7 @@ func (m *Money) UnmarshalJSON(b []byte) error {
 		if err := json.Unmarshal(b, &o); err != nil {
 			return err
 		}
-		cur := o.Currency
-		if cur == "" {
-			cur = money.UAH
-		}
+		cur := cmp.Or(o.Currency, money.UAH)
 		minor, err := domain.ParseDecimalToMinor(o.Amount.String(), cur)
 		if err != nil {
 			return err

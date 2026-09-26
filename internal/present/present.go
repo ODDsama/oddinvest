@@ -50,8 +50,8 @@
 package present
 
 import (
+	"cmp"
 	"fmt"
-	"math"
 	"reflect"
 	"strings"
 
@@ -75,12 +75,8 @@ type Opts struct {
 // Apply перекладає значення на місці. v — вказівник на структуру (документ
 // чи відповідь обробника) або будь-що, що містить state.Money.
 func Apply(v any, o Opts) error {
-	if o.Book == "" {
-		o.Book = "UAH"
-	}
-	if o.Report == "" {
-		o.Report = o.Book
-	}
+	o.Book = cmp.Or(o.Book, "UAH")
+	o.Report = cmp.Or(o.Report, o.Book)
 	w := &walker{o: o, identity: o.Report == o.Book}
 	if !w.identity {
 		if _, ok := w.rate(o.Today); !ok {
@@ -368,7 +364,7 @@ func (w *walker) pct(fv reflect.Value, tag string) {
 		return
 	}
 	pct := float64(dv.Interface().(state.Money).Minor()) / float64(base) * 100
-	fv.SetFloat(math.Round(pct*100) / 100)
+	fv.SetFloat(domain.Round2(pct))
 }
 
 // cur — рядок бере код валюти названого сусіда-суми. Без нього сума й

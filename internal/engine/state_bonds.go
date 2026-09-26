@@ -17,8 +17,6 @@
 package engine
 
 import (
-	"math"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
@@ -126,14 +124,14 @@ func buildBonds(hold domain.Holdings, pays []domain.Payment,
 		}
 	}
 	if ytmWeightUAH > 0 {
-		out.YieldPct = math.Round(ytmWeightedUAH/ytmWeightUAH*100) / 100
-		out.YieldRealPct = math.Round(ytmWeightedRealUAH/ytmWeightUAH*100) / 100
+		out.YieldPct = domain.Round2(ytmWeightedUAH / ytmWeightUAH)
+		out.YieldRealPct = domain.Round2(ytmWeightedRealUAH / ytmWeightUAH)
 		out.YieldWeightUAH = ytmNominalUAH / 100
 	}
 	for cur, ls := range ytmLotsByCur {
 		if y, ok := domain.WeightedYTM(ls, pays); ok {
-			out.YieldByCur[cur] = math.Round(y*100) / 100
-			out.YieldRealByCur[cur] = Round2(RealYield(y/100, cur, deval) * 100)
+			out.YieldByCur[cur] = domain.Round2(y)
+			out.YieldRealByCur[cur] = domain.Round2(RealYield(y/100, cur, deval) * 100)
 		}
 	}
 	// Номінал по валютах у грн-екв. — переводиться тут, а не в капіталі,
@@ -224,7 +222,7 @@ func (m *yieldMix) result() (nominal, real, base float64, basis string) {
 		// за спільну означало б збрехати саме там, де людина звіряється.
 		basis = "різні основи"
 	}
-	return Round2(m.nom / m.weight), Round2(m.real / m.weight), Round2(m.weight), basis
+	return domain.Round2(m.nom / m.weight), domain.Round2(m.real / m.weight), domain.Round2(m.weight), basis
 }
 
 // halves — той самий вид ДВОМА доданками для зведеної по видах: заробленою
@@ -265,8 +263,8 @@ func (m *yieldMix) split() *state.YieldSplit {
 		return nil
 	}
 	return &state.YieldSplit{
-		MeasuredRealPct: Round2(m.mReal / m.mWeight), MeasuredUAH: state.Major(m.mWeight, money.UAH),
-		PromisedRealPct: Round2(m.pReal / m.pWeight), PromisedUAH: state.Major(m.pWeight, money.UAH),
+		MeasuredRealPct: domain.Round2(m.mReal / m.mWeight), MeasuredUAH: state.Major(m.mWeight, money.UAH),
+		PromisedRealPct: domain.Round2(m.pReal / m.pWeight), PromisedUAH: state.Major(m.pWeight, money.UAH),
 	}
 }
 

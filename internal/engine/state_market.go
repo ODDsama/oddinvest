@@ -39,7 +39,7 @@ func buildMarket(pts []store.AuctionPoint, yieldByCur map[string]float64) market
 		if p.IncomeBP <= 0 {
 			continue
 		}
-		pct := Round2(float64(p.IncomeBP) / 100)
+		pct := domain.Round2(float64(p.IncomeBP) / 100)
 		row := state.MarketYieldRow{
 			Currency: p.Currency,
 			Bucket:   p.Bucket,
@@ -51,7 +51,7 @@ func buildMarket(pts []store.AuctionPoint, yieldByCur map[string]float64) market
 		// прочитався б як «ринок платить рівно стільки ж», хоч насправді
 		// порівнювати нема з чим.
 		if my, ok := yieldByCur[p.Currency]; ok && my > 0 {
-			row.VsPortfolioPP = Round2(pct - my)
+			row.VsPortfolioPP = domain.Round2(pct - my)
 		}
 		out = append(out, row)
 	}
@@ -115,7 +115,7 @@ func auctionRateByCur(pts []store.AuctionPoint, today domain.Date) map[string]ma
 	}
 	out := make(map[string]marketRate, len(best))
 	for c, b := range best {
-		out[c] = marketRate{Pct: Round2(float64(b.p.IncomeBP) / 100), Date: b.p.Date}
+		out[c] = marketRate{Pct: domain.Round2(float64(b.p.IncomeBP) / 100), Date: b.p.Date}
 	}
 	return out
 }

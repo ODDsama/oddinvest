@@ -3,6 +3,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,10 +47,7 @@ func fundOpFromReq(req fundOpReq) (domain.FundOp, error) {
 	if strings.TrimSpace(req.Fund) == "" {
 		return out, errors.New("вкажіть фонд")
 	}
-	cur := req.Currency
-	if cur == "" {
-		cur = money.UAH
-	}
+	cur := cmp.Or(req.Currency, money.UAH)
 	amount, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return out, err

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"cmp"
 	"math"
 	"sort"
 	"strconv"
@@ -208,10 +209,7 @@ func (p NPFPosition) NavMajor() float64 { return float64(p.Nav) / npfScale }
 func NPFPositions(accounts []NPFAccount, ops []NPFOp) map[int64]*NPFPosition {
 	out := map[int64]*NPFPosition{}
 	for _, a := range accounts {
-		cur := a.Currency
-		if cur == "" {
-			cur = "UAH"
-		}
+		cur := cmp.Or(a.Currency, "UAH")
 		out[a.ID] = &NPFPosition{
 			NPFID: a.ID, Name: a.Name, Currency: cur,
 			Nav: a.Nav, NavDate: a.NavDate,
@@ -305,7 +303,7 @@ func NPFNavReturn(points []NPFNav, asOf Date) (float64, bool) {
 		return 0, false
 	}
 	r := (math.Pow(growth, 365.0/float64(days)) - 1) * 100
-	return math.Round(r*100) / 100, true
+	return Round2(r), true
 }
 
 // NPFNavPoints — усі відомі точки ЧВОПА рахунку: заведені руками разом із
@@ -541,10 +539,7 @@ func NPFPayoutSchedule(a NPFAccount, totalNet int64, until Date) []CashflowItem 
 	if a.AccessDate == "" || totalNet <= 0 {
 		return nil
 	}
-	cur := a.Currency
-	if cur == "" {
-		cur = "UAH"
-	}
+	cur := cmp.Or(a.Currency, "UAH")
 	key := NPFPlanDest(a.ID)
 	if months == 0 {
 		// Разова виплата — одна подія на дату доступу. Тип «погашення», бо

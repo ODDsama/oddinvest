@@ -8,6 +8,7 @@ package store
 // формат бекапу, і старі бекапи досі відновлюються.
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"fmt"
@@ -330,10 +331,7 @@ func (s *Store) RenameFund(ctx context.Context, id int64, f Fund) error {
 	if name == "" {
 		return fmt.Errorf("вкажіть назву фонду")
 	}
-	cur := strings.TrimSpace(f.Currency)
-	if cur == "" {
-		cur = "UAH"
-	}
+	cur := cmp.Or(strings.TrimSpace(f.Currency), "UAH")
 	if f.PayoutDay < 0 || f.PayoutDay > 31 {
 		return fmt.Errorf("день виплати має бути від 1 до 31")
 	}

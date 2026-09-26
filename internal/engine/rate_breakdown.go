@@ -5,6 +5,7 @@ import (
 
 	money "github.com/Rhymond/go-money"
 
+	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
@@ -49,18 +50,18 @@ func (e *Engine) NewRateContext(ctx context.Context, deval float64) rateContext 
 func (rc rateContext) Breakdown(gross, net float64, cur, basis string) *state.RateBreakdown {
 	b := &state.RateBreakdown{
 		Currency:       cur,
-		GrossPct:       Round2(gross * 100),
-		NetPct:         Round2(net * 100),
+		GrossPct:       domain.Round2(gross * 100),
+		NetPct:         domain.Round2(net * 100),
 		DevaluationPct: rc.deval,
-		RealFXPct:      Round2(RealYield(net, cur, rc.deval) * 100),
+		RealFXPct:      domain.Round2(RealYield(net, cur, rc.deval) * 100),
 		Basis:          basis,
 	}
 	if tax := (gross - net) * 100; tax > 0.005 {
-		b.TaxPct = Round2(tax)
+		b.TaxPct = domain.Round2(tax)
 	}
 	if rc.cpiOK {
 		infl := rc.cpi
-		real := Round2(realByCPI(net, cur, rc.deval, rc.cpi) * 100)
+		real := domain.Round2(realByCPI(net, cur, rc.deval, rc.cpi) * 100)
 		b.InflationPct, b.RealCPIPct = &infl, &real
 	}
 	return b

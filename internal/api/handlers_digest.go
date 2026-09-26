@@ -102,7 +102,7 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 		if row.Key == "capital" {
 			out.FromUAH, out.ToUAH, out.DeltaUAH = row.Before, row.After, row.Delta
 			if row.Before.Major() > 0 {
-				out.DeltaPct = engine.Round2(row.Delta.Major() / row.Before.Major() * 100)
+				out.DeltaPct = domain.Round2(row.Delta.Major() / row.Before.Major() * 100)
 			}
 		}
 	}

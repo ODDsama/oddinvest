@@ -96,9 +96,7 @@ func (p *projState) step(rMonthly, contrib, threshold, coupon, redeem float64) {
 	p.invested *= 1 + rMonthly
 	p.cash += contrib + coupon + redeem
 	p.locked -= redeem
-	if p.locked < 0 {
-		p.locked = 0
-	}
+	p.locked = max(p.locked, 0)
 	if threshold > 0 {
 		if n := math.Floor(p.cash / threshold); n > 0 {
 			p.invested += n * threshold

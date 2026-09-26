@@ -44,7 +44,9 @@ package engine
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -133,9 +135,7 @@ func buildVsUSD(days []string, diff []state.Money, today domain.Date) *vsDoc {
 	for _, mk := range out.Marks {
 		if mk.Ahead {
 			run++
-			if run > out.Best {
-				out.Best = run
-			}
+			out.Best = max(out.Best, run)
 		} else {
 			run = 0
 		}
@@ -191,7 +191,7 @@ func buildLife(ev []FlowEvent, expenses float64) *lifeDoc {
 		earned += e.UAH
 	}
 	out.IncomeUAH = state.Minor(earned, money.UAH)
-	out.Days = Round2(out.IncomeUAH.Major() / out.PerDayUAH.Major())
+	out.Days = domain.Round2(out.IncomeUAH.Major() / out.PerDayUAH.Major())
 	return out
 }
 
@@ -470,11 +470,7 @@ func BuildStreak(snaps []store.Snapshot, ev []FlowEvent, today domain.Date) stre
 		return streakDoc{UnknownBefore: len(snaps) == 0}
 	}
 
-	months := make([]string, 0, len(want))
-	for m := range want {
-		months = append(months, m)
-	}
-	sort.Strings(months)
+	months := slices.Sorted(maps.Keys(want))
 
 	out := streakDoc{KnownFrom: months[0], MonthsMeasured: len(months)}
 	// Поточний місяць у серію НЕ входить: він ще не закінчився, і
@@ -495,7 +491,7 @@ func BuildStreak(snaps []store.Snapshot, ev []FlowEvent, today domain.Date) stre
 	//
 	// Поточного місяця в ній немає з того самого доводу, що й у серії, —
 	// він ще не закінчився.
-	for m := months[0]; m != "" && m < nowMonth; m = nextMonth(m) {
+	for m := months[0]; m != "" && m < nowMonth; m = domain.ShiftMonth(m, 1) {
 		mk := streakMark{Month: m, Known: want[m] > 0, ContribUAH: state.Minor(got[m], money.UAH)}
 		if mk.Known {
 			mk.TargetUAH = state.Minor(want[m], money.UAH)
@@ -512,15 +508,13 @@ func BuildStreak(snaps []store.Snapshot, ev []FlowEvent, today domain.Date) stre
 		}
 		// Діра в місяцях — це теж обрив знання, а не пропущений план:
 		// знімків за той місяць немає, тож судити нічим.
-		if prev != "" && !isNextMonth(prev, m) {
+		if prev != "" && domain.ShiftMonth(prev, 1) != m {
 			streak = 0
 		}
 		prev = m
 		if got[m] >= want[m] {
 			streak++
-			if streak > best {
-				best = streak
-			}
+			best = max(best, streak)
 			continue
 		}
 		if streak > 0 {
@@ -533,34 +527,6 @@ func BuildStreak(snaps []store.Snapshot, ev []FlowEvent, today domain.Date) stre
 }
 
 func monthOf(d domain.Date) string { return string(d)[:7] }
-
-// isNextMonth — чи «b» іде рівно за «a» («2026-01» → «2026-02»).
-func isNextMonth(a, b string) bool {
-	var ay, am, by, bm int
-	if _, err := fmt.Sscanf(a, "%d-%d", &ay, &am); err != nil {
-		return false
-	}
-	if _, err := fmt.Sscanf(b, "%d-%d", &by, &bm); err != nil {
-		return false
-	}
-	return ay*12+am+1 == by*12+bm
-}
-
-// nextMonth — місяць після «m» («2026-12» → «2027-01»). Своя, а не
-// isNextMonth: та відповідає на питання, а ця рухає лічильник.
-//
-// Порожньо, коли рядок не є місяцем: смужка тоді просто закінчується, а
-// не крутиться вічно.
-func nextMonth(m string) string {
-	var y, mo int
-	if _, err := fmt.Sscanf(m, "%d-%d", &y, &mo); err != nil {
-		return ""
-	}
-	if mo >= 12 {
-		return fmt.Sprintf("%04d-01", y+1)
-	}
-	return fmt.Sprintf("%04d-%02d", y, mo+1)
-}
 
 // ---------------------------------------------------------------------
 // Поле колекції

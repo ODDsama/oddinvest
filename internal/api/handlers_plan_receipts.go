@@ -7,6 +7,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,9 +77,7 @@ func planReceiptFromReq(req planReceiptReq, flows []store.PlanFlow, today domain
 		if flow.Kind != "income" {
 			return out, errors.New("відмічати можна лише надходження, а не витрати")
 		}
-		if cur == "" {
-			cur = flow.Currency
-		}
+		cur = cmp.Or(cur, flow.Currency)
 		if cur != flow.Currency {
 			return out, fmt.Errorf("валюта відмітки (%s) має збігатися з валютою джерела (%s)",
 				cur, flow.Currency)
@@ -104,9 +103,7 @@ func planReceiptFromReq(req planReceiptReq, flows []store.PlanFlow, today domain
 		if month > string(today)[:7] {
 			return out, errors.New("позапланове надходження можна відмітити лише за минулий або поточний місяць")
 		}
-		if cur == "" {
-			cur = money.UAH
-		}
+		cur = cmp.Or(cur, money.UAH)
 		if strings.TrimSpace(req.InvestPct) != "" {
 			var err error
 			if invest, err = parsePercentBP(req.InvestPct); err != nil {

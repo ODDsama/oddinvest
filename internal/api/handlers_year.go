@@ -19,6 +19,7 @@ package api
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -217,7 +218,7 @@ func heatDays(byDay map[string]*yearDay) []yearDay {
 	out := make([]yearDay, 0, len(byDay))
 	mags := make([]float64, 0, len(byDay))
 	for _, d := range byDay {
-		mag := abs(d.ContribUAH.Major()) + abs(d.IncomeUAH.Major()) + abs(d.PurchaseUAH.Major())
+		mag := math.Abs(d.ContribUAH.Major()) + math.Abs(d.IncomeUAH.Major()) + math.Abs(d.PurchaseUAH.Major())
 		if mag == 0 {
 			continue
 		}
@@ -234,7 +235,7 @@ func heatDays(byDay map[string]*yearDay) []yearDay {
 	}
 	q1, q2, q3 := q(0.25), q(0.5), q(0.75)
 	for i := range out {
-		mag := abs(out[i].ContribUAH.Major()) + abs(out[i].IncomeUAH.Major()) + abs(out[i].PurchaseUAH.Major())
+		mag := math.Abs(out[i].ContribUAH.Major()) + math.Abs(out[i].IncomeUAH.Major()) + math.Abs(out[i].PurchaseUAH.Major())
 		switch {
 		case mag > q3:
 			out[i].Lvl = 4
@@ -248,13 +249,6 @@ func heatDays(byDay map[string]*yearDay) []yearDay {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Date < out[j].Date })
 	return out
-}
-
-func abs(v float64) float64 {
-	if v < 0 {
-		return -v
-	}
-	return v
 }
 
 // yearsOf — роки від першого руху грошей (або знімка) до сьогодні.

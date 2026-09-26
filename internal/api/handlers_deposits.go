@@ -6,6 +6,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,10 +68,7 @@ func parsePercentBPOpt(s string) (int64, error) {
 
 func termDepositFromReq(req termDepositReq) (domain.Deposit, error) {
 	var out domain.Deposit
-	cur := strings.TrimSpace(req.Currency)
-	if cur == "" {
-		cur = money.UAH
-	}
+	cur := cmp.Or(strings.TrimSpace(req.Currency), money.UAH)
 	principal, err := domain.ParseDecimalToMinor(req.Principal, cur)
 	if err != nil {
 		return out, err
@@ -244,8 +242,8 @@ func (s *Server) handleTermDeposits(w http.ResponseWriter, r *http.Request) {
 		// ще двічі там, із проханням у коментарі не розходитись.
 		if d.RateBP > 0 {
 			net := d.EffectiveNetRate()
-			dr.NetPct = engine.Round2(net * 100)
-			dr.RealPct = engine.Round2(engine.RealYield(net, d.Currency, deval) * 100)
+			dr.NetPct = domain.Round2(net * 100)
+			dr.RealPct = domain.Round2(engine.RealYield(net, d.Currency, deval) * 100)
 			dr.YieldBasis = "ставка вкладу"
 			dr.RateParts = rc.Breakdown(float64(d.RateBP)/10000, net, d.Currency, "ставка вкладу")
 		}

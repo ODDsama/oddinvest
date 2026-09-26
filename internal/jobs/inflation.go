@@ -252,13 +252,5 @@ func (r *Runner) BackfillCPIIfThin(ctx context.Context, years, minMonths int) {
 
 func monthOf(t time.Time) string { return t.Format("2006-01") }
 
-func nextMonth(m string) string { return shiftMonth(m, 1) }
-func prevMonth(m string) string { return shiftMonth(m, -1) }
-
-func shiftMonth(m string, by int) string {
-	d, err := domain.ParseDate(m + "-01")
-	if err != nil {
-		return m
-	}
-	return string(d.AddMonths(by))[:7]
-}
+func nextMonth(m string) string { return domain.ShiftMonth(m, 1) }
+func prevMonth(m string) string { return domain.ShiftMonth(m, -1) }

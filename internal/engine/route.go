@@ -134,6 +134,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"math"
 	"sort"
@@ -522,7 +523,7 @@ func (c *routeCarry) accrueLoan() {
 	}
 	// Цілими копійками, як і нараховує банк: дріб копійки в боргу не давала
 	// йому згаснути, коли нога подушки платила рівно те, що людина бачить.
-	i := math.Round(c.loanOwed*c.loanRate/100/12*100) / 100
+	i := domain.Round2(c.loanOwed * c.loanRate / 100 / 12)
 	c.loanOwed += i
 	c.loanInterest += i
 	// Ціль піднялась — розрив мусить піднятись разом із нею. Це ЄДИНЕ
@@ -551,7 +552,7 @@ func (c *routeCarry) enterMonth(m int, plans map[string]*state.MonthPlan,
 			c.debtLeft = math.Max(0, c.debtLeft-d.PrincipalUAH)
 			c.debtCover = d.CoverUAH
 		}
-		c.debtLeftAt[c.monthIdx] = Round2(c.debtLeft)
+		c.debtLeftAt[c.monthIdx] = domain.Round2(c.debtLeft)
 		c.accrueLoan()
 	}
 	mp := plans[c.month]
@@ -1213,7 +1214,7 @@ func routePicks(raw []string, sug []suggestion) (map[routeKey]string, error) {
 		}
 		picks[routeKey{
 			Date: strings.TrimSpace(parts[0]), Broker: strings.TrimSpace(parts[1]),
-			Currency: OrUAH(strings.TrimSpace(parts[2])),
+			Currency: cmp.Or(strings.TrimSpace(parts[2]), money.UAH),
 		}] = isin
 	}
 	return picks, nil

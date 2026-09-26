@@ -9,6 +9,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -54,10 +55,7 @@ func reserveFromReq(req reserveReq) (store.ReserveOp, error) {
 			return store.ReserveOp{}, err
 		}
 	}
-	cur := req.Currency
-	if cur == "" {
-		cur = money.UAH
-	}
+	cur := cmp.Or(req.Currency, money.UAH)
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return store.ReserveOp{}, err

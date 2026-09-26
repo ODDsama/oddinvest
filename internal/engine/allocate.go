@@ -742,7 +742,7 @@ func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 	// бюджети, які на екрані одне й те саме число, мусять і впорядкуватись
 	// за ключем, а не за невидимою третьою цифрою.
 	sort.Slice(budgets, func(i, j int) bool {
-		a, b := Round2(budgets[i].uah), Round2(budgets[j].uah)
+		a, b := domain.Round2(budgets[i].uah), domain.Round2(budgets[j].uah)
 		if a != b {
 			return a > b
 		}
@@ -962,7 +962,7 @@ func allocSharePct(rows []state.RebalanceRow) float64 {
 			pct += r.TargetPct
 		}
 	}
-	return math.Round(pct*100) / 100
+	return domain.Round2(pct)
 }
 
 func allocAddLine(lines *[]allocLine, add allocLine) {
@@ -1179,7 +1179,7 @@ func allocTopUp(out *allocPlan, in topUpIn) float64 {
 // Порівняння точне по округленому числу (довід — при сортуванні бюджетів).
 func sortSpots(s []allocSpot) {
 	sort.Slice(s, func(i, j int) bool {
-		a, b := Round2(s[i].rank), Round2(s[j].rank)
+		a, b := domain.Round2(s[i].rank), domain.Round2(s[j].rank)
 		if a != b {
 			return a > b
 		}

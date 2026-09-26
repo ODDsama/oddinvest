@@ -113,7 +113,7 @@ func (s *Server) handleInflation(w http.ResponseWriter, r *http.Request) {
 		if pct, ok := domain.CPIAnnualPct(levels, from, last.Period); ok && from != "" {
 			out.Windows = append(out.Windows, window{
 				Label: fmt.Sprintf("за %d %s", y, engine.Plural(y, "рік", "роки", "років")),
-				Years: y, Pct: engine.Round2(pct), From: from, To: last.Period,
+				Years: y, Pct: domain.Round2(pct), From: from, To: last.Period,
 			})
 		}
 		// Місце нинішнього річного темпу серед темпів того самого вікна.
@@ -125,7 +125,7 @@ func (s *Server) handleInflation(w http.ResponseWriter, r *http.Request) {
 		}
 		if pl, ok := domain.CPIPlace(yoy, last.YoYBP, y); ok {
 			out.Place = append(out.Place, place{
-				Years: y, Points: pl.Points, Percentile: engine.Round2(pl.Percentile),
+				Years: y, Points: pl.Points, Percentile: domain.Round2(pl.Percentile),
 				MedianPct: float64(pl.MedianBP) / 100,
 				MinPct:    float64(pl.MinBP) / 100,
 				MaxPct:    float64(pl.MaxBP) / 100,

@@ -247,9 +247,7 @@ func FundFlows(ops []FundOp, marks []FundPrice, currency string, asOf Date) []Fl
 		}
 		if op.PairID != 0 && (op.Kind == FundBuy || op.Kind == FundSell) {
 			key := op.ID
-			if op.PairID < key {
-				key = op.PairID
-			}
+			key = min(key, op.PairID)
 			c := pairs[key]
 			if c == nil {
 				c = &conv{}

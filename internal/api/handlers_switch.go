@@ -142,11 +142,11 @@ func (s *Server) handleSwitchVerdict(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	holdReal := engine.Round2(engine.RealYield(res.HoldRatePct/100, cur, deval) * 100)
+	holdReal := domain.Round2(engine.RealYield(res.HoldRatePct/100, cur, deval) * 100)
 	writeJSON(w, http.StatusOK, switchVerdictOut{
 		ISIN: req.ISIN, Qty: qty,
 		HoldRealPct: holdReal, AltRealPct: alt.RealPct,
-		EdgePP:      engine.Round2(alt.RealPct - holdReal),
+		EdgePP:      domain.Round2(alt.RealPct - holdReal),
 		GainPerBond: engine.ToMoneyJSON(res.GainPerBond),
 		GainTotal:   engine.ToMoneyJSON(res.GainPerBond.Multiply(qty)),
 		Worth:       res.GainPerBond.Amount() > 0,

@@ -1,6 +1,9 @@
 package domain
 
-import "sort"
+import (
+	"maps"
+	"slices"
+)
 
 // Holdings — чим портфель володіє СЬОГОДНІ, зведене за один прохід.
 //
@@ -109,11 +112,7 @@ func NewHoldings(lots []Lot, sales []Sale, bonds map[string]Bond,
 	}
 
 	pos := FundPositions(fundOps, fundMarks)
-	names := make([]string, 0, len(pos))
-	for name := range pos {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(pos))
 	h.Funds = make([]FundHolding, 0, len(names))
 	for _, name := range names {
 		p := *pos[name]

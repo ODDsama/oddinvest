@@ -170,8 +170,8 @@ func TestShiftMonthIsCalendarSafe(t *testing.T) {
 		{"2022-01", 12, "2023-01"},
 		{"2022-03", -3, "2021-12"},
 	} {
-		if got := shiftMonth(c.key, c.n); got != c.want {
-			t.Errorf("shiftMonth(%q,%d) = %q, чекали %q", c.key, c.n, got, c.want)
+		if got := ShiftMonth(c.key, c.n); got != c.want {
+			t.Errorf("ShiftMonth(%q,%d) = %q, чекали %q", c.key, c.n, got, c.want)
 		}
 	}
 }

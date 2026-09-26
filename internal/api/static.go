@@ -20,6 +20,7 @@ package api
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
@@ -86,10 +87,7 @@ var staticAssets = sync.OnceValue(func() map[string]*staticAsset {
 func staticHandler() http.Handler {
 	assets := staticAssets()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
-		if p == "" {
-			p = "index.html"
-		}
+		p := cmp.Or(strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/"), "index.html")
 		a, ok := assets[p]
 		if !ok {
 			http.NotFound(w, r)

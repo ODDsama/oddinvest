@@ -328,9 +328,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		if extra < 0 {
-			extra = 0
-		}
+		extra = max(extra, 0)
 		extraFrom = "твоє число"
 	}
 
@@ -359,7 +357,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		total += d.Left
 		row := payoffDebtJSON{
 			ID: d.ID, Name: d.Name, Kind: d.Kind,
-			Rate:        engine.Round2(d.Rate),
+			Rate:        domain.Round2(d.Rate),
 			Basis:       d.RateBasis,
 			Left:        engine.ToMoneyJSON(money.New(d.Left, money.UAH)),
 			PrepayHelps: d.Prepayable,
@@ -370,7 +368,7 @@ func (s *Server) handlePayoff(w http.ResponseWriter, r *http.Request) {
 		}
 		if d.RateBasis != domain.DebtRateNone {
 			// RealYield приймає ЧАСТКУ, а ставка боргу — у відсотках.
-			row.RealPct = engine.Round2(engine.RealYield(d.Rate/100, money.UAH, deval) * 100)
+			row.RealPct = domain.Round2(engine.RealYield(d.Rate/100, money.UAH, deval) * 100)
 			// Погашення боргу нічого не заробляє — воно перестає
 			// витрачати, — тож податку тут немає й валова дорівнює чистій.
 			row.RateParts = rc.Breakdown(d.Rate/100, d.Rate/100, money.UAH, d.RateBasis)
@@ -480,9 +478,7 @@ func payoffSchedule(run payoff.Run, total int64, today domain.Date) []payoffMont
 		a.paid += st.Paid
 		a.cost += st.Cost
 		a.principal += st.Principal
-		if st.Month > last {
-			last = st.Month
-		}
+		last = max(last, st.Month)
 	}
 	left := total
 	out := make([]payoffMonthJSON, 0, last+1)
@@ -492,9 +488,7 @@ func payoffSchedule(run payoff.Run, total int64, today domain.Date) []payoffMont
 			a = &acc{}
 		}
 		left -= a.principal
-		if left < 0 {
-			left = 0
-		}
+		left = max(left, 0)
 		out = append(out, payoffMonthJSON{
 			Month: engine.MonthKeyAt(today, m),
 			Paid:  engine.ToMoneyJSON(money.New(a.paid, money.UAH)),

@@ -25,10 +25,12 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -198,7 +200,7 @@ func (c *cardImport) finish(ctx context.Context, dry bool) (*importCard, error) 
 	for _, m := range c.months {
 		out.Spend = append(out.Spend, *m)
 	}
-	sortMonths(out.Spend)
+	slices.SortStableFunc(out.Spend, func(a, b importCardMonth) int { return strings.Compare(a.Month, b.Month) })
 	if c.hasBal {
 		bal := c.lastBal
 		out.BalanceRaw = money.New(bal, c.card.Currency).Display()
@@ -217,10 +219,7 @@ func (c *cardImport) finish(ctx context.Context, dry bool) (*importCard, error) 
 		if c.markBalance != nil {
 			bal = *c.markBalance
 		}
-		date := c.lastDate
-		if date == "" {
-			date = c.prevMark
-		}
+		date := cmp.Or(c.lastDate, c.prevMark)
 		if !date.After(c.prevMark) && c.prevMark != "" {
 			out.MarkNote = "звірка не записана: на " + string(date) + " вона вже є"
 			return out, nil
@@ -232,12 +231,4 @@ func (c *cardImport) finish(ctx context.Context, dry bool) (*importCard, error) 
 		out.MarkWritten = true
 	}
 	return out, nil
-}
-
-func sortMonths(ms []importCardMonth) {
-	for i := 1; i < len(ms); i++ {
-		for j := i; j > 0 && ms[j].Month < ms[j-1].Month; j-- {
-			ms[j], ms[j-1] = ms[j-1], ms[j]
-		}
-	}
 }

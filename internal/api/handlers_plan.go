@@ -7,6 +7,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,10 +80,7 @@ func planFlowFromReq(req planFlowReq) (store.PlanFlow, error) {
 	default:
 		return out, fmt.Errorf("cadence має бути once, month, quarter або year, маємо %q", req.Cadence)
 	}
-	cur := strings.TrimSpace(req.Currency)
-	if cur == "" {
-		cur = money.UAH
-	}
+	cur := cmp.Or(strings.TrimSpace(req.Currency), money.UAH)
 	amt, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return out, fmt.Errorf("сума: %w", err)
@@ -270,7 +268,7 @@ func toPlanFlowRow(f store.PlanFlow, today domain.Date, rates fx.Rates, marks en
 		ID: f.ID, Name: f.Name, Kind: f.Kind,
 		Amount: engine.ToMoneyJSON(money.New(f.Amount, f.Currency)), Cadence: f.Cadence,
 		FromDate: string(f.FromDate), UntilDate: string(f.UntilDate),
-		GrowthPct: engine.Round2(float64(f.GrowthBP) / 100), InvestPct: engine.Round2(float64(f.InvestBP) / 100),
+		GrowthPct: domain.Round2(float64(f.GrowthBP) / 100), InvestPct: domain.Round2(float64(f.InvestBP) / 100),
 		Dest:        f.Dest,
 		Uses:        planUsesRow(f),
 		Note:        f.Note,
@@ -425,20 +423,13 @@ func planActionFromReq(req planActionReq) (store.PlanAction, error) {
 			return out, errors.New("задай хоча б одну валютну частку")
 		}
 		usd, eur := out.USDBP, out.EURBP
-		if usd < 0 {
-			usd = 0
-		}
-		if eur < 0 {
-			eur = 0
-		}
+		usd = max(usd, 0)
+		eur = max(eur, 0)
 		if usd+eur > 10000 {
 			return out, errors.New("сума часток USD і EUR не може перевищувати 100%")
 		}
 	case "lock":
-		cur := strings.TrimSpace(req.Currency)
-		if cur == "" {
-			cur = money.UAH
-		}
+		cur := cmp.Or(strings.TrimSpace(req.Currency), money.UAH)
 		amt, err := domain.ParseDecimalToMinor(req.Amount, cur)
 		if err != nil {
 			return out, fmt.Errorf("сума: %w", err)
@@ -485,17 +476,17 @@ type planActionRow struct {
 func toPlanActionRow(a store.PlanAction) planActionRow {
 	out := planActionRow{ID: a.ID, Date: string(a.Date), Type: a.Type, Name: a.Name, Note: a.Note}
 	if a.USDBP >= 0 {
-		v := engine.Round2(float64(a.USDBP) / 100)
+		v := domain.Round2(float64(a.USDBP) / 100)
 		out.USDSharePct = &v
 	}
 	if a.EURBP >= 0 {
-		v := engine.Round2(float64(a.EURBP) / 100)
+		v := domain.Round2(float64(a.EURBP) / 100)
 		out.EURSharePct = &v
 	}
 	if a.Type == "lock" {
 		v := engine.ToMoneyJSON(money.New(a.Amount, a.Currency))
 		out.Amount = &v
-		out.RatePct = engine.Round2(float64(a.RateBP) / 100)
+		out.RatePct = domain.Round2(float64(a.RateBP) / 100)
 		out.Months = a.Months
 	}
 	return out

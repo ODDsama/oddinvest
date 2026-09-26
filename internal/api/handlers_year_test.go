@@ -2,11 +2,12 @@ package api
 
 import (
 	"encoding/json"
-	"github.com/ODDsama/oddinvest/internal/engine"
-	"github.com/ODDsama/oddinvest/internal/state"
-	money "github.com/Rhymond/go-money"
 	"net/http"
 	"testing"
+
+	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
+	money "github.com/Rhymond/go-money"
 )
 
 func yearOf(t *testing.T, srv string, year string) yearResp {
@@ -64,8 +65,8 @@ func TestYearMoneyAgreesWithCashflowAndDays(t *testing.T) {
 	}
 	// Дні несуть свої гроші РАЗОМ із подушкою (own_uah), а не лише
 	// гаманець (contributed_uah).
-	if engine.Round2(contrib) != m.OwnUAH.Major() || engine.Round2(income) != m.IncomeUAH.Major() ||
-		engine.Round2(purchase) != m.PurchaseUAH.Major() {
+	if domain.Round2(contrib) != m.OwnUAH.Major() || domain.Round2(income) != m.IncomeUAH.Major() ||
+		domain.Round2(purchase) != m.PurchaseUAH.Major() {
 		t.Errorf("дні (%v/%v/%v) не сходяться зі статтями %+v", contrib, income, purchase, m)
 	}
 	if got.EarnedUAH.Major()+got.PrincipalUAH.Major() != m.IncomeUAH.Major() {

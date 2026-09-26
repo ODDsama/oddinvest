@@ -7,6 +7,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"math"
 	"sort"
@@ -162,10 +163,7 @@ func (e *Engine) CashEvents(ctx context.Context) ([]FlowEvent, error) {
 	npfCur := map[int64]string{}
 	npfName := map[int64]string{}
 	for _, a := range npfAccounts {
-		cur := a.Currency
-		if cur == "" {
-			cur = money.UAH
-		}
+		cur := cmp.Or(a.Currency, money.UAH)
 		npfCur[a.ID], npfName[a.ID] = cur, a.Name
 	}
 	npfOps, err := e.st.ListNPFOps(ctx)
@@ -176,10 +174,7 @@ func (e *Engine) CashEvents(ctx context.Context) ([]FlowEvent, error) {
 		if op.Date.After(today) {
 			continue
 		}
-		cur := npfCur[op.NPFID]
-		if cur == "" {
-			cur = money.UAH
-		}
+		cur := cmp.Or(npfCur[op.NPFID], money.UAH)
 		add(op.Date, FlowPurchase, -uah(money.New(op.Amount, cur)), "внесок "+npfName[op.NPFID])
 	}
 	// Вклади: розміщення й поповнення — покупки, відсотки — дохід.
@@ -372,7 +367,7 @@ func (e *Engine) Benchmark(ctx context.Context, doc *state.Doc) (BenchResult, er
 // добової сітки.
 func benchFromRivals(rv RivalsResp, rates fx.Rates) BenchResult {
 	nowUSD, _ := fx.RateMajor(money.USD, rates) //nolint:errcheck // немає курсу — нижче про це й сказано
-	out := BenchResult{RateNow: Round2(nowUSD)}
+	out := BenchResult{RateNow: domain.Round2(nowUSD)}
 	out.PortfolioUAH = rv.ActualUAH
 	out.Note = rv.Note
 	if nowUSD <= 0 {
@@ -607,7 +602,7 @@ func (e *Engine) TaxReport(ctx context.Context, year int, from, to domain.Date, 
 		return taxReport{}, fxErr
 	}
 
-	minor := func(v int64) float64 { return Round2(float64(v) / 100) }
+	minor := func(v int64) float64 { return domain.Round2(float64(v) / 100) }
 	mk := func(kind, label string, gross, tax int64) taxLine {
 		l := taxLine{Kind: kind, Label: label,
 			GrossUAH: state.Major(minor(gross), money.UAH), TaxUAH: state.Major(minor(tax), money.UAH), NetUAH: state.Major(minor(gross-tax), money.UAH)}
@@ -615,7 +610,7 @@ func (e *Engine) TaxReport(ctx context.Context, year int, from, to domain.Date, 
 		// від ділення на нуль: рядок відрахування (НКД) відʼємний, і ставка на
 		// поверненні власних грошей — не мале число, а помилка категорії.
 		if gross > 0 {
-			l.RatePct = Round2(float64(tax) / float64(gross) * 100)
+			l.RatePct = domain.Round2(float64(tax) / float64(gross) * 100)
 		}
 		return l
 	}
@@ -652,7 +647,7 @@ func (e *Engine) TaxReport(ctx context.Context, year int, from, to domain.Date, 
 	gross, tax := bondGross+bondAccrued+fundGross+saleGross+depGross, fundTax+saleTax+depTax
 	out.GrossUAH, out.TaxUAH, out.NetUAH = minor(gross), minor(tax), minor(gross-tax)
 	if gross > 0 {
-		out.RatePct = Round2(float64(tax) / float64(gross) * 100)
+		out.RatePct = domain.Round2(float64(tax) / float64(gross) * 100)
 	}
 
 	// Податкова знижка на внески в НПФ — лише для КАЛЕНДАРНОГО року: ліміт
@@ -788,7 +783,7 @@ func (c cashSummary) OwnUAH() int64 { return c.ContribUAH + c.OutsideUAH }
 
 // major — мінорні в гривні, для JSON. Метод, а не вільна функція, щоб
 // обидва споживачі округляли однаково.
-func (cashSummary) Major(v int64) float64 { return Round2(float64(v) / 100) }
+func (cashSummary) Major(v int64) float64 { return domain.Round2(float64(v) / 100) }
 
 func SummarizeCash(events []FlowEvent, from, to domain.Date) cashSummary {
 	var out cashSummary

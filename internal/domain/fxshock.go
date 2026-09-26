@@ -73,12 +73,13 @@ func monthKey(d Date) string {
 	return string(d)[:7]
 }
 
-// shiftMonth зсуває "YYYY-MM" на n місяців.
+// ShiftMonth зсуває "YYYY-MM" на n місяців. Порожньо, коли рядок не є
+// місяцем.
 //
 // Арифметика по ключу, а НЕ Date.AddMonths: календарне додавання до
 // 31 січня дає 3 березня, і вікно «один місяць» мовчки стало б довшим.
 // Тут же місяць — просто число, і зсув точний за побудовою.
-func shiftMonth(key string, n int) string {
+func ShiftMonth(key string, n int) string {
 	if len(key) < 7 {
 		return ""
 	}
@@ -92,21 +93,6 @@ func shiftMonth(key string, n int) string {
 		return ""
 	}
 	return fmt.Sprintf("%04d-%02d", t/12, t%12+1)
-}
-
-// monthsBetween — скільки місяців між двома ключами "YYYY-MM".
-func monthsBetween(a, b string) int {
-	if len(a) < 7 || len(b) < 7 {
-		return 0
-	}
-	ay, errAY := strconv.Atoi(a[:4])
-	am, errAM := strconv.Atoi(a[5:7])
-	by, errBY := strconv.Atoi(b[:4])
-	bm, errBM := strconv.Atoi(b[5:7])
-	if errAY != nil || errAM != nil || errBY != nil || errBM != nil {
-		return 0
-	}
-	return (by*12 + bm) - (ay*12 + am)
 }
 
 // MonthlyFX зводить ряд до ОДНІЄЇ точки на місяць — найранішої в місяці.
@@ -175,7 +161,7 @@ func WorstFXMove(monthly []FXPoint, months int) (FXMove, bool) {
 	var best FXMove
 	windows, found := 0, false
 	for _, p := range m {
-		q, ok := idx[shiftMonth(monthKey(p.Date), months)]
+		q, ok := idx[ShiftMonth(monthKey(p.Date), months)]
 		if !ok {
 			continue
 		}
@@ -211,7 +197,7 @@ func FXMoveOver(monthly []FXPoint, from, to Date) (FXMove, bool) {
 		return FXMove{}, false
 	}
 	return FXMove{
-		Months: monthsBetween(monthKey(p.Date), monthKey(q.Date)),
+		Months: MonthsBetween(p.Date, q.Date),
 		From:   p.Date, To: q.Date,
 		FromE4: p.RateE4, ToE4: q.RateE4,
 		Pct: (float64(q.RateE4)/float64(p.RateE4) - 1) * 100,

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"cmp"
 	"math"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -93,15 +94,12 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 		if p == nil {
 			continue
 		}
-		cur := p.Currency
-		if cur == "" {
-			cur = money.UAH
-		}
+		cur := cmp.Or(p.Currency, money.UAH)
 		toUAH := func(minor int64) float64 {
 			if u, err := fx.ToUAH(money.New(minor, cur), rates); err == nil {
-				return Round2(float64(u.Amount()) / 100)
+				return domain.Round2(float64(u.Amount()) / 100)
 			}
-			return Round2(float64(minor) / 100)
+			return domain.Round2(float64(minor) / 100)
 		}
 
 		valueUAH, costUAH := toUAH(p.Value()), toUAH(p.Cost)
@@ -130,7 +128,7 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 			// З усієї виплати, а не з доходу (ПКУ 164.2.16, Accum.TaxOnPayout).
 			net = domain.NPFNetRatePct(rate, float64(acc.IncomeTaxBP)/100, years)
 		}
-		realPct := Round2(RealYield(net/100, cur, deval) * 100)
+		realPct := domain.Round2(RealYield(net/100, cur, deval) * 100)
 		// Вагою йде ВАРТІСТЬ рахунку, і зважуємо тут, усередині циклу, а не
 		// сумуємо готові рядки потім: знецінення торкається лише гривневих
 		// рахунків, тож поділ уже змішаного числа занизив би валютні.
@@ -171,7 +169,7 @@ func buildNPF(src *sources, rates fx.Rates, deval float64,
 			row.NavReturnPct = navReturn
 		}
 		if acc.ExpectedYieldBP > 0 {
-			row.ExpectedPct = Round2(domain.CompoundFromSimple(
+			row.ExpectedPct = domain.Round2(domain.CompoundFromSimple(
 				float64(acc.ExpectedYieldBP)/100, int(acc.YieldSimpleYears)))
 		}
 		out.Rows = append(out.Rows, row)
@@ -245,7 +243,7 @@ func npfCreditsUAH(accs []domain.NPFAccount, ops []domain.NPFOp,
 		capMonth = int64(math.Round(*set.NPFCreditCapMonthUAH * 100))
 	}
 	for id, minor := range domain.NPFCreditByAccount(accs, ops, year, capMonth, pdfo) {
-		out[id] = Round2(float64(minor) / 100)
+		out[id] = domain.Round2(float64(minor) / 100)
 	}
 	return out
 }

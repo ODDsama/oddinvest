@@ -37,10 +37,7 @@ func reserveLadderInput(deps []domain.Deposit, today domain.Date,
 		// в перший. Округлення вгору зробило б це за нас і збрехало б у
 		// безпечний бік лише на вигляд — «доступно через місяць» там, де
 		// гроші прийдуть за півтора.
-		months := float64(domain.DaysBetween(today, d.MaturityDate)) / 30.44
-		if months < 0 {
-			months = 0
-		}
+		months := max(float64(domain.DaysBetween(today, d.MaturityDate))/30.44, 0)
 		// Скільки сходинка приносить за рік ПІСЛЯ податку. Знецінення сюди
 		// НЕ входить, на відміну від порад реінвесту: питання тут не «чи
 		// вигідно це проти інфляції», а «що саме ми втрачаємо, тримаючи

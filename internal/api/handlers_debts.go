@@ -14,6 +14,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -81,7 +82,7 @@ func debtFromReq(req debtReq) (domain.Debt, error) {
 			"невідомий вид боргу %q: буває %q (картка з пільговим циклом) або %q",
 			kind, domain.DebtCard, domain.DebtInstallment)
 	}
-	cur := engine.OrUAH(strings.TrimSpace(req.Currency))
+	cur := cmp.Or(strings.TrimSpace(req.Currency), money.UAH)
 	d := domain.Debt{
 		Name: name, Kind: kind, Currency: cur,
 		Place: strings.TrimSpace(req.Place), Note: req.Note,
@@ -596,7 +597,7 @@ func (s *Server) handleListDebtOps(w http.ResponseWriter, r *http.Request) {
 	out := make([]opJSON, 0, len(ops))
 	for _, op := range ops {
 		out = append(out, opJSON{op.ID, op.DebtID, string(op.Date), op.Kind,
-			engine.ToMoneyJSON(money.New(op.Amount, engine.OrUAH(cur[op.DebtID]))), op.Note})
+			engine.ToMoneyJSON(money.New(op.Amount, cmp.Or(cur[op.DebtID], money.UAH))), op.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -761,7 +762,7 @@ func (s *Server) handleListDebtMarks(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]markJSON, 0, len(marks))
 	for _, m := range marks {
-		c := engine.OrUAH(cur[m.DebtID])
+		c := cmp.Or(cur[m.DebtID], money.UAH)
 		out = append(out, markJSON{m.ID, m.DebtID, string(m.Date),
 			engine.ToMoneyJSON(money.New(m.Balance, c)),
 			engine.ToMoneyJSON(money.New(m.StatementDue, c)),

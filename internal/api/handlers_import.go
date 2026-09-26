@@ -9,6 +9,7 @@ package api
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -208,9 +209,7 @@ func (s *Server) importSince(ctx context.Context, profile string) (string, error
 func nextImportSince(prev string, rows []outRow, skipped []imports.Skipped) string {
 	next := prev
 	for _, r := range rows {
-		if r.Date > next {
-			next = r.Date
-		}
+		next = max(next, r.Date)
 	}
 	for _, sk := range skipped {
 		if sk.Date != "" && sk.Date < next {
@@ -223,10 +222,7 @@ func nextImportSince(prev string, rows []outRow, skipped []imports.Skipped) stri
 // handleImportSince — водяний знак профілю: показати й посунути руками
 // («перезавантажити позаминулий місяць» інакше неможливе).
 func (s *Server) handleImportSince(w http.ResponseWriter, r *http.Request) {
-	profile := r.URL.Query().Get("profile")
-	if profile == "" {
-		profile = inzhurProfile
-	}
+	profile := cmp.Or(r.URL.Query().Get("profile"), inzhurProfile)
 	if r.Method == http.MethodPut {
 		var req struct {
 			Since string `json:"since"`

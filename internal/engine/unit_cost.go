@@ -28,6 +28,7 @@
 package engine
 
 import (
+	"cmp"
 	"math"
 
 	money "github.com/Rhymond/go-money"
@@ -150,12 +151,7 @@ func marketCost(b domain.Bond, on domain.Date, q *store.Quote) (*money.Money, bo
 // fundUnitCost — один сертифікат за останньою відомою ціною. Нуль
 // означає «ціни немає», і купувати за неї не можна нічого.
 func fundUnitCost(lastPrice float64, currency string) *money.Money {
-	if currency == "" {
-		currency = money.UAH
-	}
-	minor := int64(math.Round(lastPrice * 100))
-	if minor < 0 {
-		minor = 0
-	}
+	currency = cmp.Or(currency, money.UAH)
+	minor := max(int64(math.Round(lastPrice*100)), 0)
 	return money.New(minor, currency)
 }

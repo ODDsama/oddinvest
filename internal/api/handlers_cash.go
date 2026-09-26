@@ -6,6 +6,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -35,10 +36,7 @@ func depositFromReq(req depositReq) (store.Deposit, error) {
 			return store.Deposit{}, err
 		}
 	}
-	cur := req.Currency
-	if cur == "" {
-		cur = money.UAH
-	}
+	cur := cmp.Or(req.Currency, money.UAH)
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return store.Deposit{}, err
@@ -317,10 +315,7 @@ func (s *Server) handleReconcile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	broker := strings.TrimSpace(req.Broker)
-	cur := req.Currency
-	if cur == "" {
-		cur = money.UAH
-	}
+	cur := cmp.Or(req.Currency, money.UAH)
 	actual, err := domain.ParseDecimalToMinor(req.Actual, cur)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)

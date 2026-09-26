@@ -150,8 +150,8 @@ func TestPlanFlowProvidesSumsToPlanProvides(t *testing.T) {
 		sum += PlanFlowProvidesUAH(f, in.Today, in.Rates, PlanProvidesMonths, nil)
 	}
 	got := buildProjection(in).PlanProvidesUAH
-	if math.Abs(Round2(sum)-got) > 0.005 {
-		t.Fatalf("сума колонки %.2f ≠ плитка %.2f", Round2(sum), got)
+	if math.Abs(domain.Round2(sum)-got) > 0.005 {
+		t.Fatalf("сума колонки %.2f ≠ плитка %.2f", domain.Round2(sum), got)
 	}
 	if got == 0 {
 		t.Fatal("тест нічого не перевірив: обидва боки нулі")
@@ -178,8 +178,8 @@ func TestPlanFlowProvidesSumsToPlanProvides(t *testing.T) {
 		sumM += PlanFlowProvidesUAH(f, in.Today, in.Rates, PlanProvidesMonths, marks)
 	}
 	gotM := buildProjection(in).PlanProvidesUAH
-	if math.Abs(Round2(sumM)-gotM) > 0.005 {
-		t.Fatalf("з відмітками: сума колонки %.2f ≠ плитка %.2f", Round2(sumM), gotM)
+	if math.Abs(domain.Round2(sumM)-gotM) > 0.005 {
+		t.Fatalf("з відмітками: сума колонки %.2f ≠ плитка %.2f", domain.Round2(sumM), gotM)
 	}
 	// І відмітки мусять справді щось змінити — інакше тест зелений даремно.
 	if math.Abs(gotM-got) < 0.005 {

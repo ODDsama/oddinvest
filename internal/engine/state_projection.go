@@ -449,10 +449,7 @@ func newSleeveFactory(in projectionInput) sleeveFactory {
 			continue
 		}
 		cur := cf.Amount.Currency().Code
-		mi := (cf.Date.Year()-today.Year())*12 + int(cf.Date.Month()) - int(today.Month())
-		if mi < 1 {
-			mi = 1
-		}
+		mi := max((cf.Date.Year()-today.Year())*12+int(cf.Date.Month())-int(today.Month()), 1)
 		dst := f.coupon
 		if cf.Type == domain.PayRedemption {
 			dst = f.redeem
@@ -776,9 +773,7 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 		if terminal += ratePP; terminal < 0 {
 			terminal = 0
 		}
-		if terminal > 40 {
-			terminal = 40
-		}
+		terminal = min(terminal, 40)
 		rate0 := 1.0
 		if cur != money.UAH {
 			u, err := fx.ToUAH(money.New(100, cur), in.Rates)
@@ -942,14 +937,12 @@ func buildProjection(in projectionInput) projectionPhase {
 	// горизонт, якщо факторі побудовано на менше) — щоб разова стаття
 	// (премія, ремонт) не смикала число вгору-вниз щомісяця.
 	if n := len(factory.planTotal); n > 0 {
-		if n > PlanProvidesMonths {
-			n = PlanProvidesMonths
-		}
+		n = min(n, PlanProvidesMonths)
 		var sum float64
 		for i := 0; i < n; i++ {
 			sum += factory.planTotal[i]
 		}
-		out.PlanProvidesUAH = Round2(sum / float64(n))
+		out.PlanProvidesUAH = domain.Round2(sum / float64(n))
 	}
 
 	// Ширина віяла — з налаштувань, зі спадом на ті самі числа, що доти
@@ -976,8 +969,8 @@ func buildProjection(in projectionInput) projectionPhase {
 			wreal += base * RealYield(s.RatePct/100, s.Currency, in.Deval) * 100
 		}
 		if w > 0 {
-			out.CapRatePct = Round2(wr / w)
-			out.CapRateRealPct = Round2(wreal / w)
+			out.CapRatePct = domain.Round2(wr / w)
+			out.CapRateRealPct = domain.Round2(wreal / w)
 		}
 	}
 
@@ -1013,7 +1006,7 @@ func buildProjection(in projectionInput) projectionPhase {
 	if goalAmount > 0 && deadlineMonths > 0 {
 		// Рукави тут потрібні лише щоб задати ПРОПОРЦІЇ між валютами;
 		// саму суму підбирає бісекція, тож стартове число довільне.
-		out.ContribM = Round2(domain.RequiredMonthlySleeves(
+		out.ContribM = domain.Round2(domain.RequiredMonthlySleeves(
 			buildSleeves(1, 0), in.Deval, goalAmount, deadlineMonths))
 		out.TargetUAH = money.New(int64(math.Round(out.ContribM*100)), money.UAH)
 	}
@@ -1140,7 +1133,7 @@ func buildProjection(in projectionInput) projectionPhase {
 		Months:      deadlineMonths,
 		GoalAmount:  state.Major(goalAmount, money.UAH),
 		ContribPlan: state.Major(out.ContribM, money.UAH),
-		Rate0USD:    Round2(rate0USD),
+		Rate0USD:    domain.Round2(rate0USD),
 		GlideYears:  glideYears,
 	}
 	for _, d := range defs {
@@ -1151,7 +1144,7 @@ func buildProjection(in projectionInput) projectionPhase {
 		res := domain.ProjectSleeves(sl, d.deval, deadlineMonths)
 		row := state.ForecastRow{Key: d.key, Label: d.label,
 			Amount:         state.Major(res.TodayUAH, money.UAH),
-			ContribMonthly: state.Major(d.contrib, money.UAH), DevaluationPct: Round2(d.deval)}
+			ContribMonthly: state.Major(d.contrib, money.UAH), DevaluationPct: domain.Round2(d.deval)}
 		// Скільки треба вносити САМЕ ЗА ЦИХ допущень. За гіршого ринку
 		// той самий фінансовий результат коштує більшого внеску — це і
 		// показує, наскільки ціль посильна, а не лише чи вона досяжна.
@@ -1169,13 +1162,13 @@ func buildProjection(in projectionInput) projectionPhase {
 		// портфеля, а не середню по лікарні.
 		for _, s := range sl {
 			if s.Currency == money.UAH {
-				row.RatePct = Round2(s.RatePct)
-				row.RateTerminalPct = Round2(s.RateTerminalPct)
+				row.RatePct = domain.Round2(s.RatePct)
+				row.RateTerminalPct = domain.Round2(s.RateTerminalPct)
 			}
 			_, src, srcDate := factory.startRate(s.Currency)
 			row.ByCurrency = append(row.ByCurrency, state.SleeveRow{
-				Currency: s.Currency, RatePct: Round2(s.RatePct),
-				RateTerminalPct: Round2(s.RateTerminalPct),
+				Currency: s.Currency, RatePct: domain.Round2(s.RatePct),
+				RateTerminalPct: domain.Round2(s.RateTerminalPct),
 				RateSource:      src, RateDate: string(srcDate),
 				// Гривня, а не валюта рукава: це ₴/міс, що ЙДУТЬ у рукав.
 				// З міткою USD презентер його не перекладав, і в доларовому
@@ -1214,10 +1207,7 @@ func buildForecastCurve(factory sleeveFactory, defs []scenarioDef,
 	if months <= 0 {
 		return nil
 	}
-	step := months / 12
-	if step < 1 {
-		step = 1
-	}
+	step := max(months/12, 1)
 	// Ключ сценарію → зрізи. Місяці в усіх однакові, бо крок і горизонт
 	// одні; збирати їх у точки можна за індексом.
 	series := map[string][]domain.SeriesPoint{}
@@ -1239,7 +1229,7 @@ func buildForecastCurve(factory sleeveFactory, defs []scenarioDef,
 		if i >= len(s) {
 			return 0
 		}
-		return Round2(s[i].UAH)
+		return domain.Round2(s[i].UAH)
 	}
 	out := &state.ForecastCurve{StepMonths: step, GoalUAH: state.Major(goal, money.UAH)}
 	for i, p := range plan {

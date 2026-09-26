@@ -27,6 +27,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"time"
 
@@ -354,7 +355,7 @@ func (e *Engine) DecisionRows(ctx context.Context) ([]DecisionRow, error) {
 		row := DecisionBase(d)
 		if actual, basis, ok := decisionActual(d, lotByID, sales, bonds, pays, today, deval); ok {
 			row.ActualPct, row.Basis = actual, basis
-			row.DriftPP = Round2(actual - d.RealPct)
+			row.DriftPP = domain.Round2(actual - d.RealPct)
 		} else {
 			row.Basis = basis
 		}
@@ -374,7 +375,7 @@ func (e *Engine) DecisionRows(ctx context.Context) ([]DecisionRow, error) {
 func DecisionBase(d store.Decision) DecisionRow {
 	row := DecisionRow{
 		ID: d.ID, MadeOn: string(d.MadeOn), Kind: d.Kind, Ref: d.Ref,
-		Amount:   ToMoneyJSON(money.New(d.Amount, OrUAH(d.Currency))),
+		Amount:   ToMoneyJSON(money.New(d.Amount, cmp.Or(d.Currency, money.UAH))),
 		RankMode: d.RankMode, PromisedPct: d.RealPct, RankPos: d.RankPos,
 		Note: d.Note,
 	}
@@ -383,12 +384,12 @@ func DecisionBase(d store.Decision) DecisionRow {
 		// обіцянки — лише те, від чого ці гроші відмовились. PromisedPct
 		// лишається нулем, і це точне твердження: ні матрац, ні шухляда під
 		// авто не приносять нічого.
-		row.TopLabel, row.ForgonePct = d.TopLabel, Round2(d.TopRealPct)
+		row.TopLabel, row.ForgonePct = d.TopLabel, domain.Round2(d.TopRealPct)
 		return row
 	}
 	if d.RankPos > 1 && d.TopLabel != "" {
 		row.TopLabel = d.TopLabel
-		row.VsTopPP = Round2(d.RealPct - d.TopRealPct)
+		row.VsTopPP = domain.Round2(d.RealPct - d.TopRealPct)
 	}
 	return row
 }
@@ -440,7 +441,7 @@ func decisionActual(d store.Decision, lotByID map[int64]domain.Lot,
 	if err != nil || !domain.XIRRPlausible(rate) {
 		return 0, "ще зарано міряти", false
 	}
-	return Round2(RealYield(rate, cur, deval) * 100), "за фактом виплат", true
+	return domain.Round2(RealYield(rate, cur, deval) * 100), "за фактом виплат", true
 }
 
 // SummarizeDecisions — зведення по журналу.
@@ -494,23 +495,23 @@ func SummarizeDecisions(rows []DecisionRow) DecisionsSummary {
 		}
 	}
 	if vsTopN > 0 {
-		sum.VsTopPPAvg = Round2(vsTop / vsTopN)
+		sum.VsTopPPAvg = domain.Round2(vsTop / vsTopN)
 	}
 	if driftN > 0 {
-		sum.DriftPPAvg = Round2(drift / driftN)
+		sum.DriftPPAvg = domain.Round2(drift / driftN)
 	}
 	if sum.ReserveCount > 0 {
-		sum.ReserveForgonePctAvg = Round2(forgone / float64(sum.ReserveCount))
+		sum.ReserveForgonePctAvg = domain.Round2(forgone / float64(sum.ReserveCount))
 	}
 	if sum.GoalCount > 0 {
-		sum.GoalForgonePctAvg = Round2(goalForgone / float64(sum.GoalCount))
+		sum.GoalForgonePctAvg = domain.Round2(goalForgone / float64(sum.GoalCount))
 	}
 	// Порядок режимів — той, у якому вони вперше трапились у журналі,
 	// тобто хронологічний. Мапа дала б новий порядок на кожен запит.
 	for _, name := range order {
 		m := byMode[name]
 		if m.Measured > 0 {
-			m.DriftPPAvg = Round2(m.DriftPPAvg / float64(m.Measured))
+			m.DriftPPAvg = domain.Round2(m.DriftPPAvg / float64(m.Measured))
 		}
 		sum.ByMode = append(sum.ByMode, *m)
 	}

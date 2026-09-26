@@ -6,6 +6,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
@@ -602,9 +603,7 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 		for name, byCur := range doc.Brokers {
 			if n := int64(byCur[c].Major() / costMajor); n > 0 {
 				fits = append(fits, brokerFit{Broker: name, Qty: n})
-				if n > best {
-					best = n
-				}
+				best = max(best, n)
 			}
 		}
 		sort.Slice(fits, func(i, j int) bool {
@@ -725,15 +724,15 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			Maturity: string(b.Maturity), Nominal: ToMoneyJSON(b.Nominal),
 			CostPerBond: ToMoneyJSON(cost),
 			CostBasis:   basis,
-			YTMPct:      Round2(ytm * 100), NominalPct: Round2(ytm * 100),
-			RealPct:    Round2(real * 100),
+			YTMPct:      domain.Round2(ytm * 100), NominalPct: domain.Round2(ytm * 100),
+			RealPct:    domain.Round2(real * 100),
 			YieldBasis: "до погашення",
 			// Валова й чиста збігаються: дохід з ОВДП звільнений і від
 			// ПДФО, і від військового збору.
 			RateParts:  rc.Breakdown(ytm, ytm, c, "до погашення"),
 			Brokers:    fits,
 			Affordable: best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
-			LastAuction: lastAucDate, LastAuctionPct: Round2(lastAucPct),
+			LastAuction: lastAucDate, LastAuctionPct: domain.Round2(lastAucPct),
 			def: def, kindDef: kindDef["bonds"], ladderNom: lnom,
 			overLimit: note != "", stale: stale,
 		}
@@ -767,10 +766,7 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 		if f.LastPrice <= 0 {
 			continue
 		}
-		c := f.Currency
-		if c == "" {
-			c = money.UAH
-		}
+		c := cmp.Or(f.Currency, money.UAH)
 		// Валюта обіцянки може відрізнятись від валюти сертифіката: 9.5% у
 		// доларі вже реальні, і гривневий штраф до них не застосовується.
 		nominal, yc, basis := f.YieldNetPct, c, "дивіденди після податку"
@@ -808,7 +804,7 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 		gross := nominal // до податку — для розкладу ставки
 		switch {
 		case f.IncomeTaxPct > 0 && f.ExpectedPct > 0:
-			nominal = Round2(domain.NetOfTax(nominal, f.IncomeTaxPct, years))
+			nominal = domain.Round2(domain.NetOfTax(nominal, f.IncomeTaxPct, years))
 			basis += ", після податку"
 		case f.IncomeTaxPct > 0 && f.IncomeTaxPct < 100:
 			// Виміряна дохідність (YieldNetPct) УЖЕ після податку: дивіденди
@@ -849,8 +845,8 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			// У сертифіката ціна одна й публікує її сам фонд — це позначка
 			// (0034), а не котирування продавця, тож підстава ринкова.
 			CostBasis:  CostBasisMarket,
-			NominalPct: Round2(nominal),
-			RealPct:    Round2(RealYield(nominal/100, yc, devalPct) * 100),
+			NominalPct: domain.Round2(nominal),
+			RealPct:    domain.Round2(RealYield(nominal/100, yc, devalPct) * 100),
 			YieldBasis: basis,
 			RateParts:  rc.Breakdown(gross/100, nominal/100, yc, basis),
 			Brokers:    fits, Affordable: best, CanBuy: best > 0,
@@ -914,17 +910,14 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 		real := RealYield(netRate, c, devalPct)
 		costMajor := float64(d.Principal) / 100
 		fits, best := fitsFor(c, costMajor)
-		bank := d.Bank
-		if bank == "" {
-			bank = "—"
-		}
+		bank := cmp.Or(d.Bank, "—")
 		out = append(out, suggestion{
 			Kind: "deposit", Label: bank, Currency: c,
 			RatePct:     fmt.Sprintf("%d.%02d", d.RateBP/100, d.RateBP%100),
 			Maturity:    string(d.MaturityDate),
 			CostPerBond: ToMoneyJSON(money.New(d.Principal, c)),
-			NominalPct:  Round2(netRate * 100),
-			RealPct:     Round2(real * 100),
+			NominalPct:  domain.Round2(netRate * 100),
+			RealPct:     domain.Round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
 			RateParts: rc.Breakdown(float64(d.RateBP)/10000, netRate, c,
 				"ставка вкладу після податку"),
@@ -976,8 +969,8 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			Kind: "deposit", Label: "Новий вклад", Currency: c,
 			RatePct:     fmt.Sprintf("%d.%02d", rateBP/100, rateBP%100),
 			CostPerBond: ToMoneyJSON(money.New(minMinor, c)),
-			NominalPct:  Round2(netRate * 100),
-			RealPct:     Round2(real * 100),
+			NominalPct:  domain.Round2(netRate * 100),
+			RealPct:     domain.Round2(real * 100),
 			YieldBasis:  "ставка вкладу після податку",
 			RateParts: rc.Breakdown(float64(rateBP)/10000, netRate, c,
 				"ставка вкладу після податку"),
@@ -1017,10 +1010,7 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 		}
 		// ccy, а не cur: cur — це мапа поточних валютних часток, і затінити
 		// її тут означало б порахувати def від назви валюти.
-		ccy := n.Currency
-		if ccy == "" {
-			ccy = money.UAH
-		}
+		ccy := cmp.Or(n.Currency, money.UAH)
 		// «Будь-яка сума» рахується ОКРЕМО від fitsFor, а не нульовою ціною
 		// через нього: там ціна — знаменник, і нуль чесно дає нуль.
 		//
@@ -1039,10 +1029,7 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			}
 		}
 		sort.Slice(fits, func(i, j int) bool { return fits[i].Broker < fits[j].Broker })
-		nominal := n.NavReturnPct
-		if nominal == 0 {
-			nominal = n.ExpectedPct
-		}
+		nominal := cmp.Or(n.NavReturnPct, n.ExpectedPct)
 		reason := "внесок у пенсійний; гроші замкнені до " + n.AccessDate
 		if n.CreditEstUAH.Major() > 0 {
 			reason += fmt.Sprintf("; знижка ПДФО за рік ≈%.0f ₴", n.CreditEstUAH.Major())
@@ -1086,7 +1073,7 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 	if d := doc.Debt; d != nil && d.TotalUAH.Major() > 0 && d.TopRatePct > 0 {
 		// RealYield приймає ЧАСТКУ, а ставка боргу приходить відсотками —
 		// звідси ділення й множення назад. Та сама пара, що на рядку фонда.
-		real := Round2(RealYield(d.TopRatePct/100, money.UAH, devalPct) * 100)
+		real := domain.Round2(RealYield(d.TopRatePct/100, money.UAH, devalPct) * 100)
 		reason := fmt.Sprintf("погасити борг: %s під %.1f%% річних", d.TopName, d.TopRatePct)
 		if d.FillNowUAH.Major() > 0 {
 			reason += fmt.Sprintf("; місячна частка — ще %s", mt.uah(d.FillNowUAH.Major()))

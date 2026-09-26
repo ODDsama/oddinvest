@@ -91,7 +91,9 @@ func fundCoverage(ops []domain.FundOp, refs []store.Fund, from, to, today domain
 		}
 		var months []string
 		for m := monthStart(start, 0); !m.After(end); m = m.AddMonths(1) {
-			pay := payoutDate(m, int(ref.PayoutDay))
+			// День виплати підтягнутий до кінця короткого місяця: тридцяте в
+			// лютому — це 28-ме, а не третє березня (дірка не в тому місяці).
+			pay := domain.DateOnDay(m.Year(), m.Month(), int(ref.PayoutDay))
 			if pay.Before(start) || pay.After(end) {
 				continue
 			}
@@ -113,7 +115,7 @@ func fundCoverage(ops []domain.FundOp, refs []store.Fund, from, to, today domain
 			// куплені 4 і 5 червня 2026-го, червневої виплати немає, а
 			// перша прийшла 10 липня. Перша версія цієї перевірки саме
 			// той червень і позначила діркою.
-			if heldOn(ops, ref.Name, payoutDate(m.AddMonths(-1), int(ref.PayoutDay))) <= 0 {
+			if prev := m.AddMonths(-1); heldOn(ops, ref.Name, domain.DateOnDay(prev.Year(), prev.Month(), int(ref.PayoutDay))) <= 0 {
 				continue
 			}
 			months = append(months, string(pay)[:7])
@@ -123,17 +125,6 @@ func fundCoverage(ops []domain.FundOp, refs []store.Fund, from, to, today domain
 		}
 	}
 	return note, gaps
-}
-
-// payoutDate — день виплати в місяці m, підтягнутий до кінця короткого
-// місяця: тридцяте число в лютому — це 28-ме, а не третє березня, і
-// звичайне переповнення Go тут поставило б дірку не в той місяць.
-func payoutDate(m domain.Date, day int) domain.Date {
-	last := m.AddMonths(1).AddDays(-1).Day()
-	if day > last {
-		day = last
-	}
-	return domain.Date(fmt.Sprintf("%s-%02d", string(m)[:7], day))
 }
 
 // heldOn — скільки сертифікатів фонду було на дату, за журналом операцій.

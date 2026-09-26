@@ -24,6 +24,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,7 +101,7 @@ func planBuyFromReq(req planBuyReq) (store.PlanBuy, error) {
 			if req.Kind != store.BuyFund {
 				return out, errors.New("ціну вручну можна задати лише сертифікату фонду")
 			}
-			p, err := domain.ParseDecimalToMinor(req.UnitPrice, engine.OrUAH(cur))
+			p, err := domain.ParseDecimalToMinor(req.UnitPrice, cmp.Or(cur, money.UAH))
 			if err != nil {
 				return out, fmt.Errorf("ціна за штуку: %w", err)
 			}
@@ -113,7 +114,7 @@ func planBuyFromReq(req planBuyReq) (store.PlanBuy, error) {
 		if ref == "" {
 			return out, errors.New("вкажи банк: вклад лежить у конкретній установі, і саме з її рахунку йдуть гроші")
 		}
-		out.Currency = engine.OrUAH(cur)
+		out.Currency = cmp.Or(cur, money.UAH)
 		amt, err := domain.ParseDecimalToMinor(req.Amount, out.Currency)
 		if err != nil {
 			return out, fmt.Errorf("сума: %w", err)
@@ -190,10 +191,10 @@ func toPlanBuyRow(b store.PlanBuy, today domain.Date) planBuyRow {
 	// Гроші рядком, а не числом: форма їх туди й покладе назад, а
 	// десятковий рядок переживає коло без плаваючої коми.
 	if b.Amount > 0 {
-		out.Amount = minorToDecimal(b.Amount, engine.OrUAH(b.Currency))
+		out.Amount = minorToDecimal(b.Amount, cmp.Or(b.Currency, money.UAH))
 	}
 	if b.UnitPrice > 0 {
-		out.UnitPrice = minorToDecimal(b.UnitPrice, engine.OrUAH(b.Currency))
+		out.UnitPrice = minorToDecimal(b.UnitPrice, cmp.Or(b.Currency, money.UAH))
 	}
 	if b.RateBP > 0 {
 		out.RatePct = minorToDecimal(b.RateBP, money.UAH)

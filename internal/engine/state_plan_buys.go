@@ -55,6 +55,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
@@ -279,7 +280,7 @@ func (e *Engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 			}
 
 		case store.BuyDeposit:
-			cur := OrUAH(row.Currency)
+			cur := cmp.Or(row.Currency, money.UAH)
 			unit = money.New(row.Amount, cur)
 			line.Qty = 1
 			line.Label = row.Ref
@@ -345,7 +346,7 @@ func (e *Engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 			if !ok {
 				return out, BadRequestf("пенсійного рахунку %s немає", row.Ref)
 			}
-			cur := OrUAH(acc.Currency)
+			cur := cmp.Or(acc.Currency, money.UAH)
 			unit = money.New(row.Amount, cur)
 			line.Qty = 1
 			line.Label = acc.Name
@@ -382,7 +383,7 @@ func (e *Engine) expandPlanBuys(ctx context.Context, before *state.Doc,
 		}
 
 		cur := unit.Currency().Code
-		total := unit.Amount() * max64(line.Qty, 1)
+		total := unit.Amount() * max(line.Qty, 1)
 		broker, assumed := pickBroker(before, cur, row.Broker)
 		if row.Kind == store.BuyDeposit {
 			// У вкладу «брокер» — це банк, і він уже названий у ref: гроші
@@ -621,13 +622,6 @@ func monthsUntil(from domain.Date, to domain.Date) int {
 // переводить уже пораховане число. Спільна назва змусила б читача щоразу
 // перевіряти, який із двох перед ним.
 func bpFromPct(pct float64) int64 { return int64(math.Round(pct * 100)) }
-
-func max64(a, b int64) int64 {
-	if a > b {
-		return a
-	}
-	return b
-}
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {

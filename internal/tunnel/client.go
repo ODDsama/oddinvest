@@ -22,6 +22,7 @@ package tunnel
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -45,9 +46,7 @@ type Client struct {
 }
 
 func New(base, apiToken string) *Client {
-	if base == "" {
-		base = DefaultBase
-	}
+	base = cmp.Or(base, DefaultBase)
 	return &Client{base: strings.TrimSuffix(base, "/"), token: apiToken,
 		hc: &http.Client{Timeout: 30 * time.Second}}
 }

@@ -21,6 +21,7 @@
 package engine
 
 import (
+	"cmp"
 	"math"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -191,16 +192,13 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			mvUAH = float64(u.Amount()) / 100
 		}
 		out.TotalUAH += mvUAH
-		fcur := fp.Currency
-		if fcur == "" {
-			fcur = money.UAH
-		}
+		fcur := cmp.Or(fp.Currency, money.UAH)
 
 		toUAH := func(minor int64) float64 {
 			if u, cerr := fx.ToUAH(money.New(minor, fp.Currency), rates); cerr == nil {
-				return Round2(float64(u.Amount()) / 100)
+				return domain.Round2(float64(u.Amount()) / 100)
 			}
-			return Round2(float64(minor) / 100)
+			return domain.Round2(float64(minor) / 100)
 		}
 		// Довідник і день виплати проставлені в Holdings, разом із потоками.
 		ref := src.fundRefs[fp.Fund]
@@ -245,10 +243,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		// купон, і дисконт, тобто весь дохід паперу. Якщо історії ще
 		// замало для ануалізації, відступаємо до дивідендної частини —
 		// краще менше, ніж вигадані сотні відсотків із трьох днів.
-		cur := fp.Currency
-		if cur == "" {
-			cur = money.UAH
-		}
+		cur := cmp.Or(fp.Currency, money.UAH)
 		if d, ok := domain.NextPayoutDate(int(ref.PayoutDay), today); ok {
 			row.NextPayout = string(d)
 		}
@@ -275,7 +270,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		// і не мала б жодного способу зрозуміти, звідки взялась різниця.
 		if ref.ExpectedYieldBP > 0 {
 			simple := float64(ref.ExpectedYieldBP) / 100
-			row.ExpectedPct = Round2(domain.CompoundFromSimple(simple, int(ref.YieldSimpleYears)))
+			row.ExpectedPct = domain.Round2(domain.CompoundFromSimple(simple, int(ref.YieldSimpleYears)))
 			row.ExpectedCurrency = ref.ExpectedYieldCur
 			if ref.YieldSimpleYears > 0 {
 				row.ExpectedSimplePct = simple
@@ -352,7 +347,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 		if tot, ok := domain.FundTotalReturn(src.fundOps, src.fundPrices, fp.Fund, today); ok {
 			measured = true
 			row.TotalPct = tot
-			row.RealPct = Round2(RealYield(tot/100, cur, deval) * 100)
+			row.RealPct = domain.Round2(RealYield(tot/100, cur, deval) * 100)
 			row.YieldBasis = "дивіденди + зміна ціни"
 			nominalPct = tot
 		} else if ref.ExpectedYieldBP > 0 {
@@ -368,10 +363,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			// доларі вже є реальною дохідністю, і гривневий штраф до неї
 			// застосовувати не можна — приріст ціни в гривні і є тією
 			// компенсацією знецінення.
-			expCur := ref.ExpectedYieldCur
-			if expCur == "" {
-				expCur = cur
-			}
+			expCur := cmp.Or(ref.ExpectedYieldCur, cur)
 			// Обіцянка береться з РЯДКА, а не заново з довідника, і це не
 			// економія рядка. У довіднику вона лежить так, як її назвав
 			// фонд, — а назвати він міг простою середньорічною. Порахувати
@@ -380,7 +372,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			// однією назвою й різними одиницями. Рівно те, від чого
 			// стереже коментар нижче про пару.
 			exp := row.ExpectedPct
-			row.RealPct = Round2(RealYield(exp/100, expCur, deval) * 100)
+			row.RealPct = domain.Round2(RealYield(exp/100, expCur, deval) * 100)
 			row.YieldBasis = "обіцяно фондом"
 			// Номінальна тут — сама обіцянка, ЯК ВОНА ЗАДАНА, без переводу
 			// в гривню. Це та сама угода, що й для валютних ОВДП: доларовий
@@ -393,7 +385,7 @@ func buildFunds(src *sources, hold domain.Holdings, rates fx.Rates,
 			// Виміряна дивідендна — теж ФАКТ: фонд ці гроші справді
 			// заплатив. Обіцянкою є лише гілка вище.
 			measured = true
-			row.RealPct = Round2(RealYield(y/100, cur, deval) * 100)
+			row.RealPct = domain.Round2(RealYield(y/100, cur, deval) * 100)
 			row.YieldBasis = "дивіденди після податку"
 			nominalPct = y
 		}

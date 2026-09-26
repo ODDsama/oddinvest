@@ -12,6 +12,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,7 +49,7 @@ func planExpenseFromReq(req planExpenseReq) (domain.PlanExpense, error) {
 	if name == "" {
 		return domain.PlanExpense{}, errors.New("планова витрата без назви: за нею її й шукатимуть")
 	}
-	cur := engine.OrUAH(strings.TrimSpace(req.Currency))
+	cur := cmp.Or(strings.TrimSpace(req.Currency), money.UAH)
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return domain.PlanExpense{}, err

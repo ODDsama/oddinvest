@@ -51,10 +51,7 @@ func RemainingInflows(events []CashEvent) []CashEvent {
 			if left[i] <= 0 {
 				continue
 			}
-			take := left[i]
-			if take > need {
-				take = need
-			}
+			take := min(left[i], need)
 			left[i] -= take
 			need -= take
 		}

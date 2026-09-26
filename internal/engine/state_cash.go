@@ -30,6 +30,8 @@
 package engine
 
 import (
+	"cmp"
+
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
@@ -88,10 +90,7 @@ func (c *cashLedger) byCurrency() map[string]int64 {
 func (c *cashLedger) byBroker() map[string]map[string]state.Money {
 	out := map[string]map[string]state.Money{}
 	for k, m := range c.byBC {
-		name := k.Broker
-		if name == "" {
-			name = NoBrokerLabel
-		}
+		name := cmp.Or(k.Broker, NoBrokerLabel)
 		if out[name] == nil {
 			out[name] = map[string]state.Money{}
 		}

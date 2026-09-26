@@ -73,7 +73,7 @@ func buildFXWindow(hist map[string][]store.RatePoint, rates fx.Rates,
 			}
 			row := state.FXWindowRow{
 				Currency: cur, Years: w.Years, Points: w.Points,
-				Percentile: Round2(w.Percentile),
+				Percentile: domain.Round2(w.Percentile),
 				NowRate:    round4(nowMajor),
 				MedianRate: round4(fx.Major(w.MedianE4)),
 				MinRate:    round4(fx.Major(w.MinE4)),

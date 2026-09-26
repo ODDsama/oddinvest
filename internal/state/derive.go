@@ -478,7 +478,7 @@ func deriveGoals(doc *Doc, in DeriveInput) {
 		// девальвації: та сама сума в шухляді, більше гривень, «ближче до
 		// цілі» — при тому, що авто подорожчало рівно на стільки ж.
 		if g.TargetNative.Major() > 0 {
-			row.DonePct = round2(g.CollectedNative.Major() * 100 / g.TargetNative.Major())
+			row.DonePct = domain.Round2(g.CollectedNative.Major() * 100 / g.TargetNative.Major())
 		}
 		// Гроші лежать не в тій валюті, у якій названа ціль. Саме тоді курс
 		// рухає розрив без жодного руху в журналі, і сказати це треба прямо.
@@ -621,14 +621,8 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 	if room <= 0 {
 		return // усі цілі зібрані — стеля мовчить, і правильно робить
 	}
-	ceiling := planUAH * share / 100
-	if ceiling > room {
-		ceiling = room
-	}
-	left := ceiling - moved
-	if left < 0 {
-		left = 0
-	}
+	ceiling := min(planUAH*share/100, room)
+	left := max(ceiling-moved, 0)
 	for i := range goals {
 		g := &goals[i]
 		if g.DoneDate != "" || g.GapPaceUAH() <= 0 {
@@ -654,14 +648,8 @@ func GoalsFill(set *SettingsDoc, goals []Goal, planUAH float64, debtPressure boo
 		if whole := g.GapPaceUAH(); need > whole {
 			need = whole
 		}
-		want := need - g.MovedUAH.Major()
-		if want < 0 {
-			want = 0
-		}
-		take := want
-		if take > left {
-			take = left
-		}
+		want := max(need-g.MovedUAH.Major(), 0)
+		take := min(want, left)
 		// FillMonthUAH — скільки цей місяць РЕАЛЬНО дає цілі, а не скільки
 		// їй потрібно. Різниця принципова: потрібний темп уже стоїть окремим
 		// числом (RequiredUAH), і повторити його тут означало б показати на
@@ -715,7 +703,7 @@ func deriveGoalPace(row *Goal, today domain.Date) {
 		if row.DueDate != "" {
 			if due := domain.Date(row.DueDate); due.Valid() {
 				if months := float64(domain.DaysBetween(today, due)) / 30.44; months > 0 {
-					row.MonthsLeft = round2(months)
+					row.MonthsLeft = domain.Round2(months)
 				}
 			}
 		}
@@ -729,7 +717,7 @@ func deriveGoalPace(row *Goal, today domain.Date) {
 	if months <= 0 {
 		return
 	}
-	row.MonthsLeft = round2(months)
+	row.MonthsLeft = domain.Round2(months)
 	row.RequiredNative = Major(row.GapNative.Major()/months, row.Currency)
 	row.RequiredUAH = Major(row.GapUAH.Major()/months, money.UAH)
 	if row.ActualUAH.Major() > 0 {
@@ -1092,9 +1080,7 @@ func ReserveTarget(s *SettingsDoc, reserveUAH float64, debtCaps bool,
 	// вигадати її за людину означало б завести ціль, якої вона не ставила.
 	// Сам рубіж покриття від цього не зникає — він показується окремими
 	// полями картки.
-	if coverUAH > target {
-		target = coverUAH
-	}
+	target = max(target, coverUAH)
 	// Надбавка ПІСЛЯ обох — див. довід при сигнатурі. Порожня базова ціль
 	// її не отримує зовсім (ранній return вище): вигадати подушку за
 	// людину, яка її не ставила, не можна навіть заради боргу. Сама позика

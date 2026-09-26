@@ -192,9 +192,7 @@ func BuildDebts(debts []domain.Debt, marks []domain.DebtMark,
 		if !seen || p.Left <= 0 {
 			continue
 		}
-		if first < 0 {
-			first = 0
-		}
+		first = max(first, 0)
 		p.firstMonth = first
 		// Скільки ще безкомісійних місяців лишилось попереду — рахуємо по
 		// самому графіку, а не по FeeFreeMonths: половина пільгових
@@ -285,10 +283,7 @@ func Simulate(debts []Debt, strategy string, extra int64) Run {
 				if d.Left <= 0 || pool <= 0 || !d.Prepayable {
 					continue
 				}
-				take := d.Left
-				if take > pool {
-					take = pool
-				}
+				take := min(d.Left, pool)
 				d.Left -= take
 				pool -= take
 				run.record(month, d, take, take, 0, take)
@@ -320,10 +315,7 @@ func (r *Run) record(month int, d *Debt, paid, principal, cost, extra int64) {
 func mandatory(d *Debt, month int) (paid, principal, cost int64) {
 	if d.Kind == domain.DebtCard {
 		interest := int64(math.Round(float64(d.Left) * d.monthlyRate))
-		pay := d.Left * d.minBp / 10000
-		if pay < d.minFloor {
-			pay = d.minFloor
-		}
+		pay := max(d.Left*d.minBp/10000, d.minFloor)
 		if pay > d.Left+interest {
 			pay = d.Left + interest
 		}
@@ -334,18 +326,13 @@ func mandatory(d *Debt, month int) (paid, principal, cost int64) {
 			p = 0
 		}
 		d.Left = d.Left + interest - pay
-		if d.Left < 0 {
-			d.Left = 0
-		}
+		d.Left = max(d.Left, 0)
 		return pay, p, interest
 	}
 	if month < d.firstMonth {
 		return 0, 0, 0
 	}
-	p := d.perMonth
-	if p > d.Left {
-		p = d.Left
-	}
+	p := min(d.perMonth, d.Left)
 	fee := d.feeMonth
 	if month < d.feeFreeTo {
 		fee = 0
@@ -418,10 +405,7 @@ func GraceCost(d domain.Debt, st domain.CardStatus) (missFull, missMin int64) {
 	if overdue <= 0 {
 		overdue = d.APRBp
 	}
-	base := st.Debt
-	if base < st.StatementDue {
-		base = st.StatementDue
-	}
+	base := max(st.Debt, st.StatementDue)
 	missMin = d.LateFee + int64(math.Round(float64(base)*float64(overdue)/10000/12))
 	return missFull, missMin
 }

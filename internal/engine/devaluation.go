@@ -66,7 +66,7 @@ func (e *Engine) measuredDevaluation(ctx context.Context) (float64, store.RatePo
 		return 0, oldest, newest, false
 	}
 	pct, ok := domain.AnnualPct(float64(oldest.RateE4), float64(newest.RateE4), days)
-	return Round2(pct), oldest, newest, ok
+	return domain.Round2(pct), oldest, newest, ok
 }
 
 // devaluation — знецінення, з яким рахує ВЕСЬ застосунок. Три сходинки, і
@@ -169,7 +169,7 @@ func (e *Engine) DevaluationReport(ctx context.Context, now time.Time) (devalRep
 		}
 		out.Windows = append(out.Windows, devalWindow{
 			Label: fmt.Sprintf("за %d %s", y, Plural(y, "рік", "роки", "років")),
-			Years: y, Pct: Round2(pct),
+			Years: y, Pct: domain.Round2(pct),
 			From: string(oldest.Date), To: string(newest.Date),
 		})
 	}

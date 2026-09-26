@@ -1,7 +1,9 @@
 package imports
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -202,9 +204,7 @@ func Parse(rows [][]string, p Profile) (Result, error) {
 		items = append(items, parsed{date, cell})
 	}
 	if len(items) > 1 && items[0].date.After(items[len(items)-1].date) {
-		for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
-			items[i], items[j] = items[j], items[i]
-		}
+		slices.Reverse(items)
 	}
 
 	for _, it := range items {
@@ -229,10 +229,7 @@ func Parse(rows [][]string, p Profile) (Result, error) {
 		// операції, а не знак: брокери пишуть списання то в кредит, то
 		// зі знаком мінус, і довіритись знаку означало б отримати
 		// поповнення там, де була купівля.
-		amount := debit
-		if amount == 0 {
-			amount = credit
-		}
+		amount := cmp.Or(debit, credit)
 		if amount < 0 {
 			amount = -amount
 		}

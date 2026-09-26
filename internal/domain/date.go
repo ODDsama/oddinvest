@@ -77,9 +77,6 @@ func (d Date) AddMonthsClamp(n int) Date {
 	t := d.Time()
 	first := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, n, 0)
 	last := first.AddDate(0, 1, -1).Day()
-	day := t.Day()
-	if day > last {
-		day = last
-	}
+	day := min(t.Day(), last)
 	return NewDate(time.Date(first.Year(), first.Month(), day, 0, 0, 0, 0, time.UTC))
 }

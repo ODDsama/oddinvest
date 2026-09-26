@@ -4,6 +4,7 @@
 package nbu
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -38,9 +39,7 @@ type Client struct {
 }
 
 func New(base string) *Client {
-	if base == "" {
-		base = DefaultBase
-	}
+	base = cmp.Or(base, DefaultBase)
 	return &Client{base: base, hc: &http.Client{Timeout: 30 * time.Second}}
 }
 
@@ -176,10 +175,7 @@ func parseSecurity(r rawSecurity) (*Security, error) {
 // parseNBUDate — НБУ в різних ендпоінтах віддає дати по-різному;
 // приймаємо основні варіанти і нормалізуємо в ISO.
 func parseNBUDate(s string) (domain.Date, error) {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, 'T'); i > 0 {
-		s = s[:i]
-	}
+	s, _, _ = strings.Cut(strings.TrimSpace(s), "T")
 	for _, layout := range []string{"2006-01-02", "02.01.2006", "20060102"} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return domain.NewDate(t), nil
@@ -429,15 +425,8 @@ func (c *Client) RateOn(ctx context.Context, code string, on domain.Date) (int64
 	if e4 <= 0 {
 		return 0, "", fmt.Errorf("НБУ exchange: нульовий курс %s", strings.ToUpper(code))
 	}
-	return e4, parseExchangeDate(raw[0].ExchangeDate), nil
-}
-
-// parseExchangeDate — DD.MM.YYYY -> domain.Date. Порожня на будь-якому
-// несподіваному вигляді: краще лишити дату виклику, ніж записати сміття.
-func parseExchangeDate(s string) domain.Date {
-	t, err := time.Parse("02.01.2006", strings.TrimSpace(s))
-	if err != nil {
-		return ""
-	}
-	return domain.NewDate(t)
+	// Порожня дата на будь-якому несподіваному вигляді: краще лишити дату
+	// виклику, ніж записати сміття.
+	d, _ := parseNBUDate(raw[0].ExchangeDate) //nolint:errcheck // порожня дата і є відповідь
+	return e4, d, nil
 }

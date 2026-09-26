@@ -82,7 +82,7 @@ func buildCapitalDelta(src *sources, capitalNow, accruedNow float64, rates fx.Ra
 		}
 	}
 	if fromRep > 0 {
-		out.DeltaPct = Round2((nowRep - fromRep) / fromRep * 100)
+		out.DeltaPct = domain.Round2((nowRep - fromRep) / fromRep * 100)
 	}
 	var contrib int64
 	add := func(on domain.Date, amount int64, cur string) {

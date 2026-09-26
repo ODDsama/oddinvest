@@ -10,8 +10,11 @@
 package engine
 
 import (
+	"cmp"
 	"context"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
@@ -38,9 +41,6 @@ const defaultGlideYears = 5.0
 // XIRR. Іменем тут, бо їде в документ стану (RealizedRow.MinDays) і звідти
 // в пояснення на екрані; саме число одне на застосунок — domain.XIRRMinMoneyDays.
 const xirrMinMoneyDays = domain.XIRRMinMoneyDays
-
-// Round2 — округлення до 2 знаків для довідкових (не облікових) чисел.
-func Round2(v float64) float64 { return math.Round(v*100) / 100 }
 
 // Hypothetical — покупки, яких ЩЕ НЕМАЄ. Порожня структура означає
 // звичайний стан, і саме тому BuildState нижче лишається однорядковою
@@ -470,8 +470,8 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	}
 	depositsYieldReal, depositsYieldNominal := 0.0, 0.0
 	if depRealWeight > 0 {
-		depositsYieldReal = Round2(depRealWeighted / depRealWeight)
-		depositsYieldNominal = Round2(depNomWeighted / depRealWeight)
+		depositsYieldReal = domain.Round2(depRealWeighted / depRealWeight)
+		depositsYieldNominal = domain.Round2(depNomWeighted / depRealWeight)
 	}
 
 	// Резерв («матрац») — журнал рухів, поточний залишок це Σ сум. Читаємо
@@ -497,10 +497,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		reserveUAH += v
 		reserveUAHByCur[op.Currency] = reserveUAHByCur[op.Currency].Add(state.Major(v, op.Currency))
 		reserveByCur[op.Currency] = reserveByCur[op.Currency].Add(state.Minor(op.Amount, op.Currency))
-		place := op.Place
-		if place == "" {
-			place = "без місця"
-		}
+		place := cmp.Or(op.Place, "без місця")
 		reservePlaces[place] = reservePlaces[place].Add(state.Major(v, money.UAH))
 		if string(op.Date) > reserveLastMove {
 			reserveLastMove = string(op.Date)
@@ -540,10 +537,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		reserveByCur[c] = reserveByCur[c].Add(state.Major(v, c))
 	}
 	for _, dep := range reserveRungs {
-		place := dep.Bank
-		if place == "" {
-			place = "без місця"
-		}
+		place := cmp.Or(dep.Bank, "без місця")
 		u, cerr := fx.ToUAH(money.New(dep.BalanceAt(today), dep.Currency), rates)
 		if cerr != nil {
 			continue
@@ -725,10 +719,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		if op.Date.After(today) {
 			continue
 		}
-		cur := npfCurByID[op.NPFID]
-		if cur == "" {
-			cur = money.UAH
-		}
+		cur := cmp.Or(npfCurByID[op.NPFID], money.UAH)
 		cash.add(op.Broker, cur, op.Date, -op.Amount)
 		// Внести в пенсійний — така сама покупка, як узяти папір: гроші пішли
 		// в діло, і чергу «доходу без діла» це з'їдає нарівні з рештою.
@@ -828,9 +819,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// ризик контрагента до нього не застосовний — у цьому й сенс матраца.
 	brokerExposureUAH := map[string]float64{}
 	addExposure := func(name string, uah float64) {
-		if name == "" {
-			name = "—"
-		}
+		name = cmp.Or(name, "—")
 		brokerExposureUAH[name] += uah
 	}
 
@@ -852,10 +841,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		if uerr != nil {
 			continue
 		}
-		name := l.Channel
-		if name == "" {
-			name = "—"
-		}
+		name := cmp.Or(l.Channel, "—")
 		investedByBroker[name] = investedByBroker[name].Add(state.Of(u))
 	}
 	// Сертифікати теж лежать у брокера, і без них картка «Вкладено по
@@ -874,10 +860,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 			if boughtByFundBroker[op.Fund] == nil {
 				boughtByFundBroker[op.Fund] = map[string]int64{}
 			}
-			b := op.Broker
-			if b == "" {
-				b = "—"
-			}
+			b := cmp.Or(op.Broker, "—")
 			boughtByFundBroker[op.Fund][b] += op.Amount
 		}
 		// Друге зведення фондів тут більше не будується: Holdings уже має
@@ -930,11 +913,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// даних. Дві сусідні перезавантаження сторінки — дві різні копійки, і
 	// в добовий знімок потрапляла та, яка випала.
 	for name, byCur := range brokers {
-		curs := make([]string, 0, len(byCur))
-		for cur := range byCur {
-			curs = append(curs, cur)
-		}
-		sort.Strings(curs)
+		curs := slices.Sorted(maps.Keys(byCur))
 		for _, cur := range curs {
 			if u, err := fx.ToUAH(byCur[cur].Money(), rates); err == nil {
 				addExposure(name, float64(u.Amount())/100)
@@ -994,13 +973,8 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// рахунках: якщо грошей немає, то й доходу без діла немає, хай би що
 	// казала історія надходжень. Без цієї стелі наївна черга сама б собі
 	// суперечила — зняв гроші з рахунку, а вона й далі рахує їх простоєм.
-	idle := domain.IdleIncome(incomeEvents, purchaseEvents)
-	if idle > accountUAHMinor {
-		idle = accountUAHMinor
-	}
-	if idle < 0 {
-		idle = 0
-	}
+	idle := min(domain.IdleIncome(incomeEvents, purchaseEvents), accountUAHMinor)
+	idle = max(idle, 0)
 	unin := money.New(idle, money.UAH)
 
 	// найдешевший папір по валютах (нативно) + мінімум у грн-екв.
@@ -1050,10 +1024,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		if row.LastPrice <= 0 {
 			continue
 		}
-		cur := row.Currency
-		if cur == "" {
-			cur = money.UAH
-		}
+		cur := cmp.Or(row.Currency, money.UAH)
 		minOfFund := row.LastPrice
 		if cur != money.UAH {
 			u, err := fx.ToUAH(money.New(int64(math.Round(row.LastPrice*100)), cur), rates)
@@ -1164,7 +1135,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 			MinDays:   xirrMinMoneyDays,
 		}
 		if invested > 0 {
-			row.GainPct = Round2(float64(gain) / float64(invested) * 100)
+			row.GainPct = domain.Round2(float64(gain) / float64(invested) * 100)
 		}
 		realized[cur] = row
 

@@ -2,6 +2,7 @@ package domain
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"strings"
 	"unicode"
@@ -144,3 +145,7 @@ func SumSameCurrency(items ...*money.Money) (*money.Money, error) {
 	}
 	return acc, nil
 }
+
+// Round2 — округлення до 2 знаків для довідкових (не облікових) чисел:
+// відсотків, ставок, мажорних сум у документі.
+func Round2(v float64) float64 { return math.Round(v*100) / 100 }

@@ -131,9 +131,7 @@ func debtMilestones(doc *state.Doc, src *sources, snaps []store.Snapshot, today 
 				met = false
 				continue
 			}
-			if z > when {
-				when = z
-			}
+			when = max(when, z)
 		}
 		if named == 0 {
 			return m

@@ -297,10 +297,10 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date, acc, gen string
 	out := &periodStructure{
 		FromDate:     string(before.Date),
 		ToDate:       string(after.Date),
-		USDShareFrom: engine.Round2(float64(before.USDShareBP) / 100),
-		USDShareTo:   engine.Round2(float64(after.USDShareBP) / 100),
-		EURShareFrom: engine.Round2(float64(before.EURShareBP) / 100),
-		EURShareTo:   engine.Round2(float64(after.EURShareBP) / 100),
+		USDShareFrom: domain.Round2(float64(before.USDShareBP) / 100),
+		USDShareTo:   domain.Round2(float64(after.USDShareBP) / 100),
+		EURShareFrom: domain.Round2(float64(before.EURShareBP) / 100),
+		EURShareTo:   domain.Round2(float64(after.EURShareBP) / 100),
 		Rows: []periodRow{
 			row("capital", "Капітал", capB, capA),
 			row("bonds", "ОВДП (номінал)", before.NominalUAHEq, after.NominalUAHEq),
@@ -348,7 +348,7 @@ func periodPlanOf(snaps []store.Snapshot, from, to domain.Date, contribMinor int
 	return &periodPlan{
 		TargetUAH:  state.Minor(target, money.UAH),
 		ContribUAH: state.Minor(contribMinor, money.UAH),
-		DonePct:    engine.Round2(float64(contribMinor) / float64(target) * 100),
+		DonePct:    domain.Round2(float64(contribMinor) / float64(target) * 100),
 		TargetOn:   string(on),
 	}, ""
 }
@@ -391,13 +391,13 @@ func periodDecisionsOf(list []store.Decision, from, to domain.Date) periodDecisi
 		}
 	}
 	if withTop > 0 {
-		out.VsTopPPAvg = engine.Round2(sum / float64(withTop))
+		out.VsTopPPAvg = domain.Round2(sum / float64(withTop))
 	}
 	if out.ReserveCount > 0 {
-		out.ReserveForgonePctAvg = engine.Round2(forgone / float64(out.ReserveCount))
+		out.ReserveForgonePctAvg = domain.Round2(forgone / float64(out.ReserveCount))
 	}
 	if out.GoalCount > 0 {
-		out.GoalForgonePctAvg = engine.Round2(goalForgone / float64(out.GoalCount))
+		out.GoalForgonePctAvg = domain.Round2(goalForgone / float64(out.GoalCount))
 	}
 	if out.Count == 0 {
 		out.Note = "цього місяця нічого не куплено"

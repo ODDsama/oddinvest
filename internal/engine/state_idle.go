@@ -44,7 +44,7 @@ package engine
 // не хвилює — вони її не читають.
 
 import (
-	"math"
+	"cmp"
 	"sort"
 
 	money "github.com/Rhymond/go-money"
@@ -98,28 +98,20 @@ func buildIdle(cash *cashLedger, minByCur map[string]int64, rates fx.Rates, toda
 			if left <= 0 {
 				break
 			}
-			take := lot.Amount
-			if take > left {
-				take = left
-			}
-			if since == "" {
-				since = lot.Date
-			}
+			take := min(lot.Amount, left)
+			since = cmp.Or(since, lot.Date)
 			if d := daysBetween(lot.Date, today); d > 0 {
 				moneyDays += float64(take) * float64(d)
 			}
 			left -= take
 		}
-		broker := k.Broker
-		if broker == "" {
-			broker = NoBrokerLabel
-		}
+		broker := cmp.Or(k.Broker, NoBrokerLabel)
 		p := state.IdlePair{
 			Broker: broker, Currency: k.Currency,
 			Investable:    state.Minor(investable, k.Currency),
 			InvestableUAH: state.Of(uahAmt),
 			Since:         string(since),
-			AgeDays:       Round2(moneyDays / float64(investable)),
+			AgeDays:       domain.Round2(moneyDays / float64(investable)),
 		}
 		if since != "" {
 			if d := daysBetween(since, today); d > 0 {
@@ -132,15 +124,13 @@ func buildIdle(cash *cashLedger, minByCur map[string]int64, rates fx.Rates, toda
 		if out.Since == "" || (p.Since != "" && p.Since < out.Since) {
 			out.Since = p.Since
 		}
-		if p.Days > out.Days {
-			out.Days = p.Days
-		}
+		out.Days = max(out.Days, p.Days)
 	}
 	if len(out.ByPair) == 0 {
 		return nil
 	}
 
-	out.AgeDays = Round2(ageWeighted / out.InvestableUAH.Major())
+	out.AgeDays = domain.Round2(ageWeighted / out.InvestableUAH.Major())
 	return out
 }
 
@@ -198,7 +188,7 @@ func buildIdleCost(idle *state.IdleCash, sug []suggestion) *state.IdleCost {
 		return nil
 	}
 
-	out.RatePct = math.Round(rateW/base*100) / 100
+	out.RatePct = domain.Round2(rateW / base)
 	return out
 }
 

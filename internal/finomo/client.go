@@ -21,6 +21,7 @@
 package finomo
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -112,9 +113,7 @@ type Client struct {
 }
 
 func New(base string) *Client {
-	if base == "" {
-		base = DefaultBase
-	}
+	base = cmp.Or(base, DefaultBase)
 	return &Client{base: base, hc: &http.Client{Timeout: 30 * time.Second}}
 }
 
@@ -337,13 +336,6 @@ func extractConfig(body []byte) (string, error) {
 }
 
 func parseISODate(s string) (domain.Date, error) {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, 'T'); i > 0 {
-		s = s[:i]
-	}
-	t, err := time.Parse("2006-01-02", s)
-	if err != nil {
-		return "", fmt.Errorf("нерозпізнана дата %q", s)
-	}
-	return domain.NewDate(t), nil
+	s, _, _ = strings.Cut(strings.TrimSpace(s), "T")
+	return domain.ParseDate(s)
 }

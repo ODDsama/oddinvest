@@ -39,6 +39,7 @@
 package domain
 
 import (
+	"cmp"
 	"math"
 	"sort"
 	"time"
@@ -195,20 +196,15 @@ func lastDayOfMonth(year int, m time.Month) int {
 	return time.Date(year, m+1, 0, 0, 0, 0, 0, time.UTC).Day()
 }
 
-// dateOnDay — дата з номером дня, ОБРІЗАНИМ до довжини місяця.
+// DateOnDay — дата з номером дня, ОБРІЗАНИМ до довжини місяця.
 //
 // Саме тут Date.AddMonths не годиться: у нього звичайна Go-семантика
 // переповнення (31 січня + 1 міс = 3 березня), і для графіка вкладу це
 // байдуже, а для розрахункової дати — ні. «30 лютого» мусить стати
 // останнім днем лютого, а не зʼїхати на початок березня, інакше пільговий
 // поріг раз на рік переносився б на інший місяць.
-func dateOnDay(year int, m time.Month, day int) Date {
-	if last := lastDayOfMonth(year, m); day > last {
-		day = last
-	}
-	if day < 1 {
-		day = 1
-	}
+func DateOnDay(year int, m time.Month, day int) Date {
+	day = min(max(day, 1), lastDayOfMonth(year, m))
 	return NewDate(time.Date(year, m, day, 0, 0, 0, 0, time.UTC))
 }
 
@@ -223,7 +219,7 @@ func addMonthsOnDay(d Date, n int, day int) Date {
 		total += 12
 		y--
 	}
-	return dateOnDay(y, time.Month(total+1), day)
+	return DateOnDay(y, time.Month(total+1), day)
 }
 
 // StatementCycle — межі пільгового циклу картки на дату from.
@@ -245,7 +241,7 @@ func StatementCycle(day int64, from Date) (closed, due Date) {
 		return "", ""
 	}
 	d := int(day)
-	due = dateOnDay(from.Year(), from.Month(), d)
+	due = DateOnDay(from.Year(), from.Month(), d)
 	if due.Before(from) {
 		due = addMonthsOnDay(from, 1, d)
 	}
@@ -417,10 +413,7 @@ func DebtSchedule(d Debt, balance int64, from, to Date) []DebtPayment {
 			break
 		}
 		interest := int64(math.Round(float64(left) * monthly))
-		pay := roundDiv(left*d.MinPaymentBp, 10000)
-		if pay < d.MinPaymentFloor {
-			pay = d.MinPaymentFloor
-		}
+		pay := max(roundDiv(left*d.MinPaymentBp, 10000), d.MinPaymentFloor)
 		if pay > left+interest {
 			pay = left + interest
 		}
@@ -679,9 +672,7 @@ func CardState(card Debt, marks []DebtMark, ops []DebtOp,
 			st.Balance += op.Amount
 			if st.StatementDue > 0 {
 				st.StatementDue -= op.Amount
-				if st.StatementDue < 0 {
-					st.StatementDue = 0
-				}
+				st.StatementDue = max(st.StatementDue, 0)
 			}
 		case DebtOpDraw, DebtOpCash:
 			st.Balance -= op.Amount
@@ -701,9 +692,7 @@ func CardState(card Debt, marks []DebtMark, ops []DebtOp,
 
 	if st.StatementDue > 0 {
 		st.MinDue = roundDiv(st.StatementDue*card.MinPaymentBp, 10000)
-		if st.MinDue < card.MinPaymentFloor {
-			st.MinDue = card.MinPaymentFloor
-		}
+		st.MinDue = max(st.MinDue, card.MinPaymentFloor)
 		if st.MinDue > st.StatementDue {
 			// Мінімалка не буває більшою за весь борг: «внеси 100 ₴ при
 			// боргу 40 ₴» читалось би як вимога переплатити.
@@ -733,14 +722,9 @@ func CardState(card Debt, marks []DebtMark, ops []DebtOp,
 	// Тому чисельником іде лише те, що на картці Є СВОГО: max(0, баланс).
 	// Тоді відʼємне «вільно» читається однозначно — стільки ще треба
 	// принести, щоб виписка закрилась і відсотки не почались.
-	own := st.Balance
-	if own < 0 {
-		own = 0
-	}
+	own := max(st.Balance, 0)
 	st.BringByDue = st.StatementDue - own
-	if st.BringByDue < 0 {
-		st.BringByDue = 0
-	}
+	st.BringByDue = max(st.BringByDue, 0)
 	st.Free = own - st.StatementDue - st.InstallmentDue
 	return st
 }
@@ -958,10 +942,7 @@ type CardExitPlan struct {
 // довшим шляхом.
 func CardExit(in CardExitInput) CardExitPlan {
 	out := CardExitPlan{ExitBy: in.ExitBy}
-	now := in.DebtNowUAH
-	if now == 0 {
-		now = in.DebtUAH
-	}
+	now := cmp.Or(in.DebtNowUAH, in.DebtUAH)
 	if in.ExitBy == "" || now <= 0 || !in.Today.Valid() {
 		return out
 	}

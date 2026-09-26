@@ -5,6 +5,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -47,20 +48,9 @@ func (e *Engine) DigestFX(ctx context.Context, from domain.Date) (float64, strin
 	if len(parts) == 0 {
 		return 0, "валютної частини немає — рухати нічого"
 	}
-	why := "переоцінка НИНІШНЬОГО валютного обсягу: " + joinSemi(parts) +
+	why := "переоцінка НИНІШНЬОГО валютного обсягу: " + strings.Join(parts, "; ") +
 		". Обсягу на початок вікна застосунок не зберігає, тож гроші, що зайшли всередині, пораховані повним рухом курсу"
-	return Round2(total), why
+	return domain.Round2(total), why
 }
 
 func fx4(e4 int64) string { return fmt.Sprintf("%.2f", float64(e4)/10000) }
-
-func joinSemi(parts []string) string {
-	out := ""
-	for i, p := range parts {
-		if i > 0 {
-			out += "; "
-		}
-		out += p
-	}
-	return out
-}

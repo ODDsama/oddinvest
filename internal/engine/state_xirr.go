@@ -22,6 +22,7 @@
 package engine
 
 import (
+	"cmp"
 	"context"
 	"sort"
 
@@ -65,9 +66,7 @@ func (e *Engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 		return nil
 	}
 
-	if report == "" {
-		report = money.UAH
-	}
+	report = cmp.Or(report, money.UAH)
 	asOf := NewAsOfRates(e.st)
 	var flows []domain.Flow
 	for _, cur := range xirrCurrencies {
@@ -114,7 +113,7 @@ func (e *Engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 	}
 	out := &state.TotalReturn{
 		GainUAH:      state.Minor(gain, report),
-		GainPct:      Round2(float64(gain) / float64(invested) * 100),
+		GainPct:      domain.Round2(float64(gain) / float64(invested) * 100),
 		MinDays:      xirrMinMoneyDays,
 		FXMaxLagDays: asOf.maxLag,
 	}
@@ -124,7 +123,7 @@ func (e *Engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 	// і свіжою гривневою може дозріти зведено, коли гривнева плитка ще
 	// мовчить, — і навпаки.
 	days := domain.MoneyWeightedDays(flows, today)
-	out.MoneyDays = Round2(days)
+	out.MoneyDays = domain.Round2(days)
 	if days < xirrMinMoneyDays {
 		return out
 	}
@@ -132,7 +131,7 @@ func (e *Engine) totalReturn(ctx context.Context, byCur map[string][]domain.Flow
 	if err != nil || !domain.XIRRPlausible(r) {
 		return out
 	}
-	pct := Round2(r * 100)
+	pct := domain.Round2(r * 100)
 	out.XIRRPct = &pct
 	return out
 }

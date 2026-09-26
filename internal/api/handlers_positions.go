@@ -90,8 +90,8 @@ func (s *Server) handlePositions(w http.ResponseWriter, r *http.Request) {
 		// WeightedYTM віддає вже ВІДСОТКИ (ytm.go), на відміну від YTM,
 		// що віддає частку. RealYield же працює з часткою — звідси /100.
 		if y, ok := domain.WeightedYTM(ytmByISIN[p.ISIN], pays); ok {
-			row.YTMPct = engine.Round2(y)
-			row.RealPct = engine.Round2(engine.RealYield(y/100, p.Currency, deval) * 100)
+			row.YTMPct = domain.Round2(y)
+			row.RealPct = domain.Round2(engine.RealYield(y/100, p.Currency, deval) * 100)
 			row.YieldBasis = "до погашення"
 			row.RateParts = rc.Breakdown(y/100, y/100, p.Currency, "до погашення")
 		}

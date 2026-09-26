@@ -15,6 +15,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -51,7 +52,7 @@ func goalFromReq(req goalReq) (store.Goal, error) {
 	if name == "" {
 		return store.Goal{}, errors.New("ціль без назви: за нею її й шукатимуть")
 	}
-	cur := engine.OrUAH(strings.TrimSpace(req.Currency))
+	cur := cmp.Or(strings.TrimSpace(req.Currency), money.UAH)
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return store.Goal{}, err
@@ -202,7 +203,7 @@ func goalOpFromReq(req goalOpReq) (store.GoalOp, error) {
 			return store.GoalOp{}, err
 		}
 	}
-	cur := engine.OrUAH(strings.TrimSpace(req.Currency))
+	cur := cmp.Or(strings.TrimSpace(req.Currency), money.UAH)
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		return store.GoalOp{}, err

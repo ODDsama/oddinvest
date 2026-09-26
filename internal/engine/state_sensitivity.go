@@ -66,7 +66,7 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 	run := func(contrib, ratePP, deval, goal float64, months int) (int, float64) {
 		sl := build(contrib, ratePP)
 		hit := domain.MonthsToReachSleeves(sl, deval, goal, goalHorizonMonths)
-		return hit, Round2(domain.ProjectSleeves(sl, deval, months).TodayUAH)
+		return hit, domain.Round2(domain.ProjectSleeves(sl, deval, months).TodayUAH)
 	}
 
 	out := &state.Sensitivity{
@@ -90,7 +90,7 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 	for _, k := range []float64{0.5, 1.5, 2} {
 		c := in.ContribBase * k
 		m, a := run(c, 0, in.Deval, in.Goal, in.Deadline)
-		add(state.SensitivityRow{Lever: "contrib", Factor: k, Value: Round2(c),
+		add(state.SensitivityRow{Lever: "contrib", Factor: k, Value: domain.Round2(c),
 			ValueUAH: state.Major(c, money.UAH)}, m, a, in.Goal)
 	}
 
@@ -116,7 +116,7 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 	if step := niceStep(in.ContribBase * 0.10); step > 0 {
 		m, a := run(in.ContribBase+step, 0, in.Deval, in.Goal, in.Deadline)
 		add(state.SensitivityRow{Lever: "step_contrib", DeltaUAH: state.Major(step, money.UAH),
-			Value: Round2(in.ContribBase + step), ValueUAH: state.Major(in.ContribBase+step, money.UAH)},
+			Value: domain.Round2(in.ContribBase + step), ValueUAH: state.Major(in.ContribBase+step, money.UAH)},
 			m, a, in.Goal)
 	}
 	{
@@ -132,7 +132,7 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 	for _, d := range []float64{-in.DevalSpreadPP, in.DevalSpreadPP} {
 		deval := math.Max(0, in.Deval+d)
 		m, a := run(in.ContribBase, 0, deval, in.Goal, in.Deadline)
-		add(state.SensitivityRow{Lever: "deval", DeltaPP: d, Value: Round2(deval)}, m, a, in.Goal)
+		add(state.SensitivityRow{Lever: "deval", DeltaPP: d, Value: domain.Round2(deval)}, m, a, in.Goal)
 	}
 
 	// --- дедлайн: ціль не рухається, рухається час ---
@@ -146,7 +146,7 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 		if months <= 0 {
 			continue
 		}
-		a := Round2(domain.ProjectSleeves(sleevesBase, in.Deval, months).TodayUAH)
+		a := domain.Round2(domain.ProjectSleeves(sleevesBase, in.Deval, months).TodayUAH)
 		add(state.SensitivityRow{Lever: "deadline", DeltaMonths: d, Value: float64(months)},
 			out.BaseGoalMonths, a, in.Goal)
 	}
@@ -158,7 +158,7 @@ func buildSensitivity(in sensitivityInput) *state.Sensitivity {
 	for _, k := range []float64{0.75, 0.5} {
 		goal := in.Goal * k
 		m := domain.MonthsToReachSleeves(sleevesBase, in.Deval, goal, goalHorizonMonths)
-		add(state.SensitivityRow{Lever: "goal", Factor: k, Value: Round2(goal),
+		add(state.SensitivityRow{Lever: "goal", Factor: k, Value: domain.Round2(goal),
 			ValueUAH: state.Major(goal, money.UAH)}, m, out.BaseAmountUAH.Major(), goal)
 	}
 	return out

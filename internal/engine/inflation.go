@@ -75,7 +75,7 @@ func (e *Engine) MeasuredInflation(ctx context.Context) (pct float64, from, to s
 	if !ok {
 		return 0, "", "", false
 	}
-	return Round2(v), start, last, true
+	return domain.Round2(v), start, last, true
 }
 
 // inflation — інфляція, з якою рахує застосунок: виміряна або ніякої.

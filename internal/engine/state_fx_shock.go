@@ -160,7 +160,7 @@ func BuildFXShock(hist map[string][]domain.FXPoint, rates fx.Rates, window int) 
 		ep.Moves = append(ep.Moves, fxShockMove{
 			Currency: cur, From: mv.From, To: mv.To,
 			FromRate: rateUAH(mv.FromE4), ToRate: rateUAH(mv.ToE4),
-			MovePct: Round2(mv.Pct), RateNow: rateUAH(now), RateThen: rateUAH(after),
+			MovePct: domain.Round2(mv.Pct), RateNow: rateUAH(now), RateThen: rateUAH(after),
 		})
 	}
 

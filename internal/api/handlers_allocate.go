@@ -5,6 +5,7 @@
 package api
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -55,7 +56,7 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	cur := engine.OrUAH(strings.TrimSpace(req.Currency))
+	cur := cmp.Or(strings.TrimSpace(req.Currency), money.UAH)
 	minor, err := domain.ParseDecimalToMinor(req.Amount, cur)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("сума: %w", err))

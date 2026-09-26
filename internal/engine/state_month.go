@@ -182,7 +182,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 			}
 		}
 	}
-	out.ReserveMovedUAH = Round2(out.ReserveMovedUAH)
+	out.ReserveMovedUAH = domain.Round2(out.ReserveMovedUAH)
 
 	// Рухи ЦІЛЕЙ — у той самий нетто, і з того самого доводу, що резерв.
 	// Переміщення гаманець → ціль записується двома ногами (мінус у
@@ -259,7 +259,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	if totalUAH > 0 {
 		months := paceMonths(first, today)
 		out.ActualMonths = int(months + 0.5)
-		out.ActualMonthlyUAH = Round2(float64(totalUAH) / 100 / months)
+		out.ActualMonthlyUAH = domain.Round2(float64(totalUAH) / 100 / months)
 	}
 
 	out.Plan = buildMonthPlan(src, rates, today, 0, float64(out.DepositedUAH.Amount())/100, "")
@@ -279,7 +279,7 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 			}
 		}
 		if n > 0 {
-			out.GrossAvgUAH = Round2(sum / float64(n))
+			out.GrossAvgUAH = domain.Round2(sum / float64(n))
 		}
 	}
 	// Дозвіл тут відкидається навмисно: у документі його ставить Derive з
@@ -364,9 +364,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 		return 0, 0, 0 // ціль зібрана — стеля мовчить, і правильно робить
 	}
 	monthUAH = mp.PlanReserveUAH.Major() * share / 100
-	if monthUAH > room {
-		monthUAH = room
-	}
+	monthUAH = min(monthUAH, room)
 	if fillUAH = monthUAH - moved; fillUAH < 0 {
 		fillUAH = 0
 	}
@@ -382,7 +380,7 @@ func reserveMonthShare(set *state.SettingsDoc, reserveUAH float64,
 	// Віддається звідси, а не рахується читачем, з того самого доводу, що
 	// need у spreadMonth: друге означення розійшлося б із першим рівно в тих
 	// гілках, де ця функція мовчить.
-	return Round2(monthUAH), Round2(fillUAH), Round2(mp.PlanReserveUAH.Major())
+	return domain.Round2(monthUAH), domain.Round2(fillUAH), domain.Round2(mp.PlanReserveUAH.Major())
 }
 
 // buildMonthPlan — скільки план доходу заводить у портфель ЦЬОГО місяця.
@@ -608,7 +606,7 @@ func buildMonthPlan(src *sources, rates fx.Rates, today domain.Date,
 		out.LeftUAH = state.Major(left, money.UAH)
 	}
 	if out.PlanUAH.Major() > 0 {
-		out.CoveredPct = Round2(depositedUAH / out.PlanUAH.Major() * 100)
+		out.CoveredPct = domain.Round2(depositedUAH / out.PlanUAH.Major() * 100)
 	}
 
 	// OnCardUAH порахований ВИЩЕ, разом із боргом, і саме там, бо він у
@@ -816,7 +814,7 @@ func plannedInMonth(src *sources, rates fx.Rates, today domain.Date,
 		}
 		total += PlanFlowUAH(float64(p.Amount)/100, p.Currency, rates)
 	}
-	return Round2(total)
+	return domain.Round2(total)
 }
 
 // monthStart — перше число місяця зі зсувом m від сьогодні. Окремо від
@@ -856,5 +854,5 @@ func savingsRatePct(actualMonthly, grossAvg float64) float64 {
 	if grossAvg <= 0 || actualMonthly <= 0 {
 		return 0
 	}
-	return Round2(actualMonthly / grossAvg * 100)
+	return domain.Round2(actualMonthly / grossAvg * 100)
 }

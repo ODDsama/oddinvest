@@ -21,7 +21,9 @@ package engine
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -201,11 +203,7 @@ func summarizeIncome(sch schedule, rates fx.Rates, today domain.Date) incomeSumm
 			ladderByYear[e.Year] += u.Amount()
 		}
 	}
-	years := make([]int, 0, len(ladderByYear))
-	for y := range ladderByYear {
-		years = append(years, y)
-	}
-	sort.Ints(years)
+	years := slices.Sorted(maps.Keys(ladderByYear))
 	out := incomeSummary{LadderUAH: make([]state.YearAmount, 0, len(years))}
 	for _, y := range years {
 		out.LadderUAH = append(out.LadderUAH,
@@ -245,7 +243,7 @@ func summarizeIncome(sch schedule, rates fx.Rates, today domain.Date) incomeSumm
 	// звільнений (брутто = нетто), відсотки вкладу графік віддає після
 	// утримання, дивіденди фондів додаються теж чистими. Скільки саме
 	// забрав податок — окремо, у /api/tax.
-	out.MonthlyNow = Round2(couponSum / 12)
+	out.MonthlyNow = domain.Round2(couponSum / 12)
 	return out
 }
 

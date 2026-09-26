@@ -120,7 +120,7 @@ func (e *Engine) SwitchRows(ctx context.Context, now time.Time, alt *SwitchAlt) 
 			row.Accrued = ToMoneyJSON(acc)
 		}
 		if y, ok := domain.WeightedYTM(h.ytm, pays); ok {
-			row.HoldRealPct = Round2(RealYield(y/100, cur, deval) * 100)
+			row.HoldRealPct = domain.Round2(RealYield(y/100, cur, deval) * 100)
 		}
 		if alt == nil {
 			row.Reason = "нема з чим порівнювати: помічник не пропонує жодного інструмента"
@@ -150,7 +150,7 @@ func (e *Engine) SwitchRows(ctx context.Context, now time.Time, alt *SwitchAlt) 
 		}
 		row.BreakEven = ToMoneyJSON(be)
 		if b.Nominal != nil && b.Nominal.Amount() > 0 {
-			row.BreakEvenPct = Round2(float64(be.Amount()) / float64(b.Nominal.Amount()) * 100)
+			row.BreakEvenPct = domain.Round2(float64(be.Amount()) / float64(b.Nominal.Amount()) * 100)
 		}
 		rows = append(rows, row)
 	}
