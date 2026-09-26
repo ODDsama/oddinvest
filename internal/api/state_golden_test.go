@@ -641,9 +641,7 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		// лишився б нулем, і гілка оцінки не перевірялась би зовсім.
 		"npf_credit_pdfo_year_uah": "40000", "npf_credit_cap_month_uah": "4660",
 		"limit_isin_pct": "20", "limit_broker_pct": "50", "limit_year_pct": "40",
-		"goal_pessimistic_uah": "200000", "goal_realistic_uah": "500000",
-		"goal_optimistic_uah": "1000000",
-		"import_since":        string(d(-5)),
+		"import_since": string(d(-5)),
 		// Публічна адреса: у житті її пише сам тунель при підключенні
 		// (internal/tunnel), але в документі це звичайне налаштування —
 		// і саме звідти його читає інтеграція HA.

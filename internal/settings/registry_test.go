@@ -19,8 +19,8 @@ func TestSettingsRegistryMatchesDoc(t *testing.T) {
 	// Поля SettingsDoc, які НЕ походять від ключа: їх виводить сам
 	// будівник. Кожне тут — із поясненням, інакше список стане смітником.
 	derived := map[string]string{
-		"monthly_target_uah": "виводиться з цілі й дедлайну, а не задається",
-		"channels":           "збирається з довідника брокерів",
+		"monthly_target_uah":   "виводиться з цілі й дедлайну, а не задається",
+		"monthly_expenses_uah": "переклад monthly_expenses у гривні (ResolveExpensesUAH)",
 	}
 
 	docFields := map[string]bool{}

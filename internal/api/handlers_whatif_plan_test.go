@@ -39,7 +39,7 @@ func planServer(t *testing.T) (string, *store.Store) {
 		t.Fatal(err)
 	}
 	for k, v := range map[string]string{
-		"monthly_expenses_uah": "30000",
+		"monthly_expenses": "30000",
 		// Ціль навмисно НЕДОСЯЖНА за десять років: при досяжній goal_pct
 		// упирається в 100% і перестає бути чутливою — тест тоді перевіряв
 		// би стелю, а не те, чи доїхав замок до прогнозу.

@@ -591,13 +591,6 @@ type SettingsDoc struct {
 	// сповзає сьогоднішня; RateGlideYears — за скільки років.
 	TerminalRatePct *float64 `json:"terminal_rate_pct,omitempty"`
 	RateGlideYears  *float64 `json:"rate_glide_years,omitempty"`
-	// Спадок моделі «три цілі за рівнем амбіції»: міграція 0008 замінила
-	// її однією ціллю, а сценарії розвела ДОПУЩЕННЯМИ. Поля лишаються
-	// запасним джерелом для GoalAmountUAH і читаються лише як fallback —
-	// нового сюди не пишуть.
-	GoalPessimisticUAH *float64 `json:"goal_pessimistic_uah,omitempty"`
-	GoalRealisticUAH   *float64 `json:"goal_realistic_uah,omitempty"`
-	GoalOptimisticUAH  *float64 `json:"goal_optimistic_uah,omitempty"`
 
 	// ReinvestRank — критерій ранжування помічника:
 	// plan (за замовчуванням) | rate | short | ladder.
@@ -636,9 +629,9 @@ type SettingsDoc struct {
 	// вісім вважають число гривнями. Зробити його валютним означало б
 	// провести курс через увесь пакет, який про курси нічого не знає.
 	//
-	// Порожній MonthlyExpenses лишає гривневе поле тим, що прочитав
-	// спадковий ключ monthly_expenses_uah: саме так база, старша за
-	// міграцію 0038, працює без жодної правки.
+	// Порожній MonthlyExpenses лишає гривневе поле порожнім: витрат не
+	// задано. Спадкового рядка monthly_expenses_uah у сховищі більше немає
+	// (0065).
 	MonthlyExpenses         *float64 `json:"monthly_expenses,omitempty"`
 	MonthlyExpensesCurrency string   `json:"monthly_expenses_currency,omitempty"`
 	// ReportCurrency — валюта звітності (internal/settings). Порожньо =

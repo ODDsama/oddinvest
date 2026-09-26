@@ -993,15 +993,9 @@ func buildProjection(in projectionInput) projectionPhase {
 	if gd := domain.Date(in.Settings.GoalDate); gd.Valid() {
 		deadlineMonths = fullMonthsUntil(today, gd)
 	}
-	// Ціль читаємо з нового одиночного поля, зі спадом на старі три — щоб
-	// профілі, які ще не пройшли міграцію 0008, не лишились без цілі.
 	goalAmount := 0.0
-	for _, c := range []*float64{in.Settings.GoalAmountUAH, in.Settings.GoalOptimisticUAH,
-		in.Settings.GoalRealisticUAH, in.Settings.GoalPessimisticUAH} {
-		if c != nil && *c > 0 {
-			goalAmount = *c
-			break
-		}
+	if in.Settings.GoalAmountUAH != nil {
+		goalAmount = *in.Settings.GoalAmountUAH
 	}
 	if goalAmount > 0 && deadlineMonths > 0 {
 		// Рукави тут потрібні лише щоб задати ПРОПОРЦІЇ між валютами;

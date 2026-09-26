@@ -108,12 +108,8 @@ var Registry = []Def{
 	{Key: "monthly_expenses_currency", Str: func(s *state.SettingsDoc) *string { return &s.MonthlyExpensesCurrency },
 		Enum: []string{"UAH", "USD", "EUR"},
 		Why:  "у якій валюті мисляться витрати; порожньо = гривня"},
-	// Спадок: до 0038 витрати були гривневі за побудовою, і ключ казав це
-	// назвою. Читається лише як запасне джерело MonthlyExpensesUAH — форми
-	// для нього немає навмисно, нового сюди не пишуть. Той самий прийом,
-	// що з goal_*_uah нижче.
-	{Key: "monthly_expenses_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.MonthlyExpensesUAH },
-		Why: "спадок 0038; лише читається, доки не задані витрати з валютою"},
+	// Спадкових ключів monthly_expenses_uah (до 0038) і goal_*_uah (до 0008)
+	// тут більше немає: міграція 0065 прибрала й самі рядки.
 	{Key: "reserve_target_months", Num: func(s *state.SettingsDoc) **float64 { return &s.ReserveTargetMonths },
 		Why: "на скільки місяців витрат хочеться запас"},
 	// Ціль резерву казала, СКІЛЬКИ треба, і не казала нічого про те, звідки
@@ -214,15 +210,6 @@ var Registry = []Def{
 		Why: "стеля концентрації; дефолту немає навмисно — це була б порада"},
 	{Key: "limit_broker_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.LimitBrokerPct }},
 	{Key: "limit_year_pct", Num: func(s *state.SettingsDoc) **float64 { return &s.LimitYearPct }},
-
-	// Спадок моделі «три цілі за рівнем амбіції»: міграція 0008 замінила
-	// її однією ціллю. Ключі лишаються запасним джерелом для
-	// GoalAmountUAH і читаються лише як fallback — форми для них немає
-	// навмисно, нового сюди не пишуть.
-	{Key: "goal_pessimistic_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.GoalPessimisticUAH },
-		Why: "спадок 0008; лише читається як запасне джерело цілі"},
-	{Key: "goal_realistic_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.GoalRealisticUAH }},
-	{Key: "goal_optimistic_uah", Num: func(s *state.SettingsDoc) **float64 { return &s.GoalOptimisticUAH }},
 
 	// Публічна адреса застосунку — та, з якої він відкривається З
 	// ТЕЛЕФОНА. Пишеться сама, коли тунель підключають зі сторінки

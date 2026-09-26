@@ -369,7 +369,7 @@ func TestForecastFallsBackToLegacyGoalFields(t *testing.T) {
 	seed(t, st)
 	deadline := time.Now().AddDate(2, 0, 0).Format("2006-01-02")
 	if resp, body := do(t, "PUT", srv.URL+"/api/settings",
-		`{"goal_optimistic_uah":"750000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
+		`{"goal_amount_uah":"750000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
 	}
 	_, body := do(t, "GET", srv.URL+"/api/summary", "")
@@ -3243,7 +3243,7 @@ func TestReserveFillDoesNotBecomeBuyingPower(t *testing.T) {
 		t.Fatalf("потік плану: %d %s", resp.StatusCode, b)
 	}
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
-		`{"monthly_expenses_uah":"30000","reserve_target_months":"3"}`); resp.StatusCode != http.StatusNoContent {
+		`{"monthly_expenses":"30000","reserve_target_months":"3"}`); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
 	}
 
@@ -3370,7 +3370,7 @@ func TestReserveSufficiencyNeedsExpenses(t *testing.T) {
 	}
 
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
-		`{"monthly_expenses_uah":"20000","reserve_target_months":"6"}`); resp.StatusCode >= 300 {
+		`{"monthly_expenses":"20000","reserve_target_months":"6"}`); resp.StatusCode >= 300 {
 		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
 	}
 	_, body = do(t, "GET", srv.URL+"/api/summary", "")
@@ -3562,7 +3562,7 @@ func TestKindTargetsDoNotNormalise(t *testing.T) {
 	}
 	// 40+25 = 65: нерозподілених 35% має лишитись нерозподіленими.
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
-		`{"target_bonds_pct":"40","target_funds_pct":"25","monthly_expenses_uah":"20000","reserve_target_months":"6"}`); resp.StatusCode >= 300 {
+		`{"target_bonds_pct":"40","target_funds_pct":"25","monthly_expenses":"20000","reserve_target_months":"6"}`); resp.StatusCode >= 300 {
 		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
 	}
 
@@ -3742,7 +3742,7 @@ func TestKindSharesSumToHundredWithoutCash(t *testing.T) {
 		t.Fatal(err)
 	}
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
-		`{"target_bonds_pct":"100","monthly_expenses_uah":"20000","reserve_target_months":"6"}`); resp.StatusCode >= 300 {
+		`{"target_bonds_pct":"100","monthly_expenses":"20000","reserve_target_months":"6"}`); resp.StatusCode >= 300 {
 		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
 	}
 

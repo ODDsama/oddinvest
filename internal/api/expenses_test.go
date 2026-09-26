@@ -88,38 +88,3 @@ func TestExpensesInUSDConvertAtTodayRate(t *testing.T) {
 		t.Errorf("після зміни курсу ціль = %.2f, чекали 450 000", target)
 	}
 }
-
-// База, старша за міграцію 0038: у ній лежить лише monthly_expenses_uah.
-//
-// Спадковий ключ мусить і далі працювати сам по собі — інакше оновлення
-// застосунку мовчки вимкнуло б резерв тому, хто про це не просив. Це та
-// сама роль, що в goal_*_uah після 0008, і перевіряти її треба саме
-// тестом: у коді вона виглядає як відсутність рядка.
-func TestLegacyExpensesKeyStillFeedsReserve(t *testing.T) {
-	srv, _ := testServer(t)
-
-	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
-		`{"monthly_expenses_uah":"25000","reserve_target_months":"4"}`); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
-	}
-	var got struct {
-		Reserve *struct {
-			TargetUAH          float64 `json:"target_uah"`
-			MonthlyExpensesUAH float64 `json:"monthly_expenses_uah"`
-		} `json:"reserve"`
-	}
-	_, body := do(t, "GET", srv.URL+"/api/summary", "")
-	if err := json.Unmarshal([]byte(body), &got); err != nil {
-		t.Fatalf("summary: %v: %s", err, body)
-	}
-	if got.Reserve == nil {
-		t.Fatal("спадковий ключ перестав заводити картку резерву")
-	}
-	if math.Abs(got.Reserve.MonthlyExpensesUAH-25_000) > 0.01 {
-		t.Errorf("витрати = %.2f, чекали 25 000 зі спадкового ключа",
-			got.Reserve.MonthlyExpensesUAH)
-	}
-	if math.Abs(got.Reserve.TargetUAH-100_000) > 0.01 {
-		t.Errorf("ціль резерву = %.2f, а 4 × 25 000 = 100 000", got.Reserve.TargetUAH)
-	}
-}
