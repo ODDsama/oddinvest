@@ -188,7 +188,7 @@ function exitHTML(g) {
     <div class="sub">Середні за ${months} ${esc(plural(months, "місяць", "місяці", "місяців"))}
       вікна від ${esc(monthYear(e.start_month + "-01"))} (місяць звірки — цілим); розстрочки й
       планові — теж середнє, а по місяцях — у «Помісячно до нуля» нижче. Планові
-      заводяться в <a class="lnk" href="${routeFor("plan/expenses")}">Плані → Планові витрати</a>.</div>
+      заводяться в <a class="lnk" href="${routeFor("plan/expenses/main")}">Плані → Планові витрати</a>.</div>
     <div class="ledger rule-top">
       <div class="kv"><span class="muted">Витрачається зараз (${esc(e.spend_basis)})</span>
         <b class="nowrap">${fmtMoney(e.spend_used)}/міс</b></div>

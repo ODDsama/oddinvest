@@ -284,7 +284,7 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
     empty: mode === "past" ? "Виплат у минулому ще не було." : "Попереду виплат немає.",
   })}
       <div class="sub-xs">Куди піде кожне надходження —
-        <a class="lnk" href="${routeFor("plan/route")}">Маршрут грошей</a>.</div>
+        <a class="lnk" href="${routeFor("plan/route/main")}">Маршрут грошей</a>.</div>
     </div>`;
   if (append) place(main, html);
   else main.innerHTML = html;
@@ -388,7 +388,7 @@ export function drawdownHTML(ctx) {
       + "холодильника, і переказ у резерв, тож міряти від них «місяць життя» означало б "
       + "рахувати від випадкового числа. Задай «місячні витрати» або «скільки знімати» "
       + "в «Політиці → Резерв».",
-    routeFor("policy/reserve"));
+    routeFor("policy/reserve/main"));
   }
   const inc = (v) => uah0(v);
   const from = d.withdraw_from === "expenses"

@@ -362,7 +362,10 @@ export function kindOf(tab, item) {
     // Ціль — рядок із ДАНИХ, як папір і рахунок, тож вид береться з
     // префікса id, а не зі списку: на момент розбору хеша цілей ще немає.
     if (/^goal:/.test(item)) return "portfolio/goal";
-    return /^(bond|fund|npf|deposit):/.test(item) ? "portfolio/position" : null;
+    // «@first:<вид>» — маркер першого рядка виду (routes.js, FIRST_OF):
+    // панелі в нього ті самі, що в позиції, а розкриває його оболонка.
+    return /^(bond|fund|npf|deposit):|^@first:(bond|fund|npf|deposit)$/.test(item)
+      ? "portfolio/position" : null;
   }
   if (tab === "money") return item.startsWith("acct:") ? "money/account" : null;
   if (tab === "plan" && item === "debts") return "plan/debts";

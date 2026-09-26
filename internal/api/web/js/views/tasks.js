@@ -40,20 +40,20 @@ import { routeFor } from "../routes.js";
 const ACTIONS = {
   "record-buy": { to: "buy", label: "Записати покупку" },
   "top-up-deposit": { to: "topup", label: "Поповнити" },
-  "fill-reserve": { to: "entry/reserve", label: "Записати рух" },
+  "fill-reserve": { to: "portfolio/reserve/record", label: "Записати рух" },
   // Задача цілі несе ref («goal:<id>») — і веде в панель запису САМЕ цієї
   // цілі. Без ref (такої задачі зараз немає, але токен той самий) —
   // спільна панель «Записати нове».
   "fill-goal": { to: "portfolio/all/record", label: "Записати рух", pane: "record" },
   // Рахунок — із ref задачі («npf:<назва>»): у кого їх два, той інакше
   // потрапляв у форму першого й міг записати внесок не туди.
-  "record-npf": { to: "entry/npf", label: "Записати внесок", pane: "record" },
-  "confirm-payment": { to: "plan/payouts", label: "Відмітити" },
+  "record-npf": { to: "portfolio/@first:npf/record", label: "Записати внесок", pane: "record" },
+  "confirm-payment": { to: "plan/payouts/main", label: "Відмітити" },
   // Веде НЕ в календар, хоч дія в обох — «позначити отриманим». Календар
   // відповідає на «чи прийшло», маршрут — на «куди це піде», а питання
   // цієї задачі саме друге: гроші приходять сьогодні, і рішення про них
   // ухвалюється зараз, а не при звірці.
-  "confirm-route": { to: "plan/route", label: "Розкласти" },
+  "confirm-route": { to: "plan/route/main", label: "Розкласти" },
   // Картка «Надходження» — друга згори на «Що заходить». Доти адреса
   // вела на якір planflow, тобто до форми НОВОГО потоку внизу сторінки:
   // людина, що прийшла відмітити факт, опинялась там, де його не
@@ -63,7 +63,7 @@ const ACTIONS = {
   // кнопка, що обіцяє лише перше, змусила б брехати того, хто вибрав друге.
   // Обидва робляться на самій сторінці: ₴ ставить сьогоднішню дату, ✎
   // зсуває дату платежу.
-  "pay-planned": { to: "plan/expenses", label: "Розібратись із витратою" },
+  "pay-planned": { to: "plan/expenses/main", label: "Розібратись із витратою" },
   // Картка — до звірки (два числа з додатка банку й роблять пороги
   // правдою). Доти дія мапи не мала зовсім, і задачі «сплати картку»
   // стояли в черзі без кнопки.
@@ -77,8 +77,8 @@ const ACTIONS = {
   "see-suggestions": { to: "work/pick/main", label: "Що взяти" },
   // pane — панель рядка, коли задача несе ref (конкретний запис). Без ref
   // лишається загальна адреса to.
-  "review-deposit": { to: "assets/deposits", label: "Подивитись вклад", pane: "next" },
-  "how-to-fund": { to: "assets/funds", label: "Як завести сертифікат", pane: "state" },
+  "review-deposit": { to: "portfolio/@first:deposit/state", label: "Подивитись вклад", pane: "next" },
+  "how-to-fund": { to: "portfolio/@first:fund/state", label: "Як завести сертифікат", pane: "state" },
 };
 
 const GROUPS = [

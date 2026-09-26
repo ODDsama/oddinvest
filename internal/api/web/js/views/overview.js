@@ -183,14 +183,14 @@ function routePreviewHTML(legs) {
     return `<div class="card"><h2>Що заходить найближчим часом</h2>${empty(
       "Надходжень попереду немає",
       "Тут стануть найближчі надходження й те, куди вони підуть.",
-      { href: routeFor("plan/inflow"), label: "Додати джерело доходу" })}</div>`;
+      { href: routeFor("plan/inflow/main"), label: "Додати джерело доходу" })}</div>`;
   }
   // Ноги маршруту (/api/route → legs), і сума — inflow_uah: те, що ляже на
   // рахунок того дня, як і в колонці «Надійде» самого маршруту. Доти картка
   // читала неіснуючі rows/amount і на будь-яких даних показувала порожнечу.
   return `<div class="card">
     <h2 class="card-head"><span>Що заходить найближчим часом</span>
-      <a class="lnk" href="${routeFor("plan/route")}">увесь маршрут</a></h2>
+      <a class="lnk" href="${routeFor("plan/route/main")}">увесь маршрут</a></h2>
     ${legs.slice(0, 5).map((l) => `<div class="pv-row">
       <span class="muted">${esc(dayMonth(l.date))} · ${esc(l.label || "")}</span>
       <span>${uah0(l.inflow_uah)}</span>

@@ -23,197 +23,35 @@
 import { PATHS, FIRST, HOME, panesFor } from "./nav.js";
 
 // ---------------------------------------------------------------------
-// Старі адреси
+// Невідомі адреси
 // ---------------------------------------------------------------------
 //
-// Закладки, зроблені до майстер-деталі. Не 404 і не тихий відкат на
-// головну: адреса вела в конкретне місце, і воно нікуди не поділось —
-// лише переїхало.
-//
-// ЗНАЧЕННЯ МУСИТЬ БУТИ ГОТОВОЮ НОВОЮ АДРЕСОЮ. resolveLegacy ходить у цю
-// таблицю ОДИН раз: якщо покласти сюди адресу, яку саму треба ще
-// переводити, вона поїде в застосунок як є й упаде аж при рендері —
-// найтихішим можливим чином.
+// Таблиці переїздів (закладки ще з дерева «Активи / Ризик / Записати» і
+// з майстер-деталі до 2026-09) більше немає. Вона тримала сотню старих
+// адрес заради закладок, а сам застосунок дев'ятнадцятьма з них
+// користувався як живими — тобто таблиця давно стала другим деревом
+// навігації, яке треба було перевіряти окремим контрактом. Посилання
+// коду переписані на живі адреси; стара закладка тепер веде за правилом
+// голої вкладки або на головну.
 
 // «@first:<вид>» — не літерал, а вказівка «перший рядок цього виду».
 //
-// Стара адреса instr/bonds називала ВИД, а новий рядок майстер-списку —
-// конкретний папір. Жоден ISIN сюди зашити не можна: він залежить від
-// даних, яких на момент розбору хеша ще немає. Тому таблиця віддає
-// маркер, а розкриває його оболонка — там, де список рядків уже відомий
-// (app.js, _resolveItem). Порожній вид розкривається в «Портфель
-// цілком»: сторінка виду без жодної позиції й доти показувала порожній
-// стан, і зведення каже те саме чесніше.
+// Посилання «Відкрити вклад» чи «Записати внесок» називає ВИД, а рядок
+// майстер-списку — конкретний папір. Жоден ISIN сюди зашити не можна: він
+// залежить від даних, яких на момент розбору хеша ще немає. Тому адреса
+// несе маркер, а розкриває його оболонка — там, де список рядків уже
+// відомий (app.js, _resolveItem). Порожній вид розкривається в «Портфель
+// цілком».
 export const FIRST_OF = "@first:";
 
 /** Вид, перший рядок якого треба знайти, або "" якщо це не маркер. */
 export const markerKind = (item) =>
   (item || "").startsWith(FIRST_OF) ? item.slice(FIRST_OF.length) : "";
 
-// Кроки воронки → панелі інспектора. Імена змінились рівно тому, що
-// змінився ярус: крок належав виду, панель належить сутності.
-const STEP_PANE = {
-  state: "state",
-  mine: "have",
-  next: "next",
-  act: "do",
-  write: "record",
-  terms: "terms",
-};
-
-// Старий підрозділ «Інструментів» → новий рядок «Портфеля».
-const OLD_KIND = {
-  bonds: `${FIRST_OF}bond`,
-  funds: `${FIRST_OF}fund`,
-  npf: `${FIRST_OF}npf`,
-  deposits: `${FIRST_OF}deposit`,
-  reserve: "reserve",
-};
-
-const LEGACY = new Map([
-  // --- вкладка «Робота» ---
-  // «Що робити» злилась із «Оглядом» у «Сьогодні» (2026-09-22).
-  ["now/todo", "overview/main/main"],
-  ["work/todo", "overview/main/main"],
-  ["now/buy", "work/buy/main"],
-  ["now/buys", "work/buys/main"],
-  // Кошик покупки став планом купівель: рядки переїхали в базу й дістали
-  // дату. Адреса вела в конкретне місце, і воно нікуди не поділось.
-  ["now/basket", "work/buys/main"],
-
-  // --- «Портфель цілком» ---
-  ["portfolio/positions", "portfolio/all/positions"],
-  ["portfolio/growth", "portfolio/all/growth"],
-  ["portfolio/period", "portfolio/all/period"],
-  ["portfolio/structure", "portfolio/all/structure"],
-  ["portfolio/limits", "portfolio/all/limits"],
-  ["portfolio/compare", "portfolio/all/compare"],
-
-  // --- «Гроші» ---
-  ["money/balances", "money/all/balances"],
-  ["money/flows", "money/all/flows"],
-  ["money/tax", "money/all/tax"],
-  ["money/import", "money/all/import"],
-  ["money/reconcile", "money/all/reconcile"],
-
-  // --- «План», «Політика», «Налаштування»: рядок сам собі сторінка ---
-  ["plan/inflow", "plan/inflow/main"],
-  ["plan/expenses", "plan/expenses/main"],
-  ["plan/route", "plan/route/main"],
-  ["plan/goal", "plan/goal/main"],
-  ["plan/levers", "plan/levers/main"],
-  ["plan/payouts", "plan/payouts/main"],
-  // «Ціна покупки» була рядком «Плану» й пішла разом із питанням, на яке
-  // відповідала (довід — у nav.js). Запис потрібен ЯВНО: без нього
-  // закладка впала б у правило голої вкладки — тобто в ті самі «Борги»,
-  // але випадково й без обіцянки.
-  ["plan/spend", "plan/debts/state"],
-  // «Борги» дістали панелі (2026-09-23): стара адреса сторінки — у «Стан».
-  ["plan/debts/main", "plan/debts/state"],
-  ["policy/strategy", "policy/strategy/main"],
-  ["policy/mix", "policy/mix/main"],
-  ["policy/instruments", "policy/instruments/main"],
-  ["policy/reserve", "policy/reserve/main"],
-  ["policy/assumptions", "policy/assumptions/main"],
-  ["settings/refs", "settings/refs/main"],
-  ["settings/backup", "settings/backup/main"],
-
-  // --- закладки ще з дерева «Активи / Ризик / Записати» ---
-  //
-  // «overview» тут БІЛЬШЕ НЕМАЄ, і це не пропуск: так тепер зветься жива
-  // вкладка, і розкриває її правило FIRST. Запис у цій таблиці переміг
-  // би назву вкладки — рівно та пастка, що описана нижче про «portfolio».
-  //
-  // Старий #/overview і БУВ дашбордом, а новий «Огляд» — той самий
-  // дашборд, відроджений; тобто адреса повернулась туди, куди вела
-  // завжди.
-
-  ["assets", "portfolio/all/positions"],
-  ["assets/positions", "portfolio/all/positions"],
-  ["assets/growth", "portfolio/all/growth"],
-  // Ці п'ять називали ВИД, як і instr/*, тож і ведуть так само — у
-  // перший рядок цього виду. Без них вони падали на голе «assets» і
-  // відкривали зведення: адреса лишалась робочою, але вела не туди, куди
-  // написано, — а це найгірший сорт поламаного посилання.
-  ["assets/bonds", `portfolio/${FIRST_OF}bond/state`],
-  ["assets/funds", `portfolio/${FIRST_OF}fund/state`],
-  ["assets/npf", `portfolio/${FIRST_OF}npf/state`],
-  ["assets/deposits", `portfolio/${FIRST_OF}deposit/state`],
-  ["assets/reserve", "portfolio/reserve/state"],
-  ["risk", "portfolio/all/structure"],
-  ["risk/structure", "portfolio/all/structure"],
-  ["risk/limits", "portfolio/all/limits"],
-  ["risk/compare", "portfolio/all/compare"],
-
-  // «Записати» вело у форму для того, чого ще НЕМАЄ, — і саме на це
-  // відповідає панель «Записати нове» зведеного рядка. Вести ці адреси в
-  // @first:bond/record означало б відкрити форму «купити ще ЦЕЙ папір»
-  // тому, хто прийшов купувати інший.
-  ["entry", "portfolio/all/record"],
-  ["entry/bond", "portfolio/all/record"],
-  ["entry/deposit", "portfolio/all/record"],
-  ["portfolio/buy", "portfolio/all/record"],
-  ["portfolio/topup", "portfolio/all/record"],
-  // Два винятки, і вони не довільні: форма внеску в НПФ мусить цілитись у
-  // конкретний рахунок (npfDetailHTML), а журнал резерву в зведеному
-  // рядку не живе.
-  ["entry/npf", `portfolio/${FIRST_OF}npf/record`],
-  ["entry/reserve", "portfolio/reserve/record"],
-
-  ["entry/cash", "money/all/balances/cash"],
-  ["entry/convert", "money/all/balances/convert"],
-  ["entry/import", "money/all/import"],
-  ["entry/reconcile", "money/all/reconcile"],
-  // deposit тут — поповнення грошового РАХУНКУ, не вкладу: два різні
-  // «поповнення» жили поруч у старій таблиці якорів і плутались.
-  ["money/deposit", "money/all/balances/cash"],
-  ["money/convert", "money/all/balances/convert"],
-
-  ["plan/planflow", "plan/inflow/main/planflow"],
-  // «Майбутнє» злилося з «Планом» ще торік, і закладка на нього досі
-  // може лежати в чиємусь браузері.
-  ["future", "plan/goal/main"],
-]);
-
-// Воронки: п'ять видів × шість кроків, у резерву п'ять. Циклом, а не
-// руками, — двадцять дев'ять рядків копіпасти розійшлися б із STEP_PANE
-// при першому ж перейменуванні панелі.
-for (const [old, item] of Object.entries(OLD_KIND)) {
-  LEGACY.set(`instr/${old}`, `portfolio/${item}/state`);
-  for (const [step, pane] of Object.entries(STEP_PANE)) {
-    // У резерву панелі «Що зробити» немає за природою (довід — у nav.js),
-    // тож старий крок «act» веде на найближчу за змістом: що варто
-    // відкласти далі.
-    const to = item === "reserve" && pane === "do" ? "next" : pane;
-    LEGACY.set(`instr/${old}/${step}`, `portfolio/${item}/${to}`);
-  }
-}
-
-// ПАСТКА, ЯКУ ВАРТО ЗНАТИ. Голих «portfolio», «money», «plan», «policy»,
-// «settings» тут БІЛЬШЕ НЕМАЄ, і це не пропуск: resolveLegacy пробує цю
-// таблицю РАНІШЕ за правило FIRST, тож запис, який тут стояв би, переміг
-// би назву живої вкладки — і будь-яка помилка в ньому вела б на сторінку,
-// якої не існує, найтихішим чином.
-//
-// Голі «assets», «risk», «entry», «instr», «future», «overview»,
-// навпаки, потрібні ЯВНО: цих розділів більше немає, тож FIRST їх не
-// знає й сам не розкриє.
-LEGACY.set("instr", "portfolio/all/positions");
-
-// Куди веде адреса, якої немає в дереві. Порядок кроків має значення:
-// «money/deposit» мусить піти в таблицю переїздів РАНІШЕ, ніж спрацює
-// правило голої вкладки, — інакше «money» знайшлось би саме собою й
-// відкрило б баланси замість форми.
-//
-// Зациклитись це не може навіть із помилкою в таблиці: значення, якого
-// немає в дереві, наступним проходом не знайдеться ні тут, ні в LEGACY,
-// впаде в правило голої вкладки або в HOME — і на цьому спиниться.
-function resolveLegacy(parts) {
-  const [a = "", b = "", c = ""] = parts;
-  const hit = LEGACY.get(`${a}/${b}/${c}`)
-    || LEGACY.get(`${a}/${b}`)
-    || LEGACY.get(a);
-  if (hit) return hit;
+// Куди веде адреса, якої немає в дереві: гола вкладка — у свій перший
+// рядок, решта — на головну. Зациклитись це не може: HOME існує завжди.
+function fallback(parts) {
+  const [a = ""] = parts;
   if (FIRST.has(a)) return `${a}/${FIRST.get(a)}`;
   return HOME;
 }
@@ -250,7 +88,7 @@ export function parseRoute(hash) {
   if (tab && item && pane && known(tab, item, pane)) {
     return { tab, item, pane, anchor: anchor || "", redirect: "" };
   }
-  const to = resolveLegacy(parts);
+  const to = fallback(parts);
   const seg = to.split("/");
   return {
     tab: seg[0], item: seg[1], pane: seg[2], anchor: seg[3] || "", redirect: to,
@@ -329,12 +167,12 @@ function exact(what) {
   return "";
 }
 
-/** Чи ВПІЗНАНО цю адресу — тобто чи вона десь названа, а не вгадана
- *  правилом голої вкладки.
+/** Чи ВПІЗНАНО цю адресу — тобто чи вона названа (жива трійка, форма,
+ *  назва вкладки), а не вгадана правилом голої вкладки.
  *
  *  Питання не те саме, що «чи веде кудись живого», і різниця в ньому
- *  дорога. `risk/limitz` з описки нікому не відома, але resolveLegacy
- *  бачить у ній голе «risk» і чесно відкриває структуру портфеля:
+ *  дорога. `portfolio/limitz` з описки нікому не відома, але fallback
+ *  бачить у ній голе «portfolio» і чесно відкриває позиції:
  *  посилання зламане, сторінка правдоподібна, скарги немає. Правило
  *  голої вкладки для того й існує — «набрав половину адреси» не помилка, —
  *  але воно ж і ховає описку, бо не відрізняє половину від хибної
@@ -345,16 +183,11 @@ function exact(what) {
  *  уже знає й досі мовчки викидало. Перевірка, яка не має цього питати,
  *  ловить лише мертві адреси й пропускає правдоподібні. */
 export const routeKnown = (what) =>
-  !!exact(what) || LEGACY.has(String(what)) || FIRST.has(String(what));
+  !!exact(what) || FIRST.has(String(what));
 
 /** Адреса, за якою відкривається потрібна форма, панель або вкладка.
- *
- *  Через ту саму resolveLegacy, що й parseRoute, і це ВИПРАВЛЕННЯ, а не
- *  охайність. Доти routeFor у таблицю переїздів не заглядав — і три дії
- *  черги задач, які й далі називають адреси старого дерева
- *  (views/tasks.js: risk/limits, assets/deposits, assets/funds), тихо
- *  вели на головну. Кнопка казала «Подивитись ліміти» й відкривала чергу
- *  задач; помітити це можна було, лише знаючи наперед, куди мало вести. */
+ *  Невідома веде тим самим шляхом, що й у parseRoute; описку в коді ловить
+ *  web-routes-check.mjs через routeKnown. */
 export function routeFor(what) {
-  return `#/${exact(what) || resolveLegacy(String(what).split("/"))}`;
+  return `#/${exact(what) || fallback(String(what).split("/"))}`;
 }

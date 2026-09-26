@@ -83,23 +83,23 @@ const KINDS = {
 // в ній не ловилась би нічим.
 const TERMS = {
   bond: [
-    { to: "policy/mix", label: "Цільова частка й ліміти" },
-    { to: "policy/assumptions", label: "Припущення про ставки" },
+    { to: "policy/mix/main", label: "Цільова частка й ліміти" },
+    { to: "policy/assumptions/main", label: "Припущення про ставки" },
   ],
   fund: [
-    { to: "policy/mix", label: "Цільова частка й ліміти" },
-    { to: "settings/refs", label: "Каталог фондів" },
+    { to: "policy/mix/main", label: "Цільова частка й ліміти" },
+    { to: "settings/refs/main", label: "Каталог фондів" },
   ],
   npf: [
-    { to: "policy/instruments", label: "Умови реінвесту" },
-    { to: "settings/refs", label: "Пенсійні рахунки" },
+    { to: "policy/instruments/main", label: "Умови реінвесту" },
+    { to: "settings/refs/main", label: "Пенсійні рахунки" },
   ],
   deposit: [
-    { to: "policy/instruments", label: "Мінімум і ставка вкладу" },
-    { to: "policy/mix", label: "Цільова частка" },
+    { to: "policy/instruments/main", label: "Мінімум і ставка вкладу" },
+    { to: "policy/mix/main", label: "Цільова частка" },
   ],
   reserve: [
-    { to: "policy/reserve", label: "Витрати, запас і стеля поповнення" },
+    { to: "policy/reserve/main", label: "Витрати, запас і стеля поповнення" },
   ],
 };
 
@@ -292,7 +292,7 @@ function writeHTML(ctx, spec, d) {
     if (!rows.length) {
       return `<div class="card">${empty("Рахунків ще немає",
         "Пенсійний рахунок заводиться в довідниках — там задаються ставка, податок і дата доступу.",
-        { href: routeFor("settings/refs"), label: "Довідники" })}</div>`;
+        { href: routeFor("settings/refs/main"), label: "Довідники" })}</div>`;
     }
     return rows.map((n) => `<div class="card"><h3>${esc(n.name)}</h3>
       ${npfDetailHTML(ctx, n)}</div>`).join("");
@@ -303,7 +303,7 @@ function writeHTML(ctx, spec, d) {
     "Журнал веде виписка: купівлі, продажі й дивіденди приходять файлом, а виправити "
     + "операцію можна в журналі фонду. Два джерела правди — виписка й рука — розійшлися б, "
     + "і розійшлися б тихо.",
-    { href: routeFor("money/import"), label: "Завантажити виписку" })}</div>`;
+    { href: routeFor("money/all/import"), label: "Завантажити виписку" })}</div>`;
 }
 
 /** Панель позиції. Вид береться з id рядка (master.js), тож чотири види
@@ -380,19 +380,19 @@ function panePaneHTML(ctx, spec, d) {
 const EMPTY = {
   bond: {
     text: "Папери з'являться тут після першої покупки.",
-    action: { href: routeFor("instr/bonds/write"), label: "Записати покупку" },
+    action: { href: routeFor("portfolio/@first:bond/record"), label: "Записати покупку" },
   },
   fund: {
     text: "Сертифікати заводить імпорт виписки — руками їх не вносять.",
-    action: { href: routeFor("money/import"), label: "Завантажити виписку" },
+    action: { href: routeFor("money/all/import"), label: "Завантажити виписку" },
   },
   npf: {
     text: "Пенсійний рахунок з'явиться тут, коли буде заведений у довідниках.",
-    action: { href: routeFor("settings/refs"), label: "Довідники" },
+    action: { href: routeFor("settings/refs/main"), label: "Довідники" },
   },
   deposit: {
     text: "Вклади з'являться тут після першого відкритого.",
-    action: { href: routeFor("instr/deposits/write"), label: "Відкрити вклад" },
+    action: { href: routeFor("portfolio/@first:deposit/record"), label: "Відкрити вклад" },
   },
 };
 

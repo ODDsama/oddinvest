@@ -147,7 +147,7 @@ export function reserveTilesHTML(ctx) {
     plural(target, "місяць", "місяці", "місяців")} витрат, — але самі «місячні витрати» порожні,
       тож ні цілі в гривнях, ні розриву тут не буде: ділити нема на що. Це не «цілі немає»:
       число стоїть і чекає на друге. Задай витрати в
-      <a class="lnk" href="${routeFor("policy/reserve")}">Політиці → Резерв</a> — і смужка
+      <a class="lnk" href="${routeFor("policy/reserve/main")}">Політиці → Резерв</a> — і смужка
       з розривом стануть на місце самі.</div>` : ""}
     ${expensesFXHTML(set, r)}
     ${target > 0 && months ? `<div class="progress mb-sm">

@@ -364,7 +364,7 @@ function monthHeadHTML(s) {
   const mp = s.month_plan;
   if (!mp) {
     return `<div class="sub">Плану доходу ще немає, тож розкласти гроші місяця нема з чого.
-      Джерела заводяться в <a class="lnk" href="${routeFor("plan/inflow")}">Плані → Що
+      Джерела заводяться в <a class="lnk" href="${routeFor("plan/inflow/main")}">Плані → Що
       заходить</a> — і тоді права колонка скаже, скільки з них куди.</div>`;
   }
   const done = s.month_deposited_uah || 0;
@@ -380,7 +380,7 @@ function monthHeadHTML(s) {
   const cuts = [];
   if (mp.expense_uah > 0) cuts.push(`витрати ${fmtUAH(mp.expense_uah)}`);
   if (mp.planned_uah > 0) {
-    cuts.push(`<a class="lnk" href="${routeFor("plan/expenses")}">планові витрати</a> ${
+    cuts.push(`<a class="lnk" href="${routeFor("plan/expenses/main")}">планові витрати</a> ${
       fmtUAH(mp.planned_uah)}`);
   }
   if (cuts.length) {
@@ -422,7 +422,7 @@ function monthHeadHTML(s) {
        href="${routeFor("work/buys/main")}">«3 · План і наслідки»</a>: там видно, скільки з них уже
        розписано, і скільки лишилось. Коли гроші вже прийшли, звичніший шлях — кнопка
        «⤵» на самому рядку в <a class="lnk"
-       href="${routeFor("plan/inflow")}">Надходженнях</a>.</div>`
+       href="${routeFor("plan/inflow/main")}">Надходженнях</a>.</div>`
     : "";
   const rm = (s.reserve && s.reserve.fill_month_uah) || 0;
   const res = rm > 0
@@ -460,7 +460,7 @@ export function allocationCardHTML(ctx) {
       + "місяцями витрат у «Резерві», ціль накопичення — у «Цілях накопичення». "
       + "Задай хоч одну — і тут з'явиться, скільки в неї треба грошей і скільки "
       + "вже стоїть.",
-    routeFor("policy/mix"));
+    routeFor("policy/mix/main"));
   }
 
   const rest = (res && res.noTarget ? [res] : []).concat(noTarget);
@@ -519,8 +519,8 @@ export function allocationCardHTML(ctx) {
     ? ` Цілі за видом дають ${targetSum.toFixed(0)}% замість 100 — ${
       (100 - targetSum).toFixed(0)}% портфеля не кероване жодною ціллю. Це не «місце під
       резерв»: подушка в цей знаменник не входить узагалі. Довести до сотні —
-      <a class="lnk" href="${routeFor("policy/mix")}">Частки й межі</a> або готовий набір
-      у <a class="lnk" href="${routeFor("policy/strategy")}">Стратегії</a>.`
+      <a class="lnk" href="${routeFor("policy/mix/main")}">Частки й межі</a> або готовий набір
+      у <a class="lnk" href="${routeFor("policy/strategy/main")}">Стратегії</a>.`
     : targetSum > 100.5
       ? ` Цілі за видом у сумі дають ${targetSum.toFixed(0)}% — більше за портфель, тож
           усі одразу недосяжні.` : "";
@@ -548,7 +548,7 @@ export function allocationCardHTML(ctx) {
       Невкладена готівка при цьому в знаменнику лишається, тож поки
       гроші лежать на рахунку, всі види разом стоять трохи нижче цілі.${whole}
       Ті самі числа у відсотках — <a class="lnk"
-      href="${routeFor("portfolio/structure")}">Портфель → Структура</a>.</div>
+      href="${routeFor("portfolio/all/structure")}">Портфель → Структура</a>.</div>
   </div>`;
 }
 
@@ -636,7 +636,7 @@ export function currencyCardHTML(ctx) {
       "Цільові частки USD і EUR не задані, тож відхилятись немає від чого. Задай їх "
       + "у «Стратегії» — і тут буде видно, якій валюті скільки бракує до цілі, ще до "
       + "того, як обирати вид інструмента.",
-    routeFor("policy/strategy"));
+    routeFor("policy/strategy/main"));
   }
   const rows = raw.map(currencyRow);
   // Порядок той самий, що й у видів: закрите донизу, решта за розривом у
@@ -693,6 +693,6 @@ export function currencyCardHTML(ctx) {
       половина того, чим помічник ранжує поради в режимі «під план»; друга половина —
       розрив за видом нижче. Та сама валюта, але з відповіддю «чи це взагалі досяжно»
       й на скільки конвертувати, — <a class="lnk"
-      href="${routeFor("portfolio/structure")}">Портфель → Структура</a>.</div>
+      href="${routeFor("portfolio/all/structure")}">Портфель → Структура</a>.</div>
   </div>`;
 }

@@ -183,7 +183,7 @@ function footHTML(ctx) {
   return `<div class="note">Цього місяця планові витрати з <b>портфельних</b> грошей
     забирають <b>${fmtUAH(planned)}</b> — саме на стільки менший «план місяця»
     і саме на стільки худіші ноги в
-    <a class="lnk" href="${routeFor("plan/route")}">Маршруті грошей</a>.
+    <a class="lnk" href="${routeFor("plan/route/main")}">Маршруті грошей</a>.
     Витрати з картки сюди не входять: вони зменшують «скільки можна витрачати» в
     <a class="lnk" href="${routeFor("plan/debts/state")}">Боргах</a>.</div>`;
 }

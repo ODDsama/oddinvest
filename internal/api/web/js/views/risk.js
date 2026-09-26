@@ -310,7 +310,7 @@ export function rebalanceCard(ctx) {
     return needsSetting("Валютне ребалансування",
       "Цільові частки USD і EUR не задані, тож відхилятись немає від чого. "
       + "Задай їх у «Стратегії» — і тут буде видно, чого і на скільки бракує.",
-    routeFor("policy/strategy"));
+    routeFor("policy/strategy/main"));
   }
   const sym = { USD: "$", EUR: "€" };
   const num = (v, d = 2) => Number(v || 0).toLocaleString("uk-UA", { maximumFractionDigits: d });
@@ -376,7 +376,7 @@ export function kindMixCard(ctx) {
       "Цілі за видом (ОВДП / фонди / НПФ / вклади / резерв) не задані. "
       + "Задай їх у «Частках і межах» — і «Що взяти» почне зважати ще й на них, "
       + "а не лише на валютну частку.",
-    routeFor("policy/mix"));
+    routeFor("policy/mix/main"));
   }
   // Нерозподілене — це те, під що цілі не ставили. Показуємо числом і
   // НЕ нормалізуємо: підмінити введені 40/20 на 67/33, не питаючи, було б
@@ -483,7 +483,7 @@ export function concentrationCard(ctx) {
       "Ліміти концентрації не задані, а дефолтів у них немає навмисно: "
       + "«не більше 20% в один папір» — це порада, а застосунок їх не дає. "
       + "Задай свої в «Частках і межах» — і тут буде видно, де портфель до них підійшов.",
-    routeFor("policy/mix"));
+    routeFor("policy/mix/main"));
   }
   const blocks = Object.keys(CONC_BLOCK).map((dim) => {
     const list = rows.filter((r) => r.dimension === dim);

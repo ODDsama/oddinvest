@@ -217,7 +217,7 @@ function legsHTML(doc) {
           // «Прийшло» тут писала б не в ту таблицю, тож замість неї —
           // дорога туди, де відмітка справді живе.
           if (leg.basis === "plan" && leg.date === doc.from) {
-            return `<a class="lnk fine-xs" href="${routeFor("plan/inflow")}"
+            return `<a class="lnk fine-xs" href="${routeFor("plan/inflow/main")}"
               >відмітити в плані</a>`;
           }
           if ((leg.planned || []).length) {
@@ -355,7 +355,7 @@ export async function renderRoute(ctx, main) {
         піде в нього й <b>тільки</b> в нього, а якщо на цілий квиток не вистачить — гроші
         чекатимуть, як і завжди. Вибір живе до закріплення: далі його тримає план купівель.</div>
       <div class="sub-xs">Виплати по датах, без призначень —
-        <a class="lnk" href="${routeFor("plan/payouts")}">Календар виплат</a>.</div>`
+        <a class="lnk" href="${routeFor("plan/payouts/main")}">Календар виплат</a>.</div>`
     : empty("Маршрут порожній", doc.note
       || "До горизонту портфель нічого не винен сам собі.");
 

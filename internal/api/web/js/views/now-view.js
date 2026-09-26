@@ -128,7 +128,7 @@ export function reserveFillHTML(ctx) {
   return `<div class="banner wait"><div class="b-ic">○</div><div class="b-tx">
     <div class="b-t">Спершу поповнити резерв — ${fmtUAH(r.fill_now_uah)}</div>
     <div class="b-s">${why} Сума в гривневому еквіваленті: у чому саме відкладати — вирішуєш ти.
-      <a class="lnk" href="${routeFor("entry/reserve")}">Записати рух</a>.</div>
+      <a class="lnk" href="${routeFor("portfolio/reserve/record")}">Записати рух</a>.</div>
   </div></div>`;
 }
 
@@ -307,7 +307,7 @@ export function reinvestHTML(ctx, opts = {}) {
     ${group(ready.length ? "Ще збираєш" : "Купувати ще рано — ось наскільки близько", soon)}
     <div class="sub">${legend} Клік по числу показує весь ланцюжок: податок, знецінення,
       інфляція. Каретка розкриває решту рядка. Додане лежить у
-      <a href="${routeFor("now/buys")}">Плані купівель</a>.</div></div>`;
+      <a href="${routeFor("work/buys/main")}">Плані купівель</a>.</div></div>`;
 }
 
 // Кнопка «+» — лише там, де порада несе ВСЕ, що потрібно рядкові плану.
@@ -327,7 +327,7 @@ function addBtn(kind, r) {
           title="Додати в план купівель і побачити наслідки">+</button>`
       : "";
   }
-  return `<a class="lnk" href="${routeFor("now/buys")}"
+  return `<a class="lnk" href="${routeFor("work/buys/main")}"
     title="Завести в плані купівель — там спитають ставку, строк і рахунок">+</a>`;
 }
 
