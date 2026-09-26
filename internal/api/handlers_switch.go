@@ -148,7 +148,7 @@ func (s *Server) handleSwitchVerdict(w http.ResponseWriter, r *http.Request) {
 		HoldRealPct: holdReal, AltRealPct: alt.RealPct,
 		EdgePP:      engine.Round2(alt.RealPct - holdReal),
 		GainPerBond: engine.ToMoneyJSON(res.GainPerBond),
-		GainTotal:   engine.ToMoneyJSON(domain.MulQty(res.GainPerBond, qty)),
+		GainTotal:   engine.ToMoneyJSON(res.GainPerBond.Multiply(qty)),
 		Worth:       res.GainPerBond.Amount() > 0,
 	})
 }

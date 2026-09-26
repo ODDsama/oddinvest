@@ -105,13 +105,6 @@ func TestLastAuctionByISINTakesNewest(t *testing.T) {
 	if p.Date != domain.Date("2026-08-11") || p.IncomeBP != 1519 || p.Days != 343 {
 		t.Errorf("останнє розміщення: %+v", p)
 	}
-	newest, err := s.NewestAuctionDate(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if newest != domain.Date("2026-08-11") {
-		t.Errorf("найсвіжіший день = %q", newest)
-	}
 }
 
 // TestAuctionPointCarriesDemandAndVolume — з рядка приїжджає ВЕСЬ рядок.
@@ -163,19 +156,6 @@ func TestAuctionPointCarriesDemandAndVolume(t *testing.T) {
 		t.Fatalf("хочемо один строк, маємо %d", len(byBucket))
 	}
 	check("AuctionLatestByBucket", byBucket[0])
-}
-
-// Порожня база не помилка, а звичайний стан свіжої інсталяції: доти,
-// доки бекфіл не відпрацював, кривої просто немає.
-func TestNewestAuctionDateOnEmpty(t *testing.T) {
-	s := openTest(t)
-	got, err := s.NewestAuctionDate(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != "" {
-		t.Errorf("на порожній базі хочемо порожню дату, маємо %q", got)
-	}
 }
 
 // Крива читається зліва направо за СТРОКОМ, а назви строків сортуються за

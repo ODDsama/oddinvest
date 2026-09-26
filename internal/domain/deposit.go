@@ -429,7 +429,7 @@ func (d Deposit) interestPayments() []DepositInterest {
 		// до погашення; без неї — прості за весь строк на балансі, що росте.
 		gross := d.accruedInterest(d.OpenDate, d.MaturityDate)
 		if d.Capitalized {
-			gross = d.compoundInterest()
+			gross = d.compoundInterestTo(d.MaturityDate)
 		}
 		add(d.MaturityDate, gross)
 		return out
@@ -552,7 +552,8 @@ func DepositLadder(deposits []Deposit, asOf Date) []LadderEntry {
 	return out
 }
 
-// compoundInterest — брутто-відсоток за весь строк при помісячній
+// compoundInterestTo — брутто-відсоток від відкриття до end (погашення —
+// для виплати, сьогодні — для накопиченого) при помісячній
 // капіталізації: тіло щомісяця приростає на простий відсоток за той
 // місяць і далі теж приносить відсоток. Повертає САМ відсоток — різницю
 // між кінцевим балансом і всім внесеним тілом (початкове + поповнення).
@@ -561,10 +562,6 @@ func DepositLadder(deposits []Deposit, asOf Date) []LadderEntry {
 // місяця, тобто починають працювати з наступного місяця. Це трохи
 // консервативно (докладене мід-місяця не заробляє частину місяця), зате
 // просто й ніколи не завищує.
-func (d Deposit) compoundInterest() int64 { return d.compoundInterestTo(d.MaturityDate) }
-
-// compoundInterestTo — складний відсоток помісячно від відкриття до end
-// (погашення — для виплати, сьогодні — для накопиченого).
 func (d Deposit) compoundInterestTo(end Date) int64 {
 	base := d.Principal
 	prev := d.OpenDate

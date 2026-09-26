@@ -82,21 +82,6 @@ func (s *Store) SaveAuctions(ctx context.Context, as []nbu.Auction) error {
 	return tx.Commit()
 }
 
-// NewestAuctionDate — найсвіжіший день, який уже є в базі. Порожня дата
-// означає «нічого немає». На цьому тримається дешеве опитування: якщо
-// найновіший аукціон у НБУ не новіший за цей день, шукати між ними нічого.
-func (s *Store) NewestAuctionDate(ctx context.Context) (domain.Date, error) {
-	var d *string
-	if err := s.db.QueryRowContext(ctx,
-		`SELECT MAX(auction_date) FROM ovdp_auctions`).Scan(&d); err != nil {
-		return "", err
-	}
-	if d == nil {
-		return "", nil
-	}
-	return domain.Date(*d), nil
-}
-
 // CountAuctionDays — скільки РІЗНИХ днів аукціонів уже зібрано. Саме днів,
 // а не рядків: за один день їх буває від одного до чотирьох, тож рядки
 // нічого не кажуть про глибину історії, яку ми маємо.

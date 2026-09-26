@@ -67,9 +67,6 @@ func TestPlanUsesEmptyAllowsEverything(t *testing.T) {
 	if got := PlanUsesList(""); len(got) != 4 {
 		t.Errorf("перелік із порожнього — %v, чекали всі чотири кошики", got)
 	}
-	if PlanUsesNarrowed("") {
-		t.Error("порожній дозвіл вважається звуженим")
-	}
 }
 
 func TestPlanUsesNarrowedAllowsOnlyNamed(t *testing.T) {
@@ -84,9 +81,6 @@ func TestPlanUsesNarrowedAllowsOnlyNamed(t *testing.T) {
 		if PlanUseAllowed(uses, b) {
 			t.Errorf("неназваний кошик %q дозволено", b)
 		}
-	}
-	if !PlanUsesNarrowed(uses) {
-		t.Error("звужений дозвіл не впізнано")
 	}
 }
 

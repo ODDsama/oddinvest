@@ -583,11 +583,6 @@ func TestRatePointOnOrBeforeCarriesItsDate(t *testing.T) {
 	if p, _ := s.RatePointOnOrBefore(ctx, money.USD, "2019-01-01"); p.RateE4 != 0 || p.Date != "" {
 		t.Errorf("до початку історії: %+v", p)
 	}
-
-	// Стара обгортка лишається сумісною: вона тепер той самий запит.
-	if r, _ := s.RateOnOrBefore(ctx, money.USD, "2022-03-20"); r != 27_0000 {
-		t.Errorf("RateOnOrBefore = %d", r)
-	}
 }
 
 // Рядок, старший за колонку 0061, мусить читатись як −1, а не як 0.

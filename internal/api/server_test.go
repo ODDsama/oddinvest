@@ -33,7 +33,7 @@ func testServer(t *testing.T) (*httptest.Server, *store.Store) {
 	}
 	t.Cleanup(func() { st.Close() })
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := httptest.NewServer(New(st, nil, log).Handler())
+	srv := httptest.NewServer(New(st, log).Handler())
 	t.Cleanup(srv.Close)
 	return srv, st
 }
@@ -383,8 +383,7 @@ func TestForecastFallsBackToLegacyGoalFields(t *testing.T) {
 }
 
 // Девальвація має доходити до відповіді, а не лишатись у домені:
-// реальна сума менша за номінальну, і що вищий очікуваний темп
-// знецінення — то менше капіталу в сьогоднішніх грошах.
+// що вищий очікуваний темп знецінення — то більший потрібний внесок.
 func TestForecastReflectsDevaluation(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
@@ -394,7 +393,7 @@ func TestForecastReflectsDevaluation(t *testing.T) {
 		t.Fatal("порожня відповідь на додавання лота")
 	}
 
-	realistic := func(devalPct string) (real, nominal, deval, plan float64) {
+	realistic := func(devalPct string) (deval, plan float64) {
 		t.Helper()
 		if resp, body := do(t, "PUT", srv.URL+"/api/settings",
 			`{"goal_amount_uah":"1000000","goal_date":"`+deadline+
@@ -407,8 +406,6 @@ func TestForecastReflectsDevaluation(t *testing.T) {
 				ContribPlan float64 `json:"contrib_plan"`
 				Rows        []struct {
 					Key            string  `json:"key"`
-					Amount         float64 `json:"amount"`
-					AmountNominal  float64 `json:"amount_nominal"`
 					DevaluationPct float64 `json:"devaluation_pct"`
 				} `json:"rows"`
 			} `json:"forecast"`
@@ -419,35 +416,26 @@ func TestForecastReflectsDevaluation(t *testing.T) {
 		}
 		for _, r := range got.Forecast.Rows {
 			if r.Key == "realistic" {
-				return r.Amount, r.AmountNominal, r.DevaluationPct, got.Forecast.ContribPlan
+				return r.DevaluationPct, got.Forecast.ContribPlan
 			}
 		}
 		t.Fatalf("реалістичного сценарію немає: %s", body)
-		return 0, 0, 0, 0
+		return 0, 0
 	}
 
-	real6, nominal6, deval6, plan6 := realistic("6")
+	deval6, plan6 := realistic("6")
 	if deval6 != 6 {
 		t.Errorf("реалістичний сценарій мав узяти задане знецінення 6%%, маємо %v", deval6)
-	}
-	if !(nominal6 > real6) {
-		t.Errorf("номінальна сума має перевищувати реальну: %v vs %v", nominal6, real6)
 	}
 	// План виводиться з цілі, тож за вищого знецінення адаптується ВНЕСОК,
 	// а не підсумок: сума лишається на цілі, просто доходити до неї
 	// доводиться більшими внесками.
-	_, _, deval15, plan15 := realistic("15")
+	deval15, plan15 := realistic("15")
 	if deval15 != 15 {
 		t.Errorf("знецінення не підхопилось із налаштувань: %v", deval15)
 	}
 	if !(plan15 > plan6) {
 		t.Errorf("за вищого знецінення потрібний внесок мав зрости: %v vs %v", plan15, plan6)
-	}
-
-	// Нульове знецінення = стара поведінка: реальне збігається з номінальним.
-	real0, nominal0, _, _ := realistic("0")
-	if math.Abs(real0-nominal0) > 0.01 {
-		t.Errorf("без знецінення реальне й номінальне мають збігатись: %v vs %v", real0, nominal0)
 	}
 }
 

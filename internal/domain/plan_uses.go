@@ -109,11 +109,6 @@ func PlanUsesList(uses string) []string {
 	return out
 }
 
-// PlanUsesNarrowed — дозвіл звужений, тобто його варто показати. Окремою
-// функцією, бо перевірка на порожнечу в трьох місцях UI розійшлася б із
-// тим, що вважає звуженням бекенд.
-func PlanUsesNarrowed(uses string) bool { return strings.TrimSpace(uses) != "" }
-
 // PlanUseAllowed — чи дозволений цей кошик. Порожній дозвіл дозволяє все.
 //
 // ЗВУЖЕНИЙ ДОЗВІЛ ЗАБОРОНЯЄ НОВИЙ КОШИК, і це не вада, а ціна явності:

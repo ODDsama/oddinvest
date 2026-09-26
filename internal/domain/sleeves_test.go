@@ -108,16 +108,6 @@ func TestDevaluationFlipsCurrencyPreference(t *testing.T) {
 	}
 }
 
-// Долари й сьогоднішні гривні — це одні й ті самі числа в різних
-// одиницях, тож перемикач в UI не має нічого перераховувати.
-func TestUSDViewIsSameNumberDifferentUnit(t *testing.T) {
-	r := ProjectSleeves([]Sleeve{uahSleeve(0, 0, 0, 4200)}, 6, 12)
-	approx(t, "перемикання в $", r.InTodayUSD(42), r.TodayUAH/42, 1e-9)
-	if r.InTodayUSD(0) != 0 {
-		t.Error("без курсу маємо повертати 0, а не ділити на нуль")
-	}
-}
-
 func TestMonthsToReachSleeves(t *testing.T) {
 	s := uahSleeve(0, 0, 0, 1000)
 	// без відсотків і девальвації 10 000 ₴ назбираються рівно за 10 міс

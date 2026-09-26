@@ -527,7 +527,7 @@ func (r *Runner) PublishState(ctx context.Context) error {
 			return err
 		}
 	}
-	b, err := doc.JSON()
+	b, err := json.Marshal(doc)
 	if err != nil {
 		return err
 	}

@@ -48,17 +48,17 @@ func TestLoadSourcesFailsLoudOnBrokenRead(t *testing.T) {
 			defer st.Close()
 
 			log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-			srv := New(st, nil, log)
+			srv := New(st, log)
 
 			// Спершу переконуємось, що на цілій базі документ будується:
 			// інакше тест зеленів би з будь-якої іншої причини.
-			if _, err := srv.BuildStateDoc(context.Background(), time.Now()); err != nil {
+			if _, err := srv.BuildStateTasked(context.Background(), time.Now()); err != nil {
 				t.Fatalf("на цілій базі документ не зібрався: %v", err)
 			}
 
 			dropTable(t, path, tbl)
 
-			if _, err := srv.BuildStateDoc(context.Background(), time.Now()); err == nil {
+			if _, err := srv.BuildStateTasked(context.Background(), time.Now()); err == nil {
 				t.Fatalf("%s недоступна, а документ зібрався — читання ковтає помилку "+
 					"й видасть нулі в MQTT і в добовий знімок", tbl)
 			}

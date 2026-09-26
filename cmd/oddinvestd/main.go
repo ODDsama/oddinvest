@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
 	// База часових зон — у бінарнику. Без неї LoadLocation залежить від
 	// /usr/share/zoneinfo, якого в контейнері може не бути, і тоді зона
 	// мовчки лишається серверною — тобто рівно той стан, який лагодить
@@ -124,20 +125,27 @@ func main() {
 	// злам циклічної залежності api <-> jobs: сервер створюється без
 	// refresher-а, runner отримує збірку стану від сервера, потім
 	// refresher доєднується до сервера.
-	srv := api.New(st, nil, log)
+	srv := api.New(st, log)
 	// щоденний JSON-дамп поряд із БД — потрапляє в бекап Proxmox і
 	// переживає навіть пошкодження SQLite-файла
 	dataDir := filepath.Dir(cfg.DBPath)
-	runner := jobs.New(st, nc, fc, pub, srv.BuildStateDoc, log, filepath.Join(dataDir, "oddinvest-backup.json"))
+	// Документ для MQTT — із чергою задач, як і GET /api/summary: обидва
+	// шляхи ведуть до людини, і різні відповіді на «що робити» були б гірші
+	// за жодну. Решта викликів (whatif, план, cashflow) лишається на голому
+	// BuildState навмисно: черга тягне за собою SearchBonds на п'ять тисяч
+	// паперів.
+	runner := jobs.New(st, nc, fc, pub, srv.BuildStateTasked, log, filepath.Join(dataDir, "oddinvest-backup.json"))
 	// Публікація в MQTT іде у валюті звітності — тим самим шляхом, що
-	// /api/summary. Знімок лишається сирим (довід у jobs.Runner.present).
+	// /api/summary, щоб HA бачив рівно те, що бачить застосунок. Знімок
+	// лишається сирим (довід у jobs.Runner.present).
 	runner.SetPresenter(srv.PresentDoc)
 	srv.SetRefresher(runner)
 	// Тунель назовні (internal/tunnel). Створюється тут, а не в api:
-	// йому потрібні шлях бази (HOME для конектора) і адреса
-	// прослуховування, тобто те, що знає лише main.
+	// йому потрібні шлях бази і адреса прослуховування, тобто те, що знає
+	// лише main. HOME конектора — каталог поруч із базою: єдине місце, куди
+	// демон має право писати (ReadWritePaths у юніті).
 	tun := tunnel.NewManager(st, log, "", cfg.ACMEURL,
-		tunnel.OriginFromAddr(cfg.HTTPAddr), tunnel.HomeFor(cfg.DBPath))
+		tunnel.OriginFromAddr(cfg.HTTPAddr), dataDir)
 	srv.SetTunnel(tun)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -150,7 +158,7 @@ func main() {
 	// jobs.Satellite. Публікатор підключається сам у фоні (mqtt.New не
 	// чекає брокера), тож POST /api/portfolios його не тримає.
 	spawn := func(p store.Portfolio, sat *api.Server) (api.Refresher, func()) {
-		own := jobs.New(st.For(p.ID), nc, fc, nil, sat.BuildStateDoc, log,
+		own := jobs.New(st.For(p.ID), nc, fc, nil, sat.BuildStateTasked, log,
 			filepath.Join(dataDir, "portfolios", p.Slug, "oddinvest-backup.json"))
 		own.SetPresenter(sat.PresentDoc)
 		fleet.Add(p.Slug, own)

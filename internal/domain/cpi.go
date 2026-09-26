@@ -43,7 +43,7 @@ type CPILevel struct {
 // store.CPISince). Дірка в ряду не заповнюється й не оголошується
 // помилкою: місячна зміна пропущеного місяця просто не множиться, і
 // ланцюг занижує рівень рівно на неї. Ловить це не тут, а звірка з
-// опублікованим річним темпом (CPIYoYDrift) — дірка видно там числом, а
+// опублікованим річним темпом (CPIYoYDrift у cpi_test.go) — дірка видно там числом, а
 // не припущенням.
 func CPIChain(points []CPIPoint) []CPILevel {
 	if len(points) == 0 {
@@ -90,39 +90,6 @@ func levelAt(levels []CPILevel, period string) (float64, bool) {
 		}
 	}
 	return 0, false
-}
-
-// CPIYoYDrift — на скільки відсоткових пунктів ланцюг розходиться з
-// опублікованим річним темпом на цій точці.
-//
-// Це ЄДИНА зовнішня перевірка ланцюга, і саме заради неї yoy_bp
-// зберігається попри те, що виводиться. Пропущений місяць, зсув ряду на
-// місяць чи помилка масштабу — усі троє тихі за побудовою й видно їх
-// тільки тут. ok=false, коли точки за рік до цієї в ряду немає.
-func CPIYoYDrift(points []CPIPoint, levels []CPILevel, period string) (float64, bool) {
-	var published int64
-	found := false
-	for _, p := range points {
-		if p.Period == period {
-			published, found = p.YoYBP, true
-			break
-		}
-	}
-	if !found {
-		return 0, false
-	}
-	d, err := ParseDate(period + "-01")
-	if err != nil {
-		return 0, false
-	}
-	prev := string(d.AddMonths(-12))[:7]
-	a, aok := levelAt(levels, prev)
-	b, bok := levelAt(levels, period)
-	if !aok || !bok || a <= 0 {
-		return 0, false
-	}
-	chained := (b/a - 1) * 100
-	return chained - float64(published)/100, true
 }
 
 // CPIGaps — місяці, яких у ряду БРАКУЄ між першою й останньою точками.

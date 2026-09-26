@@ -185,7 +185,7 @@ func heldByISIN(lots []domain.Lot, sales []domain.Sale,
 		if q == 0 {
 			continue
 		}
-		cost := domain.MulQty(l.PricePerBond, q)
+		cost := l.PricePerBond.Multiply(q)
 		if l.Fee != nil && !l.Fee.IsZero() {
 			fee, err := domain.Apportion(l.Fee, q, l.Qty)
 			if err != nil {
@@ -213,7 +213,7 @@ func heldByISIN(lots []domain.Lot, sales []domain.Sale,
 // avgPerBond — середня ціна за папір із сумарної вартості позиції.
 //
 // Ділення грошей на кількість у пакеті domain немає, і це не недогляд:
-// там гроші або множаться на кількість (MulQty), або розкладаються між
+// там гроші або множаться на кількість (Multiply), або розкладаються між
 // частинами без утрати копійки (Apportion). Тут потрібне саме СЕРЕДНЄ —
 // число для показу, а не сума, з якою щось звірятимуть, — тож залишок від
 // ділення відкидається, і жити такому діленню варто тут, а не поруч із

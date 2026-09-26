@@ -29,7 +29,7 @@ func authServer(t *testing.T, password string) (*httptest.Server, *store.Store) 
 	}
 	t.Cleanup(func() { st.Close() })
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := httptest.NewServer(New(st, nil, log).Handler())
+	srv := httptest.NewServer(New(st, log).Handler())
 	t.Cleanup(srv.Close)
 	if password != "" {
 		resp, body := do(t, "POST", srv.URL+"/api/auth/setup",
@@ -443,7 +443,7 @@ func TestAuthResetReturnsToSetup(t *testing.T) {
 	// Сервер тримає секрети в кеші, тож після скидання його перезапускають —
 	// саме це робить systemctl після команди. Новий сервер на тій самій базі:
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	fresh := httptest.NewServer(New(st, nil, log).Handler())
+	fresh := httptest.NewServer(New(st, log).Handler())
 	t.Cleanup(fresh.Close)
 	_, body := do(t, "GET", fresh.URL+"/api/auth", "")
 	if !strings.Contains(body, `"setup":true`) || !strings.Contains(body, `"has_token":false`) {
@@ -645,7 +645,7 @@ func TestLoginConcurrencyBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	s := New(st, nil, testLogger())
+	s := New(st, testLogger())
 	if err := s.setPassword(context.Background(), "correct horse battery"); err != nil {
 		t.Fatal(err)
 	}

@@ -195,3 +195,36 @@ func TestCPIGapsFindsMissingMonths(t *testing.T) {
 		t.Fatal("ряд з однієї точки не має дірок за визначенням")
 	}
 }
+
+// CPIYoYDrift — на скільки відсоткових пунктів ланцюг розходиться з
+// опублікованим річним темпом на цій точці.
+//
+// Живе в тестах: це ЄДИНА зовнішня перевірка ланцюга, і саме заради неї yoy_bp
+// зберігається попри те, що виводиться. Пропущений місяць, зсув ряду на
+// місяць чи помилка масштабу — усі троє тихі за побудовою й видно їх
+// тільки тут. ok=false, коли точки за рік до цієї в ряду немає.
+func CPIYoYDrift(points []CPIPoint, levels []CPILevel, period string) (float64, bool) {
+	var published int64
+	found := false
+	for _, p := range points {
+		if p.Period == period {
+			published, found = p.YoYBP, true
+			break
+		}
+	}
+	if !found {
+		return 0, false
+	}
+	d, err := ParseDate(period + "-01")
+	if err != nil {
+		return 0, false
+	}
+	prev := string(d.AddMonths(-12))[:7]
+	a, aok := levelAt(levels, prev)
+	b, bok := levelAt(levels, period)
+	if !aok || !bok || a <= 0 {
+		return 0, false
+	}
+	chained := (b/a - 1) * 100
+	return chained - float64(published)/100, true
+}

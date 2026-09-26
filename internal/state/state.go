@@ -13,8 +13,6 @@
 package state
 
 import (
-	"encoding/json"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 )
 
@@ -600,9 +598,7 @@ type SettingsDoc struct {
 	GoalPessimisticUAH *float64 `json:"goal_pessimistic_uah,omitempty"`
 	GoalRealisticUAH   *float64 `json:"goal_realistic_uah,omitempty"`
 	GoalOptimisticUAH  *float64 `json:"goal_optimistic_uah,omitempty"`
-	// Channels — канали купівлі через кому (mono, inzhur…). Форма покупки
-	// показує їх у випадайці разом із тими, що вже зустрічались у лотах.
-	Channels string `json:"channels,omitempty"`
+
 	// ReinvestRank — критерій ранжування помічника:
 	// plan (за замовчуванням) | rate | short | ladder.
 	ReinvestRank string `json:"reinvest_rank,omitempty"`
@@ -1995,10 +1991,9 @@ type ForecastRow struct {
 	Key   string `json:"key"` // optimistic | realistic | pessimistic
 	Label string `json:"label"`
 	// Amount — капітал на дедлайн у гривні СЬОГОДНІШНЬОЇ купівельної
-	// спроможності; саме він порівнюється з ціллю. AmountNominal — те
-	// саме в гривні того дня, тобто скільки буде намальовано на рахунку.
-	Amount        Money `json:"amount"`
-	AmountNominal Money `json:"amount_nominal,omitzero"`
+	// спроможності; саме він порівнюється з ціллю. Номінального двійника
+	// (гривня того дня) немає: його не читав жоден споживач.
+	Amount Money `json:"amount"`
 	// RequiredMonthly — скільки треба вносити щомісяця, щоб дійти до цілі
 	// САМЕ ЗА ЦИХ допущень. Головне число сценарію: платіж під ціль один,
 	// але ринок вирішує, наскільки він посильний. Для рядка «За фактом»
@@ -2622,5 +2617,3 @@ func payTypeStr(t domain.PayType) string {
 	}
 	return "unknown"
 }
-
-func (d *Doc) JSON() ([]byte, error) { return json.Marshal(d) }

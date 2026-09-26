@@ -221,7 +221,7 @@ func TestNPFCreditCapsPerMonthNotPerYear(t *testing.T) {
 	capMonth := int64(466_000) // 4660 ₴ ліміт 2026
 	lump := []NPFOp{{NPFID: 1, Date: Date("2026-01-15"), Units: 1, Amount: 6_000_000}}
 	// 60000 ₴ одним платежем: у знижку йде лише ліміт ОДНОГО місяця.
-	got := NPFCreditEstimate(a, lump, 2026, capMonth, 0)
+	got := npfCredit(a, lump, 2026, capMonth, 0)
 	want := capMonth * 1800 / 10000
 	if got != want {
 		t.Errorf("разовий внесок: очікували %d (ліміт одного місяця × 18%%), маємо %d", want, got)
@@ -233,7 +233,7 @@ func TestNPFCreditCapsPerMonthNotPerYear(t *testing.T) {
 		d := Date("2026-01-05")
 		spread = append(spread, NPFOp{NPFID: 1, Date: d.AddMonths(m - 1), Units: 1, Amount: 400_000})
 	}
-	got = NPFCreditEstimate(a, spread, 2026, capMonth, 0)
+	got = npfCredit(a, spread, 2026, capMonth, 0)
 	if want := int64(12 * 400_000 * 1800 / 10000); got != want {
 		t.Errorf("рівномірні внески: очікували %d, маємо %d", want, got)
 	}
@@ -244,8 +244,8 @@ func TestNPFCreditCapsPerMonthNotPerYear(t *testing.T) {
 func TestNPFCreditCannotExceedTaxActuallyWithheld(t *testing.T) {
 	a := dynastia()
 	ops := []NPFOp{{NPFID: 1, Date: Date("2026-03-05"), Units: 1, Amount: 400_000}}
-	full := NPFCreditEstimate(a, ops, 2026, 466_000, 0)
-	capped := NPFCreditEstimate(a, ops, 2026, 466_000, 1_000)
+	full := npfCredit(a, ops, 2026, 466_000, 0)
+	capped := npfCredit(a, ops, 2026, 466_000, 1_000)
 	if capped != 1_000 {
 		t.Errorf("стеля ПДФО 1000 коп, а знижка %d", capped)
 	}
@@ -253,7 +253,7 @@ func TestNPFCreditCannotExceedTaxActuallyWithheld(t *testing.T) {
 		t.Errorf("без стелі знижка мусить бути більшою: %d проти %d", full, capped)
 	}
 	a.CreditRateBP = 0
-	if NPFCreditEstimate(a, ops, 2026, 466_000, 0) != 0 {
+	if npfCredit(a, ops, 2026, 466_000, 0) != 0 {
 		t.Error("без ставки знижки оцінка мусить бути нульовою")
 	}
 }
@@ -438,8 +438,9 @@ func TestNPFCreditCapsAreForThePayerNotTheAccount(t *testing.T) {
 	if s := capped[1] + capped[2]; s != 10_000 {
 		t.Errorf("стеля ПДФО 100 ₴ на платника, а разом %d", s)
 	}
-	// Один рахунок — те саме, що й доти.
-	if one := NPFCreditByAccount([]NPFAccount{a}, ops, 2026, capMonth, 0)[1]; one != NPFCreditEstimate(a, ops, 2026, capMonth, 0) {
-		t.Errorf("для одного рахунку розклад %d розійшовся з оцінкою рахунку %d", one, NPFCreditEstimate(a, ops, 2026, capMonth, 0))
-	}
+}
+
+// npfCredit — знижка одного рахунку: окремий випадок NPFCreditByAccount.
+func npfCredit(a NPFAccount, ops []NPFOp, year int, capMonth, pdfoYear int64) int64 {
+	return NPFCreditByAccount([]NPFAccount{a}, ops, year, capMonth, pdfoYear)[a.ID]
 }

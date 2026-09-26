@@ -202,7 +202,7 @@ func TestQuoteISINsIndependentOfSuggestions(t *testing.T) {
 		time.Now().UTC().Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
-	s := New(st, nil, testLogger())
+	s := New(st, testLogger())
 	isins, err := s.quoteISINs(ctx, time.Now())
 	if err != nil {
 		t.Fatal(err)

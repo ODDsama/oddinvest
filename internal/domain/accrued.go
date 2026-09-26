@@ -221,7 +221,7 @@ func AccruedPaid(payments []Payment, lots []Lot, sales []Sale) ([]AccruedItem, e
 			continue
 		}
 		k := key{first, l.ISIN}
-		amt := MulQty(acc, qty)
+		amt := acc.Multiply(qty)
 		if ex, ok := agg[k]; ok {
 			sum, err := ex.Add(amt)
 			if err != nil {

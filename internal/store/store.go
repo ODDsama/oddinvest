@@ -120,11 +120,6 @@ func (s *Store) For(pid int64) *Store {
 // Portfolio — портфель, у якому працює це сховище.
 func (s *Store) Portfolio() int64 { return s.pid }
 
-// rowQuerier — те спільне в *sql.DB і *sql.Tx, чого потребує ownsRowIn.
-type rowQuerier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
 // ownsRow — чи належить рядок таблиці ЦЬОМУ портфелю; ErrNotFound, якщо ні.
 //
 // Потрібна дітям: продаж посилається на лот, поповнення вкладу — на вклад,
@@ -137,7 +132,7 @@ func (s *Store) ownsRow(ctx context.Context, table string, id int64) error {
 	return s.ownsRowIn(ctx, s.db, table, id)
 }
 
-func (s *Store) ownsRowIn(ctx context.Context, q rowQuerier, table string, id int64) error {
+func (s *Store) ownsRowIn(ctx context.Context, q querier, table string, id int64) error {
 	var n int
 	if err := q.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM `+table+` WHERE id=? AND portfolio_id=?`, id, s.pid).Scan(&n); err != nil {
@@ -592,26 +587,6 @@ func (s *Store) ListReserveOps(ctx context.Context) ([]ReserveOp, error) {
 		r.Date = domain.Date(dt)
 		r.LoanID = loan.Int64
 		out = append(out, r)
-	}
-	return out, rows.Err()
-}
-
-// ReserveByCurrency — залишок резерву по валютах (мінорні, нативно).
-func (s *Store) ReserveByCurrency(ctx context.Context) (map[string]int64, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT currency, SUM(amount) FROM reserve_ops WHERE portfolio_id=? GROUP BY currency`, s.pid)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]int64{}
-	for rows.Next() {
-		var cur string
-		var sum int64
-		if err := rows.Scan(&cur, &sum); err != nil {
-			return nil, err
-		}
-		out[cur] = sum
 	}
 	return out, rows.Err()
 }
@@ -1227,14 +1202,6 @@ func (s *Store) RatePointOnOrBefore(ctx context.Context, code string, on domain.
 	return p, err
 }
 
-// RateOnOrBefore — те саме, коли дата джерела не потрібна. Один запит на
-// обидва виклики: два майже однакові SELECT розійшлись би на першій же
-// правці, і мовчки.
-func (s *Store) RateOnOrBefore(ctx context.Context, code string, on domain.Date) (int64, error) {
-	p, err := s.RatePointOnOrBefore(ctx, code, on)
-	return p.RateE4, err
-}
-
 // RatesSince — усі точки історії від дати й донині, за зростанням дати.
 //
 // Єдиний метод, що віддає історію КУРСІВ ЦІЛКОМ, а не крайніми точками:
@@ -1750,25 +1717,6 @@ func boolInt(b bool) int64 {
 	return 0
 }
 
-// FundOpPairExists — чи вже є така НОГА КОНВЕРТАЦІЇ. Те саме питання, що
-// й у FundOpExists, але без кількості в ключі — і це не послаблення, а
-// точніше означення тотожності.
-//
-// Суму виписка СТВЕРДЖУЄ про обидві ноги; кількість ми з неї ВИВОДИМО —
-// джерелу з позиції фонду, призначенню з ціни сертифіката. Після першого
-// імпорту позиція джерела вже нульова, тож ключ із кількістю при
-// повторному прогоні не збігся б і в базу ліг би другий, порожній продаж.
-// Власник імпортує виписку кілька разів на місяць, і вона щоразу несе всю
-// історію, — тобто це не рідкісний випадок, а звичайний.
-func (s *Store) FundOpPairExists(ctx context.Context, op domain.FundOp) (bool, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM fund_ops o
-		JOIN funds f ON f.id = o.fund_id
-		WHERE o.date=? AND f.name=? AND o.kind=? AND o.amount=? AND o.portfolio_id=?`,
-		string(op.Date), op.Fund, string(op.Kind), op.Amount, s.pid).Scan(&n)
-	return n > 0, err
-}
-
 // LinkFundOps — зв'язує дві операції в одну конвертацію: кожна показує на
 // іншу. Двома запитами, бо id другої відомий лише після її вставки — так
 // само це робить відновлення з бекапу (backup.go).
@@ -1788,16 +1736,4 @@ func (s *Store) LinkFundOps(ctx context.Context, a, b int64) error {
 		return err
 	}
 	return affectedOne(res, "операцію фонду")
-}
-
-// FundOpExists — чи вже є така операція. Потрібно імпорту виписки: файл
-// щомісяця містить і старі рядки, тож без перевірки повторний імпорт
-// подвоїв би позицію.
-func (s *Store) FundOpExists(ctx context.Context, op domain.FundOp) (bool, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM fund_ops o
-		JOIN funds f ON f.id = o.fund_id
-		WHERE o.date=? AND f.name=? AND o.kind=? AND o.qty=? AND o.amount=? AND o.portfolio_id=?`,
-		string(op.Date), op.Fund, string(op.Kind), op.Qty, op.Amount, s.pid).Scan(&n)
-	return n > 0, err
 }

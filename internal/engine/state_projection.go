@@ -1150,7 +1150,7 @@ func buildProjection(in projectionInput) projectionPhase {
 		}
 		res := domain.ProjectSleeves(sl, d.deval, deadlineMonths)
 		row := state.ForecastRow{Key: d.key, Label: d.label,
-			Amount: state.Major(res.TodayUAH, money.UAH), AmountNominal: state.Major(res.NominalUAH, money.UAH),
+			Amount:         state.Major(res.TodayUAH, money.UAH),
 			ContribMonthly: state.Major(d.contrib, money.UAH), DevaluationPct: Round2(d.deval)}
 		// Скільки треба вносити САМЕ ЗА ЦИХ допущень. За гіршого ринку
 		// той самий фінансовий результат коштує більшого внеску — це і

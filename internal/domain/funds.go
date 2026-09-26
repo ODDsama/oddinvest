@@ -152,9 +152,6 @@ type FundPosition struct {
 	Short int64
 }
 
-// Inconsistent — чи має позиція дірку в журналі.
-func (p FundPosition) Inconsistent() bool { return p.Short > 0 }
-
 // stepPosition — ОДИН крок автомата позиції: як операція змінює залишок,
 // собівартість, ціну й підсумки.
 //

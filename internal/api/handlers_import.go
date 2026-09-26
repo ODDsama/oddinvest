@@ -366,7 +366,12 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 	fundKey := func(op domain.FundOp) string {
 		return fmt.Sprintf("%s|%s|%s|%d|%d", op.Date, op.Fund, op.Kind, op.Qty, op.Amount)
 	}
-	// Ключ ноги конвертації — без кількості; довід у store.FundOpPairExists.
+	// Ключ ноги конвертації — без кількості, і це не послаблення, а точніше
+	// означення тотожності. Суму виписка СТВЕРДЖУЄ про обидві ноги;
+	// кількість ми з неї ВИВОДИМО — джерелу з позиції фонду, призначенню з
+	// ціни сертифіката. Після першого імпорту позиція джерела вже нульова,
+	// тож ключ із кількістю при повторному прогоні не збігся б і в базу ліг
+	// би другий, порожній продаж.
 	pairKey := func(op domain.FundOp) string {
 		return fmt.Sprintf("%s|%s|%s|%d", op.Date, op.Fund, op.Kind, op.Amount)
 	}

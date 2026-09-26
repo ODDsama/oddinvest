@@ -67,7 +67,7 @@ func FuturePayments(payments []Payment, lots []Lot, sales []Sale, from Date) ([]
 		if qty == 0 {
 			continue
 		}
-		amt := MulQty(p.PerBond, qty)
+		amt := p.PerBond.Multiply(qty)
 		k := key{p.PayDate, p.ISIN, p.Type}
 		if ex, ok := agg[k]; ok {
 			sum, err := ex.Amount.Add(amt)

@@ -8,7 +8,7 @@ import (
 
 // SaleProceeds — виручка від продажу: чиста ціна × кількість + НКД.
 func SaleProceeds(s Sale) (*money.Money, error) {
-	p := MulQty(s.CleanPerBond, s.Qty)
+	p := s.CleanPerBond.Multiply(s.Qty)
 	if s.Accrued != nil && !s.Accrued.IsZero() {
 		return p.Add(s.Accrued)
 	}
@@ -33,7 +33,7 @@ func RealizedResult(lot Lot, s Sale, payments []Payment) (*money.Money, error) {
 	if err != nil {
 		return nil, err
 	}
-	cost := MulQty(lot.PricePerBond, s.Qty)
+	cost := lot.PricePerBond.Multiply(s.Qty)
 	fee, err := Apportion(lot.Fee, s.Qty, lot.Qty)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func RealizedResult(lot Lot, s Sale, payments []Payment) (*money.Money, error) {
 			continue
 		}
 		if p.PayDate.After(lot.BuyDate) && !p.PayDate.After(s.SaleDate) {
-			res, err = res.Add(MulQty(p.PerBond, s.Qty))
+			res, err = res.Add(p.PerBond.Multiply(s.Qty))
 			if err != nil {
 				return nil, err
 			}

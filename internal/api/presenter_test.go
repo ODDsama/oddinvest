@@ -180,7 +180,7 @@ func TestSummaryFallsBackWithoutRate(t *testing.T) {
 	}
 }
 
-// Документ, який іде в добовий знімок, презентер не бачить: BuildStateDoc
+// Документ, який іде в добовий знімок, презентер не бачить: BuildStateTasked
 // віддає сиру гривню незалежно від валюти звітності.
 func TestBuildStateDocStaysInBookCurrency(t *testing.T) {
 	srv, st := testServer(t)
@@ -190,8 +190,8 @@ func TestBuildStateDocStaysInBookCurrency(t *testing.T) {
 	}
 	do(t, "POST", srv.URL+"/api/lots",
 		`{"isin":"UA4000227748","qty":5,"price_per_bond":"995.00","buy_date":"2026-07-01","channel":"Дія"}`)
-	s := New(st, nil, testLogger())
-	doc, err := s.BuildStateDoc(context.Background(), goldenNow)
+	s := New(st, testLogger())
+	doc, err := s.BuildStateTasked(context.Background(), goldenNow)
 	if err != nil {
 		t.Fatal(err)
 	}

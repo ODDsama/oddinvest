@@ -146,15 +146,6 @@ type SleeveResult struct {
 	IncomeMonthlyTodayUAH float64
 }
 
-// InTodayUSD — той самий капітал у сьогоднішніх доларах. rate0USD — курс
-// ₴ за долар на сьогодні; 0 = курсу немає, повертаємо 0.
-func (r SleeveResult) InTodayUSD(rate0USD float64) float64 {
-	if rate0USD <= 0 {
-		return 0
-	}
-	return r.TodayUAH / rate0USD
-}
-
 // ProjectSleeves жене всі рукави months місяців і зводить підсумок.
 // devalPct — річне знецінення гривні до твердої валюти, %.
 func ProjectSleeves(sleeves []Sleeve, devalPct float64, months int) SleeveResult {

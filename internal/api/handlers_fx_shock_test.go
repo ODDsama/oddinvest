@@ -66,7 +66,7 @@ func fxShockServer(t *testing.T) (*Server, *store.Store, *httptest.Server) {
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	s := New(st, nil, log)
+	s := New(st, log)
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
 	return s, st, srv

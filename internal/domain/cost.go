@@ -18,7 +18,7 @@ import money "github.com/Rhymond/go-money"
 // плюс сумарна комісія брокера. Нульова чи відсутня комісія нічого не
 // додає.
 func LotCost(l Lot) (*money.Money, error) {
-	cost := MulQty(l.PricePerBond, l.Qty)
+	cost := l.PricePerBond.Multiply(l.Qty)
 	if l.Fee == nil || l.Fee.IsZero() {
 		return cost, nil
 	}

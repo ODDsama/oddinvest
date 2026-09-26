@@ -163,16 +163,13 @@ func TestSellingMoreThanBoughtIsReported(t *testing.T) {
 	if p.Short != 1738 {
 		t.Errorf("нестача %d сертифікатів, хочемо 1738 (1782 продано проти 44 куплених)", p.Short)
 	}
-	if !p.Inconsistent() {
-		t.Error("позиція з нестачею має вважатись суперечливою")
-	}
 
 	// Повний журнал не має нічого повідомляти.
 	ok := []FundOp{
 		{Date: "2026-01-01", Fund: "F", Kind: FundBuy, Qty: 100, Amount: 100000, Currency: "UAH"},
 		{Date: "2026-02-01", Fund: "F", Kind: FundSell, Qty: 40, Amount: 44000, Currency: "UAH"},
 	}
-	if q := FundPositions(ok, nil)["F"]; q.Short != 0 || q.Inconsistent() {
+	if q := FundPositions(ok, nil)["F"]; q.Short != 0 {
 		t.Errorf("повний журнал позначено як суперечливий: Short=%d", q.Short)
 	}
 }

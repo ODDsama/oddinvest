@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -448,7 +447,3 @@ func OriginFromAddr(addr string) string {
 	}
 	return "http://127.0.0.1:" + port
 }
-
-// HomeFor — HOME для конектора: каталог поруч із базою, єдине місце, куди
-// демон має право писати (ReadWritePaths у юніті).
-func HomeFor(dbPath string) string { return filepath.Dir(dbPath) }

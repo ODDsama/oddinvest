@@ -13,7 +13,6 @@ import (
 	"context"
 	"math"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
@@ -604,7 +603,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		// брокерах цикл по pays×lots, і зведення по валютах виводиться вже
 		// з нього. Доти це були два різні обчислення одного числа —
 		// агрегат по (дата, ISIN, тип) проти суми по лотах, — і сходились
-		// вони лише тому, що MulQty множить цілі мінорні одиниці й тому
+		// вони лише тому, що Multiply множить цілі мінорні одиниці й тому
 		// точно лінійна. Домовленість, а не механізм.
 		uahAmt, err := fx.ToUAH(cf.Amount, rates)
 		if err != nil {
@@ -623,7 +622,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 				continue
 			}
 			if q := domain.HolderQty(l, sales, p.PayDate); q > 0 {
-				amt := domain.MulQty(p.PerBond, q)
+				amt := p.PerBond.Multiply(q)
 				// Позначена наперед — сьогоднішнім днем (domain.ArrivalDate).
 				cash.add(l.Channel, amt.Currency().Code, domain.ArrivalDate(p.PayDate, today), amt.Amount())
 			}
@@ -843,7 +842,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		if rem == 0 {
 			continue
 		}
-		cost := domain.MulQty(l.PricePerBond, rem)
+		cost := l.PricePerBond.Multiply(rem)
 		if fee, ferr := domain.Apportion(l.Fee, rem, l.Qty); ferr == nil && !fee.IsZero() {
 			if c2, aerr := cost.Add(fee); aerr == nil {
 				cost = c2
@@ -1102,17 +1101,8 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// жива служба не віддавала жодного разу, а у фікстурі воно є тільки
 	// тому, що тест проставляє його руками.
 	//
-	// Список брокерів більше не зберігається рядком — він збирається з
-	// довідника. У зведенні лишається як рядок навмисно: це похідне поле
-	// для випадайок, а не місце зберігання, і сутності HA, які на нього
-	// підписані, не мусять знати про зміну схеми.
-	if len(src.brokers) > 0 {
-		names := make([]string, 0, len(src.brokers))
-		for _, b := range src.brokers {
-			names = append(names, b.Name)
-		}
-		settings.Channels = strings.Join(names, ", ")
-	}
+	// Рядка «channels» (брокери через кому) у зведенні більше немає: його
+	// не читали ні UI, ні HA — випадайки беруть брокерів із довідника.
 
 	// Фонди входять у XIRR нарівні з облігаціями: показник міряє, скільки
 	// реально зароблено на вкладених грошах, а гроші в сертифікатах — ті

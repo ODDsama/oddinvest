@@ -107,11 +107,6 @@ func RatToInt64HalfEven(r *big.Rat) (int64, error) {
 	return q.Int64(), nil
 }
 
-// MulQty — сума за папір × кількість.
-func MulQty(perBond *money.Money, qty int64) *money.Money {
-	return perBond.Multiply(qty)
-}
-
 // Apportion — частина total, що припадає на part паперів із whole,
 // із банківським заокругленням (та сама політика, що й усюди в проєкті).
 // Порожній/нульовий total, whole<=0 чи part<=0 -> нуль у валюті total.

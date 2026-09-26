@@ -64,7 +64,7 @@ func TestSchemaKnowsEveryTaskAction(t *testing.T) {
 		actRecordBuy, actTopUpDeposit, actFillReserve, actRecordNPF,
 		actConfirmPay, actRecordReceipt, actReviewLimits, actSeeSuggest,
 		actReviewDeposit, actHowToFund, actConfirmRoute, actFillGoal,
-		actPayPlanned, actPayCard, actPayDebt, actReviewRebalance,
+		actPayPlanned, actPayCard, actReviewRebalance,
 	}
 	for _, a := range want {
 		if !got[a] {

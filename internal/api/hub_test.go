@@ -21,7 +21,7 @@ func testHub(t *testing.T) (*httptest.Server, *store.Store) {
 	}
 	t.Cleanup(func() { st.Close() })
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	hub := NewHub(st, New(st, nil, log), log, nil)
+	hub := NewHub(st, New(st, log), log, nil)
 	if err := hub.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}

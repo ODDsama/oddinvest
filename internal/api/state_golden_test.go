@@ -783,7 +783,7 @@ func buildRichDoc(t *testing.T) *state.Doc {
 	srv, st := testServer(t)
 	richPortfolio(t, srv.URL, st)
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	doc, err := New(st, nil, log).BuildStateTasked(context.Background(), goldenNow)
+	doc, err := New(st, log).BuildStateTasked(context.Background(), goldenNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -833,7 +833,7 @@ func TestBuildStateGoldenUSD(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	s := New(st, nil, log)
+	s := New(st, log)
 	doc, err := s.BuildStateTasked(ctx, goldenNow)
 	if err != nil {
 		t.Fatal(err)

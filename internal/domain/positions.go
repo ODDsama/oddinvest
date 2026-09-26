@@ -29,7 +29,7 @@ func Positions(bonds map[string]Bond, payments []Payment, lots []Lot, sales []Sa
 			byISIN[l.ISIN] = a
 		}
 		a.qty += rem
-		cost := MulQty(l.PricePerBond, rem)
+		cost := l.PricePerBond.Multiply(rem)
 		fee, err := Apportion(l.Fee, rem, l.Qty)
 		if err != nil {
 			return nil, err
@@ -95,7 +95,7 @@ func Positions(bonds map[string]Bond, payments []Payment, lots []Lot, sales []Sa
 			Currency:  b.Nominal.Currency().Code,
 			Qty:       a.qty,
 			Invested:  a.invested,
-			Nominal:   MulQty(b.Nominal, a.qty),
+			Nominal:   b.Nominal.Multiply(a.qty),
 			Maturity:  b.Maturity,
 			DaysToMat: DaysBetween(asOf, b.Maturity),
 		}
@@ -105,7 +105,7 @@ func Positions(bonds map[string]Bond, payments []Payment, lots []Lot, sales []Sa
 			}
 			if pos.NextPayDate == "" || p.PayDate.Before(pos.NextPayDate) {
 				pos.NextPayDate = p.PayDate
-				pos.NextPayAmt = MulQty(p.PerBond, a.qty)
+				pos.NextPayAmt = p.PerBond.Multiply(a.qty)
 			}
 		}
 		out = append(out, pos)
