@@ -153,7 +153,7 @@ for (const [from, want] of Object.entries(FALLBACK)) {
 // саме — інакше закладка на позицію відкриває чужу.
 const ROUND = [
   ["portfolio", "fund:Inzhur OFFICE", "state"],
-  ["portfolio", "bond:UA4000231625", "do"],
+  ["portfolio", "bond:UA4000231625", "have"],
 ];
 for (const [tab, item, pane] of ROUND) {
   const enc = encodeURIComponent(item).replace(/%3A/g, ":");

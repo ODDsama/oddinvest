@@ -22,7 +22,7 @@ import { routeFor } from "../routes.js";
 import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
 import { openEdit } from "../forms.js";
 import { wireRefs, wireSuggest } from "../refs.js";
-import { lotFields, lotBody } from "./bonds.js";
+import { lotFields, lotBody, lotOpen } from "./bonds.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
@@ -298,7 +298,10 @@ export async function openBought(ctx, isin) {
     fields: lotFields(ctx, row),
     wire: (f) => { wireRefs(f); wireSuggest(ctx, f); },
     submit: "Записати покупку",
-  }, (f) => ({ path: "lots", body: lotBody(f), msg: "Покупку записано" }));
+  }, (f) => {
+    const body = lotBody(f);
+    return { path: "lots", body, msg: "Покупку записано", open: lotOpen(body) };
+  });
 }
 
 // Розкриті пропозиції живуть поза рендером: ctx.reload() стирає main

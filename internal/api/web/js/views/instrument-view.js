@@ -243,8 +243,16 @@ function nextForPositionHTML(ctx, kind, row) {
  *  форми ця воронка не заводить. */
 function writeHTML(ctx, spec, d) {
   if (spec.kind === "bond") {
-    return `<div class="card"><h3>Нова покупка</h3>${bondBuyFormHTML(ctx)}</div>
-      <div class="card"><h3>Продаж на вторинному ринку</h3>${bondSaleFormHTML(ctx, d.lots)}</div>`;
+    // На рядку паперу форма знає, ПРО ЩО вона: ISIN, валюта й брокер
+    // останнього лота підставлені, а в продажі — лише лоти цього паперу.
+    // Доти тут стояли порожня форма й випадайка з УСІМА лотами портфеля,
+    // тобто продати можна було не той папір, на сторінці якого стоїш.
+    const mine = (d.lots || []).filter((l) => l.isin === ctx.key);
+    const last = mine.length ? mine[mine.length - 1] : null;
+    const prefill = { isin: ctx.key, channel: last ? last.channel : "",
+      currency: last ? last.price_per_bond.currency : "" };
+    return `<div class="card"><h3>Нова покупка</h3>${bondBuyFormHTML(ctx, prefill)}</div>
+      <div class="card"><h3>Продаж на вторинному ринку</h3>${bondSaleFormHTML(ctx, mine)}</div>`;
   }
   if (spec.kind === "deposit") {
     return `<div class="card"><h3>Відкрити вклад</h3>${depositFormHTML(ctx)}
@@ -314,8 +322,16 @@ function panePaneHTML(ctx, spec, d) {
     // мусить трапитись на очі до того, як почнеш читати числа. Вона
     // видова — задачі приходять із бекенда по виду, а не по позиції, — і
     // це чесніше, ніж мовчати про сусідній папір того ж виду.
+    //
+    // «Що далі» й «Що зробити» ЗЛИТІ СЮДИ (ревізія 2026-10-03): три
+    // панелі відповідали на одне питання «що з цією позицією» і в рейці
+    // читались як три різні місця. Тепер згори вниз: що чекає рішення →
+    // числа → що попереду → що взяти цього виду.
     return kindTasksHTML(ctx, spec.kind)
-      + positionTilesHTML(ctx, spec.kind, row);
+      + positionTilesHTML(ctx, spec.kind, row)
+      + nextForPositionHTML(ctx, spec.kind, row)
+      + reinvestHTML(ctx, { kinds: [spec.kind], title: "Що взяти з цього виду" })
+      + (spec.kind === "bond" ? switchHTML() : "");
   case "have":
     // Одна позиція, а не весь вид: рядок ліворуч уже сказав, про кого
     // мова. Розкриття показує лоти, продажі, поповнення — те, з чого ця
@@ -323,18 +339,6 @@ function panePaneHTML(ctx, spec, d) {
     return positionsTableHTML(ctx, d.positions, d.lots, d.sales, d.deposits, {
       only: ctx.item, title: spec.title, rowDetail, empty: EMPTY[spec.kind],
     });
-  case "next":
-    return nextForPositionHTML(ctx, spec.kind, row);
-  case "do":
-    return (reinvestHTML(ctx, { kinds: [spec.kind], title: "Що взяти з цього виду" })
-      || `<div class="card">${empty("Порад по цьому виду немає",
-        "Помічник радить лише те, що проходить за твоїми умовами. Порівняти види між "
-        + "собою можна там, де вони стоять поруч.",
-        { href: routeFor("overview/main/main"), label: "Що взяти — на «Сьогодні»" })}</div>`)
-      + (spec.kind === "bond" ? switchHTML() : "")
-      + `<div class="card"><div class="sub">Порівняти з іншими видами —
-        <a class="lnk" href="${routeFor("overview/main/main")}">у «Що взяти» на «Сьогодні»</a>: там ОВДП,
-        фонд, вклад і НПФ стоять поруч і міряні однією реальною дохідністю.</div></div>`;
   case "record":
     return writeHTML(ctx, spec, d);
   }
@@ -430,16 +434,15 @@ function reservePaneHTML(ctx, ops) {
   switch (ctx.pane) {
   default:
   case "state":
-    return reserveTilesHTML(ctx) || `<div class="card">${empty(
+    // «Що далі» злите сюди, як і в позиції: поповнення — та сама відповідь
+    // на «що з резервом», а не окреме місце.
+    return (reserveTilesHTML(ctx) || `<div class="card">${empty(
       "Резерву ще немає",
       "Резерв — те, що доступне миттєво й без втрат, коли гроші раптом знадобились.",
-      { href: routeFor("portfolio/reserve/record"), label: "Записати рух" })}</div>`;
+      { href: routeFor("portfolio/reserve/record"), label: "Записати рух" })}</div>`)
+      + reserveFillHTML(ctx);
   case "have":
     return reserveJournalHTML(ops);
-  case "next":
-    return reserveFillHTML(ctx) || `<div class="card"><div class="sub">
-      Поповнювати зараз нічого: або запас уже зібраний, або цього місяця на нього не лишилось грошей.
-      </div></div>`;
   case "record":
     return reserveFormHTML(ctx);
   }

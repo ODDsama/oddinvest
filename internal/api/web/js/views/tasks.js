@@ -77,7 +77,7 @@ const ACTIONS = {
   "see-suggestions": { to: "overview/main/main", label: "Що взяти" },
   // pane — панель рядка, коли задача несе ref (конкретний запис). Без ref
   // лишається загальна адреса to.
-  "review-deposit": { to: "portfolio/@first:deposit/state", label: "Подивитись вклад", pane: "next" },
+  "review-deposit": { to: "portfolio/@first:deposit/state", label: "Подивитись вклад", pane: "state" },
   "how-to-fund": { to: "portfolio/@first:fund/state", label: "Як завести сертифікат", pane: "state" },
 };
 

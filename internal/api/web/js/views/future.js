@@ -7,7 +7,7 @@
 // бібліотекою карток; складає їх views/plan-view.js.
 
 import {
-  esc, today, humanMonths, monthYear, pct, capitalUAH, outsideUAH,
+  esc, today, dayShift, humanMonths, monthYear, pct, capitalUAH, outsideUAH,
   uah0, uah2 as fmtUAH, money as fmtMoney, TODAY_FX,
 } from "../format.js";
 import { eq } from "../currency.js";
@@ -20,6 +20,7 @@ import { CONTRIB, contribTriad } from "../contrib.js";
 import { opsGrid } from "../grid.js";
 import { rateSourceLabel } from "./forecast.js";
 import { pref, wirePrefs } from "../uistate.js";
+import { openAllocate } from "./allocate.js";
 
 // Дохід по місяцях: коли саме надійдуть купони й погашення на рік наперед.
 export function income12mChartHTML(ctx) {
@@ -207,11 +208,6 @@ export function projectionHTML(ctx) {
 const CAL_KEY = "oddinvest.calRange";
 const UNCONFIRMED_DAYS = 90;
 const calRange = () => pref(CAL_KEY, ["ahead", "past"], "ahead");
-const dayShift = (iso, days) => {
-  const d = new Date(iso);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-};
 const calQuery = (mode) => {
   const now = today();
   if (mode !== "past") return "from=" + dayShift(now, -UNCONFIRMED_DAYS);
@@ -286,7 +282,11 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
         if (c.date > now) return "";
         // Уже позначено — лишається одна дія: зняти позначку. Раз вона
         // рухає гроші, помилковий клік має бути оборотним.
-        const attrs = `data-isin="${esc(c.isin)}" data-date="${esc(c.date)}"`;
+        const m = typeof c.amount === "object" && c.amount
+          ? c.amount : { amount: c.amount, currency: c.currency };
+        const attrs = `data-isin="${esc(c.isin)}" data-date="${esc(c.date)}"
+          data-amt="${esc(String(m.amount || ""))}" data-cur="${esc(m.currency || "UAH")}"
+          data-type="${esc(c.type || "")}"`;
         return c.status
           ? `<button class="sm quiet" ${attrs} data-st="none">Скасувати</button>`
           : `<button class="sm" ${attrs} data-st="received">Отримано</button>`;
@@ -302,12 +302,28 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
   if (append) place(main, html);
   else main.innerHTML = html;
   wirePrefs(main, ctx, CAL_KEY);
+  // «Отримано» — ОДНА поведінка всюди (ревізія 2026-10-03): позначка, а
+  // за нею — пропозиція розкласти суму, так само як у маршруті. Доти
+  // календар лише ставив позначку, маршрут ще й відкривав розкладку, а
+  // чеклист плану мав свою кнопку поруч — три різні наслідки одного слова.
   main.querySelectorAll("[data-st]").forEach((b) =>
     b.addEventListener("click", async () => {
+      const d = b.dataset;
       try {
-        await ctx.api("POST", "payments/status", { isin: b.dataset.isin, pay_date: b.dataset.date, status: b.dataset.st });
-        ctx.toast(b.dataset.st === "none" ? "Позначку знято" : "Статус збережено"); ctx.reload();
-      } catch (err) { ctx.toast(String(err.message || err), false); }
+        await ctx.api("POST", "payments/status", { isin: d.isin, pay_date: d.date, status: d.st });
+      } catch (err) { ctx.toast(String(err.message || err), false); return; }
+      if (d.st === "none" || !d.amt) {
+        ctx.toast(d.st === "none" ? "Позначку знято" : "Позначено отриманим");
+        ctx.reload();
+        return;
+      }
+      // Тіло погашення — окремо: розкладка не віддає подушці курс і знає,
+      // що це повернення власних грошей, а не дохід.
+      await openAllocate(ctx, {
+        amount: d.amt, currency: d.cur, title: d.isin, source: "portfolio",
+        principal: d.type === "redemption" ? d.amt : 0,
+      });
+      ctx.reload();
     }));
 }
 

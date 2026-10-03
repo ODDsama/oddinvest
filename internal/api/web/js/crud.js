@@ -57,7 +57,7 @@ import { wireRefs, wireSuggest } from "./refs.js";
 export function wireCrud(ctx, main, spec) {
   const {
     resource, form = null, fields, body, rows = [],
-    title = "Запис", confirm = null, msg = {},
+    title = "Запис", confirm = null, msg = {}, open = null,
     path = (id) => resource + "/" + id, createPath = resource,
   } = spec;
   if (!main) return;
@@ -69,7 +69,7 @@ export function wireCrud(ctx, main, spec) {
     const build = (f) => {
       const b = body(f, null);
       if (!b) return null;
-      return { path: createPath, body: b, msg: msg.add || (title + " додано") };
+      return { path: createPath, body: b, msg: msg.add || (title + " додано"), open: open ? open(b) : null };
     };
     onSubmit(ctx, addForm, build);
   }

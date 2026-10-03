@@ -35,7 +35,7 @@ import {
   fxWindowHTML,
 } from "./money-cards.js";
 import { setFundOps, wireFundOps, fundStatementHTML } from "../fund-ops.js";
-import { setPref } from "../uistate.js";
+import { setPref, pref, wirePrefs } from "../uistate.js";
 import { goalCreateFormHTML, goalFields, goalBody } from "./goals.js";
 import {
   positionsTableHTML, loadPositionsData, wirePositionRows,
@@ -50,12 +50,38 @@ import { allocationCardHTML } from "./allocation.js";
 import { chartBlockHTML, snapshotsTableHTML, wireHistory } from "./history.js";
 import { fxShockCard, wireFXShock, shockPath } from "./fx-shock.js";
 
-// Підсумок місяця живе окремим модулем і реекспортується сюди: сторінка
-// належить «Портфелю», а її вміст не має спільного з рештою цього файла
-// нічого, крім розділу.
-export { period } from "./period.js";
-export { digest } from "./digest.js";
-export { year } from "./year.js";
+import { period as monthView } from "./period.js";
+import { digest as changedView } from "./digest.js";
+import { year as yearView } from "./year.js";
+
+// «ПЕРІОД» — ОДНА ПАНЕЛЬ ЗАМІСТЬ ЧОТИРЬОХ (ревізія 2026-10-03).
+//
+// «Що змінилось», «Підсумок місяця», «Рік у цифрах» і «Податки» стояли
+// чотирма сусідніми панелями й відповідали на одне питання — «що було за
+// період» — різними вікнами. У рейці з дванадцяти пунктів це читалось як
+// чотири різні розділи, і шукати «а скільки я вніс у березні» доводилось
+// навмання. Тепер вікно — перемикач усередині панелі, а вибір
+// запам'ятовується.
+//
+// Самі модулі не змінились: кожен малює себе у свій контейнер, як і
+// доти малював у панель. Перемикач лише вирішує, який із них.
+const PERIOD_KEY = "oddinvest.periodView";
+const PERIOD_VIEWS = [
+  { v: "changed", t: "Що змінилось", draw: changedView },
+  { v: "month", t: "Місяць", draw: monthView },
+  { v: "year", t: "Рік", draw: yearView },
+  { v: "tax", t: "Податки", draw: (ctx, el) => tax(ctx, el) },
+];
+
+export async function period(ctx, main) {
+  const cur = pref(PERIOD_KEY, PERIOD_VIEWS.map((w) => w.v), "changed");
+  const view = PERIOD_VIEWS.find((w) => w.v === cur);
+  main.innerHTML = `<div class="card"><span class="seg">${PERIOD_VIEWS.map((w) =>
+    `<button data-pref="${PERIOD_KEY}" value="${w.v}" aria-pressed="${w.v === cur}">${w.t}</button>`).join("")}
+    </span></div><div data-periodbody></div>`;
+  wirePrefs(main, ctx, PERIOD_KEY);
+  await view.draw(ctx, main.querySelector("[data-periodbody]"));
+}
 
 /** Усе разом: та сама таблиця, що й була, з плитками дохідностей над нею.
  *  Єдина панель, де види стоять поруч і порівнюються.
@@ -125,7 +151,7 @@ export async function limits(ctx, main) {
  *  вдвічі більше»), і про майбутнє; шок нічого не припускає — він бере
  *  виміряний відрізок історії й питає, що той зробив би з портфелем,
  *  який є ЗАРАЗ. Предмет тут — сьогоднішній портфель цілком, тобто той
- *  самий рядок, що в «Структури» й «Лімітів».
+ *  самий рядок, що в «Структури» й «Ризиків».
  *
  *  М'яко (ctx.soft): маршрут може бути новішим за бекенд, а сторінка з
  *  названою причиною краща за порожню. */
@@ -140,9 +166,10 @@ export async function shock(ctx, main) {
 /** Скільки з доходу забрала держава — грошима, а не ставкою.
  *
  *  Переїхала з «Грошей» (вкладку прибрано разом із рахунками, ревізія
- *  2026-10-03). Власна сторінка, а не картка в хвості періоду: сюди
- *  приходять раз на рік і цілеспрямовано, з декларацією перед очима. */
-export async function tax(ctx, main) {
+ *  2026-10-03), тепер — вікно «Податки» панелі «Період»: власне вікно, а
+ *  не картка в хвості місяця, бо сюди приходять раз на рік і
+ *  цілеспрямовано, з декларацією перед очима. */
+async function tax(ctx, main) {
   const x = await ctx.soft("tax?year=" + taxYear(), null);
   main.innerHTML = taxHTML(x);
 

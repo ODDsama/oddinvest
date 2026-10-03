@@ -17,10 +17,10 @@
  *  це байдуже (значення просто ігнорується), а модальній правці — ні:
  *  без нього вона не відрізнить «збережено» від «400 від валідатора» і
  *  або закриється, зʼївши введене, або не закриється ніколи. */
-export async function apply(ctx, { method = "POST", path, body }, msg, form = null) {
+export async function apply(ctx, { method = "POST", path, body, open = null }, msg, form = null) {
   try {
     await ctx.api(method, path, body);
-    if (msg) ctx.toast(msg);
+    if (msg) ctx.toast(msg, true, open);
     ctx.reload();
     return true;
   } catch (err) {

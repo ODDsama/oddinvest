@@ -93,7 +93,7 @@ const row = (id, name, sub, value, meta, kind, metaTone = "") => ({
 export function portfolioRows(ctx, d) {
   const s = ctx.summary || {};
   const out = [row(
-    "all", "Портфель цілком", "як росте · місяць · структура · ліміти",
+    "all", "Портфель цілком", "як росте · період · структура · ризики",
     uah0(capitalUAH(s)),
     s.blended_yield_real_pct ? pct(s.blended_yield_real_pct) : "—",
     "all", s.blended_yield_real_pct > 0 ? "ok" : "",

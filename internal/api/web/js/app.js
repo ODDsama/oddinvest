@@ -111,14 +111,11 @@ const VIEWS = {
 
   "portfolio/all/positions": portfolio.positions,
   "portfolio/all/growth": portfolio.growth,
-  "portfolio/all/changed": portfolio.digest,
   "portfolio/all/period": portfolio.period,
-  "portfolio/all/year": portfolio.year,
   "portfolio/all/structure": portfolio.structure,
   "portfolio/all/limits": portfolio.limits,
   "portfolio/all/shock": portfolio.shock,
   "portfolio/all/compare": portfolio.compare,
-  "portfolio/all/tax": portfolio.tax,
   "portfolio/all/statement": portfolio.statement,
   "portfolio/all/record": portfolio.record,
 
@@ -409,7 +406,7 @@ export class OddInvestApp extends HTMLElement {
       // але зайвий обхід восьми маршрутів усе одно коштує кадр.
       positions: this._posData,
       root: this.shadowRoot,
-      toast: (msg, ok) => this._toast(msg, ok),
+      toast: (msg, ok, link) => this._toast(msg, ok, link),
       // Теплий перерендер: панель уже на екрані, змінилось одне число.
       reload: () => this._loadPage({ warm: true }),
       brokerList: (lots) => this._brokerList(lots),
@@ -430,14 +427,25 @@ export class OddInvestApp extends HTMLElement {
   // Помилка — role="alert" і довше на екрані: у ввічливій (polite) черзі
   // зчитувач екрана доти оголошував відмову сервера після всього іншого,
   // а чотири секунди — замало, щоб дочитати текст валідатора.
-  _toast(msg, ok = true) {
+  //
+  // link — { href, label }: куди подивитись на щойно збережене. Доти запис
+  // із «Записати нове» зникав у нікуди: форма очищалась, тост казав
+  // «додано», а де тепер той лот — треба було шукати в списку.
+  _toast(msg, ok = true, link = null) {
     const t = this.shadowRoot.getElementById("toast");
     t.textContent = msg;
+    if (link && link.href) {
+      const a = document.createElement("a");
+      a.href = link.href;
+      a.className = "toast-a";
+      a.textContent = link.label || "відкрити";
+      t.append(" ", a);
+    }
     t.className = ok ? "toast ok show" : "toast err show";
     t.setAttribute("role", ok ? "status" : "alert");
     t.setAttribute("aria-live", ok ? "polite" : "assertive");
     clearTimeout(this._toastTimer);
-    this._toastTimer = setTimeout(() => t.classList.remove("show"), ok ? 4000 : 8000);
+    this._toastTimer = setTimeout(() => t.classList.remove("show"), ok && !link ? 4000 : 8000);
   }
 
   // Брокери: з довідника ∪ ті, що вже зустрічались у лотах. Довідник міг

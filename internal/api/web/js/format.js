@@ -25,6 +25,15 @@ export const curSym = (c) => CURRENCY_SYM[c] || c;
  *  Поруч monthKeyOffset (views/plan-receipts.js) рахує місяць локально й
  *  обіцяє, що браузер і сервер не називатимуть різні місяці одним іменем.
  *  Ця функція те саме обіцяння порушувала. */
+/** Дата ISO, зсунута на days днів. Календарний зсув, а не арифметика
+ *  грошей: межу «що вважати близьким» малюють два екрани (календар і
+ *  маршрут), і рахувати її мусять однаково. */
+export const dayShift = (iso, days) => {
+  const d = new Date(iso);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+
 export const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${

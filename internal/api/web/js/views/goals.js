@@ -387,15 +387,15 @@ function goalPaneHTML(ctx, g, raw, ops) {
   switch (ctx.pane) {
   default:
   case "state":
-    return goalTilesHTML(g);
-  case "have":
-    return goalJournalHTML(ops, g.id);
-  case "next":
-    return goalFillHTML(g) || `<div class="card"><div class="sub">
+    // «Що далі» злите сюди (ревізія 2026-10-03): скільки відкласти цього
+    // місяця — продовження того самого «як ця ціль», а не окреме місце.
+    return goalTilesHTML(g) + (goalFillHTML(g) || `<div class="card"><div class="sub">
       Відкладати зараз нічого: або ціль зібрана, або стеля наповнення не задана,
       або плану доходу немає — рахувати частку нема від чого. Задати стелю:
       <a class="lnk" href="${routeFor("policy/money/main")}">Політика → Гроші місяця</a>.
-      </div></div>`;
+      </div></div>`);
+  case "have":
+    return goalJournalHTML(ops, g.id);
   case "record":
     return goalOpFormHTML(ctx, g, raw);
   }

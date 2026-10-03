@@ -39,7 +39,7 @@
 // таблиця з датами 2027 року інакше читалась би як прогноз цін, яким вона
 // не є й бути не може.
 
-import { esc, uah0 as fmtUAH, dayMonth, monthShort } from "../format.js";
+import { esc, uah0 as fmtUAH, dayMonth, monthShort, dayShift } from "../format.js";
 import { opsGrid } from "../grid.js";
 import { kindPill, empty } from "../components.js";
 import { infoBtn } from "../info.js";
@@ -47,6 +47,11 @@ import { routeFor } from "../routes.js";
 import { refSuggest, wireSuggest } from "../refs.js";
 import { openEdit } from "../forms.js";
 import { openAllocate } from "./allocate.js";
+
+// Скільки днів наперед ногу вже можна позначити «Отримано»: брокер
+// буває платить раніше за графік, але тиждень — межа, далі це вже не
+// «рано прийшло», а помилковий клік.
+const EARLY_DAYS = 7;
 
 // Папери, які людина обрала сама, по ногах: ключ — дата|рахунок|валюта
 // (той самий routeKey, за яким бекенд упізнає ногу), значення — ISIN.
@@ -203,21 +208,23 @@ function legsHTML(doc) {
       },
       {
         key: "act", label: "", cls: "row-actions nowrap",
-        // Кнопка є РІВНО в ноги, датованої сьогодні, і рівно доки виплата не
-        // позначена. Це не сором'язливість, а межа domain.Arrived: учорашню
-        // виплату застосунок уже вважає отриманою й показує в балансі, а
-        // завтрашніх грошей на рахунку ще немає — розкладати нічого. Один
-        // день, коли обидва твердження хибні, і є моментом рішення.
+        // Кнопка — у ноги, датованої сьогодні або найближчим тижнем, доки
+        // виплата не позначена. Учорашню виплату застосунок уже вважає
+        // отриманою (domain.Arrived) — у маршруті її й немає. Але брокер
+        // буває платить раніше за графік, і доти кнопка стояла рівно в один
+        // день — раніше гроші вже прийшли, а позначити їх було ніде, крім
+        // календаря (ревізія 2026-10-03). Позначка наперед датується
+        // сьогоднішнім днем (domain.ArrivalDate).
         //
         // Оцінка кнопки не має: дивіденд фонду позначати нема чого, його
         // справжній запис приходить випискою (тому ref порожній).
         cell: (leg) => {
-          if (leg.date === doc.from && leg.ref) {
-            return `<button class="sm" data-arrived="${esc(String(leg.id))}">Прийшло</button>`;
+          if (leg.ref && leg.date <= dayShift(doc.from, EARLY_DAYS)) {
+            return `<button class="sm" data-arrived="${esc(String(leg.id))}">Отримано</button>`;
           }
           // Планова нога ref не має й мати не може: її відмічають у
           // чеклисті плану (plan/receipts), а не статусом виплати. Кнопка
-          // «Прийшло» тут писала б не в ту таблицю, тож замість неї —
+          // «Отримано» тут писала б не в ту таблицю, тож замість неї —
           // дорога туди, де відмітка справді живе.
           if (leg.basis === "plan" && leg.date === doc.from) {
             return `<a class="lnk fine-xs" href="${routeFor("plan/inflow/main")}"

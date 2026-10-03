@@ -98,10 +98,10 @@ function receiptStateHTML(e) {
     // план, і питати про суму в цьому випадку означає питати даремно.
     return `<button type="button" class="sm" data-mark="${e.flow_id}"
         data-month="${esc(e.month)}" data-amt="${esc((e.amount || {}).amount || "")}"
-        aria-label="Відмітити, що «${esc(e.name)}» надійшло">✓ прийшло</button>
+        aria-label="Відмітити, що «${esc(e.name)}» надійшло">Отримано</button>
       <button type="button" class="sm quiet" data-skip="${e.flow_id}"
         data-month="${esc(e.month)}"
-        aria-label="Відмітити, що «${esc(e.name)}» не прийшло">✕ не прийшло</button>`;
+        aria-label="Відмітити, що «${esc(e.name)}» не прийшло">Не прийшло</button>`;
   }
   return amtOf(r.amount) === 0
     ? `<span class="pill redemption">не прийшло</span>`

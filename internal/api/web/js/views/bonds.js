@@ -1,6 +1,6 @@
 // Форми ОВДП: купівля з підказкою по ISIN і продаж на вторинному ринку.
 
-import { esc, money as fmtMoney } from "../format.js";
+import { esc, money as fmtMoney, today } from "../format.js";
 import {
   money as moneyField, num as numField, date as dateField,
   note as noteField, formHTML,
@@ -8,6 +8,7 @@ import {
 import { refSelect, refSuggest, refValue, refAttr, wireRefs, wireSuggest } from "../refs.js";
 import { wireCrud, inlineEdit } from "../crud.js";
 import { CURRENCIES } from "../constants.js";
+import { seg } from "../routes.js";
 
 
 /** Поля лота — один список і для купівлі, і для правки.
@@ -33,6 +34,10 @@ export const lotFields = (ctx, row = null) => [
   noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
 ];
 
+/** Куди подивитись на щойно записаний лот: «Що маю» його паперу. */
+export const lotOpen = (b) => (b && b.isin
+  ? { href: `#/portfolio/${seg("bond:" + b.isin)}/have`, label: "відкрити папір" } : null);
+
 export const lotBody = (f) => ({
   isin: f.isin.value.trim(),
   qty: parseInt(f.qty.value, 10),
@@ -48,8 +53,16 @@ export const lotBody = (f) => ({
 // воно бере список саме там, де він і живе, — об'єднання довідника з тим,
 // що вже зустрічалось у лотах (app.js:_brokerList). Доти список лотів
 // передавали сюди рівно заради випадайки брокера.
-export function bondBuyFormHTML(ctx) {
-  return formHTML({ id: "lotForm", fields: lotFields(ctx), submit: "Додати" })
+// prefill — ISIN, валюта й брокер, коли форма стоїть на рядку конкретного
+// паперу: там вони вже відомі, і набирати їх удруге — найчастіша одруківка
+// (ISIN із дванадцяти символів).
+export function bondBuyFormHTML(ctx, prefill = null) {
+  const row = prefill ? {
+    isin: prefill.isin || "", qty: "", fee: { amount: "" }, note: "",
+    price_per_bond: { amount: "", currency: prefill.currency || "" },
+    buy_date: today(), channel: prefill.channel || "",
+  } : null;
+  return formHTML({ id: "lotForm", fields: lotFields(ctx, row), submit: "Додати" })
     + `<div class="muted mt-sm" id="bondInfo"></div>`;
 }
 
@@ -130,6 +143,7 @@ export function wireBonds(ctx, main, lots = [], sales = []) {
     confirm: (row) => "Видалити лот #" + row.id + " (" + esc(row.isin) + ")?"
       + (row.qty !== row.remaining ? " Продажі з нього теж зникнуть." : ""),
     msg: { add: "Лот додано", edit: "Лот виправлено", del: "Лот видалено" },
+    open: lotOpen,
   });
 
   wireSales(ctx, main, lots, sales);
