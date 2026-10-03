@@ -159,7 +159,7 @@ func TestGoalDepositIsExclusiveWithReserve(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("вклад і подушка, і ціль водночас пройшов: %d %s", resp.StatusCode, got)
 	}
-	if !strings.Contains(got, "подушкою") {
+	if !strings.Contains(got, "резервом") {
 		t.Errorf("помилка %q не називає причину — саме заради цього перевірка тут, а не в CHECK", got)
 	}
 }

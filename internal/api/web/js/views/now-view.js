@@ -382,7 +382,7 @@ export function monthTile(ctx, s) {
   // означало б друге означення того, що там уже є (CLAUDE.md §5).
   const outside = s.month_outside_uah || 0;
   const extra = `${outside
-    ? `<div class="sub-xs">з них ${signedUAH2(outside)} у подушку й цілі, ${
+    ? `<div class="sub-xs">з них ${signedUAH2(outside)} у резерв і цілі, ${
       fmtUAH(s.month_contributed_uah || 0)} на рахунки</div>` : ""}
     ${s.month_invested_uah > 0
     ? `<div class="sub">куплено паперів на ${fmtUAH(s.month_invested_uah)}</div>` : ""}`;
@@ -390,7 +390,7 @@ export function monthTile(ctx, s) {
   // ГОЛОВНЕ ЧИСЛО ПЛИТКИ — ПОКРИТТЯ ПЛАНУ МІСЯЦЯ, коли план є.
   //
   // Доти тут стояв відсоток від ЦІЛІ накопичення, і на живих даних це було
-  // 17%: ціль вимагає 93 931 ₴/міс, а джерела доходу дають утричі менше.
+  // 17%: мета вимагає 93 931 ₴/міс, а джерела доходу дають утричі менше.
   // Число правдиве й майже некорисне — воно міряє проти суми, якої людина не
   // вносить і не планує вносити цього місяця. Питання, яке ставлять щомісяця,
   // інше: «чи закинув я те, що збирався».
@@ -421,7 +421,7 @@ export function monthTile(ctx, s) {
     const cov = mp.covered_pct || 0;
     const goalShare = shareOfNeed(done, t.need) || 0;
     const goalLine = t.hasGoal
-      ? `<div class="sub-xs">ціль вимагає ${fmtUAH(t.need)}/міс — це ${
+      ? `<div class="sub-xs">мета вимагає ${fmtUAH(t.need)}/міс — це ${
         Math.round(goalShare)}%</div>
          ${goalBar(goalShare)}`
       : "";
@@ -452,7 +452,7 @@ export function monthTile(ctx, s) {
   }
   // Ні цілі, ні плану доходу — міряти нема від чого взагалі.
   return tile("Цей місяць", "—",
-    `<div class="sub">задай ціль і дедлайн — план порахується сам</div>`);
+    `<div class="sub">задай мету капіталу й дедлайн — план порахується сам</div>`);
 }
 
 // Друга половина плитки: чи є план, чи вистачає його на ціль, і якщо ні
@@ -467,7 +467,7 @@ export function planTileSub(ctx, doc) {
     // від чого рахується нестача.
     return t.gap > 0
       ? `<div class="sub">${CONTRIB.gap.label.toLowerCase()} ${fmtUAH(t.gap)}/міс до потрібних ${fmtUAH(t.need)}/міс</div>`
-      : `<div class="sub t-ok">із запасом виводить на ціль</div>`;
+      : `<div class="sub t-ok">із запасом виводить на мету</div>`;
   }
   const ev = doc && nearestPlanEvent(doc, today());
   return ev

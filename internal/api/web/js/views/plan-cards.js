@@ -66,7 +66,7 @@ function thisMonthHTML(doc) {
   return `<div class="sub-xs mt-xs">${esc(monthYear(key + "-01"))}: відмічено
     ${marked.length} із ${rows.length} — надійшло <b>${fmtUAH(got)}</b> із запланованих
     <b>${fmtUAH(planned)}</b>${missed.length
-    ? ` · <span class="t-warn">не прийшло: ${missed.join(", ")}</span>` : ""}.</div>`;
+    ? ` · <span class="t-warn">не отримано: ${missed.join(", ")}</span>` : ""}.</div>`;
 }
 
 export function planVerdictHTML(ctx, doc = null) {
@@ -104,7 +104,7 @@ export function planVerdictHTML(ctx, doc = null) {
   if (t.gap != null && t.gap > 0) {
     verdict = `<span class="t-warn">${CONTRIB.gap.label.toLowerCase()} ${fmtUAH(t.gap)}/міс</span>`;
   } else if (t.gap != null) {
-    verdict = `<span class="t-ok">план сам виводить на ціль</span>`;
+    verdict = `<span class="t-ok">план сам виводить на мету</span>`;
   }
 
   // Пастка, у яку легко втрапити після «⇗»: план, що закінчується раніше
@@ -118,7 +118,7 @@ export function planVerdictHTML(ctx, doc = null) {
 
   return `<div class="card"><h2 class="card-head"><span>План ${infoBtn("planFlows")}</span></h2>
     <div class="tiles flush">${tiles}</div>
-    <div class="sub-xs mt-sm">Ціль ${fmtUAH(t.goal)} до ${esc(t.date)}${
+    <div class="sub-xs mt-sm">Мета капіталу ${fmtUAH(t.goal)} до ${esc(t.date)}${
   verdict ? " · " + verdict : ""}.</div>
     ${month}${outlives}${leversHTML(ctx)}</div>`;
 }
@@ -153,7 +153,7 @@ function leversHTML(ctx) {
   const pts = (f.curve || {}).points || [];
   const last = pts.length ? pts[pts.length - 1] : null;
   if (last && last.plan > 0 && f.goal_amount > 0 && last.plan < f.goal_amount) {
-    bits.push(`знизити ціль до ${esc(fmtUAH(last.plan))}`);
+    bits.push(`знизити мету до ${esc(fmtUAH(last.plan))}`);
   }
   if (!bits.length) return "";
   return `<div class="sub-xs mt-sm">Те саме іншими важелями: ${bits.join(" · ")}.</div>`;

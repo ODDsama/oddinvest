@@ -83,7 +83,7 @@ export function reserveTilesHTML(ctx) {
     ${target > 0 && months ? `<div class="progress mb-sm">
       <span style="--oi-fill:${fill}%;--oi-c:${enough ? "var(--oi-ok)" : "var(--oi-info)"}"></span></div>
       <div class="note">${enough
-    ? `запас зібраний${r.uah > r.target_uah ? ` — з перевищенням на ${fmtUAH(r.uah - r.target_uah)}` : ""}`
+    ? `резерв зібраний${r.uah > r.target_uah ? ` — з перевищенням на ${fmtUAH(r.uah - r.target_uah)}` : ""}`
     : `до цілі ще ${fmtUAH(r.gap_uah || 0)} · ціль ${fmtUAH(r.target_uah || 0)}`}</div>` : ""}
     ${debtCoverHTML(r)}
     ${reserveLoansHTML(r)}
@@ -128,12 +128,12 @@ function reserveLoansHTML(r) {
         { label: "позику від " + l.date })}</span></div>`;
   }).join("");
   return `<div class="note">
-    <b${overdue ? ' class="t-danger"' : ""}>Винен подушці ${fmtUAH(owed)}</b> —
+    <b${overdue ? ' class="t-danger"' : ""}>Винен резерву ${fmtUAH(owed)}</b> —
     ${loans.length === 1 ? "одна позика" : `${loans.length} ${
     plural(loans.length, "позика", "позики", "позик")}`} в самого себе,
     з них ${fmtUAH(interest)} відсотка. Саме на нього піднята ціль:
     ${fmtUAH(base)} базової + ${fmtUAH(interest)} = ${fmtUAH(r.target_uah || 0)}.
-    Тіло ціль не піднімає — подушка вже впала на нього, коли ти його брав,
+    Тіло ціль не піднімає — резерв уже впав на нього, коли ти його брав,
     і розрив його вже вимагає. Повернеш усе — ціль стане такою, якою була.
     </div>
     ${rows}`;
@@ -156,7 +156,7 @@ function debtCoverHTML(r) {
   if (!cover) return "";
   const gap = r.debt_cover_gap_uah || 0;
   return gap > 0
-    ? `<div class="note"><b class="t-danger">Подушка не перекриває борг.</b>
+    ? `<div class="note"><b class="t-danger">Резерв не перекриває борг.</b>
       Закрити його коштувало б ${fmtUAH(cover)} — це майбутні платежі разом із
       комісіями, — а бракує ${fmtUAH(gap)}. Рубіж ближчий за ціль у місяцях витрат
       і важливіший за неї: доки він не взятий, будь-яка пауза в доході робить борг
@@ -181,9 +181,9 @@ function expensesFXHTML(set, r) {
   if (!cur || cur === "UAH" || !native || !months) return "";
   const sym = curSym(cur);
   return `<div class="note">Витрати задані у ${esc(cur)}: ${fmtCur(native, sym)} на місяць.
-    Ціль подушки — ${months} × ${fmtCur(native, sym)} = <b>${fmtCur(native * months, sym)}</b>,
+    Ціль резерву — ${months} × ${fmtCur(native, sym)} = <b>${fmtCur(native * months, sym)}</b>,
     тобто ${fmtUAH(r.target_uah || 0)} за сьогоднішнім курсом. Гривнева ціль їде за курсом сама:
-    девальвація піднімає її, і подушка, яка вчора була зібрана, сьогодні може мати розрив.</div>`;
+    девальвація піднімає її, і резерв, який учора був зібраний, сьогодні може мати розрив.</div>`;
 }
 
 /** Доступ до подушки: коли я до цього дістануся.
@@ -358,7 +358,7 @@ export function reserveJournalHTML(ops) {
     ],
     rows: list,
     caption: "Рухи резерву: дата, напрям, сума, місце",
-    empty: "Рухів резерву ще немає — перший запис заведе матрац і покаже, на скільки місяців його вистачає.",
+    empty: "Рухів резерву ще немає — перший запис заведе резерв і покаже, на скільки місяців його вистачає.",
   })}
   </div>`;
 }
@@ -367,7 +367,7 @@ export function reserveJournalHTML(ops) {
 export function reserveFormHTML(ctx) {
   return `<div class="card"><h2 class="h-row">Рух резерву ${infoBtn("reserve")}</h2>
     ${formHTML({ id: "resForm", fields: reserveFields(ctx), submit: "Записати", cls: "mb" })}
-    <div class="note">Зняття-позика піднімає ціль подушки на відсоток, доки її не
+    <div class="note">Зняття-позика піднімає ціль резерву на відсоток, доки її не
       повернуто. Поповнення гасить найстарішу відкриту позику саме собою — окремо
       його відмічати не треба, і ноги «Маршруту грошей» так само її гасять.</div>
   </div>`;
@@ -573,7 +573,7 @@ export function flowHTML(f) {
     { label: "− надійшло виплат", uah: f.income_uah, sign: "−" },
     { label: "= внесено в інструменти", uah: f.contributed_uah, sign: f.contributed_uah < 0 ? "−" : "" },
     f.outside_uah
-      ? { label: "± у подушку й цілі", uah: f.outside_uah, sign: f.outside_uah > 0 ? "+" : "−" }
+      ? { label: "± у резерв і цілі", uah: f.outside_uah, sign: f.outside_uah > 0 ? "+" : "−" }
       : null,
   ].filter(Boolean);
   const detail = (f.rows || []).filter((r) => r.kind === "purchase" && r.uah < 0);

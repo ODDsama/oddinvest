@@ -513,7 +513,7 @@ func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		// розрив саме дверима винятку.
 		if closes := doc.Reserve.GapUAH.Major() > 0.005 &&
 			cut >= doc.Reserve.GapUAH.Major()-0.005; cut > 0.005 && cut < allocMinCutUAH && !closes {
-			why := allocBelowFloorWhy(mt, "подушка", "не бере", "добере", cut)
+			why := allocBelowFloorWhy(mt, "резерв", "не бере", "добере", cut)
 			if out.ReserveSkipWhy != "" {
 				// Політика вже сказала, ЧОМУ вирізка схудла до цього числа;
 				// поріг каже, чому й цього числа не стало рядком. Обидві
@@ -524,7 +524,7 @@ func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 			out.ReserveSkipWhy, cut = why, 0
 		}
 		if cut > 0.005 {
-			why := fmt.Sprintf("місячна частка подушки — %s з %s",
+			why := fmt.Sprintf("місячна частка резерву — %s з %s",
 				mt.uah(cut), mt.uah(doc.Reserve.FillMonthUAH.Major()))
 			switch {
 			case cut < doc.Reserve.FillNowUAH.Major():
@@ -892,7 +892,7 @@ func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 		out.Note = "цілей за видом інструмента не задано, або всі вони вже перебрані — " +
 			"розкладати нема за яким правилом"
 		if allocSavingsOnly(allow.Uses) {
-			out.Note = "цим грошам дозволено лише подушку й цілі, а вони своє вже взяли — " +
+			out.Note = "цим грошам дозволено лише резерв і цілі, а вони своє вже взяли — " +
 				"решта чекає на наступний місяць"
 		}
 	}
@@ -1286,7 +1286,7 @@ func topUpReserve(mt moneyText, out *allocPlan, s allocSpot, rest float64) float
 		out.Reserve = &allocReserve{}
 	}
 	out.Reserve.AmountUAH = state.Major(out.Reserve.AmountUAH.Major()+take, money.UAH)
-	out.Reserve.Why = allocTopUpWhy("подушка")
+	out.Reserve.Why = allocTopUpWhy("резерв")
 	// ПРИЧИНА-ПОРІГ ЗНІМАЄТЬСЯ. Перший прохід міг сказати «подушка тут свого
 	// не бере: 3 ₴ — менше за 10 ₴», а цей дав їй 400 ₴; лишити обидва рядки
 	// поруч означало б надрукувати заперечення власного числа. Причину
@@ -1379,13 +1379,13 @@ func allocSavingsOnly(uses string) bool {
 func allocAllTakenNote(p allocPlan) string {
 	switch {
 	case p.Reserve != nil && p.GoalsUAH.Major() > 0:
-		return "усе розібрали подушка й цілі накопичення: доки їхні розриви живі, " +
+		return "усе розібрали резерв і цілі накопичення: доки їхні розриви живі, " +
 			"вони забирають своє першими"
 	case p.GoalsUAH.Major() > 0:
 		return "усе пішло в цілі накопичення: доки розрив не закритий, " +
 			"вони забирають своє перед паперами"
 	default:
-		return "усе пішло в подушку: доки розрив не закритий, вона забирає своє першою"
+		return "усе пішло в резерв: доки розрив не закритий, він забирає своє першим"
 	}
 }
 
@@ -1416,17 +1416,17 @@ func goalsSkipWhy(mt moneyText, set *state.SettingsDoc, blocked, cut float64, by
 // чужих числах. Аргумент, чому це поле взагалі є, — при allocReserve.
 func reserveSkipWhy(mt moneyText, set *state.SettingsDoc, blocked, cut float64, bySource bool) string {
 	if bySource {
-		return allocBySourceWhy(mt, "подушка", "взяла", "не бере", blocked, cut)
+		return allocBySourceWhy(mt, "резерв", "узяв", "не бере", blocked, cut)
 	}
-	rule := "її наповнює лише плановий дохід"
+	rule := "його наповнює лише плановий дохід"
 	if reserveFillFrom(set) == "redeem" {
-		rule = "її наповнюють плановий дохід і повернення тіла, а це дохід портфеля"
+		rule = "його наповнюють плановий дохід і повернення тіла, а це дохід портфеля"
 	}
 	if cut > 0.005 {
-		return fmt.Sprintf("подушка взяла лише %s: решта — %s — за твоєю політикою в неї не йде, %s",
+		return fmt.Sprintf("резерв узяв лише %s: решта — %s — за твоєю політикою в нього не йде, %s",
 			mt.uah(cut), mt.uah(blocked), rule)
 	}
-	return fmt.Sprintf("подушка тут своє не бере (%s за стелею): за твоєю політикою %s",
+	return fmt.Sprintf("резерв тут своє не бере (%s за стелею): за твоєю політикою %s",
 		mt.uah(blocked), rule)
 }
 

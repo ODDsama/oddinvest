@@ -126,7 +126,7 @@ func termDepositFromReq(req termDepositReq) (domain.Deposit, error) {
 			return out, fmt.Errorf("ціль: %q не схоже на номер цілі", req.GoalID)
 		}
 		if req.IsReserve {
-			return out, fmt.Errorf("вклад не може бути водночас подушкою й ціллю")
+			return out, fmt.Errorf("вклад не може бути водночас резервом і ціллю накопичення")
 		}
 		out.GoalID = gid
 	}

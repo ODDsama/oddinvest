@@ -373,9 +373,9 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			add(state.Task{
 				ID:  "reserve-rung-" + dep.SyntheticISIN(),
 				Sev: sevSoon, Rank: 11, Kind: "reserve",
-				Title: "Перевкласти сходинку подушки — " + mt.money(amount),
+				Title: "Перевкласти сходинку резерву — " + mt.money(amount),
 				Why: fmt.Sprintf("Гаситься %s. Без перевкладення драбина осяде: "+
-					"саме цей місяць подушки лишиться без покриття, а гроші "+
+					"саме цей місяць резерву лишиться без покриття, а гроші "+
 					"лежатимуть під нуль.", dep.MaturityDate),
 				When:   string(dep.MaturityDate),
 				Action: actFillReserve,
@@ -401,10 +401,10 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			add(state.Task{
 				ID:  fmt.Sprintf("reserve-loan-%d", l.ID),
 				Sev: sevNow, Rank: 10, Kind: "reserve",
-				Title: fmt.Sprintf("Повернути в подушку — %s", mt.uah(l.OwedUAH.Major())),
+				Title: fmt.Sprintf("Повернути в резерв — %s", mt.uah(l.OwedUAH.Major())),
 				Why: fmt.Sprintf("Ти взяв %s %s і обіцяв повернути до %s. "+
 					"Відсоток набіг на %s і росте далі — рівно на нього піднята "+
-					"ціль подушки, і опуститься вона тільки після повернення.",
+					"ціль резерву, і опуститься вона тільки після повернення.",
 					mt.uah(l.TakenUAH.Major()), l.Date, l.DueDate, mt.uah(l.InterestUAH.Major())),
 				When:      l.DueDate,
 				Action:    actFillReserve,
@@ -678,7 +678,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 			if v <= 0 || daysBetween(pools.lastIn[k], today) > taskSoonDays {
 				continue
 			}
-			whose, id := "подушки", fmt.Sprintf("earmark-matured:reserve:%s:%s", k.bank, k.cur)
+			whose, id := "резерву", fmt.Sprintf("earmark-matured:reserve:%s:%s", k.bank, k.cur)
 			action, ref := actFillReserve, ""
 			if k.goal != 0 {
 				whose = "цілі «" + goalName[k.goal] + "»"

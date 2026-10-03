@@ -135,7 +135,7 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 
 	out.Causes = []digestCause{
 		{Key: "own", Label: "Свої гроші", UAH: state.Major(own, money.UAH), Measured: true,
-			Why: "гроші, вкладені в інструменти, мінус те, що з них повернулось, разом із подушкою та цілями"},
+			Why: "гроші, вкладені в інструменти, мінус те, що з них повернулось, разом із резервом і цілями"},
 		{Key: "income", Label: "Дохід", UAH: state.Major(income, money.UAH), Measured: true,
 			Why: "купони, дивіденди й відсотки, що надійшли; тіло погашення сюди не входить — це повернення власних грошей, а не заробіток"},
 		{Key: "fx", Label: "Курс", UAH: state.Major(fx, money.UAH), Measured: false, Why: fxWhy},

@@ -59,7 +59,7 @@ export async function portfolios(ctx, main) {
   const cur = ctx.portfolio;
   main.innerHTML = `<div class="card" id="pfCard">
     <h2 class="h-row">Портфелі ${infoBtn("setPortfolios")}</h2>
-    <div class="note">Кожен портфель — окремий світ: своя стратегія, свої брокери, подушка,
+    <div class="note">Кожен портфель — окремий світ: своя стратегія, свої брокери, резерв,
       борги, цілі й план. Спільні лише довідник НБУ, курси й каталог фондів.
       Перемикач — у шапці; Home Assistant бачить лише головний.</div>
     ${list.map((p) => rowHTML(p, cur)).join("")}

@@ -133,7 +133,7 @@ function consequences(ctx, after) {
     ${delta("Частка EUR", before.eur_share_pct, after.eur_share_pct, asPct,
     targetTail(st.eur_target_share_pct))}
     ${a.target_months || b.target_months
-    ? delta("Подушка", a.months, b.months, asMonths,
+    ? delta("Резерв", a.months, b.months, asMonths,
       a.target_months ? ` <span class="muted fine-xs">· ціль ${a.target_months} міс.</span>` : "")
     : ""}
     ${goals}

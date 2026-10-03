@@ -288,7 +288,7 @@ func (s *Server) handleAddReserveLoan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !found {
-		writeErr(w, http.StatusBadRequest, errors.New("позикою може стати лише зняття з подушки"))
+		writeErr(w, http.StatusBadRequest, errors.New("позикою може стати лише зняття з резерву"))
 		return
 	}
 	loan, err := s.reserveLoanFromReq(r.Context(),

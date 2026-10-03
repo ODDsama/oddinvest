@@ -52,7 +52,7 @@ export function goalsHTML(ctx) {
   if (!f || !(f.rows || []).length) {
     return `<div class="card" id="fcCard"><h2>Скільки треба вносити</h2>${empty(
       "",
-      `Задай ціль і дедлайн — і тут зʼявиться, скільки треба відкладати щомісяця за
+      `Задай мету капіталу й дедлайн — і тут зʼявиться, скільки треба відкладати щомісяця за
        песимістичного, реалістичного й оптимістичного сценаріїв.`,
       { href: routeFor("policy/strategy/main"), label: "Задати мету капіталу" })}</div>`;
   }
@@ -159,7 +159,7 @@ export function goalsHTML(ctx) {
       `За фактом ${hist > 0 ? `<span class="muted fine">за ${humanMonths(hist)} історії</span>` : ""}`,
       payOf(actual), "var(--oi-info)",
       `<div class="muted fine-xs mt-xs">на дедлайн ${goalFmt(actual.amount)}${
-        goal > 0 ? ` — ${(actual.goal_pct || 0).toFixed(1)}% цілі` : ""} · за цим темпом ціль ${eta}</div>`);
+        goal > 0 ? ` — ${(actual.goal_pct || 0).toFixed(1)}% мети` : ""} · за цим темпом мета ${eta}</div>`);
   } else {
     actualBlock = `<div class="muted fine rule-top">
       Прогноз за фактичним темпом зʼявиться після першого поповнення.</div>`;
@@ -206,8 +206,8 @@ const LEVER_GROUP = [
   ["contrib", "Внесок", "єдине, що ти рухаєш сам"],
   ["rate", "Ставка", "куди прийде довгострокова"],
   ["deval", "Знецінення", "як швидко слабшає гривня"],
-  ["deadline", "Дедлайн", "коли саме ти чекаєш ціль"],
-  ["goal", "Ціль", "скільки з неї вже покривається"],
+  ["deadline", "Дедлайн", "коли саме ти чекаєш на мету"],
+  ["goal", "Мета", "скільки з неї вже покривається"],
 ];
 
 // Як прочитати зсув рядка. Множник для внеску й цілі, п.п. для ринку,
@@ -271,7 +271,7 @@ export function sensitivityHTML(ctx) {
         <span><b>${esc(leverShift(r))}</b> <span class="muted fine">${esc(leverValue(r))}</span></span>
         <span class="ta-r">
           ${moved ? `<b>${esc(when)}</b>` : `<span class="muted">${esc(when)}</span>`}
-          <span class="muted fine-xs"> · ${(r.goal_pct || 0).toFixed(0)}% цілі</span>
+          <span class="muted fine-xs"> · ${(r.goal_pct || 0).toFixed(0)}% мети</span>
         </span>
       </div>`;
     }).join("");
@@ -280,9 +280,9 @@ export function sensitivityHTML(ctx) {
       ${items}</div>`;
   }).join("");
 
-  return `<div class="card"><h2 class="h-row"><span>Що зрушить ціль ${infoBtn("sensitivity")}</span></h2>
+  return `<div class="card"><h2 class="h-row"><span>Що зрушить мету ${infoBtn("sensitivity")}</span></h2>
     <div class="sub">Один вхід за раз, ${esc(baseFrom)} ${uah0(s.base_contrib_uah)}/міс.
-      Зараз ціль ${esc(baseWhen)} — ${(s.base_goal_pct || 0).toFixed(0)}% на дедлайн.</div>
+      Зараз мета ${esc(baseWhen)} — ${(s.base_goal_pct || 0).toFixed(0)}% на дедлайн.</div>
     <div class="sub-xs mb">Це наслідки припущень, а не поради: рядки не
       відсортовані «найкращий зверху», і половина з них — ставка й знецінення — від тебе не
       залежить узагалі.</div>

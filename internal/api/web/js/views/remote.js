@@ -118,7 +118,7 @@ function tunnelCard(st) {
     ${st.configured ? "" : `<div class="sub-xs muted mt-sm">Токен береться в Cloudflare →
       My Profile → API Tokens → Create Token, з двома правами:
       <b>Account · Cloudflare Tunnel · Edit</b> і <b>Zone · DNS · Edit</b> на своїй зоні.
-      Він лишається в базі (ним треба користуватись, а не звіряти) і назовні не віддається.</div>`}
+      Він лишається в базі (ним треба користуватись, а не порівнювати) і назовні не віддається.</div>`}
     <div class="sub-xs muted mt-sm">Далі — <b>Cloudflare Access</b> руками, у панелі Cloudflare:
       Zero Trust → Access → Applications, політика «email = твій акаунт». Це другий замок
       перед застосунком, до якого перебір пароля не доходить.</div>

@@ -75,9 +75,9 @@ func (e *Engine) CashEvents(ctx context.Context) ([]FlowEvent, error) {
 		}
 	}
 	for _, op := range src.reserveOps {
-		label := "у подушку"
+		label := "у резерв"
 		if op.Amount < 0 {
-			label = "з подушки"
+			label = "з резерву"
 		}
 		if v := uah(op.Amount, op.Currency); v != 0 {
 			out = append(out, FlowEvent{Date: op.Date, Kind: FlowOutside, UAH: v, Label: label})

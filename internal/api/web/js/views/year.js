@@ -51,7 +51,7 @@ function tilesHTML(y) {
       : `<div class="sub">купони, дивіденди, відсотки</div>`)}
     ${tile("Внесено своїх", fmtUAH(y.money.own_uah != null ? y.money.own_uah : y.money.contributed_uah),
     (y.money.outside_uah
-      ? `<div class="sub">з них ${signed(y.money.outside_uah)} у подушку й цілі</div>` : "")
+      ? `<div class="sub">з них ${signed(y.money.outside_uah)} у резерв і цілі</div>` : "")
     + (y.idle_uah > 0
       ? `<div class="sub">${fmtUAH(y.idle_uah)} доходу не пішло в діло</div>` : ""))}
     ${best
@@ -75,7 +75,7 @@ function heatmapHTML(y) {
     const k = iso(d);
     const v = byDay.get(k);
     const what = v ? [
-      v.outside_uah ? `у подушку й цілі ${signedUAH(v.outside_uah)}` : "",
+      v.outside_uah ? `у резерв і цілі ${signedUAH(v.outside_uah)}` : "",
       v.income_uah ? `дохід ${uah0(v.income_uah)}` : "",
       v.purchased_uah ? `покупки ${uah0(v.purchased_uah)}` : "",
     ].filter(Boolean).join(", ") : "без руху";

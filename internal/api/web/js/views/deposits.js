@@ -54,7 +54,7 @@ export const depositFields = (ctx, row = null) => [
   // що гроші можна забрати достроково: за ЦКУ строковий вклад фізособи
   // безвідкличний, доки в договорі не написано інакше, тож типове
   // значення — не поставлено.
-  checkField("is_reserve", "Це подушка (резерв)", { checked: row ? !!row.is_reserve : false }),
+  checkField("is_reserve", "Це резерв", { checked: row ? !!row.is_reserve : false }),
   checkField("revocable", "Відкличний (можна забрати достроково)",
     { checked: row ? !!row.revocable : false }),
   // Третя властивість того самого роду: чиї це гроші. Не прапорець, а

@@ -423,7 +423,7 @@ export async function reservePane(ctx, main) {
     title: "Позика", rows: ((ctx.summary || {}).reserve || {}).loans || [],
     fields: reserveLoanEditFields, body: reserveLoanBody,
     confirm: (l) => `Зняти з руху від ${l.date} статус позики? Сам рух лишиться в журналі, `
-      + "а ціль подушки перестане рости на її відсоток.",
+      + "а ціль резерву перестане рости на її відсоток.",
     msg: { edit: "Позику виправлено", del: "Позику знято" },
   });
   wireRefs(main);
