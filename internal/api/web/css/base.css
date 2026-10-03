@@ -1559,9 +1559,6 @@ td.num .sale-f { text-align: right; }
 .tasks .sg-fold { margin-top: var(--oi-gap-lg); }
 .tasks .sg-fold:first-child { margin-top: 0; }
 .tasks .sg-fold > summary.sg-h { margin-top: 0; cursor: pointer; }
-/* Навігація між кроками «Роботи» (now-view.js, stepNavHTML): назад
-   ліворуч, далі праворуч, навіть коли одного з них немає. */
-.step-nav { justify-content: space-between; }
 .task {
   display: grid;
   /* Смуга · текст · дія. На телефоні дія падає окремим рядком під текст —

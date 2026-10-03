@@ -46,19 +46,16 @@ import { infoBtn } from "../info.js";
 import { routeFor } from "../routes.js";
 import { refSuggest, wireSuggest } from "../refs.js";
 import { openEdit } from "../forms.js";
-import { openAllocate, buyBody } from "./allocate.js";
+import { openAllocate } from "./allocate.js";
 
 // Папери, які людина обрала сама, по ногах: ключ — дата|рахунок|валюта
 // (той самий routeKey, за яким бекенд упізнає ногу), значення — ISIN.
 //
 // У ПАМʼЯТІ СТОРІНКИ, а не в базі, і це не тимчасове рішення. Маршрут —
-// вигляд, а не стан (шапка annotatePlanned на бекенді): вибір живе, доки
-// людина дивиться й вирішує, і щойно ногу закріплено, його тримає план
-// купівель — рядком із тим самим ISIN. Третє місце для «майбутнього паперу»
-// розійшлося б із планом при першій же правці плану. Модуль переживає
-// ctx.reload() так само, як список reinvest у now-view.js; перезавантаження
-// вкладки його стирає — і це правильно: незакріплений вибір, який пережив
-// би день, читався б як рішення, якого ніхто не записував.
+// вигляд, а не стан: вибір живе, доки людина дивиться й вирішує. Модуль
+// переживає ctx.reload() так само, як список reinvest у now-view.js;
+// перезавантаження вкладки його стирає — і це правильно: вибір, який
+// пережив би день, читався б як рішення, якого ніхто не записував.
 const picks = new Map();
 
 function legKey(leg) {
@@ -75,11 +72,17 @@ function routePath() {
   return "route?" + q.join("&");
 }
 
-// Чи є в нозі рядок ОВДП, який можна замінити. Вибір є РІВНО там, де є
-// «Закріпити»: на нозі через пів року він був би вибором сьогоднішньої ціни
-// на липень — саме те, від чого відмовляється pinnable.
-function pickable(leg) {
-  return leg.pinnable && (leg.lines || []).some((l) => l.kind === "bond");
+// Чи є в нозі рядок ОВДП, який можна замінити, — і чи нога досить близько.
+// На нозі через пів року вибір був би вибором сьогоднішньої ціни на липень:
+// ціна кроку тут сьогоднішня, і лише найближчі тридцять днів (те саме
+// «скоро», що в черги задач) вона ще щось означає. Межа — порівнянням
+// рядків дат ISO; арифметики грошей тут немає.
+const PICK_DAYS = 30;
+function pickable(leg, today) {
+  if (!(leg.lines || []).some((l) => l.kind === "bond")) return false;
+  const d = new Date(today);
+  d.setDate(d.getDate() + PICK_DAYS);
+  return leg.date <= d.toISOString().slice(0, 10);
 }
 
 // Основа надходження — підписом, і ТІЛЬКИ коли вона не «портфель це винен».
@@ -220,18 +223,11 @@ function legsHTML(doc) {
             return `<a class="lnk fine-xs" href="${routeFor("plan/inflow/main")}"
               >відмітити в плані</a>`;
           }
-          if ((leg.planned || []).length) {
-            return `<span class="muted fine-xs">у плані:
-              ${esc(leg.planned.join(", "))}</span>`;
-          }
-          // «Інший папір» стоїть поруч із «Закріпити» й лише разом із ним:
-          // вибір має сенс рівно там, де його можна записати (див. pickable).
-          return (leg.pinnable
-            ? `<button class="sm quiet" data-pin="${esc(String(leg.id))}">Закріпити</button>`
-            : "")
-            + (pickable(leg)
-              ? ` <button class="sm quiet" data-pick="${esc(String(leg.id))}">Інший папір</button>`
-              : "");
+          // «Закріпити» (рядок у план купівель) пішло разом із планом
+          // (ревізія 2026-10-03); «Інший папір» лишився — це вигляд.
+          return pickable(leg, doc.from)
+            ? `<button class="sm quiet" data-pick="${esc(String(leg.id))}">Інший папір</button>`
+            : "";
         },
       },
     ],
@@ -325,11 +321,9 @@ export async function renderRoute(ctx, main) {
       <div class="muted">Маршрут не завантажився: ${esc(err.message || err)}</div></div>`);
     return;
   }
-  // Вибір на ногу, якої більше немає або яка вже в плані, — застарілий:
-  // перша зникла з розкладу, другу тримає plan_buys. Обидва зникають
-  // мовчки, інакше параметр їхав би в кожному запиті, не міняючи нічого.
-  const live = new Set((doc.legs || [])
-    .filter((leg) => !(leg.planned || []).length).map(legKey));
+  // Вибір на ногу, якої більше немає, — застарілий і зникає мовчки, інакше
+  // параметр їхав би в кожному запиті, не міняючи нічого.
+  const live = new Set((doc.legs || []).map(legKey));
   for (const k of [...picks.keys()]) if (!live.has(k)) picks.delete(k);
 
   const body = (doc.legs || []).length
@@ -353,7 +347,7 @@ export async function renderRoute(ctx, main) {
         не прогноз цін.</div>
       <div class="sub-xs">Папір ОВДП у нозі можна обрати самому («Інший папір»): частка виду
         піде в нього й <b>тільки</b> в нього, а якщо на цілий квиток не вистачить — гроші
-        чекатимуть, як і завжди. Вибір живе до закріплення: далі його тримає план купівель.</div>
+        чекатимуть, як і завжди. Вибір — вигляд: він живе, доки сторінка відкрита.</div>
       <div class="sub-xs">Виплати по датах, без призначень —
         <a class="lnk" href="${routeFor("plan/payouts/main")}">Календар виплат</a>.</div>`
     : empty("Маршрут порожній", doc.note
@@ -440,42 +434,5 @@ export async function renderRoute(ctx, main) {
       if (chosen) picks.set(key, chosen);
       else picks.delete(key);
       ctx.reload();
-    }));
-
-  // «Закріпити» — кладе кроки ноги в план купівель із ЇЇ датою.
-  //
-  // Тіло рядка збирає buyBody з розкладки, а не цей файл: поля, яких вид
-  // не має, бекенд відхиляє, і мовчки підкладати нулі означало б обходити
-  // перевірку. Відмова (без ставки замок у прогнозі лише заморозив би
-  // гроші) показується дослівно — ковтати 400 тут найгірше, бо рядок
-  // просто не зʼявиться, а сторінка вдаватиме, що все записалось.
-  main.querySelectorAll("[data-pin]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      const leg = (doc.legs || [])[Number(b.dataset.pin)];
-      if (!leg) return;
-      const requests = (leg.lines || []).filter((l) => l.addable).map((l) => ({
-        path: "plan/buys",
-        body: {
-          ...buyBody(l),
-          buy_date: leg.date,
-          broker: leg.broker === "—" ? "" : leg.broker,
-          note: `маршрут: ${leg.label} · ${leg.date}`,
-        },
-      }));
-      // Кнопку вимикаємо ПІСЛЯ перевірки, що є що класти: доти вона
-      // вимикалась першою й на порожній нозі так і лишалась мертвою.
-      if (!requests.length) return;
-      b.disabled = true;
-      try {
-        for (const rq of requests) await ctx.api("POST", rq.path, rq.body);
-        // Далі вибір тримає план купівель — рядок із тим самим ISIN уже
-        // записаний (buyBody бере l.ref), і другий екземпляр тут зайвий.
-        picks.delete(legKey(leg));
-        ctx.toast("Закріплено в плані купівель");
-        ctx.reload();
-      } catch (err) {
-        b.disabled = false;
-        ctx.toast(String(err.message || err), false);
-      }
     }));
 }

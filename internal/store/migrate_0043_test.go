@@ -69,52 +69,6 @@ func TestPlanBuysBrokerMigration(t *testing.T) {
 	}
 }
 
-// TestPlanBuyBrokerSurvivesRename — заради чого 0043 і робилась.
-//
-// До неї план тримався за НАЗВУ, тож виправлення описки в довіднику тихо
-// відчіплювало рядок від рахунку: pickBroker переставав знаходити залишок
-// там, де він насправді лежить. Перевіряємо не міграцію, а наслідок.
-func TestPlanBuyBrokerSurvivesRename(t *testing.T) {
-	ctx := context.Background()
-	s := openTest(t)
-
-	id, err := s.AddPlanBuy(ctx, PlanBuy{Kind: BuyBond, Ref: "UA4000227748", Qty: 10, Broker: "Фрідм"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	brokers, err := s.ListBrokers(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var brokerID int64
-	for _, b := range brokers {
-		if b.Name == "Фрідм" {
-			brokerID = b.ID
-		}
-	}
-	if brokerID == 0 {
-		t.Fatal("брокер не завівся з плану купівель")
-	}
-	if err := s.RenameBroker(ctx, brokerID, "Фрідом"); err != nil {
-		t.Fatal(err)
-	}
-
-	buys, err := s.ListPlanBuys(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, b := range buys {
-		if b.ID != id {
-			continue
-		}
-		if b.Broker != "Фрідом" {
-			t.Fatalf("план не підхопив перейменування: брокер %q", b.Broker)
-		}
-		return
-	}
-	t.Fatal("рядок плану зник")
-}
-
 // TestPreMigrateSnapshotOnExistingDB — сценарій, який станеться на бойовій
 // машині: база вже на 0041, deploy/proxmox-update.sh перезапускає сервіс,
 // і три нові міграції накочуються самі.
@@ -171,12 +125,13 @@ func TestPreMigrateSnapshotOnExistingDB(t *testing.T) {
 		t.Error("копія знята вже ПІСЛЯ міграції — вона не рятує від помилки в ній")
 	}
 
-	// А в самій базі план вцілів і підхопив broker_id.
-	buys, err := s.ListPlanBuys(context.Background())
+	// А сама база доїхала до останньої міграції, і брокер вцілів. Про
+	// рядок плану купівель тут більше не питаємо: таблицю прибрала 0067.
+	brokers, err := s.ListBrokers(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(buys) != 1 || buys[0].Broker != "Фрідом" {
-		t.Fatalf("план купівель після оновлення: %+v", buys)
+	if len(brokers) != 1 || brokers[0].Name != "Фрідом" {
+		t.Fatalf("брокери після оновлення: %+v", brokers)
 	}
 }

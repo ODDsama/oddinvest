@@ -22,7 +22,7 @@ import (
 // виклику: вклад приходить через domain.NetRate, фонд — через
 // domain.NetOfTax, ОВДП звільнені від ПДФО й військового збору взагалі.
 // Рахувати його вдруге означало б завести друге означення податку — те
-// саме, від чого застерігає розбір у api/handlers_whatif.go.
+// саме, від чого застерігає розбір у state/capital.go.
 type rateContext struct {
 	deval float64
 	cpi   float64

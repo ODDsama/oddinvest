@@ -64,9 +64,6 @@ func TestAllocateWholeTicketsOnly(t *testing.T) {
 	if got.RestWhy == "" {
 		t.Error("залишок без причини читається як загублені гроші")
 	}
-	if !got.Lines[0].Addable {
-		t.Error("папір мусить класти́сь у план купівель одним рухом")
-	}
 }
 
 // Подушка забирає своє ПЕРШОЮ, і коли розрив більший за суму — забирає все.
@@ -159,8 +156,6 @@ func TestAllocateMarksConversion(t *testing.T) {
 }
 
 // Внесок у пенсійний бере бюджет виду цілком: порога входу він не має.
-// І кладеться в кошик — на відміну від вкладу, у якого в plan_buys немає
-// ні строку, ні ставки.
 func TestAllocateNPFTakesWholeBudgetAndDepositDoesNot(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{
 		kindRow("npf", 50, 0),
@@ -192,17 +187,11 @@ func TestAllocateNPFTakesWholeBudgetAndDepositDoesNot(t *testing.T) {
 	if npf.Ref != "7" {
 		t.Errorf("ref НПФ %q, чекали id рахунку \"7\"", npf.Ref)
 	}
-	if !npf.Addable {
-		t.Error("внесок у пенсійний plan_buys приймає: сума — усе, що йому треба")
-	}
 	if npf.TotalUAH.Major() != 2000 {
 		t.Errorf("внесок %.2f, чекали весь бюджет виду — 2000", npf.TotalUAH.Major())
 	}
 	if dep == nil {
 		t.Fatalf("рядка вкладу немає: %+v", got.Lines)
-	}
-	if dep.Addable {
-		t.Error("вклад у кошик не кладеться: у поради немає ні строку, ні банку для «нового»")
 	}
 }
 

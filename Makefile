@@ -209,32 +209,27 @@ sleeve-state:
 	@! grep -nE 'projState\{|\.step\(' internal/domain/sleeves.go internal/domain/drawdown.go \
 		|| { echo 'симуляція рукава чіпає стан повз newState/stepSleeve (projection.go): накопичувальні позиції не виростуть'; exit 1; }
 
-# Гіпотеза (покупки, яких ще немає) домішується в стан РІВНО в одному
-# місці — BuildStateWith, — і збирається рівно в одному — state_plan_buys.go
-# (обидва в internal/engine).
-# Публічний BuildStateDoc її не приймає навмисно: той документ іде в MQTT
-# і щодня лягає в добовий знімок, тож щойн гіпотеза протече повз
-# BuildStateWith, вигадка буде опублікована як стан. Домовленість, яку
-# ніхто не перевіряє, живе до наступного поспіху.
+# Гіпотеза (курси чи політика, яких ще немає) домішується в стан РІВНО в
+# одному місці — BuildStateWith (internal/engine). Публічний BuildStateDoc
+# її не приймає навмисно: той документ іде в MQTT і щодня лягає в добовий
+# знімок, тож щойно гіпотеза протече повз BuildStateWith, вигадка буде
+# опублікована як стан. Домовленість, яку ніхто не перевіряє, живе до
+# наступного поспіху.
 #
-# ТРЕТІЙ споживач гіпотези — handlers_policy_preview.go, і він названий
-# тут поіменно, бо питає інше: не «що станеться, якщо це купити», а «що
-# названі цілі означають для портфеля, який уже є». Гіпотезою в нього
-# лишається сама політика, домішується вона тим самим BuildStateWith, і
-# публічний BuildStateDoc її так само не приймає — правило не послаблене,
-# просто в нього з'явився ще один законний виклик.
+# Законних споживачів два, і вони названі поіменно:
 #
-# ЧЕТВЕРТИЙ — handlers_fx_shock.go, і питання в нього знову своє: не про
-# портфель і не про політику, а про САМ СВІТ — «що зробив би з цим
-# портфелем рух курсу, який уже був». Гіпотезою в нього курси, узяті з
-# власної історії fx_rates, тобто виміряні, а не названі людиною.
-# BuildStateDoc її так само не приймає: у MQTT і знімок іде той курс, що
-# сьогодні насправді.
+#   - handlers_policy_preview.go — «що названі цілі означають для
+#     портфеля, який уже є»: гіпотезою лишається сама політика;
+#   - handlers_fx_shock.go — «що зробив би з цим портфелем рух курсу, який
+#     уже був»: гіпотезою курси з власної історії fx_rates.
+#
+# Третього — кошика «що станеться, якщо купити» (state_plan_buys.go,
+# /api/whatif) — більше немає: план купівель прибрано в ревізії 2026-10-03.
 .PHONY: whatif-boundary
 whatif-boundary:
 	@! grep -rnE '\b(Hypothetical|HypoRates|HypoSettings|BuildStateWith)\b' internal/api/*.go internal/engine/*.go \
 		| grep -vE '^[^:]+:[0-9]+:\s*//' \
-		| grep -vE 'engine/state_builder\.go|engine/state_plan_buys\.go|api/handlers_policy_preview\.go|api/handlers_fx_shock\.go|_test\.go' \
+		| grep -vE 'engine/state_builder\.go|api/handlers_policy_preview\.go|api/handlers_fx_shock\.go|_test\.go' \
 		|| { echo 'гіпотеза протікає повз BuildStateWith: у MQTT і знімок іде реальний стан'; exit 1; }
 
 # Лінійка порядку порад (номінальна замість реальної) — ЛИШЕ на екрані.
@@ -253,9 +248,6 @@ order-boundary:
 	@! grep -rn '"order"' internal/api/*.go internal/engine/*.go \
 		| grep -vE 'api/handlers_reinvest\.go|_test\.go' \
 		|| { echo 'лінійка порядку протікає за екран: журнал рішень і черга задач мусять лишатись на реальній'; exit 1; }
-	@! grep -rn 'KeepPrice' internal/store internal/api internal/engine --include="*.go" \
-		| grep -vE 'engine/state_plan_buys\.go|_test\.go' \
-		|| { echo 'KeepPrice поза гіпотезою: синтетична ціна не має права доїхати до сховища'; exit 1; }
 
 # Портфель запиту (0054) вирішує ОДИН диспетчер — hub.go. Обробник, що
 # читає X-Portfolio сам, обійшов би замок і диспетчер разом: сервер

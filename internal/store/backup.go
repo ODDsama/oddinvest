@@ -97,12 +97,9 @@ type Backup struct {
 	// бекапи, зроблені до його появи, читаються без цих полів.
 	PlanFlows   []BackupPlanFlow   `json:"plan_flows,omitempty"`
 	PlanActions []BackupPlanAction `json:"plan_actions,omitempty"`
-	// PlanBuys (0033) — план купівель. Так само невідновний: намір «узяти
-	// цей папір у березні» не виводиться ні з операцій, ні з потоків, бо
-	// операції ще немає, а потік описує гроші, а не інструмент.
-	PlanBuys []BackupPlanBuy `json:"plan_buys,omitempty"`
-	// PlanExpenses (0056) — вирішені разові витрати. Невідновне так само,
-	// як план купівель, і з тієї самої причини: рішення «замінити котел у
+	// Поля plan_buys (план купівель, 0033) більше немає — план прибрано в
+	// ревізії 2026-10-03; у старому дампі воно просто пропускається.
+	// PlanExpenses (0056) — вирішені разові витрати. Невідновне: рішення «замінити котел у
 	// листопаді за 30 000» не виводиться ні з операцій, ні з потоків — руху
 	// ще не було, а потік описує ритм, а не подію. Разом із ним зникла б і
 	// відмітка «сплачено», тобто єдине, що відрізняє винну витрату від
@@ -506,24 +503,6 @@ type BackupPlanAction struct {
 	Months   int64  `json:"months"`
 	Name     string `json:"name"`
 	Note     string `json:"note"`
-}
-
-// BackupPlanBuy — планована купівля (0033). Дзеркалить store.PlanBuy
-// колонка в колонку: бекап цієї таблиці — дамп, а не зведення.
-type BackupPlanBuy struct {
-	ID        int64  `json:"id"`
-	Kind      string `json:"kind"`
-	Ref       string `json:"ref"`
-	Qty       int64  `json:"qty"`
-	Amount    int64  `json:"amount"`
-	UnitPrice int64  `json:"unit_price"`
-	Currency  string `json:"currency"`
-	Broker    string `json:"broker"`
-	BuyDate   string `json:"buy_date"`
-	RateBP    int64  `json:"rate_bp"`
-	Months    int64  `json:"months"`
-	IsReserve bool   `json:"is_reserve"`
-	Note      string `json:"note"`
 }
 
 // BackupPlanExpense — планова витрата (0056). Дзеркалить
@@ -1033,26 +1012,6 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 		}, s.pid); err != nil {
 		return nil, err
 	}
-	// Назва брокера, а не broker_id (0043): бекап тримається НАЗВ усюди, і
-	// саме тому формат пережив нормалізацію 0010 — тепер так само переживе
-	// й цю. LEFT JOIN, бо «не привʼязано» — законний стан (обрати за
-	// залишком), і в дампі воно лишається порожнім рядком, як було.
-	if err := s.scan(ctx, `SELECT b.id,b.kind,b.ref,b.qty,b.amount,b.unit_price,
-		b.currency,COALESCE(br.name,''),b.buy_date,b.rate_bp,b.months,b.is_reserve,b.note
-		FROM plan_buys b LEFT JOIN brokers br ON br.id = b.broker_id
-		WHERE b.portfolio_id=? ORDER BY b.id`,
-		func(scan func(...any) error) error {
-			var r BackupPlanBuy
-			if err := scan(&r.ID, &r.Kind, &r.Ref, &r.Qty, &r.Amount, &r.UnitPrice,
-				&r.Currency, &r.Broker, &r.BuyDate, &r.RateBP, &r.Months,
-				&r.IsReserve, &r.Note); err != nil {
-				return err
-			}
-			b.PlanBuys = append(b.PlanBuys, r)
-			return nil
-		}, s.pid); err != nil {
-		return nil, err
-	}
 	if err := s.scan(ctx, `SELECT id,name,amount,currency,due_date,paid_from,
 		paid_date,place,note FROM plan_expenses WHERE portfolio_id=? ORDER BY id`,
 		func(scan func(...any) error) error {
@@ -1182,7 +1141,7 @@ var importAllTables = []string{
 	"goal_ops", "goals", "debt_ops", "debt_marks", "debts",
 	"npf_ops", "npf_nav",
 	"npf_accounts", "plan_flows", "plan_flow_revisions",
-	"plan_receipts", "plan_actions", "plan_buys", "plan_expenses",
+	"plan_receipts", "plan_actions", "plan_expenses",
 	"decisions",
 	"settings", "payment_status", "snapshots", "hidden_rows",
 	"funds", "brokers",
@@ -1202,25 +1161,23 @@ var importGlobalTables = map[string]bool{"funds": true, "fund_prices": true, "ov
 // дивиться на fund_ops УСІХ портфелів, а не свого (виняток у сторожі
 // scope_guard_test.go).
 //
-// «Не користується ніхто» — це ні операцій, ні позначок ціни, ні рядка в
-// плані купівель у ЖОДНОМУ портфелі. Доти рахувались лише операції:
-// відновлення одного портфеля зносило фонд, позначки якого завели наперед
-// (крива, ціна для конвертації при імпорті), разом із цими позначками, і
-// фонд із плану купівель сусіда (TestRestoreKeepsFundsWithMarks). Позначки
-// вводяться руками — і пропадали без сліду.
+// «Не користується ніхто» — це ні операцій, ні позначок ціни в ЖОДНОМУ
+// портфелі. Доти рахувались лише операції: відновлення одного портфеля
+// зносило фонд, позначки якого завели наперед (крива, ціна для
+// конвертації при імпорті), разом із цими позначками
+// (TestRestoreKeepsFundsWithMarks). Позначки вводяться руками — і
+// пропадали без сліду.
 func (s *Store) pruneOrphanFundsIn(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM funds
 		WHERE NOT EXISTS (SELECT 1 FROM fund_ops o WHERE o.fund_id=funds.id)
-		  AND NOT EXISTS (SELECT 1 FROM fund_prices p WHERE p.fund_id=funds.id)
-		  AND NOT EXISTS (SELECT 1 FROM plan_buys b WHERE b.kind='fund' AND b.ref=funds.name)`); err != nil {
+		  AND NOT EXISTS (SELECT 1 FROM fund_prices p WHERE p.fund_id=funds.id)`); err != nil {
 		return fmt.Errorf("очищення каталогу фондів: %w", err)
 	}
 	return nil
 }
 
 // decisionOpTable — у якій таблиці живе decisions.op_id за kind (0035:
-// «яка саме таблиця, каже kind»). Ті самі слова, що в plan_buys і в
-// журналі рішень (engine/decisions.go: reserve, goal).
+// «яка саме таблиця, каже kind»). Ті самі слова, що в журналі рішень (engine/decisions.go: reserve, goal).
 var decisionOpTable = map[string]string{
 	BuyBond: "lots", BuyFund: "fund_ops", BuyDeposit: "term_deposits", BuyNPF: "npf_ops",
 	"goal": "goal_ops", "reserve": "reserve_ops",
@@ -1787,25 +1744,6 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			s.pid, a.Date, a.Type, a.USDBP, a.EURBP, a.Amount, a.Currency, a.RateBP,
 			a.Months, a.Name, a.Note); err != nil {
 			return fmt.Errorf("планова дія %d: %w", a.ID, err)
-		}
-	}
-	for _, p := range b.PlanBuys {
-		broker, err := brokerRef(p.Broker)
-		if err != nil {
-			return err
-		}
-		// Ref рядка НПФ — id рахунку ГОЛИМ числом (plan_buys.go), тож
-		// перечіплюється тим самим шляхом, що й «npf:<id>».
-		if p.Kind == "npf" {
-			p.Ref = strings.TrimPrefix(ids.remapRef("npf:"+p.Ref), "npf:")
-		}
-		if err := ids.insert(ctx, tx, "plan_buys", p.ID,
-			`INSERT INTO plan_buys (%sportfolio_id,kind,ref,qty,amount,unit_price,currency,broker_id,
-			 buy_date,rate_bp,months,is_reserve,note)
-			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, p.Kind, p.Ref, p.Qty, p.Amount, p.UnitPrice, p.Currency, broker,
-			p.BuyDate, p.RateBP, p.Months, p.IsReserve, p.Note); err != nil {
-			return fmt.Errorf("планована купівля %d: %w", p.ID, err)
 		}
 	}
 	for _, e := range b.PlanExpenses {

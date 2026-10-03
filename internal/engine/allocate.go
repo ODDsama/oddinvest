@@ -217,20 +217,13 @@ type AllocAllow struct {
 }
 
 // allocLine — один крок розкладки.
-//
-// Addable каже, чи можна цей рядок покласти в план купівель одним рухом.
-// Хибне воно рівно у вкладу, і це не недогляд: порада про вклад — це
-// ПОПОВНЕННЯ наявного (або «новий вклад» без банку), а plan_buys описує
-// НОВИЙ вклад і вимагає строку, якого в пораді немає. Рядок, що записав би
-// пів-вкладу, гірший за рядок, який чесно веде у форму поповнення.
 type allocLine struct {
 	Kind     string `json:"kind"` // bond | fund | deposit | npf
 	Ref      string `json:"ref"`  // ISIN, назва фонду, банк, id рахунку НПФ
 	Label    string `json:"label"`
 	Currency string `json:"currency"`
 	// Qty / Unit — для паперу й сертифіката; Amount — для вкладу й внеску.
-	// Кожен вид відповідає на своє питання «скільки», і та сама межа вже
-	// закріплена у planBuyFromReq.
+	// Кожен вид відповідає на своє питання «скільки».
 	//
 	// Вказівниками, а не значеннями: omitempty на структурі не діє, і рядок
 	// паперу віз би порожній `amount:{"amount":"","currency":""}`, який у
@@ -242,7 +235,6 @@ type allocLine struct {
 	TotalUAH state.Money `json:"total_uah"`
 	RealPct  float64     `json:"real_pct"`
 	Why      string      `json:"why"`
-	Addable  bool        `json:"addable"`
 	// Convert — валюта кроку не збігається з валютою надходження.
 	// ConvertNative — скільки самого надходження на це піде.
 	//
@@ -920,8 +912,8 @@ func AllocatePlan(doc *state.Doc, sug []suggestion, rates fx.Rates,
 //
 // Другим рядком той самий папір потрапити може: власний бюджет ОВДП на
 // шостий папір не тягнув, а зведений залишок другого проходу — тягне. Два
-// рядки на один ISIN дали б два записи в plan_buys, дві ціни й два різні
-// «чому» на одне рішення, тож рядок росте кількістю.
+// рядки на один ISIN дали б дві ціни й два різні «чому» на одне рішення,
+// тож рядок росте кількістю.
 //
 // Порожній Ref не зливається ні з чим: у «Нового вкладу» посилання немає
 // зовсім, і зводити два таких рядки в один означало б стверджувати, що це
@@ -1559,7 +1551,6 @@ func allocOne(sg suggestion, left float64, rates fx.Rates,
 		amt := ToMoneyJSON(money.New(int64(math.Round(left*100)), money.UAH))
 		line.Amount = &amt
 		line.TotalUAH = state.Major(left, money.UAH)
-		line.Addable = true
 		return line, left, true
 	}
 
@@ -1581,12 +1572,12 @@ func allocOne(sg suggestion, left float64, rates fx.Rates,
 	line.TotalUAH = state.Minor(spentMinor, money.UAH)
 	switch sg.Kind {
 	case "bond":
-		line.Ref, line.Addable = sg.ISIN, sg.ISIN != ""
+		line.Ref = sg.ISIN
 	case "fund":
-		line.Ref, line.Addable = sg.Label, sg.Label != ""
+		line.Ref = sg.Label
 	default: // deposit
 		// Ref — банк, і лише для наявного вкладу: у рядка «Новий вклад» банку
-		// немає взагалі. Addable хибне в обох випадках (див. allocLine).
+		// немає взагалі.
 		line.Ref = sg.Label
 		// Сума вкладу — n кроків у його ж валюті, точно: ділити гривню
 		// назад на курс означало б повернути не ту суму, з якої крок узявся.

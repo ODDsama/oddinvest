@@ -41,6 +41,7 @@ import {
   liquidityCard, rateRiskCard, decisionsCard, marketCurveCard,
 } from "./risk.js";
 import { rivalsCard, wireRivals, rivalsPath } from "./rivals.js";
+import { allocationCardHTML } from "./allocation.js";
 import { chartBlockHTML, snapshotsTableHTML, wireHistory } from "./history.js";
 import { fxShockCard, wireFXShock, shockPath } from "./fx-shock.js";
 
@@ -84,7 +85,11 @@ export async function growth(ctx, main) {
   wireDisclosures(main);
 }
 
-/** Як розкладене: брокери, валюти, види інструментів. */
+/** Як розкладене: брокери, валюти, види інструментів — і куди за
+ *  стратегією підуть гроші цього місяця. Остання картка («Скільки чого за
+ *  стратегією») стояла кроком «1 · Скільки й куди» на вкладці «Робота»;
+ *  вкладку прибрано (ревізія 2026-10-03), а відповідь — про ту саму
+ *  структуру, тож вона тут. */
 export async function structure(ctx, main) {
   main.innerHTML = `
     ${shareTilesHTML(ctx)}
@@ -93,7 +98,8 @@ export async function structure(ctx, main) {
       ${currencyChartHTML(ctx)}
     </div>
     ${rebalanceCard(ctx)}
-    ${kindMixCard(ctx)}`;
+    ${kindMixCard(ctx)}
+    ${allocationCardHTML(ctx)}`;
   wireDisclosures(main);
 }
 

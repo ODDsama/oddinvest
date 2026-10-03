@@ -89,13 +89,6 @@ type quoteBook struct {
 // мовчить про доступність рівно доти, доки не має права про неї говорити.
 func (b quoteBook) hideUnpriced() bool { return b.sweptFresh }
 
-func (b quoteBook) pick(isin string) *store.Quote {
-	if p, ok := b.byISIN[strings.ToUpper(isin)]; ok {
-		return p.Best
-	}
-	return nil
-}
-
 // QuotesFor — зріз цін для названих паперів разом із відбором по своїх.
 //
 // Порожній перелік паперів означає «всі» — так читає сторінка позицій.

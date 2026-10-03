@@ -42,7 +42,6 @@ import { applyOrder, moveInOrder } from "./navorder.js";
 import { loadPositionsData } from "./views/positions.js";
 
 import { overview } from "./views/overview.js";
-import * as now from "./views/now-view.js";
 import * as instr from "./views/instrument-view.js";
 import * as portfolio from "./views/portfolio-view.js";
 import * as policy from "./views/policy-view.js";
@@ -110,9 +109,6 @@ const STALE_AFTER_MS = 5 * 60 * 1000;
 const VIEWS = {
   "overview/main/main": overview,
 
-  "work/buy/main": now.buy,
-  "work/pick/main": now.pick,
-  "work/buys/main": now.buys,
 
   "portfolio/all/positions": portfolio.positions,
   "portfolio/all/growth": portfolio.growth,

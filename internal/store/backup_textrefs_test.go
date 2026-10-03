@@ -30,9 +30,6 @@ func TestRestoreRemapsTextRefs(t *testing.T) {
 		Dest: domain.NPFPlanDest(npf)}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddPlanBuy(ctx, PlanBuy{Kind: "npf", Ref: strconv.FormatInt(npf, 10), Amount: 100000}); err != nil {
-		t.Fatal(err)
-	}
 	if err := st.SetHiddenRows(ctx, []string{"goal:" + strconv.FormatInt(goal, 10), "fund:Inzhur Ocean"}); err != nil {
 		t.Fatal(err)
 	}
@@ -58,10 +55,6 @@ func TestRestoreRemapsTextRefs(t *testing.T) {
 	flows, _ := b.ListPlanFlows(ctx)
 	if len(flows) != 1 || flows[0].Dest != domain.NPFPlanDest(accs[0].ID) {
 		t.Errorf("призначення потоку %+v, чекали %s", flows, domain.NPFPlanDest(accs[0].ID))
-	}
-	buys, _ := b.ListPlanBuys(ctx)
-	if len(buys) != 1 || buys[0].Ref != strconv.FormatInt(accs[0].ID, 10) {
-		t.Errorf("ref планової купівлі НПФ %+v, чекали %d", buys, accs[0].ID)
 	}
 	hidden, _ := b.HiddenRows(ctx)
 	want := map[string]bool{"goal:" + strconv.FormatInt(goals[0].ID, 10): true, "fund:Inzhur Ocean": true}

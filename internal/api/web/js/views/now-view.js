@@ -15,17 +15,14 @@ import {
 import { currency, BOOK } from "../currency.js";
 import { infoBtn } from "../info.js";
 import { yieldCell } from "../yield.js";
-import { tile, kindPill, progressBar, empty } from "../components.js";
+import { tile, kindPill, progressBar } from "../components.js";
 import { isOpen, remember } from "../uistate.js";
 import { quotesBarHTML, quotesDoc } from "../quotes.js";
 import { routeFor } from "../routes.js";
 import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
-import { fetchWhatIf, impactHTML } from "./buy-plan.js";
-import {
-  planBuysHTML, planBuyFormHTML, wirePlanBuys, addToPlan, emptyPlanHTML,
-} from "./plan-buys.js";
-import { allocationCardHTML, currencyCardHTML } from "./allocation.js";
-import { topupHTML, wireTopup, topupPick, clearTopupPick } from "./topup.js";
+import { openEdit } from "../forms.js";
+import { wireRefs, wireSuggest } from "../refs.js";
+import { lotFields, lotBody } from "./bonds.js";
 
 // Помічник реінвесту тягнеться раз на прохід, а читає його окрема картка.
 let reinvest = [];
@@ -265,7 +262,7 @@ export function reinvestHTML(ctx, opts = {}) {
       <span class="sg-s muted">${status}</span>
       <span class="sg-y">${yieldCell(r.rate_parts, {
         real: r.real_pct, nominal: r.nominal_pct != null ? r.nominal_pct : r.ytm_pct })}</span>
-      ${addBtn(kind, r)}
+      ${boughtBtn(kind, r)}
     </div>
     ${ready}
     <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : " hidden"}>${details}${price}${auc}</div>`;
@@ -306,29 +303,53 @@ export function reinvestHTML(ctx, opts = {}) {
     ${group("Можеш купити зараз", ready)}
     ${group(ready.length ? "Ще збираєш" : "Купувати ще рано — ось наскільки близько", soon)}
     <div class="sub">${legend} Клік по числу показує весь ланцюжок: податок, знецінення,
-      інфляція. Каретка розкриває решту рядка. Додане лежить у
-      <a href="${routeFor("work/buys/main")}">Плані купівель</a>.</div></div>`;
+      інфляція. Каретка розкриває решту рядка. «Купив» записує покупку з уже
+      заповненими полями.</div></div>`;
 }
 
-// Кнопка «+» — лише там, де порада несе ВСЕ, що потрібно рядкові плану.
+// «Купив» — покупка за порадою записується з того самого рядка.
 //
-// Папір і сертифікат несуть: ISIN або назву фонду й кількість 1. Вклад і
-// НПФ — ні, і це не недогляд поради, а її природа: у пораді про вклад
-// банк захований у підписі, а ставки й строку немає взагалі; порада про
-// НПФ не несе id рахунку (engine/reinvest.go) і має «будь-яка сума».
-// Кнопка, яка записала б пів-рядка, гірша за мертву — а мертва тут уже
-// прожила своє: data-bskadd="npf|" мовчки нічого не робив, бо id був
-// порожній. Тому для цих двох — посилання у форму, де решту питають.
-function addBtn(kind, r) {
-  const ref = kind === "fund" ? r.label : r.isin;
-  if (kind === "bond" || kind === "fund") {
-    return ref
-      ? `<button class="sm quiet" data-planadd="${esc(kind)}|${esc(ref)}"
-          title="Додати в план купівель і побачити наслідки">+</button>`
+// Доти дорога від поради до записаної покупки йшла через план купівель:
+// «+» → «3 · План і наслідки» → ✓ → ціна вручну — сім кліків і жодного
+// поля, якого застосунок сам не знав. Власник купує сам і лише записує
+// (ревізія 2026-10-03), тож план прибрано, а запис став одним кроком.
+//
+// Папір — модалкою з тими самими полями лота (bonds.js, lotFields): ISIN,
+// ціна кроку з поради (брудна — та сама, від якої рахована дохідність) і
+// брокер, у якого ця ціна, уже підставлені. Кількість — одиниця: скільки
+// купив насправді, знає лише людина. Решта видів у модалку не лягає, і
+// кожен зі своєї причини — тож для них посилання туди, де їх записують:
+// сертифікати заводить виписка, вклад потребує строку й ставки договору,
+// внесок НПФ — рахунку.
+function boughtBtn(kind, r) {
+  if (kind === "bond") {
+    return r.isin
+      ? `<button class="sm" data-bought="${esc(r.isin)}"
+          title="Записати покупку цього паперу — поля вже заповнені">Купив</button>`
       : "";
   }
-  return `<a class="lnk" href="${routeFor("work/buys/main")}"
-    title="Завести в плані купівель — там спитають ставку, строк і рахунок">+</a>`;
+  const to = { fund: "money/all/import", deposit: "portfolio/all/record",
+    npf: "portfolio/@first:npf/record" }[kind];
+  return to ? `<a class="lnk fine-xs" href="${routeFor(to)}"
+    title="Туди, де цей вид записують">записати</a>` : "";
+}
+
+// Модалка покупки паперу з поради. Окремою функцією, бо читачів двоє:
+// рядок поради й задача «Можеш купити X» на «Сьогодні».
+export async function openBought(ctx, isin) {
+  const r = (reinvest || []).find((x) => x.isin === isin) || { isin };
+  const cost = r.cost_per_bond || {};
+  const row = {
+    isin, qty: 1,
+    price_per_bond: { amount: cost.amount || "", currency: cost.currency || "" },
+    fee: { amount: "" }, buy_date: today(), channel: r.cost_where || "", note: "",
+  };
+  await openEdit(ctx, {
+    title: `Купив: ${esc(r.label || isin)}`,
+    fields: lotFields(ctx, row),
+    wire: (f) => { wireRefs(f); wireSuggest(ctx, f); },
+    submit: "Записати покупку",
+  }, (f) => ({ path: "lots", body: lotBody(f), msg: "Покупку записано" }));
 }
 
 // Розкриті пропозиції живуть поза рендером: ctx.reload() стирає main
@@ -338,13 +359,8 @@ function addBtn(kind, r) {
 const OPEN_SCOPE = "suggest";
 
 export function wireReinvest(ctx, main) {
-  // «+» пише В БАЗУ, а не в браузер: план купівель живе в plan_buys, і
-  // другого способу його поповнити немає (шапка handlers_whatif.go).
-  main.querySelectorAll("[data-planadd]").forEach((b) =>
-    b.addEventListener("click", () => {
-      const [kind, ref] = b.dataset.planadd.split("|");
-      addToPlan(ctx, { kind, ref, qty: 1 });
-    }));
+  main.querySelectorAll("[data-bought]").forEach((b) =>
+    b.addEventListener("click", () => openBought(ctx, b.dataset.bought)));
   main.querySelectorAll("[data-sgorder]").forEach((b) =>
     b.addEventListener("click", async () => {
       if (b.dataset.sgorder === order) return;
@@ -516,155 +532,19 @@ export function planTileSub(ctx, doc) {
       капіталу</a>, щоб побачити, чи цього досить</div>`;
 }
 
-// Помічник тягнеться ДВІЧІ — і «Що робити», і «Що купити» його читають.
-// Банер відповідає на «чи можна вже купувати», а список показує, що саме;
-// це одні й ті самі поради, лише з різною глибиною. Модульна змінна
-// лишається тією ж, що й була, тож обидві сторінки бачать однакове.
+// Помічник тягнеться раз і живе в модульній змінній: його читають картка
+// «Що взяти» на «Сьогодні» й панель «Що зробити» позиції, і обидві бачать
+// однакове.
 /** Лінійка порядку: за реальною (типово) чи за номінальною.
  *
  *  Живе тут, а не в uistate: це не «що я розкрив», а параметр ЗАПИТУ —
  *  сортує бекенд, бо в порівнювача пʼять тайбрейкерів (замок, ліміт,
  *  транзит, застарілий папір, план), і копія цього ланцюжка в браузері
- *  розійшлася б із серверною мовчки. Той самий довід, що в
- *  handlers_whatif.go про друге означення арифметики. */
+ *  розійшлася б із серверною мовчки (CLAUDE.md §5). */
 let order = "real";
 
 export async function loadReinvest(ctx) {
   try {
     reinvest = await ctx.api("GET", order === "nominal" ? "reinvest?order=nominal" : "reinvest");
   } catch (_) { reinvest = []; }
-}
-
-/** Кроки «Роботи» — одна дорога «куди покласти гроші цього місяця».
- *
- *  Доти ця дорога була розкидана по пʼяти місцях (карта, план, «Що
- *  зробити» кожної позиції, діалог маршруту, ребаланс у «Структурі»), і
- *  переходу між ними не було: з карти розподілу не можна було дістатись
- *  до порад, а з порад — до плану. Три рядки «Роботи» тепер пронумеровані
- *  й зшиті посиланням «Далі» (рішення власника, 2026-09-22). Маршрут і
- *  «Прийшло» лишаються в «Плані»: вони про надходження, а не про вибір. */
-const STEPS = [
-  { id: "buy", label: "1 · Скільки й куди" },
-  { id: "pick", label: "2 · Що взяти" },
-  { id: "buys", label: "3 · План і наслідки" },
-];
-
-function stepNavHTML(id) {
-  const i = STEPS.findIndex((s) => s.id === id);
-  const prev = STEPS[i - 1];
-  const next = STEPS[i + 1];
-  const a = (s, text) => `<a class="lnk" href="${routeFor(`work/${s.id}/main`)}">${esc(text)}</a>`;
-  return `<div class="card row-h step-nav">
-    ${prev ? a(prev, `← ${prev.label}`) : "<span></span>"}
-    ${next ? a(next, `Далі: ${next.label} →`) : "<span></span>"}
-  </div>`;
-}
-
-/** Крок 2 — «Що взяти»: поради помічника по ВСІХ видах поруч.
- *
- *  Той самий reinvestHTML, що на панелі «Що зробити» позиції, лише без
- *  фільтра виду. Порівняння видів між собою доти лишалось без місця
- *  (див. «Що купити» нижче); тепер воно тут, між картою розподілу й
- *  планом, і «+» кожної поради кладе її просто в план наступного кроку. */
-export async function pick(ctx, main) {
-  await loadReinvest(ctx);
-  main.innerHTML = (reinvestHTML(ctx, { title: "Що взяти" })
-    || `<div class="card">${empty("Порад зараз немає",
-      "Помічник радить лише те, що проходить за твоїми умовами й по кишені. "
-      + "Коли зʼявляться гроші чи зміняться умови — поради стануть тут.")}</div>`)
-    + stepNavHTML("pick");
-  wireReinvest(ctx, main);
-}
-
-/** Що купити — карта розподілу: скільки чого має бути й наскільки кожна ціль
- *  закрита.
- *
- *  ЩО ЗВІДСИ ПІШЛО Й ЧОМУ. Сторінка несла ще два блоки — банер «Спершу
- *  поповнити резерв» і ранжований список порад, — і обидва повторювали те, що
- *  вже стоїть на сусідній сторінці «Що робити». Черга задач (state_tasks.go)
- *  віддає рядок reserve-fill із тим самим заголовком і тією ж сумою, а поруч
- *  із ним saving: «Купувати ще рано — бракує 100,00 $ · найкраще зараз —
- *  Новий вклад · за твоїм темпом ≈ 1 день». Список під тим самим вироком
- *  розкладав його на шість рядків «бракує», у яких нестача майже дорівнювала
- *  ціні (у кишені лежало 6,19 ₴), — тобто повторював відповідь «нічого»
- *  шість разів і гірше, ніж одна задача.
- *
- *  Сам список нікуди не дівся: reinvestHTML малюється на панелі «Що
- *  зробити» кожної позиції, а ПОРІВНЯННЯ ВИДІВ між собою, яке довго
- *  лишалось без місця, стало окремим кроком «2 · Що взяти» (pick вище).
- *  Сюди він не повернувся навмисно: ця сторінка — карта, і її тільки
- *  читають.
- *
- *  ЩО СЮДИ ПОВЕРНУЛОСЬ. Валютний поверх: доти сторінка показувала лише мапу
- *  за ВИДОМ, хоч помічник ранжує поради сумою двох розривів — валютного й
- *  видового (planScore у engine/reinvest.go). Половина міри, якою
- *  впорядкований результат, на сторінці рішення була невидима: людина читала
- *  «скільки чого за видом» і не бачила, що USD стоїть на 8% при цілі 20%.
- *  Валюта йде ПЕРШОЮ — вона грубіша й вирішує, які папери взагалі досяжні.
- *
- *  Порад щодо конвертації в ній немає навмисно (рішення власника): «скільки
- *  сконвертувати» вже сказане в «Портфель → Структура», і другий екземпляр
- *  тієї самої поради іншими словами рано чи пізно розійшовся б із першим.
- *
- *  Порожнього стану тут немає навмисно: обидві картки кажуть, чого їм
- *  бракує (needsSetting), коли не задано жодної цілі.
- *
- *  СТОРІНКУ ТІЛЬКИ ЧИТАЮТЬ — це рішення власника, і воно пояснює
- *  відсутність проводки нижче. Звідси пішла остання дія, кнопка «Розкласти
- *  залишок місяця»: розкладка не знала про план купівель (handleAllocate
- *  будує стан без нього) і радила докупити те, що вже заплановане.
- *  Питання «чим добрати з решти місяця» переїхало в «План купівель», де
- *  перед очима стоїть сам план, — а тут лишилось число й посилання.
- *
- *  Тому в цій функції немає й не має бути жодного wire*: усе, що вміє
- *  сторінка, вона малює. */
-export async function buy(ctx, main) {
-  main.innerHTML = currencyCardHTML(ctx) + allocationCardHTML(ctx) + stepNavHTML("buy");
-}
-
-/** План купівель: що я збираюсь узяти — і що з цього вийде.
- *
- *  Три частини одного питання: список того, що заплановано; форма, якою
- *  його поповнюють; і картка наслідків, яка перемальовується прямо під
- *  час набору (проводка — у plan-buys.js).
- *
- *  Два запити, а не один: сирі рядки потрібні формі правки, готові з
- *  цінами — таблиці й картці наслідків. Злити їх в один означало б або
- *  порахувати ціни двічі, або показати у формі не те, що в базі.
- *
- *  Порожній стан малюється ТУТ, а не в plan-buys.js: сторінка, на яку
- *  можна прийти за посиланням і побачити білий екран, — зламана. */
-export async function buys(ctx, main) {
-  const [rows, res] = await Promise.all([
-    ctx.store.soft("plan/buys"),
-    fetchWhatIf(ctx, topupPick() ? { pick_isin: topupPick() } : {})
-      .catch((err) => ({ error: err })),
-  ]);
-  if (res && res.error) {
-    // Вибраний папір міг і не існувати серед порад — тоді бекенд відмовив
-    // саме через нього, і лишити вибір означало б замкнути сторінку на
-    // помилці назавжди. Скидаємо ЛИШЕ коли вибір був: інакше ця гілка
-    // приховала б справжню причину під фразою про папір.
-    if (topupPick()) clearTopupPick();
-    main.innerHTML = `<div class="card"><h2>Що заплановано</h2>
-      <div class="muted">Не вдалось порахувати наслідки: ${esc(res.error.message || res.error)}</div>
-    </div>` + planBuyFormHTML(ctx);
-    wirePlanBuys(ctx, main, rows || []);
-    return;
-  }
-  const lines = ((res.basket || {}).lines || []);
-  // Порядок карток = порядок питань. «Що заплановано» → «чим добрати
-  // решту» → форма → наслідки: добір продовжує список плану (він про ті
-  // самі гроші й ту саму решту місяця), а не форму, тож стоїть одразу за
-  // ним. Наслідки лишаються останніми — вони підсумовують усе разом.
-  main.innerHTML = (lines.length ? planBuysHTML(res) : emptyPlanHTML())
-    + `<div data-topup>${topupHTML(ctx, res)}</div>`
-    + `<div class="card"><h2>Внести покупку ${infoBtn("basket")}</h2>
-        <div class="note">Наслідки перерахуються, щойн наберені поля складуться
-          в покупку — зберігати для цього нічого не треба.</div>
-        ${planBuyFormHTML(ctx)}</div>`
-    + `<div data-impact>${impactHTML(ctx, res)}</div>`
-    + stepNavHTML("buys");
-  wirePlanBuys(ctx, main, rows || []);
-  wireTopup(ctx, main, res);
 }

@@ -129,7 +129,6 @@ for (const l of links) {
 // переїздів старих закладок більше немає (довід — у routes.js).
 
 const FALLBACK = {
-  work: "work/buy/main",
   portfolio: "portfolio/all/positions",
   money: "money/all/balances",
   // «План» голим хешем веде в «Борги»: доки борг живий, він з'їдає гроші

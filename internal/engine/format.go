@@ -8,7 +8,6 @@ package engine
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	money "github.com/Rhymond/go-money"
@@ -53,11 +52,4 @@ func Plural(n int, one, few, many string) string {
 	default:
 		return many
 	}
-}
-
-// Порядок у відповіді детермінований навмисно: інакше два однакові
-// запити давали б різний JSON (мапи в Go обходяться випадково), і будь-яке
-// порівняння відповідей — очима чи тестом — перетворилось би на гадання.
-func sortMoneyJSON(m []MoneyJSON) {
-	sort.Slice(m, func(i, j int) bool { return m[i].Currency < m[j].Currency })
 }

@@ -394,9 +394,7 @@ func PlanFlowGrossUAH(f store.PlanFlow, today domain.Date, rates fx.Rates, month
 // горизонту, тіло не повертається взагалі. Сюди тепер доходять лише два
 // випадки, і для обох це правда, а не спрощення: замок, заведений
 // ЛЮДИНОЮ без строку, і безстроковий РОЗПОДІЛЬНИЙ фонд, який справді
-// платить вічно й тіла не віддає. Накопичувальний, заради якого це
-// колись і називалось компромісом, звідси пішов у planFunds
-// (state_plan_buys.go) — у замкненому він лежав би цеглиною.
+// платить вічно й тіла не віддає.
 func planLockFlows(a store.PlanAction, today domain.Date, horizon int) (m0 int, amount float64, coupon, redeem map[int]float64) {
 	m0 = monthOffset(today, a.Date)
 	amount = float64(a.Amount) / 100

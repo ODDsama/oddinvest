@@ -94,20 +94,11 @@ type sources struct {
 	// в помісячні вектори робить sleeveFactory (state_projection.go).
 	planFlows   []store.PlanFlow
 	planActions []store.PlanAction
-	// planFunds — планована купівля накопичувального фонду. Читанню зі
-	// сховища не підлягає: це ЛИШЕ гіпотеза (див. planFundBuy у
-	// state_builder.go), тож loadSources її не наповнює — вона
-	// зʼявляється рівно в блоці домішування.
-	planFunds []planFundBuy
 	// planReceipts — відмітки фактичних надходжень (0027). Так само сирі:
 	// індекс (потік, місяць) будує NewPlanMarks, а заміщення планової суми
 	// робить те саме ядро, що й розгортання, — щоб означення надходження
 	// лишалось одне.
 	planReceipts []store.PlanReceipt
-	// planBuys — план купівель (0033). Сирі рядки: розділення на «купую
-	// зараз» і «купую потім» робить state_plan_buys.go, бо для цього
-	// потрібне сьогодні, а sources його не знає (див. шапку файла).
-	planBuys []store.PlanBuy
 	// planExpenses — вирішені разові витрати (0056). Сирими: «чи тисне вона
 	// в жовтні» вміє сказати лише domain.PlanExpense.PressMonth, і другого
 	// означення цього не зʼявляється — читачів у нього троє (план місяця,
@@ -271,9 +262,6 @@ func (e *Engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		return nil, err
 	}
 	if src.planReceipts, err = e.st.ListPlanReceipts(ctx); err != nil {
-		return nil, err
-	}
-	if src.planBuys, err = e.st.ListPlanBuys(ctx); err != nil {
 		return nil, err
 	}
 	if src.planExpenses, err = e.st.ListPlanExpenses(ctx); err != nil {

@@ -34,7 +34,7 @@ func TestLoadSourcesFailsLoudOnBrokenRead(t *testing.T) {
 	broken := []string{
 		"fund_ops", "fund_prices", "term_deposits", "deposits",
 		"goals", "goal_ops", "npf_accounts", "npf_ops", "npf_nav",
-		"plan_flows", "plan_actions", "plan_receipts", "plan_buys",
+		"plan_flows", "plan_actions", "plan_receipts",
 		"brokers", "funds", "ovdp_auctions", "fx_rates",
 	}
 	for _, tbl := range broken {

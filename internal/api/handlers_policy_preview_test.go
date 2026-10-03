@@ -1,13 +1,41 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"reflect"
 	"testing"
+	"time"
 
+	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
+	"github.com/ODDsama/oddinvest/internal/store"
+	money "github.com/Rhymond/go-money"
 )
+
+// previewServer — портфель із рахунком і лотом: превʼю політики міряє цілі
+// проти чогось справжнього. Жив у тестах /api/whatif як whatIfServer;
+// кошик прибрано, превʼю лишилось.
+func previewServer(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	srv, st := testServer(t)
+	seed(t, st)
+	if _, err := st.AddDeposit(ctx, store.Deposit{
+		Date: domain.NewDate(time.Now()), Amount: 100_000_00,
+		Currency: money.UAH, Broker: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddLot(ctx, domain.Lot{
+		ISIN: "UA4000227748", Qty: 5, PricePerBond: money.New(99500, money.UAH),
+		BuyDate: domain.NewDate(time.Now().AddDate(0, 0, -10)), Channel: "mono",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return srv.URL
+}
 
 // policyDraft — набір, який ставить «Гривневий потік» на рівні без замка.
 // Саме пʼятнадцять ключів, як їх шле «Політика»: превʼю, що бачило б інший
@@ -50,7 +78,7 @@ type policySections struct {
 // потім запис. Навпаки тест був би зеленим навіть тоді, коли накладка не
 // працює взагалі.
 func TestPolicyPreviewMatchesRealWrite(t *testing.T) {
-	url := whatIfServer(t)
+	url := previewServer(t)
 
 	resp, body := do(t, "POST", url+"/api/policy/preview", policyDraft)
 	if resp.StatusCode != http.StatusOK {
@@ -89,7 +117,7 @@ func TestPolicyPreviewMatchesRealWrite(t *testing.T) {
 // наслідком: зведення ПІСЛЯ превʼю мусить лишитись таким, яким було до
 // нього, — тобто без цілей, яких ніхто не зберігав.
 func TestPolicyPreviewWritesNothing(t *testing.T) {
-	url := whatIfServer(t)
+	url := previewServer(t)
 
 	resp, body := do(t, "GET", url+"/api/settings", "")
 	if resp.StatusCode != http.StatusOK {
@@ -112,7 +140,7 @@ func TestPolicyPreviewWritesNothing(t *testing.T) {
 // Превʼю приймає рівно те, що прийме запис. Розійтися вони не можуть за
 // побудовою (перевірка спільна), і цей тест стереже саме цю спільність.
 func TestPolicyPreviewRejectsWhatWriteRejects(t *testing.T) {
-	url := whatIfServer(t)
+	url := previewServer(t)
 	for _, tc := range []struct{ name, body string }{
 		{"невідомий ключ", `{"settings":{"target_gold_pct":"10"}}`},
 		{"не число", `{"settings":{"target_bonds_pct":"багато"}}`},
@@ -175,7 +203,7 @@ func TestPolicyPreviewOnEmptyPortfolio(t *testing.T) {
 // Порожнє тіло — законний запит: це стан за ЧИННОЇ політики. Окремої гілки
 // в обробнику під нього немає, і тест стереже саме те, що вона не потрібна.
 func TestPolicyPreviewEmptyDraftIsCurrentState(t *testing.T) {
-	url := whatIfServer(t)
+	url := previewServer(t)
 
 	if resp, body := do(t, "PUT", url+"/api/settings", policySettingsBody); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("запис налаштувань: %d %s", resp.StatusCode, body)

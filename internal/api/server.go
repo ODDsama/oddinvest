@@ -272,10 +272,6 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/plan/flows", s.handleAddPlanFlow)
 	mux.HandleFunc("PUT /api/plan/flows/{id}", s.handleUpdatePlanFlow)
 	mux.HandleFunc("DELETE /api/plan/flows/{id}", s.handleDeletePlanFlow)
-	mux.HandleFunc("GET /api/plan/buys", s.handleListPlanBuys)
-	mux.HandleFunc("POST /api/plan/buys", s.handleAddPlanBuy)
-	mux.HandleFunc("PUT /api/plan/buys/{id}", s.handleUpdatePlanBuy)
-	mux.HandleFunc("DELETE /api/plan/buys/{id}", s.handleDeletePlanBuy)
 	// Планові витрати (0056) — handlers_plan_expenses.go.
 	mux.HandleFunc("GET /api/plan/expenses", s.handleListPlanExpenses)
 	mux.HandleFunc("POST /api/plan/expenses", s.handleAddPlanExpense)
@@ -311,7 +307,6 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/switch", s.handleSwitch)
 	mux.HandleFunc("POST /api/switch", s.handleSwitchVerdict)
 	mux.HandleFunc("GET /api/auctions/curve", s.handleAuctionsCurve)
-	mux.HandleFunc("POST /api/whatif", s.handleWhatIf)
 	mux.HandleFunc("POST /api/policy/preview", s.handlePolicyPreview)
 	// Третє превʼю поверх того самого BuildStateWith, і питання в нього
 	// третє: не «якщо це купити» й не «що означають цілі», а «що зробив

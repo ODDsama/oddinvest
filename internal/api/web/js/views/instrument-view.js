@@ -362,10 +362,10 @@ function panePaneHTML(ctx, spec, d) {
       || `<div class="card">${empty("Порад по цьому виду немає",
         "Помічник радить лише те, що проходить за твоїми умовами. Порівняти види між "
         + "собою можна там, де вони стоять поруч.",
-        { href: routeFor("work/pick/main"), label: "2 · Що взяти" })}</div>`)
+        { href: routeFor("overview/main/main"), label: "Що взяти — на «Сьогодні»" })}</div>`)
       + (spec.kind === "bond" ? switchHTML() : "")
       + `<div class="card"><div class="sub">Порівняти з іншими видами —
-        <a class="lnk" href="${routeFor("work/pick/main")}">у «Роботі → 2 · Що взяти»</a>: там ОВДП,
+        <a class="lnk" href="${routeFor("overview/main/main")}">у «Що взяти» на «Сьогодні»</a>: там ОВДП,
         фонд, вклад і НПФ стоять поруч і міряні однією реальною дохідністю.</div></div>`;
   case "record":
     return writeHTML(ctx, spec, d);
