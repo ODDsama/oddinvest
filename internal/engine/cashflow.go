@@ -321,54 +321,6 @@ func (e *Engine) CashEvents(ctx context.Context) ([]FlowEvent, error) {
 	return out, nil
 }
 
-// BenchResult — «портфель проти доларів» для віхи прогресу «обіграв просто
-// долари»: вона — це рівно DiffUAH > 0, і рахувати її вдруге означало б
-// завести другий бенчмарк.
-type BenchResult struct {
-	PortfolioUAH state.Money `json:"portfolio_uah"`
-	BenchmarkUAH state.Money `json:"benchmark_uah"`
-	DiffUAH      state.Money `json:"diff_uah"`
-	DiffPct      float64     `json:"diff_pct"`
-	USDBought    state.Money `json:"usd_bought"`
-	RateNow      float64     `json:"rate_now"`
-	Note         string      `json:"note,omitempty"`
-}
-
-// benchFromRivals — «портфель проти доларів» із уже порахованих
-// суперників. ТІЛА В НЬОГО НЕМАЄ: долар як альтернатива рахується рівно
-// один раз — у rivals.go, разом із трьома іншими суперниками, — а тут
-// лише перекладається у форму віхи. Другий рахунок того самого числа
-// розійшовся б із першим мовчки.
-//
-// Окремої ручки /api/benchmark більше немає: вона була другим входом до
-// рядка «Долар» у /api/rivals, і її не кликав ні UI, ні HA.
-func benchFromRivals(rv RivalsResp, rates fx.Rates) BenchResult {
-	nowUSD, _ := fx.RateMajor(money.USD, rates) //nolint:errcheck // немає курсу — нижче про це й сказано
-	out := BenchResult{RateNow: domain.Round2(nowUSD)}
-	out.PortfolioUAH = rv.ActualUAH
-	out.Note = rv.Note
-	if nowUSD <= 0 {
-		out.Note = "немає курсу — порівнювати нема з чим"
-		return out
-	}
-	row := rv.Row(domain.RivalUSDCash)
-	if row.Why != "" {
-		out.Note = row.Why
-		return out
-	}
-	out.BenchmarkUAH = row.TerminalUAH
-	out.DiffUAH = row.DiffUAH
-	out.DiffPct = row.DiffPct
-	// USDBought виводиться з терміналу, а не рахується вдруге: термінал і
-	// є «куплені долари, оцінені сьогоднішнім курсом», тож ділення на той
-	// самий курс повертає рівно ті самі долари.
-	//
-	// Мітка — USD: це долари. З гривневою міткою презентер ділив їх на
-	// курс ще раз, і в доларовому вигляді usd_bought був у ~44 рази менший.
-	out.USDBought = state.Major(out.BenchmarkUAH.Major()/nowUSD, money.USD)
-	return out
-}
-
 // taxLine — рядок звіту про податок: один вид доходу.
 type taxLine struct {
 	Kind     string      `json:"kind"`

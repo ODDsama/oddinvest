@@ -305,7 +305,9 @@ func (s *Server) routes() *http.ServeMux {
 	// Ретроспектива помічника — теж поруч: журнал рішень існує рівно
 	// заради питання «чи працює те, що радить /api/reinvest».
 	mux.HandleFunc("GET /api/decisions", s.handleDecisions)
-	mux.HandleFunc("GET /api/progress", s.handleProgress)
+	// /api/progress (віхи «Шляху») прибрано разом із вкладкою — ревізія
+	// 2026-10-03. Серію внесків, якою користується рік, рахує
+	// engine.BuildStreak (engine/streak.go).
 	mux.HandleFunc("GET /api/switch", s.handleSwitch)
 	mux.HandleFunc("POST /api/switch", s.handleSwitchVerdict)
 	mux.HandleFunc("GET /api/auctions/curve", s.handleAuctionsCurve)

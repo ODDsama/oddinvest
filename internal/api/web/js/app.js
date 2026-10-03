@@ -42,7 +42,6 @@ import { applyOrder, moveInOrder } from "./navorder.js";
 import { loadPositionsData } from "./views/positions.js";
 
 import { overview } from "./views/overview.js";
-import * as path from "./views/path.js";
 import * as now from "./views/now-view.js";
 import * as instr from "./views/instrument-view.js";
 import * as portfolio from "./views/portfolio-view.js";
@@ -146,10 +145,6 @@ const VIEWS = {
   "plan/levers/main": plan.levers,
   "plan/payouts/main": plan.payouts,
 
-  "path/next/main": path.next,
-  "path/milestones/main": path.milestones,
-  "path/habit/main": path.habit,
-  "path/collection/main": path.collection,
 
   "policy/strategy/main": policy.strategy,
   "policy/mix/main": policy.mix,
@@ -428,11 +423,6 @@ export class OddInvestApp extends HTMLElement {
       // Панель бере їх звідси, а не тягне вдруге: store дедуплікує GET-и,
       // але зайвий обхід восьми маршрутів усе одно коштує кадр.
       positions: this._posData,
-      // Прогрес — так само завантажений оболонкою, і з тієї ж причини:
-      // підвал майстер-списку «Шляху» показує рівень, тобто число з
-      // цієї ж відповіді. Дати в'юшкам тягнути її самим означало б два
-      // читання одного маршруту на кожному переході всередині вкладки.
-      progress: this._progress,
       root: this.shadowRoot,
       toast: (msg, ok) => this._toast(msg, ok),
       // Теплий перерендер: панель уже на екрані, змінилось одне число.
@@ -1373,16 +1363,6 @@ export class OddInvestApp extends HTMLElement {
         this._reportSoft("позиції", err);
         return {};
       });
-    }
-    // Те саме для «Шляху»: прогрес коштує обходу всієї історії внесків
-    // (довід — у шапці internal/engine/state_progress.go), і платити за
-    // нього на «Грошах» нема за що. М'яке читання: сторінка віх без віх
-    // мусить сказати це словами, а не впасти.
-    if (this._tab === "path") {
-      // Порожнє, а не останнє відоме, коли зведення не приїхало: та сама
-      // причина, що й у this._summary вище — вчорашні числа, показані як
-      // сьогоднішні, гірші за їх відсутність.
-      this._progress = broken ? null : await this._store.soft("progress", null);
     }
 
     this._allRows = this._rows();

@@ -55,11 +55,6 @@ import (
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
-// idleFreeDays — скільки добових знімків поспіль без простою дають віху
-// «Місяць без простою». Тридцять, як і серія внесків: місяць — природний
-// цикл цього застосунку.
-const idleFreeDays = 30
-
 // buildIdle — простій по парах із журналу гаманця. nil, коли жодна пара не
 // дотягує до квитка: тоді простою немає, і поле мовчить, а не показує нулі.
 func buildIdle(cash *cashLedger, minByCur map[string]int64, rates fx.Rates, today domain.Date) *state.IdleCash {
@@ -190,30 +185,4 @@ func buildIdleCost(idle *state.IdleCash, sug []suggestion) *state.IdleCost {
 
 	out.RatePct = domain.Round2(rateW / base)
 	return out
-}
-
-// idleStreak — поточна серія добових знімків без простою й дата, коли
-// серія вперше сягнула idleFreeDays. Знімки, що простою не знають
-// (idle_uah < 0), серію обривають, а не продовжують: «не рахували» — не
-// те саме, що «не було». idleNow — чи простій є СЬОГОДНІ за документом:
-// знімок пишеться вранці, а гроші приходять удень, і серію, зірвану
-// сьогодні, обривати треба сьогодні.
-func idleStreak(snaps []store.Snapshot, idleNow bool) (current int, earnedOn string) {
-	sorted := append([]store.Snapshot(nil), snaps...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Date < sorted[j].Date })
-	run := 0
-	for _, sn := range sorted {
-		if sn.IdleUAH == 0 {
-			run++
-			if run == idleFreeDays && earnedOn == "" {
-				earnedOn = string(sn.Date)
-			}
-		} else {
-			run = 0
-		}
-	}
-	if idleNow {
-		run = 0
-	}
-	return run, earnedOn
 }

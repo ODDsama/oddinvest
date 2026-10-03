@@ -40,7 +40,6 @@ import { tile, empty } from "../components.js";
 import { routeFor } from "../routes.js";
 import { tasksHTML } from "./tasks.js";
 import { monthTile, planTileSub } from "./now-view.js";
-import { nextLineHTML } from "./path.js";
 import { debtOverviewHTML } from "./debts.js";
 
 /** Головне число й три поруч.
@@ -200,12 +199,12 @@ function routePreviewHTML(legs) {
 
 /** Сама сторінка. */
 export async function overview(ctx, main) {
-  // Три м'які читання паралельно. Кожне живить свій блок, і падіння
+  // Два м'які читання паралельно. Кожне живить свій блок, і падіння
   // будь-якого прибирає рівно його — той самий прийом, що в «Порівнянні».
   // /api/plan — заради плитки «План»: найближча подія (замок, вікно
-  // купівлі фонду) живе тільки там.
-  const [progress, route, planDoc] = await Promise.all([
-    ctx.soft("progress", null),
+  // купівлі фонду) живе тільки там. Рядка «Найближча віха» більше немає:
+  // віхи пішли разом зі «Шляхом» (ревізія 2026-10-03).
+  const [route, planDoc] = await Promise.all([
     ctx.soft("route", null),
     ctx.soft("plan", null),
   ]);
@@ -225,7 +224,6 @@ export async function overview(ctx, main) {
     planTileSub(ctx, planDoc))}
     </div>
     ${routePreviewHTML(route && route.legs)}
-    ${nextLineHTML(progress)}
     ${debtOverviewHTML(s)}
     ${silenceHTML()}`;
 }

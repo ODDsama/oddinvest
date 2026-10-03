@@ -1,13 +1,13 @@
 // Рік у цифрах — підсумок місяця, розтягнутий на рік і доповнений тим,
 // чого місяць не має.
 //
-// НІЧОГО НЕ РАХУЄТЬСЯ ТУТ, і сторінка складена з ЧОТИРЬОХ готових
-// відповідей: /api/year (гроші, дні, місяці, «було → стало», рішення),
-// /api/tax (річний податок із курсом на дату події), /api/progress
-// (віхи, датовані цим роком, і серія проти долара). Складати їх на
+// НІЧОГО НЕ РАХУЄТЬСЯ ТУТ, і сторінка складена з ДВОХ готових
+// відповідей: /api/year (гроші, дні, місяці, «було → стало», рішення) і
+// /api/tax (річний податок із курсом на дату події). Складати їх на
 // клієнті — законно: це композиція, а не арифметика (CLAUDE.md §5).
-// Рахувати податок чи віхи вдруге в бекенді заради однієї сторінки
-// означало б другий примірник тих самих чисел.
+// Рахувати податок удруге в бекенді заради однієї сторінки означало б
+// другий примірник тих самих чисел. Картки «Віхи року» більше немає —
+// віхи пішли разом зі «Шляхом» (ревізія 2026-10-03).
 //
 // Картки «було → стало» й «рішення» — ті самі функції, що на «Підсумку
 // місяця»: обидві сторінки показують ті самі рядки за різні вікна, і
@@ -145,28 +145,6 @@ function taxHTML(tax) {
   </div>`;
 }
 
-/** Віхи, датовані цим роком, і серія проти долара — зі «Шляху». */
-function pathHTML(pr, year) {
-  if (!pr) return "";
-  const y = String(year);
-  const done = (pr.milestones || []).filter((m) => m.earned && m.earned_on && m.earned_on.startsWith(y))
-    .sort((a, b) => (a.earned_on < b.earned_on ? -1 : 1));
-  const vs = pr.vs_usd;
-  const marks = vs ? (vs.marks || []).filter((m) => m.month.startsWith(y)) : [];
-  const ahead = marks.filter((m) => m.ahead).length;
-  const vsLine = marks.length
-    ? `<div class="sub">Попереду «просто доларів» ${ahead} з ${marks.length} ${
-      plural(marks.length, "місяця", "місяців", "місяців")}</div>` : "";
-  return `<div class="card">
-    <h2 class="card-head"><span>Віхи року</span><span class="sub-xs">${done.length}</span></h2>
-    ${done.length ? `<div class="tl">${done.map((m) => `<div class="tl-row">
-        <span class="tl-d">${esc(m.earned_on)}</span><span class="tl-n">${esc(m.title)}</span>
-      </div>`).join("")}</div>`
-    : `<div class="sub">Датованих віх цього року немає.</div>`}
-    ${vsLine}
-  </div>`;
-}
-
 export async function year(ctx, main) {
   const chosen = chosenYear();
   const y = await ctx.soft("year" + (chosen ? `?year=${chosen}` : ""), null);
@@ -175,16 +153,12 @@ export async function year(ctx, main) {
       ${empty("", "Бекенд не віддав рік. Спробуй оновити сторінку.")}</div>`;
     return;
   }
-  const [tax, pr] = await Promise.all([
-    ctx.soft(`tax?year=${y.year}`, null),
-    ctx.soft("progress", null),
-  ]);
+  const tax = await ctx.soft(`tax?year=${y.year}`, null);
   main.innerHTML = `<div class="card">${headHTML(y)}${tilesHTML(y)}</div>
     <div class="card"><h2>Дні з рухом грошей</h2>${heatmapHTML(y)}</div>
     ${monthsHTML(y)}
     ${structureHTML({ structure: y.structure, structure_note: y.structure_note })}
     ${taxHTML(tax)}
-    ${pathHTML(pr, y.year)}
     ${decisionsHTML({ decisions: y.decisions }, "Рішення року")}`;
   wirePrefs(main, ctx, YEAR_KEY);
 }
