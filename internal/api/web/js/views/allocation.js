@@ -325,7 +325,7 @@ function rowHTML(r, hasMonth) {
       <span class="muted">${fmtUAH(r.nowUAH)}</span></div>
       <div class="sub">${
         r.key === "reserve"
-          ? "ціль резерву задається місяцями витрат — «Політика → Резерв»"
+          ? "ціль резерву задається місяцями витрат — «Політика → Гроші місяця»"
           : r.key === "deposits"
             // Питання цієї картки — «скільки ще докласти», і на вклад воно
             // не ставиться взагалі: докладати туди нема куди, бо це не ціль,
@@ -455,7 +455,7 @@ export function allocationCardHTML(ctx) {
       + "місяцями витрат у «Резерві», ціль накопичення — у «Цілях накопичення». "
       + "Задай хоч одну — і тут з'явиться, скільки в неї треба грошей і скільки "
       + "вже стоїть.",
-    routeFor("policy/mix/main"));
+    routeFor("policy/strategy/main"));
   }
 
   const rest = (res && res.noTarget ? [res] : []).concat(noTarget);
@@ -511,7 +511,7 @@ export function allocationCardHTML(ctx) {
     ? ` Цілі за видом дають ${targetSum.toFixed(0)}% замість 100 — ${
       (100 - targetSum).toFixed(0)}% портфеля не кероване жодною ціллю. Це не «місце під
       резерв»: подушка в цей знаменник не входить узагалі. Довести до сотні —
-      <a class="lnk" href="${routeFor("policy/mix/main")}">Частки й межі</a> або готовий набір
+      <a class="lnk" href="${routeFor("policy/strategy/main")}">Стратегія → Частки</a> або готовий набір
       у <a class="lnk" href="${routeFor("policy/strategy/main")}">Стратегії</a>.`
     : targetSum > 100.5
       ? ` Цілі за видом у сумі дають ${targetSum.toFixed(0)}% — більше за портфель, тож

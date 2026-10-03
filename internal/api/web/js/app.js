@@ -132,16 +132,12 @@ const VIEWS = {
   "plan/expenses/main": plan.planExpenses,
   "plan/route/main": plan.route,
   "plan/goal/main": plan.goal,
-  "plan/levers/main": plan.levers,
   "plan/payouts/main": plan.payouts,
 
 
   "policy/strategy/main": policy.strategy,
-  "policy/mix/main": policy.mix,
-  "policy/instruments/main": policy.instruments,
-  "policy/reserve/main": policy.reserve,
-  "policy/debt/main": policy.debt,
-  "policy/goals/main": policy.goals,
+  "policy/money/main": policy.money,
+  "policy/reinvest/main": policy.reinvest,
   "policy/assumptions/main": policy.assumptions,
 
   "settings/refs/main": settings.refs,
@@ -888,6 +884,11 @@ export class OddInvestApp extends HTMLElement {
     curBtn.title = (currency() === BOOK
       ? `Показувати в ${other === ALT ? "доларах" : other}: курс НБУ ${rate.toLocaleString("uk", { maximumFractionDigits: 4 })} ₴/$, минуле — за курсом на свою дату`
       : "Показувати в гривні")
+      // Підказка мусить сказати, що це НЕ погляд браузера: перемикач пише
+      // налаштування портфеля, і в тій самій валюті документ їде в Home
+      // Assistant. Без цього клік «подивитись у доларах» мовчки міняв
+      // одиницю сенсорів на всіх екранах дому.
+      + " · зберігається в портфелі й іде в Home Assistant"
       + (s.currency_note ? ` · ${s.currency_note}` : "");
     delta.classList.toggle("up", !!d && d.delta_uah > 0);
     delta.classList.toggle("down", !!d && d.delta_uah < 0);

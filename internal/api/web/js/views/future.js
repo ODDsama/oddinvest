@@ -397,7 +397,7 @@ export function drawdownHTML(ctx) {
       + "холодильника, і переказ у резерв, тож міряти від них «місяць життя» означало б "
       + "рахувати від випадкового числа. Задай «місячні витрати» або «скільки знімати» "
       + "в «Політиці → Резерв».",
-    routeFor("policy/reserve/main"));
+    routeFor("policy/money/main"));
   }
   const inc = (v) => uah0(v);
   const from = d.withdraw_from === "expenses"
@@ -451,7 +451,7 @@ function independenceHTML(ctx) {
     return `<div class="rule-top">
       <div class="sub-xs">Щоб побачити, коли дохід покриє життя, задай
         <a class="lnk" href="${routeFor("policy/assumptions/main")}">цільовий дохід</a> або
-        <a class="lnk" href="${routeFor("policy/reserve/main")}">місячні витрати</a>
+        <a class="lnk" href="${routeFor("policy/money/main")}">місячні витрати</a>
         у «Політиці».</div></div>`;
   }
   const inc = (v) => uah0(v);

@@ -43,10 +43,20 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	// міряє власні рішення. Тому переупорядкування живе в обробнику, а не
 	// в ReinvestSuggestions (межу тримає make order-boundary).
 	//
+	// Лінійку задає налаштування reinvest_order (Політика → Реінвест), а
+	// не параметр запиту: доти перемикач на картці скидався з кожним
+	// перезавантаженням.
+	//
 	// У валюті звітності ≠ гривні номінальної лінійки немає — 15% ОВДП це
-	// не 15% у доларах, — тож і перемикача немає: поради йдуть за реальною.
+	// не 15% у доларах, — тож налаштування там ігнорується: поради йдуть
+	// за реальною.
+	ord, err := s.st.GetSetting(r.Context(), "reinvest_order")
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
 	if report, err := s.ReportCurrency(r.Context()); err == nil && report == money.UAH &&
-		r.URL.Query().Get("order") == engine.OrderNominal {
+		ord == engine.OrderNominal {
 		rank := engine.RankOf(doc)
 		sort.SliceStable(out, func(i, j int) bool {
 			return engine.LessSuggestion(out[i], out[j], rank, engine.OrderNominal)

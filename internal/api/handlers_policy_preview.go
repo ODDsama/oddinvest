@@ -65,6 +65,15 @@ func (s *Server) handlePolicyPreview(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	cur, err := s.st.AllSettings(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := settings.ValidateCombined(cur, req.Settings); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	// Порожнє тіло — законний запит, і відповідь на нього чесна: це стан за
 	// ЧИННОЇ політики. Окремої гілки він не потребує, бо порожня накладка
 	// нічого не підміняє (Hypothetical.empty).

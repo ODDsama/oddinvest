@@ -867,7 +867,7 @@ const FIELD_LABEL = {
   limit_broker_pct: "Макс. в одній установі, %",
   limit_year_pct: "Макс. погашень в один рік, %",
   reserve_target_months: "Запас, місяців витрат",
-  reserve_fill_share_pct: "З вільних у резерв, %",
+  reserve_fill_share_pct: "З планового доходу в резерв, %",
   reserve_fill_from: "Подушку наповнювати",
   reserve_liquid_months: "Доступно миттєво, місяців витрат",
   reserve_max_term_months: "Найдовша сходинка драбини, місяців",
@@ -883,6 +883,18 @@ const FIELD_LABEL = {
 // його сирим.
 const CODED = { reinvest_rank: RANKS, reserve_fill_from: RESERVE_FROM };
 
+// Ключі, у яких «прибрати» означає ВИМКНУТИ механізм, а не повернутись до
+// замовчування. У таблиці різниці це стоїть рядком «прибрати» серед
+// п'ятнадцяти, і саме там його й не помічали: набір без стелі резерву
+// мовчки зупиняв поповнення подушки. Тому кожен такий випадок ще й
+// називається словами перед кнопкою.
+const OFF_WORD = {
+  reserve_fill_share_pct: "вимкне поповнення резерву: помічник більше не пропонуватиме відкладати в подушку",
+  limit_isin_pct: "зніме ліміт на один папір",
+  limit_broker_pct: "зніме ліміт на одну установу",
+  limit_year_pct: "зніме ліміт погашень в один рік",
+};
+
 // Значення так, як його читає людина.
 //
 // Саме порівняння diff лишається на СИРИХ значеннях: інакше збережений
@@ -891,12 +903,25 @@ const shown = (k, v) => (CODED[k]
   ? (CODED[k].find(([code]) => code === v) || [, v])[1]
   : v);
 
-// Відповіді живуть у localStorage, а не в налаштуваннях сервера: це не
-// політика портфеля, а чернетка підбору. Записати в бекенд означало б
-// завести десяте налаштування, яке ні на що не впливає.
+// Відповіді живуть у налаштуваннях портфеля (ключ strategy_answers), а
+// не в localStorage, де лежали доти: там вони зникали з іншого пристрою й
+// після чистки сайту, і набір раптом показував «без збігів». На числа
+// ключ не впливає — у документ стану він не публікується (registry.go).
+//
+// Стара копія з localStorage читається, доки на сервері порожньо, і
+// записується туди з першою ж зміною відповіді — без окремої міграції.
 const ANSWERS_KEY = "oddinvest.strategyAnswers";
-const readAnswers = () => loadJSON(ANSWERS_KEY, {});
-const writeAnswers = (a) => saveJSON(ANSWERS_KEY, a);
+function readAnswers(current) {
+  const raw = (current || {}).strategy_answers;
+  if (raw) {
+    try { return JSON.parse(raw) || {}; } catch (_) { return {}; }
+  }
+  return loadJSON(ANSWERS_KEY, {});
+}
+async function writeAnswers(ctx, a) {
+  await ctx.api("PUT", "settings", { strategy_answers: JSON.stringify(a) });
+  saveJSON(ANSWERS_KEY, {});
+}
 
 // Збіг набору з названими обмеженнями. Повертає РОЗКЛАД, а не оцінку:
 // саме він і показується поруч, бо число без пояснення — це та сама
@@ -1095,7 +1120,7 @@ function needsHTML(eff, s, current) {
       plural(Number(months), "місяць", "місяці", "місяців")} витрат` : ""} запишеться, але лишиться
       числом без гривень: ні суми цілі, ні розриву застосунок не порахує — ділити нема на що.${
   fill ? ` Стеля «з вільних у резерв ${esc(fill)}%» мовчатиме теж: вона рахується від розриву.` : ""}
-      Зникне, щойно зʼявляться витрати — <a class="lnk" href="${routeFor("policy/reserve/main")}">Політика
+      Зникне, щойно зʼявляться витрати — <a class="lnk" href="${routeFor("policy/money/main")}">Політика
       → Резерв</a>.`);
   }
 
@@ -1126,8 +1151,7 @@ function needsHTML(eff, s, current) {
       дефолту немає навмисно — мінімальна сума це умова банку, а не властивість валюти. Діючий
       поповнюваний вклад помічник поповнить і без цих полів; немає лише поради ВІДКРИТИ новий.
       Зникне, щойно обидва поля стануть${fxNeed.length ? ` в ${esc(names)}` : " хоч в одній валюті"}
-      — <a class="lnk" href="${routeFor("policy/instruments/main")}">Політика → Умови
-      реінвесту</a>.`);
+      — <a class="lnk" href="${routeFor("policy/reinvest/main")}">Політика → Реінвест</a>.`);
   }
 
   // Тут попередження НЕ про ціль — вона працює: дефіцит буде видно в
@@ -1137,7 +1161,7 @@ function needsHTML(eff, s, current) {
       ніде. Сама ціль НПФ у ${esc(val("target_npf_pct"))}% при цьому працює: дефіцит буде видно в
       «Портфель → Структура», а внесок — у «Що взяти». Без ПДФО мовчить саме повернення 18%: держава
       повертає сплачене, і стеля повернення — це він. Зникне після
-      <a class="lnk" href="${routeFor("policy/instruments/main")}">Політики → Умови реінвесту</a>.`);
+      <a class="lnk" href="${routeFor("policy/reinvest/main")}">Політики → Реінвест</a>.`);
   }
   if (val("target_npf_pct") && known && !(s.npf || []).length) {
     out.push(`<b>рахунок НПФ</b>. Ціль у ${esc(val("target_npf_pct"))}% стане числом наперед:
@@ -1291,7 +1315,7 @@ function factHTML(id, s, answers, current) {
     if (a === "no" && !(r && r.target_uah > 0) && !(s.reserve_uah > 0)) {
       out.push(line(`⚠ ти відповів, що запас має бути тут, а ні цілі резерву, ні самого резерву в
         застосунку немає. Позначка зникне, щойно зʼявиться ціль — її ставлять набори «Ліквідний»,
-        «Спершу подушка» і «Тільки банк», або руками в «Політика → Резерв» — чи перший запис у
+        «Спершу подушка» і «Тільки банк», або руками в «Політика → Гроші місяця» — чи перший запис у
         «Портфель → Резерв → Записати».`, "t-warn"));
     }
     return out.join("");
@@ -1487,7 +1511,7 @@ function stateBannerHTML(s, answers, current) {
 }
 
 export function strategyCardHTML(ctx, current) {
-  const answers = readAnswers();
+  const answers = readAnswers(current);
   const answered = QUESTIONS.filter((q) => answers[q.id]).length;
   const s = (ctx && ctx.summary) || {};
 
@@ -1653,7 +1677,7 @@ function moneyHTML(res) {
        ширше». Але доки перевищення є, «Що взяти» опускатиме ці рядки нижче — тобто набір
        почне з зауваження з першого ж дня. Виправляє це або новий папір (чи брокер, чи рік
        погашення), або інший ліміт у
-       <a class="lnk" href="${routeFor("policy/mix/main")}">Політика → Частки й межі</a>.</div>`
+       <a class="lnk" href="${routeFor("policy/strategy/main")}">Політика → Стратегія</a>.</div>`
     : "";
   return grid + hard + dense + denseTail;
 }
@@ -1663,16 +1687,21 @@ export function wireStrategy(ctx, main, current) {
   // може розійтися із записом: перегляд і PUT беруть числа з одного виклику
   // effectiveValues. Застаріти цей знімок не встигає — зміна відповіді
   // перемальовує сторінку через ctx.reload нижче.
-  const answers = readAnswers();
+  const answers = readAnswers(current);
   main.querySelectorAll("[data-answer]").forEach((b) =>
-    b.addEventListener("click", () => {
+    b.addEventListener("click", async () => {
       const [id, v] = b.dataset.answer.split(":");
-      const a = readAnswers();
+      const a = { ...answers };
       // Повторний клік по обраному знімає відповідь: обмеження може
       // виявитись неактуальним, і мовчазної «жодної відповіді» бути не
       // повинно — лише явна.
       if (a[id] === v) delete a[id]; else a[id] = v;
-      writeAnswers(a);
+      try {
+        await writeAnswers(ctx, a);
+      } catch (err) {
+        ctx.toast("Не вдалось зберегти відповідь: " + String(err.message || err), false);
+        return;
+      }
       ctx.reload();
     }));
 
@@ -1726,6 +1755,8 @@ export function wireStrategy(ctx, main, current) {
         // рівно в ту мить, коли палець уже на кнопці. Кнопка при цьому
         // лишається робочою: застосувати можна будь-який набір (див. шапку).
         + warn.map((m) => `<div class="sub-xs t-warn mt-sm">⚠ ${m.what}</div>`).join("")
+        + diff.filter(([k, v]) => !v && OFF_WORD[k] && current[k])
+          .map(([k]) => `<div class="sub-xs t-warn mt-sm">⚠ Набір ${esc(OFF_WORD[k])}.</div>`).join("")
         + `<button class="sm mt-sm" data-apply="${p.key}">Застосувати «${esc(p.name)}»</button>`;
       const money = box.querySelector("[data-money]");
       fetchPolicyPreview(ctx, eff).then((res) => {

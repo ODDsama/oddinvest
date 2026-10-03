@@ -73,42 +73,9 @@ const KINDS = {
   deposit: { kind: "deposit", group: "deposits", title: "Вклади", sumKey: "deposits_uah" },
 };
 
-// Куди веде панель «Умови» — сторінки політики, які цим видом керують.
-//
-// Форма запису та сама, що в ACTIONS (views/tasks.js): { to, label }.
-// Доти тут була пара в масиві, і це був другий спосіб записати ту саму
-// думку — «адреса плюс підпис посилання». Ціна другого способу не
-// стилістична: web-routes-check.mjs шукає адреси саме за полем `to`, і
-// таблиця в іншій формі лишалась би невидимою для перевірки, тобто описка
-// в ній не ловилась би нічим.
-const TERMS = {
-  bond: [
-    { to: "policy/mix/main", label: "Цільова частка й ліміти" },
-    { to: "policy/assumptions/main", label: "Припущення про ставки" },
-  ],
-  fund: [
-    { to: "policy/mix/main", label: "Цільова частка й ліміти" },
-    { to: "settings/refs/main", label: "Каталог фондів" },
-  ],
-  npf: [
-    { to: "policy/instruments/main", label: "Умови реінвесту" },
-    { to: "settings/refs/main", label: "Пенсійні рахунки" },
-  ],
-  deposit: [
-    { to: "policy/instruments/main", label: "Мінімум і ставка вкладу" },
-    { to: "policy/mix/main", label: "Цільова частка" },
-  ],
-  reserve: [
-    { to: "policy/reserve/main", label: "Витрати, запас і стеля поповнення" },
-  ],
-};
-
-function termsHTML(kind) {
-  const links = (TERMS[kind] || []).map(({ to, label }) =>
-    `<a class="lnk" href="${routeFor(to)}">${esc(label)}</a>`).join(" · ");
-  return `<div class="card"><div class="sub">Чим керується те, що радить помічник:
-    ${links}</div></div>`;
-}
+// Панелі «Умови» тут більше немає (ревізія 2026-10-03): вона лише
+// посилалась на сторінки «Політики» й не тримала жодного поля, а в рейці
+// читалась як ще одне місце налаштувань. Довід — у пункті 3 шапки nav.js.
 
 /** Сирий рядок цієї позиції — той самий об'єкт, з якого малюється
  *  таблиця й рахувався майстер-список.
@@ -341,6 +308,7 @@ function panePaneHTML(ctx, spec, d) {
   const rowDetail = spec.kind !== "npf";
   const row = sourceOf(ctx, d, spec.kind, ctx.key);
   switch (ctx.pane) {
+  default:
   case "state":
     // Смуга задач стоїть саме на першій панелі: те, що чекає рішення,
     // мусить трапитись на очі до того, як почнеш читати числа. Вона
@@ -369,8 +337,6 @@ function panePaneHTML(ctx, spec, d) {
         фонд, вклад і НПФ стоять поруч і міряні однією реальною дохідністю.</div></div>`;
   case "record":
     return writeHTML(ctx, spec, d);
-  default:
-    return termsHTML(spec.kind);
   }
 }
 
@@ -462,6 +428,7 @@ export async function reservePane(ctx, main) {
 
 function reservePaneHTML(ctx, ops) {
   switch (ctx.pane) {
+  default:
   case "state":
     return reserveTilesHTML(ctx) || `<div class="card">${empty(
       "Резерву ще немає",
@@ -475,7 +442,5 @@ function reservePaneHTML(ctx, ops) {
       </div></div>`;
   case "record":
     return reserveFormHTML(ctx);
-  default:
-    return termsHTML("reserve");
   }
 }

@@ -235,30 +235,21 @@ export function reinvestHTML(ctx, opts = {}) {
     <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : " hidden"}>${details}${price}${auc}</div>`;
   };
 
-  // Перемикач лінійки — той самий `.seg`, що й вікна валютного шоку.
-  // Типово реальна: тільки вона розсуджує гривню з доларом. Номінальна
-  // відповідає на інше питання — «де більше гривень», — і людина має
-  // право поставити список саме так.
-  //
-  // Лише в гривні: у валюті звітності ≠ гривні номінальної лінійки немає
-  // (15% ОВДП — не 15% у доларах), бекенд віддає одну, і перемикати нема
-  // що; order=nominal він у такому документі й так ігнорує.
+  // Перемикача лінійки на картці більше немає: вона стала налаштуванням
+  // reinvest_order поруч із критерієм (Політика → Реінвест) — доти
+  // перемикач скидався з кожним перезавантаженням, а два контроли одного
+  // порядку жили на різних екранах. Лише в гривні: у валюті звітності ≠
+  // гривні номінальної лінійки немає (15% ОВДП — не 15% у доларах).
   const inBook = currency() === BOOK;
-  const seg = inBook ? `<span class="seg">
-    <button data-sgorder="real" aria-pressed="${order === "real"}"
-      title="Порядок за реальною дохідністю проти долара — після податку й знецінення гривні">реальна</button>
-    <button data-sgorder="nominal" aria-pressed="${order === "nominal"}"
-      title="Порядок за номінальною — валюти при цьому незіставні">номінальна</button>
-  </span>` : "";
   const legend = inBook
-    ? `Головне число — <b>номінальне</b>: те, що в договорі чи в довіднику.
-      Під ним реальне, і саме за ним упорядкований список — тільки воно розсуджує
-      гривню з доларом.`
+    ? `Головне число — <b>номінальне</b>: те, що в договорі чи в довіднику, під ним
+      реальне. Критерій і лінійку порядку (типово — реальна, бо тільки вона розсуджує
+      гривню з доларом) задають у <a class="lnk" href="${routeFor("policy/reinvest/main")}">Політика →
+      Реінвест</a>.`
     : `Головне число — дохідність <b>у валюті звітності</b>: гривневі ставки вже
       після податку й знецінення, валютні — як є; саме за ним упорядкований список.`;
   return `<div class="card"><h2 class="card-head">
-    <span>${esc(title)} ${infoBtn("reinvest")}</span>
-    ${seg}</h2>
+    <span>${esc(title)} ${infoBtn("reinvest")}</span></h2>
     ${rows.map(item).join("")}
     <div class="sub">${legend} Клік по числу показує весь ланцюжок: податок, знецінення,
       інфляція. Каретка розкриває решту рядка. «Купив» записує покупку з уже
@@ -319,14 +310,6 @@ const OPEN_SCOPE = "suggest";
 export function wireReinvest(ctx, main) {
   main.querySelectorAll("[data-bought]").forEach((b) =>
     b.addEventListener("click", () => openBought(ctx, b.dataset.bought)));
-  main.querySelectorAll("[data-sgorder]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      if (b.dataset.sgorder === order) return;
-      order = b.dataset.sgorder;
-      // Перезапит, а не пересортування на місці: порядок вирішує бекенд.
-      await loadReinvest(ctx);
-      ctx.reload();
-    }));
   main.querySelectorAll("[data-sgexp]").forEach((b) =>
     b.addEventListener("click", () => {
       const key = b.dataset.sgexp;
@@ -493,16 +476,12 @@ export function planTileSub(ctx, doc) {
 // Помічник тягнеться раз і живе в модульній змінній: його читають картка
 // «Що взяти» на «Сьогодні» й панель «Що зробити» позиції, і обидві бачать
 // однакове.
-/** Лінійка порядку: за реальною (типово) чи за номінальною.
- *
- *  Живе тут, а не в uistate: це не «що я розкрив», а параметр ЗАПИТУ —
- *  сортує бекенд, бо в порівнювача пʼять тайбрейкерів (замок, ліміт,
- *  транзит, застарілий папір, план), і копія цього ланцюжка в браузері
- *  розійшлася б із серверною мовчки (CLAUDE.md §5). */
-let order = "real";
-
+// Лінійку порядку сортує бекенд за налаштуванням reinvest_order: у
+// порівнювача пʼять тайбрейкерів (замок, ліміт, транзит, застарілий
+// папір, план), і копія цього ланцюжка в браузері розійшлася б із
+// серверною мовчки (CLAUDE.md §5).
 export async function loadReinvest(ctx) {
   try {
-    reinvest = await ctx.api("GET", order === "nominal" ? "reinvest?order=nominal" : "reinvest");
+    reinvest = await ctx.api("GET", "reinvest");
   } catch (_) { reinvest = []; }
 }

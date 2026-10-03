@@ -51,6 +51,15 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	cur, err := s.st.AllSettings(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	if err := settings.ValidateCombined(cur, req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	for k, v := range req {
 		if err := s.st.SetSetting(r.Context(), k, v); err != nil {
 			writeErr(w, http.StatusInternalServerError, err)

@@ -26,9 +26,10 @@ func labels(rows []orderRow) string {
 	return out
 }
 
-// TestReinvestOrderParamReordersResponse — та сама перевірка наскрізь,
-// через ручку: без параметра порядок незмінний, з order=nominal — інший.
-func TestReinvestOrderParamReordersResponse(t *testing.T) {
+// TestReinvestOrderSettingReordersResponse — та сама перевірка наскрізь,
+// через ручку: без налаштування порядок за реальною, з reinvest_order =
+// nominal — за номінальною.
+func TestReinvestOrderSettingReordersResponse(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 	ctx := context.Background()
@@ -42,11 +43,15 @@ func TestReinvestOrderParamReordersResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	get := func(q string) []orderRow {
+	get := func(order string) []orderRow {
 		t.Helper()
-		resp, body := do(t, "GET", srv.URL+"/api/reinvest"+q, "")
+		if resp, body := do(t, "PUT", srv.URL+"/api/settings",
+			`{"reinvest_order":"`+order+`"}`); resp.StatusCode != http.StatusNoContent {
+			t.Fatalf("PUT reinvest_order=%q дав %d: %s", order, resp.StatusCode, body)
+		}
+		resp, body := do(t, "GET", srv.URL+"/api/reinvest", "")
 		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("GET%s дав %d: %s", q, resp.StatusCode, body)
+			t.Fatalf("GET (%s) дав %d: %s", order, resp.StatusCode, body)
 		}
 		var out []orderRow
 		if err := json.Unmarshal([]byte(body), &out); err != nil {
@@ -56,7 +61,7 @@ func TestReinvestOrderParamReordersResponse(t *testing.T) {
 	}
 
 	real := get("")
-	nominal := get("?order=nominal")
+	nominal := get("nominal")
 	if len(real) < 2 || len(nominal) != len(real) {
 		t.Skipf("на цих даних порад менше двох (%d/%d) — порядок нема на чому міряти",
 			len(real), len(nominal))

@@ -127,7 +127,7 @@ function paceHTML(g, sym) {
       темп: стеля наповнення дає на ${fmtUAH(g.short_month_uah)} менше, ніж треба на місяць.
       Це не про твій темп — рядок вище саме про нього; це про те, скільки застосунок
       відріже сам, коли прийдуть гроші. Якщо покладаєшся на нього, підніми частку в
-      <a class="lnk" href="${routeFor("policy/goals/main")}">Політиці → Цілі накопичення</a>
+      <a class="lnk" href="${routeFor("policy/money/main")}">Політиці → Цілі накопичення</a>
       або зсунь дату.</div>` : ""}`;
 }
 
@@ -385,6 +385,7 @@ export async function goalPane(ctx, main) {
 
 function goalPaneHTML(ctx, g, raw, ops) {
   switch (ctx.pane) {
+  default:
   case "state":
     return goalTilesHTML(g);
   case "have":
@@ -393,13 +394,9 @@ function goalPaneHTML(ctx, g, raw, ops) {
     return goalFillHTML(g) || `<div class="card"><div class="sub">
       Відкладати зараз нічого: або ціль зібрана, або стеля наповнення не задана,
       або плану доходу немає — рахувати частку нема від чого. Задати стелю:
-      <a class="lnk" href="${routeFor("policy/goals/main")}">Політика → Цілі накопичення</a>.
+      <a class="lnk" href="${routeFor("policy/money/main")}">Політика → Гроші місяця</a>.
       </div></div>`;
   case "record":
     return goalOpFormHTML(ctx, g, raw);
-  default:
-    return `<div class="card"><div class="sub">Чим керується наповнення цілей:
-      <a class="lnk" href="${routeFor("policy/goals/main")}">стеля й джерело</a>.
-      Сама ціль — сума, дата й порядок — правиться в «Записати».</div></div>`;
   }
 }

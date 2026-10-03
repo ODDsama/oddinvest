@@ -35,7 +35,7 @@ import {
   income12mChartHTML, capitalChartHTML, projectionHTML, incomeHTML, drawdownHTML,
   renderCalendar, calendarPlaceholderHTML,
 } from "./future.js";
-import { goalsHTML, sensitivityHTML } from "./forecast.js";
+import { goalsHTML } from "./forecast.js";
 import { planVerdictHTML, profileHTML, planVsFactHTML } from "./plan-cards.js";
 import {
   planFlowsListHTML, planFlowFormHTML, revisionsHTML, wirePlanFlows,
@@ -127,14 +127,8 @@ export async function route(ctx, main) {
   await renderRoute(ctx, main);
 }
 
-/** Що зрушить ціль: чутливість до припущень. */
-export async function levers(ctx, main) {
-  const timeline = await ctx.soft("plan", null);
-  main.innerHTML = `
-    ${planVerdictHTML(ctx, timeline)}
-    ${sensitivityHTML(ctx)}`;
-  wireDisclosures(main);
-}
+// «Важелі» (чутливість) переїхали в «Політика → Припущення й важелі»:
+// вони крутять припущення, і читати їх треба поруч із ними.
 
 /** Календар виплат за датами.
  *

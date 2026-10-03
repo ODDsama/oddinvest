@@ -70,3 +70,28 @@ func TestSettingsRegistryMatchesDoc(t *testing.T) {
 		}
 	}
 }
+
+// Сума часток перевіряється над злиттям чинного з накладкою: форма валют
+// не несе видових часток, і навпаки.
+func TestValidateCombinedShares(t *testing.T) {
+	cur := map[string]string{"usd_target_share_pct": "60", "target_bonds_pct": "70"}
+	cases := []struct {
+		name  string
+		patch map[string]string
+		ok    bool
+	}{
+		{"валюта в межах", map[string]string{"eur_target_share_pct": "40"}, true},
+		{"валюта понад сотню з чинним", map[string]string{"eur_target_share_pct": "41"}, false},
+		{"заміна чинного знімає перевищення", map[string]string{"usd_target_share_pct": "10", "eur_target_share_pct": "90"}, true},
+		{"види понад сотню", map[string]string{"target_funds_pct": "20", "target_npf_pct": "11"}, false},
+		{"порожнє прибирає", map[string]string{"target_bonds_pct": "", "target_funds_pct": "100"}, true},
+		{"округлення трьох третин", map[string]string{"target_bonds_pct": "33.34", "target_funds_pct": "33.33", "target_deposits_pct": "33.33"}, true},
+		{"валюта й вид не складаються", map[string]string{"eur_target_share_pct": "40", "target_funds_pct": "30"}, true},
+	}
+	for _, c := range cases {
+		err := ValidateCombined(cur, c.patch)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err=%v, чекали ok=%v", c.name, err, c.ok)
+		}
+	}
+}

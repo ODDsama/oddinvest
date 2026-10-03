@@ -1,4 +1,11 @@
-// Розділ «Політика» — чого я хочу. П'ять сторінок.
+// Розділ «Політика» — чого я хочу. Чотири сторінки: Стратегія, Гроші
+// місяця, Реінвест, Припущення й важелі.
+//
+// Доти їх було сім, і межі йшли по механізму, а не по питанню: частки
+// стояли окремо від стратегії, яка їх і ставить, а резерв, цілі й борг —
+// на трьох сторінках, хоч ріжуть ті самі гроші місяця однією чергою
+// (ревізія 2026-10-03). Форми лишились тими самими — склеєні лише
+// сторінки, тож жоден ключ не змінив ні назви, ні місця запису.
 //
 // Виділений із «Налаштувань», і причина була записана там-таки давно: «у
 // політику заходять регулярно, у довідники — раз на кілька місяців».
@@ -18,13 +25,15 @@
 // частковий — відсутнє поле не шлеться порожнім і не затирає значення.
 // Тобто дві форми замість однієї не потребують жодної нової машинерії.
 
-import { esc, pct } from "../format.js";
+import { esc, pct, uah2 as fmtUAH } from "../format.js";
 import { money as moneyField, pct as pctField, date as dateField, selectOf, formHTML } from "../fields.js";
 import { tile } from "../components.js";
 import { onSubmit } from "../forms.js";
 import { infoBtn } from "../info.js";
 import { opsGrid } from "../grid.js";
 import { strategyCardHTML, wireStrategy, RANKS, RESERVE_FROM } from "./strategy.js";
+import { sensitivityHTML } from "./forecast.js";
+import { wireDisclosures } from "../disclosure.js";
 import { CURRENCIES } from "../constants.js";
 
 // Валюта витрат — звичайний вибір із довідника значень домену, а не
@@ -82,10 +91,19 @@ const SPEC = {
     { key: "deposit_rate_eur_pct", label: "Ставка нового вкладу EUR, %", type: "pct", ph: "порожньо = без поради" },
     { key: "deposit_rate_uah_pct", label: "Ставка нового вкладу UAH, %", type: "pct", ph: "порожньо = без поради" },
   ],
+  // Критерій і лінійка — ОДНА форма: обидва про порядок у «Що взяти».
+  // Лінійка доти жила перемикачем на самій картці й скидалась із кожним
+  // перезавантаженням.
   rank: [
     { key: "reinvest_rank", label: "Критерій", type: "select", opts: RANKS },
+    { key: "reinvest_order", label: "Лінійка дохідності", type: "select",
+      opts: [["real", "реальна — після податку й знецінення"], ["nominal", "номінальна — як у договорі"]] },
   ],
-  kindTargets: [
+  // Валюта й вид — в ОДНІЙ формі, бо разом і складають «скільки чого»;
+  // знаменники в них різні, і це сказано під формою (sharesCard).
+  shares: [
+    { key: "usd_target_share_pct", label: "Цільова частка USD, %", type: "pct" },
+    { key: "eur_target_share_pct", label: "Цільова частка EUR, %", type: "pct" },
     { key: "target_bonds_pct", label: "Цільова частка ОВДП, %", type: "pct", ph: "порожньо = без цілі" },
     { key: "target_funds_pct", label: "Цільова частка фондів, %", type: "pct", ph: "порожньо = без цілі" },
     { key: "target_deposits_pct", label: "Цільова частка вкладів, %", type: "pct", ph: "порожньо = без цілі" },
@@ -108,7 +126,7 @@ const SPEC = {
     { key: "monthly_expenses", label: "Місячні витрати", ph: "порожньо = не рахувати" },
     { key: "monthly_expenses_currency", label: "У валюті", type: "select", opts: CURRENCY_OPTS },
     { key: "reserve_target_months", label: "Запас, місяців витрат", type: "pct", ph: "напр. 6" },
-    { key: "reserve_fill_share_pct", label: "З вільних грошей у резерв, %", type: "pct", ph: "порожньо = не пропонувати" },
+    { key: "reserve_fill_share_pct", label: "З планового доходу в резерв, %", type: "pct", ph: "порожньо = не пропонувати" },
     // Друга половина тієї самої стелі: скільки — вище, з ЧОГО — тут.
     { key: "reserve_fill_from", label: "Подушку наповнювати", type: "select", opts: RESERVE_FROM },
     // Голова й стеля строку. Обидва про ДОСТУП, а не про розмір: подушку
@@ -142,16 +160,17 @@ const SPEC = {
       opts: [["keep", "наповнювати як завжди"], ["pause", "поставити на паузу"]] },
   ],
   forecast: [
-    { key: "income_target_uah", label: "Достатній дохід, ₴/міс", ph: "порожньо = місячні витрати" },
-    { key: "withdraw_monthly_uah", label: "Знімати щомісяця, ₴", ph: "порожньо = місячні витрати" },
     { key: "rate_spread_pp", label: "Розкид ставки, п.п.", type: "pct", ph: "порожньо = 3" },
     { key: "deval_spread_pp", label: "Розкид знецінення, п.п.", type: "pct", ph: "порожньо = 4" },
   ],
+  // Мета — разом із тим, що з неї жити: «достатній дохід» і «знімати
+  // щомісяця» — це та сама мета, сказана місячними грішми, а не
+  // припущення прогнозу, де вони стояли доти.
   goal: [
     { key: "goal_amount_uah", label: "Мета капіталу, ₴", ph: "скільки хочу накопичити" },
     { key: "goal_date", label: "Дедлайн — коли", type: "date" },
-    { key: "usd_target_share_pct", label: "Цільова частка USD, %", type: "pct" },
-    { key: "eur_target_share_pct", label: "Цільова частка EUR, %", type: "pct" },
+    { key: "income_target_uah", label: "Достатній дохід, ₴/міс", ph: "порожньо = місячні витрати" },
+    { key: "withdraw_monthly_uah", label: "Знімати щомісяця, ₴", ph: "порожньо = місячні витрати" },
   ],
   rateAssumptions: [
     { key: "uah_devaluation_pct", label: "Гривня слабшає, %/рік", type: "pct", ph: "порожньо = виміряне" },
@@ -180,14 +199,26 @@ function rankCard(s) {
   return `<div class="card">
   <h2 class="h-row">Порядок у «Що взяти» ${infoBtn("setRank")}</h2>
   ${settingsForm("rankForm", s, SPEC.rank)}
+  <div class="sub-xs muted">Лінійка міняє лише порядок на екрані. Черга задач, журнал рішень і
+    прогноз міряють себе реальною завжди: номінальні ставки гривні й долара незіставні. У валюті
+    звітності, відмінній від гривні, номінальної лінійки немає зовсім.</div>
 </div>
 `;
 }
 
-function kindTargetsCard(s) {
+// Підпис про знаменники — обов'язковий: валютна частка міряється від
+// УСЬОГО капіталу (разом із резервом і цілями), видова — без них
+// (engine/state_rebalance.go). Без цього рядка «USD 40 % + ОВДП 60 %»
+// читалось би як одна сотня, поділена двічі.
+function sharesCard(s) {
   return `<div class="card">
-  <h2 class="h-row">Структура за видом інструмента ${infoBtn("setKinds")}</h2>
-  ${settingsForm("kindTargetsForm", s, SPEC.kindTargets)}
+  <h2 class="h-row">Частки: валюта й вид ${infoBtn("setKinds")}</h2>
+  ${settingsForm("sharesForm", s, SPEC.shares)}
+  <div class="sub-xs muted">Валюта міряється від УСЬОГО капіталу — разом із резервом і цілями.
+    Вид — від портфеля БЕЗ резерву й цілей: у подушки своя ціль у місяцях витрат, у цілі —
+    названа сума, і з паперами вони не конкурують. Тому дві групи не складаються в одну сотню.
+    Сума валютних не може перевищувати 100 %, і так само сума видових — сервер такої форми не
+    прийме.</div>
 </div>
 `;
 }
@@ -221,8 +252,8 @@ function reserveSettingsCard(s) {
     сам за СЬОГОДНІШНІМ курсом, і разом із ним їде ціль подушки — вписана руками гривня стояла б
     на місці й тихо занижувалась, доки курс іде вгору.</div>
   <div class="sub-xs muted">Четверте поле — це СТЕЛЯ, а не черга: доки запасу бракує, у «Що взяти»
-    з'явиться рядок «спершу поповнити резерв» на вказану частку вільних грошей, а решта далі йде
-    в папери. Порожньо = застосунок про резерв не заговорить. Резерв від цього не стає
+    з'явиться рядок «спершу поповнити резерв» на вказану частку планового доходу місяця, а решта
+    далі йде в папери. Порожньо = застосунок про резерв не заговорить. Резерв від цього не стає
     купівельною спроможністю: гроші йдуть у нього, а не з нього.</div>
   <div class="sub-xs muted">П'яте — з ЯКИХ грошей та стеля ріже. Сама вона й доти міряла себе
     ПЛАНОВИМ доходом місяця, а забирала своє з будь-чого, що приходило, — тобто купон ішов у
@@ -289,13 +320,6 @@ function debtSettingsCard(s) {
     свідомо.</div>
 </div>
 `;
-}
-
-/** Борг: стелі, черга й пауза цілей. */
-export async function debt(ctx, main) {
-  const s = await ctx.api("GET", "settings");
-  main.innerHTML = debtSettingsCard(s);
-  onSubmit(ctx, main.querySelector("#debtSettingsForm"), settingsPut(SPEC.debt));
 }
 
 function forecastCard(s) {
@@ -397,12 +421,12 @@ function devalHTML(d) {
   </div>`;
 }
 
-// Ціль і валютні частки — половина колишнього #setForm. Друга половина
-// (знецінення, довгострокова ставка, сповзання) поїхала в «Припущення»:
-// вона там і живе за змістом.
+// Мета — половина колишнього #setForm. Друга половина (знецінення,
+// довгострокова ставка, сповзання) поїхала в «Припущення»: вона там і
+// живе за змістом. Валютні частки — у «Частках», поруч із видовими.
 function goalCard(s) {
   return `<div class="card">
-    <h2 class="h-row">Мета капіталу й валюта ${infoBtn("forecast")}</h2>
+    <h2 class="h-row">Мета капіталу ${infoBtn("forecast")}</h2>
     ${settingsForm("goalForm", s, SPEC.goal)}
   </div>`;
 }
@@ -418,62 +442,91 @@ function rateAssumptionsCard(s) {
   </div>`;
 }
 
-/** Стратегія й мета капіталу: пресети, ціль із дедлайном, цільові валютні частки. */
+/** Стратегія: набір, мета капіталу, частки й межі — усе, що каже, яким
+ *  має бути портфель. */
 export async function strategy(ctx, main) {
   const s = await ctx.api("GET", "settings");
-  main.innerHTML = `${strategyCardHTML(ctx, s)}${goalCard(s)}`;
+  main.innerHTML = `${strategyCardHTML(ctx, s)}${goalCard(s)}${sharesCard(s)}${limitsCard(s)}`;
   wireStrategy(ctx, main, s);
   onSubmit(ctx, main.querySelector("#goalForm"), settingsPut(SPEC.goal));
-}
-
-/** Частки й межі: скільки чого має бути і скільки чого забагато. */
-export async function mix(ctx, main) {
-  const s = await ctx.api("GET", "settings");
-  main.innerHTML = `${kindTargetsCard(s)}${limitsCard(s)}`;
-  onSubmit(ctx, main.querySelector("#kindTargetsForm"), settingsPut(SPEC.kindTargets));
+  onSubmit(ctx, main.querySelector("#sharesForm"), settingsPut(SPEC.shares));
   onSubmit(ctx, main.querySelector("#limitsForm"), settingsPut(SPEC.limits));
 }
 
-/** Інструменти реінвесту: за яких умов помічник узагалі радить вклад,
- *  у якому порядку сортувати поради й чи рахувати податкову знижку НПФ. */
-export async function instruments(ctx, main) {
+/** З чого складається ціль резерву — числами з документа стану.
+ *
+ *  Доти ціль стояла одним числом на картці резерву, а поля, які її
+ *  рухають (витрати, місяці, стеля на час боргу, відсоток позик у себе),
+ *  — на трьох сторінках політики. Тепер вони на одній, і над ними —
+ *  розклад: що дає яке поле.
+ *
+ *  Жодної арифметики тут немає (CLAUDE.md §5): кожне число — окреме поле
+ *  reserve з бекенда (state/derive.go, ReserveTarget). Без зведення
+ *  (сторінка «Політики» його не чекає) картка просто не малюється. */
+function reserveTargetHTML(ctx) {
+  const r = (ctx.summary || {}).reserve;
+  if (!r || !(r.target_uah > 0)) return "";
+  const line = (t) => `<div class="sub">${t}</div>`;
+  const rows = [
+    line(`Витрати ${fmtUAH(r.monthly_expenses_uah)}/міс × ${esc(String(r.target_months))} міс.`),
+    r.debt_capped
+      ? line(`Стеля на час боргу обрізає ціль — без боргу було б ${fmtUAH(r.full_target_uah)}.`)
+      : "",
+    r.owed_interest_uah > 0
+      ? line(`+ ${fmtUAH(r.owed_interest_uah)} відсотка за позиками в себе (без них ${
+        fmtUAH(r.base_target_uah)}).`)
+      : "",
+    r.debt_cover_uah > 0
+      ? line(`Рубіж покриття боргу — ${fmtUAH(r.debt_cover_uah)}${
+        r.debt_cover_gap_uah > 0 ? `, бракує ${fmtUAH(r.debt_cover_gap_uah)}` : ", перекрито"}.`)
+      : "",
+  ].join("");
+  return `<div class="card">
+    <h2 class="h-row">Ціль резерву — ${fmtUAH(r.target_uah)} ${infoBtn("reserve")}</h2>
+    ${rows}
+    <div class="sub-xs muted mt-sm">Зараз у резерві ${fmtUAH(r.uah)}${
+  r.gap_uah > 0 ? `, до цілі бракує ${fmtUAH(r.gap_uah)}` : " — ціль зібрана"}.
+      Кожне число вище рухається полями нижче.</div>
+  </div>`;
+}
+
+/** Гроші місяця: резерв, цілі й борг однією сторінкою — у тому порядку,
+ *  у якому вони ріжуть гроші місяця. Резерв забирає своє першим, цілі —
+ *  з того, що лишилось; борг стоїть останнім не за вагою, а тому, що
+ *  його ручки — стеля подушки й пауза цілей — змінюють дві картки вище. */
+export async function money(ctx, main) {
   const s = await ctx.api("GET", "settings");
-  main.innerHTML = `${depositCard(s)}${rankCard(s)}${npfCreditCard(s)}`;
+  main.innerHTML = `<div class="card"><div class="sub">Черга грошей місяця:
+      обов'язкові платежі → резерв → цілі накопичення → папери. Кожна стеля нижче
+      ріже лише з того, що лишилось після попередньої.</div></div>
+    ${reserveTargetHTML(ctx)}${reserveSettingsCard(s)}${goalsSettingsCard(s)}${debtSettingsCard(s)}`;
+  onSubmit(ctx, main.querySelector("#reserveSettingsForm"), settingsPut(SPEC.reserve));
+  onSubmit(ctx, main.querySelector("#goalsSettingsForm"), settingsPut(SPEC.goals));
+  onSubmit(ctx, main.querySelector("#debtSettingsForm"), settingsPut(SPEC.debt));
+}
+
+/** Реінвест: у якому порядку помічник ставить поради, за яких умов радить
+ *  вклад і чи рахує податкову знижку НПФ. */
+export async function reinvest(ctx, main) {
+  const s = await ctx.api("GET", "settings");
+  main.innerHTML = `${rankCard(s)}${depositCard(s)}${npfCreditCard(s)}`;
   onSubmit(ctx, main.querySelector("#depositSettingsForm"), settingsPut(SPEC.deposit));
   onSubmit(ctx, main.querySelector("#rankForm"), settingsPut(SPEC.rank));
   onSubmit(ctx, main.querySelector("#npfCreditForm"), settingsPut(SPEC.npfCredit));
 }
 
-/** Резерв: скільки я витрачаю за місяць, на скільки місяців хочу запас і
- *  яку частку вільних грошей туди спрямовувати, доки його бракує. Три
- *  числа, але власна сторінка: від них залежить і смужка резерву в
- *  «Активах», і «на скільки вистачить» у прогнозі, і рядок «спершу
- *  поповнити резерв» у «Що купити». */
-export async function reserve(ctx, main) {
-  const s = await ctx.api("GET", "settings");
-  main.innerHTML = reserveSettingsCard(s);
-  onSubmit(ctx, main.querySelector("#reserveSettingsForm"), settingsPut(SPEC.reserve));
-}
-
-/** Цілі накопичення: скільки з місяця йде на речі, на які збираєш.
- *
- *  Окремою сторінкою від «Резерву», хоч механізм дзеркальний: питання
- *  різні — «чи вистачить прожити» проти «чи встигну до дати», — і склеєні
- *  вони читались би як два налаштування однієї речі. */
-export async function goals(ctx, main) {
-  const s = await ctx.api("GET", "settings");
-  main.innerHTML = goalsSettingsCard(s);
-  onSubmit(ctx, main.querySelector("#goalsSettingsForm"), settingsPut(SPEC.goals));
-}
-
-/** Припущення: те, що застосунок вважає ймовірним, а не заданим. */
+/** Припущення й важелі: те, що застосунок вважає ймовірним, і що буде з
+ *  метою, якщо кожне з цих чисел зрушити. Важелі переїхали сюди з
+ *  «Плану»: вони крутять саме ці припущення, і читати їх треба поруч. */
 export async function assumptions(ctx, main) {
   const [s, deval, infl] = await Promise.all([
     ctx.api("GET", "settings"),
     ctx.soft("devaluation", null),
     ctx.soft("inflation", null),
   ]);
-  main.innerHTML = `${rateAssumptionsCard(s)}${forecastCard(s)}${devalHTML(deval)}${inflHTML(infl)}`;
+  main.innerHTML = `${rateAssumptionsCard(s)}${forecastCard(s)}${sensitivityHTML(ctx)}${
+    devalHTML(deval)}${inflHTML(infl)}`;
   onSubmit(ctx, main.querySelector("#rateAssumptionsForm"), settingsPut(SPEC.rateAssumptions));
   onSubmit(ctx, main.querySelector("#forecastAssumptionsForm"), settingsPut(SPEC.forecast));
+  wireDisclosures(main);
 }
