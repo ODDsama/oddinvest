@@ -148,7 +148,7 @@ export function portfolioRows(ctx, d) {
     out.push(row(
       "reserve", "Резерв",
       res && res.months
-        ? `${KIND_ONE.reserve} · ${res.months.toFixed(1)} місяця витрат`
+        ? `${KIND_ONE.reserve} · ${res.months.toFixed(1).replace(".", ",")} міс. витрат`
         : KIND_ONE.reserve,
       uah0(s.reserve_uah || 0),
       // Дохідності в резерву немає ЗА ПРИРОДОЮ — не «поки що немає».

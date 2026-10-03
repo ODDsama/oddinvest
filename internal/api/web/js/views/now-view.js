@@ -512,7 +512,8 @@ export function planTileSub(ctx, doc) {
   const ev = doc && nearestPlanEvent(doc, today());
   return ev
     ? `<div class="sub">${monthYearGen(ev.date)} — ${esc(ev.label)}</div>`
-    : `<div class="sub">задай ціль у «Налаштуваннях», щоб побачити, чи цього досить</div>`;
+    : `<div class="sub">задай <a class="lnk" href="${routeFor("policy/strategy/main")}">мету
+      капіталу</a>, щоб побачити, чи цього досить</div>`;
 }
 
 // Помічник тягнеться ДВІЧІ — і «Що робити», і «Що купити» його читають.

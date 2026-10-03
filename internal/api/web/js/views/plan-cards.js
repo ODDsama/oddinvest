@@ -17,6 +17,7 @@ import { empty, legend } from "../components.js";
 import { disclosure } from "../disclosure.js";
 import { opsGrid } from "../grid.js";
 import { sym } from "../currency.js";
+import { routeFor } from "../routes.js";
 import { CONTRIB, contribTriad } from "../contrib.js";
 import {
   fluid, svgInflowProfile, svgGrouped, wireChartTips, CAT_COLORS, EVENT_COLORS,
@@ -87,7 +88,9 @@ export function planVerdictHTML(ctx, doc = null) {
     return `<div class="card"><h2 class="card-head"><span>План ${infoBtn("planFlows")}</span></h2>
       <div class="tiles flush">${tile(CONTRIB.plan.label, t.plan, "", true)}${
   t.hasActual ? tile(CONTRIB.actual.label, t.actual) : ""}</div>
-      <div class="sub-xs mt-sm">Задай ціль і дедлайн у «Налаштуваннях», щоб побачити, чи цього досить.</div>
+      <div class="sub-xs mt-sm">Задай мету капіталу й дедлайн у
+        <a class="lnk" href="${routeFor("policy/strategy/main")}">Політика → Стратегія</a>,
+        щоб побачити, чи цього досить.</div>
       ${month}</div>`;
   }
 

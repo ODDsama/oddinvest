@@ -373,7 +373,7 @@ export function kindMixCard(ctx) {
   const rows = (s.rebalance || []).filter((r) => r.dimension === "kind");
   if (!rows.length) {
     return needsSetting(`Структура за видом інструмента ${infoBtn("kindmix")}`,
-      "Цілі за видом (ОВДП / фонди / НПФ / вклади / резерв) не задані. "
+      "Цільові частки за видом (ОВДП / фонди / НПФ / вклади) не задані. "
       + "Задай їх у «Частках і межах» — і «Що взяти» почне зважати ще й на них, "
       + "а не лише на валютну частку.",
     routeFor("policy/mix/main"));

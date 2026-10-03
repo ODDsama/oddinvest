@@ -42,7 +42,7 @@ const SOURCES = [
 // порада про нього це ПОПОВНЕННЯ наявного, а рядок плану купівель описує
 // НОВИЙ вклад і вимагає строку, якого в пораді немає (див. allocLine в
 // engine/allocate.go).
-const WHERE = { deposit: "instr/deposits" };
+const WHERE = { deposit: "portfolio/@first:deposit/have" };
 
 // Звідки взялась ціна кроку — під самим числом, а не в підказці.
 //
@@ -98,7 +98,7 @@ function linesHTML(res) {
         key: "where", label: "",
         cell: (l) => (l.addable
           ? `<span class="muted fine-xs">у план</span>`
-          : `<a class="lnk fine-xs" href="${routeFor(WHERE[l.kind] || "now/buys")}"
+          : `<a class="lnk fine-xs" href="${routeFor(WHERE[l.kind] || "work/buys/main")}"
               >зробити вручну</a>`),
       },
     ],

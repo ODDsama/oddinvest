@@ -24,6 +24,7 @@ import {
   money as moneyField, date as dateField, note as noteField, textarea, formHTML,
 } from "./fields.js";
 import { refSelect, refValue, wireRefs } from "./refs.js";
+import { routeFor } from "./routes.js";
 import { wireCrud } from "./crud.js";
 import { opsGrid, actionsCol } from "./grid.js";
 import { dateCurve } from "./charts.js";
@@ -138,7 +139,8 @@ function creditHTML(ctx, row) {
   if (!pdfo) {
     return `<div class="sub muted">Податкова знижка не рахується: не введено утриманий за рік
       ПДФО. Він і є перемикачем — і водночас стелею, бо держава повертає сплачене, а не дарує.
-      Поле в «Налаштуваннях». Якщо офіційної зарплати немає (наприклад, дохід ФОПа), знижка
+      Поле в <a class="lnk" href="${routeFor("policy/instruments/main")}">Політика → Умови
+      реінвесту</a>. Якщо офіційної зарплати немає (наприклад, дохід ФОПа), знижка
       не працює взагалі — і тоді нуль тут правильна відповідь, а не незаповнена форма.</div>`;
   }
   const cap = set.npf_credit_cap_month_uah || 0;

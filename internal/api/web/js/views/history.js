@@ -7,6 +7,7 @@ import { seriesChart, wireChartTips, fluid, seriesLegend } from "../charts.js";
 import { disclosure } from "../disclosure.js";
 import { opsGrid } from "../grid.js";
 import { pref, wirePrefs } from "../uistate.js";
+import { routeFor } from "../routes.js";
 
 
 // Знімки для кривої «Як росте»: тягнуться раз, читаються графіком і
@@ -295,7 +296,8 @@ function planCardHTML(ctx, allSnaps) {
   const legend = seriesLegend(series);
 
   const last = fact[fact.length - 1], target = plan[plan.length - 1];
-  const verdict = !anyTarget ? `Ціль не задана — пунктира немає. Задається в «Налаштуваннях».`
+  const verdict = !anyTarget ? `Мета капіталу не задана — пунктира немає. Задається в
+      <a class="lnk" href="${routeFor("policy/strategy/main")}">Політика → Стратегія</a>.`
     : last == null ? `Внесене за період порахувати нема з чого.`
     : last >= target
       ? `Випереджаєш план на <b>${fmtUAH(last - target)}</b>.`

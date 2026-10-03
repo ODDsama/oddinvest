@@ -68,6 +68,23 @@ ui:
 	node css-tokens-check.mjs
 	node web-routes-check.mjs
 	@$(MAKE) --no-print-directory ui-kit-boundary
+	@$(MAKE) --no-print-directory date-defaults
+
+# Дата, що означає «поки не сталось» (закрито, куплено, до коли, повернути
+# до), мусить назвати своє значення ЯВНО — і для нового рядка теж.
+#
+# fields.js date() типово ставить сьогодні, бо майже кожну операцію
+# записують того ж дня. Для цих полів те саме типове значення — пастка:
+# борг і ціль, заведені з порожнім рядком `row ? {...} : {}`, народжувались
+# закритими в мить створення, і помітити це можна було лише по тому, що
+# запис зник з усіх чисел. Перевіряється рядок виклику й наступний, бо
+# довгі виклики переносяться.
+.PHONY: date-defaults
+date-defaults:
+	@awk '/dateField\("(closed_date|done_date|exit_by|until_date|due_date|loan_due|paid_date)"/ \
+		{ l = $$0; getline n; if ((l n) !~ /value/) { print FILENAME ": " l; bad = 1 } } \
+		END { if (bad) { print "дата «поки не сталось» без явного value: типове «сьогодні» закриє запис"; exit 1 } }' \
+		internal/api/web/js/*.js internal/api/web/js/views/*.js
 
 # Розмітку полів, форм і таблиць пише КИТ, а не розділ.
 #

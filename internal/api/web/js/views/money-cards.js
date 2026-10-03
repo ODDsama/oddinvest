@@ -361,7 +361,9 @@ function reserveLoanFields(ctx, row) {
     pctField("loan_rate_pct", "Ставка позики, % річних", {
       ph: rate != null ? String(rate) : "12",
     }),
-    dateField("loan_due", "Повернути до"),
+    // Порожньо, а не «сьогодні»: позика, яку треба повернути в день
+    // зняття, — не позика, а помилка в типовому значенні.
+    dateField("loan_due", "Повернути до", { value: "" }),
   ];
 }
 

@@ -143,9 +143,12 @@ export const ANCHORS = {
 // Куди веде кожне іменоване посилання на форму. Імена лишились старі —
 // їх пишуть в'юшки (routeFor("buy")), і перейменування зачепило б п'ять
 // місць заради нуля користі.
+// Поповнення вкладу — у «Що маю» самого вкладу: саме там живе форма
+// поповнення, а «Записати нове» (куди ця назва вела доти) сама каже, що
+// поповнюють у рядку вкладу.
 const FORM_ROUTE = {
   buy: "portfolio/all/record",
-  topup: "portfolio/all/record",
+  topup: "portfolio/@first:deposit/have",
   deposit: "money/all/balances/cash",
   convert: "money/all/balances/convert",
   planflow: "plan/inflow/main/planflow",

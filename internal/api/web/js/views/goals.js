@@ -272,15 +272,17 @@ export const goalFields = (ctx, row = null) => [
     ph: "20000.00", required: true, value: row ? row.amount.amount : "",
   }),
   refSelect(ctx, { name: "currency", ref: "currency", value: row ? row.amount.currency : "UAH" }),
-  dateField("due_date", "До коли", row ? { value: row.due_date || "" } : {}),
+  dateField("due_date", "До коли", { value: row ? row.due_date || "" : "" }),
   numField("priority", "Порядок наповнення", {
     ph: "0 — першою", value: row ? String(row.priority || 0) : "",
   }),
   textField("place", "Місце", {
     ph: "готівка / сейф / картка", value: row ? row.place || "" : "",
   }),
+  // Порожньо й для НОВОЇ цілі — інакше типове «сьогодні» закривало б її
+  // в мить створення.
   dateField("done_date", "Куплено (закрити ціль)",
-    row ? { value: row.done_date || "" } : {}),
+    { value: row ? row.done_date || "" : "" }),
   noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
 ];
 
@@ -299,7 +301,8 @@ export const goalBody = (f) => ({
 export function goalOpFormHTML(ctx, g, raw) {
   return `<div class="card"><h2 class="h-row">Рух цілі «${esc(g.name)}» ${infoBtn("goals")}</h2>
     ${formHTML({ id: "goalOpForm", fields: goalOpFields(ctx), submit: "Записати", cls: "mb" })}
-    <div class="note">Переклав із рахунку? Запиши ще й зняття в «Гроші → Рухи» —
+    <div class="note">Переклав із рахунку? Запиши ще й зняття в
+      <a class="lnk" href="${routeFor("deposit")}">Гроші → Баланси й валюта</a> —
       інакше відкладене виглядатиме як втрата капіталу.</div>
     <h2 class="h-row mt-lg">Сама ціль</h2>
     ${formHTML({ id: "goalEditForm", fields: goalFields(ctx, rawOf(raw, g.id)), submit: "Зберегти" })}

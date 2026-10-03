@@ -46,7 +46,7 @@ let pick = "";
 // engine/allocate.go). Той самий перелік, що в allocate.js, і поки в
 // ньому один ключ, спільного місця він не вартий: винести його — означало
 // б завести абстракцію з одним значенням.
-const WHERE = { deposit: "instr/deposits" };
+const WHERE = { deposit: "portfolio/@first:deposit/have" };
 
 // Три числа шапки, і всі три обовʼязкові.
 //
@@ -137,7 +137,7 @@ function linesHTML(t) {
             + (l.kind === "bond"
               ? ` <button type="button" class="sm quiet" data-topuppick="1"
                   >Інший папір</button>` : "")
-          : `<a class="lnk fine-xs" href="${routeFor(WHERE[l.kind] || "now/buys")}"
+          : `<a class="lnk fine-xs" href="${routeFor(WHERE[l.kind] || "work/buys/main")}"
               >зробити вручну</a>`),
       },
     ],

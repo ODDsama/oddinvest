@@ -196,14 +196,26 @@ export function projectionHTML(ctx) {
 // Межі підібрані так, щоб види не накладались: «Попереду» починається
 // сьогодні, «Архів» закінчується вчора. Кожен бере рівно ту межу, якої
 // потребує, — саме заради архіву в /api/calendar і зʼявився `to`.
+//
+// ОДИН ВИНЯТОК З НЕПЕРЕСІЧНОСТІ: минула виплата БЕЗ ВІДМІТКИ показується
+// і в «Попереду», нагорі. Задача «N виплат без відмітки» веде саме сюди,
+// а «Попереду» доти починалось сьогоднішнім днем — тобто ховало рівно ті
+// рядки, по які людину привели, і щоб їх знайти, треба було знати, що
+// вони в архіві. Вікно те саме, що в задачі (taskPastDays у
+// engine/state_tasks.go, 90 днів): старша прогалина — не задача, а
+// архів.
 const CAL_KEY = "oddinvest.calRange";
+const UNCONFIRMED_DAYS = 90;
 const calRange = () => pref(CAL_KEY, ["ahead", "past"], "ahead");
+const dayShift = (iso, days) => {
+  const d = new Date(iso);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+};
 const calQuery = (mode) => {
   const now = today();
-  if (mode !== "past") return "from=" + now;
-  const d = new Date(now);
-  d.setDate(d.getDate() - 1);
-  return "from=1970-01-01&to=" + d.toISOString().slice(0, 10);
+  if (mode !== "past") return "from=" + dayShift(now, -UNCONFIRMED_DAYS);
+  return "from=1970-01-01&to=" + dayShift(now, -1);
 };
 
 
@@ -238,8 +250,11 @@ export async function renderCalendar(ctx, main, { append = false } = {}) {
   const now = today();
   // Архів читається від найновішого: у минулому цікавить те, що щойно
   // сталось, а не перша виплата за всю історію.
-  const rows = cal.slice().sort((a, b) => (mode === "past"
-    ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
+  // У «Попереду» з минулого лишаються тільки непідтверджені (довід — при
+  // CAL_KEY); за датою вони й так стають першими.
+  const rows = cal.filter((c) => mode === "past" || c.date >= now || !c.status)
+    .sort((a, b) => (mode === "past"
+      ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
   // aria-pressed, а не клас .quiet на НЕактивній: доти активний стан
   // читався із заперечення — і в розмітці, і читачем екрана, який про
   // нього не дізнавався взагалі.
@@ -434,8 +449,10 @@ function independenceHTML(ctx) {
   // адреса налаштування — тільки рядком, а не окремою плиткою.
   if (!ind || !ind.target_uah) {
     return `<div class="rule-top">
-      <div class="sub-xs">Щоб побачити, коли дохід покриє життя, задай «цільовий дохід»
-        або «місячні витрати» в «Налаштуваннях».</div></div>`;
+      <div class="sub-xs">Щоб побачити, коли дохід покриє життя, задай
+        <a class="lnk" href="${routeFor("policy/assumptions/main")}">цільовий дохід</a> або
+        <a class="lnk" href="${routeFor("policy/reserve/main")}">місячні витрати</a>
+        у «Політиці».</div></div>`;
   }
   const inc = (v) => uah0(v);
   // Нуль означає «не досягається за 60 років», −1 — «уже». Різниця між
