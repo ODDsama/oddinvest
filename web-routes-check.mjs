@@ -130,7 +130,6 @@ for (const l of links) {
 
 const FALLBACK = {
   portfolio: "portfolio/all/positions",
-  money: "money/all/balances",
   // «План» голим хешем веде в «Борги»: доки борг живий, він з'їдає гроші
   // місяця раніше за все інше.
   plan: "plan/debts/state",
@@ -153,7 +152,6 @@ for (const [from, want] of Object.entries(FALLBACK)) {
 // брокер із пробілом їдуть в адресу закодованими. Обіг мусить вернути те
 // саме — інакше закладка на позицію відкриває чужу.
 const ROUND = [
-  ["money", "acct:Inzhur OFFICE", "flows"],
   ["portfolio", "fund:Inzhur OFFICE", "state"],
   ["portfolio", "bond:UA4000231625", "do"],
 ];

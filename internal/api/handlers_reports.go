@@ -110,8 +110,7 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"safety_copy": safety,
 		"restored": map[string]int{
-			"lots": len(b.Lots), "sales": len(b.Sales), "deposits": len(b.Deposits),
-			"conversions": len(b.Conversions), "fund_ops": len(b.FundOps),
+			"lots": len(b.Lots), "sales": len(b.Sales), "fund_ops": len(b.FundOps),
 			"term_deposits": len(b.TermDeposits), "deposit_topups": len(b.DepositTopups),
 			"funds": len(b.Funds), "brokers": len(b.Brokers),
 			"settings":       len(b.Settings),
@@ -427,48 +426,6 @@ func (s *Server) handleTax(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.TaxReport(r.Context(), year, from, to, time.Now())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, out)
-}
-
-// handleCashflowStatement — GET /api/cashflow?from=&to=
-//
-// «По операціях не видно, як і куди я перевклав гроші» — це запит на
-// звіт про рух, а не на прив'язку купона до покупки. Тут видно казан:
-// скільки надійшло доходу, скільки ти доклав своїх і що з цього купив.
-func (s *Server) handleCashflowStatement(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-	// Дати перевіряються: коротке ?to= роняло обробник на зрізі [:8], а
-	// криве — давало не те вікно (порівняння рядками).
-	to := domain.NewDate(time.Now())
-	if v := q.Get("to"); v != "" {
-		d, err := domain.ParseDate(v)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, err)
-			return
-		}
-		to = d
-	}
-	// За замовчуванням — поточний місяць.
-	from := domain.Date(string(to)[:8] + "01")
-	if v := q.Get("from"); v != "" {
-		d, err := domain.ParseDate(v)
-		if err != nil {
-			writeErr(w, http.StatusBadRequest, err)
-			return
-		}
-		from = d
-	}
-
-	events, err := s.CashEvents(r.Context())
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	out := engine.CashflowStatement(events, from, to)
-	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}

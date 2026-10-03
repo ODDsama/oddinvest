@@ -33,7 +33,7 @@ import { skeleton } from "./skeleton.js";
 import { fitCharts } from "./charts.js";
 import { parseRoute, ANCHORS, markerKind, seg } from "./routes.js";
 import {
-  portfolioRows, moneyRows, staticRows, chipsOf, orderRowHTML, footValue,
+  portfolioRows, staticRows, chipsOf, orderRowHTML, footValue,
   kindOfItem, KIND_ONE, KIND_COLOR, overLimit,
   visibleRows, groupsOf, groupHTML, visRowHTML,
 } from "./master.js";
@@ -48,7 +48,6 @@ import * as policy from "./views/policy-view.js";
 import * as settings from "./views/settings-view.js";
 import * as remote from "./views/remote.js";
 import * as portfolios from "./views/portfolios.js";
-import * as money from "./views/money-view.js";
 import * as plan from "./views/plan-view.js";
 import * as goals from "./views/goals.js";
 
@@ -119,14 +118,9 @@ const VIEWS = {
   "portfolio/all/limits": portfolio.limits,
   "portfolio/all/shock": portfolio.shock,
   "portfolio/all/compare": portfolio.compare,
+  "portfolio/all/tax": portfolio.tax,
+  "portfolio/all/statement": portfolio.statement,
   "portfolio/all/record": portfolio.record,
-
-  "money/all/balances": money.balances,
-  "money/all/flows": money.flows,
-  "money/all/tax": money.tax,
-  // importStatement, а не import: останнє — зарезервоване слово.
-  "money/all/import": money.importStatement,
-  "money/all/reconcile": money.reconcile,
 
   // Одна вʼюшка на пʼять панелей: debts() малює ту, що в ctx.pane.
   "plan/debts/state": plan.debts,
@@ -162,7 +156,6 @@ const KIND_VIEWS = {
   "portfolio/position": instr.positionPane,
   "portfolio/reserve": instr.reservePane,
   "portfolio/goal": goals.goalPane,
-  "money/account": money.accountPane,
 };
 
 export class OddInvestApp extends HTMLElement {
@@ -451,13 +444,11 @@ export class OddInvestApp extends HTMLElement {
     this._toastTimer = setTimeout(() => t.classList.remove("show"), ok ? 4000 : 8000);
   }
 
-  // Брокери: з довідника ∪ ті, що вже зустрічались у лотах і балансах.
-  // Довідник міг відстати, а випадайка без брокера власного лота гірша за
-  // зайвий рядок у списку.
+  // Брокери: з довідника ∪ ті, що вже зустрічались у лотах. Довідник міг
+  // відстати, а випадайка без брокера власного лота гірша за зайвий рядок
+  // у списку.
   _brokerList(lots) {
-    const s = this._summary || {};
     const set = new Set((this._brokers || []).map((b) => b.name));
-    Object.keys(s.brokers || {}).forEach((b) => { if (b && b !== "—") set.add(b); });
     (lots || []).forEach((l) => { if (l.channel) set.add(String(l.channel).trim()); });
     return [...set].sort((a, b) => a.localeCompare(b, "uk"));
   }
@@ -938,7 +929,6 @@ export class OddInvestApp extends HTMLElement {
     const tab = TAB_BY_KEY.get(this._tab);
     if (!tab) return [];
     if (tab.dynamic === "positions") return portfolioRows(this._ctx, this._posData || {});
-    if (tab.dynamic === "accounts") return moneyRows(this._ctx);
     return staticRows(tab, this._ctx);
   }
 

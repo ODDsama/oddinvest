@@ -1,5 +1,5 @@
 {
-  "schema": 3,
+  "schema": 4,
   "generated_at": "2026-07-15T10:00:00Z",
   "currency": "UAH",
   "invested_uah": 0,
@@ -7,10 +7,6 @@
   "usd_share_pct": 0,
   "eur_share_pct": 0,
   "uninvested_uah": 0,
-  "account_uah": 0,
-  "reinvest_min_uah": 0,
-  "accounts": {},
-  "reinvest_min": {},
   "month_invested_uah": 0,
   "month_deposited_uah": 0,
   "month_target_uah": 0,

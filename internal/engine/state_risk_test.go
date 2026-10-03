@@ -36,7 +36,7 @@ func TestLiquidityDoesNotCountMaturingDepositTwice(t *testing.T) {
 	}
 	out := buildRisk(riskInput{
 		TermDeposits: deps, Rates: fx.Rates{},
-		AccountMinor: 1_000_00, Now: now, Today: today,
+		Now: now, Today: today,
 	})
 
 	if got := out.Liquidity.LockedUAH; got.Major() != 7000 {
@@ -66,16 +66,13 @@ func TestLiquidityWindowsAreCumulative(t *testing.T) {
 	}
 	out := buildRisk(riskInput{
 		Cashflow: cf, Rates: fx.Rates{},
-		AccountMinor: 1_000_00, Now: now, Today: today,
+		Now: now, Today: today,
 	})
 
-	if out.Liquidity.NowUAH.Major() != 1000 {
-		t.Errorf("зараз %v, очікували 1000", out.Liquidity.NowUAH.Major())
+	if out.Liquidity.In30UAH.Major() != 100 {
+		t.Errorf("за 30 днів %v, очікували 100 (купон на 10-й день)", out.Liquidity.In30UAH.Major())
 	}
-	if out.Liquidity.In30UAH.Major() != 1100 {
-		t.Errorf("за 30 днів %v, очікували 1100 (рахунок + купон на 10-й день)", out.Liquidity.In30UAH.Major())
-	}
-	if out.Liquidity.In90UAH.Major() != 1400 {
+	if out.Liquidity.In90UAH.Major() != 400 {
 		t.Errorf("за 90 днів %v, очікували 1400 — вікно НАКОПИЧУВАЛЬНЕ й містить перше",
 			out.Liquidity.In90UAH.Major())
 	}
@@ -115,34 +112,30 @@ func TestLiquiditySplitsLockedFromBreakable(t *testing.T) {
 		t.Errorf("зламне %.2f ₴, очікували 300 000 — договір дозволяє забрати достроково",
 			l.BreakableUAH.Major())
 	}
-	// Ні те, ні те не є вільними грошима: додати зламне в «зараз» означало
-	// б зробити подушку купівельною спроможністю.
-	if l.NowUAH.Major() != 0 {
-		t.Errorf("«зараз» %.2f ₴ — вклади не є готівкою, хай би якими розривними були", l.NowUAH.Major())
+	// Ні те, ні те не є вільними грошима: додати зламне в «під рукою»
+	// означало б зробити подушку купівельною спроможністю.
+	if l.AvailableNowUAH.Major() != 0 {
+		t.Errorf("«під рукою» %.2f ₴ — вклади не є готівкою, хай би якими розривними були",
+			l.AvailableNowUAH.Major())
 	}
 }
 
 // TestLiquidityAvailableNowCountsReserveAndGoals — подушка й цілі входять
-// у «під рукою» і у вікна, але НЕ в now_uah.
+// у «під рукою» і у вікна.
 //
 // Доти головним числом картки стояв самий рахунок брокера, і на портфелі,
 // де подушка лежить готівкою, вона казала «доступно 9,87 ₴» людині з
 // десятьма тисячами в сейфі. Питання картки — коли гроші стають
 // ДОСТУПНІ; подушку й ціль діставати нізвідки не треба.
-//
-// Друга половина тесту стереже інваріант, через який це не можна було
-// зробити доливанням у now_uah: на рівності now_uah == account_uah
-// тримається звірка звіту про рух коштів.
 func TestLiquidityAvailableNowCountsReserveAndGoals(t *testing.T) {
 	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 	today := domain.NewDate(now)
 	d := func(off int) domain.Date { return domain.NewDate(now.AddDate(0, 0, off)) }
 
 	out := buildRisk(riskInput{
-		Rates:        fx.Rates{},
-		AccountMinor: 1_000_00,
-		ReserveUAH:   10_000,
-		GoalsUAH:     3_000,
+		Rates:      fx.Rates{},
+		ReserveUAH: 10_000,
+		GoalsUAH:   3_000,
 		Cashflow: []domain.CashflowItem{
 			{Date: d(10), ISIN: "UA1", Type: domain.PayCoupon, Amount: money.New(100_00, money.UAH)},
 		},
@@ -150,17 +143,13 @@ func TestLiquidityAvailableNowCountsReserveAndGoals(t *testing.T) {
 	})
 	l := out.Liquidity
 
-	if l.NowUAH.Major() != 1000 {
-		t.Errorf("«на рахунках» %.2f, очікували 1000: подушка й цілі сюди не входять — "+
-			"на now_uah == account_uah стоїть звірка звіту про рух коштів", l.NowUAH.Major())
-	}
-	if l.AvailableNowUAH.Major() != 14000 {
-		t.Errorf("«під рукою» %.2f, очікували 14000 = рахунок 1000 + подушка 10000 + цілі 3000",
+	if l.AvailableNowUAH.Major() != 13000 {
+		t.Errorf("«під рукою» %.2f, очікували 13000 = подушка 10000 + цілі 3000",
 			l.AvailableNowUAH.Major())
 	}
-	if l.In30UAH.Major() != 14100 || l.In90UAH.Major() != 14100 {
-		t.Errorf("вікна %.2f / %.2f, очікували 14100: вони рахуються від «під рукою», "+
-			"а не від рахунку", l.In30UAH.Major(), l.In90UAH.Major())
+	if l.In30UAH.Major() != 13100 || l.In90UAH.Major() != 13100 {
+		t.Errorf("вікна %.2f / %.2f, очікували 13100: вони рахуються від «під рукою»",
+			l.In30UAH.Major(), l.In90UAH.Major())
 	}
 	if l.ReserveUAH.Major() != 10000 || l.GoalsUAH.Major() != 3000 {
 		t.Errorf("доданки мають лишитись видимими окремо: подушка %.2f, цілі %.2f",

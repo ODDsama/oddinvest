@@ -77,6 +77,21 @@ func TestSummaryInReportCurrency(t *testing.T) {
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("лот: %d %s", resp.StatusCode, body)
 	}
+	// Виплата після покупки — щоб задача «Дохід чекає» мала гроші в прозі:
+	// задачі «Купувати ще рано — бракує N» на залишку рахунку більше немає
+	// (рахунки прибрано ревізією 2026-10-03). Фонд великий навмисно: сам
+	// дивіденд на п'ять паперів дав би XIRR понад правдоподібну смугу
+	// (domain.XIRRMax), і зведене число зникло б.
+	// Сертифікат по 10 ₴: найкраща порада мусить бути по кишені виплаті,
+	// інакше задача мовчить.
+	for _, op := range []domain.FundOp{
+		{Date: "2026-07-01", Fund: "Тест", Kind: domain.FundBuy, Qty: 10_000, Amount: 100_000_00, Currency: "UAH"},
+		{Date: "2026-07-10", Fund: "Тест", Kind: domain.FundDividend, Amount: 2_000_00, Currency: "UAH"},
+	} {
+		if _, err := st.AddFundOp(context.Background(), op); err != nil {
+			t.Fatal(err)
+		}
+	}
 	uah := summaryOf(t, srv.URL)
 	if uah.Currency != "UAH" || uah.CurrencyNote != "" {
 		t.Fatalf("за замовчуванням гривня без примітки: %+v", uah)
@@ -110,12 +125,12 @@ func TestSummaryInReportCurrency(t *testing.T) {
 		t.Errorf("налаштування в документі: %+v", usd.Settings)
 	}
 	// Проза задач — теж у валюті звітності: рядок презентер не бачить, тож
-	// текст пишеться одразу тим самим курсом (moneyText). «Купувати ще
-	// рано — бракує 1 080,02 ₴» стає «…бракує 24,48 $».
-	if got := usd.taskTitle("saving"); !strings.Contains(got, "$") || strings.Contains(got, "₴") {
-		t.Errorf("проза задачі не в доларах: %q (у гривні було %q)", got, uah.taskTitle("saving"))
+	// текст пишеться одразу тим самим курсом (moneyText). «Дохід чекає:
+	// N ₴ — …» стає «Дохід чекає: N/44.1234 $ — …».
+	if got := usd.taskTitle("buy-best"); !strings.Contains(got, "$") || strings.Contains(got, "₴") {
+		t.Errorf("проза задачі не в доларах: %q (у гривні було %q)", got, uah.taskTitle("buy-best"))
 	}
-	if got := uah.taskTitle("saving"); !strings.Contains(got, "₴") {
+	if got := uah.taskTitle("buy-best"); !strings.Contains(got, "₴") {
 		t.Errorf("у гривні проза мусить лишитись гривневою: %q", got)
 	}
 	// Ставка проєкції — теж лінійка: у доларі стоїть реальна.

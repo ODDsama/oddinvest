@@ -129,20 +129,15 @@ func (s *Server) routes() *http.ServeMux {
 
 	mux.HandleFunc("GET /api/lots", s.handleListLots)
 	mux.HandleFunc("POST /api/lots", s.handleAddLot)
-	// /check нічого не пише — лише каже, чи вистачить грошей і скільки
-	// бракує. Форма питає ним ДО запису, щоб запропонувати поповнення.
-	mux.HandleFunc("POST /api/lots/check", s.handleLotCheck)
 	mux.HandleFunc("PUT /api/lots/{id}", s.handleUpdateLot)
 	mux.HandleFunc("DELETE /api/lots/{id}", s.handleDeleteLot)
 	mux.HandleFunc("POST /api/sales", s.handleAddSale)
 	mux.HandleFunc("GET /api/sales", s.handleListSales)
 	mux.HandleFunc("PUT /api/sales/{id}", s.handleUpdateSale)
 	mux.HandleFunc("DELETE /api/sales/{id}", s.handleDeleteSale)
-	mux.HandleFunc("GET /api/deposits", s.handleListDeposits)
-	mux.HandleFunc("POST /api/deposits", s.handleAddDeposit)
-	mux.HandleFunc("POST /api/cash/reconcile", s.handleReconcile)
-	mux.HandleFunc("PUT /api/deposits/{id}", s.handleUpdateDeposit)
-	mux.HandleFunc("DELETE /api/deposits/{id}", s.handleDeleteDeposit)
+	// Рахунків (/api/deposits, /api/conversions, /api/cash/reconcile,
+	// /api/cashflow і перевірок /check перед покупкою) більше немає:
+	// власник їх не веде (ревізія 2026-10-03, schema 4).
 	mux.HandleFunc("GET /api/reserve", s.handleListReserveOps)
 	mux.HandleFunc("POST /api/reserve", s.handleAddReserveOp)
 	mux.HandleFunc("PUT /api/reserve/{id}", s.handleUpdateReserveOp)
@@ -185,17 +180,12 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/debt-marks/{id}", s.handleDeleteDebtMark)
 	// handlers_payoff.go — проєкція, а не стан (довід у шапці файла).
 	mux.HandleFunc("GET /api/payoff", s.handlePayoff)
-	mux.HandleFunc("GET /api/conversions", s.handleListConversions)
-	mux.HandleFunc("POST /api/conversions", s.handleAddConversion)
-	mux.HandleFunc("PUT /api/conversions/{id}", s.handleUpdateConversion)
-	mux.HandleFunc("DELETE /api/conversions/{id}", s.handleDeleteConversion)
 	mux.HandleFunc("GET /api/bonds/search", s.handleSearchBonds)
 	mux.HandleFunc("GET /api/bonds/{isin}", s.handleGetBond)
 
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("GET /api/devaluation", s.handleDevaluation)
 	mux.HandleFunc("GET /api/inflation", s.handleInflation)
-	mux.HandleFunc("GET /api/cashflow", s.handleCashflowStatement)
 	mux.HandleFunc("GET /api/period", s.handlePeriod)
 	mux.HandleFunc("GET /api/year", s.handleYear)
 	mux.HandleFunc("GET /api/digest", s.handleDigest)
@@ -251,7 +241,6 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/npf-accounts/{id}", s.handleDeleteNPFAccount)
 	mux.HandleFunc("GET /api/npf", s.handleNPFOps)
 	mux.HandleFunc("POST /api/npf", s.handleAddNPFOp)
-	mux.HandleFunc("POST /api/npf/check", s.handleNPFOpCheck)
 	mux.HandleFunc("PUT /api/npf/{id}", s.handleUpdateNPFOp)
 	mux.HandleFunc("DELETE /api/npf/{id}", s.handleDeleteNPFOp)
 	mux.HandleFunc("GET /api/npf-nav", s.handleNPFNav)
@@ -260,11 +249,9 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/npf-nav/{id}", s.handleDeleteNPFNav)
 	mux.HandleFunc("GET /api/term-deposits", s.handleTermDeposits)
 	mux.HandleFunc("POST /api/term-deposits", s.handleAddTermDeposit)
-	mux.HandleFunc("POST /api/term-deposits/check", s.handleTermDepositCheck)
 	mux.HandleFunc("PUT /api/term-deposits/{id}", s.handleUpdateTermDeposit)
 	mux.HandleFunc("DELETE /api/term-deposits/{id}", s.handleDeleteTermDeposit)
 	mux.HandleFunc("POST /api/term-deposits/{id}/topups", s.handleAddDepositTopup)
-	mux.HandleFunc("POST /api/term-deposits/{id}/topups/check", s.handleDepositTopupCheck)
 	mux.HandleFunc("PUT /api/term-deposits/{id}/topups/{topupId}", s.handleUpdateDepositTopup)
 	mux.HandleFunc("DELETE /api/term-deposits/{id}/topups/{topupId}", s.handleDeleteDepositTopup)
 	mux.HandleFunc("GET /api/plan", s.handlePlanTimeline)

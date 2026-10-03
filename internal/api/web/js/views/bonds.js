@@ -127,11 +127,6 @@ export function wireBonds(ctx, main, lots = [], sales = []) {
   wireCrud(ctx, main, {
     resource: "lots", form: "#lotForm", title: "Лот", rows: lots,
     fields: lotFields, body: lotBody,
-    // Купівля йде через перевірку грошей: якщо на рахунку брокера не
-    // вистачає, форма спершу запропонує поповнити його рівно на нестачу.
-    funded: (f) => ({
-      check: "lots/check", date: f.buy_date.value, what: "купівля ОВДП",
-    }),
     confirm: (row) => "Видалити лот #" + row.id + " (" + esc(row.isin) + ")?"
       + (row.qty !== row.remaining ? " Продажі з нього теж зникнуть." : ""),
     msg: { add: "Лот додано", edit: "Лот виправлено", del: "Лот видалено" },

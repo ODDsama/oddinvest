@@ -124,7 +124,7 @@ func couponStart(next, after *Payment) (Date, bool) {
 //
 // НЕ CashflowItem, і це не про зручність типів. CashflowItem означає
 // «гроші, що надійдуть», і його читають xirr.go, state_schedule.go,
-// state_tasks.go, ready_on.go, state_builder.go, handlers_reports.go.
+// state_tasks.go, route_income.go, state_builder.go, handlers_reports.go.
 // Значення, яке грошима НЕ є, у тому типі — один необережний append від
 // фантомної виплати в календарі.
 type AccruedItem struct {

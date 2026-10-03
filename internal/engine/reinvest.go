@@ -21,14 +21,6 @@ import (
 	money "github.com/Rhymond/go-money"
 )
 
-// brokerFit — скільки таких паперів тягне конкретний брокер. Баланси
-// роздільні, тож загальна сума нічого не каже: гривня на inzhur не
-// купить папір у mono.
-type brokerFit struct {
-	Broker string `json:"broker"`
-	Qty    int64  `json:"qty"`
-}
-
 // suggestion — одна пропозиція реінвесту. Спільна для трьох
 // інструментів: облігація, сертифікат фонду, поповнення вкладу.
 //
@@ -96,11 +88,8 @@ type suggestion struct {
 	// податок, знецінення, інфляція. NominalPct і RealPct лишаються на
 	// місці — на них стоїть сортування й журнал рішень, — а це поле
 	// пояснює, звідки вони взялись (rate_breakdown.go).
-	RateParts  *state.RateBreakdown `json:"rate_parts,omitempty"`
-	Brokers    []brokerFit          `json:"brokers,omitempty"`
-	Affordable int64                `json:"affordable"`
-	CanBuy     bool                 `json:"can_buy"`
-	Reason     string               `json:"reason"`
+	RateParts *state.RateBreakdown `json:"rate_parts,omitempty"`
+	Reason    string               `json:"reason"`
 	// LastAuction / LastAuctionPct — коли цей самий папір востаннє
 	// розміщували на аукціоні Мінфіну й під скільки. Порожньо означає, що
 	// за все відоме нам вікно його не розміщували жодного разу, тобто
@@ -164,24 +153,9 @@ type suggestion struct {
 	// stale й overLimit.
 	Locked      bool   `json:"locked,omitempty"`
 	LockedUntil string `json:"locked_until,omitempty"`
-	// ReadyOn / ReadyBroker / ReadyDays / ReadyVia / ReadyNote — коли на цей
-	// рядок набереться, на чиєму рахунку і з чого саме. Заповнює
-	// AnnotateReady (ready_on.go) і лише в /api/reinvest: черга задач тієї ж
-	// збірки порад цих полів не показує, а другий прохід по джерелах
-	// подорожчав би кожен /api/summary.
-	//
-	// Порожні там, де відповіді немає: рядок, на який стає вже сьогодні,
-	// дати не має за визначенням.
-	ReadyOn     string       `json:"ready_on,omitempty"`
-	ReadyBroker string       `json:"ready_broker,omitempty"`
-	ReadyDays   int          `json:"ready_days,omitempty"`
-	ReadyVia    []readyEvent `json:"ready_via,omitempty"`
-	ReadyNote   string       `json:"ready_note,omitempty"`
-	// WaitCost / WaitAlt — скільки коштують ці дні очікування й чим міряно.
-	// Вказівник, а не значення: нуль і «не було чим міряти» — різні
-	// відповіді, і друга не має права виглядати як «безкоштовно».
-	WaitCost *MoneyJSON `json:"wait_cost,omitempty"`
-	WaitAlt  string     `json:"wait_alt,omitempty"`
+	// Полів «коли набереться» (ready_on, ready_via, wait_cost…) немає: вони
+	// міряли, коли залишок рахунку покриє квиток, а рахунків застосунок не
+	// веде (ревізія 2026-10-03).
 }
 
 // withKindDef дописує до причини дефіцит за видом інструмента. Поріг
@@ -347,25 +321,26 @@ const (
 )
 
 func LessSuggestion(a, b suggestion, rank, order string) bool {
-	return lessSuggestion(a, b, rank, order, true)
+	return lessSuggestion(a, b, rank, order)
 }
 
-// futureOrder — ті самі поради в порядку для МАЙБУТНІХ грошей: той самий
-// LessSuggestion, лише без CanBuy. «Вистачає вже зараз» — відповідь для
-// списку «що взяти сьогодні»; розкладка й маршрут кладуть гроші, що
-// прийдуть, і кращий папір, на який сьогодні бракує, там мусить обганяти
-// гірший, на який уже є. Доти порядок успадковувався від сьогоднішнього
-// балансу, і план наступних місяців мінявся від того, скільки лежить на
-// рахунку зараз. Копія — вхідний зріз читають і інші.
+// futureOrder — ті самі поради в порядку для МАЙБУТНІХ грошей: завжди
+// реальною лінійкою, хай би яку людина обрала для списку на екрані.
+// Розкладка й маршрут кладуть гроші, що прийдуть, і їхній порядок не має
+// мінятись від перемикача сортування. Копія — вхідний зріз читають і інші.
+//
+// Доти тут ще й прибиралось «вистачає вже зараз» (CanBuy) — відповідь про
+// сьогоднішній залишок рахунку. Рахунків застосунок більше не веде
+// (ревізія 2026-10-03), тож і такого критерію немає ніде.
 func futureOrder(sug []suggestion, rank string) []suggestion {
 	out := append([]suggestion(nil), sug...)
 	sort.SliceStable(out, func(i, j int) bool {
-		return lessSuggestion(out[i], out[j], rank, orderReal, false)
+		return lessSuggestion(out[i], out[j], rank, orderReal)
 	})
 	return out
 }
 
-func lessSuggestion(a, b suggestion, rank, order string, byWallet bool) bool {
+func lessSuggestion(a, b suggestion, rank, order string) bool {
 	// Замкнене — нижче за все ліквідне, і ПЕРШИМ серед пониження: це
 	// найсильніше з трьох тверджень. Ліміт каже «ти сам цього не хотів»,
 	// stale — «ми не впевнені в ціні», а замок — «це взагалі не те саме
@@ -376,15 +351,8 @@ func lessSuggestion(a, b suggestion, rank, order string, byWallet bool) bool {
 	// неліквідності був би вигаданим числом, а вигадане число в головній
 	// колонці списку гірше за чесний порядок.
 	//
-	// Стоїть ПЕРЕД CanBuy навмисно: замкнений рядок, на який грошей
-	// вистачає, усе одно не має обганяти ліквідний, на який не вистачає
-	// зовсім трохи. Питання «куди подіти прибулий купон» про перший не
-	// стоїть узагалі.
 	if a.Locked != b.Locked {
 		return b.Locked
-	}
-	if byWallet && a.CanBuy != b.CanBuy {
-		return a.CanBuy // те, що вже по кишені, — зверху
 	}
 	// Порушений ліміт опускає пораду, але не ховає її: заборона тут
 	// була б порадою навпаки, а ліміт міг бути перевищений із причин,
@@ -592,28 +560,6 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 	}
 	knowAuctions := len(lastAuction) > 0
 
-	// fitsFor — скільки таких кроків тягне кожен брокер окремо. Баланси
-	// роздільні: гривня на inzhur не купить папір у mono.
-	fitsFor := func(c string, costMajor float64) ([]brokerFit, int64) {
-		var fits []brokerFit
-		var best int64
-		if costMajor <= 0 {
-			return nil, 0
-		}
-		for name, byCur := range doc.Brokers {
-			if n := int64(byCur[c].Major() / costMajor); n > 0 {
-				fits = append(fits, brokerFit{Broker: name, Qty: n})
-				best = max(best, n)
-			}
-		}
-		sort.Slice(fits, func(i, j int) bool {
-			if fits[i].Qty != fits[j].Qty {
-				return fits[i].Qty > fits[j].Qty
-			}
-			return fits[i].Broker < fits[j].Broker
-		})
-		return fits, best
-	}
 	out := []suggestion{}
 	for _, b := range bonds {
 		c := b.Nominal.Currency().Code
@@ -655,12 +601,6 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			continue // без майбутніх виплат порівнювати нема чого
 		}
 		real := RealYield(ytm, c, devalPct)
-		fits, best := fitsFor(c, costMajor)
-		// Показуємо рекомендації ЗАВЖДИ, навіть коли грошей ще не вистачає:
-		// інакше список порожніє одразу після покупки й помічник мовчить
-		// саме тоді, коли ти плануєш наступний крок. Доступність — перший
-		// критерій сортування, тож «можу купити» лишається зверху.
-		canBuy := best > 0
 		year := b.Maturity.Year()
 		lnom := 0.0
 		if m, ok := ladderYear[year]; ok {
@@ -729,9 +669,8 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			YieldBasis: "до погашення",
 			// Валова й чиста збігаються: дохід з ОВДП звільнений і від
 			// ПДФО, і від військового збору.
-			RateParts:  rc.Breakdown(ytm, ytm, c, "до погашення"),
-			Brokers:    fits,
-			Affordable: best, CanBuy: canBuy, Reason: strings.Join(parts, "; "),
+			RateParts:   rc.Breakdown(ytm, ytm, c, "до погашення"),
+			Reason:      strings.Join(parts, "; "),
 			LastAuction: lastAucDate, LastAuctionPct: domain.Round2(lastAucPct),
 			def: def, kindDef: kindDef["bonds"], ladderNom: lnom,
 			overLimit: note != "", stale: stale,
@@ -818,7 +757,6 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 		if fundCost.Amount() <= 0 {
 			continue
 		}
-		fits, best := fitsFor(c, f.LastPrice)
 		// Рядок, який довго був неправдою для строкового фонду. У REIT
 		// строку справді немає; у MilTech є і строк, і погашення активів,
 		// і дата, після якої його не купити.
@@ -849,11 +787,10 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			RealPct:    domain.Round2(RealYield(nominal/100, yc, devalPct) * 100),
 			YieldBasis: basis,
 			RateParts:  rc.Breakdown(gross/100, nominal/100, yc, basis),
-			Brokers:    fits, Affordable: best, CanBuy: best > 0,
-			Reason:    strings.Join(parts, "; "),
-			def:       target[c] - cur[c],
-			kindDef:   kindDef["funds"],
-			overLimit: note != "",
+			Reason:     strings.Join(parts, "; "),
+			def:        target[c] - cur[c],
+			kindDef:    kindDef["funds"],
+			overLimit:  note != "",
 		})
 	}
 
@@ -908,8 +845,6 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 		// цілком — при domain.Deposit.EffectiveNetRate.
 		netRate := d.EffectiveNetRate()
 		real := RealYield(netRate, c, devalPct)
-		costMajor := float64(d.Principal) / 100
-		fits, best := fitsFor(c, costMajor)
 		bank := cmp.Or(d.Bank, "—")
 		out = append(out, suggestion{
 			Kind: "deposit", Label: bank, Currency: c,
@@ -921,7 +856,6 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			YieldBasis:  "ставка вкладу після податку",
 			RateParts: rc.Breakdown(float64(d.RateBP)/10000, netRate, c,
 				"ставка вкладу після податку"),
-			Brokers: fits, Affordable: best, CanBuy: best > 0,
 			Reason:      withTransit(mt, "поповнення на суму відкриття", c, transitNative[c], depByCur[c]),
 			def:         target[c] - cur[c],
 			kindDef:     kindDef["deposits"],
@@ -963,8 +897,6 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 		// чинною ставкою.
 		netRate := domain.NetRate(rateBP, domain.DepositTaxBPOn(domain.NewDate(now)))
 		real := RealYield(netRate, c, devalPct)
-		costMajor := float64(minMinor) / 100
-		fits, best := fitsFor(c, costMajor)
 		out = append(out, suggestion{
 			Kind: "deposit", Label: "Новий вклад", Currency: c,
 			RatePct:     fmt.Sprintf("%d.%02d", rateBP/100, rateBP%100),
@@ -974,7 +906,6 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			YieldBasis:  "ставка вкладу після податку",
 			RateParts: rc.Breakdown(float64(rateBP)/10000, netRate, c,
 				"ставка вкладу після податку"),
-			Brokers: fits, Affordable: best, CanBuy: best > 0,
 			Reason: withTransit(mt, "новий вклад, мінімум "+mt.cur(float64(minMinor)/100, c),
 				c, transitNative[c], depByCur[c]),
 			def:         target[c] - cur[c],
@@ -990,10 +921,9 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 	// систематично заниженим саме там, де він і так найслабший.
 	//
 	// Порога входу немає: внести можна будь-яку суму, тож CostPerBond
-	// нульовий, а CanBuy означає просто «на рахунках є хоч щось». Це не
-	// недогляд полів — це властивість інструмента, і вигадувати йому
-	// «мінімальний внесок» означало б додати обмеження, якого фонд не
-	// ставить.
+	// нульовий. Це не недогляд поля — це властивість інструмента, і
+	// вигадувати йому «мінімальний внесок» означало б додати обмеження,
+	// якого фонд не ставить.
 	//
 	// Основа дохідності НАЗИВАЄ замок вголос. Це головне, що рядок мусить
 	// сказати: число поруч із вкладом виглядає порівнянним, а воно не
@@ -1011,24 +941,6 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 		// ccy, а не cur: cur — це мапа поточних валютних часток, і затінити
 		// її тут означало б порахувати def від назви валюти.
 		ccy := cmp.Or(n.Currency, money.UAH)
-		// «Будь-яка сума» рахується ОКРЕМО від fitsFor, а не нульовою ціною
-		// через нього: там ціна — знаменник, і нуль чесно дає нуль.
-		//
-		// А нуль тут читався б як «ще збираєш на 0 ₴» — тобто рядок падав
-		// би в блок недоступних із порогом, якого не існує. Питання до
-		// пенсійного інше: не «чи вистачає на одну штуку», а «чи є взагалі
-		// з чого внести». Штук у нього немає.
-		var maxOne float64
-		var fits []brokerFit
-		for name, byCur := range doc.Brokers {
-			if v := byCur[ccy]; v.Major() > 0 {
-				fits = append(fits, brokerFit{Broker: name, Qty: 1})
-				if v.Major() > maxOne {
-					maxOne = v.Major()
-				}
-			}
-		}
-		sort.Slice(fits, func(i, j int) bool { return fits[i].Broker < fits[j].Broker })
 		nominal := cmp.Or(n.NavReturnPct, n.ExpectedPct)
 		reason := "внесок у пенсійний; гроші замкнені до " + n.AccessDate
 		if n.CreditEstUAH.Major() > 0 {
@@ -1042,10 +954,6 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			YieldBasis:  n.YieldBasis + "; замкнено до " + n.AccessDate,
 			RateParts: rc.Breakdown(nominal/100, nominal/100, ccy,
 				n.YieldBasis+"; замкнено до "+n.AccessDate),
-			// Affordable = 1, бо «скільки штук» до пенсійного не стосується:
-			// нуль читався б як «жодної», а справжня відповідь — «будь-яка
-			// сума». CanBuy — чи є хоч десь гроші цієї валюти.
-			Brokers: fits, Affordable: 1, CanBuy: maxOne > 0,
 			Reason:      withKindDef(reason, kindDef["npf"], "НПФ"),
 			Locked:      true,
 			LockedUntil: n.AccessDate,
@@ -1067,9 +975,6 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 	// показувати тут вибір, зроблений правилом, означало б запитати те, на
 	// що вже є відповідь.
 	//
-	// Штук у нього немає з того ж доводу, що в пенсійного: питання не «чи
-	// вистачить на одну», а «чи є з чого». Брокерів немає взагалі — гроші
-	// йдуть у банк, а не на рахунок.
 	if d := doc.Debt; d != nil && d.TotalUAH.Major() > 0 && d.TopRatePct > 0 {
 		// RealYield приймає ЧАСТКУ, а ставка боргу приходить відсотками —
 		// звідси ділення й множення назад. Та сама пара, що на рядку фонда.
@@ -1090,8 +995,7 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 			// Основу названо повністю: це не оцінка й не обіцянка ринку, а
 			// ставка з договору, і саме тому вона порівнянна з рештою.
 			YieldBasis: "гарантовано: без податку й без ризику ціни",
-			Affordable: 1, CanBuy: true,
-			Reason: reason,
+			Reason:     reason,
 		})
 	}
 

@@ -40,11 +40,10 @@ type riskInput struct {
 
 	// Дохідність портфеля — нею дисконтуються потоки. По валютах, зі
 	// спадом на зведену там, де своєї ще немає.
-	YieldPct     float64
-	YieldByCur   map[string]float64
-	AccountMinor int64
-	ReserveUAH   float64
-	GoalsUAH     float64
+	YieldPct   float64
+	YieldByCur map[string]float64
+	ReserveUAH float64
+	GoalsUAH   float64
 	// NPFRows — пенсійні рахунки. Потрібні лише ліквідності: у ціновий ризик
 	// і ризик перевкладення НПФ не входить, бо не породжує потоку взагалі.
 	NPFRows []state.NPFPositionRow
@@ -193,23 +192,20 @@ func buildRisk(in riskInput) riskPhase {
 
 	// --- ліквідність ---
 	//
-	// ПІД РУКОЮ — це рахунки ПЛЮС готівка подушки ПЛЮС відкладене під
-	// цілі. Доти головним числом картки стояли самі рахунки, і на
-	// портфелі, де подушка лежить готівкою, вона казала «доступно 9,87 ₴»
-	// людині з десятьма тисячами в сейфі.
+	// ПІД РУКОЮ — готівка подушки ПЛЮС відкладене під цілі. Рахунків
+	// застосунок більше не веде (ревізія 2026-10-03), тож їхнього доданка,
+	// як і окремого now_uah, немає.
 	//
 	// Питання картки — коли гроші стають ДОСТУПНІ, а не що з них дозволено
 	// витратити. Подушку й ціль діставати нізвідки не треба: вони вже в
-	// руках, і мовчати про них означало б відповідати не на те питання.
-	// Куди їх не можна: у NowUAH (на рівності now_uah == account_uah
-	// тримається звірка звіту про рух коштів) і в LockedUAH (те означає
-	// «доведеться щось ламати»).
+	// руках. Куди їх не можна — у LockedUAH (те означає «доведеться щось
+	// ламати»).
 	//
 	// Подвійного обліку з резервними ВКЛАДАМИ тут немає: сюди приходить
 	// ReserveUAH == reserveLiquidUAH, тобто журнальна готівка подушки без
 	// тіл рунг (state_builder.go). Самі рунги проходять картку нижче
 	// звичайними строковими.
-	availableNow := float64(in.AccountMinor)/100 + in.ReserveUAH + in.GoalsUAH
+	availableNow := in.ReserveUAH + in.GoalsUAH
 	d30 := domain.NewDate(in.Now.AddDate(0, 0, 30))
 	d90 := domain.NewDate(in.Now.AddDate(0, 0, 90))
 	var cf30, cf90 int64
@@ -302,7 +298,6 @@ func buildRisk(in riskInput) riskPhase {
 	}
 	out.Liquidity = &state.Liquidity{
 		AvailableNowUAH:     state.Major(availableNow, money.UAH),
-		NowUAH:              state.Minor(in.AccountMinor, money.UAH),
 		In30UAH:             state.Major(availableNow+float64(cf30)/100, money.UAH),
 		In90UAH:             state.Major(availableNow+float64(cf90)/100, money.UAH),
 		ReserveUAH:          state.Major(in.ReserveUAH, money.UAH),

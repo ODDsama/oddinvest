@@ -32,7 +32,7 @@ func TestLoadSourcesFailsLoudOnBrokenRead(t *testing.T) {
 	// Таблиці, які раніше читались «мʼяко». Кожна — окремий підтест: одна
 	// забута в майбутньому правці не сховається за рештою.
 	broken := []string{
-		"fund_ops", "fund_prices", "term_deposits", "deposits",
+		"fund_ops", "fund_prices", "term_deposits",
 		"goals", "goal_ops", "npf_accounts", "npf_ops", "npf_nav",
 		"plan_flows", "plan_actions", "plan_receipts",
 		"brokers", "funds", "ovdp_auctions", "fx_rates",

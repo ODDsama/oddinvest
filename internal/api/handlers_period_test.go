@@ -31,41 +31,35 @@ func periodOf(t *testing.T, srv, month string) periodResp {
 	return got
 }
 
-// ГОЛОВНИЙ ТЕСТ НАПРЯМУ: підсумок місяця й звіт про рух за той самий
-// проміжок мусять давати ті самі гроші.
+// ГОЛОВНИЙ ТЕСТ ОЗНАЧЕННЯ: «внесено» за місяць — нетто на межі
+// інструмента: покупки мінус виплати й виходи.
 //
-// Дві сторінки питають про той самий липень, і саме тут вони могли б
-// розійтися мовчки — обидва числа лишились би правдоподібними. Тест
-// стереже те, заради чого SummarizeCash і винесена в спільну функцію.
-func TestPeriodMoneyAgreesWithCashflow(t *testing.T) {
+// Доти внеском були поповнення рахунку, і цей тест звіряв підсумок місяця
+// зі звітом про рух рахунку (/api/cashflow). Рахунків застосунок більше не
+// веде (ревізія 2026-10-03), звіту про рух теж немає — і стерегти лишилось
+// саме означення: липень із двома покупками несе їх повністю, а вересень,
+// у якому прийшов купон і нічого не куплено, від'ємний. Це розщадження, а
+// не похибка: гроші вийшли з портфеля й назад не зайшли.
+func TestPeriodMoneyIsNetAtInstrumentBoundary(t *testing.T) {
 	srv, st := testServer(t)
 	seedPeriodMonth(t, st)
 
-	got := periodOf(t, srv.URL, "2026-07")
+	m := periodOf(t, srv.URL, "2026-07").Money
+	if m.PurchaseUAH.Major() != 10_000 || m.IncomeUAH.Major() != 0 || m.ContribUAH.Major() != 10_000 {
+		t.Errorf("липень: покупки %v, дохід %v, внесено %v; чекали 10 000 / 0 / 10 000",
+			m.PurchaseUAH.Major(), m.IncomeUAH.Major(), m.ContribUAH.Major())
+	}
+	if m.OwnUAH != m.ContribUAH {
+		t.Errorf("без подушки й цілей «своїх» %v мусить дорівнювати внесеному %v",
+			m.OwnUAH.Major(), m.ContribUAH.Major())
+	}
 
-	resp, body := do(t, "GET", srv.URL+"/api/cashflow?from=2026-07-01&to=2026-07-31", "")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/api/cashflow: %d %s", resp.StatusCode, body)
-	}
-	var cf struct {
-		OpeningUAH  float64 `json:"opening_uah"`
-		IncomeUAH   float64 `json:"income_uah"`
-		ContribUAH  float64 `json:"contributed_uah"`
-		PurchaseUAH float64 `json:"purchased_uah"`
-		ConvUAH     float64 `json:"conversions_uah"`
-		ClosingUAH  float64 `json:"closing_uah"`
-	}
-	if err := json.Unmarshal([]byte(body), &cf); err != nil {
-		t.Fatal(err)
-	}
-	m := got.Money
-	if m.OpeningUAH.Major() != cf.OpeningUAH || m.IncomeUAH.Major() != cf.IncomeUAH ||
-		m.ContribUAH.Major() != cf.ContribUAH || m.PurchaseUAH.Major() != cf.PurchaseUAH ||
-		m.ConvUAH.Major() != cf.ConvUAH || m.ClosingUAH.Major() != cf.ClosingUAH {
-		t.Errorf("підсумок %+v розійшовся з рухом %+v", m, cf)
-	}
-	if m.ContribUAH.Major() <= 0 || m.PurchaseUAH.Major() <= 0 {
-		t.Errorf("місяць мав нести і внески, і покупку: %+v", m)
+	// 16 вересня — купон на 10 паперів по 82.75: 827.50 вийшло, нічого не
+	// зайшло.
+	sep := periodOf(t, srv.URL, "2026-09").Money
+	if sep.IncomeUAH.Major() != 827.5 || sep.ContribUAH.Major() != -827.5 {
+		t.Errorf("вересень: дохід %v, внесено %v; чекали 827.50 і −827.50",
+			sep.IncomeUAH.Major(), sep.ContribUAH.Major())
 	}
 }
 
@@ -213,23 +207,21 @@ func TestPeriodRejectsBadMonth(t *testing.T) {
 	}
 }
 
-// seedPeriodMonth — липень 2026: два внески, одна покупка.
+// seedPeriodMonth — липень 2026: дві покупки на 10 000 ₴ разом. Внесок
+// місяця — це вони самі (межа інструмента), а не поповнення рахунку.
 func seedPeriodMonth(t *testing.T, st *store.Store) {
 	t.Helper()
 	ctx := context.Background()
 	seed(t, st)
-	for _, d := range []store.Deposit{
-		{Date: "2026-07-02", Amount: 6000_00, Currency: money.UAH, Broker: "inzhur"},
-		{Date: "2026-07-18", Amount: 4000_00, Currency: money.UAH, Broker: "inzhur"},
+	for _, l := range []domain.Lot{
+		{ISIN: "UA4000227748", Qty: 6, PricePerBond: money.New(1000_00, money.UAH),
+			BuyDate: "2026-07-02", Channel: "inzhur"},
+		{ISIN: "UA4000227748", Qty: 4, PricePerBond: money.New(1000_00, money.UAH),
+			BuyDate: "2026-07-18", Channel: "inzhur"},
 	} {
-		if _, err := st.AddDeposit(ctx, d); err != nil {
+		if _, err := st.AddLot(ctx, l); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if _, err := st.AddLot(ctx, domain.Lot{ISIN: "UA4000227748", Qty: 5,
-		PricePerBond: money.New(995_00, money.UAH), BuyDate: "2026-07-10",
-		Channel: "inzhur"}); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -245,20 +237,18 @@ func saveSnap(t *testing.T, st *store.Store, date string, nominalMinor, usdBP in
 }
 
 // ГОЛОВНИЙ ТЕСТ ВИПРАВЛЕННЯ: «внесено своїх» у підсумку місяця дорівнює
-// плитці «Цей місяць» на «Огляді» (month_deposited_uah) — гаманець разом
-// із подушкою. Доти підсумок брав лише гаманець, і місяць, у якому гроші
-// пішли в матрац повз рахунок брокера, стояв «повз» у серії.
+// плитці «Цей місяць» на «Огляді» (month_deposited_uah) — інструменти
+// разом із подушкою. Доти підсумок брав лише гаманець, і місяць, у якому
+// гроші пішли в матрац повз брокера, стояв «повз» у серії.
 func TestPeriodOwnMatchesMonthTile(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
 	seed(t, st)
 	today := domain.NewDate(time.Now())
 	first := domain.Date(string(today)[:8] + "01")
-	if _, err := st.AddDeposit(ctx, store.Deposit{Date: first, Amount: 10_000_00,
-		Currency: money.UAH, Broker: "mono"}); err != nil {
-		t.Fatal(err)
-	}
-	// У подушку повз гаманець — і назад частину.
+	// Покупка на 10 000 — внесок в інструменти.
+	fundOp(t, st, first, domain.FundBuy, 10_000_00)
+	// У подушку повз інструменти — і назад частину.
 	for _, a := range []int64{5_000_00, -1_500_00} {
 		if _, err := st.AddReserveOp(ctx, store.ReserveOp{Date: first, Amount: a,
 			Currency: money.UAH, Place: "готівка"}); err != nil {
@@ -267,12 +257,8 @@ func TestPeriodOwnMatchesMonthTile(t *testing.T) {
 	}
 	got := periodOf(t, srv.URL, string(today)[:7])
 	if got.Money.ContribUAH.Major() != 10_000 || got.Money.OutsideUAH.Major() != 3_500 || got.Money.OwnUAH.Major() != 13_500 {
-		t.Errorf("гаманець %v / подушка %v / разом %v, чекали 10 000 / 3 500 / 13 500",
+		t.Errorf("інструменти %v / подушка %v / разом %v, чекали 10 000 / 3 500 / 13 500",
 			got.Money.ContribUAH.Major(), got.Money.OutsideUAH.Major(), got.Money.OwnUAH.Major())
-	}
-	// Залишок гаманця подушки не бачить.
-	if got.Money.ClosingUAH.Major() != 10_000 {
-		t.Errorf("залишок гаманця %v, чекали 10 000", got.Money.ClosingUAH.Major())
 	}
 	resp, body := do(t, "GET", srv.URL+"/api/summary", "")
 	if resp.StatusCode != http.StatusOK {
@@ -295,10 +281,10 @@ func TestPeriodOwnMatchesMonthTile(t *testing.T) {
 	// перший розклад, «Період» — другий, і розійтись їм нема на чому лише
 	// доти, доки цей тест стоїть.
 	if sum.Outside != got.Money.OutsideUAH.Major() {
-		t.Errorf("повз рахунки: плитка %v ≠ підсумок %v", sum.Outside, got.Money.OutsideUAH.Major())
+		t.Errorf("повз інструменти: плитка %v ≠ підсумок %v", sum.Outside, got.Money.OutsideUAH.Major())
 	}
 	if sum.Contributed != got.Money.ContribUAH.Major() {
-		t.Errorf("на рахунки: плитка %v ≠ підсумок %v", sum.Contributed, got.Money.ContribUAH.Major())
+		t.Errorf("в інструменти: плитка %v ≠ підсумок %v", sum.Contributed, got.Money.ContribUAH.Major())
 	}
 }
 

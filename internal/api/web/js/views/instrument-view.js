@@ -303,7 +303,7 @@ function writeHTML(ctx, spec, d) {
     "Журнал веде виписка: купівлі, продажі й дивіденди приходять файлом, а виправити "
     + "операцію можна в журналі фонду. Два джерела правди — виписка й рука — розійшлися б, "
     + "і розійшлися б тихо.",
-    { href: routeFor("money/all/import"), label: "Завантажити виписку" })}</div>`;
+    { href: routeFor("portfolio/all/statement"), label: "Завантажити виписку" })}</div>`;
 }
 
 /** Панель позиції. Вид береться з id рядка (master.js), тож чотири види
@@ -384,7 +384,7 @@ const EMPTY = {
   },
   fund: {
     text: "Сертифікати заводить імпорт виписки — руками їх не вносять.",
-    action: { href: routeFor("money/all/import"), label: "Завантажити виписку" },
+    action: { href: routeFor("portfolio/all/statement"), label: "Завантажити виписку" },
   },
   npf: {
     text: "Пенсійний рахунок з'явиться тут, коли буде заведений у довідниках.",
@@ -471,7 +471,7 @@ function reservePaneHTML(ctx, ops) {
     return reserveJournalHTML(ops);
   case "next":
     return reserveFillHTML(ctx) || `<div class="card"><div class="sub">
-      Поповнювати зараз нічого: або запас уже зібраний, або вільних грошей на рахунку немає.
+      Поповнювати зараз нічого: або запас уже зібраний, або цього місяця на нього не лишилось грошей.
       </div></div>`;
   case "record":
     return reserveFormHTML(ctx);

@@ -56,12 +56,13 @@ type Backup struct {
 	Migration string `json:"migration,omitempty"`
 	// Portfolio — назва портфеля-джерела (0054), лише для людини: restore
 	// її не читає, бо відновлює в той портфель, на який націлений запит.
-	Portfolio   string             `json:"portfolio,omitempty"`
-	Lots        []BackupLot        `json:"lots"`
-	Sales       []BackupSale       `json:"sales"`
-	Deposits    []BackupDeposit    `json:"deposits"`
-	Conversions []BackupConversion `json:"conversions"`
-	FundOps     []BackupFundOp     `json:"fund_ops"`
+	Portfolio string       `json:"portfolio,omitempty"`
+	Lots      []BackupLot  `json:"lots"`
+	Sales     []BackupSale `json:"sales"`
+	// Полів deposits і conversions (рух рахунку й обмін валют) немає з
+	// 0068: рахунків застосунок не веде. Старий дамп із ними відновлюється —
+	// невідомі поля Backup не відкидає, вони просто пропускаються.
+	FundOps []BackupFundOp `json:"fund_ops"`
 	// TermDeposits omitempty: бекапи, зроблені до появи вкладів, читаються
 	// без цього поля так само, як раніше — restore просто не створить
 	// жодного вкладу.
@@ -628,26 +629,6 @@ type BackupSale struct {
 	Note     string `json:"note"`
 }
 
-type BackupDeposit struct {
-	ID       int64  `json:"id"`
-	Date     string `json:"date"`
-	Amount   int64  `json:"amount"`
-	Currency string `json:"currency"`
-	Broker   string `json:"broker"`
-	Note     string `json:"note"`
-}
-
-type BackupConversion struct {
-	ID           int64  `json:"id"`
-	Date         string `json:"date"`
-	FromCurrency string `json:"from_currency"`
-	FromAmount   int64  `json:"from_amount"`
-	ToCurrency   string `json:"to_currency"`
-	ToAmount     int64  `json:"to_amount"`
-	Broker       string `json:"broker"`
-	Note         string `json:"note"`
-}
-
 type BackupPayStatus struct {
 	ISIN     string `json:"isin"`
 	PayDate  string `json:"pay_date"`
@@ -715,33 +696,6 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 				return err
 			}
 			b.Sales = append(b.Sales, r)
-			return nil
-		}, s.pid); err != nil {
-		return nil, err
-	}
-	if err := s.scan(ctx, `SELECT d.id,d.date,d.amount,d.currency,COALESCE(b.name,''),d.note
-		FROM deposits d LEFT JOIN brokers b ON b.id=d.broker_id
-		WHERE d.portfolio_id=? ORDER BY d.id`,
-		func(scan func(...any) error) error {
-			var r BackupDeposit
-			if err := scan(&r.ID, &r.Date, &r.Amount, &r.Currency, &r.Broker, &r.Note); err != nil {
-				return err
-			}
-			b.Deposits = append(b.Deposits, r)
-			return nil
-		}, s.pid); err != nil {
-		return nil, err
-	}
-	if err := s.scan(ctx, `SELECT c.id,c.date,c.from_currency,c.from_amount,c.to_currency,
-		c.to_amount,COALESCE(b.name,''),c.note
-		FROM conversions c LEFT JOIN brokers b ON b.id=c.broker_id
-		WHERE c.portfolio_id=? ORDER BY c.id`,
-		func(scan func(...any) error) error {
-			var r BackupConversion
-			if err := scan(&r.ID, &r.Date, &r.FromCurrency, &r.FromAmount, &r.ToCurrency, &r.ToAmount, &r.Broker, &r.Note); err != nil {
-				return err
-			}
-			b.Conversions = append(b.Conversions, r)
 			return nil
 		}, s.pid); err != nil {
 		return nil, err
@@ -1136,7 +1090,7 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 // Порядок значущий і в межах переліку: довідники (funds, brokers) — в
 // самому кінці, бо на них посилається майже все.
 var importAllTables = []string{
-	"sales", "lots", "deposits", "conversions", "fund_ops",
+	"sales", "lots", "fund_ops",
 	"fund_prices", "deposit_topups", "term_deposits", "reserve_loans", "reserve_ops",
 	"goal_ops", "goals", "debt_ops", "debt_marks", "debts",
 	"npf_ops", "npf_nav",
@@ -1452,28 +1406,6 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			`INSERT INTO sales (%sportfolio_id,lot_id,sale_date,qty,clean_per_bond,accrued,currency,note) VALUES (%s?,?,?,?,?,?,?,?)`,
 			s.pid, ids.of("lots", sl.LotID), sl.SaleDate, sl.Qty, sl.Clean, sl.Accrued, sl.Currency, sl.Note); err != nil {
 			return fmt.Errorf("продаж %d: %w", sl.ID, err)
-		}
-	}
-	for _, d := range b.Deposits {
-		broker, err := brokerRef(d.Broker)
-		if err != nil {
-			return fmt.Errorf("поповнення %d: %w", d.ID, err)
-		}
-		if err := ids.insert(ctx, tx, "deposits", d.ID,
-			`INSERT INTO deposits (%sportfolio_id,date,amount,currency,broker_id,note) VALUES (%s?,?,?,?,?,?)`,
-			s.pid, d.Date, d.Amount, d.Currency, broker, d.Note); err != nil {
-			return fmt.Errorf("поповнення %d: %w", d.ID, err)
-		}
-	}
-	for _, c := range b.Conversions {
-		broker, err := brokerRef(c.Broker)
-		if err != nil {
-			return fmt.Errorf("конвертація %d: %w", c.ID, err)
-		}
-		if err := ids.insert(ctx, tx, "conversions", c.ID,
-			`INSERT INTO conversions (%sportfolio_id,date,from_currency,from_amount,to_currency,to_amount,broker_id,note) VALUES (%s?,?,?,?,?,?,?,?)`,
-			s.pid, c.Date, c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, broker, c.Note); err != nil {
-			return fmt.Errorf("конвертація %d: %w", c.ID, err)
 		}
 	}
 	// Операції фондів — двома заходами: pair_id посилається на інший

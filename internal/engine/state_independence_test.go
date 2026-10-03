@@ -60,7 +60,7 @@ func TestDrawdownWithdrawPrefersSetting(t *testing.T) {
 func TestDrawdownSeesFundCertificates(t *testing.T) {
 	months := func(fill func(in *projectionInput)) int {
 		in := indepInput(t, 50_000, 30_000)
-		in.CashByCur = map[string]int64{}
+		in.AccumByCur = nil // порожній портфель — лише сертифікати нижче
 		// Без знецінення, щоб число читалось прямо: зняття лишається
 		// сталим і в номіналі, тож 12000 це рівно дванадцять знять.
 		in.Deval = 0

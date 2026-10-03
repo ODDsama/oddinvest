@@ -25,7 +25,7 @@ func pct(v float64) *float64 { return &v }
 func TestRebalanceFallsBackToDepositWhenBondTooBig(t *testing.T) {
 	in := rebalanceInput{
 		// Капітал 10 000 ₴ — доларова ціль 25% це лише 2 500 ₴.
-		Capital:  state.Capital{AccountUAH: state.Major(10000, money.UAH)},
+		Capital:  state.Capital{BondsUAH: state.Major(10000, money.UAH)},
 		Settings: &state.SettingsDoc{USDTargetSharePct: pct(25)},
 		Rates:    fx.Rates{money.USD: 441234},
 		// Найдешевший папір — $1000 (≈44 123 ₴), тобто далеко за ціллю.
@@ -72,7 +72,7 @@ func TestRebalanceFallsBackToDepositWhenBondTooBig(t *testing.T) {
 // шукали б довго.
 func TestConcentrationOrderIsStableOnEqualShares(t *testing.T) {
 	in := rebalanceInput{
-		Capital:  state.Capital{AccountUAH: state.Major(100000, money.UAH)},
+		Capital:  state.Capital{BondsUAH: state.Major(100000, money.UAH)},
 		Settings: &state.SettingsDoc{LimitISINPct: pct(20)},
 		Rates:    fx.Rates{},
 		// Три папери, два з них — рівно однакового номіналу.
@@ -276,7 +276,7 @@ func TestTransitCarvesOutOfBondTarget(t *testing.T) {
 	// в голові, а не звіряти з реалізацією.
 	build := func(capitalUAH float64) state.RebalanceRow {
 		out := buildRebalance(rebalanceInput{
-			Capital: state.Capital{AccountUAH: state.Major(capitalUAH, money.UAH)},
+			Capital: state.Capital{BondsUAH: state.Major(capitalUAH, money.UAH)},
 			Settings: &state.SettingsDoc{
 				USDTargetSharePct: pct(40), TargetBondsPct: pct(90),
 			},
@@ -320,7 +320,7 @@ func TestTransitCarvesOutOfBondTarget(t *testing.T) {
 // частку паперів, і картка сказала б число, якого не буває.
 func TestTransitClampedByBondTarget(t *testing.T) {
 	out := buildRebalance(rebalanceInput{
-		Capital: state.Capital{AccountUAH: state.Major(100_000, money.UAH)},
+		Capital: state.Capital{BondsUAH: state.Major(100_000, money.UAH)},
 		Settings: &state.SettingsDoc{
 			USDTargetSharePct: pct(40), TargetBondsPct: pct(20),
 		},
@@ -340,7 +340,7 @@ func TestTransitClampedByBondTarget(t *testing.T) {
 // вирізати з неї нічого — цілі ОВДП немає взагалі.
 func TestNoTransitWithoutBondTarget(t *testing.T) {
 	out := buildRebalance(rebalanceInput{
-		Capital: state.Capital{AccountUAH: state.Major(100_000, money.UAH), DepositsUAH: state.Major(50_000, money.UAH)},
+		Capital: state.Capital{BondsUAH: state.Major(100_000, money.UAH), DepositsUAH: state.Major(50_000, money.UAH)},
 		Settings: &state.SettingsDoc{
 			USDTargetSharePct: pct(40), TargetDepositsPct: pct(100),
 		},
@@ -367,7 +367,7 @@ func TestNoTransitWithoutBondTarget(t *testing.T) {
 // цьому просіла б під ціль без жодного пояснення, куди поділись гроші.
 func TestDepositsShowAsReferenceRowWithoutTarget(t *testing.T) {
 	out := buildRebalance(rebalanceInput{
-		Capital: state.Capital{AccountUAH: state.Major(60_000, money.UAH), DepositsUAH: state.Major(40_000, money.UAH)},
+		Capital: state.Capital{BondsUAH: state.Major(60_000, money.UAH), DepositsUAH: state.Major(40_000, money.UAH)},
 		Settings: &state.SettingsDoc{
 			USDTargetSharePct: pct(40), TargetBondsPct: pct(100),
 		},

@@ -1,10 +1,10 @@
-// Картки «Грошей»: баланси, звірка, резерв, рухи, потік, податок, імпорт.
+// Грошові картки: резерв, рух грошей за період, податок, імпорт виписки,
+// курс серед історії.
 //
-// Бібліотека, а не розділ. Складають її дві сторони, і саме через це вона
-// й виділена: журнал живе в «Грошах» і «Активах», а форми — у «Записати»,
-// тобто одна й та сама сутність тепер показується у двох різних місцях із
-// різних причин. Доти все це лежало в одному файлі поруч зі своїм
-// рендером, і кожна картка мовчки вважала, що поверхня в неї одна.
+// Бібліотека, а не розділ. Вкладки «Гроші» більше немає (ревізія
+// 2026-10-03: рахунків застосунок не веде), а її картки, що лишились
+// потрібними, живуть у «Портфелі» — «Записати нове», «Період», «Податки»,
+// «Виписка», «Валютний шок» — і на сторінці резерву.
 //
 // Резерв через це розколотий на три частини (плитки, журнал, форма): він
 // єдиний, чиї числа читають в «Активах», а рухи записують у «Записати».
@@ -12,12 +12,10 @@
 // мені половину себе» читається гірше, ніж три імені.
 
 import {
-  esc, curSym, dayMonth, plural, pct, signedUAH,
+  esc, curSym, dayMonth, plural, pct,
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
 } from "../format.js";
-import { eq } from "../currency.js";
 import { infoBtn } from "../info.js";
-import { empty } from "../components.js";
 import { opsGrid, rowActions, actionsCol } from "../grid.js";
 import {
   money as moneyField, text as textField, date as dateField,
@@ -30,77 +28,9 @@ import { routeFor } from "../routes.js";
 import { disclosure } from "../disclosure.js";
 import { pref } from "../uistate.js";
 
-// ---------- ГАМАНЕЦЬ ----------
-
-/** Скільки лежить на рахунках, по валютах. «Дохід без діла» тут не
- *  прикраса, а єдине місце, де видно гроші, що надійшли й лежать. */
-export function walletHTML(ctx) {
-  const s = ctx.summary || {};
-  const a = s.accounts || {};
-  return `<div class="card">
-    <h2>Рахунок (гаманець)</h2>
-    <div class="tiles flush">
-      <div class="tile"><div class="lbl">UAH</div><div class="val">${fmtCur(a.UAH || 0, "UAH")}</div></div>
-      <div class="tile"><div class="lbl">USD</div><div class="val">${fmtCur(a.USD || 0, "USD")}</div></div>
-      <div class="tile"><div class="lbl">EUR</div><div class="val">${fmtCur(a.EUR || 0, "EUR")}</div></div>
-      <div class="tile"><div class="lbl">Разом (${eq()})</div><div class="val">${fmtUAH(s.account_uah || 0)}</div></div>
-      <div class="tile"><div class="lbl">Дохід без діла ${infoBtn("idle")}</div>
-        <div class="val">${fmtUAH(s.uninvested_uah || 0)}</div>
-        <div class="sub">надійшло й ще не вкладено</div></div>
-    </div>
-  </div>`;
-}
-
-/** Історія рухів: поповнення, зняття, конвертації одним списком за датою.
- *  Купівлі паперів і купони сюди не пишуться — вони рухають рахунок самі. */
-export function movesHTML(deposits, conversions) {
-  const moves = [
-    ...deposits.map((d) => ({ date: d.date, id: d.id, kind: "dep", amount: d.amount, note: d.note })),
-    ...conversions.map((c) => ({ date: c.date, id: c.id, kind: "conv", from: c.from, to: c.to, note: c.note })),
-  ].sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : y.id - x.id));
-
-  // Два ресурси в одному гріді, і саме тому колонка дій описана тут, а не
-  // взята готовою з actionsCol(): кнопка мусить назвати СВІЙ ресурс, бо
-  // рядок поповнення й рядок конвертації видаляються різними шляхами.
-  // Об'єднані вони не для краси — питання «що відбувалось з грошима» не
-  // розрізняє, чим саме рух був записаний.
-  const cols = [
-    { key: "date", label: "Дата", cell: (m) => esc(m.date) },
-    { key: "kind", label: "Тип", cell: (m) => (m.kind === "conv" ? "Конвертація"
-      : Number(m.amount.amount) >= 0 ? "Поповнення" : "Зняття") },
-    { key: "amount", label: "Сума", num: true, cell: (m) => (m.kind === "conv"
-      ? `${fmtMoney(m.from)} → ${fmtMoney(m.to)}` : fmtMoney(m.amount)) },
-    { key: "note", label: "Нотатка", cell: (m) => {
-      if (m.kind !== "conv") return esc(m.note || "");
-      // Курс не зберігається — він рахується із сум, тобто з того, що
-      // реально сталося в банку. Показуємо його поруч із нотаткою, бо саме
-      // за ним конвертацію впізнають, а не за нотаткою.
-      const rate = Number(m.from.amount) / Number(m.to.amount);
-      return esc(m.note || "") + (isFinite(rate) ? ` (${rate.toFixed(4)})` : "");
-    } },
-    { key: "acts", label: "", cls: "row-actions nowrap",
-      cell: (m) => rowActions(m.kind === "dep" ? "deposits" : "conversions", m.id, {
-        label: (m.kind === "conv" ? "конвертацію" : "рух") + " від " + m.date,
-      }) },
-  ];
-
-  return `<div class="card">
-    <h2>Історія рухів</h2>
-    ${opsGrid({
-    cols, rows: moves,
-    caption: "Історія рухів: дата, тип, сума, нотатка",
-    empty: "",
-  }) || empty(
-    "Рухів ще немає",
-    "Сюди лягають поповнення, зняття й конвертації. Купівлі паперів і купони рухають рахунок самі.",
-    { href: routeFor("deposit"), label: "Додати рух" })}
-  </div>`;
-}
-
 // ---------- РЕЗЕРВ («МАТРАЦ») ----------
-// Окрема сутність, а не рядок у гаманці: на рахунку брокера лежать гроші,
-// що ЧЕКАЮТЬ на вкладення, а тут — ті, які вкладати не збираються.
-// Змішати їх означало б запропонувати купити папір за аварійні гроші.
+// Гроші, які вкладати не збираються: запропонувати купити за них папір
+// означало б порадити витратити аварійні гроші.
 // «1.1 місяць» — двічі неправильно: дробові в українській вимагають
 // родового («1,1 місяця»), якого в plural() немає, а крапка суперечить
 // решті чисел на екрані. Скорочення «міс.» знімає обидва питання.
@@ -437,61 +367,20 @@ export function reserveJournalHTML(ops) {
 export function reserveFormHTML(ctx) {
   return `<div class="card"><h2 class="h-row">Рух резерву ${infoBtn("reserve")}</h2>
     ${formHTML({ id: "resForm", fields: reserveFields(ctx), submit: "Записати", cls: "mb" })}
-    <div class="note">Переклав із рахунку? Запиши ще й зняття в «Гроші → Баланси й валюта» —
-      інакше відкладене виглядатиме як втрата капіталу.</div>
     <div class="note">Зняття-позика піднімає ціль подушки на відсоток, доки її не
       повернуто. Поповнення гасить найстарішу відкриту позику саме собою — окремо
       його відмічати не треба, і ноги «Маршруту грошей» так само її гасять.</div>
   </div>`;
 }
 
-// ---------- РАХУНОК ----------
-// Баланси по брокерах: гроші в одного не купують папір в іншого, тож
-// «вистачає / не вистачає» має сенс лише в розрізі рахунку.
-export function brokerBalancesHTML(ctx) {
-  const s = ctx.summary || {};
-  const brokers = s.brokers || {};
-  const names = Object.keys(brokers).sort((a, b) => a.localeCompare(b, "uk"));
-  if (!names.length) return "";
-  const rmin = s.reinvest_min || {};
-  // Простій по парах — готовим зі зведення (idle.by_pair): з якого дня
-  // гроші лежать понад квиток і що це коштує на місяць. Рахувати тут вік
-  // нема з чого, та й не треба: одне означення живе в бекенді.
-  const pairKey = (p) => `${p.broker}|${p.currency}`;
-  const idleBy = new Map(((s.idle || {}).by_pair || []).map((p) => [pairKey(p), p]));
-  const costBy = new Map(((s.idle_cost || {}).by_pair || []).map((p) => [pairKey(p), p]));
-  const rows = names.map((b) => {
-    const cur = brokers[b] || {};
-    const parts = Object.keys(cur).sort().map((c) => {
-      const v = cur[c], min = rmin[c] || 0;
-      const enough = min > 0 && v >= min;
-      const hint = min > 0
-        ? (enough ? `вистачає на ${Math.floor(v / min)}` : `до паперу ще ${fmtCur(min - v, c)}`)
-        : "";
-      const p = idleBy.get(`${b}|${c}`);
-      const pc = costBy.get(`${b}|${c}`);
-      const idle = p && p.since
-        ? `<div class="sub-xs muted">лежать з ${esc(dayMonth(p.since))}${
-          pc && pc.cost_month_uah > 0 ? ` · ≈ ${esc(signedUAH(-pc.cost_month_uah))}/міс за сьогоднішньою порадою` : ""}</div>`
-        : "";
-      return `<div class="pv-row"><span>${esc(c)} · <b>${fmtCur(v, c)}</b></span>
-        <span class="${enough ? "t-ok" : "muted"}">${hint}</span></div>${idle}`;
-    }).join("");
-    return `<div class="mb-lg"><div class="mb-xs"><b>${esc(b)}</b></div>${parts}</div>`;
-  }).join("");
-  return `<div class="card"><h2 class="h-row">Рахунки по брокерах ${infoBtn("idle")}</h2>
-    <div class="note">Гроші в одного брокера не купують папір в іншого — тому баланси роздільні.
-      Де сума вже понад квиток — це простій: видно, відколи лежить і що коштує.</div>
-    ${rows}</div>`;
-}
-
 // ---------- ВАЛЮТНЕ ВІКНО ----------
 
 /** Де стоїть сьогоднішній курс серед власної історії — три вікна на валюту.
  *
- *  Стоїть біля форми конвертації, і це єдине її призначення: питання
- *  «конвертувати зараз чи почекати» ставлять саме тут, а десять років
- *  курсів НБУ лежали в базі, не відповідаючи на нього жодного разу.
+ *  Стоїть на «Портфель → Валютний шок»: питання «купувати валюту зараз чи
+ *  почекати» — той самий курс, що й «що зробив би з портфелем рух, який уже
+ *  був». Доти картка жила біля форми конвертації в «Грошах»; конвертацій
+ *  більше немає, а питання лишилось.
  *
  *  ПОРАДИ ТУТ НЕМАЄ Й НЕ БУДЕ. Ані підсвітки «дорого», ані порога, за яким
  *  щось червоніє: гривня падає стрибками, і найвищий за десять років курс
@@ -545,88 +434,6 @@ export function fxWindowHTML(ctx) {
 // різниця в третьому знаку — це вже сотні гривень на конвертації.
 const fmtRate = (v) => (Number(v) || 0).toLocaleString("uk",
   { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-
-// Звірка: рахунок за записами проти того, що показує брокер.
-// Коригування — звичайне поповнення з поміткою, а не окрема сутність:
-// так розбіжність лишається видимою в історії, а не ховається.
-/** Звірка. only — звузити до одного брокера; порожнє означає всі.
- *
- *  Параметр, а не друга функція: таблиця, підпис, проводка й механізм
- *  коригування в них однакові до знака, і друга копія розійшлася б із
- *  першою при найпершій правці колонок. */
-export function reconcileHTML(ctx, only = "") {
-  const brokers = (ctx.summary || {}).brokers || {};
-  const rows = Object.entries(brokers)
-    .filter(([b]) => !only || b === only)
-    .flatMap(([b, byCur]) => Object.entries(byCur).map(([c, v]) => ({ b, c, v })));
-  if (!rows.length) return "";
-  return `<div class="card"><h2 class="card-head">
-    <span>Звірка рахунку ${infoBtn("reconcile")}</span></h2>
-    ${opsGrid({
-    cols: [
-      { key: "broker", label: "Брокер", cell: (r) => `${esc(r.b)} ${curSym(r.c)}` },
-      { key: "book", label: "За записами", num: true,
-        cell: (r) => fmtCur(r.v, r.c) },
-      { key: "actual", label: "Фактично", num: true,
-        cell: (r) => `<input class="recAct num-in" inputmode="decimal"
-          aria-label="Фактично на ${esc(r.b)}, ${esc(r.c)}"
-          data-expected="${r.v}" placeholder="—">` },
-      { key: "diff", label: "Розбіжність", num: true, cls: "recDiff muted", cell: () => "—" },
-      { key: "fix", label: "", num: true,
-        cell: () => `<button class="recFix" disabled>виправити</button>` },
-    ],
-    rows,
-    caption: "Звірка рахунку: брокер, сума за записами, фактична сума, розбіжність",
-    rowAttrs: (r) => ({ "data-rec": `${r.b}|${r.c}` }),
-  })}</div>`;
-}
-
-export function wireReconcile(ctx, main) {
-  main.querySelectorAll("tr[data-rec]").forEach((tr) => {
-    const inp = tr.querySelector(".recAct");
-    const out = tr.querySelector(".recDiff");
-    const btn = tr.querySelector(".recFix");
-    const [broker, currency] = tr.dataset.rec.split("|");
-    const recalc = () => {
-      const raw = inp.value.trim().replace(/\s/g, "").replace(",", ".");
-      const actual = Number(raw);
-      if (!raw || Number.isNaN(actual)) {
-        out.textContent = "—"; out.className = "num recDiff muted"; btn.disabled = true;
-        return null;
-      }
-      const diff = Math.round((actual - Number(inp.dataset.expected)) * 100) / 100;
-      out.textContent = diff === 0 ? "сходиться" : (diff > 0 ? "+" : "") + fmtCur(diff, currency);
-      // t-ok, а не ok: класу .ok у CSS не існує й ніколи не існувало,
-      // тож «сходиться» два роки виходило звичайним текстом — рівно тим
-      // самим, що й розбіжність.
-      out.className = "num recDiff" + (diff === 0 ? " t-ok" : "");
-      btn.disabled = diff === 0;
-      return diff;
-    };
-    inp.addEventListener("input", recalc);
-    // Різниця вище — лише підказка під полем. ЗАПИСУЄ поправку сервер:
-    // браузер шле факт, а «за записами» бекенд бере з книжкового
-    // документа (handleReconcile). Доти тут у базу йшло diff, пораховане
-    // від числа зі summary, — і в доларовому вигляді воно було доларами.
-    btn.addEventListener("click", async () => {
-      if (!recalc()) return;
-      btn.disabled = true;
-      try {
-        const res = await ctx.api("POST", "cash/reconcile", {
-          // Сире: кому й пробіли тисяч розуміє сам парсер бекенда.
-          broker, currency, actual: inp.value.trim(),
-        });
-        const d = (res || {}).diff || {};
-        ctx.toast(Number(d.amount) === 0 ? "Уже сходиться"
-          : `Коригування ${Number(d.amount) > 0 ? "+" : ""}${fmtCur(Number(d.amount), d.currency)} додано`);
-        await ctx.reload();
-      } catch (err) {
-        ctx.toast(String(err.message || err), false);
-        btn.disabled = false;
-      }
-    });
-  });
-}
 
 // Імпорт виписки Inzhur. Два кроки навмисно: спершу показати, що буде
 // зроблено, і лише потім писати. Ціна помилки тут — подвоєний баланс,
@@ -747,32 +554,26 @@ export function wireImport(ctx, main) {
   });
 }
 
-// Рух грошей за період — казан і те, що він купив.
+// Рух грошей за період — що зайшло в інструменти й що з них вийшло.
 //
 // Питання «по операціях не видно, як і куди я перевклав» — це запит на
-// звіт про рух, а не на прив'язку купона до покупки. Купон і власні
-// внески змішуються на рахунку, звідти йде покупка; показати треба саме
-// це, а не вигадану лінію від однієї виплати до одного паперу.
+// звіт про рух, а не на прив'язку купона до покупки. Рахунків застосунок
+// не веде (ревізія 2026-10-03), тож тотожність тепер на межі інструмента:
+// куплено − виплати й виходи = внесено в інструменти; плюс подушка й цілі
+// — своїх разом. Те саме означення, що в плитки «Цей місяць».
 //
-// Тотожність унизу — не оздоба: якщо вона не сходиться, розійшлись облік
-// і дійсність, і це має бути видно.
-//
-// Обидві таблиці — виписки (.ledger): дві-три колонки, підпис і сума. На
-// всю ширину main сума відʼїжджала від статті на пів монітора, і
-// тотожність «було + надійшло − куплено = лишилось» читалась стовпчиком
-// чисел без підписів. Міра рядка та сама, що в стелі витрат на «Боргах».
+// Таблиця — виписка (.ledger): дві колонки, підпис і сума; на всю ширину
+// main сума відʼїжджала б від статті на пів монітора.
 export function flowHTML(f) {
   if (!f) return "";
   // Рядки виписки — дані, а не розмітка: підпис, число і знак перед ним.
-  // Знак тут не арифметика, а НАПРЯМ: «− куплено» показує додатну суму зі
-  // словом «куплено», бо в виписці читають рух, а не сальдо.
+  // Знак тут не арифметика, а НАПРЯМ.
   const lines = [
-    { label: "Було на рахунках", uah: f.opening_uah, sign: "" },
-    { label: "+ надійшло доходу", uah: f.income_uah, sign: "+" },
-    { label: "+ внесено своїх", uah: f.contributed_uah, sign: "+" },
-    { label: "− куплено", uah: f.purchased_uah, sign: "−" },
-    f.conversions_uah
-      ? { label: "± конвертації", uah: f.conversions_uah, sign: f.conversions_uah > 0 ? "+" : "−" }
+    { label: "Куплено (мінус продажі)", uah: f.purchased_uah, sign: "" },
+    { label: "− надійшло виплат", uah: f.income_uah, sign: "−" },
+    { label: "= внесено в інструменти", uah: f.contributed_uah, sign: f.contributed_uah < 0 ? "−" : "" },
+    f.outside_uah
+      ? { label: "± у подушку й цілі", uah: f.outside_uah, sign: f.outside_uah > 0 ? "+" : "−" }
       : null,
   ].filter(Boolean);
   const detail = (f.rows || []).filter((r) => r.kind === "purchase" && r.uah < 0);
@@ -789,12 +590,9 @@ export function flowHTML(f) {
     ],
     rows: lines,
     caption: `Рух грошей ${esc(f.from)} — ${esc(f.to)}: стаття й сума`,
-    foot: [{ cell: "= лишилось" }, { cell: fmtUAH(f.closing_uah || 0), num: true }],
+    foot: [{ cell: "= своїх разом" }, {
+      cell: (f.own_uah < 0 ? "−" : "") + fmtUAH(Math.abs(f.own_uah || 0)), num: true }],
   })}
-    ${f.outside_uah ? `<div class="sub mt-sm">Поза рахунками брокерів: ${
-    f.outside_uah > 0 ? "+" : "−"}${fmtUAH(Math.abs(f.outside_uah))} у подушку й цілі. У залишок не
-      входить — матрац на рахунку не лежить; у «внесено своїх» підсумку й серії входить,
-      разом ${fmtUAH(f.own_uah || 0)}.</div>` : ""}
     ${detail.length ? `<details class="disclosure" data-fold="flowbuys">
       <summary>Куди пішли<span class="hint">${detail.length} ${
   plural(detail.length, "операція", "операції", "операцій")}</span></summary>

@@ -20,10 +20,10 @@ func TestStreakMarksMatchStreak(t *testing.T) {
 		{Date: "2026-05-31", MonthTargetUAH: 1_000_000},
 	}
 	ev := []FlowEvent{
-		{Date: "2026-01-15", Kind: FlowContribution, UAH: 1_200_000},
-		{Date: "2026-02-15", Kind: FlowContribution, UAH: 1_200_000},
-		{Date: "2026-04-15", Kind: FlowContribution, UAH: 1_200_000},
-		{Date: "2026-05-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-01-15", Kind: FlowPurchase, UAH: -1_200_000},
+		{Date: "2026-02-15", Kind: FlowPurchase, UAH: -1_200_000},
+		{Date: "2026-04-15", Kind: FlowPurchase, UAH: -1_200_000},
+		{Date: "2026-05-15", Kind: FlowPurchase, UAH: -1_200_000},
 	}
 	got := BuildStreak(snaps, ev, "2026-06-10")
 
@@ -99,9 +99,9 @@ func TestStreakUsesTargetOfItsMonth(t *testing.T) {
 		{Date: "2026-03-31", MonthTargetUAH: 1_000_000},
 	}
 	ev := []FlowEvent{
-		{Date: "2026-01-15", Kind: FlowContribution, UAH: 1_200_000},
-		{Date: "2026-02-15", Kind: FlowContribution, UAH: 1_200_000},
-		{Date: "2026-03-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-01-15", Kind: FlowPurchase, UAH: -1_200_000},
+		{Date: "2026-02-15", Kind: FlowPurchase, UAH: -1_200_000},
+		{Date: "2026-03-15", Kind: FlowPurchase, UAH: -1_200_000},
 	}
 	got := BuildStreak(snaps, ev, "2026-04-10")
 
@@ -135,9 +135,9 @@ func TestStreakSkipsUnknownMonths(t *testing.T) {
 		{Date: "2026-04-30", MonthTargetUAH: 1_000_000},
 	}
 	ev := []FlowEvent{
-		{Date: "2026-01-15", Kind: FlowContribution, UAH: 1_200_000},
-		{Date: "2026-03-15", Kind: FlowContribution, UAH: 1_200_000},
-		{Date: "2026-04-15", Kind: FlowContribution, UAH: 1_200_000},
+		{Date: "2026-01-15", Kind: FlowPurchase, UAH: -1_200_000},
+		{Date: "2026-03-15", Kind: FlowPurchase, UAH: -1_200_000},
+		{Date: "2026-04-15", Kind: FlowPurchase, UAH: -1_200_000},
 	}
 	got := BuildStreak(snaps, ev, "2026-05-10")
 
@@ -152,15 +152,16 @@ func TestStreakSkipsUnknownMonths(t *testing.T) {
 }
 
 // TestStreakCountsOnlyContributions — серія міряє ТВІЙ внесок, а не
-// будь-які гроші на рахунку.
+// будь-які покупки.
 //
-// Купон і погашення теж збільшують рахунок, і зарахувати їх у план
-// означало б святкувати те, що сталося саме собою.
+// Покупка, оплачена купоном чи погашенням, теж велика, і зарахувати її в
+// план означало б святкувати те, що сталося саме собою. Внесок — лише
+// те, що понад виплату: тут 50 100 покупок мінус 50 000 купона = 1 000.
 func TestStreakCountsOnlyContributions(t *testing.T) {
 	snaps := []store.Snapshot{{Date: "2026-01-31", MonthTargetUAH: 1_000_000}}
 	ev := []FlowEvent{
 		{Date: "2026-01-15", Kind: FlowIncome, UAH: 5_000_000},
-		{Date: "2026-01-20", Kind: FlowContribution, UAH: 100_000},
+		{Date: "2026-01-20", Kind: FlowPurchase, UAH: -5_100_000},
 	}
 	got := BuildStreak(snaps, ev, "2026-02-10")
 	if got.Months != 0 {

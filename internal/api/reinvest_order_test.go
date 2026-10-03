@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
-	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -33,14 +32,7 @@ func TestReinvestOrderParamReordersResponse(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 	ctx := context.Background()
-	// Гроші, інакше порад не буде взагалі, і вклад із високою
-	// НОМІНАЛЬНОЮ ставкою — саме він і мусить піднятись у другій лінійці.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 100_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// Вклад із високою НОМІНАЛЬНОЮ ставкою — саме він і мусить піднятись у другій лінійці.
 	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
 		Bank: "ПУМБ", Principal: 30_000_00, Currency: money.UAH,
 		RateBP: 2400, TaxBP: 2300, OpenDate: domain.NewDate(time.Now()),

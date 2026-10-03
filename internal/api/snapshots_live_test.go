@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"net/http"
 	"testing"
 	"time"
 
@@ -34,8 +33,10 @@ func getSnaps(t *testing.T, url string) []liveSnapRow {
 // знімок, а не стає поруч. Без live відповідь — рівно таблиця знімків.
 //
 // І «внесено» на тій самій кривій — зовнішні гроші (externalMoves), а не
-// собівартість зі знімка: переказ гаманець → резерв дає нуль, зняття з
-// резерву — мінус, купівля паперу з рахунку — нічого.
+// собівартість зі знімка: продаж і переклад виручки в резерв дає нуль,
+// зняття з резерву — мінус, купівля — плюс. Останнє — наслідок ревізії
+// 2026-10-03: рахунків немає, тож покупка більше не «переклад усередині
+// капіталу», а саме те місце, де гроші заходять у портфель.
 func TestSnapshotsLiveRowAndExternalMoney(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
@@ -43,15 +44,9 @@ func TestSnapshotsLiveRowAndExternalMoney(t *testing.T) {
 	today := domain.NewDate(time.Now())
 	d3, d2, d1 := today.AddDays(-3), today.AddDays(-2), today.AddDays(-1)
 
-	for _, d := range []store.Deposit{
-		{Date: d3, Amount: 10_000_00, Currency: "UAH", Broker: "mono"},
-		// Перша нога переказу гаманець → резерв.
-		{Date: d2, Amount: -5_000_00, Currency: "UAH", Broker: "mono"},
-	} {
-		if _, err := st.AddDeposit(ctx, d); err != nil {
-			t.Fatal(err)
-		}
-	}
+	fundOp(t, st, d3, domain.FundBuy, 10_000_00)
+	// Перша нога переказу портфель → резерв.
+	fundOp(t, st, d2, domain.FundSell, 5_000_00)
 	for _, op := range []store.ReserveOp{
 		{Date: d2, Amount: 5_000_00, Currency: "UAH", Place: "готівка"},
 		// Зняття з резерву в життя — гроші вийшли назовні.
@@ -61,12 +56,8 @@ func TestSnapshotsLiveRowAndExternalMoney(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// Купівля з рахунку — переклад усередині капіталу, зовнішніх грошей не
-	// міняє.
-	if resp, b := do(t, "POST", srv.URL+"/api/lots",
-		`{"isin":"UA4000227748","qty":2,"price_per_bond":"1000.00","buy_date":"`+string(d1)+`","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("лот: %d %s", resp.StatusCode, b)
-	}
+	// Купівля — гроші зайшли в інструмент.
+	fundOp(t, st, d1, domain.FundBuy, 2_000_00)
 	for _, d := range []domain.Date{d3, d2, d1} {
 		if err := st.SaveSnapshot(ctx, store.Snapshot{Date: d, NominalUAHEq: 1}); err != nil {
 			t.Fatal(err)
@@ -86,7 +77,7 @@ func TestSnapshotsLiveRowAndExternalMoney(t *testing.T) {
 	if last.ReserveUAH != 2000 {
 		t.Errorf("резерв живої точки = %.2f, чекали 2000 зі стану", last.ReserveUAH)
 	}
-	want := []float64{10000, 10000, 7000, 7000}
+	want := []float64{10000, 10000, 9000, 9000}
 	for i, r := range rows {
 		if r.ExternalUAH == nil || *r.ExternalUAH != want[i] {
 			t.Errorf("%s: external_uah = %v, чекали %.0f", r.Date, r.ExternalUAH, want[i])

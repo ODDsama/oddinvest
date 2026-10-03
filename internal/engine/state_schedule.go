@@ -112,7 +112,7 @@ func buildSchedule(src *sources, hold domain.Holdings, from, today domain.Date, 
 		measured, _ := domain.DividendYieldNet(src.fundOps, fp, today)
 		ref := src.fundRefs[fp.Fund]
 		y := fundPayoutRatePct(ref, measured) // виплати — після податку
-		// У КАЛЕНДАРІ СТОЇТЬ УСЯ НАРАХОВАНА РЕНТА, а в маршруті (ready_on.go)
+		// У КАЛЕНДАРІ СТОЇТЬ УСЯ НАРАХОВАНА РЕНТА, а в маршруті (route_income.go)
 		// — лише готівкова її частина. Це не дві відповіді на одне питання, а
 		// одна відповідь на два різні: тут «скільки портфель ЗАРОБЛЯЄ», там
 		// «що впаде на рахунок і що з цим робити». Арифметика спільна —

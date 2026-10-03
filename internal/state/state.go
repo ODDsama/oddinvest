@@ -36,8 +36,17 @@ import (
 // забирає портфельних грошей ніде. Парсери, які на них спираються, мусять
 // це побачити явно, а не дізнатись із мовчазного нуля.
 //
+// 4 (2026-10-03): рахунків більше немає (ревізія: власник їх не веде). З
+// документа зникли account_uah, accounts, reinvest_min_uah, reinvest_min,
+// brokers, idle, idle_cost, month_withdrawn_uah, liquidity.now_uah і три
+// поля валютного рядка ребалансу (cash_native, can_buy, convert_uah).
+// Змінився СЕНС полів: capital_uah і net_worth_uah — без готівки на
+// рахунках; month_deposited_uah і month_contributed_uah — нетто на межі
+// інструмента (покупки мінус виплати й виходи); uninvested_uah — виплати,
+// за якими ще не було покупки, без стелі «скільки лежить на рахунку».
+//
 // 1 — усе до того.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 type Doc struct {
 	Schema      int    `json:"schema"`
@@ -70,32 +79,13 @@ type Doc struct {
 	// браузері: арифметика над історією в двох місцях уже двічі
 	// закінчувалась різними числами на одному екрані (CLAUDE.md §5).
 	CapitalDelta30 *CapitalDelta `json:"capital_delta_30,omitempty"`
-	// Idle — простій: вільні гроші брокера, на які квиток уже є, і що
-	// коштує їх лежання (адитивне поле, idle.go). Порожньо без простою.
-	Idle *IdleCash `json:"idle,omitempty"`
-	// IdleCost — що коштує простій за сьогоднішньою порадою (адитивне поле,
-	// idle.go). Порада, а не стан: заповнюється лише там, де є черга задач.
-	IdleCost *IdleCost `json:"idle_cost,omitempty"`
-	// USDSharePct / EURSharePct — частка валюти в КАПІТАЛІ. У чисельнику —
-	// справжня експозиція (папери + вклади + резерв цієї валюти), готівки
-	// брокера там немає: вона от-от стане чимось іншим, тож лише розводить
-	// частки зі знаменника. Див. state.Capital.
-	USDSharePct   float64 `json:"usd_share_pct"`
-	EURSharePct   float64 `json:"eur_share_pct"`
-	UninvestedUAH Money   `json:"uninvested_uah"` // надійшло і не перевкладено, грн-екв.
-
-	// Грошовий рахунок (гаманець). AccountUAH — сумарний баланс у грн-екв.
-	// (для «Разом» і плитки). Accounts — баланси по валютах (нативно).
-	// ReinvestMinUAH — ціна найдешевшого паперу (грн-екв.); ReinvestMin —
-	// найдешевший папір по кожній валюті (нативно) для по-валютного CTA.
-	AccountUAH     Money            `json:"account_uah"`
-	ReinvestMinUAH Money            `json:"reinvest_min_uah"`
-	Accounts       map[string]Money `json:"accounts" money:"native"`
-	ReinvestMin    map[string]Money `json:"reinvest_min" money:"native"`
-	// Brokers — баланси в розрізі (брокер → валюта → сума). Рахунки
-	// роздільні, тож «чи вистачає на папір» рахується саме тут, а
-	// Accounts лишається зведенням по валютах для портфельних показників.
-	Brokers map[string]map[string]Money `json:"brokers,omitzero" money:"native"`
+	// USDSharePct / EURSharePct — частка валюти в КАПІТАЛІ: справжня
+	// експозиція (папери + вклади + резерв цієї валюти). Див. state.Capital.
+	USDSharePct float64 `json:"usd_share_pct"`
+	EURSharePct float64 `json:"eur_share_pct"`
+	// UninvestedUAH — «дохід чекає»: виплати, за якими ще не було покупки,
+	// грн-екв. (schema 4: без стелі залишку рахунку — рахунків немає).
+	UninvestedUAH Money `json:"uninvested_uah"`
 	// InvestedByBroker — вкладено (вартість входу залишків, грн-екв.) по
 	// кожному брокеру. Довідкова розбивка для «Портфеля».
 	InvestedByBroker map[string]Money `json:"invested_by_broker,omitzero"`
@@ -232,31 +222,16 @@ type Doc struct {
 	Coupons12m       []MonthAmount `json:"coupons_12m,omitempty"`
 	IncomeMonthlyNow Money         `json:"income_monthly_now,omitzero"`
 
-	// MonthInvestedUAH — куплено паперів цього місяця (перекладання
-	// грошей з рахунку в папери). MonthDepositedUAH — НОВІ гроші, внесені
-	// цього місяця. Прогрес рахується від поповнень: план виведений із
-	// цілі й означає «скільки нових грошей треба вносити», а купівля за
-	// накопичені купони до цілі не додає нічого.
-	MonthInvestedUAH Money `json:"month_invested_uah"`
-	// MonthDepositedUAH — НЕТТО нових грошей за місяць: поповнення мінус
-	// зняття. MonthWithdrawnUAH — самі зняття, додатнім числом, щоб UI міг
-	// показати розклад, коли нетто не збігається з сумою поповнень.
+	// MonthInvestedUAH — куплено паперів цього місяця, валом.
+	// MonthDepositedUAH — НОВІ гроші, внесені цього місяця, НЕТТО на межі
+	// інструмента (schema 4): покупки мінус виплати й виходи плюс рухи
+	// резерву й цілей. Прогрес рахується від внесеного: план означає
+	// «скільки нових грошей треба вносити», а папір, куплений на купон, що
+	// щойно прийшов, нових грошей не приносить.
+	MonthInvestedUAH  Money `json:"month_invested_uah"`
 	MonthDepositedUAH Money `json:"month_deposited_uah"`
-	// MonthWithdrawnUAH рахує й ДРУГУ НОГУ внутрішніх переміщень: переказ
-	// гаманець → матрац записується мінусом у deposits і плюсом у
-	// reserve_ops, тож він входить і сюди, і в поповнення. Нетто від цього
-	// правильне, обидва валові — завищені рівно на суму переказу.
-	//
-	// САМЕ ТОМУ пари «поповнення X − зняття Y» на екрані більше немає: на
-	// живих даних вона казала «поповнення 6 859 − зняття 4 941», де дві
-	// третини зняття не були зняттям. Замість неї стоїть чесний розклад
-	// внесеного — MonthContributedUAH і MonthOutsideUAH нижче.
-	//
-	// Поле лишається в контракті: його читає інтеграція HA. Але показувати
-	// його валовим числом поруч із поповненнями не можна.
-	MonthWithdrawnUAH Money `json:"month_withdrawn_uah,omitzero"`
 	// MonthOutsideUAH / MonthContributedUAH — з ЧОГО складається внесене:
-	// рухи резерву й цілей нетто, і решта, тобто рахунки брокерів.
+	// рухи резерву й цілей нетто, і решта, тобто нетто інструментів.
 	//
 	// Внесене включає подушку й цілі (вони теж капітал), і без розкладу
 	// зняття з матраца читалось як загадковий мінус. Доти розклад рахував
@@ -821,9 +796,10 @@ type SettingsDoc struct {
 // ОДИНИЦЯ входу (облігація АБО вклад — див. UnitKind), а не лише папір:
 // відколи вклад із мінімумом $100/€100 став інструментом ребалансу,
 // добрати частку можна ним задовго до $1000-ї облігації.
-// ConvertUAH — скільки гривні сконвертувати, щоб її купити; MinPortfolioUAH —
-// розмір портфеля, за якого одна така одиниця вже вписується в цільову
-// частку (Feasible=false, поки не доріс).
+// MinPortfolioUAH — розмір портфеля, за якого одна така одиниця вже
+// вписується в цільову частку (Feasible=false, поки не доріс). Полів
+// готівки (cash_native, can_buy, convert_uah) немає з schema 4: рахунків
+// застосунок не веде.
 //
 // Рядок описує ВИМІР диверсифікації, а не лише валюту: питання «чи не
 // перекошений портфель» ставлять і до виду інструмента, і до брокера, і
@@ -845,11 +821,8 @@ type RebalanceRow struct {
 	CurrentPct      float64 `json:"current_pct"`
 	DeficitUAH      Money   `json:"deficit_uah"`
 	DeficitNative   Money   `json:"deficit_native" money:"native"`
-	CashNative      Money   `json:"cash_native" money:"native"`
 	BondCostNative  Money   `json:"bond_cost_native" money:"native"`
 	BondCostUAH     Money   `json:"bond_cost_uah"`
-	CanBuy          int64   `json:"can_buy"`
-	ConvertUAH      Money   `json:"convert_uah"`
 	MinPortfolioUAH Money   `json:"min_portfolio_uah"`
 	Feasible        bool    `json:"feasible"`
 	// UnitKind — чим є ця одиниця входу: "bond" (найдешевша ОВДП) чи
@@ -1021,9 +994,8 @@ type ConcentrationRow struct {
 // Liquidity — коли гроші стають доступні. Питання не про дохідність, а
 // про те, що робити, коли гроші раптом знадобились.
 //
-// NowUAH — на рахунках просто зараз. In30UAH / In90UAH — НАКОПИЧУВАЛЬНО:
-// стільки буде в розпорядженні через місяць і через квартал, якщо нічого
-// не купувати; сюди входять купони, погашення й тіла вкладів, що
+// In30UAH / In90UAH — НАКОПИЧУВАЛЬНО від «під рукою»: стільки буде в
+// розпорядженні через місяць і через квартал, якщо нічого не купувати; сюди входять купони, погашення й тіла вкладів, що
 // гасяться у вікні. LockedUAH — тіла вкладів зі строком далі, з
 // найближчою датою UnlockDate.
 //
@@ -1801,15 +1773,10 @@ type MonthPlan struct {
 }
 
 type Liquidity struct {
-	// AvailableNowUAH — скільки грошей під рукою СЬОГОДНІ: рахунки плюс
-	// готівка подушки плюс відкладене під цілі. Головне число картки, бо
-	// саме воно відповідає на її питання — «коли гроші стають доступні».
-	//
-	// ОКРЕМЕ ПОЛЕ, А НЕ РОЗШИРЕНИЙ NowUAH. На рівності
-	// now_uah == account_uah тримається звірка звіту про рух коштів
-	// (TestCashflowStatementReconciles), і долити до неї дві позапортфельні
-	// сховки означало б зламати звірку заради підпису. Тож NowUAH лишається
-	// рахунками й живе в картці підрядком.
+	// AvailableNowUAH — скільки грошей під рукою СЬОГОДНІ: готівка подушки
+	// плюс відкладене під цілі. Головне число картки, бо саме воно
+	// відповідає на її питання — «коли гроші стають доступні». Поля now_uah
+	// (рахунки) немає з schema 4: рахунків застосунок не веде.
 	//
 	// Резервні ВКЛАДИ сюди не входять: у ReserveUAH приходить лише
 	// журнальна готівка подушки (reserveLiquidUAH у state_builder.go), а
@@ -1817,7 +1784,6 @@ type Liquidity struct {
 	// або BreakableUAH за розривністю. Інакше та сама рунга стояла б і в
 	// «під рукою», і в «замкнено».
 	AvailableNowUAH Money `json:"available_now_uah,omitzero"`
-	NowUAH          Money `json:"now_uah"`
 	In30UAH         Money `json:"in_30_uah"`
 	In90UAH         Money `json:"in_90_uah"`
 	// ReserveUAH — резерв, доступний негайно: ГОТІВКА подушки, без
@@ -1827,9 +1793,8 @@ type Liquidity struct {
 	//
 	// Доданок AvailableNowUAH і водночас окреме поле: головне число мусить
 	// бути розкладним, інакше картка називає суму, яку нема з чого зібрати.
-	// У NowUAH йому місця немає (інваріант звірки вище), у LockedUAH — теж:
-	// те означає «доведеться щось ламати», а резерв на те й резерв, що
-	// ламати нічого не треба.
+	// У LockedUAH йому місця немає: те означає «доведеться щось ламати», а
+	// резерв на те й резерв, що ламати нічого не треба.
 	ReserveUAH Money `json:"reserve_uah,omitzero"`
 	// GoalsUAH — гроші під цілями накопичення. Так само доданок
 	// AvailableNowUAH і так само окремим рядком.

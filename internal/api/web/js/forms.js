@@ -11,8 +11,6 @@
 // означало б завести конфіг на кожне поле — довше за сам код. Спільне тут
 // інше: що робиться ПІСЛЯ, і саме воно й дублювалось.
 
-import { money as fmtMoney } from "./format.js";
-
 /** Виконати запит і показати результат. Спільне ядро для форм і кнопок.
  *
  *  Повертає true/false — вийшло чи ні. Двом десяткам наявних викликачів
@@ -116,96 +114,10 @@ export function onSubmit(ctx, form, build) {
   });
 }
 
-/** Сабміт операції, за яку може не вистачити грошей на рахунку.
- *
- *  build(form) повертає {path, body, msg, check, date, what} або null.
- *  Порядок дій:
- *    1) POST на {check} ТИМ САМИМ тілом — бекенд каже, скільки бракує;
- *    2) вистачає — звичайний apply(), нічого не питаємо;
- *    3) бракує — питаємо; «ні» не пише НІЧОГО;
- *    4) «так» — поповнення рівно на нестачу і сама операція, одним applyAll.
- *
- *  Суму рахує бекенд і лише бекенд. qty×ціна+комісія тут були б п'ятою
- *  копією domain.LotCost, а обидва випадки, коли в цьому застосунку
- *  з'являлась друга копія арифметики, записані в state/capital.go:9 —
- *  обидва скінчились різними числами на одному екрані. Рядок суми
- *  приходить готовим і йде в тіло поповнення ДОСЛІВНО.
- *
- *  Поповнення ПЕРШЕ. applyAll спиняється на першій помилці, і з двох
- *  половинчастих результатів ця чесніша: у «Грошах» лишається підписаний
- *  рядок, який видно й можна зняти однією кнопкою. Зворотний порядок на
- *  тому самому збої лишив би записану покупку з мінусом на рахунку —
- *  рівно той стан, якого людина щойно уникала.
- *
- *  Другий сабміт, доки перший не завершився, ІГНОРУЄТЬСЯ. Тут це не
- *  перестраховка: між натисканням і записом лежать запит на сервер і
- *  модальне питання, тобто секунди, а діалог у оболонці ОДИН на весь
- *  застосунок. Два накладені сабміти вішають на його кнопку два
- *  обробники, і одне «так» розв'язує обидва — виходить дві покупки й два
- *  поповнення з одного кліку. Ловилось саме так. */
-export function onSubmitFunded(ctx, form, build) {
-  if (!form) return;
-  let busy = false;
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    if (busy) return;
-    const req = build(e.target);
-    if (!req) return;
-    busy = true;
-    try {
-      await runFunded(ctx, req, form);
-    } finally {
-      busy = false;
-    }
-  });
-}
-
-/** Операція, що витрачає гроші, — з перевіркою рахунку й пропозицією
- *  поповнити рівно на нестачу. Серцевина onSubmitFunded, винесена, щоб
- *  тим самим шляхом ішла й модалка «Виконано» в плані купівель (доти
- *  вона писала операцію повз перевірку, і рахунок мовчки ставав
- *  від'ємним).
- *
- *  req: {check, path, body, date, what, msg, method?, after?}. after —
- *  запити ПІСЛЯ операції в тому самому applyAll (прибрати рядок плану):
- *  на збої операції вони не виконуються. → Promise<boolean>. */
-export async function runFunded(ctx, req, form = null) {
-  const after = req.after || [];
-  let chk;
-  try {
-    chk = await ctx.api("POST", req.check, req.body);
-  } catch (err) {
-    const text = String(err.message || err);
-    ctx.toast(text, false);
-    formError(form, text);
-    return false;
-  }
-  if (chk.enough) return applyAll(ctx, [req, ...after], req.msg, form);
-  // Порожня назва брокера — законний стан («гроші без прив'язки»), тож
-  // у питанні підміняємо її словами, а в тіло поповнення кладемо СИРЕ
-  // значення: бекенд заводить брокера за назвою, і «—» осів би в
-  // довіднику окремим рахунком.
-  const ok = await confirmDialog(ctx,
-    `На рахунку ${chk.broker || "без брокера"} не вистачає `
-    + `${fmtMoney(chk.short)}. Додати поповнення на цю суму і записати?`,
-    { yes: "Поповнити й записати", danger: false });
-  if (!ok) return false;
-  return applyAll(ctx, [
-    {
-      path: "deposits",
-      body: {
-        // Дата поповнення — дата САМОЇ операції, не «сьогодні»: виписка
-        // руху грошей розкладена по датах, і внесок іншим місяцем
-        // показав би надходження, якого того місяця не було.
-        date: req.date, amount: chk.short.amount,
-        currency: chk.short.currency, broker: chk.broker,
-        note: "автопоповнення: " + req.what,
-      },
-    },
-    req,
-    ...after,
-  ], req.msg, form);
-}
+// onSubmitFunded/runFunded (перевірка залишку рахунку перед покупкою й
+// пропозиція «поповнити на нестачу») прибрані разом із рахунками —
+// ревізія 2026-10-03: власник їх у застосунку не веде. Покупка пишеться
+// одразу; зовнішніми грошима вона стає сама (engine/state_flows.go).
 
 /** Кнопки видалення за селектором. build(btn) повертає
  *  {path, msg?, confirm?} або null, щоб нічого не робити.
@@ -397,13 +309,11 @@ export function openEdit(ctx, { title, fields, submit = "Зберегти", wire
       busy = true;
       if (btn) btn.disabled = true;
       formError(form, "");
-      // Три форми відповіді build: операція з перевіркою грошей (check),
-      // кілька запитів одним рухом (requests), один запит.
-      const ok = req.check
-        ? await runFunded(ctx, req, form)
-        : req.requests
-          ? await applyAll(ctx, req.requests, req.msg, form)
-          : await apply(ctx, req, req.msg, form);
+      // Дві форми відповіді build: кілька запитів одним рухом (requests)
+      // або один запит.
+      const ok = req.requests
+        ? await applyAll(ctx, req.requests, req.msg, form)
+        : await apply(ctx, req, req.msg, form);
       busy = false;
       if (btn) btn.disabled = false;
       if (ok) finish(true);

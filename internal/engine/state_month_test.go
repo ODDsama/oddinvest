@@ -12,8 +12,19 @@ import (
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
-// TestMonthReserveMoveNetsToZero — переміщення гаманець → матрац не є
-// внеском, хоч і записане двома окремими рухами.
+// buyFlow — покупка на межі інструмента: гроші ЗАЙШЛИ в портфель. Знак у
+// instrFlow — з боку власника, тож мінус.
+func buyFlow(on domain.Date, minor int64) instrFlow {
+	return instrFlow{Date: on, Amount: -minor, Currency: money.UAH, Kind: flowPurchase, New: minor, Instr: "bond"}
+}
+
+// payFlow — виплата (купон, погашення): гроші ВИЙШЛИ з портфеля до власника.
+func payFlow(on domain.Date, minor int64) instrFlow {
+	return instrFlow{Date: on, Amount: minor, Currency: money.UAH, Kind: flowIncome, Instr: "bond"}
+}
+
+// TestMonthReserveMoveNetsToZero — виплата, перекладена під матрац, не є
+// внеском, хоч і записана двома окремими рухами.
 //
 // Це той самий інваріант, який описує коментар у buildMonth, і його треба
 // перевіряти прямо. Golden цього не робить: рухи резерву в багатій
@@ -29,49 +40,37 @@ func TestMonthReserveMoveNetsToZero(t *testing.T) {
 	today := domain.NewDate(now)
 	d := func(off int) domain.Date { return domain.NewDate(now.AddDate(0, 0, off)) }
 
+	// Купон вийшов з інструмента до власника...
+	flows := []instrFlow{payFlow(d(-3), 100_000)}
 	src := &sources{
-		deposits: []store.Deposit{
-			// Гроші пішли з рахунку брокера в матрац.
-			{Date: d(-3), Amount: -100_000, Currency: money.UAH, Broker: "mono"},
-		},
 		reserveOps: []store.ReserveOp{
-			// Та сама сума прийшла в матрац — друга нога переміщення.
+			// ...і та сама сума пішла в матрац — друга нога переміщення.
 			{Date: d(-3), Amount: 100_000, Currency: money.UAH, Place: "готівка"},
 		},
 	}
-	out, err := buildMonth(src, domain.Holdings{}, fx.Rates{}, now, today, 0)
+	out, err := buildMonth(src, domain.Holdings{}, flows, fx.Rates{}, now, today, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := out.DepositedUAH.Amount(); got != 0 {
 		t.Errorf("переміщення в резерв дало внесок %d, а мусить дати 0 — нових грошей не з'явилось", got)
 	}
-	// РОЗКЛАД — те, що тепер стоїть на плитці замість пари валових чисел.
-	// Внесене нульове, але складається воно з двох рівних і протилежних
-	// половин: сотня пішла з рахунків у матрац.
+	// РОЗКЛАД — те, що стоїть на плитці замість одного числа. Внесене
+	// нульове, але складається воно з двох рівних і протилежних половин:
+	// сотня вийшла з інструментів у матрац.
 	if got := out.OutsideUAH.Amount(); got != 100_000 {
-		t.Errorf("повз рахунки %d, очікували 100000", got)
+		t.Errorf("повз інструменти %d, очікували 100000", got)
 	}
 	if got := out.ContributedUAH.Amount(); got != -100_000 {
-		t.Errorf("на рахунки %d, очікували -100000", got)
-	}
-	// А зняття — ЯКІР ДЕФЕКТУ, через який валові числа з екрана прибрані.
-	// Воно чесне лише наполовину: гроші справді пішли з рахунку брокера,
-	// але та сама сотня рахується ще й поповненням (нога резерву вище).
-	// Нетто від цього правильне, обидва валові — завищені рівно на переказ,
-	// і пара «поповнення X − зняття Y» показувала б переказ як рух назовні.
-	// На живих даних це давало «зняття 4 941», де дві третини не були
-	// зняттям. Поле лишається — його читає інтеграція HA.
-	if got := out.WithdrawnUAH.Amount(); got != 100_000 {
-		t.Errorf("знято %d, очікували 100000", got)
+		t.Errorf("в інструменти %d, очікували -100000", got)
 	}
 }
 
 // TestMonthExternalReserveIsContribution — гроші, відкладені в матрац
-// ЗЗОВНІ (на рахунок брокера вони не заходили), це справжній внесок.
+// ЗЗОВНІ (з інструментів вони не виходили), це справжній внесок.
 //
 // Дзеркало попереднього тесту: разом вони фіксують, що резерв рахується
-// в тому самому нетто, що й поповнення, а не окремим правилом.
+// в тому самому нетто, що й рух на межі інструментів, а не окремим правилом.
 func TestMonthExternalReserveIsContribution(t *testing.T) {
 	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 	today := domain.NewDate(now)
@@ -82,15 +81,12 @@ func TestMonthExternalReserveIsContribution(t *testing.T) {
 				Currency: money.UAH, Place: "сейф"},
 		},
 	}
-	out, err := buildMonth(src, domain.Holdings{}, fx.Rates{}, now, today, 0)
+	out, err := buildMonth(src, domain.Holdings{}, nil, fx.Rates{}, now, today, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := out.DepositedUAH.Amount(); got != 50_000 {
 		t.Errorf("внесено %d, очікували 50000 — відкладене зовні теж внесок", got)
-	}
-	if got := out.WithdrawnUAH.Amount(); got != 0 {
-		t.Errorf("знято %d, а знять не було", got)
 	}
 }
 
@@ -565,23 +561,23 @@ func TestMonthPlanPlannedRespectsAfterFilter(t *testing.T) {
 	}
 }
 
-// --- фактичний темп поповнень ---
+// --- фактичний темп нових грошей ---
 
 // paceOf — темп із buildMonth під тест: курсів немає навмисно, усе в
 // гривні, щоб перевірялась сама вибірка рухів, а не конвертація.
-func paceOf(t *testing.T, now time.Time, src *sources) (float64, int) {
+func paceOf(t *testing.T, now time.Time, src *sources, flows ...instrFlow) (float64, int) {
 	t.Helper()
-	out, err := buildMonth(src, domain.Holdings{}, fx.Rates{}, now, domain.NewDate(now), 0)
+	out, err := buildMonth(src, domain.Holdings{}, flows, fx.Rates{}, now, domain.NewDate(now), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return out.ActualMonthlyUAH, out.ActualMonths
 }
 
-// TestActualPaceIgnoresTransferToGoal — переказ гаманець → ціль не міняє
-// темпу, хоч і записаний двома ногами в різних журналах.
+// TestActualPaceIgnoresTransferToGoal — виплата, перекладена в ціль, не
+// міняє темпу, хоч і записана двома ногами в різних журналах.
 //
-// Доти цикл темпу читав лише deposits, тобто бачив саму від'ємну ногу й
+// Доти цикл темпу читав лише один журнал, тобто бачив саму від'ємну ногу й
 // ЗАНИЖУВАВ темп на суму переказу: відкладання на авто виглядало як провал
 // дисципліни. Коментар у buildMonth обіцяв протилежне ще з міграції 0039,
 // а перевіряти обіцянку не було чим — жоден тест не дивився на
@@ -590,17 +586,16 @@ func TestActualPaceIgnoresTransferToGoal(t *testing.T) {
 	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 	d := func(off int) domain.Date { return domain.NewDate(now.AddDate(0, 0, off)) }
 
-	base := []store.Deposit{{Date: d(-60), Amount: 200_000, Currency: money.UAH, Broker: "mono"}}
-	want, wantMonths := paceOf(t, now, &sources{deposits: base})
+	base := buyFlow(d(-60), 200_000)
+	want, wantMonths := paceOf(t, now, &sources{}, base)
 
 	withTransfer := &sources{
-		deposits: append(append([]store.Deposit{}, base...),
-			store.Deposit{Date: d(-30), Amount: -100_000, Currency: money.UAH, Broker: "mono"}),
 		goalOps: []store.GoalOp{
 			{GoalID: 1, Date: d(-30), Amount: 100_000, Currency: money.UAH, Place: "готівка"},
 		},
 	}
-	got, gotMonths := paceOf(t, now, withTransfer)
+	// Погашення вийшло з інструмента й тим самим днем пішло в ціль.
+	got, gotMonths := paceOf(t, now, withTransfer, base, payFlow(d(-30), 100_000))
 	if got != want {
 		t.Errorf("темп після переказу в ціль %.2f, а мусив лишитись %.2f — нових грошей не з'явилось і не зникло", got, want)
 	}
@@ -610,7 +605,7 @@ func TestActualPaceIgnoresTransferToGoal(t *testing.T) {
 }
 
 // TestActualPaceCountsOutsideReserve — відкладене в матрац ЗЗОВНІ теж
-// внесок, хоч на рахунок брокера воно не заходило.
+// внесок, хоч в інструменти воно не заходило.
 //
 // Дзеркало попереднього тесту, той самий довід, що й у пари про
 // DepositedUAH: резерв рахується тим самим нетто, а не окремим правилом.
@@ -625,7 +620,7 @@ func TestActualPaceCountsOutsideReserve(t *testing.T) {
 	got, months := paceOf(t, now, src)
 	want := domain.Round2(500 / paceMonths(d(-2), today))
 	if got != want {
-		t.Errorf("темп %.2f, очікували %.2f — резерв без жодного поповнення гаманця мусить давати темп сам", got, want)
+		t.Errorf("темп %.2f, очікували %.2f — резерв без жодної покупки мусить давати темп сам", got, want)
 	}
 	if months != 1 {
 		t.Errorf("місяців %d, очікували 1", months)
@@ -633,17 +628,16 @@ func TestActualPaceCountsOutsideReserve(t *testing.T) {
 }
 
 // TestActualPaceReserveSpendLowersPace — витрата з матраца знижує темп:
-// гроші пішли з капіталу так само, як пішли б із рахунку.
+// гроші пішли з капіталу так само, як пішли б із невкладеної виплати.
 func TestActualPaceReserveSpendLowersPace(t *testing.T) {
 	now := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
 	today := domain.NewDate(now)
 	d := func(off int) domain.Date { return domain.NewDate(now.AddDate(0, 0, off)) }
 
-	base := []store.Deposit{{Date: d(-60), Amount: 200_000, Currency: money.UAH, Broker: "mono"}}
-	src := &sources{deposits: base, reserveOps: []store.ReserveOp{
+	src := &sources{reserveOps: []store.ReserveOp{
 		{Date: d(-2), Amount: -50_000, Currency: money.UAH, Place: "готівка", Note: "на вет клініку"},
 	}}
-	got, _ := paceOf(t, now, src)
+	got, _ := paceOf(t, now, src, buyFlow(d(-60), 200_000))
 	want := domain.Round2(1500 / paceMonths(d(-60), today))
 	if got != want {
 		t.Errorf("темп %.2f, очікували %.2f — витрата з резерву мусить зменшити нетто", got, want)
@@ -661,20 +655,20 @@ func TestActualPaceWindowCoversAllJournals(t *testing.T) {
 	today := domain.NewDate(now)
 	d := func(off int) domain.Date { return domain.NewDate(now.AddDate(0, 0, off)) }
 
-	base := []store.Deposit{{Date: d(-10), Amount: 200_000, Currency: money.UAH, Broker: "mono"}}
+	base := buyFlow(d(-10), 200_000)
 
-	tooOld := &sources{deposits: base, reserveOps: []store.ReserveOp{
+	tooOld := &sources{reserveOps: []store.ReserveOp{
 		{Date: d(-184), Amount: 100_000, Currency: money.UAH, Place: "сейф"},
 	}}
-	got, _ := paceOf(t, now, tooOld)
+	got, _ := paceOf(t, now, tooOld, base)
 	if want := domain.Round2(2000 / paceMonths(d(-10), today)); got != want {
 		t.Errorf("темп %.2f, очікували %.2f — рух за 184 дні до вікна не входить", got, want)
 	}
 
-	onEdge := &sources{deposits: base, reserveOps: []store.ReserveOp{
+	onEdge := &sources{reserveOps: []store.ReserveOp{
 		{Date: d(-183), Amount: 100_000, Currency: money.UAH, Place: "сейф"},
 	}}
-	got, months := paceOf(t, now, onEdge)
+	got, months := paceOf(t, now, onEdge, base)
 	if want := domain.Round2(3000 / paceMonths(d(-183), today)); got != want {
 		t.Errorf("темп %.2f, очікували %.2f — рух на 183-й день у вікні, і він же найстаріший", got, want)
 	}

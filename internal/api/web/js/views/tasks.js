@@ -111,9 +111,21 @@ function taskHref(t, a) {
   return routeFor(a.to);
 }
 
+// «Записати покупку» з ref «bond:<ISIN>» — не посилання, а та сама кнопка
+// «Купив», що в картці «Що взяти»: вона відкриває форму лота вже з ISIN,
+// ціною й брокером. Посилання вело б у порожнє «Записати нове», і людина
+// набирала б заново те, що задача щойно назвала. Слухача ставить
+// wireReinvest — він стоїть на обох сторінках, де черга малюється.
+function taskCTA(t, a) {
+  if (t.action === "record-buy" && (t.ref || "").startsWith("bond:")) {
+    return `<button class="task-a" data-bought="${esc(t.ref.slice(5))}">${esc(a.label)}</button>`;
+  }
+  return `<a class="task-a" href="${taskHref(t, a)}">${esc(a.label)}</a>`;
+}
+
 function taskRow(t) {
   const a = ACTIONS[t.action];
-  const cta = a ? `<a class="task-a" href="${taskHref(t, a)}">${esc(a.label)}</a>` : "";
+  const cta = a ? taskCTA(t, a) : "";
   return `<div class="task" data-sev="${esc(t.sev)}">
     <div class="task-sev" aria-hidden="true"></div>
     <div class="task-t"><b>${esc(t.title)}</b>${t.when

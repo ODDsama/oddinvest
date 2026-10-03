@@ -315,48 +315,44 @@ func (e *Engine) rivalFlows(ctx context.Context, level string, ar *asOfRates, fr
 		return nil
 	}
 
-	// Гаманець: поповнення й зняття. Купівлі сюди НЕ пишуться (імпорт
-	// навіть застерігає про подвоєння, коли ручний рух дублює операцію),
-	// тож це справді зовнішні гроші, а не обіг усередині портфеля.
-	cash, err := e.st.ListDeposits(ctx)
+	// Рух на межі інструментів (state_flows.go): покупка — гроші зайшли,
+	// виплата чи вихід — вийшли. Той самий журнал, що в «внесено» й XIRR;
+	// рахунків застосунок не веде (ревізія 2026-10-03), тож межею став сам
+	// інструмент.
+	//
+	// Рівень «портфель» — папери, фонди й вклади, тобто БЕЗ пенсійного: так
+	// він і означений у snapshotPortfolioUAH. Рівень «усі гроші» додає
+	// пенсійний, подушку й цілі — склад snapshotCapitalUAH.
+	today := domain.NewDate(time.Now())
+	src, err := e.loadSources(ctx, today)
 	if err != nil {
 		return nil, err
 	}
-	for _, d := range cash {
-		if err := add(d.Date, d.Amount, d.Currency); err != nil {
+	flows, err := instrumentFlows(flowInputsOf(src, today))
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range flows {
+		if level != LevelAll && f.Instr == "npf" {
+			continue
+		}
+		if err := add(f.Date, -f.Amount, f.Currency); err != nil {
 			return nil, err
 		}
 	}
 	if level != LevelAll {
 		return out, nil
 	}
-
-	res, err := e.st.ListReserveOps(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, o := range res {
+	for _, o := range src.reserveOps {
 		if err := add(o.Date, o.Amount, o.Currency); err != nil {
 			return nil, err
 		}
 	}
-	goals, err := e.st.ListGoalOps(ctx)
-	if err != nil {
-		return nil, err
-	}
-	for _, o := range goals {
+	for _, o := range src.goalOps {
 		if err := add(o.Date, o.Amount, o.Currency); err != nil {
 			return nil, err
 		}
 	}
-	// Пенсійного тут немає, і це не пропуск. Внесок у НПФ СПИСУЄТЬСЯ з
-	// рахунку (state_builder.go), тобто переклада гроші всередині капіталу,
-	// а форма НПФ заводить парний рядок у deposits сама. Порахований ще й
-	// окремим журналом, він ставав другою копією тих самих грошей: суперник
-	// діставав гроші, яких власник не вносив, і бенчмарк занижував власний
-	// результат рівно на суму внесків. Склад рівня LevelAll мусить збігатися
-	// зі snapshotCapitalUAH, а НПФ входить у нього ЗАЛИШКОМ рахунку, а не
-	// потоком.
 	return out, nil
 }
 
@@ -449,7 +445,7 @@ func rivalActual(snaps []store.Snapshot, doc *state.Doc, level string, days []do
 // не можна: розбіжність виглядала б стрибком кривої в останній точці, а
 // не помилкою.
 func snapshotPortfolioUAH(sn store.Snapshot) int64 {
-	return sn.NominalUAHEq + sn.AccountUAH + sn.FundsUAH + sn.DepositsUAH
+	return sn.NominalUAHEq + sn.FundsUAH + sn.DepositsUAH
 }
 
 func snapshotLevelUAH(sn store.Snapshot, level string) int64 {
@@ -463,5 +459,5 @@ func docLevelUAH(doc *state.Doc, level string) float64 {
 	if level == LevelAll {
 		return doc.CapitalUAH.Major()
 	}
-	return domain.Round2(doc.NominalUAHEq.Major() + doc.AccountUAH.Major() + doc.FundsUAH.Major() + doc.DepositsUAH.Major())
+	return domain.Round2(doc.NominalUAHEq.Major() + doc.FundsUAH.Major() + doc.DepositsUAH.Major())
 }

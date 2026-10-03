@@ -27,9 +27,9 @@ func TestOrderKeyDefaultsToReal(t *testing.T) {
 // не про вигоду, а про порівнянність і впевненість.
 func TestLessSuggestionOrderFlipsOnlyTheYieldStep(t *testing.T) {
 	// Гривневий вклад: більше гривень, менше купівельної спроможності.
-	uah := suggestion{Kind: "deposit", Currency: money.UAH, NominalPct: 16, RealPct: 3, CanBuy: true}
+	uah := suggestion{Kind: "deposit", Currency: money.UAH, NominalPct: 16, RealPct: 3}
 	// Валютний папір: навпаки.
-	usd := suggestion{Kind: "bond", Currency: money.USD, NominalPct: 4.5, RealPct: 4.5, CanBuy: true}
+	usd := suggestion{Kind: "bond", Currency: money.USD, NominalPct: 4.5, RealPct: 4.5}
 
 	if !LessSuggestion(usd, uah, "rate", orderReal) {
 		t.Fatal("за реальною валютний папір мусить бути вище")

@@ -332,10 +332,6 @@ export function wireNPF(ctx, main) {
       form: `[data-npfop-form="${acc.id}"]`,
       title: "Внесок", rows: ops.filter((o) => o.npf_id === acc.id),
       fields: npfOpFields, body: npfOpBody(acc.id),
-      // Внесок може не вміститись у баланс рахунку, тож форма та сама, що
-      // в покупки паперу: спершу /check, і якщо бракує — пропозиція
-      // поповнити рівно на нестачу.
-      funded: (f) => ({ check: "npf/check", date: f.date.value, what: "внесок у НПФ" }),
       msg: { add: "Внесок записано", edit: "Внесок виправлено", del: "Внесок видалено" },
     });
   });

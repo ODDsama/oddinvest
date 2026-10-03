@@ -651,11 +651,11 @@ func TestPlanForeignFlowKeepsItsCurrency(t *testing.T) {
 		in := forecastInput(t, set)
 		in.Rates = fx.Rates{"USD": 420000} // 42.0000 ₴/$
 		in.Deval = deval
-		// Наявну гривневу готівку прибираємо: підсумок міряний у
-		// СЬОГОДНІШНІХ гривнях, тож її реальна вартість сама по собі
+		// Наявний гривневий капітал прибираємо: підсумок міряний у
+		// СЬОГОДНІШНІХ гривнях, тож його реальна вартість сама по собі
 		// їде від знецінення — і ховала б те, що ми тут міряємо.
 		in.Capital = state.Capital{}
-		in.CashByCur = map[string]int64{}
+		in.AccumByCur = nil
 		return in
 	}
 	usdFlow := store.PlanFlow{

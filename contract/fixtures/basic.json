@@ -1,5 +1,5 @@
 {
-  "schema": 3,
+  "schema": 4,
   "generated_at": "2026-07-15T10:00:00Z",
   "currency": "UAH",
   "invested_uah": 137305.57,
@@ -12,46 +12,9 @@
     "delta_pct": 1.86,
     "contributed_uah": 4500
   },
-  "idle": {
-    "investable_uah": 12000,
-    "since": "2026-06-20",
-    "days": 25,
-    "age_days": 20.5,
-    "by_pair": [
-      {
-        "broker": "mono",
-        "currency": "UAH",
-        "investable": 12000,
-        "investable_uah": 12000,
-        "since": "2026-06-20",
-        "days": 25,
-        "age_days": 20.5
-      }
-    ]
-  },
-  "idle_cost": {
-    "cost_month_uah": 98.4,
-    "cost_so_far_uah": 66.32,
-    "rate_pct": 9.84,
-    "rate_label": "UA4000227748",
-    "by_pair": [
-      {
-        "broker": "mono",
-        "currency": "UAH",
-        "cost_month_uah": 98.4,
-        "cost_so_far_uah": 66.32,
-        "rate_pct": 9.84,
-        "rate_label": "UA4000227748"
-      }
-    ]
-  },
   "usd_share_pct": 32.29563896082223,
   "eur_share_pct": 0,
   "uninvested_uah": 0,
-  "account_uah": 0,
-  "reinvest_min_uah": 0,
-  "accounts": {},
-  "reinvest_min": {},
   "reserve_uah": 60000,
   "reserve": {
     "uah": 60000,
@@ -334,10 +297,9 @@
     }
   ],
   "liquidity": {
-    "available_now_uah": 91500,
-    "now_uah": 1500,
-    "in_30_uah": 95637.5,
-    "in_90_uah": 99775,
+    "available_now_uah": 90000,
+    "in_30_uah": 94137.5,
+    "in_90_uah": 98275,
     "reserve_uah": 60000,
     "goals_uah": 30000,
     "locked_uah": 120000,

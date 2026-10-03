@@ -49,10 +49,9 @@ type rebalanceInput struct {
 	Settings *state.SettingsDoc
 	Rates    fx.Rates
 
-	// CashByCur — готівка по валютах, мінорні (чи є за що купувати вже
-	// зараз); MinNominalByCur / DepositMinByCur — найдешевший вхід у
-	// валюту, мінорні.
-	CashByCur       map[string]int64
+	// MinNominalByCur / DepositMinByCur — найдешевший вхід у валюту,
+	// мінорні. Готівки по валютах тут більше немає: рахунків застосунок не
+	// веде (ревізія 2026-10-03), тож і «вистачає на N» не має з чого рахуватись.
 	MinNominalByCur map[string]int64
 	DepositMinByCur map[string]int64
 
@@ -247,7 +246,6 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		currentPct := cap.SharePct(cur)
 		targetUAH := totalMajor * (*tp) / 100
 		deficitUAH := math.Max(0, targetUAH-curUAH)
-		cashNative := float64(in.CashByCur[cur]) / 100
 		// Одиниця входу з ПРІОРИТЕТОМ облігації: якщо найдешевший папір
 		// вписується в цільову частку — радимо його (безподатковий купон,
 		// справжній інструмент). Вклад ($100/€100) — запасний, менший вхід
@@ -269,14 +267,6 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		default:
 			unitNative, unitUAH, unitKind = bondNative, bondUAH, "bond"
 		}
-		var canBuy int64
-		convertUAH := 0.0
-		if unitNative > 0 {
-			canBuy = int64(cashNative / unitNative)
-			if cashNative < unitNative {
-				convertUAH = (unitNative - cashNative) * rateMajor
-			}
-		}
 		// Транзит цієї валюти: залишок цільової суми після цілих паперів.
 		// Без паперу в довіднику взагалі транзитом є ВСЯ ціль — купити
 		// нічого, і чекати доведеться всьому.
@@ -289,8 +279,8 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 			Dimension: "currency", Key: cur,
 			Currency: cur, TargetPct: *tp, CurrentPct: domain.Round2(currentPct),
 			DeficitUAH: state.Major(deficitUAH, money.UAH), DeficitNative: state.Major(deficitUAH/rateMajor, cur),
-			CashNative: state.Major(cashNative, cur), BondCostNative: state.Major(unitNative, cur),
-			BondCostUAH: state.Major(unitUAH, money.UAH), CanBuy: canBuy, ConvertUAH: state.Major(convertUAH, money.UAH),
+			BondCostNative:  state.Major(unitNative, cur),
+			BondCostUAH:     state.Major(unitUAH, money.UAH),
 			MinPortfolioUAH: state.Major(unitUAH/(*tp/100), money.UAH),
 			Feasible:        unitUAH > 0 && unitUAH <= targetUAH,
 			UnitKind:        unitKind,
@@ -452,52 +442,6 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 			row.TransitUAH = state.Major(transitCarveUAH, money.UAH)
 		}
 		out.Rebalance = append(out.Rebalance, row)
-	}
-
-	// ГОТІВКА — ОСТАННІЙ ДОВІДКОВИЙ РЯДОК, І БЕЗ НЬОГО КАРТИНА НЕ СХОДИЛАСЬ.
-	//
-	// Шапка файла вже казала правду: невкладені гроші лишаються в знаменнику,
-	// тож поки вони лежать, усі види разом стоять нижче цілі. Сказано це було
-	// лише словами — рядка не було, і сотня не збиралась із жодного переліку.
-	// Ціна виявилась не косметичною: у картці наслідків покупка за наявні
-	// гроші рухала свій вид і НЕ рухала решту (гроші переїжджають усередині
-	// того самого знаменника), і без рядка готівки це читалось як «застосунок
-	// порахував лише власну частку». Тепер видно, звідки саме вони прийшли.
-	//
-	// AccountUAH, а не залишок від віднімання, хоч ці числа рівні за
-	// побудовою (Capital.TotalUAH: Bonds+Account+Funds+Deposits+Reserve+
-	// Goals+NPF, а kindMajor — та сама сума без Reserve і Goals). Різниця в
-	// тому, що залишок мовчки прибрав би до готівки будь-який майбутній
-	// доданок капіталу, і новий вид активу з'явився б на екрані під чужою
-	// назвою. Хай краще сотня не збереться й це буде помітно.
-	//
-	// ЦІЛІ В НЬОГО НЕМАЄ Й НЕ БУДЕ: готівка — не вид, а те, що ще не стало
-	// видом. Ціль «тримати 5% у грошах» — це ціль на резерв, і в неї власна
-	// картка з місяцями витрат.
-	// ЗНАКА НЕ ПЕРЕВІРЯЄМО, і це не послаблення умови, а виправлення.
-	//
-	// Готівка буває ВІДʼЄМНОЮ: касовий журнал не має підлоги (state_cash.go),
-	// тож зняття понад залишок, імпорт, у якому покупки лягли раніше за
-	// поповнення, чи гіпотетична покупка дорожча за рахунок — усе це
-	// законні стани. Доти рядок при цьому ЗНИКАВ, а kindMajor відʼємну
-	// готівку враховував і далі — тобто знаменник меншав, видимі види
-	// разом давали понад сотню, і пояснити це було нічим.
-	//
-	// Гірше: три картки при цьому починали суперечити самі собі. «Структура
-	// за видом» друкувала «всі види разом стоять трохи нижче цілі», коли
-	// вони стояли ВИЩЕ; «Дохідність за видом» обіцяла, що сума стовпця
-	// дорівнює капіталу, і не дорівнювала; а картка наслідків малювала
-	// відсутній рядок нулем — «0,13% → 0,00%» замість мінуса.
-	//
-	// Рядок про готівку найпотрібніший рівно тоді, коли її найважче
-	// помітити.
-	if kindMajor > 0 {
-		out.Rebalance = append(out.Rebalance, state.RebalanceRow{
-			Dimension: "kind", Key: "cash", Currency: money.UAH,
-			CurrentPct: domain.Round2(cap.AccountUAH.Major() / kindMajor * 100),
-			CurrentUAH: cap.AccountUAH,
-			UnitKind:   "cash", Feasible: true,
-		})
 	}
 
 	// --- концентрація ---

@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
-	"github.com/ODDsama/oddinvest/internal/store"
 )
 
 // Поповнення вкладу й точку ЧВОПА доти можна було лише додати й видалити:
@@ -19,13 +18,7 @@ import (
 // поверталось успіхом.
 
 func TestUpdateDepositTopup(t *testing.T) {
-	srv, st := testServer(t)
-	ctx := context.Background()
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-01-10", Amount: 100000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	srv, _ := testServer(t)
 	body := `{"bank":"ПУМБ","currency":"UAH","principal":"100000.00","rate_pct":"16",` +
 		`"open_date":"2026-01-15","maturity_date":"2027-01-15","payout":"end","replenishable":true}`
 	resp, b := do(t, "POST", srv.URL+"/api/term-deposits", body)

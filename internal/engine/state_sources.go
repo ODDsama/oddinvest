@@ -2,8 +2,8 @@
 //
 // Перша фаза розбиття BuildState. Доти читання були розсипані по всій
 // функції: lots на початку, statuses на 330-му рядку, налаштування на
-// 950-му, середній курс на 1215-му. Наслідок передбачуваний — ListDeposits
-// викликався ДВІЧІ, за пʼятсот рядків один від одного, і жодне з двох
+// 950-му, середній курс на 1215-му. Наслідок передбачуваний — той самий
+// журнал читався ДВІЧІ, за пʼятсот рядків один від одного, і жодне з двох
 // місць не знало про інше.
 //
 // Тепер правило просте: якщо фаза щось читає зі сховища, вона бере це
@@ -122,13 +122,9 @@ type sources struct {
 	// обхід знімків там платити нема за що. nil — знімка ще немає.
 	capitalAgo *store.Snapshot
 
-	// Рух грошей: поповнення/зняття, конвертації і статуси виплат. Обидва
-	// списки З ДАТАМИ, а не підсумками по парах: гаманець (state_cash.go)
-	// веде журнал подій, і з нього виводиться не лише баланс, а й з якого
-	// дня гроші лежать.
-	deposits    []store.Deposit
-	conversions []store.Conversion
-	statuses    map[string]string
+	// Статуси виплат («Отримано»). Журналів поповнень і конвертацій немає:
+	// рахунків застосунок не веде (ревізія 2026-10-03).
+	statuses map[string]string
 	// ratesAsOf — дата НАЙСТАРІШОГО з останніх курсів USD і EUR: вік
 	// гривневих еквівалентів визначає той курс, що відстав. Порожньо, коли
 	// курсів немає зовсім (свіжа база) — тоді й старіти нічому.
@@ -228,9 +224,6 @@ func (e *Engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 			src.ratesAsOf = d
 		}
 	}
-	if src.conversions, err = e.st.ListConversions(ctx); err != nil {
-		return nil, err
-	}
 	if src.minNominal, err = e.st.MinNominalByCurrency(ctx); err != nil {
 		return nil, err
 	}
@@ -244,9 +237,6 @@ func (e *Engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		return nil, err
 	}
 	if src.termDeposits, err = e.st.ListTermDeposits(ctx); err != nil {
-		return nil, err
-	}
-	if src.deposits, err = e.st.ListDeposits(ctx); err != nil {
 		return nil, err
 	}
 	if src.brokers, err = e.st.ListBrokers(ctx); err != nil {

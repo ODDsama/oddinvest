@@ -6,7 +6,6 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
-	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -34,7 +33,7 @@ func routeFlow(date string, amountMajor float64, label string) readyFlow {
 }
 
 func routeInc(broker, cur string, flows ...readyFlow) incomeAhead {
-	return incomeAhead{store.BrokerCur{Broker: broker, Currency: cur}: flows}
+	return incomeAhead{brokerCur{Broker: broker, Currency: cur}: flows}
 }
 
 // routePlans — однаковий план доходу в кожному місяці горизонту.
@@ -277,9 +276,9 @@ func TestRoutePoolsUntilWholeTicket(t *testing.T) {
 func TestRouteSeparatePools(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 0)}, nil)
 	inc := incomeAhead{
-		store.BrokerCur{Broker: "mono", Currency: money.UAH}: []readyFlow{
+		brokerCur{Broker: "mono", Currency: money.UAH}: []readyFlow{
 			routeFlow("2026-09-10", 600, "UA0001")},
-		store.BrokerCur{Broker: "inzhur", Currency: money.UAH}: []readyFlow{
+		brokerCur{Broker: "inzhur", Currency: money.UAH}: []readyFlow{
 			routeFlow("2026-09-11", 600, "UA0002")},
 	}
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
@@ -446,7 +445,7 @@ func TestRouteEmptyHasReason(t *testing.T) {
 func TestRouteDeterministic(t *testing.T) {
 	inc := incomeAhead{}
 	for _, b := range []string{"mono", "inzhur", "privat", "sense"} {
-		inc[store.BrokerCur{Broker: b, Currency: money.UAH}] = []readyFlow{
+		inc[brokerCur{Broker: b, Currency: money.UAH}] = []readyFlow{
 			routeFlow("2026-09-10", 12000, "UA0001")}
 	}
 	run := func() string {

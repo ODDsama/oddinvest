@@ -450,7 +450,7 @@ func TestRoutePlanLegCarriesItsOwnUses(t *testing.T) {
 	}
 
 	doc := routeReserveDoc("any")
-	inc := incomeAhead{store.BrokerCur{Broker: NoBrokerLabel, Currency: money.UAH}: flows}
+	inc := incomeAhead{brokerCur{Broker: NoBrokerLabel, Currency: money.UAH}: flows}
 	got := buildRoute(doc, nil, inc, routePlans(40000), nil, allocRates, nil, nil, routeToday)
 	if len(got.Legs) != 2 {
 		t.Fatalf("ніг маршруту %d, чекали 2", len(got.Legs))
@@ -578,7 +578,7 @@ func TestRoutePlanLegHasItsOwnPot(t *testing.T) {
 	plan.Basis = BasisPlan
 
 	inc := routeInc("mono", money.UAH, routeFlow("2026-09-10", 600, "UA0001"))
-	inc[store.BrokerCur{Broker: NoBrokerLabel, Currency: money.UAH}] = []readyFlow{plan}
+	inc[brokerCur{Broker: NoBrokerLabel, Currency: money.UAH}] = []readyFlow{plan}
 
 	got := buildRoute(doc, []suggestion{bondSug("UA0001", 1000, money.UAH)},
 		inc, routePlans(0), nil, allocRates, nil, nil, routeToday)
@@ -613,7 +613,7 @@ func TestRoutePlanLegCappedByAllowedPlan(t *testing.T) {
 
 	plan := routeFlow("2026-09-17", 6000, "план місяця")
 	plan.Basis = BasisPlan
-	inc := incomeAhead{store.BrokerCur{Broker: NoBrokerLabel, Currency: money.UAH}: {plan}}
+	inc := incomeAhead{brokerCur{Broker: NoBrokerLabel, Currency: money.UAH}: {plan}}
 
 	plans := routePlans(6000)
 	key := MonthKeyAt(routeToday, 1)

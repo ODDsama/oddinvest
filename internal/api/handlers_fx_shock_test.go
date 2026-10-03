@@ -52,12 +52,6 @@ func fxShockServer(t *testing.T) (*Server, *store.Store, *httptest.Server) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 100_000_00,
-		Currency: money.USD, Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := st.AddLot(ctx, domain.Lot{
 		ISIN: "UA4000227748", Qty: 5, PricePerBond: money.New(99500, money.UAH),
 		BuyDate: domain.NewDate(time.Now().AddDate(0, 0, -10)), Channel: "mono",
@@ -82,7 +76,6 @@ func stripDoc(t *testing.T, b []byte) string {
 	}
 	delete(m, "generated_at")
 	delete(m, "tasks")
-	delete(m, "idle_cost")
 	out, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)

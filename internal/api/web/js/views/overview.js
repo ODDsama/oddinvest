@@ -91,7 +91,7 @@ function heroHTML(ctx) {
     ${tile("Заробило, річних", xirr ? pct(xirr) : "—",
     xirr ? `<div class="sub-xs">XIRR — з урахуванням дат внесків</div>`
       : `<div class="sub-xs">гроші ще замолоді, щоб міряти</div>`)}
-    ${tile("Вільні гроші", uah0(s.account_uah || 0), idleSubHTML(s))}
+    ${waitingTile(s)}
     ${savingsRateTile(s)}
   </div>`;
 }
@@ -121,25 +121,18 @@ function savingsRateTile(s) {
   return tile("Норма заощаджень", pct(r), sub);
 }
 
-/** Підпис під «Вільними грішми»: простій, якщо він є, інакше поріг покупки.
+/** «Дохід чекає» — виплати, після яких ще не було покупки.
  *
- *  Простій приходить готовим (idle зі зведення): скільки вже можна вкласти,
- *  з якого дня лежить і що це коштує на місяць за сьогоднішньою порадою.
- *  Ціна є не завжди — без поради для цих грошей у цього брокера її нема з
- *  чого взяти, і тоді рядок каже лише скільки й відколи. */
-function idleSubHTML(s) {
-  const idle = s.idle;
-  if (idle && idle.investable_uah > 0) {
-    const since = idle.since ? ` · лежать з ${esc(dayMonth(idle.since))}` : "";
-    // Ціна — окремим полем (idle_cost): це порада про сьогоднішній
-    // ринок, а не факт про гаманець, і без поради її просто немає.
-    const c = s.idle_cost;
-    const cost = c && c.cost_month_uah > 0
-      ? ` · ≈ ${esc(signedUAH(-c.cost_month_uah))}/міс за сьогоднішньою порадою` : "";
-    return `<div class="sub-xs">можна вкласти ${esc(uah0(idle.investable_uah))}${since}${cost}</div>`;
-  }
-  return s.reinvest_min_uah > 0
-    ? `<div class="sub-xs">поріг покупки ${uah0(s.reinvest_min_uah)}</div>` : "";
+ *  Замінила «Вільні гроші» (ревізія 2026-10-03): залишків рахунків
+ *  застосунок більше не веде, тож «скільки лежить у брокера» він знати не
+ *  може. Знає інше — скільки купонів, погашень і дивідендів прийшло з
+ *  останньої покупки; число рахує бекенд (engine/state_builder.go).
+ *  Нуль мовчить: «0 ₴ чекає» нічого не каже. */
+function waitingTile(s) {
+  const w = s.uninvested_uah || 0;
+  if (w <= 0) return "";
+  return tile("Дохід чекає", uah0(w),
+    `<div class="sub-xs">прийшло з виплат, а покупки після того ще не було</div>`);
 }
 
 // ---------------------------------------------------------------------

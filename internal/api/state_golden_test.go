@@ -27,7 +27,6 @@ import (
 	"encoding/json"
 	"flag"
 	"log/slog"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -180,30 +179,11 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 		t.Fatal(err)
 	}
 
-	// Гроші на ДВА брокери й у трьох валютах.
-	for _, dep := range []store.Deposit{
-		{Date: d(-200), Amount: 50000000, Currency: money.UAH, Broker: "mono"},
-		{Date: d(-150), Amount: 300000, Currency: money.USD, Broker: "mono"},
-		{Date: d(-150), Amount: 200000, Currency: money.EUR, Broker: "inzhur"},
-		{Date: d(-100), Amount: 10000000, Currency: money.UAH, Broker: "inzhur"},
-		{Date: d(-20), Amount: -2000000, Currency: money.UAH, Broker: "mono"}, // зняття
-		// Рухи ПОТОЧНОГО місяця. Без них уся фаза «місяць» (внесено,
-		// знято, вкладено, прогрес плану) лишається нулями: решта дат тут
-		// із запасом раніша за goldenNow. Внесено більше, ніж знято, бо
-		// month_deposited_uah — нетто.
-		{Date: d(-6), Amount: 8000000, Currency: money.UAH, Broker: "mono"},
-		{Date: d(-3), Amount: -1500000, Currency: money.UAH, Broker: "mono"},
-	} {
-		if _, err := st.AddDeposit(ctx, dep); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := st.AddConversion(ctx, store.Conversion{
-		Date: d(-90), FromCurrency: money.UAH, FromAmount: 4400000,
-		ToCurrency: money.USD, ToAmount: 100000, Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// Поповнень, знять і конвертацій тут більше немає: рахунків застосунок
+	// не веде (ревізія 2026-10-03), і гроші заходять у портфель на межі
+	// інструмента — самими покупками нижче. Рухи поточного місяця, без яких
+	// фаза «місяць» лишилась би нулями, дає покупка лота d(-7) і фонд d(-20)
+	// разом із рухами подушки й цілей.
 
 	// Лоти: у двох брокерах, у трьох валютах, плюс погашений.
 	for _, body := range []string{
@@ -565,7 +545,7 @@ func richPortfolio(t *testing.T, srv string, st *store.Store) {
 	if err := st.SaveSnapshot(ctx, store.Snapshot{
 		Date: d(-35), InvestedUAH: 9_000_000, NominalUAHEq: 9_500_000,
 		USDShareBP: 3000, UninvestedUAH: 100_000, MonthTargetUAH: 1_000_000,
-		AccountUAH: 300_000, FundsUAH: 1_000_000, DepositsUAH: 2_000_000,
+		FundsUAH: 1_000_000, DepositsUAH: 2_000_000,
 		FundsCostUAH: 950_000, ReserveUAH: 5_000_000, NPFUAH: 500_000,
 		NPFCostUAH: 480_000, GoalsUAH: 1_000_000, NetWorthUAH: -2_000_000,
 	}); err != nil {
@@ -976,16 +956,6 @@ var allowedZero = map[string]string{
 	// немає; на фікстурі з курсом і гривнею їй нема звідки взятись.
 	"settings.report_currency": "порожньо = гривня; фікстура тримає дефолт",
 	"currency_note":            "примітка є лише при валюті ≠ UAH без курсу",
-	// Нуль тут — не «фаза не заповнила», а ЗАКОНЧЕНИЙ СТАН: на цій фікстурі
-	// за поточний місяць внесено 65 000 ₴ нетто при плані в 10 600 ₴, тобто
-	// план місяця перевиконано, і закидати більше нема чого. Саме заради
-	// цієї гілки (max(0, …) замість від'ємного числа) фікстура й лишається
-	// такою: підняти план вище за внесене можна було б лише премією тисяч
-	// на двісті, і тоді не перевірялась би вона.
-	//
-	// Виняток зникне сам, щойно фікстура зміниться в інший бік: зустрічна
-	// перевірка нижче валить тест на винятку, який більше нічого не прикриває.
-	"month_plan.left_uah": "план місяця перевиконано — внесено більше, ніж обіцяв план",
 	// Нуль тут — ЗВИЧАЙНИЙ стан, а не пропущена гілка: на цій фікстурі
 	// непортфельного доходу 27 900 ₴ при обовʼязкових платежах на 150 ₴,
 	// тобто переповненню нема з чого взятись. Це і є типовий випадок,
@@ -1150,35 +1120,4 @@ func walkDoc(v reflect.Value, path string) map[string]string {
 		}
 	}
 	return empty
-}
-
-// Два гаманці — збирач стану (engine/state_builder.go) і подієвий звіт
-// (engine/cashflow.go) — рахують ті самі гроші двома реалізаціями й мусять
-// сходитись до копійки. TestCashflowStatementReconciles стереже це на
-// маленькому сценарії; тут — на НАЙБАГАТШІЙ фікстурі застосунку: фонди,
-// НПФ, вклади з поповненнями, конвертації, продажі, купони, кілька
-// брокерів і валют. Саме так розходження й траплялось (продаж, який звіт
-// зараховував, а гаманець — ні): у малому сценарії потрібної події просто
-// не було.
-func TestCashflowReconcilesOnRichPortfolio(t *testing.T) {
-	srv, st := testServer(t)
-	richPortfolio(t, srv.URL, st)
-	var cf struct {
-		ClosingUAH float64 `json:"closing_uah"`
-	}
-	_, body := do(t, "GET", srv.URL+"/api/cashflow?from=2000-01-01", "")
-	if err := json.Unmarshal([]byte(body), &cf); err != nil {
-		t.Fatalf("cashflow: %v: %s", err, body)
-	}
-	var sum struct {
-		AccountUAH float64 `json:"account_uah"`
-	}
-	_, body = do(t, "GET", srv.URL+"/api/summary", "")
-	if err := json.Unmarshal([]byte(body), &sum); err != nil {
-		t.Fatalf("summary: %v: %s", err, body)
-	}
-	if math.Abs(cf.ClosingUAH-sum.AccountUAH) > 0.05 {
-		t.Errorf("звіт дає %.2f, рахунок зі зведення %.2f — гаманці розійшлись на %.2f",
-			cf.ClosingUAH, sum.AccountUAH, cf.ClosingUAH-sum.AccountUAH)
-	}
 }

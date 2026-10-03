@@ -321,39 +321,6 @@ func (s *Server) handleAddDepositTopup(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
-// handleTermDepositCheck — POST /api/term-deposits/check.
-// Чи вистачить на рахунку банку тіла вкладу. Тіло запиту те саме, що й
-// у POST /api/term-deposits.
-func (s *Server) handleTermDepositCheck(w http.ResponseWriter, r *http.Request) {
-	var req termDepositReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	d, err := termDepositFromReq(req)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeCashCheck(w, r, engine.CashDebit{Broker: d.Bank, Currency: d.Currency, Amount: d.Principal})
-}
-
-// handleDepositTopupCheck — POST /api/term-deposits/{id}/topups/check.
-// Банк і валюту бере з самого вкладу, як і запис.
-func (s *Server) handleDepositTopupCheck(w http.ResponseWriter, r *http.Request) {
-	depID, err := pathID(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	t, dep, code, err := s.topupFromReq(r, depID)
-	if err != nil {
-		writeErr(w, code, err)
-		return
-	}
-	s.writeCashCheck(w, r, engine.CashDebit{Broker: dep.Bank, Currency: dep.Currency, Amount: t.Amount})
-}
-
 // handleUpdateDepositTopup — PUT /api/term-deposits/{id}/topups/{topupId}.
 //
 // Тіло те саме, що й у POST, і розбирає його той самий topupFromReq: банк і

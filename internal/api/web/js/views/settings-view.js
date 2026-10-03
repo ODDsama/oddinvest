@@ -314,7 +314,7 @@ export function bindBackup(ctx, main) {
       }
       const res = await ctx.api("POST", "restore", data);
       const r = res.restored || {};
-      msg.textContent = `Відновлено: ${r.lots || 0} лот(ів), ${r.deposits || 0} поповн., ${r.conversions || 0} конверт., ${r.snapshots || 0} знімк.`
+      msg.textContent = `Відновлено: ${r.lots || 0} лот(ів), ${r.fund_ops || 0} опер. фондів, ${r.snapshots || 0} знімк.`
         // Шлях до страхувальної копії — вголос: це і є «скасувати», якщо
         // відновили не той файл (повернути її можна лише руками на сервері).
         + (res.safety_copy ? ` Попередній стан бази збережено: ${res.safety_copy}` : "");

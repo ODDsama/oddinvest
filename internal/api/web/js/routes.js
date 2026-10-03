@@ -134,10 +134,6 @@ export const ANCHORS = {
   // «Що заходить» несе форму потоку, форму часток і форму замка — і
   // посилання «додай перше джерело доходу» мусить сказати, яку саме.
   planflow: "#planFlowForm",
-  // «Баланси й валюта» несуть дві форми — рівно той випадок, заради якого
-  // якорі й є.
-  cash: "#cashForm",
-  convert: "#convForm",
 };
 
 // Куди веде кожне іменоване посилання на форму. Імена лишились старі —
@@ -149,8 +145,6 @@ export const ANCHORS = {
 const FORM_ROUTE = {
   buy: "portfolio/all/record",
   topup: "portfolio/@first:deposit/have",
-  deposit: "money/all/balances/cash",
-  convert: "money/all/balances/convert",
   planflow: "plan/inflow/main/planflow",
 };
 

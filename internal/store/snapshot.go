@@ -19,14 +19,16 @@ import (
 )
 
 // UnmarshalJSON — рядок знімка з дампу. Колонки, у яких «тоді не
-// рахували» — це −1 (eur_share_bp 0061, idle_uah 0052, accrued_uah 0063),
-// у дампі, старшому за них, відсутні й доти читались нулем, тобто
-// ВИМІРЯНИМ нулем: дельти періоду порівнювали «з купоном» проти «без», а
-// віха «місяць без простою» зараховувала дні, коли простою не міряли.
-// Відсутнє поле тепер −1; явний нуль лишається нулем.
+// рахували» — це −1 (eur_share_bp 0061, accrued_uah 0063), у дампі,
+// старшому за них, відсутні й доти читались нулем, тобто ВИМІРЯНИМ нулем:
+// дельти періоду порівнювали «з купоном» проти «без». Відсутнє поле тепер
+// −1; явний нуль лишається нулем.
+//
+// account_uah і idle_uah зі старого дампу пропускаються: колонок немає з
+// 0068 (рахунків застосунок не веде).
 func (s *Snapshot) UnmarshalJSON(b []byte) error {
 	type plain Snapshot
-	p := plain{EURShareBP: -1, IdleUAH: -1, AccruedUAH: -1}
+	p := plain{EURShareBP: -1, AccruedUAH: -1}
 	if err := json.Unmarshal(b, &p); err != nil {
 		return err
 	}
@@ -59,7 +61,6 @@ type Snapshot struct {
 	// частки читають разом, — і саме тому має інше «невідомо».
 	UninvestedUAH  int64 `json:"uninvested_uah"`
 	MonthTargetUAH int64 `json:"month_target_uah,omitempty"`
-	AccountUAH     int64 `json:"account_uah,omitempty"`
 	// FundsUAH — сертифікати фондів у грн-екв. DepositsUAH — тіло
 	// банківських вкладів. Нуль у старих рядках в обох означає «тоді не
 	// рахували», а не «не було»: колонки з'явились пізніше за самі
@@ -91,13 +92,6 @@ type Snapshot struct {
 	// Нуль у старих рядках означає «тоді не рахували», а не «боргів не
 	// було»: лінія на кривій мусить обриватись там, де починаються нулі.
 	NetWorthUAH int64 `json:"net_worth_uah,omitempty"`
-	// IdleUAH — простій того дня: цілі квитки вільних грошей, грн-екв.
-	// (0052). ЄДИНА колонка, де «не рахували» — це −1, а не 0: нуль тут має
-	// власний зміст («простою не було»), і саме на ньому стоїть віха
-	// «Місяць без простою». Без omitempty, щоб −1 переживав бекап; бекап,
-	// старший за колонку, поля не має — і читається −1 (UnmarshalJSON), а
-	// не нулем, як доти.
-	IdleUAH int64 `json:"idle_uah"`
 	// AccruedUAH — накопичений купон паперів того дня, грн-екв. (0063).
 	// Частина капіталу знімка: облігації в капіталі — «номінал +
 	// накопичений купон». −1 = «тоді не рахували» (довід у міграції), тож
@@ -127,7 +121,6 @@ var snapshotCols = []snapshotCol{
 	{"eur_share_bp", func(s *Snapshot) *int64 { return &s.EURShareBP }},
 	{"uninvested_uah", func(s *Snapshot) *int64 { return &s.UninvestedUAH }},
 	{"month_target_uah", func(s *Snapshot) *int64 { return &s.MonthTargetUAH }},
-	{"account_uah", func(s *Snapshot) *int64 { return &s.AccountUAH }},
 	{"funds_uah", func(s *Snapshot) *int64 { return &s.FundsUAH }},
 	{"deposits_uah", func(s *Snapshot) *int64 { return &s.DepositsUAH }},
 	{"funds_cost_uah", func(s *Snapshot) *int64 { return &s.FundsCostUAH }},
@@ -136,7 +129,6 @@ var snapshotCols = []snapshotCol{
 	{"npf_cost_uah", func(s *Snapshot) *int64 { return &s.NPFCostUAH }},
 	{"goals_uah", func(s *Snapshot) *int64 { return &s.GoalsUAH }},
 	{"net_worth_uah", func(s *Snapshot) *int64 { return &s.NetWorthUAH }},
-	{"idle_uah", func(s *Snapshot) *int64 { return &s.IdleUAH }},
 	{"accrued_uah", func(s *Snapshot) *int64 { return &s.AccruedUAH }},
 }
 

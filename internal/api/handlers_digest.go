@@ -118,9 +118,10 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 	fromD, toD := domain.Date(st.FromDate).AddDays(1), domain.Date(st.ToDate)
 	sum := engine.SummarizeCash(events, fromD, toD)
 
-	// Тіло погашення НЕ дохід: воно лише переїжджає з номіналу на
-	// рахунок, і капітал від нього не міняється. Той самий поділ, що в
-	// «Рік у цифрах» (buildYear).
+	// Тіло погашення НЕ дохід: це повернення власних грошей. Капітал без
+	// рахунків від нього падає, і те саме падіння стоїть у «Своїх грошах»
+	// мінусом — тож причини й далі складаються в зміну. Той самий поділ,
+	// що в «Рік у цифрах» (buildYear).
 	var principal int64
 	for _, e := range sum.Rows {
 		if e.Principal {
@@ -134,9 +135,9 @@ func (s *Server) handleDigest(w http.ResponseWriter, r *http.Request) {
 
 	out.Causes = []digestCause{
 		{Key: "own", Label: "Свої гроші", UAH: state.Major(own, money.UAH), Measured: true,
-			Why: "внески й зняття, разом із подушкою та цілями"},
+			Why: "гроші, вкладені в інструменти, мінус те, що з них повернулось, разом із подушкою та цілями"},
 		{Key: "income", Label: "Дохід", UAH: state.Major(income, money.UAH), Measured: true,
-			Why: "купони, дивіденди й відсотки, що надійшли; тіло погашення сюди не входить — воно лише переїжджає"},
+			Why: "купони, дивіденди й відсотки, що надійшли; тіло погашення сюди не входить — це повернення власних грошей, а не заробіток"},
 		{Key: "fx", Label: "Курс", UAH: state.Major(fx, money.UAH), Measured: false, Why: fxWhy},
 		// Решта — ПІСЛЯ перекладу (нижче), а не тут: у доларовому вигляді
 		// дельта — різниця перекладених «було» й «стало», кожне своїм

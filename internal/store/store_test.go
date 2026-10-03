@@ -219,12 +219,12 @@ func TestSettingsRatesSnapshotsStatuses(t *testing.T) {
 	}
 	if err := s.SaveSnapshot(ctx, Snapshot{Date: "2026-07-15", InvestedUAH: 100,
 		NominalUAHEq: 200, USDShareBP: 5000, MonthTargetUAH: 500000,
-		AccountUAH: 700, FundsUAH: 900}); err != nil {
+		FundsUAH: 900}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SaveSnapshot(ctx, Snapshot{Date: "2026-07-15", InvestedUAH: 150,
 		NominalUAHEq: 250, USDShareBP: 5100, UninvestedUAH: 10, MonthTargetUAH: 600000,
-		AccountUAH: 800, FundsUAH: 950}); err != nil {
+		FundsUAH: 950}); err != nil {
 		t.Fatal(err) // upsert того ж дня
 	}
 	if snaps, serr := s.ListSnapshots(ctx, "", ""); serr != nil || len(snaps) != 1 ||

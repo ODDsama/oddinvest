@@ -17,10 +17,15 @@ import (
 func forecastInput(t *testing.T, set *state.SettingsDoc) projectionInput {
 	t.Helper()
 	return projectionInput{
-		Capital:  state.Capital{AccountUAH: state.Major(100_000, money.UAH)},
+		// Стартовий капітал — накопичувальний сертифікат під ставку рукава.
+		// Доти тут стояла готівка на рахунку; рахунків більше немає, а
+		// замкнений номінал не годиться на заміну: він не росте без купонів
+		// і не продається в декумуляції, тож половина тестів нижче
+		// перевіряла б порожнечу.
+		Capital:  state.Capital{FundsUAH: state.Major(100_000, money.UAH)},
 		Settings: set,
-		CashByCur: map[string]int64{
-			money.UAH: 100_000_00,
+		AccumByCur: map[string][]domain.Accum{
+			money.UAH: {{Value0: 100_000, Cost0: 100_000, RatePct: 16}},
 		},
 		NominalByCur: map[string]int64{},
 		YieldByCur:   map[string]float64{money.UAH: 16},

@@ -119,7 +119,7 @@ func (r *Runner) dumpBackup(ctx context.Context) {
 		return
 	}
 	r.log.Info("бекап збережено", "path", dated,
-		"лотів", len(b.Lots), "поповнень", len(b.Deposits))
+		"лотів", len(b.Lots), "операцій фондів", len(b.FundOps))
 	r.pruneBackups()
 	// Дата дампу — міткою портфеля: задача backup-stale і /healthz
 	// дізнаються про пропущений бекап не з журналу.

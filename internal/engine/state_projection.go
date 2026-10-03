@@ -64,9 +64,10 @@ type projectionInput struct {
 	Cashflow []domain.CashflowItem
 	Settings *state.SettingsDoc
 
-	// Стан по валютах: готівка (мінорні), номінал ОВДП (мінорні), тіло
-	// вкладів і ринкова вартість сертифікатів (мажорні, нативно).
-	CashByCur        map[string]int64
+	// Стан по валютах: номінал ОВДП (мінорні), тіло вкладів і ринкова
+	// вартість сертифікатів (мажорні, нативно). Готівки на старті немає:
+	// рахунків застосунок не веде (ревізія 2026-10-03), і рукав стартує з
+	// того, що вже вкладене.
 	NominalByCur     map[string]int64
 	DepositBodyByCur map[string]float64
 	// AccumByCur / DistByCur — позиції фондів. У замкнений капітал
@@ -291,7 +292,7 @@ func (f sleeveFactory) shareAt(m int) map[string]float64 {
 // і зводити їх до одного числа означало б утратити обидва.
 //
 // Вирізка ділиться між гривневими й валютними потоками ПРОПОРЦІЙНО їхній
-// частці в місяці — те саме зважування, що splitByWeights у ready_on.go.
+// частці в місяці — те саме зважування, що splitByWeights у route_income.go.
 // Вибрати, що подушка наповнюється «спершу з гривні», можна лише вигаданим
 // правилом, якого користувач не задавав.
 //
@@ -646,7 +647,6 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 	in, share := f.in, f.share
 	var sleeves []domain.Sleeve
 	for _, cur := range []string{money.UAH, money.USD, money.EUR} {
-		cash := float64(in.CashByCur[cur]) / 100
 		// Замкнений капітал — це НЕ лише номінал ОВДП. Тіло вкладу
 		// поводиться точно як номінал паперу: лежить, платить за
 		// відомим графіком і повертається в кінці строку, — а
@@ -696,7 +696,7 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 		// стоять на кожному рукаві, який factory будь-коли збирає.
 		planVec, lockMap := f.plan[cur], f.lock[cur]
 		nativeVec := f.planNative[cur]
-		if cash == 0 && nom == 0 && contrib == 0 && len(accum) == 0 && len(dist) == 0 &&
+		if nom == 0 && contrib == 0 && len(accum) == 0 && len(dist) == 0 &&
 			!anyNonZero(planVec) && !anyNonZero(nativeVec) && len(lockMap) == 0 {
 			continue // валюти немає і не планується
 		}
@@ -724,7 +724,7 @@ func (f sleeveFactory) build(contribTotal, ratePP float64) []domain.Sleeve {
 			rate0 = float64(u.Amount()) / 100
 		}
 		sleeves = append(sleeves, domain.Sleeve{
-			Currency: cur, Cash0: cash, Nominal0: nom, RatePct: rate,
+			Currency: cur, Nominal0: nom, RatePct: rate,
 			RateTerminalPct: terminal, GlideYears: f.glideYears,
 			Threshold: in.ReinvestMinByCur[cur].Major(), Coupon: f.coupon[cur],
 			Redeem: f.redeem[cur], ContribUAH: contrib, Rate0: rate0,

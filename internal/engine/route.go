@@ -129,8 +129,9 @@
 // усередині виду — за обраним ним reinvest_rank. Маршрут не забороняє й
 // не ховає нічого; він лише каже, що станеться, якщо не втручатись.
 //
-// Обмеження залишком на рахунках — з тієї самої причини, що й у розкладки:
-// ми ведемо гроші, які ПРИЙДУТЬ, а не ті, що вже лежать.
+// Залишків на рахунках маршрут не знає й не має знати: він веде гроші, які
+// ПРИЙДУТЬ, а не ті, що вже лежать (рахунків застосунок і не веде з
+// ревізії 2026-10-03).
 package engine
 
 import (
@@ -144,7 +145,6 @@ import (
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
-	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -649,7 +649,7 @@ func (c *routeCarry) apply(p allocPlan) {
 // віддати першому всю місячну стелю подушки.
 type routeEvent struct {
 	readyFlow
-	bc store.BrokerCur
+	bc brokerCur
 }
 
 // flattenIncome — надходження одним списком, упорядкованим ПОВНИМ ключем.
@@ -816,7 +816,7 @@ func buildRoute(doc *state.Doc, sug []suggestion, inc incomeAhead,
 		return out
 	}
 
-	pots := map[store.BrokerCur]*routePot{}
+	pots := map[brokerCur]*routePot{}
 
 	for _, ev := range events {
 		carry.enterMonth(MonthOffsetRaw(today, ev.Date), plans, debt)
@@ -1066,7 +1066,7 @@ func (e *Engine) Route(ctx context.Context, now time.Time, pickRaw []string) (Ro
 	// незмінність тримає регресійний тест, і саме на ній стоїть відмова
 	// показувати намір у даті «коли вистачить».
 	if flows := planAhead(src, plans, today, routeHorizonMonths); len(flows) > 0 {
-		k := store.BrokerCur{Broker: NoBrokerLabel, Currency: money.UAH}
+		k := brokerCur{Broker: NoBrokerLabel, Currency: money.UAH}
 		inc[k] = append(inc[k], flows...)
 		sortFlows(inc[k])
 	}

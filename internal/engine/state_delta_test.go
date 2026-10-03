@@ -12,29 +12,24 @@ import (
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
-// TestCapitalDeltaCountsNPFContributionOnce — внесок у пенсійний це переказ
-// УСЕРЕДИНІ капіталу, а не зовнішні гроші.
+// TestCapitalDeltaCountsNPFContributionOnce — внесок у пенсійний рахується
+// зовнішніми грошима рівно РАЗ.
 //
-// Доти buildCapitalDelta ходив по чотирьох журналах, і npf_ops був
-// четвертим. Але внесок списується з рахунку (state_builder.go), а форма
-// НПФ заводить парний рядок у deposits сама — тож ті самі гроші рахувались
-// двічі. На бойовому це давало +1 601 ₴ до «зовнішніх грошей» місяця при
-// капіталі, який від внесків не змінювався взагалі; та сама помилка
+// Доти внесок жив двома рядками: самим npf_ops і парним «автопоповненням»
+// рахунку, яке форма НПФ заводила в deposits, — і buildCapitalDelta, що
+// ходив по обох журналах, рахував ті самі гроші двічі. На бойовому це
+// давало +1 601 ₴ до «зовнішніх грошей» місяця; та сама помилка
 // приписувала суперникові в бенчмарку «Усі гроші» гроші, яких не було.
-//
-// Фікстура повторює бойову буквально: внесок і його «автопоповнення»
-// однією датою, брокером і сумою.
+// Рахунків тепер немає, і внесок — одна покупка на межі інструмента
+// (state_flows.go); сторож тримає, щоб другий шлях до тих самих грошей не
+// повернувся.
 func TestCapitalDeltaCountsNPFContributionOnce(t *testing.T) {
 	now := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
 	on := domain.NewDate(now.AddDate(0, 0, -5))
 	ago := domain.NewDate(now.AddDate(0, 0, -30))
 
 	src := &sources{
-		capitalAgo: &store.Snapshot{Date: ago, AccountUAH: 100_000},
-		deposits: []store.Deposit{
-			{Date: on, Amount: 50_000, Currency: money.UAH, Broker: "пумб",
-				Note: "автопоповнення: внесок у НПФ"},
-		},
+		capitalAgo: &store.Snapshot{Date: ago, NominalUAHEq: 100_000},
 		npfOps: []domain.NPFOp{
 			{NPFID: 1, Date: on, Amount: 50_000, Broker: "пумб"},
 		},
@@ -44,11 +39,11 @@ func TestCapitalDeltaCountsNPFContributionOnce(t *testing.T) {
 		t.Fatal("дельти немає, хоч знімок є")
 	}
 	if out.ContribUAH.Major() != 500 {
-		t.Errorf("зовнішні гроші %.2f, очікували 500 — внесок у НПФ уже порахований поповненням", out.ContribUAH.Major())
+		t.Errorf("зовнішні гроші %.2f, очікували 500 — внесок у НПФ рахується один раз", out.ContribUAH.Major())
 	}
 }
 
-// TestCapitalDeltaCountsThreeJournals — гаманець, подушка й цілі входять
+// TestCapitalDeltaCountsThreeJournals — інструменти, подушка й цілі входять
 // усі три, і переказ між кошиками дає нуль сам.
 func TestCapitalDeltaCountsThreeJournals(t *testing.T) {
 	now := time.Date(2026, 9, 9, 10, 0, 0, 0, time.UTC)
@@ -56,11 +51,11 @@ func TestCapitalDeltaCountsThreeJournals(t *testing.T) {
 	ago := domain.NewDate(now.AddDate(0, 0, -30))
 
 	src := &sources{
-		capitalAgo: &store.Snapshot{Date: ago, AccountUAH: 100_000},
-		deposits: []store.Deposit{
-			{Date: on, Amount: 70_000, Currency: money.UAH, Broker: "mono"},
-			// перша нога переказу гаманець → ціль
-			{Date: on, Amount: -20_000, Currency: money.UAH, Broker: "mono"},
+		capitalAgo: &store.Snapshot{Date: ago, NominalUAHEq: 100_000},
+		fundOps: []domain.FundOp{
+			{ID: 1, Date: on, Fund: "REIT", Kind: domain.FundBuy, Qty: 70, Amount: 70_000, Currency: money.UAH},
+			// перша нога переказу інструмент → ціль: дивіденд вийшов до власника
+			{ID: 2, Date: on, Fund: "REIT", Kind: domain.FundDividend, Amount: 20_000, Currency: money.UAH},
 		},
 		reserveOps: []store.ReserveOp{
 			{Date: on, Amount: 30_000, Currency: money.UAH, Place: "сейф"},
@@ -75,7 +70,7 @@ func TestCapitalDeltaCountsThreeJournals(t *testing.T) {
 		t.Fatal("дельти немає, хоч знімок є")
 	}
 	if out.ContribUAH.Major() != 1000 {
-		t.Errorf("зовнішні гроші %.2f, очікували 1000 (700 гаманець + 300 матрац; переказ у ціль дає нуль)", out.ContribUAH.Major())
+		t.Errorf("зовнішні гроші %.2f, очікували 1000 (700 фонд + 300 матрац; переказ у ціль дає нуль)", out.ContribUAH.Major())
 	}
 }
 
@@ -87,7 +82,7 @@ func TestCapitalDeltaPctInReportCurrency(t *testing.T) {
 	today := domain.NewDate(now)
 	ago := domain.NewDate(now.AddDate(0, 0, -30))
 	src := &sources{
-		capitalAgo: &store.Snapshot{Date: ago, AccountUAH: 100_000},
+		capitalAgo: &store.Snapshot{Date: ago, NominalUAHEq: 100_000},
 		report:     money.USD,
 		fxHistory: map[string][]store.RatePoint{
 			money.USD: {{Date: ago, RateE4: 400000}, {Date: today, RateE4: 440000}},

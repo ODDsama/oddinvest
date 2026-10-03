@@ -15,14 +15,13 @@ import (
 type goalsDoc struct {
 	CapitalUAH   float64 `json:"capital_uah"`
 	NominalUAHEq float64 `json:"nominal_uah_eq"`
-	AccountUAH   float64 `json:"account_uah"`
 	FundsUAH     float64 `json:"funds_uah"`
 	DepositsUAH  float64 `json:"deposits_uah"`
 	ReserveUAH   float64 `json:"reserve_uah"`
 	GoalsUAH     float64 `json:"goals_uah"`
 	NPFUAH       float64 `json:"npf_uah"`
 	Liquidity    *struct {
-		NowUAH   float64 `json:"now_uah"`
+		NowUAH   float64 `json:"available_now_uah"`
 		GoalsUAH float64 `json:"goals_uah"`
 	} `json:"liquidity"`
 	Goals []struct {
@@ -86,21 +85,21 @@ func TestGoalsAddUpToCapital(t *testing.T) {
 	if math.Abs(d.GoalsUAH-13_000) > 0.01 {
 		t.Errorf("goals_uah = %.2f, а 12 000 + 3 000 − 2 000 = 13 000", d.GoalsUAH)
 	}
-	parts := d.NominalUAHEq + d.AccountUAH + d.FundsUAH + d.DepositsUAH +
+	parts := d.NominalUAHEq + d.FundsUAH + d.DepositsUAH +
 		d.ReserveUAH + d.GoalsUAH + d.NPFUAH
 	if math.Abs(d.CapitalUAH-parts) > 0.01 {
 		t.Errorf("capital_uah = %.2f, а сума частин %.2f — цілі випали з капіталу",
 			d.CapitalUAH, parts)
 	}
-	// У ліквідності цілі стоять ОКРЕМИМ рядком: у now_uah їм не місце
-	// (на рівності now_uah == account_uah тримається звірка зі звітом про
-	// рух коштів), а в locked_uah вони брехали б — ламати нічого не треба.
+	// У ліквідності цілі стоять ОКРЕМИМ рядком і доданком «під рукою»
+	// (available_now_uah = готівка подушки + цілі), а в locked_uah вони
+	// брехали б — ламати нічого не треба.
 	if d.Liquidity == nil || math.Abs(d.Liquidity.GoalsUAH-13_000) > 0.01 {
 		t.Errorf("liquidity.goals_uah не показує цілей: %+v", d.Liquidity)
 	}
-	if d.Liquidity != nil && d.Liquidity.NowUAH != d.AccountUAH {
-		t.Errorf("now_uah = %.2f, account_uah = %.2f — цілі протекли в доступні гроші",
-			d.Liquidity.NowUAH, d.AccountUAH)
+	if d.Liquidity != nil && math.Abs(d.Liquidity.NowUAH-d.ReserveUAH-d.Liquidity.GoalsUAH) > 0.01 {
+		t.Errorf("available_now_uah = %.2f, а подушка %.2f + цілі %.2f — розклад не сходиться",
+			d.Liquidity.NowUAH, d.ReserveUAH, d.Liquidity.GoalsUAH)
 	}
 }
 

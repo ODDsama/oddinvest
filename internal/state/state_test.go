@@ -172,14 +172,10 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		},
 		NBURefreshedAt: "2026-07-15T06:10:00Z",
 		Liquidity: &Liquidity{
-			// «Під рукою» — рахунки ПЛЮС готівка подушки ПЛЮС цілі, і саме
-			// тому воно більше за now_uah рівно на 90 000. Рівність двох
-			// чисел приховала б головне рішення картки: рахунки лишились
-			// окремим підрядком, бо на now_uah == account_uah стоїть звірка
-			// зі звітом про рух коштів.
-			AvailableNowUAH: Major(91_500, money.UAH),
-			NowUAH:          Major(1_500, money.UAH),
-			In30UAH:         Major(95_637.50, money.UAH), In90UAH: Major(99_775, money.UAH),
+			// «Під рукою» — готівка подушки ПЛЮС цілі (schema 4: рахунків
+			// застосунок не веде).
+			AvailableNowUAH: Major(90_000, money.UAH),
+			In30UAH:         Major(94_137.50, money.UAH), In90UAH: Major(98_275, money.UAH),
 			ReserveUAH: Major(60_000, money.UAH), GoalsUAH: Major(30_000, money.UAH),
 			LockedUAH: Major(120_000, money.UAH), UnlockDate: "2027-03-17",
 			// Зламне — ОКРЕМО від замкненого, і навмисно не нуль: це різні
@@ -219,24 +215,6 @@ func sampleDoc(t *testing.T) (*Doc, DeriveInput) {
 		CapitalDelta30: &CapitalDelta{
 			FromDate: "2026-06-15", FromUAH: Major(268_246.80, money.UAH),
 			DeltaUAH: Major(5_000, money.UAH), DeltaPct: 1.86, ContribUAH: Major(4_500, money.UAH),
-		},
-		// Простій і його ціна — обидва блоки, бо інтеграція читає обидва:
-		// сенсор бере ціну з idle_cost, атрибути «скільки й відколи» — з
-		// idle. Числа узгоджені: 12 000 ₴ при 9,84 % реальних = 98,40 ₴/міс;
-		// за 20,5 дня зваженого віку — 66,32 ₴.
-		Idle: &IdleCash{
-			InvestableUAH: Major(12_000, money.UAH), Since: "2026-06-20", Days: 25, AgeDays: 20.5,
-			ByPair: []IdlePair{{
-				Broker: "mono", Currency: money.UAH, Investable: Major(12_000, money.UAH),
-				InvestableUAH: Major(12_000, money.UAH), Since: "2026-06-20", Days: 25, AgeDays: 20.5,
-			}},
-		},
-		IdleCost: &IdleCost{
-			CostMonthUAH: Major(98.40, money.UAH), CostSoFarUAH: Major(66.32, money.UAH), RatePct: 9.84, RateLabel: "UA4000227748",
-			ByPair: []IdleCostPair{{
-				Broker: "mono", Currency: money.UAH,
-				CostMonthUAH: Major(98.40, money.UAH), CostSoFarUAH: Major(66.32, money.UAH), RatePct: 9.84, RateLabel: "UA4000227748",
-			}},
 		},
 		// Борг: одна картка зі звіркою. Доти фікстура боргу не мала
 		// взагалі, тобто інтеграція HA не бачила блоку debt у жодному
@@ -354,7 +332,7 @@ func TestDerive(t *testing.T) {
 	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)
 	}
-	if doc.Schema != 3 {
+	if doc.Schema != 4 {
 		t.Errorf("schema = %d", doc.Schema)
 	}
 	if doc.Currency != "UAH" {
@@ -524,24 +502,20 @@ func TestReserveFillCarriesMonthNumbers(t *testing.T) {
 	}
 }
 
-// Вимкнений механізм мовчить — і мовчить ОДНАКОВО в усіх трьох випадках.
+// Вимкнений механізм мовчить — і мовчить ОДНАКОВО в обох випадках.
 // Той, хто про поповнення не просив, не побачить жодної зміни.
 func TestReserveFillSilentWhenOff(t *testing.T) {
 	zero := 0.0
-	share := 25.0
 	for _, c := range []struct {
 		name  string
 		share *float64
-		free  float64
 	}{
-		{"стеля не задана", nil, 200_000},
-		{"стеля нуль", &zero, 200_000},
-		{"рахунки порожні", &share, 0},
+		{"стеля не задана", nil},
+		{"стеля нуль", &zero},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			doc, in := sampleDoc(t)
 			doc.Settings.ReserveFillSharePct = c.share
-			in.Capital.AccountUAH = Major(c.free, money.UAH)
 			if err := Derive(doc, in); err != nil {
 				t.Fatal(err)
 			}
@@ -566,7 +540,6 @@ func TestReserveFillZeroWhenTargetReached(t *testing.T) {
 	doc, in := sampleDoc(t)
 	share := 40.0
 	doc.Settings.ReserveFillSharePct = &share
-	in.Capital.AccountUAH = Major(200_000, money.UAH)
 	doc.ReserveUAH, in.Capital.ReserveUAH = Major(120_000, money.UAH), Major(120_000, money.UAH) // ціль 90 000
 	if err := Derive(doc, in); err != nil {
 		t.Fatal(err)

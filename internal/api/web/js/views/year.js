@@ -62,9 +62,8 @@ function tilesHTML(y) {
 }
 
 /** Хітмап днів: тиждень — колонка, понеділок зверху. Порожні клітинки до
- *  першого дня року невидимі, але місце тримають. Експортується для
- *  «Звички», де стоїть за поточний рік. */
-export function heatmapHTML(y) {
+ *  першого дня року невидимі, але місце тримають. */
+function heatmapHTML(y) {
   const byDay = new Map((y.days || []).map((d) => [d.date, d]));
   const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
     String(d.getDate()).padStart(2, "0")}`;
@@ -76,7 +75,7 @@ export function heatmapHTML(y) {
     const k = iso(d);
     const v = byDay.get(k);
     const what = v ? [
-      v.contributed_uah ? `внесено ${signedUAH(v.contributed_uah)}` : "",
+      v.outside_uah ? `у подушку й цілі ${signedUAH(v.outside_uah)}` : "",
       v.income_uah ? `дохід ${uah0(v.income_uah)}` : "",
       v.purchased_uah ? `покупки ${uah0(v.purchased_uah)}` : "",
     ].filter(Boolean).join(", ") : "без руху";

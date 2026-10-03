@@ -3,18 +3,17 @@
 // Сьома фаза розбиття BuildState. Тут три різні відповіді на схоже
 // питання «скільки я вклав», і плутати їх не можна:
 //
-//   - ВКЛАДЕНО цього місяця — покупки: облігації й сертифікати. Це рух
-//     грошей із рахунку в папери.
-//   - ВНЕСЕНО цього місяця — поповнення, нетто зі зняттями. Це НОВІ
+//   - ВКЛАДЕНО цього місяця — покупки облігацій і сертифікатів, валом.
+//   - ВНЕСЕНО цього місяця — зовнішні гроші НЕТТО (state_money.go):
+//     покупки мінус виплати й виходи, плюс рухи резерву й цілей. Це НОВІ
 //     гроші, яких у портфелі не було.
 //   - ТЕМП — скільки нових грошей заходить на місяць у середньому за
 //     останні півроку.
 //
 // План міряється ВНЕСЕНИМ, а не вкладеним, і це не дрібниця. План означає
-// «скільки нових грошей треба принести до цілі»; купівля ж лише переносить
-// гроші з рахунку в папери й до цілі не додає нічого. Порівнювати план із
-// купівлями означало б показувати 100% виконання за папір, куплений на
-// накопичені купони.
+// «скільки нових грошей треба принести до цілі»; папір, куплений на купон,
+// що щойно прийшов, нових грошей не приносить — покупка й виплата гасять
+// одна одну, і внесено лише різницю.
 package engine
 
 import (
@@ -46,17 +45,14 @@ const actualWindowDays = 183
 type monthPhase struct {
 	// InvestedUAH — куплено цього місяця (папери + сертифікати), грн-екв.
 	InvestedUAH *money.Money
-	// DepositedUAH — внесено НЕТТО (поповнення мінус зняття);
-	// WithdrawnUAH — самі зняття, додатнім числом.
+	// DepositedUAH — внесено НЕТТО: зовнішні гроші за місяць.
 	DepositedUAH *money.Money
-	WithdrawnUAH *money.Money
-	// OutsideUAH — з ВНЕСЕНОГО те, що пішло повз рахунки брокерів: нетто
-	// рухів резерву й цілей. ContributedUAH — решта, тобто самі рахунки.
+	// OutsideUAH — з ВНЕСЕНОГО те, що пішло повз інструменти: нетто рухів
+	// резерву й цілей. ContributedUAH — решта, тобто нетто інструментів.
 	//
 	// Deposited = Contributed + Outside ЗА ПОБУДОВОЮ: друге виводиться
-	// відніманням, а не другим проходом по src.deposits. Другий прохід був
-	// би другим означенням «скільки зайшло на рахунки», і розійшлися б
-	// вони на мультивалютному округленні.
+	// відніманням, а не другим проходом, інакше розійшлися б вони на
+	// мультивалютному округленні.
 	OutsideUAH     *money.Money
 	ContributedUAH *money.Money
 	// ActualMonthlyUAH — темп нових грошей, ₴/міс; ActualMonths — на якій
@@ -84,14 +80,15 @@ type monthPhase struct {
 	ReserveFillUAH  float64
 }
 
-// buildMonth зводить рухи місяця, темп і план поточного місяця.
-func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
+// buildMonth зводить рухи місяця, темп і план поточного місяця. flows —
+// журнал руху на межі інструмента (state_flows.go), зібраний раз на
+// документ.
+func buildMonth(src *sources, hold domain.Holdings, flows []instrFlow, rates fx.Rates,
 	now time.Time, today domain.Date, reserveUAH float64) (monthPhase, error) {
 	out := monthPhase{
 		InvestedUAH:  money.New(0, money.UAH),
 		OutsideUAH:   money.New(0, money.UAH),
 		DepositedUAH: money.New(0, money.UAH),
-		WithdrawnUAH: money.New(0, money.UAH),
 	}
 
 	for _, l := range hold.Lots {
@@ -136,36 +133,23 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 		}
 	}
 
-	// Внесено — нетто, а не сума поповнень: зняття зменшує капітал так
-	// само, як поповнення його збільшує. Без цього переказ між брокерами
-	// (він записується як зняття + поповнення, бо окремої сутності переказу
-	// немає) роздував би «внесено» на свою суму, не додавши жодної нової
-	// копійки.
+	// Внесено — нетто: виплата, що прийшла цього місяця, зменшує його так
+	// само, як покупка збільшує.
 	addMove := func(amount int64, cur string) {
-		if amount < 0 {
-			if u, cerr := fx.ToUAH(money.New(-amount, cur), rates); cerr == nil {
-				if sum, aerr := out.WithdrawnUAH.Add(u); aerr == nil {
-					out.WithdrawnUAH = sum
-				}
-			}
-		}
 		if u, cerr := fx.ToUAH(money.New(amount, cur), rates); cerr == nil {
 			if sum, aerr := out.DepositedUAH.Add(u); aerr == nil {
 				out.DepositedUAH = sum
 			}
 		}
 	}
-	for _, d := range src.deposits {
-		if d.Date.Year() != now.Year() || int(d.Date.Month()) != int(now.Month()) {
+	for _, m := range instrumentMoves(flows) {
+		if m.Date.Year() != now.Year() || int(m.Date.Month()) != int(now.Month()) {
 			continue
 		}
-		addMove(d.Amount, d.Currency)
+		addMove(m.Amount, m.Currency)
 	}
-	// Резерв рахується в тому самому нетто, і саме тому, що переміщення
-	// гаманець → матрац записується ДВОМА ногами (мінус у deposits, плюс
-	// тут): порізно перша нога виглядала б як втрата капіталу, а разом
-	// вони дають нуль, як і має бути. Відкладені зовні гроші, які на
-	// рахунок брокера не заходили, це й далі чесний внесок.
+	// Резерв — у тому самому нетто: відкладене під матрац — це гроші, які
+	// людина принесла сама.
 	for _, op := range src.reserveOps {
 		if op.Date.Year() != now.Year() || int(op.Date.Month()) != int(now.Month()) {
 			continue
@@ -185,9 +169,6 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	out.ReserveMovedUAH = domain.Round2(out.ReserveMovedUAH)
 
 	// Рухи ЦІЛЕЙ — у той самий нетто, і з того самого доводу, що резерв.
-	// Переміщення гаманець → ціль записується двома ногами (мінус у
-	// deposits, плюс у goal_ops); порізно перша нога виглядала б як втрата
-	// капіталу, а разом вони дають нуль, як і має бути.
 	//
 	// Це найлегше проґавити місце в усій сутності: без цього циклу
 	// відкладання на авто псувало б місячний прогрес, фактичний темп і
@@ -208,24 +189,17 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 			}
 		}
 	}
-	// Решта внесеного — рахунки брокерів. Відніманням, не проходом:
-	// див. довід при OutsideUAH.
+	// Решта внесеного — інструменти. Відніманням, не проходом: див. довід
+	// при OutsideUAH.
 	if rest, serr := out.DepositedUAH.Subtract(out.OutsideUAH); serr == nil {
 		out.ContributedUAH = rest
 	} else {
 		out.ContributedUAH = money.New(0, money.UAH)
 	}
 
-	// --- фактичний темп поповнень ---
-	// Саме поповнень, а не покупок: покупка лише переносить гроші з рахунку
-	// в папери й нового капіталу не додає (а купони враховані окремо).
-	//
-	// ТРИ ЖУРНАЛИ, а не один, і рівно ті самі, що у «внесено» вище:
-	// externalMoves() тримає це означення на всіх чотирьох читачів разом із
-	// доводом, чому НПФ до них не належить. Доти цикл читав лише deposits, і
-	// переказ гаманець → ціль ЗАНИЖУВАВ темп на свою суму — видно було саму
-	// від'ємну ногу, — а відкладене повз брокера в темп не входило взагалі.
-	// На бойовому це коштувало 8 200 ₴/міс із 18 900: майже половина.
+	// --- фактичний темп нових грошей ---
+	// Склад рівно той самий, що у «внесено» вище: externalMovesFrom тримає
+	// це означення на всіх читачів разом.
 	//
 	// Знаменник — це +1 місяць до проміжку «перший рух … сьогодні», і це не
 	// косметика. Поповнення фінансують ПЕРІОДИ, а не проміжок між собою:
@@ -242,16 +216,15 @@ func buildMonth(src *sources, hold domain.Holdings, rates fx.Rates,
 	// два сусідні числа знову стануть про різне.
 	first := today
 	var totalUAH int64
-	for _, m := range externalMoves(src) {
+	for _, m := range externalMovesFrom(flows, src) {
 		if n := domain.DaysBetween(m.Date, today); n < 0 || n > actualWindowDays {
 			continue
 		}
 		if m.Date.Before(first) {
 			first = m.Date
 		}
-		// Нетто: зняття теж рух капіталу. Інакше переказ між брокерами
-		// (зняття + поповнення) завищував би темп на свою суму, а
-		// прогноз «За фактом» через це малював би дисципліну, якої немає.
+		// Нетто: виплата, яку не перевклали, теж рух капіталу — інакше
+		// прогноз «За фактом» малював би дисципліну, якої немає.
 		if u, cerr := fx.ToUAH(money.New(m.Amount, m.Currency), rates); cerr == nil {
 			totalUAH += u.Amount()
 		}

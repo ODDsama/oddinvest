@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -33,10 +32,15 @@ func testServer(t *testing.T) (*httptest.Server, *store.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	srv := httptest.NewServer(New(st, log).Handler())
+	srv := httptest.NewServer(New(st, testLogger()).Handler())
 	t.Cleanup(srv.Close)
 	return srv, st
+}
+
+// testLogger — тихий журнал для сервера, зібраного повз testServer:
+// частині тестів потрібен не HTTP, а самі методи.
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
 
 // importSince ставить водяний знак імпорту: усе, що старше за цю дату,
@@ -107,7 +111,7 @@ func TestLotLifecycleAndSummary(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("summary: %d %s", resp.StatusCode, body)
 	}
-	for _, want := range []string{`"schema":3`, `"currency":"UAH"`, `"invested_uah":4975`, `"next_payment":{"date":"2027-03-17"`} {
+	for _, want := range []string{`"schema":4`, `"currency":"UAH"`, `"invested_uah":4975`, `"next_payment":{"date":"2027-03-17"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("summary не містить %s: %s", want, body)
 		}
@@ -304,6 +308,17 @@ func TestForecastFanOrderedByAssumptions(t *testing.T) {
 	if len(got.Goals) != 0 {
 		t.Errorf("старе поле goals має зникнути, маємо %d рядків", len(got.Goals))
 	}
+	// Рядок «За фактом» тут теж є: покупка лота — це вже внесок на межі
+	// інструмента (рахунків немає з ревізії 2026-10-03), тож історія темпу
+	// з'являється разом із першою покупкою. Він — про поведінку, а не про
+	// ринок, і впорядкованість віяла його не стосується.
+	market := f.Rows[:0]
+	for _, r := range f.Rows {
+		if r.Key != "actual" {
+			market = append(market, r)
+		}
+	}
+	f.Rows = market
 	if len(f.Rows) != 3 {
 		t.Fatalf("очікували 3 сценарії, маємо %d: %s", len(f.Rows), body)
 	}
@@ -598,39 +613,6 @@ func TestUpdateLotKeepsSalesLinked(t *testing.T) {
 	}
 }
 
-// Поповнення й конвертації правляться так само, і баланс має поїхати за
-// правкою — інакше звірка з реальним рахунком безглузда.
-func TestUpdateDepositAndConversion(t *testing.T) {
-	srv, st := testServer(t)
-	seed(t, st)
-
-	do(t, "POST", srv.URL+"/api/deposits", `{"amount":"5000.00","currency":"UAH","date":"2026-07-01","broker":"mono"}`)
-	if resp, body := do(t, "PUT", srv.URL+"/api/deposits/1",
-		`{"amount":"5161.60","currency":"UAH","date":"2026-07-01","broker":"mono","note":"звірка"}`); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("правка поповнення: %d %s", resp.StatusCode, body)
-	}
-	_, body := do(t, "GET", srv.URL+"/api/summary", "")
-	if !strings.Contains(body, `5161.6`) {
-		t.Errorf("баланс не поїхав за правкою: %s", body)
-	}
-
-	do(t, "POST", srv.URL+"/api/conversions",
-		`{"from_currency":"UAH","from_amount":"4200.00","to_currency":"USD","to_amount":"100.00","broker":"mono"}`)
-	if resp, body := do(t, "PUT", srv.URL+"/api/conversions/1",
-		`{"from_currency":"UAH","from_amount":"4300.00","to_currency":"USD","to_amount":"100.00","broker":"mono"}`); resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("правка конвертації: %d %s", resp.StatusCode, body)
-	}
-	_, body = do(t, "GET", srv.URL+"/api/conversions", "")
-	if !strings.Contains(body, `"4300.00"`) {
-		t.Errorf("конвертація не оновилась: %s", body)
-	}
-	// однакові валюти лишаються забороненими і на правці
-	if resp, _ := do(t, "PUT", srv.URL+"/api/conversions/1",
-		`{"from_currency":"UAH","from_amount":"100.00","to_currency":"UAH","to_amount":"100.00"}`); resp.StatusCode != http.StatusBadRequest {
-		t.Error("однакові валюти мали дати 400 і на PUT")
-	}
-}
-
 // Четвертий рядок віяла — про ТЕБЕ, а не про ринок: плановий внесок
 // замінено фактичним темпом за тих самих ринкових допущень, що й
 // реалістичний. Тож різниця між ними — рівно твоя поведінка.
@@ -668,17 +650,20 @@ func TestForecastActualPaceRow(t *testing.T) {
 		`{"goal_amount_uah":"500000","goal_date":"`+deadline+`"}`); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("put settings: %d %s", resp.StatusCode, body)
 	}
-	// поки історії поповнень немає — рядка теж немає
+	// поки нових грошей не було — рядка теж немає
 	if _, ok := rows()["actual"]; ok {
-		t.Error("без історії поповнень рядок «за фактом» не має з'являтись")
+		t.Error("без історії внесків рядок «за фактом» не має з'являтись")
 	}
 
-	// два поповнення з розривом >60 днів: темп ≈ 3000/міс, нижчий за план
-	first := time.Now().AddDate(0, 0, -90).Format("2006-01-02")
-	for _, d := range []string{first, time.Now().Format("2006-01-02")} {
-		if resp, body := do(t, "POST", srv.URL+"/api/deposits",
-			`{"amount":"4500.00","currency":"UAH","date":"`+d+`","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
-			t.Fatalf("поповнення: %d %s", resp.StatusCode, body)
+	// Два внески з розривом >60 днів: темп ≈ 3000/міс, нижчий за план.
+	// Внесок тепер — гроші на межі інструмента (рахунків більше немає);
+	// подушка тут найпростіша межа: у неї немає виплат, які б віднімались
+	// від нетто й робили темп залежним від сьогоднішнього числа.
+	first := domain.NewDate(time.Now().AddDate(0, 0, -90))
+	for _, d := range []domain.Date{first, domain.NewDate(time.Now())} {
+		if _, err := st.AddReserveOp(context.Background(), store.ReserveOp{Date: d, Amount: 4500_00,
+			Currency: money.UAH, Place: "готівка"}); err != nil {
+			t.Fatal(err)
 		}
 	}
 
@@ -715,21 +700,25 @@ func TestForecastActualPaceRow(t *testing.T) {
 }
 
 // Фактичний темп має ПОВЕРТАТИ те, що людина реально відкладає. Стара
-// формула ділила на проміжок «перше поповнення … сьогодні» і завищувала
-// в півтора раза: поповнення фінансують періоди, а не проміжок між
+// формула ділила на проміжок «перший внесок … сьогодні» і завищувала
+// в півтора раза: внески фінансують періоди, а не проміжок між
 // собою — три щомісячні внески покривають три місяці, а проміжок лише
 // два. Плюс вона потребувала 60 днів історії, бо на старті ділення на
 // частку місяця давало сотні тисяч.
+//
+// Внески тут — рухи подушки: це зовнішні гроші того самого означення
+// (externalMovesFrom), але без виплат, тож нетто дорівнює рівно тому, що
+// записано, і не залежить від того, які купони вже «надійшли» сьогодні.
 func TestActualPaceEstimator(t *testing.T) {
-	pace := func(t *testing.T, deposits map[int]string) (float64, int) {
+	pace := func(t *testing.T, moves map[int]int64) (float64, int) {
 		t.Helper()
 		srv, st := testServer(t)
 		seed(t, st)
-		for daysAgo, amount := range deposits {
-			d := time.Now().AddDate(0, 0, -daysAgo).Format("2006-01-02")
-			if resp, body := do(t, "POST", srv.URL+"/api/deposits",
-				`{"amount":"`+amount+`","currency":"UAH","date":"`+d+`","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
-				t.Fatalf("поповнення: %d %s", resp.StatusCode, body)
+		for daysAgo, amount := range moves {
+			d := domain.NewDate(time.Now().AddDate(0, 0, -daysAgo))
+			if _, err := st.AddReserveOp(context.Background(), store.ReserveOp{Date: d, Amount: amount,
+				Currency: money.UAH, Place: "готівка"}); err != nil {
+				t.Fatal(err)
 			}
 		}
 		var got struct {
@@ -744,7 +733,7 @@ func TestActualPaceEstimator(t *testing.T) {
 	}
 
 	// три щомісячні внески по 5000 -> темп має бути ~5000, а не ~7600
-	got, months := pace(t, map[int]string{60: "5000.00", 30: "5000.00", 0: "5000.00"})
+	got, months := pace(t, map[int]int64{60: 5000_00, 30: 5000_00, 0: 5000_00})
 	if got < 4800 || got > 5200 {
 		t.Errorf("три внески по 5000/міс мали дати ~5000 ₴/міс, маємо %.0f", got)
 	}
@@ -752,34 +741,26 @@ func TestActualPaceEstimator(t *testing.T) {
 		t.Errorf("історія мала бути 3 міс, маємо %d", months)
 	}
 
-	// одне поповнення сьогодні: показуємо одразу і без вибуху
-	got, months = pace(t, map[int]string{0: "5000.00"})
+	// один внесок сьогодні: показуємо одразу і без вибуху
+	got, months = pace(t, map[int]int64{0: 5000_00})
 	if got < 4900 || got > 5100 {
-		t.Errorf("одне поповнення 5000 мало дати ~5000 ₴/міс, маємо %.0f", got)
+		t.Errorf("один внесок 5000 мав дати ~5000 ₴/міс, маємо %.0f", got)
 	}
 	if months != 1 {
 		t.Errorf("історія мала бути 1 міс, маємо %d", months)
 	}
 
-	// давнє одиничне поповнення — темп низький, і це правда
-	got, _ = pace(t, map[int]string{365: "5000.00"})
+	// давній одиничний внесок — темп низький, і це правда
+	got, _ = pace(t, map[int]int64{365: 5000_00})
 	if got > 500 {
-		t.Errorf("одне поповнення рік тому мало дати низький темп, маємо %.0f", got)
+		t.Errorf("один внесок рік тому мав дати низький темп, маємо %.0f", got)
 	}
 
-	// Зняття входять у темп із мінусом: капітал вони зменшують так само,
-	// як поповнення збільшують. Особливо це важить для переказів між
-	// брокерами — окремої сутності переказу немає, тож він записується як
-	// зняття + поповнення, і без нетто завищував би темп на свою суму.
-	got, _ = pace(t, map[int]string{30: "5000.00", 0: "-1000.00"})
+	// Узяте назад входить у темп із мінусом: капітал воно зменшує так
+	// само, як внесок збільшує.
+	got, _ = pace(t, map[int]int64{30: 5000_00, 0: -1000_00})
 	if got < 1900 || got > 2150 {
 		t.Errorf("темп мав бути від НЕТТО 4000 (~2015), маємо %.0f", got)
-	}
-	// переказ між брокерами не додає нових грошей — темп не має зрости
-	transfer, _ := pace(t, map[int]string{30: "5000.00", 1: "-2000.00", 0: "2000.00"})
-	plain, _ := pace(t, map[int]string{30: "5000.00"})
-	if diff := transfer - plain; diff < -1 || diff > 1 {
-		t.Errorf("переказ між брокерами не мав змінити темп: %.2f vs %.2f", transfer, plain)
 	}
 }
 
@@ -909,7 +890,12 @@ func TestFundOpsFlowToState(t *testing.T) {
 
 // Імпорт виписки. Найважливіше тут — ідемпотентність: щомісячний файл
 // містить і старі рядки, тож без дедуплікації другий імпорт подвоїв би
-// і позицію, і баланс.
+// позицію.
+//
+// Поповнення рахунку імпорт більше не пише: рахунків застосунок не веде
+// (ревізія 2026-10-03). Такий рядок лише лічиться в `cash` — не в rows і
+// не в skipped, бо skipped тримає водяний знак, а цей рядок не заведеться
+// ніколи.
 func TestImportInzhurIsIdempotent(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
@@ -948,31 +934,19 @@ func TestImportInzhurIsIdempotent(t *testing.T) {
 		return out
 	}
 
-	// Ручний рух тієї ж суми має бути НАЗВАНИЙ конфліктом: поки обліку
-	// фондів не було, купівлі сертифікатів доводилось записувати як
-	// зняття, і тепер така пара стала б подвійним рахунком.
-	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
-		`{"amount":"-55.56","currency":"UAH","date":"2026-07-21","broker":"inzhur"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("ручне зняття: %d %s", resp.StatusCode, b)
-	}
-	{
-		var found string
-		for _, r := range post(true)["rows"].([]any) {
-			m := r.(map[string]any)
-			if c, _ := m["conflict"].(string); c != "" {
-				found = c
-			}
-		}
-		if found == "" {
-			t.Error("імпорт мав попередити про ручний рух тієї ж суми")
-		}
-	}
-
 	// Прогін без запису нічого не змінює.
 	preview := post(true)
-	// купівля сертифікатів, дивіденд, поповнення, купівля облігації
-	if preview["new"].(float64) != 4 {
-		t.Errorf("превʼю мало знайти 4 нові операції, маємо %v", preview["new"])
+	// купівля сертифікатів, дивіденд, купівля облігації; поповнення — окремо
+	if preview["new"].(float64) != 3 {
+		t.Errorf("превʼю мало знайти 3 нові операції, маємо %v", preview["new"])
+	}
+	if n, _ := preview["cash"].(float64); n != 1 {
+		t.Errorf("поповнення рахунку мало лягти в cash=1, маємо %v", preview["cash"])
+	}
+	for _, r := range preview["rows"].([]any) {
+		if k := r.(map[string]any)["kind"]; k == "deposit" || k == "withdrawal" {
+			t.Errorf("рух рахунку не мав потрапити в rows: %v", r)
+		}
 	}
 	if preview["imported"].(float64) != 0 {
 		t.Errorf("режим превʼю не мав нічого записати, маємо %v", preview["imported"])
@@ -982,8 +956,8 @@ func TestImportInzhurIsIdempotent(t *testing.T) {
 	}
 
 	first := post(false)
-	if first["imported"].(float64) != 4 {
-		t.Errorf("перший імпорт мав записати 4 операції, маємо %v", first["imported"])
+	if first["imported"].(float64) != 3 {
+		t.Errorf("перший імпорт мав записати 3 операції, маємо %v", first["imported"])
 	}
 	if sk, _ := first["skipped"].([]any); len(sk) != 0 {
 		t.Errorf("у цій виписці пропускати нічого, маємо %v", sk)
@@ -1005,7 +979,6 @@ func TestImportInzhurIsIdempotent(t *testing.T) {
 			Qty          int64   `json:"qty"`
 			DividendsNet float64 `json:"dividends_net"`
 		} `json:"funds"`
-		Accounts map[string]float64 `json:"accounts"`
 	}
 	_, body := do(t, "GET", srv.URL+"/api/summary", "")
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
@@ -1017,16 +990,6 @@ func TestImportInzhurIsIdempotent(t *testing.T) {
 	// дивіденд 18.99 із податком 2.66 -> 16.33 чистими, один раз
 	if len(got.Funds) == 1 && math.Abs(got.Funds[0].DividendsNet-16.33) > 0.01 {
 		t.Errorf("дивіденд мав врахуватись один раз чистим: %v", got.Funds[0].DividendsNet)
-	}
-	// Гаманець має рухатись від УСІХ операцій фонду, а не лише від
-	// поповнень: 300 (поповнення) − 55.56 (купівля) + 16.33 (дивіденд
-	// чистими) = 260.77. І кожна з них — рівно один раз.
-	// 300 (поповнення) − 55.56 (сертифікати) + 16.33 (дивіденд чистими)
-	// − 1032.46 (облігація з виписки)
-	// − 55.56 (той самий ручний рух, який імпорт і назвав конфліктом:
-	// він лишається в базі, доки користувач його не прибере)
-	if v := got.Accounts["UAH"]; math.Abs(v-(205.21-1032.46)) > 0.01 {
-		t.Errorf("баланс: очікували %.2f, маємо %v", 205.21-1032.46, v)
 	}
 }
 
@@ -1068,90 +1031,6 @@ func TestImportSkipsAlreadyEnteredBond(t *testing.T) {
 	_, lots := do(t, "GET", srv.URL+"/api/lots", "")
 	if strings.Count(lots, "UA4000227748") != 1 {
 		t.Errorf("лот задвоївся: %s", lots)
-	}
-}
-
-// Ручний рух міг бути записаний іншою датою й на іншому брокері — саме
-// так виглядає «вирівнювання балансу» постфактум. Детектор має ловити і
-// такий випадок, інакше він мовчить рівно там, де потрібен найбільше.
-func TestImportConflictAcrossDatesAndBrokers(t *testing.T) {
-	srv, st := testServer(t)
-	seed(t, st)
-	importSince(t, st, "2020-01-01")
-
-	// продаж 72 сертифікатів стався 20-го на inzhur…
-	xlsx := buildXLSX(t, [][]string{
-		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
-		{"46223.368946759256", "Продаж 72 сертифікатів", "Inzhur REIT", "798.3"},
-	})
-	// …а записаний вручну 22-го й на mono
-	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
-		`{"amount":"798.30","currency":"UAH","date":"2026-07-22","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("ручний рух: %d %s", resp.StatusCode, b)
-	}
-
-	body, ct := multipartFile(t, "file", "s.xlsx", xlsx)
-	req, _ := http.NewRequest("POST", srv.URL+"/api/import?dry=1", body)
-	req.Header.Set("Content-Type", ct)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var out struct {
-		Rows []struct {
-			Kind     string `json:"kind"`
-			Conflict string `json:"conflict"`
-		} `json:"rows"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		t.Fatal(err)
-	}
-	if len(out.Rows) != 1 {
-		t.Fatalf("очікували один рядок, маємо %+v", out.Rows)
-	}
-	if out.Rows[0].Conflict == "" {
-		t.Errorf("продаж 20-го й ручний рух 22-го — це та сама сума, мав бути конфлікт")
-	}
-}
-
-// Поповнив і того ж дня купив на ту саму суму — це нормальний рух
-// грошей, а не подвоєння. Детектор має мовчати: хибні тривоги псують
-// довіру до нього саме тоді, коли трапиться справжня.
-func TestImportNoConflictWhenDepositFundsPurchase(t *testing.T) {
-	srv, st := testServer(t)
-	seed(t, st)
-	importSince(t, st, "2020-01-01")
-	// поповнення +8051.74 того ж дня, що й купівля на 8051.74
-	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
-		`{"amount":"8051.74","currency":"UAH","date":"2024-04-02","broker":"inzhur"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("поповнення: %d %s", resp.StatusCode, b)
-	}
-	xlsx := buildXLSX(t, [][]string{
-		{"Дата", "Тип операції", "Вид цінного паперу", "Дебет", "Кредит"},
-		{"45384.5", "Купівля 2 сертифікатів", "Inzhur Ocean", "", "8051.74"},
-	})
-	body, ct := multipartFile(t, "file", "s.xlsx", xlsx)
-	req, _ := http.NewRequest("POST", srv.URL+"/api/import?dry=1", body)
-	req.Header.Set("Content-Type", ct)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	var out struct {
-		Rows []struct {
-			Conflict string `json:"conflict"`
-		} `json:"rows"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		t.Fatal(err)
-	}
-	if len(out.Rows) != 1 {
-		t.Fatalf("очікували один рядок: %+v", out.Rows)
-	}
-	if out.Rows[0].Conflict != "" {
-		t.Errorf("поповнення НА купівлю — не подвоєння, конфлікту бути не мало: %s", out.Rows[0].Conflict)
 	}
 }
 
@@ -1225,12 +1104,13 @@ func TestImportIgnoresRowsOlderThanWatermark(t *testing.T) {
 	}
 }
 
-// Купон, датований СЬОГОДНІ, сам на рахунок не лягає — і це навмисно:
+// Купон, датований СЬОГОДНІ, сам не зараховується — і це навмисно:
 // графік НБУ каже, коли виплата ПОВИННА прийти, а не коли прийшла.
-// Позначка «отримано» в календарі і є способом сказати «вже прийшли»,
-// після чого сума лягає на рахунок ТОГО брокера, через якого куплено
-// папір, пропорційно кількості паперів у нього.
-func TestTodayCouponCreditsBrokerOnlyWhenMarked(t *testing.T) {
+// Позначка «отримано» в календарі і є способом сказати «вже прийшли».
+// Рахунку, на який купон колись лягав, більше немає (ревізія 2026-10-03),
+// тож видно це по «доходу, що чекає»: виплата після останньої покупки,
+// ще не вкладена назад (uninvested_uah).
+func TestTodayCouponCountsOnlyWhenMarked(t *testing.T) {
 	srv, st := testServer(t)
 	today := domain.NewDate(time.Now())
 	const isin = "UA4000239016"
@@ -1243,9 +1123,8 @@ func TestTodayCouponCreditsBrokerOnlyWhenMarked(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Куплено вчора: на дату виплати папери вже у власності. Два папери
-	// в mono, один в inzhur — щоб побачити не лише «гроші прийшли», а й
-	// що вони прийшли КОЖНОМУ своєму брокеру за його кількістю.
+	// Куплено вчора: на дату виплати папери вже у власності. Два лоти в
+	// різних каналах — купон мусить прийти за ОБОМА, а не за першим.
 	buy := string(today.AddDays(-1))
 	for _, lot := range []string{
 		`{"isin":"` + isin + `","qty":2,"price_per_bond":"1000.00","buy_date":"` + buy + `","channel":"mono"}`,
@@ -1256,25 +1135,21 @@ func TestTodayCouponCreditsBrokerOnlyWhenMarked(t *testing.T) {
 		}
 	}
 
-	balances := func() map[string]map[string]float64 {
+	waiting := func() float64 {
 		t.Helper()
 		_, body := do(t, "GET", srv.URL+"/api/summary", "")
 		var doc struct {
-			Brokers map[string]map[string]float64 `json:"brokers"`
+			UninvestedUAH float64 `json:"uninvested_uah"`
 		}
 		if err := json.Unmarshal([]byte(body), &doc); err != nil {
 			t.Fatalf("summary: %v: %s", err, body)
 		}
-		return doc.Brokers
+		return doc.UninvestedUAH
 	}
 
-	// До позначки видно лише витрати на купівлю: купон сьогоднішній.
-	before := balances()
-	if got := before["mono"]["UAH"]; got != -2000 {
-		t.Fatalf("до позначки mono має бути -2000, маємо %v", got)
-	}
-	if got := before["inzhur"]["UAH"]; got != -1000 {
-		t.Fatalf("до позначки inzhur має бути -1000, маємо %v", got)
+	// До позначки купона немає: він сьогоднішній.
+	if got := waiting(); got != 0 {
+		t.Fatalf("до позначки дохід чекати не мав, маємо %v", got)
 	}
 
 	if resp, body := do(t, "POST", srv.URL+"/api/payments/status",
@@ -1283,41 +1158,30 @@ func TestTodayCouponCreditsBrokerOnlyWhenMarked(t *testing.T) {
 		t.Fatalf("позначка: %d %s", resp.StatusCode, body)
 	}
 
-	// mono: 2 × 75.75 = 151.50, inzhur: 1 × 75.75 = 75.75
-	after := balances()
-	if got := after["mono"]["UAH"]; got != -1848.5 {
-		t.Errorf("після позначки mono має бути -1848.5, маємо %v", got)
-	}
-	if got := after["inzhur"]["UAH"]; got != -924.25 {
-		t.Errorf("після позначки inzhur має бути -924.25, маємо %v", got)
+	// 3 × 75.75 = 227.25
+	if got := waiting(); math.Abs(got-227.25) > 0.005 {
+		t.Errorf("після позначки чекає має бути 227.25, маємо %v", got)
 	}
 
-	// Скасування позначки повертає баланс РІВНО до того, що був до неї:
-	// раз позначка рухає гроші, помилковий клік має бути оборотним.
+	// Скасування позначки повертає РІВНО до того, що було до неї:
+	// помилковий клік має бути оборотним.
 	if resp, body := do(t, "POST", srv.URL+"/api/payments/status",
 		`{"isin":"`+isin+`","pay_date":"`+string(today)+`","status":"none"}`,
 	); resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("скасування: %d %s", resp.StatusCode, body)
 	}
-	cleared := balances()
-	if got := cleared["mono"]["UAH"]; got != -2000 {
-		t.Errorf("після скасування mono має бути -2000, маємо %v", got)
-	}
-	if got := cleared["inzhur"]["UAH"]; got != -1000 {
-		t.Errorf("після скасування inzhur має бути -1000, маємо %v", got)
+	if got := waiting(); got != 0 {
+		t.Errorf("після скасування дохід чекати не мав, маємо %v", got)
 	}
 }
 
-// Розміщення вкладу СПИСУЄ тіло з рахунку банку, а позначена як отримана
-// виплата відсотків його кредитує — той самий arrived(), що й для купонів.
-func TestTermDepositMovesAccount(t *testing.T) {
-	srv, st := testServer(t)
-	// Поповнюємо банк, щоб було з чого класти вклад.
-	if _, err := st.AddDeposit(context.Background(), store.Deposit{
-		Date: "2026-01-10", Amount: 10000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
+// Поповнення вкладу нарощує його тіло: deposits_uah іде за кожним
+// поповненням, а список вкладів віддає їх поіменно. Доти тест ще й
+// дивився, як розміщення списує тіло з рахунку банку; рахунків немає з
+// ревізії 2026-10-03, тож гроші вкладу тепер просто «зайшли» на межі
+// інструмента, і стерегти лишилось саме тіло.
+func TestTermDepositTopupGrowsBody(t *testing.T) {
+	srv, _ := testServer(t)
 	// 100 000 ₴ під 16%, виплата в кінці, відкрито в минулому.
 	open := domain.NewDate(time.Now()).AddDays(-40)
 	mat := domain.NewDate(time.Now()).AddDays(325)
@@ -1327,47 +1191,15 @@ func TestTermDepositMovesAccount(t *testing.T) {
 		t.Fatalf("створення вкладу: %d %s", resp.StatusCode, b)
 	}
 
-	bankUAH := func() float64 {
-		t.Helper()
-		_, b := do(t, "GET", srv.URL+"/api/summary", "")
-		var doc struct {
-			Brokers map[string]map[string]float64 `json:"brokers"`
-		}
-		if err := json.Unmarshal([]byte(b), &doc); err != nil {
-			t.Fatalf("summary: %v", err)
-		}
-		return doc.Brokers["ПУМБ"]["UAH"]
-	}
-
-	// Поповнили 100 000, вклад замкнув 100 000 → на рахунку 0.
-	if got := bankUAH(); got != 0 {
-		t.Errorf("після розміщення баланс ПУМБ має бути 0, маємо %v", got)
-	}
-
 	// Список вкладів віддає створений.
 	if _, b := do(t, "GET", srv.URL+"/api/term-deposits", ""); !strings.Contains(b, `"rate_pct":16`) {
 		t.Errorf("список вкладів: %s", b)
 	}
 
-	// Поповнення на 100к (минулою датою) СПИСУЄ ще 100к з банку → −100к,
-	// але спершу докладемо на рахунок, щоб бачити чистий ефект поповнення.
-	if _, err := st.AddDeposit(context.Background(), store.Deposit{
-		Date: "2026-01-11", Amount: 10000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	// зараз: рахунок 100к (щойно долили), вклад замкнув перші 100к → 100к вільних
-	if got := bankUAH(); got != 100000 {
-		t.Fatalf("перед поповненням очікували 100000 вільних, маємо %v", got)
-	}
 	topupDate := string(domain.NewDate(time.Now()).AddDays(-5))
 	if resp, b := do(t, "POST", srv.URL+"/api/term-deposits/1/topups",
 		`{"date":"`+topupDate+`","amount":"100000.00"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("поповнення: %d %s", resp.StatusCode, b)
-	}
-	// поповнення замкнуло ще 100к → рахунок знову 0
-	if got := bankUAH(); got != 0 {
-		t.Errorf("після поповнення баланс ПУМБ має бути 0, маємо %v", got)
 	}
 	// deposits_uah = накопичене тіло 200к плюс нараховані відсотки
 	// (deposits_accrued_uah) — вклад у капіталі, як облігація з купоном.
@@ -1380,14 +1212,9 @@ func TestTermDepositMovesAccount(t *testing.T) {
 	}
 }
 
-// Вклад входить у капітал, календар і драбину — не лише в баланс рахунку.
+// Вклад входить у капітал, календар і драбину.
 func TestTermDepositFlowsIntoAggregates(t *testing.T) {
-	srv, st := testServer(t)
-	if _, err := st.AddDeposit(context.Background(), store.Deposit{
-		Date: "2026-01-10", Amount: 20000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	srv, _ := testServer(t)
 	open := domain.NewDate(time.Now()).AddDays(-30)
 	mat := domain.NewDate(time.Now()).AddDays(335)
 	body := `{"bank":"ПУМБ","currency":"UAH","principal":"100000.00","rate_pct":"16",` +
@@ -1441,12 +1268,6 @@ func TestReinvestRanksYieldNotPrice(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
 
-	// Гроші в банку — щоб і поповнення вкладу, і сертифікат були по кишені.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-01-10", Amount: 50000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	// Вклад 100к під 16%, податок 19.5% → нетто-ставка 12.88%.
 	open := domain.NewDate(time.Now()).AddDays(-10)
 	mat := domain.NewDate(time.Now()).AddDays(355)
@@ -1481,7 +1302,6 @@ func TestReinvestRanksYieldNotPrice(t *testing.T) {
 		Kind       string  `json:"kind"`
 		Label      string  `json:"label"`
 		RealPct    float64 `json:"real_pct"`
-		CanBuy     bool    `json:"can_buy"`
 		YieldBasis string  `json:"yield_basis"`
 	}
 	var rows []row
@@ -1500,10 +1320,6 @@ func TestReinvestRanksYieldNotPrice(t *testing.T) {
 	fund, okF := byKind["fund"]
 	if !okD || !okF {
 		t.Fatalf("очікували пропозиції kind=deposit і kind=fund, маємо %+v", rows)
-	}
-	// Обидва по кишені (500к на рахунку).
-	if !dep.CanBuy || !fund.CanBuy {
-		t.Errorf("обидва мали бути доступні: вклад=%v фонд=%v", dep.CanBuy, fund.CanBuy)
 	}
 	// Вклад дохідніший — 12.88% проти ~8%.
 	if !(dep.RealPct > fund.RealPct) {
@@ -1534,11 +1350,6 @@ func TestReinvestRanksYieldNotPrice(t *testing.T) {
 func TestUninvestedCountsDepositInterest(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-01-10", Amount: 20000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	// Вклад із ЩОМІСЯЧНОЮ виплатою, відкритий пів року тому: кілька
 	// відсоткових виплат уже минули, отже надійшли.
 	open := domain.NewDate(time.Now()).AddDays(-180)
@@ -1563,7 +1374,7 @@ func TestUninvestedCountsDepositInterest(t *testing.T) {
 		return doc.UninvestedUAH
 	}
 
-	// Минулі відсотки вкладу вже лежать на рахунку й не перевкладені.
+	// Минулі відсотки вкладу вже надійшли й не перевкладені.
 	before := uninvested()
 	if before <= 0 {
 		t.Fatalf("відсотки вкладу мали потрапити в «не перевкладено», маємо %v", before)
@@ -1583,70 +1394,16 @@ func TestUninvestedCountsDepositInterest(t *testing.T) {
 	}
 }
 
-// Стеля балансом. Черга сама по собі знає лише історію надходжень: якщо
-// гроші зняли з рахунку, вона й далі рахувала б їх простоєм. Тож число
-// не може перевищувати того, що реально лежить.
-func TestUninvestedCappedByAccountBalance(t *testing.T) {
-	srv, st := testServer(t)
-	ctx := context.Background()
-	// Вклад із щомісячною виплатою, відкритий пів року тому: кілька
-	// відсоткових виплат уже надійшли й лежать на рахунку.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-01-10", Amount: 20000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
-		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
-		OpenDate:     domain.NewDate(time.Now()).AddDays(-180),
-		MaturityDate: domain.NewDate(time.Now()).AddDays(185),
-		Payout:       domain.PayoutMonthly, TaxBP: 1950,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	uninvested := func() float64 {
-		t.Helper()
-		_, b := do(t, "GET", srv.URL+"/api/summary", "")
-		var doc struct {
-			UninvestedUAH float64 `json:"uninvested_uah"`
-			AccountUAH    float64 `json:"account_uah"`
-		}
-		if err := json.Unmarshal([]byte(b), &doc); err != nil {
-			t.Fatalf("summary: %v", err)
-		}
-		// Інваріант: простій ніколи не більший за те, що лежить. Рахунок
-		// у мінусі (зняли більше, ніж було) означає простій 0, а не
-		// від'ємний — боргу «без діла» не буває.
-		if cap := math.Max(0, doc.AccountUAH); doc.UninvestedUAH > cap+0.01 {
-			t.Errorf("простій (%.2f) не може бути більший за рахунок (%.2f)",
-				doc.UninvestedUAH, doc.AccountUAH)
-		}
-		return doc.UninvestedUAH
-	}
-	if uninvested() <= 0 {
-		t.Fatal("минулі відсотки мали потрапити в простій")
-	}
-	// А тепер знімаємо з рахунку все: грошей немає — простою теж.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: -20000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if got := uninvested(); got != 0 {
-		t.Errorf("рахунок порожній, простій мав бути 0, маємо %.2f", got)
-	}
-}
+// Стелі балансом рахунку в «не перевкладено» більше немає: рахунків
+// застосунок не веде (ревізія 2026-10-03), і число — рівно черга виплат,
+// за якими ще не було покупки (domain.IdleIncome). Гроші, що пішли в
+// життя, ця черга не бачить — це свідома ціна відмови від рахунків.
 
 // Помічник пропонує докласти ЛИШЕ в поповнюваний вклад: порада докласти
 // у вклад, який поповнень не приймає, — порада, яку неможливо виконати.
 func TestReinvestSuggestsOnlyReplenishableDeposits(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-01-10", Amount: 50000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	open := domain.NewDate(time.Now()).AddDays(-10)
 	mat := domain.NewDate(time.Now()).AddDays(355)
 	base := domain.Deposit{
@@ -1822,17 +1579,11 @@ func TestBenchmarkBuysAtEachDayRate(t *testing.T) {
 	if err := st.SaveRate(ctx, "USD", 500000, domain.NewDate(time.Now())); err != nil {
 		t.Fatal(err)
 	}
-	// Два поповнення по 10 000 ₴: одне за курсом 25, друге за 50.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2025-06-15", Amount: 1000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 1000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// Дві купівлі по 10 000 ₴: одна за курсом 25, друга за 50. Внеском
+	// бенчмарку тепер є рух на межі інструмента (рахунків немає з ревізії
+	// 2026-10-03), і фонд без дивідендів дає його без домішок.
+	fundOp(t, st, "2025-06-15", domain.FundBuy, 10_000_00)
+	fundOp(t, st, domain.NewDate(time.Now()), domain.FundBuy, 10_000_00)
 
 	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	usd := rv.Row(domain.RivalUSDCash)
@@ -1842,17 +1593,18 @@ func TestBenchmarkBuysAtEachDayRate(t *testing.T) {
 	if math.Abs(usd.TerminalUAH.Major()-30000) > 0.01 {
 		t.Errorf("долар = %.2f ₴, очікували 30 000 (400 $ по 25 + 200 $ по 50)", usd.TerminalUAH.Major())
 	}
-	// Портфель — самі гроші на рахунку (20 000 ₴), тож долари виграли.
+	// Портфель — сертифікати за ціною купівлі (20 000 ₴), тож долари
+	// виграли.
 	if math.Abs(rv.ActualUAH.Major()-20000) > 0.01 {
 		t.Errorf("портфель = %.2f ₴, очікували 20 000", rv.ActualUAH.Major())
 	}
 	if usd.DiffUAH.Major() >= 0 {
-		t.Errorf("гривня на рахунку мала програти долару, різниця %.2f", usd.DiffUAH.Major())
+		t.Errorf("гривневий портфель мав програти долару, різниця %.2f", usd.DiffUAH.Major())
 	}
 }
 
-// Зняття зменшує «куплені» долари так само, як і в житті: інакше
-// бенчмарк рахував би гроші, яких ти вже не маєш.
+// Вихід із позиції зменшує «куплені» долари так само, як і в житті:
+// інакше бенчмарк рахував би гроші, яких ти вже не маєш.
 func TestBenchmarkWithdrawalsReduceIt(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
@@ -1863,16 +1615,8 @@ func TestBenchmarkWithdrawalsReduceIt(t *testing.T) {
 	if err := st.SaveRate(ctx, "USD", 400000, domain.NewDate(time.Now())); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2025-02-01", Amount: 4000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2025-03-01", Amount: -1000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	fundOp(t, st, "2025-02-01", domain.FundBuy, 40_000_00)
+	fundOp(t, st, "2025-03-01", domain.FundSell, 10_000_00)
 	usd := getRivals(t, srv.URL, engine.LevelPortfolio).Row(domain.RivalUSDCash)
 	// (40000 − 10000) / 40 = 750 $, тобто 30 000 ₴ за сьогоднішнім курсом.
 	if math.Abs(usd.TerminalUAH.Major()-30000) > 0.01 {
@@ -1886,11 +1630,6 @@ func TestBenchmarkWithdrawalsReduceIt(t *testing.T) {
 func TestLiquidityBuckets(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-01-10", Amount: 30000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	// Вклад із погашенням через 200 днів — далеко за межами обох вікон.
 	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
 		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
@@ -1901,9 +1640,8 @@ func TestLiquidityBuckets(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sum struct {
-		AccountUAH float64 `json:"account_uah"`
-		Liquidity  *struct {
-			NowUAH     float64 `json:"now_uah"`
+		Liquidity *struct {
+			NowUAH     float64 `json:"available_now_uah"`
 			In30UAH    float64 `json:"in_30_uah"`
 			In90UAH    float64 `json:"in_90_uah"`
 			LockedUAH  float64 `json:"locked_uah"`
@@ -1918,11 +1656,13 @@ func TestLiquidityBuckets(t *testing.T) {
 		t.Fatalf("блок ліквідності мав з'явитись: %s", body)
 	}
 	l := sum.Liquidity
-	if l.NowUAH != sum.AccountUAH {
-		t.Errorf("«зараз» (%.2f) має дорівнювати балансу рахунків (%.2f)", l.NowUAH, sum.AccountUAH)
+	// Під рукою — лише подушка й цілі (рахунків немає з schema 4), а тут
+	// немає ні того, ні іншого.
+	if l.NowUAH != 0 {
+		t.Errorf("«під рукою» без подушки й цілей мало бути 0, маємо %.2f", l.NowUAH)
 	}
 	// Виплата в кінці строку — у вікна не потрапляє нічого, тож обидва
-	// дорівнюють поточному балансу.
+	// дорівнюють «під рукою».
 	if l.In30UAH != l.NowUAH || l.In90UAH != l.NowUAH {
 		t.Errorf("у вікна не мало потрапити нічого: зараз %.2f, 30 %.2f, 90 %.2f",
 			l.NowUAH, l.In30UAH, l.In90UAH)
@@ -1945,11 +1685,6 @@ func TestLiquidityBuckets(t *testing.T) {
 func TestLiquidityNearMaturityIsAvailable(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-01-10", Amount: 30000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
 		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
 		OpenDate:     domain.NewDate(time.Now()).AddDays(-300),
@@ -1960,7 +1695,7 @@ func TestLiquidityNearMaturityIsAvailable(t *testing.T) {
 	}
 	var sum struct {
 		Liquidity *struct {
-			NowUAH    float64 `json:"now_uah"`
+			NowUAH    float64 `json:"available_now_uah"`
 			In30UAH   float64 `json:"in_30_uah"`
 			In90UAH   float64 `json:"in_90_uah"`
 			LockedUAH float64 `json:"locked_uah"`
@@ -2108,155 +1843,6 @@ func TestTaxExcludesRedemptions(t *testing.T) {
 	}
 	if d.GrossUAH <= 0 {
 		t.Errorf("купони мали потрапити, маємо %.2f", d.GrossUAH)
-	}
-}
-
-// Звіт про рух грошей мусить сходитись із рахунком. Він рахує ті самі
-// величини, що й зведення, але подіями за період — і якщо дві
-// реалізації розійдуться, помітити це можна лише тут.
-func TestCashflowStatementReconciles(t *testing.T) {
-	srv, st := testServer(t)
-	ctx := context.Background()
-	seed(t, st)
-
-	// Портфель із усіх трьох інструментів плюс свої гроші й конвертація.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-01-10", Amount: 50000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	resp, b := do(t, "POST", srv.URL+"/api/lots",
-		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","fee":"25.00","buy_date":"2026-07-01","channel":"mono"}`)
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("лот: %d %s", resp.StatusCode, b)
-	}
-	var lot struct {
-		ID int64 `json:"id"`
-	}
-	if err := json.Unmarshal([]byte(b), &lot); err != nil || lot.ID == 0 {
-		t.Fatalf("id лота: %v: %s", err, b)
-	}
-	// Продаж на вторинці — рух, що повертає гроші на рахунок. Без нього
-	// тест лишав сліпою рівно ту половину, яку збирач свого часу забув:
-	// звіт зараховував виручку, а гаманець — ні.
-	accountBefore := func() float64 {
-		var sum struct {
-			AccountUAH float64 `json:"account_uah"`
-		}
-		_, body := do(t, "GET", srv.URL+"/api/summary", "")
-		if err := json.Unmarshal([]byte(body), &sum); err != nil {
-			t.Fatalf("summary: %v: %s", err, body)
-		}
-		return sum.AccountUAH
-	}
-	before := accountBefore()
-	if resp, b := do(t, "POST", srv.URL+"/api/sales",
-		`{"lot_id":`+strconv.FormatInt(lot.ID, 10)+`,"sale_date":"`+string(domain.NewDate(time.Now()))+`","qty":2,"clean_per_bond":"1010.00","accrued":"30.00","currency":"UAH"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("продаж: %d %s", resp.StatusCode, b)
-	}
-	// 2 × 1010 + 30 = 2050 ₴ виручки мають лягти на рахунок. Продаж —
-	// сьогодні: тоді жоден купон проданих паперів ще не «відпав», і різниця
-	// дорівнює рівно виручці.
-	if got := accountBefore() - before; math.Abs(got-2050) > 0.02 {
-		t.Errorf("продаж мав додати на рахунок 2050.00, додав %.2f", got)
-	}
-	if _, err := st.AddFundOp(ctx, domain.FundOp{
-		Date: "2026-06-01", Fund: "Inzhur", Kind: domain.FundBuy,
-		Qty: 100, Amount: 100000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	depID, err := st.AddTermDeposit(ctx, domain.Deposit{
-		Bank: "mono", Currency: "UAH", Principal: 5000000, RateBP: 1600,
-		OpenDate:     domain.NewDate(time.Now()).AddDays(-120),
-		MaturityDate: domain.NewDate(time.Now()).AddDays(245),
-		Payout:       domain.PayoutMonthly, TaxBP: 1950, Replenishable: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.AddDepositTopup(ctx, domain.DepositTopup{
-		DepositID: depID, Date: domain.NewDate(time.Now()).AddDays(-30), Amount: 1000000,
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	// Період — від давнього минулого до сьогодні: тоді opening = 0, і
-	// підсумок звіту має дорівнювати рахунку зі зведення.
-	var st1 struct {
-		OpeningUAH  float64 `json:"opening_uah"`
-		IncomeUAH   float64 `json:"income_uah"`
-		ContribUAH  float64 `json:"contributed_uah"`
-		PurchaseUAH float64 `json:"purchased_uah"`
-		ConvUAH     float64 `json:"conversions_uah"`
-		ClosingUAH  float64 `json:"closing_uah"`
-	}
-	_, body := do(t, "GET", srv.URL+"/api/cashflow?from=2000-01-01", "")
-	if err := json.Unmarshal([]byte(body), &st1); err != nil {
-		t.Fatalf("cashflow: %v: %s", err, body)
-	}
-	var sum struct {
-		AccountUAH float64 `json:"account_uah"`
-	}
-	_, body = do(t, "GET", srv.URL+"/api/summary", "")
-	if err := json.Unmarshal([]byte(body), &sum); err != nil {
-		t.Fatalf("summary: %v: %s", err, body)
-	}
-	if math.Abs(st1.ClosingUAH-sum.AccountUAH) > 0.02 {
-		t.Errorf("звіт дає %.2f, рахунок зі зведення %.2f — реалізації розійшлись",
-			st1.ClosingUAH, sum.AccountUAH)
-	}
-	// І сама тотожність усередині звіту.
-	want := st1.OpeningUAH + st1.IncomeUAH + st1.ContribUAH - st1.PurchaseUAH + st1.ConvUAH
-	if math.Abs(st1.ClosingUAH-want) > 0.02 {
-		t.Errorf("тотожність не сходиться: %.2f + %.2f + %.2f − %.2f + %.2f = %.2f, а закриття %.2f",
-			st1.OpeningUAH, st1.IncomeUAH, st1.ContribUAH, st1.PurchaseUAH, st1.ConvUAH,
-			want, st1.ClosingUAH)
-	}
-	if st1.OpeningUAH != 0 {
-		t.Errorf("з 2000 року відкриття мало бути нульове, маємо %.2f", st1.OpeningUAH)
-	}
-	if st1.IncomeUAH <= 0 || st1.ContribUAH <= 0 || st1.PurchaseUAH <= 0 {
-		t.Errorf("усі три категорії мали бути ненульові: %+v", st1)
-	}
-}
-
-// Розрізане навпіл вікно теж має сходитись: відкриття другого періоду
-// дорівнює закриттю першого. Інакше «за місяць» показувало б числа, які
-// не стикуються між собою.
-func TestCashflowPeriodsChain(t *testing.T) {
-	srv, st := testServer(t)
-	ctx := context.Background()
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-03-10", Amount: 30000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-06-15", Amount: 20000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	get := func(from, to string) (open, close float64) {
-		t.Helper()
-		var d struct {
-			OpeningUAH float64 `json:"opening_uah"`
-			ClosingUAH float64 `json:"closing_uah"`
-		}
-		_, b := do(t, "GET", srv.URL+"/api/cashflow?from="+from+"&to="+to, "")
-		if err := json.Unmarshal([]byte(b), &d); err != nil {
-			t.Fatalf("cashflow: %v: %s", err, b)
-		}
-		return d.OpeningUAH, d.ClosingUAH
-	}
-	_, firstClose := get("2000-01-01", "2026-05-31")
-	secondOpen, _ := get("2026-06-01", "2026-12-31")
-	if math.Abs(firstClose-secondOpen) > 0.02 {
-		t.Errorf("періоди не стикуються: закриття %.2f, наступне відкриття %.2f",
-			firstClose, secondOpen)
-	}
-	if firstClose != 300000 {
-		t.Errorf("до червня внесено 300 000 ₴, маємо %.2f", firstClose)
 	}
 }
 
@@ -2937,11 +2523,6 @@ func TestPortfolioAndAdviceAgreeOnRealYield(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
 
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2026-01-10", Amount: 50000000, Currency: "UAH", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := st.AddTermDeposit(ctx, domain.Deposit{
 		Bank: "ПУМБ", Currency: "UAH", Principal: 10000000, RateBP: 1600,
 		OpenDate:     domain.NewDate(time.Now()).AddDays(-10),
@@ -3140,17 +2721,17 @@ func TestFundTotalReturnStaysQuietOnShortHistory(t *testing.T) {
 
 // Резерв («матрац») — четверта сутність, і головна вимога до неї не
 // «показати число», а НЕ зіпсувати решту. Він частина капіталу й валютної
-// експозиції, але не купівельна спроможність: якби він потрапив у
-// brokers, помічник запропонував би купити папір за аварійні гроші.
+// експозиції, але не купівельна спроможність: помічник не має пропонувати
+// купити папір за аварійні гроші (це стереже сусідній
+// TestReserveFillDoesNotBecomeBuyingPower). Перевірки «рахунок і brokers
+// не зачеплено» тут більше немає: рахунків немає з ревізії 2026-10-03.
 func TestReserveIsCapitalButNotBuyingPower(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 
 	var before struct {
-		AccountUAH  float64                       `json:"account_uah"`
-		USDSharePct float64                       `json:"usd_share_pct"`
-		Brokers     map[string]map[string]float64 `json:"brokers"`
-		ReserveUAH  float64                       `json:"reserve_uah"`
+		USDSharePct float64 `json:"usd_share_pct"`
+		ReserveUAH  float64 `json:"reserve_uah"`
 	}
 	_, body := do(t, "GET", srv.URL+"/api/summary", "")
 	if err := json.Unmarshal([]byte(body), &before); err != nil {
@@ -3167,10 +2748,8 @@ func TestReserveIsCapitalButNotBuyingPower(t *testing.T) {
 	}
 
 	var after struct {
-		AccountUAH  float64                       `json:"account_uah"`
-		USDSharePct float64                       `json:"usd_share_pct"`
-		Brokers     map[string]map[string]float64 `json:"brokers"`
-		ReserveUAH  float64                       `json:"reserve_uah"`
+		USDSharePct float64 `json:"usd_share_pct"`
+		ReserveUAH  float64 `json:"reserve_uah"`
 		Reserve     *struct {
 			UAH        float64            `json:"uah"`
 			SharePct   float64            `json:"share_pct"`
@@ -3186,16 +2765,8 @@ func TestReserveIsCapitalButNotBuyingPower(t *testing.T) {
 	if math.Abs(after.ReserveUAH-22061.70) > 0.02 {
 		t.Errorf("резерв у грн-екв = %.2f, чекали 22061.70", after.ReserveUAH)
 	}
-	// Рахунок не змінився: матрац на брокері не лежить. Це саме те, що
-	// тримає рівність now_uah == account_uah у звірці.
-	if after.AccountUAH != before.AccountUAH {
-		t.Errorf("резерв зачепив рахунок: було %.2f, стало %.2f", before.AccountUAH, after.AccountUAH)
-	}
-	if len(after.Brokers) != len(before.Brokers) {
-		t.Errorf("резерв заліз у brokers і став купівельною спроможністю: %+v", after.Brokers)
-	}
 	// А от валютна частка вирости мусить: $500 у матраці — справжня
-	// валютна експозиція, на відміну від кешу на брокері.
+	// валютна експозиція.
 	if after.USDSharePct <= before.USDSharePct {
 		t.Errorf("валютний резерв не потрапив у частку USD: було %.2f, стало %.2f",
 			before.USDSharePct, after.USDSharePct)
@@ -3221,21 +2792,14 @@ func TestReserveIsCapitalButNotBuyingPower(t *testing.T) {
 // відповідь помічника мусить лишитись ПОБАЙТОВО тією самою.
 //
 // Рідний брат TestReserveIsCapitalButNotBuyingPower вище: той стереже, що
-// резерв не заліз у brokers, цей — що не заліз у поради.
+// резерв став капіталом, цей — що не заліз у поради.
 func TestReserveFillDoesNotBecomeBuyingPower(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 	today := string(domain.NewDate(time.Now()))
 
-	// Вільні гроші на рахунку — щоб було чому «з'їстись», якби стеля
-	// помилково стала списанням.
-	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
-		`{"date":"`+today+`","amount":"200000.00","currency":"UAH","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("поповнення: %d %s", resp.StatusCode, b)
-	}
-	// Джерело доходу — БАЗА стелі. Готівка на рахунку нею більше не є:
-	// подушку наповнюють із нових грошей, а не з того, що випадково лежить
-	// у брокера цієї миті. Без потоку механізм мовчить, і тест проходив би
+	// Джерело доходу — БАЗА стелі: подушку наповнюють із нових грошей, а
+	// не з того, що випадково лежить у брокера цієї миті. Без потоку механізм мовчить, і тест проходив би
 	// порожнечею.
 	if resp, b := do(t, "POST", srv.URL+"/api/plan/flows",
 		`{"name":"Зарплата","kind":"income","amount":"50000.00","cadence":"month","from_date":"`+
@@ -3248,14 +2812,6 @@ func TestReserveFillDoesNotBecomeBuyingPower(t *testing.T) {
 	}
 
 	_, before := do(t, "GET", srv.URL+"/api/reinvest", "")
-	var sumBefore struct {
-		AccountUAH float64                       `json:"account_uah"`
-		Brokers    map[string]map[string]float64 `json:"brokers"`
-	}
-	_, body := do(t, "GET", srv.URL+"/api/summary", "")
-	if err := json.Unmarshal([]byte(body), &sumBefore); err != nil {
-		t.Fatalf("summary: %v: %s", err, body)
-	}
 
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
 		`{"reserve_fill_share_pct":"40"}`); resp.StatusCode != http.StatusNoContent {
@@ -3268,25 +2824,16 @@ func TestReserveFillDoesNotBecomeBuyingPower(t *testing.T) {
 			before, after)
 	}
 	var sumAfter struct {
-		AccountUAH float64                       `json:"account_uah"`
-		Brokers    map[string]map[string]float64 `json:"brokers"`
-		Reserve    *struct {
+		Reserve *struct {
 			GapUAH       float64 `json:"gap_uah"`
 			FillNowUAH   float64 `json:"fill_now_uah"`
 			FillFromUAH  float64 `json:"fill_from_uah"`
 			FillSharePct float64 `json:"fill_share_pct"`
 		} `json:"reserve"`
 	}
-	_, body = do(t, "GET", srv.URL+"/api/summary", "")
+	_, body := do(t, "GET", srv.URL+"/api/summary", "")
 	if err := json.Unmarshal([]byte(body), &sumAfter); err != nil {
 		t.Fatalf("summary: %v: %s", err, body)
-	}
-	// Купівельна спроможність не зменшилась наперед: стеля — це порада
-	// відкласти, а не списання.
-	if sumAfter.AccountUAH != sumBefore.AccountUAH ||
-		!reflect.DeepEqual(sumAfter.Brokers, sumBefore.Brokers) {
-		t.Errorf("стеля з'їла гроші наперед: рахунок %.2f → %.2f, brokers %+v → %+v",
-			sumBefore.AccountUAH, sumAfter.AccountUAH, sumBefore.Brokers, sumAfter.Brokers)
 	}
 	// І при цьому механізм таки заговорив — інакше рівність вище нічого не
 	// доводила б.
@@ -3298,20 +2845,17 @@ func TestReserveFillDoesNotBecomeBuyingPower(t *testing.T) {
 	}
 }
 
-// Переміщення гаманець → матрац не створює й не знищує грошей, тож
+// Переміщення портфель → матрац не створює й не знищує грошей, тож
 // «внесено за місяць» мусить лишитись тим самим. Записується воно двома
-// ногами (мінус у deposits, плюс у резерві), і рахувати лише першу
-// означало б показати відкладання як втрату капіталу — псуючи місячний
-// прогрес, фактичний темп внесків і бенчмарк.
+// ногами (вихід з інструмента — продаж, плюс у резерві), і рахувати лише
+// першу означало б показати відкладання як втрату капіталу — псуючи
+// місячний прогрес, фактичний темп внесків і бенчмарк.
 func TestMoveToReserveDoesNotLookLikeLoss(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
-	today := string(domain.NewDate(time.Now()))
+	today := domain.NewDate(time.Now())
 
-	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
-		`{"date":"`+today+`","amount":"20000.00","currency":"UAH","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("поповнення: %d %s", resp.StatusCode, b)
-	}
+	fundOp(t, st, today, domain.FundBuy, 20_000_00)
 	var before struct {
 		MonthDepositedUAH float64 `json:"month_deposited_uah"`
 	}
@@ -3321,12 +2865,9 @@ func TestMoveToReserveDoesNotLookLikeLoss(t *testing.T) {
 	}
 
 	// Обидві ноги переміщення 5 000 ₴ на матрац.
-	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
-		`{"date":"`+today+`","amount":"-5000.00","currency":"UAH","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("зняття: %d %s", resp.StatusCode, b)
-	}
+	fundOp(t, st, today, domain.FundSell, 5_000_00)
 	if resp, b := do(t, "POST", srv.URL+"/api/reserve",
-		`{"date":"`+today+`","amount":"5000.00","currency":"UAH","place":"сейф"}`); resp.StatusCode != http.StatusCreated {
+		`{"date":"`+string(today)+`","amount":"5000.00","currency":"UAH","place":"сейф"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("резерв: %d %s", resp.StatusCode, b)
 	}
 
@@ -3417,22 +2958,6 @@ func TestCurrencyShareAgreesWithRebalance(t *testing.T) {
 
 	// Портфель, де кожен доданок капіталу непорожній і всі різні: інакше
 	// збіг двох формул нічого не доводить.
-	//
-	// Спершу гроші на рахунок, і з запасом. Без цього кожна покупка гнала
-	// б баланс у мінус, капітал виходив меншим за саму лише валютну
-	// частину, а частка USD — 300%: формули й тоді збігаються, але
-	// перевіряти їхню згоду на неможливому портфелі означає не помітити,
-	// коли зійдуться дві однаково зламані.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 20000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 500000, Currency: "USD", Broker: "ПУМБ",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if resp, b := do(t, "POST", srv.URL+"/api/lots",
 		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("лот: %d %s", resp.StatusCode, b)
@@ -3489,7 +3014,6 @@ func TestCurrencyShareAgreesWithRebalance(t *testing.T) {
 		USDSharePct float64 `json:"usd_share_pct"`
 		CapitalUAH  float64 `json:"capital_uah"`
 		NominalUAH  float64 `json:"nominal_uah_eq"`
-		AccountUAH  float64 `json:"account_uah"`
 		FundsUAH    float64 `json:"funds_uah"`
 		DepositsUAH float64 `json:"deposits_uah"`
 		ReserveUAH  float64 `json:"reserve_uah"`
@@ -3531,7 +3055,7 @@ func TestCurrencyShareAgreesWithRebalance(t *testing.T) {
 
 	// capital_uah — те саме, що сума частин: споживачі більше не мусять
 	// складати її самотужки, і саме звідси бралися розбіжності.
-	want := doc.NominalUAH + doc.AccountUAH + doc.FundsUAH + doc.DepositsUAH + doc.ReserveUAH
+	want := doc.NominalUAH + doc.FundsUAH + doc.DepositsUAH + doc.ReserveUAH
 	if math.Abs(doc.CapitalUAH-want) > 0.02 {
 		t.Errorf("capital_uah = %.2f, сума частин %.2f", doc.CapitalUAH, want)
 	}
@@ -3546,15 +3070,15 @@ func TestKindTargetsDoNotNormalise(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
 	seed(t, st)
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 10000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if resp, b := do(t, "POST", srv.URL+"/api/lots",
 		`{"isin":"UA4000227748","qty":10,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("лот: %d %s", resp.StatusCode, b)
 	}
+	// Фонд — щоб ОВДП не були всім портфелем: доти цю роль грала готівка
+	// рахунку, а рахунків немає з ревізії 2026-10-03. Без нього облігації
+	// стояли б на 100% проти цілі 40, і дефіцит упирався б у нуль, нічого
+	// не перевіряючи.
+	fundOp(t, st, "2026-07-01", domain.FundBuy, 20_000_00)
 	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
 		Date: domain.NewDate(time.Now()).AddDays(-5), Amount: 2000000, Currency: "UAH",
 	}); err != nil {
@@ -3622,18 +3146,17 @@ func TestKindTargetsDoNotNormalise(t *testing.T) {
 	}
 }
 
-// TestKindSharesSumToHundredWithoutCash — чотири види в сумі дають рівно
-// 100% бази, коли невкладеної готівки немає.
+// У день погашення кнопка «Отримано» виводить гроші з паперу, а не ДОДАЄ
+// їх: номінал мусить піти з капіталу того ж дня. Доти папір лишався «в
+// портфелі» до півночі (Matured = дата строго раніше за сьогодні), а
+// погашення вже лежало на рахунку — і номінал рахувався двічі, зокрема в
+// MQTT.
 //
-// Це і є властивість, заради якої знаменник змінили: доти сума часток за
-// видом не могла дійти до сотні в принципі, бо в знаменнику сиділа подушка.
-// Тепер вона там не сидить, і сума стає перевірною — а «нерозподілено» в
-// картці означає справжню діру в цілях, а не місце під матрац.
-// У день погашення кнопка «Отримано» переносить гроші з паперу на рахунок,
-// а не ДОДАЄ їх: капітал до позначки і після мусить бути той самий. Доти
-// папір лишався «в портфелі» до півночі (Matured = дата строго раніше за
-// сьогодні), а погашення вже лежало на рахунку — і номінал рахувався двічі,
-// зокрема в MQTT.
+// Рахунку, куди гроші лягали, більше немає (ревізія 2026-10-03): виплата
+// тепер виходить за межу портфеля й чекає в «доході без діла»
+// (uninvested_uah), доки її не вкладуть. Тож капітал після позначки
+// МЕНШИЙ рівно на погашене, а не той самий — і саме так видно, що
+// подвійного рахунку немає.
 func TestRedemptionMarkMovesMoneyNotDoubles(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
@@ -3648,19 +3171,14 @@ func TestRedemptionMarkMovesMoneyNotDoubles(t *testing.T) {
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: today.AddDays(-40), Amount: 200000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := st.AddLot(ctx, domain.Lot{ISIN: isin, Qty: 2,
 		PricePerBond: money.New(100000, money.UAH), BuyDate: today.AddDays(-30), Channel: "mono"}); err != nil {
 		t.Fatal(err)
 	}
 	type doc struct {
-		Capital float64 `json:"capital_uah"`
-		Nominal float64 `json:"nominal_uah_eq"`
-		Account float64 `json:"account_uah"`
+		Capital    float64 `json:"capital_uah"`
+		Nominal    float64 `json:"nominal_uah_eq"`
+		Uninvested float64 `json:"uninvested_uah"`
 	}
 	summary := func() doc {
 		t.Helper()
@@ -3672,8 +3190,8 @@ func TestRedemptionMarkMovesMoneyNotDoubles(t *testing.T) {
 		return d
 	}
 	before := summary()
-	if before.Nominal != 2000 || before.Account != 0 {
-		t.Fatalf("до позначки чекали 2000 у паперах і 0 на рахунку: %+v", before)
+	if before.Nominal != 2000 || before.Uninvested != 0 {
+		t.Fatalf("до позначки чекали 2000 у паперах і нічого в очікуванні: %+v", before)
 	}
 	if resp, body := do(t, "POST", srv.URL+"/api/payments/status",
 		`{"isin":"`+isin+`","pay_date":"`+string(today)+`","status":"received"}`,
@@ -3681,25 +3199,20 @@ func TestRedemptionMarkMovesMoneyNotDoubles(t *testing.T) {
 		t.Fatalf("позначка: %d %s", resp.StatusCode, body)
 	}
 	after := summary()
-	if after.Account != 2000 || after.Nominal != 0 {
-		t.Errorf("після позначки гроші мали перейти на рахунок: %+v", after)
+	if after.Nominal != 0 || after.Uninvested != 2000 {
+		t.Errorf("після позначки номінал мав піти, а 2000 — чекати вкладення: %+v", after)
 	}
-	if math.Abs(after.Capital-before.Capital) > 0.01 {
-		t.Errorf("позначка погашення змінила капітал: %.2f → %.2f", before.Capital, after.Capital)
+	if math.Abs(before.Capital-after.Capital-2000) > 0.01 {
+		t.Errorf("позначка погашення мала вивести рівно 2000 з капіталу: %.2f → %.2f", before.Capital, after.Capital)
 	}
 
-	// Те саме для вкладу, що закінчується сьогодні: позначене тіло лягає на
-	// рахунок і мусить вийти зі складу вкладів того ж дня.
+	// Те саме для вкладу, що закінчується сьогодні: позначене тіло мусить
+	// вийти зі складу вкладів того ж дня.
 	depID, err := st.AddTermDeposit(ctx, domain.Deposit{
 		Bank: "mono", Currency: "UAH", Principal: 100000, RateBP: 0,
 		OpenDate: today.AddDays(-20), MaturityDate: today, Payout: domain.PayoutEnd,
 	})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: today.AddDays(-21), Amount: 100000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
 		t.Fatal(err)
 	}
 	beforeDep := summary()
@@ -3709,24 +3222,25 @@ func TestRedemptionMarkMovesMoneyNotDoubles(t *testing.T) {
 		t.Fatalf("позначка вкладу: %d %s", resp.StatusCode, body)
 	}
 	afterDep := summary()
-	if math.Abs(afterDep.Account-beforeDep.Account-1000) > 0.01 {
-		t.Errorf("тіло вкладу мало лягти на рахунок: %.2f → %.2f", beforeDep.Account, afterDep.Account)
+	if math.Abs(afterDep.Uninvested-beforeDep.Uninvested-1000) > 0.01 {
+		t.Errorf("тіло вкладу мало стати доходом, що чекає: %.2f → %.2f", beforeDep.Uninvested, afterDep.Uninvested)
 	}
-	if math.Abs(afterDep.Capital-beforeDep.Capital) > 0.01 {
-		t.Errorf("позначка погашення вкладу змінила капітал: %.2f → %.2f", beforeDep.Capital, afterDep.Capital)
+	if math.Abs(beforeDep.Capital-afterDep.Capital-1000) > 0.01 {
+		t.Errorf("позначка погашення вкладу мала вивести рівно 1000 з капіталу: %.2f → %.2f", beforeDep.Capital, afterDep.Capital)
 	}
 }
 
+// TestKindSharesSumToHundredWithoutCash — чотири види в сумі дають рівно
+// 100% бази.
+//
+// Це і є властивість, заради якої знаменник змінили: доти сума часток за
+// видом не могла дійти до сотні в принципі, бо в знаменнику сиділа подушка.
+// Тепер вона там не сидить, і сума стає перевірною — а «нерозподілено» в
+// картці означає справжню діру в цілях, а не місце під матрац.
 func TestKindSharesSumToHundredWithoutCash(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
 	seed(t, st)
-	// Готівка вся піде в папір: поповнення рівно на вартість лота.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 1000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	// Купівля СЬОГОДНІ, а не фіксованою датою: з датою 2026-07-01 купон
 	// 16.09 належав лоту, і після того дня на рахунку лишались 827,50 ₴ —
 	// тест мовчки перетворився на бомбу з годинником.
@@ -3747,8 +3261,7 @@ func TestKindSharesSumToHundredWithoutCash(t *testing.T) {
 	}
 
 	var doc struct {
-		AccountUAH float64 `json:"account_uah"`
-		Rebalance  []struct {
+		Rebalance []struct {
 			Dimension  string  `json:"dimension"`
 			Key        string  `json:"key"`
 			CurrentPct float64 `json:"current_pct"`
@@ -3757,9 +3270,6 @@ func TestKindSharesSumToHundredWithoutCash(t *testing.T) {
 	_, body := do(t, "GET", srv.URL+"/api/summary", "")
 	if err := json.Unmarshal([]byte(body), &doc); err != nil {
 		t.Fatalf("summary: %v: %s", err, body)
-	}
-	if math.Abs(doc.AccountUAH) > 0.01 {
-		t.Fatalf("на рахунку лишилось %.2f — фікстура мала вкласти все", doc.AccountUAH)
 	}
 	sum := 0.0
 	for _, r := range doc.Rebalance {
@@ -3781,11 +3291,6 @@ func TestConcentrationSeesFundsAndCountsSeparateBases(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
 	seed(t, st)
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 10000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if resp, b := do(t, "POST", srv.URL+"/api/lots",
 		`{"isin":"UA4000227748","qty":10,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("лот: %d %s", resp.StatusCode, b)
@@ -3909,11 +3414,6 @@ func TestReinvestRespectsLimitsWithoutHiding(t *testing.T) {
 	}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 50000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	// Увесь портфель в одному папері — ліміт у 10% свідомо порушений.
 	if resp, b := do(t, "POST", srv.URL+"/api/lots",
 		`{"isin":"UA4000227748","qty":100,"price_per_bond":"1000.00","buy_date":"2026-07-01","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
@@ -3926,7 +3426,6 @@ func TestReinvestRespectsLimitsWithoutHiding(t *testing.T) {
 
 	var sugg []struct {
 		ISIN   string `json:"isin"`
-		CanBuy bool   `json:"can_buy"`
 		Reason string `json:"reason"`
 	}
 	_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
@@ -3937,7 +3436,7 @@ func TestReinvestRespectsLimitsWithoutHiding(t *testing.T) {
 	for i, s := range sugg {
 		if s.ISIN == "UA4000227748" {
 			pos = i
-		} else if other < 0 && s.CanBuy {
+		} else if s.ISIN == "UA4000999999" {
 			other = i
 		}
 	}
@@ -3948,7 +3447,7 @@ func TestReinvestRespectsLimitsWithoutHiding(t *testing.T) {
 		t.Errorf("причина не називає порушення: %q", sugg[pos].Reason)
 	}
 	if other < 0 {
-		t.Fatal("у списку немає другої доступної поради — порядок нема з чим порівнювати")
+		t.Fatal("у списку немає другого паперу — порядок нема з чим порівнювати")
 	}
 	if pos < other {
 		t.Errorf("папір понад лімітом (#%d) стоїть вище за той, що в межах (#%d)", pos, other)
@@ -3961,13 +3460,11 @@ func TestReinvestRespectsLimitsWithoutHiding(t *testing.T) {
 // знаменника, тому їх і можна складати.
 func TestReinvestUsesKindDeficit(t *testing.T) {
 	srv, st := testServer(t)
-	ctx := context.Background()
 	seed(t, st)
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 20000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// Портфель не порожній, але без ОВДП: частка від нуля не міряється, і
+	// рядків видів на порожньому капіталі немає. Доти капітал давала
+	// готівка рахунку; рахунків немає з ревізії 2026-10-03.
+	fundOp(t, st, domain.NewDate(time.Now()).AddDays(-30), domain.FundBuy, 50_000_00)
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
 		`{"target_bonds_pct":"60"}`); resp.StatusCode >= 300 {
 		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
@@ -4367,11 +3864,6 @@ func TestProjectionStartsFromWholeCapital(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
 	seed(t, st)
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()).AddDays(-60), Amount: 30000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	// Портфель, де БІЛЬШІСТЬ грошей саме у фондах і вкладах: на такому
 	// стара помилка й давала відʼємний приріст.
 	if _, err := st.AddFundOp(ctx, domain.FundOp{
@@ -4426,24 +3918,21 @@ func TestProjectionStartsFromWholeCapital(t *testing.T) {
 
 // Погашений папір не має лічитись двічі.
 //
-// Погашення повертає номінал на рахунок, але сам лот нікуди не дівається:
+// Погашення повертає номінал власникові, але сам лот нікуди не дівається:
 // продажу не було, тож RemainingQtyNow і далі дає повну кількість. Доки
 // domain.Positions не фільтрувала за датою погашення, ті самі гроші стояли
-// і в nominal_uah_eq, і в account_uah — тобто в капіталі двічі.
+// і в nominal_uah_eq, і в account_uah — тобто в капіталі двічі. Рахунку
+// немає з ревізії 2026-10-03: погашене тепер виходить за межу портфеля, і
+// капітал без інших позицій мусить бути нулем, а повернуте — чекати в
+// uninvested_uah.
 //
 // Драбина (domain.Ladder) і YTM-мапа таких паперів уже не бачать; ця
 // перевірка ставить позиції в один ряд з ними.
 func TestMaturedBondNotCountedTwice(t *testing.T) {
 	srv, st := testServer(t)
-	ctx := context.Background()
 	// І купон, і погашення вже минули: гроші повернулись повністю.
 	seedPastBond(t, st, "UA4000227748",
 		domain.NewDate(time.Now()).AddDays(-120), domain.NewDate(time.Now()).AddDays(-30))
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()).AddDays(-200), Amount: 1000000, Currency: "UAH", Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if resp, b := do(t, "POST", srv.URL+"/api/lots",
 		`{"isin":"UA4000227748","qty":5,"price_per_bond":"1000.00","buy_date":"`+
 			string(domain.NewDate(time.Now()).AddDays(-180))+`","channel":"mono"}`); resp.StatusCode != http.StatusCreated {
@@ -4451,25 +3940,25 @@ func TestMaturedBondNotCountedTwice(t *testing.T) {
 	}
 
 	var d struct {
-		NominalUAH float64 `json:"nominal_uah_eq"`
-		AccountUAH float64 `json:"account_uah"`
-		CapitalUAH float64 `json:"capital_uah"`
+		NominalUAH    float64 `json:"nominal_uah_eq"`
+		CapitalUAH    float64 `json:"capital_uah"`
+		UninvestedUAH float64 `json:"uninvested_uah"`
 	}
 	_, body := do(t, "GET", srv.URL+"/api/summary", "")
 	if err := json.Unmarshal([]byte(body), &d); err != nil {
 		t.Fatalf("summary: %v: %s", err, body)
 	}
-	// Гроші вже на рахунку: 10 000 внесено − 5 000 куплено + 5 000 погашено
-	// + 413.75 купона.
-	if math.Abs(d.AccountUAH-10413.75) > 0.02 {
-		t.Fatalf("рахунок = %.2f, чекали 10413.75 (погашення й купон повернулись)", d.AccountUAH)
+	// Повернулось 5 000 погашення + 413.75 купона, і після них покупок не
+	// було — усе чекає вкладення.
+	if math.Abs(d.UninvestedUAH-5413.75) > 0.02 {
+		t.Fatalf("чекає %.2f, чекали 5413.75 (погашення й купон повернулись)", d.UninvestedUAH)
 	}
 	if d.NominalUAH != 0 {
 		t.Errorf("погашений папір лишився в номіналі: %.2f", d.NominalUAH)
 	}
-	if math.Abs(d.CapitalUAH-d.AccountUAH) > 0.02 {
-		t.Errorf("капітал %.2f ≠ рахунок %.2f — номінал погашеного паперу порахований удруге",
-			d.CapitalUAH, d.AccountUAH)
+	if math.Abs(d.CapitalUAH) > 0.02 {
+		t.Errorf("капітал %.2f, а мав бути 0 — номінал погашеного паперу порахований удруге",
+			d.CapitalUAH)
 	}
 }
 

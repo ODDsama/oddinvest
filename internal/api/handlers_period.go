@@ -41,18 +41,37 @@ import (
 )
 
 // periodMoney — гроші періоду, у гривнях.
+//
+// Залишку на початок і кінець, конвертацій і поповнень тут немає:
+// рахунків застосунок не веде (ревізія 2026-10-03). Тотожність тепер
+// така: внесено в інструменти = куплено − виплати й виходи.
 type periodMoney struct {
-	OpeningUAH  state.Money `json:"opening_uah"`
 	IncomeUAH   state.Money `json:"income_uah"`
-	ContribUAH  state.Money `json:"contributed_uah"`
 	PurchaseUAH state.Money `json:"purchased_uah"`
-	ConvUAH     state.Money `json:"conversions_uah"`
-	ClosingUAH  state.Money `json:"closing_uah"`
-	// OutsideUAH — у подушку й цілі (поза залишком гаманця); OwnUAH —
-	// «внесено своїх» разом, те саме означення, що в плитки «Цей місяць».
-	// contributed_uah лишається ЛИШЕ гаманцем — це рядок виписки.
+	// ContribUAH — внесено в інструменти нетто; OutsideUAH — у подушку й
+	// цілі; OwnUAH — «внесено своїх» разом, те саме означення, що в плитки
+	// «Цей місяць».
+	ContribUAH state.Money `json:"contributed_uah"`
 	OutsideUAH state.Money `json:"outside_uah"`
 	OwnUAH     state.Money `json:"own_uah"`
+}
+
+// periodMoneyOf — periodMoney з підсумку проміжку. Одне місце на «Місяць»
+// і «Рік»: дві сторінки, ті самі поля.
+func periodMoneyOf(sum interface {
+	Major(int64) float64
+	ContribUAH() int64
+	OwnUAH() int64
+}, income, purchase, outside int64) periodMoney {
+	return periodMoney{
+		IncomeUAH: state.Major(sum.Major(income), money.UAH),
+		// Знак перевертається тут: у підсумку покупки віднімаються, і мінус
+		// на мінусі читався б як помилка.
+		PurchaseUAH: state.Major(sum.Major(-purchase), money.UAH),
+		ContribUAH:  state.Major(sum.Major(sum.ContribUAH()), money.UAH),
+		OutsideUAH:  state.Major(sum.Major(outside), money.UAH),
+		OwnUAH:      state.Major(sum.Major(sum.OwnUAH()), money.UAH),
+	}
 }
 
 // periodRow — один вимір «було → стало».
@@ -207,19 +226,8 @@ func (s *Server) handlePeriod(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sum := engine.SummarizeCash(events, from, to)
-	out := periodResp{From: string(from), To: string(to), Money: periodMoney{
-		OpeningUAH: state.Major(sum.Major(sum.OpeningUAH), money.UAH),
-		IncomeUAH:  state.Major(sum.Major(sum.IncomeUAH), money.UAH),
-		ContribUAH: state.Major(sum.Major(sum.ContribUAH), money.UAH),
-		// Знак перевертається тут із тієї ж причини, що й у звіті про рух:
-		// у підсумку покупки віднімаються, і мінус на мінусі читався б як
-		// помилка.
-		PurchaseUAH: state.Major(sum.Major(-sum.PurchaseUAH), money.UAH),
-		ConvUAH:     state.Major(sum.Major(sum.ConvUAH), money.UAH),
-		ClosingUAH:  state.Major(sum.Major(sum.ClosingUAH()), money.UAH),
-		OutsideUAH:  state.Major(sum.Major(sum.OutsideUAH), money.UAH),
-		OwnUAH:      state.Major(sum.Major(sum.OwnUAH()), money.UAH),
-	}}
+	out := periodResp{From: string(from), To: string(to),
+		Money: periodMoneyOf(sum, sum.IncomeUAH, sum.PurchaseUAH, sum.OutsideUAH)}
 
 	income, buys := idleInputs(sum.Rows)
 	out.IdleUAH = state.Major(sum.Major(domain.IdleIncome(income, buys)), money.UAH)
@@ -310,7 +318,6 @@ func periodStructureOf(snaps []store.Snapshot, from domain.Date, acc, gen string
 			row("npf", "НПФ", before.NPFUAH, after.NPFUAH),
 			row("reserve", "Резерв", before.ReserveUAH, after.ReserveUAH),
 			row("goals", "Цілі накопичення", before.GoalsUAH, after.GoalsUAH),
-			row("account", "На рахунках", before.AccountUAH, after.AccountUAH),
 		},
 	}
 	// Вид, якого не було ні на початку, ні на кінці, з таблиці зникає:

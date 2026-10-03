@@ -1,112 +1,20 @@
 {
-  "schema": 3,
+  "schema": 4,
   "generated_at": "2026-07-15T10:00:00Z",
   "currency": "USD",
   "invested_uah": 5448.59,
   "nominal_uah_eq": 5447.68,
-  "capital_uah": 25194.25,
+  "capital_uah": 15660.03,
   "capital_delta_30": {
     "from_date": "2026-06-10",
-    "from_uah": 4407.59,
-    "delta_uah": 20786.66,
-    "delta_pct": 471.61,
-    "contributed_uah": 661.22
+    "from_uah": 4339.08,
+    "delta_uah": 11320.95,
+    "delta_pct": 260.91,
+    "contributed_uah": 1098.08
   },
-  "idle": {
-    "investable_uah": 14144.95,
-    "since": "2025-12-27",
-    "days": 200,
-    "age_days": 152.96,
-    "by_pair": [
-      {
-        "broker": "inzhur",
-        "currency": "UAH",
-        "investable": 85000,
-        "investable_uah": 1926.42,
-        "since": "2026-04-06",
-        "days": 100,
-        "age_days": 100
-      },
-      {
-        "broker": "mono",
-        "currency": "UAH",
-        "investable": 495000,
-        "investable_uah": 11218.54,
-        "since": "2025-12-27",
-        "days": 200,
-        "age_days": 167.66
-      },
-      {
-        "broker": "mono",
-        "currency": "USD",
-        "investable": 1000,
-        "investable_uah": 1000,
-        "since": "2026-04-16",
-        "days": 90,
-        "age_days": 90
-      }
-    ]
-  },
-  "idle_cost": {
-    "cost_month_uah": 113.15,
-    "cost_so_far_uah": 584.39,
-    "rate_pct": 9.6,
-    "rate_label": "Строковий фонд",
-    "by_pair": [
-      {
-        "broker": "inzhur",
-        "currency": "UAH",
-        "cost_month_uah": 16.42,
-        "cost_so_far_uah": 53.99,
-        "rate_pct": 10.23,
-        "rate_label": "Строковий фонд"
-      },
-      {
-        "broker": "mono",
-        "currency": "UAH",
-        "cost_month_uah": 95.64,
-        "cost_so_far_uah": 527.17,
-        "rate_pct": 10.23,
-        "rate_label": "Строковий фонд"
-      },
-      {
-        "broker": "mono",
-        "currency": "USD",
-        "cost_month_uah": 1.09,
-        "cost_so_far_uah": 3.23,
-        "rate_pct": 1.31,
-        "rate_label": "Новий вклад"
-      }
-    ]
-  },
-  "usd_share_pct": 12.701310477341915,
-  "eur_share_pct": 8.635765020833785,
+  "usd_share_pct": 20.43419403147359,
+  "eur_share_pct": 13.893440236795165,
   "uninvested_uah": 22.51,
-  "account_uah": 9534.23,
-  "reinvest_min_uah": 22.66,
-  "accounts": {
-    "EUR": 0,
-    "UAH": 376029.55,
-    "USD": 1012
-  },
-  "reinvest_min": {
-    "EUR": 100,
-    "UAH": 1000,
-    "USD": 100
-  },
-  "brokers": {
-    "inzhur": {
-      "EUR": 0,
-      "UAH": 85494.45
-    },
-    "mono": {
-      "UAH": 495375.5,
-      "USD": 1012
-    },
-    "ПУМБ": {
-      "UAH": -204840.4
-    }
-  },
   "invested_by_broker": {
     "inzhur": 2516.18,
     "mono": 3249.7
@@ -180,7 +88,7 @@
       "UAH": 57000,
       "USD": 200
     },
-    "share_pct": 5.9213173859539285,
+    "share_pct": 9.526367267564227,
     "months": 2.6329871999999996,
     "target_months": 6,
     "target_uah": 2835.55,
@@ -354,7 +262,7 @@
       "behind": true
     }
   ],
-  "net_worth_uah": 24280.15,
+  "net_worth_uah": 14745.92,
   "debt": {
     "total_uah": 642.14,
     "top_rate_pct": 59.92,
@@ -577,12 +485,11 @@
   ],
   "income_monthly_now": 49.69,
   "month_invested_uah": 113.83,
-  "month_deposited_uah": 1518.47,
-  "month_withdrawn_uah": 339.96,
+  "month_deposited_uah": -875.35,
   "month_outside_uah": 45.33,
-  "month_contributed_uah": 1473.14,
-  "month_target_uah": 1759.83,
-  "month_progress_pct": 86,
+  "month_contributed_uah": -920.68,
+  "month_target_uah": 2063.32,
+  "month_progress_pct": -42,
   "month_incoming_uah": 28.79,
   "month_plan": {
     "month": "2026-07",
@@ -597,8 +504,8 @@
     "plan_goals_uah": 189.92,
     "debt_due_uah": 3.4,
     "received_uah": 376.22,
-    "left_uah": 0,
-    "covered_pct": 799.52,
+    "left_uah": 1065.27,
+    "covered_pct": -460.9,
     "sources": 1,
     "marked": 1
   },
@@ -1013,59 +920,59 @@
   "projection": [
     {
       "years": 1,
-      "contributed": 39444.51,
-      "with_reinvest": 40868.97,
-      "with_reinvest_actual": 39509.38,
-      "income_monthly": 175.59,
-      "income_monthly_actual": 169.61
+      "contributed": 33421.76,
+      "with_reinvest": 34385.59,
+      "with_reinvest_actual": 27704.74,
+      "income_monthly": 137.01,
+      "income_monthly_actual": 108.26
     },
     {
       "years": 3,
-      "contributed": 78250.46,
-      "with_reinvest": 85291.01,
-      "with_reinvest_actual": 81297.75,
-      "income_monthly": 294.02,
-      "income_monthly_actual": 280.51
+      "contributed": 78576.51,
+      "with_reinvest": 84584.59,
+      "with_reinvest_actual": 64954.06,
+      "income_monthly": 283.25,
+      "income_monthly_actual": 215.97
     },
     {
       "years": 5,
-      "contributed": 112563.75,
-      "with_reinvest": 126967.22,
-      "with_reinvest_actual": 120092.99,
-      "income_monthly": 320.34,
-      "income_monthly_actual": 302.97
+      "contributed": 118435.09,
+      "with_reinvest": 131780.39,
+      "with_reinvest_actual": 99661.02,
+      "income_monthly": 327.49,
+      "income_monthly_actual": 246.84
     },
     {
       "years": 10,
-      "contributed": 180849.61,
-      "with_reinvest": 221440.99,
-      "with_reinvest_actual": 207730.05,
-      "income_monthly": 564.69,
-      "income_monthly_actual": 529.9
+      "contributed": 197704.9,
+      "with_reinvest": 238581.69,
+      "with_reinvest_actual": 177986.33,
+      "income_monthly": 602.44,
+      "income_monthly_actual": 448.54
     }
   ],
-  "projection_rate_pct": 5.84,
-  "projection_rate_real_pct": 5.84,
+  "projection_rate_pct": 4.13,
+  "projection_rate_real_pct": 4.13,
   "plan_provides_uah": 158.65,
   "forecast": {
     "date": "2029-10-15",
     "months": 39,
     "goal_amount": 90654.85,
-    "contrib_plan": 1759.83,
+    "contrib_plan": 2063.32,
     "rate0_usd": 44.12,
     "glide_years": 5,
     "rows": [
       {
         "key": "optimistic",
         "label": "Оптимістично",
-        "amount": 102287.57,
-        "required_monthly": 1486.46,
-        "required_total_monthly": 1581.64,
+        "amount": 102047.8,
+        "required_monthly": 1795.54,
+        "required_total_monthly": 1890.72,
         "rate_pct": 15.65,
         "rate_terminal_pct": 14,
-        "contrib_monthly": 1759.83,
+        "contrib_monthly": 2063.32,
         "devaluation_pct": 3,
-        "goal_pct": 112.8,
+        "goal_pct": 112.6,
         "goal_months": 35,
         "goal_date": "2029-06-15",
         "by_currency": [
@@ -1075,16 +982,16 @@
             "rate_terminal_pct": 14,
             "rate_source": "auction",
             "rate_date": "2026-07-12",
-            "contrib_monthly": 1143.89,
-            "amount": 3426198.91
+            "contrib_monthly": 1341.16,
+            "amount": 3266175.03
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_terminal_pct": 3.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 439.96,
-            "amount": 22054.16
+            "contrib_monthly": 515.83,
+            "amount": 23899.17
           },
           {
             "currency": "EUR",
@@ -1092,8 +999,8 @@
             "rate_terminal_pct": 6.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 175.98,
-            "amount": 8914.02
+            "contrib_monthly": 206.33,
+            "amount": 10026.21
           }
         ]
       },
@@ -1101,15 +1008,15 @@
         "key": "realistic",
         "label": "Реалістично",
         "amount": 90654.85,
-        "required_monthly": 1759.83,
-        "required_total_monthly": 1855.02,
+        "required_monthly": 2063.32,
+        "required_total_monthly": 2158.51,
         "rate_pct": 15.65,
         "rate_terminal_pct": 11,
-        "contrib_monthly": 1759.83,
+        "contrib_monthly": 2063.32,
         "devaluation_pct": 7,
         "goal_pct": 100,
-        "goal_months": 40,
-        "goal_date": "2029-11-15",
+        "goal_months": 39,
+        "goal_date": "2029-10-15",
         "by_currency": [
           {
             "currency": "UAH",
@@ -1117,16 +1024,16 @@
             "rate_terminal_pct": 11,
             "rate_source": "auction",
             "rate_date": "2026-07-12",
-            "contrib_monthly": 1143.89,
-            "amount": 3354632.35
+            "contrib_monthly": 1341.16,
+            "amount": 3202778.67
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_terminal_pct": 0.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 439.96,
-            "amount": 20549.79
+            "contrib_monthly": 515.83,
+            "amount": 22196.49
           },
           {
             "currency": "EUR",
@@ -1134,24 +1041,24 @@
             "rate_terminal_pct": 3.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 175.98,
-            "amount": 8351.94
+            "contrib_monthly": 206.33,
+            "amount": 9377.49
           }
         ]
       },
       {
         "key": "pessimistic",
         "label": "Песимістично",
-        "amount": 81055.29,
-        "required_monthly": 2046.19,
-        "required_total_monthly": 2141.38,
+        "amount": 81251.7,
+        "required_monthly": 2343.78,
+        "required_total_monthly": 2438.96,
         "rate_pct": 15.65,
         "rate_terminal_pct": 8,
-        "contrib_monthly": 1759.83,
+        "contrib_monthly": 2063.32,
         "devaluation_pct": 11,
-        "goal_pct": 89.4,
-        "goal_months": 47,
-        "goal_date": "2030-06-15",
+        "goal_pct": 89.6,
+        "goal_months": 46,
+        "goal_date": "2030-05-15",
         "by_currency": [
           {
             "currency": "UAH",
@@ -1159,15 +1066,15 @@
             "rate_terminal_pct": 8,
             "rate_source": "auction",
             "rate_date": "2026-07-12",
-            "contrib_monthly": 1143.89,
-            "amount": 3283903.9
+            "contrib_monthly": 1341.16,
+            "amount": 3140029.17
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 439.96,
-            "amount": 19501.74
+            "contrib_monthly": 515.83,
+            "amount": 20990.61
           },
           {
             "currency": "EUR",
@@ -1175,22 +1082,22 @@
             "rate_terminal_pct": 0.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 175.98,
-            "amount": 7847.75
+            "contrib_monthly": 206.33,
+            "amount": 8795.01
           }
         ]
       },
       {
         "key": "actual",
         "label": "За фактом",
-        "amount": 86343.48,
+        "amount": 69459.61,
         "rate_pct": 15.65,
         "rate_terminal_pct": 11,
-        "contrib_monthly": 1740.36,
+        "contrib_monthly": 1594.93,
         "devaluation_pct": 7,
-        "goal_pct": 95.2,
-        "goal_months": 42,
-        "goal_date": "2030-01-15",
+        "goal_pct": 76.6,
+        "goal_months": 54,
+        "goal_date": "2031-01-15",
         "by_currency": [
           {
             "currency": "UAH",
@@ -1198,16 +1105,16 @@
             "rate_terminal_pct": 11,
             "rate_source": "auction",
             "rate_date": "2026-07-12",
-            "contrib_monthly": 1131.24,
-            "amount": 3196581.93
+            "contrib_monthly": 1036.7,
+            "amount": 2425716.42
           },
           {
             "currency": "USD",
             "rate_pct": 0.85,
             "rate_terminal_pct": 0.85,
             "rate_source": "portfolio",
-            "contrib_monthly": 435.09,
-            "amount": 19535.16
+            "contrib_monthly": 398.73,
+            "amount": 17208.12
           },
           {
             "currency": "EUR",
@@ -1215,8 +1122,8 @@
             "rate_terminal_pct": 3.2,
             "rate_source": "auction",
             "rate_date": "2026-06-05",
-            "contrib_monthly": 174.04,
-            "amount": 7964.15
+            "contrib_monthly": 159.49,
+            "amount": 7472.42
           }
         ]
       }
@@ -1227,237 +1134,237 @@
       "points": [
         {
           "month": 0,
-          "plan": 17980.95,
-          "optimistic": 17980.95,
-          "pessimistic": 17980.95,
-          "actual": 17980.95
+          "plan": 8446.8,
+          "optimistic": 8446.8,
+          "pessimistic": 8446.8,
+          "actual": 8446.8
         },
         {
           "month": 3,
-          "plan": 23641.92,
-          "optimistic": 23805.08,
-          "pessimistic": 23486.37,
-          "actual": 23300.3
+          "plan": 14950.29,
+          "optimistic": 15037.27,
+          "pessimistic": 14867.36,
+          "actual": 13271.06
         },
         {
           "month": 6,
-          "plan": 29431.12,
-          "optimistic": 29857.82,
-          "pessimistic": 29028.76,
-          "actual": 28749.24
+          "plan": 21477.52,
+          "optimistic": 21759.14,
+          "pessimistic": 21211.86,
+          "actual": 18124.65
         },
         {
           "month": 9,
-          "plan": 35141.47,
-          "optimistic": 35936.47,
-          "pessimistic": 34399.76,
-          "actual": 34119.84
+          "plan": 27923.71,
+          "optimistic": 28513.08,
+          "pessimistic": 27374.15,
+          "actual": 22903.52
         },
         {
           "month": 12,
-          "plan": 40868.97,
-          "optimistic": 42146.71,
-          "pessimistic": 39690.79,
-          "actual": 39509.38
+          "plan": 34385.59,
+          "optimistic": 35405.24,
+          "pessimistic": 33445.48,
+          "actual": 27704.74
         },
         {
           "month": 15,
-          "plan": 46537.48,
-          "optimistic": 48414.33,
-          "pessimistic": 44826.07,
-          "actual": 44841.63
+          "plan": 40786.14,
+          "optimistic": 42362.1,
+          "pessimistic": 39349.05,
+          "actual": 32452.04
         },
         {
           "month": 18,
-          "plan": 52176.65,
-          "optimistic": 54775.05,
-          "pessimistic": 49834.91,
-          "actual": 50146.46
+          "plan": 47154.97,
+          "optimistic": 49419.91,
+          "pessimistic": 45113.97,
+          "actual": 37176
         },
         {
           "month": 21,
-          "plan": 57786.59,
-          "optimistic": 61234.35,
-          "pessimistic": 54715.65,
-          "actual": 55423.66
+          "plan": 53491.59,
+          "optimistic": 56583.59,
+          "pessimistic": 50737.95,
+          "actual": 41876.92
         },
         {
           "month": 24,
-          "plan": 63366.64,
-          "optimistic": 67797.99,
-          "pessimistic": 59466.55,
-          "actual": 60673.06
+          "plan": 59795.88,
+          "optimistic": 63859.61,
+          "pessimistic": 56219.36,
+          "actual": 46555.24
         },
         {
           "month": 27,
-          "plan": 68911.03,
-          "optimistic": 74467.94,
-          "pessimistic": 64080.8,
-          "actual": 65889.05
+          "plan": 66061.85,
+          "optimistic": 71251.4,
+          "pessimistic": 61551.08,
+          "actual": 51205.68
         },
         {
           "month": 30,
-          "plan": 74415.5,
-          "optimistic": 81251.46,
-          "pessimistic": 68550.82,
-          "actual": 71067.32
+          "plan": 72284.35,
+          "optimistic": 78765.07,
+          "pessimistic": 66724.36,
+          "actual": 55824.37
         },
         {
           "month": 33,
-          "plan": 79876.96,
-          "optimistic": 88152.07,
-          "pessimistic": 72868.42,
-          "actual": 76204.84
+          "plan": 78460.12,
+          "optimistic": 86404.97,
+          "pessimistic": 71731.16,
+          "actual": 60408.16
         },
         {
           "month": 36,
-          "plan": 85291.01,
-          "optimistic": 95163.25,
-          "pessimistic": 77037.56,
-          "actual": 81297.75
+          "plan": 84584.59,
+          "optimistic": 94164.43,
+          "pessimistic": 76574.4,
+          "actual": 64954.06
         },
         {
           "month": 39,
           "plan": 90654.85,
-          "optimistic": 102287.57,
-          "pessimistic": 81055.29,
-          "actual": 86343.48
+          "optimistic": 102047.8,
+          "pessimistic": 81251.7,
+          "actual": 69459.61
         }
       ]
     }
   },
   "sensitivity": {
-    "base_contrib_uah": 1740.36,
+    "base_contrib_uah": 1594.93,
     "base_from": "actual",
-    "base_goal_months": 42,
-    "base_goal_date": "2030-01-15",
-    "base_amount_uah": 86343.48,
-    "base_goal_pct": 95.2,
+    "base_goal_months": 54,
+    "base_goal_date": "2031-01-15",
+    "base_amount_uah": 69459.61,
+    "base_goal_pct": 76.6,
     "goal_uah": 90654.85,
     "deadline_months": 39,
     "rows": [
       {
         "lever": "contrib",
         "factor": 0.5,
-        "value": 38395.4,
-        "value_uah": 870.18,
-        "goal_months": 86,
-        "goal_date": "2033-09-15",
-        "amount_uah": 53614.72,
-        "goal_pct": 59.1
+        "value": 35186.85,
+        "value_uah": 797.46,
+        "goal_months": 114,
+        "goal_date": "2036-01-15",
+        "amount_uah": 39467.43,
+        "goal_pct": 43.5
       },
       {
         "lever": "contrib",
         "factor": 1.5,
-        "value": 115186.2,
-        "value_uah": 2610.55,
-        "goal_months": 28,
-        "goal_date": "2028-11-15",
-        "amount_uah": 119072.36,
-        "goal_pct": 131.3
+        "value": 105560.54,
+        "value_uah": 2392.39,
+        "goal_months": 36,
+        "goal_date": "2029-07-15",
+        "amount_uah": 99453.06,
+        "goal_pct": 109.7
       },
       {
         "lever": "contrib",
         "factor": 2,
-        "value": 153581.6,
-        "value_uah": 3480.73,
-        "goal_months": 21,
-        "goal_date": "2028-04-15",
-        "amount_uah": 151799.43,
-        "goal_pct": 167.4
+        "value": 140747.38,
+        "value_uah": 3189.86,
+        "goal_months": 27,
+        "goal_date": "2028-10-15",
+        "amount_uah": 129446.21,
+        "goal_pct": 142.8
       },
       {
         "lever": "step_contrib",
-        "delta_uah": 226.64,
-        "value": 86790.8,
-        "value_uah": 1967,
-        "goal_months": 37,
-        "goal_date": "2029-08-15",
-        "amount_uah": 94868.32,
-        "goal_pct": 104.6
+        "delta_uah": 113.32,
+        "value": 75373.69,
+        "value_uah": 1708.25,
+        "goal_months": 50,
+        "goal_date": "2030-09-15",
+        "amount_uah": 73721.71,
+        "goal_pct": 81.3
       },
       {
         "lever": "step_rate",
         "delta_pp": 1,
         "value": 1,
-        "goal_months": 42,
-        "goal_date": "2030-01-15",
-        "amount_uah": 86952.9,
-        "goal_pct": 95.9
+        "goal_months": 53,
+        "goal_date": "2030-12-15",
+        "amount_uah": 69921.64,
+        "goal_pct": 77.1
       },
       {
         "lever": "rate",
         "delta_pp": 3,
         "value": 3,
-        "goal_months": 41,
-        "goal_date": "2029-12-15",
-        "amount_uah": 88178.6,
-        "goal_pct": 97.3
+        "goal_months": 52,
+        "goal_date": "2030-11-15",
+        "amount_uah": 70850.28,
+        "goal_pct": 78.2
       },
       {
         "lever": "rate",
         "delta_pp": -3,
         "value": -3,
-        "goal_months": 43,
-        "goal_date": "2030-02-15",
-        "amount_uah": 84828.26,
-        "goal_pct": 93.6
+        "goal_months": 56,
+        "goal_date": "2031-03-15",
+        "amount_uah": 68338.35,
+        "goal_pct": 75.4
       },
       {
         "lever": "deval",
         "delta_pp": -4,
         "value": 3,
-        "goal_months": 37,
-        "goal_date": "2029-08-15",
-        "amount_uah": 95388.59,
-        "goal_pct": 105.2
+        "goal_months": 47,
+        "goal_date": "2030-06-15",
+        "amount_uah": 76541.43,
+        "goal_pct": 84.4
       },
       {
         "lever": "deval",
         "delta_pp": 4,
         "value": 11,
-        "goal_months": 49,
-        "goal_date": "2030-08-15",
-        "amount_uah": 78579.11,
-        "goal_pct": 86.7
+        "goal_months": 65,
+        "goal_date": "2031-12-15",
+        "amount_uah": 63374.63,
+        "goal_pct": 69.9
       },
       {
         "lever": "deadline",
         "delta_months": 12,
         "value": 51,
-        "goal_months": 42,
-        "goal_date": "2030-01-15",
-        "amount_uah": 105993.77,
-        "goal_pct": 116.9
+        "goal_months": 54,
+        "goal_date": "2031-01-15",
+        "amount_uah": 87029.05,
+        "goal_pct": 96
       },
       {
         "lever": "deadline",
         "delta_months": -12,
         "value": 27,
-        "goal_months": 42,
-        "goal_date": "2030-01-15",
-        "amount_uah": 65889.05,
-        "goal_pct": 72.7
+        "goal_months": 54,
+        "goal_date": "2031-01-15",
+        "amount_uah": 51205.68,
+        "goal_pct": 56.5
       },
       {
         "lever": "goal",
         "factor": 0.75,
         "value": 3000000,
         "value_uah": 67991.13,
-        "goal_months": 29,
-        "goal_date": "2028-12-15",
-        "amount_uah": 86343.48,
-        "goal_pct": 127
+        "goal_months": 39,
+        "goal_date": "2029-10-15",
+        "amount_uah": 69459.61,
+        "goal_pct": 102.2
       },
       {
         "lever": "goal",
         "factor": 0.5,
         "value": 2000000,
         "value_uah": 45327.42,
-        "goal_months": 16,
-        "goal_date": "2027-11-15",
-        "amount_uah": 86343.48,
-        "goal_pct": 190.5
+        "goal_months": 24,
+        "goal_date": "2028-07-15",
+        "amount_uah": 69459.61,
+        "goal_pct": 153.2
       }
     ]
   },
@@ -1465,17 +1372,17 @@
     "target_uah": 679.91,
     "income_now_uah": 49.69,
     "target_from": "setting",
-    "plan_months": 150,
-    "plan_date": "2039-01-15",
-    "actual_months": 161,
-    "actual_date": "2039-12-15",
-    "capital_uah": 266283.37
+    "plan_months": 138,
+    "plan_date": "2038-01-15",
+    "actual_months": 191,
+    "actual_date": "2042-06-15",
+    "capital_uah": 268976.7
   },
   "drawdown": {
     "withdraw_uah": 453.27,
     "withdraw_from": "setting",
-    "months": 43,
-    "until": "2030-02-15",
+    "months": 1,
+    "until": "2026-08-15",
     "covered_pct": 11
   },
   "rebalance": [
@@ -1484,189 +1391,151 @@
       "key": "USD",
       "currency": "USD",
       "target_pct": 25,
-      "current_pct": 12.7,
-      "deficit_uah": 3098.56,
-      "deficit_native": 3098.56,
-      "cash_native": 1012,
+      "current_pct": 20.43,
+      "deficit_uah": 715.01,
+      "deficit_native": 715.01,
       "bond_cost_native": 1000,
       "bond_cost_uah": 1000,
-      "can_buy": 1,
-      "convert_uah": 0,
       "min_portfolio_uah": 4000,
       "feasible": true,
       "unit_kind": "bond",
-      "target_uah": 6298.56,
+      "target_uah": 3915.01,
       "current_uah": 3200,
-      "fill_pct": 50.81,
-      "transit_uah": 298.56,
-      "transit_native": 298.56
+      "fill_pct": 81.74,
+      "transit_uah": 915.01,
+      "transit_native": 915.01
     },
     {
       "dimension": "currency",
       "key": "EUR",
       "currency": "EUR",
       "target_pct": 10,
-      "current_pct": 8.64,
-      "deficit_uah": 343.71,
-      "deficit_native": 315.95,
-      "cash_native": 0,
+      "current_pct": 13.89,
+      "deficit_uah": 0,
+      "deficit_native": 0,
       "bond_cost_native": 1000,
       "bond_cost_uah": 1087.86,
-      "can_buy": 0,
-      "convert_uah": 1087.86,
       "min_portfolio_uah": 10878.58,
       "feasible": true,
       "unit_kind": "bond",
-      "target_uah": 2519.43,
+      "target_uah": 1566,
       "current_uah": 2175.72,
-      "fill_pct": 86.36,
-      "transit_uah": 343.71,
-      "transit_native": 315.95
+      "fill_pct": 138.93,
+      "transit_uah": 478.14,
+      "transit_native": 439.53
     },
     {
       "dimension": "kind",
       "key": "bonds",
       "currency": "UAH",
       "target_pct": 45,
-      "current_pct": 30.27,
-      "deficit_uah": 2653.8,
+      "current_pct": 64.3,
+      "deficit_uah": 0,
       "deficit_native": 0,
-      "cash_native": 0,
       "bond_cost_native": 0,
       "bond_cost_uah": 22.66,
-      "can_buy": 0,
-      "convert_uah": 0,
       "min_portfolio_uah": 50.36,
       "feasible": true,
       "unit_kind": "bonds",
-      "target_uah": 8106.22,
+      "target_uah": 3815.82,
       "current_uah": 5452.42,
-      "fill_pct": 67.26,
+      "fill_pct": 142.89,
       "month_share_uah": 51.28,
-      "month_balance_uah": 39.2,
-      "transit_pct": 3.57,
-      "transit_uah": 642.27
+      "transit_pct": 16.43,
+      "transit_uah": 1393.15
     },
     {
       "dimension": "kind",
       "key": "funds",
       "currency": "UAH",
       "target_pct": 20,
-      "current_pct": 1.3,
-      "deficit_uah": 3369.33,
+      "current_pct": 2.75,
+      "deficit_uah": 1462.48,
       "deficit_native": 0,
-      "cash_native": 0,
       "bond_cost_native": 0,
       "bond_cost_uah": 0.23,
-      "can_buy": 0,
-      "convert_uah": 0,
       "min_portfolio_uah": 1.13,
       "feasible": true,
       "unit_kind": "funds",
-      "target_uah": 3602.77,
+      "target_uah": 1695.92,
       "current_uah": 233.44,
-      "fill_pct": 6.48,
+      "fill_pct": 13.76,
       "month_share_uah": 22.79,
-      "month_balance_uah": 49.16
+      "month_balance_uah": 73.64
     },
     {
       "dimension": "kind",
       "key": "deposits",
       "currency": "UAH",
       "target_pct": 15,
-      "current_pct": 15.25,
+      "current_pct": 32.4,
       "deficit_uah": 0,
       "deficit_native": 0,
-      "cash_native": 0,
       "bond_cost_native": 0,
       "bond_cost_uah": 100,
-      "can_buy": 0,
-      "convert_uah": 0,
       "min_portfolio_uah": 666.67,
       "feasible": true,
       "unit_kind": "deposits",
-      "target_uah": 2702.07,
+      "target_uah": 1271.94,
       "current_uah": 2747.48,
-      "fill_pct": 101.68,
+      "fill_pct": 216.01,
       "month_share_uah": 17.09,
-      "transit_uah": 642.27
+      "transit_uah": 1393.15
     },
     {
       "dimension": "kind",
       "key": "npf",
       "currency": "UAH",
       "target_pct": 10,
-      "current_pct": 0.26,
-      "deficit_uah": 1755.11,
+      "current_pct": 0.55,
+      "deficit_uah": 801.69,
       "deficit_native": 0,
-      "cash_native": 0,
       "bond_cost_native": 0,
       "bond_cost_uah": 0,
-      "can_buy": 0,
-      "convert_uah": 0,
       "min_portfolio_uah": 0,
       "feasible": true,
       "unit_kind": "npf",
-      "target_uah": 1801.38,
+      "target_uah": 847.96,
       "current_uah": 46.27,
-      "fill_pct": 2.57,
+      "fill_pct": 5.46,
       "month_share_uah": 11.4,
-      "month_balance_uah": 25.6
-    },
-    {
-      "dimension": "kind",
-      "key": "cash",
-      "currency": "UAH",
-      "target_pct": 0,
-      "current_pct": 52.93,
-      "deficit_uah": 0,
-      "deficit_native": 0,
-      "cash_native": 0,
-      "bond_cost_native": 0,
-      "bond_cost_uah": 0,
-      "can_buy": 0,
-      "convert_uah": 0,
-      "min_portfolio_uah": 0,
-      "feasible": true,
-      "unit_kind": "cash",
-      "current_uah": 9534.23
+      "month_balance_uah": 40.31
     }
   ],
   "concentration": [
     {
       "dimension": "broker",
+      "key": "ПУМБ",
+      "amount_uah": 4646.06,
+      "share_pct": 29.67,
+      "limit_pct": 50
+    },
+    {
+      "dimension": "broker",
       "key": "mono",
-      "amount_uah": 15397.69,
-      "share_pct": 61.12,
-      "limit_pct": 50,
-      "over_uah": 2800.57
+      "amount_uah": 3158.65,
+      "share_pct": 20.17,
+      "limit_pct": 50
     },
     {
       "dimension": "broker",
       "key": "inzhur",
-      "amount_uah": 4460.09,
-      "share_pct": 17.7,
+      "amount_uah": 2522.47,
+      "share_pct": 16.11,
       "limit_pct": 50
     },
     {
       "dimension": "broker",
       "key": "ЦПО",
       "amount_uah": 46.27,
-      "share_pct": 0.18,
-      "limit_pct": 50
-    },
-    {
-      "dimension": "broker",
-      "key": "ПУМБ",
-      "amount_uah": 3.62,
-      "share_pct": 0.01,
+      "share_pct": 0.3,
       "limit_pct": 50
     },
     {
       "dimension": "isin",
       "key": "UA4000230114",
       "amount_uah": 3000,
-      "share_pct": 11.91,
+      "share_pct": 19.16,
       "limit_pct": 20,
       "label": "валютні"
     },
@@ -1674,7 +1543,7 @@
       "dimension": "isin",
       "key": "UA4000239065",
       "amount_uah": 2175.72,
-      "share_pct": 8.64,
+      "share_pct": 13.89,
       "limit_pct": 20,
       "label": "єврові"
     },
@@ -1682,7 +1551,7 @@
       "dimension": "isin",
       "key": "UA4000227748",
       "amount_uah": 271.96,
-      "share_pct": 1.08,
+      "share_pct": 1.74,
       "limit_pct": 20,
       "label": "гривневі військові"
     },
@@ -1690,7 +1559,7 @@
       "dimension": "isin",
       "key": "fund:Строковий фонд",
       "amount_uah": 120.12,
-      "share_pct": 0.48,
+      "share_pct": 0.77,
       "limit_pct": 20,
       "label": "Строковий фонд"
     },
@@ -1698,7 +1567,7 @@
       "dimension": "isin",
       "key": "fund:Inzhur REIT",
       "amount_uah": 113.32,
-      "share_pct": 0.45,
+      "share_pct": 0.72,
       "limit_pct": 20,
       "label": "Inzhur REIT"
     },
@@ -1706,7 +1575,7 @@
       "dimension": "isin",
       "key": "npf:Династія",
       "amount_uah": 46.27,
-      "share_pct": 0.18,
+      "share_pct": 0.3,
       "limit_pct": 20,
       "label": "Династія"
     },
@@ -1777,17 +1646,6 @@
       "ref": "goal:1"
     },
     {
-      "id": "buy-best",
-      "sev": "now",
-      "rank": 20,
-      "kind": "fund",
-      "title": "Можеш купити Строковий фонд",
-      "why": "24,02 $ · mono ×467 · inzhur ×80. 14 144,95 $ лежать з 27 грудня.",
-      "when": "10,2% реальних",
-      "action": "how-to-fund",
-      "ref": "fund:Строковий фонд"
-    },
-    {
       "id": "npf-due:Династія",
       "sev": "now",
       "rank": 30,
@@ -1802,7 +1660,7 @@
       "sev": "now",
       "rank": 40,
       "title": "4 виплати без відмітки",
-      "why": "Дата минула, але надходження не підтверджене — доки його немає, помічник не бачить цих грошей.",
+      "why": "Дата минула, і застосунок уже рахує ці гроші отриманими. Звір із випискою брокера: якщо виплата не прийшла, це треба знати.",
       "when": "16 червня",
       "action": "confirm-payment"
     },
@@ -1831,18 +1689,9 @@
       "id": "conc",
       "sev": "watch",
       "rank": 10,
-      "title": "2 ліміти перевищено",
-      "why": "Найбільше — mono. Це спостереження, а не заборона: поради воно не ховає.",
+      "title": "1 ліміт перевищено",
+      "why": "Найбільше — 2028. Це спостереження, а не заборона: поради воно не ховає.",
       "action": "review-limits"
-    },
-    {
-      "id": "rebalance-USD",
-      "sev": "watch",
-      "rank": 12,
-      "title": "USD нижче цілі: 12,7% проти 25,0%",
-      "why": "На рахунку вже є USD — вистачає на 1 квиток: частку вирівнює вкладення цих грошей, а не нова конвертація.",
-      "action": "review-rebalance",
-      "amount_uah": 3098.56
     },
     {
       "id": "fund-price-stale:Inzhur REIT",
@@ -1890,10 +1739,9 @@
     "reinvest_soon_uah": 5232.48
   },
   "liquidity": {
-    "available_now_uah": 15921.42,
-    "now_uah": 9534.23,
-    "in_30_uah": 15951.11,
-    "in_90_uah": 16479.17,
+    "available_now_uah": 6387.19,
+    "in_30_uah": 6416.88,
+    "in_90_uah": 6944.95,
     "reserve_uah": 698.6,
     "goals_uah": 5688.59,
     "locked_uah": 1519.41,
@@ -1946,7 +1794,7 @@
       "median_rate": 42.9496,
       "min_rate": 42.1111,
       "max_rate": 44.1234,
-      "vs_median_native": -84.68
+      "vs_median_native": -19.54
     },
     {
       "currency": "USD",
@@ -1957,7 +1805,7 @@
       "median_rate": 41.1049,
       "min_rate": 38,
       "max_rate": 44.1234,
-      "vs_median_native": -227.54
+      "vs_median_native": -52.51
     },
     {
       "currency": "USD",
@@ -1968,7 +1816,7 @@
       "median_rate": 34.2294,
       "min_rate": 24,
       "max_rate": 44.1234,
-      "vs_median_native": -895.64
+      "vs_median_native": -206.67
     },
     {
       "currency": "EUR",
@@ -1978,8 +1826,7 @@
       "now_rate": 48,
       "median_rate": 46.4445,
       "min_rate": 45.3334,
-      "max_rate": 48,
-      "vs_median_native": -10.58
+      "max_rate": 48
     },
     {
       "currency": "EUR",
@@ -1989,8 +1836,7 @@
       "now_rate": 48,
       "median_rate": 44,
       "min_rate": 40,
-      "max_rate": 48,
-      "vs_median_native": -28.72
+      "max_rate": 48
     },
     {
       "currency": "EUR",
@@ -2000,19 +1846,18 @@
       "now_rate": 48,
       "median_rate": 44,
       "min_rate": 40,
-      "max_rate": 48,
-      "vs_median_native": -28.72
+      "max_rate": 48
     }
   ],
   "accrued_uah": 4.74,
   "deposits_accrued_uah": 27.83,
   "nbu_refreshed_at": "2026-07-15T06:00:00Z",
-  "actual_monthly_uah": 1740.36,
-  "actual_months": 6,
-  "savings_rate_pct": 175.52,
+  "actual_monthly_uah": 1594.93,
+  "actual_months": 7,
+  "savings_rate_pct": 160.85,
   "savings_base_uah": 991.54,
   "settings": {
-    "monthly_target_uah": 77649.72,
+    "monthly_target_uah": 91040.65,
     "usd_target_share_pct": 25,
     "eur_target_share_pct": 10,
     "goal_amount_uah": 4000000,

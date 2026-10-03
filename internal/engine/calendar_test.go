@@ -69,7 +69,7 @@ func TestCalendarKeepsGrossWhileRouteTakesLeftover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	route := inc[store.BrokerCur{Broker: "inzhur", Currency: money.UAH}]
+	route := inc[brokerCur{Broker: "inzhur", Currency: money.UAH}]
 	if len(route) == 0 {
 		t.Fatal("решта мала дійти до маршруту")
 	}

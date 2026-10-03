@@ -381,31 +381,6 @@ func (s *Server) handleAddNPFOp(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
-// handleNPFOpCheck — POST /api/npf/check: чи вистачить грошей на внесок.
-//
-// Те саме тіло й той самий розбирач, що в POST /api/npf: перевіряти треба
-// рівно те, що потім запишуть (див. шапку engine/cash_shortfall.go).
-func (s *Server) handleNPFOpCheck(w http.ResponseWriter, r *http.Request) {
-	var req npfOpReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	cur, err := s.npfCurrency(r, req.NPFID)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	op, err := npfOpFromReq(req, cur)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	s.writeCashCheck(w, r, engine.CashDebit{
-		Broker: op.Broker, Currency: cur, Amount: op.Amount,
-	})
-}
-
 func (s *Server) handleUpdateNPFOp(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {

@@ -215,11 +215,6 @@ export function wireDeposits(ctx, main, deposits = []) {
     body: (f, row) => depositBody(f, row
       ? { date: row.closed_date, amount: (row.closed_amount || {}).amount }
       : {}),
-    // Відкриття вкладу замикає гроші так само, як покупка паперу їх
-    // витрачає, тож і питання про нестачу те саме.
-    funded: (f) => ({
-      check: "term-deposits/check", date: f.open_date.value, what: "відкриття вкладу",
-    }),
     confirm: depositDeleteQuestion,
     msg: { add: "Вклад додано", edit: "Вклад виправлено", del: "Вклад видалено" },
   });
@@ -254,10 +249,6 @@ export function wireDeposits(ctx, main, deposits = []) {
       form: `[data-topup-form="${d.id}"]`,
       fields: (c, row) => topupFields(c, row, d),
       body: topupBody,
-      funded: (f) => ({
-        check: "term-deposits/" + d.id + "/topups/check",
-        date: f.date.value, what: "поповнення вкладу",
-      }),
       msg: {
         add: "Поповнення додано", edit: "Поповнення виправлено",
         del: "Поповнення видалено",

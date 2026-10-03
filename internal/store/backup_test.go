@@ -35,14 +35,6 @@ func TestBackupRoundTrip(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddDeposit(ctx, Deposit{Date: "2026-07-01", Amount: 500000, Currency: "UAH", Broker: "mono"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.AddConversion(ctx, Conversion{
-		Date: "2026-07-03", FromCurrency: "UAH", FromAmount: 200000, ToCurrency: "USD", ToAmount: 4500, Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if err := st.SetSetting(ctx, "monthly_target_uah", "5000"); err != nil {
 		t.Fatal(err)
 	}
@@ -73,14 +65,6 @@ func TestBackupRoundTrip(t *testing.T) {
 	sales, _ := st2.ListSales(ctx)
 	if len(sales) != 1 || sales[0].LotID != lotID {
 		t.Fatalf("продаж або звʼязок з лотом втрачено: %+v", sales)
-	}
-	deps, _ := st2.ListDeposits(ctx)
-	if len(deps) != 1 || deps[0].Broker != "mono" || deps[0].Amount != 500000 {
-		t.Fatalf("поповнення не відновились: %+v", deps)
-	}
-	convs, _ := st2.ListConversions(ctx)
-	if len(convs) != 1 || convs[0].Broker != "mono" {
-		t.Fatalf("конвертації не відновились: %+v", convs)
 	}
 	if v, _ := st2.GetSetting(ctx, "monthly_target_uah"); v != "5000" {
 		t.Fatalf("налаштування не відновились: %q", v)

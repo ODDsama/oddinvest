@@ -57,12 +57,6 @@ func TestGoalDepositLeavesThePortfolio(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 	ctx := context.Background()
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	addGoalWithDeposit(t, st, ctx, domain.NewDate(time.Now()).AddMonths(24), 1600)
 
 	_, body := do(t, "GET", srv.URL+"/api/summary", "")

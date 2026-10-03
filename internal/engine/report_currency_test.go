@@ -1,9 +1,10 @@
 package engine
 
 import (
-	"github.com/ODDsama/oddinvest/internal/settings"
 	"strings"
 	"testing"
+
+	"github.com/ODDsama/oddinvest/internal/settings"
 )
 
 // Валюта звітності — перелік, і описка не проходить: «usd» замість «USD»

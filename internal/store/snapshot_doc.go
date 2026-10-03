@@ -20,16 +20,6 @@ import (
 	"github.com/ODDsama/oddinvest/internal/state"
 )
 
-// idleMinor — простій у копійках для колонки idle_uah; 0 без простою.
-// Відʼємне значення в колонці означає «тоді не рахували» (міграція 0052),
-// і з документа воно ніколи не пишеться.
-func idleMinor(doc *state.Doc) int64 {
-	if doc.Idle == nil {
-		return 0
-	}
-	return doc.Idle.InvestableUAH.Minor()
-}
-
 // SnapshotOf — рядок знімка за дату date з документа стану.
 func SnapshotOf(date domain.Date, doc *state.Doc) Snapshot {
 	return Snapshot{
@@ -44,7 +34,6 @@ func SnapshotOf(date domain.Date, doc *state.Doc) Snapshot {
 		EURShareBP:     int64(math.Round(doc.EURSharePct * 100)),
 		UninvestedUAH:  doc.UninvestedUAH.Minor(),
 		MonthTargetUAH: doc.MonthTargetUAH.Minor(),
-		AccountUAH:     doc.AccountUAH.Minor(),
 		FundsUAH:       doc.FundsUAH.Minor(),
 		// Тіло вкладів — без накопичених відсотків: вони йдуть у колонку
 		// накопиченого разом із купоном (нижче), щоб порівняння зі знімками,
@@ -64,10 +53,6 @@ func SnapshotOf(date domain.Date, doc *state.Doc) Snapshot {
 		// коли людина просто відклала на авто, і пояснити його не було б чим
 		// (аргумент — у міграції 0040).
 		GoalsUAH: doc.GoalsUAH.Minor(),
-		// Простій — готовим із документа: означення одне (state_idle.go), і
-		// нуль тут означає «простою не було», а не «не рахували» (міграція
-		// 0052 тримає для другого −1).
-		IdleUAH: idleMinor(doc),
 		// НПФ — обидва числа, і друге не для симетрії: собівартість тут
 		// РЕАЛЬНА (внески) і відрізняється від вартості, тож без неї крива
 		// малювала б прибуток, завищений на весь пенсійний баланс. Резерву

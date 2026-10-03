@@ -10,7 +10,6 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
-	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -22,12 +21,6 @@ func previewServer(t *testing.T) string {
 	ctx := context.Background()
 	srv, st := testServer(t)
 	seed(t, st)
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 100_000_00,
-		Currency: money.UAH, Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := st.AddLot(ctx, domain.Lot{
 		ISIN: "UA4000227748", Qty: 5, PricePerBond: money.New(99500, money.UAH),
 		BuyDate: domain.NewDate(time.Now().AddDate(0, 0, -10)), Channel: "mono",

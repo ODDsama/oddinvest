@@ -47,11 +47,16 @@ type yearMonth struct {
 }
 
 // yearDay — один день із рухом грошей. Lvl — рівень інтенсивності 1..4
-// за квартилями суми |внесок|+|дохід|+|покупка| серед активних днів
-// року; нуль не буває (дні без руху в списку відсутні).
+// за квартилями суми |подушка й цілі|+|дохід|+|покупка| серед активних
+// днів року; нуль не буває (дні без руху в списку відсутні).
+//
+// OutsideUAH, а не «внесено»: з ревізії 2026-10-03 внесок — це нетто на
+// межі інструмента (покупки мінус виплати), тобто він уже складається з
+// двох полів поруч. Окремим полем лишились лише рухи подушки й цілей, і
+// назва «contributed» обіцяла б більше, ніж поле несе.
 type yearDay struct {
 	Date        string      `json:"date" money:"asof"`
-	ContribUAH  state.Money `json:"contributed_uah,omitzero"`
+	OutsideUAH  state.Money `json:"outside_uah,omitzero"`
 	IncomeUAH   state.Money `json:"income_uah,omitzero"`
 	PurchaseUAH state.Money `json:"purchased_uah,omitzero"`
 	Lvl         int         `json:"lvl"`
@@ -132,18 +137,9 @@ func buildYear(year int, from, to, today domain.Date, events []engine.FlowEvent,
 		Year: year, From: string(from), To: string(to),
 		Partial: to.After(today),
 		Years:   yearsOf(events, snaps, today),
-		Money: periodMoney{
-			OpeningUAH:  state.Major(sum.Major(sum.OpeningUAH), money.UAH),
-			IncomeUAH:   state.Major(sum.Major(sum.IncomeUAH), money.UAH),
-			ContribUAH:  state.Major(sum.Major(sum.ContribUAH), money.UAH),
-			PurchaseUAH: state.Major(sum.Major(-sum.PurchaseUAH), money.UAH),
-			ConvUAH:     state.Major(sum.Major(sum.ConvUAH), money.UAH),
-			ClosingUAH:  state.Major(sum.Major(sum.ClosingUAH()), money.UAH),
-			OutsideUAH:  state.Major(sum.Major(sum.OutsideUAH), money.UAH),
-			OwnUAH:      state.Major(sum.Major(sum.OwnUAH()), money.UAH),
-		},
-		Months: []yearMonth{},
-		Days:   []yearDay{},
+		Money:   periodMoneyOf(sum, sum.IncomeUAH, sum.PurchaseUAH, sum.OutsideUAH),
+		Months:  []yearMonth{},
+		Days:    []yearDay{},
 	}
 
 	var earned, principal int64
@@ -169,10 +165,9 @@ func buildYear(year int, from, to, today domain.Date, events []engine.FlowEvent,
 		case engine.FlowPurchase:
 			buys = append(buys, domain.CashEvent{Date: e.Date, Amount: -e.UAH})
 			d.PurchaseUAH = d.PurchaseUAH.Add(state.Minor(e.UAH, money.UAH))
-		case engine.FlowContribution, engine.FlowOutside:
-			// Свої гроші — гаманець і подушка разом, як у плитці «Цей
-			// місяць»: день, коли відклав у подушку, — день із рухом.
-			d.ContribUAH = d.ContribUAH.Add(state.Minor(e.UAH, money.UAH))
+		case engine.FlowOutside:
+			// День, коли відклав у подушку чи ціль, — теж день із рухом.
+			d.OutsideUAH = d.OutsideUAH.Add(state.Minor(e.UAH, money.UAH))
 		}
 	}
 	out.EarnedUAH = state.Minor(earned, money.UAH)
@@ -218,7 +213,7 @@ func heatDays(byDay map[string]*yearDay) []yearDay {
 	out := make([]yearDay, 0, len(byDay))
 	mags := make([]float64, 0, len(byDay))
 	for _, d := range byDay {
-		mag := math.Abs(d.ContribUAH.Major()) + math.Abs(d.IncomeUAH.Major()) + math.Abs(d.PurchaseUAH.Major())
+		mag := math.Abs(d.OutsideUAH.Major()) + math.Abs(d.IncomeUAH.Major()) + math.Abs(d.PurchaseUAH.Major())
 		if mag == 0 {
 			continue
 		}
@@ -235,7 +230,7 @@ func heatDays(byDay map[string]*yearDay) []yearDay {
 	}
 	q1, q2, q3 := q(0.25), q(0.5), q(0.75)
 	for i := range out {
-		mag := math.Abs(out[i].ContribUAH.Major()) + math.Abs(out[i].IncomeUAH.Major()) + math.Abs(out[i].PurchaseUAH.Major())
+		mag := math.Abs(out[i].OutsideUAH.Major()) + math.Abs(out[i].IncomeUAH.Major()) + math.Abs(out[i].PurchaseUAH.Major())
 		switch {
 		case mag > q3:
 			out[i].Lvl = 4

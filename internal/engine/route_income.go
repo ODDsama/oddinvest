@@ -1,86 +1,51 @@
-// «Коли вистачить»: дата, на яку рахунок покриє цю покупку.
+// Майбутні надходження портфеля по парах (брокер × валюта) — сировина
+// маршруту грошей (route.go).
 //
-// Доти помічник відповідав двійково — can_buy або ні, — і рядок, на який
-// сьогодні не стає, просто опускався нижче. Питання, яке при цьому
-// лишалось без відповіді, і є головним питанням реінвесту: чекати три
-// тижні до купона чи взяти те, на що стане вже сьогодні. Дата й ціна
-// очікування (domain.WaitCost) роблять із нього вибір із двох названих
-// сторін.
+// Доти файл звався ready_on.go і відповідав ще на «коли вистачить»: дату,
+// на яку рахунок брокера покриє покупку, і ціну очікування
+// (domain.WaitCost). Ця половина пішла разом із рахунками (ревізія
+// 2026-10-03): без залишку рахунку «коли набереться» не має від чого
+// рахуватись. Лишився збирач надходжень — маршрут веде по ньому кожну
+// ногу.
 //
-// РАХУНКИ РОЗДІЛЬНІ. Дата рахується по парах (брокер × валюта), а не по
-// валюті: гривня в mono не купить папір в inzhur, і купон, що прийде на
-// чужий рахунок, цієї покупки не наблизить. Дата рядка — найраніша серед
-// брокерів, і брокер названий поруч.
+// ПАРИ, А НЕ ВАЛЮТИ. Купон приходить до того брокера, де куплено папір, і
+// маршрут підписує ногу саме ним: «600 ₴ в mono» і «600 ₴ в inzhur» — це
+// два різні рішення, навіть коли залишків застосунок уже не веде.
 //
-// ЩО ВХОДИТЬ У ДАТУ. Лише те, що портфель уже винен сам собі: купони й
-// погашення ОВДП, відсотки й тіло вкладів. Три речі свідомо не входять, і
-// в кожної своя причина.
-//
-//	Планові надходження (plan_flows) — зарплата це намір, який застосунок
-//	не може перевірити, і дата повзла б від кожної правки плану. Питання
-//	«а якщо докласти» вже має свою відповідь — план купівель і
-//	POST /api/whatif. Маршрут план ПОКАЗУЄ, і суперечності тут немає:
-//	там кожна нога названа своїм потоком і підписана основою «план», а
-//	тут намір розчинився б у єдиному числі без сліду.
+// ЩО ВХОДИТЬ. Лише те, що портфель уже винен сам собі: купони й погашення
+// ОВДП, відсотки й тіло вкладів. Свідомо не входять:
 //
 //	Оцінені дивіденди фондів — вони саме оцінені (state_schedule.go рахує
 //	їх зі ставки, а не із зобовʼязання, і позначає ключем fund:<назва>).
-//	У календарі оцінка стоїть підписаною й читається як оцінка; дата ж —
-//	одне число, у якому припущення стало б невидимим.
+//	routeIncome додає їх окремо, з підписаною основою.
 //
-//	Виплати НПФ — гроші звідти не приходять до пенсійного віку, і
-//	підмішувати їх у «коли зможу купити папір» означало б рахувати
-//	покупку за гроші, яких не буде.
+//	Виплати НПФ — гроші звідти не приходять до пенсійного віку.
 //
-// ДРУГЕ «КОЛИ» В ЗАСТОСУНКУ — і воно лишається. savingTask
-// (state_tasks.go) уже каже «за твоїм темпом це ≈ N днів», рахуючи з
-// МІСЯЧНОЇ ЦІЛІ ВНЕСКІВ. Це інша міра того самого питання: там гроші, які
-// ти плануєш доносити, тут — які портфель платить сам. Зводити їх в одне
-// число не можна (одне спирається на намір, друге на зобовʼязання), тому
-// обидва називають свою основу прямо: «за твоїм темпом» проти «з
-// надходжень портфеля». Без цих слів два різні числа на двох екранах
-// читались би як розбіжність.
-//
-// ЩО НЕ ЗМІНЮЄТЬСЯ. Порядок рядків. Ланцюг компаратора (Locked → CanBuy →
-// ліміт/транзит → planScore → stale) — це політика, а дата — факт поруч
-// із нею. Пустити дату в сортування означало б тихо завести нове правило
-// під виглядом показу.
-//
-// ЦІНА ЦЬОГО ФАЙЛУ — один зайвий прохід по джерелах на /api/reinvest:
-// привʼязати виплату до брокера можна лише через лоти, а state.Doc
-// брокера у виплатах не несе (і не має нести — той документ іде в MQTT).
-// Тому анотація живе в обробнику, а не в ReinvestSuggestions: та сама
-// збірка порад працює ще й усередині BuildState (черга задач), і другий
-// loadSources подорожчав би кожен /api/summary заради поля, якого черга
-// не показує.
+//	Планові надходження (plan_flows) — їх додає planAhead окремими ногами
+//	з основою «план»: намір не мусить розчинятись у зобовʼязаннях.
 package engine
 
 import (
 	"cmp"
-	"context"
 	"fmt"
 	"maps"
 	"math"
 	"slices"
 	"sort"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
 
-// NoBrokerLabel — як показується рахунок без брокера. Те саме «—», що й у
-// гаманці (state_cash.go): два різні позначення одного рахунку розвели б
-// баланс із датою.
+// NoBrokerLabel — як показується надходження без брокера: «—» і в нозі
+// маршруту, і в плановому потоці (route.go), щоб одне місце не мало двох
+// позначень.
 const NoBrokerLabel = "—"
 
-// readyFlow — одне майбутнє надходження на конкретний рахунок.
+// readyFlow — одне майбутнє надходження до конкретного брокера.
 //
-// PRINCIPAL І KIND — ДЛЯ МАРШРУТУ, І ЛИШЕ ДЛЯ НЬОГО. «Коли вистачить» питає
-// СКІЛЬКИ грошей буде на рахунку, і на це питання купон і погашення
-// відповідають однаково: гроші є гроші. Маршрут (route.go) веде прохід
+// PRINCIPAL І KIND. Маршрут (route.go) веде прохід
 // уперед по капіталу, а там різниця принципова — купон це НОВІ гроші, а
 // погашення лише перекладає власне тіло з паперу в готівку. Без цієї пари
 // прохід рахував би повернення номіналу приростом капіталу й через це
@@ -88,10 +53,9 @@ const NoBrokerLabel = "—"
 //
 // Обидва поля тут, а не в окремій структурі поруч, бо джерело в них одне й
 // те саме — розклад, — і другий збирач розкладу розійшовся б із першим.
-// readyFor і AnnotateReady їх не читають: дата від цього не змінюється.
 type readyFlow struct {
 	Date   domain.Date
-	Amount int64 // мінорні, у валюті рахунку
+	Amount int64 // мінорні, у валюті виплати
 	Label  string
 	// Principal — скільки з Amount є поверненням ВЛАСНОГО тіла (погашення
 	// ОВДП, тіло вкладу). Решта — дохід. Kind — вид, з якого це тіло
@@ -175,30 +139,35 @@ type readyEvent struct {
 }
 
 // incomeAhead — майбутні надходження в розрізі (брокер × валюта).
-type incomeAhead map[store.BrokerCur][]readyFlow
+type incomeAhead map[brokerCur][]readyFlow
 
-// futureIncome — що ще прийде на рахунки і на які саме.
+// brokerCur — ключ надходження: (брокер × валюта). Жив у store поруч із
+// гаманцем; рахунків більше немає, а маршрут і далі складає надходження
+// одного брокера й однієї валюти в один горщик.
+type brokerCur struct {
+	Broker   string
+	Currency string
+}
+
+// futureIncome — що ще прийде і до якого брокера.
 //
-// Розкладка по брокерах дзеркалить гаманець (state_builder.go): купон
-// кредитує рахунок того брокера, де куплено папір, відсотки вкладу —
-// рахунок його банку. Порожня назва стає «—» тим самим правилом, що й у
-// cashLedger.byBroker: гроші без привʼязки — це теж місце, і мовчки
-// зливати їх із чиїмось рахунком не можна.
+// Купон іде до брокера, де куплено папір, відсотки вкладу — до його банку.
+// Порожня назва стає «—»: гроші без привʼязки — це теж місце, і мовчки
+// зливати їх із чиїмись не можна.
 //
 // Виплати рахує domain.FuturePayments — та сама функція, якою збирається
 // календар і зведення. Розділені по брокерах лоти дають розділені потоки:
 // сума по всіх брокерах дорівнює загальному розкладу, бо HolderQty
 // лінійна за лотами (на це є тест).
 //
-// arrived фільтрує те, що гаманець УЖЕ порахував балансом. Без цього
-// виплата, датована сьогодні й позначена «отримано», лічилась би двічі —
-// один раз у балансі, другий як майбутнє надходження.
+// arrived фільтрує те, що вже позначене «отримано»: така виплата сталась,
+// і маршрут не має вести її вдруге як майбутню.
 func futureIncome(src *sources, today domain.Date) (incomeAhead, error) {
 	arrived := domain.Arrived(src.statuses, today)
 	out := incomeAhead{}
 	add := func(broker, currency string, f readyFlow) {
 		broker = cmp.Or(broker, NoBrokerLabel)
-		k := store.BrokerCur{Broker: broker, Currency: currency}
+		k := brokerCur{Broker: broker, Currency: currency}
 		out[k] = append(out[k], f)
 	}
 
@@ -226,9 +195,8 @@ func futureIncome(src *sources, today domain.Date) (incomeAhead, error) {
 
 	for _, dep := range src.termDeposits {
 		// Вклад подушки чи цілі при погашенні повертається туди ж (F7b,
-		// state_sources.go), а не на рахунок: маршрут інакше планував би
-		// купівлі за гроші подушки, а «коли вистачить» — зарану дату. Те
-		// саме відсіювання, що withoutEarmarked робить для гаманця.
+		// state_sources.go), а не до брокера: маршрут інакше планував би
+		// купівлі за гроші подушки.
 		if dep.Earmarked() {
 			continue
 		}
@@ -361,7 +329,7 @@ func routeIncome(src *sources, today domain.Date, months int) (incomeAhead, erro
 				// і стелю подушки прокрутила б.
 				continue
 			}
-			k := store.BrokerCur{Broker: broker, Currency: f.Amount.Currency().Code}
+			k := brokerCur{Broker: broker, Currency: f.Amount.Currency().Code}
 			out[k] = append(out[k], readyFlow{
 				Date: f.Date, Amount: f.Amount.Amount(),
 				Label: fp.Fund, Kind: "funds", Basis: basisEstimate,
@@ -577,7 +545,7 @@ func planParts(src *sources, marks PlanMarks, today domain.Date,
 // # БРОКЕРА НЕМАЄ, І ЦЕ НЕ ПРОГАЛИНА
 //
 // Планових грошей на брокерському рахунку ще немає — вони на картці. Тому
-// «—», той самий рахунок без привʼязки, що й у гаманці. Наслідок треба
+// «—», те саме місце без привʼязки, що й у NoBrokerLabel. Наслідок треба
 // назвати вголос: зарплата НЕ доскладеться до купона в mono, щоб разом
 // набрати на цілий квиток. Це чесніше за протилежне — сказати, що гроші
 // вже лежать там, де їх нема.
@@ -633,7 +601,7 @@ func planAhead(src *sources, plans map[string]*state.MonthPlan,
 // ні, — і ділити оцінений дивіденд пропорційно між двома рахунками означало
 // б розбити його на суми, менші за будь-який квиток, тобто зробити маршрут
 // гіршим заради видимості точності. Нічия й порожнеча дають «—», той самий
-// рахунок без привʼязки, що й у гаманці.
+// місце без привʼязки (NoBrokerLabel).
 func fundBroker(ops []domain.FundOp, fund string) string {
 	byBroker := map[string]int64{}
 	for _, op := range ops {
@@ -687,182 +655,4 @@ func coalesceSameDay(flows []readyFlow) []readyFlow {
 		out = append(out, f)
 	}
 	return out
-}
-
-// readiness — коли й де набереться потрібна сума.
-type readiness struct {
-	Date   domain.Date
-	Broker string
-	Via    []readyFlow
-}
-
-// readyFor — перший день, коли якийсь із рахунків покриє costMinor.
-//
-// Обходимо кожного брокера окремо: баланс сьогодні плюс його власні
-// надходження по датах. Найраніша дата серед брокерів і є відповіддю; при
-// однакових датах виграє менша назва — щоб два запуски на тих самих даних
-// не давали різних брокерів (мапа в Go обходиться в довільному порядку).
-func (inc incomeAhead) readyFor(doc *state.Doc, currency string, costMinor int64) (readiness, bool) {
-	if costMinor <= 0 {
-		return readiness{}, false
-	}
-	brokers := map[string]bool{}
-	for name := range doc.Brokers {
-		brokers[name] = true
-	}
-	for k := range inc {
-		if k.Currency == currency {
-			brokers[k.Broker] = true
-		}
-	}
-	names := slices.Sorted(maps.Keys(brokers))
-
-	var best readiness
-	found := false
-	for _, name := range names {
-		bal := BrokerBalanceMinor(doc, name, currency)
-		var via []readyFlow
-		for _, f := range inc[store.BrokerCur{Broker: name, Currency: currency}] {
-			bal += f.Amount
-			via = append(via, f)
-			if bal < costMinor {
-				continue
-			}
-			if !found || f.Date.Before(best.Date) {
-				best = readiness{Date: f.Date, Broker: name, Via: via}
-				found = true
-			}
-			break
-		}
-	}
-	return best, found
-}
-
-// AnnotateReady дописує до порад дату доступності й ціну очікування.
-//
-// Мовчить там, де відповіді немає: рядок, на який стає вже сьогодні, дати
-// не отримує (він і так зверху), а рядок, на який із відомих надходжень не
-// набереться, отримує названу причину замість порожнечі.
-func (e *Engine) AnnotateReady(ctx context.Context, today domain.Date,
-	doc *state.Doc, sug []suggestion) error {
-	src, err := e.loadSources(ctx, today)
-	if err != nil {
-		return err
-	}
-	inc, err := futureIncome(src, today)
-	if err != nil {
-		return err
-	}
-	return annotateReadyWith(inc, doc, today, sug)
-}
-
-// annotateReadyWith — та сама робота над ГОТОВИМИ надходженнями.
-//
-// Винесено рівно заради перевірності: усе, що вище, — це два читання
-// сховища, а все, що нижче, — правила, які й треба перевіряти тестом. Той
-// самий поділ, що в AllocatePlan і pickQuotes.
-func annotateReadyWith(inc incomeAhead, doc *state.Doc, today domain.Date,
-	sug []suggestion) error {
-
-	for i := range sug {
-		if sug[i].CanBuy {
-			continue
-		}
-		cost, cerr := ParseMoney(sug[i].CostPerBond.Amount, sug[i].CostPerBond.Currency)
-		if cerr != nil || cost.Amount() <= 0 {
-			continue
-		}
-		r, ok := inc.readyFor(doc, sug[i].Currency, cost.Amount())
-		if !ok {
-			sug[i].ReadyNote = "з відомих надходжень портфеля не набереться"
-			continue
-		}
-		// ДАТА, ЩО НАСТАЄ ПІСЛЯ ПОГАШЕННЯ, — НЕ ВІДПОВІДЬ.
-		//
-		// Живий випадок: папір гасився 16 вересня, а під ним стояло «з
-		// надходжень портфеля набереться 18 листопада» — порада збирати два
-		// місяці на те, чого на той час не існуватиме. Це єдине місце, де
-		// обидва числа є одночасно (Maturity — поле поради, дата —
-		// щойно порахована), тож звірити їх більше ніде.
-		//
-		// Поріг короткого строку (MinTermDays) прибирає майже всі такі
-		// рядки ще на збірці; цей — щоб решта не брехала. Порядок рядків
-		// при цьому НЕ чіпається: межа в шапці файла тримається, дата
-		// лишається фактом ПОРУЧ із політикою, а не всередині неї.
-		if m := domain.Date(sug[i].Maturity); m != "" && r.Date.After(m) {
-			sug[i].ReadyNote = "погаситься " + string(m) +
-				" — раніше, ніж на нього набереться"
-			continue
-		}
-		sug[i].ReadyOn = string(r.Date)
-		sug[i].ReadyBroker = r.Broker
-		sug[i].ReadyDays = domain.DaysBetween(today, r.Date)
-		sug[i].ReadyVia = make([]readyEvent, 0, len(r.Via))
-		for _, f := range r.Via {
-			sug[i].ReadyVia = append(sug[i].ReadyVia, readyEvent{
-				Date: string(f.Date), Label: f.Label,
-				Amount: ToMoneyJSON(money.New(f.Amount, sug[i].Currency)),
-			})
-		}
-		annotateWaitCost(&sug[i], sug, doc)
-	}
-	return nil
-}
-
-// annotateWaitCost — скільки коштує це очікування, міряне альтернативою.
-//
-// Альтернатива береться НЕ найдохідніша взагалі, а та, яку справді можна
-// виконати замість очікування: та сама валюта і той самий рахунок, на
-// якому ми чекаємо. Найдохідніший рядок в іншого брокера — не вибір, а
-// сусідній рядок таблиці, і міряти ним втрату означало б порахувати
-// втраченим те, чого не було.
-//
-// Працюють не всі гроші рахунку, а стільки, скільки складається в цілу
-// кількість кроків альтернативи: решта однаково лежала б без діла, і
-// зараховувати їй дохід було б тим самим вигаданим числом, від якого
-// застосунок відмовляється всюди.
-func annotateWaitCost(row *suggestion, all []suggestion, doc *state.Doc) {
-	if row.ReadyDays <= 0 {
-		return
-	}
-	bal := BrokerBalanceMinor(doc, row.ReadyBroker, row.Currency)
-	if bal <= 0 {
-		return
-	}
-	var alt *suggestion
-	var altCost int64
-	for i := range all {
-		a := &all[i]
-		if !a.CanBuy || a.Currency != row.Currency || a.Label == row.Label {
-			continue
-		}
-		fitsHere := false
-		for _, f := range a.Brokers {
-			if f.Broker == row.ReadyBroker {
-				fitsHere = true
-				break
-			}
-		}
-		if !fitsHere {
-			continue
-		}
-		c, cerr := ParseMoney(a.CostPerBond.Amount, a.CostPerBond.Currency)
-		if cerr != nil || c.Amount() <= 0 || c.Amount() > bal {
-			continue
-		}
-		if alt == nil || a.RealPct > alt.RealPct {
-			alt, altCost = a, c.Amount()
-		}
-	}
-	if alt == nil {
-		return
-	}
-	working := bal / altCost * altCost
-	cost := domain.WaitCost(working, alt.RealPct, row.ReadyDays)
-	if cost <= 0 {
-		return
-	}
-	m := ToMoneyJSON(money.New(cost, row.Currency))
-	row.WaitCost = &m
-	row.WaitAlt = alt.Label
 }

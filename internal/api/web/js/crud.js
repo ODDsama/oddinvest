@@ -13,11 +13,11 @@
 // один (fields.js), збирач тіла один, і форма додавання з модалкою правки
 // фізично не можуть розійтись, бо це той самий код із іншим аргументом.
 //
-// Запис на бекенд робить forms.js і тільки він: apply/onSubmit/onSubmitFunded/
-// onDelete/openEdit уже вміють тост, перемальовування, підтвердження й
-// автопоповнення рахунку. Тут — лише те, ЩО саме йому передати.
+// Запис на бекенд робить forms.js і тільки він: apply/onSubmit/onDelete/
+// openEdit уже вміють тост, перемальовування й підтвердження. Тут — лише
+// те, ЩО саме йому передати.
 
-import { onSubmit, onSubmitFunded, onDelete, openEdit, apply } from "./forms.js";
+import { onSubmit, onDelete, openEdit, apply } from "./forms.js";
 import { wireRefs, wireSuggest } from "./refs.js";
 
 /** Прив'язати створення, правку й видалення одного ресурсу.
@@ -48,11 +48,6 @@ import { wireRefs, wireSuggest } from "./refs.js";
  *               назад розірваний вклад.
  *    rows     — записи, які видно на сторінці: за ними правка знаходить, що
  *               підставити в поля.
- *    funded   — (form) => {check, date, what} для операцій, які витрачають
- *               гроші. Тільки для СТВОРЕННЯ: у PUT бекенд перевірки нестачі
- *               не має, і вигадувати її на клієнті означало б завести другу
- *               копію арифметики — рівно те, чим уже двічі закінчувались
- *               спроби порахувати суму операції в браузері.
  *    title    — як називається один запис («Лот», «Рух»): іде в заголовок
  *               модалки й у питання перед видаленням.
  *    confirm  — (row) => текст питання. Типове питання називає лише вид і
@@ -62,7 +57,7 @@ import { wireRefs, wireSuggest } from "./refs.js";
 export function wireCrud(ctx, main, spec) {
   const {
     resource, form = null, fields, body, rows = [],
-    funded = null, title = "Запис", confirm = null, msg = {},
+    title = "Запис", confirm = null, msg = {},
     path = (id) => resource + "/" + id, createPath = resource,
   } = spec;
   if (!main) return;
@@ -74,11 +69,9 @@ export function wireCrud(ctx, main, spec) {
     const build = (f) => {
       const b = body(f, null);
       if (!b) return null;
-      const req = { path: createPath, body: b, msg: msg.add || (title + " додано") };
-      return funded ? { ...req, ...funded(f) } : req;
+      return { path: createPath, body: b, msg: msg.add || (title + " додано") };
     };
-    if (funded) onSubmitFunded(ctx, addForm, build);
-    else onSubmit(ctx, addForm, build);
+    onSubmit(ctx, addForm, build);
   }
 
   // --- правка ---

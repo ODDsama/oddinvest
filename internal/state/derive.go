@@ -180,13 +180,6 @@ func Derive(doc *Doc, in DeriveInput) error {
 		doc.FundsCostUAH = doc.FundsCostUAH.Add(f.CostBasis)
 	}
 
-	if doc.Accounts == nil {
-		doc.Accounts = map[string]Money{}
-	}
-	if doc.ReinvestMin == nil {
-		doc.ReinvestMin = map[string]Money{}
-	}
-
 	deriveReserve(doc, in)
 	deriveGoals(doc, in)
 

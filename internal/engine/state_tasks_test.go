@@ -47,12 +47,13 @@ func TestBuildTasksEmptyPortfolio(t *testing.T) {
 // не мають брати участі в покупці — на це вже спирається сам помічник.
 func TestBuildTasksReserveBeforeBuy(t *testing.T) {
 	doc := &state.Doc{
-		NominalUAHEq: state.Major(50_000, money.UAH),
-		Reserve:      &state.Reserve{FillNowUAH: state.Major(3_000, money.UAH), GapUAH: state.Major(20_000, money.UAH), TargetUAH: state.Major(60_000, money.UAH), TargetMonths: 6},
+		NominalUAHEq:  state.Major(50_000, money.UAH),
+		UninvestedUAH: state.Major(5_000, money.UAH),
+		Reserve:       &state.Reserve{FillNowUAH: state.Major(3_000, money.UAH), GapUAH: state.Major(20_000, money.UAH), TargetUAH: state.Major(60_000, money.UAH), TargetMonths: 6},
 	}
 	sug := []suggestion{{
 		Kind: "bond", ISIN: "UA4000228811", Label: "UA4000228811", Currency: "UAH",
-		RealPct: 12.5, CanBuy: true, CostPerBond: MoneyJSON{Amount: "1000.00", Currency: "UAH"},
+		RealPct: 12.5, CostPerBond: MoneyJSON{Amount: "1000.00", Currency: "UAH"},
 	}}
 	got := buildTasks(doc, sug, &sources{}, "2026-08-19")
 	if len(got) < 2 {
@@ -66,32 +67,39 @@ func TestBuildTasksReserveBeforeBuy(t *testing.T) {
 	}
 }
 
-// Порада, якої не по кишені, не стає задачею «купи» — вона стає задачею
-// «ще збираєш», і та мусить сказати, СКІЛЬКИ бракує.
-func TestBuildTasksSavingWhenNothingAffordable(t *testing.T) {
-	doc := &state.Doc{
-		NominalUAHEq: state.Major(50_000, money.UAH),
-		Brokers:      map[string]map[string]state.Money{"mono": {money.UAH: state.UAH(40_000)}},
-	}
+// «Дохід чекає» лише тоді, коли невкладених виплат досить на ЦІЛИЙ квиток
+// найкращої поради. Менше — задачі немає взагалі: без рахунку застосунок
+// не знає, скільки в людини лежить, і «бракує N» було б вигадкою.
+func TestBuildTasksWaitingNeedsWholeTicket(t *testing.T) {
 	sug := []suggestion{{
-		Kind: "bond", Label: "UA4000228811", Currency: "UAH", RealPct: 12.5,
-		CanBuy: false, CostPerBond: MoneyJSON{Amount: "1000.00", Currency: "UAH"},
+		Kind: "bond", ISIN: "UA4000228811", Label: "UA4000228811", Currency: "UAH", RealPct: 12.5,
+		CostPerBond: MoneyJSON{Amount: "1000.00", Currency: "UAH"},
 	}}
-	got := buildTasks(doc, sug, &sources{}, "2026-08-19")
-	var saving *state.Task
-	for i := range got {
-		if got[i].ID == "saving" {
-			saving = &got[i]
+	waiting := func(uninvested float64) *state.Task {
+		doc := &state.Doc{
+			NominalUAHEq:  state.Major(50_000, money.UAH),
+			UninvestedUAH: state.Major(uninvested, money.UAH),
 		}
-		if got[i].ID == "buy-best" {
-			t.Fatal("непозволена покупка потрапила в чергу як «можеш купити»")
+		got := buildTasks(doc, sug, &sources{}, "2026-08-19")
+		for i := range got {
+			if got[i].ID == "buy-best" {
+				return &got[i]
+			}
 		}
+		return nil
 	}
-	if saving == nil {
-		t.Fatal("задачі «ще збираєш» немає")
+	if w := waiting(400); w != nil {
+		t.Fatalf("400 ₴ доходу на квиток за 1000 ₴ дали задачу «купи»: %+v", w)
 	}
-	if saving.AmountUAH.Major() != 600 {
-		t.Errorf("бракує = %v, треба 600 (1000 ціна − 400 на рахунку)", saving.AmountUAH.Major())
+	w := waiting(1500)
+	if w == nil {
+		t.Fatal("1500 ₴ доходу покривають квиток за 1000 ₴ — задачі «Дохід чекає» немає")
+	}
+	if w.AmountUAH.Major() != 1500 {
+		t.Errorf("сума задачі %v, треба 1500 — увесь дохід, що чекає", w.AmountUAH.Major())
+	}
+	if w.Ref != "bond:UA4000228811" {
+		t.Errorf("ref = %q, треба bond:UA4000228811 — кнопка «Купив» відкриває форму саме цього паперу", w.Ref)
 	}
 }
 
@@ -269,11 +277,6 @@ func TestRebalanceTaskNeedsWholeTicket(t *testing.T) {
 	}
 	if got.Title != "EUR нижче цілі: 12,5% проти 20,0%" {
 		t.Errorf("заголовок: %q", got.Title)
-	}
-	// Валюта вже на рахунку — порада «вклади її», а не «докупи».
-	doc.Rebalance[1].CanBuy = 2
-	if got, _ := rebalanceTask(doc); !strings.Contains(got.Why, "вистачає на 2 квитки") {
-		t.Errorf("задача не сказала про валюту на рахунку: %q", got.Why)
 	}
 }
 

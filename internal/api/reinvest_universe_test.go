@@ -32,8 +32,6 @@ type sugRow struct {
 	Kind      string `json:"kind"`
 	ISIN      string `json:"isin"`
 	CostBasis string `json:"cost_basis"`
-	ReadyOn   string `json:"ready_on"`
-	ReadyNote string `json:"ready_note"`
 	Maturity  string `json:"maturity"`
 }
 
@@ -63,12 +61,6 @@ func universeSetup(t *testing.T, secs []nbu.Security) (string, *store.Store) {
 	srv, st := testServer(t)
 	ctx := context.Background()
 	if err := st.ReplaceDirectory(ctx, secs, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 100_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
 		t.Fatal(err)
 	}
 	return srv.URL, st

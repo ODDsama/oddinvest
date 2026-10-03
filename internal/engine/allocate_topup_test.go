@@ -322,17 +322,18 @@ func TestAllocateTopUpGoalsEligSubtractedOnce(t *testing.T) {
 	}
 }
 
-// РОЗКЛАДКА МАЙБУТНІХ ГРОШЕЙ НЕ ДИВИТЬСЯ НА СЬОГОДНІШНІЙ ГАМАНЕЦЬ. CanBuy —
-// «вистачає вже зараз», і для списку «що взяти сьогодні» він правильно
-// піднімає досяжне. Але розкладка кладе гроші, що ПРИЙДУТЬ, і там кращий
-// папір, якому сьогодні бракує, мусить обганяти гірший, на який уже є.
-func TestAllocateIgnoresTodaysWalletInOrder(t *testing.T) {
+// РОЗКЛАДКА МАЙБУТНІХ ГРОШЕЙ ВПОРЯДКОВУЄ ПОРАДИ САМА (futureOrder), а не
+// бере порядок, у якому їх віддали. Доти вхід приходив піднятим за
+// «вистачає вже зараз» (CanBuy), і сторож тримав, щоб розкладка того
+// порядку не успадкувала; рахунків уже немає, а правило те саме: гроші, що
+// ПРИЙДУТЬ, ідуть у кращий папір, хай би який стояв першим на вході.
+func TestAllocateOrdersFutureMoneyItself(t *testing.T) {
 	doc := allocDoc([]state.RebalanceRow{kindRow("bonds", 100, 50000)}, nil)
 	worse := bondSug("UA_WORSE", 1000, money.UAH)
-	worse.RealPct, worse.CanBuy = 5, true
+	worse.RealPct = 5
 	better := bondSug("UA_BETTER", 1000, money.UAH)
-	better.RealPct, better.CanBuy = 9, false
-	// Саме в такому порядку їх віддає ReinvestSuggestions: досяжне зверху.
+	better.RealPct = 9
+	// Гірший навмисно першим на вході.
 	got := AllocatePlan(doc, []suggestion{worse, better}, allocRates,
 		ToMoneyJSON(money.New(100000, money.UAH)), 1000,
 		AllocAllow{ReserveUAH: 1000, GoalsUAH: 1000}, money.UAH, nil)

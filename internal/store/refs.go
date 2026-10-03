@@ -150,7 +150,7 @@ func (s *Store) SetBrokerQuoteSource(ctx context.Context, id int64, source strin
 // DeleteBroker прибирає брокера, лише якщо на нього ніхто не посилається:
 // мовчки знеособити півсотні лотів — не те, чого чекають від кнопки «✕».
 //
-// ТАБЛИЦЬ ШІСТЬ, і перелік мусить збігатися з тим, які насправді
+// ТАБЛИЦЬ ЧОТИРИ, і перелік мусить збігатися з тим, які насправді
 // посилаються на brokers(id). Довго не збігався: перевірка написана,
 // коли їх було чотири, а term_deposits (0013) і npf_ops (0028) додали
 // broker_id пізніше й сюди не вписали. Наслідок був не «зайве
@@ -158,7 +158,8 @@ func (s *Store) SetBrokerQuoteSource(ctx context.Context, id int64, source strin
 // внеску НПФ, проходив перевірку й падав уже на рівні бази сирим
 // «FOREIGN KEY constraint failed» замість зрозумілого рядка нижче.
 // Рівно ту саму пастку описує DeleteFund, і там її свого часу закрили.
-// Сьомою була plan_buys (0043); план купівель прибрано (0067).
+// Були ще plan_buys (0043, прибрано в 0067) і deposits/conversions
+// (рахунки, прибрано в 0068).
 //
 // Тримається це тепер тестом, а не увагою: TestDeleteBrokerCoversAllRefs
 // звіряє перелік із sqlite_master, тож нова таблиця з broker_id завалить
@@ -167,12 +168,10 @@ func (s *Store) DeleteBroker(ctx context.Context, id int64) error {
 	var used int
 	if err := s.db.QueryRowContext(ctx, `SELECT
 		(SELECT COUNT(*) FROM lots          WHERE broker_id=? AND portfolio_id=?) +
-		(SELECT COUNT(*) FROM deposits      WHERE broker_id=? AND portfolio_id=?) +
-		(SELECT COUNT(*) FROM conversions   WHERE broker_id=? AND portfolio_id=?) +
 		(SELECT COUNT(*) FROM fund_ops      WHERE broker_id=? AND portfolio_id=?) +
 		(SELECT COUNT(*) FROM term_deposits WHERE broker_id=? AND portfolio_id=?) +
 		(SELECT COUNT(*) FROM npf_ops       WHERE broker_id=? AND portfolio_id=?)`,
-		id, s.pid, id, s.pid, id, s.pid, id, s.pid, id, s.pid, id, s.pid).Scan(&used); err != nil {
+		id, s.pid, id, s.pid, id, s.pid, id, s.pid).Scan(&used); err != nil {
 		return err
 	}
 	if used > 0 {

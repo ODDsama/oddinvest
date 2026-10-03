@@ -1,20 +1,17 @@
 // Збирання документа стану — головна операція сервісу.
 //
 // Читання сховища — у state_sources.go, зведення лотів і фондів — у
-// domain/holdings.go, гаманець — у state_cash.go. Там же й попередження
-// про те, що ті самі гроші рахує ще CashEvents у cashflow.go: воно
-// переїхало РАЗОМ із кодом, до якого стосується. Коментар-ADR за дві
-// функції від того, що він пояснює, читають випадково, а не тоді, коли
-// він потрібен.
+// domain/holdings.go, потоки на межі інструмента — у state_flows.go (їх
+// же читають externalMoves і CashEvents, тож журнал один на всіх).
+// Гаманця (state_cash.go) немає з ревізії 2026-10-03: рахунків застосунок
+// не веде.
 
 package engine
 
 import (
 	"cmp"
 	"context"
-	"maps"
 	"math"
-	"slices"
 	"sort"
 	"time"
 
@@ -97,9 +94,7 @@ func (e *Engine) BuildState(ctx context.Context, now time.Time) (*state.Doc, err
 // САМ BuildState, рано чи пізно хтось опублікував би вигадку як стан.
 func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothetical) (*state.Doc, error) {
 	today := domain.NewDate(now)
-	// Усі читання сховища — одним місцем (state_sources.go). Доти вони
-	// були розсипані по всій функції, і ListDeposits через це викликався
-	// двічі за пʼятсот рядків один від одного.
+	// Усі читання сховища — одним місцем (state_sources.go).
 	src, err := e.loadSources(ctx, today)
 	if err != nil {
 		return nil, err
@@ -303,10 +298,8 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// весь журнал, а не агрегат: потрібні ще й місця зберігання та дата
 	// останнього руху, а рухів тут одиниці.
 	//
-	// НЕ додається ні до accounts, ні до brokers: перше зіпсувало б звірку
-	// (now_uah == account_uah), друге зробило б резерв купівельною
-	// спроможністю, і помічник запропонував би купити папір за аварійні
-	// гроші.
+	// Резерв — не купівельна спроможність: помічник не має пропонувати
+	// купити папір за аварійні гроші.
 	reserveOps := src.reserveOps
 	reserveUAH := 0.0
 	reserveByCur := map[string]state.Money{}
@@ -389,256 +382,30 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// 0039 про дві ноги переказу).
 	goals := buildGoals(src.goals, src.goalOps, goalDepositsByGoal, pools, rates, today, now)
 
-	mth, err := buildMonth(src, hold, rates, now, today, reserveUAH)
+	// Рух на межі інструмента — один журнал на документ (state_flows.go).
+	// З нього «внесено» місяця й темп (buildMonth) і дохід без діла нижче.
+	flows, err := instrumentFlows(flowInputs{
+		lots: lots, sales: sales, pays: pays, arrived: arrived, fundOps: fundOps,
+		npfAccounts: src.npfAccounts, npfOps: src.npfOps, deposits: termDeposits,
+		pools: pools, today: today,
+	})
+	if err != nil {
+		return nil, err
+	}
+	mth, err := buildMonth(src, hold, flows, rates, now, today, reserveUAH)
 	if err != nil {
 		return nil, err
 	}
 	monthInv := mth.InvestedUAH
-	monthDep, monthOut := mth.DepositedUAH, mth.WithdrawnUAH
+	monthDep := mth.DepositedUAH
 	actualMonthly, actualMonths := mth.ActualMonthlyUAH, mth.ActualMonths
-
-	// Неперевкладені: надійшлі виплати без статусу reinvested. Рахуються по
-	// ВСІХ інструментах із розкладом — купони й погашення ОВДП тут, відсотки
-	// й тіло вкладів нижче, у їхньому циклі. Правило одне: запланована
-	// виплата, що вже надійшла і не позначена «перевкладено», — це гроші,
-	// які лежать без діла.
-	pastCF, err := domain.FuturePayments(pays, lots, sales, "1970-01-01")
-	if err != nil {
-		return nil, err
-	}
-	// Дохід і покупки збираємо подіями, а рахуємо простій наприкінці —
-	// коли вже відомий баланс рахунків, яким число обмежується.
-	var incomeEvents, purchaseEvents []domain.CashEvent
-	// --- гаманець: (брокер × валюта), зведення по валютах виводиться ---
-	// Формула: Σ поповнень + Σ конвертацій + Σ отриманих виплат −
-	// Σ вартості лотів (усе нативно, у своїй валюті). Див. state_cash.go
-	// про те, чому акумулятор тут один, а не два.
-	cash := newCashLedger()
-	for _, cf := range pastCF {
-		if !arrived(cf.ISIN, cf.Date) {
-			continue
-		}
-		// Тут рахунок НЕ кредитується: ту саму виплату нижче розносить по
-		// брокерах цикл по pays×lots, і зведення по валютах виводиться вже
-		// з нього. Доти це були два різні обчислення одного числа —
-		// агрегат по (дата, ISIN, тип) проти суми по лотах, — і сходились
-		// вони лише тому, що Multiply множить цілі мінорні одиниці й тому
-		// точно лінійна. Домовленість, а не механізм.
-		uahAmt, err := fx.ToUAH(cf.Amount, rates)
-		if err != nil {
-			return nil, err
-		}
-		incomeEvents = append(incomeEvents, domain.CashEvent{Date: domain.ArrivalDate(cf.Date, today), Amount: uahAmt.Amount()})
-	}
-
-	// купон кредитує рахунок ТОГО брокера, де куплено папір.
-	for _, p := range pays {
-		if !arrived(p.ISIN, p.PayDate) {
-			continue
-		}
-		for _, l := range lots {
-			if l.ISIN != p.ISIN {
-				continue
-			}
-			if q := domain.HolderQty(l, sales, p.PayDate); q > 0 {
-				amt := p.PerBond.Multiply(q)
-				// Позначена наперед — сьогоднішнім днем (domain.ArrivalDate).
-				cash.add(l.Channel, amt.Currency().Code, domain.ArrivalDate(p.PayDate, today), amt.Amount())
-			}
-		}
-	}
-
-	// Поповнення/зняття й конвертації — подіями з датами, як і решта рухів:
-	// баланс — та сама сума, що давали підсумки по парах, але тепер гаманець
-	// знає ще й вік грошей. Обмін не переносить гроші між рахунками, тож
-	// обидві його ноги лягають на один брокер.
-	for _, d := range src.deposits {
-		cash.add(d.Broker, d.Currency, d.Date, d.Amount)
-	}
-	for _, c := range src.conversions {
-		cash.add(c.Broker, c.FromCurrency, c.Date, -c.FromAmount)
-		cash.add(c.Broker, c.ToCurrency, c.Date, c.ToAmount)
-	}
-	for _, l := range hold.Lots {
-		cost, cerr := domain.LotCost(l.Lot)
-		if cerr != nil {
-			return nil, cerr
-		}
-		cash.add(l.Channel, cost.Currency().Code, l.BuyDate, -cost.Amount())
-		if u, cerr := fx.ToUAH(cost, rates); cerr == nil {
-			purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: l.BuyDate, Amount: u.Amount()})
-		}
-	}
-	// Продаж на вторинці повертає виручку (чиста ціна + НКД) на рахунок
-	// того брокера, де лежав лот. Лот вище списаний ЦІЛИМ, тож без цього
-	// кредиту продана частина лишалась би «витраченою» назавжди — і саме
-	// так було: cashflow.go виручку зараховував, а гаманець ні, і звірка
-	// мовчала лише тому, що в її тесті не було жодного продажу.
-	//
-	// У incomeEvents продаж НЕ йде — з тієї ж причини, що й продаж
-	// сертифікатів нижче: це вихід із позиції, а не заробіток на ній.
-	lotChannel := make(map[int64]string, len(hold.Lots))
-	for _, l := range hold.Lots {
-		lotChannel[l.ID] = l.Channel
-	}
-	for _, sl := range sales {
-		proceeds, serr := domain.SaleProceeds(sl)
-		if serr != nil {
-			return nil, serr
-		}
-		cash.add(lotChannel[sl.LotID], proceeds.Currency().Code, sl.SaleDate, proceeds.Amount())
-	}
-
-	// Операції фондів рухають той самий гаманець: купівля списує гроші,
-	// продаж і дивіденд зараховують уже за вирахуванням податку. Без
-	// цього куплені сертифікати не зменшували б баланс, і звірка з
-	// брокером показувала б вічну розбіжність рівно на їхню суму.
-	for _, op := range fundOps {
-		delta := int64(0)
-		switch op.Kind {
-		case domain.FundBuy:
-			delta = -op.Amount
-			// Покупкою, що з'їдає дохід без діла, — лише нові гроші: у
-			// конвертації це доплата понад виручку продаж-ноги (FundBuyNew).
-			if fresh := domain.FundBuyNew(op, fundOps); fresh > 0 {
-				if u, cerr := fx.ToUAH(money.New(fresh, op.Currency), rates); cerr == nil {
-					purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: op.Date, Amount: u.Amount()})
-				}
-			}
-		case domain.FundSell, domain.FundDividend:
-			delta = op.Amount - op.Tax
-			// Дивіденд — дохід і стає в чергу простою; продаж — ні: це
-			// вихід із позиції, а не заробіток на ній, і питання «чи
-			// перевклав» до нього не ставиться.
-			if op.Kind == domain.FundDividend {
-				if u, cerr := fx.ToUAH(money.New(op.Amount-op.Tax, op.Currency), rates); cerr == nil {
-					incomeEvents = append(incomeEvents, domain.CashEvent{Date: op.Date, Amount: u.Amount()})
-				}
-			}
-		}
-		cash.add(op.Broker, op.Currency, op.Date, delta)
-	}
-
-	// Внесок у НПФ рухає гаманець в ОДИН бік: гроші йдуть із рахунку й не
-	// повертаються ніколи — точніше, не раніше пенсійного віку, і тоді це
-	// буде інша сутність з іншим графіком.
-	//
-	// arrived() тут не потрібен, як і поповненням вкладу: внесок — це
-	// записаний факт із виписки, а не обіцяна виплата, яку ще треба
-	// дочекатись.
-	//
-	// Той самий дебет ОБОВʼЯЗКОВО дзеркалиться в cashflow.go: агрегатний
-	// гаманець тут і подієвий звіт там звіряються тестом
-	// TestCashflowStatementReconciles, і забути одну з двох половин означає
-	// розійтись на суму внесків — обидва числа при цьому лишаться
-	// правдоподібними.
-	npfCurByID := map[int64]string{}
-	for _, a := range src.npfAccounts {
-		if a.Currency == "" {
-			npfCurByID[a.ID] = money.UAH
-			continue
-		}
-		npfCurByID[a.ID] = a.Currency
-	}
-	for _, op := range src.npfOps {
-		if op.Date.After(today) {
-			continue
-		}
-		cur := cmp.Or(npfCurByID[op.NPFID], money.UAH)
-		cash.add(op.Broker, cur, op.Date, -op.Amount)
-		// Внести в пенсійний — така сама покупка, як узяти папір: гроші пішли
-		// в діло, і чергу «доходу без діла» це з'їдає нарівні з рештою.
-		if u, cerr := fx.ToUAH(money.New(op.Amount, cur), rates); cerr == nil {
-			purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: op.Date, Amount: u.Amount()})
-		}
-	}
-
-	// Вклади рухають гаманець так само, як лоти й фонди: розміщення
-	// СПИСУЄ тіло з рахунку банку (гроші замкнені на строк), а відсотки й
-	// повернення тіла ЗАРАХОВУЮТЬ — але лише коли реально надійшли, через
-	// той самий arrived(), що й купони. Синтетичний ISIN "deposit:<id>"
-	// дає міткам у календарі за що чіплятись.
-	//
-	// Закритий вклад — за фактом: списане тіло при відкритті й повернута
-	// сума ClosedAmount на дату розірвання (як фактична ціна продажу лота).
-	for _, dep := range termDeposits {
-		// Списання з рахунку банку. Вклад подушки чи цілі спершу бере гроші
-		// з пулу свого призначення (пролонгація), і з рахунку йде лише решта.
-		debit := func(on domain.Date, amount, fromPool int64) {
-			if amount -= fromPool; amount <= 0 {
-				return
-			}
-			cash.add(dep.Bank, dep.Currency, on, -amount)
-			// Відкрити вклад — така сама покупка, як узяти папір: гроші
-			// пішли в діло.
-			if u, cerr := fx.ToUAH(money.New(amount, dep.Currency), rates); cerr == nil {
-				purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: on, Amount: u.Amount()})
-			}
-		}
-		// розміщення: −тіло на дату відкриття (якщо вона вже настала)
-		if !dep.OpenDate.After(today) {
-			debit(dep.OpenDate, dep.Principal, pools.fromPool(dep.ID, 0))
-		}
-		// кожне поповнення теж списує гроші з рахунку банку на свою дату —
-		// це записаний факт, тож arrived() не потрібен
-		for _, t := range dep.Topups {
-			if !t.Date.After(today) {
-				debit(t.Date, t.Amount, pools.fromPool(dep.ID, t.ID))
-			}
-		}
-		// Виплати вкладу подушки чи цілі на рахунок не йдуть — вони в пулі
-		// призначення (earmark_pool.go) і вже пораховані подушкою чи ціллю.
-		if dep.Earmarked() {
-			continue
-		}
-		// Виплата вкладу, що надійшла (минула дата або позначка), — на рахунок
-		// банку. Відсотки вкладу — такий самий дохід, як купон, і в чергу
-		// простою стають нарівні з ним.
-		credit := func(cf domain.CashflowItem) {
-			if !arrived(cf.ISIN, cf.Date) {
-				return
-			}
-			on := domain.ArrivalDate(cf.Date, today)
-			cash.add(dep.Bank, cf.Amount.Currency().Code, on, cf.Amount.Amount())
-			if u, cerr := fx.ToUAH(cf.Amount, rates); cerr == nil {
-				incomeEvents = append(incomeEvents, domain.CashEvent{Date: on, Amount: u.Amount()})
-			}
-		}
-		if dep.ClosedDate != "" {
-			// Відсотки, що надійшли ДО розірвання, лишаються на рахунку:
-			// розірвання їх не повертає (PaidBeforeClose). Доти весь графік
-			// пропускався, і запис розірвання зменшував баланс заднім числом.
-			for _, cf := range dep.PaidBeforeClose() {
-				credit(cf)
-			}
-			if !dep.ClosedDate.After(today) {
-				cash.add(dep.Bank, dep.Currency, dep.ClosedDate, dep.ClosedAmount)
-			}
-			// У «не перевкладено» розірвання НЕ входить: це дискреційний
-			// вихід, як продаж лота на вторинці, а не запланована виплата.
-			// До того ж позначити його «перевкладено» нема де — закритий
-			// вклад у календарі рядка не має, і сума висіла б там вічно.
-			continue
-		}
-		// діючий вклад: відсотки й тіло. DepositSchedule від "1970-01-01" дає
-		// весь графік, зокрема минулі виплати.
-		for _, cf := range domain.DepositSchedule(dep, "1970-01-01") {
-			credit(cf)
-		}
-	}
-
-	// Гаманець зібрано. Далі — лише похідні від нього зрізи: зведення по
-	// валютах і розклад по брокерах. Обидва ВИВОДЯТЬСЯ, тож розійтись їм
-	// більше нема як.
-	bal := cash.byCurrency()
-	brokers := cash.byBroker()
 
 	// Скільки грошей стоїть за КОЖНИМ контрагентом, грн-екв. — для ліміту
 	// концентрації. Це не investedByBroker нижче: там собівартість, бо
 	// картка «Вкладено по брокерах» відповідає на «скільки я туди заніс».
 	// Тут питання інше — «скільки я втрачу, якщо цей брокер чи банк завтра
 	// зникне», а на нього відповідає сьогоднішня вартість: номінал
-	// паперів, ринкова вартість сертифікатів, тіло вкладу й готівка.
+	// паперів, ринкова вартість сертифікатів і тіло вкладу.
 	//
 	// Резерву тут немає: у нього не брокер, а «місце» (готівка, сейф), і
 	// ризик контрагента до нього не застосовний — у цьому й сенс матраца.
@@ -718,9 +485,8 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		}
 	}
 
-	// Решта експозиції контрагентів: папери за номіналом, готівка на
-	// рахунках і тіла вкладів (сертифікати додались вище, разом зі своїм
-	// поділом по брокерах).
+	// Решта експозиції контрагентів: папери за номіналом і тіла вкладів
+	// (сертифікати додались вище, разом зі своїм поділом по брокерах).
 	for _, l := range hold.Lots {
 		if !l.Held() {
 			continue
@@ -728,21 +494,6 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		nom := l.Bond.Nominal
 		if u, err := fx.ToUAH(money.New(nom.Amount()*l.Remaining, nom.Currency().Code), rates); err == nil {
 			addExposure(l.Channel, float64(u.Amount())/100)
-		}
-	}
-	// Валюти — у сталому порядку, і це не косметика. Додавання float64 не
-	// асоціативне, тож обхід мапи давав брокеру, який тримає дві валюти,
-	// суму, що різнилась у останніх бітах від запуску до запуску. Саме так
-	// число, яке лягло рівно на пів копійки, округлялось то вниз, то вгору:
-	// over_uah у концентрації показував 215026.58 або .59 на тих самих
-	// даних. Дві сусідні перезавантаження сторінки — дві різні копійки, і
-	// в добовий знімок потрапляла та, яка випала.
-	for name, byCur := range brokers {
-		curs := slices.Sorted(maps.Keys(byCur))
-		for _, cur := range curs {
-			if u, err := fx.ToUAH(byCur[cur].Money(), rates); err == nil {
-				addExposure(name, float64(u.Amount())/100)
-			}
 		}
 	}
 	for bank, v := range depositExposureUAH {
@@ -783,59 +534,45 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	var blendedYieldBasis string
 	var blendedYieldSplit *state.YieldSplit
 
-	accounts := map[string]state.Money{}
-	accountUAHMinor := int64(0)
-	for cur, m := range bal {
-		accounts[cur] = state.Minor(m, money.UAH)
-		if uahAmt, err := fx.ToUAH(money.New(m, cur), rates); err == nil {
-			accountUAHMinor += uahAmt.Amount()
+	// Дохід, що не працює: виплати, за якими ще не було покупки. Купівлі
+	// з'їдають його за чергою (найстаріше першим, domain.IdleIncome).
+	//
+	// Стелі «скільки лежить на рахунках» більше немає — рахунків застосунок
+	// не веде (ревізія 2026-10-03). Число тепер означає «дохід чекає»: купон
+	// прийшов, а нової покупки після нього ще не було.
+	var incomeEvents, purchaseEvents []domain.CashEvent
+	for _, f := range flows {
+		switch {
+		case f.Kind == flowIncome:
+			if u, cerr := fx.ToUAH(money.New(f.Amount, f.Currency), rates); cerr == nil {
+				incomeEvents = append(incomeEvents, domain.CashEvent{Date: f.Date, Amount: u.Amount()})
+			}
+		case f.Kind == flowPurchase && f.New > 0:
+			if u, cerr := fx.ToUAH(money.New(f.New, f.Currency), rates); cerr == nil {
+				purchaseEvents = append(purchaseEvents, domain.CashEvent{Date: f.Date, Amount: u.Amount()})
+			}
 		}
 	}
-	account := money.New(accountUAHMinor, money.UAH)
-
-	// Дохід, що не працює. Купівлі з'їдають його за чергою (найстаріше
-	// першим), а зверху число обмежене тим, що РЕАЛЬНО лежить на
-	// рахунках: якщо грошей немає, то й доходу без діла немає, хай би що
-	// казала історія надходжень. Без цієї стелі наївна черга сама б собі
-	// суперечила — зняв гроші з рахунку, а вона й далі рахує їх простоєм.
-	idle := min(domain.IdleIncome(incomeEvents, purchaseEvents), accountUAHMinor)
-	idle = max(idle, 0)
-	unin := money.New(idle, money.UAH)
+	unin := money.New(max(domain.IdleIncome(incomeEvents, purchaseEvents), 0), money.UAH)
 
 	// найдешевший папір по валютах (нативно) + мінімум у грн-екв.
 	minNoms := src.minNominal
-	// Мінімум по валютах у мінорних: спершу найдешевший папір (ОВДП), потім
-	// зливаємо мінімум вкладу. Вклад — теж інструмент реінвесту, тож там, де
-	// його поріг нижчий (або де паперу у валюті немає), «до реінвесту
-	// готовий» настає раніше. Саме це дає простою USD/EUR куди йти без
-	// відповідних облігацій.
+	// Мінімальний вклад по валютах — для здійсненності ребалансу.
 	depMinByCur := src.depositMin
-	minByCur := map[string]int64{}
+	// Поріг реінвесту в прогнозі (Sleeve.Threshold): найдешевший квиток у
+	// валюті — папір або мінімальний вклад, що дешевше. Симуляція тримає
+	// купони готівкою, доки не назбирається на квиток; від рахунків це не
+	// залежить, тож поріг пережив їхнє прибирання. Назовні (у документ) він
+	// більше не їде — reinvest_min жив заради кнопки «вистачає на N паперів».
+	reinvestMinByCur := map[string]state.Money{}
 	for cur, minNom := range minNoms {
-		minByCur[cur] = minNom
+		reinvestMinByCur[cur] = state.Minor(minNom, cur)
 	}
 	for cur, depMin := range depMinByCur {
-		if have, ok := minByCur[cur]; !ok || depMin < have {
-			minByCur[cur] = depMin
+		if have, ok := reinvestMinByCur[cur]; !ok || depMin < have.Minor() {
+			reinvestMinByCur[cur] = state.Minor(depMin, cur)
 		}
 	}
-	reinvestMinByCur := map[string]state.Money{}
-	reinvestMin := money.New(0, money.UAH)
-	for cur, minNom := range minByCur {
-		reinvestMinByCur[cur] = state.Minor(minNom, cur)
-		uahAmt, err := fx.ToUAH(money.New(minNom, cur), rates)
-		if err != nil {
-			continue
-		}
-		if reinvestMin.IsZero() || uahAmt.Amount() < reinvestMin.Amount() {
-			reinvestMin = uahAmt
-		}
-	}
-	// Простій — та частина гаманця, на яку квиток уже є (state_idle.go).
-	// Ціну йому припише BuildStateTasked: вона потребує порад, а ті
-	// рахуються за готовим документом.
-	idleCash := buildIdle(cash, minByCur, rates, today)
-
 	// Ціна ОДНОГО сертифіката — найдешевшого з тих, що вже в портфелі.
 	//
 	// Позначки ціни (0034) сюди приходять самі: LastPrice бере найсвіжіше з
@@ -864,10 +601,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	}
 
 	// Найдешевший вхід ОКРЕМО по видах — для ребалансу за видом
-	// інструмента. reinvestMin для цього не годиться: він уже змішав
-	// облігації з вкладами (у цьому й був його сенс — «на що завгодно
-	// вистачає раніше»), а тут питання саме «скільки коштує зайти в цей
-	// вид», і змішане число відповіло б на нього неправильно для обох.
+	// інструмента: питання «скільки коштує зайти в цей вид».
 	minBondUAH, minDepositUAH := 0.0, 0.0
 	minOf := func(dst *float64, minor int64, cur string) {
 		u, err := fx.ToUAH(money.New(minor, cur), rates)
@@ -1030,7 +764,6 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		BondsAccruedUAH: state.Minor(acc.TotalMinor, money.UAH),
 		// Накопичені відсотки вкладів — у DepositsUAH; окремо для проєкції.
 		DepositsAccruedUAH: state.Major(depositsAccruedUAH, money.UAH),
-		AccountUAH:         state.Minor(accountUAHMinor, money.UAH),
 		FundsUAH:           state.Major(fundsUAH, money.UAH), DepositsUAH: state.Major(depositsUAH, money.UAH), ReserveUAH: state.Major(reserveUAH, money.UAH),
 		GoalsUAH:   state.Major(goals.UAH, money.UAH),
 		NPFUAH:     state.Major(npf.TotalUAH, money.UAH),
@@ -1093,7 +826,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	_, cardDue0 := debtDueParts(src, rates, today, 0)
 	prj := buildProjection(projectionInput{
 		Capital: capital, Cashflow: withoutEarmarked(cashflow, termDeposits), Settings: settings,
-		CashByCur: bal, NominalByCur: nominalByCur,
+		NominalByCur:     nominalByCur,
 		DepositBodyByCur: depositBodyByCur,
 		AccumByCur:       fnd.Accum, DistByCur: fnd.Dist,
 		// НПФ окремим входом, а не влитий у AccumByCur: рукав мусить
@@ -1139,7 +872,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// Ребаланс і концентрація (state_rebalance.go).
 	rbl := buildRebalance(rebalanceInput{
 		Capital: capital, Settings: settings, Rates: rates,
-		CashByCur: bal, MinNominalByCur: minNoms, DepositMinByCur: depMinByCur,
+		MinNominalByCur: minNoms, DepositMinByCur: depMinByCur,
 		MinBondUAH: minBondUAH, MinFundUAH: minFundPriceUAH,
 		MinDepositUAH: minDepositUAH,
 		NominalByISIN: nominalByISIN, Bonds: bonds, FundRows: fundRows,
@@ -1157,10 +890,10 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		// прапорцем розривності. Передати сюди повну суму означало б
 		// порахувати їх двічі й назвати негайно доступним те, що лежить у
 		// банку до дати погашення.
-		AccountMinor: accountUAHMinor, ReserveUAH: reserveLiquidUAH,
-		GoalsUAH: goals.UAH,
-		NPFRows:  npf.Rows,
-		Now:      now, Today: today,
+		ReserveUAH: reserveLiquidUAH,
+		GoalsUAH:   goals.UAH,
+		NPFRows:    npf.Rows,
+		Now:        now, Today: today,
 	})
 	rateRisk, liquidity, accruedUAH := rsk.RateRisk, rsk.Liquidity, rsk.AccruedUAH
 
@@ -1179,7 +912,6 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	doc := &state.Doc{
 		MonthInvestedUAH:    state.Of(monthInv),
 		MonthDepositedUAH:   state.Of(monthDep),
-		MonthWithdrawnUAH:   state.Of(monthOut),
 		MonthOutsideUAH:     state.Of(mth.OutsideUAH),
 		MonthContributedUAH: state.Of(mth.ContributedUAH),
 		MonthTargetUAH:      state.Of(target),
@@ -1197,19 +929,16 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		// зменшили (state_month.go).
 		Debt: buildDebtPlan(src, src.debts, src.debtMarks, src.debtOps,
 			settings, mth.Plan, rates, now, today),
-		UninvestedUAH:  state.Of(unin),
-		AccountUAH:     state.Of(account),
-		ReinvestMinUAH: state.Of(reinvestMin),
-		Idle:           idleCash,
+		UninvestedUAH: state.Of(unin),
 
-		Accounts: accounts, Brokers: brokers, InvestedByBroker: investedByBroker,
-		LadderUAH: ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
+		InvestedByBroker: investedByBroker,
+		LadderUAH:        ladderUAH, Income12m: income12m, Coupons12m: coupons12m,
 		FundsUAH: state.Major(fundsUAH, money.UAH), Funds: fundRows,
 		DepositsUAH: state.Major(depositsUAH, money.UAH), ReserveUAH: state.Major(reserveUAH, money.UAH),
 		GoalsUAH: state.Major(goals.UAH, money.UAH),
 		NPFUAH:   state.Major(npf.TotalUAH, money.UAH), NPFCostUAH: state.Major(npf.CostUAH, money.UAH),
 		NPF: npf.Rows, NPFContribDue: npf.ContribDue,
-		IncomeMonthlyNow: state.Major(incomeMonthlyNow, money.UAH), ReinvestMin: reinvestMinByCur,
+		IncomeMonthlyNow: state.Major(incomeMonthlyNow, money.UAH),
 
 		Settings: settings, XIRRPct: xirr, Realized: realized,
 		PortfolioYieldPct: portfolioYield, PortfolioYield: portfolioYieldByCur,

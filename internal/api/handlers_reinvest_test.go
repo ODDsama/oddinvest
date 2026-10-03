@@ -28,13 +28,6 @@ func reinvestFund(t *testing.T, mutate func(*store.Fund)) []struct {
 	ctx := context.Background()
 	srv, st := testServer(t)
 	seed(t, st)
-	// Гроші на рахунку, інакше порад не буде взагалі.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 100_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := st.AddFundOp(ctx, domain.FundOp{
 		Date: domain.NewDate(time.Now().AddDate(0, 0, -30)), Fund: "MilTech",
 		Kind: domain.FundBuy, Qty: 5, Amount: 500_000, Currency: money.UAH, Broker: "inzhur",
@@ -163,12 +156,6 @@ func TestReinvestDemotesPapersNotPlacedInAYear(t *testing.T) {
 	if err := st.SaveRate(ctx, "USD", 441234, "2026-07-15"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	// Один розміщували вчора, другий — два роки тому.
 	now := time.Now()
 	if err := st.SaveAuctions(ctx, []nbu.Auction{
@@ -237,12 +224,6 @@ func TestReinvestDemotesPapersNotPlacedInAYear(t *testing.T) {
 func TestReinvestSilentWithoutAuctionHistory(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
-	if _, err := st.AddDeposit(context.Background(), store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	_, body := do(t, "GET", srv.URL+"/api/reinvest", "")
 	for _, word := range []string{"вторинний ринок", "останнє розміщення", "last_auction"} {
 		if strings.Contains(body, word) {
@@ -265,13 +246,6 @@ func TestReinvestSilentWithoutAuctionHistory(t *testing.T) {
 func TestReinvestInventsNoCurrencyTargetWithoutPolicy(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
-	ctx := context.Background()
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	// $500 у матраці — справжня доларова експозиція (готівка брокера нею не
 	// є, див. Capital.ExposureUAH), тож usd_share_pct стає ненульовим.
 	if resp, b := do(t, "POST", srv.URL+"/api/reserve",
@@ -304,12 +278,6 @@ func TestReinvestInventsNoCurrencyTargetWithoutPolicy(t *testing.T) {
 func TestReinvestKeepsCurrencyTargetWhenOneIsSet(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
-	if _, err := st.AddDeposit(context.Background(), store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	// Долара мусить бути БІЛЬШЕ за ціль, інакше гривні до її власної цілі не
 	// бракує й клауза не спрацює взагалі: $10 000 × 44.1234 = 441 234 ₴ проти
 	// 500 000 ₴ гривневих, тобто доларова частка ≈47% при цілі 40%.
@@ -352,12 +320,6 @@ func TestReinvestKeepsCurrencyTargetWhenOneIsSet(t *testing.T) {
 func TestReinvestCarriesNoDeadFields(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
-	if _, err := st.AddDeposit(context.Background(), store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	// Щоб у переліку був і вклад: без ставки й суми відкриття його немає.
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
 		`{"deposit_rate_uah_pct":"15","deposit_min_uah":"10000"}`); resp.StatusCode != http.StatusNoContent {
@@ -414,13 +376,10 @@ func TestDepositRankedByTransitNotKindTarget(t *testing.T) {
 	seed(t, st)
 	ctx := context.Background()
 	// Капітал потрібен справжній: транзит — це залишок ЦІЛЬОВОЇ СУМИ після
-	// цілих паперів, і на порожньому портфелі він чесно нульовий.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// цілих паперів, і на порожньому портфелі він чесно нульовий. Гривневий
+	// фонд, а не поповнення рахунку (рахунків немає з ревізії 2026-10-03):
+	// доларовий дефіцит лишається цілим.
+	fundOp(t, st, domain.NewDate(time.Now()).AddDays(-30), domain.FundBuy, 500_000_00)
 	// Валютна ціль є, ціль за вкладами не задана — саме той стан, який
 	// тепер ставлять сім наборів із восьми.
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
@@ -491,12 +450,6 @@ func TestReserveDepositLeavesThePortfolio(t *testing.T) {
 	srv, st := testServer(t)
 	seed(t, st)
 	ctx := context.Background()
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 500_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings",
 		`{"usd_target_share_pct":"40","target_bonds_pct":"90",`+
 			`"deposit_rate_usd_pct":"3","deposit_min_usd":"100"}`); resp.StatusCode != http.StatusNoContent {

@@ -234,7 +234,6 @@ func TestProjectionDropsEstimatedFundFlows(t *testing.T) {
 	today := domain.Date("2026-07-15")
 	in := projectionInput{
 		Settings:     &state.SettingsDoc{},
-		CashByCur:    map[string]int64{},
 		NominalByCur: map[string]int64{},
 		YieldByCur:   map[string]float64{money.UAH: 16},
 		Rates:        fx.Rates{},

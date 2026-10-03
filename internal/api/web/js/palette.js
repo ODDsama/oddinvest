@@ -22,7 +22,7 @@
 import { esc } from "./format.js";
 import { TABS, panesFor } from "./nav.js";
 import { routeFor, seg } from "./routes.js";
-import { portfolioRows, moneyRows, staticRows } from "./master.js";
+import { portfolioRows, staticRows } from "./master.js";
 import { loadPositionsData } from "./views/positions.js";
 import { loadJSON, saveJSON } from "./uistate.js";
 
@@ -34,8 +34,6 @@ const LIMIT = 12;
 const FORMS = [
   ["buy", "Записати покупку паперу чи фонду"],
   ["topup", "Поповнити вклад"],
-  ["deposit", "Внести гроші на рахунок"],
-  ["convert", "Обміняти валюту"],
   ["planflow", "Додати джерело доходу"],
 ];
 
@@ -53,8 +51,6 @@ async function entries(ctx, posData) {
     let rows;
     if (t.dynamic === "positions") {
       rows = portfolioRows(ctx, posData || {});
-    } else if (t.dynamic === "accounts") {
-      rows = moneyRows(ctx);
     } else {
       rows = staticRows(t, ctx);
     }

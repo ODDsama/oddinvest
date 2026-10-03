@@ -414,13 +414,10 @@ func monthEnd(key string) time.Time {
 
 // buildPlanHistory — минулий рік помісячно: план, факт, нестача.
 //
-// Факт міряється ПОПОВНЕННЯМИ, а не покупками, і це не дрібниця: купівля
-// лише переносить гроші з рахунку в папери й до цілі не додає нічого
-// (те саме означення, що й у buildMonth — state_month.go). Нетто зі
-// зняттями — щоб переказ між брокерами (він записується як зняття плюс
-// поповнення) не роздував факт на свою суму. Резерв входить сюди ж: гроші,
-// відкладені в матрац, це такий самий внесок, а переміщення гаманець →
-// матрац записане двома ногами й у сумі дає нуль.
+// Факт міряється ЗОВНІШНІМИ ГРОШИМА (externalMoves, state_money.go): рух на
+// межі інструментів нетто плюс подушка й цілі — те саме означення, що й у
+// buildMonth (state_month.go). Папір, куплений на купон, що щойно прийшов,
+// до цілі не додає нічого: покупка й виплата гасять одна одну.
 // ReceivedUAH/Marked — четверте число, і воно відповідає на питання, якого
 // решта три не ставлять: скільки ПРИЙШЛО. Факт (ActualUAH) міряє те, що я
 // відніс брокерові; надходження — те, що мені заплатили, і між ними може
@@ -432,11 +429,10 @@ func monthEnd(key string) time.Time {
 // Відмітки заміщають план лише В МАЙБУТНЬОМУ (там вони — найкраще відоме
 // про місяць). Тут, у минулому, план читається БЕЗ них: інакше обидва ряди
 // збігалися б за побудовою, і порівнювати не було б чого.
-func buildPlanHistory(flows []store.PlanFlow, deposits []store.Deposit,
-	reserveOps []store.ReserveOp, goalOps []store.GoalOp, snaps []store.Snapshot,
+func buildPlanHistory(flows []store.PlanFlow, moves []moneyMove, snaps []store.Snapshot,
 	revs []store.PlanFlowRevision, receipts []store.PlanReceipt,
 	today domain.Date, rates fx.Rates) []PlanHistoryPoint {
-	if len(flows) == 0 && len(deposits) == 0 && len(receipts) == 0 {
+	if len(flows) == 0 && len(moves) == 0 && len(receipts) == 0 {
 		return nil
 	}
 	marks := NewPlanMarks(receipts)
@@ -453,25 +449,14 @@ func buildPlanHistory(flows []store.PlanFlow, deposits []store.Deposit,
 		if key < first || key > last {
 			return
 		}
-		// Знак зберігається: зняття зменшує внесок місяця так само, як
-		// поповнення його збільшує.
+		// Знак зберігається: виплата, яку не перевклали, зменшує внесок
+		// місяця так само, як покупка його збільшує.
 		if u, err := fx.ToUAH(money.New(amount, cur), rates); err == nil {
 			actual[key] += float64(u.Amount()) / 100
 		}
 	}
-	for _, d := range deposits {
-		addMove(d.Date, d.Amount, d.Currency)
-	}
-	for _, op := range reserveOps {
-		addMove(op.Date, op.Amount, op.Currency)
-	}
-	// Рухи цілей накопичення — нарівні з подушкою й з тим самим доводом, що
-	// в «внесено нетто» (state_month.go): переказ гаманець → ціль це не
-	// втрата капіталу, а зміна його форми. Без них місяць, у якому 20 000
-	// пішли на авто, читався б як недовиконаний план — тобто застосунок
-	// лаяв би за дисципліну рівно там, де вона була.
-	for _, op := range goalOps {
-		addMove(op.Date, op.Amount, op.Currency)
+	for _, m := range moves {
+		addMove(m.Date, m.Amount, m.Currency)
 	}
 
 	// Нестача — з ОСТАННЬОГО знімка місяця: цифра дня, найближчого до
@@ -862,17 +847,17 @@ func (e *Engine) PlanTimeline(ctx context.Context, now time.Time) (timelineDoc, 
 	//
 	// Помилка збирача профіль не валить: стрічка малюється й без доходу.
 	var portfolioCF []domain.CashflowItem
-	var moves, reserveMoves = []store.Deposit(nil), []store.ReserveOp(nil)
-	var goalMoves []store.GoalOp
+	var moves []moneyMove
 	if src, serr := e.loadSources(ctx, today); serr == nil {
 		hold := domain.NewHoldings(src.lots, src.sales, src.bonds, src.fundOps, src.fundPrices, src.payoutDays(), today,
 			domain.Arrived(src.statuses, today))
 		if sch, serr := buildSchedule(src, hold, today, today, profileFundMonths); serr == nil {
 			portfolioCF = sch.Cashflow
 		}
-		// Рух грошей для «Плану проти факту». Читається звідси, а не окремим
-		// запитом: loadSources уже сходив по нього для решти документа.
-		moves, reserveMoves, goalMoves = src.deposits, src.reserveOps, src.goalOps
+		// Рух грошей для «Плану проти факту» — те саме означення, що й
+		// «внесено» в документі. Помилка журналу стрічку не валить: план
+		// малюється й без факту.
+		moves, _ = externalMoves(src, today) //nolint:errcheck // без факту картка малює план
 	}
 	// Знімки потрібні лише заради колонки «бракувало». Помилку ковтаємо
 	// свідомо: без них картка малює два ряди замість трьох, а не зникає.
@@ -968,7 +953,7 @@ func (e *Engine) PlanTimeline(ctx context.Context, now time.Time) (timelineDoc, 
 		out.Profile.Events = profileEvents(portfolioCF, doc.Funds, funds,
 			doc.NPF, npfAccounts, flows, marks, today, to, rates)
 	}
-	out.History = buildPlanHistory(flows, moves, reserveMoves, goalMoves,
+	out.History = buildPlanHistory(flows, moves,
 		snaps, revs, receipts, today, rates)
 	// «Історія правок» — лише правки вікна: основа потрібна реконструкції,
 	// а не списку «що мінялось останнім часом».

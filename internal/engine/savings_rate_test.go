@@ -105,13 +105,15 @@ func TestSavingsBaseAveragesSameWindow(t *testing.T) {
 			{ID: 2, Name: "премія", Kind: "income", Amount: 6_000_000, Currency: "UAH",
 				Cadence: "once", FromDate: "2026-09-05", InvestBP: 10000},
 		},
-		deposits: []store.Deposit{
-			{Date: "2026-07-16", Amount: 3_000_000, Currency: "UAH"},
-			{Date: "2026-08-15", Amount: 3_000_000, Currency: "UAH"},
-			{Date: "2026-09-14", Amount: 3_000_000, Currency: "UAH"},
-		},
 	}
-	mth, err := buildMonth(src, domain.Holdings{}, fx.Rates{}, today.Time(), today, 0)
+	// Три щомісячні покупки — рух на межі інструментів, з якого міряється
+	// вікно темпу.
+	flows := []instrFlow{
+		buyFlow("2026-07-16", 3_000_000),
+		buyFlow("2026-08-15", 3_000_000),
+		buyFlow("2026-09-14", 3_000_000),
+	}
+	mth, err := buildMonth(src, domain.Holdings{}, flows, fx.Rates{}, today.Time(), today, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

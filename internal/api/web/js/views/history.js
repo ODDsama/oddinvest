@@ -45,7 +45,7 @@ export function snapNonZero(s) {
   // не бачився взагалі, тож usableSnaps() відрізав би ВСІ такі дні як
   // «порожні до появи портфеля» — і крива «Як росте» показувала б
   // «недостатньо знімків», хоч історія за місяці є.
-  return (s.invested_uah || 0) > 0 || (s.nominal_uah_eq || 0) > 0 || (s.account_uah || 0) > 0 ||
+  return (s.invested_uah || 0) > 0 || (s.nominal_uah_eq || 0) > 0 ||
     (s.funds_uah || 0) > 0 || (s.deposits_uah || 0) > 0 || (s.reserve_uah || 0) > 0 ||
     (s.goals_uah || 0) > 0 || (s.npf_uah || 0) > 0;
 }
@@ -77,12 +77,10 @@ export function snapNonZero(s) {
 // собівартості тоді не писали, чесніше не малювати прибуток зовсім, ніж
 // намалювати завищений.
 //
-// «Внесено» на картці «Факт vs план» звідси БІЛЬШЕ НЕ рахується. Рахунку
-// брокера в цій сумі немає, тож гашення паперу (гроші переїжджають на
-// рахунок) тягло лінію вниз, а купівля з рахунку — вгору, хоча ззовні не
-// заходило нічого. Там тепер external_uah — зовнішні гроші від сервера
-// (engine/snapshots.go), а ця сума лишилась тим, чим була від початку:
-// пунктиром собівартості на «Капіталі».
+// «Внесено» на картці «Факт vs план» звідси БІЛЬШЕ НЕ рахується: там
+// external_uah — зовнішні гроші від сервера (engine/snapshots.go), що
+// міряються на межі інструмента. Ця сума лишилась тим, чим була від
+// початку: пунктиром собівартості на «Капіталі».
 function snapCostUAH(s) {
   if ((s.funds_uah || 0) > 0 && !(s.funds_cost_uah > 0)) return null;
   if ((s.npf_uah || 0) > 0 && !(s.npf_cost_uah > 0)) return null;
@@ -179,7 +177,6 @@ function capitalCardHTML(ctx, allSnaps) {
     // просто неліквідний. Порядок стосу читається як «що працює → що ні».
     { name: "НПФ", color: "var(--oi-series-npf)", area: true, values: snaps.map((s) => s.npf_uah || 0) },
     { name: "Вклади", color: "var(--oi-series-deposits)", area: true, values: snaps.map((s) => s.deposits_uah || 0) },
-    { name: "Рахунок", color: "var(--oi-series-account)", area: true, values: snaps.map((s) => s.account_uah || 0) },
     // Резерв — верхньою смугою: він не працює, тож логічно лежить над
     // тим, що працює, і його внесок у стос видно окремо.
     { name: "Резерв", color: "var(--oi-series-reserve)", area: true, values: snaps.map((s) => s.reserve_uah || 0) },
@@ -268,9 +265,11 @@ function planCardHTML(ctx, allSnaps) {
   // його зроблено. Рядка перед вікном немає лише на самому початку
   // історії — тоді відлік від першого дня, як і в пунктира.
   //
-  // Лінія законно йде в мінус: зняття з резерву — це гроші, що пішли
-  // назовні. Гашення й купівля паперу її не рухають — то переклад
-  // усередині капіталу.
+  // Лінія законно йде в мінус: зняття з резерву, отриманий купон чи
+  // погашення — це гроші, що вийшли з портфеля назовні. Межа — інструмент
+  // (engine/state_flows.go): рахунків застосунок не веде, тож гроші, що
+  // повернулись із паперу, уже не «лежать усередині», доки їх не вкладуть
+  // знову, — і нова покупка піднімає лінію назад.
   const ext = (s) => (typeof s.external_uah === "number" ? s.external_uah : null);
   const start = allSnaps.indexOf(snaps[0]);
   const prev = start > 0 ? ext(allSnaps[start - 1]) : null;
@@ -308,8 +307,8 @@ function planCardHTML(ctx, allSnaps) {
     <div class="lg">${legend}</div>
     <div class="sub">Обидві лінії рахуються від початку періоду, тож порівнюються напряму.
       Внесено ${scope}: <b>${last == null ? "—" : fmtUAH(last)}</b>. ${verdict}</div>
-    <div class="sub-xs">Внесено — гроші, що зайшли ззовні: поповнення рахунків, резерв і цілі,
-      нето. Зняття з резерву — мінус; гашення й купівля паперів лінію не рухають.</div>
+    <div class="sub-xs">Внесено — гроші, що зайшли в інструменти, резерв і цілі, нето: покупка — плюс,
+      отримана виплата чи погашення — мінус, зняття з резерву — мінус.</div>
     ${anyTarget ? `<div class="sub-xs">Пунктир — місячна ціль у тому сенсі, який застосунок
       мав на той день; знімок несе саме її й не знає ні плану, ні потрібної суми, тож
       перерахувати старі точки під теперішні «треба / план / факт» нема з чого.</div>` : ""}</div>`;
@@ -374,7 +373,6 @@ export function snapshotsTableHTML(ctx) {
   // заробив», а не «такого інструмента в мене немає».
   const hasFunds = rows.some((s) => (s.funds_uah || 0) > 0);
   const hasDeps = rows.some((s) => (s.deposits_uah || 0) > 0);
-  const hasAcc = rows.some((s) => (s.account_uah || 0) > 0);
   const hasRes = rows.some((s) => (s.reserve_uah || 0) > 0);
   const hasGoals = rows.some((s) => (s.goals_uah || 0) > 0);
   const hasNPF = rows.some((s) => (s.npf_uah || 0) > 0);
@@ -393,7 +391,6 @@ export function snapshotsTableHTML(ctx) {
     col(hasFunds, "funds", "Фонди", (s) => fmtUAH(s.funds_uah || 0)),
     col(hasNPF, "npf", "НПФ", (s) => fmtUAH(s.npf_uah || 0)),
     col(hasDeps, "deposits", "Вклади", (s) => fmtUAH(s.deposits_uah || 0)),
-    col(hasAcc, "account", "Рахунок", (s) => fmtUAH(s.account_uah || 0)),
     col(hasRes, "reserve", "Резерв", (s) => fmtUAH(s.reserve_uah || 0)),
     col(hasGoals, "goals", "Цілі", (s) => fmtUAH(s.goals_uah || 0)),
     { key: "usd", label: "Частка USD", num: true,

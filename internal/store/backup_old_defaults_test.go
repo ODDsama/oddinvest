@@ -8,7 +8,7 @@ import (
 
 // Дамп, старший за пізні колонки, відновлюється з чесними «не знаю».
 //
-// Знімок: eur_share_bp (0061), idle_uah (0052), accrued_uah (0063) — «тоді
+// Знімок: eur_share_bp (0061), accrued_uah (0063) — «тоді
 // не рахували» це −1, а відсутнє поле читалось нулем, тобто виміряним
 // нулем: дельти періоду порівнювали «з купоном» проти «без».
 // Вклад: ставку 19,5/23 %, заведену за замовчуванням, міграція 0064
@@ -19,13 +19,15 @@ func TestRestoreOldDumpDefaults(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"date":"2025-01-01","invested_uah":100}`), &snap); err != nil {
 		t.Fatal(err)
 	}
-	if snap.EURShareBP != -1 || snap.IdleUAH != -1 || snap.AccruedUAH != -1 {
+	if snap.EURShareBP != -1 || snap.AccruedUAH != -1 {
 		t.Errorf("пізні колонки старого знімка мали стати −1: %+v", snap)
 	}
-	if err := json.Unmarshal([]byte(`{"date":"2026-01-01","eur_share_bp":0,"idle_uah":0,"accrued_uah":0}`), &snap); err != nil {
+	// idle_uah і account_uah зі старого дампу — колонок немає з 0068,
+	// поля просто пропускаються.
+	if err := json.Unmarshal([]byte(`{"date":"2026-01-01","eur_share_bp":0,"idle_uah":0,"account_uah":5,"accrued_uah":0}`), &snap); err != nil {
 		t.Fatal(err)
 	}
-	if snap.EURShareBP != 0 || snap.IdleUAH != 0 || snap.AccruedUAH != 0 {
+	if snap.EURShareBP != 0 || snap.AccruedUAH != 0 {
 		t.Errorf("явний нуль мусить лишитись нулем: %+v", snap)
 	}
 

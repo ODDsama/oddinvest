@@ -59,7 +59,6 @@ const SHAPES = {
   // мусить відпрацювати чесно — інакше панель стрибне на цілий екран
   // рівно тоді, коли її вже читають.
   portfolio: () => tiles(4) + card(4),
-  money: () => tiles(5) + card(5),
   plan: () => card(2) + card(4) + table(4),
   policy: () => card(4) + card(5),
   settings: () => card(3) + card(6),
@@ -68,9 +67,6 @@ const SHAPES = {
   "portfolio/growth": () => chart() + table(6),
   "portfolio/have": () => table(8),
   "portfolio/record": () => card(6) + card(6),
-  "money/flows": () => card(4) + table(8),
-  "money/import": () => card(6),
-  "money/reconcile": () => card(6),
   "plan/main": () => card(2) + card(4) + table(4),
 };
 

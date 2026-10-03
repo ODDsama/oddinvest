@@ -23,7 +23,7 @@
   "properties": {
     "schema": {
       "type": "integer",
-      "const": 3
+      "const": 4
     },
     "generated_at": {
       "type": "string",
@@ -60,24 +60,9 @@
       "type": "number",
       "minimum": 0
     },
-    "account_uah": {
-      "type": "number"
-    },
-    "reinvest_min_uah": {
-      "type": "number",
-      "minimum": 0
-    },
-    "accounts": {
-      "type": "object",
-      "additionalProperties": { "type": "number" }
-    },
     "rates": {
       "type": "object",
       "description": "Курси НБУ на сьогодні, ₴ за одиницю валюти (адитивне поле). Доти курс у документ не потрапляв, і UI діставав його з forecast.rate0_usd — тобто лише коли задано ціль",
-      "additionalProperties": { "type": "number" }
-    },
-    "reinvest_min": {
-      "type": "object",
       "additionalProperties": { "type": "number" }
     },
     "month_invested_uah": {
@@ -636,11 +621,8 @@
           "current_pct": { "type": "number" },
           "deficit_uah": { "type": "number" },
           "deficit_native": { "type": "number" },
-          "cash_native": { "type": "number" },
           "bond_cost_native": { "type": "number" },
           "bond_cost_uah": { "type": "number" },
-          "can_buy": { "type": "integer" },
-          "convert_uah": { "type": "number" },
           "min_portfolio_uah": { "type": "number" },
           "feasible": { "type": "boolean" },
           "unit_kind": { "type": "string", "description": "Тип одиниці входу: bond | deposit (адитивне поле)" },
@@ -801,7 +783,7 @@
     },
     "capital_uah": {
       "type": "number",
-      "description": "Увесь капітал: номінал ОВДП + рахунок + фонди + вклади + резерв + НПФ, грн-екв. Знаменник усіх часток; доти кожен споживач складав свою суму, і числа на сусідніх картках не сходились (адитивне поле)"
+      "description": "Увесь капітал: номінал ОВДП + накопичений купон + фонди + вклади + резерв + цілі + НПФ, грн-екв. (з schema 4 — без готівки на рахунках). Знаменник усіх часток; доти кожен споживач складав свою суму, і числа на сусідніх картках не сходились (адитивне поле)"
     },
     "capital_delta_30": {
       "type": "object",
@@ -811,60 +793,7 @@
         "from_uah": { "type": "number", "description": "Капітал у тому знімку" },
         "delta_uah": { "type": "number", "description": "Капітал зараз мінус капітал тоді, зі знаком" },
         "delta_pct": { "type": "number", "description": "Те саме у відсотках від капіталу тоді" },
-        "contributed_uah": { "type": "number", "description": "Зовнішні гроші за вікно НЕТТО: гаманець, подушка, цілі, пенсійний — сьогоднішнім курсом. Переказ між кошиками записується двома ногами й дає нуль сам" }
-      },
-      "additionalProperties": false
-    },
-    "idle": {
-      "type": "object",
-      "description": "Простій: вільні гроші брокера, на які квиток (reinvest_min) уже є, і з якого дня вони лежать. Відсутнє, коли жодна пара брокер × валюта не дотягує до квитка. Вік — за правилом FIFO з uninvested_uah, застосованим до всіх рухів гаманця. Ціни тут немає навмисно — вона в idle_cost (адитивне поле)",
-      "properties": {
-        "investable_uah": { "type": "number", "description": "Σ по парах цілих квитків, грн-екв." },
-        "since": { "type": "string", "description": "Дата найстарішого надходження, яке досі лежить" },
-        "days": { "type": "integer", "description": "Днів від since" },
-        "age_days": { "type": "number", "description": "Зважений за сумою вік, днів" },
-        "by_pair": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "broker": { "type": "string" },
-              "currency": { "type": "string" },
-              "investable": { "type": "number", "description": "Цілі квитки, нативно" },
-              "investable_uah": { "type": "number" },
-              "since": { "type": "string" },
-              "days": { "type": "integer" },
-              "age_days": { "type": "number" }
-            },
-            "additionalProperties": false
-          }
-        }
-      },
-      "additionalProperties": false
-    },
-    "idle_cost": {
-      "type": "object",
-      "description": "Що коштує простій за СЬОГОДНІШНЬОЮ порадою: реальна ставка найкращої доступної поради тієї ж валюти в того ж брокера. Порада, а не стан: є лише в /api/summary і MQTT, у гіпотетичному «після» кошика відсутнє. Відсутнє також без простою або без поради для цих грошей (адитивне поле)",
-      "properties": {
-        "cost_month_uah": { "type": "number", "description": "Скільки простій коштує на місяць" },
-        "cost_so_far_uah": { "type": "number", "description": "Скільки вже недоотримано від дат надходжень, ACT/365" },
-        "rate_pct": { "type": "number", "description": "Реальна ставка поради, зважена по парах" },
-        "rate_label": { "type": "string", "description": "Порада, звідки ставка (для найбільшої пари)" },
-        "by_pair": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "broker": { "type": "string" },
-              "currency": { "type": "string" },
-              "cost_month_uah": { "type": "number" },
-              "cost_so_far_uah": { "type": "number" },
-              "rate_pct": { "type": "number" },
-              "rate_label": { "type": "string" }
-            },
-            "additionalProperties": false
-          }
-        }
+        "contributed_uah": { "type": "number", "description": "Зовнішні гроші за вікно НЕТТО: покупки мінус виплати й виходи всіх інструментів, плюс подушка й цілі — сьогоднішнім курсом" }
       },
       "additionalProperties": false
     },
@@ -902,7 +831,7 @@
           "contrib_day": { "type": "integer" },
           "contrib_due": { "type": "boolean" },
           "credit_est_uah": { "type": "number", "description": "ОЦІНКА податкової знижки за рік, грн. Ні в що не входить — ні в капітал, ні в календар, ні в проєкцію, ні в податковий звіт. Нуль означає «не порахувати», найчастіше через незаповнений річний ПДФО" },
-          "administrator": { "type": "string", "description": "Хто веде рахунок. Контрагент, а не мій рахунок: з нього нічого не списати, тому в brokers його немає" }
+          "administrator": { "type": "string", "description": "Хто веде рахунок НПФ — контрагент для ліміту концентрації" }
         }
       }
     },
@@ -1147,14 +1076,6 @@
         "ladder_earns_uah": { "type": "number", "description": "Скільки резервні вклади приносять за рік після податку, ₴. Ціни дострокового розірвання поруч немає навмисно: штрафну ставку знає банк, застосунок її не рахує ніде (адитивне поле)" }
       }
     },
-    "brokers": {
-      "type": "object",
-      "description": "Баланси в розрізі брокер → валюта → сума. Рахунки роздільні: гривня на inzhur не купить папір у mono (адитивне поле)",
-      "additionalProperties": {
-        "type": "object",
-        "additionalProperties": { "type": "number" }
-      }
-    },
     "invested_by_broker": {
       "type": "object",
       "description": "Вкладено по кожному брокеру, грн-екв. (адитивне поле)",
@@ -1199,19 +1120,15 @@
     },
     "month_deposited_uah": {
       "type": "number",
-      "description": "НЕТТО нових грошей за місяць: поповнення мінус зняття, грн-екв."
-    },
-    "month_withdrawn_uah": {
-      "type": "number",
-      "description": "Самі зняття, додатнім числом (адитивне поле). УВАГА: рахує й другу ногу внутрішніх переміщень — переказ гаманець → матрац входить і сюди, і в поповнення, тож обидва валові завищені на суму переказу. Нетто при цьому правильне. Для розкладу внесеного бери month_contributed_uah і month_outside_uah"
+      "description": "НЕТТО нових грошей за місяць на межі інструмента (schema 4): покупки мінус виплати й виходи, плюс рухи резерву й цілей, грн-екв. Місяць із великим погашенням, яке не перевклали, може бути відʼємним"
     },
     "month_outside_uah": {
       "type": "number",
-      "description": "З внесеного те, що пішло повз рахунки брокерів: нетто рухів резерву й цілей. Відʼємне означає, що з подушки чи цілей цього місяця забрали (адитивне поле)"
+      "description": "З внесеного те, що пішло повз інструменти: нетто рухів резерву й цілей. Відʼємне означає, що з подушки чи цілей цього місяця забрали (адитивне поле)"
     },
     "month_contributed_uah": {
       "type": "number",
-      "description": "Решта внесеного — самі рахунки брокерів. month_deposited_uah = month_contributed_uah + month_outside_uah за побудовою: друге виводиться відніманням, а не окремим проходом (адитивне поле)"
+      "description": "Решта внесеного — нетто інструментів (покупки мінус виплати й виходи). month_deposited_uah = month_contributed_uah + month_outside_uah за побудовою: друге виводиться відніманням, а не окремим проходом (адитивне поле)"
     },
     "accrued_uah": {
       "type": "number",
@@ -1253,12 +1170,11 @@
       "type": "object",
       "description": "Скільки грошей доступно зараз і коли звільниться решта (адитивне поле)",
       "properties": {
-        "available_now_uah": { "type": "number", "description": "Скільки грошей під рукою сьогодні: рахунки + готівка подушки + відкладене під цілі. Головне число картки й те, на що вона відповідає — «коли гроші стають доступні». Окремо від now_uah, а не замість нього: на рівності now_uah == account_uah тримається звірка зі звітом про рух коштів (адитивне поле)" },
-        "now_uah": { "type": "number" },
+        "available_now_uah": { "type": "number", "description": "Скільки грошей під рукою сьогодні: готівка подушки + відкладене під цілі. Головне число картки й те, на що вона відповідає — «коли гроші стають доступні». Рахунків застосунок не веде з schema 4" },
         "in_30_uah": { "type": "number" },
         "in_90_uah": { "type": "number" },
-        "reserve_uah": { "type": "number", "description": "Резерв, доступний негайно. Окремо від now_uah: на рівності now_uah == account_uah тримається звірка зі звітом про рух коштів" },
-        "goals_uah": { "type": "number", "description": "Гроші під цілями накопичення. Так само окремо від now_uah і не в locked_uah: ламати нічого не треба, вони просто чекають своєї дати (адитивне поле)" },
+        "reserve_uah": { "type": "number", "description": "Резерв, доступний негайно (готівка подушки, без резервних вкладів)" },
+        "goals_uah": { "type": "number", "description": "Гроші під цілями накопичення. Не в locked_uah: ламати нічого не треба, вони просто чекають своєї дати (адитивне поле)" },
         "locked_uah": { "type": "number", "description": "Замкнене у БЕЗВІДКЛИЧНИХ вкладах і НПФ: дістати не можна ніяк. ОБЛІГАЦІЙ тут немає навмисно — застосунок не моделює їхньої ринкової ціни" },
         "breakable_uah": { "type": "number", "description": "Тіла ВІДКЛИЧНИХ вкладів зі строком далі: дістати можна, ціна — нараховані відсотки. Окремо від locked_uah, бо це різні твердження, а не відтінки одного; за ЦКУ строковий вклад фізособи безвідкличний, доки в договорі не написано інакше. Скільки коштує розірвання, тут не сказано: штрафну ставку знає банк (адитивне поле)" },
         "unlock_date": { "type": "string" },

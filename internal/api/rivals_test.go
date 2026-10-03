@@ -51,20 +51,29 @@ func twoRatePoints(t *testing.T, st *store.Store, code string, thenE4, nowE4 int
 	}
 }
 
+// fundOp — рух на межі інструмента без жодних виплат: купівля сертифікатів
+// — гроші зайшли в портфель, продаж — вийшли. Доти бенчмарк годувався
+// журналом поповнень рахунку; рахунків більше немає (ревізія 2026-10-03),
+// і зовнішніми грошима портфеля став сам рух на межі інструмента. Фонд без
+// дивідендів зручний тим, що нетто тут рівно записана сума.
+func fundOp(t *testing.T, st *store.Store, on domain.Date, kind domain.FundOpKind, amount int64) {
+	t.Helper()
+	if _, err := st.AddFundOp(context.Background(), domain.FundOp{Date: on, Fund: "Тест",
+		Kind: kind, Qty: 10, Amount: amount, Currency: "UAH"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // «Гривня під матрацом» — це сума внесків, і вона ж in_uah.
 //
 // Сторож зібраності потоку на рівні ручки: 10 000 + 10 000 внесених — це
 // 20 000 незалежно від того, що з ними сталось далі.
 func TestRivalsUAHCashEqualsContributions(t *testing.T) {
 	srv, st := testServer(t)
-	ctx := context.Background()
 	twoRatePoints(t, st, "USD", 400000, 400000)
 	openWindow(t, st, "2025-06-01", store.Snapshot{})
 	for _, on := range []domain.Date{"2025-06-15", domain.NewDate(time.Now())} {
-		if _, err := st.AddDeposit(ctx, store.Deposit{
-			Date: on, Amount: 1_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
-			t.Fatal(err)
-		}
+		fundOp(t, st, on, domain.FundBuy, 1_000_000)
 	}
 	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	cash := rv.Row(domain.RivalUAHCash)
@@ -89,11 +98,8 @@ func TestRivalsLevelGapEqualsThreeJournals(t *testing.T) {
 	twoRatePoints(t, st, "USD", 400000, 400000)
 	openWindow(t, st, "2025-06-01", store.Snapshot{})
 
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2025-06-15", Amount: 1_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
-		t.Fatal(err)
-	}
-	// Подушка й ціль — власними журналами, повз гаманець (саме так їх і
+	fundOp(t, st, "2025-06-15", domain.FundBuy, 1_000_000)
+	// Подушка й ціль — власними журналами, повз інструменти (саме так їх і
 	// заводить застосунок).
 	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
 		Date: "2025-07-01", Amount: 500_000, Currency: "UAH", Place: "готівка"}); err != nil {
@@ -129,26 +135,20 @@ func TestRivalsLevelGapEqualsThreeJournals(t *testing.T) {
 // Переказ між журналами НЕ створює нових грошей.
 //
 // Окремої сутності переказу в застосунку немає — він записується парою
-// «зняття + поповнення», — і саме на цьому стоїть право підсумувати
-// чотири журнали. Без цієї властивості рівень «усі гроші» роздувався б на
-// кожному перекладанні з гаманця під матрац, лишаючись правдоподібним.
+// «вихід з інструмента + рух подушки», — і саме на цьому стоїть право
+// підсумувати журнали. Без цієї властивості рівень «усі гроші» роздувався б
+// на кожному перекладанні з портфеля під матрац, лишаючись правдоподібним.
 func TestRivalsTransferIsNotContribution(t *testing.T) {
 	srv, st := testServer(t)
 	ctx := context.Background()
 	twoRatePoints(t, st, "USD", 400000, 400000)
 	openWindow(t, st, "2025-06-01", store.Snapshot{})
 
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2025-06-15", Amount: 1_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
-		t.Fatal(err)
-	}
+	fundOp(t, st, "2025-06-15", domain.FundBuy, 1_000_000)
 	before := getRivals(t, srv.URL, engine.LevelAll).InUAH
 
-	// Переклали 4 000 ₴ із гаманця під матрац.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2025-07-01", Amount: -400_000, Currency: "UAH", Broker: "mono"}); err != nil {
-		t.Fatal(err)
-	}
+	// Продали сертифікатів на 4 000 ₴ і поклали їх під матрац.
+	fundOp(t, st, "2025-07-01", domain.FundSell, 400_000)
 	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
 		Date: "2025-07-01", Amount: 400_000, Currency: "UAH", Place: "готівка"}); err != nil {
 		t.Fatal(err)
@@ -175,10 +175,7 @@ func TestRivalsOVDPUsesAuctionLevel(t *testing.T) {
 	// Рік тому рівно: 100 000 ₴ під 15% мали стати ≈115 000 ₴.
 	yearAgo := domain.NewDate(time.Now().AddDate(-1, 0, 0))
 	openWindow(t, st, yearAgo.AddDays(-1), store.Snapshot{})
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: yearAgo, Amount: 10_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
-		t.Fatal(err)
-	}
+	fundOp(t, st, yearAgo, domain.FundBuy, 10_000_000)
 	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	ovdp := rv.Row(domain.RivalOVDPMarket)
 	if ovdp.Why != "" {
@@ -196,13 +193,9 @@ func TestRivalsOVDPUsesAuctionLevel(t *testing.T) {
 // показує нуль: нуль на графіку читався б як «ринок нічого не платив».
 func TestRivalsOVDPSilentWithoutAuctions(t *testing.T) {
 	srv, st := testServer(t)
-	ctx := context.Background()
 	twoRatePoints(t, st, "USD", 400000, 400000)
 	openWindow(t, st, "2025-06-01", store.Snapshot{})
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2025-06-15", Amount: 1_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
-		t.Fatal(err)
-	}
+	fundOp(t, st, "2025-06-15", domain.FundBuy, 1_000_000)
 	ovdp := getRivals(t, srv.URL, engine.LevelPortfolio).Row(domain.RivalOVDPMarket)
 	if ovdp.Why == "" {
 		t.Fatal("без жодного аукціону суперник мусив назвати причину мовчання")
@@ -219,13 +212,9 @@ func TestRivalsOVDPSilentWithoutAuctions(t *testing.T) {
 // саме, від чого DaysGrid і живе в domain поруч із рушієм.
 func TestRivalsCurvesShareOneGrid(t *testing.T) {
 	srv, st := testServer(t)
-	ctx := context.Background()
 	twoRatePoints(t, st, "USD", 400000, 400000)
 	openWindow(t, st, "2025-06-01", store.Snapshot{})
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2025-06-15", Amount: 1_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
-		t.Fatal(err)
-	}
+	fundOp(t, st, "2025-06-15", domain.FundBuy, 1_000_000)
 	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	if rv.DayCount != len(rv.Days) || len(rv.Actual) != len(rv.Days) {
 		t.Fatalf("сітка %d, дат %d, факту %d", rv.DayCount, len(rv.Days), len(rv.Actual))
@@ -279,13 +268,9 @@ func TestRivalsRejectsUnknownLevel(t *testing.T) {
 // ніж він є, і саме тому це окремий тест, а не рядок в іншому.
 func TestRivalsOpeningDayFlowCounts(t *testing.T) {
 	srv, st := testServer(t)
-	ctx := context.Background()
 	twoRatePoints(t, st, "USD", 400000, 400000)
 	openWindow(t, st, "2025-06-01", store.Snapshot{})
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2025-06-01", Amount: 700_000, Currency: "UAH", Broker: "mono"}); err != nil {
-		t.Fatal(err)
-	}
+	fundOp(t, st, "2025-06-01", domain.FundBuy, 700_000)
 	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	if math.Abs(rv.InUAH.Major()-7000) > 0.01 {
 		t.Errorf("у грі %.2f ₴, а внесок дня відкриття — 7 000 ₴", rv.InUAH.Major())
@@ -320,13 +305,9 @@ func TestRivalsEmptyWindowSaysNothingToCompare(t *testing.T) {
 // а як два різні факти.
 func TestRivalsDiffCurveEndsAtDiffNumber(t *testing.T) {
 	srv, st := testServer(t)
-	ctx := context.Background()
 	twoRatePoints(t, st, "USD", 250000, 500000)
 	openWindow(t, st, "2025-06-01", store.Snapshot{})
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: "2025-06-15", Amount: 1_000_000, Currency: "UAH", Broker: "mono"}); err != nil {
-		t.Fatal(err)
-	}
+	fundOp(t, st, "2025-06-15", domain.FundBuy, 1_000_000)
 	rv := getRivals(t, srv.URL, engine.LevelPortfolio)
 	for _, r := range rv.Rivals {
 		if r.Why != "" {

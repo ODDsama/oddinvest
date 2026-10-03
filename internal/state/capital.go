@@ -38,8 +38,8 @@ type Capital struct {
 	// вкладів, що сидять у DepositsUAH. Окремо з тієї ж причини, що й купон:
 	// проєкція платить майбутні відсотки повністю й мусить їх відняти.
 	DepositsAccruedUAH Money
-	// AccountUAH — гроші на рахунках брокерів, грн-екв.
-	AccountUAH Money
+	// Готівки на рахунках у капіталі немає з schema 4: рахунків застосунок
+	// не веде (ревізія 2026-10-03).
 	// FundsUAH — ринкова вартість сертифікатів, грн-екв.
 	FundsUAH Money
 	// DepositsUAH — тіло діючих вкладів, грн-екв.
@@ -87,7 +87,7 @@ type Capital struct {
 
 // TotalUAH — увесь капітал, грн-екв.
 func (c Capital) TotalUAH() float64 {
-	return c.BondsUAH.Major() + c.AccountUAH.Major() + c.FundsUAH.Major() + c.DepositsUAH.Major() +
+	return c.BondsUAH.Major() + c.FundsUAH.Major() + c.DepositsUAH.Major() +
 		c.ReserveUAH.Major() + c.GoalsUAH.Major() + c.NPFUAH.Major()
 }
 

@@ -48,7 +48,7 @@ func TestSecurityHeadersEverywhere(t *testing.T) {
 func TestBodyOverLimitRejected(t *testing.T) {
 	srv, _ := testHub(t)
 	big := `{"note":"` + strings.Repeat("x", maxBodyBytes+1) + `"}`
-	resp, _ := doP(t, "POST", srv.URL+"/api/deposits", big, nil)
+	resp, _ := doP(t, "POST", srv.URL+"/api/lots", big, nil)
 	if resp.StatusCode < http.StatusBadRequest {
 		t.Errorf("тіло понад %d байт прийнято: %d", maxBodyBytes, resp.StatusCode)
 	}

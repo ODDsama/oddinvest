@@ -100,24 +100,19 @@ func (e *Engine) externalByDay(ctx context.Context, rows []SnapshotRow) ([]int64
 	if len(rows) == 0 {
 		return out, nil
 	}
-	// Лише три журнали, а не loadSources цілком: складу externalMoves
-	// більше нічого не треба, а повне завантаження тягне весь портфель.
-	src := &sources{}
-	var err error
-	if src.deposits, err = e.st.ListDeposits(ctx); err != nil {
-		return nil, err
-	}
-	if src.reserveOps, err = e.st.ListReserveOps(ctx); err != nil {
-		return nil, err
-	}
-	if src.goalOps, err = e.st.ListGoalOps(ctx); err != nil {
-		return nil, err
-	}
-	rates, err := e.Rates(ctx)
+	// loadSources цілком: рух на межі інструментів (externalMoves) потребує
+	// лотів, виплат, фондів, вкладів і НПФ — тобто портфеля, а не трьох
+	// журналів, як доти, коли зовнішніми грошима був рахунок.
+	today := domain.NewDate(time.Now())
+	src, err := e.loadSources(ctx, today)
 	if err != nil {
 		return nil, err
 	}
-	moves := externalMoves(src)
+	moves, err := externalMoves(src, today)
+	if err != nil {
+		return nil, err
+	}
+	rates := src.rates
 	sort.SliceStable(moves, func(i, j int) bool { return moves[i].Date.Before(moves[j].Date) })
 
 	var acc int64

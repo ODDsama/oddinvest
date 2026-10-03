@@ -108,11 +108,6 @@ func seedBrokerRef(t *testing.T, db *sql.DB, table string, brokerID int64) {
 	case "lots":
 		q = `INSERT INTO lots(isin, qty, price_per_bond, currency, buy_date, broker_id)
 		     VALUES('UA4000000001', 1, 100000, 'UAH', '2026-01-01', ?)`
-	case "deposits":
-		q = `INSERT INTO deposits(date, amount, broker_id) VALUES('2026-01-01', 100000, ?)`
-	case "conversions":
-		q = `INSERT INTO conversions(date, from_currency, from_amount, to_currency, to_amount, broker_id)
-		     VALUES('2026-01-01', 'UAH', 100000, 'USD', 2400, ?)`
 	case "fund_ops":
 		q = `INSERT INTO fund_ops(date, fund_id, kind, qty, amount, broker_id)
 		     VALUES('2026-01-01', (SELECT id FROM funds LIMIT 1), 'buy', 1, 100000, ?)`

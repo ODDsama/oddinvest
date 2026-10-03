@@ -9,7 +9,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/engine"
 	money "github.com/Rhymond/go-money"
 )
@@ -52,12 +51,6 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		sort.SliceStable(out, func(i, j int) bool {
 			return engine.LessSuggestion(out[i], out[j], rank, engine.OrderNominal)
 		})
-	}
-	// Дата доступності — лише тут, і лише для екрана: чому не всередині
-	// ReinvestSuggestions, сказано в шапці engine/ready_on.go.
-	if err := s.AnnotateReady(r.Context(), domain.NewDate(now), doc, out); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
 	}
 	// Ліміту немає свідомо: у таблиці є фільтри, сортування й пагінація,
 	// тож звужує користувач, а не бекенд мовчки.

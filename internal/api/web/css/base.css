@@ -1539,10 +1539,7 @@ td.num .sale-f { text-align: right; }
   border-top: var(--oi-rule) solid var(--oi-border);
 }
 .sg-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sg-s { white-space: nowrap; font-size: var(--oi-fs-sm); }
 .sg-y { white-space: nowrap; text-align: right; font-size: var(--oi-fs-md); }
-/* Заголовок групи: він відповідає на головне питання картки — чи можу я
-   купити зараз, — тож стоїть окремим рядком, а не підписом до числа. */
 /* ---------- черга задач ---------- */
 
 /* Задача — це РЯДОК, а не картка, і це головне рішення блоку.
@@ -1619,10 +1616,9 @@ td.num .sale-f { text-align: right; }
 
 .sg-h { margin-top: var(--oi-gap); font-size: var(--oi-fs-sm); color: var(--oi-muted); }
 .sg-h:first-of-type { margin-top: 0; }
-/* Розкриття «звідки дохідність» і завжди видима «коли вистачить» стоять
-   під тим самим відступом, що й назва пропозиції: обидва пояснюють рядок
-   вище, і два різні відступи читались би як два різні рівні. */
-.sg-d, .sg-r { padding: 0 0 var(--oi-gap-sm) 26px; }
+/* Розкриття «звідки дохідність» стоїть під тим самим відступом, що й
+   назва пропозиції: воно пояснює рядок вище. */
+.sg-d { padding: 0 0 var(--oi-gap-sm) 26px; }
 
 /* Підказка під курсором на кривій.
    Контейнер прокручується по горизонталі (графік ширший за вузьке

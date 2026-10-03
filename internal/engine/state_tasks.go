@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/fx"
 	"github.com/ODDsama/oddinvest/internal/state"
 
 	money "github.com/Rhymond/go-money"
@@ -264,9 +265,6 @@ func (e *Engine) BuildStateTasked(ctx context.Context, now time.Time) (*state.Do
 		return doc, nil
 	}
 	doc.Tasks = buildTasks(doc, sug, src, domain.NewDate(now))
-	// Ціна простою — тут, а не в BuildState, з тієї ж причини, що й
-	// задачі: вона береться з порад (state_idle.go).
-	doc.IdleCost = buildIdleCost(doc.Idle, sug)
 	return doc, nil
 }
 
@@ -511,22 +509,14 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		})
 	}
 
-	// ---------- що купити ----------
-	// Стрічка вже впорядкована ReinvestSuggestions — беремо перше, що по
-	// кишені, і перше взагалі. Власного сортування тут немає навмисно: два
-	// порядки на одні поради означали б, що черга радить одне, а «Що
-	// купити» інше.
-	var bestCan, bestAny *suggestion
-	for i := range sug {
-		if bestAny == nil {
-			bestAny = &sug[i]
+	// ---------- дохід чекає ----------
+	// Стрічка вже впорядкована ReinvestSuggestions — беремо першу пораду.
+	// Власного сортування тут немає навмисно: два порядки на одні поради
+	// означали б, що черга радить одне, а «Що взяти» інше.
+	if len(sug) > 0 && src != nil {
+		if t, ok := waitingTask(mt, doc, &sug[0], src.rates); ok {
+			add(t)
 		}
-		if bestCan == nil && sug[i].CanBuy {
-			bestCan = &sug[i]
-		}
-	}
-	if bestCan != nil {
-		add(buyTask(mt, bestCan, bestAny, doc.Idle))
 	}
 
 	// ---------- пенсійний внесок ----------
@@ -730,11 +720,6 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 		}
 	}
 
-	// ---------- ще збираєш ----------
-	if bestCan == nil && bestAny != nil {
-		add(savingTask(doc, bestAny))
-	}
-
 	sortTasks(out)
 	return out
 }
@@ -758,52 +743,66 @@ func hasPortfolio(doc *state.Doc) bool {
 		doc.Debt != nil
 }
 
-func buyTask(mt moneyText, best, bestAny *suggestion, idle *state.IdleCash) state.Task {
+// waitingTask — дохід, за яким ще не було покупки, уже тягне на квиток.
+//
+// Доти тут стояли дві задачі на залишку рахунку: «Можеш купити X» (коли
+// на рахунку вистачало) і «Купувати ще рано — бракує N» (коли ні). Рахунків
+// застосунок більше не веде (ревізія 2026-10-03), тож мірою стало те, що
+// він знає напевно: виплати, що прийшли, і покупки після них
+// (uninvested_uah, domain.IdleIncome). Купон прийшов, нової покупки ще не
+// було, і його вже досить на найкращу пораду — ось і задача.
+//
+// «Ще рано» зникла без заміни: без рахунку застосунок не знає, скільки в
+// людини лежить, і «бракує N» було б вигадкою.
+func waitingTask(mt moneyText, doc *state.Doc, best *suggestion, rates fx.Rates) (state.Task, bool) {
+	wait := doc.UninvestedUAH.Major()
+	if wait <= 0 {
+		return state.Task{}, false
+	}
+	cost, err := ParseMoney(best.CostPerBond.Amount, best.CostPerBond.Currency)
+	if err != nil {
+		return state.Task{}, false
+	}
+	u, err := fx.ToUAH(cost, rates)
+	if err != nil || u.Amount() <= 0 || wait < float64(u.Amount())/100 {
+		return state.Task{}, false
+	}
 	action, verb := actRecordBuy, "купити"
 	switch best.Kind {
 	case "deposit":
 		action, verb = actTopUpDeposit, "поповнити"
 	case "npf":
-		action, verb = actRecordNPF, "внести"
+		action, verb = actRecordNPF, "внести в"
 	case "fund":
 		// У сертифіката ручної форми немає взагалі — його заводить виписка.
-		// Тому дія веде до пояснення, а не до форми, якої не існує.
 		action = actHowToFund
-	}
-	var where []string
-	for _, f := range best.Brokers {
-		where = append(where, fmt.Sprintf("%s ×%d", f.Broker, f.Qty))
-	}
-	why := mt.cur(moneyAmount(best.CostPerBond), best.Currency)
-	if len(where) > 0 {
-		why += " · " + strings.Join(where, " · ")
-	}
-	why += "."
-	// Якщо є щось дохідніше, але ще не по кишені — кажемо прямо: «можеш
-	// зараз» не має ховати «краще зачекати».
-	if bestAny != nil && !bestAny.CanBuy && bestAny.RealPct > best.RealPct {
-		why += fmt.Sprintf(" Дохідніше — %s, але ще не по кишені.", suggestName(bestAny))
-	}
-	// Ціна зволікання — коли гроші вже лежать понад квиток. Задача й так
-	// каже «купи»; тепер каже, скільки коштує день без покупки. Береться з
-	// документа, а не рахується тут: означення одне (state_idle.go), і на
-	// цей момент воно ще без ціни (її припише annotateIdleCost), тож
-	// показуємо вік — він уже відомий.
-	if idle != nil && idle.InvestableUAH.Major() > 0 && idle.Since != "" {
-		why += fmt.Sprintf(" %s лежать з %s.", mt.uah(idle.InvestableUAH.Major()), dayMonth(domain.Date(idle.Since)))
 	}
 	return state.Task{
 		ID: "buy-best", Sev: sevNow, Rank: 20, Kind: best.Kind,
-		Title: fmt.Sprintf("Можеш %s %s", verb, suggestName(best)),
-		Why:   why,
+		Title: fmt.Sprintf("Дохід чекає: %s — можна %s %s", mt.uah(wait), verb, suggestName(best)),
+		Why: fmt.Sprintf("Виплати прийшли, а покупки після них ще не було. Квиток — %s.",
+			mt.cur(moneyAmount(best.CostPerBond), best.Currency)),
 		// Слово «реальних» обов'язкове: без нього відсоток читається як
 		// ставка з договору, а це інша величина. Кома, а не крапка: решта
-		// чисел у документі теж українською, і одне число з крапкою посеред
-		// них читається як чужий рядок.
-		When:   strings.Replace(fmt.Sprintf("%.1f%% реальних", best.RealPct), ".", ",", 1),
-		Action: action,
-		Ref:    fundRef(best),
+		// чисел у документі теж українською.
+		When:      strings.Replace(fmt.Sprintf("%.1f%% реальних", best.RealPct), ".", ",", 1),
+		Action:    action,
+		AmountUAH: state.Major(wait, money.UAH),
+		Ref:       buyRef(best),
+	}, true
+}
+
+// buyRef — що саме купити: папір (bond:<ISIN>, кнопка «Купив» відкриває
+// заповнену форму лота) або фонд (fund:<назва> — «Як завести» веде в сам
+// фонд, а не в перший ліпший).
+func buyRef(s *suggestion) string {
+	switch {
+	case s.Kind == "fund":
+		return fundRef(s)
+	case s.Kind == "bond" && s.ISIN != "":
+		return "bond:" + s.ISIN
 	}
+	return ""
 }
 
 // fundRef — рядок фонду, про який порада: сертифікат заводить виписка, і
@@ -813,32 +812,6 @@ func fundRef(s *suggestion) string {
 		return ""
 	}
 	return "fund:" + s.Label
-}
-
-func savingTask(doc *state.Doc, best *suggestion) state.Task {
-	mt := moneyTextOf(doc)
-	purse := 0.0
-	for _, byCur := range doc.Brokers {
-		if v := byCur[best.Currency]; v.Major() > purse {
-			purse = v.Major()
-		}
-	}
-	need := math.Max(0, moneyAmount(best.CostPerBond)-purse)
-	why := fmt.Sprintf("Найкраще зараз — %s.", suggestName(best))
-	// Темп беремо з ЦІЛІ місяця. Це найчесніше з того, що є в документі:
-	// скільки треба вносити, щоб вийти на ціль.
-	if perDay := doc.MonthTargetUAH.Major() / 30; perDay > 0 && need > 0 {
-		d := int(math.Ceil(need / perDay))
-		why += fmt.Sprintf(" За твоїм темпом це ≈ %d %s.", d,
-			Plural(d, "день", "дні", "днів"))
-	}
-	return state.Task{
-		ID: "saving", Sev: sevWatch, Rank: 30, Kind: best.Kind,
-		Title:     fmt.Sprintf("Купувати ще рано — бракує %s", mt.cur(need, best.Currency)),
-		Why:       why,
-		Action:    actSeeSuggest,
-		AmountUAH: state.Major(need, money.UAH),
-	}
 }
 
 // arrivedTodayTask — гроші, які надходять САМЕ СЬОГОДНІ.
@@ -853,7 +826,7 @@ func savingTask(doc *state.Doc, best *suggestion) state.Task {
 // вранці».
 //
 // Порядок між ними теж не випадковий: борг відміток (ранг 40) іде першим,
-// бо тих грошей помічник не бачить уже давно, а сьогоднішні (45) нікуди не
+// бо ті виплати чекають звірки вже давно, а сьогоднішні (45) нікуди не
 // дінуться до вечора.
 //
 // # ЧОМУ ЗАДАЧА НЕ НАЗИВАЄ ПРИЗНАЧЕННЯ
@@ -944,8 +917,11 @@ func unconfirmedTask(src *sources, today domain.Date) (state.Task, bool) {
 		ID: "pay-confirm", Sev: sevNow, Rank: 40,
 		Title: fmt.Sprintf("%d %s без відмітки", n,
 			Plural(n, "виплата", "виплати", "виплат")),
-		Why: "Дата минула, але надходження не підтверджене — доки його немає, " +
-			"помічник не бачить цих грошей.",
+		// Не «помічник не бачить цих грошей»: минула дата зараховується
+		// отриманою сама (domain.Arrived). Відмітка тут — звірка з
+		// випискою, і саме про неї задача.
+		Why: "Дата минула, і застосунок уже рахує ці гроші отриманими. " +
+			"Звір із випискою брокера: якщо виплата не прийшла, це треба знати.",
 		When:   dayMonth(last),
 		Action: actConfirmPay,
 	}, true
@@ -1350,17 +1326,8 @@ func rebalanceTask(doc *state.Doc) (state.Task, bool) {
 	if worst == nil {
 		return state.Task{}, false
 	}
-	// Готівка у валюті в частку не входить (шапка state.Capital: вона лише
-	// в знаменнику), тож дефіцит може стояти й тоді, коли долари вже лежать
-	// на рахунку. Тоді порада інша — не «докупи валюту», а «вклади те, що
-	// є», — і сказати її мусить сама задача.
 	why := "Бракує щонайменше одного квитка в цій валюті — відхилення вже " +
 		"можна виправити новими грошима."
-	if worst.CanBuy > 0 {
-		why = fmt.Sprintf("На рахунку вже є %s — вистачає на %d %s: "+
-			"частку вирівнює вкладення цих грошей, а не нова конвертація.",
-			worst.Currency, worst.CanBuy, Plural(int(worst.CanBuy), "квиток", "квитки", "квитків"))
-	}
 	return state.Task{
 		ID: "rebalance-" + worst.Currency, Sev: sevWatch, Rank: 12,
 		Title: fmt.Sprintf("%s нижче цілі: %s%% проти %s%%", worst.Currency,
@@ -1371,8 +1338,7 @@ func rebalanceTask(doc *state.Doc) (state.Task, bool) {
 	}, true
 }
 
-// pct1 — відсоток з одним знаком і українською комою, як у When задачі
-// «ще збираєш».
+// pct1 — відсоток з одним знаком і українською комою.
 func pct1(v float64) string {
 	return strings.Replace(fmt.Sprintf("%.1f", v), ".", ",", 1)
 }

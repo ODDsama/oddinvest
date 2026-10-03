@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	money "github.com/Rhymond/go-money"
-
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/store"
 )
@@ -145,24 +143,20 @@ func seedDigestHistory(t *testing.T, st *store.Store) {
 	// Знімок ДО початку вікна — з нього починається порівняння, і саме
 	// його дату мусить назвати відповідь.
 	if err := st.SaveSnapshot(ctx, store.Snapshot{
-		Date: today.AddDays(-40), NominalUAHEq: 100_000_00, AccountUAH: 10_000_00,
-		InvestedUAH: 100_000_00, IdleUAH: -1,
+		Date: today.AddDays(-40), NominalUAHEq: 110_000_00,
+		InvestedUAH: 100_000_00,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// Знімок у межах вікна — «стало».
 	if err := st.SaveSnapshot(ctx, store.Snapshot{
-		Date: today.AddDays(-1), NominalUAHEq: 120_000_00, AccountUAH: 15_000_00,
-		InvestedUAH: 125_000_00, IdleUAH: -1,
+		Date: today.AddDays(-1), NominalUAHEq: 135_000_00,
+		InvestedUAH: 125_000_00,
 	}); err != nil {
 		t.Fatal(err)
 	}
 	// Свої гроші всередині вікна: без них причина «Свої гроші» була б
 	// нулем, і головний інваріант сходився б на порожньому розкладі.
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: today.AddDays(-5), Amount: 25_000_00,
-		Currency: money.UAH, Broker: "mono",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	// Купівля — гроші зайшли на межі інструмента (рахунків більше немає).
+	fundOp(t, st, today.AddDays(-5), domain.FundBuy, 25_000_00)
 }

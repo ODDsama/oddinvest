@@ -398,15 +398,8 @@ func TestCSVTaxMatchesTaxEndpoint(t *testing.T) {
 // Купони ОВДП звільнені від податку — це закон, а не налаштування, тож
 // нуль у рядку «Купони ОВДП» мусить лишатись нулем.
 func TestTaxBondCouponsAreExempt(t *testing.T) {
-	ctx := context.Background()
 	srv, st := testServer(t)
 	seed(t, st)
-	if _, err := st.AddDeposit(ctx, store.Deposit{
-		Date: domain.NewDate(time.Now()), Amount: 100_000_00,
-		Currency: money.UAH, Broker: "inzhur",
-	}); err != nil {
-		t.Fatal(err)
-	}
 	got := getTax(t, srv.URL, "")
 	for _, l := range got.ByKind {
 		if l.Kind == "bond" && l.TaxUAH != 0 {
@@ -869,13 +862,12 @@ func TestTaxIgnoresConvertedFundLegs(t *testing.T) {
 
 // Криві дати в запиті — 400, а не паніка чи не те вікно.
 //
-// Вікно порівнюється рядками, тож «2026-1-5» мовчки давало не той період,
-// а коротке ?to= роняло виписку на зрізі [:8].
+// Вікно порівнюється рядками, тож «2026-1-5» мовчки давало не той період.
+// Виписки руху рахунку (/api/cashflow), яку коротке ?to= роняло на зрізі
+// [:8], більше немає — рахунки прибрано ревізією 2026-10-03.
 func TestReportsRejectMalformedDates(t *testing.T) {
 	srv, _ := testServer(t)
 	for _, u := range []string{
-		"/api/cashflow?to=2026",
-		"/api/cashflow?from=2026-1-5",
 		"/api/tax?from=2026-1-5&to=2026-12-31",
 		"/api/tax?from=2026-01-01&to=31.12.2026",
 	} {

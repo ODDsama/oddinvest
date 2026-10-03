@@ -301,9 +301,6 @@ export const goalBody = (f) => ({
 export function goalOpFormHTML(ctx, g, raw) {
   return `<div class="card"><h2 class="h-row">Рух цілі «${esc(g.name)}» ${infoBtn("goals")}</h2>
     ${formHTML({ id: "goalOpForm", fields: goalOpFields(ctx), submit: "Записати", cls: "mb" })}
-    <div class="note">Переклав із рахунку? Запиши ще й зняття в
-      <a class="lnk" href="${routeFor("deposit")}">Гроші → Баланси й валюта</a> —
-      інакше відкладене виглядатиме як втрата капіталу.</div>
     <h2 class="h-row mt-lg">Сама ціль</h2>
     ${formHTML({ id: "goalEditForm", fields: goalFields(ctx, rawOf(raw, g.id)), submit: "Зберегти" })}
     <div class="note">Куплено — постав дату в останньому полі: ціль закриється, але

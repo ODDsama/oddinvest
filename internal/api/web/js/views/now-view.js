@@ -176,11 +176,6 @@ export function reinvestHTML(ctx, opts = {}) {
     }
     return "";
   }
-  const s = ctx.summary || {};
-  const purse = Object.entries(s.brokers || {})
-    .flatMap(([b, byCur]) => Object.entries(byCur)
-      .filter(([, v]) => v > 0)
-      .map(([c, v]) => `${esc(b)} ${fmtCur(v, c)}`)).join(" · ");
   // Рядок пропозиції. Головне число — НОМІНАЛЬНЕ (те, що в договорі),
   // реальне під ним дрібним, увесь ланцюжок — на клік (yield.js). Порядок
   // при цьому лишився за реальним: показ і порядок — різні питання, і в
@@ -194,36 +189,10 @@ export function reinvestHTML(ctx, opts = {}) {
     const open = isOpen(OPEN_SCOPE, key);
     const kind = ["fund", "deposit", "npf"].includes(r.kind) ? r.kind : "bond";
     const cost = r.cost_per_bond ? fmtCur(Number(r.cost_per_bond.amount), r.currency) : "";
-    const purseCur = Math.max(0, ...Object.values(s.brokers || {}).map((m) => m[r.currency] || 0));
-    const need = Number((r.cost_per_bond || {}).amount || 0) - purseCur;
-    // Коли не по кишені — кажемо СКІЛЬКИ бракує: «ще не по кишені» саме по
-    // собі не підказує, скільки лишилось відкласти.
-    const status = r.can_buy
-      ? `<span class="t-ok">вистачає${r.affordable > 1 ? ` ×${r.affordable}` : ""}</span>`
-      : need > 0 ? `бракує ${fmtCur(need, r.currency)}` : "";
-    const fits = (r.brokers || []).map((f) => `${esc(f.broker)} ×${f.qty}`).join(" · ");
-    // «Коли вистачить» стоїть У РЯДКУ, а не під кареткою: це і є відповідь,
-    // по яку сюди дивляться, коли грошей ще нема. Під кареткою лежить те,
-    // ЗВІДКИ взялася дохідність, а це — що з цим рядком робити далі.
-    //
-    // Усі числа готові: дату, брокера, дні й ціну очікування рахує
-    // ready_on.go. Тут лише формат — жодного віднімання дат у браузері.
-    const via = (r.ready_via || []).map((e) =>
-      `${esc(e.label)} ${fmtCur(Number(e.amount.amount), e.amount.currency)}`).join(" + ");
-    const waiting = r.wait_cost
-      ? ` Це очікування коштує ${fmtCur(Number(r.wait_cost.amount), r.wait_cost.currency)
-      } — стільки за ці дні дав би ${esc(r.wait_alt)}.` : "";
-    // Дні названі поруч із датою навмисно: «17 березня» саме по собі не
-    // каже, це за тиждень чи за півроку.
-    // «З надходжень портфеля» — не багатослівʼя, а межа. Черга задач
-    // поруч відповідає на те саме «коли» ІНШОЮ мірою («за твоїм темпом» —
-    // із місячної цілі внесків), і два числа без назви своєї основи
-    // читались би як розбіжність.
-    const ready = r.ready_on
-      ? `<div class="sg-r sub-xs">З надходжень портфеля набереться ${dayMonth(r.ready_on)} — за ${
-        r.ready_days} ${plural(r.ready_days, "день", "дні", "днів")}, ${esc(r.ready_broker)}${
-        via ? ` (${via})` : ""}.${waiting}</div>`
-      : r.ready_note ? `<div class="sg-r sub-xs">${esc(r.ready_note)}.</div>` : "";
+    // «Вистачає / бракує» і «коли набереться» більше не рахуються: вони
+    // міряли ціну проти залишку на рахунку брокера, а рахунків застосунок
+    // не веде (ревізія 2026-10-03). Чи пора купувати, каже задача «Дохід
+    // чекає» в черзі — вона міряє той самий папір доходом, що прийшов.
     // Останнє розміщення — окремим рядком, а не в загальній стрічці: це
     // єдине тут число із ЗОВНІШНЬОГО світу, скільки платить ринок за той
     // самий папір. Прозою бекенд його не дублює — у причині лишається
@@ -252,29 +221,20 @@ export function reinvestHTML(ctx, opts = {}) {
     const details = [
       r.kind === "bond" ? "до погашення" : r.yield_basis,
       r.maturity ? `до ${monthYearGen(r.maturity)}` : "",
-      fits, r.reason,
+      r.reason,
     ].filter(Boolean).map(esc).join(" · ");
     return `<div class="sg" data-sg="${key}">
       <button class="caret${open ? " open" : ""}" data-sgexp="${key}" aria-expanded="${open}"
         title="Показати, звідки взялася ця дохідність">▸</button>
       ${kindPill(kind)}
       <span class="sg-n"><b>${suggestName(r)}</b> <span class="muted">${cost}</span></span>
-      <span class="sg-s muted">${status}</span>
       <span class="sg-y">${yieldCell(r.rate_parts, {
         real: r.real_pct, nominal: r.nominal_pct != null ? r.nominal_pct : r.ytm_pct })}</span>
       ${boughtBtn(kind, r)}
     </div>
-    ${ready}
     <div class="sg-d sub-xs" data-sgdetail="${key}"${open ? "" : " hidden"}>${details}${price}${auc}</div>`;
   };
 
-  // Групуємо за тим, що вирішує: чи можу купити зараз. Доти шість
-  // пропозицій мали однакову вагу, і те, що до однієї бракує двох гривень,
-  // а до іншої тисячі, треба було вишукувати в дрібному тексті.
-  const ready = rows.filter((r) => r.can_buy);
-  const soon = rows.filter((r) => !r.can_buy);
-  const group = (title, list) => list.length
-    ? `<div class="sg-h">${title}</div>${list.map(item).join("")}` : "";
   // Перемикач лінійки — той самий `.seg`, що й вікна валютного шоку.
   // Типово реальна: тільки вона розсуджує гривню з доларом. Номінальна
   // відповідає на інше питання — «де більше гривень», — і людина має
@@ -298,10 +258,8 @@ export function reinvestHTML(ctx, opts = {}) {
       після податку й знецінення, валютні — як є; саме за ним упорядкований список.`;
   return `<div class="card"><h2 class="card-head">
     <span>${esc(title)} ${infoBtn("reinvest")}</span>
-    ${purse ? `<span class="muted fine">${purse}</span>` : ""}
     ${seg}</h2>
-    ${group("Можеш купити зараз", ready)}
-    ${group(ready.length ? "Ще збираєш" : "Купувати ще рано — ось наскільки близько", soon)}
+    ${rows.map(item).join("")}
     <div class="sub">${legend} Клік по числу показує весь ланцюжок: податок, знецінення,
       інфляція. Каретка розкриває решту рядка. «Купив» записує покупку з уже
       заповненими полями.</div></div>`;
@@ -328,7 +286,7 @@ function boughtBtn(kind, r) {
           title="Записати покупку цього паперу — поля вже заповнені">Купив</button>`
       : "";
   }
-  const to = { fund: "money/all/import", deposit: "portfolio/all/record",
+  const to = { fund: "portfolio/all/statement", deposit: "portfolio/all/record",
     npf: "portfolio/@first:npf/record" }[kind];
   return to ? `<a class="lnk fine-xs" href="${routeFor(to)}"
     title="Туди, де цей вид записують">записати</a>` : "";

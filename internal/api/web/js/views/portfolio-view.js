@@ -1,4 +1,4 @@
-// Розділ «Портфель» — що я маю і як воно розкладене. П'ять сторінок.
+// Розділ «Портфель» — що я маю і як воно розкладене.
 //
 // Злиття колишніх «Активів» і «Ризику», і причина проста: обидва питали про
 // ОДНЕ ЦІЛЕ. «Що я маю», «як воно виросло», «як розкладене», «де ліміти»,
@@ -30,7 +30,12 @@ import { wireRefs } from "../refs.js";
 import { wireDisclosures } from "../disclosure.js";
 import { bondBuyFormHTML } from "./bonds.js";
 import { depositFormHTML, closedDepositsHTML } from "./deposits.js";
-import { reserveFormHTML, reserveFields, reserveBody } from "./money-cards.js";
+import {
+  reserveFormHTML, reserveFields, reserveBody, taxHTML, taxYear, importHTML, wireImport,
+  fxWindowHTML,
+} from "./money-cards.js";
+import { setFundOps, wireFundOps, fundStatementHTML } from "../fund-ops.js";
+import { setPref } from "../uistate.js";
 import { goalCreateFormHTML, goalFields, goalBody } from "./goals.js";
 import {
   positionsTableHTML, loadPositionsData, wirePositionRows,
@@ -126,8 +131,56 @@ export async function limits(ctx, main) {
  *  названою причиною краща за порожню. */
 export async function shock(ctx, main) {
   const d = await ctx.soft(shockPath(), null);
-  main.innerHTML = fxShockCard(ctx, d);
+  // «Курс серед історії» — тут само: те саме питання про курс, і доти воно
+  // стояло біля форми конвертації в «Грошах», яких більше немає.
+  main.innerHTML = fxShockCard(ctx, d) + fxWindowHTML(ctx);
   wireFXShock(ctx, main);
+}
+
+/** Скільки з доходу забрала держава — грошима, а не ставкою.
+ *
+ *  Переїхала з «Грошей» (вкладку прибрано разом із рахунками, ревізія
+ *  2026-10-03). Власна сторінка, а не картка в хвості періоду: сюди
+ *  приходять раз на рік і цілеспрямовано, з декларацією перед очима. */
+export async function tax(ctx, main) {
+  const x = await ctx.soft("tax?year=" + taxYear(), null);
+  main.innerHTML = taxHTML(x);
+
+  main.querySelector("[data-tax-year]")?.addEventListener("change", (e) => {
+    setPref("oddinvest.taxYear", e.target.value);
+    ctx.reload();
+  });
+  // Вивантаження — тим самим шляхом, що й бекап у «Налаштуваннях»:
+  // сирий запит через транспорт, далі blob у файл.
+  main.querySelector("[data-tax-csv]")?.addEventListener("click", async (e) => {
+    const y = e.currentTarget.dataset.taxCsv;
+    try {
+      const resp = await ctx.store.raw("export/csv?year=" + y);
+      if (!resp.ok) throw new Error(await resp.text());
+      const url = URL.createObjectURL(await resp.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `oddinvest-${y}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      ctx.toast(`Звіт за ${y} завантажено`);
+    } catch (err) { ctx.toast(String(err.message || err), false); }
+  });
+  wireDisclosures(main);
+}
+
+/** Виписка Inzhur: пакетний вхід. Два кроки навмисно — спершу показати,
+ *  що буде зроблено, і лише потім писати. Продажі й дивіденди фондів
+ *  показані тут-таки: це єдине місце, де вони взагалі заводяться.
+ *  Переїхала з «Грошей» разом із податками. */
+export async function statement(ctx, main) {
+  setFundOps(await ctx.soft("funds", []));
+  main.innerHTML = `
+    ${importHTML()}
+    ${fundStatementHTML(ctx)}`;
+  wireImport(ctx, main);
+  wireFundOps(ctx, main);
+  wireDisclosures(main);
 }
 
 /** З чим порівняти: механічні альтернативи, власні поради й ринок.
@@ -183,7 +236,7 @@ export async function record(ctx, main) {
     "Сертифікати заводить виписка — руками їх не вносять, бо два джерела правди "
     + "розійшлися б тихо. Пенсійний внесок мусить цілитись у конкретний рахунок, "
     + "тобто його форма належить рядку цього рахунку.",
-    { href: routeFor("money/all/import"), label: "Завантажити виписку" })}
+    { href: routeFor("portfolio/all/statement"), label: "Завантажити виписку" })}
       <div class="sub">${hasNPF
     ? `Внесок у НПФ — <a class="lnk" href="${routeFor("portfolio/@first:npf/record")}">у рядку рахунку</a>.`
     : `Пенсійного рахунку ще немає — <a class="lnk" href="${routeFor("settings/refs/main")}">заведи його в довідниках</a>.`}</div></div>`;

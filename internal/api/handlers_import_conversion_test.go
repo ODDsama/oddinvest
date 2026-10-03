@@ -33,6 +33,7 @@ type importOut struct {
 	} `json:"skipped"`
 	Imported int `json:"imported"`
 	New      int `json:"new"`
+	Cash     int `json:"cash"`
 }
 
 func parseImportOut(t *testing.T, body string) importOut {
@@ -249,7 +250,8 @@ func TestImportConversionTwiceDoesNotDouble(t *testing.T) {
 }
 
 // Та сама обіцянка для звичайної виписки, без конвертацій: другий прогін
-// не додає нічого — ні дивідендів, ні лотів, ні поповнень.
+// не додає нічого — ні дивідендів, ні лотів. Поповнення рахунку імпорт
+// більше не пише зовсім (рахунків немає з ревізії 2026-10-03).
 func TestImportTwiceIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	srv, st := testServer(t)
@@ -260,10 +262,13 @@ func TestImportTwiceIsIdempotent(t *testing.T) {
 	if first.Imported == 0 {
 		t.Fatalf("перший прогін нічого не записав: %s", body)
 	}
+	// Поповнення рахунку лише лічиться — у rows його немає.
+	if first.Cash != 1 {
+		t.Errorf("поповнення мало лягти в cash=1, маємо %d: %s", first.Cash, body)
+	}
 
 	ops, _ := st.ListFundOps(ctx)
 	lots, _ := st.ListLots(ctx)
-	deps, _ := st.ListDeposits(ctx)
 
 	importSince(t, st, "2024-01-01")
 	_, body = postXLSX(t, srv.URL+"/api/import", statementXLSX())
@@ -272,17 +277,16 @@ func TestImportTwiceIsIdempotent(t *testing.T) {
 	}
 	ops2, _ := st.ListFundOps(ctx)
 	lots2, _ := st.ListLots(ctx)
-	deps2, _ := st.ListDeposits(ctx)
-	if len(ops2) != len(ops) || len(lots2) != len(lots) || len(deps2) != len(deps) {
-		t.Errorf("журнали виросли: операції %d→%d, лоти %d→%d, рухи %d→%d",
-			len(ops), len(ops2), len(lots), len(lots2), len(deps), len(deps2))
+	if len(ops2) != len(ops) || len(lots2) != len(lots) {
+		t.Errorf("журнали виросли: операції %d→%d, лоти %d→%d",
+			len(ops), len(ops2), len(lots), len(lots2))
 	}
 }
 
 // Перегляд мусить обіцяти те, що зробить імпорт.
 //
 // Однакові рядки одного файлу зводяться в один запис — так само, як це
-// вже роблять лоти й поповнення. Доти операції фондів питали про дубль
+// вже роблять лоти. Доти операції фондів питали про дубль
 // БАЗУ, а не множину: у сухому прогоні база ще порожня, тож перегляд
 // обіцяв дві операції, а справжній імпорт писав одну, і різницю ніхто не
 // пояснював.

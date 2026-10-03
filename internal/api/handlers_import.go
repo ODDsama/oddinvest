@@ -21,7 +21,6 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/imports"
-	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
@@ -141,13 +140,6 @@ func (t *twins) seen(key string) bool {
 	return t.file[key] <= t.db[key]
 }
 
-func abs64(v int64) int64 {
-	if v < 0 {
-		return -v
-	}
-	return v
-}
-
 // handleImport — POST /api/import: виписка Inzhur.
 func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 	s.importStatement(w, r)
@@ -265,11 +257,6 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// Помилку тут ковтати не можна: порожній набір означав би «нічого не
 	// бачив раніше», і вся виписка лягла б дублями поверх наявного.
-	deps, err := s.st.ListDeposits(ctx)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
 	lots, err := s.st.ListLots(ctx)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
@@ -280,7 +267,7 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request) {
 	// ключі «вже є» нижче засіяні рядками з бази, тож повторний імпорт того
 	// самого файла пропускає записане й дописує решту — половинний імпорт
 	// лікується повтором. Транзакція вимагала б протягти *sql.Tx крізь
-	// AddFundOp/AddLot/AddDeposit, у яких свої BeginTx, — переробки сховища
+	// AddFundOp/AddLot, у яких свої BeginTx, — переробки сховища
 	// заради рідкісного збою диска. Єдине, чого повтор не вилікує: пара
 	// переказу фонду, розірвана між ногами, лишиться незвʼязаною (перша
 	// нога вже «є», і її id повтор не дізнається). Якщо цей випадок
@@ -292,12 +279,6 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request) {
 	lotSeen := newTwins()
 	for _, l := range lots {
 		lotSeen.have(fmt.Sprintf("%s|%s|%d", l.ISIN, l.BuyDate, l.Qty))
-	}
-	// Брокер — без регістру: ручне «Inzhur» і профільне «inzhur» — той
-	// самий рахунок, і дубль між ними не мав ховатись за великою літерою.
-	depSeen := newTwins()
-	for _, d := range deps {
-		depSeen.have(fmt.Sprintf("%s|%d|%s|%s", d.Date, d.Amount, d.Currency, strings.ToLower(d.Broker)))
 	}
 	// Операції фондів і позначки цін. Перші — щоб знати позицію фонду на
 	// дату конвертації, другі — щоб перевести її суму в сертифікати.
@@ -450,6 +431,13 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request) {
 		// але й не казав, ЩО саме він мовчки викинув.
 		BeforeFrom string `json:"before_from,omitempty"`
 		BeforeTo   string `json:"before_to,omitempty"`
+		// Cash — скільки рядків руху самого рахунку (поповнення й
+		// виведення) пропущено. Рахунків застосунок не веде (ревізія
+		// 2026-10-03), тож ці рядки нікуди не пишуться. Окремим лічильником,
+		// а не в skipped: пропущене звідти тримає водяний знак (його ще можна
+		// виправити й завести), а ці рядки не заведуться ніколи — у skipped
+		// вони заморозили б знак на найстарішому поповненні.
+		Cash int `json:"cash,omitempty"`
 	}{Rows: []outRow{}, Skipped: res.Skipped, Since: since}
 
 	parserSkipped := len(out.Skipped) // далі — пропуски самого імпорту, з датами
@@ -606,57 +594,13 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request) {
 			}
 
 		case "deposit", "withdrawal":
-			amt := row.Amount
-			if row.Kind == "withdrawal" {
-				amt = -amt
-			}
-			key := fmt.Sprintf("%s|%d|%s|%s", row.Date, amt, cur, strings.ToLower(broker))
-			exists = depSeen.seen(key)
-			if !exists {
-				if !dry {
-					if _, aerr := s.st.AddDeposit(ctx, store.Deposit{Date: row.Date, Amount: amt,
-						Currency: cur, Broker: broker, Note: "виписка"}); aerr != nil {
-						writeErr(w, http.StatusInternalServerError, aerr)
-						return
-					}
-				}
-			}
+			out.Cash++
+			continue
 		}
 		if !exists {
 			out.New++
 			if !dry {
 				out.Imported++
-			}
-		}
-		// Шукаємо ручний рух, який СТОЇТЬ ЗАМІСТЬ цієї операції.
-		//
-		// Напрямок вирішальний. Купівля списує гроші, тож її ручним
-		// відповідником було б ЗНЯТТЯ; продаж, дивіденд і купон зараховують —
-		// отже ПОПОВНЕННЯ. Порівняння за модулем, як було спершу, ловило
-		// й цілком нормальну пару «поповнив 8 051,74 і того ж дня купив
-		// на 8 051,74»: гроші прийшли й пішли, ніякого подвоєння немає.
-		// Хибні тривоги тут дорого коштують — на них перестають зважати
-		// саме тоді, коли трапляється справжня.
-		switch row.Kind {
-		case "fund_buy", "fund_sell", "dividend", "bond_buy", "coupon":
-			want := row.Amount
-			if row.Kind == "dividend" {
-				want = row.Amount - row.Tax
-			}
-			outflow := row.Kind == "fund_buy" || row.Kind == "bond_buy"
-			for _, d := range deps {
-				if (d.Amount < 0) != outflow {
-					continue // рух у той самий бік, що й операція, — не заміна їй
-				}
-				if abs64(d.Amount) != want && abs64(d.Amount) != row.Amount {
-					continue
-				}
-				if n := domain.DaysBetween(d.Date, row.Date); n < -2 || n > 2 {
-					continue
-				}
-				conflict = fmt.Sprintf("та сама сума вже є ручним рухом від %s (%s) — видали його, інакше гроші порахуються двічі",
-					d.Date, d.Broker)
-				break
 			}
 		}
 		out.Rows = append(out.Rows, outRow{Date: string(row.Date), Kind: row.Kind,

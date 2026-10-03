@@ -132,7 +132,7 @@ function allocBtn(name, m, ref) {
   return `<button type="button" class="sm" data-alloc="${esc(amt)}"
     data-alloccur="${esc(m.currency || "UAH")}" data-allocwho="${esc(name)}"
     data-allocref="${esc(ref || "")}"
-    title="Розкласти цю суму: резерв, цілі, папери, кошик"
+    title="Розкласти цю суму: резерв, цілі, папери"
     aria-label="Розкласти «${esc(name)}»">⤵</button>`;
 }
 

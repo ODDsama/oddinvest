@@ -65,15 +65,9 @@ func TestMigrationOnLiveBackup(t *testing.T) {
 		      VALUES (?,?,?,?,?,?,?,?)`,
 			s.ID, s.LotID, s.SaleDate, s.Qty, s.Clean, s.Accrued, s.Currency, s.Note)
 	}
-	for _, d := range before.Deposits {
-		exec(`INSERT INTO deposits (id,date,amount,currency,broker,note) VALUES (?,?,?,?,?,?)`,
-			d.ID, d.Date, d.Amount, d.Currency, d.Broker, d.Note)
-	}
-	for _, c := range before.Conversions {
-		exec(`INSERT INTO conversions (id,date,from_currency,from_amount,to_currency,to_amount,broker,note)
-		      VALUES (?,?,?,?,?,?,?,?)`,
-			c.ID, c.Date, c.FromCurrency, c.FromAmount, c.ToCurrency, c.ToAmount, c.Broker, c.Note)
-	}
+	// Поповнень і конвертацій сюди не розгортаємо: таблиці прибрала 0068
+	// (рахунків застосунок не веде), тож після повного накату їх немає
+	// з чим звірити.
 	for _, o := range before.FundOps {
 		exec(`INSERT INTO fund_ops (id,date,fund,kind,qty,amount,tax,currency,broker,note)
 		      VALUES (?,?,?,?,?,?,?,?,?,?)`,
@@ -108,8 +102,6 @@ func TestMigrationOnLiveBackup(t *testing.T) {
 	}
 	eq("лоти", after.Lots, before.Lots)
 	eq("продажі", after.Sales, before.Sales)
-	eq("поповнення", after.Deposits, before.Deposits)
-	eq("конвертації", after.Conversions, before.Conversions)
 	eq("операції фондів", after.FundOps, before.FundOps)
 	eq("статуси виплат", after.PaymentStatus, before.PaymentStatus)
 
@@ -132,8 +124,8 @@ func TestMigrationOnLiveBackup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("перенесено: %d лотів, %d поповнень, %d операцій фондів; довідники: %d брокерів, %d фондів",
-		len(after.Lots), len(after.Deposits), len(after.FundOps), len(brokers), len(funds))
+	t.Logf("перенесено: %d лотів, %d операцій фондів; довідники: %d брокерів, %d фондів",
+		len(after.Lots), len(after.FundOps), len(brokers), len(funds))
 	if len(before.FundOps) > 0 && len(funds) == 0 {
 		t.Error("операції фондів є, а довідник фондів порожній")
 	}

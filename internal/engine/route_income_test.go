@@ -9,100 +9,14 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/nbu"
-	"github.com/ODDsama/oddinvest/internal/state"
 	"github.com/ODDsama/oddinvest/internal/store"
 	money "github.com/Rhymond/go-money"
 )
 
-// docWith — мінімальний документ стану з одними лише балансами: readyFor
-// більше нічого й не читає.
-func docWith(brokers map[string]map[string]float64) *state.Doc {
-	out := map[string]map[string]state.Money{}
-	for b, byCur := range brokers {
-		out[b] = map[string]state.Money{}
-		for cur, v := range byCur {
-			out[b][cur] = state.Major(v, cur)
-		}
-	}
-	return &state.Doc{Brokers: out}
-}
-
-// Гроші на рахунку A не наближають покупку в рахунку B.
-//
-// Це головний тест напряму: саме тому дата рахується по парах
-// (брокер × валюта), а не по валюті. Зведена сума тут покрила б папір
-// удвічі, а насправді не покриває його ніде.
-func TestReadyForUsesOnlyThatBrokersIncome(t *testing.T) {
-	inc := incomeAhead{
-		{Broker: "inzhur", Currency: money.UAH}: {
-			{Date: "2026-09-16", Amount: 300_00, Label: "UA4000227748"},
-		},
-	}
-	doc := docWith(map[string]map[string]float64{
-		"inzhur": {money.UAH: 200},
-		"mono":   {money.UAH: 900},
-	})
-
-	if _, ok := inc.readyFor(doc, money.UAH, 1000_00); ok {
-		t.Fatal("500 ₴ в inzhur і 900 ₴ в mono не покривають папір за 1 000 ₴ ніде")
-	}
-	// А з купоном, що покриває саме inzhur, дата зʼявляється — і саме там.
-	inc[store.BrokerCur{Broker: "inzhur", Currency: money.UAH}] = []readyFlow{
-		{Date: "2026-09-16", Amount: 900_00, Label: "UA4000227748"},
-	}
-	got, ok := inc.readyFor(doc, money.UAH, 1000_00)
-	if !ok {
-		t.Fatal("200 + 900 = 1 100 ₴ мали покрити папір за 1 000 ₴")
-	}
-	if got.Broker != "inzhur" || got.Date != "2026-09-16" {
-		t.Errorf("набереться %s у %q, чекали 2026-09-16 в inzhur", got.Date, got.Broker)
-	}
-}
-
-// Коли покривають двоє — відповідь та, що раніша.
-func TestReadyForPicksTheEarliestDate(t *testing.T) {
-	inc := incomeAhead{
-		{Broker: "mono", Currency: money.UAH}: {
-			{Date: "2026-12-01", Amount: 1000_00, Label: "вклад mono"},
-		},
-		{Broker: "inzhur", Currency: money.UAH}: {
-			{Date: "2026-09-16", Amount: 1000_00, Label: "UA4000227748"},
-		},
-	}
-	doc := docWith(map[string]map[string]float64{
-		"inzhur": {money.UAH: 0},
-		"mono":   {money.UAH: 0},
-	})
-
-	got, ok := inc.readyFor(doc, money.UAH, 1000_00)
-	if !ok {
-		t.Fatal("обидва рахунки покривають — дата мала бути")
-	}
-	if got.Broker != "inzhur" || got.Date != "2026-09-16" {
-		t.Errorf("%s у %q, чекали найранішу 2026-09-16 в inzhur", got.Date, got.Broker)
-	}
-}
-
-// Надходження є, але їх мало: дати немає, і це окрема відповідь, а не
-// «набереться колись».
-func TestReadyForSilentWhenIncomeNeverCovers(t *testing.T) {
-	inc := incomeAhead{
-		{Broker: "inzhur", Currency: money.UAH}: {
-			{Date: "2026-09-16", Amount: 82_75, Label: "UA4000227748"},
-			{Date: "2027-03-17", Amount: 82_75, Label: "UA4000227748"},
-		},
-	}
-	doc := docWith(map[string]map[string]float64{"inzhur": {money.UAH: 10}})
-	if _, ok := inc.readyFor(doc, money.UAH, 1000_00); ok {
-		t.Error("два купони по 82.75 ₴ не покривають папір за 1 000 ₴")
-	}
-}
-
 // Повернення тіла їде поруч із сумою, окремим числом.
 //
-// «Коли вистачить» цієї різниці не бачить і не має бачити: на рахунку
-// купон і погашення однакові гроші. Її бачить маршрут (route.go), де
-// купон — новий капітал, а погашення лише міняє форму власного тіла. Тест
+// Її бачить маршрут (route.go), де купон — новий капітал, а погашення
+// лише міняє форму власного тіла. Тест
 // стоїть тут, бо заповнюється поле саме тут, і мовчазна втрата Principal
 // у майбутньому редагуванні futureIncome інакше вилізла б аж у проході.
 //
@@ -129,7 +43,7 @@ func TestFutureIncomeCarriesPrincipal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	flows := inc[store.BrokerCur{Broker: "inzhur", Currency: money.UAH}]
+	flows := inc[brokerCur{Broker: "inzhur", Currency: money.UAH}]
 	if len(flows) != 2 {
 		t.Fatalf("надходжень %d, чекали два (купон і день погашення): %+v", len(flows), flows)
 	}
@@ -147,20 +61,6 @@ func TestFutureIncomeCarriesPrincipal(t *testing.T) {
 	if maturity.Principal != 3*1000_00 {
 		t.Errorf("тіло %d, чекали %d — купон того ж дня тілом не є",
 			maturity.Principal, 3*1000_00)
-	}
-}
-
-// Валюта не змішується: доларові надходження не наближають гривневий
-// папір, скільки б їх не було.
-func TestReadyForKeepsCurrenciesApart(t *testing.T) {
-	inc := incomeAhead{
-		{Broker: "inzhur", Currency: money.USD}: {
-			{Date: "2026-09-16", Amount: 1000_00, Label: "UA4000227XXX"},
-		},
-	}
-	doc := docWith(map[string]map[string]float64{"inzhur": {money.USD: 500}})
-	if _, ok := inc.readyFor(doc, money.UAH, 1000_00); ok {
-		t.Error("долари не купують гривневий папір")
 	}
 }
 
@@ -233,9 +133,9 @@ func TestFutureIncomeSplitByBrokerSumsToWholeSchedule(t *testing.T) {
 	}
 }
 
-// Виплата, яку гаманець уже порахував балансом, у майбутні надходження не
-// потрапляє. Інакше позначений «отримано» купон сьогоднішнього дня
-// лічився б двічі — і дата виходила б ближчою, ніж є.
+// Виплата, позначена «отримано», у майбутні надходження не потрапляє: вона
+// вже стала доходом (uninvested_uah), і купон сьогоднішнього дня інакше
+// лічився б двічі — раз як отриманий, раз як той, що ще прийде.
 func TestFutureIncomeSkipsWhatTheWalletAlreadyCounted(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
@@ -302,10 +202,10 @@ func seedTodayPayer(t *testing.T, st *store.Store, today domain.Date) {
 // routeIncome бачить те саме, що futureIncome, ПЛЮС оцінені дивіденди
 // фонду — і кожне зі своєю основою.
 //
-// Головний бік цього тесту — саме РІВНІСТЬ зобовʼязань. Відмова в README
-// («планових надходжень і оцінок у даті „коли вистачить" немає») тримається
-// на тому, що futureIncome лишається такою, як була; варто routeIncome
-// почати правити її зріз — і дата поїде разом із нею.
+// Головний бік цього тесту — саме РІВНІСТЬ зобовʼязань: оцінка додається
+// ОКРЕМИМИ рядками зі своєю основою, а не підмішується в зріз futureIncome.
+// Варто routeIncome почати правити той зріз — і зобовʼязання в маршруті
+// стануть сумішшю з оцінкою без підпису.
 func TestRouteIncomeAddsEstimatesAndLeavesObligationsAlone(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
@@ -352,7 +252,7 @@ func TestRouteIncomeAddsEstimatesAndLeavesObligationsAlone(t *testing.T) {
 	}
 
 	// Зобовʼязання лишились байт у байт тими самими.
-	mono := store.BrokerCur{Broker: "mono", Currency: money.UAH}
+	mono := brokerCur{Broker: "mono", Currency: money.UAH}
 	if len(full[mono]) != len(base[mono]) {
 		t.Fatalf("зріз зобовʼязань змінився: було %d, стало %d",
 			len(base[mono]), len(full[mono]))
@@ -365,7 +265,7 @@ func TestRouteIncomeAddsEstimatesAndLeavesObligationsAlone(t *testing.T) {
 	}
 
 	// А оцінки зʼявились — на рахунку, де фонд куплено, і підписані.
-	inzhur := store.BrokerCur{Broker: "inzhur", Currency: money.UAH}
+	inzhur := brokerCur{Broker: "inzhur", Currency: money.UAH}
 	if len(base[inzhur]) != 0 {
 		t.Fatalf("futureIncome не мала бачити фонду взагалі: %+v", base[inzhur])
 	}
@@ -413,7 +313,7 @@ func TestRouteIncomeReinvestingFundSendsOnlyTheLeftover(t *testing.T) {
 	f.ExpectedYieldBP, f.PayoutDay = 950, 10
 
 	srv := New(st, testLogger())
-	inzhur := store.BrokerCur{Broker: "inzhur", Currency: money.UAH}
+	inzhur := brokerCur{Broker: "inzhur", Currency: money.UAH}
 
 	// Спершу як звичайний розподільний — уся рента готівкою.
 	if err := st.RenameFund(ctx, f.ID, f); err != nil {
@@ -467,55 +367,6 @@ func TestRouteIncomeReinvestingFundSendsOnlyTheLeftover(t *testing.T) {
 	}
 }
 
-// ДАТА, ЩО НАСТАЄ ПІСЛЯ ПОГАШЕННЯ, — НЕ ВІДПОВІДЬ.
-//
-// Живий випадок: папір гасився 16 вересня, а під ним стояло «з надходжень
-// портфеля набереться 18 листопада» — порада збирати два місяці на те,
-// чого на той час не існуватиме. Поріг MinTermDays прибирає майже всі такі
-// рядки ще на збірці порад; цей сторож — щоб решта не брехала.
-func TestAnnotateReadyRefusesDateAfterMaturity(t *testing.T) {
-	today := domain.NewDate(time.Now())
-	// Купони маленькі, тож набереться далеко — вже після погашення.
-	inc := incomeAhead{
-		{Broker: "inzhur", Currency: money.UAH}: {
-			{Date: today.AddDays(10), Amount: 400_00, Label: "купон"},
-			{Date: today.AddDays(80), Amount: 400_00, Label: "купон"},
-			{Date: today.AddDays(150), Amount: 400_00, Label: "купон"},
-		},
-	}
-	doc := docWith(map[string]map[string]float64{"inzhur": {money.UAH: 0}})
-
-	// Папір, що гаситься РАНІШЕ, ніж набереться: дати бути не повинно.
-	short := []suggestion{{
-		Kind: "bond", ISIN: "UA-SHORT", Currency: money.UAH,
-		CostPerBond: ToMoneyJSON(money.New(1000_00, money.UAH)),
-		Maturity:    string(today.AddDays(60)),
-	}}
-	if err := annotateReadyWith(inc, doc, today, short); err != nil {
-		t.Fatal(err)
-	}
-	if short[0].ReadyOn != "" {
-		t.Errorf("дата %s настає після погашення %s — її не мало бути",
-			short[0].ReadyOn, short[0].Maturity)
-	}
-	if short[0].ReadyNote == "" {
-		t.Error("зникла дата без причини читається як поломка")
-	}
-
-	// Папір, що доживе: дата на місці, як і була.
-	long := []suggestion{{
-		Kind: "bond", ISIN: "UA-LONG", Currency: money.UAH,
-		CostPerBond: ToMoneyJSON(money.New(1000_00, money.UAH)),
-		Maturity:    string(today.AddDays(900)),
-	}}
-	if err := annotateReadyWith(inc, doc, today, long); err != nil {
-		t.Fatal(err)
-	}
-	if long[0].ReadyOn == "" {
-		t.Errorf("папір доживе до дати — вона мала лишитись: %+v", long[0])
-	}
-}
-
 // testLogger — тихий журнал для сервера, зібраного повз testServer:
 // частині тестів потрібен не HTTP, а самі методи.
 func testLogger() *slog.Logger {
@@ -550,7 +401,7 @@ func seedFuturePayer(t *testing.T, st *store.Store, today domain.Date) {
 
 // Погашення вкладу подушки чи цілі — не вільні гроші брокера. Після F7b
 // вони повертаються в подушку/ціль, а futureIncome їх не відсіював: маршрут
-// планував купівлі на гроші подушки, а «коли вистачить» називав зарану дату.
+// планував купівлі на гроші подушки.
 func TestFutureIncomeSkipsEarmarkedDeposits(t *testing.T) {
 	st := testStore(t)
 	ctx := context.Background()
@@ -584,7 +435,7 @@ func TestFutureIncomeSkipsEarmarkedDeposits(t *testing.T) {
 			t.Errorf("гроші вкладу %q потрапили в надходження: %+v", k.Broker, flows)
 		}
 	}
-	if len(inc[store.BrokerCur{Broker: "Вільний", Currency: money.UAH}]) == 0 {
+	if len(inc[brokerCur{Broker: "Вільний", Currency: money.UAH}]) == 0 {
 		t.Error("вільний вклад мав лишитись у надходженнях")
 	}
 }

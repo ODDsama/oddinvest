@@ -44,9 +44,10 @@ func splitEnv(t *testing.T, goalsSharePct string) string {
 	}
 	// Капітал мусить бути ненульовий: частка від нуля не міряється, і
 	// buildRebalance рядків видів у порожньому портфелі свідомо не малює.
-	if resp, b := do(t, "POST", srv.URL+"/api/deposits",
-		`{"amount":"100000.00","currency":"UAH","date":"2026-01-05","broker":"mono"}`); resp.StatusCode != http.StatusCreated {
-		t.Fatalf("внесок: %d %s", resp.StatusCode, b)
+	// Покупка, а не поповнення: рахунків немає з ревізії 2026-10-03.
+	if resp, b := do(t, "POST", srv.URL+"/api/funds",
+		`{"fund":"Тест","kind":"buy","qty":10,"amount":"100000.00","currency":"UAH","date":"2026-01-05"}`); resp.StatusCode != http.StatusCreated {
+		t.Fatalf("покупка: %d %s", resp.StatusCode, b)
 	}
 	return srv.URL
 }
