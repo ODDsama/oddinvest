@@ -1,9 +1,10 @@
 // Імпорт виписки: попередній перегляд і застосування.
 //
-// Два розбирачі, один шлях. Виписка Inzhur має власний розбирач (він не
-// зводиться до зіставлення колонок — аргумент у internal/imports/
-// profile.go), решта читається за ПРОФІЛЕМ, який людина задає раз.
-// Усе, що йде після розбору, спільне й формату не знає взагалі.
+// Розбирач один — виписка Inzhur (internal/imports/inzhur.go). Профілі
+// довільних банківських виписок (CSV/XLSX за зіставленням колонок,
+// зокрема виписка картки для боргів) прибрано в ревізії 2026-10-03: за
+// весь час не завели жодного, а код тримав другий шлях розбору й окремий
+// журнал звірки картки.
 
 package api
 
@@ -147,39 +148,22 @@ func abs64(v int64) int64 {
 	return v
 }
 
-// handleImport — POST /api/import?profile=<назва>.
-//
-// Порожній profile (і «inzhur») означає вбудований розбір виписки Inzhur:
-// він не профіль і профілем стати не може — аргумент у шапці міграції
-// 0036 і в internal/imports/profile.go.
+// handleImport — POST /api/import: виписка Inzhur.
 func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimSpace(r.URL.Query().Get("profile"))
-	if name == "" || strings.EqualFold(name, inzhurProfile) {
-		s.importStatement(w, r, nil)
-		return
-	}
-	prof, err := s.st.GetImportProfile(r.Context(), name)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if prof == nil {
-		writeErr(w, http.StatusNotFound, fmt.Errorf("профілю %q немає", name))
-		return
-	}
-	s.importStatement(w, r, prof)
+	s.importStatement(w, r)
 }
 
-// importSinceKey — водяний знак ПРОФІЛЮ (стан портфеля, app_state).
+// importSinceKey — водяний знак виписки (стан портфеля, app_state).
 //
-// Доти ключ був один на всі виписки (settings.import_since): імпорт
-// картки 25-го ховав рядки брокерської виписки, старші за 25-те, і
-// навпаки. Рішення власника (2026-09-24): свій для кожного профілю.
+// Ключ лишився «на профіль» (import_since:inzhur) з часів, коли виписок
+// було кілька видів: перейменувати його означало б загубити водяний знак,
+// уже записаний на бойовому, і перший імпорт після оновлення перебирав би
+// всю історію з нуля.
 func importSinceKey(profile string) string {
 	return "import_since:" + strings.ToLower(strings.TrimSpace(profile))
 }
 
-// importSince — водяний знак профілю; без нього — старий спільний ключ,
+// importSince — водяний знак виписки; без нього — старий спільний ключ,
 // щоб перше оновлення не почало перебирати всю історію з нуля.
 func (s *Server) importSince(ctx context.Context, profile string) (string, error) {
 	v, err := s.st.GetOwnState(ctx, importSinceKey(profile))
@@ -210,10 +194,10 @@ func nextImportSince(prev string, rows []outRow, skipped []imports.Skipped) stri
 	return next
 }
 
-// handleImportSince — водяний знак профілю: показати й посунути руками
+// handleImportSince — водяний знак виписки: показати й посунути руками
 // («перезавантажити позаминулий місяць» інакше неможливе).
 func (s *Server) handleImportSince(w http.ResponseWriter, r *http.Request) {
-	profile := cmp.Or(r.URL.Query().Get("profile"), inzhurProfile)
+	profile := inzhurProfile
 	if r.Method == http.MethodPut {
 		var req struct {
 			Since string `json:"since"`
@@ -243,18 +227,13 @@ func (s *Server) handleImportSince(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"since": since})
 }
 
-// inzhurProfile — назва вбудованого розбору. Іменем, а не літералом у
-// трьох місцях: воно їде і в маршрут, і в UI-список профілів, і в
-// значення брокера за замовчуванням.
+// inzhurProfile — назва розбору. Іменем, а не літералом: воно й ключ
+// водяного знака, і брокер за замовчуванням.
 const inzhurProfile = "inzhur"
 
-// importStatement — спільний шлях імпорту: розбір за профілем (або
-// вбудованим розбором Inzhur) і все, що йде далі.
-//
-// А далі йде те, що формату не знає взагалі: перегляд, дедуплікація,
-// водяний знак, виявлення конфліктів із ручними рухами. Саме тому поява
-// другого формату не зачепила жодного з цих механізмів — вони від початку
-// працювали з рядками, а не з файлом.
+// importStatement — розбір виписки й усе, що йде далі: перегляд,
+// дедуплікація, водяний знак, виявлення конфліктів із ручними рухами.
+// Механізми працюють із рядками, а не з файлом.
 //
 // Два режими одним ендпойнтом: ?dry=1 лише показує, що буде зроблено, без
 // запису. Стан між викликами не зберігаємо — файл лежить у користувача,
@@ -263,18 +242,9 @@ const inzhurProfile = "inzhur"
 //
 // Дедуплікація обов'язкова: щомісячна виписка містить і старі рядки, тож
 // без неї другий імпорт подвоїв би позицію.
-func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *store.ImportProfile) {
+func (s *Server) importStatement(w http.ResponseWriter, r *http.Request) {
 	dry := r.URL.Query().Get("dry") == "1"
-	broker := strings.TrimSpace(r.URL.Query().Get("broker"))
-	if broker == "" {
-		// Брокер за замовчуванням — назва профілю: у людини з двома
-		// брокерами саме вона й відрізняє рахунки, а «inzhur» для чужої
-		// виписки поклав би гроші не туди.
-		broker = inzhurProfile
-		if prof != nil {
-			broker = prof.Name
-		}
-	}
+	broker := cmp.Or(strings.TrimSpace(r.URL.Query().Get("broker")), inzhurProfile)
 	file, _, err := r.FormFile("file")
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("очікували файл у полі file: %w", err))
@@ -286,7 +256,7 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	res, err := parseStatement(buf, prof)
+	res, err := parseStatement(buf)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -458,11 +428,7 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 	// Виписка щомісяця приносить повну історію, і покладатись лише на
 	// дедуплікацію більше не можна — після ручного підчищення журналу
 	// старі рядки почали проситися назад.
-	profName := inzhurProfile
-	if prof != nil {
-		profName = prof.Name
-	}
-	since, err := s.importSince(ctx, profName)
+	since, err := s.importSince(ctx, inzhurProfile)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -484,21 +450,7 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		// але й не казав, ЩО саме він мовчки викинув.
 		BeforeFrom string `json:"before_from,omitempty"`
 		BeforeTo   string `json:"before_to,omitempty"`
-		// Card — лише для карткового профілю (handlers_import_card.go).
-		Card *importCard `json:"card,omitempty"`
 	}{Rows: []outRow{}, Skipped: res.Skipped, Since: since}
-
-	// Виписка картки йде своїм шляхом: у неї інші журнали (debt_ops,
-	// debt_marks), інше означення дубля й звірка, яку пише не файл, а
-	// людина. Тут лишається лише спільне — водяний знак і перегляд.
-	var card *cardImport
-	if prof != nil && prof.DebtID > 0 {
-		var cerr error
-		if card, cerr = s.newCardImport(ctx, prof.DebtID, r.URL.Query()); cerr != nil {
-			writeErr(w, http.StatusBadRequest, cerr)
-			return
-		}
-	}
 
 	parserSkipped := len(out.Skipped) // далі — пропуски самого імпорту, з датами
 	for _, row := range res.Rows {
@@ -515,28 +467,6 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 		cur := money.UAH
 		var exists bool
 		var conflict string
-		if imports.IsCardKind(row.Kind) {
-			if card == nil {
-				out.Skipped = append(out.Skipped, imports.Skipped{Date: string(row.Date), Op: row.Note,
-					Reason: "профіль не привʼязаний до картки"})
-				continue
-			}
-			var cerr error
-			if exists, cerr = card.take(ctx, row, dry); cerr != nil {
-				writeErr(w, http.StatusInternalServerError, cerr)
-				return
-			}
-			if !exists {
-				out.New++
-				if !dry {
-					out.Imported++
-				}
-			}
-			out.Rows = append(out.Rows, outRow{Date: string(row.Date), Kind: row.Kind,
-				Fund: row.MCC, Amount: money.New(row.Amount, cur).Display(),
-				Tax: money.New(0, cur).Display(), Exists: exists})
-			continue
-		}
 		switch row.Kind {
 		case "fund_buy", "fund_sell", "dividend":
 			kind := domain.FundBuy
@@ -742,19 +672,9 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 	// нового не було» — теж відповідь, і наступного разу перебирати ті
 	// самі рядки ні до чого. Але не при перегляді: dry нічого не змінює,
 	// інакше кнопка «Переглянути» тихо з'їдала б період.
-	if card != nil {
-		var cerr error
-		if out.Card, cerr = card.finish(ctx, dry); cerr != nil {
-			writeErr(w, http.StatusInternalServerError, cerr)
-			return
-		}
-		if out.Card.MarkWritten {
-			out.Imported++
-		}
-	}
 	if !dry {
 		next := nextImportSince(since, out.Rows, out.Skipped[parserSkipped:])
-		if serr := s.st.SetOwnState(ctx, importSinceKey(profName), next); serr != nil {
+		if serr := s.st.SetOwnState(ctx, importSinceKey(inzhurProfile), next); serr != nil {
 			writeErr(w, http.StatusInternalServerError, serr)
 			return
 		}
@@ -770,38 +690,12 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request, prof *s
 	writeJSON(w, http.StatusOK, out)
 }
 
-// parseStatement — файл на рядки операцій.
-//
-// Читач вибирає ПРОФІЛЬ, а не розширення надісланого файлу: та сама
-// виписка часто доступна в обох виглядах, а розширення в multipart
-// приходить від браузера й буває будь-яким. Вбудований розбір Inzhur
-// читає лише xlsx — інших виписок у цьому форматі не буває.
-func parseStatement(buf []byte, prof *store.ImportProfile) (imports.Result, error) {
-	if prof == nil {
-		sheet, err := imports.ReadXLSX(bytes.NewReader(buf), int64(len(buf)))
-		if err != nil {
-			return imports.Result{}, err
-		}
-		return imports.ParseInzhur(sheet)
-	}
-	var sheet [][]string
-	var err error
-	if strings.EqualFold(prof.Format, "csv") {
-		sheet, err = imports.ReadCSV(bytes.NewReader(buf))
-	} else {
-		sheet, err = imports.ReadXLSX(bytes.NewReader(buf), int64(len(buf)))
-	}
+// parseStatement — файл на рядки операцій. Виписка Inzhur буває лише
+// в xlsx.
+func parseStatement(buf []byte) (imports.Result, error) {
+	sheet, err := imports.ReadXLSX(bytes.NewReader(buf), int64(len(buf)))
 	if err != nil {
 		return imports.Result{}, err
 	}
-	kinds, err := imports.ParseOps(prof.Ops)
-	if err != nil {
-		return imports.Result{}, fmt.Errorf("профіль %q: %w", prof.Name, err)
-	}
-	return imports.Parse(sheet, imports.Profile{
-		Name: prof.Name, Header: prof.Header,
-		Date: prof.Date, Op: prof.Op, Ref: prof.Ref, Qty: prof.Qty,
-		Debit: prof.Debit, Credit: prof.Credit,
-		Balance: prof.Balance, MCC: prof.MCC, Card: prof.DebtID > 0, Kinds: kinds,
-	})
+	return imports.ParseInzhur(sheet)
 }

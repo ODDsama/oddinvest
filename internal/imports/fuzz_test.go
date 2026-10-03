@@ -11,24 +11,11 @@ import (
 // сторінка імпорту чекає або рядків, або пояснення, чого бракує. Seed-и
 // ганяються кожним `go test`; довгий пошук — вручну:
 //
-//	go test ./internal/imports -run '^$' -fuzz FuzzReadCSV -fuzztime 60s
-func FuzzReadCSV(f *testing.F) {
-	f.Add([]byte("Дата;Операція;Сума\n01.09.2026;Поповнення;1000,00\n"))
-	f.Add([]byte("\xef\xbb\xbfa,b\n\"не закрита лапка\n"))
-	f.Add([]byte(""))
-	f.Fuzz(func(t *testing.T, data []byte) {
-		rows, err := ReadCSV(bytes.NewReader(data))
-		if err != nil {
-			return
-		}
-		// Ні Inzhur, ні профіль не мають падати на будь-яких рядках.
-		_, _ = ParseInzhur(rows)   //nolint:errcheck // перевіряємо лише відсутність паніки
-		_, _ = Parse(rows, mono()) //nolint:errcheck // те саме
-	})
-}
-
+//	go test ./internal/imports -run '^$' -fuzz FuzzReadXLSX -fuzztime 60s
+//
 // XLSX — zip усередині: обрізаний архів, «бомба» чи сміття мусять давати
-// помилку, а не паніку.
+// помилку, а не паніку. FuzzReadCSV пішов разом із профілями виписок
+// (ревізія 2026-10-03): CSV читали лише вони.
 func FuzzReadXLSX(f *testing.F) {
 	f.Add([]byte("PK\x03\x04"))
 	f.Add([]byte("не архів зовсім"))

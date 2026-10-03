@@ -28,7 +28,7 @@ import { refSelect, refValue, wireRefs } from "../refs.js";
 import { wireCrud } from "../crud.js";
 import {
   walletHTML, brokerBalancesHTML, fxWindowHTML, movesHTML, flowHTML, taxHTML, taxYear,
-  importHTML, wireImport, importProfilesHTML, wireImportProfiles,
+  importHTML, wireImport,
   reconcileHTML, wireReconcile,
 } from "./money-cards.js";
 import { setPref } from "../uistate.js";
@@ -201,23 +201,11 @@ export async function tax(ctx, main) {
  *  знаходиться не одразу. Продажі й дивіденди фондів показані тут-таки: це
  *  єдине місце, де вони взагалі заводяться. */
 export async function importStatement(ctx, main) {
-  // Профілі тягнемо мʼяко: маршрут може бути новішим за бекенд, а сторінка
-  // з самим лише Inzhur краща за порожню — той самий прийом, що в
-  // «Порівнянні».
-  // Борги — заради поля «картка» у профілі виписки картки; так само
-  // мʼяко, як профілі.
-  const [ops, profiles, debts] = await Promise.all([
-    ctx.soft("funds", []),
-    ctx.soft("import/profiles", []),
-    ctx.soft("debts", []),
-  ]);
-  setFundOps(ops);
+  setFundOps(await ctx.soft("funds", []));
   main.innerHTML = `
-    ${importHTML(ctx, profiles)}
-    ${importProfilesHTML(ctx, profiles, debts)}
+    ${importHTML()}
     ${fundStatementHTML(ctx)}`;
   wireImport(ctx, main);
-  wireImportProfiles(ctx, main, debts);
   wireFundOps(ctx, main);
   wireDisclosures(main);
 }

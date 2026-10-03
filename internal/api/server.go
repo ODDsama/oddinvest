@@ -322,15 +322,11 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("GET /api/backup", s.handleBackupExport)
 	mux.HandleFunc("POST /api/restore", s.handleBackupImport)
-	// Імпорт виписки за профілем. Історичного псевдоніма /api/import/inzhur
-	// більше немає: його «один реліз» давно минув, а UI ходить сюди.
+	// Імпорт виписки Inzhur. Профілів інших виписок (/api/import/profiles)
+	// більше немає — ревізія 2026-10-03.
 	mux.HandleFunc("POST /api/import", s.handleImport)
 	mux.HandleFunc("GET /api/import/since", s.handleImportSince)
 	mux.HandleFunc("PUT /api/import/since", s.handleImportSince)
-
-	mux.HandleFunc("GET /api/import/profiles", s.handleListImportProfiles)
-	mux.HandleFunc("PUT /api/import/profiles/{name}", s.handleSaveImportProfile)
-	mux.HandleFunc("DELETE /api/import/profiles/{name}", s.handleDeleteImportProfile)
 
 	// Вхід/вихід, питання «чи треба входити» і перший пароль — єдині
 	// маршрути /api/*, які requireAuth пропускає (auth.go). Решта замка —

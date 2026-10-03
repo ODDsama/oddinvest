@@ -157,16 +157,14 @@ type Backup struct {
 	// Довідники. omitempty з тієї ж причини, що й усе вище: бекапи, зроблені
 	// до їхньої появи, читаються без цих полів так само, як раніше — фонди й
 	// брокери відновляться з назв в операціях, рівно як доти.
-	// ImportProfiles (0036) — розкладка колонок чужої виписки. Так само
-	// невідновна: індекси колонок і словник операцій людина вивіряє по
-	// власному файлу руками, і з жодних операцій їх не вивести. Без цього
-	// поля restore тихо повертав би імпорт до однієї-єдиної виписки.
-	ImportProfiles []BackupImportProfile `json:"import_profiles,omitempty"`
-	Funds          []BackupFund          `json:"funds,omitempty"`
-	Brokers        []BackupBroker        `json:"brokers,omitempty"`
-	Settings       map[string]string     `json:"settings"`
-	PaymentStatus  []BackupPayStatus     `json:"payment_status"`
-	Snapshots      []Snapshot            `json:"snapshots"`
+	// Поля import_profiles більше немає (профілі виписок прибрано в
+	// ревізії 2026-10-03): у старому дампі воно просто пропускається —
+	// невідомі поля Backup не відкидає.
+	Funds         []BackupFund      `json:"funds,omitempty"`
+	Brokers       []BackupBroker    `json:"brokers,omitempty"`
+	Settings      map[string]string `json:"settings"`
+	PaymentStatus []BackupPayStatus `json:"payment_status"`
+	Snapshots     []Snapshot        `json:"snapshots"`
 	// HiddenRows (0060) — рядки лівого списку, які власник відмітив «не
 	// показувати». У бекапі вони Є, і це не самоочевидно: сусідній nav_order
 	// із бекапу свідомо виключений (derivedTables) як «вподобання цієї
@@ -542,29 +540,6 @@ type BackupPlanExpense struct {
 	PaidDate string `json:"paid_date"`
 	Place    string `json:"place"`
 	Note     string `json:"note"`
-}
-
-// BackupImportProfile — профіль імпорту (0036). Дзеркалить
-// store.ImportProfile колонка в колонку.
-type BackupImportProfile struct {
-	Name   string `json:"name"`
-	Format string `json:"format"`
-	Header int    `json:"header"`
-	Date   int    `json:"col_date"`
-	Op     int    `json:"col_op"`
-	Ref    int    `json:"col_ref"`
-	Qty    int    `json:"col_qty"`
-	Debit  int    `json:"col_debit"`
-	Credit int    `json:"col_credit"`
-	// Колонки виписки картки (0051). ВКАЗІВНИКИ, і це не педантизм: у
-	// бекапі старішої схеми полів немає, і нуль замість них означав би
-	// «перша колонка» — залишок читався б із колонки дати. nil при
-	// відновленні стає -1 («колонки немає»), як у міграції.
-	Balance *int   `json:"col_balance,omitempty"`
-	MCC     *int   `json:"col_mcc,omitempty"`
-	DebtID  int64  `json:"debt_id,omitempty"`
-	Ops     string `json:"ops"`
-	Note    string `json:"note"`
 }
 
 // BackupDecision — рядок журналу рішень (0035). Дзеркалить
@@ -1106,22 +1081,6 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 		}, s.pid); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT name,format,header,col_date,col_op,col_ref,
-		col_qty,col_debit,col_credit,col_balance,col_mcc,debt_id,ops,note FROM import_profiles
-		WHERE portfolio_id=? ORDER BY name COLLATE NOCASE`,
-		func(scan func(...any) error) error {
-			var r BackupImportProfile
-			var bal, mcc int
-			if err := scan(&r.Name, &r.Format, &r.Header, &r.Date, &r.Op, &r.Ref,
-				&r.Qty, &r.Debit, &r.Credit, &bal, &mcc, &r.DebtID, &r.Ops, &r.Note); err != nil {
-				return err
-			}
-			r.Balance, r.MCC = &bal, &mcc
-			b.ImportProfiles = append(b.ImportProfiles, r)
-			return nil
-		}, s.pid); err != nil {
-		return nil, err
-	}
 	// Довідники — цілком, а не лише тими рядками, які згадані в операціях.
 	// Порядок за назвою, як у ListFunds/ListBrokers: дамп того самого стану
 	// має бути тим самим файлом.
@@ -1224,7 +1183,7 @@ var importAllTables = []string{
 	"npf_ops", "npf_nav",
 	"npf_accounts", "plan_flows", "plan_flow_revisions",
 	"plan_receipts", "plan_actions", "plan_buys", "plan_expenses",
-	"decisions", "import_profiles",
+	"decisions",
 	"settings", "payment_status", "snapshots", "hidden_rows",
 	"funds", "brokers",
 	"ovdp_quotes",
@@ -1876,23 +1835,6 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			d.RankPos, d.TopLabel, d.TopRealPct, d.RankMode,
 			ids.of(decisionOpTable[d.Kind], d.OpID), d.Note); err != nil {
 			return fmt.Errorf("рішення %d: %w", d.ID, err)
-		}
-	}
-	for _, p := range b.ImportProfiles {
-		bal, mcc := -1, -1
-		if p.Balance != nil {
-			bal = *p.Balance
-		}
-		if p.MCC != nil {
-			mcc = *p.MCC
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO import_profiles (portfolio_id,name,format,header,col_date,col_op,col_ref,
-			 col_qty,col_debit,col_credit,col_balance,col_mcc,debt_id,ops,note)
-			 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, p.Name, p.Format, p.Header, p.Date, p.Op, p.Ref, p.Qty, p.Debit,
-			p.Credit, bal, mcc, ids.of("debts", p.DebtID), p.Ops, p.Note); err != nil {
-			return fmt.Errorf("профіль імпорту %q: %w", p.Name, err)
 		}
 	}
 	for k, v := range b.Settings {

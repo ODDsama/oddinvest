@@ -17,6 +17,33 @@ func mustJSON(t *testing.T, body string, v any) {
 	}
 }
 
+// importOut — відповідь POST /api/import у тому обсязі, який перевіряють
+// тести. Жила при тестах профілів виписок; профілі пішли, імпорт Inzhur
+// лишився — разом із ним і помічник.
+type importOut struct {
+	Rows []struct {
+		Kind   string `json:"kind"`
+		Fund   string `json:"fund"`
+		Qty    int64  `json:"qty"`
+		Amount string `json:"amount"`
+		Exists bool   `json:"exists"`
+	} `json:"rows"`
+	Skipped []struct {
+		Reason string `json:"reason"`
+	} `json:"skipped"`
+	Imported int `json:"imported"`
+	New      int `json:"new"`
+}
+
+func parseImportOut(t *testing.T, body string) importOut {
+	t.Helper()
+	var out importOut
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("розбір відповіді: %v (%s)", err, body)
+	}
+	return out
+}
+
 // Звичайна виписка без конвертацій: облігація, сертифікати, дивіденд із
 // податком окремим рядком, поповнення. Рівно те, що приходить щомісяця.
 func statementXLSX() [][]string {

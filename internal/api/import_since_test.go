@@ -22,29 +22,28 @@ func TestNextImportSince(t *testing.T) {
 	}
 }
 
-// Водяний знак — свій у кожного профілю; без нього — старий спільний.
-func TestImportSincePerProfile(t *testing.T) {
+// Водяний знак виписки: без свого — старий спільний ключ налаштувань, щоб
+// перше оновлення не перебирало історію з нуля; свій зберігається й
+// читається назад, крива дата — 400.
+func TestImportSince(t *testing.T) {
 	srv, _ := testServer(t)
 	if resp, b := do(t, "PUT", srv.URL+"/api/settings", `{"import_since":"2026-01-01"}`); resp.StatusCode >= 300 {
 		t.Fatalf("налаштування: %d %s", resp.StatusCode, b)
 	}
-	get := func(p string) string {
-		_, raw := do(t, "GET", srv.URL+"/api/import/since?profile="+p, "")
+	get := func() string {
+		_, raw := do(t, "GET", srv.URL+"/api/import/since", "")
 		return raw
 	}
-	if got := get("mono"); got != "{\"since\":\"2026-01-01\"}\n" {
+	if got := get(); got != "{\"since\":\"2026-01-01\"}\n" {
 		t.Errorf("без свого знака — спільний старий: %q", got)
 	}
-	if resp, b := do(t, "PUT", srv.URL+"/api/import/since?profile=mono", `{"since":"2026-09-25"}`); resp.StatusCode != 204 {
+	if resp, b := do(t, "PUT", srv.URL+"/api/import/since", `{"since":"2026-09-25"}`); resp.StatusCode != 204 {
 		t.Fatalf("PUT: %d %s", resp.StatusCode, b)
 	}
-	if got := get("mono"); got != "{\"since\":\"2026-09-25\"}\n" {
-		t.Errorf("свій знак mono: %q", got)
+	if got := get(); got != "{\"since\":\"2026-09-25\"}\n" {
+		t.Errorf("свій знак: %q", got)
 	}
-	if got := get("inzhur"); got != "{\"since\":\"2026-01-01\"}\n" {
-		t.Errorf("знак mono не мав зачепити inzhur: %q", got)
-	}
-	if resp, _ := do(t, "PUT", srv.URL+"/api/import/since?profile=mono", `{"since":"25.09.2026"}`); resp.StatusCode != 400 {
+	if resp, _ := do(t, "PUT", srv.URL+"/api/import/since", `{"since":"25.09.2026"}`); resp.StatusCode != 400 {
 		t.Errorf("крива дата — 400, а не %d", resp.StatusCode)
 	}
 }

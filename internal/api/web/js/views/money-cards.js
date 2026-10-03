@@ -12,7 +12,7 @@
 // мені половину себе» читається гірше, ніж три імені.
 
 import {
-  esc, curSym, dayMonth, monthYear, plural, pct, signedUAH,
+  esc, curSym, dayMonth, plural, pct, signedUAH,
   uah2 as fmtUAH, cur2 as fmtCur, money as fmtMoney,
 } from "../format.js";
 import { eq } from "../currency.js";
@@ -21,14 +21,13 @@ import { empty } from "../components.js";
 import { opsGrid, rowActions, actionsCol } from "../grid.js";
 import {
   money as moneyField, text as textField, date as dateField,
-  note as noteField, num as numField, textarea as textareaField,
+  note as noteField,
   pct as pctField, check as checkField,
-  selectOf, formHTML,
+  formHTML,
 } from "../fields.js";
 import { refSelect, refValue } from "../refs.js";
 import { routeFor } from "../routes.js";
 import { disclosure } from "../disclosure.js";
-import { confirmDialog } from "../forms.js";
 import { pref } from "../uistate.js";
 
 // ---------- ГАМАНЕЦЬ ----------
@@ -629,22 +628,19 @@ export function wireReconcile(ctx, main) {
   });
 }
 
-// Імпорт виписки. Два кроки навмисно: спершу показати, що буде
+// Імпорт виписки Inzhur. Два кроки навмисно: спершу показати, що буде
 // зроблено, і лише потім писати. Ціна помилки тут — подвоєний баланс,
 // а він знаходиться не одразу.
-export function importHTML(ctx, profiles = []) {
-  // Вбудований розбір Inzhur стоїть у списку першим і не є профілем: його
-  // не можна ні виправити, ні видалити (аргумент — у internal/imports/
-  // profile.go). Показуємо його разом із рештою, бо для людини це просто
-  // «звідки виписка», а не два різні механізми.
-  const opts = [["inzhur", "Inzhur (.xlsx)"]]
-    .concat(profiles.map((p) => [p.name, `${p.name} (.${p.format})`]));
+//
+// Вибору «звідки виписка» більше немає: профілі інших виписок (і разом
+// із ними виписка картки для боргів) прибрані в ревізії 2026-10-03 — за
+// весь час не завели жодного.
+export function importHTML() {
   return `<div class="card"><h2 class="card-head">
-    <span>Імпорт виписки ${infoBtn("import")}</span></h2>
+    <span>Імпорт виписки Inzhur ${infoBtn("import")}</span></h2>
     <div class="muted fine mb-sm">Спершу перегляд — нічого не записується.</div>
-    <div class="row-h">${selectOf("profile", "Звідки виписка", opts, "inzhur")}</div>
     <div class="row-h">
-      <input type="file" id="impFile" accept=".xlsx,.csv" aria-label="Файл виписки">
+      <input type="file" id="impFile" accept=".xlsx" aria-label="Файл виписки">
       <button id="impPreview">Переглянути</button>
     </div>
     <div class="muted fine mt-sm row-h">
@@ -654,6 +650,17 @@ export function importHTML(ctx, profiles = []) {
     <div id="impOut" class="mt"></div></div>`;
 }
 
+// Результат справжнього імпорту — до наступного малювання панелі.
+//
+// Після запису сторінка перемальовується (ctx.reload: змінились лоти,
+// фонди, зведення), і разом із нею зникав блок «Записано N» — лишався
+// тільки тост, який гасне за кілька секунд. Тепер відповідь переживає
+// перемальовку рівно один раз: wireImport показує її й забуває.
+let lastImport = null;
+
+const KIND = { fund_buy: "купівля", fund_sell: "продаж", dividend: "дивіденд",
+  deposit: "поповнення", withdrawal: "виведення", bond_buy: "купівля ОВДП", coupon: "купон ОВДП" };
+
 export function wireImport(ctx, main) {
   const file = main.querySelector("#impFile");
   const out = main.querySelector("#impOut");
@@ -661,45 +668,22 @@ export function wireImport(ctx, main) {
 
   // Водяний знак: показуємо поточний і даємо посунути руками — інакше
   // «перезавантажити позаминулий місяць» стало б неможливим узагалі.
-  //
-  // Знак — СВІЙ у кожного профілю (handlers_import.go, importSinceKey): доти
-  // він був один на всі виписки, і картка 25-го ховала рядки брокера,
-  // старші за 25-те. Тож поле перечитується, щойно міняють профіль.
   const since = main.querySelector("#impSince");
-  const profSel = main.querySelector('[name="profile"]');
-  const profOf = () => (profSel || {}).value || "inzhur";
-  const sinceURL = () => "import/since?profile=" + encodeURIComponent(profOf());
   if (since) {
-    const load = () => ctx.api("GET", sinceURL())
+    ctx.api("GET", "import/since")
       .then((s) => { since.value = (s && s.since) || ""; })
       .catch(() => {});
-    load();
-    if (profSel) profSel.addEventListener("change", load);
     since.addEventListener("change", async () => {
-      try { await ctx.api("PUT", sinceURL(), { since: since.value }); ctx.toast("Дату змінено"); }
+      try { await ctx.api("PUT", "import/since", { since: since.value }); ctx.toast("Дату змінено"); }
       catch (err) { ctx.toast(String(err.message || err), false); }
     });
   }
 
-  // Звірка картки: сума виписки й (за потреби) залишок — з полів превʼю,
-  // параметрами запиту, як і профіль. Порожньо — звірка не пишеться, і
-  // бекенд каже про це в card.mark_note.
-  const markQuery = () => {
-    const due = (out.querySelector('[name="mark_due"]') || {}).value || "";
-    const bal = (out.querySelector('[name="mark_balance"]') || {}).value || "";
-    return (due ? "&mark_due=" + encodeURIComponent(due) : "")
-      + (bal ? "&mark_balance=" + encodeURIComponent(bal) : "");
-  };
   const send = async (dry) => {
     if (!file.files || !file.files[0]) { ctx.toast("Обери файл", false); return null; }
     const fd = new FormData();
     fd.append("file", file.files[0]);
-    // Профіль їде параметром запиту, а не в тілі: тіло тут зайняте самим
-    // файлом (multipart), і домішувати туди конфіг означало б розбирати
-    // форму двічі — раз заради одного поля.
-    const profile = (main.querySelector('[name="profile"]') || {}).value || "inzhur";
-    const q = "?profile=" + encodeURIComponent(profile) + (dry ? "&dry=1" : "") + markQuery();
-    const resp = await ctx.store.raw("import" + q, { method: "POST", body: fd });
+    const resp = await ctx.store.raw("import" + (dry ? "?dry=1" : ""), { method: "POST", body: fd });
     if (!resp.ok) throw new Error(`${resp.status}: ${(await resp.text()).slice(0, 300)}`);
     // Справжній імпорт міняє геть усе — лоти, рухи, фонди, зведення.
     // Перегляд (dry) не міняє нічого, тож і кеш чіпати нема за що.
@@ -707,45 +691,18 @@ export function wireImport(ctx, main) {
     return resp.json();
   };
 
-  const KIND = { fund_buy: "купівля", fund_sell: "продаж", dividend: "дивіденд",
-    deposit: "поповнення", withdrawal: "виведення", bond_buy: "купівля ОВДП", coupon: "купон ОВДП",
-    card_in: "надійшло на картку", card_cash: "готівка з картки", card_out: "покупка" };
-  // Виписка картки: витрати по місяцях, залишок і поля звірки. Покупки
-  // не пишуться (довід у handlers_import_card.go), тож у рядку вони
-  // «у витрати», а не «вже є».
-  const cardHTML = (c, dry) => {
-    if (!c) return "";
-    const months = (c.spend || []).map((m) => `<div class="kv">
-      <span>${esc(monthYear(m.month + "-01"))}</span>
-      <span>витрати <b>${fmtUAH(m.out_uah)}</b>${m.in_uah ? ` · надійшло ${fmtUAH(m.in_uah)}` : ""}${
-        m.cash_uah ? ` · готівка ${fmtUAH(m.cash_uah)}` : ""}</span></div>`).join("");
-    const balNum = c.balance_minor != null ? (c.balance_minor / 100).toFixed(2) : "";
-    return `<div class="rule-top tight mt">
-      <div class="mb-xs"><b>«${esc(c.name)}»</b> — виписка картки</div>
-      ${months}
-      ${c.balance_date ? `<div class="sub">Залишок після останньої операції (${esc(c.balance_date)}): ${
-        esc(c.balance_raw)} — знак як у файлі; для кредитки мінус означає використаний ліміт</div>` : ""}
-      ${dry ? `<div class="row-h mt-sm">
-          ${moneyField("mark_balance", "Залишок для звірки", { value: balNum })}
-          ${moneyField("mark_due", "Сума виписки (з додатку банку)", { value: "" })}
-        </div>
-        <div class="sub-xs">Звірка пишеться лише з сумою виписки: без неї «внести до розрахункової дати» не мало б від чого рахуватись. Готівка після попередньої звірки${
-          c.prev_mark_date ? ` (${esc(c.prev_mark_date)})` : ""}: ${fmtUAH(c.cash_since_prev_mark)} — піде в non_grace.</div>`
-    : `<div class="sub-xs">${c.mark_written ? "Звірку записано." : esc(c.mark_note || "")}</div>`}
-    </div>`;
-  };
   const render = (res, dry) => {
     const rows = (res.rows || []).map((r) => {
       const tag = r.conflict
         ? `<div class="t-danger fine-xs">⚠ ${esc(r.conflict)}</div>`
-        : r.exists ? `<span class="muted fine-xs">вже є</span>` : "";
+        : "";
       return `<div class="mb-sm">
         <div class="kv">
           <span>${dayMonth(r.date)} · ${KIND[r.kind] || r.kind}${
             r.fund ? ` <span class="muted">${esc(r.fund)}</span>` : ""}${
             r.qty ? ` <span class="muted">${r.qty} серт.</span>` : ""}</span>
-          <span><b>${esc(r.amount)}</b>${r.tax && r.tax !== "0.00" ? ` <span class="muted fine-xs">податок ${esc(r.tax)}</span>` : ""} ${r.exists && !r.conflict ? `<span class="muted fine-xs">${r.kind === "card_out" ? "у витрати" : "вже є"}</span>` : ""}</span>
-        </div>${r.conflict ? tag : ""}</div>`;
+          <span><b>${esc(r.amount)}</b>${r.tax && r.tax !== "0.00" ? ` <span class="muted fine-xs">податок ${esc(r.tax)}</span>` : ""} ${r.exists && !r.conflict ? `<span class="muted fine-xs">вже є</span>` : ""}</span>
+        </div>${tag}</div>`;
     }).join("");
     const skipped = (res.skipped || []).map((s) =>
       `<div class="sub-xs">${dayMonth(s.Date || s.date)} · ${esc(s.Op || s.op)} — ${esc(s.Reason || s.reason)}</div>`).join("");
@@ -760,171 +717,33 @@ export function wireImport(ctx, main) {
       } не розглядались: водяний знак стоїть на ${dayMonth(res.since)}.
         Посунь дату нижче, якщо потрібна давніша історія.</div>` : ""}
       ${rows}
-      ${cardHTML(res.card, dry)}
       ${skipped ? `<div class="rule-top tight">
         <div class="muted fine mb-xs">пропущено:</div>${skipped}</div>` : ""}
-      ${dry && (res.new > 0 || res.card) ? `<button id="impGo" class="mt">Імпортувати${res.new > 0 ? ` ${res.new}` : ""}${
-        res.card ? " і записати звірку" : ""}</button>` : ""}
+      ${dry && res.new > 0 ? `<button id="impGo" class="mt">Імпортувати ${res.new}</button>` : ""}
       ${!dry ? `<div class="mt-sm t-ok">Записано ${res.imported}</div>` : ""}`;
     const go = out.querySelector("#impGo");
     if (go) {
       go.addEventListener("click", async () => {
         go.disabled = true;
-        try { render(await send(false), false); ctx.toast("Імпортовано"); await ctx.reload(); }
-        catch (err) { ctx.toast(String(err.message || err), false); go.disabled = false; }
+        try {
+          lastImport = await send(false);
+          ctx.toast("Імпортовано");
+          await ctx.reload();
+        } catch (err) { ctx.toast(String(err.message || err), false); go.disabled = false; }
       });
     }
   };
+
+  if (lastImport) {
+    render(lastImport, false);
+    lastImport = null;
+  }
 
   main.querySelector("#impPreview")?.addEventListener("click", async (e) => {
     e.target.disabled = true;
     try { const res = await send(true); if (res) render(res, true); }
     catch (err) { ctx.toast(String(err.message || err), false); }
     finally { e.target.disabled = false; }
-  });
-}
-
-/** Профілі імпорту: як читати виписку НЕ від Inzhur.
- *
- *  Стоїть під самим імпортом, а не в «Довідниках»: профіль заводять рівно
- *  тоді, коли вперше приносять чужу виписку й бачать, що вона не заходить.
- *  У довідниках його шукали б лише ті, хто вже знає, що він існує.
- *
- *  Розбір Inzhur сюди не потрапляє й не може: у нього кількість
- *  сертифікатів сидить усередині тексту операції, а податок прилипає до
- *  своєї події — це не зіставлення колонок (аргумент цілком лежить у
- *  internal/imports/profile.go).
- *
- *  КРУД тут не через wireCrud, і це названий виняток. Кит будує форму
- *  навколо ресурсу з id і трійкою POST/PUT/DELETE, а профіль
- *  ідентифікується НАЗВОЮ, і створення з правкою в нього — один PUT
- *  (аргумент — у handlers_import_profiles.go). Підганяти під кит зайвий
- *  POST заради форми означало б завести ендпойнт, потрібний лише формі.
- *  Поля при цьому — китові, тож ui-kit-boundary лишається чинним. */
-export function importProfilesHTML(ctx, profiles = [], debts = []) {
-  const rows = profiles.length
-    ? opsGrid({
-      cols: [
-        { key: "name", label: "Назва", cell: (p) => esc(p.name) },
-        { key: "format", label: "Формат", cell: (p) => esc(p.format) },
-        { key: "cols", label: "Колонки", cls: "muted", prio: 2,
-          cell: (p) => `дата ${p.col_date} · оп. ${p.col_op}`
-            + (p.col_ref >= 0 ? ` · папір ${p.col_ref}` : "")
-            + (p.col_qty >= 0 ? ` · к-сть ${p.col_qty}` : "") },
-        { key: "act", label: "", num: true,
-          cell: (p) => `<button class="profEdit" data-name="${esc(p.name)}">змінити</button>
-            <button class="profDel" data-name="${esc(p.name)}">видалити</button>` },
-      ],
-      rows: profiles,
-      caption: "Профілі імпорту: назва, формат, колонки, дії",
-    })
-    : `<div class="sub">Профілів ще немає — виписки читаються лише від Inzhur.</div>`;
-  return `<div class="card"><h2 class="card-head">
-    <span>Профілі імпорту ${infoBtn("importprofile")}</span></h2>
-    ${rows}
-    <div class="rule-top tight mt">
-      ${formHTML({ id: "profForm", fields: profileFields(ctx, null, debts), submit: "Зберегти профіль" })}
-    </div></div>`;
-}
-
-// Номери колонок 0-based, як їх бачить розбирач. Показувати людині
-// 1-based і віднімати одиницю на межі — це другий спосіб назвати ту саму
-// колонку, і одного разу хтось відніме двічі.
-//
-// Три поля виписки КАРТКИ (залишок, MCC, картка) стоять у тій самій
-// формі, а не в окремому «картковому» профілі: розкладка колонок та
-// сама, різниться лише те, куди лягають рядки, — і це вирішує картка
-// (довід у міграції 0051). Суми виписки серед колонок немає: CSV банку
-// її не несе, вона вводиться в превʼю.
-function profileFields(ctx, p = null, debts = []) {
-  const v = p || {};
-  const col = (name, label, dflt) =>
-    numField(name, label, { value: v[name] === undefined ? dflt : v[name] });
-  return [
-    textField("name", "Назва (вона ж брокер)", { value: v.name || "", required: true }),
-    selectOf("format", "Формат файлу", [["xlsx", "xlsx"], ["csv", "csv"]], v.format || "xlsx"),
-    numField("header", "Рядків шапки", { value: v.header === undefined ? 1 : v.header }),
-    col("col_date", "Колонка дати", 0),
-    col("col_op", "Колонка операції", 1),
-    col("col_ref", "Колонка паперу / фонду (-1 = немає)", -1),
-    col("col_qty", "Колонка кількості (-1 = немає)", -1),
-    col("col_debit", "Колонка «надійшло» (-1 = немає)", -1),
-    col("col_credit", "Колонка «списано» (-1 = немає)", -1),
-    col("col_balance", "Колонка залишку після операції (виписка картки; -1 = немає)", -1),
-    col("col_mcc", "Колонка MCC (виписка картки; -1 = немає)", -1),
-    refSelect(ctx, { name: "debt_id", ref: "debt-card", items: debts,
-      label: "Картка (лише для виписки картки)", value: v.debt_id ? String(v.debt_id) : "" }),
-    textareaField("ops", "Операції — рядки «фраза = вид»", {
-      value: v.ops || "",
-      ph: "Поповнення = deposit\nКупівля облігацій = bond_buy\nДивіденди = dividend\n"
-        + "# виписка картки:\nЗарплата = card_in\nЗняття готівки = card_cash\nПокупка = card_out",
-      rows: 6,
-    }),
-    noteField(),
-  ];
-}
-
-export function wireImportProfiles(ctx, main, debts = []) {
-  const form = main.querySelector("#profForm");
-  if (!form) return;
-  const save = async (e) => {
-    e.preventDefault();
-    const fd = new FormData(form);
-    const name = String(fd.get("name") || "").trim();
-    if (!name) { ctx.toast("Профіль без назви", false); return; }
-    const num = (k) => Number(fd.get(k));
-    try {
-      await ctx.api("PUT", "import/profiles/" + encodeURIComponent(name), {
-        format: String(fd.get("format") || "xlsx"),
-        header: num("header"),
-        col_date: num("col_date"), col_op: num("col_op"), col_ref: num("col_ref"),
-        col_qty: num("col_qty"), col_debit: num("col_debit"), col_credit: num("col_credit"),
-        col_balance: num("col_balance"), col_mcc: num("col_mcc"),
-        debt_id: Number(fd.get("debt_id") || 0),
-        ops: String(fd.get("ops") || ""), note: String(fd.get("note") || ""),
-      });
-      // Перейменування. PUT за назвою — це upsert, тож нова назва
-      // створювала ДРУГИЙ профіль, а старий лишався поруч зі старими
-      // колонками. Стару назву форма пам'ятає з «Змінити» й прибирає її
-      // ПІСЛЯ збереження нової: на збої першого кроку профіль не зникає.
-      const was = form.dataset.editing || "";
-      if (was && was !== name) {
-        await ctx.api("DELETE", "import/profiles/" + encodeURIComponent(was));
-      }
-      delete form.dataset.editing;
-      ctx.toast("Профіль збережено");
-      await ctx.reload();
-    } catch (err) { ctx.toast(String(err.message || err), false); }
-  };
-  form.addEventListener("submit", save);
-
-  // «Змінити» заповнює ту саму форму, а не відкриває другу: профіль —
-  // велика форма на одинадцять полів, і другий її екземпляр у попапі
-  // означав би два місця, де її поля мусять збігатися.
-  main.querySelectorAll(".profEdit").forEach((b) => {
-    b.addEventListener("click", async () => {
-      try {
-        const list = await ctx.api("GET", "import/profiles");
-        const p = (list || []).find((x) => x.name === b.dataset.name);
-        if (!p) { ctx.toast("Профіль не знайдено", false); return; }
-        form.innerHTML = profileFields(ctx, p, debts).join("")
-          + `<div class="form-actions"><button type="submit">Зберегти профіль</button></div>`;
-        form.dataset.editing = p.name;
-        form.scrollIntoView({ block: "nearest" });
-      } catch (err) { ctx.toast(String(err.message || err), false); }
-    });
-  });
-  main.querySelectorAll(".profDel").forEach((b) => {
-    b.addEventListener("click", async () => {
-      // Діалог застосунку, а не window.confirm: у вбудованому вигляді
-      // (PWA, панель) той мовчки повертає false, і кнопка не робила нічого.
-      if (!await confirmDialog(ctx, `Видалити профіль «${b.dataset.name}»?`)) return;
-      try {
-        await ctx.api("DELETE", "import/profiles/" + encodeURIComponent(b.dataset.name));
-        ctx.toast("Профіль видалено");
-        await ctx.reload();
-      } catch (err) { ctx.toast(String(err.message || err), false); }
-    });
   });
 }
 

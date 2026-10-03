@@ -123,20 +123,11 @@ func TestPortfolioIsolation(t *testing.T) {
 		t.Errorf("брокери a: %+v", l)
 	}
 
-	// --- статус виплати й профіль імпорту: той самий ключ у кожного ---
+	// --- статус виплати: той самий ключ у кожного ---
 	if err := b.SetPaymentStatus(ctx, "UA4000239016", "2026-09-10", "received"); err != nil {
 		t.Fatal(err)
 	}
 	if st, _ := a.PaymentStatuses(ctx); len(st) != 0 {
 		t.Errorf("статуси a: %+v", st)
-	}
-	if err := a.SaveImportProfile(ctx, ImportProfile{Name: "inzhur"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := b.SaveImportProfile(ctx, ImportProfile{Name: "inzhur", Header: 3}); err != nil {
-		t.Fatal(err)
-	}
-	if p, _ := a.GetImportProfile(ctx, "inzhur"); p == nil || p.Header == 3 {
-		t.Errorf("профіль a перезаписаний профілем b: %+v", p)
 	}
 }
