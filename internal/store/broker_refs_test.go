@@ -117,6 +117,14 @@ func seedBrokerRef(t *testing.T, db *sql.DB, table string, brokerID int64) {
 	case "npf_ops":
 		q = `INSERT INTO npf_ops(npf_id, date, units_e6, amount, broker_id)
 		     VALUES((SELECT id FROM npf_accounts LIMIT 1), '2026-01-01', 1000000, 100000, ?)`
+	case "reserve_ops":
+		q = `INSERT INTO reserve_ops(date, amount, broker_id) VALUES('2026-01-01', 100000, ?)`
+	case "goal_ops":
+		if _, err := db.Exec(`INSERT INTO goals(name, target_amount) VALUES('Ціль', 100000)`); err != nil {
+			t.Fatal(err)
+		}
+		q = `INSERT INTO goal_ops(goal_id, date, amount, broker_id)
+		     VALUES((SELECT id FROM goals LIMIT 1), '2026-01-01', 100000, ?)`
 	default:
 		t.Fatalf("нова таблиця з FK на brokers: %s — допиши їй посів тут "+
 			"і рядок у DeleteBroker", table)

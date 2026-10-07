@@ -312,8 +312,11 @@ type BackupReserveOp struct {
 	Date     string `json:"date"`
 	Amount   int64  `json:"amount"`
 	Currency string `json:"currency"`
-	Place    string `json:"place"`
-	Note     string `json:"note"`
+	// Bank — установа (0069), назвою, як у вкладу. Старі дампи поля не
+	// мають — рух відновлюється без установи, тобто як було.
+	Bank  string `json:"bank,omitempty"`
+	Place string `json:"place"`
+	Note  string `json:"note"`
 	// Яку позику гасить це поповнення. Відновлюється ДРУГИМ проходом:
 	// FK тут двобічний (reserve_loans.op_id → reserve_ops.id), і жоден
 	// порядок вставки не задовольняє обидва боки одразу.
@@ -352,6 +355,7 @@ type BackupGoalOp struct {
 	Date     string `json:"date"`
 	Amount   int64  `json:"amount"`
 	Currency string `json:"currency"`
+	Bank     string `json:"bank,omitempty"` // як у BackupReserveOp (0069)
 	Place    string `json:"place"`
 	Note     string `json:"note"`
 }
@@ -816,11 +820,12 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT id,date,amount,currency,place,note,COALESCE(loan_id,0) FROM reserve_ops
-		WHERE portfolio_id=? ORDER BY id`,
+	if err := s.scan(ctx, `SELECT o.id,o.date,o.amount,o.currency,COALESCE(b.name,''),o.place,o.note,
+		COALESCE(o.loan_id,0) FROM reserve_ops o LEFT JOIN brokers b ON b.id=o.broker_id
+		WHERE o.portfolio_id=? ORDER BY o.id`,
 		func(scan func(...any) error) error {
 			var r BackupReserveOp
-			if err := scan(&r.ID, &r.Date, &r.Amount, &r.Currency, &r.Place, &r.Note, &r.LoanID); err != nil {
+			if err := scan(&r.ID, &r.Date, &r.Amount, &r.Currency, &r.Bank, &r.Place, &r.Note, &r.LoanID); err != nil {
 				return err
 			}
 			b.ReserveOps = append(b.ReserveOps, r)
@@ -853,12 +858,13 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 		}, s.pid); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT id,goal_id,date,amount,currency,place,note
-		FROM goal_ops WHERE portfolio_id=? ORDER BY id`,
+	if err := s.scan(ctx, `SELECT o.id,o.goal_id,o.date,o.amount,o.currency,COALESCE(b.name,''),
+		o.place,o.note FROM goal_ops o LEFT JOIN brokers b ON b.id=o.broker_id
+		WHERE o.portfolio_id=? ORDER BY o.id`,
 		func(scan func(...any) error) error {
 			var o BackupGoalOp
 			if err := scan(&o.ID, &o.GoalID, &o.Date, &o.Amount, &o.Currency,
-				&o.Place, &o.Note); err != nil {
+				&o.Bank, &o.Place, &o.Note); err != nil {
 				return err
 			}
 			b.GoalOps = append(b.GoalOps, o)
@@ -1495,9 +1501,13 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// чергою, посилаються на самі рухи. Двобічний FK не задовольняє
 	// жоден порядок, тож звʼязок дописується третім проходом нижче.
 	for _, r := range b.ReserveOps {
+		bank, err := brokerRef(r.Bank)
+		if err != nil {
+			return fmt.Errorf("рух резерву %d: %w", r.ID, err)
+		}
 		if err := ids.insert(ctx, tx, "reserve_ops", r.ID,
-			`INSERT INTO reserve_ops (%sportfolio_id,date,amount,currency,place,note) VALUES (%s?,?,?,?,?,?)`,
-			s.pid, r.Date, r.Amount, r.Currency, r.Place, r.Note); err != nil {
+			`INSERT INTO reserve_ops (%sportfolio_id,date,amount,currency,broker_id,place,note) VALUES (%s?,?,?,?,?,?,?)`,
+			s.pid, r.Date, r.Amount, r.Currency, bank, r.Place, r.Note); err != nil {
 			return fmt.Errorf("рух резерву %d: %w", r.ID, err)
 		}
 	}
@@ -1519,9 +1529,13 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 	}
 	for _, o := range b.GoalOps {
+		bank, err := brokerRef(o.Bank)
+		if err != nil {
+			return fmt.Errorf("рух цілі %d: %w", o.ID, err)
+		}
 		if err := ids.insert(ctx, tx, "goal_ops", o.ID, `INSERT INTO goal_ops
-			(%sportfolio_id,goal_id,date,amount,currency,place,note) VALUES (%s?,?,?,?,?,?,?)`,
-			s.pid, ids.of("goals", o.GoalID), o.Date, o.Amount, o.Currency, o.Place, o.Note); err != nil {
+			(%sportfolio_id,goal_id,date,amount,currency,broker_id,place,note) VALUES (%s?,?,?,?,?,?,?,?)`,
+			s.pid, ids.of("goals", o.GoalID), o.Date, o.Amount, o.Currency, bank, o.Place, o.Note); err != nil {
 			return fmt.Errorf("рух цілі %d: %w", o.ID, err)
 		}
 	}

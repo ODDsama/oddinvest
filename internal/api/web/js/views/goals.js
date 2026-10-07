@@ -38,6 +38,7 @@ import { routeFor } from "../routes.js";
 import { wireCrud } from "../crud.js";
 import { onSubmit } from "../forms.js";
 import { wireRefs } from "../refs.js";
+import { placeFields, placeCell } from "./money-cards.js";
 
 /** Ціль із документа за id рядка адреси («goal:3» → 3). */
 export const goalOf = (ctx, key) =>
@@ -226,7 +227,7 @@ export function goalJournalHTML(ops, goalID) {
       { key: "kind", label: "Рух",
         cell: (o) => (Number(o.amount.amount) >= 0 ? "Відклав" : "Узяв") },
       { key: "amount", label: "Сума", num: true, cell: (o) => fmtMoney(o.amount) },
-      { key: "place", label: "Місце", cell: (o) => esc(o.place || "")
+      { key: "place", label: "Місце", cell: (o) => placeCell(o)
         + (o.note ? ` <span class="muted">${esc(o.note)}</span>` : "") },
       actionsCol("goal-ops", { label: (o) => "рух цілі від " + o.date }),
     ],
@@ -247,9 +248,7 @@ export const goalOpFields = (ctx, row = null) => [
     ph: "5000.00", required: true, value: row ? row.amount.amount : "",
   }),
   refSelect(ctx, { name: "currency", ref: "currency", value: row ? row.amount.currency : "UAH" }),
-  textField("place", "Місце", {
-    ph: "готівка / сейф / картка", value: row ? row.place || "" : "",
-  }),
+  ...placeFields(ctx, row),
   dateField("date", "Дата", row ? { value: row.date } : {}),
   noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
 ];
@@ -258,6 +257,7 @@ export const goalOpBody = (goalID) => (f) => ({
   goal_id: String(goalID),
   amount: f.amount.value.trim(),
   currency: refValue(f, "currency"),
+  bank: refValue(f, "bank"),
   place: f.place.value.trim(),
   date: f.date.value,
   note: f.note.value.trim(),

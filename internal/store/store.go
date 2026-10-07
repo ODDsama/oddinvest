@@ -430,13 +430,16 @@ func (s *Store) ListSales(ctx context.Context) ([]domain.Sale, error) {
 // Схоже на Deposit, але СВІДОМО окрема сутність, а не ще один «брокер»:
 // резерв не є купівельною спроможністю, і якби він лежав у тій самій
 // таблиці, помічник реінвесту порахував би його грішми на покупку.
-// Place — вільний текст (готівка, сейф, картка), а не довідник: за ним
-// нічого не рахується, це підпис для людини.
+// Bank — установа з довідника брокерів (0069), за якою ці гроші стоять у
+// картці концентрації; порожньо = установи немає (готівка, сейф). Place —
+// вільний підпис «де саме» поруч із нею: для готівки він єдиний, а за ним
+// самим не рахується нічого.
 type ReserveOp struct {
 	ID       int64
 	Date     domain.Date
 	Amount   int64 // мінорні; + відклав / − узяв
 	Currency string
+	Bank     string
 	Place    string
 	Note     string
 	// LoanID — яку позику гасить це ПОПОВНЕННЯ (0057). Нуль = не гасить
@@ -454,8 +457,12 @@ func (s *Store) AddReserveOp(ctx context.Context, r ReserveOp) (int64, error) {
 			return 0, err
 		}
 	}
-	res, err := s.db.ExecContext(ctx, `INSERT INTO reserve_ops (portfolio_id, date, amount, currency, place, note, loan_id)
-		VALUES (?,?,?,?,?,?,?)`, s.pid, string(r.Date), r.Amount, r.Currency, r.Place, r.Note, nullID(r.LoanID))
+	bank, err := s.brokerRef(ctx, r.Bank)
+	if err != nil {
+		return 0, err
+	}
+	res, err := s.db.ExecContext(ctx, `INSERT INTO reserve_ops (portfolio_id, date, amount, currency, broker_id, place, note, loan_id)
+		VALUES (?,?,?,?,?,?,?,?)`, s.pid, string(r.Date), r.Amount, r.Currency, bank, r.Place, r.Note, nullID(r.LoanID))
 	if err != nil {
 		return 0, err
 	}
@@ -469,9 +476,13 @@ func (s *Store) UpdateReserveOp(ctx context.Context, r ReserveOp) error {
 			return err
 		}
 	}
+	bank, err := s.brokerRef(ctx, r.Bank)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE reserve_ops SET
-		date=?, amount=?, currency=?, place=?, note=?, loan_id=? WHERE id=? AND portfolio_id=?`,
-		string(r.Date), r.Amount, r.Currency, r.Place, r.Note, nullID(r.LoanID), r.ID, s.pid)
+		date=?, amount=?, currency=?, broker_id=?, place=?, note=?, loan_id=? WHERE id=? AND portfolio_id=?`,
+		string(r.Date), r.Amount, r.Currency, bank, r.Place, r.Note, nullID(r.LoanID), r.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -502,8 +513,10 @@ func (s *Store) DeleteReserveOp(ctx context.Context, id int64) error {
 }
 
 func (s *Store) ListReserveOps(ctx context.Context) ([]ReserveOp, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, date, amount, currency, place, note, loan_id
-		FROM reserve_ops WHERE portfolio_id=? ORDER BY date, id`, s.pid)
+	rows, err := s.db.QueryContext(ctx, `SELECT o.id, o.date, o.amount, o.currency, COALESCE(b.name, ''),
+		o.place, o.note, o.loan_id
+		FROM reserve_ops o LEFT JOIN brokers b ON b.id = o.broker_id
+		WHERE o.portfolio_id=? ORDER BY o.date, o.id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -513,7 +526,7 @@ func (s *Store) ListReserveOps(ctx context.Context) ([]ReserveOp, error) {
 		var r ReserveOp
 		var dt string
 		var loan sql.NullInt64
-		if err := rows.Scan(&r.ID, &dt, &r.Amount, &r.Currency, &r.Place, &r.Note, &loan); err != nil {
+		if err := rows.Scan(&r.ID, &dt, &r.Amount, &r.Currency, &r.Bank, &r.Place, &r.Note, &loan); err != nil {
 			return nil, err
 		}
 		r.Date = domain.Date(dt)

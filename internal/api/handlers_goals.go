@@ -188,6 +188,7 @@ type goalOpReq struct {
 	Date     string `json:"date"`
 	Amount   string `json:"amount"` // десятковий; + відклав, − узяв
 	Currency string `json:"currency"`
+	Bank     string `json:"bank"` // установа (0069), як у руху резерву
 	Place    string `json:"place"`
 	Note     string `json:"note"`
 }
@@ -215,7 +216,7 @@ func goalOpFromReq(req goalOpReq) (store.GoalOp, error) {
 		return store.GoalOp{}, errors.New("сума руху не може бути нульовою")
 	}
 	return store.GoalOp{GoalID: id, Date: d, Amount: minor, Currency: cur,
-		Place: strings.TrimSpace(req.Place), Note: req.Note}, nil
+		Bank: strings.TrimSpace(req.Bank), Place: strings.TrimSpace(req.Place), Note: req.Note}, nil
 }
 
 func (s *Server) handleAddGoalOp(w http.ResponseWriter, r *http.Request) {
@@ -332,13 +333,14 @@ func (s *Server) handleListGoalOps(w http.ResponseWriter, r *http.Request) {
 		GoalID int64            `json:"goal_id"`
 		Date   string           `json:"date"`
 		Amount engine.MoneyJSON `json:"amount"`
+		Bank   string           `json:"bank,omitempty"`
 		Place  string           `json:"place"`
 		Note   string           `json:"note"`
 	}
 	out := make([]opJSON, 0, len(ops))
 	for _, op := range ops {
 		out = append(out, opJSON{op.ID, op.GoalID, string(op.Date),
-			engine.ToMoneyJSON(money.New(op.Amount, op.Currency)), op.Place, op.Note})
+			engine.ToMoneyJSON(money.New(op.Amount, op.Currency)), op.Bank, op.Place, op.Note})
 	}
 	writeJSON(w, http.StatusOK, out)
 }

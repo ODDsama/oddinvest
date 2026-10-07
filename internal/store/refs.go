@@ -150,7 +150,7 @@ func (s *Store) SetBrokerQuoteSource(ctx context.Context, id int64, source strin
 // DeleteBroker прибирає брокера, лише якщо на нього ніхто не посилається:
 // мовчки знеособити півсотні лотів — не те, чого чекають від кнопки «✕».
 //
-// ТАБЛИЦЬ ЧОТИРИ, і перелік мусить збігатися з тим, які насправді
+// ТАБЛИЦЬ ШІСТЬ (рухи резерву й цілей дістали установу в 0069), і перелік мусить збігатися з тим, які насправді
 // посилаються на brokers(id). Довго не збігався: перевірка написана,
 // коли їх було чотири, а term_deposits (0013) і npf_ops (0028) додали
 // broker_id пізніше й сюди не вписали. Наслідок був не «зайве
@@ -170,8 +170,10 @@ func (s *Store) DeleteBroker(ctx context.Context, id int64) error {
 		(SELECT COUNT(*) FROM lots          WHERE broker_id=? AND portfolio_id=?) +
 		(SELECT COUNT(*) FROM fund_ops      WHERE broker_id=? AND portfolio_id=?) +
 		(SELECT COUNT(*) FROM term_deposits WHERE broker_id=? AND portfolio_id=?) +
-		(SELECT COUNT(*) FROM npf_ops       WHERE broker_id=? AND portfolio_id=?)`,
-		id, s.pid, id, s.pid, id, s.pid, id, s.pid).Scan(&used); err != nil {
+		(SELECT COUNT(*) FROM npf_ops       WHERE broker_id=? AND portfolio_id=?) +
+		(SELECT COUNT(*) FROM reserve_ops   WHERE broker_id=? AND portfolio_id=?) +
+		(SELECT COUNT(*) FROM goal_ops      WHERE broker_id=? AND portfolio_id=?)`,
+		id, s.pid, id, s.pid, id, s.pid, id, s.pid, id, s.pid, id, s.pid).Scan(&used); err != nil {
 		return err
 	}
 	if used > 0 {

@@ -29,8 +29,11 @@ type reserveReq struct {
 	Date     string `json:"date"`
 	Amount   string `json:"amount"` // десятковий; + відклав, − узяв
 	Currency string `json:"currency"`
-	Place    string `json:"place"`
-	Note     string `json:"note"`
+	// Bank — установа з довідника брокерів (0069); порожньо = готівка,
+	// сейф, тобто ні за ким. Нова назва заводить брокера, як у вкладу.
+	Bank  string `json:"bank"`
+	Place string `json:"place"`
+	Note  string `json:"note"`
 	// Loan — це ЗНЯТТЯ є позикою в самого себе (0057): поверну з
 	// відсотком, і доти ціль подушки піднята. Діє лише на відʼємній сумі:
 	// «позичити, кладучи гроші в подушку» не означає нічого.
@@ -66,7 +69,7 @@ func reserveFromReq(req reserveReq) (store.ReserveOp, error) {
 		return store.ReserveOp{}, errors.New("сума руху не може бути нульовою")
 	}
 	op := store.ReserveOp{Date: d, Amount: minor, Currency: cur,
-		Place: strings.TrimSpace(req.Place), Note: req.Note}
+		Bank: strings.TrimSpace(req.Bank), Place: strings.TrimSpace(req.Place), Note: req.Note}
 	if minor > 0 {
 		op.LoanID = req.LoanID
 	}
@@ -159,7 +162,7 @@ func (s *Server) handleAddReserveOp(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if op.Amount > 0 {
-		s.SaveDecision(r.Context(), snap, now, engine.DecisionKindReserve, op.Place,
+		s.SaveDecision(r.Context(), snap, now, engine.DecisionKindReserve, cmp.Or(op.Bank, op.Place),
 			money.New(op.Amount, op.Currency), id, op.Note)
 	}
 	s.publishAsync()
@@ -227,6 +230,7 @@ func (s *Server) handleListReserveOps(w http.ResponseWriter, r *http.Request) {
 		ID     int64            `json:"id"`
 		Date   string           `json:"date"`
 		Amount engine.MoneyJSON `json:"amount"`
+		Bank   string           `json:"bank,omitempty"`
 		Place  string           `json:"place"`
 		Note   string           `json:"note"`
 		// Позика, відкрита цим зняттям (0 = звичайний рух).
@@ -240,7 +244,7 @@ func (s *Server) handleListReserveOps(w http.ResponseWriter, r *http.Request) {
 	for _, op := range ops {
 		row := opJSON{ID: op.ID, Date: string(op.Date),
 			Amount: engine.ToMoneyJSON(money.New(op.Amount, op.Currency)),
-			Place:  op.Place, Note: op.Note, RepaysLoanID: op.LoanID}
+			Bank:   op.Bank, Place: op.Place, Note: op.Note, RepaysLoanID: op.LoanID}
 		if l, ok := loanOf[op.ID]; ok {
 			row.LoanID, row.LoanRatePct, row.LoanDue = l.ID, float64(l.RateBP)/100, l.DueDate
 		}

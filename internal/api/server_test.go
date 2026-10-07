@@ -3301,11 +3301,18 @@ func TestConcentrationSeesFundsAndCountsSeparateBases(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Резерв: він НЕ має контрагента, тож у вимір «установа» входити не
-	// мусить — інакше «матрац» показався б як брокер.
+	// Резерв у сейфі контрагента НЕ має: у вимір «установа» він іде окремим
+	// рядком готівки без ліміту, а не брокером «сейф». Резерв, покладений
+	// на картку mono (0069), — навпаки, стоїть за mono разом із лотом.
 	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
 		Date: domain.NewDate(time.Now()).AddDays(-5), Amount: 1000000, Currency: "UAH",
 		Place: "сейф",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddReserveOp(ctx, store.ReserveOp{
+		Date: domain.NewDate(time.Now()).AddDays(-5), Amount: 500000, Currency: "UAH",
+		Bank: "mono",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -3341,18 +3348,34 @@ func TestConcentrationSeesFundsAndCountsSeparateBases(t *testing.T) {
 	}
 
 	byDim := map[string]int{}
-	var fundRow, sumBrokerPct = -1, 0.0
+	fundRow := -1
+	var mono, cash float64
 	for i, r := range doc.Concentration {
 		byDim[r.Dimension]++
 		if r.Dimension == "isin" && r.Key == "fund:Inzhur" {
 			fundRow = i
 		}
-		if r.Dimension == "broker" {
-			sumBrokerPct += r.SharePct
-			if r.Key == "сейф" || r.Key == "—" && r.AmountUAH > 0 {
-				t.Errorf("резерв потрапив у вимір установи: %+v", r)
+		if r.Dimension != "broker" {
+			continue
+		}
+		switch r.Key {
+		case "сейф", "—":
+			t.Errorf("готівка резерву стала установою: %+v", r)
+		case "mono":
+			mono = r.AmountUAH
+		case "":
+			cash = r.AmountUAH
+			if r.LimitPct != 0 || r.OverUAH != 0 || i != len(doc.Concentration)-1 && doc.Concentration[i+1].Dimension == "broker" {
+				t.Errorf("рядок готівки має бути останнім у вимірі й без ліміту: %+v", r)
 			}
 		}
+	}
+	// 10 паперів × 1000 ₴ номіналу + 5 000 ₴ подушки на картці mono.
+	if mono != 15000 {
+		t.Errorf("mono = %.2f ₴, очікували 15 000 (лот + резерв на картці)", mono)
+	}
+	if cash != 10000 {
+		t.Errorf("готівка = %.2f ₴, очікували 10 000 (сейф)", cash)
 	}
 	for _, d := range []string{"isin", "broker", "year"} {
 		if byDim[d] == 0 {
@@ -3366,13 +3389,6 @@ func TestConcentrationSeesFundsAndCountsSeparateBases(t *testing.T) {
 	if f.Label != "Inzhur" || f.SharePct <= 0 {
 		t.Errorf("рядок фонду зіпсований: %+v", f)
 	}
-	// Резерв — частина капіталу, але не контрагент, тож частки установ у
-	// сумі МЕНШІ за 100%. Це не втрата даних, і саме тому картка каже про
-	// це вголос.
-	if sumBrokerPct >= 100 {
-		t.Errorf("частки установ дали %.2f%% — резерв, схоже, порахований контрагентом", sumBrokerPct)
-	}
-
 	// Рік драбини міряється від УСІХ погашень, а не від капіталу: інакше
 	// портфель, де більшість грошей у фондах, порушував би ліміт завжди.
 	yearSum := 0.0

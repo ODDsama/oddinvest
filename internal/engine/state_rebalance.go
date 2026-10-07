@@ -68,7 +68,10 @@ type rebalanceInput struct {
 	FundRows          []state.FundPositionRow
 	NPFRows           []state.NPFPositionRow
 	BrokerExposureUAH map[string]float64
-	LadderUAH         []state.YearAmount
+	// CashUAH — гроші резерву й цілей БЕЗ установи (готівка, сейф): окремий
+	// рядок виміру «broker» без ліміту. Див. buildRebalance.
+	CashUAH   float64
+	LadderUAH []state.YearAmount
 }
 
 // fillPct — наскільки ціль закрита, %. Нульова ціль дає нуль, а не
@@ -499,6 +502,19 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		for name, v := range in.BrokerExposureUAH {
 			addConc("broker", name, "", v, totalMajor, *set.LimitBrokerPct)
 		}
+		// Готівка — рядком, а не підписом під списком. Без неї частки
+		// установ у сумі не дають 100%, і «24% у найбільшій» читалось би так,
+		// ніби решта грошей загубилась. Ліміту в неї немає: питання виміру —
+		// «скільки я втрачу, якщо установа зникне», а за готівкою установи
+		// немає. Порожній ключ і нульовий ліміт — саме те, що це каже
+		// (контракт); перевищення не буває, тож і сповіщення HA мовчить.
+		if in.CashUAH > 0.005 && totalMajor > 0 {
+			out.Concentration = append(out.Concentration, state.ConcentrationRow{
+				Dimension: "broker", Label: "Готівка, без установи",
+				AmountUAH: state.Major(in.CashUAH, money.UAH),
+				SharePct:  domain.Round2(in.CashUAH / totalMajor * 100),
+			})
+		}
 	}
 	if set.LimitYearPct != nil && *set.LimitYearPct > 0 {
 		// База тут — УСІ погашення, а не капітал: питання «чи рівномірно
@@ -526,6 +542,12 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 		a, b := out.Concentration[i], out.Concentration[j]
 		if a.Dimension != b.Dimension {
 			return a.Dimension < b.Dimension
+		}
+		// Готівка (порожній ключ) — останньою у своєму вимірі, хоч би яка
+		// велика: блок читають як список установ і їхніх лімітів, а рядок
+		// без ліміту на початку забрав би перше місце в того, хто ризикує.
+		if (a.Key == "") != (b.Key == "") {
+			return b.Key == ""
 		}
 		if a.SharePct != b.SharePct {
 			return a.SharePct > b.SharePct

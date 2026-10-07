@@ -50,12 +50,16 @@ func (g Goal) Done() bool { return g.DoneDate != "" }
 //
 // Валюта СВОЯ, а не ціль-ова: на доларову ціль можна відкладати гривнею, і
 // саме тоді курс стає видимим.
+//
+// Bank і Place — те саме, що в ReserveOp: установа з довідника (0069) і
+// вільний підпис поруч.
 type GoalOp struct {
 	ID       int64
 	GoalID   int64
 	Date     domain.Date
 	Amount   int64 // мінорні; + відклав / − узяв
 	Currency string
+	Bank     string
 	Place    string
 	Note     string
 }
@@ -159,9 +163,13 @@ func (s *Store) AddGoalOp(ctx context.Context, op GoalOp) (int64, error) {
 	if err := s.ownsRow(ctx, "goals", op.GoalID); err != nil {
 		return 0, err
 	}
+	bank, err := s.brokerRef(ctx, op.Bank)
+	if err != nil {
+		return 0, err
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO goal_ops
-		(portfolio_id, goal_id, date, amount, currency, place, note) VALUES (?,?,?,?,?,?,?)`,
-		s.pid, op.GoalID, string(op.Date), op.Amount, op.Currency, op.Place, op.Note)
+		(portfolio_id, goal_id, date, amount, currency, broker_id, place, note) VALUES (?,?,?,?,?,?,?,?)`,
+		s.pid, op.GoalID, string(op.Date), op.Amount, op.Currency, bank, op.Place, op.Note)
 	if err != nil {
 		return 0, err
 	}
@@ -178,9 +186,13 @@ func (s *Store) UpdateGoalOp(ctx context.Context, op GoalOp) error {
 	if err := s.ownsRow(ctx, "goals", op.GoalID); err != nil {
 		return err
 	}
+	bank, err := s.brokerRef(ctx, op.Bank)
+	if err != nil {
+		return err
+	}
 	res, err := s.db.ExecContext(ctx, `UPDATE goal_ops SET
-		goal_id=?, date=?, amount=?, currency=?, place=?, note=? WHERE id=? AND portfolio_id=?`,
-		op.GoalID, string(op.Date), op.Amount, op.Currency, op.Place, op.Note, op.ID, s.pid)
+		goal_id=?, date=?, amount=?, currency=?, broker_id=?, place=?, note=? WHERE id=? AND portfolio_id=?`,
+		op.GoalID, string(op.Date), op.Amount, op.Currency, bank, op.Place, op.Note, op.ID, s.pid)
 	if err != nil {
 		return err
 	}
@@ -199,8 +211,10 @@ func (s *Store) DeleteGoalOp(ctx context.Context, id int64) error {
 // /api/summary. Розкласти по цілях умів би й сам виклик, але це вже
 // робота того, кому потрібен зріз.
 func (s *Store) ListGoalOps(ctx context.Context) ([]GoalOp, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, goal_id, date, amount, currency, place, note
-		FROM goal_ops WHERE portfolio_id=? ORDER BY date, id`, s.pid)
+	rows, err := s.db.QueryContext(ctx, `SELECT o.id, o.goal_id, o.date, o.amount, o.currency,
+		COALESCE(b.name, ''), o.place, o.note
+		FROM goal_ops o LEFT JOIN brokers b ON b.id = o.broker_id
+		WHERE o.portfolio_id=? ORDER BY o.date, o.id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +224,7 @@ func (s *Store) ListGoalOps(ctx context.Context) ([]GoalOp, error) {
 		var op GoalOp
 		var dt string
 		if err := rows.Scan(&op.ID, &op.GoalID, &dt, &op.Amount,
-			&op.Currency, &op.Place, &op.Note); err != nil {
+			&op.Currency, &op.Bank, &op.Place, &op.Note); err != nil {
 			return nil, err
 		}
 		op.Date = domain.Date(dt)

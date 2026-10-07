@@ -1532,6 +1532,14 @@
       "limit_pct": 50
     },
     {
+      "dimension": "broker",
+      "key": "",
+      "amount_uah": 5254.01,
+      "share_pct": 33.55,
+      "limit_pct": 0,
+      "label": "Готівка, без установи"
+    },
+    {
       "dimension": "isin",
       "key": "UA4000230114",
       "amount_uah": 3000,

@@ -56,6 +56,10 @@ type goalsBuilt struct {
 	// Дзеркалить ReserveMovedUAH і потрібне тому самому: стеля наповнення
 	// віднімає вже відкладене, інакше порада висіла б незмінною.
 	MovedUAH float64
+	// ByBank — журнал і пул цілей за установою, грн-екв., нетто; ключ "" —
+	// без установи (готівка). Для картки концентрації. Вкладів цілей тут
+	// немає: їхній банк будівник рахує сам, разом з усіма вкладами.
+	ByBank map[string]float64
 }
 
 // buildGoals зводить цілі та їхні журнали.
@@ -71,7 +75,7 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 	deps map[int64][]domain.Deposit, pools earmarkPools,
 	rates fx.Rates, today domain.Date, now time.Time) goalsBuilt {
 
-	out := goalsBuilt{ByCur: map[string]state.Money{}}
+	out := goalsBuilt{ByCur: map[string]state.Money{}, ByBank: map[string]float64{}}
 	if len(goals) == 0 {
 		return out
 	}
@@ -109,8 +113,9 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 		v := float64(u.Amount()) / 100
 		a.uah += v
 		a.byCur[op.Currency] = a.byCur[op.Currency].Add(state.Minor(op.Amount, op.Currency))
-		place := cmp.Or(strings.TrimSpace(op.Place), "—")
+		place := cmp.Or(op.Bank, strings.TrimSpace(op.Place), "—")
 		a.places[place] = a.places[place].Add(state.Major(v, money.UAH))
+		out.ByBank[op.Bank] += v
 		if string(op.Date) > a.lastMove {
 			a.lastMove = string(op.Date)
 		}
@@ -145,6 +150,9 @@ func buildGoals(goals []store.Goal, ops []store.GoalOp,
 		a.uah += uv
 		a.byCur[k.cur] = a.byCur[k.cur].Add(state.Minor(v, k.cur))
 		a.places[k.bank] = a.places[k.bank].Add(state.Major(uv, money.UAH))
+		// Пул — гроші погашеного вкладу, тобто вони в банку, навіть коли
+		// назви банку вклад не мав: «—», як у самого вкладу, а не готівка.
+		out.ByBank[cmp.Or(k.bank, "—")] += uv
 	}
 
 	// Вклади цілі — те саме зібране, лише в іншій формі зберігання, тож

@@ -245,14 +245,36 @@ function accessHTML(r) {
   </div>`;
 }
 
-/** Журнал рухів резерву. */
-/** Поля руху резерву — один список і для запису, і для правки.
+/** Де лежать гроші руху резерву чи цілі: установа й підпис поруч.
  *
- *  Місце — вільний текст навмисно, і це єдине поле-не-посилання серед усіх
- *  мігрованих форм. Резерв лежить не в установі, а «в готівці», «у сейфі»,
- *  «на картці дружини»: заводити для цього довідник означало б вигадати
- *  сутність, якої в житті немає, — так само вирішено й у самій схемі
- *  (міграція 0020 лишає place рядком).
+ *  ДВА ПОЛЯ, А НЕ ОДНЕ (0069). Доти місце було єдиним вільним текстом із
+ *  доводом «за ним нічого не рахується». Тепер рахується: картка «В одній
+ *  установі» питає, скільки я втрачу, якщо банк зникне, і євро подушки на
+ *  картці банку стоїть за ним так само, як строковий вклад. Тому установа —
+ *  посилання на той самий довідник, що й у вкладі, а «інший…» заводить нову.
+ *
+ *  Готівка й сейф — не установа: за ними немає контрагента, тож порожня
+ *  установа означає саме їх, а «Де саме» лишається вільним підписом
+ *  («готівка», «сейф», «картка дружини»). Заводити для них брокера означало
+ *  б вигадати сутність, якої в житті немає.
+ *
+ *  Спільне для резерву й цілей (goals.js): поля в них однакові дослівно. */
+export const placeFields = (ctx, row = null) => [
+  refSelect(ctx, {
+    name: "bank", ref: "broker", label: "Установа", blank: "— без установи (готівка, сейф) —",
+    value: row ? row.bank || "" : "",
+  }),
+  textField("place", "Де саме", {
+    ph: "готівка / сейф / картка", value: row ? row.place || "" : "",
+  }),
+];
+
+/** Клітинка «Місце» журналу: установа, а підпис — сірим поруч. */
+export const placeCell = (o) => (o.bank
+  ? esc(o.bank) + (o.place ? ` <span class="muted">${esc(o.place)}</span>` : "")
+  : esc(o.place || ""));
+
+/** Поля руху резерву — один список і для запису, і для правки.
  *
  *  Правки резерву доти не було, хоча PUT /api/reserve/{id} існував. */
 export const reserveFields = (ctx, row = null) => [
@@ -260,9 +282,7 @@ export const reserveFields = (ctx, row = null) => [
     ph: "5000.00", required: true, value: row ? row.amount.amount : "",
   }),
   refSelect(ctx, { name: "currency", ref: "currency", value: row ? row.amount.currency : "UAH" }),
-  textField("place", "Місце", {
-    ph: "готівка / сейф / картка", value: row ? row.place || "" : "",
-  }),
+  ...placeFields(ctx, row),
   dateField("date", "Дата", row ? { value: row.date } : {}),
   noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
   ...reserveLoanFields(ctx, row),
@@ -324,6 +344,7 @@ export const reserveBody = (f, row = null) => {
   const body = {
     amount: f.amount.value.trim(),
     currency: refValue(f, "currency"),
+    bank: refValue(f, "bank"),
     place: f.place.value.trim(),
     date: f.date.value,
     note: f.note.value.trim(),
@@ -352,7 +373,7 @@ export function reserveJournalHTML(ops) {
           ? (o.repays_loan_id ? "Повернув" : "Відклав")
           : (o.loan_id ? `Позичив (${pct(o.loan_rate_pct || 0)})` : "Узяв")) },
       { key: "amount", label: "Сума", num: true, cell: (o) => fmtMoney(o.amount) },
-      { key: "place", label: "Місце", cell: (o) => esc(o.place || "")
+      { key: "place", label: "Місце", cell: (o) => placeCell(o)
         + (o.note ? ` <span class="muted">${esc(o.note)}</span>` : "") },
       actionsCol("reserve", { label: (o) => "рух резерву від " + o.date }),
     ],

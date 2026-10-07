@@ -306,6 +306,10 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	reserveUAHByCur := map[string]state.Money{}
 	reservePlaces := map[string]state.Money{}
 	reserveLastMove := ""
+	// Резерв за установою, нетто, для картки концентрації; ключ "" — без
+	// установи (готівка). Вклади сюди не йдуть: їхній банк уже в
+	// depositExposureUAH вище, незалежно від прапорця.
+	heldByBank := map[string]float64{}
 	for _, op := range reserveOps {
 		u, cerr := fx.ToUAH(money.New(op.Amount, op.Currency), rates)
 		if cerr != nil {
@@ -315,8 +319,9 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		reserveUAH += v
 		reserveUAHByCur[op.Currency] = reserveUAHByCur[op.Currency].Add(state.Major(v, op.Currency))
 		reserveByCur[op.Currency] = reserveByCur[op.Currency].Add(state.Minor(op.Amount, op.Currency))
-		place := cmp.Or(op.Place, "без місця")
+		place := cmp.Or(op.Bank, op.Place, "без місця")
 		reservePlaces[place] = reservePlaces[place].Add(state.Major(v, money.UAH))
+		heldByBank[op.Bank] += v
 		if string(op.Date) > reserveLastMove {
 			reserveLastMove = string(op.Date)
 		}
@@ -339,6 +344,8 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		reserveUAHByCur[k.cur] = reserveUAHByCur[k.cur].Add(state.Major(uv, k.cur))
 		reserveByCur[k.cur] = reserveByCur[k.cur].Add(state.Minor(v, k.cur))
 		reservePlaces[k.bank] = reservePlaces[k.bank].Add(state.Major(uv, money.UAH))
+		// Пул лежить у банку погашеного вкладу — довід у buildGoals.
+		heldByBank[cmp.Or(k.bank, "—")] += uv
 	}
 	reserveLiquidUAH := reserveUAH
 	// Резервні вклади — друге джерело тієї самої подушки. Вони входять у її
@@ -407,12 +414,32 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// зникне», а на нього відповідає сьогоднішня вартість: номінал
 	// паперів, ринкова вартість сертифікатів і тіло вкладу.
 	//
-	// Резерву тут немає: у нього не брокер, а «місце» (готівка, сейф), і
-	// ризик контрагента до нього не застосовний — у цьому й сенс матраца.
+	// Резерв і цілі тут теж є, коли в руху названа установа (0069): євро
+	// подушки на картці банку зникне разом із банком так само, як вклад у
+	// ньому. Доти журнал мав лише вільне «місце» й у картку не потрапляв
+	// узагалі — разом із тими грошима, що справді лежать у банку. Гроші без
+	// установи (готівка, сейф) контрагента не мають, і їм ліміт не
+	// застосовний; вони йдуть окремим рядком без ліміту (cashUAH).
 	brokerExposureUAH := map[string]float64{}
 	addExposure := func(name string, uah float64) {
 		name = cmp.Or(name, "—")
 		brokerExposureUAH[name] += uah
+	}
+	// Нетто ПО УСТАНОВІ, а вже потім у картку: «поклав на моно, потім зняв
+	// звідти» дає нуль, а не два рядки, і від'ємний залишок (зняв більше,
+	// ніж записав, — одруківка в журналі) не віднімається від чужих грошей.
+	for c, v := range goals.ByBank {
+		heldByBank[c] += v
+	}
+	cashUAH := 0.0
+	for bank, v := range heldByBank {
+		switch {
+		case v <= 0.005:
+		case bank == "":
+			cashUAH = v
+		default:
+			addExposure(bank, v)
+		}
 	}
 
 	// Вкладено по брокерах (грн-екв.): дзеркалить логіку Positions —
@@ -877,7 +904,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		MinDepositUAH: minDepositUAH,
 		NominalByISIN: nominalByISIN, Bonds: bonds, FundRows: fundRows,
 		NPFRows:           npf.Rows,
-		BrokerExposureUAH: brokerExposureUAH, LadderUAH: ladderUAH,
+		BrokerExposureUAH: brokerExposureUAH, CashUAH: cashUAH, LadderUAH: ladderUAH,
 	})
 	rebalance, concentration := rbl.Rebalance, rbl.Concentration
 

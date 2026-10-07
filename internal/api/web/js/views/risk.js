@@ -467,8 +467,18 @@ export function concentrationCard(ctx) {
     const list = rows.filter((r) => r.dimension === dim);
     if (!list.length) return "";
     const [title, unit, why] = CONC_BLOCK[dim];
-    const limit = list[0].limit_pct;
+    // Ліміт — з рядка з ключем: у готівки (порожній ключ) його немає.
+    const limit = (list.find((r) => r.key) || list[0]).limit_pct;
     const items = list.map((r) => {
+      // Готівка, сейф — гроші без установи. Рядок є, щоб частки давали
+      // 100% і було видно, куди ділась решта; смуги немає, бо немає
+      // ліміту, до якого вона росла б (контракт: порожній ключ).
+      if (!r.key) {
+        return `<div class="mb-sm"><div class="kv muted">
+          <span>${esc(r.label)}</span>
+          <span><b>${r.share_pct}%</b> ${fmtUAH(r.amount_uah)}</span>
+        </div><div class="sub-xs">за ними немає установи, яка могла б зникнути, — ліміт не застосовний</div></div>`;
+      }
       const over = r.over_uah > 0;
       // Нуль на нуль давав NaN у ширині смуги.
       const den = Math.max(limit, r.share_pct);
@@ -488,19 +498,15 @@ export function concentrationCard(ctx) {
         ${over ? `<div class="sub-xs t-warn">понад ліміт на ${fmtUAH(r.over_uah)}</div>` : ""}
       </div>`;
     }).join("");
-    // Резерв ні за ким не стоїть — у нього «місце», а не контрагент, — тож
-    // частки установ у сумі й не мусять давати 100%. Без цього рядка
-    // «24% в найбільшій установі» читалось би так, ніби решта грошей
-    // загубилась.
-    const s = ctx.summary || {};
-    const gap = dim === "broker" && s.reserve_uah > 0
-      ? `<div class="sub-xs">Резерв (${fmtUAH(s.reserve_uah)}) сюди не входить: у нього немає
-         контрагента, який міг би зникнути, — тому частки в сумі й не дають 100%.</div>` : "";
+    // Підпису «Резерв сюди не входить» тут більше немає (0069): резерв і
+    // цілі з установою стоять за нею, а готівка — рядком вище. Підпис ще й
+    // завищував суму — брав увесь резерв, хоча резервні вклади вже були
+    // пораховані під своїм банком.
     return `<div class="mb-lg">
       <div class="mb-sm"><b>${title}</b> — ліміт ${limit}${
         unit === "% капіталу" ? "% капіталу" : "% усіх погашень"}
         <span class="muted">· ${why}</span></div>
-      ${items}${gap}</div>`;
+      ${items}</div>`;
   }).join("");
   const broken = rows.filter((r) => r.over_uah > 0).length;
   return `<div class="card"><h2 class="h-row">Концентрація ${infoBtn("concentration")}</h2>
