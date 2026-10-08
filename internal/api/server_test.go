@@ -3316,6 +3316,14 @@ func TestConcentrationSeesFundsAndCountsSeparateBases(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// Фонд, куплений без брокера, — рядок «—», і він мусить казати, ЩО в
+	// ньому: голий прочерк власник не мав чим виправити.
+	if _, err := st.AddFundOp(ctx, domain.FundOp{
+		Date: domain.NewDate(time.Now()).AddDays(-40), Fund: "Безіменний", Kind: domain.FundBuy,
+		Qty: 100, Amount: 200000, Currency: "UAH",
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	var doc struct {
 		Concentration []struct {
@@ -3359,8 +3367,12 @@ func TestConcentrationSeesFundsAndCountsSeparateBases(t *testing.T) {
 			continue
 		}
 		switch r.Key {
-		case "сейф", "—":
+		case "сейф":
 			t.Errorf("готівка резерву стала установою: %+v", r)
+		case "—":
+			if r.Label != "Установу не вказано: фонд Безіменний" {
+				t.Errorf("рядок «—» не каже, що в ньому: %+v", r)
+			}
 		case "mono":
 			mono = r.AmountUAH
 		case "":

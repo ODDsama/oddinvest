@@ -486,7 +486,9 @@ export function concentrationCard(ctx) {
       // Ключ поруч із назвою корисний для облігації (ISIN — те, що шукають
       // у брокера), але для фонду він лише повторює назву: ключ там —
       // службовий «fund:Назва».
-      const showKey = r.label && !r.key.endsWith(r.label);
+      // Рядок «—» (установу не вказано) підписаний тим, ЩО в ньому лежить, —
+      // ключ-прочерк поруч із таким підписом нічого не додає.
+      const showKey = r.label && r.key !== "—" && !r.key.endsWith(r.label);
       return `<div class="mb-sm">
         <div class="kv">
           <span>${esc(r.label || r.key)}${showKey ? ` <span class="muted">${esc(r.key)}</span>` : ""}</span>
@@ -496,6 +498,7 @@ export function concentrationCard(ctx) {
         <div class="progress mt-xs"><span style="--oi-fill:${bar}%;--oi-c:${
           over ? "var(--oi-warn)" : "var(--oi-info)"}"></span></div>
         ${over ? `<div class="sub-xs t-warn">понад ліміт на ${fmtUAH(r.over_uah)}</div>` : ""}
+        ${r.key === "—" ? `<div class="sub-xs">впиши установу в цих записах — і гроші стануть під неї</div>` : ""}
       </div>`;
     }).join("");
     // Підпису «Резерв сюди не входить» тут більше немає (0069): резерв і

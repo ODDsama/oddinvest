@@ -421,8 +421,15 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// установи (готівка, сейф) контрагента не мають, і їм ліміт не
 	// застосовний; вони йдуть окремим рядком без ліміту (cashUAH).
 	brokerExposureUAH := map[string]float64{}
-	addExposure := func(name string, uah float64) {
-		name = cmp.Or(name, "—")
+	// what — ЩО саме лежить без названої установи. Рядок «—» без пояснення
+	// нічого не каже: це не готівка (та окремо), а запис, у якому установу
+	// просто не вказали, — і виправити його можна, лише знаючи, який саме.
+	unnamedUAH := map[string]float64{}
+	addExposure := func(name, what string, uah float64) {
+		if name == "" || name == "—" {
+			name = "—"
+			unnamedUAH[what] += uah
+		}
 		brokerExposureUAH[name] += uah
 	}
 	// Нетто ПО УСТАНОВІ, а вже потім у картку: «поклав на моно, потім зняв
@@ -438,7 +445,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		case bank == "":
 			cashUAH = v
 		default:
-			addExposure(bank, v)
+			addExposure(bank, "гроші погашеного вкладу", v)
 		}
 	}
 
@@ -506,7 +513,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 					investedByBroker[b] = investedByBroker[b].Add(state.Of(u))
 				}
 				if u, uerr := fx.ToUAH(money.New(mvMinor*v/totalBought, pos.Currency), rates); uerr == nil {
-					addExposure(b, float64(u.Amount())/100)
+					addExposure(b, "фонд "+pos.Fund, float64(u.Amount())/100)
 				}
 			}
 		}
@@ -520,11 +527,11 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		}
 		nom := l.Bond.Nominal
 		if u, err := fx.ToUAH(money.New(nom.Amount()*l.Remaining, nom.Currency().Code), rates); err == nil {
-			addExposure(l.Channel, float64(u.Amount())/100)
+			addExposure(l.Channel, "папір "+l.ISIN, float64(u.Amount())/100)
 		}
 	}
 	for bank, v := range depositExposureUAH {
-		addExposure(bank, v)
+		addExposure(bank, "вклад", v)
 	}
 
 	// Розклад, зведений у показники документа (state_schedule.go).
@@ -551,7 +558,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// таблиці рахунків його немає навмисно, бо з нього нічого не списати, і
 	// у випадайках лотів він був би фальшивим рахунком (див. 0028).
 	for _, r := range npf.Rows {
-		addExposure(r.Administrator, r.ValueUAH.Major())
+		addExposure(r.Administrator, "НПФ «"+r.Name+"» (адміністратор)", r.ValueUAH.Major())
 	}
 	// Зведена по портфелю — окремо від фондової: це третє число, а не
 	// уточнення другого, і рахується воно нижче, коли вже відома
@@ -905,6 +912,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		NominalByISIN: nominalByISIN, Bonds: bonds, FundRows: fundRows,
 		NPFRows:           npf.Rows,
 		BrokerExposureUAH: brokerExposureUAH, CashUAH: cashUAH, LadderUAH: ladderUAH,
+		UnnamedUAH: unnamedUAH,
 	})
 	rebalance, concentration := rbl.Rebalance, rbl.Concentration
 

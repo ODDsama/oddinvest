@@ -35,6 +35,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
@@ -72,6 +73,29 @@ type rebalanceInput struct {
 	// рядок виміру «broker» без ліміту. Див. buildRebalance.
 	CashUAH   float64
 	LadderUAH []state.YearAmount
+	// UnnamedUAH — що саме стоїть за рядком «—» (установу не вказано):
+	// «фонд Inzhur», «НПФ «…» (адміністратор)» тощо → грн-екв.
+	UnnamedUAH map[string]float64
+}
+
+// unnamedLabel — підпис рядка «—»: що в ньому, найбільше першим.
+func unnamedLabel(m map[string]float64) string {
+	what := make([]string, 0, len(m))
+	for k, v := range m {
+		if v > 0.005 {
+			what = append(what, k)
+		}
+	}
+	sort.Slice(what, func(i, j int) bool {
+		if m[what[i]] != m[what[j]] {
+			return m[what[i]] > m[what[j]]
+		}
+		return what[i] < what[j]
+	})
+	if len(what) == 0 {
+		return ""
+	}
+	return "Установу не вказано: " + strings.Join(what, ", ")
 }
 
 // fillPct — наскільки ціль закрита, %. Нульова ціль дає нуль, а не
@@ -500,7 +524,11 @@ func buildRebalance(in rebalanceInput) rebalancePhase {
 	}
 	if set.LimitBrokerPct != nil && *set.LimitBrokerPct > 0 {
 		for name, v := range in.BrokerExposureUAH {
-			addConc("broker", name, "", v, totalMajor, *set.LimitBrokerPct)
+			label := ""
+			if name == "—" {
+				label = unnamedLabel(in.UnnamedUAH)
+			}
+			addConc("broker", name, label, v, totalMajor, *set.LimitBrokerPct)
 		}
 		// Готівка — рядком, а не підписом під списком. Без неї частки
 		// установ у сумі не дають 100%, і «24% у найбільшій» читалось би так,
