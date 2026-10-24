@@ -12,8 +12,15 @@
 <!-- «Додати на екран». Маніфест і растрові іконки — усе, що потрібно
      Chrome/Safari для окремого вікна без адресного рядка; service worker
      свідомо не робимо (README: «Чого тут свідомо немає»). Колір смуги
-     системи — той самий #12100f, що й тло нижче. -->
-<link rel="manifest" href="./manifest.webmanifest">
+     системи — той самий #12100f, що й тло нижче.
+
+     crossorigin="use-credentials" — через Cloudflare Access перед
+     доменом. Маніфест браузер тягне з credentials: omit, тобто без
+     cookie CF_Authorization; Access на такий запит відповідає 302 на
+     свою сторінку входу, маніфест не розбирається, і Android замість
+     «Встановити застосунок» робить голий ярлик, що відкривається
+     вкладкою. Без Access атрибут нічого не міняє. -->
+<link rel="manifest" href="./manifest.webmanifest" crossorigin="use-credentials">
 <meta name="theme-color" content="#12100f">
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">

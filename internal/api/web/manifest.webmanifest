@@ -3,6 +3,7 @@
   "short_name": "ODD Invest",
   "description": "Реінвест-асистент: ОВДП, фонди, вклади, НПФ і борг в одному місці",
   "lang": "uk",
+  "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
