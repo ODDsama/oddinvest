@@ -7,18 +7,16 @@
 // бібліотекою карток; складає їх views/plan-view.js.
 
 import {
-  esc, today, dayShift, humanMonths, monthYear, pct, capitalUAH, outsideUAH,
+  esc, today, dayShift, humanMonths, monthYear,
   uah0, uah2 as fmtUAH, money as fmtMoney, TODAY_FX,
 } from "../format.js";
 import { eq } from "../currency.js";
 import { infoBtn } from "../info.js";
-import { needsSetting, empty, legend } from "../components.js";
+import { needsSetting, legend } from "../components.js";
 import { routeFor } from "../routes.js";
 import { svgBars, svgLine, svgBandLine, fluid } from "../charts.js";
 import { PAY_TYPES, PAY_CLASS } from "../constants.js";
-import { CONTRIB, contribTriad } from "../contrib.js";
 import { opsGrid } from "../grid.js";
-import { rateSourceLabel } from "./forecast.js";
 import { pref, wirePrefs } from "../uistate.js";
 import { openAllocate } from "./allocate.js";
 
@@ -87,101 +85,17 @@ export function capitalChartHTML(ctx) {
     ])}</div>`;
 }
 
-// ---------- ПРОЄКЦІЇ (блок вкладки «Майбутнє») ----------
-export function projectionHTML(ctx) {
-  const s = ctx.summary || {};
-  // Старт моделі — увесь капітал МІНУС резерв І МІНУС цілі накопичення. Не
-  // «номінал + рахунок», як тут стояло: це була четверта, власна відповідь
-  // на питання «що таке капітал», і вона не збігалась ні з плиткою
-  // «Капітал», ні з тим, від чого модель насправді відштовхується.
-  //
-  // Обидва віднімаються явно й з одного доводу: вони в капіталі є, але не
-  // інвестуються й не компаундяться. Довід дослівно той самий, з якого їх
-  // віднімає й сам бекенд (p0 у state_projection.go) — без цілей клієнт
-  // малював би старт вище за той, з якого модель насправді рахує.
-  const outside = outsideUAH(s);
-  const P0 = capitalUAH(s) - outside;
-  // Скільки з ЦЬОГО місяця піде повз портфель. Стелі, а не потреби, і те
-  // саме число, що віднімає модель (spendOutside у state_projection.go) на
-  // першому місяці. Далі воно спадає разом із розривами — тому в підписі
-  // сказано «цього місяця», а не «щомісяця».
-  const outsideMonth = ((s.reserve && s.reserve.fill_month_uah) || 0)
-    + (s.goals || []).filter((g) => !g.done_date)
-      .reduce((a, g) => a + (g.fill_month_uah || 0), 0);
-  const C = s.month_target_uah || 0;
-  const rowsData = s.projection || [];
-  const rate = s.projection_rate_pct || 0;
-  // Ставка не вічна, тож у підписі показуємо ШЛЯХ, а не одну цифру:
-  // інакше читач вважає, що воєнні 16-17% закладені на весь горизонт.
-  const term = ((s.forecast || {}).rows || []).find((r) => r.key === "realistic") || {};
-  const gy = (s.forecast || {}).glide_years || 0;
-  // Ставка тут НОМІНАЛЬНА, а суми в таблиці — реальні: знецінення
-  // застосовується всередині моделі, до кожного гривневого рукава
-  // окремо. Без цього слова читач вважав би, що ставку вже приведено, і
-  // приріст здавався б удвічі меншим, ніж модель насправді рахує.
-  //
-  // Звідки ставка — з рядка рукава, а не «за портфелем» наосліп: відколи
-  // старт береться з аукціонів Мінфіну (2026-09-23), «YTM портфеля» тут
-  // була б неправдою про джерело. Рукави можуть мати різні джерела —
-  // тоді їх перелічено через кому.
-  const srcs = [...new Set((term.by_currency || []).map(rateSourceLabel).filter(Boolean))];
-  const from = srcs.length ? ` (${srcs.join(", ")})` : "";
-  const rateSrc = rate <= 0 ? "додай папери — і дохідність порахується сама"
-    : term.rate_terminal_pct && gy > 0 && Math.abs(term.rate_terminal_pct - rate) > 0.05
-      ? `${pct(rate)} номінальних${from} сьогодні → ${pct(term.rate_terminal_pct)} за ${humanMonths(Math.round(gy * 12))}`
-      : `${pct(rate)} номінальних${from}`;
-
-  const hasActual = (s.actual_monthly_uah || 0) > 0;
-  // Колонка «За фактом» з'являється лише тоді, коли факт є: порожня
-  // колонка з прочерками читалась би як «факт нульовий».
-  const projTable = opsGrid({
-    cols: [
-      { key: "years", label: "Горизонт", cell: (r) => `${r.years} р.` },
-      { key: "contributed", label: "Внесено (без %)", num: true,
-        cell: (r) => fmtUAH(r.contributed) },
-      { key: "plan", label: "За планом", num: true, cell: (r) => fmtUAH(r.with_reinvest) },
-      hasActual ? { key: "actual", label: "За фактом", num: true,
-        cell: (r) => fmtUAH(r.with_reinvest_actual || 0) } : null,
-      { key: "gain", label: "Приріст", num: true,
-        cell: (r) => fmtUAH(r.with_reinvest - r.contributed) },
-    ].filter(Boolean),
-    rows: rowsData,
-    caption: "Проєкції капіталу: горизонт, внесено, за планом, приріст",
-  }) || empty("",
-    "Проєкція будується з капіталу й місячної цілі — щойно буде і те, і те, таблиця заповниться сама.",
-    { href: routeFor("policy/strategy/main"), label: "Задати мету капіталу" });
-  // Усі три показники названо своїми іменами й в одному рядку. Доти тут
-  // стояло «(план — C/міс)», де C — це month_target_uah, тобто НЕСТАЧА
-  // понад план: слово «план» позначало число, яке планом не є.
-  const t = contribTriad(ctx);
-  const paceBits = [
-    t.hasActual ? `${CONTRIB.actual.label} <b>${fmtUAH(t.actual)}/міс</b>${
-      t.actualMonths ? ` за ${t.actualMonths} міс історії` : ""}` : "",
-    t.hasPlan ? `${CONTRIB.plan.label} ${fmtUAH(t.plan)}/міс` : "",
-    t.hasGoal ? `${CONTRIB.need.label} ${fmtUAH(t.need)}/міс` : "",
-  ].filter(Boolean);
-  const paceNote = hasActual
-    ? `<div class="muted mb fine">${paceBits.join(" · ")}.</div>`
-    : `<div class="muted mb fine">Прогноз за фактичним темпом зʼявиться після першого поповнення.${
-      paceBits.length ? " " + paceBits.join(" · ") + "." : ""}</div>`;
-
-  return `
-    <div class="card">
-      <h2>Проєкції капіталу</h2>
-      <div class="note">Старт = капітал ${fmtUAH(P0)}${
-        outside > 0 ? ` <b>без резерву й цілей накопичення</b> (${fmtUAH(outside)} не інвестуються, тож і не ростуть — крива стартує нижче за плитку «Капітал» рівно на цю суму)` : ""
-      }, внесок = ${t.hasPlan
-    ? `${fmtUAH(t.plan)}/міс з плану + ${fmtUAH(C)}/міс від тебе`
-    : `${fmtUAH(C)}/міс`}, ставка = ${rateSrc}.${outsideMonth > 0
-    ? ` <b>Але в папери доходить не весь внесок</b>: резерв і цілі беруть своє раніше — цього місяця ${fmtUAH(outsideMonth)}, і в кривій ці гроші не ростуть. Модель віднімає їх щомісяця й перестає, щойно розрив закривається: зібраний резерв і закрита ціль стелі більше не мають, і внесок повертається повним сам. Число «${fmtUAH(t.plan)}/міс з плану» лишається БРУТТО навмисно — це те, що план дає, а не те, що доходить до паперів, і зводити два питання до одного числа означало б утратити обидва.` : ""
-  } Модель: справжні купони й погашення наявних паперів + внески, реінвест під ставку; готівка не працює до реінвесту. Тіло вкладів і сертифікати фондів входять у старт нарівні з номіналом ОВДП: вклад повертається за графіком, сертифікат лежить безстроково й платить дивідендами. Подорожчання сертифіката модель не малює — його ніхто не обіцяв. <b>Ставка номінальна, суми реальні</b>: знецінення застосовується всередині моделі, окремо до кожного валютного рукава, тож усі колонки — у гривні сьогоднішньої купівельної спроможності, міряній курсом до долара (не інфляцією — та рахується лише для цілей накопичення). «Внесено» через це теж знецінюється, і приріст показує, наскільки вкладати вигідніше, ніж просто відкладати. Це припущення, не гарантія.</div>
-      ${paceNote}
-      ${projTable}
-    </div>`;
-  // Картка цілей сюди НЕ входить: розділ малює її сам, першим блоком.
-  // Доки вона висіла хвостом проєкцій, «Майбутнє» показувало її двічі —
-  // саме той дубль, заради якого й затівалось перегрупування.
-}
+// ---------- ПРОЄКЦІЇ ----------
+//
+// Таблиці «Проєкції капіталу» (1 / 3 / 5 / 10 років: внесено, за планом, за
+// фактом, приріст) тут більше НЕМАЄ. Вона відповідала на чотири горизонти
+// з нескінченних, а модель уміє будь-який місяць; тепер це картка
+// «Прогноз капіталу» з повзунком (views/outlook.js, GET /api/outlook) —
+// ті самі серії, та сама модель, і на роках старої таблиці ті самі числа
+// (engine/outlook_test.go це тримає).
+//
+// Поле projection у документі стану лишилось: його читають картка доходу
+// нижче й запасний вигляд «Кривої капіталу» вище.
 
 // ---------- КАЛЕНДАР ----------
 

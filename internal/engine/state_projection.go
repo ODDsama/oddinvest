@@ -865,6 +865,30 @@ func anyNonZero(v []float64) bool {
 	return false
 }
 
+// projectionSpreads — ширина віяла сценаріїв, п.п. ставки й знецінення.
+//
+// Окремою функцією, бо віяло малюють двоє: прогноз до дедлайну мети тут і
+// прогноз за нинішнім темпом (outlook.go). «Гірший ринок» на двох сусідніх
+// картках мусить означати одне й те саме.
+func projectionSpreads(set *state.SettingsDoc) (ratePP, devalPP float64) {
+	ratePP, devalPP = defaultRateSpreadPP, defaultDevalSpreadPP
+	if set.RateSpreadPP != nil && *set.RateSpreadPP >= 0 {
+		ratePP = *set.RateSpreadPP
+	}
+	if set.DevalSpreadPP != nil && *set.DevalSpreadPP >= 0 {
+		devalPP = *set.DevalSpreadPP
+	}
+	return ratePP, devalPP
+}
+
+// projectionStart — із чого стартує проєкція: капітал без резерву, цілей
+// накопичення й накопиченого купона. Довід — там, де це число вживається
+// в buildProjection; тут воно лише має одне означення на обох читачів.
+func projectionStart(c state.Capital) float64 {
+	return c.TotalUAH() - c.ReserveUAH.Major() - c.GoalsUAH.Major() -
+		c.BondsAccruedUAH.Major() - c.DepositsAccruedUAH.Major()
+}
+
 // buildProjection рахує криву капіталу, місячний план і віяло прогнозів.
 func buildProjection(in projectionInput) projectionPhase {
 	out := projectionPhase{TargetUAH: money.New(0, money.UAH)}
@@ -889,13 +913,7 @@ func buildProjection(in projectionInput) projectionPhase {
 	// стояли константами. Доти «песимістично» означало рівно те, що хтось
 	// одного разу вирішив за користувача, і змінити це можна було лише
 	// перезбіркою.
-	rateSpreadPP, devalSpreadPP := defaultRateSpreadPP, defaultDevalSpreadPP
-	if in.Settings.RateSpreadPP != nil && *in.Settings.RateSpreadPP >= 0 {
-		rateSpreadPP = *in.Settings.RateSpreadPP
-	}
-	if in.Settings.DevalSpreadPP != nil && *in.Settings.DevalSpreadPP >= 0 {
-		devalSpreadPP = *in.Settings.DevalSpreadPP
-	}
+	rateSpreadPP, devalSpreadPP := projectionSpreads(in.Settings)
 
 	if sl := buildSleeves(0, 0); len(sl) > 0 {
 		var w, wr, wreal float64
@@ -1009,8 +1027,7 @@ func buildProjection(in projectionInput) projectionPhase {
 	// Накопичений купон — так само геть: симуляція заплатить його повним
 	// купоном у дату виплати, і старт, що вже містить його частину,
 	// порахував би ці гроші двічі (state.Capital.BondsAccruedUAH).
-	p0 := in.Capital.TotalUAH() - in.Capital.ReserveUAH.Major() - in.Capital.GoalsUAH.Major() -
-		in.Capital.BondsAccruedUAH.Major() - in.Capital.DepositsAccruedUAH.Major()
+	p0 := projectionStart(in.Capital)
 	out.Rows = make([]state.ProjectionRow, 0, 4)
 	for _, y := range []int{1, 3, 5, 10} {
 		m := y * 12

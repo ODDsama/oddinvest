@@ -1673,8 +1673,18 @@ td.num .sale-f { text-align: right; }
    картку. Ширина в ch, а не px: міряти рядок тексту символами природніше,
    і при іншому кеглі вона лишається тією самою. */
 .chart-tip .tip-note { white-space: normal; max-width: 30ch; }
+/* Маркер вибраної точки (svgBandLine) лежить ПІД смугами влучання за
+   порядком малювання, але кружок міг би перехопити мишу, якби порядок
+   колись змінився — тож подій він не бере взагалі. */
+.chart-mark { pointer-events: none; }
 /* Смуга наведення невидима, але курсор має показувати, що тут щось є. */
 .chart-hit { cursor: crosshair; }
+
+/* Повзунок (fields.js range): підпис ліворуч, доріжка на решту ширини.
+   Рамку, тло й поля спільного правила полів знято — у повзунка коробки
+   немає, і з ними він виглядав би як порожнє поле вводу з рискою. */
+.range-row { display: flex; flex-direction: row; align-items: center; gap: var(--oi-gap-lg); margin: var(--oi-gap-lg) 0 var(--oi-gap-sm); color: var(--oi-muted); font-size: var(--oi-fs); }
+.range-row input[type="range"] { flex: 1 1 auto; min-width: 0; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: none; accent-color: var(--oi-accent); }
 
 .h-row { display: flex; align-items: center; }
 

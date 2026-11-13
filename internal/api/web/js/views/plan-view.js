@@ -34,10 +34,11 @@ import { infoBtn } from "../info.js";
 import { wireDisclosures } from "../disclosure.js";
 import { sym } from "../currency.js";
 import {
-  income12mChartHTML, capitalChartHTML, projectionHTML, incomeHTML, drawdownHTML,
+  income12mChartHTML, capitalChartHTML, incomeHTML, drawdownHTML,
   renderCalendar, calendarPlaceholderHTML,
 } from "./future.js";
 import { goalsHTML } from "./forecast.js";
+import { outlookHTML, wireOutlook } from "./outlook.js";
 import { planVerdictHTML, profileHTML, planVsFactHTML } from "./plan-cards.js";
 import {
   planFlowsListHTML, planFlowFormHTML, revisionsHTML, wirePlanFlows,
@@ -99,7 +100,12 @@ export async function inflow(ctx, main) {
 
 /** Куди це йде: ціль, дохід із наявного, проєкції на роки вперед. */
 export async function goal(ctx, main) {
-  const timeline = await ctx.soft("plan", null);
+  // Прогноз за темпом доїжджає окремим запитом (361 точка — не для
+  // документа стану, довід у engine/outlook.go); обидва йдуть разом, бо
+  // один одного не чекають.
+  const [timeline, outlook] = await Promise.all([
+    ctx.soft("plan", null), ctx.soft("outlook", null),
+  ]);
   main.innerHTML = `
     ${planVerdictHTML(ctx, timeline)}
     ${goalsHTML(ctx)}
@@ -108,9 +114,10 @@ export async function goal(ctx, main) {
       ${income12mChartHTML(ctx)}
       ${capitalChartHTML(ctx)}
     </div>
-    ${projectionHTML(ctx)}
+    ${outlookHTML(ctx, outlook)}
     ${drawdownHTML(ctx)}`;
   wireDisclosures(main);
+  wireOutlook(main);
 }
 
 /** Маршрут грошей: куди піде кожне майбутнє надходження.

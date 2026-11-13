@@ -93,6 +93,40 @@ func (e *Engine) BuildState(ctx context.Context, now time.Time) (*state.Doc, err
 // публікується в MQTT і щодня лягає в знімок, і якби гіпотезу приймав
 // САМ BuildState, рано чи пізно хтось опублікував би вигадку як стан.
 func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothetical) (*state.Doc, error) {
+	return e.buildState(ctx, now, what, nil)
+}
+
+// projectionTap — вхід проєкції, яким його зібрав будівник стану, для
+// читача, що проганяє ту саму модель на іншому горизонті (outlook.go).
+//
+// Вихідним параметром, а не другою збіркою: вхід проєкції складається з
+// двох десятків проміжних результатів будівника, і зібраний удруге він
+// розійшовся б із першим на першій же правці — рівно так, як сюди роками
+// не потрапляли то вклади, то фонди.
+type projectionTap struct {
+	in projectionInput
+	// contribM — плановий внесок, виведений із мети й дедлайну: лінія «за
+	// планом» мусить іти тим самим внеском, що й таблиця projection.
+	contribM float64
+	// moves — зовнішні гроші портфеля, ті самі, з яких рахується темп.
+	moves []moneyMove
+}
+
+// realProjectionTap — вхід проєкції РЕАЛЬНОГО стану, без гіпотези.
+//
+// Живе тут, а не при читачеві (outlook.go), через межу whatif-boundary:
+// слово Hypothetical поза цим файлом — сигнал, що гіпотеза протікає повз
+// BuildStateWith. Читачеві вона й не потрібна, тож порожню гіпотезу
+// називає той, кому це дозволено.
+func (e *Engine) realProjectionTap(ctx context.Context, now time.Time) (projectionTap, error) {
+	var tap projectionTap
+	_, err := e.buildState(ctx, now, Hypothetical{}, &tap)
+	return tap, err
+}
+
+// buildState — тіло BuildStateWith. tap == nil для всіх, кому потрібен
+// лише документ.
+func (e *Engine) buildState(ctx context.Context, now time.Time, what Hypothetical, tap *projectionTap) (*state.Doc, error) {
 	today := domain.NewDate(now)
 	// Усі читання сховища — одним місцем (state_sources.go).
 	src, err := e.loadSources(ctx, today)
@@ -858,7 +892,7 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 	// інструментів одразу, і серед сотні локальних змінних цього не було
 	// видно — саме тому сюди роками не потрапляли то вклади, то фонди.
 	_, cardDue0 := debtDueParts(src, rates, today, 0)
-	prj := buildProjection(projectionInput{
+	prjIn := projectionInput{
 		Capital: capital, Cashflow: withoutEarmarked(cashflow, termDeposits), Settings: settings,
 		NominalByCur:     nominalByCur,
 		DepositBodyByCur: depositBodyByCur,
@@ -888,7 +922,11 @@ func (e *Engine) BuildStateWith(ctx context.Context, now time.Time, what Hypothe
 		CardDueUAH:            cardDue0,
 		CardLeftUAH:           cardLeftUAH(src, rates, today),
 		PlannedByMonth:        plannedByMonth(src, rates, today),
-	})
+	}
+	prj := buildProjection(prjIn)
+	if tap != nil {
+		tap.in, tap.contribM, tap.moves = prjIn, prj.ContribM, externalMovesFrom(flows, src)
+	}
 	// target — місячний план. Не читається з налаштувань: виводиться з
 	// цілі й дедлайну (див. state_projection.go).
 	target := prj.TargetUAH

@@ -255,6 +255,11 @@ func MonthsToReachSleeves(sleeves []Sleeve, devalPct, target float64, maxMonths 
 type SeriesPoint struct {
 	Month int
 	UAH   float64
+	// NominalUAH — та сама точка в гривні СВОГО місяця: скільки буде
+	// намальовано на рахунку (SleeveResult.NominalUAH, але на кожному
+	// зрізі). Потрібна прогнозу з повзунком: головне число там у
+	// сьогоднішніх гривнях, а поруч стоїть «на рахунку буде».
+	NominalUAH float64
 }
 
 // ProjectSleevesSeries — та сама симуляція, що й ProjectSleeves, але з
@@ -284,21 +289,22 @@ func ProjectSleevesSeries(sleeves []Sleeve, devalPct float64, months, step int) 
 	for i, s := range sleeves {
 		sts[i] = s.newState()
 	}
-	totalToday := func(m int) float64 {
-		sum := 0.0
+	at := func(m int) SeriesPoint {
+		p := SeriesPoint{Month: m}
 		for i, s := range sleeves {
-			today, _ := s.toUAH(sts[i].total(), dM, m)
-			sum += today
+			today, nominal := s.toUAH(sts[i].total(), dM, m)
+			p.UAH += today
+			p.NominalUAH += nominal
 		}
-		return sum
+		return p
 	}
-	out := []SeriesPoint{{Month: 0, UAH: totalToday(0)}}
+	out := []SeriesPoint{at(0)}
 	for m := 1; m <= months; m++ {
 		for i, s := range sleeves {
 			sts[i].stepSleeve(s, m, s.contribAt(m, dM))
 		}
 		if m%step == 0 || m == months {
-			out = append(out, SeriesPoint{Month: m, UAH: totalToday(m)})
+			out = append(out, at(m))
 		}
 	}
 	return out

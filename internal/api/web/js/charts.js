@@ -279,8 +279,20 @@ export function svgLine(xlabels, series, {
  *
  *  bands: {lo, hi} — значення нижньої й верхньої межі коридору (може
  *  бути порожньо). lines: [{color, values, dash}]. goal — число або 0.
- *  xlabels — підписи, порожній рядок = мітки немає. */
-export function svgBandLine(xlabels, bands, lines, goal, { W = W0, H = H0 } = {}) {
+ *  xlabels — підписи, порожній рядок = мітки немає.
+ *
+ *  hits і mark — для прогнозу з повзунком (views/outlook.js). hits малює
+ *  смуги влучання під підказку; mark — індекс вибраної точки: вертикаль і
+ *  кружок на ПЕРШІЙ лінії. Обидва типово вимкнені, тож «Крива капіталу»
+ *  малюється як малювалась.
+ *
+ *  Смуги тут БЕЗ tabindex, на відміну від svgLine, і це не недогляд: точок
+ *  у прогнозі до 361, і стільки зупинок Tab зробили б сторінку
+ *  непрохідною. З клавіатури той самий місяць вибирає повзунок поруч —
+ *  він і є доступний шлях до чисел. */
+export function svgBandLine(xlabels, bands, lines, goal, {
+  W = W0, H = H0, hits = false, mark = -1,
+} = {}) {
   const n = Math.max(1, xlabels.length);
   // Ціль входить у масштаб: інакше лінія цілі вилітала б за полотно, і
   // «не дотягуємо» виглядало б як «дотягуємо».
@@ -310,7 +322,82 @@ export function svgBandLine(xlabels, bands, lines, goal, { W = W0, H = H0 } = {}
   out += xlabels.map((l, i) => l
     ? `<text x="${X(i).toFixed(1)}" y="${H - 10}" text-anchor="${xAnchor(X(i), Pl, W - Pr)}" font-size="${FS}" fill="${AXIS}">${esc(l)}</text>`
     : "").join("");
+
+  const lead = lines[0];
+  if (lead && mark >= 0 && mark < n) {
+    const mx = X(mark).toFixed(1), my = Y(lead.values[mark] || 0).toFixed(1);
+    out += `<g class="chart-mark">`
+      + `<line x1="${mx}" y1="${Pt}" x2="${mx}" y2="${Pt + ih}" stroke="${AXIS}" stroke-width="1"/>`
+      + `<circle cx="${mx}" cy="${my}" r="4" fill="${lead.color}" stroke="var(--oi-surface)" stroke-width="1.5"/></g>`;
+  }
+  if (hits && lead && n > 1) {
+    const bw = iw / (n - 1);
+    for (let i = 0; i < n; i++) {
+      const hx = Math.max(Pl, X(i) - bw / 2);
+      // data-x / data-y — куди стане маркер, якщо вибрати цю точку
+      // (moveBandMark): геометрію знає лише той, хто малював.
+      out += `<rect class="chart-hit" data-i="${i}" data-x="${X(i).toFixed(1)}"`
+        + ` data-y="${Y(lead.values[i] || 0).toFixed(1)}" x="${hx.toFixed(1)}" y="${Pt}"`
+        + ` width="${Math.min(bw, W - Pr - hx).toFixed(1)}" height="${ih}" fill="transparent"/>`;
+    }
+  }
   return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">${out}</svg>`;
+}
+
+/** Пересунути маркер svgBandLine на точку i без перемальовування.
+ *
+ *  Повзунок шле подію на кожен піксель руху, і малювати заново полотно з
+ *  трьома сотнями точок заради однієї вертикалі — зайве. Координати
+ *  лежать на смузі влучання тієї самої точки, тож рахувати нічого не
+ *  доводиться. false — маркера чи точки немає (графік ще не намальовано
+ *  або точка поза його вікном): викликач тоді перемальовує. */
+export function moveBandMark(svg, i) {
+  const hit = svg && svg.querySelector(`.chart-hit[data-i="${i}"]`);
+  const g = svg && svg.querySelector(".chart-mark");
+  if (!hit || !g) return false;
+  const line = g.querySelector("line"), dot = g.querySelector("circle");
+  line.setAttribute("x1", hit.dataset.x);
+  line.setAttribute("x2", hit.dataset.x);
+  dot.setAttribute("cx", hit.dataset.x);
+  dot.setAttribute("cy", hit.dataset.y);
+  return true;
+}
+
+/** Стовпчики зі знаком і лінією середнього: темп поповнень по місяцях.
+ *
+ *  Окремо від svgBars, бо той не знає ні від'ємних значень (місяць, коли з
+ *  портфеля забрали більше, ніж внесли, мусить піти ВНИЗ від нуля, а не
+ *  зникнути), ні осі Y, ні орієнтира. Довчити його означало б три прапорці
+ *  й зламані підписи двом наявним викликам.
+ *
+ *  items: [{label, value, faint}] — faint малює блідо (місяць поза вікном,
+ *  з якого виміряно середнє). avg — рівень пунктиру; 0 = лінії немає. */
+export function svgPaceBars(items, avg, { W = W0, H = H0 } = {}) {
+  const n = Math.max(1, items.length);
+  const scale = niceScale(items.map((it) => it.value).concat([avg || 0]), { zero: true });
+  const Pl = axisWidth(scale.ticks, compact), Pr = 12, Pt = 14, Pb = 28;
+  const iw = W - Pl - Pr, ih = H - Pt - Pb;
+  const Y = (v) => Pt + ih - ((v - scale.lo) / (scale.hi - scale.lo)) * ih;
+  const gap = iw / n, bw = Math.min(46, gap * 0.62), y0 = Y(0);
+  let out = axisY(scale, Pl, W - Pr, Y, compact), hitRects = "";
+  items.forEach((it, i) => {
+    const x = Pl + gap * i + (gap - bw) / 2, y = Y(it.value);
+    out += `<rect x="${x.toFixed(1)}" y="${Math.min(y, y0).toFixed(1)}" width="${bw.toFixed(1)}"`
+      + ` height="${Math.abs(y - y0).toFixed(1)}"`
+      + ` fill="${it.value < 0 ? "var(--oi-danger)" : "var(--oi-series-invested)"}"`
+      + `${it.faint ? ` fill-opacity="0.35"` : ""}/>`;
+    out += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 10}" text-anchor="middle" font-size="${FS}" fill="${AXIS}">${esc(it.label)}</text>`;
+    hitRects += `<rect class="chart-hit" data-i="${i}" tabindex="0" role="button"`
+      + ` aria-label="${esc(it.label)}" x="${(Pl + gap * i).toFixed(1)}" y="${Pt}"`
+      + ` width="${gap.toFixed(1)}" height="${ih}" fill="transparent"/>`;
+  });
+  if (avg > 0) {
+    const y = Y(avg).toFixed(1);
+    out += `<line x1="${Pl}" y1="${y}" x2="${W - Pr}" y2="${y}" stroke="var(--oi-series-plan)"`
+      + ` stroke-width="1.5" stroke-dasharray="5 3"/>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" role="img"`
+    + ` aria-label="Темп по місяцях"><title>Темп по місяцях</title>${out}${hitRects}</svg>`;
 }
 
 /** Профіль надходжень: скільки ₴/міс заходить у кожен місяць горизонту.

@@ -300,6 +300,8 @@ func (s *Server) routes() *http.ServeMux {
 	// би з цим портфелем рух курсу, який уже був». GET, бо тіла від
 	// людини немає — вхід виводиться з власної історії (довід у шапці).
 	mux.HandleFunc("GET /api/fx-shock", s.handleFXShock)
+	// Прогноз за нинішнім темпом на довільний місяць (engine/outlook.go).
+	mux.HandleFunc("GET /api/outlook", s.handleOutlook)
 	mux.HandleFunc("GET /api/snapshots", s.handleSnapshots)
 	mux.HandleFunc("GET /api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("GET /api/backup", s.handleBackupExport)
