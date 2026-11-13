@@ -283,20 +283,31 @@ export function svgLine(xlabels, series, {
  *
  *  hits і mark — для прогнозу з повзунком (views/outlook.js). hits малює
  *  смуги влучання під підказку; mark — індекс вибраної точки: вертикаль і
- *  кружок на ПЕРШІЙ лінії. Обидва типово вимкнені, тож «Крива капіталу»
- *  малюється як малювалась.
+ *  кружок на ПЕРШІЙ лінії. areas: [{color, values}] — складені смуги під
+ *  лініями: розріз тієї самої загальної лінії (за валютами, за видами).
+ *  Усе типово вимкнене, тож «Крива капіталу» малюється як малювалась.
  *
  *  Смуги тут БЕЗ tabindex, на відміну від svgLine, і це не недогляд: точок
  *  у прогнозі до 361, і стільки зупинок Tab зробили б сторінку
  *  непрохідною. З клавіатури той самий місяць вибирає повзунок поруч —
  *  він і є доступний шлях до чисел. */
 export function svgBandLine(xlabels, bands, lines, goal, {
-  W = W0, H = H0, hits = false, mark = -1,
+  W = W0, H = H0, hits = false, mark = -1, areas = [],
 } = {}) {
   const n = Math.max(1, xlabels.length);
+  // Складені смуги: кожна лягає на суму попередніх. Верх стосу — це
+  // загальна лінія (сума смуг дорівнює їй за побудовою на бекенді), тож у
+  // масштаб він входить і без неї — на випадок, коли лінію не малюють.
+  const stack = [];
+  let base = new Array(n).fill(0);
+  for (const a of areas) {
+    const top = base.map((b, i) => b + (a.values[i] || 0));
+    stack.push({ color: a.color, lo: base, hi: top });
+    base = top;
+  }
   // Ціль входить у масштаб: інакше лінія цілі вилітала б за полотно, і
   // «не дотягуємо» виглядало б як «дотягуємо».
-  const all = lines.flatMap((s) => s.values).concat(bands.hi || [], [goal || 0]);
+  const all = lines.flatMap((s) => s.values).concat(bands.hi || [], [goal || 0], areas.length ? base : []);
   const scale = niceScale(all, { zero: true });
   // Місце під числа осі — з них самих, як у svgLine.
   const Pl = axisWidth(scale.ticks, compact), Pr = 12, Pt = 14, Pb = 28;
@@ -305,6 +316,11 @@ export function svgBandLine(xlabels, bands, lines, goal, {
   const Y = (v) => Pt + ih - ((v - scale.lo) / (scale.hi - scale.lo)) * ih;
   let out = axisY(scale, Pl, W - Pr, Y, compact);
 
+  for (const s of stack) {
+    const up = s.hi.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`);
+    const down = s.lo.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).reverse();
+    out += `<polygon points="${up.concat(down).join(" ")}" fill="${s.color}" opacity="0.55"/>`;
+  }
   if ((bands.lo || []).length && (bands.hi || []).length) {
     const up = bands.hi.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`);
     const down = bands.lo.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).reverse();

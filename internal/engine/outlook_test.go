@@ -8,6 +8,7 @@ import (
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
+	"github.com/ODDsama/oddinvest/internal/state"
 )
 
 // outlookFixture — вхід із темпом і метою, та сама пара «проєкція +
@@ -17,7 +18,165 @@ func outlookFixture(t *testing.T, actual float64) (projectionPhase, *OutlookDoc)
 	in := forecastInput(t, goalSettings("", "2030-07-15"))
 	in.ActualMonthly = actual
 	prj := buildProjection(in)
-	return prj, buildOutlook(projectionTap{in: in, contribM: prj.ContribM}, OutlookMonths)
+	return prj, buildOutlook(projectionTap{in: in, contribM: prj.ContribM}, OutlookMonths, OutlookPortfolio)
+}
+
+// mixedInput — портфель із усіх кошиків одразу: ОВДП, вклад, фонд і резерв.
+// Потрібен розрізам: на портфелі з одного фонду кожна смуга, крім однієї,
+// була б нульовою, і тест сходився б сам із собою.
+func mixedInput(t *testing.T) projectionInput {
+	t.Helper()
+	in := forecastInput(t, goalSettings("", "2030-07-15"))
+	in.ActualMonthly = 5_000
+	in.NominalByCur = map[string]int64{money.UAH: 5_000_000} // 50 000 ₴ номіналу
+	in.DepositBodyByCur = map[string]float64{money.UAH: 25_000}
+	in.Capital.BondsUAH = state.Major(50_000, money.UAH)
+	in.Capital.DepositsUAH = state.Major(25_000, money.UAH)
+	in.Capital.ReserveUAH = state.Major(40_000, money.UAH)
+	in.Capital.ReserveByCur = map[string]state.Money{money.UAH: state.Major(40_000, money.UAH)}
+	return in
+}
+
+func bandOf(bands []OutlookBand, key string) *OutlookBand {
+	for i := range bands {
+		if bands[i].Key == key {
+			return &bands[i]
+		}
+	}
+	return nil
+}
+
+// СМУГИ СХОДЯТЬСЯ ДО ЛІНІЇ. Графік малює їх складеними одна на одну під
+// загальною лінією, а плитки показують числа смуг поруч із головним — тож
+// у кожному з трьох розрізів і в обох обсягах сума смуг мусить бути самою
+// лінією в кожній точці.
+func TestOutlookBandsSumToLine(t *testing.T) {
+	in := mixedInput(t)
+	bonds, funds := 60.0, 20.0
+	in.Settings.TargetBondsPct, in.Settings.TargetFundsPct = &bonds, &funds
+	for _, scope := range OutlookScopes {
+		doc := buildOutlook(projectionTap{in: in}, OutlookMonths, scope)
+		for name, bands := range map[string][]OutlookBand{
+			"валюти": doc.ByCurrency, "походження": doc.ByOrigin, "види": doc.ByKind,
+		} {
+			// У фікстурі одна валюта, тож у розрізі за валютами смуга одна
+			// (в «усіх грошах» — ще резерв); решта мусить мати кілька.
+			if len(bands) == 0 || (name != "валюти" && len(bands) < 2) {
+				t.Fatalf("%s/%s: смуг %d — тест нічого не перевірив", scope, name, len(bands))
+			}
+			for i, p := range doc.Points {
+				sum := 0.0
+				for _, b := range bands {
+					sum += b.Values[i].Major()
+				}
+				// Кожна смуга округлена до копійки окремо.
+				if d := math.Abs(sum - p.Amount.Major()); d > 0.01*float64(len(bands)+1) {
+					t.Fatalf("%s/%s, міс %d: смуги в сумі %.2f, а лінія %.2f",
+						scope, name, p.Month, sum, p.Amount.Major())
+				}
+			}
+		}
+	}
+}
+
+// «Усі гроші» додає резерв і цілі — і нічого більше. Різниця між двома
+// обсягами в кожній точці мусить бути рівно смугою outside, а старт —
+// усім капіталом, тим самим числом, що на плитці «Капітал».
+func TestOutlookScopeAllAddsOnlyOutside(t *testing.T) {
+	in := mixedInput(t)
+	port := buildOutlook(projectionTap{in: in}, OutlookMonths, OutlookPortfolio)
+	all := buildOutlook(projectionTap{in: in}, OutlookMonths, OutlookAll)
+
+	if bandOf(port.ByOrigin, bandOutside) != nil {
+		t.Error("у портфельному обсязі зʼявилась смуга резерву")
+	}
+	out := bandOf(all.ByOrigin, bandOutside)
+	if out == nil {
+		t.Fatal("в «усіх грошах» немає смуги резерву й цілей")
+	}
+	if d := math.Abs(all.Start.Major() - in.Capital.TotalUAH()); d > 0.01 {
+		t.Errorf("старт «усіх грошей» %.2f, а весь капітал %.2f", all.Start.Major(), in.Capital.TotalUAH())
+	}
+	if out.Values[0].Major() != 40_000 {
+		t.Errorf("резерв на старті %.2f, а внесено 40 000", out.Values[0].Major())
+	}
+	// Гривневий резерв знецінюється: за десять років він коштує менше.
+	if out.Values[120].Major() >= out.Values[0].Major() {
+		t.Errorf("гривня під матрацом не знецінилась: %.2f → %.2f",
+			out.Values[0].Major(), out.Values[120].Major())
+	}
+	for i := range all.Points {
+		a, p := all.Points[i], port.Points[i]
+		if d := math.Abs(a.Amount.Major() - p.Amount.Major() - out.Values[i].Major()); d > 0.02 {
+			t.Fatalf("міс %d: різниця обсягів %.2f, а смуга резерву %.2f",
+				a.Month, a.Amount.Major()-p.Amount.Major(), out.Values[i].Major())
+		}
+		// Наросле від резерву не залежить: він не росте.
+		if d := math.Abs(a.Gain.Major() - p.Gain.Major()); d > 0.02 {
+			t.Fatalf("міс %d: резерв змінив «наросло»: %.2f проти %.2f", a.Month, a.Gain.Major(), p.Gain.Major())
+		}
+		if d := math.Abs(a.Income.Major() - p.Income.Major()); d > 0.001 {
+			t.Fatalf("міс %d: резерв змінив дохід", a.Month)
+		}
+	}
+}
+
+// Нові гроші за видами — за частками стратегії, і лише за ними. Без
+// часток вони стоять окремою смугою «new»; із частками 60 / 20 ця смуга
+// зникає, а її гроші лягають у ОВДП і фонди як 75 / 25.
+func TestOutlookKindSplitFollowsStrategy(t *testing.T) {
+	in := mixedInput(t)
+	bare := buildOutlook(projectionTap{in: in}, OutlookMonths, OutlookPortfolio)
+	fresh := bandOf(bare.ByKind, bandNew)
+	if fresh == nil || len(bare.Strategy) != 0 {
+		t.Fatalf("без часток нові гроші мусять стояти окремо: %+v", bare.Strategy)
+	}
+
+	bonds, funds := 60.0, 20.0
+	in.Settings.TargetBondsPct, in.Settings.TargetFundsPct = &bonds, &funds
+	doc := buildOutlook(projectionTap{in: in}, OutlookMonths, OutlookPortfolio)
+	if bandOf(doc.ByKind, bandNew) != nil {
+		t.Error("частки задано, а смуга «new» лишилась")
+	}
+	if len(doc.Strategy) != 2 || doc.Strategy[0].Pct != 75 || doc.Strategy[1].Pct != 25 {
+		t.Fatalf("частки не знормовано до 75/25: %+v", doc.Strategy)
+	}
+	const m = 120
+	if fresh.Values[m].Major() <= 0 {
+		t.Fatal("тест нічого не перевірив — нових грошей за десять років немає")
+	}
+	for key, share := range map[string]float64{kindBonds: 0.75, kindFunds: 0.25, kindDeposits: 0} {
+		got := bandOf(doc.ByKind, key).Values[m].Major() - bandOf(bare.ByKind, key).Values[m].Major()
+		want := fresh.Values[m].Major() * share
+		if math.Abs(got-want) > 0.02 {
+			t.Errorf("%s: з нових грошей дісталось %.2f, а за часткою %.0f%% мало бути %.2f",
+				key, got, share*100, want)
+		}
+	}
+}
+
+// «На чому засновано» називає ті самі рукави, якими пораховано лінію:
+// внески по валютах у сумі дають темп, а суми на старті — старт моделі.
+func TestOutlookSleevesDescribeTheLine(t *testing.T) {
+	in := mixedInput(t)
+	doc := buildOutlook(projectionTap{in: in}, OutlookMonths, OutlookPortfolio)
+	if len(doc.Sleeves) == 0 {
+		t.Fatal("рукавів немає")
+	}
+	var contrib, have float64
+	for _, s := range doc.Sleeves {
+		contrib += s.ContribMonthly.Major()
+		have += s.Amount.Major() // лише гривня у фікстурі
+		if s.RatePct <= 0 || s.RateSource == "" {
+			t.Errorf("%s: ставка без числа чи джерела: %+v", s.Currency, s)
+		}
+	}
+	if math.Abs(contrib-in.ActualMonthly) > 0.01 {
+		t.Errorf("внески рукавів %.2f, а темп %.2f", contrib, in.ActualMonthly)
+	}
+	if math.Abs(have-doc.Points[0].Amount.Major()) > 0.01 {
+		t.Errorf("у рукавах на старті %.2f, а лінія починається з %.2f", have, doc.Points[0].Amount.Major())
+	}
 }
 
 // ГОЛОВНИЙ ТЕСТ. Прогноз із повзунком не має власної арифметики: на тих
@@ -65,7 +224,7 @@ func TestOutlookIncomeMatchesProjectionAndIndependence(t *testing.T) {
 	in := forecastInput(t, set)
 	in.ActualMonthly = 5_000
 	prj := buildProjection(in)
-	doc := buildOutlook(projectionTap{in: in, contribM: prj.ContribM}, OutlookMonths)
+	doc := buildOutlook(projectionTap{in: in, contribM: prj.ContribM}, OutlookMonths, OutlookPortfolio)
 
 	for _, row := range prj.Rows {
 		pt := doc.Points[row.Years*12]

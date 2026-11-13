@@ -38,7 +38,7 @@ import {
   renderCalendar, calendarPlaceholderHTML,
 } from "./future.js";
 import { goalsHTML } from "./forecast.js";
-import { outlookHTML, wireOutlook } from "./outlook.js";
+import { outlookHTML, outlookScope, wireOutlook } from "./outlook.js";
 import { planVerdictHTML, profileHTML, planVsFactHTML } from "./plan-cards.js";
 import {
   planFlowsListHTML, planFlowFormHTML, revisionsHTML, wirePlanFlows,
@@ -104,7 +104,7 @@ export async function goal(ctx, main) {
   // документа стану, довід у engine/outlook.go); обидва йдуть разом, бо
   // один одного не чекають.
   const [timeline, outlook] = await Promise.all([
-    ctx.soft("plan", null), ctx.soft("outlook", null),
+    ctx.soft("plan", null), ctx.soft(`outlook?scope=${outlookScope()}`, null),
   ]);
   // «Пасивний дохід» стоїть одразу під прогнозом капіталу, а не над
   // графіками, як доти: обидва ходять за одним повзунком терміну, і між
@@ -122,7 +122,7 @@ export async function goal(ctx, main) {
     ${o.pace}
     ${drawdownHTML(ctx)}`;
   wireDisclosures(main);
-  wireOutlook(main);
+  wireOutlook(main, ctx);
 }
 
 /** Маршрут грошей: куди піде кожне майбутнє надходження.

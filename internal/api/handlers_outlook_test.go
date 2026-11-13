@@ -64,6 +64,15 @@ func TestOutlookEndpoint(t *testing.T) {
 		t.Fatalf("десятий рік у гривні: сума %v, номінал %v", p.Amount, p.Nominal)
 	}
 
+	// Обсяг: «усі гроші» — законний параметр, чужий — 400, а не тихий спад
+	// на типове.
+	if resp, body := do(t, "GET", srv.URL+"/api/outlook?scope=all", ""); resp.StatusCode != http.StatusOK {
+		t.Fatalf("scope=all: %d %s", resp.StatusCode, body)
+	}
+	if resp, _ := do(t, "GET", srv.URL+"/api/outlook?scope=everything", ""); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("чужий scope: %d, а має бути 400", resp.StatusCode)
+	}
+
 	if resp, body := do(t, "PUT", srv.URL+"/api/settings", `{"report_currency":"USD"}`); resp.StatusCode >= 300 {
 		t.Fatalf("PUT settings: %d %s", resp.StatusCode, body)
 	}

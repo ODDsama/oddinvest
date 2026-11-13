@@ -265,6 +265,17 @@ type SeriesPoint struct {
 	// кожному місяці. Той самий realIncomeMonthly, що в ProjectSleeves і
 	// MonthsToIncomeSleeves, — третьої формули доходу немає.
 	IncomeUAH float64
+	// BySleeve — та сама точка по рукавах і кошиках: розрізи «за
+	// валютами», «за видами», «наявне й нове». У сумі дають UAH.
+	BySleeve []SleeveSlice
+}
+
+// SleeveSlice — один рукав на одному зрізі: скільки в ньому нативно і з
+// чого це складено (projState.buckets), у сьогоднішніх гривнях.
+type SleeveSlice struct {
+	Currency                            string
+	Native                              float64
+	LockedUAH, FundsUAH, NPFUAH, NewUAH float64
 }
 
 // ProjectSleevesSeries — та сама симуляція, що й ProjectSleeves, але з
@@ -295,13 +306,22 @@ func ProjectSleevesSeries(sleeves []Sleeve, devalPct float64, months, step int) 
 		sts[i] = s.newState()
 	}
 	at := func(m int) SeriesPoint {
-		p := SeriesPoint{Month: m}
+		p := SeriesPoint{Month: m, BySleeve: make([]SleeveSlice, 0, len(sleeves))}
 		for i, s := range sleeves {
 			today, nominal := s.toUAH(sts[i].total(), dM, m)
 			p.UAH += today
 			p.NominalUAH += nominal
 			inc, _ := s.toUAH(sts[i].realIncomeMonthly(s, m, dM), dM, m)
 			p.IncomeUAH += inc
+			// toUAH лінійний за сумою, тож кошики, перекладені поодинці,
+			// у сумі дають рівно today.
+			sl := SleeveSlice{Currency: s.Currency, Native: sts[i].total()}
+			locked, funds, npf, fresh := sts[i].buckets()
+			sl.LockedUAH, _ = s.toUAH(locked, dM, m)
+			sl.FundsUAH, _ = s.toUAH(funds, dM, m)
+			sl.NPFUAH, _ = s.toUAH(npf, dM, m)
+			sl.NewUAH, _ = s.toUAH(fresh, dM, m)
+			p.BySleeve = append(p.BySleeve, sl)
 		}
 		return p
 	}

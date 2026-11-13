@@ -15,9 +15,11 @@
 // того моменту локальні змінні розділу вже не існують.
 
 import {
-  esc, uah0, signedUAH, compact, humanMonths, monthYear, monthShort, pct, plural, outsideUAH,
-  TODAY_FX,
+  esc, uah0, cur2, curSym, signedUAH, compact, humanMonths, monthYear, monthShort, pct, plural,
+  outsideUAH, TODAY_FX,
 } from "../format.js";
+import { KIND_GROUP } from "../constants.js";
+import { rateSourceLabel } from "./forecast.js";
 import { sym } from "../currency.js";
 import { infoBtn } from "../info.js";
 import { tile, legend, empty } from "../components.js";
@@ -25,11 +27,13 @@ import {
   fluid, fitCharts, svgBandLine, moveBandMark, svgPaceBars, wireChartTips,
 } from "../charts.js";
 import { range } from "../fields.js";
-import { pref, setPref } from "../uistate.js";
+import { pref, setPref, wirePrefs } from "../uistate.js";
 import { CONTRIB } from "../contrib.js";
 import { routeFor } from "../routes.js";
 
 const KEY = "oi.outlook.months";
+const VIEW_KEY = "oi.outlook.view";
+const SCOPE_KEY = "oi.outlook.scope";
 const DEFAULT_MONTHS = 120;
 
 // Вікно графіка — найменше з цих, що вміщує вибраний термін. Завжди
@@ -45,6 +49,7 @@ const C_PUT = "var(--oi-series-neutral)";
 
 let data = null;   // відповідь /api/outlook
 let month = DEFAULT_MONTHS;
+let view = "total"; // розріз графіка капіталу: total | currency | kind | origin
 let rootEl = null; // розділ у DOM — щоб рух повзунка знав, що оновлювати
 let incomeGoal = 0; // цільовий місячний дохід (independence.target_uah) — лінія на графіку доходу
 
@@ -53,19 +58,87 @@ const spanOf = (m) => SPANS.find((s) => s >= m) || SPANS[SPANS.length - 1];
 const maxMonth = () => data.points.length - 1;
 const span = (m) => (m % 12 === 0 ? `${m / 12} р` : `${m} міс`);
 
+// ---------- розрізи: та сама лінія, складена смугами ----------
+//
+// Три способи розкласти ОДНЕ число. Смуги приходять із сервера вже
+// порахованими на кожен місяць і в сумі дають загальну лінію
+// (engine/outlook_test.go) — тут їх лише вибирають і підписують.
+//
+// «Разом» — окремий вигляд, а не четвертий розріз: там замість смуг
+// живуть коридор ринку, план і «внесено», яким у стосі місця немає.
+const VIEWS = [
+  { v: "total", t: "Разом" },
+  { v: "currency", t: "Валюти" },
+  { v: "kind", t: "Види" },
+  { v: "origin", t: "Наявне й нове" },
+];
+const SCOPES = [
+  { v: "portfolio", t: "Портфель" },
+  { v: "all", t: "Усі гроші" },
+];
+
+/** Обсяг, з яким питати /api/outlook: вибір живе в браузері, а суми під
+ *  нього рахує сервер — тому розділ мусить знати його ще до запиту. */
+export const outlookScope = () => pref(SCOPE_KEY, SCOPES.map((s) => s.v), "portfolio");
+
+// Підпис і колір смуги за її ключем. Види й резерв — тими самими
+// кольорами, що на «Як росте»: одна сутність — один колір на обох
+// графіках. Назви видів — зі спільного словника (KIND_GROUP).
+const BAND = {
+  UAH: { label: "Гривня", color: "var(--oi-cat-1)" },
+  USD: { label: "Долар", color: "var(--oi-cat-2)" },
+  EUR: { label: "Євро", color: "var(--oi-cat-3)" },
+  bonds: { label: KIND_GROUP.bonds, color: "var(--oi-series-nominal)" },
+  deposits: { label: KIND_GROUP.deposits, color: "var(--oi-series-deposits)" },
+  funds: { label: KIND_GROUP.funds, color: "var(--oi-series-funds)" },
+  npf: { label: KIND_GROUP.npf, color: "var(--oi-series-npf)" },
+  held: { label: "Уже куплене", color: "var(--oi-cat-4)" },
+  new: { label: "Реінвест і внески", color: C_ACTUAL },
+  outside: { label: "Резерв і цілі", color: "var(--oi-series-reserve)" },
+};
+
+const bandsOf = () => (view === "currency" ? data.by_currency
+  : view === "kind" ? data.by_kind
+    : view === "origin" ? data.by_origin : null) || [];
+const bandLook = (b) => BAND[b.key] || { label: b.key, color: C_PUT };
+const sharePct = (key) => ((data.strategy || []).find((s) => s.key === key) || {}).pct;
+
+/** Дрібний рядок під числом смуги: що саме в ній лежить. */
+function bandNote(b) {
+  if (b.key === "outside") return "як сьогодні: не поповнюються й не ростуть";
+  if (view === "currency") {
+    // Нативна сума — лише для валюти: для гривні вона та сама, що й число.
+    return b.key !== "UAH" && b.native ? `${cur2(b.native[month], b.key)} у самій валюті` : "";
+  }
+  if (view === "origin") {
+    return b.key === "held" ? "папери, вклади, фонди, НПФ — тане з погашеннями"
+      : "купони й погашення, що пішли в нові папери, і внески";
+  }
+  if (b.key === "new") return "стратегію за видами не задано";
+  const share = sharePct(b.key);
+  return share > 0 ? `з нових грошей сюди ${pct(share)} — за стратегією`
+    : "лише вже куплене: у стратегії частки немає";
+}
+
 /** Числа вибраного місяця. Перемальовується на кожен рух повзунка. */
 function readoutHTML() {
   const p = data.points[month];
   const when = `Через ${humanMonths(p.month)} · ${monthYear(p.date)}`;
-  if (!hasPace()) {
-    return `<div class="tiles flush">${tile(`${when} · за планом`, uah0(p.plan),
-      `<div class="sub-xs">${TODAY_FX}</div>`, { hero: true })}</div>`;
-  }
   // «На рахунку буде» — лише в гривні: у валюті звітності сервер це число
   // обнуляє (майбутня гривня за сьогоднішнім курсом — число, якого немає).
   const nominal = p.nominal > 0 ? ` · на рахунку буде ≈ ${uah0(p.nominal)}` : "";
+  const hero = hasPace()
+    ? tile(when, uah0(p.amount), `<div class="sub-xs">${TODAY_FX}${nominal}</div>`, { hero: true })
+    : tile(`${when} · за планом`, uah0(p.plan), `<div class="sub-xs">${TODAY_FX}</div>`, { hero: true });
+  if (view !== "total") {
+    return `<div class="tiles flush">${hero}${bandsOf().map((b) => tile(
+      `<i class="swatch" style="--oi-c:${bandLook(b).color}"></i>${esc(bandLook(b).label)}`,
+      uah0(b.values[month]),
+      bandNote(b) ? `<div class="sub-xs">${bandNote(b)}</div>` : "")).join("")}</div>`;
+  }
+  if (!hasPace()) return `<div class="tiles flush">${hero}</div>`;
   return `<div class="tiles flush">
-    ${tile(when, uah0(p.amount), `<div class="sub-xs">${TODAY_FX}${nominal}</div>`, { hero: true })}
+    ${hero}
     ${tile("З них внесено", uah0(p.contributed), `<div class="sub-xs">старт і внески, без відсотків</div>`)}
     ${tile("Наросло", signedUAH(p.gain), `<div class="sub-xs">купони й реінвест понад внесене</div>`,
     { tone: p.gain < 0 ? "t-warn" : "" })}
@@ -88,6 +161,12 @@ function windowPts() {
 
 function drawChart(w, h) {
   const { pts, labels } = windowPts();
+  if (view !== "total") {
+    // Лінія тут одна — загальна: вона ж верх стосу, і на ній стоїть маркер.
+    const total = { color: "var(--oi-text)", values: pts.map((p) => (hasPace() ? p.amount : p.plan)) };
+    const areas = bandsOf().map((b) => ({ color: bandLook(b).color, values: b.values.slice(0, pts.length) }));
+    return svgBandLine(labels, {}, [total], 0, { W: w, H: h, hits: true, mark: month, areas });
+  }
   const lines = hasPace()
     ? [{ color: C_ACTUAL, values: pts.map((p) => p.amount) },
       { color: C_PLAN, values: pts.map((p) => p.plan), dash: "5 3" },
@@ -105,9 +184,89 @@ function tipHTML(i) {
   const p = data.points[i];
   if (!p) return "";
   const head = `<div><b>${esc(humanMonths(p.month))} · ${esc(monthYear(p.date))}</b></div>`;
+  if (view !== "total") {
+    return head + bandsOf().map((b) => tipRow(bandLook(b).color, bandLook(b).label, b.values[i])).join("")
+      + `<div class="r tot"><span>Разом</span><b>${uah0(hasPace() ? p.amount : p.plan)}</b></div>`;
+  }
   if (!hasPace()) return head + tipRow(C_PLAN, "за планом", p.plan);
   return head + tipRow(C_ACTUAL, "за темпом", p.amount)
     + tipRow(C_PLAN, "за планом", p.plan) + tipRow(C_PUT, "внесено", p.contributed);
+}
+
+function legendHTML() {
+  if (view !== "total") {
+    return legend(bandsOf().map((b) => ({ color: bandLook(b).color, label: bandLook(b).label })));
+  }
+  return legend([
+    hasPace() && { color: C_ACTUAL, label: "за нинішнім темпом" },
+    { color: C_PLAN, label: "за планом" },
+    hasPace() && { color: C_PUT, label: "внесено" },
+    hasPace() && { color: C_ACTUAL, label: "коридор ринку", faint: true },
+  ]);
+}
+
+const seg = (items, on, attr) => `<span class="seg">${items.map((it) =>
+  `<button type="button" ${attr} value="${it.v}" aria-pressed="${it.v === on}">${it.t}</button>`).join("")}</span>`;
+
+/** Перемкнути розріз на місці: дані ті самі, міняється лише те, як їх
+ *  показано, — тож ні запиту, ні перемальовування розділу. */
+function setView(v) {
+  view = v;
+  setPref(VIEW_KEY, v === "total" ? "" : v);
+  const card = rootEl && rootEl.querySelector("[data-outlook]");
+  if (!card) return;
+  card.querySelectorAll("[data-oview]").forEach((b) => b.setAttribute("aria-pressed", String(b.value === v)));
+  card.querySelector("[data-outlook-read]").innerHTML = readoutHTML();
+  card.querySelector("[data-outlook-legend]").innerHTML = legendHTML();
+  fitCharts(card);
+}
+
+// ---------- на чому засновано ----------
+//
+// Власник спитав прямо: «незрозуміло, звідки такі прогнози». Абзац дрібним
+// шрифтом під графіком на це не відповідав — у ньому не було жодного
+// числа, яке можна звірити. Тут припущення стоять випискою, кожне своїм
+// рядком і своїм значенням, і всі приходять із тієї самої відповіді, що й
+// крива: рукави (sleeves) — це ті, якими її пораховано.
+function basisHTML(ctx) {
+  const outside = outsideUAH(ctx.summary || {});
+  const all = data.scope === "all";
+  const kv = (l, v) => `<div class="kv"><span class="muted fine">${l}</span><span class="fine">${v}</span></div>`;
+  const gy = Math.round((data.glide_years || 0) * 12);
+  const rows = [
+    kv("Старт", `${uah0(data.start)} · ${all
+      ? "увесь капітал, разом із резервом і цілями"
+      : outside > 0 ? `без резерву й цілей (${uah0(outside)}): вони не інвестуються` : "те, що вже вкладено"}`),
+    kv("Щомісяця додається", hasPace()
+      ? `${uah0(data.pace.monthly)} — виміряний темп за ${data.pace.months || "—"} міс`
+      : "планові надходження: темпу ще немає"),
+    kv("Уже куплене", "купони, відсотки й погашення — за графіком виплат; фонди й НПФ — кожен за своєю ставкою"),
+  ];
+  for (const c of data.sleeves || []) {
+    const src = rateSourceLabel(c);
+    const drift = c.rate_terminal_pct > 0 && gy > 0 && Math.abs(c.rate_terminal_pct - c.rate_pct) > 0.05
+      ? ` → ${pct(c.rate_terminal_pct)} за ${humanMonths(gy)}` : ", незмінна";
+    rows.push(kv(`${curSym(c.currency)} · зараз і внесок`,
+      `${cur2(c.amount, c.currency)}${c.contrib_monthly > 0 ? ` · +${uah0(c.contrib_monthly)}/міс` : ""}`));
+    rows.push(kv(`${curSym(c.currency)} · ставка нових грошей`,
+      `${pct(c.rate_pct)}${src ? ` (${esc(src)})` : ""}${drift}`));
+  }
+  rows.push(kv("Знецінення гривні", `${pct(data.devaluation_pct)} на рік — уже відняте з усіх сум`));
+  if (hasPace()) {
+    rows.push(kv("Гірший і кращий ринок",
+      `довгострокова ставка ∓${data.rate_spread_pp} п.п., знецінення ±${data.deval_spread_pp} п.п.`));
+  }
+  rows.push(kv("Нові гроші за видами", (data.strategy || []).length
+    ? (data.strategy.map((s) => `${esc((BAND[s.key] || {}).label || s.key)} ${pct(s.pct)}`).join(" · ")
+      + " — за стратегією")
+    : "частки видів у стратегії не задано"));
+  return `<div class="rule-top">
+    <div class="sub-xs mb-xs">На чому засновано</div>
+    <div class="ledger">${rows.join("")}</div>
+    <div class="sub-xs mt-xs">Це припущення, не гарантія.
+      <a class="lnk" href="${routeFor("policy/assumptions/main")}">Змінити припущення</a> ·
+      <a class="lnk" href="${routeFor("policy/strategy/main")}">Стратегія</a></div>
+  </div>`;
 }
 
 // ---------- дохід: та сама вісь часу, інше питання ----------
@@ -160,7 +319,11 @@ function incomeBlockHTML() {
     hasPace() && { color: C_ACTUAL, label: "за нинішнім темпом" },
     { color: C_PLAN, label: "за планом" },
     incomeGoal > 0 && { color: "var(--oi-muted)", label: "цільовий дохід" },
-  ])}`;
+  ])}
+    <div class="sub-xs mt-xs">На чому засновано: той самий капітал, що на графіку вище, того ж
+      місяця — купони й відсотки вже купленого за графіком, решта під ставку нових грошей;
+      із гривневої частини віднято знецінення ${pct(data.devaluation_pct)} на рік. Резерв і цілі
+      доходу тут не дають, тож перемикачі капіталу цих чисел не міняють.</div>`;
 }
 
 /** Вибрати місяць: числа, повзунки, маркери — в обох картках. Графік
@@ -191,31 +354,16 @@ function mountChart(box, tip = tipHTML) {
 }
 
 function forecastCardHTML(ctx) {
-  const s = ctx.summary || {};
-  const outside = outsideUAH(s);
-  const gy = data.glide_years || 0;
-  const rate = data.rate_pct > 0
-    ? (data.rate_terminal_pct > 0 && gy > 0 && Math.abs(data.rate_terminal_pct - data.rate_pct) > 0.05
-      ? `${pct(data.rate_pct)} номінальних сьогодні → ${pct(data.rate_terminal_pct)} за ${humanMonths(Math.round(gy * 12))}`
-      : `${pct(data.rate_pct)} номінальних`)
-    : "";
-  const note = `Старт — ${uah0(data.start)}${outside > 0
-    ? `, <b>без резерву й цілей накопичення</b> (${uah0(outside)} не інвестуються, тож і не ростуть)` : ""}.${
-    rate ? ` Ставка ${rate}; знецінення гривні ${pct(data.devaluation_pct)} на рік уже відняте.` : ""}`;
-
   return `<div class="card" data-outlook>
-    <h2 class="h-row"><span>Прогноз капіталу ${infoBtn("outlook")}</span></h2>
+    <h2 class="card-head"><span>Прогноз капіталу ${infoBtn("outlook")}</span>
+      ${seg(SCOPES, data.scope || "portfolio", `data-pref="${SCOPE_KEY}"`)}</h2>
     ${hasPace() ? "" : `<div class="note">${esc(data.why)} Нижче — крива за планом.</div>`}
+    <div class="mb-sm">${seg(VIEWS, view, "data-oview")}</div>
     <div data-outlook-read>${readoutHTML()}</div>
     ${range("outlook_months", "Термін", { min: 1, max: maxMonth(), value: month })}
     <div class="chart-wrap">${fluid(drawChart, { cls: "tall", onMount: mountChart })}<div class="chart-tip"></div></div>
-    ${legend([
-    hasPace() && { color: C_ACTUAL, label: "за нинішнім темпом" },
-    { color: C_PLAN, label: "за планом" },
-    hasPace() && { color: C_PUT, label: "внесено" },
-    hasPace() && { color: C_ACTUAL, label: "коридор ринку", faint: true },
-  ])}
-    <div class="sub">${note} Це припущення, не гарантія.</div>
+    <div data-outlook-legend>${legendHTML()}</div>
+    ${basisHTML(ctx)}
   </div>`;
 }
 
@@ -272,6 +420,7 @@ export function outlookHTML(ctx, d) {
       { href: routeFor("policy/strategy/main"), label: "Задати мету капіталу" })}</div>` };
   }
   month = Math.max(1, Math.min(maxMonth(), Number(pref(KEY, null, "")) || DEFAULT_MONTHS));
+  view = pref(VIEW_KEY, VIEWS.map((x) => x.v), "total");
   incomeGoal = Number(((ctx.summary || {}).independence || {}).target_uah) || 0;
   const hasIncome = data.points.some((p) => p.income > 0 || p.income_plan > 0);
   return {
@@ -281,9 +430,14 @@ export function outlookHTML(ctx, d) {
   };
 }
 
-/** Проводка повзунків. Кличеться після вставки розмітки. */
-export function wireOutlook(main) {
+/** Проводка повзунків і перемикачів. Кличеться після вставки розмітки. */
+export function wireOutlook(main, ctx) {
   rootEl = main;
   main.querySelectorAll('input[name="outlook_months"]').forEach((slider) =>
     slider.addEventListener("input", () => setMonth(+slider.value)));
+  main.querySelectorAll("[data-oview]").forEach((b) =>
+    b.addEventListener("click", () => setView(b.value)));
+  // Обсяг — інший запит, тож через спільну проводку: запамʼятати й
+  // перемалювати розділ.
+  wirePrefs(main, ctx, SCOPE_KEY);
 }

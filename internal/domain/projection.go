@@ -47,6 +47,29 @@ func (p *projState) total() float64 {
 	return p.invested + p.locked + p.cash + p.accumTotal() + p.distTotal()
 }
 
+// buckets — той самий total(), розкладений на те, чим капітал Є: читач
+// для розрізів прогнозу, арифметики він не чіпає.
+//
+//   - locked — уже куплені ОВДП і тіло вкладів (тане з погашеннями);
+//   - funds — сертифікати фондів, накопичувальні й розподільні;
+//   - npf — пенсійні рахунки: ті самі накопичувальні, але замкнені
+//     (accumState.locked — єдине, чим НПФ у стані відрізняється від фонду);
+//   - fresh — усе реінвестоване й внесене: invested і готівка, що ще не
+//     дотягла до порога докупівлі.
+//
+// Чотири числа в сумі дають total() — на цьому стоїть обіцянка, що
+// складені смуги графіка сходяться до його загальної лінії.
+func (p *projState) buckets() (locked, funds, npf, fresh float64) {
+	for i := range p.accum {
+		if p.accum[i].locked {
+			npf += p.accum[i].value
+		} else {
+			funds += p.accum[i].value
+		}
+	}
+	return p.locked, funds + p.distTotal(), npf, p.invested + p.cash
+}
+
 // incomeMonthly — потік, який портфель ВІДДАЄ на місяці m, у нативній
 // валюті рукава: те, що можна забирати, не проїдаючи тіло.
 //
