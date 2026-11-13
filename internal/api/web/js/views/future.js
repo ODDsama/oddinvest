@@ -282,11 +282,17 @@ export function calendarPlaceholderHTML() {
 // фондові. Різниця не косметична — купон і відсоток вкладу це
 // зобовʼязання за графіком, а дивіденд фонду ОЦІНКА, і читач має право
 // знати, що частина числа саме така.
-export function incomeHTML(ctx) {
+//
+// chart — крива доходу на кожен місяць із повзунком (views/outlook.js).
+// Коли вона є, рядки «через 1 / 3 / 5 / 10 років» не малюються: це ті самі
+// числа на чотирьох точках тієї самої кривої (engine/outlook_test.go тримає
+// збіг). Рядки лишаються запасним виглядом — прогноз доїжджає окремим
+// запитом, і без нього картка не мусить порожніти.
+export function incomeHTML(ctx, chart = "") {
   const s = ctx.summary || {};
   const rows = (s.projection || []).filter((r) => r.income_monthly > 0);
   const now = Number(s.income_monthly_now || 0);
-  if (!rows.length && now <= 0) return "";
+  if (!rows.length && now <= 0 && !chart) return "";
   // Без копійок, як і в решті планових чисел: дробова частина місячного
   // доходу на горизонті в роки — це точність, якої в оцінці немає.
   const inc = (v) => uah0(v);
@@ -303,7 +309,7 @@ export function incomeHTML(ctx) {
       «Зараз» — усе, що прийде за графіком; далі — реальний дохід: гривнева частина за
       вирахуванням знецінення, тобто те, що можна забирати, не проїдаючи капітал</div>
     ${line("зараз", now)}
-    <div class="rule-top tight">${body}</div>
+    <div class="rule-top tight">${chart || body}</div>
     ${independenceHTML(ctx)}
   </div>`;
 }

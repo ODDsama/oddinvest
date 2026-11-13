@@ -106,15 +106,20 @@ export async function goal(ctx, main) {
   const [timeline, outlook] = await Promise.all([
     ctx.soft("plan", null), ctx.soft("outlook", null),
   ]);
+  // «Пасивний дохід» стоїть одразу під прогнозом капіталу, а не над
+  // графіками, як доти: обидва ходять за одним повзунком терміну, і між
+  // ними не має бути чужих карток.
+  const o = outlookHTML(ctx, outlook);
   main.innerHTML = `
     ${planVerdictHTML(ctx, timeline)}
     ${goalsHTML(ctx)}
-    ${incomeHTML(ctx)}
     <div class="chart-grid">
       ${income12mChartHTML(ctx)}
       ${capitalChartHTML(ctx)}
     </div>
-    ${outlookHTML(ctx, outlook)}
+    ${o.forecast}
+    ${incomeHTML(ctx, o.income)}
+    ${o.pace}
     ${drawdownHTML(ctx)}`;
   wireDisclosures(main);
   wireOutlook(main);

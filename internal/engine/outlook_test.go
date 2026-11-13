@@ -54,6 +54,50 @@ func TestOutlookMatchesProjectionRows(t *testing.T) {
 	}
 }
 
+// Дохід на графіку — ті самі числа, що картка «Пасивний дохід» знала на
+// чотирьох роках, і той самий місяць незалежності, який вона називає
+// датою. Крива, що перетинає лінію «місяць життя» не там, де написано
+// «квітень 2080», була б двома відповідями на одне питання.
+func TestOutlookIncomeMatchesProjectionAndIndependence(t *testing.T) {
+	set := goalSettings("", "2030-07-15")
+	target := 3_000.0
+	set.MonthlyExpensesUAH = &target
+	in := forecastInput(t, set)
+	in.ActualMonthly = 5_000
+	prj := buildProjection(in)
+	doc := buildOutlook(projectionTap{in: in, contribM: prj.ContribM}, OutlookMonths)
+
+	for _, row := range prj.Rows {
+		pt := doc.Points[row.Years*12]
+		if row.IncomeMonthlyActual.Major() <= 0 {
+			t.Fatalf("%d р.: тест нічого не перевірив — дохід за фактом нульовий", row.Years)
+		}
+		if d := math.Abs(pt.Income.Major() - row.IncomeMonthlyActual.Major()); d > 0.01 {
+			t.Errorf("%d р. дохід за фактом: прогноз %.2f, таблиця %.2f", row.Years,
+				pt.Income.Major(), row.IncomeMonthlyActual.Major())
+		}
+		if d := math.Abs(pt.IncomePlan.Major() - row.IncomeMonthly.Major()); d > 0.01 {
+			t.Errorf("%d р. дохід за планом: прогноз %.2f, таблиця %.2f", row.Years,
+				pt.IncomePlan.Major(), row.IncomeMonthly.Major())
+		}
+	}
+
+	ind := prj.Independence
+	if ind == nil || ind.ActualMonths <= 0 || ind.ActualMonths > OutlookMonths {
+		t.Fatalf("тест нічого не перевірив — незалежність за фактом поза горизонтом: %+v", ind)
+	}
+	first := 0
+	for _, p := range doc.Points {
+		if p.Income.Major() >= target {
+			first = p.Month
+			break
+		}
+	}
+	if first != ind.ActualMonths {
+		t.Errorf("крива доходу сягає цілі на місяці %d, а картка називає %d", first, ind.ActualMonths)
+	}
+}
+
 // Те, що екран показує поруч, мусить сходитись між собою в КОЖНІЙ точці:
 // браузер нічого не рахує й не може підправити.
 func TestOutlookPointInvariants(t *testing.T) {

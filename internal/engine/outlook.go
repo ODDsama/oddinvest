@@ -69,6 +69,13 @@ type OutlookPoint struct {
 	// Plan — за планом: планові надходження плюс внесок під мету. Колонка
 	// «За планом» колишньої таблиці проєкцій.
 	Plan state.Money `json:"plan"`
+	// Income / IncomePlan — скільки капітал цього місяця приноситиме
+	// ЩОМІСЯЦЯ, за темпом і за планом: реальний дохід, який можна забирати,
+	// не проїдаючи тіло. Ті самі числа, що projection[].income_monthly_
+	// actual / income_monthly, але на кожен місяць; перший місяць, де
+	// Income сягає цільового доходу, — це independence.actual_months.
+	Income     state.Money `json:"income"`
+	IncomePlan state.Money `json:"income_plan"`
 }
 
 // PaceBar — нетто зовнішніх грошей за один календарний місяць.
@@ -167,8 +174,10 @@ func buildOutlook(tap projectionTap, months int) *OutlookDoc {
 			Month: p.Month, Date: in.Today.AddMonthsClamp(p.Month),
 			Plan:   uah(plan, i),
 			Amount: uah(actual, i), Low: uah(low, i), High: uah(high, i),
+			IncomePlan: state.Major(domain.Round2(p.IncomeUAH), money.UAH),
 		}
 		if i < len(actual) {
+			pt.Income = state.Major(domain.Round2(actual[i].IncomeUAH), money.UAH)
 			pt.Nominal = state.Major(domain.Round2(actual[i].NominalUAH), money.UAH)
 			pt.Contributed = state.Major(domain.Round2(
 				domain.RealContributed(p0, in.ActualMonthly, in.Deval, p.Month)), money.UAH)

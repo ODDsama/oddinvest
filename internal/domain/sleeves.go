@@ -260,6 +260,11 @@ type SeriesPoint struct {
 	// зрізі). Потрібна прогнозу з повзунком: головне число там у
 	// сьогоднішніх гривнях, а поруч стоїть «на рахунку буде».
 	NominalUAH float64
+	// IncomeUAH — скільки капітал приносить щомісяця на цьому зрізі, у
+	// сьогоднішніх гривнях: SleeveResult.IncomeMonthlyTodayUAH, але на
+	// кожному місяці. Той самий realIncomeMonthly, що в ProjectSleeves і
+	// MonthsToIncomeSleeves, — третьої формули доходу немає.
+	IncomeUAH float64
 }
 
 // ProjectSleevesSeries — та сама симуляція, що й ProjectSleeves, але з
@@ -295,6 +300,8 @@ func ProjectSleevesSeries(sleeves []Sleeve, devalPct float64, months, step int) 
 			today, nominal := s.toUAH(sts[i].total(), dM, m)
 			p.UAH += today
 			p.NominalUAH += nominal
+			inc, _ := s.toUAH(sts[i].realIncomeMonthly(s, m, dM), dM, m)
+			p.IncomeUAH += inc
 		}
 		return p
 	}
