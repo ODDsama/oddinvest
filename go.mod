@@ -1,6 +1,6 @@
 module github.com/ODDsama/oddinvest
 
-go 1.25.13
+go 1.26.11
 
 require (
 	github.com/Rhymond/go-money v1.0.15
