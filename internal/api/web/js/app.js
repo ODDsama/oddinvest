@@ -971,7 +971,7 @@ export class OddInvestApp extends HTMLElement {
       // переходить на сусідню — не на порожнє місце.
       if (focusMv) {
         const want = focusMv.dir < 0 ? "up" : "down";
-        const btns = [...host.querySelectorAll(`[data-id="${focusMv.id}"]`)];
+        const btns = [...host.querySelectorAll(`[data-id="${CSS.escape(focusMv.id)}"]`)];
         (btns.find((b) => b.dataset.mv === want && !b.disabled)
           || btns.find((b) => !b.disabled))?.focus();
       }
@@ -1405,7 +1405,11 @@ export class OddInvestApp extends HTMLElement {
         || KIND_VIEWS[kindOf(this._tab, this._item)];
       await view(this._ctx, body);
     } catch (err) {
-      body.innerHTML = `<div class="card">Помилка: ${esc(err.message || err)}</div>`;
+      // З кнопкою: помилка панелі найчастіше мережева, і єдиним способом
+      // спробувати ще раз доти було перезавантажити всю сторінку.
+      body.innerHTML = `<div class="card">Помилка: ${esc(err.message || err)}
+        <p><button type="button" data-retry>Повторити</button></p></div>`;
+      body.querySelector("[data-retry]").addEventListener("click", () => this._loadPage());
     }
 
     // Графіки малюються ПІСЛЯ вставки: рамка вже в розкладці, тож її

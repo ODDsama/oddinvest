@@ -398,7 +398,7 @@ func (r *Runner) RefreshAuctions(ctx context.Context) error {
 			// прогін догоняє його з того самого знака.
 			r.log.Debug("аукціони: день пропущено", "date", domain.NewDate(d), "err", err)
 			failed = true
-			time.Sleep(r.pause)
+			sleepCtx(ctx, r.pause)
 			continue
 		}
 		if err := r.st.SaveAuctions(ctx, as); err != nil {
@@ -408,7 +408,7 @@ func (r *Runner) RefreshAuctions(ctx context.Context) error {
 			done = domain.NewDate(d)
 		}
 		got += len(as)
-		time.Sleep(r.pause)
+		sleepCtx(ctx, r.pause)
 	}
 	if !failed {
 		done = newest
@@ -443,14 +443,14 @@ func (r *Runner) BackfillAuctions(ctx context.Context, weeks int) error {
 		if err != nil {
 			failed++
 			r.log.Debug("бекфіл аукціонів: день пропущено", "date", domain.NewDate(d), "err", err)
-			time.Sleep(r.pause)
+			sleepCtx(ctx, r.pause)
 			continue
 		}
 		if err := r.st.SaveAuctions(ctx, as); err != nil {
 			return err
 		}
 		got += len(as)
-		time.Sleep(r.pause)
+		sleepCtx(ctx, r.pause)
 	}
 	r.log.Info("історію аукціонів підтягнуто", "рядків", got, "днів_пропущено", failed)
 	// Учорашнім днем, а не сьогоднішнім: сьогоднішній аукціон могли ще не
@@ -462,6 +462,7 @@ func (r *Runner) BackfillAuctions(ctx context.Context, weeks int) error {
 // Викликається при старті у власній горутині: мережа може лежати, і
 // сервіс не має через це не піднятись.
 func (r *Runner) BackfillAuctionsIfThin(ctx context.Context, weeks, minDays int) {
+	defer guard(r.log, "бекфіл аукціонів", nil)
 	have, err := r.st.CountAuctionDays(ctx)
 	if err != nil {
 		r.log.Warn("бекфіл аукціонів: не вдалось порахувати історію", "err", err)
@@ -509,7 +510,10 @@ func (r *Runner) publisher() *mqtt.Publisher {
 	return r.pub
 }
 
-func (r *Runner) PublishState(ctx context.Context) error {
+func (r *Runner) PublishState(ctx context.Context) (err error) {
+	// Сюди сходяться всі публікації — після кожного запису, стартова й
+	// добова, — і всі вони у фонових горутинах.
+	defer guard(r.log, "публікація стану", &err)
 	pub := r.publisher()
 	if pub == nil {
 		return nil
@@ -585,7 +589,7 @@ func (r *Runner) BackfillRates(ctx context.Context, code string, years int) erro
 		if err != nil {
 			failed++
 			r.log.Debug("backfill: дата пропущена", "code", code, "date", string(day), "err", err)
-			time.Sleep(pause)
+			sleepCtx(ctx, pause)
 			continue
 		}
 		quoted = cmp.Or(quoted, day)
@@ -593,7 +597,7 @@ func (r *Runner) BackfillRates(ctx context.Context, code string, years int) erro
 			return err
 		}
 		got++
-		time.Sleep(pause)
+		sleepCtx(ctx, pause)
 	}
 	r.log.Info("історію курсу підтягнуто", "code", code, "точок", got, "пропущено", failed)
 	return nil
@@ -603,6 +607,7 @@ func (r *Runner) BackfillRates(ctx context.Context, code string, years int) erro
 // Викликається при старті у власній горутині: мережа може лежати, і
 // сервіс не має через це не піднятись.
 func (r *Runner) BackfillIfThin(ctx context.Context, code string, years, minMonths int) {
+	defer guard(r.log, "бекфіл курсу "+code, nil)
 	have, err := r.st.RateMonthCount(ctx, code)
 	if err != nil {
 		r.log.Warn("backfill: не вдалось порахувати історію", "err", err)

@@ -66,7 +66,18 @@ export async function adoptStyles(root) {
     && typeof CSSStyleSheet !== "undefined"
     && CSSStyleSheet.prototype.replaceSync;
   if (!supported) {
-    root.insertAdjacentHTML("afterbegin", styleLinks());
+    // ПІСЛЯ поточного синхронного кроку, а не одразу. Оболонка кличе це
+    // рядком вище за `shadowRoot.innerHTML = …` (app.js, _renderShell), і
+    // вставлені одразу теги <link> те присвоєння стирало: старіший Safari
+    // лишався зовсім без стилів — рівно тим, від чого ця гілка й рятує.
+    //
+    // І через <template>, а не insertAdjacentHTML: той є в Element, а
+    // ShadowRoot — DocumentFragment, і виклик кидав TypeError. Тобто гілка
+    // не працювала двічі, і жодного разу не виконувалась там, де це видно.
+    await null;
+    const t = document.createElement("template");
+    t.innerHTML = styleLinks();
+    root.prepend(t.content);
     return;
   }
   const sheets = await Promise.all(sheetFiles().map((f) => loadSheet(cssUrl(f))));

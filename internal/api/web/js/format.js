@@ -29,16 +29,19 @@ export const curSym = (c) => CURRENCY_SYM[c] || c;
  *  грошей: межу «що вважати близьким» малюють два екрани (календар і
  *  маршрут), і рахувати її мусять однаково. */
 export const dayShift = (iso, days) => {
-  const d = new Date(iso);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  // Локальним календарем від початку до кінця. Доти дата розбиралась як
+  // північ UTC, зсувалась локально й поверталась через toISOString — і
+  // зсув через перехід на літній час (північ UTC = 02:00 Києва взимку,
+  // але 03:00 влітку) віддавав сусідній день.
+  const [y, m, d] = String(iso).slice(0, 10).split("-").map(Number);
+  return localISO(new Date(y, m - 1, d + days));
 };
 
-export const today = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
+const localISO = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${
     String(d.getDate()).padStart(2, "0")}`;
-};
+
+export const today = () => localISO(new Date());
 
 // --- дати ---
 
@@ -61,39 +64,49 @@ export function humanMonths(m) {
   return parts.join(" ") || "менше місяця";
 }
 
+/** Рік, місяць і (якщо є) день із «2029-02-19», «2029-02» чи повної мітки
+ *  часу; null — коли це не дата.
+ *
+ *  Форматери нижче вставляють у розмітку БЕЗ esc(): їхній вихід — назва
+ *  місяця й цифри. Доти на нерозібраному вході вони повертали сам вхід,
+ *  тобто виглядали безпечними, не бувши ними. Тепер шматки беруться лише
+ *  з цифр, а нерозібране повертається екранованим. */
+const isoParts = (iso) => /^(\d{4})-(\d{2})(?:-(\d{2}))?/.exec(String(iso || ""));
+const notDate = (iso) => esc(String(iso || ""));
+
 /** «2029-02-19» -> «лютий 2029». */
 export function monthYear(iso) {
-  const p = String(iso || "").split("-");
-  if (p.length < 2) return String(iso || "");
-  return `${MON_NOM[+p[1] - 1] || p[1]} ${p[0]}`;
+  const p = isoParts(iso);
+  if (!p) return notDate(iso);
+  return `${MON_NOM[+p[2] - 1] || p[2]} ${p[1]}`;
 }
 
 /** «2026-07» -> «лип», а січень — «січ 26»: підпис осі, де місяців дванадцять
  *  і повні назви злиплись би в сіру смугу. Рік показуємо лише там, де він
  *  міняється, — інакше на кожному стовпчику стояло б те саме число. */
 export function monthShort(iso) {
-  const p = String(iso || "").split("-");
-  if (p.length < 2) return String(iso || "");
-  const m = +p[1];
-  const short = (MON_NOM[m - 1] || p[1]).slice(0, 3);
-  return m === 1 ? `${short} ${p[0].slice(2)}` : short;
+  const p = isoParts(iso);
+  if (!p) return notDate(iso);
+  const m = +p[2];
+  const short = (MON_NOM[m - 1] || p[2]).slice(0, 3);
+  return m === 1 ? `${short} ${p[1].slice(2)}` : short;
 }
 
 /** «2029-03-17» -> «березня 2029»: родовий відмінок для конструкцій
  *  «до <місяця>», де називний дав би «до березень». */
 export function monthYearGen(iso) {
-  const p = String(iso || "").split("-");
-  if (p.length < 2) return String(iso || "");
-  return `${MON_GEN[+p[1] - 1] || p[1]} ${p[0]}`;
+  const p = isoParts(iso);
+  if (!p) return notDate(iso);
+  return `${MON_GEN[+p[2] - 1] || p[2]} ${p[1]}`;
 }
 
 /** «2026-07-22» -> «22 липня», а якщо не цьогоріч — «20 січня 2027»:
  *  без року дата наступної виплати читається як «ось-ось». */
 export function dayMonth(iso) {
-  const p = String(iso || "").split("-");
-  if (p.length < 3) return monthYear(iso);
-  const d = `${+p[2]} ${MON_GEN[+p[1] - 1] || p[1]}`;
-  return p[0] === String(new Date().getFullYear()) ? d : `${d} ${p[0]}`;
+  const p = isoParts(iso);
+  if (!p || !p[3]) return monthYear(iso);
+  const d = `${+p[3]} ${MON_GEN[+p[2] - 1] || p[2]}`;
+  return p[1] === String(new Date().getFullYear()) ? d : `${d} ${p[1]}`;
 }
 
 // --- числа й гроші ---
@@ -223,7 +236,15 @@ export const money = (m) =>
  *  null/undefined дають «—», а не «0.0%»: відсутнє число й нульове — не
  *  одне й те саме, і особливо не тоді, коли йдеться про дохідність. */
 export const pct = (v, digits = 1) =>
-  v == null ? "—" : `${Number(v).toFixed(digits)}%`;
+  v == null ? "—" : `${fixedUk(v, digits)}%`;
+
+/** Рівно digits знаків після КОМИ. Доти тут стояв toFixed, і «12.5%»
+ *  жило на одному екрані з «12 500,50 ₴» — два десяткові роздільники в
+ *  сусідніх числах. Групування вимкнене: відсоток у чотири цифри з
+ *  пробілом усередині читався б як два числа. */
+const fixedUk = (v, digits) => Number(v).toLocaleString("uk", {
+  minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false,
+});
 
 /** Відсоткові пункти — РІЗНИЦЯ двох відсотків, а не відсоток.
  *
@@ -232,7 +253,7 @@ export const pct = (v, digits = 1) =>
  *  документ віддає вже не в одному місці (vs_portfolio_pp у ринковій
  *  кривій, edge_pp у перекладанні), тож нехай форматує її один. */
 export const pp = (v, digits = 1) =>
-  v == null ? "—" : `${Number(v).toFixed(digits)} п.п.`;
+  v == null ? "—" : `${fixedUk(v, digits)} п.п.`;
 
 // --- похідні від документа стану ---
 

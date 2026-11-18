@@ -71,7 +71,7 @@ func (r *Runner) RefreshCPI(ctx context.Context) error {
 			return err
 		}
 		got++
-		time.Sleep(r.cpiPause())
+		sleepCtx(ctx, r.cpiPause())
 	}
 	if got > 0 {
 		r.log.Info("ІСЦ оновлено", "місяців", got, "до", last)
@@ -157,14 +157,14 @@ func (r *Runner) fillCPIGaps(ctx context.Context) error {
 		p, err := r.fetchCPI(ctx, m)
 		if err != nil {
 			r.log.Debug("ІСЦ: дірка не залаталась", "month", m, "err", err)
-			time.Sleep(r.cpiPause())
+			sleepCtx(ctx, r.cpiPause())
 			continue
 		}
 		if err := r.st.SaveCPI(ctx, store.CPIPoint{Period: p.Period, MoMBP: p.MoMBP, YoYBP: p.YoYBP}); err != nil {
 			return err
 		}
 		got++
-		time.Sleep(r.cpiPause())
+		sleepCtx(ctx, r.cpiPause())
 	}
 	r.log.Info("ІСЦ: дірки", "було", len(gaps), "залатано", got)
 	return nil
@@ -219,14 +219,14 @@ func (r *Runner) BackfillCPI(ctx context.Context, years int) error {
 		if err != nil {
 			missing++
 			r.log.Debug("backfill ІСЦ: місяць пропущено", "month", m, "err", err)
-			time.Sleep(r.cpiPause())
+			sleepCtx(ctx, r.cpiPause())
 			continue
 		}
 		if err := r.st.SaveCPI(ctx, store.CPIPoint{Period: p.Period, MoMBP: p.MoMBP, YoYBP: p.YoYBP}); err != nil {
 			return err
 		}
 		got++
-		time.Sleep(r.cpiPause())
+		sleepCtx(ctx, r.cpiPause())
 	}
 	r.log.Info("історію ІСЦ підтягнуто", "точок", got, "пропущено", missing)
 	return nil
@@ -236,6 +236,7 @@ func (r *Runner) BackfillCPI(ctx context.Context, years int) error {
 // тоді, коли історії справді мало. Викликається при старті у власній
 // горутині, бо мережа може лежати.
 func (r *Runner) BackfillCPIIfThin(ctx context.Context, years, minMonths int) {
+	defer guard(r.log, "бекфіл ІСЦ", nil)
 	have, err := r.st.CPIMonthCount(ctx)
 	if err != nil {
 		r.log.Warn("backfill ІСЦ: не вдалось порахувати історію", "err", err)

@@ -2,7 +2,6 @@ package domain
 
 import (
 	"cmp"
-	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -298,12 +297,7 @@ func NPFNavReturn(points []NPFNav, asOf Date) (float64, bool) {
 	if days < npfNavReturnMinDays {
 		return 0, false
 	}
-	growth := float64(last.Nav) / float64(first.Nav)
-	if growth <= 0 {
-		return 0, false
-	}
-	r := (math.Pow(growth, 365.0/float64(days)) - 1) * 100
-	return Round2(r), true
+	return annualizedGrowth(float64(first.Nav), float64(last.Nav), days)
 }
 
 // NPFNavPoints — усі відомі точки ЧВОПА рахунку: заведені руками разом із

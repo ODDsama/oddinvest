@@ -444,3 +444,15 @@ func TestNPFCreditCapsAreForThePayerNotTheAccount(t *testing.T) {
 func npfCredit(a NPFAccount, ops []NPFOp, year int, capMonth, pdfoYear int64) int64 {
 	return NPFCreditByAccount([]NPFAccount{a}, ops, year, capMonth, pdfoYear)[a.ID]
 }
+
+// Одруківка в точці ЧВОПА (зайвий нуль) не має ставати «дохідністю» в
+// сотні відсотків: запобіжник XIRRPlausible доти стояв лише у фонду.
+func TestNPFNavReturnRejectsImplausible(t *testing.T) {
+	typo := []NPFNav{
+		{Date: Date("2025-08-17"), Nav: 3_000_000},
+		{Date: Date("2026-08-17"), Nav: 34_500_000},
+	}
+	if r, ok := NPFNavReturn(typo, Date("2026-08-17")); ok {
+		t.Errorf("зростання в 11,5 раза за рік показано як дохідність %.2f%%", r)
+	}
+}

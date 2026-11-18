@@ -21,9 +21,15 @@ BARE=/srv/git/oddinvest.git
 SRC=/opt/oddinvest-src
 BIN=/usr/local/bin/oddinvestd
 REV="${1:-main}"
-HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080/}"
+# Порт — той, на якому сервіс справді слухає: з env-файлу юніта
+# (ODDINVEST_HTTP_ADDR=:порт або хост:порт), типово 8080, як у
+# internal/config. Доти 8080 був зашитий тут, і зміна порту в env-файлі
+# робила кожен деплой «невдалим» із відкотом справного бінарника.
+port="$(sed -n 's/^ODDINVEST_HTTP_ADDR=.*:\([0-9][0-9]*\)["'"'"']\{0,1\}[[:space:]]*$/\1/p' /etc/oddinvestd.env 2>/dev/null | tail -1)"
+port="${port:-8080}"
+HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:$port/}"
 # /healthz з версією — для НОВОГО бінарника (internal/api/health.go).
-HEALTHZ_URL="${HEALTHZ_URL:-http://127.0.0.1:8080/healthz}"
+HEALTHZ_URL="${HEALTHZ_URL:-http://127.0.0.1:$port/healthz}"
 # База — та сама, що в unit-файлі (ODDINVEST_DB_PATH).
 DB="${DB:-/var/lib/oddinvestd/oddinvest.db}"
 
@@ -70,6 +76,18 @@ fi
 if [ -z "$ok" ]; then
   echo "-- Go ${have:-відсутній}, потрібен $need — ставлю go$need"
   curl -fsSL "https://go.dev/dl/go$need.linux-amd64.tar.gz" -o /tmp/go.tgz
+  # Контрольна сума — ДО того, як архів стане компілятором, що збирає
+  # бойовий бінарник від root. Сума лежить на тому самому сервері, що й
+  # архів, тож від підміни на самому go.dev вона не рятує; рятує від
+  # обірваного чи побитого в дорозі завантаження, яке tar інакше розпакував
+  # би наполовину поверх уже стертого /usr/local/go.
+  want="$(curl -fsSL "https://dl.google.com/go/go$need.linux-amd64.tar.gz.sha256")"
+  got="$(sha256sum /tmp/go.tgz | cut -d' ' -f1)"
+  if [ -z "$want" ] || [ "$want" != "$got" ]; then
+    echo "!! go$need: sha256 не збігся (чекав ${want:-нічого}, маю $got) — тулчейн не чіпаю"
+    rm -f /tmp/go.tgz
+    exit 1
+  fi
   rm -rf /usr/local/go
   tar -C /usr/local -xzf /tmp/go.tgz
   rm -f /tmp/go.tgz
@@ -119,6 +137,19 @@ echo "-- збірка"
 # перевірка нижче переконується, що відповідає саме НОВИЙ бінарник.
 ver="$(printf '%s' "$sha" | cut -c1-7)"
 go build -ldflags "-X github.com/ODDsama/oddinvest/internal/api.Version=$ver"   -o "$BIN.new" ./cmd/oddinvestd
+
+# ---------- тести ----------
+# ДО підміни бінарника: `git push prod main` не питає, чи пройшов CI, тож
+# без цього кроку на бойовий їхав будь-який коміт, що компілюється. Провал
+# завершує скрипт тут (set -e) — живий сервіс не чіпається. Без -race:
+# це перевірка «чи не зламане», а не пошук гонок, і контейнер малий.
+# DEPLOY_TESTS=0 — важіль на випадок, коли викласти треба попри червоний
+# тест: запустити цей скрипт руками по SSH.
+if [ "${DEPLOY_TESTS:-1}" != "0" ]; then
+  echo "-- тести"
+  go vet ./...
+  go test ./...
+fi
 
 # ---------- підміна + restart ----------
 # Які домиграційні копії були ДО рестарту: нова, що зʼявиться після нього,

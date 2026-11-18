@@ -183,7 +183,13 @@ async function tax(ctx, main) {
     const y = e.currentTarget.dataset.taxCsv;
     try {
       const resp = await ctx.store.raw("export/csv?year=" + y);
-      if (!resp.ok) throw new Error(await resp.text());
+      if (!resp.ok) {
+        // Бекенд відповідає {"error": "…"} — показуємо речення, а не JSON.
+        const txt = await resp.text();
+        let msg = txt.slice(0, 300);
+        try { msg = JSON.parse(txt).error || msg; } catch (_) { /* не JSON */ }
+        throw new Error(msg);
+      }
       const url = URL.createObjectURL(await resp.blob());
       const a = document.createElement("a");
       a.href = url;

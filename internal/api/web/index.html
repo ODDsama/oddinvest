@@ -2,7 +2,10 @@
 <html lang="uk">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- viewport-fit=cover — щоб env(safe-area-inset-*) у base.css мали
+     значення: без нього вони нулі, і нижня панель вкладок на iPhone лежить
+     під рискою «додому». Відступи під виріз і риску дають шапка й .tabs. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- Тема одна, темна. Тут це кажемо самому документу — щоб смуга
      прокрутки сторінки й полотно під компонентом були тих самих тонів;
      усередині shadow root те саме робить color-scheme у theme-web.css. -->

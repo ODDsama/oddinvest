@@ -180,13 +180,5 @@ func (r *Runner) storeSnapshot(ctx context.Context, b domain.Bond, snap finomo.S
 // sleepQuotes — витримка, що переривається скасуванням. Стоїть і в гілці
 // помилки теж: чужому серверу байдуже, чи сподобалась нам його відповідь.
 func (r *Runner) sleepQuotes(ctx context.Context) {
-	if r.pause <= 0 {
-		return
-	}
-	t := time.NewTimer(r.quotesPause())
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-	case <-t.C:
-	}
+	sleepCtx(ctx, r.quotesPause())
 }

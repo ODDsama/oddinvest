@@ -699,8 +699,10 @@ main:focus { outline: none; }
     left: 0;
     right: 0;
     bottom: 0;
-    height: var(--oi-header-h);
-    padding: 0 var(--oi-gap-xs);
+    /* Риска «додому» на iPhone: панель росте вниз на її висоту, а вкладки
+       лишаються над нею. Поза iOS env() — нуль, і нічого не міняється. */
+    height: calc(var(--oi-header-h) + env(safe-area-inset-bottom));
+    padding: 0 var(--oi-gap-xs) env(safe-area-inset-bottom);
     gap: 0;
     justify-content: space-around;
     background: var(--oi-header-bg);
@@ -725,7 +727,7 @@ main:focus { outline: none; }
   /* Перемикач портфеля лишається, але вужчим: чий портфель відкрито —
      єдине, що на телефоні важливіше за дельту. */
   .hdr-sel { max-width: 84px; }
-  main { padding-bottom: calc(var(--oi-gap-3xl) + var(--oi-header-h)); }
+  main { padding-bottom: calc(var(--oi-gap-3xl) + var(--oi-header-h) + env(safe-area-inset-bottom)); }
   /* Поле вибору файлу («Резервна копія») має власну внутрішню ширину, а
      всередині inline-block підпису max-width:100% ні на що не спирається —
      виїзд на 40px. Підпис стає блоком, поле — на всю його ширину. */
@@ -807,6 +809,45 @@ main:focus { outline: none; }
     z-index: var(--oi-z-sticky);
     background: var(--oi-bg);
   }
+}
+
+/* ВИРІЗ ЕКРАНА. Встановлений на iPhone застосунок малюється під рядком
+   стану (black-translucent в index.html), тож шапка росте вгору на його
+   висоту й відсуває свій вміст під нього. Правило стоїть ПІСЛЯ всіх
+   `header { padding: 0 … }` вище: ті скорочення інакше обнуляли б
+   padding-top. Усе, що липне під шапку, відраховує від тієї самої суми.
+   Поза iOS env() — нуль, і жодне число не міняється. */
+header {
+  padding-top: env(safe-area-inset-top);
+  height: calc(var(--oi-header-h) + env(safe-area-inset-top));
+}
+@media (min-width: 900px) {
+  #master {
+    top: calc(var(--oi-header-h) + env(safe-area-inset-top));
+    height: calc(100dvh - var(--oi-header-h) - env(safe-area-inset-top));
+  }
+  .panes { top: calc(var(--oi-header-h) + env(safe-area-inset-top)); }
+}
+
+/* ПАЛЕЦЬ, А НЕ КУРСОР. Кнопки шапки (30px), чипи (~22px) і ⇅ ◉ над
+   списком (~28px) — головні контроли на телефоні й водночас найменші
+   цілі в застосунку. Тут вони доростають до --oi-touch.
+   Кнопки шапки — невидимою зоною, як .info: видимий розмір тримає ширину
+   шапки на 375px (розрахунок при `.hdr-delta, #refresh`). Убік зона бере
+   лише половину проміжку, щоб сусідні не перекривались. Чипи й ⇅ ◉
+   ростуть самі: вони стоять рядами впритул, і невидима зона одного
+   лягала б на сусідній ряд. Мишею все лишається як було. */
+@media (pointer: coarse) {
+  .hdr-btn { position: relative; }
+  .hdr-btn::after {
+    content: "";
+    position: absolute;
+    inset: calc((30px - var(--oi-touch)) / 2) calc(var(--oi-gap) / -2);
+  }
+  /* select псевдоелемента не має — росте сам, наскільки дає шапка. */
+  .hdr-sel { height: 36px; }
+  .chip { min-height: 36px; padding: 0 var(--oi-gap); }
+  .master-o { min-width: var(--oi-touch); min-height: var(--oi-touch); }
 }
 
 /* --- кнопки --- */

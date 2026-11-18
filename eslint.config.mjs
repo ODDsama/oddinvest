@@ -41,6 +41,8 @@ export default [
         HTMLElement: "readonly",
         customElements: "readonly",
         CSSStyleSheet: "readonly",
+        // CSS.escape — id рядка в селекторі (app.js, фокус після перестановки).
+        CSS: "readonly",
         MouseEvent: "readonly",
         Event: "readonly",
         Node: "readonly",

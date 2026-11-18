@@ -130,22 +130,6 @@ func Apportion(total *money.Money, part, whole int64) (*money.Money, error) {
 	return money.New(minor, code), nil
 }
 
-// SumSameCurrency додає суми, вимагаючи єдину валюту.
-func SumSameCurrency(items ...*money.Money) (*money.Money, error) {
-	if len(items) == 0 {
-		return nil, fmt.Errorf("порожній список сум")
-	}
-	acc := items[0]
-	var err error
-	for _, m := range items[1:] {
-		acc, err = acc.Add(m)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return acc, nil
-}
-
 // Round2 — округлення до 2 знаків для довідкових (не облікових) чисел:
 // відсотків, ставок, мажорних сум у документі.
 func Round2(v float64) float64 { return math.Round(v*100) / 100 }

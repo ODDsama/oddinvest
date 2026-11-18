@@ -96,7 +96,10 @@ func (s Satellite) RefreshQuotes(ctx context.Context, isins []string) (finomo.Ru
 // портфелів, які від нього не залежать узагалі.
 //
 // Повертає помилку оновлення НБУ: за нею RunDaily вирішує про повтор.
-func (f *Fleet) dailyRun(ctx context.Context) error {
+func (f *Fleet) dailyRun(ctx context.Context) (err error) {
+	// Паніка читається як невдалий прогін: RunDaily повторить його за
+	// годину, а не помре разом із демоном.
+	defer guard(f.main.log, "добовий прогін", &err)
 	// Без спільної стелі: кожна фаза RefreshAll має свою (phaseTimeout), і
 	// спільна лише знову віддала б час повільного довідника решті.
 	refreshErr := f.main.RefreshAll(ctx)

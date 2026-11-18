@@ -571,11 +571,18 @@ func FundPriceReturn(points []FundPrice, asOf Date) (float64, bool) {
 	if days < fundPriceReturnMinDays {
 		return 0, false
 	}
-	growth := float64(last.Price) / float64(first.Price)
-	if growth <= 0 {
+	return annualizedGrowth(float64(first.Price), float64(last.Price), days)
+}
+
+// annualizedGrowth — зростання від first до last за days днів, % річних
+// складних. Одна формула на ціну сертифіката й ЧВОПА: доти їх було дві, і
+// запобіжник від неправдоподібного числа (XIRRPlausible) стояв лише у
+// фонду — одруківка в точці ЧВОПА давала НПФ тризначну «дохідність».
+func annualizedGrowth(first, last float64, days int) (float64, bool) {
+	if first <= 0 || last <= 0 || days <= 0 {
 		return 0, false
 	}
-	r := (math.Pow(growth, 365.0/float64(days)) - 1) * 100
+	r := (math.Pow(last/first, 365.0/float64(days)) - 1) * 100
 	if !XIRRPlausible(r / 100) {
 		return 0, false
 	}
