@@ -194,15 +194,26 @@ func (s *Store) SetNPFNav(ctx context.Context, id, navE6 int64, on domain.Date) 
 
 // DeleteNPFAccount — разом із журналом і точками: FK на npf_accounts є, а
 // каскаду в схемі немає, тож порядок тут не косметичний.
+//
+// Однією транзакцією: три окремі DELETE, обірвані посередині, лишали б
+// рахунок без журналу — тобто позицію з нулем одиниць, яка виглядає як
+// справжня.
 func (s *Store) DeleteNPFAccount(ctx context.Context, id int64) error {
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM npf_ops WHERE npf_id=? AND portfolio_id=?`, id, s.pid); err != nil {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM npf_nav WHERE npf_id=? AND portfolio_id=?`, id, s.pid); err != nil {
+	defer tx.Rollback() //nolint:errcheck // no-op після Commit
+	if _, err := tx.ExecContext(ctx, `DELETE FROM npf_ops WHERE npf_id=? AND portfolio_id=?`, id, s.pid); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `DELETE FROM npf_accounts WHERE id=? AND portfolio_id=?`, id, s.pid)
-	return err
+	if _, err := tx.ExecContext(ctx, `DELETE FROM npf_nav WHERE npf_id=? AND portfolio_id=?`, id, s.pid); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM npf_accounts WHERE id=? AND portfolio_id=?`, id, s.pid); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // --- журнал внесків ---

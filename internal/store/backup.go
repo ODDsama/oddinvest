@@ -254,8 +254,14 @@ type BackupNPFOp struct {
 }
 
 // BackupNPFNav — одна точка ЧВОПА, заведена руками.
+//
+// ID більше не пишеться й не читається (omitempty лишає старі дампи
+// читабельними: поле в них є, його просто ніхто не бере). Довід той самий,
+// що в BackupFundPrice нижче: на точку ніхто не посилається, а UNIQUE за
+// (рахунок, дата) і так робить рядок неповторним — тож дамп не залежить
+// від id-шників бази-джерела й після відновлення збігається сам із собою.
 type BackupNPFNav struct {
-	ID    int64  `json:"id"`
+	ID    int64  `json:"id,omitempty"`
 	NPFID int64  `json:"npf_id"`
 	Date  string `json:"date"`
 	NavE6 int64  `json:"nav_e6"`
@@ -784,11 +790,11 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 		}, s.pid); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT id,npf_id,date,nav_e6 FROM npf_nav
-		WHERE portfolio_id=? ORDER BY id`,
+	if err := s.scan(ctx, `SELECT npf_id,date,nav_e6 FROM npf_nav
+		WHERE portfolio_id=? ORDER BY npf_id, date`,
 		func(scan func(...any) error) error {
 			var r BackupNPFNav
-			if err := scan(&r.ID, &r.NPFID, &r.Date, &r.NavE6); err != nil {
+			if err := scan(&r.NPFID, &r.Date, &r.NavE6); err != nil {
 				return err
 			}
 			b.NPFNav = append(b.NPFNav, r)
@@ -1609,10 +1615,10 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 	}
 	for _, n := range b.NPFNav {
-		if err := ids.insert(ctx, tx, "npf_nav", n.ID,
-			`INSERT INTO npf_nav (%sportfolio_id,npf_id,date,nav_e6) VALUES (%s?,?,?,?)`,
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO npf_nav (portfolio_id,npf_id,date,nav_e6) VALUES (?,?,?,?)`,
 			s.pid, ids.of("npf_accounts", n.NPFID), n.Date, n.NavE6); err != nil {
-			return fmt.Errorf("точка ЧВОПА %d: %w", n.ID, err)
+			return fmt.Errorf("точка ЧВОПА %s: %w", n.Date, err)
 		}
 	}
 	// Позначки ціни — після довідника фондів: fundRef уже заселений циклом
