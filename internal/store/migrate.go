@@ -135,7 +135,7 @@ func pendingMigrations(db *sql.DB, names []string) ([]string, error) {
 
 // fkOffMarker — перший рядок міграції, якій потрібні ВИМКНЕНІ зовнішні
 // ключі: перебудова таблиці, на яку посилаються інші (0054 перебудовує
-// brokers і npf_accounts). PRAGMA foreign_keys усередині транзакції не
+// brokers і npf_accounts, 0070 — npf_accounts ще раз). PRAGMA foreign_keys усередині транзакції не
 // діє, тож звичайний шлях нижче їй не годиться — а без маркера DROP TABLE
 // батька виконав би неявний DELETE і впав би на першому ж дитячому рядку
 // (шапка 0010 пояснює, чому вона сама так не робила).

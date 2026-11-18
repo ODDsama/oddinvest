@@ -125,13 +125,29 @@ func (s *Store) RenamePortfolio(ctx context.Context, id int64, name string) erro
 // Головний портфель не стирається: у нього дивиться Home Assistant, і саме
 // його дані міграція перевела з одноосібних часів. Порожнім його робить
 // restore порожнього бекапу, а не видалення.
+//
+// Єдине, чого каскад не забирає, — спільний довідник НПФ (0070): рахунки
+// портфеля зникають, а фонд, у якому він був останнім учасником, лишився б
+// невидимим сиротою із зайнятою назвою. Тому слідом іде той самий прибирач,
+// що й після видалення рахунку, — в одній транзакції з самим DELETE.
 func (s *Store) DeletePortfolio(ctx context.Context, id int64) error {
 	if id == MainPortfolio {
 		return fmt.Errorf("головний портфель не стирається")
 	}
-	res, err := s.db.ExecContext(ctx, `DELETE FROM portfolios WHERE id=?`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	return affectedOne(res, "портфель")
+	defer tx.Rollback() //nolint:errcheck // no-op після Commit
+	res, err := tx.ExecContext(ctx, `DELETE FROM portfolios WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if err := affectedOne(res, "портфель"); err != nil {
+		return err
+	}
+	if err := pruneOrphanNPFFundsIn(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

@@ -100,7 +100,12 @@ func seedBrokerRef(t *testing.T, db *sql.DB, table string, brokerID int64) {
 	if _, err := db.Exec(`INSERT OR IGNORE INTO funds(name, currency) VALUES('Фонд', 'UAH')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`INSERT OR IGNORE INTO npf_accounts(name) VALUES('НПФ')`); err != nil {
+	// Рахунок НПФ живе у фонді спільного довідника (0070) — спершу фонд.
+	if _, err := db.Exec(`INSERT OR IGNORE INTO npf_funds(name) VALUES('НПФ')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO npf_accounts(fund_id)
+		VALUES((SELECT id FROM npf_funds LIMIT 1))`); err != nil {
 		t.Fatal(err)
 	}
 	var q string

@@ -159,6 +159,17 @@ func TestImportIntoSecondPortfolioRemapsIDs(t *testing.T) {
 	if len(accs) != 1 || len(nops) != 1 || nops[0].NPFID != accs[0].ID || len(navs) != 1 || navs[0].NPFID != accs[0].ID {
 		t.Errorf("НПФ: %+v / %+v / %+v", accs, nops, navs)
 	}
+	// Довідник НПФ спільний (0070): фонд та історія ЧВОПА — по одному рядку
+	// на обидва портфелі, а не по копії на кожен.
+	for _, q := range []string{`SELECT COUNT(*) FROM npf_funds`, `SELECT COUNT(*) FROM npf_fund_nav`} {
+		var n int
+		if err := st.db.QueryRow(q).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 1 {
+			t.Errorf("%s = %d, хочемо 1: спільний довідник НПФ подвоївся", q, n)
+		}
+	}
 	flows, _ := w.ListPlanFlows(ctx)
 	rcpts, _ := w.ListPlanReceipts(ctx)
 	if len(flows) != 1 || len(rcpts) != 1 || rcpts[0].FlowID != flows[0].ID {

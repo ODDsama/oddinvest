@@ -35,6 +35,14 @@ import (
 // переписує ГЛОБАЛЬНІ параметри спільного фонду; його позначки лягають
 // upsert-ом поверх наявних.
 //
+// Довідник НПФ з історією ЧВОПА (0070) — спільний рівно так само і за тими
+// самими правилами: входить у кожен дамп, зводиться за назвою, файл
+// переписує атрибути фонду, точки лягають upsert-ом, а сирота без жодного
+// рахунку витирається (pruneOrphanNPFFundsIn). Формат файла при цьому не
+// змінився: атрибути фонду їдуть у BackupNPFAccount, точки — у BackupNPFNav
+// за рахунком цього портфеля, тож дампи, зроблені до 0070, відновлюються
+// тим самим кодом.
+//
 // І про id. Усі таблиці ділять одну послідовність AUTOINCREMENT, а бекап
 // тримає id (продажі посилаються на лоти саме за ними). Відновлений в
 // інший портфель, дамп упирався б у UNIQUE(id) на першому ж рядку, чий id
@@ -212,10 +220,15 @@ type BackupFund struct {
 }
 
 // BackupNPFAccount — пенсійний рахунок. Ключ — ID, а не назва, попри
-// загальне правило бекапу: npf_ops і npf_nav посилаються на рахунок лише
-// за id, і назви в них немає, з якої зв'язок можна було б відтворити. Той
-// самий випадок, що term_deposits, і з тієї ж причини — це водночас
+// загальне правило бекапу: npf_ops і точки ЧВОПА посилаються на рахунок
+// лише за id, і назви в них немає, з якої зв'язок можна було б відтворити.
+// Той самий випадок, що term_deposits, і з тієї ж причини — це водночас
 // інструмент і батько журналу.
+//
+// Після 0070 у базі це два рядки — спільний фонд (назва, адміністратор,
+// валюта, ЧВОПА, обіцянка) і портфельний рахунок (решта). У файлі вони
+// лишились одним записом: дамп — один портфель, і фонд у ньому їде разом
+// із рахунком, як і доти.
 type BackupNPFAccount struct {
 	ID            int64  `json:"id"`
 	Name          string `json:"name"`
@@ -760,8 +773,9 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 		}, s.pid); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT `+npfAccountCols()+` FROM npf_accounts
-		WHERE portfolio_id=? ORDER BY id`,
+	if err := s.scan(ctx, `SELECT `+npfAccountCols()+`
+		FROM npf_accounts a JOIN npf_funds f ON f.id = a.fund_id
+		WHERE a.portfolio_id=? ORDER BY a.id`,
 		func(scan func(...any) error) error {
 			var r BackupNPFAccount
 			if err := scan(&r.ID, &r.Name, &r.Administrator, &r.Currency, &r.NavE6,
@@ -790,8 +804,12 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 		}, s.pid); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT npf_id,date,nav_e6 FROM npf_nav
-		WHERE portfolio_id=? ORDER BY npf_id, date`,
+	// Історія ЧВОПА спільна (0070), але в дампі точка тримається за рахунок
+	// ЦЬОГО портфеля — так само, як її віддає ListNPFNav: файл лишається
+	// самодостатнім і того самого формату, що до 0070.
+	if err := s.scan(ctx, `SELECT a.id,n.date,n.nav_e6 FROM npf_fund_nav n
+		JOIN npf_accounts a ON a.fund_id = n.fund_id
+		WHERE a.portfolio_id=? ORDER BY a.id, n.date`,
 		func(scan func(...any) error) error {
 			var r BackupNPFNav
 			if err := scan(&r.NPFID, &r.Date, &r.NavE6); err != nil {
@@ -1105,8 +1123,8 @@ var importAllTables = []string{
 	"sales", "lots", "fund_ops",
 	"fund_prices", "deposit_topups", "term_deposits", "reserve_loans", "reserve_ops",
 	"goal_ops", "goals", "debt_ops", "debt_marks", "debts",
-	"npf_ops", "npf_nav",
-	"npf_accounts", "plan_flows", "plan_flow_revisions",
+	"npf_ops",
+	"npf_accounts", "npf_fund_nav", "npf_funds", "plan_flows", "plan_flow_revisions",
 	"plan_receipts", "plan_actions", "plan_expenses",
 	"decisions",
 	"settings", "payment_status", "snapshots", "hidden_rows",
@@ -1119,7 +1137,13 @@ var importAllTables = []string{
 // ImportAll витирає їх не за портфелем, а за вжитком (pruneOrphanFundsIn).
 // Окремий набір, а не правка importAllTables: той перелік звіряється зі
 // схемою тестом, і саме ним ведеться порядок «діти → батьки».
-var importGlobalTables = map[string]bool{"funds": true, "fund_prices": true, "ovdp_quotes": true}
+//
+// Довідник НПФ з історією ЧВОПА (0070) — той самий випадок: спільний,
+// витирається за вжитком (pruneOrphanNPFFundsIn).
+var importGlobalTables = map[string]bool{
+	"funds": true, "fund_prices": true, "ovdp_quotes": true,
+	"npf_funds": true, "npf_fund_nav": true,
+}
 
 // pruneOrphanFundsIn — витерти фонди (з позначками), якими не користується
 // жоден портфель. Кличеться ПІСЛЯ очищення власних операцій, тож фонди
@@ -1251,8 +1275,9 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// відновлення», а відмову на UNIQUE(id) у будь-кого, хто має бодай
 	// один рядок плану.
 	//
-	// npf_ops і npf_nav — перед npf_accounts (FK на нього), а всі три —
-	// перед brokers, і це не стиль. npf_ops.broker_id посилається на
+	// npf_ops — перед npf_accounts (FK на нього), а обидві — перед brokers,
+	// і це не стиль. (Довідник НПФ і його історія — спільні, їх прибирає
+	// pruneOrphanNPFFundsIn нижче, а не цей перелік.) npf_ops.broker_id посилається на
 	// brokers, тож забути npf_ops тут означало б не «дублікати після
 	// відновлення», а повну ВІДМОВУ: DELETE FROM brokers упирався б у FK у
 	// будь-кого, хто має бодай один внесок. Рівно те, що вже сталося з
@@ -1291,6 +1316,12 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 	}
 	if err := s.pruneOrphanFundsIn(ctx, tx); err != nil {
+		return err
+	}
+	// Те саме для довідника НПФ: рахунки цього портфеля щойно витерто, і
+	// фонд, у якому більше нікого, іде слідом разом з історією ЧВОПА. Фонд,
+	// у якому сидить сусід, лишається — з усією його кривою.
+	if err := pruneOrphanNPFFundsIn(ctx, tx); err != nil {
 		return err
 	}
 	ids := idMaps{}
@@ -1589,16 +1620,30 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 			return fmt.Errorf("звірка боргу %d: %w", m.ID, err)
 		}
 	}
-	// Пенсійні рахунки — ПЕРЕД внесками й точками ЧВОПА: обидва мають на
-	// них FK.
+	// Пенсійні рахунки — ПЕРЕД внесками й точками ЧВОПА: внески мають на них
+	// FK, а точки шукають через рахунок свій фонд.
+	//
+	// Фонд зводиться за назвою і ПЕРЕПИСУЄТЬСЯ атрибутами з файла — рівно
+	// контракт спільного каталогу фондів (шапка файла): відновлення заміщує,
+	// і для свого портфеля, і, якщо фонд тримає сусід, для нього теж.
+	// npfFunds — рахунок із ФАЙЛА → фонд у базі; за нею точки нижче
+	// знаходять, чию історію вони доповнюють.
+	npfFunds := map[int64]int64{}
 	for _, a := range b.NPFAccounts {
+		fundID, err := npfFundRefIn(ctx, tx, domain.NPFAccount{
+			Name: a.Name, Administrator: a.Administrator, Currency: a.Currency,
+			Nav: a.NavE6, NavDate: domain.Date(a.NavDate),
+			ExpectedYieldBP: a.ExpectedYieldBP, YieldSimpleYears: a.YieldSimpleYears,
+		}, true)
+		if err != nil {
+			return fmt.Errorf("пенсійний фонд %q: %w", a.Name, err)
+		}
+		npfFunds[a.ID] = fundID
 		if err := ids.insert(ctx, tx, "npf_accounts", a.ID, `INSERT INTO npf_accounts
-			(%sportfolio_id,name,administrator,currency,nav_e6,nav_date,expected_yield_bp,
-			 yield_simple_years,access_date,income_tax_bp,credit_rate_bp,contrib_day,
+			(%sportfolio_id,fund_id,access_date,income_tax_bp,credit_rate_bp,contrib_day,
 			 payout_years,payout_freq,note)
-			 VALUES (%s?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			s.pid, a.Name, a.Administrator, a.Currency, a.NavE6, a.NavDate,
-			a.ExpectedYieldBP, a.YieldSimpleYears, a.AccessDate, a.IncomeTaxBP,
+			 VALUES (%s?,?,?,?,?,?,?,?,?)`,
+			s.pid, fundID, a.AccessDate, a.IncomeTaxBP,
 			a.CreditRateBP, a.ContribDay, a.PayoutYears, a.PayoutFreq, a.Note); err != nil {
 			return fmt.Errorf("пенсійний рахунок %d: %w", a.ID, err)
 		}
@@ -1615,9 +1660,20 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 		}
 	}
 	for _, n := range b.NPFNav {
+		// Точка без рахунку у файлі — зіпсований дамп: доти її зупиняв FK на
+		// npf_accounts, тепер ключа до рахунку в неї немає, тож перевірка
+		// явна.
+		fundID, ok := npfFunds[n.NPFID]
+		if !ok {
+			return fmt.Errorf("точка ЧВОПА %s: рахунку %d у бекапі немає", n.Date, n.NPFID)
+		}
+		// Upsert, як у позначок ціни нижче: історія спільна й перед restore
+		// не витирається, поки фонд тримає сусід, тож та сама дата з файла
+		// переписує наявну, а не падає на UNIQUE.
 		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO npf_nav (portfolio_id,npf_id,date,nav_e6) VALUES (?,?,?,?)`,
-			s.pid, ids.of("npf_accounts", n.NPFID), n.Date, n.NavE6); err != nil {
+			`INSERT INTO npf_fund_nav (fund_id,date,nav_e6) VALUES (?,?,?)
+			 ON CONFLICT(fund_id,date) DO UPDATE SET nav_e6=excluded.nav_e6`,
+			fundID, n.Date, n.NavE6); err != nil {
 			return fmt.Errorf("точка ЧВОПА %s: %w", n.Date, err)
 		}
 	}
