@@ -1,16 +1,11 @@
 // GET /api/reinvest — поради «що купити». Збірка й порядок — у
-// engine/reinvest.go; тут лише те, що належить екрану: перемикач лінійки порядку
-// й дата доступності.
+// engine/reinvest.go; тут лише подача.
 
 package api
 
 import (
 	"net/http"
-	"sort"
 	"time"
-
-	"github.com/ODDsama/oddinvest/internal/engine"
-	money "github.com/Rhymond/go-money"
 )
 
 // handleReinvest — помічник реінвестиції: доступні папери з довідника,
@@ -20,10 +15,14 @@ import (
 //
 // «Купонної ставки» в цьому переліку немає вже давно: сира ставка
 // непорівнянна між валютами, і порядок задає реальна дохідність.
-// handleReinvest — GET /api/reinvest. Уся робота в ReinvestSuggestions:
-// те саме число потрібне ще й черзі задач, а дві збірки порад означали б,
-// що «Що робити» і «Що купити» радять різне — рівно та розбіжність, проти
-// якої в now-view.js уже стоїть окреме попередження.
+// Уся робота в ReinvestSuggestions: те саме число потрібне ще й черзі
+// задач, розкладці й маршруту, а дві збірки порад радили б різне.
+//
+// Екранного читача в переліку лишився один — форма «Купив» задачі в черзі
+// (web/js/views/now-view.js, openBought): вона бере звідси ціну кроку й
+// брокера. Картку «Що взяти» прибрано 2026-11-18, а з нею й лінійку
+// reinvest_order, якою цей обробник переупорядковував відповідь за
+// номінальною дохідністю: порядок тепер рівно той, що віддав рушій.
 func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	doc, err := s.BuildState(r.Context(), now)
@@ -36,34 +35,6 @@ func (s *Server) handleReinvest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	// ЛІНІЙКА ПОРЯДКУ — ЛИШЕ ТУТ, і це межа, а не зручність. Черга задач,
-	// журнал рішень, прогноз і гейт боргу кличуть ту саму збірку порад і
-	// дістають її впорядкованою за РЕАЛЬНОЮ: їм потрібне одне число, і
-	// перемикач на екрані не має права переписувати те, чим застосунок
-	// міряє власні рішення. Тому переупорядкування живе в обробнику, а не
-	// в ReinvestSuggestions (межу тримає make order-boundary).
-	//
-	// Лінійку задає налаштування reinvest_order (Політика → Реінвест), а
-	// не параметр запиту: доти перемикач на картці скидався з кожним
-	// перезавантаженням.
-	//
-	// У валюті звітності ≠ гривні номінальної лінійки немає — 15% ОВДП це
-	// не 15% у доларах, — тож налаштування там ігнорується: поради йдуть
-	// за реальною.
-	ord, err := s.st.GetSetting(r.Context(), "reinvest_order")
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
-	}
-	if report, err := s.ReportCurrency(r.Context()); err == nil && report == money.UAH &&
-		ord == engine.OrderNominal {
-		rank := engine.RankOf(doc)
-		sort.SliceStable(out, func(i, j int) bool {
-			return engine.LessSuggestion(out[i], out[j], rank, engine.OrderNominal)
-		})
-	}
-	// Ліміту немає свідомо: у таблиці є фільтри, сортування й пагінація,
-	// тож звужує користувач, а не бекенд мовчки.
 	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return

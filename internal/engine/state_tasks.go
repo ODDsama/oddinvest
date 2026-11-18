@@ -512,7 +512,7 @@ func buildTasks(doc *state.Doc, sug []suggestion, src *sources, today domain.Dat
 	// ---------- дохід чекає ----------
 	// Стрічка вже впорядкована ReinvestSuggestions — беремо першу пораду.
 	// Власного сортування тут немає навмисно: два порядки на одні поради
-	// означали б, що черга радить одне, а «Що взяти» інше.
+	// означали б, що черга радить одне, а розкладка й маршрут інше.
 	if len(sug) > 0 && src != nil {
 		if t, ok := waitingTask(mt, doc, &sug[0], src.rates); ok {
 			add(t)

@@ -40,7 +40,7 @@ import { tile, empty } from "../components.js";
 import { routeFor } from "../routes.js";
 import { tasksHTML } from "./tasks.js";
 import {
-  monthTile, planTileSub, loadReinvest, reinvestHTML, wireReinvest,
+  monthTile, planTileSub, loadReinvest, wireBought,
 } from "./now-view.js";
 import { debtOverviewHTML } from "./debts.js";
 
@@ -200,9 +200,9 @@ export async function overview(ctx, main) {
   // купівлі фонду) живе тільки там. Рядка «Найближча віха» більше немає:
   // віхи пішли разом зі «Шляхом» (ревізія 2026-10-03).
   //
-  // Поради помічника — тут, а не окремою вкладкою «Робота»: власник купує
-  // сам і лише записує (ревізія 2026-10-03), тож дорога «скільки → що
-  // взяти → план» звелась до однієї картки з кнопкою «Купив».
+  // Картки порад «Що взяти» тут більше немає (2026-11-18, довід — у
+  // now-view.js). Поради все одно вантажаться: з них кнопка «Купив» задачі
+  // в черзі бере ціну кроку й брокера.
   const [route, planDoc] = await Promise.all([
     ctx.soft("route", null),
     ctx.soft("plan", null),
@@ -223,9 +223,8 @@ export async function overview(ctx, main) {
     s.plan_provides_uah > 0 ? `${uah0(s.plan_provides_uah)}/міс` : "—",
     planTileSub(ctx, planDoc))}
     </div>
-    ${reinvestHTML(ctx, { title: "Що взяти" })}
     ${routePreviewHTML(route && route.legs)}
     ${debtOverviewHTML(s)}
     ${silenceHTML()}`;
-  wireReinvest(ctx, main);
+  wireBought(ctx, main);
 }

@@ -53,7 +53,7 @@ import {
   reserveTilesHTML, reserveJournalHTML, reserveFormHTML, reserveFields, reserveBody,
   reserveLoanEditFields, reserveLoanBody,
 } from "./money-cards.js";
-import { reinvestHTML, reserveFillHTML, wireReinvest, loadReinvest } from "./now-view.js";
+import { reserveFillHTML, wireBought, loadReinvest } from "./now-view.js";
 import { kindTasksHTML } from "./tasks.js";
 import { switchHTML, loadSwitch, wireSwitch } from "./switch.js";
 import { kindOfItem } from "../master.js";
@@ -306,10 +306,10 @@ export async function positionPane(ctx, main) {
   main.innerHTML = panePaneHTML(ctx, spec, d);
 
   wirePositionRows(ctx, main, d);
-  wireReinvest(ctx, main);
+  // «Купив» у смузі задач виду: кнопку малює tasks.js, форму відкриває
+  // now-view.js — із порадами, завантаженими вище.
+  wireBought(ctx, main);
   if (spec.kind === "bond") wireSwitch(ctx, main);
-  // Кнопки «+» проводить сама wireReinvest вище: їх малює reinvestHTML,
-  // тобто той самий модуль. Один малює, той самий і проводить.
 }
 
 function panePaneHTML(ctx, spec, d) {
@@ -326,11 +326,11 @@ function panePaneHTML(ctx, spec, d) {
     // «Що далі» й «Що зробити» ЗЛИТІ СЮДИ (ревізія 2026-10-03): три
     // панелі відповідали на одне питання «що з цією позицією» і в рейці
     // читались як три різні місця. Тепер згори вниз: що чекає рішення →
-    // числа → що попереду → що взяти цього виду.
+    // числа → що попереду. Четвертим стояло «Що взяти з цього виду» —
+    // зріз картки порад; її прибрано цілком (2026-11-18, now-view.js).
     return kindTasksHTML(ctx, spec.kind)
       + positionTilesHTML(ctx, spec.kind, row)
       + nextForPositionHTML(ctx, spec.kind, row)
-      + reinvestHTML(ctx, { kinds: [spec.kind], title: "Що взяти з цього виду" })
       + (spec.kind === "bond" ? switchHTML() : "");
   case "have":
     // Одна позиція, а не весь вид: рядок ліворуч уже сказав, про кого

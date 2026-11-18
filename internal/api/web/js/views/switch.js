@@ -101,8 +101,7 @@ function verdictFields() {
 export function wireSwitch(ctx, main) {
   const form = main.querySelector("#switchForm");
   if (!form) return;
-  // Підказку по ISIN проводить той, хто її намалював, — той самий поділ,
-  // що між reinvestHTML і wireReinvest. wireRefs поруч тут не потрібен:
+  // Підказку по ISIN проводить той, хто її намалював. wireRefs поруч тут не потрібен:
   // варіанта «інший…» у цій формі немає, бо папір або є в довіднику, або
   // питання про його продаж не стоїть.
   wireSuggest(ctx, main);

@@ -229,12 +229,10 @@ const staleAfterDays = 365
 // й без роботи.
 const MinTermDays = 30
 
-// suggMatKey / suggPlanScore / LessSuggestion — порівнювач порад, вийнятий
-// із ReinvestSuggestions, бо він потрібен ДВІЧІ: сама збірка впорядковує за
-// реальною дохідністю (це те, що бачать черга задач, журнал рішень і
-// прогноз), а обробник за запитом переупорядковує за номінальною. Копія
-// комаратора в другому місці розійшлася б із першою на пʼяти тайбрейкерах,
-// причому мовчки.
+// suggMatKey / suggPlanScore / lessSuggestion — порівнювач порад, вийнятий
+// із ReinvestSuggestions: ним же впорядковує futureOrder. Вигоду він міряє
+// реальною дохідністю ЗАВЖДИ. Номінальна лінійка (reinvest_order) сортувала
+// лише картку «Що взяти» й пішла разом із нею 2026-11-18.
 // У сертифіката дати погашення немає — для впорядкування це «ніколи»,
 // а не «сьогодні»: інакше в режимі «короткі» фонди хибно вигравали б
 // у найкоротших паперів просто через порожнє поле.
@@ -289,9 +287,8 @@ func suggPlanScore(s suggestion) float64 {
 	return math.Max(0, s.def) + math.Max(0, s.kindDef)
 }
 
-// RankOf — за чим упорядковувати поради. Обробник читає його вдруге, щоб
-// переупорядкувати за іншою лінійкою, і читає саме звідси: два місця з
-// власним дефолтом «plan» розійшлися б на першій же правці набору.
+// RankOf — за чим упорядковувати поради. Одне місце з дефолтом «plan»:
+// два розійшлися б на першій же правці набору.
 func RankOf(doc *state.Doc) string {
 	if doc != nil && doc.Settings != nil && doc.Settings.ReinvestRank != "" {
 		return doc.Settings.ReinvestRank
@@ -299,35 +296,8 @@ func RankOf(doc *state.Doc) string {
 	return "plan"
 }
 
-// orderKey — ЯКОЮ ЛІНІЙКОЮ міряти вигоду при впорядкуванні.
-//
-// Ортогональна до rank: той каже, ЗА ЧИМ сортувати (план, ставка, строк,
-// драбина), ця — яким числом міряти саму вигоду. Типово реальна: тільки
-// вона розсуджує гривневий папір під 16% і доларовий під 4.5%.
-//
-// Номінальна тут не «неправильна», а інша: вона відповідає на питання
-// «де більше гривень», і людина має право поставити список саме так —
-// але типовим це бути не може, бо в такому порядку валюти незіставні.
-func orderKey(s suggestion, order string) float64 {
-	if order == OrderNominal {
-		return s.NominalPct
-	}
-	return s.RealPct
-}
-
-const (
-	orderReal    = "real"
-	OrderNominal = "nominal"
-)
-
-func LessSuggestion(a, b suggestion, rank, order string) bool {
-	return lessSuggestion(a, b, rank, order)
-}
-
-// futureOrder — ті самі поради в порядку для МАЙБУТНІХ грошей: завжди
-// реальною лінійкою, хай би яку людина обрала для списку на екрані.
-// Розкладка й маршрут кладуть гроші, що прийдуть, і їхній порядок не має
-// мінятись від перемикача сортування. Копія — вхідний зріз читають і інші.
+// futureOrder — ті самі поради в порядку для МАЙБУТНІХ грошей. Розкладка
+// й маршрут кладуть гроші, що прийдуть. Копія — вхідний зріз читають і інші.
 //
 // Доти тут ще й прибиралось «вистачає вже зараз» (CanBuy) — відповідь про
 // сьогоднішній залишок рахунку. Рахунків застосунок більше не веде
@@ -335,12 +305,12 @@ func LessSuggestion(a, b suggestion, rank, order string) bool {
 func futureOrder(sug []suggestion, rank string) []suggestion {
 	out := append([]suggestion(nil), sug...)
 	sort.SliceStable(out, func(i, j int) bool {
-		return lessSuggestion(out[i], out[j], rank, orderReal)
+		return lessSuggestion(out[i], out[j], rank)
 	})
 	return out
 }
 
-func lessSuggestion(a, b suggestion, rank, order string) bool {
+func lessSuggestion(a, b suggestion, rank string) bool {
 	// Замкнене — нижче за все ліквідне, і ПЕРШИМ серед пониження: це
 	// найсильніше з трьох тверджень. Ліміт каже «ти сам цього не хотів»,
 	// stale — «ми не впевнені в ціні», а замок — «це взагалі не те саме
@@ -381,8 +351,8 @@ func lessSuggestion(a, b suggestion, rank, order string) bool {
 	case "rate":
 		// «за ставкою» тепер означає за РЕАЛЬНОЮ дохідністю: сира
 		// купонна ставка непорівнянна між валютами.
-		if math.Abs(orderKey(a, order)-orderKey(b, order)) > 0.01 {
-			return orderKey(a, order) > orderKey(b, order)
+		if math.Abs(a.RealPct-b.RealPct) > 0.01 {
+			return a.RealPct > b.RealPct
 		}
 	case "short":
 		if suggMatKey(a) != suggMatKey(b) {
@@ -392,15 +362,15 @@ func lessSuggestion(a, b suggestion, rank, order string) bool {
 		if a.ladderNom != b.ladderNom {
 			return a.ladderNom < b.ladderNom
 		}
-		if math.Abs(orderKey(a, order)-orderKey(b, order)) > 0.01 {
-			return orderKey(a, order) > orderKey(b, order)
+		if math.Abs(a.RealPct-b.RealPct) > 0.01 {
+			return a.RealPct > b.RealPct
 		}
 	default: // plan
 		if sa, sb := suggPlanScore(a), suggPlanScore(b); math.Abs(sa-sb) > 0.01 {
 			return sa > sb
 		}
-		if math.Abs(orderKey(a, order)-orderKey(b, order)) > 0.01 {
-			return orderKey(a, order) > orderKey(b, order)
+		if math.Abs(a.RealPct-b.RealPct) > 0.01 {
+			return a.RealPct > b.RealPct
 		}
 		if a.ladderNom != b.ladderNom {
 			return a.ladderNom < b.ladderNom
@@ -409,8 +379,8 @@ func lessSuggestion(a, b suggestion, rank, order string) bool {
 	// Останній критерій — реальна дохідність, а вже потім дата: у
 	// фондів і вкладів драбина й дюрація не застосовні, тож без цього
 	// вони впорядковувались би самою датою, а не вигодою.
-	if math.Abs(orderKey(a, order)-orderKey(b, order)) > 0.01 {
-		return orderKey(a, order) > orderKey(b, order)
+	if math.Abs(a.RealPct-b.RealPct) > 0.01 {
+		return a.RealPct > b.RealPct
 	}
 	return suggMatKey(a) < suggMatKey(b)
 }
@@ -1017,7 +987,7 @@ func (e *Engine) ReinvestSuggestions(ctx context.Context, now time.Time,
 	// яку ніхто не спожив, коштувала більше за все, що вона мала дати.
 	//
 	sort.Slice(out, func(i, j int) bool {
-		return LessSuggestion(out[i], out[j], rank, orderReal)
+		return lessSuggestion(out[i], out[j], rank)
 	})
 	return out, nil
 }

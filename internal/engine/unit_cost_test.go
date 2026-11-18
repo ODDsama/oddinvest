@@ -210,7 +210,7 @@ func TestStaleDoesNotDemoteWhenPriceIsReal(t *testing.T) {
 		CostBasis: CostBasisMarket, stale: true, RealPct: 10}
 	guessed := suggestion{Kind: "bond", ISIN: "UA-GUESS", Currency: money.UAH,
 		CostBasis: CostBasisNominal, stale: false, RealPct: 9}
-	if !LessSuggestion(priced, guessed, "rate", orderReal) {
+	if !lessSuggestion(priced, guessed, "rate") {
 		t.Error("папір із ринковою ціною мусить стояти вище: його дохідність вища, " +
 			"а старий аукціон до знання ціни стосунку не має")
 	}
@@ -223,7 +223,7 @@ func TestStaleStillDemotesGuessedPrice(t *testing.T) {
 		CostBasis: CostBasisNominal, stale: true, RealPct: 20}
 	fresh := suggestion{Kind: "bond", ISIN: "UA-FRESH", Currency: money.UAH,
 		CostBasis: CostBasisNominal, stale: false, RealPct: 9}
-	if LessSuggestion(stale, fresh, "rate", orderReal) {
+	if lessSuggestion(stale, fresh, "rate") {
 		t.Error("без ринкової ціни папір без розміщення мусить лишатись нижчим " +
 			"навіть із більшою дохідністю — вона порахована з вигаданої ціни")
 	}

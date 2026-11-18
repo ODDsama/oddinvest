@@ -531,7 +531,7 @@ header .sp { flex: 1 1 auto; min-width: var(--oi-gap); }
 .m-sub { list-style: none; margin: 0; padding: 0; }
 /* Рядки групи посунуті рівно на ширину стрілки: без цього назва паперу
    стоїть під назвою виду, і вкладеність видно лише з того, що вона зникає
-   при згортанні. Те саме число, що в .sg-d на сторінці «Що купити». */
+   при згортанні. */
 .m-sub .m-row { padding-left: 26px; }
 
 /* Режим видимості. Ті самі три смуги, що в рядку, лише третя — перемикач:
@@ -1526,20 +1526,6 @@ td.num .sale-f { text-align: right; }
 .lg span { display: inline-flex; align-items: center; gap: var(--oi-gap-xs); }
 .lg i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; background: var(--oi-c, var(--oi-muted)); }
 
-/* Рядок поради «Що купити».
-   Одна сітка на всі рядки, щоб числа стояли колонкою: доти кожна порада
-   була власним блоком із вирівнюванням ліво-право, і шість підряд читались
-   зигзагом. Назва стискається (1fr), решта тримає свою ширину. */
-.sg {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--oi-gap-sm);
-  padding: var(--oi-gap-sm) 0;
-  border-top: var(--oi-rule) solid var(--oi-border);
-}
-.sg-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sg-y { white-space: nowrap; text-align: right; font-size: var(--oi-fs-md); }
 /* ---------- черга задач ---------- */
 
 /* Задача — це РЯДОК, а не картка, і це головне рішення блоку.
@@ -1616,9 +1602,6 @@ td.num .sale-f { text-align: right; }
 
 .sg-h { margin-top: var(--oi-gap); font-size: var(--oi-fs-sm); color: var(--oi-muted); }
 .sg-h:first-of-type { margin-top: 0; }
-/* Розкриття «звідки дохідність» стоїть під тим самим відступом, що й
-   назва пропозиції: воно пояснює рядок вище. */
-.sg-d { padding: 0 0 var(--oi-gap-sm) 26px; }
 
 /* Підказка під курсором на кривій.
    Контейнер прокручується по горизонталі (графік ширший за вузьке
