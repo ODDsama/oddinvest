@@ -101,6 +101,32 @@ func TestUpdateNPFNavPoint(t *testing.T) {
 	}
 }
 
+// TestNPFAccountConflictsAre409 — зіткнення з наявним фондом називається
+// своїм імʼям. Довідник НПФ спільний (0070), і обидва випадки стали
+// можливими саме з ним: другий рахунок у вже наявному фонді й перейменування
+// фонду на назву іншого (злиття фондів немає).
+func TestNPFAccountConflictsAre409(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	id, err := st.AddNPFAccount(ctx, domain.NPFAccount{Name: "Династія", Currency: "UAH"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddNPFAccount(ctx, domain.NPFAccount{Name: "Емерит", Currency: "UAH"}); err != nil {
+		t.Fatal(err)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/npf-accounts", `{"name":"Династія"}`); resp.StatusCode != http.StatusConflict {
+		t.Errorf("другий рахунок у тому самому фонді мав дати 409, маємо %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "PUT", srv.URL+"/api/npf-accounts/"+i64(id), `{"name":"Емерит"}`); resp.StatusCode != http.StatusConflict {
+		t.Errorf("перейменування на назву іншого фонду мало дати 409, маємо %d %s", resp.StatusCode, b)
+	}
+	// Звичайна правка тим самим шляхом проходить.
+	if resp, b := do(t, "PUT", srv.URL+"/api/npf-accounts/"+i64(id), `{"name":"Династія","administrator":"АЦПО"}`); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("правка рахунку: %d %s", resp.StatusCode, b)
+	}
+}
+
 // Локальний перетворювач: itoa() у сусідньому тесті бере int, а всі id тут
 // int64, і зводити їх приведенням означало б мовчки різати на 32 бітах.
 func i64(n int64) string { return strconv.FormatInt(n, 10) }
