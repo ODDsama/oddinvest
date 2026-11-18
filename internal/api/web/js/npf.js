@@ -251,6 +251,8 @@ export function npfDetailHTML(ctx, row) {
       немає.</div>
 
     <h4 class="mt">Оновити ЧВОПА з кабінету</h4>
+    <div class="sub-xs muted">ЧВОПА — властивість фонду: число й вклеєна нижче історія спільні для
+      всіх портфелів, де цей фонд є, і вводити їх двічі не треба.</div>
     ${formHTML({
     fields: navFields(ctx, null, (row.nav || 0).toFixed(6)), submit: "Оновити",
     attrs: { "data-npfnav-form": acc.id },
@@ -337,6 +339,8 @@ export function wireNPF(ctx, main) {
 
   // Точки ЧВОПА, вклеєні руками. Ресурс один на всі рахунки: точка знає
   // свій рахунок сама, а список під кожним рахунком уже відфільтрований.
+  // Сама історія — фонду й спільна для портфелів; сервер віддає її вже з
+  // npf_id рахунку ЦЬОГО портфеля, тож тут про спільність знати не треба.
   wireCrud(ctx, main, {
     resource: "npf-nav", title: "Точку ЧВОПА", rows: navPoints,
     fields: (c, row) => navFields(c, row),
@@ -345,8 +349,8 @@ export function wireNPF(ctx, main) {
   });
 
   // «Оновити ЧВОПА з кабінету» — не створення точки, а перезапис ОСТАННЬОЇ
-  // відомої вартості рахунку (PUT .../nav), тож і лишається окремою
-  // формою: це властивість рахунку, а не рядок історії.
+  // відомої вартості (PUT .../nav), тож і лишається окремою формою: це
+  // властивість фонду (спільна для портфелів), а не рядок історії.
   main.querySelectorAll("[data-npfnav-form]").forEach((form) => {
     const id = Number(form.dataset.npfnavForm);
     onSubmit(ctx, form, (f) => ({

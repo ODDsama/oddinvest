@@ -218,6 +218,10 @@ export function catalogsHTML(ctx, marks = [], fundOps = [], fundRows = []) {
   })}
       <div class="sub-xs muted">Внески записуються в «Портфелі», у рядку рахунку. Тут — те, чого
         з внесків не вивести: дата доступу, обидва податки й день нагадування.</div>
+      <div class="sub-xs muted">Назва, адміністратор, валюта, ЧВОПА й обіцяна дохідність — властивості
+        фонду, спільні для всіх портфелів: правка тут видна в кожному, де цей фонд є. Решта — лише
+        цього портфеля. Фонд, який уже веде інший портфель, підхоплюється за назвою разом із
+        ЧВОПА та її історією.</div>
     </div>`;
 }
 
@@ -230,8 +234,9 @@ export function catalogsHTML(ctx, marks = [], fundOps = [], fundRows = []) {
 // слухали ще й Enter, там ні.
 //
 // question — питання перед видаленням, коли рядок довідника тягне за
-// собою записи: рахунок НПФ стирається разом із внесками й ЧВОПА
-// (DeleteNPFAccount), і «Видалити «X»?» цього не казало.
+// собою записи: рахунок НПФ стирається разом із внесками, а з останнім
+// рахунком у фонді — ще й історія ЧВОПА (DeleteNPFAccount), і «Видалити
+// «X»?» цього не казало.
 export function bindCatalog(ctx, card, path, question = (name) => `Видалити «${name}»?`) {
   if (!card) return;
   inlineEdit(ctx, card, {
@@ -255,7 +260,10 @@ export function bindBrokers(ctx, main) {
   bindCatalog(ctx, main.querySelector("#brokerCard"), "brokers");
   bindCatalog(ctx, main.querySelector("#fundCatalogCard"), "fund-catalog");
   bindCatalog(ctx, main.querySelector("#npfCatalogCard"), "npf-accounts",
-    (name) => `Видалити рахунок «${name}»? Разом із ним зникнуть усі його внески й позначки ЧВОПА.`);
+    // Історія ЧВОПА — фонду, а не рахунку (спільна для портфелів): вона йде
+    // слідом лише з ОСТАННІМ рахунком у фонді, і питання мусить це казати.
+    (name) => `Видалити рахунок «${name}»? Разом із ним зникнуть усі його внески. `
+      + "Історія ЧВОПА зникне, лише якщо цей фонд не тримає жоден інший портфель.");
   onSubmit(ctx, main.querySelector("#npfAddForm"), (f) => {
     const name = f.name.value.trim();
     if (!name) return null;
