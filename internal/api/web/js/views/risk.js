@@ -779,7 +779,7 @@ export function ladderTableHTML(ctx) {
     ? `<span class="bar" style="--oi-w:${Math.max(4, (v / maxV) * 120)}px;--oi-c:${color}"></span>` : "";
   const fx = (v, sym) => v ? Number(v).toLocaleString("uk-UA", { minimumFractionDigits: 2 }) + " " + sym : "—";
   return `<div class="card">
-    <h2 class="h-row">Драбина погашень ${infoBtn("ladder")}</h2>
+    <h2 class="h-row">Коли повертаються гроші ${infoBtn("ladder")}</h2>
     <div class="sub">Скільки капіталу повертається за роками — номінал ОВДП і тіло вкладів разом
       (окремо UAH / USD / EUR). Фонди не входять: сертифікат не гаситься.</div>
     ${ladderBarsHTML(ctx)}

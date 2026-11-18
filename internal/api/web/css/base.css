@@ -765,6 +765,12 @@ main:focus { outline: none; }
    окремо. */
 :host([data-solo]) #master { display: none; }
 
+/* Капітал і зміна за 30 днів на «Сьогодні» в шапці не стоять: одразу під
+   нею герой сторінки показує ті самі два числа, з підписами. На решті
+   сторінок вони лишаються — там це єдине місце, де їх видно. */
+:host([data-solo]) .hdr-cap,
+:host([data-solo]) .hdr-delta { display: none; }
+
 @media (min-width: 900px) {
   header { padding: 0 var(--oi-gap-xl); }
 

@@ -833,7 +833,7 @@ export class OddInvestApp extends HTMLElement {
     // ⚙ окремо від вкладок: службовий кут застосунку не стоїть в одному
     // ряду з питаннями про гроші.
     this.shadowRoot.getElementById("tabs").innerHTML = TABS
-      .filter((t) => !t.gear && !t.mark)
+      .filter((t) => !t.gear)
       .map((t) => {
         // Клік по вкладці веде в перший рядок У ПОРЯДКУ ВЛАСНИКА, а не в
         // перший рядок дерева. Це живий контрол, намальований із тих
@@ -863,13 +863,8 @@ export class OddInvestApp extends HTMLElement {
       && this._pane === homePane;
     if (atHome) mark.setAttribute("aria-current", "page");
     else mark.removeAttribute("aria-current");
-    // Лічильник рішень «зараз» — на знаку, бо черга на домашній. Підпис
-    // для зчитувача екрана каже число словами: сама цифра поруч із
-    // картинкою без контексту нічого б не сказала.
-    const due = this._tabBadge("overview");
-    mark.innerHTML = MARK + (due ? `<span class="tab-n">${esc(due)}</span>` : "");
-    mark.setAttribute("aria-label", due
-      ? `ODD Invest — на початок, рішень зараз: ${due}` : "ODD Invest — на початок");
+    // Лічильника рішень на знаку більше немає: він переїхав на вкладку
+    // «Сьогодні» (малюється вище, як і лічильники решти вкладок).
 
     const cap = this.shadowRoot.getElementById("cap");
     cap.textContent = this._summary ? uah0(capitalUAH(s)) : "";
@@ -918,7 +913,7 @@ export class OddInvestApp extends HTMLElement {
   _tabBadge(key) {
     const s = this._summary || {};
     // Черга задач живе на «Сьогодні», тож і лічильник «зараз» стоїть на
-    // знаку ODD, що туди веде (_paintHeader), а не на «Роботі».
+    // цій вкладці.
     if (key === "overview") {
       const n = (s.tasks || []).filter((t) => t.sev === "now").length;
       return n ? String(n) : "";

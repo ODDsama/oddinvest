@@ -658,13 +658,27 @@ export function wireChartTips(wrap, buildHTML) {
     tip.style.left = Math.max(4, Math.min(cx - half, max)) + "px";
   };
 
-  wrap.querySelectorAll(".chart-hit").forEach((hit) => {
+  const hits = [...wrap.querySelectorAll(".chart-hit")];
+  hits.forEach((hit, i) => {
+    // ОДНА зупинка Tab на графік, далі стрілками. Доти tabindex="0" стояв
+    // на кожній смузі, і крива капіталу з сотнями знімків робила сторінку
+    // непрохідною з клавіатури: щоб дійти до наступної картки, Tab треба
+    // було натиснути стільки разів, скільки в кривій точок.
+    hit.setAttribute("tabindex", i === 0 ? "0" : "-1");
     hit.addEventListener("mouseenter", () => show(hit));
+    // Дотик: mouseenter на телефоні настає не завжди, а підказка — єдиний
+    // спосіб дізнатися числа за день.
+    hit.addEventListener("pointerdown", () => show(hit));
     // Клавіатура теж. Смуги влучання були mouseenter-only, тобто крива —
-    // єдиний блок застосунку, який без миші не читався взагалі: підказка
-    // й є той спосіб дізнатися числа за день.
+    // єдиний блок застосунку, який без миші не читався взагалі.
     hit.addEventListener("focus", () => show(hit));
     hit.addEventListener("blur", hide);
+    hit.addEventListener("keydown", (e) => {
+      const to = { ArrowLeft: i - 1, ArrowRight: i + 1, Home: 0, End: hits.length - 1 }[e.key];
+      if (to == null || !hits[to]) return;
+      e.preventDefault();
+      hits[to].focus();
+    });
   });
 }
 

@@ -46,6 +46,13 @@ import { debtOverviewHTML } from "./debts.js";
 
 /** Головне число й три поруч.
  *
+ *  Плитки «Заробило, річних» (XIRR) тут більше немає: те саме число з
+ *  розкладом по валютах стоїть на «Портфель → Позиції», а тут воно було
+ *  пʼятим у ряду й не відповідало на питання цієї сторінки — «що робити й
+ *  як справи сьогодні». Капітал і зміна за 30 днів із тієї самої причини
+ *  на цій сторінці зникають із шапки (base.css, :host([data-solo])): під
+ *  шапкою стоїть герой із тими самими двома числами.
+ *
  *  «За 30 днів» тут — рядок під капіталом, і число приходить ГОТОВИМ
  *  (capital_delta_30 зі зведення). Довго його не було: щоденний знімок
  *  тримав капітал, але різниці за вікно не рахував ніхто, а порахувати
@@ -55,7 +62,6 @@ import { debtOverviewHTML } from "./debts.js";
 function heroHTML(ctx) {
   const s = ctx.summary || {};
   const cap = capitalUAH(s);
-  const xirr = (s.xirr || {}).UAH;
   const d = s.capital_delta_30;
   const sub = [
     // Та сама сума в іншій валюті — доларах у гривневому документі, гривні
@@ -88,9 +94,6 @@ function heroHTML(ctx) {
     s.blended_yield_pct && s.blended_yield_real_pct !== s.blended_yield_pct
       ? `<div class="sub-xs">${pct(s.blended_yield_real_pct)} ${REAL_FX} —
          після податку й знецінення</div>` : "")}
-    ${tile("Заробило, річних", xirr ? pct(xirr) : "—",
-    xirr ? `<div class="sub-xs">XIRR — з урахуванням дат внесків</div>`
-      : `<div class="sub-xs">гроші ще замолоді, щоб міряти</div>`)}
     ${waitingTile(s)}
     ${savingsRateTile(s)}
   </div>`;
@@ -170,6 +173,28 @@ function routePreviewHTML(legs) {
   </div>`;
 }
 
+/** З чого почати — лише на порожньому портфелі.
+ *
+ *  Свіжа установка доти відкривалась рядком «Зараз нічого не потребує
+ *  рішення» над плитками з рисками: усе правда, і жодного натяку, що
+ *  робити далі. Картка зникає сама з першою позицією. */
+function firstRunHTML(s) {
+  if (capitalUAH(s) > 0) return "";
+  const steps = [
+    ["Записати першу позицію", "Облігація, вклад, резерв чи ціль — із цього "
+      + "зʼявляться капітал, календар виплат і черга задач.", "portfolio/all/record"],
+    ["Обрати стратегію", "Частки валют і видів, до яких застосунок вестиме "
+      + "поради. Готові набори можна потім підправити руками.", "policy/strategy/main"],
+    ["Додати джерела доходу", "Зарплата й інші надходження: без них немає "
+      + "плану місяця, темпу й норми заощаджень.", "plan/inflow/main"],
+  ];
+  return `<div class="card"><h2>З чого почати</h2>
+    ${steps.map(([t, why, path]) => `<div class="rule-top mt-lg">
+      <div class="empty-t"><a class="lnk" href="${routeFor(path)}">${esc(t)}</a></div>
+      <div class="sub">${esc(why)}</div></div>`).join("")}
+  </div>`;
+}
+
 /** Сама сторінка. */
 export async function overview(ctx, main) {
   // М'які читання паралельно. Кожне живить свій блок, і падіння
@@ -189,7 +214,12 @@ export async function overview(ctx, main) {
   const s = ctx.summary || {};
   const np = s.next_payment;
 
+  // Заголовок — для читача екрана й навігації заголовками: видимий підпис
+  // сторінки вже є на вкладці, і другий над чергою був би підписом до
+  // самого себе. Доти першим заголовком сторінки був <h3> «Зараз».
   main.innerHTML = `
+    <h1 class="sr-only">Сьогодні</h1>
+    ${firstRunHTML(s)}
     ${tasksHTML(ctx, null, { foldWatch: true })}
     ${heroHTML(ctx)}
     <div class="tiles flush">

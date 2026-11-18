@@ -70,7 +70,7 @@ function head(d) {
       >${w.t}</button>`;
   };
   return `<h2 class="card-head">
-    <span>Валютний шок ${infoBtn("fxShock")}</span>
+    <span>Якщо гривня впаде ${infoBtn("fxShock")}</span>
     <span class="seg">${WINDOWS.map(btn).join("")}</span></h2>`;
 }
 
