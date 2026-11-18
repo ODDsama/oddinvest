@@ -663,6 +663,31 @@ func cardInstallmentsInMonth(src *sources, rates fx.Rates, today domain.Date,
 	return domain.Round2(total)
 }
 
+// cardInstallmentsByMonth — ті самі карткові розстрочки помісячно від
+// НАСТУПНОГО місяця (індекс 0 — місяць 1, як в installmentDueByMonth), до
+// останнього платежу включно. Читає їх декумуляція (drawdownDebt).
+func cardInstallmentsByMonth(src *sources, rates fx.Rates, today domain.Date) []float64 {
+	var lastPay domain.Date
+	for _, d := range src.debts {
+		if d.Closed() || d.IsCard() || d.CardID == 0 {
+			continue
+		}
+		for _, p := range domain.InstallmentSchedule(d) {
+			if p.Date.After(lastPay) {
+				lastPay = p.Date
+			}
+		}
+	}
+	if lastPay == "" || lastPay.Before(today) {
+		return nil
+	}
+	var out []float64
+	for m := 1; !monthStart(today, m).After(lastPay); m++ {
+		out = append(out, cardInstallmentsInMonth(src, rates, today, m, ""))
+	}
+	return out
+}
+
 // debtAhead — борг по місяцях горизонту для «Маршруту грошей» (route.go,
 // «Борг»). Ключ — місяць "YYYY-MM", m = 0..months.
 //

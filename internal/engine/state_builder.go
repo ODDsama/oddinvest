@@ -921,6 +921,7 @@ func (e *Engine) buildState(ctx context.Context, now time.Time, what Hypothetica
 		InstallmentDueByMonth: installmentDueByMonth(src, rates, today),
 		CardDueUAH:            cardDue0,
 		CardLeftUAH:           cardLeftUAH(src, rates, today),
+		CardInstByMonth:       cardInstallmentsByMonth(src, rates, today),
 		PlannedByMonth:        plannedByMonth(src, rates, today),
 	}
 	prj := buildProjection(prjIn)

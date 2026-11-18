@@ -11,7 +11,7 @@ import "testing"
 // дванадцятому знімається останнє.
 func TestDrawdownPlainCashLastsAsExpected(t *testing.T) {
 	sl := []Sleeve{{Currency: "UAH", Cash0: 120_000, Rate0: 1}}
-	if got := DrawdownMonths(sl, 0, 10_000, 720); got != 13 {
+	if got := DrawdownMonths(sl, 0, 10_000, nil, 720); got != 13 {
 		t.Errorf("маємо %d, очікували 13", got)
 	}
 }
@@ -25,7 +25,7 @@ func TestDrawdownIncomeCoversWithdrawal(t *testing.T) {
 	// Мільйон під 12% дає близько 10 000 ₴/міс; знімаємо 1 000.
 	sl := []Sleeve{{Currency: "UAH", Cash0: 1_000_000, RatePct: 12,
 		RateTerminalPct: 12, Rate0: 1}}
-	if got := DrawdownMonths(sl, 0, 1_000, 240); got != -1 {
+	if got := DrawdownMonths(sl, 0, 1_000, nil, 240); got != -1 {
 		t.Errorf("маємо %d, очікували -1: дохід покриває зняття", got)
 	}
 }
@@ -34,7 +34,7 @@ func TestDrawdownIncomeCoversWithdrawal(t *testing.T) {
 // на місяць», і це теж відповідь.
 func TestDrawdownNotEnoughForFirstMonth(t *testing.T) {
 	sl := []Sleeve{{Currency: "UAH", Cash0: 5_000, Rate0: 1}}
-	if got := DrawdownMonths(sl, 0, 50_000, 720); got != 1 {
+	if got := DrawdownMonths(sl, 0, 50_000, nil, 720); got != 1 {
 		t.Errorf("маємо %d, очікували 1 (перший же місяць не покривається)", got)
 	}
 }
@@ -49,7 +49,7 @@ func TestDrawdownNotEnoughForFirstMonth(t *testing.T) {
 // першого місяця, попри мільйон «капіталу».
 func TestDrawdownDoesNotSellLocked(t *testing.T) {
 	sl := []Sleeve{{Currency: "UAH", Nominal0: 1_000_000, Rate0: 1}}
-	if got := DrawdownMonths(sl, 0, 10_000, 720); got != 1 {
+	if got := DrawdownMonths(sl, 0, 10_000, nil, 720); got != 1 {
 		t.Errorf("маємо %d, очікували 1: замкнене не продається, а готівки немає", got)
 	}
 }
@@ -63,8 +63,8 @@ func TestDrawdownRedemptionRefillsCash(t *testing.T) {
 	bare := []Sleeve{{Currency: "UAH", Cash0: 30_000, Nominal0: 500_000, Rate0: 1}}
 	withRedeem := []Sleeve{{Currency: "UAH", Cash0: 30_000, Nominal0: 500_000, Rate0: 1,
 		Redeem: map[int]float64{4: 500_000}}}
-	a := DrawdownMonths(bare, 0, 10_000, 720)
-	b := DrawdownMonths(withRedeem, 0, 10_000, 720)
+	a := DrawdownMonths(bare, 0, 10_000, nil, 720)
+	b := DrawdownMonths(withRedeem, 0, 10_000, nil, 720)
 	if a != 4 {
 		t.Errorf("без погашення маємо %d, очікували 4", a)
 	}
@@ -89,7 +89,7 @@ func TestDrawdownSplitsByLiquidNotTotal(t *testing.T) {
 		{Currency: "UAH", Cash0: 600_000, Rate0: 1},
 		{Currency: "USD", Nominal0: 1_000, Rate0: 44},
 	}
-	got := DrawdownMonths(sl, 0, 10_000, 720)
+	got := DrawdownMonths(sl, 0, 10_000, nil, 720)
 	if got < 60 {
 		t.Errorf("вистачило на %d міс; гривневої готівки на 60, а доларовий рукав "+
 			"замкнений і в поділі участі брати не може", got)
@@ -105,10 +105,39 @@ func TestDrawdownIndexesWithdrawalToDevaluation(t *testing.T) {
 	sl := func() []Sleeve {
 		return []Sleeve{{Currency: "UAH", Cash0: 1_200_000, Rate0: 1}}
 	}
-	flat := DrawdownMonths(sl(), 0, 10_000, 720)
-	inflated := DrawdownMonths(sl(), 15, 10_000, 720)
+	flat := DrawdownMonths(sl(), 0, 10_000, nil, 720)
+	inflated := DrawdownMonths(sl(), 15, 10_000, nil, 720)
 	if inflated >= flat {
 		t.Errorf("зі знеціненням 15%%/рік вистачило на %d міс, без нього на %d — "+
 			"зняття мусить дорожчати", inflated, flat)
+	}
+}
+
+// TestDrawdownDebtPaymentsComeOnTop — обовʼязкові платежі за боргами йдуть
+// понад зняття й закінчуються разом із боргом.
+//
+// Дві межі одразу. Нижня: з боргом вистачає на менше, ніж без нього, —
+// інакше картка обіцяє місяці, за які з тих самих грошей ще платити
+// розстрочку. Верхня: на БІЛЬШЕ, ніж за сталого зняття на ту саму суму, —
+// інакше тримісячна розстрочка платилась би всі шістдесят років.
+func TestDrawdownDebtPaymentsComeOnTop(t *testing.T) {
+	sl := func() []Sleeve {
+		return []Sleeve{{Currency: "UAH", Cash0: 100_000, Rate0: 1}}
+	}
+	bare := DrawdownMonths(sl(), 0, 10_000, nil, 720)
+	debt := DrawdownMonths(sl(), 0, 10_000, []float64{10_000, 10_000, 10_000}, 720)
+	forever := DrawdownMonths(sl(), 0, 20_000, nil, 720)
+	if debt >= bare || debt <= forever {
+		t.Errorf("без боргу %d міс, з боргом на три місяці %d, зі сталим подвійним зняттям %d — "+
+			"борг мусить лягти між ними", bare, debt, forever)
+	}
+}
+
+// TestDrawdownDebtBiggerThanLiquid — платіж першого місяця, якого разом зі
+// зняттям не покрити, зупиняє рахунок на першому ж місяці.
+func TestDrawdownDebtBiggerThanLiquid(t *testing.T) {
+	sl := []Sleeve{{Currency: "UAH", Cash0: 30_000, Rate0: 1}}
+	if got := DrawdownMonths(sl, 0, 10_000, []float64{25_000}, 720); got != 1 {
+		t.Errorf("вистачило на %d міс; на зняття з платежем за боргом грошей немає вже першого", got)
 	}
 }

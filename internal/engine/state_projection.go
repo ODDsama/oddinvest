@@ -146,6 +146,10 @@ type projectionInput struct {
 	InstallmentDueByMonth []float64
 	CardDueUAH            float64
 	CardLeftUAH           float64
+	// CardInstByMonth — розстрочки, ПРИВʼЯЗАНІ до картки, помісячно від
+	// наступного місяця. План внесків їх не читає (картковий контур), читає
+	// лише декумуляція — довід у drawdownDebt.
+	CardInstByMonth []float64
 	// PlannedByMonth — планові витрати ПОРТФЕЛЬНОГО контуру (paid_from =
 	// plan), помісячно від наступного місяця: індекс 0 — місяць 1, як і
 	// в InstallmentDueByMonth. Ті самі, що план місяця віднімає як
@@ -308,7 +312,7 @@ func (f sleeveFactory) shareAt(m int) map[string]float64 {
 func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 	planNative map[string][]float64, incReserve, incGoals, expense, onCard []float64) {
 	resGap, goalGap := in.ReserveGapUAH, in.GoalsGapUAH
-	cardLeft := in.CardLeftUAH
+	due := debtDueByMonth(in)
 	resShare, goalShare := 0.0, 0.0
 	if in.Settings != nil {
 		if v := in.Settings.ReserveFillSharePct; v != nil {
@@ -319,7 +323,7 @@ func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 		}
 	}
 	if (resGap <= 0 || resShare <= 0) && (goalGap <= 0 || goalShare <= 0) &&
-		len(in.InstallmentDueByMonth) == 0 && cardLeft <= 0 && len(in.PlannedByMonth) == 0 {
+		len(due) == 0 && len(in.PlannedByMonth) == 0 {
 		return // жодної живої стелі — прогноз лишається таким, як був
 	}
 	for m := range planTotal {
@@ -336,17 +340,12 @@ func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 		// зменшував тим самим портфельні гроші на шістдесят років уперед.
 		// Дострокове погашення більше не забирає портфельних грошей ніде —
 		// довід у allocate.go, у місці, де стояла вирізка.
-		if m < len(in.InstallmentDueByMonth) {
-			debt += in.InstallmentDueByMonth[m]
-		}
-		if cardLeft > 0 {
-			c := math.Min(in.CardDueUAH, cardLeft)
-			cardLeft -= c
-			debt += c
+		if m < len(due) {
+			debt = due[m]
 		}
 		// Непортфельні гроші гасять борг першими (DebtFromPlanUAH). Картка
-		// при цьому гаситься однаково — cardLeft вище зменшується за будь-
-		// якого платника.
+		// при цьому гаситься однаково — залишок у debtDueByMonth зменшується
+		// за будь-якого платника.
 		if m < len(onCard) {
 			debt = math.Max(0, debt-onCard[m])
 		}
@@ -382,6 +381,53 @@ func spendOutside(in projectionInput, planTotal, planUAHOnly []float64,
 			vec[m] *= k
 		}
 	}
+}
+
+// debtDueByMonth — обовʼязкове за боргами помісячно, індекс 0 — місяць 1:
+// самостійні розстрочки за графіком плюс мінімалка картки, доки не
+// вичерпано її непільговий залишок. Вектор закінчується разом із боргом.
+//
+// Окрема функція, бо читачів двоє: spendOutside ріже цим план внесків, а
+// «На скільки вистачить» додає до зняття (buildProjection). Доти прохід жив
+// усередині spendOutside, і картка декумуляції, яка плану не має взагалі,
+// боргу не бачила зовсім.
+func debtDueByMonth(in projectionInput) []float64 {
+	out := append([]float64(nil), in.InstallmentDueByMonth...)
+	if in.CardDueUAH <= 0 {
+		return out
+	}
+	for m, left := 0, in.CardLeftUAH; left > 0; m++ {
+		c := math.Min(in.CardDueUAH, left)
+		left -= c
+		if m == len(out) {
+			out = append(out, 0)
+		}
+		out[m] += c
+	}
+	return out
+}
+
+// drawdownDebt — що з боргів лягає на декумуляцію: debtDueByMonth плюс
+// розстрочки, привʼязані до картки.
+//
+// Карткові розстрочки тут Є, хоч у портфельний план вони не входять
+// (шапка debtDueForMonth): там їх платить зарплата, що приходить на картку,
+// а декумуляція — це якраз світ без неї. Платити їх лишається з того
+// самого ліквідного, з якого йде зняття.
+//
+// Чого тут НЕМАЄ, і навмисно: пільгового обороту картки (це побут, він уже
+// в місячних витратах, а отже в знятті); позики в самого себе з подушки
+// (капітал уже менший на взяте, і подушки в рукавах немає); дострокового
+// погашення (воно не обовʼязкове).
+func drawdownDebt(in projectionInput) []float64 {
+	out := debtDueByMonth(in)
+	for m, v := range in.CardInstByMonth {
+		if m == len(out) {
+			out = append(out, 0)
+		}
+		out[m] += v
+	}
+	return out
 }
 
 // Джерела стартової ставки рукава — те, що бачить людина біля ставки.
@@ -1007,6 +1053,7 @@ func buildProjection(in projectionInput) projectionPhase {
 	out.Drawdown = buildDrawdown(drawdownInput{
 		Factory: factory, Deval: in.Deval,
 		WithdrawUAH: withdraw, WithdrawFrom: withdrawFrom,
+		DebtByMonth:  drawdownDebt(in),
 		IncomeNowUAH: in.IncomeMonthlyNow, Today: today,
 	})
 

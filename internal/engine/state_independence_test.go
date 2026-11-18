@@ -6,6 +6,7 @@ import (
 	money "github.com/Rhymond/go-money"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
+	"github.com/ODDsama/oddinvest/internal/state"
 )
 
 func indepInput(t *testing.T, expenses, target float64) projectionInput {
@@ -223,5 +224,49 @@ func TestIndependenceCapitalOnlyWhenReached(t *testing.T) {
 	}
 	if out.CapitalUAH.Major() != 0 {
 		t.Errorf("капітал %v на момент, якого не буде", out.CapitalUAH.Major())
+	}
+}
+
+// TestDrawdownSeesDebts — обовʼязкові платежі за боргами доходять до картки
+// «На скільки вистачить»: скорочують число й названі поруч із ним.
+//
+// Сторож на проводку: борг у прогнозі жив лише вирізкою з плану внесків
+// (spendOutside), а декумуляція плану не має зовсім — тож картка рахувала
+// так, ніби розстрочки й мінімалки за карткою не існує. Карткова
+// розстрочка перевірена окремим доданком: у план вона не входить навмисно,
+// а тут мусить бути.
+func TestDrawdownSeesDebts(t *testing.T) {
+	run := func(fill func(in *projectionInput)) *state.Drawdown {
+		in := indepInput(t, 50_000, 30_000)
+		in.AccumByCur = nil
+		in.Deval = 0
+		w := 1_000.0
+		in.Settings.WithdrawMonthlyUAH = &w
+		in.DistByCur = map[string][]domain.Dist{money.UAH: {{Value: 12_000, Cost: 12_000}}}
+		if fill != nil {
+			fill(&in)
+		}
+		out := buildProjection(in).Drawdown
+		if out == nil {
+			t.Fatal("декумуляції немає")
+		}
+		return out
+	}
+	bare := run(nil)
+	if !bare.DebtTotalUAH.IsZero() || bare.DebtMonths != 0 {
+		t.Errorf("без боргів поля боргу мусять бути порожні: %+v", bare)
+	}
+	debt := run(func(in *projectionInput) {
+		in.InstallmentDueByMonth = []float64{500, 500}
+		in.CardDueUAH, in.CardLeftUAH = 300, 500
+		in.CardInstByMonth = []float64{200, 200, 200}
+	})
+	if debt.Months >= bare.Months {
+		t.Errorf("з боргом вистачило на %d міс, без нього на %d — борг мусить скорочувати", debt.Months, bare.Months)
+	}
+	// Місяць 1: 500 + 300 + 200; 2: 500 + 200 (залишок картки) + 200; 3: 200.
+	if debt.DebtFirstUAH.Major() != 1_000 || debt.DebtTotalUAH.Major() != 2_100 || debt.DebtMonths != 3 {
+		t.Errorf("борг: перший місяць %v, разом %v за %d міс; чекали 1000, 2100, 3",
+			debt.DebtFirstUAH.Major(), debt.DebtTotalUAH.Major(), debt.DebtMonths)
 	}
 }

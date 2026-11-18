@@ -183,8 +183,8 @@ func TestAccumIsSellableLikeCash(t *testing.T) {
 		Accum: []Accum{{Value0: 12000, Cost0: 12000, CloseM: 6}},
 	}
 	cash := Sleeve{Currency: "UAH", Rate0: 1, Cash0: 12000}
-	a := DrawdownMonths([]Sleeve{fund}, 0, 1000, 60)
-	b := DrawdownMonths([]Sleeve{cash}, 0, 1000, 60)
+	a := DrawdownMonths([]Sleeve{fund}, 0, 1000, nil, 60)
+	b := DrawdownMonths([]Sleeve{cash}, 0, 1000, nil, 60)
 	if b != 13 {
 		t.Fatalf("12000 готівкою під 1000/міс мали вичерпатись на 13-му, маємо %d", b)
 	}
@@ -196,7 +196,7 @@ func TestAccumIsSellableLikeCash(t *testing.T) {
 	// останньому кроці лишається копійчаний хвіст від ділення, і продаж
 	// щоразу частковий. Мутація «продаж не обнуляє позицію» саме через це
 	// лишалась зеленою.
-	if m := DrawdownMonths([]Sleeve{fund}, 0, 12000, 60); m != 2 {
+	if m := DrawdownMonths([]Sleeve{fund}, 0, 12000, nil, 60); m != 2 {
 		t.Errorf("зняття на всю позицію мало вичерпати її за один місяць "+
 			"(вперлось би на другому), маємо %d", m)
 	}
@@ -212,8 +212,8 @@ func TestAccumExitTaxShortensTheRunway(t *testing.T) {
 		Accum: []Accum{{Value0: 20000, Cost0: 10000}}}
 	taxed := Sleeve{Currency: "UAH", Rate0: 1,
 		Accum: []Accum{{Value0: 20000, Cost0: 10000, ExitTaxPct: 23}}}
-	a := DrawdownMonths([]Sleeve{free}, 0, 1000, 60)
-	b := DrawdownMonths([]Sleeve{taxed}, 0, 1000, 60)
+	a := DrawdownMonths([]Sleeve{free}, 0, 1000, nil, 60)
+	b := DrawdownMonths([]Sleeve{taxed}, 0, 1000, nil, 60)
 	if a != 21 {
 		t.Fatalf("20000 без податку під 1000/міс мали вичерпатись на 21-му, маємо %d", a)
 	}
@@ -249,7 +249,7 @@ func TestDrawdownSellsDistributingBeforeAccumulating(t *testing.T) {
 	}
 	// Розподільної рівно на п'ять знять; на шостому фонд закривається й
 	// додає 5000 без податку. Разом десять повних знять.
-	if m := DrawdownMonths([]Sleeve{s}, 0, 1000, 60); m != 11 {
+	if m := DrawdownMonths([]Sleeve{s}, 0, 1000, nil, 60); m != 11 {
 		t.Errorf("вистачило до місяця %d, очікували 11. Вісім означало б, що "+
 			"накопичувальну продали першою й заплатили 50%% там, де можна було дочекатись", m)
 	}

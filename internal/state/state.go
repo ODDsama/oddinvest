@@ -2067,6 +2067,14 @@ type Drawdown struct {
 	// вона пояснює, ЧОМУ число таке: покриття 100% означає, що портфель
 	// живе з потоку й тіла не чіпає.
 	CoveredPct float64 `json:"covered_pct"`
+	// Обовʼязкові платежі за боргами, які йдуть ПОНАД зняття з того самого
+	// ліквідного: розстрочки й мінімалка непільгової частини картки.
+	// DebtFirstUAH — платіж першого місяця, DebtTotalUAH — усі разом,
+	// DebtMonths — скільки місяців вони тривають. Порожні, коли боргів
+	// немає. Пільговий оборот картки сюди не входить: він уже у витратах.
+	DebtFirstUAH Money `json:"debt_first_uah,omitzero"`
+	DebtTotalUAH Money `json:"debt_total_uah,omitzero"`
+	DebtMonths   int   `json:"debt_months,omitempty"`
 }
 
 // SensitivityRow — один зсунутий вхід.

@@ -1383,7 +1383,10 @@
     "withdraw_from": "setting",
     "months": 1,
     "until": "2026-08-15",
-    "covered_pct": 11
+    "covered_pct": 11,
+    "debt_first_uah": 92.48,
+    "debt_total_uah": 647.77,
+    "debt_months": 34
   },
   "rebalance": [
     {

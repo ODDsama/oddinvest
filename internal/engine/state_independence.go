@@ -81,6 +81,9 @@ type drawdownInput struct {
 	// WithdrawFrom — "setting" чи "expenses".
 	WithdrawUAH  float64
 	WithdrawFrom string
+	// DebtByMonth — обовʼязкові платежі за боргами понад зняття, у
+	// номінальних гривнях, індекс 0 — місяць 1 (drawdownDebt).
+	DebtByMonth []float64
 	// IncomeNowUAH — сьогоднішній дохід. Потрібен, щоб сказати, яку
 	// частку зняття портфель покриває вже зараз: саме це пояснює, чому
 	// число вийшло таким, а не інакшим.
@@ -99,12 +102,25 @@ func buildDrawdown(in drawdownInput) *state.Drawdown {
 	// росли б повз нього — а на виплаті НПФ ставали б ліквідними грошима,
 	// яких без зарплати ніхто не заплатив би.
 	sl := in.Factory.buildPlanFree(0, 0)
-	months := domain.DrawdownMonths(sl, in.Deval, in.WithdrawUAH, goalHorizonMonths)
+	months := domain.DrawdownMonths(sl, in.Deval, in.WithdrawUAH, in.DebtByMonth, goalHorizonMonths)
 	out := &state.Drawdown{
 		WithdrawUAH:  state.Major(in.WithdrawUAH, money.UAH),
 		WithdrawFrom: in.WithdrawFrom,
 		Months:       months,
-		CoveredPct:   round1(in.IncomeNowUAH / in.WithdrawUAH * 100),
+		// Від зняття, а не від зняття з боргом: борг тимчасовий, а смужка
+		// пояснює сталий стан — чи живе портфель із потоку.
+		CoveredPct: round1(in.IncomeNowUAH / in.WithdrawUAH * 100),
+	}
+	debtTotal := 0.0
+	for m, v := range in.DebtByMonth {
+		debtTotal += v
+		if v > 0 {
+			out.DebtMonths = m + 1
+		}
+	}
+	if debtTotal > 0 {
+		out.DebtFirstUAH = state.Major(in.DebtByMonth[0], money.UAH)
+		out.DebtTotalUAH = state.Major(debtTotal, money.UAH)
 	}
 	if months > 0 {
 		out.Until = string(in.Today.AddMonthsClamp(months))

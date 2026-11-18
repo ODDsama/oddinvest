@@ -287,11 +287,11 @@ func TestLockedAccumIsNotSpentByDrawdown(t *testing.T) {
 	locked := Sleeve{Currency: "UAH", Rate0: 1,
 		Accum: []Accum{{Value0: 20000, Cost0: 20000, Locked: true}}}
 
-	if m := DrawdownMonths([]Sleeve{free}, 0, 1000, 60); m != 21 {
+	if m := DrawdownMonths([]Sleeve{free}, 0, 1000, nil, 60); m != 21 {
 		t.Fatalf("незамкнені 20000 під 1000/міс мали вичерпатись на 21-му, маємо %d", m)
 	}
 	// Замкнене не дає нічого, тобто знімати нема з чого з першого місяця.
-	if m := DrawdownMonths([]Sleeve{locked}, 0, 1000, 60); m != 1 {
+	if m := DrawdownMonths([]Sleeve{locked}, 0, 1000, nil, 60); m != 1 {
 		t.Errorf("замкнений НПФ не можна витрачати — очікували вичерпання на 1-му, маємо %d", m)
 	}
 }

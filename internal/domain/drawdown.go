@@ -43,9 +43,18 @@ import "math"
 //     чому саме людина витрачає, а пропорційне зняття ще й тримає
 //     валютну структуру незмінною, як і зробив би той, хто ребалансує.
 //
+//  5. Обовʼязкові платежі за боргами (extraByMonth) ідуть ПОНАД зняття і
+//     за власним графіком: індекс 0 — місяць 1, після останнього елемента
+//     їх немає. Задані в НОМІНАЛЬНИХ гривнях свого місяця, на відміну від
+//     зняття: платіж за розстрочкою записаний у договорі й зі знеціненням
+//     не росте, тож у сьогоднішніх грошах він із часом легшає. Саме
+//     графік, а не «відняти весь борг на старті»: борг платиться
+//     частинами, і знявши його одразу, картка сказала б «не вистачить і на
+//     місяць» там, де насправді вистачає на рік.
+//
 // Повертає місяць, на якому зняття вперше НЕ вдалося покрити повністю.
 // -1 = не вичерпується за maxMonths (потоки покривають зняття).
-func DrawdownMonths(sleeves []Sleeve, devalPct, withdrawUAH float64, maxMonths int) int {
+func DrawdownMonths(sleeves []Sleeve, devalPct, withdrawUAH float64, extraByMonth []float64, maxMonths int) int {
 	if withdrawUAH <= 0 || len(sleeves) == 0 {
 		return -1
 	}
@@ -90,7 +99,8 @@ func DrawdownMonths(sleeves []Sleeve, devalPct, withdrawUAH float64, maxMonths i
 		}
 		// Скільки треба зняти цього місяця, у сьогоднішніх гривнях. Саме
 		// стала сума: індексація сидить у тому, що вартість портфеля
-		// дисконтується, а не в тому, що зростає потреба.
+		// дисконтується, а не в тому, що зростає потреба. Платіж за боргом
+		// (need нижче) дисконтується тим самим множником, бо він номінальний.
 		liquid := 0.0
 		for i := range sleeves {
 			liquid += liquidOf(i, m)
@@ -98,12 +108,16 @@ func DrawdownMonths(sleeves []Sleeve, devalPct, withdrawUAH float64, maxMonths i
 		// Ліквідного менше за потребу — далі тягнути нема з чого. Замкнене
 		// ще може лишатись, і саме тому місяць називається «на скільки
 		// вистачило», а не «коли портфель обнулився».
-		if liquid+0.005 < withdrawUAH {
+		need := withdrawUAH
+		if m-1 < len(extraByMonth) {
+			need += extraByMonth[m-1] / math.Pow(1+dM, float64(m))
+		}
+		if liquid+0.005 < need {
 			return m
 		}
-		short := withdrawUAH
+		short := need
 		for i := range sleeves {
-			part := withdrawUAH * liquidOf(i, m) / liquid
+			part := need * liquidOf(i, m) / liquid
 			take := nativeOf(i, m, part)
 			// Порядок — за ціною виходу, від найдешевшого. Замкнене не
 			// чіпаємо взагалі: його ціни застосунок не знає.
