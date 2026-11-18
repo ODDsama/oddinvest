@@ -623,9 +623,6 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out.Since = next
-		if out.Imported > 0 {
-			s.publishAsync()
-		}
 	}
 	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)

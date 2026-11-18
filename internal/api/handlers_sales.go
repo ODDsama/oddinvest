@@ -61,7 +61,6 @@ func (s *Server) handleAddSale(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -94,7 +93,6 @@ func (s *Server) handleUpdateSale(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -108,7 +106,6 @@ func (s *Server) handleDeleteSale(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 

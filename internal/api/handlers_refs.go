@@ -33,7 +33,6 @@ func (s *Server) handleAddBroker(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -63,7 +62,6 @@ func (s *Server) handleRenameBroker(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -77,7 +75,6 @@ func (s *Server) handleDeleteBroker(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -153,7 +150,6 @@ func (s *Server) handleUpdateFundCatalog(w http.ResponseWriter, r *http.Request)
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -167,7 +163,6 @@ func (s *Server) handleDeleteFundCatalog(w http.ResponseWriter, r *http.Request)
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 

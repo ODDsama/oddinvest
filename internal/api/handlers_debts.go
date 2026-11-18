@@ -300,7 +300,6 @@ func (s *Server) handleAddDebt(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -335,7 +334,6 @@ func (s *Server) handleUpdateDebt(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -353,7 +351,6 @@ func (s *Server) handleDeleteDebt(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -518,7 +515,6 @@ func (s *Server) handleAddDebtOp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": newID})
 }
 
@@ -553,7 +549,6 @@ func (s *Server) handleUpdateDebtOp(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -567,7 +562,6 @@ func (s *Server) handleDeleteDebtOp(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -683,7 +677,6 @@ func (s *Server) handleAddDebtMark(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": newID})
 }
 
@@ -718,7 +711,6 @@ func (s *Server) handleUpdateDebtMark(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -732,7 +724,6 @@ func (s *Server) handleDeleteDebtMark(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 

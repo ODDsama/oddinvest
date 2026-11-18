@@ -97,7 +97,6 @@ func (s *Server) handleAddLot(w http.ResponseWriter, r *http.Request) {
 	if cost, cerr := domain.LotCost(lot); cerr == nil {
 		s.SaveDecision(r.Context(), snap, now, store.BuyBond, lot.ISIN, cost, id, lot.Note)
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -143,7 +142,6 @@ func (s *Server) handleUpdateLot(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -157,7 +155,6 @@ func (s *Server) handleDeleteLot(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 

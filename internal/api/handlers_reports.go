@@ -47,7 +47,6 @@ func (s *Server) handlePaymentStatus(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -64,7 +63,6 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	// дані (див. його шапку в jobs). Доти вона їхала в його ж хвості, і
 	// разом із нею — знімок із бекапом; знімок кнопці «Оновити НБУ» не
 	// потрібен, а свіжий стан у HA після оновлення довідника — так.
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -106,7 +104,6 @@ func (s *Server) handleBackupImport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"safety_copy": safety,
 		"restored": map[string]int{

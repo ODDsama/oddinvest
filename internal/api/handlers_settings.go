@@ -66,6 +66,5 @@ func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -174,7 +174,6 @@ func (s *Server) handleAddNPFAccount(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -211,7 +210,6 @@ func (s *Server) handleUpdateNPFAccount(w http.ResponseWriter, r *http.Request) 
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -225,7 +223,6 @@ func (s *Server) handleDeleteNPFAccount(w http.ResponseWriter, r *http.Request) 
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -261,7 +258,6 @@ func (s *Server) handleSetNPFNav(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -394,7 +390,6 @@ func (s *Server) handleAddNPFOp(w http.ResponseWriter, r *http.Request) {
 	}
 	s.SaveDecision(r.Context(), snap, now, store.BuyNPF, name,
 		money.New(op.Amount, cur), id, op.Note)
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -424,7 +419,6 @@ func (s *Server) handleUpdateNPFOp(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -438,7 +432,6 @@ func (s *Server) handleDeleteNPFOp(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -500,7 +493,6 @@ func (s *Server) handleAddNPFNav(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int{"added": n})
 }
 
@@ -535,7 +527,6 @@ func (s *Server) handleUpdateNPFNav(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -549,7 +540,6 @@ func (s *Server) handleDeleteNPFNav(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -636,6 +626,5 @@ func (s *Server) handleNPFCreditFlow(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": fid})
 }

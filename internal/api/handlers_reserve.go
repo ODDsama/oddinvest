@@ -165,7 +165,6 @@ func (s *Server) handleAddReserveOp(w http.ResponseWriter, r *http.Request) {
 		s.SaveDecision(r.Context(), snap, now, engine.DecisionKindReserve, cmp.Or(op.Bank, op.Place),
 			money.New(op.Amount, op.Currency), id, op.Note)
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -190,7 +189,6 @@ func (s *Server) handleUpdateReserveOp(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -204,7 +202,6 @@ func (s *Server) handleDeleteReserveOp(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -306,7 +303,6 @@ func (s *Server) handleAddReserveLoan(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -332,7 +328,6 @@ func (s *Server) handleUpdateReserveLoan(w http.ResponseWriter, r *http.Request)
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -349,7 +344,6 @@ func (s *Server) handleDeleteReserveLoan(w http.ResponseWriter, r *http.Request)
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 

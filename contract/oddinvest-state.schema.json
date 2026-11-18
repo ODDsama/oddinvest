@@ -25,6 +25,15 @@
       "type": "integer",
       "const": 4
     },
+    "schema_min": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Найстарша версія читача, яка ще читає цей документ правильно: читач версії N приймає документ, якщо schema_min ≤ N ≤ schema. Немає поля — вважати рівним schema."
+    },
+    "app_version": {
+      "type": "string",
+      "description": "Збірка бекенда (коротке sha коміту). Лише в документі, що публікується в MQTT."
+    },
     "generated_at": {
       "type": "string",
       "format": "date-time"

@@ -1,5 +1,6 @@
 {
   "schema": 4,
+  "schema_min": 4,
   "generated_at": "2026-07-15T10:00:00Z",
   "currency": "UAH",
   "invested_uah": 0,

@@ -105,7 +105,6 @@ func (s *Server) handleAddPlanExpense(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -135,7 +134,6 @@ func (s *Server) handleUpdatePlanExpense(w http.ResponseWriter, r *http.Request)
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -149,7 +147,6 @@ func (s *Server) handleDeletePlanExpense(w http.ResponseWriter, r *http.Request)
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 

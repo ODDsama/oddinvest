@@ -129,6 +129,7 @@ type DeriveInput struct {
 // Derive добудовує документ похідними полями.
 func Derive(doc *Doc, in DeriveInput) error {
 	doc.Schema = SchemaVersion
+	doc.SchemaMin = SchemaMinVersion
 	doc.GeneratedAt = in.Now.UTC().Format(time.RFC3339)
 	// Книжкова валюта: будівник рахує в гривні завжди, і саме такий документ
 	// іде в добовий знімок. Валюту звітності проставляє презентер на виході.

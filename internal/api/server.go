@@ -72,7 +72,11 @@ func (s *Server) SetTunnel(t *tunnel.Manager) { s.tun = t }
 // PresentDoc — Present, звужений до *state.Doc, як його чекає
 // jobs.Runner.SetPresenter: не обгортка заради обгортки, а перехідник типу
 // (Present бере any, бо перекладає й відповіді інших обробників).
+//
+// Тут же документ дістає версію збірки (state.Doc.AppVersion): це шлях
+// публікації в MQTT, і саме його читає Home Assistant.
 func (s *Server) PresentDoc(ctx context.Context, doc *state.Doc) error {
+	doc.AppVersion = Version
 	return s.Present(ctx, doc)
 }
 
@@ -120,7 +124,7 @@ func (s *Server) Handler() http.Handler {
 
 // routes — голий mux сервера: усі /api/* цього портфеля й статика. Без
 // замка й журналу — їх додає той, хто складає обробник (Handler або Hub).
-func (s *Server) routes() *http.ServeMux {
+func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/summary", s.handleSummary)
@@ -331,7 +335,52 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	// Статика з ETag і gzip (static.go); свіжість, як і доти, — noCache.
 	mux.Handle("GET /", noCache(staticHandler()))
-	return mux
+	return s.publishAfterWrite(mux)
+}
+
+// noPublishPrefixes — записи, після яких документ стану НЕ перепублікується,
+// бо в ньому від них нічого не міняється: вхід і секрети, розрахунки, що
+// лише відповідають (розкладка, перекладання, попередній перегляд
+// політики), порядок і приховані рядки списку, ціни брокера (у документ
+// вони не течуть — contract/), видача сертифіката.
+//
+// Перелік — ВИНЯТКИ, і в цьому вся суть: доти було навпаки, publishAsync()
+// стояв руками в 77 обробниках, і новий обробник, що про нього забув,
+// лишав Home Assistant зі старою картиною до ранкового прогону — мовчки.
+// Тепер забути можна лише тут, і ціна забутого — одна зайва публікація.
+var noPublishPrefixes = []string{
+	"/api/auth", "/api/login", "/api/logout",
+	"/api/allocate", "/api/switch", "/api/policy/preview",
+	"/api/nav-order", "/api/hidden-rows",
+	"/api/quotes", "/api/remote/cert",
+}
+
+func skipsPublish(path string) bool {
+	for _, p := range noPublishPrefixes {
+		if path == p || strings.HasPrefix(path, p+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// publishAfterWrite — після кожного ВДАЛОГО запису в /api/* стан іде в
+// MQTT (publishAsync зливає серію правок в одну-дві публікації). Стоїть на
+// маршрутах свого портфеля, тож публікує рівно той сервер, у який писали.
+func (s *Server) publishAfterWrite(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		read := r.Method == http.MethodGet || r.Method == http.MethodHead
+		if read || !strings.HasPrefix(r.URL.Path, "/api/") || skipsPublish(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		sw := &statusWriter{ResponseWriter: w}
+		next.ServeHTTP(sw, r)
+		// Нуль — неявні 200 (Write без WriteHeader), як у logMiddleware.
+		if cmp.Or(sw.code, http.StatusOK) < http.StatusBadRequest {
+			s.publishAsync()
+		}
+	})
 }
 
 // noStoreAPI забороняє кешувати ВІДПОВІДІ API взагалі.

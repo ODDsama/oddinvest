@@ -106,7 +106,6 @@ func (s *Server) handleAddGoal(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -131,7 +130,6 @@ func (s *Server) handleUpdateGoal(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -148,7 +146,6 @@ func (s *Server) handleDeleteGoal(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -261,7 +258,6 @@ func (s *Server) handleAddGoalOp(w http.ResponseWriter, r *http.Request) {
 		s.SaveDecision(r.Context(), snap, now, engine.DecisionKindGoal, s.goalName(r.Context(), op.GoalID),
 			money.New(op.Amount, op.Currency), id, op.Note)
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -304,7 +300,6 @@ func (s *Server) handleUpdateGoalOp(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -318,7 +313,6 @@ func (s *Server) handleDeleteGoalOp(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -180,7 +180,6 @@ func (s *Server) handleAddPlanReceipt(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -200,7 +199,6 @@ func (s *Server) handleUpdatePlanReceipt(w http.ResponseWriter, r *http.Request)
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -214,6 +212,5 @@ func (s *Server) handleDeletePlanReceipt(w http.ResponseWriter, r *http.Request)
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }

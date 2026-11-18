@@ -57,7 +57,6 @@ func (s *Server) handleRemoteConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Публічна адреса стала налаштуванням — стан для HA треба перепублікувати.
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -91,6 +90,5 @@ func (s *Server) handleRemoteDisconnect(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -131,7 +131,6 @@ func (s *Server) handleAddFundOp(w http.ResponseWriter, r *http.Request) {
 	}
 	s.SaveDecision(r.Context(), snap, now, store.BuyFund, op.Fund,
 		money.New(op.Amount, op.Currency), id, op.Note)
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -156,7 +155,6 @@ func (s *Server) handleUpdateFundOp(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -170,7 +168,6 @@ func (s *Server) handleDeleteFundOp(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 

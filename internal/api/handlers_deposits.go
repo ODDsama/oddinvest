@@ -317,7 +317,6 @@ func (s *Server) handleAddDepositTopup(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -356,7 +355,6 @@ func (s *Server) handleUpdateDepositTopup(w http.ResponseWriter, r *http.Request
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -371,7 +369,6 @@ func (s *Server) handleDeleteDepositTopup(w http.ResponseWriter, r *http.Request
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -397,7 +394,6 @@ func (s *Server) handleAddTermDeposit(w http.ResponseWriter, r *http.Request) {
 	}
 	s.SaveDecision(r.Context(), snap, now, store.BuyDeposit, d.Bank,
 		money.New(d.Principal, d.Currency), id, d.Note)
-	s.publishAsync()
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
 }
 
@@ -422,7 +418,6 @@ func (s *Server) handleUpdateTermDeposit(w http.ResponseWriter, r *http.Request)
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -436,7 +431,6 @@ func (s *Server) handleDeleteTermDeposit(w http.ResponseWriter, r *http.Request)
 		writeStoreErr(w, err, http.StatusInternalServerError)
 		return
 	}
-	s.publishAsync()
 	w.WriteHeader(http.StatusNoContent)
 }
 
