@@ -46,7 +46,7 @@ func splitEnv(t *testing.T, goalsSharePct string) string {
 	// buildRebalance рядків видів у порожньому портфелі свідомо не малює.
 	// Покупка, а не поповнення: рахунків немає з ревізії 2026-10-03.
 	if resp, b := do(t, "POST", srv.URL+"/api/funds",
-		`{"fund":"Тест","kind":"buy","qty":10,"amount":"100000.00","currency":"UAH","date":"2026-01-05"}`); resp.StatusCode != http.StatusCreated {
+		`{"fund":"Тест","kind":"buy","qty":10,"amount":"100000.00","currency":"UAH","date":"2026-01-05","broker":"тест"}`); resp.StatusCode != http.StatusCreated {
 		t.Fatalf("покупка: %d %s", resp.StatusCode, b)
 	}
 	return srv.URL

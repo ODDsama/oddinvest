@@ -40,6 +40,7 @@ import {
 import { tile, empty } from "../components.js";
 import { PAYOUT_LABEL } from "../constants.js";
 import { routeFor } from "../routes.js";
+import { fundOpFormHTML, fundViaStatement, fundLastBroker } from "../fund-ops.js";
 import { wireCrud } from "../crud.js";
 import { wireRefs } from "../refs.js";
 import { wireDisclosures } from "../disclosure.js";
@@ -272,13 +273,20 @@ function writeHTML(ctx, spec, d) {
     return rows.map((n) => `<div class="card"><h3>${esc(n.name)}</h3>
       ${npfDetailHTML(ctx, n)}</div>`).join("");
   }
-  // Фонди. Форми немає ЗА ПОБУДОВОЮ, і крок лишається на місці саме щоб це
-  // сказати: питання «а де додати фонд» виникає рівно тут.
-  return `<div class="card">${empty("Сертифікати не вносять руками",
-    "Журнал веде виписка: купівлі, продажі й дивіденди приходять файлом, а виправити "
-    + "операцію можна в журналі фонду. Два джерела правди — виписка й рука — розійшлися б, "
-    + "і розійшлися б тихо.",
-    { href: routeFor("portfolio/all/statement"), label: "Завантажити виписку" })}</div>`;
+  // Фонди. Форма залежить від того, ХТО веде журнал цього фонду
+  // (brokers.entry, 0072). Доти її не було за побудовою — брокер із фондами
+  // був один, і в нього виписка. Тепер: фонд, усі операції якого лежать у
+  // брокера «виписка», форми так і не має, і крок лишається на місці саме
+  // щоб це сказати — питання «а де додати» виникає рівно тут. Решта дістає
+  // ту саму форму, що й «Записати нове», з підставленими фондом і брокером.
+  if (fundViaStatement(ctx, ctx.key)) {
+    return `<div class="card">${empty("Операції цього фонду приносить виписка",
+      "Купівлі, продажі й дивіденди приходять файлом, а виправити операцію можна в журналі "
+      + "фонду. Два джерела правди — виписка й рука — розійшлися б, і розійшлися б тихо.",
+      { href: routeFor("portfolio/all/statement"), label: "Завантажити виписку" })}</div>`;
+  }
+  return `<div class="card"><h3>Операція з фондом</h3>
+    ${fundOpFormHTML(ctx, { fund: ctx.key, broker: fundLastBroker(ctx.key) })}</div>`;
 }
 
 /** Панель позиції. Вид береться з id рядка (master.js), тож чотири види
@@ -353,8 +361,9 @@ const EMPTY = {
     action: { href: routeFor("portfolio/@first:bond/record"), label: "Записати покупку" },
   },
   fund: {
-    text: "Сертифікати заводить імпорт виписки — руками їх не вносять.",
-    action: { href: routeFor("portfolio/all/statement"), label: "Завантажити виписку" },
+    text: "Сертифікати з'являться тут після першої операції: виписка — для брокера, "
+      + "який її дає, запис руками — для решти.",
+    action: { href: routeFor("portfolio/all/record"), label: "Записати операцію" },
   },
   npf: {
     text: "Пенсійний рахунок з'явиться тут, коли буде заведений у довідниках.",

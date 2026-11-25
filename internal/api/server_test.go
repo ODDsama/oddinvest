@@ -883,8 +883,47 @@ func TestFundOpsFlowToState(t *testing.T) {
 	}
 	// дивіденд без кількості — навпаки, коректний
 	if resp, b := do(t, "POST", srv.URL+"/api/funds",
-		`{"fund":"X","kind":"dividend","amount":"5.00","tax":"0.70"}`); resp.StatusCode != http.StatusCreated {
+		`{"fund":"X","kind":"dividend","amount":"5.00","tax":"0.70","broker":"ICU"}`); resp.StatusCode != http.StatusCreated {
 		t.Errorf("дивіденд без кількості мав пройти: %d %s", resp.StatusCode, b)
+	}
+}
+
+// Руками не пишуть туди, куди пише виписка (brokers.entry, 0072): POST на
+// брокера «виписка» відхиляється — і під іншим регістром назви теж, — а
+// правка вже заведеного рядка лишається. Без брокера запис не приймається
+// зовсім: інакше це був би обхід.
+func TestManualFundOpRejectedForStatementBroker(t *testing.T) {
+	srv, st := testServer(t)
+	ctx := context.Background()
+	// Рядок, який «принесла виписка»: імпорт пише через сховище, повз обробник.
+	opID, err := st.AddFundOp(ctx, domain.FundOp{Date: "2026-06-05", Fund: "Inzhur REIT",
+		Kind: domain.FundBuy, Qty: 10, Amount: 10000, Currency: "UAH", Broker: "inzhur", Note: "виписка"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MarkStatementBroker(ctx, "inzhur"); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, broker := range []string{"inzhur", "Inzhur"} {
+		resp, b := do(t, "POST", srv.URL+"/api/funds",
+			`{"date":"2026-07-01","fund":"Inzhur REIT","kind":"buy","qty":1,"amount":"10.00","broker":"`+broker+`"}`)
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(b, "виписка") {
+			t.Errorf("брокер %q: ручний запис мав дати 400 про виписку, маємо %d %s", broker, resp.StatusCode, b)
+		}
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/funds",
+		`{"date":"2026-07-01","fund":"Inzhur REIT","kind":"buy","qty":1,"amount":"10.00"}`); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("запис без брокера мав дати 400, маємо %d %s", resp.StatusCode, b)
+	}
+	if resp, b := do(t, "POST", srv.URL+"/api/funds",
+		`{"date":"2026-11-25","fund":"Дивідендний фонд","kind":"buy","qty":9,"amount":"932.40","broker":"ICU"}`); resp.StatusCode != http.StatusCreated {
+		t.Errorf("брокер без виписки: запис мав пройти, маємо %d %s", resp.StatusCode, b)
+	}
+	// Правка рядка виписки — податок, якого вона не показала, — лишається.
+	if resp, b := do(t, "PUT", srv.URL+"/api/funds/"+strconv.FormatInt(opID, 10),
+		`{"date":"2026-06-05","fund":"Inzhur REIT","kind":"buy","qty":10,"amount":"100.00","tax":"1.00","broker":"inzhur","note":"виписка"}`); resp.StatusCode != http.StatusNoContent {
+		t.Errorf("правка рядка виписки мала пройти, маємо %d %s", resp.StatusCode, b)
 	}
 }
 

@@ -623,6 +623,14 @@ func (s *Server) importStatement(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out.Since = next
+		// Брокер, під яким писала виписка, відтепер «виписка»: ручний запис
+		// операцій фонду на нього закривається (handleAddFundOp). Міграція
+		// 0072 позначила тих, хто вже був; цей рядок — для брокера, якого
+		// завів саме цей імпорт.
+		if serr := s.st.MarkStatementBroker(ctx, broker); serr != nil {
+			writeErr(w, http.StatusInternalServerError, serr)
+			return
+		}
 	}
 	if err := s.Present(r.Context(), &out); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)

@@ -79,7 +79,9 @@ const ACTIONS = {
   // pane — панель рядка, коли задача несе ref (конкретний запис). Без ref
   // лишається загальна адреса to.
   "review-deposit": { to: "portfolio/@first:deposit/state", label: "Подивитись вклад", pane: "state" },
-  "how-to-fund": { to: "portfolio/@first:fund/state", label: "Як завести сертифікат", pane: "state" },
+  // Веде на «Записати» рядка фонду: там або форма (брокер «вручну»), або
+  // пояснення, що операції цього фонду приносить виписка.
+  "how-to-fund": { to: "portfolio/@first:fund/record", label: "Як завести сертифікат", pane: "record" },
 };
 
 const GROUPS = [

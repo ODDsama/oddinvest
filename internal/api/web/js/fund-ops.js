@@ -5,13 +5,14 @@
 // його звідти — тобто розділ був сховищем даних для сусіднього розділу, і
 // те, який відрендериться першим, вирішувало, що побачить інший.
 
-import { esc, curSym, cur2 as fmtCur } from "./format.js";
+import { esc, curSym, cur2 as fmtCur, today } from "./format.js";
 import { FUND_KIND } from "./constants.js";
 import {
   money as moneyField, num as numField, date as dateField,
-  note as noteField, selectOf,
+  note as noteField, selectOf, formHTML,
 } from "./fields.js";
 import { refSelect, refValue } from "./refs.js";
+import { routeFor } from "./routes.js";
 import { wireCrud } from "./crud.js";
 import { opsGrid, actionsCol } from "./grid.js";
 
@@ -77,35 +78,98 @@ export function fundTable(ctx, kind, cols, empty, filter) {
   });
 }
 
-/** Поля операції з сертифікатом — один список і для правки, і (колись)
- *  для запису руками. Форми додавання тут немає й не планується: записи
- *  приносить виписка, а другий вхід для тих самих даних розійшовся б із
- *  нею на першому ж імпорті.
+/** Поля операції з сертифікатом — один список і для запису руками, і для
+ *  правки.
  *
- *  А от ПРАВКА тепер є, і ось із чим її треба знати. Повторний імпорт
- *  розпізнає вже заведений рядок за четвіркою (дата, фонд, вид, кількість,
- *  сума) — fundKey в handlers_import.go. Виправив будь-що з цієї четвірки — і
- *  наступний імпорт тієї самої виписки принесе початковий рядок ще раз,
- *  уже як окремий запис. Податок, брокер і нотатка в розпізнавання не
- *  входять, тож правляться без наслідків, і саме вони найчастіше й
+ *  ФОРМА ДОДАВАННЯ З'ЯВИЛАСЬ, і ось чому попереднє рішення («її немає й не
+ *  планується: записи приносить виписка») більше не тримає цілком. Воно
+ *  стояло на тому, що брокер із фондами один і в нього є виписка. З другим
+ *  брокером, виписки якого ми не читаємо, руками — єдиний вхід. Сам довід
+ *  при цьому чинний, лише звузився: другий вхід для тих самих даних
+ *  розійшовся б із випискою, тому руками не пишуть ТУДИ, КУДИ ПИШЕ ВИПИСКА.
+ *  Це властивість брокера (brokers.entry, міграція 0072): у формі додавання
+ *  брокерів «виписка» немає в списку ("broker-manual" у refs.js), а сервер
+ *  відхиляє такий POST і повз форму (manualFundOpAllowed).
+ *
+ *  Додавання від правки відрізняє id: prefill (фонд і брокер рядка, на якому
+ *  стоїть форма) — теж row, але без id.
+ *
+ *  ПРАВКА лишилась для всіх рядків, і ось із чим її треба знати. Повторний
+ *  імпорт розпізнає вже заведений рядок за четвіркою (дата, фонд, вид,
+ *  кількість, сума) — fundKey в handlers_import.go. Виправив будь-що з цієї
+ *  четвірки — і наступний імпорт тієї самої виписки принесе початковий рядок
+ *  ще раз, уже як окремий запис. Податок, брокер і нотатка в розпізнавання
+ *  не входять, тож правляться без наслідків, і саме вони найчастіше й
  *  бувають неправильні у виписці.
  *
  *  Тому попередження стоїть У САМІЙ модалці, а не лише тут: читає його
- *  той, хто править, а не той, хто читає код. */
-export const fundOpFields = (ctx, row = null) => [
-  refSelect(ctx, { name: "fund", ref: "fund", value: row ? row.fund : "" }),
-  selectOf("kind", "Вид", Object.entries(FUND_KIND), row ? row.kind : "buy"),
-  dateField("date", "Дата", row ? { value: row.date } : {}),
-  numField("qty", "Кількість", { min: 0, value: row ? row.qty : "" }),
-  moneyField("amount", "Сума", { required: true, value: row ? row.amount.amount : "" }),
-  moneyField("tax", "Податок", { value: row && row.tax ? row.tax.amount : "" }),
-  refSelect(ctx, { name: "broker", ref: "broker", value: row ? row.broker || "" : "" }),
-  noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
-  `<div class="note">Дата, фонд, вид, кількість і сума — те, за чим повторний
-    імпорт упізнає вже заведений рядок. Виправиш щось із них — і та сама виписка
-    наступного разу принесе початковий запис ще раз, окремим рядком. Податок,
-    брокер і нотатка на це не впливають.</div>`,
-];
+ *  той, хто править, а не той, хто читає код.
+ *
+ *  Валюти у формі немає навмисно: вона властивість фонду, а не операції
+ *  (store.fundRef). Новий фонд заводиться гривневим; інша валюта — одна
+ *  правка в довіднику фондів. */
+export const fundOpFields = (ctx, row = null) => {
+  const adding = !(row && row.id);
+  return [
+    refSelect(ctx, { name: "fund", ref: "fund", value: row ? row.fund : "", required: adding }),
+    selectOf("kind", "Вид", Object.entries(FUND_KIND), row ? row.kind : "buy"),
+    dateField("date", "Дата", row ? { value: row.date } : {}),
+    numField("qty", "Кількість", { min: 0, value: row ? row.qty : "" }),
+    moneyField("amount", "Сума", { required: true, value: row ? row.amount.amount : "" }),
+    moneyField("tax", "Податок", { value: row && row.tax ? row.tax.amount : "" }),
+    refSelect(ctx, {
+      name: "broker", ref: adding ? "broker-manual" : "broker",
+      value: row ? row.broker || "" : "", required: adding,
+    }),
+    noteField("note", "Нотатка", row ? { value: row.note || "" } : {}),
+    // Попередження про повторний імпорт — лише правці: у формі додавання
+    // брокера з випискою немає зовсім, тож і попереджати нема про що.
+    adding ? "" : `<div class="note">Дата, фонд, вид, кількість і сума — те, за чим повторний
+      імпорт упізнає вже заведений рядок. Виправиш щось із них — і та сама виписка
+      наступного разу принесе початковий запис ще раз, окремим рядком. Податок,
+      брокер і нотатка на це не впливають.</div>`,
+  ];
+};
+
+/** Чи операції цього брокера приносить виписка. Без регістру — як сервер. */
+const viaStatement = (ctx, broker) => !!broker && (ctx.brokers || []).some((b) =>
+  b.entry === "statement" && b.name.toLowerCase() === String(broker).toLowerCase());
+
+/** Форма ручного запису операції фонду — ті самі fundOpFields, що й у
+ *  модалці правки.
+ *
+ *  prefill — фонд і брокер, коли форма стоїть на рядку конкретного фонду:
+ *  набирати назву фонду вдруге — найчастіша одруківка, і вона завела б
+ *  другий фонд із майже тією самою назвою. Брокер «виписка» не
+ *  підставляється: refSelect дописав би його в список як обране значення, і
+ *  форма запропонувала б рівно той запис, який сервер відхилить. */
+export function fundOpFormHTML(ctx, prefill = null) {
+  const row = prefill ? {
+    fund: prefill.fund || "", kind: "buy", date: today(), qty: "",
+    amount: { amount: "" }, tax: null, note: "",
+    broker: viaStatement(ctx, prefill.broker) ? "" : prefill.broker || "",
+  } : null;
+  // Пояснення стоїть ПІД формою, а не полем у ній: сітка форми віддала б
+  // йому клітинку поруч із податком, і абзац розсунув би рядок полів.
+  return formHTML({ id: "fundOpForm", fields: fundOpFields(ctx, row), submit: "Додати" })
+    + `<div class="sub">У списку брокерів лише ті, чиї операції вносять руками (це задається
+      в довідниках, у рядку брокера). Для брокера з випискою —
+      <a class="lnk" href="${routeFor("portfolio/all/statement")}">завантаж виписку</a>.</div>`;
+}
+
+/** Чи всі операції фонду лежать у брокерів «виписка». Тоді форма на його
+ *  рядку не потрібна: фонд цілком веде виписка, і вхід для нього — файл. */
+export function fundViaStatement(ctx, fund) {
+  const ops = (fundOps || []).filter((o) => o.fund === fund);
+  return ops.length > 0 && ops.every((o) => viaStatement(ctx, o.broker));
+}
+
+/** Брокер останньої операції фонду — для підстановки у форму на його рядку. */
+export function fundLastBroker(fund) {
+  const ops = (fundOps || []).filter((o) => o.fund === fund && o.broker)
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id - b.id));
+  return ops.length ? ops[ops.length - 1].broker : "";
+}
 
 export const fundOpBody = (f) => ({
   fund: refValue(f, "fund"),
@@ -153,9 +217,12 @@ export function fundStatementHTML(ctx) {
 //
 // Наслідок повторного імпорту названий у самій модалці (fundOpFields), бо
 // читати його має той, хто править.
+//
+// Форма додавання (#fundOpForm) стоїть не на кожній сторінці, де є журнал;
+// wireCrud відсутність форми терпить, тож селектор передається завжди.
 export function wireFundOps(ctx, main) {
   wireCrud(ctx, main, {
-    resource: "funds", title: "Запис", rows: fundOps || [],
+    resource: "funds", form: "#fundOpForm", title: "Запис", rows: fundOps || [],
     fields: fundOpFields, body: fundOpBody,
     // У питанні називаємо саму операцію, а не її номер: «продаж Inzhur
     // REIT від 12-05» перевіряється поглядом, «запис #37» — ні.
@@ -169,6 +236,6 @@ export function wireFundOps(ctx, main) {
         : "";
       return head + both + " Позиція й ціна перерахуються.";
     },
-    msg: { edit: "Запис виправлено", del: "Запис видалено" },
+    msg: { add: "Операцію записано", edit: "Запис виправлено", del: "Запис видалено" },
   });
 }

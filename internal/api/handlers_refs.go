@@ -49,6 +49,9 @@ func (s *Server) handleRenameBroker(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        string `json:"name"`
 		QuoteSource string `json:"quote_source"`
+		// Entry — «операції фондів приносить виписка» (0072); тим самим
+		// запитом із тієї ж причини.
+		Entry string `json:"entry"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -59,6 +62,10 @@ func (s *Server) handleRenameBroker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.SetBrokerQuoteSource(r.Context(), id, req.QuoteSource); err != nil {
+		writeStoreErr(w, err, http.StatusBadRequest)
+		return
+	}
+	if err := s.st.SetBrokerEntry(r.Context(), id, req.Entry); err != nil {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return
 	}

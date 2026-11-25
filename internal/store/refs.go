@@ -84,12 +84,19 @@ type Broker struct {
 	// його ціни чужу означало б порадити крок за числом, якого в цьому
 	// брокері немає.
 	QuoteSource string `json:"quote_source"`
+	// Entry — як у цього брокера заходять операції з сертифікатами фондів
+	// (0072): "" — їх вносять руками, BrokerEntryStatement — приносить
+	// виписка, і ручний запис на такого брокера закритий (handleAddFundOp).
+	Entry string `json:"entry"`
 }
+
+// BrokerEntryStatement — операції фондів цього брокера приносить виписка.
+const BrokerEntryStatement = "statement"
 
 // ListBrokers — довідник плюс ті, що вже зустрічались в операціях.
 // Раніше цей список був CSV-рядком у settings('channels').
 func (s *Store) ListBrokers(ctx context.Context) ([]Broker, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, quote_source FROM brokers
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, quote_source, entry FROM brokers
 		WHERE portfolio_id=? ORDER BY name COLLATE NOCASE`, s.pid)
 	if err != nil {
 		return nil, err
@@ -98,7 +105,7 @@ func (s *Store) ListBrokers(ctx context.Context) ([]Broker, error) {
 	out := []Broker{}
 	for rows.Next() {
 		var b Broker
-		if err := rows.Scan(&b.ID, &b.Name, &b.QuoteSource); err != nil {
+		if err := rows.Scan(&b.ID, &b.Name, &b.QuoteSource, &b.Entry); err != nil {
 			return nil, err
 		}
 		out = append(out, b)
@@ -145,6 +152,34 @@ func (s *Store) SetBrokerQuoteSource(ctx context.Context, id int64, source strin
 		return err
 	}
 	return affectedOne(res, "брокера")
+}
+
+// SetBrokerEntry — сказати, чи операції фондів цього брокера приносить
+// виписка ("statement"), чи їх вносять руками ("").
+func (s *Store) SetBrokerEntry(ctx context.Context, id int64, entry string) error {
+	entry = strings.TrimSpace(entry)
+	if entry != "" && entry != BrokerEntryStatement {
+		return fmt.Errorf("entry має бути порожнім або %q, маємо %q", BrokerEntryStatement, entry)
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE brokers SET entry=? WHERE id=? AND portfolio_id=?`,
+		entry, id, s.pid)
+	if err != nil {
+		return err
+	}
+	return affectedOne(res, "брокера")
+}
+
+// MarkStatementBroker — брокер, під яким щойно писала виписка, стає
+// «випискою» сам. Без цього на свіжій базі (міграція 0072 брокера ще не
+// бачила) перший же імпорт лишив би ручний вхід відкритим — рівно для того
+// брокера, заради якого його й закривали.
+//
+// Брокера, якого немає, не заводить: файл без жодного рядка брокера не
+// створює, і вигадувати його тут було б побічним ефектом позначки.
+func (s *Store) MarkStatementBroker(ctx context.Context, name string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE brokers SET entry=? WHERE portfolio_id=? AND name=?`,
+		BrokerEntryStatement, s.pid, strings.TrimSpace(name))
+	return err
 }
 
 // DeleteBroker прибирає брокера, лише якщо на нього ніхто не посилається:

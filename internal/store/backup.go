@@ -321,6 +321,10 @@ type BackupBroker struct {
 	// дешевше», доки його не зіставлять руками знову. Старі дампи поля не
 	// мають — лишається порожнім, як і було.
 	QuoteSource string `json:"quote_source,omitempty"`
+	// Entry — «операції фондів приносить виписка» (0072). Без нього
+	// відновлення відкрило б ручний запис на брокера з випискою — до першого
+	// імпорту, який поставить позначку назад.
+	Entry string `json:"entry,omitempty"`
 }
 
 // BackupReserveOp — рух резерву. Резерв невідновний так само, як лоти:
@@ -1045,10 +1049,10 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 		}); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT name, quote_source FROM brokers WHERE portfolio_id=? ORDER BY name COLLATE NOCASE`,
+	if err := s.scan(ctx, `SELECT name, quote_source, entry FROM brokers WHERE portfolio_id=? ORDER BY name COLLATE NOCASE`,
 		func(scan func(...any) error) error {
 			var r BackupBroker
-			if err := scan(&r.Name, &r.QuoteSource); err != nil {
+			if err := scan(&r.Name, &r.QuoteSource, &r.Entry); err != nil {
 				return err
 			}
 			b.Brokers = append(b.Brokers, r)
@@ -1403,6 +1407,13 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 				`UPDATE brokers SET quote_source=? WHERE id=? AND portfolio_id=?`,
 				br.QuoteSource, id, s.pid); err != nil {
 				return fmt.Errorf("брокер %q, джерело цін: %w", br.Name, err)
+			}
+		}
+		if br.Entry != "" && id != nil {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE brokers SET entry=? WHERE id=? AND portfolio_id=?`,
+				br.Entry, id, s.pid); err != nil {
+				return fmt.Errorf("брокер %q, вхід операцій: %w", br.Name, err)
 			}
 		}
 	}

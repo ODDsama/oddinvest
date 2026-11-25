@@ -115,6 +115,10 @@ func (s *Server) handleAddFundOp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	if err := s.manualFundOpAllowed(r, op.Broker); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	// Рішенням вважаємо лише КУПІВЛЮ: продаж і дивіденд помічник не
 	// радить, тож питання «чи послухався» до них не ставиться. Виписка
 	// сюди не заходить — вона пише через сховище (handlers_import.go), і
@@ -132,6 +136,39 @@ func (s *Server) handleAddFundOp(w http.ResponseWriter, r *http.Request) {
 	s.SaveDecision(r.Context(), snap, now, store.BuyFund, op.Fund,
 		money.New(op.Amount, op.Currency), id, op.Note)
 	writeJSON(w, http.StatusCreated, map[string]int64{"id": id})
+}
+
+// manualFundOpAllowed — чи можна записати операцію фонду РУКАМИ на цього
+// брокера.
+//
+// Правило одне: руками не пишуть туди, куди пише виписка (brokers.entry,
+// 0072). Рядок, набраний рукою, виписка принесла б ще раз, і дедуплікація
+// імпорту його не впізнала б, щойно сума чи дата розійдуться на копійку або
+// день. Доти правило трималось тим, що форми додавання не було зовсім; з
+// другим брокером (без виписки) форма з'явилась, і заборона переїхала сюди —
+// на бекенд, бо форма лише ховає такого брокера зі списку, а POST можна
+// надіслати й повз неї.
+//
+// Брокер обов'язковий з тієї ж причини: операція без брокера обходила б
+// перевірку, а в концентрації «в одній установі» лягала б нікуди.
+//
+// Назви порівнюються без регістру: «Inzhur», заведений новим брокером поруч
+// з «inzhur», інакше був би готовим обходом. Правки (PUT) це не стосується —
+// виправити податок у рядку виписки можна, як і раніше.
+func (s *Server) manualFundOpAllowed(r *http.Request, broker string) error {
+	if broker == "" {
+		return errors.New("вкажіть брокера")
+	}
+	list, err := s.st.ListBrokers(r.Context())
+	if err != nil {
+		return err
+	}
+	for _, b := range list {
+		if b.Entry == store.BrokerEntryStatement && strings.EqualFold(b.Name, broker) {
+			return fmt.Errorf("операції брокера %q приносить виписка — руками їх не вносять", b.Name)
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleUpdateFundOp(w http.ResponseWriter, r *http.Request) {

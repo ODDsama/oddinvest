@@ -51,6 +51,20 @@ const REFS = {
     label: "Брокер", blank: "—", allowNew: true, newPh: "назва рахунку",
     list: (ctx) => ctx.brokerList().map((n) => [n, n]),
   },
+  // Брокер для РУЧНОГО запису операції фонду: без тих, чиї операції
+  // приносить виписка (brokers.entry, 0072). Окремий вид, а не фільтр у
+  // формі, з тієї ж причини, що й "debt-card" нижче: питання інше — не «у
+  // кого», а «на кого можна записати руками», і показати тут брокера з
+  // випискою означало б запропонувати запис, який сервер відхилить.
+  // Порівняння без регістру — як і на сервері (manualFundOpAllowed).
+  "broker-manual": {
+    label: "Брокер", blank: "— брокер —", allowNew: true, newPh: "назва брокера",
+    list: (ctx) => {
+      const viaStatement = new Set((ctx.brokers || [])
+        .filter((b) => b.entry === "statement").map((b) => b.name.toLowerCase()));
+      return ctx.brokerList().filter((n) => !viaStatement.has(n.toLowerCase())).map((n) => [n, n]);
+    },
+  },
   fund: {
     label: "Фонд", blank: "— фонд —", allowNew: true, newPh: "назва фонду",
     list: (ctx) => (ctx.fundCatalog || []).map((f) => [f.name, f.name]),

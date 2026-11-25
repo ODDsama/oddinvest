@@ -34,7 +34,7 @@ import {
   reserveFormHTML, reserveFields, reserveBody, taxHTML, taxYear, importHTML, wireImport,
   fxWindowHTML,
 } from "./money-cards.js";
-import { setFundOps, wireFundOps, fundStatementHTML } from "../fund-ops.js";
+import { setFundOps, wireFundOps, fundStatementHTML, fundOpFormHTML } from "../fund-ops.js";
 import { setPref, pref, wirePrefs } from "../uistate.js";
 import { goalCreateFormHTML, goalFields, goalBody } from "./goals.js";
 import {
@@ -246,16 +246,19 @@ export async function compare(ctx, main) {
  *  всі форми жили тільки в позиціях.
  *
  *  ЖОДНОЇ НОВОЇ ФОРМИ ТУТ НЕ ЗАВОДИТЬСЯ. Це ті самі bondBuyFormHTML,
- *  depositFormHTML і reserveFormHTML, які записують ті самі сутності з
- *  панелей позицій; різниця лише в тому, що сюди приходять, коли позиції
- *  ще немає. Друга форма на ту саму сутність розійшлася б із першою при
- *  найпершій правці полів.
+ *  depositFormHTML, fundOpFormHTML і reserveFormHTML, які записують ті самі
+ *  сутності з панелей позицій; різниця лише в тому, що сюди приходять, коли
+ *  позиції ще немає. Друга форма на ту саму сутність розійшлася б із першою
+ *  при найпершій правці полів.
  *
- *  Фондів і НПФ тут немає, і кожен — зі своєї причини. Сертифікати не
- *  вносять руками взагалі: журнал веде виписка, і два джерела правди
- *  розійшлися б тихо. Пенсійний внесок мусить цілитись у конкретний
- *  рахунок, тобто його форма належить рядку цього рахунку, а не
- *  зведенню. */
+ *  Фонд тут Є — для брокера, чиї операції вносять руками. Доти його не було:
+ *  журнал вела виписка єдиного брокера з фондами, і два джерела правди
+ *  розійшлися б тихо. Довід чинний, але тепер він про брокера, а не про всі
+ *  фонди (brokers.entry, 0072): брокера «виписка» у формі немає в списку, і
+ *  сервер такий запис відхиляє.
+ *
+ *  НПФ тут немає: пенсійний внесок мусить цілитись у конкретний рахунок,
+ *  тобто його форма належить рядку цього рахунку, а не зведенню. */
 export async function record(ctx, main) {
   const d = ctx.positions || await loadPositionsData(ctx);
   const hasNPF = ((ctx.summary || {}).npf || []).length > 0;
@@ -263,13 +266,12 @@ export async function record(ctx, main) {
     <div class="card"><h2>Купівля ОВДП</h2>${bondBuyFormHTML(ctx)}</div>
     <div class="card"><h2>Відкрити вклад</h2>${depositFormHTML(ctx)}
       <div class="sub">Поповнення й дострокове закриття — у рядку самого вкладу.</div></div>
+    <div class="card"><h2>Операція з фондом</h2>${fundOpFormHTML(ctx)}</div>
     <div class="card"><h2>Рух резерву</h2>${reserveFormHTML(ctx)}</div>
     ${goalCreateFormHTML(ctx)}
-    <div class="card">${empty("Фонд і НПФ записуються не тут",
-    "Сертифікати заводить виписка — руками їх не вносять, бо два джерела правди "
-    + "розійшлися б тихо. Пенсійний внесок мусить цілитись у конкретний рахунок, "
-    + "тобто його форма належить рядку цього рахунку.",
-    { href: routeFor("portfolio/all/statement"), label: "Завантажити виписку" })}
+    <div class="card">${empty("НПФ записується не тут",
+    "Пенсійний внесок мусить цілитись у конкретний рахунок, "
+    + "тобто його форма належить рядку цього рахунку.")}
       <div class="sub">${hasNPF
     ? `Внесок у НПФ — <a class="lnk" href="${routeFor("portfolio/@first:npf/record")}">у рядку рахунку</a>.`
     : `Пенсійного рахунку ще немає — <a class="lnk" href="${routeFor("settings/refs/main")}">заведи його в довідниках</a>.`}</div></div>`;
