@@ -463,6 +463,28 @@ export function concentrationCard(ctx) {
       + "Задай свої в «Частках і межах» — і тут буде видно, де портфель до них підійшов.",
     routeFor("policy/strategy/main"));
   }
+  // Підказка під рядком «—» (установу не вказано). Їх ДВІ, бо установа
+  // живе у двох різних місцях. У лота, вкладу й операції фонду вона — поле
+  // самого запису, і «впиши в цих записах» веде куди треба. У НПФ вона —
+  // адміністратор, поле ДОВІДНИКА пенсійних фондів: «З рахунку» у формі
+  // внеску в концентрації участі не бере, і з однією спільною підказкою
+  // людина шукала поле у внесках, де його немає.
+  //
+  // Ознака «тут НПФ» береться з підпису рядка, який складає бекенд
+  // (engine/state_builder.go: «НПФ «назва» (адміністратор)», складники через
+  // кому). Окремого поля в документі стану під це немає навмисно: воно
+  // потрібне одному рядку однієї картки, а документ читає ще й HA. Зміниш
+  // той текст — зміни й цей розбір.
+  const unnamedHintHTML = (label) => {
+    const parts = String(label || "").replace(/^[^:]*:\s*/, "").split(", ").filter(Boolean);
+    const npf = parts.filter((p) => p.startsWith("НПФ «")).length;
+    const other = npf < parts.length || !parts.length;
+    return `<div class="sub-xs">${
+      other ? "впиши установу в цих записах — і гроші стануть під неї" : ""}${
+      other && npf ? ". " : ""}${
+      npf ? `${other ? "Для НПФ установа" : "установа НПФ"} — адміністратор: він задається в <a class="lnk"
+        href="${routeFor("settings/refs/main")}">довіднику пенсійних фондів</a>` : ""}</div>`;
+  };
   const blocks = Object.keys(CONC_BLOCK).map((dim) => {
     const list = rows.filter((r) => r.dimension === dim);
     if (!list.length) return "";
@@ -498,7 +520,7 @@ export function concentrationCard(ctx) {
         <div class="progress mt-xs"><span style="--oi-fill:${bar}%;--oi-c:${
           over ? "var(--oi-warn)" : "var(--oi-info)"}"></span></div>
         ${over ? `<div class="sub-xs t-warn">понад ліміт на ${fmtUAH(r.over_uah)}</div>` : ""}
-        ${r.key === "—" ? `<div class="sub-xs">впиши установу в цих записах — і гроші стануть під неї</div>` : ""}
+        ${r.key === "—" ? unnamedHintHTML(r.label) : ""}
       </div>`;
     }).join("");
     // Підпису «Резерв сюди не входить» тут більше немає (0069): резерв і

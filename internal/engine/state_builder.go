@@ -591,6 +591,10 @@ func (e *Engine) buildState(ctx context.Context, now time.Time, what Hypothetica
 	// brokerExposureUAH (звіт про концентрацію), а НЕ довідник brokers: у
 	// таблиці рахунків його немає навмисно, бо з нього нічого не списати, і
 	// у випадайках лотів він був би фальшивим рахунком (див. 0028).
+	//
+	// Початок підпису «НПФ «» читає картка концентрації (web/js/views/risk.js,
+	// unnamedHintHTML): за ним вона розуміє, що установу тут вписують у
+	// довіднику НПФ, а не в записах. Зміниш текст — зміни й той розбір.
 	for _, r := range npf.Rows {
 		addExposure(r.Administrator, "НПФ «"+r.Name+"» (адміністратор)", r.ValueUAH.Major())
 	}
