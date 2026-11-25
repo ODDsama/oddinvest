@@ -428,3 +428,34 @@ func TestPlanFlowRevisionsWithBase(t *testing.T) {
 		t.Errorf("остання в хронології — правка у вікні, маємо %+v", got[len(got)-1])
 	}
 }
+
+// Мить відмітки (0071) ставить сховище, і правка суми її не зсуває: це той
+// самий прихід, а за миттю читається ревізія потоку, що діяла тоді.
+func TestPlanReceiptMarkedAtSurvivesUpdate(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	before := time.Now().Add(-time.Second)
+	if _, err := s.AddPlanReceipt(ctx, PlanReceipt{
+		FlowID: 7, Month: "2026-11", Amount: 4_000_000, Currency: "UAH", InvestBP: 10000,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := s.ListPlanReceipts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := rs[0].MarkedAt
+	if at.Before(before) || at.After(time.Now().Add(time.Second)) {
+		t.Fatalf("мить відмітки %v — чекали теперішню", at)
+	}
+
+	rs[0].Amount = 3_900_000
+	rs[0].MarkedAt = time.Time{} // обробник правки миті не знає й не передає
+	if err := s.UpdatePlanReceipt(ctx, rs[0]); err != nil {
+		t.Fatal(err)
+	}
+	rs, _ = s.ListPlanReceipts(ctx)
+	if !rs[0].MarkedAt.Equal(at) {
+		t.Errorf("правка суми зсунула мить відмітки: було %v, стало %v", at, rs[0].MarkedAt)
+	}
+}

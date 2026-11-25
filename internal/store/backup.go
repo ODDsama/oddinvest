@@ -507,6 +507,9 @@ type BackupPlanReceipt struct {
 	InvestBP int64  `json:"invest_bp"`
 	Uses     string `json:"uses,omitempty"`
 	Note     string `json:"note"`
+	// MarkedAt — мить відмітки (0071), рядком як у базі. Порожня в дампах,
+	// старших за колонку, і це той самий «невідомо», що й у самій таблиці.
+	MarkedAt string `json:"marked_at,omitempty"`
 }
 
 // BackupPlanAction — планова дія (set_shares або lock).
@@ -970,12 +973,12 @@ func (s *Store) exportAll(ctx context.Context) (*Backup, error) {
 		}, s.pid); err != nil {
 		return nil, err
 	}
-	if err := s.scan(ctx, `SELECT id,flow_id,month,name,amount,currency,invest_bp,uses,note
+	if err := s.scan(ctx, `SELECT id,flow_id,month,name,amount,currency,invest_bp,uses,note,marked_at
 		FROM plan_receipts WHERE portfolio_id=? ORDER BY id`,
 		func(scan func(...any) error) error {
 			var r BackupPlanReceipt
 			if err := scan(&r.ID, &r.FlowID, &r.Month, &r.Name, &r.Amount,
-				&r.Currency, &r.InvestBP, &r.Uses, &r.Note); err != nil {
+				&r.Currency, &r.InvestBP, &r.Uses, &r.Note, &r.MarkedAt); err != nil {
 				return err
 			}
 			b.PlanReceipts = append(b.PlanReceipts, r)
@@ -1738,10 +1741,10 @@ func (s *Store) ImportAll(ctx context.Context, b *Backup) error {
 	// немає, але порядок читається як «спершу план, потім що з нього вийшло».
 	for _, r := range b.PlanReceipts {
 		if err := ids.insert(ctx, tx, "plan_receipts", r.ID,
-			`INSERT INTO plan_receipts (%sportfolio_id,flow_id,month,name,amount,currency,invest_bp,uses,note)
-			 VALUES (%s?,?,?,?,?,?,?,?,?)`,
+			`INSERT INTO plan_receipts (%sportfolio_id,flow_id,month,name,amount,currency,invest_bp,uses,note,marked_at)
+			 VALUES (%s?,?,?,?,?,?,?,?,?,?)`,
 			s.pid, ids.of("plan_flows", r.FlowID), r.Month, r.Name, r.Amount, r.Currency, r.InvestBP,
-			r.Uses, r.Note); err != nil {
+			r.Uses, r.Note, r.MarkedAt); err != nil {
 			return fmt.Errorf("відмітка надходження %d: %w", r.ID, err)
 		}
 	}

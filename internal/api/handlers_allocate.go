@@ -111,7 +111,7 @@ func (s *Server) handleAllocate(w http.ResponseWriter, r *http.Request) {
 			principalUAH = float64(pm.Amount()) / 100
 		}
 	}
-	uses, err := s.UsesForRef(r.Context(), req.SourceRef)
+	uses, err := s.UsesForRef(r.Context(), req.SourceRef, now)
 	if err != nil {
 		writeStoreErr(w, err, http.StatusBadRequest)
 		return

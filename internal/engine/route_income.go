@@ -429,7 +429,14 @@ func planParts(src *sources, marks PlanMarks, today domain.Date,
 	m int, key string) []planPart {
 
 	var out []planPart
-	for _, f := range src.planFlows {
+	// Той самий набір, з якого складено MonthPlan.PlanUAH цього місяця
+	// (buildMonthPlan): ваги мусять у сумі давати саме той дохід, інакше
+	// поділ нетто по ногах розійшовся б із самим нетто.
+	flows := src.planFlows
+	if m == 0 {
+		flows = planFlowsOfMonth(flows, src.planRevs, marks, today, 0)
+	}
+	for _, f := range flows {
 		if f.Kind != "income" {
 			continue
 		}
@@ -450,8 +457,11 @@ func planParts(src *sources, marks PlanMarks, today domain.Date,
 		//
 		// Обидва випадки — skip, а не continue: вага такого потоку лишається
 		// в поділі (довід — при planPart).
-		_, marked := marks.at(f.ID, today, m)
-		skip := date < today || (marked && m == 0)
+		//
+		// Означення «вже прийшло» — flowArrived, спільне з planFlowsOfMonth:
+		// нога, якої маршрут не веде, і потік, що читається старою ревізією,
+		// мусять бути тим самим потоком.
+		skip := flowArrived(f, marks, today, m)
 		w := PlanFlowUAH(planFlowAtMonth(f, today, m, marks), f.Currency, src.rates)
 		if w <= 0 {
 			continue

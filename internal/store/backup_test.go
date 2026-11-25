@@ -1048,3 +1048,41 @@ func TestBackupRoundTripKeepsHiddenRows(t *testing.T) {
 		t.Fatalf("приховані рядки після відновлення: %v", got)
 	}
 }
+
+// Мить відмітки мусить пережити бекап: без неї відновлена база читала б
+// надходження, відмічене раніше свого дня, уже за пізнішою ревізією потоку.
+func TestBackupRoundTripKeepsReceiptMarkedAt(t *testing.T) {
+	ctx := context.Background()
+	src, err := Open(filepath.Join(t.TempDir(), "src.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer src.Close()
+	at := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	if _, err := src.AddPlanReceipt(ctx, PlanReceipt{
+		Month: "2026-11", Name: "Премія", Amount: 600_000, Currency: "UAH",
+		InvestBP: 10000, MarkedAt: at,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := src.ExportAll(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dst, err := Open(filepath.Join(t.TempDir(), "dst.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dst.Close()
+	if err := dst.ImportAll(ctx, b); err != nil {
+		t.Fatal(err)
+	}
+	got, err := dst.ListPlanReceipts(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].MarkedAt.Equal(at) {
+		t.Fatalf("після відновлення мить відмітки загубилась: %+v", got)
+	}
+}

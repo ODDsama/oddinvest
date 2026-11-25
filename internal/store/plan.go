@@ -102,6 +102,20 @@ type PlanReceipt struct {
 	// Uses читається за тим самим правилом, що й InvestBP: лише в «іншого».
 	Uses string
 	Note string
+	// MarkedAt — мить, коли відмітку створили (0071). Нульова — «невідомо»:
+	// відмітка старша за колонку. Читає її лише engine.planFlowsArrived —
+	// щоб надходження, відмічене РАНІШЕ свого платіжного дня, трималось тієї
+	// ревізії потоку, яка діяла тоді, а не пізнішої правки.
+	MarkedAt time.Time
+}
+
+// markedAtText — запис миті відмітки для колонки: RFC3339 в UTC, як
+// changed_at у журналі ревізій, а «невідомо» — порожнім рядком.
+func markedAtText(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 const (
@@ -345,11 +359,18 @@ func planReceiptConflict(err error) error {
 // debt_ops: ключа на plan_flows немає навмисно (0027), відмітка мусить
 // пережити свій потік, і «потоку не знайдено» — законний стан, а не чужий
 // портфель. Витоку це не дає: рядок все одно лягає в свій portfolio_id.
+//
+// Мить відмітки ставиться ТУТ, а не в обробнику: вона про те, коли рядок
+// ліг у базу, і другого шляху створити відмітку повз неї бути не повинно.
 func (s *Store) AddPlanReceipt(ctx context.Context, r PlanReceipt) (int64, error) {
+	if r.MarkedAt.IsZero() {
+		r.MarkedAt = time.Now()
+	}
 	res, err := s.db.ExecContext(ctx, `INSERT INTO plan_receipts
-		(portfolio_id, flow_id, month, name, amount, currency, invest_bp, uses, note)
-		VALUES (?,?,?,?,?,?,?,?,?)`,
-		s.pid, r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Uses, r.Note)
+		(portfolio_id, flow_id, month, name, amount, currency, invest_bp, uses, note, marked_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		s.pid, r.FlowID, r.Month, r.Name, r.Amount, r.Currency, r.InvestBP, r.Uses, r.Note,
+		markedAtText(r.MarkedAt))
 	if err != nil {
 		return 0, planReceiptConflict(err)
 	}
@@ -359,6 +380,9 @@ func (s *Store) AddPlanReceipt(ctx context.Context, r PlanReceipt) (int64, error
 // UpdatePlanReceipt переписує відмітку, зберігаючи id. FlowID і Month теж
 // переписуються: перенести відмітку на інший місяць — це правка, а не
 // «видалити й завести», і другий шлях загубив би id, на який дивиться UI.
+//
+// marked_at НЕ переписується: виправлена сума — це той самий прихід, і
+// правка одруківки не має зсувати мить, за якою читається ревізія потоку.
 func (s *Store) UpdatePlanReceipt(ctx context.Context, r PlanReceipt) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE plan_receipts SET
 		flow_id=?, month=?, name=?, amount=?, currency=?, invest_bp=?, uses=?, note=?
@@ -383,7 +407,7 @@ func (s *Store) DeletePlanReceipt(ctx context.Context, id int64) error {
 // кілька, і сталий порядок робить документ відтворюваним.
 func (s *Store) ListPlanReceipts(ctx context.Context) ([]PlanReceipt, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, flow_id, month, name, amount,
-		currency, invest_bp, uses, note FROM plan_receipts WHERE portfolio_id=? ORDER BY month, id`, s.pid)
+		currency, invest_bp, uses, note, marked_at FROM plan_receipts WHERE portfolio_id=? ORDER BY month, id`, s.pid)
 	if err != nil {
 		return nil, err
 	}
@@ -391,10 +415,14 @@ func (s *Store) ListPlanReceipts(ctx context.Context) ([]PlanReceipt, error) {
 	var out []PlanReceipt
 	for rows.Next() {
 		var r PlanReceipt
+		var at string
 		if err := rows.Scan(&r.ID, &r.FlowID, &r.Month, &r.Name, &r.Amount,
-			&r.Currency, &r.InvestBP, &r.Uses, &r.Note); err != nil {
+			&r.Currency, &r.InvestBP, &r.Uses, &r.Note, &at); err != nil {
 			return nil, err
 		}
+		// Порожнє чи криве — нульова мить, тобто «невідомо»: читач тоді
+		// бере кінець платіжного дня, як для відміток до 0071.
+		r.MarkedAt, _ = time.Parse(time.RFC3339, at) //nolint:errcheck
 		out = append(out, r)
 	}
 	return out, rows.Err()

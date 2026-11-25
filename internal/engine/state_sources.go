@@ -18,6 +18,7 @@ package engine
 
 import (
 	"context"
+	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
@@ -99,6 +100,13 @@ type sources struct {
 	// робить те саме ядро, що й розгортання, — щоб означення надходження
 	// лишалось одне.
 	planReceipts []store.PlanReceipt
+	// planRevs — журнал ревізій потоків (0026) від початку ПОТОЧНОГО
+	// місяця, з основою. Потрібен рівно одному правилу: надходження, що вже
+	// прийшло цього місяця, читається тією ревізією потоку, яка діяла на
+	// мить приходу, а не теперішнім рядком (planFlowsOfMonth). Глибший
+	// журнал документові ні до чого — минулі місяці читає стрічка плану, і
+	// вона вантажить свій.
+	planRevs []store.PlanFlowRevision
 	// planExpenses — вирішені разові витрати (0056). Сирими: «чи тисне вона
 	// в жовтні» вміє сказати лише domain.PlanExpense.PressMonth, і другого
 	// означення цього не зʼявляється — читачів у нього троє (план місяця,
@@ -252,6 +260,13 @@ func (e *Engine) loadSources(ctx context.Context, today domain.Date) (*sources, 
 		return nil, err
 	}
 	if src.planReceipts, err = e.st.ListPlanReceipts(ctx); err != nil {
+		return nil, err
+	}
+	// На добу раніше першого числа: журнал пише UTC, а «перше число» тут —
+	// календарне, без зони. Запас нічого не коштує — ревізія до вікна
+	// однаково приходить основою.
+	monthStart := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, -1)
+	if src.planRevs, err = e.st.ListPlanFlowRevisionsWithBase(ctx, monthStart); err != nil {
 		return nil, err
 	}
 	if src.planExpenses, err = e.st.ListPlanExpenses(ctx); err != nil {

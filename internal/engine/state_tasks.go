@@ -929,11 +929,11 @@ func unconfirmedTask(src *sources, today domain.Date) (state.Task, bool) {
 
 // receiptTask — надходження ПОТОЧНОГО місяця, яке вже мало прийти.
 //
-// Ревізії плану передаються порожніми свідомо: buildExpectedReceipts читає
-// їх лише для МИНУЛИХ місяців (щоб не підставляти сьогоднішню зарплату в
-// травневий рядок), а задача дивиться рівно на поточний.
+// Ревізії — ті, що є в джерелах: від початку поточного місяця. Задача
+// дивиться рівно на нього, а минулі місяці чеклиста тут ніхто не читає,
+// тож глибший журнал їй не потрібен.
 func receiptTask(src *sources, today domain.Date) (state.Task, bool) {
-	exp := buildExpectedReceipts(src.planFlows, src.planReceipts, nil, today, src.rates)
+	exp := buildExpectedReceipts(src.planFlows, src.planReceipts, src.planRevs, today, src.rates)
 	month := string(today)[:7]
 	var names []string
 	due := domain.Date("")

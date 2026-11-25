@@ -365,6 +365,132 @@ func planAsOf(revs []store.PlanFlowRevision, t time.Time) []store.PlanFlow {
 	return out
 }
 
+// flowArrived — чи надходження потоку f у місяці m уже ПРИЙШЛО.
+//
+// Минулий місяць прийшов цілком, майбутній — ні, а в поточному вирішує
+// відмітка або платіжний день: день уже минув, або надходження відмічене
+// отриманим (хоч би й раніше свого дня). Те саме означення, яким маршрут
+// вирішує, чи вести ногу (planParts), — і тепер воно одне на обох.
+func flowArrived(f store.PlanFlow, marks PlanMarks, today domain.Date, m int) bool {
+	switch {
+	case m < 0:
+		return true
+	case m > 0:
+		return false
+	}
+	if _, marked := marks.at(f.ID, today, 0); marked {
+		return true
+	}
+	due := receiptDueDate(MonthKeyAt(today, 0), f.FromDate.Day())
+	return due != "" && domain.Date(due) < today
+}
+
+// arrivalMoment — мить, на яку надходження потоку f у місяці m вважається
+// отриманим: кінець платіжного дня або мить відмітки, якщо вона РАНІША.
+//
+// «Раніша», а не просто «відмітка, якщо є»: зарплата, що прийшла до свого
+// дня й одразу відмічена, отримана тоді, коли її відмітили. А от травень,
+// відмічений у листопаді, отриманий у травні — відмітка заднім числом не
+// має тягнути за собою листопадову ревізію потоку.
+//
+// Кінець дня — у часовій зоні процесу: саме в ній із now виходить today
+// (domain.NewDate), тож «день минув» і «мить після дня» мусять міряти
+// одним годинником. Нульовий час — платіжного дня не вдалося розібрати.
+func arrivalMoment(f store.PlanFlow, marks PlanMarks, today domain.Date, m int) time.Time {
+	due := receiptDueDate(MonthKeyAt(today, m), f.FromDate.Day())
+	t, err := time.ParseInLocation("2006-01-02", due, time.Local)
+	if err != nil {
+		return time.Time{}
+	}
+	t = t.AddDate(0, 0, 1)
+	if r, ok := marks.at(f.ID, today, m); ok && !r.MarkedAt.IsZero() && r.MarkedAt.Before(t) {
+		t = r.MarkedAt
+	}
+	return t
+}
+
+// planFlowsOfMonth — потоки плану такими, якими їх бачить місяць m.
+//
+// # ЩО ТУТ БУЛО ЗЛАМАНО
+//
+// Поточний місяць читав ТЕПЕРІШНЮ таблицю потоків цілком. Власник 25
+// листопада перерозподілив, скільки з якого надходження йде в кошики, — і
+// ціль листопада перерахувалась, хоча всі надходження місяця вже прийшли й
+// були розкладені за старим розподілом. Новий розподіл — це правило для
+// МАЙБУТНІХ надходжень; гроші, що вже прийшли, прийшли за старим.
+//
+// Минулі місяці мали ту саму ваду, лише відкладену: історія брала стан
+// плану на КІНЕЦЬ місяця, тож правка 25-го переписала б листопадовий
+// стовпчик «Плану проти факту» у грудні — і він розійшовся б із плиткою,
+// яку показував сам листопад.
+//
+// # ПРАВИЛО
+//
+// По кожному надходженню окремо: потік, чиє надходження в цьому місяці вже
+// прийшло (flowArrived), читається тією ревізією журналу, яка діяла на мить
+// приходу (arrivalMoment). Решта — теперішнім рядком. Тож якщо прийшло все,
+// правка не змінює в місяці нічого, а якщо половина — змінює рівно ту
+// половину, що ще попереду.
+//
+// Береться рядок ревізії ЦІЛКОМ, а не лише частка й дозвіл: так само, як
+// у planAsOf. Сума, виправлена після приходу, — така сама правка заднім
+// числом, і вибирати, які поля «історичні», означало б завести друге
+// означення того, чим потік був.
+//
+// # ОСНОВА
+//
+// Для минулого місяця набір потоків — planAsOf на його кінець (потік,
+// видалений пізніше, тоді ще платив), для поточного — теперішня таблиця.
+// Коли журнал місяця не покриває (або порожній), усе лишається як було:
+// ревізії на мить приходу не знайдеться, і потік читається таким, яким є.
+// Саме тому тести й викликачі без журналу не помічають цієї функції.
+//
+// # ЧОГО ТУТ СВІДОМО НЕМАЄ
+//
+// Потік, ВИДАЛЕНИЙ після приходу цього місяця, з поточного місяця зникає:
+// основа поточного — теперішня таблиця, і повертати в неї видалене означало
+// б показувати на екрані «Що заходить» рядок, якого там немає. Місяць
+// закриється — і історія прочитає його з журналу вже правильно.
+//
+// Глобальні частки добору (reserve_fill_share_pct, goals_fill_share_pct)
+// історії не мають узагалі; ця функція про потоки, а не про них.
+func planFlowsOfMonth(flows []store.PlanFlow, revs []store.PlanFlowRevision,
+	marks PlanMarks, today domain.Date, m int) []store.PlanFlow {
+	if m > 0 || len(revs) == 0 {
+		return flows
+	}
+	base := flows
+	if end := monthEnd(MonthKeyAt(today, m)); m < 0 && !revs[0].ChangedAt.After(end) {
+		base = planAsOf(revs, end)
+	}
+	out := make([]store.PlanFlow, len(base))
+	for i, f := range base {
+		out[i] = f
+		if !flowArrived(f, marks, today, m) {
+			continue
+		}
+		at := arrivalMoment(f, marks, today, m)
+		if at.IsZero() {
+			continue
+		}
+		// Остання ревізія саме цього потоку до миті приходу. Журнал
+		// хронологічний, тож перша пізніша обриває пошук.
+		var last *store.PlanFlowRevision
+		for j := range revs {
+			if revs[j].ChangedAt.After(at) {
+				break
+			}
+			if revs[j].FlowID == f.ID {
+				last = &revs[j]
+			}
+		}
+		if last != nil && last.Op != "delete" {
+			out[i] = last.Flow
+		}
+	}
+	return out
+}
+
 // revisionsSince — ревізії з моменту since (журнал хронологічний).
 func revisionsSince(revs []store.PlanFlowRevision, since time.Time) []store.PlanFlowRevision {
 	i := sort.Search(len(revs), func(i int) bool { return !revs[i].ChangedAt.Before(since) })
@@ -484,10 +610,11 @@ func buildPlanHistory(flows []store.PlanFlow, moves []moneyMove, snaps []store.S
 		// Журнал ще не існував — виводимо з теперішньої таблиці, як доти, і
 		// чесно кажемо про це позначкою.
 		derived := len(revs) == 0 || revs[0].ChangedAt.After(asOf)
-		src := flows
-		if !derived {
-			src = planAsOf(revs, asOf)
-		}
+		// Кінець місяця вибирає лише НАБІР потоків; сам потік читається на
+		// мить свого надходження (planFlowsOfMonth). Доти бралось усе на
+		// кінець місяця, і правка частки 25-го переписувала в історії
+		// зарплату, що прийшла 5-го.
+		src := planFlowsOfMonth(flows, revs, marks, today, -k)
 		var plan, recv float64
 		var marked bool
 		for _, f := range src {
@@ -557,29 +684,57 @@ func receiptDueDate(month string, day int) string {
 
 // ReceiptRows — відмітки для UI.
 //
-// Частка в портфель для прив'язаної відмітки береться з ТЕПЕРІШНЬОГО
-// потоку, а не з його тодішньої ревізії, і це свідома межа: цей список
-// живить чеклист, тобто розмову про «зараз». Історія, де точність
-// важлива, рахує свою частку сама й із planAsOf — див. buildPlanHistory.
-func ReceiptRows(rs []store.PlanReceipt, flows []store.PlanFlow, rates fx.Rates) []ReceiptRow {
-	share := map[int64]int64{}
-	uses := map[int64]string{}
+// Частка в портфель і дозвіл прив'язаної відмітки беруться з потоку ТАКИМ,
+// ЯКИМ ВІН БУВ НА МИТЬ ПРИХОДУ (planFlowsOfMonth), — тим самим правилом,
+// яким рахується план місяця. Доти тут стояла свідома межа «з теперішнього
+// потоку, бо список про зараз», і вона трималась, доки план поточного
+// місяця читав теперішню таблицю сам. Тепер він читає ревізію, і рядок
+// «дає ₴» отриманої зарплати з новою часткою розійшовся б із плиткою
+// місяця, складеною зі старої.
+//
+// Без журналу (revs порожні) — як і було: теперішній потік.
+func ReceiptRows(rs []store.PlanReceipt, flows []store.PlanFlow,
+	revs []store.PlanFlowRevision, today domain.Date, rates fx.Rates) []ReceiptRow {
+	marks := NewPlanMarks(rs)
+	// Набір потоків залежить від місяця відмітки; місяців серед відміток
+	// небагато, тож кожен рахується раз.
+	byMonth := map[string]map[int64]store.PlanFlow{}
+	flowOf := func(r store.PlanReceipt) (store.PlanFlow, bool) {
+		fs, ok := byMonth[r.Month]
+		if !ok {
+			fs = map[int64]store.PlanFlow{}
+			if d, err := domain.ParseDate(r.Month + "-01"); err == nil {
+				for _, f := range planFlowsOfMonth(flows, revs, marks, today, MonthOffsetRaw(today, d)) {
+					fs[f.ID] = f
+				}
+			}
+			byMonth[r.Month] = fs
+		}
+		f, ok := fs[r.FlowID]
+		return f, ok
+	}
+	// Запасний шлях — теперішній потік: місяць, якого журнал не покриває,
+	// або потік, заведений уже після нього.
+	current := map[int64]store.PlanFlow{}
 	for _, f := range flows {
-		share[f.ID] = f.InvestBP
-		uses[f.ID] = f.Uses
+		current[f.ID] = f
 	}
 	out := make([]ReceiptRow, 0, len(rs))
 	for _, r := range rs {
 		bp := r.InvestBP
 		use := r.Uses
 		if r.FlowID != 0 {
-			if s, ok := share[r.FlowID]; ok {
-				bp = s
+			f, ok := flowOf(r)
+			if !ok {
+				f, ok = current[r.FlowID]
+			}
+			if ok {
+				bp = f.InvestBP
 			}
 			// Дозвіл — теж із потоку, тією самою підстановкою: прив'язана
 			// відмітка своєї колонки не читає (0041), і взяти її звідти
 			// означало б показати порожнечу як «можна всюди».
-			use = uses[r.FlowID]
+			use = f.Uses
 		}
 		out = append(out, ReceiptRow{
 			ID: r.ID, FlowID: r.FlowID, Month: r.Month, Name: r.Name,
@@ -605,9 +760,10 @@ func ReceiptRows(rs []store.PlanReceipt, flows []store.PlanFlow, rates fx.Rates)
 // вікно, за яким усереднюється «План дає» (далі відмітка на плитку вже не
 // вплине). Тобто чеклист навігується саме там, де відмітка щось означає.
 //
-// Минулі місяці читають план ІЗ ЖУРНАЛУ (planAsOf), як і історія: підставляти
-// в травневий рядок сьогоднішню зарплату означало б пропонувати відмітити
-// суму, якої тоді не було.
+// Минулі місяці читають план ІЗ ЖУРНАЛУ, як і історія: підставляти в
+// травневий рядок сьогоднішню зарплату означало б пропонувати відмітити
+// суму, якої тоді не було. Поточний — теж, але лише для надходжень, що вже
+// прийшли: правило одне на всіх читачів, planFlowsOfMonth.
 func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
 	revs []store.PlanFlowRevision, today domain.Date, rates fx.Rates) []ExpectedReceipt {
 	if len(flows) == 0 && len(revs) == 0 {
@@ -619,16 +775,11 @@ func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
 			byKey[markKey{flow: r.FlowID, month: r.Month}] = r
 		}
 	}
+	marks := NewPlanMarks(receipts)
 	var out []ExpectedReceipt
 	for m := -planHistoryMonths; m <= PlanProvidesMonths; m++ {
 		key := MonthKeyAt(today, m)
-		src := flows
-		if m < 0 {
-			if asOf := planAsOf(revs, monthEnd(key)); len(revs) > 0 && !revs[0].ChangedAt.After(monthEnd(key)) {
-				src = asOf
-			}
-		}
-		for _, f := range src {
+		for _, f := range planFlowsOfMonth(flows, revs, marks, today, m) {
 			// Витрати в чеклист не йдуть: картка про надходження, і «чи
 			// прийшла комуналка» — питання не про неї.
 			if f.Kind != "income" {
@@ -652,7 +803,7 @@ func buildExpectedReceipts(flows []store.PlanFlow, receipts []store.PlanReceipt,
 				Uses:    domain.PlanUsesList(f.Uses),
 			}
 			if r, ok := byKey[markKey{flow: f.ID, month: key}]; ok {
-				row := ReceiptRows([]store.PlanReceipt{r}, flows, rates)[0]
+				row := ReceiptRows([]store.PlanReceipt{r}, flows, revs, today, rates)[0]
 				e.Receipt = &row
 			}
 			out = append(out, e)
@@ -959,7 +1110,7 @@ func (e *Engine) PlanTimeline(ctx context.Context, now time.Time) (timelineDoc, 
 	// а не списку «що мінялось останнім часом».
 	out.FlowRevisions = flowRevisionRows(revisionsSince(revs, revSince))
 	out.Expected = buildExpectedReceipts(flows, receipts, revs, today, rates)
-	out.Receipts = ReceiptRows(receipts, flows, rates)
+	out.Receipts = ReceiptRows(receipts, flows, revs, today, rates)
 
 	out.Milestones = append(out.Milestones, timelineMilestone{Date: string(today), Label: "сьогодні"})
 	if doc.Forecast != nil && doc.Forecast.Date != "" {

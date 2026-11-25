@@ -53,6 +53,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ODDsama/oddinvest/internal/domain"
 	"github.com/ODDsama/oddinvest/internal/fx"
@@ -371,7 +372,13 @@ func SourceCapUAH(uses, bucket string, amountUAH float64) float64 {
 // Невідоме посилання — помилка, а не «обмежень немає». Мовчазний дефолт
 // тут був би найгіршим виглядом збою: розкладка виглядала б звичайною й
 // різала б подушку з грошей, яким це заборонено.
-func (e *Engine) UsesForRef(ctx context.Context, ref string) (string, error) {
+//
+// Дозвіл читається НА МИТЬ ПРИХОДУ, тим самим правилом, що й план місяця
+// (planFlowsOfMonth): надходження, яке цього місяця вже прийшло, розкладають
+// за дозволом, що діяв тоді, а не за пізнішою правкою потоку. Інакше плитка
+// місяця обіцяла б подушці частку зі старого дозволу, а розкладка тих самих
+// грошей різала б за новим.
+func (e *Engine) UsesForRef(ctx context.Context, ref string, now time.Time) (string, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
 		return "", nil
@@ -386,7 +393,19 @@ func (e *Engine) UsesForRef(ctx context.Context, ref string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		for _, f := range flows {
+		receipts, err := e.st.ListPlanReceipts(ctx)
+		if err != nil {
+			return "", err
+		}
+		// Те саме вікно журналу, що й у loadSources: від початку поточного
+		// місяця, з основою.
+		today := domain.NewDate(now)
+		revs, err := e.st.ListPlanFlowRevisionsWithBase(ctx,
+			time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 0, -1))
+		if err != nil {
+			return "", err
+		}
+		for _, f := range planFlowsOfMonth(flows, revs, NewPlanMarks(receipts), today, 0) {
 			if f.ID == id {
 				return f.Uses, nil
 			}
@@ -411,7 +430,7 @@ func (e *Engine) UsesForRef(ctx context.Context, ref string) (string, error) {
 			if rc.FlowID == 0 {
 				return rc.Uses, nil
 			}
-			return e.UsesForRef(ctx, allocRefFlow+strconv.FormatInt(rc.FlowID, 10))
+			return e.UsesForRef(ctx, allocRefFlow+strconv.FormatInt(rc.FlowID, 10), now)
 		}
 		return "", fmt.Errorf("відмітка надходження %d %w", id, store.ErrNotFound)
 	}

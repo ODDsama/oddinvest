@@ -166,7 +166,11 @@ func (s *Server) handleListPlanReceipts(w http.ResponseWriter, r *http.Request) 
 	// Курс ковтаємо свідомо, як і в списку потоків: без нього валютні
 	// відмітки дадуть 0 у гривневій колонці, але сама сторінка працює.
 	rates, _ := s.Rates(r.Context()) //nolint:errcheck // свідомо: див. вище
-	writeJSON(w, http.StatusOK, engine.ReceiptRows(receipts, flows, rates))
+	// Журнал цілком: відмітки тут за всі місяці, і кожна читає потік таким,
+	// яким він був на мить приходу. Без журналу список просто покаже
+	// теперішню частку — тому помилка його не валить.
+	revs, _ := s.st.ListPlanFlowRevisions(r.Context(), time.Time{}) //nolint:errcheck // див. вище
+	writeJSON(w, http.StatusOK, engine.ReceiptRows(receipts, flows, revs, domain.NewDate(time.Now()), rates))
 }
 
 func (s *Server) handleAddPlanReceipt(w http.ResponseWriter, r *http.Request) {
