@@ -1070,3 +1070,50 @@ func TestDeadlineMonthsCountDays(t *testing.T) {
 		t.Errorf("ціль за три тижні лишилась без прогнозу: %+v", f)
 	}
 }
+
+// «Доходить до мети» — третє число, що замикає тотожність «треба = доходить
+// + бракує» там, де PlanProvidesUAH її не замикає.
+//
+// Спіймано власником: плитка казала «План 28 154 ₴/міс» і «бракує
+// 104 697,77 до потрібних 104 985,04». Обидва числа були правильні — гроші
+// плану спершу наповнювали подушку, — але без третього екран читався як
+// помилка розрахунку.
+func TestPlanToGoalIsWhatReachesCapital(t *testing.T) {
+	flow := []store.PlanFlow{{
+		Name: "Зарплата", Kind: "income", Amount: 300_000, Currency: "UAH",
+		Cadence: "month", FromDate: "2026-07-15", InvestBP: 10000,
+	}}
+
+	// Без стель до мети доходить увесь план.
+	in := forecastInput(t, goalSettings("", "2030-07-15"))
+	in.PlanFlows = flow
+	_, out := realisticRow(t, in)
+	if d := out.Forecast.PlanToGoal.Major() - out.PlanProvidesUAH; math.Abs(d) > 1 {
+		t.Errorf("без подушки й цілей до мети мав дійти весь план: доходить %.2f, план %.2f",
+			out.Forecast.PlanToGoal.Major(), out.PlanProvidesUAH)
+	}
+
+	// Подушка забирає половину плану на весь горизонт — і до мети
+	// доходить помітно менше, хоч «план дає» лишився тим самим.
+	share := 50.0
+	held := forecastInput(t, goalSettings("", "2030-07-15"))
+	held.PlanFlows = flow
+	held.Settings.ReserveFillSharePct = &share
+	held.ReserveGapUAH = 10_000_000
+	real, outHeld := realisticRow(t, held)
+	got := outHeld.Forecast.PlanToGoal.Major()
+	if outHeld.PlanProvidesUAH != out.PlanProvidesUAH {
+		t.Fatalf("«план дає» не сміє залежати від подушки: %.2f проти %.2f",
+			outHeld.PlanProvidesUAH, out.PlanProvidesUAH)
+	}
+	if got <= 0 || got > out.PlanProvidesUAH*0.6 {
+		t.Errorf("до мети мала дійти приблизно половина плану (%.2f), маємо %.2f",
+			out.PlanProvidesUAH, got)
+	}
+	// Тотожність, заради якої поле існує: до копійки, бо воно й рахується
+	// з цих двох чисел.
+	if d := real.RequiredTotalMonthly.Major() - got - outHeld.Forecast.ContribPlan.Major(); math.Abs(d) > 0.011 {
+		t.Errorf("треба(%.2f) − доходить(%.2f) − бракує(%.2f) = %.4f, мало бути 0",
+			real.RequiredTotalMonthly.Major(), got, outHeld.Forecast.ContribPlan.Major(), d)
+	}
+}

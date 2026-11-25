@@ -14,7 +14,7 @@ import {
   uah2 as fmtUAH, signedUAH2 } from "../format.js";
 import { tile, progressBar } from "../components.js";
 import { routeFor } from "../routes.js";
-import { CONTRIB, contribTriad, shareOfNeed } from "../contrib.js";
+import { CONTRIB, contribTriad, shareOfNeed, toGoalText } from "../contrib.js";
 import { openEdit } from "../forms.js";
 import { wireRefs, wireSuggest } from "../refs.js";
 import { lotFields, lotBody, lotOpen } from "./bonds.js";
@@ -263,8 +263,13 @@ export function planTileSub(ctx, doc) {
   if (t.hasGoal) {
     // Обидва канонічні слова в одному рядку — щоб плитка сама пояснювала,
     // від чого рахується нестача.
+    // Третій рядок — куди поділась різниця між планом над плиткою й
+    // нестачею під ним (toGoalText): без нього два правильні числа поруч
+    // читались як помилка.
+    const toGoal = toGoalText(t, fmtUAH);
     return t.gap > 0
-      ? `<div class="sub">${CONTRIB.gap.label.toLowerCase()} ${fmtUAH(t.gap)}/міс до потрібних ${fmtUAH(t.need)}/міс</div>`
+      ? `<div class="sub">${CONTRIB.gap.label.toLowerCase()} ${fmtUAH(t.gap)}/міс до потрібних ${fmtUAH(t.need)}/міс</div>${
+        toGoal ? `<div class="sub-xs">${toGoal}</div>` : ""}`
       : `<div class="sub t-ok">із запасом виводить на мету</div>`;
   }
   const ev = doc && nearestPlanEvent(doc, today());

@@ -18,7 +18,7 @@ import { disclosure } from "../disclosure.js";
 import { opsGrid } from "../grid.js";
 import { sym } from "../currency.js";
 import { routeFor } from "../routes.js";
-import { CONTRIB, contribTriad } from "../contrib.js";
+import { CONTRIB, contribTriad, toGoalText } from "../contrib.js";
 import {
   fluid, svgInflowProfile, svgGrouped, wireChartTips, CAT_COLORS, EVENT_COLORS,
 } from "../charts.js";
@@ -116,11 +116,16 @@ export function planVerdictHTML(ctx, doc = null) {
         до дедлайну він не дотягує, тож на весь горизонт його все одно бракує.</div>`
     : "";
 
+  // Той самий рядок, що на плитці «Огляду»: ПЛАН і БРАКУЄ тут стоять
+  // поруч так само, і так само не складаються в ТРЕБА без третього числа.
+  const toGoal = toGoalText(t, fmtUAH);
+  const toGoalLine = toGoal ? `<div class="sub-xs mt-xs">${toGoal}.</div>` : "";
+
   return `<div class="card"><h2 class="card-head"><span>План ${infoBtn("planFlows")}</span></h2>
     <div class="tiles flush">${tiles}</div>
     <div class="sub-xs mt-sm">Мета капіталу ${fmtUAH(t.goal)} до ${esc(t.date)}${
   verdict ? " · " + verdict : ""}.</div>
-    ${month}${outlives}${leversHTML(ctx)}</div>`;
+    ${month}${toGoalLine}${outlives}${leversHTML(ctx)}</div>`;
 }
 
 // ---------- важелі ----------

@@ -1183,6 +1183,14 @@ func buildProjection(in projectionInput) projectionPhase {
 				row.GoalDate = string(today.AddMonthsClamp(hit))
 			}
 		}
+		// Скільки з плану доходить до мети — з ТИХ САМИХ двох чисел
+		// реалістичного рядка, з яких плитка складає «бракує … до
+		// потрібних …», щоб третє сходилось із ними до копійки.
+		if d.key == "realistic" {
+			if v := row.RequiredTotalMonthly.Major() - out.ContribM; v > 0 {
+				f.PlanToGoal = state.Major(v, money.UAH)
+			}
+		}
 		f.Rows = append(f.Rows, row)
 	}
 	f.Curve = buildForecastCurve(factory, defs, in.Deval, goalAmount, deadlineMonths)

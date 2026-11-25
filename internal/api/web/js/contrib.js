@@ -18,7 +18,10 @@ export const CONTRIB = {
   need: { label: "Треба", hint: "щоб вийти на мету — уся сума, з нуля" },
   plan: { label: "План", hint: "скільки джерела доходу дають щомісяця" },
   actual: { label: "Факт", hint: "виміряний темп поповнень" },
-  gap: { label: "Бракує", hint: "треба мінус план" },
+  // «Треба мінус те, що з плану ДОХОДИТЬ до мети» — а не «мінус план».
+  // Підпис казав друге, і це було неправдою щоразу, коли план спершу
+  // наповнює подушку й цілі: бракувало майже всієї суми при чималому плані.
+  gap: { label: "Бракує", hint: "треба мінус те, що з плану доходить до мети" },
 };
 
 /** Число або null — ніколи 0 замість «немає». Нуль тут буває законним
@@ -69,8 +72,14 @@ export function contribTriad(ctx) {
   const rawGap = f.contrib_plan;
   const gap = typeof rawGap === "number" && isFinite(rawGap) && rawGap >= 0 ? rawGap : null;
 
+  // ДОХОДИТЬ ДО МЕТИ — скільки з плану лишається капіталу після подушки,
+  // цілей і боргів (forecast.plan_to_goal, рахує бекенд). Нуль змістовний:
+  // «план є, але до мети з нього не доходить нічого», — тож не num().
+  const rawToGoal = f.plan_to_goal;
+  const toGoal = typeof rawToGoal === "number" && isFinite(rawToGoal) && rawToGoal > 0 ? rawToGoal : 0;
+
   return {
-    need, needLo, needHi, plan, actual, gap,
+    need, needLo, needHi, plan, actual, gap, toGoal,
     actualMonths: num(s.actual_months),
     goal: num(f.goal_amount),
     date: f.date || "",
@@ -79,6 +88,24 @@ export function contribTriad(ctx) {
     hasPlan: plan != null,
     hasActual: actual != null,
   };
+}
+
+/** Рядок «скільки з плану доходить до мети» — текстом, без розмітки.
+ *
+ *  Потрібен там, де ПЛАН і БРАКУЄ стоять поруч: без нього «план 28 154,
+ *  бракує 104 697 до потрібних 104 985» читається як помилка розрахунку,
+ *  хоч обидва числа правильні. Різницю зʼїдають подушка, цілі й
+ *  обовʼязкове за боргами — прогноз наповнює їх першими.
+ *
+ *  Порожній рядок — пояснювати нема чого: плану чи мети немає, нестачі
+ *  немає, або до мети доходить увесь план. fmt — форматер грошей
+ *  викликача: модуль без DOM і без власного форматування. */
+export function toGoalText(t, fmt) {
+  if (!t.hasPlan || !t.hasGoal || !(t.gap > 0) || t.plan - t.toGoal < 1) return "";
+  const first = "подушка, цілі й обовʼязкове за боргами наповнюються першими";
+  return t.toGoal > 0
+    ? `з плану до мети капіталу доходить ${fmt(t.toGoal)}/міс — ${first}`
+    : `з плану до мети капіталу не доходить нічого — ${first}`;
 }
 
 /** Яку частку від ПОТРІБНОГО покриває v, %. null — коли ділити нема на що

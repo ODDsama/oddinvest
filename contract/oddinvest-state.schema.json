@@ -1262,6 +1262,7 @@
         "months": { "type": "integer" },
         "goal_amount": { "type": "number" },
         "contrib_plan": { "type": "number" },
+        "plan_to_goal": { "type": "number", "description": "Скільки з плану доходить до мети капіталу, ₴/міс: «треба з нуля» реалістичного сценарію мінус contrib_plan. Менше за plan_provides_uah, коли гроші плану спершу наповнюють подушку й цілі та гасять борги (адитивне поле)" },
         "rate0_usd": { "type": "number" },
         "glide_years": { "type": "number" },
         "curve": {
